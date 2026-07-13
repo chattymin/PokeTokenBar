@@ -174,6 +174,16 @@ struct SettingsView: View {
             }
             Divider()
             toggleRow(l.companionNotificationsLabel, $store.companionNotifications)
+            Divider()
+            groupRow {
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(l.statusChecksLabel)
+                    Text(l.statusChecksHint).font(.caption2).foregroundStyle(.tertiary)
+                }
+                Spacer()
+                Toggle("", isOn: $store.statusChecksEnabled)
+                    .labelsHidden().toggleStyle(.switch).controlSize(.small)
+            }
         }
     }
 

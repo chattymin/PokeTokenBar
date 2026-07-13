@@ -84,6 +84,7 @@ struct PopoverView: View {
                 Divider()
                 header
                 Divider()
+                providerStatusBanner   // 인시던트 있을 때만 — 한도 가용 여부와 무관(API 다운=한도 nil 케이스에도)
                 if selectedProviderHasLimits {
                     limitsSection
                     Divider()
@@ -224,6 +225,38 @@ struct PopoverView: View {
         case "claude_code": return store.limits != nil || store.limitsAuthExpired
         case "codex": return store.codexLimits?.hasVisibleLimit == true
         default: return false
+        }
+    }
+
+    /// 선택 프로바이더의 상태 페이지 인시던트(있을 때만) — Claude/OpenAI API 장애를 앱 고장으로
+    /// 오인하지 않게. 표시 전용(알림 아님). 인시던트 없거나 상태조회 꺼짐이면 아무것도 안 그림.
+    /// 범위(v1): 선택된 provider 탭 한정. 오늘 안 쓴 provider 는 탭/스냅샷이 없어 배너도 안 뜬다 —
+    /// 오인이 실제로 생기는 케이스(오늘 써서 이상 수치를 보는데 한도는 nil)는 로컬 사용 스냅샷이 있어
+    /// 탭이 존재하므로 커버된다. 전 provider 전역 인시던트 행은 추후.
+    @ViewBuilder
+    private var providerStatusBanner: some View {
+        if let id = selectedSnapshot?.providerID,
+           let status = store.providerStatus(for: id), status.indicator.hasIssue {
+            HStack(spacing: 6) {
+                Circle().fill(statusColor(status.indicator)).frame(width: 7, height: 7)
+                Text(l.providerStatusLabel(status.indicator))
+                    .font(.caption).fontWeight(.medium)
+                if !status.description.isEmpty {
+                    Text(status.description)
+                        .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                }
+                Spacer()
+            }
+        }
+    }
+
+    private func statusColor(_ indicator: ProviderStatusIndicator) -> Color {
+        switch indicator {
+        case .operational:         return .green
+        case .minor, .maintenance: return .yellow
+        case .major:               return .orange
+        case .critical:            return .red
+        case .unknown:             return .gray
         }
     }
 

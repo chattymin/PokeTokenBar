@@ -35,6 +35,18 @@ struct L {
     var limitReached: String { t("한도 도달", "Limit reached", "上限到達") }
     var personalSpendLimit: String { t("개인 사용 한도", "Personal spend limit", "個人利用上限") }
     var staleLimits: String { t("갱신 지연", "Stale", "更新遅延") }
+
+    /// 프로바이더 상태 페이지 인시던트 지표 → 현지화 라벨(표시 전용).
+    func providerStatusLabel(_ indicator: ProviderStatusIndicator) -> String {
+        switch indicator {
+        case .operational: return t("정상", "Operational", "正常")
+        case .minor:       return t("일부 장애", "Minor issues", "一部障害")
+        case .major:       return t("장애", "Major outage", "障害")
+        case .critical:    return t("심각한 장애", "Critical outage", "重大障害")
+        case .maintenance: return t("점검 중", "Maintenance", "メンテナンス")
+        case .unknown:     return t("상태 불명", "Status unknown", "状態不明")
+        }
+    }
     func plan(_ p: String) -> String { t("플랜 \(p)", "Plan \(p)", "プラン \(p)") }
     func forecastReach(_ time: String) -> String {
         t("현재 속도면 \(time) 한도 도달", "At current rate, limit hit at \(time)", "現在のペースで \(time) に上限到達")
@@ -101,6 +113,8 @@ struct L {
     var notificationsSection: String { t("알림", "Notifications", "通知") }
     var limitNotificationsLabel: String { t("한도 알림", "Limit alerts", "上限通知") }
     var companionNotificationsLabel: String { t("Companion 이벤트 (부화·진화·졸업)", "Companion events (hatch / evolve / graduate)", "コンパニオンイベント（孵化・進化・卒業）") }
+    var statusChecksLabel: String { t("프로바이더 상태 확인", "Provider status checks", "プロバイダー状態チェック") }
+    var statusChecksHint: String { t("Claude·OpenAI 장애를 팝오버에 표시 (알림 아님)", "Show Claude / OpenAI incidents in the popover (not a notification)", "Claude・OpenAIの障害をポップオーバーに表示（通知ではない）") }
     var warning: String { t("경고", "Warning", "警告") }
     var critical: String { t("임박", "Critical", "切迫") }
     var aggregationNote: String { t("토큰 집계 기준: totalTokens (input + output + cache, 로컬 날짜)", "Token basis: totalTokens (input + output + cache, local date)", "集計基準: totalTokens (input + output + cache, ローカル日付)") }

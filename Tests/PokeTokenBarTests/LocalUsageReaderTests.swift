@@ -86,9 +86,11 @@ final class LocalUsageReaderTests: XCTestCase {
     // MARK: 기간 집계 + 활성 블록
 
     func testPeriodAndActiveBlock() {
-        let now = Date()
-        let recent = now.addingTimeInterval(-30 * 60)   // 30분 전
-        let old = now.addingTimeInterval(-10 * 3600)    // 10시간 전(블록 밖)
+        // 로컬 정오로 고정 — Date() 로 두면 자정 직후 실행 시 now-30분이 전날로 넘어가
+        // period(today,today) 범위 밖이 돼 flaky 했다(시각-의존 결함, 자정±30분에만 실패).
+        let now = Calendar.current.date(bySettingHour: 12, minute: 0, second: 0, of: Date()) ?? Date()
+        let recent = now.addingTimeInterval(-30 * 60)   // 30분 전(같은 날)
+        let old = now.addingTimeInterval(-10 * 3600)    // 10시간 전(블록 밖, 같은 날)
         let fmt = LocalUsageReader.localDayFormatter()
         func entry(_ date: Date, _ tok: Int) -> LocalUsageReader.Entry {
             LocalUsageReader.Entry(id: UUID().uuidString, date: date, localDay: fmt.string(from: date),

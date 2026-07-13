@@ -55,6 +55,12 @@ private struct FakeCodexLimits: CodexLimitsProviding {
     func fetch() async throws -> CodexRateLimitStatus? { status }
 }
 
+private final class FakeStatusProvider: ProviderStatusProviding, @unchecked Sendable {
+    nonisolated(unsafe) var result: [String: ProviderStatus]
+    init(_ result: [String: ProviderStatus] = [:]) { self.result = result }
+    func fetch() async -> [String: ProviderStatus] { result }
+}
+
 // MARK: 픽스처 헬퍼
 
 private func todayDaily(_ tokens: Int, cost: Double = 0) -> DailyUsage {
@@ -113,6 +119,55 @@ final class UsageStoreTests: XCTestCase {
                    codexLimitsProvider: FakeCodexLimits(status: codex),
                    autoRefresh: false,
                    defaults: testDefaults)
+    }
+
+    private func makeStatusStore(_ stub: FakeStatusProvider) -> UsageStore {
+        let claude = FakeUsageProvider(id: "claude_code", displayName: "Claude Code", daily: todayDaily(1_000))
+        return UsageStore(providers: [claude], claudeLimitsProvider: FakeClaudeLimits(status: nil),
+                          codexLimitsProvider: FakeCodexLimits(status: nil), statusProvider: stub,
+                          autoRefresh: false, defaults: testDefaults)
+    }
+
+    // MARK: 프로바이더 상태(인시던트) 표시
+
+    /// statuspage.io status.json 파싱(순수) — indicator/description 매핑 + 미지값 unknown + malformed nil.
+    func testProviderStatusParse() {
+        let s = StatuspageStatusProvider.parse(Data(#"{"page":{"name":"Claude"},"status":{"indicator":"minor","description":"Partially Degraded Service"}}"#.utf8))
+        XCTAssertEqual(s?.indicator, .minor)
+        XCTAssertEqual(s?.description, "Partially Degraded Service")
+        XCTAssertTrue(s!.indicator.hasIssue)
+        let none = StatuspageStatusProvider.parse(Data(#"{"status":{"indicator":"none","description":"All Systems Operational"}}"#.utf8))
+        XCTAssertEqual(none?.indicator, .operational)
+        XCTAssertFalse(none!.indicator.hasIssue)   // 정상은 배너 안 뜸
+        XCTAssertEqual(StatuspageStatusProvider.parse(Data(#"{"status":{"indicator":"potato"}}"#.utf8))?.indicator, .unknown)
+        XCTAssertNil(StatuspageStatusProvider.parse(Data("not json".utf8)))
+        XCTAssertNil(StatuspageStatusProvider.parse(Data(#"{"nope":true}"#.utf8)))
+    }
+
+    /// 조회 실패(결과에서 빠진 provider)는 이전 값 유지(keep-previous) — flaky 엔드포인트가 앱을 흔들지 않게.
+    func testProviderStatusKeepsPreviousOnFailure() async {
+        let stub = FakeStatusProvider(["claude_code": ProviderStatus(indicator: .minor, description: "deg")])
+        let store = makeStatusStore(stub)
+        await store.refresh(scheduleEmptyRetry: false)
+        XCTAssertEqual(store.providerStatus(for: "claude_code")?.indicator, .minor)
+        stub.result = [:]                                       // 다음 조회 실패
+        await store.refresh(scheduleEmptyRetry: false)
+        XCTAssertEqual(store.providerStatus(for: "claude_code")?.indicator, .minor, "실패 시 이전 값 유지")
+        stub.result = ["claude_code": ProviderStatus(indicator: .operational, description: "ok")]   // 복구
+        await store.refresh(scheduleEmptyRetry: false)
+        XCTAssertEqual(store.providerStatus(for: "claude_code")?.indicator, .operational)
+    }
+
+    /// 상태 조회 꺼짐 → 접근자 nil + refresh 가 저장분도 비워 UI 에서 사라짐.
+    func testProviderStatusDisabledClears() async {
+        let stub = FakeStatusProvider(["claude_code": ProviderStatus(indicator: .major, description: "x")])
+        let store = makeStatusStore(stub)
+        await store.refresh(scheduleEmptyRetry: false)
+        XCTAssertEqual(store.providerStatus(for: "claude_code")?.indicator, .major)
+        store.statusChecksEnabled = false
+        XCTAssertNil(store.providerStatus(for: "claude_code"))   // 꺼짐 → 접근자 nil
+        await store.refresh(scheduleEmptyRetry: false)
+        XCTAssertTrue(store.statuses.isEmpty, "꺼진 뒤 refresh 는 저장 상태를 비운다")
     }
 
     // MARK: 한도 알림 — 엣지 트리거(임계값 도달 시 최초 1회만)

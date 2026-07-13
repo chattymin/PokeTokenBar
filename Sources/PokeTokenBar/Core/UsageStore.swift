@@ -22,6 +22,8 @@ final class UsageStore {
     /// Claude 한도 조회가 401/403(세션 만료)로 실패한 상태 — UI 에서 명확한 안내+재시도 노출용.
     /// 성공 시 해제. 자동 폴링은 무프롬프트라 만료 토큰을 스스로 못 고치므로 사용자 액션 유도가 필요.
     private(set) var limitsAuthExpired = false
+    /// providerID → 프로바이더 상태 페이지 인시던트 지표(표시 전용). 조회 실패 시 이전 값 유지.
+    private(set) var statuses: [String: ProviderStatus] = [:]
     private(set) var lastUpdated: Date?
     private(set) var isRefreshing = false
     private(set) var isRefreshingLimitToken = false
@@ -60,6 +62,10 @@ final class UsageStore {
     var companionNotifications: Bool {
         didSet { defaults.set(companionNotifications, forKey: "companionNotifications") }
     }
+    /// 프로바이더 상태(인시던트) 조회 — 기본 켬. 표시 전용(알림 아님). Claude/OpenAI statuspage.io.
+    var statusChecksEnabled: Bool {
+        didSet { defaults.set(statusChecksEnabled, forKey: "statusChecksEnabled") }
+    }
     var disableKeychainAccess: Bool {
         didSet {
             defaults.set(disableKeychainAccess, forKey: "disableKeychainAccess")   // 저장 누락이던 기존 버그 — 재시작 후 풀렸음
@@ -87,6 +93,7 @@ final class UsageStore {
     var registeredProviderIDs: [String] { providers.map(\.id) }
     private let limitsProvider: any ClaudeLimitsProviding
     private let codexLimitsProvider: any CodexLimitsProviding
+    private let statusProvider: any ProviderStatusProviding
     /// 설정 저장소 — 테스트는 suite 를 주입해 실제 사용자 설정을 오염시키지 않는다.
     private let defaults: UserDefaults
     private var timer: Timer?
@@ -251,11 +258,13 @@ final class UsageStore {
     init(providers: [any UsageProvider] = [LocalClaudeProvider(), LocalCodexProvider(), LocalGeminiProvider()],
          claudeLimitsProvider: any ClaudeLimitsProviding = OAuthLimitsProvider(),
          codexLimitsProvider: any CodexLimitsProviding = CodexRateLimitsProvider(),
+         statusProvider: any ProviderStatusProviding = StatuspageStatusProvider(),
          autoRefresh: Bool = true,
          defaults: UserDefaults = .standard) {
         self.providers = providers
         self.limitsProvider = claudeLimitsProvider
         self.codexLimitsProvider = codexLimitsProvider
+        self.statusProvider = statusProvider
         self.defaults = defaults
         let d = defaults
         refreshInterval = d.object(forKey: "refreshInterval") as? TimeInterval ?? 120
@@ -266,6 +275,7 @@ final class UsageStore {
         showLimitInMenu = d.object(forKey: "showLimitInMenu") as? Bool ?? false
         limitNotifications = d.object(forKey: "limitNotifications") as? Bool ?? true
         companionNotifications = d.object(forKey: "companionNotifications") as? Bool ?? true
+        statusChecksEnabled = d.object(forKey: "statusChecksEnabled") as? Bool ?? true
         disableKeychainAccess = d.object(forKey: "disableKeychainAccess") as? Bool ?? false
 
         reschedule()
@@ -481,6 +491,7 @@ final class UsageStore {
             }
         }
         await refreshCodexLimits()
+        await refreshProviderStatuses()
 
         checkLimitNotifications()
         writeParitySnapshot()
@@ -589,6 +600,33 @@ final class UsageStore {
         } catch {
             AppLog.write("codex limits unavailable: \(error)")
         }
+    }
+
+    /// 프로바이더 상태 페이지(인시던트) 조회 — 표시 전용, 기존 refresh 루프에 편승(별도 타이머 없음).
+    /// 조회 실패한 provider 는 결과에서 빠지므로 이전 값 유지(keep-previous — flaky 엔드포인트가 앱을
+    /// 흔들지 않게). 껐으면 저장된 상태를 비워 UI 에서 사라지게 한다.
+    /// 트레이드오프: keep-previous 는 상한이 없어, 엔드포인트가 영구 폐기되면 마지막 값이 세션 내내
+    /// 남는다. statuses 키는 항상 endpoints(claude_code·codex) 뿐이고 배너는 라이브 스냅샷과 co-gate
+    /// 되므로 실질 영향은 없다(2개 안정 엔드포인트). 엔드포인트가 늘면 fetchedAt+만료를 재검토.
+    private func refreshProviderStatuses() async {
+        guard statusChecksEnabled else {
+            if !statuses.isEmpty { statuses = [:] }
+            return
+        }
+        let fresh = await statusProvider.fetch()
+        for (id, status) in fresh { statuses[id] = status }
+        if !fresh.isEmpty {
+            AppLog.write("provider status: "
+                + fresh.map { "\($0.key)=\($0.value.indicator.rawValue)" }.sorted().joined(separator: " "))
+        }
+    }
+
+    /// 표시용 프로바이더 상태 — 조회 꺼짐이면 nil. 인시던트 없음(operational)도 반환하므로 호출부가
+    /// hasIssue 로 게이트. (꺼짐 가드는 refreshProviderStatuses 의 statuses 비움과 중복이지만, 다음
+    /// refresh 전에도 토글이 즉시 반영되게 여기서도 막는다.)
+    func providerStatus(for providerID: String) -> ProviderStatus? {
+        guard statusChecksEnabled else { return nil }
+        return statuses[providerID]
     }
 
     /// codex 한도 스냅샷 staleness — 갱신 실패가 이어지면 이전 값이 남는다는 사실을 UI에 노출.
