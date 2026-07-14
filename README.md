@@ -37,6 +37,7 @@ PokeTokenBar turns the AI coding tokens you're already burning — Claude Code, 
 2. 🐣 **Hatch.** Eggs hatch into Pokémon with real evolution lines from [PokéAPI](https://pokeapi.co/) — any Gen 1–5 line (329 possible starts), weighted by the official capture rate: commons hatch often, a legendary is a 1-in-129 event. Every hatch rolls one of 25 natures — and once in a rare while, the egg hatches **✨ Shiny**.
 3. ⚡ **Evolve.** Keep coding and it grows through its actual evolution tree (1/2/3 stages, branching), with a little flash celebration at each step.
 4. 🎓 **Graduate & collect.** Final form + threshold sends it to your **Pokédex** — rarer takes longer (≈3 days common → ≈24 days legendary at heavy use) — and a fresh egg arrives.
+5. 🍬 **Max out, get a candy.** Fill a 5-hour or weekly usage limit and you earn **Rare Candy** — spend it from the **Bag** to grow your current Pokémon.
 
 ## Tour
 
@@ -68,6 +69,13 @@ Graduated Pokémon are preserved with their full evolution line, rarity, nature,
 <h3>Tune it your way</h3>
 Menu-bar items, refresh interval (1–15 min or manual), launch at login, a Keychain opt-out that just hides the limits section, limit alerts with warning/critical thresholds, and companion event notifications. Full <b>KO / EN / JA</b> UI and Pokémon names.
 </td>
+</tr>
+<tr>
+<td width="55%" valign="middle">
+<h3>🍬 Fill a limit, earn a Rare Candy</h3>
+Max out a 5-hour or weekly usage limit and you're handed a <b>Rare Candy</b> — one per 5-hour cap, five per weekly. Spend it from the new <b>Bag</b> tab to grow your current Pokémon: the moment you're rate-limited becomes the moment you level up.
+</td>
+<td width="45%" align="center"><img src="assets/screenshot-bag.png" width="300" alt="Rare Candy in the Bag"></td>
 </tr>
 </table>
 
