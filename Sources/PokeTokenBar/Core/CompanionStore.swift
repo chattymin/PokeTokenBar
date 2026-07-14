@@ -23,6 +23,13 @@ final class CompanionStore {
     /// 연출 재생 후 UI 가 호출(1회성 보장).
     func consumeCelebration() { celebration = nil }
 
+    /// 사탕 사용 시 "+XP" 순간 표시 — 진화 없이 부분 진행일 때도 피드백. seq 증가로 CompanionHeader 감지.
+    private(set) var candyFeedbackSeq = 0
+    private(set) var candyFeedbackAmount = 0
+    /// "+XP" 표시 1회성 보장 — CompanionHeader 가 재생 후 호출한다. 소비하지 않으면 다른 탭에 갔다
+    /// 홈으로 재진입할 때(CompanionHeader 재마운트) @State 가 초기화돼 같은 값이 다시 떠오른다(회귀).
+    func consumeCandyFeedback() { candyFeedbackAmount = 0 }
+
     private let provider: any PokeProviding
     private let clock: () -> Date
     private let fileURL: URL
@@ -41,8 +48,19 @@ final class CompanionStore {
     }
 
     static func defaultURL() -> URL {
-        let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("PokeTokenBar")
+        // 상태 파일 위치. 기본은 Application Support/PokeTokenBar. `PTB_STATE_DIR` 환경변수가 있으면
+        // 그 디렉토리를 쓴다 — 개발/QA 격리용(실제 companion 상태를 건드리지 않고 데모 상태로 실행).
+        // 프로덕션은 이 변수가 없어 무영향.
+        // 공백만 있는 값은 무시(URL(fileURLWithPath:)가 CWD 상대경로로 해석되는 것 방지).
+        let override = (ProcessInfo.processInfo.environment["PTB_STATE_DIR"] ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let dir: URL
+        if !override.isEmpty {
+            dir = URL(fileURLWithPath: override, isDirectory: true)
+        } else {
+            dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+                .appendingPathComponent("PokeTokenBar")
+        }
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         return dir.appendingPathComponent("companion-state.json")
     }
@@ -251,6 +269,89 @@ final class CompanionStore {
         state.eggUsage = 0   // 새 알은 처음부터 인큐베이션
         // "알을 받는 순간" 즉시 프리패칭 시작 — 다음 부화의 종·라인·스프라이트 예열.
         Task { await self.ensureEggPrefetch() }
+    }
+
+    // MARK: 인벤토리 / 이상한 사탕
+
+    var rareCandyCount: Int { itemCount(.rareCandy) }
+    func itemCount(_ kind: ItemKind) -> Int { state.inventory[kind.rawValue] ?? 0 }
+
+    /// 소유 아이템(개수>0) — 가방 목록. 정렬은 ItemKind.allCases 순서.
+    var ownedItems: [(kind: ItemKind, count: Int)] {
+        ItemKind.allCases.compactMap { k in
+            let c = itemCount(k)
+            return c > 0 ? (k, c) : nil
+        }
+    }
+
+    /// 이상한 사탕 사용 가능 — 활성 포켓몬 + 라인 로딩 완료 + 재고>0.
+    /// 라인 미로딩(재시작 직후·오프라인)이면 비활성 — 사탕이 진화 없이 적립만 되는 것 방지.
+    var canUseRareCandy: Bool { hasActive && currentLine != nil && rareCandyCount > 0 }
+
+    /// 사탕 사용 결과 — UI 피드백 분기용.
+    enum CandyUseResult: Equatable { case evolved, graduated, progressed, unavailable }
+
+    /// 이상한 사탕 1개 사용 — 현재 포켓몬에 +RareCandy.xp. applyUsage 재사용으로 이월·진화·졸업·연출 자동.
+    /// 사탕 XP 는 usedAtStage(진화 진행)에만 반영 — usedSinceInstall/오늘 토큰(실사용 통계)엔 안 잡힌다.
+    @discardableResult
+    func useRareCandy() -> CandyUseResult {
+        guard canUseRareCandy else { return .unavailable }
+        state.inventory[ItemKind.rareCandy.rawValue] = rareCandyCount - 1
+        let beforeStage = state.active?.stageIndex ?? 0
+        // 진화 안 될 때(부분 진행)도 즉시 "+XP" 피드백 — CompanionHeader 가 연출과 별개로 표시.
+        candyFeedbackAmount = RareCandy.xp
+        candyFeedbackSeq += 1
+        applyUsage(RareCandy.xp)   // 내부에서 save() 수행(인벤토리 감소 포함 영속)
+        if state.active == nil { return .graduated }
+        if state.active!.stageIndex > beforeStage { return .evolved }
+        return .progressed
+    }
+
+    /// 지급 판정(순수·엣지 트리거) — 한도 창이 100% 를 새로 넘어선 순간에만 지급.
+    /// - 100% 미만 → 맵에서 제거(재무장). resets_at 등 휘발 필드는 key 에 없다(안정 식별자만).
+    /// - 이미 지급한 창(tier≥1)은 재지급 안 함. session=1개·weekly=weeklyGrant.
+    /// - 부수효과(인벤토리·알림)와 분리해 xctest 가능. (evaluateLimitAlerts 자매)
+    static func evaluateCandyGrants(
+        windows: [CandyWindow], grantTier: inout [String: Int]
+    ) -> [CandyGrant] {
+        var grants: [CandyGrant] = []
+        for w in windows {
+            guard w.utilization >= 100 else { grantTier[w.key] = nil; continue }
+            let previous = grantTier[w.key] ?? 0
+            guard previous < 1 else { continue }
+            grantTier[w.key] = 1
+            let count = w.kind == .weekly ? RareCandy.weeklyGrant : 1
+            grants.append(CandyGrant(windowKey: w.key, windowName: w.name, count: count))
+        }
+        return grants
+    }
+
+    /// 한도 창 상태로부터 사탕 지급(엣지·영속). AppDelegate 가 매 refresh 완료 시(한도 로드 후) 호출.
+    /// - 첫 실행: 현재 100% 창을 지급 없이 tier 시드만 → 이후 "새로 넘어서는" 순간부터 지급(소급 차단).
+    /// - limitsReady=false(한도 미로딩)면 시드/지급 모두 대기(다음 refresh 에 재시도).
+    func grantCandies(from windows: [CandyWindow], limitsReady: Bool) {
+        guard limitsReady else { return }
+        if !state.candyFeatureSeeded {
+            // 한계(수용): 첫 refresh 에 한 프로바이더 한도만 로드되면 그 프로바이더 창만 시드된다.
+            // 이후 다른 프로바이더가 이미 100%인 채 로드되면 소급 지급될 수 있으나, 1회·소수 캔디라
+            // 1인 로컬에서 무시(YAGNI). refresh() 는 전 프로바이더 fetch 를 await 후 onRefresh 하므로
+            // 정상 경로(둘 다 성공)에선 원자적 시드다.
+            for w in windows where w.utilization >= 100 { state.candyGrantTier[w.key] = 1 }
+            state.candyFeatureSeeded = true
+            save()
+            return
+        }
+        let before = state.candyGrantTier
+        let grants = Self.evaluateCandyGrants(windows: windows, grantTier: &state.candyGrantTier)
+        for g in grants {
+            state.inventory[ItemKind.rareCandy.rawValue, default: 0] += g.count
+            // 지급 자체는 알림 여부와 무관(상태 변경). 알림은 "왜 받는지"(그 창 한도를 다 채운 수고) 명시.
+            notifyCompanionEvent(l.notifCandyTitle(item: l.itemName(.rareCandy), count: g.count),
+                                 l.notifCandyBody(window: g.windowName))
+        }
+        // 지급이 없어도 재무장(창이 100%→아래로 내려가며 grantTier 에서 제거)은 영속해야 한다 —
+        // 안 하면 재시작 시 stale tier=1 로 다음 100% 도달이 "이미 지급"으로 오판돼 지급 누락(회귀).
+        if !grants.isEmpty || state.candyGrantTier != before { save() }
     }
 
     /// companion 이벤트 시스템 알림(.app + 토글 ON 일 때만). 한도 알림과 독립.

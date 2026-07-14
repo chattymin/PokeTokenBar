@@ -295,4 +295,44 @@ struct L {
     var claudeFiveHour: String { t("Claude 5시간 세션", "Claude 5-hour session", "Claude 5時間セッション") }
     var claudeWeekly: String { t("Claude 주간", "Claude weekly", "Claude 週間") }
     var codexPersonalLimit: String { t("Codex 개인 한도", "Codex personal limit", "Codex 個人上限") }
+
+    // MARK: 가방 / 아이템
+    var bag: String { t("가방", "Bag", "バッグ") }
+    var bagEmptyTitle: String { t("아직 가방이 비어있어요!", "Your bag is empty!", "バッグはまだ空っぽです！") }
+    var useItem: String { t("사용하기", "Use", "つかう") }
+    var use: String { t("사용", "Use", "つかう") }
+    var cancel: String { t("취소", "Cancel", "キャンセル") }
+    func useOnCurrent(_ name: String) -> String {
+        t("\(name)에게 사용할까요?", "Use on \(name)?", "\(name) に使いますか？")
+    }
+    var useAfterHatch: String { t("부화 후 사용할 수 있어요", "Usable after hatching", "孵化後に使えます") }
+    var useNeedsPokemon: String { t("사용할 포켓몬이 없어요", "No Pokémon to use it on", "使えるポケモンがいません") }
+
+    /// 아이템 표시명 — species 처럼 공식 현지명.
+    func itemName(_ kind: ItemKind) -> String {
+        switch kind {
+        case .rareCandy: return t("이상한 사탕", "Rare Candy", "ふしぎなアメ")
+        }
+    }
+    func itemDescription(_ kind: ItemKind) -> String {
+        switch kind {
+        case .rareCandy:
+            let xp = TokenFormatter.compact(RareCandy.xp)   // 상수에서 파생(하드코딩 드리프트 방지)
+            return t("현재 포켓몬의 경험치를 \(xp) 상승시킨다.",
+                     "Raises your Pokémon's EXP by \(xp).",
+                     "ポケモンの経験値を\(xp)上げる。")
+        }
+    }
+
+    // MARK: 사탕 획득 알림 ("왜 받는지" = 토큰 한도를 다 채운 수고에 대한 보상)
+    func notifCandyTitle(item: String, count: Int) -> String {
+        t("🍬 \(item) \(count)개를 받았어요!",
+          "🍬 You got \(count)× \(item)!",
+          "🍬 \(item)を\(count)個もらいました！")
+    }
+    func notifCandyBody(window: String) -> String {
+        t("\(window) 토큰 한도를 다 채웠어요. 열심히 쓴 만큼 사탕을 드려요 — 포켓몬에게 써서 진화시켜 보세요!",
+          "You maxed out your \(window) token limit. A treat for the effort — use it to evolve your Pokémon!",
+          "\(window)のトークン上限を使い切りました。がんばったごほうびです — ポケモンに使って進化させよう！")
+    }
 }

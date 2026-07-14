@@ -44,6 +44,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         companion = CompanionStore()
         updater = UpdateChecker()
         store.localizationLanguage = companion.language   // 알림 현지화용 미러 시드
+        store.onRefresh = { [weak self] in self?.onStoreRefreshed() }   // 한도 로드 후 companion·사탕 지급
         Task { await updater.check() }                    // 기동 시 1회 업데이트 확인
 
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
@@ -144,6 +145,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             burnTier: store.burnTier,
             limitWarning: store.isLimitWarning,
             hasUsageData: store.hasUsageData)
+    }
+
+    /// 매 refresh 완료 훅 — companion 갱신 + 사탕 지급(한도가 신선한 시점). 지급을 여기 묶는 이유는
+    /// UsageStore.onRefresh 주석 참조(observeStore 만으론 한도 변경이 companion 에 안 전달되는 케이스).
+    private func onStoreRefreshed() {
+        updateCompanion()
+        companion.grantCandies(from: store.candyEligibleWindows, limitsReady: store.limitsReady)
     }
 
     // MARK: 메뉴바 애니메이션

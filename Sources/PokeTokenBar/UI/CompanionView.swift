@@ -128,6 +128,10 @@ struct CompanionHeader: View {
     @State private var shinyBurst = false
     @State private var seenSeq = -1     // 재생 완료한 celebrationSeq (팝오버 재오픈 시 1회 재생 보장)
     @State private var eggWiggle = false
+    // 사탕 "+XP" 순간 표시 (진화 없이 부분 진행일 때도 피드백)
+    @State private var seenCandySeq = -1
+    @State private var candyXPShown = false
+    @State private var candyXPAmount = 0     // 표시 순간 캡처(consume 후에도 텍스트 유지)
 
     /// 부화 임박(90%+) — 알이 흔들리고 문구가 바뀐다.
     private var eggImminent: Bool { store.isEgg && store.eggProgress >= 0.9 }
@@ -148,6 +152,16 @@ struct CompanionHeader: View {
                             Text("✨").font(.system(size: 22))
                                 .transition(.scale.combined(with: .opacity))
                                 .offset(x: 6, y: -6)
+                        }
+                    }
+                    .overlay(alignment: .top) {
+                        if candyXPShown {
+                            Text("+\(TokenFormatter.compact(candyXPAmount)) XP")
+                                .font(.caption.weight(.bold)).foregroundStyle(.orange)
+                                .padding(.horizontal, 6).padding(.vertical, 2)
+                                .background(.regularMaterial, in: Capsule())
+                                .transition(.move(edge: .bottom).combined(with: .opacity))
+                                .offset(y: -16)
                         }
                     }
                 VStack(alignment: .leading, spacing: 4) {
@@ -200,9 +214,11 @@ struct CompanionHeader: View {
         }
         .onAppear {
             playCelebrationIfNeeded()
+            showCandyXPIfNeeded()
             syncEggWiggle()
         }
         .onChange(of: store.celebrationSeq) { playCelebrationIfNeeded() }
+        .onChange(of: store.candyFeedbackSeq) { showCandyXPIfNeeded() }
         .onChange(of: eggImminent) { syncEggWiggle() }
     }
 
@@ -221,6 +237,20 @@ struct CompanionHeader: View {
                 try? await Task.sleep(nanoseconds: 2_600_000_000)
                 withAnimation(.easeOut(duration: 0.5)) { shinyBurst = false }
             }
+        }
+    }
+
+    /// 사탕 사용 "+XP" 1회 표시. store 를 consume 해 1회성 보장 — 다른 탭 갔다 홈 재진입해
+    /// CompanionHeader 가 재마운트(@State 초기화)돼도 다시 뜨지 않는다(회귀 수정).
+    private func showCandyXPIfNeeded() {
+        guard store.candyFeedbackAmount > 0, store.candyFeedbackSeq != seenCandySeq else { return }
+        seenCandySeq = store.candyFeedbackSeq
+        candyXPAmount = store.candyFeedbackAmount
+        store.consumeCandyFeedback()
+        withAnimation(.spring(response: 0.4, dampingFraction: 0.6)) { candyXPShown = true }
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 1_300_000_000)
+            withAnimation(.easeOut(duration: 0.4)) { candyXPShown = false }
         }
     }
 

@@ -82,6 +82,38 @@ enum PokemonBalance {
     }
 }
 
+/// 인벤토리 아이템 종류 — 확장 대비 enum(현재 이상한 사탕 1종). rawValue 로 CompanionState.inventory 에 저장.
+enum ItemKind: String, Codable, Sendable, CaseIterable {
+    case rareCandy
+}
+
+/// 이상한 사탕 밸런스 상수.
+enum RareCandy {
+    /// 사용 시 현재 포켓몬에 주입하는 XP(토큰 환산). 최소 진화 임계(커먼 1형태 125M)보다 작아
+    /// 사탕 1개는 최대 1단계만 올린다(연쇄·졸업 폭주 없음). applyUsage 로 주입 → 이월/진화/졸업 자동.
+    static let xp = 100_000_000
+    /// 주간 한도 100% 도달 시 지급 개수(세션급은 1개).
+    static let weeklyGrant = 5
+}
+
+/// 사탕 지급 대상 한도 창의 분류 — session=1개·weekly=weeklyGrant.
+enum WindowClass: Sendable { case session, weekly }
+
+/// 사탕 지급 판정 입력 — 프로바이더 무관 한도 창 1개. (UsageStore.candyEligibleWindows 가 생성)
+struct CandyWindow: Sendable {
+    let key: String          // 안정 식별자(tier 추적) — resets_at 등 휘발 필드 금지
+    let name: String         // 표시용(알림 "왜 받는지")
+    let kind: WindowClass    // session=1개 · weekly=5개
+    let utilization: Double  // 0~100+
+}
+
+/// 사탕 지급 1건(순수 판정 결과) — 부수효과(인벤토리·알림)와 분리해 테스트 가능하게.
+struct CandyGrant: Equatable, Sendable {
+    let windowKey: String
+    let windowName: String   // 알림 "왜 받는지"
+    let count: Int
+}
+
 /// PokéAPI evolution-chain 을 파싱한 트리. 분기(evolves_to 다수)를 children 으로.
 struct EvoNode: Codable, Sendable {
     let speciesID: Int
@@ -267,6 +299,12 @@ struct CompanionState: Codable, Sendable {
     // 소유한 (base,final) 쌍 — 분기 다양성용
     var collectedFinals: Set<String> = []
     var language: AppLanguage = .systemDefault   // 신규 설치 = 시스템 로케일
+    // 인벤토리 (ItemKind.rawValue → 개수)
+    var inventory: [String: Int] = [:]
+    // 사탕 지급 엣지 상태(창 key → 지급한 tier). ★영속 — notifiedTier(인메모리)와 달리 재시작 무한지급 방지.
+    var candyGrantTier: [String: Int] = [:]
+    // 사탕 지급 첫 실행 시드 완료 — 업데이트 직후 이미 100%였던 창의 소급 지급 차단.
+    var candyFeatureSeeded = false
 
     init() {}
 
@@ -283,6 +321,9 @@ struct CompanionState: Codable, Sendable {
         dex = try c.decodeIfPresent([DexEntry].self, forKey: .dex) ?? []
         collectedFinals = try c.decodeIfPresent(Set<String>.self, forKey: .collectedFinals) ?? []
         language = try c.decodeIfPresent(AppLanguage.self, forKey: .language) ?? .systemDefault
+        inventory = try c.decodeIfPresent([String: Int].self, forKey: .inventory) ?? [:]
+        candyGrantTier = try c.decodeIfPresent([String: Int].self, forKey: .candyGrantTier) ?? [:]
+        candyFeatureSeeded = try c.decodeIfPresent(Bool.self, forKey: .candyFeatureSeeded) ?? false
     }
 }
 
