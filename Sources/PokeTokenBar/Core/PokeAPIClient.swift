@@ -29,9 +29,7 @@ actor PokeAPIClient: PokeProviding {
         if let cached = lineCache[baseSpeciesID] { return cached }
         let baseSpecies = try await species(baseSpeciesID)
         // PokéAPI 응답의 URL — 비정상/빈 값이면 force-unwrap 대신 throw(앱은 알 상태 유지).
-        // 서버 제어 문자열이므로 https + pokeapi.co 로 고정(응답 변조 시 임의 호스트 fetch 방지).
-        guard let chainURL = URL(string: baseSpecies.evolution_chain.url),
-              chainURL.scheme == "https", chainURL.host == "pokeapi.co" else {
+        guard let chainURL = Self.validatedChainURL(baseSpecies.evolution_chain.url) else {
             throw URLError(.badURL)
         }
         let chainDTO: ChainDTO = try await get(chainURL)
@@ -190,6 +188,13 @@ actor PokeAPIClient: PokeProviding {
         // ".../pokemon-species/{id}/"
         let parts = speciesURL.split(separator: "/").filter { !$0.isEmpty }
         return Int(parts.last ?? "0") ?? 0
+    }
+
+    /// PokéAPI evolution_chain URL 검증(SSRF 가드) — 서버 제어 문자열이므로 https + pokeapi.co 로 고정해
+    /// 응답 변조 시 임의 호스트 fetch 를 막는다. 부적합하면 nil(호출부가 throw → 앱은 알 상태 유지).
+    static func validatedChainURL(_ raw: String) -> URL? {
+        guard let url = URL(string: raw), url.scheme == "https", url.host == "pokeapi.co" else { return nil }
+        return url
     }
 }
 

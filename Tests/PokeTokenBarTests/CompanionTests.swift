@@ -324,6 +324,28 @@ final class CompanionStoreTests: XCTestCase {
         s.setLanguage(.en); XCTAssertEqual(s.displayName, "P1")
         s.setLanguage(.ja); XCTAssertEqual(s.displayName, "ポ1")
     }
+
+    /// [문서화] 비대칭 깊이 분기 — totalForms=tree.depth(최장 경로)라 짧은 분기를 뽑으면 실제 경로가
+    /// totalForms 보다 짧다. 실 Gen1-5 라인은 분기 깊이가 대칭(뷰티플라이·이브이 등)이라 발생하지 않는다
+    /// (CompanionModel depth 주석 "분기는 보통 같은 깊이" 가정). 크래시·무한루프 없이 최종체에서 졸업하고
+    /// 실제 경로가 보존됨을 잠근다.
+    func testAsymmetricBranchGraduatesSafely() async {
+        let line = makeLine(base: 1, tree: node(1, [node(2), node(3, [node(4)])]))   // depth=3, 분기 {2, 3→4}
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("poke-asym-\(UUID().uuidString).json")
+        let s = CompanionStore(provider: StubProvider(value: line), clock: { fixedNow }, fileURL: url, rng: SeededRNG(seed: 7))
+        await s.hatch(baseID: 1)
+        XCTAssertEqual(s.state.active?.totalForms, 3, "totalForms = 최장 경로 깊이")
+        var guardCount = 0
+        while s.state.active != nil, guardCount < 12 {
+            guardCount += 1
+            let stage = s.state.active!.stageIndex
+            s.applyUsage(PokemonBalance.phaseThreshold(rarity: .common, totalForms: 3, stageIndex: stage))
+        }
+        XCTAssertNil(s.state.active, "어느 분기든 최종체에서 졸업(크래시·무한루프 없음)")
+        XCTAssertEqual(s.dexEntries.count, 1)
+        let chain = s.dexEntries[0].chainOrder
+        XCTAssertTrue(chain == [1, 2] || chain == [1, 3, 4], "실제 진화 경로 보존: \(chain)")
+    }
 }
 
 // MARK: 도감 정렬 / 요약
@@ -703,5 +725,19 @@ final class CompanionIdentityTests: XCTestCase {
             XCTAssertEqual(Set(names).count, 25, "\(lang) 중복/누락")
             XCTAssertFalse(names.contains(where: \.isEmpty))
         }
+    }
+}
+
+// MARK: PokéAPI SSRF 가드 (evolution_chain URL 검증 — 응답 변조 시 임의 호스트 fetch 방지)
+
+final class PokeAPIGuardTests: XCTestCase {
+    func testValidatedChainURLAcceptsPokeapiHttps() {
+        XCTAssertNotNil(PokeAPIClient.validatedChainURL("https://pokeapi.co/api/v2/evolution-chain/1/"))
+    }
+    func testValidatedChainURLRejectsUntrusted() {
+        XCTAssertNil(PokeAPIClient.validatedChainURL("https://evil.example.com/x"), "임의 호스트 거부(SSRF)")
+        XCTAssertNil(PokeAPIClient.validatedChainURL("https://pokeapi.co.evil.com/x"), "유사 호스트 거부")
+        XCTAssertNil(PokeAPIClient.validatedChainURL("http://pokeapi.co/x"), "http 거부(https 고정)")
+        XCTAssertNil(PokeAPIClient.validatedChainURL(""), "빈 문자열 거부")
     }
 }

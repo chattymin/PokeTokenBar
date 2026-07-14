@@ -18,6 +18,13 @@ private func w(_ key: String, _ kind: WindowClass, _ util: Double, name: String 
     CandyWindow(key: key, name: name, kind: kind, utilization: util)
 }
 
+/// line() 이 throw 하는 provider — 라인 미로딩(오프라인/재시작 직후) 상태 재현용.
+private struct RCLineThrows: PokeProviding {
+    func line(baseSpeciesID: Int) async throws -> EvoLine { throw URLError(.notConnectedToInternet) }
+    func baseSpeciesIndex() async throws -> [BaseSpecies] { [] }
+    func baseSpecies(id: Int) async throws -> BaseSpecies? { nil }
+}
+
 // MARK: 순수 판정 (evaluateCandyGrants — 부수효과 분리)
 
 @MainActor
@@ -277,6 +284,22 @@ final class RareCandyStoreTests: XCTestCase {
         XCTAssertEqual(s.rareCandyCount, 0)
         XCTAssertFalse(s.canUseRareCandy)
         XCTAssertEqual(s.useRareCandy(), .unavailable)
+    }
+
+    /// [회귀 가드] 활성 포켓몬이 있어도 라인 미로딩(재시작 직후·오프라인)이면 사용 불가 —
+    /// 진화 없이 XP만 적립되는 것 방지. 재고가 있어도 소모되지 않는다.
+    func testCannotUseWhileLineUnloaded() {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("rc-unloaded-\(UUID().uuidString).json")
+        // 활성 포켓몬 + 사탕 1 + 시드완료 상태를 저장 → RCLineThrows 로 로드하면 currentLine 이 nil.
+        let json = #"{"installBaselineSet":true,"lastDate":"d1","active":{"baseID":1,"pathIDs":[1],"stageIndex":0,"usedAtStage":0,"rarity":"common","totalForms":3},"inventory":{"rareCandy":1},"candyFeatureSeeded":true,"dex":[],"collectedFinals":[]}"#
+        try? json.data(using: .utf8)!.write(to: url)
+        let s = CompanionStore(provider: RCLineThrows(), clock: { rcNow }, fileURL: url, rng: SeededRNG(seed: 1))
+        XCTAssertNotNil(s.state.active, "활성 포켓몬 로드")
+        XCTAssertNil(s.currentLine, "라인 미로딩(throws)")
+        XCTAssertEqual(s.rareCandyCount, 1)
+        XCTAssertFalse(s.canUseRareCandy)
+        XCTAssertEqual(s.useRareCandy(), .unavailable)
+        XCTAssertEqual(s.rareCandyCount, 1, "라인 미로딩 시 사탕 소모 안 됨")
     }
 
     /// 사용 시 "+XP" 피드백 seq 가 증가(진화 없이 부분 진행이어도).
@@ -541,6 +564,46 @@ final class RareCandyGrantIntegrationTests: XCTestCase {
         let codexNames = Dictionary(uniqueKeysWithValues: codexStore.candyEligibleWindows.map { ($0.key, $0.name) })
         XCTAssertEqual(codexNames["codex.codex.primary"], "Codex 5시간 세션")
         XCTAssertEqual(codexNames["codex.codex.secondary"], "Codex 주간")
+    }
+
+    /// utilization nil(five_hour 존재하나 값 없음) 창은 지급 대상 제외 — 옵셔널 tautology 방지
+    /// (CompanionState "값이 있나"는 의미값으로 검사 — CLAUDE.md 회귀 부류).
+    func testEligibleWindowsSkipNilUtilization() async {
+        let claude = try! JSONDecoder().decode(LimitStatus.self, from: Data(#"{"five_hour":{}}"#.utf8))
+        let store = usage(claude: claude)
+        await store.refresh(scheduleEmptyRetry: false)
+        XCTAssertNil(store.limits?.fiveHour?.utilization, "five_hour 는 있으나 utilization 은 nil")
+        XCTAssertTrue(store.candyEligibleWindows.isEmpty, "utilization nil → 지급 창 아님")
+    }
+
+    /// 사탕 임계(100)와 알림 임계(crit 95)는 분리 — 97%는 경고는 켜지되 사탕은 지급 0.
+    /// (두 임계가 리팩터에서 조용히 수렴하지 않도록 잠금.)
+    func testCandyThresholdSeparateFromAlertThreshold() async {
+        let c = companion()
+        c.grantCandies(from: [], limitsReady: true)   // 시드(현재 100% 없음)
+        let store = usage(claude: rcClaude(fiveHour: 97))
+        await store.refresh(scheduleEmptyRetry: false)
+        XCTAssertTrue(store.isLimitWarning, "97% ≥ crit 95 → 한도 경고 켜짐")
+        c.grantCandies(from: store.candyEligibleWindows, limitsReady: store.limitsReady)
+        XCTAssertEqual(c.rareCandyCount, 0, "97% < 사탕 임계 100 → 지급 없음")
+    }
+
+    /// [문서화된 한계 잠금] 첫 시드에 한 프로바이더만 로드되면 그 프로바이더만 시드된다.
+    /// 이후 늦게 등장한 프로바이더가 이미 100%면 소급 지급된다(정상 경로는 둘 다 await 후라 원자적).
+    /// 이 동작을 잠가, 향후 "수정"이 의식적 선택이 되게 한다.
+    func testStaggeredProviderSeedRetroactiveGrant() async {
+        let c = companion()
+        let claudeStore = usage(claude: rcClaude(fiveHour: 50))   // 시드 시점 Claude 는 100 아님
+        await claudeStore.refresh(scheduleEmptyRetry: false)
+        c.grantCandies(from: claudeStore.candyEligibleWindows, limitsReady: claudeStore.limitsReady)  // 시드(Claude만)
+        XCTAssertTrue(c.state.candyFeatureSeeded)
+        XCTAssertEqual(c.rareCandyCount, 0)
+        // 이후: Codex 가 이미 100% 인 채 처음 등장 → 시드 안 돼 소급 지급
+        let codexStore = usage(codex: rcCodex(primary: 100),
+                               providers: [RCFakeProvider(id: "codex", displayName: "Codex", daily: rcDaily(1_000))])
+        await codexStore.refresh(scheduleEmptyRetry: false)
+        c.grantCandies(from: codexStore.candyEligibleWindows, limitsReady: codexStore.limitsReady)
+        XCTAssertEqual(c.rareCandyCount, 1, "문서화된 한계: 늦게 등장한 100% 창은 소급 지급됨")
     }
 }
 
