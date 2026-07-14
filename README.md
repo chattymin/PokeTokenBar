@@ -17,15 +17,15 @@
 
 </div>
 
-PokeTokenBar shows how many AI coding tokens you've burned today — Claude Code, Codex & Gemini CLI — in your macOS menu bar, and turns that usage into a growing **Pokémon companion**. Spend tokens, hatch an egg, evolve it through its real evolution line, graduate it into your Pokédex, and start again.
+PokeTokenBar turns the AI coding tokens you're already burning — Claude Code, Codex & Gemini CLI — into a growing **Pokémon companion** in your macOS menu bar. Spend tokens, hatch an egg, evolve it through its real evolution line, graduate it into your Pokédex, and start again. Underneath the companion it's a precise usage tracker — today's spend, cost, and official 5-hour / weekly limits, read straight from your local logs.
 
 > Token usage is read directly from your local Claude Code, Codex & Gemini CLI logs (`totalTokens` = input + output + cache, local date) — no external CLI needed. Unofficial, non-commercial Pokémon fan project — see [License & disclaimer](#license--disclaimer).
 
 ## Why
 
+- **The usage tracker you actually enjoy opening.** Your spend raises a Pokémon that hatches, evolves, graduates, and fills a Pokédex — and every shiny is a reason to check back.
 - See today's token spend & cost at a glance — no dashboard, no browser tab.
 - Track official **5-hour / weekly** limits with reset countdowns and a burn-rate forecast for when you'll hit them.
-- …and actually enjoy opening it: your usage raises a Pokémon that evolves, graduates, and fills a Pokédex.
 
 <div align="center">
 <img src="assets/screenshot-home.gif" width="420" alt="Popover home — companion, today's tokens, official limits">
