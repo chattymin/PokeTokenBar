@@ -266,6 +266,7 @@ final class CompanionStoreTests: XCTestCase {
 
     func testEvolvesThroughLineAndGraduatesWithFullChain() async {
         let s = store(linear3)
+        s.setLanguage(.ko)   // 로케일 무관하게 한국어 표시명("포3") 검증 (CI 는 영어 로케일)
         await s.hatch(baseID: 1)
         XCTAssertEqual(s.currentSpeciesID, 1)
         XCTAssertEqual(s.state.active?.totalForms, 3)
@@ -320,7 +321,7 @@ final class CompanionStoreTests: XCTestCase {
     func testLocalizedName() async {
         let s = store(linear3)
         await s.hatch(baseID: 1)
-        XCTAssertEqual(s.displayName, "포1")
+        s.setLanguage(.ko); XCTAssertEqual(s.displayName, "포1")
         s.setLanguage(.en); XCTAssertEqual(s.displayName, "P1")
         s.setLanguage(.ja); XCTAssertEqual(s.displayName, "ポ1")
     }
