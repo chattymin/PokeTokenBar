@@ -127,6 +127,13 @@ swift test                   # unit tests
 
 ## License & disclaimer
 
-**MIT** — see [LICENSE](LICENSE). The MIT license covers this project's source code only.
+**MIT** — see [LICENSE](LICENSE). The MIT license covers this project's original source code only; it grants no rights to any third-party trademarks, artwork, or data accessed through the app.
 
-This is an unofficial, non-commercial fan project. It is **not affiliated with, endorsed, sponsored, or approved by Nintendo, Game Freak, or The Pokémon Company.** Pokémon and Pokémon character names are trademarks of Nintendo; Pokémon names, data, and sprites are © Nintendo / Game Freak / The Pokémon Company and are fetched at runtime for identification only.
+PokeTokenBar is an **unofficial, non-commercial fan project**. It is **not affiliated with, endorsed, sponsored, or approved by Nintendo, Game Freak, Creatures Inc., or The Pokémon Company.** "Pokémon" and all related names, characters, and imagery are trademarks and copyrights of their respective owners. This project claims no ownership of, and asserts no rights over, any Pokémon intellectual property.
+
+- **No copyrighted assets are bundled or redistributed by this repository.** Pokémon species data and sprites are fetched **at runtime** from the public [PokéAPI](https://pokeapi.co) and cached locally on the user's own device; sprite images served via PokéAPI remain the property of their respective owners.
+- Any Pokémon imagery in this repository's documentation (screenshots/GIFs) is shown solely to illustrate the app's functionality.
+- The app is provided free of charge for **personal, non-commercial use only.**
+- If you are a rights holder with any concern about this project, please open an issue or contact the maintainer, and we will respond promptly.
+
+*Provided "as is", without warranty of any kind. This notice is not legal advice.*

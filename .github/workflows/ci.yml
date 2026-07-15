@@ -1,0 +1,30 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# Cancel superseded runs on the same ref (e.g. rapid pushes to a PR).
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-test:
+    name: build-test
+    # macos-15 ships Xcode 16 / Swift 6, which Package.swift requires
+    # (swift-tools-version: 6.0, platform macOS 14).
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Show Swift version
+        run: swift --version
+
+      - name: Build
+        run: swift build -v
+
+      - name: Test
+        run: swift test -v
