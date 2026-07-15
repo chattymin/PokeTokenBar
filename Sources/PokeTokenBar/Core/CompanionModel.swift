@@ -85,6 +85,19 @@ enum PokemonBalance {
 /// 인벤토리 아이템 종류 — 확장 대비 enum(현재 이상한 사탕 1종). rawValue 로 CompanionState.inventory 에 저장.
 enum ItemKind: String, Codable, Sendable, CaseIterable {
     case rareCandy
+
+    /// PokéAPI 아이템 스프라이트 파일명(.../sprites/items/{name}.png). nil = 스프라이트 없음(이모지 폴백만).
+    var spriteName: String? {
+        switch self {
+        case .rareCandy: return "rare-candy"
+        }
+    }
+    /// 스프라이트 로딩 전/미제공/실패 시 폴백 이모지.
+    var fallbackEmoji: String {
+        switch self {
+        case .rareCandy: return "🍬"
+        }
+    }
 }
 
 /// 이상한 사탕 밸런스 상수.
@@ -94,6 +107,11 @@ enum RareCandy {
     static let xp = 100_000_000
     /// 주간 한도 100% 도달 시 지급 개수(세션급은 1개).
     static let weeklyGrant = 5
+    /// 상점 구매가(재화 = 사용한 토큰: usedSinceInstall − spentTokens). XP 값어치(100M)의 5배.
+    /// 토큰이 "성장 미터 + 상점 지갑"으로 이중 사용되는 구조라, 가격을 XP 와 같게 두면 구매가 사실상
+    /// 공짜 추가성장(150M 써서 250M 성장)이 된다. 500M 로 두면 그 값 모으는 500M 패시브 성장 + 사탕
+    /// 100M = 실질 보너스 +20% 로 억제된다. 무료 획득(한도 100% 보상)이 항상 이득이도록 값어치보다 비싸게.
+    static let price = 500_000_000
 }
 
 /// 사탕 지급 대상 한도 창의 분류 — session=1개·weekly=weeklyGrant.
@@ -286,6 +304,9 @@ struct CompanionState: Codable, Sendable {
     // 토큰: 설치 이후만 측정
     var installBaselineSet = false
     var usedSinceInstall = 0
+    // 상점에서 쓴 토큰 누적(재화 지출 원장). 쓸 수 있는 재화 = usedSinceInstall − spentTokens.
+    // 성장 미터(usedSinceInstall)는 불변 — 구매는 이 값만 올려 잔액을 깎는다(성장 되감김 없음).
+    var spentTokens = 0
     // 현재 알이 생긴 뒤 쓴 토큰(부화 인큐베이션). 누적(usedSinceInstall)과 별개 — 졸업 후 새 알마다 0.
     var eggUsage = 0
     // 알 상태에서 미리 롤해둔 부화 종(프리패칭) — 부화 순간 네트워크 딜레이 제거. 재시작에도 유지.
@@ -313,6 +334,7 @@ struct CompanionState: Codable, Sendable {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         installBaselineSet = try c.decodeIfPresent(Bool.self, forKey: .installBaselineSet) ?? false
         usedSinceInstall = try c.decodeIfPresent(Int.self, forKey: .usedSinceInstall) ?? 0
+        spentTokens = try c.decodeIfPresent(Int.self, forKey: .spentTokens) ?? 0
         eggUsage = try c.decodeIfPresent(Int.self, forKey: .eggUsage) ?? 0
         pendingHatchID = try c.decodeIfPresent(Int.self, forKey: .pendingHatchID)
         claimedTodayTokens = try c.decodeIfPresent(Int.self, forKey: .claimedTodayTokens) ?? 0

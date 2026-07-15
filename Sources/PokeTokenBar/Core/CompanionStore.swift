@@ -307,6 +307,26 @@ final class CompanionStore {
         return .progressed
     }
 
+    // MARK: 상점 (재화 = 사용한 토큰)
+
+    /// 상점에서 쓸 수 있는 토큰(재화) = 실사용 누적 − 상점 지출 누적. 성장 미터(usedSinceInstall)는
+    /// 여기선 읽기만 — 구매는 spentTokens 만 올려 잔액을 깎는다(진화 진행·오늘/주/월 통계 무영향).
+    var availableTokens: Int { max(0, state.usedSinceInstall - state.spentTokens) }
+
+    /// 이상한 사탕 구매 가능 — 잔액이 가격 이상. 활성/알 무관(재고는 미리 쌓아둘 수 있음, 사용만 부화 후).
+    var canBuyRareCandy: Bool { availableTokens >= RareCandy.price }
+
+    /// 이상한 사탕 1개 구매 — 지갑에서 price 차감, 인벤토리 +1. usedSinceInstall(성장·통계)·진화 진행엔
+    /// 무영향(지출 원장만 증가). 잔액 부족이면 no-op(false) — 뷰가 이미 버튼을 비활성화하지만 이중 가드.
+    @discardableResult
+    func buyRareCandy() -> Bool {
+        guard canBuyRareCandy else { return false }
+        state.spentTokens += RareCandy.price
+        state.inventory[ItemKind.rareCandy.rawValue, default: 0] += 1
+        save()
+        return true
+    }
+
     /// 지급 판정(순수·엣지 트리거) — 한도 창이 100% 를 새로 넘어선 순간에만 지급.
     /// - 100% 미만 → 맵에서 제거(재무장). resets_at 등 휘발 필드는 key 에 없다(안정 식별자만).
     /// - 이미 지급한 창(tier≥1)은 재지급 안 함. session=1개·weekly=weeklyGrant.

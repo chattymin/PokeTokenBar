@@ -324,6 +324,16 @@ struct L {
         }
     }
 
+    // MARK: 상점 (재화 = 사용한 토큰)
+    var shop: String { t("상점", "Shop", "ショップ") }
+    var spendableTokens: String { t("쓸 수 있는 토큰", "Spendable tokens", "使えるトークン") }
+    var shopHint: String { t("사용한 토큰으로 아이템을 살 수 있어요.", "Spend the tokens you've used on items.", "使ったトークンでアイテムを購入できます。") }
+    var buy: String { t("구매", "Buy", "購入") }
+    func buyConfirm(_ name: String) -> String { t("\(name) 구매할까요?", "Buy \(name)?", "\(name) を購入しますか？") }
+    var notEnoughTokens: String { t("토큰이 부족해요", "Not enough tokens", "トークンが足りません") }
+    func ownedCount(_ n: Int) -> String { t("보유 ×\(n)", "Owned ×\(n)", "所持 ×\(n)") }
+    var shopPriceLabel: String { t("가격", "Price", "価格") }
+
     // MARK: 사탕 획득 알림 ("왜 받는지" = 토큰 한도를 다 채운 수고에 대한 보상)
     func notifCandyTitle(item: String, count: Int) -> String {
         t("🍬 \(item) \(count)개를 받았어요!",

@@ -1,6 +1,6 @@
 import SwiftUI
 
-enum PopoverTab { case home, bag, collection }
+enum PopoverTab { case home, shop, bag, collection }
 
 /// 팝오버 내부 내비게이션 상태(현재 탭 / 설정 표시 여부).
 /// NSHostingController 는 팝오버를 닫아도 재사용되어 @State 가 유지되므로, 화면 상태를 이
@@ -72,6 +72,7 @@ struct PopoverView: View {
             updateBanner
             Picker("", selection: $nav.tab) {
                 Text(l.home).tag(PopoverTab.home)
+                Text(l.shop).tag(PopoverTab.shop)
                 Text(l.bag).tag(PopoverTab.bag)
                 Text(l.collection).tag(PopoverTab.collection)
             }
@@ -82,6 +83,8 @@ struct PopoverView: View {
                 CollectionView(store: companion)
             } else if nav.tab == .bag {
                 BagView(store: companion, nav: nav)
+            } else if nav.tab == .shop {
+                ShopView(store: companion)
             } else {
                 CompanionHeader(store: companion)
                 Divider()

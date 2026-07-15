@@ -4,6 +4,7 @@ import AppKit
 actor SpriteStore {
     static let shared = SpriteStore()
     private let base = "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon"
+    private let itemBase = "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items"
     private var mem: [String: Data] = [:]
     private var memOrder: [String] = []   // LRU 순서(최근 접근이 뒤). 상한 초과 시 앞(오래된 것)부터 evict
     private let memLimit = 24              // in-memory 스프라이트 캐시 상한 — 세션 중 종 변경 누적 무한증가 방지(#H1)
@@ -36,6 +37,21 @@ actor SpriteStore {
               let (d, resp) = try? await URLSession.shared.data(from: url),
               (resp as? HTTPURLResponse)?.statusCode == 200, !d.isEmpty else { return nil }
         try? d.write(to: file, options: .atomic)   // torn write 방지 — 크래시/강제종료 시 손상 캐시가 남지 않게
+        remember(key, d)
+        return d
+    }
+
+    /// 아이템 스프라이트(정적 PNG, 이름 기반). 포켓몬과 같은 메모리/디스크 캐시 사용(키 "item-<name>",
+    /// 포켓몬 파일 "<id>-..." 과 안 겹침). 미제공(404)/오프라인이면 nil → 뷰가 이모지로 폴백.
+    func data(itemName: String) async -> Data? {
+        let key = "item-\(itemName)"
+        if let d = mem[key] { touch(key); return d }
+        let file = dir.appendingPathComponent("\(key).png")
+        if let d = try? Data(contentsOf: file) { remember(key, d); return d }
+        guard let url = URL(string: "\(itemBase)/\(itemName).png"),
+              let (d, resp) = try? await URLSession.shared.data(from: url),
+              (resp as? HTTPURLResponse)?.statusCode == 200, !d.isEmpty else { return nil }
+        try? d.write(to: file, options: .atomic)
         remember(key, d)
         return d
     }
@@ -88,5 +104,18 @@ enum SpriteLoader {
         // shiny 미제공 → 일반 폴백
         guard shiny else { return nil }
         return await image(speciesID: speciesID, animated: animated, shiny: false)
+    }
+
+    /// 아이템 스프라이트 — 디스크 캐시 동기 조회(없으면 nil). 아이콘 즉시 표시용(재렌더 플래시 방지).
+    static func cachedItemImage(name: String) -> NSImage? {
+        let f = cacheDir.appendingPathComponent("item-\(name).png")
+        if let d = try? Data(contentsOf: f), let img = NSImage(data: d) { return img }
+        return nil
+    }
+
+    /// 아이템 스프라이트 — 런타임 로드(+캐시). 미제공/실패면 nil(뷰가 이모지로 폴백).
+    static func itemImage(name: String) async -> NSImage? {
+        guard let d = await SpriteStore.shared.data(itemName: name), let img = NSImage(data: d) else { return nil }
+        return img
     }
 }

@@ -47,7 +47,7 @@ private struct ItemCard: View {
         let l = store.l
         VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .top, spacing: 10) {
-                Text(icon).font(.system(size: 30))
+                ItemIconView(kind: kind, size: 30)
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(spacing: 6) {
                         Text(l.itemName(kind)).font(.callout.weight(.semibold))
@@ -101,11 +101,5 @@ private struct ItemCard: View {
         confirming = false
         _ = store.useRareCandy()
         nav.tab = .home
-    }
-
-    private var icon: String {
-        switch kind {
-        case .rareCandy: return "🍬"
-        }
     }
 }

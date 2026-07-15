@@ -9,6 +9,36 @@ func rarityColor(_ r: Rarity?) -> Color {
     }
 }
 
+/// 아이템 아이콘 — 실제 스프라이트(런타임 로드+캐시) 우선, 로딩 전/미제공/실패 시 이모지 폴백.
+struct ItemIconView: View {
+    let kind: ItemKind
+    var size: CGFloat = 30
+    @State private var img: NSImage?
+
+    init(kind: ItemKind, size: CGFloat = 30) {
+        self.kind = kind
+        self.size = size
+        // 캐시에 있으면 즉시(동기) 표시 — 재렌더 플래시 방지.
+        _img = State(initialValue: kind.spriteName.flatMap { SpriteLoader.cachedItemImage(name: $0) })
+    }
+
+    var body: some View {
+        Group {
+            if let img {
+                Image(nsImage: img).resizable().interpolation(.none)
+                    .frame(width: size, height: size)
+            } else {
+                Text(kind.fallbackEmoji).font(.system(size: size))
+                    .frame(width: size, height: size)
+            }
+        }
+        .task(id: kind.spriteName ?? "") {
+            guard img == nil, let name = kind.spriteName else { return }
+            img = await SpriteLoader.itemImage(name: name)
+        }
+    }
+}
+
 /// 스프라이트 1개(런타임 로드 + 캐시). 없으면 알 글리프. bob 으로 가벼운 상하 움직임.
 /// animated=true 면 Gen-V GIF 프레임을 순환(미지원/오프라인이면 정적+bob 으로 폴백).
 struct SpriteView: View {
