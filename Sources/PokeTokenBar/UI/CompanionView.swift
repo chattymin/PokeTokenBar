@@ -162,6 +162,9 @@ struct CompanionHeader: View {
     @State private var seenCandySeq = -1
     @State private var candyXPShown = false
     @State private var candyXPAmount = 0     // 표시 순간 캡처(consume 후에도 텍스트 유지)
+    // 민트 사용 시 "반짝" 스파클 (성격 변경 피드백 — 텍스트 없이 짧은 이펙트)
+    @State private var seenMintSeq = -1
+    @State private var mintSparkle = false
 
     /// 부화 임박(90%+) — 알이 흔들리고 문구가 바뀐다.
     private var eggImminent: Bool { store.isEgg && store.eggProgress >= 0.9 }
@@ -192,6 +195,16 @@ struct CompanionHeader: View {
                                 .background(.regularMaterial, in: Capsule())
                                 .transition(.move(edge: .bottom).combined(with: .opacity))
                                 .offset(y: -16)
+                        }
+                    }
+                    .overlay {
+                        if mintSparkle {
+                            ZStack {
+                                Text("✨").font(.system(size: 22)).offset(x: -11, y: -9)
+                                Text("✨").font(.system(size: 15)).offset(x: 13, y: 5)
+                                Text("✨").font(.system(size: 12)).offset(x: 1, y: 13)
+                            }
+                            .transition(.scale.combined(with: .opacity))
                         }
                     }
                 VStack(alignment: .leading, spacing: 4) {
@@ -245,10 +258,12 @@ struct CompanionHeader: View {
         .onAppear {
             playCelebrationIfNeeded()
             showCandyXPIfNeeded()
+            showMintIfNeeded()
             syncEggWiggle()
         }
         .onChange(of: store.celebrationSeq) { playCelebrationIfNeeded() }
         .onChange(of: store.candyFeedbackSeq) { showCandyXPIfNeeded() }
+        .onChange(of: store.mintFeedbackSeq) { showMintIfNeeded() }
         .onChange(of: eggImminent) { syncEggWiggle() }
     }
 
@@ -281,6 +296,18 @@ struct CompanionHeader: View {
         Task { @MainActor in
             try? await Task.sleep(nanoseconds: 1_300_000_000)
             withAnimation(.easeOut(duration: 0.4)) { candyXPShown = false }
+        }
+    }
+
+    /// 민트 사용 "반짝" 스파클 1회 재생 — 사탕과 동일 1회성 계약(consume 로 재마운트 재생 방지). 텍스트 없음.
+    private func showMintIfNeeded() {
+        guard store.mintFeedbackNature != nil, store.mintFeedbackSeq != seenMintSeq else { return }
+        seenMintSeq = store.mintFeedbackSeq
+        store.consumeMintFeedback()
+        withAnimation(.spring(response: 0.35, dampingFraction: 0.5)) { mintSparkle = true }
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 900_000_000)
+            withAnimation(.easeOut(duration: 0.4)) { mintSparkle = false }
         }
     }
 

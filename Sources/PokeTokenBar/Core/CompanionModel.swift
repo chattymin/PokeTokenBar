@@ -85,17 +85,27 @@ enum PokemonBalance {
 /// 인벤토리 아이템 종류 — 확장 대비 enum(현재 이상한 사탕 1종). rawValue 로 CompanionState.inventory 에 저장.
 enum ItemKind: String, Codable, Sendable, CaseIterable {
     case rareCandy
+    case mint
 
     /// PokéAPI 아이템 스프라이트 파일명(.../sprites/items/{name}.png). nil = 스프라이트 없음(이모지 폴백만).
     var spriteName: String? {
         switch self {
         case .rareCandy: return "rare-candy"
+        case .mint: return nil   // PokéAPI 에 민트 스프라이트 없음(8세대 아이템) → 이모지 폴백
         }
     }
     /// 스프라이트 로딩 전/미제공/실패 시 폴백 이모지.
     var fallbackEmoji: String {
         switch self {
         case .rareCandy: return "🍬"
+        case .mint: return "🌿"
+        }
+    }
+    /// 상점 판매가(재화 = 사용한 토큰). nil = 상점 미판매.
+    var shopPrice: Int? {
+        switch self {
+        case .rareCandy: return RareCandy.price
+        case .mint: return Mint.price
         }
     }
 }
@@ -112,6 +122,14 @@ enum RareCandy {
     /// 공짜 추가성장(150M 써서 250M 성장)이 된다. 500M 로 두면 그 값 모으는 500M 패시브 성장 + 사탕
     /// 100M = 실질 보너스 +20% 로 억제된다. 무료 획득(한도 100% 보상)이 항상 이득이도록 값어치보다 비싸게.
     static let price = 500_000_000
+}
+
+/// 민트 밸런스 상수.
+enum Mint {
+    /// 상점 구매가. 성격 변경은 순수 코스메틱(성장·능력치 무관)이라 밸런스 근거가 없어 "느낌" 값 —
+    /// 사탕(500M)의 1/5로 싸게 둬서 성격을 마음에 들 때까지 굴려보는 가벼운 재미. 성장을 안 줘서
+    /// 이중계산 이슈도 없음(가격 = 순수 소비).
+    static let price = 100_000_000
 }
 
 /// 사탕 지급 대상 한도 창의 분류 — session=1개·weekly=weeklyGrant.

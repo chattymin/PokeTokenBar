@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// 상점 — 사용한 토큰(재화 = usedSinceInstall − spentTokens)으로 아이템 구매. v1: 이상한 사탕.
+/// 상점 — 사용한 토큰(재화 = usedSinceInstall − spentTokens)으로 아이템 구매(이상한 사탕·민트).
 /// 인라인 확인(버튼 morph) — .sheet/.alert 금지(BagView 주석과 동일: transient 팝오버가 닫힐 때
 /// 고아 시트가 이후 클릭을 먹통내는 결함 회피).
 struct ShopView: View {
@@ -12,7 +12,9 @@ struct ShopView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 10) {
                 walletHeader(l)
-                ShopItemCard(store: store, kind: .rareCandy, price: RareCandy.price)
+                ForEach(store.purchasableItems, id: \.self) { kind in
+                    ShopItemCard(store: store, kind: kind)
+                }
             }
         }
         .frame(height: 520)
@@ -34,14 +36,14 @@ struct ShopView: View {
     }
 }
 
-/// 상점 아이템 1장 — 아이콘·이름·설명·보유수 + 가격/구매(인라인 확인).
-/// v1 은 이상한 사탕만 판매하므로 구매 동작을 store.buyRareCandy 로 직접 호출한다. 스톤 추가(v1.5) 시
-/// store 에 kind 별 buy(kind)/canBuy(kind) 를 두어 일반화한다.
+/// 상점 아이템 1장 — 아이콘·이름·설명(사탕 XP / 민트 "성격 랜덤 변경")·보유수 + 가격/구매(인라인 확인).
+/// kind 별 store.canBuy(kind)/buy(kind) 로 일반화 — 판매 목록은 store.purchasableItems.
 private struct ShopItemCard: View {
     let store: CompanionStore
     let kind: ItemKind
-    let price: Int
     @State private var confirming = false
+
+    private var price: Int { kind.shopPrice ?? 0 }
 
     var body: some View {
         let l = store.l
@@ -87,7 +89,7 @@ private struct ShopItemCard: View {
                 Text("\(l.shopPriceLabel) \(TokenFormatter.compact(price))")
                     .font(.caption2).foregroundStyle(.tertiary).monospacedDigit()
                 Spacer()
-                if store.canBuyRareCandy {
+                if store.canBuy(kind) {
                     Button(l.buy) { confirming = true }
                         .buttonStyle(.bordered).controlSize(.small)
                 } else {
@@ -100,6 +102,6 @@ private struct ShopItemCard: View {
 
     private func buyNow() {
         confirming = false
-        _ = store.buyRareCandy()
+        _ = store.buy(kind)
     }
 }

@@ -311,6 +311,7 @@ struct L {
     func itemName(_ kind: ItemKind) -> String {
         switch kind {
         case .rareCandy: return t("이상한 사탕", "Rare Candy", "ふしぎなアメ")
+        case .mint:      return t("민트", "Mint", "ミント")
         }
     }
     func itemDescription(_ kind: ItemKind) -> String {
@@ -320,8 +321,14 @@ struct L {
             return t("현재 포켓몬의 경험치를 \(xp) 상승시킨다.",
                      "Raises your Pokémon's EXP by \(xp).",
                      "ポケモンの経験値を\(xp)上げる。")
+        case .mint:
+            return t("현재 포켓몬의 성격을 랜덤으로 바꾼다.",
+                     "Randomly changes your Pokémon's nature.",
+                     "ポケモンのせいかくをランダムに変える。")
         }
     }
+    /// 가방 사용 컨트롤의 효과 힌트 — 민트("성격 랜덤 변경", 사탕의 "+XP" 자리).
+    var mintEffectHint: String { t("성격 랜덤 변경", "Random nature", "せいかくランダム変更") }
 
     // MARK: 상점 (재화 = 사용한 토큰)
     var shop: String { t("상점", "Shop", "ショップ") }

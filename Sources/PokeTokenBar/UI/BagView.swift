@@ -67,9 +67,30 @@ private struct ItemCard: View {
         .clipShape(RoundedRectangle(cornerRadius: 10))
     }
 
+    /// 이 아이템을 지금 쓸 수 있나 (kind 별 — 사탕은 라인 로딩 필요, 민트는 활성 포켓몬만).
+    private var canUse: Bool {
+        switch kind {
+        case .rareCandy: return store.canUseRareCandy
+        case .mint:      return store.canUseMint
+        }
+    }
+    /// 사용 컨트롤 효과 힌트 ("+XP" / "성격 랜덤 변경").
+    private func effectHint(_ l: L) -> String {
+        switch kind {
+        case .rareCandy: return "+\(TokenFormatter.compact(RareCandy.xp)) XP"
+        case .mint:      return l.mintEffectHint
+        }
+    }
+    private func performUse() {
+        switch kind {
+        case .rareCandy: _ = store.useRareCandy()
+        case .mint:      _ = store.useMint()
+        }
+    }
+
     @ViewBuilder
     private func useControls(_ l: L) -> some View {
-        if store.canUseRareCandy {
+        if canUse {
             if confirming {
                 HStack(spacing: 8) {
                     Text(l.useOnCurrent(store.displayName))
@@ -82,7 +103,7 @@ private struct ItemCard: View {
                 }
             } else {
                 HStack {
-                    Text("+\(TokenFormatter.compact(RareCandy.xp)) XP")
+                    Text(effectHint(l))
                         .font(.caption2).foregroundStyle(.tertiary).monospacedDigit()
                     Spacer()
                     Button(l.useItem) { confirming = true }
@@ -90,16 +111,16 @@ private struct ItemCard: View {
                 }
             }
         } else {
-            // 알(부화 전)/활성 없음/라인 미로딩 — 비활성 + 사유
+            // 알(부화 전)/활성 없음/(사탕만)라인 미로딩 — 비활성 + 사유
             Text(store.isEgg ? l.useAfterHatch : l.useNeedsPokemon)
                 .font(.caption2).foregroundStyle(.tertiary)
         }
     }
 
-    /// 사용 → 항상 Home 탭으로 전환(진화/졸업 연출·"+XP" 는 Home 의 CompanionHeader 에서 재생).
+    /// 사용 → 항상 Home 탭으로 전환(진화/졸업 연출·"+XP"·성격 변경 토스트는 Home 의 CompanionHeader 에서 재생).
     private func useNow() {
         confirming = false
-        _ = store.useRareCandy()
+        performUse()
         nav.tab = .home
     }
 }

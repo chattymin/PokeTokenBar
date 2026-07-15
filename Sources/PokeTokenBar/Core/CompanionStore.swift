@@ -30,6 +30,11 @@ final class CompanionStore {
     /// 홈으로 재진입할 때(CompanionHeader 재마운트) @State 가 초기화돼 같은 값이 다시 떠오른다(회귀).
     func consumeCandyFeedback() { candyFeedbackAmount = 0 }
 
+    /// 민트 사용 시 "성격이 X로" 순간 표시 — 사탕 피드백과 동일 1회성 패턴(seq + consume).
+    private(set) var mintFeedbackSeq = 0
+    private(set) var mintFeedbackNature: PokemonNature?
+    func consumeMintFeedback() { mintFeedbackNature = nil }
+
     private let provider: any PokeProviding
     private let clock: () -> Date
     private let fileURL: URL
@@ -307,25 +312,58 @@ final class CompanionStore {
         return .progressed
     }
 
+    // MARK: 민트 (성격 랜덤 재설정)
+
+    /// 민트 사용 가능 — 활성 포켓몬 + 재고>0. 성격은 MonState 에만 있어 진화 라인 로딩과 무관하다
+    /// (사탕과 달리 currentLine 조건 없음 — 재시작 직후·오프라인에도 사용 가능).
+    var canUseMint: Bool { hasActive && itemCount(.mint) > 0 }
+
+    /// 민트 1개 사용 — 현재 포켓몬 성격을 '현재와 다른' 무작위 성격으로 교체(반드시 바뀐다). 성장·shiny·
+    /// 종·usedAtStage·통계 전부 무관(순수 코스메틱). 사용 불가면 nil(무소모). 바뀐 성격을 반환(피드백용).
+    @discardableResult
+    func useMint() -> PokemonNature? {
+        guard canUseMint, state.active != nil else { return nil }
+        let cur = state.active!.nature
+        let pool = PokemonNature.allCases.filter { $0 != cur }   // cur=nil(구버전 개체)이면 25종 전체
+        let new = pool[Int(rng.next() % UInt64(pool.count))]
+        state.active!.nature = new
+        state.inventory[ItemKind.mint.rawValue] = itemCount(.mint) - 1
+        mintFeedbackNature = new
+        mintFeedbackSeq += 1
+        save()
+        return new
+    }
+
     // MARK: 상점 (재화 = 사용한 토큰)
 
     /// 상점에서 쓸 수 있는 토큰(재화) = 실사용 누적 − 상점 지출 누적. 성장 미터(usedSinceInstall)는
     /// 여기선 읽기만 — 구매는 spentTokens 만 올려 잔액을 깎는다(진화 진행·오늘/주/월 통계 무영향).
     var availableTokens: Int { max(0, state.usedSinceInstall - state.spentTokens) }
 
-    /// 이상한 사탕 구매 가능 — 잔액이 가격 이상. 활성/알 무관(재고는 미리 쌓아둘 수 있음, 사용만 부화 후).
-    var canBuyRareCandy: Bool { availableTokens >= RareCandy.price }
+    /// 상점 판매 아이템 — shopPrice 있는 것만(ItemKind.allCases 순서).
+    var purchasableItems: [ItemKind] { ItemKind.allCases.filter { $0.shopPrice != nil } }
 
-    /// 이상한 사탕 1개 구매 — 지갑에서 price 차감, 인벤토리 +1. usedSinceInstall(성장·통계)·진화 진행엔
-    /// 무영향(지출 원장만 증가). 잔액 부족이면 no-op(false) — 뷰가 이미 버튼을 비활성화하지만 이중 가드.
+    /// 구매 가능 — 잔액이 그 아이템 가격 이상(상점 미판매면 false). 활성/알 무관(재고는 미리 쌓아둘 수 있음).
+    func canBuy(_ kind: ItemKind) -> Bool {
+        guard let price = kind.shopPrice else { return false }
+        return availableTokens >= price
+    }
+
+    /// 아이템 1개 구매 — 지갑에서 price 차감, 인벤토리 +1. usedSinceInstall(성장·통계)·진화 진행엔
+    /// 무영향(지출 원장만 증가). 잔액 부족/미판매면 no-op(false).
     @discardableResult
-    func buyRareCandy() -> Bool {
-        guard canBuyRareCandy else { return false }
-        state.spentTokens += RareCandy.price
-        state.inventory[ItemKind.rareCandy.rawValue, default: 0] += 1
+    func buy(_ kind: ItemKind) -> Bool {
+        guard let price = kind.shopPrice, availableTokens >= price else { return false }
+        state.spentTokens += price
+        state.inventory[kind.rawValue, default: 0] += 1
         save()
         return true
     }
+
+    // 사탕 전용 래퍼 — 기존 호출부/테스트 호환.
+    var canBuyRareCandy: Bool { canBuy(.rareCandy) }
+    @discardableResult
+    func buyRareCandy() -> Bool { buy(.rareCandy) }
 
     /// 지급 판정(순수·엣지 트리거) — 한도 창이 100% 를 새로 넘어선 순간에만 지급.
     /// - 100% 미만 → 맵에서 제거(재무장). resets_at 등 휘발 필드는 key 에 없다(안정 식별자만).
