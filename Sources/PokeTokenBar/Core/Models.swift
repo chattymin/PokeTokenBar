@@ -197,6 +197,10 @@ struct LimitStatus: Decodable, Sendable {
     var sevenDayOpus: LimitWindow?
     var sevenDaySonnet: LimitWindow?
     var limits: [OAuthLimitEntry]?
+    /// 계정 구독 정보 — HTTP usage 응답이 아니라 OAuth 자격증명(Keychain)에서 주입한다.
+    /// CodingKeys 에 없어 디코드 시 무시되고, OAuthLimitsProvider.fetch 가 채운다.
+    var subscriptionType: String?
+    var rateLimitTier: String?
 
     private enum CodingKeys: String, CodingKey {
         case fiveHour = "five_hour"
@@ -204,6 +208,29 @@ struct LimitStatus: Decodable, Sendable {
         case sevenDayOpus = "seven_day_opus"
         case sevenDaySonnet = "seven_day_sonnet"
         case limits
+    }
+
+    /// subscriptionType(max/pro/free) + rateLimitTier 배수를 합친 표시 문자열.
+    /// 예: subscriptionType="max", rateLimitTier="default_claude_max_20x" → "Max 20x".
+    /// 배수는 등급과 무관하게 tier 에 배수 토큰이 있을 때만 붙는다(Max 전용 분기 아님).
+    /// tier 에 배수 토큰이 없으면 등급명만("Pro"/"Free"), 구독 정보가 없으면 nil.
+    var planDisplay: String? {
+        guard let subscriptionType, !subscriptionType.isEmpty else { return nil }
+        let base = subscriptionType.prefix(1).uppercased() + subscriptionType.dropFirst()
+        if let tier = rateLimitTier, let multiplier = Self.tierMultiplier(from: tier) {
+            return "\(base) \(multiplier)"
+        }
+        return base
+    }
+
+    /// rateLimitTier 끝의 배수 토큰("20x"/"5x") 추출 — "_" 로 나눠 숫자+x 형태를 찾는다.
+    /// 배수가 없는 등급("default_claude_pro")은 nil → 등급명만 표시.
+    private static func tierMultiplier(from tier: String) -> String? {
+        for part in tier.split(separator: "_") where part.hasSuffix("x") {
+            let digits = part.dropLast()
+            if !digits.isEmpty, digits.allSatisfy(\.isNumber) { return String(part) }
+        }
+        return nil
     }
 
     /// 레거시 필드가 못 담는 윈도우 — session(=five_hour)·weekly_all(=seven_day)은 레거시 행이

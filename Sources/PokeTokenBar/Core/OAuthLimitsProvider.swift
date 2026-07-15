@@ -24,18 +24,24 @@ struct OAuthLimitsProvider: ClaudeLimitsProviding, Sendable {
 
     func fetch(allowKeychainPrompt: Bool = false) async throws -> LimitStatus {
         let token = try await accessTokenCache.accessToken(allowKeychainPrompt: allowKeychainPrompt)
+        var status: LimitStatus
         do {
-            return try await fetchStatus(accessToken: token)
+            status = try await fetchStatus(accessToken: token)
         } catch let error as LimitsError {
-            guard case .httpStatus(let status) = error, status == 401 || status == 403 else {
+            guard case .httpStatus(let httpStatus) = error, httpStatus == 401 || httpStatus == 403 else {
                 throw error
             }
             await accessTokenCache.invalidate(removePersistentCache: true)
             let refreshed = try await accessTokenCache.accessToken(
                 allowKeychainPrompt: allowKeychainPrompt, bypassCache: true)
             guard refreshed != token else { throw error }
-            return try await fetchStatus(accessToken: refreshed)
+            status = try await fetchStatus(accessToken: refreshed)
         }
+        // 플랜은 usage 응답이 아니라 방금 읽은 자격증명(캐시)에 담겨 있다 — 추가 Keychain 접근 없음.
+        let plan = await accessTokenCache.planInfo()
+        status.subscriptionType = plan.subscriptionType
+        status.rateLimitTier = plan.rateLimitTier
+        return status
     }
 
     private func fetchStatus(accessToken: String) async throws -> LimitStatus {
@@ -134,6 +140,12 @@ private actor OAuthAccessTokenCache {
         return (status & SecKeychainStatus(kSecUnlockStateStatus)) == 0   // unlock 비트 꺼짐 = 잠김
     }
 
+    /// 마지막으로 사용한 자격증명의 플랜 정보. accessToken() 이 모든 경로에서 cachedCredential 을
+    /// 반환 토큰과 일치시키므로, fetch 가 토큰 취득 직후 호출하면 동일 자격증명 기준이다.
+    func planInfo() -> (subscriptionType: String?, rateLimitTier: String?) {
+        (cachedCredential?.subscriptionType, cachedCredential?.rateLimitTier)
+    }
+
     func invalidate(removePersistentCache: Bool = false) {
         // 앱 자체 키체인 캐시는 코드서명이 바뀔 때마다(재빌드·실사용자 매 업그레이드) 항목 ACL 이
         // 안 맞아 write/삭제 시 접근 허용 프롬프트를 유발했다(no-UI 로도 억제 안 됨) → 제거.
@@ -193,6 +205,9 @@ enum OAuthCredentialData {
         let accessToken: String
         let expiresAt: Date?
         let data: Data
+        /// 구독 등급(max/pro/free)과 rate limit 티어(default_claude_max_20x 등) — 플랜 표시용.
+        let subscriptionType: String?
+        let rateLimitTier: String?
 
         var isExpired: Bool {
             guard let expiresAt else { return false }
@@ -208,7 +223,12 @@ enum OAuthCredentialData {
         else {
             return nil
         }
-        return Credential(accessToken: token, expiresAt: expiresAt(from: oauth["expiresAt"]), data: data)
+        return Credential(
+            accessToken: token,
+            expiresAt: expiresAt(from: oauth["expiresAt"]),
+            data: data,
+            subscriptionType: oauth["subscriptionType"] as? String,
+            rateLimitTier: oauth["rateLimitTier"] as? String)
     }
 
     private static func expiresAt(from raw: Any?) -> Date? {

@@ -214,6 +214,56 @@ final class ModelDecodingTests: XCTestCase {
         XCTAssertEqual(status.scopedLimitEntries.count, 2)
     }
 
+    /// 플랜 표시 문자열 — subscriptionType + rateLimitTier 조립. Max 는 배수까지 세분화.
+    /// 조합표 전수: {max×20x, max×5x, pro×배수없음, free×nil, 구독없음}.
+    func testPlanDisplay() throws {
+        var status = try JSONDecoder().decode(LimitStatus.self, from: Data("{}".utf8))
+
+        status.subscriptionType = "max"
+        status.rateLimitTier = "default_claude_max_20x"
+        XCTAssertEqual(status.planDisplay, "Max 20x")
+
+        status.rateLimitTier = "default_claude_max_5x"
+        XCTAssertEqual(status.planDisplay, "Max 5x")
+
+        // 배수 토큰이 없는 등급 → 등급명만
+        status.subscriptionType = "pro"
+        status.rateLimitTier = "default_claude_pro"
+        XCTAssertEqual(status.planDisplay, "Pro")
+
+        // 티어가 nil 이어도 등급명은 표시
+        status.subscriptionType = "free"
+        status.rateLimitTier = nil
+        XCTAssertEqual(status.planDisplay, "Free")
+
+        // 구독 정보가 없으면 플랜 행 자체를 숨긴다
+        status.subscriptionType = nil
+        XCTAssertNil(status.planDisplay)
+
+        // 빈 문자열도 표시 안 함
+        status.subscriptionType = ""
+        XCTAssertNil(status.planDisplay)
+    }
+
+    /// 자격증명 파싱이 subscriptionType/rateLimitTier 를 추출하는지 — 실 keychain JSON 형태 기반.
+    func testCredentialParsesPlanFields() throws {
+        let json = Data("""
+        {"claudeAiOauth":{"accessToken":"tok","expiresAt":9999999999999,
+        "subscriptionType":"max","rateLimitTier":"default_claude_max_20x"}}
+        """.utf8)
+        let credential = try XCTUnwrap(OAuthCredentialData.credential(from: json))
+        XCTAssertEqual(credential.subscriptionType, "max")
+        XCTAssertEqual(credential.rateLimitTier, "default_claude_max_20x")
+
+        // 플랜 필드가 없는 구형 자격증명도 파싱은 성공(플랜만 nil)
+        let legacy = Data("""
+        {"claudeAiOauth":{"accessToken":"tok","expiresAt":9999999999999}}
+        """.utf8)
+        let legacyCredential = try XCTUnwrap(OAuthCredentialData.credential(from: legacy))
+        XCTAssertNil(legacyCredential.subscriptionType)
+        XCTAssertNil(legacyCredential.rateLimitTier)
+    }
+
     func testCodexRateLimitStatus() throws {
         let json = """
         {"rateLimits":{"limitId":"codex","limitName":null,

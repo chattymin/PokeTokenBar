@@ -273,6 +273,12 @@ struct PopoverView: View {
                 claudeAuthExpiredNotice
             }
             if selectedSnapshot?.providerID == "claude_code", let limits = store.limits {
+                // 플랜(계정 속성) — Codex codexMetaRow 와 동일 스타일. 구독 정보 있을 때만 노출.
+                if let plan = limits.planDisplay {
+                    Text(l.plan(plan))
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                }
                 // 세션 만료 안내가 이미 있으면 stale 배지는 생략(중복 신호 방지)
                 if store.claudeLimitsStale, !store.limitsAuthExpired {
                     staleBadge(updatedAt: store.limitsUpdatedAt)
