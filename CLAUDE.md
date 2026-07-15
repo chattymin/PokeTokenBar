@@ -16,12 +16,19 @@
 사용자가 **버전 배포를 자연어로 요청**하면 — 예: "배포해줘", "릴리스 올려줘", "패치 배포",
 "2.1.1 배포", "release", "다음 버전 내줘" — 한 줄 명령을 시키지 말고 아래를 직접 수행한다.
 
-1. **문서 일관성 검토**: `./scripts/release.sh --check-only` 실행. 경고(README/랜딩/cask 의
-   stale 버전·제거된 의존성, **UI 변경 시 스크린샷 stale** 등)가 있으면 **먼저 문서를 갱신**한다 —
-   README.md/ko/ja, gh-pages 랜딩 `index.html`(3개 언어 i18n 사전 정합 유지), homebrew-tap cask caveat.
-   **UI(`Sources/PokeTokenBar/UI/`)를 바꿨으면 `assets/` 스크린샷을 재생성**한다 — 언어별 이미지
-   (`settings.png`/`-ko`/`-ja` 등) 각 README 참조. 팝오버 라이브 캡처가 막히면(Keychain 프롬프트·
-   NSPopover 창 미노출) 실제 UI 를 HTML 로 렌더해 반영. (`RELEASE.md` 체크리스트)
+1. **문서·이미지 갱신 (매 릴리스 필수 — "할까요?" 묻지 말고 무조건 한다).** `./scripts/release.sh
+   --check-only` 로 경고 확인 후 아래를 모두 반영한다.
+   - **README.md/ko/ja**: 기능 목록·how-it-works·스크린샷 참조.
+   - **랜딩(gh-pages orphan 브랜치) — 필수.** `git worktree add /tmp/ptb-ghpages gh-pages` → `index.html`
+     기능 카드(f#) + i18n 사전(en/ko/ja 동시·키 정합) 갱신 → 커밋 → `git push origin gh-pages` →
+     `git worktree remove`. (Pages 자동 재빌드. 커밋은 gh-pages log 모방 = `landing:` 프리픽스.)
+   - **스크린샷(`assets/`)**: UI(`Sources/PokeTokenBar/UI/`) 변경 시 재생성. 기존 방식 = **HTML 렌더**
+     (팝오버 라이브 캡처 아님) — Chrome `--headless --screenshot --force-device-scale-factor=2` 로 다크
+     팝오버를 720px PNG 로 그린다. 애니 GIF(home)는 프레임 합성 후 `gifsicle -O3 --lossy` 로 최적화
+     (PIL 재인코딩 단독은 용량 팽창 주의). 언어별 이미지(`settings.png`/`-ko`/`-ja` 등) 각 README 참조.
+   - homebrew-tap cask caveat.
+   - **함정:** `release.sh` 문서검토는 *커밋된* 상태를 비교 → 스크린샷을 스테이징만 하면 경고 프롬프트가
+     여전히 뜬다. 미리 커밋하거나 프롬프트에 `y`(스테이징분이 release.sh line 93-94 에서 릴리스 커밋에 함께 담김). (`RELEASE.md` 체크리스트)
 2. **버전 결정** (2026-07-03 확정 규칙): 사용자가 말한 **단어가 곧 세그먼트 지정 명령**이다 —
    릴리스에 기능이 포함돼 있어도 변경 내용으로 재해석하지 않는다.
    - "**패치**(해줘)" → x.y.**Z+1** / "**마이너**" → x.**Y+1**.0 / "**메이저**" → **X+1**.0.0
