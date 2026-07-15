@@ -15,10 +15,11 @@
 ## UI changes
 
 <!--
-REQUIRED when this PR changes anything under `Sources/PokeTokenBar/UI/`:
-attach **before/after** images (screenshots or GIFs) so reviewers can compare
-the old and new UI side by side. Remove this section only if there are no UI
-changes.
+When this PR changes anything under `Sources/PokeTokenBar/UI/`, describe the
+before/after below. Images (screenshots or GIFs) are welcome but optional — a
+clear text description is fine. The canonical app screenshots in `assets/` are
+regenerated at release, so they don't need updating per PR. Remove this section
+only if there are no UI changes.
 -->
 
 | Before | After |
@@ -29,6 +30,6 @@ changes.
 
 - [ ] `swift build` and `swift test` pass locally
 - [ ] PR title and description are written in English
-- [ ] **UI changes include before/after images** in the section above
+- [ ] UI changes are described above (before/after — images optional)
 - [ ] No copyrighted assets, secrets, or private tooling references are committed (see [CONTRIBUTING](../CONTRIBUTING.md))
 - [ ] Tests were added or updated for this change

@@ -48,9 +48,10 @@ Because the repository squash-merges, the PR title becomes the commit subject on
 - Use [Conventional Commits](https://www.conventionalcommits.org/) style:
   `feat:`, `fix:`, `docs:`, `chore:`, `refactor:`, `test:`, etc.
 - Fill out the pull request template.
-- **UI changes** (anything under `Sources/PokeTokenBar/UI/`) must include
-  before/after screenshots in the PR, and regenerate affected screenshots in
-  `assets/` when relevant.
+- **UI changes** (anything under `Sources/PokeTokenBar/UI/`) should describe the
+  before/after in the PR. Screenshots or GIFs are welcome but optional — a clear
+  text description is fine. The canonical `assets/` screenshots are regenerated
+  at release, not per PR.
 
 ## Code conventions
 
