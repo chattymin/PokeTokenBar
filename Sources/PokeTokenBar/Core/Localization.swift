@@ -192,7 +192,6 @@ struct L {
     }
     var dexEmptyTitle: String { t("아직 잡은 포켓몬이 없어요!", "No Pokémon caught yet!", "まだ捕まえたポケモンがいません！") }
     var dexEmptyHint: String { t("토큰을 써서 첫 포켓몬을 부화시켜 보세요.", "Spend tokens to hatch your first Pokémon.", "トークンを使って最初のポケモンを孵化させましょう。") }
-    func formsComplete(_ n: Int) -> String { t("\(n)단계 · 완성", "\(n) forms · complete", "\(n)段階・完成") }
 
     // MARK: 도감 요약 헤더
     var dexTitle: String { t("도감", "Pokédex", "図鑑") }

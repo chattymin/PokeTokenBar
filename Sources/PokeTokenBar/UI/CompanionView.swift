@@ -431,9 +431,10 @@ private struct DexEntryRow: View {
                     .clipShape(Capsule())
                 if entry.isShiny { Text("✨").font(.system(size: 10)) }
                 Spacer()
-                let nature = entry.nature.map { "\($0.name(store.language)) · " } ?? ""
-                Text(nature + store.l.formsComplete(entry.chainOrder.count))
-                    .font(.system(size: 9)).foregroundStyle(.secondary)
+                if let nature = entry.nature {
+                    Text(nature.name(store.language))
+                        .font(.system(size: 9)).foregroundStyle(.secondary)
+                }
             }
             EvoLineView(nodes: entry.chainOrder.map { ($0, "done") }, thumb: 56,
                         shiny: entry.isShiny, names: names)
