@@ -402,8 +402,10 @@ private func rcCodex(primary: Int? = nil, secondary: Int? = nil, individual: Int
 
 @MainActor
 final class RareCandyGrantIntegrationTests: XCTestCase {
-    private var defaults: UserDefaults!
-    private var suiteName: String!
+    // nonisolated(unsafe): sync setUp/tearDown 은 릴리스 Swift 에서 nonisolated → main-actor 프로퍼티
+    // 접근이 컴파일 에러. XCTest 인스턴스별 직렬 실행이라 데이터 레이스 없음. (UsageStoreTests 와 동일)
+    nonisolated(unsafe) private var defaults: UserDefaults!
+    nonisolated(unsafe) private var suiteName: String!
     override func setUp() {
         super.setUp()
         suiteName = "rc-int-\(UUID().uuidString)"

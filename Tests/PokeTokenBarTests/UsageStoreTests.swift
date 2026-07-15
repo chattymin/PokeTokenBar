@@ -94,8 +94,10 @@ private func codexLimits(primaryUsed: Int? = nil, secondaryUsed: Int? = nil) -> 
 @MainActor
 final class UsageStoreTests: XCTestCase {
     /// 테스트 전용 defaults suite — 실제 사용자 설정(UserDefaults.standard)을 절대 건드리지 않는다.
-    private var testDefaults: UserDefaults!
-    private var suiteName: String!
+    /// nonisolated(unsafe): @MainActor 클래스의 sync setUp/tearDown 은 릴리스 Swift 에서 nonisolated 로
+    /// 취급돼 main-actor 프로퍼티 접근이 컴파일 에러가 된다. XCTest 는 인스턴스별로 직렬 실행하므로 안전.
+    nonisolated(unsafe) private var testDefaults: UserDefaults!
+    nonisolated(unsafe) private var suiteName: String!
 
     override func setUp() {
         super.setUp()
