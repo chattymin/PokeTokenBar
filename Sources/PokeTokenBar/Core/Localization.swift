@@ -223,8 +223,8 @@ struct L {
     // MARK: companion 이벤트 시스템 알림
     var notifHatchTitle: String { t("🥚 부화!", "🥚 Hatched!", "🥚 孵化！") }
     func notifHatchBody(_ name: String) -> String { t("알에서 \(name)이(가) 나왔어요!", "\(name) hatched from the egg!", "タマゴから \(name) が生まれました！") }
-    var notifShinyHatchTitle: String { t("✨ 색이 다른 포켓몬!", "✨ Shiny Pokémon!", "✨ 色違いポケモン！") }
-    func notifShinyHatchBody(_ name: String) -> String { t("색이 다른 \(name)이(가) 태어났어요! (1/64)", "A shiny \(name) hatched! (1 in 64)", "色違いの \(name) が生まれました！(1/64)") }
+    var notifShinyHatchTitle: String { t("✨ 이로치 포켓몬!", "✨ Shiny Pokémon!", "✨ 色違いポケモン！") }
+    func notifShinyHatchBody(_ name: String) -> String { t("이로치 \(name)이(가) 태어났어요! (1/64)", "A shiny \(name) hatched! (1 in 64)", "色違いの \(name) が生まれました！(1/64)") }
     var eggImminent: String { t("곧 부화해요!", "About to hatch!", "もうすぐ孵化！") }
     /// 첫 실행(아직 토큰 적립 0) 안내 — "왜 아무 일도 안 일어나지"를 방지.
     var eggFirstRunHint: String {
