@@ -227,6 +227,10 @@ enum PokemonNature: String, Codable, Sendable, CaseIterable {
 enum PokemonOdds {
     /// 색이 다른 포켓몬(shiny) 부화 확률 분모 — 1/64 (본가 1/4096 은 데스크톱 앱 규모에선 평생 못 봄).
     static let shinyDenominator: UInt64 = 64
+    /// 메타몽 위장 확률 분모 — common·≥2형태 부화에 한해 1/128 (GO 변장 메타몽 추정 1/50~70보다 귀하게).
+    static let dittoDisguiseDenominator: UInt64 = 128
+    /// 메타몽 종 id — 위장 리빌 전용(일반 부화 풀에서 제외).
+    static let dittoSpeciesID = 132
 }
 
 /// 현재 키우는 포켓몬.
@@ -239,11 +243,15 @@ struct MonState: Codable, Sendable {
     var totalForms: Int
     var isShiny = false             // 부화 시 확정, 진화해도 유지
     var nature: PokemonNature?      // 부화 시 확정 (구버전 저장은 nil)
+    // 메타몽 위장 — nil=일반. 값=정체 메타몽, 이 종으로 위장 중(위장 구간엔 baseID 와 동일, 리빌 후에도 원 위장체 보존).
+    var dittoDisguise: Int?
+    var dittoRevealed = false       // 위장 → 리빌(정체 공개) 전환 여부
     // pathIDs 가 비면(손상된 상태 파일) baseID 로 폴백 — 렌더마다 읽히므로 out-of-bounds 크래시 방지.
     var currentID: Int { pathIDs.isEmpty ? baseID : pathIDs[min(stageIndex, pathIDs.count - 1)] }
 
     init(baseID: Int, pathIDs: [Int], stageIndex: Int, usedAtStage: Int,
-         rarity: Rarity, totalForms: Int, isShiny: Bool = false, nature: PokemonNature? = nil) {
+         rarity: Rarity, totalForms: Int, isShiny: Bool = false, nature: PokemonNature? = nil,
+         dittoDisguise: Int? = nil, dittoRevealed: Bool = false) {
         self.baseID = baseID
         self.pathIDs = pathIDs
         self.stageIndex = stageIndex
@@ -252,6 +260,8 @@ struct MonState: Codable, Sendable {
         self.totalForms = totalForms
         self.isShiny = isShiny
         self.nature = nature
+        self.dittoDisguise = dittoDisguise
+        self.dittoRevealed = dittoRevealed
     }
 
     // 하위호환 디코딩: shiny/nature 는 구버전 저장에 없음 → 기본값.
@@ -269,6 +279,8 @@ struct MonState: Codable, Sendable {
         totalForms = try c.decode(Int.self, forKey: .totalForms)
         isShiny = try c.decodeIfPresent(Bool.self, forKey: .isShiny) ?? false
         nature = try c.decodeIfPresent(PokemonNature.self, forKey: .nature)
+        dittoDisguise = try c.decodeIfPresent(Int.self, forKey: .dittoDisguise)
+        dittoRevealed = try c.decodeIfPresent(Bool.self, forKey: .dittoRevealed) ?? false
     }
 }
 

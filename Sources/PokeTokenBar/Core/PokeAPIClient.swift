@@ -146,7 +146,8 @@ actor PokeAPIClient: PokeProviding {
         req.httpMethod = "POST"
         req.timeoutInterval = 15
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        let query = "{ pokemonspecies(where: {evolves_from_species_id: {_is_null: true}, id: {_lte: 649}}, order_by: {id: asc}) { id capture_rate } }"
+        // 메타몽(#132)은 위장 리빌 전용 → 일반 부화 풀에서 제외(_neq).
+        let query = "{ pokemonspecies(where: {evolves_from_species_id: {_is_null: true}, id: {_lte: 649, _neq: \(PokemonOdds.dittoSpeciesID)}}, order_by: {id: asc}) { id capture_rate } }"
         req.httpBody = try JSONSerialization.data(withJSONObject: ["query": query])
         let (data, resp) = try await URLSession.shared.data(for: req)
         guard (resp as? HTTPURLResponse)?.statusCode == 200 else { throw URLError(.badServerResponse) }
@@ -166,6 +167,7 @@ actor PokeAPIClient: PokeProviding {
     /// REST 폴백 — 단일 종 상세(pokemon-species/{id})로 base 여부·capture_rate 판정.
     /// GraphQL base 인덱스가 죽어도 REST(pokeapi.co/api/v2)는 별개 엔드포인트라 동작한다.
     func baseSpecies(id: Int) async throws -> BaseSpecies? {
+        guard id != PokemonOdds.dittoSpeciesID else { return nil }   // 메타몽은 위장 리빌 전용 — 일반 부화 제외
         let dto = try await species(id)
         guard dto.evolves_from_species == nil else { return nil }   // 진화 중간체는 부화 후보 아님
         return BaseSpecies(id: id, captureRate: dto.capture_rate)

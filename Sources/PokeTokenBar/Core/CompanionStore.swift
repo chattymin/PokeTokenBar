@@ -11,12 +11,13 @@ final class CompanionStore {
     private(set) var displayState: CompanionStateKind = .egg
     private(set) var currentLine: EvoLine?
     private(set) var isHatching = false
+    private var isRevealingDitto = false   // 메타몽 리빌 비동기 중복 방지(isHatching 자매)
     private(set) var justEvolvedTo: String?     // 이름(연출/문구)
     private(set) var justGraduated: String?
     private var eventUntil: Date?
 
     /// 부화/진화 연출 트리거 — seq 증가로 UI 가 감지, 팝오버가 닫혀 있었어도 다음 오픈에 1회 재생.
-    enum Celebration: Equatable { case hatch(shiny: Bool), evolve }
+    enum Celebration: Equatable { case hatch(shiny: Bool), evolve, dittoReveal(shiny: Bool) }
     private(set) var celebration: Celebration?
     private(set) var celebrationSeq = 0
     private func fireCelebration(_ c: Celebration) { celebration = c; celebrationSeq += 1 }
@@ -79,7 +80,11 @@ final class CompanionStore {
 
     var hasActive: Bool { state.active != nil }
     var rarity: Rarity? { state.active?.rarity }
-    var currentIsShiny: Bool { state.active?.isShiny ?? false }
+    var currentIsShiny: Bool {
+        guard let a = state.active else { return false }
+        if a.dittoDisguise != nil && !a.dittoRevealed { return false }   // 위장 중엔 이로치 숨김(리빌 때 공개)
+        return a.isShiny
+    }
     var currentNature: PokemonNature? { state.active?.nature }
 
     // 알 인큐베이션 (active 없을 때)
@@ -208,6 +213,12 @@ final class CompanionStore {
         if state.active != nil, currentLine == nil, !isHatching {
             Task { await loadCurrentLine() }
         }
+        // 위장 메타몽이 첫 진화 임계 도달 → 리빌(재시작 등 applyUsage 킥을 못 탄 경우 백업 트리거)
+        if let a = state.active, a.dittoDisguise != nil, !a.dittoRevealed, currentLine != nil,
+           !isHatching, !isRevealingDitto,
+           a.usedAtStage >= PokemonBalance.phaseThreshold(rarity: a.rarity, totalForms: a.totalForms, stageIndex: 0) {
+            Task { await revealDitto() }
+        }
         displayState = computeState(burnTier: burnTier, limitWarning: limitWarning,
                                     hasUsageData: hasUsageData, today: todayTokens)
         save()
@@ -230,6 +241,12 @@ final class CompanionStore {
             if node.children.isEmpty {
                 graduate(); break
             } else {
+                // 메타몽 위장: 진화 못 하는 메타몽 → 첫 진화 순간 진화 대신 정체를 드러낸다(리빌).
+                // 라인 로드가 필요해 여기선 진화만 멈추고(임계 이상 유지) 리빌은 비동기 revealDitto 가 처리.
+                if a.dittoDisguise != nil, !a.dittoRevealed {
+                    if !isRevealingDitto { Task { await revealDitto() } }
+                    break
+                }
                 let next = pickNextChild(node, baseID: a.baseID)
                 state.active!.pathIDs = Array(a.pathIDs.prefix(a.stageIndex + 1)) + [next.speciesID]
                 state.active!.stageIndex += 1
@@ -489,6 +506,16 @@ final class CompanionStore {
         await hatchCore(baseID: baseID)
     }
 
+    // MARK: 메타몽 위장/리빌
+
+    /// .app 번들 실행 여부 — 알림/프리패치와 동일 게이트. 위장 롤을 실앱에서만 발동(테스트/개발실행 제외).
+    static var isAppBundle: Bool { Bundle.main.bundleIdentifier != nil && Bundle.main.bundlePath.hasSuffix(".app") }
+
+    /// 메타몽 위장 롤 판정(순수) — common·≥2형태만, 미리 뽑은 roll 값으로 1/128. (부수효과 없이 xctest)
+    nonisolated static func dittoDisguiseHit(rarity: Rarity, totalForms: Int, roll: UInt64) -> Bool {
+        rarity == .common && totalForms >= 2 && roll % PokemonOdds.dittoDisguiseDenominator == 0
+    }
+
     /// 실제 부화 로직 — isHatching 락은 호출자(hatch / hatchIfNeeded)가 소유·해제한다.
     private func hatchCore(baseID: Int) async {
         guard let line = try? await provider.line(baseSpeciesID: baseID) else {
@@ -502,21 +529,64 @@ final class CompanionStore {
         // 개체 롤 — shiny(1/64)·성격(25종)은 부화 순간 확정, 진화해도 유지.
         let isShiny = rng.next() % PokemonOdds.shinyDenominator == 0
         let nature = PokemonNature.allCases[Int(rng.next() % UInt64(PokemonNature.allCases.count))]
+        // 메타몽 위장 롤 — common·≥2형태에 한해 1/128. .app 게이트(&& 단락 → 비앱에선 rng 미소비로
+        // 기존 테스트 RNG 시퀀스 무영향). 위장/리빌 로직은 상태 기반으로 별도 테스트한다.
+        var dittoDisguise: Int?
+        if Self.isAppBundle, Self.dittoDisguiseHit(rarity: line.rarity, totalForms: line.totalForms, roll: rng.next()) {
+            dittoDisguise = line.baseID
+        }
+        // 위장 중엔 이로치를 숨긴다 — 부화 알림·연출도 일반체로(정체는 리빌 때 공개).
+        let showShiny = isShiny && dittoDisguise == nil
         state.active = MonState(baseID: line.baseID, pathIDs: [line.baseID], stageIndex: 0,
                                 usedAtStage: 0, rarity: line.rarity, totalForms: line.totalForms,
-                                isShiny: isShiny, nature: nature)
-        AppLog.write("hatch: hatched base=\(line.baseID) rarity=\(line.rarity) shiny=\(isShiny) forms=\(line.totalForms)")
+                                isShiny: isShiny, nature: nature, dittoDisguise: dittoDisguise)
+        AppLog.write("hatch: base=\(line.baseID) rarity=\(line.rarity) shiny=\(isShiny) forms=\(line.totalForms) ditto=\(dittoDisguise != nil)")
         let name = line.localizedName(line.baseID, state.language)
-        notifyCompanionEvent(isShiny ? l.notifShinyHatchTitle : l.notifHatchTitle,
-                             isShiny ? l.notifShinyHatchBody(name) : l.notifHatchBody(name))
+        notifyCompanionEvent(showShiny ? l.notifShinyHatchTitle : l.notifHatchTitle,
+                             showShiny ? l.notifShinyHatchBody(name) : l.notifHatchBody(name))
         justEvolvedTo = nil        // 새 부화는 "성장" 문구(진화 아님) — 직전 진화명이 남아 표시되지 않게
         displayState = .levelUp
         eventUntil = clock().addingTimeInterval(4)
-        if overflow > 0 { applyUsage(overflow) }   // 이월분 즉시 반영(필요 시 진화까지)
+        if overflow > 0 { applyUsage(overflow) }   // 이월분 즉시 반영(필요 시 진화/리빌까지)
         // 연출은 이월 진화 뒤에 발화 — 이월 evolve 가 shiny 부화 버스트를 덮지 않도록
         // 마지막 이벤트를 hatch 로 유지한다. 이월로 즉시 졸업한 극단 케이스면 생략(이미 도감행).
-        if state.active != nil { fireCelebration(.hatch(shiny: isShiny)) }
+        if state.active != nil { fireCelebration(.hatch(shiny: showShiny)) }
         save()
+    }
+
+    /// 위장 → 리빌: 진화 못 하는 메타몽이 "첫 진화 임계"에서 진화 대신 정체를 드러내는 순간.
+    /// Ditto 라인 로드 후 상태 변환(rare·단일형태·초과분 이월, isShiny/nature 유지) + 연출·알림.
+    private func revealDitto() async {
+        guard let a = state.active, a.dittoDisguise != nil, !a.dittoRevealed, !isRevealingDitto else { return }
+        let firstEvoThr = PokemonBalance.phaseThreshold(rarity: a.rarity, totalForms: a.totalForms, stageIndex: 0)
+        guard a.usedAtStage >= firstEvoThr else { return }   // 임계 미달 방어
+        isRevealingDitto = true
+        defer { isRevealingDitto = false }
+        guard let dittoLine = try? await provider.line(baseSpeciesID: PokemonOdds.dittoSpeciesID) else {
+            AppLog.write("ditto reveal: line fetch failed — retry next tick"); return
+        }
+        guard var m = state.active, m.dittoDisguise != nil, !m.dittoRevealed else { return }   // await 사이 변화 방어
+        let disguiseName = currentLine?.localizedName(m.baseID, state.language) ?? "#\(m.baseID)"
+        let carryOver = max(0, m.usedAtStage - firstEvoThr)   // 위장체 첫 진화 초과분 → 메타몽 성장 이월
+        // 메타몽으로 전환 — rarity/forms 는 로드한 라인에서, isShiny/nature/dittoDisguise 는 유지.
+        m.baseID = dittoLine.baseID
+        m.pathIDs = [dittoLine.baseID]
+        m.stageIndex = 0
+        m.rarity = dittoLine.rarity
+        m.totalForms = dittoLine.totalForms
+        m.usedAtStage = carryOver
+        m.dittoRevealed = true
+        let shiny = m.isShiny
+        state.active = m
+        currentLine = dittoLine
+        AppLog.write("ditto reveal: disguise=\(m.dittoDisguise ?? -1) → ditto rarity=\(dittoLine.rarity) shiny=\(shiny)")
+        fireCelebration(.dittoReveal(shiny: shiny))
+        displayState = .levelUp
+        eventUntil = clock().addingTimeInterval(5)
+        notifyCompanionEvent(shiny ? l.notifShinyDittoRevealTitle : l.notifDittoRevealTitle,
+                             shiny ? l.notifShinyDittoRevealBody(disguiseName) : l.notifDittoRevealBody(disguiseName))
+        save()
+        applyUsage(0)   // 이월분으로 메타몽 졸업 재평가(rare 3B라 보통 즉시 졸업 아님)
     }
 
     private func loadCurrentLine() async {

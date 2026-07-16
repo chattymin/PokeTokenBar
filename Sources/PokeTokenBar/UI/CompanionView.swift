@@ -156,6 +156,7 @@ struct CompanionHeader: View {
     @State private var flashOpacity: Double = 0
     @State private var celebScale: CGFloat = 1
     @State private var shinyBurst = false
+    @State private var dittoBurst = false   // 메타몽 리빌 🎭 버스트
     @State private var seenSeq = -1     // 재생 완료한 celebrationSeq (팝오버 재오픈 시 1회 재생 보장)
     @State private var eggWiggle = false
     // 사탕 "+XP" 순간 표시 (진화 없이 부분 진행일 때도 피드백)
@@ -185,6 +186,13 @@ struct CompanionHeader: View {
                             Text("✨").font(.system(size: 22))
                                 .transition(.scale.combined(with: .opacity))
                                 .offset(x: 6, y: -6)
+                        }
+                    }
+                    .overlay(alignment: .top) {
+                        if dittoBurst {
+                            Text("🎭").font(.system(size: 26))
+                                .transition(.scale.combined(with: .opacity))
+                                .offset(y: -12)
                         }
                     }
                     .overlay(alignment: .top) {
@@ -281,6 +289,17 @@ struct CompanionHeader: View {
             Task { @MainActor in
                 try? await Task.sleep(nanoseconds: 2_600_000_000)
                 withAnimation(.easeOut(duration: 0.5)) { shinyBurst = false }
+            }
+        }
+        // 메타몽 리빌 — 위장체→메타몽 스프라이트 교체를 플래시가 덮고, 🎭 버스트(이로치면 ✨ 동반).
+        if case .dittoReveal(let shiny) = c {
+            withAnimation(.spring(response: 0.4, dampingFraction: 0.5).delay(0.25)) { dittoBurst = true }
+            if shiny {
+                withAnimation(.spring(response: 0.4, dampingFraction: 0.5).delay(0.45)) { shinyBurst = true }
+            }
+            Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 2_600_000_000)
+                withAnimation(.easeOut(duration: 0.5)) { dittoBurst = false; shinyBurst = false }
             }
         }
     }
