@@ -426,17 +426,28 @@ struct CollectionView: View {
         if store.dexEntries.isEmpty {
             emptyState
         } else {
-            // 고정 높이 — maxHeight 는 팝오버 재오픈 시 ScrollView fitting size 가 작게 잡혀
-            // 크기가 줄어드는 문제가 있어 height 로 고정한다.
-            ScrollView {
-                VStack(alignment: .leading, spacing: 8) {
-                    DexSummaryHeader(store: store, selected: selectedRarity) { r in
-                        withAnimation(.easeInOut(duration: 0.15)) {
-                            selectedRarity = (selectedRarity == r) ? nil : r
+            // 필터(요약 헤더)는 고정, 포켓몬 목록만 스크롤 — 아래로 내리는 중에도 희귀도 필터를 토글할 수 있다.
+            VStack(alignment: .leading, spacing: 8) {
+                DexSummaryHeader(store: store, selected: selectedRarity) { r in
+                    withAnimation(.easeInOut(duration: 0.15)) {
+                        selectedRarity = (selectedRarity == r) ? nil : r
+                    }
+                }
+                // 고정 높이 — maxHeight 는 팝오버 재오픈 시 ScrollView fitting size 가 작게 잡혀
+                // 크기가 줄어드는 문제가 있어, 바깥 VStack 을 height 로 고정해 스크롤 영역이 나머지를 채우게 한다.
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Color.clear.frame(height: 0).id("dexTop")   // 스크롤 최상단 앵커
+                            ForEach(visibleEntries) { entry in
+                                DexEntryRow(store: store, entry: entry)
+                            }
                         }
                     }
-                    ForEach(visibleEntries) { entry in
-                        DexEntryRow(store: store, entry: entry)
+                    .frame(maxHeight: .infinity)
+                    // 필터 토글 시 목록 최상단으로 — 이전 스크롤 위치가 새 필터 결과 밖이어도 처음부터 보이게.
+                    .onChange(of: selectedRarity) {
+                        withAnimation(.easeInOut(duration: 0.2)) { proxy.scrollTo("dexTop", anchor: .top) }
                     }
                 }
             }
