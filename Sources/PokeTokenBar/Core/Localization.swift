@@ -105,9 +105,9 @@ struct L {
     var limitPercent: String { t("한도 %", "Limit %", "上限 %") }
     var allOffHint: String { t("전부 끄면 캐릭터만 표시됩니다", "All off shows only the character", "すべてオフにするとキャラクターのみ表示") }
     var disableKeychain: String { t("Keychain 접근 끄기", "Disable Keychain access", "Keychainアクセスを無効化") }
-    var disableKeychainHint: String { t("켜면 Claude Keychain 한도 조회만 건너뜁니다", "When on, skips only Claude Keychain limit lookup", "オンにするとClaude Keychainの上限取得のみスキップ") }
+    var disableKeychainHint: String { t("켜면 Keychain 접근 허용 팝업이 더 안 뜹니다 — 공식 한도(%)만 숨겨지고 토큰·비용은 그대로", "When on, no more Keychain permission pop-ups — only official limits (%) are hidden; tokens/cost stay", "オンにするとKeychain許可のポップアップが出なくなります — 公式上限(%)のみ非表示、トークン・費用はそのまま") }
     var refreshLimitToken: String { t("한도 토큰 캐시 갱신", "Refresh limit token cache", "上限トークンキャッシュを更新") }
-    var onlyOnPress: String { t("누를 때만 Keychain 확인", "Checks Keychain only when pressed", "押した時のみKeychain確認") }
+    var onlyOnPress: String { t("누를 때만 Keychain 확인 — 최초 1회 '항상 허용'하면 이후 자동 갱신", "Checks Keychain only when pressed — grant 'Always Allow' once, then it auto-refreshes", "押した時のみKeychain確認 — 初回に'常に許可'すると以降は自動更新") }
     var launchAtLogin: String { t("로그인 시 자동 시작", "Launch at login", "ログイン時に自動起動") }
     var bundledOnly: String { t(".app 번들로 설치된 경우에만 사용 가능 (scripts/build-app.sh)", "Available only when installed as an .app bundle (scripts/build-app.sh)", ".appバンドルでインストールした場合のみ利用可能 (scripts/build-app.sh)") }
     var notificationsSection: String { t("알림", "Notifications", "通知") }

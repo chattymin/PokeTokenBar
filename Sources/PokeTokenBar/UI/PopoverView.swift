@@ -519,25 +519,29 @@ struct PopoverView: View {
 
     private var footer: some View {
         HStack(spacing: 10) {
-            // 스피너 스왑을 두지 않는다 — 로컬 파싱이 보이는 오늘 숫자를 즉시 갱신하는데
-            // enrichment/한도(네트워크)까지 기다리는 스피너가 데이터보다 오래 돌아 불필요해 보였다.
-            // 중복 클릭은 refresh() 의 재진입 guard 가 무시하고, 피드백은 아래 "Updated" 시각이 준다.
-            Button {
-                Task { await store.refresh() }
-            } label: {
-                Image(systemName: "arrow.clockwise")
-            }
-            .buttonStyle(.borderless)
-            .help(l.refreshNow)
-            if let updated = store.lastUpdated {
-                (Text("\(l.updated) ") + Text(updated, style: .relative))
-                    .font(.caption)
-                    .foregroundStyle(.tertiary)
-            }
-            if store.lastErrorDescription != nil {
-                Image(systemName: "exclamationmark.triangle")
-                    .foregroundStyle(.orange)
-                    .help(store.lastErrorDescription ?? "")
+            // 갱신·"Updated" 시각·에러 삼각형은 사용량 신선도 UI — 사용량을 표시하지 않는 탭(도감/가방/상점)에선
+            // "뭘 갱신하라는 건지" 혼란만 줘서 홈 탭에서만 노출한다. 설정/종료는 전역이라 아래에 그대로 둔다.
+            if nav.tab == .home {
+                // 스피너 스왑을 두지 않는다 — 로컬 파싱이 보이는 오늘 숫자를 즉시 갱신하는데
+                // enrichment/한도(네트워크)까지 기다리는 스피너가 데이터보다 오래 돌아 불필요해 보였다.
+                // 중복 클릭은 refresh() 의 재진입 guard 가 무시하고, 피드백은 아래 "Updated" 시각이 준다.
+                Button {
+                    Task { await store.refresh() }
+                } label: {
+                    Image(systemName: "arrow.clockwise")
+                }
+                .buttonStyle(.borderless)
+                .help(l.refreshNow)
+                if let updated = store.lastUpdated {
+                    (Text("\(l.updated) ") + Text(updated, style: .relative))
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                }
+                if store.lastErrorDescription != nil {
+                    Image(systemName: "exclamationmark.triangle")
+                        .foregroundStyle(.orange)
+                        .help(store.lastErrorDescription ?? "")
+                }
             }
             Spacer()
             Button {

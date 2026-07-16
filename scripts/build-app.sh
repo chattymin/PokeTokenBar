@@ -71,8 +71,14 @@ if security find-identity -v -p codesigning | grep -F "\"$SIGN_IDENTITY\"" >/dev
     # 안정적 자체 서명 신원 → 재빌드해도 Keychain "항상 허용" 유지
     codesign --force -s "$SIGN_IDENTITY" "$APP"
 else
-    # 인증서 없음 → ad-hoc (빌드마다 Keychain 재프롬프트 가능, scripts/create-signing-cert.sh 로 해결)
-    echo "   ('$SIGN_IDENTITY' 유효 codesigning identity 없음 → ad-hoc 서명)"
+    # 인증서 없음 → ad-hoc (빌드마다 cdhash 변경 = Keychain 재프롬프트 가능)
+    if [[ "${PTB_REQUIRE_STABLE_SIGN:-0}" == "1" ]]; then
+        # 릴리스 경로(release.sh 가 세팅). ad-hoc 릴리스는 사용자 Keychain 승인을 깨므로 절대 금지.
+        echo "   ✗ PTB_REQUIRE_STABLE_SIGN=1 인데 '$SIGN_IDENTITY' 유효 identity 없음 → ad-hoc 금지, 중단." >&2
+        echo "     ./scripts/create-signing-cert.sh 실행 후 다시 시도하세요." >&2
+        exit 1
+    fi
+    echo "   ('$SIGN_IDENTITY' 유효 codesigning identity 없음 → ad-hoc 서명 — 로컬 개발용)"
     echo "   반복 Keychain 허용 프롬프트를 줄이려면 ./scripts/create-signing-cert.sh 실행 후 다시 빌드하세요."
     codesign --force -s - "$APP"
 fi
