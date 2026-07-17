@@ -84,7 +84,11 @@ enum LocalUsageReader {
         var out: [Entry] = []
         for line in text.split(separator: "\n", omittingEmptySubsequences: true) {
             guard line.contains("\"usage\""), line.contains("\"assistant\"") else { continue }
-            if let e = parseClaudeLine(String(line), fmt: fmt) { out.append(e) }
+            // 라인마다 autoreleasepool — JSONSerialization 이 만드는 autoreleased NSDictionary/NSString 가
+            // 수천 파일·수만 라인에 걸쳐 배출 없이 누적돼 콜드 파싱 피크를 키우던 것을 즉시 배출.
+            autoreleasepool {
+                if let e = parseClaudeLine(String(line), fmt: fmt) { out.append(e) }
+            }
         }
         return dedupKeepMax(out)
     }
@@ -129,11 +133,13 @@ enum LocalUsageReader {
         var turn = 0
         var model = "gpt-5.5"   // 세션 모델(없으면 기본)
         for line in text.split(separator: "\n", omittingEmptySubsequences: true) {
-            if line.contains("\"model\""), let m = codexModel(String(line)) { model = m }
-            guard line.contains("token_count") else { continue }
-            guard let e = parseCodexLine(String(line), file: url.lastPathComponent, turn: turn, model: model, fmt: fmt) else { continue }
-            turn += 1
-            entries.append(e)
+            autoreleasepool {   // JSONSerialization 의 autoreleased 객체를 라인마다 배출(콜드 파싱 피크 억제)
+                if line.contains("\"model\""), let m = codexModel(String(line)) { model = m }
+                guard line.contains("token_count") else { return }
+                guard let e = parseCodexLine(String(line), file: url.lastPathComponent, turn: turn, model: model, fmt: fmt) else { return }
+                turn += 1
+                entries.append(e)
+            }
         }
         return entries
     }
@@ -202,13 +208,15 @@ enum LocalUsageReader {
             guard let text = String(data: data, encoding: .utf8) else { return [] }
             var lastTimestamp: Date?
             for line in text.split(separator: "\n", omittingEmptySubsequences: true) {
-                guard line.contains("\"tokens\"") || line.contains("\"timestamp\"") else { continue }
-                guard let d = String(line).data(using: .utf8),
-                      let obj = try? JSONSerialization.jsonObject(with: d) as? [String: Any] else { continue }
-                if let ts = (obj["timestamp"] as? String).flatMap({ ISO8601Parser.date(from: $0) }) {
-                    lastTimestamp = ts
+                autoreleasepool {   // JSONSerialization 의 autoreleased 객체를 라인마다 배출(콜드 파싱 피크 억제)
+                    guard line.contains("\"tokens\"") || line.contains("\"timestamp\"") else { return }
+                    guard let d = String(line).data(using: .utf8),
+                          let obj = try? JSONSerialization.jsonObject(with: d) as? [String: Any] else { return }
+                    if let ts = (obj["timestamp"] as? String).flatMap({ ISO8601Parser.date(from: $0) }) {
+                        lastTimestamp = ts
+                    }
+                    absorb(obj, fallbackTimestamp: lastTimestamp)
                 }
-                absorb(obj, fallbackTimestamp: lastTimestamp)
             }
         } else {
             // 레거시 단일 JSON — messages 배열
