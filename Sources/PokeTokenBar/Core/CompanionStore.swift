@@ -297,6 +297,8 @@ final class CompanionStore {
 
     var rareCandyCount: Int { itemCount(.rareCandy) }
     func itemCount(_ kind: ItemKind) -> Int { state.inventory[kind.rawValue] ?? 0 }
+    /// 이로치 부적 보유 여부 — 보유형이라 개수>0 = 소유(부화 shiny 분모를 낮춘다).
+    var ownsShinyCharm: Bool { itemCount(.shinyCharm) > 0 }
 
     /// 소유 아이템(개수>0) — 가방 목록. 정렬은 ItemKind.allCases 순서.
     var ownedItems: [(kind: ItemKind, count: Int)] {
@@ -363,6 +365,7 @@ final class CompanionStore {
     /// 구매 가능 — 잔액이 그 아이템 가격 이상(상점 미판매면 false). 활성/알 무관(재고는 미리 쌓아둘 수 있음).
     func canBuy(_ kind: ItemKind) -> Bool {
         guard let price = kind.shopPrice else { return false }
+        if kind.isPassive && itemCount(kind) > 0 { return false }   // 보유형은 1회만(재구매 불가)
         return availableTokens >= price
     }
 
@@ -371,6 +374,7 @@ final class CompanionStore {
     @discardableResult
     func buy(_ kind: ItemKind) -> Bool {
         guard let price = kind.shopPrice, availableTokens >= price else { return false }
+        if kind.isPassive && itemCount(kind) > 0 { return false }   // 보유형 중복 구매 방지(방어)
         state.spentTokens += price
         state.inventory[kind.rawValue, default: 0] += 1
         save()
@@ -516,6 +520,11 @@ final class CompanionStore {
         rarity == .common && totalForms >= 2 && roll % PokemonOdds.dittoDisguiseDenominator == 0
     }
 
+    /// 이로치 부화 판정(순수) — 미리 뽑은 roll 값 % 분모(부적 보유 48, 없으면 64)==0. (부수효과 없이 xctest)
+    nonisolated static func rollsShiny(roll: UInt64, charmOwned: Bool) -> Bool {
+        roll % (charmOwned ? ShinyCharm.shinyDenominator : PokemonOdds.shinyDenominator) == 0
+    }
+
     /// 실제 부화 로직 — isHatching 락은 호출자(hatch / hatchIfNeeded)가 소유·해제한다.
     private func hatchCore(baseID: Int) async {
         guard let line = try? await provider.line(baseSpeciesID: baseID) else {
@@ -527,7 +536,7 @@ final class CompanionStore {
         let overflow = max(0, state.eggUsage - PokemonBalance.eggHatchThreshold)
         state.eggUsage = 0
         // 개체 롤 — shiny(1/64)·성격(25종)은 부화 순간 확정, 진화해도 유지.
-        let isShiny = rng.next() % PokemonOdds.shinyDenominator == 0
+        let isShiny = Self.rollsShiny(roll: rng.next(), charmOwned: ownsShinyCharm)
         let nature = PokemonNature.allCases[Int(rng.next() % UInt64(PokemonNature.allCases.count))]
         // 메타몽 위장 롤 — common·≥2형태에 한해 1/128. .app 게이트(&& 단락 → 비앱에선 rng 미소비로
         // 기존 테스트 RNG 시퀀스 무영향). 위장/리빌 로직은 상태 기반으로 별도 테스트한다.

@@ -325,6 +325,7 @@ struct L {
         switch kind {
         case .rareCandy: return t("이상한 사탕", "Rare Candy", "ふしぎなアメ")
         case .mint:      return t("민트", "Mint", "ミント")
+        case .shinyCharm: return t("이로치 부적", "Shiny Charm", "ひかるおまもり")
         }
     }
     func itemDescription(_ kind: ItemKind) -> String {
@@ -338,6 +339,10 @@ struct L {
             return t("현재 포켓몬의 성격을 랜덤으로 바꾼다.",
                      "Randomly changes your Pokémon's nature.",
                      "ポケモンのせいかくをランダムに変える。")
+        case .shinyCharm:
+            return t("보유하면 이로치 포켓몬이 태어날 확률이 올라가요.",
+                     "While owned, raises the chance of hatching a shiny.",
+                     "持っていると色違いが生まれる確率が上がります。")
         }
     }
     /// 가방 사용 컨트롤의 효과 힌트 — 민트("성격 랜덤 변경", 사탕의 "+XP" 자리).
@@ -352,6 +357,8 @@ struct L {
     var notEnoughTokens: String { t("토큰이 부족해요", "Not enough tokens", "トークンが足りません") }
     func ownedCount(_ n: Int) -> String { t("보유 ×\(n)", "Owned ×\(n)", "所持 ×\(n)") }
     var shopPriceLabel: String { t("가격", "Price", "価格") }
+    var ownedAlready: String { t("보유 중", "Owned", "所持済み") }
+    var shinyCharmEffectHint: String { t("이로치 확률 ↑ · 적용 중", "Shiny rate ↑ · active", "色違い率↑ · 適用中") }
 
     // MARK: 사탕 획득 알림 ("왜 받는지" = 토큰 한도를 다 채운 수고에 대한 보상)
     func notifCandyTitle(item: String, count: Int) -> String {

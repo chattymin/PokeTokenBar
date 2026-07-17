@@ -86,12 +86,14 @@ enum PokemonBalance {
 enum ItemKind: String, Codable, Sendable, CaseIterable {
     case rareCandy
     case mint
+    case shinyCharm
 
     /// PokéAPI 아이템 스프라이트 파일명(.../sprites/items/{name}.png). nil = 스프라이트 없음(이모지 폴백만).
     var spriteName: String? {
         switch self {
         case .rareCandy: return "rare-candy"
         case .mint: return nil   // PokéAPI 에 민트 스프라이트 없음(8세대 아이템) → 이모지 폴백
+        case .shinyCharm: return "shiny-charm"
         }
     }
     /// 스프라이트 로딩 전/미제공/실패 시 폴백 이모지.
@@ -99,6 +101,7 @@ enum ItemKind: String, Codable, Sendable, CaseIterable {
         switch self {
         case .rareCandy: return "🍬"
         case .mint: return "🌿"
+        case .shinyCharm: return "✨"
         }
     }
     /// 상점 판매가(재화 = 사용한 토큰). nil = 상점 미판매.
@@ -106,6 +109,14 @@ enum ItemKind: String, Codable, Sendable, CaseIterable {
         switch self {
         case .rareCandy: return RareCandy.price
         case .mint: return Mint.price
+        case .shinyCharm: return ShinyCharm.price
+        }
+    }
+    /// 보유형(패시브) 아이템 — 소비하지 않고 보유하는 동안 상시 효과. 1회 구매(재구매 불가), 가방엔 "적용 중" 표시.
+    var isPassive: Bool {
+        switch self {
+        case .rareCandy, .mint: return false
+        case .shinyCharm: return true
         }
     }
 }
@@ -130,6 +141,15 @@ enum Mint {
     /// 사탕(500M)의 1/5로 싸게 둬서 성격을 마음에 들 때까지 굴려보는 가벼운 재미. 성장을 안 줘서
     /// 이중계산 이슈도 없음(가격 = 순수 소비).
     static let price = 100_000_000
+}
+
+/// 이로치 부적 밸런스 상수 — 보유형(1회 구매·영구, 소비 안 됨).
+enum ShinyCharm {
+    /// 상점 구매가. 앞으로의 모든 부화에 적용되는 영구 럭 업그레이드라 프리미엄(레어 1마리 졸업분=3B).
+    static let price = 3_000_000_000
+    /// 보유 시 이로치 부화 확률 분모 — 1/64 → 1/48 (+33%). 본가 '반짝이 부적'(이로치 확률↑) 오마주.
+    /// ×2(1/32)는 과해 절제. 이미 부화한 개체엔 소급 없음(이로치는 부화 순간 확정).
+    static let shinyDenominator: UInt64 = 48
 }
 
 /// 사탕 지급 대상 한도 창의 분류 — session=1개·weekly=weeklyGrant.

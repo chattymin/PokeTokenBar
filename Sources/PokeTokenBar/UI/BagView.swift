@@ -51,8 +51,10 @@ private struct ItemCard: View {
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(spacing: 6) {
                         Text(l.itemName(kind)).font(.callout.weight(.semibold))
-                        Text("×\(count)").font(.caption.weight(.bold))
-                            .foregroundStyle(.secondary).monospacedDigit()
+                        if !kind.isPassive {   // 보유형은 개수 개념이 없음(1회 구매·영구)
+                            Text("×\(count)").font(.caption.weight(.bold))
+                                .foregroundStyle(.secondary).monospacedDigit()
+                        }
                     }
                     Text(l.itemDescription(kind))
                         .font(.caption).foregroundStyle(.secondary)
@@ -72,6 +74,7 @@ private struct ItemCard: View {
         switch kind {
         case .rareCandy: return store.canUseRareCandy
         case .mint:      return store.canUseMint
+        case .shinyCharm: return false   // 보유형 — 사용 개념 없음(상시 효과)
         }
     }
     /// 사용 컨트롤 효과 힌트 ("+XP" / "성격 랜덤 변경").
@@ -79,18 +82,27 @@ private struct ItemCard: View {
         switch kind {
         case .rareCandy: return "+\(TokenFormatter.compact(RareCandy.xp)) XP"
         case .mint:      return l.mintEffectHint
+        case .shinyCharm: return l.shinyCharmEffectHint
         }
     }
     private func performUse() {
         switch kind {
         case .rareCandy: _ = store.useRareCandy()
         case .mint:      _ = store.useMint()
+        case .shinyCharm: break   // 보유형 — 사용 동작 없음
         }
     }
 
     @ViewBuilder
     private func useControls(_ l: L) -> some View {
-        if canUse {
+        if kind.isPassive {
+            // 보유형(이로치 부적) — 사용 버튼 대신 상시 효과 표시.
+            HStack(spacing: 6) {
+                Image(systemName: "checkmark.seal.fill").font(.caption2).foregroundStyle(.green)
+                Text(l.shinyCharmEffectHint).font(.caption2.weight(.semibold)).foregroundStyle(.green)
+                Spacer()
+            }
+        } else if canUse {
             if confirming {
                 HStack(spacing: 8) {
                     Text(l.useOnCurrent(store.displayName))
