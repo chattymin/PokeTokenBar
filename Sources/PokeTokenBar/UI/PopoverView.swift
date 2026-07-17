@@ -229,7 +229,10 @@ struct PopoverView: View {
     /// 선택된 프로바이더에 표시할 공식 한도가 있는가 (Gemini 는 공식 한도 API 없음 → 섹션 생략).
     private var selectedProviderHasLimits: Bool {
         switch selectedSnapshot?.providerID {
-        case "claude_code": return store.limits != nil || store.limitsAuthExpired
+        // Keychain 이 꺼져있지 않으면 한도가 아직 없어도 섹션을 노출한다 — 그래야 최초 실행에
+        // claudeLimitsRefreshRow("탭해서 로드")가 보여, 설정까지 안 들어가도 원탭으로 켤 수 있다.
+        // (자동 Keychain 읽기는 팝업 방지로 여전히 안 함 — 발견성만 살린다.)
+        case "claude_code": return !store.disableKeychainAccess || store.limits != nil || store.limitsAuthExpired
         case "codex": return store.codexLimits?.hasVisibleLimit == true
         default: return false
         }
