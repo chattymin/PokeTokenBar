@@ -55,6 +55,18 @@ private struct FakeCodexLimits: CodexLimitsProviding {
     func fetch() async throws -> CodexRateLimitStatus? { status }
 }
 
+/// 호출마다 allowKeychainPrompt 값을 기록 — 자동/수동 경로가 올바른 플래그를 쓰는지 회귀 검증용.
+private final class RecordingClaudeLimits: ClaudeLimitsProviding, @unchecked Sendable {
+    nonisolated(unsafe) var promptFlags: [Bool] = []
+    nonisolated(unsafe) var status: LimitStatus?
+    init(status: LimitStatus? = nil) { self.status = status }
+    func fetch(allowKeychainPrompt: Bool) async throws -> LimitStatus {
+        promptFlags.append(allowKeychainPrompt)
+        guard let status else { throw LimitsError.keychainInteractionNotAllowed }
+        return status
+    }
+}
+
 private final class FakeStatusProvider: ProviderStatusProviding, @unchecked Sendable {
     nonisolated(unsafe) var result: [String: ProviderStatus]
     init(_ result: [String: ProviderStatus] = [:]) { self.result = result }
@@ -128,6 +140,30 @@ final class UsageStoreTests: XCTestCase {
         return UsageStore(providers: [claude], claudeLimitsProvider: FakeClaudeLimits(status: nil),
                           codexLimitsProvider: FakeCodexLimits(status: nil), statusProvider: stub,
                           autoRefresh: false, defaults: testDefaults)
+    }
+
+    // MARK: Keychain 프롬프트 경로 분리 (회귀)
+
+    /// 회귀 가드: 자동 폴링은 프롬프트 없는 경로(allowKeychainPrompt=false)로만 한도를 조회하고,
+    /// macOS Keychain 암호 다이얼로그를 유발할 수 있는 경로는 사용자 명시 동작(설정/팝오버 버튼)에서만
+    /// 쓴다. 자동 경로에 true 를 넘기면(과거 회귀: 캐시 만료 폴이 하루 몇 번 암호 팝업을 띄움) 실패한다.
+    func testAutoRefreshUsesNoPromptPathManualUsesPromptPath() async {
+        let claude = FakeUsageProvider(id: "claude_code", displayName: "Claude Code", daily: todayDaily(1_000))
+        let limits = RecordingClaudeLimits(status: claudeLimits(fiveHourUtil: 10))
+        let store = UsageStore(providers: [claude],
+                               claudeLimitsProvider: limits,
+                               codexLimitsProvider: FakeCodexLimits(status: nil),
+                               autoRefresh: false,
+                               defaults: testDefaults)
+
+        await store.refresh(scheduleEmptyRetry: false)
+        XCTAssertFalse(limits.promptFlags.isEmpty, "자동 refresh 가 한도를 조회해야 한다")
+        XCTAssertTrue(limits.promptFlags.allSatisfy { $0 == false },
+                      "자동 폴링은 절대 Keychain 프롬프트 경로(true)를 쓰면 안 된다 — 암호 다이얼로그 유발")
+
+        await store.refreshLimitTokenFromKeychain()
+        XCTAssertEqual(limits.promptFlags.last, true,
+                       "수동 갱신(사용자 버튼)만 프롬프트 허용 경로를 쓴다")
     }
 
     // MARK: 프로바이더 상태(인시던트) 표시

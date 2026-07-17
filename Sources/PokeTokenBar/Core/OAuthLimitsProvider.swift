@@ -78,39 +78,29 @@ private actor OAuthAccessTokenCache {
             return cachedCredential.accessToken
         }
 
-        // 자동(무프롬프트) 경로에서 login 키체인이 잠겨 있으면 키체인 접근을 일절 하지 않는다.
-        // no-UI 플래그(kSecUseAuthenticationUIFail/LAContext)는 '인증' 프롬프트만 억제할 뿐
-        // 잠긴 키체인의 '암호 입력' 다이얼로그는 못 막는다 → 잠긴 아침마다 사용자에게 팝업이 뜨는
-        // 결함의 원인. 잠겨 있으면 파일 크리덴셜만 시도하고(키체인 무관), 없으면 조용히 실패한다.
-        if !allowKeychainPrompt, Self.isDefaultKeychainLocked() {
-            if let credential = try Self.readClaudeCredentialsFile() {
-                cachedCredential = credential   // 잠긴 키체인에는 캐시 write 안 함(그 write 도 프롬프트 유발)
-                return credential.accessToken
-            }
-            throw LimitsError.keychainInteractionNotAllowed
-        }
-
+        // 파일 크리덴셜(~/.claude/.credentials.json) — 키체인 무관, 프롬프트 없음.
         if let credential = try Self.readClaudeCredentialsFile() {
             cachedCredential = credential
             return credential.accessToken
         }
-        // 무프롬프트(no-UI) Claude Keychain 읽기. 사용자가 과거 한 번 '항상 허용'했다면
-        // 앱 cdhash 가 항목 ACL 에 등록돼 *프롬프트 없이* 성공한다. 아직 허용 전이거나 접근
-        // 불가면 errSecInteractionNotAllowed 로 조용히 실패 — 다이얼로그가 뜨지 않는다.
-        // 이 경로 덕분에 자동 새로고침이 만료된 토큰을 스스로 재취득해 한도(주간 리셋 포함)를
-        // 갱신한다. 수동 버튼 없이 자동 동작하게 하는 핵심.
-        if let credential = Self.readClaudeKeychainSilently() {
-            cachedCredential = credential
-            return credential.accessToken
-        }
-        // 무프롬프트로 토큰을 못 구함 → 명시적 사용자 동작(설정의 갱신 버튼)일 때만 프롬프트를
-        // 동반해 읽는다(최초 1회 '항상 허용' 유도). 이후엔 위 무프롬프트 경로로 자동 동작한다.
-        // `security` CLI 보조 경로는 별도 신원이라 두 번째 ACL 프롬프트를 띄워 제거함.
+
+        // 자동(타이머) 경로는 Claude Keychain 을 일절 읽지 않는다. no-UI 쿼리(kSecUseAuthenticationUIFail
+        // /LAContext)로도 잠긴·미승인 login 키체인의 '암호 입력' 다이얼로그는 억제되지 않는다 —
+        // 실측: 캐시 만료 폴 도중 SecItemCopyMatching 이 13초간 블록하며 팝업을 띄웠다(하루 몇 회).
+        // → Keychain 읽기는 명시적 사용자 동작(설정/팝오버의 갱신 버튼, allowKeychainPrompt=true)에서만
+        // 수행한다. 캐시된 토큰이 살아있는 동안은 자동 폴링이 그 토큰으로 계속 한도를 갱신하고, 만료되면
+        // 한도는 마지막 값으로 stale 표시된 뒤 사용자가 갱신을 누를 때 재취득된다.
         guard allowKeychainPrompt else {
             throw LimitsError.keychainInteractionNotAllowed
         }
 
-        let credential = try Self.readClaudeKeychain(allowKeychainPrompt: allowKeychainPrompt)
+        // 사용자 동작 경로: 무프롬프트로 먼저 시도(과거 '항상 허용'했다면 조용히 성공), 안 되면 프롬프트를
+        // 동반해 읽어 최초 1회 '항상 허용'을 유도한다.
+        if let credential = Self.readClaudeKeychainSilently() {
+            cachedCredential = credential
+            return credential.accessToken
+        }
+        let credential = try Self.readClaudeKeychain(allowKeychainPrompt: true)
         cachedCredential = credential
         return credential.accessToken
     }
@@ -127,17 +117,6 @@ private actor OAuthAccessTokenCache {
             AppLog.write("silent claude keychain read failed: \(error)")
             return nil
         }
-    }
-
-    /// login(기본) 키체인 잠금 여부. GetStatus 는 프롬프트 없이 상태만 읽는다(안전).
-    /// SecKeychain* 는 deprecated 지만 파일 기반 login 키체인의 잠금 상태를 무프롬프트로 조회하는
-    /// 유일한 API — 대체재 없음. 조회 실패 시 '잠기지 않음'으로 간주(기존 경로 유지, 보수적).
-    private nonisolated static func isDefaultKeychainLocked() -> Bool {
-        var keychain: SecKeychain?
-        guard SecKeychainCopyDefault(&keychain) == errSecSuccess, let keychain else { return false }
-        var status = SecKeychainStatus()
-        guard SecKeychainGetStatus(keychain, &status) == errSecSuccess else { return false }
-        return (status & SecKeychainStatus(kSecUnlockStateStatus)) == 0   // unlock 비트 꺼짐 = 잠김
     }
 
     /// 마지막으로 사용한 자격증명의 플랜 정보. accessToken() 이 모든 경로에서 cachedCredential 을

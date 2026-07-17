@@ -275,6 +275,12 @@ struct PopoverView: View {
                 .foregroundStyle(.secondary)
             if selectedSnapshot?.providerID == "claude_code", store.limitsAuthExpired {
                 claudeAuthExpiredNotice
+            } else if selectedSnapshot?.providerID == "claude_code",
+                      !store.disableKeychainAccess,
+                      store.limits == nil || store.claudeLimitsStale {
+                // 자동 폴링은 Keychain 을 안 읽으므로(팝업 방지), 최초/만료 후 공식 한도는 이 원탭으로
+                // 사용자가 직접 갱신한다. 프롬프트가 뜨더라도 사용자 행동에 의한 것이라 예상 가능하다.
+                claudeLimitsRefreshRow
             }
             if selectedSnapshot?.providerID == "claude_code", let limits = store.limits {
                 // 플랜(계정 속성) — Codex codexMetaRow 와 동일 스타일. 구독 정보 있을 때만 노출.
@@ -282,10 +288,6 @@ struct PopoverView: View {
                     Text(l.plan(plan))
                         .font(.caption)
                         .foregroundStyle(.tertiary)
-                }
-                // 세션 만료 안내가 이미 있으면 stale 배지는 생략(중복 신호 방지)
-                if store.claudeLimitsStale, !store.limitsAuthExpired {
-                    staleBadge(updatedAt: store.limitsUpdatedAt)
                 }
                 // 세션 만료 시 표시값은 만료 전 기준 → 흐리게 처리해 "현재 값 아님"을 시각적으로 전달
                 VStack(alignment: .leading, spacing: 8) {
@@ -420,6 +422,33 @@ struct PopoverView: View {
         }
         .padding(8)
         .background(Color.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
+    }
+
+    /// Claude 공식 한도 — 최초 로드/만료(stale) 시 사용자가 원탭으로 Keychain 을 읽어 갱신.
+    /// 자동 폴링이 Keychain 을 안 읽는 대신 여기서 명시적 사용자 동작으로만 재취득한다.
+    @ViewBuilder
+    private var claudeLimitsRefreshRow: some View {
+        HStack(spacing: 6) {
+            if store.limits == nil {
+                Text(l.limitsTapToLoad)
+                    .font(.caption).foregroundStyle(.secondary)
+            } else {
+                (Text(l.staleLimits) + Text(" · ") + Text(store.limitsUpdatedAt ?? Date(), style: .relative))
+                    .font(.caption).foregroundStyle(.orange)
+            }
+            Spacer()
+            Button {
+                Task { await store.refreshLimitTokenFromKeychain() }
+            } label: {
+                if store.isRefreshingLimitToken {
+                    ProgressView().controlSize(.small)
+                } else {
+                    Text(l.refresh)
+                }
+            }
+            .controlSize(.small)
+            .disabled(store.isRefreshingLimitToken)
+        }
     }
 
     /// 한도 스냅샷 갱신 지연 배지 — Claude/Codex 공용 (마지막 성공 시각 상대 표시).
