@@ -131,7 +131,9 @@ enum LocalUsageReader {
         guard let text = try? String(contentsOf: url, encoding: .utf8) else { return [] }
         var entries: [Entry] = []
         var turn = 0
-        var model = "gpt-5.5"   // 세션 모델(없으면 기본)
+        // 실모델은 아래 codexModel 이 로그에서 동적 추출(신모델 자동 대응). 이 값은 세션에 model 라인이
+        // 아예 없을 때만 쓰는 버전무관 폴백 — Codex 비용은 항상 0이라 표시 숫자엔 영향 없다(업데이트 불필요).
+        var model = "codex"
         for line in text.split(separator: "\n", omittingEmptySubsequences: true) {
             autoreleasepool {   // JSONSerialization 의 autoreleased 객체를 라인마다 배출(콜드 파싱 피크 억제)
                 if line.contains("\"model\""), let m = codexModel(String(line)) { model = m }
