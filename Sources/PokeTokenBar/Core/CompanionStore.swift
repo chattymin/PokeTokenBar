@@ -436,7 +436,7 @@ final class CompanionStore {
     /// companion 이벤트 시스템 알림(.app + 토글 ON 일 때만). 한도 알림과 독립.
     private var notifSeq = 0
     private func notifyCompanionEvent(_ title: String, _ body: String) {
-        guard Bundle.main.bundleIdentifier != nil, Bundle.main.bundlePath.hasSuffix(".app") else { return }
+        guard AppEnv.isBundledApp else { return }
         guard UserDefaults.standard.object(forKey: "companionNotifications") as? Bool ?? true else { return }
         notifSeq += 1
         let content = UNMutableNotificationContent()
@@ -495,7 +495,7 @@ final class CompanionStore {
         guard let line = try? await provider.line(baseSpeciesID: id) else { return }   // 라인 예열
         // 스프라이트 예열 — 부화 직후 보일 것들: base 정적+애니메이션, shiny 롤(1/64) 대비 shiny 애니메이션.
         // .app 번들에서만(단위 테스트가 실네트워크에 닿지 않도록 — 알림과 동일한 게이트).
-        if Bundle.main.bundlePath.hasSuffix(".app") {
+        if AppEnv.isBundledApp {
             _ = await SpriteStore.shared.data(speciesID: line.baseID, animated: false, shiny: false)
             _ = await SpriteStore.shared.data(speciesID: line.baseID, animated: true, shiny: false)
             _ = await SpriteStore.shared.data(speciesID: line.baseID, animated: true, shiny: true)
@@ -511,9 +511,6 @@ final class CompanionStore {
     }
 
     // MARK: 메타몽 위장/리빌
-
-    /// .app 번들 실행 여부 — 알림/프리패치와 동일 게이트. 위장 롤을 실앱에서만 발동(테스트/개발실행 제외).
-    static var isAppBundle: Bool { Bundle.main.bundleIdentifier != nil && Bundle.main.bundlePath.hasSuffix(".app") }
 
     /// 메타몽 위장 롤 판정(순수) — common·≥2형태만, 미리 뽑은 roll 값으로 1/128. (부수효과 없이 xctest)
     nonisolated static func dittoDisguiseHit(rarity: Rarity, totalForms: Int, roll: UInt64) -> Bool {
@@ -541,7 +538,7 @@ final class CompanionStore {
         // 메타몽 위장 롤 — common·≥2형태에 한해 1/128. .app 게이트(&& 단락 → 비앱에선 rng 미소비로
         // 기존 테스트 RNG 시퀀스 무영향). 위장/리빌 로직은 상태 기반으로 별도 테스트한다.
         var dittoDisguise: Int?
-        if Self.isAppBundle, Self.dittoDisguiseHit(rarity: line.rarity, totalForms: line.totalForms, roll: rng.next()) {
+        if AppEnv.isBundledApp, Self.dittoDisguiseHit(rarity: line.rarity, totalForms: line.totalForms, roll: rng.next()) {
             dittoDisguise = line.baseID
         }
         // 위장 중엔 이로치를 숨긴다 — 부화 알림·연출도 일반체로(정체는 리빌 때 공개).

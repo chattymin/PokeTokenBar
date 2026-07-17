@@ -23,7 +23,7 @@ enum AppLog {
         // 실제 .app 실행에서만 기록 — swift test / 로우 바이너리 실행이 프로덕션 로그를 오염시키지
         // 않게(형제 write 경로 writeParitySnapshot·checkLimitNotifications 와 동일 가드). 테스트가
         // 크래시 진단 로그에 fixture 값을 남기고 회전으로 실이력을 밀어내던 결함 차단.
-        guard Bundle.main.bundleIdentifier != nil, Bundle.main.bundlePath.hasSuffix(".app") else { return }
+        guard AppEnv.isBundledApp else { return }
         let line = "[\(ISO8601DateFormatter().string(from: Date()))] \(message)\n"
         queue.async {
             if let size = try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int,

@@ -15,9 +15,7 @@ struct SettingsView: View {
 
     private var l: L { companion.l }
 
-    private var isBundledApp: Bool {
-        Bundle.main.bundlePath.hasSuffix(".app")
-    }
+    private var isBundledApp: Bool { AppEnv.isBundledApp }
 
     /// 현재 앱 버전 — 업데이트 적용 여부 확인용으로 설정창 하단에 표기.
     private static var appVersion: String {

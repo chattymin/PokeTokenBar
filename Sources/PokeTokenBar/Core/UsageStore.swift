@@ -704,7 +704,7 @@ final class UsageStore {
     /// 팝오버 첫 오픈 등 사용자 의도 시점에 1회만 알림 권한 요청(멱등).
     func requestNotificationAuthorizationIfNeeded() {
         guard !notifAuthRequested else { return }
-        guard Bundle.main.bundleIdentifier != nil, Bundle.main.bundlePath.hasSuffix(".app") else { return }
+        guard AppEnv.isBundledApp else { return }
         notifAuthRequested = true
         UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
     }
@@ -747,7 +747,7 @@ final class UsageStore {
 
     private func checkLimitNotifications() {
         guard limitNotifications else { return }
-        guard Bundle.main.bundleIdentifier != nil, Bundle.main.bundlePath.hasSuffix(".app") else { return }
+        guard AppEnv.isBundledApp else { return }
         let l = L(localizationLanguage)
         // (유일 key, 표시 name, utilization). key 는 창 정체성(tier·identifier), name 은 알림 본문.
         // 팝오버가 한도 행으로 보여주는 모든 창을 알림 대상에 1:1 로 포함한다(표시=알림 일치).
@@ -810,7 +810,7 @@ final class UsageStore {
 
     private func writeParitySnapshot() {
         // .app 번들에서만 기록 — 테스트가 실제 사용자 데이터 디렉토리의 스냅샷을 덮어쓰지 않도록.
-        guard Bundle.main.bundlePath.hasSuffix(".app") else { return }
+        guard AppEnv.isBundledApp else { return }
         let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("PokeTokenBar")
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
