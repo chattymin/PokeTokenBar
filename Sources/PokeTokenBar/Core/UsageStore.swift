@@ -62,6 +62,10 @@ final class UsageStore {
     var companionNotifications: Bool {
         didSet { defaults.set(companionNotifications, forKey: "companionNotifications") }
     }
+    /// 새 버전 알림(팝오버 업데이트 배너) 표시 여부 — 기본 켬. 끄면 배너 숨김(수동 확인은 설정에서 가능).
+    var updateNotificationsEnabled: Bool {
+        didSet { defaults.set(updateNotificationsEnabled, forKey: "updateNotificationsEnabled") }
+    }
     /// 프로바이더 상태(인시던트) 조회 — 기본 켬. 표시 전용(알림 아님). Claude/OpenAI statuspage.io.
     var statusChecksEnabled: Bool {
         didSet { defaults.set(statusChecksEnabled, forKey: "statusChecksEnabled") }
@@ -324,6 +328,7 @@ final class UsageStore {
         showLimitInMenu = d.object(forKey: "showLimitInMenu") as? Bool ?? false
         limitNotifications = d.object(forKey: "limitNotifications") as? Bool ?? true
         companionNotifications = d.object(forKey: "companionNotifications") as? Bool ?? true
+        updateNotificationsEnabled = d.object(forKey: "updateNotificationsEnabled") as? Bool ?? true
         statusChecksEnabled = d.object(forKey: "statusChecksEnabled") as? Bool ?? true
         disableKeychainAccess = d.object(forKey: "disableKeychainAccess") as? Bool ?? false
 

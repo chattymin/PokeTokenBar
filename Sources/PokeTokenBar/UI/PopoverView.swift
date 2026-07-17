@@ -36,6 +36,7 @@ struct PopoverView: View {
                 SettingsView(onClose: { nav.showSettings = false })
                     .environment(store)
                     .environment(companion)
+                    .environment(updater)
             } else {
                 mainContent
             }
@@ -45,7 +46,7 @@ struct PopoverView: View {
 
     @ViewBuilder
     private var updateBanner: some View {
-        if let update = updater.available {
+        if let update = updater.available, store.updateNotificationsEnabled {
             HStack(spacing: 8) {
                 Text(l.updateAvailable(update.version, current: updater.currentVersion))
                     .font(.caption)

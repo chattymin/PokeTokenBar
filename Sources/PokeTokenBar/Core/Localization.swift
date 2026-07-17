@@ -289,6 +289,12 @@ struct L {
     var updateButton: String { t("업데이트", "Update", "更新") }
     var updateLater: String { t("나중에", "Later", "後で") }
     var updating: String { t("업데이트 중…", "Updating…", "更新中…") }
+    var updateSectionTitle: String { t("업데이트", "Updates", "アップデート") }
+    var updateNotificationsLabel: String { t("업데이트 알림", "Update notifications", "アップデート通知") }
+    var checkForUpdatesLabel: String { t("업데이트 확인", "Check for updates", "アップデートを確認") }
+    var checkNowButton: String { t("지금 확인", "Check now", "今すぐ確認") }
+    func updateFound(_ version: String) -> String { t("새 버전 v\(version) 있어요", "Version \(version) is available", "バージョン \(version) が利用可能です") }
+    func upToDate(_ version: String) -> String { t("최신 버전이에요 (v\(version))", "You're on the latest (v\(version))", "最新です (v\(version))") }
 
     // MARK: 알림
     var notifCritical: String { t("한도 임박", "Limit imminent", "上限切迫") }

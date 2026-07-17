@@ -3,12 +3,15 @@ import SwiftUI
 struct SettingsView: View {
     @Environment(UsageStore.self) private var store
     @Environment(CompanionStore.self) private var companion
+    @Environment(UpdateChecker.self) private var updater
     /// 팝오버 내부 화면 전환 방식 — sheet/dismiss 를 쓰지 않는다 (PopoverView 의 NOTE 참조)
     var onClose: () -> Void
     @State private var launchAtLogin = LoginItem.isEnabled
     @State private var launchAtLoginError: String?
     @State private var reportError: String?
     @State private var advancedExpanded = false
+    @State private var isCheckingUpdate = false
+    @State private var didCheckUpdate = false
 
     private var l: L { companion.l }
 
@@ -33,6 +36,7 @@ struct SettingsView: View {
                     generalGroup(store)
                     menuBarGroup(store)
                     notificationsGroup(store)
+                    updateGroup(store)
                     advancedGroup(store)
                     aboutSupportGroup
                 }
@@ -183,6 +187,48 @@ struct SettingsView: View {
                 Spacer()
                 Toggle("", isOn: $store.statusChecksEnabled)
                     .labelsHidden().toggleStyle(.switch).controlSize(.small)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func updateGroup(_ store: UsageStore) -> some View {
+        @Bindable var store = store
+        settingsSection(l.updateSectionTitle) {
+            toggleRow(l.updateNotificationsLabel, $store.updateNotificationsEnabled)
+            Divider()
+            groupRow {
+                Text(l.checkForUpdatesLabel)
+                Spacer()
+                Button {
+                    isCheckingUpdate = true
+                    Task {
+                        await updater.check(minInterval: 0)   // 수동 확인 — 레이트리밋 우회(강제 조회)
+                        isCheckingUpdate = false
+                        didCheckUpdate = true
+                    }
+                } label: {
+                    if isCheckingUpdate {
+                        ProgressView().controlSize(.small)
+                    } else {
+                        Text(l.checkNowButton)
+                    }
+                }
+                .disabled(isCheckingUpdate)
+            }
+            // 확인 결과 — 알림을 꺼둔 사용자도 여기서 새 버전을 알고 바로 적용할 수 있게 업데이트 버튼을 함께 노출.
+            if didCheckUpdate, !isCheckingUpdate {
+                Divider()
+                groupRow {
+                    if let version = updater.available?.version {
+                        Text(l.updateFound(version)).font(.caption).foregroundStyle(.orange)
+                        Spacer()
+                        Button(l.updateButton) { updater.applyUpdate() }.controlSize(.small)
+                    } else {
+                        Text(l.upToDate(Self.appVersion)).font(.caption).foregroundStyle(.secondary)
+                        Spacer()
+                    }
+                }
             }
         }
     }
