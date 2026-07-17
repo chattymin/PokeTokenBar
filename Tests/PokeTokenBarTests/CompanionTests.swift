@@ -695,7 +695,13 @@ final class CompanionIdentityTests: XCTestCase {
         await s.hatchIfNeeded()                        // 여전히 오프라인 → 알 유지
         XCTAssertNil(s.state.active)
         p.failAll = false                              // 네트워크 복구
-        await s.hatchIfNeeded()                        // 부화 시점 롤 폴백
+        // 초기 update() 가 띄운 프리패치 Task 가 아직 in-flight 면 hatchIfNeeded 가 prefetchInFlight
+        // 가드로 조기 반환할 수 있다(고정 yield 횟수로는 CI 스케줄 지연에서 못 소진 — 플래키 원인).
+        // 부화할 때까지 재시도해 결정적으로 만든다(in-flight 는 몇 틱 내 실패로 해제됨).
+        for _ in 0..<50 where s.state.active == nil {
+            await s.hatchIfNeeded()                    // 부화 시점 롤 폴백
+            await Task.yield()
+        }
         XCTAssertEqual(s.state.active?.baseID, 88)
     }
 
