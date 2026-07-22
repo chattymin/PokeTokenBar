@@ -1,5 +1,7 @@
 # Contributing to PokeTokenBar
 
+**English** · [한국어](CONTRIBUTING.ko.md) · [日本語](CONTRIBUTING.ja.md)
+
 Thanks for your interest in contributing! PokeTokenBar is a small, non-commercial
 fan project, and contributions of all sizes are welcome — bug reports, fixes,
 new usage providers, translations, and documentation.
