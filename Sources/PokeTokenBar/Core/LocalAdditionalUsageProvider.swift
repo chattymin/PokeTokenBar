@@ -107,8 +107,8 @@ private actor LocalAdditionalUsageCache {
     }
 }
 
-/// Native parsers derived from the corresponding ccusage adapters.
-/// ccusage is a format reference only; it is never installed or launched.
+/// Native parsers for the OpenCode / Hermes on-disk usage formats
+/// (SQLite + legacy JSON). No external usage CLI is installed or launched.
 enum LocalAdditionalUsageReader {
     typealias Object = [String: Any]
 
