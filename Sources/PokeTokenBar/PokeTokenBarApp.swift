@@ -197,8 +197,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             guard let data else { return }
             let raw = GIFDecoder.frames(from: data)
             guard raw.count > 1, gen == self.menuLoadGen else { return }
-            // 메뉴바 GIF 는 delay 하한 0.2s(≈5fps)로 캡 — 22px 스프라이트엔 충분하고 저전력.
-            self.setMenuFrames(raw.map { (Self.menuBarImage(from: $0.image, up: false), max(0.2, $0.delay)) })
+            // 메뉴바 GIF delay 하한 0.4s(≈2.5fps)로 캡 — 22px 스프라이트엔 5fps와 구분 안 되고, 프레임당
+            // 상태바 재합성(CA 커밋 → 디스플레이 사이클 wakeup)을 절반으로 줄여 배터리 절약. bob(0.5s/2fps)과 유사.
+            self.setMenuFrames(raw.map { (Self.menuBarImage(from: $0.image, up: false), max(0.4, $0.delay)) })
         }
     }
 
@@ -208,11 +209,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         advanceMenu()
     }
 
-    /// 상태아이템 이미지 교체 — 암묵적 CA 전환(NSStatusItemScene updateSettings:transition) 억제.
-    /// 레이어 백드 NSStatusBarButton 은 button.image 대입마다 전환 애니메이션을 돌려 상태바를 재합성한다
-    /// (측정: idle CPU 주범 — updateSettings:transition → NSAnimationContext runAnimationGroup → 셀 리드로우).
-    /// setDisableActions 로 전환 없이 즉시 반영해 프레임당 비용을 값싼 리드로우로 낮춘다.
+    private var lastStatusImage: NSImage?
+
+    /// 상태아이템 이미지 교체. ① **diff-gate**: 같은 이미지 재대입이면 스킵 — 레이어 dirty → CA 커밋 →
+    /// WindowServer 디스플레이 사이클 왕복(= idle wakeup)을 제거한다(배터리). 단일프레임 스프라이트·중복
+    /// advanceMenu 패스에서 같은 프레임을 반복 대입하던 것을 걸러낸다(애니메이션 프레임은 서로 다른 객체라
+    /// 정상 통과). ② **암묵적 CA 전환 억제**: 레이어 백드 NSStatusBarButton 은 대입마다 NSStatusItemScene
+    /// 전환 애니메이션을 돌려 상태바를 재합성한다(측정: idle CPU 주범) → setDisableActions 로 전환 없이 즉시 반영.
     private func setStatusImage(_ image: NSImage?) {
+        guard image !== lastStatusImage else { return }
+        lastStatusImage = image
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         statusItem.button?.image = image
@@ -236,7 +242,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
                 self.advanceMenu()
             }
         }
-        timer.tolerance = frame.delay * 0.3   // 웨이크업 코얼레싱 (배터리)
+        timer.tolerance = frame.delay * 0.5   // 웨이크업 코얼레싱 (배터리) — 넓힐수록 다른 wakeup 과 합쳐짐
         RunLoop.main.add(timer, forMode: .common)
         menuTimer = timer
     }
