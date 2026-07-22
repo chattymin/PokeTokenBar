@@ -208,6 +208,7 @@ struct L {
     // MARK: 도감 요약 헤더
     var dexTitle: String { t("도감", "Pokédex", "図鑑") }
     func dexTotal(_ n: Int) -> String { t("총 \(n)마리", "\(n) total", "全\(n)匹") }
+    var dexRaising: String { t("키우는 중", "Raising", "育成中") }
     var rarityCommon: String { t("일반", "Common", "ノーマル") }
     var rarityUncommon: String { t("고급", "Uncommon", "アンコモン") }
     var rarityRare: String { t("희귀", "Rare", "レア") }

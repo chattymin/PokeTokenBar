@@ -504,6 +504,14 @@ private struct DexEntryRow: View {
                     .padding(.horizontal, 5).padding(.vertical, 1)
                     .background(rarityColor(entry.rarity)).foregroundStyle(.white)
                     .clipShape(Capsule())
+                if store.isActiveDexEntry(entry) {
+                    Text(store.l.dexRaising.uppercased())
+                        .font(.system(size: 8, weight: .bold))
+                        .padding(.horizontal, 5).padding(.vertical, 1)
+                        .background(Color.accentColor.opacity(0.14))
+                        .foregroundStyle(Color.accentColor)
+                        .clipShape(Capsule())
+                }
                 if entry.isShiny { Text("✨").font(.system(size: 10)) }
                 Spacer()
                 if let nature = entry.nature {

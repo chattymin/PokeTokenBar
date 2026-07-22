@@ -262,6 +262,28 @@ final class CompanionStoreTests: XCTestCase {
         XCTAssertEqual(s.dexCount(.uncommon), 1)
     }
 
+    /// [회귀] 현재 키우는 common 포켓몬은 더 희귀한 졸업 항목보다도 위에 고정된다.
+    /// caughtAt 이 없는 구버전 졸업 항목은 active 로 오인하지 않는다.
+    func testActiveCompanionPinnedBeforeGraduatedEntries() throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("poke-active-sort-\(UUID().uuidString).json")
+        let json = #"{"active":{"baseID":1,"pathIDs":[1],"stageIndex":0,"usedAtStage":5,"rarity":"common","totalForms":3},"dex":[{"id":"legacy-graduated","baseID":150,"finalID":150,"chainOrder":[150],"rarity":"legendary"}]}"#
+        try json.data(using: .utf8)!.write(to: url)
+
+        let s = CompanionStore(provider: StubProvider(value: linear3), clock: { fixedNow },
+                               fileURL: url, rng: SeededRNG(seed: 7))
+        let sorted = s.dexEntriesSorted
+
+        XCTAssertEqual(sorted.map(\.id), ["active-1-1", "legacy-graduated"])
+        XCTAssertTrue(s.isActiveDexEntry(sorted[0]))
+        XCTAssertFalse(s.isActiveDexEntry(sorted[1]), "caughtAt=nil 만으로 active 를 판별하면 안 됨")
+    }
+
+    func testDexRaisingLabelLocalized() {
+        XCTAssertEqual(L(.en).dexRaising, "Raising")
+        XCTAssertEqual(L(.ko).dexRaising, "키우는 중")
+        XCTAssertEqual(L(.ja).dexRaising, "育成中")
+    }
+
     func testEggOverflowCarriesToHatchedMon() async {
         let s = store(linear3)
         base(s)

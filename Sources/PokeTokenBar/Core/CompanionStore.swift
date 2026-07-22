@@ -155,14 +155,22 @@ final class CompanionStore {
         return state.dex + [activeDexEntry]
     }
 
-    /// 도감 표시 순서 — 희귀도 내림차순(legendary→common), 동급은 잡은 시각 최신순.
+    /// 합성된 현재 포켓몬 항목인지 판별한다. caughtAt 이 없는 구버전 졸업 항목과 혼동하지 않는다.
+    func isActiveDexEntry(_ entry: DexEntry) -> Bool {
+        entry.id == activeDexEntry?.id
+    }
+
+    /// 도감 표시 순서 — 현재 키우는 포켓몬을 맨 앞에 고정하고, 졸업 항목은 희귀도 내림차순
+    /// (legendary→common), 동급은 잡은 시각 최신순으로 정렬한다.
     var dexEntriesSorted: [DexEntry] {
-        dexEntries.sorted { a, b in
+        let graduated = state.dex.sorted { a, b in
             if a.rarity.sortRank != b.rarity.sortRank { return a.rarity.sortRank > b.rarity.sortRank }
             let ta = a.caughtAt ?? .distantPast
             let tb = b.caughtAt ?? .distantPast
             return ta > tb
         }
+        guard let activeDexEntry else { return graduated }
+        return [activeDexEntry] + graduated
     }
 
     /// 희귀도별 도감 개수(요약 헤더용).
