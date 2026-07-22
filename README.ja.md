@@ -144,6 +144,10 @@ swift test                   # ユニットテスト
 - **Keychain（任意）。** 公式の上限を表示するため、Claude OAuth 資格情報を **1回**（パスワードのプロンプト1回）読み取り、アプリ自身の Keychain 項目にキャッシュして再利用します。設定でオフにすると上限セクションが非表示になります。
 - **ポケモンのアセット** はランタイムに PokéAPI から取得し、`~/Library/Application Support/PokeTokenBar/` にのみキャッシュされます。著作物はこのリポジトリやリリースにバンドルしません。
 
+## コントリビューター
+
+[![Contributors](https://contrib.rocks/image?repo=chattymin/PokeTokenBar)](https://github.com/chattymin/PokeTokenBar/graphs/contributors)
+
 ## ライセンス & 免責
 
 **MIT** — [LICENSE](LICENSE) を参照。MIT は本プロジェクトの**オリジナルソースコードのみ**を対象とし、アプリを通じてアクセスされる第三者の商標・アートワーク・データに関する権利を付与するものではありません。

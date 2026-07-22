@@ -144,6 +144,10 @@ swift test                   # 단위 테스트
 - **Keychain(선택).** 공식 한도를 보여주려면 Claude OAuth 자격증명을 **1회**(비밀번호 프롬프트 1번) 읽고, 앱 자체 Keychain 항목에 캐시해 재사용합니다. 설정에서 끄면 한도 섹션만 숨겨집니다.
 - **포켓몬 에셋**은 런타임에 PokéAPI에서 받아오며 `~/Library/Application Support/PokeTokenBar/`에만 캐시됩니다. 저작물은 레포나 릴리스에 번들하지 않습니다.
 
+## 기여자
+
+[![Contributors](https://contrib.rocks/image?repo=chattymin/PokeTokenBar)](https://github.com/chattymin/PokeTokenBar/graphs/contributors)
+
 ## 라이선스 & 면책
 
 **MIT** — [LICENSE](LICENSE) 참고. MIT는 본 프로젝트의 **원본 소스 코드에만** 적용되며, 앱을 통해 접근하는 제3자의 상표·아트워크·데이터에 대한 권리는 부여하지 않습니다.
