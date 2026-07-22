@@ -19,6 +19,9 @@ enum LocalUsageReader {
         let localDay: String
         let model: String
         let input, output, cacheWrite, cacheRead: Int
+        /// Some agents persist the exact charge alongside token usage. Prefer it over
+        /// model-table pricing when present so local reports match the source of truth.
+        var explicitCost: Double? = nil
         var total: Int { input + output + cacheWrite + cacheRead }
     }
 
@@ -28,8 +31,9 @@ enum LocalUsageReader {
         var total: Int { input + output + cacheWrite + cacheRead }
         mutating func add(_ e: Entry) {
             input += e.input; output += e.output; cacheWrite += e.cacheWrite; cacheRead += e.cacheRead
-            cost += ModelPricing.cost(model: e.model, input: e.input, output: e.output,
-                                      cacheWrite: e.cacheWrite, cacheRead: e.cacheRead)
+            cost += e.explicitCost.flatMap { $0 > 0 ? $0 : nil }
+                ?? ModelPricing.cost(model: e.model, input: e.input, output: e.output,
+                                     cacheWrite: e.cacheWrite, cacheRead: e.cacheRead)
         }
     }
 

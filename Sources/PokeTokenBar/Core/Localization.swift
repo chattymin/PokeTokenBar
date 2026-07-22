@@ -230,9 +230,9 @@ struct L {
     var eggImminent: String { t("곧 부화해요!", "About to hatch!", "もうすぐ孵化！") }
     /// 첫 실행(아직 토큰 적립 0) 안내 — "왜 아무 일도 안 일어나지"를 방지.
     var eggFirstRunHint: String {
-        t("로컬 Claude·Codex·Gemini 로그의 사용량으로 자라요. 약 5M 토큰을 쓰면 알이 부화해요.",
-          "Grows from your local Claude/Codex/Gemini usage. Your egg hatches after ~5M tokens.",
-          "ローカルの Claude・Codex・Gemini の使用量で育ちます。約5Mトークンでタマゴが孵化します。") }
+        t("로컬 AI 코딩 도구의 사용량으로 자라요. 약 5M 토큰을 쓰면 알이 부화해요.",
+          "Grows from your local AI coding usage. Your egg hatches after ~5M tokens.",
+          "ローカルの AI コーディング使用量で育ちます。約5Mトークンでタマゴが孵化します。") }
     var notifEvolveTitle: String { t("✨ 진화!", "✨ Evolved!", "✨ 進化！") }
     func notifEvolveBody(_ name: String) -> String { t("\(name)(으)로 진화했어요!", "Evolved into \(name)!", "\(name) に進化しました！") }
     // 메타몽 위장 리빌 — 진화 못 하는 메타몽이 첫 진화 순간 정체를 드러낸다.

@@ -308,7 +308,10 @@ final class UsageStore {
 
     // MARK: 생명주기
 
-    init(providers: [any UsageProvider] = [LocalClaudeProvider(), LocalCodexProvider(), LocalGeminiProvider()],
+    init(providers: [any UsageProvider] = [
+        LocalClaudeProvider(), LocalCodexProvider(), LocalGeminiProvider(),
+        LocalOpenCodeProvider(), LocalHermesProvider(),
+    ],
          claudeLimitsProvider: any ClaudeLimitsProviding = OAuthLimitsProvider(),
          codexLimitsProvider: any CodexLimitsProviding = CodexRateLimitsProvider(),
          statusProvider: any ProviderStatusProviding = StatuspageStatusProvider(),

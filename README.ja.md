@@ -17,9 +17,9 @@
 
 </div>
 
-PokeTokenBar は、あなたがすでに使っている AI コーディングトークン（Claude Code・Codex・Gemini CLI）を、macOS メニューバーの中で育っていく **ポケモンのパートナー** に変えます。トークンを使うとタマゴが孵化し、実際の進化ラインに沿って進化し、最終進化後に図鑑へ卒業して、また新しいタマゴが始まります。パートナーの下には正確な使用量トラッカーがあります — 今日の使用量・コスト、公式の5時間／週間上限を、ローカルログから直接読み取ります。
+PokeTokenBar は、あなたがすでに使っている AI コーディングトークン（Claude Code・Codex・Gemini CLI・OpenCode・Hermes Agent）を、macOS メニューバーの中で育っていく **ポケモンのパートナー** に変えます。トークンを使うとタマゴが孵化し、実際の進化ラインに沿って進化し、最終進化後に図鑑へ卒業して、また新しいタマゴが始まります。パートナーの下には正確な使用量トラッカーがあります — 今日の使用量・コスト、公式の5時間／週間上限をローカルログから直接読み取ります。
 
-> トークン使用量はローカルの Claude Code・Codex・Gemini CLI ログから直接読み取ります（`totalTokens` = input + output + cache、ローカル日付）— 外部 CLI 不要。非公式・非商用のポケモンファンプロジェクトです — [ライセンス & 免責](#ライセンス--免責) を参照。
+> トークン使用量はローカルの Claude Code・Codex・Gemini CLI・OpenCode・Hermes Agent データから直接読み取ります（`totalTokens` = input + output + cache、ローカル日付）— 外部 CLI 不要。非公式・非商用のポケモンファンプロジェクトです — [ライセンス & 免責](#ライセンス--免責) を参照。
 
 ## なぜ
 
@@ -33,7 +33,7 @@ PokeTokenBar は、あなたがすでに使っている AI コーディングト
 
 ## しくみ
 
-1. 🥚 **いつも通りコーディング。** Claude Code・Codex・Gemini CLI で使うトークンがタマゴを温めます — 追加の設定は不要。
+1. 🥚 **いつも通りコーディング。** 対応しているコーディングツールで使うトークンがタマゴを温めます — 追加の操作は不要です。
 2. 🐣 **孵化。** [PokéAPI](https://pokeapi.co/) の**第1〜5世代すべての進化系統（起点329種）**から、公式の捕獲率で重み付けされて生まれます — よくいるポケモンは頻繁に、伝説は129回に1回。孵化ごとに25種類のせいかくがひとつ決まり — **ごくまれな偶然で ✨ 色違いが生まれます**。
 3. ⚡ **進化。** コーディングを続けると実際の進化ツリー（1/2/3段階、分岐）に沿って育ち、各段階で小さな演出が流れます。
 4. 🎓 **卒業 & 収集。** 最終進化 + 閾値で **図鑑** に保存されます — レアなほど時間がかかり（ヘビーユーザーで common ≈3日 → legendary ≈24日）— 新しいタマゴが届きます。
@@ -89,7 +89,7 @@ PokeTokenBar は、あなたがすでに使っている AI コーディングト
 
 ## そのほかにも
 
-- **サービス別タブ** — 2つ以上接続すると小さなタブで詳細・上限をサービスごとに切替（今日の合計は合算のまま）。
+- **サービス別タブ** — 検出されたコーディングツールが2つ以上あると、小さなタブでサービス別の詳細を切替（今日の合計は合算のまま）。
 - **公式の上限** — Claude・Codex の5時間／週間使用率とリセットのカウントダウンを、今日の数字のすぐ下に。
 - **消費予測** — 現在の5時間ウィンドウが100%に達する時刻を予測。
 - **アプリ内アップデート** — ワンクリックの更新確認、設定に現在のバージョンを表示。
@@ -98,7 +98,7 @@ PokeTokenBar は、あなたがすでに使っている AI コーディングト
 
 ### 必要条件
 
-macOS 14+（Apple Silicon または Intel）。それだけ — トークン使用量はローカルの Claude Code / Codex / Gemini CLI ログから直接読み取り、外部 CLI は不要です。
+macOS 14+（Apple Silicon または Intel）。それだけ — トークン使用量はローカルデータから直接読み取り、外部 CLI は不要です。
 
 ### Homebrew
 
@@ -134,13 +134,15 @@ swift test                   # ユニットテスト
 | `~/.claude/projects/**/*.jsonl` | Claude Code daily/blocks/weekly/monthly | 直接読み取り；メッセージ id で重複排除；増分キャッシュ |
 | `~/.gemini/tmp/**/chats/*.json(l)` | Gemini CLI daily/monthly | セッションレコード（メッセージ別 `tokens`）；週間 = daily 合算 |
 | `~/.codex/sessions/**/*.jsonl` | Codex daily/monthly | `token_count` イベント；週間 = daily 合算 |
+| `~/.local/share/opencode/opencode.db` | OpenCode daily/blocks/weekly/monthly | SQLite 読み取り専用；レガシー `storage/message` JSON にも対応 |
+| `~/.hermes/state.db` | Hermes Agent daily/blocks/weekly/monthly | SQLite 読み取り専用；セッショントークン合計と保存済みコスト |
 | Keychain → `oauth/usage` | Claude 公式 5h/週間 % | 非公式 endpoint；Keychain プロンプト1回後にキャッシュ |
 | `codex app-server` | Codex 公式 5h/週間 % | アカウント snapshot のみ；モデル turn なし |
 | [PokéAPI](https://pokeapi.co/) | ポケモンの種・進化・スプライト | ランタイム取得；ローカルキャッシュ、バンドルしない |
 
 ## プライバシー & 権限
 
-- **オンデバイス。** トークン使用量はローカルの Claude Code / Codex / Gemini CLI ログから直接読み取り、アプリは `claude`/`codex` のモデル turn を実行せず、使用量のみ読み取ります。
+- **オンデバイス。** トークン使用量はローカルの Claude Code・Codex・Gemini CLI・OpenCode・Hermes Agent データから直接読み取ります。使用量のアップロードやモデル turn の実行は行いません。
 - **Keychain（任意）。** 公式の上限を表示するため、Claude OAuth 資格情報を **1回**（パスワードのプロンプト1回）読み取り、アプリ自身の Keychain 項目にキャッシュして再利用します。設定でオフにすると上限セクションが非表示になります。
 - **ポケモンのアセット** はランタイムに PokéAPI から取得し、`~/Library/Application Support/PokeTokenBar/` にのみキャッシュされます。著作物はこのリポジトリやリリースにバンドルしません。
 
