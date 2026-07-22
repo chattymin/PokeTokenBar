@@ -146,6 +146,8 @@ swift test                   # ユニットテスト
 
 ## コントリビューター
 
+大小を問わずあらゆる貢献を歓迎します — ビルド・テスト・プルリクエストの方法は [CONTRIBUTING.ja.md](CONTRIBUTING.ja.md) をご覧ください。
+
 [![Contributors](https://contrib.rocks/image?repo=chattymin/PokeTokenBar)](https://github.com/chattymin/PokeTokenBar/graphs/contributors)
 
 ## ライセンス & 免責

@@ -146,6 +146,8 @@ swift test                   # unit tests
 
 ## Contributors
 
+Contributions of all sizes are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md) for how to build, test, and open a pull request.
+
 [![Contributors](https://contrib.rocks/image?repo=chattymin/PokeTokenBar)](https://github.com/chattymin/PokeTokenBar/graphs/contributors)
 
 ## License & disclaimer

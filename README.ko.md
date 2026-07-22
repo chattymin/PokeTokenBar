@@ -146,6 +146,8 @@ swift test                   # 단위 테스트
 
 ## 기여자
 
+크기에 상관없이 모든 기여를 환영합니다 — 빌드·테스트·풀 리퀘스트 방법은 [CONTRIBUTING.ko.md](CONTRIBUTING.ko.md)를 참고하세요.
+
 [![Contributors](https://contrib.rocks/image?repo=chattymin/PokeTokenBar)](https://github.com/chattymin/PokeTokenBar/graphs/contributors)
 
 ## 라이선스 & 면책
