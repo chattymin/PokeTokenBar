@@ -33,7 +33,7 @@ PokeTokenBar turns the AI coding tokens you're already burning — Claude Code, 
 
 ## How it works
 
-1. 🥚 **Code as usual.** The tokens you burn in a supported coding assistant incubate an egg — nothing extra to run.
+1. 🥚 **Code as usual.** The tokens you burn in Claude Code, Codex, Gemini CLI, OpenCode, or Hermes Agent incubate an egg — nothing extra to run.
 2. 🐣 **Hatch.** Eggs hatch into Pokémon with real evolution lines from [PokéAPI](https://pokeapi.co/) — any Gen 1–5 line (329 possible starts), weighted by the official capture rate: commons hatch often, a legendary is a 1-in-129 event. Every hatch rolls one of 25 natures — and once in a rare while, the egg hatches **✨ Shiny**.
 3. ⚡ **Evolve.** Keep coding and it grows through its actual evolution tree (1/2/3 stages, branching), with a little flash celebration at each step.
 4. 🎓 **Graduate & collect.** Final form + threshold sends it to your **Pokédex** — rarer takes longer (≈3 days common → ≈24 days legendary at heavy use) — and a fresh egg arrives.
@@ -89,7 +89,7 @@ The tokens you've already used are your currency. Spend them in the new <b>Shop<
 
 ## Also in the box
 
-- **Per-service tabs** — compact tabs switch between every detected coding assistant; today's total stays combined.
+- **Per-service tabs** — when two or more of Claude Code, Codex, Gemini CLI, OpenCode, and Hermes Agent are detected, compact tabs switch between them; today's total stays combined.
 - **Official limits** — Claude & Codex 5-hour / weekly utilization with reset countdowns, right under today's numbers.
 - **Burn-rate forecast** — projects when the current 5h window hits 100%.
 - **In-app updates** — one-click update check; current version shown in Settings.
@@ -98,7 +98,7 @@ The tokens you've already used are your currency. Spend them in the new <b>Shop<
 
 ### Requirements
 
-macOS 14+ (Apple Silicon or Intel). That's it — token usage is read directly from local data, with no external CLI required.
+macOS 14+ (Apple Silicon or Intel). That's it — token usage is read directly from local Claude Code, Codex, Gemini CLI, OpenCode, and Hermes Agent data, with no external usage CLI required.
 
 ### Homebrew
 
