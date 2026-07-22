@@ -1,4 +1,5 @@
 import AppKit
+import QuartzCore
 import SwiftUI
 
 @main
@@ -13,7 +14,7 @@ struct PokeTokenBarApp: App {
 }
 
 @MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private var statusItem: NSStatusItem!
     private let popover = NSPopover()
     private var store: UsageStore!
@@ -49,7 +50,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         if let button = statusItem.button {
-            button.image = Self.eggImage(up: false)
+            setStatusImage(Self.eggImage(up: false))   // 초기 알도 전환 억제 경로로 통일(불변식)
             button.imagePosition = .imageLeading
             button.font = .monospacedDigitSystemFont(ofSize: 13, weight: .regular)
             button.cell?.usesSingleLineMode = false   // 사용량/한도를 2줄로 세로 스택 가능하게
@@ -57,10 +58,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             button.target = self
         }
 
-        popover.contentViewController = NSHostingController(
-            rootView: PopoverView()
-                .environment(store).environment(companion).environment(updater).environment(navigation))
         popover.behavior = .transient
+        popover.delegate = self   // 닫힐 때(popoverDidClose) 호스팅 컨트롤러 해제 → 숨은 채 재레이아웃 비용 제거
 
         observeStore()
         observeDisplaySleep()
@@ -209,13 +208,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         advanceMenu()
     }
 
+    /// 상태아이템 이미지 교체 — 암묵적 CA 전환(NSStatusItemScene updateSettings:transition) 억제.
+    /// 레이어 백드 NSStatusBarButton 은 button.image 대입마다 전환 애니메이션을 돌려 상태바를 재합성한다
+    /// (측정: idle CPU 주범 — updateSettings:transition → NSAnimationContext runAnimationGroup → 셀 리드로우).
+    /// setDisableActions 로 전환 없이 즉시 반영해 프레임당 비용을 값싼 리드로우로 낮춘다.
+    private func setStatusImage(_ image: NSImage?) {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        statusItem.button?.image = image
+        CATransaction.commit()
+    }
+
     /// 현재 프레임을 메뉴바에 올리고, 그 프레임의 delay 후 다음 프레임 예약(자기 재예약).
     private func advanceMenu() {
         menuTimer?.invalidate()
         menuTimer = nil
         guard !menuFrames.isEmpty else { return }
         let frame = menuFrames[menuIndex % menuFrames.count]
-        statusItem.button?.image = frame.image   // 현재 프레임은 항상 반영(정지 중에도 올바른 스프라이트)
+        setStatusImage(frame.image)   // 현재 프레임은 항상 반영(정지 중에도 올바른 스프라이트). 전환 억제 대입.
         // 화면 꺼짐/메뉴바 가림(occlusion) 또는 단일 프레임이면 다음 프레임 예약 안 함 → 정지(낭비 제거).
         guard menuShouldAnimate, menuFrames.count > 1 else { return }
         let timer = Timer(timeInterval: frame.delay, repeats: false) { [weak self] _ in
@@ -233,7 +243,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// 메뉴바가 실제로 보이고(occlusion) 화면이 켜져 있을 때만 애니메이션 — 안 보이면 정지(낭비 제거).
     private var menuShouldAnimate: Bool {
-        displayAwake && (statusItem.button?.window?.occlusionState.contains(.visible) ?? true)
+        // 팝오버 열림 중엔 정지 — 팝오버 SpriteView 가 이미 컴패니언을 움직여 중복이고, 트래킹 중 상태아이콘
+        // 리드로우는 WindowServer 부하(다른 앱 비컨볼) 위험. (status-item 앱은 occlusion 이 실제로 잘 안 떠서
+        // displayAwake 슬립 게이팅이 실질 방어 — occlusion 체크는 유지하되 보조적.)
+        displayAwake && !popover.isShown
+            && (statusItem.button?.window?.occlusionState.contains(.visible) ?? true)
     }
 
     // MARK: 프레임 합성 (22px)
@@ -284,19 +298,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return img
     }
 
+    /// 팝오버 콘텐츠(SwiftUI 호스팅) 생성. .transient 팝오버는 contentViewController 를 평생 보유해 닫혀도
+    /// NSHostingView 트리가 상주하며 매 디스플레이 사이클 재레이아웃된다(측정: idle CPU 최대 비용 — 닫힌
+    /// 팝오버의 relative-time Text self-invalidation × 메뉴 애니메이션 CA 커밋). 그래서 열 때 만들고 닫힐 때 해제.
+    private func buildPopoverContent() {
+        popover.contentViewController = NSHostingController(
+            rootView: PopoverView()
+                .environment(store).environment(companion).environment(updater).environment(navigation))
+    }
+
     @objc private func togglePopover() {
         guard let button = statusItem.button else { return }
         if popover.isShown {
-            popover.performClose(nil)
+            popover.performClose(nil)   // 해제·메뉴 애니메이션 재개는 popoverDidClose 에서
         } else {
             navigation.reset()   // 닫혔다 열리면 항상 Home 으로 (설정 화면 잔류 방지)
+            buildPopoverContent()   // 열 때 호스팅 트리 생성(닫힐 때 해제)
             // LSUIElement 앱이 비활성이면 팝오버 내부 버튼 클릭이 무시됨 — show 전에 활성화 보장
             NSApp.activate(ignoringOtherApps: true)
             popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
             popover.contentViewController?.view.window?.makeKeyAndOrderFront(nil)
+            syncMenuAnimation()   // 팝오버 열림 → 메뉴바 애니메이션 정지(중복 + WindowServer 부하 회피)
             store.requestNotificationAuthorizationIfNeeded()   // 알림 권한은 사용자가 앱을 처음 열 때 요청
             Task { await updater.check() }   // 팝오버 열 때 재확인(내부 minInterval 디바운스)
         }
+    }
+
+    /// 팝오버가 닫히면 호스팅 컨트롤러 해제(숨은 트리 재레이아웃 비용 제거) + 메뉴바 애니메이션 재개.
+    func popoverDidClose(_ notification: Notification) {
+        popover.contentViewController = nil
+        syncMenuAnimation()
     }
 
     // MARK: 디스플레이 / 메뉴바 가시성 (에너지 절약 — 안 보이면 애니메이션 정지)
