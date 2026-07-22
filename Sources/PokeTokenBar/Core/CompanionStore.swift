@@ -372,6 +372,26 @@ final class CompanionStore {
             }
     }
 
+    /// 상점 표시 순서 — 판매 아이템 + (활성 포켓몬 있을 때) 새 알 리롤을 하나의 가격 오름차순 목록으로 병합.
+    /// 정렬 규칙은 purchasableItems 와 동일: 구매 완료한 보유형은 맨 아래, 나머지는 가격 저렴한 순.
+    /// 새 알(1B)은 즉시 액션이라 '보유' 개념이 없어 가격 순서에만 참여한다 → 사탕(500M)과 이로치 부적(3B) 사이.
+    var shopEntries: [ShopEntry] {
+        var entries: [ShopEntry] = purchasableItems.map { ShopEntry.item($0) }
+        if hasActive { entries.append(.freshEgg) }
+        return entries.sorted { a, b in
+            let aDone = isPurchasedPassive(a)
+            let bDone = isPurchasedPassive(b)
+            if aDone != bDone { return !aDone }
+            return a.price < b.price
+        }
+    }
+
+    /// 구매 완료한 보유형(이로치 부적 등)인지 — shopEntries 정렬에서 맨 아래로 보낼 판정.
+    private func isPurchasedPassive(_ entry: ShopEntry) -> Bool {
+        guard case .item(let kind) = entry else { return false }   // 새 알은 즉시 액션 — 보유 개념 없음
+        return kind.isPassive && itemCount(kind) > 0
+    }
+
     /// 구매 가능 — 잔액이 그 아이템 가격 이상(상점 미판매면 false). 활성/알 무관(재고는 미리 쌓아둘 수 있음).
     func canBuy(_ kind: ItemKind) -> Bool {
         guard let price = kind.shopPrice else { return false }

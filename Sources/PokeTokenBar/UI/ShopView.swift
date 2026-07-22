@@ -13,12 +13,15 @@ struct ShopView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 10) {
                 walletHeader(l)
-                ForEach(store.purchasableItems, id: \.self) { kind in
-                    ShopItemCard(store: store, kind: kind)
-                }
-                // 새 알(리롤) — 폐기할 활성 포켓몬이 있을 때만. 즉시 액션이라 ItemKind 가 아님.
-                if store.hasActive {
-                    FreshEggCard(store: store, nav: nav)
+                // shopEntries = 판매 아이템 + 새 알(리롤)을 가격 오름차순으로 병합한 단일 목록.
+                // 새 알은 활성 포켓몬이 있을 때만 shopEntries 에 포함된다(즉시 액션이라 ItemKind 가 아님).
+                ForEach(store.shopEntries, id: \.self) { entry in
+                    switch entry {
+                    case .item(let kind):
+                        ShopItemCard(store: store, kind: kind)
+                    case .freshEgg:
+                        FreshEggCard(store: store, nav: nav)
+                    }
                 }
             }
         }

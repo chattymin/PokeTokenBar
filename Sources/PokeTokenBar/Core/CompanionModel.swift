@@ -160,6 +160,20 @@ enum FreshEgg {
     static let price = 1_000_000_000
 }
 
+/// 상점 표시 한 줄 — 판매 아이템(ItemKind) 또는 새 알 리롤(즉시 액션이라 ItemKind 가 아님).
+/// CompanionStore.shopEntries 가 이 둘을 가격 오름차순으로 병합해 뷰가 단일 목록으로 그린다.
+enum ShopEntry: Hashable, Sendable {
+    case item(ItemKind)
+    case freshEgg
+
+    var price: Int {
+        switch self {
+        case .item(let kind): return kind.shopPrice ?? 0
+        case .freshEgg: return FreshEgg.price
+        }
+    }
+}
+
 /// 사탕 지급 대상 한도 창의 분류 — session=1개·weekly=weeklyGrant.
 enum WindowClass: Sendable { case session, weekly }
 

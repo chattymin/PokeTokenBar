@@ -361,12 +361,12 @@ struct L {
     var shinyCharmEffectHint: String { t("이로치 확률 ↑ · 적용 중", "Shiny rate ↑ · active", "色違い率↑ · 適用中") }
     // 새 알 (리롤)
     var freshEggName: String { t("포켓몬 알", "Pokémon Egg", "ポケモンのタマゴ") }
-    var freshEggDescription: String { t("지금 포켓몬을 보내주고 새 알로 다시 시작해요.",
+    var freshEggDescription: String { t("지금 포켓몬을 놓아주고 새 알로 다시 시작해요.",
                                         "Send off your current Pokémon and start fresh with a new egg.",
                                         "いまのポケモンを手放して新しいタマゴからやり直します。") }
-    func freshEggConfirm(_ name: String) -> String { t("\(name)을(를) 보내고 새 알로 바꿀까요?", "Send off \(name) for a fresh egg?", "\(name) を手放して新しいタマゴにしますか？") }
-    var freshEggShinyWarning: String { t("⚠️ 이로치 포켓몬이에요! 정말 보낼까요?", "⚠️ This one is shiny! Really send it off?", "⚠️ 色違いです！本当に手放しますか？") }
-    var freshEggDiscardShiny: String { t("이로치 보내기", "Send shiny off", "手放す") }
+    func freshEggConfirm(_ name: String) -> String { t("\(name)을(를) 놓아주고 새 알로 바꿀까요?", "Send off \(name) for a fresh egg?", "\(name) を手放して新しいタマゴにしますか？") }
+    var freshEggShinyWarning: String { t("⚠️ 이로치 포켓몬이에요! 정말 놓아줄까요?", "⚠️ This one is shiny! Really send it off?", "⚠️ 色違いです！本当に手放しますか？") }
+    var freshEggDiscardShiny: String { t("이로치 놓아주기", "Send shiny off", "手放す") }
 
     // MARK: 사탕 획득 알림 ("왜 받는지" = 토큰 한도를 다 채운 수고에 대한 보상)
     func notifCandyTitle(item: String, count: Int) -> String {
