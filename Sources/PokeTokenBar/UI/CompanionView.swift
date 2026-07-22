@@ -59,10 +59,11 @@ struct SpriteView: View {
         self.bob = bob
         self.animated = animated
         self.shiny = shiny
-        // 캐시에 있으면 즉시(동기) 표시 — 재렌더 플래시 방지 + 정적 스냅샷에서도 보임
-        let cached = speciesID.flatMap { SpriteLoader.cachedImage(speciesID: $0, shiny: shiny) }
+        // 캐시에 있으면 즉시(동기) 표시 — 재렌더 플래시 방지 + 정적 스냅샷에서도 보임.
+        // speciesID==nil(알 상태)이면 알 스프라이트를 시드(없으면 body 가 🥚 폴백).
+        let cached = speciesID.map { SpriteLoader.cachedImage(speciesID: $0, shiny: shiny) } ?? SpriteLoader.cachedEggImage()
         _img = State(initialValue: cached)
-        _loadedID = State(initialValue: cached != nil ? speciesID : nil)
+        _loadedID = State(initialValue: (speciesID != nil && cached != nil) ? speciesID : nil)
     }
 
     var body: some View {
@@ -85,7 +86,12 @@ struct SpriteView: View {
             // animated 프레임은 id/shiny 변경 시 항상 초기화(이전 개체 프레임 잔상 방지)
             frames = []
             frameIndex = 0
-            guard let id = speciesID else { img = nil; loadedID = nil; return }
+            guard let id = speciesID else {
+                // 알 상태 — 정적 알 스프라이트 로드(애니메이션 알은 없음). 실패/오프라인이면 body 가 🥚 폴백.
+                if img == nil { img = await SpriteLoader.eggImage() }
+                loadedID = nil
+                return
+            }
             // 정적 스프라이트 먼저(즉시 표시 + 폴백 보장). 캐시 시드로 이미 같은 id 면 재요청 생략(플래시 방지)
             if loadedID != id {
                 img = await SpriteLoader.image(speciesID: id, animated: false, shiny: shiny)

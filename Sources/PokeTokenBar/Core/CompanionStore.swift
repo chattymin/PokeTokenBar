@@ -359,8 +359,18 @@ final class CompanionStore {
     /// 여기선 읽기만 — 구매는 spentTokens 만 올려 잔액을 깎는다(진화 진행·오늘/주/월 통계 무영향).
     var availableTokens: Int { max(0, state.usedSinceInstall - state.spentTokens) }
 
-    /// 상점 판매 아이템 — shopPrice 있는 것만(ItemKind.allCases 순서).
-    var purchasableItems: [ItemKind] { ItemKind.allCases.filter { $0.shopPrice != nil } }
+    /// 상점 판매 아이템 — shopPrice 있는 것만. 가격 저렴한 순, 단 구매 완료한 보유형은 맨 아래로.
+    var purchasableItems: [ItemKind] {
+        ItemKind.allCases
+            .filter { $0.shopPrice != nil }
+            .sorted { a, b in
+                // 구매 완료한 보유형(이로치 부적 등)은 맨 아래로 — 재구매 불가라 위에 있을 이유가 없다.
+                let aDone = a.isPassive && itemCount(a) > 0
+                let bDone = b.isPassive && itemCount(b) > 0
+                if aDone != bDone { return !aDone }
+                return (a.shopPrice ?? 0) < (b.shopPrice ?? 0)   // 나머지는 가격 저렴한 순
+            }
+    }
 
     /// 구매 가능 — 잔액이 그 아이템 가격 이상(상점 미판매면 false). 활성/알 무관(재고는 미리 쌓아둘 수 있음).
     func canBuy(_ kind: ItemKind) -> Bool {
@@ -385,6 +395,29 @@ final class CompanionStore {
     var canBuyRareCandy: Bool { canBuy(.rareCandy) }
     @discardableResult
     func buyRareCandy() -> Bool { buy(.rareCandy) }
+
+    // MARK: 새 알 (리롤 — 현재 포켓몬 폐기, 도감·확률 무영향)
+
+    /// 새 알 구매 가능 — 폐기할 활성 포켓몬이 있고 지갑이 가격 이상일 때만(알 상태에선 리롤할 게 없음).
+    var canBuyFreshEgg: Bool { hasActive && availableTokens >= FreshEgg.price }
+
+    /// 새 알 구매 — 현재 포켓몬을 폐기하고 처음부터 인큐베이션하는 새 알로. 지갑에서 가격 차감.
+    /// graduate() 의 알-리셋만 미러링하고 dex/collectedFinals(도감·확률 가중)는 손대지 않는다
+    /// → "뽑은 적 없던 것처럼". 성장(usedAtStage)은 소멸(추가 비용).
+    @discardableResult
+    func buyFreshEgg() -> Bool {
+        guard canBuyFreshEgg else { return false }
+        state.spentTokens += FreshEgg.price
+        state.active = nil            // 폐기 (졸업 아님 — dex/collectedFinals 미변경)
+        currentLine = nil
+        state.eggUsage = 0            // 새 알은 처음부터 인큐베이션(재부화에 5M 필요)
+        state.pendingHatchID = nil    // 다음 부화는 새로 롤
+        justGraduated = nil; justEvolvedTo = nil; eventUntil = nil
+        AppLog.write("fresh egg: discarded active, reverted to egg")
+        Task { await self.ensureEggPrefetch() }   // 다음 부화 예열
+        save()
+        return true
+    }
 
     /// 지급 판정(순수·엣지 트리거) — 한도 창이 100% 를 새로 넘어선 순간에만 지급.
     /// - 100% 미만 → 맵에서 제거(재무장). resets_at 등 휘발 필드는 key 에 없다(안정 식별자만).

@@ -120,4 +120,26 @@ final class ShopTests: XCTestCase {
         XCTAssertEqual(s2.state.spentTokens, RareCandy.price, "지출 영속")
         XCTAssertEqual(s2.availableTokens, 1_000_000_000 - RareCandy.price)
     }
+
+    // MARK: 정렬 (가격 저렴한 순 + 구매 완료 보유형 맨 아래)
+
+    /// 상점 목록은 가격 오름차순(민트 100M < 사탕 500M < 이로치 부적 3B).
+    func testItemsSortedByPriceAscending() {
+        let items = store(used: 0).purchasableItems
+        XCTAssertEqual(items, [.mint, .rareCandy, .shinyCharm])
+        let prices = items.compactMap(\.shopPrice)
+        XCTAssertEqual(prices, prices.sorted(), "shopPrice 오름차순 — 가격 상수가 바뀌어도 정렬 불변식 유지")
+    }
+
+    /// 구매 완료한 보유형(이로치 부적)은 맨 아래로. 재구매 불가라 상단에 둘 이유 없음.
+    /// (현재 부적이 최고가라 가격순 결과와 일치하지만, 향후 저가 보유형이 생겨도 규칙이 유지되도록 게이트.)
+    func testOwnedPassiveSinksToBottom() {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("shop-sort-\(UUID().uuidString).json")
+        let json = "{\"installBaselineSet\":true,\"usedSinceInstall\":0,\"spentTokens\":0,"
+            + "\"lastDate\":\"d\",\"dex\":[],\"collectedFinals\":[],\"inventory\":{\"shinyCharm\":1}}"
+        try? json.data(using: .utf8)!.write(to: url)
+        let s = CompanionStore(provider: ShopNoProvider(), clock: { self.now }, fileURL: url, rng: SeededRNG(seed: 1))
+        XCTAssertTrue(s.itemCount(.shinyCharm) > 0)
+        XCTAssertEqual(s.purchasableItems.last, .shinyCharm, "구매 완료 보유형은 최하단")
+    }
 }

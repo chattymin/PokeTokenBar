@@ -85,7 +85,7 @@ struct PopoverView: View {
             } else if nav.tab == .bag {
                 BagView(store: companion, nav: nav)
             } else if nav.tab == .shop {
-                ShopView(store: companion)
+                ShopView(store: companion, nav: nav)
             } else {
                 CompanionHeader(store: companion)
                 Divider()

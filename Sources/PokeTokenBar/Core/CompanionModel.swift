@@ -152,6 +152,14 @@ enum ShinyCharm {
     static let shinyDenominator: UInt64 = 48
 }
 
+/// 새 알(리롤) 밸런스 상수 — 상점 구매 시 현재 포켓몬을 폐기하고 새 알로 되돌린다.
+enum FreshEgg {
+    /// 상점 구매가. 마음에 안 드는 부화를 리롤하는 프리미엄(쌓인 토큰의 활용처). 폐기 개체는 졸업이
+    /// 아니라 그냥 사라지므로 도감·확률(collectedFinals)에 무영향 — "뽑은 적 없던 것처럼". 새 알은
+    /// 처음부터 재인큐베이션(5M) 필요 + 성장(usedAtStage) 소멸이라 스팸/파밍이 자연 억제된다.
+    static let price = 1_000_000_000
+}
+
 /// 사탕 지급 대상 한도 창의 분류 — session=1개·weekly=weeklyGrant.
 enum WindowClass: Sendable { case session, weekly }
 

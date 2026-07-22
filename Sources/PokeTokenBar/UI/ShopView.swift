@@ -5,6 +5,7 @@ import SwiftUI
 /// 고아 시트가 이후 클릭을 먹통내는 결함 회피).
 struct ShopView: View {
     let store: CompanionStore
+    let nav: PopoverNavigation
 
     var body: some View {
         let l = store.l
@@ -14,6 +15,10 @@ struct ShopView: View {
                 walletHeader(l)
                 ForEach(store.purchasableItems, id: \.self) { kind in
                     ShopItemCard(store: store, kind: kind)
+                }
+                // 새 알(리롤) — 폐기할 활성 포켓몬이 있을 때만. 즉시 액션이라 ItemKind 가 아님.
+                if store.hasActive {
+                    FreshEggCard(store: store, nav: nav)
                 }
             }
         }
@@ -110,5 +115,84 @@ private struct ShopItemCard: View {
     private func buyNow() {
         confirming = false
         _ = store.buy(kind)
+    }
+}
+
+/// 새 알(리롤) 카드 — 구매 = 즉시 현재 포켓몬 폐기 후 새 알로. 인라인 2단계 확인:
+/// 일반은 1회, 이로치면 한 번 더(사고 폐기 방지). 성공하면 Home 으로 전환해 새 알을 보여준다.
+private struct FreshEggCard: View {
+    let store: CompanionStore
+    let nav: PopoverNavigation
+    @State private var stage: Stage = .idle
+    private enum Stage { case idle, confirm, shinyConfirm }
+
+    var body: some View {
+        let l = store.l
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .top, spacing: 10) {
+                // 크롭+정사각 보정한 알. 레이아웃은 30(다른 아이템 아이콘과 정렬 일치)으로 두되 알 자체는 26으로
+                // 살짝 작게 — 프레임에 여백이 생겨 꽉 찬 "뚱뚱" 느낌이 줄고 크기도 약간 작아진다.
+                SpriteView(speciesID: nil, size: 26)
+                    .frame(width: 30, height: 30)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(l.freshEggName).font(.callout.weight(.semibold))
+                    Text(l.freshEggDescription)
+                        .font(.caption).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer()
+            }
+            controls(l)
+        }
+        .padding(10)
+        .background(Color.secondary.opacity(0.06))
+        .clipShape(RoundedRectangle(cornerRadius: 10))
+    }
+
+    @ViewBuilder
+    private func controls(_ l: L) -> some View {
+        switch stage {
+        case .idle:
+            HStack {
+                Text("\(l.shopPriceLabel) \(TokenFormatter.compact(FreshEgg.price))")
+                    .font(.caption2).foregroundStyle(.tertiary).monospacedDigit()
+                Spacer()
+                if store.canBuyFreshEgg {
+                    Button(l.buy) { stage = .confirm }
+                        .buttonStyle(.bordered).controlSize(.small)
+                } else {
+                    Text(l.notEnoughTokens).font(.caption2).foregroundStyle(.tertiary)
+                }
+            }
+        case .confirm:
+            HStack(spacing: 8) {
+                Text(l.freshEggConfirm(store.displayName))
+                    .font(.caption2).foregroundStyle(.secondary).lineLimit(2)
+                Spacer()
+                // 이로치면 한 번 더 경고, 아니면 즉시 실행.
+                Button(l.buy) {
+                    if store.currentIsShiny { stage = .shinyConfirm } else { commit() }
+                }
+                .buttonStyle(.borderedProminent).controlSize(.small)
+                Button(l.cancel) { stage = .idle }
+                    .buttonStyle(.borderless).controlSize(.small)
+            }
+        case .shinyConfirm:
+            HStack(spacing: 8) {
+                Text(l.freshEggShinyWarning)
+                    .font(.caption2.weight(.semibold)).foregroundStyle(.orange).lineLimit(2)
+                Spacer()
+                Button(l.freshEggDiscardShiny) { commit() }
+                    .buttonStyle(.borderedProminent).controlSize(.small).tint(.orange)
+                Button(l.cancel) { stage = .idle }
+                    .buttonStyle(.borderless).controlSize(.small)
+            }
+        }
+    }
+
+    /// 리롤 실행 → 새 알을 볼 수 있게 Home 으로 전환(가방 사용과 동일 패턴).
+    private func commit() {
+        stage = .idle
+        if store.buyFreshEgg() { nav.tab = .home }
     }
 }
