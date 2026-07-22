@@ -125,3 +125,36 @@ final class StoreTerminationTests: XCTestCase {
         }
     }
 }
+
+// MARK: 플로팅 펫 / 스프라이트 idle 배터리 규율
+
+/// 항상 떠 있는 플로팅 펫은 두 번째 GIF 표면이라, 메뉴바에서 고친 idle wakeup 증폭이 재발하지 않게
+/// 같은 규율(fps 하한 + 저전력 정적화)을 공유한다. 여기선 그 순수 판정만 고정한다.
+@MainActor
+final class FloatingPetEnergyTests: XCTestCase {
+    /// [회귀] 플로팅 펫 GIF 는 fps 하한(0.4s≈2.5fps)으로 캡 — 네이티브 fps 로 돌면 프레임마다
+    /// 재합성(CA 커밋→디스플레이 사이클 wakeup)이 늘어 메뉴바 회귀를 그대로 반복한다.
+    func testPetFrameDelayHonorsFloor() {
+        XCTAssertEqual(SpriteView.frameDelay(base: 0.1, floor: 0.4), 0.4, accuracy: 1e-9)   // 빠른 프레임 → 캡
+        XCTAssertEqual(SpriteView.frameDelay(base: 0.6, floor: 0.4), 0.6, accuracy: 1e-9)   // 이미 느리면 원본 유지
+    }
+
+    /// 팝오버 등 일시적 표시(floor=0)는 네이티브 delay 그대로 — 캡은 항상 뜬 펫에만 적용.
+    func testTransientSpriteKeepsNativeDelay() {
+        XCTAssertEqual(SpriteView.frameDelay(base: 0.1, floor: 0), 0.1, accuracy: 1e-9)
+        XCTAssertEqual(SpriteView.frameDelay(base: 0.03, floor: 0), 0.03, accuracy: 1e-9)
+    }
+
+    /// 저전력 모드면 펫 애니메이션을 정지(정적)해 배터리를 아낀다. 정상 모드면 애니메이션.
+    func testPetFreezesUnderLowPower() {
+        XCTAssertFalse(FloatingPetController.shouldAnimate(lowPower: true))
+        XCTAssertTrue(FloatingPetController.shouldAnimate(lowPower: false))
+    }
+
+    /// [회귀] 펫은 반드시 fps 캡이 걸려야 한다 — frameFloor 가 0 으로 돌아가면(네이티브 fps) 메뉴바에서
+    /// 고친 wakeup 회귀가 재발한다. 뷰가 실제로 넘기는 상수를 그대로 가드한다(리터럴 유실 방지).
+    func testPetFrameFloorIsCapped() {
+        XCTAssertGreaterThan(FloatingPetView.frameFloor, 0, "펫 fps 캡이 해제되면 idle wakeup 회귀")
+        XCTAssertEqual(FloatingPetView.frameFloor, 0.4, accuracy: 1e-9, "메뉴바와 동일한 0.4s≈2.5fps 캡")
+    }
+}

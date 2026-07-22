@@ -47,24 +47,33 @@ struct SpriteView: View {
     var bob: Bool = false
     var animated: Bool = false
     var shiny: Bool = false
+    /// GIF 프레임 지속의 하한(초). 0=원본 delay 그대로. >0 이면 fps 상한 + wakeup 코얼레싱을 적용해
+    /// idle 배터리를 통제한다 — 항상 떠 있는 플로팅 펫(0.4s≈2.5fps)이 메뉴바 GIF 규율과 동치가 되게.
+    /// 팝오버 등 일시적 표시는 0(기본)으로 두어 네이티브 fps 유지.
+    var minFrameDelay: TimeInterval = 0
     @State private var img: NSImage?
     @State private var up = false
     @State private var loadedID: Int?   // img 가 어느 speciesID 것인지(id 변경 시 갱신 판단)
     @State private var frames: [(image: NSImage, delay: TimeInterval)] = []
     @State private var frameIndex = 0
 
-    init(speciesID: Int?, size: CGFloat = 84, bob: Bool = false, animated: Bool = false, shiny: Bool = false) {
+    init(speciesID: Int?, size: CGFloat = 84, bob: Bool = false, animated: Bool = false,
+         shiny: Bool = false, minFrameDelay: TimeInterval = 0) {
         self.speciesID = speciesID
         self.size = size
         self.bob = bob
         self.animated = animated
         self.shiny = shiny
+        self.minFrameDelay = minFrameDelay
         // 캐시에 있으면 즉시(동기) 표시 — 재렌더 플래시 방지 + 정적 스냅샷에서도 보임.
         // speciesID==nil(알 상태)이면 알 스프라이트를 시드(없으면 body 가 🥚 폴백).
         let cached = speciesID.map { SpriteLoader.cachedImage(speciesID: $0, shiny: shiny) } ?? SpriteLoader.cachedEggImage()
         _img = State(initialValue: cached)
         _loadedID = State(initialValue: (speciesID != nil && cached != nil) ? speciesID : nil)
     }
+
+    /// 프레임 지속(초) = max(원본 delay, 하한). 순수·테스트용 — fps 상한 회귀 가드.
+    static func frameDelay(base: TimeInterval, floor: TimeInterval) -> TimeInterval { max(base, floor) }
 
     var body: some View {
         Group {
@@ -109,8 +118,11 @@ struct SpriteView: View {
             frames = raw
             // delay 기반 프레임 advance. .task 취소 시(speciesID 변경/뷰 소멸) 루프 종료 — 누수 없음
             while !Task.isCancelled {
-                let delay = frames[frameIndex % frames.count].delay
-                try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+                let delay = Self.frameDelay(base: frames[frameIndex % frames.count].delay, floor: minFrameDelay)
+                // minFrameDelay>0(플로팅 펫): fps 상한 + tolerance 로 wakeup 코얼레싱 — 메뉴바
+                // max(0.4,delay)+timer.tolerance 규율과 동치(항상 뜬 표면의 idle 배터리 통제). 0 이면 네이티브.
+                try? await Task.sleep(for: .seconds(delay),
+                                      tolerance: minFrameDelay > 0 ? .seconds(delay * 0.5) : .zero)
                 if Task.isCancelled { break }
                 frameIndex = (frameIndex + 1) % frames.count
             }
