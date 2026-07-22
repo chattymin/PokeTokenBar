@@ -108,6 +108,17 @@ brew install --cask chattymin/tap/poke-token-bar
 
 ad-hoc/self-signed; the cask strips the quarantine attribute on install.
 
+### Manual install (without Homebrew)
+
+Prefer not to use Homebrew? Download `PokeTokenBar.zip` from the [latest release](https://github.com/chattymin/PokeTokenBar/releases/latest), unzip it, and drag `PokeTokenBar.app` into `/Applications`.
+
+Because the app is ad-hoc/self-signed (not notarized under an Apple Developer account), Gatekeeper shows an "unidentified developer" warning on first launch. Clear it once, either way:
+
+- **Finder:** right-click (or Control-click) `PokeTokenBar.app` → **Open** → **Open** again in the dialog.
+- **Terminal:** `xattr -dr com.apple.quarantine /Applications/PokeTokenBar.app`
+
+(The Homebrew cask strips quarantine for you, so it needs no extra step.)
+
 ### Build from source
 
 ```bash

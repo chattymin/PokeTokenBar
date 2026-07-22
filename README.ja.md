@@ -108,6 +108,17 @@ brew install --cask chattymin/tap/poke-token-bar
 
 ad-hoc／自己署名アプリのため、Cask インストール時に隔離属性を自動で除去します。
 
+### 手動インストール（Homebrew なし）
+
+Homebrew を使わない場合は、[最新リリース](https://github.com/chattymin/PokeTokenBar/releases/latest) から `PokeTokenBar.zip` をダウンロードして展開し、`PokeTokenBar.app` を `/Applications` にドラッグします。
+
+このアプリは ad-hoc／自己署名（Apple Developer アカウントでの公証なし）のため、初回起動時に Gatekeeper が「開発元が未確認」の警告を表示します。次のいずれかで一度だけ解除してください。
+
+- **Finder:** `PokeTokenBar.app` を右クリック（または Control+クリック）→ **開く** → ダイアログで再度 **開く**。
+- **ターミナル:** `xattr -dr com.apple.quarantine /Applications/PokeTokenBar.app`
+
+（Homebrew Cask は隔離属性を自動で除去するため、この手順は不要です。）
+
 ### ソースからビルド
 
 ```bash
