@@ -223,6 +223,45 @@ final class CompanionStoreTests: XCTestCase {
         XCTAssertEqual(s.state.eggUsage, 0)
     }
 
+    /// [회귀] 부화한 현재 포켓몬은 졸업 전에도 도감에 보여야 한다. 영구 dex 에 미리 저장하지 않고
+    /// 화면용 엔트리로 합쳐, 진화 경로는 즉시 갱신되고 졸업 시 중복이 생기지 않는다.
+    func testActiveCompanionAppearsInDexBeforeGraduationWithoutDuplicate() async {
+        let s = store(linear3)
+        await s.hatch(baseID: 1)
+
+        XCTAssertTrue(s.state.dex.isEmpty, "졸업 전 영구 dex 는 비어 있어야 함")
+        XCTAssertEqual(s.dexEntries.count, 1, "현재 포켓몬도 도감 화면에는 즉시 보여야 함")
+        XCTAssertEqual(s.dexEntries[0].chainOrder, [1])
+        XCTAssertEqual(s.dexEntries[0].finalID, 1)
+
+        s.applyUsage(PokemonBalance.phaseThreshold(rarity: .common, totalForms: 3, stageIndex: 0))
+        XCTAssertEqual(s.dexEntries.count, 1)
+        XCTAssertEqual(s.dexEntries[0].chainOrder, [1, 2], "진화한 현재 경로가 도감에 반영돼야 함")
+        XCTAssertEqual(s.dexEntries[0].finalID, 2)
+
+        s.applyUsage(PokemonBalance.phaseThreshold(rarity: .common, totalForms: 3, stageIndex: 1))
+        s.applyUsage(PokemonBalance.phaseThreshold(rarity: .common, totalForms: 3, stageIndex: 2))
+        XCTAssertNil(s.state.active)
+        XCTAssertEqual(s.state.dex.count, 1, "졸업 시 영구 엔트리 하나만 저장")
+        XCTAssertEqual(s.dexEntries.count, 1, "화면용 active 가 영구 엔트리와 중복되면 안 됨")
+        XCTAssertEqual(s.dexEntries[0].chainOrder, [1, 2, 3])
+    }
+
+    /// 사용자 리포트와 같은 재시작 상태: active 는 저장돼 있지만 dex=[] 인 기존 상태 파일도
+    /// 도감 빈 화면으로 떨어지지 않는다.
+    func testLoadedActiveCompanionPreventsEmptyDexState() throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("poke-active-\(UUID().uuidString).json")
+        let json = #"{"active":{"baseID":529,"pathIDs":[529],"stageIndex":0,"usedAtStage":148344233,"rarity":"uncommon","totalForms":2,"isShiny":false,"nature":"timid"},"dex":[]}"#
+        try json.data(using: .utf8)!.write(to: url)
+
+        let s = CompanionStore(provider: StubProvider(value: linear3), clock: { fixedNow },
+                               fileURL: url, rng: SeededRNG(seed: 7))
+        XCTAssertTrue(s.state.dex.isEmpty)
+        XCTAssertEqual(s.dexEntries.count, 1)
+        XCTAssertEqual(s.dexEntries[0].baseID, 529)
+        XCTAssertEqual(s.dexCount(.uncommon), 1)
+    }
+
     func testEggOverflowCarriesToHatchedMon() async {
         let s = store(linear3)
         base(s)

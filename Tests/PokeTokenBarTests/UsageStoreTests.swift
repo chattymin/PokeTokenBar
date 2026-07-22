@@ -199,6 +199,33 @@ final class UsageStoreTests: XCTestCase {
         XCTAssertNil(StatuspageStatusProvider.parse(Data(#"{"nope":true}"#.utf8)))
     }
 
+    /// [회귀] OpenAI 전역 상태가 이미지 생성 장애로 minor 여도 Codex API 구성요소가 정상이면
+    /// Codex 탭에 "일부 장애"를 표시하면 안 된다.
+    func testCodexStatusIgnoresUnrelatedGlobalIncident() {
+        let data = Data(#"""
+        {
+          "status":{"indicator":"minor","description":"Partial System Degradation"},
+          "components":[
+            {"name":"Image Generation","status":"degraded_performance"},
+            {"name":"Codex API","status":"operational"}
+          ]
+        }
+        """#.utf8)
+        let status = StatuspageStatusProvider.parseComponent(data, named: "Codex API")
+        XCTAssertEqual(status?.indicator, .operational)
+        XCTAssertFalse(status!.indicator.hasIssue)
+        XCTAssertEqual(status?.description, "Codex API")
+    }
+
+    /// 실제 해당 구성요소가 저하됐을 때는 경고를 유지한다.
+    func testProviderComponentDegradationMapsToIssue() {
+        let data = Data(#"{"components":[{"name":"Claude Code","status":"degraded_performance"}]}"#.utf8)
+        let status = StatuspageStatusProvider.parseComponent(data, named: "Claude Code")
+        XCTAssertEqual(status?.indicator, .minor)
+        XCTAssertTrue(status!.indicator.hasIssue)
+        XCTAssertNil(StatuspageStatusProvider.parseComponent(data, named: "Codex API"))
+    }
+
     /// 조회 실패(결과에서 빠진 provider)는 이전 값 유지(keep-previous) — flaky 엔드포인트가 앱을 흔들지 않게.
     func testProviderStatusKeepsPreviousOnFailure() async {
         let stub = FakeStatusProvider(["claude_code": ProviderStatus(indicator: .minor, description: "deg")])

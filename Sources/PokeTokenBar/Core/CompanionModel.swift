@@ -341,9 +341,11 @@ struct DexEntry: Codable, Sendable, Identifiable {
     /// 없어(nil) 뷰가 line fetch 로 조회 후 백필한다.
     var names: [Int: [String: String]]?
 
-    init(baseID: Int, finalID: Int, chainOrder: [Int], rarity: Rarity,
+    init(id: String = UUID().uuidString,
+         baseID: Int, finalID: Int, chainOrder: [Int], rarity: Rarity,
          caughtAt: Date?, isShiny: Bool = false, nature: PokemonNature? = nil,
          names: [Int: [String: String]]? = nil) {
+        self.id = id
         self.baseID = baseID
         self.finalID = finalID
         self.chainOrder = chainOrder

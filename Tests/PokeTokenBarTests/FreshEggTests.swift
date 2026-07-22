@@ -32,15 +32,20 @@ final class FreshEggTests: XCTestCase {
     /// [핵심] 리롤 = 폐기: active 사라지고 새 알(eggUsage 0). **도감·확률(collectedFinals) 불변** = "뽑은 적 없던 것처럼".
     func testBuyFreshEggDiscardsWithoutDexOrProbabilityImpact() {
         let s = store(used: 5_000_000_000, spent: 0)
-        let dexBefore = s.dexEntries.count
+        let persistedDexBefore = s.state.dex
         let collectedBefore = s.state.collectedFinals
+        XCTAssertEqual(s.dexEntries.count, persistedDexBefore.count + 1,
+                       "현재 포켓몬은 졸업 전에도 도감 화면에 표시")
         XCTAssertTrue(s.hasActive)
         XCTAssertTrue(s.buyFreshEgg())
         XCTAssertNil(s.state.active, "현재 포켓몬 폐기")
         XCTAssertTrue(s.isEgg)
         XCTAssertEqual(s.state.eggUsage, 0, "새 알은 처음부터 인큐베이션")
         XCTAssertNil(s.state.pendingHatchID)
-        XCTAssertEqual(s.dexEntries.count, dexBefore, "도감 불변 — 졸업이 아니라 폐기")
+        XCTAssertEqual(s.state.dex.map(\.id), persistedDexBefore.map(\.id),
+                       "영구 도감 불변 — 졸업이 아니라 폐기")
+        XCTAssertEqual(s.dexEntries.count, persistedDexBefore.count,
+                       "폐기한 현재 포켓몬의 화면용 엔트리는 제거")
         XCTAssertEqual(s.state.collectedFinals, collectedBefore, "확률 가중(collectedFinals) 불변")
         XCTAssertEqual(s.state.spentTokens, FreshEgg.price, "지갑에서 1B 차감")
         XCTAssertEqual(s.availableTokens, 5_000_000_000 - FreshEgg.price)

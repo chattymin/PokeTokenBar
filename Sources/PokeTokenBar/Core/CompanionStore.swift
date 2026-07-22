@@ -128,11 +128,36 @@ final class CompanionStore {
         }
         return out
     }
-    var dexEntries: [DexEntry] { state.dex }
+    /// 도감에는 영구 보존된 졸업 개체와 현재 키우는 포켓몬을 함께 표시한다.
+    /// 현재 개체는 영속 dex 에 중복 저장하지 않고 화면용 항목으로 합성한다. 졸업 시 active 가 사라지고
+    /// 같은 개체의 영구 DexEntry 가 추가되므로 목록 개수는 그대로 유지된다.
+    private var activeDexEntry: DexEntry? {
+        guard let active = state.active else { return nil }
+        let visibleShiny = active.isShiny && (active.dittoDisguise == nil || active.dittoRevealed)
+        return DexEntry(
+            id: "active-\(active.baseID)-\(active.currentID)",
+            baseID: active.baseID,
+            finalID: active.currentID,
+            chainOrder: active.pathIDs,
+            rarity: active.rarity,
+            caughtAt: nil,
+            isShiny: visibleShiny,
+            nature: active.nature,
+            names: currentLine.map { line in
+                Dictionary(uniqueKeysWithValues:
+                    active.pathIDs.compactMap { id in line.names[id].map { (id, $0) } })
+            }
+        )
+    }
+
+    var dexEntries: [DexEntry] {
+        guard let activeDexEntry else { return state.dex }
+        return state.dex + [activeDexEntry]
+    }
 
     /// 도감 표시 순서 — 희귀도 내림차순(legendary→common), 동급은 잡은 시각 최신순.
     var dexEntriesSorted: [DexEntry] {
-        state.dex.sorted { a, b in
+        dexEntries.sorted { a, b in
             if a.rarity.sortRank != b.rarity.sortRank { return a.rarity.sortRank > b.rarity.sortRank }
             let ta = a.caughtAt ?? .distantPast
             let tb = b.caughtAt ?? .distantPast
@@ -141,7 +166,7 @@ final class CompanionStore {
     }
 
     /// 희귀도별 도감 개수(요약 헤더용).
-    func dexCount(_ rarity: Rarity) -> Int { state.dex.lazy.filter { $0.rarity == rarity }.count }
+    func dexCount(_ rarity: Rarity) -> Int { dexEntries.lazy.filter { $0.rarity == rarity }.count }
 
     /// 도감 항목 진화 체인 각 종의 이름(speciesID → 현재 언어 이름). 저장돼 있으면 즉시(네트워크 0),
     /// 없으면 nil(뷰가 async 조회로 폴백).

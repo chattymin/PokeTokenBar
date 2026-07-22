@@ -429,7 +429,7 @@ struct DexSummaryHeader: View {
     }
 }
 
-/// 도감 — 잡은 라인(초기→최종 전부) 목록.
+/// 도감 — 현재 키우는 포켓몬과 졸업해 영구 보존된 라인 목록.
 struct CollectionView: View {
     let store: CompanionStore
     @State private var selectedRarity: Rarity?
