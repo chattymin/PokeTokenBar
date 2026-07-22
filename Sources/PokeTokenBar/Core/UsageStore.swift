@@ -70,6 +70,14 @@ final class UsageStore {
     var statusChecksEnabled: Bool {
         didSet { defaults.set(statusChecksEnabled, forKey: "statusChecksEnabled") }
     }
+    // 플로팅 펫 (데스크톱 위 고정 오버레이 — 스스로 이동하지 않음, 드래그로만 위치 변경)
+    var floatingPetEnabled: Bool {
+        didSet { defaults.set(floatingPetEnabled, forKey: "floatingPetEnabled") }
+    }
+    /// 플로팅 펫 스프라이트 한 변 크기(pt).
+    var floatingPetSize: Double {
+        didSet { defaults.set(floatingPetSize, forKey: "floatingPetSize") }
+    }
     var disableKeychainAccess: Bool {
         didSet {
             defaults.set(disableKeychainAccess, forKey: "disableKeychainAccess")   // 저장 누락이던 기존 버그 — 재시작 후 풀렸음
@@ -330,6 +338,8 @@ final class UsageStore {
         companionNotifications = d.object(forKey: "companionNotifications") as? Bool ?? true
         updateNotificationsEnabled = d.object(forKey: "updateNotificationsEnabled") as? Bool ?? true
         statusChecksEnabled = d.object(forKey: "statusChecksEnabled") as? Bool ?? true
+        floatingPetEnabled = d.object(forKey: "floatingPetEnabled") as? Bool ?? false
+        floatingPetSize = d.object(forKey: "floatingPetSize") as? Double ?? 96
         disableKeychainAccess = d.object(forKey: "disableKeychainAccess") as? Bool ?? false
 
         reschedule()

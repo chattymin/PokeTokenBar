@@ -33,6 +33,7 @@ struct SettingsView: View {
                 VStack(alignment: .leading, spacing: 18) {
                     generalGroup(store)
                     menuBarGroup(store)
+                    floatingPetGroup(store)
                     notificationsGroup(store)
                     updateGroup(store)
                     advancedGroup(store)
@@ -150,6 +151,31 @@ struct SettingsView: View {
                 toggleRow(l.limitPercent, $store.showLimitInMenu)
             }
             Text(l.allOffHint).font(.caption2).foregroundStyle(.tertiary).padding(.leading, 4)
+        }
+    }
+
+    @ViewBuilder
+    private func floatingPetGroup(_ store: UsageStore) -> some View {
+        @Bindable var store = store
+        settingsSection(l.floatingPetSectionTitle) {
+            groupRow {
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(l.floatingPetEnableLabel)
+                    Text(l.floatingPetHint).font(.caption2).foregroundStyle(.tertiary)
+                }
+                Spacer()
+                Toggle("", isOn: $store.floatingPetEnabled)
+                    .labelsHidden().toggleStyle(.switch).controlSize(.small)
+            }
+            if store.floatingPetEnabled {
+                Divider()
+                groupRow {
+                    Text(l.floatingPetSizeLabel).font(.callout)
+                    Slider(value: $store.floatingPetSize, in: 48...192, step: 8)
+                    Text("\(Int(store.floatingPetSize))px")
+                        .font(.caption).monospacedDigit().frame(width: 44, alignment: .trailing)
+                }
+            }
         }
     }
 

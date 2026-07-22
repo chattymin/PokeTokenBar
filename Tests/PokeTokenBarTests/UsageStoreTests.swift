@@ -166,6 +166,23 @@ final class UsageStoreTests: XCTestCase {
                        "수동 갱신(사용자 버튼)만 프롬프트 허용 경로를 쓴다")
     }
 
+    // MARK: 플로팅 펫 설정 (기본값 + 영속)
+
+    /// 플로팅 펫은 기본 꺼짐(96px). 토글·크기 변경은 defaults 에 영속돼 재시작 후 유지된다.
+    func testFloatingPetSettingsDefaultAndPersistence() {
+        let claude = FakeUsageProvider(id: "claude_code", displayName: "Claude Code", daily: todayDaily(1_000))
+        let store = makeStore(providers: [claude])
+        XCTAssertFalse(store.floatingPetEnabled, "옵트인 기능 — 기본은 꺼짐")
+        XCTAssertEqual(store.floatingPetSize, 96)
+
+        store.floatingPetEnabled = true
+        store.floatingPetSize = 144
+
+        let reloaded = makeStore(providers: [claude])   // 같은 suite 재로딩 = 앱 재시작
+        XCTAssertTrue(reloaded.floatingPetEnabled)
+        XCTAssertEqual(reloaded.floatingPetSize, 144)
+    }
+
     // MARK: 프로바이더 상태(인시던트) 표시
 
     /// statuspage.io status.json 파싱(순수) — indicator/description 매핑 + 미지값 unknown + malformed nil.

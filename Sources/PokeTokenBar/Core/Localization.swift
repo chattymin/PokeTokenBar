@@ -106,6 +106,16 @@ struct L {
     var todayCost: String { t("오늘 비용 ($)", "Today's cost ($)", "本日のコスト ($)") }
     var limitPercent: String { t("한도 %", "Limit %", "上限 %") }
     var allOffHint: String { t("전부 끄면 캐릭터만 표시됩니다", "All off shows only the character", "すべてオフにするとキャラクターのみ表示") }
+    // MARK: 플로팅 펫
+    var floatingPetSectionTitle: String { t("플로팅 펫", "Floating Pet", "フローティングペット") }
+    var floatingPetEnableLabel: String { t("플로팅 펫 표시", "Show floating pet", "フローティングペットを表示") }
+    var floatingPetHint: String {
+        t("포켓몬이 화면 위에 떠 있어요 — 드래그로 위치를 옮길 수 있어요",
+          "Your Pokémon floats over the screen — drag to reposition",
+          "ポケモンが画面の上に浮かびます — ドラッグで移動できます")
+    }
+    var floatingPetSizeLabel: String { t("크기", "Size", "サイズ") }
+
     var disableKeychain: String { t("Keychain 접근 끄기", "Disable Keychain access", "Keychainアクセスを無効化") }
     var disableKeychainHint: String { t("켜면 Keychain 접근 허용 팝업이 더 안 뜹니다 — 공식 한도(%)만 숨겨지고 토큰·비용은 그대로", "When on, no more Keychain permission pop-ups — only official limits (%) are hidden; tokens/cost stay", "オンにするとKeychain許可のポップアップが出なくなります — 公式上限(%)のみ非表示、トークン・費用はそのまま") }
     var refreshLimitToken: String { t("한도 토큰 캐시 갱신", "Refresh limit token cache", "上限トークンキャッシュを更新") }
