@@ -119,6 +119,25 @@ Because the app is ad-hoc/self-signed (not notarized under an Apple Developer ac
 
 (The Homebrew cask strips quarantine for you, so it needs no extra step.)
 
+### Windows (fork)
+
+This fork also ships a **Windows** build (system-tray app; usage, limits, and the Pokémon companion, rewritten on Win32/WinSDK).
+
+1. Download `PokeTokenBar-Setup-<version>.exe` from this repository's [releases](../../releases/latest).
+2. Run it. It installs per-user (no admin) to `%LOCALAPPDATA%\Programs\PokeTokenBar`, adds a **Start-menu shortcut** (so you can search "PokeTokenBar" to launch it) and an **Add/Remove Programs** entry, and starts the app. Windows SmartScreen may warn on an unsigned installer: **More info → Run anyway** (once).
+3. The app lives in the system tray and runs as a **single instance** (launching it again just surfaces the running one).
+
+**Automatic updates.** The app checks this repository's releases (on launch and, throttled, whenever the popover is opened) and shows an in-app "update available" banner. Clicking **Get** performs an in-place update: it downloads the new installer and a small detached helper waits for the app to quit, runs the installer silently (reinstalling over the old version), and relaunches — no manual steps. (If anything fails, it falls back to opening the release page.)
+
+While the repository is private, all of this uses **your own local GitHub login** — no shared token is embedded in the app:
+
+- The **check** authenticates non-interactively via the GitHub CLI (`gh auth token`) or the Git credential helper (Git Credential Manager).
+- The **download** uses `gh release download`, so the in-place update needs the **GitHub CLI installed**; without it, Get opens the release page instead.
+
+To receive updates, make sure you are **a collaborator** on this repository (read access is enough) and **signed in to GitHub locally** (`gh auth login`, or having authenticated `git` to `github.com` once). If no credential is found the check simply does nothing (no prompt). You can also set a token in the `PTB_UPDATE_TOKEN` environment variable.
+
+The Windows installer is built with [Inno Setup](https://jrsoftware.org/isinfo.php) from `installer/PokeTokenBar.iss`.
+
 ### Build from source
 
 ```bash

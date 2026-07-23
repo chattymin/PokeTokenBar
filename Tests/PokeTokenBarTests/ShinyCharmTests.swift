@@ -1,3 +1,4 @@
+#if os(macOS)   // macOS-only: exercises AppKit/SwiftUI/companion/store types
 import XCTest
 @testable import PokeTokenBar
 
@@ -101,3 +102,4 @@ final class ShinyCharmTests: XCTestCase {
         XCTAssertEqual(s.currentSpeciesID, 1)
     }
 }
+#endif

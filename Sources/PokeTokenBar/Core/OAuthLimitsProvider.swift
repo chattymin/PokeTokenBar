@@ -1,11 +1,20 @@
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking   // URLSession/URLRequest live here on non-Darwin (Windows/Linux)
+#endif
+#if os(macOS)
 import Security
+#endif
 
 enum LimitsError: Error {
     case keychainAccessDisabled
+    #if os(macOS)
     case keychainUnavailable(OSStatus)
+    #endif
     case keychainInteractionNotAllowed
     case credentialFormat
+    /// 사용할 수 있는 자격증명 소스가 없음(예: 비-macOS 에서 `.credentials.json` 부재 — 키체인 폴백 없음).
+    case credentialUnavailable
     case httpStatus(Int)
     /// 429 — 서버가 지정한 Retry-After(초, 없으면 nil). 폴링 백오프 판단에 사용.
     case rateLimited(retryAfter: TimeInterval?)
@@ -16,7 +25,8 @@ protocol ClaudeLimitsProviding: Sendable {
     func fetch(allowKeychainPrompt: Bool) async throws -> LimitStatus
 }
 
-/// 공식 한도 % 조회 — Claude Code 자격증명(Keychain)의 OAuth 토큰으로 usage endpoint 호출.
+/// 공식 한도 % 조회 — Claude Code 자격증명의 OAuth 토큰으로 usage endpoint 호출.
+/// 토큰 소스: `~/.claude/.credentials.json`(크로스플랫폼) → macOS 한정 Keychain 폴백.
 /// 비공식 endpoint 이므로 실패해도 토큰 표시에는 영향 없음 (한도 섹션만 숨김).
 struct OAuthLimitsProvider: ClaudeLimitsProviding, Sendable {
     private static let usageURL = URL(string: "https://api.anthropic.com/api/oauth/usage")!
@@ -78,12 +88,13 @@ private actor OAuthAccessTokenCache {
             return cachedCredential.accessToken
         }
 
-        // 파일 크리덴셜(~/.claude/.credentials.json) — 키체인 무관, 프롬프트 없음.
+        // 파일 크리덴셜(~/.claude/.credentials.json) — 키체인 무관, 프롬프트 없음, 크로스플랫폼.
         if let credential = try Self.readClaudeCredentialsFile() {
             cachedCredential = credential
             return credential.accessToken
         }
 
+        #if os(macOS)
         // 자동(타이머) 경로는 Claude Keychain 을 일절 읽지 않는다. no-UI 쿼리(kSecUseAuthenticationUIFail
         // /LAContext)로도 잠긴·미승인 login 키체인의 '암호 입력' 다이얼로그는 억제되지 않는다 —
         // 실측: 캐시 만료 폴 도중 SecItemCopyMatching 이 13초간 블록하며 팝업을 띄웠다(하루 몇 회).
@@ -103,20 +114,10 @@ private actor OAuthAccessTokenCache {
         let credential = try Self.readClaudeKeychain(allowKeychainPrompt: true)
         cachedCredential = credential
         return credential.accessToken
-    }
-
-    /// 무프롬프트 Keychain 읽기 — no-UI 쿼리라 권한이 없으면 프롬프트 대신 errSecInteractionNotAllowed.
-    /// '아직 항상 허용 전'(interactionNotAllowed)은 정상 흐름이라 조용히 nil. 그 외(형식 오류·접근 불가)는
-    /// 진단을 위해 로그를 남기고 nil — 자동 경로가 왜 토큰을 못 구했는지 추적 가능하게.
-    private nonisolated static func readClaudeKeychainSilently() -> OAuthCredentialData.Credential? {
-        do {
-            return try readClaudeKeychain(allowKeychainPrompt: false)
-        } catch LimitsError.keychainInteractionNotAllowed {
-            return nil
-        } catch {
-            AppLog.write("silent claude keychain read failed: \(error)")
-            return nil
-        }
+        #else
+        // Windows/Linux: 키체인 폴백 없음 — 파일이 유일한 소스다.
+        throw LimitsError.credentialUnavailable
+        #endif
     }
 
     /// 마지막으로 사용한 자격증명의 플랜 정보. accessToken() 이 모든 경로에서 cachedCredential 을
@@ -132,10 +133,6 @@ private actor OAuthAccessTokenCache {
         cachedCredential = nil
     }
 
-    // (구) 앱 자체 키체인 OAuth 캐시(read/write/delete)는 제거됨 — 코드서명 변경마다 항목 ACL
-    // 불일치로 접근 허용 프롬프트를 유발했다. 토큰은 인메모리 + Claude 키체인 무UI 읽기 +
-    // .credentials.json 로 충분히 조용히 취득된다.
-
     private nonisolated static func readClaudeCredentialsFile() throws -> OAuthCredentialData.Credential? {
         let url = FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent(".claude/.credentials.json")
@@ -144,6 +141,21 @@ private actor OAuthAccessTokenCache {
             return nil
         }
         return credential
+    }
+
+    #if os(macOS)
+    /// 무프롬프트 Keychain 읽기 — no-UI 쿼리라 권한이 없으면 프롬프트 대신 errSecInteractionNotAllowed.
+    /// '아직 항상 허용 전'(interactionNotAllowed)은 정상 흐름이라 조용히 nil. 그 외(형식 오류·접근 불가)는
+    /// 진단을 위해 로그를 남기고 nil — 자동 경로가 왜 토큰을 못 구했는지 추적 가능하게.
+    private nonisolated static func readClaudeKeychainSilently() -> OAuthCredentialData.Credential? {
+        do {
+            return try readClaudeKeychain(allowKeychainPrompt: false)
+        } catch LimitsError.keychainInteractionNotAllowed {
+            return nil
+        } catch {
+            AppLog.write("silent claude keychain read failed: \(error)")
+            return nil
+        }
     }
 
     private nonisolated static func readClaudeKeychain(
@@ -175,6 +187,7 @@ private actor OAuthAccessTokenCache {
         }
         return credential
     }
+    #endif
 }
 
 enum OAuthCredentialData {

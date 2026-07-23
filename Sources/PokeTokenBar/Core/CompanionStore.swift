@@ -1,12 +1,34 @@
 import Foundation
+#if os(macOS)
 import Observation
+#endif
+#if canImport(UserNotifications)
 import UserNotifications
+#endif
+
+#if !os(macOS)
+/// Windows/Linux 전용 직렬 실행기 — macOS 의 `@MainActor` 역할을 대신한다. CompanionStore 의 모든
+/// 메서드/프로퍼티와 내부 fire-and-forget `Task` 가 이 단일 액터에서 직렬 실행돼 상태 레이스를 없앤다
+/// (Win32 메시지 루프는 메인 스레드에 두고, companion 은 이 액터에서 구동).
+@globalActor
+actor CompanionActor { static let shared = CompanionActor() }
+#endif
 
 /// 게임 상태의 출처. 설치 이후 토큰 사용량으로 포켓몬을 진화시키고, 최종체 + 추가 임계 도달 시
 /// 도감(라인 전체)에 보존 + 새 알. 진화 트리/희귀도/이름은 PokeProviding 으로 런타임 주입.
+///
+/// macOS: `@MainActor @Observable`(SwiftUI 반응형). Windows: `@CompanionActor`(커스텀 직렬 액터) —
+/// 트레이가 백그라운드 `Task` 에서 `await` 로 구동하며, 액터가 모든 접근을 직렬화한다.
+#if os(macOS)
 @MainActor
 @Observable
+#else
+@CompanionActor
+#endif
 final class CompanionStore {
+    /// 이벤트(부화/진화/졸업/사탕) 알림 훅 — macOS 는 UserNotifications, Windows 는 트레이 토스트로 라우팅.
+    /// (플랫폼 UI 계층이 주입; 미설정이면 무음.)
+    nonisolated(unsafe) var onEvent: ((_ title: String, _ body: String) -> Void)?
     private(set) var state = CompanionState()
     private(set) var displayState: CompanionStateKind = .egg
     private(set) var currentLine: EvoLine?
@@ -492,12 +514,16 @@ final class CompanionStore {
         guard AppEnv.isBundledApp else { return }
         guard UserDefaults.standard.object(forKey: "companionNotifications") as? Bool ?? true else { return }
         notifSeq += 1
+        #if canImport(UserNotifications)
         let content = UNMutableNotificationContent()
         content.title = title
         content.body = body
         content.sound = .default
         UNUserNotificationCenter.current().add(
             UNNotificationRequest(identifier: "companion-event-\(notifSeq)", content: content, trigger: nil))
+        #else
+        onEvent?(title, body)   // Windows: routed to the tray toast by the UI layer
+        #endif
     }
 
     // MARK: 부화
@@ -548,11 +574,16 @@ final class CompanionStore {
         guard let line = try? await provider.line(baseSpeciesID: id) else { return }   // 라인 예열
         // 스프라이트 예열 — 부화 직후 보일 것들: base 정적+애니메이션, shiny 롤(1/64) 대비 shiny 애니메이션.
         // .app 번들에서만(단위 테스트가 실네트워크에 닿지 않도록 — 알림과 동일한 게이트).
+        // macOS 전용: 애니메이션 GIF 는 메뉴바 애니메이션용인데 Windows 트레이는 정적 HICON 만 쓴다.
+        // 게다가 이 3개 동시 fetch 가 한도 HTTP 와 겹치면 Windows corelibs URLSession 이 크래시했다
+        // (동시 요청 내부 배열 index-out-of-range) → Windows 는 companionIcon 이 필요할 때 1개만 받는다.
+        #if os(macOS)
         if AppEnv.isBundledApp {
             _ = await SpriteStore.shared.data(speciesID: line.baseID, animated: false, shiny: false)
             _ = await SpriteStore.shared.data(speciesID: line.baseID, animated: true, shiny: false)
             _ = await SpriteStore.shared.data(speciesID: line.baseID, animated: true, shiny: true)
         }
+        #endif
         prefetchedLineID = id
     }
 

@@ -16,16 +16,28 @@ struct CodexRateLimitsProvider: CodexLimitsProviding {
 
     private static var defaultBinaryCandidates: [String] {
         let home = FileManager.default.homeDirectoryForCurrentUser.path
+        #if os(Windows)
+        let env = ProcessInfo.processInfo.environment
+        let appData = env["APPDATA"] ?? "\(home)\\AppData\\Roaming"
+        let localAppData = env["LOCALAPPDATA"] ?? "\(home)\\AppData\\Local"
+        return [
+            "\(appData)\\npm\\codex.cmd",                      // npm global shim
+            "\(appData)\\npm\\codex.exe",
+            "\(home)\\.codex\\bin\\codex.exe",                 // native install
+            "\(localAppData)\\Programs\\codex\\codex.exe",
+        ]
+        #else
         return [
             "/Applications/Codex.app/Contents/Resources/codex",
             "\(home)/.codex/bin/codex",
             "/opt/homebrew/bin/codex",
             "/usr/local/bin/codex",
         ]
+        #endif
     }
 
     var resolvedBinary: String? {
-        // 앱 번들/홈 경로 우선, 이후 버전매니저 공통 경로 + 로그인 셸 PATH 해석(mise 등).
+        // 앱 번들/홈 경로 우선, 이후 버전매니저 공통 경로 + PATH 해석(mac: 로그인 셸 / win: where).
         BinaryLocator.resolve("codex", staticPaths: binaryCandidates + BinaryLocator.commonNodeToolPaths("codex"))
     }
 

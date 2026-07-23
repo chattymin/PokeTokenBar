@@ -1,3 +1,4 @@
+#if os(macOS)   // macOS-only: exercises AppKit/SwiftUI/companion/store types
 import XCTest
 @testable import PokeTokenBar
 
@@ -450,3 +451,4 @@ final class OAuthCredentialDataTests: XCTestCase {
         XCTAssertEqual(OAuthCredentialData.credential(from: data)?.accessToken, "token-1")
     }
 }
+#endif

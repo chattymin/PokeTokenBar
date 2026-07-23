@@ -5,6 +5,11 @@ enum CompanionStateKind: String, Sendable {
     case egg, idle, working, focus, tired, sleep, levelUp
 }
 
+/// burn rate 단계 — companion 표시 상태(작업/집중) 판정에 사용. (cross-platform: 트레이도 사용)
+enum BurnTier: Sendable {
+    case idle, normal, fast, blazing
+}
+
 /// 앱 언어. 포켓몬 이름은 PokéAPI 다국어 names 에서 가져온다.
 enum AppLanguage: String, Codable, Sendable, CaseIterable {
     case ko, en, ja

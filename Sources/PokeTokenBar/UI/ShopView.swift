@@ -1,3 +1,4 @@
+#if os(macOS)
 import SwiftUI
 
 /// 상점 — 사용한 토큰(재화 = usedSinceInstall − spentTokens)으로 아이템 구매(이상한 사탕·민트).
@@ -199,3 +200,4 @@ private struct FreshEggCard: View {
         if store.buyFreshEgg() { nav.tab = .home }
     }
 }
+#endif

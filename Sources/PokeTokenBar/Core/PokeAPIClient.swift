@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking   // URLSession/URLRequest live here on non-Darwin (Windows/Linux)
+#endif
 
 /// 부화 후보 — 진화라인 시작점(base) 종과 공식 희귀도.
 struct BaseSpecies: Sendable, Codable {

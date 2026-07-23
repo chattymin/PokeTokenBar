@@ -1,3 +1,4 @@
+#if os(macOS)
 import AppKit
 import SwiftUI
 
@@ -161,3 +162,4 @@ struct FloatingPetView: View {
             .frame(width: size, height: size)
     }
 }
+#endif

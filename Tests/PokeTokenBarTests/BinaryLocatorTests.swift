@@ -1,3 +1,4 @@
+#if os(macOS)   // parseMarkedPath is the macOS login-shell resolver; Windows uses where.exe
 import XCTest
 @testable import PokeTokenBar
 
@@ -67,3 +68,4 @@ final class BinaryLocatorTests: XCTestCase {
         XCTAssertTrue(paths.contains { $0.contains("/.volta/bin/ccusage") })
     }
 }
+#endif

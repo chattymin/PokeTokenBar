@@ -96,7 +96,11 @@ final class LocalUsageCacheTests: XCTestCase {
         XCTAssertEqual(Set(entries.map(\.output)), [1, 2], "조회 자체는 둘 다 반환")
 
         let raw = try Data(contentsOf: cacheFile)
+        #if canImport(Darwin)
         let plain = (try? (raw as NSData).decompressed(using: .zlib) as Data) ?? raw
+        #else
+        let plain = raw   // non-Darwin snapshot is stored plaintext
+        #endif
         let snap = String(decoding: plain, as: UTF8.self)
         XCTAssertFalse(snap.contains("old.jsonl"), "45일 지난 blob 은 스냅샷에서 prune")
         XCTAssertTrue(snap.contains("new.jsonl"))
@@ -133,6 +137,7 @@ final class LocalUsageCacheTests: XCTestCase {
         XCTAssertEqual(entries.map(\.output), [2])
     }
 
+    #if os(macOS)   // compression is Darwin-only (NSData zlib); non-Darwin stores plaintext
     /// 구버전 평문 JSON 캐시(압축 도입 전)도 로드된다 — 업그레이드 시 콜드 스타트 재발 방지.
     func testLegacyPlainJSONCacheLoads() async throws {
         let t = Date(timeIntervalSince1970: floor(Date().timeIntervalSince1970) - 3600)
@@ -159,6 +164,7 @@ final class LocalUsageCacheTests: XCTestCase {
         let plain = try (raw as NSData).decompressed(using: .zlib) as Data   // zlib 아니면 throw
         XCTAssertLessThan(raw.count, plain.count, "압축본이 평문보다 작아야 한다")
     }
+    #endif
 
     /// 포매터 — grouped/cost/costCompact 경계값(메뉴바·팝오버 표기 계약).
     func testFormatterEdges() {
