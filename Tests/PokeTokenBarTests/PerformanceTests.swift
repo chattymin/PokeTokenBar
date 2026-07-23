@@ -1,3 +1,4 @@
+#if os(macOS)   // macOS-only: exercises AppKit/SwiftUI/companion/store types
 import XCTest
 @testable import PokeTokenBar
 
@@ -158,3 +159,4 @@ final class FloatingPetEnergyTests: XCTestCase {
         XCTAssertEqual(FloatingPetView.frameFloor, 0.4, accuracy: 1e-9, "메뉴바와 동일한 0.4s≈2.5fps 캡")
     }
 }
+#endif

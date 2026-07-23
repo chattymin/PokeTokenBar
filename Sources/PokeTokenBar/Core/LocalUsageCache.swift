@@ -126,7 +126,12 @@ actor LocalUsageCache {
         loaded = true
         guard let raw = try? Data(contentsOf: fileURL) else { return }
         // zlib 압축 스냅샷(현행) → 실패 시 평문 JSON(구버전 캐시) 폴백
+        #if canImport(Darwin)
         let data = (try? (raw as NSData).decompressed(using: .zlib) as Data) ?? raw
+        #else
+        // swift-corelibs-foundation(Windows/Linux)엔 NSData 압축 API가 없음 → 평문 JSON 만 처리.
+        let data = raw
+        #endif
         guard let snap = try? JSONDecoder().decode(Snapshot.self, from: data) else { return }
         claudeCache = snap.claude
         codexCache = snap.codex
@@ -150,7 +155,11 @@ actor LocalUsageCache {
         let snap = Snapshot(claude: claudeCache, codex: codexCache, gemini: geminiCache)
         if let data = try? JSONEncoder().encode(snap) {
             // JSON 은 zlib 로 크게 압축됨(수 MB → 수백 KB). 실패 시 평문 저장(로드가 양쪽 다 처리).
+            #if canImport(Darwin)
             let out = (try? (data as NSData).compressed(using: .zlib) as Data) ?? data
+            #else
+            let out = data   // 비-Darwin: 압축 API 부재 → 평문 JSON 저장.
+            #endif
             try? out.write(to: fileURL, options: .atomic)
             dirty = false
             lastSave = now()

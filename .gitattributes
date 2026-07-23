@@ -1,0 +1,3 @@
+# Vendored public-domain SQLite amalgamation — exclude from language stats and collapse in diffs.
+Sources/CSQLite/sqlite3.c linguist-vendored linguist-generated -diff
+Sources/CSQLite/include/sqlite3.h linguist-vendored linguist-generated -diff

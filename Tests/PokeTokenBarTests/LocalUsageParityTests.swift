@@ -1,3 +1,4 @@
+#if os(macOS)   // macOS-only: exercises AppKit/SwiftUI/companion/store types
 import XCTest
 @testable import PokeTokenBar
 
@@ -78,3 +79,4 @@ final class LocalUsageParityTests: XCTestCase {
         print(String(format: "PARITY-PERF claude month scan: cold %.0fms  warm %.0fms", cold * 1000, warm * 1000))
     }
 }
+#endif

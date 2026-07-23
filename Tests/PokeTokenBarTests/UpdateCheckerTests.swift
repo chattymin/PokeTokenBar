@@ -1,3 +1,4 @@
+#if os(macOS)   // macOS-only: exercises AppKit/SwiftUI/companion/store types
 import XCTest
 @testable import PokeTokenBar
 
@@ -25,3 +26,4 @@ final class UpdateCheckerTests: XCTestCase {
         XCTAssertFalse(UpdateChecker.isNewer("2.0", than: "2.0.0"))  // 동일
     }
 }
+#endif

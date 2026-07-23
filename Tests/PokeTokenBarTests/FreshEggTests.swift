@@ -1,3 +1,4 @@
+#if os(macOS)   // macOS-only: exercises AppKit/SwiftUI/companion/store types
 import XCTest
 @testable import PokeTokenBar
 
@@ -81,3 +82,4 @@ final class FreshEggTests: XCTestCase {
         XCTAssertFalse(s.currentIsShiny)
     }
 }
+#endif

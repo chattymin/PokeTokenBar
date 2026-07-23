@@ -1,4 +1,12 @@
+// Exercises the SQLite-backed OpenCode/Hermes readers — compiled wherever a SQLite module is
+// importable (system `SQLite3` on macOS, vendored `CSQLite` on Windows), matching the gate on the
+// providers themselves.
+#if canImport(SQLite3) || canImport(CSQLite)
+#if canImport(SQLite3)
 import SQLite3
+#elseif canImport(CSQLite)
+import CSQLite
+#endif
 import XCTest
 @testable import PokeTokenBar
 
@@ -124,6 +132,9 @@ final class LocalAdditionalUsageTests: XCTestCase {
         XCTAssertEqual(entries.first?.total, 15)
     }
 
+    // UsageStore is the macOS menu-bar store (AppKit/UserNotifications) — absent on Windows, whose
+    // tray wires the SQLite readers directly. The readers themselves are exercised cross-platform above.
+    #if os(macOS)
     @MainActor
     func testDefaultRegistryIncludesOnlyRequestedAdditionalProviders() {
         let suite = "LocalAdditionalUsageTests.registry.\(UUID().uuidString)"
@@ -135,6 +146,7 @@ final class LocalAdditionalUsageTests: XCTestCase {
             Set(store.registeredProviderIDs),
             Set(["claude_code", "codex", "gemini", "opencode", "hermes"]))
     }
+    #endif
 
     func testPrintRealOpenCodeAggregate() throws {
         guard ProcessInfo.processInfo.environment["PTB_PARITY"] == "1" else {
@@ -185,3 +197,4 @@ final class LocalAdditionalUsageTests: XCTestCase {
         if result != SQLITE_OK { throw NSError(domain: "SQLite", code: Int(result)) }
     }
 }
+#endif

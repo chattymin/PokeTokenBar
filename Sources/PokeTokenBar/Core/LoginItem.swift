@@ -1,3 +1,4 @@
+#if os(macOS)
 import ServiceManagement
 
 /// 로그인 시 실행 + **크래시/비정상 종료 시 자동 재실행**(launchd KeepAlive).
@@ -39,3 +40,4 @@ enum LoginItem {
         }
     }
 }
+#endif

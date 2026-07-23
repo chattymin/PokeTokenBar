@@ -1,0 +1,7 @@
+// Exposes the vendored SQLite amalgamation (sqlite3.c/.h) as the `CSQLite` Clang module so Swift can
+// `import CSQLite`. Used on platforms whose Swift toolchain ships no system `SQLite3` module (Windows);
+// macOS keeps using its system `SQLite3`. The C symbols/types are identical either way.
+module CSQLite {
+    header "sqlite3.h"
+    export *
+}

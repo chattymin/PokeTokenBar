@@ -1,3 +1,4 @@
+#if os(macOS)
 import SwiftUI
 
 func rarityColor(_ r: Rarity?) -> Color {
@@ -527,3 +528,4 @@ private struct DexEntryRow: View {
         }
     }
 }
+#endif

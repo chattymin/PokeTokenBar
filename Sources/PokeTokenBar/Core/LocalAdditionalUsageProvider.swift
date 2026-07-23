@@ -1,5 +1,14 @@
+// OpenCode/Hermes usage lives in local SQLite databases. macOS uses its system `SQLite3` module;
+// Windows Swift ships none, so there we build + import the vendored amalgamation as `CSQLite`
+// (Sources/CSQLite, wired in Package.swift). The sqlite3_* C API is identical, so one code path
+// serves both — this file compiles wherever either module is importable.
+#if canImport(SQLite3) || canImport(CSQLite)
 import Foundation
+#if canImport(SQLite3)
 import SQLite3
+#elseif canImport(CSQLite)
+import CSQLite
+#endif
 
 private enum LocalAdditionalSource: String, Sendable {
     case opencode
@@ -378,3 +387,4 @@ enum LocalAdditionalUsageReader {
         max(0, Int(sqlite3_column_int64(statement, index)))
     }
 }
+#endif

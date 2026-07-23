@@ -1,3 +1,4 @@
+#if os(macOS)
 import SwiftUI
 
 struct SettingsView: View {
@@ -407,3 +408,4 @@ struct SettingsView: View {
         reportError = nil
     }
 }
+#endif

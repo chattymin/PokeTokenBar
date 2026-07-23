@@ -6,8 +6,17 @@ enum AppLog {
     static var logFileURL: URL { url }
 
     private static let url: URL = {
-        let dir = FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("Logs")
+        // macOS: ~/Library/Logs. Windows/Linux: %LOCALAPPDATA%/PokeTokenBar/Logs (no `.libraryDirectory`
+        // on non-Darwin — `[0]` on the empty result crashed the log DispatchQueue with index-out-of-range).
+        #if os(macOS)
+        let base = FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask).first
+            ?? FileManager.default.homeDirectoryForCurrentUser
+        let dir = base.appendingPathComponent("Logs")
+        #else
+        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+            ?? FileManager.default.homeDirectoryForCurrentUser
+        let dir = base.appendingPathComponent("PokeTokenBar/Logs")
+        #endif
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         return dir.appendingPathComponent("PokeTokenBar.log")
     }()

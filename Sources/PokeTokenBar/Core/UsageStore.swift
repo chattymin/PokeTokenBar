@@ -1,12 +1,10 @@
+#if os(macOS)
 import AppKit
 import Foundation
 import Observation
 import UserNotifications
 
-/// burn rate 단계 — companion 표시 상태(작업/집중) 판정에 사용.
-enum BurnTier: Sendable {
-    case idle, normal, fast, blazing
-}
+// BurnTier moved to CompanionModel.swift (cross-platform) so the Windows tray can drive companion.
 
 @MainActor
 @Observable
@@ -316,10 +314,18 @@ final class UsageStore {
 
     // MARK: 생명주기
 
-    init(providers: [any UsageProvider] = [
-        LocalClaudeProvider(), LocalCodexProvider(), LocalGeminiProvider(),
-        LocalOpenCodeProvider(), LocalHermesProvider(),
-    ],
+    /// The built-in provider set. OpenCode/Hermes read local SQLite DBs, so they're only present
+    /// where SQLite3 imports (macOS) — a `#if` inside a default-argument array literal isn't valid,
+    /// hence this helper. (Keep general aggregation provider-agnostic; see CLAUDE.md 확장 규약.)
+    static func defaultProviders() -> [any UsageProvider] {
+        var list: [any UsageProvider] = [LocalClaudeProvider(), LocalCodexProvider(), LocalGeminiProvider()]
+        #if canImport(SQLite3) || canImport(CSQLite)
+        list.append(contentsOf: [LocalOpenCodeProvider(), LocalHermesProvider()])
+        #endif
+        return list
+    }
+
+    init(providers: [any UsageProvider] = UsageStore.defaultProviders(),
          claudeLimitsProvider: any ClaudeLimitsProviding = OAuthLimitsProvider(),
          codexLimitsProvider: any CodexLimitsProviding = CodexRateLimitsProvider(),
          statusProvider: any ProviderStatusProviding = StatuspageStatusProvider(),
@@ -847,3 +853,4 @@ final class UsageStore {
         }
     }
 }
+#endif

@@ -1,3 +1,123 @@
+#if os(Windows)
+import Foundation
+
+/// Windows port of the CLI locator. Mirrors the macOS public API:
+/// manual override (UserDefaults "<binary>Path") → static paths → `where.exe` PATH resolution.
+/// Cached per binary. Windows differences vs macOS: `%PATH%` is ';'-separated, executables
+/// carry .exe/.cmd/.bat extensions, and PATH resolution shells out to `where` (which also
+/// honors PATHEXT) instead of a login shell.
+enum BinaryLocator {
+    private static let lock = NSLock()
+    private struct Cached { let path: String?; let at: Date }
+    private nonisolated(unsafe) static var cache: [String: Cached] = [:]
+    private static let notFoundTTL: TimeInterval = 600
+
+    static func resolve(_ binary: String, staticPaths: [String]) -> String? {
+        lock.lock(); defer { lock.unlock() }
+        if let hit = cache[binary] {
+            if let path = hit.path {
+                if isRunnable(path) { return path }
+                AppLog.write("\(binary) cached path gone, re-resolving: \(path)")
+            } else if Date().timeIntervalSince(hit.at) < notFoundTTL {
+                return nil
+            }
+        }
+        let result = locate(binary, staticPaths: staticPaths)
+        cache[binary] = Cached(path: result, at: Date())
+        AppLog.write(result.map { "\(binary) resolved: \($0)" } ?? "\(binary) NOT found on PATH")
+        return result
+    }
+
+    /// Child-process PATH augmentation — prepend the resolved binary's dir + common tool dirs
+    /// to the inherited PATH so npm/scoop/winget shims can find their managers.
+    static func augmentedEnvironment(binaryPath: String,
+                                     base: [String: String] = ProcessInfo.processInfo.environment) -> [String: String] {
+        var paths = [URL(fileURLWithPath: binaryPath).deletingLastPathComponent().path]
+        paths.append(contentsOf: commonToolDirectories())
+        // Windows env var is "Path" (case-insensitive); read either spelling.
+        let existing = base["Path"] ?? base["PATH"] ?? ""
+        for entry in existing.split(separator: ";") { paths.append(String(entry)) }
+        var seen = Set<String>()
+        let merged = paths.filter { seen.insert($0.lowercased()).inserted }.joined(separator: ";")
+        var env = base
+        env["Path"] = merged
+        return env
+    }
+
+    static func reset() {
+        lock.lock(); defer { lock.unlock() }
+        cache.removeAll()
+    }
+
+    /// Common package-manager bin/shim dirs on Windows. Single source shared by static-path
+    /// probing and child-process PATH augmentation.
+    static func commonToolDirectories() -> [String] {
+        let env = ProcessInfo.processInfo.environment
+        let home = NSHomeDirectory()
+        let appData = env["APPDATA"] ?? "\(home)\\AppData\\Roaming"
+        let localAppData = env["LOCALAPPDATA"] ?? "\(home)\\AppData\\Local"
+        return [
+            "\(appData)\\npm",                              // npm global (.cmd shims)
+            "\(home)\\.codex\\bin",                         // Codex native install
+            "\(localAppData)\\Programs\\codex",
+            "\(home)\\scoop\\shims",                        // Scoop
+            "\(localAppData)\\Microsoft\\WinGet\\Links",    // winget shims
+            "\(home)\\.local\\bin",
+        ]
+    }
+
+    /// Common shim/bin dirs joined with the binary name, both .exe and .cmd variants.
+    static func commonNodeToolPaths(_ binary: String) -> [String] {
+        commonToolDirectories().flatMap { ["\($0)\\\(binary).exe", "\($0)\\\(binary).cmd"] }
+    }
+
+    /// `isExecutableFile` is unreliable for .cmd/.bat on Windows swift-corelibs-foundation;
+    /// treat plain existence as runnable (PATHEXT decides at spawn time).
+    private static func isRunnable(_ path: String) -> Bool {
+        FileManager.default.fileExists(atPath: path)
+    }
+
+    private static func locate(_ binary: String, staticPaths: [String]) -> String? {
+        if let override = UserDefaults.standard.string(forKey: "\(binary)Path"),
+           !override.isEmpty, isRunnable(override) {
+            return override
+        }
+        if let hit = staticPaths.first(where: { isRunnable($0) }) {
+            return hit
+        }
+        return whereResolve(binary)
+    }
+
+    /// `where.exe <binary>` searches %PATH% honoring PATHEXT (.exe/.cmd/...). First match wins.
+    private static func whereResolve(_ binary: String) -> String? {
+        let system32 = (ProcessInfo.processInfo.environment["SystemRoot"] ?? "C:\\Windows") + "\\System32"
+        let whereExe = "\(system32)\\where.exe"
+        guard FileManager.default.fileExists(atPath: whereExe) else { return nil }
+        // Spawn with CREATE_NO_WINDOW (WindowsProcess) so `where.exe` doesn't flash a console.
+        let outURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ptb-where-\(UUID().uuidString).txt")
+        let errURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ptb-where-\(UUID().uuidString).err")
+        defer { try? FileManager.default.removeItem(at: outURL); try? FileManager.default.removeItem(at: errURL) }
+        guard let proc = WindowsProcess(commandLine: "\"\(whereExe)\" \"\(binary)\"",
+                                        stdoutPath: outURL.path, stderrPath: errURL.path),
+              proc.launched else {
+            AppLog.write("\(binary) where resolve spawn failed")
+            return nil
+        }
+        proc.closeStdin()
+        _ = proc.waitFor(8)
+        if proc.isRunning { proc.terminate() }
+        proc.cleanup()
+        guard let text = try? String(contentsOf: outURL, encoding: .utf8) else { return nil }
+        for line in text.split(whereSeparator: \.isNewline) {
+            let path = String(line).trimmingCharacters(in: .whitespacesAndNewlines)
+            if !path.isEmpty, isRunnable(path) { return path }
+        }
+        return nil
+    }
+}
+#elseif os(macOS)
 import Foundation
 
 /// CLI 바이너리(ccusage, codex 등) 절대경로 탐색.
@@ -138,3 +258,4 @@ enum BinaryLocator {
         return path.isEmpty ? nil : path
     }
 }
+#endif

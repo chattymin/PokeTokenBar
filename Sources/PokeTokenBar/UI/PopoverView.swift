@@ -1,3 +1,4 @@
+#if os(macOS)
 import SwiftUI
 
 enum PopoverTab { case home, shop, bag, collection }
@@ -594,3 +595,4 @@ struct PopoverView: View {
         }
     }
 }
+#endif
