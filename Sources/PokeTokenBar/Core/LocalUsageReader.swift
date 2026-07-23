@@ -11,6 +11,9 @@ import Foundation
 /// 성능: mtime 윈도우로 스캔 파일을 한정(범위 시작 이전에 수정된 파일은 범위 내 엔트리가 없음).
 enum LocalUsageReader {
 
+    /// 활성 블록(번 레이트)과 enrichment 스캔 하한이 공유하는 5시간 롤링 윈도우 길이.
+    static let blockWindow: TimeInterval = 5 * 3600
+
     // MARK: 정규화 레코드
 
     struct Entry: Sendable, Codable {
@@ -273,7 +276,7 @@ enum LocalUsageReader {
 
     /// 최근 5시간 롤링 윈도우 기반 활성 블록(번 레이트 추정용).
     static func activeBlock(entries: [Entry], now: Date) -> BlockUsage? {
-        let windowStart = now.addingTimeInterval(-5 * 3600)
+        let windowStart = now.addingTimeInterval(-blockWindow)
         let recent = entries.filter { $0.date >= windowStart }.sorted { $0.date < $1.date }
         guard let first = recent.first else { return nil }
         var b = Bucket()
@@ -284,7 +287,7 @@ enum LocalUsageReader {
         return BlockUsage(
             id: "block-\(Int(first.date.timeIntervalSince1970))",
             startTime: iso.string(from: first.date),
-            endTime: iso.string(from: first.date.addingTimeInterval(5 * 3600)),
+            endTime: iso.string(from: first.date.addingTimeInterval(blockWindow)),
             isActive: true, totalTokens: b.total, costUSD: b.cost, tokensPerMinute: tpm)
     }
 
@@ -297,6 +300,19 @@ enum LocalUsageReader {
 
     static func startOfWeek(_ date: Date) -> Date {
         Calendar.current.dateInterval(of: .weekOfYear, for: date)?.start ?? date
+    }
+
+    /// enrichment(활성 블록·이번 주·이번 달)를 한 번의 스캔에서 모두 도출하므로, mtime 하한은
+    /// 그 세 윈도우 중 **가장 이른 시작**이어야 한다. append-only 로그에서 "범위 시작 이전에 수정된
+    /// 파일엔 범위 내 엔트리가 없다"는 전제가 성립하려면 스캔 하한 ≤ 모든 표시 윈도우의 시작이어야 하기 때문.
+    ///
+    /// 함정: monthStart 만 하한으로 쓰면 **월초**에 이번 주 시작(weekStart)이 지난달로 넘어가고
+    /// (2026년 12개월 중 11개월이 그렇다) 자정 직후엔 5h 블록이 어제로 넘어가, 지난달에 수정된 세션
+    /// 파일이 스캔에서 빠지며 주간 합계·번레이트가 며칠간 과소집계된다. min 으로 그 경계를 흡수한다.
+    /// (OpenCode/Hermes 경로엔 이미 `now-7일` 하한이 있었으나 Claude/Codex/Gemini 경로엔 없어
+    /// 드리프트했다 — 네 프로바이더가 이 단일 소스를 공유하게 통일.)
+    static func enrichmentScanStart(now: Date) -> Date {
+        min(startOfMonth(now), startOfWeek(now), now.addingTimeInterval(-blockWindow))
     }
 
     static func monthKey(_ date: Date) -> String {

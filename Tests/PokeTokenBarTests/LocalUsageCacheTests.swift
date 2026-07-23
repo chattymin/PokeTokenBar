@@ -201,4 +201,45 @@ final class LocalUsageCacheTests: XCTestCase {
         XCTAssertEqual(entries[0].output, 7)
         XCTAssertEqual(entries[0].cacheWrite, 0)
     }
+
+    /// 월초 경계 회귀: 이번 주가 지난달로 넘어가는 시점(2026년 12개월 중 11개월)엔 enrichment 스캔
+    /// 하한이 monthStart 면 지난달에 수정된 '이번 주' 세션 파일이 mtime 필터에서 빠져 주간 합계가
+    /// 과소집계된다. enrichmentScanStart(=weekStart 등 더 이른 시작)를 하한으로 써야 잡힌다.
+    /// (실제 mtime 필터를 밟는 통합 테스트 — 순수 경로만 봤다면 못 걸렀을 결함 조건을 재현.)
+    func testEnrichmentScanStartCatchesWeekStraddlingMonthBoundary() async throws {
+        let cal = Calendar.current
+        // 이번 주 시작이 지난달로 넘어가는 '월초' 시각을 하나 찾는다(로케일 firstWeekday 무관 결정적).
+        let base = cal.date(from: DateComponents(year: 2026, month: 1, day: 1, hour: 12))!
+        var straddle: Date?
+        for offset in 0..<14 {
+            guard let candidate = cal.date(byAdding: .month, value: offset, to: base) else { continue }
+            if LocalUsageReader.startOfWeek(candidate) < LocalUsageReader.startOfMonth(candidate) {
+                straddle = candidate; break
+            }
+        }
+        let now = try XCTUnwrap(straddle, "이번 주가 지난달로 straddle 하는 월초를 못 찾음")
+        let monthStart = LocalUsageReader.startOfMonth(now)
+        let weekStart = LocalUsageReader.startOfWeek(now)
+        XCTAssertLessThan(weekStart, monthStart, "전제: 이번 주가 지난달로 넘어간다")
+
+        // 이번 주에 속하지만 지난달인 날의 세션 — 그 이후 수정 안 됨(파일 mtime = 그날).
+        let fmt = LocalUsageReader.localDayFormatter()
+        let straddleDay = weekStart.addingTimeInterval(3600)   // weekStart 직후(지난달·이번 주)
+        let ts = ISO8601DateFormatter().string(from: straddleDay)
+        try writeFile("straddle.jsonl", lines: [claudeLine(id: "s", output: 500, ts: ts)], mtime: straddleDay)
+
+        let cache = makeCache(now: { now })
+        // (버그 조건) monthStart 하한 → 지난달 mtime 파일이 필터에서 빠진다.
+        let monthScoped = await cache.claudeEntries(modifiedSince: monthStart)
+        XCTAssertTrue(monthScoped.isEmpty, "monthStart 하한은 지난달에 수정된 이번 주 세션을 놓친다")
+
+        // (수정) enrichmentScanStart 하한 → 포함되고, 이번 주 합계에 반영된다.
+        let fixed = await cache.claudeEntries(
+            modifiedSince: LocalUsageReader.enrichmentScanStart(now: now))
+        XCTAssertEqual(fixed.count, 1, "enrichmentScanStart 는 이번 주 세션을 포함해야 한다")
+        let week = LocalUsageReader.period(
+            entries: fixed, periodKey: "w",
+            fromDay: fmt.string(from: weekStart), toDay: fmt.string(from: now))
+        XCTAssertGreaterThan(week.totalTokens, 0, "이번 주 합계에 반영돼야 한다")
+    }
 }

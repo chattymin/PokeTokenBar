@@ -14,8 +14,9 @@ struct LocalClaudeProvider: UsageProvider {
     func fetchEnrichment() async -> ProviderEnrichment {
         let now = Date()
         let monthStart = LocalUsageReader.startOfMonth(now)
-        // 월 범위 한 번 스캔으로 블록·주·월을 모두 도출.
-        let entries = await LocalUsageCache.shared.claudeEntries(modifiedSince: monthStart)
+        // 한 번 스캔으로 블록·주·월을 모두 도출 — 하한은 세 윈도우 중 가장 이른 시작(월초 경계 흡수).
+        let entries = await LocalUsageCache.shared.claudeEntries(
+            modifiedSince: LocalUsageReader.enrichmentScanStart(now: now))
         let fmt = LocalUsageReader.localDayFormatter()
         var r = ProviderEnrichment()
         r.activeBlock = LocalUsageReader.activeBlock(entries: entries, now: now)
@@ -47,7 +48,8 @@ struct LocalGeminiProvider: UsageProvider {
     func fetchEnrichment() async -> ProviderEnrichment {
         let now = Date()
         let monthStart = LocalUsageReader.startOfMonth(now)
-        let entries = await LocalUsageCache.shared.geminiEntries(modifiedSince: monthStart)
+        let entries = await LocalUsageCache.shared.geminiEntries(
+            modifiedSince: LocalUsageReader.enrichmentScanStart(now: now))
         let fmt = LocalUsageReader.localDayFormatter()
         var r = ProviderEnrichment()
         // 블록(burn rate) 계산은 프로바이더 공통 — companion 리듬이 전 프로바이더를 따르게.
@@ -81,7 +83,8 @@ struct LocalCodexProvider: UsageProvider {
     func fetchEnrichment() async -> ProviderEnrichment {
         let now = Date()
         let monthStart = LocalUsageReader.startOfMonth(now)
-        let entries = await LocalUsageCache.shared.codexEntries(modifiedSince: monthStart)
+        let entries = await LocalUsageCache.shared.codexEntries(
+            modifiedSince: LocalUsageReader.enrichmentScanStart(now: now))
         let fmt = LocalUsageReader.localDayFormatter()
         var r = ProviderEnrichment()
         // 블록(burn rate) 계산은 프로바이더 공통 — companion 리듬이 전 프로바이더를 따르게.

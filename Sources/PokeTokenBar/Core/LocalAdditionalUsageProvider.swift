@@ -79,7 +79,9 @@ private actor LocalAdditionalUsageCache {
         }
         if let task = inFlight[source] { return await task.value }
 
-        let periodStart = min(LocalUsageReader.startOfMonth(now), now.addingTimeInterval(-7 * 86400))
+        // 스캔 하한은 enrichment 의 세 윈도우(블록·주·월) 중 가장 이른 시작 — 월초 경계 흡수.
+        // (Claude/Codex/Gemini 경로와 이 단일 소스를 공유해 과거의 window 드리프트를 원천 차단.)
+        let periodStart = LocalUsageReader.enrichmentScanStart(now: now)
         // OpenCode messages are immutable. After the cold monthly read, only query
         // records at and after the newest cached timestamp (with a small overlap).
         // This keeps minute-by-minute refreshes cheap even for large databases.

@@ -107,4 +107,32 @@ final class LocalUsageReaderTests: XCTestCase {
         // recent 는 오늘, old 도 (10h 전이라 같은 날일 수 있음) → 최소 recent 포함
         XCTAssertGreaterThanOrEqual(p.totalTokens, 600_000)
     }
+
+    // MARK: enrichment 스캔 하한 (월초 경계 흡수)
+
+    /// 스캔 하한은 블록(now-5h)·이번 주(weekStart)·이번 달(monthStart) 세 윈도우 시작을 모두 덮어야
+    /// append-only 로그의 "하한 이전 파일엔 범위 내 엔트리 없음" 전제가 성립한다. 월초엔 weekStart 가
+    /// 지난달로 넘어가므로 하한 < monthStart 여야 한다(monthStart-only 였던 과거 회귀를 순수 경로로 고정).
+    func testEnrichmentScanStartCoversAllWindows() throws {
+        let cal = Calendar.current
+        let base = cal.date(from: DateComponents(year: 2026, month: 1, day: 1, hour: 2))!
+        var straddle: Date?
+        for offset in 0..<14 {
+            guard let candidate = cal.date(byAdding: .month, value: offset, to: base) else { continue }
+            if LocalUsageReader.startOfWeek(candidate) < LocalUsageReader.startOfMonth(candidate) {
+                straddle = candidate; break
+            }
+        }
+        let now = try XCTUnwrap(straddle)
+        let scan = LocalUsageReader.enrichmentScanStart(now: now)
+        XCTAssertLessThanOrEqual(scan, LocalUsageReader.startOfMonth(now))
+        XCTAssertLessThanOrEqual(scan, LocalUsageReader.startOfWeek(now))
+        XCTAssertLessThanOrEqual(scan, now.addingTimeInterval(-LocalUsageReader.blockWindow))
+        XCTAssertLessThan(scan, LocalUsageReader.startOfMonth(now),
+                          "월초엔 weekStart 가 더 이르므로 하한이 monthStart 보다 앞서야 한다")
+
+        // 월 중순: monthStart 가 가장 이르므로 하한 == monthStart (경계 밖 과다 스캔 없음).
+        let mid = cal.date(from: DateComponents(year: 2026, month: 7, day: 20, hour: 12))!
+        XCTAssertEqual(LocalUsageReader.enrichmentScanStart(now: mid), LocalUsageReader.startOfMonth(mid))
+    }
 }
