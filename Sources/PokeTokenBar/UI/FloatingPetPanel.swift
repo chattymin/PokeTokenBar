@@ -19,10 +19,15 @@ final class FloatingPetController: NSObject, NSWindowDelegate {
     private static let originXKey = "floatingPetOriginX"
     private static let originYKey = "floatingPetOriginY"
 
-    init(store: UsageStore, companion: CompanionStore, defaults: UserDefaults = .standard) {
+    private var onOpenPopover: (() -> Void)?
+    private var onHide: (() -> Void)?
+
+    init(store: UsageStore, companion: CompanionStore, defaults: UserDefaults = .standard, onOpenPopover: (() -> Void)? = nil, onHide: (() -> Void)? = nil) {
         self.store = store
         self.companion = companion
         self.defaults = defaults
+        self.onOpenPopover = onOpenPopover
+        self.onHide = onHide
         super.init()
         observeSettings()
         observePowerState()
@@ -74,8 +79,11 @@ final class FloatingPetController: NSObject, NSWindowDelegate {
         // 저전력 모드가 토글되면 animated 플래그가 바뀌므로 콘텐츠를 재구성(정적↔애니메이션 전환).
         let wantAnimated = Self.shouldAnimate(lowPower: ProcessInfo.processInfo.isLowPowerModeEnabled)
         if p.contentView == nil || builtAnimated != wantAnimated {
-            p.contentView = PetHostingView(rootView: AnyView(
+            let hosting = PetHostingView(rootView: AnyView(
                 FloatingPetView(animated: wantAnimated).environment(store).environment(companion)))
+            hosting.onOpenPopover = onOpenPopover
+            hosting.onHide = onHide
+            p.contentView = hosting
             builtAnimated = wantAnimated
         }
         p.setFrame(targetFrame(size: CGFloat(store.floatingPetSize)), display: true)
@@ -140,7 +148,39 @@ final class FloatingPetController: NSObject, NSWindowDelegate {
 
 /// NSHostingView 는 콘텐츠에 따라 배경 드래그 이동을 막을 수 있어 명시 허용 — 패널 어디를 잡아도 이동.
 private final class PetHostingView: NSHostingView<AnyView> {
+    var onOpenPopover: (() -> Void)?
+    var onHide: (() -> Void)?
+    private var mouseDownLocation: NSPoint?
+
     override var mouseDownCanMoveWindow: Bool { true }
+
+    override func mouseDown(with event: NSEvent) {
+        mouseDownLocation = event.locationInWindow
+        super.mouseDown(with: event)
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        if let start = mouseDownLocation {
+            let end = event.locationInWindow
+            let dx = end.x - start.x
+            let dy = end.y - start.y
+            if dx*dx + dy*dy < 10 { // ~3pt threshold
+                onOpenPopover?()
+            }
+        }
+        mouseDownLocation = nil
+        super.mouseUp(with: event)
+    }
+
+    override func menu(for event: NSEvent) -> NSMenu? {
+        let menu = NSMenu(title: "")
+        menu.addItem(withTitle: "Open Token Bar", action: #selector(handleOpen), keyEquivalent: "")
+        menu.addItem(withTitle: "Hide Pet", action: #selector(handleHide), keyEquivalent: "")
+        return menu
+    }
+
+    @objc private func handleOpen() { onOpenPopover?() }
+    @objc private func handleHide() { onHide?() }
 }
 
 /// 패널 콘텐츠 — 현재 컴패니언(알 포함)을 설정 크기로 표시. 종/이로치/크기 변경은 environment 관찰로 자동 반영.
@@ -159,5 +199,15 @@ struct FloatingPetView: View {
         SpriteView(speciesID: companion.currentSpeciesID, size: size, animated: animated,
                    shiny: companion.currentIsShiny, minFrameDelay: Self.frameFloor)
             .frame(width: size, height: size)
+            .help(hoverTooltipText)
+    }
+
+    private var hoverTooltipText: String {
+        let usage = TokenFormatter.grouped(store.todayTotalTokens)
+        if let maxPct = store.highestBurnPercent {
+            return "Usage: \(usage) tokens (\(TokenFormatter.percent(maxPct)) of max)"
+        } else {
+            return "Usage: \(usage) tokens"
+        }
     }
 }
