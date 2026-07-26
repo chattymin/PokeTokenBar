@@ -4,6 +4,7 @@ import SQLite3
 private enum LocalAdditionalSource: String, Sendable {
     case opencode
     case hermes
+    case cursor
 }
 
 /// OpenCode usage from its local SQLite database and legacy message files.
@@ -34,6 +35,22 @@ struct LocalHermesProvider: UsageProvider {
 
     func fetchEnrichment() async -> ProviderEnrichment {
         let entries = await LocalAdditionalUsageCache.shared.entries(for: .hermes)
+        return enrichment(entries: entries)
+    }
+}
+
+/// Cursor IDE usage from its local SQLite chat database (cursorDiskKV table).
+struct LocalCursorProvider: UsageProvider {
+    let id = "cursor"
+    let displayName = "Cursor"
+
+    func fetchDaily() async throws -> DailyUsage? {
+        let entries = await LocalAdditionalUsageCache.shared.entries(for: .cursor)
+        return LocalUsageReader.daily(entries: entries, localDay: LocalUsageReader.todayKey())
+    }
+
+    func fetchEnrichment() async -> ProviderEnrichment {
+        let entries = await LocalAdditionalUsageCache.shared.entries(for: .cursor)
         return enrichment(entries: entries)
     }
 }
@@ -96,6 +113,7 @@ private actor LocalAdditionalUsageCache {
             let loaded: [LocalUsageReader.Entry] = switch source {
             case .opencode: LocalAdditionalUsageReader.openCodeEntries(modifiedSince: since)
             case .hermes: LocalAdditionalUsageReader.hermesEntries(modifiedSince: since)
+            case .cursor: LocalAdditionalUsageReader.cursorEntries(modifiedSince: since)
             }
             return source == .opencode
                 ? LocalUsageReader.dedupKeepMax(existing + loaded)
@@ -252,6 +270,82 @@ enum LocalAdditionalUsageReader {
                 cacheRead: columnInt(statement, 7),
                 cost: actualCost > 0 ? actualCost : estimatedCost)
         } ?? []
+    }
+
+    // MARK: Cursor database
+
+    static var defaultCursorRoots: [URL] {
+        [FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Application Support/Cursor/User/globalStorage")]
+    }
+
+    static func cursorEntries(
+        modifiedSince: Date,
+        roots: [URL]? = nil
+    ) -> [LocalUsageReader.Entry] {
+        let sourceRoots = roots ?? defaultCursorRoots
+        var entries: [LocalUsageReader.Entry] = []
+        for root in sourceRoots {
+            let database = root.pathExtension == "vscdb" ? root : root.appendingPathComponent("state.vscdb")
+            entries += cursorDatabaseEntries(database, modifiedSince: modifiedSince)
+        }
+        return LocalUsageReader.dedupKeepMax(entries.filter { $0.date >= modifiedSince })
+    }
+
+    private static func cursorDatabaseEntries(
+        _ database: URL,
+        modifiedSince: Date
+    ) -> [LocalUsageReader.Entry] {
+        // cursorDiskKV has columns: key TEXT PRIMARY KEY, value TEXT
+        // Keys matching "bubbleId:*" hold JSON chat message blobs.
+        let sql = "SELECT key, value FROM cursorDiskKV WHERE key LIKE 'bubbleId:%'"
+        return query(database, sql: sql) { statement in
+            parseCursorBubbleRow(statement, modifiedSince: modifiedSince)
+        } ?? []
+    }
+
+    private static func parseCursorBubbleRow(
+        _ statement: OpaquePointer,
+        modifiedSince: Date
+    ) -> LocalUsageReader.Entry? {
+        guard let key = columnText(statement, 0),
+              let payload = columnText(statement, 1),
+              let object = jsonObject(data: Data(payload.utf8)) else { return nil }
+        return parseCursorBubble(object, key: key, modifiedSince: modifiedSince)
+    }
+
+    /// Parse a single Cursor chat bubble JSON blob into a usage entry.
+    /// Bubble schema (from cursorDiskKV): `tokenCount.{inputTokens, outputTokens}`,
+    /// `createdAt` (ISO 8601), `modelType` (nullable).
+    static func parseCursorBubble(
+        _ object: Object,
+        key: String,
+        modifiedSince: Date
+    ) -> LocalUsageReader.Entry? {
+        guard let tokenCount = object["tokenCount"] as? Object else { return nil }
+        let input = intValue(tokenCount["inputTokens"])
+        let output = intValue(tokenCount["outputTokens"])
+        guard input + output > 0 else { return nil }
+        // createdAt is ISO 8601 string (e.g. "2026-01-04T10:34:54.766Z")
+        guard let createdAtStr = object["createdAt"] as? String,
+              let date = parseISO8601(createdAtStr) else { return nil }
+        guard date >= modifiedSince else { return nil }
+        let model = stringValue(object["modelType"]) ?? "unknown"
+        return makeEntry(
+            id: "cursor|\(key)",
+            date: date,
+            model: model,
+            input: input,
+            output: output)
+    }
+
+    private static func parseISO8601(_ string: String) -> Date? {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let date = formatter.date(from: string) { return date }
+        // Retry without fractional seconds
+        formatter.formatOptions = [.withInternetDateTime]
+        return formatter.date(from: string)
     }
 
     // MARK: Shared utilities
