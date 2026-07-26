@@ -31,6 +31,10 @@ final class UsageStore {
     private(set) var lastErrorDescription: String?
     private(set) var limitTokenRefreshError: String?
 
+    // MARK: Bubble Alert State
+    public var currentBubbleAlert: LimitAlert?
+    private var currentBubbleDate: Date = .distantPast
+
     // MARK: 설정 (UserDefaults)
 
     /// 0 = manual
@@ -814,9 +818,10 @@ final class UsageStore {
                                 l.codexPersonalLimit, Double(individual.usedPercent)))
             }
         }
-        for alert in Self.evaluateLimitAlerts(
+        let alerts = Self.evaluateLimitAlerts(
             windows: windows, warn: warnThreshold, crit: critThreshold, tiers: &notifiedTier)
-        {
+
+        for alert in alerts {
             let content = UNMutableNotificationContent()
             content.title = alert.isCritical ? l.notifCritical : l.notifWarning
             content.body = l.notifBody(alert.window, TokenFormatter.percent(alert.utilization))
@@ -825,6 +830,18 @@ final class UsageStore {
                 UNNotificationRequest(
                     identifier: "\(alert.key)-\(alert.isCritical ? "critical" : "warning")",
                     content: content, trigger: nil))
+        }
+
+        if floatingPetEnabled, let topAlert = alerts.sorted(by: { ($0.isCritical ? 1 : 0) > ($1.isCritical ? 1 : 0) }).first {
+            let now = Date()
+            currentBubbleAlert = topAlert
+            currentBubbleDate = now
+            Task {
+                try? await Task.sleep(nanoseconds: 6_000_000_000)
+                if self.currentBubbleDate == now {
+                    self.currentBubbleAlert = nil
+                }
+            }
         }
     }
 

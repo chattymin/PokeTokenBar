@@ -112,7 +112,7 @@ final class FloatingPetController: NSObject, NSWindowDelegate {
     }
 
     private func makePanel() -> NSPanel {
-        let p = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 96, height: 96),
+        let p = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 200, height: 200),
                         styleMask: [.borderless, .nonactivatingPanel],
                         backing: .buffered, defer: false)
         p.isOpaque = false
@@ -156,8 +156,68 @@ struct FloatingPetView: View {
 
     var body: some View {
         let size = CGFloat(store.floatingPetSize)
-        SpriteView(speciesID: companion.currentSpeciesID, size: size, animated: animated,
-                   shiny: companion.currentIsShiny, minFrameDelay: Self.frameFloor)
-            .frame(width: size, height: size)
+        VStack(spacing: 8) {
+            if let alert = store.currentBubbleAlert {
+                SpeechBubbleView(alert: alert, l: L(store.localizationLanguage))
+                    .transition(.scale(scale: 0.8, anchor: .bottom).combined(with: .opacity))
+                    .zIndex(1)
+            }
+
+            SpriteView(speciesID: companion.currentSpeciesID, size: size, animated: animated,
+                       shiny: companion.currentIsShiny, minFrameDelay: Self.frameFloor)
+                .frame(width: size, height: size)
+                .help(hoverTooltipText)
+                .zIndex(0)
+        }
+        // When low power mode (animated == false), we don't animate the bubble insertion
+        .animation(animated ? .spring(response: 0.3, dampingFraction: 0.7) : nil, value: store.currentBubbleAlert)
+    }
+
+    private var hoverTooltipText: String {
+        let usage = TokenFormatter.grouped(store.todayTotalTokens)
+        if let maxPct = store.highestBurnPercent {
+            return "Usage: \(usage) tokens (\(TokenFormatter.percent(maxPct)) of max)"
+        } else {
+            return "Usage: \(usage) tokens"
+        }
+    }
+}
+
+/// A transient speech bubble that shows limit alerts above the pet.
+private struct SpeechBubbleView: View {
+    let alert: UsageStore.LimitAlert
+    let l: L
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(alert.isCritical ? l.notifCritical : l.notifWarning)
+                .font(.system(size: 11, weight: .bold))
+                .foregroundColor(alert.isCritical ? .red : .primary)
+            Text(l.notifBody(alert.window, TokenFormatter.percent(alert.utilization)))
+                .font(.system(size: 10))
+                .foregroundColor(.secondary)
+                .lineLimit(2)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(Color(nsColor: .windowBackgroundColor))
+                .shadow(color: .black.opacity(0.15), radius: 4, y: 2)
+        )
+        .overlay(
+            // Bubble tail pointing down
+            Path { path in
+                path.move(to: CGPoint(x: 10, y: 0))
+                path.addLine(to: CGPoint(x: 20, y: 0))
+                path.addLine(to: CGPoint(x: 15, y: 6))
+                path.closeSubpath()
+            }
+            .fill(Color(nsColor: .windowBackgroundColor))
+            .offset(y: 5),
+            alignment: .bottom
+        )
+        .padding(.bottom, 6) // Space for the tail
+        .fixedSize(horizontal: true, vertical: false)
     }
 }
