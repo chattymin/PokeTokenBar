@@ -609,6 +609,27 @@ final class CompanionIdentityTests: XCTestCase {
         XCTAssertEqual(s2.state.active?.usedAtStage, 300_000_000 - 125_000_000)   // 초과분 이월
     }
 
+    /// [회귀] 구버전 상태가 GIF 미지원 후대 진화형까지 진행했어도, 라인 재로딩 시 마지막 지원 형태로
+    /// 복구하고 단계 수를 현재 에셋 개수에 맞춘다. 그렇지 않으면 트리에서 현재 종을 못 찾아 성장이 멈춘다.
+    func testLineLoadMigratesPersistedUnsupportedEvolution() async throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("poke-assets-\(UUID().uuidString).json")
+        let json = #"{"installBaselineSet":true,"lastDate":"d1","active":{"baseID":56,"pathIDs":[56,57,979],"stageIndex":2,"usedAtStage":123,"rarity":"common","totalForms":3},"dex":[]}"#
+        try Data(json.utf8).write(to: url)
+        let supportedLine = makeLine(base: 56, tree: node(56, [node(57, [node(979)])]))
+        let s = CompanionStore(provider: StubProvider(value: supportedLine), clock: { fixedNow },
+                               fileURL: url, rng: SeededRNG(seed: 5))
+
+        s.update(todayTokens: 0, todayDate: "d1", monthTotal: 0,
+                 burnTier: .idle, limitWarning: false, hasUsageData: true)
+        for _ in 0..<50 where s.currentLine == nil { await Task.yield() }
+
+        XCTAssertNotNil(s.currentLine)
+        XCTAssertEqual(s.state.active?.pathIDs, [56, 57])
+        XCTAssertEqual(s.state.active?.stageIndex, 1)
+        XCTAssertEqual(s.state.active?.totalForms, 2)
+        XCTAssertEqual(s.state.active?.usedAtStage, 123)
+    }
+
     /// [회귀] 부화 이월(overflow)로 즉시 진화해도 마지막 연출은 hatch(shiny) — evolve 가 버스트를 덮지 않는다.
     func testShinyBurstSurvivesOverflowEvolve() async {
         // hatchIfNeeded 경로: chooseBase(1) → shiny(2) → nature(3) 순 rng 소비. shiny 시드 탐색.

@@ -21,6 +21,7 @@ actor SpriteStore {
     }
 
     func data(speciesID: Int, animated: Bool, shiny: Bool = false) async -> Data? {
+        if animated, !PokemonAssets.hasAnimatedSprite(speciesID: speciesID) { return nil }
         let key = Self.cacheKey(speciesID: speciesID, animated: animated, shiny: shiny)
         if let d = mem[key] { touch(key); return d }
         let ext = animated ? "gif" : "png"

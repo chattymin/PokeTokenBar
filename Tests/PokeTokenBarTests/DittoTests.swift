@@ -11,6 +11,7 @@ private func dLine(base: Int, tree: EvoNode, rarity: Rarity) -> EvoLine {
     return EvoLine(baseID: base, tree: tree, rarity: rarity, names: names)
 }
 private let disguiseLine = dLine(base: 1, tree: dNode(1, [dNode(2, [dNode(3)])]), rarity: .common) // 커먼 3형태: 첫 진화 125M
+private let prunedDisguiseLine = dLine(base: 206, tree: dNode(206, [dNode(982)]), rarity: .common)
 private let dittoLine = dLine(base: 132, tree: dNode(132), rarity: .rare)                           // 메타몽: rare 단일형태
 private let dNow = Date(timeIntervalSince1970: 1_700_000_000)
 
@@ -20,6 +21,14 @@ private struct DittoTestProvider: PokeProviding {
         baseSpeciesID == PokemonOdds.dittoSpeciesID ? dittoLine : disguiseLine
     }
     func baseSpeciesIndex() async throws -> [BaseSpecies] { [BaseSpecies(id: 1, captureRate: 255)] }
+}
+
+/// #982는 애니메이션 에셋이 없어 EvoLine 초기화 때 제거되고, #206만 leaf로 남는다.
+private struct PrunedDittoTestProvider: PokeProviding {
+    func line(baseSpeciesID: Int) async throws -> EvoLine {
+        baseSpeciesID == PokemonOdds.dittoSpeciesID ? dittoLine : prunedDisguiseLine
+    }
+    func baseSpeciesIndex() async throws -> [BaseSpecies] { [BaseSpecies(id: 206, captureRate: 190)] }
 }
 
 // MARK: 위장 롤 판정(순수) — 부화 롤은 .app 게이트라 실앱에서만 발동, 판정 로직은 순수 함수로 검증
@@ -97,6 +106,35 @@ final class DittoRevealTests: XCTestCase {
         XCTAssertEqual(s.state.active?.usedAtStage, 300_000_000 - 125_000_000, "첫 진화 초과분 이월")
         XCTAssertNotNil(s.state.active?.dittoDisguise, "위장 마커 보존")
         XCTAssertEqual(s.celebration, .dittoReveal(shiny: false), "리빌 연출 발화")
+    }
+
+    /// [회귀] 에셋 정규화로 위장체가 leaf가 되어도, 위장체로 졸업하지 않고 현재 단일형태 임계에서 리빌한다.
+    func testPrunedLeafDisguiseRevealsBeforeGraduation() async throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("ditto-pruned-\(UUID().uuidString).json")
+        let threshold = PokemonBalance.phaseThreshold(rarity: .common, totalForms: 1, stageIndex: 0)
+        XCTAssertEqual(threshold, 750_000_000)
+        XCTAssertTrue(prunedDisguiseLine.tree.children.isEmpty, "#982 제거 후 #206은 leaf여야 한다")
+        let active = "{\"baseID\":206,\"pathIDs\":[206],\"stageIndex\":0,"
+            + "\"usedAtStage\":\(threshold),\"rarity\":\"common\",\"totalForms\":2,\"isShiny\":true,"
+            + "\"nature\":\"timid\",\"dittoDisguise\":206,\"dittoRevealed\":false}"
+        let json = "{\"installBaselineSet\":true,\"usedSinceInstall\":1000000000,\"lastDate\":\"d1\","
+            + "\"active\":\(active),\"dex\":[],\"collectedFinals\":[]}"
+        try Data(json.utf8).write(to: url)
+        let s = CompanionStore(provider: PrunedDittoTestProvider(), clock: { dNow }, fileURL: url,
+                               rng: SeededRNG(seed: 7))
+
+        await drainReveal(s)
+
+        let revealed = try XCTUnwrap(s.state.active)
+        XCTAssertEqual(revealed.baseID, PokemonOdds.dittoSpeciesID)
+        XCTAssertEqual(revealed.pathIDs, [PokemonOdds.dittoSpeciesID])
+        XCTAssertEqual(revealed.usedAtStage, 0, "정규화된 단일형태 임계의 초과분만 이월")
+        XCTAssertEqual(revealed.dittoDisguise, 206)
+        XCTAssertTrue(revealed.dittoRevealed)
+        XCTAssertTrue(revealed.isShiny)
+        XCTAssertEqual(revealed.nature, .timid)
+        XCTAssertFalse(s.state.dex.contains { $0.finalID == 206 }, "위장체를 졸업 처리하면 안 된다")
+        XCTAssertFalse(s.state.collectedFinals.contains("206:206"))
     }
 
     /// 리빌 후 이로치가 공개된다(위장 중 숨겼던 것) + 이로치 리빌 연출.

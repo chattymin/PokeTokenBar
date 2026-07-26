@@ -114,7 +114,7 @@ actor PokeAPIClient: PokeProviding {
         var bases: [BaseSpecies] = []
         let batchSize = 6
         var start = 1
-        let maxID = 649   // Gen-V 애니메이션 스프라이트 상한 (fetchBaseIndex GraphQL 쿼리와 동일 범위)
+        let maxID = PokemonAssets.animatedSpeciesIDs.upperBound
         while start <= maxID {
             let end = min(start + batchSize - 1, maxID)
             let found = await withTaskGroup(of: BaseSpecies?.self) { group -> [BaseSpecies] in
@@ -147,7 +147,8 @@ actor PokeAPIClient: PokeProviding {
         req.timeoutInterval = 15
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         // 메타몽(#132)은 위장 리빌 전용 → 일반 부화 풀에서 제외(_neq).
-        let query = "{ pokemonspecies(where: {evolves_from_species_id: {_is_null: true}, id: {_lte: 649, _neq: \(PokemonOdds.dittoSpeciesID)}}, order_by: {id: asc}) { id capture_rate } }"
+        let maxID = PokemonAssets.animatedSpeciesIDs.upperBound
+        let query = "{ pokemonspecies(where: {evolves_from_species_id: {_is_null: true}, id: {_lte: \(maxID), _neq: \(PokemonOdds.dittoSpeciesID)}}, order_by: {id: asc}) { id capture_rate } }"
         req.httpBody = try JSONSerialization.data(withJSONObject: ["query": query])
         let (data, resp) = try await URLSession.shared.data(for: req)
         guard (resp as? HTTPURLResponse)?.statusCode == 200 else { throw URLError(.badServerResponse) }

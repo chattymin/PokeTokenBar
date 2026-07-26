@@ -271,15 +271,15 @@ final class CompanionStore {
             let thr = PokemonBalance.phaseThreshold(rarity: a.rarity, totalForms: a.totalForms, stageIndex: a.stageIndex)
             guard a.usedAtStage >= thr else { break }
             guard let node = line.tree.node(withID: a.currentID) else { break }
+            // 위장체는 부화 때는 다형태지만, 에셋 정규화/마이그레이션 뒤 leaf가 될 수 있다.
+            // 따라서 terminal 졸업보다 먼저 리빌해야 위장 종이 도감으로 잘못 졸업하지 않는다.
+            if a.dittoDisguise != nil, !a.dittoRevealed {
+                if !isRevealingDitto { Task { await revealDitto() } }
+                break
+            }
             if node.children.isEmpty {
                 graduate(); break
             } else {
-                // 메타몽 위장: 진화 못 하는 메타몽 → 첫 진화 순간 진화 대신 정체를 드러낸다(리빌).
-                // 라인 로드가 필요해 여기선 진화만 멈추고(임계 이상 유지) 리빌은 비동기 revealDitto 가 처리.
-                if a.dittoDisguise != nil, !a.dittoRevealed {
-                    if !isRevealingDitto { Task { await revealDitto() } }
-                    break
-                }
                 let next = pickNextChild(node, baseID: a.baseID)
                 state.active!.pathIDs = Array(a.pathIDs.prefix(a.stageIndex + 1)) + [next.speciesID]
                 state.active!.stageIndex += 1
@@ -686,6 +686,18 @@ final class CompanionStore {
         isHatching = true
         defer { isHatching = false }
         if let line = try? await provider.line(baseSpeciesID: a.baseID) {
+            // 구버전 저장은 PokéAPI 원본 체인의 GIF 미지원 후대 진화형까지 포함할 수 있다.
+            // 현재 에셋 트리에서 실제로 이어지는 경로까지만 복구하고 단계 수도 함께 마이그레이션한다.
+            var path = [line.tree.speciesID]
+            var node = line.tree
+            for id in a.pathIDs.dropFirst() {
+                guard let child = node.children.first(where: { $0.speciesID == id }) else { break }
+                path.append(id)
+                node = child
+            }
+            state.active?.pathIDs = path
+            state.active?.stageIndex = path.count - 1
+            state.active?.totalForms = line.totalForms
             currentLine = line
             applyUsage(0)   // 라인 미로딩 동안 적립된 사용량이 임계를 넘었으면 지금 진화 판정
         }
@@ -716,12 +728,13 @@ final class CompanionStore {
         return await chooseBaseViaREST()
     }
 
-    /// REST 폴백 — 1~649 중 무작위 id 를 뽑아 base 인지 pokemon-species 로 확인(rejection sampling).
+    /// REST 폴백 — animated 에셋 지원 범위에서 무작위 id 를 뽑아 base 인지 확인(rejection sampling).
     /// GraphQL 인덱스가 죽어도 부화가 되게 한다. 가중치(capture_rate)는 생략 — 희귀도는 부화 후
     /// line() 이 실제 capture_rate 로 계산하므로 결과 개체의 등급은 정확하다. 인덱스 복구 시 가중 선택 재개.
     private func chooseBaseViaREST() async -> Int? {
         for attempt in 1...16 {
-            let id = Int(rng.next() % 649) + 1
+            let ids = PokemonAssets.animatedSpeciesIDs
+            let id = Int(rng.next() % UInt64(ids.count)) + ids.lowerBound
             do {
                 if let bs = try await provider.baseSpecies(id: id) {
                     AppLog.write("hatch: REST fallback picked base \(id) (cap \(bs.captureRate), \(attempt) tries)")

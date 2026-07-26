@@ -192,6 +192,16 @@ struct CandyGrant: Equatable, Sendable {
     let count: Int
 }
 
+/// 현재 서비스가 제공하는 움직이는 포켓몬 스프라이트 범위.
+/// PokéAPI 의 Gen-V animated 에셋은 전국도감 #1...649까지만 존재한다.
+enum PokemonAssets {
+    static let animatedSpeciesIDs = 1...649
+
+    static func hasAnimatedSprite(speciesID: Int) -> Bool {
+        animatedSpeciesIDs.contains(speciesID)
+    }
+}
+
 /// PokéAPI evolution-chain 을 파싱한 트리. 분기(evolves_to 다수)를 children 으로.
 struct EvoNode: Codable, Sendable {
     let speciesID: Int
@@ -208,6 +218,12 @@ struct EvoNode: Codable, Sendable {
     var finalIDs: [Int] {
         children.isEmpty ? [speciesID] : children.flatMap(\.finalIDs)
     }
+
+    /// 서비스에 GIF 에셋이 있는 종만 남긴 진화 트리. 지원하지 않는 종부터 그 하위 체인도 제외한다.
+    func keepingAnimatedSprites() -> EvoNode? {
+        guard PokemonAssets.hasAnimatedSprite(speciesID: speciesID) else { return nil }
+        return EvoNode(speciesID: speciesID, children: children.compactMap { $0.keepingAnimatedSprites() })
+    }
 }
 
 /// 부화 시 확정되는 라인 정보(트리 + 희귀도 + 다국어 이름).
@@ -218,6 +234,14 @@ struct EvoLine: Sendable {
     /// speciesID → (langCode → name)
     let names: [Int: [String: String]]
     var totalForms: Int { tree.depth }
+
+    init(baseID: Int, tree: EvoNode, rarity: Rarity, names: [Int: [String: String]]) {
+        self.baseID = baseID
+        self.tree = tree.keepingAnimatedSprites() ?? EvoNode(speciesID: baseID, children: [])
+        self.rarity = rarity
+        self.names = names
+    }
+
     func localizedName(_ id: Int, _ lang: AppLanguage) -> String {
         lang.resolveName(names[id] ?? [:]) ?? "#\(id)"   // 폴백 순서는 AppLanguage.resolveName 단일 소스
     }

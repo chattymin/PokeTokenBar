@@ -26,5 +26,22 @@ jobs:
       - name: Build
         run: swift build -v
 
-      - name: Test
-        run: swift test -v
+      # test-gate.sh runs `swift test --enable-code-coverage` and then enforces a
+      # line-coverage floor on the logic-core files. It replaces a bare `swift test`:
+      # the tests still run, and a coverage regression now fails the build.
+      - name: Test + coverage gate
+        run: ./scripts/test-gate.sh
+
+  secret-scan:
+    name: secret-scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Full history so gitleaks can diff the whole PR commit range.
+          fetch-depth: 0
+
+      - name: Scan for committed secrets
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
