@@ -17,9 +17,9 @@
 
 </div>
 
-PokeTokenBar turns the AI coding tokens you're already burning — Claude Code, Codex, Gemini CLI, OpenCode & Hermes Agent — into a growing **Pokémon companion** in your macOS menu bar. Spend tokens, hatch an egg, evolve it through its real evolution line, graduate it into your Pokédex, and start again. Underneath the companion it's a precise usage tracker — today's spend, cost, and official 5-hour / weekly limits, read straight from your local logs.
+PokeTokenBar turns the AI coding tokens you're already burning — Claude Code, Codex, Gemini CLI, OpenCode, Hermes Agent & Cursor — into a growing **Pokémon companion** in your macOS menu bar. Spend tokens, hatch an egg, evolve it through its real evolution line, graduate it into your Pokédex, and start again. Underneath the companion it's a precise usage tracker — today's spend, cost, and official 5-hour / weekly limits, read straight from your local logs.
 
-> Token usage is read directly from local Claude Code, Codex, Gemini CLI, OpenCode, and Hermes Agent data (`totalTokens` = input + output + cache, local date) — no external CLI needed. Unofficial, non-commercial Pokémon fan project — see [License & disclaimer](#license--disclaimer).
+> Token usage is read directly from local Claude Code, Codex, Gemini CLI, OpenCode, Hermes Agent, and Cursor data (`totalTokens` = input + output + cache, local date) — no external CLI needed. Unofficial, non-commercial Pokémon fan project — see [License & disclaimer](#license--disclaimer).
 
 ## Why
 
@@ -33,7 +33,7 @@ PokeTokenBar turns the AI coding tokens you're already burning — Claude Code, 
 
 ## How it works
 
-1. 🥚 **Code as usual.** The tokens you burn in Claude Code, Codex, Gemini CLI, OpenCode, or Hermes Agent incubate an egg — nothing extra to run.
+1. 🥚 **Code as usual.** The tokens you burn in Claude Code, Codex, Gemini CLI, OpenCode, Hermes Agent, or Cursor incubate an egg — nothing extra to run.
 2. 🐣 **Hatch.** Eggs hatch into Pokémon with real evolution lines from [PokéAPI](https://pokeapi.co/) — any Gen 1–5 line (329 possible starts), weighted by the official capture rate: commons hatch often, a legendary is a 1-in-129 event. It appears in your **Pokédex** immediately while you raise it. Every hatch rolls one of 25 natures — and once in a rare while, the egg hatches **✨ Shiny**.
 3. ⚡ **Evolve.** Keep coding and it grows through its actual evolution tree (1/2/3 stages, branching), with a little flash celebration at each step.
 4. 🎓 **Graduate & collect.** Final form + threshold permanently archives it in your **Pokédex** — rarer takes longer (≈3 days common → ≈24 days legendary at heavy use) — and a fresh egg arrives.
@@ -89,7 +89,7 @@ The tokens you've already used are your currency. Spend them in the new <b>Shop<
 
 ## Also in the box
 
-- **Per-service tabs** — when two or more of Claude Code, Codex, Gemini CLI, OpenCode, and Hermes Agent are detected, compact tabs switch between them; today's total stays combined.
+- **Per-service tabs** — when two or more of Claude Code, Codex, Gemini CLI, OpenCode, Hermes Agent, and Cursor are detected, compact tabs switch between them; today's total stays combined.
 - **Official limits** — Claude & Codex 5-hour / weekly utilization with reset countdowns, right under today's numbers.
 - **Burn-rate forecast** — projects when the current 5h window hits 100%.
 - **In-app updates** — one-click update check; current version shown in Settings.
@@ -110,7 +110,7 @@ All read locally — no external usage CLI required. Adding a tool is one provid
 
 ### Requirements
 
-macOS 14+ (Apple Silicon or Intel). That's it — token usage is read directly from local Claude Code, Codex, Gemini CLI, OpenCode, and Hermes Agent data, with no external usage CLI required.
+macOS 14+ (Apple Silicon or Intel). That's it — token usage is read directly from local Claude Code, Codex, Gemini CLI, OpenCode, Hermes Agent, and Cursor data, with no external usage CLI required.
 
 ### Homebrew
 
@@ -148,13 +148,14 @@ swift test                   # unit tests
 | `~/.codex/sessions/**/*.jsonl` | Codex daily/monthly | `token_count` events; weekly = daily sum |
 | `~/.local/share/opencode/opencode.db` | OpenCode daily/blocks/weekly/monthly | SQLite read-only; legacy `storage/message` JSON is also supported |
 | `~/.hermes/state.db` | Hermes Agent daily/blocks/weekly/monthly | SQLite read-only; session token totals and persisted cost |
+| `~/Library/Application Support/Cursor/User/globalStorage/state.vscdb` | Cursor daily/blocks/weekly/monthly | SQLite read-only; `cursorDiskKV` bubble entries with `tokenCount` |
 | Keychain → `oauth/usage` | Claude official 5h/weekly % | unofficial endpoint; single Keychain prompt, then cached |
 | `codex app-server` | Codex official 5h/weekly % | account snapshot only; no model turn |
 | [PokéAPI](https://pokeapi.co/) | Pokémon species, evolution, sprites | runtime fetch; cached locally, never bundled |
 
 ## Privacy & permissions
 
-- **On-device.** Token usage is read directly from local Claude Code, Codex, Gemini CLI, OpenCode, and Hermes Agent data. The app never uploads usage or runs model turns.
+- **On-device.** Token usage is read directly from local Claude Code, Codex, Gemini CLI, OpenCode, Hermes Agent, and Cursor data. The app never uploads usage or runs model turns.
 - **Keychain (optional).** To show official limits it reads the Claude OAuth credential **once** (a single password prompt), then caches it in the app's own Keychain item for reuse. Turn it off in Settings — the limits section simply hides.
 - **Pokémon assets** are fetched at runtime from PokéAPI and cached only under `~/Library/Application Support/PokeTokenBar/`. Nothing copyrighted is bundled in this repository or its releases.
 
