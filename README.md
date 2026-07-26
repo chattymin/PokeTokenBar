@@ -89,6 +89,7 @@ The tokens you've already used are your currency. Spend them in the new <b>Shop<
 
 ## Also in the box
 
+- **Interactive floating pet** — hover over your companion for a quick stats tooltip, click to open the main window, or right-click for a context menu.
 - **Per-service tabs** — when two or more of Claude Code, Codex, Gemini CLI, OpenCode, and Hermes Agent are detected, compact tabs switch between them; today's total stays combined.
 - **Official limits** — Claude & Codex 5-hour / weekly utilization with reset countdowns, right under today's numbers.
 - **Burn-rate forecast** — projects when the current 5h window hits 100%.
