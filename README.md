@@ -94,6 +94,18 @@ The tokens you've already used are your currency. Spend them in the new <b>Shop<
 - **Burn-rate forecast** — projects when the current 5h window hits 100%.
 - **In-app updates** — one-click update check; current version shown in Settings.
 
+## Works with
+
+| Tool | Tracked | Official limits |
+|---|---|---|
+| **Claude Code** | today · 5h block · week · month | ✅ 5h / weekly |
+| **Codex** | today · week · month | ✅ 5h / weekly |
+| **Gemini CLI** | today · week · month | — |
+| **OpenCode** | today · 5h block · week · month | — |
+| **Hermes Agent** | today · 5h block · week · month | — |
+
+All read locally — no external usage CLI required. Adding a tool is one provider file (see [CONTRIBUTING.md](CONTRIBUTING.md)).
+
 ## Install
 
 ### Requirements
