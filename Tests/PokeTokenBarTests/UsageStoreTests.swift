@@ -28,6 +28,30 @@ private final class FakeUsageProvider: UsageProvider, @unchecked Sendable {
     func fetchEnrichment() async -> ProviderEnrichment { enrichment }
 }
 
+/// 첫 fetchDaily 호출을 continuation 으로 붙잡아, in-flight refresh 중 두 번째 refresh 를 겹치게 하는 스텁.
+/// 게이트 상태는 actor 로 격리(백그라운드 fetchDaily ↔ 테스트 폴링/release 간 데이터레이스 없음).
+private actor GatedUsageProvider: UsageProvider {
+    nonisolated let id = "claude_code"
+    nonisolated let displayName = "Claude Code"
+    private let dailyValue: DailyUsage
+    private var calls = 0
+    private var gate: CheckedContinuation<Void, Never>?
+    private var released = false
+    init(daily: DailyUsage) { self.dailyValue = daily }
+    var dailyCalls: Int { calls }
+    func fetchDaily() async throws -> DailyUsage? {
+        calls += 1
+        if calls == 1 {
+            await withCheckedContinuation { (c: CheckedContinuation<Void, Never>) in
+                if released { c.resume() } else { gate = c }   // release()가 먼저 왔으면 즉시 통과
+            }
+        }
+        return dailyValue
+    }
+    func fetchEnrichment() async -> ProviderEnrichment { ProviderEnrichment() }
+    func release() { released = true; let c = gate; gate = nil; c?.resume() }
+}
+
 private struct FakeClaudeLimits: ClaudeLimitsProviding {
     var status: LimitStatus?
     func fetch(allowKeychainPrompt: Bool) async throws -> LimitStatus {
@@ -140,6 +164,32 @@ final class UsageStoreTests: XCTestCase {
         return UsageStore(providers: [claude], claudeLimitsProvider: FakeClaudeLimits(status: nil),
                           codexLimitsProvider: FakeCodexLimits(status: nil), statusProvider: stub,
                           autoRefresh: false, defaults: testDefaults)
+    }
+
+    // MARK: refresh 코얼레싱 (회귀)
+
+    /// [회귀] 진행 중 refresh 에 겹친 refresh 는 드롭이 아니라 완료 후 1회 재실행(코얼레싱)돼야 한다.
+    /// 수동모드(interval 0)에서 키체인 재활성 refresh 가 in-flight 폴에 묻혀 Claude 한도가 빈 채로
+    /// 남던 회귀 가드 — 겹친 요청이 그냥 무시되면 fetchDaily 는 1회로 끝난다.
+    func testConcurrentRefreshIsCoalescedNotDropped() async {
+        let p = GatedUsageProvider(daily: todayDaily(1_000))
+        let store = UsageStore(providers: [p],
+                               claudeLimitsProvider: FakeClaudeLimits(status: nil),
+                               codexLimitsProvider: FakeCodexLimits(status: nil),
+                               statusProvider: FakeStatusProvider([:]),
+                               autoRefresh: false, defaults: testDefaults)
+        // A: 첫 refresh — fetchDaily 의 gate 에 걸려 in-flight 로 멈춘다.
+        let a = Task { await store.refresh(scheduleEmptyRetry: false) }
+        for _ in 0..<500 { if await p.dailyCalls >= 1 { break }; await Task.yield() }
+        XCTAssertTrue(store.isRefreshing, "A 가 in-flight 여야 한다")
+        // B: 겹친 refresh — 드롭 대신 예약(즉시 리턴).
+        await store.refresh(scheduleEmptyRetry: false)
+        // gate 해제 → A 완료 → defer 가 예약분을 1회 재실행.
+        await p.release()
+        await a.value
+        for _ in 0..<500 { if await p.dailyCalls >= 2 { break }; await Task.yield() }
+        let calls = await p.dailyCalls
+        XCTAssertGreaterThanOrEqual(calls, 2, "겹친 refresh 는 완료 후 1회 재실행돼야 한다(드롭 금지)")
     }
 
     // MARK: Keychain 프롬프트 경로 분리 (회귀)

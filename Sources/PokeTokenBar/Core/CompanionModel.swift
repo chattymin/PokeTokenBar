@@ -397,6 +397,24 @@ struct DexEntry: Codable, Sendable, Identifiable {
     }
 }
 
+/// 배열 항목별 격리 디코딩 래퍼 — 손상된 한 항목이 배열 전체(및 상위 상태) 디코드를 실패시키지 않게.
+/// 각 항목을 `try?` 로 감싸므로 실패 항목은 `value == nil` 이 되고 배열 디코드 자체는 성공한다.
+private struct Lossy<T: Decodable>: Decodable {
+    let value: T?
+    init(from decoder: Decoder) throws { value = try? decoder.singleValueContainer().decode(T.self) }
+}
+
+private extension KeyedDecodingContainer {
+    /// 관대 디코드 — 키 없음/null/타입 불일치를 모두 기본값으로 흡수한다. 한 필드 손상이 상태 전체
+    /// (도감·인벤토리)를 날리지 않게(부분 복원 > 전면 리셋). 최상위가 JSON 객체가 아닌 전면 손상은 여전히 throw.
+    func lenient<T: Decodable>(_ type: T.Type, forKey key: Key, default def: T) -> T {
+        (try? decode(type, forKey: key)) ?? def
+    }
+    func lenientOptional<T: Decodable>(_ type: T.Type, forKey key: Key) -> T? {
+        try? decode(type, forKey: key)
+    }
+}
+
 /// 영속 상태(Application Support JSON). 포켓몬 전환 — 이전 커스텀 캐릭터 상태는 폐기(새로 시작).
 struct CompanionState: Codable, Sendable {
     // 토큰: 설치 이후만 측정
@@ -427,23 +445,27 @@ struct CompanionState: Codable, Sendable {
 
     init() {}
 
-    // 하위호환 디코딩: 누락 키는 기본값(필드 추가가 기존 저장을 깨지 않도록).
+    // 하위호환 + 손상 복원 디코딩: 누락 키·타입 불일치·일부 손상 필드를 모두 기본값으로 흡수한다 —
+    // 한 필드가 깨져도 상태 전체(도감·인벤토리)를 날리지 않는다(부분 복원). 최상위가 JSON 객체가 아닌
+    // 전면 손상만 throw → load() 가 원본을 .corrupt 로 백업하고 fresh 로 시작.
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        installBaselineSet = try c.decodeIfPresent(Bool.self, forKey: .installBaselineSet) ?? false
-        usedSinceInstall = try c.decodeIfPresent(Int.self, forKey: .usedSinceInstall) ?? 0
-        spentTokens = try c.decodeIfPresent(Int.self, forKey: .spentTokens) ?? 0
-        eggUsage = try c.decodeIfPresent(Int.self, forKey: .eggUsage) ?? 0
-        pendingHatchID = try c.decodeIfPresent(Int.self, forKey: .pendingHatchID)
-        claimedTodayTokens = try c.decodeIfPresent(Int.self, forKey: .claimedTodayTokens) ?? 0
-        lastDate = try c.decodeIfPresent(String.self, forKey: .lastDate) ?? ""
-        active = try c.decodeIfPresent(MonState.self, forKey: .active)
-        dex = try c.decodeIfPresent([DexEntry].self, forKey: .dex) ?? []
-        collectedFinals = try c.decodeIfPresent(Set<String>.self, forKey: .collectedFinals) ?? []
-        language = try c.decodeIfPresent(AppLanguage.self, forKey: .language) ?? .systemDefault
-        inventory = try c.decodeIfPresent([String: Int].self, forKey: .inventory) ?? [:]
-        candyGrantTier = try c.decodeIfPresent([String: Int].self, forKey: .candyGrantTier) ?? [:]
-        candyFeatureSeeded = try c.decodeIfPresent(Bool.self, forKey: .candyFeatureSeeded) ?? false
+        installBaselineSet = c.lenient(Bool.self, forKey: .installBaselineSet, default: false)
+        usedSinceInstall   = c.lenient(Int.self, forKey: .usedSinceInstall, default: 0)
+        spentTokens        = c.lenient(Int.self, forKey: .spentTokens, default: 0)
+        eggUsage           = c.lenient(Int.self, forKey: .eggUsage, default: 0)
+        pendingHatchID     = c.lenientOptional(Int.self, forKey: .pendingHatchID)
+        claimedTodayTokens = c.lenient(Int.self, forKey: .claimedTodayTokens, default: 0)
+        lastDate           = c.lenient(String.self, forKey: .lastDate, default: "")
+        // active 손상(빈 pathIDs 등) → 알로 폴백하되 도감·인벤토리는 보존.
+        active             = c.lenientOptional(MonState.self, forKey: .active)
+        // 도감은 항목별 격리 — 손상 항목 하나가 도감 전체를 날리지 않게.
+        dex                = c.lenient([Lossy<DexEntry>].self, forKey: .dex, default: []).compactMap(\.value)
+        collectedFinals    = c.lenient(Set<String>.self, forKey: .collectedFinals, default: [])
+        language           = c.lenient(AppLanguage.self, forKey: .language, default: .systemDefault)
+        inventory          = c.lenient([String: Int].self, forKey: .inventory, default: [:])
+        candyGrantTier     = c.lenient([String: Int].self, forKey: .candyGrantTier, default: [:])
+        candyFeatureSeeded = c.lenient(Bool.self, forKey: .candyFeatureSeeded, default: false)
     }
 }
 

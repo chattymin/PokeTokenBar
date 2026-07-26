@@ -118,6 +118,68 @@ final class CompanionStoreTests: XCTestCase {
         return CompanionStore(provider: StubProvider(value: line), clock: { fixedNow }, fileURL: url, rng: SeededRNG(seed: seed))
     }
 
+    // MARK: 상태 파일 decode 복원력 (회귀)
+
+    /// [회귀] 도감 항목 하나가 손상돼도(구버전/필드 누락) 나머지 도감·companion·인벤토리를 지킨다 —
+    /// 예전엔 `[DexEntry]` 배열 전체 decode 가 throw 돼 상태가 전면 초기화됐다(항목별 격리로 수정).
+    func testCorruptDexEntryDroppedWhileRestSurvives() throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("poke-dex-\(UUID().uuidString).json")
+        // 유효 2개 + 손상 1개(finalID/chainOrder 누락).
+        let json = #"{"dex":[{"baseID":1,"finalID":3,"chainOrder":[1,2,3],"rarity":"common"},"#
+            + #"{"baseID":99,"rarity":"rare"},"#
+            + #"{"baseID":7,"finalID":9,"chainOrder":[7,8,9],"rarity":"uncommon"}],"inventory":{"rareCandy":2}}"#
+        try Data(json.utf8).write(to: url)
+
+        let s = CompanionStore(provider: StubProvider(value: linear3), clock: { fixedNow },
+                               fileURL: url, rng: SeededRNG(seed: 7))
+
+        XCTAssertEqual(s.state.dex.count, 2, "손상 항목만 드롭, 유효 2개 유지")
+        XCTAssertEqual(Set(s.state.dex.map(\.baseID)), [1, 7])
+        XCTAssertEqual(s.state.inventory["rareCandy"], 2, "도감 손상이 다른 상태(인벤토리)를 날리지 않음")
+    }
+
+    /// [회귀] 전면 손상 상태 파일은 fresh 로 시작하되, 다음 save() 가 덮어써 영구 유실되기 전에
+    /// 원본을 `.corrupt` 로 백업해 수동 복구 여지를 남긴다.
+    func testCorruptStateFileBackedUpBeforeReset() throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("poke-corrupt-\(UUID().uuidString).json")
+        let garbage = "this is not valid json {{{ 손상"
+        try Data(garbage.utf8).write(to: url)
+
+        let s = CompanionStore(provider: StubProvider(value: linear3), clock: { fixedNow },
+                               fileURL: url, rng: SeededRNG(seed: 7))
+
+        XCTAssertTrue(s.state.dex.isEmpty)
+        XCTAssertNil(s.state.active)
+        XCTAssertEqual(s.state.usedSinceInstall, 0, "fresh state 로 시작")
+
+        let backup = url.appendingPathExtension("corrupt")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: backup.path), "손상 원본이 .corrupt 로 백업돼야 한다")
+        XCTAssertEqual(try String(contentsOf: backup, encoding: .utf8), garbage, "백업 내용 = 원본 그대로")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: url.path), "원본은 이동돼 사라짐")
+        try? FileManager.default.removeItem(at: backup)
+    }
+
+    /// [회귀] active(현재 포켓몬)가 손상돼도(pathIDs 누락 등) 알로 폴백하되 도감·인벤토리·누적은 보존한다 —
+    /// 예전엔 active decode 실패가 CompanionState 전체를 throw 시켜 전면 초기화됐다(필드별 관대화로 수정).
+    func testCorruptActiveFallsBackToEggWhileRestSurvives() throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("poke-active-corrupt-\(UUID().uuidString).json")
+        // active 는 pathIDs 누락 → MonState decode 실패. dex/inventory/usedSinceInstall 은 유효.
+        let json = #"{"active":{"baseID":1},"#
+            + #""dex":[{"baseID":1,"finalID":3,"chainOrder":[1,2,3],"rarity":"common"}],"#
+            + #""inventory":{"rareCandy":3},"usedSinceInstall":5000}"#
+        try Data(json.utf8).write(to: url)
+
+        let s = CompanionStore(provider: StubProvider(value: linear3), clock: { fixedNow },
+                               fileURL: url, rng: SeededRNG(seed: 7))
+
+        XCTAssertNil(s.state.active, "손상 active 는 nil(알)로 폴백")
+        XCTAssertEqual(s.state.dex.count, 1, "도감 보존")
+        XCTAssertEqual(s.state.inventory["rareCandy"], 3, "인벤토리 보존")
+        XCTAssertEqual(s.state.usedSinceInstall, 5000, "누적 토큰 보존")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: url.appendingPathExtension("corrupt").path),
+                       "부분 복원 — 전면 리셋/백업 아님")
+    }
+
     // MARK: 도감 이름 (컬렉션 표시)
 
     /// 저장된 체인 종별 다국어 이름을 현재 언어로 해석 — 없으면 nil(뷰가 async 조회로 폴백).
@@ -543,15 +605,18 @@ final class CompanionIdentityTests: XCTestCase {
         XCTAssertEqual(round.active?.isShiny, false)
     }
 
-    /// [출시 안전] 손상된 상태 파일: active.pathIDs 가 비면 디코드가 실패해야 한다
-    /// (→ load() 가 기본 알 상태로 폴백 → currentID out-of-bounds 크래시 방지).
-    func testEmptyPathIDsRejectedOnDecode() {
+    /// [출시 안전] 손상된 상태 파일: active.pathIDs 가 비면 그 active 만 nil(알)로 폴백하되 나머지 상태는
+    /// 보존한다(필드별 관대화). 깨진 active 를 살려두면 currentID out-of-bounds 위험이므로 nil 이어야 한다
+    /// (예전엔 전체 디코드를 throw 시켜 상태 전면 초기화 → 도감·인벤토리까지 유실됐다).
+    func testEmptyPathIDsActiveFallsBackToNilPreservingRest() {
         let corrupt = """
         {"installBaselineSet":true,"eggUsage":0,"lastDate":"d1",
          "active":{"baseID":1,"pathIDs":[],"stageIndex":0,"usedAtStage":0,"rarity":"common","totalForms":3}}
         """
-        XCTAssertThrowsError(try JSONDecoder().decode(CompanionState.self, from: Data(corrupt.utf8)),
-                             "빈 pathIDs 는 디코드 거부돼야 한다")
+        let state = try? JSONDecoder().decode(CompanionState.self, from: Data(corrupt.utf8))
+        XCTAssertNotNil(state, "빈 pathIDs 는 active 만 무효화 — 전체 디코드는 성공(부분 복원)")
+        XCTAssertNil(state?.active, "빈 pathIDs active 는 nil(알)로 폴백 — 깨진 active 를 살려두지 않는다")
+        XCTAssertEqual(state?.installBaselineSet, true, "나머지 필드는 보존")
     }
 
     /// currentID 는 pathIDs 가 비어도(방어) baseID 로 폴백 — 크래시 없음.

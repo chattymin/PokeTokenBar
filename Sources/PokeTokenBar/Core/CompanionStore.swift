@@ -764,8 +764,16 @@ final class CompanionStore {
 
     // MARK: 영속
     private func load() {
-        guard let data = try? Data(contentsOf: fileURL),
-              let s = try? JSONDecoder().decode(CompanionState.self, from: data) else { return }
+        guard let data = try? Data(contentsOf: fileURL) else { return }   // 파일 없음 = 신규 설치
+        guard let s = try? JSONDecoder().decode(CompanionState.self, from: data) else {
+            // 디코드 실패(전면 손상/미래 스키마) → fresh 로 시작하되, 다음 save() 가 원본을 덮어써 영구
+            // 유실되기 전에 .corrupt 로 보존해 수동 복구 여지를 남긴다(도감 per-entry 격리로 못 살린 경우 대비).
+            let backup = fileURL.appendingPathExtension("corrupt")
+            try? FileManager.default.removeItem(at: backup)
+            try? FileManager.default.moveItem(at: fileURL, to: backup)
+            AppLog.write("companion state decode failed — original backed up to \(backup.lastPathComponent), starting fresh")
+            return
+        }
         state = s
     }
     private func save() {
