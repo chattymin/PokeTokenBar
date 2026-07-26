@@ -166,20 +166,10 @@ struct FloatingPetView: View {
             SpriteView(speciesID: companion.currentSpeciesID, size: size, animated: animated,
                        shiny: companion.currentIsShiny, minFrameDelay: Self.frameFloor)
                 .frame(width: size, height: size)
-                .help(hoverTooltipText)
                 .zIndex(0)
         }
         // When low power mode (animated == false), we don't animate the bubble insertion
         .animation(animated ? .spring(response: 0.3, dampingFraction: 0.7) : nil, value: store.currentBubbleAlert)
-    }
-
-    private var hoverTooltipText: String {
-        let usage = TokenFormatter.grouped(store.todayTotalTokens)
-        if let maxPct = store.highestBurnPercent {
-            return "Usage: \(usage) tokens (\(TokenFormatter.percent(maxPct)) of max)"
-        } else {
-            return "Usage: \(usage) tokens"
-        }
     }
 }
 
