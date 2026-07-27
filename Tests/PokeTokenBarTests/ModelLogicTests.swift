@@ -202,6 +202,44 @@ final class StatePersistenceLogicTests: XCTestCase {
         XCTAssertEqual(over.currentID, 1)
     }
 
+    func testMonStateRoundTripPreservesDistinctPlannedPath() throws {
+        let state = MonState(baseID: 265, pathIDs: [265], plannedPathIDs: [265, 266, 267],
+                             stageIndex: 0, usedAtStage: 0, rarity: .common, totalForms: 3)
+
+        let decoded = try JSONDecoder().decode(MonState.self, from: JSONEncoder().encode(state))
+
+        XCTAssertEqual(decoded.pathIDs, [265])
+        XCTAssertEqual(decoded.plannedPathIDs, [265, 266, 267])
+    }
+
+    func testMonStateLegacyDecodeUsesRealizedPathAsPlan() throws {
+        let legacy = """
+        {"baseID":265,"pathIDs":[265,266],"stageIndex":1,"usedAtStage":0,"rarity":"common","totalForms":3}
+        """
+
+        let decoded = try JSONDecoder().decode(MonState.self, from: Data(legacy.utf8))
+
+        XCTAssertEqual(decoded.pathIDs, [265, 266])
+        XCTAssertEqual(decoded.plannedPathIDs, [265, 266])
+    }
+
+    func testMonStateEmptySavedPlanUsesRealizedPath() throws {
+        let saved = """
+        {"baseID":265,"pathIDs":[265,266],"plannedPathIDs":[],"stageIndex":1,"usedAtStage":0,"rarity":"common","totalForms":3}
+        """
+
+        let decoded = try JSONDecoder().decode(MonState.self, from: Data(saved.utf8))
+
+        XCTAssertEqual(decoded.plannedPathIDs, [265, 266])
+    }
+
+    func testMonStateEmptyInitialPlanUsesRealizedPath() {
+        let state = MonState(baseID: 265, pathIDs: [265, 266], plannedPathIDs: [],
+                             stageIndex: 1, usedAtStage: 0, rarity: .common, totalForms: 3)
+
+        XCTAssertEqual(state.plannedPathIDs, [265, 266])
+    }
+
     func testCompanionStateEncodeDecodeRoundTrip() throws {
         var st = CompanionState()
         st.installBaselineSet = true
