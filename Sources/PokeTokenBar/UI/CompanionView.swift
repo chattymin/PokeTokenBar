@@ -141,7 +141,8 @@ struct SpriteView: View {
 /// 팝오버 전체가 좌우로 잘린다**(진화줄뿐 아니라 탭바·합계까지). `maxWidth` 를 주면 그 폭 안에서
 /// 가로 스크롤한다 — 썸네일 크기는 유지하고, 가장자리 페이드 + 셰브론으로 스크롤 가능함을 알린다.
 struct EvoLineView: View {
-    let nodes: [(id: Int, kind: String)]
+    let nodes: [EvoLineItem]
+    let language: AppLanguage
     var thumb: CGFloat = 40
     var shiny: Bool = false     // 개체가 shiny 면 라인 전체를 shiny 스프라이트로
     var names: [Int: String]? = nil   // 제공되면 각 스프라이트 밑에 작은 이름 라벨(도감 단계별 이름)
@@ -307,16 +308,26 @@ struct EvoLineView: View {
                         .padding(.top, thumb * 0.4)   // 스프라이트 세로 중앙에 정렬
                 }
                 VStack(spacing: 1) {
-                    SpriteView(speciesID: node.id, size: thumb, shiny: shiny)
-                        .opacity(node.kind == "future" ? 0.32 : 1)
-                        .saturation(node.kind == "future" ? 0.4 : 1)
+                    Group {
+                        switch node.content {
+                        case .species(let id):
+                            SpriteView(speciesID: id, size: thumb, shiny: shiny)
+                        case .mystery:
+                            Text("?")
+                                .font(.system(size: thumb * 0.55, weight: .bold, design: .rounded))
+                                .frame(width: thumb, height: thumb)
+                                .accessibilityLabel(Text(L(language).unknownNextEvolution))
+                        }
+                    }
+                        .opacity(node.state == .future ? 0.32 : 1)
+                        .saturation(node.state == .future ? 0.4 : 1)
                         .overlay(alignment: .bottom) {
-                            if node.kind == "cur" {
+                            if node.state == .current {
                                 Circle().fill(Color.accentColor).frame(width: 4, height: 4).offset(y: 2)
                             }
                         }
-                    if let names {
-                        Text(names[node.id] ?? "…")
+                    if let names, case .species(let id) = node.content {
+                        Text(names[id] ?? "…")
                             .font(.system(size: 8)).foregroundStyle(.secondary)
                             .lineLimit(1).minimumScaleFactor(0.7).frame(maxWidth: thumb + Self.nameSlack)
                     }
@@ -435,7 +446,7 @@ struct CompanionHeader: View {
             }
             if store.hasActive, !store.lineNodes.isEmpty {
                 // 폭을 안 주면 분기 라인(이브이)이 넘쳐 팝오버 콘텐츠 전체가 좌우로 잘린다.
-                EvoLineView(nodes: store.lineNodes, shiny: store.currentIsShiny,
+                EvoLineView(nodes: store.lineNodes, language: store.language, shiny: store.currentIsShiny,
                             maxWidth: PopoverMetrics.contentWidth)
             }
             if let g = store.justGraduated {
@@ -684,7 +695,8 @@ private struct DexEntryRow: View {
                         .font(.system(size: 9)).foregroundStyle(.secondary)
                 }
             }
-            EvoLineView(nodes: entry.chainOrder.map { ($0, "done") }, thumb: 56,
+            EvoLineView(nodes: entry.chainOrder.map { EvoLineItem(.species($0), .done) },
+                        language: store.language, thumb: 56,
                         shiny: entry.isShiny, names: names,
                         maxWidth: PopoverMetrics.contentWidth - Self.cardPadding * 2)
             if let caughtAt = entry.caughtAt {

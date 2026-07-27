@@ -40,15 +40,20 @@ final class CompanionStore {
     private let clock: () -> Date
     private let fileURL: URL
     private var rng: any RandomNumberGenerator
+    private let dittoDisguiseRollingEnabled: Bool
+    /// 세션 내 활성 개체 교체 감지용. await 뒤 이전 개체의 결과가 새 개체를 덮지 않게 한다.
+    private var activeGeneration = 0
 
     init(provider: any PokeProviding = PokeAPIClient.shared,
          clock: @escaping () -> Date = Date.init,
          fileURL: URL? = nil,
-         rng: any RandomNumberGenerator = SystemRandomNumberGenerator()) {
+         rng: any RandomNumberGenerator = SystemRandomNumberGenerator(),
+         dittoDisguiseRollingEnabled: Bool = AppEnv.isBundledApp) {
         self.provider = provider
         self.clock = clock
         self.fileURL = fileURL ?? Self.defaultURL()
         self.rng = rng
+        self.dittoDisguiseRollingEnabled = dittoDisguiseRollingEnabled
         load()
         if state.active != nil { displayState = .idle }
     }
@@ -116,15 +121,29 @@ final class CompanionStore {
     }
     var tokensToNext: Int { guard let a = state.active else { return 0 }; return max(0, threshold - a.usedAtStage) }
 
-    /// 진화 라인 표시용: 현재까지 경로 + 다음 후보. (id, kind) kind: done/cur/future
-    var lineNodes: [(id: Int, kind: String)] {
+    /// 진화 라인 표시용: 실현된 경로 + 다음 단계 미리보기.
+    /// 유일하게 이어지는 단계 뒤에 분기가 있으면, 그 확정 접두어와 하나의 미지 항목을 함께 보여 준다.
+    /// 분기 후보는 부화 시 계획됐더라도 실제 진화 전까지 하나의 미지 항목으로 숨긴다.
+    var lineNodes: [EvoLineItem] {
         guard let a = state.active, let line = currentLine else { return [] }
-        var out: [(Int, String)] = []
+        var out: [EvoLineItem] = []
         for (i, id) in a.pathIDs.enumerated() {
-            out.append((id, i < a.stageIndex ? "done" : (i == a.stageIndex ? "cur" : "future")))
+            out.append(EvoLineItem(.species(id), i == a.pathIDs.count - 1 ? .current : .done))
         }
-        if let cur = line.tree.node(withID: a.currentID) {
-            for ch in cur.children { out.append((ch.speciesID, "future")) }
+        if let current = line.tree.node(withID: a.currentID) {
+            var node = current
+            var guaranteedPrefix: [EvoNode] = []
+            while node.children.count == 1, let child = node.children.first {
+                guaranteedPrefix.append(child)
+                node = child
+            }
+
+            if node.children.count > 1 {
+                out += guaranteedPrefix.map { EvoLineItem(.species($0.speciesID), .future) }
+                out.append(EvoLineItem(.mystery, .future))
+            } else {
+                out += guaranteedPrefix.map { EvoLineItem(.species($0.speciesID), .future) }
+            }
         }
         return out
     }
@@ -280,7 +299,16 @@ final class CompanionStore {
             if node.children.isEmpty {
                 graduate(); break
             } else {
-                let next = pickNextChild(node, baseID: a.baseID)
+                let nextIndex = a.stageIndex + 1
+                guard a.plannedPathIDs.indices.contains(nextIndex) else {
+                    AppLog.write("evolve: invalid planned path index \(nextIndex) for base \(a.baseID)")
+                    break
+                }
+                let nextID = a.plannedPathIDs[nextIndex]
+                guard let next = node.children.first(where: { $0.speciesID == nextID }) else {
+                    AppLog.write("evolve: planned child \(nextID) is invalid for current \(a.currentID)")
+                    break
+                }
                 state.active!.pathIDs = Array(a.pathIDs.prefix(a.stageIndex + 1)) + [next.speciesID]
                 state.active!.stageIndex += 1
                 state.active!.usedAtStage = a.usedAtStage - thr   // 초과분 이월
@@ -296,12 +324,58 @@ final class CompanionStore {
         save()
     }
 
-    private func pickNextChild(_ node: EvoNode, baseID: Int) -> EvoNode {
+    private func pickPlannedChild(_ node: EvoNode, baseID: Int) -> EvoNode {
         let fresh = node.children.filter { ch in
             ch.finalIDs.contains { !state.collectedFinals.contains("\(baseID):\($0)") }
         }
         let pool = fresh.isEmpty ? node.children : fresh
         return pool[Int(rng.next() % UInt64(pool.count))]
+    }
+
+    private func makeEvolutionPlan(from root: EvoNode, baseID: Int) -> [Int] {
+        var plan = [root.speciesID]
+        var node = root
+        while !node.children.isEmpty {
+            let next = pickPlannedChild(node, baseID: baseID)
+            plan.append(next.speciesID)
+            node = next
+        }
+        return plan
+    }
+
+    /// 루트부터 실제로 이어지는 가장 긴 ID 경로와 마지막 유효 노드. 첫 ID가 루트와 다르면 루트로 복구한다.
+    private func longestValidPath(_ ids: [Int], from root: EvoNode) -> (path: [Int], lastNode: EvoNode) {
+        var path = [root.speciesID]
+        var node = root
+        guard ids.first == root.speciesID else { return (path, node) }
+        for id in ids.dropFirst() {
+            guard let child = node.children.first(where: { $0.speciesID == id }) else { break }
+            path.append(id)
+            node = child
+        }
+        return (path, node)
+    }
+
+    /// 저장된 실제 경로와 계획을 현재 에셋 트리에 맞춘다. 완전한 계획만 재사용해 재시작 시 RNG를 소비하지 않는다.
+    private func normalizedEvolutionState(_ saved: MonState, from root: EvoNode) -> MonState {
+        var normalized = saved
+        let realized = longestValidPath(saved.pathIDs, from: root)
+        let candidate = longestValidPath(saved.plannedPathIDs, from: root)
+        let canReusePlan = candidate.path == saved.plannedPathIDs
+            && candidate.path.starts(with: realized.path)
+            && candidate.lastNode.children.isEmpty
+        let plan: [Int]
+        if canReusePlan {
+            plan = candidate.path
+        } else {
+            let suffix = makeEvolutionPlan(from: realized.lastNode, baseID: saved.baseID)
+            plan = realized.path + suffix.dropFirst()
+        }
+        normalized.pathIDs = realized.path
+        normalized.plannedPathIDs = plan
+        normalized.stageIndex = realized.path.count - 1
+        normalized.totalForms = plan.count
+        return normalized
     }
 
     private func graduate() {
@@ -320,6 +394,7 @@ final class CompanionStore {
         notifyCompanionEvent(l.notifGraduateTitle, l.notifGraduateBody(name))
         eventUntil = clock().addingTimeInterval(6)
         state.active = nil
+        activeGeneration += 1
         currentLine = nil
         state.eggUsage = 0   // 새 알은 처음부터 인큐베이션
         // "알을 받는 순간" 즉시 프리패칭 시작 — 다음 부화의 종·라인·스프라이트 예열.
@@ -462,6 +537,7 @@ final class CompanionStore {
         guard canBuyFreshEgg else { return false }
         state.spentTokens += FreshEgg.price
         state.active = nil            // 폐기 (졸업 아님 — dex/collectedFinals 미변경)
+        activeGeneration += 1
         currentLine = nil
         state.eggUsage = 0            // 새 알은 처음부터 인큐베이션(재부화에 5M 필요)
         state.pendingHatchID = nil    // 다음 부화는 새로 롤
@@ -624,15 +700,18 @@ final class CompanionStore {
         // 메타몽 위장 롤 — common·≥2형태에 한해 1/128. .app 게이트(&& 단락 → 비앱에선 rng 미소비로
         // 기존 테스트 RNG 시퀀스 무영향). 위장/리빌 로직은 상태 기반으로 별도 테스트한다.
         var dittoDisguise: Int?
-        if AppEnv.isBundledApp, Self.dittoDisguiseHit(rarity: line.rarity, totalForms: line.totalForms, roll: rng.next()) {
+        if dittoDisguiseRollingEnabled,
+           Self.dittoDisguiseHit(rarity: line.rarity, totalForms: line.totalForms, roll: rng.next()) {
             dittoDisguise = line.baseID
         }
+        let evolutionPlan = makeEvolutionPlan(from: line.tree, baseID: line.baseID)
         // 위장 중엔 이로치를 숨긴다 — 부화 알림·연출도 일반체로(정체는 리빌 때 공개).
         let showShiny = isShiny && dittoDisguise == nil
-        state.active = MonState(baseID: line.baseID, pathIDs: [line.baseID], stageIndex: 0,
-                                usedAtStage: 0, rarity: line.rarity, totalForms: line.totalForms,
+        activeGeneration += 1
+        state.active = MonState(baseID: line.baseID, pathIDs: [line.baseID], plannedPathIDs: evolutionPlan,
+                                stageIndex: 0, usedAtStage: 0, rarity: line.rarity, totalForms: evolutionPlan.count,
                                 isShiny: isShiny, nature: nature, dittoDisguise: dittoDisguise)
-        AppLog.write("hatch: base=\(line.baseID) rarity=\(line.rarity) shiny=\(isShiny) forms=\(line.totalForms) ditto=\(dittoDisguise != nil)")
+        AppLog.write("hatch: base=\(line.baseID) rarity=\(line.rarity) shiny=\(isShiny) forms=\(evolutionPlan.count) ditto=\(dittoDisguise != nil)")
         let name = line.localizedName(line.baseID, state.language)
         notifyCompanionEvent(showShiny ? l.notifShinyHatchTitle : l.notifHatchTitle,
                              showShiny ? l.notifShinyHatchBody(name) : l.notifHatchBody(name))
@@ -650,6 +729,7 @@ final class CompanionStore {
     /// Ditto 라인 로드 후 상태 변환(rare·단일형태·초과분 이월, isShiny/nature 유지) + 연출·알림.
     private func revealDitto() async {
         guard let a = state.active, a.dittoDisguise != nil, !a.dittoRevealed, !isRevealingDitto else { return }
+        let generation = activeGeneration
         let firstEvoThr = PokemonBalance.phaseThreshold(rarity: a.rarity, totalForms: a.totalForms, stageIndex: 0)
         guard a.usedAtStage >= firstEvoThr else { return }   // 임계 미달 방어
         isRevealingDitto = true
@@ -657,15 +737,20 @@ final class CompanionStore {
         guard let dittoLine = try? await provider.line(baseSpeciesID: PokemonOdds.dittoSpeciesID) else {
             AppLog.write("ditto reveal: line fetch failed — retry next tick"); return
         }
-        guard var m = state.active, m.dittoDisguise != nil, !m.dittoRevealed else { return }   // await 사이 변화 방어
+        guard activeGeneration == generation,
+              var m = state.active, m.dittoDisguise != nil, !m.dittoRevealed else { return }
+        let latestFirstEvoThr = PokemonBalance.phaseThreshold(rarity: m.rarity, totalForms: m.totalForms, stageIndex: 0)
+        guard m.usedAtStage >= latestFirstEvoThr else { return }
         let disguiseName = currentLine?.localizedName(m.baseID, state.language) ?? "#\(m.baseID)"
-        let carryOver = max(0, m.usedAtStage - firstEvoThr)   // 위장체 첫 진화 초과분 → 메타몽 성장 이월
+        let carryOver = max(0, m.usedAtStage - latestFirstEvoThr)   // 위장체 첫 진화 초과분 → 메타몽 성장 이월
         // 메타몽으로 전환 — rarity/forms 는 로드한 라인에서, isShiny/nature/dittoDisguise 는 유지.
         m.baseID = dittoLine.baseID
+        let evolutionPlan = makeEvolutionPlan(from: dittoLine.tree, baseID: dittoLine.baseID)
         m.pathIDs = [dittoLine.baseID]
+        m.plannedPathIDs = evolutionPlan
         m.stageIndex = 0
         m.rarity = dittoLine.rarity
-        m.totalForms = dittoLine.totalForms
+        m.totalForms = evolutionPlan.count
         m.usedAtStage = carryOver
         m.dittoRevealed = true
         let shiny = m.isShiny
@@ -683,22 +768,17 @@ final class CompanionStore {
 
     private func loadCurrentLine() async {
         guard let a = state.active, currentLine == nil, !isHatching else { return }
+        let generation = activeGeneration
         isHatching = true
         defer { isHatching = false }
         if let line = try? await provider.line(baseSpeciesID: a.baseID) {
-            // 구버전 저장은 PokéAPI 원본 체인의 GIF 미지원 후대 진화형까지 포함할 수 있다.
-            // 현재 에셋 트리에서 실제로 이어지는 경로까지만 복구하고 단계 수도 함께 마이그레이션한다.
-            var path = [line.tree.speciesID]
-            var node = line.tree
-            for id in a.pathIDs.dropFirst() {
-                guard let child = node.children.first(where: { $0.speciesID == id }) else { break }
-                path.append(id)
-                node = child
-            }
-            state.active?.pathIDs = path
-            state.active?.stageIndex = path.count - 1
-            state.active?.totalForms = line.totalForms
+            // await 중 사용량·민트 등 활성 상태는 계속 바뀔 수 있다. 요청 당시 스냅샷을 다시 쓰지 말고
+            // 같은 개체가 아직 활성인 경우에만 최신 상태를 정규화한다.
+            guard activeGeneration == generation,
+                  let latest = state.active, latest.baseID == a.baseID, currentLine == nil else { return }
+            state.active = normalizedEvolutionState(latest, from: line.tree)
             currentLine = line
+            save()   // 마이그레이션 선택을 사용량 재평가 전에 영속화해 재시작마다 다시 롤리지 않는다.
             applyUsage(0)   // 라인 미로딩 동안 적립된 사용량이 임계를 넘었으면 지금 진화 판정
         }
     }
