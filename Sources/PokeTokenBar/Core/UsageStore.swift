@@ -173,9 +173,12 @@ final class UsageStore {
     /// 단일 줄 표현 — 관찰(observeStore)·접근성·1줄 렌더 폴백용. 세로 렌더는 menuLines 사용.
     var menuTitle: String { menuLines.joined(separator: " · ") }
 
+    /// Snapshots that participate in cost aggregates / cost UI (excludes flat-rate providers).
+    var costingSnapshots: [ProviderSnapshot] { snapshots.filter(\.reportsCost) }
+
     var todayCostTotal: Double {
         let todayKey = LocalUsageReader.todayKey()
-        return snapshots.reduce(0) { $0 + ($1.today?.date == todayKey ? ($1.today?.totalCost ?? 0) : 0) }
+        return costingSnapshots.reduce(0) { $0 + ($1.today?.date == todayKey ? ($1.today?.totalCost ?? 0) : 0) }
     }
 
     /// 프로바이더 탭 선택 해석 — 선호 id 가 연결돼 있으면 그것, 아니면(첫 실행/연결 해제) 첫 번째.
@@ -185,9 +188,9 @@ final class UsageStore {
     }
 
     var weekTotalTokens: Int { snapshots.reduce(0) { $0 + ($1.weekTotal?.totalTokens ?? 0) } }
-    var weekCostTotal: Double { snapshots.reduce(0) { $0 + ($1.weekTotal?.totalCost ?? 0) } }
+    var weekCostTotal: Double { costingSnapshots.reduce(0) { $0 + ($1.weekTotal?.totalCost ?? 0) } }
     var monthTotalTokens: Int { snapshots.reduce(0) { $0 + ($1.monthTotal?.totalTokens ?? 0) } }
-    var monthCostTotal: Double { snapshots.reduce(0) { $0 + ($1.monthTotal?.totalCost ?? 0) } }
+    var monthCostTotal: Double { costingSnapshots.reduce(0) { $0 + ($1.monthTotal?.totalCost ?? 0) } }
 
     /// Claude 의 활성 5h 블록 — 5h forecast·"현재 블록" 행은 Claude 공식 한도와 짝이므로
     /// providerID 로 명시 조회한다 (전 프로바이더가 블록을 갖게 된 후 first-with-block 은 오매칭).
@@ -494,7 +497,8 @@ final class UsageStore {
                     activeBlock: prevBlock,
                     weekTotal: prevWeek,
                     monthTotal: prevMonth,
-                    fetchedAt: Date()))
+                    fetchedAt: Date(),
+                    reportsCost: provider.reportsCost))
             }
         }
         snapshots = newSnapshots
@@ -529,7 +533,8 @@ final class UsageStore {
                             activeBlock: enrichment.activeBlock,
                             weekTotal: enrichment.periodsOK ? enrichment.weekTotal : nil,
                             monthTotal: enrichment.periodsOK ? enrichment.monthTotal : nil,
-                            fetchedAt: Date()))
+                            fetchedAt: Date(),
+                            reportsCost: provider.reportsCost))
                     }
                     continue
                 }

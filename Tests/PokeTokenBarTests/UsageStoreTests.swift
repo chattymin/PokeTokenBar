@@ -12,13 +12,15 @@ private enum StubError: Error { case boom }
 private final class FakeUsageProvider: UsageProvider, @unchecked Sendable {
     let id: String
     let displayName: String
+    let reportsCost: Bool
     nonisolated(unsafe) var daily: DailyUsage?
     nonisolated(unsafe) var enrichment = ProviderEnrichment()
     nonisolated(unsafe) var failDaily = false
 
-    init(id: String, displayName: String, daily: DailyUsage? = nil) {
+    init(id: String, displayName: String, daily: DailyUsage? = nil, reportsCost: Bool = true) {
         self.id = id
         self.displayName = displayName
+        self.reportsCost = reportsCost
         self.daily = daily
     }
     func fetchDaily() async throws -> DailyUsage? {
@@ -800,5 +802,21 @@ final class UsageStoreTests: XCTestCase {
         await store.refresh(scheduleEmptyRetry: false)
         XCTAssertEqual(store.todayTotalTokens, 150_000, "Claude + Cursor today tokens should sum")
         XCTAssertEqual(store.snapshots.count, 2, "Both providers should have snapshots")
+    }
+
+    func testCursorContributesZeroToTodayCostTotal() async {
+        let claude = FakeUsageProvider(
+            id: "claude_code", displayName: "Claude Code",
+            daily: todayDaily(100_000, cost: 1.25))
+        let cursor = FakeUsageProvider(
+            id: "cursor", displayName: "Cursor",
+            daily: todayDaily(50_000, cost: 9.99), reportsCost: false)
+        let store = makeStore(providers: [claude, cursor])
+        await store.refresh(scheduleEmptyRetry: false)
+        XCTAssertEqual(store.todayTotalTokens, 150_000)
+        XCTAssertEqual(store.todayCostTotal, 1.25, accuracy: 0.000_001,
+                       "Cursor is tokens-only — invented cost must not enter todayCostTotal")
+        XCTAssertEqual(store.snapshot(preferring: "cursor")?.reportsCost, false)
+        XCTAssertEqual(store.snapshot(preferring: "claude_code")?.reportsCost, true)
     }
 }

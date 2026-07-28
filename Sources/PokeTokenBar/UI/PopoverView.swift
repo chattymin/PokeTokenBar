@@ -195,7 +195,7 @@ struct PopoverView: View {
     }
 
     private var todayCost: Double {
-        store.snapshots.reduce(0) { $0 + ($1.today?.totalCost ?? 0) }
+        store.costingSnapshots.reduce(0) { $0 + ($1.today?.totalCost ?? 0) }
     }
 
     private func providerRow(snapshot: ProviderSnapshot, today: DailyUsage) -> some View {
@@ -207,9 +207,11 @@ struct PopoverView: View {
                 Text(TokenFormatter.compact(today.totalTokens))
                     .font(.callout)
                     .monospacedDigit()
-                Text(TokenFormatter.cost(today.totalCost))
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                if snapshot.reportsCost {
+                    Text(TokenFormatter.cost(today.totalCost))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
             }
             HStack(spacing: 10) {
                 tokenTypeLabel("in", today.inputTokens)
