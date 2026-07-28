@@ -202,6 +202,17 @@ final class StatePersistenceLogicTests: XCTestCase {
         XCTAssertEqual(over.currentID, 1)
     }
 
+    func testMonStateDecodeClampsStageIndexToRealizedPathBounds() throws {
+        let upper = #"{"baseID":1,"pathIDs":[1,2],"stageIndex":5,"usedAtStage":0,"rarity":"common","totalForms":2}"#
+        let lower = #"{"baseID":1,"pathIDs":[1,2],"stageIndex":-1,"usedAtStage":0,"rarity":"common","totalForms":2}"#
+
+        let decodedUpper = try JSONDecoder().decode(MonState.self, from: Data(upper.utf8))
+        let decodedLower = try JSONDecoder().decode(MonState.self, from: Data(lower.utf8))
+
+        XCTAssertEqual(decodedUpper.stageIndex, 1)
+        XCTAssertEqual(decodedLower.stageIndex, 0)
+    }
+
     func testMonStateRoundTripPreservesDistinctPlannedPath() throws {
         let state = MonState(baseID: 265, pathIDs: [265], plannedPathIDs: [265, 266, 267],
                              stageIndex: 0, usedAtStage: 0, rarity: .common, totalForms: 3)

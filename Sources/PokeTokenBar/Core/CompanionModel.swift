@@ -371,7 +371,8 @@ struct MonState: Codable, Sendable {
         } else {
             plannedPathIDs = pathIDs
         }
-        stageIndex = try c.decode(Int.self, forKey: .stageIndex)
+        let decodedStageIndex = try c.decode(Int.self, forKey: .stageIndex)
+        stageIndex = min(max(0, decodedStageIndex), pathIDs.count - 1)
         usedAtStage = try c.decode(Int.self, forKey: .usedAtStage)
         rarity = try c.decode(Rarity.self, forKey: .rarity)
         totalForms = try c.decode(Int.self, forKey: .totalForms)
