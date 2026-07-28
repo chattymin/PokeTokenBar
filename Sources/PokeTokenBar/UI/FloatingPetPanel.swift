@@ -296,20 +296,27 @@ final class PetHostingView: NSHostingView<AnyView> {
     }
 
     /// `menu(for:)` alone is unreliable on `NSHostingView` — pop up explicitly.
+    /// Force-enable items: default auto-enable walks the key-window responder chain and greys
+    /// everything out on a non-activating LSUIElement panel (owner review #120).
     private func showContextMenu(_ event: NSEvent) {
+        onHoverChange?(false)   // dismiss callout so it doesn't sit under the menu
+        NSApp.activate(ignoringOtherApps: true)
         let l = L(languageProvider())
         let menu = NSMenu(title: "")
+        menu.autoenablesItems = false
         let open = menu.addItem(withTitle: l.floatingPetMenuOpen,
-                                action: #selector(handleOpen), keyEquivalent: "")
+                                action: #selector(handleOpen(_:)), keyEquivalent: "")
         open.target = self
+        open.isEnabled = true
         let hide = menu.addItem(withTitle: l.floatingPetMenuHide,
-                                action: #selector(handleHide), keyEquivalent: "")
+                                action: #selector(handleHide(_:)), keyEquivalent: "")
         hide.target = self
+        hide.isEnabled = true
         NSMenu.popUpContextMenu(menu, with: event, for: self)
     }
 
-    @objc private func handleOpen() { onOpenPopover?() }
-    @objc private func handleHide() { onHide?() }
+    @objc func handleOpen(_ sender: Any?) { onOpenPopover?() }
+    @objc func handleHide(_ sender: Any?) { onHide?() }
 }
 
 struct FloatingPetView: View {
