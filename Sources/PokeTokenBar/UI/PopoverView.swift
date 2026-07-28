@@ -2,6 +2,15 @@ import SwiftUI
 
 enum PopoverTab { case home, shop, bag, collection }
 
+/// 팝오버 치수의 단일 소스. 자식이 쓸 수 있는 폭을 알아야 할 때 이 값을 쓴다 — 넘치는 자식이
+/// 부모 폭을 부풀리므로 GeometryReader 로 재면 순환한다.
+enum PopoverMetrics {
+    static let width: CGFloat = 360
+    static let padding: CGFloat = 14
+    /// 이 폭을 넘는 자식은 팝오버 창에 좌우로 잘린다.
+    static let contentWidth: CGFloat = width - padding * 2
+}
+
 /// 팝오버 내부 내비게이션 상태(현재 탭 / 설정 표시 여부).
 /// NSHostingController 는 팝오버를 닫아도 재사용되어 @State 가 유지되므로, 화면 상태를 이
 /// Observable 로 분리해 AppDelegate 가 팝오버를 열 때마다 reset() 한다 — 닫혔다 열리면 항상 Home.
@@ -41,7 +50,7 @@ struct PopoverView: View {
                 mainContent
             }
         }
-        .frame(width: 360)
+        .frame(width: PopoverMetrics.width)
     }
 
     @ViewBuilder
@@ -99,7 +108,7 @@ struct PopoverView: View {
             }
             footer
         }
-        .padding(14)
+        .padding(PopoverMetrics.padding)
     }
 
     // MARK: 헤더 — 오늘 합계 + provider/토큰타입 분해

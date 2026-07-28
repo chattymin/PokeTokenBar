@@ -26,6 +26,7 @@ final class UsageStore {
     private(set) var statuses: [String: ProviderStatus] = [:]
     private(set) var lastUpdated: Date?
     private(set) var isRefreshing = false
+    private var refreshPending = false          // 진행 중 refresh 에 겹친 요청을 1회 코얼레싱(드롭 방지)
     private(set) var isRefreshingLimitToken = false
     private(set) var lastErrorDescription: String?
     private(set) var limitTokenRefreshError: String?
@@ -424,7 +425,10 @@ final class UsageStore {
     // MARK: 갱신
 
     func refresh(scheduleEmptyRetry: Bool = true) async {
-        guard !isRefreshing else { return }
+        // 진행 중이면 드롭하지 말고 예약 — 완료 후 1회 재실행(코얼레싱). 수동모드(interval 0)에서 키체인
+        // 재활성(disableKeychainAccess didSet)의 refresh 가 in-flight 폴에 묻혀, 자동폴이 없는 탓에
+        // Claude 한도가 다음 수동 액션까지 빈 채로 남던 회귀 방지.
+        if isRefreshing { refreshPending = true; return }
         isRefreshing = true
         // App Nap 방지 — 백그라운드 스로틀로 ccusage 가 타임아웃되는 것을 막는다 (시스템 슬립은 허용)
         let activity = ProcessInfo.processInfo.beginActivity(
@@ -432,6 +436,11 @@ final class UsageStore {
         defer {
             ProcessInfo.processInfo.endActivity(activity)
             isRefreshing = false
+            // 진행 중 겹쳐 들어온 요청을 1회 반영. 요청 도착률이 유한하므로 무한 재실행 없음.
+            if refreshPending {
+                refreshPending = false
+                Task { await self.refresh(scheduleEmptyRetry: scheduleEmptyRetry) }
+            }
         }
 
         let todayKey = LocalUsageReader.todayKey()

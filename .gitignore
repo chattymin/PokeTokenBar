@@ -25,3 +25,4 @@ docs/
 
 # Agent worktrees / local state
 .claude/
+.worktrees/
