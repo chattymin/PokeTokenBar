@@ -3,25 +3,24 @@ import SwiftUI
 @testable import PokeTokenBar
 
 // 진화 라인 가로 오버플로 가드.
-// 분기 라인(이브이 = 본체 1 + 진화 후보 8)은 폭 제한이 없으면 팝오버 콘텐츠 폭(332pt)을 훌쩍 넘고,
-// 넘친 자식이 부모 VStack 폭을 부풀려 팝오버 콘텐츠 "전체"가 좌우로 잘렸다. maxWidth 를 주면
-// 그 폭 안에서 가로 스크롤한다.
+// 긴 진화 라인은 폭 제한이 없으면 팝오버 콘텐츠 폭(332pt)을 훌쩍 넘고, 넘친 자식이 부모 VStack 폭을
+// 부풀려 팝오버 콘텐츠 "전체"가 좌우로 잘렸다. maxWidth 를 주면 그 폭 안에서 가로 스크롤한다.
 //
 // 트리거 브랜치를 직접 재현한다: maxWidth 없는 라인이 실제로 넘치는지까지 확인해야
 // "fit 어서션이 애초에 통과할 조건이었다"는 false confidence 를 막는다.
 @MainActor
 final class EvoLineLayoutTests: XCTestCase {
 
-    /// 홈 화면의 이브이 노드 — 현재 개체 + 진화 후보 전부(샤미드·쥬피썬더·부스터·에브이·블래키·
-    /// 리피아·글레이시아·님피아). PokéAPI evolution-chain 이 그대로 주는 분기 폭.
-    private var eeveeNodes: [(id: Int, kind: String)] {
-        [(id: 133, kind: "cur")]
-            + [134, 135, 136, 196, 197, 470, 471, 700].map { (id: $0, kind: "future") }
+    /// 긴 라인 합성 입력. 홈 화면의 미확정 분기는 `?` 하나로 숨기지만, EvoLineView 자체의
+    /// 오버플로 방어는 어떤 긴 노드 배열에도 유지돼야 한다.
+    private var longNodes: [EvoLineItem] {
+        [EvoLineItem(.species(133), .current)]
+            + [134, 135, 136, 196, 197, 470, 471, 700].map { EvoLineItem(.species($0), .future) }
     }
 
     /// 3단계 일반 라인(이상해씨 계열) — 스크롤이 붙으면 안 되는 대조군.
-    private var threeStageNodes: [(id: Int, kind: String)] {
-        [(id: 1, kind: "done"), (id: 2, kind: "cur"), (id: 3, kind: "future")]
+    private var threeStageNodes: [EvoLineItem] {
+        [EvoLineItem(.species(1), .done), EvoLineItem(.species(2), .current), EvoLineItem(.species(3), .future)]
     }
 
     /// 팝오버가 실제로 제안하는 폭으로 뷰를 재어 렌더 폭을 얻는다.
@@ -32,17 +31,18 @@ final class EvoLineLayoutTests: XCTestCase {
 
     // MARK: 렌더 폭 — 실제 레이아웃 회귀
 
-    /// 트리거 재현: 폭 제한이 없으면 이브이 라인은 팝오버 콘텐츠 폭을 넘는다(= 버그 조건).
-    func testEeveeLineWithoutMaxWidthOverflowsPopoverContent() {
-        let w = renderedWidth(EvoLineView(nodes: eeveeNodes),
+    /// 트리거 재현: 폭 제한이 없으면 긴 라인은 팝오버 콘텐츠 폭을 넘는다(= 버그 조건).
+    func testLongEvolutionLineWithoutMaxWidthOverflowsPopoverContent() {
+        let w = renderedWidth(EvoLineView(nodes: longNodes, mysteryLabel: L(.en).unknownNextEvolution),
                               proposing: PopoverMetrics.contentWidth)
         XCTAssertGreaterThan(w, PopoverMetrics.contentWidth,
                              "폭 제한 없는 진화 라인은 넘쳐야 한다 — 안 넘치면 아래 fit 검증이 무의미해진다")
     }
 
     /// 수정 후: 팝오버가 주는 폭을 넘지 않는다(→ 부모 VStack 이 안 부풀고 팝오버가 안 잘린다).
-    func testEeveeLineFitsPopoverContentWidth() {
-        let w = renderedWidth(EvoLineView(nodes: eeveeNodes, maxWidth: PopoverMetrics.contentWidth),
+    func testLongEvolutionLineFitsPopoverContentWidth() {
+        let w = renderedWidth(EvoLineView(nodes: longNodes, mysteryLabel: L(.en).unknownNextEvolution,
+                                          maxWidth: PopoverMetrics.contentWidth),
                               proposing: PopoverMetrics.contentWidth)
         XCTAssertLessThanOrEqual(w, PopoverMetrics.contentWidth)
     }
@@ -50,10 +50,12 @@ final class EvoLineLayoutTests: XCTestCase {
     /// 도감 행(썸네일 56 + 이름 라벨)도 카드 안쪽 폭을 넘지 않는다.
     func testLongDexChainFitsCardWidth() {
         let cardWidth = PopoverMetrics.contentWidth - 16   // DexEntryRow 카드 좌우 패딩 8pt
-        let nodes = [1, 2, 3, 4, 5].map { (id: $0, kind: "done") }
-        let names = Dictionary(uniqueKeysWithValues: nodes.map { ($0.id, "이상해씨") })
+        let ids = [1, 2, 3, 4, 5]
+        let nodes = ids.map { EvoLineItem(.species($0), .done) }
+        let names = Dictionary(uniqueKeysWithValues: ids.map { ($0, "이상해씨") })
         let w = renderedWidth(
-            EvoLineView(nodes: nodes, thumb: 56, names: names, maxWidth: cardWidth),
+            EvoLineView(nodes: nodes, mysteryLabel: L(.ko).unknownNextEvolution,
+                        thumb: 56, names: names, maxWidth: cardWidth),
             proposing: cardWidth)
         XCTAssertLessThanOrEqual(w, cardWidth)
     }
@@ -63,7 +65,8 @@ final class EvoLineLayoutTests: XCTestCase {
         // 3칸 = 40*3 + 화살표 10*2 + 간격 2*4 = 148pt
         let expected = EvoLineView.rowWidth(count: 3, thumb: 40, hasNames: false)
         XCTAssertEqual(expected, 148)
-        let w = renderedWidth(EvoLineView(nodes: threeStageNodes, maxWidth: PopoverMetrics.contentWidth),
+        let w = renderedWidth(EvoLineView(nodes: threeStageNodes, mysteryLabel: L(.en).unknownNextEvolution,
+                                          maxWidth: PopoverMetrics.contentWidth),
                               proposing: PopoverMetrics.contentWidth)
         XCTAssertEqual(w, expected, accuracy: 0.5)
     }
@@ -73,12 +76,27 @@ final class EvoLineLayoutTests: XCTestCase {
     /// rowWidth 는 레이아웃과 같은 식이어야 한다(측정값과 일치 — 어긋나면 스크롤 판정이 틀어진다).
     func testRowWidthMatchesRenderedWidth() {
         for count in 1...9 {
-            let nodes = (1...count).map { (id: $0, kind: "done") }
-            let rendered = renderedWidth(EvoLineView(nodes: nodes), proposing: 4000)
+            let nodes = (1...count).map { i in
+                i == count ? EvoLineItem(.mystery, .future) : EvoLineItem(.species(i), .done)
+            }
+            let rendered = renderedWidth(EvoLineView(nodes: nodes, mysteryLabel: L(.en).unknownNextEvolution),
+                                         proposing: 4000)
             XCTAssertEqual(rendered,
                            EvoLineView.rowWidth(count: count, thumb: 40, hasNames: false),
                            accuracy: 0.5, "count=\(count)")
         }
+    }
+
+    /// mystery 는 이름이 없더라도 도감 라인의 이름 열 폭을 예약해야 rowWidth 기반 스크롤 판정과 일치한다.
+    func testNamedMysteryCellReservesNameColumnWidth() {
+        let nodes = [EvoLineItem(.species(1), .done), EvoLineItem(.mystery, .future)]
+        let names = [1: String(repeating: "W", count: 20)]
+        let rendered = renderedWidth(EvoLineView(nodes: nodes, mysteryLabel: L(.en).unknownNextEvolution, names: names),
+                                     proposing: 4000)
+
+        XCTAssertEqual(rendered,
+                       EvoLineView.rowWidth(count: nodes.count, thumb: 40, hasNames: true),
+                       accuracy: 0.5)
     }
 
     /// 홈 라인(썸네일 40)은 6칸까지 그대로, 7칸부터 스크롤.

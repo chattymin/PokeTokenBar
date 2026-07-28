@@ -149,15 +149,19 @@ swift test                   # 단위 테스트
 | `~/.local/share/opencode/opencode.db` | OpenCode daily/blocks/weekly/monthly | SQLite 읽기 전용; 레거시 `storage/message` JSON도 지원 |
 | `~/.hermes/state.db` | Hermes Agent daily/blocks/weekly/monthly | SQLite 읽기 전용; 세션 토큰 합계와 저장된 비용 |
 | `~/Library/Application Support/Cursor/User/globalStorage/state.vscdb` | Cursor daily/blocks/weekly/monthly | SQLite 읽기 전용; `cursorDiskKV` 버블 엔트리의 `tokenCount` |
-| Keychain → `oauth/usage` | Claude 공식 5h/주간 % | 비공식 endpoint; Keychain 프롬프트 1회 후 캐시 |
-| `codex app-server` | Codex 공식 5h/주간 % | 계정 snapshot만; 모델 turn 없음 |
-| [PokéAPI](https://pokeapi.co/) | 포켓몬 종·진화·스프라이트 | 런타임 fetch; 로컬 캐시, 번들 안 함 |
+| Keychain / `~/.claude/.credentials.json` → `api.anthropic.com` | Claude 공식 5h/주간 % | 비공식 endpoint; Keychain 은 **갱신 버튼을 누를 때만** 읽음 — 자동 폴링은 읽지 않음 |
+| `codex app-server` | Codex 공식 5h/주간 % | 로컬 자식 프로세스; 계정 snapshot만, 모델 turn 없음 |
+| [PokéAPI](https://pokeapi.co/) — `pokeapi.co`, `graphql.pokeapi.co` | 포켓몬 종·진화 | 런타임 fetch; 로컬 캐시, 번들 안 함 |
+| `raw.githubusercontent.com/PokeAPI/sprites` | 포켓몬·아이템 스프라이트 | 런타임 fetch; Application Support 에 캐시, 번들 안 함 |
+| `status.claude.com`, `status.openai.com` | 프로바이더 장애 배너 | statuspage 요약; 표시 전용 — 설정에서 끌 수 있음 |
+| `api.github.com` | 업데이트 확인 | 최신 릴리스 태그; 기동 시와 팝오버를 열 때 |
 
 ## 프라이버시 & 권한
 
 - **온디바이스.** 토큰 사용량은 로컬 Claude Code·Codex·Gemini CLI·OpenCode·Hermes Agent·Cursor 데이터에서 직접 읽습니다. 사용량을 업로드하거나 모델 turn을 실행하지 않습니다.
-- **Keychain(선택).** 공식 한도를 보여주려면 Claude OAuth 자격증명을 **1회**(비밀번호 프롬프트 1번) 읽고, 앱 자체 Keychain 항목에 캐시해 재사용합니다. 설정에서 끄면 한도 섹션만 숨겨집니다.
-- **포켓몬 에셋**은 런타임에 PokéAPI에서 받아오며 `~/Library/Application Support/PokeTokenBar/`에만 캐시됩니다. 저작물은 레포나 릴리스에 번들하지 않습니다.
+- **외부 요청.** 앱은 완전 오프라인이 아닙니다. 7개 호스트에 접속합니다 — `pokeapi.co`·`graphql.pokeapi.co`(종·진화), `raw.githubusercontent.com`(스프라이트), `api.anthropic.com`(Claude 공식 한도), `status.claude.com`·`status.openai.com`(장애 배너 — 설정에서 끌 수 있음), `api.github.com`(업데이트 확인). **어느 요청에도 사용량·토큰·프롬프트·프로젝트 경로는 담기지 않습니다** — 요청 자체만 나갑니다.
+- **Keychain(선택).** Claude OAuth 자격증명은 **갱신 버튼을 누를 때만** 읽습니다(설정, 또는 팝오버의 한도 행). 자동 폴링은 Keychain 을 건드리지 않으므로 비밀번호 프롬프트가 뜨지 않고, `~/.claude/.credentials.json` 이 있으면 그쪽에서 가져옵니다. 토큰은 메모리에만 두며 **앱 자체 Keychain 항목은 만들지 않습니다.** 토큰이 만료되면 한도는 갱신 전까지 이전 값(stale)으로 표시됩니다. 설정에서 끄면 한도 섹션만 숨겨집니다.
+- **포켓몬 에셋**은 런타임에 PokéAPI에서 받아오며 `~/Library/Application Support/PokeTokenBar/`에만 캐시됩니다. 앱 바이너리와 릴리스 아티팩트에는 포켓몬 에셋이 포함되지 않습니다.
 
 ## 기여자
 
@@ -171,7 +175,7 @@ swift test                   # 단위 테스트
 
 PokeTokenBar는 **비공식·비상업 팬 프로젝트**입니다. **Nintendo, Game Freak, Creatures Inc., The Pokémon Company와 제휴·보증·후원·승인 관계가 없습니다.** "포켓몬(Pokémon)"과 관련 명칭·캐릭터·이미지는 각 권리자의 상표 및 저작물이며, 본 프로젝트는 어떤 포켓몬 지식재산에 대해서도 소유권이나 권리를 주장하지 않습니다.
 
-- **이 저장소는 어떠한 저작물도 번들·재배포하지 않습니다.** 포켓몬 종 데이터와 스프라이트는 공개 [PokéAPI](https://pokeapi.co)에서 **런타임에** 받아 사용자 기기에 로컬 캐시되며, PokéAPI를 통해 제공되는 스프라이트 이미지의 권리는 각 권리자에게 있습니다.
+- **앱 바이너리와 릴리스 아티팩트에는 포켓몬 에셋이 포함되지 않습니다.** 포켓몬 종 데이터와 스프라이트는 공개 [PokéAPI](https://pokeapi.co)에서 **런타임에** 받아 사용자 기기에 로컬 캐시되며, PokéAPI를 통해 제공되는 스프라이트 이미지의 권리는 각 권리자에게 있습니다.
 - 저장소 문서(스크린샷/GIF)에 보이는 포켓몬 이미지는 앱 기능 설명 목적으로만 표시됩니다.
 - 본 앱은 **개인적·비상업적 용도로만** 무료 제공됩니다.
 - 권리자께서 본 프로젝트에 대해 우려가 있으시면 이슈를 열거나 메인테이너에게 연락 주시면 신속히 대응하겠습니다.

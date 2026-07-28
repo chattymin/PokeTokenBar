@@ -52,11 +52,62 @@ struct SeededRNG: RandomNumberGenerator {
     }
 }
 
+final class CountingRNG: RandomNumberGenerator {
+    private var base: SeededRNG
+    private(set) var callCount = 0
+
+    init(seed: UInt64) { base = SeededRNG(seed: seed) }
+
+    func next() -> UInt64 {
+        callCount += 1
+        return base.next()
+    }
+}
+
+@MainActor
+private func waitUntil(timeout: TimeInterval = 1, _ condition: @escaping () -> Bool) async -> Bool {
+    let deadline = Date().addingTimeInterval(timeout)
+    while Date() < deadline {
+        if condition() { return true }
+        try? await Task.sleep(nanoseconds: 1_000_000)
+    }
+    return condition()
+}
+
 struct StubProvider: PokeProviding {
     let value: EvoLine
     func line(baseSpeciesID: Int) async throws -> EvoLine { value }
     // 인덱스 = 자기 라인 base 단일 항목 → 선택 롤 1회 소비 후 항상 그 base (테스트 rng 재생 단순화)
     func baseSpeciesIndex() async throws -> [BaseSpecies] { [BaseSpecies(id: value.baseID, captureRate: 255)] }
+}
+
+private actor SuspendedLineProvider: PokeProviding {
+    private let value: EvoLine
+    private var continuation: CheckedContinuation<EvoLine, Never>?
+    private var suspended = false
+
+    init(value: EvoLine) { self.value = value }
+
+    func line(baseSpeciesID: Int) async throws -> EvoLine {
+        await withCheckedContinuation { continuation in
+            precondition(self.continuation == nil, "only one line request may be suspended")
+            self.continuation = continuation
+            suspended = true
+        }
+    }
+
+    func baseSpeciesIndex() async throws -> [BaseSpecies] {
+        [BaseSpecies(id: value.baseID, captureRate: 255)]
+    }
+
+    func isSuspended() -> Bool { suspended }
+
+    func resume() {
+        let pending = continuation
+        continuation = nil
+        suspended = false
+        pending?.resume(returning: value)
+    }
 }
 
 // 테스트 스텁 공통 — base 판정을 주입 인덱스에서 파생. REST 폴백 경로는 실클라이언트만 override.
@@ -105,6 +156,10 @@ private func node(_ id: Int, _ children: [EvoNode] = []) -> EvoNode { EvoNode(sp
 private let linear3 = makeLine(base: 1, tree: node(1, [node(2, [node(3)])]))
 // 분기: 10 → {11,12,13}
 private let branch3 = makeLine(base: 10, tree: node(10, [node(11), node(12), node(13)]))
+// Wurmple: 265 → {266 → 267, 268 → 269}
+private let wurmpleLine = makeLine(base: 265, tree: node(265, [node(266, [node(267)]), node(268, [node(269)])]))
+// Oddish: 43 → 44 → {45, 182}
+private let delayedBranchLine = makeLine(base: 43, tree: node(43, [node(44, [node(45), node(182)])]))
 // 무진화: 20
 private let noEvo = makeLine(base: 20, tree: node(20))
 private let fixedNow = Date(timeIntervalSince1970: 1_700_000_000)
@@ -346,6 +401,12 @@ final class CompanionStoreTests: XCTestCase {
         XCTAssertEqual(L(.ja).dexRaising, "育成中")
     }
 
+    func testUnknownNextEvolutionAccessibilityLabelLocalized() {
+        XCTAssertEqual(L(.ko).unknownNextEvolution, "알 수 없는 다음 진화")
+        XCTAssertEqual(L(.en).unknownNextEvolution, "Unknown next evolution")
+        XCTAssertEqual(L(.ja).unknownNextEvolution, "次の進化先は不明")
+    }
+
     func testEggOverflowCarriesToHatchedMon() async {
         let s = store(linear3)
         base(s)
@@ -414,6 +475,68 @@ final class CompanionStoreTests: XCTestCase {
         XCTAssertEqual(s.dexEntries[0].chainOrder, [20])
     }
 
+    func testLineNodesPreviewsCompleteLinearEvolution() async {
+        let s = store(linear3)
+        await s.hatch(baseID: 1)
+
+        XCTAssertEqual(s.lineNodes, [
+            EvoLineItem(.species(1), .current),
+            EvoLineItem(.species(2), .future),
+            EvoLineItem(.species(3), .future),
+        ])
+    }
+
+    func testRealizedLineItemsUsesStageIndexForCurrentMarker() {
+        XCTAssertEqual(CompanionStore.realizedLineItems(pathIDs: [1, 2], stageIndex: 0), [
+            EvoLineItem(.species(1), .current),
+            EvoLineItem(.species(2), .done),
+        ])
+    }
+
+    func testRepairedPlanAppendsFallbackRouteToCurrentPath() {
+        XCTAssertEqual(CompanionStore.repairedPlan(
+            realizedPath: [265], stageIndex: 0, fallbackRoute: [265, 266, 267]),
+            [265, 266, 267])
+    }
+
+    func testLineNodesHidesUnresolvedWurmpleBranchAsSingleMystery() async {
+        let s = store(wurmpleLine)
+        await s.hatch(baseID: 265)
+
+        XCTAssertEqual(s.lineNodes, [
+            EvoLineItem(.species(265), .current),
+            EvoLineItem(.mystery, .future),
+        ])
+    }
+
+    func testLineNodesShowsKnownPrefixBeforeDownstreamBranchAsMystery() async {
+        let s = store(delayedBranchLine)
+        await s.hatch(baseID: 43)
+
+        XCTAssertEqual(s.lineNodes, [
+            EvoLineItem(.species(43), .current),
+            EvoLineItem(.species(44), .future),
+            EvoLineItem(.mystery, .future),
+        ])
+    }
+
+    func testLineNodesRevealsChosenWurmpleBranchAfterEvolution() async throws {
+        let s = store(wurmpleLine)
+        await s.hatch(baseID: 265)
+        let plan = try XCTUnwrap(s.state.active?.plannedPathIDs)
+        XCTAssertEqual(plan.count, 3)
+        guard plan.count == 3 else { return }
+
+        s.applyUsage(PokemonBalance.phaseThreshold(
+            rarity: .common, totalForms: plan.count, stageIndex: 0))
+
+        XCTAssertEqual(s.lineNodes, [
+            EvoLineItem(.species(265), .done),
+            EvoLineItem(.species(plan[1]), .current),
+            EvoLineItem(.species(plan[2]), .future),
+        ])
+    }
+
     func testBranchingPrefersUncollectedFinals() async {
         let s = store(branch3)
         let evo = PokemonBalance.phaseThreshold(rarity: .common, totalForms: 2, stageIndex: 0)
@@ -429,6 +552,29 @@ final class CompanionStoreTests: XCTestCase {
         XCTAssertEqual(Set(finals), [11, 12, 13])
     }
 
+    func testHatchPreselectsWurmpleRouteAndEvolutionDoesNotConsumeRNG() async {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("poke-\(UUID().uuidString).json")
+        let rng = CountingRNG(seed: 7)
+        let s = CompanionStore(provider: StubProvider(value: wurmpleLine), clock: { fixedNow }, fileURL: url, rng: rng)
+
+        await s.hatch(baseID: 265)
+
+        guard let hatched = s.state.active else { return XCTFail("Wurmple should hatch") }
+        let plan = hatched.plannedPathIDs
+        XCTAssertTrue([[265, 266, 267], [265, 268, 269]].contains(plan), "plan must be one complete root-to-leaf route")
+        XCTAssertEqual(hatched.pathIDs, [265], "realized path starts at the base only")
+        XCTAssertEqual(hatched.totalForms, plan.count)
+
+        guard plan.count > 1 else { return }
+
+        let callsAfterHatch = rng.callCount
+        s.applyUsage(PokemonBalance.phaseThreshold(rarity: hatched.rarity, totalForms: hatched.totalForms, stageIndex: 0))
+
+        XCTAssertEqual(rng.callCount, callsAfterHatch, "evolution must consume the stored plan without rolling RNG")
+        XCTAssertEqual(s.state.active?.pathIDs, Array(plan.prefix(2)))
+        XCTAssertEqual(s.currentSpeciesID, plan[1])
+    }
+
     func testPersistenceRoundTrip() async {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("poke-persist-\(UUID().uuidString).json")
         let s1 = CompanionStore(provider: StubProvider(value: linear3), clock: { fixedNow }, fileURL: url, rng: SeededRNG(seed: 1))
@@ -441,6 +587,147 @@ final class CompanionStoreTests: XCTestCase {
         XCTAssertEqual(s2.language, .ja)
     }
 
+    func testReloadPreservesCompleteShortPlannedRouteLength() async {
+        let line = makeLine(base: 1, tree: node(1, [node(2), node(3, [node(4)])]))
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("poke-reload-plan-\(UUID().uuidString).json")
+        let s1 = CompanionStore(provider: StubProvider(value: line), clock: { fixedNow }, fileURL: url, rng: SeededRNG(seed: 7))
+        await s1.hatch(baseID: 1)
+        XCTAssertEqual(s1.state.active?.plannedPathIDs, [1, 2], "seed selects the short complete route")
+
+        var opposing = SeededRNG(seed: 1)
+        XCTAssertEqual(opposing.next() % 2, 1, "a reroll would select the opposite branch (3)")
+        let rng = CountingRNG(seed: 1)
+        let s2 = CompanionStore(provider: StubProvider(value: line), clock: { fixedNow }, fileURL: url, rng: rng)
+        s2.update(todayTokens: 0, todayDate: "d1", monthTotal: 0,
+                  burnTier: .idle, limitWarning: false, hasUsageData: true)
+        let loaded = await waitUntil { s2.currentLine != nil }
+        XCTAssertTrue(loaded, "line should load before evolution")
+
+        XCTAssertNotNil(s2.currentLine)
+        XCTAssertEqual(s2.state.active?.plannedPathIDs, [1, 2])
+        XCTAssertEqual(s2.state.active?.totalForms, 2)
+        let callsAfterLoad = rng.callCount
+        s2.applyUsage(PokemonBalance.phaseThreshold(rarity: .common, totalForms: 2, stageIndex: 0))
+        XCTAssertEqual(s2.currentSpeciesID, 2, "persisted route must beat the post-restart RNG branch")
+        XCTAssertEqual(rng.callCount, callsAfterLoad, "load and evolution must not reroll the persisted route")
+    }
+
+    func testReloadLegacyIncompletePlanMigratesToPersistedCompleteRoute() async throws {
+        let line = wurmpleLine
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("poke-reload-legacy-\(UUID().uuidString).json")
+        let legacy = #"{"active":{"baseID":265,"pathIDs":[265],"stageIndex":0,"usedAtStage":0,"rarity":"common","totalForms":1}}"#
+        try Data(legacy.utf8).write(to: url)
+        let rng = CountingRNG(seed: 7)
+        let s = CompanionStore(provider: StubProvider(value: line), clock: { fixedNow }, fileURL: url, rng: rng)
+
+        s.update(todayTokens: 0, todayDate: "d1", monthTotal: 0,
+                 burnTier: .idle, limitWarning: false, hasUsageData: true)
+        let loaded = await waitUntil { s.currentLine != nil }
+        XCTAssertTrue(loaded, "line should load legacy state")
+
+        let migratedPlan = s.state.active?.plannedPathIDs
+        XCTAssertTrue([[265, 266, 267], [265, 268, 269]].contains(migratedPlan ?? []))
+        XCTAssertEqual(s.state.active?.pathIDs, [265], "realized path must remain intact")
+        XCTAssertEqual(s.state.active?.totalForms, migratedPlan?.count)
+        XCTAssertEqual(rng.callCount, 2, "Wurmple suffix selection rolls once per evolution edge")
+
+        let reloadRNG = CountingRNG(seed: 1)
+        let reloaded = CompanionStore(provider: StubProvider(value: line), clock: { fixedNow }, fileURL: url, rng: reloadRNG)
+        reloaded.update(todayTokens: 0, todayDate: "d1", monthTotal: 0,
+                        burnTier: .idle, limitWarning: false, hasUsageData: true)
+        let reloadedLine = await waitUntil { reloaded.currentLine != nil }
+        XCTAssertTrue(reloadedLine)
+        XCTAssertEqual(reloaded.state.active?.plannedPathIDs, migratedPlan, "migration must persist its one-time choice")
+        XCTAssertEqual(reloadRNG.callCount, 0, "a persisted complete route must not reroll on restart")
+    }
+
+    func testReloadRepairsInvalidPlanSuffixWithoutRewindingRealizedPath() async throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("poke-invalid-plan-\(UUID().uuidString).json")
+        let saved = #"{"active":{"baseID":265,"pathIDs":[265,266],"plannedPathIDs":[265,266,269],"stageIndex":1,"usedAtStage":42,"rarity":"common","totalForms":3}}"#
+        try Data(saved.utf8).write(to: url)
+        let s = CompanionStore(provider: StubProvider(value: wurmpleLine), clock: { fixedNow }, fileURL: url, rng: SeededRNG(seed: 9))
+
+        s.update(todayTokens: 0, todayDate: "d1", monthTotal: 0,
+                 burnTier: .idle, limitWarning: false, hasUsageData: true)
+        let loaded = await waitUntil { s.currentLine != nil }
+        XCTAssertTrue(loaded)
+
+        XCTAssertEqual(s.state.active?.pathIDs, [265, 266])
+        XCTAssertEqual(s.state.active?.plannedPathIDs, [265, 266, 267])
+        XCTAssertEqual(s.state.active?.stageIndex, 1)
+        XCTAssertEqual(s.state.active?.totalForms, 3)
+        XCTAssertEqual(s.state.active?.usedAtStage, 42)
+    }
+
+    func testReloadWrongRootNormalizesPathWithoutChangingIdentityOrDisguise() async throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("poke-wrong-root-\(UUID().uuidString).json")
+        let saved = #"{"active":{"baseID":265,"pathIDs":[999],"plannedPathIDs":[999],"stageIndex":0,"usedAtStage":42,"rarity":"common","totalForms":1,"isShiny":true,"nature":"timid","dittoDisguise":265}}"#
+        try Data(saved.utf8).write(to: url)
+        let s = CompanionStore(provider: StubProvider(value: wurmpleLine), clock: { fixedNow }, fileURL: url, rng: SeededRNG(seed: 9))
+
+        s.update(todayTokens: 0, todayDate: "d1", monthTotal: 0,
+                 burnTier: .idle, limitWarning: false, hasUsageData: true)
+        let loaded = await waitUntil { s.currentLine != nil }
+        XCTAssertTrue(loaded)
+
+        XCTAssertEqual(s.state.active?.pathIDs, [265])
+        XCTAssertTrue([[265, 266, 267], [265, 268, 269]].contains(s.state.active?.plannedPathIDs ?? []))
+        XCTAssertEqual(s.state.active?.usedAtStage, 42)
+        XCTAssertTrue(s.state.active?.isShiny ?? false)
+        XCTAssertEqual(s.state.active?.nature, .timid)
+        XCTAssertEqual(s.state.active?.dittoDisguise, 265)
+        XCTAssertFalse(s.state.active?.dittoRevealed ?? true)
+    }
+
+    func testReloadLeafCurrentPlanDoesNotConsumeRNG() async throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("poke-leaf-plan-\(UUID().uuidString).json")
+        let saved = #"{"active":{"baseID":265,"pathIDs":[265,266,267],"plannedPathIDs":[265,266,267],"stageIndex":2,"usedAtStage":42,"rarity":"common","totalForms":3}}"#
+        try Data(saved.utf8).write(to: url)
+        let rng = CountingRNG(seed: 9)
+        let s = CompanionStore(provider: StubProvider(value: wurmpleLine), clock: { fixedNow }, fileURL: url, rng: rng)
+
+        s.update(todayTokens: 0, todayDate: "d1", monthTotal: 0,
+                 burnTier: .idle, limitWarning: false, hasUsageData: true)
+        let loaded = await waitUntil { s.currentLine != nil }
+        XCTAssertTrue(loaded)
+
+        XCTAssertEqual(s.state.active?.pathIDs, [265, 266, 267])
+        XCTAssertEqual(s.state.active?.plannedPathIDs, [265, 266, 267])
+        XCTAssertEqual(rng.callCount, 0)
+    }
+
+    func testLineLoadPreservesUpdatesMadeWhileProviderIsSuspended() async throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("poke-load-race-\(UUID().uuidString).json")
+        let saved = #"{"active":{"baseID":1,"pathIDs":[1],"stageIndex":0,"usedAtStage":0,"rarity":"common","totalForms":1,"nature":"adamant"},"inventory":{"mint":1}}"#
+        try Data(saved.utf8).write(to: url)
+        let provider = SuspendedLineProvider(value: linear3)
+        let s = CompanionStore(provider: provider, clock: { fixedNow }, fileURL: url, rng: SeededRNG(seed: 7))
+
+        s.update(todayTokens: 0, todayDate: "d1", monthTotal: 0,
+                 burnTier: .idle, limitWarning: false, hasUsageData: true)
+        let suspensionDeadline = Date().addingTimeInterval(1)
+        while !(await provider.isSuspended()), Date() < suspensionDeadline {
+            try? await Task.sleep(nanoseconds: 1_000_000)
+        }
+        let isSuspended = await provider.isSuspended()
+        XCTAssertTrue(isSuspended, "line fetch should be suspended")
+
+        s.applyUsage(42)
+        let changedNature = try XCTUnwrap(s.useMint())
+        XCTAssertEqual(s.state.active?.usedAtStage, 42)
+        XCTAssertEqual(s.state.active?.nature, changedNature)
+
+        await provider.resume()
+        let loaded = await waitUntil { s.currentLine != nil }
+        XCTAssertTrue(loaded)
+
+        XCTAssertEqual(s.state.active?.usedAtStage, 42)
+        XCTAssertEqual(s.state.active?.nature, changedNature)
+        let persisted = try JSONDecoder().decode(CompanionState.self, from: Data(contentsOf: url))
+        XCTAssertEqual(persisted.active?.usedAtStage, 42)
+        XCTAssertEqual(persisted.active?.nature, changedNature)
+    }
+
     func testLocalizedName() async {
         let s = store(linear3)
         await s.hatch(baseID: 1)
@@ -449,21 +736,20 @@ final class CompanionStoreTests: XCTestCase {
         s.setLanguage(.ja); XCTAssertEqual(s.displayName, "ポ1")
     }
 
-    /// [문서화] 비대칭 깊이 분기 — totalForms=tree.depth(최장 경로)라 짧은 분기를 뽑으면 실제 경로가
-    /// totalForms 보다 짧다. 실 Gen1-5 라인은 분기 깊이가 대칭(뷰티플라이·이브이 등)이라 발생하지 않는다
-    /// (CompanionModel depth 주석 "분기는 보통 같은 깊이" 가정). 크래시·무한루프 없이 최종체에서 졸업하고
-    /// 실제 경로가 보존됨을 잠근다.
+    /// [문서화] 비대칭 깊이 분기에서도 부화 시 선택한 경로 길이를 totalForms 로 고정한다.
+    /// 크래시·무한루프 없이 최종체에서 졸업하고 실제 경로가 보존됨을 잠근다.
     func testAsymmetricBranchGraduatesSafely() async {
         let line = makeLine(base: 1, tree: node(1, [node(2), node(3, [node(4)])]))   // depth=3, 분기 {2, 3→4}
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("poke-asym-\(UUID().uuidString).json")
         let s = CompanionStore(provider: StubProvider(value: line), clock: { fixedNow }, fileURL: url, rng: SeededRNG(seed: 7))
         await s.hatch(baseID: 1)
-        XCTAssertEqual(s.state.active?.totalForms, 3, "totalForms = 최장 경로 깊이")
+        XCTAssertEqual(s.state.active?.totalForms, s.state.active?.plannedPathIDs.count,
+                       "totalForms = 선택된 계획 경로 길이")
         var guardCount = 0
         while s.state.active != nil, guardCount < 12 {
             guardCount += 1
             let stage = s.state.active!.stageIndex
-            s.applyUsage(PokemonBalance.phaseThreshold(rarity: .common, totalForms: 3, stageIndex: stage))
+            s.applyUsage(PokemonBalance.phaseThreshold(rarity: .common, totalForms: s.state.active!.totalForms, stageIndex: stage))
         }
         XCTAssertNil(s.state.active, "어느 분기든 최종체에서 졸업(크래시·무한루프 없음)")
         XCTAssertEqual(s.dexEntries.count, 1)
@@ -596,6 +882,7 @@ final class CompanionIdentityTests: XCTestCase {
          "collectedFinals":["4:6"],"language":"ko"}
         """
         let s = try JSONDecoder().decode(CompanionState.self, from: Data(old.utf8))
+        XCTAssertEqual(s.active?.plannedPathIDs, [1])
         XCTAssertEqual(s.active?.isShiny, false)
         XCTAssertNil(s.active?.nature)
         XCTAssertEqual(s.dex[0].isShiny, false)
@@ -690,6 +977,7 @@ final class CompanionIdentityTests: XCTestCase {
 
         XCTAssertNotNil(s.currentLine)
         XCTAssertEqual(s.state.active?.pathIDs, [56, 57])
+        XCTAssertEqual(s.state.active?.plannedPathIDs, [56, 57])
         XCTAssertEqual(s.state.active?.stageIndex, 1)
         XCTAssertEqual(s.state.active?.totalForms, 2)
         XCTAssertEqual(s.state.active?.usedAtStage, 123)

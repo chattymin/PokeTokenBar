@@ -31,6 +31,29 @@ private struct PrunedDittoTestProvider: PokeProviding {
     func baseSpeciesIndex() async throws -> [BaseSpecies] { [BaseSpecies(id: 206, captureRate: 190)] }
 }
 
+private actor DelayedDittoProvider: PokeProviding {
+    private var continuation: CheckedContinuation<EvoLine, Never>?
+    private var suspended = false
+
+    func line(baseSpeciesID: Int) async throws -> EvoLine {
+        guard baseSpeciesID == PokemonOdds.dittoSpeciesID else { return disguiseLine }
+        return await withCheckedContinuation { continuation in
+            precondition(self.continuation == nil, "only one Ditto request may be suspended")
+            self.continuation = continuation
+            suspended = true
+        }
+    }
+
+    func baseSpeciesIndex() async throws -> [BaseSpecies] { [BaseSpecies(id: 1, captureRate: 255)] }
+    func isSuspended() -> Bool { suspended }
+    func resume() {
+        let pending = continuation
+        continuation = nil
+        suspended = false
+        pending?.resume(returning: dittoLine)
+    }
+}
+
 // MARK: 위장 롤 판정(순수) — 부화 롤은 .app 게이트라 실앱에서만 발동, 판정 로직은 순수 함수로 검증
 
 final class DittoDisguiseRollTests: XCTestCase {
@@ -103,6 +126,8 @@ final class DittoRevealTests: XCTestCase {
         XCTAssertEqual(s.state.active?.rarity, .rare, "메타몽 rare")
         XCTAssertEqual(s.state.active?.totalForms, 1, "메타몽 단일형태")
         XCTAssertEqual(s.state.active?.stageIndex, 0)
+        XCTAssertEqual(s.state.active?.pathIDs, [132])
+        XCTAssertEqual(s.state.active?.plannedPathIDs, [132])
         XCTAssertEqual(s.state.active?.usedAtStage, 300_000_000 - 125_000_000, "첫 진화 초과분 이월")
         XCTAssertNotNil(s.state.active?.dittoDisguise, "위장 마커 보존")
         XCTAssertEqual(s.celebration, .dittoReveal(shiny: false), "리빌 연출 발화")
@@ -114,7 +139,7 @@ final class DittoRevealTests: XCTestCase {
         let threshold = PokemonBalance.phaseThreshold(rarity: .common, totalForms: 1, stageIndex: 0)
         XCTAssertEqual(threshold, 750_000_000)
         XCTAssertTrue(prunedDisguiseLine.tree.children.isEmpty, "#982 제거 후 #206은 leaf여야 한다")
-        let active = "{\"baseID\":206,\"pathIDs\":[206],\"stageIndex\":0,"
+        let active = "{\"baseID\":206,\"pathIDs\":[206],\"plannedPathIDs\":[206,982],\"stageIndex\":0,"
             + "\"usedAtStage\":\(threshold),\"rarity\":\"common\",\"totalForms\":2,\"isShiny\":true,"
             + "\"nature\":\"timid\",\"dittoDisguise\":206,\"dittoRevealed\":false}"
         let json = "{\"installBaselineSet\":true,\"usedSinceInstall\":1000000000,\"lastDate\":\"d1\","
@@ -128,6 +153,7 @@ final class DittoRevealTests: XCTestCase {
         let revealed = try XCTUnwrap(s.state.active)
         XCTAssertEqual(revealed.baseID, PokemonOdds.dittoSpeciesID)
         XCTAssertEqual(revealed.pathIDs, [PokemonOdds.dittoSpeciesID])
+        XCTAssertEqual(revealed.plannedPathIDs, [PokemonOdds.dittoSpeciesID])
         XCTAssertEqual(revealed.usedAtStage, 0, "정규화된 단일형태 임계의 초과분만 이월")
         XCTAssertEqual(revealed.dittoDisguise, 206)
         XCTAssertTrue(revealed.dittoRevealed)
@@ -135,6 +161,47 @@ final class DittoRevealTests: XCTestCase {
         XCTAssertEqual(revealed.nature, .timid)
         XCTAssertFalse(s.state.dex.contains { $0.finalID == 206 }, "위장체를 졸업 처리하면 안 된다")
         XCTAssertFalse(s.state.collectedFinals.contains("206:206"))
+    }
+
+    func testDelayedRevealDoesNotConvertSameBaseReplacementDisguise() async throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("ditto-race-\(UUID().uuidString).json")
+        let active = #"{"baseID":1,"pathIDs":[1],"plannedPathIDs":[1,2,3],"stageIndex":0,"usedAtStage":125000000,"rarity":"common","totalForms":3,"dittoDisguise":1}"#
+        let json = "{\"installBaselineSet\":true,\"usedSinceInstall\":2000000000,\"lastDate\":\"d1\",\"active\":\(active),\"dex\":[],\"collectedFinals\":[]}"
+        try Data(json.utf8).write(to: url)
+        let provider = DelayedDittoProvider()
+        var seed: UInt64?
+        for candidate: UInt64 in 0..<100_000 {
+            var rng = SeededRNG(seed: candidate)
+            _ = rng.next(); _ = rng.next()
+            if rng.next() % PokemonOdds.dittoDisguiseDenominator == 0 { seed = candidate; break }
+        }
+        let selectedSeed = try XCTUnwrap(seed)
+        let s = CompanionStore(provider: provider, clock: { dNow }, fileURL: url,
+                               rng: SeededRNG(seed: selectedSeed), dittoDisguiseRollingEnabled: true)
+
+        s.update(todayTokens: 0, todayDate: "d1", monthTotal: 0,
+                 burnTier: .idle, limitWarning: false, hasUsageData: true)
+        let deadline = Date().addingTimeInterval(1)
+        while !(await provider.isSuspended()), Date() < deadline {
+            try? await Task.sleep(nanoseconds: 1_000_000)
+        }
+        let isSuspended = await provider.isSuspended()
+        XCTAssertTrue(isSuspended)
+
+        XCTAssertTrue(s.buyFreshEgg())
+        await s.hatch(baseID: 1)
+        XCTAssertEqual(s.state.active?.baseID, 1)
+        XCTAssertFalse(s.state.active?.dittoRevealed ?? true)
+        XCTAssertNotNil(s.state.active?.dittoDisguise)
+        XCTAssertEqual(s.state.active?.usedAtStage, 0)
+
+        await provider.resume()
+        for _ in 0..<200 { await Task.yield() }
+        XCTAssertEqual(s.state.active?.baseID, 1)
+        XCTAssertFalse(s.state.active?.dittoRevealed ?? true)
+        XCTAssertNotNil(s.state.active?.dittoDisguise)
+        XCTAssertEqual(s.state.active?.usedAtStage, 0)
+        XCTAssertNotEqual(s.currentSpeciesID, PokemonOdds.dittoSpeciesID)
     }
 
     /// 리빌 후 이로치가 공개된다(위장 중 숨겼던 것) + 이로치 리빌 연출.
