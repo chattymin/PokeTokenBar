@@ -226,6 +226,27 @@ struct EvoNode: Codable, Sendable {
     }
 }
 
+enum EvoLineItemContent: Equatable, Sendable {
+    case species(Int)
+    case mystery
+}
+
+enum EvoLineItemState: Equatable, Sendable {
+    case done
+    case current
+    case future
+}
+
+struct EvoLineItem: Equatable, Sendable {
+    let content: EvoLineItemContent
+    let state: EvoLineItemState
+
+    init(_ content: EvoLineItemContent, _ state: EvoLineItemState) {
+        self.content = content
+        self.state = state
+    }
+}
+
 /// 부화 시 확정되는 라인 정보(트리 + 희귀도 + 다국어 이름).
 struct EvoLine: Sendable {
     let baseID: Int
@@ -303,6 +324,7 @@ enum PokemonOdds {
 struct MonState: Codable, Sendable {
     var baseID: Int
     var pathIDs: [Int]      // 실제 진화 경로(분기 선택 반영)
+    var plannedPathIDs: [Int] // 사전에 선택한 전체 진화 경로
     var stageIndex: Int     // pathIDs 내 현재 위치
     var usedAtStage: Int    // 현재 형태에서 누적 사용량
     var rarity: Rarity
@@ -315,11 +337,16 @@ struct MonState: Codable, Sendable {
     // pathIDs 가 비면(손상된 상태 파일) baseID 로 폴백 — 렌더마다 읽히므로 out-of-bounds 크래시 방지.
     var currentID: Int { pathIDs.isEmpty ? baseID : pathIDs[min(stageIndex, pathIDs.count - 1)] }
 
-    init(baseID: Int, pathIDs: [Int], stageIndex: Int, usedAtStage: Int,
+    init(baseID: Int, pathIDs: [Int], plannedPathIDs: [Int]? = nil, stageIndex: Int, usedAtStage: Int,
          rarity: Rarity, totalForms: Int, isShiny: Bool = false, nature: PokemonNature? = nil,
          dittoDisguise: Int? = nil, dittoRevealed: Bool = false) {
         self.baseID = baseID
         self.pathIDs = pathIDs
+        if let plannedPathIDs, !plannedPathIDs.isEmpty {
+            self.plannedPathIDs = plannedPathIDs
+        } else {
+            self.plannedPathIDs = pathIDs
+        }
         self.stageIndex = stageIndex
         self.usedAtStage = usedAtStage
         self.rarity = rarity
@@ -339,7 +366,13 @@ struct MonState: Codable, Sendable {
         guard !pathIDs.isEmpty else {
             throw DecodingError.dataCorruptedError(forKey: .pathIDs, in: c, debugDescription: "empty pathIDs")
         }
-        stageIndex = try c.decode(Int.self, forKey: .stageIndex)
+        if let savedPlan = try c.decodeIfPresent([Int].self, forKey: .plannedPathIDs), !savedPlan.isEmpty {
+            plannedPathIDs = savedPlan
+        } else {
+            plannedPathIDs = pathIDs
+        }
+        let decodedStageIndex = try c.decode(Int.self, forKey: .stageIndex)
+        stageIndex = min(max(0, decodedStageIndex), pathIDs.count - 1)
         usedAtStage = try c.decode(Int.self, forKey: .usedAtStage)
         rarity = try c.decode(Rarity.self, forKey: .rarity)
         totalForms = try c.decode(Int.self, forKey: .totalForms)
