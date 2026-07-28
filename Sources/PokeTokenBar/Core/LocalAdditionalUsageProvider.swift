@@ -134,6 +134,11 @@ private actor LocalAdditionalUsageCache {
             case .cursor:
                 let loaded = LocalAdditionalUsageReader.cursorEntries(
                     modifiedSince: since, afterRowIDByPath: afterRowIDByPath)
+                // DB rewrite / VACUUM can drop max(rowid) below the watermark — discard
+                // the stale in-memory set and take the full rescan result.
+                if loaded.didReset {
+                    return (loaded.entries, loaded.highWaterByPath)
+                }
                 return (
                     LocalUsageReader.dedupKeepMax(existing + loaded.entries),
                     loaded.highWaterByPath)
@@ -299,6 +304,8 @@ enum LocalAdditionalUsageReader {
     struct CursorLoadResult: Sendable {
         var entries: [LocalUsageReader.Entry]
         var highWaterByPath: [String: Int64]
+        /// True when any DB was rescanned from scratch (watermark invalidated).
+        var didReset: Bool
 
         /// Convenience for single-database tests.
         var highWaterRowID: Int64 { highWaterByPath.values.max() ?? 0 }
@@ -321,23 +328,38 @@ enum LocalAdditionalUsageReader {
     ) -> CursorLoadResult {
         let sourceRoots = roots ?? defaultCursorRoots
         var entries: [LocalUsageReader.Entry] = []
-        var highWaterByPath: [String: Int64] = afterRowIDByPath ?? [:]
+        var highWaterByPath: [String: Int64] = [:]
+        var didReset = false
         for root in sourceRoots {
             let database = root.pathExtension == "vscdb" ? root : root.appendingPathComponent("state.vscdb")
             let pathKey = database.path
             let watermark = afterRowIDByPath?[pathKey] ?? afterRowID
             let loaded = cursorDatabaseEntries(database, modifiedSince: modifiedSince, afterRowID: watermark)
             entries += loaded.entries
-            highWaterByPath[pathKey] = max(watermark, loaded.highWaterRowID)
+            highWaterByPath[pathKey] = loaded.highWaterRowID
+            if loaded.didReset { didReset = true }
         }
         return CursorLoadResult(
             entries: LocalUsageReader.dedupKeepMax(entries.filter { $0.date >= modifiedSince }),
-            highWaterByPath: highWaterByPath)
+            highWaterByPath: highWaterByPath,
+            didReset: didReset)
+    }
+
+    /// Exposed for regression tests — incremental plan must walk rowids, not the key index.
+    static func cursorIncrementalQueryPlan(database: URL, afterRowID: Int64) -> String? {
+        guard afterRowID > 0 else { return nil }
+        let sql = """
+        EXPLAIN QUERY PLAN
+        SELECT rowid, key, value FROM cursorDiskKV NOT INDEXED
+        WHERE rowid > ?1 AND key GLOB 'bubbleId:*'
+        """
+        return explainQueryPlan(database, sql: sql, bindInt64: afterRowID)
     }
 
     private struct CursorDatabaseLoad {
         var entries: [LocalUsageReader.Entry]
         var highWaterRowID: Int64
+        var didReset: Bool
     }
 
     private static func cursorDatabaseEntries(
@@ -346,11 +368,28 @@ enum LocalAdditionalUsageReader {
         afterRowID: Int64
     ) -> CursorDatabaseLoad {
         // cursorDiskKV: key TEXT UNIQUE, value BLOB. No time column — filter by createdAt in JSON.
-        // GLOB (case-sensitive) can use the key index; default LIKE cannot.
-        // rowid > ?1 is the incremental watermark for append-only bubbles.
-        let sql = "SELECT rowid, key, value FROM cursorDiskKV WHERE key GLOB 'bubbleId:*' AND rowid > ?1"
-        var highWater = afterRowID
-        let rows = query(database, sql: sql, bindInt64: afterRowID) { statement -> (Int64, LocalUsageReader.Entry?) in
+        // Cold start (afterRowID == 0): GLOB uses the key index over bubbleId:* only.
+        // Incremental: NOT INDEXED + rowid > ? forces a rowid walk of *new* rows only.
+        // Without NOT INDEXED, SQLite prefers the key index and re-walks all bubble keys.
+        let maxRowID = scalarInt64(database, sql: "SELECT MAX(rowid) FROM cursorDiskKV") ?? 0
+        let didReset = afterRowID > 0 && maxRowID < afterRowID
+        let effectiveAfter = didReset ? 0 : afterRowID
+
+        let sql: String
+        let bind: Int64?
+        if effectiveAfter == 0 {
+            sql = "SELECT rowid, key, value FROM cursorDiskKV WHERE key GLOB 'bubbleId:*'"
+            bind = nil
+        } else {
+            sql = """
+            SELECT rowid, key, value FROM cursorDiskKV NOT INDEXED
+            WHERE rowid > ?1 AND key GLOB 'bubbleId:*'
+            """
+            bind = effectiveAfter
+        }
+
+        var highWater: Int64 = 0
+        let rows = query(database, sql: sql, bindInt64: bind) { statement -> (Int64, LocalUsageReader.Entry?) in
             let rowID = sqlite3_column_int64(statement, 0)
             let entry = parseCursorBubbleRow(statement, modifiedSince: modifiedSince)
             return (rowID, entry)
@@ -360,7 +399,9 @@ enum LocalAdditionalUsageReader {
             highWater = max(highWater, rowID)
             if let entry { entries.append(entry) }
         }
-        return CursorDatabaseLoad(entries: entries, highWaterRowID: highWater)
+        // Preserve watermark when an incremental miss returns no new rows.
+        if highWater == 0 { highWater = effectiveAfter }
+        return CursorDatabaseLoad(entries: entries, highWaterRowID: highWater, didReset: didReset)
     }
 
     private static func parseCursorBubbleRow(
@@ -546,6 +587,26 @@ enum LocalAdditionalUsageReader {
             }
         }
         return result
+    }
+
+    private static func scalarInt64(_ databaseURL: URL, sql: String) -> Int64? {
+        let rows = query(databaseURL, sql: sql) { statement -> Int64 in
+            sqlite3_column_int64(statement, 0)
+        }
+        return rows?.first
+    }
+
+    private static func explainQueryPlan(
+        _ databaseURL: URL,
+        sql: String,
+        bindInt64: Int64? = nil
+    ) -> String? {
+        let rows = query(databaseURL, sql: sql, bindInt64: bindInt64) { statement -> String in
+            // EXPLAIN QUERY PLAN columns: id, parent, notused, detail
+            columnText(statement, 3) ?? ""
+        }
+        guard let rows, !rows.isEmpty else { return nil }
+        return rows.joined(separator: " | ")
     }
 
     private static func columnText(_ statement: OpaquePointer, _ index: Int32) -> String? {

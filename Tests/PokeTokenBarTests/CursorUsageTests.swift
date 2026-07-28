@@ -34,6 +34,10 @@ final class CursorUsageTests: XCTestCase {
             'bubbleId:tab-1:msg-zero',
             '{"tokenCount":{"inputTokens":0,"outputTokens":0},"createdAt":"2026-01-04T11:00:00.000Z","modelType":"gpt-4o"}'
         );
+        INSERT INTO cursorDiskKV VALUES (
+            'bubbleid:tab-1:wrong-case',
+            '{"tokenCount":{"inputTokens":999,"outputTokens":1},"createdAt":"2026-01-04T12:00:00.000Z","modelType":"gpt-4o"}'
+        );
         """)
 
         let entries = LocalAdditionalUsageReader.cursorEntries(
@@ -41,11 +45,76 @@ final class CursorUsageTests: XCTestCase {
             roots: [temporaryDirectory]).entries
 
         let entry = try XCTUnwrap(entries.first)
-        XCTAssertEqual(entries.count, 1)
+        XCTAssertEqual(entries.count, 1, "GLOB must be case-sensitive — lowercase bubbleid:* must not match")
         XCTAssertEqual(entry.input, 1500)
         XCTAssertEqual(entry.output, 800)
         XCTAssertEqual(entry.model, "claude-3.5-sonnet")
         XCTAssertEqual(entry.id, "cursor|bubbleId:tab-1:msg-1")
+    }
+
+    func testCursorIncrementalPrefersRowIDPlan() throws {
+        let database = temporaryDirectory.appendingPathComponent("state.vscdb")
+        try execute(database, sql: """
+        CREATE TABLE cursorDiskKV (key TEXT UNIQUE ON CONFLICT REPLACE, value BLOB);
+        INSERT INTO cursorDiskKV VALUES (
+            'bubbleId:tab:a',
+            '{"tokenCount":{"inputTokens":100,"outputTokens":50},"createdAt":"2026-01-04T10:00:00.000Z","modelType":"gpt-4o"}'
+        );
+        """)
+        let first = LocalAdditionalUsageReader.cursorEntries(
+            modifiedSince: try date("2026-01-01T00:00:00Z"),
+            roots: [temporaryDirectory])
+        XCTAssertGreaterThan(first.highWaterRowID, 0)
+
+        let plan = try XCTUnwrap(LocalAdditionalUsageReader.cursorIncrementalQueryPlan(
+            database: database, afterRowID: first.highWaterRowID))
+        XCTAssertFalse(
+            plan.localizedCaseInsensitiveContains("cursorDiskKV_1")
+                || plan.localizedCaseInsensitiveContains("USING INDEX"),
+            "incremental scan must not walk the key index over all bubbleId:* history; plan was: \(plan)")
+        XCTAssertTrue(
+            plan.localizedCaseInsensitiveContains("rowid")
+                || plan.localizedCaseInsensitiveContains("SCAN"),
+            "expected a rowid/table scan plan; got: \(plan)")
+    }
+
+    func testCursorWatermarkResetsWhenDatabaseIsReplaced() throws {
+        let database = temporaryDirectory.appendingPathComponent("state.vscdb")
+        try execute(database, sql: """
+        CREATE TABLE cursorDiskKV (key TEXT UNIQUE ON CONFLICT REPLACE, value BLOB);
+        INSERT INTO cursorDiskKV VALUES (
+            'bubbleId:tab:old',
+            '{"tokenCount":{"inputTokens":100,"outputTokens":50},"createdAt":"2026-01-04T10:00:00.000Z","modelType":"gpt-4o"}'
+        );
+        INSERT INTO cursorDiskKV VALUES (
+            'bubbleId:tab:old2',
+            '{"tokenCount":{"inputTokens":110,"outputTokens":50},"createdAt":"2026-01-04T10:01:00.000Z","modelType":"gpt-4o"}'
+        );
+        """)
+        let first = LocalAdditionalUsageReader.cursorEntries(
+            modifiedSince: try date("2026-01-01T00:00:00Z"),
+            roots: [temporaryDirectory])
+        XCTAssertEqual(first.entries.count, 2)
+        let staleHighWater = first.highWaterRowID
+        XCTAssertGreaterThan(staleHighWater, 1)
+
+        // Recreate DB at the same path with lower rowids (simulates Cursor rewrite / VACUUM).
+        try FileManager.default.removeItem(at: database)
+        try execute(database, sql: """
+        CREATE TABLE cursorDiskKV (key TEXT UNIQUE ON CONFLICT REPLACE, value BLOB);
+        INSERT INTO cursorDiskKV VALUES (
+            'bubbleId:tab:new',
+            '{"tokenCount":{"inputTokens":200,"outputTokens":80},"createdAt":"2026-01-04T11:00:00.000Z","modelType":"gpt-4o"}'
+        );
+        """)
+
+        let second = LocalAdditionalUsageReader.cursorEntries(
+            modifiedSince: try date("2026-01-01T00:00:00Z"),
+            afterRowID: staleHighWater,
+            roots: [temporaryDirectory])
+        XCTAssertTrue(second.didReset, "watermark above max(rowid) must force a full rescan")
+        XCTAssertEqual(second.entries.count, 1)
+        XCTAssertEqual(second.entries.first?.id, "cursor|bubbleId:tab:new")
     }
 
     func testCursorSkipsBubblesBeforeModifiedSince() throws {

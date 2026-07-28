@@ -142,7 +142,7 @@ final class UsageStore {
         guard lastUpdated != nil else { return ["—"] }
         var usage: [String] = []
         if showTokensInMenu { usage.append(TokenFormatter.compact(todayTotalTokens)) }
-        if showCostInMenu { usage.append(TokenFormatter.costCompact(todayCostTotal)) }
+        if showCostInMenu, showsCost { usage.append(TokenFormatter.costCompact(todayCostTotal)) }
         let limit = menuLimitLine   // nil = 한도 미표시/미가용
 
         if limit != nil && usage.count == 2 {
@@ -175,6 +175,9 @@ final class UsageStore {
 
     /// Snapshots that participate in cost aggregates / cost UI (excludes flat-rate providers).
     var costingSnapshots: [ProviderSnapshot] { snapshots.filter(\.reportsCost) }
+
+    /// Whether any connected provider reports real spend — gates menu/header `$0.00` for flat-rate-only setups.
+    var showsCost: Bool { !costingSnapshots.isEmpty }
 
     var todayCostTotal: Double {
         let todayKey = LocalUsageReader.todayKey()

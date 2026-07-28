@@ -819,4 +819,19 @@ final class UsageStoreTests: XCTestCase {
         XCTAssertEqual(store.snapshot(preferring: "cursor")?.reportsCost, false)
         XCTAssertEqual(store.snapshot(preferring: "claude_code")?.reportsCost, true)
     }
+
+    func testCursorOnlyDoesNotSurfaceZeroDollarCostInMenu() async {
+        let cursor = FakeUsageProvider(
+            id: "cursor", displayName: "Cursor",
+            daily: todayDaily(50_000, cost: 9.99), reportsCost: false)
+        let store = makeStore(providers: [cursor])
+        store.showTokensInMenu = true
+        store.showCostInMenu = true
+        store.showLimitInMenu = false
+        await store.refresh(scheduleEmptyRetry: false)
+        XCTAssertTrue(store.costingSnapshots.isEmpty)
+        XCTAssertFalse(store.showsCost)
+        XCTAssertEqual(store.menuLines, [TokenFormatter.compact(50_000)],
+                       "Cursor-only must not render $0.00 / $0.0 in the menu bar")
+    }
 }
