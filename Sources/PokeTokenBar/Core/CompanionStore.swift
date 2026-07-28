@@ -126,10 +126,7 @@ final class CompanionStore {
     /// 분기 후보는 부화 시 계획됐더라도 실제 진화 전까지 하나의 미지 항목으로 숨긴다.
     var lineNodes: [EvoLineItem] {
         guard let a = state.active, let line = currentLine else { return [] }
-        var out: [EvoLineItem] = []
-        for (i, id) in a.pathIDs.enumerated() {
-            out.append(EvoLineItem(.species(id), i == a.pathIDs.count - 1 ? .current : .done))
-        }
+        var out = Self.realizedLineItems(pathIDs: a.pathIDs, stageIndex: a.stageIndex)
         if let current = line.tree.node(withID: a.currentID) {
             var node = current
             var guaranteedPrefix: [EvoNode] = []
@@ -146,6 +143,12 @@ final class CompanionStore {
             }
         }
         return out
+    }
+
+    static func realizedLineItems(pathIDs: [Int], stageIndex: Int) -> [EvoLineItem] {
+        pathIDs.enumerated().map { i, id in
+            EvoLineItem(.species(id), i == stageIndex ? .current : .done)
+        }
     }
     /// 도감에는 영구 보존된 졸업 개체와 현재 키우는 포켓몬을 함께 표시한다.
     /// 현재 개체는 영속 dex 에 중복 저장하지 않고 화면용 항목으로 합성한다. 졸업 시 active 가 사라지고
@@ -300,14 +303,18 @@ final class CompanionStore {
                 graduate(); break
             } else {
                 let nextIndex = a.stageIndex + 1
-                guard a.plannedPathIDs.indices.contains(nextIndex) else {
-                    AppLog.write("evolve: invalid planned path index \(nextIndex) for base \(a.baseID)")
-                    break
-                }
-                let nextID = a.plannedPathIDs[nextIndex]
-                guard let next = node.children.first(where: { $0.speciesID == nextID }) else {
-                    AppLog.write("evolve: planned child \(nextID) is invalid for current \(a.currentID)")
-                    break
+                let next: EvoNode
+                if a.plannedPathIDs.indices.contains(nextIndex),
+                   let planned = node.children.first(where: { $0.speciesID == a.plannedPathIDs[nextIndex] }) {
+                    next = planned
+                } else {
+                    next = pickPlannedChild(node, baseID: a.baseID)
+                    let fallbackRoute = [node.speciesID] + makeEvolutionPlan(from: next, baseID: a.baseID)
+                    let repaired = Self.repairedPlan(realizedPath: a.pathIDs, stageIndex: a.stageIndex,
+                                                     fallbackRoute: fallbackRoute)
+                    state.active!.plannedPathIDs = repaired
+                    state.active!.totalForms = repaired.count
+                    AppLog.write("evolve: repaired invalid planned path for base \(a.baseID)")
                 }
                 state.active!.pathIDs = Array(a.pathIDs.prefix(a.stageIndex + 1)) + [next.speciesID]
                 state.active!.stageIndex += 1
@@ -341,6 +348,14 @@ final class CompanionStore {
             node = next
         }
         return plan
+    }
+
+    static func repairedPlan(realizedPath: [Int], stageIndex: Int, fallbackRoute: [Int]) -> [Int] {
+        guard !realizedPath.isEmpty else { return fallbackRoute }
+        let currentIndex = min(stageIndex, realizedPath.count - 1)
+        let prefix = Array(realizedPath.prefix(currentIndex + 1))
+        guard fallbackRoute.first == prefix.last else { return prefix }
+        return prefix + fallbackRoute.dropFirst()
     }
 
     /// 루트부터 실제로 이어지는 가장 긴 ID 경로와 마지막 유효 노드. 첫 ID가 루트와 다르면 루트로 복구한다.

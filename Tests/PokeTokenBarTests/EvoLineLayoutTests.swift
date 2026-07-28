@@ -33,7 +33,7 @@ final class EvoLineLayoutTests: XCTestCase {
 
     /// 트리거 재현: 폭 제한이 없으면 긴 라인은 팝오버 콘텐츠 폭을 넘는다(= 버그 조건).
     func testLongEvolutionLineWithoutMaxWidthOverflowsPopoverContent() {
-        let w = renderedWidth(EvoLineView(nodes: longNodes, language: .en),
+        let w = renderedWidth(EvoLineView(nodes: longNodes, mysteryLabel: L(.en).unknownNextEvolution),
                               proposing: PopoverMetrics.contentWidth)
         XCTAssertGreaterThan(w, PopoverMetrics.contentWidth,
                              "폭 제한 없는 진화 라인은 넘쳐야 한다 — 안 넘치면 아래 fit 검증이 무의미해진다")
@@ -41,7 +41,8 @@ final class EvoLineLayoutTests: XCTestCase {
 
     /// 수정 후: 팝오버가 주는 폭을 넘지 않는다(→ 부모 VStack 이 안 부풀고 팝오버가 안 잘린다).
     func testLongEvolutionLineFitsPopoverContentWidth() {
-        let w = renderedWidth(EvoLineView(nodes: longNodes, language: .en, maxWidth: PopoverMetrics.contentWidth),
+        let w = renderedWidth(EvoLineView(nodes: longNodes, mysteryLabel: L(.en).unknownNextEvolution,
+                                          maxWidth: PopoverMetrics.contentWidth),
                               proposing: PopoverMetrics.contentWidth)
         XCTAssertLessThanOrEqual(w, PopoverMetrics.contentWidth)
     }
@@ -53,7 +54,8 @@ final class EvoLineLayoutTests: XCTestCase {
         let nodes = ids.map { EvoLineItem(.species($0), .done) }
         let names = Dictionary(uniqueKeysWithValues: ids.map { ($0, "이상해씨") })
         let w = renderedWidth(
-            EvoLineView(nodes: nodes, language: .ko, thumb: 56, names: names, maxWidth: cardWidth),
+            EvoLineView(nodes: nodes, mysteryLabel: L(.ko).unknownNextEvolution,
+                        thumb: 56, names: names, maxWidth: cardWidth),
             proposing: cardWidth)
         XCTAssertLessThanOrEqual(w, cardWidth)
     }
@@ -63,7 +65,8 @@ final class EvoLineLayoutTests: XCTestCase {
         // 3칸 = 40*3 + 화살표 10*2 + 간격 2*4 = 148pt
         let expected = EvoLineView.rowWidth(count: 3, thumb: 40, hasNames: false)
         XCTAssertEqual(expected, 148)
-        let w = renderedWidth(EvoLineView(nodes: threeStageNodes, language: .en, maxWidth: PopoverMetrics.contentWidth),
+        let w = renderedWidth(EvoLineView(nodes: threeStageNodes, mysteryLabel: L(.en).unknownNextEvolution,
+                                          maxWidth: PopoverMetrics.contentWidth),
                               proposing: PopoverMetrics.contentWidth)
         XCTAssertEqual(w, expected, accuracy: 0.5)
     }
@@ -73,12 +76,27 @@ final class EvoLineLayoutTests: XCTestCase {
     /// rowWidth 는 레이아웃과 같은 식이어야 한다(측정값과 일치 — 어긋나면 스크롤 판정이 틀어진다).
     func testRowWidthMatchesRenderedWidth() {
         for count in 1...9 {
-            let nodes = (1...count).map { EvoLineItem(.species($0), .done) }
-            let rendered = renderedWidth(EvoLineView(nodes: nodes, language: .en), proposing: 4000)
+            let nodes = (1...count).map { i in
+                i == count ? EvoLineItem(.mystery, .future) : EvoLineItem(.species(i), .done)
+            }
+            let rendered = renderedWidth(EvoLineView(nodes: nodes, mysteryLabel: L(.en).unknownNextEvolution),
+                                         proposing: 4000)
             XCTAssertEqual(rendered,
                            EvoLineView.rowWidth(count: count, thumb: 40, hasNames: false),
                            accuracy: 0.5, "count=\(count)")
         }
+    }
+
+    /// mystery 는 이름이 없더라도 도감 라인의 이름 열 폭을 예약해야 rowWidth 기반 스크롤 판정과 일치한다.
+    func testNamedMysteryCellReservesNameColumnWidth() {
+        let nodes = [EvoLineItem(.species(1), .done), EvoLineItem(.mystery, .future)]
+        let names = [1: String(repeating: "W", count: 20)]
+        let rendered = renderedWidth(EvoLineView(nodes: nodes, mysteryLabel: L(.en).unknownNextEvolution, names: names),
+                                     proposing: 4000)
+
+        XCTAssertEqual(rendered,
+                       EvoLineView.rowWidth(count: nodes.count, thumb: 40, hasNames: true),
+                       accuracy: 0.5)
     }
 
     /// 홈 라인(썸네일 40)은 6칸까지 그대로, 7칸부터 스크롤.

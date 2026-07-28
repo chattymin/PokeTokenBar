@@ -142,7 +142,7 @@ struct SpriteView: View {
 /// 가로 스크롤한다 — 썸네일 크기는 유지하고, 가장자리 페이드 + 셰브론으로 스크롤 가능함을 알린다.
 struct EvoLineView: View {
     let nodes: [EvoLineItem]
-    let language: AppLanguage
+    let mysteryLabel: String
     var thumb: CGFloat = 40
     var shiny: Bool = false     // 개체가 shiny 면 라인 전체를 shiny 스프라이트로
     var names: [Int: String]? = nil   // 제공되면 각 스프라이트 밑에 작은 이름 라벨(도감 단계별 이름)
@@ -316,7 +316,7 @@ struct EvoLineView: View {
                             Text("?")
                                 .font(.system(size: thumb * 0.55, weight: .bold, design: .rounded))
                                 .frame(width: thumb, height: thumb)
-                                .accessibilityLabel(Text(L(language).unknownNextEvolution))
+                                .accessibilityLabel(Text(mysteryLabel))
                         }
                     }
                         .opacity(node.state == .future ? 0.32 : 1)
@@ -332,6 +332,7 @@ struct EvoLineView: View {
                             .lineLimit(1).minimumScaleFactor(0.7).frame(maxWidth: thumb + Self.nameSlack)
                     }
                 }
+                .frame(width: thumb + (names == nil ? 0 : Self.nameSlack))
                 .id(i)   // 셰브론 페이징(ScrollViewProxy.scrollTo) 대상
             }
         }
@@ -446,7 +447,7 @@ struct CompanionHeader: View {
             }
             if store.hasActive, !store.lineNodes.isEmpty {
                 // 폭을 안 주면 분기 라인(이브이)이 넘쳐 팝오버 콘텐츠 전체가 좌우로 잘린다.
-                EvoLineView(nodes: store.lineNodes, language: store.language, shiny: store.currentIsShiny,
+                EvoLineView(nodes: store.lineNodes, mysteryLabel: store.l.unknownNextEvolution, shiny: store.currentIsShiny,
                             maxWidth: PopoverMetrics.contentWidth)
             }
             if let g = store.justGraduated {
@@ -696,7 +697,7 @@ private struct DexEntryRow: View {
                 }
             }
             EvoLineView(nodes: entry.chainOrder.map { EvoLineItem(.species($0), .done) },
-                        language: store.language, thumb: 56,
+                        mysteryLabel: store.l.unknownNextEvolution, thumb: 56,
                         shiny: entry.isShiny, names: names,
                         maxWidth: PopoverMetrics.contentWidth - Self.cardPadding * 2)
             if let caughtAt = entry.caughtAt {

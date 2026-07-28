@@ -486,6 +486,19 @@ final class CompanionStoreTests: XCTestCase {
         ])
     }
 
+    func testRealizedLineItemsUsesStageIndexForCurrentMarker() {
+        XCTAssertEqual(CompanionStore.realizedLineItems(pathIDs: [1, 2], stageIndex: 0), [
+            EvoLineItem(.species(1), .current),
+            EvoLineItem(.species(2), .done),
+        ])
+    }
+
+    func testRepairedPlanAppendsFallbackRouteToCurrentPath() {
+        XCTAssertEqual(CompanionStore.repairedPlan(
+            realizedPath: [265], stageIndex: 0, fallbackRoute: [265, 266, 267]),
+            [265, 266, 267])
+    }
+
     func testLineNodesHidesUnresolvedWurmpleBranchAsSingleMystery() async {
         let s = store(wurmpleLine)
         await s.hatch(baseID: 265)
