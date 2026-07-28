@@ -396,8 +396,33 @@ enum LocalAdditionalUsageReader {
             output: output)
     }
 
+    private static let iso8601Lock = NSLock()
+    // ISO8601DateFormatter is not Sendable; access is serialized by `iso8601Lock`.
+    nonisolated(unsafe) private static let iso8601Fractional: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter
+    }()
+    nonisolated(unsafe) private static let iso8601Plain: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime]
+        return formatter
+    }()
+
+    /// Reuses locked static formatters — Cursor cold scans parse thousands of `createdAt` rows.
     private static func parseISO8601(_ string: String) -> Date? {
-        ISO8601Parser.date(from: string)
+        iso8601Lock.lock()
+        let cached: Date?
+        if let date = iso8601Fractional.date(from: string) {
+            cached = date
+        } else if let date = iso8601Plain.date(from: string) {
+            cached = date
+        } else {
+            cached = nil
+        }
+        iso8601Lock.unlock()
+        // Odd fractional widths (e.g. microseconds) — rare for Cursor bubbles.
+        return cached ?? ISO8601Parser.date(from: string)
     }
 
     /// Accepts ISO-8601 strings or epoch numbers (seconds / millis), matching OpenCode.

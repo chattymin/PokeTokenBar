@@ -114,6 +114,28 @@ final class CursorUsageTests: XCTestCase {
         XCTAssertEqual(entry?.input, 10)
     }
 
+    func testParseCursorBubbleAcceptsNumericCreatedAtSeconds() {
+        let bubble: [String: Any] = [
+            "tokenCount": ["inputTokens": 7, "outputTokens": 3] as [String: Any],
+            "createdAt": 1_767_312_000,
+            "modelType": "gpt-4o",
+        ]
+        let entry = LocalAdditionalUsageReader.parseCursorBubble(
+            bubble, key: "bubbleId:t:m", modifiedSince: .distantPast)
+        XCTAssertNotNil(entry, "numeric createdAt (seconds) should parse")
+        XCTAssertEqual(entry?.total, 10)
+    }
+
+    func testDefaultCursorRootsIncludeStableAndNightly() throws {
+        if ProcessInfo.processInfo.environment["CURSOR_DATA_DIR"] != nil {
+            throw XCTSkip("CURSOR_DATA_DIR override is set — default roots not used")
+        }
+        let roots = LocalAdditionalUsageReader.defaultCursorRoots
+        let paths = roots.map(\.path)
+        XCTAssertTrue(paths.contains { $0.contains("/Cursor/User/globalStorage") })
+        XCTAssertTrue(paths.contains { $0.contains("/Cursor Nightly/User/globalStorage") })
+    }
+
     // MARK: - Bubble parsing
 
     func testParseCursorBubbleWithTokens() {
