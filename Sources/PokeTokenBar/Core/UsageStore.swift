@@ -32,7 +32,8 @@ final class UsageStore {
     private(set) var limitTokenRefreshError: String?
 
     // MARK: Bubble Alert State
-    public var currentBubbleAlert: LimitAlert?
+    /// Transient speech-bubble payload for the floating pet. Cleared after the TTL.
+    private(set) var currentBubbleAlert: LimitAlert?
     private var currentBubbleDate: Date = .distantPast
 
     // MARK: 설정 (UserDefaults)
@@ -82,6 +83,10 @@ final class UsageStore {
     /// 플로팅 펫 스프라이트 한 변 크기(pt).
     var floatingPetSize: Double {
         didSet { defaults.set(floatingPetSize, forKey: "floatingPetSize") }
+    }
+    /// Show limit alerts as speech bubbles on the floating pet. Default on; independent of Notification Center.
+    var floatingPetBubbleAlerts: Bool {
+        didSet { defaults.set(floatingPetBubbleAlerts, forKey: "floatingPetBubbleAlerts") }
     }
     var disableKeychainAccess: Bool {
         didSet {
@@ -261,7 +266,7 @@ final class UsageStore {
 
     /// 사탕 지급 대상 한도 창 — 세션급(≈5h)=1개, 주간급=5개, 전 프로바이더. Gemini 는 공식 한도
     /// 신호가 없어 자연히 빠진다(창 목록에 없음). 지급 제외: Opus/Sonnet 주간·scoped·Codex 개인 spend
-    /// limit(헤드라인 창의 하위/중복 → 이중지급 방지). 알림(checkLimitNotifications)보다 좁은 지급 전용.
+    /// limit(헤드라인 창의 하위/중복 → 이중지급 방지). 알림(checkLimitAlerts)보다 좁은 지급 전용.
     var candyEligibleWindows: [CandyWindow] {
         let l = L(localizationLanguage)
         var windows: [CandyWindow] = []
@@ -348,6 +353,7 @@ final class UsageStore {
         statusChecksEnabled = d.object(forKey: "statusChecksEnabled") as? Bool ?? true
         floatingPetEnabled = d.object(forKey: "floatingPetEnabled") as? Bool ?? false
         floatingPetSize = d.object(forKey: "floatingPetSize") as? Double ?? 96
+        floatingPetBubbleAlerts = d.object(forKey: "floatingPetBubbleAlerts") as? Bool ?? true
         disableKeychainAccess = d.object(forKey: "disableKeychainAccess") as? Bool ?? false
 
         reschedule()
@@ -573,7 +579,7 @@ final class UsageStore {
         await refreshCodexLimits()
         await refreshProviderStatuses()
 
-        checkLimitNotifications()
+        checkLimitAlerts()
         writeParitySnapshot()
         let summary = snapshots.map { "\($0.providerID):\($0.today?.date ?? "nil")=\($0.todayTotalTokens)" }
             .joined(separator: ", ")
@@ -771,12 +777,39 @@ final class UsageStore {
         return alerts
     }
 
-    private func checkLimitNotifications() {
-        guard limitNotifications else { return }
-        guard AppEnv.isBundledApp else { return }
+    /// Pick the single bubble to show for a refresh: critical > warn, then highest utilization.
+    /// Pure — separate from AppKit presentation (issue #109 testing requirement).
+    static func bubbleAlert(from alerts: [LimitAlert]) -> LimitAlert? {
+        alerts.max { a, b in
+            if a.isCritical != b.isCritical { return !a.isCritical && b.isCritical }
+            return a.utilization < b.utilization
+        }
+    }
+
+    /// Whether a bubble shown at `shownAt` should clear by `now` (default TTL 6s). Pure time check.
+    static func shouldDismissBubble(shownAt: Date, now: Date, ttl: TimeInterval = 6) -> Bool {
+        now.timeIntervalSince(shownAt) >= ttl
+    }
+
+    /// Shared limit-alert pipeline: evaluate once, advance tiers once, then fan out to
+    /// Notification Center and/or the floating-pet bubble under independent gates.
+    private func checkLimitAlerts() {
+        let windows = buildLimitWindows()
+        let alerts = Self.evaluateLimitAlerts(
+            windows: windows, warn: warnThreshold, crit: critThreshold, tiers: &notifiedTier)
+        guard !alerts.isEmpty else { return }
+
+        if limitNotifications, AppEnv.isBundledApp {
+            postLimitNotifications(alerts)
+        }
+        if floatingPetEnabled, floatingPetBubbleAlerts {
+            showBubble(Self.bubbleAlert(from: alerts))
+        }
+    }
+
+    /// (unique key, display name, utilization) for every window the popover shows as a limit row.
+    private func buildLimitWindows() -> [(key: String, name: String, utilization: Double)] {
         let l = L(localizationLanguage)
-        // (유일 key, 표시 name, utilization). key 는 창 정체성(tier·identifier), name 은 알림 본문.
-        // 팝오버가 한도 행으로 보여주는 모든 창을 알림 대상에 1:1 로 포함한다(표시=알림 일치).
         var windows: [(key: String, name: String, utilization: Double)] = []
         if let limits {
             if let u = limits.fiveHour?.utilization {
@@ -818,9 +851,11 @@ final class UsageStore {
                                 l.codexPersonalLimit, Double(individual.usedPercent)))
             }
         }
-        let alerts = Self.evaluateLimitAlerts(
-            windows: windows, warn: warnThreshold, crit: critThreshold, tiers: &notifiedTier)
+        return windows
+    }
 
+    private func postLimitNotifications(_ alerts: [LimitAlert]) {
+        let l = L(localizationLanguage)
         for alert in alerts {
             let content = UNMutableNotificationContent()
             content.title = alert.isCritical ? l.notifCritical : l.notifWarning
@@ -831,16 +866,17 @@ final class UsageStore {
                     identifier: "\(alert.key)-\(alert.isCritical ? "critical" : "warning")",
                     content: content, trigger: nil))
         }
+    }
 
-        if floatingPetEnabled, let topAlert = alerts.sorted(by: { ($0.isCritical ? 1 : 0) > ($1.isCritical ? 1 : 0) }).first {
-            let now = Date()
-            currentBubbleAlert = topAlert
-            currentBubbleDate = now
-            Task {
-                try? await Task.sleep(nanoseconds: 6_000_000_000)
-                if self.currentBubbleDate == now {
-                    self.currentBubbleAlert = nil
-                }
+    private func showBubble(_ alert: LimitAlert?) {
+        guard let alert else { return }
+        let now = Date()
+        currentBubbleAlert = alert
+        currentBubbleDate = now
+        Task {
+            try? await Task.sleep(nanoseconds: UInt64(6 * 1_000_000_000))
+            if Self.shouldDismissBubble(shownAt: now, now: Date()), self.currentBubbleDate == now {
+                self.currentBubbleAlert = nil
             }
         }
     }

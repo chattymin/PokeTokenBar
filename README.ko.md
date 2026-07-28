@@ -89,6 +89,7 @@ PokeTokenBar는 당신이 이미 태우고 있는 AI 코딩 토큰(Claude Code �
 
 ## 이 밖에도
 
+- **플로팅 펫** — companion 이 화면 위에 떠 있고, 한도 알림을 말풍선으로 보여줍니다.
 - **서비스별 탭** — Claude Code·Codex·Gemini CLI·OpenCode·Hermes Agent 중 2개 이상 감지되면 작은 탭으로 상세를 서비스별 전환(오늘 합계는 통합 유지).
 - **공식 한도** — Claude·Codex 5시간/주간 사용률 + 리셋 카운트다운을 오늘 숫자 바로 아래에.
 - **소진 예측** — 현재 5시간 창이 100%에 도달할 시각 예측.

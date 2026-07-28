@@ -157,4 +157,25 @@ final class FloatingPetEnergyTests: XCTestCase {
         XCTAssertGreaterThan(FloatingPetView.frameFloor, 0, "펫 fps 캡이 해제되면 idle wakeup 회귀")
         XCTAssertEqual(FloatingPetView.frameFloor, 0.4, accuracy: 1e-9, "메뉴바와 동일한 0.4s≈2.5fps 캡")
     }
+
+    /// Bubble needs headroom + width beyond the square pet size — otherwise content is clipped.
+    func testPanelGrowsForBubbleWithoutChangingPetOrigin() {
+        let pet: CGFloat = 96
+        let idle = FloatingPetController.panelSize(petSize: pet, showingBubble: false)
+        XCTAssertEqual(idle, NSSize(width: pet, height: pet))
+
+        let shown = FloatingPetController.panelSize(petSize: pet, showingBubble: true)
+        XCTAssertGreaterThan(shown.height, pet, "must reserve vertical headroom for the bubble")
+        XCTAssertGreaterThanOrEqual(shown.width, pet)
+
+        let petOrigin = NSPoint(x: 400, y: 200)
+        let panelOrigin = FloatingPetController.panelOrigin(
+            petOrigin: petOrigin, petSize: pet, panelSize: shown)
+        // Bottom-anchored: pet Y stays put; panel grows upward.
+        XCTAssertEqual(panelOrigin.y, petOrigin.y, accuracy: 0.5)
+        let roundTrip = FloatingPetController.petOrigin(
+            panelOrigin: panelOrigin, petSize: pet, panelSize: shown)
+        XCTAssertEqual(roundTrip.x, petOrigin.x, accuracy: 0.5)
+        XCTAssertEqual(roundTrip.y, petOrigin.y, accuracy: 0.5)
+    }
 }

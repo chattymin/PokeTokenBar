@@ -115,6 +115,9 @@ struct L {
           "ポケモンが画面の上に浮かびます — ドラッグで移動できます")
     }
     var floatingPetSizeLabel: String { t("크기", "Size", "サイズ") }
+    var floatingPetBubbleAlertsLabel: String {
+        t("한도 알림을 말풍선으로", "Limit alerts as bubbles", "上限アラートを吹き出しで")
+    }
 
     var disableKeychain: String { t("Keychain 접근 끄기", "Disable Keychain access", "Keychainアクセスを無効化") }
     var disableKeychainHint: String { t("켜면 Keychain 접근 허용 팝업이 더 안 뜹니다 — 공식 한도(%)만 숨겨지고 토큰·비용은 그대로", "When on, no more Keychain permission pop-ups — only official limits (%) are hidden; tokens/cost stay", "オンにするとKeychain許可のポップアップが出なくなります — 公式上限(%)のみ非表示、トークン・費用はそのまま") }

@@ -219,18 +219,43 @@ final class UsageStoreTests: XCTestCase {
     // MARK: 플로팅 펫 설정 (기본값 + 영속)
 
     /// 플로팅 펫은 기본 꺼짐(96px). 토글·크기 변경은 defaults 에 영속돼 재시작 후 유지된다.
+    /// Bubble alerts default ON (opt-out), nested under the pet — independent of Notification Center.
     func testFloatingPetSettingsDefaultAndPersistence() {
         let claude = FakeUsageProvider(id: "claude_code", displayName: "Claude Code", daily: todayDaily(1_000))
         let store = makeStore(providers: [claude])
         XCTAssertFalse(store.floatingPetEnabled, "옵트인 기능 — 기본은 꺼짐")
         XCTAssertEqual(store.floatingPetSize, 96)
+        XCTAssertTrue(store.floatingPetBubbleAlerts, "bubble alerts default on when pet is later enabled")
 
         store.floatingPetEnabled = true
         store.floatingPetSize = 144
+        store.floatingPetBubbleAlerts = false
 
         let reloaded = makeStore(providers: [claude])   // 같은 suite 재로딩 = 앱 재시작
         XCTAssertTrue(reloaded.floatingPetEnabled)
         XCTAssertEqual(reloaded.floatingPetSize, 144)
+        XCTAssertFalse(reloaded.floatingPetBubbleAlerts)
+    }
+
+    /// Bubble picker is pure: critical beats warn; within a tier higher utilization wins (stable choice).
+    func testBubbleAlertPicksHighestSeverityThenUtilization() {
+        let warnLow = UsageStore.LimitAlert(key: "a", window: "A", isCritical: false, utilization: 81)
+        let warnHigh = UsageStore.LimitAlert(key: "b", window: "B", isCritical: false, utilization: 90)
+        let critLow = UsageStore.LimitAlert(key: "c", window: "C", isCritical: true, utilization: 95)
+        let critHigh = UsageStore.LimitAlert(key: "d", window: "D", isCritical: true, utilization: 99)
+        XCTAssertNil(UsageStore.bubbleAlert(from: []))
+        XCTAssertEqual(UsageStore.bubbleAlert(from: [warnLow, warnHigh]), warnHigh)
+        XCTAssertEqual(UsageStore.bubbleAlert(from: [warnHigh, critLow]), critLow)
+        XCTAssertEqual(UsageStore.bubbleAlert(from: [critLow, warnHigh, critHigh]), critHigh)
+    }
+
+    /// 6s auto-dismiss is a pure time check — testable without AppKit / Task.sleep.
+    func testBubbleDismissUsesTTL() {
+        let shown = Date(timeIntervalSince1970: 1_000)
+        XCTAssertFalse(UsageStore.shouldDismissBubble(shownAt: shown, now: shown.addingTimeInterval(5.9)))
+        XCTAssertTrue(UsageStore.shouldDismissBubble(shownAt: shown, now: shown.addingTimeInterval(6)))
+        XCTAssertTrue(UsageStore.shouldDismissBubble(shownAt: shown, now: shown.addingTimeInterval(6), ttl: 6))
+        XCTAssertFalse(UsageStore.shouldDismissBubble(shownAt: shown, now: shown.addingTimeInterval(3), ttl: 6))
     }
 
     // MARK: 프로바이더 상태(인시던트) 표시

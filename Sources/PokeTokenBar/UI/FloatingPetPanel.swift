@@ -6,6 +6,8 @@ import SwiftUI
 /// - 위치는 UserDefaults 에 영속 — 재실행/재표시 시 복원, 화면 구성이 바뀌어 화면 밖이면 기본 위치로.
 /// - 에너지: 숨김·디스플레이 슬립 시 SwiftUI 호스팅 트리를 해제한다(숨은 트리 상주 재레이아웃
 ///   비용 제거 — AppDelegate 의 popoverDidClose 패턴과 동일).
+/// - Speech bubbles (limit alerts) grow the panel upward/wider; the *pet* origin is what we persist
+///   so the sprite does not jump when a bubble appears or dismisses.
 @MainActor
 final class FloatingPetController: NSObject, NSWindowDelegate {
     private let store: UsageStore
@@ -18,6 +20,11 @@ final class FloatingPetController: NSObject, NSWindowDelegate {
 
     private static let originXKey = "floatingPetOriginX"
     private static let originYKey = "floatingPetOriginY"
+
+    /// Vertical space above the sprite for the bubble + VStack spacing (pt). Pure geometry constant.
+    static let bubbleHeadroom: CGFloat = 56
+    /// Minimum panel width while a bubble is showing — bubbles use `.fixedSize` and are often wider than the pet.
+    static let bubbleMinWidth: CGFloat = 180
 
     init(store: UsageStore, companion: CompanionStore, defaults: UserDefaults = .standard) {
         self.store = store
@@ -35,12 +42,13 @@ final class FloatingPetController: NSObject, NSWindowDelegate {
         sync()
     }
 
-    /// 설정(켬/끔·크기) 변경 관찰 — 재등록 패턴(AppDelegate.observeStore 와 동일).
+    /// 설정(켬/끔·크기·버블) 변경 관찰 — 재등록 패턴(AppDelegate.observeStore 와 동일).
     /// 종/이로치 변경은 패널 내부 SwiftUI 가 environment 관찰로 스스로 갱신하므로 여기선 안 본다.
     private func observeSettings() {
         withObservationTracking {
             _ = store.floatingPetEnabled
             _ = store.floatingPetSize
+            _ = store.currentBubbleAlert
         } onChange: { [weak self] in
             Task { @MainActor in
                 guard let self else { return }
@@ -62,6 +70,28 @@ final class FloatingPetController: NSObject, NSWindowDelegate {
     /// 저전력 모드면 애니메이션을 멈추고 정적 스프라이트로 — 배터리 절약. 순수·테스트용.
     static func shouldAnimate(lowPower: Bool) -> Bool { !lowPower }
 
+    /// Panel size for a given pet size and bubble visibility. Pure — tested without AppKit layout.
+    static func panelSize(petSize: CGFloat, showingBubble: Bool) -> NSSize {
+        if showingBubble {
+            return NSSize(width: max(petSize, bubbleMinWidth),
+                          height: petSize + bubbleHeadroom)
+        }
+        return NSSize(width: petSize, height: petSize)
+    }
+
+    /// Convert stored *pet* origin (sprite bottom-left) → panel origin for the current panel size.
+    /// Panel grows upward (and may widen); the sprite stays bottom-anchored and horizontally centered.
+    static func panelOrigin(petOrigin: NSPoint, petSize: CGFloat, panelSize: NSSize) -> NSPoint {
+        let xInset = max(0, (panelSize.width - petSize) / 2)
+        return NSPoint(x: petOrigin.x - xInset, y: petOrigin.y)
+    }
+
+    /// Inverse of `panelOrigin` — used when persisting drag position so a later bubble cannot shift the pet.
+    static func petOrigin(panelOrigin: NSPoint, petSize: CGFloat, panelSize: NSSize) -> NSPoint {
+        let xInset = max(0, (panelSize.width - petSize) / 2)
+        return NSPoint(x: panelOrigin.x + xInset, y: panelOrigin.y)
+    }
+
     /// 설정·디스플레이 상태에 맞춰 표시/숨김·크기를 반영한다(멱등).
     private func sync() {
         guard store.floatingPetEnabled, displayAwake else { hide(); return }
@@ -78,7 +108,9 @@ final class FloatingPetController: NSObject, NSWindowDelegate {
                 FloatingPetView(animated: wantAnimated).environment(store).environment(companion)))
             builtAnimated = wantAnimated
         }
-        p.setFrame(targetFrame(size: CGFloat(store.floatingPetSize)), display: true)
+        let petSize = CGFloat(store.floatingPetSize)
+        p.setFrame(targetFrame(petSize: petSize, showingBubble: store.currentBubbleAlert != nil),
+                   display: true)
         p.orderFrontRegardless()
     }
 
@@ -89,29 +121,33 @@ final class FloatingPetController: NSObject, NSWindowDelegate {
         builtAnimated = nil
     }
 
-    /// 표시 프레임 — 저장된 위치(드래그 영속) 우선, 없으면 주 화면 우하단. 화면 밖이면 기본 위치로 복귀.
-    private func targetFrame(size: CGFloat) -> NSRect {
-        var origin: NSPoint
+    /// Display frame from the persisted *pet* origin. Grows for bubbles without moving the sprite.
+    private func targetFrame(petSize: CGFloat, showingBubble: Bool) -> NSRect {
+        let size = Self.panelSize(petSize: petSize, showingBubble: showingBubble)
+        let petOrigin: NSPoint
         if let x = defaults.object(forKey: Self.originXKey) as? Double,
            let y = defaults.object(forKey: Self.originYKey) as? Double {
-            origin = NSPoint(x: x, y: y)
+            petOrigin = NSPoint(x: x, y: y)
         } else {
-            origin = Self.defaultOrigin(size: size)
+            petOrigin = Self.defaultPetOrigin(petSize: petSize)
         }
-        var frame = NSRect(origin: origin, size: NSSize(width: size, height: size))
+        var frame = NSRect(origin: Self.panelOrigin(petOrigin: petOrigin, petSize: petSize, panelSize: size),
+                           size: size)
         // 화면 구성 변경(모니터 분리 등)으로 어떤 화면과도 안 겹치면 기본 위치로.
         if !NSScreen.screens.contains(where: { $0.visibleFrame.intersects(frame) }) {
-            frame.origin = Self.defaultOrigin(size: size)
+            let fallbackPet = Self.defaultPetOrigin(petSize: petSize)
+            frame.origin = Self.panelOrigin(petOrigin: fallbackPet, petSize: petSize, panelSize: size)
         }
         return frame
     }
 
-    private static func defaultOrigin(size: CGFloat) -> NSPoint {
+    private static func defaultPetOrigin(petSize: CGFloat) -> NSPoint {
         guard let visible = NSScreen.main?.visibleFrame else { return NSPoint(x: 120, y: 120) }
-        return NSPoint(x: visible.maxX - size - 24, y: visible.minY + 24)
+        return NSPoint(x: visible.maxX - petSize - 24, y: visible.minY + 24)
     }
 
     private func makePanel() -> NSPanel {
+        // contentRect is only an initial hint — `show()` resizes via `targetFrame` every sync.
         let p = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 200, height: 200),
                         styleMask: [.borderless, .nonactivatingPanel],
                         backing: .buffered, defer: false)
@@ -129,12 +165,15 @@ final class FloatingPetController: NSObject, NSWindowDelegate {
         return p
     }
 
-    // MARK: NSWindowDelegate — 드래그 위치 영속
+    // MARK: NSWindowDelegate — 드래그 위치 영속 (pet origin, not raw panel origin)
 
     func windowDidMove(_ notification: Notification) {
         guard let p = panel, p.isVisible else { return }
-        defaults.set(Double(p.frame.origin.x), forKey: Self.originXKey)
-        defaults.set(Double(p.frame.origin.y), forKey: Self.originYKey)
+        let petSize = CGFloat(store.floatingPetSize)
+        let size = Self.panelSize(petSize: petSize, showingBubble: store.currentBubbleAlert != nil)
+        let pet = Self.petOrigin(panelOrigin: p.frame.origin, petSize: petSize, panelSize: size)
+        defaults.set(Double(pet.x), forKey: Self.originXKey)
+        defaults.set(Double(pet.y), forKey: Self.originYKey)
     }
 }
 
@@ -158,7 +197,9 @@ struct FloatingPetView: View {
         let size = CGFloat(store.floatingPetSize)
         VStack(spacing: 8) {
             if let alert = store.currentBubbleAlert {
-                SpeechBubbleView(alert: alert, l: L(store.localizationLanguage))
+                // Prefer CompanionStore.language — same source Settings writes; avoids the
+                // notification-mirror seed on UsageStore.
+                SpeechBubbleView(alert: alert, l: L(companion.language))
                     .transition(.scale(scale: 0.8, anchor: .bottom).combined(with: .opacity))
                     .zIndex(1)
             }
@@ -168,7 +209,8 @@ struct FloatingPetView: View {
                 .frame(width: size, height: size)
                 .zIndex(0)
         }
-        // When low power mode (animated == false), we don't animate the bubble insertion
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+        // Low Power Mode skips the *insertion* animation; the bubble itself still appears.
         .animation(animated ? .spring(response: 0.3, dampingFraction: 0.7) : nil, value: store.currentBubbleAlert)
     }
 }
