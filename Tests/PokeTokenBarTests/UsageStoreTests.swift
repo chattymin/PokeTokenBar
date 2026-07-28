@@ -233,6 +233,34 @@ final class UsageStoreTests: XCTestCase {
         XCTAssertEqual(reloaded.floatingPetSize, 144)
     }
 
+    /// 회귀(#56 표시 버전): compact hover tooltip must not surface a provider unused today.
+    /// Claude limits exist after auth even with 0 tokens today — gate like `menuLimitLine`.
+    func testHighestLimitUtilizationIgnoresProviderUnusedToday() async {
+        let claude = FakeUsageProvider(id: "claude_code", displayName: "Claude Code", daily: nil) // unused today
+        let codex = FakeUsageProvider(id: "codex", displayName: "Codex", daily: todayDaily(500_000))
+        let store = makeStore(
+            providers: [claude, codex],
+            claude: claudeLimits(fiveHourUtil: 90),
+            codex: codexLimits(primaryUsed: 40))
+        await store.refresh(scheduleEmptyRetry: false)
+        XCTAssertEqual(try XCTUnwrap(store.highestLimitUtilization), 40, accuracy: 0.01,
+                       "Claude util must not leak into the pet tooltip when Claude unused today")
+    }
+
+    /// Codex personal/spend limit is dollars — never fold it into token-limit utilization (candyEligibleWindows parity).
+    func testHighestLimitUtilizationExcludesCodexIndividualSpendLimit() async {
+        let codex = FakeUsageProvider(id: "codex", displayName: "Codex", daily: todayDaily(10_000))
+        // primary 30%; individual remainingPercent 1 → usedPercent 99 — only primary should win
+        let json = """
+        {"rateLimits":{"primary":{"usedPercent":30,"windowDurationMins":300},\
+        "individualLimit":{"limit":"$100","remainingPercent":1,"resetsAt":9999999999,"used":"$99"}}}
+        """
+        let status = try! JSONDecoder().decode(CodexRateLimitStatus.self, from: Data(json.utf8))
+        let store = makeStore(providers: [codex], codex: status)
+        await store.refresh(scheduleEmptyRetry: false)
+        XCTAssertEqual(try XCTUnwrap(store.highestLimitUtilization), 30, accuracy: 0.01)
+    }
+
     // MARK: 프로바이더 상태(인시던트) 표시
 
     /// statuspage.io status.json 파싱(순수) — indicator/description 매핑 + 미지값 unknown + malformed nil.

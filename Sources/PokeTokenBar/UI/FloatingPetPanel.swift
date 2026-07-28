@@ -2,10 +2,9 @@ import AppKit
 import SwiftUI
 
 /// 데스크톱 위에 떠 있는 컴패니언 포켓몬 오버레이(옵트인, 설정 → 플로팅 펫).
-/// - 스스로 움직이지 않는다: 화면을 돌아다니는 로직이 없고, 위치는 사용자가 드래그로만 옮긴다.
-/// - 위치는 UserDefaults 에 영속 — 재실행/재표시 시 복원, 화면 구성이 바뀌어 화면 밖이면 기본 위치로.
-/// - 에너지: 숨김·디스플레이 슬립 시 SwiftUI 호스팅 트리를 해제한다(숨은 트리 상주 재레이아웃
-///   비용 제거 — AppDelegate 의 popoverDidClose 패턴과 동일).
+/// - 위치는 사용자가 드래그로만 옮긴다(커스텀 mouseDragged — 클릭과 충돌하지 않게).
+/// - 클릭 → 팝오버 오픈, 우클릭 → 컨텍스트 메뉴, 호버 → 오늘 사용량 툴팁.
+/// - 에너지: 숨김·디스플레이 슬립 시 SwiftUI 호스팅 트리를 해제한다.
 @MainActor
 final class FloatingPetController: NSObject, NSWindowDelegate {
     private let store: UsageStore
@@ -19,10 +18,14 @@ final class FloatingPetController: NSObject, NSWindowDelegate {
     private static let originXKey = "floatingPetOriginX"
     private static let originYKey = "floatingPetOriginY"
 
+    /// Squared movement (pt²) below which a mouse-up counts as a click, not a drag.
+    static let clickThresholdSquared: CGFloat = 16  // ~4pt
+
     private var onOpenPopover: (() -> Void)?
     private var onHide: (() -> Void)?
 
-    init(store: UsageStore, companion: CompanionStore, defaults: UserDefaults = .standard, onOpenPopover: (() -> Void)? = nil, onHide: (() -> Void)? = nil) {
+    init(store: UsageStore, companion: CompanionStore, defaults: UserDefaults = .standard,
+         onOpenPopover: (() -> Void)? = nil, onHide: (() -> Void)? = nil) {
         self.store = store
         self.companion = companion
         self.defaults = defaults
@@ -34,18 +37,27 @@ final class FloatingPetController: NSObject, NSWindowDelegate {
         sync()
     }
 
+    /// Pure click-vs-drag gate — tested without AppKit event delivery.
+    static func isClick(from start: NSPoint, to end: NSPoint,
+                        thresholdSquared: CGFloat = clickThresholdSquared) -> Bool {
+        let dx = end.x - start.x, dy = end.y - start.y
+        return dx * dx + dy * dy < thresholdSquared
+    }
+
     /// AppDelegate 의 디스플레이 슬립 게이팅과 연동 — 꺼진 화면 뒤에서 GIF 프레임 루프가 돌지 않게.
     func setDisplayAwake(_ awake: Bool) {
         displayAwake = awake
         sync()
     }
 
-    /// 설정(켬/끔·크기) 변경 관찰 — 재등록 패턴(AppDelegate.observeStore 와 동일).
-    /// 종/이로치 변경은 패널 내부 SwiftUI 가 environment 관찰로 스스로 갱신하므로 여기선 안 본다.
+    /// 설정(켬/끔·크기) + 툴팁 소스 변경 관찰 — 재등록 패턴(AppDelegate.observeStore 와 동일).
     private func observeSettings() {
         withObservationTracking {
             _ = store.floatingPetEnabled
             _ = store.floatingPetSize
+            _ = store.todayTotalTokens
+            _ = store.highestLimitUtilization
+            _ = companion.language
         } onChange: { [weak self] in
             Task { @MainActor in
                 guard let self else { return }
@@ -76,15 +88,22 @@ final class FloatingPetController: NSObject, NSWindowDelegate {
     private func show() {
         let p = panel ?? makePanel()
         panel = p
-        // 저전력 모드가 토글되면 animated 플래그가 바뀌므로 콘텐츠를 재구성(정적↔애니메이션 전환).
         let wantAnimated = Self.shouldAnimate(lowPower: ProcessInfo.processInfo.isLowPowerModeEnabled)
         if p.contentView == nil || builtAnimated != wantAnimated {
             let hosting = PetHostingView(rootView: AnyView(
                 FloatingPetView(animated: wantAnimated).environment(store).environment(companion)))
             hosting.onOpenPopover = onOpenPopover
             hosting.onHide = onHide
+            hosting.languageProvider = { [weak self] in self?.companion.language ?? .systemDefault }
             p.contentView = hosting
             builtAnimated = wantAnimated
+        }
+        if let hosting = p.contentView as? PetHostingView {
+            let l = L(companion.language)
+            hosting.toolTip = FloatingPetView.hoverTooltip(
+                todayTokens: store.todayTotalTokens,
+                limitUtilization: store.highestLimitUtilization,
+                l: l)
         }
         p.setFrame(targetFrame(size: CGFloat(store.floatingPetSize)), display: true)
         p.orderFrontRegardless()
@@ -93,11 +112,10 @@ final class FloatingPetController: NSObject, NSWindowDelegate {
     private func hide() {
         guard let p = panel else { return }
         p.orderOut(nil)
-        p.contentView = nil   // 숨은 SwiftUI 트리 해제(GIF 프레임 루프 정지 포함)
+        p.contentView = nil
         builtAnimated = nil
     }
 
-    /// 표시 프레임 — 저장된 위치(드래그 영속) 우선, 없으면 주 화면 우하단. 화면 밖이면 기본 위치로 복귀.
     private func targetFrame(size: CGFloat) -> NSRect {
         var origin: NSPoint
         if let x = defaults.object(forKey: Self.originXKey) as? Double,
@@ -107,7 +125,6 @@ final class FloatingPetController: NSObject, NSWindowDelegate {
             origin = Self.defaultOrigin(size: size)
         }
         var frame = NSRect(origin: origin, size: NSSize(width: size, height: size))
-        // 화면 구성 변경(모니터 분리 등)으로 어떤 화면과도 안 겹치면 기본 위치로.
         if !NSScreen.screens.contains(where: { $0.visibleFrame.intersects(frame) }) {
             frame.origin = Self.defaultOrigin(size: size)
         }
@@ -128,7 +145,8 @@ final class FloatingPetController: NSObject, NSWindowDelegate {
         p.hasShadow = false
         p.level = .floating
         p.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
-        p.isMovableByWindowBackground = true   // 유일한 이동 수단 — 자율 이동 없음
+        // Drag is driven by PetHostingView.mouseDragged — background-move would swallow clicks.
+        p.isMovableByWindowBackground = false
         p.hidesOnDeactivate = false
         p.isReleasedWhenClosed = false
         p.becomesKeyOnlyIfNeeded = true
@@ -137,8 +155,6 @@ final class FloatingPetController: NSObject, NSWindowDelegate {
         return p
     }
 
-    // MARK: NSWindowDelegate — 드래그 위치 영속
-
     func windowDidMove(_ notification: Notification) {
         guard let p = panel, p.isVisible else { return }
         defaults.set(Double(p.frame.origin.x), forKey: Self.originXKey)
@@ -146,36 +162,60 @@ final class FloatingPetController: NSObject, NSWindowDelegate {
     }
 }
 
-/// NSHostingView 는 콘텐츠에 따라 배경 드래그 이동을 막을 수 있어 명시 허용 — 패널 어디를 잡아도 이동.
-private final class PetHostingView: NSHostingView<AnyView> {
+/// Hosts the SwiftUI pet. Owns click / drag / context-menu so AppKit delivery is explicit
+/// (non-activating panels are never key → menu items need `target = self`).
+final class PetHostingView: NSHostingView<AnyView> {
     var onOpenPopover: (() -> Void)?
     var onHide: (() -> Void)?
-    private var mouseDownLocation: NSPoint?
+    var languageProvider: () -> AppLanguage = { .systemDefault }
 
-    override var mouseDownCanMoveWindow: Bool { true }
+    private var mouseDownScreen: NSPoint?
+    private var originAtDown: NSPoint?
+    private var didDrag = false
+
+    override var mouseDownCanMoveWindow: Bool { false }
+
+    /// Same pure gate as `FloatingPetController.isClick` — kept here for the event path.
+    static func isClick(from start: NSPoint, to end: NSPoint,
+                        thresholdSquared: CGFloat = FloatingPetController.clickThresholdSquared) -> Bool {
+        FloatingPetController.isClick(from: start, to: end, thresholdSquared: thresholdSquared)
+    }
 
     override func mouseDown(with event: NSEvent) {
-        mouseDownLocation = event.locationInWindow
-        super.mouseDown(with: event)
+        mouseDownScreen = NSEvent.mouseLocation
+        originAtDown = window?.frame.origin
+        didDrag = false
+    }
+
+    override func mouseDragged(with event: NSEvent) {
+        guard let window, let start = mouseDownScreen, let origin = originAtDown else { return }
+        let now = NSEvent.mouseLocation
+        if !Self.isClick(from: start, to: now) { didDrag = true }
+        window.setFrameOrigin(NSPoint(x: origin.x + (now.x - start.x),
+                                      y: origin.y + (now.y - start.y)))
     }
 
     override func mouseUp(with event: NSEvent) {
-        if let start = mouseDownLocation {
-            let end = event.locationInWindow
-            let dx = end.x - start.x
-            let dy = end.y - start.y
-            if dx*dx + dy*dy < 10 { // ~3pt threshold
-                onOpenPopover?()
-            }
+        defer {
+            mouseDownScreen = nil
+            originAtDown = nil
+            didDrag = false
         }
-        mouseDownLocation = nil
-        super.mouseUp(with: event)
+        guard !didDrag, let start = mouseDownScreen else { return }
+        if Self.isClick(from: start, to: NSEvent.mouseLocation) {
+            onOpenPopover?()
+        }
     }
 
     override func menu(for event: NSEvent) -> NSMenu? {
+        let l = L(languageProvider())
         let menu = NSMenu(title: "")
-        menu.addItem(withTitle: "Open Token Bar", action: #selector(handleOpen), keyEquivalent: "")
-        menu.addItem(withTitle: "Hide Pet", action: #selector(handleHide), keyEquivalent: "")
+        let open = menu.addItem(withTitle: l.floatingPetMenuOpen,
+                                action: #selector(handleOpen), keyEquivalent: "")
+        open.target = self
+        let hide = menu.addItem(withTitle: l.floatingPetMenuHide,
+                                action: #selector(handleHide), keyEquivalent: "")
+        hide.target = self
         return menu
     }
 
@@ -183,12 +223,9 @@ private final class PetHostingView: NSHostingView<AnyView> {
     @objc private func handleHide() { onHide?() }
 }
 
-/// 패널 콘텐츠 — 현재 컴패니언(알 포함)을 설정 크기로 표시. 종/이로치/크기 변경은 environment 관찰로 자동 반영.
-/// `animated`=false(저전력 모드)면 정적 스프라이트로 고정. 애니메이션 시엔 fps 하한 0.4s(≈2.5fps)로
-/// 캡 — 항상 떠 있는 표면이라 메뉴바 GIF 규율과 동일하게 idle wakeup 을 통제한다.
+/// 패널 콘텐츠 — 현재 컴패니언(알 포함)을 설정 크기로 표시.
 struct FloatingPetView: View {
-    /// GIF fps 하한(초). >0 필수 — 0 이면 네이티브 fps 로 새어 메뉴바에서 고친 idle wakeup 회귀가 재발한다.
-    /// 상시 표시 표면이라 메뉴바와 동일한 0.4s(≈2.5fps) 캡. 값 조정 시 여기 한 곳만 — 회귀 가드는 `frameFloor>0`.
+    /// GIF fps 하한(초). >0 필수 — 메뉴바와 동일한 0.4s(≈2.5fps) 캡.
     static let frameFloor: TimeInterval = 0.4
     var animated: Bool = true
     @Environment(UsageStore.self) private var store
@@ -199,15 +236,14 @@ struct FloatingPetView: View {
         SpriteView(speciesID: companion.currentSpeciesID, size: size, animated: animated,
                    shiny: companion.currentIsShiny, minFrameDelay: Self.frameFloor)
             .frame(width: size, height: size)
-            .help(hoverTooltipText)
     }
 
-    private var hoverTooltipText: String {
-        let usage = TokenFormatter.grouped(store.todayTotalTokens)
-        if let maxPct = store.highestBurnPercent {
-            return "Usage: \(usage) tokens (\(TokenFormatter.percent(maxPct)) of max)"
-        } else {
-            return "Usage: \(usage) tokens"
+    /// Pure tooltip builder (tokens always; limit % only when the compact surface may show it).
+    static func hoverTooltip(todayTokens: Int, limitUtilization: Double?, l: L) -> String {
+        let usage = TokenFormatter.grouped(todayTokens)
+        if let pct = limitUtilization {
+            return l.floatingPetHoverWithLimit(usage, TokenFormatter.percent(pct))
         }
+        return l.floatingPetHoverTokensOnly(usage)
     }
 }

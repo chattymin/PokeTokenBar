@@ -255,20 +255,27 @@ final class UsageStore {
         return false
     }
 
-    /// Highest utilization across all limits (official limits).
-    var highestBurnPercent: Double? {
+    /// Highest official-limit utilization across providers **used today** (compact surfaces only).
+    /// Excludes Codex personal/spend limits (dollars). Renamed from `highestBurnPercent` —
+    /// `burn` means token rate elsewhere in this codebase.
+    var highestLimitUtilization: Double? {
+        let usedToday = Set(snapshots.filter { $0.todayTotalTokens > 0 }.map(\.providerID))
         var utils: [Double] = []
-        for u in [limits?.fiveHour?.utilization, limits?.sevenDay?.utilization,
-                  limits?.sevenDayOpus?.utilization, limits?.sevenDaySonnet?.utilization] {
-            if let u { utils.append(u) }
+        if usedToday.contains("claude_code") {
+            for u in [limits?.fiveHour?.utilization, limits?.sevenDay?.utilization,
+                      limits?.sevenDayOpus?.utilization, limits?.sevenDaySonnet?.utilization] {
+                if let u { utils.append(u) }
+            }
+            for entry in limits?.scopedLimitEntries ?? [] {
+                if let p = entry.percent { utils.append(p) }
+            }
         }
-        for entry in limits?.scopedLimitEntries ?? [] {
-            if let p = entry.percent { utils.append(p) }
-        }
-        for bucket in codexLimits?.visibleSnapshots ?? [] {
-            if let u = bucket.primary?.usedPercent { utils.append(Double(u)) }
-            if let u = bucket.secondary?.usedPercent { utils.append(Double(u)) }
-            if let u = bucket.individualLimit?.usedPercent { utils.append(Double(u)) }
+        if usedToday.contains("codex") {
+            for bucket in codexLimits?.visibleSnapshots ?? [] {
+                if let u = bucket.primary?.usedPercent { utils.append(Double(u)) }
+                if let u = bucket.secondary?.usedPercent { utils.append(Double(u)) }
+                // individualLimit is a $ spend cap — intentionally omitted (candyEligibleWindows parity).
+            }
         }
         return utils.max()
     }

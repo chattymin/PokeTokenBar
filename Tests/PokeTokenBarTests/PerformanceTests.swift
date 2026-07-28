@@ -157,4 +157,23 @@ final class FloatingPetEnergyTests: XCTestCase {
         XCTAssertGreaterThan(FloatingPetView.frameFloor, 0, "펫 fps 캡이 해제되면 idle wakeup 회귀")
         XCTAssertEqual(FloatingPetView.frameFloor, 0.4, accuracy: 1e-9, "메뉴바와 동일한 0.4s≈2.5fps 캡")
     }
+
+    /// Click opens the popover only when the pointer barely moved; larger movement is a drag.
+    func testClickThresholdDistinguishesClickFromDrag() {
+        let a = NSPoint(x: 10, y: 10)
+        XCTAssertTrue(FloatingPetController.isClick(from: a, to: NSPoint(x: 11, y: 12)))
+        XCTAssertTrue(FloatingPetController.isClick(from: a, to: a))
+        XCTAssertFalse(FloatingPetController.isClick(from: a, to: NSPoint(x: 20, y: 10)))
+    }
+
+    /// Hover tooltip is localized and pure — tokens always; limit % only when provided.
+    func testHoverTooltipBuilder() {
+        let l = L(.en)
+        XCTAssertEqual(
+            FloatingPetView.hoverTooltip(todayTokens: 12_345, limitUtilization: nil, l: l),
+            l.floatingPetHoverTokensOnly(TokenFormatter.grouped(12_345)))
+        XCTAssertEqual(
+            FloatingPetView.hoverTooltip(todayTokens: 12_345, limitUtilization: 42, l: l),
+            l.floatingPetHoverWithLimit(TokenFormatter.grouped(12_345), TokenFormatter.percent(42)))
+    }
 }

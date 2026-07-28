@@ -314,12 +314,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     /// NSHostingView 트리가 상주하며 매 디스플레이 사이클 재레이아웃된다(측정: idle CPU 최대 비용 — 닫힌
     /// 팝오버의 relative-time Text self-invalidation × 메뉴 애니메이션 CA 커밋). 그래서 열 때 만들고 닫힐 때 해제.
     func openPopover() {
-        if !popover.isShown {
-            togglePopover()
-        } else {
-            NSApp.activate(ignoringOtherApps: true)
-            popover.contentViewController?.view.window?.makeKeyAndOrderFront(nil)
-        }
+        // Pet click is an outside click for a .transient popover — if already shown it is
+        // already dismissing; the old "activate/makeKey" branch never applied.
+        guard !popover.isShown else { return }
+        togglePopover()
     }
 
     private func buildPopoverContent() {
