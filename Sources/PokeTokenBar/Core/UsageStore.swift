@@ -264,6 +264,31 @@ final class UsageStore {
         return false
     }
 
+    /// Highest official-limit utilization across providers **used today** (compact surfaces only).
+    /// Excludes Codex personal/spend limits (dollars). Renamed from `highestBurnPercent` —
+    /// `burn` means token rate elsewhere in this codebase.
+    var highestLimitUtilization: Double? {
+        let usedToday = Set(snapshots.filter { $0.todayTotalTokens > 0 }.map(\.providerID))
+        var utils: [Double] = []
+        if usedToday.contains("claude_code") {
+            for u in [limits?.fiveHour?.utilization, limits?.sevenDay?.utilization,
+                      limits?.sevenDayOpus?.utilization, limits?.sevenDaySonnet?.utilization] {
+                if let u { utils.append(u) }
+            }
+            for entry in limits?.scopedLimitEntries ?? [] {
+                if let p = entry.percent { utils.append(p) }
+            }
+        }
+        if usedToday.contains("codex") {
+            for bucket in codexLimits?.visibleSnapshots ?? [] {
+                if let u = bucket.primary?.usedPercent { utils.append(Double(u)) }
+                if let u = bucket.secondary?.usedPercent { utils.append(Double(u)) }
+                // individualLimit is a $ spend cap — intentionally omitted (candyEligibleWindows parity).
+            }
+        }
+        return utils.max()
+    }
+
     /// 사탕 지급 대상 한도 창 — 세션급(≈5h)=1개, 주간급=5개, 전 프로바이더. Gemini 는 공식 한도
     /// 신호가 없어 자연히 빠진다(창 목록에 없음). 지급 제외: Opus/Sonnet 주간·scoped·Codex 개인 spend
     /// limit(헤드라인 창의 하위/중복 → 이중지급 방지). 알림(checkLimitAlerts)보다 좁은 지급 전용.

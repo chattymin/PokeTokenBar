@@ -2,53 +2,72 @@ import AppKit
 import SwiftUI
 
 /// 데스크톱 위에 떠 있는 컴패니언 포켓몬 오버레이(옵트인, 설정 → 플로팅 펫).
-/// - 스스로 움직이지 않는다: 화면을 돌아다니는 로직이 없고, 위치는 사용자가 드래그로만 옮긴다.
-/// - 위치는 UserDefaults 에 영속 — 재실행/재표시 시 복원, 화면 구성이 바뀌어 화면 밖이면 기본 위치로.
-/// - 에너지: 숨김·디스플레이 슬립 시 SwiftUI 호스팅 트리를 해제한다(숨은 트리 상주 재레이아웃
-///   비용 제거 — AppDelegate 의 popoverDidClose 패턴과 동일).
-/// - Speech bubbles (limit alerts) grow the panel upward/wider; the *pet* origin is what we persist
-///   so the sprite does not jump when a bubble appears or dismisses.
+/// - 드래그: 커스텀 `mouseDragged` (클릭과 충돌하지 않음).
+/// - 클릭 → 팝오버, 우클릭 → 메뉴, 호버 → 오늘 사용량 콜아웃.
+/// - Limit-alert speech bubbles grow the panel; persisted origin is the *pet*, not the panel.
+/// - 에너지: 숨김·슬립 시 호스팅 트리 해제.
 @MainActor
 final class FloatingPetController: NSObject, NSWindowDelegate {
     private let store: UsageStore
     private let companion: CompanionStore
     private let defaults: UserDefaults
     private var panel: NSPanel?
+    private var hoverPanel: NSPanel?
     private var displayAwake = true
-    private var builtAnimated: Bool?        // 현재 contentView 가 어떤 animated 상태로 지어졌나(nil=없음)
+    private var builtAnimated: Bool?
     private var powerObserver: NSObjectProtocol?
 
     private static let originXKey = "floatingPetOriginX"
     private static let originYKey = "floatingPetOriginY"
 
-    /// Vertical space above the sprite for the bubble + VStack spacing (pt). Pure geometry constant.
-    static let bubbleHeadroom: CGFloat = 56
-    /// Minimum panel width while a bubble is showing — bubbles use `.fixedSize` and are often wider than the pet.
-    static let bubbleMinWidth: CGFloat = 180
+    /// Squared movement (pt²) below which a mouse-up counts as a click, not a drag.
+    static let clickThresholdSquared: CGFloat = 16  // ~4pt
 
-    init(store: UsageStore, companion: CompanionStore, defaults: UserDefaults = .standard) {
+    /// Vertical space above the sprite for the bubble + VStack spacing (pt).
+    /// Sized for two wrapped body lines + title + padding + tail (ja strings).
+    static let bubbleHeadroom: CGFloat = 72
+    /// Minimum panel width while a bubble is showing.
+    static let bubbleMinWidth: CGFloat = 180
+    /// Horizontal padding inside the bubble chrome (each side). Content + 2× this = `bubbleMinWidth`.
+    static let bubbleHorizontalPadding: CGFloat = 8
+    /// Fixed text column — wraps instead of growing past the panel (`bubbleMinWidth` − 16).
+    static let bubbleContentWidth: CGFloat = bubbleMinWidth - (bubbleHorizontalPadding * 2)
+
+    private var onOpenPopover: (() -> Void)?
+    private var onHide: (() -> Void)?
+
+    init(store: UsageStore, companion: CompanionStore, defaults: UserDefaults = .standard,
+         onOpenPopover: (() -> Void)? = nil, onHide: (() -> Void)? = nil) {
         self.store = store
         self.companion = companion
         self.defaults = defaults
+        self.onOpenPopover = onOpenPopover
+        self.onHide = onHide
         super.init()
         observeSettings()
         observePowerState()
         sync()
     }
 
-    /// AppDelegate 의 디스플레이 슬립 게이팅과 연동 — 꺼진 화면 뒤에서 GIF 프레임 루프가 돌지 않게.
+    static func isClick(from start: NSPoint, to end: NSPoint,
+                        thresholdSquared: CGFloat = clickThresholdSquared) -> Bool {
+        let dx = end.x - start.x, dy = end.y - start.y
+        return dx * dx + dy * dy < thresholdSquared
+    }
+
     func setDisplayAwake(_ awake: Bool) {
         displayAwake = awake
         sync()
     }
 
-    /// 설정(켬/끔·크기·버블) 변경 관찰 — 재등록 패턴(AppDelegate.observeStore 와 동일).
-    /// 종/이로치 변경은 패널 내부 SwiftUI 가 environment 관찰로 스스로 갱신하므로 여기선 안 본다.
     private func observeSettings() {
         withObservationTracking {
             _ = store.floatingPetEnabled
             _ = store.floatingPetSize
             _ = store.currentBubbleAlert
+            _ = store.todayTotalTokens
+            _ = store.highestLimitUtilization
+            _ = companion.language
         } onChange: { [weak self] in
             Task { @MainActor in
                 guard let self else { return }
@@ -58,7 +77,6 @@ final class FloatingPetController: NSObject, NSWindowDelegate {
         }
     }
 
-    /// 저전력 모드 토글 관찰 — 켜지면 정적, 꺼지면 애니메이션 재개(패널 콘텐츠 재구성). 메뉴바 low-power 규율과 동일.
     private func observePowerState() {
         powerObserver = NotificationCenter.default.addObserver(
             forName: NSNotification.Name.NSProcessInfoPowerStateDidChange, object: nil, queue: .main
@@ -67,7 +85,6 @@ final class FloatingPetController: NSObject, NSWindowDelegate {
         }
     }
 
-    /// 저전력 모드면 애니메이션을 멈추고 정적 스프라이트로 — 배터리 절약. 순수·테스트용.
     static func shouldAnimate(lowPower: Bool) -> Bool { !lowPower }
 
     /// Panel size for a given pet size and bubble visibility. Pure — tested without AppKit layout.
@@ -79,20 +96,35 @@ final class FloatingPetController: NSObject, NSWindowDelegate {
         return NSSize(width: petSize, height: petSize)
     }
 
-    /// Convert stored *pet* origin (sprite bottom-left) → panel origin for the current panel size.
-    /// Panel grows upward (and may widen); the sprite stays bottom-anchored and horizontally centered.
     static func panelOrigin(petOrigin: NSPoint, petSize: CGFloat, panelSize: NSSize) -> NSPoint {
         let xInset = max(0, (panelSize.width - petSize) / 2)
         return NSPoint(x: petOrigin.x - xInset, y: petOrigin.y)
     }
 
-    /// Inverse of `panelOrigin` — used when persisting drag position so a later bubble cannot shift the pet.
     static func petOrigin(panelOrigin: NSPoint, petSize: CGFloat, panelSize: NSSize) -> NSPoint {
         let xInset = max(0, (panelSize.width - petSize) / 2)
         return NSPoint(x: panelOrigin.x + xInset, y: panelOrigin.y)
     }
 
-    /// 설정·디스플레이 상태에 맞춰 표시/숨김·크기를 반영한다(멱등).
+    /// Measure speech-bubble chrome for a title/body at the fixed content width (wrapping).
+    /// Pure AppKit typography — keeps the layout test free of SwiftUI hosting.
+    static func measureSpeechBubble(title: String, body: String,
+                                    contentWidth: CGFloat = bubbleContentWidth) -> NSSize {
+        let titleFont = NSFont.systemFont(ofSize: 11, weight: .bold)
+        let bodyFont = NSFont.systemFont(ofSize: 10)
+        let constraint = NSSize(width: contentWidth, height: 10_000)
+        let opts: NSString.DrawingOptions = [.usesLineFragmentOrigin, .usesFontLeading]
+        let titleRect = (title as NSString).boundingRect(
+            with: constraint, options: opts, attributes: [.font: titleFont])
+        let bodyRect = (body as NSString).boundingRect(
+            with: constraint, options: opts, attributes: [.font: bodyFont])
+        let textWidth = min(contentWidth, max(titleRect.width, bodyRect.width))
+        let textHeight = ceil(titleRect.height) + 2 + ceil(bodyRect.height)
+        // Match SpeechBubbleView: horizontal padding ×2, vertical 6, bottom pad 6 for the tail.
+        let hPad = bubbleHorizontalPadding * 2
+        return NSSize(width: textWidth + hPad, height: textHeight + 12 + 6)
+    }
+
     private func sync() {
         guard store.floatingPetEnabled, displayAwake else { hide(); return }
         show()
@@ -101,27 +133,98 @@ final class FloatingPetController: NSObject, NSWindowDelegate {
     private func show() {
         let p = panel ?? makePanel()
         panel = p
-        // 저전력 모드가 토글되면 animated 플래그가 바뀌므로 콘텐츠를 재구성(정적↔애니메이션 전환).
         let wantAnimated = Self.shouldAnimate(lowPower: ProcessInfo.processInfo.isLowPowerModeEnabled)
         if p.contentView == nil || builtAnimated != wantAnimated {
-            p.contentView = PetHostingView(rootView: AnyView(
+            let hosting = PetHostingView(rootView: AnyView(
                 FloatingPetView(animated: wantAnimated).environment(store).environment(companion)))
+            hosting.onOpenPopover = onOpenPopover
+            hosting.onHide = onHide
+            hosting.languageProvider = { [weak self] in self?.companion.language ?? .systemDefault }
+            hosting.onHoverChange = { [weak self] hovering in
+                if hovering { self?.showHoverCallout() } else { self?.hideHoverCallout() }
+            }
+            p.contentView = hosting
             builtAnimated = wantAnimated
+        }
+        if let hosting = p.contentView as? PetHostingView {
+            hosting.toolTip = currentHoverText()
         }
         let petSize = CGFloat(store.floatingPetSize)
         p.setFrame(targetFrame(petSize: petSize, showingBubble: store.currentBubbleAlert != nil),
                    display: true)
         p.orderFrontRegardless()
+        if hoverPanel?.isVisible == true { showHoverCallout() }
     }
 
     private func hide() {
+        hideHoverCallout()
         guard let p = panel else { return }
         p.orderOut(nil)
-        p.contentView = nil   // 숨은 SwiftUI 트리 해제(GIF 프레임 루프 정지 포함)
+        p.contentView = nil
         builtAnimated = nil
     }
 
-    /// Display frame from the persisted *pet* origin. Grows for bubbles without moving the sprite.
+    private func currentHoverText() -> String {
+        FloatingPetView.hoverTooltip(
+            todayTokens: store.todayTotalTokens,
+            limitUtilization: store.highestLimitUtilization,
+            l: L(companion.language))
+    }
+
+    private func showHoverCallout() {
+        guard let pet = panel, pet.isVisible else { return }
+        // Don't cover an active limit bubble — the speech bubble is the priority surface.
+        if store.currentBubbleAlert != nil { hideHoverCallout(); return }
+        let text = currentHoverText()
+        let label = NSTextField(labelWithString: text)
+        label.font = .systemFont(ofSize: 11)
+        label.textColor = .labelColor
+        label.backgroundColor = .clear
+        label.drawsBackground = false
+        label.sizeToFit()
+
+        let pad: CGFloat = 8
+        let size = NSSize(width: label.bounds.width + pad * 2,
+                          height: label.bounds.height + pad * 2)
+        let container = NSView(frame: NSRect(origin: .zero, size: size))
+        container.wantsLayer = true
+        container.layer?.backgroundColor = NSColor.windowBackgroundColor.cgColor
+        container.layer?.cornerRadius = 8
+        container.layer?.borderWidth = 0.5
+        container.layer?.borderColor = NSColor.separatorColor.cgColor
+        label.frame.origin = NSPoint(x: pad, y: pad)
+        container.addSubview(label)
+
+        let hp = hoverPanel ?? makeHoverPanel()
+        hoverPanel = hp
+        hp.contentView = container
+        hp.setContentSize(size)
+        let petFrame = pet.frame
+        hp.setFrameOrigin(NSPoint(x: petFrame.midX - size.width / 2, y: petFrame.maxY + 6))
+        hp.orderFrontRegardless()
+    }
+
+    private func hideHoverCallout() {
+        hoverPanel?.orderOut(nil)
+        hoverPanel?.contentView = nil
+    }
+
+    private func makeHoverPanel() -> NSPanel {
+        let p = NSPanel(contentRect: .zero,
+                        styleMask: [.borderless, .nonactivatingPanel],
+                        backing: .buffered, defer: false)
+        p.isOpaque = false
+        p.backgroundColor = .clear
+        p.hasShadow = true
+        p.level = .floating
+        p.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        p.hidesOnDeactivate = false
+        p.isReleasedWhenClosed = false
+        p.ignoresMouseEvents = true
+        p.animationBehavior = .none
+        return p
+    }
+
     private func targetFrame(petSize: CGFloat, showingBubble: Bool) -> NSRect {
         let size = Self.panelSize(petSize: petSize, showingBubble: showingBubble)
         let petOrigin: NSPoint
@@ -133,7 +236,6 @@ final class FloatingPetController: NSObject, NSWindowDelegate {
         }
         var frame = NSRect(origin: Self.panelOrigin(petOrigin: petOrigin, petSize: petSize, panelSize: size),
                            size: size)
-        // 화면 구성 변경(모니터 분리 등)으로 어떤 화면과도 안 겹치면 기본 위치로.
         if !NSScreen.screens.contains(where: { $0.visibleFrame.intersects(frame) }) {
             let fallbackPet = Self.defaultPetOrigin(petSize: petSize)
             frame.origin = Self.panelOrigin(petOrigin: fallbackPet, petSize: petSize, panelSize: size)
@@ -147,7 +249,6 @@ final class FloatingPetController: NSObject, NSWindowDelegate {
     }
 
     private func makePanel() -> NSPanel {
-        // contentRect is only an initial hint — `show()` resizes via `targetFrame` every sync.
         let p = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 200, height: 200),
                         styleMask: [.borderless, .nonactivatingPanel],
                         backing: .buffered, defer: false)
@@ -156,16 +257,15 @@ final class FloatingPetController: NSObject, NSWindowDelegate {
         p.hasShadow = false
         p.level = .floating
         p.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
-        p.isMovableByWindowBackground = true   // 유일한 이동 수단 — 자율 이동 없음
+        p.isMovableByWindowBackground = false
         p.hidesOnDeactivate = false
         p.isReleasedWhenClosed = false
         p.becomesKeyOnlyIfNeeded = true
+        p.allowsToolTipsWhenApplicationIsInactive = true
         p.animationBehavior = .none
         p.delegate = self
         return p
     }
-
-    // MARK: NSWindowDelegate — 드래그 위치 영속 (pet origin, not raw panel origin)
 
     func windowDidMove(_ notification: Notification) {
         guard let p = panel, p.isVisible else { return }
@@ -174,20 +274,96 @@ final class FloatingPetController: NSObject, NSWindowDelegate {
         let pet = Self.petOrigin(panelOrigin: p.frame.origin, petSize: petSize, panelSize: size)
         defaults.set(Double(pet.x), forKey: Self.originXKey)
         defaults.set(Double(pet.y), forKey: Self.originYKey)
+        if hoverPanel?.isVisible == true { showHoverCallout() }
     }
 }
 
-/// NSHostingView 는 콘텐츠에 따라 배경 드래그 이동을 막을 수 있어 명시 허용 — 패널 어디를 잡아도 이동.
-private final class PetHostingView: NSHostingView<AnyView> {
-    override var mouseDownCanMoveWindow: Bool { true }
+final class PetHostingView: NSHostingView<AnyView> {
+    var onOpenPopover: (() -> Void)?
+    var onHide: (() -> Void)?
+    var onHoverChange: ((Bool) -> Void)?
+    var languageProvider: () -> AppLanguage = { .systemDefault }
+
+    private var mouseDownScreen: NSPoint?
+    private var originAtDown: NSPoint?
+    private var didDrag = false
+
+    override var mouseDownCanMoveWindow: Bool { false }
+
+    static func isClick(from start: NSPoint, to end: NSPoint,
+                        thresholdSquared: CGFloat = FloatingPetController.clickThresholdSquared) -> Bool {
+        FloatingPetController.isClick(from: start, to: end, thresholdSquared: thresholdSquared)
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        for area in trackingAreas { removeTrackingArea(area) }
+        addTrackingArea(NSTrackingArea(
+            rect: bounds,
+            options: [.activeAlways, .mouseEnteredAndExited, .inVisibleRect],
+            owner: self,
+            userInfo: nil))
+    }
+
+    override func mouseEntered(with event: NSEvent) { onHoverChange?(true) }
+    override func mouseExited(with event: NSEvent) { onHoverChange?(false) }
+
+    override func mouseDown(with event: NSEvent) {
+        if event.modifierFlags.contains(.control) {
+            showContextMenu(event)
+            return
+        }
+        mouseDownScreen = NSEvent.mouseLocation
+        originAtDown = window?.frame.origin
+        didDrag = false
+    }
+
+    override func mouseDragged(with event: NSEvent) {
+        guard let window, let start = mouseDownScreen, let origin = originAtDown else { return }
+        let now = NSEvent.mouseLocation
+        if !Self.isClick(from: start, to: now) { didDrag = true }
+        window.setFrameOrigin(NSPoint(x: origin.x + (now.x - start.x),
+                                      y: origin.y + (now.y - start.y)))
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        defer {
+            mouseDownScreen = nil
+            originAtDown = nil
+            didDrag = false
+        }
+        guard !didDrag, let start = mouseDownScreen else { return }
+        if Self.isClick(from: start, to: NSEvent.mouseLocation) {
+            onOpenPopover?()
+        }
+    }
+
+    override func rightMouseDown(with event: NSEvent) {
+        showContextMenu(event)
+    }
+
+    private func showContextMenu(_ event: NSEvent) {
+        onHoverChange?(false)
+        NSApp.activate(ignoringOtherApps: true)
+        let l = L(languageProvider())
+        let menu = NSMenu(title: "")
+        menu.autoenablesItems = false
+        let open = menu.addItem(withTitle: l.floatingPetMenuOpen,
+                                action: #selector(handleOpen(_:)), keyEquivalent: "")
+        open.target = self
+        open.isEnabled = true
+        let hide = menu.addItem(withTitle: l.floatingPetMenuHide,
+                                action: #selector(handleHide(_:)), keyEquivalent: "")
+        hide.target = self
+        hide.isEnabled = true
+        NSMenu.popUpContextMenu(menu, with: event, for: self)
+    }
+
+    @objc func handleOpen(_ sender: Any?) { onOpenPopover?() }
+    @objc func handleHide(_ sender: Any?) { onHide?() }
 }
 
-/// 패널 콘텐츠 — 현재 컴패니언(알 포함)을 설정 크기로 표시. 종/이로치/크기 변경은 environment 관찰로 자동 반영.
-/// `animated`=false(저전력 모드)면 정적 스프라이트로 고정. 애니메이션 시엔 fps 하한 0.4s(≈2.5fps)로
-/// 캡 — 항상 떠 있는 표면이라 메뉴바 GIF 규율과 동일하게 idle wakeup 을 통제한다.
 struct FloatingPetView: View {
-    /// GIF fps 하한(초). >0 필수 — 0 이면 네이티브 fps 로 새어 메뉴바에서 고친 idle wakeup 회귀가 재발한다.
-    /// 상시 표시 표면이라 메뉴바와 동일한 0.4s(≈2.5fps) 캡. 값 조정 시 여기 한 곳만 — 회귀 가드는 `frameFloor>0`.
     static let frameFloor: TimeInterval = 0.4
     var animated: Bool = true
     @Environment(UsageStore.self) private var store
@@ -197,8 +373,6 @@ struct FloatingPetView: View {
         let size = CGFloat(store.floatingPetSize)
         VStack(spacing: 8) {
             if let alert = store.currentBubbleAlert {
-                // Prefer CompanionStore.language — same source Settings writes; avoids the
-                // notification-mirror seed on UsageStore.
                 SpeechBubbleView(alert: alert, l: L(companion.language))
                     .transition(.scale(scale: 0.8, anchor: .bottom).combined(with: .opacity))
                     .zIndex(1)
@@ -210,12 +384,20 @@ struct FloatingPetView: View {
                 .zIndex(0)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
-        // Low Power Mode skips the *insertion* animation; the bubble itself still appears.
-        .animation(animated ? .spring(response: 0.3, dampingFraction: 0.7) : nil, value: store.currentBubbleAlert)
+        .animation(animated ? .spring(response: 0.3, dampingFraction: 0.7) : nil,
+                   value: store.currentBubbleAlert)
+    }
+
+    static func hoverTooltip(todayTokens: Int, limitUtilization: Double?, l: L) -> String {
+        let usage = TokenFormatter.grouped(todayTokens)
+        if let pct = limitUtilization {
+            return l.floatingPetHoverWithLimit(usage, TokenFormatter.percent(pct))
+        }
+        return l.floatingPetHoverTokensOnly(usage)
     }
 }
 
-/// A transient speech bubble that shows limit alerts above the pet.
+/// Transient limit-alert bubble. Width is capped so ko/en/ja wrap instead of clipping the panel.
 private struct SpeechBubbleView: View {
     let alert: UsageStore.LimitAlert
     let l: L
@@ -229,8 +411,10 @@ private struct SpeechBubbleView: View {
                 .font(.system(size: 10))
                 .foregroundColor(.secondary)
                 .lineLimit(2)
+                .fixedSize(horizontal: false, vertical: true)
         }
-        .padding(.horizontal, 10)
+        .frame(width: FloatingPetController.bubbleContentWidth, alignment: .leading)
+        .padding(.horizontal, FloatingPetController.bubbleHorizontalPadding)
         .padding(.vertical, 6)
         .background(
             RoundedRectangle(cornerRadius: 12, style: .continuous)
@@ -238,7 +422,6 @@ private struct SpeechBubbleView: View {
                 .shadow(color: .black.opacity(0.15), radius: 4, y: 2)
         )
         .overlay(
-            // Bubble tail pointing down
             Path { path in
                 path.move(to: CGPoint(x: 10, y: 0))
                 path.addLine(to: CGPoint(x: 20, y: 0))
@@ -249,7 +432,6 @@ private struct SpeechBubbleView: View {
             .offset(y: 5),
             alignment: .bottom
         )
-        .padding(.bottom, 6) // Space for the tail
-        .fixedSize(horizontal: true, vertical: false)
+        .padding(.bottom, 6)
     }
 }

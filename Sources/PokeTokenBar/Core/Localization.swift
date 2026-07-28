@@ -118,6 +118,18 @@ struct L {
     var floatingPetBubbleAlertsLabel: String {
         t("한도 알림을 말풍선으로", "Limit alerts as bubbles", "上限アラートを吹き出しで")
     }
+    var floatingPetMenuOpen: String { t("토큰 바 열기", "Open Token Bar", "トークンバーを開く") }
+    var floatingPetMenuHide: String {
+        t("플로팅 펫 끄기", "Turn off floating pet", "フローティングペットをオフ")
+    }
+    func floatingPetHoverTokensOnly(_ tokens: String) -> String {
+        t("오늘 \(tokens) 토큰", "Today: \(tokens) tokens", "今日: \(tokens) トークン")
+    }
+    func floatingPetHoverWithLimit(_ tokens: String, _ percent: String) -> String {
+        t("오늘 \(tokens) 토큰 (한도 \(percent))",
+          "Today: \(tokens) tokens (limit \(percent))",
+          "今日: \(tokens) トークン（上限 \(percent)）")
+    }
 
     var disableKeychain: String { t("Keychain 접근 끄기", "Disable Keychain access", "Keychainアクセスを無効化") }
     var disableKeychainHint: String { t("켜면 Keychain 접근 허용 팝업이 더 안 뜹니다 — 공식 한도(%)만 숨겨지고 토큰·비용은 그대로", "When on, no more Keychain permission pop-ups — only official limits (%) are hidden; tokens/cost stay", "オンにするとKeychain許可のポップアップが出なくなります — 公式上限(%)のみ非表示、トークン・費用はそのまま") }
