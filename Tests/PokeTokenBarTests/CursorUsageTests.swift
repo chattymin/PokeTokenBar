@@ -117,6 +117,76 @@ final class CursorUsageTests: XCTestCase {
         XCTAssertEqual(second.entries.first?.id, "cursor|bubbleId:tab:new")
     }
 
+    /// Transient open/prepare failure must not look like a DB shrink — keep the watermark
+    /// and leave didReset false so the in-memory cache is not wiped to zero for a cycle.
+    func testCursorUnreadableDatabaseKeepsWatermarkAndDoesNotReset() throws {
+        let database = temporaryDirectory.appendingPathComponent("state.vscdb")
+        try execute(database, sql: """
+        CREATE TABLE cursorDiskKV (key TEXT UNIQUE ON CONFLICT REPLACE, value BLOB);
+        INSERT INTO cursorDiskKV VALUES (
+            'bubbleId:tab:a',
+            '{"tokenCount":{"inputTokens":100,"outputTokens":50},"createdAt":"2026-01-04T10:00:00.000Z","modelType":"gpt-4o"}'
+        );
+        """)
+        let first = LocalAdditionalUsageReader.cursorEntries(
+            modifiedSince: try date("2026-01-01T00:00:00Z"),
+            roots: [temporaryDirectory])
+        let watermark = first.highWaterRowID
+        XCTAssertGreaterThan(watermark, 0)
+
+        // Corrupt the file so SQLite open/prepare fails (owner repro: non-database bytes).
+        try Data("not-a-sqlite-database".utf8).write(to: database, options: .atomic)
+
+        let second = LocalAdditionalUsageReader.cursorEntries(
+            modifiedSince: try date("2026-01-01T00:00:00Z"),
+            afterRowID: watermark,
+            roots: [temporaryDirectory])
+        XCTAssertFalse(second.didReset, "failed read must not be treated as a shrink")
+        XCTAssertEqual(
+            second.highWaterRowID, watermark,
+            "watermark must survive an unreadable cycle")
+        XCTAssertTrue(second.entries.isEmpty)
+    }
+
+    /// Resetting one root must cold-rescan every root so the cache replacement payload
+    /// still contains history from roots that were only scanned incrementally.
+    func testCursorResetInOneRootKeepsOtherRootHistory() throws {
+        let rootA = temporaryDirectory.appendingPathComponent("CursorA")
+        let rootB = temporaryDirectory.appendingPathComponent("CursorB")
+        try FileManager.default.createDirectory(at: rootA, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: rootB, withIntermediateDirectories: true)
+
+        try seedBubbles(in: rootA.appendingPathComponent("state.vscdb"), prefix: "a", count: 5)
+        try seedBubbles(in: rootB.appendingPathComponent("state.vscdb"), prefix: "b", count: 5)
+
+        let since = try date("2026-01-01T00:00:00Z")
+        let first = LocalAdditionalUsageReader.cursorEntries(
+            modifiedSince: since, roots: [rootA, rootB])
+        XCTAssertEqual(first.entries.count, 10)
+        XCTAssertFalse(first.didReset)
+        let marks = first.highWaterByPath
+        XCTAssertEqual(marks.count, 2)
+
+        // Rewrite only root B with a lower max(rowid) — Stable+Nightly style dual-root reset.
+        let dbB = rootB.appendingPathComponent("state.vscdb")
+        try FileManager.default.removeItem(at: dbB)
+        try seedBubbles(in: dbB, prefix: "b-new", count: 1)
+
+        let second = LocalAdditionalUsageReader.cursorEntries(
+            modifiedSince: since,
+            afterRowIDByPath: marks,
+            roots: [rootA, rootB])
+        XCTAssertTrue(second.didReset)
+        let aIDs = second.entries.map(\.id).filter { $0.contains("bubbleId:a:") }
+        XCTAssertEqual(
+            aIDs.count, 5,
+            "root A history must be in the reset payload (got \(second.entries.map(\.id)))")
+        XCTAssertEqual(second.entries.filter { $0.id.contains("bubbleId:b-new:") }.count, 1)
+        XCTAssertFalse(
+            second.entries.contains { $0.id.contains("bubbleId:b:") && !$0.id.contains("b-new") },
+            "old root B bubbles must not linger after its rewrite")
+    }
+
     func testCursorSkipsBubblesBeforeModifiedSince() throws {
         let database = temporaryDirectory.appendingPathComponent("state.vscdb")
         try execute(database, sql: """
@@ -336,6 +406,21 @@ final class CursorUsageTests: XCTestCase {
 
     private func date(_ value: String) throws -> Date {
         try XCTUnwrap(ISO8601DateFormatter().date(from: value))
+    }
+
+    private func seedBubbles(in database: URL, prefix: String, count: Int) throws {
+        var statements = [
+            "CREATE TABLE cursorDiskKV (key TEXT UNIQUE ON CONFLICT REPLACE, value BLOB);"
+        ]
+        for i in 0..<count {
+            let key = "bubbleId:\(prefix):\(i)"
+            let json = """
+            {"tokenCount":{"inputTokens":\(10 + i),"outputTokens":5},"createdAt":"2026-01-04T10:\(String(format: "%02d", i)):00.000Z","modelType":"gpt-4o"}
+            """
+            let escaped = json.replacingOccurrences(of: "'", with: "''")
+            statements.append("INSERT INTO cursorDiskKV VALUES ('\(key)', '\(escaped)');")
+        }
+        try execute(database, sql: statements.joined(separator: "\n"))
     }
 
     private func execute(_ databaseURL: URL, sql: String) throws {

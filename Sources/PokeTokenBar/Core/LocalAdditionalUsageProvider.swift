@@ -327,13 +327,50 @@ enum LocalAdditionalUsageReader {
         roots: [URL]? = nil
     ) -> CursorLoadResult {
         let sourceRoots = roots ?? defaultCursorRoots
+        let marks = Self.cursorWatermarks(
+            roots: sourceRoots, afterRowID: afterRowID, afterRowIDByPath: afterRowIDByPath)
+        var result = scanCursorRoots(sourceRoots, modifiedSince: modifiedSince, marks: marks)
+        if result.didReset {
+            // A partial incremental payload must not replace the cache — rescan every root cold.
+            // Keep didReset=true so the provider cache discards `existing` rather than merging.
+            let recovered = scanCursorRoots(sourceRoots, modifiedSince: modifiedSince, marks: [:])
+            result = CursorLoadResult(
+                entries: recovered.entries,
+                highWaterByPath: recovered.highWaterByPath,
+                didReset: true)
+        }
+        return result
+    }
+
+    /// Resolve per-database watermarks. An empty marks map means cold-scan every root.
+    private static func cursorWatermarks(
+        roots: [URL],
+        afterRowID: Int64,
+        afterRowIDByPath: [String: Int64]?
+    ) -> [String: Int64] {
+        if let afterRowIDByPath { return afterRowIDByPath }
+        guard afterRowID > 0 else { return [:] }
+        return Dictionary(uniqueKeysWithValues: roots.map { root in
+            (cursorDatabaseURL(from: root).path, afterRowID)
+        })
+    }
+
+    private static func cursorDatabaseURL(from root: URL) -> URL {
+        root.pathExtension == "vscdb" ? root : root.appendingPathComponent("state.vscdb")
+    }
+
+    private static func scanCursorRoots(
+        _ sourceRoots: [URL],
+        modifiedSince: Date,
+        marks: [String: Int64]
+    ) -> CursorLoadResult {
         var entries: [LocalUsageReader.Entry] = []
         var highWaterByPath: [String: Int64] = [:]
         var didReset = false
         for root in sourceRoots {
-            let database = root.pathExtension == "vscdb" ? root : root.appendingPathComponent("state.vscdb")
+            let database = cursorDatabaseURL(from: root)
             let pathKey = database.path
-            let watermark = afterRowIDByPath?[pathKey] ?? afterRowID
+            let watermark = marks[pathKey] ?? 0
             let loaded = cursorDatabaseEntries(database, modifiedSince: modifiedSince, afterRowID: watermark)
             entries += loaded.entries
             highWaterByPath[pathKey] = loaded.highWaterRowID
@@ -371,7 +408,12 @@ enum LocalAdditionalUsageReader {
         // Cold start (afterRowID == 0): GLOB uses the key index over bubbleId:* only.
         // Incremental: NOT INDEXED + rowid > ? forces a rowid walk of *new* rows only.
         // Without NOT INDEXED, SQLite prefers the key index and re-walks all bubble keys.
-        let maxRowID = scalarInt64(database, sql: "SELECT MAX(rowid) FROM cursorDiskKV") ?? 0
+        //
+        // A failed MAX(rowid) is *not* a shrink: open/prepare can fail while Cursor writes
+        // state.vscdb. Collapsing nil → 0 would wipe the cache for up to one refreshInterval.
+        guard let maxRowID = scalarInt64(database, sql: "SELECT MAX(rowid) FROM cursorDiskKV") else {
+            return CursorDatabaseLoad(entries: [], highWaterRowID: afterRowID, didReset: false)
+        }
         let didReset = afterRowID > 0 && maxRowID < afterRowID
         let effectiveAfter = didReset ? 0 : afterRowID
 
@@ -388,14 +430,19 @@ enum LocalAdditionalUsageReader {
             bind = effectiveAfter
         }
 
-        var highWater: Int64 = 0
-        let rows = query(database, sql: sql, bindInt64: bind) { statement -> (Int64, LocalUsageReader.Entry?) in
+        // Incomplete scans (BUSY / interrupt) return nil — keep the prior watermark.
+        guard let rows = query(database, sql: sql, bindInt64: bind, row: {
+            statement -> (Int64, LocalUsageReader.Entry?) in
             let rowID = sqlite3_column_int64(statement, 0)
             let entry = parseCursorBubbleRow(statement, modifiedSince: modifiedSince)
             return (rowID, entry)
+        }) else {
+            return CursorDatabaseLoad(entries: [], highWaterRowID: afterRowID, didReset: false)
         }
+
+        var highWater: Int64 = 0
         var entries: [LocalUsageReader.Entry] = []
-        for (rowID, entry) in rows ?? [] {
+        for (rowID, entry) in rows {
             highWater = max(highWater, rowID)
             if let entry { entries.append(entry) }
         }
@@ -581,10 +628,18 @@ enum LocalAdditionalUsageReader {
         if let bindInt64 { sqlite3_bind_int64(statement, 1, bindInt64) }
 
         var result: [T] = []
-        while sqlite3_step(statement) == SQLITE_ROW {
-            autoreleasepool {
-                if let value = row(statement) { result.append(value) }
+        while true {
+            let step = sqlite3_step(statement)
+            if step == SQLITE_ROW {
+                autoreleasepool {
+                    if let value = row(statement) { result.append(value) }
+                }
+                continue
             }
+            // Distinguish a finished scan from BUSY / interrupt — partial rows must not
+            // advance the Cursor watermark past bubbles we never read.
+            guard step == SQLITE_DONE else { return nil }
+            break
         }
         return result
     }
