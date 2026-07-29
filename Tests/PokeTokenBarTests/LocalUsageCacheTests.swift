@@ -26,6 +26,27 @@ final class LocalUsageCacheTests: XCTestCase {
         """
     }
 
+    private func codexLine(ts: String, output: Int = 50) -> String {
+        """
+        {"type":"event_msg","timestamp":"\(ts)","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":1000,"cached_input_tokens":200,"cache_write_input_tokens":0,"output_tokens":\(output),"reasoning_output_tokens":10,"total_tokens":\(1000 + output)}}}}
+        """
+    }
+
+    private func forkedSessionMeta(ts: String) -> String {
+        """
+        {"type":"session_meta","timestamp":"\(ts)","payload":{"id":"child","forked_from_id":"parent","parent_thread_id":"parent","thread_source":"subagent"}}
+        """
+    }
+
+    private func forkedCodexLines() -> [String] {
+        [
+            forkedSessionMeta(ts: "2026-07-29T01:00:00.000Z"),
+            codexLine(ts: "2026-07-29T01:00:00.010Z", output: 50),
+            codexLine(ts: "2026-07-29T01:00:00.020Z", output: 51),
+            codexLine(ts: "2026-07-29T01:00:03.000Z", output: 52),
+        ]
+    }
+
     @discardableResult
     private func writeFile(_ name: String, lines: [String], mtime: Date? = nil) throws -> URL {
         let url = root.appendingPathComponent(name)
@@ -68,6 +89,51 @@ final class LocalUsageCacheTests: XCTestCase {
                       mtime: Date().addingTimeInterval(10))
         let second = await cache.claudeEntries(modifiedSince: since)
         XCTAssertEqual(second.map(\.output), [999])
+    }
+
+    func testCodexCacheDropsForkedReplayBurst() async throws {
+        try writeFile("rollout-child.jsonl", lines: forkedCodexLines())
+
+        let entries = await makeCache().codexEntries(modifiedSince: since)
+
+        XCTAssertEqual(entries.count, 1)
+        XCTAssertEqual(entries[0].output, 52)
+    }
+
+    func testCodexCacheInvalidatesOutdatedParserVersion() async throws {
+        try writeFile("rollout-child.jsonl", lines: forkedCodexLines())
+
+        _ = await makeCache().codexEntries(modifiedSince: since)
+        try rewriteCodexCacheAsOutdatedParserVersion()
+
+        let entries = await makeCache().codexEntries(modifiedSince: since)
+
+        XCTAssertEqual(entries.count, 1)
+        XCTAssertEqual(entries[0].output, 52)
+    }
+
+    private func rewriteCodexCacheAsOutdatedParserVersion() throws {
+        let raw = try Data(contentsOf: cacheFile)
+        let plain = (try? (raw as NSData).decompressed(using: .zlib) as Data) ?? raw
+        var snapshot = try XCTUnwrap(JSONSerialization.jsonObject(with: plain) as? [String: Any])
+        var codex = try XCTUnwrap(snapshot["codex"] as? [String: Any])
+
+        for (path, value) in codex {
+            var blob = try XCTUnwrap(value as? [String: Any])
+            var entries = try XCTUnwrap(blob["entries"] as? [[String: Any]])
+            if var replay = entries.first {
+                replay["id"] = "codex|legacy|\(path)"
+                entries.append(replay)
+            }
+            blob["entries"] = entries
+            codex[path] = blob
+        }
+        snapshot["codex"] = codex
+        snapshot["codexParserVersion"] = 0
+
+        let data = try JSONSerialization.data(withJSONObject: snapshot)
+        let compressed = try (data as NSData).compressed(using: .zlib) as Data
+        try compressed.write(to: cacheFile, options: .atomic)
     }
 
     /// 디스크 영속: 새 인스턴스(콜드 스타트 시뮬레이션)가 스냅샷을 로드해 같은 결과를 낸다.

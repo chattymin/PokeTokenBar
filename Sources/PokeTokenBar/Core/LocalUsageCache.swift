@@ -13,11 +13,13 @@ actor LocalUsageCache {
         var claude: [String: Blob]
         var codex: [String: Blob]
         var gemini: [String: Blob]
+        var codexParserVersion: Int
 
-        init(claude: [String: Blob], codex: [String: Blob], gemini: [String: Blob]) {
+        init(claude: [String: Blob], codex: [String: Blob], gemini: [String: Blob], codexParserVersion: Int) {
             self.claude = claude
             self.codex = codex
             self.gemini = gemini
+            self.codexParserVersion = codexParserVersion
         }
 
         // 하위호환: gemini 키가 없는 구버전 스냅샷도 로드(콜드 스타트 재발 방지).
@@ -26,8 +28,12 @@ actor LocalUsageCache {
             claude = try c.decodeIfPresent([String: Blob].self, forKey: .claude) ?? [:]
             codex = try c.decodeIfPresent([String: Blob].self, forKey: .codex) ?? [:]
             gemini = try c.decodeIfPresent([String: Blob].self, forKey: .gemini) ?? [:]
+            codexParserVersion = try c.decodeIfPresent(Int.self, forKey: .codexParserVersion) ?? 0
         }
     }
+
+    /// forked rollout의 선행 replay burst 처리 변경 시 Codex blob만 재파싱한다.
+    private static let codexParserVersion = 1
 
     private var claudeCache: [String: Blob] = [:]
     private var codexCache: [String: Blob] = [:]
@@ -131,6 +137,11 @@ actor LocalUsageCache {
         claudeCache = snap.claude
         codexCache = snap.codex
         geminiCache = snap.gemini
+
+        if snap.codexParserVersion != Self.codexParserVersion {
+            codexCache = [:]
+            dirty = true
+        }
     }
 
     /// 어떤 조회 윈도우(오늘/주/월)에도 들지 않는 오래된 파일 blob 을 제거해 캐시 무한 증가를 막는다.
@@ -147,7 +158,11 @@ actor LocalUsageCache {
         guard dirty else { return }
         if let last = lastSave, now().timeIntervalSince(last) < 60 { return }
         prune()
-        let snap = Snapshot(claude: claudeCache, codex: codexCache, gemini: geminiCache)
+        let snap = Snapshot(
+            claude: claudeCache,
+            codex: codexCache,
+            gemini: geminiCache,
+            codexParserVersion: Self.codexParserVersion)
         if let data = try? JSONEncoder().encode(snap) {
             // JSON 은 zlib 로 크게 압축됨(수 MB → 수백 KB). 실패 시 평문 저장(로드가 양쪽 다 처리).
             let out = (try? (data as NSData).compressed(using: .zlib) as Data) ?? data

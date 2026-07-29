@@ -68,11 +68,22 @@ final class LocalUsageReaderTests: XCTestCase {
 
     // MARK: Codex 파싱 (input=total−cached, cacheRead=cached, output, cacheWrite=0)
 
+    private func codexLine(ts: String, input: Int = 1_000, cached: Int = 200,
+                           output: Int = 50, reasoning: Int = 10, cacheWrite: Int = 0) -> String {
+        return """
+        {"type":"event_msg","timestamp":"\(ts)","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":\(input),"cached_input_tokens":\(cached),"cache_write_input_tokens":\(cacheWrite),"output_tokens":\(output),"reasoning_output_tokens":\(reasoning),"total_tokens":\(input + output)}}}}
+        """
+    }
+
+    private func forkedSessionMeta(ts: String) -> String {
+        """
+        {"type":"session_meta","timestamp":"\(ts)","payload":{"id":"child","forked_from_id":"parent","parent_thread_id":"parent","thread_source":"subagent"}}
+        """
+    }
+
     func testCodexParsing() {
         let dir = tempDir()
-        let line = """
-        {"type":"event_msg","timestamp":"2026-06-30T11:00:00.000Z","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":1000,"cached_input_tokens":200,"output_tokens":50,"reasoning_output_tokens":10,"total_tokens":1050}}}}
-        """
+        let line = codexLine(ts: "2026-06-30T11:00:00.000Z")
         write([line], to: dir, name: "rollout-x.jsonl", sub: "2026/06/30")
         let entries = LocalUsageReader.codexEntries(modifiedSince: .distantPast, root: dir)
         XCTAssertEqual(entries.count, 1)
@@ -81,6 +92,21 @@ final class LocalUsageReaderTests: XCTestCase {
         XCTAssertEqual(e.cacheRead, 200)
         XCTAssertEqual(e.output, 50)
         XCTAssertEqual(e.cacheWrite, 0)
+    }
+
+    func testCodexForkedRolloutDropsLeadingReplayBurst() {
+        let dir = tempDir()
+        write([
+            forkedSessionMeta(ts: "2026-07-29T01:00:00.000Z"),
+            codexLine(ts: "2026-07-29T01:00:00.010Z", output: 50),
+            codexLine(ts: "2026-07-29T01:00:00.020Z", output: 51),
+            codexLine(ts: "2026-07-29T01:00:03.000Z", output: 52),
+        ], to: dir, name: "rollout-child.jsonl", sub: "child")
+
+        let entries = LocalUsageReader.codexEntries(modifiedSince: .distantPast, root: dir)
+
+        XCTAssertEqual(entries.count, 1)
+        XCTAssertEqual(entries[0].output, 52)
     }
 
     // MARK: 기간 집계 + 활성 블록

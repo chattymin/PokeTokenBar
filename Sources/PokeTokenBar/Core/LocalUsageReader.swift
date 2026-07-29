@@ -138,15 +138,32 @@ enum LocalUsageReader {
         guard let text = try? String(contentsOf: url, encoding: .utf8) else { return [] }
         var entries: [Entry] = []
         var turn = 0
+        var isFirstLine = true
+        var replayTimestamp: Date?
         // 실모델은 아래 codexModel 이 로그에서 동적 추출(신모델 자동 대응). 이 값은 세션에 model 라인이
         // 아예 없을 때만 쓰는 버전무관 폴백 — Codex 비용은 항상 0이라 표시 숫자엔 영향 없다(업데이트 불필요).
         var model = "codex"
         for line in text.split(separator: "\n", omittingEmptySubsequences: true) {
             autoreleasepool {   // JSONSerialization 의 autoreleased 객체를 라인마다 배출(콜드 파싱 피크 억제)
-                if line.contains("\"model\""), let m = codexModel(String(line)) { model = m }
+                let record = String(line)
+                if isFirstLine {
+                    isFirstLine = false
+                    replayTimestamp = forkedSessionMetaTimestamp(record)
+                }
+                if line.contains("\"model\""), let m = codexModel(record) { model = m }
                 guard line.contains("token_count") else { return }
-                guard let e = parseCodexLine(String(line), file: url.lastPathComponent, turn: turn, model: model, fmt: fmt) else { return }
-                turn += 1
+                guard let e = parseCodexLine(record, file: url.lastPathComponent, turn: turn, model: model, fmt: fmt) else { return }
+                defer { turn += 1 }
+
+                // forked rollout은 파일 시작 직후 부모 이력의 token_count를 timestamp만 바꿔 재생한다.
+                // 연속 이벤트 간 2초 이상 빈 구간부터 실제 child turn으로 간주한다.
+                if let previous = replayTimestamp {
+                    if e.date.timeIntervalSince(previous) < 2 {
+                        replayTimestamp = e.date
+                        return
+                    }
+                    replayTimestamp = nil
+                }
                 entries.append(e)
             }
         }
@@ -160,6 +177,17 @@ enum LocalUsageReader {
             entries.append(contentsOf: parseCodexFile(file, fmt: fmt))
         }
         return entries
+    }
+
+    private static func forkedSessionMetaTimestamp(_ line: String) -> Date? {
+        guard let data = line.data(using: .utf8),
+              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              (obj["type"] as? String) == "session_meta",
+              let payload = obj["payload"] as? [String: Any],
+              let timestamp = obj["timestamp"] as? String,
+              ((payload["forked_from_id"] as? String)?.isEmpty == false
+                  || (payload["parent_thread_id"] as? String)?.isEmpty == false) else { return nil }
+        return ISO8601Parser.date(from: timestamp)
     }
 
     private static func parseCodexLine(_ line: String, file: String, turn: Int, model: String, fmt: DateFormatter) -> Entry? {
@@ -176,7 +204,8 @@ enum LocalUsageReader {
         let output = intValue(last["output_tokens"])
         let nonCachedInput = max(0, inputTotal - cached)
         return Entry(
-            id: "codex|\(file)|\(turn)", date: date, localDay: fmt.string(from: date), model: model,
+            id: "codex|\(file)|\(turn)",
+            date: date, localDay: fmt.string(from: date), model: model,
             input: nonCachedInput, output: output, cacheWrite: 0, cacheRead: cached)
     }
 
