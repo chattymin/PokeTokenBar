@@ -89,6 +89,12 @@ final class LocalUsageReaderTests: XCTestCase {
         """
     }
 
+    private func forkedSubagentSessionMeta(ts: String) -> String {
+        """
+        {"type":"session_meta","timestamp":"\(ts)","payload":{"id":"child","parent_thread_id":"parent","thread_source":"subagent","cli_version":"0.145.0"}}
+        """
+    }
+
     func testCodexParsing() {
         let dir = tempDir()
         let line = codexLine(ts: "2026-06-30T11:00:00.000Z")
@@ -115,6 +121,53 @@ final class LocalUsageReaderTests: XCTestCase {
 
         XCTAssertEqual(entries.count, 1)
         XCTAssertEqual(entries[0].output, 52)
+    }
+
+    func testCodexForkDropsReplayBurstThatStartsAfterMetadataDelay() {
+        let dir = tempDir()
+        write([
+            forkedSubagentSessionMeta(ts: "2026-07-29T01:00:00.000Z"),
+            codexLine(ts: "2026-07-29T01:00:03.000Z", output: 1),
+            codexLine(ts: "2026-07-29T01:00:03.010Z", output: 2),
+            codexLine(ts: "2026-07-29T01:00:03.020Z", output: 3),
+            codexLine(ts: "2026-07-29T01:00:43.000Z", output: 99),
+        ], to: dir, name: "rollout-child.jsonl", sub: "child")
+
+        let entries = LocalUsageReader.codexEntries(modifiedSince: .distantPast, root: dir)
+
+        XCTAssertEqual(entries.map(\.output), [99])
+    }
+
+    func testCodexForkKeepsRealTurnsAfterReplayBurstWhenTheyAreLessThanTwoSecondsApart() {
+        let dir = tempDir()
+        write([
+            forkedSubagentSessionMeta(ts: "2026-07-29T01:00:00.000Z"),
+            codexLine(ts: "2026-07-29T01:00:00.010Z", output: 1),
+            codexLine(ts: "2026-07-29T01:00:00.020Z", output: 2),
+            codexLine(ts: "2026-07-29T01:00:00.030Z", output: 3),
+            codexLine(ts: "2026-07-29T01:00:01.530Z", output: 11),
+            codexLine(ts: "2026-07-29T01:00:03.030Z", output: 22),
+            codexLine(ts: "2026-07-29T01:00:04.530Z", output: 33),
+            codexLine(ts: "2026-07-29T01:01:00.000Z", output: 44),
+        ], to: dir, name: "rollout-child.jsonl", sub: "child")
+
+        let entries = LocalUsageReader.codexEntries(modifiedSince: .distantPast, root: dir)
+
+        XCTAssertEqual(entries.map(\.output), [11, 22, 33, 44])
+    }
+
+    func testCodexForkDetectsMetadataAfterLeadingNonTokenRecord() {
+        let dir = tempDir()
+        write([
+            #"{"type":"turn_context","timestamp":"2026-07-29T01:00:00.000Z","payload":{}}"#,
+            forkedSubagentSessionMeta(ts: "2026-07-29T01:00:00.001Z"),
+            codexLine(ts: "2026-07-29T01:00:00.010Z", output: 1),
+            codexLine(ts: "2026-07-29T01:00:03.000Z", output: 99),
+        ], to: dir, name: "rollout-child.jsonl", sub: "child")
+
+        let entries = LocalUsageReader.codexEntries(modifiedSince: .distantPast, root: dir)
+
+        XCTAssertEqual(entries.map(\.output), [99])
     }
 
     func testCodexManualForkFixtureKeepsOnlyPostReplayUsage() throws {

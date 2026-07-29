@@ -13,6 +13,8 @@ enum LocalUsageReader {
 
     /// 활성 블록(번 레이트)과 enrichment 스캔 하한이 공유하는 5시간 롤링 윈도우 길이.
     static let blockWindow: TimeInterval = 5 * 3600
+    /// Fork replay는 수 ms 간격으로 기록된다. 이보다 긴 첫 공백부터는 실제 child turn으로 본다.
+    private static let forkReplayMaximumGap: TimeInterval = 1
 
     // MARK: 정규화 레코드
 
@@ -138,7 +140,8 @@ enum LocalUsageReader {
         guard let text = try? String(contentsOf: url, encoding: .utf8) else { return [] }
         var entries: [Entry] = []
         var turn = 0
-        var isFirstLine = true
+        var isScanningInitialMetadata = true
+        var isForked = false
         var replayTimestamp: Date?
         // 실모델은 아래 codexModel 이 로그에서 동적 추출(신모델 자동 대응). 이 값은 세션에 model 라인이
         // 아예 없을 때만 쓰는 버전무관 폴백 — Codex 비용은 항상 0이라 표시 숫자엔 영향 없다(업데이트 불필요).
@@ -146,19 +149,26 @@ enum LocalUsageReader {
         for line in text.split(separator: "\n", omittingEmptySubsequences: true) {
             autoreleasepool {   // JSONSerialization 의 autoreleased 객체를 라인마다 배출(콜드 파싱 피크 억제)
                 let record = String(line)
-                if isFirstLine {
-                    isFirstLine = false
-                    replayTimestamp = forkedSessionMetaTimestamp(record)
+                if isScanningInitialMetadata, isForkedSessionMeta(record) {
+                    isForked = true   // child meta 뒤 parent meta가 재삽입돼도 fork 판정을 되돌리지 않는다.
                 }
                 if line.contains("\"model\""), let m = codexModel(record) { model = m }
                 guard line.contains("token_count") else { return }
                 guard let e = parseCodexLine(record, file: url.lastPathComponent, turn: turn, model: model, fmt: fmt) else { return }
                 defer { turn += 1 }
 
-                // forked rollout은 파일 시작 직후 부모 이력의 token_count를 timestamp만 바꿔 재생한다.
-                // 연속 이벤트 간 2초 이상 빈 구간부터 실제 child turn으로 간주한다.
+                // forked rollout의 첫 token_count는 부모 이력 replay다. session_meta 기록 시각은 디스크 지연에
+                // 영향받으므로 anchor로 쓰지 않는다. replay 내부는 수 ms 간격이고, 첫 1초 이상 공백부터는
+                // 실제 child turn으로 간주해 이후의 빠른 turn도 모두 보존한다.
+                if isScanningInitialMetadata {
+                    isScanningInitialMetadata = false
+                    if isForked {
+                        replayTimestamp = e.date
+                        return
+                    }
+                }
                 if let previous = replayTimestamp {
-                    if e.date.timeIntervalSince(previous) < 2 {
+                    if e.date.timeIntervalSince(previous) < Self.forkReplayMaximumGap {
                         replayTimestamp = e.date
                         return
                     }
@@ -179,15 +189,14 @@ enum LocalUsageReader {
         return entries
     }
 
-    private static func forkedSessionMetaTimestamp(_ line: String) -> Date? {
+    private static func isForkedSessionMeta(_ line: String) -> Bool {
         guard let data = line.data(using: .utf8),
               let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               (obj["type"] as? String) == "session_meta",
               let payload = obj["payload"] as? [String: Any],
-              let timestamp = obj["timestamp"] as? String,
               ((payload["forked_from_id"] as? String)?.isEmpty == false
-                  || (payload["parent_thread_id"] as? String)?.isEmpty == false) else { return nil }
-        return ISO8601Parser.date(from: timestamp)
+                  || (payload["parent_thread_id"] as? String)?.isEmpty == false) else { return false }
+        return true
     }
 
     private static func parseCodexLine(_ line: String, file: String, turn: Int, model: String, fmt: DateFormatter) -> Entry? {

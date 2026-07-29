@@ -104,7 +104,7 @@ final class LocalUsageCacheTests: XCTestCase {
         try writeFile("rollout-child.jsonl", lines: forkedCodexLines())
 
         _ = await makeCache().codexEntries(modifiedSince: since)
-        try rewriteCodexCacheAsOutdatedParserVersion()
+        try rewriteCodexCacheAsPriorParserVersion()
 
         let entries = await makeCache().codexEntries(modifiedSince: since)
 
@@ -112,7 +112,7 @@ final class LocalUsageCacheTests: XCTestCase {
         XCTAssertEqual(entries[0].output, 52)
     }
 
-    private func rewriteCodexCacheAsOutdatedParserVersion() throws {
+    private func rewriteCodexCacheAsPriorParserVersion() throws {
         let raw = try Data(contentsOf: cacheFile)
         let plain = (try? (raw as NSData).decompressed(using: .zlib) as Data) ?? raw
         var snapshot = try XCTUnwrap(JSONSerialization.jsonObject(with: plain) as? [String: Any])
@@ -129,7 +129,7 @@ final class LocalUsageCacheTests: XCTestCase {
             codex[path] = blob
         }
         snapshot["codex"] = codex
-        snapshot["codexParserVersion"] = 0
+        snapshot["codexParserVersion"] = 1
 
         let data = try JSONSerialization.data(withJSONObject: snapshot)
         let compressed = try (data as NSData).compressed(using: .zlib) as Data

@@ -33,7 +33,7 @@ actor LocalUsageCache {
     }
 
     /// forked rollout의 선행 replay burst 처리 변경 시 Codex blob만 재파싱한다.
-    private static let codexParserVersion = 1
+    private static let codexParserVersion = 2
 
     private var claudeCache: [String: Blob] = [:]
     private var codexCache: [String: Blob] = [:]
