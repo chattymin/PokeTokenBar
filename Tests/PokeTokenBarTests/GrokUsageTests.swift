@@ -330,6 +330,20 @@ final class GrokUsageTests: XCTestCase {
         XCTAssertTrue(store.registeredProviderIDs.contains("grok"))
     }
 
+    /// Grok 을 안 쓰는 사용자(세션 디렉토리 없음)에서 프로바이더는 조용히 비어야 한다 —
+    /// 던지면 refresh 전체가 에러로 물들고, 0 을 돌려주면 미사용 프로바이더 탭이 생긴다.
+    /// (스모크: 실제 경로가 없을 때의 경로만 확인한다 — 파싱·집계는 위 픽스처 테스트가 담당.)
+    func testProviderIsSilentWhenNoGrokDataExists() async throws {
+        guard !FileManager.default.fileExists(atPath: LocalUsageReader.grokSessionsDir.path) else {
+            throw XCTSkip("이 기기에 Grok 세션이 있어 '없을 때' 경로를 검증할 수 없다")
+        }
+        let daily = try await LocalGrokProvider().fetchDaily()
+        XCTAssertNil(daily, "세션 디렉토리가 없으면 스냅샷을 만들지 않아야 한다")
+        let enrichment = await LocalGrokProvider().fetchEnrichment()
+        XCTAssertNil(enrichment.activeBlock)
+        XCTAssertEqual(enrichment.weekTotal?.totalTokens, 0)
+    }
+
     /// `$GROK_HOME` 이 설정돼 있으면 그 아래 sessions 를 본다(CLI 와 같은 규칙).
     func testSessionsDirHonoursGrokHomeEnvironment() throws {
         let expected: URL
