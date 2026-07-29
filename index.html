@@ -178,17 +178,24 @@
   .sec-head p { color: var(--muted); margin-top: 14px; font-size: 1.06rem; }
 
   /* ---------- Features grid ---------- */
-  .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; }
+  /* 카드 수가 3의 배수가 아니어도 마지막 줄이 가운데 정렬돼 '빈 칸'으로 보이지 않는다.
+     (grid 3열은 8개일 때 오른쪽에 구멍이 남고, 4열은 카드가 좁아져 본문이 깨진다.) */
+  .grid { display: flex; flex-wrap: wrap; gap: 18px; justify-content: center; }
+  .grid > .feat { flex: 1 1 300px; max-width: calc((100% - 36px) / 3); min-width: 280px; }
   .feat { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); padding: 26px 24px; transition: border-color .15s, transform .15s; }
   .feat:hover { border-color: var(--faint); transform: translateY(-3px); }
-  .feat .ic { width: 44px; height: 44px; border-radius: 11px; display: grid; place-items: center; font-size: 1.4rem; margin-bottom: 16px; }
+  .feat .ic { width: 40px; height: 40px; border-radius: 12px; display: grid; place-items: center;
+    font-size: 1.25rem; margin-bottom: 14px; background: rgba(255,255,255,.055);
+    border: 1px solid rgba(255,255,255,.07); }
   .feat h3 { font-size: 1.12rem; }
-  .feat p { color: var(--muted); margin: 9px 0 0; font-size: 0.97rem; }
+  .feat p { overflow-wrap: anywhere; word-break: keep-all; color: var(--muted); margin: 9px 0 0; font-size: 0.97rem; }
 
   /* ---------- Companion ---------- */
   .companion { background: var(--bg-soft); border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); }
   .steps { display: grid; grid-template-columns: repeat(5, 1fr); gap: 16px; margin-bottom: 50px; }
-  .step { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 22px 18px; text-align: center; position: relative; }
+  .step { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 22px 18px;
+    text-align: center; position: relative; display: flex; flex-direction: column; gap: 8px; }
+  .step p { margin-top: auto; }
   .step .emoji { font-size: 2rem; }
   .step h4 { margin: 12px 0 6px; font-size: 1.02rem; }
   .step p { color: var(--muted); font-size: 0.9rem; margin: 0; }
@@ -272,12 +279,13 @@
   .state-card p { color: var(--muted); font-size: 0.9rem; margin: 0; }
   .gloop { display: flex; align-items: center; justify-content: center; gap: 10px; flex-wrap: wrap; margin: 4px 0 16px; font-weight: 600; font-size: 1.05rem; }
   .gloop .ga { color: var(--red); }
+
   @media (max-width: 820px) { .states { grid-template-columns: 1fr 1fr; } }
   @media (max-width: 600px) { .states { grid-template-columns: 1fr; } }
 
   /* ---------- Responsive ---------- */
   @media (max-width: 900px) {
-    .grid { grid-template-columns: 1fr 1fr; }
+    .grid > .feat { max-width: calc((100% - 18px) / 2); }
     .steps { grid-template-columns: 1fr 1fr; }
     .step .arrow { display: none; }
     .install-grid { grid-template-columns: 1fr; }
@@ -285,12 +293,16 @@
   }
   @media (max-width: 600px) {
     section { padding: 60px 0; }
-    .grid { grid-template-columns: 1fr; }
+    .grid > .feat { max-width: 100%; }
     .companion-shots { grid-template-columns: 1fr; }
     .nav-cta { display: none; }
     .brand span { display: none; }
   }
 
+
+  .specs { margin-top: 22px; display: flex; align-items: center; justify-content: center;
+    gap: 12px; flex-wrap: wrap; color: var(--muted); font-size: .82rem; letter-spacing: .01em; }
+  .specs i { width: 3px; height: 3px; border-radius: 50%; background: currentColor; opacity: .45; }
 </style>
 </head>
 <body>
@@ -331,12 +343,7 @@
       <a class="btn btn-ghost" href="https://github.com/chattymin/PokeTokenBar/releases" target="_blank" rel="noopener" data-i18n="hero.ctaDownload">Download from Releases</a>
     </div>
 
-    <div class="badges">
-      <img src="https://img.shields.io/github/v/release/chattymin/PokeTokenBar?color=e8402f&label=release" alt="Latest release">
-      <img src="https://img.shields.io/badge/macOS-14%2B-2d9cff" alt="macOS 14+">
-      <img src="https://img.shields.io/badge/Swift-6-f05138" alt="Swift 6">
-      <img src="https://img.shields.io/badge/license-MIT-3fb950" alt="MIT license">
-    </div>
+    <p class="specs"><span>macOS 14+</span><i></i><span>Apple silicon &amp; Intel</span><i></i><span>Swift 6</span><i></i><span>MIT</span></p>
 
     <div class="shot reveal">
       <img class="menubar" src="assets/menubar.gif" alt="Menu bar showing an animated companion and today's total tokens">
@@ -371,42 +378,42 @@
     </div>
     <div class="grid">
       <div class="feat reveal">
-        <div class="ic" style="background:rgba(245,166,35,0.14)">📊</div>
+        <div class="ic">📊</div>
         <h3 data-i18n="f1.t">Live token usage</h3>
         <p data-i18n="f1.d">Today's Claude Code + Codex + Gemini + OpenCode + Hermes + Cursor tokens (compact, e.g. 253.4M) — combined total in the menu bar, per-service tabs in the popover.</p>
       </div>
       <div class="feat reveal">
-        <div class="ic" style="background:rgba(232,64,47,0.14)">🛑</div>
+        <div class="ic">🛑</div>
         <h3 data-i18n="f2.t">Official limits</h3>
         <p data-i18n="f2.d">Claude &amp; Codex 5-hour / weekly utilization with live reset countdowns, color-coded as you approach the cap.</p>
       </div>
       <div class="feat reveal">
-        <div class="ic" style="background:rgba(45,156,255,0.14)">📈</div>
+        <div class="ic">📈</div>
         <h3 data-i18n="f3.t">Burn-rate forecast</h3>
         <p data-i18n="f3.d">Projects when your current 5-hour window will hit 100% at the current spend rate — so a wall never surprises you.</p>
       </div>
       <div class="feat reveal">
-        <div class="ic" style="background:rgba(63,185,80,0.14)">🥚</div>
+        <div class="ic">🥚</div>
         <h3 data-i18n="f4.t">Growth companion + Pokédex</h3>
         <p data-i18n="f4.d">Your usage raises a Pokémon that hatches — sometimes, by a rare stroke of luck, Shiny ✨ — evolves through its real line with natures and little celebrations, and fills a Pokédex.</p>
       </div>
       <div class="feat reveal">
-        <div class="ic" style="background:rgba(244,196,48,0.14)">🌐</div>
+        <div class="ic">🌐</div>
         <h3 data-i18n="f5.t">Localized</h3>
         <p data-i18n="f5.d">Full Korean / English / Japanese UI — and Pokémon names in your language, straight from PokéAPI.</p>
       </div>
       <div class="feat reveal">
-        <div class="ic" style="background:rgba(153,162,178,0.16)">🔔</div>
+        <div class="ic">🔔</div>
         <h3 data-i18n="f6.t">Notifications</h3>
         <p data-i18n="f6.d">Alerts when a limit crosses your warning / critical thresholds — and when your companion hatches, evolves, or graduates.</p>
       </div>
       <div class="feat reveal">
-        <div class="ic" style="background:rgba(58,109,240,0.16)">🛒</div>
+        <div class="ic">🛒</div>
         <h3 data-i18n="f7.t">Token Shop</h3>
         <p data-i18n="f7.d">The tokens you've already used become spendable currency — buy Rare Candy to grow your Pokémon, a Mint to re-roll its nature, a Shiny Charm that permanently raises your shiny odds, or a Pokémon Egg to send off your companion and start fresh.</p>
       </div>
       <div class="feat reveal">
-        <div class="ic" style="background:rgba(240,177,58,0.16)">🐾</div>
+        <div class="ic">🐾</div>
         <h3 data-i18n="f8.t">Floating desktop pet</h3>
         <p data-i18n="f8.d">Let your companion live on the desktop instead of the menu bar — hover for today's usage, click to open the popover, right-click for a menu, drag to place it. Notifications can appear as a speech bubble above it.</p>
       </div>
