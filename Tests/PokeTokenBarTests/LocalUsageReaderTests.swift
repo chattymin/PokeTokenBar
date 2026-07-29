@@ -14,6 +14,14 @@ final class LocalUsageReaderTests: XCTestCase {
         try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         try? lines.joined(separator: "\n").write(to: folder.appendingPathComponent(name), atomically: true, encoding: .utf8)
     }
+    private func copyCodexForkFixture(_ name: String, to dir: URL) throws -> URL {
+        let source = try XCTUnwrap(
+            Bundle.module.url(forResource: name, withExtension: "jsonl", subdirectory: "CodexFork")
+        )
+        let destination = dir.appendingPathComponent("\(name).jsonl")
+        try FileManager.default.copyItem(at: source, to: destination)
+        return destination
+    }
 
     // MARK: ModelPricing
 
@@ -107,6 +115,33 @@ final class LocalUsageReaderTests: XCTestCase {
 
         XCTAssertEqual(entries.count, 1)
         XCTAssertEqual(entries[0].output, 52)
+    }
+
+    func testCodexManualForkFixtureKeepsOnlyPostReplayUsage() throws {
+        let child = try copyCodexForkFixture("child", to: tempDir())
+        let entries = LocalUsageReader.parseCodexFile(child, fmt: LocalUsageReader.localDayFormatter())
+
+        // 실제 `codex fork` 파일: child meta(forked_from_id only) 뒤에 parent meta와
+        // 8개 부모 token_count가 재삽입된다. 이후 0 토큰 이벤트는 보존하고, 새 turn만 집계한다.
+        XCTAssertEqual(entries.map(\.total), [0, 28_138])
+    }
+
+    func testCodexManualForkFixtureKeepsParentAndChildUsageOnTheirOwnDays() throws {
+        let dir = tempDir()
+        let parent = try copyCodexForkFixture("parent", to: dir)
+        _ = try copyCodexForkFixture("child", to: dir)
+        let fmt = LocalUsageReader.localDayFormatter()
+        let parentEntries = LocalUsageReader.parseCodexFile(parent, fmt: fmt)
+        let parentDay = try XCTUnwrap(parentEntries.first?.localDay)
+        let entries = LocalUsageReader.codexEntries(modifiedSince: .distantPast, root: dir)
+        let childDay = try XCTUnwrap(entries.first { $0.total == 28_138 }?.localDay)
+
+        XCTAssertEqual(LocalUsageReader.daily(entries: entries, localDay: parentDay)?.totalTokens, 312_814)
+        XCTAssertEqual(LocalUsageReader.daily(entries: entries, localDay: childDay)?.totalTokens, 28_138)
+        XCTAssertEqual(
+            LocalUsageReader.period(entries: entries, periodKey: "fixture", fromDay: parentDay, toDay: childDay).totalTokens,
+            340_952
+        )
     }
 
     // MARK: 기간 집계 + 활성 블록

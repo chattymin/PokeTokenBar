@@ -13,7 +13,8 @@ let package = Package(
         .testTarget(
             name: "PokeTokenBarTests",
             dependencies: ["PokeTokenBar"],
-            path: "Tests/PokeTokenBarTests"
+            path: "Tests/PokeTokenBarTests",
+            resources: [.copy("Fixtures/CodexFork")]
         ),
     ]
 )
