@@ -200,7 +200,11 @@
   .step h4 { margin: 12px 0 6px; font-size: 1.02rem; }
   .step p { color: var(--muted); font-size: 0.9rem; margin: 0; }
   .step .arrow { position: absolute; right: -13px; top: 50%; transform: translateY(-50%); color: var(--faint); font-size: 1.2rem; z-index: 2; }
-  .companion-shots { display: grid; grid-template-columns: 1fr 1fr; gap: 22px; align-items: start; }
+  /* 4칸 균등이면 어느 샷이 중요한지 알 수 없다 — 가로형은 폭을 다 쓰고, 세로형 둘은 나란히.
+     grid-auto-flow: dense 로 DOM 순서를 그대로 두고도 세로형이 빈칸을 메운다. */
+  .companion-shots { display: grid; grid-template-columns: 1fr 1fr; gap: 22px;
+    align-items: start; grid-auto-flow: dense; }
+  .companion-shots figure.wide { grid-column: 1 / -1; }
   .companion-shots figure { margin: 0; }
   .companion-shots img { width: 100%; border-radius: 14px; border: 1px solid var(--border); box-shadow: var(--shadow); }
   .companion-shots figcaption { color: var(--muted); font-size: 0.9rem; margin-top: 12px; text-align: center; }
@@ -450,7 +454,7 @@
         <img src="assets/screenshot-collection.png" alt="Collection / Pokédex view: graduated Pokémon sorted by rarity with full evolution lines">
         <figcaption data-i18n="cap1">Pokédex — graduated Pokémon, sorted by rarity, with full evolution lines.</figcaption>
       </figure>
-      <figure class="reveal">
+      <figure class="reveal wide">
         <img src="assets/shiny-banner.gif" alt="Normal Lapras next to its shiny purple variant, both animated">
         <figcaption data-i18n="cap2">Once in a rare while, an egg hatches Shiny ✨ — distinct colors, kept through every evolution.</figcaption>
       </figure>
@@ -458,7 +462,7 @@
         <img src="assets/screenshot-bag.png" alt="Bag tab showing a Rare Candy item earned from filling a usage limit">
         <figcaption data-i18n="cap3">Fill a usage limit and earn Rare Candy — spend it from the Bag to grow your Pokémon.</figcaption>
       </figure>
-      <figure class="reveal">
+      <figure class="reveal wide">
         <img src="assets/floating-pet.gif" alt="The floating desktop pet with a hover callout showing today's tokens and a right-click menu">
         <figcaption data-i18n="cap4">Move the pet onto your desktop — hover for today's usage, right-click for a menu, drag it anywhere.</figcaption>
       </figure>
