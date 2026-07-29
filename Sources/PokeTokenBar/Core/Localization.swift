@@ -115,8 +115,9 @@ struct L {
           "ポケモンが画面の上に浮かびます — ドラッグで移動できます")
     }
     var floatingPetSizeLabel: String { t("크기", "Size", "サイズ") }
+    /// 지금은 한도 알림만 말풍선으로 뜨지만, 알림 종류가 늘어도 이 라벨은 그대로 쓴다.
     var floatingPetBubbleAlertsLabel: String {
-        t("한도 알림을 말풍선으로", "Limit alerts as bubbles", "上限アラートを吹き出しで")
+        t("말풍선으로 알림 받기", "Show notifications as bubbles", "通知を吹き出しで表示")
     }
     var floatingPetMenuOpen: String { t("토큰 바 열기", "Open Token Bar", "トークンバーを開く") }
     var floatingPetMenuHide: String {
