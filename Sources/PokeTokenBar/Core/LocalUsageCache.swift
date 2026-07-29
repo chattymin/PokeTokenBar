@@ -111,10 +111,12 @@ actor LocalUsageCache {
     func grokEntries(modifiedSince: Date) -> [LocalUsageReader.Entry] {
         ensureLoaded()
         let fmt = LocalUsageReader.localDayFormatter()
-        // updates.jsonl 만 본다 — 같은 세션 디렉토리의 chat_history/events 는 토큰이 없어
-        // 파싱해도 빈 blob 만 캐시에 쌓인다(스냅샷 비대).
+        // updates.jsonl 만, 그리고 서브에이전트 세션은 제외한다(부모 턴에 이미 포함). 이 판정은
+        // 파싱 캐시 **앞**에 있어야 한다 — blob 은 updates.jsonl 의 mtime·size 로만 무효화되는데
+        // 서브에이전트 판정 근거는 옆 파일(summary.json)이라, 파싱 안에서 걸러내면 늦게 쓰인
+        // session_kind 가 blob 에 굳어 이중집계가 영구화된다.
         let all = collect(root: grokRoot ?? LocalUsageReader.grokSessionsDir, since: modifiedSince,
-                          cache: &grokCache, fileName: LocalUsageReader.grokUpdatesFileName) {
+                          cache: &grokCache, include: LocalUsageReader.isGrokUsageFile) {
             LocalUsageReader.parseGrokFile($0, fmt: fmt)
         }
         saveIfNeeded()
@@ -122,8 +124,10 @@ actor LocalUsageCache {
         return LocalUsageReader.dedupKeepMax(all)
     }
 
+    /// `include` 는 blob 캐시 조회 **전에** 평가된다 — 파일 밖 상태(옆 파일 등)에 의존하는 판정을
+    /// 캐시에 굳히지 않기 위해서다.
     private func collect(root: URL, since: Date, cache: inout [String: Blob],
-                         allowJSON: Bool = false, fileName: String? = nil,
+                         allowJSON: Bool = false, include: ((URL) -> Bool)? = nil,
                          parse: (URL) -> [LocalUsageReader.Entry]) -> [LocalUsageReader.Entry] {
         let fm = FileManager.default
         guard let en = fm.enumerator(
@@ -135,7 +139,7 @@ actor LocalUsageCache {
             // 기본 .jsonl. .json 은 Gemini 루트에서만(allowJSON) — Claude 루트의 대량
             // .meta.json 등을 스캔/빈 blob 으로 캐시하지 않도록 스코프 제한.
             guard url.pathExtension == "jsonl" || (allowJSON && url.pathExtension == "json") else { continue }
-            if let fileName, url.lastPathComponent != fileName { continue }
+            if let include, !include(url) { continue }
             guard let v = try? url.resourceValues(forKeys: [.contentModificationDateKey, .fileSizeKey]),
                   let mtime = v.contentModificationDate, mtime >= since else { continue }
             let size = v.fileSize ?? 0

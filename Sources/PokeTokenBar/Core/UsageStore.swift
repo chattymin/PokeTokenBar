@@ -295,8 +295,9 @@ final class UsageStore {
         return utils.max()
     }
 
-    /// 사탕 지급 대상 한도 창 — 세션급(≈5h)=1개, 주간급=5개, 전 프로바이더. Gemini 는 공식 한도
-    /// 신호가 없어 자연히 빠진다(창 목록에 없음). 지급 제외: Opus/Sonnet 주간·scoped·Codex 개인 spend
+    /// 사탕 지급 대상 한도 창 — 세션급(≈5h)=1개, 주간급=5개, 전 프로바이더. 공식 한도 신호가 없는
+    /// 프로바이더(Gemini·OpenCode·Hermes·Cursor·Grok)는 자연히 빠진다(창 목록에 없음).
+    /// 지급 제외: Opus/Sonnet 주간·scoped·Codex 개인 spend
     /// limit(헤드라인 창의 하위/중복 → 이중지급 방지). 알림(checkLimitAlerts)보다 좁은 지급 전용.
     var candyEligibleWindows: [CandyWindow] {
         let l = L(localizationLanguage)
