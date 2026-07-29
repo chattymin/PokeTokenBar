@@ -291,10 +291,6 @@
     .brand span { display: none; }
   }
 
-.petshot{margin:34px auto 0;max-width:620px;text-align:center}
-.petshot img{width:100%;height:auto;border-radius:14px;border:1px solid rgba(255,255,255,.10);
-  box-shadow:0 18px 50px rgba(0,0,0,.45);display:block}
-.petshot figcaption{margin-top:10px;color:var(--muted);font-size:.86rem}
 </style>
 </head>
 <body>
@@ -324,7 +320,7 @@
 <!-- ===== Hero ===== -->
 <header class="hero" id="top">
   <div class="wrap">
-    <span class="eyebrow" data-i18n="hero.eyebrow">macOS menu bar · Claude Code + Codex + Gemini + OpenCode + Hermes + Cursor</span>
+    <span class="eyebrow" data-i18n="hero.eyebrow">macOS menu bar · free &amp; open source</span>
     <h1><span data-i18n="hero.h1a">Your AI coding tokens,</span> <span class="accent" data-i18n="hero.h1b">hatched into Pokémon.</span></h1>
     <p class="lead" data-i18n="hero.lead">PokeTokenBar turns the AI coding tokens you're already burning into a growing Pokémon companion — right in your menu bar. Spend tokens, hatch an egg, evolve it, graduate it into your Pokédex, and start again. Underneath the companion, it's a precise usage tracker — today's spend and official 5-hour / weekly limits.</p>
 
@@ -415,10 +411,6 @@
         <p data-i18n="f8.d">Let your companion live on the desktop instead of the menu bar — hover for today's usage, click to open the popover, right-click for a menu, drag to place it. Notifications can appear as a speech bubble above it.</p>
       </div>
     </div>
-    <figure class="petshot reveal">
-      <img src="assets/floating-pet.gif" alt="The floating desktop pet with a hover callout showing today's tokens and a right-click menu">
-      <figcaption data-i18n="f8.cap">Hover for today's usage · right-click for a menu · drag it anywhere</figcaption>
-    </figure>
   </div>
 </section>
 
@@ -451,6 +443,10 @@
       <figure class="reveal">
         <img src="assets/screenshot-bag.png" alt="Bag tab showing a Rare Candy item earned from filling a usage limit">
         <figcaption data-i18n="cap3">Fill a usage limit and earn Rare Candy — spend it from the Bag to grow your Pokémon.</figcaption>
+      </figure>
+      <figure class="reveal">
+        <img src="assets/floating-pet.gif" alt="The floating desktop pet with a hover callout showing today's tokens and a right-click menu">
+        <figcaption data-i18n="cap4">Move the pet onto your desktop — hover for today's usage, right-click for a menu, drag it anywhere.</figcaption>
       </figure>
     </div>
 
@@ -599,7 +595,7 @@
   var I18N = {
     en: {
       "nav.features": "Features", "nav.companion": "Companion", "nav.install": "Install",
-      "hero.eyebrow": "macOS menu bar · Claude Code + Codex + Gemini + OpenCode + Hermes + Cursor",
+      "hero.eyebrow": "macOS menu bar · free & open source",
       "hero.h1a": "Your AI coding tokens,", "hero.h1b": "hatched into Pokémon.",
       "hero.lead": "PokeTokenBar turns the AI coding tokens you're already burning into a growing Pokémon companion — right in your menu bar. Spend tokens, hatch an egg, evolve it, graduate it into your Pokédex, and start again. Underneath the companion, it's a precise usage tracker — today's spend and official 5-hour / weekly limits.",
       "hero.ctaInstall": "⬇ Install with Homebrew", "hero.ctaDownload": "Download from Releases",
@@ -612,7 +608,6 @@
       "f4.t": "Growth companion + Pokédex", "f4.d": "Your usage raises a Pokémon that hatches — sometimes, by a rare stroke of luck, Shiny ✨ — evolves through its real line with natures and little celebrations, and fills a Pokédex.",
       "f5.t": "Localized", "f5.d": "Full Korean / English / Japanese UI — and Pokémon names in your language, straight from PokéAPI.",
       "f6.t": "Notifications", "f6.d": "Alerts when a limit crosses your warning / critical thresholds — and when your companion hatches, evolves, or graduates.",
-      "f8.cap": "Hover for today's usage · right-click for a menu · drag it anywhere",
       "f8.t": "Floating desktop pet", "f8.d": "Let your companion live on the desktop instead of the menu bar — hover for today's usage, click to open the popover, right-click for a menu, drag to place it. Notifications can appear as a speech bubble above it.",
       "f7.t": "Token Shop", "f7.d": "The tokens you've already used become spendable currency — buy Rare Candy to grow your Pokémon, a Mint to re-roll its nature, a Shiny Charm that permanently raises your shiny odds, or a Pokémon Egg to send off your companion and start fresh.",
       "comp.eyebrow": "The companion", "comp.h2": "Code more, raise a Pokémon",
@@ -625,6 +620,7 @@
       "cap1": "Pokédex — graduated Pokémon, sorted by rarity, with full evolution lines.",
       "cap2": "Once in a rare while, an egg hatches Shiny ✨ — distinct colors, kept through every evolution.",
       "cap3": "Fill a usage limit and earn Rare Candy — spend it from the Bag to grow your Pokémon.",
+      "cap4": "Move the pet onto your desktop — hover for today's usage, right-click for a menu, drag it anywhere.",
       "rar.common": "Common · hatches often", "rar.uncommon": "Uncommon", "rar.rare": "Rare", "rar.legendary": "Legendary · rarely",
       "rar.note": "Rarer Pokémon take more tokens to graduate — roughly 3 days (common) to 24 days (legendary) at heavy use.",
       "inst.h2": "Install in a minute", "inst.sub": "macOS 14+ (Apple Silicon or Intel). The Homebrew cask handles everything.",
@@ -666,7 +662,7 @@
     },
     ko: {
       "nav.features": "기능", "nav.companion": "파트너", "nav.install": "설치",
-      "hero.eyebrow": "macOS 메뉴바 · Claude Code + Codex + Gemini + OpenCode + Hermes + Cursor",
+      "hero.eyebrow": "macOS 메뉴바 · 무료 오픈소스",
       "hero.h1a": "AI 코딩 토큰이,", "hero.h1b": "포켓몬으로 부화합니다.",
       "hero.lead": "당신이 이미 태우고 있는 AI 코딩 토큰을 메뉴바 속 자라나는 포켓몬 파트너로 바꿔줘요. 토큰을 쓰면 알이 부화하고, 진화하고, 도감에 졸업하면 새 알이 다시 찾아와요. 파트너 아래에는 정확한 사용량 트래커가 있어요 — 오늘의 사용량과 공식 5시간·주간 한도.",
       "hero.ctaInstall": "⬇ Homebrew로 설치", "hero.ctaDownload": "Releases에서 받기",
@@ -679,7 +675,6 @@
       "f4.t": "키우는 재미 + 도감", "f4.d": "사용량으로 포켓몬이 부화하고(아주 특별한 우연으론 ✨ 이로치!), 성격과 작은 연출과 함께 진화해 도감을 채워가요.",
       "f5.t": "다국어 지원", "f5.d": "한국어·영어·일본어 UI는 물론, 포켓몬 이름까지 PokéAPI에서 내 언어로 보여줘요.",
       "f6.t": "알림", "f6.d": "한도가 경고·임박 기준을 넘거나, 파트너가 부화·진화·졸업할 때 알려줘요.",
-      "f8.cap": "호버하면 오늘 사용량 · 우클릭하면 메뉴 · 드래그로 어디든",
       "f8.t": "데스크톱 플로팅 펫", "f8.d": "파트너를 메뉴바 대신 바탕화면 위에 둘 수 있어요 — 호버하면 오늘 사용량, 클릭하면 팝오버, 우클릭하면 메뉴, 드래그로 위치를 옮겨요. 알림은 펫 위 말풍선으로도 뜹니다.",
       "f7.t": "토큰 상점", "f7.d": "사용한 토큰이 곧 재화가 돼요 — 이상한 사탕으로 포켓몬을 키우거나, 민트로 성격을 다시 굴리거나, 이로치 부적으로 이로치 확률을 영구히 올리거나, 포켓몬 알로 지금 포켓몬을 놓아주고 새 알로 다시 시작하세요.",
       "comp.eyebrow": "파트너", "comp.h2": "코딩할수록 포켓몬이 자랍니다",
@@ -692,6 +687,7 @@
       "cap1": "도감 — 졸업한 포켓몬을 희귀도순으로, 진화 라인과 함께.",
       "cap2": "아주 드문 우연으로 이로치가 태어나요 — 전용 색상, 진화해도 유지됩니다.",
       "cap3": "사용량 한도를 다 채우면 이상한 사탕을 받아요 — 가방에서 써서 포켓몬을 키우세요.",
+      "cap4": "펫을 바탕화면으로 꺼내 보세요 — 호버하면 오늘 사용량, 우클릭하면 메뉴, 드래그로 어디든.",
       "rar.common": "Common · 자주 등장", "rar.uncommon": "Uncommon", "rar.rare": "Rare", "rar.legendary": "Legendary · 희귀",
       "rar.note": "희귀할수록 졸업까지 더 많은 토큰이 들어요 — 헤비 유저 기준 common은 약 3일, legendary는 약 24일.",
       "inst.h2": "1분이면 설치 끝", "inst.sub": "macOS 14 이상(Apple Silicon·Intel). 나머지는 Homebrew cask가 알아서 처리해요.",
@@ -733,7 +729,7 @@
     },
     ja: {
       "nav.features": "機能", "nav.companion": "パートナー", "nav.install": "インストール",
-      "hero.eyebrow": "macOS メニューバー · Claude Code + Codex + Gemini + OpenCode + Hermes + Cursor",
+      "hero.eyebrow": "macOS メニューバー · 無料 & オープンソース",
       "hero.h1a": "あなたのAIコーディングトークンが、", "hero.h1b": "ポケモンに孵化する。",
       "hero.lead": "あなたがすでに使っている AI コーディングトークンを、メニューバーの中で育つポケモンのパートナーに変えます。トークンを使うとタマゴが孵化し、進化し、図鑑へ卒業すると、また新しいタマゴが届きます。パートナーの下には正確な使用量トラッカーがあります——今日の使用量と公式の5時間・週間上限。",
       "hero.ctaInstall": "⬇ Homebrew でインストール", "hero.ctaDownload": "Releases から入手",
@@ -746,7 +742,6 @@
       "f4.t": "育てる楽しさ + 図鑑", "f4.d": "使用量でポケモンが孵化し（ごくまれな偶然で ✨ 色違いも）、せいかくや小さな演出とともに進化して図鑑を埋めていきます。",
       "f5.t": "多言語対応", "f5.d": "韓国語・英語・日本語の UI はもちろん、ポケモンの名前も PokéAPI からあなたの言語で。",
       "f6.t": "通知", "f6.d": "上限が警告・危険のラインを超えたとき、そしてパートナーが孵化・進化・卒業したときにお知らせします。",
-      "f8.cap": "ホバーで今日の使用量 · 右クリックでメニュー · ドラッグで自由に移動",
       "f8.t": "デスクトップのフローティングペット", "f8.d": "パートナーをメニューバーではなくデスクトップに置けます — ホバーで今日の使用量、クリックでポップオーバー、右クリックでメニュー、ドラッグで移動。通知はペットの上に吹き出しでも表示されます。",
       "f7.t": "トークンショップ", "f7.d": "使ったトークンがそのまま通貨に — ふしぎなアメで育てたり、ミントでせいかくを引き直したり、光るお守りで色違い確率を永続的に上げたり、ポケモンのタマゴで今のパートナーを手放して新しいタマゴからやり直したりできます。",
       "comp.eyebrow": "パートナー", "comp.h2": "コードするほど、ポケモンが育つ",
@@ -759,6 +754,7 @@
       "cap1": "図鑑 — 卒業したポケモンをレア度順に、進化ライン全体とともに。",
       "cap2": "ごくまれな偶然で色違いが孵化 — 専用カラーで、進化しても維持されます。",
       "cap3": "使用量の上限を使い切るとふしぎなアメがもらえます — バッグから使ってポケモンを育てましょう。",
+      "cap4": "ペットをデスクトップへ — ホバーで今日の使用量、右クリックでメニュー、ドラッグで自由に移動。",
       "rar.common": "Common · よく出現", "rar.uncommon": "Uncommon", "rar.rare": "Rare", "rar.legendary": "Legendary · 希少",
       "rar.note": "レアなほど卒業に多くのトークンが必要です——ヘビーユーザーで common 約3日、legendary 約24日。",
       "inst.h2": "1分でインストール", "inst.sub": "macOS 14 以降（Apple Silicon・Intel）。あとは Homebrew cask におまかせ。",
