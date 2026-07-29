@@ -175,6 +175,8 @@ struct SettingsView: View {
                     Text("\(Int(store.floatingPetSize))px")
                         .font(.caption).monospacedDigit().frame(width: 44, alignment: .trailing)
                 }
+                Divider()
+                toggleRow(l.floatingPetBubbleAlertsLabel, $store.floatingPetBubbleAlerts)
             }
         }
     }

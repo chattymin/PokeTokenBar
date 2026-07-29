@@ -157,4 +157,70 @@ final class FloatingPetEnergyTests: XCTestCase {
         XCTAssertGreaterThan(FloatingPetView.frameFloor, 0, "펫 fps 캡이 해제되면 idle wakeup 회귀")
         XCTAssertEqual(FloatingPetView.frameFloor, 0.4, accuracy: 1e-9, "메뉴바와 동일한 0.4s≈2.5fps 캡")
     }
+
+    /// Bubble needs headroom + width beyond the square pet size — otherwise content is clipped.
+    func testPanelGrowsForBubbleWithoutChangingPetOrigin() {
+        let pet: CGFloat = 96
+        let idle = FloatingPetController.panelSize(petSize: pet, showingBubble: false)
+        XCTAssertEqual(idle, NSSize(width: pet, height: pet))
+
+        let shown = FloatingPetController.panelSize(petSize: pet, showingBubble: true)
+        XCTAssertGreaterThan(shown.height, pet, "must reserve vertical headroom for the bubble")
+        XCTAssertGreaterThanOrEqual(shown.width, pet)
+
+        let petOrigin = NSPoint(x: 400, y: 200)
+        let panelOrigin = FloatingPetController.panelOrigin(
+            petOrigin: petOrigin, petSize: pet, panelSize: shown)
+        XCTAssertEqual(panelOrigin.y, petOrigin.y, accuracy: 0.5)
+        let roundTrip = FloatingPetController.petOrigin(
+            panelOrigin: panelOrigin, petSize: pet, panelSize: shown)
+        XCTAssertEqual(roundTrip.x, petOrigin.x, accuracy: 0.5)
+        XCTAssertEqual(roundTrip.y, petOrigin.y, accuracy: 0.5)
+    }
+
+    /// Click opens the popover only when the pointer barely moved; larger movement is a drag.
+    func testClickThresholdDistinguishesClickFromDrag() {
+        let a = NSPoint(x: 10, y: 10)
+        XCTAssertTrue(FloatingPetController.isClick(from: a, to: NSPoint(x: 11, y: 12)))
+        XCTAssertTrue(FloatingPetController.isClick(from: a, to: a))
+        XCTAssertFalse(FloatingPetController.isClick(from: a, to: NSPoint(x: 20, y: 10)))
+    }
+
+    /// Hover tooltip is localized and pure — tokens always; limit % only when provided.
+    func testHoverTooltipBuilder() {
+        let l = L(.en)
+        XCTAssertEqual(
+            FloatingPetView.hoverTooltip(todayTokens: 12_345, limitUtilization: nil, l: l),
+            l.floatingPetHoverTokensOnly(TokenFormatter.grouped(12_345)))
+        XCTAssertEqual(
+            FloatingPetView.hoverTooltip(todayTokens: 12_345, limitUtilization: 42, l: l),
+            l.floatingPetHoverWithLimit(TokenFormatter.grouped(12_345), TokenFormatter.percent(42)))
+    }
+
+    /// Japanese (and ko/en) alert copy must fit the default bubble panel — width-capped wrap,
+    /// not intrinsic `.fixedSize` that clipped ja by ~9pt (owner review on #124).
+    func testLocalizedAlertBubbleFitsDefaultPanel() {
+        let pet: CGFloat = 96
+        let panel = FloatingPetController.panelSize(petSize: pet, showingBubble: true)
+        XCTAssertEqual(panel.width, FloatingPetController.bubbleMinWidth)
+        XCTAssertEqual(panel.height, pet + FloatingPetController.bubbleHeadroom)
+        XCTAssertEqual(
+            FloatingPetController.bubbleContentWidth
+                + FloatingPetController.bubbleHorizontalPadding * 2,
+            FloatingPetController.bubbleMinWidth,
+            "content column + horizontal padding must equal panel width")
+
+        for lang in [AppLanguage.ko, .en, .ja] {
+            let l = L(lang)
+            let title = l.notifCritical
+            let body = l.notifBody(l.claudeFiveHour, TokenFormatter.percent(85))
+            let measured = FloatingPetController.measureSpeechBubble(title: title, body: body)
+            XCTAssertLessThanOrEqual(
+                measured.width, panel.width + 0.5,
+                "\(lang.rawValue) bubble width \(measured.width) must fit panel \(panel.width)")
+            XCTAssertLessThanOrEqual(
+                measured.height, FloatingPetController.bubbleHeadroom - 2,
+                "\(lang.rawValue) bubble height \(measured.height) must fit headroom \(FloatingPetController.bubbleHeadroom)")
+        }
+    }
 }

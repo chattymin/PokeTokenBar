@@ -89,6 +89,7 @@ PokeTokenBar는 당신이 이미 태우고 있는 AI 코딩 토큰(Claude Code �
 
 ## 이 밖에도
 
+- **인터랙티브 플로팅 펫** — 호버로 오늘 사용량, 클릭으로 메인 창, 우클릭 메뉴; 한도 알림은 말풍선으로도 표시.
 - **서비스별 탭** — Claude Code·Codex·Gemini CLI·OpenCode·Hermes Agent·Cursor 중 2개 이상 감지되면 작은 탭으로 상세를 서비스별 전환(오늘 합계는 통합 유지).
 - **공식 한도** — Claude·Codex 5시간/주간 사용률 + 리셋 카운트다운을 오늘 숫자 바로 아래에.
 - **소진 예측** — 현재 5시간 창이 100%에 도달할 시각 예측.
@@ -103,6 +104,7 @@ PokeTokenBar는 당신이 이미 태우고 있는 AI 코딩 토큰(Claude Code �
 | **Gemini CLI** | 오늘 · 주 · 월 | — |
 | **OpenCode** | 오늘 · 5시간 블록 · 주 · 월 | — |
 | **Hermes Agent** | 오늘 · 5시간 블록 · 주 · 월 | — |
+| **Cursor** | 오늘 · 5시간 블록 · 주 · 월 | — |
 
 모두 로컬에서 읽습니다 — 외부 사용량 CLI 불필요. 도구 추가는 프로바이더 파일 하나면 됩니다([CONTRIBUTING.ko.md](CONTRIBUTING.ko.md) 참고).
 
