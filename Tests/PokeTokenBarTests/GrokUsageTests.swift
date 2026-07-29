@@ -158,14 +158,24 @@ final class GrokUsageTests: XCTestCase {
     // MARK: 이중 집계 방어
 
     /// 재생(replay)으로 다시 append 된 턴 라인은 같은 턴을 두 번 세게 만든다.
-    func testReplayLineIsNotCountedTwice() throws {
-        let url = try writeSession("s4", lines: [
+    /// 두 방어가 겹쳐 있어 각각을 따로 밟는다 — 같은 id 중복은 dedup 이, 그렇지 않은 재생 라인은
+    /// isReplay 판정이 막는다. (같은 id 로만 테스트하면 dedup 이 통과시켜 isReplay 분기가 미검증으로 남는다.)
+    func testReplayLinesAreNotCountedTwice() throws {
+        let deduped = try writeSession("s4", lines: [
             turnLine(promptID: "p-1"),
             turnLine(promptID: "p-1", isReplay: true),
         ])
-        let entries = parse(url)
-        XCTAssertEqual(entries.count, 1, "isReplay 라인은 건너뛴다")
-        XCTAssertEqual(entries.first?.total, 42_015)
+        let byID = parse(deduped)
+        XCTAssertEqual(byID.count, 1, "같은 턴 id 는 한 번만")
+        XCTAssertEqual(byID.first?.total, 42_015)
+
+        // isReplay 분기 단독: id 가 달라 dedup 이 못 막는 재생 라인.
+        let replayOnly = try writeSession("s4-replay", lines: [
+            turnLine(promptID: "p-live"),
+            turnLine(promptID: "p-replayed", isReplay: true),
+        ])
+        XCTAssertEqual(parse(replayOnly).map(\.id), ["grok|p-live"],
+                       "isReplay 라인은 id 가 달라도 집계 대상이 아니다")
     }
 
     /// [트리거 브랜치] fork 세션이 부모 updates 를 복사하면 같은 턴이 두 파일에 존재한다.
@@ -344,17 +354,20 @@ final class GrokUsageTests: XCTestCase {
         XCTAssertEqual(enrichment.weekTotal?.totalTokens, 0)
     }
 
-    /// `$GROK_HOME` 이 설정돼 있으면 그 아래 sessions 를 본다(CLI 와 같은 규칙).
-    func testSessionsDirHonoursGrokHomeEnvironment() throws {
-        let expected: URL
-        if let home = ProcessInfo.processInfo.environment["GROK_HOME"]?
-            .trimmingCharacters(in: .whitespacesAndNewlines), !home.isEmpty {
-            expected = URL(fileURLWithPath: home).appendingPathComponent("sessions")
+    /// 세션 루트 기본값은 `~/.grok/sessions` — CLI 가 `$GROK_HOME` 없을 때 쓰는 경로와 같아야 한다.
+    /// (환경변수가 설정된 셸에서 돌면 그 경로가 진실이므로 기본값 검증은 건너뛴다.)
+    func testSessionsDirDefaultsToDotGrokUnderHome() throws {
+        let env = ProcessInfo.processInfo.environment["GROK_HOME"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let dir = LocalUsageReader.grokSessionsDir
+        if let env, !env.isEmpty {
+            XCTAssertTrue(dir.path.hasPrefix(URL(fileURLWithPath: env).path),
+                          "$GROK_HOME 가 설정되면 그 아래를 봐야 한다: \(dir.path)")
         } else {
-            expected = FileManager.default.homeDirectoryForCurrentUser
+            let home = FileManager.default.homeDirectoryForCurrentUser
                 .appendingPathComponent(".grok/sessions")
+            XCTAssertEqual(dir.standardizedFileURL.path, home.standardizedFileURL.path)
         }
-        XCTAssertEqual(LocalUsageReader.grokSessionsDir.standardizedFileURL, expected.standardizedFileURL)
-        XCTAssertEqual(LocalUsageReader.grokSessionsDir.lastPathComponent, "sessions")
+        XCTAssertEqual(dir.lastPathComponent, "sessions")
     }
 }
