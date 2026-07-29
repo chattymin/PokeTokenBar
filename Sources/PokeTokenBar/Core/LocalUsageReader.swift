@@ -284,6 +284,134 @@ enum LocalUsageReader {
         return entries
     }
 
+    // MARK: Grok 파싱
+
+    /// 세션 디렉토리에서 토큰이 담긴 유일한 파일. `chat_history.jsonl` 의 대화 아이템엔 usage 필드가
+    /// 없고 `events.jsonl` 은 턴 결과만 남기므로, 같이 스캔하면 빈 blob 으로 캐시만 불린다.
+    static let grokUpdatesFileName = "updates.jsonl"
+
+    /// Grok CLI 세션 루트. CLI 와 같은 규칙으로 `$GROK_HOME` 을 우선한다.
+    static var grokSessionsDir: URL {
+        if let home = ProcessInfo.processInfo.environment["GROK_HOME"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines), !home.isEmpty {
+            return URL(fileURLWithPath: home).appendingPathComponent("sessions")
+        }
+        return FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".grok/sessions")
+    }
+
+    /// Grok CLI 세션 파일(`~/.grok/sessions/<id>/updates.jsonl`) 파싱.
+    ///
+    /// 턴이 끝날 때마다 durable 로 append 되는 `sessionUpdate:"turn_completed"` 라인의 `usage`
+    /// (= 그 프롬프트 한 턴의 사용량)만 읽는다. 라인 봉투는
+    /// `{"timestamp":…,"update":{"sessionId":…,"update":{…},"_meta":{…}}}`.
+    ///
+    /// 토큰 매핑 — `Entry.total == usage.totalTokens` 가 성립하게 맞춘다:
+    /// - `inputTokens`(camelCase)는 **캐시 읽기를 포함한** 전체 프롬프트 →
+    ///   `input = inputTokens − cachedReadTokens`, `cacheRead = cachedReadTokens`.
+    /// - `input_tokens`(snake_case)는 **이미 캐시 제외** → 그대로 input. 두 표기의 의미가 서로
+    ///   달라서 값 스펠링으로 분기한다(같은 값으로 취급하면 캐시분을 두 번 뺀다).
+    /// - `output = outputTokens` (reasoning 은 output 에 포함), `cacheWrite = 0`
+    ///   (Grok 은 캐시 쓰기를 prompt 토큰에 접어 넣는다).
+    static func parseGrokFile(_ url: URL, fmt: DateFormatter) -> [Entry] {
+        // 서브에이전트 세션의 토큰은 부모 턴 usage 에 이미 접혀 들어온다 → 여기서 또 세면 이중 집계.
+        // CLI 가 세션 목록에서 숨기는 것과 같은 판정(`session_kind` 접두사)을 쓴다.
+        // 알려진 한계: 부모 턴이 이미 끝난 뒤 완료된 서브에이전트는 세션 원장에만 접히므로(부모
+        // 턴에는 안 들어옴) 그만큼 과소집계된다. 매번 도는 이중집계보다 이쪽이 작아서 택한 쪽이고,
+        // 그 경우 CLI 는 부모 bill 에 usageIsIncomplete 를 세워 비용도 신뢰 대상에서 빠진다.
+        guard !grokSessionIsSubagent(url.deletingLastPathComponent()) else { return [] }
+        guard let text = try? String(contentsOf: url, encoding: .utf8) else { return [] }
+        var out: [Entry] = []
+        for line in text.split(separator: "\n", omittingEmptySubsequences: true) {
+            // updates.jsonl 은 스트리밍 청크까지 전부 라인으로 남는다(세션당 수만 라인) →
+            // JSON 파싱 전에 문자열로 걸러낸다.
+            guard line.contains("turn_completed") else { continue }
+            autoreleasepool {   // JSONSerialization 의 autoreleased 객체를 라인마다 배출
+                if let e = parseGrokLine(String(line), fmt: fmt) { out.append(e) }
+            }
+        }
+        return dedupKeepMax(out)
+    }
+
+    static func grokEntries(modifiedSince: Date, root: URL? = nil) -> [Entry] {
+        let fmt = localDayFormatter()
+        var entries: [Entry] = []
+        for file in jsonlFiles(in: root ?? grokSessionsDir, modifiedSince: modifiedSince)
+        where file.lastPathComponent == grokUpdatesFileName {
+            entries.append(contentsOf: parseGrokFile(file, fmt: fmt))
+        }
+        // fork 세션이 부모 updates 를 복사해도 턴 id 가 같아 한 번만 남는다(전역 dedup).
+        return dedupKeepMax(entries)
+    }
+
+    /// `summary.json` 의 `session_kind` 가 서브에이전트 계열인가.
+    private static func grokSessionIsSubagent(_ sessionDir: URL) -> Bool {
+        guard let data = try? Data(contentsOf: sessionDir.appendingPathComponent("summary.json")),
+              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let kind = obj["session_kind"] as? String else { return false }
+        return kind.hasPrefix("subagent")
+    }
+
+    private static func parseGrokLine(_ line: String, fmt: DateFormatter) -> Entry? {
+        // 봉투 → 알림 → 업데이트 세 겹: {timestamp, update:{sessionId, update:{sessionUpdate,…}, _meta}}
+        guard let data = line.data(using: .utf8),
+              let envelope = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let notification = envelope["update"] as? [String: Any],
+              let update = notification["update"] as? [String: Any],
+              (update["sessionUpdate"] as? String) == "turn_completed",
+              let usage = update["usage"] as? [String: Any] else { return nil }
+        let meta = notification["_meta"] as? [String: Any]
+        // 재생으로 다시 append 된 라인은 같은 턴을 두 번 세게 만든다(id dedup 과 이중 방어).
+        if boolValue(meta?["isReplay"]) { return nil }
+        // 턴 식별자에 세션 경로를 섞지 않는다 — fork 가 부모 updates 를 복사해도 같은 턴은 하나다.
+        guard let turnID = nonEmpty(update["prompt_id"] as? String)
+                ?? nonEmpty(meta?["promptId"] as? String)
+                ?? nonEmpty(meta?["eventId"] as? String),
+              let date = grokDate(envelope: envelope, meta: meta) else { return nil }
+
+        let output = intValue(usage["outputTokens"] ?? usage["output_tokens"])
+        let cacheRead = intValue(usage["cachedReadTokens"] ?? usage["cached_read_tokens"])
+        let input: Int
+        if let full = usage["inputTokens"] {
+            input = max(0, intValue(full) - cacheRead)   // 캐시 포함 전체 프롬프트 → 비캐시분만
+        } else {
+            input = intValue(usage["input_tokens"])      // 헤드리스 투영은 이미 캐시 제외
+        }
+        guard input + output + cacheRead > 0 else { return nil }
+        return Entry(
+            id: "grok|\(turnID)", date: date, localDay: fmt.string(from: date),
+            model: grokModel(usage) ?? "grok",
+            input: input, output: output, cacheWrite: 0, cacheRead: cacheRead,
+            explicitCost: grokCost(usage))
+    }
+
+    /// 표시용 모델명 — per-model 내역의 키에서 고른다. 토큰이 가장 많은 행이 대표(동수는 이름 순).
+    /// 숫자는 항상 totals 로 집계한다(행 합계와 totals 가 어긋날 여지를 만들지 않는다).
+    private static func grokModel(_ usage: [String: Any]) -> String? {
+        guard let byModel = (usage["modelUsage"] ?? usage["model_usage"]) as? [String: Any] else { return nil }
+        var best: (model: String, total: Int)?
+        for (model, raw) in byModel.sorted(by: { $0.key < $1.key }) {
+            let fields = raw as? [String: Any] ?? [:]
+            let total = intValue(fields["totalTokens"] ?? fields["total_tokens"])
+            if best == nil || total > best!.total { best = (model, total) }
+        }
+        return best.flatMap { nonEmpty($0.model) }
+    }
+
+    /// 서버가 계산한 비용만 쓴다(1e10 ticks = $1). 부분합·불완전 집계 플래그가 서 있으면 버린다
+    /// (Grok 모델 단가표가 없으므로 추정 대신 0 — 금액 오표시를 만들지 않는다).
+    private static func grokCost(_ usage: [String: Any]) -> Double? {
+        if boolValue(usage["usageIsIncomplete"]) || boolValue(usage["usage_is_incomplete"]) { return nil }
+        if boolValue(usage["costIsPartial"]) || boolValue(usage["cost_is_partial"]) { return nil }
+        let ticks = doubleValue(usage["costUsdTicks"] ?? usage["cost_usd_ticks"])
+        return ticks > 0 ? ticks / 1e10 : nil
+    }
+
+    private static func grokDate(envelope: [String: Any], meta: [String: Any]?) -> Date? {
+        if let ts = envelope["timestamp"] as? String, let d = ISO8601Parser.date(from: ts) { return d }
+        let ms = doubleValue(meta?["agentTimestampMs"])
+        return ms > 0 ? Date(timeIntervalSince1970: ms / 1000) : nil
+    }
+
     private static func codexModel(_ line: String) -> String? {
         guard let data = line.data(using: .utf8),
               let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -374,5 +502,23 @@ enum LocalUsageReader {
         if let d = v as? Double { return Int(d) }
         if let n = v as? NSNumber { return n.intValue }
         return 0
+    }
+
+    private static func doubleValue(_ v: Any?) -> Double {
+        if let d = v as? Double { return d }
+        if let i = v as? Int { return Double(i) }
+        if let n = v as? NSNumber { return n.doubleValue }
+        return 0
+    }
+
+    private static func boolValue(_ v: Any?) -> Bool {
+        if let b = v as? Bool { return b }
+        if let n = v as? NSNumber { return n.boolValue }
+        return false
+    }
+
+    private static func nonEmpty(_ v: String?) -> String? {
+        guard let t = v?.trimmingCharacters(in: .whitespacesAndNewlines), !t.isEmpty else { return nil }
+        return t
     }
 }

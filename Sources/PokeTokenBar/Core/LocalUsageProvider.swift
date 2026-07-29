@@ -65,6 +65,38 @@ struct LocalGeminiProvider: UsageProvider {
     }
 }
 
+/// 로컬 로그 직접 파싱 기반 Grok CLI provider (공식 xAI Grok CLI).
+/// 세션이 ~/.grok/sessions/<id>/updates.jsonl 에 있을 때만 데이터가 잡힌다(없으면 스냅샷 미생성 → UI 미표시).
+struct LocalGrokProvider: UsageProvider {
+    let id = "grok"
+    let displayName = "Grok"
+
+    func fetchDaily() async throws -> DailyUsage? {
+        let now = Date()
+        let entries = await LocalUsageCache.shared.grokEntries(modifiedSince: Calendar.current.startOfDay(for: now))
+        return LocalUsageReader.daily(entries: entries, localDay: LocalUsageReader.todayKey())
+    }
+
+    func fetchEnrichment() async -> ProviderEnrichment {
+        let now = Date()
+        let monthStart = LocalUsageReader.startOfMonth(now)
+        let entries = await LocalUsageCache.shared.grokEntries(
+            modifiedSince: LocalUsageReader.enrichmentScanStart(now: now))
+        let fmt = LocalUsageReader.localDayFormatter()
+        var r = ProviderEnrichment()
+        // 블록(burn rate) 계산은 프로바이더 공통 — companion 리듬이 전 프로바이더를 따르게.
+        r.activeBlock = LocalUsageReader.activeBlock(entries: entries, now: now)
+        r.blocksOK = true
+        let weekStart = LocalUsageReader.startOfWeek(now)
+        r.weekTotal = LocalUsageReader.period(entries: entries, periodKey: fmt.string(from: weekStart),
+                                              fromDay: fmt.string(from: weekStart), toDay: fmt.string(from: now))
+        r.monthTotal = LocalUsageReader.period(entries: entries, periodKey: LocalUsageReader.monthKey(now),
+                                               fromDay: fmt.string(from: monthStart), toDay: fmt.string(from: now))
+        r.periodsOK = true
+        return r
+    }
+}
+
 /// 로컬 로그 직접 파싱 기반 Codex provider. (주간 = 일별 합산)
 struct LocalCodexProvider: UsageProvider {
     let id = "codex"

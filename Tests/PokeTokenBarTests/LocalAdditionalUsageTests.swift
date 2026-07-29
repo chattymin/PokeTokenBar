@@ -133,7 +133,7 @@ final class LocalAdditionalUsageTests: XCTestCase {
 
         XCTAssertEqual(
             Set(store.registeredProviderIDs),
-            Set(["claude_code", "codex", "gemini", "opencode", "hermes", "cursor"]))
+            Set(["claude_code", "codex", "gemini", "opencode", "hermes", "cursor", "grok"]))
     }
 
     func testPrintRealOpenCodeAggregate() throws {

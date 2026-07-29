@@ -13,31 +13,41 @@ actor LocalUsageCache {
         var claude: [String: Blob]
         var codex: [String: Blob]
         var gemini: [String: Blob]
+        var grok: [String: Blob]
         var codexParserVersion: Int
+        var grokParserVersion: Int
 
-        init(claude: [String: Blob], codex: [String: Blob], gemini: [String: Blob], codexParserVersion: Int) {
+        init(claude: [String: Blob], codex: [String: Blob], gemini: [String: Blob],
+             grok: [String: Blob], codexParserVersion: Int, grokParserVersion: Int) {
             self.claude = claude
             self.codex = codex
             self.gemini = gemini
+            self.grok = grok
             self.codexParserVersion = codexParserVersion
+            self.grokParserVersion = grokParserVersion
         }
 
-        // 하위호환: gemini 키가 없는 구버전 스냅샷도 로드(콜드 스타트 재발 방지).
+        // 하위호환: gemini/grok 키가 없는 구버전 스냅샷도 로드(콜드 스타트 재발 방지).
         init(from decoder: Decoder) throws {
             let c = try decoder.container(keyedBy: CodingKeys.self)
             claude = try c.decodeIfPresent([String: Blob].self, forKey: .claude) ?? [:]
             codex = try c.decodeIfPresent([String: Blob].self, forKey: .codex) ?? [:]
             gemini = try c.decodeIfPresent([String: Blob].self, forKey: .gemini) ?? [:]
+            grok = try c.decodeIfPresent([String: Blob].self, forKey: .grok) ?? [:]
             codexParserVersion = try c.decodeIfPresent(Int.self, forKey: .codexParserVersion) ?? 0
+            grokParserVersion = try c.decodeIfPresent(Int.self, forKey: .grokParserVersion) ?? 0
         }
     }
 
     /// forked rollout의 선행 replay burst 처리 변경 시 Codex blob만 재파싱한다.
     private static let codexParserVersion = 2
+    /// Grok 토큰 매핑(캐시분 분리·비용 신뢰 조건) 변경 시 Grok blob만 재파싱한다.
+    private static let grokParserVersion = 1
 
     private var claudeCache: [String: Blob] = [:]
     private var codexCache: [String: Blob] = [:]
     private var geminiCache: [String: Blob] = [:]
+    private var grokCache: [String: Blob] = [:]
     private var loaded = false
     private var dirty = false
     private var lastSave: Date?
@@ -46,14 +56,16 @@ actor LocalUsageCache {
     private let claudeRoot: URL?
     private let codexRoot: URL?
     private let geminiRoot: URL?
+    private let grokRoot: URL?
     private let fileURL: URL
     private let now: @Sendable () -> Date
 
-    init(claudeRoot: URL? = nil, codexRoot: URL? = nil, geminiRoot: URL? = nil, fileURL: URL? = nil,
-         now: @escaping @Sendable () -> Date = Date.init) {
+    init(claudeRoot: URL? = nil, codexRoot: URL? = nil, geminiRoot: URL? = nil, grokRoot: URL? = nil,
+         fileURL: URL? = nil, now: @escaping @Sendable () -> Date = Date.init) {
         self.claudeRoot = claudeRoot
         self.codexRoot = codexRoot
         self.geminiRoot = geminiRoot
+        self.grokRoot = grokRoot
         self.fileURL = fileURL ?? Self.defaultFileURL
         self.now = now
     }
@@ -96,8 +108,22 @@ actor LocalUsageCache {
         return r
     }
 
+    func grokEntries(modifiedSince: Date) -> [LocalUsageReader.Entry] {
+        ensureLoaded()
+        let fmt = LocalUsageReader.localDayFormatter()
+        // updates.jsonl 만 본다 — 같은 세션 디렉토리의 chat_history/events 는 토큰이 없어
+        // 파싱해도 빈 blob 만 캐시에 쌓인다(스냅샷 비대).
+        let all = collect(root: grokRoot ?? LocalUsageReader.grokSessionsDir, since: modifiedSince,
+                          cache: &grokCache, fileName: LocalUsageReader.grokUpdatesFileName) {
+            LocalUsageReader.parseGrokFile($0, fmt: fmt)
+        }
+        saveIfNeeded()
+        // fork 세션이 부모 updates 를 복사해도 같은 턴은 한 번만(전역 dedup).
+        return LocalUsageReader.dedupKeepMax(all)
+    }
+
     private func collect(root: URL, since: Date, cache: inout [String: Blob],
-                         allowJSON: Bool = false,
+                         allowJSON: Bool = false, fileName: String? = nil,
                          parse: (URL) -> [LocalUsageReader.Entry]) -> [LocalUsageReader.Entry] {
         let fm = FileManager.default
         guard let en = fm.enumerator(
@@ -109,6 +135,7 @@ actor LocalUsageCache {
             // 기본 .jsonl. .json 은 Gemini 루트에서만(allowJSON) — Claude 루트의 대량
             // .meta.json 등을 스캔/빈 blob 으로 캐시하지 않도록 스코프 제한.
             guard url.pathExtension == "jsonl" || (allowJSON && url.pathExtension == "json") else { continue }
+            if let fileName, url.lastPathComponent != fileName { continue }
             guard let v = try? url.resourceValues(forKeys: [.contentModificationDateKey, .fileSizeKey]),
                   let mtime = v.contentModificationDate, mtime >= since else { continue }
             let size = v.fileSize ?? 0
@@ -137,9 +164,14 @@ actor LocalUsageCache {
         claudeCache = snap.claude
         codexCache = snap.codex
         geminiCache = snap.gemini
+        grokCache = snap.grok
 
         if snap.codexParserVersion != Self.codexParserVersion {
             codexCache = [:]
+            dirty = true
+        }
+        if snap.grokParserVersion != Self.grokParserVersion {
+            grokCache = [:]
             dirty = true
         }
     }
@@ -151,6 +183,7 @@ actor LocalUsageCache {
         claudeCache = claudeCache.filter { $0.value.mtime >= cutoff }
         codexCache = codexCache.filter { $0.value.mtime >= cutoff }
         geminiCache = geminiCache.filter { $0.value.mtime >= cutoff }
+        grokCache = grokCache.filter { $0.value.mtime >= cutoff }
     }
 
     /// 변경이 있으면 디스크에 저장(최소 60초 간격으로 throttle — 잦은 쓰기 방지).
@@ -162,7 +195,9 @@ actor LocalUsageCache {
             claude: claudeCache,
             codex: codexCache,
             gemini: geminiCache,
-            codexParserVersion: Self.codexParserVersion)
+            grok: grokCache,
+            codexParserVersion: Self.codexParserVersion,
+            grokParserVersion: Self.grokParserVersion)
         if let data = try? JSONEncoder().encode(snap) {
             // JSON 은 zlib 로 크게 압축됨(수 MB → 수백 KB). 실패 시 평문 저장(로드가 양쪽 다 처리).
             let out = (try? (data as NSData).compressed(using: .zlib) as Data) ?? data

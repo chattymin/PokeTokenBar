@@ -17,10 +17,11 @@ final class ProviderTabLayoutTests: XCTestCase {
                          weekTotal: nil, monthTotal: nil, fetchedAt: Date())
     }
 
-    /// 현재 등록된 6개 프로바이더의 표시 이름 — UsageStore.init 기본 배열과 같은 순서.
+    /// 현재 등록된 7개 프로바이더의 표시 이름 — UsageStore.init 기본 배열과 같은 순서.
     private var allProviders: [ProviderSnapshot] {
         [("claude_code", "Claude Code"), ("codex", "Codex"), ("gemini", "Gemini"),
-         ("opencode", "OpenCode"), ("hermes", "Hermes Agent"), ("cursor", "Cursor")]
+         ("opencode", "OpenCode"), ("hermes", "Hermes Agent"), ("cursor", "Cursor"),
+         ("grok", "Grok")]
             .map { snapshot($0.0, $0.1) }
     }
 
@@ -33,7 +34,7 @@ final class ProviderTabLayoutTests: XCTestCase {
         NSHostingController(rootView: view).sizeThatFits(in: CGSize(width: proposing, height: 600))
     }
 
-    /// 트리거 재현: 스크롤 없이 나열하면 6개 탭은 팝오버 콘텐츠 폭을 넘는다(= 버그 조건).
+    /// 트리거 재현: 스크롤 없이 나열하면 등록된 탭 전부는 팝오버 콘텐츠 폭을 넘는다(= 버그 조건).
     /// 넘치지 않으면 아래 단일 행 검증이 무의미해지므로 이 테스트가 먼저 실패해야 한다.
     func testAllProviderTabsExceedPopoverContentWidthWhenLaidOutInOneRow() {
         let natural = HStack(spacing: 6) {
@@ -46,17 +47,17 @@ final class ProviderTabLayoutTests: XCTestCase {
         }
         let w = rendered(natural, proposing: .greatestFiniteMagnitude).width
         XCTAssertGreaterThan(w, PopoverMetrics.contentWidth,
-                             "6개 탭은 한 줄로 펼치면 콘텐츠 폭을 넘어야 한다 — 안 넘으면 이 가드가 무의미하다")
+                             "\(allProviders.count)개 탭은 한 줄로 펼치면 콘텐츠 폭을 넘어야 한다 — 안 넘으면 이 가드가 무의미하다")
     }
 
-    /// 수정 후: 탭이 6개여도 탭 바는 한 행 높이를 유지한다(= 캡슐 텍스트가 접히지 않는다).
+    /// 수정 후: 탭이 다 붙어도 탭 바는 한 행 높이를 유지한다(= 캡슐 텍스트가 접히지 않는다).
     /// 기준선은 탭 2개짜리 바 — 넘치지 않는 대조군이다.
     func testProviderTabBarStaysSingleRowWithAllProviders() {
         let baseline = rendered(bar(Array(allProviders.prefix(2))),
                                 proposing: PopoverMetrics.contentWidth).height
         let full = rendered(bar(allProviders), proposing: PopoverMetrics.contentWidth).height
         XCTAssertEqual(full, baseline, accuracy: 0.5,
-                       "6개 탭 바 높이 \(full) 가 2개 기준선 \(baseline) 을 넘으면 캡슐 텍스트가 접힌 것이다")
+                       "\(allProviders.count)개 탭 바 높이 \(full) 가 2개 기준선 \(baseline) 을 넘으면 캡슐 텍스트가 접힌 것이다")
     }
 
     /// 탭 바 자체는 주어진 폭 안에 머문다(넘친 자식이 부모 VStack 을 부풀려 팝오버를 자르지 않게).
