@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 enum PopoverTab { case home, shop, bag, collection }
@@ -162,24 +163,10 @@ struct PopoverView: View {
     }
 
     private var providerTabBar: some View {
-        HStack(spacing: 6) {
-            ForEach(store.snapshots) { snap in
-                let isSelected = snap.providerID == selectedSnapshot?.providerID
-                Button {
-                    nav.providerID = snap.providerID
-                } label: {
-                    Text(snap.displayName)
-                        .font(.caption.weight(isSelected ? .semibold : .regular))
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 4)
-                        .background(isSelected ? Color.accentColor.opacity(0.18) : Color.secondary.opacity(0.08))
-                        .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
-                        .clipShape(Capsule())
-                }
-                .buttonStyle(.plain)
-            }
-            Spacer()
-        }
+        ProviderTabBar(
+            snapshots: store.snapshots,
+            selectedID: selectedSnapshot?.providerID,
+            onSelect: { nav.providerID = $0 })
     }
 
     private func periodLabel(_ name: String, tokens: Int, cost: Double?) -> some View {
@@ -607,5 +594,40 @@ struct PopoverView: View {
             .buttonStyle(.borderless)
             .help(l.quit)
         }
+    }
+}
+
+/// 서비스 전환 탭. 프로바이더가 늘면 캡슐 합계 폭이 `PopoverMetrics.contentWidth` 를 넘는다
+/// (6개 기준 439pt vs 332pt). 폭 제한만 있고 줄바꿈을 막지 않으면 SwiftUI 가 캡슐 텍스트를 눌러
+/// "Curso/r"·"Code/x" 처럼 **단어 중간에서** 접고 탭 바가 2~3줄이 된다.
+/// 가로 스크롤 + `lineLimit(1)`/`fixedSize` 로 각 탭이 항상 자연 폭 한 줄을 유지한다.
+/// (`Spacer()` 는 가로 ScrollView 안에서 무한 확장하므로 쓰지 않는다.)
+struct ProviderTabBar: View {
+    let snapshots: [ProviderSnapshot]
+    let selectedID: String?
+    let onSelect: (String) -> Void
+
+    var body: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 6) {
+                ForEach(snapshots) { snap in
+                    let isSelected = snap.providerID == selectedID
+                    Button { onSelect(snap.providerID) } label: {
+                        Text(snap.displayName)
+                            .lineLimit(1)
+                            .fixedSize(horizontal: true, vertical: false)
+                            .font(.caption.weight(isSelected ? .semibold : .regular))
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 4)
+                            .background(isSelected ? Color.accentColor.opacity(0.18) : Color.secondary.opacity(0.08))
+                            .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
+                            .clipShape(Capsule())
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+        // 탭이 적으면(대부분의 사용자) 스크롤·바운스가 생기지 않아 기존과 동일하게 보인다.
+        .scrollBounceBehavior(.basedOnSize, axes: .horizontal)
     }
 }
