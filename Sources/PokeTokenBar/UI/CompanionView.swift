@@ -97,8 +97,11 @@ struct SpriteView: View {
             frameIndex = 0
             guard let id = speciesID else {
                 // 알 상태 — 정적 알 스프라이트 로드(애니메이션 알은 없음). 실패/오프라인이면 body 가 🥚 폴백.
-                if img == nil { img = await SpriteLoader.eggImage() }
+                // 종 → 알(졸업·새 알)이면 이전 개체 이미지를 버려야 한다 — img 는 뷰 identity 가 살아있는 동안
+                // 유지되고 플로팅 펫 패널은 졸업 때 재생성되지 않아, 안 버리면 옛 포켓몬이 계속 떠 있다.
+                if loadedID != nil { img = SpriteLoader.cachedEggImage() }
                 loadedID = nil
+                if img == nil { img = await SpriteLoader.eggImage() }
                 return
             }
             // 정적 스프라이트 먼저(즉시 표시 + 폴백 보장). 캐시 시드로 이미 같은 id 면 재요청 생략(플래시 방지)
