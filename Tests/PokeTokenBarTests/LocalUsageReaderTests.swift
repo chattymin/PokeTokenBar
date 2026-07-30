@@ -83,6 +83,31 @@ final class LocalUsageReaderTests: XCTestCase {
         """
     }
 
+    private func codexSessionMeta(id: String, ts: String) -> String {
+        """
+        {"type":"session_meta","timestamp":"\(ts)","payload":{"id":"\(id)","session_id":"\(id)"}}
+        """
+    }
+
+    private func codexStateLine(
+        ts: String,
+        cumulativeInput: Int,
+        cumulativeCached: Int = 0,
+        cumulativeOutput: Int,
+        cumulativeReasoning: Int = 0,
+        lastInput: Int,
+        lastCached: Int = 0,
+        lastOutput: Int,
+        lastReasoning: Int = 0,
+        lastTotal: Int? = nil
+    ) -> String {
+        let cumulativeTotal = cumulativeInput + cumulativeOutput
+        let reportedLastTotal = lastTotal ?? (lastInput + lastOutput)
+        return """
+        {"type":"event_msg","timestamp":"\(ts)","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":\(cumulativeInput),"cached_input_tokens":\(cumulativeCached),"output_tokens":\(cumulativeOutput),"reasoning_output_tokens":\(cumulativeReasoning),"total_tokens":\(cumulativeTotal)},"last_token_usage":{"input_tokens":\(lastInput),"cached_input_tokens":\(lastCached),"output_tokens":\(lastOutput),"reasoning_output_tokens":\(lastReasoning),"total_tokens":\(reportedLastTotal)}}}}
+        """
+    }
+
     private func forkedSessionMeta(ts: String) -> String {
         """
         {"type":"session_meta","timestamp":"\(ts)","payload":{"id":"child","forked_from_id":"parent","parent_thread_id":"parent","thread_source":"subagent"}}
@@ -106,6 +131,137 @@ final class LocalUsageReaderTests: XCTestCase {
         XCTAssertEqual(e.cacheRead, 200)
         XCTAssertEqual(e.output, 50)
         XCTAssertEqual(e.cacheWrite, 0)
+    }
+
+    func testCodexDropsConsecutiveSameStateRerecordsAndMatchesCumulativeTotal() {
+        let dir = tempDir()
+        write([
+            codexSessionMeta(id: "session-a", ts: "2026-07-29T01:00:00.000Z"),
+            codexStateLine(
+                ts: "2026-07-29T01:00:01.000Z",
+                cumulativeInput: 100, cumulativeCached: 20, cumulativeOutput: 10,
+                lastInput: 100, lastCached: 20, lastOutput: 10),
+            // 같은 snapshot의 단순 재기록.
+            codexStateLine(
+                ts: "2026-07-29T01:00:02.000Z",
+                cumulativeInput: 100, cumulativeCached: 20, cumulativeOutput: 10,
+                lastInput: 100, lastCached: 20, lastOutput: 10),
+            codexStateLine(
+                ts: "2026-07-29T01:00:03.000Z",
+                cumulativeInput: 300, cumulativeCached: 120, cumulativeOutput: 30,
+                lastInput: 200, lastCached: 100, lastOutput: 20),
+            // 같은 session_meta가 다시 기록돼도 token_count 상태의 연속성은 유지한다.
+            codexSessionMeta(id: "session-a", ts: "2026-07-29T01:00:04.000Z"),
+            codexStateLine(
+                ts: "2026-07-29T01:00:05.000Z",
+                cumulativeInput: 300, cumulativeCached: 120, cumulativeOutput: 30,
+                lastInput: 200, lastCached: 100, lastOutput: 20),
+        ], to: dir)
+
+        let entries = LocalUsageReader.codexEntries(modifiedSince: .distantPast, root: dir)
+
+        XCTAssertEqual(entries.map(\.total), [110, 220])
+        XCTAssertEqual(entries.reduce(0) { $0 + $1.total }, 330)
+    }
+
+    func testCodexSameScalarTotalsWithDifferentFullVectorsArePreserved() {
+        let dir = tempDir()
+        write([
+            codexSessionMeta(id: "session-a", ts: "2026-07-29T01:00:00.000Z"),
+            codexStateLine(
+                ts: "2026-07-29T01:00:01.000Z",
+                cumulativeInput: 100, cumulativeCached: 20, cumulativeOutput: 10,
+                lastInput: 100, lastCached: 20, lastOutput: 10),
+            // cumulative/last total은 각각 110으로 같지만 input/cache/output 구성은 다르다.
+            codexStateLine(
+                ts: "2026-07-29T01:00:02.000Z",
+                cumulativeInput: 90, cumulativeCached: 10, cumulativeOutput: 20,
+                lastInput: 90, lastCached: 10, lastOutput: 20),
+        ], to: dir)
+
+        let entries = LocalUsageReader.codexEntries(modifiedSince: .distantPast, root: dir)
+
+        XCTAssertEqual(entries.count, 2)
+        XCTAssertEqual(entries.map(\.total), [110, 110])
+    }
+
+    func testCodexUnchangedCumulativeWithDifferentLastVectorIsPreserved() {
+        let dir = tempDir()
+        write([
+            codexSessionMeta(id: "session-a", ts: "2026-07-29T01:00:00.000Z"),
+            codexStateLine(
+                ts: "2026-07-29T01:00:01.000Z",
+                cumulativeInput: 100, cumulativeOutput: 10,
+                lastInput: 100, lastOutput: 10),
+            // 실제 fork fixture의 post-replay 이벤트와 같은 모양: cumulative는 그대로지만
+            // last.total_tokens만 비영(앱 회계 필드는 모두 0)인 상태는 동일 snapshot이 아니다.
+            codexStateLine(
+                ts: "2026-07-29T01:00:02.000Z",
+                cumulativeInput: 100, cumulativeOutput: 10,
+                lastInput: 0, lastOutput: 0, lastTotal: 6_742),
+        ], to: dir)
+
+        let entries = LocalUsageReader.codexEntries(modifiedSince: .distantPast, root: dir)
+
+        XCTAssertEqual(entries.map(\.total), [110, 0])
+    }
+
+    func testCodexSessionChangeResetsSameStateComparison() {
+        let dir = tempDir()
+        let stateA = codexStateLine(
+            ts: "2026-07-29T01:00:01.000Z",
+            cumulativeInput: 100, cumulativeOutput: 10,
+            lastInput: 100, lastOutput: 10)
+        let stateB = codexStateLine(
+            ts: "2026-07-29T01:00:03.000Z",
+            cumulativeInput: 100, cumulativeOutput: 10,
+            lastInput: 100, lastOutput: 10)
+        write([
+            codexSessionMeta(id: "session-a", ts: "2026-07-29T01:00:00.000Z"),
+            stateA,
+            codexSessionMeta(id: "session-b", ts: "2026-07-29T01:00:02.000Z"),
+            stateB,
+        ], to: dir)
+
+        let entries = LocalUsageReader.codexEntries(modifiedSince: .distantPast, root: dir)
+
+        XCTAssertEqual(entries.map(\.total), [110, 110])
+    }
+
+    func testCodexMissingCumulativeUsagePreservesRepeatedRecords() {
+        let dir = tempDir()
+        write([
+            codexSessionMeta(id: "session-a", ts: "2026-07-29T01:00:00.000Z"),
+            codexLine(ts: "2026-07-29T01:00:01.000Z"),
+            codexLine(ts: "2026-07-29T01:00:02.000Z"),
+        ], to: dir)
+
+        let entries = LocalUsageReader.codexEntries(modifiedSince: .distantPast, root: dir)
+
+        XCTAssertEqual(entries.count, 2)
+    }
+
+    func testCodexForkTrimsReplayBeforeDroppingActualSameStateRerecord() {
+        let dir = tempDir()
+        write([
+            forkedSessionMeta(ts: "2026-07-29T01:00:00.000Z"),
+            codexStateLine(
+                ts: "2026-07-29T01:00:00.010Z",
+                cumulativeInput: 100, cumulativeOutput: 10,
+                lastInput: 100, lastOutput: 10),
+            codexStateLine(
+                ts: "2026-07-29T01:00:03.000Z",
+                cumulativeInput: 300, cumulativeOutput: 30,
+                lastInput: 200, lastOutput: 20),
+            codexStateLine(
+                ts: "2026-07-29T01:00:04.000Z",
+                cumulativeInput: 300, cumulativeOutput: 30,
+                lastInput: 200, lastOutput: 20),
+        ], to: dir, name: "rollout-child.jsonl", sub: "child")
+
+        let entries = LocalUsageReader.codexEntries(modifiedSince: .distantPast, root: dir)
+
+        XCTAssertEqual(entries.map(\.total), [220])
     }
 
     func testCodexForkedRolloutDropsLeadingReplayBurst() {
@@ -195,6 +351,19 @@ final class LocalUsageReaderTests: XCTestCase {
             LocalUsageReader.period(entries: entries, periodKey: "fixture", fromDay: parentDay, toDay: childDay).totalTokens,
             340_952
         )
+    }
+
+    func testCodexSiblingForkFixturesKeepIndependentPostReplayUsage() throws {
+        let dir = tempDir()
+        _ = try copyCodexForkFixture("parent", to: dir)
+        _ = try copyCodexForkFixture("child", to: dir)
+        _ = try copyCodexForkFixture("sibling", to: dir)
+
+        let entries = LocalUsageReader.codexEntries(modifiedSince: .distantPast, root: dir)
+
+        let forkTotals = entries.map(\.total).filter { $0 == 28_138 || $0 == 28_263 }
+        XCTAssertEqual(forkTotals.sorted(), [28_138, 28_263])
+        XCTAssertEqual(entries.reduce(0) { $0 + $1.total }, 369_215)
     }
 
     // MARK: 기간 집계 + 활성 블록

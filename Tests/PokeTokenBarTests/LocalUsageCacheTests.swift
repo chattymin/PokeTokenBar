@@ -32,6 +32,13 @@ final class LocalUsageCacheTests: XCTestCase {
         """
     }
 
+    private func codexStateLine(ts: String, cumulativeInput: Int, cumulativeOutput: Int,
+                                lastInput: Int, lastOutput: Int) -> String {
+        """
+        {"type":"event_msg","timestamp":"\(ts)","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":\(cumulativeInput),"cached_input_tokens":0,"output_tokens":\(cumulativeOutput),"reasoning_output_tokens":0,"total_tokens":\(cumulativeInput + cumulativeOutput)},"last_token_usage":{"input_tokens":\(lastInput),"cached_input_tokens":0,"output_tokens":\(lastOutput),"reasoning_output_tokens":0,"total_tokens":\(lastInput + lastOutput)}}}}
+        """
+    }
+
     private func forkedSessionMeta(ts: String) -> String {
         """
         {"type":"session_meta","timestamp":"\(ts)","payload":{"id":"child","forked_from_id":"parent","parent_thread_id":"parent","thread_source":"subagent"}}
@@ -100,6 +107,24 @@ final class LocalUsageCacheTests: XCTestCase {
         XCTAssertEqual(entries[0].output, 52)
     }
 
+    func testCodexCacheDropsSameStateRerecord() async throws {
+        try writeFile("rollout-session.jsonl", lines: [
+            #"{"type":"session_meta","timestamp":"2026-07-29T01:00:00.000Z","payload":{"id":"session-a"}}"#,
+            codexStateLine(
+                ts: "2026-07-29T01:00:01.000Z",
+                cumulativeInput: 100, cumulativeOutput: 10,
+                lastInput: 100, lastOutput: 10),
+            codexStateLine(
+                ts: "2026-07-29T01:00:02.000Z",
+                cumulativeInput: 100, cumulativeOutput: 10,
+                lastInput: 100, lastOutput: 10),
+        ])
+
+        let entries = await makeCache().codexEntries(modifiedSince: since)
+
+        XCTAssertEqual(entries.map(\.total), [110])
+    }
+
     func testCodexCacheInvalidatesOutdatedParserVersion() async throws {
         try writeFile("rollout-child.jsonl", lines: forkedCodexLines())
 
@@ -129,7 +154,7 @@ final class LocalUsageCacheTests: XCTestCase {
             codex[path] = blob
         }
         snapshot["codex"] = codex
-        snapshot["codexParserVersion"] = 1
+        snapshot["codexParserVersion"] = 2
 
         let data = try JSONSerialization.data(withJSONObject: snapshot)
         let compressed = try (data as NSData).compressed(using: .zlib) as Data

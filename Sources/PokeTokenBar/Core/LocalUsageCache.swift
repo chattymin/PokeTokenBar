@@ -39,8 +39,8 @@ actor LocalUsageCache {
         }
     }
 
-    /// forked rollout의 선행 replay burst 처리 변경 시 Codex blob만 재파싱한다.
-    private static let codexParserVersion = 2
+    /// fork replay 및 동일 상태 재기록 처리 변경 시 Codex blob만 재파싱한다.
+    private static let codexParserVersion = 3
     /// Grok 토큰 매핑(캐시분 분리·비용 신뢰 조건) 변경 시 Grok blob만 재파싱한다.
     private static let grokParserVersion = 1
 

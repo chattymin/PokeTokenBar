@@ -132,6 +132,40 @@ enum LocalUsageReader {
 
     // MARK: Codex 파싱
 
+    private struct CodexUsageVector: Equatable {
+        let input: Int
+        let cachedInput: Int
+        let cacheWriteInput: Int
+        let output: Int
+        let reasoningOutput: Int
+        let total: Int
+
+        init(_ raw: [String: Any]) {
+            input = intValue(raw["input_tokens"])
+            cachedInput = intValue(raw["cached_input_tokens"])
+            cacheWriteInput = intValue(raw["cache_write_input_tokens"])
+            output = intValue(raw["output_tokens"])
+            reasoningOutput = intValue(raw["reasoning_output_tokens"])
+            total = intValue(raw["total_tokens"])
+        }
+    }
+
+    private struct CodexUsageState: Equatable {
+        let cumulative: CodexUsageVector
+        let last: CodexUsageVector
+    }
+
+    private struct ParsedCodexToken {
+        let entry: Entry
+        /// 구형 레코드는 cumulative 사용량이 없을 수 있음. 그런 레코드는 동일 상태 판정을 하지 않는다.
+        let usageState: CodexUsageState?
+    }
+
+    private struct CodexSessionMeta {
+        let id: String?
+        let isForked: Bool
+    }
+
     /// Codex 사용 엔트리. token_count 이벤트의 last_token_usage(턴 델타)를 4종 토큰으로 매핑.
     /// - input(비캐시) = input_tokens − cached_input_tokens, cacheRead = cached_input_tokens
     /// - output = output_tokens (reasoning 은 output 에 이미 포함), cacheWrite = 0
@@ -143,19 +177,30 @@ enum LocalUsageReader {
         var isScanningInitialMetadata = true
         var isForked = false
         var replayTimestamp: Date?
+        var currentSessionID: String?
+        var previousUsageState: (sessionID: String, state: CodexUsageState)?
         // 실모델은 아래 codexModel 이 로그에서 동적 추출(신모델 자동 대응). 이 값은 세션에 model 라인이
         // 아예 없을 때만 쓰는 버전무관 폴백 — Codex 비용은 항상 0이라 표시 숫자엔 영향 없다(업데이트 불필요).
         var model = "codex"
         for line in text.split(separator: "\n", omittingEmptySubsequences: true) {
             autoreleasepool {   // JSONSerialization 의 autoreleased 객체를 라인마다 배출(콜드 파싱 피크 억제)
                 let record = String(line)
-                if isScanningInitialMetadata, isForkedSessionMeta(record) {
-                    isForked = true   // child meta 뒤 parent meta가 재삽입돼도 fork 판정을 되돌리지 않는다.
+                if let meta = codexSessionMeta(record) {
+                    if isScanningInitialMetadata, meta.isForked {
+                        isForked = true   // child meta 뒤 parent meta가 재삽입돼도 fork 판정을 되돌리지 않는다.
+                    }
+                    if let id = meta.id, id != currentSessionID {
+                        currentSessionID = id
+                        previousUsageState = nil
+                    }
                 }
                 if line.contains("\"model\""), let m = codexModel(record) { model = m }
                 guard line.contains("token_count") else { return }
-                guard let e = parseCodexLine(record, file: url.lastPathComponent, turn: turn, model: model, fmt: fmt) else { return }
+                guard let parsed = parseCodexLine(
+                    record, file: url.lastPathComponent, turn: turn, model: model, fmt: fmt
+                ) else { return }
                 defer { turn += 1 }
+                let e = parsed.entry
 
                 // forked rollout의 첫 token_count는 부모 이력 replay다. session_meta 기록 시각은 디스크 지연에
                 // 영향받으므로 anchor로 쓰지 않는다. replay 내부는 수 ms 간격이고, 첫 1초 이상 공백부터는
@@ -174,6 +219,21 @@ enum LocalUsageReader {
                     }
                     replayTimestamp = nil
                 }
+
+                // Codex는 같은 cumulative/last usage 상태를 그대로 다시 기록할 수 있음. replay trimming을
+                // 통과한 레코드만 비교해야 위 burst의 timestamp 체인을 바꾸지 않음. 같은 세션의 연속
+                // token_count 상태가 full vector까지 같으면 새 토큰 기여가 없는 동일 snapshot이므로 한 번만 남김.
+                // cumulative가 없는 구형 레코드나 session 전환은 보수적으로 모두 보존.
+                if let state = parsed.usageState, let sessionID = currentSessionID {
+                    if let previous = previousUsageState,
+                       previous.sessionID == sessionID,
+                       previous.state == state {
+                        return
+                    }
+                    previousUsageState = (sessionID, state)
+                } else {
+                    previousUsageState = nil
+                }
                 entries.append(e)
             }
         }
@@ -189,17 +249,21 @@ enum LocalUsageReader {
         return entries
     }
 
-    private static func isForkedSessionMeta(_ line: String) -> Bool {
+    private static func codexSessionMeta(_ line: String) -> CodexSessionMeta? {
         guard let data = line.data(using: .utf8),
               let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               (obj["type"] as? String) == "session_meta",
-              let payload = obj["payload"] as? [String: Any],
-              ((payload["forked_from_id"] as? String)?.isEmpty == false
-                  || (payload["parent_thread_id"] as? String)?.isEmpty == false) else { return false }
-        return true
+              let payload = obj["payload"] as? [String: Any] else { return nil }
+        let id = (payload["id"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+            ?? (payload["session_id"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        let isForked = (payload["forked_from_id"] as? String)?.isEmpty == false
+            || (payload["parent_thread_id"] as? String)?.isEmpty == false
+        return CodexSessionMeta(id: id, isForked: isForked)
     }
 
-    private static func parseCodexLine(_ line: String, file: String, turn: Int, model: String, fmt: DateFormatter) -> Entry? {
+    private static func parseCodexLine(
+        _ line: String, file: String, turn: Int, model: String, fmt: DateFormatter
+    ) -> ParsedCodexToken? {
         guard let data = line.data(using: .utf8),
               let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let payload = obj["payload"] as? [String: Any],
@@ -212,10 +276,14 @@ enum LocalUsageReader {
         let cached = intValue(last["cached_input_tokens"])
         let output = intValue(last["output_tokens"])
         let nonCachedInput = max(0, inputTotal - cached)
-        return Entry(
+        let entry = Entry(
             id: "codex|\(file)|\(turn)",
             date: date, localDay: fmt.string(from: date), model: model,
             input: nonCachedInput, output: output, cacheWrite: 0, cacheRead: cached)
+        let usageState = (info["total_token_usage"] as? [String: Any]).map {
+            CodexUsageState(cumulative: CodexUsageVector($0), last: CodexUsageVector(last))
+        }
+        return ParsedCodexToken(entry: entry, usageState: usageState)
     }
 
     // MARK: Gemini 파싱
