@@ -9,15 +9,21 @@ actor LocalUsageCache {
     static let shared = LocalUsageCache()
 
     private struct Blob: Codable { let mtime: Date; let size: Int; let entries: [LocalUsageReader.Entry] }
+    private struct CodexBlob: Codable {
+        let mtime: Date
+        let size: Int
+        let rollout: LocalUsageReader.CodexParsedRollout
+    }
+
     private struct Snapshot: Codable {
         var claude: [String: Blob]
-        var codex: [String: Blob]
+        var codex: [String: CodexBlob]
         var gemini: [String: Blob]
         var grok: [String: Blob]
         var codexParserVersion: Int
         var grokParserVersion: Int
 
-        init(claude: [String: Blob], codex: [String: Blob], gemini: [String: Blob],
+        init(claude: [String: Blob], codex: [String: CodexBlob], gemini: [String: Blob],
              grok: [String: Blob], codexParserVersion: Int, grokParserVersion: Int) {
             self.claude = claude
             self.codex = codex
@@ -31,7 +37,9 @@ actor LocalUsageCache {
         init(from decoder: Decoder) throws {
             let c = try decoder.container(keyedBy: CodingKeys.self)
             claude = try c.decodeIfPresent([String: Blob].self, forKey: .claude) ?? [:]
-            codex = try c.decodeIfPresent([String: Blob].self, forKey: .codex) ?? [:]
+            // parser v3 이하는 Codex blob에 최종 Entry 배열을 저장. 새 parsed-rollout 형태와
+            // 호환되지 않으므로 해당 필드만 비우고 다른 provider 캐시는 그대로 살림.
+            codex = (try? c.decode([String: CodexBlob].self, forKey: .codex)) ?? [:]
             gemini = try c.decodeIfPresent([String: Blob].self, forKey: .gemini) ?? [:]
             grok = try c.decodeIfPresent([String: Blob].self, forKey: .grok) ?? [:]
             codexParserVersion = try c.decodeIfPresent(Int.self, forKey: .codexParserVersion) ?? 0
@@ -40,12 +48,12 @@ actor LocalUsageCache {
     }
 
     /// fork replay 및 동일 상태 재기록 처리 변경 시 Codex blob만 재파싱한다.
-    private static let codexParserVersion = 3
+    private static let codexParserVersion = 4
     /// Grok 토큰 매핑(캐시분 분리·비용 신뢰 조건) 변경 시 Grok blob만 재파싱한다.
     private static let grokParserVersion = 1
 
     private var claudeCache: [String: Blob] = [:]
-    private var codexCache: [String: Blob] = [:]
+    private var codexCache: [String: CodexBlob] = [:]
     private var geminiCache: [String: Blob] = [:]
     private var grokCache: [String: Blob] = [:]
     private var loaded = false
@@ -90,11 +98,14 @@ actor LocalUsageCache {
     func codexEntries(modifiedSince: Date) -> [LocalUsageReader.Entry] {
         ensureLoaded()
         let fmt = LocalUsageReader.localDayFormatter()
-        let r = collect(root: codexRoot ?? LocalUsageReader.codexSessionsDir, since: modifiedSince, cache: &codexCache) {
-            LocalUsageReader.parseCodexFile($0, fmt: fmt)
-        }
+        let (rollouts, includedPaths) = collectCodexRollouts(
+            root: codexRoot ?? LocalUsageReader.codexSessionsDir,
+            since: modifiedSince,
+            fmt: fmt
+        )
+        let entries = LocalUsageReader.resolveCodexRollouts(rollouts, includedPaths: includedPaths)
         saveIfNeeded()
-        return r
+        return entries
     }
 
     func geminiEntries(modifiedSince: Date) -> [LocalUsageReader.Entry] {
@@ -154,6 +165,87 @@ actor LocalUsageCache {
             }
         }
         return result
+    }
+
+    /// Codex는 fork 파일을 단독으로 확정할 수 없으므로 final Entry 대신 parsed rollout을 캐시.
+    /// 조회 범위 밖 부모도 replay 판정에는 필요해 session id로 찾아 dependency로 함께 반환.
+    private func collectCodexRollouts(
+        root: URL,
+        since: Date,
+        fmt: DateFormatter
+    ) -> ([LocalUsageReader.CodexParsedRollout], Set<String>) {
+        struct FileInfo {
+            let url: URL
+            let mtime: Date
+            let size: Int
+        }
+
+        let fm = FileManager.default
+        guard let en = fm.enumerator(
+            at: root,
+            includingPropertiesForKeys: [.contentModificationDateKey, .fileSizeKey],
+            options: [.skipsHiddenFiles]
+        ) else { return ([], []) }
+
+        var files: [FileInfo] = []
+        for case let url as URL in en where url.pathExtension == "jsonl" {
+            guard let values = try? url.resourceValues(forKeys: [.contentModificationDateKey, .fileSizeKey]),
+                  let mtime = values.contentModificationDate else { continue }
+            files.append(FileInfo(url: url, mtime: mtime, size: values.fileSize ?? 0))
+        }
+
+        func load(_ file: FileInfo) -> LocalUsageReader.CodexParsedRollout {
+            let path = file.url.path
+            if let blob = codexCache[path], blob.mtime == file.mtime, blob.size == file.size {
+                return blob.rollout
+            }
+            let rollout = LocalUsageReader.parseCodexRollout(file.url, fmt: fmt)
+            codexCache[path] = CodexBlob(
+                mtime: file.mtime,
+                size: file.size,
+                rollout: rollout
+            )
+            dirty = true
+            return rollout
+        }
+
+        let activeFiles = files.filter { $0.mtime >= since }
+        let includedPaths = Set(activeFiles.map(\.url.path))
+        var rolloutsByPath = Dictionary(
+            uniqueKeysWithValues: activeFiles.map { file in
+                let rollout = load(file)
+                return (rollout.path, rollout)
+            }
+        )
+
+        // parent가 오래돼 조회 mtime 범위에서 빠졌어도 child replay와 대조할 수 있도록 closure를 확장.
+        var pendingParentIDs = Set(rolloutsByPath.values.compactMap(\.parentSessionID))
+        var searchedParentIDs: Set<String> = []
+        while let parentID = pendingParentIDs.subtracting(searchedParentIDs).first {
+            searchedParentIDs.insert(parentID)
+            if rolloutsByPath.values.contains(where: { $0.sessionID == parentID }) { continue }
+
+            let unresolvedFiles = files.filter { !rolloutsByPath.keys.contains($0.url.path) }
+            let indexedMatches = unresolvedFiles.filter {
+                codexCache[$0.url.path]?.rollout.sessionID == parentID
+                    || $0.url.lastPathComponent.contains(parentID)
+            }
+            let candidates = indexedMatches.isEmpty
+                ? unresolvedFiles.filter {
+                    LocalUsageReader.codexRolloutSessionID(at: $0.url) == parentID
+                }
+                : indexedMatches
+            for candidate in candidates {
+                let parent = load(candidate)
+                guard parent.sessionID == parentID else { continue }
+                rolloutsByPath[parent.path] = parent
+                if let ancestorID = parent.parentSessionID {
+                    pendingParentIDs.insert(ancestorID)
+                }
+            }
+        }
+
+        return (Array(rolloutsByPath.values), includedPaths)
     }
 
     // MARK: 영속화

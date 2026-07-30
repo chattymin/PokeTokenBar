@@ -41,7 +41,19 @@ final class LocalUsageCacheTests: XCTestCase {
 
     private func forkedSessionMeta(ts: String) -> String {
         """
-        {"type":"session_meta","timestamp":"\(ts)","payload":{"id":"child","forked_from_id":"parent","parent_thread_id":"parent","thread_source":"subagent"}}
+        {"type":"session_meta","timestamp":"\(ts)","payload":{"id":"child","forked_from_id":"parent","parent_thread_id":"parent","thread_source":"user"}}
+        """
+    }
+
+    private func subagentSessionMeta(ts: String) -> String {
+        """
+        {"type":"session_meta","timestamp":"\(ts)","payload":{"id":"child","session_id":"parent","forked_from_id":"parent","parent_thread_id":"parent","thread_source":"subagent","source":{"subagent":{"thread_spawn":{"parent_thread_id":"parent","depth":1}}}}}
+        """
+    }
+
+    private func sessionMeta(id: String, ts: String) -> String {
+        """
+        {"type":"session_meta","timestamp":"\(ts)","payload":{"id":"\(id)","session_id":"\(id)"}}
         """
     }
 
@@ -125,6 +137,25 @@ final class LocalUsageCacheTests: XCTestCase {
         XCTAssertEqual(entries.map(\.total), [110])
     }
 
+    func testCodexCacheKeepsSubagentFirstTurnWhenParentIsMissing() async throws {
+        try writeFile("rollout-subagent.jsonl", lines: [
+            subagentSessionMeta(ts: "2026-07-30T01:00:00.000Z"),
+            codexStateLine(
+                ts: "2026-07-30T01:00:01.000Z",
+                cumulativeInput: 50, cumulativeOutput: 5,
+                lastInput: 50, lastOutput: 5),
+            codexStateLine(
+                ts: "2026-07-30T01:00:03.000Z",
+                cumulativeInput: 110, cumulativeOutput: 10,
+                lastInput: 60, lastOutput: 5),
+        ])
+
+        let entries = await makeCache().codexEntries(modifiedSince: since)
+
+        XCTAssertEqual(entries.map(\.total), [55, 65])
+        XCTAssertTrue(entries.allSatisfy { $0.id.hasPrefix("codex|child|") })
+    }
+
     func testCodexCacheInvalidatesOutdatedParserVersion() async throws {
         try writeFile("rollout-child.jsonl", lines: forkedCodexLines())
 
@@ -145,20 +176,84 @@ final class LocalUsageCacheTests: XCTestCase {
 
         for (path, value) in codex {
             var blob = try XCTUnwrap(value as? [String: Any])
-            var entries = try XCTUnwrap(blob["entries"] as? [[String: Any]])
-            if var replay = entries.first {
-                replay["id"] = "codex|legacy|\(path)"
-                entries.append(replay)
-            }
-            blob["entries"] = entries
+            var rollout = try XCTUnwrap(blob["rollout"] as? [String: Any])
+            var events = try XCTUnwrap(rollout["events"] as? [[String: Any]])
+            let last = try XCTUnwrap(events.indices.last)
+            var event = events[last]
+            var entry = try XCTUnwrap(event["entry"] as? [String: Any])
+            entry["output"] = 999
+            event["entry"] = entry
+            events[last] = event
+            rollout["events"] = events
+            blob["rollout"] = rollout
             codex[path] = blob
         }
         snapshot["codex"] = codex
-        snapshot["codexParserVersion"] = 2
+        snapshot["codexParserVersion"] = 3
 
         let data = try JSONSerialization.data(withJSONObject: snapshot)
         let compressed = try (data as NSData).compressed(using: .zlib) as Data
         try compressed.write(to: cacheFile, options: .atomic)
+    }
+
+    func testCodexCacheLoadsParentOutsideModifiedSinceForSubagentResolution() async throws {
+        let old = Date(timeIntervalSince1970: 1_000)
+        let recent = Date(timeIntervalSince1970: 3_000)
+        try writeFile("old-parent.jsonl", lines: [
+            sessionMeta(id: "parent", ts: "2026-07-29T01:00:00.000Z"),
+            codexStateLine(
+                ts: "2026-07-29T01:00:01.000Z",
+                cumulativeInput: 100, cumulativeOutput: 10,
+                lastInput: 100, lastOutput: 10),
+        ], mtime: old)
+        try writeFile("recent-child.jsonl", lines: [
+            subagentSessionMeta(ts: "2026-07-30T01:00:00.000Z"),
+            sessionMeta(id: "parent", ts: "2026-07-30T01:00:00.001Z"),
+            // parent와 prefix가 다르므로 둘 다 실제 subagent usage다.
+            codexStateLine(
+                ts: "2026-07-30T01:00:01.000Z",
+                cumulativeInput: 50, cumulativeOutput: 5,
+                lastInput: 50, lastOutput: 5),
+            codexStateLine(
+                ts: "2026-07-30T01:00:03.000Z",
+                cumulativeInput: 110, cumulativeOutput: 10,
+                lastInput: 60, lastOutput: 5),
+        ], mtime: recent)
+
+        let entries = await makeCache().codexEntries(
+            modifiedSince: Date(timeIntervalSince1970: 2_000)
+        )
+
+        XCTAssertEqual(entries.map(\.total), [55, 65])
+        XCTAssertTrue(entries.allSatisfy { $0.id.hasPrefix("codex|child|") })
+    }
+
+    func testCodexParsedRolloutCacheRoundTripsAcrossInstances() async throws {
+        let mtime = Date(timeIntervalSince1970: floor(Date().timeIntervalSince1970) - 3_600)
+        let lines = [
+            sessionMeta(id: "session-a", ts: "2026-07-30T01:00:00.000Z"),
+            codexStateLine(
+                ts: "2026-07-30T01:00:01.000Z",
+                cumulativeInput: 100, cumulativeOutput: 10,
+                lastInput: 100, lastOutput: 10),
+        ]
+        try writeFile("rollout-session.jsonl", lines: lines, mtime: mtime)
+
+        let first = await makeCache().codexEntries(modifiedSince: since)
+        XCTAssertEqual(first.map(\.total), [110])
+
+        // 같은 길이와 mtime을 유지한 채 10→20으로 바꿔도 새 인스턴스는 persisted rollout을 사용한다.
+        let changed = [
+            sessionMeta(id: "session-a", ts: "2026-07-30T01:00:00.000Z"),
+            codexStateLine(
+                ts: "2026-07-30T01:00:01.000Z",
+                cumulativeInput: 100, cumulativeOutput: 20,
+                lastInput: 100, lastOutput: 20),
+        ]
+        try writeFile("rollout-session.jsonl", lines: changed, mtime: mtime)
+
+        let second = await makeCache().codexEntries(modifiedSince: since)
+        XCTAssertEqual(second.map(\.total), [110])
     }
 
     /// 디스크 영속: 새 인스턴스(콜드 스타트 시뮬레이션)가 스냅샷을 로드해 같은 결과를 낸다.

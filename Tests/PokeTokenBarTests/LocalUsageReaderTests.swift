@@ -22,6 +22,14 @@ final class LocalUsageReaderTests: XCTestCase {
         try FileManager.default.copyItem(at: source, to: destination)
         return destination
     }
+    private func copyCodexSubagentFixture(_ name: String, to dir: URL) throws -> URL {
+        let source = try XCTUnwrap(
+            Bundle.module.url(forResource: name, withExtension: "jsonl", subdirectory: "CodexSubagent")
+        )
+        let destination = dir.appendingPathComponent("\(name).jsonl")
+        try FileManager.default.copyItem(at: source, to: destination)
+        return destination
+    }
 
     // MARK: ModelPricing
 
@@ -110,13 +118,13 @@ final class LocalUsageReaderTests: XCTestCase {
 
     private func forkedSessionMeta(ts: String) -> String {
         """
-        {"type":"session_meta","timestamp":"\(ts)","payload":{"id":"child","forked_from_id":"parent","parent_thread_id":"parent","thread_source":"subagent"}}
+        {"type":"session_meta","timestamp":"\(ts)","payload":{"id":"child","forked_from_id":"parent","parent_thread_id":"parent","thread_source":"user"}}
         """
     }
 
-    private func forkedSubagentSessionMeta(ts: String) -> String {
+    private func forkedSessionMeta(id: String, parentID: String, ts: String) -> String {
         """
-        {"type":"session_meta","timestamp":"\(ts)","payload":{"id":"child","parent_thread_id":"parent","thread_source":"subagent","cli_version":"0.145.0"}}
+        {"type":"session_meta","timestamp":"\(ts)","payload":{"id":"\(id)","session_id":"\(parentID)","forked_from_id":"\(parentID)","parent_thread_id":"\(parentID)","thread_source":"subagent"}}
         """
     }
 
@@ -131,6 +139,51 @@ final class LocalUsageReaderTests: XCTestCase {
         XCTAssertEqual(e.cacheRead, 200)
         XCTAssertEqual(e.output, 50)
         XCTAssertEqual(e.cacheWrite, 0)
+    }
+
+    func testCodexNonForkResolverPreservesParsedEntriesExceptCanonicalIDs() {
+        let dir = tempDir()
+        write([
+            codexSessionMeta(id: "session-a", ts: "2026-07-29T01:00:00.000Z"),
+            codexStateLine(
+                ts: "2026-07-29T01:00:01.000Z",
+                cumulativeInput: 100, cumulativeCached: 20, cumulativeOutput: 10,
+                lastInput: 100, lastCached: 20, lastOutput: 10),
+            codexStateLine(
+                ts: "2026-07-29T01:00:02.000Z",
+                cumulativeInput: 300, cumulativeCached: 120, cumulativeOutput: 30,
+                lastInput: 200, lastCached: 100, lastOutput: 20),
+            codexStateLine(
+                ts: "2026-07-29T01:00:03.000Z",
+                cumulativeInput: 450, cumulativeCached: 170, cumulativeOutput: 45,
+                lastInput: 150, lastCached: 50, lastOutput: 15),
+        ], to: dir, name: "rollout.jsonl")
+        let file = dir.appendingPathComponent("rollout.jsonl")
+        let rollout = LocalUsageReader.parseCodexRollout(
+            file,
+            fmt: LocalUsageReader.localDayFormatter()
+        )
+        let parsed = rollout.events.map(\.entry)
+        XCTAssertEqual(parsed.count, 3)
+
+        let resolved = LocalUsageReader.resolveCodexRollouts(
+            [rollout],
+            includedPaths: [rollout.path]
+        )
+
+        XCTAssertEqual(resolved.count, parsed.count)
+        for (before, after) in zip(parsed, resolved) {
+            XCTAssertNotEqual(after.id, before.id)
+            XCTAssertTrue(after.id.hasPrefix("codex|session-a|0|"))
+            XCTAssertEqual(after.date, before.date)
+            XCTAssertEqual(after.localDay, before.localDay)
+            XCTAssertEqual(after.model, before.model)
+            XCTAssertEqual(after.input, before.input)
+            XCTAssertEqual(after.output, before.output)
+            XCTAssertEqual(after.cacheWrite, before.cacheWrite)
+            XCTAssertEqual(after.cacheRead, before.cacheRead)
+            XCTAssertEqual(after.explicitCost, before.explicitCost)
+        }
     }
 
     func testCodexDropsConsecutiveSameStateRerecordsAndMatchesCumulativeTotal() {
@@ -241,6 +294,27 @@ final class LocalUsageReaderTests: XCTestCase {
         XCTAssertEqual(entries.count, 2)
     }
 
+    func testCodexManualForkFallsBackWhenParentUsageStateIsUnavailable() {
+        let dir = tempDir()
+        write([
+            codexSessionMeta(id: "parent", ts: "2026-07-29T01:00:00.000Z"),
+            codexLine(ts: "2026-07-29T01:00:00.010Z", output: 50),
+            codexLine(ts: "2026-07-29T01:00:00.020Z", output: 51),
+        ], to: dir, name: "parent.jsonl")
+        write([
+            forkedSessionMeta(ts: "2026-07-30T01:00:00.000Z"),
+            codexSessionMeta(id: "parent", ts: "2026-07-30T01:00:00.001Z"),
+            // total_token_usage가 없는 구형 replay는 parent와 구조 비교할 수 없으므로 시간 fallback 대상.
+            codexLine(ts: "2026-07-30T01:00:03.000Z", output: 50),
+            codexLine(ts: "2026-07-30T01:00:03.010Z", output: 51),
+            codexLine(ts: "2026-07-30T01:00:06.000Z", output: 99),
+        ], to: dir, name: "child.jsonl")
+
+        let entries = LocalUsageReader.codexEntries(modifiedSince: .distantPast, root: dir)
+
+        XCTAssertEqual(entries.map(\.output).sorted(), [50, 51, 99])
+    }
+
     func testCodexForkTrimsReplayBeforeDroppingActualSameStateRerecord() {
         let dir = tempDir()
         write([
@@ -282,7 +356,7 @@ final class LocalUsageReaderTests: XCTestCase {
     func testCodexForkDropsReplayBurstThatStartsAfterMetadataDelay() {
         let dir = tempDir()
         write([
-            forkedSubagentSessionMeta(ts: "2026-07-29T01:00:00.000Z"),
+            forkedSessionMeta(ts: "2026-07-29T01:00:00.000Z"),
             codexLine(ts: "2026-07-29T01:00:03.000Z", output: 1),
             codexLine(ts: "2026-07-29T01:00:03.010Z", output: 2),
             codexLine(ts: "2026-07-29T01:00:03.020Z", output: 3),
@@ -297,7 +371,7 @@ final class LocalUsageReaderTests: XCTestCase {
     func testCodexForkKeepsRealTurnsAfterReplayBurstWhenTheyAreLessThanTwoSecondsApart() {
         let dir = tempDir()
         write([
-            forkedSubagentSessionMeta(ts: "2026-07-29T01:00:00.000Z"),
+            forkedSessionMeta(ts: "2026-07-29T01:00:00.000Z"),
             codexLine(ts: "2026-07-29T01:00:00.010Z", output: 1),
             codexLine(ts: "2026-07-29T01:00:00.020Z", output: 2),
             codexLine(ts: "2026-07-29T01:00:00.030Z", output: 3),
@@ -316,7 +390,7 @@ final class LocalUsageReaderTests: XCTestCase {
         let dir = tempDir()
         write([
             #"{"type":"turn_context","timestamp":"2026-07-29T01:00:00.000Z","payload":{}}"#,
-            forkedSubagentSessionMeta(ts: "2026-07-29T01:00:00.001Z"),
+            forkedSessionMeta(ts: "2026-07-29T01:00:00.001Z"),
             codexLine(ts: "2026-07-29T01:00:00.010Z", output: 1),
             codexLine(ts: "2026-07-29T01:00:03.000Z", output: 99),
         ], to: dir, name: "rollout-child.jsonl", sub: "child")
@@ -351,6 +425,7 @@ final class LocalUsageReaderTests: XCTestCase {
             LocalUsageReader.period(entries: entries, periodKey: "fixture", fromDay: parentDay, toDay: childDay).totalTokens,
             340_952
         )
+        XCTAssertEqual(Set(entries.map(\.id)).count, entries.count)
     }
 
     func testCodexSiblingForkFixturesKeepIndependentPostReplayUsage() throws {
@@ -364,6 +439,191 @@ final class LocalUsageReaderTests: XCTestCase {
         let forkTotals = entries.map(\.total).filter { $0 == 28_138 || $0 == 28_263 }
         XCTAssertEqual(forkTotals.sorted(), [28_138, 28_263])
         XCTAssertEqual(entries.reduce(0) { $0 + $1.total }, 369_215)
+    }
+
+    func testCodexSubagentFixturesKeepAllOwnUsageWithoutReplayPrefix() throws {
+        let fixtures: [(parent: String, child: String, totals: [Int], combined: Int, childID: String)] = [
+            (
+                "parent", "child",
+                [22_992, 23_043, 23_062, 23_219, 23_291],
+                115_607,
+                "00000000-0000-7000-8000-000000000002"
+            ),
+            (
+                "parent-v145", "child-v145",
+                [20_863, 21_175, 21_365, 21_458, 21_722],
+                106_583,
+                "00000000-0000-7000-8000-000000000146"
+            ),
+        ]
+
+        for fixture in fixtures {
+            let dir = tempDir()
+            _ = try copyCodexSubagentFixture(fixture.parent, to: dir)
+            _ = try copyCodexSubagentFixture(fixture.child, to: dir)
+
+            let entries = LocalUsageReader.codexEntries(modifiedSince: .distantPast, root: dir)
+
+            XCTAssertEqual(entries.map(\.total).sorted(), fixture.totals, fixture.child)
+            XCTAssertEqual(entries.reduce(0) { $0 + $1.total }, fixture.combined, fixture.child)
+            XCTAssertEqual(
+                entries.filter { $0.id.hasPrefix("codex|\(fixture.childID)|") }.count,
+                2,
+                fixture.child
+            )
+        }
+    }
+
+    func testCodexSubagentChildFixturesKeepFirstTurnWhenParentIsMissing() throws {
+        let fixtures: [(name: String, childID: String, parentID: String, totals: [Int])] = [
+            (
+                "child",
+                "00000000-0000-7000-8000-000000000002",
+                "00000000-0000-7000-8000-000000000001",
+                [23_062, 23_291]
+            ),
+            (
+                "child-v145",
+                "00000000-0000-7000-8000-000000000146",
+                "00000000-0000-7000-8000-000000000145",
+                [21_458, 21_722]
+            ),
+        ]
+
+        for fixture in fixtures {
+            let child = try copyCodexSubagentFixture(fixture.name, to: tempDir())
+            let rollout = LocalUsageReader.parseCodexRollout(
+                child,
+                fmt: LocalUsageReader.localDayFormatter()
+            )
+            let entries = LocalUsageReader.parseCodexFile(
+                child,
+                fmt: LocalUsageReader.localDayFormatter()
+            )
+
+            XCTAssertEqual(rollout.sessionID, fixture.childID, fixture.name)
+            XCTAssertEqual(rollout.parentSessionID, fixture.parentID, fixture.name)
+            XCTAssertTrue(rollout.isSubagent, fixture.name)
+            XCTAssertEqual(entries.map(\.total), fixture.totals, fixture.name)
+            XCTAssertTrue(
+                entries.allSatisfy { $0.id.hasPrefix("codex|\(fixture.childID)|") },
+                fixture.name
+            )
+        }
+    }
+
+    func testCodexForkOfForkReusesResolvedAncestorHistory() {
+        let dir = tempDir()
+        let first = codexStateLine(
+            ts: "2026-07-30T01:00:01.000Z",
+            cumulativeInput: 100, cumulativeOutput: 10,
+            lastInput: 100, lastOutput: 10)
+        let second = codexStateLine(
+            ts: "2026-07-30T01:00:02.000Z",
+            cumulativeInput: 200, cumulativeOutput: 20,
+            lastInput: 100, lastOutput: 10)
+        let third = codexStateLine(
+            ts: "2026-07-30T01:00:03.000Z",
+            cumulativeInput: 300, cumulativeOutput: 30,
+            lastInput: 100, lastOutput: 10)
+        let fourth = codexStateLine(
+            ts: "2026-07-30T01:00:04.000Z",
+            cumulativeInput: 400, cumulativeOutput: 40,
+            lastInput: 100, lastOutput: 10)
+
+        write([
+            codexSessionMeta(id: "root", ts: "2026-07-30T01:00:00.000Z"),
+            first, second,
+        ], to: dir, name: "root.jsonl")
+        write([
+            forkedSessionMeta(id: "child", parentID: "root", ts: "2026-07-30T02:00:00.000Z"),
+            codexSessionMeta(id: "root", ts: "2026-07-30T02:00:00.001Z"),
+            first, second, third,
+        ], to: dir, name: "child.jsonl")
+        write([
+            forkedSessionMeta(id: "grandchild", parentID: "child", ts: "2026-07-30T03:00:00.000Z"),
+            codexSessionMeta(id: "child", ts: "2026-07-30T03:00:00.001Z"),
+            first, second, third, fourth,
+        ], to: dir, name: "grandchild.jsonl")
+
+        let entries = LocalUsageReader.codexEntries(modifiedSince: .distantPast, root: dir)
+
+        XCTAssertEqual(entries.map(\.total), [110, 110, 110, 110])
+        XCTAssertEqual(entries.filter { $0.id.hasPrefix("codex|root|") }.count, 2)
+        XCTAssertEqual(entries.filter { $0.id.hasPrefix("codex|child|") }.count, 1)
+        XCTAssertEqual(entries.filter { $0.id.hasPrefix("codex|grandchild|") }.count, 1)
+    }
+
+    func testCodexSiblingForksWithIdenticalOwnUsageKeepDistinctIDs() {
+        let dir = tempDir()
+        let replay = codexStateLine(
+            ts: "2026-07-30T01:00:01.000Z",
+            cumulativeInput: 100, cumulativeOutput: 10,
+            lastInput: 100, lastOutput: 10)
+        let own = codexStateLine(
+            ts: "2026-07-30T02:00:01.000Z",
+            cumulativeInput: 200, cumulativeOutput: 20,
+            lastInput: 100, lastOutput: 10)
+        write([
+            codexSessionMeta(id: "root", ts: "2026-07-30T01:00:00.000Z"),
+            replay,
+        ], to: dir, name: "root.jsonl")
+        for childID in ["left", "right"] {
+            write([
+                forkedSessionMeta(id: childID, parentID: "root", ts: "2026-07-30T02:00:00.000Z"),
+                codexSessionMeta(id: "root", ts: "2026-07-30T02:00:00.001Z"),
+                replay, own,
+            ], to: dir, name: "\(childID).jsonl")
+        }
+
+        let entries = LocalUsageReader.codexEntries(modifiedSince: .distantPast, root: dir)
+
+        XCTAssertEqual(entries.count, 3)
+        XCTAssertEqual(Set(entries.map(\.id)).count, 3)
+        XCTAssertEqual(entries.filter { $0.id.hasPrefix("codex|left|") }.count, 1)
+        XCTAssertEqual(entries.filter { $0.id.hasPrefix("codex|right|") }.count, 1)
+    }
+
+    func testCodexCumulativeResetStartsNewCanonicalEpoch() {
+        let dir = tempDir()
+        write([
+            codexSessionMeta(id: "session-a", ts: "2026-07-30T01:00:00.000Z"),
+            codexStateLine(
+                ts: "2026-07-30T01:00:01.000Z",
+                cumulativeInput: 100, cumulativeOutput: 10,
+                lastInput: 100, lastOutput: 10),
+            codexStateLine(
+                ts: "2026-07-30T01:00:02.000Z",
+                cumulativeInput: 10, cumulativeOutput: 1,
+                lastInput: 10, lastOutput: 1),
+        ], to: dir)
+
+        let entries = LocalUsageReader.codexEntries(modifiedSince: .distantPast, root: dir)
+
+        XCTAssertEqual(entries.count, 2)
+        XCTAssertTrue(entries[0].id.hasPrefix("codex|session-a|0|"))
+        XCTAssertTrue(entries[1].id.hasPrefix("codex|session-a|1|"))
+    }
+
+    func testCodexCanonicalIDCollapsesSameSessionStateAcrossFilesKeepingEarliestDate() {
+        let dir = tempDir()
+        for (name, timestamp) in [
+            ("later.jsonl", "2026-07-30T02:00:00.000Z"),
+            ("earlier.jsonl", "2026-07-30T01:00:00.000Z"),
+        ] {
+            write([
+                codexSessionMeta(id: "session-a", ts: timestamp),
+                codexStateLine(
+                    ts: timestamp,
+                    cumulativeInput: 100, cumulativeOutput: 10,
+                    lastInput: 100, lastOutput: 10),
+            ], to: dir, name: name)
+        }
+
+        let entries = LocalUsageReader.codexEntries(modifiedSince: .distantPast, root: dir)
+
+        XCTAssertEqual(entries.count, 1)
+        XCTAssertEqual(entries[0].date, ISO8601Parser.date(from: "2026-07-30T01:00:00.000Z"))
     }
 
     // MARK: 기간 집계 + 활성 블록
