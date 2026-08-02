@@ -39,6 +39,38 @@ struct ItemIconView: View {
     }
 }
 
+/// SpriteView 가 그리는 주체(정적 이미지 + 그 이미지가 어느 종의 것인지)의 전이 규칙.
+///
+/// SwiftUI `.task` 는 호스트 없이 돌릴 수 없어 규칙만 순수 값 전이로 빼 둔다(`frameDelay` 와 같은 방식).
+/// 여기 담긴 규칙은 둘 다 "화면에 남은 픽셀이 지금 주체의 것인가"를 지킨다.
+struct SpriteSubject: Equatable {
+    var image: NSImage?
+    /// image 가 어느 speciesID 것인지. nil = 알(또는 로드된 개체 없음).
+    var loadedID: Int?
+
+    /// 주체가 알로 바뀌었다(졸업·새 알). 이전 **개체**의 이미지는 다른 주체의 픽셀이라 버린다.
+    /// 이미 알이던 경우(loadedID == nil)엔 손대지 않는다 — 시드된 알 이미지를 지워 🥚 글리프로 깜빡이게 하지 않기 위해.
+    func becomingEgg(cachedEgg: NSImage?) -> SpriteSubject {
+        guard loadedID != nil else { return self }
+        return SpriteSubject(image: cachedEgg, loadedID: nil)
+    }
+
+    /// 로드된 정적 스프라이트를 반영한 결과. **취소된 로드는 nil — 상태를 아예 건드리지 않는다.**
+    /// 취소는 곧 주체가 바뀌었다는 뜻이고, 협조적 취소라 continuation 은 그대로 실행되므로 후속 `.task`
+    /// 가 이미 새 주체로 잡아 둔 상태를 뒤늦게 덮어쓸 수 있다. 그러면 알 위에 옛 개체가 되살아나고
+    /// (#135 와 같은 증상), 실패한 로드가 `loadedID` 만 남기면 다음에 그 종이 다시 활성일 때
+    /// "이미 로드됨"으로 판단해 🥚 글리프가 고정된다.
+    /// (nil 로 돌려주는 이유: 같은 값을 되쓰면 @State 무효화가 한 번 더 돌아 항상 떠 있는 펫에 불필요한 재렌더가 생긴다.)
+    func applyingLoad(_ image: NSImage?, for id: Int, cancelled: Bool) -> SpriteSubject? {
+        cancelled ? nil : SpriteSubject(image: image, loadedID: id)
+    }
+
+    /// 로드된 알 스프라이트를 반영한 결과(같은 이유로 취소면 nil). 알은 종이 없으므로 loadedID 는 그대로.
+    func applyingEgg(_ image: NSImage?, cancelled: Bool) -> SpriteSubject? {
+        cancelled ? nil : SpriteSubject(image: image, loadedID: loadedID)
+    }
+}
+
 /// 스프라이트 1개(런타임 로드 + 캐시). 없으면 알 글리프. bob 으로 가벼운 상하 움직임.
 /// animated=true 면 Gen-V GIF 프레임을 순환(미지원/오프라인이면 정적+bob 으로 폴백).
 struct SpriteView: View {
@@ -75,6 +107,25 @@ struct SpriteView: View {
     /// 프레임 지속(초) = max(원본 delay, 하한). 순수·테스트용 — fps 상한 회귀 가드.
     static func frameDelay(base: TimeInterval, floor: TimeInterval) -> TimeInterval { max(base, floor) }
 
+    /// 디코드된 GIF 프레임 중 실제로 재생할 것 — 취소됐거나 2프레임 미만이면 빈 배열(정적 폴백).
+    /// 취소 검사가 여기 있는 이유: `frames` 는 body 에서 `img` 보다 먼저 그려지므로, 취소된 로드가
+    /// 뒤늦게 대입되면 새 주체(알) 위에 옛 개체의 GIF 가 정지 상태로 올라온다.
+    static func framesToApply(_ decoded: [(image: NSImage, delay: TimeInterval)],
+                              cancelled: Bool) -> [(image: NSImage, delay: TimeInterval)] {
+        (cancelled || decoded.count < 2) ? [] : decoded
+    }
+
+    /// 현재 그리는 주체(순수 전이 입력).
+    private var subject: SpriteSubject { SpriteSubject(image: img, loadedID: loadedID) }
+
+    /// 전이 결과를 @State 로 되돌린다(State 세터는 nonmutating). 값이 그대로면 쓰지 않는다 —
+    /// @State 는 같은 값을 써도 무효화가 돌아, 항상 떠 있는 펫에 불필요한 재렌더가 생긴다.
+    private func apply(_ next: SpriteSubject) {
+        guard next != subject else { return }
+        img = next.image
+        loadedID = next.loadedID
+    }
+
     var body: some View {
         Group {
             if !frames.isEmpty {
@@ -99,15 +150,17 @@ struct SpriteView: View {
                 // 알 상태 — 정적 알 스프라이트 로드(애니메이션 알은 없음). 실패/오프라인이면 body 가 🥚 폴백.
                 // 종 → 알(졸업·새 알)이면 이전 개체 이미지를 버려야 한다 — img 는 뷰 identity 가 살아있는 동안
                 // 유지되고 플로팅 펫 패널은 졸업 때 재생성되지 않아, 안 버리면 옛 포켓몬이 계속 떠 있다.
-                if loadedID != nil { img = SpriteLoader.cachedEggImage() }
-                loadedID = nil
-                if img == nil { img = await SpriteLoader.eggImage() }
+                apply(subject.becomingEgg(cachedEgg: SpriteLoader.cachedEggImage()))
+                if img == nil {
+                    let egg = await SpriteLoader.eggImage()
+                    if let next = subject.applyingEgg(egg, cancelled: Task.isCancelled) { apply(next) }
+                }
                 return
             }
             // 정적 스프라이트 먼저(즉시 표시 + 폴백 보장). 캐시 시드로 이미 같은 id 면 재요청 생략(플래시 방지)
             if loadedID != id {
-                img = await SpriteLoader.image(speciesID: id, animated: false, shiny: shiny)
-                loadedID = id
+                let loaded = await SpriteLoader.image(speciesID: id, animated: false, shiny: shiny)
+                if let next = subject.applyingLoad(loaded, for: id, cancelled: Task.isCancelled) { apply(next) }
             }
             guard animated else { return }
             // animated GIF 시도(shiny 미제공 종은 일반 GIF 폴백) → 프레임 2개 이상이면 순환 루프
@@ -116,9 +169,10 @@ struct SpriteView: View {
                 gifData = await SpriteStore.shared.data(speciesID: id, animated: true, shiny: false)
             }
             guard let data = gifData else { return }
-            let raw = GIFDecoder.frames(from: data)
-            guard raw.count > 1 else { return }   // 단일 프레임/디코드 실패 → 정적 폴백
-            frames = raw
+            // 단일 프레임/디코드 실패 → 정적 폴백. 취소됐으면 아예 반영하지 않는다(빈 배열이라 아래서 종료).
+            let ready = Self.framesToApply(GIFDecoder.frames(from: data), cancelled: Task.isCancelled)
+            guard !ready.isEmpty else { return }
+            frames = ready
             // delay 기반 프레임 advance. .task 취소 시(speciesID 변경/뷰 소멸) 루프 종료 — 누수 없음
             while !Task.isCancelled {
                 let delay = Self.frameDelay(base: frames[frameIndex % frames.count].delay, floor: minFrameDelay)
