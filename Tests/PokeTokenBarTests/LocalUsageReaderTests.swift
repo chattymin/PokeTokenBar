@@ -400,6 +400,114 @@ final class LocalUsageReaderTests: XCTestCase {
         XCTAssertEqual(entries.map(\.output), [99])
     }
 
+    // MARK: Codex metadata probe (parent dependency 탐색용)
+
+    /// `session_meta` 한 줄을 임의 길이로 부풀린다(실파일에서 이 줄을 키우는 건 dynamic_tools·base_instructions).
+    private func paddedCodexSessionMeta(id: String, totalBytes: Int, tail: String = "") -> String {
+        let head = #"{"type":"session_meta","timestamp":"2026-07-29T01:00:00.000Z","payload":{"id":"\#(id)","session_id":"\#(id)","base_instructions":""#
+        let close = #""}}"#
+        let pad = totalBytes - head.utf8.count - close.utf8.count - tail.utf8.count
+        XCTAssertGreaterThan(pad, 0, "패딩 계산이 음수 — 테스트 상수 확인")
+        return head + String(repeating: "a", count: max(pad, 0)) + tail + close
+    }
+
+    private func writeProbeFile(_ lines: [String]) -> URL {
+        let url = tempDir().appendingPathComponent("rollout-probe.jsonl")
+        // 실제 rollout 처럼 마지막 줄에 개행을 붙이지 않는다(EOF 플러시 경로도 함께 검증).
+        try? lines.joined(separator: "\n").write(to: url, atomically: true, encoding: .utf8)
+        return url
+    }
+
+    /// 첫 줄이 고정 prefix(64KB)보다 길어도 session id 를 읽어야 한다.
+    /// MCP 도구가 늘면 `dynamic_tools` 만으로 30KB 를 넘기므로 실사용에서 도달 가능한 크기다.
+    func testCodexProbeReadsSessionIDWhenMetadataLineExceedsChunk() throws {
+        let url = writeProbeFile([
+            paddedCodexSessionMeta(id: "parent-xl", totalBytes: 200_000),
+            codexLine(ts: "2026-07-29T01:00:01.000Z"),
+        ])
+        let prefix = try XCTUnwrap(FileHandle(forReadingFrom: url).read(upToCount: 64 * 1024))
+        XCTAssertFalse(prefix.contains(0x0A),
+                       "첫 64KB 안에 완성된 줄이 없어야 고정 prefix 방식이 실패하는 조건이 된다")
+
+        XCTAssertEqual(LocalUsageReader.codexRolloutSessionID(at: url), "parent-xl")
+    }
+
+    /// 64KB chunk 경계가 멀티바이트 문자 중간에 떨어져도 완성된 줄 단위로 디코드해 id 를 얻는다.
+    /// (고정 prefix 를 통째로 `String(data:encoding:)` 하던 방식은 여기서 nil 을 돌려줬다.)
+    func testCodexProbeDecodesMultibyteStraddlingChunkBoundary() {
+        let boundary = 64 * 1024
+        // "가"(3바이트)가 65535 바이트에서 시작하도록 채워 경계(65536)가 문자 내부에 놓이게 한다.
+        let meta = paddedCodexSessionMeta(id: "parent-utf8", totalBytes: boundary + 4, tail: "가")
+        let bytes = Array(meta.utf8)
+        XCTAssertTrue((0x80...0xBF).contains(bytes[boundary]),
+                      "경계 바이트가 UTF-8 연속 바이트가 아니면 이 테스트는 회귀를 못 잡는다")
+        XCTAssertNil(String(data: Data(bytes[0..<boundary]), encoding: .utf8),
+                     "고정 prefix 디코드가 실패하는 조건이어야 한다")
+
+        let url = writeProbeFile([meta, codexLine(ts: "2026-07-29T01:00:01.000Z")])
+
+        XCTAssertEqual(LocalUsageReader.codexRolloutSessionID(at: url), "parent-utf8")
+    }
+
+    /// chunk 를 여러 번 넘기며 완성된 줄을 순회하는 경로 — 줄 경계가 chunk 경계와 어긋나고,
+    /// 소비한 prefix 를 chunk 당 한 번만 제거하는 커서 처리가 어긋나면 여기서 깨진다.
+    func testCodexProbeScansManyLinesAcrossChunks() {
+        // 한 줄 ~80B × 2,000줄 ≈ 160KB → chunk(64KB) 3개에 걸치고 줄이 경계를 가로지른다.
+        var lines = (0..<2_000).map {
+            #"{"type":"response_item","seq":\#($0),"payload":{"text":"filler-filler-filler"}}"#
+        }
+        lines.append(codexSessionMeta(id: "parent-after-many-lines", ts: "2026-07-29T01:00:00.000Z"))
+        let url = writeProbeFile(lines)
+
+        XCTAssertEqual(LocalUsageReader.codexRolloutSessionID(at: url), "parent-after-many-lines")
+    }
+
+    /// 상한을 넘으면 무한히 읽지 않고 포기한다(meta 도 token_count 도 없는 손상 파일 방어).
+    func testCodexProbeStopsAtByteLimit() {
+        let url = writeProbeFile([paddedCodexSessionMeta(id: "parent-capped", totalBytes: 4_096)])
+
+        XCTAssertNil(LocalUsageReader.codexRolloutSessionID(at: url, byteLimit: 1_024),
+                     "상한 안에서 줄이 안 끝나면 nil")
+        XCTAssertEqual(LocalUsageReader.codexRolloutSessionID(at: url, byteLimit: 4_096),
+                       "parent-capped",
+                       "개행 없는 metadata가 상한과 정확히 같으면 완성된 마지막 줄로 처리")
+        XCTAssertEqual(LocalUsageReader.codexRolloutSessionID(at: url), "parent-capped",
+                       "기본 상한(1MiB)에서는 같은 파일을 읽어낸다")
+    }
+
+    /// 손상된 child meta를 건너뛰어 뒤의 parent meta를 파일 자체의 id로 오인하면 안 된다.
+    func testCodexProbeStopsAtInvalidUTF8BeforeSessionMeta() throws {
+        let url = tempDir().appendingPathComponent("rollout-invalid-utf8.jsonl")
+        var data = Data([0xFF, 0x0A])
+        data.append(Data(codexSessionMeta(
+            id: "wrong-parent",
+            ts: "2026-07-29T01:00:00.001Z"
+        ).utf8))
+        try data.write(to: url)
+
+        XCTAssertNil(LocalUsageReader.codexRolloutSessionID(at: url))
+    }
+
+    /// 기존 종료 조건 유지 — meta 보다 token_count 를 먼저 만나면 이 파일엔 쓸 metadata 가 없다.
+    func testCodexProbeStopsAtTokenCountBeforeSessionMeta() {
+        let url = writeProbeFile([
+            codexLine(ts: "2026-07-29T01:00:00.000Z"),
+            codexSessionMeta(id: "too-late", ts: "2026-07-29T01:00:01.000Z"),
+        ])
+
+        XCTAssertNil(LocalUsageReader.codexRolloutSessionID(at: url))
+    }
+
+    /// meta 가 첫 줄이 아니어도(선행 non-token 레코드) 찾고, 개행으로 끝나지 않는 파일도 처리한다.
+    func testCodexProbeFindsMetadataAfterLeadingNonTokenRecord() {
+        let url = writeProbeFile([
+            #"{"type":"turn_context","timestamp":"2026-07-29T01:00:00.000Z","payload":{}}"#,
+            codexSessionMeta(id: "parent-late", ts: "2026-07-29T01:00:00.001Z"),
+        ])
+
+        XCTAssertEqual(LocalUsageReader.codexRolloutSessionID(at: url), "parent-late")
+    }
+
     func testCodexManualForkFixtureKeepsOnlyPostReplayUsage() throws {
         let child = try copyCodexForkFixture("child", to: tempDir())
         let entries = LocalUsageReader.parseCodexFile(child, fmt: LocalUsageReader.localDayFormatter())

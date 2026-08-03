@@ -66,6 +66,34 @@ final class LocalUsageParityTests: XCTestCase {
         print("PARITY claude month tokens=\(month.totalTokens) cost=\(String(format: "%.2f", month.totalCost))")
     }
 
+    /// 실제 rollout 으로 metadata probe 검증 — 픽스처는 파서와 같은 오해를 공유할 수 있으므로
+    /// 상위 소스가 쓴 파일로 확인한다. 구방식(고정 64KB 통째 디코드)이 실패하던 파일 수도 함께 출력.
+    func testCodexMetadataProbeOnRealRollouts() throws {
+        guard ProcessInfo.processInfo.environment["PTB_PARITY"] == "1" else { throw XCTSkip("PTB_PARITY != 1") }
+        let files = LocalUsageReader.jsonlFiles(in: LocalUsageReader.codexSessionsDir, modifiedSince: .distantPast)
+        guard !files.isEmpty else { throw XCTSkip("~/.codex/sessions 비어 있음") }
+
+        let fmt = LocalUsageReader.localDayFormatter()
+        var parsedWithID = 0
+        var mismatches: [String] = []
+        var legacyDecodeFailures = 0
+        for file in files {
+            let probed = LocalUsageReader.codexRolloutSessionID(at: file)
+            let parsed = LocalUsageReader.parseCodexRollout(file, fmt: fmt).sessionID
+            if parsed != nil { parsedWithID += 1 }
+            if probed != parsed { mismatches.append(file.lastPathComponent) }
+            // 구방식 재현: 64KB 를 통째로 디코드하면 멀티바이트 경계에서 nil 이 된다.
+            if let handle = try? FileHandle(forReadingFrom: file) {
+                defer { try? handle.close() }
+                if let data = try? handle.read(upToCount: 64 * 1024),
+                   String(data: data, encoding: .utf8) == nil { legacyDecodeFailures += 1 }
+            }
+        }
+        print("PARITY-PROBE files=\(files.count) parsedWithID=\(parsedWithID) legacyDecodeFailures=\(legacyDecodeFailures) mismatches=\(mismatches.count)")
+        XCTAssertTrue(mismatches.isEmpty,
+                      "metadata probe와 전체 parser의 session id가 다른 rollout: \(mismatches)")
+    }
+
     func testCachePerformance() async throws {
         guard ProcessInfo.processInfo.environment["PTB_PARITY"] == "1" else { throw XCTSkip("PTB_PARITY != 1") }
         let monthStart = LocalUsageReader.startOfMonth(Date())

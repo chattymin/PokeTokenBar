@@ -347,17 +347,71 @@ enum LocalUsageReader {
         return CodexSessionMeta(id: id, parentID: parentID, date: date, isSubagent: isSubagent)
     }
 
+    /// probe 가 읽는 총 바이트 상한. 한 줄을 다 못 채운 채 상한에 닿아도 여기서 끊기므로
+    /// (buffer ⊆ 읽은 바이트) 비정상적으로 긴 단일 라인도 같은 예산 안에 갇힌다.
+    /// 상한을 넘는 metadata 는 nil → 부모를 못 찾고 timing fallback 으로 강등된다. 실측 `session_meta`
+    /// 첫 줄이 중앙값 ~22KB·최대 ~46KB(대부분 `dynamic_tools`·`base_instructions`)라 1MiB 는 ~22배 여유.
+    static let codexProbeByteLimit = 1 << 20
+
+    private static let codexProbeChunkSize = 64 * 1024
+
+    private enum CodexProbeOutcome {
+        case sessionID(String?)   // session_meta 발견 — id 가 비어 있으면 nil(기존 동작 유지)
+        case stop                 // token_count 도달 — 그 앞에 meta 가 없었다
+        case invalid              // 비어 있지 않은 줄이 UTF-8이 아님 — 이후 metadata로 오인하지 않음
+        case keepScanning
+    }
+
     /// 오래된 parent dependency를 찾기 위한 metadata-only probe. 대형 rollout 전체를 읽지 않는다.
-    static func codexRolloutSessionID(at url: URL) -> String? {
+    ///
+    /// **고정 크기 prefix 를 통째로 디코드하면 안 된다.** 컷이 멀티바이트 문자 중간에 떨어지면
+    /// `String(data:encoding:)` 이 통째로 nil 이 되어(실측: 로컬 rollout 109개 중 14개가 64KB 경계에서
+    /// strict 디코드 실패) "세션 id 없음"으로 잘못 보고하고, 첫 줄이 컷보다 길어도 같은 결과가 된다.
+    /// → chunk 를 읽되 **개행으로 완성된 줄만** 디코드한다.
+    static func codexRolloutSessionID(at url: URL, byteLimit: Int = codexProbeByteLimit) -> String? {
         guard let handle = try? FileHandle(forReadingFrom: url) else { return nil }
         defer { try? handle.close() }
-        guard let data = try? handle.read(upToCount: 64 * 1024),
-              let prefix = String(data: data, encoding: .utf8) else { return nil }
-        for line in prefix.split(separator: "\n", omittingEmptySubsequences: true) {
-            if let meta = codexSessionMeta(String(line)) { return meta.id }
-            if line.contains("token_count") { break }
+
+        var buffer = Data()
+        var read = 0
+        while read < byteLimit {
+            // 남은 예산까지만 읽어 상한을 정확히 지킨다(0 바이트 요청 = EOF 오인 방지).
+            guard let chunk = try? handle.read(upToCount: min(codexProbeChunkSize, byteLimit - read)),
+                  !chunk.isEmpty else {
+                // EOF — 개행 없이 끝나는 마지막 줄도 완성된 줄로 취급한다.
+                if case .sessionID(let id) = codexProbeOutcome(of: buffer) { return id }
+                return nil
+            }
+            read += chunk.count
+            buffer.append(chunk)
+            var lineStart = buffer.startIndex
+            while lineStart < buffer.endIndex,
+                  let newline = buffer[lineStart...].firstIndex(of: 0x0A) {
+                let line = Data(buffer[lineStart..<newline])
+                let nextLineStart = buffer.index(after: newline)
+                switch codexProbeOutcome(of: line) {
+                case .sessionID(let id): return id
+                case .stop, .invalid: return nil
+                case .keepScanning: lineStart = nextLineStart
+                }
+            }
+            // 줄마다 남은 buffer 전체를 복사하지 않고, 이번 chunk에서 소비한 prefix를 한 번만 제거.
+            if lineStart != buffer.startIndex {
+                buffer.removeSubrange(buffer.startIndex..<lineStart)
+            }
         }
-        return nil
+        // 파일이 개행 없이 정확히 byteLimit에서 끝난 경우에도 완성된 JSON 한 줄이면 인정한다.
+        if case .sessionID(let id) = codexProbeOutcome(of: buffer) { return id }
+        return nil   // 상한 도달 — 아직 meta 를 못 찾았거나 줄이 완성되지 않았다
+    }
+
+    private static func codexProbeOutcome(of line: Data) -> CodexProbeOutcome {
+        guard !line.isEmpty else { return .keepScanning }
+        // 손상된 줄을 건너뛰면 뒤에 재삽입된 parent meta를 이 파일의 id로 오인할 수 있으므로 중단한다.
+        guard let text = String(data: line, encoding: .utf8) else { return .invalid }
+        if let meta = codexSessionMeta(text) { return .sessionID(meta.id) }
+        if text.contains("token_count") { return .stop }
+        return .keepScanning
     }
 
     /// 부모 관계가 확인된 rollout끼리 usage-state prefix를 대조해 실제로 복사된 replay만 제거.
