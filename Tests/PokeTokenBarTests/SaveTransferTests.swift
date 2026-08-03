@@ -333,6 +333,44 @@ final class SaveTransferTests: XCTestCase {
         XCTAssertEqual(s.state.dex.count, imported.dex.count)
     }
 
+    /// [회귀·딥리뷰 H3] 부화가 폐기된 뒤 불러온 개체의 진화 라인이 다시 로드돼야 한다.
+    /// `applySave` 가 띄우는 로드는 `loadCurrentLine` 의 `!isHatching` 가드에 막혀 조용히 실패하는데,
+    /// 아무도 재시도하지 않으면 다음 update 틱(기본 120초)까지 이름이 "Token Egg" 로 남았다.
+    /// 위 두 경합 테스트는 `state.active`·`dex` 만 단언해 이 경로를 통과시킨다.
+    func testImportDuringHatchStillLoadsTheImportedLine() async throws {
+        let entered = TransferSignal()
+        let release = TransferSignal()
+        // 불러올 개체(403)의 라인을 제공하는 provider — 부화용 라인 fetch 에서 한 번 멈춘다.
+        let evo = EvoLine(baseID: 403, tree: EvoNode(speciesID: 403, children: []), rarity: .common,
+                          names: [403: ["en": "Shinx", "ko": "꼬링크", "ja": "コリンク"]])
+        let url = tempURL("linereload")
+        let s = CompanionStore(provider: GatedProvider(entered: entered, release: release, result: evo),
+                               clock: { transferNow }, fileURL: url)
+
+        let hatching = Task { await s.hatch(baseID: 1) }
+        await entered.wait()
+
+        var imported = oldMacState(today: "2026-08-03")
+        imported.active = MonState(baseID: 403, pathIDs: [403], plannedPathIDs: [403],
+                                   stageIndex: 0, usedAtStage: 0, rarity: .common, totalForms: 1)
+        let data = try SaveTransfer.encode(state: imported, appVersion: "2.5.0",
+                                           deviceName: "Old Mac", now: transferNow)
+        s.applySave(try SaveTransfer.decode(data), todayTokens: 1,
+                    todayDate: "2026-08-03", hasUsageData: true)
+        XCTAssertNil(s.currentLine, "전제: 부화 락에 막혀 라인이 아직 없다")
+
+        await release.fire()
+        await hatching.value
+
+        // 폐기 후 재점화된 로드가 끝날 때까지 양보(sleep 아님 — 이벤트 루프만 돌린다).
+        var spins = 0
+        while s.currentLine == nil, spins < 500 { await Task.yield(); spins += 1 }
+
+        XCTAssertNotNil(s.currentLine, "부화가 폐기됐으면 불러온 개체의 라인을 다시 로드해야 한다")
+        XCTAssertEqual(s.currentLine?.baseID, 403)
+        XCTAssertNotEqual(s.displayName, "Token Egg", "이름이 알 표기로 남으면 안 된다")
+    }
+
     /// [회귀·딥리뷰 H1] 새 Mac 에서 AI CLI 를 아직 안 쓴 시점(hasUsageData=false)에 불러오면,
     /// 개체가 있는데도 알로 표시되고 진화 라인 로드 재시도가 도달 불가였다.
     func testImportedCompanionIsNotShownAsEggBeforeUsageArrives() throws {
@@ -396,6 +434,30 @@ final class SaveTransferTests: XCTestCase {
         store.update(todayTokens: 1_000, todayDate: "2026-08-03", monthTotal: 0,
                      burnTier: .idle, limitWarning: false, hasUsageData: true)
         XCTAssertLessThanOrEqual(store.state.usedSinceInstall, SaveTransfer.maxTokenValue + 1_000)
+    }
+
+    /// [회귀·딥리뷰 H2 후속] 불러오기 경계만 막으면 **이미 디스크에 있는** 극단값은 남아, 매 기동마다
+    /// 같은 값을 읽어 산술 트랩으로 죽는 상태를 벗어나지 못한다(디코드가 성공하므로 `.corrupt` 복구도
+    /// 발동 안 함). 상태 파일을 읽는 경로에서도 같은 정규화가 걸려야 자가 복구된다.
+    func testCorruptStateOnDiskIsClampedOnLoadNotJustOnImport() throws {
+        let url = tempURL("diskclamp")
+        // 앱이 아니라 손편집·이전 버전이 남긴 것처럼 극단값을 직접 파일에 심는다.
+        let json = #"{"installBaselineSet":true,"usedSinceInstall":9223372036854775807,"#
+            + #""spentTokens":-9223372036854775808,"eggUsage":9223372036854775807,"#
+            + #""claimedTodayTokens":-1,"lastDate":"2026-08-03"}"#
+        try Data(json.utf8).write(to: url)
+
+        let s = store(at: url)
+        XCTAssertEqual(s.state.usedSinceInstall, SaveTransfer.maxTokenValue)
+        XCTAssertEqual(s.state.spentTokens, 0)
+        XCTAssertEqual(s.state.eggUsage, SaveTransfer.maxTokenValue)
+        XCTAssertEqual(s.state.claimedTodayTokens, 0)
+
+        // 정규화된 값으로 실제 산술 경로를 태워 트랩이 안 나는지 확인(이 줄이 예전엔 SIGTRAP).
+        XCTAssertGreaterThanOrEqual(s.availableTokens, 0)
+        s.update(todayTokens: 1_000, todayDate: "2026-08-03", monthTotal: 0,
+                 burnTier: .idle, limitWarning: false, hasUsageData: true)
+        XCTAssertLessThanOrEqual(s.state.usedSinceInstall, SaveTransfer.maxTokenValue + 1_000)
     }
 
     // MARK: 오류 문구 매핑

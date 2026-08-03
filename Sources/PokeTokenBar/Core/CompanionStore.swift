@@ -951,7 +951,10 @@ final class CompanionStore {
             AppLog.write("companion state decode failed — original backed up to \(backup.lastPathComponent), starting fresh")
             return
         }
-        state = s
+        // 불러오기 경계와 같은 정규화를 디스크에서 읽을 때도 건다. 불러오기만 막으면 **이미 저장된**
+        // 극단값은 그대로 남아, 앱이 매 기동마다 같은 값을 읽어 산술 트랩으로 죽는 상태를 못 벗어난다
+        // (디코드는 *성공*하므로 위의 .corrupt 복구도 발동하지 않는다). 여기서 걸면 자가 복구된다.
+        state = SaveTransfer.sanitized(s)
     }
     private func save() {
         guard let data = try? JSONEncoder().encode(state) else { return }
