@@ -9,6 +9,14 @@ private struct NoCodexLimits: CodexLimitsProviding {
     func fetch() async throws -> CodexRateLimitStatus? { nil }
 }
 
+/// probe 호출 횟수 계측기 — 시간이 아니라 "파일을 다시 열었나"가 계약이다.
+private final class ProbeMeter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value = 0
+    var count: Int { lock.lock(); defer { lock.unlock() }; return value }
+    func bump() { lock.lock(); value += 1; lock.unlock() }
+}
+
 // 임시 parity 검증 — 실제 ~/.claude, ~/.codex 로그로 집계해 콘솔 출력 → ccusage 와 수동 대조용.
 // (CI 비결정적이므로 환경변수 PTB_PARITY=1 일 때만 실행)
 final class LocalUsageParityTests: XCTestCase {
@@ -92,6 +100,50 @@ final class LocalUsageParityTests: XCTestCase {
         print("PARITY-PROBE files=\(files.count) parsedWithID=\(parsedWithID) legacyDecodeFailures=\(legacyDecodeFailures) mismatches=\(mismatches.count)")
         XCTAssertTrue(mismatches.isEmpty,
                       "metadata probe와 전체 parser의 session id가 다른 rollout: \(mismatches)")
+    }
+
+    /// 고아 부모(부모 파일이 사라진 fork)가 실제 rollout 규모에서 매 새로고침마다 전수 스캔을
+    /// 유발하지 않는지 — 실 트리를 임시 디렉토리로 복제해 검증한다(원본은 읽기만 한다).
+    func testCodexOrphanedParentDoesNotRescanRealTree() async throws {
+        guard ProcessInfo.processInfo.environment["PTB_PARITY"] == "1" else { throw XCTSkip("PTB_PARITY != 1") }
+        let source = LocalUsageReader.codexSessionsDir
+        guard LocalUsageReader.codexRolloutFiles(in: source).count > 10 else {
+            throw XCTSkip("rollout 이 너무 적어 의미 없음")
+        }
+
+        let fm = FileManager.default
+        let tree = fm.temporaryDirectory.appendingPathComponent("ptb-orphan-\(UUID().uuidString)")
+        try fm.copyItem(at: source, to: tree)
+        defer { try? fm.removeItem(at: tree) }
+        let cacheFile = tree.appendingPathComponent("usage-cache.json")
+
+        // 부모 파일이 어디에도 없는 fork 를 하나 심는다(= 부모가 삭제·아카이브된 상태).
+        try [
+            #"{"type":"session_meta","timestamp":"2026-07-30T01:00:00.000Z","payload":{"id":"orphan-child","forked_from_id":"00000000-0000-7000-8000-ffffffffffff"}}"#,
+            #"{"type":"event_msg","timestamp":"2026-07-30T01:00:05.000Z","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":100,"output_tokens":10,"total_tokens":110},"last_token_usage":{"input_tokens":100,"output_tokens":10,"total_tokens":110}}}}"#,
+        ].joined(separator: "\n").write(to: tree.appendingPathComponent("rollout-orphan-child.jsonl"),
+                                        atomically: true, encoding: .utf8)
+
+        let probes = ProbeMeter()
+        let cache = LocalUsageCache(codexRoot: tree, fileURL: cacheFile,
+                                    codexProbe: { url in
+                                        probes.bump()
+                                        return LocalUsageReader.codexRolloutSessionID(at: url)
+                                    })
+        let since = LocalUsageReader.startOfMonth(Date())
+
+        var t = Date()
+        _ = await cache.codexEntries(modifiedSince: since)
+        let cold = Date().timeIntervalSince(t)
+        let coldProbes = probes.count
+
+        t = Date()
+        _ = await cache.codexEntries(modifiedSince: since)
+        let warm = Date().timeIntervalSince(t)
+
+        print(String(format: "PARITY-ORPHAN cold %.0fms (probe %d)  warm %.0fms (probe +%d)",
+                     cold * 1000, coldProbes, warm * 1000, probes.count - coldProbes))
+        XCTAssertEqual(probes.count, coldProbes, "두 번째 새로고침이 rollout 을 다시 열면 안 된다")
     }
 
     func testCachePerformance() async throws {

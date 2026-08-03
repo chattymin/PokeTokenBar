@@ -15,45 +15,67 @@ actor LocalUsageCache {
         let rollout: LocalUsageReader.CodexParsedRollout
     }
 
+    /// rollout 파일의 세션 id 만 담는 경량 항목 — blob 없이도 부모 후보를 가려내기 위한 인덱스.
+    /// `sessionID == nil`(= 이 파일엔 세션 id 가 없다)도 저장한다. 그 부정 결과를 안 남기면
+    /// 부모가 사라진 fork 하나 때문에 매 새로고침마다 전 rollout 을 다시 열게 된다.
+    private struct CodexSessionProbe: Codable {
+        let mtime: Date
+        let size: Int
+        let sessionID: String?
+    }
+
     private struct Snapshot: Codable {
         var claude: [String: Blob]
         var codex: [String: CodexBlob]
+        var codexSessionIDs: [String: CodexSessionProbe]
         var gemini: [String: Blob]
         var grok: [String: Blob]
         var codexParserVersion: Int
+        var codexSessionIndexVersion: Int
         var grokParserVersion: Int
 
-        init(claude: [String: Blob], codex: [String: CodexBlob], gemini: [String: Blob],
-             grok: [String: Blob], codexParserVersion: Int, grokParserVersion: Int) {
+        init(claude: [String: Blob], codex: [String: CodexBlob],
+             codexSessionIDs: [String: CodexSessionProbe], gemini: [String: Blob],
+             grok: [String: Blob], codexParserVersion: Int, codexSessionIndexVersion: Int,
+             grokParserVersion: Int) {
             self.claude = claude
             self.codex = codex
+            self.codexSessionIDs = codexSessionIDs
             self.gemini = gemini
             self.grok = grok
             self.codexParserVersion = codexParserVersion
+            self.codexSessionIndexVersion = codexSessionIndexVersion
             self.grokParserVersion = grokParserVersion
         }
 
-        // 하위호환: gemini/grok 키가 없는 구버전 스냅샷도 로드(콜드 스타트 재발 방지).
+        // 하위호환: gemini/grok/codexSessionIDs 키가 없는 구버전 스냅샷도 로드(콜드 스타트 재발 방지).
         init(from decoder: Decoder) throws {
             let c = try decoder.container(keyedBy: CodingKeys.self)
             claude = try c.decodeIfPresent([String: Blob].self, forKey: .claude) ?? [:]
             // parser v3 이하는 Codex blob에 최종 Entry 배열을 저장. 새 parsed-rollout 형태와
             // 호환되지 않으므로 해당 필드만 비우고 다른 provider 캐시는 그대로 살림.
             codex = (try? c.decode([String: CodexBlob].self, forKey: .codex)) ?? [:]
+            codexSessionIDs = (try? c.decode([String: CodexSessionProbe].self, forKey: .codexSessionIDs)) ?? [:]
             gemini = try c.decodeIfPresent([String: Blob].self, forKey: .gemini) ?? [:]
             grok = try c.decodeIfPresent([String: Blob].self, forKey: .grok) ?? [:]
             codexParserVersion = try c.decodeIfPresent(Int.self, forKey: .codexParserVersion) ?? 0
+            codexSessionIndexVersion = try c.decodeIfPresent(Int.self, forKey: .codexSessionIndexVersion) ?? 0
             grokParserVersion = try c.decodeIfPresent(Int.self, forKey: .grokParserVersion) ?? 0
         }
     }
 
     /// fork replay 및 동일 상태 재기록 처리 변경 시 Codex blob만 재파싱한다.
     private static let codexParserVersion = 4
+    /// **세션 id 추출 규칙**(`session_meta` 의 id/session_id 해석·probe 종료 조건)이 바뀔 때만 올린다.
+    /// resolver 변경으로 오르는 `codexParserVersion` 과 분리 — 같이 묶으면 replay 로직을 고칠 때마다
+    /// 인덱스가 통째로 날아가 다음 고아 조회에서 전수 probe 가 되살아난다.
+    private static let codexSessionIndexVersion = 1
     /// Grok 토큰 매핑(캐시분 분리·비용 신뢰 조건) 변경 시 Grok blob만 재파싱한다.
     private static let grokParserVersion = 1
 
     private var claudeCache: [String: Blob] = [:]
     private var codexCache: [String: CodexBlob] = [:]
+    private var codexSessionIDs: [String: CodexSessionProbe] = [:]
     private var geminiCache: [String: Blob] = [:]
     private var grokCache: [String: Blob] = [:]
     private var loaded = false
@@ -67,15 +89,18 @@ actor LocalUsageCache {
     private let grokRoot: URL?
     private let fileURL: URL
     private let now: @Sendable () -> Date
+    private let codexProbe: @Sendable (URL) -> String?
 
     init(claudeRoot: URL? = nil, codexRoot: URL? = nil, geminiRoot: URL? = nil, grokRoot: URL? = nil,
-         fileURL: URL? = nil, now: @escaping @Sendable () -> Date = Date.init) {
+         fileURL: URL? = nil, now: @escaping @Sendable () -> Date = Date.init,
+         codexProbe: @escaping @Sendable (URL) -> String? = { LocalUsageReader.codexRolloutSessionID(at: $0) }) {
         self.claudeRoot = claudeRoot
         self.codexRoot = codexRoot
         self.geminiRoot = geminiRoot
         self.grokRoot = grokRoot
         self.fileURL = fileURL ?? Self.defaultFileURL
         self.now = now
+        self.codexProbe = codexProbe
     }
 
     private static let defaultFileURL: URL = {
@@ -106,6 +131,12 @@ actor LocalUsageCache {
         let entries = LocalUsageReader.resolveCodexRollouts(rollouts, includedPaths: includedPaths)
         saveIfNeeded()
         return entries
+    }
+
+    /// 테스트 관측용 — 삭제된 rollout 의 항목이 인덱스에 남아 무한히 쌓이지 않는지 확인한다.
+    func codexSessionIndexCount() -> Int {
+        ensureLoaded()
+        return codexSessionIDs.count
     }
 
     func geminiEntries(modifiedSince: Date) -> [LocalUsageReader.Entry] {
@@ -176,9 +207,22 @@ actor LocalUsageCache {
     ) -> (rollouts: [LocalUsageReader.CodexParsedRollout], includedPaths: Set<String>) {
         let files = LocalUsageReader.codexRolloutFiles(in: root)
 
+        func rememberSessionID(_ id: String?, of file: LocalUsageReader.CodexRolloutFile) {
+            codexSessionIDs[file.path] = CodexSessionProbe(
+                mtime: file.mtime,
+                size: file.size,
+                sessionID: id
+            )
+            dirty = true
+        }
+
         // 파싱만 캐시 blob 을 재사용한다. 확장 규칙 자체는 reader 와 공유(LocalUsageReader).
         func load(_ file: LocalUsageReader.CodexRolloutFile) -> LocalUsageReader.CodexParsedRollout {
             if let blob = codexCache[file.path], blob.mtime == file.mtime, blob.size == file.size {
+                if codexSessionIDs[file.path]?.mtime != file.mtime
+                    || codexSessionIDs[file.path]?.size != file.size {
+                    rememberSessionID(blob.rollout.sessionID, of: file)
+                }
                 return blob.rollout
             }
             let rollout = LocalUsageReader.parseCodexRollout(file.url, fmt: fmt)
@@ -188,17 +232,50 @@ actor LocalUsageCache {
                 rollout: rollout
             )
             dirty = true
+            // blob 은 40일 prune 대상이라 오래된 부모는 곧 사라진다. 세션 id 만 인덱스에 남겨
+            // 그 뒤로도 파일을 다시 열지 않고 후보를 가릴 수 있게 한다.
+            rememberSessionID(rollout.sessionID, of: file)
             return rollout
         }
 
+        /// 파일을 열지 않고 아는 세션 id — 유효한 blob → 인덱스 순. `known(nil)`도 유효한 결과다.
+        func sessionIDKnowledge(
+            _ file: LocalUsageReader.CodexRolloutFile
+        ) -> LocalUsageReader.CodexSessionIDKnowledge {
+            if let blob = codexCache[file.path], blob.mtime == file.mtime, blob.size == file.size {
+                return .known(blob.rollout.sessionID)
+            }
+            if let probe = codexSessionIDs[file.path], probe.mtime == file.mtime, probe.size == file.size {
+                return .known(probe.sessionID)
+            }
+            return .unknown
+        }
+
         // parent가 오래돼 조회 mtime 범위에서 빠졌어도 child replay와 대조할 수 있도록 closure를 확장.
-        return LocalUsageReader.expandCodexParentClosure(
+        let result = LocalUsageReader.expandCodexParentClosure(
             windowFiles: files.filter { $0.mtime >= since },
             allFiles: files,
             load: load,
-            knownSessionID: { codexCache[$0.path]?.rollout.sessionID },
-            probeSessionID: { LocalUsageReader.codexRolloutSessionID(at: $0.url) }
+            sessionIDKnowledge: sessionIDKnowledge,
+            probeSessionID: { file in
+                let id = codexProbe(file.url)
+                rememberSessionID(id, of: file)
+                return id
+            }
         )
+
+        // 사라진 rollout 의 인덱스 항목 정리. 시간이 아니라 **파일 존재**가 기준이다(오래된 부모를
+        // 찾으려고 만든 인덱스라 40일 prune 에 얹으면 목적이 사라진다). 열거가 통째로 실패한
+        // 경우(루트 부재·권한 순간 실패)는 0개를 "전부 삭제됨"으로 오해하지 않도록 건너뛴다.
+        if !files.isEmpty {
+            let existing = Set(files.map(\.path))
+            let survivors = codexSessionIDs.filter { existing.contains($0.key) }
+            if survivors.count != codexSessionIDs.count {
+                codexSessionIDs = survivors
+                dirty = true
+            }
+        }
+        return result
     }
 
     // MARK: 영속화
@@ -212,11 +289,16 @@ actor LocalUsageCache {
         guard let snap = try? JSONDecoder().decode(Snapshot.self, from: data) else { return }
         claudeCache = snap.claude
         codexCache = snap.codex
+        codexSessionIDs = snap.codexSessionIDs
         geminiCache = snap.gemini
         grokCache = snap.grok
 
         if snap.codexParserVersion != Self.codexParserVersion {
             codexCache = [:]
+            dirty = true
+        }
+        if snap.codexSessionIndexVersion != Self.codexSessionIndexVersion {
+            codexSessionIDs = [:]
             dirty = true
         }
         if snap.grokParserVersion != Self.grokParserVersion {
@@ -227,6 +309,7 @@ actor LocalUsageCache {
 
     /// 어떤 조회 윈도우(오늘/주/월)에도 들지 않는 오래된 파일 blob 을 제거해 캐시 무한 증가를 막는다.
     /// (가장 넓은 윈도우는 월·주 시작이라 40일이면 충분한 여유. 삭제된 세션 파일 blob 도 함께 정리.)
+    /// `codexSessionIDs` 는 여기서 건드리지 않는다 — 40일보다 오래된 부모를 찾는 게 그 인덱스의 목적이다.
     private func prune() {
         let cutoff = now().addingTimeInterval(-40 * 86400)
         claudeCache = claudeCache.filter { $0.value.mtime >= cutoff }
@@ -243,9 +326,11 @@ actor LocalUsageCache {
         let snap = Snapshot(
             claude: claudeCache,
             codex: codexCache,
+            codexSessionIDs: codexSessionIDs,
             gemini: geminiCache,
             grok: grokCache,
             codexParserVersion: Self.codexParserVersion,
+            codexSessionIndexVersion: Self.codexSessionIndexVersion,
             grokParserVersion: Self.grokParserVersion)
         if let data = try? JSONEncoder().encode(snap) {
             // JSON 은 zlib 로 크게 압축됨(수 MB → 수백 KB). 실패 시 평문 저장(로드가 양쪽 다 처리).

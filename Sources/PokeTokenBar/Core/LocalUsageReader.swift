@@ -304,6 +304,13 @@ enum LocalUsageReader {
         var path: String { url.path }
     }
 
+    /// 세션 id 조회 상태. `known(nil)`은 probe를 마쳤지만 id를 찾지 못한 상태이며,
+    /// `unknown`과 구분해야 같은 파일을 매 새로고침마다 다시 열지 않는다.
+    enum CodexSessionIDKnowledge {
+        case unknown
+        case known(String?)
+    }
+
     /// Codex 루트의 rollout 파일 전체(mtime·size 포함). 조회 윈도우 밖 파일도 부모 후보라 걸러내지 않는다.
     static func codexRolloutFiles(in root: URL) -> [CodexRolloutFile] {
         guard let en = FileManager.default.enumerator(
@@ -331,7 +338,7 @@ enum LocalUsageReader {
         windowFiles: [CodexRolloutFile],
         allFiles: [CodexRolloutFile],
         load: (CodexRolloutFile) -> CodexParsedRollout,
-        knownSessionID: (CodexRolloutFile) -> String?,
+        sessionIDKnowledge: (CodexRolloutFile) -> CodexSessionIDKnowledge,
         probeSessionID: (CodexRolloutFile) -> String?
     ) -> (rollouts: [CodexParsedRollout], includedPaths: Set<String>) {
         var rolloutsByPath = Dictionary(
@@ -348,23 +355,37 @@ enum LocalUsageReader {
             searchedParentIDs.insert(parentID)
             if rolloutsByPath.values.contains(where: { $0.sessionID == parentID }) { continue }
 
-            let unresolved = allFiles.filter { !rolloutsByPath.keys.contains($0.path) }
-            // 저비용 힌트(이미 아는 세션 id·파일명)로 후보를 좁히고, 하나도 없을 때만 파일을 연다.
-            let hinted = unresolved.filter {
-                knownSessionID($0) == parentID || $0.url.lastPathComponent.contains(parentID)
-            }
-            let candidates = hinted.isEmpty
-                ? unresolved.filter { probeSessionID($0) == parentID }
-                : hinted
-            for candidate in candidates {
-                // 힌트는 후보를 고를 뿐이고 채택 여부는 실제 payload 의 세션 id 로 판정한다.
-                let parent = load(candidate)
-                guard parent.sessionID == parentID else { continue }
-                rolloutsByPath[parent.path] = parent
-                if let ancestorID = parent.parentSessionID {
-                    pendingParentIDs.insert(ancestorID)
+            // 힌트는 후보를 고를 뿐이고, 채택은 실제 payload 의 세션 id 로만 판정한다.
+            func adopt(_ candidates: [CodexRolloutFile]) -> Bool {
+                var resolved = false
+                for candidate in candidates {
+                    let parent = load(candidate)
+                    guard parent.sessionID == parentID else { continue }
+                    rolloutsByPath[parent.path] = parent
+                    resolved = true
+                    if let ancestorID = parent.parentSessionID {
+                        pendingParentIDs.insert(ancestorID)
+                    }
                 }
+                return resolved
             }
+
+            let unresolved = allFiles.filter { !rolloutsByPath.keys.contains($0.path) }
+            // 이미 아는 세션 id 와 파일명으로 후보를 좁혀 먼저 확인한다(파일을 열지 않는다).
+            let hinted = unresolved.filter {
+                if case .known(let id) = sessionIDKnowledge($0), id == parentID { return true }
+                return $0.url.lastPathComponent.contains(parentID)
+            }
+            if adopt(hinted) { continue }
+
+            // 힌트가 없었거나 전부 검증에 실패했으면 내용을 봐야 아는 파일만 연다.
+            // 세션 id 를 이미 아는 파일은 그 값이 parentID 가 아니므로 다시 열 이유가 없다.
+            let hintedPaths = Set(hinted.map(\.path))
+            _ = adopt(unresolved.filter {
+                guard !hintedPaths.contains($0.path),
+                      case .unknown = sessionIDKnowledge($0) else { return false }
+                return probeSessionID($0) == parentID
+            })
         }
         return (Array(rolloutsByPath.values), includedPaths)
     }
@@ -377,7 +398,7 @@ enum LocalUsageReader {
             windowFiles: allFiles.filter { $0.mtime >= modifiedSince },
             allFiles: allFiles,
             load: { parseCodexRollout($0.url, fmt: fmt) },
-            knownSessionID: { _ in nil },
+            sessionIDKnowledge: { _ in .unknown },
             probeSessionID: { codexRolloutSessionID(at: $0.url) }
         )
         return resolveCodexRollouts(rollouts, includedPaths: includedPaths)

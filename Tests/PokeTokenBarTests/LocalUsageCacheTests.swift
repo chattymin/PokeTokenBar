@@ -1,6 +1,23 @@
 import XCTest
 @testable import PokeTokenBar
 
+/// probe 호출 횟수 카운터 — "몇 ms 걸렸나"는 환경마다 흔들리므로 "파일을 다시 열었나"로 계약을 건다.
+private final class ProbeCounter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value = 0
+    var count: Int { lock.lock(); defer { lock.unlock() }; return value }
+    func bump() { lock.lock(); value += 1; lock.unlock() }
+}
+
+/// 저장 throttle(60초)·prune(40일)을 결정적으로 넘기기 위한 조작 가능한 시계.
+private final class Clock: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value: Date
+    init(_ start: Date) { value = start }
+    var now: Date { lock.lock(); defer { lock.unlock() }; return value }
+    func advance(_ seconds: TimeInterval) { lock.lock(); value += seconds; lock.unlock() }
+}
+
 /// LocalUsageCache — 파일별 증분 캐시의 핵심 계약을 픽스처 디렉토리로 검증.
 /// (재사용/재파싱 판정, 디스크 영속·라운드트립, 40일 prune, 60초 저장 throttle)
 final class LocalUsageCacheTests: XCTestCase {
@@ -76,9 +93,51 @@ final class LocalUsageCacheTests: XCTestCase {
         return url
     }
 
-    private func makeCache(now: @escaping @Sendable () -> Date = Date.init) -> LocalUsageCache {
-        LocalUsageCache(claudeRoot: root, codexRoot: root, fileURL: cacheFile, now: now)
+    private func makeCache(now: @escaping @Sendable () -> Date = Date.init,
+                           probes: ProbeCounter? = nil) -> LocalUsageCache {
+        LocalUsageCache(claudeRoot: root, codexRoot: root, fileURL: cacheFile, now: now,
+                        codexProbe: { url in
+                            probes?.bump()
+                            return LocalUsageReader.codexRolloutSessionID(at: url)
+                        })
     }
+
+    private func forkMeta(id: String, parentID: String, ts: String) -> String {
+        """
+        {"type":"session_meta","timestamp":"\(ts)","payload":{"id":"\(id)","forked_from_id":"\(parentID)","parent_thread_id":"\(parentID)","thread_source":"user"}}
+        """
+    }
+
+    /// 부모가 사라진 fork 하나 + 조회 윈도우 밖 rollout 두 개(= 내용을 열어봐야 아는 후보).
+    private func writeOrphanedForkTree() throws {
+        try writeFile("rollout-alpha.jsonl", lines: [
+            sessionMeta(id: "alpha", ts: "2026-07-29T01:00:00.000Z"),
+            codexStateLine(ts: "2026-07-29T01:00:01.000Z",
+                           cumulativeInput: 10, cumulativeOutput: 1, lastInput: 10, lastOutput: 1),
+        ], mtime: Date(timeIntervalSince1970: 1_000))
+        try writeFile("rollout-beta.jsonl", lines: [
+            sessionMeta(id: "beta", ts: "2026-07-29T02:00:00.000Z"),
+            codexStateLine(ts: "2026-07-29T02:00:01.000Z",
+                           cumulativeInput: 20, cumulativeOutput: 2, lastInput: 20, lastOutput: 2),
+        ], mtime: Date(timeIntervalSince1970: 1_000))
+        try writeFile("rollout-child.jsonl", lines: orphanedForkLines(lastOutput: 20),
+                      mtime: Date(timeIntervalSince1970: 3_000))
+    }
+
+    /// 부모가 없는 fork — 시간 fallback 이 첫 이벤트만 replay 로 보고 두 번째는 남긴다.
+    /// (`lastOutput` 은 두 자리로만 바꿔 파일 크기가 변하지 않게 한다 — blob 무효화는 mtime·size 기준.)
+    private func orphanedForkLines(lastOutput: Int) -> [String] {
+        [
+            forkMeta(id: "child", parentID: "gone-parent", ts: "2026-07-30T01:00:00.000Z"),
+            codexStateLine(ts: "2026-07-30T01:00:05.000Z",
+                           cumulativeInput: 100, cumulativeOutput: 10, lastInput: 100, lastOutput: 10),
+            codexStateLine(ts: "2026-07-30T01:00:10.000Z",
+                           cumulativeInput: 300, cumulativeOutput: 30,
+                           lastInput: 200, lastOutput: lastOutput),
+        ]
+    }
+
+    private let orphanWindow = Date(timeIntervalSince1970: 2_000)
 
     private let since = Date(timeIntervalSince1970: 0)
 
@@ -226,6 +285,161 @@ final class LocalUsageCacheTests: XCTestCase {
 
         XCTAssertEqual(entries.map(\.total), [55, 65])
         XCTAssertTrue(entries.allSatisfy { $0.id.hasPrefix("codex|child|") })
+    }
+
+    // MARK: 세션 id 인덱스 (부모가 사라진 fork 가 매번 전수 스캔을 유발하지 않도록)
+
+    /// 부모를 못 찾았다는 사실도 상태다 — 같은 인스턴스의 두 번째 새로고침은 파일을 다시 열지 않는다.
+    func testCodexOrphanedParentIsNotRescannedOnEveryRefresh() async throws {
+        try writeOrphanedForkTree()
+        let probes = ProbeCounter()
+        let cache = makeCache(probes: probes)
+
+        _ = await cache.codexEntries(modifiedSince: orphanWindow)
+        let first = probes.count
+        XCTAssertEqual(first, 2, "첫 조회는 윈도우 밖 rollout 두 개를 열어봐야 한다")
+
+        _ = await cache.codexEntries(modifiedSince: orphanWindow)
+        XCTAssertEqual(probes.count, first, "두 번째 새로고침은 같은 파일을 다시 열면 안 된다")
+    }
+
+    /// 인덱스는 스냅샷에 실려 콜드 스타트(새 인스턴스)에서도 전수 스캔을 막는다.
+    func testCodexSessionIndexPersistsAcrossInstances() async throws {
+        try writeOrphanedForkTree()
+        _ = await makeCache(probes: ProbeCounter()).codexEntries(modifiedSince: orphanWindow)
+
+        let probes = ProbeCounter()
+        _ = await makeCache(probes: probes).codexEntries(modifiedSince: orphanWindow)
+
+        XCTAssertEqual(probes.count, 0, "스냅샷의 세션 id 인덱스로 후보를 가려야 한다")
+    }
+
+    /// `sessionID == nil`도 완료된 probe 결과다 — 미탐색 상태와 혼동하면 매번 파일을 다시 연다.
+    func testCodexNegativeSessionIDProbePersistsAcrossRefreshesAndInstances() async throws {
+        try writeOrphanedForkTree()
+        try writeFile("rollout-without-session-meta.jsonl", lines: [
+            #"{"type":"response_item","timestamp":"2026-07-29T00:00:00.000Z","payload":{"type":"message"}}"#,
+        ], mtime: Date(timeIntervalSince1970: 1_000))
+
+        let probes = ProbeCounter()
+        let cache = makeCache(probes: probes)
+        _ = await cache.codexEntries(modifiedSince: orphanWindow)
+        let first = probes.count
+        XCTAssertEqual(first, 3)
+
+        _ = await cache.codexEntries(modifiedSince: orphanWindow)
+        XCTAssertEqual(probes.count, first, "negative probe 결과가 같은 인스턴스에서 재사용돼야 한다")
+
+        let restoredProbes = ProbeCounter()
+        _ = await makeCache(probes: restoredProbes).codexEntries(modifiedSince: orphanWindow)
+        XCTAssertEqual(restoredProbes.count, 0, "negative probe 결과가 스냅샷에서도 복원돼야 한다")
+    }
+
+    /// 인덱스는 blob 과 같은 `(path, mtime, size)` 로만 무효화된다 — 바뀐 파일만 다시 연다.
+    func testCodexSessionIndexReprobesOnlyChangedFile() async throws {
+        try writeOrphanedForkTree()
+        _ = await makeCache(probes: ProbeCounter()).codexEntries(modifiedSince: orphanWindow)
+
+        // 윈도우 밖에 머물도록 mtime 은 과거로 유지한 채 내용(크기)만 바꾼다.
+        try writeFile("rollout-alpha.jsonl", lines: [
+            sessionMeta(id: "alpha-renamed-session", ts: "2026-07-29T01:00:00.000Z"),
+            codexStateLine(ts: "2026-07-29T01:00:01.000Z",
+                           cumulativeInput: 10, cumulativeOutput: 1, lastInput: 10, lastOutput: 1),
+        ], mtime: Date(timeIntervalSince1970: 1_500))
+
+        let probes = ProbeCounter()
+        _ = await makeCache(probes: probes).codexEntries(modifiedSince: orphanWindow)
+
+        XCTAssertEqual(probes.count, 1, "내용이 바뀐 파일만 다시 열어야 한다")
+    }
+
+    /// blob 은 40일 prune 대상이지만 인덱스는 아니다 — 오래된 부모를 찾는 게 인덱스의 목적이다.
+    /// (픽스처 mtime 이 1970 이라 첫 저장에서 Codex blob 은 전부 prune 된다.)
+    func testCodexSessionIndexOutlivesBlobPrune() async throws {
+        try writeOrphanedForkTree()
+        _ = await makeCache(probes: ProbeCounter()).codexEntries(modifiedSince: orphanWindow)
+
+        // blob 이 살아 있었다면 mtime·size 가 같은 이 교체는 무시된다(220 유지). 값이 바뀌면 prune 되었다는 뜻.
+        try writeFile("rollout-child.jsonl", lines: orphanedForkLines(lastOutput: 30),
+                      mtime: Date(timeIntervalSince1970: 3_000))
+
+        let probes = ProbeCounter()
+        let entries = await makeCache(probes: probes).codexEntries(modifiedSince: orphanWindow)
+
+        XCTAssertEqual(entries.map(\.total), [230], "blob 은 prune 되어 재파싱되어야 한다")
+        XCTAssertEqual(probes.count, 0, "blob 이 사라져도 인덱스만으로 후보를 가려야 한다")
+    }
+
+    /// 사라진 rollout 의 인덱스 항목은 제거되고, 그 제거가 디스크에도 반영된다(dirty 처리).
+    func testCodexSessionIndexDropsDeletedFiles() async throws {
+        try writeOrphanedForkTree()
+        let clock = Clock(Date(timeIntervalSince1970: 10_000_000))
+        let cache = makeCache(now: { clock.now })
+        _ = await cache.codexEntries(modifiedSince: orphanWindow)
+        let indexed = await cache.codexSessionIndexCount()
+        XCTAssertEqual(indexed, 3)
+
+        try FileManager.default.removeItem(at: root.appendingPathComponent("rollout-alpha.jsonl"))
+        clock.advance(120)   // 저장 throttle(60초) 통과
+        _ = await cache.codexEntries(modifiedSince: orphanWindow)
+
+        let afterDelete = await cache.codexSessionIndexCount()
+        XCTAssertEqual(afterDelete, 2)
+        let persisted = await makeCache(now: { clock.now }).codexSessionIndexCount()
+        XCTAssertEqual(persisted, 2, "제거가 스냅샷에도 반영돼야 한다")
+    }
+
+    /// 부모 두 턴을 그대로 복사한 fork. 시간 fallback 은 첫 이벤트만 replay 로 보므로(간격 5초)
+    /// 부모를 실제로 찾았을 때만 두 번째 replay 까지 잘려 own turn 하나(330)만 남는다.
+    private func writeReplayingFork(name: String = "rollout-fork.jsonl") throws {
+        try writeFile(name, lines: [
+            forkMeta(id: "fork", parentID: "P-123", ts: "2026-07-30T01:00:00.000Z"),
+            codexStateLine(ts: "2026-07-30T01:00:05.000Z",
+                           cumulativeInput: 100, cumulativeOutput: 10, lastInput: 100, lastOutput: 10),
+            codexStateLine(ts: "2026-07-30T01:00:10.000Z",
+                           cumulativeInput: 300, cumulativeOutput: 30, lastInput: 200, lastOutput: 20),
+            codexStateLine(ts: "2026-07-30T01:00:15.000Z",
+                           cumulativeInput: 600, cumulativeOutput: 60, lastInput: 300, lastOutput: 30),
+        ], mtime: Date(timeIntervalSince1970: 3_000))
+    }
+
+    private func writeReplayedParent(name: String) throws {
+        try writeFile(name, lines: [
+            sessionMeta(id: "P-123", ts: "2026-07-29T01:00:00.000Z"),
+            codexStateLine(ts: "2026-07-29T01:00:01.000Z",
+                           cumulativeInput: 100, cumulativeOutput: 10, lastInput: 100, lastOutput: 10),
+            codexStateLine(ts: "2026-07-29T01:00:03.000Z",
+                           cumulativeInput: 300, cumulativeOutput: 30, lastInput: 200, lastOutput: 20),
+        ], mtime: Date(timeIntervalSince1970: 1_000))
+    }
+
+    /// 파일명 힌트가 빗나가도(이름엔 부모 id, 내용은 다른 세션) 진짜 부모 탐색을 멈추지 않는다.
+    func testCodexStaleFilenameHintDoesNotBlockContentProbe() async throws {
+        try writeFile("rollout-P-123.jsonl", lines: [   // 이름만 부모 id 를 담은 미끼
+            sessionMeta(id: "decoy-session", ts: "2026-07-29T00:00:00.000Z"),
+        ], mtime: Date(timeIntervalSince1970: 1_000))
+        try writeReplayedParent(name: "rollout-real.jsonl")   // 진짜 부모 — 이름엔 id 가 없다
+        try writeReplayingFork()
+
+        let entries = await makeCache().codexEntries(modifiedSince: orphanWindow)
+
+        XCTAssertEqual(entries.map(\.total), [330], "미끼에서 멈추면 replay 220 이 그대로 남는다")
+    }
+
+    /// 부모가 나중에 복구돼도 찾아야 한다 — 부정 결과를 부모 id 단위로 굳히면 안 되는 이유.
+    func testCodexRestoredParentIsFoundAfterNegativeProbe() async throws {
+        let clock = Clock(Date(timeIntervalSince1970: 10_000_000))
+        try writeReplayingFork()
+        let cache = makeCache(now: { clock.now })
+
+        let beforeRestore = await cache.codexEntries(modifiedSince: orphanWindow)
+        XCTAssertEqual(beforeRestore.map(\.total).sorted(), [220, 330], "부모가 없으면 시간 fallback")
+
+        try writeReplayedParent(name: "rollout-real.jsonl")
+        clock.advance(120)
+
+        let afterRestore = await cache.codexEntries(modifiedSince: orphanWindow)
+        XCTAssertEqual(afterRestore.map(\.total), [330], "복구된 부모를 다시 찾아야 한다")
     }
 
     func testCodexParsedRolloutCacheRoundTripsAcrossInstances() async throws {
