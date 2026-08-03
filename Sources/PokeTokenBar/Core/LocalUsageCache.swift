@@ -173,34 +173,16 @@ actor LocalUsageCache {
         root: URL,
         since: Date,
         fmt: DateFormatter
-    ) -> ([LocalUsageReader.CodexParsedRollout], Set<String>) {
-        struct FileInfo {
-            let url: URL
-            let mtime: Date
-            let size: Int
-        }
+    ) -> (rollouts: [LocalUsageReader.CodexParsedRollout], includedPaths: Set<String>) {
+        let files = LocalUsageReader.codexRolloutFiles(in: root)
 
-        let fm = FileManager.default
-        guard let en = fm.enumerator(
-            at: root,
-            includingPropertiesForKeys: [.contentModificationDateKey, .fileSizeKey],
-            options: [.skipsHiddenFiles]
-        ) else { return ([], []) }
-
-        var files: [FileInfo] = []
-        for case let url as URL in en where url.pathExtension == "jsonl" {
-            guard let values = try? url.resourceValues(forKeys: [.contentModificationDateKey, .fileSizeKey]),
-                  let mtime = values.contentModificationDate else { continue }
-            files.append(FileInfo(url: url, mtime: mtime, size: values.fileSize ?? 0))
-        }
-
-        func load(_ file: FileInfo) -> LocalUsageReader.CodexParsedRollout {
-            let path = file.url.path
-            if let blob = codexCache[path], blob.mtime == file.mtime, blob.size == file.size {
+        // 파싱만 캐시 blob 을 재사용한다. 확장 규칙 자체는 reader 와 공유(LocalUsageReader).
+        func load(_ file: LocalUsageReader.CodexRolloutFile) -> LocalUsageReader.CodexParsedRollout {
+            if let blob = codexCache[file.path], blob.mtime == file.mtime, blob.size == file.size {
                 return blob.rollout
             }
             let rollout = LocalUsageReader.parseCodexRollout(file.url, fmt: fmt)
-            codexCache[path] = CodexBlob(
+            codexCache[file.path] = CodexBlob(
                 mtime: file.mtime,
                 size: file.size,
                 rollout: rollout
@@ -209,43 +191,14 @@ actor LocalUsageCache {
             return rollout
         }
 
-        let activeFiles = files.filter { $0.mtime >= since }
-        let includedPaths = Set(activeFiles.map(\.url.path))
-        var rolloutsByPath = Dictionary(
-            uniqueKeysWithValues: activeFiles.map { file in
-                let rollout = load(file)
-                return (rollout.path, rollout)
-            }
-        )
-
         // parent가 오래돼 조회 mtime 범위에서 빠졌어도 child replay와 대조할 수 있도록 closure를 확장.
-        var pendingParentIDs = Set(rolloutsByPath.values.compactMap(\.parentSessionID))
-        var searchedParentIDs: Set<String> = []
-        while let parentID = pendingParentIDs.subtracting(searchedParentIDs).first {
-            searchedParentIDs.insert(parentID)
-            if rolloutsByPath.values.contains(where: { $0.sessionID == parentID }) { continue }
-
-            let unresolvedFiles = files.filter { !rolloutsByPath.keys.contains($0.url.path) }
-            let indexedMatches = unresolvedFiles.filter {
-                codexCache[$0.url.path]?.rollout.sessionID == parentID
-                    || $0.url.lastPathComponent.contains(parentID)
-            }
-            let candidates = indexedMatches.isEmpty
-                ? unresolvedFiles.filter {
-                    LocalUsageReader.codexRolloutSessionID(at: $0.url) == parentID
-                }
-                : indexedMatches
-            for candidate in candidates {
-                let parent = load(candidate)
-                guard parent.sessionID == parentID else { continue }
-                rolloutsByPath[parent.path] = parent
-                if let ancestorID = parent.parentSessionID {
-                    pendingParentIDs.insert(ancestorID)
-                }
-            }
-        }
-
-        return (Array(rolloutsByPath.values), includedPaths)
+        return LocalUsageReader.expandCodexParentClosure(
+            windowFiles: files.filter { $0.mtime >= since },
+            allFiles: files,
+            load: load,
+            knownSessionID: { codexCache[$0.path]?.rollout.sessionID },
+            probeSessionID: { LocalUsageReader.codexRolloutSessionID(at: $0.url) }
+        )
     }
 
     // MARK: 영속화

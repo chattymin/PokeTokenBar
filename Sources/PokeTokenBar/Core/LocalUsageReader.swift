@@ -295,32 +295,70 @@ enum LocalUsageReader {
         )
     }
 
-    static func codexEntries(modifiedSince: Date, root: URL? = nil) -> [Entry] {
-        let fmt = localDayFormatter()
-        let base = root ?? codexSessionsDir
-        let files = jsonlFiles(in: base, modifiedSince: modifiedSince)
-        let includedPaths = Set(files.map(\.path))
+    /// 부모 탐색이 다루는 rollout 파일. 캐시는 `(path, mtime, size)` 로 blob 을 무효화하고 reader 는
+    /// mtime 으로 조회 윈도우만 나누므로, 두 경로가 같은 표현을 공유한다.
+    struct CodexRolloutFile {
+        let url: URL
+        let mtime: Date
+        let size: Int
+        var path: String { url.path }
+    }
+
+    /// Codex 루트의 rollout 파일 전체(mtime·size 포함). 조회 윈도우 밖 파일도 부모 후보라 걸러내지 않는다.
+    static func codexRolloutFiles(in root: URL) -> [CodexRolloutFile] {
+        guard let en = FileManager.default.enumerator(
+            at: root,
+            includingPropertiesForKeys: [.contentModificationDateKey, .fileSizeKey],
+            options: [.skipsHiddenFiles]
+        ) else { return [] }
+        var out: [CodexRolloutFile] = []
+        for case let url as URL in en where url.pathExtension == "jsonl" {
+            guard let values = try? url.resourceValues(forKeys: [.contentModificationDateKey, .fileSizeKey]),
+                  let mtime = values.contentModificationDate else { continue }
+            out.append(CodexRolloutFile(url: url, mtime: mtime, size: values.fileSize ?? 0))
+        }
+        return out
+    }
+
+    /// 조회 윈도우 안 rollout 에서 시작해, replay 대조에 필요한 부모(그 부모의 부모까지)를 dependency 로
+    /// 끌어온다. Codex 는 fork 파일 하나만 보고는 자기 usage 를 확정할 수 없기 때문이다.
+    ///
+    /// reader(직접 파싱)와 cache(blob 재사용)가 **같은 확장 규칙**을 쓰도록 파일 표현만 공유하고,
+    /// 달라지는 세 가지 — 파싱, 이미 아는 세션 id, 파일 내용 probe — 만 주입받는다. 규칙이 양쪽에
+    /// 복제돼 있으면 한쪽만 고쳐도 나머지 테스트가 초록으로 남는다.
+    /// (클로저는 non-escaping — 캐시는 actor 격리 상태를 만지며 호출한다.)
+    static func expandCodexParentClosure(
+        windowFiles: [CodexRolloutFile],
+        allFiles: [CodexRolloutFile],
+        load: (CodexRolloutFile) -> CodexParsedRollout,
+        knownSessionID: (CodexRolloutFile) -> String?,
+        probeSessionID: (CodexRolloutFile) -> String?
+    ) -> (rollouts: [CodexParsedRollout], includedPaths: Set<String>) {
         var rolloutsByPath = Dictionary(
-            uniqueKeysWithValues: files.map {
-                let rollout = parseCodexRollout($0, fmt: fmt)
+            uniqueKeysWithValues: windowFiles.map { file in
+                let rollout = load(file)
                 return (rollout.path, rollout)
             }
         )
+        let includedPaths = Set(windowFiles.map(\.path))
 
-        // 테스트/캐시 미사용 경로도 오래된 부모를 resolution dependency로만 불러옴.
-        let allFiles = jsonlFiles(in: base, modifiedSince: .distantPast)
         var pendingParentIDs = Set(rolloutsByPath.values.compactMap(\.parentSessionID))
         var searchedParentIDs: Set<String> = []
         while let parentID = pendingParentIDs.subtracting(searchedParentIDs).first {
             searchedParentIDs.insert(parentID)
             if rolloutsByPath.values.contains(where: { $0.sessionID == parentID }) { continue }
-            let unresolvedFiles = allFiles.filter { !rolloutsByPath.keys.contains($0.path) }
-            let filenameMatches = unresolvedFiles.filter { $0.lastPathComponent.contains(parentID) }
-            let candidates = filenameMatches.isEmpty
-                ? unresolvedFiles.filter { codexRolloutSessionID(at: $0) == parentID }
-                : filenameMatches
+
+            let unresolved = allFiles.filter { !rolloutsByPath.keys.contains($0.path) }
+            // 저비용 힌트(이미 아는 세션 id·파일명)로 후보를 좁히고, 하나도 없을 때만 파일을 연다.
+            let hinted = unresolved.filter {
+                knownSessionID($0) == parentID || $0.url.lastPathComponent.contains(parentID)
+            }
+            let candidates = hinted.isEmpty
+                ? unresolved.filter { probeSessionID($0) == parentID }
+                : hinted
             for candidate in candidates {
-                let parent = parseCodexRollout(candidate, fmt: fmt)
+                // 힌트는 후보를 고를 뿐이고 채택 여부는 실제 payload 의 세션 id 로 판정한다.
+                let parent = load(candidate)
                 guard parent.sessionID == parentID else { continue }
                 rolloutsByPath[parent.path] = parent
                 if let ancestorID = parent.parentSessionID {
@@ -328,7 +366,21 @@ enum LocalUsageReader {
                 }
             }
         }
-        return resolveCodexRollouts(Array(rolloutsByPath.values), includedPaths: includedPaths)
+        return (Array(rolloutsByPath.values), includedPaths)
+    }
+
+    static func codexEntries(modifiedSince: Date, root: URL? = nil) -> [Entry] {
+        let fmt = localDayFormatter()
+        let allFiles = codexRolloutFiles(in: root ?? codexSessionsDir)
+        // 테스트/캐시 미사용 경로 — 아는 세션 id 가 없으니 파일명 힌트와 probe 만으로 부모를 찾는다.
+        let (rollouts, includedPaths) = expandCodexParentClosure(
+            windowFiles: allFiles.filter { $0.mtime >= modifiedSince },
+            allFiles: allFiles,
+            load: { parseCodexRollout($0.url, fmt: fmt) },
+            knownSessionID: { _ in nil },
+            probeSessionID: { codexRolloutSessionID(at: $0.url) }
+        )
+        return resolveCodexRollouts(rollouts, includedPaths: includedPaths)
     }
 
     private static func codexSessionMeta(_ line: String) -> CodexSessionMeta? {
