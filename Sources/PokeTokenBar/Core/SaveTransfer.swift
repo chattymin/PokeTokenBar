@@ -68,14 +68,45 @@ enum SaveTransfer {
     static func decode(_ data: Data) throws -> SaveEnvelope {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
-        guard let envelope = try? decoder.decode(SaveEnvelope.self, from: data),
+        guard var envelope = try? decoder.decode(SaveEnvelope.self, from: data),
               envelope.format == SaveEnvelope.formatID else {
             throw SaveTransferError.notASaveFile
         }
         guard envelope.schema <= SaveEnvelope.schemaVersion else {
             throw SaveTransferError.newerSchema(found: envelope.schema, supported: SaveEnvelope.schemaVersion)
         }
+        envelope.state = sanitized(envelope.state)
         return envelope
+    }
+
+    /// 세이브에 들어올 수 있는 수치의 상한 — 실사용(수십억)의 10만 배라 정상 진행을 자르지 않으면서,
+    /// 이 값끼리 더하고 빼도 Int64 범위 안에 머문다.
+    static let maxTokenValue = 1_000_000_000_000_000
+
+    /// 신뢰경계 값 정규화 — 세이브는 **앱 밖에서** 온다(손편집·전송 중 손상·다른 빌드).
+    ///
+    /// `CompanionState` 의 디코딩은 의도적으로 관대해서(한 필드가 깨져도 도감을 안 날리려고) 말이 안 되는
+    /// 값도 통과시킨다. 그 값이 그대로 저장되면 이후 산술이 Swift 오버플로 트랩으로 **프로세스를 죽이고,
+    /// 재기동해도 같은 파일을 읽어 다시 죽는다** — 사용자가 파일을 손으로 지우기 전까지 앱을 못 쓴다
+    /// (`load()` 의 `.corrupt` 자동복구는 디코드가 *성공*하므로 발동하지 않는다).
+    ///
+    /// 다운스트림 산술 지점마다 막으면 새 지점이 생길 때마다 재발하므로, 값이 **들어오는 경계 한 곳**에서
+    /// 정규화한다. 대상은 실제로 산술에 쓰이는 필드뿐이다 — 도감·인벤토리 항목은 잘라내지 않는다(데이터 손실).
+    static func sanitized(_ state: CompanionState) -> CompanionState {
+        func clampToken(_ v: Int) -> Int { min(max(0, v), maxTokenValue) }
+        var s = state
+        s.usedSinceInstall = clampToken(s.usedSinceInstall)
+        s.spentTokens = clampToken(s.spentTokens)
+        s.eggUsage = clampToken(s.eggUsage)
+        s.claimedTodayTokens = clampToken(s.claimedTodayTokens)
+        if var active = s.active {
+            active.usedAtStage = clampToken(active.usedAtStage)
+            // totalForms 는 `kk * (kk + 1)` 형태로 쓰여(PokemonBalance.phaseThreshold) 큰 값이 그 자체로 트랩이다.
+            active.totalForms = min(max(1, active.totalForms), 12)
+            active.stageIndex = min(max(0, active.stageIndex), max(0, active.pathIDs.count - 1))
+            s.active = active
+        }
+        return s
     }
 
     /// 다른 기기에서 온 상태를 **이 기기 기준으로 재정렬**한다.

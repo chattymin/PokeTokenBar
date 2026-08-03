@@ -27,6 +27,21 @@ private actor TransferSignal {
     }
 }
 
+/// **종 롤**(`baseSpeciesIndex`)에서 멈추는 provider — `hatchIfNeeded` 의 첫 await 창을 재현한다.
+/// 라인 fetch 창(`GatedProvider`)과는 다른 지점이라 별도 스텁이 필요하다.
+private struct GatedIndexProvider: PokeProviding {
+    let entered: TransferSignal
+    let release: TransferSignal
+    let result: EvoLine
+    func line(baseSpeciesID: Int) async throws -> EvoLine { result }
+    func baseSpeciesIndex() async throws -> [BaseSpecies] {
+        await entered.fire()
+        await release.wait()
+        return [BaseSpecies(id: 1, captureRate: 255)]
+    }
+    func baseSpecies(id: Int) async throws -> BaseSpecies? { nil }
+}
+
 /// 라인 fetch 에서 멈춰 있다가 신호를 받고 반환하는 provider — 부화 중 상태 교체를 재현한다.
 private struct GatedProvider: PokeProviding {
     let entered: TransferSignal
@@ -96,6 +111,28 @@ final class SaveTransferTests: XCTestCase {
         // 상태만 담긴(봉투 없는) 예전식 파일도 세이브로 인정하지 않는다.
         let bare = try JSONEncoder().encode(oldMacState(today: "2026-08-03"))
         XCTAssertThrowsError(try SaveTransfer.decode(bare)) { error in
+            XCTAssertEqual(error as? SaveTransferError, .notASaveFile)
+        }
+    }
+
+    /// [회귀·딥리뷰 H4] `decode` 는 "디코딩 실패 **또는** format 불일치"라는 `A || B` 게이트인데,
+    /// 기존 두 케이스는 모두 필수 키 누락이라 A 로만 통과했다 — `format` 비교를 통째로 삭제해도
+    /// 전체 스위트가 그대로 통과했다(뮤테이션으로 확인). 여기서 **B 단독**을 고정한다:
+    /// 6개 필드가 전부 유효하고 `format` 값만 다른 완전한 봉투.
+    func testValidEnvelopeWithWrongFormatIDIsRejected() throws {
+        let data = try SaveTransfer.encode(state: oldMacState(today: "2026-08-03"),
+                                           appVersion: "2.5.0", deviceName: "Other App", now: transferNow)
+        var json = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        XCTAssertEqual(json["format"] as? String, SaveEnvelope.formatID, "전제: 원본은 유효한 포맷")
+        json["format"] = "someotherapp.save"
+        let patched = try JSONSerialization.data(withJSONObject: json)
+
+        // 디코딩 자체는 성공해야 한다 — 그래야 B 분기(포맷 값 비교)만 단독으로 검증된다.
+        let decoder = JSONDecoder(); decoder.dateDecodingStrategy = .iso8601
+        XCTAssertNotNil(try? decoder.decode(SaveEnvelope.self, from: patched),
+                        "전제: 필드 구조는 유효 — 여기서 nil 이면 A 분기로 새어 테스트가 무의미해진다")
+
+        XCTAssertThrowsError(try SaveTransfer.decode(patched)) { error in
             XCTAssertEqual(error as? SaveTransferError, .notASaveFile)
         }
     }
@@ -255,6 +292,110 @@ final class SaveTransferTests: XCTestCase {
 
         XCTAssertEqual(s.state.active?.baseID, 403, "뒤늦게 끝난 부화가 불러온 개체를 덮어쓰면 안 된다")
         XCTAssertEqual(s.state.dex.count, imported.dex.count, "도감도 부화 경로에 밀려나면 안 된다")
+    }
+
+    /// [회귀·딥리뷰 B1] 부화의 **첫** await(`chooseBase`) 창에 불러오기가 들어오면, 그 뒤 진입하는
+    /// `hatchCore` 는 *교체 이후*의 세대를 캡처해 자기 가드가 무조건 통과한다 — 옛 롤 결과가 불러온
+    /// 개체를 덮어쓰고 디스크에 박혔다. 위의 `testImportDuringHatchDiscardsTheHatch` 는 `hatch(baseID:)`
+    /// 경로라 이 브랜치를 지나지 않는다(통과하면서 아무것도 지키지 않던 상태).
+    func testImportDuringSpeciesRollDiscardsTheHatch() async throws {
+        let entered = TransferSignal()
+        let release = TransferSignal()
+        let evo = EvoLine(baseID: 1, tree: EvoNode(speciesID: 1, children: []), rarity: .common,
+                          names: [1: ["en": "P1", "ko": "포1", "ja": "ポ1"]])
+        let url = tempURL("rollrace")
+
+        // 알 상태 + 부화 임계 도달 + pre-roll 없음 → `chooseBase()` 로 들어간다.
+        var egg = CompanionState()
+        egg.installBaselineSet = true
+        egg.eggUsage = PokemonBalance.eggHatchThreshold
+        try JSONEncoder().encode(egg).write(to: url)
+
+        let s = CompanionStore(provider: GatedIndexProvider(entered: entered, release: release, result: evo),
+                               clock: { transferNow }, fileURL: url)
+        XCTAssertNil(s.state.active, "전제: 알 상태에서 시작")
+
+        let hatching = Task { await s.hatchIfNeeded() }
+        await entered.wait()   // 종 롤이 인덱스 대기 지점에 도달
+
+        var imported = oldMacState(today: "2026-08-03")
+        imported.active = MonState(baseID: 403, pathIDs: [403], plannedPathIDs: [403],
+                                   stageIndex: 0, usedAtStage: 0, rarity: .common, totalForms: 1)
+        let data = try SaveTransfer.encode(state: imported, appVersion: "2.5.0",
+                                           deviceName: "Old Mac", now: transferNow)
+        s.applySave(try SaveTransfer.decode(data), todayTokens: 1,
+                    todayDate: "2026-08-03", hasUsageData: true)
+
+        await release.fire()
+        await hatching.value
+
+        XCTAssertEqual(s.state.active?.baseID, 403, "종 롤 대기 중 들어온 불러오기를 부화가 덮어쓰면 안 된다")
+        XCTAssertEqual(s.state.dex.count, imported.dex.count)
+    }
+
+    /// [회귀·딥리뷰 H1] 새 Mac 에서 AI CLI 를 아직 안 쓴 시점(hasUsageData=false)에 불러오면,
+    /// 개체가 있는데도 알로 표시되고 진화 라인 로드 재시도가 도달 불가였다.
+    func testImportedCompanionIsNotShownAsEggBeforeUsageArrives() throws {
+        let today = "2026-08-03"
+        let url = tempURL("noegg")
+        let s = store(at: url)
+        var imported = oldMacState(today: today)
+        imported.active = MonState(baseID: 403, pathIDs: [403], plannedPathIDs: [403],
+                                   stageIndex: 0, usedAtStage: 0, rarity: .common, totalForms: 1)
+        let data = try SaveTransfer.encode(state: imported, appVersion: "2.5.0",
+                                           deviceName: "Old Mac", now: transferNow)
+        s.applySave(try SaveTransfer.decode(data), todayTokens: 0, todayDate: today, hasUsageData: false)
+        XCTAssertFalse(s.state.installBaselineSet, "전제: baseline 판정을 미룬 상태")
+
+        s.update(todayTokens: 0, todayDate: today, monthTotal: 0,
+                 burnTier: .idle, limitWarning: false, hasUsageData: false)
+        XCTAssertNotNil(s.state.active, "개체는 그대로 있어야 한다")
+        XCTAssertEqual(s.displayState, .idle, "개체가 있는데 알로 표시하면 안 된다")
+
+        // 알 상태에서 같은 경로를 타면 여전히 알이어야 한다(반대 방향 고정).
+        let eggURL = tempURL("stillegg")
+        let e = store(at: eggURL)
+        e.update(todayTokens: 0, todayDate: today, monthTotal: 0,
+                 burnTier: .idle, limitWarning: false, hasUsageData: false)
+        XCTAssertEqual(e.displayState, .egg)
+    }
+
+    // MARK: 신뢰경계 값 정규화 (딥리뷰 H2)
+
+    /// [회귀·딥리뷰 H2] 극단값 세이브가 그대로 저장되면 이후 산술이 오버플로 트랩으로 프로세스를 죽이고,
+    /// 재기동해도 같은 파일을 읽어 다시 죽는다(수동 삭제 전까지 복구 불가).
+    func testExtremeValuesAreClampedAtTheTrustBoundary() throws {
+        var evil = CompanionState()
+        evil.installBaselineSet = true
+        evil.usedSinceInstall = Int.max
+        evil.spentTokens = Int.min
+        evil.eggUsage = Int.max
+        evil.claimedTodayTokens = -42
+        evil.active = MonState(baseID: 1, pathIDs: [1], plannedPathIDs: [1],
+                               stageIndex: Int.max, usedAtStage: Int.max, rarity: .common,
+                               totalForms: Int.max)
+
+        let data = try SaveTransfer.encode(state: evil, appVersion: "2.5.0",
+                                           deviceName: "Corrupt", now: transferNow)
+        let envelope = try SaveTransfer.decode(data)
+        let s = envelope.state
+
+        XCTAssertEqual(s.usedSinceInstall, SaveTransfer.maxTokenValue)
+        XCTAssertEqual(s.spentTokens, 0, "음수는 0 으로")
+        XCTAssertEqual(s.eggUsage, SaveTransfer.maxTokenValue)
+        XCTAssertEqual(s.claimedTodayTokens, 0)
+        XCTAssertEqual(s.active?.usedAtStage, SaveTransfer.maxTokenValue)
+        XCTAssertEqual(s.active?.totalForms, 12)
+        XCTAssertEqual(s.active?.stageIndex, 0, "pathIDs 범위를 넘지 않아야 한다")
+
+        // 정규화된 값으로 실제 산술 경로를 태워 트랩이 안 나는지 확인한다.
+        let url = tempURL("clamped")
+        let store = store(at: url)
+        store.applySave(envelope, todayTokens: 0, todayDate: "2026-08-03", hasUsageData: true)
+        XCTAssertGreaterThanOrEqual(store.availableTokens, 0)
+        store.update(todayTokens: 1_000, todayDate: "2026-08-03", monthTotal: 0,
+                     burnTier: .idle, limitWarning: false, hasUsageData: true)
+        XCTAssertLessThanOrEqual(store.state.usedSinceInstall, SaveTransfer.maxTokenValue + 1_000)
     }
 
     // MARK: 오류 문구 매핑

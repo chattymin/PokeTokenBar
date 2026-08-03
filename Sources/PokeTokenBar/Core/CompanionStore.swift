@@ -231,7 +231,15 @@ final class CompanionStore {
         if !state.installBaselineSet {
             // 설치 기준선 — 실제 데이터가 도착한 시점의 today 를 baseline 으로(이전 사용량 미카운트).
             // 데이터 도착 전(기동 직후 빈 새로고침)에는 잡지 않는다.
-            guard hasUsageData else { displayState = .egg; return }
+            guard hasUsageData else {
+                // 세이브 불러오기가 baseline 판정을 이 경로에 넘겼을 수 있다(SaveTransfer.rebasedForThisDevice).
+                // 그 경우 개체는 이미 들어와 있으므로 알로 표시하면 안 되고, 진화 라인 로드도 계속 재시도해야
+                // 한다 — 새 Mac 은 AI CLI 를 처음 쓸 때까지 hasUsageData 가 false 라 여기서 막히면 그날 내내
+                // 알로 보인다(재시작해도 동일).
+                displayState = state.active == nil ? .egg : .idle
+                kickLineLoadIfNeeded()
+                return
+            }
             state.installBaselineSet = true
             state.claimedTodayTokens = todayTokens
             state.lastDate = todayDate
@@ -635,6 +643,7 @@ final class CompanionStore {
         // 내렸다가(hatch 자체 가드 통과용) hatch 를 호출해, 그 await 창에서 다른 update 틱이
         // 두 번째 종을 롤하는 경합이 있었다. hatchCore 는 isHatching 을 재검사하지 않으므로
         // 여기서 소유한 락 하나로 롤·부화가 원자적으로 보호된다.
+        let generation = activeGeneration
         isHatching = true
         defer { isHatching = false }
         // 프리패칭된 종이 있으면 그대로 사용(라인·스프라이트 예열됨 → 딜레이 ~0), 없으면 지금 롤.
@@ -645,8 +654,25 @@ final class CompanionStore {
             base = await chooseBase()
         }
         guard let base else { return }   // 네트워크 불안정 → 알 유지, 다음 update 틱에 재시도
+        // 세대 검사는 **여기서** 해야 한다. `chooseBase()` 대기 창에서 상태가 통째로 교체되면
+        // (세이브 불러오기) 그 뒤에 진입하는 hatchCore 는 *교체 이후*의 세대를 캡처해 자기 가드가
+        // 무조건 통과한다 — 옛 롤 결과가 불러온 개체를 덮어쓰고 save() 로 디스크에 박힌다.
+        guard activeGeneration == generation, state.active == nil else {
+            AppLog.write("hatch: discarded before core — subject replaced during species roll")
+            kickLineLoadIfNeeded()
+            return
+        }
         state.pendingHatchID = nil
         await hatchCore(baseID: base)
+    }
+
+    /// 부화가 폐기된 뒤 남은 개체(대개 방금 불러온 개체)의 진화 라인을 다시 로드한다.
+    /// `loadCurrentLine` 은 `!isHatching` 을 요구하므로 부화 중에 걸린 로드는 조용히 실패한다 —
+    /// 아무도 재시도하지 않으면 다음 update 틱(기본 120초)까지 이름이 "Token Egg" 로 남는다.
+    /// Task 본문은 현재 동기 실행(= defer 로 isHatching 해제)이 끝난 뒤 돌므로 락이 이미 풀려 있다.
+    private func kickLineLoadIfNeeded() {
+        guard state.active != nil, currentLine == nil else { return }
+        Task { await loadCurrentLine() }
     }
 
     // MARK: 알 프리패칭
@@ -711,6 +737,7 @@ final class CompanionStore {
         // (loadCurrentLine·revealDitto 와 같은 세대 가드 — isHatching 락은 같은 앱 내 중복 부화만 막는다.)
         guard activeGeneration == generation else {
             AppLog.write("hatch: discarded — active subject replaced during line fetch")
+            kickLineLoadIfNeeded()
             return
         }
         currentLine = line
