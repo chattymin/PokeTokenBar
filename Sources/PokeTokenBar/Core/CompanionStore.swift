@@ -857,6 +857,53 @@ final class CompanionStore {
         }
     }
 
+    // MARK: 세이브 이전 (기기 교체)
+
+    /// 덮어쓰기 확인에 쓸 "이 기기의 현재 진행" 요약.
+    var transferSummary: SaveSummary { SaveSummary(state: state) }
+
+    /// 내보내기 페이로드. 파일 쓰기는 호출자(UI)가 사용자가 고른 위치에 수행한다.
+    func exportedSaveData(appVersion: String, deviceName: String) throws -> Data {
+        try SaveTransfer.encode(state: state, appVersion: appVersion, deviceName: deviceName, now: clock())
+    }
+
+    /// 적용 전 검증 — 확인 다이얼로그에 들여올 내용을 먼저 보여주기 위해 분리했다.
+    /// (파일을 고르자마자 덮어쓰지 않는다.)
+    static func inspectSave(_ data: Data) throws -> (summary: SaveSummary, envelope: SaveEnvelope) {
+        let envelope = try SaveTransfer.decode(data)
+        return (SaveSummary(state: envelope.state), envelope)
+    }
+
+    /// 검증된 세이브를 이 기기에 적용 — 기존 상태 백업 → 기기 기준 재정렬 → 저장 → 라인 재로딩.
+    func applySave(_ envelope: SaveEnvelope, todayTokens: Int, todayDate: String, hasUsageData: Bool) {
+        backupStateBeforeImport()
+        state = SaveTransfer.rebasedForThisDevice(envelope.state,
+                                                  todayTokens: todayTokens,
+                                                  todayDate: todayDate,
+                                                  hasUsageData: hasUsageData)
+        // 이전 개체 기준으로 진행 중이던 비동기·연출을 전부 무효화한다. activeGeneration 을 올리지
+        // 않으면 먼저 떠 있던 라인 로드가 완료되며 새로 불러온 개체를 덮어쓴다.
+        activeGeneration += 1
+        currentLine = nil
+        prefetchedLineID = nil
+        justEvolvedTo = nil
+        justGraduated = nil
+        eventUntil = nil
+        celebration = nil
+        displayState = state.active != nil ? .idle : .egg
+        save()
+        if state.active != nil { Task { await loadCurrentLine() } }
+        AppLog.write("save imported from \(envelope.sourceDevice): dex=\(state.dex.count) lifetime=\(state.usedSinceInstall)")
+    }
+
+    /// 덮어쓰기 직전 현재 상태를 옆에 남긴다 — 잘못 불러왔을 때 손으로 되돌릴 수단.
+    /// 한 슬롯만 유지(불러오기마다 갱신)한다 — 무한 증식보다 "직전 상태 하나"가 실제로 쓸모 있다.
+    private func backupStateBeforeImport() {
+        guard let data = try? JSONEncoder().encode(state) else { return }
+        let backup = fileURL.deletingPathExtension().appendingPathExtension("pre-import.json")
+        try? data.write(to: backup, options: .atomic)
+    }
+
     // MARK: 영속
     private func load() {
         guard let data = try? Data(contentsOf: fileURL) else { return }   // 파일 없음 = 신규 설치

@@ -148,6 +148,67 @@ struct L {
     var aggregationNote: String { t("토큰 집계 기준: totalTokens (input + output + cache, 로컬 날짜)", "Token basis: totalTokens (input + output + cache, local date)", "集計基準: totalTokens (input + output + cache, ローカル日付)") }
     var close: String { t("닫기", "Close", "閉じる") }
 
+    // MARK: 세이브 이전 (설정 → 백업 & 이전)
+    var transferSectionTitle: String { t("백업 & 이전", "Backup & Transfer", "バックアップと移行") }
+    var exportSaveLabel: String { t("세이브 내보내기", "Export save", "セーブを書き出す") }
+    var exportSaveHint: String {
+        t("도감·누적 토큰·현재 포켓몬을 파일 하나로 저장해요",
+          "Saves your Pokédex, lifetime tokens, and current Pokémon as one file",
+          "図鑑・累計トークン・現在のポケモンを1つのファイルに保存します")
+    }
+    var exportSaveButton: String { t("내보내기…", "Export…", "書き出す…") }
+    var importSaveLabel: String { t("세이브 불러오기", "Import save", "セーブを読み込む") }
+    var importSaveHint: String {
+        t("다른 Mac에서 내보낸 파일을 골라 이 Mac으로 이어서 키워요",
+          "Pick a file exported from another Mac and continue here",
+          "他のMacから書き出したファイルを選んでこのMacで続けます")
+    }
+    var importSaveButton: String { t("불러오기…", "Import…", "読み込む…") }
+    func exportSaveDone(_ fileName: String) -> String {
+        t("저장했어요 — \(fileName)", "Saved — \(fileName)", "保存しました — \(fileName)")
+    }
+    var importConfirmTitle: String {
+        t("이 Mac의 진행을 대체할까요?", "Replace this Mac's progress?", "このMacの進行を置き換えますか？")
+    }
+    /// 무엇이 사라지는지 수치로 적는다 — 일반적인 "정말 진행할까요?" 보다 판단에 실제로 쓸모 있다.
+    func importConfirmBody(incomingDex: Int, incomingTokens: String,
+                           currentDex: Int, currentTokens: String) -> String {
+        t("""
+          불러올 세이브: 도감 \(incomingDex)마리 · 누적 \(incomingTokens)
+          현재 이 Mac: 도감 \(currentDex)마리 · 누적 \(currentTokens)
+
+          이 Mac의 현재 진행은 대체되며, 직전 상태는 companion-state.pre-import.json 으로 남습니다.
+          """,
+          """
+          Incoming save: \(incomingDex) in Pokédex · \(incomingTokens) lifetime
+          This Mac now: \(currentDex) in Pokédex · \(currentTokens) lifetime
+
+          This Mac's current progress is replaced. The previous state is kept as companion-state.pre-import.json.
+          """,
+          """
+          読み込むセーブ: 図鑑 \(incomingDex)匹 · 累計 \(incomingTokens)
+          現在のこのMac: 図鑑 \(currentDex)匹 · 累計 \(currentTokens)
+
+          このMacの現在の進行は置き換えられます。直前の状態は companion-state.pre-import.json に残ります。
+          """)
+    }
+    var importConfirmReplace: String { t("대체", "Replace", "置き換える") }
+    func importSaveDone(dex: Int, tokens: String) -> String {
+        t("불러왔어요 — 도감 \(dex)마리 · 누적 \(tokens)",
+          "Imported — \(dex) in Pokédex · \(tokens) lifetime",
+          "読み込みました — 図鑑 \(dex)匹 · 累計 \(tokens)")
+    }
+    var importErrorNotSaveFile: String {
+        t("PokeTokenBar 세이브 파일이 아니에요.",
+          "That isn't a PokeTokenBar save file.",
+          "PokeTokenBar のセーブファイルではありません。")
+    }
+    var importErrorNewerSchema: String {
+        t("더 새로운 버전에서 만든 세이브예요 — 앱을 업데이트한 뒤 다시 시도해 주세요.",
+          "This save was made by a newer version — update the app and try again.",
+          "より新しいバージョンで作成されたセーブです — アプリを更新してから再試行してください。")
+    }
+
     // MARK: 문제점 알리기 (설정 → 메일 리포트)
     var reportProblem: String { t("문제점 알리기", "Report a problem", "問題を報告") }
     var showLogFile: String { t("로그 파일 보기", "Show log file", "ログファイルを表示") }

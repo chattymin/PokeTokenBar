@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct SettingsView: View {
     @Environment(UsageStore.self) private var store
@@ -12,10 +13,14 @@ struct SettingsView: View {
     @State private var advancedExpanded = false
     @State private var isCheckingUpdate = false
     @State private var didCheckUpdate = false
-
     private var l: L { companion.l }
 
     private var isBundledApp: Bool { AppEnv.isBundledApp }
+
+    /// 세이브 봉투에 남길 출처 표기 — 어느 Mac에서 내보낸 파일인지 나중에 알아보기 위한 것.
+    private static var deviceName: String {
+        Host.current().localizedName ?? ProcessInfo.processInfo.hostName
+    }
 
     /// 현재 앱 버전 — 업데이트 적용 여부 확인용으로 설정창 하단에 표기.
     private static var appVersion: String {
@@ -36,6 +41,7 @@ struct SettingsView: View {
                     floatingPetGroup(store)
                     notificationsGroup(store)
                     updateGroup(store)
+                    transferGroup(store)
                     advancedGroup(store)
                     aboutSupportGroup
                 }
@@ -259,6 +265,32 @@ struct SettingsView: View {
         }
     }
 
+    /// 백업 & 이전 — 새 Mac으로 옮길 때 쓰는 세이브 파일 내보내기/불러오기.
+    /// 사용자가 상태 파일 경로를 직접 찾아다니지 않도록, 저장 위치와 불러올 파일 모두 표준
+    /// 파일 선택창으로 고르게 한다.
+    @ViewBuilder
+    private func transferGroup(_ store: UsageStore) -> some View {
+        settingsSection(l.transferSectionTitle) {
+            groupRow {
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(l.exportSaveLabel)
+                    Text(l.exportSaveHint).font(.caption2).foregroundStyle(.tertiary)
+                }
+                Spacer()
+                Button(l.exportSaveButton) { exportSave() }
+            }
+            Divider()
+            groupRow {
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(l.importSaveLabel)
+                    Text(l.importSaveHint).font(.caption2).foregroundStyle(.tertiary)
+                }
+                Spacer()
+                Button(l.importSaveButton) { importSave(store) }
+            }
+        }
+    }
+
     @ViewBuilder
     private func advancedGroup(_ store: UsageStore) -> some View {
         @Bindable var store = store
@@ -407,5 +439,90 @@ struct SettingsView: View {
             return
         }
         reportError = nil
+    }
+
+    // MARK: 세이브 이전
+    //
+    // 결과를 인라인 텍스트로 못 보여주는 이유: 팝오버가 `.transient` 라 파일 선택창이 키 윈도우가 되는
+    // 순간 닫히고, popoverDidClose 가 호스팅 컨트롤러를 해제해 이 뷰(@State 포함)가 사라진다.
+    // → 성공은 Finder 노출(로그 파일 보기와 같은 방식), 그 외는 알림창으로 알린다.
+
+    private func exportSave() {
+        let panel = NSSavePanel()
+        panel.title = l.exportSaveLabel
+        panel.nameFieldStringValue = SaveTransfer.suggestedFileName(date: Date())
+        panel.allowedContentTypes = [.json]
+        panel.canCreateDirectories = true
+        NSApp.activate()
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        do {
+            let data = try companion.exportedSaveData(appVersion: Self.appVersion, deviceName: Self.deviceName)
+            try data.write(to: url, options: .atomic)
+            NSWorkspace.shared.activateFileViewerSelecting([url])
+        } catch {
+            presentAlert(title: l.exportSaveLabel, message: error.localizedDescription, style: .warning)
+        }
+    }
+
+    private func importSave(_ store: UsageStore) {
+        let panel = NSOpenPanel()
+        panel.title = l.importSaveLabel
+        panel.allowedContentTypes = [.json]
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        NSApp.activate()
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+
+        let incoming: SaveSummary
+        let envelope: SaveEnvelope
+        do {
+            let parsed = try CompanionStore.inspectSave(try Data(contentsOf: url))
+            incoming = parsed.summary
+            envelope = parsed.envelope
+        } catch {
+            presentAlert(title: l.importSaveLabel, message: importErrorText(error), style: .warning)
+            return
+        }
+
+        // 고른 즉시 덮어쓰지 않는다 — 무엇이 대체되는지 수치로 보여주고 한 번 더 확인받는다.
+        let current = companion.transferSummary
+        let confirm = NSAlert()
+        confirm.alertStyle = .warning
+        confirm.messageText = l.importConfirmTitle
+        confirm.informativeText = l.importConfirmBody(
+            incomingDex: incoming.dexCount,
+            incomingTokens: TokenFormatter.compact(incoming.lifetimeTokens),
+            currentDex: current.dexCount,
+            currentTokens: TokenFormatter.compact(current.lifetimeTokens))
+        confirm.addButton(withTitle: l.importConfirmReplace)
+        confirm.addButton(withTitle: l.cancel)
+        guard confirm.runModal() == .alertFirstButtonReturn else { return }
+
+        companion.applySave(envelope,
+                            todayTokens: store.todayTotalTokens,
+                            todayDate: LocalUsageReader.todayKey(),
+                            hasUsageData: store.hasUsageData)
+        presentAlert(title: l.importSaveLabel,
+                     message: l.importSaveDone(dex: incoming.dexCount,
+                                               tokens: TokenFormatter.compact(incoming.lifetimeTokens)),
+                     style: .informational)
+    }
+
+    private func importErrorText(_ error: Error) -> String {
+        switch error {
+        case SaveTransferError.notASaveFile: return l.importErrorNotSaveFile
+        case SaveTransferError.newerSchema:  return l.importErrorNewerSchema
+        default: return error.localizedDescription
+        }
+    }
+
+    private func presentAlert(title: String, message: String, style: NSAlert.Style) {
+        let alert = NSAlert()
+        alert.alertStyle = style
+        alert.messageText = title
+        alert.informativeText = message
+        alert.addButton(withTitle: l.close)
+        NSApp.activate()
+        alert.runModal()
     }
 }
