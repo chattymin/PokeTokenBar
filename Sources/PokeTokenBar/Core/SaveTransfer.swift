@@ -24,18 +24,14 @@ struct SaveEnvelope: Codable, Sendable {
 struct SaveSummary: Equatable, Sendable {
     var dexCount: Int
     var lifetimeTokens: Int
-    var hasActive: Bool
 
-    init(dexCount: Int, lifetimeTokens: Int, hasActive: Bool) {
+    init(dexCount: Int, lifetimeTokens: Int) {
         self.dexCount = dexCount
         self.lifetimeTokens = lifetimeTokens
-        self.hasActive = hasActive
     }
 
     init(state: CompanionState) {
-        self.init(dexCount: state.dex.count,
-                  lifetimeTokens: state.usedSinceInstall,
-                  hasActive: state.active != nil)
+        self.init(dexCount: state.dex.count, lifetimeTokens: state.usedSinceInstall)
     }
 }
 

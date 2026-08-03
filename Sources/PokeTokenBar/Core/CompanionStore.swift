@@ -701,8 +701,16 @@ final class CompanionStore {
 
     /// 실제 부화 로직 — isHatching 락은 호출자(hatch / hatchIfNeeded)가 소유·해제한다.
     private func hatchCore(baseID: Int) async {
+        let generation = activeGeneration
         guard let line = try? await provider.line(baseSpeciesID: baseID) else {
             AppLog.write("hatch: line fetch failed for base \(baseID) — egg kept, retry next tick")
+            return
+        }
+        // 라인 fetch 창(네트워크) 동안 활성 개체가 교체됐으면 이 부화 결과를 폐기한다. 세이브 불러오기가
+        // 그 창에 들어오면, 여기서 멈추지 않는 한 갓 부화한 개체가 방금 불러온 개체를 덮어쓴다.
+        // (loadCurrentLine·revealDitto 와 같은 세대 가드 — isHatching 락은 같은 앱 내 중복 부화만 막는다.)
+        guard activeGeneration == generation else {
+            AppLog.write("hatch: discarded — active subject replaced during line fetch")
             return
         }
         currentLine = line

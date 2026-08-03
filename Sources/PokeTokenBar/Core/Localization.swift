@@ -208,6 +208,16 @@ struct L {
           "This save was made by a newer version — update the app and try again.",
           "より新しいバージョンで作成されたセーブです — アプリを更新してから再試行してください。")
     }
+    /// 불러오기 실패 사유 → 사용자 문구. 뷰가 아니라 여기 두는 이유는 이 매핑이 테스트 가능해야 하기
+    /// 때문이다 — 매핑이 어긋나면 `SaveTransferError` 는 LocalizedError 가 아니라서 "The operation
+    /// couldn't be completed…" 같은 원문이 그대로 노출된다(조용한 품질 저하).
+    func importErrorMessage(_ error: Error) -> String {
+        switch error {
+        case SaveTransferError.notASaveFile: return importErrorNotSaveFile
+        case SaveTransferError.newerSchema:  return importErrorNewerSchema
+        default: return error.localizedDescription
+        }
+    }
 
     // MARK: 문제점 알리기 (설정 → 메일 리포트)
     var reportProblem: String { t("문제점 알리기", "Report a problem", "問題を報告") }

@@ -15,6 +15,32 @@ private struct OfflineProvider: PokeProviding {
 
 private let transferNow = Date(timeIntervalSince1970: 1_700_000_000)
 
+/// 비동기 경합 테스트용 1회성 신호 — 부화가 네트워크 대기에 들어간 순간을 정확히 잡기 위해
+/// sleep 대신 쓴다(타이밍 의존 = flaky).
+private actor TransferSignal {
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+    private var fired = false
+    func fire() { fired = true; waiters.forEach { $0.resume() }; waiters.removeAll() }
+    func wait() async {
+        if fired { return }
+        await withCheckedContinuation { waiters.append($0) }
+    }
+}
+
+/// 라인 fetch 에서 멈춰 있다가 신호를 받고 반환하는 provider — 부화 중 상태 교체를 재현한다.
+private struct GatedProvider: PokeProviding {
+    let entered: TransferSignal
+    let release: TransferSignal
+    let result: EvoLine
+    func line(baseSpeciesID: Int) async throws -> EvoLine {
+        await entered.fire()
+        await release.wait()
+        return result
+    }
+    func baseSpeciesIndex() async throws -> [BaseSpecies] { throw TransferStubError.unavailable }
+    func baseSpecies(id: Int) async throws -> BaseSpecies? { throw TransferStubError.unavailable }
+}
+
 @MainActor
 final class SaveTransferTests: XCTestCase {
 
@@ -200,6 +226,56 @@ final class SaveTransferTests: XCTestCase {
         let restored = try JSONDecoder().decode(CompanionState.self, from: Data(contentsOf: backup))
         XCTAssertEqual(restored.usedSinceInstall, 123_456_789, "덮어쓰기 전 상태가 그대로 남아야 한다")
         XCTAssertEqual(s.state.usedSinceInstall, 8_000_000_000)
+    }
+
+    /// [회귀] 불러오기가 진행 중인 부화의 네트워크 대기 창에 들어오면, 뒤늦게 끝난 부화가 방금 불러온
+    /// 개체를 덮어썼다. `isHatching` 락은 같은 앱 안의 중복 부화만 막을 뿐 상태 통째 교체는 못 막는다.
+    func testImportDuringHatchDiscardsTheHatch() async throws {
+        let entered = TransferSignal()
+        let release = TransferSignal()
+        let evo = EvoLine(baseID: 1, tree: EvoNode(speciesID: 1, children: []), rarity: .common,
+                          names: [1: ["en": "P1", "ko": "포1", "ja": "ポ1"]])
+        let url = tempURL("hatchrace")
+        let s = CompanionStore(provider: GatedProvider(entered: entered, release: release, result: evo),
+                               clock: { transferNow }, fileURL: url)
+
+        let hatching = Task { await s.hatch(baseID: 1) }
+        await entered.wait()   // 부화가 라인 fetch(네트워크) 대기 지점에 도달
+
+        var imported = oldMacState(today: "2026-08-03")
+        imported.active = MonState(baseID: 403, pathIDs: [403], plannedPathIDs: [403],
+                                   stageIndex: 0, usedAtStage: 0, rarity: .common, totalForms: 1)
+        let data = try SaveTransfer.encode(state: imported, appVersion: "2.5.0",
+                                           deviceName: "Old Mac", now: transferNow)
+        s.applySave(try SaveTransfer.decode(data), todayTokens: 1,
+                    todayDate: "2026-08-03", hasUsageData: true)
+
+        await release.fire()
+        await hatching.value
+
+        XCTAssertEqual(s.state.active?.baseID, 403, "뒤늦게 끝난 부화가 불러온 개체를 덮어쓰면 안 된다")
+        XCTAssertEqual(s.state.dex.count, imported.dex.count, "도감도 부화 경로에 밀려나면 안 된다")
+    }
+
+    // MARK: 오류 문구 매핑
+
+    /// 매핑이 어긋나면 `SaveTransferError` 는 LocalizedError 가 아니라 "The operation couldn't be
+    /// completed. (PokeTokenBar.SaveTransferError error 0.)" 가 그대로 사용자에게 뜬다.
+    func testImportErrorMessagesAreLocalizedNotRawSwiftText() {
+        for lang in [AppLanguage.ko, .en, .ja] {
+            let l = L(lang)
+            let notSave = l.importErrorMessage(SaveTransferError.notASaveFile)
+            let newer = l.importErrorMessage(SaveTransferError.newerSchema(found: 2, supported: 1))
+            XCTAssertEqual(notSave, l.importErrorNotSaveFile, "\(lang)")
+            XCTAssertEqual(newer, l.importErrorNewerSchema, "\(lang)")
+            for message in [notSave, newer] {
+                XCTAssertFalse(message.contains("SaveTransferError"), "원문 노출: \(message)")
+                XCTAssertFalse(message.contains("couldn't be completed"), "원문 노출: \(message)")
+            }
+        }
+        // 그 외 오류는 시스템 문구로 폴백(파일 읽기 실패 등).
+        let other = NSError(domain: NSCocoaErrorDomain, code: NSFileReadNoSuchFileError)
+        XCTAssertEqual(L(.en).importErrorMessage(other), other.localizedDescription)
     }
 
     func testSuggestedFileNameCarriesDate() {

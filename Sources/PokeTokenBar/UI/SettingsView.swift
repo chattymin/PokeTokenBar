@@ -446,6 +446,12 @@ struct SettingsView: View {
     // 결과를 인라인 텍스트로 못 보여주는 이유: 팝오버가 `.transient` 라 파일 선택창이 키 윈도우가 되는
     // 순간 닫히고, popoverDidClose 가 호스팅 컨트롤러를 해제해 이 뷰(@State 포함)가 사라진다.
     // → 성공은 Finder 노출(로그 파일 보기와 같은 방식), 그 외는 알림창으로 알린다.
+    //
+    // 활성화는 `activate(ignoringOtherApps: true)` 여야 한다 — 이 앱은 LSUIElement 라 백그라운드에서
+    // `NSApp.activate()`(협조적 활성화)가 무시된다. 실측: activate() 는 isActive=false 로 최전면이 안 바뀌고
+    // (패널이 다른 창 뒤에 떠 사용자가 못 찾는다), ignoringOtherApps 만 전면화된다.
+    // `NSRunningApplication.current.activate(.activateAllWindows)` 도 같은 이유로 실패한다.
+    // 레포의 다른 활성화 지점(PokeTokenBarApp·FloatingPetPanel)도 같은 형태다 — 통일해서 유지할 것.
 
     private func exportSave() {
         let panel = NSSavePanel()
@@ -453,7 +459,7 @@ struct SettingsView: View {
         panel.nameFieldStringValue = SaveTransfer.suggestedFileName(date: Date())
         panel.allowedContentTypes = [.json]
         panel.canCreateDirectories = true
-        NSApp.activate()
+        NSApp.activate(ignoringOtherApps: true)
         guard panel.runModal() == .OK, let url = panel.url else { return }
         do {
             let data = try companion.exportedSaveData(appVersion: Self.appVersion, deviceName: Self.deviceName)
@@ -470,7 +476,7 @@ struct SettingsView: View {
         panel.allowedContentTypes = [.json]
         panel.allowsMultipleSelection = false
         panel.canChooseDirectories = false
-        NSApp.activate()
+        NSApp.activate(ignoringOtherApps: true)
         guard panel.runModal() == .OK, let url = panel.url else { return }
 
         let incoming: SaveSummary
@@ -480,7 +486,7 @@ struct SettingsView: View {
             incoming = parsed.summary
             envelope = parsed.envelope
         } catch {
-            presentAlert(title: l.importSaveLabel, message: importErrorText(error), style: .warning)
+            presentAlert(title: l.importSaveLabel, message: l.importErrorMessage(error), style: .warning)
             return
         }
 
@@ -496,6 +502,9 @@ struct SettingsView: View {
             currentTokens: TokenFormatter.compact(current.lifetimeTokens))
         confirm.addButton(withTitle: l.importConfirmReplace)
         confirm.addButton(withTitle: l.cancel)
+        // 파괴적 동작을 기본 버튼으로 두지 않는다 — 그대로 두면 Return 한 번에 이 Mac 의 진행이 대체된다.
+        confirm.buttons[0].keyEquivalent = ""
+        confirm.buttons[1].keyEquivalent = "\r"
         guard confirm.runModal() == .alertFirstButtonReturn else { return }
 
         companion.applySave(envelope,
@@ -508,21 +517,13 @@ struct SettingsView: View {
                      style: .informational)
     }
 
-    private func importErrorText(_ error: Error) -> String {
-        switch error {
-        case SaveTransferError.notASaveFile: return l.importErrorNotSaveFile
-        case SaveTransferError.newerSchema:  return l.importErrorNewerSchema
-        default: return error.localizedDescription
-        }
-    }
-
     private func presentAlert(title: String, message: String, style: NSAlert.Style) {
         let alert = NSAlert()
         alert.alertStyle = style
         alert.messageText = title
         alert.informativeText = message
         alert.addButton(withTitle: l.close)
-        NSApp.activate()
+        NSApp.activate(ignoringOtherApps: true)
         alert.runModal()
     }
 }
