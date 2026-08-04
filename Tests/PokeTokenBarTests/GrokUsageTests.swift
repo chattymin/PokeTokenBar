@@ -251,7 +251,12 @@ final class GrokUsageTests: XCTestCase {
     /// (`LocalGrokProvider` 는 이 세 helper 를 그대로 호출한다 — 산술이 여기서 고정된다.)
     func testBlockWeekMonthAggregatesFromRealFiles() throws {
         let now = Date()
-        let recent = Int(now.addingTimeInterval(-600).timeIntervalSince1970)   // 10분 전 = 5h 블록 안
+        // 10분 전 = 5h 블록 안. 단 로컬 자정 직후 10분 안에 돌면 그 시각이 **어제**가 되어, 마지막
+        // `todayKey()` 일별 단언이 nil 로 깨진다(프로덕션은 정상 — 엔트리를 제 날짜에 넣을 뿐이다).
+        // 실측: TZ=UTC 로 00:00~00:10 사이에 실행하면 재현. 오늘 안으로 클램프해 벽시계 의존을 없앤다.
+        let tenMinutesAgo = now.addingTimeInterval(-600)
+        let recent = Int(max(tenMinutesAgo, Calendar.current.startOfDay(for: now).addingTimeInterval(1))
+                            .timeIntervalSince1970)
         try writeSession("agg", lines: [
             turnLine(promptID: "p-block", input: 1_000, output: 100, cachedRead: 0, total: 1_100,
                      costTicks: nil, envelopeSeconds: recent, agentTimestampMs: recent * 1_000)])
