@@ -685,12 +685,15 @@ final class CompanionStore {
     /// 전부 성공하면 부화 순간 네트워크 0. 실패 지점부터 다음 update 틱에 이어서 재시도.
     private func ensureEggPrefetch() async {
         guard state.active == nil, !isHatching, !prefetchInFlight else { return }
+        let generation = activeGeneration
         prefetchInFlight = true
         defer { prefetchInFlight = false }
 
         if state.pendingHatchID == nil {
             guard let id = await chooseBase() else { return }   // 오프라인 → 다음 틱 재시도
-            guard state.active == nil else { return }           // await 사이 부화 완료 케이스 방어
+            // await 사이에 부화가 끝났거나(active != nil) 상태가 통째로 교체됐으면(세이브 불러오기)
+            // 이 롤을 버린다 — 안 그러면 불러온 알의 pre-roll 을 남의 롤로 덮어쓴다.
+            guard state.active == nil, activeGeneration == generation else { return }
             state.pendingHatchID = id
             save()
         }
@@ -897,22 +900,22 @@ final class CompanionStore {
     /// 덮어쓰기 확인에 쓸 "이 기기의 현재 진행" 요약.
     var transferSummary: SaveSummary { SaveSummary(state: state) }
 
+    /// 저장 패널에 채울 기본 파일명. 봉투의 `exportedAt` 과 **같은 시계**에서 뽑는다 — 뷰가 따로
+    /// `Date()` 를 부르면 파일명 날짜와 내용의 날짜가 갈릴 수 있다(자정 경계).
+    var suggestedExportFileName: String { SaveTransfer.suggestedFileName(date: clock()) }
+
     /// 내보내기 페이로드. 파일 쓰기는 호출자(UI)가 사용자가 고른 위치에 수행한다.
     func exportedSaveData(appVersion: String, deviceName: String) throws -> Data {
         try SaveTransfer.encode(state: state, appVersion: appVersion, deviceName: deviceName, now: clock())
     }
 
-    /// 적용 전 검증 — 확인 다이얼로그에 들여올 내용을 먼저 보여주기 위해 분리했다.
-    /// (파일을 고르자마자 덮어쓰지 않는다.)
-    static func inspectSave(_ data: Data) throws -> (summary: SaveSummary, envelope: SaveEnvelope) {
-        let envelope = try SaveTransfer.decode(data)
-        return (SaveSummary(state: envelope.state), envelope)
-    }
-
     /// 검증된 세이브를 이 기기에 적용 — 기존 상태 백업 → 기기 기준 재정렬 → 저장 → 라인 재로딩.
-    func applySave(_ envelope: SaveEnvelope, todayTokens: Int, todayDate: String, hasUsageData: Bool) {
-        backupStateBeforeImport()
+    /// 백업을 못 남기면 **적용하지 않고** throw 한다 — 확인창이 "직전 상태가 남는다"고 약속하므로,
+    /// 그 약속을 못 지키는 채로 덮어쓰면 사용자는 되돌릴 수단 없이 진행을 잃는다.
+    func applySave(_ envelope: SaveEnvelope, todayTokens: Int, todayDate: String, hasUsageData: Bool) throws {
+        try backupStateBeforeImport()
         state = SaveTransfer.rebasedForThisDevice(envelope.state,
+                                                  current: state,
                                                   todayTokens: todayTokens,
                                                   todayDate: todayDate,
                                                   hasUsageData: hasUsageData)
@@ -925,18 +928,42 @@ final class CompanionStore {
         justGraduated = nil
         eventUntil = nil
         celebration = nil
+        // 이전 개체 기준의 1회성 피드백(사탕 +XP·민트 성격)도 비운다 — 안 비우면 불러온 직후 남의
+        // 개체에 대한 "+XP" 가 새 개체 위에 떠오른다.
+        candyFeedbackAmount = 0
+        mintFeedbackNature = nil
         displayState = state.active != nil ? .idle : .egg
         save()
         if state.active != nil { Task { await loadCurrentLine() } }
         AppLog.write("save imported from \(envelope.sourceDevice): dex=\(state.dex.count) lifetime=\(state.usedSinceInstall)")
     }
 
-    /// 덮어쓰기 직전 현재 상태를 옆에 남긴다 — 잘못 불러왔을 때 손으로 되돌릴 수단.
-    /// 한 슬롯만 유지(불러오기마다 갱신)한다 — 무한 증식보다 "직전 상태 하나"가 실제로 쓸모 있다.
-    private func backupStateBeforeImport() {
-        guard let data = try? JSONEncoder().encode(state) else { return }
-        let backup = fileURL.deletingPathExtension().appendingPathExtension("pre-import.json")
-        try? data.write(to: backup, options: .atomic)
+    /// 덮어쓰기 직전 현재 상태를 옆에 남긴다 — 잘못 불러왔을 때 되돌릴 수단.
+    /// 슬롯을 하나만 쓰면 두 번째 불러오기가 **원본**을 덮어써, "잘못 불러왔으니 되돌린다"는 바로 그
+    /// 상황에서 되돌릴 대상이 사라진다. 불러올 때마다 새 슬롯을 쓰고 오래된 것부터 정리한다.
+    @discardableResult
+    private func backupStateBeforeImport() throws -> URL {
+        guard let data = try? JSONEncoder().encode(state) else { throw SaveTransferError.backupFailed }
+        let dir = fileURL.deletingLastPathComponent()
+        let backup = dir.appendingPathComponent(SaveTransfer.backupFileName(date: clock()))
+        do {
+            try data.write(to: backup, options: .atomic)
+        } catch {
+            AppLog.write("save import aborted — backup write failed: \(error)")
+            throw SaveTransferError.backupFailed
+        }
+        pruneImportBackups(in: dir)
+        return backup
+    }
+
+    /// 최근 N 개만 남기고 오래된 백업을 지운다. 파일명이 `yyyy-MM-dd-HHmmss` 라 사전순 = 시간순이다.
+    private func pruneImportBackups(in dir: URL) {
+        guard let names = try? FileManager.default.contentsOfDirectory(atPath: dir.path) else { return }
+        let backups = names.filter { $0.hasPrefix(SaveTransfer.backupFilePrefix) }.sorted()
+        guard backups.count > SaveTransfer.backupsToKeep else { return }
+        for stale in backups.dropLast(SaveTransfer.backupsToKeep) {
+            try? FileManager.default.removeItem(at: dir.appendingPathComponent(stale))
+        }
     }
 
     // MARK: 영속

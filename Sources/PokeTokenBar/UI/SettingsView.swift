@@ -456,7 +456,7 @@ struct SettingsView: View {
     private func exportSave() {
         let panel = NSSavePanel()
         panel.title = l.exportSaveLabel
-        panel.nameFieldStringValue = SaveTransfer.suggestedFileName(date: Date())
+        panel.nameFieldStringValue = companion.suggestedExportFileName
         panel.allowedContentTypes = [.json]
         panel.canCreateDirectories = true
         NSApp.activate(ignoringOtherApps: true)
@@ -479,16 +479,14 @@ struct SettingsView: View {
         NSApp.activate(ignoringOtherApps: true)
         guard panel.runModal() == .OK, let url = panel.url else { return }
 
-        let incoming: SaveSummary
         let envelope: SaveEnvelope
         do {
-            let parsed = try CompanionStore.inspectSave(try Data(contentsOf: url))
-            incoming = parsed.summary
-            envelope = parsed.envelope
+            envelope = try SaveTransfer.decode(try Data(contentsOf: url))
         } catch {
             presentAlert(title: l.importSaveLabel, message: l.importErrorMessage(error), style: .warning)
             return
         }
+        let incoming = SaveSummary(state: envelope.state)
 
         // 고른 즉시 덮어쓰지 않는다 — 무엇이 대체되는지 수치로 보여주고 한 번 더 확인받는다.
         let current = companion.transferSummary
@@ -498,23 +496,41 @@ struct SettingsView: View {
         confirm.informativeText = l.importConfirmBody(
             incomingDex: incoming.dexCount,
             incomingTokens: TokenFormatter.compact(incoming.lifetimeTokens),
+            exportedAt: Self.exportedAtText(envelope.exportedAt),
+            sourceDevice: envelope.sourceDevice,
             currentDex: current.dexCount,
             currentTokens: TokenFormatter.compact(current.lifetimeTokens))
         confirm.addButton(withTitle: l.importConfirmReplace)
         confirm.addButton(withTitle: l.cancel)
-        // 파괴적 동작을 기본 버튼으로 두지 않는다 — 그대로 두면 Return 한 번에 이 Mac 의 진행이 대체된다.
-        confirm.buttons[0].keyEquivalent = ""
-        confirm.buttons[1].keyEquivalent = "\r"
+        // 파괴적 동작을 기본 버튼으로 두지 않는다(Return 한 번에 진행이 대체되지 않게).
+        // 규칙 자체는 ImportConfirmPolicy 에 있고 여기선 적용만 한다 — NSAlert 구성은 테스트 불가라
+        // 순서가 뒤바뀌어도 잡을 자동 경로가 없기 때문이다.
+        for (index, button) in confirm.buttons.enumerated() {
+            button.keyEquivalent = ImportConfirmPolicy.keyEquivalent(forButtonAt: index)
+        }
         guard confirm.runModal() == .alertFirstButtonReturn else { return }
 
-        companion.applySave(envelope,
-                            todayTokens: store.todayTotalTokens,
-                            todayDate: LocalUsageReader.todayKey(),
-                            hasUsageData: store.hasUsageData)
+        do {
+            try companion.applySave(envelope,
+                                    todayTokens: store.todayTotalTokens,
+                                    todayDate: LocalUsageReader.todayKey(),
+                                    hasUsageData: store.hasUsageData)
+        } catch {
+            presentAlert(title: l.importSaveLabel, message: l.importErrorMessage(error), style: .warning)
+            return
+        }
         presentAlert(title: l.importSaveLabel,
                      message: l.importSaveDone(dex: incoming.dexCount,
                                                tokens: TokenFormatter.compact(incoming.lifetimeTokens)),
                      style: .informational)
+    }
+
+    /// 확인창에 보일 내보낸 시각 — 사용자 로케일 기준 짧은 표기.
+    private static func exportedAtText(_ date: Date) -> String {
+        let f = DateFormatter()
+        f.dateStyle = .medium
+        f.timeStyle = .short
+        return f.string(from: date)
     }
 
     private func presentAlert(title: String, message: String, style: NSAlert.Style) {

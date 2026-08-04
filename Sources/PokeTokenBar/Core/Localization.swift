@@ -152,9 +152,9 @@ struct L {
     var transferSectionTitle: String { t("백업 & 이전", "Backup & Transfer", "バックアップと移行") }
     var exportSaveLabel: String { t("세이브 내보내기", "Export save", "セーブを書き出す") }
     var exportSaveHint: String {
-        t("도감·누적 토큰·현재 포켓몬을 파일 하나로 저장해요",
-          "Saves your Pokédex, lifetime tokens, and current Pokémon as one file",
-          "図鑑・累計トークン・現在のポケモンを1つのファイルに保存します")
+        t("도감·누적 토큰·가방·현재 포켓몬을 파일 하나로 저장해요",
+          "Saves your Pokédex, lifetime tokens, Bag, and current Pokémon as one file",
+          "図鑑・累計トークン・バッグ・現在のポケモンを1つのファイルに保存します")
     }
     var exportSaveButton: String { t("내보내기…", "Export…", "書き出す…") }
     var importSaveLabel: String { t("세이브 불러오기", "Import save", "セーブを読み込む") }
@@ -164,32 +164,35 @@ struct L {
           "他のMacから書き出したファイルを選んでこのMacで続けます")
     }
     var importSaveButton: String { t("불러오기…", "Import…", "読み込む…") }
-    func exportSaveDone(_ fileName: String) -> String {
-        t("저장했어요 — \(fileName)", "Saved — \(fileName)", "保存しました — \(fileName)")
-    }
     var importConfirmTitle: String {
         t("이 Mac의 진행을 대체할까요?", "Replace this Mac's progress?", "このMacの進行を置き換えますか？")
     }
     /// 무엇이 사라지는지 수치로 적는다 — 일반적인 "정말 진행할까요?" 보다 판단에 실제로 쓸모 있다.
+    /// 내보낸 시각·출처 기기를 함께 보여주는 이유: 도감 수가 같으면 3주 전 세이브도 문구가 똑같아,
+    /// 오래된 파일을 되돌리는 상황을 사용자가 알아챌 단서가 없다.
     func importConfirmBody(incomingDex: Int, incomingTokens: String,
+                           exportedAt: String, sourceDevice: String,
                            currentDex: Int, currentTokens: String) -> String {
         t("""
           불러올 세이브: 도감 \(incomingDex)마리 · 누적 \(incomingTokens)
+          내보낸 시각: \(exportedAt) · \(sourceDevice)
           현재 이 Mac: 도감 \(currentDex)마리 · 누적 \(currentTokens)
 
-          이 Mac의 현재 진행은 대체되며, 직전 상태는 companion-state.pre-import.json 으로 남습니다.
+          이 Mac의 현재 진행은 대체됩니다. 직전 상태는 상태 폴더에 백업으로 남습니다(최근 5개).
           """,
           """
           Incoming save: \(incomingDex) in Pokédex · \(incomingTokens) lifetime
+          Exported: \(exportedAt) · \(sourceDevice)
           This Mac now: \(currentDex) in Pokédex · \(currentTokens) lifetime
 
-          This Mac's current progress is replaced. The previous state is kept as companion-state.pre-import.json.
+          This Mac's current progress is replaced. The previous state is kept as a backup in the state folder (last 5).
           """,
           """
           読み込むセーブ: 図鑑 \(incomingDex)匹 · 累計 \(incomingTokens)
+          書き出し日時: \(exportedAt) · \(sourceDevice)
           現在のこのMac: 図鑑 \(currentDex)匹 · 累計 \(currentTokens)
 
-          このMacの現在の進行は置き換えられます。直前の状態は companion-state.pre-import.json に残ります。
+          このMacの現在の進行は置き換えられます。直前の状態は状態フォルダにバックアップとして残ります（最新5件）。
           """)
     }
     var importConfirmReplace: String { t("대체", "Replace", "置き換える") }
@@ -213,10 +216,23 @@ struct L {
     /// couldn't be completed…" 같은 원문이 그대로 노출된다(조용한 품질 저하).
     func importErrorMessage(_ error: Error) -> String {
         switch error {
-        case SaveTransferError.notASaveFile: return importErrorNotSaveFile
-        case SaveTransferError.newerSchema:  return importErrorNewerSchema
+        case SaveTransferError.notASaveFile:  return importErrorNotSaveFile
+        case SaveTransferError.newerSchema:   return importErrorNewerSchema
+        case SaveTransferError.fileTooLarge:  return importErrorTooLarge
+        case SaveTransferError.backupFailed:  return importErrorBackupFailed
         default: return error.localizedDescription
         }
+    }
+    var importErrorTooLarge: String {
+        t("세이브 파일이라기엔 너무 커요 — 다른 파일을 고른 것 같아요.",
+          "That file is too large to be a save — it looks like the wrong file.",
+          "セーブファイルにしては大きすぎます — 別のファイルを選んだようです。")
+    }
+    /// 백업을 못 남기면 불러오기를 중단한다 — 되돌릴 수단 없이 진행을 대체하지 않기 위해서다.
+    var importErrorBackupFailed: String {
+        t("현재 상태를 백업하지 못해 불러오기를 중단했어요 — 진행은 그대로예요. 디스크 여유 공간을 확인해 주세요.",
+          "Import stopped because the current state couldn't be backed up — your progress is untouched. Check free disk space.",
+          "現在の状態をバックアップできなかったため読み込みを中止しました — 進行はそのままです。ディスクの空き容量を確認してください。")
     }
 
     // MARK: 문제점 알리기 (설정 → 메일 리포트)

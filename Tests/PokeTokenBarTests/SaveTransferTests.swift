@@ -15,6 +15,13 @@ private struct OfflineProvider: PokeProviding {
 
 private let transferNow = Date(timeIntervalSince1970: 1_700_000_000)
 
+/// 시각을 앞으로 밀 수 있는 주입 시계 — 백업 슬롯이 불러오기마다 갈리는지 보려면 두 번의
+/// `applySave` 가 서로 다른 초를 봐야 한다.
+private final class MutableClock: @unchecked Sendable {
+    var now: Date
+    init(_ now: Date) { self.now = now }
+}
+
 /// 비동기 경합 테스트용 1회성 신호 — 부화가 네트워크 대기에 들어간 순간을 정확히 잡기 위해
 /// sleep 대신 쓴다(타이밍 의존 = flaky).
 private actor TransferSignal {
@@ -59,9 +66,13 @@ private struct GatedProvider: PokeProviding {
 @MainActor
 final class SaveTransferTests: XCTestCase {
 
+    /// 테스트마다 **전용 디렉토리**를 준다. 불러오기 백업은 상태 파일 이름이 아니라 시각으로 이름이
+    /// 정해지므로, 공유 임시 디렉토리를 쓰면 고정 시계를 쓰는 테스트들끼리 같은 백업 파일명을 놓고 충돌한다.
     private func tempURL(_ tag: String) -> URL {
-        FileManager.default.temporaryDirectory
-            .appendingPathComponent("ptb-\(tag)-\(UUID().uuidString).json")
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ptb-\(tag)-\(UUID().uuidString)", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir.appendingPathComponent("companion-state.json")
     }
 
     private func store(at url: URL) -> CompanionStore {
@@ -180,7 +191,7 @@ final class SaveTransferTests: XCTestCase {
         let data = try SaveTransfer.encode(state: imported, appVersion: "2.5.0",
                                            deviceName: "Old Mac", now: transferNow)
         let envelope = try SaveTransfer.decode(data)
-        s.applySave(envelope, todayTokens: newMacTodaySoFar, todayDate: today, hasUsageData: true)
+        try s.applySave(envelope, todayTokens: newMacTodaySoFar, todayDate: today, hasUsageData: true)
 
         XCTAssertEqual(s.state.claimedTodayTokens, newMacTodaySoFar)
         XCTAssertEqual(s.state.lastDate, today)
@@ -201,7 +212,7 @@ final class SaveTransferTests: XCTestCase {
         let s = store(at: url)
         let data = try SaveTransfer.encode(state: oldMacState(today: today), appVersion: "2.5.0",
                                            deviceName: "Old Mac", now: transferNow)
-        s.applySave(try SaveTransfer.decode(data), todayTokens: 0, todayDate: today, hasUsageData: false)
+        try s.applySave(try SaveTransfer.decode(data), todayTokens: 0, todayDate: today, hasUsageData: false)
 
         XCTAssertFalse(s.state.installBaselineSet)
 
@@ -231,7 +242,7 @@ final class SaveTransferTests: XCTestCase {
         let s = store(at: url)
         let data = try SaveTransfer.encode(state: imported, appVersion: "2.5.0",
                                            deviceName: "Old Mac", now: transferNow)
-        s.applySave(try SaveTransfer.decode(data), todayTokens: 1, todayDate: today, hasUsageData: true)
+        try s.applySave(try SaveTransfer.decode(data), todayTokens: 1, todayDate: today, hasUsageData: true)
 
         XCTAssertEqual(s.state.usedSinceInstall, 8_000_000_000)
         XCTAssertEqual(s.state.spentTokens, 3_500_000_000)
@@ -257,9 +268,10 @@ final class SaveTransferTests: XCTestCase {
 
         let data = try SaveTransfer.encode(state: oldMacState(today: today), appVersion: "2.5.0",
                                            deviceName: "Old Mac", now: transferNow)
-        s.applySave(try SaveTransfer.decode(data), todayTokens: 0, todayDate: today, hasUsageData: true)
+        try s.applySave(try SaveTransfer.decode(data), todayTokens: 0, todayDate: today, hasUsageData: true)
 
-        let backup = url.deletingPathExtension().appendingPathExtension("pre-import.json")
+        let backup = url.deletingLastPathComponent()
+            .appendingPathComponent(SaveTransfer.backupFileName(date: transferNow))
         let restored = try JSONDecoder().decode(CompanionState.self, from: Data(contentsOf: backup))
         XCTAssertEqual(restored.usedSinceInstall, 123_456_789, "덮어쓰기 전 상태가 그대로 남아야 한다")
         XCTAssertEqual(s.state.usedSinceInstall, 8_000_000_000)
@@ -284,7 +296,7 @@ final class SaveTransferTests: XCTestCase {
                                    stageIndex: 0, usedAtStage: 0, rarity: .common, totalForms: 1)
         let data = try SaveTransfer.encode(state: imported, appVersion: "2.5.0",
                                            deviceName: "Old Mac", now: transferNow)
-        s.applySave(try SaveTransfer.decode(data), todayTokens: 1,
+        try s.applySave(try SaveTransfer.decode(data), todayTokens: 1,
                     todayDate: "2026-08-03", hasUsageData: true)
 
         await release.fire()
@@ -323,7 +335,7 @@ final class SaveTransferTests: XCTestCase {
                                    stageIndex: 0, usedAtStage: 0, rarity: .common, totalForms: 1)
         let data = try SaveTransfer.encode(state: imported, appVersion: "2.5.0",
                                            deviceName: "Old Mac", now: transferNow)
-        s.applySave(try SaveTransfer.decode(data), todayTokens: 1,
+        try s.applySave(try SaveTransfer.decode(data), todayTokens: 1,
                     todayDate: "2026-08-03", hasUsageData: true)
 
         await release.fire()
@@ -355,7 +367,7 @@ final class SaveTransferTests: XCTestCase {
                                    stageIndex: 0, usedAtStage: 0, rarity: .common, totalForms: 1)
         let data = try SaveTransfer.encode(state: imported, appVersion: "2.5.0",
                                            deviceName: "Old Mac", now: transferNow)
-        s.applySave(try SaveTransfer.decode(data), todayTokens: 1,
+        try s.applySave(try SaveTransfer.decode(data), todayTokens: 1,
                     todayDate: "2026-08-03", hasUsageData: true)
         XCTAssertNil(s.currentLine, "전제: 부화 락에 막혀 라인이 아직 없다")
 
@@ -382,7 +394,7 @@ final class SaveTransferTests: XCTestCase {
                                    stageIndex: 0, usedAtStage: 0, rarity: .common, totalForms: 1)
         let data = try SaveTransfer.encode(state: imported, appVersion: "2.5.0",
                                            deviceName: "Old Mac", now: transferNow)
-        s.applySave(try SaveTransfer.decode(data), todayTokens: 0, todayDate: today, hasUsageData: false)
+        try s.applySave(try SaveTransfer.decode(data), todayTokens: 0, todayDate: today, hasUsageData: false)
         XCTAssertFalse(s.state.installBaselineSet, "전제: baseline 판정을 미룬 상태")
 
         s.update(todayTokens: 0, todayDate: today, monthTotal: 0,
@@ -429,7 +441,7 @@ final class SaveTransferTests: XCTestCase {
         // 정규화된 값으로 실제 산술 경로를 태워 트랩이 안 나는지 확인한다.
         let url = tempURL("clamped")
         let store = store(at: url)
-        store.applySave(envelope, todayTokens: 0, todayDate: "2026-08-03", hasUsageData: true)
+        try store.applySave(envelope, todayTokens: 0, todayDate: "2026-08-03", hasUsageData: true)
         XCTAssertGreaterThanOrEqual(store.availableTokens, 0)
         store.update(todayTokens: 1_000, todayDate: "2026-08-03", monthTotal: 0,
                      burnTier: .idle, limitWarning: false, hasUsageData: true)
@@ -458,6 +470,187 @@ final class SaveTransferTests: XCTestCase {
         s.update(todayTokens: 1_000, todayDate: "2026-08-03", monthTotal: 0,
                  burnTier: .idle, limitWarning: false, hasUsageData: true)
         XCTAssertLessThanOrEqual(s.state.usedSinceInstall, SaveTransfer.maxTokenValue + 1_000)
+    }
+
+    // MARK: 필드 부류 (딥리뷰 M-c·M-e·M-g)
+
+    /// [딥리뷰 M-g] 이전 시 필드 분류가 산문 규약뿐이라, 새 필드가 추가되면 아무 판단 없이 "진행"으로
+    /// 딸려 들어간다(`language` 가 실제로 그랬다). 필드 목록을 테스트로 고정해 **분류를 강제**한다.
+    func testEveryCompanionStateFieldIsClassifiedForTransfer() {
+        let progress: Set<String> = ["usedSinceInstall", "spentTokens", "eggUsage", "pendingHatchID",
+                                     "active", "dex", "collectedFinals", "inventory"]
+        let deviceLedger: Set<String> = ["installBaselineSet", "claimedTodayTokens", "lastDate"]
+        let accountLedger: Set<String> = ["candyGrantTier", "candyFeatureSeeded"]
+        let devicePreference: Set<String> = ["language"]
+
+        let classified = progress.union(deviceLedger).union(accountLedger).union(devicePreference)
+        let actual = Set(Mirror(reflecting: CompanionState()).children.compactMap(\.label))
+        XCTAssertEqual(actual, classified, """
+            CompanionState 필드가 바뀌었다. 세이브 이전에서 이 필드가 무엇인지 정하고 목록을 갱신하라 —
+            진행(그대로) / 로컬 장부(새 기기 기준 재설정) / 계정 원장(병합) / 기기 환경설정(현재 값 유지).
+            """)
+    }
+
+    /// [딥리뷰 M-c] `language` 는 진행이 아니라 이 기기에서 보는 방식이다. 일본어 Mac 의 세이브가
+    /// 영어 Mac 의 UI 언어를 조용히 바꾸면 안 된다.
+    func testImportKeepsThisDevicesLanguage() throws {
+        let today = "2026-08-03"
+        let url = tempURL("lang")
+        var mine = CompanionState()
+        mine.installBaselineSet = true
+        mine.language = .en
+        try JSONEncoder().encode(mine).write(to: url)
+        let s = store(at: url)
+        XCTAssertEqual(s.language, .en)
+
+        var imported = oldMacState(today: today)
+        imported.language = .ja
+        let data = try SaveTransfer.encode(state: imported, appVersion: "2.5.0",
+                                           deviceName: "JA Mac", now: transferNow)
+        try s.applySave(try SaveTransfer.decode(data), todayTokens: 1,
+                        todayDate: today, hasUsageData: true)
+
+        XCTAssertEqual(s.language, .en, "불러온 세이브의 언어가 이 기기 설정을 덮으면 안 된다")
+        XCTAssertEqual(s.state.dex.count, imported.dex.count, "진행은 그대로 들어와야 한다")
+    }
+
+    /// [딥리뷰 M-e] 사탕 지급 원장은 계정 전역(한도 창 key)이라 통째 교체하면 안 된다.
+    /// **더 오래된** 세이브를 불러오면 이미 지급한 창의 기록이 사라져 같은 창에서 재지급된다.
+    func testCandyGrantLedgerMergesInsteadOfBeingReplacedByAnOlderSave() throws {
+        let today = "2026-08-03"
+        let url = tempURL("candy")
+        var mine = CompanionState()
+        mine.installBaselineSet = true
+        mine.candyGrantTier = ["five_hour|A": 100, "weekly|B": 80]
+        try JSONEncoder().encode(mine).write(to: url)
+        let s = store(at: url)
+
+        // 옛 세이브: A 창을 아직 못 봤고, B 는 더 낮은 tier 에서 찍혔다.
+        var older = oldMacState(today: today)
+        older.candyGrantTier = ["weekly|B": 50, "five_hour|C": 100]
+        let data = try SaveTransfer.encode(state: older, appVersion: "2.5.0",
+                                           deviceName: "Old Mac", now: transferNow)
+        try s.applySave(try SaveTransfer.decode(data), todayTokens: 1,
+                        todayDate: today, hasUsageData: true)
+
+        XCTAssertEqual(s.state.candyGrantTier["five_hour|A"], 100, "이 기기가 이미 지급한 창이 사라지면 재지급된다")
+        XCTAssertEqual(s.state.candyGrantTier["weekly|B"], 80, "같은 창은 더 높은 tier 를 남긴다")
+        XCTAssertEqual(s.state.candyGrantTier["five_hour|C"], 100, "세이브 쪽 창도 들어와야 한다")
+    }
+
+    // MARK: 백업 가드레일 (딥리뷰 M-a·M-b)
+
+    /// [딥리뷰 M-a] 확인창은 3개 언어로 "직전 상태가 남는다"고 약속한다. 백업을 못 남기면 그 약속을
+    /// 못 지키는 것이므로 **덮어쓰지 않고 중단**해야 한다(예전엔 `try?` 로 삼키고 그냥 진행했다).
+    func testImportAbortsWhenBackupCannotBeWritten() throws {
+        let today = "2026-08-03"
+        let url = tempURL("nobackup")
+        var mine = CompanionState()
+        mine.installBaselineSet = true
+        mine.usedSinceInstall = 123_456_789
+        try JSONEncoder().encode(mine).write(to: url)
+        let s = store(at: url)
+
+        // 백업이 쓰일 자리를 디렉토리로 막아 쓰기를 실패시킨다.
+        let blocked = url.deletingLastPathComponent()
+            .appendingPathComponent(SaveTransfer.backupFileName(date: transferNow))
+        try FileManager.default.createDirectory(at: blocked, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: blocked) }
+
+        let data = try SaveTransfer.encode(state: oldMacState(today: today), appVersion: "2.5.0",
+                                           deviceName: "Old Mac", now: transferNow)
+        let envelope = try SaveTransfer.decode(data)
+        XCTAssertThrowsError(try s.applySave(envelope, todayTokens: 1, todayDate: today, hasUsageData: true)) {
+            XCTAssertEqual($0 as? SaveTransferError, .backupFailed)
+        }
+        XCTAssertEqual(s.state.usedSinceInstall, 123_456_789, "중단했으면 진행이 그대로여야 한다")
+        XCTAssertTrue(s.state.dex.isEmpty)
+    }
+
+    /// [딥리뷰 M-b] 백업 슬롯이 하나면 두 번째 불러오기가 **원본**을 덮어써, 되돌리려는 바로 그
+    /// 순간 되돌릴 대상이 사라진다. 불러올 때마다 새 슬롯이어야 한다.
+    func testSecondImportDoesNotDestroyTheOriginalBackup() throws {
+        let today = "2026-08-03"
+        let url = tempURL("twoimports")
+        var original = CompanionState()
+        original.installBaselineSet = true
+        original.usedSinceInstall = 111
+        try JSONEncoder().encode(original).write(to: url)
+
+        let clock = MutableClock(transferNow)
+        let s = CompanionStore(provider: OfflineProvider(), clock: { clock.now }, fileURL: url)
+
+        var first = oldMacState(today: today); first.usedSinceInstall = 222
+        try s.applySave(try SaveTransfer.decode(
+            try SaveTransfer.encode(state: first, appVersion: "2.5.0", deviceName: "A", now: transferNow)),
+                        todayTokens: 1, todayDate: today, hasUsageData: true)
+
+        clock.now = transferNow.addingTimeInterval(60)   // 다음 백업은 다른 슬롯
+        var second = oldMacState(today: today); second.usedSinceInstall = 333
+        try s.applySave(try SaveTransfer.decode(
+            try SaveTransfer.encode(state: second, appVersion: "2.5.0", deviceName: "B", now: transferNow)),
+                        todayTokens: 1, todayDate: today, hasUsageData: true)
+
+        let dir = url.deletingLastPathComponent()
+        let backups = try FileManager.default.contentsOfDirectory(atPath: dir.path)
+            .filter { $0.hasPrefix(SaveTransfer.backupFilePrefix) }.sorted()
+        XCTAssertEqual(backups.count, 2, "불러오기마다 새 슬롯이어야 한다")
+        let oldest = try JSONDecoder().decode(
+            CompanionState.self, from: Data(contentsOf: dir.appendingPathComponent(backups[0])))
+        XCTAssertEqual(oldest.usedSinceInstall, 111, "가장 오래된 백업이 원본이어야 한다")
+        for name in backups { try? FileManager.default.removeItem(at: dir.appendingPathComponent(name)) }
+    }
+
+    // MARK: 확인창 정책 · 표시 상태 (딥리뷰 M-f·M-h)
+
+    /// [딥리뷰 M-f] 파괴적 버튼이 기본이면 Return 한 키로 진행이 대체된다. `NSAlert` 구성은 XCTest 에서
+    /// 도달 불가라 규칙만 순수 함수로 빼 고정한다.
+    func testCancelIsTheDefaultButtonOnTheImportConfirmation() {
+        XCTAssertEqual(ImportConfirmPolicy.keyEquivalent(forButtonAt: ImportConfirmPolicy.cancelButtonIndex), "\r")
+        XCTAssertEqual(ImportConfirmPolicy.keyEquivalent(forButtonAt: ImportConfirmPolicy.replaceButtonIndex), "",
+                       "대체(파괴적) 버튼이 기본이면 안 된다")
+    }
+
+    /// [딥리뷰 M-h] `applySave` 가 정하는 표시 상태가 어떤 테스트에서도 단언되지 않아, 삼항을 뒤집어도
+    /// 통과했다.
+    func testApplySaveSetsDisplayStateFromWhetherACompanionCameIn() throws {
+        let today = "2026-08-03"
+        var withMon = oldMacState(today: today)
+        withMon.active = MonState(baseID: 403, pathIDs: [403], plannedPathIDs: [403],
+                                  stageIndex: 0, usedAtStage: 0, rarity: .common, totalForms: 1)
+        let a = store(at: tempURL("dispA"))
+        try a.applySave(try SaveTransfer.decode(
+            try SaveTransfer.encode(state: withMon, appVersion: "2.5.0", deviceName: "A", now: transferNow)),
+                        todayTokens: 1, todayDate: today, hasUsageData: true)
+        XCTAssertEqual(a.displayState, .idle)
+
+        let eggOnly = oldMacState(today: today)   // active == nil
+        let b = store(at: tempURL("dispB"))
+        try b.applySave(try SaveTransfer.decode(
+            try SaveTransfer.encode(state: eggOnly, appVersion: "2.5.0", deviceName: "B", now: transferNow)),
+                        todayTokens: 1, todayDate: today, hasUsageData: true)
+        XCTAssertEqual(b.displayState, .egg)
+    }
+
+    // MARK: 파일 경계 (딥리뷰 LOW)
+
+    /// 거대한 JSON 은 메인스레드 파싱을 수 초간 잡는다(실측 39MB ≈ 1.8초). 세이브는 수 KB 라 상한이 안전하다.
+    func testOversizedFileIsRejectedBeforeParsing() {
+        let huge = Data(count: SaveTransfer.maxFileBytes + 1)
+        XCTAssertThrowsError(try SaveTransfer.decode(huge)) { error in
+            XCTAssertEqual(error as? SaveTransferError,
+                           .fileTooLarge(bytes: SaveTransfer.maxFileBytes + 1, limit: SaveTransfer.maxFileBytes))
+        }
+    }
+
+    /// 상위 스키마 세이브는 본문 모양이 달라 전체 디코드가 실패할 수 있다. 그래도 "세이브 파일이
+    /// 아니에요"가 아니라 "앱을 업데이트하라"로 안내해야 한다 — 헤더를 먼저 읽는 이유다.
+    func testNewerSchemaIsReportedEvenWhenTheBodyIsUnreadable() throws {
+        let json = #"{"format":"poketokenbar.save","schema":99,"whatever":{"unknown":true}}"#
+        XCTAssertThrowsError(try SaveTransfer.decode(Data(json.utf8))) { error in
+            XCTAssertEqual(error as? SaveTransferError,
+                           .newerSchema(found: 99, supported: SaveEnvelope.schemaVersion))
+        }
     }
 
     // MARK: 오류 문구 매핑
