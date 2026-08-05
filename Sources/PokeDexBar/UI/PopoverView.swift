@@ -1,7 +1,7 @@
 import AppKit
 import SwiftUI
 
-enum PopoverTab { case home, shop, bag, collection }
+enum PopoverTab { case home, shop, bag, collection, box }
 
 /// 팝오버 치수의 단일 소스. 자식이 쓸 수 있는 폭을 알아야 할 때 이 값을 쓴다 — 넘치는 자식이
 /// 부모 폭을 부풀리므로 GeometryReader 로 재면 순환한다.
@@ -37,6 +37,9 @@ struct PopoverView: View {
 
     let player: PlayerStore
     let provider: any PokeProviding
+
+    /// 박스가 진화 후보를 보여주려면 라인이 필요하다. 개체 baseID → 라인, 로드되면 채운다.
+    @State private var evoLines: [Int: EvoLine] = [:]
 
     private var l: L { companion.l }
 
@@ -102,11 +105,14 @@ struct PopoverView: View {
                 Text(l.shop).tag(PopoverTab.shop)
                 Text(l.bag).tag(PopoverTab.bag)
                 Text(l.collection).tag(PopoverTab.collection)
+                Text("박스").tag(PopoverTab.box)
             }
             .pickerStyle(.segmented)
             .labelsHidden()
 
-            if nav.tab == .collection {
+            if nav.tab == .box {
+                BoxTabView(store: player, lines: evoLines) { baseID in loadLine(baseID) }
+            } else if nav.tab == .collection {
                 CollectionView(store: companion)
             } else if nav.tab == .bag {
                 BagView(store: companion, nav: nav)
@@ -126,6 +132,18 @@ struct PopoverView: View {
             footer
         }
         .padding(PopoverMetrics.padding)
+    }
+
+    // MARK: 박스 — 진화 라인 로드
+
+    /// 박스가 진화 후보를 보여주려면 라인이 필요하다. 개체가 화면에 들어올 때 한 번만 받아둔다.
+    private func loadLine(_ baseID: Int) {
+        guard evoLines[baseID] == nil else { return }
+        Task {
+            if let line = try? await provider.line(baseSpeciesID: baseID) {
+                evoLines[baseID] = line
+            }
+        }
     }
 
     // MARK: 헤더 — 오늘 합계 + provider/토큰타입 분해
