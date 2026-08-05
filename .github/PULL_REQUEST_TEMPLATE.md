@@ -15,7 +15,7 @@
 ## UI changes
 
 <!--
-When this PR changes anything under `Sources/PokeTokenBar/UI/`, describe the
+When this PR changes anything under `Sources/PokeDexBar/UI/`, describe the
 before/after below. Images (screenshots or GIFs) are welcome but optional — a
 clear text description is fine. The canonical app screenshots in `assets/` are
 regenerated at release, so they don't need updating per PR. Remove this section

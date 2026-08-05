@@ -20,10 +20,10 @@ PTB_NOTES_FILE=/tmp/notes.md ./scripts/release.sh 2.1.1
 1. **test-gate** (`./scripts/test-gate.sh`) — 전체 테스트 + 로직 커버리지. 실패 시 중단.
 2. **문서 일관성 검토** — 정적 버전 배지·제거된 의존성(예: `ccusage`) 잔존을 자동 경고 + 아래 수동 체크리스트 출력. 경고 시 진행 여부를 묻는다.
 3. **VERSION 범프** (`scripts/build-app.sh`, 아직 미커밋).
-4. **빌드 + zip** (`build/PokeTokenBar.zip`) + 빌드 버전 일치 확인 — **push 전 검증**(실패해도 범프 미커밋이라 origin/main 무손상).
+4. **빌드 + zip** (`build/PokeDexBar.zip`) + 빌드 버전 일치 확인 — **push 전 검증**(실패해도 범프 미커밋이라 origin/main 무손상).
 5. **커밋 + push** (`git push origin main`, 빌드 성공 후).
 6. **GitHub Release** 생성 (노트는 `PTB_NOTES_FILE` 또는 최소 노트).
-7. **Homebrew cask** 버전 갱신 (`chattymin/homebrew-tap`).
+7. **Homebrew cask** 버전 갱신 (`leedg0831/homebrew-tap`).
 8. **GitHub Pages 재빌드** 요청 (랜딩 동적 배지 갱신 유도).
 
 > `main` 브랜치에서만 실행(스크립트가 가드). 비-main 에서 실행 시 즉시 중단.
@@ -60,14 +60,14 @@ status item(AX)→팝오버 오픈(AXPress)까지 7개 체크. 5단계는 터미
 ## 배포 후 검증
 
 ```bash
-brew update && brew upgrade --cask poke-token-bar
+brew update && brew upgrade --cask poke-dex-bar
 ```
 
-`brew list --cask --versions poke-token-bar` 와 `/Applications/PokeTokenBar.app` 버전이 새 버전인지 확인.
+`brew list --cask --versions poke-dex-bar` 와 `/Applications/PokeDexBar.app` 버전이 새 버전인지 확인.
 
 ## 서명 (2026-07-08 부터)
 
-릴리스 빌드는 이 머신의 `PokeTokenBar Local` 자체서명 인증서로 서명된다
+릴리스 빌드는 이 머신의 `PokeDexBar Local` 자체서명 인증서로 서명된다
 (`scripts/create-signing-cert.sh` 로 생성, keychain 에만 존재 — 레포 미커밋).
 - designated requirement 가 버전 간 고정 → 사용자의 Keychain "항상 허용"이 업데이트 후에도 유지.
 - 전환 직후 첫 업데이트 1회는 기존(ad-hoc 시절) 허용이 무효라 마지막 프롬프트가 뜰 수 있음.

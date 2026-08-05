@@ -1,23 +1,27 @@
 <div align="center">
 
-<img src="assets/icon.png" width="128" alt="PokeTokenBar 아이콘">
+<img src="assets/icon.png" width="128" alt="PokeDexBar 아이콘">
 
-# PokeTokenBar
+# PokeDexBar
 
 **당신의 AI 코딩 토큰을 포켓몬으로 — 메뉴바에서.**
 
-[![Release](https://img.shields.io/github/v/release/chattymin/PokeTokenBar?color=444d56&label=release)](https://github.com/chattymin/PokeTokenBar/releases)
+[![Release](https://img.shields.io/github/v/release/leedg0831/PokeDexBar?color=444d56&label=release)](https://github.com/leedg0831/PokeDexBar/releases)
 [![macOS](https://img.shields.io/badge/macOS-14%2B-0969da)](https://www.apple.com/macos/)
 [![Swift](https://img.shields.io/badge/Swift-6-f05138)](https://swift.org)
 [![Homebrew](https://img.shields.io/badge/Homebrew-cask-8957e5)](#homebrew)
 [![License](https://img.shields.io/badge/license-MIT-3fb950)](LICENSE)
-[![Sponsor](https://img.shields.io/badge/Sponsor-%E2%99%A5-ea4aaa?logo=githubsponsors&logoColor=white)](https://github.com/sponsors/chattymin)
+[![Sponsor](https://img.shields.io/badge/Sponsor-%E2%99%A5-ea4aaa?logo=githubsponsors&logoColor=white)](https://github.com/sponsors/leedg0831)
 
 [English](README.md) · **한국어** · [日本語](README.ja.md)
 
 </div>
 
-PokeTokenBar는 당신이 이미 태우고 있는 AI 코딩 토큰(Claude Code · Codex · Gemini CLI · OpenCode · Hermes Agent · Cursor · Grok CLI)을 macOS 메뉴바 속 자라나는 **포켓몬 companion**으로 바꿔줍니다. 토큰을 쓰면 알이 부화하고, 실제 진화 라인을 따라 진화하며, 최종 진화 후 도감에 졸업하고, 다시 새 알이 시작됩니다. companion 아래에는 정확한 사용량 트래커가 있습니다 — 오늘의 사용량·비용, 공식 5시간/주간 한도를 로컬 로그에서 직접 읽습니다.
+> **[PokeTokenBar](https://github.com/chattymin/PokeTokenBar)의 포크** (MIT, © chattymin).
+> PokeDexBar는 스프라이트 소스를 [Pokémon Showdown](https://play.pokemonshowdown.com/sprites/)으로 교체해
+> 9세대까지 모든 세대를 지원하며, 스프라이트에 EPX 안티앨리어싱을 추가합니다.
+
+PokeDexBar는 당신이 이미 태우고 있는 AI 코딩 토큰(Claude Code · Codex · Gemini CLI · OpenCode · Hermes Agent · Cursor · Grok CLI)을 macOS 메뉴바 속 자라나는 **포켓몬 companion**으로 바꿔줍니다. 토큰을 쓰면 알이 부화하고, 실제 진화 라인을 따라 진화하며, 최종 진화 후 도감에 졸업하고, 다시 새 알이 시작됩니다. companion 아래에는 정확한 사용량 트래커가 있습니다 — 오늘의 사용량·비용, 공식 5시간/주간 한도를 로컬 로그에서 직접 읽습니다.
 
 > 토큰 사용량은 로컬 Claude Code·Codex·Gemini CLI·OpenCode·Hermes Agent·Cursor·Grok CLI 데이터에서 직접 읽습니다(`totalTokens` = input + output + cache, 로컬 날짜) — 외부 CLI 불필요. 비공식·비상업 포켓몬 팬 프로젝트 — [라이선스 & 면책](#라이선스--면책) 참고.
 
@@ -125,19 +129,19 @@ macOS 14+ (Apple Silicon 또는 Intel). 끝입니다 — 토큰 사용량은 로
 ### Homebrew
 
 ```bash
-brew install --cask chattymin/tap/poke-token-bar
+brew install --cask leedg0831/tap/poke-dex-bar
 ```
 
 ad-hoc/자체 서명 앱이라 Cask 설치 시 격리 속성을 자동 제거합니다.
 
 ### 직접 설치 (Homebrew 없이)
 
-Homebrew를 쓰지 않는다면 [최신 릴리스](https://github.com/chattymin/PokeTokenBar/releases/latest)에서 `PokeTokenBar.zip`을 내려받아 압축을 풀고 `PokeTokenBar.app`을 `/Applications`로 드래그합니다.
+Homebrew를 쓰지 않는다면 [최신 릴리스](https://github.com/leedg0831/PokeDexBar/releases/latest)에서 `PokeDexBar.zip`을 내려받아 압축을 풀고 `PokeDexBar.app`을 `/Applications`로 드래그합니다.
 
 이 앱은 ad-hoc/자체 서명(Apple 개발자 계정 공증 없음)이라 첫 실행 시 Gatekeeper가 "확인되지 않은 개발자" 경고를 띄웁니다. 아래 둘 중 하나로 한 번만 해제하면 됩니다.
 
-- **Finder:** `PokeTokenBar.app`을 우클릭(또는 Control+클릭) → **열기** → 대화상자에서 **열기**를 다시 클릭.
-- **터미널:** `xattr -dr com.apple.quarantine /Applications/PokeTokenBar.app`
+- **Finder:** `PokeDexBar.app`을 우클릭(또는 Control+클릭) → **열기** → 대화상자에서 **열기**를 다시 클릭.
+- **터미널:** `xattr -dr com.apple.quarantine /Applications/PokeDexBar.app`
 
 (Homebrew Cask는 격리 속성을 자동 제거하므로 이 과정이 필요 없습니다.)
 
@@ -146,7 +150,7 @@ Homebrew를 쓰지 않는다면 [최신 릴리스](https://github.com/chattymin/
 ```bash
 swift build                  # 디버그
 swift test                   # 단위 테스트
-./scripts/build-app.sh       # release → PokeTokenBar.app → /Applications
+./scripts/build-app.sh       # release → PokeDexBar.app → /Applications
 ```
 
 ## 데이터 소스
@@ -162,31 +166,32 @@ swift test                   # 단위 테스트
 | `~/.grok/sessions/**/updates.jsonl` | Grok CLI daily/blocks/weekly/monthly | `turn_completed` 레코드(턴 단위 `usage`, 서버 보고 비용); `$GROK_HOME` 설정 시 그 경로; 서브에이전트 세션은 토큰이 부모 턴에 이미 포함돼 제외 |
 | Keychain / `~/.claude/.credentials.json` → `api.anthropic.com` | Claude 공식 5h/주간 % | 비공식 endpoint; Keychain 은 **갱신 버튼을 누를 때만** 읽음 — 자동 폴링은 읽지 않음 |
 | `codex app-server` | Codex 공식 5h/주간 % | 로컬 자식 프로세스; 계정 snapshot만, 모델 turn 없음 |
-| [PokéAPI](https://pokeapi.co/) — `pokeapi.co`, `graphql.pokeapi.co` | 포켓몬 종·진화 | 런타임 fetch; 로컬 캐시, 번들 안 함 |
-| `raw.githubusercontent.com/PokeAPI/sprites` | 포켓몬·아이템 스프라이트 | 런타임 fetch; Application Support 에 캐시, 번들 안 함 |
+| [PokéAPI](https://pokeapi.co/) — `pokeapi.co`, `graphql.pokeapi.co` | 포켓몬 종·진화 데이터 | 런타임 fetch; 로컬 캐시, 번들 안 함 |
+| [Pokémon Showdown](https://play.pokemonshowdown.com/sprites/) — `play.pokemonshowdown.com` | 포켓몬 스프라이트(정적·애니메이션, 이로치, 전 세대) | 런타임 fetch; Application Support 에 캐시, 번들 안 함 |
+| `raw.githubusercontent.com/PokeAPI/sprites` | 아이템·알 스프라이트 | 런타임 fetch; Application Support 에 캐시, 번들 안 함 |
 | `status.claude.com`, `status.openai.com` | 프로바이더 장애 배너 | statuspage 요약; 표시 전용 — 설정에서 끌 수 있음 |
 | `api.github.com` | 업데이트 확인 | 최신 릴리스 태그; 기동 시와 팝오버를 열 때 |
 
 ## 프라이버시 & 권한
 
 - **온디바이스.** 토큰 사용량은 로컬 Claude Code·Codex·Gemini CLI·OpenCode·Hermes Agent·Cursor·Grok CLI 데이터에서 직접 읽습니다. 사용량을 업로드하거나 모델 turn을 실행하지 않습니다.
-- **외부 요청.** 앱은 완전 오프라인이 아닙니다. 7개 호스트에 접속합니다 — `pokeapi.co`·`graphql.pokeapi.co`(종·진화), `raw.githubusercontent.com`(스프라이트), `api.anthropic.com`(Claude 공식 한도), `status.claude.com`·`status.openai.com`(장애 배너 — 설정에서 끌 수 있음), `api.github.com`(업데이트 확인). **어느 요청에도 사용량·토큰·프롬프트·프로젝트 경로는 담기지 않습니다** — 요청 자체만 나갑니다.
+- **외부 요청.** 앱은 완전 오프라인이 아닙니다. 8개 호스트에 접속합니다 — `pokeapi.co`·`graphql.pokeapi.co`(종·진화 데이터), `play.pokemonshowdown.com`(포켓몬 스프라이트), `raw.githubusercontent.com`(아이템·알 스프라이트), `api.anthropic.com`(Claude 공식 한도), `status.claude.com`·`status.openai.com`(장애 배너 — 설정에서 끌 수 있음), `api.github.com`(업데이트 확인). **어느 요청에도 사용량·토큰·프롬프트·프로젝트 경로는 담기지 않습니다** — 요청 자체만 나갑니다.
 - **Keychain(선택).** Claude OAuth 자격증명은 **갱신 버튼을 누를 때만** 읽습니다(설정, 또는 팝오버의 한도 행). 자동 폴링은 Keychain 을 건드리지 않으므로 비밀번호 프롬프트가 뜨지 않고, `~/.claude/.credentials.json` 이 있으면 그쪽에서 가져옵니다. 토큰은 메모리에만 두며 **앱 자체 Keychain 항목은 만들지 않습니다.** 토큰이 만료되면 한도는 갱신 전까지 이전 값(stale)으로 표시됩니다. 설정에서 끄면 한도 섹션만 숨겨집니다.
-- **포켓몬 에셋**은 런타임에 PokéAPI에서 받아오며 `~/Library/Application Support/PokeTokenBar/`에만 캐시됩니다. 앱 바이너리와 릴리스 아티팩트에는 포켓몬 에셋이 포함되지 않습니다.
+- **포켓몬 에셋**은 런타임에 받아오며(종·진화 데이터는 PokéAPI, 스프라이트는 Pokémon Showdown) `~/Library/Application Support/PokeDexBar/`에만 캐시됩니다. 앱 바이너리와 릴리스 아티팩트에는 포켓몬 에셋이 포함되지 않습니다.
 
 ## 기여자
 
 크기에 상관없이 모든 기여를 환영합니다 — 빌드·테스트·풀 리퀘스트 방법은 [CONTRIBUTING.ko.md](CONTRIBUTING.ko.md)를 참고하세요.
 
-[![Contributors](https://contrib.rocks/image?repo=chattymin/PokeTokenBar)](https://github.com/chattymin/PokeTokenBar/graphs/contributors)
+[![Contributors](https://contrib.rocks/image?repo=leedg0831/PokeDexBar)](https://github.com/leedg0831/PokeDexBar/graphs/contributors)
 
 ## 라이선스 & 면책
 
 **MIT** — [LICENSE](LICENSE) 참고. MIT는 본 프로젝트의 **원본 소스 코드에만** 적용되며, 앱을 통해 접근하는 제3자의 상표·아트워크·데이터에 대한 권리는 부여하지 않습니다.
 
-PokeTokenBar는 **비공식·비상업 팬 프로젝트**입니다. **Nintendo, Game Freak, Creatures Inc., The Pokémon Company와 제휴·보증·후원·승인 관계가 없습니다.** "포켓몬(Pokémon)"과 관련 명칭·캐릭터·이미지는 각 권리자의 상표 및 저작물이며, 본 프로젝트는 어떤 포켓몬 지식재산에 대해서도 소유권이나 권리를 주장하지 않습니다.
+PokeDexBar는 **비공식·비상업 팬 프로젝트**입니다. **Nintendo, Game Freak, Creatures Inc., The Pokémon Company와 제휴·보증·후원·승인 관계가 없습니다.** "포켓몬(Pokémon)"과 관련 명칭·캐릭터·이미지는 각 권리자의 상표 및 저작물이며, 본 프로젝트는 어떤 포켓몬 지식재산에 대해서도 소유권이나 권리를 주장하지 않습니다.
 
-- **앱 바이너리와 릴리스 아티팩트에는 포켓몬 에셋이 포함되지 않습니다.** 포켓몬 종 데이터와 스프라이트는 공개 [PokéAPI](https://pokeapi.co)에서 **런타임에** 받아 사용자 기기에 로컬 캐시되며, PokéAPI를 통해 제공되는 스프라이트 이미지의 권리는 각 권리자에게 있습니다.
+- **앱 바이너리와 릴리스 아티팩트에는 포켓몬 에셋이 포함되지 않습니다.** 포켓몬 종·진화 데이터는 공개 [PokéAPI](https://pokeapi.co)에서, 스프라이트는 [Pokémon Showdown](https://play.pokemonshowdown.com/sprites/)(애니메이션·이로치, 전 세대)에서 **런타임에** 받아 사용자 기기에 로컬 캐시되며, 스프라이트 이미지의 권리는 각 권리자에게 있습니다.
 - 저장소 문서(스크린샷/GIF)에 보이는 포켓몬 이미지는 앱 기능 설명 목적으로만 표시됩니다.
 - 본 앱은 **개인적·비상업적 용도로만** 무료 제공됩니다.
 - 권리자께서 본 프로젝트에 대해 우려가 있으시면 이슈를 열거나 메인테이너에게 연락 주시면 신속히 대응하겠습니다.

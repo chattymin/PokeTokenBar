@@ -1,4 +1,4 @@
-# PokeTokenBar — Claude 프로젝트 지침
+# PokeDexBar — Claude 프로젝트 지침
 
 ## 기여 언어 규약 (오픈소스 대비 — English first)
 
@@ -22,7 +22,7 @@
    - **랜딩(gh-pages orphan 브랜치) — 필수.** `git worktree add /tmp/ptb-ghpages gh-pages` → `index.html`
      기능 카드(f#) + i18n 사전(en/ko/ja 동시·키 정합) 갱신 → 커밋 → `git push origin gh-pages` →
      `git worktree remove`. (Pages 자동 재빌드. 커밋은 gh-pages log 모방 = `landing:` 프리픽스.)
-   - **스크린샷(`assets/`)**: UI(`Sources/PokeTokenBar/UI/`) 변경 시 재생성. 기존 방식 = **HTML 렌더**
+   - **스크린샷(`assets/`)**: UI(`Sources/PokeDexBar/UI/`) 변경 시 재생성. 기존 방식 = **HTML 렌더**
      (팝오버 라이브 캡처 아님) — Chrome `--headless --screenshot --force-device-scale-factor=2` 로 다크
      팝오버를 720px PNG 로 그린다. 애니 GIF(home)는 프레임 합성 후 `gifsicle -O3 --lossy` 로 최적화
      (PIL 재인코딩 단독은 용량 팽창 주의). 언어별 이미지(`settings.png`/`-ko`/`-ja` 등) 각 README 참조.
@@ -45,7 +45,7 @@
    PTB_NOTES_FILE=/tmp/ptb-notes.md ./scripts/release.sh <version>
    ```
    스크립트가 test-gate → 문서검토 → 범프 → 빌드검증 → 커밋·push → GitHub Release → cask → Pages 를 순서대로 수행.
-4. **검증**: 완료 후 `brew upgrade --cask poke-token-bar` 로 실제 업그레이드 동작 확인.
+4. **검증**: 완료 후 `brew upgrade --cask poke-dex-bar` 로 실제 업그레이드 동작 확인.
 
 릴리스는 외부 공개(비가역)이므로 실행 직전 **적용할 버전과 노트 요약을 한 번 보여준 뒤** 진행한다.
 세부 절차·체크리스트는 `RELEASE.md` 참고.

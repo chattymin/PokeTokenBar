@@ -1,8 +1,8 @@
-# PokeTokenBar への貢献
+# PokeDexBar への貢献
 
 [English](CONTRIBUTING.md) · [한국어](CONTRIBUTING.ko.md) · **日本語**
 
-貢献に興味を持っていただきありがとうございます！PokeTokenBar は小さな非商用の
+貢献に興味を持っていただきありがとうございます！PokeDexBar は小さな非商用の
 ファンプロジェクトで、大小を問わずあらゆる貢献を歓迎します — バグ報告、修正、
 新しい使用量プロバイダー、翻訳、ドキュメント。
 
@@ -48,7 +48,7 @@ CI はすべてのプルリクエストで `swift build` と `swift test` を実
 - [Conventional Commits](https://www.conventionalcommits.org/) スタイルを使用:
   `feat:`, `fix:`, `docs:`, `chore:`, `refactor:`, `test:` など。
 - プルリクエストテンプレートを記入してください。
-- **UI の変更**（`Sources/PokeTokenBar/UI/` 配下のすべて）は、PR で before/after を
+- **UI の変更**（`Sources/PokeDexBar/UI/` 配下のすべて）は、PR で before/after を
   説明してください。スクリーンショットや GIF は歓迎ですが任意です — 明確なテキスト説明で
   十分です。正式な `assets/` スクリーンショットは PR ごとではなくリリース時に
   再生成されます。
@@ -59,9 +59,9 @@ CI はすべてのプルリクエストで `swift build` と `swift test` を実
 従ってください（テストでも強制されます）:
 
 - **使用量ソースの追加**（新しい AI CLI）= `UsageProvider` プロトコル
-  (`Sources/PokeTokenBar/Core/UsageProvider.swift`) を新しい型ひとつで実装し、
+  (`Sources/PokeDexBar/Core/UsageProvider.swift`) を新しい型ひとつで実装し、
   `UsageStore.init` のデフォルト `providers:` 配列
-  (`Sources/PokeTokenBar/Core/UsageStore.swift`) に登録します。触れる必要があるのは
+  (`Sources/PokeDexBar/Core/UsageStore.swift`) に登録します。触れる必要があるのは
   この2箇所だけです。
 - **汎用的な動作はすべてのプロバイダーにわたって集計する必要があります**（今日/週/月の
   合計、burn tier、companion のリズム）。汎用的な計算を単一のプロバイダーに結び付けたり、
@@ -73,16 +73,16 @@ CI はすべてのプルリクエストで `swift build` と `swift test` を実
 
 ## 法務 / 知的財産
 
-PokeTokenBar は**非公式・非商用のファンプロジェクト**であり、任天堂、ゲームフリーク、
+PokeDexBar は**非公式・非商用のファンプロジェクト**であり、任天堂、ゲームフリーク、
 クリーチャーズ、株式会社ポケモンとは提携していません
 （[README](README.ja.md#ライセンス--免責) の免責を参照）。プロジェクトを安全に維持・
 配布するため、貢献は**必ず**次のルールに従う必要があります:
 
 - **ポケモン（またはその他の第三者）の著作物をコミット・バンドルしないでください** —
-  スプライト、アートワーク、音声、フォント、名前/データの一括ファイル。ポケモンの種族
-  データおよびスプライトは、公開されている [PokéAPI](https://pokeapi.co) から
-  **実行時に**取得され、ユーザーの端末にローカルキャッシュされます。そのまま維持して
-  ください。
+  スプライト、アートワーク、音声、フォント、名前/データの一括ファイル。ポケモンの種・
+  進化データは、公開されている [PokéAPI](https://pokeapi.co) から、スプライトは
+  [Pokémon Showdown](https://play.pokemonshowdown.com/sprites/) から**実行時に**
+  取得され、ユーザーの端末にローカルキャッシュされます。そのまま維持してください。
 - **商用利用を意図した機能**や、著作物を再配布・エクスポートする機能を追加しないで
   ください。
 - **シークレット、認証情報、非公開/内部ツールへの参照をコミットしないでください。**

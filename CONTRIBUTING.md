@@ -1,8 +1,8 @@
-# Contributing to PokeTokenBar
+# Contributing to PokeDexBar
 
 **English** · [한국어](CONTRIBUTING.ko.md) · [日本語](CONTRIBUTING.ja.md)
 
-Thanks for your interest in contributing! PokeTokenBar is a small, non-commercial
+Thanks for your interest in contributing! PokeDexBar is a small, non-commercial
 fan project, and contributions of all sizes are welcome — bug reports, fixes,
 new usage providers, translations, and documentation.
 
@@ -50,7 +50,7 @@ Because the repository squash-merges, the PR title becomes the commit subject on
 - Use [Conventional Commits](https://www.conventionalcommits.org/) style:
   `feat:`, `fix:`, `docs:`, `chore:`, `refactor:`, `test:`, etc.
 - Fill out the pull request template.
-- **UI changes** (anything under `Sources/PokeTokenBar/UI/`) should describe the
+- **UI changes** (anything under `Sources/PokeDexBar/UI/`) should describe the
   before/after in the PR. Screenshots or GIFs are welcome but optional — a clear
   text description is fine. The canonical `assets/` screenshots are regenerated
   at release, not per PR.
@@ -61,9 +61,9 @@ The app is provider-agnostic by design. When extending it, follow these rules
 (they are also enforced by tests):
 
 - **Adding a usage source** (a new AI CLI) = implement the `UsageProvider`
-  protocol (`Sources/PokeTokenBar/Core/UsageProvider.swift`) in one new type and
+  protocol (`Sources/PokeDexBar/Core/UsageProvider.swift`) in one new type and
   register it in the default `providers:` array of `UsageStore.init`
-  (`Sources/PokeTokenBar/Core/UsageStore.swift`). Those are the only two places
+  (`Sources/PokeDexBar/Core/UsageStore.swift`). Those are the only two places
   you should need to touch.
 - **Generic behavior must aggregate across all providers** (today/week/month
   totals, burn tier, companion rhythm). Do not attach a generic calculation to a
@@ -76,7 +76,7 @@ The app is provider-agnostic by design. When extending it, follow these rules
 
 ## Legal / intellectual property
 
-PokeTokenBar is an **unofficial, non-commercial fan project** and is not
+PokeDexBar is an **unofficial, non-commercial fan project** and is not
 affiliated with Nintendo, Game Freak, Creatures Inc., or The Pokémon Company
 (see the disclaimer in the [README](README.md#license--disclaimer)). To keep the
 project safe to maintain and distribute, contributions **must** follow these
@@ -84,9 +84,10 @@ rules:
 
 - **Do not commit or bundle any Pokémon (or other third-party) copyrighted
   assets** — sprites, artwork, audio, fonts, or bulk name/data files. Pokémon
-  species data and sprites are fetched **at runtime** from the public
-  [PokéAPI](https://pokeapi.co) and cached locally on the user's device; keep it
-  that way.
+  species and evolution data are fetched **at runtime** from the public
+  [PokéAPI](https://pokeapi.co); sprites are fetched **at runtime** from
+  [Pokémon Showdown](https://play.pokemonshowdown.com/sprites/) — both cached
+  locally on the user's device; keep it that way.
 - **Do not add features intended for commercial use**, or features that
   redistribute or export copyrighted assets.
 - **Do not commit secrets, credentials, or references to private/internal
