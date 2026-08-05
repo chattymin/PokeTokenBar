@@ -5,6 +5,11 @@ actor SpriteStore {
     static let shared = SpriteStore()
     private let base = "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon"
     private let itemBase = "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items"
+    /// 포켓몬 스프라이트는 Showdown — 전 세대(9세대까지)를 제공한다. 아이템·알은 대응물이 없어
+    /// 계속 PokeAPI(`base`)를 쓴다.
+    private static let showdownBase = "https://play.pokemonshowdown.com/sprites"
+    /// 애니메이션이 없는 종(9세대 일부 패러독스·전설)을 기억해 매번 404를 받지 않는다.
+    private var missingAnimated: Set<Int> = []
     private var mem: [String: Data] = [:]
     private var memOrder: [String] = []   // LRU 순서(최근 접근이 뒤). 상한 초과 시 앞(오래된 것)부터 evict
     private let memLimit = 24              // in-memory 스프라이트 캐시 상한 — 세션 중 종 변경 누적 무한증가 방지(#H1)
@@ -20,24 +25,33 @@ actor SpriteStore {
         "\(speciesID)-\(shiny ? "sh" : "")\(animated ? "a" : "s")"
     }
 
+    /// 슬러그 기반 스프라이트 URL. 순수 함수라 네트워크 없이 테스트한다.
+    static func spriteURL(slug: String, animated: Bool, shiny: Bool) -> URL? {
+        let folder = switch (animated, shiny) {
+        case (true, false): "ani"
+        case (true, true): "ani-shiny"
+        case (false, false): "gen5"
+        case (false, true): "gen5-shiny"
+        }
+        return URL(string: "\(showdownBase)/\(folder)/\(slug).\(animated ? "gif" : "png")")
+    }
+
     func data(speciesID: Int, animated: Bool, shiny: Bool = false) async -> Data? {
-        if animated, !PokemonAssets.hasAnimatedSprite(speciesID: speciesID) { return nil }
+        // 애니메이션이 없다고 이미 확인된 종은 정적으로 떨어지게 nil 을 돌려준다(뷰가 폴백).
+        if animated, missingAnimated.contains(speciesID) { return nil }
+        guard let slug = SpeciesSlug.slug(speciesID) else { return nil }
         let key = Self.cacheKey(speciesID: speciesID, animated: animated, shiny: shiny)
         if let d = mem[key] { touch(key); return d }
         let ext = animated ? "gif" : "png"
         let file = dir.appendingPathComponent("\(key).\(ext)")
         if let d = try? Data(contentsOf: file) { remember(key, d); return d }
-        let urlStr: String
-        switch (animated, shiny) {
-        case (true, false):  urlStr = "\(base)/versions/generation-v/black-white/animated/\(speciesID).gif"
-        case (true, true):   urlStr = "\(base)/versions/generation-v/black-white/animated/shiny/\(speciesID).gif"
-        case (false, false): urlStr = "\(base)/\(speciesID).png"
-        case (false, true):  urlStr = "\(base)/shiny/\(speciesID).png"
-        }
-        guard let url = URL(string: urlStr),
+        guard let url = Self.spriteURL(slug: slug, animated: animated, shiny: shiny),
               let (d, resp) = try? await URLSession.shared.data(from: url),
-              (resp as? HTTPURLResponse)?.statusCode == 200, !d.isEmpty else { return nil }
-        try? d.write(to: file, options: .atomic)   // torn write 방지 — 크래시/강제종료 시 손상 캐시가 남지 않게
+              (resp as? HTTPURLResponse)?.statusCode == 200, !d.isEmpty else {
+            if animated { missingAnimated.insert(speciesID) }
+            return nil
+        }
+        try? d.write(to: file, options: .atomic)   // torn write 방지
         remember(key, d)
         return d
     }
