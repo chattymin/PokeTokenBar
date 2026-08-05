@@ -379,7 +379,8 @@ struct FloatingPetView: View {
             }
 
             SpriteView(speciesID: companion.currentSpeciesID, size: size, animated: animated,
-                       shiny: companion.currentIsShiny, minFrameDelay: Self.frameFloor)
+                       shiny: companion.currentIsShiny, minFrameDelay: Self.frameFloor,
+                       antialias: store.antialiasSprites)
                 .frame(width: size, height: size)
                 .zIndex(0)
         }

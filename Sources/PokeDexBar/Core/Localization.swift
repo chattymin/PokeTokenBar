@@ -119,6 +119,9 @@ struct L {
     var floatingPetBubbleAlertsLabel: String {
         t("말풍선으로 알림 받기", "Show notifications as bubbles", "通知を吹き出しで表示")
     }
+    var antialiasLabel: String {
+        t("스프라이트 부드럽게", "Smooth sprites", "スプライトを滑らかに")
+    }
     var floatingPetMenuOpen: String { t("토큰 바 열기", "Open Token Bar", "トークンバーを開く") }
     var floatingPetMenuHide: String {
         t("플로팅 펫 끄기", "Turn off floating pet", "フローティングペットをオフ")

@@ -83,6 +83,9 @@ struct SpriteView: View {
     /// idle 배터리를 통제한다 — 항상 떠 있는 플로팅 펫(0.4s≈2.5fps)이 메뉴바 GIF 규율과 동치가 되게.
     /// 팝오버 등 일시적 표시는 0(기본)으로 두어 네이티브 fps 유지.
     var minFrameDelay: TimeInterval = 0
+    /// 켜면 표시 크기에 맞춰 EPX 로 확대한 뒤 그린다. 기본은 끔 — 도감 썸네일처럼 작은 표시는
+    /// 원본 픽셀이 더 또렷하다.
+    var antialias: Bool = false
     @State private var img: NSImage?
     @State private var up = false
     @State private var loadedID: Int?   // img 가 어느 speciesID 것인지(id 변경 시 갱신 판단)
@@ -90,13 +93,14 @@ struct SpriteView: View {
     @State private var frameIndex = 0
 
     init(speciesID: Int?, size: CGFloat = 84, bob: Bool = false, animated: Bool = false,
-         shiny: Bool = false, minFrameDelay: TimeInterval = 0) {
+         shiny: Bool = false, minFrameDelay: TimeInterval = 0, antialias: Bool = false) {
         self.speciesID = speciesID
         self.size = size
         self.bob = bob
         self.animated = animated
         self.shiny = shiny
         self.minFrameDelay = minFrameDelay
+        self.antialias = antialias
         // 캐시에 있으면 즉시(동기) 표시 — 재렌더 플래시 방지 + 정적 스냅샷에서도 보임.
         // speciesID==nil(알 상태)이면 알 스프라이트를 시드(없으면 body 가 🥚 폴백).
         let cached = speciesID.map { SpriteLoader.cachedImage(speciesID: $0, shiny: shiny) } ?? SpriteLoader.cachedEggImage()
@@ -118,6 +122,15 @@ struct SpriteView: View {
     /// 현재 그리는 주체(순수 전이 입력).
     private var subject: SpriteSubject { SpriteSubject(image: img, loadedID: loadedID) }
 
+    /// 표시 크기에 맞는 EPX 패스 수만큼 확대한 이미지. 토글이 꺼져 있으면 원본 그대로.
+    private func upscaled(_ image: NSImage) -> NSImage {
+        guard antialias else { return image }
+        let passes = PixelScale.epxPasses(source: image.size,
+                                          in: CGSize(width: size, height: size),
+                                          displayScale: NSScreen.main?.backingScaleFactor ?? 2)
+        return passes > 0 ? PixelUpscaler.epx(image, passes: passes) : image
+    }
+
     /// 전이 결과를 @State 로 되돌린다(State 세터는 nonmutating). 값이 그대로면 쓰지 않는다 —
     /// @State 는 같은 값을 써도 무효화가 돌아, 항상 떠 있는 펫에 불필요한 재렌더가 생긴다.
     private func apply(_ next: SpriteSubject) {
@@ -130,11 +143,11 @@ struct SpriteView: View {
         Group {
             if !frames.isEmpty {
                 // GIF 애니메이션 경로 — 현재 프레임만 렌더
-                Image(nsImage: frames[frameIndex % frames.count].image)
+                Image(nsImage: upscaled(frames[frameIndex % frames.count].image))
                     .resizable().interpolation(.none)
                     .frame(width: size, height: size)
             } else if let img {
-                Image(nsImage: img).resizable().interpolation(.none)
+                Image(nsImage: upscaled(img)).resizable().interpolation(.none)
                     .frame(width: size, height: size)
             } else {
                 Text("🥚").font(.system(size: size * 0.62)).frame(width: size, height: size)
@@ -399,6 +412,7 @@ struct EvoLineView: View {
 /// 팝오버 상단 — 현재 포켓몬 + 진화 진행 + 부화/진화 연출.
 struct CompanionHeader: View {
     let store: CompanionStore
+    @Environment(UsageStore.self) private var usage
     // 연출 상태 — 부화/진화 순간 흰 플래시 + 스프링 스케일(본가 진화 신 오마주)
     @State private var flashOpacity: Double = 0
     @State private var celebScale: CGFloat = 1
@@ -417,51 +431,58 @@ struct CompanionHeader: View {
     /// 부화 임박(90%+) — 알이 흔들리고 문구가 바뀐다.
     private var eggImminent: Bool { store.isEgg && store.eggProgress >= 0.9 }
 
+    /// 헤더 좌측 초상화(스프라이트 + 진화·부화·민트 이펙트 오버레이). 별도 프로퍼티로 뺀 이유 —
+    /// 이 체인에 인자를 하나만 더해도(예: antialias) 타입체커가 시간 내에 못 끝낸다(전체 트리 하나로
+    /// 묶여 있으면 오버로드 해석 폭발).
+    private var portraitSprite: some View {
+        SpriteView(speciesID: store.currentSpeciesID, size: 76, bob: true, animated: true,
+                   shiny: store.currentIsShiny, antialias: usage.antialiasSprites)
+            .frame(width: 76, height: 76)
+            .background(Color.secondary.opacity(0.06))
+            .clipShape(RoundedRectangle(cornerRadius: 12))
+            .rotationEffect(.degrees(eggImminent && eggWiggle ? 5 : (eggImminent ? -5 : 0)))
+            .scaleEffect(celebScale)
+            .overlay(RoundedRectangle(cornerRadius: 12).fill(.white).opacity(flashOpacity))
+            .overlay(alignment: .topTrailing) {
+                if shinyBurst {
+                    Text("✨").font(.system(size: 22))
+                        .transition(.scale.combined(with: .opacity))
+                        .offset(x: 6, y: -6)
+                }
+            }
+            .overlay(alignment: .top) {
+                if dittoBurst {
+                    Text("🎭").font(.system(size: 26))
+                        .transition(.scale.combined(with: .opacity))
+                        .offset(y: -12)
+                }
+            }
+            .overlay(alignment: .top) {
+                if candyXPShown {
+                    Text("+\(TokenFormatter.compact(candyXPAmount)) XP")
+                        .font(.caption.weight(.bold)).foregroundStyle(.orange)
+                        .padding(.horizontal, 6).padding(.vertical, 2)
+                        .background(.regularMaterial, in: Capsule())
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                        .offset(y: -16)
+                }
+            }
+            .overlay {
+                if mintSparkle {
+                    ZStack {
+                        Text("✨").font(.system(size: 22)).offset(x: -11, y: -9)
+                        Text("✨").font(.system(size: 15)).offset(x: 13, y: 5)
+                        Text("✨").font(.system(size: 12)).offset(x: 1, y: 13)
+                    }
+                    .transition(.scale.combined(with: .opacity))
+                }
+            }
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(alignment: .center, spacing: 12) {
-                SpriteView(speciesID: store.currentSpeciesID, size: 76, bob: true, animated: true,
-                           shiny: store.currentIsShiny)
-                    .frame(width: 76, height: 76)
-                    .background(Color.secondary.opacity(0.06))
-                    .clipShape(RoundedRectangle(cornerRadius: 12))
-                    .rotationEffect(.degrees(eggImminent && eggWiggle ? 5 : (eggImminent ? -5 : 0)))
-                    .scaleEffect(celebScale)
-                    .overlay(RoundedRectangle(cornerRadius: 12).fill(.white).opacity(flashOpacity))
-                    .overlay(alignment: .topTrailing) {
-                        if shinyBurst {
-                            Text("✨").font(.system(size: 22))
-                                .transition(.scale.combined(with: .opacity))
-                                .offset(x: 6, y: -6)
-                        }
-                    }
-                    .overlay(alignment: .top) {
-                        if dittoBurst {
-                            Text("🎭").font(.system(size: 26))
-                                .transition(.scale.combined(with: .opacity))
-                                .offset(y: -12)
-                        }
-                    }
-                    .overlay(alignment: .top) {
-                        if candyXPShown {
-                            Text("+\(TokenFormatter.compact(candyXPAmount)) XP")
-                                .font(.caption.weight(.bold)).foregroundStyle(.orange)
-                                .padding(.horizontal, 6).padding(.vertical, 2)
-                                .background(.regularMaterial, in: Capsule())
-                                .transition(.move(edge: .bottom).combined(with: .opacity))
-                                .offset(y: -16)
-                        }
-                    }
-                    .overlay {
-                        if mintSparkle {
-                            ZStack {
-                                Text("✨").font(.system(size: 22)).offset(x: -11, y: -9)
-                                Text("✨").font(.system(size: 15)).offset(x: 13, y: 5)
-                                Text("✨").font(.system(size: 12)).offset(x: 1, y: 13)
-                            }
-                            .transition(.scale.combined(with: .opacity))
-                        }
-                    }
+                portraitSprite
                 VStack(alignment: .leading, spacing: 4) {
                     HStack(spacing: 6) {
                         Text(store.displayName).font(.callout.weight(.semibold))

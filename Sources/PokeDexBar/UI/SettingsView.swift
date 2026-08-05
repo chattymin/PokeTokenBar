@@ -183,6 +183,8 @@ struct SettingsView: View {
                 }
                 Divider()
                 toggleRow(l.floatingPetBubbleAlertsLabel, $store.floatingPetBubbleAlerts)
+                Divider()
+                toggleRow(l.antialiasLabel, $store.antialiasSprites)
             }
         }
     }

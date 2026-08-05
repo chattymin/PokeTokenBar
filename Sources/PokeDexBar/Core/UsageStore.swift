@@ -80,6 +80,10 @@ final class UsageStore {
     var floatingPetEnabled: Bool {
         didSet { defaults.set(floatingPetEnabled, forKey: "floatingPetEnabled") }
     }
+    /// 스프라이트 안티앨리어싱(EPX 업스케일) — 저해상도 GIF 를 크게 띄울 때 계단이 덜 보이게 한다.
+    var antialiasSprites: Bool {
+        didSet { defaults.set(antialiasSprites, forKey: "antialiasSprites") }
+    }
     /// 플로팅 펫 스프라이트 한 변 크기(pt).
     var floatingPetSize: Double {
         didSet { defaults.set(floatingPetSize, forKey: "floatingPetSize") }
@@ -385,6 +389,7 @@ final class UsageStore {
         updateNotificationsEnabled = d.object(forKey: "updateNotificationsEnabled") as? Bool ?? true
         statusChecksEnabled = d.object(forKey: "statusChecksEnabled") as? Bool ?? true
         floatingPetEnabled = d.object(forKey: "floatingPetEnabled") as? Bool ?? false
+        antialiasSprites = d.object(forKey: "antialiasSprites") as? Bool ?? true
         floatingPetSize = d.object(forKey: "floatingPetSize") as? Double ?? 96
         floatingPetBubbleAlerts = d.object(forKey: "floatingPetBubbleAlerts") as? Bool ?? true
         disableKeychainAccess = d.object(forKey: "disableKeychainAccess") as? Bool ?? false
