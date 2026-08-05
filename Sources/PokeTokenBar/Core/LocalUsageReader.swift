@@ -414,6 +414,10 @@ enum LocalUsageReader {
         for line in text.split(separator: "\n", omittingEmptySubsequences: true) {
             autoreleasepool {   // JSONSerialization 의 autoreleased 객체를 라인마다 배출(콜드 파싱 피크 억제)
                 let record = String(line)
+                // NOTE: 여기에 `line.contains("session_meta")` prefilter 를 넣으면 **느려진다**.
+                // 실측(실기기 57 rollout, release 빌드, best of 3 × 2회): 없음 1.80/1.84s vs 있음 2.17/2.19s.
+                // Swift `String.contains(_:)` 는 grapheme 단위 탐색이라 라인마다 훑는 비용이
+                // JSONSerialization 의 파싱보다 크다 — "파싱 줄 수를 줄이면 빨라진다"는 직관이 틀린 자리다.
                 if let meta = codexSessionMeta(record) {
                     if sessionID == nil {
                         // subagent meta는 `id`가 child이고 `session_id`가 parent일 수 있으므로 id 우선.
@@ -542,8 +546,15 @@ enum LocalUsageReader {
             let unresolved = allFiles.filter { !rolloutsByPath.keys.contains($0.path) }
             // 이미 아는 세션 id 와 파일명으로 후보를 좁혀 먼저 확인한다(파일을 열지 않는다).
             let hinted = unresolved.filter {
-                if case .known(let id) = sessionIDKnowledge($0), id == parentID { return true }
-                return $0.url.lastPathComponent.contains(parentID)
+                switch sessionIDKnowledge($0) {
+                case .known(let id):
+                    // 세션 id 를 아는 파일은 그 값으로만 판정한다. 파일명까지 보면 id 가 다른데도
+                    // 후보로 뽑혀, 인덱스가 warm 이어도 매 새로고침 같은 파일을 다시 full-parse 한다.
+                    return id == parentID
+                case .unknown:
+                    return isUsableFilenameHint(parentID)
+                        && $0.url.lastPathComponent.contains(parentID)
+                }
             }
             if adopt(hinted) { continue }
 
@@ -571,6 +582,14 @@ enum LocalUsageReader {
             probeSessionID: { codexRolloutSessionID(at: $0.url) }
         )
         return resolveCodexRollouts(rollouts, includedPaths: includedPaths)
+    }
+
+    /// 파일명 부분일치로 부모 후보를 좁힐 때 쓸 수 있는 id 인가.
+    /// 퇴화된 값(빈 문자열·`"-"` 같은 구분자만)은 거의 모든 rollout 파일명에 걸려 후보 필터가
+    /// 아무것도 걸러내지 못하고 전 rollout 을 full-parse 시킨다 — 실측 300파일 기준 0.009s → 18.2s.
+    /// 이건 파일을 열지 않는 값싼 사전 필터일 뿐이라, 통과해도 내용 대조는 그대로 수행된다.
+    static func isUsableFilenameHint(_ id: String) -> Bool {
+        id.count >= 4 && id.contains { $0.isLetter || $0.isNumber }
     }
 
     private static func codexSessionMeta(_ line: String) -> CodexSessionMeta? {

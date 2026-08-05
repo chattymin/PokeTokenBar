@@ -1064,4 +1064,51 @@ final class LocalUsageReaderTests: XCTestCase {
         XCTAssertEqual(entries.first?.cacheRead, 0)
     }
 
+    // MARK: Codex 파싱 비용 경계 (딥리뷰 후속)
+
+    /// 퇴화된 `forked_from_id` 는 파일명 부분일치로 거의 모든 rollout 을 후보로 만들어,
+    /// 후보 필터가 아무것도 못 거르고 전량 full-parse 된다(실측 300파일 0.009s → 18.2s).
+    /// 값싼 사전 필터라 통과 여부가 결과를 바꾸면 안 된다 — 정상 id 는 그대로 통과해야 한다.
+    func testDegenerateParentHintIsNotUsedToNarrowCandidates() {
+        XCTAssertFalse(LocalUsageReader.isUsableFilenameHint("-"), "구분자 하나는 전 파일명에 일치")
+        XCTAssertFalse(LocalUsageReader.isUsableFilenameHint(""))
+        XCTAssertFalse(LocalUsageReader.isUsableFilenameHint("----"), "영숫자가 없으면 힌트 가치 없음")
+        XCTAssertTrue(LocalUsageReader.isUsableFilenameHint("parent"))
+        XCTAssertTrue(LocalUsageReader.isUsableFilenameHint("00000000-0000-7000-8000-000000000001"))
+    }
+
+    /// 퇴화 힌트가 들어와도 결과 자체는 정상이어야 한다(성능 가드가 정확성을 바꾸지 않음).
+    func testDegenerateParentHintStillResolvesUsageCorrectly() {
+        let dir = tempDir()
+        write([
+            #"{"type":"session_meta","timestamp":"2026-07-29T01:00:00.000Z","payload":{"id":"child","forked_from_id":"-","thread_source":"user"}}"#,
+            codexStateLine(ts: "2026-07-29T01:00:00.010Z",
+                           cumulativeInput: 100, cumulativeOutput: 10, lastInput: 100, lastOutput: 10),
+            codexStateLine(ts: "2026-07-29T01:00:05.000Z",
+                           cumulativeInput: 300, cumulativeOutput: 30, lastInput: 200, lastOutput: 20),
+        ], to: dir, name: "rollout-child.jsonl", sub: "child")
+        let entries = LocalUsageReader.codexEntries(modifiedSince: .distantPast, root: dir)
+        XCTAssertEqual(entries.map(\.total), [220], "부모 없는 fork — 기존 timing trim 결과 그대로")
+    }
+
+    /// 부모 대조가 실제로 replay 를 잘라내는지 — 부모 링크·subagent 판정이 `session_meta` 에서
+    /// 나오므로 그 줄 처리를 건드리는 변경(예: prefilter 도입)이 조용히 깨뜨리지 않게 고정한다.
+    func testForkReplayIsTrimmedAgainstTheParentRollout() {
+        let dir = tempDir()
+        write([
+            #"{"type":"session_meta","timestamp":"2026-07-29T01:00:00.000Z","payload":{"id":"parent","session_id":"parent"}}"#,
+            codexStateLine(ts: "2026-07-29T01:00:00.010Z",
+                           cumulativeInput: 100, cumulativeOutput: 10, lastInput: 100, lastOutput: 10),
+        ], to: dir, name: "rollout-parent.jsonl", sub: "parent")
+        write([
+            forkedSessionMeta(ts: "2026-07-29T02:00:00.000Z"),
+            codexStateLine(ts: "2026-07-29T02:00:00.010Z",
+                           cumulativeInput: 100, cumulativeOutput: 10, lastInput: 100, lastOutput: 10),
+            codexStateLine(ts: "2026-07-29T02:00:05.000Z",
+                           cumulativeInput: 300, cumulativeOutput: 30, lastInput: 200, lastOutput: 20),
+        ], to: dir, name: "rollout-child.jsonl", sub: "child")
+        let entries = LocalUsageReader.codexEntries(modifiedSince: .distantPast, root: dir)
+        XCTAssertEqual(entries.map(\.total).sorted(), [110, 220], "부모 replay 는 대조로 잘리고 자기 턴만 남는다")
+    }
+
 }
