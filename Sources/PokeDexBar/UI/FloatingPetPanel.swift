@@ -10,6 +10,7 @@ import SwiftUI
 final class FloatingPetController: NSObject, NSWindowDelegate {
     private let store: UsageStore
     private let companion: CompanionStore
+    private let player: PlayerStore
     private let defaults: UserDefaults
     private var panel: NSPanel?
     private var hoverPanel: NSPanel?
@@ -36,10 +37,11 @@ final class FloatingPetController: NSObject, NSWindowDelegate {
     private var onOpenPopover: (() -> Void)?
     private var onHide: (() -> Void)?
 
-    init(store: UsageStore, companion: CompanionStore, defaults: UserDefaults = .standard,
+    init(store: UsageStore, companion: CompanionStore, player: PlayerStore, defaults: UserDefaults = .standard,
          onOpenPopover: (() -> Void)? = nil, onHide: (() -> Void)? = nil) {
         self.store = store
         self.companion = companion
+        self.player = player
         self.defaults = defaults
         self.onOpenPopover = onOpenPopover
         self.onHide = onHide
@@ -136,7 +138,8 @@ final class FloatingPetController: NSObject, NSWindowDelegate {
         let wantAnimated = Self.shouldAnimate(lowPower: ProcessInfo.processInfo.isLowPowerModeEnabled)
         if p.contentView == nil || builtAnimated != wantAnimated {
             let hosting = PetHostingView(rootView: AnyView(
-                FloatingPetView(animated: wantAnimated).environment(store).environment(companion)))
+                FloatingPetView(animated: wantAnimated)
+                    .environment(store).environment(companion).environment(player)))
             hosting.onOpenPopover = onOpenPopover
             hosting.onHide = onHide
             hosting.languageProvider = { [weak self] in self?.companion.language ?? .systemDefault }
@@ -368,6 +371,7 @@ struct FloatingPetView: View {
     var animated: Bool = true
     @Environment(UsageStore.self) private var store
     @Environment(CompanionStore.self) private var companion
+    @Environment(PlayerStore.self) private var player
 
     var body: some View {
         let size = CGFloat(store.floatingPetSize)
@@ -378,8 +382,8 @@ struct FloatingPetView: View {
                     .zIndex(1)
             }
 
-            SpriteView(speciesID: companion.currentSpeciesID, size: size, animated: animated,
-                       shiny: companion.currentIsShiny, minFrameDelay: Self.frameFloor,
+            SpriteView(speciesID: player.displayedSpeciesID, size: size, animated: animated,
+                       shiny: player.displayedIsShiny, minFrameDelay: Self.frameFloor,
                        antialias: store.antialiasSprites)
                 .frame(width: size, height: size)
                 .zIndex(0)

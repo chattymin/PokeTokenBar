@@ -35,13 +35,29 @@ struct PopoverView: View {
     @Environment(UpdateChecker.self) private var updater
     @Environment(PopoverNavigation.self) private var nav
 
+    let player: PlayerStore
+    let provider: any PokeProviding
+
     private var l: L { companion.l }
 
+    /// 스타터를 아직 안 골랐나 — 골라야 다른 화면을 쓸 수 있다. 순수 판정이라 테스트로 잠근다.
+    nonisolated static func needsStarter(_ state: PlayerState) -> Bool { !state.starterChosen }
+
     var body: some View {
+        Group {
+            if Self.needsStarter(player.state) {
+                StarterPickerView(store: player, provider: provider) { }
+            } else {
+                existingBody
+            }
+        }
+    }
+
+    private var existingBody: some View {
         // NOTE: 설정을 .sheet 로 띄우면 transient 팝오버가 닫힐 때 시트가 고아로 남아
         // 이후 팝오버의 모든 버튼 클릭을 차단할 수 있음 — 팝오버 내부 화면 전환으로 처리
         @Bindable var nav = nav
-        Group {
+        return Group {
             if nav.showSettings {
                 SettingsView(onClose: { nav.showSettings = false })
                     .environment(store)

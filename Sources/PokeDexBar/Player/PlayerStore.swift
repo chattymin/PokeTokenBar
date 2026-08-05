@@ -47,6 +47,10 @@ final class PlayerStore {
         return individual
     }
 
+    /// 메뉴바 아이콘·플로팅 펫이 그릴 종. 파트너가 없으면 nil.
+    var displayedSpeciesID: Int? { state.partner?.speciesID }
+    var displayedIsShiny: Bool { state.partner?.shiny ?? false }
+
     // MARK: 적립
 
     /// 사용량 갱신 — 지갑과 파트너 경험치가 같은 델타를 먹는다(서로 깎지 않는다).

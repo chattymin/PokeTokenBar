@@ -19,6 +19,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private let popover = NSPopover()
     private var store: UsageStore!
     private var companion: CompanionStore!
+    private var player: PlayerStore!
     private var updater: UpdateChecker!
     private var floatingPet: FloatingPetController!
     private let navigation = PopoverNavigation()
@@ -42,11 +43,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         NSApp.setActivationPolicy(.accessory)
         store = UsageStore()
         companion = CompanionStore()
+        player = PlayerStore()
         updater = UpdateChecker()
         store.localizationLanguage = companion.language   // 알림 현지화용 미러 시드
         store.onRefresh = { [weak self] in self?.onStoreRefreshed() }   // 한도 로드 후 companion·사탕 지급
         floatingPet = FloatingPetController(
-            store: store, companion: companion,
+            store: store, companion: companion, player: player,
             onOpenPopover: { [weak self] in self?.openPopover() },
             onHide: { [weak self] in self?.store.floatingPetEnabled = false }
         )   // 데스크톱 플로팅 펫(옵트인)
@@ -140,6 +142,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     }
 
     /// UsageStore 값 → CompanionStore (사용량 적립 + 표시 상태). 매 관찰 변경 시 호출.
+    /// PlayerStore 도 같은 값으로 함께 갱신한다 — 구 스토어는 Task 8 에서 지운다.
     private func updateCompanion() {
         companion.update(
             todayTokens: store.todayTotalTokens,
@@ -147,6 +150,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             monthTotal: store.monthTotalTokens,
             burnTier: store.burnTier,
             limitWarning: store.isLimitWarning,
+            hasUsageData: store.hasUsageData)
+        player.update(
+            todayTokens: store.todayTotalTokens,
+            todayDate: LocalUsageReader.todayKey(),
             hasUsageData: store.hasUsageData)
     }
 
@@ -164,8 +171,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     /// 에너지 통제는 ① delay 하한 0.2s(≈5fps) ② 안 보이면 정지(menuShouldAnimate) ③ 저전력 모드
     /// 에선 GIF 생략(가벼운 bob)로 처리한다 — 통제된 저프레임 + 비가시 시 정지로 저전력.
     private func ensureMenuAnimation() {
-        let id = companion.currentSpeciesID
-        let shiny = companion.currentIsShiny
+        let id = player.displayedSpeciesID
+        let shiny = player.displayedIsShiny
         let key = id.map { "\($0)-\(shiny)" }
         if key == menuSpriteKey, !menuFrames.isEmpty { return }   // 이미 이 개체로 애니메이션 중
         menuSpriteKey = key
@@ -309,7 +316,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
 
     private func buildPopoverContent() {
         popover.contentViewController = NSHostingController(
-            rootView: PopoverView()
+            rootView: PopoverView(player: player, provider: PokeAPIClient.shared)
                 .environment(store).environment(companion).environment(updater).environment(navigation))
     }
 
