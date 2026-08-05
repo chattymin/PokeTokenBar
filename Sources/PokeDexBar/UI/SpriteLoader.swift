@@ -8,17 +8,27 @@ actor SpriteStore {
     /// 포켓몬 스프라이트는 Showdown — 전 세대(9세대까지)를 제공한다. 아이템·알은 대응물이 없어
     /// 계속 PokeAPI(`base`)를 쓴다.
     private static let showdownBase = "https://play.pokemonshowdown.com/sprites"
-    /// 애니메이션이 없는 종(9세대 일부 패러독스·전설)을 기억해 매번 404를 받지 않는다.
+    /// 애니메이션이 없는 종(9세대 일부 패러독스·전설)을 기억해 매번 재요청하지 않는다. 404/410 같은
+    /// 확정적 "존재하지 않음" 응답에서만 채운다 — 오프라인·타임아웃 등 일시적 실패로 채우면 네트워크가
+    /// 돌아온 뒤에도 그 종이 프로세스 수명 내내 정적 폴백에 갇힌다(리뷰 지적).
     private var missingAnimated: Set<Int> = []
     private var mem: [String: Data] = [:]
     private var memOrder: [String] = []   // LRU 순서(최근 접근이 뒤). 상한 초과 시 앞(오래된 것)부터 evict
     private let memLimit = 24              // in-memory 스프라이트 캐시 상한 — 세션 중 종 변경 누적 무한증가 방지(#H1)
-    private let dir: URL = {
-        let d = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+    private let dir: URL
+    /// 네트워크 호출 지점 — 테스트가 응답 상태 코드·에러를 흉내낼 수 있게 하는 seam. 기본값은 실제
+    /// URLSession, 프로덕션에서는 손대지 않는다(`shared` 는 인자 없이 생성).
+    private let fetch: (URL) async throws -> (Data, URLResponse)
+
+    init(dir: URL? = nil, fetch: @escaping (URL) async throws -> (Data, URLResponse) = { url in
+        try await URLSession.shared.data(from: url)
+    }) {
+        let resolved = dir ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("PokeDexBar/sprites")
-        try? FileManager.default.createDirectory(at: d, withIntermediateDirectories: true)
-        return d
-    }()
+        try? FileManager.default.createDirectory(at: resolved, withIntermediateDirectories: true)
+        self.dir = resolved
+        self.fetch = fetch
+    }
 
     /// 캐시 파일명 키 — 기존 "\(id)-a"/"\(id)-s" 유지, shiny 는 "sh" 접두(구캐시 그대로 유효).
     static func cacheKey(speciesID: Int, animated: Bool, shiny: Bool) -> String {
@@ -39,21 +49,32 @@ actor SpriteStore {
     func data(speciesID: Int, animated: Bool, shiny: Bool = false) async -> Data? {
         // 애니메이션이 없다고 이미 확인된 종은 정적으로 떨어지게 nil 을 돌려준다(뷰가 폴백).
         if animated, missingAnimated.contains(speciesID) { return nil }
-        guard let slug = SpeciesSlug.slug(speciesID) else { return nil }
         let key = Self.cacheKey(speciesID: speciesID, animated: animated, shiny: shiny)
         if let d = mem[key] { touch(key); return d }
         let ext = animated ? "gif" : "png"
         let file = dir.appendingPathComponent("\(key).\(ext)")
         if let d = try? Data(contentsOf: file) { remember(key, d); return d }
-        guard let url = Self.spriteURL(slug: slug, animated: animated, shiny: shiny),
-              let (d, resp) = try? await URLSession.shared.data(from: url),
-              (resp as? HTTPURLResponse)?.statusCode == 200, !d.isEmpty else {
-            if animated { missingAnimated.insert(speciesID) }
+        // 슬러그는 캐시 미스일 때만 필요하다 — 여기(캐시 조회 아래)에 두면 번들 슬러그 테이블 로드 실패가
+        // 디스크에 이미 있는 스프라이트까지 막지 않는다(리뷰 지적).
+        guard let slug = SpeciesSlug.slug(speciesID),
+              let url = Self.spriteURL(slug: slug, animated: animated, shiny: shiny) else { return nil }
+        do {
+            let (d, resp) = try await fetch(url)
+            let status = (resp as? HTTPURLResponse)?.statusCode
+            guard status == 200, !d.isEmpty else {
+                // 404/410 은 "이 종엔 애니메이션이 없다"는 확정 신호일 때만 기억한다. 그 외 상태 코드(5xx 등)는
+                // 서버 쪽 일시 오류일 수 있어 기억하지 않는다 — 다음 시도에서 다시 확인한다.
+                if animated, status == 404 || status == 410 { missingAnimated.insert(speciesID) }
+                return nil
+            }
+            try? d.write(to: file, options: .atomic)   // torn write 방지
+            remember(key, d)
+            return d
+        } catch {
+            // 오프라인·DNS 실패·타임아웃·취소 등 일시적 실패 — 기억하면 안 된다. 여기서 기억하면 앱이
+            // 오프라인 상태로 뜬 순간 조회한 종이 재연결 후에도 프로세스 수명 내내 정적 폴백에 갇힌다.
             return nil
         }
-        try? d.write(to: file, options: .atomic)   // torn write 방지
-        remember(key, d)
-        return d
     }
 
     /// 아이템 스프라이트(정적 PNG, 이름 기반). 포켓몬과 같은 메모리/디스크 캐시 사용(키 "item-<name>",
