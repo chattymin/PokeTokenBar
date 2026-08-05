@@ -13,14 +13,14 @@ struct ShopView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 10) {
                 walletHeader(l)
-                // shopEntries = 판매 아이템 + 새 알(리롤)을 가격 오름차순으로 병합한 단일 목록.
-                // 새 알은 활성 포켓몬이 있을 때만 shopEntries 에 포함된다(즉시 액션이라 ItemKind 가 아님).
+                // shopEntries = 판매 아이템 + 알 3종(보증 없음·고급 이상·희귀 이상)을 가격 오름차순으로
+                // 병합한 단일 목록. 알은 활성 포켓몬이 있을 때만 포함된다(즉시 액션이라 ItemKind 가 아님).
                 ForEach(store.shopEntries, id: \.self) { entry in
                     switch entry {
                     case .item(let kind):
                         ShopItemCard(store: store, kind: kind)
-                    case .freshEgg:
-                        FreshEggCard(store: store, nav: nav)
+                    case .egg(let tier):
+                        EggCard(store: store, nav: nav, tier: tier)
                     }
                 }
             }
@@ -121,13 +121,19 @@ private struct ShopItemCard: View {
     }
 }
 
-/// 새 알(리롤) 카드 — 구매 = 즉시 현재 포켓몬 폐기 후 새 알로. 인라인 2단계 확인:
-/// 일반은 1회, 이로치면 한 번 더(사고 폐기 방지). 성공하면 Home 으로 전환해 새 알을 보여준다.
-private struct FreshEggCard: View {
+/// 알 카드 — 구매 = 즉시 현재 포켓몬 폐기 후 새 알로. `tier` 는 보증 등급 하한(nil = 보증 없는 기본 알).
+/// 인라인 2단계 확인: 일반은 1회, 이로치면 한 번 더(사고 폐기 방지). 성공하면 Home 으로 전환해 새 알을 보여준다.
+///
+/// 등급 알의 시각 구분은 **카드의 등급 배지**로만 한다 — 알 스프라이트는 한 장뿐이고, 메뉴바·플로팅 펫은
+/// 기존 알 그대로 둔다(새 에셋 없이 구분이 서는 최소 범위).
+private struct EggCard: View {
     let store: CompanionStore
     let nav: PopoverNavigation
+    let tier: Rarity?
     @State private var stage: Stage = .idle
     private enum Stage { case idle, confirm, shinyConfirm }
+
+    private var price: Int { FreshEgg.price(guaranteeing: tier) }
 
     var body: some View {
         let l = store.l
@@ -138,8 +144,17 @@ private struct FreshEggCard: View {
                 SpriteView(speciesID: nil, size: 26)
                     .frame(width: 30, height: 30)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(l.freshEggName).font(.callout.weight(.semibold))
-                    Text(l.freshEggDescription)
+                    HStack(spacing: 6) {
+                        Text(l.eggName(tier)).font(.callout.weight(.semibold))
+                        if let tier {
+                            // 도감 칩과 같은 라벨·색 — 상점의 등급 표기가 도감과 한 말로 맞물리게.
+                            Text(l.rarityLabel(tier).uppercased()).font(.system(size: 8, weight: .bold))
+                                .padding(.horizontal, 5).padding(.vertical, 1)
+                                .background(rarityColor(tier)).foregroundStyle(.white)
+                                .clipShape(Capsule())
+                        }
+                    }
+                    Text(l.eggDescription(tier))
                         .font(.caption).foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -157,10 +172,10 @@ private struct FreshEggCard: View {
         switch stage {
         case .idle:
             HStack {
-                Text("\(l.shopPriceLabel) \(TokenFormatter.compact(FreshEgg.price))")
+                Text("\(l.shopPriceLabel) \(TokenFormatter.compact(price))")
                     .font(.caption2).foregroundStyle(.tertiary).monospacedDigit()
                 Spacer()
-                if store.canBuyFreshEgg {
+                if store.canBuyEgg(tier) {
                     Button(l.buy) { stage = .confirm }
                         .buttonStyle(.bordered).controlSize(.small)
                 } else {
@@ -169,7 +184,7 @@ private struct FreshEggCard: View {
             }
         case .confirm:
             HStack(spacing: 8) {
-                Text(l.freshEggConfirm(store.displayName))
+                Text(l.eggConfirm(store.displayName, l.eggName(tier)))
                     .font(.caption2).foregroundStyle(.secondary).lineLimit(2)
                 Spacer()
                 // 이로치면 한 번 더 경고, 아니면 즉시 실행.
@@ -196,6 +211,6 @@ private struct FreshEggCard: View {
     /// 리롤 실행 → 새 알을 볼 수 있게 Home 으로 전환(가방 사용과 동일 패턴).
     private func commit() {
         stage = .idle
-        if store.buyFreshEgg() { nav.tab = .home }
+        if store.buyEgg(tier) { nav.tab = .home }
     }
 }

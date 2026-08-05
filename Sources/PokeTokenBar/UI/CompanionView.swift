@@ -485,9 +485,19 @@ struct CompanionHeader: View {
                         }
                     } else {
                         // 알 인큐베이션 — 부화까지 진행 (임박 시 문구·색 전환)
-                        Text(eggImminent ? store.l.eggImminent : store.l.eggIncubating)
-                            .font(.caption2)
-                            .foregroundStyle(eggImminent ? AnyShapeStyle(.orange) : AnyShapeStyle(.secondary))
+                        HStack(spacing: 6) {
+                            Text(eggImminent ? store.l.eggImminent : store.l.eggIncubating)
+                                .font(.caption2)
+                                .foregroundStyle(eggImminent ? AnyShapeStyle(.orange) : AnyShapeStyle(.secondary))
+                            // 등급 보증 알이면 무엇을 품고 있는지 — 도감 칩과 같은 라벨·색.
+                            // 알 스프라이트는 한 장뿐이라 등급 구분은 이 배지가 유일한 신호다.
+                            if let guarantee = store.eggGuarantee {
+                                Text(store.l.eggGuaranteeHint(guarantee)).font(.system(size: 8, weight: .bold))
+                                    .padding(.horizontal, 5).padding(.vertical, 1)
+                                    .background(rarityColor(guarantee)).foregroundStyle(.white)
+                                    .clipShape(Capsule())
+                            }
+                        }
                         ProgressView(value: store.eggProgress).controlSize(.small).tint(.orange)
                         Text(store.l.eggToHatch(TokenFormatter.compact(store.eggTokensToHatch)))
                             .font(.caption2).foregroundStyle(.tertiary)

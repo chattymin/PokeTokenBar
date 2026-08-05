@@ -49,10 +49,31 @@ enum Rarity: String, Codable, Sendable {
         case .legendary: return 3
         }
     }
+    /// 이 등급의 capture_rate 상한 — 이 값 이하면 그 종은 이 등급 **이상**이다.
+    /// `from(captureRate:…)` 의 분류 임계이자, 프리미엄 알이 부화 후보를 미리 거르는 기준이다.
+    /// 두 곳에 임계를 따로 적으면 한쪽만 바뀌었을 때 등급 보증이 조용히 깨지므로 **여기가 단일 소스**다.
+    ///
+    /// nil = capture_rate 로 표현할 수 없는 등급. 전설은 `is_legendary`/`is_mythical` 로만 판정되는데
+    /// 부화 후보 인덱스(`BaseSpecies`)에는 그 플래그가 없다 → 전설 **전용** 알은 만들 수 없다(팔지도 않는다).
+    /// 반대로 전설은 전원 capture_rate ≤ 45 라 하한을 *위로만* 벗어나므로, 고급/희귀 알의 capture_rate
+    /// 필터에는 자연스럽게 포함된다("고급 이상"·"희귀 이상" 규칙이 그대로 성립).
+    var captureRateCeiling: Int? {
+        switch self {
+        case .rare:      return 45
+        case .uncommon:  return 120
+        case .common:    return 255
+        case .legendary: return nil
+        }
+    }
+    /// capture_rate 가 이 등급 이상을 뜻하는지 — 전설은 capture_rate 로 판정할 수 없어 항상 false.
+    func includes(captureRate: Int) -> Bool {
+        guard let ceiling = captureRateCeiling else { return false }
+        return captureRate <= ceiling
+    }
     static func from(captureRate: Int, isLegendary: Bool, isMythical: Bool) -> Rarity {
         if isLegendary || isMythical { return .legendary }
-        if captureRate <= 45 { return .rare }
-        if captureRate <= 120 { return .uncommon }
+        if Rarity.rare.includes(captureRate: captureRate) { return .rare }
+        if Rarity.uncommon.includes(captureRate: captureRate) { return .uncommon }
         return .common
     }
 }
@@ -158,18 +179,37 @@ enum FreshEgg {
     /// 아니라 그냥 사라지므로 도감·확률(collectedFinals)에 무영향 — "뽑은 적 없던 것처럼". 새 알은
     /// 처음부터 재인큐베이션(5M) 필요 + 성장(usedAtStage) 소멸이라 스팸/파밍이 자연 억제된다.
     static let price = 1_000_000_000
+
+    /// 상점에서 파는 알 — 보증 없음(기본) → 고급 이상 → 희귀 이상. `nil` = 등급 보증 없는 기존 알.
+    /// **전설 전용 알은 팔지 않는다**(등급 하한을 capture_rate 로 표현할 수 없고, 최고 등급을 확정
+    /// 상품으로 만들지 않는다). 전설은 고급/희귀 알에서 자연 가중대로 섞여 나온다 — 희귀 알 기준 약 10%.
+    static let shopTiers: [Rarity?] = [nil, .uncommon, .rare]
+
+    /// 등급 보증 알의 가격 — 배율은 새 상수를 짓지 않고 **기존 졸업 총량 표**를 그대로 쓴다
+    /// (common 750M : uncommon 1.875B : rare 3B = 1 : 2.5 : 4 → 1B / 2.5B / 4B).
+    ///
+    /// 확률 배율(고급 7.16% : 희귀 6.98% ≈ 1 : 2.03)로 매기면 안 된다 — 그러면 같은 값으로 고급 알
+    /// 2개를 사는 쪽이 희귀+ 기대 1.039마리·전설 0.104마리로 희귀 알 1개(1.000·0.100)를 모든 축에서
+    /// 앞질러 상위 티어가 완전 열등재가 된다. 졸업량 배율이라야 상위 티어가 희귀+ 1마리당 4.00B 로
+    /// 하위 반복 구매(4.81B)보다 싸다.
+    static func price(guaranteeing tier: Rarity?) -> Int {
+        guard let tier else { return price }
+        let multiplier = Double(PokemonBalance.graduationTotal(tier)) / Double(PokemonBalance.graduationTotal(.common))
+        return Int((Double(price) * multiplier).rounded())
+    }
 }
 
-/// 상점 표시 한 줄 — 판매 아이템(ItemKind) 또는 새 알 리롤(즉시 액션이라 ItemKind 가 아님).
+/// 상점 표시 한 줄 — 판매 아이템(ItemKind) 또는 알 리롤(즉시 액션이라 ItemKind 가 아님).
+/// `egg` 의 연관값은 **보증 등급 하한**(nil = 보증 없는 기존 알).
 /// CompanionStore.shopEntries 가 이 둘을 가격 오름차순으로 병합해 뷰가 단일 목록으로 그린다.
 enum ShopEntry: Hashable, Sendable {
     case item(ItemKind)
-    case freshEgg
+    case egg(Rarity?)
 
     var price: Int {
         switch self {
         case .item(let kind): return kind.shopPrice ?? 0
-        case .freshEgg: return FreshEgg.price
+        case .egg(let tier): return FreshEgg.price(guaranteeing: tier)
         }
     }
 }
@@ -458,6 +498,10 @@ struct CompanionState: Codable, Sendable {
     var spentTokens = 0
     // 현재 알이 생긴 뒤 쓴 토큰(부화 인큐베이션). 누적(usedSinceInstall)과 별개 — 졸업 후 새 알마다 0.
     var eggUsage = 0
+    // 현재 알이 보증하는 등급 하한(프리미엄 알). nil = 보증 없음(무료 알·기본 알).
+    // ★영속이어야 한다 — 구매 시점엔 종을 못 정한다(롤에 네트워크가 필요). 보증을 상태에 적어 두고
+    // 롤이 그것을 읽어야 오프라인·재시작을 건너서도 산 것을 받는다. 부화·졸업 때 nil 로 소비된다.
+    var eggTier: Rarity?
     // 알 상태에서 미리 롤해둔 부화 종(프리패칭) — 부화 순간 네트워크 딜레이 제거. 재시작에도 유지.
     var pendingHatchID: Int?
     var claimedTodayTokens = 0
@@ -487,6 +531,8 @@ struct CompanionState: Codable, Sendable {
         usedSinceInstall   = c.lenient(Int.self, forKey: .usedSinceInstall, default: 0)
         spentTokens        = c.lenient(Int.self, forKey: .spentTokens, default: 0)
         eggUsage           = c.lenient(Int.self, forKey: .eggUsage, default: 0)
+        // 모르는 rawValue 는 nil(보증 없음)로 강등 — 관대 디코딩의 안전한 방향(있지도 않은 보증을 만들지 않는다).
+        eggTier            = c.lenientOptional(Rarity.self, forKey: .eggTier)
         pendingHatchID     = c.lenientOptional(Int.self, forKey: .pendingHatchID)
         claimedTodayTokens = c.lenient(Int.self, forKey: .claimedTodayTokens, default: 0)
         lastDate           = c.lenient(String.self, forKey: .lastDate, default: "")

@@ -143,10 +143,12 @@ final class ShopTests: XCTestCase {
         XCTAssertEqual(s.purchasableItems.last, .shinyCharm, "구매 완료 보유형은 최하단")
     }
 
-    // MARK: shopEntries (판매 아이템 + 새 알 리롤을 하나의 가격 오름차순 목록으로 병합)
+    // MARK: shopEntries (판매 아이템 + 알 3종을 하나의 가격 오름차순 목록으로 병합)
 
-    /// 활성 포켓몬이 있으면 새 알(1B)이 사탕(500M)과 이로치 부적(3B) 사이에 끼워져 전체가 가격 오름차순.
+    /// 활성 포켓몬이 있으면 알 3종이 각자의 가격 위치에 끼워져 전체가 가격 오름차순.
     /// (회귀: 알이 ForEach 밖에서 무조건 맨 아래로 append 돼 3B 부적보다 아래에 놓이던 표시.)
+    /// 등급 알을 인접 그룹으로 묶지 **않는** 것이 의도다 — 그러면 4B 희귀 알이 3B 부적 위로 올라가
+    /// 위 회귀를 부분적으로 되살린다. 티어 관계는 카드의 등급 배지로 읽힌다.
     func testShopEntriesInterleavesFreshEggByPrice() {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("shop-entries-\(UUID().uuidString).json")
         let mon = "{\"baseID\":10,\"pathIDs\":[10],\"stageIndex\":0,\"usedAtStage\":200000000,"
@@ -156,16 +158,25 @@ final class ShopTests: XCTestCase {
         try? json.data(using: .utf8)!.write(to: url)
         let s = CompanionStore(provider: ShopNoProvider(), clock: { self.now }, fileURL: url, rng: SeededRNG(seed: 1))
         XCTAssertTrue(s.hasActive)
-        XCTAssertEqual(s.shopEntries, [.item(.mint), .item(.rareCandy), .freshEgg, .item(.shinyCharm)])
+        XCTAssertEqual(s.shopEntries,
+                       [.item(.mint),        // 100M
+                        .item(.rareCandy),   // 500M
+                        .egg(nil),           // 1B
+                        .egg(.uncommon),     // 2.5B
+                        .item(.shinyCharm),  // 3B
+                        .egg(.rare)])        // 4B
         let prices = s.shopEntries.map(\.price)
         XCTAssertEqual(prices, prices.sorted(), "가격 상수가 바뀌어도 오름차순 불변식 유지")
     }
 
-    /// 활성 포켓몬이 없으면(알 상태) 리롤 대상이 없어 새 알은 목록에서 빠진다 — 판매 아이템만.
+    /// 활성 포켓몬이 없으면(알 상태) 리롤 대상이 없어 알은 **등급 알까지 전부** 목록에서 빠진다.
+    /// 프리미엄 알만 알 상태에서 살 수 있게 하는 안은 채택하지 않았다 — 기존 새 알과 게이트를 통일한다.
     func testShopEntriesOmitsFreshEggWhenNoActive() {
         let s = store(used: 5_000_000_000)   // active 없음
         XCTAssertFalse(s.hasActive)
         XCTAssertEqual(s.shopEntries, [.item(.mint), .item(.rareCandy), .item(.shinyCharm)])
-        XCTAssertFalse(s.shopEntries.contains(.freshEgg))
+        for tier in FreshEgg.shopTiers {
+            XCTAssertFalse(s.shopEntries.contains(.egg(tier)), "알 상태에선 \(tier?.rawValue ?? "기본") 알도 미노출")
+        }
     }
 }

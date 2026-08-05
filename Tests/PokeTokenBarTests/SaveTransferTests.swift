@@ -477,8 +477,9 @@ final class SaveTransferTests: XCTestCase {
     /// [딥리뷰 M-g] 이전 시 필드 분류가 산문 규약뿐이라, 새 필드가 추가되면 아무 판단 없이 "진행"으로
     /// 딸려 들어간다(`language` 가 실제로 그랬다). 필드 목록을 테스트로 고정해 **분류를 강제**한다.
     func testEveryCompanionStateFieldIsClassifiedForTransfer() {
-        let progress: Set<String> = ["usedSinceInstall", "spentTokens", "eggUsage", "pendingHatchID",
-                                     "active", "dex", "collectedFinals", "inventory"]
+        // eggTier(알 등급 보증) = 진행 — 산 물건이지 이 기기의 장부가 아니라 기기를 옮겨도 따라간다.
+        let progress: Set<String> = ["usedSinceInstall", "spentTokens", "eggUsage", "eggTier",
+                                     "pendingHatchID", "active", "dex", "collectedFinals", "inventory"]
         let deviceLedger: Set<String> = ["installBaselineSet", "claimedTodayTokens", "lastDate"]
         let accountLedger: Set<String> = ["candyGrantTier", "candyFeatureSeeded"]
         let devicePreference: Set<String> = ["language"]

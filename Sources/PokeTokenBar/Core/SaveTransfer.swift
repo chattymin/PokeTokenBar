@@ -146,6 +146,17 @@ enum SaveTransfer {
         s.spentTokens = clampToken(s.spentTokens)
         s.eggUsage = clampToken(s.eggUsage)
         s.claimedTodayTokens = clampToken(s.claimedTodayTokens)
+        // 알 보증은 "지금 품고 있는 알"에만 붙는 값이라 활성 포켓몬과 공존할 수 없다. 손편집·구버전
+        // 조합으로 둘 다 들어오면 그 보증이 다음 알로 새어 영구 프리미엄이 되므로 여기서 떨군다.
+        // 그 보증으로 미리 뽑아둔 종(pendingHatchID)도 함께 버린다 — 보증만 지우면 졸업 후 받는 **무료**
+        // 알이 그 pre-roll 로 부화해, 아무도 사지 않은 프리미엄 결과가 나온다.
+        if s.active != nil { s.eggTier = nil; s.pendingHatchID = nil }
+        // 만족시킬 수 없는 보증은 알을 영구히 못 깨게 만든다 — 전설은 capture_rate 로 표현할 수 없어
+        // (captureRateCeiling == nil) 두 롤 경로 모두 후보를 0개로 만들고, 부화가 없으니 보증도 소비되지
+        // 않으며, 새 알 구매는 `hasActive` 게이트에 막혀 빠져나갈 수단이 없다. 디코드는 *성공*하므로
+        // load() 의 .corrupt 복구도 안 걸려 파일을 손으로 지우기 전엔 앱을 못 쓴다.
+        // 관대 디코딩은 모르는 rawValue 만 걸러낼 뿐 **아는데 만족 불가능한 값**은 그대로 통과시킨다.
+        if s.eggTier?.captureRateCeiling == nil { s.eggTier = nil }
         if var active = s.active {
             active.usedAtStage = clampToken(active.usedAtStage)
             // totalForms 는 `kk * (kk + 1)` 형태로 쓰여(PokemonBalance.phaseThreshold) 큰 값이 그 자체로 트랩이다.
@@ -159,7 +170,8 @@ enum SaveTransfer {
     /// 다른 기기에서 온 상태를 **이 기기 기준으로 재정렬**한다.
     ///
     /// `CompanionState` 의 필드는 이전 관점에서 세 부류다.
-    ///  - **진행**: 어느 기기에서든 참(`usedSinceInstall`·`dex`·`inventory`·`active`·`eggUsage`…) → 그대로.
+    ///  - **진행**: 어느 기기에서든 참(`usedSinceInstall`·`dex`·`inventory`·`active`·`eggUsage`·`eggTier`…)
+    ///    → 그대로. 알 보증(`eggTier`)은 산 물건이지 이 기기의 장부가 아니라 기기를 옮겨도 따라간다.
     ///  - **로컬 장부**: *그 기기가* 어디까지 적립했나(`claimedTodayTokens`·`lastDate`·`installBaselineSet`)
     ///    → 새 기기 기준으로 다시 잡는다. 그대로 들여오면 옛 기기의 오늘 총량이 문턱이 되어
     ///    `CompanionStore.update` 의 `todayTokens > claimedTodayTokens` 게이트가 이전 당일 내내 거짓이 되고,
