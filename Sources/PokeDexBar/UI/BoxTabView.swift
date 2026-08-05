@@ -138,14 +138,20 @@ struct CandyButton: View {
     /// 테스트 전용 — 이번 렌더에서 만들어진 사탕 버튼(제목 + 눌렀을 때의 동작).
     /// 동작까지 담아 두어야 "버튼이 그려졌나"를 넘어 "눌렀을 때 실제로 사탕이 쓰이나"까지 잠근다.
     @MainActor static var constructed: [(title: String, action: () -> Void)] = []
-    @MainActor static func resetConstructed() { constructed = [] }
+    /// 수집은 테스트가 켤 때만 한다 — DEBUG 로 앱을 돌리면 박스를 그릴 때마다 클로저가 쌓여
+    /// 영영 안 빠진다(`SpriteView.constructionCount` 는 Int 라 커질 수가 없었다).
+    @MainActor static var isRecording = false
+    @MainActor static func resetConstructed() {
+        isRecording = true
+        constructed = []
+    }
     #endif
 
     init(title: String, action: @escaping () -> Void) {
         self.title = title
         self.action = action
         #if DEBUG
-        Self.constructed.append((title, action))
+        if Self.isRecording { Self.constructed.append((title, action)) }
         #endif
     }
 
