@@ -61,7 +61,34 @@ actor PokeAPIClient: PokeProviding {
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         return dir.appendingPathComponent("base-index.json")
     }()
-    private struct BaseIndexSnapshot: Codable { let fetchedAt: Date; let entries: [BaseSpecies] }
+    struct BaseIndexSnapshot: Codable {
+        let fetchedAt: Date
+        let entries: [BaseSpecies]
+        /// 이 인덱스를 만들 때의 종 범위 상한. 범위가 넓어져도(649 → 1025) 캐시는 30일을 살아남기
+        /// 때문에, 이걸 안 보면 옛 범위로 만든 인덱스가 계속 쓰이며 새 세대가 부화 풀에 영영
+        /// 안 들어온다. 구 형식(필드 없음)은 0으로 읽혀 항상 재구축된다.
+        var maxSpeciesID = 0
+
+        /// 지금 다루는 범위로 만든 인덱스인가.
+        func matchesCurrentRange() -> Bool {
+            maxSpeciesID == PokemonAssets.speciesIDs.upperBound
+        }
+
+        init(fetchedAt: Date, entries: [BaseSpecies], maxSpeciesID: Int) {
+            self.fetchedAt = fetchedAt
+            self.entries = entries
+            self.maxSpeciesID = maxSpeciesID
+        }
+
+        // 범위 필드가 없던 구 형식도 읽어야 오프라인 폴백이 살아 있다 — 없으면 0으로 읽혀
+        // `matchesCurrentRange()` 가 거짓이 되고, 온라인이면 곧바로 재구축된다.
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            fetchedAt = try c.decode(Date.self, forKey: .fetchedAt)
+            entries = try c.decode([BaseSpecies].self, forKey: .entries)
+            maxSpeciesID = (try? c.decode(Int.self, forKey: .maxSpeciesID)) ?? 0
+        }
+    }
     private struct GraphQLBaseResponse: Decodable {
         struct DataBox: Decodable { let pokemonspecies: [Row] }
         struct Row: Decodable { let id: Int; let capture_rate: Int }
@@ -75,16 +102,20 @@ actor PokeAPIClient: PokeProviding {
         if let c = baseIndexCache { return c }
         let disk = (try? Data(contentsOf: Self.baseIndexFile))
             .flatMap { try? JSONDecoder().decode(BaseIndexSnapshot.self, from: $0) }
-        if let disk, Date().timeIntervalSince(disk.fetchedAt) < 30 * 86400, !disk.entries.isEmpty {
+        if let disk, disk.matchesCurrentRange(),
+           Date().timeIntervalSince(disk.fetchedAt) < 30 * 86400, !disk.entries.isEmpty {
             baseIndexCache = disk.entries
             return disk.entries
         }
         do {
             let entries = try await fetchBaseIndex()
             baseIndexCache = entries
-            if let data = try? JSONEncoder().encode(BaseIndexSnapshot(fetchedAt: Date(), entries: entries)) {
+            let snapshot = BaseIndexSnapshot(fetchedAt: Date(), entries: entries,
+                                             maxSpeciesID: PokemonAssets.speciesIDs.upperBound)
+            if let data = try? JSONEncoder().encode(snapshot) {
                 try? data.write(to: Self.baseIndexFile, options: .atomic)
             }
+            AppLog.write("base index: rebuilt for range ≤\(PokemonAssets.speciesIDs.upperBound) — \(entries.count) bases")
             return entries
         } catch {
             if let disk, !disk.entries.isEmpty {   // 오프라인 — 오래된 인덱스라도 사용
@@ -133,7 +164,9 @@ actor PokeAPIClient: PokeProviding {
         }
         bases.sort { $0.id < $1.id }
         baseIndexCache = bases
-        if let data = try? JSONEncoder().encode(BaseIndexSnapshot(fetchedAt: Date(), entries: bases)) {
+        let snapshot = BaseIndexSnapshot(fetchedAt: Date(), entries: bases,
+                                         maxSpeciesID: PokemonAssets.speciesIDs.upperBound)
+        if let data = try? JSONEncoder().encode(snapshot) {
             try? data.write(to: Self.baseIndexFile, options: .atomic)
         }
         AppLog.write("base index: REST build done — \(bases.count) bases persisted (offline-capable now)")
