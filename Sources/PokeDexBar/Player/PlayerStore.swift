@@ -1,0 +1,113 @@
+import Foundation
+import Observation
+
+/// 플레이어 상태의 메인 액터 표면. 업스트림 `CompanionStore`(한 마리·졸업·자동 진화)를 대체한다.
+/// 진화는 여기서 자동으로 일어나지 않는다 — 사용자가 눌러야 한다(`PlayerStore+Evolution`).
+@MainActor @Observable
+final class PlayerStore {
+    private(set) var state = PlayerState()
+
+    @ObservationIgnored private let fileURL: URL
+    @ObservationIgnored private var rng: any RandomNumberGenerator
+    @ObservationIgnored private let now: () -> Date
+
+    init(fileURL: URL? = nil,
+         rng: any RandomNumberGenerator = SystemRandomNumberGenerator(),
+         now: @escaping () -> Date = Date.init) {
+        self.fileURL = fileURL ?? Self.defaultURL()
+        self.rng = rng
+        self.now = now
+        load()
+    }
+
+    static func defaultURL() -> URL {
+        let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("PokeDexBar", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir.appendingPathComponent("player-state.json")
+    }
+
+    // MARK: 스타터
+
+    /// 첫 개체를 만든다. 스타터 목록 밖이거나 이미 골랐으면 nil.
+    /// 스타터는 이로치가 아니다 — 첫 개체는 다시 뽑을 수 없으니 운에 맡기지 않는다.
+    @discardableResult
+    func chooseStarter(speciesID: Int, grade: Grade) -> Individual? {
+        guard !state.starterChosen, StarterCatalog.contains(speciesID) else { return nil }
+        let natures = PokemonNature.allCases
+        let nature = natures[Int(rng.next() % UInt64(natures.count))]
+        let individual = Individual(baseID: speciesID, speciesID: speciesID, pathIDs: [speciesID],
+                                    shiny: false, nature: nature, exp: 0,
+                                    obtainedAt: now(), grade: grade)
+        state.box.append(individual)
+        state.partnerID = individual.id
+        state.starterChosen = true
+        state.dex.insert(speciesID)
+        save()
+        return individual
+    }
+
+    // MARK: 적립
+
+    /// 사용량 갱신 — 지갑과 파트너 경험치가 같은 델타를 먹는다(서로 깎지 않는다).
+    func update(todayTokens: Int, todayDate: String, hasUsageData: Bool) {
+        if !state.installBaselineSet {
+            // 실제 데이터가 도착한 시점의 오늘 사용량을 기준선으로 — 설치 이전 사용분은 세지 않는다.
+            guard hasUsageData else { return }
+            state.installBaselineSet = true
+            state.claimedTodayTokens = todayTokens
+            state.lastDate = todayDate
+            save()
+            return
+        }
+        if todayDate != state.lastDate {
+            state.lastDate = todayDate
+            state.claimedTodayTokens = 0
+        }
+        guard todayTokens > state.claimedTodayTokens else { return }
+        let delta = todayTokens - state.claimedTodayTokens
+        state.claimedTodayTokens = todayTokens
+        state.earnedTokens += delta
+        if let index = state.box.firstIndex(where: { $0.id == state.partnerID }) {
+            state.box[index].exp += delta
+        }
+        save()
+    }
+
+    // MARK: 박스·도감
+
+    func setPartner(_ id: UUID) {
+        guard state.box.contains(where: { $0.id == id }) else { return }
+        state.partnerID = id
+        save()
+    }
+
+    func registerInDex(_ speciesID: Int) {
+        guard !state.dex.contains(speciesID) else { return }
+        state.dex.insert(speciesID)
+        save()
+    }
+
+    /// 테스트 전용 — 부화가 없는 2a 단계에서 박스에 개체를 넣는 유일한 경로.
+    func addForTesting(_ individual: Individual) {
+        state.box.append(individual)
+        state.dex.insert(individual.speciesID)
+        save()
+    }
+
+    // MARK: 영속
+
+    private func load() {
+        guard let data = try? Data(contentsOf: fileURL) else { return }
+        guard let decoded = try? JSONDecoder().decode(PlayerState.self, from: data) else {
+            AppLog.write("PlayerStore: 상태 파일을 읽지 못해 새로 시작한다 — \(fileURL.lastPathComponent)")
+            return
+        }
+        state = decoded
+    }
+
+    func save() {
+        guard let data = try? JSONEncoder().encode(state) else { return }
+        try? data.write(to: fileURL, options: .atomic)   // 부분 쓰기 손상 방지
+    }
+}
