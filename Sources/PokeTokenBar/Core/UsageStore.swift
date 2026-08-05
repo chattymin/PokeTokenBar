@@ -543,6 +543,9 @@ final class UsageStore {
 
             let today: DailyUsage?
             if let fetched = dailyByID[provider.id] {
+                if let previous = prevToday, fetched.totalTokens < previous.totalTokens {
+                    AppLog.write("usage regression provider=\(provider.id) date=\(fetched.date) previous=\(previous.totalTokens) current=\(fetched.totalTokens) drop=\(previous.totalTokens - fetched.totalTokens) — provider returned lower daily snapshot")
+                }
                 today = fetched
             } else if failedIDs.contains(provider.id) {
                 today = prevToday   // 실패 → 오늘자 이전 값 유지

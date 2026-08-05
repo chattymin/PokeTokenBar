@@ -313,11 +313,46 @@ final class CompanionStoreTests: XCTestCase {
         XCTAssertEqual(s.state.usedSinceInstall, 100_000_000)
     }
 
+    /// [회귀] 로컬 사용량 재집계가 기존 값보다 낮아진 뒤에도, 새 기준점 이후의 증가분은 알에 반영한다.
+    /// 예전에는 claimedTodayTokens 를 high-water mark 로만 유지해 감소 후 증가가 영구히 무시됐다.
+    func testUsageIncreaseAfterValidDropContinuesEggProgress() {
+        let s = store(linear3)
+        base(s)
+        use(s, 200)
+        XCTAssertEqual(s.state.eggUsage, 200)
+
+        // 유효한 낮은 스냅샷: 이 자체는 토큰 사용량으로 지급하지 않고 기준점만 재설정한다.
+        use(s, 40)
+        XCTAssertEqual(s.state.eggUsage, 200)
+        XCTAssertEqual(s.state.claimedTodayTokens, 40)
+
+        // 새 기준점 이후의 증가분만 반영한다.
+        use(s, 75)
+        XCTAssertEqual(s.state.eggUsage, 235)
+        XCTAssertEqual(s.state.usedSinceInstall, 235)
+    }
+
+    /// [회귀] 데이터 공백/조회 실패로 today=0 이 들어와도 당일 기준점을 0으로 낮추지 않는다.
+    /// 다음 정상 조회 때 당일 전체를 중복 지급하면 안 된다.
+    func testEmptyUsageSnapshotDoesNotRebaseDailyLedger() {
+        let s = store(linear3)
+        base(s)
+        use(s, 200)
+
+        use(s, 0, hasUsageData: false) // 빈 스냅샷/조회 공백
+        XCTAssertEqual(s.state.eggUsage, 200)
+        XCTAssertEqual(s.state.claimedTodayTokens, 200)
+
+        use(s, 250)
+        XCTAssertEqual(s.state.eggUsage, 250)
+        XCTAssertEqual(s.state.usedSinceInstall, 250)
+    }
+
     private func base(_ s: CompanionStore) {
         s.update(todayTokens: 0, todayDate: "d1", monthTotal: 0, burnTier: .idle, limitWarning: false, hasUsageData: true)
     }
-    private func use(_ s: CompanionStore, _ today: Int) {
-        s.update(todayTokens: today, todayDate: "d1", monthTotal: 0, burnTier: .idle, limitWarning: false, hasUsageData: true)
+    private func use(_ s: CompanionStore, _ today: Int, hasUsageData: Bool = true) {
+        s.update(todayTokens: today, todayDate: "d1", monthTotal: 0, burnTier: .idle, limitWarning: false, hasUsageData: hasUsageData)
     }
 
     func testEggDoesNotHatchBelowThreshold() async {

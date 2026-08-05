@@ -246,6 +246,19 @@ final class CompanionStore {
             save()
         } else {
             if todayDate != state.lastDate { state.lastDate = todayDate; state.claimedTodayTokens = 0 }
+            if todayTokens < state.claimedTodayTokens, hasUsageData {
+                // todayTokens 는 append-only 서버 카운터가 아니라 로컬 로그를 매번 재집계한 스냅샷이다.
+                // Codex 세션 재생/중복 제거/파일 갱신으로 기존 값보다 낮아질 수 있으므로, 유효한
+                // 낮은 스냅샷은 새 기준점으로 삼는다. 그래야 그 다음 관측값의 양의 증가분이
+                // high-water mark 뒤에 영구히 막히지 않고 알/포켓몬 성장에 반영된다.
+                //
+                // hasUsageData == false 인 0 또는 빈 스냅샷은 조회 실패·일시적 데이터 공백일 수 있다.
+                // 이를 기준점으로 채택하면 다음 정상 조회 때 당일 전체가 새 사용량으로 중복 지급되므로
+                // 기준을 유지한다.
+                let previous = state.claimedTodayTokens
+                state.claimedTodayTokens = todayTokens
+                AppLog.write("companion usage regression date=\(todayDate) previous=\(previous) current=\(todayTokens) drop=\(previous - todayTokens) — rebased daily ledger")
+            }
             if todayTokens > state.claimedTodayTokens {
                 let delta = todayTokens - state.claimedTodayTokens
                 state.claimedTodayTokens = todayTokens
