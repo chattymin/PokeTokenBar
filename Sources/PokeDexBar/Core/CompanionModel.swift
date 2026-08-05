@@ -192,13 +192,13 @@ struct CandyGrant: Equatable, Sendable {
     let count: Int
 }
 
-/// 현재 서비스가 제공하는 움직이는 포켓몬 스프라이트 범위.
-/// PokéAPI 의 Gen-V animated 에셋은 전국도감 #1...649까지만 존재한다.
 enum PokemonAssets {
-    static let animatedSpeciesIDs = 1...649
+    /// 다루는 종 번호 범위. 과거엔 Gen-V 애니메이션 스프라이트가 649까지뿐이라 거기 묶여 있었지만,
+    /// Showdown 은 9세대까지 제공한다. 애니메이션이 없는 소수 종은 정적 스프라이트로 떨어진다.
+    static let speciesIDs = 1...1025
 
-    static func hasAnimatedSprite(speciesID: Int) -> Bool {
-        animatedSpeciesIDs.contains(speciesID)
+    static func hasSprite(speciesID: Int) -> Bool {
+        speciesIDs.contains(speciesID)
     }
 }
 
@@ -219,10 +219,10 @@ struct EvoNode: Codable, Sendable {
         children.isEmpty ? [speciesID] : children.flatMap(\.finalIDs)
     }
 
-    /// 서비스에 GIF 에셋이 있는 종만 남긴 진화 트리. 지원하지 않는 종부터 그 하위 체인도 제외한다.
-    func keepingAnimatedSprites() -> EvoNode? {
-        guard PokemonAssets.hasAnimatedSprite(speciesID: speciesID) else { return nil }
-        return EvoNode(speciesID: speciesID, children: children.compactMap { $0.keepingAnimatedSprites() })
+    /// 다루는 범위 밖 종을 잘라낸 진화 트리(잘린 종의 하위 체인도 함께 제외).
+    func keepingSupportedSpecies() -> EvoNode? {
+        guard PokemonAssets.hasSprite(speciesID: speciesID) else { return nil }
+        return EvoNode(speciesID: speciesID, children: children.compactMap { $0.keepingSupportedSpecies() })
     }
 }
 
@@ -258,7 +258,7 @@ struct EvoLine: Sendable {
 
     init(baseID: Int, tree: EvoNode, rarity: Rarity, names: [Int: [String: String]]) {
         self.baseID = baseID
-        self.tree = tree.keepingAnimatedSprites() ?? EvoNode(speciesID: baseID, children: [])
+        self.tree = tree.keepingSupportedSpecies() ?? EvoNode(speciesID: baseID, children: [])
         self.rarity = rarity
         self.names = names
     }

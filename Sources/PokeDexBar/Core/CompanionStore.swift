@@ -861,12 +861,12 @@ final class CompanionStore {
         return await chooseBaseViaREST()
     }
 
-    /// REST 폴백 — animated 에셋 지원 범위에서 무작위 id 를 뽑아 base 인지 확인(rejection sampling).
+    /// REST 폴백 — 다루는 종 범위에서 무작위 id 를 뽑아 base 인지 확인(rejection sampling).
     /// GraphQL 인덱스가 죽어도 부화가 되게 한다. 가중치(capture_rate)는 생략 — 희귀도는 부화 후
     /// line() 이 실제 capture_rate 로 계산하므로 결과 개체의 등급은 정확하다. 인덱스 복구 시 가중 선택 재개.
     private func chooseBaseViaREST() async -> Int? {
         for attempt in 1...16 {
-            let ids = PokemonAssets.animatedSpeciesIDs
+            let ids = PokemonAssets.speciesIDs
             let id = Int(rng.next() % UInt64(ids.count)) + ids.lowerBound
             do {
                 if let bs = try await provider.baseSpecies(id: id) {

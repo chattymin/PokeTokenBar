@@ -114,7 +114,7 @@ actor PokeAPIClient: PokeProviding {
         var bases: [BaseSpecies] = []
         let batchSize = 6
         var start = 1
-        let maxID = PokemonAssets.animatedSpeciesIDs.upperBound
+        let maxID = PokemonAssets.speciesIDs.upperBound
         while start <= maxID {
             let end = min(start + batchSize - 1, maxID)
             let found = await withTaskGroup(of: BaseSpecies?.self) { group -> [BaseSpecies] in
@@ -140,14 +140,14 @@ actor PokeAPIClient: PokeProviding {
     }
 
     private func fetchBaseIndex() async throws -> [BaseSpecies] {
-        // 공식 GraphQL — evolves_from IS NULL(=base) + id ≤ 649(Gen-V 애니메이션 스프라이트 상한)
+        // 공식 GraphQL — evolves_from IS NULL(=base) + id ≤ 1025(다루는 종 범위 상한)
         guard let url = URL(string: "https://graphql.pokeapi.co/v1beta2") else { throw URLError(.badURL) }
         var req = URLRequest(url: url)
         req.httpMethod = "POST"
         req.timeoutInterval = 15
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         // 메타몽(#132)은 위장 리빌 전용 → 일반 부화 풀에서 제외(_neq).
-        let maxID = PokemonAssets.animatedSpeciesIDs.upperBound
+        let maxID = PokemonAssets.speciesIDs.upperBound
         let query = "{ pokemonspecies(where: {evolves_from_species_id: {_is_null: true}, id: {_lte: \(maxID), _neq: \(PokemonOdds.dittoSpeciesID)}}, order_by: {id: asc}) { id capture_rate } }"
         req.httpBody = try JSONSerialization.data(withJSONObject: ["query": query])
         let (data, resp) = try await URLSession.shared.data(for: req)

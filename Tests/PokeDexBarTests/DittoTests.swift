@@ -11,7 +11,7 @@ private func dLine(base: Int, tree: EvoNode, rarity: Rarity) -> EvoLine {
     return EvoLine(baseID: base, tree: tree, rarity: rarity, names: names)
 }
 private let disguiseLine = dLine(base: 1, tree: dNode(1, [dNode(2, [dNode(3)])]), rarity: .common) // 커먼 3형태: 첫 진화 125M
-private let prunedDisguiseLine = dLine(base: 206, tree: dNode(206, [dNode(982)]), rarity: .common)
+private let prunedDisguiseLine = dLine(base: 206, tree: dNode(206, [dNode(1030)]), rarity: .common)
 private let dittoLine = dLine(base: 132, tree: dNode(132), rarity: .rare)                           // 메타몽: rare 단일형태
 private let dNow = Date(timeIntervalSince1970: 1_700_000_000)
 
@@ -23,7 +23,7 @@ private struct DittoTestProvider: PokeProviding {
     func baseSpeciesIndex() async throws -> [BaseSpecies] { [BaseSpecies(id: 1, captureRate: 255)] }
 }
 
-/// #982는 애니메이션 에셋이 없어 EvoLine 초기화 때 제거되고, #206만 leaf로 남는다.
+/// #1030은 다루는 종 범위(1...1025) 밖이라 EvoLine 초기화 때 제거되고, #206만 leaf로 남는다.
 private struct PrunedDittoTestProvider: PokeProviding {
     func line(baseSpeciesID: Int) async throws -> EvoLine {
         baseSpeciesID == PokemonOdds.dittoSpeciesID ? dittoLine : prunedDisguiseLine
@@ -138,8 +138,8 @@ final class DittoRevealTests: XCTestCase {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("ditto-pruned-\(UUID().uuidString).json")
         let threshold = PokemonBalance.phaseThreshold(rarity: .common, totalForms: 1, stageIndex: 0)
         XCTAssertEqual(threshold, 750_000_000)
-        XCTAssertTrue(prunedDisguiseLine.tree.children.isEmpty, "#982 제거 후 #206은 leaf여야 한다")
-        let active = "{\"baseID\":206,\"pathIDs\":[206],\"plannedPathIDs\":[206,982],\"stageIndex\":0,"
+        XCTAssertTrue(prunedDisguiseLine.tree.children.isEmpty, "#1030 제거 후 #206은 leaf여야 한다")
+        let active = "{\"baseID\":206,\"pathIDs\":[206],\"plannedPathIDs\":[206,1030],\"stageIndex\":0,"
             + "\"usedAtStage\":\(threshold),\"rarity\":\"common\",\"totalForms\":2,\"isShiny\":true,"
             + "\"nature\":\"timid\",\"dittoDisguise\":206,\"dittoRevealed\":false}"
         let json = "{\"installBaselineSet\":true,\"usedSinceInstall\":1000000000,\"lastDate\":\"d1\","
