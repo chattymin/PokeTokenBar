@@ -15,7 +15,7 @@ cd "$(dirname "$0")/.."
 
 REPO="leedg0831/PokeDexBar"
 TAP_REPO="leedg0831/homebrew-tap"
-CASK_PATH="Casks/poke-token-bar.rb"
+CASK_PATH="Casks/poke-dex-bar.rb"
 
 # ── 문서 일관성 검토 (배포 전 항상 실행) ───────────────────────────────────
 # 기계적으로 잡을 수 있는 것만 자동 경고. 내용(기능 설명) 변경 여부는 사람이 체크리스트로 판단.
@@ -159,11 +159,11 @@ gh api "repos/$TAP_REPO/contents/$CASK_PATH" --jq '.content' | base64 -d \
   | perl -pe "s/version \"[0-9.]+\"/version \"$VERSION\"/" > "$TMP_CASK"
 SHA=$(gh api "repos/$TAP_REPO/contents/$CASK_PATH" --jq '.sha')
 gh api -X PUT "repos/$TAP_REPO/contents/$CASK_PATH" \
-  -f message="cask: poke-token-bar $VERSION" \
+  -f message="cask: poke-dex-bar $VERSION" \
   -f content="$(base64 -i "$TMP_CASK")" -f sha="$SHA" --jq '.commit.html_url'
 rm -f "$TMP_CASK"
 
 echo "▶ 8/8 GitHub Pages 재빌드(랜딩 동적 배지 갱신 유도)"
 gh api -X POST "repos/$REPO/pages/builds" >/dev/null 2>&1 || true
 
-echo "✓ v$VERSION 배포 완료. 검증: brew upgrade --cask poke-token-bar"
+echo "✓ v$VERSION 배포 완료. 검증: brew upgrade --cask poke-dex-bar"

@@ -129,7 +129,7 @@ macOS 14+ (Apple Silicon or Intel). That's it — token usage is read directly f
 ### Homebrew
 
 ```bash
-brew install --cask leedg0831/tap/poke-token-bar
+brew install --cask leedg0831/tap/poke-dex-bar
 ```
 
 ad-hoc/self-signed; the cask strips the quarantine attribute on install.

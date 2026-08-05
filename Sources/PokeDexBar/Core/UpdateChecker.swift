@@ -16,6 +16,10 @@ final class UpdateChecker {
     private let clock: () -> Date
     private var lastChecked: Date?
 
+    /// brew cask 이름 — 이 앱 고유의 cask 를 가리켜야 한다(단일 소스: 아래 두 사용처가 여기서만 갈라진다).
+    /// 다른 상수로 흩어놓으면 리브랜딩 때 한쪽만 갱신되고 한쪽이 남는 사고가 재발한다(#task1 리뷰 지적).
+    nonisolated static let caskName = "poke-dex-bar"
+
     init(currentVersion: String? = nil, clock: @escaping () -> Date = Date.init) {
         self.currentVersion = currentVersion
             ?? (Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String) ?? "0"
@@ -88,12 +92,12 @@ final class UpdateChecker {
 
     // MARK: brew 적용 (nonisolated — 블로킹 Process 는 detached 에서)
 
-    /// poke-token-bar 가 brew cask 로 설치돼 있으면 brew 경로 반환, 아니면 nil(→ 릴리스 페이지 폴백).
+    /// caskName 이 brew cask 로 설치돼 있으면 brew 경로 반환, 아니면 nil(→ 릴리스 페이지 폴백).
     private nonisolated static func brewCaskPath() -> String? {
         guard let brew = BinaryLocator.resolve("brew", staticPaths: [
             "/opt/homebrew/bin/brew", "/usr/local/bin/brew",
         ]) else { return nil }
-        return run(brew, ["list", "--cask", "poke-token-bar"], timeout: 20) ? brew : nil
+        return run(brew, ["list", "--cask", caskName], timeout: 20) ? brew : nil
     }
 
     private nonisolated static func run(_ binary: String, _ args: [String], timeout: TimeInterval) -> Bool {
@@ -122,7 +126,7 @@ final class UpdateChecker {
         let script = """
         for i in $(seq 1 40); do pgrep -x PokeDexBar >/dev/null 2>&1 || break; sleep 0.5; done
         export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:$PATH"
-        ( "$1" update; "$1" upgrade --cask poke-token-bar ) &
+        ( "$1" update; "$1" upgrade --cask \(caskName) ) &
         brew_pid=$!
         for i in $(seq 1 300); do kill -0 "$brew_pid" 2>/dev/null || break; sleep 1; done
         kill "$brew_pid" 2>/dev/null
