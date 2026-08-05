@@ -339,4 +339,19 @@ struct L {
     var claudeFiveHour: String { t("Claude 5시간 세션", "Claude 5-hour session", "Claude 5時間セッション") }
     var claudeWeekly: String { t("Claude 주간", "Claude weekly", "Claude 週間") }
     var codexPersonalLimit: String { t("Codex 개인 한도", "Codex personal limit", "Codex 個人上限") }
+
+    // MARK: 부화 알림
+    var notifHatchTitle: String { t("알이 부화했어요", "An egg hatched", "タマゴがふ化しました") }
+    /// 하나만 깼을 때 — 어떤 종인지 짚어준다.
+    func notifHatchSingleBody(_ speciesID: Int, shiny: Bool) -> String {
+        let mark = shiny ? "✨ " : ""
+        return t("\(mark)#\(speciesID) 를 만났어요", "\(mark)You met #\(speciesID)", "\(mark)#\(speciesID) に出会いました")
+    }
+    /// 여러 개가 한꺼번에 깼을 때 — 하나로 묶는다(알림 폭탄 방지). 이로치가 섞였으면 개수를 곁들인다.
+    func notifHatchMultipleBody(_ count: Int, shinyCount: Int) -> String {
+        let ko = shinyCount > 0 ? " (✨ \(shinyCount)마리)" : ""
+        let en = shinyCount > 0 ? " (✨ \(shinyCount) shiny)" : ""
+        let ja = shinyCount > 0 ? " (✨ \(shinyCount)匹)" : ""
+        return t("\(count)마리가 부화했어요\(ko)", "\(count) hatched\(en)", "\(count)匹がふ化しました\(ja)")
+    }
 }
