@@ -21,7 +21,10 @@ build/
 *.certSigningRequest
 
 # Personal dev notes (kept locally, not published)
-docs/
+docs/*
+# This fork's design and plan documents are tracked — they are the contract
+# implementation works from, not personal notes.
+!docs/superpowers/
 
 # Agent worktrees / local state
 .claude/
