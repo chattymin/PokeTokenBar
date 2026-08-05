@@ -1,4 +1,4 @@
-// PokeTokenBar 앱 아이콘 생성기 — Ultra-T (포켓볼 + 상단 토큰 T + 레드 스퀘어클)
+// PokeDexBar 앱 아이콘 생성기 — Ultra-T (포켓볼 + 상단 토큰 T + 레드 스퀘어클)
 // 사용: swift scripts/generate-icon.swift <출력.png> [size=1024]
 // 좌표는 SVG 시안(viewBox 100x100, 위가 원점)을 기준으로 정의하고 NSImage(아래가 원점)로 변환한다.
 import AppKit

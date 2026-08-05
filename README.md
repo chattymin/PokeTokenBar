@@ -1,23 +1,27 @@
 <div align="center">
 
-<img src="assets/icon.png" width="128" alt="PokeTokenBar icon">
+<img src="assets/icon.png" width="128" alt="PokeDexBar icon">
 
-# PokeTokenBar
+# PokeDexBar
 
 **Your AI coding tokens, hatched into Pokémon — right in your menu bar.**
 
-[![Release](https://img.shields.io/github/v/release/chattymin/PokeTokenBar?color=444d56&label=release)](https://github.com/chattymin/PokeTokenBar/releases)
+[![Release](https://img.shields.io/github/v/release/leedg0831/PokeDexBar?color=444d56&label=release)](https://github.com/leedg0831/PokeDexBar/releases)
 [![macOS](https://img.shields.io/badge/macOS-14%2B-0969da)](https://www.apple.com/macos/)
 [![Swift](https://img.shields.io/badge/Swift-6-f05138)](https://swift.org)
 [![Homebrew](https://img.shields.io/badge/Homebrew-cask-8957e5)](#homebrew)
 [![License](https://img.shields.io/badge/license-MIT-3fb950)](LICENSE)
-[![Sponsor](https://img.shields.io/badge/Sponsor-%E2%99%A5-ea4aaa?logo=githubsponsors&logoColor=white)](https://github.com/sponsors/chattymin)
+[![Sponsor](https://img.shields.io/badge/Sponsor-%E2%99%A5-ea4aaa?logo=githubsponsors&logoColor=white)](https://github.com/sponsors/leedg0831)
 
 **English** · [한국어](README.ko.md) · [日本語](README.ja.md)
 
 </div>
 
-PokeTokenBar turns the AI coding tokens you're already burning — Claude Code, Codex, Gemini CLI, OpenCode, Hermes Agent, Cursor & Grok CLI — into a growing **Pokémon companion** in your macOS menu bar. Spend tokens, hatch an egg, evolve it through its real evolution line, graduate it into your Pokédex, and start again. Underneath the companion it's a precise usage tracker — today's spend, cost, and official 5-hour / weekly limits, read straight from your local logs.
+> **A fork of [PokeTokenBar](https://github.com/chattymin/PokeTokenBar)** (MIT, © chattymin).
+> PokeDexBar swaps the sprite source to [Pokémon Showdown](https://play.pokemonshowdown.com/sprites/)
+> so every generation through Gen 9 is available, and adds EPX anti-aliasing for the sprites.
+
+PokeDexBar turns the AI coding tokens you're already burning — Claude Code, Codex, Gemini CLI, OpenCode, Hermes Agent, Cursor & Grok CLI — into a growing **Pokémon companion** in your macOS menu bar. Spend tokens, hatch an egg, evolve it through its real evolution line, graduate it into your Pokédex, and start again. Underneath the companion it's a precise usage tracker — today's spend, cost, and official 5-hour / weekly limits, read straight from your local logs.
 
 > Token usage is read directly from local Claude Code, Codex, Gemini CLI, OpenCode, Hermes Agent, Cursor, and Grok CLI data (`totalTokens` = input + output + cache, local date) — no external CLI needed. Unofficial, non-commercial Pokémon fan project — see [License & disclaimer](#license--disclaimer).
 
@@ -125,19 +129,19 @@ macOS 14+ (Apple Silicon or Intel). That's it — token usage is read directly f
 ### Homebrew
 
 ```bash
-brew install --cask chattymin/tap/poke-token-bar
+brew install --cask leedg0831/tap/poke-token-bar
 ```
 
 ad-hoc/self-signed; the cask strips the quarantine attribute on install.
 
 ### Manual install (without Homebrew)
 
-Prefer not to use Homebrew? Download `PokeTokenBar.zip` from the [latest release](https://github.com/chattymin/PokeTokenBar/releases/latest), unzip it, and drag `PokeTokenBar.app` into `/Applications`.
+Prefer not to use Homebrew? Download `PokeDexBar.zip` from the [latest release](https://github.com/leedg0831/PokeDexBar/releases/latest), unzip it, and drag `PokeDexBar.app` into `/Applications`.
 
 Because the app is ad-hoc/self-signed (not notarized under an Apple Developer account), Gatekeeper shows an "unidentified developer" warning on first launch. Clear it once, either way:
 
-- **Finder:** right-click (or Control-click) `PokeTokenBar.app` → **Open** → **Open** again in the dialog.
-- **Terminal:** `xattr -dr com.apple.quarantine /Applications/PokeTokenBar.app`
+- **Finder:** right-click (or Control-click) `PokeDexBar.app` → **Open** → **Open** again in the dialog.
+- **Terminal:** `xattr -dr com.apple.quarantine /Applications/PokeDexBar.app`
 
 (The Homebrew cask strips quarantine for you, so it needs no extra step.)
 
@@ -146,7 +150,7 @@ Because the app is ad-hoc/self-signed (not notarized under an Apple Developer ac
 ```bash
 swift build                  # debug
 swift test                   # unit tests
-./scripts/build-app.sh       # release → PokeTokenBar.app → /Applications
+./scripts/build-app.sh       # release → PokeDexBar.app → /Applications
 ```
 
 ## Data sources
@@ -172,19 +176,19 @@ swift test                   # unit tests
 - **On-device.** Token usage is read directly from local Claude Code, Codex, Gemini CLI, OpenCode, Hermes Agent, Cursor, and Grok CLI data. The app never uploads usage or runs model turns.
 - **Outbound requests.** The app is not fully offline. It talks to seven hosts: `pokeapi.co` and `graphql.pokeapi.co` (species/evolution), `raw.githubusercontent.com` (sprites), `api.anthropic.com` (Claude official limits), `status.claude.com` and `status.openai.com` (incident banner — off switch in Settings), and `api.github.com` (update check). **None of them carry your usage, tokens, prompts, or project paths** — only the request itself.
 - **Keychain (optional).** The Claude OAuth credential is read **only when you press a refresh button** (Settings, or the limits row in the popover). Automatic polling never touches the Keychain, so it never raises a password prompt; when available, the credential is taken from `~/.claude/.credentials.json` instead. The token is held in memory only — the app creates no Keychain item of its own. Once the token expires, limits stay visible but stale until you refresh. Turn it off in Settings — the limits section simply hides.
-- **Pokémon assets** are fetched at runtime from PokéAPI and cached only under `~/Library/Application Support/PokeTokenBar/`. The app binary and its release artifacts contain no Pokémon assets.
+- **Pokémon assets** are fetched at runtime from PokéAPI and cached only under `~/Library/Application Support/PokeDexBar/`. The app binary and its release artifacts contain no Pokémon assets.
 
 ## Contributors
 
 Contributions of all sizes are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md) for how to build, test, and open a pull request.
 
-[![Contributors](https://contrib.rocks/image?repo=chattymin/PokeTokenBar)](https://github.com/chattymin/PokeTokenBar/graphs/contributors)
+[![Contributors](https://contrib.rocks/image?repo=leedg0831/PokeDexBar)](https://github.com/leedg0831/PokeDexBar/graphs/contributors)
 
 ## License & disclaimer
 
 **MIT** — see [LICENSE](LICENSE). The MIT license covers this project's original source code only; it grants no rights to any third-party trademarks, artwork, or data accessed through the app.
 
-PokeTokenBar is an **unofficial, non-commercial fan project**. It is **not affiliated with, endorsed, sponsored, or approved by Nintendo, Game Freak, Creatures Inc., or The Pokémon Company.** "Pokémon" and all related names, characters, and imagery are trademarks and copyrights of their respective owners. This project claims no ownership of, and asserts no rights over, any Pokémon intellectual property.
+PokeDexBar is an **unofficial, non-commercial fan project**. It is **not affiliated with, endorsed, sponsored, or approved by Nintendo, Game Freak, Creatures Inc., or The Pokémon Company.** "Pokémon" and all related names, characters, and imagery are trademarks and copyrights of their respective owners. This project claims no ownership of, and asserts no rights over, any Pokémon intellectual property.
 
 - **The app binary and its release artifacts bundle no Pokémon assets.** Pokémon species data and sprites are fetched **at runtime** from the public [PokéAPI](https://pokeapi.co) and cached locally on the user's own device; sprite images served via PokéAPI remain the property of their respective owners.
 - Any Pokémon imagery in this repository's documentation (screenshots/GIFs) is shown solely to illustrate the app's functionality.

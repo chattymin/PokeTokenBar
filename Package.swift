@@ -2,18 +2,18 @@
 import PackageDescription
 
 let package = Package(
-    name: "PokeTokenBar",
+    name: "PokeDexBar",
     platforms: [.macOS(.v14)],
     targets: [
         .executableTarget(
-            name: "PokeTokenBar",
-            path: "Sources/PokeTokenBar",
+            name: "PokeDexBar",
+            path: "Sources/PokeDexBar",
             linkerSettings: [.linkedLibrary("sqlite3")]
         ),
         .testTarget(
-            name: "PokeTokenBarTests",
-            dependencies: ["PokeTokenBar"],
-            path: "Tests/PokeTokenBarTests",
+            name: "PokeDexBarTests",
+            dependencies: ["PokeDexBar"],
+            path: "Tests/PokeDexBarTests",
             resources: [.copy("Fixtures/CodexFork")]
         ),
     ]

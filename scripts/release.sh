@@ -13,8 +13,8 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-REPO="chattymin/PokeTokenBar"
-TAP_REPO="chattymin/homebrew-tap"
+REPO="leedg0831/PokeDexBar"
+TAP_REPO="leedg0831/homebrew-tap"
 CASK_PATH="Casks/poke-token-bar.rb"
 
 # ── 문서 일관성 검토 (배포 전 항상 실행) ───────────────────────────────────
@@ -37,7 +37,7 @@ doc_check() {
   local last_tag ui_changed shot_changed
   last_tag=$(git describe --tags --match "v*" --abbrev=0 2>/dev/null || echo "")
   if [[ -n "$last_tag" ]]; then
-    ui_changed=$(git diff --name-only "$last_tag"..HEAD -- 'Sources/PokeTokenBar/UI/' 2>/dev/null)
+    ui_changed=$(git diff --name-only "$last_tag"..HEAD -- 'Sources/PokeDexBar/UI/' 2>/dev/null)
     shot_changed=$(git diff --name-only "$last_tag"..HEAD -- 'assets/settings*' 'assets/screenshot*' 'assets/menubar*' 'assets/shiny*' 2>/dev/null)
     if [[ -n "$ui_changed" && -z "$shot_changed" ]]; then
       echo "  ⚠ UI 소스가 $last_tag 이후 변경됐으나 스크린샷(assets/) 갱신 없음 — README 이미지 stale 가능:"
@@ -51,7 +51,7 @@ doc_check() {
     # 2.5.0 이 정확히 그 경로로 새 나갔다: 플로팅 펫(신규 기능)이 README·랜딩에 이미지 하나 없이 배포됐고,
     # settings.png 를 갱신해 둔 탓에 위 검사는 조용히 통과했다. 신규 기능은 신규 에셋을 요구한다.
     local ui_feats new_assets
-    ui_feats=$(git log "$last_tag"..HEAD --format='%s' -- 'Sources/PokeTokenBar/UI/' 2>/dev/null \
+    ui_feats=$(git log "$last_tag"..HEAD --format='%s' -- 'Sources/PokeDexBar/UI/' 2>/dev/null \
                  | grep -iE '^(feat|feature)[(:]' || true)
     new_assets=$(git diff --name-only --diff-filter=A "$last_tag"..HEAD -- 'assets/' 2>/dev/null)
     if [[ -n "$ui_feats" && -z "$new_assets" ]]; then
@@ -87,7 +87,7 @@ VERSION="${1:?사용: release.sh <version>  (예: 2.1.1)}"
 PREV=$(grep -oE 'VERSION="[0-9.]+"' scripts/build-app.sh | grep -oE '[0-9.]+')
 BRANCH=$(git rev-parse --abbrev-ref HEAD)
 [[ "$BRANCH" == "main" ]] || { echo "✗ main 브랜치에서 실행하세요 (현재: $BRANCH) — 커밋/push 대상 일치 보장"; exit 1; }
-echo "=== PokeTokenBar 릴리스 $PREV → $VERSION ==="
+echo "=== PokeDexBar 릴리스 $PREV → $VERSION ==="
 
 echo "▶ 1/8 릴리스 전 테스트 게이트"
 ./scripts/test-gate.sh >/dev/null || { echo "✗ test-gate 실패 — 중단"; exit 1; }
@@ -107,8 +107,8 @@ echo "▶ 코드서명 신원 게이트 (배포 전 — ad-hoc 릴리스 차단�
 # 릴리스가 ad-hoc(빌드마다 cdhash 변경) 또는 다른 인증서로 나가면, 기존 사용자의 Keychain "항상 허용"이
 # 앱의 지정요구(DR: identifier + certificate leaf)와 안 맞아 매 업그레이드마다 깨진다 → Claude 한도 조회 시
 # macOS 키체인 접근 다이얼로그가 재프롬프트된다. 안정적 자체서명 신원(고정 leaf)으로만 배포되게 강제한다.
-SIGN_IDENTITY="${CODESIGN_IDENTITY:-PokeTokenBar Local}"
-# "PokeTokenBar Local" leaf SHA-1 — 설치본 DR 의 certificate leaf pin. 인증서를 재생성/교체하면 갱신 필요.
+SIGN_IDENTITY="${CODESIGN_IDENTITY:-PokeDexBar Local}"
+# "PokeDexBar Local" leaf SHA-1 — 설치본 DR 의 certificate leaf pin. 인증서를 재생성/교체하면 갱신 필요.
 EXPECTED_LEAF="507F814330C727B38AC9A987ECBA929721C52C62"
 LEAF=$(security find-identity -v -p codesigning | awk -v id="\"$SIGN_IDENTITY\"" '$0 ~ id {print $2; exit}')
 if [[ -z "$LEAF" ]]; then
@@ -131,9 +131,9 @@ perl -pi -e "s/VERSION=\"[0-9.]+\"/VERSION=\"$VERSION\"/" scripts/build-app.sh
 
 echo "▶ 4/8 빌드 + zip (push 전 검증 — 실패해도 범프 미커밋이라 origin/main 무손상)"
 ./scripts/build-app.sh >/dev/null
-rm -f build/PokeTokenBar.zip
-ditto -c -k --keepParent build/PokeTokenBar.app build/PokeTokenBar.zip
-BUILT=$(/usr/libexec/PlistBuddy -c "Print CFBundleShortVersionString" build/PokeTokenBar.app/Contents/Info.plist)
+rm -f build/PokeDexBar.zip
+ditto -c -k --keepParent build/PokeDexBar.app build/PokeDexBar.zip
+BUILT=$(/usr/libexec/PlistBuddy -c "Print CFBundleShortVersionString" build/PokeDexBar.app/Contents/Info.plist)
 [[ "$BUILT" == "$VERSION" ]] || { echo "✗ 빌드 버전 불일치: $BUILT (수동 복구: git checkout scripts/build-app.sh)"; exit 1; }
 
 echo "▶ 5/8 커밋 + push (빌드 성공 후)"
@@ -146,11 +146,11 @@ git push -q origin main
 echo "▶ 6/8 GitHub Release v$VERSION"
 NOTES_FILE="${PTB_NOTES_FILE:-}"
 if [[ -n "$NOTES_FILE" && -f "$NOTES_FILE" ]]; then
-  gh release create "v$VERSION" build/PokeTokenBar.zip --repo "$REPO" \
-    --title "PokeTokenBar v$VERSION" --target main --notes-file "$NOTES_FILE"
+  gh release create "v$VERSION" build/PokeDexBar.zip --repo "$REPO" \
+    --title "PokeDexBar v$VERSION" --target main --notes-file "$NOTES_FILE"
 else
-  gh release create "v$VERSION" build/PokeTokenBar.zip --repo "$REPO" \
-    --title "PokeTokenBar v$VERSION" --target main --notes "Release v$VERSION"
+  gh release create "v$VERSION" build/PokeDexBar.zip --repo "$REPO" \
+    --title "PokeDexBar v$VERSION" --target main --notes "Release v$VERSION"
 fi
 
 echo "▶ 7/8 Homebrew cask $VERSION"

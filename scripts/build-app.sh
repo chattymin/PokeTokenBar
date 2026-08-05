@@ -1,10 +1,10 @@
 #!/bin/bash
-# PokeTokenBar.app 번들 조립 + /Applications 설치
+# PokeDexBar.app 번들 조립 + /Applications 설치
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
 VERSION="2.5.0"
-APP_NAME="PokeTokenBar"
+APP_NAME="PokeDexBar"
 BUILD_DIR="build"
 APP="$BUILD_DIR/$APP_NAME.app"
 
@@ -24,7 +24,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-    <key>CFBundleIdentifier</key><string>io.github.chattymin.poketokenbar</string>
+    <key>CFBundleIdentifier</key><string>io.github.leedg0831.pokedexbar</string>
     <key>CFBundleName</key><string>$APP_NAME</string>
     <key>CFBundleExecutable</key><string>$APP_NAME</string>
     <key>CFBundlePackageType</key><string>APPL</string>
@@ -42,12 +42,12 @@ PLIST
 # 워치독으로 동작. 정상 종료(exit 0: 사용자 종료·업데이트)엔 재실행 안 함(SuccessfulExit=false).
 # ProgramArguments 는 brew 설치 경로(/Applications) 고정. codesign 전에 생성해 서명 seal 에 포함.
 mkdir -p "$APP/Contents/Library/LaunchAgents"
-cat > "$APP/Contents/Library/LaunchAgents/io.github.chattymin.poketokenbar.login.plist" <<AGENT
+cat > "$APP/Contents/Library/LaunchAgents/io.github.leedg0831.pokedexbar.login.plist" <<AGENT
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-    <key>Label</key><string>io.github.chattymin.poketokenbar.login</string>
+    <key>Label</key><string>io.github.leedg0831.pokedexbar.login</string>
     <key>ProgramArguments</key>
     <array>
         <string>/Applications/$APP_NAME.app/Contents/MacOS/$APP_NAME</string>
@@ -65,7 +65,7 @@ cat > "$APP/Contents/Library/LaunchAgents/io.github.chattymin.poketokenbar.login
 AGENT
 
 echo "==> codesign"
-SIGN_IDENTITY="${CODESIGN_IDENTITY:-PokeTokenBar Local}"
+SIGN_IDENTITY="${CODESIGN_IDENTITY:-PokeDexBar Local}"
 # 안정적 Keychain ACL 을 위해서는 인증서 존재가 아니라 유효한 codesigning identity 가 필요하다.
 if security find-identity -v -p codesigning | grep -F "\"$SIGN_IDENTITY\"" >/dev/null; then
     # 안정적 자체 서명 신원 → 재빌드해도 Keychain "항상 허용" 유지

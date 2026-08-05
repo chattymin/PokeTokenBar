@@ -3,7 +3,7 @@
 # 사용법: 앱에서 새로고침 직후 1분 내에 실행 (그 사이 토큰이 쌓이면 delta 발생 가능).
 set -euo pipefail
 
-SNAP="$HOME/Library/Application Support/PokeTokenBar/last-snapshot.json"
+SNAP="$HOME/Library/Application Support/PokeDexBar/last-snapshot.json"
 JQ=$(command -v jq)
 CCUSAGE=$(command -v ccusage || echo /opt/homebrew/bin/ccusage)
 
