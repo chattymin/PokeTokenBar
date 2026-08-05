@@ -164,6 +164,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             todayTokens: store.todayTotalTokens,
             todayDate: LocalUsageReader.todayKey(),
             hasUsageData: store.hasUsageData)
+        // 알은 토큰이 아니라 실시간으로 깬다 — 매 사용량 틱마다 정산해 앱이 유휴여도 반영한다.
+        // settleHatches 는 알 배열 필터링뿐이라 저렴하다(에너지 규율: 새 타이머/폴링 추가 금지).
+        player.settleHatchesAndNotify(at: Date())
     }
 
     /// 매 refresh 완료 훅 — 한도가 신선한 시점에 player 를 갱신한다.
@@ -333,6 +336,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             popover.performClose(nil)   // 해제·메뉴 애니메이션 재개는 popoverDidClose 에서
         } else {
             navigation.reset()   // 닫혔다 열리면 항상 Home 으로 (설정 화면 잔류 방지)
+            // 앱이 오래 유휴였다가 팝오버를 열 때도 한 번 더 정산 — 다음 usage tick 까지 기다리지 않고
+            // 즉시 반영되게 한다.
+            player.settleHatchesAndNotify(at: Date())
             buildPopoverContent()   // 열 때 호스팅 트리 생성(닫힐 때 해제)
             // LSUIElement 앱이 비활성이면 팝오버 내부 버튼 클릭이 무시됨 — show 전에 활성화 보장
             NSApp.activate(ignoringOtherApps: true)

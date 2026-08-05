@@ -19,6 +19,34 @@ struct L {
     var home: String { t("홈", "Home", "ホーム") }
     var box: String { t("박스", "Box", "ボックス") }
     var collection: String { t("도감", "Collection", "コレクション") }
+    var shop: String { t("상점", "Shop", "ショップ") }
+
+    // MARK: 상점 탭
+    var shopWallet: String { t("재화", "Currency", "所持金") }
+    var shopEggDraw: String { t("알 뽑기", "Egg draw", "タマゴ抽選") }
+    var shopDrawing: String { t("뽑는 중…", "Drawing…", "抽選中…") }
+    var shopDrawButton: String { t("뽑기", "Draw", "引く") }
+    var shopDrawFetchFailed: String {
+        t("부화 후보를 받지 못했어요. 잠시 뒤 다시 시도해 주세요.",
+          "Couldn't fetch hatch candidates. Please try again shortly.",
+          "ふ化候補を取得できませんでした。しばらくして再試行してください。")
+    }
+    var shopDrawUnavailable: String {
+        t("지금은 뽑을 수 없어요. 재화와 빈 슬롯을 확인해 주세요.",
+          "Can't draw right now. Check your currency and open slots.",
+          "今は引けません。所持金と空きスロットを確認してください。")
+    }
+    func shopFreeSlots(_ free: Int, _ total: Int) -> String {
+        t("빈 슬롯 \(free) / \(total)", "Open slots \(free) / \(total)", "空きスロット \(free) / \(total)")
+    }
+    var shopSlotSection: String { t("부화 슬롯", "Hatch slots", "ふ化スロット") }
+    func shopSlotUpgrade(_ from: Int, _ to: Int) -> String {
+        t("슬롯 늘리기 (\(from) → \(to))", "Add a slot (\(from) → \(to))", "スロット追加 (\(from) → \(to))")
+    }
+    var shopSlotsMaxed: String { t("슬롯을 최대까지 늘렸어요", "Slots are maxed out", "スロットは最大まで増やしました") }
+    var shopItemSection: String { t("아이템", "Items", "アイテム") }
+    var shopItemOwned: String { t("보유 중", "Owned", "所持中") }
+    var shopItemOwnedButton: String { t("보유", "Owned", "所持") }
 
     // MARK: 스타터 픽커 (첫 실행 — 27마리 중 1마리 선택)
     var starterPickerTitle: String { t("함께 시작할 포켓몬을 고르세요", "Choose your starting Pokémon", "一緒に始めるポケモンを選んでください") }
@@ -41,8 +69,32 @@ struct L {
     var makePartner: String { t("파트너로", "Make partner", "パートナーにする") }
     var evolve: String { t("진화", "Evolve", "しんか") }
     func evolveTo(_ name: String) -> String { t("\(name) 로 진화", "Evolve to \(name)", "\(name)にしんか") }
+    /// 사탕 사용 버튼 — 남은 개수를 라벨에 달아 상점에 다시 안 가도 재고를 알 수 있게.
+    /// 이름은 상점 품목(`ShopItem.label`)과 같은 말을 쓴다.
+    func useExpCandy(_ remaining: Int) -> String {
+        t("경험치 사탕 ×\(remaining)", "EXP Candy ×\(remaining)", "けいけんちアメ ×\(remaining)")
+    }
+    func useShinyCandy(_ remaining: Int) -> String {
+        t("반짝이는 사탕 ×\(remaining)", "Shiny Candy ×\(remaining)", "ひかるアメ ×\(remaining)")
+    }
     /// 홈 파트너 카드의 진화 가능 배지 — 실제 진화 실행은 박스에서.
     var evolutionReadyBadge: String { t("진화 가능", "Can evolve", "しんか可能") }
+
+    // MARK: 홈 — 부화 슬롯
+    var eggSlotsHeader: String { t("부화 중", "Hatching", "ふ化中") }
+    var eggHatchingNow: String { t("부화!", "Hatched!", "ふ化!") }
+    func eggCountdownDaysHours(_ days: Int, _ hours: Int) -> String {
+        t("\(days)일 \(hours)시간", "\(days)d \(hours)h", "\(days)日\(hours)時間")
+    }
+    func eggCountdownHoursMinutes(_ hours: Int, _ minutes: Int) -> String {
+        t("\(hours)시간 \(minutes)분", "\(hours)h \(minutes)m", "\(hours)時間\(minutes)分")
+    }
+    func eggCountdownMinutesSeconds(_ minutes: Int, _ seconds: Int) -> String {
+        t("\(minutes)분 \(seconds)초", "\(minutes)m \(seconds)s", "\(minutes)分\(seconds)秒")
+    }
+    func eggCountdownSeconds(_ seconds: Int) -> String {
+        t("\(seconds)초", "\(seconds)s", "\(seconds)秒")
+    }
 
     // MARK: 헤더 (오늘/주/월)
     var todayTokens: String { t("오늘 사용한 토큰", "Today's tokens", "本日のトークン") }
@@ -300,4 +352,19 @@ struct L {
     var claudeFiveHour: String { t("Claude 5시간 세션", "Claude 5-hour session", "Claude 5時間セッション") }
     var claudeWeekly: String { t("Claude 주간", "Claude weekly", "Claude 週間") }
     var codexPersonalLimit: String { t("Codex 개인 한도", "Codex personal limit", "Codex 個人上限") }
+
+    // MARK: 부화 알림
+    var notifHatchTitle: String { t("알이 부화했어요", "An egg hatched", "タマゴがふ化しました") }
+    /// 하나만 깼을 때 — 어떤 종인지 짚어준다.
+    func notifHatchSingleBody(_ speciesID: Int, shiny: Bool) -> String {
+        let mark = shiny ? "✨ " : ""
+        return t("\(mark)#\(speciesID) 를 만났어요", "\(mark)You met #\(speciesID)", "\(mark)#\(speciesID) に出会いました")
+    }
+    /// 여러 개가 한꺼번에 깼을 때 — 하나로 묶는다(알림 폭탄 방지). 이로치가 섞였으면 개수를 곁들인다.
+    func notifHatchMultipleBody(_ count: Int, shinyCount: Int) -> String {
+        let ko = shinyCount > 0 ? " (✨ \(shinyCount)마리)" : ""
+        let en = shinyCount > 0 ? " (✨ \(shinyCount) shiny)" : ""
+        let ja = shinyCount > 0 ? " (✨ \(shinyCount)匹)" : ""
+        return t("\(count)마리가 부화했어요\(ko)", "\(count) hatched\(en)", "\(count)匹がふ化しました\(ja)")
+    }
 }

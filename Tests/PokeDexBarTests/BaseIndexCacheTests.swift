@@ -8,29 +8,43 @@ final class BaseIndexCacheTests: XCTestCase {
     private typealias Snapshot = PokeAPIClient.BaseIndexSnapshot
 
     func testSnapshotFromCurrentRangeIsUsable() {
-        let snapshot = Snapshot(fetchedAt: Date(), entries: [BaseSpecies(id: 1, captureRate: 45)],
+        let snapshot = Snapshot(fetchedAt: Date(),
+                                entries: [BaseSpecies(id: 1, captureRate: 45, isLegendary: false, isMythical: false)],
                                 maxSpeciesID: PokemonAssets.speciesIDs.upperBound)
         XCTAssertTrue(snapshot.matchesCurrentRange())
     }
 
     /// 범위가 넓어지기 전에 만든 캐시는 버려야 한다 — 이게 이 버그의 핵심이다.
     func testSnapshotFromNarrowerRangeIsRejected() {
-        let snapshot = Snapshot(fetchedAt: Date(), entries: [BaseSpecies(id: 1, captureRate: 45)],
+        let snapshot = Snapshot(fetchedAt: Date(),
+                                entries: [BaseSpecies(id: 1, captureRate: 45, isLegendary: false, isMythical: false)],
                                 maxSpeciesID: 649)
         XCTAssertFalse(snapshot.matchesCurrentRange())
     }
 
-    /// 범위 필드가 없던 구 형식은 0으로 읽혀 항상 재구축된다.
+    /// 범위 필드가 없던 구 형식은 0으로 읽혀 항상 재구축된다(entries 자체는 현재 스키마로 채워 둔다 —
+    /// entries 스키마 자체가 구식인 경우는 아래 `testLegacyEntryWithoutLegendaryFlagsFailsToDecode`).
     func testLegacySnapshotWithoutRangeIsRejected() throws {
-        let json = #"{"fetchedAt":0,"entries":[{"id":1,"captureRate":45}]}"#
+        let json = #"{"fetchedAt":0,"entries":[{"id":1,"captureRate":45,"isLegendary":false,"isMythical":false}]}"#
         let decoded = try JSONDecoder().decode(Snapshot.self, from: Data(json.utf8))
         XCTAssertEqual(decoded.maxSpeciesID, 0)
         XCTAssertFalse(decoded.matchesCurrentRange())
     }
 
+    /// `isLegendary`/`isMythical` 이 없던 옛 `base-index.json` 항목은 디코드 자체가 실패해야 한다.
+    /// 기본값을 줘서 조용히 성공시키면 모든 옛 캐시 종이 "전설 아님"으로 읽혀, 전설 뽑기가 절대
+    /// 전설을 못 주는 결함이 재발한다(캐시가 30일 살아남으므로 재구축 전까지 계속 잘못된다).
+    func testLegacyEntryWithoutLegendaryFlagsFailsToDecode() {
+        let json = #"{"fetchedAt":0,"entries":[{"id":1,"captureRate":45}],"maxSpeciesID":1025}"#
+        XCTAssertThrowsError(try JSONDecoder().decode(Snapshot.self, from: Data(json.utf8))) { error in
+            XCTAssertTrue(error is DecodingError, "구 스키마는 디코딩 에러로 실패해 재구축을 트리거해야 한다")
+        }
+    }
+
     func testRoundTripKeepsRange() throws {
         let snapshot = Snapshot(fetchedAt: Date(timeIntervalSince1970: 0),
-                                entries: [BaseSpecies(id: 7, captureRate: 45)], maxSpeciesID: 1025)
+                                entries: [BaseSpecies(id: 7, captureRate: 45, isLegendary: false, isMythical: false)],
+                                maxSpeciesID: 1025)
         let back = try JSONDecoder().decode(Snapshot.self, from: JSONEncoder().encode(snapshot))
         XCTAssertEqual(back.maxSpeciesID, 1025)
         XCTAssertEqual(back.entries.first?.id, 7)

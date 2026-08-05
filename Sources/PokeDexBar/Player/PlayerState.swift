@@ -20,6 +20,8 @@ struct PlayerState: Codable, Sendable {
     var dex: Set<Int> = []
     /// 동시 부화 슬롯 수(2b 에서 쓴다). 기본 3, 상한 6.
     var slots = 3
+    /// 부화 중인 알. 개수는 `slots` 를 넘지 않는다.
+    var eggs: [Egg] = []
     /// 아이템 종류 → 개수.
     var inventory: [String: Int] = [:]
     var ownsShinyCharm = false
@@ -56,7 +58,21 @@ struct PlayerState: Codable, Sendable {
             AppLog.write("PlayerState: dropped \(wrappedBox.count - box.count) malformed individual(s) from box on decode")
         }
         dex = value(.dex, [])
-        slots = value(.slots, 3)
+        // 관대 디코딩의 짝 — 값 범위 검증(CLAUDE.md 결함 대응 프로토콜). `"slots": 0` 은 디코드에
+        // 성공해 경제를 영구히 잠근다: freeSlots 0 → canDraw false → nextSlotPrice nil 이라 상점은
+        // "슬롯을 최대까지 늘렸어요"라고 말하는데 다시는 뽑을 수 없다. 상한도 자른다 — 거대한 값은
+        // 빈 슬롯 타일을 그 수만큼 만들어 화면을 세운다.
+        // 하한은 1 이 아니라 기본 슬롯(3)이다 — `slotPrice` 는 4~6 만 값을 매기므로 1·2 로 잘라 두면
+        // 뽑기는 되살아나도 `nextSlotPrice` 가 nil 이라 상점이 계속 "최대까지 늘렸어요"라고 거짓말한다.
+        // 3 은 모든 정상 플레이어의 출발점이고, 거기서부터 가격표가 다시 이어진다.
+        slots = min(EggBalance.maxSlots, max(EggBalance.baseSlots, value(.slots, EggBalance.baseSlots)))
+        // 알도 박스와 같은 이유로 원소 단위 관대 디코딩한다 — 알 하나가 깨졌다고 부화 중인
+        // 나머지 알까지 통째로 날아가면 안 된다.
+        let wrappedEggs = (try? c.decode([LossyEgg].self, forKey: .eggs)) ?? []
+        eggs = wrappedEggs.compactMap(\.egg)
+        if eggs.count != wrappedEggs.count {
+            AppLog.write("PlayerState: dropped \(wrappedEggs.count - eggs.count) malformed egg(s) from eggs on decode")
+        }
         inventory = value(.inventory, [:])
         ownsShinyCharm = value(.ownsShinyCharm, false)
         language = value(.language, .systemDefault)
@@ -69,5 +85,14 @@ private struct LossyIndividual: Decodable {
     let individual: Individual?
     init(from decoder: Decoder) throws {
         individual = try? Individual(from: decoder)
+    }
+}
+
+/// `[Egg]` 원소 단위 관대 디코딩 래퍼 — `LossyIndividual` 과 같은 패턴에, 값 범위 검증(`Egg.sanitized`)을
+/// 겸한다. 관대 디코딩은 말이 안 되는 시각도 통과시키고, 그 값이 나중에 산술 트랩을 낸다.
+private struct LossyEgg: Decodable {
+    let egg: Egg?
+    init(from decoder: Decoder) throws {
+        egg = (try? Egg(from: decoder))?.sanitized()
     }
 }

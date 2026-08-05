@@ -1,7 +1,7 @@
 import AppKit
 import SwiftUI
 
-enum PopoverTab { case home, collection, box }
+enum PopoverTab { case home, box, collection, shop }
 
 /// 팝오버 치수의 단일 소스. 자식이 쓸 수 있는 폭을 알아야 할 때 이 값을 쓴다 — 넘치는 자식이
 /// 부모 폭을 부풀리므로 GeometryReader 로 재면 순환한다.
@@ -55,6 +55,10 @@ struct PopoverView: View {
     nonisolated static func shouldStartLoadingLine(_ baseID: Int, loadedIDs: Set<Int>, loadingIDs: Set<Int>) -> Bool {
         !loadedIDs.contains(baseID) && !loadingIDs.contains(baseID)
     }
+
+    /// 1초 카운트다운 틱(TimelineView)을 걸어야 하나 — 부화 중인 알이 있을 때만.
+    /// 알을 한 번도 안 뽑은 사용자에게 매초 재렌더를 시키지 않는다. 순수 판정이라 테스트로 잠근다.
+    nonisolated static func needsCountdownTick(_ state: PlayerState) -> Bool { !state.eggs.isEmpty }
 
     var body: some View {
         Group {
@@ -114,6 +118,7 @@ struct PopoverView: View {
                 Text(l.home).tag(PopoverTab.home)
                 Text(l.box).tag(PopoverTab.box)
                 Text(l.collection).tag(PopoverTab.collection)
+                Text(l.shop).tag(PopoverTab.shop)
             }
             .pickerStyle(.segmented)
             .labelsHidden()
@@ -122,8 +127,22 @@ struct PopoverView: View {
                 BoxTabView(store: player, lines: evoLines) { baseID in loadLine(baseID) }
             } else if nav.tab == .collection {
                 NationalDexView(store: player)
+            } else if nav.tab == .shop {
+                ShopTabView(store: player, provider: provider)
             } else {
                 partnerCard
+                Divider()
+                // NOTE: 부화 슬롯만 1초 틱으로 감싼다 — 홈 탭 전체를 TimelineView 로 감싸면
+                // 파트너 카드·헤더·한도 섹션까지 매초 다시 그려 팝오버 에너지 예산을 깬다.
+                // 알이 하나도 없으면 셀 시간도 정산할 것도 없으므로 틱 자체를 걸지 않는다
+                // (빈 슬롯 줄은 그대로 보여준다 — 알을 뽑으면 어디에 들어가는지가 보여야 한다).
+                if Self.needsCountdownTick(player.state) {
+                    TimelineView(.periodic(from: .now, by: 1)) { context in
+                        EggSlotsView(store: player, now: context.date)
+                    }
+                } else {
+                    EggSlotsView(store: player, now: player.currentDate())
+                }
                 Divider()
                 header
                 Divider()

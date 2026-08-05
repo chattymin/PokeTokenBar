@@ -1,9 +1,14 @@
 import Foundation
 
 /// 부화 후보 — 진화라인 시작점(base) 종과 공식 희귀도.
+/// `isLegendary`/`isMythical` 은 기본값을 주지 않는다 — 이 필드가 없던 구 디스크 캐시
+/// (`base-index.json`)는 디코드가 그대로 실패해야 한다. 기본값을 주면 옛 캐시가 "전설 아님"으로
+/// 조용히 읽혀, 전설 뽑기가 실제로는 절대 전설을 못 주는 결함이 재발한다 — 실패해야 재구축된다.
 struct BaseSpecies: Sendable, Codable {
     let id: Int
     let captureRate: Int    // 3(뮤츠급)~255(캐터피급), 공식 희귀도 신호
+    let isLegendary: Bool
+    let isMythical: Bool
 }
 
 /// 메타몽 종 id — 위장·변신 등 별도 처리가 필요한 특수종이라 일반 부화 후보 풀에서 제외한다.
@@ -94,7 +99,12 @@ actor PokeAPIClient: PokeProviding {
     }
     private struct GraphQLBaseResponse: Decodable {
         struct DataBox: Decodable { let pokemonspecies: [Row] }
-        struct Row: Decodable { let id: Int; let capture_rate: Int }
+        struct Row: Decodable {
+            let id: Int
+            let capture_rate: Int
+            let is_legendary: Bool
+            let is_mythical: Bool
+        }
         let data: DataBox
     }
 
@@ -126,13 +136,13 @@ actor PokeAPIClient: PokeProviding {
                 return disk.entries
             }
             // GraphQL 다운 + 캐시 없음 → REST 로 인덱스를 백그라운드 구축(세션 1회).
-            // 이번 부화는 per-hatch REST 폴백(chooseBaseViaREST)이 즉시 처리하고,
+            // 이번 뽑기는 실패로 돌아가고(상점이 재시도를 안내한다 — 재화는 안 빠진다),
             // 구축이 끝나면 디스크 캐시로 남아 이후 선택이 가중·수집반영·오프라인가능으로 복귀한다.
             if !restBuildTried {
                 restBuildTried = true
                 Task { await self.buildBaseIndexViaREST() }
             }
-            AppLog.write("base index (GraphQL) failed, no cache — REST build triggered; per-hatch fallback handles now: \(error)")
+            AppLog.write("base index (GraphQL) failed, no cache — REST build triggered; this draw fails and the user retries: \(error)")
             throw error
         }
     }
@@ -184,12 +194,15 @@ actor PokeAPIClient: PokeProviding {
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         // 메타몽(#132)은 별도 처리가 필요한 특수종이라 일반 부화 풀에서 제외(_neq).
         let maxID = PokemonAssets.speciesIDs.upperBound
-        let query = "{ pokemonspecies(where: {evolves_from_species_id: {_is_null: true}, id: {_lte: \(maxID), _neq: \(dittoSpeciesID)}}, order_by: {id: asc}) { id capture_rate } }"
+        let query = "{ pokemonspecies(where: {evolves_from_species_id: {_is_null: true}, id: {_lte: \(maxID), _neq: \(dittoSpeciesID)}}, order_by: {id: asc}) { id capture_rate is_legendary is_mythical } }"
         req.httpBody = try JSONSerialization.data(withJSONObject: ["query": query])
         let (data, resp) = try await URLSession.shared.data(for: req)
         guard (resp as? HTTPURLResponse)?.statusCode == 200 else { throw URLError(.badServerResponse) }
         let decoded = try JSONDecoder().decode(GraphQLBaseResponse.self, from: data)
-        let entries = decoded.data.pokemonspecies.map { BaseSpecies(id: $0.id, captureRate: $0.capture_rate) }
+        let entries = decoded.data.pokemonspecies.map {
+            BaseSpecies(id: $0.id, captureRate: $0.capture_rate,
+                       isLegendary: $0.is_legendary, isMythical: $0.is_mythical)
+        }
         guard !entries.isEmpty else { throw URLError(.cannotParseResponse) }
         return entries
     }
@@ -207,7 +220,8 @@ actor PokeAPIClient: PokeProviding {
         guard id != dittoSpeciesID else { return nil }   // 메타몽은 일반 부화 후보에서 제외
         let dto = try await species(id)
         guard dto.evolves_from_species == nil else { return nil }   // 진화 중간체는 부화 후보 아님
-        return BaseSpecies(id: id, captureRate: dto.capture_rate)
+        return BaseSpecies(id: id, captureRate: dto.capture_rate,
+                           isLegendary: dto.is_legendary, isMythical: dto.is_mythical)
     }
 
     private func get<T: Decodable>(_ url: URL) async throws -> T {
