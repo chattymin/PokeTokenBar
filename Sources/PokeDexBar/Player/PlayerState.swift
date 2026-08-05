@@ -62,7 +62,10 @@ struct PlayerState: Codable, Sendable {
         // 성공해 경제를 영구히 잠근다: freeSlots 0 → canDraw false → nextSlotPrice nil 이라 상점은
         // "슬롯을 최대까지 늘렸어요"라고 말하는데 다시는 뽑을 수 없다. 상한도 자른다 — 거대한 값은
         // 빈 슬롯 타일을 그 수만큼 만들어 화면을 세운다.
-        slots = min(EggBalance.maxSlots, max(1, value(.slots, EggBalance.baseSlots)))
+        // 하한은 1 이 아니라 기본 슬롯(3)이다 — `slotPrice` 는 4~6 만 값을 매기므로 1·2 로 잘라 두면
+        // 뽑기는 되살아나도 `nextSlotPrice` 가 nil 이라 상점이 계속 "최대까지 늘렸어요"라고 거짓말한다.
+        // 3 은 모든 정상 플레이어의 출발점이고, 거기서부터 가격표가 다시 이어진다.
+        slots = min(EggBalance.maxSlots, max(EggBalance.baseSlots, value(.slots, EggBalance.baseSlots)))
         // 알도 박스와 같은 이유로 원소 단위 관대 디코딩한다 — 알 하나가 깨졌다고 부화 중인
         // 나머지 알까지 통째로 날아가면 안 된다.
         let wrappedEggs = (try? c.decode([LossyEgg].self, forKey: .eggs)) ?? []

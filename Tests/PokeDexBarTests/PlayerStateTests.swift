@@ -191,21 +191,29 @@ final class PlayerStateTests: XCTestCase {
 
     /// `"slots": 0` 은 디코드에 성공하고 경제를 영구히 잠근다 — freeSlots 0 이라 다시는 못 뽑는데
     /// 상점은 "최대까지 늘렸어요"라고 말한다(nextSlotPrice 가 nil). 경계에서 자른다.
+    /// 하한은 기본 슬롯(3) — 1·2 로 자르면 뽑기는 되살아나도 가격표(`slotPrice` 는 4~6 만 매긴다)가
+    /// 다시 안 이어져 상점의 거짓말이 남는다.
     func testDecodeClampsSlotsIntoBuyableRange() throws {
         func slots(_ raw: String) throws -> Int {
             try JSONDecoder().decode(PlayerState.self, from: Data(#"{"slots":\#(raw)}"#.utf8)).slots
         }
-        XCTAssertEqual(try slots("0"), 1)
-        XCTAssertEqual(try slots("-5"), 1)
+        XCTAssertEqual(try slots("0"), EggBalance.baseSlots)
+        XCTAssertEqual(try slots("2"), EggBalance.baseSlots)
+        XCTAssertEqual(try slots("-5"), EggBalance.baseSlots)
         XCTAssertEqual(try slots("9999"), EggBalance.maxSlots)
         XCTAssertEqual(try slots("4"), 4, "정상 범위는 그대로")
     }
 
-    /// 잘린 슬롯으로도 알을 뽑을 수 있어야 한다 — 이게 "브릭"의 실제 증상이다.
-    func testClampedSlotsRestoreTheAbilityToDraw() throws {
-        var state = try JSONDecoder().decode(PlayerState.self, from: Data(#"{"slots":0}"#.utf8))
-        state.earnedTokens = EggBalance.drawPrice
-        XCTAssertGreaterThan(state.slots - state.eggs.count, 0)
-        XCTAssertGreaterThanOrEqual(state.wallet, EggBalance.drawPrice)
+    /// 잘린 슬롯으로 ① 다시 뽑을 수 있고 ② 상점이 "최대까지 늘렸어요"라고 거짓말하지 않아야 한다.
+    /// ②는 `PlayerStore.nextSlotPrice` 가 그대로 위임하는 `EggBalance.slotPrice` 로 확인한다.
+    func testClampedSlotsRestoreDrawingAndTheSlotPriceTable() throws {
+        for raw in ["0", "2"] {
+            var state = try JSONDecoder().decode(PlayerState.self, from: Data(#"{"slots":\#(raw)}"#.utf8))
+            state.earnedTokens = EggBalance.drawPrice
+            XCTAssertGreaterThan(state.slots - state.eggs.count, 0, "slots: \(raw) — 빈 슬롯이 없으면 영영 못 뽑는다")
+            XCTAssertGreaterThanOrEqual(state.wallet, EggBalance.drawPrice)
+            XCTAssertNotNil(EggBalance.slotPrice(forSlotNumber: state.slots + 1),
+                            "slots: \(raw) — 다음 슬롯 값이 없으면 상점이 '최대까지 늘렸어요'라고 거짓말한다")
+        }
     }
 }
