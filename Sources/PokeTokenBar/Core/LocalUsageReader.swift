@@ -1206,12 +1206,18 @@ enum LocalUsageReader {
         return f
     }
 
-    private static func intValue(_ v: Any?) -> Int {
-        if let i = v as? Int { return i }
-        if let d = v as? Double { return Int(d) }
-        if let n = v as? NSNumber { return n.intValue }
-        return 0
-    }
+    /// 파싱 상한 — 실사용(수십억)의 10만 배라 정상 사용량을 자르지 않는다.
+    /// `Int.max` 로 잡지 않는 이유: 클램프 자체는 되지만 `output + thoughts` 처럼 **파싱 직후 더하는**
+    /// 지점에서 다시 오버플로 트랩이 난다. 이 값끼리 여러 번 더해도 Int64 안에 머무는 상한이어야 한다.
+    static let maxParsedTokenValue = 1_000_000_000_000_000
+
+    /// 숫자를 안전한 Int 로. 값이 없거나 숫자가 아니면 0.
+    ///
+    /// 예전엔 `Int(d)` 를 직접 불러 `1e30` 같은 값에서 **트랩(크래시)** 했다. 사용량 로그는 앱 밖에서
+    /// 오고(손편집·전송 손상·업스트림 버그) 그 파일은 디스크에 남으므로, 한 번 들어오면 새로고침마다
+    /// 그리고 재기동마다 다시 죽는다 — 사용자가 파일을 손으로 지우기 전까지 앱을 못 쓴다.
+    /// 클램프는 크래시보다 안전한 열화다. `intOrNil` 과 같은 규칙을 쓰되 부재를 0 으로 접는다.
+    private static func intValue(_ v: Any?) -> Int { intOrNil(v) ?? 0 }
 
     /// 숫자가 실제로 있을 때만 값을 준다. JSON `null`(=`NSNull`)·문자열·키 부재는 모두 nil —
     /// `usage["x"] != nil` 로 존재를 판정하면 null 이 "값 있음"으로 통과해 0 으로 뭉개진다.
@@ -1224,7 +1230,8 @@ enum LocalUsageReader {
     private static func intOrNil(_ v: Any?) -> Int? {
         guard let d = doubleOrNil(v) else { return nil }
         guard d > 0 else { return 0 }                            // 음수 토큰은 없다
-        return d >= Double(Int.max) ? Int.max : Int(d)            // 비정상 큰 값에 트랩되지 않게
+        // 비정상 큰 값에 트랩되지 않게. 상한이 maxParsedTokenValue 인 이유는 그 정의 주석 참조.
+        return d >= Double(maxParsedTokenValue) ? maxParsedTokenValue : Int(d)
     }
 
     private static func boolValue(_ v: Any?) -> Bool {

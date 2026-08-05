@@ -1012,4 +1012,56 @@ final class LocalUsageReaderTests: XCTestCase {
         let mid = cal.date(from: DateComponents(year: 2026, month: 7, day: 20, hour: 12))!
         XCTAssertEqual(LocalUsageReader.enrichmentScanStart(now: mid), LocalUsageReader.startOfMonth(mid))
     }
+    // MARK: 파싱 경계 클램프 (딥리뷰 후속 — 크래시 부류)
+
+    /// 사용량 로그는 앱 밖에서 온다. 예전엔 `1e30` 같은 값이 `Int(d)` 에서 트랩해 프로세스를 죽였고,
+    /// 그 파일이 디스크에 남아 **새로고침·재기동마다 다시** 죽였다(손으로 지우기 전까지 앱 사용 불가).
+    /// PR #137 이 Codex 누적 벡터만 막았으므로 나머지 파싱 경로를 여기서 전수 고정한다.
+    /// 각 프로바이더를 개별 테스트로 나눈 이유: 트랩은 프로세스를 끝내 뒤 케이스가 실행되지 않는다.
+
+    func testClaudeParsingClampsAbsurdTokenCountsInsteadOfTrapping() {
+        let dir = tempDir()
+        let line = #"{"type":"assistant","requestId":"r1","timestamp":"2026-06-30T10:00:00.000Z","message":{"id":"m1","model":"claude","usage":{"input_tokens":1e30,"output_tokens":1e30,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}"#
+        write([line], to: dir, name: "a.jsonl")
+        let entries = LocalUsageReader.claudeEntries(modifiedSince: .distantPast, root: dir)
+        XCTAssertEqual(entries.count, 1)
+        XCTAssertEqual(entries.first?.input, LocalUsageReader.maxParsedTokenValue)
+        XCTAssertEqual(entries.first?.output, LocalUsageReader.maxParsedTokenValue)
+    }
+
+    /// PR #137 은 `total_token_usage` 만 `intOrNil` 로 옮겼다 — 엔트리 값을 만드는 쪽인
+    /// `last_token_usage` 는 그대로였다.
+    func testCodexLastUsageClampsAbsurdTokenCountsInsteadOfTrapping() {
+        let dir = tempDir()
+        let line = #"{"type":"event_msg","timestamp":"2026-07-29T01:00:00.000Z","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":10,"cached_input_tokens":0,"output_tokens":5,"reasoning_output_tokens":0,"total_tokens":15},"last_token_usage":{"input_tokens":1e30,"cached_input_tokens":0,"output_tokens":1e30,"reasoning_output_tokens":0,"total_tokens":1e30}}}}"#
+        write([line], to: dir, name: "rollout-huge.jsonl", sub: "huge")
+        let entries = LocalUsageReader.codexEntries(modifiedSince: .distantPast, root: dir)
+        XCTAssertEqual(entries.count, 1)
+        XCTAssertEqual(entries.first?.input, LocalUsageReader.maxParsedTokenValue)
+    }
+
+    /// Gemini 는 파싱 **직후 두 값을 더한다**(`output + thoughts`, `input − cached + tool`).
+    /// 상한이 `Int.max` 였다면 클램프는 통과해도 그 덧셈에서 다시 트랩난다 — 합산 안전 상한이어야 하는 이유.
+    func testGeminiParsingClampsAndItsAdditionsStayInRange() {
+        let dir = tempDir()
+        let line = #"{"id":"g1","timestamp":"2026-06-30T10:00:00.000Z","model":"gemini-2.5-pro","tokens":{"input":1e30,"cached":0,"tool":1e30,"output":1e30,"thoughts":1e30}}"#
+        write([line], to: dir, name: "session-x.jsonl", sub: "hash/chats")
+        let entries = LocalUsageReader.geminiEntries(modifiedSince: .distantPast, root: dir)
+        XCTAssertEqual(entries.count, 1)
+        let e = entries.first
+        XCTAssertEqual(e?.input, LocalUsageReader.maxParsedTokenValue * 2, "input−cached + tool 이 트랩 없이 더해져야 한다")
+        XCTAssertEqual(e?.output, LocalUsageReader.maxParsedTokenValue * 2, "output + thoughts 도 마찬가지")
+    }
+
+    /// 음수·null·문자열은 예전처럼 0 으로 접힌다(클램프 도입이 기존 관대 처리를 바꾸지 않는다).
+    func testParsingStillFoldsMissingAndNegativeToZero() {
+        let dir = tempDir()
+        let line = #"{"type":"assistant","requestId":"r2","timestamp":"2026-06-30T10:00:00.000Z","message":{"id":"m2","model":"claude","usage":{"input_tokens":-5,"output_tokens":null,"cache_read_input_tokens":"nope"}}}"#
+        write([line], to: dir, name: "b.jsonl")
+        let entries = LocalUsageReader.claudeEntries(modifiedSince: .distantPast, root: dir)
+        XCTAssertEqual(entries.first?.input, 0)
+        XCTAssertEqual(entries.first?.output, 0)
+        XCTAssertEqual(entries.first?.cacheRead, 0)
+    }
+
 }
