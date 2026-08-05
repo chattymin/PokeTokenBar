@@ -21,13 +21,13 @@
 > PokeDexBar swaps the sprite source to [Pokémon Showdown](https://play.pokemonshowdown.com/sprites/)
 > so every generation through Gen 9 is available, and adds EPX anti-aliasing for the sprites.
 
-PokeDexBar turns the AI coding tokens you're already burning — Claude Code, Codex, Gemini CLI, OpenCode, Hermes Agent, Cursor & Grok CLI — into a growing **Pokémon companion** in your macOS menu bar. Spend tokens, hatch an egg, evolve it through its real evolution line, graduate it into your Pokédex, and start again. Underneath the companion it's a precise usage tracker — today's spend, cost, and official 5-hour / weekly limits, read straight from your local logs.
+PokeDexBar turns the AI coding tokens you're already burning — Claude Code, Codex, Gemini CLI, OpenCode, Hermes Agent, Cursor & Grok CLI — into a **Pokémon economy** in your macOS menu bar. Pick a starter, then every token you spend becomes currency: draw eggs with it, watch them hatch on real wall-clock time, and evolve your partner by hand as it earns experience. Underneath the game it's a precise usage tracker — today's spend, cost, and official 5-hour / weekly limits, read straight from your local logs.
 
 > Token usage is read directly from local Claude Code, Codex, Gemini CLI, OpenCode, Hermes Agent, Cursor, and Grok CLI data (`totalTokens` = input + output + cache, local date) — no external CLI needed. Unofficial, non-commercial Pokémon fan project — see [License & disclaimer](#license--disclaimer).
 
 ## Why
 
-- **The usage tracker you actually enjoy opening.** Your spend raises a Pokémon that hatches, evolves, graduates, and fills a Pokédex — and every shiny is a reason to check back.
+- **The usage tracker you actually enjoy opening.** Your spend buys egg draws, fills a National Dex, and grows a box full of individual Pokémon — and every shiny is a reason to check back.
 - See today's token spend & cost at a glance — no dashboard, no browser tab.
 - Track official **5-hour / weekly** limits with reset countdowns and a burn-rate forecast for when you'll hit them.
 
@@ -37,12 +37,12 @@ PokeDexBar turns the AI coding tokens you're already burning — Claude Code, Co
 
 ## How it works
 
-1. 🥚 **Code as usual.** The tokens you burn in Claude Code, Codex, Gemini CLI, OpenCode, Hermes Agent, Cursor, or Grok CLI incubate an egg — nothing extra to run.
-2. 🐣 **Hatch.** Eggs hatch into Pokémon with real evolution lines from [PokéAPI](https://pokeapi.co/) — any Gen 1–5 line (329 possible starts), weighted by the official capture rate: commons hatch often, a legendary is a 1-in-129 event. It appears in your **Pokédex** immediately while you raise it. Every hatch rolls one of 25 natures — and once in a rare while, the egg hatches **✨ Shiny**.
-3. ⚡ **Evolve.** Keep coding and it grows through its actual evolution tree (1/2/3 stages, branching), with a little flash celebration at each step.
-4. 🎓 **Graduate & collect.** Final form + threshold permanently archives it in your **Pokédex** — rarer takes longer (≈3 days common → ≈24 days legendary at heavy use) — and a fresh egg arrives.
-5. 🍬 **Max out, get a candy.** Fill a 5-hour or weekly usage limit and you earn **Rare Candy** — spend it from the **Bag** to grow your current Pokémon.
-6. 🛒 **Spend at the Shop.** Every token you've used is spendable currency — buy **Rare Candy**, a **Mint** that re-rolls your Pokémon's nature, a **Shiny Charm** that permanently raises your shiny odds, or a **Pokémon Egg** to send off your current companion and start over from a fresh egg, from the new **Shop** tab.
+1. 🎮 **Pick a starter.** On first launch, choose 1 of 27 first-stage Pokémon spanning Gen 1–9 (never shiny) — it becomes your partner.
+2. 🪙 **Code as usual.** The tokens you burn in Claude Code, Codex, Gemini CLI, OpenCode, Hermes Agent, Cursor, or Grok CLI become spendable currency and feed your partner's experience at the same time — nothing extra to run.
+3. 🥚 **Draw an egg.** Spend currency in the **Shop** for an egg of a randomly rolled grade — Common 55% / Rare 15% / Epic 25% / Legendary 5%, never chosen. Up to 3 eggs incubate at once, expandable to 6 with a slot upgrade.
+4. 🐣 **Hatch on real time.** Commons hatch in 30 minutes, Rares in 2 hours, Epics in 6, Legendaries in 24 — real wall-clock time, even while the app is closed. Every egg hatches a base (unevolved) species with real evolution data from [PokéAPI](https://pokeapi.co/), rolls one of 25 natures, and — once in a rare while — comes out **✨ Shiny**.
+5. ⚡ **Evolve by hand.** Feed a hatchling experience by coding (or with EXP Candy from the Shop), then tap it to evolve once it's ready — branching evolution lines let you pick the path.
+6. 📖 **Fill two collections.** The **National Dex** tracks every species you've ever hatched, #1 to #1025, with silhouettes for the rest. Your **Box** holds every individual you own — duplicates are normal, and each one keeps its own experience and evolution progress, so you can own both a Pidgey and a Pidgeotto at once.
 
 ## Tour
 
@@ -65,35 +65,35 @@ An animated Gen-V sprite lives next to today's total tokens (compact, e.g. <code
 <td width="45%" align="center"><img src="assets/shiny-banner.gif" width="340" alt="Normal vs shiny"></td>
 <td width="55%" valign="middle">
 <h3>✨ Once in a rare while — Shiny</h3>
-Shiny hatches keep their distinct colors everywhere — menu bar, home card, evolution line, Pokédex — through every evolution. A dedicated notification makes sure you don't miss the moment.
+Shiny hatches keep their distinct colors everywhere — menu bar, home card, evolution line, Box — through every evolution. A dedicated notification makes sure you don't miss the moment.
 </td>
 </tr>
 <tr>
 <td width="55%" valign="middle">
-<h3>A Pokédex worth filling</h3>
-Graduated Pokémon are preserved with their full evolution line, rarity, nature, and capture date — shinies wear a ✨ badge. Sorted so your rarest catches sit on top.
+<h3>Two collections: a Dex and a Box</h3>
+The <b>National Dex</b> is a species checklist from #1 to #1025 — silhouettes until you've hatched one. Your <b>Box</b> keeps every individual you've hatched or evolved, each with its own grade, nature, capture date, and experience — shinies wear a ✨ badge, and duplicates are completely normal.
 </td>
-<td width="45%" align="center"><img src="assets/screenshot-collection.png" width="300" alt="Pokédex"></td>
+<td width="45%" align="center"><img src="assets/screenshot-collection.png" width="300" alt="Box and National Dex"></td>
 </tr>
 <tr>
 <td width="45%" align="center"><img src="assets/settings.png" width="300" alt="Settings"></td>
 <td width="55%" valign="middle">
 <h3>Tune it your way</h3>
-Menu-bar items, refresh interval (1–15 min or manual), launch at login, a Keychain opt-out that just hides the limits section, limit alerts with warning/critical thresholds, and companion event notifications. Full <b>KO / EN / JA</b> UI and Pokémon names.
+Menu-bar items, refresh interval (1–15 min or manual), launch at login, a Keychain opt-out that just hides the limits section, limit alerts with warning/critical thresholds, and hatch/evolution notifications. Full <b>KO / EN / JA</b> UI and Pokémon names.
 </td>
 </tr>
 <tr>
 <td width="55%" valign="middle">
-<h3>🍬 Fill a limit, earn a Rare Candy</h3>
-Max out a 5-hour or weekly usage limit and you're handed a <b>Rare Candy</b> — one per 5-hour cap, five per weekly. Spend it from the new <b>Bag</b> tab to grow your current Pokémon: the moment you're rate-limited becomes the moment you level up.
+<h3>🥚 Eggs hatch on the clock, not on you</h3>
+Draw up to 3 eggs at once (6 with a slot upgrade) and each incubates on its own wall-clock timer — 30 minutes for a Common up to 24 hours for a Legendary — counting down live on Home even while you're away. A single notification tells you when a batch is ready.
 </td>
-<td width="45%" align="center"><img src="assets/screenshot-bag.png" width="300" alt="Rare Candy and Mint in the Bag"></td>
+<td width="45%" align="center"><img src="assets/screenshot-bag.png" width="300" alt="Eggs incubating on Home"></td>
 </tr>
 <tr>
-<td width="45%" align="center"><img src="assets/screenshot-shop.png" width="300" alt="Token Shop — Mint, Rare Candy, Pokémon Egg, Shiny Charm"></td>
+<td width="45%" align="center"><img src="assets/screenshot-shop.png" width="300" alt="Shop — egg draws, slot upgrades, EXP Candy, Shiny Candy, Shiny Charm"></td>
 <td width="55%" valign="middle">
-<h3>🛒 A shop that runs on your usage</h3>
-The tokens you've already used are your currency. Spend them in the new <b>Shop</b> tab on <b>Rare Candy</b> to grow your current Pokémon, a <b>Mint</b> to re-roll its nature, a <b>Shiny Charm</b> that permanently raises your shiny hatch odds, or a <b>Pokémon Egg</b> to send off your companion and start over from a fresh egg.
+<h3>🛒 A shop built for the economy</h3>
+Every token you've already used is spendable currency. Draw eggs at a fixed price with the odds shown right on the button, expand your incubator from 3 slots up to 6, buy <b>EXP Candy</b> to grow a Pokémon or <b>Shiny Candy</b> to make one shiny outright, or pick up a permanent <b>Shiny Charm</b> that raises your hatch odds from 1/64 to 1/48.
 </td>
 </tr>
 </table>
