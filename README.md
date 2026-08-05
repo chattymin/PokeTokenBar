@@ -191,6 +191,7 @@ Contributions of all sizes are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md
 PokeDexBar is an **unofficial, non-commercial fan project**. It is **not affiliated with, endorsed, sponsored, or approved by Nintendo, Game Freak, Creatures Inc., or The Pokémon Company.** "Pokémon" and all related names, characters, and imagery are trademarks and copyrights of their respective owners. This project claims no ownership of, and asserts no rights over, any Pokémon intellectual property.
 
 - **The app binary and its release artifacts bundle no Pokémon assets.** Pokémon species data and sprites are fetched **at runtime** from the public [PokéAPI](https://pokeapi.co) and cached locally on the user's own device; sprite images served via PokéAPI remain the property of their respective owners.
+- Sprites: [Pokémon Showdown](https://play.pokemonshowdown.com/sprites/) (animated and shiny, all generations)
 - Any Pokémon imagery in this repository's documentation (screenshots/GIFs) is shown solely to illustrate the app's functionality.
 - The app is provided free of charge for **personal, non-commercial use only.**
 - If you are a rights holder with any concern about this project, please open an issue or contact the maintainer, and we will respond promptly.
