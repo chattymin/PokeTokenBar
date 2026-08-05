@@ -19,6 +19,29 @@ struct L {
     var home: String { t("홈", "Home", "ホーム") }
     var box: String { t("박스", "Box", "ボックス") }
     var collection: String { t("도감", "Collection", "コレクション") }
+    var shop: String { t("상점", "Shop", "ショップ") }
+
+    // MARK: 상점 탭
+    var shopWallet: String { t("재화", "Currency", "所持金") }
+    var shopEggDraw: String { t("알 뽑기", "Egg draw", "タマゴ抽選") }
+    var shopDrawing: String { t("뽑는 중…", "Drawing…", "抽選中…") }
+    var shopDrawButton: String { t("뽑기", "Draw", "引く") }
+    var shopDrawFetchFailed: String {
+        t("부화 후보를 받지 못했어요. 잠시 뒤 다시 시도해 주세요.",
+          "Couldn't fetch hatch candidates. Please try again shortly.",
+          "ふ化候補を取得できませんでした。しばらくして再試行してください。")
+    }
+    func shopFreeSlots(_ free: Int, _ total: Int) -> String {
+        t("빈 슬롯 \(free) / \(total)", "Open slots \(free) / \(total)", "空きスロット \(free) / \(total)")
+    }
+    var shopSlotSection: String { t("부화 슬롯", "Hatch slots", "ふ化スロット") }
+    func shopSlotUpgrade(_ from: Int, _ to: Int) -> String {
+        t("슬롯 늘리기 (\(from) → \(to))", "Add a slot (\(from) → \(to))", "スロット追加 (\(from) → \(to))")
+    }
+    var shopSlotsMaxed: String { t("슬롯을 최대까지 늘렸어요", "Slots are maxed out", "スロットは最大まで増やしました") }
+    var shopItemSection: String { t("아이템", "Items", "アイテム") }
+    var shopItemOwned: String { t("보유 중", "Owned", "所持中") }
+    var shopItemOwnedButton: String { t("보유", "Owned", "所持") }
 
     // MARK: 스타터 픽커 (첫 실행 — 27마리 중 1마리 선택)
     var starterPickerTitle: String { t("함께 시작할 포켓몬을 고르세요", "Choose your starting Pokémon", "一緒に始めるポケモンを選んでください") }

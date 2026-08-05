@@ -1,7 +1,7 @@
 import AppKit
 import SwiftUI
 
-enum PopoverTab { case home, collection, box }
+enum PopoverTab { case home, box, collection, shop }
 
 /// 팝오버 치수의 단일 소스. 자식이 쓸 수 있는 폭을 알아야 할 때 이 값을 쓴다 — 넘치는 자식이
 /// 부모 폭을 부풀리므로 GeometryReader 로 재면 순환한다.
@@ -114,6 +114,7 @@ struct PopoverView: View {
                 Text(l.home).tag(PopoverTab.home)
                 Text(l.box).tag(PopoverTab.box)
                 Text(l.collection).tag(PopoverTab.collection)
+                Text(l.shop).tag(PopoverTab.shop)
             }
             .pickerStyle(.segmented)
             .labelsHidden()
@@ -122,6 +123,8 @@ struct PopoverView: View {
                 BoxTabView(store: player, lines: evoLines) { baseID in loadLine(baseID) }
             } else if nav.tab == .collection {
                 NationalDexView(store: player)
+            } else if nav.tab == .shop {
+                ShopTabView(store: player, provider: provider)
             } else {
                 partnerCard
                 Divider()
