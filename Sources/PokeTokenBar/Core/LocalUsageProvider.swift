@@ -33,23 +33,30 @@ struct LocalClaudeProvider: UsageProvider {
     }
 }
 
-/// 로컬 로그 직접 파싱 기반 Gemini CLI provider.
-/// 세션이 ~/.gemini/tmp/<hash>/chats/ 에 있을 때만 데이터가 잡힌다(없으면 스냅샷 미생성 → UI 미표시).
+/// 로컬 로그 직접 파싱 기반 Gemini provider — 구글의 두 CLI 를 한 프로바이더로 묶는다.
+/// - Gemini CLI: ~/.gemini/tmp/<hash>/chats/ 의 세션 파일.
+/// - Antigravity CLI: ~/.gemini/antigravity-cli/conversations/ 의 대화별 SQLite.
+/// 둘은 ~/.gemini/ 만 공유할 뿐 저장 형식이 완전히 달라 파일 스캔 하나로는 잡히지 않는다
+/// (`LocalAntigravityUsageReader` 참고). 어느 쪽도 안 쓰면 스냅샷 미생성 → UI 미표시.
 struct LocalGeminiProvider: UsageProvider {
     let id = "gemini"
     let displayName = "Gemini"
 
     func fetchDaily() async throws -> DailyUsage? {
         let now = Date()
-        let entries = await LocalUsageCache.shared.geminiEntries(modifiedSince: Calendar.current.startOfDay(for: now))
+        async let cli = LocalUsageCache.shared.geminiEntries(modifiedSince: Calendar.current.startOfDay(for: now))
+        async let antigravity = LocalAntigravityUsageCache.shared.entries()
+        let entries = await cli + antigravity
         return LocalUsageReader.daily(entries: entries, localDay: LocalUsageReader.todayKey())
     }
 
     func fetchEnrichment() async -> ProviderEnrichment {
         let now = Date()
         let monthStart = LocalUsageReader.startOfMonth(now)
-        let entries = await LocalUsageCache.shared.geminiEntries(
+        async let cli = LocalUsageCache.shared.geminiEntries(
             modifiedSince: LocalUsageReader.enrichmentScanStart(now: now))
+        async let antigravity = LocalAntigravityUsageCache.shared.entries()
+        let entries = await cli + antigravity
         let fmt = LocalUsageReader.localDayFormatter()
         var r = ProviderEnrichment()
         // 블록(burn rate) 계산은 프로바이더 공통 — companion 리듬이 전 프로바이더를 따르게.

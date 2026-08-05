@@ -108,7 +108,7 @@ PokeTokenBar는 당신이 이미 태우고 있는 AI 코딩 토큰(Claude Code �
 |---|---|---|
 | **Claude Code** | 오늘 · 5시간 블록 · 주 · 월 | ✅ 5시간 / 주간 |
 | **Codex** | 오늘 · 주 · 월 | ✅ 5시간 / 주간 |
-| **Gemini CLI** | 오늘 · 주 · 월 | — |
+| **Gemini CLI** · **Antigravity** | 오늘 · 주 · 월 | — |
 | **OpenCode** | 오늘 · 5시간 블록 · 주 · 월 | — |
 | **Hermes Agent** | 오늘 · 5시간 블록 · 주 · 월 | — |
 | **Cursor** | 오늘 · 5시간 블록 · 주 · 월 | — |
@@ -155,6 +155,7 @@ swift test                   # 단위 테스트
 |---|---|---|
 | `~/.claude/projects/**/*.jsonl` | Claude Code daily/blocks/weekly/monthly | 직접 읽음; 메시지 id 로 중복제거; 증분 캐시 |
 | `~/.gemini/tmp/**/chats/*.json(l)` | Gemini CLI daily/monthly | 세션 레코드(메시지별 `tokens`); 주간 = daily 합산 |
+| `~/.gemini/antigravity-cli/conversations/*.db` | Antigravity daily/monthly | SQLite 읽기 전용; Cascade protobuf blob 의 호출별 사용량; Gemini 에 합산; 구독제라 비용은 추정하지 않음 |
 | `~/.codex/sessions/**/*.jsonl` | Codex daily/monthly | `token_count` 이벤트; 주간 = daily 합산 |
 | `~/.local/share/opencode/opencode.db` | OpenCode daily/blocks/weekly/monthly | SQLite 읽기 전용; 레거시 `storage/message` JSON도 지원 |
 | `~/.hermes/state.db` | Hermes Agent daily/blocks/weekly/monthly | SQLite 읽기 전용; 세션 토큰 합계와 저장된 비용 |

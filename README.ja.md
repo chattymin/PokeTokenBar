@@ -108,7 +108,7 @@ PokeTokenBar は、あなたがすでに使っている AI コーディングト
 |---|---|---|
 | **Claude Code** | 今日 · 5時間ブロック · 週 · 月 | ✅ 5時間／週間 |
 | **Codex** | 今日 · 週 · 月 | ✅ 5時間／週間 |
-| **Gemini CLI** | 今日 · 週 · 月 | — |
+| **Gemini CLI** · **Antigravity** | 今日 · 週 · 月 | — |
 | **OpenCode** | 今日 · 5時間ブロック · 週 · 月 | — |
 | **Hermes Agent** | 今日 · 5時間ブロック · 週 · 月 | — |
 | **Cursor** | 今日 · 5時間ブロック · 週 · 月 | — |
@@ -155,6 +155,7 @@ swift test                   # ユニットテスト
 |---|---|---|
 | `~/.claude/projects/**/*.jsonl` | Claude Code daily/blocks/weekly/monthly | 直接読み取り；メッセージ id で重複排除；増分キャッシュ |
 | `~/.gemini/tmp/**/chats/*.json(l)` | Gemini CLI daily/monthly | セッションレコード（メッセージ別 `tokens`）；週間 = daily 合算 |
+| `~/.gemini/antigravity-cli/conversations/*.db` | Antigravity daily/monthly | SQLite 読み取り専用；Cascade protobuf blob の呼び出し単位の使用量；Gemini に合算；サブスクのためコストは推定しない |
 | `~/.codex/sessions/**/*.jsonl` | Codex daily/monthly | `token_count` イベント；週間 = daily 合算 |
 | `~/.local/share/opencode/opencode.db` | OpenCode daily/blocks/weekly/monthly | SQLite 読み取り専用；レガシー `storage/message` JSON にも対応 |
 | `~/.hermes/state.db` | Hermes Agent daily/blocks/weekly/monthly | SQLite 読み取り専用；セッショントークン合計と保存済みコスト |

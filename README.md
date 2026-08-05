@@ -108,7 +108,7 @@ The tokens you've already used are your currency. Spend them in the new <b>Shop<
 |---|---|---|
 | **Claude Code** | today · 5h block · week · month | ✅ 5h / weekly |
 | **Codex** | today · week · month | ✅ 5h / weekly |
-| **Gemini CLI** | today · week · month | — |
+| **Gemini CLI** · **Antigravity** | today · week · month | — |
 | **OpenCode** | today · 5h block · week · month | — |
 | **Hermes Agent** | today · 5h block · week · month | — |
 | **Cursor** | today · 5h block · week · month | — |
@@ -155,6 +155,7 @@ swift test                   # unit tests
 |---|---|---|
 | `~/.claude/projects/**/*.jsonl` | Claude Code daily/blocks/weekly/monthly | read directly; deduped by message id; cached incrementally |
 | `~/.gemini/tmp/**/chats/*.json(l)` | Gemini CLI daily/monthly | session records (`tokens` per message); weekly = daily sum |
+| `~/.gemini/antigravity-cli/conversations/*.db` | Antigravity daily/monthly | SQLite read-only; per-call usage from the Cascade protobuf blob; counted under Gemini; a subscription, so no cost is estimated |
 | `~/.codex/sessions/**/*.jsonl` | Codex daily/monthly | `token_count` events; weekly = daily sum |
 | `~/.local/share/opencode/opencode.db` | OpenCode daily/blocks/weekly/monthly | SQLite read-only; legacy `storage/message` JSON is also supported |
 | `~/.hermes/state.db` | Hermes Agent daily/blocks/weekly/monthly | SQLite read-only; session token totals and persisted cost |

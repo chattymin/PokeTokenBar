@@ -40,6 +40,10 @@ enum ModelPricing {
         // Grok 은 서버가 보고한 비용(costUsdTicks)만 쓴다 — 단가표가 없으므로 0. 아래 패밀리 폴백보다
         // 먼저 끊어야 `grok-codex-*`·`grok-4o-*` 류 이름이 GPT 단가로 잡혀 가짜 금액을 표시하지 않는다.
         if m.hasPrefix("grok") { return .zero }
+        // Antigravity 는 구독제라 토큰당 청구가 없고 소스가 금액을 보고하지도 않는다. 모델명에
+        // 붙는 `antigravity/` 접두사가 정확매칭 표를 비껴가게 하고(이 CLI 는 `claude-sonnet-4-6`
+        // 도 부른다 — 접두사가 없으면 표에 그대로 걸린다), 이 줄이 패밀리 폴백까지 막는다.
+        if m.hasPrefix("antigravity/") { return .zero }
         if m.contains("opus")   { return .perMillion(5, 25, 6.25, 0.5) }
         if m.contains("sonnet") { return .perMillion(3, 15, 3.75, 0.3) }
         if m.contains("haiku")  { return .perMillion(1, 5, 1.25, 0.1) }
