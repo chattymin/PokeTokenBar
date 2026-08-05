@@ -9,6 +9,8 @@ struct BoxTabView: View {
     /// 라인이 없을 때 호출 — 앱이 받아와 `lines` 를 채운다.
     let onNeedLine: (Int) -> Void
 
+    private var l: L { store.l }
+
     /// 현재 단계의 경험치 진행도(0…1). 순수 함수라 테스트로 잠근다.
     nonisolated static func progress(_ individual: Individual) -> Double {
         let threshold = ExpBalance.threshold(grade: individual.grade,
@@ -47,18 +49,18 @@ struct BoxTabView: View {
                     Text("#\(individual.speciesID)")
                         .font(.system(size: 11, weight: .semibold)).monospacedDigit()
                     if individual.shiny { Text("✨").font(.system(size: 10)) }
-                    Text(individual.grade.label)
+                    Text(individual.grade.label(store.language))
                         .font(.system(size: 8, weight: .bold))
                         .padding(.horizontal, 5).padding(.vertical, 1)
                         .background(Color.secondary.opacity(0.18), in: Capsule())
                     if isPartner {
-                        Text("파트너")
+                        Text(l.partnerBadge)
                             .font(.system(size: 8, weight: .bold)).foregroundStyle(.white)
                             .padding(.horizontal, 5).padding(.vertical, 1)
                             .background(Color.accentColor, in: Capsule())
                     }
                     Spacer()
-                    Text(individual.nature.name(.systemDefault))
+                    Text(individual.nature.name(store.language))
                         .font(.system(size: 9)).foregroundStyle(.secondary)
                 }
 
@@ -68,14 +70,15 @@ struct BoxTabView: View {
 
                 HStack(spacing: 8) {
                     if !isPartner {
-                        Button("파트너로") { store.setPartner(individual.id) }
+                        Button(l.makePartner) { store.setPartner(individual.id) }
                             .buttonStyle(.borderless).font(.system(size: 10))
                     }
-                    if ready {
+                    if ready, let line {
                         ForEach(choices, id: \.self) { target in
-                            Button(choices.count > 1 ? "#\(target) 로 진화" : "진화") {
-                                if let line { store.evolve(individualID: individual.id,
-                                                           to: target, line: line) }
+                            // 번호(#134)가 아니라 이름으로 — line.names 에 없으면 #번호로 폴백.
+                            let name = line.localizedName(target, store.language)
+                            Button(choices.count > 1 ? l.evolveTo(name) : l.evolve) {
+                                store.evolve(individualID: individual.id, to: target, line: line)
                             }
                             .buttonStyle(.borderless)
                             .font(.system(size: 10, weight: .semibold))

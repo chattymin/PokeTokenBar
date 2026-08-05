@@ -49,7 +49,7 @@ final class EvoLineLayoutTests: XCTestCase {
 
     /// 도감 행(썸네일 56 + 이름 라벨)도 카드 안쪽 폭을 넘지 않는다.
     func testLongDexChainFitsCardWidth() {
-        let cardWidth = PopoverMetrics.contentWidth - 16   // DexEntryRow 카드 좌우 패딩 8pt
+        let cardWidth = PopoverMetrics.contentWidth - 16   // 카드형 개체 행(썸네일+이름) 좌우 패딩 8pt 가정
         let ids = [1, 2, 3, 4, 5]
         let nodes = ids.map { EvoLineItem(.species($0), .done) }
         let names = Dictionary(uniqueKeysWithValues: ids.map { ($0, "이상해씨") })

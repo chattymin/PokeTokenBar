@@ -489,7 +489,6 @@ final class GrokUsageTests: XCTestCase {
         let defaults = UserDefaults(suiteName: suite)!
         defer { defaults.removePersistentDomain(forName: suite) }
         let today = LocalUsageReader.todayKey()
-        // burnTier 임계는 1,000 tokens/min 초과 — 그 위 값으로 "관측됐다"를 검증한다.
         let block = BlockUsage(id: "b", startTime: "", endTime: "", isActive: true,
                                totalTokens: 50_000, costUSD: 0, tokensPerMinute: 5_000)
         let store = UsageStore(
@@ -510,7 +509,6 @@ final class GrokUsageTests: XCTestCase {
         XCTAssertEqual(store.weekTotalTokens, 9_000)
         XCTAssertEqual(store.monthTotalTokens, 30_000)
         XCTAssertEqual(store.snapshots.map(\.providerID), ["grok"])
-        XCTAssertEqual(store.burnTier, .normal, "번레이트가 Grok 블록을 관측해야 한다(idle 이면 미관측)")
         XCTAssertFalse(store.menuTitle.isEmpty)
         XCTAssertNil(store.lastErrorDescription)
     }

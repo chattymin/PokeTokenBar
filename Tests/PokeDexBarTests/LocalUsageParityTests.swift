@@ -23,7 +23,7 @@ final class LocalUsageParityTests: XCTestCase {
             codexLimitsProvider: NoCodexLimits(),
             autoRefresh: false)
         await store.refresh(scheduleEmptyRetry: false)
-        print("PARITY-PIPE today=\(store.todayTotalTokens) cost=\(String(format: "%.2f", store.todayCostTotal)) menu=[\(store.menuTitle)] week=\(store.weekTotalTokens) month=\(store.monthTotalTokens) snapshots=\(store.snapshots.count) burnTier=\(store.burnTier) stale=\(store.isStale) err=\(store.lastErrorDescription ?? "none")")
+        print("PARITY-PIPE today=\(store.todayTotalTokens) cost=\(String(format: "%.2f", store.todayCostTotal)) menu=[\(store.menuTitle)] week=\(store.weekTotalTokens) month=\(store.monthTotalTokens) snapshots=\(store.snapshots.count) stale=\(store.isStale) err=\(store.lastErrorDescription ?? "none")")
         for s in store.snapshots {
             print("PARITY-PIPE snapshot \(s.providerID): today=\(s.todayTotalTokens) block=\(s.activeBlock?.totalTokens ?? -1) week=\(s.weekTotal?.totalTokens ?? -1) month=\(s.monthTotal?.totalTokens ?? -1)")
         }

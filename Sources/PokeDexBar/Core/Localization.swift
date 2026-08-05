@@ -17,7 +17,32 @@ struct L {
 
     // MARK: 탭
     var home: String { t("홈", "Home", "ホーム") }
+    var box: String { t("박스", "Box", "ボックス") }
     var collection: String { t("도감", "Collection", "コレクション") }
+
+    // MARK: 스타터 픽커 (첫 실행 — 27마리 중 1마리 선택)
+    var starterPickerTitle: String { t("함께 시작할 포켓몬을 고르세요", "Choose your starting Pokémon", "一緒に始めるポケモンを選んでください") }
+    var starterPickerSubtitle: String {
+        t("고른 포켓몬이 첫 파트너가 됩니다. 토큰을 쓸수록 경험치가 쌓여요.",
+          "Your pick becomes your first partner. The more tokens you use, the more experience it earns.",
+          "選んだポケモンが最初のパートナーになります。トークンを使うほど経験値がたまります。")
+    }
+    var starterPickFailed: String {
+        t("선택이 반영되지 않았어요. 다시 눌러주세요.",
+          "That choice didn't go through. Please try again.",
+          "選択が反映されませんでした。もう一度お試しください。")
+    }
+    func generationLabel(_ generation: Int) -> String {
+        t("\(generation)세대", "Gen \(generation)", "第\(generation)世代")
+    }
+
+    // MARK: 박스 (보유 개체)
+    var partnerBadge: String { t("파트너", "Partner", "パートナー") }
+    var makePartner: String { t("파트너로", "Make partner", "パートナーにする") }
+    var evolve: String { t("진화", "Evolve", "しんか") }
+    func evolveTo(_ name: String) -> String { t("\(name) 로 진화", "Evolve to \(name)", "\(name)にしんか") }
+    /// 홈 파트너 카드의 진화 가능 배지 — 실제 진화 실행은 박스에서.
+    var evolutionReadyBadge: String { t("진화 가능", "Can evolve", "しんか可能") }
 
     // MARK: 헤더 (오늘/주/월)
     var todayTokens: String { t("오늘 사용한 토큰", "Today's tokens", "本日のトークン") }

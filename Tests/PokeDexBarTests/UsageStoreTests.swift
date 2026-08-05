@@ -598,76 +598,19 @@ final class UsageStoreTests: XCTestCase {
         XCTAssertEqual(store.menuTitle, "Claude 42% · Codex 73%")
     }
 
-    // MARK: 한도 경고
+    // MARK: 한도 로드
 
-    func testLimitWarningWhenClaudeOverCritical() async {
+    /// 갱신 시 공식 한도(fiveHour 등)가 실제로 채워지는지 — isLimitWarning 삭제로 다른 테스트가 이
+    /// 경로를 더 이상 통과하지 않게 됐으므로 별도로 잠가 둔다.
+    func testRefreshLoadsClaudeLimits() async {
         let claude = FakeUsageProvider(id: "claude_code", displayName: "Claude Code", daily: todayDaily(10_000_000))
         let store = makeStore(providers: [claude], claude: claudeLimits(fiveHourUtil: 96))
-        store.critThreshold = 95
         await store.refresh(scheduleEmptyRetry: false)
-        XCTAssertTrue(store.isLimitWarning)
         XCTAssertNotNil(store.limits, "한도가 로드돼야 한다")
     }
 
-    func testNoLimitWarningWhenUnderCritical() async {
-        let claude = FakeUsageProvider(id: "claude_code", displayName: "Claude Code", daily: todayDaily(10_000_000))
-        let store = makeStore(providers: [claude], claude: claudeLimits(fiveHourUtil: 50))
-        store.critThreshold = 95
-        await store.refresh(scheduleEmptyRetry: false)
-        XCTAssertFalse(store.isLimitWarning)
-    }
-
-    func testLimitWarningFromCodexSecondary() async {
-        let claude = FakeUsageProvider(id: "claude_code", displayName: "Claude Code", daily: todayDaily(10_000_000))
-        let store = makeStore(providers: [claude], codex: codexLimits(primaryUsed: 10, secondaryUsed: 97))
-        store.critThreshold = 95
-        await store.refresh(scheduleEmptyRetry: false)
-        XCTAssertTrue(store.isLimitWarning)
-    }
-
-    func testLimitWarningFromForecastAtFullUtilization() async {
-        // crit 을 100 초과로 올려 임계 분기를 끄고, util 100 → 예측 분기만으로 경고가 켜지는지 확인
-        let claude = FakeUsageProvider(id: "claude_code", displayName: "Claude Code", daily: todayDaily(10_000_000))
-        let store = makeStore(providers: [claude],
-                              claude: claudeLimits(fiveHourUtil: 100, resetsAt: "2099-01-01T00:00:00Z"))
-        store.critThreshold = 101
-        await store.refresh(scheduleEmptyRetry: false)
-        XCTAssertTrue(store.isLimitWarning)   // fiveHourForecast(beforeReset:true)
-    }
-
-    // MARK: burn tier
-
-    func testBurnTierThresholds() async {
-        func tier(_ tpm: Double) async -> BurnTier {
-            let p = FakeUsageProvider(id: "claude_code", displayName: "Claude Code", daily: todayDaily(10_000_000))
-            p.enrichment = ProviderEnrichment(activeBlock: block(tokensPerMinute: tpm), blocksOK: true,
-                                              weekTotal: nil, monthTotal: nil, periodsOK: false)
-            let store = makeStore(providers: [p])
-            await store.refresh(scheduleEmptyRetry: false)
-            return store.burnTier
-        }
-        let idle = await tier(500)         // <=1000 → idle
-        let normal = await tier(50_000)    // <100k → normal
-        let fast = await tier(200_000)     // <400k → fast
-        let blazing = await tier(500_000)  // >=400k → blazing
-        XCTAssertEqual(idle, .idle)
-        XCTAssertEqual(normal, .normal)
-        XCTAssertEqual(fast, .fast)
-        XCTAssertEqual(blazing, .blazing)
-    }
-
-    /// Codex 전용 사용자도 burn tier 가 반영되는지 (프로바이더 종속 제거 회귀 방지).
-    func testBurnTierFromNonClaudeProvider() async {
-        let codex = FakeUsageProvider(id: "codex", displayName: "Codex", daily: todayDaily(10_000_000))
-        codex.enrichment = ProviderEnrichment(activeBlock: block(tokensPerMinute: 200_000), blocksOK: true,
-                                              weekTotal: nil, monthTotal: nil, periodsOK: false)
-        let store = makeStore(providers: [codex])
-        await store.refresh(scheduleEmptyRetry: false)
-        XCTAssertEqual(store.burnTier, .fast)
-    }
-
     /// 자정 직후 — 오늘 토큰 0이지만 **활성 5h 블록**이 있으면 캐리어 스냅샷 생성.
-    /// (없으면 매일 자정~첫토큰 창에서 burn/forecast/주월이 소실되던 버그 회귀 방지)
+    /// (없으면 매일 자정~첫토큰 창에서 forecast/주월이 소실되던 버그 회귀 방지)
     func testMidnightCarrierSnapshotFromActiveBlock() async {
         let claude = FakeUsageProvider(id: "claude_code", displayName: "Claude Code", daily: nil)
         claude.enrichment = ProviderEnrichment(
@@ -682,7 +625,6 @@ final class UsageStoreTests: XCTestCase {
         XCTAssertEqual(snap?.providerID, "claude_code", "캐리어 스냅샷 미생성")
         XCTAssertNil(snap?.today, "오늘 데이터는 없어야(today=nil)")
         XCTAssertEqual(store.weekTotalTokens, 90_000_000)
-        XCTAssertEqual(store.burnTier, .fast, "자정 직후에도 활성 블록으로 burn 반영(idle 아님)")
     }
 
     /// 오늘·최근 미사용(활성 블록 없음)인데 주/월 기록만 있으면 캐리어를 만들지 않는다 —
@@ -700,23 +642,10 @@ final class UsageStoreTests: XCTestCase {
                        "오늘·최근 미사용 프로바이더는 탭이 뜨면 안 됨")
     }
 
-    /// 여러 프로바이더의 burn 은 합산된다 (60k + 60k = 120k → fast).
-    func testBurnTierCombinesProviders() async {
-        let claude = FakeUsageProvider(id: "claude_code", displayName: "Claude Code", daily: todayDaily(10_000_000))
-        claude.enrichment = ProviderEnrichment(activeBlock: block(tokensPerMinute: 60_000), blocksOK: true,
-                                               weekTotal: nil, monthTotal: nil, periodsOK: false)
-        let codex = FakeUsageProvider(id: "codex", displayName: "Codex", daily: todayDaily(10_000_000))
-        codex.enrichment = ProviderEnrichment(activeBlock: block(tokensPerMinute: 60_000), blocksOK: true,
-                                              weekTotal: nil, monthTotal: nil, periodsOK: false)
-        let store = makeStore(providers: [claude, codex])
-        await store.refresh(scheduleEmptyRetry: false)
-        XCTAssertEqual(store.burnTier, .fast)
-    }
-
     // MARK: 확장 규약 — 프로바이더 무관 집계 (CLAUDE.md "확장 규약" 강제)
 
     /// 하드코딩 allow-list 없이 *임의의 미래 프로바이더*(id 가 claude_code/codex/gemini 어느 것도 아님)가
-    /// 범용 집계 경로 전부에 흘러가는지 강제한다. 누군가 오늘/주/월/burn 에 `== "claude_code"` 류
+    /// 범용 집계 경로 전부에 흘러가는지 강제한다. 누군가 오늘/주/월 집계에 `== "claude_code"` 류
     /// id 분기를 넣어 특정 프로바이더만 세면 이 테스트가 깨진다.
     func testUnknownFutureProviderFlowsThroughAllAggregation() async {
         let future = FakeUsageProvider(
@@ -732,7 +661,6 @@ final class UsageStoreTests: XCTestCase {
         XCTAssertEqual(store.todayTotalTokens, 42_000_000, "오늘 합계가 id 로 필터링됨")
         XCTAssertEqual(store.weekTotalTokens, 90_000_000, "주 합계가 id 로 필터링됨")
         XCTAssertEqual(store.monthTotalTokens, 300_000_000, "월 합계가 id 로 필터링됨")
-        XCTAssertEqual(store.burnTier, .fast, "burn 이 특정 프로바이더에만 종속됨")
         // preferring 은 미스 시 .first 폴백이라 id 일치까지 확인해야 유효(theater 방지)
         XCTAssertEqual(store.snapshot(preferring: "future_tool_xyz")?.providerID, "future_tool_xyz",
                        "탭에 노출 안 됨")

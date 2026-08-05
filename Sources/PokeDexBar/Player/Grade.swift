@@ -21,12 +21,15 @@ enum Grade: String, Codable, Sendable, CaseIterable {
         }
     }
 
-    var label: String {
+    /// 표시용 등급 이름 — 언어별(ko/en/ja). 앱 언어에 따라 두 화면(박스·홈)에서 쓰인다.
+    func label(_ lang: AppLanguage) -> String {
+        let names: (String, String, String)
         switch self {
-        case .common: "커먼"
-        case .rare: "레어"
-        case .epic: "에픽"
-        case .legendary: "레전더리"
+        case .common:    names = ("커먼", "Common", "コモン")
+        case .rare:      names = ("레어", "Rare", "レア")
+        case .epic:      names = ("에픽", "Epic", "エピック")
+        case .legendary: names = ("레전더리", "Legendary", "レジェンダリー")
         }
+        switch lang { case .ko: return names.0; case .en: return names.1; case .ja: return names.2 }
     }
 }

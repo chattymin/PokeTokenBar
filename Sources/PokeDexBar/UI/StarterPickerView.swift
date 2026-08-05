@@ -13,11 +13,13 @@ struct StarterPickerView: View {
     /// 이전 네트워크 조회가 백그라운드에서 계속 돌아 뒤늦게 착지할 수 있다.
     @State private var chooseTask: Task<Void, Never>?
 
+    private var l: L { store.l }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("함께 시작할 포켓몬을 고르세요")
+            Text(l.starterPickerTitle)
                 .font(.system(size: 13, weight: .bold))
-            Text("고른 포켓몬이 첫 파트너가 됩니다. 토큰을 쓸수록 경험치가 쌓여요.")
+            Text(l.starterPickerSubtitle)
                 .font(.system(size: 10)).foregroundStyle(.secondary)
             if let message {
                 Text(message)
@@ -28,7 +30,7 @@ struct StarterPickerView: View {
                 VStack(alignment: .leading, spacing: 10) {
                     ForEach(StarterCatalog.byGeneration, id: \.generation) { entry in
                         VStack(alignment: .leading, spacing: 4) {
-                            Text("\(entry.generation)세대")
+                            Text(l.generationLabel(entry.generation))
                                 .font(.system(size: 9, weight: .semibold))
                                 .foregroundStyle(.tertiary)
                             HStack(spacing: 8) {
@@ -85,7 +87,7 @@ struct StarterPickerView: View {
             } else {
                 // 이미 스타터를 골랐거나(경합) 카탈로그 밖 — 다시 시도할 수 있게 되돌린다.
                 choosing = nil
-                message = "선택이 반영되지 않았어요. 다시 눌러주세요."
+                message = l.starterPickFailed
             }
         }
     }

@@ -112,7 +112,7 @@ struct PopoverView: View {
             updateBanner
             Picker("", selection: $nav.tab) {
                 Text(l.home).tag(PopoverTab.home)
-                Text("박스").tag(PopoverTab.box)
+                Text(l.box).tag(PopoverTab.box)
                 Text(l.collection).tag(PopoverTab.collection)
             }
             .pickerStyle(.segmented)
@@ -154,10 +154,16 @@ struct PopoverView: View {
                     HStack(spacing: 6) {
                         Text("#\(partner.speciesID)").font(.callout.weight(.semibold))
                         if partner.shiny { Text("✨").font(.system(size: 11)) }
-                        Text(partner.grade.label)
+                        Text(partner.grade.label(player.language))
                             .font(.system(size: 8, weight: .bold))
                             .padding(.horizontal, 5).padding(.vertical, 1)
                             .background(Color.secondary.opacity(0.18), in: Capsule())
+                        if showsEvolutionBadge(for: partner) {
+                            Text(l.evolutionReadyBadge)
+                                .font(.system(size: 8, weight: .bold)).foregroundStyle(.white)
+                                .padding(.horizontal, 5).padding(.vertical, 1)
+                                .background(Color.orange, in: Capsule())
+                        }
                     }
                     Text(partner.nature.name(player.language))
                         .font(.caption2).foregroundStyle(.secondary)
@@ -166,7 +172,19 @@ struct PopoverView: View {
                 }
                 Spacer()
             }
+            .task(id: partner.baseID) {
+                // 홈에서도 배지를 정확히 판단하려면 라인이 필요하다 — 박스 탭을 먼저 안 열어도 로드되게.
+                if evoLines[partner.baseID] == nil { loadLine(partner.baseID) }
+            }
         }
+    }
+
+    /// 홈 진화 배지 표시 여부 — 경험치가 찼어도(canEvolve) 라인이 아직 없거나(로딩 중) 최종형이면
+    /// (진화 후보 없음) 배지를 숨긴다. 라인 미로드 상태에서 배지부터 보여주면, 나중에 최종형으로
+    /// 판명될 때 "눌러도 갈 곳 없는" 배지를 보여준 셈이 된다 — 판단 못 하면 아무것도 보여주지 않는다.
+    private func showsEvolutionBadge(for partner: Individual) -> Bool {
+        guard player.canEvolve(partner), let line = evoLines[partner.baseID] else { return false }
+        return !player.evolutionChoices(partner, line: line).isEmpty
     }
 
     // MARK: 박스 — 진화 라인 로드

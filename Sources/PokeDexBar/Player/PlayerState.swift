@@ -47,11 +47,27 @@ struct PlayerState: Codable, Sendable {
         lastDate = value(.lastDate, "")
         installBaselineSet = value(.installBaselineSet, false)
         partnerID = try? c.decode(UUID.self, forKey: .partnerID)
-        box = value(.box, [])
+        // 박스는 원소 단위로 관대 디코딩한다. 위의 `value(.box, [])` 방식(배열 전체를 한 번에 디코드)을
+        // 쓰면 개체 하나가 깨져도(2b 에서 필드가 느는 시점 등) 배열 디코드 자체가 던져 박스 전체가 빈
+        // 채로 떨어진다 — 도감·지갑은 살아남는데 박스만 사라지는 손상. 실패한 원소만 드롭하고 나머지는 지킨다.
+        let wrappedBox = (try? c.decode([LossyIndividual].self, forKey: .box)) ?? []
+        box = wrappedBox.compactMap(\.individual)
+        if box.count != wrappedBox.count {
+            AppLog.write("PlayerState: dropped \(wrappedBox.count - box.count) malformed individual(s) from box on decode")
+        }
         dex = value(.dex, [])
         slots = value(.slots, 3)
         inventory = value(.inventory, [:])
         ownsShinyCharm = value(.ownsShinyCharm, false)
         language = value(.language, .systemDefault)
+    }
+}
+
+/// `[Individual]` 원소 단위 관대 디코딩 래퍼 — 이 원소만 실패로 삼키고(nil) 배열 디코드 자체는
+/// 계속 진행시킨다(Swift 는 배열 하나가 던지면 전체가 던지므로, 원소를 이 타입으로 감싸 여기서 흡수).
+private struct LossyIndividual: Decodable {
+    let individual: Individual?
+    init(from decoder: Decoder) throws {
+        individual = try? Individual(from: decoder)
     }
 }

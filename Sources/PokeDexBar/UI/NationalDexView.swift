@@ -19,7 +19,7 @@ struct NationalDexView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
-                Text("도감").font(.system(size: 11, weight: .semibold))
+                Text(store.l.collection).font(.system(size: 11, weight: .semibold))
                 Spacer()
                 Text(Self.progressText(caught: store.state.dex.count))
                     .font(.system(size: 10)).monospacedDigit().foregroundStyle(.secondary)

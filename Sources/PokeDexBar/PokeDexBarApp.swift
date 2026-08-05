@@ -66,6 +66,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         popover.delegate = self   // 닫힐 때(popoverDidClose) 호스팅 컨트롤러 해제 → 숨은 채 재레이아웃 비용 제거
 
         observeStore()
+        observePlayer()
         observeDisplaySleep()
         applyState()
     }
@@ -80,6 +81,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
                 guard let self else { return }
                 self.applyState()
                 self.observeStore()
+            }
+        }
+    }
+
+    /// Observation 기반 메뉴바 아이콘 반영 — player 의 표시 종/이로치(스타터 선택·진화·파트너 교체)가
+    /// 바뀌면 즉시 재호출한다. observeStore(usage tick)와 별개 루프가 필요한 이유: 구 시스템은 진화가
+    /// tick 안에서 자동으로 일어나 tick 갱신 하나로 메뉴바까지 따라왔지만, 이 브랜치는 사용자가 직접
+    /// 누르는 조작(스타터 선택·진화·파트너 지정)이 tick 밖에서 상태를 바꾼다 — 이 루프가 없으면 팝오버는
+    /// 즉시 바뀌어도 메뉴바는 다음 usage refresh(기본 120초, 수동 간격이면 무한정)까지 그대로 남는다.
+    private func observePlayer() {
+        withObservationTracking {
+            _ = player.displayedSpeciesID
+            _ = player.displayedIsShiny
+        } onChange: { [weak self] in
+            Task { @MainActor in
+                guard let self else { return }
+                self.ensureMenuAnimation()
+                self.observePlayer()
             }
         }
     }

@@ -111,4 +111,20 @@ final class PlayerStateTests: XCTestCase {
         XCTAssertTrue(AppLanguage.allCases.contains(AppLanguage.systemDefault))
         XCTAssertEqual(PlayerState().language, AppLanguage.systemDefault)
     }
+
+    /// 박스 원소 하나가 깨져도(2b 에서 필드가 느는 시점 등) 나머지 개체는 살아남는다 — 배열을
+    /// 통째로 디코드하면 이 한 원소 때문에 박스 전체가 빈 채로 떨어진다(all-or-nothing 회귀).
+    func testLossyBoxDecodeKeepsGoodIndividualAndDropsMalformedOne() throws {
+        let goodID = UUID()
+        let json = """
+        {"starterChosen":true,"box":[
+          {"id":"\(goodID.uuidString)","baseID":1,"speciesID":1,"pathIDs":[1],"shiny":false,
+           "nature":"serious","exp":0,"obtainedAt":0,"grade":"common"},
+          {"id":"not-a-uuid","baseID":"not-a-number"}
+        ]}
+        """
+        let s = try JSONDecoder().decode(PlayerState.self, from: Data(json.utf8))
+        XCTAssertEqual(s.box.count, 1, "깨진 원소 하나 때문에 박스 전체가 비면 안 된다")
+        XCTAssertEqual(s.box.first?.id, goodID)
+    }
 }

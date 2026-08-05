@@ -3,11 +3,6 @@ import Foundation
 import Observation
 import UserNotifications
 
-/// burn rate 단계 — companion 표시 상태(작업/집중) 판정에 사용.
-enum BurnTier: Sendable {
-    case idle, normal, fast, blazing
-}
-
 @MainActor
 @Observable
 final class UsageStore {
@@ -141,7 +136,9 @@ final class UsageStore {
         return snapshots.reduce(0) { $0 + ($1.today?.date == todayKey ? $1.todayTotalTokens : 0) }
     }
 
-    /// 사용량 데이터(스냅샷)가 하나라도 있는가 — companion sleep 판정용
+    /// 사용량 데이터(스냅샷)가 하나라도 있는가 — PlayerStore.update 의 설치 기준선(installBaselineSet)
+    /// 게이트로 쓰인다: 실제 데이터가 처음 도착한 시점을 기준선으로 잡아야 설치 이전 사용량이
+    /// 지갑에 잘못 적립되지 않는다.
     var hasUsageData: Bool { !snapshots.isEmpty }
 
     /// 메뉴바 표시 줄 규칙 (사용자 확정 — 조합표 전수 검증: `UsageStoreTests.testMenuLinesAllCombinations`):
@@ -211,11 +208,6 @@ final class UsageStore {
         snapshots.first { $0.providerID == "claude_code" }?.activeBlock
     }
 
-    /// 전 프로바이더 활성 블록의 합산 burn (tokens/min) — companion 리듬 판정용.
-    private var combinedBurnPerMinute: Double {
-        snapshots.compactMap { $0.activeBlock?.tokensPerMinute }.reduce(0, +)
-    }
-
     // MARK: 한도 소진 예측
 
     struct FiveHourForecast {
@@ -248,29 +240,6 @@ final class UsageStore {
         return now.addingTimeInterval(minutesLeft * 60)
     }
 
-    /// 메뉴바 경고 상태 — 임계 초과 또는 리셋 전 한도 도달 예측.
-    /// Claude 는 5h 만이 아니라 팝오버가 표시하는 모든 한도 창(주간·모델별 주간 포함)의 위험선을
-    /// 검사한다 — 5h 는 여유롭지만 주간이 100% 인 경우에도 경고/‘지침’ 상태가 뜨도록(누락 수정).
-    var isLimitWarning: Bool {
-        for u in [limits?.fiveHour?.utilization, limits?.sevenDay?.utilization,
-                  limits?.sevenDayOpus?.utilization, limits?.sevenDaySonnet?.utilization] {
-            if let u, u >= critThreshold { return true }
-        }
-        for entry in limits?.scopedLimitEntries ?? [] {
-            if let p = entry.percent, p >= critThreshold { return true }
-        }
-        for bucket in codexLimits?.visibleSnapshots ?? [] {
-            if let utilization = bucket.primary?.usedPercent,
-               Double(utilization) >= critThreshold { return true }
-            if let utilization = bucket.secondary?.usedPercent,
-               Double(utilization) >= critThreshold { return true }
-            if let utilization = bucket.individualLimit?.usedPercent,
-               Double(utilization) >= critThreshold { return true }
-        }
-        if let forecast = fiveHourForecast, forecast.beforeReset { return true }
-        return false
-    }
-
     /// Highest official-limit utilization across providers **used today** (compact surfaces only).
     /// Excludes Codex personal/spend limits (dollars). Renamed from `highestBurnPercent` —
     /// `burn` means token rate elsewhere in this codebase.
@@ -290,20 +259,10 @@ final class UsageStore {
             for bucket in codexLimits?.visibleSnapshots ?? [] {
                 if let u = bucket.primary?.usedPercent { utils.append(Double(u)) }
                 if let u = bucket.secondary?.usedPercent { utils.append(Double(u)) }
-                // individualLimit is a $ spend cap — intentionally omitted (candyEligibleWindows parity).
+                // individualLimit is a $ spend cap — intentionally omitted from utilization aggregates.
             }
         }
         return utils.max()
-    }
-
-    /// burn rate 티어 — companion 표시 상태(idle/working/focus) 판정에 사용.
-    /// 전 프로바이더 합산 — Codex/Gemini 전용 사용자도 코딩 리듬이 반영된다.
-    var burnTier: BurnTier {
-        let burn = combinedBurnPerMinute
-        guard burn > 1_000 else { return .idle }
-        if burn < 100_000 { return .normal }
-        if burn < 400_000 { return .fast }
-        return .blazing
     }
 
     var isStale: Bool {
@@ -518,7 +477,7 @@ final class UsageStore {
             for await (id, enrichment) in group {
                 guard let index = snapshots.firstIndex(where: { $0.providerID == id }) else {
                     // 캐리어 스냅샷은 "**실제 활성 5h 블록**이 있을 때만" 만든다(어제 늦은밤 코딩이 5h
-                    // 윈도우에 남아 자정 후 오늘 토큰 0인 경우 — burn/forecast/companion 보존). 주/월
+                    // 윈도우에 남아 자정 후 오늘 토큰 0인 경우 — forecast·"현재 블록" 행 보존). 주/월
                     // 누적만으로 만들면, weekTotal 이 옵셔널이 아니라(토큰 0이어도 non-nil) 오늘·최근
                     // 미사용 프로바이더까지 탭이 떠서 "안 썼는데 왜 뜨지" 회귀가 난다. 블록이 있을 때만
                     // 그 시점의 주/월도 함께 보존한다.
@@ -575,7 +534,7 @@ final class UsageStore {
         let summary = snapshots.map { "\($0.providerID):\($0.today?.date ?? "nil")=\($0.todayTotalTokens)" }
             .joined(separator: ", ")
         AppLog.write("refresh done [\(summary)]")
-        onRefresh?()   // 한도 로드 후 companion 갱신·사탕 지급(신선한 한도 시점)
+        onRefresh?()   // 한도 로드 후 player(지갑·파트너 경험치) 갱신 — 한도가 신선한 시점에 맞춘다
     }
 
     private func handleEmptyUsageRetry(schedule: Bool, hasErrors: Bool) {

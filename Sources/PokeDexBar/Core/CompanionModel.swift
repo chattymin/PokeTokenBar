@@ -35,15 +35,6 @@ enum AppLanguage: String, Codable, Sendable, CaseIterable {
 /// 희귀도 — PokéAPI capture_rate / is_legendary 로 판정.
 enum Rarity: String, Codable, Sendable {
     case common, uncommon, rare, legendary
-    /// 정렬 순위(높을수록 희귀). 도감 정렬 — legendary→rare→uncommon→common.
-    var sortRank: Int {
-        switch self {
-        case .common:    return 0
-        case .uncommon:  return 1
-        case .rare:      return 2
-        case .legendary: return 3
-        }
-    }
     static func from(captureRate: Int, isLegendary: Bool, isMythical: Bool) -> Rarity {
         if isLegendary || isMythical { return .legendary }
         if captureRate <= 45 { return .rare }
