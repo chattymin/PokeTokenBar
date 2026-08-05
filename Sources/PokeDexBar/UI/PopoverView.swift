@@ -124,7 +124,7 @@ struct PopoverView: View {
             if nav.tab == .box {
                 BoxTabView(store: player, lines: evoLines) { baseID in loadLine(baseID) }
             } else if nav.tab == .collection {
-                CollectionView(store: companion)
+                NationalDexView(store: player)
             } else if nav.tab == .bag {
                 BagView(store: companion, nav: nav)
             } else if nav.tab == .shop {
