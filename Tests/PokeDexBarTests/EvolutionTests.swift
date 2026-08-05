@@ -30,6 +30,15 @@ final class EvolutionTests: XCTestCase {
                 rarity: .rare, names: [:])
     }
 
+    /// 구구 → 피죤 → 피죤투 (일직선). 같은 종 개체 두 마리가 서로 독립적으로 진화하는지 확인하는 데 쓴다.
+    private func pidgeyLine() -> EvoLine {
+        EvoLine(baseID: 16,
+                tree: EvoNode(speciesID: 16, children: [
+                    EvoNode(speciesID: 17, children: [EvoNode(speciesID: 18, children: [])]),
+                ]),
+                rarity: .common, names: [:])
+    }
+
     private func partner(of store: PlayerStore) -> Individual { store.state.partner! }
 
     private func giveExp(_ store: PlayerStore, _ amount: Int) {
@@ -116,5 +125,68 @@ final class EvolutionTests: XCTestCase {
         let after = store.state.box.first { $0.id == eevee.id }!
         XCTAssertEqual(after.speciesID, 135)
         XCTAssertEqual(after.pathIDs, [133, 135])
+    }
+
+    // MARK: 개체 독립성 — 같은 종이라도 개체별로 진화 상태가 갈린다
+
+    /// 구구 두 마리가 서로 다른 경험치를 쌓으면 한쪽만 진화 가능해야 한다.
+    func testSameSpeciesIndividualsDivergeIndependently() {
+        let store = makeStore()
+        var ready = Individual(baseID: 16, speciesID: 16, pathIDs: [16],
+                               nature: .serious, obtainedAt: now, grade: .common)
+        ready.exp = ExpBalance.threshold(grade: .common, stageIndex: 0)   // 임계 도달
+        var notReady = Individual(baseID: 16, speciesID: 16, pathIDs: [16],
+                                  nature: .jolly, obtainedAt: now, grade: .common)
+        notReady.exp = 10_000_000   // 임계 미달
+        store.addForTesting(ready)
+        store.addForTesting(notReady)
+
+        XCTAssertTrue(store.canEvolve(ready))
+        XCTAssertFalse(store.canEvolve(notReady))
+    }
+
+    /// 한쪽 구구를 진화시켜도 다른 쪽 구구는 그대로 남는다 — 종 단위가 아니라 개체 단위로 진화한다.
+    func testEvolvingOneLeavesOtherUntouched() {
+        let store = makeStore()
+        var ready = Individual(baseID: 16, speciesID: 16, pathIDs: [16],
+                               nature: .serious, obtainedAt: now, grade: .common)
+        ready.exp = ExpBalance.threshold(grade: .common, stageIndex: 0)
+        var notReady = Individual(baseID: 16, speciesID: 16, pathIDs: [16],
+                                  nature: .jolly, obtainedAt: now, grade: .common)
+        notReady.exp = 10_000_000
+        store.addForTesting(ready)
+        store.addForTesting(notReady)
+
+        XCTAssertTrue(store.evolve(individualID: ready.id, to: 17, line: pidgeyLine()))
+
+        let evolved = store.state.box.first { $0.id == ready.id }!
+        let untouched = store.state.box.first { $0.id == notReady.id }!
+        XCTAssertEqual(evolved.speciesID, 17)
+        XCTAssertEqual(evolved.pathIDs, [16, 17])
+        XCTAssertEqual(untouched.speciesID, 16, "다른 개체는 종이 바뀌면 안 된다")
+        XCTAssertEqual(untouched.pathIDs, [16], "다른 개체는 경로가 바뀌면 안 된다")
+        XCTAssertEqual(untouched.exp, 10_000_000, "다른 개체의 경험치도 그대로여야 한다")
+        XCTAssertEqual(store.state.box.count, 2)
+        XCTAssertNotEqual(evolved.id, untouched.id)
+    }
+
+    /// 진화 후에도 박스와 도감에 16 번(구구)과 17 번(피죤)이 동시에 존재해야 한다.
+    func testBothFormsCoexistAfterEvolution() {
+        let store = makeStore()
+        var ready = Individual(baseID: 16, speciesID: 16, pathIDs: [16],
+                               nature: .serious, obtainedAt: now, grade: .common)
+        ready.exp = ExpBalance.threshold(grade: .common, stageIndex: 0)
+        var notReady = Individual(baseID: 16, speciesID: 16, pathIDs: [16],
+                                  nature: .jolly, obtainedAt: now, grade: .common)
+        notReady.exp = 10_000_000
+        store.addForTesting(ready)
+        store.addForTesting(notReady)
+
+        XCTAssertTrue(store.evolve(individualID: ready.id, to: 17, line: pidgeyLine()))
+
+        XCTAssertTrue(store.state.box.contains { $0.speciesID == 16 })
+        XCTAssertTrue(store.state.box.contains { $0.speciesID == 17 })
+        XCTAssertTrue(store.state.dex.contains(16))
+        XCTAssertTrue(store.state.dex.contains(17))
     }
 }
