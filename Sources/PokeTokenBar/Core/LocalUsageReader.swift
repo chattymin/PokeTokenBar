@@ -511,10 +511,14 @@ enum LocalUsageReader {
             if let parentID = rollout.parentSessionID {
                 for candidate in bySession[parentID] ?? [] where candidate.path != rollout.path {
                     let resolvedParent = resolve(candidate, visiting: &visiting)
+                    // prefix 가 하나도 안 겹치면(=0) 부모를 찾았어도 대조할 근거가 없다. 후보로 세면
+                    // replayCount 0 으로 아무것도 못 자르고 시간 fallback 도 건너뛰어 부모를 못 찾은
+                    // 경우보다 나빠진다(CLI 가 바뀌어 첫 vector 부터 어긋나는 fork). 여기서 걸러
+                    // `bestParentMatch` 는 "실제로 겹치는 prefix 를 가진 부모"만 담게 한다.
                     guard let replayCount = comparableUsagePrefixCount(
                         rollout.events,
                         resolvedParent.history
-                    ) else { continue }
+                    ), replayCount > 0 else { continue }
                     if let current = bestParentMatch {
                         if replayCount > current.replayCount {
                             bestParentMatch = (replayCount, resolvedParent.history)

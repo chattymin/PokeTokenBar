@@ -107,12 +107,15 @@ final class LocalUsageReaderTests: XCTestCase {
         lastCached: Int = 0,
         lastOutput: Int,
         lastReasoning: Int = 0,
-        lastTotal: Int? = nil
+        lastTotal: Int? = nil,
+        cacheWrite: Int? = nil
     ) -> String {
         let cumulativeTotal = cumulativeInput + cumulativeOutput
         let reportedLastTotal = lastTotal ?? (lastInput + lastOutput)
+        // 구버전 CLI 는 이 키를 아예 쓰지 않는다 — nil 이면 키 자체를 빼서 그 형태를 재현한다.
+        let cacheWriteField = cacheWrite.map { ",\"cache_write_input_tokens\":\($0)" } ?? ""
         return """
-        {"type":"event_msg","timestamp":"\(ts)","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":\(cumulativeInput),"cached_input_tokens":\(cumulativeCached),"output_tokens":\(cumulativeOutput),"reasoning_output_tokens":\(cumulativeReasoning),"total_tokens":\(cumulativeTotal)},"last_token_usage":{"input_tokens":\(lastInput),"cached_input_tokens":\(lastCached),"output_tokens":\(lastOutput),"reasoning_output_tokens":\(lastReasoning),"total_tokens":\(reportedLastTotal)}}}}
+        {"type":"event_msg","timestamp":"\(ts)","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":\(cumulativeInput),"cached_input_tokens":\(cumulativeCached)\(cacheWriteField),"output_tokens":\(cumulativeOutput),"reasoning_output_tokens":\(cumulativeReasoning),"total_tokens":\(cumulativeTotal)},"last_token_usage":{"input_tokens":\(lastInput),"cached_input_tokens":\(lastCached)\(cacheWriteField),"output_tokens":\(lastOutput),"reasoning_output_tokens":\(lastReasoning),"total_tokens":\(reportedLastTotal)}}}}
         """
     }
 
@@ -313,6 +316,42 @@ final class LocalUsageReaderTests: XCTestCase {
         let entries = LocalUsageReader.codexEntries(modifiedSince: .distantPast, root: dir)
 
         XCTAssertEqual(entries.map(\.output).sorted(), [50, 51, 99])
+    }
+
+    /// 부모를 찾았는데 첫 vector 부터 어긋나면(예: CLI 가 바뀌어 `cache_write_input_tokens` 를 채우기
+    /// 시작) 겹치는 prefix 가 0 이다. 이때 "부모를 찾았다"로 처리하면 아무것도 못 자르면서 시간
+    /// fallback 도 건너뛰어 **부모를 못 찾은 경우보다 나쁜** 결과가 된다.
+    func testCodexManualForkFallsBackWhenFoundParentPrefixDoesNotMatch() {
+        let dir = tempDir()
+        write([
+            codexSessionMeta(id: "parent", ts: "2026-07-29T01:00:00.000Z"),
+            codexStateLine(ts: "2026-07-29T01:00:01.000Z",
+                           cumulativeInput: 100, cumulativeOutput: 10,
+                           lastInput: 100, lastOutput: 10),
+            codexStateLine(ts: "2026-07-29T01:00:02.000Z",
+                           cumulativeInput: 300, cumulativeOutput: 30,
+                           lastInput: 200, lastOutput: 20),
+        ], to: dir, name: "parent.jsonl")
+        write([
+            forkedSessionMeta(ts: "2026-07-30T01:00:00.000Z"),
+            codexSessionMeta(id: "parent", ts: "2026-07-30T01:00:00.001Z"),
+            // 부모와 같은 두 턴을 replay 하지만 새 CLI 가 cache_write 를 기록해 vector 가 다르다.
+            codexStateLine(ts: "2026-07-30T01:00:00.010Z",
+                           cumulativeInput: 100, cumulativeOutput: 10,
+                           lastInput: 100, lastOutput: 10, cacheWrite: 7),
+            codexStateLine(ts: "2026-07-30T01:00:00.020Z",
+                           cumulativeInput: 300, cumulativeOutput: 30,
+                           lastInput: 200, lastOutput: 20, cacheWrite: 7),
+            // 여기부터가 child 의 실제 턴(replay burst 와 1초 이상 떨어져 있다).
+            codexStateLine(ts: "2026-07-30T01:00:03.000Z",
+                           cumulativeInput: 1_300, cumulativeOutput: 128,
+                           lastInput: 1_000, lastOutput: 98, cacheWrite: 7),
+        ], to: dir, name: "child.jsonl")
+
+        let entries = LocalUsageReader.codexEntries(modifiedSince: .distantPast, root: dir)
+
+        XCTAssertEqual(entries.map(\.total).sorted(), [110, 220, 1_098],
+                       "부모 두 턴 + child 자신의 턴 하나. replay 는 시간 fallback 으로 잘려야 한다")
     }
 
     func testCodexForkTrimsReplayBeforeDroppingActualSameStateRerecord() {
