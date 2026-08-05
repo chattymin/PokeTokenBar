@@ -110,6 +110,19 @@ final class PlayerStore {
         state.dex.insert(individual.speciesID)
         save()
     }
+
+    /// 테스트 전용 — 지갑·슬롯·알 개수를 직접 세팅한다(적립 경로를 돌리지 않고).
+    func seedForTesting(wallet: Int, slots: Int, eggs: Int, at date: Date) {
+        mutate {
+            $0.earnedTokens = wallet
+            $0.spentTokens = 0
+            $0.slots = slots
+            $0.eggs = (0..<eggs).map { _ in
+                Egg(grade: .common, speciesID: 1, shiny: false, startedAt: date,
+                    hatchesAt: date.addingTimeInterval(EggBalance.duration(.common)))
+            }
+        }
+    }
     #endif
 
     // MARK: 영속
@@ -136,4 +149,12 @@ final class PlayerStore {
         change(&state)
         save()
     }
+
+    /// 0…1 난수. 확장(뽑기)이 주입된 rng 를 쓰는 유일한 창구.
+    func nextRandomUnit() -> Double {
+        Double(rng.next() % 1_000_000) / 1_000_000
+    }
+
+    /// 주입된 시계. 확장이 시각을 얻는 유일한 창구.
+    func currentDate() -> Date { now() }
 }
