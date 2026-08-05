@@ -69,7 +69,8 @@ actor LocalUsageCache {
     /// **세션 id 추출 규칙**(`session_meta` 의 id/session_id 해석·probe 종료 조건)이 바뀔 때만 올린다.
     /// resolver 변경으로 오르는 `codexParserVersion` 과 분리 — 같이 묶으면 replay 로직을 고칠 때마다
     /// 인덱스가 통째로 날아가 다음 고아 조회에서 전수 probe 가 되살아난다.
-    private static let codexSessionIndexVersion = 1
+    /// v2: 읽기 실패를 "세션 id 없음"으로 저장하던 v1 항목을 버린다(구분이 불가능해 신뢰할 수 없음).
+    private static let codexSessionIndexVersion = 2
     /// Grok 토큰 매핑(캐시분 분리·비용 신뢰 조건) 변경 시 Grok blob만 재파싱한다.
     private static let grokParserVersion = 1
 
@@ -89,11 +90,14 @@ actor LocalUsageCache {
     private let grokRoot: URL?
     private let fileURL: URL
     private let now: @Sendable () -> Date
-    private let codexProbe: @Sendable (URL) -> String?
+    /// throwing probe 를 쓴다 — 읽기 실패(throw)와 "metadata 없음"(`nil`)은 인덱스에 남길지가 다르다.
+    private let codexProbe: @Sendable (URL) throws -> String?
 
     init(claudeRoot: URL? = nil, codexRoot: URL? = nil, geminiRoot: URL? = nil, grokRoot: URL? = nil,
          fileURL: URL? = nil, now: @escaping @Sendable () -> Date = Date.init,
-         codexProbe: @escaping @Sendable (URL) -> String? = { LocalUsageReader.codexRolloutSessionID(at: $0) }) {
+         codexProbe: @escaping @Sendable (URL) throws -> String? = {
+             try LocalUsageReader.probeCodexRolloutSessionID(at: $0)
+         }) {
         self.claudeRoot = claudeRoot
         self.codexRoot = codexRoot
         self.geminiRoot = geminiRoot
@@ -251,6 +255,10 @@ actor LocalUsageCache {
             return .unknown
         }
 
+        // 이번 호출에서 읽기에 실패한 파일. 인덱스에는 남기지 않으므로(다음 새로고침에 재시도)
+        // 고아 부모가 여러 개일 때 같은 파일을 부모 id 마다 다시 여는 것만 막는다.
+        var temporarilyFailedPaths: Set<String> = []
+
         // parent가 오래돼 조회 mtime 범위에서 빠졌어도 child replay와 대조할 수 있도록 closure를 확장.
         let result = LocalUsageReader.expandCodexParentClosure(
             windowFiles: files.filter { $0.mtime >= since },
@@ -258,9 +266,15 @@ actor LocalUsageCache {
             load: load,
             sessionIDKnowledge: sessionIDKnowledge,
             probeSessionID: { file in
-                let id = codexProbe(file.url)
-                rememberSessionID(id, of: file)
-                return id
+                if temporarilyFailedPaths.contains(file.path) { return nil }
+                do {
+                    let id = try codexProbe(file.url)
+                    rememberSessionID(id, of: file)   // nil = "이 파일엔 세션 id 가 없다"(확정)
+                    return id
+                } catch {
+                    temporarilyFailedPaths.insert(file.path)
+                    return nil
+                }
             }
         )
 

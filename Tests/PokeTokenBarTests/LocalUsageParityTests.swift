@@ -125,10 +125,12 @@ final class LocalUsageParityTests: XCTestCase {
                                         atomically: true, encoding: .utf8)
 
         let probes = ProbeMeter()
+        // 캐시에 주입하는 probe 는 결과를 인덱스에 영속화하므로 throwing 버전을 써야 한다.
+        // 편의 래퍼를 쓰면 I/O 실패가 "세션 id 없음"으로 굳어, 정확히 그 결함을 이 테스트가 재현한다.
         let cache = LocalUsageCache(codexRoot: tree, fileURL: cacheFile,
                                     codexProbe: { url in
                                         probes.bump()
-                                        return LocalUsageReader.codexRolloutSessionID(at: url)
+                                        return try LocalUsageReader.probeCodexRolloutSessionID(at: url)
                                     })
         let since = LocalUsageReader.startOfMonth(Date())
 

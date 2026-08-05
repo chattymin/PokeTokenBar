@@ -9,6 +9,30 @@ private final class ProbeCounter: @unchecked Sendable {
     func bump() { lock.lock(); value += 1; lock.unlock() }
 }
 
+/// 지정한 파일의 첫 probe 만 실패시키는 시임 — 일시적 I/O 오류를 결정적으로 재현한다.
+private final class FlakyProbe: @unchecked Sendable {
+    private let lock = NSLock()
+    private var pendingFailures: Set<String>
+    private var counts: [String: Int] = [:]
+
+    init(failOnceFor names: Set<String>) { pendingFailures = names }
+
+    func callCount(_ name: String) -> Int {
+        lock.lock(); defer { lock.unlock() }
+        return counts[name] ?? 0
+    }
+
+    func probe(_ url: URL) throws -> String? {
+        let name = url.lastPathComponent
+        lock.lock()
+        counts[name, default: 0] += 1
+        let shouldFail = pendingFailures.remove(name) != nil
+        lock.unlock()
+        if shouldFail { throw CocoaError(.fileReadUnknown) }
+        return try LocalUsageReader.probeCodexRolloutSessionID(at: url)
+    }
+}
+
 /// 저장 throttle(60초)·prune(40일)을 결정적으로 넘기기 위한 조작 가능한 시계.
 private final class Clock: @unchecked Sendable {
     private let lock = NSLock()
@@ -94,11 +118,13 @@ final class LocalUsageCacheTests: XCTestCase {
     }
 
     private func makeCache(now: @escaping @Sendable () -> Date = Date.init,
-                           probes: ProbeCounter? = nil) -> LocalUsageCache {
+                           probes: ProbeCounter? = nil,
+                           probe: (@Sendable (URL) throws -> String?)? = nil) -> LocalUsageCache {
         LocalUsageCache(claudeRoot: root, codexRoot: root, fileURL: cacheFile, now: now,
                         codexProbe: { url in
                             probes?.bump()
-                            return LocalUsageReader.codexRolloutSessionID(at: url)
+                            if let probe { return try probe(url) }
+                            return try LocalUsageReader.probeCodexRolloutSessionID(at: url)
                         })
     }
 
@@ -333,6 +359,95 @@ final class LocalUsageCacheTests: XCTestCase {
         let restoredProbes = ProbeCounter()
         _ = await makeCache(probes: restoredProbes).codexEntries(modifiedSince: orphanWindow)
         XCTAssertEqual(restoredProbes.count, 0, "negative probe 결과가 스냅샷에서도 복원돼야 한다")
+    }
+
+    /// 읽기 실패는 "세션 id 없음"과 다르다 — 인덱스에 굳히지 않고 다음 새로고침에 다시 시도한다.
+    /// 대신 같은 새로고침 안에서는 고아 부모가 여럿이어도 그 파일을 한 번만 연다.
+    func testCodexProbeReadFailureIsRetriedInsteadOfPersisted() async throws {
+        try writeOrphanedForkTree()
+        // 두 번째 고아 부모 — 실패한 파일을 부모 id 마다 다시 열지 않는지 보기 위해.
+        try writeFile("rollout-child2.jsonl", lines: [
+            forkMeta(id: "child2", parentID: "gone-parent-2", ts: "2026-07-30T02:00:00.000Z"),
+            codexStateLine(ts: "2026-07-30T02:00:05.000Z",
+                           cumulativeInput: 10, cumulativeOutput: 1, lastInput: 10, lastOutput: 1),
+        ], mtime: Date(timeIntervalSince1970: 3_000))
+
+        let flaky = FlakyProbe(failOnceFor: ["rollout-alpha.jsonl"])
+        let cache = makeCache(probe: flaky.probe)
+
+        _ = await cache.codexEntries(modifiedSince: orphanWindow)
+        XCTAssertEqual(flaky.callCount("rollout-alpha.jsonl"), 1,
+                       "같은 새로고침 안에서 실패한 파일을 다시 열면 안 된다")
+
+        _ = await cache.codexEntries(modifiedSince: orphanWindow)
+        XCTAssertEqual(flaky.callCount("rollout-alpha.jsonl"), 2,
+                       "읽기 실패는 인덱스에 굳지 않는다 — 다음 새로고침에 재시도")
+        XCTAssertEqual(flaky.callCount("rollout-beta.jsonl"), 1,
+                       "성공한 결과는 인덱스에서 재사용된다")
+
+        _ = await cache.codexEntries(modifiedSince: orphanWindow)
+        XCTAssertEqual(flaky.callCount("rollout-alpha.jsonl"), 2,
+                       "재시도가 성공한 뒤에는 다시 열지 않는다")
+    }
+
+    /// 실패한 probe 결과는 디스크 스냅샷에도 남지 않는다 — 새 인스턴스가 그 파일을 다시 연다.
+    func testCodexProbeReadFailureIsNotPersistedToSnapshot() async throws {
+        try writeOrphanedForkTree()
+
+        let flaky = FlakyProbe(failOnceFor: ["rollout-alpha.jsonl"])
+        _ = await makeCache(probe: flaky.probe).codexEntries(modifiedSince: orphanWindow)
+
+        // 같은 스냅샷을 읽는 새 인스턴스(콜드 스타트). 이번 probe 는 실패하지 않는다.
+        let restored = FlakyProbe(failOnceFor: [])
+        _ = await makeCache(probe: restored.probe).codexEntries(modifiedSince: orphanWindow)
+
+        XCTAssertEqual(restored.callCount("rollout-alpha.jsonl"), 1,
+                       "실패는 스냅샷에 남지 않는다 — 새 인스턴스가 다시 시도해야 한다")
+        XCTAssertEqual(restored.callCount("rollout-beta.jsonl"), 0,
+                       "성공한 결과는 스냅샷에서 복원된다")
+    }
+
+    /// 인덱스 버전이 오르면 인덱스만 다시 만든다 — parsed rollout blob 은 그대로 재사용한다.
+    func testCodexSessionIndexVersionBumpRebuildsIndexWithoutReparsingBlobs() async throws {
+        // prune(40일)에 걸리지 않도록 최근 mtime 을 쓰되, alpha 는 조회 윈도우 밖에 둔다.
+        let second = floor(Date().timeIntervalSince1970)
+        let outsideWindow = Date(timeIntervalSince1970: second - 7_200)
+        let insideWindow = Date(timeIntervalSince1970: second - 3_600)
+        let window = Date(timeIntervalSince1970: second - 5_400)
+        try writeFile("rollout-alpha.jsonl", lines: [
+            sessionMeta(id: "alpha", ts: "2026-07-29T01:00:00.000Z"),
+            codexStateLine(ts: "2026-07-29T01:00:01.000Z",
+                           cumulativeInput: 10, cumulativeOutput: 1, lastInput: 10, lastOutput: 1),
+        ], mtime: outsideWindow)
+        try writeFile("rollout-child.jsonl", lines: orphanedForkLines(lastOutput: 20),
+                      mtime: insideWindow)
+
+        _ = await makeCache().codexEntries(modifiedSince: window)
+        try downgradeCodexSessionIndexVersion()
+
+        // blob 이 살아 있다면 mtime·size 가 같은 이 교체는 무시된다(220 유지).
+        try writeFile("rollout-child.jsonl", lines: orphanedForkLines(lastOutput: 30),
+                      mtime: insideWindow)
+
+        let probes = ProbeCounter()
+        let entries = await makeCache(probes: probes).codexEntries(modifiedSince: window)
+
+        XCTAssertEqual(probes.count, 1, "구버전 인덱스 항목은 신뢰할 수 없으므로 다시 probe 한다")
+        XCTAssertEqual(entries.map(\.total), [220], "blob 은 재사용된다 — 전체 재파싱이 아니다")
+    }
+
+    private func downgradeCodexSessionIndexVersion() throws {
+        let raw = try Data(contentsOf: cacheFile)
+        let plain = (try? (raw as NSData).decompressed(using: .zlib) as Data) ?? raw
+        var snapshot = try XCTUnwrap(JSONSerialization.jsonObject(with: plain) as? [String: Any])
+        XCTAssertFalse(
+            (snapshot["codexSessionIDs"] as? [String: Any] ?? [:]).isEmpty,
+            "다운그레이드 대상 인덱스가 비어 있으면 테스트가 아무것도 검증하지 못한다")
+        snapshot["codexSessionIndexVersion"] = 1
+
+        let data = try JSONSerialization.data(withJSONObject: snapshot)
+        let compressed = try (data as NSData).compressed(using: .zlib) as Data
+        try compressed.write(to: cacheFile, options: .atomic)
     }
 
     /// 인덱스는 blob 과 같은 `(path, mtime, size)` 로만 무효화된다 — 바뀐 파일만 다시 연다.

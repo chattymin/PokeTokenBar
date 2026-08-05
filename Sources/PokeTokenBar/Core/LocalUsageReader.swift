@@ -443,15 +443,22 @@ enum LocalUsageReader {
     /// `String(data:encoding:)` 이 통째로 nil 이 되어(실측: 로컬 rollout 109개 중 14개가 64KB 경계에서
     /// strict 디코드 실패) "세션 id 없음"으로 잘못 보고하고, 첫 줄이 컷보다 길어도 같은 결과가 된다.
     /// → chunk 를 읽되 **개행으로 완성된 줄만** 디코드한다.
-    static func codexRolloutSessionID(at url: URL, byteLimit: Int = codexProbeByteLimit) -> String? {
-        guard let handle = try? FileHandle(forReadingFrom: url) else { return nil }
+    /// 결과가 `nil` 이면 **정상적으로 읽었지만 쓸 수 있는 metadata 가 없다**는 뜻이다(meta 부재·
+    /// token_count 선행·손상된 줄·상한 초과 — 모두 파일 내용의 결정적 속성이라 재시도해도 같다).
+    /// 파일을 열거나 읽지 못한 경우는 throw 한다. 그 둘을 합치면 일시적인 I/O 실패가 "세션 id 없음"
+    /// 으로 캐시에 굳어, 파일의 mtime·size 가 바뀔 때까지 잘못된 판정이 유지된다.
+    static func probeCodexRolloutSessionID(
+        at url: URL,
+        byteLimit: Int = codexProbeByteLimit
+    ) throws -> String? {
+        let handle = try FileHandle(forReadingFrom: url)
         defer { try? handle.close() }
 
         var buffer = Data()
         var read = 0
         while read < byteLimit {
             // 남은 예산까지만 읽어 상한을 정확히 지킨다(0 바이트 요청 = EOF 오인 방지).
-            guard let chunk = try? handle.read(upToCount: min(codexProbeChunkSize, byteLimit - read)),
+            guard let chunk = try handle.read(upToCount: min(codexProbeChunkSize, byteLimit - read)),
                   !chunk.isEmpty else {
                 // EOF — 개행 없이 끝나는 마지막 줄도 완성된 줄로 취급한다.
                 if case .sessionID(let id) = codexProbeOutcome(of: buffer) { return id }
@@ -478,6 +485,13 @@ enum LocalUsageReader {
         // 파일이 개행 없이 정확히 byteLimit에서 끝난 경우에도 완성된 JSON 한 줄이면 인정한다.
         if case .sessionID(let id) = codexProbeOutcome(of: buffer) { return id }
         return nil   // 상한 도달 — 아직 meta 를 못 찾았거나 줄이 완성되지 않았다
+    }
+
+    /// 읽기 실패를 "metadata 없음"과 같은 `nil` 로 합치는 편의 API.
+    /// **결과를 영속화하는 호출자는 `probeCodexRolloutSessionID` 를 써야 한다** — 이 래퍼로 얻은
+    /// `nil` 을 캐시에 남기면 일시적 I/O 실패가 그대로 굳는다.
+    static func codexRolloutSessionID(at url: URL, byteLimit: Int = codexProbeByteLimit) -> String? {
+        try? probeCodexRolloutSessionID(at: url, byteLimit: byteLimit)
     }
 
     private static func codexProbeOutcome(of line: Data) -> CodexProbeOutcome {
