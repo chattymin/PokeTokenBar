@@ -92,6 +92,14 @@ struct SpriteView: View {
     @State private var frames: [(image: NSImage, delay: TimeInterval)] = []
     @State private var frameIndex = 0
 
+    #if DEBUG
+    /// 테스트 전용 생성 카운터 — 지연 로드(LazyVGrid 등)가 실제로 화면 밖 칸을 안 만드는지 재는 계측.
+    /// `@MainActor` 뷰라 실제로는 메인 스레드에서만 증가하므로 락 없는 평범한 static Int 로 충분하다.
+    /// DEBUG 빌드에만 존재 — 릴리스 바이너리는 이 카운터를 전혀 담지 않는다.
+    @MainActor static var constructionCount = 0
+    @MainActor static func resetConstructionCount() { constructionCount = 0 }
+    #endif
+
     init(speciesID: Int?, size: CGFloat = 84, bob: Bool = false, animated: Bool = false,
          shiny: Bool = false, minFrameDelay: TimeInterval = 0, antialias: Bool = false) {
         self.speciesID = speciesID
@@ -101,6 +109,9 @@ struct SpriteView: View {
         self.shiny = shiny
         self.minFrameDelay = minFrameDelay
         self.antialias = antialias
+        #if DEBUG
+        Self.constructionCount += 1
+        #endif
         // 캐시에 있으면 즉시(동기) 표시 — 재렌더 플래시 방지 + 정적 스냅샷에서도 보임.
         // speciesID==nil(알 상태)이면 알 스프라이트를 시드(없으면 body 가 🥚 폴백).
         let cached = speciesID.map { SpriteLoader.cachedImage(speciesID: $0, shiny: shiny) } ?? SpriteLoader.cachedEggImage()
