@@ -14,9 +14,9 @@ struct ShopTabView: View {
     private var l: L { store.l }
 
     /// 뽑기 확률 표기. 밸런스 표에서 만들어 문구와 수치가 어긋나지 않게 한다.
-    /// 언어 인자는 기본값(`.ko`)이 있어 순수 테스트(`oddsText()`)로 수치를 잠글 수 있고,
-    /// 실제 화면에서는 스토어 언어를 넘겨 로캘에 맞게 보여준다.
-    nonisolated static func oddsText(_ lang: AppLanguage = .ko) -> String {
+    /// 언어는 필수 인자다(`AppLanguage` 의 "미정" 관례는 `.systemDefault` — `.ko` 를 기본값으로
+    /// 두면 이 파일만 다른 컨벤션을 갖게 된다). 화면에서는 스토어 언어를 그대로 넘긴다.
+    nonisolated static func oddsText(_ lang: AppLanguage) -> String {
         EggBalance.odds
             .map { "\($0.grade.label(lang)) \(Int($0.probability * 100))%" }
             .joined(separator: " · ")
@@ -120,7 +120,7 @@ struct ShopTabView: View {
         }
     }
 
-    /// 등급·이로치를 굴리고, 그 등급 안에서 베이스 종을 포획률 가중으로 고른다.
+    /// 등급·이로치를 굴리고, 그 등급 안에서 베이스 종을 포획률 가중으로 고른다(`EggBalance.pickSpecies`).
     /// 후보는 네트워크(베이스 인덱스)라 여기서 받아 스토어에 넘긴다.
     private func draw() {
         drawing = true
@@ -137,21 +137,7 @@ struct ShopTabView: View {
             // 그 사이 뷰가 사라져 취소됐으면(팝오버 닫힘 등) 착지하지 않는다 — 늦게 도착한
             // 조회가 다음 뽑기와 경합해 조용히 이기는 걸 막는다.
             guard !Task.isCancelled else { return }
-            let pool = index.filter {
-                Grade.from(captureRate: $0.captureRate, isLegendary: false, isMythical: false)
-                    == roll.grade
-            }
-            // 레전더리는 포획률만으로는 갈리지 않는다(인덱스에 전설 플래그가 없다) —
-            // 그 등급의 후보가 비면 한 단계 아래에서 고른다.
-            let candidates = pool.isEmpty ? index : pool
-            let weights = candidates.map { max(1, $0.captureRate) }
-            let total = weights.reduce(0, +)
-            var pick = Int(store.nextRandomUnit() * Double(total)) % max(1, total)
-            var chosen = candidates[0].id
-            for (candidate, weight) in zip(candidates, weights) {
-                if pick < weight { chosen = candidate.id; break }
-                pick -= weight
-            }
+            let chosen = EggBalance.pickSpecies(from: index, grade: roll.grade, roll: store.nextRandomUnit())
             store.startEgg(grade: roll.grade, speciesID: chosen, shiny: roll.shiny)
         }
     }

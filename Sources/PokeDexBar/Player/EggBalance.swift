@@ -66,4 +66,47 @@ enum EggBalance {
     static func rollShiny(_ roll: Double, hasCharm: Bool) -> Bool {
         roll < (hasCharm ? 1.0 / 48 : 1.0 / 64)
     }
+
+    // MARK: 뽑기 종 선택
+
+    /// `index` 안에서 `grade` 등급 후보만 걸러 포획률 가중으로 하나를 고른다. `index` 는 비어있지
+    /// 않아야 한다(호출부가 네트워크 인덱스를 이미 non-empty 로 확인해 둔다).
+    ///
+    /// 그 등급의 후보가 하나도 없으면(레전더리·미시컬 플래그가 인덱스에 없던 시절의 결함이 정확히
+    /// 이 경로였다) 전체 인덱스로 넓히지 않는다 — 그러면 포획률 가중이 가장 흔한(=가장 안 희귀한)
+    /// 종을 오히려 편애해, "레전더리 5%"를 뽑고 최흔 종을 받는 사태가 난다. 대신 한 단계 아래
+    /// 등급에서 다시 찾는다(레전더리 없음 → 에픽 → 레어 → 커먼). 커먼까지 내려가도 비어 있으면
+    /// (인덱스 자체가 비어있지 않다고 보장되므로 이론상 불가능한 경우) 최후의 보루로 전체를 쓴다.
+    static func pickSpecies(from index: [BaseSpecies], grade: Grade, roll: Double) -> Int {
+        precondition(!index.isEmpty, "index must not be empty")
+        let order = Grade.allCases   // 선언 순서 == common, rare, epic, legendary(낮은 등급 → 높은 등급)
+        var candidates: [BaseSpecies] = []
+        if let start = order.firstIndex(of: grade) {
+            var i = start
+            while true {
+                let pool = index.filter { speciesGrade($0) == order[i] }
+                if !pool.isEmpty { candidates = pool; break }
+                guard i > 0 else { break }
+                i -= 1
+            }
+        }
+        if candidates.isEmpty { candidates = index }   // 이론상 도달 불가 — 안전망
+
+        let weights = candidates.map { max(1, $0.captureRate) }
+        let total = weights.reduce(0, +)
+        let clampedRoll = min(1, max(0, roll))
+        var pick = Int(clampedRoll * Double(total))
+        if pick >= total { pick = total - 1 }   // roll == 1.0 경계에서도 마지막 후보를 가리키게
+        var chosen = candidates[0].id
+        for (candidate, weight) in zip(candidates, weights) {
+            if pick < weight { chosen = candidate.id; break }
+            pick -= weight
+        }
+        return chosen
+    }
+
+    private static func speciesGrade(_ species: BaseSpecies) -> Grade {
+        Grade.from(captureRate: species.captureRate,
+                  isLegendary: species.isLegendary, isMythical: species.isMythical)
+    }
 }
