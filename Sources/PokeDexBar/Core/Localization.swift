@@ -31,6 +31,11 @@ struct L {
           "Couldn't fetch hatch candidates. Please try again shortly.",
           "ふ化候補を取得できませんでした。しばらくして再試行してください。")
     }
+    var shopDrawUnavailable: String {
+        t("지금은 뽑을 수 없어요. 재화와 빈 슬롯을 확인해 주세요.",
+          "Can't draw right now. Check your currency and open slots.",
+          "今は引けません。所持金と空きスロットを確認してください。")
+    }
     func shopFreeSlots(_ free: Int, _ total: Int) -> String {
         t("빈 슬롯 \(free) / \(total)", "Open slots \(free) / \(total)", "空きスロット \(free) / \(total)")
     }
@@ -64,6 +69,14 @@ struct L {
     var makePartner: String { t("파트너로", "Make partner", "パートナーにする") }
     var evolve: String { t("진화", "Evolve", "しんか") }
     func evolveTo(_ name: String) -> String { t("\(name) 로 진화", "Evolve to \(name)", "\(name)にしんか") }
+    /// 사탕 사용 버튼 — 남은 개수를 라벨에 달아 상점에 다시 안 가도 재고를 알 수 있게.
+    /// 이름은 상점 품목(`ShopItem.label`)과 같은 말을 쓴다.
+    func useExpCandy(_ remaining: Int) -> String {
+        t("경험치 사탕 ×\(remaining)", "EXP Candy ×\(remaining)", "けいけんちアメ ×\(remaining)")
+    }
+    func useShinyCandy(_ remaining: Int) -> String {
+        t("반짝이는 사탕 ×\(remaining)", "Shiny Candy ×\(remaining)", "ひかるアメ ×\(remaining)")
+    }
     /// 홈 파트너 카드의 진화 가능 배지 — 실제 진화 실행은 박스에서.
     var evolutionReadyBadge: String { t("진화 가능", "Can evolve", "しんか可能") }
 
