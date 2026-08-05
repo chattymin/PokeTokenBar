@@ -64,12 +64,15 @@ final class PlayerStore {
             state.lastDate = todayDate
             state.claimedTodayTokens = 0
         }
-        guard todayTokens > state.claimedTodayTokens else { return }
-        let delta = todayTokens - state.claimedTodayTokens
-        state.claimedTodayTokens = todayTokens
-        state.earnedTokens += delta
-        if let index = state.box.firstIndex(where: { $0.id == state.partnerID }) {
-            state.box[index].exp += delta
+        // 롤오버로 오늘 총량이 0으로 재설정된 경우도 여기서 걸러진다 — 그래도 위 리셋은
+        // save() 로 반드시 디스크에 반영해야 한다(로컬 장부가 메모리에만 남으면 안 된다).
+        if todayTokens > state.claimedTodayTokens {
+            let delta = todayTokens - state.claimedTodayTokens
+            state.claimedTodayTokens = todayTokens
+            state.earnedTokens += delta
+            if let index = state.box.firstIndex(where: { $0.id == state.partnerID }) {
+                state.box[index].exp += delta
+            }
         }
         save()
     }
@@ -88,12 +91,15 @@ final class PlayerStore {
         save()
     }
 
+    #if DEBUG
     /// 테스트 전용 — 부화가 없는 2a 단계에서 박스에 개체를 넣는 유일한 경로.
+    /// 획득 불변식(스타터 1회·카탈로그 소속·성격 굴림)을 전부 우회하므로 릴리스 빌드에서 잘라낸다.
     func addForTesting(_ individual: Individual) {
         state.box.append(individual)
         state.dex.insert(individual.speciesID)
         save()
     }
+    #endif
 
     // MARK: 영속
 
