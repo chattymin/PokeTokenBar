@@ -6,6 +6,9 @@ enum LimitsError: Error {
     case keychainUnavailable(OSStatus)
     case keychainInteractionNotAllowed
     case credentialFormat
+    /// 자격증명은 읽혔지만 Claude 계정 OAuth(`claudeAiOauth`)가 없다 — MCP 서버 OAuth 상태만 들어있는 경우.
+    /// Claude Code 2.1.x 에서 관측된다. 형식 오류가 아니라 재로그인이 필요한 상태라 따로 구분한다.
+    case credentialMissingAccountOAuth
     case httpStatus(Int)
     /// 429 — 서버가 지정한 Retry-After(초, 없으면 nil). 폴링 백오프 판단에 사용.
     case rateLimited(retryAfter: TimeInterval?)
@@ -90,8 +93,12 @@ private actor OAuthAccessTokenCache {
         // → Keychain 읽기는 명시적 사용자 동작(설정/팝오버의 갱신 버튼, allowKeychainPrompt=true)에서만
         // 수행한다. 캐시된 토큰이 살아있는 동안은 자동 폴링이 그 토큰으로 계속 한도를 갱신하고, 만료되면
         // 한도는 마지막 값으로 stale 표시된 뒤 사용자가 갱신을 누를 때 재취득된다.
+        // 자동 경로는 여기서 끝난다(키체인 미열람). 파일이 있는데 계정 OAuth 만 없으면 재로그인이
+        // 답이므로 그때만 안내를 바꾼다 — 판정은 이 분기 안에서 해야 사용자 경로가 파일을 두 번 읽지 않는다.
         guard allowKeychainPrompt else {
-            throw LimitsError.keychainInteractionNotAllowed
+            throw Self.credentialsFileIsAccountOAuthMissing()
+                ? LimitsError.credentialMissingAccountOAuth
+                : LimitsError.keychainInteractionNotAllowed
         }
 
         // 사용자 동작 경로: 무프롬프트로 먼저 시도(과거 '항상 허용'했다면 조용히 성공), 안 되면 프롬프트를
@@ -136,6 +143,23 @@ private actor OAuthAccessTokenCache {
     // 불일치로 접근 허용 프롬프트를 유발했다. 토큰은 인메모리 + Claude 키체인 무UI 읽기 +
     // .credentials.json 로 충분히 조용히 취득된다.
 
+    /// 자격증명 파일이 존재하지만 계정 OAuth 가 없는 상태인지(만료는 여기 해당 없음 — 그건 재취득 대상).
+    ///
+    /// 설정 위치를 옮긴 사용자(`CLAUDE_CONFIG_DIR`)는 판정에서 제외한다. 이 경로는 기본 위치를 하드코딩하는데,
+    /// 옮긴 뒤 남은 옛 파일이 `mcpOAuth` 만 담고 있으면 실제로는 로그인된 사용자에게 매 폴링마다 재로그인
+    /// 배너를 띄우게 된다. 옮긴 자격증명이 어디 있는지는 확인된 바 없으므로 추측하지 않고 판정을 접는다
+    /// (한도는 키체인 경로로 계속 동작한다).
+    private nonisolated static func credentialsFileIsAccountOAuthMissing() -> Bool {
+        // 프로세스 환경만 본다 — 셸 조회(`shellAwareClaudeConfigDir`)를 부르면 이 자동 폴링 경로가
+        // 안내 문구 하나를 고르려고 로그인 셸 spawn(수백 ms~수 초)을 유발하고, 그 동안 토큰 캐시 actor 가
+        // 막힌다. 값이 필요한 쪽(사용량 스캔)이 이미 셸 조회를 하므로 여기서 감당할 이유가 없다.
+        guard ProcessInfo.processInfo.environment["CLAUDE_CONFIG_DIR"]?.isEmpty ?? true else { return false }
+        let url = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".claude/.credentials.json")
+        guard let data = try? Data(contentsOf: url) else { return false }
+        return OAuthCredentialData.isAccountOAuthMissing(data)
+    }
+
     private nonisolated static func readClaudeCredentialsFile() throws -> OAuthCredentialData.Credential? {
         let url = FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent(".claude/.credentials.json")
@@ -171,7 +195,10 @@ private actor OAuthAccessTokenCache {
             throw LimitsError.keychainUnavailable(status)
         }
         guard let credential = OAuthCredentialData.credential(from: data) else {
-            throw LimitsError.credentialFormat
+            // 항목은 있는데 계정 OAuth 만 없는 상태(MCP OAuth 전용)는 재로그인 안내 대상이라 구분한다.
+            throw OAuthCredentialData.isAccountOAuthMissing(data)
+                ? LimitsError.credentialMissingAccountOAuth
+                : LimitsError.credentialFormat
         }
         return credential
     }
@@ -192,6 +219,19 @@ enum OAuthCredentialData {
             guard let expiresAt else { return false }
             return expiresAt <= Date().addingTimeInterval(60)
         }
+    }
+
+    /// JSON 은 멀쩡한데 `claudeAiOauth` 만 없는 상태인지. Claude Code 2.1.x 의 자격증명 항목이
+    /// MCP 서버 OAuth(`mcpOAuth`) 상태만 담고 계정 토큰은 안 담는 경우가 있어, 이때는 파싱 실패를
+    /// "형식 오류"가 아니라 "재로그인 필요"로 안내해야 한다.
+    /// (JSON 자체가 깨진 경우는 여기 해당하지 않는다 — 그건 형식 오류다.)
+    ///
+    /// `json["claudeAiOauth"] == nil` 로 검사하면 안 된다. 명시적 JSON `null` 은 `NSNull` 로 디코드돼
+    /// `!= nil` 이 참이 되므로, 로그아웃 상태(`"claudeAiOauth": null`)를 "값 있음"으로 오판해 재로그인
+    /// 안내 대신 "자격증명 없음"을 띄운다. 딕셔너리로 캐스팅되는지로 판단한다.
+    static func isAccountOAuthMissing(_ data: Data) -> Bool {
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return false }
+        return (json["claudeAiOauth"] as? [String: Any]) == nil
     }
 
     static func credential(from data: Data) -> Credential? {

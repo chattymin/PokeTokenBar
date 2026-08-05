@@ -373,6 +373,11 @@ struct L {
           "No Claude credential found. Sign in to Claude Code to see limits. If you only use Codex you can ignore this.",
           "Claude の認証情報が見つかりません。Claude Code にサインインすると上限が表示されます。Codex のみなら無視して構いません。")
     }
+    var limitRefreshReauthNeeded: String {
+        t("Claude 자격증명에 계정 로그인 정보가 없어요. Claude Code 에서 `/login` 으로 다시 로그인하면 한도가 표시됩니다.",
+          "Your Claude credential has no account sign-in. Run `/login` in Claude Code to sign in again and limits will appear.",
+          "Claude の認証情報にアカウントのサインインが含まれていません。Claude Code で `/login` を実行して再度サインインすると上限が表示されます。")
+    }
     var limitRefreshGeneric: String {
         t("Claude 한도 조회에 실패했어요. 잠시 후 다시 시도하세요.",
           "Couldn't fetch Claude limits. Please try again shortly.",

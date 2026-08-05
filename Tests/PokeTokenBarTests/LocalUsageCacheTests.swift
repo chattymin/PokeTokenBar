@@ -183,6 +183,31 @@ final class LocalUsageCacheTests: XCTestCase {
         XCTAssertEqual(second.map(\.output), [111], "mtime/size 불변이면 재파싱하면 안 된다")
     }
 
+    /// 프로덕션은 루트를 여러 개 훑는다(CLI 기본 + CLAUDE_CONFIG_DIR + Claude Desktop 임베디드).
+    /// 단일 루트만 주면 그 루프가 1회로 단락돼 브랜치가 안 덮이므로, 다중 루트 시임으로 실제 경로를 밟는다.
+    func testMultipleRootsAreScannedAndDedupedAcrossRoots() async throws {
+        let second = root.deletingLastPathComponent().appendingPathComponent("second-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: second, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: second) }
+
+        try writeFile("a.jsonl", lines: [claudeLine(id: "shared", output: 10)])
+        try [claudeLine(id: "shared", output: 10), claudeLine(id: "only-second", output: 7)]
+            .joined(separator: "\n")
+            .write(to: second.appendingPathComponent("b.jsonl"), atomically: true, encoding: .utf8)
+
+        let cache = LocalUsageCache(claudeRoots: [root, second], fileURL: cacheFile)
+        let entries = await cache.claudeEntries(modifiedSince: since)
+
+        XCTAssertEqual(Set(entries.map(\.output)), [10, 7], "두 루트가 합산돼야 한다")
+        XCTAssertEqual(entries.filter { $0.id == "m-shared|r-shared" }.count, 1,
+                       "두 루트에 같은 턴이 있으면 한 번만 세야 한다")
+
+        // 대조군: 두 번째 루트를 빼면 only-second 가 사라진다 — 위 단언이 다중 루트를 실제로 밟았다는 보증.
+        let single = LocalUsageCache(claudeRoot: root, fileURL: cacheFile.appendingPathExtension("single"))
+        let singleEntries = await single.claudeEntries(modifiedSince: since)
+        XCTAssertEqual(singleEntries.count, 1)
+    }
+
     /// mtime 이 바뀌면 재파싱한다.
     func testChangedFileIsReparsed() async throws {
         try writeFile("a.jsonl", lines: [claudeLine(id: "1", output: 111)])

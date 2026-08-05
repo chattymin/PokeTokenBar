@@ -93,11 +93,20 @@ actor LocalUsageCache {
     /// throwing probe 를 쓴다 — 읽기 실패(throw)와 "metadata 없음"(`nil`)은 인덱스에 남길지가 다르다.
     private let codexProbe: @Sendable (URL) throws -> String?
 
-    init(claudeRoot: URL? = nil, codexRoot: URL? = nil, geminiRoot: URL? = nil, grokRoot: URL? = nil,
+    /// 다중 루트 시임. `claudeRoot` 단일 지정과 배타적이며, 프로덕션의 다중 루트 순회 브랜치를
+    /// 테스트가 실제로 밟게 하려고 둔다(단일 루트만 주면 루프가 1회로 단락돼 그 브랜치가 안 덮인다).
+    private let claudeRoots: [URL]?
+
+    init(claudeRoot: URL? = nil, claudeRoots: [URL]? = nil,
+         codexRoot: URL? = nil, geminiRoot: URL? = nil, grokRoot: URL? = nil,
          fileURL: URL? = nil, now: @escaping @Sendable () -> Date = Date.init,
          codexProbe: @escaping @Sendable (URL) throws -> String? = {
              try LocalUsageReader.probeCodexRolloutSessionID(at: $0)
          }) {
+        // 둘 다 주는 호출은 없다(프로덕션은 둘 다 nil, 테스트는 하나씩). precondition 으로 막지 않는 이유는
+        // 릴리스 빌드에서도 살아 있어, 잘못 써도 결과가 "테스트가 엉뚱한 루트를 본다"에 그치는 실수를
+        // 앱 종료로 키우기 때문이다. 우선순위는 claudeRoots.
+        self.claudeRoots = claudeRoots
         self.claudeRoot = claudeRoot
         self.codexRoot = codexRoot
         self.geminiRoot = geminiRoot
@@ -117,8 +126,15 @@ actor LocalUsageCache {
     func claudeEntries(modifiedSince: Date) -> [LocalUsageReader.Entry] {
         ensureLoaded()
         let fmt = LocalUsageReader.localDayFormatter()
-        let all = collect(root: claudeRoot ?? LocalUsageReader.claudeProjectsDir, since: modifiedSince, cache: &claudeCache) {
-            LocalUsageReader.parseClaudeFile($0, fmt: fmt)
+        // 루트가 여럿이다(CLI 기본 위치 + CLAUDE_CONFIG_DIR + Claude Desktop 임베디드 세션).
+        // blob 캐시 키가 절대경로라 루트가 늘어도 캐시는 그대로 재사용되고, 같은 턴이 여러 루트에
+        // 복사돼 있어도 전역 dedup 이 한 번만 센다.
+        let roots = claudeRoots ?? claudeRoot.map { [$0] } ?? LocalUsageReader.claudeProjectRoots
+        var all: [LocalUsageReader.Entry] = []
+        for root in roots {
+            all += collect(root: root, since: modifiedSince, cache: &claudeCache) {
+                LocalUsageReader.parseClaudeFile($0, fmt: fmt)
+            }
         }
         saveIfNeeded()
         return LocalUsageReader.dedupKeepMax(all)

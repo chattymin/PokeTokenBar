@@ -828,6 +828,32 @@ final class UsageStoreTests: XCTestCase {
         XCTAssertEqual(UsageStore.friendlyLimitError(LimitsError.credentialFormat, l), l.limitRefreshNoCredential)
         XCTAssertEqual(UsageStore.friendlyLimitError(LimitsError.keychainInteractionNotAllowed, l), l.limitRefreshGeneric)
         XCTAssertEqual(UsageStore.friendlyLimitError(StubError.boom, l), l.limitRefreshGeneric)   // 비 LimitsError
+        // 계정 OAuth 없음은 "자격증명 없음"이 아니라 재로그인 안내다 — 두 메시지가 갈려야 한다.
+        XCTAssertEqual(UsageStore.friendlyLimitError(LimitsError.credentialMissingAccountOAuth, l),
+                       l.limitRefreshReauthNeeded)
+        XCTAssertNotEqual(l.limitRefreshReauthNeeded, l.limitRefreshNoCredential)
+    }
+
+    /// 자격증명 항목이 MCP 서버 OAuth 상태만 담고 계정 토큰(`claudeAiOauth`)은 없는 경우
+    /// (Claude Code 2.1.x 에서 관측) — 형식 오류로 뭉뚱그리면 "재로그인하면 된다"를 안내 못 한다.
+    func testAccountOAuthMissingIsDistinguishedFromMalformedCredential() {
+        func data(_ json: String) -> Data { Data(json.utf8) }
+
+        XCTAssertTrue(OAuthCredentialData.isAccountOAuthMissing(
+            data(#"{"mcpOAuth":{"some-server":{"accessToken":"x"}}}"#)))
+        // 깨진 JSON·계정 OAuth 가 있는 경우는 이 분기가 아니다(형식 오류 / 정상).
+        XCTAssertFalse(OAuthCredentialData.isAccountOAuthMissing(data("not json at all")))
+        XCTAssertFalse(OAuthCredentialData.isAccountOAuthMissing(
+            data(#"{"claudeAiOauth":{"accessToken":"t"}}"#)))
+        // 명시적 JSON null 은 NSNull 로 디코드돼 `!= nil` 이 참이 된다 — 로그아웃 상태를 "값 있음"으로
+        // 오판하면 재로그인 안내 대신 "자격증명 없음"이 뜬다(CLAUDE.md 의 JSON null 금지 규칙).
+        XCTAssertTrue(OAuthCredentialData.isAccountOAuthMissing(
+            data(#"{"claudeAiOauth":null,"mcpOAuth":{}}"#)))
+
+        // 파싱 자체는 계정 OAuth 가 있을 때만 성공한다.
+        XCTAssertNil(OAuthCredentialData.credential(from: data(#"{"mcpOAuth":{}}"#)))
+        XCTAssertEqual(
+            OAuthCredentialData.credential(from: data(#"{"claudeAiOauth":{"accessToken":"t"}}"#))?.accessToken, "t")
     }
 
     // MARK: Cursor provider aggregation

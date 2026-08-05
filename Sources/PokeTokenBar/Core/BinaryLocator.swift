@@ -96,36 +96,84 @@ enum BinaryLocator {
     /// 사용자 로그인 셸을 인터랙티브+로그인으로 띄워 `command -v <binary>` 결과를 받는다.
     /// 인터랙티브 프로파일이 stdout 에 noise(neofetch 등)를 찍을 수 있어 마커로 감싸 추출한다.
     private static func shellResolve(_ binary: String) -> String? {
+        // binary 를 위치 인자($1)로 전달 — 문자열 보간 금지(향후 호출자가 외부 입력을 넘겨도 주입 불가).
+        guard let path = shellMarkedValue(
+            script: #"printf '<<<BIN:%s:BIN>>>' "$(command -v "$1" 2>/dev/null)""#,
+            argument: binary, label: "\(binary) shell resolve"),
+            FileManager.default.isExecutableFile(atPath: path)
+        else { return nil }
+        return path
+    }
+
+    /// 로그인+인터랙티브 셸을 띄워 마커로 감싼 값 하나를 받는다(`shellResolve`·`shellEnvironmentValue` 공용).
+    ///
+    /// stdout 은 프로세스 종료를 기다리기 **전에** 백그라운드로 드레인한다. 인터랙티브 프로파일이
+    /// 파이프 버퍼(64KB)를 넘게 찍으면 자식이 write 에서 막혀 영영 종료하지 않고, 종료를 먼저 기다리는
+    /// 구조에서는 타임아웃까지 통째로 날린 뒤 nil 을 돌려준다.
+    private static func shellMarkedValue(script: String, argument: String, label: String) -> String? {
         let shell = ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh"
         guard FileManager.default.isExecutableFile(atPath: shell) else { return nil }
 
         let process = Process()
         process.executableURL = URL(fileURLWithPath: shell)
-        // binary 를 위치 인자($1)로 전달 — 문자열 보간 금지(향후 호출자가 외부 입력을 넘겨도 주입 불가).
-        process.arguments = ["-ilc", #"printf '<<<BIN:%s:BIN>>>' "$(command -v "$1" 2>/dev/null)""#, "sh", binary]
+        process.arguments = ["-ilc", script, "sh", argument]
         process.standardInput = FileHandle.nullDevice
         let output = Pipe()
         process.standardOutput = output
         process.standardError = FileHandle.nullDevice
 
         do { try process.run() } catch {
-            AppLog.write("\(binary) shell resolve spawn failed: \(error.localizedDescription)")
+            AppLog.write("\(label) spawn failed: \(error.localizedDescription)")
             return nil
         }
+
+        final class DataBox: @unchecked Sendable { var data = Data() }
+        let box = DataBox()
+        let drained = DispatchSemaphore(value: 0)
+        let handle = output.fileHandleForReading
+        DispatchQueue.global().async {
+            box.data = handle.readDataToEndOfFile()
+            drained.signal()
+        }
+
         let deadline = Date().addingTimeInterval(8)
         while process.isRunning && Date() < deadline { Thread.sleep(forTimeInterval: 0.05) }
         if process.isRunning {
             process.terminate()
-            AppLog.write("\(binary) shell resolve timed out")
+            try? handle.close()            // 리더 스레드 해제 — 안 닫으면 영구 블록된 채 남는다.
+            AppLog.write("\(label) timed out")
             return nil
         }
-        let data = output.fileHandleForReading.readDataToEndOfFile()
-        guard let raw = String(data: data, encoding: .utf8),
-              let path = parseMarkedPath(raw),
-              FileManager.default.isExecutableFile(atPath: path) else {
+        // 드레인은 **남은 예산 전체**를 준다. 셸이 종료해도 rc 가 띄운 백그라운드 잡(zsh-async·zinit turbo
+        // 등)이 stdout write end 를 계속 쥐고 있으면 EOF 가 늦게 온다 — 여기에 짧은 별도 상한을 두면
+        // 종료를 무한정 기다리던 이전 동작에서 값을 얻던 사용자가 nil 을 받는다(실측 회귀).
+        let remaining = max(0, deadline.timeIntervalSinceNow)
+        guard drained.wait(timeout: .now() + remaining) == .success else {
+            try? handle.close()
+            AppLog.write("\(label) output drain timed out")
             return nil
         }
-        return path
+        guard let raw = String(data: box.data, encoding: .utf8),
+              let value = parseMarkedPath(raw)
+        else { return nil }
+        return value
+    }
+
+    /// 로그인 셸에서 환경변수 하나를 읽는다. Finder/launchd 로 뜬 `.app` 은 셸 환경(`~/.zshrc` 의
+    /// export)을 상속하지 않아, 프로세스 환경만 보면 사용자가 설정한 값이 앱에서만 안 보인다.
+    /// PATH 해석(`shellResolve`)과 같은 수법이며, 셸을 띄우는 비용이 있으므로 호출자가 결과를 캐시해야 한다.
+    static func shellEnvironmentValue(_ name: String) -> String? {
+        // 변수명은 ASCII 대문자·숫자·밑줄만 허용 — 셸 주입 방지.
+        // `isUppercase`/`isNumber` 는 유니코드 기준이라 `Σ`·키릴 `А`·`٣` 도 통과한다. 셸 메타문자는
+        // 아니라 실제 주입은 안 되지만, 가드가 선언한 범위와 실제 허용 범위를 일치시킨다.
+        guard !name.isEmpty,
+              name.allSatisfy({ $0.isASCII && ($0.isUppercase || $0.isNumber || $0 == "_") })
+        else { return nil }
+        // 변수명은 위치 인자($1)로 넘기고 `eval` 은 그 이름의 값만 전개한다. 전개 결과는 재파싱되지
+        // 않으므로 값에 셸 메타문자가 있어도 그대로 돌아온다(실측 확인).
+        return shellMarkedValue(
+            script: #"printf '<<<BIN:%s:BIN>>>' "$(eval printf '%s' \"\$$1\" 2>/dev/null)""#,
+            argument: name, label: "\(name) shell env lookup")
     }
 
     /// `<<<BIN:/path/to/tool:BIN>>>` 에서 경로만 추출. 프로파일 noise 무시.

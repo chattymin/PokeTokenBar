@@ -82,6 +82,176 @@ final class LocalUsageReaderTests: XCTestCase {
         XCTAssertNil(LocalUsageReader.daily(entries: entries, localDay: "2000-01-01"))
     }
 
+    // MARK: Claude 스캔 루트 (CLI 기본 + CLAUDE_CONFIG_DIR + Claude Desktop 임베디드 세션)
+
+    /// Desktop 세션 스토어는 `<store>/<uuid>/<uuid>/local_<uuid>/.claude/projects` 처럼 UUID 단계가
+    /// 여러 겹이라 고정 경로로 못 잡는다. 그리고 `.claude` 는 **hidden** 이라 탐색이 `skipsHiddenFiles`
+    /// 를 쓰면 아무것도 못 찾는다 — 이 테스트가 정확히 그 브랜치를 밟는다(결함 조건).
+    func testEmbeddedRootsFindHiddenClaudeProjectsDirs() {
+        let base = tempDir()
+        let session = base.appendingPathComponent("2eb6d133/a3a236da/local_35a9f8a7")
+        let projects = session.appendingPathComponent(".claude/projects")
+        try? FileManager.default.createDirectory(at: projects, withIntermediateDirectories: true)
+        // 같은 세션의 감사 로그·업로드는 사용량 로그가 아니라 루트 후보가 아니다.
+        try? FileManager.default.createDirectory(
+            at: session.appendingPathComponent("uploads"), withIntermediateDirectories: true)
+
+        let found = LocalUsageReader.embeddedClaudeProjectRoots(under: base)
+        XCTAssertEqual(found.map(\.standardizedFileURL.path), [projects.standardizedFileURL.path])
+    }
+
+    func testEmbeddedRootsIgnoreMissingBaseAndDepthLimit() {
+        XCTAssertEqual(
+            LocalUsageReader.embeddedClaudeProjectRoots(
+                under: URL(fileURLWithPath: "/nonexistent-\(UUID().uuidString)")).count, 0)
+
+        let base = tempDir()
+        let deep = base.appendingPathComponent("a/b/c/d/e/f/g/.claude/projects")
+        try? FileManager.default.createDirectory(at: deep, withIntermediateDirectories: true)
+        XCTAssertEqual(LocalUsageReader.embeddedClaudeProjectRoots(under: base, maxDepth: 4).count, 0)
+    }
+
+    /// 실제 Desktop 레이아웃(`<uuid>/<uuid>/local_<uuid>/.claude/projects`)은 base 기준 **깊이 5**다.
+    /// 기본 `maxDepth` 가 그 경계에 붙어 있으면 Desktop 이 한 단계만 더 중첩해도 조용히 0건이 된다 —
+    /// 이 테스트가 실제 경계와 여유를 함께 고정한다.
+    func testEmbeddedRootsDepthBoundaryMatchesRealLayoutWithHeadroom() {
+        let base = tempDir()
+        let real = base.appendingPathComponent("2eb6d133/a3a236da/local_35a9f8a7/.claude/projects")
+        try? FileManager.default.createDirectory(at: real, withIntermediateDirectories: true)
+
+        XCTAssertEqual(LocalUsageReader.embeddedClaudeProjectRoots(under: base, maxDepth: 4).count, 0,
+                       "깊이 5 레이아웃은 maxDepth 4 로는 안 잡혀야 한다(경계 확인)")
+        XCTAssertEqual(LocalUsageReader.embeddedClaudeProjectRoots(under: base, maxDepth: 5).count, 1)
+        // 기본값은 미래 중첩 여유를 포함해야 한다.
+        XCTAssertEqual(LocalUsageReader.embeddedClaudeProjectRoots(under: base).count, 1)
+
+        // 세션 작업 디렉터리 아래 저장소(깊이 7)도 기본값으로 잡혀야 한다 — Desktop 세션에서 클론해
+        // 작업하면 이 모양이 된다. 이게 기본 깊이의 실제 하한을 정한다.
+        let nested = base.appendingPathComponent("2eb6d133/a3a236da/local_35a9f8a7/outputs/myrepo/.claude/projects")
+        try? FileManager.default.createDirectory(at: nested, withIntermediateDirectories: true)
+        XCTAssertEqual(LocalUsageReader.embeddedClaudeProjectRoots(under: base).count, 2)
+        XCTAssertEqual(LocalUsageReader.embeddedClaudeProjectRoots(under: base, maxDepth: 6).count, 1,
+                       "깊이 6 이면 작업 디렉터리 아래 저장소를 놓친다(하한 근거)")
+    }
+
+    /// 깊이만 제한하면 폭이 안 막힌다 — 세션 샌드박스에 워크스페이스가 있으면 수만 건을 훑는다.
+    func testEmbeddedRootsDoNotDescendIntoBulkDirectories() {
+        let base = tempDir()
+        let session = base.appendingPathComponent("s1/s2/local_x")
+        try? FileManager.default.createDirectory(
+            at: session.appendingPathComponent(".claude/projects"), withIntermediateDirectories: true)
+        // node_modules 안에 .claude/projects 모양이 있어도 따라가지 않는다(가지치기 확인).
+        try? FileManager.default.createDirectory(
+            at: session.appendingPathComponent("node_modules/pkg/.claude/projects"),
+            withIntermediateDirectories: true)
+
+        let found = LocalUsageReader.embeddedClaudeProjectRoots(under: base)
+        XCTAssertEqual(found.count, 1)
+        XCTAssertFalse(found[0].path.contains("node_modules"))
+    }
+
+    /// 이름 기반 가지치기는 *조상* 이름 하나로 그 아래 전부를 자른다. 실제 세션 레이아웃에 존재하는
+    /// `uploads`·`outputs`, 그리고 흔한 프로젝트 이름 `build`·`target` 을 목록에 넣으면 그 안에서 돌린
+    /// 정당한 Claude 세션이 통째로 사라진다 — 이 변경이 없애려던 "조용한 0건"의 재생산이다.
+    /// 앞의 테스트는 가지치기의 *긍정* 방향만 봤기 때문에 이 회귀를 통과시켰다.
+    func testEmbeddedRootsFindRootsUnderWorkDirectoryNames() {
+        let base = tempDir()
+        let session = base.appendingPathComponent("u1/u2/local_x")
+        for work in ["outputs/myrepo", "uploads/repo2", "build", "target"] {
+            try? FileManager.default.createDirectory(
+                at: session.appendingPathComponent("\(work)/.claude/projects"),
+                withIntermediateDirectories: true)
+        }
+        let found = LocalUsageReader.embeddedClaudeProjectRoots(under: base).map(\.path)
+        for work in ["outputs", "uploads", "build", "target"] {
+            XCTAssertTrue(found.contains { $0.contains("/\(work)/") || $0.contains("/\(work)/.claude") },
+                          "\(work) 아래의 정당한 루트가 잘렸다")
+        }
+    }
+
+    /// `CLAUDE_CONFIG_DIR` 파싱: 콤마 분리·공백 트림·빈 조각 무시·틸드 확장.
+    func testConfigDirParsingHandlesCommasWhitespaceAndTilde() {
+        let home = URL(fileURLWithPath: "/Users/testhome")
+        let roots = LocalUsageReader.computeClaudeProjectRoots(
+            configDirValue: " /a/one , ,~/two ", home: home).map(\.path)
+
+        XCTAssertTrue(roots.contains("/a/one/projects"))
+        XCTAssertTrue(roots.contains(NSString(string: "~/two").expandingTildeInPath + "/projects"))
+        XCTAssertFalse(roots.contains { $0 == "/projects" })          // 빈 조각이 루트로 새지 않는다
+        XCTAssertTrue(roots.contains("/Users/testhome/.claude/projects"))
+        XCTAssertTrue(roots.contains("/Users/testhome/.config/claude/projects"))
+        // 값이 없으면 CLI 기본 위치만 남는다.
+        let none = LocalUsageReader.computeClaudeProjectRoots(configDirValue: nil, home: home).map(\.path)
+        XCTAssertFalse(none.contains { $0.hasPrefix("/a/one") })
+    }
+
+    /// 심볼릭 링크로 같은 트리를 두 번 가리켜도 한 번만 스캔해야 한다(합계는 dedup 이 지키지만 비용은 아니다).
+    func testNormalizedRootsFoldSymlinkedDuplicates() {
+        let base = tempDir()
+        let real = base.appendingPathComponent("real/projects")
+        try? FileManager.default.createDirectory(at: real, withIntermediateDirectories: true)
+        let link = base.appendingPathComponent("linked")
+        try? FileManager.default.createSymbolicLink(at: link, withDestinationURL: base.appendingPathComponent("real"))
+
+        let folded = LocalUsageReader.normalizedRoots([real, link.appendingPathComponent("projects")])
+        XCTAssertEqual(folded.count, 1, "심볼릭 링크로 중복된 루트는 접혀야 한다")
+    }
+
+    /// `CLAUDE_CONFIG_DIR=~/.claude` 처럼 기본 루트와 겹치게 지정하면 같은 트리를 두 번 스캔한다.
+    /// 합계는 전역 dedup 이 바로잡지만 스캔 비용은 두 배라, 루트 단계에서 접어야 한다.
+    func testNormalizedRootsDropsDuplicatesAndNestedRootsKeepingOrder() {
+        let roots = [
+            URL(fileURLWithPath: "/Users/x/.claude/projects"),
+            URL(fileURLWithPath: "/Users/x/.config/claude/projects"),
+            URL(fileURLWithPath: "/Users/x/.claude/projects"),           // 완전 중복
+            URL(fileURLWithPath: "/Users/x/.claude/projects/sub"),       // 중첩
+            URL(fileURLWithPath: "/Users/x/.claude/projects-other"),     // 접두사만 같음 — 남아야 함
+        ]
+        XCTAssertEqual(LocalUsageReader.normalizedRoots(roots).map(\.path), [
+            "/Users/x/.claude/projects",
+            "/Users/x/.config/claude/projects",
+            "/Users/x/.claude/projects-other",
+        ])
+    }
+
+    /// 루트가 여러 개면 합산하되, 같은 턴이 두 루트에 복사돼 있어도(Desktop 이 CLI 세션을 공유하는 경우)
+    /// `(message.id, requestId)` 전역 dedup 으로 한 번만 센다.
+    func testMultipleRootsSumButShareGlobalDedup() {
+        let cli = tempDir(), desktop = tempDir()
+        let ts = "2026-06-30T10:00:00.000Z"
+        write([claudeLine(id: "A", req: "R1", model: "claude-opus-4-8", ts: ts, i: 100, o: 10, cw: 0, cr: 0)],
+              to: cli, sub: "p")
+        write([
+            claudeLine(id: "A", req: "R1", model: "claude-opus-4-8", ts: ts, i: 100, o: 10, cw: 0, cr: 0),
+            claudeLine(id: "B", req: "R2", model: "claude-opus-4-8", ts: ts, i: 7, o: 3, cw: 0, cr: 0),
+        ], to: desktop, sub: "p")
+
+        let entries = LocalUsageReader.claudeEntries(modifiedSince: .distantPast, roots: [cli, desktop])
+        XCTAssertEqual(entries.count, 2)                                  // A 는 한 번만
+        XCTAssertEqual(entries.reduce(0) { $0 + $1.total }, 110 + 10)
+
+        // 대조군: Desktop 루트를 빼면 B 가 사라진다 — 이 테스트가 실제로 다중 루트를 밟고 있다는 보증.
+        XCTAssertEqual(LocalUsageReader.claudeEntries(modifiedSince: .distantPast, roots: [cli]).count, 1)
+    }
+
+    /// 기본 루트 목록에 CLI 기본 위치가 항상 들어있고 중복이 없어야 한다(구성 실수 가드).
+    /// `claudeProjectRoots` 를 직접 쓰면 로그인 셸을 띄워 개발자의 `.zshrc` 를 실행하고 그 기기의
+    /// `CLAUDE_CONFIG_DIR` 에 따라 결과가 달라진다 — 유닛 테스트는 hermetic 시임으로 판정한다.
+    func testDefaultRootsContainCLIPathAndAreUnique() {
+        let home = URL(fileURLWithPath: "/Users/testhome")
+        let roots = LocalUsageReader.computeClaudeProjectRoots(configDirValue: nil, home: home).map(\.path)
+        XCTAssertTrue(roots.contains(home.appendingPathComponent(
+            LocalUsageReader.defaultRelativeProjectsPath).path))
+        XCTAssertEqual(Set(roots).count, roots.count)
+    }
+
+    /// CLI 기본 위치는 `claudeProjectsDir` 와 루트 목록이 같은 상수를 공유해야 한다
+    /// (양쪽에 리터럴을 따로 쓰면 한쪽만 바뀌어도 아무도 못 잡는다).
+    func testDefaultProjectsPathHasSingleSource() {
+        XCTAssertTrue(LocalUsageReader.claudeProjectsDir.path
+            .hasSuffix("/" + LocalUsageReader.defaultRelativeProjectsPath))
+    }
+
     // MARK: Codex 파싱 (input=total−cached, cacheRead=cached, output, cacheWrite=0)
 
     private func codexLine(ts: String, input: Int = 1_000, cached: Int = 200,

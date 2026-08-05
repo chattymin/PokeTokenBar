@@ -44,8 +44,167 @@ enum LocalUsageReader {
 
     // MARK: 경로
 
+    /// CLI 기본 위치의 홈 기준 상대 경로 — `claudeProjectsDir` 와 루트 목록이 같은 문자열을 공유한다
+    /// (양쪽에 리터럴을 따로 쓰면 한쪽만 바뀌어도 테스트가 못 잡는다).
+    static let defaultRelativeProjectsPath = ".claude/projects"
+    static let configRelativeProjectsPath = ".config/claude/projects"
+
     static var claudeProjectsDir: URL {
-        FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".claude/projects")
+        FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(defaultRelativeProjectsPath)
+    }
+
+    /// Claude 사용 로그(`<root>/**/*.jsonl`)가 있을 수 있는 **모든** projects 루트.
+    /// 새 위치를 지원할 땐 이 한 곳에만 추가한다 — 스캔·캐시·테스트가 이 단일 소스를 공유한다.
+    ///
+    /// - `CLAUDE_CONFIG_DIR`: 사용자가 설정 위치를 옮긴 경우. 콤마로 여러 개를 줄 수 있고 각각 `<값>/projects`.
+    /// - `~/.config/claude/projects`, `~/.claude/projects`: CLI 기본 위치(전자는 XDG 스타일 설치).
+    /// - Claude Desktop 임베디드 세션: 세션 디렉터리마다 CLI 와 같은 모양의 `.claude/projects` 를 갖는다.
+    ///   Desktop 으로 일한 사용량이 여기에만 남으므로 빼면 조용히 누락된다.
+    /// 계산에 파일시스템 탐색 + (GUI 앱에선) 로그인 셸 조회가 들어가는데 새로고침은 분 단위로 돈다.
+    /// 루트 구성은 Desktop 세션이 새로 생길 때만 바뀌므로 TTL 캐시로 재계산을 접는다.
+    static var claudeProjectRoots: [URL] { rootsCache.roots() }
+
+    /// 테스트·진단용 — 캐시를 무시하고 지금 상태로 계산한다.
+    static func computeClaudeProjectRoots(
+        configDirValue: String? = shellAwareClaudeConfigDir(),
+        home: URL = FileManager.default.homeDirectoryForCurrentUser) -> [URL]
+    {
+        var roots: [URL] = []
+        if let raw = configDirValue {
+            for part in raw.split(separator: ",") {
+                let path = part.trimmingCharacters(in: .whitespaces)
+                guard !path.isEmpty else { continue }
+                roots.append(URL(fileURLWithPath: NSString(string: path).expandingTildeInPath)
+                    .appendingPathComponent("projects"))
+            }
+        }
+        roots.append(home.appendingPathComponent(Self.configRelativeProjectsPath))
+        roots.append(home.appendingPathComponent(Self.defaultRelativeProjectsPath))
+
+        let desktop = home.appendingPathComponent("Library/Application Support/Claude")
+        for store in ["local-agent-mode-sessions", "claude-code-sessions"] {
+            roots.append(contentsOf: embeddedClaudeProjectRoots(under: desktop.appendingPathComponent(store)))
+        }
+        return normalizedRoots(roots)
+    }
+
+    /// `CLAUDE_CONFIG_DIR` 값. Finder/launchd 로 뜬 `.app` 은 셸 환경을 상속하지 않으므로
+    /// 프로세스 환경에 없으면 로그인 셸에 한 번 물어본다(`BinaryLocator` 가 PATH 에 쓰는 것과 같은 수법).
+    /// 이 조회가 없으면 설정 위치를 옮긴 사용자는 앱에서만 0 토큰을 보고, CLI·테스트에서는 정상이라
+    /// 재현이 안 된다.
+    /// 셸 조회는 프로세스 생애 1회만 한다 — 환경변수는 앱이 도는 동안 바뀌지 않는데, 루트 캐시의
+    /// TTL 에 묶으면 값을 안 쓰는 대다수 사용자까지 갱신마다 셸 spawn(실측 ~0.44s) 비용을 문다.
+    /// 못 찾은 결과(nil)도 함께 캐시해 재시도를 막는다. `static let` 은 lazy + once 라 이 자체가 캐시다.
+    static func shellAwareClaudeConfigDir() -> String? { cachedShellConfigDir }
+
+    private static let cachedShellConfigDir: String? = {
+        if let v = ProcessInfo.processInfo.environment["CLAUDE_CONFIG_DIR"], !v.isEmpty { return v }
+        return BinaryLocator.shellEnvironmentValue("CLAUDE_CONFIG_DIR")
+    }()
+
+    private static let rootsCache = RootsCache()
+
+    final class RootsCache: @unchecked Sendable {
+        private let lock = NSLock()
+        private var cached: [URL]?
+        private var computedAt: Date?
+        /// 새 Desktop 세션이 생겨도 이 시간 안에는 반영된다. 새로고침 주기(분 단위)보다 넉넉히 길게.
+        private let ttl: TimeInterval = 300
+
+        /// 락은 캐시 필드 접근에만 쥔다. 계산은 락 **밖에서** 한다 — 첫 호출은 로그인 셸 spawn(최대 8초
+        /// 대기)과 파일시스템 탐색을 포함하는데, 그 동안 락을 쥐면 동시 호출자가 통째로 막힌다
+        /// (`UsageStore` 는 프로바이더를 taskGroup 으로 병렬 fetch 한다). 결과가 idempotent 하므로
+        /// 경합 시 중복 계산이 나는 편이 블로킹보다 낫다.
+        func roots() -> [URL] {
+            lock.lock()
+            let hit = (cached, computedAt)
+            lock.unlock()
+            if let cached = hit.0, let at = hit.1, Date().timeIntervalSince(at) < ttl { return cached }
+
+            let fresh = computeClaudeProjectRoots()
+            lock.lock()
+            cached = fresh
+            computedAt = Date()
+            lock.unlock()
+            return fresh
+        }
+    }
+
+    /// Claude Desktop 임베디드 세션 스토어에서 `.claude/projects` 디렉터리를 찾는다.
+    /// 세션 경로는 `<store>/<uuid>/<uuid>/local_<uuid>/.claude/projects` 처럼 UUID 단계가 여러 겹이라
+    /// 고정 경로로는 못 잡고 탐색해야 한다. `.claude` 는 hidden 이므로 `skipsHiddenFiles` 를 쓰면 안 된다.
+    /// 탐색 중 내려가지 않는 디렉터리. **패키지·VCS 내부처럼 사용자 작업 트리가 아닌 것만** 넣는다.
+    ///
+    /// 이름 기반 가지치기는 *조상* 이름 하나로 그 아래 전부를 잘라내므로, 정당한 작업 디렉터리 이름을
+    /// 넣으면 원래 막으려던 "조용한 0건"을 그대로 재생산한다. 실측: 세션 레이아웃에 `uploads`·`outputs`
+    /// 가 실제로 존재하고(`local_<uuid>/uploads`, `/outputs`) 그 아래에서 돌린 Claude 세션은 정당한
+    /// 루트다. `build`·`target` 역시 흔한 프로젝트 이름이라 뺐다. 폭 제어의 주 수단은 깊이 상한이고,
+    /// 이 목록은 보조다. 가드: `testEmbeddedRootsFindRootsUnderWorkDirectoryNames`.
+    private static let rootScanSkippedDirectories: Set<String> =
+        ["node_modules", ".git", "venv", ".venv"]
+
+    /// 기본 깊이 7의 근거(실측): 세션 기본 루트는 깊이 5(`<uuid>/<uuid>/local_<uuid>/.claude/projects`),
+    /// 세션 작업 디렉터리 아래 저장소(`outputs/myrepo/.claude/projects`)는 깊이 7이다. 6 이면 후자를 놓치고,
+    /// 8·9 로 올려도 방문 수는 그대로였다(100 고정) — 폭은 깊이가 아니라 `node_modules` 류 가지치기가
+    /// 잡고 있다. 즉 7 이 "놓치지 않는 최소값"이면서 비용이 늘지 않는 지점이다.
+    static func embeddedClaudeProjectRoots(under base: URL, maxDepth: Int = 7) -> [URL] {
+        let fm = FileManager.default
+        var isDir: ObjCBool = false
+        guard fm.fileExists(atPath: base.path, isDirectory: &isDir), isDir.boolValue else { return [] }
+        guard let en = fm.enumerator(at: base, includingPropertiesForKeys: [.isDirectoryKey],
+                                     options: [.skipsPackageDescendants]) else { return [] }
+        var out: [URL] = []
+        var prunedByDepth = false
+        for case let url as URL in en {
+            let name = url.lastPathComponent
+            if name == "projects", url.deletingLastPathComponent().lastPathComponent == ".claude",
+               (try? url.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true {
+                out.append(url)
+                en.skipDescendants()   // 이 아래는 프로젝트 로그 — 루트 탐색 대상이 아니다.
+                continue
+            }
+            // 이 항목 자체는 위에서 검사한 뒤에 가지치기한다. `> maxDepth` 로 자르면 한 단계 더
+            // 내려간 뒤에야 멈춰 실제 탐색 폭이 의도보다 넓어진다.
+            if en.level >= maxDepth {
+                prunedByDepth = true
+                en.skipDescendants()
+            } else if rootScanSkippedDirectories.contains(name) {
+                en.skipDescendants()
+            }
+        }
+        // 깊이로 잘렸으면 무엇을 찾았든 남긴다. `out.isEmpty` 를 조건에 넣으면 **부분 절단**
+        // (세션 루트는 찾고 더 깊은 작업 디렉터리만 놓친 경우)이 조용히 지나가는데, 그게 가장 흔한 형태다.
+        if prunedByDepth {
+            AppLog.write("claude desktop scan: depth \(maxDepth) reached under \(base.lastPathComponent), found \(out.count) root(s) — deeper roots may be missed")
+        }
+        return out
+    }
+
+    /// 중복·중첩 루트를 제거한다. `CLAUDE_CONFIG_DIR=~/.claude` 처럼 기본 루트와 겹치게 지정하면
+    /// 같은 파일을 두 번 스캔한다 — 전역 dedup 이 합계는 바로잡지만 스캔 비용은 그대로 두 배다.
+    static func normalizedRoots(_ roots: [URL]) -> [URL] {
+        var seen = Set<String>()
+        var unique: [String] = []
+        for root in roots {
+            // 심볼릭 링크를 풀어서 비교한다(`~/.config/claude` → `~/.claude` 링크가 흔한 XDG 구성).
+            // `standardizedFileURL` 은 `..`·`.` 만 정리할 뿐 링크는 그대로 둬서 같은 트리를 두 번 훑게 된다.
+            // 비교는 소문자로 — macOS 기본 APFS 볼륨은 대소문자를 구분하지 않는다.
+            let path = root.resolvingSymlinksInPath().standardizedFileURL.path
+            if seen.insert(path.lowercased()).inserted { unique.append(path) }
+        }
+        // 짧은 경로부터 확정하고, 이미 확정된 루트의 하위면 버린다.
+        // 중첩 비교도 중복 비교와 같은 소문자 기준이어야 한다 — 한쪽만 대소문자를 무시하면
+        // `CLAUDE_CONFIG_DIR=~/.Claude` 같은 표기에서 두 검사가 엇갈려 중복 루트가 살아남는다.
+        var kept: [String] = []
+        for path in unique.sorted(by: { $0.count < $1.count })
+        where !kept.contains(where: {
+            let (p, k) = (path.lowercased(), $0.lowercased())
+            return p == k || p.hasPrefix(k + "/")
+        }) {
+            kept.append(path)
+        }
+        // 원래 순서(우선순위)를 보존해 돌려준다.
+        return unique.filter(kept.contains).map { URL(fileURLWithPath: $0) }
     }
     static var codexSessionsDir: URL {
         FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".codex/sessions")
@@ -103,11 +262,19 @@ enum LocalUsageReader {
     }
 
     /// `modifiedSince` 이후 파일에서 Claude 사용 엔트리(전역 dedup) — 테스트/캐시 미사용 경로.
+    /// `root` 를 주지 않으면 `claudeProjectRoots` 전체를 훑는다. 같은 턴이 여러 루트에 복사돼 있어도
+    /// `(message.id, requestId)` 전역 dedup 이 한 번만 세므로 루트가 겹쳐도 합계는 부풀지 않는다.
     static func claudeEntries(modifiedSince: Date, root: URL? = nil) -> [Entry] {
+        claudeEntries(modifiedSince: modifiedSince, roots: root.map { [$0] } ?? claudeProjectRoots)
+    }
+
+    static func claudeEntries(modifiedSince: Date, roots: [URL]) -> [Entry] {
         let fmt = localDayFormatter()
         var all: [Entry] = []
-        for file in jsonlFiles(in: root ?? claudeProjectsDir, modifiedSince: modifiedSince) {
-            all.append(contentsOf: parseClaudeFile(file, fmt: fmt))
+        for root in roots {
+            for file in jsonlFiles(in: root, modifiedSince: modifiedSince) {
+                all.append(contentsOf: parseClaudeFile(file, fmt: fmt))
+            }
         }
         return dedupKeepMax(all)
     }
