@@ -8,10 +8,12 @@ actor SpriteStore {
     /// 포켓몬 스프라이트는 Showdown — 전 세대(9세대까지)를 제공한다. 아이템·알은 대응물이 없어
     /// 계속 PokeAPI(`base`)를 쓴다.
     private static let showdownBase = "https://play.pokemonshowdown.com/sprites"
-    /// 애니메이션이 없는 종(9세대 일부 패러독스·전설)을 기억해 매번 재요청하지 않는다. 404/410 같은
-    /// 확정적 "존재하지 않음" 응답에서만 채운다 — 오프라인·타임아웃 등 일시적 실패로 채우면 네트워크가
-    /// 돌아온 뒤에도 그 종이 프로세스 수명 내내 정적 폴백에 갇힌다(리뷰 지적).
-    private var missingAnimated: Set<Int> = []
+    /// 애니메이션이 없는 변형(종+shiny 조합, 9세대 일부 패러독스·전설이나 shiny 미제공 종)을 기억해
+    /// 매번 재요청하지 않는다. 404/410 같은 확정적 "존재하지 않음" 응답에서만 채운다 — 오프라인·타임아웃
+    /// 등 일시적 실패로 채우면 네트워크가 돌아온 뒤에도 그 변형이 프로세스 수명 내내 정적 폴백에 갇힌다
+    /// (리뷰 지적). `cacheKey` 로 종별이 아니라 **변형별**로 키를 잡는다 — shiny 애니메이션 404 를 종
+    /// 단위로 기억하면 그 종의 일반(non-shiny) 애니메이션 요청까지 함께 막혀버린다(리뷰 지적).
+    private var missingAnimated: Set<String> = []
     private var mem: [String: Data] = [:]
     private var memOrder: [String] = []   // LRU 순서(최근 접근이 뒤). 상한 초과 시 앞(오래된 것)부터 evict
     private let memLimit = 24              // in-memory 스프라이트 캐시 상한 — 세션 중 종 변경 누적 무한증가 방지(#H1)
@@ -47,13 +49,14 @@ actor SpriteStore {
     }
 
     func data(speciesID: Int, animated: Bool, shiny: Bool = false) async -> Data? {
-        // 애니메이션이 없다고 이미 확인된 종은 정적으로 떨어지게 nil 을 돌려준다(뷰가 폴백).
-        if animated, missingAnimated.contains(speciesID) { return nil }
         let key = Self.cacheKey(speciesID: speciesID, animated: animated, shiny: shiny)
         if let d = mem[key] { touch(key); return d }
         let ext = animated ? "gif" : "png"
         let file = dir.appendingPathComponent("\(key).\(ext)")
         if let d = try? Data(contentsOf: file) { remember(key, d); return d }
+        // 이 변형(종+shiny)의 애니메이션이 없다고 이미 확인됐으면 정적으로 떨어지게 nil 을 돌려준다(뷰가
+        // 폴백). mem/disk 캐시 조회보다 아래에 둔다 — 위에 두면 이미 디스크에 있는 파일까지 막는다(리뷰 지적).
+        if animated, missingAnimated.contains(key) { return nil }
         // 슬러그는 캐시 미스일 때만 필요하다 — 여기(캐시 조회 아래)에 두면 번들 슬러그 테이블 로드 실패가
         // 디스크에 이미 있는 스프라이트까지 막지 않는다(리뷰 지적).
         guard let slug = SpeciesSlug.slug(speciesID),
@@ -62,9 +65,9 @@ actor SpriteStore {
             let (d, resp) = try await fetch(url)
             let status = (resp as? HTTPURLResponse)?.statusCode
             guard status == 200, !d.isEmpty else {
-                // 404/410 은 "이 종엔 애니메이션이 없다"는 확정 신호일 때만 기억한다. 그 외 상태 코드(5xx 등)는
+                // 404/410 은 "이 변형엔 애니메이션이 없다"는 확정 신호일 때만 기억한다. 그 외 상태 코드(5xx 등)는
                 // 서버 쪽 일시 오류일 수 있어 기억하지 않는다 — 다음 시도에서 다시 확인한다.
-                if animated, status == 404 || status == 410 { missingAnimated.insert(speciesID) }
+                if animated, status == 404 || status == 410 { missingAnimated.insert(key) }
                 return nil
             }
             try? d.write(to: file, options: .atomic)   // torn write 방지

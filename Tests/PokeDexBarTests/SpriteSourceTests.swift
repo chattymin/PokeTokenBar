@@ -85,6 +85,23 @@ final class SpriteSourceTests: XCTestCase {
         XCTAssertNil(second)
     }
 
+    /// 리뷰 지적(critical): missingAnimated 는 종이 아니라 **변형(종+shiny)** 단위로 기억해야 한다. shiny
+    /// 애니메이션 404 를 종 단위로 기억하면, 뒤이은 일반(non-shiny) 애니메이션 요청까지 같은 종이라는 이유로
+    /// 네트워크 호출 없이 nil 로 단락되어 — 정적으로도, 일반 GIF 로도 절대 폴백하지 못한다.
+    func test404OnShinyVariantDoesNotDisableNonShinyAnimation() async {
+        let stub = FetchStub(.status(404))
+        let store = SpriteStore(dir: makeTempDir(), fetch: stub.fetch)
+
+        let shinyMiss = await store.data(speciesID: 25, animated: true, shiny: true)
+        XCTAssertNil(shinyMiss)
+
+        // shiny 변형만 확정 실패로 기억됐어야 한다 — 같은 종의 non-shiny 변형은 여전히 네트워크를 타야 한다.
+        let bytes = Data([0x42])
+        stub.mode = .success(bytes)
+        let nonShiny = await store.data(speciesID: 25, animated: true, shiny: false)
+        XCTAssertEqual(nonShiny, bytes)
+    }
+
     /// 5xx 같은 비-404 상태 코드도 일시적 서버 오류일 수 있다 — 기록하면 안 된다.
     func test500DoesNotPermanentlyDisableAnimation() async {
         let stub = FetchStub(.status(500))
