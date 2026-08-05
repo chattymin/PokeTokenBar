@@ -56,6 +56,10 @@ struct PopoverView: View {
         !loadedIDs.contains(baseID) && !loadingIDs.contains(baseID)
     }
 
+    /// 1초 카운트다운 틱(TimelineView)을 걸어야 하나 — 부화 중인 알이 있을 때만.
+    /// 알을 한 번도 안 뽑은 사용자에게 매초 재렌더를 시키지 않는다. 순수 판정이라 테스트로 잠근다.
+    nonisolated static func needsCountdownTick(_ state: PlayerState) -> Bool { !state.eggs.isEmpty }
+
     var body: some View {
         Group {
             if Self.needsStarter(player.state) {
@@ -130,8 +134,14 @@ struct PopoverView: View {
                 Divider()
                 // NOTE: 부화 슬롯만 1초 틱으로 감싼다 — 홈 탭 전체를 TimelineView 로 감싸면
                 // 파트너 카드·헤더·한도 섹션까지 매초 다시 그려 팝오버 에너지 예산을 깬다.
-                TimelineView(.periodic(from: .now, by: 1)) { context in
-                    EggSlotsView(store: player, now: context.date)
+                // 알이 하나도 없으면 셀 시간도 정산할 것도 없으므로 틱 자체를 걸지 않는다
+                // (빈 슬롯 줄은 그대로 보여준다 — 알을 뽑으면 어디에 들어가는지가 보여야 한다).
+                if Self.needsCountdownTick(player.state) {
+                    TimelineView(.periodic(from: .now, by: 1)) { context in
+                        EggSlotsView(store: player, now: context.date)
+                    }
+                } else {
+                    EggSlotsView(store: player, now: player.currentDate())
                 }
                 Divider()
                 header

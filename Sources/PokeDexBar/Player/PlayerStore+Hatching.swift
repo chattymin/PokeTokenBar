@@ -29,4 +29,13 @@ extension PlayerStore {
         }
         return hatched
     }
+
+    /// 정산하고, 깬 게 있으면 알린다. 정산 지점이 셋(사용량 틱·팝오버 열기·카운트다운 틱)이라
+    /// "정산 한 번 = 알림 한 번" 규칙이 지점마다 갈라지지 않게 여기 한 곳에 묶는다.
+    @discardableResult
+    func settleHatchesAndNotify(at now: Date) -> [Individual] {
+        let hatched = settleHatches(at: now)
+        HatchNotifier().notify(hatched: hatched, language: language)
+        return hatched
+    }
 }

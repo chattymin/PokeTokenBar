@@ -1,3 +1,5 @@
+import AppKit
+import SwiftUI
 import XCTest
 @testable import PokeDexBar
 
@@ -46,5 +48,56 @@ final class EggSlotsViewTests: XCTestCase {
     func testMaxSlotsRowOverflowsContentWidth() {
         let width = EggSlotsView.rowWidth(forSlotCount: EggBalance.maxSlots)
         XCTAssertGreaterThan(width, PopoverMetrics.contentWidth)
+    }
+
+    /// 알이 없으면 1초 틱을 걸지 않는다 — 알을 한 번도 안 뽑은 사용자에게 매초 재렌더는 순손실이다.
+    func testCountdownTickOnlyWhenAnEggIsHatching() {
+        var state = PlayerState()
+        XCTAssertFalse(PopoverView.needsCountdownTick(state))
+        state.eggs = [Egg(grade: .common, speciesID: 1, shiny: false,
+                          startedAt: Date(timeIntervalSince1970: 0),
+                          hatchesAt: Date(timeIntervalSince1970: 1800))]
+        XCTAssertTrue(PopoverView.needsCountdownTick(state))
+    }
+}
+
+/// 팝오버를 열어 둔 채 부화 시각이 지나면 그 자리에서 깨야 한다. 카운트다운 틱에 정산이 안 붙어
+/// 있으면 타일이 "부화!"에 멈춘 채 다음 사용량 새로고침까지(수동 프리셋이면 무한정) 그대로였다.
+/// 스토어의 `settleHatches` 를 직접 부르는 테스트는 이 배선이 없어도 통과하므로, 뷰를 호스팅해
+/// **틱이 지나가는 것만으로** 정산되는지를 잰다(rootView 교체 = 1초 틱 한 번).
+@MainActor
+final class EggSlotsTickSettleTests: XCTestCase {
+    private let start = Date(timeIntervalSince1970: 1_700_000_000)
+
+    private func makeStore() -> PlayerStore {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("egg-tick-\(UUID().uuidString).json")
+        let store = PlayerStore(fileURL: url, rng: SeededRNG(seed: 1), now: { self.start })
+        store.seedForTesting(wallet: 0, slots: 3, eggs: 1, at: start)
+        return store
+    }
+
+    func testTickPastHatchTimeSettlesTheEgg() {
+        let store = makeStore()
+        let host = NSHostingView(rootView: EggSlotsView(store: store, now: start))
+        host.layoutSubtreeIfNeeded()
+        XCTAssertEqual(store.state.eggs.count, 1, "아직 부화 시각 전이다")
+
+        // 다음 틱 — 부화 시각을 지난 시각이 들어온다.
+        host.rootView = EggSlotsView(store: store, now: start.addingTimeInterval(EggBalance.duration(.common)))
+        host.layoutSubtreeIfNeeded()
+        XCTAssertTrue(store.state.eggs.isEmpty, "틱이 부화 시각을 지났는데 알이 슬롯에 남아 있다")
+        XCTAssertEqual(store.state.box.count, 1, "부화한 개체가 박스에 들어와야 한다")
+    }
+
+    /// 익지 않은 알은 틱마다 건드리지 않는다 — 틱은 초당 한 번 도는 경로라 헛일을 하면 안 된다.
+    func testTickBeforeHatchTimeLeavesTheEggAlone() {
+        let store = makeStore()
+        let host = NSHostingView(rootView: EggSlotsView(store: store, now: start))
+        host.layoutSubtreeIfNeeded()
+        host.rootView = EggSlotsView(store: store, now: start.addingTimeInterval(60))
+        host.layoutSubtreeIfNeeded()
+        XCTAssertEqual(store.state.eggs.count, 1)
+        XCTAssertTrue(store.state.box.isEmpty)
     }
 }

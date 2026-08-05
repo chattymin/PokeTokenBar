@@ -62,6 +62,16 @@ struct EggSlotsView: View {
             // 슬롯이 적으면(대부분의 사용자) 스크롤·바운스가 생기지 않아 기존과 동일하게 보인다.
             .scrollBounceBehavior(.basedOnSize, axes: .horizontal)
         }
+        .onChange(of: now) { _, date in settleRipeEggs(at: date) }
+    }
+
+    /// 카운트다운이 부화 시각을 지나면 그 틱에서 바로 정산한다. 이게 없으면 팝오버를 열어 둔 채
+    /// 시간이 찬 알이 "부화!"에 멈춰 있다가 다음 사용량 새로고침에야 깬다 — 새로고침을 "수동"으로
+    /// 둔 사용자(`UsageStore` 의 0초 프리셋)는 타이머가 아예 없어 팝오버를 닫았다 열기 전엔 영영 안 깬다.
+    /// 이미 도는 1초 틱에 얹으므로 새 타이머는 없고, 익은 알이 없으면 아무 일도 하지 않는다.
+    private func settleRipeEggs(at date: Date) {
+        guard store.readyEggCount(at: date) > 0 else { return }
+        store.settleHatchesAndNotify(at: date)
     }
 
     private func slot(_ egg: Egg) -> some View {
