@@ -67,6 +67,22 @@ struct L {
     /// 홈 파트너 카드의 진화 가능 배지 — 실제 진화 실행은 박스에서.
     var evolutionReadyBadge: String { t("진화 가능", "Can evolve", "しんか可能") }
 
+    // MARK: 홈 — 부화 슬롯
+    var eggSlotsHeader: String { t("부화 중", "Hatching", "ふ化中") }
+    var eggHatchingNow: String { t("부화!", "Hatched!", "ふ化!") }
+    func eggCountdownDaysHours(_ days: Int, _ hours: Int) -> String {
+        t("\(days)일 \(hours)시간", "\(days)d \(hours)h", "\(days)日\(hours)時間")
+    }
+    func eggCountdownHoursMinutes(_ hours: Int, _ minutes: Int) -> String {
+        t("\(hours)시간 \(minutes)분", "\(hours)h \(minutes)m", "\(hours)時間\(minutes)分")
+    }
+    func eggCountdownMinutesSeconds(_ minutes: Int, _ seconds: Int) -> String {
+        t("\(minutes)분 \(seconds)초", "\(minutes)m \(seconds)s", "\(minutes)分\(seconds)秒")
+    }
+    func eggCountdownSeconds(_ seconds: Int) -> String {
+        t("\(seconds)초", "\(seconds)s", "\(seconds)秒")
+    }
+
     // MARK: 헤더 (오늘/주/월)
     var todayTokens: String { t("오늘 사용한 토큰", "Today's tokens", "本日のトークン") }
     var thisWeek: String { t("이번 주", "This week", "今週") }

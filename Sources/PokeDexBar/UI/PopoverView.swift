@@ -128,6 +128,12 @@ struct PopoverView: View {
             } else {
                 partnerCard
                 Divider()
+                // NOTE: 부화 슬롯만 1초 틱으로 감싼다 — 홈 탭 전체를 TimelineView 로 감싸면
+                // 파트너 카드·헤더·한도 섹션까지 매초 다시 그려 팝오버 에너지 예산을 깬다.
+                TimelineView(.periodic(from: .now, by: 1)) { context in
+                    EggSlotsView(store: player, now: context.date)
+                }
+                Divider()
                 header
                 Divider()
                 providerStatusBanner   // 인시던트 있을 때만 — 한도 가용 여부와 무관(API 다운=한도 nil 케이스에도)
