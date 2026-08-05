@@ -143,4 +143,69 @@ final class PlayerStateTests: XCTestCase {
         XCTAssertEqual(s.eggs.count, 1, "깨진 알 하나 때문에 eggs 전체가 비면 안 된다")
         XCTAssertEqual(s.eggs.first?.id, goodID)
     }
+
+    // MARK: 신뢰경계 값 범위 검증 (관대 디코딩의 짝)
+
+    private func decodeEgg(startedAt: String, hatchesAt: String) throws -> Egg {
+        let json = """
+        {"eggs":[{"id":"\(UUID().uuidString)","grade":"common","speciesID":1,"shiny":false,
+         "startedAt":\(startedAt),"hatchesAt":\(hatchesAt)}]}
+        """
+        let s = try JSONDecoder().decode(PlayerState.self, from: Data(json.utf8))
+        return try XCTUnwrap(s.eggs.first, "수치가 이상해도 알을 버리면 안 된다 — 자르기만 한다")
+    }
+
+    /// 터무니없는 부화 시각은 디코드에 *성공*하므로(`load()` 의 손상 복구가 안 뜬다) 여기서 잘라야 한다.
+    /// 안 자르면 카운트다운의 `Int(remaining.rounded(.up))` 이 변환 트랩으로 프로세스를 죽이고,
+    /// 재기동해도 같은 파일을 다시 읽어 또 죽는다.
+    func testDecodeClampsAbsurdHatchDate() throws {
+        let egg = try decodeEgg(startedAt: "0", hatchesAt: "1e300")
+        let remaining = egg.remaining(at: Date(timeIntervalSinceReferenceDate: 0))
+        XCTAssertLessThanOrEqual(remaining, EggBalance.duration(.legendary),
+                                 "부화는 아무리 늦어도 시작 + 최장 등급 시간이다")
+        // 잘린 값이면 카운트다운 표기가 트랩 없이 만들어진다(결함 재현 경로 그대로).
+        XCTAssertFalse(EggSlotsView.countdownText(remaining, .ko).isEmpty)
+    }
+
+    /// 시작 시각도 같은 이유로 자른다 — 시작이 터무니없으면 부화도 따라간다.
+    func testDecodeClampsAbsurdStartDate() throws {
+        let egg = try decodeEgg(startedAt: "1e300", hatchesAt: "1e300")
+        XCTAssertTrue(egg.startedAt.timeIntervalSince1970.isFinite)
+        XCTAssertLessThan(egg.startedAt, Date(timeIntervalSince1970: 7_258_118_401))
+        XCTAssertLessThanOrEqual(egg.hatchesAt.timeIntervalSince(egg.startedAt),
+                                 EggBalance.duration(.legendary))
+    }
+
+    /// 부화 시각이 시작보다 이를 수는 없다(음수 시각으로 저장된 손상분).
+    func testDecodeClampsHatchDateBeforeStart() throws {
+        let egg = try decodeEgg(startedAt: "1800", hatchesAt: "-1e300")
+        XCTAssertGreaterThanOrEqual(egg.hatchesAt, egg.startedAt)
+    }
+
+    /// 멀쩡한 알은 손대지 않는다 — 자르기가 정상 저장분을 흔들면 안 된다.
+    func testDecodeLeavesValidEggDatesAlone() throws {
+        let egg = try decodeEgg(startedAt: "0", hatchesAt: "1800")
+        XCTAssertEqual(egg.startedAt, Date(timeIntervalSinceReferenceDate: 0))
+        XCTAssertEqual(egg.hatchesAt, Date(timeIntervalSinceReferenceDate: 1800))
+    }
+
+    /// `"slots": 0` 은 디코드에 성공하고 경제를 영구히 잠근다 — freeSlots 0 이라 다시는 못 뽑는데
+    /// 상점은 "최대까지 늘렸어요"라고 말한다(nextSlotPrice 가 nil). 경계에서 자른다.
+    func testDecodeClampsSlotsIntoBuyableRange() throws {
+        func slots(_ raw: String) throws -> Int {
+            try JSONDecoder().decode(PlayerState.self, from: Data(#"{"slots":\#(raw)}"#.utf8)).slots
+        }
+        XCTAssertEqual(try slots("0"), 1)
+        XCTAssertEqual(try slots("-5"), 1)
+        XCTAssertEqual(try slots("9999"), EggBalance.maxSlots)
+        XCTAssertEqual(try slots("4"), 4, "정상 범위는 그대로")
+    }
+
+    /// 잘린 슬롯으로도 알을 뽑을 수 있어야 한다 — 이게 "브릭"의 실제 증상이다.
+    func testClampedSlotsRestoreTheAbilityToDraw() throws {
+        var state = try JSONDecoder().decode(PlayerState.self, from: Data(#"{"slots":0}"#.utf8))
+        state.earnedTokens = EggBalance.drawPrice
+        XCTAssertGreaterThan(state.slots - state.eggs.count, 0)
+        XCTAssertGreaterThanOrEqual(state.wallet, EggBalance.drawPrice)
+    }
 }

@@ -58,7 +58,11 @@ struct PlayerState: Codable, Sendable {
             AppLog.write("PlayerState: dropped \(wrappedBox.count - box.count) malformed individual(s) from box on decode")
         }
         dex = value(.dex, [])
-        slots = value(.slots, 3)
+        // 관대 디코딩의 짝 — 값 범위 검증(CLAUDE.md 결함 대응 프로토콜). `"slots": 0` 은 디코드에
+        // 성공해 경제를 영구히 잠근다: freeSlots 0 → canDraw false → nextSlotPrice nil 이라 상점은
+        // "슬롯을 최대까지 늘렸어요"라고 말하는데 다시는 뽑을 수 없다. 상한도 자른다 — 거대한 값은
+        // 빈 슬롯 타일을 그 수만큼 만들어 화면을 세운다.
+        slots = min(EggBalance.maxSlots, max(1, value(.slots, EggBalance.baseSlots)))
         // 알도 박스와 같은 이유로 원소 단위 관대 디코딩한다 — 알 하나가 깨졌다고 부화 중인
         // 나머지 알까지 통째로 날아가면 안 된다.
         let wrappedEggs = (try? c.decode([LossyEgg].self, forKey: .eggs)) ?? []
@@ -81,10 +85,11 @@ private struct LossyIndividual: Decodable {
     }
 }
 
-/// `[Egg]` 원소 단위 관대 디코딩 래퍼 — `LossyIndividual` 과 같은 패턴.
+/// `[Egg]` 원소 단위 관대 디코딩 래퍼 — `LossyIndividual` 과 같은 패턴에, 값 범위 검증(`Egg.sanitized`)을
+/// 겸한다. 관대 디코딩은 말이 안 되는 시각도 통과시키고, 그 값이 나중에 산술 트랩을 낸다.
 private struct LossyEgg: Decodable {
     let egg: Egg?
     init(from decoder: Decoder) throws {
-        egg = try? Egg(from: decoder)
+        egg = (try? Egg(from: decoder))?.sanitized()
     }
 }
