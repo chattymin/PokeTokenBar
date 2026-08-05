@@ -4,7 +4,7 @@ import SwiftUI
 /// 파트너 지정과 진화가 여기서 일어난다(중복 개체를 각각 다루려면 개체 단위 화면이 필요하다).
 struct BoxTabView: View {
     let store: PlayerStore
-    /// 종 번호 → 진화 라인. 없으면 진화 후보를 알 수 없어 버튼을 흐리게 둔다.
+    /// 종 번호 → 진화 라인. 없으면 진화 후보를 알 수 없어 진화 버튼 자체를 숨긴다.
     let lines: [Int: EvoLine]
     /// 라인이 없을 때 호출 — 앱이 받아와 `lines` 를 채운다.
     let onNeedLine: (Int) -> Void

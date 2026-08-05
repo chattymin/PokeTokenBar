@@ -40,11 +40,22 @@ struct PopoverView: View {
 
     /// 박스가 진화 후보를 보여주려면 라인이 필요하다. 개체 baseID → 라인, 로드되면 채운다.
     @State private var evoLines: [Int: EvoLine] = [:]
+    /// 지금 fetch 중인 baseID — 같은 종 개체가 여럿(박스의 핵심 시나리오) 화면에 뜨면 각 행의
+    /// `.task` 가 동시에 `loadLine` 을 부르므로, 완료 전 상태(로딩 중)도 별도로 추적해야 한다.
+    /// `evoLines` 만으로는 진행 중인 fetch 를 못 봐서(아직 키가 없으니) 중복 fetch 가 생긴다.
+    @State private var loadingLines: Set<Int> = []
 
     private var l: L { companion.l }
 
     /// 스타터를 아직 안 골랐나 — 골라야 다른 화면을 쓸 수 있다. 순수 판정이라 테스트로 잠근다.
     nonisolated static func needsStarter(_ state: PlayerState) -> Bool { !state.starterChosen }
+
+    /// 라인 fetch 를 새로 시작해야 하나 — 이미 로드됐거나(`loadedIDs`) 이미 진행 중이면(`loadingIDs`)
+    /// false. 순수 판정이라 테스트로 잠근다(같은 종 여럿이 동시에 화면에 뜨는 게 박스의 정상 시나리오라
+    /// 중복 fetch 로 새는 걸 여기서 막는다).
+    nonisolated static func shouldStartLoadingLine(_ baseID: Int, loadedIDs: Set<Int>, loadingIDs: Set<Int>) -> Bool {
+        !loadedIDs.contains(baseID) && !loadingIDs.contains(baseID)
+    }
 
     var body: some View {
         Group {
@@ -137,9 +148,13 @@ struct PopoverView: View {
     // MARK: 박스 — 진화 라인 로드
 
     /// 박스가 진화 후보를 보여주려면 라인이 필요하다. 개체가 화면에 들어올 때 한 번만 받아둔다.
+    /// 같은 종 개체가 여럿 보이면 각 행의 `.task` 가 동시에 이 함수를 부르므로, `loadingLines` 에
+    /// 먼저 등록해 나머지 호출을 조기 반환시킨다 — 실패해도 `defer` 로 등록을 지워 재시도는 막지 않는다.
     private func loadLine(_ baseID: Int) {
-        guard evoLines[baseID] == nil else { return }
+        guard Self.shouldStartLoadingLine(baseID, loadedIDs: Set(evoLines.keys), loadingIDs: loadingLines) else { return }
+        loadingLines.insert(baseID)
         Task {
+            defer { loadingLines.remove(baseID) }
             if let line = try? await provider.line(baseSpeciesID: baseID) {
                 evoLines[baseID] = line
             }
