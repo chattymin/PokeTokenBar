@@ -41,7 +41,7 @@ final class EvoLineNameTests: XCTestCase {
 final class EvoLineAssetTests: XCTestCase {
     /// PokéAPI 원본 체인에 다루는 범위(1...1025) 밖 진화형이 이어져도, 그 형태만 잘려나가고
     /// 실제 진화 라인과 단계 수엔 지원 범위 안의 형태만 남아야 한다. 예: 망키(#56) → 성원숭(#57) → #1030(범위 밖 placeholder).
-    func testKeepsOnlyFormsWithAnimatedAssets() {
+    func testKeepsOnlyFormsWithinSupportedRange() {
         let line = EvoLine(
             baseID: 56,
             tree: evoNode(56, [evoNode(57, [evoNode(1030)])]),
