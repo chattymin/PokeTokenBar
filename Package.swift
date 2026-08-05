@@ -8,6 +8,7 @@ let package = Package(
         .executableTarget(
             name: "PokeDexBar",
             path: "Sources/PokeDexBar",
+            resources: [.process("Resources")],
             linkerSettings: [.linkedLibrary("sqlite3")]
         ),
         .testTarget(
