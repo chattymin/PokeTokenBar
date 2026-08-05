@@ -5,7 +5,9 @@ import Observation
 /// 진화는 여기서 자동으로 일어나지 않는다 — 사용자가 눌러야 한다(`PlayerStore+Evolution`).
 @MainActor @Observable
 final class PlayerStore {
-    private(set) var state = PlayerState()
+    // Player/ 아래 확장 파일(PlayerStore+Evolution 등)에서 상태를 바꿀 수 있어야 해서 기본(internal) 접근을 쓴다.
+    // Swift 의 private 은 파일 단위라 다른 파일의 extension 에서는 private(set) 이 안 통한다.
+    var state = PlayerState()
 
     @ObservationIgnored private let fileURL: URL
     @ObservationIgnored private var rng: any RandomNumberGenerator
