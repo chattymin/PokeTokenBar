@@ -22,6 +22,16 @@ struct ShopTabView: View {
             .joined(separator: " · ")
     }
 
+    /// 뽑기 착지 — 알을 슬롯에 넣고, 못 넣었으면 보여줄 문구를 돌려준다(nil = 성공).
+    /// `startEgg` 은 착지 시점에 `canDraw` 가 아니면 nil 을 돌려준다: 후보를 기다리는 동안에도
+    /// 슬롯·아이템 버튼은 살아 있어 지갑이 뽑기 값 아래로 내려갈 수 있다. 그 nil 을 버리면
+    /// 사용자는 눌렀는데 재화도 안 줄고 알도 안 생기는 침묵을 본다.
+    /// 뷰 밖에서 잠글 수 있게 착지 지점만 떼어 둔다(`draw()` 는 네트워크 await 라 통째로는 못 잡는다).
+    static func landDraw(_ store: PlayerStore, grade: Grade, speciesID: Int, shiny: Bool) -> String? {
+        store.startEgg(grade: grade, speciesID: speciesID, shiny: shiny) == nil
+            ? store.l.shopDrawUnavailable : nil
+    }
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 12) {
@@ -138,7 +148,7 @@ struct ShopTabView: View {
             // 조회가 다음 뽑기와 경합해 조용히 이기는 걸 막는다.
             guard !Task.isCancelled else { return }
             let chosen = EggBalance.pickSpecies(from: index, grade: roll.grade, roll: store.nextRandomUnit())
-            store.startEgg(grade: roll.grade, speciesID: chosen, shiny: roll.shiny)
+            lastError = Self.landDraw(store, grade: roll.grade, speciesID: chosen, shiny: roll.shiny)
         }
     }
 }
