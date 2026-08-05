@@ -20,6 +20,8 @@ struct PlayerState: Codable, Sendable {
     var dex: Set<Int> = []
     /// 동시 부화 슬롯 수(2b 에서 쓴다). 기본 3, 상한 6.
     var slots = 3
+    /// 부화 중인 알. 개수는 `slots` 를 넘지 않는다.
+    var eggs: [Egg] = []
     /// 아이템 종류 → 개수.
     var inventory: [String: Int] = [:]
     var ownsShinyCharm = false
@@ -57,6 +59,7 @@ struct PlayerState: Codable, Sendable {
         }
         dex = value(.dex, [])
         slots = value(.slots, 3)
+        eggs = value(.eggs, [])
         inventory = value(.inventory, [:])
         ownsShinyCharm = value(.ownsShinyCharm, false)
         language = value(.language, .systemDefault)
