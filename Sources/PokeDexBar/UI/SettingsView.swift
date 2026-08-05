@@ -1,9 +1,8 @@
 import SwiftUI
-import UniformTypeIdentifiers
 
 struct SettingsView: View {
     @Environment(UsageStore.self) private var store
-    @Environment(CompanionStore.self) private var companion
+    @Environment(PlayerStore.self) private var player
     @Environment(UpdateChecker.self) private var updater
     /// 팝오버 내부 화면 전환 방식 — sheet/dismiss 를 쓰지 않는다 (PopoverView 의 NOTE 참조)
     var onClose: () -> Void
@@ -13,14 +12,9 @@ struct SettingsView: View {
     @State private var advancedExpanded = false
     @State private var isCheckingUpdate = false
     @State private var didCheckUpdate = false
-    private var l: L { companion.l }
+    private var l: L { player.l }
 
     private var isBundledApp: Bool { AppEnv.isBundledApp }
-
-    /// 세이브 봉투에 남길 출처 표기 — 어느 Mac에서 내보낸 파일인지 나중에 알아보기 위한 것.
-    private static var deviceName: String {
-        Host.current().localizedName ?? ProcessInfo.processInfo.hostName
-    }
 
     /// 현재 앱 버전 — 업데이트 적용 여부 확인용으로 설정창 하단에 표기.
     private static var appVersion: String {
@@ -41,7 +35,6 @@ struct SettingsView: View {
                     floatingPetGroup(store)
                     notificationsGroup(store)
                     updateGroup(store)
-                    transferGroup(store)
                     advancedGroup(store)
                     aboutSupportGroup
                 }
@@ -102,8 +95,8 @@ struct SettingsView: View {
                 Text(l.language)
                 Spacer()
                 Picker("", selection: Binding(
-                    get: { companion.language },
-                    set: { companion.setLanguage($0); store.localizationLanguage = $0 })) {
+                    get: { player.language },
+                    set: { player.setLanguage($0); store.localizationLanguage = $0 })) {
                     ForEach(AppLanguage.allCases, id: \.self) { Text($0.label).tag($0) }
                 }
                 .labelsHidden().pickerStyle(.menu).fixedSize()
@@ -213,8 +206,6 @@ struct SettingsView: View {
                 }
             }
             Divider()
-            toggleRow(l.companionNotificationsLabel, $store.companionNotifications)
-            Divider()
             groupRow {
                 VStack(alignment: .leading, spacing: 1) {
                     Text(l.statusChecksLabel)
@@ -265,32 +256,6 @@ struct SettingsView: View {
                         Spacer()
                     }
                 }
-            }
-        }
-    }
-
-    /// 백업 & 이전 — 새 Mac으로 옮길 때 쓰는 세이브 파일 내보내기/불러오기.
-    /// 사용자가 상태 파일 경로를 직접 찾아다니지 않도록, 저장 위치와 불러올 파일 모두 표준
-    /// 파일 선택창으로 고르게 한다.
-    @ViewBuilder
-    private func transferGroup(_ store: UsageStore) -> some View {
-        settingsSection(l.transferSectionTitle) {
-            groupRow {
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(l.exportSaveLabel)
-                    Text(l.exportSaveHint).font(.caption2).foregroundStyle(.tertiary)
-                }
-                Spacer()
-                Button(l.exportSaveButton) { exportSave() }
-            }
-            Divider()
-            groupRow {
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(l.importSaveLabel)
-                    Text(l.importSaveHint).font(.caption2).foregroundStyle(.tertiary)
-                }
-                Spacer()
-                Button(l.importSaveButton) { importSave(store) }
             }
         }
     }
@@ -445,105 +410,4 @@ struct SettingsView: View {
         reportError = nil
     }
 
-    // MARK: 세이브 이전
-    //
-    // 결과를 인라인 텍스트로 못 보여주는 이유: 팝오버가 `.transient` 라 파일 선택창이 키 윈도우가 되는
-    // 순간 닫히고, popoverDidClose 가 호스팅 컨트롤러를 해제해 이 뷰(@State 포함)가 사라진다.
-    // → 성공은 Finder 노출(로그 파일 보기와 같은 방식), 그 외는 알림창으로 알린다.
-    //
-    // 활성화는 `activate(ignoringOtherApps: true)` 여야 한다 — 이 앱은 LSUIElement 라 백그라운드에서
-    // `NSApp.activate()`(협조적 활성화)가 무시된다. 실측: activate() 는 isActive=false 로 최전면이 안 바뀌고
-    // (패널이 다른 창 뒤에 떠 사용자가 못 찾는다), ignoringOtherApps 만 전면화된다.
-    // `NSRunningApplication.current.activate(.activateAllWindows)` 도 같은 이유로 실패한다.
-    // 레포의 다른 활성화 지점(PokeDexBarApp·FloatingPetPanel)도 같은 형태다 — 통일해서 유지할 것.
-
-    private func exportSave() {
-        let panel = NSSavePanel()
-        panel.title = l.exportSaveLabel
-        panel.nameFieldStringValue = companion.suggestedExportFileName
-        panel.allowedContentTypes = [.json]
-        panel.canCreateDirectories = true
-        NSApp.activate(ignoringOtherApps: true)
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-        do {
-            let data = try companion.exportedSaveData(appVersion: Self.appVersion, deviceName: Self.deviceName)
-            try data.write(to: url, options: .atomic)
-            NSWorkspace.shared.activateFileViewerSelecting([url])
-        } catch {
-            presentAlert(title: l.exportSaveLabel, message: error.localizedDescription, style: .warning)
-        }
-    }
-
-    private func importSave(_ store: UsageStore) {
-        let panel = NSOpenPanel()
-        panel.title = l.importSaveLabel
-        panel.allowedContentTypes = [.json]
-        panel.allowsMultipleSelection = false
-        panel.canChooseDirectories = false
-        NSApp.activate(ignoringOtherApps: true)
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-
-        let envelope: SaveEnvelope
-        do {
-            envelope = try SaveTransfer.decode(try Data(contentsOf: url))
-        } catch {
-            presentAlert(title: l.importSaveLabel, message: l.importErrorMessage(error), style: .warning)
-            return
-        }
-        let incoming = SaveSummary(state: envelope.state)
-
-        // 고른 즉시 덮어쓰지 않는다 — 무엇이 대체되는지 수치로 보여주고 한 번 더 확인받는다.
-        let current = companion.transferSummary
-        let confirm = NSAlert()
-        confirm.alertStyle = .warning
-        confirm.messageText = l.importConfirmTitle
-        confirm.informativeText = l.importConfirmBody(
-            incomingDex: incoming.dexCount,
-            incomingTokens: TokenFormatter.compact(incoming.lifetimeTokens),
-            exportedAt: Self.exportedAtText(envelope.exportedAt),
-            sourceDevice: envelope.sourceDevice,
-            currentDex: current.dexCount,
-            currentTokens: TokenFormatter.compact(current.lifetimeTokens))
-        confirm.addButton(withTitle: l.importConfirmReplace)
-        confirm.addButton(withTitle: l.cancel)
-        // 파괴적 동작을 기본 버튼으로 두지 않는다(Return 한 번에 진행이 대체되지 않게).
-        // 규칙 자체는 ImportConfirmPolicy 에 있고 여기선 적용만 한다 — NSAlert 구성은 테스트 불가라
-        // 순서가 뒤바뀌어도 잡을 자동 경로가 없기 때문이다.
-        for (index, button) in confirm.buttons.enumerated() {
-            button.keyEquivalent = ImportConfirmPolicy.keyEquivalent(forButtonAt: index)
-        }
-        guard confirm.runModal() == .alertFirstButtonReturn else { return }
-
-        do {
-            try companion.applySave(envelope,
-                                    todayTokens: store.todayTotalTokens,
-                                    todayDate: LocalUsageReader.todayKey(),
-                                    hasUsageData: store.hasUsageData)
-        } catch {
-            presentAlert(title: l.importSaveLabel, message: l.importErrorMessage(error), style: .warning)
-            return
-        }
-        presentAlert(title: l.importSaveLabel,
-                     message: l.importSaveDone(dex: incoming.dexCount,
-                                               tokens: TokenFormatter.compact(incoming.lifetimeTokens)),
-                     style: .informational)
-    }
-
-    /// 확인창에 보일 내보낸 시각 — 사용자 로케일 기준 짧은 표기.
-    private static func exportedAtText(_ date: Date) -> String {
-        let f = DateFormatter()
-        f.dateStyle = .medium
-        f.timeStyle = .short
-        return f.string(from: date)
-    }
-
-    private func presentAlert(title: String, message: String, style: NSAlert.Style) {
-        let alert = NSAlert()
-        alert.alertStyle = style
-        alert.messageText = title
-        alert.informativeText = message
-        alert.addButton(withTitle: l.close)
-        NSApp.activate(ignoringOtherApps: true)
-        alert.runModal()
-    }
 }

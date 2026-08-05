@@ -1,7 +1,7 @@
 import AppKit
 import SwiftUI
 
-enum PopoverTab { case home, shop, bag, collection, box }
+enum PopoverTab { case home, collection, box }
 
 /// 팝오버 치수의 단일 소스. 자식이 쓸 수 있는 폭을 알아야 할 때 이 값을 쓴다 — 넘치는 자식이
 /// 부모 폭을 부풀리므로 GeometryReader 로 재면 순환한다.
@@ -31,7 +31,6 @@ final class PopoverNavigation {
 
 struct PopoverView: View {
     @Environment(UsageStore.self) private var store
-    @Environment(CompanionStore.self) private var companion
     @Environment(UpdateChecker.self) private var updater
     @Environment(PopoverNavigation.self) private var nav
 
@@ -45,7 +44,7 @@ struct PopoverView: View {
     /// `evoLines` 만으로는 진행 중인 fetch 를 못 봐서(아직 키가 없으니) 중복 fetch 가 생긴다.
     @State private var loadingLines: Set<Int> = []
 
-    private var l: L { companion.l }
+    private var l: L { player.l }
 
     /// 스타터를 아직 안 골랐나 — 골라야 다른 화면을 쓸 수 있다. 순수 판정이라 테스트로 잠근다.
     nonisolated static func needsStarter(_ state: PlayerState) -> Bool { !state.starterChosen }
@@ -75,7 +74,7 @@ struct PopoverView: View {
             if nav.showSettings {
                 SettingsView(onClose: { nav.showSettings = false })
                     .environment(store)
-                    .environment(companion)
+                    .environment(player)
                     .environment(updater)
             } else {
                 mainContent
@@ -113,10 +112,8 @@ struct PopoverView: View {
             updateBanner
             Picker("", selection: $nav.tab) {
                 Text(l.home).tag(PopoverTab.home)
-                Text(l.shop).tag(PopoverTab.shop)
-                Text(l.bag).tag(PopoverTab.bag)
-                Text(l.collection).tag(PopoverTab.collection)
                 Text("박스").tag(PopoverTab.box)
+                Text(l.collection).tag(PopoverTab.collection)
             }
             .pickerStyle(.segmented)
             .labelsHidden()
@@ -125,12 +122,8 @@ struct PopoverView: View {
                 BoxTabView(store: player, lines: evoLines) { baseID in loadLine(baseID) }
             } else if nav.tab == .collection {
                 NationalDexView(store: player)
-            } else if nav.tab == .bag {
-                BagView(store: companion, nav: nav)
-            } else if nav.tab == .shop {
-                ShopView(store: companion, nav: nav)
             } else {
-                CompanionHeader(store: companion)
+                partnerCard
                 Divider()
                 header
                 Divider()
@@ -143,6 +136,37 @@ struct PopoverView: View {
             footer
         }
         .padding(PopoverMetrics.padding)
+    }
+
+    // MARK: 홈 — 파트너 카드
+
+    /// 홈 상단 — 지금 데리고 다니는 개체의 초상화 + 경험치 진행도. 파트너 상세(진화 실행 등)는 박스에서.
+    @ViewBuilder
+    private var partnerCard: some View {
+        if let partner = player.state.partner {
+            HStack(alignment: .top, spacing: 10) {
+                SpriteView(speciesID: partner.speciesID, size: 64, bob: true, animated: true,
+                          shiny: partner.shiny, antialias: store.antialiasSprites)
+                    .frame(width: 64, height: 64)
+                    .background(Color.secondary.opacity(0.06))
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(spacing: 6) {
+                        Text("#\(partner.speciesID)").font(.callout.weight(.semibold))
+                        if partner.shiny { Text("✨").font(.system(size: 11)) }
+                        Text(partner.grade.label)
+                            .font(.system(size: 8, weight: .bold))
+                            .padding(.horizontal, 5).padding(.vertical, 1)
+                            .background(Color.secondary.opacity(0.18), in: Capsule())
+                    }
+                    Text(partner.nature.name(player.language))
+                        .font(.caption2).foregroundStyle(.secondary)
+                    ProgressView(value: BoxTabView.progress(partner))
+                        .controlSize(.small).tint(.orange)
+                }
+                Spacer()
+            }
+        }
     }
 
     // MARK: 박스 — 진화 라인 로드

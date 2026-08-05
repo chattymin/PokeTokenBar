@@ -23,6 +23,9 @@ struct PlayerState: Codable, Sendable {
     /// 아이템 종류 → 개수.
     var inventory: [String: Int] = [:]
     var ownsShinyCharm = false
+    /// 앱 언어. 단일 소스 — 구 CompanionStore.language 를 대체한다. 포켓몬 이름은 PokéAPI 다국어
+    /// names 에서 따로 온다(EvoLine.localizedName).
+    var language: AppLanguage = .systemDefault
 
     /// 상점에서 쓸 수 있는 재화.
     var wallet: Int { max(0, earnedTokens - spentTokens) }
@@ -49,5 +52,6 @@ struct PlayerState: Codable, Sendable {
         slots = value(.slots, 3)
         inventory = value(.inventory, [:])
         ownsShinyCharm = value(.ownsShinyCharm, false)
+        language = value(.language, .systemDefault)
     }
 }

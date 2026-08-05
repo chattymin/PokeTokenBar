@@ -36,3 +36,17 @@ final class BaseIndexCacheTests: XCTestCase {
         XCTAssertEqual(back.entries.first?.id, 7)
     }
 }
+
+// MARK: PokéAPI SSRF 가드 (evolution_chain URL 검증 — 응답 변조 시 임의 호스트 fetch 방지)
+
+final class PokeAPIGuardTests: XCTestCase {
+    func testValidatedChainURLAcceptsPokeapiHttps() {
+        XCTAssertNotNil(PokeAPIClient.validatedChainURL("https://pokeapi.co/api/v2/evolution-chain/1/"))
+    }
+    func testValidatedChainURLRejectsUntrusted() {
+        XCTAssertNil(PokeAPIClient.validatedChainURL("https://evil.example.com/x"), "임의 호스트 거부(SSRF)")
+        XCTAssertNil(PokeAPIClient.validatedChainURL("https://pokeapi.co.evil.com/x"), "유사 호스트 거부")
+        XCTAssertNil(PokeAPIClient.validatedChainURL("http://pokeapi.co/x"), "http 거부(https 고정)")
+        XCTAssertNil(PokeAPIClient.validatedChainURL(""), "빈 문자열 거부")
+    }
+}

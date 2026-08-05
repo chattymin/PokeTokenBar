@@ -191,87 +191,16 @@ final class CodexLimitDerivationTests: XCTestCase {
     }
 }
 
-// MARK: MonState / CompanionState 영속
+// MARK: 성격 (PokemonNature)
 
-final class StatePersistenceLogicTests: XCTestCase {
-    func testCurrentIDClampsToPath() {
-        let m = MonState(baseID: 1, pathIDs: [1, 2, 3], stageIndex: 1, usedAtStage: 0, rarity: .common, totalForms: 3)
-        XCTAssertEqual(m.currentID, 2)
-        // stageIndex 가 경로를 넘어가도 마지막으로 클램프 (방어)
-        let over = MonState(baseID: 1, pathIDs: [1], stageIndex: 5, usedAtStage: 0, rarity: .common, totalForms: 1)
-        XCTAssertEqual(over.currentID, 1)
-    }
-
-    func testMonStateDecodeClampsStageIndexToRealizedPathBounds() throws {
-        let upper = #"{"baseID":1,"pathIDs":[1,2],"stageIndex":5,"usedAtStage":0,"rarity":"common","totalForms":2}"#
-        let lower = #"{"baseID":1,"pathIDs":[1,2],"stageIndex":-1,"usedAtStage":0,"rarity":"common","totalForms":2}"#
-
-        let decodedUpper = try JSONDecoder().decode(MonState.self, from: Data(upper.utf8))
-        let decodedLower = try JSONDecoder().decode(MonState.self, from: Data(lower.utf8))
-
-        XCTAssertEqual(decodedUpper.stageIndex, 1)
-        XCTAssertEqual(decodedLower.stageIndex, 0)
-    }
-
-    func testMonStateRoundTripPreservesDistinctPlannedPath() throws {
-        let state = MonState(baseID: 265, pathIDs: [265], plannedPathIDs: [265, 266, 267],
-                             stageIndex: 0, usedAtStage: 0, rarity: .common, totalForms: 3)
-
-        let decoded = try JSONDecoder().decode(MonState.self, from: JSONEncoder().encode(state))
-
-        XCTAssertEqual(decoded.pathIDs, [265])
-        XCTAssertEqual(decoded.plannedPathIDs, [265, 266, 267])
-    }
-
-    func testMonStateLegacyDecodeUsesRealizedPathAsPlan() throws {
-        let legacy = """
-        {"baseID":265,"pathIDs":[265,266],"stageIndex":1,"usedAtStage":0,"rarity":"common","totalForms":3}
-        """
-
-        let decoded = try JSONDecoder().decode(MonState.self, from: Data(legacy.utf8))
-
-        XCTAssertEqual(decoded.pathIDs, [265, 266])
-        XCTAssertEqual(decoded.plannedPathIDs, [265, 266])
-    }
-
-    func testMonStateEmptySavedPlanUsesRealizedPath() throws {
-        let saved = """
-        {"baseID":265,"pathIDs":[265,266],"plannedPathIDs":[],"stageIndex":1,"usedAtStage":0,"rarity":"common","totalForms":3}
-        """
-
-        let decoded = try JSONDecoder().decode(MonState.self, from: Data(saved.utf8))
-
-        XCTAssertEqual(decoded.plannedPathIDs, [265, 266])
-    }
-
-    func testMonStateEmptyInitialPlanUsesRealizedPath() {
-        let state = MonState(baseID: 265, pathIDs: [265, 266], plannedPathIDs: [],
-                             stageIndex: 1, usedAtStage: 0, rarity: .common, totalForms: 3)
-
-        XCTAssertEqual(state.plannedPathIDs, [265, 266])
-    }
-
-    func testCompanionStateEncodeDecodeRoundTrip() throws {
-        var st = CompanionState()
-        st.installBaselineSet = true
-        st.usedSinceInstall = 42
-        st.eggUsage = 1234
-        st.claimedTodayTokens = 7
-        st.lastDate = "2026-06-27"
-        st.collectedFinals = ["1:3", "10:12"]
-        st.language = .ja
-        st.dex = [DexEntry(baseID: 1, finalID: 3, chainOrder: [1, 2, 3], rarity: .rare, caughtAt: nil)]
-
-        let data = try JSONEncoder().encode(st)
-        let back = try JSONDecoder().decode(CompanionState.self, from: data)
-
-        XCTAssertEqual(back.installBaselineSet, true)
-        XCTAssertEqual(back.usedSinceInstall, 42)
-        XCTAssertEqual(back.eggUsage, 1234)
-        XCTAssertEqual(back.lastDate, "2026-06-27")
-        XCTAssertEqual(back.collectedFinals, ["1:3", "10:12"])
-        XCTAssertEqual(back.language, .ja)
-        XCTAssertEqual(back.dex.count, 1)
-        XCTAssertEqual(back.dex[0].chainOrder, [1, 2, 3])
+final class PokemonNatureTests: XCTestCase {
+    /// 성격 25종 — 3개 언어 명칭이 전부 비어있지 않고 중복 없는지.
+    func testNatureNamesComplete() {
+        XCTAssertEqual(PokemonNature.allCases.count, 25)
+        for lang in AppLanguage.allCases {
+            let names = PokemonNature.allCases.map { $0.name(lang) }
+            XCTAssertEqual(Set(names).count, 25, "\(lang) 중복/누락")
+            XCTAssertFalse(names.contains(where: \.isEmpty))
+        }
     }
 }

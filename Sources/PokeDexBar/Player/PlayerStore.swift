@@ -51,6 +51,13 @@ final class PlayerStore {
     var displayedSpeciesID: Int? { state.partner?.speciesID }
     var displayedIsShiny: Bool { state.partner?.shiny ?? false }
 
+    // MARK: 언어
+
+    var language: AppLanguage { state.language }
+    func setLanguage(_ lang: AppLanguage) { mutate { $0.language = lang } }
+    /// 앱 전체 UI 문자열 — language 변경 시 @Observable 로 자동 재렌더.
+    var l: L { L(language) }
+
     // MARK: 적립
 
     /// 사용량 갱신 — 지갑과 파트너 경험치가 같은 델타를 먹는다(서로 깎지 않는다).

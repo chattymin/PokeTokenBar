@@ -105,4 +105,10 @@ final class PlayerStateTests: XCTestCase {
         XCTAssertTrue(s.box.isEmpty)
         XCTAssertTrue(s.dex.isEmpty)
     }
+
+    /// 신규 설치 기본 언어는 시스템 로케일에서 유추 — 유효한 케이스이고 크래시 없음(한국어 강제 아님).
+    func testSystemDefaultLanguageResolves() {
+        XCTAssertTrue(AppLanguage.allCases.contains(AppLanguage.systemDefault))
+        XCTAssertEqual(PlayerState().language, AppLanguage.systemDefault)
+    }
 }

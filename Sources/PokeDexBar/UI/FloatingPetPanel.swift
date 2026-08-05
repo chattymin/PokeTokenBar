@@ -9,7 +9,6 @@ import SwiftUI
 @MainActor
 final class FloatingPetController: NSObject, NSWindowDelegate {
     private let store: UsageStore
-    private let companion: CompanionStore
     private let player: PlayerStore
     private let defaults: UserDefaults
     private var panel: NSPanel?
@@ -37,10 +36,9 @@ final class FloatingPetController: NSObject, NSWindowDelegate {
     private var onOpenPopover: (() -> Void)?
     private var onHide: (() -> Void)?
 
-    init(store: UsageStore, companion: CompanionStore, player: PlayerStore, defaults: UserDefaults = .standard,
+    init(store: UsageStore, player: PlayerStore, defaults: UserDefaults = .standard,
          onOpenPopover: (() -> Void)? = nil, onHide: (() -> Void)? = nil) {
         self.store = store
-        self.companion = companion
         self.player = player
         self.defaults = defaults
         self.onOpenPopover = onOpenPopover
@@ -69,7 +67,7 @@ final class FloatingPetController: NSObject, NSWindowDelegate {
             _ = store.currentBubbleAlert
             _ = store.todayTotalTokens
             _ = store.highestLimitUtilization
-            _ = companion.language
+            _ = player.language
         } onChange: { [weak self] in
             Task { @MainActor in
                 guard let self else { return }
@@ -139,10 +137,10 @@ final class FloatingPetController: NSObject, NSWindowDelegate {
         if p.contentView == nil || builtAnimated != wantAnimated {
             let hosting = PetHostingView(rootView: AnyView(
                 FloatingPetView(animated: wantAnimated)
-                    .environment(store).environment(companion).environment(player)))
+                    .environment(store).environment(player)))
             hosting.onOpenPopover = onOpenPopover
             hosting.onHide = onHide
-            hosting.languageProvider = { [weak self] in self?.companion.language ?? .systemDefault }
+            hosting.languageProvider = { [weak self] in self?.player.language ?? .systemDefault }
             hosting.onHoverChange = { [weak self] hovering in
                 if hovering { self?.showHoverCallout() } else { self?.hideHoverCallout() }
             }
@@ -171,7 +169,7 @@ final class FloatingPetController: NSObject, NSWindowDelegate {
         FloatingPetView.hoverTooltip(
             todayTokens: store.todayTotalTokens,
             limitUtilization: store.highestLimitUtilization,
-            l: L(companion.language))
+            l: L(player.language))
     }
 
     private func showHoverCallout() {
@@ -370,14 +368,13 @@ struct FloatingPetView: View {
     static let frameFloor: TimeInterval = 0.4
     var animated: Bool = true
     @Environment(UsageStore.self) private var store
-    @Environment(CompanionStore.self) private var companion
     @Environment(PlayerStore.self) private var player
 
     var body: some View {
         let size = CGFloat(store.floatingPetSize)
         VStack(spacing: 8) {
             if let alert = store.currentBubbleAlert {
-                SpeechBubbleView(alert: alert, l: L(companion.language))
+                SpeechBubbleView(alert: alert, l: L(player.language))
                     .transition(.scale(scale: 0.8, anchor: .bottom).combined(with: .opacity))
                     .zIndex(1)
             }

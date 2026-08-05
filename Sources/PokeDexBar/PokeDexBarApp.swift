@@ -18,7 +18,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private var statusItem: NSStatusItem!
     private let popover = NSPopover()
     private var store: UsageStore!
-    private var companion: CompanionStore!
     private var player: PlayerStore!
     private var updater: UpdateChecker!
     private var floatingPet: FloatingPetController!
@@ -42,13 +41,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             version: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "?")
         NSApp.setActivationPolicy(.accessory)
         store = UsageStore()
-        companion = CompanionStore()
         player = PlayerStore()
         updater = UpdateChecker()
-        store.localizationLanguage = companion.language   // 알림 현지화용 미러 시드
-        store.onRefresh = { [weak self] in self?.onStoreRefreshed() }   // 한도 로드 후 companion·사탕 지급
+        store.localizationLanguage = player.language   // 알림 현지화용 미러 시드
+        store.onRefresh = { [weak self] in self?.onStoreRefreshed() }   // 한도 로드 후 player 갱신
         floatingPet = FloatingPetController(
-            store: store, companion: companion, player: player,
+            store: store, player: player,
             onOpenPopover: { [weak self] in self?.openPopover() },
             onHide: { [weak self] in self?.store.floatingPetEnabled = false }
         )   // 데스크톱 플로팅 펫(옵트인)
@@ -94,7 +92,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         // (limitsUpdatedAt 등)에서 제공하고, 메뉴바 아이콘·숫자는 흐리게 하지 않는다.
         button.appearsDisabled = false
 
-        updateCompanion()
+        updatePlayer()
         ensureMenuAnimation()
         syncMenuAnimation()   // 가시성 상태 주기적 재평가(occlusion 이 잘못 멈춰도 자가 복구)
     }
@@ -141,27 +139,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         }
     }
 
-    /// UsageStore 값 → CompanionStore (사용량 적립 + 표시 상태). 매 관찰 변경 시 호출.
-    /// PlayerStore 도 같은 값으로 함께 갱신한다 — 구 스토어는 Task 8 에서 지운다.
-    private func updateCompanion() {
-        companion.update(
-            todayTokens: store.todayTotalTokens,
-            todayDate: LocalUsageReader.todayKey(),
-            monthTotal: store.monthTotalTokens,
-            burnTier: store.burnTier,
-            limitWarning: store.isLimitWarning,
-            hasUsageData: store.hasUsageData)
+    /// UsageStore 값 → PlayerStore (사용량 적립). 매 관찰 변경 시 호출.
+    private func updatePlayer() {
         player.update(
             todayTokens: store.todayTotalTokens,
             todayDate: LocalUsageReader.todayKey(),
             hasUsageData: store.hasUsageData)
     }
 
-    /// 매 refresh 완료 훅 — companion 갱신 + 사탕 지급(한도가 신선한 시점). 지급을 여기 묶는 이유는
-    /// UsageStore.onRefresh 주석 참조(observeStore 만으론 한도 변경이 companion 에 안 전달되는 케이스).
+    /// 매 refresh 완료 훅 — 한도가 신선한 시점에 player 를 갱신한다.
     private func onStoreRefreshed() {
-        updateCompanion()
-        companion.grantCandies(from: store.candyEligibleWindows, limitsReady: store.limitsReady)
+        updatePlayer()
     }
 
     // MARK: 메뉴바 애니메이션
@@ -317,7 +305,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private func buildPopoverContent() {
         popover.contentViewController = NSHostingController(
             rootView: PopoverView(player: player, provider: PokeAPIClient.shared)
-                .environment(store).environment(companion).environment(updater).environment(navigation))
+                .environment(store).environment(player).environment(updater).environment(navigation))
     }
 
     @objc private func togglePopover() {

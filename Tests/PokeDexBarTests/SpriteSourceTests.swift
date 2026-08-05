@@ -50,9 +50,12 @@ final class SpriteSourceTests: XCTestCase {
     }
 
     /// 캐시 키는 종 번호 기반을 유지한다 — 슬러그가 바뀌어도 기존 캐시가 무효화되지 않게.
+    /// animated/shiny 4 조합 전부(기존 키 "25-a"/"25-s" 불변 + shiny 접두) 잠근다.
     func testCacheKeyStaysNumeric() {
         XCTAssertEqual(SpriteStore.cacheKey(speciesID: 25, animated: true, shiny: false), "25-a")
+        XCTAssertEqual(SpriteStore.cacheKey(speciesID: 25, animated: false, shiny: false), "25-s")
         XCTAssertEqual(SpriteStore.cacheKey(speciesID: 25, animated: true, shiny: true), "25-sha")
+        XCTAssertEqual(SpriteStore.cacheKey(speciesID: 25, animated: false, shiny: true), "25-shs")
     }
 
     /// 리뷰 지적(critical): 오프라인·타임아웃 같은 일시적 실패는 missingAnimated 에 기록되면 안 된다.

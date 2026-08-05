@@ -65,9 +65,6 @@ final class UsageStore {
     var limitNotifications: Bool {
         didSet { defaults.set(limitNotifications, forKey: "limitNotifications") }
     }
-    var companionNotifications: Bool {
-        didSet { defaults.set(companionNotifications, forKey: "companionNotifications") }
-    }
     /// 새 버전 알림(팝오버 업데이트 배너) 표시 여부 — 기본 켬. 끄면 배너 숨김(수동 확인은 설정에서 가능).
     var updateNotificationsEnabled: Bool {
         didSet { defaults.set(updateNotificationsEnabled, forKey: "updateNotificationsEnabled") }
@@ -109,9 +106,9 @@ final class UsageStore {
         ("수동", 0), ("1분", 60), ("2분", 120), ("5분", 300), ("15분", 900),
     ]
 
-    /// 앱 언어 미러(알림 현지화용). 단일 소스는 CompanionStore.language —
+    /// 앱 언어 미러(알림 현지화용). 단일 소스는 PlayerStore.language —
     /// 설정 변경/기동 시 동기화한다.
-    var localizationLanguage: AppLanguage = .systemDefault   // companion.language 로 재시드 전까지의 기본(실행순서 무관 안전)
+    var localizationLanguage: AppLanguage = .systemDefault   // player.language 로 재시드 전까지의 기본(실행순서 무관 안전)
 
     private let providers: [any UsageProvider]
 
@@ -131,9 +128,9 @@ final class UsageStore {
     /// 갱신마다 재알림되던 회귀 원인 제거).
     private var notifiedTier: [String: Int] = [:]
 
-    /// 매 refresh 완료(한도 로드 후) 시 호출 — companion 갱신·사탕 지급을 한도가 신선한 시점에 묶는다.
-    /// observeStore(menuTitle)만으론 showLimitInMenu=false 일 때 한도 변경이 companion 에 전달 안 됨
-    /// (menuTitle 미변경) → 지급은 이 훅으로 확실히 트리거한다. AppDelegate 가 설정.
+    /// 매 refresh 완료(한도 로드 후) 시 호출 — player 갱신을 한도가 신선한 시점에 묶는다.
+    /// observeStore(menuTitle)만으론 showLimitInMenu=false 일 때 한도 변경이 player 에 전달 안 됨
+    /// (menuTitle 미변경) → 갱신은 이 훅으로 확실히 트리거한다. AppDelegate 가 설정.
     var onRefresh: (@MainActor () -> Void)?
 
     // MARK: 파생값
@@ -299,51 +296,6 @@ final class UsageStore {
         return utils.max()
     }
 
-    /// 사탕 지급 대상 한도 창 — 세션급(≈5h)=1개, 주간급=5개, 전 프로바이더. 공식 한도 신호가 없는
-    /// 프로바이더(Gemini·OpenCode·Hermes·Cursor·Grok)는 자연히 빠진다(창 목록에 없음).
-    /// 지급 제외: Opus/Sonnet 주간·scoped·Codex 개인 spend
-    /// limit(헤드라인 창의 하위/중복 → 이중지급 방지). 알림(checkLimitAlerts)보다 좁은 지급 전용.
-    var candyEligibleWindows: [CandyWindow] {
-        let l = L(localizationLanguage)
-        var windows: [CandyWindow] = []
-        if let u = limits?.fiveHour?.utilization {
-            windows.append(CandyWindow(key: "claude.fiveHour", name: l.claudeFiveHour,
-                                       kind: .session, utilization: u))
-        }
-        if let u = limits?.sevenDay?.utilization {
-            windows.append(CandyWindow(key: "claude.sevenDay", name: l.claudeWeekly,
-                                       kind: .weekly, utilization: u))
-        }
-        for bucket in codexLimits?.visibleSnapshots ?? [] {
-            let bucketKey = bucket.limitId ?? bucket.limitName ?? "codex"
-            let bucketName = bucket.bucketDisplayName
-            if let primary = bucket.primary {
-                windows.append(CandyWindow(
-                    key: "codex.\(bucketKey).primary",
-                    name: "\(bucketName) \(l.codexWindow(primary.windowDurationMins))",
-                    kind: Self.windowClass(minutes: primary.windowDurationMins),
-                    utilization: Double(primary.usedPercent)))
-            }
-            if let secondary = bucket.secondary {
-                windows.append(CandyWindow(
-                    key: "codex.\(bucketKey).secondary",
-                    name: "\(bucketName) \(l.codexWindow(secondary.windowDurationMins))",
-                    kind: Self.windowClass(minutes: secondary.windowDurationMins),
-                    utilization: Double(secondary.usedPercent)))
-            }
-        }
-        return windows
-    }
-
-    /// Codex 창 분류 — ≤24h(1440분)=세션, 초과=주간. 미상(nil)은 세션으로 간주(보수적).
-    nonisolated static func windowClass(minutes: Int?) -> WindowClass {
-        if let m = minutes, m > 1440 { return .weekly }
-        return .session
-    }
-
-    /// 한도 데이터가 최소 1개 프로바이더 로드됐는가 — 사탕 첫 실행 시드 게이트(미로딩 중 시드 방지).
-    var limitsReady: Bool { limits != nil || codexLimits != nil }
-
     /// burn rate 티어 — companion 표시 상태(idle/working/focus) 판정에 사용.
     /// 전 프로바이더 합산 — Codex/Gemini 전용 사용자도 코딩 리듬이 반영된다.
     var burnTier: BurnTier {
@@ -385,7 +337,6 @@ final class UsageStore {
         showCostInMenu = d.object(forKey: "showCostInMenu") as? Bool ?? false
         showLimitInMenu = d.object(forKey: "showLimitInMenu") as? Bool ?? false
         limitNotifications = d.object(forKey: "limitNotifications") as? Bool ?? true
-        companionNotifications = d.object(forKey: "companionNotifications") as? Bool ?? true
         updateNotificationsEnabled = d.object(forKey: "updateNotificationsEnabled") as? Bool ?? true
         statusChecksEnabled = d.object(forKey: "statusChecksEnabled") as? Bool ?? true
         floatingPetEnabled = d.object(forKey: "floatingPetEnabled") as? Bool ?? false

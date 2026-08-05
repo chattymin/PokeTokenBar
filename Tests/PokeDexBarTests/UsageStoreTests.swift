@@ -274,7 +274,7 @@ final class UsageStoreTests: XCTestCase {
                        "Claude util must not leak into the pet tooltip when Claude unused today")
     }
 
-    /// Codex personal/spend limit is dollars — never fold it into token-limit utilization (candyEligibleWindows parity).
+    /// Codex personal/spend limit is dollars — never fold it into token-limit utilization.
     func testHighestLimitUtilizationExcludesCodexIndividualSpendLimit() async {
         let codex = FakeUsageProvider(id: "codex", displayName: "Codex", daily: todayDaily(10_000))
         // primary 30%; individual remainingPercent 1 → usedPercent 99 — only primary should win
