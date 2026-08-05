@@ -5,9 +5,7 @@ import Observation
 /// 진화는 여기서 자동으로 일어나지 않는다 — 사용자가 눌러야 한다(`PlayerStore+Evolution`).
 @MainActor @Observable
 final class PlayerStore {
-    // Player/ 아래 확장 파일(PlayerStore+Evolution 등)에서 상태를 바꿀 수 있어야 해서 기본(internal) 접근을 쓴다.
-    // Swift 의 private 은 파일 단위라 다른 파일의 extension 에서는 private(set) 이 안 통한다.
-    var state = PlayerState()
+    private(set) var state = PlayerState()
 
     @ObservationIgnored private let fileURL: URL
     @ObservationIgnored private var rng: any RandomNumberGenerator
@@ -117,5 +115,14 @@ final class PlayerStore {
     func save() {
         guard let data = try? JSONEncoder().encode(state) else { return }
         try? data.write(to: fileURL, options: .atomic)   // 부분 쓰기 손상 방지
+    }
+
+    // MARK: 확장 진입점
+
+    /// 확장이 상태를 바꾸는 유일한 창구. 저장까지 여기서 하므로, 바꾸고 저장을 잊는 경로가
+    /// 생기지 않는다(Task 3 에서 실제로 그 경로가 나왔다).
+    func mutate(_ change: (inout PlayerState) -> Void) {
+        change(&state)
+        save()
     }
 }

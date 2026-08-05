@@ -24,11 +24,12 @@ extension PlayerStore {
               evolutionChoices(individual, line: line).contains(speciesID) else { return false }
         let threshold = ExpBalance.threshold(grade: individual.grade,
                                              stageIndex: individual.stageIndex)
-        state.box[index].speciesID = speciesID
-        state.box[index].pathIDs.append(speciesID)
-        state.box[index].exp = individual.exp - threshold   // 초과분 이월
-        state.dex.insert(speciesID)
-        save()
+        mutate { state in
+            state.box[index].speciesID = speciesID
+            state.box[index].pathIDs.append(speciesID)
+            state.box[index].exp = individual.exp - threshold   // 초과분 이월
+            state.dex.insert(speciesID)
+        }
         return true
     }
 }
