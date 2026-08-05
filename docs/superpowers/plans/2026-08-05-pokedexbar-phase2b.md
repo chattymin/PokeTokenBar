@@ -358,14 +358,15 @@ Expected: FAIL — `value of type 'PlayerStore' has no member 'seedForTesting'`
 ```swift
     /// 테스트 전용 — 지갑·슬롯·알 개수를 직접 세팅한다(적립 경로를 돌리지 않고).
     func seedForTesting(wallet: Int, slots: Int, eggs: Int, at date: Date) {
-        state.earnedTokens = wallet
-        state.spentTokens = 0
-        state.slots = slots
-        state.eggs = (0..<eggs).map { _ in
-            Egg(grade: .common, speciesID: 1, shiny: false,
-                startedAt: date, hatchesAt: date.addingTimeInterval(EggBalance.duration(.common)))
+        mutate {
+            $0.earnedTokens = wallet
+            $0.spentTokens = 0
+            $0.slots = slots
+            $0.eggs = (0..<eggs).map { _ in
+                Egg(grade: .common, speciesID: 1, shiny: false, startedAt: date,
+                    hatchesAt: date.addingTimeInterval(EggBalance.duration(.common)))
+            }
         }
-        save()
     }
 ```
 
@@ -399,15 +400,18 @@ extension PlayerStore {
         let egg = Egg(grade: grade, speciesID: speciesID, shiny: shiny,
                       startedAt: started,
                       hatchesAt: started.addingTimeInterval(EggBalance.duration(grade)))
-        state.spentTokens += EggBalance.drawPrice
-        state.eggs.append(egg)
-        save()
+        mutate {
+            $0.spentTokens += EggBalance.drawPrice
+            $0.eggs.append(egg)
+        }
         return egg
     }
 }
 ```
 
-`PlayerStore` 본체(`PlayerStore.swift`)에 확장이 쓸 두 창구를 더한다 — `rng`·`now` 가 private 이라 확장에서 직접 못 쓴다.
+`PlayerStore` 본체(`PlayerStore.swift`)에 확장이 쓸 두 창구를 더한다 — `rng`·`now` 가 private 이라
+확장에서 직접 못 쓴다. **상태 변경은 이미 있는 `mutate { }` 창구를 쓴다**(`state` 는 `private(set)` 이라
+확장에서 직접 못 바꾼다. `mutate` 가 저장까지 한다).
 
 ```swift
     /// 0…1 난수. 확장(뽑기)이 주입된 rng 를 쓰는 유일한 창구.
@@ -581,16 +585,16 @@ extension PlayerStore {
         var hatched: [Individual] = []
         for egg in ripe {
             let nature = natures[Int(nextRandomUnit() * Double(natures.count)) % natures.count]
-            let individual = Individual(baseID: egg.speciesID, speciesID: egg.speciesID,
-                                        pathIDs: [egg.speciesID], shiny: egg.shiny,
-                                        nature: nature, exp: 0, obtainedAt: now, grade: egg.grade)
-            state.box.append(individual)
-            state.dex.insert(egg.speciesID)
-            hatched.append(individual)
+            hatched.append(Individual(baseID: egg.speciesID, speciesID: egg.speciesID,
+                                      pathIDs: [egg.speciesID], shiny: egg.shiny,
+                                      nature: nature, exp: 0, obtainedAt: now, grade: egg.grade))
         }
         let hatchedIDs = Set(ripe.map(\.id))
-        state.eggs.removeAll { hatchedIDs.contains($0.id) }
-        save()
+        mutate {
+            $0.box.append(contentsOf: hatched)
+            for individual in hatched { $0.dex.insert(individual.speciesID) }
+            $0.eggs.removeAll { hatchedIDs.contains($0.id) }
+        }
         return hatched
     }
 }
@@ -819,9 +823,10 @@ extension PlayerStore {
         let next = state.slots + 1
         guard let price = EggBalance.slotPrice(forSlotNumber: next),
               state.wallet >= price else { return false }
-        state.spentTokens += price
-        state.slots = next
-        save()
+        mutate {
+            $0.spentTokens += price
+            $0.slots = next
+        }
         return true
     }
 
@@ -836,14 +841,16 @@ extension PlayerStore {
         guard state.wallet >= item.price else { return false }
         if item == .shinyCharm {
             guard !state.ownsShinyCharm else { return false }   // 보유형 — 두 번 사지 않는다
-            state.spentTokens += item.price
-            state.ownsShinyCharm = true
-            save()
+            mutate {
+                $0.spentTokens += item.price
+                $0.ownsShinyCharm = true
+            }
             return true
         }
-        state.spentTokens += item.price
-        state.inventory[item.rawValue, default: 0] += 1
-        save()
+        mutate {
+            $0.spentTokens += item.price
+            $0.inventory[item.rawValue, default: 0] += 1
+        }
         return true
     }
 
@@ -852,9 +859,10 @@ extension PlayerStore {
     func useExpCandy(on individualID: UUID) -> Bool {
         guard count(of: .expCandy) > 0,
               let index = state.box.firstIndex(where: { $0.id == individualID }) else { return false }
-        state.box[index].exp += Self.expCandyAmount
-        consume(.expCandy)
-        save()
+        mutate {
+            $0.box[index].exp += Self.expCandyAmount
+            Self.consume(.expCandy, in: &$0)
+        }
         return true
     }
 
@@ -862,14 +870,16 @@ extension PlayerStore {
         guard count(of: .shinyCandy) > 0,
               let index = state.box.firstIndex(where: { $0.id == individualID }),
               !state.box[index].shiny else { return false }   // 이미 이로치면 낭비하지 않는다
-        state.box[index].shiny = true
-        consume(.shinyCandy)
-        save()
+        mutate {
+            $0.box[index].shiny = true
+            Self.consume(.shinyCandy, in: &$0)
+        }
         return true
     }
 
-    private func consume(_ item: ShopItem) {
-        let left = count(of: item) - 1
+    /// 아이템 1개 소모. `mutate` 블록 안에서 불리므로 상태를 인자로 받는다.
+    private static func consume(_ item: ShopItem, in state: inout PlayerState) {
+        let left = (state.inventory[item.rawValue] ?? 0) - 1
         if left > 0 { state.inventory[item.rawValue] = left }
         else { state.inventory.removeValue(forKey: item.rawValue) }
     }
