@@ -25,11 +25,18 @@ final class SpeciesSlugTests: XCTestCase {
         }
     }
 
-    /// 폼(메가·리전폼)이 기본 폼 자리를 덮으면 안 된다 — 리자몽이 charizard-gmax가 되던 사고.
+    /// 폼(메가·리전폼)이 기본 폼 자리를 덮으면 안 된다 — 리자몽이 charizardgmax가 되던 사고.
+    /// Showdown 슬러그는 원래 하이픈이 없으므로(`charizardgmax`, `landorustherian`) `contains("-")`
+    /// 검사로는 이 사고를 못 잡는다 — 알려진 폼 접미사로 끝나는지를 직접 확인한다.
     func testBaseFormsOnly() {
+        let formSuffixes = ["gmax", "megax", "megay", "mega", "alola", "galar", "hisui", "paldea", "totem"]
+        // yanmega(#469)는 폼이 아니라 실제 종명이 우연히 "mega"로 끝난다 — 유일한 알려진 예외.
+        let legitimateExceptions: Set<Int> = [469]
         for id in 1...1025 {
-            XCTAssertFalse(SpeciesSlug.slug(id)!.contains("-"),
-                           "종 \(id) 이 폼 슬러그다: \(SpeciesSlug.slug(id)!)")
+            let slug = SpeciesSlug.slug(id)!
+            guard !legitimateExceptions.contains(id) else { continue }
+            XCTAssertFalse(formSuffixes.contains { slug.hasSuffix($0) },
+                           "종 \(id) 이 폼 슬러그다: \(slug)")
         }
     }
 

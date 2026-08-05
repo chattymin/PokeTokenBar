@@ -19,6 +19,21 @@ cp ".build/release/$APP_NAME" "$APP/Contents/MacOS/$APP_NAME"
 strip -rSTx "$APP/Contents/MacOS/$APP_NAME" 2>/dev/null || strip -rSx "$APP/Contents/MacOS/$APP_NAME"
 cp assets/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
 
+# SwiftPM 리소스 번들(showdown-slugs.json 등). SwiftPM 이 생성하는 resource_bundle_accessor.swift 는
+# Bundle.module 을 Bundle.main.bundleURL 의 형제(= .app 루트, Contents/ 밖)에서 찾지만, 그 자리는 쓰지
+# 않는다 — macOS codesign 이 .app 루트에 Contents/ 이외 콘텐츠가 있으면 서명 자체를 거부한다
+# ("unsealed contents present in the bundle root", 빈 텍스트 파일 하나로도 재현됨. 실측: macOS 26.5).
+# 그래서 서명 가능한 표준 위치인 Contents/Resources/ 밑에 넣는다 — SpeciesSlug.resourceURL() 이 배포
+# .app(AppEnv.isBundledApp)에서는 Bundle.module 을 건드리지 않고 바로 이 자리를 찾는다. 번들이 없으면
+# 배포본은 "알 수 없는 시작 크래시"(Bundle.module 의 fatalError)로 이어지므로 여기서 큰소리로 중단한다
+# (조용히 깨진 앱을 만들지 않는다).
+RESOURCE_BUNDLE=".build/release/${APP_NAME}_${APP_NAME}.bundle"
+if [[ ! -d "$RESOURCE_BUNDLE" ]]; then
+    echo "   ✗ $RESOURCE_BUNDLE 없음 — swift build -c release 가 리소스 번들을 못 만들었다. 중단." >&2
+    exit 1
+fi
+cp -R "$RESOURCE_BUNDLE" "$APP/Contents/Resources/"
+
 cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
