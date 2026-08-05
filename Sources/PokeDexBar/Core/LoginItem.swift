@@ -23,19 +23,4 @@ enum LoginItem {
     static func setEnabled(_ on: Bool) throws {
         if on { try agent.register() } else { try agent.unregister() }
     }
-
-    /// 구버전(`SMAppService.mainApp` 로그인아이템) → KeepAlive 에이전트로 **1회 이관**.
-    /// 안전: mainApp 이 켜져 있을 때만 이관하고, **에이전트 등록이 성공한 뒤에만 mainApp 을 해제**한다
-    /// (등록 실패 시 mainApp 을 유지 → 구동작 보존, "로그인 실행"을 잃지 않는다). 멱등(반복 호출 무해).
-    static func migrateFromLegacyLoginItemIfNeeded() {
-        let legacy = SMAppService.mainApp
-        guard legacy.status == .enabled else { return }   // 구 로그인아이템 미사용 → 이관 불필요
-        do {
-            if agent.status != .enabled { try agent.register() }   // 에이전트 먼저 등록
-            try legacy.unregister()                                 // 성공 후에만 구 항목 해제
-            AppLog.write("login item migrated: mainApp → KeepAlive agent")
-        } catch {
-            AppLog.write("login item migration failed (mainApp 유지): \(error)")
-        }
-    }
 }

@@ -40,8 +40,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         CrashReporter.install(
             version: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "?")
         NSApp.setActivationPolicy(.accessory)
-        Self.migrateLegacyStorageIfNeeded()   // TokenMac → PokeDexBar 리네임: 기존 companion/캐시 보존
-        LoginItem.migrateFromLegacyLoginItemIfNeeded()   // 로그인아이템 → KeepAlive 에이전트(크래시 자동 재실행)
         store = UsageStore()
         companion = CompanionStore()
         updater = UpdateChecker()
@@ -284,17 +282,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
                     from: .zero, operation: .sourceOver, fraction: 1)
         img.unlockFocus()
         return img
-    }
-
-    /// TokenMac→PokeDexBar 리네임에 따른 1회 이전: 기존 Application Support 폴더를
-    /// 새 이름으로 옮겨 companion 진행상황·스프라이트 캐시·스냅샷을 보존한다(신규 폴더 없을 때만).
-    private static func migrateLegacyStorageIfNeeded() {
-        let fm = FileManager.default
-        let base = fm.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-        let old = base.appendingPathComponent("TokenMac")
-        let new = base.appendingPathComponent("PokeDexBar")
-        guard fm.fileExists(atPath: old.path), !fm.fileExists(atPath: new.path) else { return }
-        try? fm.moveItem(at: old, to: new)
     }
 
     /// 스프라이트가 아직 없을 때(부화 전/로딩 중) 메뉴바에 표시하는 알 글리프.
