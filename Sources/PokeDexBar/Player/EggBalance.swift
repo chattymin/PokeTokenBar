@@ -7,24 +7,40 @@ enum EggBalance {
     /// 기본 슬롯 수(2a 의 `PlayerState.slots` 초기값과 같아야 한다).
     static let baseSlots = 3
 
-    /// 등급별 뽑기 확률 — 그 등급이 가진 실제 베이스 종 수에 맞춘 값이다.
-    /// (커먼 252종 · 레어 65종 · 에픽 136종 · 레전더리 88종)
-    static let odds: [(grade: Grade, probability: Double)] = [
-        (.common, 0.55), (.rare, 0.15), (.epic, 0.25), (.legendary, 0.05),
+    /// 뽑기 확률표의 한 행. 정수 천분율(`weight`)이 유일한 선언이고, `probability` 는 그로부터
+    /// 파생된다 — 확률을 소수로 따로 적으면 표시(상점)와 실제 뽑기가 각자 소수로 반올림되며 갈라질 수 있다.
+    struct OddsEntry {
+        let grade: Grade
+        /// 천분율 가중치. 네 값의 합은 정확히 1000 이어야 한다(정수라 오차 없이 검증 가능).
+        let weight: Int
+        /// 상점 등에서 쓰는 0…1 확률 — `weight` 에서 파생, 별도로 손댈 값이 아니다.
+        var probability: Double { Double(weight) / 1000 }
+    }
+
+    /// 등급별 뽑기 확률 — 종 수 쏠림을 반영해 *가중*한 값이지 그 등급 베이스 종 수의 비율 그대로는
+    /// 아니다(레전더리는 베이스 종의 16% 가량이지만 뽑기 확률은 5%로 억제했다).
+    static let odds: [OddsEntry] = [
+        OddsEntry(grade: .common, weight: 550),
+        OddsEntry(grade: .rare, weight: 150),
+        OddsEntry(grade: .epic, weight: 250),
+        OddsEntry(grade: .legendary, weight: 50),
     ]
 
     /// 0…1 굴림 → 등급. 누적 경계로 자른다.
     ///
-    /// `odds` 를 순회하며 `remaining -= probability` 로 누적 차감하면 0.55+0.15 처럼
-    /// 이진 소수로 딱 안 떨어지는 값에서 오차가 쌓여(`0.70 - 0.55 == 0.1499999999999999`)
-    /// 경계 바로 위 값이 한 등급 아래로 새 버린다. 그래서 경계값을 직접 리터럴로 박아
-    /// 굴림과 같은 방식으로 파싱되게 한다 — 비교 양쪽이 같은 리터럴이면 정확히 일치한다.
+    /// `odds` 를 소수 확률로 순회하며 누적 차감하면 0.55+0.15 처럼 이진 소수로 딱 안 떨어지는
+    /// 값에서 오차가 쌓여(`0.70 - 0.55 == 0.1499999999999999`) 경계 바로 위 값이 한 등급
+    /// 아래로 새 버린다. 그래서 굴림을 천분율 정수 공간으로 스케일링해(`0.70 → 700`) `weight` 를
+    /// 정수로 누적한다 — 정수 덧셈은 오차가 없어 550+150 은 항상 정확히 700 이다.
     static func rollGrade(_ roll: Double) -> Grade {
-        let r = min(1, max(0, roll))
-        if r < 0.55 { return .common }
-        if r < 0.70 { return .rare }
-        if r < 0.95 { return .epic }
-        return .legendary
+        let clamped = min(1, max(0, roll))
+        let scaled = Int(clamped * 1000)
+        var cumulative = 0
+        for entry in odds {
+            cumulative += entry.weight
+            if scaled < cumulative { return entry.grade }
+        }
+        return odds.last!.grade   // 반올림 여분으로 끝까지 온 경우
     }
 
     static func duration(_ grade: Grade) -> TimeInterval {

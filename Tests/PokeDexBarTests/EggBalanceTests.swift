@@ -60,6 +60,12 @@ final class EggBalanceTests: XCTestCase {
             }
         }
     }
+
+    /// 기본 슬롯 수는 `EggBalance.baseSlots` 와 `PlayerState().slots` 두 리터럴로 따로 적혀
+    /// 있다(주석으로만 연결) — 이 테스트가 둘을 묶어 드리프트를 막는다.
+    func testBaseSlotsMatchesPlayerStateDefault() {
+        XCTAssertEqual(EggBalance.baseSlots, PlayerState().slots)
+    }
 }
 
 final class EggTests: XCTestCase {

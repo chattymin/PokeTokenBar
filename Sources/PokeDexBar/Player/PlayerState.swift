@@ -59,7 +59,13 @@ struct PlayerState: Codable, Sendable {
         }
         dex = value(.dex, [])
         slots = value(.slots, 3)
-        eggs = value(.eggs, [])
+        // 알도 박스와 같은 이유로 원소 단위 관대 디코딩한다 — 알 하나가 깨졌다고 부화 중인
+        // 나머지 알까지 통째로 날아가면 안 된다.
+        let wrappedEggs = (try? c.decode([LossyEgg].self, forKey: .eggs)) ?? []
+        eggs = wrappedEggs.compactMap(\.egg)
+        if eggs.count != wrappedEggs.count {
+            AppLog.write("PlayerState: dropped \(wrappedEggs.count - eggs.count) malformed egg(s) from eggs on decode")
+        }
         inventory = value(.inventory, [:])
         ownsShinyCharm = value(.ownsShinyCharm, false)
         language = value(.language, .systemDefault)
@@ -72,5 +78,13 @@ private struct LossyIndividual: Decodable {
     let individual: Individual?
     init(from decoder: Decoder) throws {
         individual = try? Individual(from: decoder)
+    }
+}
+
+/// `[Egg]` 원소 단위 관대 디코딩 래퍼 — `LossyIndividual` 과 같은 패턴.
+private struct LossyEgg: Decodable {
+    let egg: Egg?
+    init(from decoder: Decoder) throws {
+        egg = try? Egg(from: decoder)
     }
 }

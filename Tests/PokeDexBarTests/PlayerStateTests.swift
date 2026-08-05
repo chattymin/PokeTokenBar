@@ -127,4 +127,20 @@ final class PlayerStateTests: XCTestCase {
         XCTAssertEqual(s.box.count, 1, "깨진 원소 하나 때문에 박스 전체가 비면 안 된다")
         XCTAssertEqual(s.box.first?.id, goodID)
     }
+
+    /// 알 원소 하나가 깨져도 나머지 부화 중인 알은 살아남는다 — box 와 같은 이유의
+    /// 원소 단위 관대 디코딩(all-or-nothing 회귀 방지).
+    func testLossyEggsDecodeKeepsGoodEggAndDropsMalformedOne() throws {
+        let goodID = UUID()
+        let json = """
+        {"starterChosen":true,"eggs":[
+          {"id":"\(goodID.uuidString)","grade":"common","speciesID":1,"shiny":false,
+           "startedAt":0,"hatchesAt":1800},
+          {"id":"not-a-uuid","grade":"not-a-grade"}
+        ]}
+        """
+        let s = try JSONDecoder().decode(PlayerState.self, from: Data(json.utf8))
+        XCTAssertEqual(s.eggs.count, 1, "깨진 알 하나 때문에 eggs 전체가 비면 안 된다")
+        XCTAssertEqual(s.eggs.first?.id, goodID)
+    }
 }
