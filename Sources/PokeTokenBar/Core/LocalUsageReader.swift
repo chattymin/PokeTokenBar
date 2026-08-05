@@ -140,13 +140,15 @@ enum LocalUsageReader {
         let reasoningOutput: Int
         let total: Int
 
+        /// 누적 usage 는 `intOrNil` 로 읽는다 — `intValue` 의 `Int(d)` 는 `1e30` 같은 값에서 트랩(크래시)
+        /// 하고, 그 파일은 디스크에 남아 실행할 때마다 다시 죽인다. 클램프가 크래시보다 안전한 열화다.
         init(_ raw: [String: Any]) {
-            input = intValue(raw["input_tokens"])
-            cachedInput = intValue(raw["cached_input_tokens"])
-            cacheWriteInput = intValue(raw["cache_write_input_tokens"])
-            output = intValue(raw["output_tokens"])
-            reasoningOutput = intValue(raw["reasoning_output_tokens"])
-            total = intValue(raw["total_tokens"])
+            input = intOrNil(raw["input_tokens"]) ?? 0
+            cachedInput = intOrNil(raw["cached_input_tokens"]) ?? 0
+            cacheWriteInput = intOrNil(raw["cache_write_input_tokens"]) ?? 0
+            output = intOrNil(raw["output_tokens"]) ?? 0
+            reasoningOutput = intOrNil(raw["reasoning_output_tokens"]) ?? 0
+            total = intOrNil(raw["total_tokens"]) ?? 0
         }
 
         var fingerprint: String {

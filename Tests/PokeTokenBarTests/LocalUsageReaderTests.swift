@@ -354,6 +354,23 @@ final class LocalUsageReaderTests: XCTestCase {
                        "부모 두 턴 + child 자신의 턴 하나. replay 는 시간 fallback 으로 잘려야 한다")
     }
 
+    /// 비정상적으로 큰 누적값이 있어도 파싱이 트랩되지 않는다. 트랩되면 그 파일이 디스크에 남아
+    /// 실행할 때마다 앱을 죽인다 — 클램프가 안전한 열화다.
+    func testCodexCumulativeUsageClampsOutOfRangeNumber() {
+        let dir = tempDir()
+        let absurd = """
+        {"type":"event_msg","timestamp":"2026-07-30T01:00:01.000Z","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":1e30,"cached_input_tokens":0,"output_tokens":10,"total_tokens":1e30},"last_token_usage":{"input_tokens":100,"cached_input_tokens":0,"output_tokens":10,"total_tokens":110}}}}
+        """
+        write([
+            codexSessionMeta(id: "huge", ts: "2026-07-30T01:00:00.000Z"),
+            absurd,
+        ], to: dir, name: "rollout-huge.jsonl")
+
+        let entries = LocalUsageReader.codexEntries(modifiedSince: .distantPast, root: dir)
+
+        XCTAssertEqual(entries.map(\.total), [110], "last usage 는 그대로, cumulative 만 클램프된다")
+    }
+
     func testCodexForkTrimsReplayBeforeDroppingActualSameStateRerecord() {
         let dir = tempDir()
         write([
