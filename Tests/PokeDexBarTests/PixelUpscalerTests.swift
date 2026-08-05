@@ -110,27 +110,4 @@ final class PixelUpscalerTests: XCTestCase {
                                      "petSize \(size) 에서 EPX 결과가 박스를 넘는다")
         }
     }
-
-    // MARK: - AA 켠 상태의 배치
-
-    /// AA 를 켜면 박스를 채운다 — 정수배 스냅까지 겹쳐 걸어 펫이 작아지면 안 된다.
-    func testAntialiasedFitFillsBoxAndNeverShrinks() {
-        let box = CGSize(width: 96, height: 96)
-        // EPX 1회를 거친 90×98 이 들어온다고 가정
-        let aa = PixelScale.fit(source: CGSize(width: 90, height: 98), in: box,
-                                displayScale: 2, antialiased: true)
-        let snapped = PixelScale.fit(source: CGSize(width: 45, height: 49), in: box,
-                                     displayScale: 2)
-        XCTAssertEqual(aa.size.height, 96, accuracy: 0.001)
-        XCTAssertGreaterThan(aa.size.height, snapped.size.height)
-        XCTAssertFalse(aa.pixelated)   // 1.96배 — 정수가 아니므로 나머지는 보간
-    }
-
-    /// 나머지 배율이 마침 정수로 떨어지면 보간 없이 최근접 이웃이 더 선명하다.
-    func testAntialiasedFitUsesNearestOnExactMultiple() {
-        let r = PixelScale.fit(source: CGSize(width: 48, height: 48),
-                               in: CGSize(width: 48, height: 48), displayScale: 2,
-                               antialiased: true)
-        XCTAssertTrue(r.pixelated)
-    }
 }

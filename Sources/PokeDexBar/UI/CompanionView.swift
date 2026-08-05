@@ -431,9 +431,9 @@ struct CompanionHeader: View {
     /// 부화 임박(90%+) — 알이 흔들리고 문구가 바뀐다.
     private var eggImminent: Bool { store.isEgg && store.eggProgress >= 0.9 }
 
-    /// 헤더 좌측 초상화(스프라이트 + 진화·부화·민트 이펙트 오버레이). 별도 프로퍼티로 뺀 이유 —
-    /// 이 체인에 인자를 하나만 더해도(예: antialias) 타입체커가 시간 내에 못 끝낸다(전체 트리 하나로
-    /// 묶여 있으면 오버로드 해석 폭발).
+    /// 헤더 좌측 초상화(스프라이트 + 진화·부화·민트 이펙트 오버레이). 이 파일의 기존 관례(scrollableRow,
+    /// edgeFade, row, emptyState)를 따라 별도 계산 프로퍼티로 뺐다 — body 의 긴 오버레이 체인을 한
+    /// 표현식에 다 넣지 않고 이름 붙여 읽기 쉽게 한다.
     private var portraitSprite: some View {
         SpriteView(speciesID: store.currentSpeciesID, size: 76, bob: true, animated: true,
                    shiny: store.currentIsShiny, antialias: usage.antialiasSprites)

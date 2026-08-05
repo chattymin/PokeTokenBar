@@ -142,6 +142,10 @@ struct SettingsView: View {
                         }
                     }
             }
+            Divider()
+            // 팝오버 컴패니언·플로팅 펫 스프라이트 공통 설정 — 플로팅 펫이 꺼져 있어도(기본값)
+            // 팝오버 컴패니언은 항상 보이므로 조건 없이 여기 둔다.
+            toggleRow(l.antialiasLabel, $store.antialiasSprites)
         }
     }
 
@@ -183,8 +187,6 @@ struct SettingsView: View {
                 }
                 Divider()
                 toggleRow(l.floatingPetBubbleAlertsLabel, $store.floatingPetBubbleAlerts)
-                Divider()
-                toggleRow(l.antialiasLabel, $store.antialiasSprites)
             }
         }
     }
