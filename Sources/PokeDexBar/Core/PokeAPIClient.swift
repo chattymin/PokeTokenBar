@@ -136,13 +136,13 @@ actor PokeAPIClient: PokeProviding {
                 return disk.entries
             }
             // GraphQL 다운 + 캐시 없음 → REST 로 인덱스를 백그라운드 구축(세션 1회).
-            // 이번 부화는 per-hatch REST 폴백(chooseBaseViaREST)이 즉시 처리하고,
+            // 이번 뽑기는 실패로 돌아가고(상점이 재시도를 안내한다 — 재화는 안 빠진다),
             // 구축이 끝나면 디스크 캐시로 남아 이후 선택이 가중·수집반영·오프라인가능으로 복귀한다.
             if !restBuildTried {
                 restBuildTried = true
                 Task { await self.buildBaseIndexViaREST() }
             }
-            AppLog.write("base index (GraphQL) failed, no cache — REST build triggered; per-hatch fallback handles now: \(error)")
+            AppLog.write("base index (GraphQL) failed, no cache — REST build triggered; this draw fails and the user retries: \(error)")
             throw error
         }
     }
