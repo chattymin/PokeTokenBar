@@ -140,6 +140,35 @@ final class RibbonProductionTests: XCTestCase {
         XCTAssertGreaterThan(high.count(of: .expCandy), lowCount)
     }
 
+    /// [정산 경로] **같은 도구를 두 번 물어 오지 않는다.** 순수 함수(`forage`)만 잠그면
+    /// 부족하다 — 한 번의 정산에서 사탕이 여러 개 나오면 채집도 여러 번 굴러가므로, 루프가
+    /// 인벤토리를 매번 다시 읽지 않으면 같은 정산 안에서 중복이 생긴다.
+    func testOneSettlementNeverBringsTheSameItemTwice() {
+        let (store, _) = makeStore()
+        // 이브이를 파트너로 — 갈래가 다섯이라 중복이 날 여지가 가장 크다.
+        let eevee = Individual(baseID: 133, speciesID: 133, pathIDs: [133], nature: .serious,
+                               obtainedAt: clock, grade: .common)
+        store.addForTesting(eevee)
+        store.setPartner(eevee.id)
+        clock = clock.addingTimeInterval(95 * 86_400)   // 반려 리본 — 가장 자주 물어 온다
+        // 한 번에 사탕 수백 개가 나올 만큼 몰아 준다 = 채집도 그만큼 굴러간다.
+        store.update(todayTokens: Ribbon.lifelong.tokensPerCandy * 400, todayDate: "2026-01-01",
+                     hasUsageData: true)
+
+        let stones: [EvolutionItem] = [.waterStone, .thunderStone, .fireStone, .leafStone, .iceStone]
+        for stone in stones {
+            XCTAssertLessThanOrEqual(store.count(of: stone), 1,
+                                     "\(stone) 을 \(store.count(of: stone))개 물어 왔다 — 중복이다")
+        }
+        // 이 정도 굴리면 다섯 개를 다 모았어야 한다(안 모였으면 확률이 아니라 필터가 고장난 것).
+        XCTAssertEqual(stones.filter { store.count(of: $0) > 0 }.count, stones.count,
+                       "다 모으지 못했다")
+        // 이브이가 쓸 수 없는 도구는 하나도 없어야 한다.
+        for item in EvolutionItem.allCases where !stones.contains(item) {
+            XCTAssertEqual(store.count(of: item), 0, "\(item) 은 이브이가 쓸 수 없다")
+        }
+    }
+
     /// 파트너만 만든다 — 벤치에 앉은 개체는 리본이 있어도 생산하지 않는다.
     func testOnlyThePartnerProduces() {
         let (store, partner) = makeStore()

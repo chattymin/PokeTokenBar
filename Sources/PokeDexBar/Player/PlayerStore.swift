@@ -117,26 +117,34 @@ final class PlayerStore {
         state.box[index].candyProgress = produced.remainder
         guard produced.count > 0 else { return }
         state.inventory[ShopItem.expCandy.rawValue, default: 0] += produced.count
-        // 사탕이 나온 김에 이 개체가 자기 진화에 쓸 도구도 굴린다 — 상점에 없는 30종류를 얻는
-        // 유일한 길이다. 사탕 개수만큼 굴려서, 오래 안 켠 뒤 한꺼번에 정산될 때 손해 보지 않게 한다.
+        // 사탕이 나온 김에 이 개체가 자기 진화에 쓸 도구도 굴린다 — 도구를 얻는 유일한 길이다.
+        // 사탕 개수만큼 굴려서, 오래 안 켠 뒤 한꺼번에 정산될 때 손해 보지 않게 한다.
+        // **이미 가진 것은 후보에서 뺀다** — 도구는 없어지지 않으므로 두 번째는 아무 쓸모가 없고,
+        // 그대로 두면 다 모은 개체의 채집 굴림이 영원히 헛돈다. 그래서 `owned` 를 매번 다시 읽는다
+        // (한 정산에서 둘이 나올 때 같은 걸 두 번 주지 않으려면 루프 안에서 갱신돼야 한다).
         let needs = ForageCatalog.needs(speciesID: state.box[index].speciesID,
                                         region: state.box[index].region)
         for _ in 0..<produced.count {
-            guard let item = Self.forage(ribbon: ribbon, needs: needs, roll: nextRandomUnit(),
+            let owned = Set(needs.filter { state.inventory[$0.rawValue] != nil })
+            guard let item = Self.forage(ribbon: ribbon, needs: needs, owned: owned,
+                                         roll: nextRandomUnit(),
                                          pick: nextRandomUnit()) else { continue }
             state.inventory[item.rawValue, default: 0] += 1
         }
     }
 
-    /// 리본 파트너가 이번에 물어 온 도구. `needs` 는 **그 개체가 쓸 수 있는 것만** 담긴다
-    /// (`ForageCatalog.needs`) — 진화에 도구가 필요 없는 종이면 비어 있어 아무것도 안 나온다.
+    /// 리본 파트너가 이번에 물어 온 도구. `needs` 는 **그 개체가 쓸 수 있는 것만** 담기고
+    /// (`ForageCatalog.needs`), 거기서 **이미 가진 것(`owned`)을 뺀 것**이 후보다.
+    /// 진화에 도구가 필요 없는 종이거나 필요한 걸 다 모았으면 아무것도 안 나온다.
     /// 순수 함수라 확률 경계를 테스트로 잠근다.
     nonisolated static func forage(ribbon: Ribbon, needs: [EvolutionItem],
+                                   owned: Set<EvolutionItem> = [],
                                    roll: Double, pick: Double) -> EvolutionItem? {
-        guard !needs.isEmpty else { return nil }
+        let candidates = needs.filter { !owned.contains($0) }
+        guard !candidates.isEmpty else { return nil }
         guard Int(roll * 1000) < ribbon.foragePermille else { return nil }
-        // 갈래가 여럿이면(이브이는 돌이 다섯) 그 중 하나를 고른다.
-        return needs[min(needs.count - 1, max(0, Int(pick * Double(needs.count))))]
+        // 갈래가 여럿이면(이브이는 돌이 다섯) 아직 없는 것 중에서 하나를 고른다.
+        return candidates[min(candidates.count - 1, max(0, Int(pick * Double(candidates.count))))]
     }
 
     /// 쌓인 토큰 → (사탕 개수, 남은 진행분). 순수 함수라 경계를 테스트로 잠근다.

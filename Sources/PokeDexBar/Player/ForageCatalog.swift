@@ -153,8 +153,8 @@ enum ForageCatalog {
     ]
 
     /// 이 개체가 물어 올 수 있는 도구들. 지방이 안 맞는 갈래는 뺀다.
-    /// 이미 갖고 있는지는 보지 않는다 — 도구는 소모되지 않으므로(`isConsumable`) 여분이
-    /// 쌓여도 손해가 아니고, 보유를 따지면 순수 함수가 인벤토리에 묶인다.
+    /// 이미 가졌는지는 여기서 안 본다 — 그건 인벤토리를 아는 `PlayerStore.forage` 의 `owned`
+    /// 가 걸러 낸다. 이 표는 "무엇이 필요한가"만 답한다.
     static func needs(speciesID: Int, region: Region?) -> [EvolutionItem] {
         (bySpecies[speciesID] ?? []).filter { $0.scope.covers(region) }.map(\.item)
     }

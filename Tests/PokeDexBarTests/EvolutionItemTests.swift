@@ -238,6 +238,24 @@ final class ForageTests: XCTestCase {
     func testPickAtTheTopDoesNotOverflow() {
         XCTAssertNotNil(PlayerStore.forage(ribbon: .lifelong, needs: magby, roll: 0, pick: 1.0))
     }
+
+    /// **이미 가진 도구는 다시 안 물어 온다.** 도구는 없어지지 않으므로 두 번째는 쓸모가 없고,
+    /// 그대로 두면 다 모은 개체의 채집 굴림이 영원히 헛돈다.
+    func testAlreadyOwnedItemsAreNotBroughtAgain() {
+        XCTAssertNil(PlayerStore.forage(ribbon: .lifelong, needs: magby, owned: [.magmarizer],
+                                        roll: 0, pick: 0))
+    }
+
+    /// 갈래가 여럿이면 **아직 없는 것 중에서만** 고른다 — 이브이가 돌 넷을 가졌으면 남은 하나.
+    func testOnlyMissingBranchesRemainCandidates() {
+        let eevee = ForageCatalog.needs(speciesID: 133, region: nil)
+        let owned: Set<EvolutionItem> = [.waterStone, .thunderStone, .fireStone, .leafStone]
+        for i in 0..<50 {
+            XCTAssertEqual(PlayerStore.forage(ribbon: .lifelong, needs: eevee, owned: owned,
+                                              roll: 0, pick: Double(i) / 50),
+                           .iceStone, "안 가진 하나만 나와야 한다")
+        }
+    }
 }
 
 /// 같은 종이라도 지방에 따라 필요한 도구가 갈리는 10건. `RegionBalance.branchesByRegion` 이
