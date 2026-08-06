@@ -14,6 +14,7 @@ final class SaveSealTests: XCTestCase {
         XCTAssertTrue(text.contains("_notice"))
         XCTAssertTrue(text.contains("PokeDexBar"), "안내가 평문으로 안 보이면 아무도 못 읽는다")
         XCTAssertTrue(text.contains("AI assistant"), "LLM 을 향한 안내가 빠졌다")
+        XCTAssertTrue(text.contains("upside down"), "무슨 일이 일어나는지가 안내에 없다")
     }
 
     /// 본문은 안 보여야 한다 — 그래야 "사탕 개수 5로 바꿔줘"가 곧바로 되지 않는다.

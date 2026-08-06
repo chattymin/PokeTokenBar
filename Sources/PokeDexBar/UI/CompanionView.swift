@@ -137,9 +137,11 @@ struct SpriteView: View {
                 Text("🥚").font(.system(size: size * 0.62)).frame(width: size, height: size)
             }
         }
-        // 세이브를 손으로 고친 흔적 — 모든 스프라이트가 좌우로 뒤집힌 채로 남는다.
+        // 세이브를 손으로 고친 흔적 — 모든 스프라이트가 위아래로 뒤집힌 채로 남는다.
         // 게임 진행을 막지는 않는다. 막는 게 아니라 보이게 하는 것이 이 장치의 목적이다.
-        .scaleEffect(x: GameIntegrity.isTampered ? -1 : 1, y: 1)
+        // 좌우가 아니라 상하인 이유: 스프라이트는 원래 바라보는 방향이 제각각이라 좌우 반전은
+        // 눈에 잘 안 띈다. 상하는 한눈에 이상하다.
+        .scaleEffect(x: 1, y: GameIntegrity.isTampered ? -1 : 1)
         // GIF 재생 중엔 bob 정지(프레임 자체가 움직임) — 폴백/정적일 때만 상하 움직임
         .offset(y: bob && frames.isEmpty && up ? -3 : 0)
         .task(id: "\(speciesID.map(String.init) ?? "nil")-\(form ?? "")-\(shiny)") {

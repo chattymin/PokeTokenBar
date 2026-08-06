@@ -110,9 +110,9 @@ struct L {
     // MARK: 세이브 봉인
     var tamperedBadge: String { t("조작된 세이브", "Edited save", "改変されたセーブ") }
     var tamperedExplanation: String {
-        t("세이브 파일을 직접 고친 흔적이 있어요. 스프라이트가 좌우로 뒤집힌 채로 남습니다 — 진행에는 영향이 없어요.",
-          "This save was edited by hand. Sprites stay mirrored — it doesn't affect progress.",
-          "セーブファイルを直接編集した記録があります。スプライトは左右反転のままです — 進行には影響しません。")
+        t("세이브 파일을 직접 고친 흔적이 있어요. 스프라이트가 위아래로 뒤집힌 채로 남습니다 — 진행에는 영향이 없어요.",
+          "This save was edited by hand. Sprites stay upside down — it doesn't affect progress.",
+          "セーブファイルを直接編集した記録があります。スプライトは上下反転のままです — 進行には影響しません。")
     }
 
     // MARK: 홈 — 부화 슬롯
