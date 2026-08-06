@@ -18,13 +18,17 @@ final class FormCatalogTests: XCTestCase {
         XCTAssertEqual(Set(slugs).count, slugs.count)
     }
 
-    /// 같은 종에 폼이 둘이면(리자몽 X/Y) 반드시 구분자가 있어야 한다 — 없으면 버튼 두 개가
-    /// 똑같은 이름으로 뜬다.
-    func testTwoFormsOfTheSameKindAlwaysHaveVariants() {
-        let grouped = Dictionary(grouping: FormCatalog.all) { "\($0.speciesID)-\($0.kind.rawValue)" }
-        for (key, forms) in grouped where forms.count > 1 {
-            XCTAssertEqual(Set(forms.compactMap(\.variant)).count, forms.count,
-                           "\(key): 같은 종·같은 종류의 폼이 여럿인데 구분자가 겹치거나 없다")
+    /// 같은 종에 폼이 둘이면(리자몽 X/Y, 아르세우스 17타입) 화면에 **서로 다른 이름**으로
+    /// 떠야 한다 — 안 그러면 버튼 여럿이 똑같은 이름으로 뜬다. 구분자가 `variant`(X/Y)든
+    /// `label`(폼 이름)이든 상관없이, 최종 표시 이름으로 확인하는 게 실제로 지키려는 것이다.
+    func testFormsOfTheSameSpeciesShowDistinctNames() {
+        let grouped = Dictionary(grouping: FormCatalog.all, by: \.speciesID)
+        for (species, forms) in grouped where forms.count > 1 {
+            for lang in AppLanguage.allCases {
+                let names = forms.map { $0.displayName(base: "X", lang) }
+                XCTAssertEqual(Set(names).count, names.count,
+                               "#\(species) \(lang): 폼 이름이 겹친다 — \(names)")
+            }
         }
     }
 
@@ -39,10 +43,16 @@ final class FormCatalogTests: XCTestCase {
         XCTAssertFalse(FormCatalog.has(speciesID: 16, kind: .gmax))
     }
 
-    /// 슬러그는 `<종슬러그>-mega|megax|megay|gmax` 꼴이어야 한다 — Showdown 경로를 그대로 만든다.
+    /// 슬러그는 `<종슬러그>-<폼>` 꼴이어야 한다 — Showdown 경로를 그대로 만든다.
+    /// 메가·거다이맥스는 접미가 정해져 있고, 나머지는 폼 이름이 그대로 접미가 된다.
     func testSlugsMatchTheShowdownNamingScheme() {
         for form in FormCatalog.all {
-            let suffix = form.slug.split(separator: "-").last.map(String.init) ?? ""
+            let parts = form.slug.split(separator: "-")
+            XCTAssertGreaterThan(parts.count, 1, "\(form.slug) 에 폼 접미가 없다")
+            XCTAssertFalse(form.slug.contains(" "), "\(form.slug) 에 공백이 있다 — URL 이 깨진다")
+            XCTAssertEqual(form.slug, form.slug.lowercased(), "\(form.slug) 에 대문자가 있다")
+            guard form.kind == .mega || form.kind == .gmax else { continue }
+            let suffix = String(parts.last!)
             let expected = form.kind == .gmax ? ["gmax"] : ["mega", "megax", "megay"]
             XCTAssertTrue(expected.contains(suffix), "\(form.slug) 의 접미가 규칙에서 벗어난다")
         }
@@ -301,6 +311,51 @@ final class FormWiringTests: XCTestCase {
         let (store, charizard) = makeStore(items: [:])
         XCTAssertTrue(renderedFormButtons(store, charizard).isEmpty)
     }
+
+    /// 물어 온 폼 도구도 **실제 화면에서** 버튼이 되어야 한다. 스토어만 잠그면 상세 화면이
+    /// 새 갈래를 안 그려도 테스트가 통과한다 — 이 저장소가 이미 두 번 밟은 부류다.
+    func testForagedFormsRenderAndWork() {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("form-foraged-\(UUID().uuidString).json")
+        let store = PlayerStore(fileURL: url, rng: SeededRNG(seed: 5),
+                                now: { Date(timeIntervalSince1970: 0) })
+        let giratina = Individual(baseID: 487, speciesID: 487, pathIDs: [487], nature: .serious,
+                                  exp: 0, obtainedAt: Date(timeIntervalSince1970: 0),
+                                  grade: .legendary)
+        store.addForTesting(giratina)
+        store.grantForTesting(FormItem.griseousCore)
+
+        let buttons = renderedFormButtons(store, giratina)
+        XCTAssertEqual(buttons.count, 1, "오리진 버튼이 떠야 한다: \(buttons.map(\.title))")
+        // 개수 표기가 붙으면 소모품으로 읽힌다 — 물어 온 도구는 안 없어진다.
+        XCTAssertFalse(buttons[0].title.contains("×"), "물어 온 도구에 개수가 붙었다: \(buttons[0].title)")
+        buttons[0].action()
+        XCTAssertEqual(store.state.box.first { $0.id == giratina.id }?.form, "giratina-origin")
+    }
+
+    /// 합체 상대가 없으면 **버튼이 안 나온다** — 대신 이유가 뜬다(그건 별도 테스트).
+    func testFusionFormRendersNoButtonWithoutThePartner() {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("form-fusion-\(UUID().uuidString).json")
+        let store = PlayerStore(fileURL: url, rng: SeededRNG(seed: 5),
+                                now: { Date(timeIntervalSince1970: 0) })
+        let kyurem = Individual(baseID: 646, speciesID: 646, pathIDs: [646], nature: .serious,
+                                exp: 0, obtainedAt: Date(timeIntervalSince1970: 0),
+                                grade: .legendary)
+        store.addForTesting(kyurem)
+        store.grantForTesting(FormItem.dnaSplicers)
+        XCTAssertTrue(renderedFormButtons(store, kyurem).isEmpty, "상대가 없는데 누를 수 있다")
+
+        // 제크로무를 넣으면 블랙만 열린다.
+        let zekrom = Individual(baseID: 644, speciesID: 644, pathIDs: [644], nature: .serious,
+                                exp: 0, obtainedAt: Date(timeIntervalSince1970: 0),
+                                grade: .legendary)
+        store.addForTesting(zekrom)
+        let buttons = renderedFormButtons(store, kyurem)
+        XCTAssertEqual(buttons.count, 1, "블랙 하나만 떠야 한다: \(buttons.map(\.title))")
+        buttons[0].action()
+        XCTAssertEqual(store.state.box.first { $0.id == kyurem.id }?.form, "kyurem-black")
+    }
 }
 
 /// 지방 모습에는 메가·거다이맥스가 없다. 메가는 칼로스, 거다이맥스는 가라르 지방의 현상이고
@@ -379,5 +434,207 @@ final class RegionalFormsHaveNoMegaOrGmaxTests: XCTestCase {
                 }
             }
         }
+    }
+}
+
+/// 폼 도구 — 진화 도구와 **성격이 반대다**. 진화는 못 되돌리지만 폼은 되돌릴 수 있고,
+/// 그래서 도구도 없어지지 않는다.
+@MainActor
+final class FormItemStoreTests: XCTestCase {
+    private func makeStore(_ species: Int...) -> (PlayerStore, [UUID]) {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("formitem-\(UUID().uuidString).json")
+        let store = PlayerStore(fileURL: url, rng: SeededRNG(seed: 3),
+                                now: { Date(timeIntervalSince1970: 0) })
+        let ids = species.map { sp -> UUID in
+            let i = Individual(baseID: sp, speciesID: sp, pathIDs: [sp], nature: .serious, exp: 0,
+                               obtainedAt: Date(timeIntervalSince1970: 0), grade: .legendary)
+            store.addForTesting(i)
+            return i.id
+        }
+        return (store, ids)
+    }
+
+    private func form(_ slug: String) -> PokemonForm { FormCatalog.form(slug: slug)! }
+
+    /// **물어 온 폼 도구는 없어지지 않는다.** 되돌릴 수 있는 변화를 소모품으로 잠그면
+    /// 오리진으로 바꿨다가 되돌린 순간 다시는 못 돌아간다.
+    func testForagedFormItemsAreNotConsumed() {
+        let (store, ids) = makeStore(487)                   // 기라티나
+        store.grantForTesting(.griseousCore)
+        XCTAssertTrue(store.changeForm(individualID: ids[0], to: form("giratina-origin")))
+        XCTAssertEqual(store.count(of: FormItem.griseousCore), 1, "폼 도구가 없어졌다")
+    }
+
+    /// 되돌리고 **다시 바꿀 수 있어야** 한다 — 이게 진화와 갈리는 지점이다.
+    func testFormsCanBeRevertedAndReapplied() {
+        let (store, ids) = makeStore(487)
+        store.grantForTesting(.griseousCore)
+        let origin = form("giratina-origin")
+        XCTAssertTrue(store.changeForm(individualID: ids[0], to: origin))
+        XCTAssertTrue(store.revertForm(individualID: ids[0]))
+        XCTAssertNil(store.state.box[0].form)
+        XCTAssertTrue(store.changeForm(individualID: ids[0], to: origin), "되돌린 뒤 다시 못 바꾼다")
+    }
+
+    /// 도구가 없으면 못 바꾼다.
+    func testWithoutTheItemNothingHappens() {
+        let (store, ids) = makeStore(487)
+        XCTAssertFalse(store.changeForm(individualID: ids[0], to: form("giratina-origin")))
+        XCTAssertNil(store.state.box[0].form)
+    }
+
+    /// 하나의 도구가 그 종의 모든 타입을 연다 — 아르세우스 17폼에 플레이트 하나.
+    func testOnePlateOpensEveryArceusType() {
+        let (store, ids) = makeStore(493)
+        store.grantForTesting(.plate)
+        let types = FormCatalog.forms(speciesID: 493, kind: .typeSet)
+        XCTAssertEqual(types.count, 17)
+        for type in types {
+            XCTAssertTrue(store.changeForm(individualID: ids[0], to: type), "\(type.slug) 로 못 바꾼다")
+        }
+        XCTAssertEqual(store.count(of: FormItem.plate), 1)
+    }
+
+    /// 빛의거울 하나가 네 종의 영물폼을 연다.
+    func testRevealGlassCoversAllFourTherians() {
+        for species in [641, 642, 645, 905] {
+            let (store, ids) = makeStore(species)
+            store.grantForTesting(.revealGlass)
+            let therian = FormCatalog.forms(speciesID: species, kind: .legendary)[0]
+            XCTAssertTrue(store.changeForm(individualID: ids[0], to: therian), "#\(species)")
+        }
+    }
+}
+
+/// 합체 폼 — 도구만으로는 안 되고 **상대 포켓몬이 박스에 있어야** 한다.
+@MainActor
+final class FusionFormTests: XCTestCase {
+    private func makeStore(_ species: [Int]) -> (PlayerStore, UUID) {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("fusion-\(UUID().uuidString).json")
+        let store = PlayerStore(fileURL: url, rng: SeededRNG(seed: 3),
+                                now: { Date(timeIntervalSince1970: 0) })
+        var first: UUID?
+        for sp in species {
+            let i = Individual(baseID: sp, speciesID: sp, pathIDs: [sp], nature: .serious, exp: 0,
+                               obtainedAt: Date(timeIntervalSince1970: 0), grade: .legendary)
+            store.addForTesting(i)
+            if first == nil { first = i.id }
+        }
+        return (store, first!)
+    }
+
+    /// 카탈로그가 실제로 짝을 맞게 적고 있나 — 큐레무 블랙은 제크로무(644), 화이트는 레시라무(643).
+    func testTheSixFusionFormsNameTheRightPartner() {
+        let expected: [String: Int] = [
+            "kyurem-black": 644, "kyurem-white": 643,
+            "necrozma-duskmane": 791, "necrozma-dawnwings": 792,
+            "calyrex-ice": 896, "calyrex-shadow": 897,
+        ]
+        let fusions = FormCatalog.all.filter { $0.fusionPartner != nil }
+        XCTAssertEqual(fusions.count, expected.count, "합체 폼 개수가 달라졌다")
+        for form in fusions {
+            XCTAssertEqual(form.fusionPartner, expected[form.slug], "\(form.slug) 의 상대가 틀렸다")
+        }
+    }
+
+    /// 상대가 없으면 도구가 있어도 못 바꾼다.
+    func testFusionIsBlockedWithoutThePartner() {
+        let (store, kyurem) = makeStore([646])              // 큐레무만
+        store.grantForTesting(.dnaSplicers)
+        let black = FormCatalog.form(slug: "kyurem-black")!
+        XCTAssertFalse(store.canChange(store.state.box[0], to: black))
+        XCTAssertFalse(store.changeForm(individualID: kyurem, to: black))
+        XCTAssertNil(store.state.box[0].form)
+    }
+
+    /// 상대가 있으면 바뀌고, **상대는 사라지지 않는다** — 먹어 버리면 폼을 되돌릴 수가 없다.
+    func testFusionWorksWithThePartnerAndKeepsIt() {
+        let (store, kyurem) = makeStore([646, 644])         // 큐레무 + 제크로무
+        store.grantForTesting(.dnaSplicers)
+        let black = FormCatalog.form(slug: "kyurem-black")!
+        XCTAssertTrue(store.changeForm(individualID: kyurem, to: black))
+        XCTAssertEqual(store.state.box[0].form, "kyurem-black")
+        XCTAssertTrue(store.state.box.contains { $0.speciesID == 644 }, "제크로무가 사라졌다")
+        XCTAssertTrue(store.revertForm(individualID: kyurem))
+    }
+
+    /// 짝이 어긋나면 안 된다 — 제크로무를 가졌다고 화이트가 열리면 짝 검사가 무의미하다.
+    func testTheWrongPartnerDoesNotUnlockTheOtherForm() {
+        let (store, _) = makeStore([646, 644])              // 제크로무만 있다
+        store.grantForTesting(.dnaSplicers)
+        XCTAssertTrue(store.canChange(store.state.box[0], to: FormCatalog.form(slug: "kyurem-black")!))
+        XCTAssertFalse(store.canChange(store.state.box[0], to: FormCatalog.form(slug: "kyurem-white")!))
+    }
+
+    /// 못 바꾸는 폼도 **목록에는 남아야** 한다 — 빼 버리면 큐레무 블랙의 존재를 알 수가 없다.
+    func testBlockedFusionFormsStayVisible() {
+        let (store, _) = makeStore([646])
+        let choices = store.formChoices(store.state.box[0], kind: .legendary)
+        XCTAssertEqual(Set(choices.map(\.slug)), ["kyurem-black", "kyurem-white"])
+    }
+}
+
+/// 폼 도구를 얻는 길 — 진화 도구와 같이 파트너가 물어 온다.
+final class FormForageTests: XCTestCase {
+    /// **화면에 있는 모든 폼 도구는 얻을 수 있어야 한다.** 하나라도 못 얻으면 그 폼은
+    /// 목록에만 존재하고 영영 못 쓴다.
+    func testEveryFormItemIsObtainable() {
+        var reachable: Set<FormItem> = []
+        for species in Set(FormCatalog.all.map(\.speciesID)) {
+            reachable.formUnion(FormForageCatalog.items(speciesID: species, region: nil).map(\.item))
+        }
+        for item in FormItem.allCases {
+            XCTAssertTrue(reachable.contains(item), "\(item) 을 물어 오는 종이 없다")
+        }
+    }
+
+    /// 상점에서 파는 메가스톤·다이맥스 버섯은 채집 대상이 아니다 — 섞이면 상점이 무의미해진다.
+    func testShopFormsAreNotForaged() {
+        let charizard = FormForageCatalog.items(speciesID: 6, region: nil)
+        XCTAssertTrue(charizard.isEmpty, "메가스톤이 채집으로 샌다")
+    }
+
+    /// 지방 모습은 폼을 못 가지므로 폼 도구도 안 물어 온다.
+    func testRegionalIndividualsForageNoFormItems() {
+        XCTAssertFalse(FormForageCatalog.items(speciesID: 25, region: nil).isEmpty)
+        XCTAssertTrue(FormForageCatalog.items(speciesID: 25, region: .alola).isEmpty)
+    }
+
+    /// 전설의 폼 도구는 훨씬 드물어야 한다 — 같은 확률이면 기라티나 오리진이 피카츄 모자와
+    /// 같은 값이 된다.
+    func testLegendaryFormItemsAreRarerThanOrdinaryOnes() {
+        for ribbon in Ribbon.allCases {
+            XCTAssertLessThan(ribbon.legendaryFormPermille, ribbon.foragePermille, "\(ribbon)")
+            XCTAssertGreaterThan(ribbon.legendaryFormPermille, 0, "\(ribbon): 아예 안 나오면 안 된다")
+        }
+    }
+
+    /// 각 후보는 **자기 갈래의 확률로** 판정돼야 한다.
+    func testEachCandidateUsesItsOwnRate() {
+        let legendary = [(item: FormItem.griseousCore, kind: FormKind.legendary)]
+        let ordinary = [(item: FormItem.plate, kind: FormKind.typeSet)]
+        let between = Double(Ribbon.bond.legendaryFormPermille + 1) / 1000
+        XCTAssertNil(PlayerStore.forageFormItem(ribbon: .bond, candidates: legendary,
+                                                roll: between, pick: 0))
+        XCTAssertEqual(PlayerStore.forageFormItem(ribbon: .bond, candidates: ordinary,
+                                                  roll: between, pick: 0), .plate)
+    }
+
+    func testNoCandidatesMeansNothing() {
+        XCTAssertNil(PlayerStore.forageFormItem(ribbon: .lifelong, candidates: [], roll: 0, pick: 0))
+    }
+}
+
+/// 인벤토리는 한 사전을 셋이 나눠 쓴다 — 키가 겹치면 한 칸을 두고 다툰다.
+final class InventoryKeyCollisionTests: XCTestCase {
+    func testShopEvolutionAndFormItemKeysAreDisjoint() {
+        let shop = Set(ShopItem.allCases.map(\.rawValue))
+        let evo = Set(EvolutionItem.allCases.map(\.rawValue))
+        let form = Set(FormItem.allCases.map(\.rawValue))
+        XCTAssertTrue(shop.isDisjoint(with: evo), "상점↔진화 키 충돌: \(shop.intersection(evo))")
+        XCTAssertTrue(shop.isDisjoint(with: form), "상점↔폼 키 충돌: \(shop.intersection(form))")
+        XCTAssertTrue(evo.isDisjoint(with: form), "진화↔폼 키 충돌: \(evo.intersection(form))")
     }
 }

@@ -183,23 +183,26 @@ struct IndividualDetailView: View {
         }
     }
 
-    /// 메가진화·거다이맥스 — 그 폼이 있는 종에만 나온다. 아이템이 없으면 어디서 사는지 알려준다.
+    /// 폼 — 그 폼이 있는 종에만 나온다. 못 바꾸는 폼도 목록에 남기고 **이유를 적는다**:
+    /// 목록에서 빼면 큐레무 블랙이 이 게임에 있다는 사실 자체를 알 수가 없다.
     @ViewBuilder
     private var formSection: some View {
         ForEach(FormKind.allCases, id: \.self) { kind in
-            if store.hasForms(individual, kind: kind) {
-                let choices = store.formChoices(individual, kind: kind)
-                let owned = store.count(of: kind.item)
-                if owned > 0, !choices.isEmpty {
-                    ForEach(choices, id: \.slug) { form in
-                        FormButton(title: l.changeToForm(form.displayName(base: baseName, store.language),
-                                                         remaining: owned)) {
+            let choices = store.formChoices(individual, kind: kind)
+            ForEach(choices, id: \.slug) { form in
+                let can = store.canChange(individual, to: form)
+                let name = form.displayName(base: baseName, store.language)
+                VStack(alignment: .leading, spacing: 2) {
+                    if can {
+                        FormButton(title: l.changeToForm(name, remaining: formStock(form))) {
                             store.changeForm(individualID: individual.id, to: form)
                         }
+                    } else {
+                        DetailActionButton(title: name, prominent: false) {}
+                            .disabled(true).opacity(0.55)
+                        Text(formBlockReason(form)).font(.system(size: 9))
+                            .foregroundStyle(.tertiary)
                     }
-                } else if !choices.isEmpty {
-                    Text(l.formNeedsItem(kind.item.label(store.language)))
-                        .font(.system(size: 9)).foregroundStyle(.tertiary)
                 }
             }
         }
@@ -208,6 +211,25 @@ struct IndividualDetailView: View {
                 store.revertForm(individualID: individual.id)
             }
         }
+    }
+
+    /// 남은 개수 표시용. 물어 온 도구는 없어지지 않으므로 개수가 의미 없어 0 을 돌려
+    /// 표기를 생략한다 — "×1" 이 계속 붙어 있으면 소모품으로 오해한다.
+    private func formStock(_ form: PokemonForm) -> Int {
+        if case .shop(let item) = form.source { return store.count(of: item) }
+        return 0
+    }
+
+    /// 왜 못 바꾸는가. 도구가 없는 것과 합체 상대가 없는 것은 할 일이 전혀 다르다.
+    private func formBlockReason(_ form: PokemonForm) -> String {
+        if !store.hasItem(for: form) {
+            switch form.source {
+            case .shop(let item): return l.formNeedsItem(item.label(store.language))
+            case .foraged(let item): return l.formNeedsForagedItem(item.label(store.language))
+            }
+        }
+        let partner = form.fusionPartner.map { line?.localizedName($0, store.language) ?? "#\($0)" }
+        return l.formNeedsFusionPartner(partner ?? "")
     }
 
     /// 아직 못 갖춘 조건을 사람 말로. 조건이 없으면 nil.

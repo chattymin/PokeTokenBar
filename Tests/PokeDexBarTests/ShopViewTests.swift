@@ -95,3 +95,36 @@ final class ShopDrawLandingTests: XCTestCase {
         XCTAssertFalse(texts.contains { $0.isEmpty })
     }
 }
+
+/// 폼 도구 수집 현황 — 진화 도구와 같은 자리, 같은 규칙. 화면이 없으면 24종을 모아도
+/// 어디에도 안 보인다.
+@MainActor
+final class ShopFormItemListTests: XCTestCase {
+    private func makeStore() -> PlayerStore {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("shop-forms-\(UUID().uuidString).json")
+        return PlayerStore(fileURL: url, rng: SeededRNG(seed: 1),
+                           now: { Date(timeIntervalSince1970: 0) })
+    }
+
+    func testListsEveryFormItem() {
+        let rows = ShopTabView.formItemStatus(makeStore())
+        XCTAssertEqual(Set(rows.map(\.item)), Set(FormItem.allCases))
+        XCTAssertTrue(rows.allSatisfy { !$0.owned })
+    }
+
+    func testOwnedFlagFollowsTheInventory() {
+        let store = makeStore()
+        store.grantForTesting(FormItem.griseousCore)
+        XCTAssertEqual(ShopTabView.formItemStatus(store).filter(\.owned).map(\.item),
+                       [.griseousCore])
+    }
+
+    /// 두 목록이 같은 품목을 서로 보여 주면 안 된다 — 인벤토리를 나눠 쓰는 만큼 표시도 갈려야 한다.
+    func testTheTwoListsDoNotOverlap() {
+        let store = makeStore()
+        let evo = Set(ShopTabView.evolutionItemStatus(store).map(\.item.rawValue))
+        let form = Set(ShopTabView.formItemStatus(store).map(\.item.rawValue))
+        XCTAssertTrue(evo.isDisjoint(with: form))
+    }
+}

@@ -1,26 +1,45 @@
 import Foundation
 
-/// 메가진화·거다이맥스 폼. 종이 바뀌는 게 아니라 **같은 개체의 겉모습이 바뀐다** —
-/// 도감 번호도 그대로고(폼은 도감에 따로 안 잡힌다) 진화 단계도 그대로다.
+/// 폼의 갈래. 종이 바뀌는 게 아니라 **같은 개체의 겉모습이 바뀐다** — 도감 번호도 그대로고
+/// (폼은 도감에 따로 안 잡힌다) 진화 단계도 그대로다. 그래서 **폼은 언제든 되돌릴 수 있다**
+/// (진화는 못 되돌린다). 갈래를 나누는 기준은 도구를 얻는 난이도다.
 enum FormKind: String, Codable, Sendable, CaseIterable {
+    /// 상점에서 산다(기존). 아래 셋은 리본 파트너가 물어 온다.
     case mega, gmax
+    /// 하나의 도구가 그 종의 타입 세트를 전부 연다(아르세우스의 플레이트 등).
+    case typeSet
+    /// 능력과 무관한 겉모습(피카츄의 모자·코스프레).
+    case dressUp
+    /// 전설의 변신 — 도구가 훨씬 드물게 나온다(`Ribbon.legendaryFormPermille`).
+    case legendary
 
-    /// 이 폼으로 바꾸는 데 쓰는 상점 품목.
-    var item: ShopItem {
-        switch self {
-        case .mega: .megaStone
-        case .gmax: .dynamaxMushroom
-        }
-    }
-
-    /// 폼 이름 접두사 — 종 이름 앞에 붙인다(`메가 리자몽`). 종 이름은 진화 라인에서 온다.
+    /// 폼 이름 접두사 — 종 이름 앞에 붙인다(`메가 리자몽`). 새 갈래는 접두 없이
+    /// 폼 이름을 뒤에 붙이므로(`기라티나 오리진`) 빈 문자열이다.
     func prefix(_ lang: AppLanguage) -> String {
         let names: (String, String, String) = switch self {
         case .mega: ("메가", "Mega", "メガ")
         case .gmax: ("거다이맥스", "Gigantamax", "キョダイマックス")
+        case .typeSet, .dressUp, .legendary: ("", "", "")
         }
         switch lang { case .ko: return names.0; case .en: return names.1; case .ja: return names.2 }
     }
+}
+
+/// 폼 이름 — 언어별. 폼은 90개가 넘어 영어를 그대로 쓰면 한국어 화면이 반쯤 영어가 된다.
+struct FormLabel: Sendable, Equatable, Hashable {
+    let ko: String, en: String, ja: String
+    init(_ ko: String, _ en: String, _ ja: String) { self.ko = ko; self.en = en; self.ja = ja }
+    func text(_ lang: AppLanguage) -> String {
+        switch lang { case .ko: ko; case .en: en; case .ja: ja }
+    }
+}
+
+/// 폼을 여는 도구가 어디서 오는가. 메가·거다이맥스만 상점이고 나머지는 파트너가 물어 온다.
+enum FormSource: Sendable, Equatable, Hashable {
+    /// 상점 품목 — 쓰면 없어진다(기존 동작).
+    case shop(ShopItem)
+    /// 리본 파트너가 물어 온다 — 없어지지 않는다.
+    case foraged(FormItem)
 }
 
 /// 폼 하나 — 어떤 종의 어떤 폼이고, Showdown 스프라이트 슬러그가 무엇인가.
@@ -31,14 +50,32 @@ struct PokemonForm: Sendable, Equatable, Hashable {
     let kind: FormKind
     /// 같은 종에 폼이 둘인 경우의 구분(리자몽·뮤츠의 X/Y). 없으면 nil.
     let variant: String?
+    /// 폼 이름(언어별). 없으면 `variant` 를 그대로 붙인다 — 메가 X/Y 가 그 경우다.
+    let label: FormLabel?
+    let source: FormSource
+    /// **합체 폼** — 박스에 이 종이 함께 있어야 바꿀 수 있다(큐레무 블랙은 제크로무가 필요).
+    /// 상대는 사라지지 않는다. 폼은 되돌릴 수 있는데 상대를 먹어 버리면 되돌릴 수가 없다.
+    let fusionPartner: Int?
 
-    /// 표시 이름 — `메가 리자몽 X` / `Mega Charizard X` / `メガリザードンX`.
+    /// 메가·거다이맥스는 갈래만으로 출처가 정해지므로 기존 목록을 그대로 둔다.
+    init(speciesID: Int, slug: String, kind: FormKind, variant: String?,
+         label: FormLabel? = nil, source: FormSource? = nil, fusionPartner: Int? = nil) {
+        self.speciesID = speciesID
+        self.slug = slug
+        self.kind = kind
+        self.variant = variant
+        self.label = label
+        self.source = source ?? (kind == .gmax ? .shop(.dynamaxMushroom) : .shop(.megaStone))
+        self.fusionPartner = fusionPartner
+    }
+
+    /// 표시 이름 — `메가 리자몽 X` / `기라티나 오리진` / `アルセウス ほのお`.
     /// 종 이름은 진화 라인에서 오므로(아직 못 받았으면 #번호) 여기서는 접두·접미만 얹는다.
     func displayName(base: String, _ lang: AppLanguage) -> String {
         let head = kind.prefix(lang)
-        let joined = lang == .ja ? "\(head)\(base)" : "\(head) \(base)"
-        guard let variant else { return joined }
-        return lang == .ja ? "\(joined)\(variant)" : "\(joined) \(variant)"
+        let joined = head.isEmpty ? base : (lang == .ja ? "\(head)\(base)" : "\(head) \(base)")
+        guard let tail = label?.text(lang) ?? variant else { return joined }
+        return lang == .ja ? "\(joined)\(tail)" : "\(joined) \(tail)"
     }
 }
 
@@ -127,6 +164,181 @@ enum FormCatalog {
         .init(speciesID: 879, slug: "copperajah-gmax", kind: .gmax, variant: nil),
         .init(speciesID: 884, slug: "duraludon-gmax", kind: .gmax, variant: nil),
         .init(speciesID: 892, slug: "urshifu-gmax", kind: .gmax, variant: nil),
+
+        // 아래는 파트너가 물어 오는 도구로 바꾸는 폼 — 도구가 없어지지 않으므로 자유롭게
+        // 오갈 수 있다. 합체 폼(`fusionPartner`)은 상대가 박스에 있어야 한다.
+        .init(speciesID: 493, slug: "arceus-bug", kind: .typeSet, variant: nil,
+              label: .init("벌레", "Bug", "むし"), source: .foraged(.plate)),
+        .init(speciesID: 773, slug: "silvally-bug", kind: .typeSet, variant: nil,
+              label: .init("벌레", "Bug", "むし"), source: .foraged(.memory)),
+        .init(speciesID: 493, slug: "arceus-dark", kind: .typeSet, variant: nil,
+              label: .init("악", "Dark", "あく"), source: .foraged(.plate)),
+        .init(speciesID: 773, slug: "silvally-dark", kind: .typeSet, variant: nil,
+              label: .init("악", "Dark", "あく"), source: .foraged(.memory)),
+        .init(speciesID: 493, slug: "arceus-dragon", kind: .typeSet, variant: nil,
+              label: .init("드래곤", "Dragon", "ドラゴン"), source: .foraged(.plate)),
+        .init(speciesID: 773, slug: "silvally-dragon", kind: .typeSet, variant: nil,
+              label: .init("드래곤", "Dragon", "ドラゴン"), source: .foraged(.memory)),
+        .init(speciesID: 493, slug: "arceus-electric", kind: .typeSet, variant: nil,
+              label: .init("전기", "Electric", "でんき"), source: .foraged(.plate)),
+        .init(speciesID: 773, slug: "silvally-electric", kind: .typeSet, variant: nil,
+              label: .init("전기", "Electric", "でんき"), source: .foraged(.memory)),
+        .init(speciesID: 493, slug: "arceus-fairy", kind: .typeSet, variant: nil,
+              label: .init("페어리", "Fairy", "フェアリー"), source: .foraged(.plate)),
+        .init(speciesID: 773, slug: "silvally-fairy", kind: .typeSet, variant: nil,
+              label: .init("페어리", "Fairy", "フェアリー"), source: .foraged(.memory)),
+        .init(speciesID: 493, slug: "arceus-fighting", kind: .typeSet, variant: nil,
+              label: .init("격투", "Fighting", "かくとう"), source: .foraged(.plate)),
+        .init(speciesID: 773, slug: "silvally-fighting", kind: .typeSet, variant: nil,
+              label: .init("격투", "Fighting", "かくとう"), source: .foraged(.memory)),
+        .init(speciesID: 493, slug: "arceus-fire", kind: .typeSet, variant: nil,
+              label: .init("불꽃", "Fire", "ほのお"), source: .foraged(.plate)),
+        .init(speciesID: 773, slug: "silvally-fire", kind: .typeSet, variant: nil,
+              label: .init("불꽃", "Fire", "ほのお"), source: .foraged(.memory)),
+        .init(speciesID: 493, slug: "arceus-flying", kind: .typeSet, variant: nil,
+              label: .init("비행", "Flying", "ひこう"), source: .foraged(.plate)),
+        .init(speciesID: 773, slug: "silvally-flying", kind: .typeSet, variant: nil,
+              label: .init("비행", "Flying", "ひこう"), source: .foraged(.memory)),
+        .init(speciesID: 493, slug: "arceus-ghost", kind: .typeSet, variant: nil,
+              label: .init("고스트", "Ghost", "ゴースト"), source: .foraged(.plate)),
+        .init(speciesID: 773, slug: "silvally-ghost", kind: .typeSet, variant: nil,
+              label: .init("고스트", "Ghost", "ゴースト"), source: .foraged(.memory)),
+        .init(speciesID: 493, slug: "arceus-grass", kind: .typeSet, variant: nil,
+              label: .init("풀", "Grass", "くさ"), source: .foraged(.plate)),
+        .init(speciesID: 773, slug: "silvally-grass", kind: .typeSet, variant: nil,
+              label: .init("풀", "Grass", "くさ"), source: .foraged(.memory)),
+        .init(speciesID: 493, slug: "arceus-ground", kind: .typeSet, variant: nil,
+              label: .init("땅", "Ground", "じめん"), source: .foraged(.plate)),
+        .init(speciesID: 773, slug: "silvally-ground", kind: .typeSet, variant: nil,
+              label: .init("땅", "Ground", "じめん"), source: .foraged(.memory)),
+        .init(speciesID: 493, slug: "arceus-ice", kind: .typeSet, variant: nil,
+              label: .init("얼음", "Ice", "こおり"), source: .foraged(.plate)),
+        .init(speciesID: 773, slug: "silvally-ice", kind: .typeSet, variant: nil,
+              label: .init("얼음", "Ice", "こおり"), source: .foraged(.memory)),
+        .init(speciesID: 493, slug: "arceus-poison", kind: .typeSet, variant: nil,
+              label: .init("독", "Poison", "どく"), source: .foraged(.plate)),
+        .init(speciesID: 773, slug: "silvally-poison", kind: .typeSet, variant: nil,
+              label: .init("독", "Poison", "どく"), source: .foraged(.memory)),
+        .init(speciesID: 493, slug: "arceus-psychic", kind: .typeSet, variant: nil,
+              label: .init("에스퍼", "Psychic", "エスパー"), source: .foraged(.plate)),
+        .init(speciesID: 773, slug: "silvally-psychic", kind: .typeSet, variant: nil,
+              label: .init("에스퍼", "Psychic", "エスパー"), source: .foraged(.memory)),
+        .init(speciesID: 493, slug: "arceus-rock", kind: .typeSet, variant: nil,
+              label: .init("바위", "Rock", "いわ"), source: .foraged(.plate)),
+        .init(speciesID: 773, slug: "silvally-rock", kind: .typeSet, variant: nil,
+              label: .init("바위", "Rock", "いわ"), source: .foraged(.memory)),
+        .init(speciesID: 493, slug: "arceus-steel", kind: .typeSet, variant: nil,
+              label: .init("강철", "Steel", "はがね"), source: .foraged(.plate)),
+        .init(speciesID: 773, slug: "silvally-steel", kind: .typeSet, variant: nil,
+              label: .init("강철", "Steel", "はがね"), source: .foraged(.memory)),
+        .init(speciesID: 493, slug: "arceus-water", kind: .typeSet, variant: nil,
+              label: .init("물", "Water", "みず"), source: .foraged(.plate)),
+        .init(speciesID: 773, slug: "silvally-water", kind: .typeSet, variant: nil,
+              label: .init("물", "Water", "みず"), source: .foraged(.memory)),
+        .init(speciesID: 479, slug: "rotom-heat", kind: .typeSet, variant: nil,
+              label: .init("히트", "Heat", "ヒート"), source: .foraged(.appliance)),
+        .init(speciesID: 479, slug: "rotom-wash", kind: .typeSet, variant: nil,
+              label: .init("워시", "Wash", "ウォッシュ"), source: .foraged(.appliance)),
+        .init(speciesID: 479, slug: "rotom-frost", kind: .typeSet, variant: nil,
+              label: .init("프로스트", "Frost", "フロスト"), source: .foraged(.appliance)),
+        .init(speciesID: 479, slug: "rotom-fan", kind: .typeSet, variant: nil,
+              label: .init("스핀", "Fan", "スピン"), source: .foraged(.appliance)),
+        .init(speciesID: 479, slug: "rotom-mow", kind: .typeSet, variant: nil,
+              label: .init("커트", "Mow", "カット"), source: .foraged(.appliance)),
+        .init(speciesID: 649, slug: "genesect-douse", kind: .typeSet, variant: nil,
+              label: .init("샤워", "Douse", "シャワー"), source: .foraged(.drive)),
+        .init(speciesID: 649, slug: "genesect-shock", kind: .typeSet, variant: nil,
+              label: .init("번개", "Shock", "イナズマ"), source: .foraged(.drive)),
+        .init(speciesID: 649, slug: "genesect-burn", kind: .typeSet, variant: nil,
+              label: .init("화염", "Burn", "バーニング"), source: .foraged(.drive)),
+        .init(speciesID: 649, slug: "genesect-chill", kind: .typeSet, variant: nil,
+              label: .init("냉동", "Chill", "フリーズ"), source: .foraged(.drive)),
+        .init(speciesID: 1017, slug: "ogerpon-wellspring", kind: .typeSet, variant: nil,
+              label: .init("우물의가면", "Wellspring", "いどのめん"), source: .foraged(.mask)),
+        .init(speciesID: 1017, slug: "ogerpon-hearthflame", kind: .typeSet, variant: nil,
+              label: .init("화덕의가면", "Hearthflame", "かまどのめん"), source: .foraged(.mask)),
+        .init(speciesID: 1017, slug: "ogerpon-cornerstone", kind: .typeSet, variant: nil,
+              label: .init("주춧돌의가면", "Cornerstone", "いしずえのめん"), source: .foraged(.mask)),
+        .init(speciesID: 25, slug: "pikachu-cosplay", kind: .dressUp, variant: nil,
+              label: .init("코스프레", "Cosplay", "コスプレ"), source: .foraged(.costumeTrunk)),
+        .init(speciesID: 25, slug: "pikachu-rockstar", kind: .dressUp, variant: nil,
+              label: .init("록스타", "Rock Star", "ロックスター"), source: .foraged(.costumeTrunk)),
+        .init(speciesID: 25, slug: "pikachu-belle", kind: .dressUp, variant: nil,
+              label: .init("마돈나", "Belle", "マドンナ"), source: .foraged(.costumeTrunk)),
+        .init(speciesID: 25, slug: "pikachu-popstar", kind: .dressUp, variant: nil,
+              label: .init("아이돌", "Pop Star", "アイドル"), source: .foraged(.costumeTrunk)),
+        .init(speciesID: 25, slug: "pikachu-phd", kind: .dressUp, variant: nil,
+              label: .init("박사", "PhD", "はかせ"), source: .foraged(.costumeTrunk)),
+        .init(speciesID: 25, slug: "pikachu-libre", kind: .dressUp, variant: nil,
+              label: .init("마스크드", "Libre", "マスクド"), source: .foraged(.costumeTrunk)),
+        .init(speciesID: 25, slug: "pikachu-original", kind: .dressUp, variant: nil,
+              label: .init("오리지널캡", "Original Cap", "オリジナルキャップ"), source: .foraged(.costumeTrunk)),
+        .init(speciesID: 25, slug: "pikachu-hoenn", kind: .dressUp, variant: nil,
+              label: .init("호연캡", "Hoenn Cap", "ホウエンキャップ"), source: .foraged(.costumeTrunk)),
+        .init(speciesID: 25, slug: "pikachu-sinnoh", kind: .dressUp, variant: nil,
+              label: .init("신오캡", "Sinnoh Cap", "シンオウキャップ"), source: .foraged(.costumeTrunk)),
+        .init(speciesID: 25, slug: "pikachu-unova", kind: .dressUp, variant: nil,
+              label: .init("하나캡", "Unova Cap", "イッシュキャップ"), source: .foraged(.costumeTrunk)),
+        .init(speciesID: 25, slug: "pikachu-kalos", kind: .dressUp, variant: nil,
+              label: .init("칼로스캡", "Kalos Cap", "カロスキャップ"), source: .foraged(.costumeTrunk)),
+        .init(speciesID: 25, slug: "pikachu-partner", kind: .dressUp, variant: nil,
+              label: .init("파트너캡", "Partner Cap", "パートナーキャップ"), source: .foraged(.costumeTrunk)),
+        .init(speciesID: 25, slug: "pikachu-starter", kind: .dressUp, variant: nil,
+              label: .init("레츠고", "Let's Go", "レッツゴー"), source: .foraged(.costumeTrunk)),
+        .init(speciesID: 25, slug: "pikachu-world", kind: .dressUp, variant: nil,
+              label: .init("월드캡", "World Cap", "ワールドキャップ"), source: .foraged(.costumeTrunk)),
+        .init(speciesID: 172, slug: "pichu-spikyeared", kind: .dressUp, variant: nil,
+              label: .init("뾰족귀", "Spiky-eared", "ギザみみ"), source: .foraged(.gsBall)),
+        .init(speciesID: 386, slug: "deoxys-attack", kind: .legendary, variant: nil,
+              label: .init("어택", "Attack", "アタック"), source: .foraged(.meteorite)),
+        .init(speciesID: 386, slug: "deoxys-defense", kind: .legendary, variant: nil,
+              label: .init("디펜스", "Defense", "ディフェンス"), source: .foraged(.meteorite)),
+        .init(speciesID: 386, slug: "deoxys-speed", kind: .legendary, variant: nil,
+              label: .init("스피드", "Speed", "スピード"), source: .foraged(.meteorite)),
+        .init(speciesID: 487, slug: "giratina-origin", kind: .legendary, variant: nil,
+              label: .init("오리진", "Origin", "オリジン"), source: .foraged(.griseousCore)),
+        .init(speciesID: 492, slug: "shaymin-sky", kind: .legendary, variant: nil,
+              label: .init("스카이", "Sky", "スカイ"), source: .foraged(.gracidea)),
+        .init(speciesID: 483, slug: "dialga-origin", kind: .legendary, variant: nil,
+              label: .init("오리진", "Origin", "オリジン"), source: .foraged(.adamantCrystal)),
+        .init(speciesID: 484, slug: "palkia-origin", kind: .legendary, variant: nil,
+              label: .init("오리진", "Origin", "オリジン"), source: .foraged(.lustrousGlobe)),
+        .init(speciesID: 383, slug: "groudon-primal", kind: .legendary, variant: nil,
+              label: .init("원시", "Primal", "ゲンシ"), source: .foraged(.redOrb)),
+        .init(speciesID: 382, slug: "kyogre-primal", kind: .legendary, variant: nil,
+              label: .init("원시", "Primal", "ゲンシ"), source: .foraged(.blueOrb)),
+        .init(speciesID: 720, slug: "hoopa-unbound", kind: .legendary, variant: nil,
+              label: .init("해방된 모습", "Unbound", "ときはなたれし"), source: .foraged(.prisonBottle)),
+        .init(speciesID: 641, slug: "tornadus-therian", kind: .legendary, variant: nil,
+              label: .init("영물폼", "Therian", "れいじゅう"), source: .foraged(.revealGlass)),
+        .init(speciesID: 642, slug: "thundurus-therian", kind: .legendary, variant: nil,
+              label: .init("영물폼", "Therian", "れいじゅう"), source: .foraged(.revealGlass)),
+        .init(speciesID: 645, slug: "landorus-therian", kind: .legendary, variant: nil,
+              label: .init("영물폼", "Therian", "れいじゅう"), source: .foraged(.revealGlass)),
+        .init(speciesID: 905, slug: "enamorus-therian", kind: .legendary, variant: nil,
+              label: .init("영물폼", "Therian", "れいじゅう"), source: .foraged(.revealGlass)),
+        .init(speciesID: 646, slug: "kyurem-black", kind: .legendary, variant: nil,
+              label: .init("블랙", "Black", "ブラック"), source: .foraged(.dnaSplicers), fusionPartner: 644),
+        .init(speciesID: 646, slug: "kyurem-white", kind: .legendary, variant: nil,
+              label: .init("화이트", "White", "ホワイト"), source: .foraged(.dnaSplicers), fusionPartner: 643),
+        .init(speciesID: 718, slug: "zygarde-10", kind: .legendary, variant: nil,
+              label: .init("10%", "10%", "10%"), source: .foraged(.zygardeCube)),
+        .init(speciesID: 800, slug: "necrozma-duskmane", kind: .legendary, variant: nil,
+              label: .init("황혼의 갈기", "Dusk Mane", "たそがれのたてがみ"), source: .foraged(.ultranecroziumZ), fusionPartner: 791),
+        .init(speciesID: 800, slug: "necrozma-dawnwings", kind: .legendary, variant: nil,
+              label: .init("새벽의 날개", "Dawn Wings", "あかつきのつばさ"), source: .foraged(.ultranecroziumZ), fusionPartner: 792),
+        .init(speciesID: 800, slug: "necrozma-ultra", kind: .legendary, variant: nil,
+              label: .init("울트라", "Ultra", "ウルトラ"), source: .foraged(.ultranecroziumZ)),
+        .init(speciesID: 898, slug: "calyrex-ice", kind: .legendary, variant: nil,
+              label: .init("백마", "Ice Rider", "はくばじょう"), source: .foraged(.reinsOfUnity), fusionPartner: 896),
+        .init(speciesID: 898, slug: "calyrex-shadow", kind: .legendary, variant: nil,
+              label: .init("흑마", "Shadow Rider", "こくばじょう"), source: .foraged(.reinsOfUnity), fusionPartner: 897),
+        .init(speciesID: 888, slug: "zacian-crowned", kind: .legendary, variant: nil,
+              label: .init("검의 왕", "Crowned", "けんのおう"), source: .foraged(.rustedSword)),
+        .init(speciesID: 889, slug: "zamazenta-crowned", kind: .legendary, variant: nil,
+              label: .init("방패의 왕", "Crowned", "たてのおう"), source: .foraged(.rustedShield)),
+        .init(speciesID: 801, slug: "magearna-original", kind: .legendary, variant: nil,
+              label: .init("옛 모습", "Original", "むかしのすがた"), source: .foraged(.soulHeart)),
     ]
 
     /// 이 종이 바꿀 수 있는 폼들(같은 종에 X/Y 처럼 여럿일 수 있다).
@@ -139,5 +351,22 @@ enum FormCatalog {
     /// 종별 폼 보유 여부 — 상세 화면이 버튼을 낼지 판단한다.
     static func has(speciesID: Int, kind: FormKind) -> Bool {
         !forms(speciesID: speciesID, kind: kind).isEmpty
+    }
+}
+
+/// 폼 도구도 진화 도구처럼 **그 도구를 쓸 수 있는 종이 물어 온다**(`ForageCatalog` 와 같은 원리).
+/// 표를 따로 두지 않고 `FormCatalog` 에서 뽑아 쓰는 건, 폼을 추가할 때 채집 표를 같이 고치는 걸
+/// 잊으면 "화면에는 있는데 도구를 얻을 길이 없는" 폼이 조용히 생기기 때문이다.
+enum FormForageCatalog {
+    /// 이 종이 물어 올 수 있는 폼 도구들. 상점에서 파는 메가스톤·다이맥스 버섯은 빠진다.
+    /// 지방 모습은 폼을 못 가지므로(`hasForms`) 지방이 있으면 빈 배열이다.
+    static func items(speciesID: Int, region: Region?) -> [(item: FormItem, kind: FormKind)] {
+        guard region == nil else { return [] }
+        var seen: Set<FormItem> = []
+        return FormCatalog.all.compactMap { form in
+            guard form.speciesID == speciesID, case .foraged(let item) = form.source,
+                  seen.insert(item).inserted else { return nil }
+            return (item, form.kind)
+        }
     }
 }

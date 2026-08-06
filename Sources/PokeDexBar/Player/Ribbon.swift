@@ -55,6 +55,11 @@ enum Ribbon: Int, CaseIterable, Codable, Sendable, Comparable {
         }
     }
 
+    /// 전설의 폼 도구가 나올 확률. 나머지(진화 도구·일반 폼)의 1/10 이다 — 기라티나를
+    /// 오리진으로 바꾸는 일이 이브이에게 물의돌을 물어 오는 것과 같은 값이면 안 된다.
+    /// 반려 리본 기준 286M 토큰마다 하나로, 전설과 실제로 오래 살아야 열린다.
+    var legendaryFormPermille: Int { max(1, foragePermille / 10) }
+
     func label(_ lang: AppLanguage) -> String {
         let names: (String, String, String) = switch self {
         case .bond: ("인연", "Bond", "きずな")

@@ -27,6 +27,8 @@ extension PlayerStore {
     /// 진화 도구 보유량. 상점 품목과 같은 인벤토리를 쓴다 — 키가 겹치지 않고,
     /// 저장 형식이 하나면 관대 디코딩·검증도 한 번만 하면 된다.
     func count(of item: EvolutionItem) -> Int { state.inventory[item.rawValue] ?? 0 }
+    /// 폼 도구 보유량. 키가 `form-` 으로 시작해 다른 품목과 안 겹친다(테스트가 확인한다).
+    func count(of item: FormItem) -> Int { state.inventory[item.rawValue] ?? 0 }
 
     /// 이 보유형 부적을 이미 갖고 있나.
     func owns(_ item: ShopItem) -> Bool {

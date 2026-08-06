@@ -46,6 +46,8 @@ struct L {
     var shopSlotsMaxed: String { t("슬롯을 최대까지 늘렸어요", "Slots are maxed out", "スロットは最大まで増やしました") }
     /// 진화 도구 — 파는 목록이 아니라 모은 것을 보는 목록이다.
     var shopEvolutionSection: String { t("진화 도구", "Evolution items", "しんかのどうぐ") }
+    /// 폼 도구 — 진화 도구와 같은 규칙(못 사고, 안 없어진다).
+    var shopFormItemSection: String { t("폼 도구", "Form items", "フォルムのどうぐ") }
     /// 도구는 못 산다는 사실 자체를 말해 줘야 한다 — 안 그러면 상점에 있는데 살 수가 없어 보인다.
     var shopEvolutionHint: String {
         t("살 수 없어요. 파트너로 둔 포켓몬이 자기에게 필요한 도구를 물어 옵니다. 한 번 얻으면 계속 쓸 수 있어요.",
@@ -149,14 +151,28 @@ struct L {
         t("가진 사탕이 없어요 (상점)", "No candy yet (Shop)", "アメがありません(ショップ)")
     }
     /// 폼 변경 버튼 — 바뀔 모습 이름과 남은 아이템 개수.
+    /// 폼으로 바꾸는 버튼. `remaining` 이 0 이면 개수를 안 붙인다 — 물어 온 도구는
+    /// 없어지지 않아 개수가 의미 없고, "×1" 이 붙어 있으면 소모품으로 오해한다.
     func changeToForm(_ name: String, remaining: Int) -> String {
-        t("\(name) ×\(remaining)", "\(name) ×\(remaining)", "\(name) ×\(remaining)")
+        remaining > 0 ? "\(name) ×\(remaining)" : name
     }
     /// 폼이 있는 종인데 아이템이 없을 때 — 어디서 구하는지 알려준다.
     func formNeedsItem(_ item: String) -> String {
         t("\(item)이 있으면 모습을 바꿀 수 있어요 (상점)",
           "\(item) changes its form (Shop)",
           "\(item)があればすがたを変えられます(ショップ)")
+    }
+    /// 물어 오는 폼 도구 — 상점에 없으므로 파트너로 두라고 말해야 한다.
+    func formNeedsForagedItem(_ item: String) -> String {
+        t("\(item) 필요 · 파트너로 두면 물어 와요",
+          "Needs \(item) · set as partner and it will find one",
+          "\(item)がひつよう · パートナーにすると持ってきます")
+    }
+    /// 합체 폼 — 도구가 아니라 **상대 포켓몬**이 없는 경우. 할 일이 전혀 달라서 따로 말한다.
+    func formNeedsFusionPartner(_ species: String) -> String {
+        t("\(species)이(가) 박스에 있어야 해요",
+          "Needs \(species) in your box",
+          "ボックスに\(species)がひつようです")
     }
     var revertForm: String { t("원래 모습으로", "Revert form", "もとのすがたに") }
 

@@ -131,6 +131,32 @@ final class PlayerStore {
                                          pick: nextRandomUnit()) else { continue }
             state.inventory[item.rawValue, default: 0] += 1
         }
+
+        // 폼 도구는 따로 굴린다 — 확률이 다르기 때문이다(전설은 1/10). 진화 도구와 한 통에
+        // 넣으면 기라티나의 백금옥이 이브이의 물의돌과 같은 값이 된다.
+        let formItems = FormForageCatalog.items(speciesID: state.box[index].speciesID,
+                                                region: state.box[index].region)
+        for _ in 0..<produced.count {
+            let missing = formItems.filter { state.inventory[$0.item.rawValue] == nil }
+            guard let found = Self.forageFormItem(ribbon: ribbon, candidates: missing,
+                                                  roll: nextRandomUnit(),
+                                                  pick: nextRandomUnit()) else { continue }
+            state.inventory[found.rawValue, default: 0] += 1
+        }
+    }
+
+    /// 리본 파트너가 이번에 물어 온 폼 도구. 전설의 폼만 확률이 따로다.
+    /// 후보에 갈래가 섞여 있으면(한 종이 전설 폼과 일반 폼을 함께 갖는 경우는 없지만)
+    /// **각 후보를 자기 확률로 판정**한다 — 하나의 확률로 뭉뚱그리면 어느 쪽이든 틀린다.
+    nonisolated static func forageFormItem(ribbon: Ribbon,
+                                           candidates: [(item: FormItem, kind: FormKind)],
+                                           roll: Double, pick: Double) -> FormItem? {
+        guard !candidates.isEmpty else { return nil }
+        let index = min(candidates.count - 1, max(0, Int(pick * Double(candidates.count))))
+        let chosen = candidates[index]
+        let permille = chosen.kind == .legendary ? ribbon.legendaryFormPermille : ribbon.foragePermille
+        guard Int(roll * 1000) < permille else { return nil }
+        return chosen.item
     }
 
     /// 리본 파트너가 이번에 물어 온 도구. `needs` 는 **그 개체가 쓸 수 있는 것만** 담기고
@@ -194,6 +220,11 @@ final class PlayerStore {
     /// 테스트 전용 — 물어 오는 도구를 인벤토리에 직접 넣는다. 채집은 확률과 토큰 누적을
     /// 거쳐야 해서 소모 여부 같은 다른 성질을 검증할 때 준비 과정이 본론을 덮는다.
     func grantForTesting(_ item: EvolutionItem) {
+        mutate { $0.inventory[item.rawValue, default: 0] += 1 }
+    }
+
+    /// 테스트 전용 — 폼 도구를 인벤토리에 직접 넣는다.
+    func grantForTesting(_ item: FormItem) {
         mutate { $0.inventory[item.rawValue, default: 0] += 1 }
     }
 
