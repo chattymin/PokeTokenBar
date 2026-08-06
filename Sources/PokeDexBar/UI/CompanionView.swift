@@ -59,6 +59,10 @@ struct SpriteView: View {
     /// img 가 어느 폼의 것인지. 폼이 바뀌어도 speciesID 는 그대로라(메가진화는 같은 종),
     /// loadedID 만 보면 "이미 로드됨"으로 판단해 보통 모습이 그대로 남는다.
     @State private var loadedForm: String?
+    /// 정적 이미지와 GIF 프레임의 잘라낼 사각형. 한 번 구해 두고 매 프레임 재사용한다 —
+    /// 프레임마다 다시 재면 팔다리 움직임에 따라 스프라이트가 칸 안에서 들썩인다.
+    @State private var staticTrim: CGRect?
+    @State private var frameTrim: CGRect?
     @State private var frames: [(image: NSImage, delay: TimeInterval)] = []
     @State private var frameIndex = 0
 
@@ -90,6 +94,7 @@ struct SpriteView: View {
         let cached = speciesID.map { SpriteLoader.cachedImage(speciesID: $0, form: form, shiny: shiny) }
             ?? SpriteLoader.cachedEggImage()
         _img = State(initialValue: cached)
+        _staticTrim = State(initialValue: cached.flatMap(SpriteTrim.contentRect(of:)))
         let seeded = speciesID != nil && cached != nil
         _loadedID = State(initialValue: seeded ? speciesID : nil)
         _loadedForm = State(initialValue: seeded ? form : nil)
@@ -108,6 +113,12 @@ struct SpriteView: View {
 
     /// 현재 그리는 주체(순수 전이 입력).
     private var subject: SpriteSubject { SpriteSubject(image: img, loadedID: loadedID) }
+
+    /// 그릴 이미지 — 투명 여백을 잘라낸 뒤 확대한다. 자르지 않으면 종마다 여백 비율이 달라
+    /// 작은 포켓몬이 칸 안에서 작게 남는다(`SpriteTrim` 주석 참조).
+    private func drawable(_ image: NSImage, trim: CGRect?) -> NSImage {
+        upscaled(trim.map { SpriteTrim.cropped(image, to: $0) } ?? image)
+    }
 
     /// 표시 크기에 맞는 EPX 패스 수만큼 확대한 이미지. 토글이 꺼져 있으면 원본 그대로.
     private func upscaled(_ image: NSImage) -> NSImage {
@@ -130,12 +141,12 @@ struct SpriteView: View {
         Group {
             if !frames.isEmpty {
                 // GIF 애니메이션 경로 — 현재 프레임만 렌더
-                Image(nsImage: upscaled(frames[frameIndex % frames.count].image))
+                Image(nsImage: drawable(frames[frameIndex % frames.count].image, trim: frameTrim))
                     .resizable().interpolation(.none)
                     .scaledToFit()   // 스프라이트마다 원본 비율이 달라 — 정사각형에 늘리면 찌부된다
                     .frame(width: size, height: size)
             } else if let img {
-                Image(nsImage: upscaled(img))
+                Image(nsImage: drawable(img, trim: staticTrim))
                     .renderingMode(silhouette ? .template : .original)
                     .resizable().interpolation(.none)
                     .scaledToFit()
@@ -156,6 +167,7 @@ struct SpriteView: View {
             // animated 프레임은 id/shiny 변경 시 항상 초기화(이전 개체 프레임 잔상 방지)
             frames = []
             frameIndex = 0
+            frameTrim = nil
             guard let id = speciesID else {
                 // 알 상태 — 정적 알 스프라이트 로드(애니메이션 알은 없음). 실패/오프라인이면 body 가 🥚 폴백.
                 // 종 → 알(졸업·새 알)이면 이전 개체 이미지를 버려야 한다 — img 는 뷰 identity 가 살아있는 동안
@@ -174,6 +186,7 @@ struct SpriteView: View {
                 if let next = subject.applyingLoad(loaded, for: id, cancelled: Task.isCancelled) {
                     apply(next)
                     loadedForm = form
+                    staticTrim = next.image.flatMap(SpriteTrim.contentRect(of:))
                 }
             }
             guard animated else { return }
@@ -188,6 +201,7 @@ struct SpriteView: View {
             // 단일 프레임/디코드 실패 → 정적 폴백. 취소됐으면 아예 반영하지 않는다(빈 배열이라 아래서 종료).
             let ready = Self.framesToApply(GIFDecoder.frames(from: data), cancelled: Task.isCancelled)
             guard !ready.isEmpty else { return }
+            frameTrim = SpriteTrim.unionContentRect(of: ready.map(\.image))
             frames = ready
             // delay 기반 프레임 advance. .task 취소 시(speciesID 변경/뷰 소멸) 루프 종료 — 누수 없음
             while !Task.isCancelled {
