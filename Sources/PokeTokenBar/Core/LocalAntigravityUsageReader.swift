@@ -48,9 +48,9 @@ enum LocalAntigravityUsageReader {
             entries += read.entries
             reads.append((database.deletingPathExtension().lastPathComponent, read))
         }
-        // The one place the side effect lives. `AppLog.write` returns early outside the bundled
-        // app, so the decision above it is kept pure and tested on its own (`lossLog`).
-        for line in lossLog(reads) { AppLog.write(line) }
+        // The one place the side effects live. `AppLog.write` returns early outside the bundled
+        // app, so the decisions above it are kept pure and tested on their own.
+        for line in lossLog(reads) + discardLog(reads) { AppLog.write(line) }
         // `response_id` is unique per call, so this only ever collapses a re-read.
         return LocalUsageReader.dedupKeepMax(entries)
     }
@@ -83,8 +83,9 @@ enum LocalAntigravityUsageReader {
     /// what this reader used to do, is what let a store that could never be read pass for a
     /// store that was never used.
     enum ConversationRead: Sendable {
-        /// Read through to `SQLITE_DONE`: these rows are all of them.
-        case complete([LocalUsageReader.Entry])
+        /// Read through to `SQLITE_DONE`: these rows are all of them. `discardedCounters` is how
+        /// many token fields across those rows carried a value too large to be a count.
+        case complete(entries: [LocalUsageReader.Entry], discardedCounters: Int)
         /// The scan stopped early — BUSY because the CLI was writing, or a damaged page. Half a
         /// conversation must not pass for the whole of it, so the rows read so far are dropped.
         case incompleteScan(status: Int32, rows: Int)
@@ -96,7 +97,7 @@ enum LocalAntigravityUsageReader {
         case notAConversation
 
         var entries: [LocalUsageReader.Entry] {
-            if case .complete(let entries) = self { return entries }
+            if case .complete(let entries, _) = self { return entries }
             return []
         }
     }
@@ -112,7 +113,7 @@ enum LocalAntigravityUsageReader {
     /// nothing at all — the same reason the limit-alert decision was split out of its own
     /// side effect.
     static func lossLog(_ reads: [(conversation: String, read: ConversationRead)]) -> [String] {
-        let losses = reads.compactMap { entry -> String? in
+        capped(reads.compactMap { entry -> String? in
             switch entry.read {
             case .complete, .notAConversation:
                 return nil
@@ -123,11 +124,28 @@ enum LocalAntigravityUsageReader {
                 return "antigravity: lost conversation=\(entry.conversation) reason=unreadable"
                     + (status.map { " status=\($0)" } ?? "")
             }
+        }) { total, hidden in
+            "antigravity: lost \(total) conversation(s) this scan (\(hidden) not named)"
         }
-        guard losses.count > namedLossLimit else { return losses }
-        return Array(losses.prefix(namedLossLimit))
-            + ["antigravity: lost \(losses.count) conversation(s) this scan"
-               + " (\(losses.count - namedLossLimit) not named)"]
+    }
+
+    /// Token counters dropped for being too large to be counts, totalled per store. Reporting
+    /// them where they happen would be up to four lines per record — tens of thousands from one
+    /// scan of a live store — and the point of the ceiling is that this is rare enough to notice.
+    static func discardLog(_ reads: [(conversation: String, read: ConversationRead)]) -> [String] {
+        capped(reads.compactMap { entry -> String? in
+            guard case .complete(_, let discarded) = entry.read, discarded > 0 else { return nil }
+            return "antigravity: conversation=\(entry.conversation) discarded=\(discarded)"
+                + " token counter(s) over \(AntigravityProto.tokenCeiling)"
+        }) { total, hidden in
+            "antigravity: discarded token counters in \(total) conversation(s) (\(hidden) not named)"
+        }
+    }
+
+    private static func capped(_ lines: [String], summary: (Int, Int) -> String) -> [String] {
+        guard lines.count > namedLossLimit else { return lines }
+        return Array(lines.prefix(namedLossLimit))
+            + [summary(lines.count, lines.count - namedLossLimit)]
     }
 
     static func conversationEntries(
@@ -151,6 +169,7 @@ enum LocalAntigravityUsageReader {
 
         let conversation = database.deletingPathExtension().lastPathComponent
         var entries: [LocalUsageReader.Entry] = []
+        var discardedCounters = 0
         var rows = 0
         while true {
             let step = sqlite3_step(statement)
@@ -162,9 +181,10 @@ enum LocalAntigravityUsageReader {
                     let count = Int(sqlite3_column_bytes(statement, 1))
                     guard count > 0 else { return }
                     let blob = Data(bytes: pointer, count: count)
-                    guard let entry = parseGenerationMetadata(
-                        blob, conversation: conversation, index: index, formatter: formatter),
-                          entry.date >= modifiedSince else { return }
+                    let record = parseGenerationMetadata(
+                        blob, conversation: conversation, index: index, formatter: formatter)
+                    discardedCounters += record.discardedCounters
+                    guard let entry = record.entry, entry.date >= modifiedSince else { return }
                     entries.append(entry)
                 }
                 continue
@@ -175,7 +195,7 @@ enum LocalAntigravityUsageReader {
             guard step == SQLITE_DONE else { return .incompleteScan(status: step, rows: rows) }
             break
         }
-        return .complete(entries)
+        return .complete(entries: entries, discardedCounters: discardedCounters)
     }
 
     /// `mode=ro` cannot create the `-shm` file a WAL database needs, so it fails outright on
@@ -204,16 +224,24 @@ enum LocalAntigravityUsageReader {
 
     // MARK: Parsing one generation record
 
+    /// What one `gen_metadata` row yielded. `discardedCounters` travels with the entry because
+    /// `tokenCount` runs four times per row and a live store holds thousands of them — the scan
+    /// totals these rather than reporting each one where it happens.
+    struct Record: Sendable {
+        var entry: LocalUsageReader.Entry?
+        var discardedCounters = 0
+    }
+
     static func parseGenerationMetadata(
         _ blob: Data,
         conversation: String,
         index: Int64,
         formatter: DateFormatter
-    ) -> LocalUsageReader.Entry? {
+    ) -> Record {
         let bytes = [UInt8](blob)
         guard let chatModel = AntigravityProto.message(bytes[...], field: 1),
               let usage = AntigravityProto.message(chatModel, field: 4),
-              let date = createdAt(chatModel) else { return nil }
+              let date = createdAt(chatModel) else { return Record() }
 
         // The turn's own id, not the file it happens to sit in — a copied conversation must
         // not read as fresh spend. `response_id` is populated on every recorded call.
@@ -224,15 +252,22 @@ enum LocalAntigravityUsageReader {
         // by the prefix, because Antigravity is a subscription and bills no per-token amount.
         let model = AntigravityProto.string(chatModel, field: 19) ?? "unknown"
 
-        return makeEntry(
-            id: identity,
-            date: date,
-            localDay: formatter.string(from: date),
-            model: "antigravity/\(model)",
-            input: AntigravityProto.tokenCount(usage, field: 2),
-            output: AntigravityProto.tokenCount(usage, field: 3),
-            cacheWrite: AntigravityProto.tokenCount(usage, field: 4),
-            cacheRead: AntigravityProto.tokenCount(usage, field: 5))
+        let input = AntigravityProto.tokenCount(usage, field: 2)
+        let output = AntigravityProto.tokenCount(usage, field: 3)
+        let cacheWrite = AntigravityProto.tokenCount(usage, field: 4)
+        let cacheRead = AntigravityProto.tokenCount(usage, field: 5)
+
+        return Record(
+            entry: makeEntry(
+                id: identity,
+                date: date,
+                localDay: formatter.string(from: date),
+                model: "antigravity/\(model)",
+                input: input ?? 0,
+                output: output ?? 0,
+                cacheWrite: cacheWrite ?? 0,
+                cacheRead: cacheRead ?? 0),
+            discardedCounters: [input, output, cacheWrite, cacheRead].filter { $0 == nil }.count)
     }
 
     /// `chat_start_metadata.created_at`, a `google.protobuf.Timestamp`.
@@ -276,9 +311,12 @@ enum AntigravityProto {
     /// every refresh until the file changed. A count this large is a sentinel, not a count.
     static let tokenCeiling: UInt64 = 1_000_000_000
 
-    static func tokenCount(_ data: ArraySlice<UInt8>, field: Int) -> Int {
-        guard let value = varint(data, field: field), value <= tokenCeiling else { return 0 }
-        return Int(value)
+    /// `nil` means the field was there and its value cannot be a count. That is not the same as
+    /// the field being absent, which is a legitimate zero — `cache_write_tokens` is declared and
+    /// never written — and the caller needs to tell them apart to be able to say one happened.
+    static func tokenCount(_ data: ArraySlice<UInt8>, field: Int) -> Int? {
+        guard let value = varint(data, field: field) else { return 0 }
+        return value <= tokenCeiling ? Int(value) : nil
     }
 
     static func varint(_ data: ArraySlice<UInt8>, field: Int) -> UInt64? {

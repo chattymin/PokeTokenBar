@@ -137,7 +137,8 @@ final class AntigravityUsageTests: XCTestCase {
     // MARK: - Hostile input
 
     /// A `uint64` sentinel widened into `Int` would trap the process on the next addition, and
-    /// it would trap again on every refresh because the file never changes.
+    /// it would trap again on every refresh because the file never changes. Dropping it is
+    /// right; dropping it silently makes the turn read as one that used no input at all.
     func testSentinelTokenCountIsDiscardedRatherThanTrapping() throws {
         try writeConversation("c1", records: [
             record(responseID: "r1", model: "gemini-3.6-flash", createdAt: try date("2026-03-04T10:00:00Z"),
@@ -147,6 +148,46 @@ final class AntigravityUsageTests: XCTestCase {
         let entry = try XCTUnwrap(readAll().first)
         XCTAssertEqual(entry.input, 0)
         XCTAssertEqual(entry.total, 320, "the rest of the record still counts")
+
+        let read = readConversation("c1")
+        guard case .complete(_, let discarded) = read else { return XCTFail("expected a complete read") }
+        XCTAssertEqual(discarded, 1)
+        let line = try XCTUnwrap(
+            LocalAntigravityUsageReader.discardLog([(conversation: "c1", read: read)]).first)
+        XCTAssertTrue(line.contains("conversation=c1"), line)
+        XCTAssertTrue(line.contains("discarded=1"), line)
+    }
+
+    /// A counter the writer never sets is a zero, not a bad value — `cache_write_tokens` is
+    /// declared and never written, so treating "absent" as a discard would report every single
+    /// record on every scan.
+    func testAbsentCounterIsNotADiscard() throws {
+        try writeConversation("c1", records: [
+            record(responseID: "r1", model: "gemini-3.6-flash", createdAt: try date("2026-03-04T10:00:00Z"),
+                   input: 100, output: 20, cacheRead: 300),
+        ])
+
+        let read = readConversation("c1")
+        guard case .complete(let entries, let discarded) = read else {
+            return XCTFail("expected a complete read")
+        }
+        XCTAssertEqual(entries.first?.cacheWrite, 0)
+        XCTAssertEqual(discarded, 0)
+        XCTAssertTrue(LocalAntigravityUsageReader.discardLog([(conversation: "c1", read: read)]).isEmpty)
+    }
+
+    /// Same bound as the loss lines, and for the same reason.
+    func testDiscardLogNamesAFewStoresAndCountsTheRest() {
+        let limit = LocalAntigravityUsageReader.namedLossLimit
+        let reads = (0..<(limit + 2)).map {
+            (conversation: "c\($0)",
+             read: LocalAntigravityUsageReader.ConversationRead.complete(entries: [], discardedCounters: 3))
+        }
+
+        let lines = LocalAntigravityUsageReader.discardLog(reads)
+        XCTAssertEqual(lines.count, limit + 1)
+        XCTAssertEqual(lines.last?.contains("in \(limit + 2) conversation(s)"), true, lines.last ?? "")
+        XCTAssertEqual(lines.last?.contains("(2 not named)"), true, lines.last ?? "")
     }
 
     func testMalformedBlobIsIgnored() throws {
@@ -196,8 +237,7 @@ final class AntigravityUsageTests: XCTestCase {
         XCTAssertGreaterThan(probe.rows, 0, "no rows read — the failure moved to open/prepare")
         XCTAssertNotEqual(probe.status, SQLITE_DONE, "the scan finished — this no longer covers the drop")
 
-        let read = LocalAntigravityUsageReader.conversationEntries(
-            database, modifiedSince: .distantPast, formatter: LocalUsageReader.localDayFormatter())
+        let read = readConversation("c1")
         guard case .incompleteScan(let status, let rows) = read else {
             return XCTFail("expected an incomplete scan, got \(read)")
         }
@@ -223,8 +263,7 @@ final class AntigravityUsageTests: XCTestCase {
         let database = temporaryDirectory.appendingPathComponent("c1.db")
         try Data("not a sqlite database".utf8).write(to: database, options: .atomic)
 
-        let read = LocalAntigravityUsageReader.conversationEntries(
-            database, modifiedSince: .distantPast, formatter: LocalUsageReader.localDayFormatter())
+        let read = readConversation("c1")
         guard case .unreadable = read else { return XCTFail("expected unreadable, got \(read)") }
         XCTAssertTrue(read.entries.isEmpty)
 
@@ -240,8 +279,7 @@ final class AntigravityUsageTests: XCTestCase {
         let database = temporaryDirectory.appendingPathComponent("c1.db")
         try execute(database, sql: "CREATE TABLE something_else (a INTEGER);")
 
-        let read = LocalAntigravityUsageReader.conversationEntries(
-            database, modifiedSince: .distantPast, formatter: LocalUsageReader.localDayFormatter())
+        let read = readConversation("c1")
         guard case .notAConversation = read else { return XCTFail("expected notAConversation, got \(read)") }
         XCTAssertTrue(LocalAntigravityUsageReader.lossLog([(conversation: "c1", read: read)]).isEmpty)
     }
@@ -267,11 +305,10 @@ final class AntigravityUsageTests: XCTestCase {
             record(responseID: "r1", model: "gemini-3.6-flash",
                    createdAt: try date("2026-03-04T10:00:00Z"), input: 100, output: 20, cacheRead: 300),
         ])
-        let read = LocalAntigravityUsageReader.conversationEntries(
-            temporaryDirectory.appendingPathComponent("c1.db"),
-            modifiedSince: .distantPast, formatter: LocalUsageReader.localDayFormatter())
+        let read = readConversation("c1")
         XCTAssertEqual(read.entries.count, 1)
         XCTAssertTrue(LocalAntigravityUsageReader.lossLog([(conversation: "c1", read: read)]).isEmpty)
+        XCTAssertTrue(LocalAntigravityUsageReader.discardLog([(conversation: "c1", read: read)]).isEmpty)
     }
 
     // MARK: - Opening WAL databases read-only
@@ -365,6 +402,12 @@ final class AntigravityUsageTests: XCTestCase {
 
     private func readAll() -> [LocalUsageReader.Entry] {
         LocalAntigravityUsageReader.entries(modifiedSince: .distantPast, root: temporaryDirectory)
+    }
+
+    private func readConversation(_ name: String) -> LocalAntigravityUsageReader.ConversationRead {
+        LocalAntigravityUsageReader.conversationEntries(
+            temporaryDirectory.appendingPathComponent("\(name).db"),
+            modifiedSince: .distantPast, formatter: LocalUsageReader.localDayFormatter())
     }
 
     private func date(_ text: String) throws -> Date {
