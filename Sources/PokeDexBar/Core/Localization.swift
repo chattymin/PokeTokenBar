@@ -86,6 +86,8 @@ struct L {
     var detailNature: String { t("성격", "Nature", "せいかく") }
     var detailGrade: String { t("등급", "Grade", "ランク") }
     var detailExp: String { t("경험치", "EXP", "けいけんち") }
+    /// 이 개체를 파트너로 두고 함께 쓴 토큰 누적 — 진화해도 안 줄어드는 "같이 일한 기록".
+    var detailPartnerTokens: String { t("함께 쓴 토큰", "Tokens together", "一緒に使ったトークン") }
     var detailMaxStage: String { t("더 진화하지 않아요", "Fully evolved", "これいじょうしんかしない") }
     var detailPartnerOnlyExp: String {
         t("경험치는 파트너만 쌓여요 — 사탕으로도 올릴 수 있어요",

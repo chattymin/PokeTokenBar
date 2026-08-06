@@ -90,11 +90,16 @@ final class PlayerStore {
             state.claimedTodayTokens = todayTokens
             state.earnedTokens += delta
             if let index = state.box.firstIndex(where: { $0.id == state.partnerID }) {
-                state.box[index].exp += delta
+                state.box[index].exp += Self.expGain(delta, charm: state.ownsExpCharm)
+                // 함께 쓴 토큰 기록은 부적과 무관하게 실제 쓴 만큼만 센다.
+                state.box[index].partnerTokens += delta
             }
         }
         save()
     }
+
+    /// 경험치 부적을 반영한 실제 경험치 증가분. 순수 함수라 테스트로 잠근다.
+    nonisolated static func expGain(_ base: Int, charm: Bool) -> Int { charm ? base * 2 : base }
 
     // MARK: 박스·도감
 

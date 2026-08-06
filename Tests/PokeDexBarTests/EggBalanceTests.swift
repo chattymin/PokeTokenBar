@@ -5,12 +5,12 @@ final class EggBalanceTests: XCTestCase {
     /// 확률표는 등급별 실제 종 수에 맞춘 값이다 — 누적 경계로 검증한다.
     func testGradeRollBoundaries() {
         XCTAssertEqual(EggBalance.rollGrade(0.0), .common)
-        XCTAssertEqual(EggBalance.rollGrade(0.549), .common)
-        XCTAssertEqual(EggBalance.rollGrade(0.55), .rare)
-        XCTAssertEqual(EggBalance.rollGrade(0.699), .rare)
-        XCTAssertEqual(EggBalance.rollGrade(0.70), .epic)
-        XCTAssertEqual(EggBalance.rollGrade(0.949), .epic)
-        XCTAssertEqual(EggBalance.rollGrade(0.95), .legendary)
+        XCTAssertEqual(EggBalance.rollGrade(0.599), .common)
+        XCTAssertEqual(EggBalance.rollGrade(0.60), .rare)
+        XCTAssertEqual(EggBalance.rollGrade(0.819), .rare)
+        XCTAssertEqual(EggBalance.rollGrade(0.82), .epic)
+        XCTAssertEqual(EggBalance.rollGrade(0.969), .epic)
+        XCTAssertEqual(EggBalance.rollGrade(0.97), .legendary)
         XCTAssertEqual(EggBalance.rollGrade(0.999), .legendary)
     }
 

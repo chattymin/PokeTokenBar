@@ -14,6 +14,9 @@ struct Individual: Identifiable, Codable, Sendable, Equatable {
     var nature: PokemonNature
     /// 현재 단계에서 쌓은 경험치. 진화하면 0으로 돌아가고 초과분만 이월한다.
     var exp = 0
+    /// 이 개체를 파트너로 두고 쓴 토큰의 누적. 경험치와 달리 진화해도 안 줄고, 경험치 부적으로
+    /// 2배가 되지도 않는다 — "이 아이와 얼마나 함께 일했나"의 기록이라 실제 쓴 토큰만 센다.
+    var partnerTokens = 0
     var obtainedAt: Date
     var grade: Grade
     /// 지금 취하고 있는 폼의 Showdown 슬러그(`charizard-megax`). nil 이면 보통 모습.
@@ -36,6 +39,52 @@ struct Individual: Identifiable, Codable, Sendable, Equatable {
 
     /// 몇 번째 형태인가(0 = 아직 안 진화). 경로가 비어도 음수로 새지 않는다.
     var stageIndex: Int { max(0, pathIDs.count - 1) }
+
+    /// 기본 이니셜라이저 — 아래 `init(from:)` 을 직접 쓰면서 합성 이니셜라이저가 사라지므로 명시한다.
+    init(id: UUID = UUID(), baseID: Int, speciesID: Int, pathIDs: [Int], shiny: Bool = false,
+         nature: PokemonNature, exp: Int = 0, partnerTokens: Int = 0, obtainedAt: Date,
+         grade: Grade, form: String? = nil, region: Region? = nil, regionVariant: String? = nil) {
+        self.id = id
+        self.baseID = baseID
+        self.speciesID = speciesID
+        self.pathIDs = pathIDs
+        self.shiny = shiny
+        self.nature = nature
+        self.exp = exp
+        self.partnerTokens = partnerTokens
+        self.obtainedAt = obtainedAt
+        self.grade = grade
+        self.form = form
+        self.region = region
+        self.regionVariant = regionVariant
+    }
+
+    /// **필드를 더할 때 박스가 통째로 사라지지 않게 하는 장치.**
+    /// Swift 가 합성해 주는 디코더는 프로퍼티에 기본값이 있어도 키가 없으면 그냥 던진다. `Individual`
+    /// 은 `LossyIndividual` 이 감싸고 있어서 그 예외가 곧 "이 개체를 버린다"가 되고, 새 필드 하나를
+    /// 더한 순간 **기존 세이브의 모든 개체가 조용히 사라진다**(`partnerTokens` 를 더하면서 실제로
+    /// 그렇게 됐고, 테스트가 잡았다). 그래서 정체성에 해당하는 필드만 필수로 두고 나머지는 기본값을 쓴다.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        func value<T: Decodable>(_ key: CodingKeys, _ fallback: T) -> T {
+            (try? c.decode(T.self, forKey: key)) ?? fallback
+        }
+        // 이 넷이 없으면 어떤 개체인지 알 수 없다 — 여기서만 던진다.
+        baseID = try c.decode(Int.self, forKey: .baseID)
+        speciesID = try c.decode(Int.self, forKey: .speciesID)
+        nature = try c.decode(PokemonNature.self, forKey: .nature)
+        grade = try c.decode(Grade.self, forKey: .grade)
+
+        id = value(.id, UUID())
+        pathIDs = value(.pathIDs, [speciesID])
+        shiny = value(.shiny, false)
+        exp = value(.exp, 0)
+        partnerTokens = value(.partnerTokens, 0)
+        obtainedAt = value(.obtainedAt, Date(timeIntervalSince1970: 0))
+        form = value(.form, nil)
+        region = value(.region, nil)
+        regionVariant = value(.regionVariant, nil)
+    }
 
     /// 관대 디코딩의 짝 — 값 범위 검증(CLAUDE.md 결함 대응 프로토콜).
     /// 카탈로그에 없는 폼 슬러그는 버린다. 그대로 두면 스프라이트가 없는 슬러그로 계속 요청이 나가

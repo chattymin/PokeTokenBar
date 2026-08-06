@@ -109,9 +109,8 @@ struct ShopTabView: View {
     }
 
     private func itemRow(_ item: ShopItem) -> some View {
-        let owned = item == .shinyCharm ? (store.state.ownsShinyCharm ? 1 : 0)
-                                        : store.count(of: item)
-        let soldOut = item == .shinyCharm && store.state.ownsShinyCharm
+        let owned = item.isCharm ? (store.owns(item) ? 1 : 0) : store.count(of: item)
+        let soldOut = item.isCharm && store.owns(item)
         return HStack(alignment: .top) {
             VStack(alignment: .leading, spacing: 1) {
                 HStack(spacing: 5) {

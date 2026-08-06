@@ -100,6 +100,7 @@ struct IndividualDetailView: View {
         HStack(spacing: 0) {
             fact(l.detailGrade, individual.grade.label(store.language))
             fact(l.detailNature, individual.nature.name(store.language))
+            fact(l.detailPartnerTokens, TokenFormatter.compact(individual.partnerTokens))
         }
     }
 
