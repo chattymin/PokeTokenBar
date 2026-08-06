@@ -110,6 +110,13 @@ Draw up to 3 eggs at once (6 with a slot upgrade) — each grade gets its own sh
 Every token you've already used is spendable currency. Draw eggs for 10M tokens with the odds shown right on the button, expand your incubator from 3 slots up to 6, buy <b>EXP Candy</b> to grow a Pokémon or <b>Shiny Candy</b> to make one shiny outright, or pick up a permanent <b>Shiny Charm</b> that raises your hatch odds from 1/64 to 1/48, an <b>EXP Charm</b> that doubles the experience earned from both tokens and EXP Candy, or a <b>Fortune Charm</b> that earns 1.5x the currency from every token you spend. A <b>Mega Stone</b> or <b>Dynamax Mushroom</b>, applied from a Pokémon's own detail screen, reshapes it into one of 80 catalogued forms.
 </td>
 </tr>
+<tr>
+<td width="55%" valign="middle">
+<h3>🎗️ Ribbons turn time into candy</h3>
+Keep the same Pokémon as your partner long enough and it earns a Ribbon — Bond at a day, Trust at a week, Kinship at a month, Lifelong at three months, each with its own badge. The tier doesn't buff that Pokémon directly; it sets how many tokens turn into one EXP Candy, from 150M down to 20M — and that candy can feed any individual in the Box, not just the partner.
+</td>
+<td width="45%" align="center"><img src="assets/screenshot-ribbon.png" width="300" alt="Pokémon detail screen showing the Lifelong ribbon badge beside its tier name, a candy rate of 1 EXP Candy per 20M tokens, and Time together 97d 12h in the facts row"></td>
+</tr>
 </table>
 
 ## Also in the box
