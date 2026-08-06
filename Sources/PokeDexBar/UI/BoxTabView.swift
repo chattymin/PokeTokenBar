@@ -139,6 +139,13 @@ struct BoxCell: View {
                     SpriteView(speciesID: individual.speciesID, form: individual.spriteForm,
                                size: 40, shiny: individual.shiny)
                         .frame(width: 40, height: 40)
+                        // 리본은 좌측 상단, 진화 가능은 우측 상단 — 양쪽 귀퉁이로 갈라 둬야
+                        // 둘 다 붙은 개체에서 서로 겹치지 않는다.
+                        .overlay(alignment: .topLeading) {
+                            if let ribbon {
+                                RibbonIcon(ribbon: ribbon, size: 15).offset(x: -3, y: -2)
+                            }
+                        }
                     if let regionLabel {
                         // 칸 폭(56pt)을 넘지 않게 잠근다 — "Galarian" 처럼 긴 이름이 타일 밖으로
                         // 삐져나오면 옆 칸과 겹쳐 보인다.
@@ -151,9 +158,6 @@ struct BoxCell: View {
                             .offset(x: 5, y: 30)
                     }
                     // 진화 가능은 칸에서 바로 보여야 한다 — 아니면 개체를 하나씩 열어봐야 안다.
-                    if let ribbon {
-                        RibbonIcon(ribbon: ribbon, size: 15).offset(x: -15, y: -13)
-                    }
                     if canEvolve {
                         Image(systemName: "arrow.up.circle.fill")
                             .font(.system(size: 10))
