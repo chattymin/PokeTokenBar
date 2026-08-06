@@ -40,9 +40,9 @@ PokeDexBar turns the AI coding tokens you're already burning — Claude Code, Co
 1. 🎮 **Pick a starter.** On first launch, choose 1 of 27 first-stage Pokémon spanning Gen 1–9 (never shiny) — it becomes your partner.
 2. 🪙 **Code as usual.** The tokens you burn in Claude Code, Codex, Gemini CLI, OpenCode, Hermes Agent, Cursor, or Grok CLI become spendable currency and feed your partner's experience at the same time — nothing extra to run.
 3. 🥚 **Draw an egg.** Spend currency in the **Shop** for an egg of a randomly rolled grade — Common 55% / Rare 15% / Epic 25% / Legendary 5%, never chosen. Up to 3 eggs incubate at once, expandable to 6 with a slot upgrade.
-4. 🐣 **Hatch on real time.** Commons hatch in 30 minutes, Rares in 2 hours, Epics in 6, Legendaries in 24 — real wall-clock time, even while the app is closed. Every egg hatches a base (unevolved) species with real evolution data from [PokéAPI](https://pokeapi.co/), rolls one of 25 natures, and — once in a rare while — comes out **✨ Shiny**.
-5. ⚡ **Evolve by hand.** Feed a hatchling experience by coding (or with EXP Candy from the Shop), then tap it to evolve once it's ready — branching evolution lines let you pick the path.
-6. 📖 **Fill two collections.** The **National Dex** tracks every species you've ever hatched, #1 to #1025, with silhouettes for the rest. Your **Box** holds every individual you own — duplicates are normal, and each one keeps its own experience and evolution progress, so you can own both a Pidgey and a Pidgeotto at once.
+4. 🐣 **Hatch on real time.** Commons hatch in 30 minutes, Rares in 2 hours, Epics in 6, Legendaries in 24 — real wall-clock time, even while the app is closed. Every egg hatches a base (unevolved) species with real evolution data from [PokéAPI](https://pokeapi.co/), rolls one of 25 natures, and — once in a rare while — comes out **✨ Shiny**. Species with a regional look have a 20% chance to hatch as their Alolan, Galarian, Hisuian, or Paldean form instead — a look that individual keeps for life.
+5. ⚡ **Evolve by hand.** Feed a hatchling experience by coding (or with EXP Candy from the Shop), then tap it to evolve once it's ready — branching evolution lines let you pick the path, and a regional form can lead somewhere different (a Galarian Meowth evolves into Perrserker where a Kantonian one becomes Persian).
+6. 📖 **Fill two collections.** The **National Dex** tracks every species you've ever hatched, #1 to #1025, with silhouettes for the rest. Your **Box** is a grid of every individual you own, showing partner, shiny, and evolve-ready status at a glance — tap a cell to open a detail screen where you set your partner, feed candy, evolve, and change form. Duplicates are normal, and each individual keeps its own experience and evolution progress, so you can own both a Pidgey and a Pidgeotto at once.
 
 ## Tour
 
@@ -71,7 +71,7 @@ Shiny hatches keep their distinct colors everywhere — menu bar, home card, evo
 <tr>
 <td width="55%" valign="middle">
 <h3>Two collections: a Dex and a Box</h3>
-The <b>National Dex</b> is a species checklist from #1 to #1025 — silhouettes until you've hatched one. Your <b>Box</b> keeps every individual you've hatched or evolved, each with its own grade, nature, capture date, and experience — shinies wear a ✨ badge, and duplicates are completely normal.
+The <b>National Dex</b> is a species checklist from #1 to #1025 — silhouettes until you've hatched one. Your <b>Box</b> is a grid of every individual you've hatched or evolved — each cell shows partner, shiny, and evolve-ready at a glance, and tapping it opens a detail screen with grade, nature, capture date, experience, and the controls to set a partner, feed candy, evolve, or change form. Duplicates are completely normal.
 </td>
 <td width="45%" align="center"><img src="assets/screenshot-collection.png" width="300" alt="Box and National Dex"></td>
 </tr>
@@ -93,7 +93,7 @@ Draw up to 3 eggs at once (6 with a slot upgrade) and each incubates on its own 
 <td width="45%" align="center"><img src="assets/screenshot-shop.png" width="300" alt="Shop — egg draws, slot upgrades, EXP Candy, Shiny Candy, Shiny Charm"></td>
 <td width="55%" valign="middle">
 <h3>🛒 A shop built for the economy</h3>
-Every token you've already used is spendable currency. Draw eggs at a fixed price with the odds shown right on the button, expand your incubator from 3 slots up to 6, buy <b>EXP Candy</b> to grow a Pokémon or <b>Shiny Candy</b> to make one shiny outright, or pick up a permanent <b>Shiny Charm</b> that raises your hatch odds from 1/64 to 1/48.
+Every token you've already used is spendable currency. Draw eggs at a fixed price with the odds shown right on the button, expand your incubator from 3 slots up to 6, buy <b>EXP Candy</b> to grow a Pokémon or <b>Shiny Candy</b> to make one shiny outright, or pick up a permanent <b>Shiny Charm</b> that raises your hatch odds from 1/64 to 1/48. A <b>Mega Stone</b> or <b>Dynamax Mushroom</b>, applied from a Pokémon's own detail screen, reshapes it into one of 80 catalogued forms.
 </td>
 </tr>
 </table>
@@ -105,6 +105,9 @@ Every token you've already used is spendable currency. Draw eggs at a fixed pric
 - **Official limits** — Claude & Codex 5-hour / weekly utilization with reset countdowns, right under today's numbers.
 - **Burn-rate forecast** — projects when the current 5h window hits 100%.
 - **In-app updates** — one-click update check; current version shown in Settings.
+- **Mega Evolution & Gigantamax** — a Mega Stone or Dynamax Mushroom reshapes a chosen Pokémon into one of 80 catalogued forms (species with two Mega forms, like Charizard, offer both); reverting to normal is free, and evolving clears the form.
+- **Regional forms** — Alolan, Galarian, Hisuian, and Paldean variants can hatch instead of the original (20% chance for species that have one) and stay with that individual for life, sometimes changing what it evolves into; Mega and Gigantamax forms aren't available to them.
+- **Save integrity check** — hand-editing the save file is detected, not prevented: it marks the save permanently and turns every sprite upside down, but your progress is never discarded.
 
 ## Works with
 
