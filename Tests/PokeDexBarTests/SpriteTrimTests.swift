@@ -90,3 +90,41 @@ final class SpriteTrimTests: XCTestCase {
         XCTAssertEqual(out.size.width, source.size.width, accuracy: 0.5)
     }
 }
+
+/// 설정 — 여백 잘라내기는 취향이 갈려서 끌 수 있어야 한다(실제 크기 차이도 정보다).
+@MainActor
+final class FillSpriteFrameSettingTests: XCTestCase {
+    private func makeStore() -> (UsageStore, UserDefaults) {
+        let defaults = UserDefaults(suiteName: "fill-\(UUID().uuidString)")!
+        return (UsageStore(defaults: defaults), defaults)
+    }
+
+    /// 기본은 켬 — 안 켜면 작은 포켓몬이 칸에서 작게 남아 구분이 안 된다.
+    func testDefaultsToOn() {
+        XCTAssertTrue(makeStore().0.fillSpriteFrame)
+    }
+
+    func testPersistsAcrossLaunches() {
+        let (store, defaults) = makeStore()
+        store.fillSpriteFrame = false
+        XCTAssertFalse(UsageStore(defaults: defaults).fillSpriteFrame, "설정이 저장되지 않는다")
+    }
+
+    /// 껐을 때 원본이 그대로 나와야 한다 — 잘라낸 결과가 아니라.
+    func testTurningItOffKeepsTheOriginalCanvas() {
+        let canvas = NSSize(width: 64, height: 64)
+        let image = NSImage(size: canvas)
+        image.lockFocus()
+        NSColor.clear.setFill()
+        NSRect(origin: .zero, size: canvas).fill()
+        NSColor.blue.setFill()
+        NSRect(x: 26, y: 26, width: 12, height: 12).fill()
+        image.unlockFocus()
+
+        let rect = SpriteTrim.contentRect(of: image)!
+        XCTAssertLessThan(rect.width, canvas.width, "잘라낼 여백이 있어야 이 테스트가 의미 있다")
+        XCTAssertEqual(SpriteTrim.cropped(image, to: rect).size.width, rect.width, accuracy: 1.5)
+        // 설정을 끄면 호출부가 `cropped` 를 아예 부르지 않는다 — 원본 크기가 유지된다.
+        XCTAssertEqual(image.size.width, canvas.width)
+    }
+}

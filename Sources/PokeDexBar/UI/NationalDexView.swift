@@ -7,6 +7,8 @@ import SwiftUI
 /// 스프라이트 요청도 화면에 들어온 칸에서만 나간다.
 struct NationalDexView: View {
     let store: PlayerStore
+    /// 스프라이트를 칸에 꽉 채울지(설정).
+    var fillFrame = true
 
     nonisolated static let speciesRange = 1...1025
 
@@ -39,7 +41,7 @@ struct NationalDexView: View {
         let caught = store.state.dex.contains(speciesID)
         return VStack(spacing: 1) {
             // 못 잡은 종은 실루엣 — 모습은 보이되 정체는 가린다.
-            SpriteView(speciesID: speciesID, size: 32, silhouette: !caught)
+            SpriteView(speciesID: speciesID, size: 32, silhouette: !caught, fillFrame: fillFrame)
                 .frame(width: 32, height: 32)
                 .opacity(caught ? 1 : 0.55)
             Text("\(speciesID)")

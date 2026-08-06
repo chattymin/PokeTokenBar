@@ -15,6 +15,8 @@ struct EggSlotsView: View {
     /// 나왔는지 와닿지 않는다). 아직 없으면 `onNeedLine` 으로 요청하고 번호로 떨어진다.
     var lines: [Int: EvoLine] = [:]
     var onNeedLine: (Int) -> Void = { _ in }
+    /// 스프라이트를 칸에 꽉 채울지(설정) — 부화 확인 카드로 넘긴다.
+    var fillFrame = true
     /// 방금 거둔 개체 — 연출 중에만 non-nil. 이미 박스에 들어가 있어서 닫아도 잃는 것이 없다.
     @State private var hatched: Individual?
 
@@ -74,7 +76,8 @@ struct EggSlotsView: View {
         .overlay {
             if let hatched {
                 HatchedRevealView(individual: hatched, store: store,
-                                  line: lines[hatched.baseID], onNeedLine: onNeedLine) {
+                                  line: lines[hatched.baseID], onNeedLine: onNeedLine,
+                                  fillFrame: fillFrame) {
                     self.hatched = nil
                 }
             }

@@ -53,6 +53,8 @@ struct SpriteView: View {
     /// 나오지만 그건 CALayer 필터라 오프스크린 렌더(스크린샷 생성기)에서 통째로 무시된다 —
     /// 템플릿 렌더링은 그리기 단계라 어디서든 똑같이 나온다.
     var silhouette: Bool = false
+    /// 투명 여백을 잘라 칸을 채울지(설정). 끄면 종마다 다른 원래 캔버스 그대로 그린다.
+    var fillFrame: Bool = true
     @State private var img: NSImage?
     @State private var up = false
     @State private var loadedID: Int?   // img 가 어느 speciesID 것인지(id 변경 시 갱신 판단)
@@ -76,7 +78,7 @@ struct SpriteView: View {
 
     init(speciesID: Int?, form: String? = nil, size: CGFloat = 84, bob: Bool = false,
          animated: Bool = false, shiny: Bool = false, minFrameDelay: TimeInterval = 0,
-         antialias: Bool = false, silhouette: Bool = false) {
+         antialias: Bool = false, silhouette: Bool = false, fillFrame: Bool = true) {
         self.speciesID = speciesID
         self.form = form
         self.size = size
@@ -86,6 +88,7 @@ struct SpriteView: View {
         self.minFrameDelay = minFrameDelay
         self.antialias = antialias
         self.silhouette = silhouette
+        self.fillFrame = fillFrame
         #if DEBUG
         Self.constructionCount += 1
         #endif
@@ -117,7 +120,8 @@ struct SpriteView: View {
     /// 그릴 이미지 — 투명 여백을 잘라낸 뒤 확대한다. 자르지 않으면 종마다 여백 비율이 달라
     /// 작은 포켓몬이 칸 안에서 작게 남는다(`SpriteTrim` 주석 참조).
     private func drawable(_ image: NSImage, trim: CGRect?) -> NSImage {
-        upscaled(trim.map { SpriteTrim.cropped(image, to: $0) } ?? image)
+        guard fillFrame, let trim else { return upscaled(image) }
+        return upscaled(SpriteTrim.cropped(image, to: trim))
     }
 
     /// 표시 크기에 맞는 EPX 패스 수만큼 확대한 이미지. 토글이 꺼져 있으면 원본 그대로.

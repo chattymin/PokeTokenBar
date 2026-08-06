@@ -13,6 +13,8 @@ struct BoxTabView: View {
     let onNeedLine: (Int) -> Void
     /// 상세를 열어 둔 개체. 팝오버가 소유해 탭을 옮기면 닫힌다.
     @Binding var selection: UUID?
+    /// 스프라이트를 칸에 꽉 채울지(설정).
+    var fillFrame = true
 
     private var l: L { store.l }
 
@@ -60,7 +62,7 @@ struct BoxTabView: View {
             if let selected {
                 IndividualDetailView(store: store, individual: selected,
                                      line: lines[selected.baseID],
-                                     onNeedLine: onNeedLine,
+                                     onNeedLine: onNeedLine, fillFrame: fillFrame,
                                      onBack: { selection = nil })
             } else {
                 grid
@@ -92,7 +94,7 @@ struct BoxTabView: View {
                                 isPartner: individual.id == store.state.partnerID,
                                 ribbon: individual.ribbon(at: store.currentDate()),
                                 canEvolve: readyToEvolve(individual),
-                                partnerBadge: l.partnerBadge) {
+                                partnerBadge: l.partnerBadge, fillFrame: fillFrame) {
                             selection = individual.id
                         }
                         // 진화 가능 표시를 그리려면 라인이 필요하다 — 보이는 칸만 요청한다.
@@ -169,6 +171,7 @@ struct BoxCell: View {
     /// 단 리본 — 칸에서 바로 보여야 "오래 데리고 다닌 아이"가 구분되고, 단계까지 읽힌다.
     let ribbon: Ribbon?
     let canEvolve: Bool
+    let fillFrame: Bool
     let partnerBadge: String
     let onTap: () -> Void
 
@@ -182,11 +185,12 @@ struct BoxCell: View {
     #endif
 
     init(individual: Individual, isPartner: Bool, ribbon: Ribbon? = nil, canEvolve: Bool,
-         partnerBadge: String, onTap: @escaping () -> Void) {
+         partnerBadge: String, fillFrame: Bool = true, onTap: @escaping () -> Void) {
         self.individual = individual
         self.isPartner = isPartner
         self.ribbon = ribbon
         self.canEvolve = canEvolve
+        self.fillFrame = fillFrame
         self.partnerBadge = partnerBadge
         self.onTap = onTap
         #if DEBUG
@@ -199,7 +203,7 @@ struct BoxCell: View {
             VStack(spacing: 0) {
                 ZStack(alignment: .topTrailing) {
                     SpriteView(speciesID: individual.speciesID, form: individual.spriteForm,
-                               size: 36, shiny: individual.shiny)
+                               size: 36, shiny: individual.shiny, fillFrame: fillFrame)
                         .frame(width: 36, height: 36)
                         // 리본은 좌측 상단, 진화 가능은 우측 상단 — 양쪽 귀퉁이로 갈라 둬야
                         // 둘 다 붙은 개체에서 서로 겹치지 않는다.

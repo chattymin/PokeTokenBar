@@ -270,6 +270,9 @@ struct L {
     var floatingPetBubbleAlertsLabel: String {
         t("말풍선으로 알림 받기", "Show notifications as bubbles", "通知を吹き出しで表示")
     }
+    var fillSpriteFrameLabel: String {
+        t("스프라이트를 칸에 꽉 채우기", "Fill the frame with sprites", "スプライトを枠いっぱいに")
+    }
     var antialiasLabel: String {
         t("스프라이트 부드럽게", "Smooth sprites", "スプライトを滑らかに")
     }

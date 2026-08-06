@@ -8,6 +8,8 @@ struct IndividualDetailView: View {
     /// 진화 라인. 없으면 후보를 모르니 진화 버튼을 숨긴다(대신 `onNeedLine` 으로 받아온다).
     let line: EvoLine?
     let onNeedLine: (Int) -> Void
+    /// 스프라이트를 칸에 꽉 채울지(설정).
+    var fillFrame = true
     let onBack: () -> Void
 
     private var l: L { store.l }
@@ -60,7 +62,8 @@ struct IndividualDetailView: View {
     private var portrait: some View {
         HStack(spacing: 10) {
             SpriteView(speciesID: individual.speciesID, form: individual.spriteForm, size: 72,
-                       animated: true, shiny: individual.shiny, antialias: true)
+                       animated: true, shiny: individual.shiny, antialias: true,
+                       fillFrame: fillFrame)
                 .frame(width: 72, height: 72)
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 5) {
