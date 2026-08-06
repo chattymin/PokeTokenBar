@@ -2,7 +2,7 @@ import Foundation
 
 /// 상점 품목(알 뽑기·슬롯 확장 제외 — 그 둘은 값이 상황에 따라 달라 따로 다룬다).
 enum ShopItem: String, CaseIterable, Sendable {
-    case expCandy, shinyCandy, megaStone, dynamaxMushroom, shinyCharm, expCharm
+    case expCandy, shinyCandy, megaStone, dynamaxMushroom, shinyCharm, expCharm, fortuneCharm
 
     var price: Int {
         switch self {
@@ -12,6 +12,7 @@ enum ShopItem: String, CaseIterable, Sendable {
         case .dynamaxMushroom: 2_000_000_000
         case .shinyCharm: 3_000_000_000
         case .expCharm: 4_000_000_000
+        case .fortuneCharm: 5_000_000_000
         }
     }
 
@@ -25,6 +26,7 @@ enum ShopItem: String, CaseIterable, Sendable {
         case .dynamaxMushroom: names = ("다이맥스 버섯", "Dynamax Mushroom", "ダイマックスたけ")
         case .shinyCharm: names = ("이로치 부적", "Shiny Charm", "ひかるおまもり")
         case .expCharm: names = ("경험치 부적", "EXP Charm", "けいけんちおまもり")
+        case .fortuneCharm: names = ("행운의 부적", "Fortune Charm", "こううんのおまもり")
         }
         switch lang { case .ko: return names.0; case .en: return names.1; case .ja: return names.2 }
     }
@@ -32,7 +34,7 @@ enum ShopItem: String, CaseIterable, Sendable {
     /// 부적은 보유형이라 개수를 세지 않고 한 번만 산다.
     var isConsumable: Bool { !isCharm }
     /// 보유형(한 번 사면 계속 효과가 있는 것). 재고를 세지 않는다.
-    var isCharm: Bool { self == .shinyCharm || self == .expCharm }
+    var isCharm: Bool { self == .shinyCharm || self == .expCharm || self == .fortuneCharm }
 
     func detail(_ lang: AppLanguage) -> String {
         let texts: (String, String, String)
@@ -61,6 +63,10 @@ enum ShopItem: String, CaseIterable, Sendable {
             texts = ("토큰과 사탕으로 얻는 경험치가 2배가 됩니다",
                      "Doubles the experience from tokens and candy",
                      "トークンとアメで得られる経験値が2倍になります")
+        case .fortuneCharm:
+            texts = ("재화 획득량이 1.5배가 됩니다",
+                     "Earns 1.5x the currency",
+                     "所持金の獲得量が1.5倍になります")
         }
         switch lang { case .ko: return texts.0; case .en: return texts.1; case .ja: return texts.2 }
     }

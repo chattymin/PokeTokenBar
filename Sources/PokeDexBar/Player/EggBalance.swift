@@ -2,7 +2,7 @@ import Foundation
 
 /// 뽑기·부화·슬롯의 수치. 전부 순수 함수라 굴려 보지 않고도 잠글 수 있다.
 enum EggBalance {
-    static let drawPrice = 150_000_000
+    static let drawPrice = 10_000_000
     static let maxSlots = 6
     /// 기본 슬롯 수(2a 의 `PlayerState.slots` 초기값과 같아야 한다).
     static let baseSlots = 3

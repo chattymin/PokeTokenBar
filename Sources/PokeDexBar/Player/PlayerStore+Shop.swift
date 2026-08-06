@@ -30,6 +30,7 @@ extension PlayerStore {
         switch item {
         case .shinyCharm: state.ownsShinyCharm
         case .expCharm: state.ownsExpCharm
+        case .fortuneCharm: state.ownsFortuneCharm
         default: false
         }
     }
@@ -43,6 +44,7 @@ extension PlayerStore {
                 switch item {
                 case .shinyCharm: $0.ownsShinyCharm = true
                 case .expCharm: $0.ownsExpCharm = true
+                case .fortuneCharm: $0.ownsFortuneCharm = true
                 default: break
                 }
             }

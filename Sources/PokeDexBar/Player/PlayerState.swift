@@ -27,6 +27,8 @@ struct PlayerState: Codable, Sendable {
     var ownsShinyCharm = false
     /// 경험치 부적 — 토큰·사탕으로 얻는 경험치가 2배가 된다. 보유형이라 개수를 세지 않는다.
     var ownsExpCharm = false
+    /// 행운의 부적 — 재화 획득이 1.5배가 된다. 경험치와 재화는 별개 트랙이라 서로 안 겹친다.
+    var ownsFortuneCharm = false
     /// 세이브를 손으로 고친 적이 있나. 한 번 켜지면 절대 안 꺼진다 — 지우려고 파일을 또 고치면
     /// 봉인이 다시 깨져 그대로 켜진다. 게임 진행에는 영향이 없고 스프라이트만 좌우로 뒤집힌다.
     var tampered = false
@@ -55,6 +57,7 @@ struct PlayerState: Codable, Sendable {
         installBaselineSet = value(.installBaselineSet, false)
         tampered = value(.tampered, false)
         ownsExpCharm = value(.ownsExpCharm, false)
+        ownsFortuneCharm = value(.ownsFortuneCharm, false)
         partnerID = try? c.decode(UUID.self, forKey: .partnerID)
         // 박스는 원소 단위로 관대 디코딩한다. 위의 `value(.box, [])` 방식(배열 전체를 한 번에 디코드)을
         // 쓰면 개체 하나가 깨져도(2b 에서 필드가 느는 시점 등) 배열 디코드 자체가 던져 박스 전체가 빈

@@ -207,10 +207,21 @@ final class ShopPriceTests: XCTestCase {
         XCTAssertEqual(ShopItem.dynamaxMushroom.price, 2_000_000_000)
     }
 
-    func testExpCharmIsTheMostExpensive() {
+    /// 소모품이 부적보다 비싸지는 않아야 한다 — 영구 효과가 더 싸면 소모품을 살 이유가 없다.
+    /// 같은 값은 허용한다: 반짝이는 사탕과 이로치 부적은 의도적으로 둘 다 3B 다.
+    func testNoConsumableCostsMoreThanACharm() {
         XCTAssertEqual(ShopItem.expCharm.price, 4_000_000_000)
-        for item in ShopItem.allCases where item != .expCharm {
-            XCTAssertLessThan(item.price, ShopItem.expCharm.price)
+        XCTAssertEqual(ShopItem.fortuneCharm.price, 5_000_000_000)
+        let cheapestCharm = ShopItem.allCases.filter(\.isCharm).map(\.price).min()!
+        for item in ShopItem.allCases where !item.isCharm {
+            XCTAssertLessThanOrEqual(item.price, cheapestCharm, "\(item) 이 부적보다 비싸다")
+        }
+    }
+
+    /// 뽑기 한 번이 어떤 아이템보다도 싸야 한다 — 뽑기가 이 게임의 기본 동작이다.
+    func testADrawIsCheaperThanAnyItem() {
+        for item in ShopItem.allCases {
+            XCTAssertLessThan(EggBalance.drawPrice, item.price, "\(item) 보다 뽑기가 비싸다")
         }
     }
 }

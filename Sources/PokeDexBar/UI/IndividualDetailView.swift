@@ -33,6 +33,7 @@ struct IndividualDetailView: View {
                     portrait
                     facts
                     expSection
+                    ribbonSection
                     actions
                 }
             }
@@ -94,6 +95,31 @@ struct IndividualDetailView: View {
             fact(l.detailPartnerTokens, TokenFormatter.compact(individual.partnerTokens))
             fact(l.detailPartnerTime,
                  Individual.togetherText(seconds: individual.partnerDuration(at: store.currentDate()), l))
+        }
+    }
+
+    /// 리본 — 지금 단계와, 다음 단계까지 얼마나 남았는지.
+    @ViewBuilder
+    private var ribbonSection: some View {
+        let seconds = individual.partnerDuration(at: store.currentDate())
+        VStack(alignment: .leading, spacing: 2) {
+            if let ribbon = individual.ribbon(at: store.currentDate()) {
+                HStack(spacing: 5) {
+                    Text(l.ribbonBadge(ribbon.label(store.language)))
+                        .font(.system(size: 9, weight: .bold)).foregroundStyle(.white)
+                        .padding(.horizontal, 6).padding(.vertical, 1.5)
+                        .background(Color.pink.opacity(0.75), in: Capsule())
+                    Text(l.ribbonCandyRate(TokenFormatter.compact(ribbon.tokensPerCandy)))
+                        .font(.system(size: 9)).foregroundStyle(.secondary)
+                }
+            } else {
+                Text(l.ribbonNone).font(.system(size: 9)).foregroundStyle(.tertiary)
+            }
+            if let upcoming = Ribbon.next(after: seconds) {
+                Text(l.ribbonNext(upcoming.ribbon.label(store.language),
+                                  Individual.togetherText(seconds: upcoming.remaining, l)))
+                    .font(.system(size: 9)).foregroundStyle(.tertiary)
+            }
         }
     }
 

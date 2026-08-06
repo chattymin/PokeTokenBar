@@ -96,6 +96,18 @@ struct L {
     /// 이 개체를 파트너로 두고 함께 쓴 토큰 누적 — 진화해도 안 줄어드는 "같이 일한 기록".
     var detailPartnerTokens: String { t("함께 쓴 토큰", "Tokens together", "一緒に使ったトークン") }
     var detailPartnerTime: String { t("함께한 시간", "Time together", "一緒の時間") }
+    /// 리본 — 오래 함께한 개체가 파트너일 때 토큰을 쓸수록 경험치 사탕을 만든다.
+    func ribbonBadge(_ name: String) -> String { t("🎗 \(name)", "🎗 \(name)", "🎗 \(name)") }
+    func ribbonCandyRate(_ tokens: String) -> String {
+        t("\(tokens)마다 사탕 1개", "1 candy per \(tokens)", "\(tokens)ごとにアメ1個")
+    }
+    func ribbonNext(_ name: String, _ remaining: String) -> String {
+        t("\(remaining) 더 함께하면 \(name)", "\(name) in \(remaining) more together",
+          "あと\(remaining)一緒にいると\(name)")
+    }
+    var ribbonNone: String {
+        t("함께 다니면 리본이 생겨요", "Ribbons come from time together", "一緒にいるとリボンがつきます")
+    }
     /// 함께한 시간 표기 — 가장 큰 단위 둘까지만. 초 단위는 "방금 만난" 경우에만 의미가 있다.
     func togetherDays(_ days: Int, _ hours: Int) -> String {
         t("\(days)일 \(hours)시간", "\(days)d \(hours)h", "\(days)日\(hours)時間")

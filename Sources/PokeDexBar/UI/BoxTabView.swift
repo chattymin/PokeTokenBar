@@ -70,6 +70,7 @@ struct BoxTabView: View {
                             BoxCell(individual: individual,
                                     regionLabel: individual.region?.shortLabel(store.language),
                                     isPartner: individual.id == store.state.partnerID,
+                                    hasRibbon: individual.ribbon(at: store.currentDate()) != nil,
                                     canEvolve: readyToEvolve(individual),
                                     progress: Self.progress(individual),
                                     partnerBadge: l.partnerBadge) {
@@ -99,6 +100,8 @@ struct BoxCell: View {
     /// 지방 표시(`알로라`). 원종이면 nil — 칸이 좁아 있을 때만 보여준다.
     let regionLabel: String?
     let isPartner: Bool
+    /// 리본을 하나라도 단 개체 — 칸에서 바로 보여야 "오래 데리고 다닌 아이"가 구분된다.
+    let hasRibbon: Bool
     let canEvolve: Bool
     let progress: Double
     let partnerBadge: String
@@ -113,11 +116,13 @@ struct BoxCell: View {
     }
     #endif
 
-    init(individual: Individual, regionLabel: String? = nil, isPartner: Bool, canEvolve: Bool,
-         progress: Double, partnerBadge: String, onTap: @escaping () -> Void) {
+    init(individual: Individual, regionLabel: String? = nil, isPartner: Bool,
+         hasRibbon: Bool = false, canEvolve: Bool, progress: Double, partnerBadge: String,
+         onTap: @escaping () -> Void) {
         self.individual = individual
         self.regionLabel = regionLabel
         self.isPartner = isPartner
+        self.hasRibbon = hasRibbon
         self.canEvolve = canEvolve
         self.progress = progress
         self.partnerBadge = partnerBadge
@@ -146,6 +151,9 @@ struct BoxCell: View {
                             .offset(x: 5, y: 30)
                     }
                     // 진화 가능은 칸에서 바로 보여야 한다 — 아니면 개체를 하나씩 열어봐야 안다.
+                    if hasRibbon {
+                        Text("🎗").font(.system(size: 9)).offset(x: -16, y: -13)
+                    }
                     if canEvolve {
                         Image(systemName: "arrow.up.circle.fill")
                             .font(.system(size: 10))

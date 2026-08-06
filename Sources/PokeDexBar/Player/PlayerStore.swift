@@ -89,13 +89,14 @@ final class PlayerStore {
         if todayTokens > state.claimedTodayTokens {
             let delta = todayTokens - state.claimedTodayTokens
             state.claimedTodayTokens = todayTokens
-            state.earnedTokens += delta
+            state.earnedTokens += Self.currencyGain(delta, charm: state.ownsFortuneCharm)
             if let index = state.box.firstIndex(where: { $0.id == state.partnerID }) {
                 state.box[index].exp += Self.expGain(delta, charm: state.ownsExpCharm)
                 // 봉인 이전 세이브의 파트너에는 시작 시각이 없다 — 여기서 늦게라도 시계를 건다.
                 if state.box[index].partnerSince == nil { state.box[index].partnerSince = now() }
                 // 함께 쓴 토큰 기록은 부적과 무관하게 실제 쓴 만큼만 센다.
                 state.box[index].partnerTokens += delta
+                produceRibbonCandy(at: index, delta: delta, in: &state)
             }
         }
         save()
@@ -103,6 +104,29 @@ final class PlayerStore {
 
     /// 경험치 부적을 반영한 실제 경험치 증가분. 순수 함수라 테스트로 잠근다.
     nonisolated static func expGain(_ base: Int, charm: Bool) -> Int { charm ? base * 2 : base }
+
+    /// 행운의 부적을 반영한 재화 증가분. 정수 나눗셈이라 1.5배가 내림으로 떨어진다 —
+    /// 소수 재화는 없으므로 그게 맞다.
+    nonisolated static func currencyGain(_ base: Int, charm: Bool) -> Int {
+        charm ? base + base / 2 : base
+    }
+
+    /// 리본을 단 파트너가 토큰을 쓴 만큼 사탕을 만든다. 진행분(`candyProgress`)을 남겨 두므로
+    /// 한 번에 여러 개가 나올 수도 있고, 리본 단계가 올라 필요량이 줄어도 그동안 쌓은 건 안 버린다.
+    private func produceRibbonCandy(at index: Int, delta: Int, in state: inout PlayerState) {
+        guard let ribbon = state.box[index].ribbon(at: now()) else { return }
+        let produced = Self.candyYield(progress: state.box[index].candyProgress + delta,
+                                       per: ribbon.tokensPerCandy)
+        state.box[index].candyProgress = produced.remainder
+        guard produced.count > 0 else { return }
+        state.inventory[ShopItem.expCandy.rawValue, default: 0] += produced.count
+    }
+
+    /// 쌓인 토큰 → (사탕 개수, 남은 진행분). 순수 함수라 경계를 테스트로 잠근다.
+    nonisolated static func candyYield(progress: Int, per: Int) -> (count: Int, remainder: Int) {
+        guard per > 0, progress > 0 else { return (0, max(0, progress)) }
+        return (progress / per, progress % per)
+    }
 
     // MARK: 박스·도감
 

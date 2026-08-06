@@ -19,6 +19,8 @@ struct Individual: Identifiable, Codable, Sendable, Equatable {
     var partnerTokens = 0
     /// 파트너로 지낸 시간의 누적(초). 파트너를 바꿀 때 그 구간을 여기 더한다.
     var partnerSeconds = 0
+    /// 다음 사탕까지 쌓인 토큰. 리본 단계가 오르면 필요량이 줄어드는데, 진행분은 그대로 이어진다.
+    var candyProgress = 0
     /// 지금 파트너라면 언제부터인가. 파트너가 아니면 nil — 지금 구간은 아직 안 닫혀서
     /// `partnerSeconds` 에 안 들어가 있다(표시할 땐 둘을 더한다).
     var partnerSince: Date?
@@ -44,6 +46,10 @@ struct Individual: Identifiable, Codable, Sendable, Equatable {
 
     /// 몇 번째 형태인가(0 = 아직 안 진화). 경로가 비어도 음수로 새지 않는다.
     var stageIndex: Int { max(0, pathIDs.count - 1) }
+
+    /// 지금 달고 있는 리본. 파트너로 지낸 누적 시간에서 파생되므로 따로 저장하지 않는다 —
+    /// 저장하면 시간과 리본이 어긋날 수 있고, 어느 쪽이 진실인지 애매해진다.
+    func ribbon(at now: Date) -> Ribbon? { Ribbon.earned(partnerSeconds: partnerDuration(at: now)) }
 
     /// 함께한 시간 표기 — 가장 큰 단위 둘까지. 순수 함수라 테스트로 잠근다.
     static func togetherText(seconds: Int, _ l: L) -> String {
@@ -79,7 +85,7 @@ struct Individual: Identifiable, Codable, Sendable, Equatable {
     /// 기본 이니셜라이저 — 아래 `init(from:)` 을 직접 쓰면서 합성 이니셜라이저가 사라지므로 명시한다.
     init(id: UUID = UUID(), baseID: Int, speciesID: Int, pathIDs: [Int], shiny: Bool = false,
          nature: PokemonNature, exp: Int = 0, partnerTokens: Int = 0, partnerSeconds: Int = 0,
-         partnerSince: Date? = nil, obtainedAt: Date,
+         partnerSince: Date? = nil, candyProgress: Int = 0, obtainedAt: Date,
          grade: Grade, form: String? = nil, region: Region? = nil, regionVariant: String? = nil) {
         self.id = id
         self.baseID = baseID
@@ -91,6 +97,7 @@ struct Individual: Identifiable, Codable, Sendable, Equatable {
         self.partnerTokens = partnerTokens
         self.partnerSeconds = partnerSeconds
         self.partnerSince = partnerSince
+        self.candyProgress = candyProgress
         self.obtainedAt = obtainedAt
         self.grade = grade
         self.form = form
@@ -121,6 +128,7 @@ struct Individual: Identifiable, Codable, Sendable, Equatable {
         partnerTokens = value(.partnerTokens, 0)
         partnerSeconds = value(.partnerSeconds, 0)
         partnerSince = value(.partnerSince, nil)
+        candyProgress = value(.candyProgress, 0)
         obtainedAt = value(.obtainedAt, Date(timeIntervalSince1970: 0))
         form = value(.form, nil)
         region = value(.region, nil)
