@@ -41,8 +41,8 @@ PokeDexBar turns the AI coding tokens you're already burning — Claude Code, Co
 2. 🪙 **Code as usual.** The tokens you burn in Claude Code, Codex, Gemini CLI, OpenCode, Hermes Agent, Cursor, or Grok CLI become spendable currency and feed your partner's experience at the same time — nothing extra to run.
 3. 🥚 **Draw an egg.** Spend currency in the **Shop** for an egg of a randomly rolled grade — Common 60% / Rare 22% / Epic 15% / Legendary 3%, never chosen. A short reveal plays first: a white burst, plus a second in pale blue if it's Rare, a third in purple if Epic, and a fourth sparkling orange if Legendary — the number of bursts tells you the grade before the label does. Up to 3 eggs incubate at once, expandable to 6 with a slot upgrade.
 4. 🐣 **Hatch on real time.** Commons are ready in 30 minutes, Rares in 2 hours, Epics in 6, Legendaries in 24 — real wall-clock time, even while the app is closed, with a single notification when it's ready. A ripe egg doesn't hatch itself: it waits in its slot, cracked, until you tap **Open** — that's what actually hatches a base (unevolved) species with real evolution data from [PokéAPI](https://pokeapi.co/), rolls one of 25 natures, and — once in a rare while — comes out **✨ Shiny**. Species with a regional look have a 20% chance to hatch as their Alolan, Galarian, Hisuian, or Paldean form instead — a look that individual keeps for life.
-5. ⚡ **Evolve by hand.** Feed a hatchling experience by coding (or with EXP Candy from the Shop), then tap it to evolve once it's ready — branching evolution lines let you pick the path, and a regional form can lead somewhere different (a Galarian Meowth evolves into Perrserker where a Kantonian one becomes Persian).
-6. 📖 **Fill two collections.** The **National Dex** tracks every species you've ever hatched, #1 to #1025, with silhouettes for the rest. Your **Box** is a grid of every individual you own, showing partner, shiny, and evolve-ready status at a glance — tap a cell to open a detail screen where you set your partner, feed candy, evolve, and change form. Duplicates are normal, and each individual keeps its own experience and evolution progress, so you can own both a Pidgey and a Pidgeotto at once.
+5. ⚡ **Evolve by hand.** Feed a hatchling experience by coding (or with EXP Candy from the Shop), then tap it to evolve once it's ready — branching evolution lines let you pick the path, and a regional form can lead somewhere different (a Galarian Meowth evolves into Perrserker where a Kantonian one becomes Persian). Only your partner earns experience directly, but staying with the same partner long enough earns it a **Ribbon** and turns its own token spending into EXP Candy that can feed any individual in the Box — so a long-standing partner speeds up the whole collection instead of hoarding it.
+6. 📖 **Fill two collections.** The **National Dex** tracks every species you've ever hatched, #1 to #1025, with silhouettes for the rest. Your **Box** is a fixed 6×5 case you page through — sorted oldest-first, so a slot never moves once it's filled — with partner, shiny, ribbon, and evolve-ready status carried by the sprite itself, its border, and its corner markers instead of a label. Tap a cell to open a detail screen where you set your partner, feed candy, evolve, and change form. Duplicates are normal, and each individual keeps its own experience and evolution progress, so you can own both a Pidgey and a Pidgeotto at once.
 
 ## Tour
 
@@ -79,13 +79,13 @@ The <b>National Dex</b> is a species checklist from #1 to #1025 — silhouettes 
 <td width="45%" align="center"><img src="assets/screenshot-box.png" width="300" alt="Box — every individual you own"></td>
 <td width="55%" valign="middle">
 <h3>Your Box</h3>
-Your <b>Box</b> is a grid of every individual you've hatched or evolved — each cell shows partner, shiny, and evolve-ready at a glance. Duplicates are completely normal.
+Your <b>Box</b> is storage, not a list: a fixed 6×5 case you page through with the header arrows, sorted oldest-first so a slot stays put once it's filled. There's no per-slot label — the sprite, its border, and its corner markers carry partner, shiny, ribbon, and evolve-ready status. Sprites are trimmed to fill their slot evenly here (a toggle in Settings → Box); everywhere else the canvas is left alone, since it's what makes a Snorlax read bigger than a Diglett. Duplicates are completely normal.
 </td>
 </tr>
 <tr>
 <td width="55%" valign="middle">
 <h3>A detail screen for every individual</h3>
-Tapping a cell opens a detail screen with grade, nature, capture date, experience, lifetime tokens spent together (unlike experience, this survives evolution), and the controls to set a partner, feed candy, evolve, or change form.
+Tapping a cell opens a detail screen with grade, nature, tokens and time spent together (unlike experience, these survive evolution), an EXP bar, and Ribbon progress, plus the controls to set a partner, feed candy, evolve, or change form.
 </td>
 <td width="45%" align="center"><img src="assets/screenshot-detail.png" width="300" alt="Pokémon detail screen — sprite and name, grade, nature, and lifetime tokens spent together, an EXP bar, and action buttons for partner, evolve, Gigantamax, EXP Candy, and Shiny Candy"></td>
 </tr>
@@ -107,7 +107,7 @@ Draw up to 3 eggs at once (6 with a slot upgrade) — each grade gets its own sh
 <td width="45%" align="center"><img src="assets/screenshot-shop.png" width="300" alt="Shop — egg draws, slot upgrades, EXP Candy, Shiny Candy, Shiny Charm"></td>
 <td width="55%" valign="middle">
 <h3>🛒 A shop built for the economy</h3>
-Every token you've already used is spendable currency. Draw eggs at a fixed price with the odds shown right on the button, expand your incubator from 3 slots up to 6, buy <b>EXP Candy</b> to grow a Pokémon or <b>Shiny Candy</b> to make one shiny outright, or pick up a permanent <b>Shiny Charm</b> that raises your hatch odds from 1/64 to 1/48 or an <b>EXP Charm</b> that doubles the experience earned from both tokens and EXP Candy. A <b>Mega Stone</b> or <b>Dynamax Mushroom</b>, applied from a Pokémon's own detail screen, reshapes it into one of 80 catalogued forms.
+Every token you've already used is spendable currency. Draw eggs for 10M tokens with the odds shown right on the button, expand your incubator from 3 slots up to 6, buy <b>EXP Candy</b> to grow a Pokémon or <b>Shiny Candy</b> to make one shiny outright, or pick up a permanent <b>Shiny Charm</b> that raises your hatch odds from 1/64 to 1/48, an <b>EXP Charm</b> that doubles the experience earned from both tokens and EXP Candy, or a <b>Fortune Charm</b> that earns 1.5x the currency from every token you spend. A <b>Mega Stone</b> or <b>Dynamax Mushroom</b>, applied from a Pokémon's own detail screen, reshapes it into one of 80 catalogued forms.
 </td>
 </tr>
 </table>
@@ -121,6 +121,7 @@ Every token you've already used is spendable currency. Draw eggs at a fixed pric
 - **In-app updates** — one-click update check; current version shown in Settings.
 - **Mega Evolution & Gigantamax** — a Mega Stone or Dynamax Mushroom reshapes a chosen Pokémon into one of 80 catalogued forms (species with two Mega forms, like Charizard, offer both); reverting to normal is free, and evolving clears the form.
 - **Regional forms** — Alolan, Galarian, Hisuian, and Paldean variants can hatch instead of the original (20% chance for species that have one) and stay with that individual for life, sometimes changing what it evolves into; Mega and Gigantamax forms aren't available to them.
+- **Ribbons** — keeping the same Pokémon as your partner for a day, a week, a month, or three months earns it Bond, Trust, Kinship, or Lifelong, each with its own badge; the tier sets how many tokens you spend before it produces one EXP Candy (150M down to 20M), and that candy can feed any individual in the Box, not just the partner.
 - **Save integrity check** — hand-editing the save file is detected, not prevented: it marks the save permanently and turns every sprite upside down, but your progress is never discarded.
 
 ## Works with
