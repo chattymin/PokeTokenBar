@@ -149,6 +149,18 @@ enum ScreenshotFixture {
     /// 이만큼 시계를 되감고 지정하지 않으면 홈 카드가 "함께한 시간 0분"으로 찍힌다.
     static let partnerSinceDaysAgo = 46.0
 
+    /// 파트너와 **누적으로** 함께한 날. 리본은 이 시간으로만 정해지고 저장되지 않으므로
+    /// (`Ribbon.earned(partnerSeconds:)`), 최고 단계(반려 = 90일)를 보여주려면 시간을 그만큼 준다.
+    /// 최고 단계여야 네 날개 배지와 가장 빠른 사탕 생산(20M당 1개)이 한 화면에 같이 나온다.
+    ///
+    /// 나눠 담는 방식은 앱이 세는 방식 그대로다 — 지금 구간은 `partnerSince`(위 상수)가 세고,
+    /// 그 이전에 파트너로 지냈던 몫은 `partnerSeconds` 에 누적돼 있다(`closePartnerStint`).
+    /// 그래서 차액만 `partnerSeconds` 로 심는다.
+    static let partnerTotalDays = 97.5
+    static var partnerPriorSeconds: Int {
+        Int((partnerTotalDays - partnerSinceDaysAgo) * 86_400)
+    }
+
     /// 부화 중인 알 — 카운트다운이 슬롯마다 **다른 단위로** 읽히도록 남은 시간을 흩어 놓는다.
     /// (`EggSlotsView.countdownText` 는 큰 단위 두 개만 쓴다: "부화!" / "1분 30초" / "47분 25초" /
     /// "22시간 47분".) 첫 줄은 이미 부화 시각을 지나 "부화!" 로 뜬다 — 다 된 알이 어떻게 보이는지가
@@ -284,6 +296,8 @@ final class ScreenshotGeneratorTests: XCTestCase {
         let updater: UpdateChecker
         /// 상세 화면에 띄울 개체(임계를 넘긴 피카츄).
         let detailID: UUID
+        /// 파트너 — 리본 상세 화면이 쓴다(최고 단계 리본을 단 개체).
+        let partnerID: UUID
     }
 
     /// - Parameters:
@@ -318,6 +332,8 @@ final class ScreenshotGeneratorTests: XCTestCase {
             individual.region = entry.region
             // 함께 쓴 토큰 — 오래 데리고 다닌 개체일수록 크게. 0 만 늘어서면 이 칸이 무슨 뜻인지 안 보인다.
             individual.partnerTokens = entry.exp * 3 + index * 17_000_000
+            // 파트너만 예전 동행분을 안고 시작한다 — 지금 구간(46일)만으로는 최고 리본에 못 닿는다.
+            if index == 0 { individual.partnerSeconds = ScreenshotFixture.partnerPriorSeconds }
             player.addForTesting(individual)
             if index == 0 { partnerID = individual.id }
             if index == 1 { detailID = individual.id }
@@ -326,6 +342,10 @@ final class ScreenshotGeneratorTests: XCTestCase {
             clock = base.addingTimeInterval(-ScreenshotFixture.partnerSinceDaysAgo * 86_400)
             player.setPartner(partnerID)   // 동행 시작점을 되감아 지정한다(위 상수 참고)
             clock = base
+            // 리본은 시간에서 파생될 뿐 저장되지 않는다 — 밸런스(`Ribbon.requiredPartnerSeconds`)가
+            // 바뀌면 리본 스크린샷이 조용히 낮은 단계로 찍힌다. 여기서 먼저 멈춘다.
+            XCTAssertEqual(player.state.box.first { $0.id == partnerID }?.ribbon(at: base), .lifelong,
+                           "파트너가 최고 단계 리본을 안 달았다 — 동행 시간 픽스처가 밸런스를 못 따라간다")
         }
 
         // 도감은 "꾸준히 모은 중" 정도로 — 실루엣과 잡은 종이 섞여 보여야 도감 화면이 설명된다.
@@ -353,7 +373,7 @@ final class ScreenshotGeneratorTests: XCTestCase {
                                defaults: UserDefaults(suiteName: "ptb-shot-usage-\(UUID().uuidString)")!)
         return Fixture(player: player, usage: usage,
                        updater: UpdateChecker(currentVersion: AppEnv.appVersion ?? "0"),
-                       detailID: detailID!)
+                       detailID: detailID!, partnerID: partnerID!)
     }
 
     /// 홈 탭이 보여줄 사용량을 채운 스토어. `snapshots`·`limits`·`lastUpdated` 는 전부
@@ -756,6 +776,14 @@ final class ScreenshotGeneratorTests: XCTestCase {
                                            selection: .constant(fixture.detailID))),
                       fullScroll: true),
                   "screenshot-detail.png")
+
+        // 리본 — 오래 함께한 파트너의 상세. 배지 그림 + 사탕 생산 속도("1 candy per 20M") +
+        // 그 리본이 어디서 왔는지(함께한 시간)가 한 화면에 같이 나와야 기능이 설명된다.
+        try write(png(tabChrome(BoxTabView(store: fixture.player, lines: ScreenshotFixture.lines,
+                                           onNeedLine: { _ in },
+                                           selection: .constant(fixture.partnerID))),
+                      fullScroll: true),
+                  "screenshot-ribbon.png")
 
         // 도감 — 번호순 그리드 + 못 잡은 종 실루엣.
         try write(png(tabChrome(NationalDexView(store: fixture.player))), "screenshot-collection.png")
