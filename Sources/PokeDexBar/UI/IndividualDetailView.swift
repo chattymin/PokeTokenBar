@@ -214,7 +214,7 @@ struct IndividualDetailView: View {
     private func requirementHint(_ need: EvoRequirement) -> String? {
         switch need {
         case .none: nil
-        case .item(let item): l.evolveNeedsItem(item.label(store.language))
+        case .item(let item): l.evolveNeedsItem(item)
         case .friendship:
             l.evolveNeedsTime(Individual.togetherText(
                 seconds: max(0, EvoRequirement.friendshipSeconds

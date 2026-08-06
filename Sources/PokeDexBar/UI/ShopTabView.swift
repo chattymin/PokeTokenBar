@@ -127,40 +127,49 @@ struct ShopTabView: View {
         }
     }
 
-    /// 진화 도구 — 상점에서 파는 것만(돌 10종 + 연결의 끈). 특수 도구 10종은 리본 파트너가 물어 온다.
-    /// 기본은 접힘 — 목록이 길고 필요한 순간이 정해져 있다.
+    /// 진화 도구 — **파는 게 아니라 모은 것을 보여 준다.** 41종 전부 리본 파트너가 물어 오고
+    /// 없어지지 않으므로, 이 목록은 구매 목록이 아니라 수집 현황이다(가진 것/전체).
+    /// 상점 탭에 두는 건 도구를 한자리에서 볼 유일한 화면이기 때문이다. 기본은 접힘 — 목록이 길다.
     private var evolutionItemSection: some View {
-        VStack(alignment: .leading, spacing: 4) {
+        let rows = Self.evolutionItemStatus(store)
+        let owned = rows.filter(\.owned).count
+        return VStack(alignment: .leading, spacing: 4) {
             Button { withAnimation(.easeOut(duration: 0.15)) { evolutionExpanded.toggle() } } label: {
                 HStack(spacing: 4) {
                     Image(systemName: evolutionExpanded ? "chevron.down" : "chevron.right")
                         .font(.system(size: 9, weight: .bold))
                     Text(l.shopEvolutionSection).font(.system(size: 12, weight: .semibold))
-                    // 가진 게 있으면 접힌 채로도 보이게 — 안 그러면 산 걸 잊는다.
-                    let owned = EvolutionItem.allCases.reduce(0) { $0 + store.count(of: $1) }
-                    if owned > 0 {
-                        Text("×\(owned)").font(.system(size: 10)).foregroundStyle(.secondary)
-                    }
+                    Text("\(owned)/\(rows.count)")
+                        .font(.system(size: 10)).foregroundStyle(.secondary)
                     Spacer()
                 }
             }
             .buttonStyle(.plain)
             if evolutionExpanded {
-            ForEach(EvolutionItem.shopItems, id: \.self) { item in
-                HStack {
-                    Text(item.label(store.language)).font(.system(size: 11, weight: .medium))
-                    let owned = store.count(of: item)
-                    if owned > 0 {
-                        Text("×\(owned)").font(.system(size: 9)).foregroundStyle(.secondary)
+                // 못 사는 목록이라는 걸 말해 줘야 한다 — 없으면 "왜 살 수가 없지"로 읽힌다.
+                Text(l.shopEvolutionHint).font(.system(size: 9)).foregroundStyle(.tertiary)
+                ForEach(rows, id: \.item) { row in
+                    HStack(spacing: 5) {
+                        Image(systemName: row.owned ? "checkmark.circle.fill" : "circle.dashed")
+                            .font(.system(size: 9))
+                            .foregroundStyle(row.owned ? AnyShapeStyle(Color.accentColor)
+                                                       : AnyShapeStyle(.tertiary))
+                        Text(row.item.label(store.language))
+                            .font(.system(size: 11, weight: row.owned ? .medium : .regular))
+                            .foregroundStyle(row.owned ? .primary : .tertiary)
+                        Spacer()
                     }
-                    Spacer()
-                    Button(TokenFormatter.compact(item.price)) { _ = store.buy(item) }
-                        .buttonStyle(.bordered).controlSize(.small)
-                        .disabled(store.state.wallet < item.price)
                 }
             }
-            }
         }
+    }
+
+    /// 진화 도구 수집 현황. **41종 전부** 돌려준다 — 가진 것만 보여 주면 무엇이 남았는지
+    /// 알 수 없고, 이 목록은 도구를 한자리에서 볼 유일한 화면이다.
+    /// 뷰에서 떼어 둔 건 이 파일의 다른 정적 함수들(`oddsText`·`landDraw`)과 같은 이유로,
+    /// 목록이 조용히 줄어드는 걸 테스트가 잡게 하기 위해서다.
+    static func evolutionItemStatus(_ store: PlayerStore) -> [(item: EvolutionItem, owned: Bool)] {
+        EvolutionItem.allCases.map { ($0, store.count(of: $0) > 0) }
     }
 
     private func itemRow(_ item: ShopItem) -> some View {

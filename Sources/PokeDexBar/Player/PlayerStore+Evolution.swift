@@ -54,8 +54,8 @@ extension PlayerStore {
             // 폼은 종에 달린 것이라 진화하면 풀린다 — 피카츄의 거다이맥스를 라이츄가 이어받을 수 없다.
             state.box[index].form = nil
             state.dex.insert(speciesID)
-            // 도구는 여기서 소모한다 — 실패한 진화가 도구를 먹으면 안 되므로 검증 뒤에 온다.
-            if case .item(let item) = need { Self.consume(item, in: &state) }
+            // 도구는 소모하지 않는다 — 다시 얻는 값이 며칠의 파트너 시간이라, 없어지면 같은
+            // 도구를 두 번째 개체에 쓸 방법이 사실상 없다. 한 번 물어 오면 영구 해금이다.
         }
         return true
     }

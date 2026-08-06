@@ -117,21 +117,26 @@ final class PlayerStore {
         state.box[index].candyProgress = produced.remainder
         guard produced.count > 0 else { return }
         state.inventory[ShopItem.expCandy.rawValue, default: 0] += produced.count
-        // 사탕이 나온 김에 특수 진화 도구도 굴린다 — 상점에 없는 10종류를 얻는 유일한 길이다.
-        // 사탕 개수만큼 굴려서, 오래 안 켠 뒤 한꺼번에 정산될 때 손해 보지 않게 한다.
+        // 사탕이 나온 김에 이 개체가 자기 진화에 쓸 도구도 굴린다 — 상점에 없는 30종류를 얻는
+        // 유일한 길이다. 사탕 개수만큼 굴려서, 오래 안 켠 뒤 한꺼번에 정산될 때 손해 보지 않게 한다.
+        let needs = ForageCatalog.needs(speciesID: state.box[index].speciesID,
+                                        region: state.box[index].region)
         for _ in 0..<produced.count {
-            guard let item = Self.forage(ribbon: ribbon, roll: nextRandomUnit(),
+            guard let item = Self.forage(ribbon: ribbon, needs: needs, roll: nextRandomUnit(),
                                          pick: nextRandomUnit()) else { continue }
             state.inventory[item.rawValue, default: 0] += 1
         }
     }
 
-    /// 리본 파트너가 이번에 물어 온 특수 도구. 순수 함수라 확률 경계를 테스트로 잠근다.
-    nonisolated static func forage(ribbon: Ribbon, roll: Double, pick: Double) -> EvolutionItem? {
+    /// 리본 파트너가 이번에 물어 온 도구. `needs` 는 **그 개체가 쓸 수 있는 것만** 담긴다
+    /// (`ForageCatalog.needs`) — 진화에 도구가 필요 없는 종이면 비어 있어 아무것도 안 나온다.
+    /// 순수 함수라 확률 경계를 테스트로 잠근다.
+    nonisolated static func forage(ribbon: Ribbon, needs: [EvolutionItem],
+                                   roll: Double, pick: Double) -> EvolutionItem? {
+        guard !needs.isEmpty else { return nil }
         guard Int(roll * 1000) < ribbon.foragePermille else { return nil }
-        let pool = EvolutionItem.foraged
-        guard !pool.isEmpty else { return nil }
-        return pool[min(pool.count - 1, max(0, Int(pick * Double(pool.count))))]
+        // 갈래가 여럿이면(이브이는 돌이 다섯) 그 중 하나를 고른다.
+        return needs[min(needs.count - 1, max(0, Int(pick * Double(needs.count))))]
     }
 
     /// 쌓인 토큰 → (사탕 개수, 남은 진행분). 순수 함수라 경계를 테스트로 잠근다.
@@ -176,6 +181,12 @@ final class PlayerStore {
         state.box.append(individual)
         state.dex.insert(individual.speciesID)
         save()
+    }
+
+    /// 테스트 전용 — 물어 오는 도구를 인벤토리에 직접 넣는다. 채집은 확률과 토큰 누적을
+    /// 거쳐야 해서 소모 여부 같은 다른 성질을 검증할 때 준비 과정이 본론을 덮는다.
+    func grantForTesting(_ item: EvolutionItem) {
+        mutate { $0.inventory[item.rawValue, default: 0] += 1 }
     }
 
     /// 테스트 전용 — 지갑·슬롯·알 개수를 직접 세팅한다(적립 경로를 돌리지 않고).

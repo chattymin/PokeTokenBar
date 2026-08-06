@@ -44,11 +44,21 @@ struct L {
         t("슬롯 늘리기 (\(from) → \(to))", "Add a slot (\(from) → \(to))", "スロット追加 (\(from) → \(to))")
     }
     var shopSlotsMaxed: String { t("슬롯을 최대까지 늘렸어요", "Slots are maxed out", "スロットは最大まで増やしました") }
-    /// 진화 도구 — 돌과 연결의 끈. 특수 도구는 상점에 없고 리본 파트너가 물어 온다.
+    /// 진화 도구 — 파는 목록이 아니라 모은 것을 보는 목록이다.
     var shopEvolutionSection: String { t("진화 도구", "Evolution items", "しんかのどうぐ") }
-    /// 진화 조건 안내 — 무엇이 있어야 이 갈래로 갈 수 있는지.
-    func evolveNeedsItem(_ item: String) -> String {
-        t("\(item) 필요", "Needs \(item)", "\(item)がひつよう")
+    /// 도구는 못 산다는 사실 자체를 말해 줘야 한다 — 안 그러면 상점에 있는데 살 수가 없어 보인다.
+    var shopEvolutionHint: String {
+        t("살 수 없어요. 파트너로 둔 포켓몬이 자기에게 필요한 도구를 물어 옵니다. 한 번 얻으면 계속 쓸 수 있어요.",
+          "Not for sale. Your partner finds the item it needs. Once found, it is yours for good.",
+          "こうにゅうできません。パートナーが自分にひつような道具をもってきます。一度手にいれるとずっと使えます。")
+    }
+    /// 못 갖춘 도구 안내. **도구를 얻는 길은 파트너뿐이라 그 말을 같이 한다** — 아니면
+    /// 마그마부스터를 어디서 구하는지 알 길이 없어 진화가 영영 막힌 것처럼 보인다.
+    func evolveNeedsItem(_ item: EvolutionItem) -> String {
+        let name = item.label(lang)
+        return t("\(name) 필요 · 파트너로 두면 물어 와요",
+                 "Needs \(name) · set as partner and it will find one",
+                 "\(name)がひつよう · パートナーにすると持ってきます")
     }
     func evolveNeedsTime(_ remaining: String) -> String {
         t("\(remaining) 더 함께해야 해요", "\(remaining) more together", "あと\(remaining)一緒に")
