@@ -138,9 +138,10 @@ BUILT=$(/usr/libexec/PlistBuddy -c "Print CFBundleShortVersionString" build/Poke
 
 echo "▶ 5/8 커밋 + push (빌드 성공 후)"
 git add scripts/build-app.sh
-git commit -q -m "release: bump version to $VERSION
+# 이미 그 버전이면 스테이지가 비어 `git commit` 이 set -e 로 스크립트를 죽인다 — 커밋할 게 있을 때만 커밋.
+git diff --cached --quiet || git commit -q -m "release: bump version to $VERSION
 
-Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 git push -q origin main
 
 echo "▶ 6/8 GitHub Release v$VERSION"
