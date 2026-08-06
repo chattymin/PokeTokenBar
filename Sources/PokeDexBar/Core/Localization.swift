@@ -270,10 +270,10 @@ struct L {
     var floatingPetBubbleAlertsLabel: String {
         t("말풍선으로 알림 받기", "Show notifications as bubbles", "通知を吹き出しで表示")
     }
-    /// 설정의 도감 섹션 — 스프라이트를 어떻게 그릴지 모아 둔다.
-    var dexSectionTitle: String { t("도감", "Collection", "コレクション") }
-    var fillSpriteFrameLabel: String {
-        t("스프라이트를 칸에 꽉 채우기", "Fill the frame with sprites", "スプライトを枠いっぱいに")
+    /// 설정의 박스 섹션 — 보관함 칸을 어떻게 그릴지. 박스 전용 설정만 들어간다.
+    var boxSectionTitle: String { t("박스", "Box", "ボックス") }
+    var fillBoxSlotsLabel: String {
+        t("칸에 꽉 채우기", "Fill the slot", "マスいっぱいに")
     }
     var antialiasLabel: String {
         t("스프라이트 부드럽게", "Smooth sprites", "スプライトを滑らかに")

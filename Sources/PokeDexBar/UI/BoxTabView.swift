@@ -62,7 +62,7 @@ struct BoxTabView: View {
             if let selected {
                 IndividualDetailView(store: store, individual: selected,
                                      line: lines[selected.baseID],
-                                     onNeedLine: onNeedLine, fillFrame: fillFrame,
+                                     onNeedLine: onNeedLine,
                                      onBack: { selection = nil })
             } else {
                 grid

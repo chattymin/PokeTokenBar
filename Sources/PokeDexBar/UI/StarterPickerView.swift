@@ -5,7 +5,6 @@ import SwiftUI
 struct StarterPickerView: View {
     let store: PlayerStore
     let provider: any PokeProviding
-    var fillFrame = true
     let onChosen: () -> Void
 
     @State private var choosing: Int?
@@ -59,7 +58,7 @@ struct StarterPickerView: View {
         Button {
             choose(speciesID)
         } label: {
-            SpriteView(speciesID: speciesID, size: 64, animated: true, fillFrame: fillFrame)
+            SpriteView(speciesID: speciesID, size: 64, animated: true)
                 .frame(width: 76, height: 76)
                 .background(Color.secondary.opacity(0.10), in: RoundedRectangle(cornerRadius: 10))
         }

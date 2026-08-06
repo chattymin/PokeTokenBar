@@ -73,10 +73,11 @@ final class UsageStore {
         didSet { defaults.set(floatingPetEnabled, forKey: "floatingPetEnabled") }
     }
     /// 스프라이트 안티앨리어싱(EPX 업스케일) — 저해상도 GIF 를 크게 띄울 때 계단이 덜 보이게 한다.
-    /// 스프라이트의 투명 여백을 잘라 칸을 꽉 채울지. 끄면 종마다 다른 원래 캔버스 그대로 그려
-    /// 작은 포켓몬이 작게 보인다 — 실제 크기 차이도 정보라 취향이 갈린다.
-    var fillSpriteFrame: Bool {
-        didSet { defaults.set(fillSpriteFrame, forKey: "fillSpriteFrame") }
+    /// **박스 칸**에서 스프라이트의 투명 여백을 잘라 칸을 꽉 채울지. 박스에만 거는 이유는,
+    /// 크기가 같은 칸이 나란히 놓이는 자리가 거기뿐이라 작은 종이 유독 작아 보이는 문제가
+    /// 박스에서만 생기기 때문이다. 도감·홈·플로팅 펫은 원래 캔버스 그대로 그려 실제 크기 차이를 남긴다.
+    var fillBoxSlots: Bool {
+        didSet { defaults.set(fillBoxSlots, forKey: "fillBoxSlots") }
     }
     var antialiasSprites: Bool {
         didSet { defaults.set(antialiasSprites, forKey: "antialiasSprites") }
@@ -305,7 +306,7 @@ final class UsageStore {
         statusChecksEnabled = d.object(forKey: "statusChecksEnabled") as? Bool ?? true
         floatingPetEnabled = d.object(forKey: "floatingPetEnabled") as? Bool ?? false
         antialiasSprites = d.object(forKey: "antialiasSprites") as? Bool ?? true
-        fillSpriteFrame = d.object(forKey: "fillSpriteFrame") as? Bool ?? true
+        fillBoxSlots = d.object(forKey: "fillBoxSlots") as? Bool ?? true
         floatingPetSize = d.object(forKey: "floatingPetSize") as? Double ?? 96
         floatingPetBubbleAlerts = d.object(forKey: "floatingPetBubbleAlerts") as? Bool ?? true
         disableKeychainAccess = d.object(forKey: "disableKeychainAccess") as? Bool ?? false

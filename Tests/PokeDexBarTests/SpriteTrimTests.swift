@@ -91,23 +91,24 @@ final class SpriteTrimTests: XCTestCase {
     }
 }
 
-/// 설정 — 여백 잘라내기는 취향이 갈려서 끌 수 있어야 한다(실제 크기 차이도 정보다).
+/// 설정 — 칸 채우기는 **박스에만** 있는 개념이다. 크기가 같은 칸이 나란히 놓이는 자리가
+/// 박스뿐이라 문제도 거기서만 생기고, 다른 화면은 원래 캔버스가 주는 실제 크기 차이를 남긴다.
 @MainActor
-final class FillSpriteFrameSettingTests: XCTestCase {
+final class FillBoxSlotsSettingTests: XCTestCase {
     private func makeStore() -> (UsageStore, UserDefaults) {
         let defaults = UserDefaults(suiteName: "fill-\(UUID().uuidString)")!
         return (UsageStore(defaults: defaults), defaults)
     }
 
-    /// 기본은 켬 — 안 켜면 작은 포켓몬이 칸에서 작게 남아 구분이 안 된다.
+    /// 기본은 켬 — 안 켜면 박스에서 작은 포켓몬이 칸에서 작게 남아 구분이 안 된다.
     func testDefaultsToOn() {
-        XCTAssertTrue(makeStore().0.fillSpriteFrame)
+        XCTAssertTrue(makeStore().0.fillBoxSlots)
     }
 
     func testPersistsAcrossLaunches() {
         let (store, defaults) = makeStore()
-        store.fillSpriteFrame = false
-        XCTAssertFalse(UsageStore(defaults: defaults).fillSpriteFrame, "설정이 저장되지 않는다")
+        store.fillBoxSlots = false
+        XCTAssertFalse(UsageStore(defaults: defaults).fillBoxSlots, "설정이 저장되지 않는다")
     }
 
     /// 껐을 때 원본이 그대로 나와야 한다 — 잘라낸 결과가 아니라.
@@ -126,5 +127,19 @@ final class FillSpriteFrameSettingTests: XCTestCase {
         XCTAssertEqual(SpriteTrim.cropped(image, to: rect).size.width, rect.width, accuracy: 1.5)
         // 설정을 끄면 호출부가 `cropped` 를 아예 부르지 않는다 — 원본 크기가 유지된다.
         XCTAssertEqual(image.size.width, canvas.width)
+    }
+}
+
+/// 박스 밖에서는 자르지 않는다 — `SpriteView` 기본값이 곧 그 규칙이다.
+final class SpriteFillDefaultTests: XCTestCase {
+    @MainActor
+    func testSpritesDoNotFillTheirFrameByDefault() {
+        XCTAssertFalse(SpriteView(speciesID: 1).fillFrame,
+                       "기본이 켜져 있으면 도감·홈·플로팅 펫까지 잘려 실제 크기 차이가 사라진다")
+    }
+
+    @MainActor
+    func testTheBoxOptsIn() {
+        XCTAssertTrue(SpriteView(speciesID: 1, fillFrame: true).fillFrame)
     }
 }

@@ -31,7 +31,7 @@ struct SettingsView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
                     generalGroup(store)
-                    dexGroup(store)
+                    boxGroup(store)
                     menuBarGroup(store)
                     floatingPetGroup(store)
                     notificationsGroup(store)
@@ -321,14 +321,13 @@ struct SettingsView: View {
         }
     }
 
-    /// 도감 — 스프라이트를 어떻게 그릴지. 언어·새로고침 같은 앱 전반 설정과 성격이 달라
-    /// 일반에서 떼어 냈다(둘 다 "포켓몬을 어떻게 보여주나"에 관한 것이다).
-    private func dexGroup(_ store: UsageStore) -> some View {
+    /// 박스 — 보관함 칸을 어떻게 그릴지. 이 설정은 **박스에서만** 의미가 있다: 크기가 같은 칸이
+    /// 나란히 놓이는 자리가 거기뿐이라, 작은 종이 유독 작아 보이는 문제도 거기서만 생긴다.
+    /// (안티앨리어싱은 스프라이트가 나오는 모든 화면에 걸리므로 일반에 둔다.)
+    private func boxGroup(_ store: UsageStore) -> some View {
         @Bindable var store = store
-        return settingsSection(l.dexSectionTitle) {
-            toggleRow(l.fillSpriteFrameLabel, $store.fillSpriteFrame)
-            Divider()
-            toggleRow(l.antialiasLabel, $store.antialiasSprites)
+        return settingsSection(l.boxSectionTitle) {
+            toggleRow(l.fillBoxSlotsLabel, $store.fillBoxSlots)
         }
     }
 

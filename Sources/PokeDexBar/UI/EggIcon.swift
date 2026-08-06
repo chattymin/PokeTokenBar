@@ -127,8 +127,6 @@ struct HatchedRevealView: View {
     /// 종 이름을 아는 진화 라인. 없으면 번호로 떨어지고 `onNeedLine` 으로 받아온다.
     var line: EvoLine?
     var onNeedLine: (Int) -> Void = { _ in }
-    /// 스프라이트를 칸에 꽉 채울지(설정).
-    var fillFrame = true
     let onDone: () -> Void
 
     private var l: L { store.l }
@@ -144,8 +142,7 @@ struct HatchedRevealView: View {
             Color.black.opacity(0.84)
             VStack(spacing: 6) {
                 SpriteView(speciesID: individual.speciesID, form: individual.spriteForm,
-                           size: 64, animated: true, shiny: individual.shiny, antialias: true,
-                           fillFrame: fillFrame)
+                           size: 64, animated: true, shiny: individual.shiny, antialias: true)
                     .frame(width: 64, height: 64)
                 HStack(spacing: 5) {
                     Text(displayName).font(.system(size: 12, weight: .semibold))

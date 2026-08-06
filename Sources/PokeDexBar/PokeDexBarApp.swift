@@ -226,10 +226,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             guard raw.count > 1, gen == self.menuLoadGen else { return }
             // 메뉴바 GIF delay 하한 0.4s(≈2.5fps)로 캡 — 22px 스프라이트엔 5fps와 구분 안 되고, 프레임당
             // 상태바 재합성(CA 커밋 → 디스플레이 사이클 wakeup)을 절반으로 줄여 배터리 절약. bob(0.5s/2fps)과 유사.
-            // 프레임 공통 사각형으로 한 번만 재고 재사용한다 — 프레임마다 재면 아이콘이 떤다.
-            let trim = SpriteTrim.unionContentRect(of: raw.map(\.image))
             self.setMenuFrames(raw.map {
-                (Self.menuBarImage(from: $0.image, up: false, trim: trim), max(0.4, $0.delay))
+                (Self.menuBarImage(from: $0.image, up: false), max(0.4, $0.delay))
             })
         }
     }
@@ -291,9 +289,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
 
     /// 스프라이트 정적 + 가벼운 상하 bob 2프레임 (animated 미지원/로딩 폴백).
     private static func bobFrames(from sprite: NSImage) -> [(image: NSImage, delay: TimeInterval)] {
-        let trim = SpriteTrim.contentRect(of: sprite)
-        return [(menuBarImage(from: sprite, up: false, trim: trim), 0.5),
-                (menuBarImage(from: sprite, up: true, trim: trim), 0.5)]
+        [(menuBarImage(from: sprite, up: false), 0.5), (menuBarImage(from: sprite, up: true), 0.5)]
     }
 
     /// 부화 전/로딩 중 알 글리프 2프레임 bob.
@@ -301,7 +297,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         [(eggImage(up: false), 0.5), (eggImage(up: true), 0.5)]
     }
 
-    private static func menuBarImage(from sprite: NSImage, up: Bool, trim: CGRect? = nil) -> NSImage {
+    private static func menuBarImage(from sprite: NSImage, up: Bool) -> NSImage {
         let h: CGFloat = 22
         let img = NSImage(size: NSSize(width: h, height: h))
         img.lockFocus()
@@ -312,13 +308,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             ctx.scaleBy(x: 1, y: -1)
         }
         let off: CGFloat = up ? 1 : 0
-        // 투명 여백을 잘라내고 그린다 — 안 자르면 종마다 여백 비율이 달라 작은 종이 더 작아진다.
         // 캔버스는 22×22 고정(폭이 흔들리면 메뉴바가 떨린다) — 그 안에서만 비율을 지켜 넣는다.
-        let art = trim.map { SpriteTrim.cropped(sprite, to: $0) } ?? sprite
-        let fitted = PixelScale.fittedRect(source: art.size,
+        // 여백은 자르지 않는다: 칸 채우기는 박스에만 있는 개념이다.
+        let fitted = PixelScale.fittedRect(source: sprite.size,
                                            in: CGSize(width: h - 2, height: h - 2))
-        art.draw(in: fitted.offsetBy(dx: 1, dy: off),
-                 from: .zero, operation: .sourceOver, fraction: 1)
+        sprite.draw(in: fitted.offsetBy(dx: 1, dy: off),
+                    from: .zero, operation: .sourceOver, fraction: 1)
         img.unlockFocus()
         return img
     }

@@ -53,8 +53,9 @@ struct SpriteView: View {
     /// 나오지만 그건 CALayer 필터라 오프스크린 렌더(스크린샷 생성기)에서 통째로 무시된다 —
     /// 템플릿 렌더링은 그리기 단계라 어디서든 똑같이 나온다.
     var silhouette: Bool = false
-    /// 투명 여백을 잘라 칸을 채울지(설정). 끄면 종마다 다른 원래 캔버스 그대로 그린다.
-    var fillFrame: Bool = true
+    /// 투명 여백을 잘라 칸을 채울지. **박스 칸에서만 켠다** — 크기가 같은 칸이 나란히 놓이는
+    /// 자리가 거기뿐이라, 다른 화면에서는 원래 캔버스가 주는 실제 크기 차이를 남기는 편이 낫다.
+    var fillFrame: Bool = false
     @State private var img: NSImage?
     @State private var up = false
     @State private var loadedID: Int?   // img 가 어느 speciesID 것인지(id 변경 시 갱신 판단)
@@ -78,7 +79,7 @@ struct SpriteView: View {
 
     init(speciesID: Int?, form: String? = nil, size: CGFloat = 84, bob: Bool = false,
          animated: Bool = false, shiny: Bool = false, minFrameDelay: TimeInterval = 0,
-         antialias: Bool = false, silhouette: Bool = false, fillFrame: Bool = true) {
+         antialias: Bool = false, silhouette: Bool = false, fillFrame: Bool = false) {
         self.speciesID = speciesID
         self.form = form
         self.size = size

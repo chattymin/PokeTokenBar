@@ -66,8 +66,7 @@ struct PopoverView: View {
     var body: some View {
         Group {
             if Self.needsStarter(player.state) {
-                StarterPickerView(store: player, provider: provider,
-                                  fillFrame: store.fillSpriteFrame) { }
+                StarterPickerView(store: player, provider: provider) { }
             } else {
                 existingBody
             }
@@ -132,9 +131,9 @@ struct PopoverView: View {
 
             if nav.tab == .box {
                 BoxTabView(store: player, lines: evoLines, onNeedLine: { baseID in loadLine(baseID) },
-                           selection: $boxSelection, fillFrame: store.fillSpriteFrame)
+                           selection: $boxSelection, fillFrame: store.fillBoxSlots)
             } else if nav.tab == .collection {
-                NationalDexView(store: player, fillFrame: store.fillSpriteFrame)
+                NationalDexView(store: player)
             } else if nav.tab == .shop {
                 ShopTabView(store: player, provider: provider)
             } else {
@@ -147,13 +146,11 @@ struct PopoverView: View {
                 if Self.needsCountdownTick(player.state) {
                     TimelineView(.periodic(from: .now, by: 1)) { context in
                         EggSlotsView(store: player, now: context.date, lines: evoLines,
-                                     onNeedLine: { baseID in loadLine(baseID) },
-                                     fillFrame: store.fillSpriteFrame)
+                                     onNeedLine: { baseID in loadLine(baseID) })
                     }
                 } else {
                     EggSlotsView(store: player, now: player.currentDate(), lines: evoLines,
-                                 onNeedLine: { baseID in loadLine(baseID) },
-                                 fillFrame: store.fillSpriteFrame)
+                                 onNeedLine: { baseID in loadLine(baseID) })
                 }
                 Divider()
                 header
@@ -192,8 +189,7 @@ struct PopoverView: View {
         if let partner = player.state.partner {
             HStack(alignment: .top, spacing: 10) {
                 SpriteView(speciesID: partner.speciesID, form: partner.spriteForm, size: 64, bob: true, animated: true,
-                          shiny: partner.shiny, antialias: store.antialiasSprites,
-                          fillFrame: store.fillSpriteFrame)
+                          shiny: partner.shiny, antialias: store.antialiasSprites)
                     .frame(width: 64, height: 64)
                     .background(Color.secondary.opacity(0.06))
                     .clipShape(RoundedRectangle(cornerRadius: 12))
