@@ -1,8 +1,10 @@
 import SwiftUI
 
-/// 박스 — 보유 개체 그리드. 도감이 "종을 모았나"라면 여기는 "무엇을 가졌나"다.
-/// 그리드는 한눈에 보는 용도만 맡고, 개체를 만지는 일(파트너 지정·사탕·진화)은 전부
-/// `IndividualDetailView` 로 넘긴다 — 중복 개체가 흔해서 행마다 버튼을 늘어놓으면 못 읽는다.
+/// 박스 — 보관함. 도감이 "종을 모았나"라면 여기는 "무엇을 가졌나"다.
+/// 본가 PC 처럼 **고정 30칸(6×5) 한 상자**를 페이지로 넘긴다. 가진 만큼만 흐르는 그리드는
+/// 목록으로 보이지 보관함으로 안 보인다 — 빈 칸이 보여야 "여기 채워 넣는 곳"이 된다.
+/// 칸은 보는 용도만 맡고, 개체를 만지는 일(파트너 지정·사탕·진화)은 전부
+/// `IndividualDetailView` 로 넘긴다 — 중복 개체가 흔해서 칸마다 버튼을 늘어놓으면 못 읽는다.
 struct BoxTabView: View {
     let store: PlayerStore
     /// 종 번호 → 진화 라인. 없으면 진화 후보를 알 수 없어 진화 버튼 자체를 숨긴다.
@@ -22,9 +24,25 @@ struct BoxTabView: View {
         return min(1, max(0, Double(individual.exp) / Double(threshold)))
     }
 
-    /// 최근 획득 순.
+    /// 획득 순(오래된 것부터). 본가 PC 처럼 **자리가 고정**돼야 보관함으로 읽힌다 —
+    /// 최신순이면 한 마리 얻을 때마다 전부 한 칸씩 밀려 어제 본 자리에 없다.
     private var sorted: [Individual] {
-        store.state.box.sorted { $0.obtainedAt > $1.obtainedAt }
+        store.state.box.sorted { $0.obtainedAt < $1.obtainedAt }
+    }
+
+    /// 상자 하나에 들어가는 칸 수와 배열 — 본가와 같은 6×5.
+    nonisolated static let columnCount = 6
+    nonisolated static let rowCount = 5
+    nonisolated static let pageSize = columnCount * rowCount
+
+    /// 이 마릿수를 담는 데 필요한 상자 수. 비어 있어도 상자 하나는 있다.
+    nonisolated static func pageCount(forBoxCount count: Int) -> Int {
+        max(1, Int(ceil(Double(count) / Double(pageSize))))
+    }
+
+    /// 페이지가 줄어들 때(진화·정리) 현재 페이지가 범위를 벗어나지 않게 자른다.
+    nonisolated static func clampedPage(_ page: Int, pageCount: Int) -> Int {
+        min(max(0, page), max(0, pageCount - 1))
     }
 
     /// 선택된 개체를 **id 로 다시 찾는다** — 진화하면 speciesID 가 바뀌고 정렬 순서도 바뀌므로
@@ -33,7 +51,9 @@ struct BoxTabView: View {
         selection.flatMap { id in store.state.box.first { $0.id == id } }
     }
 
-    private let columns = Array(repeating: GridItem(.fixed(56), spacing: 6), count: 5)
+    private let columns = Array(repeating: GridItem(.fixed(48), spacing: 5),
+                                count: BoxTabView.columnCount)
+    @State private var page = 0
 
     var body: some View {
         Group {
@@ -49,42 +69,92 @@ struct BoxTabView: View {
         .frame(height: 320)
     }
 
+    private var pageCount: Int { Self.pageCount(forBoxCount: store.state.box.count) }
+    private var currentPage: Int { Self.clampedPage(page, pageCount: pageCount) }
+
+    /// 이 상자에 놓인 개체들 — 빈 자리는 nil. 고정 30칸이라 뒤가 비어도 칸은 그린다.
+    private var slots: [Individual?] {
+        let all = sorted
+        let start = currentPage * Self.pageSize
+        return (0..<Self.pageSize).map { offset in
+            let index = start + offset
+            return index < all.count ? all[index] : nil
+        }
+    }
+
     private var grid: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack {
-                Text(l.box).font(.system(size: 11, weight: .semibold))
-                Spacer()
-                Text(l.boxCount(store.state.box.count))
-                    .font(.system(size: 10)).monospacedDigit().foregroundStyle(.secondary)
-            }
-            if store.state.box.isEmpty {
-                Spacer()
-                Text(l.boxEmpty)
-                    .font(.system(size: 11)).foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity)
-                Spacer()
-            } else {
-                ScrollView {
-                    LazyVGrid(columns: columns, spacing: 6) {
-                        ForEach(sorted) { individual in
-                            BoxCell(individual: individual,
-                                    regionLabel: individual.region?.shortLabel(store.language),
-                                    isPartner: individual.id == store.state.partnerID,
-                                    ribbon: individual.ribbon(at: store.currentDate()),
-                                    canEvolve: readyToEvolve(individual),
-                                    progress: Self.progress(individual),
-                                    partnerBadge: l.partnerBadge) {
-                                selection = individual.id
-                            }
-                            // 진화 가능 표시를 그리려면 라인이 필요하다 — 보이는 칸만 요청한다.
-                            .task(id: individual.baseID) {
-                                if lines[individual.baseID] == nil { onNeedLine(individual.baseID) }
-                            }
+        VStack(spacing: 6) {
+            boxHeader
+            LazyVGrid(columns: columns, spacing: 5) {
+                ForEach(Array(slots.enumerated()), id: \.offset) { _, individual in
+                    if let individual {
+                        BoxCell(individual: individual,
+                                regionLabel: individual.region?.shortLabel(store.language),
+                                isPartner: individual.id == store.state.partnerID,
+                                ribbon: individual.ribbon(at: store.currentDate()),
+                                canEvolve: readyToEvolve(individual),
+                                progress: Self.progress(individual),
+                                partnerBadge: l.partnerBadge) {
+                            selection = individual.id
                         }
+                        // 진화 가능 표시를 그리려면 라인이 필요하다 — 보이는 칸만 요청한다.
+                        .task(id: individual.baseID) {
+                            if lines[individual.baseID] == nil { onNeedLine(individual.baseID) }
+                        }
+                    } else {
+                        emptySlot
                     }
                 }
             }
+            .padding(6)
+            .background(Color.secondary.opacity(0.10), in: RoundedRectangle(cornerRadius: 10))
+            .overlay {
+                RoundedRectangle(cornerRadius: 10)
+                    .strokeBorder(Color.secondary.opacity(0.22), lineWidth: 1)
+            }
+            if store.state.box.isEmpty {
+                Text(l.boxEmpty).font(.system(size: 10)).foregroundStyle(.tertiary)
+            }
         }
+    }
+
+    /// 상자 이름과 좌우 이동. 상자가 하나뿐이어도 화살표를 비활성으로 남겨 둔다 —
+    /// 사라지면 페이지가 늘었을 때 어디를 눌러야 하는지 새로 배워야 한다.
+    private var boxHeader: some View {
+        HStack(spacing: 8) {
+            pageButton(systemName: "chevron.left", enabled: currentPage > 0) {
+                page = currentPage - 1
+            }
+            VStack(spacing: 0) {
+                Text(l.boxTitle(currentPage + 1)).font(.system(size: 11, weight: .semibold))
+                Text(l.boxSlotUsage(store.state.box.count, Self.pageSize * pageCount))
+                    .font(.system(size: 8)).monospacedDigit().foregroundStyle(.tertiary)
+            }
+            .frame(maxWidth: .infinity)
+            pageButton(systemName: "chevron.right", enabled: currentPage < pageCount - 1) {
+                page = currentPage + 1
+            }
+        }
+    }
+
+    private func pageButton(systemName: String, enabled: Bool,
+                            action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: systemName)
+                .font(.system(size: 10, weight: .bold))
+                .frame(width: 20, height: 18)
+                .background(Color.secondary.opacity(enabled ? 0.18 : 0.06),
+                            in: RoundedRectangle(cornerRadius: 5))
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(enabled ? Color.primary : Color.secondary.opacity(0.4))
+        .disabled(!enabled)
+    }
+
+    private var emptySlot: some View {
+        RoundedRectangle(cornerRadius: 7)
+            .fill(Color.secondary.opacity(0.07))
+            .frame(width: 48, height: 50)
     }
 
     private func readyToEvolve(_ individual: Individual) -> Bool {
@@ -137,8 +207,8 @@ struct BoxCell: View {
             VStack(spacing: 1) {
                 ZStack(alignment: .topTrailing) {
                     SpriteView(speciesID: individual.speciesID, form: individual.spriteForm,
-                               size: 40, shiny: individual.shiny)
-                        .frame(width: 40, height: 40)
+                               size: 36, shiny: individual.shiny)
+                        .frame(width: 36, height: 36)
                         // 리본은 좌측 상단, 진화 가능은 우측 상단 — 양쪽 귀퉁이로 갈라 둬야
                         // 둘 다 붙은 개체에서 서로 겹치지 않는다.
                         .overlay(alignment: .topLeading) {
@@ -154,8 +224,8 @@ struct BoxCell: View {
                             .lineLimit(1).minimumScaleFactor(0.6)
                             .padding(.horizontal, 3).padding(.vertical, 0.5)
                             .background(Color.secondary.opacity(0.45), in: Capsule())
-                            .frame(maxWidth: 50)
-                            .offset(x: 5, y: 30)
+                            .frame(maxWidth: 44)
+                            .offset(x: 3, y: 25)
                     }
                     // 진화 가능은 칸에서 바로 보여야 한다 — 아니면 개체를 하나씩 열어봐야 안다.
                     if canEvolve {
@@ -165,22 +235,21 @@ struct BoxCell: View {
                             .offset(x: 3, y: -2)
                     }
                 }
+                // 본가 PC 는 칸에 이름을 안 적는다 — 스프라이트가 곧 식별자다.
+                // 경험치만 칸 바닥에 얇게 남겨 "키우는 중"이 보이게 한다.
                 ProgressView(value: progress)
                     .progressViewStyle(.linear)
-                    .frame(width: 40, height: 3)
-                Text(isPartner ? partnerBadge : "#\(individual.speciesID)")
-                    .font(.system(size: 7, weight: isPartner ? .bold : .regular))
-                    .monospacedDigit()
-                    .foregroundStyle(isPartner ? Color.accentColor : .secondary)
-                    .lineLimit(1)
+                    .frame(width: 34, height: 2)
             }
-            .frame(width: 56, height: 60)
-            .background(Color.secondary.opacity(isPartner ? 0.16 : 0.07),
-                        in: RoundedRectangle(cornerRadius: 8))
+            .frame(width: 48, height: 50)
+            .background(isPartner ? Color.accentColor.opacity(0.22) : Color.secondary.opacity(0.16),
+                        in: RoundedRectangle(cornerRadius: 7))
             .overlay {
-                if individual.shiny {
-                    RoundedRectangle(cornerRadius: 8).strokeBorder(Color.yellow.opacity(0.8), lineWidth: 1)
-                }
+                // 파트너는 테두리로, 이로치는 금테로 — 이름표가 없으니 칸 자체가 말해야 한다.
+                RoundedRectangle(cornerRadius: 7)
+                    .strokeBorder(individual.shiny ? Color.yellow.opacity(0.85)
+                                                   : (isPartner ? Color.accentColor : .clear),
+                                  lineWidth: 1.2)
             }
         }
         .buttonStyle(.plain)

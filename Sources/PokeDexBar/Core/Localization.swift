@@ -90,6 +90,9 @@ struct L {
     var backToBox: String { t("박스", "Box", "ボックス") }
     var boxEmpty: String { t("아직 가진 포켓몬이 없어요", "No Pokémon yet", "まだポケモンがいません") }
     func boxCount(_ count: Int) -> String { t("\(count)마리", "\(count)", "\(count)ひき") }
+    /// 보관함 상자 이름과 사용 칸 — 본가 PC 처럼 고정 30칸 상자를 넘겨 본다.
+    func boxTitle(_ number: Int) -> String { t("박스 \(number)", "Box \(number)", "ボックス \(number)") }
+    func boxSlotUsage(_ used: Int, _ total: Int) -> String { "\(used) / \(total)" }
     var detailNature: String { t("성격", "Nature", "せいかく") }
     var detailGrade: String { t("등급", "Grade", "ランク") }
     var detailExp: String { t("경험치", "EXP", "けいけんち") }

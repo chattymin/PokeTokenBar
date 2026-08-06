@@ -180,3 +180,39 @@ final class IndividualDisplayNameTests: XCTestCase {
         XCTAssertEqual(perrserker.displayName(speciesName: "나이킹", .ko), "나이킹")
     }
 }
+
+/// 보관함 페이지 — 본가 PC 처럼 고정 30칸(6×5) 상자를 넘긴다.
+final class BoxPagingTests: XCTestCase {
+    func testEmptyBoxStillHasOnePage() {
+        XCTAssertEqual(BoxTabView.pageCount(forBoxCount: 0), 1, "빈 보관함도 상자는 하나 있다")
+    }
+
+    func testAFullPageDoesNotSpillIntoTheNext() {
+        XCTAssertEqual(BoxTabView.pageCount(forBoxCount: BoxTabView.pageSize), 1)
+        XCTAssertEqual(BoxTabView.pageCount(forBoxCount: BoxTabView.pageSize + 1), 2)
+    }
+
+    func testGridIsSixByFive() {
+        XCTAssertEqual(BoxTabView.columnCount, 6)
+        XCTAssertEqual(BoxTabView.rowCount, 5)
+        XCTAssertEqual(BoxTabView.pageSize, 30)
+    }
+
+    /// 마지막 상자를 보다가 개체가 줄면(진화가 아니라 정리 등) 빈 페이지에 갇히면 안 된다.
+    func testPageIsClampedWhenPagesShrink() {
+        XCTAssertEqual(BoxTabView.clampedPage(3, pageCount: 2), 1)
+        XCTAssertEqual(BoxTabView.clampedPage(0, pageCount: 1), 0)
+        XCTAssertEqual(BoxTabView.clampedPage(-1, pageCount: 3), 0, "음수 페이지로 새면 안 된다")
+        XCTAssertEqual(BoxTabView.clampedPage(5, pageCount: 0), 0)
+    }
+
+    /// 한 칸에 폭 48 + 간격 5 로 6열이 팝오버 콘텐츠 폭(332pt) 안에 들어가야 한다.
+    /// 넘으면 마지막 열이 잘리는데, 스크롤이 없어서 영영 못 본다.
+    func testARowFitsInsideThePopover() {
+        let width = CGFloat(BoxTabView.columnCount) * 48
+            + CGFloat(BoxTabView.columnCount - 1) * 5
+            + 12   // 상자 안쪽 여백(좌우 6)
+        XCTAssertLessThanOrEqual(width, PopoverMetrics.contentWidth,
+                                 "6열이 팝오버 폭을 넘어 마지막 칸이 잘린다")
+    }
+}
