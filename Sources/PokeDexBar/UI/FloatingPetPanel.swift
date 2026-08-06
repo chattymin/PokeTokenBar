@@ -365,7 +365,10 @@ final class PetHostingView: NSHostingView<AnyView> {
 }
 
 struct FloatingPetView: View {
-    static let frameFloor: TimeInterval = 0.4
+    /// 펫은 GIF 원본 속도로 움직인다. 예전엔 0.4s(≈2.5fps) 캡을 걸어 idle wakeup 을 줄였지만,
+    /// 그 속도로는 눈에 띄게 굼떠 보여서 캡을 뺐다(사용자 결정, 2026-08-06). 배터리 방어는
+    /// 남은 두 가지가 맡는다 — 저전력 모드 정적화(`shouldAnimate`), 숨김/슬립 시 `contentView=nil`.
+    static let frameFloor: TimeInterval = 0
     var animated: Bool = true
     @Environment(UsageStore.self) private var store
     @Environment(PlayerStore.self) private var player

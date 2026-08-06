@@ -44,11 +44,14 @@ final class FloatingPetEnergyTests: XCTestCase {
         XCTAssertTrue(FloatingPetController.shouldAnimate(lowPower: false))
     }
 
-    /// [회귀] 펫은 반드시 fps 캡이 걸려야 한다 — frameFloor 가 0 으로 돌아가면(네이티브 fps) 메뉴바에서
-    /// 고친 wakeup 회귀가 재발한다. 뷰가 실제로 넘기는 상수를 그대로 가드한다(리터럴 유실 방지).
-    func testPetFrameFloorIsCapped() {
-        XCTAssertGreaterThan(FloatingPetView.frameFloor, 0, "펫 fps 캡이 해제되면 idle wakeup 회귀")
-        XCTAssertEqual(FloatingPetView.frameFloor, 0.4, accuracy: 1e-9, "메뉴바와 동일한 0.4s≈2.5fps 캡")
+    /// 펫은 GIF 원본 속도로 돈다(캡 제거, 2026-08-06). 캡이 없어진 대신 배터리 방어는 저전력
+    /// 정적화와 숨김 시 해제가 맡으므로, 그 둘이 살아 있는지를 대신 잠근다.
+    func testPetRunsAtNativeSpeed() {
+        XCTAssertEqual(FloatingPetView.frameFloor, 0, accuracy: 1e-9, "펫은 원본 속도로 움직인다")
+        XCTAssertEqual(SpriteView.frameDelay(base: 0.05, floor: FloatingPetView.frameFloor),
+                       0.05, accuracy: 1e-9, "빠른 프레임이 캡에 걸리면 안 된다")
+        XCTAssertFalse(FloatingPetController.shouldAnimate(lowPower: true),
+                       "캡이 없어진 만큼 저전력 정적화는 반드시 남아 있어야 한다")
     }
 
     /// Bubble needs headroom + width beyond the square pet size — otherwise content is clipped.
