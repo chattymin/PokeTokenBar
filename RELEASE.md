@@ -23,7 +23,7 @@ PTB_NOTES_FILE=/tmp/notes.md ./scripts/release.sh 2.1.1
 4. **빌드 + zip** (`build/PokeDexBar.zip`) + 빌드 버전 일치 확인 — **push 전 검증**(실패해도 범프 미커밋이라 origin/main 무손상).
 5. **커밋 + push** (`git push origin main`, 빌드 성공 후).
 6. **GitHub Release** 생성 (노트는 `PTB_NOTES_FILE` 또는 최소 노트).
-7. **Homebrew cask** 버전 갱신 (`leedg0831/homebrew-tap`).
+7. **Homebrew cask** 버전 갱신 (`donky-ey/homebrew-tap`).
 8. **GitHub Pages 재빌드** 요청 (랜딩 동적 배지 갱신 유도).
 
 > `main` 브랜치에서만 실행(스크립트가 가드). 비-main 에서 실행 시 즉시 중단.

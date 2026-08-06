@@ -12,8 +12,8 @@ import ServiceManagement
 /// (= 로그인 실행과 크래시-재실행이 한 토글로 묶임 — 메뉴바 앱엔 자연스러운 결합).
 @MainActor
 enum LoginItem {
-    static let plistName = "io.github.leedg0831.pokedexbar.login.plist"
-    static let label = "io.github.leedg0831.pokedexbar.login"
+    static let plistName = "io.github.donky-ey.pokedexbar.login.plist"
+    static let label = "io.github.donky-ey.pokedexbar.login"
     private static var agent: SMAppService { SMAppService.agent(plistName: plistName) }
 
     /// 현재 "로그인 시 실행(+크래시 자동 재실행)" 활성 여부.

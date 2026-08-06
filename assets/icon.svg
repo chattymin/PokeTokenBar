@@ -1,13 +1,24 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+<!-- 도감 그리드 — 채운 칸과 아직 못 채운 칸. 실제 아이콘은 scripts/generate-icon.swift 가 만든다
+     (사이즈마다 직접 렌더해 16px 에서도 형태가 남게). 이 SVG 는 그 시안이며 둘은 같아야 한다 —
+     예전에 이 파일과 생성기가 갈라져서, 생성기를 돌리면 아이콘이 옛 디자인으로 되돌아갔다. -->
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 100 100">
   <defs>
-    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#171b23"/><stop offset="1" stop-color="#0a0c11"/></linearGradient>
-    <filter id="gs" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="3.4" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#171b23"/><stop offset="1" stop-color="#0a0c11"/>
+    </linearGradient>
   </defs>
-  <svg x="100" y="100" width="824" height="824" viewBox="0 0 256 256">
-    <rect x="6" y="6" width="244" height="244" rx="58" fill="url(#bg)"/>
-    <g fill="none" stroke="#f05138" stroke-width="7" stroke-linecap="round" stroke-linejoin="round" filter="url(#gs)">
-      <path d="M128 58 C170 58 194 116 194 156 C194 198 166 222 128 222 C90 222 62 198 62 156 C62 116 86 58 128 58 Z"/>
-      <path d="M86 150 L106 134 L122 152 L138 132 L154 152 L172 138"/>
-    </g>
-  </svg>
+  <rect x="3" y="3" width="94" height="94" rx="22" fill="url(#bg)"/>
+  <g fill="#f05138">
+    <rect x="19" y="19" width="17.33" height="17.33" rx="4.5"/>
+    <rect x="41.33" y="19" width="17.33" height="17.33" rx="4.5"/>
+    <rect x="19" y="41.33" width="17.33" height="17.33" rx="4.5"/>
+    <rect x="63.67" y="41.33" width="17.33" height="17.33" rx="4.5"/>
+    <rect x="41.33" y="63.67" width="17.33" height="17.33" rx="4.5"/>
+  </g>
+  <g fill="none" stroke="#f05138" stroke-opacity="0.34" stroke-width="3">
+    <rect x="63.67" y="19" width="17.33" height="17.33" rx="4.5"/>
+    <rect x="41.33" y="41.33" width="17.33" height="17.33" rx="4.5"/>
+    <rect x="19" y="63.67" width="17.33" height="17.33" rx="4.5"/>
+    <rect x="63.67" y="63.67" width="17.33" height="17.33" rx="4.5"/>
+  </g>
 </svg>

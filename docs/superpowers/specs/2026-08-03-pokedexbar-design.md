@@ -28,7 +28,7 @@ Claude Code 등 AI CLI의 토큰 사용량을 포켓몬 수집으로 바꾸는 m
 
 | 대상 | 현재 | 변경 |
 |---|---|---|
-| 번들 ID | `io.github.chattymin.poketokenbar` | `io.github.leedg0831.pokedexbar` |
+| 번들 ID | `io.github.chattymin.poketokenbar` | `io.github.donky-ey.pokedexbar` |
 | 타깃·디렉토리 | `Sources/PokeTokenBar` | `Sources/PokeDexBar` |
 | LoginItem | `…poketokenbar.login(.plist)` | `…pokedexbar.login(.plist)` |
 | UpdateChecker | `repo = "chattymin/PokeTokenBar"` | 우리 저장소 |

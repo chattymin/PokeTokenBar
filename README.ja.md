@@ -6,12 +6,12 @@
 
 **あなたのAIコーディングトークンを、ポケモンに — メニューバーで。**
 
-[![Release](https://img.shields.io/github/v/release/leedg0831/PokeDexBar?color=444d56&label=release)](https://github.com/leedg0831/PokeDexBar/releases)
+[![Release](https://img.shields.io/github/v/release/donky-ey/PokeDexBar?color=444d56&label=release)](https://github.com/donky-ey/PokeDexBar/releases)
 [![macOS](https://img.shields.io/badge/macOS-14%2B-0969da)](https://www.apple.com/macos/)
 [![Swift](https://img.shields.io/badge/Swift-6-f05138)](https://swift.org)
 [![Homebrew](https://img.shields.io/badge/Homebrew-cask-8957e5)](#homebrew)
 [![License](https://img.shields.io/badge/license-MIT-3fb950)](LICENSE)
-[![Sponsor](https://img.shields.io/badge/Sponsor-%E2%99%A5-ea4aaa?logo=githubsponsors&logoColor=white)](https://github.com/sponsors/leedg0831)
+[![Sponsor](https://img.shields.io/badge/Sponsor-%E2%99%A5-ea4aaa?logo=githubsponsors&logoColor=white)](https://github.com/sponsors/donky-ey)
 
 [English](README.md) · [한국어](README.ko.md) · **日本語**
 
@@ -146,14 +146,14 @@ macOS 14+（Apple Silicon または Intel）。それだけ — トークン使�
 ### Homebrew
 
 ```bash
-brew install --cask leedg0831/tap/poke-dex-bar
+brew install --cask donky-ey/tap/poke-dex-bar
 ```
 
 ad-hoc／自己署名アプリのため、Cask インストール時に隔離属性を自動で除去します。
 
 ### 手動インストール（Homebrew なし）
 
-Homebrew を使わない場合は、[最新リリース](https://github.com/leedg0831/PokeDexBar/releases/latest) から `PokeDexBar.zip` をダウンロードして展開し、`PokeDexBar.app` を `/Applications` にドラッグします。
+Homebrew を使わない場合は、[最新リリース](https://github.com/donky-ey/PokeDexBar/releases/latest) から `PokeDexBar.zip` をダウンロードして展開し、`PokeDexBar.app` を `/Applications` にドラッグします。
 
 このアプリは ad-hoc／自己署名（Apple Developer アカウントでの公証なし）のため、初回起動時に Gatekeeper が「開発元が未確認」の警告を表示します。次のいずれかで一度だけ解除してください。
 
@@ -200,7 +200,7 @@ swift test                   # ユニットテスト
 
 大小を問わずあらゆる貢献を歓迎します — ビルド・テスト・プルリクエストの方法は [CONTRIBUTING.ja.md](CONTRIBUTING.ja.md) をご覧ください。
 
-[![Contributors](https://contrib.rocks/image?repo=leedg0831/PokeDexBar)](https://github.com/leedg0831/PokeDexBar/graphs/contributors)
+[![Contributors](https://contrib.rocks/image?repo=donky-ey/PokeDexBar)](https://github.com/donky-ey/PokeDexBar/graphs/contributors)
 
 ## ライセンス & 免責
 

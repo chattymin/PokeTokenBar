@@ -6,12 +6,12 @@
 
 **Your AI coding tokens, hatched into Pokémon — right in your menu bar.**
 
-[![Release](https://img.shields.io/github/v/release/leedg0831/PokeDexBar?color=444d56&label=release)](https://github.com/leedg0831/PokeDexBar/releases)
+[![Release](https://img.shields.io/github/v/release/donky-ey/PokeDexBar?color=444d56&label=release)](https://github.com/donky-ey/PokeDexBar/releases)
 [![macOS](https://img.shields.io/badge/macOS-14%2B-0969da)](https://www.apple.com/macos/)
 [![Swift](https://img.shields.io/badge/Swift-6-f05138)](https://swift.org)
 [![Homebrew](https://img.shields.io/badge/Homebrew-cask-8957e5)](#homebrew)
 [![License](https://img.shields.io/badge/license-MIT-3fb950)](LICENSE)
-[![Sponsor](https://img.shields.io/badge/Sponsor-%E2%99%A5-ea4aaa?logo=githubsponsors&logoColor=white)](https://github.com/sponsors/leedg0831)
+[![Sponsor](https://img.shields.io/badge/Sponsor-%E2%99%A5-ea4aaa?logo=githubsponsors&logoColor=white)](https://github.com/sponsors/donky-ey)
 
 **English** · [한국어](README.ko.md) · [日本語](README.ja.md)
 
@@ -146,14 +146,14 @@ macOS 14+ (Apple Silicon or Intel). That's it — token usage is read directly f
 ### Homebrew
 
 ```bash
-brew install --cask leedg0831/tap/poke-dex-bar
+brew install --cask donky-ey/tap/poke-dex-bar
 ```
 
 ad-hoc/self-signed; the cask strips the quarantine attribute on install.
 
 ### Manual install (without Homebrew)
 
-Prefer not to use Homebrew? Download `PokeDexBar.zip` from the [latest release](https://github.com/leedg0831/PokeDexBar/releases/latest), unzip it, and drag `PokeDexBar.app` into `/Applications`.
+Prefer not to use Homebrew? Download `PokeDexBar.zip` from the [latest release](https://github.com/donky-ey/PokeDexBar/releases/latest), unzip it, and drag `PokeDexBar.app` into `/Applications`.
 
 Because the app is ad-hoc/self-signed (not notarized under an Apple Developer account), Gatekeeper shows an "unidentified developer" warning on first launch. Clear it once, either way:
 
@@ -200,7 +200,7 @@ swift test                   # unit tests
 
 Contributions of all sizes are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md) for how to build, test, and open a pull request.
 
-[![Contributors](https://contrib.rocks/image?repo=leedg0831/PokeDexBar)](https://github.com/leedg0831/PokeDexBar/graphs/contributors)
+[![Contributors](https://contrib.rocks/image?repo=donky-ey/PokeDexBar)](https://github.com/donky-ey/PokeDexBar/graphs/contributors)
 
 ## License & disclaimer
 

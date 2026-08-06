@@ -71,12 +71,12 @@ struct SettingsView: View {
         HStack(spacing: 5) {
             Text("v\(Self.appVersion)")
             Text("·")
-            footerLink("GitHub", "https://github.com/leedg0831/PokeDexBar")
+            footerLink("GitHub", "https://github.com/donky-ey/PokeDexBar")
             Text("·")
-            footerLink("Web", "https://leedg0831.github.io/PokeDexBar/")
+            footerLink("Web", "https://donky-ey.github.io/PokeDexBar/")
             Text("·")
             // 개발자 후원 — 기능 잠금·너지 없는 푸터 링크
-            footerLink("♥ Sponsor", "https://github.com/sponsors/leedg0831")
+            footerLink("♥ Sponsor", "https://github.com/sponsors/donky-ey")
             Spacer()
         }
         .font(.caption2)

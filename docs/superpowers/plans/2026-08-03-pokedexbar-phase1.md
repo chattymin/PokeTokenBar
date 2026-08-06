@@ -33,7 +33,7 @@
 
 **Interfaces:**
 - Consumes: 없음(첫 태스크)
-- Produces: 타깃명 `PokeDexBar`/`PokeDexBarTests`, 번들 ID `io.github.leedg0831.pokedexbar`, 데이터 폴더 `~/Library/Application Support/PokeDexBar`. 이후 모든 태스크의 경로는 `Sources/PokeDexBar/…`.
+- Produces: 타깃명 `PokeDexBar`/`PokeDexBarTests`, 번들 ID `io.github.donky-ey.pokedexbar`, 데이터 폴더 `~/Library/Application Support/PokeDexBar`. 이후 모든 태스크의 경로는 `Sources/PokeDexBar/…`.
 
 - [ ] **Step 1: 디렉토리·파일 이름 변경**
 
@@ -76,7 +76,7 @@ grep -rl "PokeTokenBar\|poketokenbar" Sources Tests scripts README.md \
   | xargs sed -i '' -e 's/PokeTokenBar/PokeDexBar/g' -e 's/poketokenbar/pokedexbar/g'
 # 번들 ID 소유자도 우리 것으로
 grep -rl "io.github.chattymin.pokedexbar" Sources scripts \
-  | xargs sed -i '' 's/io\.github\.chattymin\.pokedexbar/io.github.leedg0831.pokedexbar/g'
+  | xargs sed -i '' 's/io\.github\.chattymin\.pokedexbar/io.github.donky-ey.pokedexbar/g'
 ```
 
 - [ ] **Step 4: 치환 결과 확인 — 남은 것이 없어야 한다**
@@ -89,7 +89,7 @@ Expected: 출력 없음. (README·LICENSE·CLAUDE.md의 chattymin 저작권·포
 `Sources/PokeDexBar/Core/UpdateChecker.swift:15` 가 치환으로 `chattymin/PokeDexBar` 가 되었을 수 있다. 다음 값이어야 한다.
 
 ```swift
-    private let repo = "leedg0831/PokeDexBar"
+    private let repo = "donky-ey/PokeDexBar"
 ```
 
 - [ ] **Step 6: 빌드·테스트**
@@ -105,7 +105,7 @@ Expected: `build/PokeDexBar.app` 생성. 다음으로 내용 확인:
 ```bash
 /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' build/PokeDexBar.app/Contents/Info.plist
 ```
-Expected: `io.github.leedg0831.pokedexbar`
+Expected: `io.github.donky-ey.pokedexbar`
 
 - [ ] **Step 8: README에 포크 표기 추가**
 

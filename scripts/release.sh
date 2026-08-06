@@ -13,8 +13,8 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-REPO="leedg0831/PokeDexBar"
-TAP_REPO="leedg0831/homebrew-tap"
+REPO="donky-ey/PokeDexBar"
+TAP_REPO="donky-ey/homebrew-tap"
 CASK_PATH="Casks/poke-dex-bar.rb"
 
 # ── 문서 일관성 검토 (배포 전 항상 실행) ───────────────────────────────────

@@ -12,7 +12,7 @@ final class UpdateChecker {
     private(set) var isUpdating = false
 
     let currentVersion: String
-    private let repo = "leedg0831/PokeDexBar"
+    private let repo = "donky-ey/PokeDexBar"
     private let clock: () -> Date
     private var lastChecked: Date?
 
@@ -131,7 +131,7 @@ final class UpdateChecker {
         for i in $(seq 1 300); do kill -0 "$brew_pid" 2>/dev/null || break; sleep 1; done
         kill "$brew_pid" 2>/dev/null
         for i in $(seq 1 15); do
-          launchctl kickstart -k "gui/$(id -u)/io.github.leedg0831.pokedexbar.login" 2>/dev/null && break
+          launchctl kickstart -k "gui/$(id -u)/io.github.donky-ey.pokedexbar.login" 2>/dev/null && break
           open "$2" 2>/dev/null && break
           sleep 1
         done
