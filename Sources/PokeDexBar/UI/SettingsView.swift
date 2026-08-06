@@ -139,6 +139,8 @@ struct SettingsView: View {
             Divider()
             // 팝오버 컴패니언·플로팅 펫 스프라이트 공통 설정 — 플로팅 펫이 꺼져 있어도(기본값)
             // 팝오버 컴패니언은 항상 보이므로 조건 없이 여기 둔다.
+            // (박스 칸 채우기와 달리 이건 스프라이트가 나오는 모든 화면에 걸린다.)
+            toggleRow(l.antialiasLabel, $store.antialiasSprites)
         }
     }
 
@@ -385,11 +387,7 @@ struct SettingsView: View {
     }
 
     private func toggleRow(_ label: String, _ isOn: Binding<Bool>) -> some View {
-        groupRow {
-            Text(label)
-            Spacer()
-            Toggle("", isOn: isOn).labelsHidden().toggleStyle(.switch).controlSize(.small)
-        }
+        SettingsToggleRow(label: label, isOn: isOn)
     }
 
     /// 푸터 링크 — 버전 표기와 동일한 크기·색을 상속하고 밑줄로만 구분.
@@ -420,4 +418,40 @@ struct SettingsView: View {
         reportError = nil
     }
 
+}
+
+/// 설정 토글 한 줄. 별도 타입으로 뽑은 이유는 **설정이 화면에 실제로 붙어 있는지 잠그기 위해서**다 —
+/// 스프라이트 부드럽게가 섹션을 옮기다 통째로 사라져 어느 화면에서도 못 켜는 상태로 남았던 적이 있다
+/// (`UsageStore` 에는 값이 그대로 있어 저장·로드 테스트는 전부 통과했다). 사탕이 상점에서 팔리는데
+/// 쓸 화면이 없던 결함과 같은 부류다.
+struct SettingsToggleRow: View {
+    let label: String
+    let isOn: Binding<Bool>
+
+    #if DEBUG
+    /// 테스트 전용 — 이번 렌더에서 만들어진 토글 줄의 라벨.
+    @MainActor static var constructed: [String] = []
+    @MainActor static var isRecording = false
+    @MainActor static func resetConstructed() {
+        isRecording = true
+        constructed = []
+    }
+    #endif
+
+    init(label: String, isOn: Binding<Bool>) {
+        self.label = label
+        self.isOn = isOn
+        #if DEBUG
+        if Self.isRecording { Self.constructed.append(label) }
+        #endif
+    }
+
+    var body: some View {
+        HStack {
+            Text(label)
+            Spacer()
+            Toggle("", isOn: isOn).labelsHidden().toggleStyle(.switch).controlSize(.small)
+        }
+        .padding(.horizontal, 12).padding(.vertical, 9)
+    }
 }
