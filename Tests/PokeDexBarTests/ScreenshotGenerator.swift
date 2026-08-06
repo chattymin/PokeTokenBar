@@ -77,6 +77,34 @@ private struct StubStatusProvider: ProviderStatusProviding {
     func fetch() async -> [String: ProviderStatus] { [:] }
 }
 
+/// 뽑기 연출 화면 — 앱과 같은 겹침(상점 위 `.overlay`)을 그대로 만든다.
+///
+/// `armed` 로 연출의 등장 시점을 쥔다. 연출은 한 번 재생되고 끝나므로 창이 준비되기 전에 얹으면
+/// 앞 단계가 준비 시간만큼(실측 0.16~0.56초, 실행마다 다름) 잘린 채 찍힌다. `liveFrames` 가 첫
+/// 프레임 직전에 `armed` 를 켠 뷰로 갈아끼워, 연출의 시작과 촬영의 시작을 맞춘다.
+/// (`@Observable` 스위치로도 해봤지만 오프스크린 호스팅 뷰에서는 body 가 다시 평가되지 않아
+/// 오버레이가 끝까지 안 붙었다 — 루트 뷰 교체는 확실히 반영된다.)
+private struct RevealComposite: View {
+    let store: PlayerStore
+    let provider: any PokeProviding
+    let armed: Bool
+
+    var body: some View {
+        ShopTabView(store: store, provider: provider)
+            .padding(PopoverMetrics.padding)
+            .frame(width: PopoverMetrics.width)
+            .background(Color(nsColor: .windowBackgroundColor))
+            .overlay {
+                if armed {
+                    EggRevealView(grade: ScreenshotFixture.revealGrade,
+                                  shiny: ScreenshotFixture.revealShiny,
+                                  l: store.l, language: store.language,
+                                  onDone: { })   // 끝나도 그대로 둔다 — 마지막 프레임이 결과 화면이어야 한다
+                }
+            }
+    }
+}
+
 /// `waitFor` 가 비동기 결과를 받아 두는 자리. 지역 `var` 캡처 대신 참조 하나를 쓴다.
 @MainActor
 private final class AsyncResult<T> {
@@ -223,6 +251,26 @@ enum ScreenshotFixture {
     /// 그 리듬 그대로 12프레임(4.8초)만 잘라 담는다. 실제 한 바퀴는 59프레임 ≈ 23.6초라 README 에
     /// 통째로 넣을 수 없다.
     static let menuBarMotion = Motion(frames: 12, delay: 0.4)
+
+    // MARK: 뽑기 연출
+
+    /// 연출 GIF 가 담을 등급. **레전더리여야 한다** — 이 그림의 요점이 "등급이 오를수록 한 단계 더
+    /// 올라간다"이고, 네 단계(흰색 → 하늘색 → 보라색 → 주황색)를 전부 지나는 등급은 이것뿐이다.
+    static let revealGrade = Grade.legendary
+    /// 이로치까지 걸린 판 — 마지막 줄이 "✨ There's a shiny inside!" 로 끝나 결과가 확실히 읽힌다.
+    static let revealShiny = true
+
+    /// 연출 GIF 의 길이는 **연출 자신이 정한다** — 단계 수도 단계별 체류 시간도 `EggReveal` 에
+    /// 있으므로, 프레임 수를 손으로 적으면 밸런스를 고칠 때 GIF 가 중간에서 잘린다.
+    /// 꼬리(`tail`)는 마지막 단계가 끝난 뒤 등급 라벨이 화면에 남는 시간이다.
+    static var revealMotion: Motion {
+        let stages = EggReveal.stages(for: revealGrade)
+        let sequence = stages.indices.reduce(0.0) {
+            $0 + EggReveal.duration(stageIndex: $1, of: stages.count)
+        }
+        let delay = 0.1, tail = 0.45
+        return Motion(frames: Int(((sequence + tail) / delay).rounded()), delay: delay)
+    }
 }
 
 @MainActor
@@ -537,8 +585,13 @@ final class ScreenshotGeneratorTests: XCTestCase {
     ///
     /// - Parameter warmup: 첫 프레임 전에 돌려 둘 시간. 스프라이트 로드 → GIF 디코드 → 루프 시작까지
     ///   가는 시간이라 이게 짧으면 앞쪽 프레임이 정지 화면으로 찍힌다.
+    /// - Parameter onReady: 워밍업이 끝나고 **첫 프레임을 찍기 직전**에 부른다. 한 번만 재생되고 끝나는
+    ///   연출(뽑기 리빌)을 여기서 시작시키면 창 준비 시간이 연출을 갉아먹지 않는다 — 창을 띄우고
+    ///   레이아웃하는 데 걸리는 시간은 실행마다 달라서(실측 0.16~0.56초), 뷰를 처음부터 얹어 두면
+    ///   앞 단계가 그만큼 잘린 채로, 그것도 매번 다른 길이로 찍힌다. 반복 재생되는 GIF 는 필요 없다.
     private func liveFrames<V: View>(_ view: V, _ motion: ScreenshotFixture.Motion,
-                                     warmup: TimeInterval) throws -> [NSBitmapImageRep] {
+                                     warmup: TimeInterval,
+                                     onReady: ((NSHostingView<V>) -> Void)? = nil) throws -> [NSBitmapImageRep] {
         let host = NSHostingView(rootView: view)
         host.appearance = NSAppearance(named: .darkAqua)
         host.layoutSubtreeIfNeeded()
@@ -557,11 +610,28 @@ final class ScreenshotGeneratorTests: XCTestCase {
         host.frame = CGRect(origin: .zero, size: size)
         host.layoutSubtreeIfNeeded()
         pump(warmup)
+        if let onReady {
+            onReady(host)
+            // SwiftUI 가 켜진 뷰를 실제로 얹는 데는 런루프 한 턴 + 레이아웃이 필요하다. 이걸
+            // 빼먹으면 오버레이가 끝까지 안 붙어 프레임이 전부 같은 그림으로 나온다(실측).
+            host.layoutSubtreeIfNeeded()
+            pump(0.05)
+            host.layoutSubtreeIfNeeded()
+        }
+        // **프레임은 벽시계 격자에 맞춰 찍는다.** 찍는 일 자체가 공짜가 아니라서(리빌 합성 화면은
+        // 한 장에 ~0.06초), 프레임마다 `delay` 만큼 *더* 기다리면 실제 간격이 선언한 간격보다 길어진다
+        // — GIF 는 선언한 간격으로 재생되므로 그만큼 빨라진 영상이 된다(실측: 0.1초로 적고 0.163초마다
+        // 찍어 1.6배 빨랐다). 매 프레임의 목표 시각을 시작점에서 계산해 그 시각까지만 기다린다.
         var frames: [NSBitmapImageRep] = []
+        let start = Date()
         for index in 0..<motion.frames {
-            if index > 0 { pump(motion.delay) }
+            pump(start.addingTimeInterval(Double(index) * motion.delay).timeIntervalSinceNow)
             frames.append(try snapshot(host))
         }
+        // 격자를 못 지켰다면(한 장 찍는 값이 간격보다 크다) 재생 속도가 실제와 어긋난 GIF 가 된다.
+        let achieved = Date().timeIntervalSince(start) / Double(motion.frames)
+        XCTAssertLessThan(achieved, motion.delay * 1.15,
+                          "프레임 간격이 선언값(\(motion.delay)s)보다 길다 — 실제보다 빠르게 재생된다")
         let first = try XCTUnwrap(frames.first, "프레임이 하나도 없다")
         XCTAssertEqual(CGFloat(first.pixelsWide) / host.bounds.width, Self.scale,
                        "2배 스케일이 아니다 — 레티나가 아닌 디스플레이에서 돌렸다")
@@ -725,6 +795,7 @@ final class ScreenshotGeneratorTests: XCTestCase {
         try write(try homeAnimation(fixture, usage: usage), "screenshot-home.gif")
         try write(try petAnimation(fixture, usage: usage), "floating-pet.gif")
         try write(try shinyAnimation(usage: usage), "shiny-banner.gif")
+        try write(try revealAnimation(fixture), "screenshot-reveal.gif")
         try write(try menuBarAnimation(fixture, usage: usage), "menubar.gif")
     }
 
@@ -774,6 +845,96 @@ final class ScreenshotGeneratorTests: XCTestCase {
         .padding(.horizontal, 25).padding(.vertical, 12)
         .background(Color(nsColor: .windowBackgroundColor))
         return try gif(liveFrames(view, motion, warmup: 2.0), delay: motion.delay)
+    }
+
+    /// 뽑기 연출 — 알을 뽑은 직후 상점 위에 덮이는 화면. 등급이 오를수록 단계가 하나씩 더 얹히는
+    /// 게 이 기능의 전부라, 네 단계를 다 지나는 레전더리를 담는다.
+    ///
+    /// 앱은 `ShopTabView` 의 `.overlay` 로 이 뷰를 덮는다(같은 파일 `body` 참조). 그 `reveal` 상태는
+    /// `private` 이고 네트워크 뽑기가 끝나야 채워지므로, 여기서는 **앱과 똑같은 겹침을 직접 만든다** —
+    /// 뷰도 지오메트리도 앱이 쓰는 그대로라, 사용자가 보는 화면과 같은 그림이 나온다.
+    ///
+    /// **담기는 것과 안 담기는 것.** 단계별 색은 알의 글로우(`shadow(color:)`)와 마지막 등급 라벨로
+    /// 담기지만, **날아가는 파티클은 담기지 않는다.** 파티클은 `burst` 가 참인 동안 `opacity(0)` 이고
+    /// 눈에 보이는 건 그 사이를 잇는 SwiftUI 애니메이션의 중간값뿐인데, `cacheDisplay` 는 애니메이션
+    /// *모델* 값(=최종값)을 그리므로 늘 투명한 상태로 찍힌다. 오프스크린 창을 화면 안으로 옮겨도,
+    /// `CALayer.presentation()` 을 대신 렌더해도 결과는 같았다(둘 다 실측). 그래서 이 GIF 의 에스컬레이션은
+    /// "파티클이 네 번 터진다"가 아니라 "알의 글로우가 네 색을 거친다"로 읽힌다 — 아래 검사도 그 기준이다.
+    private func revealAnimation(_ fixture: Fixture) throws -> Data {
+        let motion = ScreenshotFixture.revealMotion
+        let provider = StubProvider()
+        // 창이 다 준비된 뒤에 연출을 얹는다 — 앱에서도 뽑기가 끝난 순간 나타나는 오버레이라
+        // 등장 시점이 곧 연출의 시작이다.
+        let frames = try liveFrames(
+            RevealComposite(store: fixture.player, provider: provider, armed: false),
+            motion, warmup: 0.4,
+            onReady: { host in
+                host.rootView = RevealComposite(store: fixture.player, provider: provider, armed: true)
+            })
+        try assertEscalationIsVisible(in: frames)
+        return try gif(frames, delay: motion.delay)
+    }
+
+    /// 네 단계가 **순서대로** 프레임에 찍혔는지 확인한다. 이 GIF 는 에스컬레이션을 보여주려고
+    /// 존재하므로, 연출이 조용히 짧아지거나(단계 수 변경) 색이 뒤바뀌면 잘못된 그림을 릴리스에
+    /// 실어 보내는 대신 여기서 멈춰야 한다.
+    ///
+    /// 판정은 밝기가 아니라 **색조**로 한다 — 글로우는 검은 막 위에 번진 것이라 원색보다 훨씬
+    /// 어둡다(실측: 하늘색 단계의 가장 진한 픽셀이 rgb(51,71,84)). 채널을 최댓값으로 정규화하면
+    /// 어두워도 색조는 남는다.
+    private func assertEscalationIsVisible(in frames: [NSBitmapImageRep]) throws {
+        let stages = EggReveal.stages(for: ScreenshotFixture.revealGrade)
+        let targets = try stages.map {
+            try XCTUnwrap(NSColor($0.color).usingColorSpace(.deviceRGB), "단계 색을 RGB 로 못 바꿨다")
+        }
+        var next = 0   // 다음으로 나타나야 할 단계
+        for frame in frames {
+            guard let hue = dominantHue(frame) else { continue }
+            let nearest = targets.indices.min {
+                distance(hue, normalized(targets[$0])) < distance(hue, normalized(targets[$1]))
+            }
+            if nearest == next { next += 1 }
+        }
+        XCTAssertEqual(next, stages.count,
+                       "연출이 \(stages.count)단계를 순서대로 지나지 않았다 — \(next)단계까지만 보인다")
+    }
+
+    /// 프레임에서 가장 색이 진한 픽셀의 색조. 알 글로우만 보도록 가운데로 좁힌다 — 상점의 초록
+    /// "Draw" 버튼이 왼쪽에 있어 프레임 전체를 보면 그게 이길 수 있다. (마지막 단계에만 나오는
+    /// 결과 줄의 ✨ 가 아래쪽 경계로 들어와도 무해하다 — 그 프레임은 어차피 주황 단계다.)
+    private func dominantHue(_ frame: NSBitmapImageRep) -> (r: Double, g: Double, b: Double)? {
+        guard let bytes = frame.bitmapData else { return nil }
+        let bytesPerPixel = frame.bitsPerPixel / 8
+        let xs = Int(Double(frame.pixelsWide) * 0.33)..<Int(Double(frame.pixelsWide) * 0.67)
+        let ys = Int(Double(frame.pixelsHigh) * 0.15)..<Int(Double(frame.pixelsHigh) * 0.70)
+        var best: (chroma: Int, color: (r: Double, g: Double, b: Double))?
+        for y in ys {
+            for x in xs {
+                let offset = y * frame.bytesPerRow + x * bytesPerPixel
+                let r = Int(bytes[offset]), g = Int(bytes[offset + 1]), b = Int(bytes[offset + 2])
+                let chroma = max(r, max(g, b)) - min(r, min(g, b))
+                if chroma > (best?.chroma ?? 0) {
+                    best = (chroma, normalized(r: Double(r), g: Double(g), b: Double(b)))
+                }
+            }
+        }
+        return best?.color
+    }
+
+    /// 가장 밝은 채널을 1 로 맞춘 색 — 밝기를 빼고 색조만 남긴다.
+    private func normalized(r: Double, g: Double, b: Double) -> (r: Double, g: Double, b: Double) {
+        let peak = max(r, max(g, b))
+        guard peak > 0 else { return (0, 0, 0) }
+        return (r / peak, g / peak, b / peak)
+    }
+
+    private func normalized(_ color: NSColor) -> (r: Double, g: Double, b: Double) {
+        normalized(r: color.redComponent, g: color.greenComponent, b: color.blueComponent)
+    }
+
+    private func distance(_ a: (r: Double, g: Double, b: Double),
+                          _ b: (r: Double, g: Double, b: Double)) -> Double {
+        abs(a.r - b.r) + abs(a.g - b.g) + abs(a.b - b.b)
     }
 
     /// 메뉴바 — 상태아이템은 오프스크린 렌더가 닿지 않는 표면이라 유일하게 손으로 조립한다.
