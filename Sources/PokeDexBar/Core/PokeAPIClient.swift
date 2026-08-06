@@ -244,7 +244,14 @@ actor PokeAPIClient: PokeProviding {
         guard let details, !details.isEmpty else { return .none }
         for d in details {
             if let item = d.item?.name, EvolutionItem.named(item) != nil { return .item(item) }
-            if d.trigger?.name == "trade" { return .item(EvolutionItem.linkingCord.rawValue) }
+            if d.trigger?.name == "trade" {
+                // 물건을 들고 교환하는 15종은 그 물건이 조건이다 — 연결의 끈으로 뭉뚱그리면
+                // 에레키부스터·금속코트 같은 것이 게임에서 사라진다.
+                if let held = d.held_item?.name, EvolutionItem.named(held) != nil {
+                    return .item(held)
+                }
+                return .item(EvolutionItem.linkingCord.rawValue)
+            }
             if let happiness = d.min_happiness, happiness > 0 { return .friendship }
         }
         return .none
@@ -291,5 +298,7 @@ struct ChainLink: Decodable, Sendable {
 struct EvolutionDetail: Decodable, Sendable {
     let trigger: NamedRef?
     let item: NamedRef?
+    /// 통신교환에 들고 가는 물건. 25종 중 15종이 이걸 요구한다.
+    let held_item: NamedRef?
     let min_happiness: Int?
 }

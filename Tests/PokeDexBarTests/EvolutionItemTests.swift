@@ -188,9 +188,17 @@ final class ForageTests: XCTestCase {
         XCTAssertNil(PlayerStore.forage(ribbon: .bond, roll: 0.99, pick: 0))
     }
 
+    /// 경계는 선언한 확률에서 파생해야 한다 — 숫자를 박아 두면 밸런스를 고칠 때마다
+    /// 테스트가 깨지기만 하고 무엇을 지키는지는 알려주지 않는다.
     func testBoundaryMatchesTheDeclaredChance() {
-        XCTAssertNotNil(PlayerStore.forage(ribbon: .bond, roll: 0.039, pick: 0))
-        XCTAssertNil(PlayerStore.forage(ribbon: .bond, roll: 0.040, pick: 0))
+        for ribbon in Ribbon.allCases {
+            let inside = Double(ribbon.foragePermille - 1) / 1000
+            let outside = Double(ribbon.foragePermille) / 1000
+            XCTAssertNotNil(PlayerStore.forage(ribbon: ribbon, roll: inside, pick: 0),
+                            "\(ribbon): 선언한 확률 안인데 안 나온다")
+            XCTAssertNil(PlayerStore.forage(ribbon: ribbon, roll: outside, pick: 0),
+                         "\(ribbon): 선언한 확률 밖인데 나온다")
+        }
     }
 
     /// 단계가 오를수록 자주 물어 와야 한다 — 뒤집히면 오래 함께한 게 손해가 된다.
@@ -272,6 +280,51 @@ final class ShopCategoryTests: XCTestCase {
             for lang in [AppLanguage.ko, .en, .ja] {
                 XCTAssertFalse(category.title(lang).isEmpty)
             }
+        }
+    }
+}
+
+/// 통신교환 — 25종 중 15종은 특정 물건을 들고 교환해야 한다. 연결의 끈 하나로 뭉뚱그리면
+/// 금속코트·에레키부스터 같은 것이 게임에서 아예 사라진다(사용자 지적).
+final class TradeHeldItemTests: XCTestCase {
+    private func tradeDetail(held: String?) -> EvolutionDetail {
+        let json = """
+        {"trigger":{"name":"trade"},"item":null,
+         "held_item":\(held.map { "{\"name\":\"\($0)\"}" } ?? "null"),"min_happiness":null}
+        """
+        return try! JSONDecoder().decode(EvolutionDetail.self, from: Data(json.utf8))
+    }
+
+    func testHeldItemWinsOverTheCord() {
+        XCTAssertEqual(PokeAPIClient.requirement(from: [tradeDetail(held: "metal-coat")]),
+                       .item("metal-coat"))
+        XCTAssertEqual(PokeAPIClient.requirement(from: [tradeDetail(held: "electirizer")]),
+                       .item("electirizer"))
+    }
+
+    /// 물건 없이 교환하는 10종만 연결의 끈이 담당한다.
+    func testPlainTradeStillUsesTheCord() {
+        XCTAssertEqual(PokeAPIClient.requirement(from: [tradeDetail(held: nil)]),
+                       .item(EvolutionItem.linkingCord.rawValue))
+    }
+
+    /// 모르는 물건이면 연결의 끈으로 떨어진다 — 못 넘는 벽을 만들지 않는다.
+    func testUnknownHeldItemFallsBackToTheCord() {
+        XCTAssertEqual(PokeAPIClient.requirement(from: [tradeDetail(held: "odd-charm")]),
+                       .item(EvolutionItem.linkingCord.rawValue))
+    }
+
+    /// 실제로 쓰이는 13종류가 전부 카탈로그에 있어야 한다 — 하나라도 빠지면 그 진화가
+    /// 조건 없이 열리거나(모르는 이름) 연결의 끈으로 뭉뚱그려진다.
+    func testEveryTradeHeldItemIsCatalogued() {
+        let used = ["metal-coat", "electirizer", "magmarizer", "kings-rock", "dragon-scale",
+                    "dubious-disc", "protector", "reaper-cloth", "deep-sea-tooth",
+                    "deep-sea-scale", "sachet", "whipped-dream", "up-grade"]
+        for name in used {
+            guard let item = EvolutionItem.named(name) else {
+                return XCTFail("\(name) 이 카탈로그에 없다")
+            }
+            XCTAssertFalse(item.isSold, "\(name) 은 리본이 물어 와야 한다 — 상점에 있으면 안 된다")
         }
     }
 }

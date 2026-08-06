@@ -41,13 +41,15 @@ enum Ribbon: Int, CaseIterable, Codable, Sendable, Comparable {
 
     /// 사탕 하나가 나올 때 특수 진화 도구도 함께 물어 올 확률(1000분율).
     /// 단계가 오를수록 높아진다 — 오래 함께한 파트너일수록 더 자주 뭔가를 가져온다.
-    /// 상점에서 안 파는 10종류가 대상이라, 이 경로가 그 종들을 얻는 유일한 길이다.
+    /// 상점에서 안 파는 23종류가 대상이라, 이 경로가 그 종들을 얻는 유일한 길이다.
+    /// 통신교환의 지닌 물건 13종류를 더하면서 풀이 두 배가 됐으므로, 특정 물건을 기다리는
+    /// 시간이 그만큼 늘지 않도록 확률도 함께 올렸다.
     var foragePermille: Int {
         switch self {
-        case .bond: 40
-        case .trust: 70
-        case .kinship: 110
-        case .lifelong: 160
+        case .bond: 60
+        case .trust: 100
+        case .kinship: 150
+        case .lifelong: 220
         }
     }
 
