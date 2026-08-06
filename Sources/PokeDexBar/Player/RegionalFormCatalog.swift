@@ -15,8 +15,9 @@ enum Region: String, Codable, Sendable, CaseIterable {
         switch lang { case .ko: return names.0; case .en: return names.1; case .ja: return names.2 }
     }
 
-    /// 좁은 칸(박스 그리드 배지)용 짧은 이름 — 지방 이름 그대로. 영어만 형용사형("Galarian")이
-    /// 길어 배지가 줄어들었다. 한국어·일본어는 원래 짧아 같은 값이다.
+    /// 좁은 자리(부화 확인 카드의 배지)용 짧은 이름 — 지방 이름 그대로. 영어만 형용사형
+    /// ("Galarian")이 길어 배지가 줄어든다. 한국어·일본어는 원래 짧아 같은 값이다.
+    /// 이름 앞에 붙일 때는 형용사형(`label`)을 쓴다 — "가라르 나옹".
     func shortLabel(_ lang: AppLanguage) -> String {
         let names: (String, String, String) = switch self {
         case .alola: ("알로라", "Alola", "アローラ")

@@ -89,7 +89,6 @@ struct BoxTabView: View {
                 ForEach(Array(slots.enumerated()), id: \.offset) { _, individual in
                     if let individual {
                         BoxCell(individual: individual,
-                                regionLabel: individual.region?.shortLabel(store.language),
                                 isPartner: individual.id == store.state.partnerID,
                                 ribbon: individual.ribbon(at: store.currentDate()),
                                 canEvolve: readyToEvolve(individual),
@@ -166,8 +165,6 @@ struct BoxTabView: View {
 /// (사탕이 상점에서 팔리는데 쓸 화면이 없던 결함이 "배선을 아무도 안 봤다"에서 나왔다).
 struct BoxCell: View {
     let individual: Individual
-    /// 지방 표시(`알로라`). 원종이면 nil — 칸이 좁아 있을 때만 보여준다.
-    let regionLabel: String?
     let isPartner: Bool
     /// 단 리본 — 칸에서 바로 보여야 "오래 데리고 다닌 아이"가 구분되고, 단계까지 읽힌다.
     let ribbon: Ribbon?
@@ -184,11 +181,9 @@ struct BoxCell: View {
     }
     #endif
 
-    init(individual: Individual, regionLabel: String? = nil, isPartner: Bool,
-         ribbon: Ribbon? = nil, canEvolve: Bool, partnerBadge: String,
-         onTap: @escaping () -> Void) {
+    init(individual: Individual, isPartner: Bool, ribbon: Ribbon? = nil, canEvolve: Bool,
+         partnerBadge: String, onTap: @escaping () -> Void) {
         self.individual = individual
-        self.regionLabel = regionLabel
         self.isPartner = isPartner
         self.ribbon = ribbon
         self.canEvolve = canEvolve
@@ -213,17 +208,6 @@ struct BoxCell: View {
                                 RibbonIcon(ribbon: ribbon, size: 15).offset(x: -3, y: -2)
                             }
                         }
-                    if let regionLabel {
-                        // 칸 폭(56pt)을 넘지 않게 잠근다 — "Galarian" 처럼 긴 이름이 타일 밖으로
-                        // 삐져나오면 옆 칸과 겹쳐 보인다.
-                        Text(regionLabel)
-                            .font(.system(size: 6, weight: .bold))
-                            .lineLimit(1).minimumScaleFactor(0.6)
-                            .padding(.horizontal, 3).padding(.vertical, 0.5)
-                            .background(Color.secondary.opacity(0.45), in: Capsule())
-                            .frame(maxWidth: 44)
-                            .offset(x: 3, y: 25)
-                    }
                     // 진화 가능은 칸에서 바로 보여야 한다 — 아니면 개체를 하나씩 열어봐야 안다.
                     if canEvolve {
                         Image(systemName: "arrow.up.circle.fill")
