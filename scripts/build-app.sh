@@ -37,7 +37,9 @@ cp assets/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
 # .app(AppEnv.isBundledApp)에서는 Bundle.module 을 건드리지 않고 바로 이 자리를 찾는다. 번들이 없으면
 # 배포본은 "알 수 없는 시작 크래시"(Bundle.module 의 fatalError)로 이어지므로 여기서 큰소리로 중단한다
 # (조용히 깨진 앱을 만들지 않는다).
-RESOURCE_BUNDLE=".build/release/${APP_NAME}_${APP_NAME}.bundle"
+# 번들 이름은 SwiftPM 타깃 이름에서 나온다 — 앱 이름(개발 빌드는 "PokeDexBar Dev")이 아니라
+# 항상 "PokeDexBar" 다. 런타임 조회(SpeciesSlug/RibbonIcon)도 이 이름을 그대로 찾는다.
+RESOURCE_BUNDLE=".build/release/PokeDexBar_PokeDexBar.bundle"
 if [[ ! -d "$RESOURCE_BUNDLE" ]]; then
     echo "   ✗ $RESOURCE_BUNDLE 없음 — swift build -c release 가 리소스 번들을 못 만들었다. 중단." >&2
     exit 1

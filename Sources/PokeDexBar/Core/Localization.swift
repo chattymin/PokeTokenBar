@@ -254,7 +254,9 @@ struct L {
     var language: String { t("언어", "Language", "言語") }
     var menuBarItems: String { t("메뉴바 표시 항목 (복수 선택)", "Menu bar items (multi-select)", "メニューバー表示項目（複数選択）") }
     var todayTokensShort: String { t("오늘 토큰", "Today's tokens", "本日のトークン") }
-    var todayCost: String { t("오늘 비용 ($)", "Today's cost ($)", "本日のコスト ($)") }
+    /// **실제 지출이 아니라 API 환산**이다. 정액제(Claude Max·ChatGPT 구독) 사용자에게 토큰 단가를
+    /// 곱한 금액을 "쓴 돈"이라 부르면 안 나간 돈을 나갔다고 말하는 셈이라, 이름을 환산으로 둔다.
+    var todayCost: String { t("오늘 API 환산 ($)", "Today's API equivalent ($)", "本日のAPI換算 ($)") }
     var limitPercent: String { t("한도 %", "Limit %", "上限 %") }
     var allOffHint: String { t("전부 끄면 캐릭터만 표시됩니다", "All off shows only the character", "すべてオフにするとキャラクターのみ表示") }
     // MARK: 플로팅 펫

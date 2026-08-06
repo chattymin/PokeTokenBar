@@ -78,3 +78,44 @@ final class LocalUsageParityTests: XCTestCase {
         print(String(format: "PARITY-PERF claude month scan: cold %.0fms  warm %.0fms", cold * 1000, warm * 1000))
     }
 }
+
+/// [회귀] 비용은 **API 환산**이고, 프로바이더마다 규칙이 달라선 안 된다.
+/// Codex 만 0 으로 눌러 뒀던 적이 있는데(구독제라서), 같은 논리면 정액제 사용자의 Claude Code 도
+/// 0 이어야 했다 — 같은 성격의 사용을 다르게 취급하고 있었다.
+@MainActor
+final class CostParityAcrossProvidersTests: XCTestCase {
+    private func entry(model: String, day: String) -> LocalUsageReader.Entry {
+        LocalUsageReader.Entry(id: UUID().uuidString, date: Date(timeIntervalSince1970: 0),
+                               localDay: day, model: model,
+                               input: 1_000_000, output: 1_000_000, cacheWrite: 0, cacheRead: 0)
+    }
+
+    /// Codex 모델도 단가표를 지나 0 이 아닌 값이 나와야 한다 — 이게 0 이면 예전 동작으로 돌아간 것이다.
+    func testCodexModelsAreNotFreeInThePricingTable() {
+        for model in ["codex", "gpt-5-codex", "gpt-5.5"] {
+            let cost = ModelPricing.cost(model: model, input: 1_000_000, output: 0,
+                                         cacheWrite: 0, cacheRead: 0)
+            XCTAssertGreaterThan(cost, 0, "\(model) 이 단가표에서 0 으로 떨어진다")
+        }
+    }
+
+    /// 같은 토큰 수라면 프로바이더가 달라도 환산 규칙은 모델 단가 하나로만 갈려야 한다.
+    func testTheSameModelCostsTheSameWhoeverReportedIt() {
+        let day = "2026-01-01"
+        let a = LocalUsageReader.daily(entries: [entry(model: "gpt-5.5", day: day)], localDay: day)
+        let b = LocalUsageReader.daily(entries: [entry(model: "gpt-5.5", day: day)], localDay: day)
+        XCTAssertEqual(a?.totalCost ?? -1, b?.totalCost ?? -2, accuracy: 1e-9)
+        XCTAssertGreaterThan(a?.totalCost ?? 0, 0, "환산 비용이 0 이면 표시할 것이 없다")
+    }
+
+    /// 클로드와 코덱스가 **둘 다** 값을 내야 한다 — 한쪽만 0 이던 것이 이 회귀의 핵심이다.
+    func testClaudeAndCodexBothProduceACost() {
+        let day = "2026-01-01"
+        let claude = LocalUsageReader.daily(entries: [entry(model: "claude-opus-4-8", day: day)],
+                                            localDay: day)?.totalCost ?? 0
+        let codex = LocalUsageReader.daily(entries: [entry(model: "gpt-5.5", day: day)],
+                                           localDay: day)?.totalCost ?? 0
+        XCTAssertGreaterThan(claude, 0)
+        XCTAssertGreaterThan(codex, 0, "Codex 만 0 이면 같은 성격의 사용을 다르게 취급하는 것이다")
+    }
+}
