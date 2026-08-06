@@ -166,6 +166,13 @@ struct PopoverView: View {
 
     // MARK: 홈 — 파트너 카드
 
+    private func partnerStat(_ title: String, _ value: String) -> some View {
+        HStack(spacing: 3) {
+            Text(title).font(.system(size: 9)).foregroundStyle(.tertiary)
+            Text(value).font(.system(size: 10, weight: .medium)).monospacedDigit()
+        }
+    }
+
     /// 홈 상단 — 지금 데리고 다니는 개체의 초상화 + 경험치 진행도. 파트너 상세(진화 실행 등)는 박스에서.
     @ViewBuilder
     private var partnerCard: some View {
@@ -195,6 +202,14 @@ struct PopoverView: View {
                         .font(.caption2).foregroundStyle(.secondary)
                     ProgressView(value: BoxTabView.progress(partner))
                         .controlSize(.small).tint(.orange)
+                    // 이 아이와 얼마나, 얼마만큼 — 경험치 게이지가 못 보여주는 누적을 여기서 보여준다.
+                    HStack(spacing: 10) {
+                        partnerStat(l.detailPartnerTime,
+                                    Individual.togetherText(
+                                        seconds: partner.partnerDuration(at: player.currentDate()), l))
+                        partnerStat(l.detailPartnerTokens,
+                                    TokenFormatter.compact(partner.partnerTokens))
+                    }
                 }
                 Spacer()
             }

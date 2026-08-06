@@ -17,6 +17,11 @@ struct Individual: Identifiable, Codable, Sendable, Equatable {
     /// 이 개체를 파트너로 두고 쓴 토큰의 누적. 경험치와 달리 진화해도 안 줄고, 경험치 부적으로
     /// 2배가 되지도 않는다 — "이 아이와 얼마나 함께 일했나"의 기록이라 실제 쓴 토큰만 센다.
     var partnerTokens = 0
+    /// 파트너로 지낸 시간의 누적(초). 파트너를 바꿀 때 그 구간을 여기 더한다.
+    var partnerSeconds = 0
+    /// 지금 파트너라면 언제부터인가. 파트너가 아니면 nil — 지금 구간은 아직 안 닫혀서
+    /// `partnerSeconds` 에 안 들어가 있다(표시할 땐 둘을 더한다).
+    var partnerSince: Date?
     var obtainedAt: Date
     var grade: Grade
     /// 지금 취하고 있는 폼의 Showdown 슬러그(`charizard-megax`). nil 이면 보통 모습.
@@ -40,9 +45,26 @@ struct Individual: Identifiable, Codable, Sendable, Equatable {
     /// 몇 번째 형태인가(0 = 아직 안 진화). 경로가 비어도 음수로 새지 않는다.
     var stageIndex: Int { max(0, pathIDs.count - 1) }
 
+    /// 함께한 시간 표기 — 가장 큰 단위 둘까지. 순수 함수라 테스트로 잠근다.
+    static func togetherText(seconds: Int, _ l: L) -> String {
+        let s = max(0, seconds)
+        let days = s / 86_400, hours = (s % 86_400) / 3_600, minutes = (s % 3_600) / 60
+        if days > 0 { return l.togetherDays(days, hours) }
+        if hours > 0 { return l.togetherHours(hours, minutes) }
+        return l.togetherMinutes(minutes)
+    }
+
+    /// 지금까지 파트너로 지낸 총 시간(초) — 닫힌 구간 + 아직 진행 중인 구간.
+    /// 시계가 뒤로 뛰어도 음수가 되지 않게 자른다.
+    func partnerDuration(at now: Date) -> Int {
+        guard let partnerSince else { return partnerSeconds }
+        return partnerSeconds + max(0, Int(now.timeIntervalSince(partnerSince)))
+    }
+
     /// 기본 이니셜라이저 — 아래 `init(from:)` 을 직접 쓰면서 합성 이니셜라이저가 사라지므로 명시한다.
     init(id: UUID = UUID(), baseID: Int, speciesID: Int, pathIDs: [Int], shiny: Bool = false,
-         nature: PokemonNature, exp: Int = 0, partnerTokens: Int = 0, obtainedAt: Date,
+         nature: PokemonNature, exp: Int = 0, partnerTokens: Int = 0, partnerSeconds: Int = 0,
+         partnerSince: Date? = nil, obtainedAt: Date,
          grade: Grade, form: String? = nil, region: Region? = nil, regionVariant: String? = nil) {
         self.id = id
         self.baseID = baseID
@@ -52,6 +74,8 @@ struct Individual: Identifiable, Codable, Sendable, Equatable {
         self.nature = nature
         self.exp = exp
         self.partnerTokens = partnerTokens
+        self.partnerSeconds = partnerSeconds
+        self.partnerSince = partnerSince
         self.obtainedAt = obtainedAt
         self.grade = grade
         self.form = form
@@ -80,6 +104,8 @@ struct Individual: Identifiable, Codable, Sendable, Equatable {
         shiny = value(.shiny, false)
         exp = value(.exp, 0)
         partnerTokens = value(.partnerTokens, 0)
+        partnerSeconds = value(.partnerSeconds, 0)
+        partnerSince = value(.partnerSince, nil)
         obtainedAt = value(.obtainedAt, Date(timeIntervalSince1970: 0))
         form = value(.form, nil)
         region = value(.region, nil)

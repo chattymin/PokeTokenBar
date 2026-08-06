@@ -101,6 +101,8 @@ struct IndividualDetailView: View {
             fact(l.detailGrade, individual.grade.label(store.language))
             fact(l.detailNature, individual.nature.name(store.language))
             fact(l.detailPartnerTokens, TokenFormatter.compact(individual.partnerTokens))
+            fact(l.detailPartnerTime,
+                 Individual.togetherText(seconds: individual.partnerDuration(at: store.currentDate()), l))
         }
     }
 

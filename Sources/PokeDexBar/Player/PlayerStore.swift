@@ -46,6 +46,7 @@ final class PlayerStore {
                                     shiny: false, nature: nature, exp: 0,
                                     obtainedAt: now(), grade: grade)
         state.box.append(individual)
+        state.box[state.box.count - 1].partnerSince = now()
         state.partnerID = individual.id
         state.starterChosen = true
         state.dex.insert(speciesID)
@@ -91,6 +92,8 @@ final class PlayerStore {
             state.earnedTokens += delta
             if let index = state.box.firstIndex(where: { $0.id == state.partnerID }) {
                 state.box[index].exp += Self.expGain(delta, charm: state.ownsExpCharm)
+                // 봉인 이전 세이브의 파트너에는 시작 시각이 없다 — 여기서 늦게라도 시계를 건다.
+                if state.box[index].partnerSince == nil { state.box[index].partnerSince = now() }
                 // 함께 쓴 토큰 기록은 부적과 무관하게 실제 쓴 만큼만 센다.
                 state.box[index].partnerTokens += delta
             }
@@ -105,8 +108,23 @@ final class PlayerStore {
 
     func setPartner(_ id: UUID) {
         guard state.box.contains(where: { $0.id == id }) else { return }
+        guard id != state.partnerID else { return }   // 같은 개체를 다시 지정해도 시계를 끊지 않는다
+        Self.closePartnerStint(in: &state, at: now())
         state.partnerID = id
+        if let index = state.box.firstIndex(where: { $0.id == id }) {
+            state.box[index].partnerSince = now()
+        }
         save()
+    }
+
+    /// 지금 파트너의 진행 중인 구간을 닫아 누적에 더한다. 파트너를 바꾸기 직전에 부른다 —
+    /// 안 닫으면 이전 파트너의 `partnerSince` 가 남아 파트너가 아닌데도 시간이 계속 늘어난다.
+    static func closePartnerStint(in state: inout PlayerState, at now: Date) {
+        guard let current = state.partnerID,
+              let index = state.box.firstIndex(where: { $0.id == current }),
+              let since = state.box[index].partnerSince else { return }
+        state.box[index].partnerSeconds += max(0, Int(now.timeIntervalSince(since)))
+        state.box[index].partnerSince = nil
     }
 
     func registerInDex(_ speciesID: Int) {

@@ -214,3 +214,101 @@ final class ShopPriceTests: XCTestCase {
         }
     }
 }
+
+/// 함께한 시간 — 파트너를 바꿔 가며 데리고 다녀도 누적이 맞아야 한다.
+@MainActor
+final class PartnerTimeTests: XCTestCase {
+    private var clock = Date(timeIntervalSince1970: 1_000_000)
+
+    private func makeStore() -> PlayerStore {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("time-\(UUID().uuidString).json")
+        return PlayerStore(fileURL: url, rng: SeededRNG(seed: 2), now: { self.clock },
+                           defaults: UserDefaults(suiteName: "time-\(UUID().uuidString)")!)
+    }
+
+    private func add(_ store: PlayerStore, species: Int) -> UUID {
+        let individual = Individual(baseID: species, speciesID: species, pathIDs: [species],
+                                    nature: .serious, obtainedAt: clock, grade: .common)
+        store.addForTesting(individual)
+        return individual.id
+    }
+
+    private func find(_ store: PlayerStore, _ id: UUID) -> Individual {
+        store.state.box.first { $0.id == id }!
+    }
+
+    func testDurationGrowsWhileItIsThePartner() {
+        let store = makeStore()
+        let id = add(store, species: 1)
+        store.setPartner(id)
+        clock = clock.addingTimeInterval(3_600)
+        XCTAssertEqual(find(store, id).partnerDuration(at: clock), 3_600)
+    }
+
+    /// 파트너에서 내려오면 시계가 멈춘다 — 안 멈추면 벤치에 앉은 개체도 계속 시간이 는다.
+    func testDurationStopsWhenAnotherBecomesPartner() {
+        let store = makeStore()
+        let first = add(store, species: 1)
+        let second = add(store, species: 4)
+        store.setPartner(first)
+        clock = clock.addingTimeInterval(7_200)
+        store.setPartner(second)
+        clock = clock.addingTimeInterval(10_000)
+        XCTAssertEqual(find(store, first).partnerDuration(at: clock), 7_200, "내려온 뒤에도 시간이 늘었다")
+        XCTAssertEqual(find(store, second).partnerDuration(at: clock), 10_000)
+    }
+
+    /// 다시 데리고 나오면 이어서 쌓인다 — 초기화되면 안 된다.
+    func testDurationResumesOnASecondStint() {
+        let store = makeStore()
+        let first = add(store, species: 1)
+        let second = add(store, species: 4)
+        store.setPartner(first)
+        clock = clock.addingTimeInterval(100)
+        store.setPartner(second)
+        clock = clock.addingTimeInterval(500)
+        store.setPartner(first)
+        clock = clock.addingTimeInterval(50)
+        XCTAssertEqual(find(store, first).partnerDuration(at: clock), 150, "두 번째 구간이 이어지지 않는다")
+    }
+
+    /// 같은 개체를 다시 지정해도 구간이 끊기지 않는다.
+    func testReassigningTheSamePartnerKeepsTheClockRunning() {
+        let store = makeStore()
+        let id = add(store, species: 1)
+        store.setPartner(id)
+        clock = clock.addingTimeInterval(600)
+        store.setPartner(id)
+        clock = clock.addingTimeInterval(600)
+        XCTAssertEqual(find(store, id).partnerDuration(at: clock), 1_200)
+    }
+
+    /// 시계가 뒤로 뛰어도 음수가 되지 않는다.
+    func testBackwardClockDoesNotGoNegative() {
+        let store = makeStore()
+        let id = add(store, species: 1)
+        store.setPartner(id)
+        XCTAssertEqual(find(store, id).partnerDuration(at: clock.addingTimeInterval(-9_999)), 0)
+    }
+
+    /// 봉인 이전 세이브의 파트너는 시작 시각이 없다 — 사용량 갱신에서 늦게라도 시계를 건다.
+    func testLegacyPartnerStartsCountingOnTheNextUpdate() {
+        let store = makeStore()
+        let id = add(store, species: 1)
+        store.setPartner(id)
+        store.mutate { $0.box[0].partnerSince = nil }   // 구 세이브 흉내
+        store.update(todayTokens: 0, todayDate: "2026-01-01", hasUsageData: true)
+        store.update(todayTokens: 10, todayDate: "2026-01-01", hasUsageData: true)
+        XCTAssertNotNil(find(store, id).partnerSince, "구 세이브 파트너의 시계가 영영 안 걸린다")
+    }
+
+    func testTogetherTextPicksTheTwoLargestUnits() {
+        let l = L(.ko)
+        XCTAssertEqual(Individual.togetherText(seconds: 0, l), "0분")
+        XCTAssertEqual(Individual.togetherText(seconds: 90, l), "1분")
+        XCTAssertEqual(Individual.togetherText(seconds: 3_600 * 5 + 60 * 7, l), "5시간 7분")
+        XCTAssertEqual(Individual.togetherText(seconds: 86_400 * 3 + 3_600 * 4, l), "3일 4시간")
+        XCTAssertEqual(Individual.togetherText(seconds: -50, l), "0분")
+    }
+}

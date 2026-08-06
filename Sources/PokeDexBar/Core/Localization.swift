@@ -88,6 +88,17 @@ struct L {
     var detailExp: String { t("경험치", "EXP", "けいけんち") }
     /// 이 개체를 파트너로 두고 함께 쓴 토큰 누적 — 진화해도 안 줄어드는 "같이 일한 기록".
     var detailPartnerTokens: String { t("함께 쓴 토큰", "Tokens together", "一緒に使ったトークン") }
+    var detailPartnerTime: String { t("함께한 시간", "Time together", "一緒の時間") }
+    /// 함께한 시간 표기 — 가장 큰 단위 둘까지만. 초 단위는 "방금 만난" 경우에만 의미가 있다.
+    func togetherDays(_ days: Int, _ hours: Int) -> String {
+        t("\(days)일 \(hours)시간", "\(days)d \(hours)h", "\(days)日\(hours)時間")
+    }
+    func togetherHours(_ hours: Int, _ minutes: Int) -> String {
+        t("\(hours)시간 \(minutes)분", "\(hours)h \(minutes)m", "\(hours)時間\(minutes)分")
+    }
+    func togetherMinutes(_ minutes: Int) -> String {
+        t("\(minutes)분", "\(minutes)m", "\(minutes)分")
+    }
     var detailMaxStage: String { t("더 진화하지 않아요", "Fully evolved", "これいじょうしんかしない") }
     var detailPartnerOnlyExp: String {
         t("경험치는 파트너만 쌓여요 — 사탕으로도 올릴 수 있어요",
