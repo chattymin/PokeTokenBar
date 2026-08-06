@@ -302,3 +302,82 @@ final class FormWiringTests: XCTestCase {
         XCTAssertTrue(renderedFormButtons(store, charizard).isEmpty)
     }
 }
+
+/// 지방 모습에는 메가·거다이맥스가 없다. 메가는 칼로스, 거다이맥스는 가라르 지방의 현상이고
+/// 둘 다 원종에만 붙는다 — 가라르 나옹은 거다이맥스하지 못한다(사용자 지적).
+@MainActor
+final class RegionalFormsHaveNoMegaOrGmaxTests: XCTestCase {
+    private func makeStore(region: Region?) -> (PlayerStore, UUID) {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("region-form-\(UUID().uuidString).json")
+        let store = PlayerStore(fileURL: url, rng: SeededRNG(seed: 7),
+                                now: { Date(timeIntervalSince1970: 0) })
+        var meowth = Individual(baseID: 52, speciesID: 52, pathIDs: [52], nature: .serious, exp: 0,
+                                obtainedAt: Date(timeIntervalSince1970: 0), grade: .common)
+        meowth.region = region
+        store.addForTesting(meowth)
+        store.seedForTesting(wallet: 100_000_000_000, slots: 3, eggs: 0,
+                             at: Date(timeIntervalSince1970: 0))
+        XCTAssertTrue(store.buy(.dynamaxMushroom))
+        return (store, meowth.id)
+    }
+
+    private func individual(_ store: PlayerStore, _ id: UUID) -> Individual {
+        store.state.box.first { $0.id == id }!
+    }
+
+    func testKantonianMeowthCanGigantamax() {
+        let (store, id) = makeStore(region: nil)
+        XCTAssertTrue(store.hasForms(individual(store, id), kind: .gmax))
+        let g = FormCatalog.forms(speciesID: 52, kind: .gmax).first!
+        XCTAssertTrue(store.changeForm(individualID: id, to: g))
+        XCTAssertEqual(individual(store, id).form, "meowth-gmax")
+    }
+
+    func testGalarianMeowthCannotGigantamax() {
+        let (store, id) = makeStore(region: .galar)
+        XCTAssertFalse(store.hasForms(individual(store, id), kind: .gmax),
+                       "가라르 나옹에 거다이맥스 칸이 뜬다")
+        XCTAssertTrue(store.formChoices(individual(store, id), kind: .gmax).isEmpty)
+    }
+
+    /// 버튼을 숨기는 것만으로는 부족하다 — 실행 경로도 막아야 아이템이 안 날아간다.
+    func testGalarianMeowthRejectsTheMushroomAndKeepsIt() {
+        let (store, id) = makeStore(region: .galar)
+        let g = FormCatalog.forms(speciesID: 52, kind: .gmax).first!
+        XCTAssertFalse(store.changeForm(individualID: id, to: g))
+        XCTAssertNil(individual(store, id).form)
+        XCTAssertEqual(store.count(of: .dynamaxMushroom), 1, "실패한 사용이 다이맥스 버섯을 먹었다")
+    }
+
+    /// 알로라 나옹도 마찬가지 — 지방이 어디든 규칙은 같다.
+    func testAlolanMeowthCannotGigantamaxEither() {
+        let (store, id) = makeStore(region: .alola)
+        XCTAssertFalse(store.hasForms(individual(store, id), kind: .gmax))
+    }
+
+    /// 겹치는 종을 앞으로도 놓치지 않게 — 메가·거다이맥스와 지방 모습을 둘 다 가진 종은
+    /// 반드시 이 규칙을 지나야 한다. 지금은 나옹뿐이지만 카탈로그가 늘어도 이 테스트가 잡는다.
+    func testEverySpeciesWithBothCatalogsIsGatedByRegion() {
+        let formSpecies = Set(FormCatalog.all.map(\.speciesID))
+        let regionSpecies = Set(RegionalFormCatalog.all.map(\.speciesID))
+        let overlap = formSpecies.intersection(regionSpecies)
+        XCTAssertFalse(overlap.isEmpty, "겹치는 종이 없으면 이 테스트가 아무것도 안 지킨다")
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("overlap-\(UUID().uuidString).json")
+        let store = PlayerStore(fileURL: url, rng: SeededRNG(seed: 7),
+                                now: { Date(timeIntervalSince1970: 0) })
+        for speciesID in overlap {
+            for region in RegionalFormCatalog.regions(speciesID: speciesID) {
+                var i = Individual(baseID: speciesID, speciesID: speciesID, pathIDs: [speciesID],
+                                   nature: .serious, exp: 0,
+                                   obtainedAt: Date(timeIntervalSince1970: 0), grade: .common)
+                i.region = region
+                for kind in FormKind.allCases {
+                    XCTAssertFalse(store.hasForms(i, kind: kind),
+                                   "#\(speciesID) \(region.rawValue) 에 \(kind.rawValue) 이 열려 있다")
+                }
+            }
+        }
+    }
+}

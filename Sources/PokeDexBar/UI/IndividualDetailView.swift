@@ -158,7 +158,7 @@ struct IndividualDetailView: View {
     @ViewBuilder
     private var formSection: some View {
         ForEach(FormKind.allCases, id: \.self) { kind in
-            if FormCatalog.has(speciesID: individual.speciesID, kind: kind) {
+            if store.hasForms(individual, kind: kind) {
                 let choices = store.formChoices(individual, kind: kind)
                 let owned = store.count(of: kind.item)
                 if owned > 0, !choices.isEmpty {

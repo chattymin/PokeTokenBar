@@ -3,9 +3,17 @@ import Foundation
 /// 메가진화·거다이맥스 — 상점에서 산 메가스톤/다이맥스 버섯을 개체에 써서 겉모습을 바꾼다.
 /// 종이 바뀌는 게 아니라서 도감에는 아무 일도 일어나지 않고, 진화 단계·경험치도 그대로다.
 extension PlayerStore {
+    /// 이 개체가 그 종류의 폼을 가질 수 있나. **지방 모습에는 메가·거다이맥스가 없다** —
+    /// 메가는 칼로스, 거다이맥스는 가라르 지방의 현상이고 둘 다 원종에만 붙는다.
+    /// 나옹이 대표적이다: 거다이맥스 나옹은 관동 나옹이고, 가라르 나옹은 거다이맥스하지 못한다.
+    func hasForms(_ individual: Individual, kind: FormKind) -> Bool {
+        individual.region == nil && FormCatalog.has(speciesID: individual.speciesID, kind: kind)
+    }
+
     /// 이 개체에 쓸 수 있는 폼들. 이미 그 폼이면 후보에서 빠진다(아이템 낭비 방지).
     func formChoices(_ individual: Individual, kind: FormKind) -> [PokemonForm] {
-        FormCatalog.forms(speciesID: individual.speciesID, kind: kind)
+        guard hasForms(individual, kind: kind) else { return [] }
+        return FormCatalog.forms(speciesID: individual.speciesID, kind: kind)
             .filter { $0.slug != individual.form }
     }
 
