@@ -19,4 +19,17 @@ enum PixelScale {
         while passes < limit, scale * 2 <= factor { scale *= 2; passes += 1 }
         return passes
     }
+
+    /// `bounds` 안에 원본 비율을 유지한 채 들어가는 중앙 정렬 사각형.
+    /// 스프라이트는 종마다 45×49 ~ 100×135 로 비율이 제각각이라, 정사각형 칸에 그대로 늘리면 찌부된다.
+    /// 캔버스 자체는 호출부가 정한 크기를 유지한다 — 메뉴바 아이템 폭이 프레임마다 흔들리면 안 된다.
+    static func fittedRect(source: CGSize, in bounds: CGSize) -> CGRect {
+        guard source.width > 0, source.height > 0,
+              bounds.width > 0, bounds.height > 0 else { return CGRect(origin: .zero, size: bounds) }
+        let scale = min(bounds.width / source.width, bounds.height / source.height)
+        let size = CGSize(width: source.width * scale, height: source.height * scale)
+        return CGRect(x: (bounds.width - size.width) / 2,
+                      y: (bounds.height - size.height) / 2,
+                      width: size.width, height: size.height)
+    }
 }

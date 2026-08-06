@@ -295,7 +295,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         img.lockFocus()
         NSGraphicsContext.current?.imageInterpolation = .none
         let off: CGFloat = up ? 1 : 0
-        sprite.draw(in: NSRect(x: 1, y: off, width: h - 2, height: h - 2),
+        // 캔버스는 22×22 고정(폭이 흔들리면 메뉴바가 떨린다) — 그 안에서만 비율을 지켜 넣는다.
+        let fitted = PixelScale.fittedRect(source: sprite.size,
+                                           in: CGSize(width: h - 2, height: h - 2))
+        sprite.draw(in: fitted.offsetBy(dx: 1, dy: off),
                     from: .zero, operation: .sourceOver, fraction: 1)
         img.unlockFocus()
         return img

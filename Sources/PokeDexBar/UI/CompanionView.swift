@@ -117,9 +117,11 @@ struct SpriteView: View {
                 // GIF 애니메이션 경로 — 현재 프레임만 렌더
                 Image(nsImage: upscaled(frames[frameIndex % frames.count].image))
                     .resizable().interpolation(.none)
+                    .scaledToFit()   // 스프라이트마다 원본 비율이 달라 — 정사각형에 늘리면 찌부된다
                     .frame(width: size, height: size)
             } else if let img {
                 Image(nsImage: upscaled(img)).resizable().interpolation(.none)
+                    .scaledToFit()
                     .frame(width: size, height: size)
             } else {
                 Text("🥚").font(.system(size: size * 0.62)).frame(width: size, height: size)
