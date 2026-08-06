@@ -49,6 +49,10 @@ struct SpriteView: View {
     /// 켜면 표시 크기에 맞춰 EPX 로 확대한 뒤 그린다. 기본은 끔 — 도감 썸네일처럼 작은 표시는
     /// 원본 픽셀이 더 또렷하다.
     var antialias: Bool = false
+    /// 켜면 알파만 남기고 새까맣게 그린다(도감의 못 잡은 종). `.brightness(-1)` 로도 같은 그림이
+    /// 나오지만 그건 CALayer 필터라 오프스크린 렌더(스크린샷 생성기)에서 통째로 무시된다 —
+    /// 템플릿 렌더링은 그리기 단계라 어디서든 똑같이 나온다.
+    var silhouette: Bool = false
     @State private var img: NSImage?
     @State private var up = false
     @State private var loadedID: Int?   // img 가 어느 speciesID 것인지(id 변경 시 갱신 판단)
@@ -68,7 +72,7 @@ struct SpriteView: View {
 
     init(speciesID: Int?, form: String? = nil, size: CGFloat = 84, bob: Bool = false,
          animated: Bool = false, shiny: Bool = false, minFrameDelay: TimeInterval = 0,
-         antialias: Bool = false) {
+         antialias: Bool = false, silhouette: Bool = false) {
         self.speciesID = speciesID
         self.form = form
         self.size = size
@@ -77,6 +81,7 @@ struct SpriteView: View {
         self.shiny = shiny
         self.minFrameDelay = minFrameDelay
         self.antialias = antialias
+        self.silhouette = silhouette
         #if DEBUG
         Self.constructionCount += 1
         #endif
@@ -130,8 +135,11 @@ struct SpriteView: View {
                     .scaledToFit()   // 스프라이트마다 원본 비율이 달라 — 정사각형에 늘리면 찌부된다
                     .frame(width: size, height: size)
             } else if let img {
-                Image(nsImage: upscaled(img)).resizable().interpolation(.none)
+                Image(nsImage: upscaled(img))
+                    .renderingMode(silhouette ? .template : .original)
+                    .resizable().interpolation(.none)
                     .scaledToFit()
+                    .foregroundStyle(silhouette ? AnyShapeStyle(.black) : AnyShapeStyle(.tint))
                     .frame(width: size, height: size)
             } else {
                 Text("🥚").font(.system(size: size * 0.62)).frame(width: size, height: size)

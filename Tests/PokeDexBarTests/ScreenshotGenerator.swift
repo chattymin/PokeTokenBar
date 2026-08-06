@@ -141,6 +141,8 @@ final class ScreenshotGeneratorTests: XCTestCase {
                                         obtainedAt: base.addingTimeInterval(-Double(index) * 3600),
                                         grade: entry.grade)
             individual.region = entry.region
+            // 함께 쓴 토큰 — 오래 데리고 다닌 개체일수록 크게. 0 만 늘어서면 이 칸이 무슨 뜻인지 안 보인다.
+            individual.partnerTokens = entry.exp * 3 + index * 17_000_000
             player.addForTesting(individual)
             if index == 0 { partnerID = individual.id }
             if index == 1 { detailID = individual.id }

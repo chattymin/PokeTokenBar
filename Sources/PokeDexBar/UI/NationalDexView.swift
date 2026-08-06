@@ -38,10 +38,9 @@ struct NationalDexView: View {
     private func cell(_ speciesID: Int) -> some View {
         let caught = store.state.dex.contains(speciesID)
         return VStack(spacing: 1) {
-            SpriteView(speciesID: speciesID, size: 32)
+            // 못 잡은 종은 실루엣 — 모습은 보이되 정체는 가린다.
+            SpriteView(speciesID: speciesID, size: 32, silhouette: !caught)
                 .frame(width: 32, height: 32)
-                // 못 잡은 종은 실루엣 — 모습은 보이되 정체는 가린다.
-                .brightness(caught ? 0 : -1)
                 .opacity(caught ? 1 : 0.55)
             Text("\(speciesID)")
                 .font(.system(size: 7)).monospacedDigit()

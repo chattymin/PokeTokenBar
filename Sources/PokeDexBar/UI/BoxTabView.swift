@@ -135,11 +135,15 @@ struct BoxCell: View {
                                size: 40, shiny: individual.shiny)
                         .frame(width: 40, height: 40)
                     if let regionLabel {
+                        // 칸 폭(56pt)을 넘지 않게 잠근다 — "Galarian" 처럼 긴 이름이 타일 밖으로
+                        // 삐져나오면 옆 칸과 겹쳐 보인다.
                         Text(regionLabel)
                             .font(.system(size: 6, weight: .bold))
+                            .lineLimit(1).minimumScaleFactor(0.6)
                             .padding(.horizontal, 3).padding(.vertical, 0.5)
-                            .background(Color.secondary.opacity(0.35), in: Capsule())
-                            .offset(x: 2, y: 28)
+                            .background(Color.secondary.opacity(0.45), in: Capsule())
+                            .frame(maxWidth: 50)
+                            .offset(x: 5, y: 30)
                     }
                     // 진화 가능은 칸에서 바로 보여야 한다 — 아니면 개체를 하나씩 열어봐야 안다.
                     if canEvolve {
