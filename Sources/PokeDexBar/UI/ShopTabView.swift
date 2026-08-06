@@ -41,6 +41,7 @@ struct ShopTabView: View {
                 walletRow
                 drawSection
                 slotSection
+                evolutionItemSection
                 itemSection
             }
             .padding(.vertical, 2)
@@ -114,6 +115,26 @@ struct ShopTabView: View {
             Text(l.shopItemSection).font(.system(size: 12, weight: .semibold))
             ForEach(ShopItem.allCases, id: \.self) { item in
                 itemRow(item)
+            }
+        }
+    }
+
+    /// 진화 도구 — 상점에서 파는 것만(돌 10종 + 연결의 끈). 특수 도구 10종은 리본 파트너가 물어 온다.
+    private var evolutionItemSection: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(l.shopEvolutionSection).font(.system(size: 11, weight: .semibold))
+            ForEach(EvolutionItem.shopItems, id: \.self) { item in
+                HStack {
+                    Text(item.label(store.language)).font(.system(size: 11, weight: .medium))
+                    let owned = store.count(of: item)
+                    if owned > 0 {
+                        Text("×\(owned)").font(.system(size: 9)).foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Button(TokenFormatter.compact(item.price)) { _ = store.buy(item) }
+                        .buttonStyle(.bordered).controlSize(.small)
+                        .disabled(store.state.wallet < item.price)
+                }
             }
         }
     }

@@ -233,7 +233,21 @@ actor PokeAPIClient: PokeProviding {
 
     private func node(from link: ChainLink) -> EvoNode {
         EvoNode(speciesID: Self.id(from: link.species.url ?? ""),
-                children: link.evolves_to.map(node(from:)))
+                children: link.evolves_to.map(node(from:)),
+                requirementRaw: Self.requirement(from: link.evolution_details))
+    }
+
+    /// 조건 목록 → 이 앱이 쓰는 요구 조건. 여러 건이면 **재현 가능한 것 중 첫 번째**를 쓴다
+    /// (버전별로 갈리는 경우가 있고, 그중 하나만 만족하면 되는 것이 본가 규칙이다).
+    /// 통신교환은 도구가 따로 없으므로 연결의 끈으로 대신한다 — 이 앱에는 교환 상대가 없다.
+    static func requirement(from details: [EvolutionDetail]?) -> EvoRequirementRaw {
+        guard let details, !details.isEmpty else { return .none }
+        for d in details {
+            if let item = d.item?.name, EvolutionItem.named(item) != nil { return .item(item) }
+            if d.trigger?.name == "trade" { return .item(EvolutionItem.linkingCord.rawValue) }
+            if let happiness = d.min_happiness, happiness > 0 { return .friendship }
+        }
+        return .none
     }
     private func allIDs(_ n: EvoNode) -> [Int] { [n.speciesID] + n.children.flatMap(allIDs) }
 
@@ -268,4 +282,14 @@ struct ChainDTO: Decodable, Sendable { let chain: ChainLink }
 struct ChainLink: Decodable, Sendable {
     let species: NamedRef
     let evolves_to: [ChainLink]
+    /// 이 종이 되기 위한 조건들. 버전마다 여러 개가 올 수 있어 배열이다.
+    let evolution_details: [EvolutionDetail]?
+}
+
+/// `evolution_details` 한 건. 이 앱이 재현할 수 있는 필드만 읽는다 — 장소·특정 기술처럼
+/// 대응물이 없는 조건은 아예 안 읽고 조건 없음으로 떨어뜨린다(막으면 그 종을 영영 못 얻는다).
+struct EvolutionDetail: Decodable, Sendable {
+    let trigger: NamedRef?
+    let item: NamedRef?
+    let min_happiness: Int?
 }

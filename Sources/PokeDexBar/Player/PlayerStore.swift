@@ -117,6 +117,21 @@ final class PlayerStore {
         state.box[index].candyProgress = produced.remainder
         guard produced.count > 0 else { return }
         state.inventory[ShopItem.expCandy.rawValue, default: 0] += produced.count
+        // 사탕이 나온 김에 특수 진화 도구도 굴린다 — 상점에 없는 10종류를 얻는 유일한 길이다.
+        // 사탕 개수만큼 굴려서, 오래 안 켠 뒤 한꺼번에 정산될 때 손해 보지 않게 한다.
+        for _ in 0..<produced.count {
+            guard let item = Self.forage(ribbon: ribbon, roll: nextRandomUnit(),
+                                         pick: nextRandomUnit()) else { continue }
+            state.inventory[item.rawValue, default: 0] += 1
+        }
+    }
+
+    /// 리본 파트너가 이번에 물어 온 특수 도구. 순수 함수라 확률 경계를 테스트로 잠근다.
+    nonisolated static func forage(ribbon: Ribbon, roll: Double, pick: Double) -> EvolutionItem? {
+        guard Int(roll * 1000) < ribbon.foragePermille else { return nil }
+        let pool = EvolutionItem.foraged
+        guard !pool.isEmpty else { return nil }
+        return pool[min(pool.count - 1, max(0, Int(pick * Double(pool.count))))]
     }
 
     /// 쌓인 토큰 → (사탕 개수, 남은 진행분). 순수 함수라 경계를 테스트로 잠근다.

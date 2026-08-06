@@ -44,6 +44,15 @@ struct L {
         t("슬롯 늘리기 (\(from) → \(to))", "Add a slot (\(from) → \(to))", "スロット追加 (\(from) → \(to))")
     }
     var shopSlotsMaxed: String { t("슬롯을 최대까지 늘렸어요", "Slots are maxed out", "スロットは最大まで増やしました") }
+    /// 진화 도구 — 돌과 연결의 끈. 특수 도구는 상점에 없고 리본 파트너가 물어 온다.
+    var shopEvolutionSection: String { t("진화 도구", "Evolution items", "しんかのどうぐ") }
+    /// 진화 조건 안내 — 무엇이 있어야 이 갈래로 갈 수 있는지.
+    func evolveNeedsItem(_ item: String) -> String {
+        t("\(item) 필요", "Needs \(item)", "\(item)がひつよう")
+    }
+    func evolveNeedsTime(_ remaining: String) -> String {
+        t("\(remaining) 더 함께해야 해요", "\(remaining) more together", "あと\(remaining)一緒に")
+    }
     var shopItemSection: String { t("아이템", "Items", "アイテム") }
     var shopItemOwned: String { t("보유 중", "Owned", "所持中") }
     var shopItemOwnedButton: String { t("보유", "Owned", "所持") }

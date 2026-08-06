@@ -24,6 +24,26 @@ extension PlayerStore {
     // MARK: 구매
 
     func count(of item: ShopItem) -> Int { state.inventory[item.rawValue] ?? 0 }
+    /// 진화 도구 보유량. 상점 품목과 같은 인벤토리를 쓴다 — 키가 겹치지 않고,
+    /// 저장 형식이 하나면 관대 디코딩·검증도 한 번만 하면 된다.
+    func count(of item: EvolutionItem) -> Int { state.inventory[item.rawValue] ?? 0 }
+
+    /// 진화 도구를 산다. 상점에서 파는 것만 살 수 있다 — 특수 도구는 리본 파트너가 물어 온다.
+    func buy(_ item: EvolutionItem) -> Bool {
+        guard item.isSold, state.wallet >= item.price else { return false }
+        mutate {
+            $0.spentTokens += item.price
+            $0.inventory[item.rawValue, default: 0] += 1
+        }
+        return true
+    }
+
+    /// 진화 도구 1개 소모. `mutate` 블록 안에서 불리므로 상태를 인자로 받는다.
+    static func consume(_ item: EvolutionItem, in state: inout PlayerState) {
+        let left = (state.inventory[item.rawValue] ?? 0) - 1
+        if left > 0 { state.inventory[item.rawValue] = left }
+        else { state.inventory.removeValue(forKey: item.rawValue) }
+    }
 
     /// 이 보유형 부적을 이미 갖고 있나.
     func owns(_ item: ShopItem) -> Bool {

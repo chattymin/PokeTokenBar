@@ -159,9 +159,19 @@ struct IndividualDetailView: View {
             if store.canEvolve(individual), !choices.isEmpty, let line {
                 ForEach(choices, id: \.self) { target in
                     let name = line.localizedName(target, store.language)
-                    DetailActionButton(title: choices.count > 1 ? l.evolveTo(name) : l.evolve,
-                                       prominent: true) {
-                        store.evolve(individualID: individual.id, to: target, line: line)
+                    let need = store.requirement(for: target, line: line)
+                    let met = store.meetsRequirement(need, for: individual)
+                    VStack(alignment: .leading, spacing: 2) {
+                        DetailActionButton(title: choices.count > 1 ? l.evolveTo(name) : l.evolve,
+                                           prominent: met) {
+                            store.evolve(individualID: individual.id, to: target, line: line)
+                        }
+                        .disabled(!met)
+                        .opacity(met ? 1 : 0.55)
+                        // 못 누르는 버튼은 이유를 말해야 한다 — 아니면 고장으로 읽힌다.
+                        if !met, let hint = requirementHint(need) {
+                            Text(hint).font(.system(size: 9)).foregroundStyle(.tertiary)
+                        }
                     }
                 }
             } else if line != nil, choices.isEmpty {
@@ -197,6 +207,18 @@ struct IndividualDetailView: View {
             DetailActionButton(title: l.revertForm, prominent: false) {
                 store.revertForm(individualID: individual.id)
             }
+        }
+    }
+
+    /// 아직 못 갖춘 조건을 사람 말로. 조건이 없으면 nil.
+    private func requirementHint(_ need: EvoRequirement) -> String? {
+        switch need {
+        case .none: nil
+        case .item(let item): l.evolveNeedsItem(item.label(store.language))
+        case .friendship:
+            l.evolveNeedsTime(Individual.togetherText(
+                seconds: max(0, EvoRequirement.friendshipSeconds
+                             - individual.partnerDuration(at: store.currentDate())), l))
         }
     }
 

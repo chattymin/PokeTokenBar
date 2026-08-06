@@ -53,10 +53,29 @@ enum PokemonAssets {
     }
 }
 
+/// 저장·전송용 요구 조건. `EvoRequirement` 는 카탈로그를 참조하는 계산값이라 Codable 로 두지 않는다
+/// — 아이템 이름만 남겨 두면 카탈로그가 자라도 옛 캐시가 그대로 유효하다.
+enum EvoRequirementRaw: Codable, Sendable, Equatable {
+    case none
+    case item(String)
+    case friendship
+}
+
 /// PokéAPI evolution-chain 을 파싱한 트리. 분기(evolves_to 다수)를 children 으로.
 struct EvoNode: Codable, Sendable {
     let speciesID: Int
     let children: [EvoNode]
+    /// **이 종이 되기 위해** 필요한 것(부모에서 이 노드로 오는 갈래의 조건).
+    /// 뿌리는 항상 `.none` — 아무것도 거치지 않고 존재한다.
+    var requirementRaw: EvoRequirementRaw = .none
+
+    var requirement: EvoRequirement {
+        switch requirementRaw {
+        case .none: .none
+        case .friendship: .friendship
+        case .item(let name): EvolutionItem.named(name).map(EvoRequirement.item) ?? .none
+        }
+    }
 
     /// 최장 경로 길이(형태 수). 분기는 보통 같은 깊이라 대표값으로 사용.
     var depth: Int { 1 + (children.map(\.depth).max() ?? 0) }
@@ -73,7 +92,11 @@ struct EvoNode: Codable, Sendable {
     /// 다루는 범위 밖 종을 잘라낸 진화 트리(잘린 종의 하위 체인도 함께 제외).
     func keepingSupportedSpecies() -> EvoNode? {
         guard PokemonAssets.hasSprite(speciesID: speciesID) else { return nil }
-        return EvoNode(speciesID: speciesID, children: children.compactMap { $0.keepingSupportedSpecies() })
+        // 요구 조건을 함께 옮긴다 — 트리를 다시 만들면서 빠뜨리면 돌·연결의 끈이 필요한 진화가
+        // 조건 없이 열린다. `EvoLine.init` 이 항상 이 함수를 지나므로 여기서 새면 전부 샌다.
+        return EvoNode(speciesID: speciesID,
+                       children: children.compactMap { $0.keepingSupportedSpecies() },
+                       requirementRaw: requirementRaw)
     }
 }
 

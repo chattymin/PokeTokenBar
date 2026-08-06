@@ -39,6 +39,18 @@ enum Ribbon: Int, CaseIterable, Codable, Sendable, Comparable {
         }
     }
 
+    /// 사탕 하나가 나올 때 특수 진화 도구도 함께 물어 올 확률(1000분율).
+    /// 단계가 오를수록 높아진다 — 오래 함께한 파트너일수록 더 자주 뭔가를 가져온다.
+    /// 상점에서 안 파는 10종류가 대상이라, 이 경로가 그 종들을 얻는 유일한 길이다.
+    var foragePermille: Int {
+        switch self {
+        case .bond: 40
+        case .trust: 70
+        case .kinship: 110
+        case .lifelong: 160
+        }
+    }
+
     func label(_ lang: AppLanguage) -> String {
         let names: (String, String, String) = switch self {
         case .bond: ("인연", "Bond", "きずな")

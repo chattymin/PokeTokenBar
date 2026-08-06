@@ -19,13 +19,32 @@ extension PlayerStore {
                                             region: individual.region)
     }
 
-    /// 진화 실행. 경험치가 모자라거나 트리에서 갈 수 없는 종이면 아무것도 하지 않고 false.
+    /// 이 갈래를 지나려면 무엇이 필요한가. 트리에 없는 종이면 조건 없음으로 본다.
+    func requirement(for speciesID: Int, line: EvoLine) -> EvoRequirement {
+        line.tree.node(withID: speciesID)?.requirement ?? .none
+    }
+
+    /// 그 조건을 지금 만족하는가. 도구는 **갖고 있으면** 되고(쓰는 건 진화 실행 때),
+    /// 친밀도는 그 개체와 함께한 시간으로 판단한다.
+    func meetsRequirement(_ requirement: EvoRequirement, for individual: Individual) -> Bool {
+        switch requirement {
+        case .none: true
+        case .item(let item): count(of: item) > 0
+        case .friendship:
+            individual.partnerDuration(at: currentDate()) >= EvoRequirement.friendshipSeconds
+        }
+    }
+
+    /// 진화 실행. 경험치가 모자라거나 트리에서 갈 수 없는 종이거나 조건을 못 채웠으면
+    /// 아무것도 하지 않고 false — 도구도 소모하지 않는다.
     @discardableResult
     func evolve(individualID: UUID, to speciesID: Int, line: EvoLine) -> Bool {
         guard let index = state.box.firstIndex(where: { $0.id == individualID }) else { return false }
         let individual = state.box[index]
+        let need = requirement(for: speciesID, line: line)
         guard canEvolve(individual),
-              evolutionChoices(individual, line: line).contains(speciesID) else { return false }
+              evolutionChoices(individual, line: line).contains(speciesID),
+              meetsRequirement(need, for: individual) else { return false }
         let threshold = ExpBalance.threshold(grade: individual.grade,
                                              stageIndex: individual.stageIndex)
         mutate { state in
@@ -35,6 +54,8 @@ extension PlayerStore {
             // 폼은 종에 달린 것이라 진화하면 풀린다 — 피카츄의 거다이맥스를 라이츄가 이어받을 수 없다.
             state.box[index].form = nil
             state.dex.insert(speciesID)
+            // 도구는 여기서 소모한다 — 실패한 진화가 도구를 먹으면 안 되므로 검증 뒤에 온다.
+            if case .item(let item) = need { Self.consume(item, in: &state) }
         }
         return true
     }
