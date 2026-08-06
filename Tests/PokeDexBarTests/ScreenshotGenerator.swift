@@ -1,9 +1,11 @@
 import AppKit
+import ImageIO
 import SwiftUI
+import UniformTypeIdentifiers
 import XCTest
 @testable import PokeDexBar
 
-// README 스크린샷 생성기.
+// README 스크린샷·애니메이션 생성기.
 //
 // 실행:
 //   PTB_SCREENSHOTS=1 swift test --filter ScreenshotGeneratorTests
@@ -28,6 +30,13 @@ import XCTest
 // 새로 넣은 효과가 스크린샷에만 안 보이면 캡처를 의심하지 말고 그 수식어를 그리기 단계 표현으로
 // 바꾸는 쪽이 맞다. (윈도우 서버 캡처는 필터까지 나오지만 화면 기록 권한에 묶여
 // "다시 돌릴 수 있는 생성기"가 못 된다.)
+//
+// **애니메이션 GIF 도 여기서 만든다.** 정적 PNG 와 다른 점은 런루프를 실제로 돌린다는 것뿐이다 —
+// 스프라이트 GIF 루프(`SpriteView` 의 `.task`)와 알 카운트다운(`TimelineView` 1초 틱)은 런루프가
+// 돌아야 진행하므로, `liveFrames` 가 `RunLoop.main` 을 돌려 뷰가 스스로 움직이게 두고 일정 간격으로
+// 결과를 샘플링한다. **담기는 움직임은 전부 앱이 실제로 만드는 움직임이다** — 페이드·슬라이드 같은
+// 합성 전환은 넣지 않는다. 인코딩은 SDK 내장 ImageIO(`CGImageDestination`)로 하며 외부 도구
+// (gifsicle 등)에 의존하지 않는다.
 
 /// 라인 조회를 즉답으로 대신한다 — 오프스크린 렌더는 `.task` 를 돌릴 기회가 없어 네트워크 조회가
 /// 착지하지 않는다. 진화 후보는 뷰에 `lines:` 로 직접 주입한다.
@@ -40,6 +49,38 @@ private struct StubProvider: PokeProviding {
     }
     func baseSpeciesIndex() async throws -> [BaseSpecies] { [] }
     func baseSpecies(id: Int) async throws -> BaseSpecies? { nil }
+}
+
+/// 사용량 스텁 — 홈 탭의 숫자·한도는 `UsageStore` 의 `private(set)` 프로퍼티라 밖에서 못 꽂는다.
+/// 스텁 프로바이더를 넣고 실제 `refresh()` 를 한 번 태워 앱과 같은 경로로 채운다(네트워크 없음).
+private struct StubUsageProvider: UsageProvider {
+    let id: String
+    let displayName: String
+    let daily: DailyUsage
+    let enrichment: ProviderEnrichment
+    func fetchDaily() async throws -> DailyUsage? { daily }
+    func fetchEnrichment() async -> ProviderEnrichment { enrichment }
+}
+
+private struct StubClaudeLimits: ClaudeLimitsProviding {
+    let status: LimitStatus
+    func fetch(allowKeychainPrompt: Bool) async throws -> LimitStatus { status }
+}
+
+/// Codex 는 공식 한도를 안 넣는다 — 홈 탭 한도 섹션은 선택된 첫 탭(Claude)만 그린다.
+private struct StubCodexLimits: CodexLimitsProviding {
+    func fetch() async throws -> CodexRateLimitStatus? { nil }
+}
+
+/// 상태 페이지 조회를 막는다 — 기본 구현은 statuspage.io 를 친다.
+private struct StubStatusProvider: ProviderStatusProviding {
+    func fetch() async -> [String: ProviderStatus] { [:] }
+}
+
+/// `waitFor` 가 비동기 결과를 받아 두는 자리. 지역 `var` 캡처 대신 참조 하나를 쓴다.
+@MainActor
+private final class AsyncResult<T> {
+    var value: Result<T, any Error>?
 }
 
 /// 스크린샷에 담을 세이브 픽스처 — "그럴듯한 플레이 중반"의 상태. 값은 전부 여기서만 정한다.
@@ -76,6 +117,10 @@ enum ScreenshotFixture {
     /// 부화 슬롯이 몇 칸인가. 알보다 하나 많게 둬서 빈 슬롯(점선 칸)도 함께 보이게 한다.
     static let slots = 5
 
+    /// 지금 파트너와 며칠째인가. `setPartner` 는 부른 시각을 그대로 동행 시작점으로 잡으므로,
+    /// 이만큼 시계를 되감고 지정하지 않으면 홈 카드가 "함께한 시간 0분"으로 찍힌다.
+    static let partnerSinceDaysAgo = 46.0
+
     /// 부화 중인 알 — 카운트다운이 슬롯마다 **다른 단위로** 읽히도록 남은 시간을 흩어 놓는다.
     /// (`EggSlotsView.countdownText` 는 큰 단위 두 개만 쓴다: "부화!" / "1분 30초" / "47분 25초" /
     /// "22시간 47분".) 첫 줄은 이미 부화 시각을 지나 "부화!" 로 뜬다 — 다 된 알이 어떻게 보이는지가
@@ -86,6 +131,42 @@ enum ScreenshotFixture {
         (.epic, 448, 360 - 47 - 25.0 / 60),  // 6시간짜리 → 47분 25초 남음
         (.legendary, 384, 73),               // 24시간짜리 → 22시간 47분 남음
     ]
+
+    /// GIF(홈)용 알 — **하나도 익지 않은 상태**로 둔다. 익은 알("부화!")은 `EggSlotsView` 의 1초 틱이
+    /// 그 자리에서 부화시켜(`settleRipeEggs`) 루프 도중 슬롯이 사라진다 — 앱의 실제 동작이라 GIF 에
+    /// 담을 수가 없다. 대신 앞의 둘을 분·초 단위에 두어 **초가 실제로 줄어드는 것**이 보이게 한다.
+    /// (정적 `screenshot-eggs*.png` 는 시각이 고정이라 익은 알을 그대로 보여준다 — `eggs` 참고.)
+    static let liveEggs: [(grade: Grade, speciesID: Int, startedMinutesAgo: Double)] = [
+        (.common, 172, 27),        // 30분짜리 → 3분 남음(초가 매 프레임 줄어든다)
+        (.rare, 133, 105),         // 2시간짜리 → 15분 남음(초까지 표시)
+        (.epic, 448, 300),         // 6시간짜리 → 1시간 0분 남음
+        (.legendary, 384, 73),     // 24시간짜리 → 22시간 47분 남음
+    ]
+
+    // MARK: 사용량 — 팝오버 홈이 보여주는 숫자
+
+    /// 오늘/주/월 사용량. 서비스를 둘 넣어 프로바이더 탭 줄까지 함께 보이게 한다.
+    /// (합계 = 16.6M · $27.27 → 메뉴바 숫자도 이 값에서 나온다.)
+    static let usage: [(id: String, name: String, input: Int, output: Int, cacheWrite: Int,
+                        cacheRead: Int, cost: Double, week: Int, weekCost: Double,
+                        month: Int, monthCost: Double)] = [
+        ("claude_code", "Claude Code", 184_000, 96_000, 1_240_000, 12_900_000, 23.41,
+         68_300_000, 108.72, 246_100_000, 391.55),
+        ("codex", "Codex", 42_000, 31_000, 0, 2_100_000, 3.86,
+         9_800_000, 17.40, 34_500_000, 60.24),
+    ]
+
+    /// Claude 공식 한도(5시간·주간·주간 Opus). 리셋 카운트다운은 상대 표시라 **현재 시각 기준**으로
+    /// 만든다 — 고정 시각을 쓰면 README 에 "3개월 전 리셋"이 찍힌다.
+    /// 5h 62.4% + 아래 `activeBlock` 의 분당 소모량이 만나 소진 예측 줄까지 그려진다.
+    static let fiveHourUtilization = 62.4
+    static let fiveHourResetsIn: TimeInterval = 125 * 60
+    static let sevenDayUtilization = 41.8
+    static let sevenDayOpusUtilization = 18.3
+    static let sevenDayResetsIn: TimeInterval = 3.2 * 86_400
+    /// 현재 5시간 블록 — "현재 블록" 줄과 소진 예측(분당 소모량)의 입력.
+    static let blockTokens = 3_120_000
+    static let blockTokensPerMinute = 21_500.0
 
     /// 진화 라인 — 앱에서는 PokéAPI 가 주지만 스크린샷은 네트워크를 타지 않으므로 필요한 것만 적어 둔다.
     private static let names: [Int: [Int: [String: String]]] = [
@@ -117,6 +198,31 @@ enum ScreenshotFixture {
     static var lines: [Int: EvoLine] {
         trees.keys.reduce(into: [:]) { $0[$1] = line(baseID: $1) }
     }
+
+    // MARK: GIF 규격
+
+    /// GIF 한 장의 규격. 재생 길이 = `frames × delay`, 용량은 (픽셀 넓이 × 프레임 수)에 비례한다 —
+    /// ImageIO 는 프레임 간 델타 최적화를 하지 않으므로 프레임 수를 아끼는 게 곧 용량이다.
+    struct Motion {
+        var frames: Int
+        var delay: TimeInterval
+    }
+
+    /// 이로치 배너에 쓰는 종 — 일반과 이로치 **둘 다** 움직이는 스프라이트가 있어야 한 쌍이 같이 돈다.
+    /// (플로팅 펫·메뉴바는 파트너를 그대로 쓴다. 파트너는 `roster` 첫 줄이 정한다.)
+    static let shinyBannerSpecies = 25   // 피카츄
+
+    /// 홈(히어로). 18 × 0.1s = 1.8s — 파트너 스프라이트 한 바퀴(리자드 1.77s)에 맞춰 이음매를 줄이고,
+    /// 그 사이 알 카운트다운이 1초 틱을 두 번 지나간다.
+    static let homeMotion = Motion(frames: 18, delay: 0.1)
+    /// 플로팅 펫. 펫은 fps 캡이 없어(`FloatingPetView.frameFloor == 0`) 원본 속도 그대로 돈다.
+    static let petMotion = Motion(frames: 20, delay: 0.09)
+    /// 이로치 배너. 16 × 0.0825s ≈ 1.32s = 피카츄 스프라이트 한 바퀴(이음매 없음).
+    static let shinyMotion = Motion(frames: 16, delay: 0.0825)
+    /// 메뉴바. 앱은 상태아이템 GIF 를 0.4s(≈2.5fps)로 캡해 배터리를 통제한다(`AppDelegate`) —
+    /// 그 리듬 그대로 12프레임(4.8초)만 잘라 담는다. 실제 한 바퀴는 59프레임 ≈ 23.6초라 README 에
+    /// 통째로 넣을 수 없다.
+    static let menuBarMotion = Motion(frames: 12, delay: 0.4)
 }
 
 @MainActor
@@ -132,13 +238,20 @@ final class ScreenshotGeneratorTests: XCTestCase {
         let detailID: UUID
     }
 
-    private func makeFixture() -> Fixture {
-        let base = ScreenshotFixture.now
+    /// - Parameters:
+    ///   - base: 시드 기준 시각. 정적 PNG 는 고정 시각(`ScreenshotFixture.now`)을 써 매 실행 같은
+    ///     숫자를 찍고, GIF 는 **현재 시각**을 써서 알 카운트다운이 실제로 흘러가게 한다.
+    ///   - live: 켜면 시드가 끝난 뒤 스토어의 시계가 실시각을 따라간다(파트너 동행 시간·알 정산).
+    ///   - eggs: 부화 슬롯에 넣을 알. GIF 는 익은 알이 없는 `liveEggs` 를 쓴다(그 이유는 거기 적어 뒀다).
+    private func makeFixture(base: Date = ScreenshotFixture.now, live: Bool = false,
+                             eggs: [(grade: Grade, speciesID: Int,
+                                     startedMinutesAgo: Double)] = ScreenshotFixture.eggs) -> Fixture {
         var clock = base
+        var liveClock = false
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("screenshot-\(UUID().uuidString).json")
         let player = PlayerStore(fileURL: url, rng: SeededRNG(seed: 7),
-                                 now: { clock },
+                                 now: { liveClock ? Date() : clock },
                                  defaults: UserDefaults(suiteName: "ptb-shot-\(UUID().uuidString)")!)
 
         // 스타터는 실제 경로로 고른다 — 이걸 지나야 팝오버가 스타터 픽커 대신 본 화면을 그린다.
@@ -161,7 +274,11 @@ final class ScreenshotGeneratorTests: XCTestCase {
             if index == 0 { partnerID = individual.id }
             if index == 1 { detailID = individual.id }
         }
-        if let partnerID { player.setPartner(partnerID) }
+        if let partnerID {
+            clock = base.addingTimeInterval(-ScreenshotFixture.partnerSinceDaysAgo * 86_400)
+            player.setPartner(partnerID)   // 동행 시작점을 되감아 지정한다(위 상수 참고)
+            clock = base
+        }
 
         // 도감은 "꾸준히 모은 중" 정도로 — 실루엣과 잡은 종이 섞여 보여야 도감 화면이 설명된다.
         for id in 1...40 where id % 3 != 0 { player.registerInDex(id) }
@@ -176,18 +293,77 @@ final class ScreenshotGeneratorTests: XCTestCase {
         }
 
         // 알은 실제 뽑기 경로로 넣는다 — 시작 시각만 시계를 되감아 각자 다르게 잡는다.
-        for egg in ScreenshotFixture.eggs {
+        for egg in eggs {
             clock = base.addingTimeInterval(-egg.startedMinutesAgo * 60)
             XCTAssertNotNil(player.startEgg(grade: egg.grade, speciesID: egg.speciesID, shiny: false),
                             "알을 못 넣었다 — 슬롯이나 지갑이 모자란다")
         }
         clock = base
+        liveClock = live   // 시드가 끝난 뒤에만 실시각으로 전환한다(되감기가 필요한 구간을 지나서)
 
         let usage = UsageStore(providers: [], autoRefresh: false,
                                defaults: UserDefaults(suiteName: "ptb-shot-usage-\(UUID().uuidString)")!)
         return Fixture(player: player, usage: usage,
                        updater: UpdateChecker(currentVersion: AppEnv.appVersion ?? "0"),
                        detailID: detailID!)
+    }
+
+    /// 홈 탭이 보여줄 사용량을 채운 스토어. `snapshots`·`limits`·`lastUpdated` 는 전부
+    /// `private(set)` 이라 밖에서 못 꽂는다 — 스텁 프로바이더를 넣고 실제 `refresh()` 를 한 번
+    /// 태워 앱과 같은 경로로 채운다(네트워크는 스텁이 전부 막는다).
+    private func makeUsageStore() async throws -> UsageStore {
+        let iso = ISO8601DateFormatter()
+        let now = Date()
+        let todayKey = LocalUsageReader.todayKey()
+        let providers: [any UsageProvider] = ScreenshotFixture.usage.map { entry in
+            var enrichment = ProviderEnrichment()
+            enrichment.weekTotal = PeriodUsage(period: "week", totalTokens: entry.week,
+                                               totalCost: entry.weekCost)
+            enrichment.monthTotal = PeriodUsage(period: "month", totalTokens: entry.month,
+                                                totalCost: entry.monthCost)
+            enrichment.periodsOK = true
+            if entry.id == "claude_code" {
+                // "현재 블록" 줄 + 5시간 소진 예측의 입력. 둘 다 Claude 고유 기능이다(확장 규약).
+                enrichment.activeBlock = BlockUsage(
+                    id: "shot", startTime: iso.string(from: now.addingTimeInterval(-175 * 60)),
+                    endTime: iso.string(from: now.addingTimeInterval(ScreenshotFixture.fiveHourResetsIn)),
+                    isActive: true, totalTokens: ScreenshotFixture.blockTokens, costUSD: 12.40,
+                    tokensPerMinute: ScreenshotFixture.blockTokensPerMinute)
+                enrichment.blocksOK = true
+            }
+            let total = entry.input + entry.output + entry.cacheWrite + entry.cacheRead
+            let daily = DailyUsage(date: todayKey, inputTokens: entry.input, outputTokens: entry.output,
+                                   cacheCreationTokens: entry.cacheWrite, cacheReadTokens: entry.cacheRead,
+                                   totalTokens: total, totalCost: entry.cost)
+            return StubUsageProvider(id: entry.id, displayName: entry.name,
+                                     daily: daily, enrichment: enrichment)
+        }
+        // 한도는 앱이 받는 것과 같은 JSON 을 태워 디코드한다 — 필드 이름(`five_hour` 등)이 어긋나면
+        // 여기서 바로 드러난다.
+        let json = """
+        {"five_hour":{"utilization":\(ScreenshotFixture.fiveHourUtilization),
+          "resets_at":"\(iso.string(from: now.addingTimeInterval(ScreenshotFixture.fiveHourResetsIn)))"},
+         "seven_day":{"utilization":\(ScreenshotFixture.sevenDayUtilization),
+          "resets_at":"\(iso.string(from: now.addingTimeInterval(ScreenshotFixture.sevenDayResetsIn)))"},
+         "seven_day_opus":{"utilization":\(ScreenshotFixture.sevenDayOpusUtilization),
+          "resets_at":"\(iso.string(from: now.addingTimeInterval(ScreenshotFixture.sevenDayResetsIn)))"}}
+        """
+        var limits = try JSONDecoder().decode(LimitStatus.self, from: Data(json.utf8))
+        // 구독 정보는 응답이 아니라 자격증명에서 주입된다(`OAuthLimitsProvider`) — 여기서도 그렇게 넣는다.
+        limits.subscriptionType = "max"
+        limits.rateLimitTier = "default_claude_max_20x"
+
+        let store = UsageStore(providers: providers,
+                               claudeLimitsProvider: StubClaudeLimits(status: limits),
+                               codexLimitsProvider: StubCodexLimits(),
+                               statusProvider: StubStatusProvider(),
+                               autoRefresh: false,
+                               defaults: UserDefaults(suiteName: "ptb-shot-usage-\(UUID().uuidString)")!)
+        await store.refresh(scheduleEmptyRetry: false)
+        XCTAssertGreaterThan(store.todayTotalTokens, 0, "사용량 시드가 안 들어갔다")
+        XCTAssertNotNil(store.limits?.fiveHour?.utilization, "공식 한도 시드가 안 들어갔다")
+        XCTAssertNotNil(store.fiveHourForecast, "소진 예측 줄이 안 나온다 — 블록/한도 시드가 어긋났다")
+        return store
     }
 
     // MARK: 렌더
@@ -325,6 +501,146 @@ final class ScreenshotGeneratorTests: XCTestCase {
         }
     }
 
+    // MARK: 애니메이션
+
+    /// 비동기 작업을 런루프를 돌리며 기다린다.
+    ///
+    /// **이 테스트가 `async` 면 안 되는 이유가 여기 있다.** `async` 테스트 본문은 그 자체가 메인 큐
+    /// 작업 항목 안에서 실행되고, 그 안에서 중첩 런루프를 돌려도 메인 큐를 다시 비울 수 없다 —
+    /// 뷰의 `.task`(스프라이트 프레임 루프)와 `TimelineView` 틱이 영영 진행하지 않아 GIF 가 정지
+    /// 화면 18장이 된다(실제로 겪음). 그래서 본문은 동기로 두고 비동기 조각만 여기서 기다린다.
+    private func waitFor<T>(_ operation: @escaping @MainActor () async throws -> T) throws -> T {
+        let box = AsyncResult<T>()
+        Task { @MainActor in
+            do { box.value = .success(try await operation()) } catch { box.value = .failure(error) }
+        }
+        let deadline = Date().addingTimeInterval(60)
+        while box.value == nil, Date() < deadline { pump(0.01) }
+        return try XCTUnwrap(box.value, "비동기 작업이 제한 시간 안에 안 끝났다").get()
+    }
+
+    /// 런루프를 실제 시간만큼 돌린다. 스프라이트 GIF 루프(`SpriteView` 의 `.task`)와 알 카운트다운
+    /// (`TimelineView` 1초 틱)은 메인 런루프가 돌아야 진행한다 — 정적 PNG 경로는 런루프를 돌리지
+    /// 않아서 이 애니메이션들이 첫 프레임에 멈춘 채로 찍힌다.
+    private func pump(_ seconds: TimeInterval) {
+        guard seconds > 0 else { return }
+        let deadline = Date().addingTimeInterval(seconds)
+        while Date() < deadline {
+            RunLoop.main.run(mode: .default, before: min(deadline, Date().addingTimeInterval(0.01)))
+        }
+    }
+
+    /// 살아 있는 뷰를 일정 간격으로 샘플링해 프레임을 모은다.
+    ///
+    /// 프레임 사이에 하는 일은 "기다리기"뿐이다 — 프레임 인덱스를 손으로 돌리거나 전환을 합성하지
+    /// 않는다. 그래서 담기는 움직임은 앱이 스스로 만드는 것(스프라이트 프레임·bob·카운트다운)뿐이다.
+    ///
+    /// - Parameter warmup: 첫 프레임 전에 돌려 둘 시간. 스프라이트 로드 → GIF 디코드 → 루프 시작까지
+    ///   가는 시간이라 이게 짧으면 앞쪽 프레임이 정지 화면으로 찍힌다.
+    private func liveFrames<V: View>(_ view: V, _ motion: ScreenshotFixture.Motion,
+                                     warmup: TimeInterval) throws -> [NSBitmapImageRep] {
+        let host = NSHostingView(rootView: view)
+        host.appearance = NSAppearance(named: .darkAqua)
+        host.layoutSubtreeIfNeeded()
+        let size = host.fittingSize
+        // **화면 밖 창에 붙여야 한다.** `TimelineView`(알 카운트다운 1초 틱)는 창 없는 호스팅 뷰에서
+        // 한 번도 돌지 않는다 — 실측: 창 없이 3.6초를 훑어도 전부 같은 그림, 창을 주면 정상 틱.
+        // (`.task` 는 창 없이도 돈다. 그래서 스프라이트만 움직이고 카운트다운은 얼어붙은 GIF 가 나왔다.)
+        // 좌표가 모든 화면 밖이라 사용자 눈에는 아무것도 뜨지 않는다.
+        let window = NSWindow(contentRect: CGRect(origin: .zero, size: size),
+                              styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = host
+        window.setFrameOrigin(NSPoint(x: -30_000, y: -30_000))
+        window.orderBack(nil)
+        defer { window.orderOut(nil); window.contentView = nil }
+        host.frame = CGRect(origin: .zero, size: size)
+        host.layoutSubtreeIfNeeded()
+        pump(warmup)
+        var frames: [NSBitmapImageRep] = []
+        for index in 0..<motion.frames {
+            if index > 0 { pump(motion.delay) }
+            frames.append(try snapshot(host))
+        }
+        let first = try XCTUnwrap(frames.first, "프레임이 하나도 없다")
+        XCTAssertEqual(CGFloat(first.pixelsWide) / host.bounds.width, Self.scale,
+                       "2배 스케일이 아니다 — 레티나가 아닌 디스플레이에서 돌렸다")
+        XCTAssertGreaterThan(Set(frames.map { $0.representation(using: .png, properties: [:]) }).count, 1,
+                             "모든 프레임이 같다 — 움직이지 않는 화면을 GIF 로 찍고 있다")
+        return frames
+    }
+
+    /// 프레임들을 애니메이션 GIF 로 인코딩한다. ImageIO 는 SDK 내장이라 외부 의존성이 없다 —
+    /// 대신 프레임 간 델타 최적화를 하지 않으므로 용량은 (픽셀 넓이 × 프레임 수)에 거의 비례한다.
+    private func gif(_ frames: [NSBitmapImageRep], delay: TimeInterval) throws -> Data {
+        let buffer = NSMutableData()
+        let destination = try XCTUnwrap(
+            CGImageDestinationCreateWithData(buffer, UTType.gif.identifier as CFString,
+                                             frames.count, nil), "GIF 인코더 생성 실패")
+        CGImageDestinationSetProperties(destination, [
+            kCGImagePropertyGIFDictionary: [kCGImagePropertyGIFLoopCount: 0],   // 0 = 무한 반복
+        ] as CFDictionary)
+        let frameProperties = [
+            kCGImagePropertyGIFDictionary: [
+                kCGImagePropertyGIFDelayTime: delay,
+                kCGImagePropertyGIFUnclampedDelayTime: delay,
+            ],
+        ] as CFDictionary
+        for frame in frames {
+            CGImageDestinationAddImage(destination,
+                                       try XCTUnwrap(frame.cgImage, "CGImage 변환 실패"),
+                                       frameProperties)
+        }
+        XCTAssertTrue(CGImageDestinationFinalize(destination), "GIF 인코딩 실패")
+        return buffer as Data
+    }
+
+    /// 메뉴바 한 프레임을 합성한다.
+    ///
+    /// **여기만 앱의 그리기 코드를 그대로 못 쓴다.** 상태아이템은 `NSStatusItem` 이라 화면에 붙은
+    /// 채로만 존재하고(오프스크린 캡처는 백킹 스케일조차 들쭉날쭉하다), 합성 헬퍼
+    /// (`AppDelegate.menuBarImage`/`applyMenuText`)는 `private` 이다. 그래서 앱이 쓰는 **재료**로
+    /// 같은 그림을 다시 조립한다 — 스프라이트 프레임은 캐시된 Gen-V GIF 를 앱과 같은 `GIFDecoder`
+    /// 로 푼 것, 숫자는 `UsageStore.menuLines`, 아이콘 칸 높이는 `NSStatusBar.system.thickness`,
+    /// 스프라이트 맞춤은 `PixelScale.fittedRect`. **띠 배경과 좌우 여백만 표현용**이다(실제 메뉴바는
+    /// 뒤 배경이 비쳐 보인다 — 그건 윈도우 서버가 그리는 것이라 어떤 오프스크린 렌더로도 못 담는다).
+    private func menuBarFrame(sprite: NSImage, title: String) throws -> NSBitmapImageRep {
+        let thickness = NSStatusBar.system.thickness     // 메뉴바 높이(22pt)
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: NSFont.monospacedDigitSystemFont(ofSize: 13, weight: .regular),
+            .foregroundColor: NSColor.white,             // 다크 메뉴바의 라벨 색
+        ]
+        let text = title as NSString
+        let textSize = text.size(withAttributes: attributes)
+        let sidePad: CGFloat = 16
+        let width = (sidePad * 2 + thickness + textSize.width).rounded(.up)
+        let size = CGSize(width: width, height: thickness)
+
+        let rep = try XCTUnwrap(NSBitmapImageRep(
+            bitmapDataPlanes: nil,
+            pixelsWide: Int(size.width * Self.scale), pixelsHigh: Int(size.height * Self.scale),
+            bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+            colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0), "메뉴바 캔버스 생성 실패")
+        rep.size = size
+
+        let context = try XCTUnwrap(NSGraphicsContext(bitmapImageRep: rep), "컨텍스트 생성 실패")
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = context
+        NSColor(calibratedWhite: 0.10, alpha: 1).setFill()
+        NSBezierPath(rect: NSRect(origin: .zero, size: size)).fill()
+        // 스프라이트는 22×22 고정 칸 안에서만 비율을 지켜 넣는다(앱과 같은 규칙 — 폭이 흔들리면 떨린다).
+        context.imageInterpolation = .none
+        let box = PixelScale.fittedRect(source: sprite.size,
+                                        in: CGSize(width: thickness - 2, height: thickness - 2))
+        sprite.draw(in: box.offsetBy(dx: sidePad + 1, dy: 1), from: .zero,
+                    operation: .sourceOver, fraction: 1)
+        text.draw(at: NSPoint(x: sidePad + thickness,
+                              y: ((thickness - textSize.height) / 2).rounded()),
+                  withAttributes: attributes)
+        NSGraphicsContext.restoreGraphicsState()
+        return rep
+    }
+
     private static let assetsDir = URL(fileURLWithPath: #filePath)
         .deletingLastPathComponent()   // PokeDexBarTests
         .deletingLastPathComponent()   // Tests
@@ -392,5 +708,93 @@ final class ScreenshotGeneratorTests: XCTestCase {
                           fullScroll: true),
                       "settings\(suffix).png")
         }
+
+        try generateAnimations()
+    }
+
+    // MARK: 움직이는 그림들 (GIF)
+
+    /// 애니메이션 네 장. 정적 PNG 와 픽스처는 같지만 기준 시각만 **현재 시각**으로 바꾼다 —
+    /// 알 카운트다운이 실제로 흘러가야 GIF 에 담을 움직임이 생긴다.
+    private func generateAnimations() throws {
+        let fixture = makeFixture(base: Date(), live: true, eggs: ScreenshotFixture.liveEggs)
+        fixture.player.setLanguage(.en)
+        let usage = try waitFor { try await self.makeUsageStore() }
+        usage.localizationLanguage = .en
+
+        try write(try homeAnimation(fixture, usage: usage), "screenshot-home.gif")
+        try write(try petAnimation(fixture, usage: usage), "floating-pet.gif")
+        try write(try shinyAnimation(usage: usage), "shiny-banner.gif")
+        try write(try menuBarAnimation(fixture, usage: usage), "menubar.gif")
+    }
+
+    /// 히어로 — 팝오버 홈 탭 전체. 움직이는 것은 두 가지이고 둘 다 앱이 스스로 하는 일이다:
+    /// 파트너 카드의 Gen-V 스프라이트 프레임 루프와, 부화 슬롯의 1초 카운트다운(`TimelineView`).
+    private func homeAnimation(_ fixture: Fixture, usage: UsageStore) throws -> Data {
+        let motion = ScreenshotFixture.homeMotion
+        let view = PopoverView(player: fixture.player, provider: StubProvider())
+            .environment(usage).environment(fixture.player)
+            .environment(fixture.updater).environment(PopoverNavigation())
+            // 리셋 카운트다운(`Text(_, style: .relative)`)만은 앱 언어가 아니라 **시스템 로캘**을
+            // 따른다 — 한국어 맥에서 찍으면 영어 화면에 "2시간 4분"이 섞인다. README 기본이 영어이니
+            // 영어권 사용자가 보는 화면과 같아지게 로캘을 고정한다.
+            .environment(\.locale, Locale(identifier: "en_US"))
+            .background(Color(nsColor: .windowBackgroundColor))
+        return try gif(liveFrames(view, motion, warmup: 2.0), delay: motion.delay)
+    }
+
+    /// 플로팅 펫 — 패널(`NSPanel`)은 투명·보더리스라 화면에 실제로 보이는 건 이 콘텐츠 뷰뿐이다.
+    /// 패널 자체는 오프스크린으로 못 찍으므로 데스크톱 자리에 은은한 배경만 깔고 뷰를 그대로 올린다
+    /// (호버 콜아웃·우클릭 메뉴는 별도 패널/`NSMenu` 라 여기 담기지 않는다).
+    private func petAnimation(_ fixture: Fixture, usage: UsageStore) throws -> Data {
+        let motion = ScreenshotFixture.petMotion
+        let size = CGFloat(usage.floatingPetSize)
+        let view = FloatingPetView(animated: true)
+            .environment(usage).environment(fixture.player)
+            .frame(width: size + 16, height: size + 8)
+            .padding(.horizontal, 46).padding(.top, 12).padding(.bottom, 18)
+            .background(
+                LinearGradient(colors: [Color(red: 0.16, green: 0.17, blue: 0.24),
+                                        Color(red: 0.09, green: 0.10, blue: 0.14)],
+                               startPoint: .topLeading, endPoint: .bottomTrailing))
+        return try gif(liveFrames(view, motion, warmup: 2.0), delay: motion.delay)
+    }
+
+    /// "이로치는 나온다" 줄 — 같은 종의 일반/이로치 스프라이트를 나란히. 앱에 이런 화면이 따로
+    /// 있는 건 아니고, 앱이 쓰는 `SpriteView` 두 개를 README 용으로 나란히 놓은 배너다.
+    private func shinyAnimation(usage: UsageStore) throws -> Data {
+        let motion = ScreenshotFixture.shinyMotion
+        let species = ScreenshotFixture.shinyBannerSpecies
+        let view = HStack(spacing: 36) {
+            SpriteView(speciesID: species, size: 72, animated: true,
+                       antialias: usage.antialiasSprites)
+            SpriteView(speciesID: species, size: 72, animated: true, shiny: true,
+                       antialias: usage.antialiasSprites)
+        }
+        .padding(.horizontal, 25).padding(.vertical, 12)
+        .background(Color(nsColor: .windowBackgroundColor))
+        return try gif(liveFrames(view, motion, warmup: 2.0), delay: motion.delay)
+    }
+
+    /// 메뉴바 — 상태아이템은 오프스크린 렌더가 닿지 않는 표면이라 유일하게 손으로 조립한다.
+    /// 무엇이 진짜고 무엇이 표현인지는 `menuBarFrame` 주석에 적어 뒀다.
+    private func menuBarAnimation(_ fixture: Fixture, usage: UsageStore) throws -> Data {
+        let motion = ScreenshotFixture.menuBarMotion
+        let species = try XCTUnwrap(fixture.player.displayedSpeciesID, "파트너가 없다")
+        let form = fixture.player.displayedForm
+        let shiny = fixture.player.displayedIsShiny
+        let loaded = try waitFor {
+            await SpriteStore.shared.data(speciesID: species, form: form,
+                                          animated: true, shiny: shiny)
+        }
+        let data = try XCTUnwrap(loaded, "움직이는 스프라이트를 못 얻었다 — 캐시에도 없고 받지도 못했다")
+        let sprites = GIFDecoder.frames(from: data)
+        XCTAssertGreaterThan(sprites.count, motion.frames,
+                             "스프라이트 프레임이 잘라 쓸 만큼도 안 된다")
+        let title = try XCTUnwrap(usage.menuLines.first, "메뉴바에 표시할 줄이 없다")
+        let frames = try sprites.prefix(motion.frames).map {
+            try menuBarFrame(sprite: $0.image, title: title)
+        }
+        return try gif(frames, delay: motion.delay)
     }
 }
