@@ -225,7 +225,7 @@ final class RegionStoreTests: XCTestCase {
         var sawRegional = false
         for _ in 0..<40 {
             store.startEgg(grade: .common, speciesID: 52, shiny: false)
-            let hatched = store.settleHatches(at: start.addingTimeInterval(48 * 3600))
+            let hatched = store.claimAllReady(at: start.addingTimeInterval(48 * 3600))
             if hatched.contains(where: { $0.region != nil }) { sawRegional = true; break }
         }
         XCTAssertTrue(sawRegional, "40번 깨는 동안 지방 모습이 한 번도 안 나왔다 — 굴림이 배선 안 됐다")
@@ -238,7 +238,7 @@ final class RegionStoreTests: XCTestCase {
         store.seedForTesting(wallet: 100_000_000_000, slots: 6, eggs: 0, at: start)
         for _ in 0..<30 {
             store.startEgg(grade: .common, speciesID: 1, shiny: false)   // 이상해씨
-            for hatched in store.settleHatches(at: start.addingTimeInterval(48 * 3600)) {
+            for hatched in store.claimAllReady(at: start.addingTimeInterval(48 * 3600)) {
                 XCTAssertNil(hatched.region, "이상해씨에 지방이 붙었다")
             }
         }

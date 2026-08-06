@@ -61,10 +61,11 @@ final class EggSlotsViewTests: XCTestCase {
     }
 }
 
-/// 팝오버를 열어 둔 채 부화 시각이 지나면 그 자리에서 깨야 한다. 카운트다운 틱에 정산이 안 붙어
-/// 있으면 타일이 "부화!"에 멈춘 채 다음 사용량 새로고침까지(수동 프리셋이면 무한정) 그대로였다.
-/// 스토어의 `settleHatches` 를 직접 부르는 테스트는 이 배선이 없어도 통과하므로, 뷰를 호스팅해
-/// **틱이 지나가는 것만으로** 정산되는지를 잰다(rootView 교체 = 1초 틱 한 번).
+/// 팝오버를 열어 둔 채 부화 시각이 지나면 그 틱에서 **알려야** 한다. 알림이 틱에 안 붙어 있으면
+/// 다음 사용량 새로고침까지(수동 프리셋이면 무한정) 알림이 안 나간다.
+/// 거두는 건 사용자 몫이라 알은 슬롯에 그대로 남아야 한다 — 두 가지를 같이 잰다.
+/// 스토어를 직접 부르는 테스트는 이 배선이 없어도 통과하므로 뷰를 호스팅해
+/// **틱이 지나가는 것만으로** 알려지는지를 본다(rootView 교체 = 1초 틱 한 번).
 @MainActor
 final class EggSlotsTickSettleTests: XCTestCase {
     private let start = Date(timeIntervalSince1970: 1_700_000_000)
@@ -77,7 +78,7 @@ final class EggSlotsTickSettleTests: XCTestCase {
         return store
     }
 
-    func testTickPastHatchTimeSettlesTheEgg() {
+    func testTickPastHatchTimeAnnouncesButKeepsTheEgg() {
         let store = makeStore()
         let host = NSHostingView(rootView: EggSlotsView(store: store, now: start))
         host.layoutSubtreeIfNeeded()
@@ -86,8 +87,12 @@ final class EggSlotsTickSettleTests: XCTestCase {
         // 다음 틱 — 부화 시각을 지난 시각이 들어온다.
         host.rootView = EggSlotsView(store: store, now: start.addingTimeInterval(EggBalance.duration(.common)))
         host.layoutSubtreeIfNeeded()
-        XCTAssertTrue(store.state.eggs.isEmpty, "틱이 부화 시각을 지났는데 알이 슬롯에 남아 있다")
-        XCTAssertEqual(store.state.box.count, 1, "부화한 개체가 박스에 들어와야 한다")
+        XCTAssertEqual(store.state.eggs.count, 1, "확인 전에 알이 슬롯에서 사라졌다")
+        XCTAssertTrue(store.state.box.isEmpty, "확인 전에 박스로 들어갔다")
+        XCTAssertTrue(store.state.eggs.first?.announced ?? false,
+                      "틱이 부화 시각을 지났는데 알림 표시가 안 붙었다")
+        // 두 번째 틱에도 다시 알리지 않는다.
+        XCTAssertTrue(store.announceReadyEggs(at: start.addingTimeInterval(EggBalance.duration(.common))).isEmpty)
     }
 
     /// 익지 않은 알은 틱마다 건드리지 않는다 — 틱은 초당 한 번 도는 경로라 헛일을 하면 안 된다.

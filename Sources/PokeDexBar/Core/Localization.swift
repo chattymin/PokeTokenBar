@@ -138,6 +138,11 @@ struct L {
     // MARK: 홈 — 부화 슬롯
     var eggSlotsHeader: String { t("부화 중", "Hatching", "ふ化中") }
     var eggHatchingNow: String { t("부화!", "Hatched!", "ふ化!") }
+    /// 익은 알을 거두는 버튼 — 누르기 전까지 알은 슬롯에 남는다.
+    var eggClaim: String { t("확인", "Open", "かくにん") }
+    var hatchedMovedToBox: String {
+        t("박스에 들어갔어요", "Added to your Box", "ボックスに入りました")
+    }
     func eggCountdownDaysHours(_ days: Int, _ hours: Int) -> String {
         t("\(days)일 \(hours)시간", "\(days)d \(hours)h", "\(days)日\(hours)時間")
     }

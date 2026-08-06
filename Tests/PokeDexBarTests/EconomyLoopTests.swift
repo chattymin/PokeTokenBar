@@ -22,9 +22,9 @@ final class EconomyLoopTests: XCTestCase {
         XCTAssertEqual(store.freeSlots, 0)
         XCTAssertFalse(store.canDraw, "슬롯이 꽉 차면 못 뽑는다")
 
-        let hatched = store.settleHatches(at: start.addingTimeInterval(24 * 3600))
+        let hatched = store.claimAllReady(at: start.addingTimeInterval(24 * 3600))
         XCTAssertEqual(hatched.count, 3)
-        XCTAssertEqual(store.freeSlots, 3, "부화하면 슬롯이 돌아온다")
+        XCTAssertEqual(store.freeSlots, 3, "거두면 슬롯이 돌아온다")
         XCTAssertEqual(store.state.dex, Set([1, 4, 144]))
         XCTAssertTrue(store.state.box.first { $0.speciesID == 144 }?.shiny ?? false)
     }

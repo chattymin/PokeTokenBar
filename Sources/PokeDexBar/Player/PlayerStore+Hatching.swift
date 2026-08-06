@@ -1,47 +1,76 @@
 import Foundation
 
-/// 시간 부화. 알은 토큰이 아니라 실시간으로 깨지므로, 앱이 꺼져 있던 동안의 경과를
-/// 실행 시점에 한 번에 정산한다.
+/// 시간 부화. 알은 토큰이 아니라 실시간으로 깨지므로, 앱이 꺼져 있던 동안의 경과도 그대로 반영된다.
+///
+/// **익었다고 저절로 박스로 들어가지 않는다.** 부화 시각이 지난 알은 슬롯에 남아 "확인"을 기다리고,
+/// 사용자가 눌러야 개체가 되어 박스·도감에 들어가고 슬롯이 빈다 — 무엇이 나왔는지 못 보고 지나가는
+/// 일이 없게 하려는 것이다. 그래서 여기서 하는 일은 둘로 나뉜다: 익은 걸 **알리는 것**(자동)과
+/// 개체로 **거두는 것**(사용자 동작).
 extension PlayerStore {
     func readyEggCount(at now: Date) -> Int {
         state.eggs.count { $0.isReady(at: now) }
     }
 
-    /// 시각이 지난 알을 전부 부화시킨다. 부화한 개체들을 돌려주고(알림·연출용) 슬롯을 비운다.
-    /// 여러 번 불려도 같은 알을 두 번 부화시키지 않는다 — 부화한 알은 목록에서 사라진다.
+    /// 아직 안 알린 익은 알들. 알린 표시를 남기고 그 알들을 돌려준다 — 익은 알이 슬롯에 계속
+    /// 남으므로 이 표시가 없으면 매 틱마다 같은 알을 다시 알리게 된다.
     @discardableResult
-    func settleHatches(at now: Date) -> [Individual] {
-        let ripe = state.eggs.filter { $0.isReady(at: now) }
-        guard !ripe.isEmpty else { return [] }
-        let natures = PokemonNature.allCases
-        var hatched: [Individual] = []
-        for egg in ripe {
-            let nature = natures[Int(nextRandomUnit() * Double(natures.count)) % natures.count]
-            // 지방 모습은 태어날 때 정해져 평생 간다 — 굴림은 종에 지방 모습이 있을 때만 의미가 있다.
-            let rolled = RegionBalance.rollRegion(speciesID: egg.speciesID,
-                                                  roll: nextRandomUnit(), pick: nextRandomUnit())
-            var individual = Individual(baseID: egg.speciesID, speciesID: egg.speciesID,
-                                        pathIDs: [egg.speciesID], shiny: egg.shiny,
-                                        nature: nature, exp: 0, obtainedAt: now, grade: egg.grade)
-            individual.region = rolled?.0
-            individual.regionVariant = rolled?.1
-            hatched.append(individual)
+    func announceReadyEggs(at now: Date) -> [Egg] {
+        let fresh = state.eggs.filter { $0.isReady(at: now) && !$0.announced }
+        guard !fresh.isEmpty else { return [] }
+        let ids = Set(fresh.map(\.id))
+        mutate { state in
+            for index in state.eggs.indices where ids.contains(state.eggs[index].id) {
+                state.eggs[index].announced = true
+            }
         }
-        let hatchedIDs = Set(ripe.map(\.id))
-        mutate {
-            $0.box.append(contentsOf: hatched)
-            for individual in hatched { $0.dex.insert(individual.speciesID) }
-            $0.eggs.removeAll { hatchedIDs.contains($0.id) }
-        }
-        return hatched
+        return fresh
     }
 
-    /// 정산하고, 깬 게 있으면 알린다. 정산 지점이 셋(사용량 틱·팝오버 열기·카운트다운 틱)이라
-    /// "정산 한 번 = 알림 한 번" 규칙이 지점마다 갈라지지 않게 여기 한 곳에 묶는다.
+    /// 알리고, 알릴 게 있었으면 알림을 보낸다. 호출 지점이 셋(사용량 틱·팝오버 열기·카운트다운 틱)이라
+    /// "한 번 익음 = 한 번 알림" 규칙이 지점마다 갈라지지 않게 여기 한 곳에 묶는다.
     @discardableResult
-    func settleHatchesAndNotify(at now: Date) -> [Individual] {
-        let hatched = settleHatches(at: now)
-        HatchNotifier().notify(hatched: hatched, language: language)
-        return hatched
+    func announceReadyEggsAndNotify(at now: Date) -> [Egg] {
+        let fresh = announceReadyEggs(at: now)
+        HatchNotifier().notify(hatched: fresh, language: language)
+        return fresh
+    }
+
+    /// 익은 알 하나를 거둔다 — 개체를 만들어 박스·도감에 넣고 슬롯을 비운다.
+    /// 아직 안 익었거나 없는 알이면 아무것도 하지 않는다.
+    @discardableResult
+    func claimHatch(eggID: UUID, at now: Date) -> Individual? {
+        guard let egg = state.eggs.first(where: { $0.id == eggID }), egg.isReady(at: now) else {
+            return nil
+        }
+        let individual = makeHatchling(from: egg, at: now)
+        mutate { state in
+            state.box.append(individual)
+            state.dex.insert(individual.speciesID)
+            state.eggs.removeAll { $0.id == eggID }
+        }
+        return individual
+    }
+
+    /// 익은 알을 전부 거둔다(여러 개가 한꺼번에 익었을 때).
+    @discardableResult
+    func claimAllReady(at now: Date) -> [Individual] {
+        state.eggs.filter { $0.isReady(at: now) }
+            .compactMap { claimHatch(eggID: $0.id, at: now) }
+    }
+
+    /// 알 → 개체. 성격과 지방은 **거두는 시점에** 굴린다 — 알에 미리 넣어 두면 세이브에
+    /// 결과가 노출되고, 확인 전에 무엇인지 알 수 있게 된다.
+    private func makeHatchling(from egg: Egg, at now: Date) -> Individual {
+        let natures = PokemonNature.allCases
+        let nature = natures[Int(nextRandomUnit() * Double(natures.count)) % natures.count]
+        // 지방 모습은 태어날 때 정해져 평생 간다 — 굴림은 종에 지방 모습이 있을 때만 의미가 있다.
+        let rolled = RegionBalance.rollRegion(speciesID: egg.speciesID,
+                                              roll: nextRandomUnit(), pick: nextRandomUnit())
+        var individual = Individual(baseID: egg.speciesID, speciesID: egg.speciesID,
+                                    pathIDs: [egg.speciesID], shiny: egg.shiny,
+                                    nature: nature, exp: 0, obtainedAt: now, grade: egg.grade)
+        individual.region = rolled?.0
+        individual.regionVariant = rolled?.1
+        return individual
     }
 }

@@ -11,6 +11,8 @@ struct EggSlotsView: View {
     /// 1초 틱 — 남은 시간이 살아 움직이게. 호출부(PopoverView)가 이 뷰만 `TimelineView` 로
     /// 감싸 넘긴다 — 홈 탭 전체를 매초 다시 그리지 않기 위해서다.
     let now: Date
+    /// 방금 거둔 개체 — 연출 중에만 non-nil. 이미 박스에 들어가 있어서 닫아도 잃는 것이 없다.
+    @State private var hatched: Individual?
 
     nonisolated private static let tileSize: CGFloat = 52
     nonisolated private static let tileSpacing: CGFloat = 6
@@ -62,30 +64,55 @@ struct EggSlotsView: View {
             // 슬롯이 적으면(대부분의 사용자) 스크롤·바운스가 생기지 않아 기존과 동일하게 보인다.
             .scrollBounceBehavior(.basedOnSize, axes: .horizontal)
         }
-        .onChange(of: now) { _, date in settleRipeEggs(at: date) }
+        .onChange(of: now) { _, date in announceRipeEggs(at: date) }
+        // 거둔 개체를 한 번 보여준다 — 확인을 누른 보람이 있어야 하고, 이걸 안 보면 무엇이
+        // 나왔는지 박스에 들어가서야 알게 된다.
+        .overlay {
+            if let hatched {
+                HatchedRevealView(individual: hatched, store: store) { self.hatched = nil }
+            }
+        }
     }
 
-    /// 카운트다운이 부화 시각을 지나면 그 틱에서 바로 정산한다. 이게 없으면 팝오버를 열어 둔 채
-    /// 시간이 찬 알이 "부화!"에 멈춰 있다가 다음 사용량 새로고침에야 깬다 — 새로고침을 "수동"으로
-    /// 둔 사용자(`UsageStore` 의 0초 프리셋)는 타이머가 아예 없어 팝오버를 닫았다 열기 전엔 영영 안 깬다.
+    /// 카운트다운이 부화 시각을 지나면 그 틱에서 알린다. 이게 없으면 팝오버를 열어 둔 채 시간이
+    /// 찬 알이 조용히 "부화!"로만 바뀌고 알림은 다음 사용량 새로고침에야 나간다 — 새로고침을
+    /// "수동"으로 둔 사용자(`UsageStore` 의 0초 프리셋)는 타이머가 아예 없어 영영 안 나간다.
     /// 이미 도는 1초 틱에 얹으므로 새 타이머는 없고, 익은 알이 없으면 아무 일도 하지 않는다.
-    private func settleRipeEggs(at date: Date) {
+    /// **거두는 건 여기서 하지 않는다** — 그건 사용자가 확인을 눌러야 한다.
+    private func announceRipeEggs(at date: Date) {
         guard store.readyEggCount(at: date) > 0 else { return }
-        store.settleHatchesAndNotify(at: date)
+        store.announceReadyEggsAndNotify(at: date)
     }
 
     private func slot(_ egg: Egg) -> some View {
         let remaining = egg.remaining(at: now)
-        return VStack(spacing: 2) {
-            Text("🥚").font(.system(size: 20))
-            Text(Self.countdownText(remaining, store.language))
-                .font(.system(size: 8)).monospacedDigit()
-                .foregroundStyle(remaining <= 0 ? Color.accentColor : .secondary)
+        let ready = remaining <= 0
+        return VStack(spacing: 1) {
+            EggIcon(grade: egg.grade, size: ready ? 19 : 21, cracked: ready)
+            if ready {
+                // 확인을 눌러야 개체가 되어 박스로 간다 — 무엇이 나왔는지 못 보고 지나가지 않게.
+                Button(l.eggClaim) { claim(egg) }
+                    .buttonStyle(.plain)
+                    .font(.system(size: 8, weight: .bold))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 5).padding(.vertical, 1.5)
+                    .background(Color.accentColor, in: Capsule())
+            } else {
+                Text(Self.countdownText(remaining, store.language))
+                    .font(.system(size: 8)).monospacedDigit()
+                    .foregroundStyle(.secondary)
+            }
             Text(egg.grade.label(store.language))
                 .font(.system(size: 7, weight: .semibold)).foregroundStyle(.tertiary)
         }
         .frame(width: Self.tileSize, height: Self.tileSize)
-        .background(Color.secondary.opacity(0.10), in: RoundedRectangle(cornerRadius: 8))
+        .background(ready ? Color.accentColor.opacity(0.16) : Color.secondary.opacity(0.10),
+                    in: RoundedRectangle(cornerRadius: 8))
+    }
+
+    private func claim(_ egg: Egg) {
+        guard let individual = store.claimHatch(eggID: egg.id, at: now) else { return }
+        hatched = individual
     }
 
     private var emptySlot: some View {

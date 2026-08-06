@@ -9,6 +9,37 @@ struct Egg: Identifiable, Codable, Sendable, Equatable {
     var shiny: Bool
     var startedAt: Date
     var hatchesAt: Date
+    /// 부화 시각이 지났다고 이미 알렸나. 알림은 한 번만 — 익은 알은 사용자가 확인을 누를 때까지
+    /// 슬롯에 남으므로, 이 표시가 없으면 매 틱마다 같은 알을 다시 알리게 된다.
+    var announced = false
+
+    /// **필드를 더할 때 알이 통째로 사라지지 않게 하는 장치.** Swift 합성 디코더는 기본값이 있어도
+    /// 키가 없으면 던지고, `LossyEgg` 는 그 예외를 "이 알을 버린다"로 바꾼다 — `Individual` 에서
+    /// 실제로 박스가 비었던 그 부류다. 정체에 해당하는 필드만 필수로 둔다.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        func value<T: Decodable>(_ key: CodingKeys, _ fallback: T) -> T {
+            (try? c.decode(T.self, forKey: key)) ?? fallback
+        }
+        grade = try c.decode(Grade.self, forKey: .grade)
+        speciesID = try c.decode(Int.self, forKey: .speciesID)
+        hatchesAt = try c.decode(Date.self, forKey: .hatchesAt)
+        id = value(.id, UUID())
+        shiny = value(.shiny, false)
+        startedAt = value(.startedAt, hatchesAt)
+        announced = value(.announced, false)
+    }
+
+    init(id: UUID = UUID(), grade: Grade, speciesID: Int, shiny: Bool,
+         startedAt: Date, hatchesAt: Date, announced: Bool = false) {
+        self.id = id
+        self.grade = grade
+        self.speciesID = speciesID
+        self.shiny = shiny
+        self.startedAt = startedAt
+        self.hatchesAt = hatchesAt
+        self.announced = announced
+    }
 
     func isReady(at now: Date) -> Bool { now >= hatchesAt }
 
