@@ -701,7 +701,7 @@ final class AntigravityUsageTests: XCTestCase {
         var handle: OpaquePointer?
         let flags = SQLITE_OPEN_READONLY | SQLITE_OPEN_URI | SQLITE_OPEN_NOMUTEX
         guard sqlite3_open_v2("file:\(database.path)?mode=ro", &handle, flags, nil) == SQLITE_OK else {
-            if let handle { sqlite3_close(handle) }
+            if let handle { sqlite3_close_v2(handle) }
             return nil
         }
         // Opening can succeed lazily; the read is what actually needs the -shm file.
@@ -710,7 +710,7 @@ final class AntigravityUsageTests: XCTestCase {
         let stepped = prepared == SQLITE_OK ? sqlite3_step(statement) : SQLITE_ERROR
         sqlite3_finalize(statement)
         guard stepped == SQLITE_ROW else {
-            sqlite3_close(handle)
+            sqlite3_close_v2(handle)
             return nil
         }
         return handle
@@ -719,7 +719,7 @@ final class AntigravityUsageTests: XCTestCase {
     private func execute(_ databaseURL: URL, sql: String) throws {
         var database: OpaquePointer?
         XCTAssertEqual(sqlite3_open(databaseURL.path, &database), SQLITE_OK)
-        defer { sqlite3_close(database) }
+        defer { sqlite3_close_v2(database) }
         var errorMessage: UnsafeMutablePointer<CChar>?
         let result = sqlite3_exec(database, sql, nil, nil, &errorMessage)
         if result != SQLITE_OK {

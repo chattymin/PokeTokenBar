@@ -218,7 +218,12 @@ enum LocalAntigravityUsageReader {
         formatter: DateFormatter
     ) -> ConversationRead {
         guard let handle = openReadOnly(database) else { return .unreadable(status: nil) }
-        defer { sqlite3_close(handle) }
+        // `_v2` because the guarantee this needs is a property of the close, not of the order
+        // the `defer`s happen to run in. `sqlite3_close` leaves the handle open and leaks it if
+        // any statement is still live; today the finalize below is registered later and so runs
+        // first, but that is an accident of two lines' relative position, and this function has
+        // already grown early returns between the two.
+        defer { sqlite3_close_v2(handle) }
 
         var statement: OpaquePointer?
         let prepared = sqlite3_prepare_v2(
@@ -281,7 +286,7 @@ enum LocalAntigravityUsageReader {
                sqlite3_exec(handle, "SELECT count(*) FROM sqlite_master", nil, nil, nil) == SQLITE_OK {
                 return handle
             }
-            if let handle { sqlite3_close(handle) }
+            if let handle { sqlite3_close_v2(handle) }
         }
         return nil
     }
