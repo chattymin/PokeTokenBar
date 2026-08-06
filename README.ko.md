@@ -70,10 +70,24 @@ PokeDexBar는 당신이 이미 태우고 있는 AI 코딩 토큰(Claude Code · 
 </tr>
 <tr>
 <td width="55%" valign="middle">
-<h3>도감과 박스, 두 가지 컬렉션</h3>
-<b>도감</b>은 1번부터 1025번까지 종을 체크하는 목록입니다 — 부화시키기 전엔 실루엣이에요. <b>박스</b>는 부화하거나 진화시킨 모든 개체를 그리드로 보여줍니다 — 칸마다 파트너·이로치·진화 가능 여부가 한눈에 보이고, 누르면 등급·성격·획득일·경험치·평생 함께 쓴 토큰(경험치와 달리 진화해도 줄지 않아요)과 함께 파트너 지정·사탕 먹이기·진화·폼 변경 버튼이 있는 상세 화면이 열려요. 중복은 완전히 자연스러운 일이에요.
+<h3>도감</h3>
+<b>도감</b>은 1번부터 1025번까지 종을 체크하는 목록입니다 — 부화시키기 전엔 실루엣이에요.
 </td>
-<td width="45%" align="center"><img src="assets/screenshot-box.png" width="300" alt="박스와 도감"></td>
+<td width="45%" align="center"><img src="assets/screenshot-collection.png" width="300" alt="도감 그리드 — 1번부터 1025번까지, 잡은 종은 컬러로, 아직 못 잡은 종은 검은 실루엣으로 표시"></td>
+</tr>
+<tr>
+<td width="45%" align="center"><img src="assets/screenshot-box.png" width="300" alt="박스 — 보유한 모든 개체"></td>
+<td width="55%" valign="middle">
+<h3>박스</h3>
+<b>박스</b>는 부화하거나 진화시킨 모든 개체를 그리드로 보여줍니다 — 칸마다 파트너·이로치·진화 가능 여부가 한눈에 보여요. 중복은 완전히 자연스러운 일이에요.
+</td>
+</tr>
+<tr>
+<td width="55%" valign="middle">
+<h3>개체별 상세 화면</h3>
+칸을 누르면 등급·성격·획득일·경험치·평생 함께 쓴 토큰(경험치와 달리 진화해도 줄지 않아요)과 함께 파트너 지정·사탕 먹이기·진화·폼 변경 버튼이 있는 상세 화면이 열려요.
+</td>
+<td width="45%" align="center"><img src="assets/screenshot-detail.png" width="300" alt="포켓몬 상세 화면 — 스프라이트와 이름, 등급·성격·평생 함께 쓴 토큰, 경험치 바, 파트너 지정·진화·다이맥스·경험치 사탕·반짝이는 사탕 버튼"></td>
 </tr>
 <tr>
 <td width="45%" align="center"><img src="assets/settings-ko.png" width="300" alt="설정"></td>

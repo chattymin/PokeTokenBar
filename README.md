@@ -70,10 +70,24 @@ Shiny hatches keep their distinct colors everywhere — menu bar, home card, evo
 </tr>
 <tr>
 <td width="55%" valign="middle">
-<h3>Two collections: a Dex and a Box</h3>
-The <b>National Dex</b> is a species checklist from #1 to #1025 — silhouettes until you've hatched one. Your <b>Box</b> is a grid of every individual you've hatched or evolved — each cell shows partner, shiny, and evolve-ready at a glance, and tapping it opens a detail screen with grade, nature, capture date, experience, lifetime tokens spent together (unlike experience, this survives evolution), and the controls to set a partner, feed candy, evolve, or change form. Duplicates are completely normal.
+<h3>The National Dex</h3>
+The <b>National Dex</b> is a species checklist from #1 to #1025 — silhouettes until you've hatched one.
 </td>
+<td width="45%" align="center"><img src="assets/screenshot-collection.png" width="300" alt="National Dex grid — species #1 to #1025, caught species shown in colour, uncaught ones as black silhouettes"></td>
+</tr>
+<tr>
 <td width="45%" align="center"><img src="assets/screenshot-box.png" width="300" alt="Box — every individual you own"></td>
+<td width="55%" valign="middle">
+<h3>Your Box</h3>
+Your <b>Box</b> is a grid of every individual you've hatched or evolved — each cell shows partner, shiny, and evolve-ready at a glance. Duplicates are completely normal.
+</td>
+</tr>
+<tr>
+<td width="55%" valign="middle">
+<h3>A detail screen for every individual</h3>
+Tapping a cell opens a detail screen with grade, nature, capture date, experience, lifetime tokens spent together (unlike experience, this survives evolution), and the controls to set a partner, feed candy, evolve, or change form.
+</td>
+<td width="45%" align="center"><img src="assets/screenshot-detail.png" width="300" alt="Pokémon detail screen — sprite and name, grade, nature, and lifetime tokens spent together, an EXP bar, and action buttons for partner, evolve, Gigantamax, EXP Candy, and Shiny Candy"></td>
 </tr>
 <tr>
 <td width="45%" align="center"><img src="assets/settings.png" width="300" alt="Settings"></td>
