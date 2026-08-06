@@ -68,6 +68,7 @@ struct BoxTabView: View {
                     LazyVGrid(columns: columns, spacing: 6) {
                         ForEach(sorted) { individual in
                             BoxCell(individual: individual,
+                                    regionLabel: individual.region?.label(store.language),
                                     isPartner: individual.id == store.state.partnerID,
                                     canEvolve: readyToEvolve(individual),
                                     progress: Self.progress(individual),
@@ -95,6 +96,8 @@ struct BoxTabView: View {
 /// (사탕이 상점에서 팔리는데 쓸 화면이 없던 결함이 "배선을 아무도 안 봤다"에서 나왔다).
 struct BoxCell: View {
     let individual: Individual
+    /// 지방 표시(`알로라`). 원종이면 nil — 칸이 좁아 있을 때만 보여준다.
+    let regionLabel: String?
     let isPartner: Bool
     let canEvolve: Bool
     let progress: Double
@@ -110,9 +113,10 @@ struct BoxCell: View {
     }
     #endif
 
-    init(individual: Individual, isPartner: Bool, canEvolve: Bool, progress: Double,
-         partnerBadge: String, onTap: @escaping () -> Void) {
+    init(individual: Individual, regionLabel: String? = nil, isPartner: Bool, canEvolve: Bool,
+         progress: Double, partnerBadge: String, onTap: @escaping () -> Void) {
         self.individual = individual
+        self.regionLabel = regionLabel
         self.isPartner = isPartner
         self.canEvolve = canEvolve
         self.progress = progress
@@ -127,9 +131,16 @@ struct BoxCell: View {
         Button(action: onTap) {
             VStack(spacing: 1) {
                 ZStack(alignment: .topTrailing) {
-                    SpriteView(speciesID: individual.speciesID, form: individual.form,
+                    SpriteView(speciesID: individual.speciesID, form: individual.spriteForm,
                                size: 40, shiny: individual.shiny)
                         .frame(width: 40, height: 40)
+                    if let regionLabel {
+                        Text(regionLabel)
+                            .font(.system(size: 6, weight: .bold))
+                            .padding(.horizontal, 3).padding(.vertical, 0.5)
+                            .background(Color.secondary.opacity(0.35), in: Capsule())
+                            .offset(x: 2, y: 28)
+                    }
                     // 진화 가능은 칸에서 바로 보여야 한다 — 아니면 개체를 하나씩 열어봐야 안다.
                     if canEvolve {
                         Image(systemName: "arrow.up.circle.fill")

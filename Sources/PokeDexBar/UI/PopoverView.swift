@@ -170,7 +170,7 @@ struct PopoverView: View {
     private var partnerCard: some View {
         if let partner = player.state.partner {
             HStack(alignment: .top, spacing: 10) {
-                SpriteView(speciesID: partner.speciesID, form: partner.form, size: 64, bob: true, animated: true,
+                SpriteView(speciesID: partner.speciesID, form: partner.spriteForm, size: 64, bob: true, animated: true,
                           shiny: partner.shiny, antialias: store.antialiasSprites)
                     .frame(width: 64, height: 64)
                     .background(Color.secondary.opacity(0.06))

@@ -19,11 +19,19 @@ struct IndividualDetailView: View {
         line.map { store.evolutionChoices(individual, line: $0) } ?? []
     }
 
-    /// 종 이름 — 라인을 아직 못 받았으면 번호로 폴백한다. 폼을 취하고 있으면 접두를 얹는다.
+    /// 종 이름 — 라인을 아직 못 받았으면 번호로 폴백한다.
+    /// 접두는 하나만 붙인다: 메가·거다이맥스를 취하고 있으면 그쪽이, 아니면 지방 이름이.
     private var displayName: String {
-        let base = line?.localizedName(individual.speciesID, store.language) ?? "#\(individual.speciesID)"
-        guard let slug = individual.form, let form = FormCatalog.form(slug: slug) else { return base }
-        return form.displayName(base: base, store.language)
+        if let slug = individual.form, let form = FormCatalog.form(slug: slug) {
+            return form.displayName(base: baseName, store.language)
+        }
+        // 그 종에 지방 모습이 실제로 있을 때만 이름을 바꾼다 — 나이킹을 "가라르 나이킹"이라
+        // 부르지 않는다(가라르에서 왔다는 건 혈통이지 그 종의 모습 이름이 아니다).
+        if let region = individual.region,
+           RegionalFormCatalog.form(speciesID: individual.speciesID, region: region) != nil {
+            return region.displayName(base: baseName, store.language)
+        }
+        return baseName
     }
 
     var body: some View {
@@ -59,7 +67,7 @@ struct IndividualDetailView: View {
 
     private var portrait: some View {
         HStack(spacing: 10) {
-            SpriteView(speciesID: individual.speciesID, form: individual.form, size: 72,
+            SpriteView(speciesID: individual.speciesID, form: individual.spriteForm, size: 72,
                        animated: true, shiny: individual.shiny, antialias: true)
                 .frame(width: 72, height: 72)
             VStack(alignment: .leading, spacing: 4) {
@@ -67,8 +75,16 @@ struct IndividualDetailView: View {
                     Text(displayName).font(.system(size: 13, weight: .semibold))
                     if individual.shiny { Text("✨").font(.system(size: 11)) }
                 }
-                Text("#\(individual.speciesID)")
-                    .font(.system(size: 10)).monospacedDigit().foregroundStyle(.secondary)
+                HStack(spacing: 4) {
+                    Text("#\(individual.speciesID)")
+                        .font(.system(size: 10)).monospacedDigit().foregroundStyle(.secondary)
+                    if let region = individual.region {
+                        Text(region.label(store.language))
+                            .font(.system(size: 8, weight: .bold))
+                            .padding(.horizontal, 5).padding(.vertical, 1)
+                            .background(Color.secondary.opacity(0.18), in: Capsule())
+                    }
+                }
                 if isPartner {
                     Text(l.partnerBadge)
                         .font(.system(size: 8, weight: .bold)).foregroundStyle(.white)

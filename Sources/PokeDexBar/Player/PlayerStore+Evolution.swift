@@ -12,7 +12,11 @@ extension PlayerStore {
     /// 지금 형태에서 갈 수 있는 다음 종들. 최종형이면 빈 배열.
     func evolutionChoices(_ individual: Individual, line: EvoLine) -> [Int] {
         guard let node = line.tree.node(withID: individual.speciesID) else { return [] }
-        return node.children.map(\.speciesID)
+        // PokéAPI 체인은 지방 갈래를 한꺼번에 돌려준다(`meowth → persian | perrserker`) —
+        // 개체의 지방으로 좁히지 않으면 관동 나옹도 나이킹이 된다.
+        return RegionBalance.allowedChoices(node.children.map(\.speciesID),
+                                            speciesID: individual.speciesID,
+                                            region: individual.region)
     }
 
     /// 진화 실행. 경험치가 모자라거나 트리에서 갈 수 없는 종이면 아무것도 하지 않고 false.

@@ -17,9 +17,15 @@ extension PlayerStore {
         var hatched: [Individual] = []
         for egg in ripe {
             let nature = natures[Int(nextRandomUnit() * Double(natures.count)) % natures.count]
-            hatched.append(Individual(baseID: egg.speciesID, speciesID: egg.speciesID,
-                                      pathIDs: [egg.speciesID], shiny: egg.shiny,
-                                      nature: nature, exp: 0, obtainedAt: now, grade: egg.grade))
+            // 지방 모습은 태어날 때 정해져 평생 간다 — 굴림은 종에 지방 모습이 있을 때만 의미가 있다.
+            let rolled = RegionBalance.rollRegion(speciesID: egg.speciesID,
+                                                  roll: nextRandomUnit(), pick: nextRandomUnit())
+            var individual = Individual(baseID: egg.speciesID, speciesID: egg.speciesID,
+                                        pathIDs: [egg.speciesID], shiny: egg.shiny,
+                                        nature: nature, exp: 0, obtainedAt: now, grade: egg.grade)
+            individual.region = rolled?.0
+            individual.regionVariant = rolled?.1
+            hatched.append(individual)
         }
         let hatchedIDs = Set(ripe.map(\.id))
         mutate {

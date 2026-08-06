@@ -51,7 +51,7 @@ final class PlayerStore {
     var displayedSpeciesID: Int? { state.partner?.speciesID }
     var displayedIsShiny: Bool { state.partner?.shiny ?? false }
     /// 파트너가 메가·거다이맥스 폼이면 그 슬러그 — 메뉴바·플로팅 펫도 바뀐 모습으로 보여야 한다.
-    var displayedForm: String? { state.partner?.form }
+    var displayedForm: String? { state.partner?.spriteForm }
 
     // MARK: 언어
 
