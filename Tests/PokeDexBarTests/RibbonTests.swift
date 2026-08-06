@@ -238,3 +238,32 @@ final class FortuneCharmTests: XCTestCase {
         XCTAssertTrue(second.owns(.fortuneCharm))
     }
 }
+
+/// 리본 그림이 실제로 번들에서 나오는지. 리소스 누락은 이 레포가 이미 한 번 겪은 부류다
+/// (`Bundle.module` 이 배포 앱에서 못 찾아 죽었다) — 배지가 조용히 빈칸이 되는 것도 같은 뿌리다.
+@MainActor
+final class RibbonArtworkTests: XCTestCase {
+    func testEveryTierHasArtwork() {
+        for ribbon in Ribbon.allCases {
+            XCTAssertNotNil(RibbonIcon.resourceURL(for: ribbon),
+                            "\(ribbon) 리본 그림을 번들에서 못 찾는다")
+            XCTAssertNotNil(RibbonIcon.image(for: ribbon), "\(ribbon) 리본 그림을 못 읽는다")
+        }
+    }
+
+    /// 단계마다 다른 그림이어야 한다 — 같은 파일을 네 번 쓰면 단계가 안 보인다.
+    func testTiersUseDistinctArtwork() {
+        let names = Ribbon.allCases.compactMap { RibbonIcon.resourceURL(for: $0)?.lastPathComponent }
+        XCTAssertEqual(names.count, Ribbon.allCases.count)
+        XCTAssertEqual(Set(names).count, names.count, "리본 그림이 겹친다: \(names)")
+    }
+
+    /// 그림이 비어 있지 않은지 — 0×0 이미지는 로드에 성공하고도 아무것도 안 그린다.
+    func testArtworkHasPixels() {
+        for ribbon in Ribbon.allCases {
+            let size = RibbonIcon.image(for: ribbon)?.size ?? .zero
+            XCTAssertGreaterThan(size.width, 0, "\(ribbon) 그림이 비어 있다")
+            XCTAssertGreaterThan(size.height, 0)
+        }
+    }
+}

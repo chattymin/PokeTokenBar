@@ -105,10 +105,9 @@ struct IndividualDetailView: View {
         VStack(alignment: .leading, spacing: 2) {
             if let ribbon = individual.ribbon(at: store.currentDate()) {
                 HStack(spacing: 5) {
-                    Text(l.ribbonBadge(ribbon.label(store.language)))
-                        .font(.system(size: 9, weight: .bold)).foregroundStyle(.white)
-                        .padding(.horizontal, 6).padding(.vertical, 1.5)
-                        .background(Color.pink.opacity(0.75), in: Capsule())
+                    RibbonIcon(ribbon: ribbon, size: 22)
+                    Text(ribbon.label(store.language))
+                        .font(.system(size: 10, weight: .bold))
                     Text(l.ribbonCandyRate(TokenFormatter.compact(ribbon.tokensPerCandy)))
                         .font(.system(size: 9)).foregroundStyle(.secondary)
                 }
