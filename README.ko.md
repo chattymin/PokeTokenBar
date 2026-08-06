@@ -21,14 +21,14 @@
 > PokeDexBar는 스프라이트 소스를 [Pokémon Showdown](https://play.pokemonshowdown.com/sprites/)으로 교체해
 > 9세대까지 모든 세대를 지원하며, 스프라이트에 EPX 안티앨리어싱을 추가합니다.
 
-PokeDexBar는 당신이 이미 태우고 있는 AI 코딩 토큰(Claude Code · Codex · Gemini CLI · OpenCode · Hermes Agent · Cursor · Grok CLI)을 macOS 메뉴바 속 **포켓몬 경제**로 바꿔줍니다. 스타터를 고르면 그때부터 쓰는 토큰이 곧 재화가 됩니다 — 재화로 알을 뽑고, 실시간으로 부화하는 걸 지켜보고, 파트너가 경험치를 모으면 직접 눌러 진화시키세요. 게임 아래에는 정확한 사용량 트래커가 있습니다 — 오늘의 사용량·비용, 공식 5시간/주간 한도를 로컬 로그에서 직접 읽습니다.
+PokeDexBar는 당신이 이미 태우고 있는 AI 코딩 토큰(Claude Code · Codex · Gemini CLI · OpenCode · Hermes Agent · Cursor · Grok CLI)을 macOS 메뉴바 속 **포켓몬 경제**로 바꿔줍니다. 스타터를 고르면 그때부터 쓰는 토큰이 곧 재화가 됩니다 — 재화로 알을 뽑고, 실시간으로 부화하는 걸 지켜보고, 파트너가 경험치를 모으면 직접 눌러 진화시키세요. 게임 아래에는 정확한 사용량 트래커가 있습니다 — 오늘의 사용량·API 환산, 공식 5시간/주간 한도를 로컬 로그에서 직접 읽습니다.
 
 > 토큰 사용량은 로컬 Claude Code·Codex·Gemini CLI·OpenCode·Hermes Agent·Cursor·Grok CLI 데이터에서 직접 읽습니다(`totalTokens` = input + output + cache, 로컬 날짜) — 외부 CLI 불필요. 비공식·비상업 포켓몬 팬 프로젝트 — [라이선스 & 면책](#라이선스--면책) 참고.
 
 ## 왜
 
 - **열어보는 게 즐거운 사용량 트래커.** 사용량이 알 뽑기 재화가 되어 도감을 채우고 개체가 가득한 박스를 키웁니다. 이로치 한 마리가 다시 열어볼 이유가 됩니다.
-- 오늘의 토큰 사용량과 비용을 한눈에 — 대시보드도, 브라우저 탭도 필요 없이.
+- 오늘의 토큰 사용량과 API 환산을 한눈에 — 대시보드도, 브라우저 탭도 필요 없이.
 - 공식 **5시간 / 주간** 한도를 리셋 카운트다운과 함께 추적하고, 현재 burn rate로 언제 도달할지 예측합니다.
 
 <div align="center">
@@ -57,7 +57,7 @@ PokeDexBar는 당신이 이미 태우고 있는 AI 코딩 토큰(Claude Code · 
 <tr>
 <td width="55%" valign="middle">
 <h3>메뉴바 속 파트너</h3>
-움직이는 Gen-V 스프라이트가 오늘 토큰 합계(compact, 예: <code>200.7M</code>) 옆에 삽니다. 오늘 비용(<code>$</code>)이나 공식 한도 <code>%</code> 를 더하거나 — 전부 꺼서 캐릭터만 남길 수도 있어요.
+움직이는 Gen-V 스프라이트가 오늘 토큰 합계(compact, 예: <code>200.7M</code>) 옆에 삽니다. 오늘 API 환산(<code>$</code>)이나 공식 한도 <code>%</code> 를 더하거나 — 전부 꺼서 캐릭터만 남길 수도 있어요.
 </td>
 <td width="45%" align="center"><img src="assets/menubar.gif" width="240" alt="메뉴바"></td>
 </tr>
