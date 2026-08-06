@@ -270,6 +270,8 @@ struct L {
     var floatingPetBubbleAlertsLabel: String {
         t("말풍선으로 알림 받기", "Show notifications as bubbles", "通知を吹き出しで表示")
     }
+    /// 설정의 도감 섹션 — 스프라이트를 어떻게 그릴지 모아 둔다.
+    var dexSectionTitle: String { t("도감", "Collection", "コレクション") }
     var fillSpriteFrameLabel: String {
         t("스프라이트를 칸에 꽉 채우기", "Fill the frame with sprites", "スプライトを枠いっぱいに")
     }

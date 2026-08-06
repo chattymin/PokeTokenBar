@@ -31,6 +31,7 @@ struct SettingsView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
                     generalGroup(store)
+                    dexGroup(store)
                     menuBarGroup(store)
                     floatingPetGroup(store)
                     notificationsGroup(store)
@@ -138,8 +139,6 @@ struct SettingsView: View {
             Divider()
             // 팝오버 컴패니언·플로팅 펫 스프라이트 공통 설정 — 플로팅 펫이 꺼져 있어도(기본값)
             // 팝오버 컴패니언은 항상 보이므로 조건 없이 여기 둔다.
-            toggleRow(l.antialiasLabel, $store.antialiasSprites)
-            toggleRow(l.fillSpriteFrameLabel, $store.fillSpriteFrame)
         }
     }
 
@@ -319,6 +318,17 @@ struct SettingsView: View {
                     .font(.caption2).foregroundStyle(.tertiary)
                     .padding(.horizontal, 12).padding(.vertical, 8)
             }
+        }
+    }
+
+    /// 도감 — 스프라이트를 어떻게 그릴지. 언어·새로고침 같은 앱 전반 설정과 성격이 달라
+    /// 일반에서 떼어 냈다(둘 다 "포켓몬을 어떻게 보여주나"에 관한 것이다).
+    private func dexGroup(_ store: UsageStore) -> some View {
+        @Bindable var store = store
+        return settingsSection(l.dexSectionTitle) {
+            toggleRow(l.fillSpriteFrameLabel, $store.fillSpriteFrame)
+            Divider()
+            toggleRow(l.antialiasLabel, $store.antialiasSprites)
         }
     }
 
