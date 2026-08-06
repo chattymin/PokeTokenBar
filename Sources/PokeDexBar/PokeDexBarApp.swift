@@ -300,6 +300,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         let img = NSImage(size: NSSize(width: h, height: h))
         img.lockFocus()
         NSGraphicsContext.current?.imageInterpolation = .none
+        // 조작된 세이브 표시 — 메뉴바 아이콘도 팝오버와 같이 뒤집힌다.
+        if GameIntegrity.isTampered, let ctx = NSGraphicsContext.current?.cgContext {
+            ctx.translateBy(x: h, y: 0)
+            ctx.scaleBy(x: -1, y: 1)
+        }
         let off: CGFloat = up ? 1 : 0
         // 캔버스는 22×22 고정(폭이 흔들리면 메뉴바가 떨린다) — 그 안에서만 비율을 지켜 넣는다.
         let fitted = PixelScale.fittedRect(source: sprite.size,

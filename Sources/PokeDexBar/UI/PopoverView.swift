@@ -117,6 +117,7 @@ struct PopoverView: View {
         @Bindable var nav = nav
         return VStack(alignment: .leading, spacing: 12) {
             updateBanner
+            tamperedBanner
             Picker("", selection: $nav.tab) {
                 Text(l.home).tag(PopoverTab.home)
                 Text(l.box).tag(PopoverTab.box)
@@ -667,6 +668,23 @@ struct PopoverView: View {
     }
 
     // MARK: 푸터
+
+    /// 조작된 세이브 표시 — 뒤집힌 스프라이트만 보고 "버그인가?" 하지 않도록 이유를 적어 둔다.
+    @ViewBuilder
+    private var tamperedBanner: some View {
+        if player.state.tampered {
+            HStack(alignment: .top, spacing: 6) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.system(size: 10)).foregroundStyle(.orange)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(l.tamperedBadge).font(.system(size: 10, weight: .semibold))
+                    Text(l.tamperedExplanation).font(.system(size: 9)).foregroundStyle(.secondary)
+                }
+            }
+            .padding(6)
+            .background(Color.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: 6))
+        }
+    }
 
     private var footer: some View {
         HStack(spacing: 10) {

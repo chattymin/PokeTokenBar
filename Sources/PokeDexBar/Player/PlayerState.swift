@@ -25,6 +25,9 @@ struct PlayerState: Codable, Sendable {
     /// 아이템 종류 → 개수.
     var inventory: [String: Int] = [:]
     var ownsShinyCharm = false
+    /// 세이브를 손으로 고친 적이 있나. 한 번 켜지면 절대 안 꺼진다 — 지우려고 파일을 또 고치면
+    /// 봉인이 다시 깨져 그대로 켜진다. 게임 진행에는 영향이 없고 스프라이트만 좌우로 뒤집힌다.
+    var tampered = false
     /// 앱 언어. 단일 소스 — 구 CompanionStore.language 를 대체한다. 포켓몬 이름은 PokéAPI 다국어
     /// names 에서 따로 온다(EvoLine.localizedName).
     var language: AppLanguage = .systemDefault
@@ -48,6 +51,7 @@ struct PlayerState: Codable, Sendable {
         claimedTodayTokens = value(.claimedTodayTokens, 0)
         lastDate = value(.lastDate, "")
         installBaselineSet = value(.installBaselineSet, false)
+        tampered = value(.tampered, false)
         partnerID = try? c.decode(UUID.self, forKey: .partnerID)
         // 박스는 원소 단위로 관대 디코딩한다. 위의 `value(.box, [])` 방식(배열 전체를 한 번에 디코드)을
         // 쓰면 개체 하나가 깨져도(2b 에서 필드가 느는 시점 등) 배열 디코드 자체가 던져 박스 전체가 빈

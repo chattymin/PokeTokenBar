@@ -10,13 +10,19 @@ final class PlayerStore {
     @ObservationIgnored private let fileURL: URL
     @ObservationIgnored private var rng: any RandomNumberGenerator
     @ObservationIgnored private let now: () -> Date
+    /// 봉인을 이미 쓴 기기인가를 세이브 **밖에** 적어 둔다. 세이브 안에 두면 평문으로 새로 쓴
+    /// 파일에 그 표시까지 같이 적어 넣으면 그만이라 아무것도 못 걸러낸다.
+    @ObservationIgnored private let defaults: UserDefaults
+    static let sealedKey = "playerSaveSealed"
 
     init(fileURL: URL? = nil,
          rng: any RandomNumberGenerator = SystemRandomNumberGenerator(),
-         now: @escaping () -> Date = Date.init) {
+         now: @escaping () -> Date = Date.init,
+         defaults: UserDefaults = .standard) {
         self.fileURL = fileURL ?? Self.defaultURL()
         self.rng = rng
         self.now = now
+        self.defaults = defaults
         load()
     }
 
@@ -130,17 +136,52 @@ final class PlayerStore {
     // MARK: 영속
 
     private func load() {
-        guard let data = try? Data(contentsOf: fileURL) else { return }
-        guard let decoded = try? JSONDecoder().decode(PlayerState.self, from: data) else {
+        guard let data = try? Data(contentsOf: fileURL) else {
+            defaults.set(true, forKey: Self.sealedKey)   // 새 세이브는 처음부터 봉인된다
+            return
+        }
+        let outcome = Self.open(data, alreadySealedOnce: defaults.bool(forKey: Self.sealedKey))
+        guard var decoded = outcome.state else {
             AppLog.write("PlayerStore: 상태 파일을 읽지 못해 새로 시작한다 — \(fileURL.lastPathComponent)")
             return
         }
+        if outcome.tampered {
+            AppLog.write("PlayerStore: 세이브 봉인이 맞지 않는다 — 조작 표시를 남긴다")
+        }
+        decoded.tampered = decoded.tampered || outcome.tampered
         state = decoded
+        GameIntegrity.isTampered = state.tampered
+        defaults.set(true, forKey: Self.sealedKey)
+        if outcome.needsResealing { save() }
+    }
+
+    /// 파일 바이트를 상태로 여는 순수 판정. 봉인이 깨졌는지까지 함께 돌려준다.
+    /// 순수 함수라 테스트가 파일시스템 없이 모든 갈래를 밟는다.
+    ///
+    /// - `alreadySealedOnce`: 이 기기가 이미 봉인 세이브를 쓴 적이 있나. 이 앱이 봉인을 도입하기
+    ///   전에 만들어진 평문 세이브는 조작이 아니므로(그때는 그게 정상 형식이었다) 한 번은 그냥
+    ///   받아들이고 봉인해 준다. 그 뒤로 평문이 다시 나타나면 누군가 새로 쓴 것이다.
+    nonisolated static func open(_ data: Data,
+                                 alreadySealedOnce: Bool) -> (state: PlayerState?, tampered: Bool,
+                                                              needsResealing: Bool) {
+        if let payload = SaveSeal.unseal(data) {
+            return (try? JSONDecoder().decode(PlayerState.self, from: payload), false, false)
+        }
+        // 봉투인데 못 열었다 = 봉인된 본문을 손댔다. 본문을 못 읽으니 상태는 살릴 수 없다.
+        if SaveSeal.looksSealed(data) {
+            return (PlayerState(), true, true)
+        }
+        // 평문 JSON. 봉인을 쓴 적 없는 기기면 구 세이브 이전(정상), 아니면 손으로 쓴 것이다.
+        guard let decoded = try? JSONDecoder().decode(PlayerState.self, from: data) else {
+            return (nil, false, false)
+        }
+        return (decoded, alreadySealedOnce, true)
     }
 
     func save() {
-        guard let data = try? JSONEncoder().encode(state) else { return }
-        try? data.write(to: fileURL, options: .atomic)   // 부분 쓰기 손상 방지
+        guard let payload = try? JSONEncoder().encode(state),
+              let sealed = try? SaveSeal.seal(payload) else { return }
+        try? sealed.write(to: fileURL, options: .atomic)   // 부분 쓰기 손상 방지
     }
 
     // MARK: 확장 진입점
