@@ -127,7 +127,8 @@ struct BoxCell: View {
         Button(action: onTap) {
             VStack(spacing: 1) {
                 ZStack(alignment: .topTrailing) {
-                    SpriteView(speciesID: individual.speciesID, size: 40, shiny: individual.shiny)
+                    SpriteView(speciesID: individual.speciesID, form: individual.form,
+                               size: 40, shiny: individual.shiny)
                         .frame(width: 40, height: 40)
                     // 진화 가능은 칸에서 바로 보여야 한다 — 아니면 개체를 하나씩 열어봐야 안다.
                     if canEvolve {

@@ -36,6 +36,8 @@ struct SpriteSubject: Equatable {
 /// animated=true 면 Gen-V GIF 프레임을 순환(미지원/오프라인이면 정적+bob 으로 폴백).
 struct SpriteView: View {
     let speciesID: Int?
+    /// 메가·거다이맥스 폼의 Showdown 슬러그. nil 이면 보통 모습.
+    var form: String?
     var size: CGFloat = 84
     var bob: Bool = false
     var animated: Bool = false
@@ -50,6 +52,9 @@ struct SpriteView: View {
     @State private var img: NSImage?
     @State private var up = false
     @State private var loadedID: Int?   // img 가 어느 speciesID 것인지(id 변경 시 갱신 판단)
+    /// img 가 어느 폼의 것인지. 폼이 바뀌어도 speciesID 는 그대로라(메가진화는 같은 종),
+    /// loadedID 만 보면 "이미 로드됨"으로 판단해 보통 모습이 그대로 남는다.
+    @State private var loadedForm: String?
     @State private var frames: [(image: NSImage, delay: TimeInterval)] = []
     @State private var frameIndex = 0
 
@@ -61,9 +66,11 @@ struct SpriteView: View {
     @MainActor static func resetConstructionCount() { constructionCount = 0 }
     #endif
 
-    init(speciesID: Int?, size: CGFloat = 84, bob: Bool = false, animated: Bool = false,
-         shiny: Bool = false, minFrameDelay: TimeInterval = 0, antialias: Bool = false) {
+    init(speciesID: Int?, form: String? = nil, size: CGFloat = 84, bob: Bool = false,
+         animated: Bool = false, shiny: Bool = false, minFrameDelay: TimeInterval = 0,
+         antialias: Bool = false) {
         self.speciesID = speciesID
+        self.form = form
         self.size = size
         self.bob = bob
         self.animated = animated
@@ -75,9 +82,12 @@ struct SpriteView: View {
         #endif
         // 캐시에 있으면 즉시(동기) 표시 — 재렌더 플래시 방지 + 정적 스냅샷에서도 보임.
         // speciesID==nil(알 상태)이면 알 스프라이트를 시드(없으면 body 가 🥚 폴백).
-        let cached = speciesID.map { SpriteLoader.cachedImage(speciesID: $0, shiny: shiny) } ?? SpriteLoader.cachedEggImage()
+        let cached = speciesID.map { SpriteLoader.cachedImage(speciesID: $0, form: form, shiny: shiny) }
+            ?? SpriteLoader.cachedEggImage()
         _img = State(initialValue: cached)
-        _loadedID = State(initialValue: (speciesID != nil && cached != nil) ? speciesID : nil)
+        let seeded = speciesID != nil && cached != nil
+        _loadedID = State(initialValue: seeded ? speciesID : nil)
+        _loadedForm = State(initialValue: seeded ? form : nil)
     }
 
     /// 프레임 지속(초) = max(원본 delay, 하한). 순수·테스트용 — fps 상한 회귀 가드.
@@ -129,7 +139,7 @@ struct SpriteView: View {
         }
         // GIF 재생 중엔 bob 정지(프레임 자체가 움직임) — 폴백/정적일 때만 상하 움직임
         .offset(y: bob && frames.isEmpty && up ? -3 : 0)
-        .task(id: "\(speciesID.map(String.init) ?? "nil")-\(shiny)") {
+        .task(id: "\(speciesID.map(String.init) ?? "nil")-\(form ?? "")-\(shiny)") {
             // animated 프레임은 id/shiny 변경 시 항상 초기화(이전 개체 프레임 잔상 방지)
             frames = []
             frameIndex = 0
@@ -145,15 +155,21 @@ struct SpriteView: View {
                 return
             }
             // 정적 스프라이트 먼저(즉시 표시 + 폴백 보장). 캐시 시드로 이미 같은 id 면 재요청 생략(플래시 방지)
-            if loadedID != id {
-                let loaded = await SpriteLoader.image(speciesID: id, animated: false, shiny: shiny)
-                if let next = subject.applyingLoad(loaded, for: id, cancelled: Task.isCancelled) { apply(next) }
+            if loadedID != id || loadedForm != form {
+                let loaded = await SpriteLoader.image(speciesID: id, form: form,
+                                                      animated: false, shiny: shiny)
+                if let next = subject.applyingLoad(loaded, for: id, cancelled: Task.isCancelled) {
+                    apply(next)
+                    loadedForm = form
+                }
             }
             guard animated else { return }
             // animated GIF 시도(shiny 미제공 종은 일반 GIF 폴백) → 프레임 2개 이상이면 순환 루프
-            var gifData = await SpriteStore.shared.data(speciesID: id, animated: true, shiny: shiny)
+            var gifData = await SpriteStore.shared.data(speciesID: id, form: form,
+                                                       animated: true, shiny: shiny)
             if gifData == nil, shiny {
-                gifData = await SpriteStore.shared.data(speciesID: id, animated: true, shiny: false)
+                gifData = await SpriteStore.shared.data(speciesID: id, form: form,
+                                                        animated: true, shiny: false)
             }
             guard let data = gifData else { return }
             // 단일 프레임/디코드 실패 → 정적 폴백. 취소됐으면 아예 반영하지 않는다(빈 배열이라 아래서 종료).

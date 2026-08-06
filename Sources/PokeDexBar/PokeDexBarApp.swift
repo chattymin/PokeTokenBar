@@ -94,6 +94,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         withObservationTracking {
             _ = player.displayedSpeciesID
             _ = player.displayedIsShiny
+            _ = player.displayedForm
         } onChange: { [weak self] in
             Task { @MainActor in
                 guard let self else { return }
@@ -183,7 +184,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private func ensureMenuAnimation() {
         let id = player.displayedSpeciesID
         let shiny = player.displayedIsShiny
-        let key = id.map { "\($0)-\(shiny)" }
+        // 폼도 키에 넣는다 — 메가진화는 종 번호가 그대로라 폼을 빼면 메뉴바가 보통 모습에 머문다.
+        let form = player.displayedForm
+        let key = id.map { "\($0)-\(form ?? "")-\(shiny)" }
         if key == menuSpriteKey, !menuFrames.isEmpty { return }   // 이미 이 개체로 애니메이션 중
         menuSpriteKey = key
         menuLoadGen += 1
@@ -194,13 +197,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             return
         }
         // 정적 스프라이트 bob 을 먼저(없으면 받아와서). GIF 가 받아지면 아래에서 교체.
-        if let cached = SpriteLoader.cachedImage(speciesID: id, shiny: shiny) {
+        if let cached = SpriteLoader.cachedImage(speciesID: id, form: form, shiny: shiny) {
             setMenuFrames(Self.bobFrames(from: cached))
         } else {
             setMenuFrames(Self.eggFrames())
             Task { @MainActor [weak self] in
                 guard let self, gen == self.menuLoadGen,
-                      let sprite = await SpriteLoader.image(speciesID: id, shiny: shiny) else { return }
+                      let sprite = await SpriteLoader.image(speciesID: id, form: form,
+                                                            shiny: shiny) else { return }
                 guard gen == self.menuLoadGen else { return }
                 self.setMenuFrames(Self.bobFrames(from: sprite))
             }
@@ -211,9 +215,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         Task { @MainActor [weak self] in
             guard let self, gen == self.menuLoadGen else { return }
             // shiny GIF 미제공 종이면 일반 GIF 폴백
-            var data = await SpriteStore.shared.data(speciesID: id, animated: true, shiny: shiny)
+            var data = await SpriteStore.shared.data(speciesID: id, form: form,
+                                                     animated: true, shiny: shiny)
             if data == nil, shiny {
-                data = await SpriteStore.shared.data(speciesID: id, animated: true, shiny: false)
+                data = await SpriteStore.shared.data(speciesID: id, form: form,
+                                                     animated: true, shiny: false)
             }
             guard let data else { return }
             let raw = GIFDecoder.frames(from: data)

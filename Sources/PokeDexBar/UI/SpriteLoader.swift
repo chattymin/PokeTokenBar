@@ -33,8 +33,10 @@ actor SpriteStore {
     }
 
     /// 캐시 파일명 키 — 기존 "\(id)-a"/"\(id)-s" 유지, shiny 는 "sh" 접두(구캐시 그대로 유효).
-    static func cacheKey(speciesID: Int, animated: Bool, shiny: Bool) -> String {
-        "\(speciesID)-\(shiny ? "sh" : "")\(animated ? "a" : "s")"
+    /// 폼(메가·거다이맥스)은 종 번호 대신 슬러그로 키를 잡는다 — 같은 종의 다른 그림이라
+    /// 종 번호로만 키를 잡으면 보통 모습과 메가가 같은 파일을 덮어쓴다.
+    static func cacheKey(speciesID: Int, form: String?, animated: Bool, shiny: Bool) -> String {
+        "\(form ?? String(speciesID))-\(shiny ? "sh" : "")\(animated ? "a" : "s")"
     }
 
     /// 슬러그 기반 스프라이트 URL. 순수 함수라 네트워크 없이 테스트한다.
@@ -48,8 +50,8 @@ actor SpriteStore {
         return URL(string: "\(showdownBase)/\(folder)/\(slug).\(animated ? "gif" : "png")")
     }
 
-    func data(speciesID: Int, animated: Bool, shiny: Bool = false) async -> Data? {
-        let key = Self.cacheKey(speciesID: speciesID, animated: animated, shiny: shiny)
+    func data(speciesID: Int, form: String? = nil, animated: Bool, shiny: Bool = false) async -> Data? {
+        let key = Self.cacheKey(speciesID: speciesID, form: form, animated: animated, shiny: shiny)
         if let d = mem[key] { touch(key); return d }
         let ext = animated ? "gif" : "png"
         let file = dir.appendingPathComponent("\(key).\(ext)")
@@ -59,7 +61,8 @@ actor SpriteStore {
         if animated, missingAnimated.contains(key) { return nil }
         // 슬러그는 캐시 미스일 때만 필요하다 — 여기(캐시 조회 아래)에 두면 번들 슬러그 테이블 로드 실패가
         // 디스크에 이미 있는 스프라이트까지 막지 않는다(리뷰 지적).
-        guard let slug = SpeciesSlug.slug(speciesID),
+        // 폼이 있으면 그 슬러그가 곧 스프라이트 이름이다(`charizard-megax`).
+        guard let slug = form ?? SpeciesSlug.slug(speciesID),
               let url = Self.spriteURL(slug: slug, animated: animated, shiny: shiny) else { return nil }
         do {
             let (d, resp) = try await fetch(url)
@@ -134,29 +137,33 @@ enum SpriteLoader {
 
     /// 디스크 캐시에 이미 있으면 동기 반환(네트워크 없음). 없으면 nil.
     /// shiny 캐시 미스는 일반 캐시로 폴백 — 오프라인에서 live mon 이 알 글리프로 보이는 것 방지.
-    static func cachedImage(speciesID: Int, animated: Bool = false, shiny: Bool = false) -> NSImage? {
+    static func cachedImage(speciesID: Int, form: String? = nil, animated: Bool = false,
+                            shiny: Bool = false) -> NSImage? {
         let ext = animated ? "gif" : "png"
-        let key = SpriteStore.cacheKey(speciesID: speciesID, animated: animated, shiny: shiny)
+        let key = SpriteStore.cacheKey(speciesID: speciesID, form: form, animated: animated, shiny: shiny)
         let f = cacheDir.appendingPathComponent("\(key).\(ext)")
         if let d = try? Data(contentsOf: f), let img = NSImage(data: d) { return img }
         guard shiny else { return nil }
-        return cachedImage(speciesID: speciesID, animated: animated, shiny: false)
+        return cachedImage(speciesID: speciesID, form: form, animated: animated, shiny: false)
     }
 
     /// 정적 스프라이트. animated=true 면 Gen-V 움직이는 스프라이트(없으면 정적으로 폴백).
     /// shiny=true 는 색이 다른 스프라이트 — 미제공 종이면 일반으로 폴백.
-    static func image(speciesID: Int, animated: Bool = false, shiny: Bool = false) async -> NSImage? {
-        if animated, let d = await SpriteStore.shared.data(speciesID: speciesID, animated: true, shiny: shiny),
+    static func image(speciesID: Int, form: String? = nil, animated: Bool = false,
+                      shiny: Bool = false) async -> NSImage? {
+        if animated, let d = await SpriteStore.shared.data(speciesID: speciesID, form: form,
+                                                          animated: true, shiny: shiny),
            let img = NSImage(data: d) {
             return img
         }
-        if let d = await SpriteStore.shared.data(speciesID: speciesID, animated: false, shiny: shiny),
+        if let d = await SpriteStore.shared.data(speciesID: speciesID, form: form,
+                                                 animated: false, shiny: shiny),
            let img = NSImage(data: d) {
             return img
         }
         // shiny 미제공 → 일반 폴백
         guard shiny else { return nil }
-        return await image(speciesID: speciesID, animated: animated, shiny: false)
+        return await image(speciesID: speciesID, form: form, animated: animated, shiny: false)
     }
 
     /// 아이템 스프라이트 — 디스크 캐시 동기 조회(없으면 nil). 아이콘 즉시 표시용(재렌더 플래시 방지).

@@ -66,7 +66,7 @@ extension PlayerStore {
     }
 
     /// 아이템 1개 소모. `mutate` 블록 안에서 불리므로 상태를 인자로 받는다.
-    private static func consume(_ item: ShopItem, in state: inout PlayerState) {
+    static func consume(_ item: ShopItem, in state: inout PlayerState) {
         let left = (state.inventory[item.rawValue] ?? 0) - 1
         if left > 0 { state.inventory[item.rawValue] = left }
         else { state.inventory.removeValue(forKey: item.rawValue) }

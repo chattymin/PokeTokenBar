@@ -16,7 +16,25 @@ struct Individual: Identifiable, Codable, Sendable, Equatable {
     var exp = 0
     var obtainedAt: Date
     var grade: Grade
+    /// 지금 취하고 있는 폼의 Showdown 슬러그(`charizard-megax`). nil 이면 보통 모습.
+    /// 종이 아니라 겉모습이라 `speciesID`·`pathIDs` 는 그대로 두고, 진화하면 풀린다.
+    var form: String?
 
     /// 몇 번째 형태인가(0 = 아직 안 진화). 경로가 비어도 음수로 새지 않는다.
     var stageIndex: Int { max(0, pathIDs.count - 1) }
+
+    /// 관대 디코딩의 짝 — 값 범위 검증(CLAUDE.md 결함 대응 프로토콜).
+    /// 카탈로그에 없는 폼 슬러그는 버린다. 그대로 두면 스프라이트가 없는 슬러그로 계속 요청이 나가
+    /// 그 개체만 영영 빈칸으로 남는다(앱은 안 죽으니 원인이 안 보인다). 그 종의 폼이 아닌 슬러그도
+    /// 마찬가지 — 리자몽 세이브에 이상해꽃 메가가 들어 있으면 엉뚱한 그림이 뜬다.
+    func sanitized() -> Individual {
+        guard let slug = form else { return self }
+        guard let known = FormCatalog.form(slug: slug), known.speciesID == speciesID else {
+            var fixed = self
+            fixed.form = nil
+            AppLog.write("Individual: dropped unknown form slug \(slug) for species \(speciesID)")
+            return fixed
+        }
+        return self
+    }
 }

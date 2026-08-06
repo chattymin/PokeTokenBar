@@ -84,7 +84,7 @@ struct PlayerState: Codable, Sendable {
 private struct LossyIndividual: Decodable {
     let individual: Individual?
     init(from decoder: Decoder) throws {
-        individual = try? Individual(from: decoder)
+        individual = (try? Individual(from: decoder))?.sanitized()
     }
 }
 

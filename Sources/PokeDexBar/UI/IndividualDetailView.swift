@@ -19,9 +19,11 @@ struct IndividualDetailView: View {
         line.map { store.evolutionChoices(individual, line: $0) } ?? []
     }
 
-    /// 종 이름 — 라인을 아직 못 받았으면 번호로 폴백한다.
+    /// 종 이름 — 라인을 아직 못 받았으면 번호로 폴백한다. 폼을 취하고 있으면 접두를 얹는다.
     private var displayName: String {
-        line?.localizedName(individual.speciesID, store.language) ?? "#\(individual.speciesID)"
+        let base = line?.localizedName(individual.speciesID, store.language) ?? "#\(individual.speciesID)"
+        guard let slug = individual.form, let form = FormCatalog.form(slug: slug) else { return base }
+        return form.displayName(base: base, store.language)
     }
 
     var body: some View {
@@ -57,8 +59,8 @@ struct IndividualDetailView: View {
 
     private var portrait: some View {
         HStack(spacing: 10) {
-            SpriteView(speciesID: individual.speciesID, size: 72, animated: true,
-                       shiny: individual.shiny, antialias: true)
+            SpriteView(speciesID: individual.speciesID, form: individual.form, size: 72,
+                       animated: true, shiny: individual.shiny, antialias: true)
                 .frame(width: 72, height: 72)
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 5) {
@@ -131,8 +133,41 @@ struct IndividualDetailView: View {
                 Text(l.detailMaxStage).font(.system(size: 9)).foregroundStyle(.tertiary)
             }
 
+            formSection
             candySection
         }
+    }
+
+    /// 메가진화·거다이맥스 — 그 폼이 있는 종에만 나온다. 아이템이 없으면 어디서 사는지 알려준다.
+    @ViewBuilder
+    private var formSection: some View {
+        ForEach(FormKind.allCases, id: \.self) { kind in
+            if FormCatalog.has(speciesID: individual.speciesID, kind: kind) {
+                let choices = store.formChoices(individual, kind: kind)
+                let owned = store.count(of: kind.item)
+                if owned > 0, !choices.isEmpty {
+                    ForEach(choices, id: \.slug) { form in
+                        FormButton(title: l.changeToForm(form.displayName(base: baseName, store.language),
+                                                         remaining: owned)) {
+                            store.changeForm(individualID: individual.id, to: form)
+                        }
+                    }
+                } else if !choices.isEmpty {
+                    Text(l.formNeedsItem(kind.item.label(store.language)))
+                        .font(.system(size: 9)).foregroundStyle(.tertiary)
+                }
+            }
+        }
+        if individual.form != nil {
+            DetailActionButton(title: l.revertForm, prominent: false) {
+                store.revertForm(individualID: individual.id)
+            }
+        }
+    }
+
+    /// 폼 접두를 붙이기 전의 종 이름.
+    private var baseName: String {
+        line?.localizedName(individual.speciesID, store.language) ?? "#\(individual.speciesID)"
     }
 
     /// 사탕 — 상점에서 산 사탕을 쓰는 유일한 화면이다.
@@ -158,6 +193,34 @@ struct IndividualDetailView: View {
         } else {
             Text(l.detailNoCandy).font(.system(size: 9)).foregroundStyle(.tertiary)
         }
+    }
+}
+
+/// 폼 변경 버튼. 사탕과 같은 이유로 별도 타입 — 아이템은 파는데 쓸 화면이 없는 결함이 이 앱에서
+/// 한 번 나갔다. 배선을 테스트로 잠근다.
+struct FormButton: View {
+    let title: String
+    let action: () -> Void
+
+    #if DEBUG
+    @MainActor static var constructed: [(title: String, action: () -> Void)] = []
+    @MainActor static var isRecording = false
+    @MainActor static func resetConstructed() {
+        isRecording = true
+        constructed = []
+    }
+    #endif
+
+    init(title: String, action: @escaping () -> Void) {
+        self.title = title
+        self.action = action
+        #if DEBUG
+        if Self.isRecording { Self.constructed.append((title, action)) }
+        #endif
+    }
+
+    var body: some View {
+        DetailActionButton(title: title, prominent: true, action: action)
     }
 }
 

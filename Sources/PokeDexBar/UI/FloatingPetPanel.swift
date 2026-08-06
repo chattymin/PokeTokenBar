@@ -382,7 +382,8 @@ struct FloatingPetView: View {
                     .zIndex(1)
             }
 
-            SpriteView(speciesID: player.displayedSpeciesID, size: size, animated: animated,
+            SpriteView(speciesID: player.displayedSpeciesID, form: player.displayedForm,
+                       size: size, animated: animated,
                        shiny: player.displayedIsShiny, minFrameDelay: Self.frameFloor,
                        antialias: store.antialiasSprites)
                 .frame(width: size, height: size)

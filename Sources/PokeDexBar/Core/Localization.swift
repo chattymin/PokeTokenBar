@@ -95,6 +95,17 @@ struct L {
     var detailNoCandy: String {
         t("가진 사탕이 없어요 (상점)", "No candy yet (Shop)", "アメがありません(ショップ)")
     }
+    /// 폼 변경 버튼 — 바뀔 모습 이름과 남은 아이템 개수.
+    func changeToForm(_ name: String, remaining: Int) -> String {
+        t("\(name) ×\(remaining)", "\(name) ×\(remaining)", "\(name) ×\(remaining)")
+    }
+    /// 폼이 있는 종인데 아이템이 없을 때 — 어디서 구하는지 알려준다.
+    func formNeedsItem(_ item: String) -> String {
+        t("\(item)이 있으면 모습을 바꿀 수 있어요 (상점)",
+          "\(item) changes its form (Shop)",
+          "\(item)があればすがたを変えられます(ショップ)")
+    }
+    var revertForm: String { t("원래 모습으로", "Revert form", "もとのすがたに") }
 
     // MARK: 홈 — 부화 슬롯
     var eggSlotsHeader: String { t("부화 중", "Hatching", "ふ化中") }

@@ -28,6 +28,8 @@ extension PlayerStore {
             state.box[index].speciesID = speciesID
             state.box[index].pathIDs.append(speciesID)
             state.box[index].exp = individual.exp - threshold   // 초과분 이월
+            // 폼은 종에 달린 것이라 진화하면 풀린다 — 피카츄의 거다이맥스를 라이츄가 이어받을 수 없다.
+            state.box[index].form = nil
             state.dex.insert(speciesID)
         }
         return true
