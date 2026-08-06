@@ -47,6 +47,13 @@ struct L {
     var shopItemSection: String { t("아이템", "Items", "アイテム") }
     var shopItemOwned: String { t("보유 중", "Owned", "所持中") }
     var shopItemOwnedButton: String { t("보유", "Owned", "所持") }
+    /// 뽑기 결과 연출 — 등급은 `Grade.label` 이 말하고, 이 줄은 그 다음에 무슨 일이 생기는지 말한다.
+    var drawResultHatching: String {
+        t("부화를 시작했어요", "It's incubating now", "ふ化がはじまりました")
+    }
+    var drawResultShiny: String {
+        t("✨ 이로치가 들어 있어요!", "✨ There's a shiny inside!", "✨ 色違いが入っています！")
+    }
 
     // MARK: 스타터 픽커 (첫 실행 — 27마리 중 1마리 선택)
     var starterPickerTitle: String { t("함께 시작할 포켓몬을 고르세요", "Choose your starting Pokémon", "一緒に始めるポケモンを選んでください") }

@@ -10,6 +10,9 @@ struct ShopTabView: View {
     /// 뽑기 작업을 뷰 생애에 묶는다 — 안 그러면 팝오버가 닫혔다 다시 열려 새 뷰가 생겨도
     /// 이전 네트워크 조회가 백그라운드에서 계속 돌아 뒤늦게 착지할 수 있다(스타터 픽커와 동일 문제).
     @State private var drawTask: Task<Void, Never>?
+    /// 방금 뽑은 결과 — 연출 중에만 non-nil. 알은 이미 슬롯에 들어갔고 이 화면은 그 사실을
+    /// 알려주기만 한다(연출을 건너뛰거나 팝오버를 닫아도 잃는 것이 없다).
+    @State private var reveal: (grade: Grade, shiny: Bool)?
 
     private var l: L { store.l }
 
@@ -43,6 +46,13 @@ struct ShopTabView: View {
             .padding(.vertical, 2)
         }
         .frame(height: 320)
+        // 연출은 상점 위에만 덮인다 — 팝오버 전체를 가리면 탭 전환이 막힌다.
+        .overlay {
+            if let reveal {
+                EggRevealView(grade: reveal.grade, shiny: reveal.shiny, l: l,
+                              language: store.language) { self.reveal = nil }
+            }
+        }
         .onDisappear {
             // 팝오버가 닫혀 뷰가 사라지면 진행 중인 뽑기 조회도 함께 끊는다 — 살려두면
             // 다음에 연 새 뷰의 뽑기와 경합해 조용히 지는 쪽이 생긴다.
@@ -148,6 +158,8 @@ struct ShopTabView: View {
             guard !Task.isCancelled else { return }
             let chosen = EggBalance.pickSpecies(from: index, grade: roll.grade, roll: store.nextRandomUnit())
             lastError = Self.landDraw(store, grade: roll.grade, speciesID: chosen, shiny: roll.shiny)
+            // 착지에 실패했으면(슬롯이 찼다 등) 축하할 것이 없다 — 문구만 남긴다.
+            if lastError == nil { reveal = (roll.grade, roll.shiny) }
         }
     }
 }
