@@ -93,7 +93,6 @@ struct BoxTabView: View {
                                 isPartner: individual.id == store.state.partnerID,
                                 ribbon: individual.ribbon(at: store.currentDate()),
                                 canEvolve: readyToEvolve(individual),
-                                progress: Self.progress(individual),
                                 partnerBadge: l.partnerBadge) {
                             selection = individual.id
                         }
@@ -173,7 +172,6 @@ struct BoxCell: View {
     /// 단 리본 — 칸에서 바로 보여야 "오래 데리고 다닌 아이"가 구분되고, 단계까지 읽힌다.
     let ribbon: Ribbon?
     let canEvolve: Bool
-    let progress: Double
     let partnerBadge: String
     let onTap: () -> Void
 
@@ -187,14 +185,13 @@ struct BoxCell: View {
     #endif
 
     init(individual: Individual, regionLabel: String? = nil, isPartner: Bool,
-         ribbon: Ribbon? = nil, canEvolve: Bool, progress: Double, partnerBadge: String,
+         ribbon: Ribbon? = nil, canEvolve: Bool, partnerBadge: String,
          onTap: @escaping () -> Void) {
         self.individual = individual
         self.regionLabel = regionLabel
         self.isPartner = isPartner
         self.ribbon = ribbon
         self.canEvolve = canEvolve
-        self.progress = progress
         self.partnerBadge = partnerBadge
         self.onTap = onTap
         #if DEBUG
@@ -204,7 +201,7 @@ struct BoxCell: View {
 
     var body: some View {
         Button(action: onTap) {
-            VStack(spacing: 1) {
+            VStack(spacing: 0) {
                 ZStack(alignment: .topTrailing) {
                     SpriteView(speciesID: individual.speciesID, form: individual.spriteForm,
                                size: 36, shiny: individual.shiny)
@@ -235,11 +232,8 @@ struct BoxCell: View {
                             .offset(x: 3, y: -2)
                     }
                 }
-                // 본가 PC 는 칸에 이름을 안 적는다 — 스프라이트가 곧 식별자다.
-                // 경험치만 칸 바닥에 얇게 남겨 "키우는 중"이 보이게 한다.
-                ProgressView(value: progress)
-                    .progressViewStyle(.linear)
-                    .frame(width: 34, height: 2)
+                // 본가 PC 는 칸에 이름도 게이지도 안 적는다 — 스프라이트가 곧 식별자다.
+                // 지금 손댈 수 있는 것(진화 가능)만 표시하고, 진행도는 상세에서 본다.
             }
             .frame(width: 48, height: 50)
             .background(isPartner ? Color.accentColor.opacity(0.22) : Color.secondary.opacity(0.16),
