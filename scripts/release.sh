@@ -109,7 +109,8 @@ echo "▶ 코드서명 신원 게이트 (배포 전 — ad-hoc 릴리스 차단�
 # macOS 키체인 접근 다이얼로그가 재프롬프트된다. 안정적 자체서명 신원(고정 leaf)으로만 배포되게 강제한다.
 SIGN_IDENTITY="${CODESIGN_IDENTITY:-PokeDexBar Local}"
 # "PokeDexBar Local" leaf SHA-1 — 설치본 DR 의 certificate leaf pin. 인증서를 재생성/교체하면 갱신 필요.
-EXPECTED_LEAF="507F814330C727B38AC9A987ECBA929721C52C62"
+# 2026-08-06: PokeDexBar 전용 인증서를 이 기기에서 새로 만들며 갱신(이전 값은 포크 원본의 것이었다).
+EXPECTED_LEAF="4398997828B0BFDF7FA587C124493A9F1789935E"
 LEAF=$(security find-identity -v -p codesigning | awk -v id="\"$SIGN_IDENTITY\"" '$0 ~ id {print $2; exit}')
 if [[ -z "$LEAF" ]]; then
   echo "✗ 유효 codesigning identity '$SIGN_IDENTITY' 없음(미설치·만료 포함)."
