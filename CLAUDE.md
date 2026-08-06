@@ -27,14 +27,16 @@
      PTB_SCREENSHOTS=1 PTB_APP_VERSION=<이번 릴리스 버전> swift test --filter ScreenshotGeneratorTests
      ```
      `Tests/PokeDexBarTests/ScreenshotGenerator.swift` 가 **실제 SwiftUI 뷰**를 `NSHostingView` 로
-     오프스크린 렌더해(다크·2x) `assets/` 에 덮어쓴다 — 정적 PNG 전부(박스·상세·도감·상점 3개 언어·
-     설정 3개 언어)를 한 번에. 시드는 임시 세이브 파일 + `#if DEBUG` 헬퍼라 실제 세이브를 건드리지 않는다.
+     오프스크린 렌더해(다크·2x) `assets/` 에 덮어쓴다 — 정적 PNG 전부(박스·상세·도감 + 부화 슬롯·상점·
+     설정 각 3개 언어)를 한 번에. 시드는 임시 세이브 파일 + `#if DEBUG` 헬퍼라 실제 세이브를 건드리지 않는다.
      **예전의 손으로 쓴 HTML + 헤드리스 크롬 방식은 폐기했다** — 목업이라 앱에서 사라진 화면(가방 탭 등)이
-     README 에 몇 달 남아 있었다. 그 방식으로 돌아가지 말 것. 담기는 내용(등장 개체·지갑·언어)을 바꾸려면
+     README 에 몇 달 남아 있었다. 그 방식으로 돌아가지 말 것. 담기는 내용(등장 개체·지갑·알·언어)을 바꾸려면
      생성기의 `ScreenshotFixture` 만 고친다. 애니 GIF(home·펫·메뉴바)는 아직 수동 — 프레임 합성 후
      `gifsicle -O3 --lossy` 로 최적화(PIL 재인코딩 단독은 용량 팽창 주의).
-     알려진 한계: 도감 실루엣(`.brightness(-1)`)은 CALayer 필터라 오프스크린 캡처에 안 담긴다
-     (생성기 상단 주석에 확인한 대안들을 적어 뒀다).
+     **UI 를 고칠 때 주의:** 이 캡처는 뷰의 *그리기* 경로라 CALayer 필터로 내려가는 수식어
+     (`.brightness`·`.saturation`·`.blur`)는 화면에 보여도 스크린샷에서 빠진다. 도감 실루엣이 이걸 밟아
+     `SpriteView(silhouette:)` 의 템플릿 렌더링으로 옮겼다 — 새 효과가 스크린샷에만 안 나오면 캡처가 아니라
+     그 수식어를 의심할 것(생성기 상단 주석 참고).
    - homebrew-tap cask caveat.
    - **함정:** `release.sh` 문서검토는 *커밋된* 상태를 비교 → 스크린샷을 스테이징만 하면 경고 프롬프트가
      여전히 뜬다. 미리 커밋하거나 프롬프트에 `y`(스테이징분이 release.sh line 93-94 에서 릴리스 커밋에 함께 담김). (`RELEASE.md` 체크리스트)

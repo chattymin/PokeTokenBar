@@ -20,14 +20,14 @@ import XCTest
 // 스프라이트는 읽기 전용으로 디스크 캐시(`~/Library/Application Support/PokeDexBar/sprites`)에서
 // `SpriteView.init` 이 동기 시드하므로 네트워크 없이도 그림이 나온다.
 //
-// **한 가지 한계 — 도감 실루엣.** `cacheDisplay` 는 뷰의 그리기 경로를 찍는 것이라 SwiftUI 가
-// CALayer 필터로 내리는 효과는 담기지 않는다. `.opacity` 는 레이어 alpha 라 그대로 나오지만,
-// `NationalDexView` 의 `.brightness(-1)`(못 잡은 종을 검게 만드는 실루엣)은 `CAFilter` 로 붙어
-// 빠진다 — 그래서 `screenshot-collection.png` 의 미포획 종은 검은 실루엣이 아니라 55% 로 흐려진
-// 컬러로 나온다. 확인한 대안은 전부 더 나빴다: `ImageRenderer`/`.drawingGroup()` 은 필터는 살리지만
-// `LazyVGrid` 를 아예 안 그려 격자가 빈 채로 나오고, `CALayer.render(in:)` 은 문서대로 필터를 무시하며,
-// `CARenderer`(Metal)는 창 밖 레이어 트리에서 아무것도 그리지 않았다. 창을 실제로 띄워 윈도우 서버로
-// 캡처하면 필터까지 나오지만 화면 기록 권한에 묶여 "다시 돌릴 수 있는 생성기"가 못 된다.
+// **UI 를 고칠 때 알아 둘 것 — CALayer 필터는 이 캡처에 안 담긴다.** `cacheDisplay` 는 뷰의
+// *그리기* 경로를 찍으므로, SwiftUI 가 레이어 필터로 내리는 수식어(`.brightness`·`.saturation`·
+// `.blur` 등)는 화면에서는 보여도 스크린샷에서는 통째로 빠진다(`.opacity` 는 레이어 alpha 라 그대로
+// 나온다). 도감 실루엣이 이 함정을 한 번 밟았고 — `.brightness(-1)` 은 스크린샷에서 사라져
+// 미포획 종이 컬러로 찍혔다 — `SpriteView(silhouette:)` 의 템플릿 렌더링으로 옮겨 해결했다.
+// 새로 넣은 효과가 스크린샷에만 안 보이면 캡처를 의심하지 말고 그 수식어를 그리기 단계 표현으로
+// 바꾸는 쪽이 맞다. (윈도우 서버 캡처는 필터까지 나오지만 화면 기록 권한에 묶여
+// "다시 돌릴 수 있는 생성기"가 못 된다.)
 
 /// 라인 조회를 즉답으로 대신한다 — 오프스크린 렌더는 `.task` 를 돌릴 기회가 없어 네트워크 조회가
 /// 착지하지 않는다. 진화 후보는 뷰에 `lines:` 로 직접 주입한다.
@@ -71,6 +71,20 @@ enum ScreenshotFixture {
         (282, [280, 281, 282], .epic, .mild, 250_000_000, false, nil),
         (384, [384], .legendary, .lonely, 500_000_000, false, nil),
         (150, [150], .legendary, .bashful, 380_000_000, false, nil),
+    ]
+
+    /// 부화 슬롯이 몇 칸인가. 알보다 하나 많게 둬서 빈 슬롯(점선 칸)도 함께 보이게 한다.
+    static let slots = 5
+
+    /// 부화 중인 알 — 카운트다운이 슬롯마다 **다른 단위로** 읽히도록 남은 시간을 흩어 놓는다.
+    /// (`EggSlotsView.countdownText` 는 큰 단위 두 개만 쓴다: "부화!" / "1분 30초" / "47분 25초" /
+    /// "22시간 47분".) 첫 줄은 이미 부화 시각을 지나 "부화!" 로 뜬다 — 다 된 알이 어떻게 보이는지가
+    /// 이 화면의 핵심이라 반드시 한 칸은 익은 상태로 둔다. 등급도 넷 다 달라 아래 라벨이 겹치지 않는다.
+    static let eggs: [(grade: Grade, speciesID: Int, startedMinutesAgo: Double)] = [
+        (.common, 172, 35),                  // 30분짜리를 35분 전에 → 부화 완료
+        (.rare, 133, 118.5),                 // 2시간짜리 → 1분 30초 남음
+        (.epic, 448, 360 - 47 - 25.0 / 60),  // 6시간짜리 → 47분 25초 남음
+        (.legendary, 384, 73),               // 24시간짜리 → 22시간 47분 남음
     ]
 
     /// 진화 라인 — 앱에서는 PokéAPI 가 주지만 스크린샷은 네트워크를 타지 않으므로 필요한 것만 적어 둔다.
@@ -155,16 +169,17 @@ final class ScreenshotGeneratorTests: XCTestCase {
 
         // 지갑·슬롯 → 아이템 구매 → 알 뽑기 순. 전부 실제 구매 경로를 지나 값이 어긋나지 않게 한다.
         // 지갑은 마지막 품목(가장 비싼 것)까지 살 수 있게 남긴다 — 전부 회색인 상점은 상점처럼 안 보인다.
-        player.seedForTesting(wallet: 15_000_000_000, slots: 4, eggs: 0, at: base)
+        player.seedForTesting(wallet: 15_000_000_000, slots: ScreenshotFixture.slots, eggs: 0, at: base)
         // 구매 결과를 확인한다 — 가격이 오르면 조용히 실패해 재고 없는 상점이 찍힌다.
         for item in [ShopItem.expCandy, .expCandy, .expCandy, .shinyCandy, .megaStone, .dynamaxMushroom] {
             XCTAssertTrue(player.buy(item), "\(item) 를 못 샀다 — 시드 지갑이 가격을 못 따라간다")
         }
 
-        // 알은 서로 다른 단계로 — 카운트다운이 슬롯마다 다르게 보여야 한다.
-        for (minutesAgo, grade, species) in [(22, Grade.common, 172), (60, .epic, 133), (1_200, .legendary, 384)] {
-            clock = base.addingTimeInterval(-Double(minutesAgo) * 60)
-            player.startEgg(grade: grade, speciesID: species, shiny: false)
+        // 알은 실제 뽑기 경로로 넣는다 — 시작 시각만 시계를 되감아 각자 다르게 잡는다.
+        for egg in ScreenshotFixture.eggs {
+            clock = base.addingTimeInterval(-egg.startedMinutesAgo * 60)
+            XCTAssertNotNil(player.startEgg(grade: egg.grade, speciesID: egg.speciesID, shiny: false),
+                            "알을 못 넣었다 — 슬롯이나 지갑이 모자란다")
         }
         clock = base
 
@@ -361,6 +376,12 @@ final class ScreenshotGeneratorTests: XCTestCase {
 
         for (language, suffix) in Self.languages {
             setLanguage(language, fixture)
+
+            // 부화 슬롯 — 홈 탭의 알 줄. 카운트다운·등급 라벨이 언어를 타므로 3개 언어로 찍는다.
+            // `now` 는 픽스처 기준 시각으로 고정한다 — 실제 시각을 쓰면 돌릴 때마다 숫자가 달라진다.
+            try write(png(tabChrome(EggSlotsView(store: fixture.player, now: ScreenshotFixture.now))),
+                      "screenshot-eggs\(suffix).png")
+
             try write(png(tabChrome(ShopTabView(store: fixture.player, provider: StubProvider())),
                           fullScroll: true),
                       "screenshot-shop\(suffix).png")
