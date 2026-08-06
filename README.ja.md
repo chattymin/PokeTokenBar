@@ -73,7 +73,7 @@ PokeDexBar は、あなたがすでに使っている AI コーディングト�
 <h3>図鑑とボックス、ふたつのコレクション</h3>
 <b>図鑑</b>は1番から1025番までの種チェックリストです — 孵化させるまではシルエットのまま。<b>ボックス</b>は孵化・進化させたすべての個体をグリッドで表示します — マス目ごとにパートナー・色違い・進化可能かがひと目でわかり、タップすると等級・せいかく・捕獲日・経験値・パートナーとして共に使ったトークンの累計（経験値と違い進化しても減りません）に加え、パートナー設定・アメを与える・進化・フォーム変更のボタンがある詳細画面が開きます。重複はごく普通のことです。
 </td>
-<td width="45%" align="center"><img src="assets/screenshot-collection.png" width="300" alt="ボックスと図鑑"></td>
+<td width="45%" align="center"><img src="assets/screenshot-box.png" width="300" alt="ボックスと図鑑"></td>
 </tr>
 <tr>
 <td width="45%" align="center"><img src="assets/settings-ja.png" width="300" alt="設定"></td>
@@ -87,7 +87,7 @@ PokeDexBar は、あなたがすでに使っている AI コーディングト�
 <h3>🥚 タマゴは自分ではなく時計が孵す</h3>
 最大3個（スロットを買えば6個）まで同時に引くと、それぞれが実時間のタイマーで孵化します — コモンは30分、レジェンダリーは24時間まで。席を外していてもホームでリアルタイムにカウントダウンされ、まとまって準備できると通知がひとつ届きます。
 </td>
-<td width="45%" align="center"><img src="assets/screenshot-bag-ja.png" width="300" alt="ホームで孵化中のタマゴ"></td>
+<td width="45%" align="center"><img src="assets/screenshot-eggs-ja.png" width="300" alt="ホームで孵化中のタマゴ"></td>
 </tr>
 <tr>
 <td width="45%" align="center"><img src="assets/screenshot-shop-ja.png" width="300" alt="ショップ — タマゴ抽選・スロット拡張・けいけんちアメ・ひかるアメ・光るお守り"></td>

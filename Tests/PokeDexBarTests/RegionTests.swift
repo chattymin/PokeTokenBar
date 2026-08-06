@@ -280,3 +280,27 @@ final class RegionDecodeGuardTests: XCTestCase {
         XCTAssertNil(state.box.first?.region)
     }
 }
+
+/// 박스 그리드 배지는 칸(56pt)에 들어가야 한다 — 영어 형용사형("Galarian")이 길어 축소되던 것을
+/// 지방 이름으로 바꿨다. 이름이 길어지면 배지만 작아져 옆 칸과 다르게 보인다.
+final class RegionShortLabelTests: XCTestCase {
+    func testShortLabelUsesThePlaceName() {
+        XCTAssertEqual(Region.galar.shortLabel(.en), "Galar")
+        XCTAssertEqual(Region.alola.shortLabel(.en), "Alola")
+    }
+
+    /// 상세 화면은 형용사형 그대로 — 짧은 이름은 그리드 전용이다.
+    func testFullLabelIsUnchanged() {
+        XCTAssertEqual(Region.galar.label(.en), "Galarian")
+    }
+
+    /// 어느 언어에서도 배지가 한 칸에 들어갈 만큼 짧아야 한다.
+    func testEveryShortLabelIsShort() {
+        for region in Region.allCases {
+            for lang in [AppLanguage.ko, .en, .ja] {
+                XCTAssertLessThanOrEqual(region.shortLabel(lang).count, 6,
+                                         "\(region.rawValue)/\(lang) 배지가 칸을 넘칠 만큼 길다")
+            }
+        }
+    }
+}

@@ -73,7 +73,7 @@ Shiny hatches keep their distinct colors everywhere — menu bar, home card, evo
 <h3>Two collections: a Dex and a Box</h3>
 The <b>National Dex</b> is a species checklist from #1 to #1025 — silhouettes until you've hatched one. Your <b>Box</b> is a grid of every individual you've hatched or evolved — each cell shows partner, shiny, and evolve-ready at a glance, and tapping it opens a detail screen with grade, nature, capture date, experience, lifetime tokens spent together (unlike experience, this survives evolution), and the controls to set a partner, feed candy, evolve, or change form. Duplicates are completely normal.
 </td>
-<td width="45%" align="center"><img src="assets/screenshot-collection.png" width="300" alt="Box and National Dex"></td>
+<td width="45%" align="center"><img src="assets/screenshot-box.png" width="300" alt="Box — every individual you own"></td>
 </tr>
 <tr>
 <td width="45%" align="center"><img src="assets/settings.png" width="300" alt="Settings"></td>
@@ -87,7 +87,7 @@ Menu-bar items, refresh interval (1–15 min or manual), launch at login, a Keyc
 <h3>🥚 Eggs hatch on the clock, not on you</h3>
 Draw up to 3 eggs at once (6 with a slot upgrade) and each incubates on its own wall-clock timer — 30 minutes for a Common up to 24 hours for a Legendary — counting down live on Home even while you're away. A single notification tells you when a batch is ready.
 </td>
-<td width="45%" align="center"><img src="assets/screenshot-bag.png" width="300" alt="Eggs incubating on Home"></td>
+<td width="45%" align="center"><img src="assets/screenshot-eggs.png" width="300" alt="Eggs incubating on Home"></td>
 </tr>
 <tr>
 <td width="45%" align="center"><img src="assets/screenshot-shop.png" width="300" alt="Shop — egg draws, slot upgrades, EXP Candy, Shiny Candy, Shiny Charm"></td>

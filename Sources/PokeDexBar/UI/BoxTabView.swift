@@ -68,7 +68,7 @@ struct BoxTabView: View {
                     LazyVGrid(columns: columns, spacing: 6) {
                         ForEach(sorted) { individual in
                             BoxCell(individual: individual,
-                                    regionLabel: individual.region?.label(store.language),
+                                    regionLabel: individual.region?.shortLabel(store.language),
                                     isPartner: individual.id == store.state.partnerID,
                                     canEvolve: readyToEvolve(individual),
                                     progress: Self.progress(individual),
