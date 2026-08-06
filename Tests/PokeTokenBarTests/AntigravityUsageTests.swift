@@ -343,10 +343,133 @@ final class AntigravityUsageTests: XCTestCase {
         try FileManager.default.setAttributes([.modificationDate: stale], ofItemAtPath: database.path)
         FileManager.default.createFile(atPath: database.path + "-wal", contents: Data([0]))
 
-        let fresh = try XCTUnwrap(LocalAntigravityUsageReader.effectiveModificationDate(of: database))
-        XCTAssertGreaterThan(fresh, stale)
+        let fresh = try XCTUnwrap(LocalAntigravityUsageReader.signature(of: database))
+        XCTAssertGreaterThan(fresh.mtime, stale)
         XCTAssertEqual(LocalAntigravityUsageReader.entries(
             modifiedSince: try date("2026-01-01T00:00:00Z"), root: temporaryDirectory).count, 1)
+    }
+
+    // MARK: - Not re-reading what has not changed
+
+    /// The blob stands in for the store while its signature holds — the point of keying on the
+    /// signature at all is that an unchanged store is never reopened.
+    func testStoreWithAnUnchangedSignatureIsNotReread() throws {
+        try writeConversation("c1", records: [
+            record(responseID: "onDisk", model: "gemini-3.6-flash",
+                   createdAt: try date("2026-03-04T10:00:00Z"), input: 100, output: 20, cacheRead: 300),
+        ])
+        let database = temporaryDirectory.appendingPathComponent("c1.db")
+        let planted = try plantedBlob(for: database)
+
+        let scanned = scan(known: [database.path: planted])
+        XCTAssertEqual(scanned.blobs[database.path]?.entries.map(\.id), ["planted"],
+                       "the store was reopened even though nothing about it had changed")
+    }
+
+    /// The commit a WAL database actually makes: the `.db` is untouched and the `-wal` grows.
+    func testWalCommitInvalidatesTheBlob() throws {
+        try writeConversation("c1", records: [
+            record(responseID: "onDisk", model: "gemini-3.6-flash",
+                   createdAt: try date("2026-03-04T10:00:00Z"), input: 100, output: 20, cacheRead: 300),
+        ])
+        let database = temporaryDirectory.appendingPathComponent("c1.db")
+        let planted = try plantedBlob(for: database)
+        FileManager.default.createFile(atPath: database.path + "-wal", contents: Data([0, 1, 2, 3]))
+
+        let scanned = scan(known: [database.path: planted])
+        XCTAssertEqual(scanned.blobs[database.path]?.entries.map(\.id), ["antigravity|onDisk"],
+                       "a WAL commit must invalidate the blob — the `.db` alone never moves")
+    }
+
+    /// The other half, and the reason `-shm` is not in the key: a read-only connection writes
+    /// read marks into it, so a signature that included it would be invalidated by this very
+    /// reader, on every scan, and the cache would never hit at all.
+    func testShmChurnDoesNotInvalidateTheBlob() throws {
+        try writeConversation("c1", records: [
+            record(responseID: "onDisk", model: "gemini-3.6-flash",
+                   createdAt: try date("2026-03-04T10:00:00Z"), input: 100, output: 20, cacheRead: 300),
+        ])
+        let database = temporaryDirectory.appendingPathComponent("c1.db")
+        let planted = try plantedBlob(for: database)
+        FileManager.default.createFile(atPath: database.path + "-shm", contents: Data([9, 9, 9, 9]))
+
+        let scanned = scan(known: [database.path: planted])
+        XCTAssertEqual(scanned.blobs[database.path]?.entries.map(\.id), ["planted"],
+                       "`-shm` churn is somebody reading the store, not somebody writing to it")
+    }
+
+    /// A read that did not finish must not be filed under the current signature: the store would
+    /// then read as no usage for as long as it sat still, and the next refresh — the whole
+    /// reason the partial read was discarded — would never come.
+    func testIncompleteScanKeepsThePreviousRowsUnderTheirOldSignature() throws {
+        try writeManyRecords("c1", count: 60, pageSize: 512)
+        let database = temporaryDirectory.appendingPathComponent("c1.db")
+        try corruptLastPage(database, pageSize: 512)
+        let stale = LocalAntigravityUsageReader.Blob(
+            mtime: .distantPast, size: 0,
+            entries: try plantedBlob(for: database).entries)
+
+        let scanned = scan(known: [database.path: stale])
+        let blob = try XCTUnwrap(scanned.blobs[database.path])
+        XCTAssertEqual(blob.entries.map(\.id), ["planted"], "the rows already known were thrown away")
+        XCTAssertEqual(blob.mtime, .distantPast, "the old signature must survive so the next scan retries")
+    }
+
+    /// With nothing to carry forward there must be no blob at all — an empty one would freeze
+    /// the store as "no usage" until something happened to change it.
+    func testUnreadableStoreIsNotCachedAsAnEmptyConversation() throws {
+        let database = temporaryDirectory.appendingPathComponent("c1.db")
+        try Data("not a sqlite database".utf8).write(to: database, options: .atomic)
+
+        XCTAssertNil(scan().blobs[database.path])
+    }
+
+    /// The opposite: a database with no `gen_metadata` will never grow one, so caching its empty
+    /// is what stops it being reopened on every refresh for the life of the install.
+    func testDatabaseWithoutTheExpectedTableIsCachedAsEmpty() throws {
+        let database = temporaryDirectory.appendingPathComponent("c1.db")
+        try execute(database, sql: "CREATE TABLE something_else (a INTEGER);")
+
+        let blob = try XCTUnwrap(scan().blobs[database.path])
+        XCTAssertTrue(blob.entries.isEmpty)
+        XCTAssertEqual(blob.mtime, LocalAntigravityUsageReader.signature(of: database)?.mtime)
+    }
+
+    /// A store that drops out of the window leaves the cache with it — the sweep rebuilds from
+    /// what it visited, so there is no separate prune to forget to run.
+    func testStoresOutsideTheWindowLeaveTheCache() throws {
+        try writeConversation("c1", records: [
+            record(responseID: "old", model: "gemini-3.6-flash",
+                   createdAt: try date("2020-01-01T10:00:00Z"), input: 100, output: 20, cacheRead: 300),
+        ])
+        let database = temporaryDirectory.appendingPathComponent("c1.db")
+        try FileManager.default.setAttributes(
+            [.modificationDate: try date("2020-01-02T00:00:00Z")], ofItemAtPath: database.path)
+        let planted = try plantedBlob(for: database)
+
+        let scanned = scan(known: [database.path: planted], modifiedSince: try date("2026-03-01T00:00:00Z"))
+        XCTAssertTrue(scanned.blobs.isEmpty)
+    }
+
+    /// The behaviour the 30-second expiry could not give: a store that changed a moment ago is
+    /// read a moment ago, not up to half a minute later.
+    func testCacheSeesAChangedStoreWithoutWaiting() async throws {
+        let recent = Date().addingTimeInterval(-600)
+        try writeConversation("c1", records: [
+            record(responseID: "first", model: "gemini-3.6-flash", createdAt: recent,
+                   input: 100, output: 20, cacheRead: 300),
+        ])
+        let cache = LocalAntigravityUsageCache(root: temporaryDirectory)
+        let before = await cache.entries()
+        XCTAssertEqual(Set(before.map(\.id)), ["antigravity|first"])
+
+        try appendRecords("c1", records: [
+            record(responseID: "second", model: "gemini-3.6-flash", createdAt: recent.addingTimeInterval(1),
+                   input: 100, output: 20, cacheRead: 300),
+        ], startingAt: 1)
+
+        let after = await cache.entries()
+        XCTAssertEqual(Set(after.map(\.id)), ["antigravity|first", "antigravity|second"])
     }
 
     // MARK: - Pricing
@@ -407,7 +530,25 @@ final class AntigravityUsageTests: XCTestCase {
     private func readConversation(_ name: String) -> LocalAntigravityUsageReader.ConversationRead {
         LocalAntigravityUsageReader.conversationEntries(
             temporaryDirectory.appendingPathComponent("\(name).db"),
-            modifiedSince: .distantPast, formatter: LocalUsageReader.localDayFormatter())
+            formatter: LocalUsageReader.localDayFormatter())
+    }
+
+    private func scan(known: [String: LocalAntigravityUsageReader.Blob] = [:],
+                      modifiedSince: Date = .distantPast) -> LocalAntigravityUsageReader.Scan {
+        LocalAntigravityUsageReader.scan(
+            root: temporaryDirectory, modifiedSince: modifiedSince, known: known)
+    }
+
+    /// A blob that does not match the file it is filed under, so a test can tell a cache hit
+    /// (the planted rows come back) from a re-read (the file's own rows do).
+    private func plantedBlob(for database: URL, id: String = "planted") throws
+    -> LocalAntigravityUsageReader.Blob {
+        let signature = try XCTUnwrap(LocalAntigravityUsageReader.signature(of: database))
+        return LocalAntigravityUsageReader.Blob(
+            mtime: signature.mtime, size: signature.size,
+            entries: [LocalUsageReader.Entry(
+                id: id, date: try date("2026-03-04T10:00:00Z"), localDay: "2026-03-04",
+                model: "antigravity/planted", input: 1, output: 0, cacheWrite: 0, cacheRead: 0)])
     }
 
     private func date(_ text: String) throws -> Date {
@@ -486,6 +627,17 @@ final class AntigravityUsageTests: XCTestCase {
                        createdAtSeconds: base + UInt64(index),
                        input: 100, output: 20, cacheRead: 300)
         }, pageSize: pageSize)
+    }
+
+    /// Appends to a store that already exists, the way the CLI does — the `.db` grows and its
+    /// timestamp moves, which is what the signature has to notice.
+    private func appendRecords(_ name: String, records: [Data], startingAt index: Int) throws {
+        var sql = ""
+        for (offset, blob) in records.enumerated() {
+            sql += "INSERT INTO gen_metadata VALUES (\(index + offset),"
+                + " X'\(blob.map { String(format: "%02x", $0) }.joined())', \(blob.count));\n"
+        }
+        try execute(temporaryDirectory.appendingPathComponent("\(name).db"), sql: sql)
     }
 
     /// Damages the b-tree page-type byte of the last page. Page 1 — the schema — is untouched on
