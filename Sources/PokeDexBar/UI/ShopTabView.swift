@@ -41,8 +41,10 @@ struct ShopTabView: View {
                 walletRow
                 drawSection
                 slotSection
+                categorySection(.candy)
                 evolutionItemSection
-                itemSection
+                categorySection(.form)
+                categorySection(.charm)
             }
             .padding(.vertical, 2)
         }
@@ -110,10 +112,12 @@ struct ShopTabView: View {
         }
     }
 
-    private var itemSection: some View {
+    /// 한 분류의 품목들. 목록은 `ShopItem.category` 가 정한다 — 뷰가 품목 이름을 나열하면
+    /// 새 품목이 조용히 안 팔리는 일이 생긴다.
+    private func categorySection(_ category: ShopCategory) -> some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text(l.shopItemSection).font(.system(size: 12, weight: .semibold))
-            ForEach(ShopItem.allCases, id: \.self) { item in
+            Text(category.title(store.language)).font(.system(size: 12, weight: .semibold))
+            ForEach(ShopItem.allCases.filter { $0.category == category }, id: \.self) { item in
                 itemRow(item)
             }
         }
@@ -122,7 +126,7 @@ struct ShopTabView: View {
     /// 진화 도구 — 상점에서 파는 것만(돌 10종 + 연결의 끈). 특수 도구 10종은 리본 파트너가 물어 온다.
     private var evolutionItemSection: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text(l.shopEvolutionSection).font(.system(size: 11, weight: .semibold))
+            Text(l.shopEvolutionSection).font(.system(size: 12, weight: .semibold))
             ForEach(EvolutionItem.shopItems, id: \.self) { item in
                 HStack {
                     Text(item.label(store.language)).font(.system(size: 11, weight: .medium))

@@ -238,3 +238,40 @@ final class EvoTreePruningKeepsRequirementsTests: XCTestCase {
         XCTAssertEqual(line.tree.node(withID: 2)?.requirementRaw, .friendship)
     }
 }
+
+/// 상점 진열 — 품목이 자기 분류를 알아야 한다. 뷰가 목록을 손으로 나열하면 새 품목이
+/// 어느 칸에도 안 들어가 **팔리지 않는 채로** 조용히 남는다(사탕이 그런 식으로 한 번 새어 나갔다).
+final class ShopCategoryTests: XCTestCase {
+    /// 모든 품목이 정확히 한 칸에 속한다 — 빠진 품목이 있으면 상점에서 사라진다.
+    func testEveryItemLandsInExactlyOneSection() {
+        let placed = ShopCategory.allCases.flatMap { c in ShopItem.allCases.filter { $0.category == c } }
+        XCTAssertEqual(Set(placed), Set(ShopItem.allCases), "어느 칸에도 없는 품목이 있다")
+        XCTAssertEqual(placed.count, ShopItem.allCases.count, "두 칸에 걸친 품목이 있다")
+    }
+
+    func testCategoriesGroupWhatBelongsTogether() {
+        XCTAssertEqual(ShopItem.expCandy.category, .candy)
+        XCTAssertEqual(ShopItem.shinyCandy.category, .candy)
+        XCTAssertEqual(ShopItem.megaStone.category, .form)
+        XCTAssertEqual(ShopItem.dynamaxMushroom.category, .form)
+        for charm in ShopItem.allCases.filter(\.isCharm) {
+            XCTAssertEqual(charm.category, .charm, "\(charm) 이 부적 칸에 없다")
+        }
+    }
+
+    /// 진화 도구는 `ShopItem` 이 아니라 별도 카탈로그다 — 두 목록이 겹치면 같은 것이 두 번 팔린다.
+    func testEvolutionItemsAreNotShopItems() {
+        let shopKeys = Set(ShopItem.allCases.map(\.rawValue))
+        for item in EvolutionItem.allCases {
+            XCTAssertFalse(shopKeys.contains(item.rawValue), "\(item) 이 두 목록에 다 있다")
+        }
+    }
+
+    func testEverySectionHasATitleInEveryLanguage() {
+        for category in ShopCategory.allCases {
+            for lang in [AppLanguage.ko, .en, .ja] {
+                XCTAssertFalse(category.title(lang).isEmpty)
+            }
+        }
+    }
+}

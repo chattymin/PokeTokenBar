@@ -1,5 +1,20 @@
 import Foundation
 
+/// 상점 진열 분류. **화면이 아니라 품목이 자기 자리를 안다** — 뷰에 목록을 손으로 나열하면
+/// 품목을 더할 때 어느 칸에 넣을지 매번 다시 정해야 하고, 빠뜨리면 조용히 안 팔린다.
+enum ShopCategory: Int, CaseIterable, Sendable {
+    case candy, form, charm
+
+    func title(_ lang: AppLanguage) -> String {
+        let names: (String, String, String) = switch self {
+        case .candy: ("사탕", "Candy", "アメ")
+        case .form: ("모습 바꾸기", "Forms", "すがた")
+        case .charm: ("부적", "Charms", "おまもり")
+        }
+        switch lang { case .ko: return names.0; case .en: return names.1; case .ja: return names.2 }
+    }
+}
+
 /// 상점 품목(알 뽑기·슬롯 확장 제외 — 그 둘은 값이 상황에 따라 달라 따로 다룬다).
 enum ShopItem: String, CaseIterable, Sendable {
     case expCandy, shinyCandy, megaStone, dynamaxMushroom, shinyCharm, expCharm, fortuneCharm
@@ -29,6 +44,15 @@ enum ShopItem: String, CaseIterable, Sendable {
         case .fortuneCharm: names = ("행운의 부적", "Fortune Charm", "こううんのおまもり")
         }
         switch lang { case .ko: return names.0; case .en: return names.1; case .ja: return names.2 }
+    }
+
+    /// 진열 분류. 부적은 보유형이라 한 칸에 모으고, 사탕과 모습 바꾸기는 쓰임이 달라 나눈다.
+    var category: ShopCategory {
+        switch self {
+        case .expCandy, .shinyCandy: .candy
+        case .megaStone, .dynamaxMushroom: .form
+        case .shinyCharm, .expCharm, .fortuneCharm: .charm
+        }
     }
 
     /// 부적은 보유형이라 개수를 세지 않고 한 번만 산다.
