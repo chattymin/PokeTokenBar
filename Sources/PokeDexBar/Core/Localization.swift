@@ -79,6 +79,22 @@ struct L {
     }
     /// 홈 파트너 카드의 진화 가능 배지 — 실제 진화 실행은 박스에서.
     var evolutionReadyBadge: String { t("진화 가능", "Can evolve", "しんか可能") }
+    /// 상세 화면 — 그리드에서 개체를 눌러 들어간다. 사탕·진화·파트너 지정이 모두 여기 있다.
+    var backToBox: String { t("박스", "Box", "ボックス") }
+    var boxEmpty: String { t("아직 가진 포켓몬이 없어요", "No Pokémon yet", "まだポケモンがいません") }
+    func boxCount(_ count: Int) -> String { t("\(count)마리", "\(count)", "\(count)ひき") }
+    var detailNature: String { t("성격", "Nature", "せいかく") }
+    var detailGrade: String { t("등급", "Grade", "ランク") }
+    var detailExp: String { t("경험치", "EXP", "けいけんち") }
+    var detailMaxStage: String { t("더 진화하지 않아요", "Fully evolved", "これいじょうしんかしない") }
+    var detailPartnerOnlyExp: String {
+        t("경험치는 파트너만 쌓여요 — 사탕으로도 올릴 수 있어요",
+          "Only your partner earns EXP — candy works too",
+          "けいけんちはパートナーのみ — アメでも上げられます")
+    }
+    var detailNoCandy: String {
+        t("가진 사탕이 없어요 (상점)", "No candy yet (Shop)", "アメがありません(ショップ)")
+    }
 
     // MARK: 홈 — 부화 슬롯
     var eggSlotsHeader: String { t("부화 중", "Hatching", "ふ化中") }

@@ -70,13 +70,36 @@ final class BoxCandyWiringTests: XCTestCase {
         return store
     }
 
-    /// 박스 행을 실제로 그려 사탕 버튼을 수집한다.
+    /// 개체를 선택한 상태의 박스를 실제로 그려 사탕 버튼을 수집한다 — 사탕은 상세 화면에 있으므로
+    /// 선택이 없으면 나오지 않는다. 그리드에서 상세로 가는 길 자체는 `testTappingACellOpensTheDetail`.
     private func renderedCandyButtons(_ store: PlayerStore) -> [(title: String, action: () -> Void)] {
         CandyButton.resetConstructed()
-        let host = NSHostingView(rootView: BoxTabView(store: store, lines: [:], onNeedLine: { _ in })
+        let selected = store.state.box.first!.id
+        let host = NSHostingView(rootView: BoxTabView(store: store, lines: [:], onNeedLine: { _ in },
+                                                      selection: .constant(selected))
             .frame(width: PopoverMetrics.width))
         host.layoutSubtreeIfNeeded()
         return CandyButton.constructed
+    }
+
+    /// 그리드 칸을 누르면 그 개체의 상세가 열린다 — 이 연결이 끊기면 사탕·진화 화면에 갈 길이 없다.
+    /// 위 테스트들은 선택을 고정해 두고 그리므로 이 경로를 안 밟는다.
+    func testTappingACellOpensTheDetail() {
+        let store = makeStore()
+        let target = store.state.box.first!.id
+        var selection: UUID?
+        BoxCell.resetConstructed()
+        let host = NSHostingView(rootView: BoxTabView(
+            store: store, lines: [:], onNeedLine: { _ in },
+            selection: Binding(get: { selection }, set: { selection = $0 })
+        ).frame(width: PopoverMetrics.width))
+        host.layoutSubtreeIfNeeded()
+
+        guard let cell = BoxCell.constructed.first(where: { $0.id == target }) else {
+            return XCTFail("박스 그리드에 개체 칸이 없다 — 상세로 들어갈 길이 없다")
+        }
+        cell.onTap()
+        XCTAssertEqual(selection, target, "칸을 눌렀는데 상세가 안 열린다")
     }
 
     /// 경험치 사탕: 박스 행에 버튼이 뜨고, 누르면 그 개체에 경험치가 들어가고 재고가 준다.

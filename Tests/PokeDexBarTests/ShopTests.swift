@@ -82,7 +82,7 @@ final class ShopTests: XCTestCase {
     func testExpCandyRaisesExperienceAndIsConsumed() {
         let store = makeStore(wallet: ShopItem.expCandy.price)
         let id = addIndividual(store)
-        store.buy(.expCandy)
+        XCTAssertTrue(store.buy(.expCandy))
         XCTAssertTrue(store.useExpCandy(on: id))
         XCTAssertEqual(store.state.box.first { $0.id == id }?.exp, PlayerStore.expCandyAmount)
         XCTAssertEqual(store.count(of: .expCandy), 0)
@@ -98,7 +98,7 @@ final class ShopTests: XCTestCase {
     func testShinyCandyMakesTheIndividualShiny() {
         let store = makeStore(wallet: ShopItem.shinyCandy.price)
         let id = addIndividual(store)
-        store.buy(.shinyCandy)
+        XCTAssertTrue(store.buy(.shinyCandy))
         XCTAssertTrue(store.useShinyCandy(on: id))
         XCTAssertTrue(store.state.box.first { $0.id == id }?.shiny ?? false)
         XCTAssertEqual(store.count(of: .shinyCandy), 0)
@@ -108,7 +108,7 @@ final class ShopTests: XCTestCase {
     func testShinyCandyRejectsAlreadyShiny() {
         let store = makeStore(wallet: ShopItem.shinyCandy.price)
         let id = addIndividual(store, shiny: true)
-        store.buy(.shinyCandy)
+        XCTAssertTrue(store.buy(.shinyCandy))
         XCTAssertFalse(store.useShinyCandy(on: id))
         XCTAssertEqual(store.count(of: .shinyCandy), 1, "쓰지 못했으면 사탕이 남는다")
     }
@@ -116,7 +116,7 @@ final class ShopTests: XCTestCase {
     /// 박스에 없는 개체에는 쓸 수 없다.
     func testUsingOnUnknownIndividualFails() {
         let store = makeStore(wallet: ShopItem.expCandy.price)
-        store.buy(.expCandy)
+        XCTAssertTrue(store.buy(.expCandy))
         XCTAssertFalse(store.useExpCandy(on: UUID()))
         XCTAssertEqual(store.count(of: .expCandy), 1)
     }

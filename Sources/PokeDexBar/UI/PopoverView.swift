@@ -43,6 +43,9 @@ struct PopoverView: View {
     /// `.task` 가 동시에 `loadLine` 을 부르므로, 완료 전 상태(로딩 중)도 별도로 추적해야 한다.
     /// `evoLines` 만으로는 진행 중인 fetch 를 못 봐서(아직 키가 없으니) 중복 fetch 가 생긴다.
     @State private var loadingLines: Set<Int> = []
+    /// 박스에서 상세를 열어 둔 개체. 여기서 들고 있어야 탭을 옮기면 상세가 닫힌다 —
+    /// 박스 안에 두면 도감에 갔다 돌아왔을 때 옛 개체 상세가 그대로 남는다.
+    @State private var boxSelection: UUID?
 
     private var l: L { player.l }
 
@@ -122,9 +125,12 @@ struct PopoverView: View {
             }
             .pickerStyle(.segmented)
             .labelsHidden()
+            // 탭을 옮기면 상세를 닫는다 — 도감에 갔다 오면 박스는 목록부터 보여야 한다.
+            .onChange(of: nav.tab) { _, _ in boxSelection = nil }
 
             if nav.tab == .box {
-                BoxTabView(store: player, lines: evoLines) { baseID in loadLine(baseID) }
+                BoxTabView(store: player, lines: evoLines, onNeedLine: { baseID in loadLine(baseID) },
+                           selection: $boxSelection)
             } else if nav.tab == .collection {
                 NationalDexView(store: player)
             } else if nav.tab == .shop {

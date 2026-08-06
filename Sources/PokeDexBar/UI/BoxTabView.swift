@@ -1,13 +1,16 @@
 import SwiftUI
 
-/// 박스 — 보유 개체 목록. 도감이 "종을 모았나"라면 여기는 "무엇을 가졌나"다.
-/// 파트너 지정·사탕 사용·진화가 여기서 일어난다(중복 개체를 각각 다루려면 개체 단위 화면이 필요하다).
+/// 박스 — 보유 개체 그리드. 도감이 "종을 모았나"라면 여기는 "무엇을 가졌나"다.
+/// 그리드는 한눈에 보는 용도만 맡고, 개체를 만지는 일(파트너 지정·사탕·진화)은 전부
+/// `IndividualDetailView` 로 넘긴다 — 중복 개체가 흔해서 행마다 버튼을 늘어놓으면 못 읽는다.
 struct BoxTabView: View {
     let store: PlayerStore
     /// 종 번호 → 진화 라인. 없으면 진화 후보를 알 수 없어 진화 버튼 자체를 숨긴다.
     let lines: [Int: EvoLine]
     /// 라인이 없을 때 호출 — 앱이 받아와 `lines` 를 채운다.
     let onNeedLine: (Int) -> Void
+    /// 상세를 열어 둔 개체. 팝오버가 소유해 탭을 옮기면 닫힌다.
+    @Binding var selection: UUID?
 
     private var l: L { store.l }
 
@@ -24,122 +27,82 @@ struct BoxTabView: View {
         store.state.box.sorted { $0.obtainedAt > $1.obtainedAt }
     }
 
+    /// 선택된 개체를 **id 로 다시 찾는다** — 진화하면 speciesID 가 바뀌고 정렬 순서도 바뀌므로
+    /// 인덱스나 값 복사본을 들고 있으면 상세가 옛 모습에 머문다.
+    private var selected: Individual? {
+        selection.flatMap { id in store.state.box.first { $0.id == id } }
+    }
+
+    private let columns = Array(repeating: GridItem(.fixed(56), spacing: 6), count: 5)
+
     var body: some View {
-        ScrollView {
-            LazyVStack(alignment: .leading, spacing: 6) {
-                ForEach(sorted) { individual in
-                    row(individual)
-                }
+        Group {
+            if let selected {
+                IndividualDetailView(store: store, individual: selected,
+                                     line: lines[selected.baseID],
+                                     onNeedLine: onNeedLine,
+                                     onBack: { selection = nil })
+            } else {
+                grid
             }
         }
         .frame(height: 320)
     }
 
-    private func row(_ individual: Individual) -> some View {
-        let isPartner = individual.id == store.state.partnerID
-        let line = lines[individual.baseID]
-        let choices = line.map { store.evolutionChoices(individual, line: $0) } ?? []
-        let ready = store.canEvolve(individual) && !choices.isEmpty
-        return HStack(alignment: .top, spacing: 8) {
-            SpriteView(speciesID: individual.speciesID, size: 40, shiny: individual.shiny)
-                .frame(width: 44, height: 44)
-
-            VStack(alignment: .leading, spacing: 3) {
-                HStack(spacing: 5) {
-                    Text("#\(individual.speciesID)")
-                        .font(.system(size: 11, weight: .semibold)).monospacedDigit()
-                    if individual.shiny { Text("✨").font(.system(size: 10)) }
-                    Text(individual.grade.label(store.language))
-                        .font(.system(size: 8, weight: .bold))
-                        .padding(.horizontal, 5).padding(.vertical, 1)
-                        .background(Color.secondary.opacity(0.18), in: Capsule())
-                    if isPartner {
-                        Text(l.partnerBadge)
-                            .font(.system(size: 8, weight: .bold)).foregroundStyle(.white)
-                            .padding(.horizontal, 5).padding(.vertical, 1)
-                            .background(Color.accentColor, in: Capsule())
-                    }
-                    Spacer()
-                    Text(individual.nature.name(store.language))
-                        .font(.system(size: 9)).foregroundStyle(.secondary)
-                }
-
-                ProgressView(value: Self.progress(individual))
-                    .progressViewStyle(.linear)
-                    .frame(height: 4)
-
-                HStack(spacing: 8) {
-                    if !isPartner {
-                        Button(l.makePartner) { store.setPartner(individual.id) }
-                            .buttonStyle(.borderless).font(.system(size: 10))
-                    }
-                    if ready, let line {
-                        ForEach(choices, id: \.self) { target in
-                            // 번호(#134)가 아니라 이름으로 — line.names 에 없으면 #번호로 폴백.
-                            let name = line.localizedName(target, store.language)
-                            Button(choices.count > 1 ? l.evolveTo(name) : l.evolve) {
-                                store.evolve(individualID: individual.id, to: target, line: line)
+    private var grid: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text(l.box).font(.system(size: 11, weight: .semibold))
+                Spacer()
+                Text(l.boxCount(store.state.box.count))
+                    .font(.system(size: 10)).monospacedDigit().foregroundStyle(.secondary)
+            }
+            if store.state.box.isEmpty {
+                Spacer()
+                Text(l.boxEmpty)
+                    .font(.system(size: 11)).foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity)
+                Spacer()
+            } else {
+                ScrollView {
+                    LazyVGrid(columns: columns, spacing: 6) {
+                        ForEach(sorted) { individual in
+                            BoxCell(individual: individual,
+                                    isPartner: individual.id == store.state.partnerID,
+                                    canEvolve: readyToEvolve(individual),
+                                    progress: Self.progress(individual),
+                                    partnerBadge: l.partnerBadge) {
+                                selection = individual.id
                             }
-                            .buttonStyle(.borderless)
-                            .font(.system(size: 10, weight: .semibold))
-                            .foregroundStyle(Color.accentColor)
+                            // 진화 가능 표시를 그리려면 라인이 필요하다 — 보이는 칸만 요청한다.
+                            .task(id: individual.baseID) {
+                                if lines[individual.baseID] == nil { onNeedLine(individual.baseID) }
+                            }
                         }
                     }
-                    Spacer()
                 }
-
-                candyRow(individual)
             }
-        }
-        .padding(.horizontal, 6).padding(.vertical, 5)
-        .background(Color.secondary.opacity(0.07), in: RoundedRectangle(cornerRadius: 8))
-        .task(id: individual.baseID) {
-            if lines[individual.baseID] == nil { onNeedLine(individual.baseID) }
         }
     }
 
-    /// 사탕 사용 줄 — 가진 사탕이 있을 때만 나온다. 상점에서 산 사탕을 쓰는 유일한 화면이다
-    /// (파트너 아닌 개체는 경험치를 못 받으므로 경험치 사탕이 유일한 성장 수단이기도 하다).
-    /// 버튼을 파트너·진화 줄 아래에 따로 두는 이유는 폭 — 네 버튼을 한 줄에 몰면 팝오버 콘텐츠
-    /// 폭(332pt)에서 라벨이 잘린다.
-    @ViewBuilder
-    private func candyRow(_ individual: Individual) -> some View {
-        let expCandies = store.count(of: .expCandy)
-        // 이미 이로치면 반짝이는 사탕은 할 일이 없다 — `useShinyCandy` 도 그 경우 false 를 돌려준다.
-        let shinyCandies = individual.shiny ? 0 : store.count(of: .shinyCandy)
-        if expCandies > 0 || shinyCandies > 0 {
-            HStack(spacing: 8) {
-                if expCandies > 0 {
-                    // 임계를 넘긴 개체에도 열어 둔다 — `useExpCandy` 는 임계를 보지 않고, 초과분은
-                    // 진화 때 다음 단계로 이월되므로(`evolve` 의 `exp - threshold`) 낭비가 아니다.
-                    CandyButton(title: l.useExpCandy(expCandies)) {
-                        _ = store.useExpCandy(on: individual.id)
-                    }
-                }
-                if shinyCandies > 0 {
-                    CandyButton(title: l.useShinyCandy(shinyCandies)) {
-                        _ = store.useShinyCandy(on: individual.id)
-                    }
-                }
-                Spacer()
-            }
-        }
+    private func readyToEvolve(_ individual: Individual) -> Bool {
+        guard let line = lines[individual.baseID] else { return false }
+        return store.canEvolve(individual) && !store.evolutionChoices(individual, line: line).isEmpty
     }
 }
 
-/// 박스 행의 사탕 버튼. 별도 타입으로 뽑은 이유는 **배선 자체를 테스트로 잠그기 위해서**다 —
-/// 사탕이 상점에서 팔리는데 쓸 화면이 없던 결함을, 스토어 메서드를 직접 부르는 테스트는 못 잡았다.
-/// DEBUG 계측은 `SpriteView.constructionCount` 와 같은 패턴(릴리스 바이너리엔 담기지 않는다).
-struct CandyButton: View {
-    let title: String
-    let action: () -> Void
+/// 그리드 한 칸. 눌러서 상세로 들어가는 유일한 통로라 별도 타입으로 뽑아 테스트로 잠근다
+/// (사탕이 상점에서 팔리는데 쓸 화면이 없던 결함이 "배선을 아무도 안 봤다"에서 나왔다).
+struct BoxCell: View {
+    let individual: Individual
+    let isPartner: Bool
+    let canEvolve: Bool
+    let progress: Double
+    let partnerBadge: String
+    let onTap: () -> Void
 
     #if DEBUG
-    /// 테스트 전용 — 이번 렌더에서 만들어진 사탕 버튼(제목 + 눌렀을 때의 동작).
-    /// 동작까지 담아 두어야 "버튼이 그려졌나"를 넘어 "눌렀을 때 실제로 사탕이 쓰이나"까지 잠근다.
-    @MainActor static var constructed: [(title: String, action: () -> Void)] = []
-    /// 수집은 테스트가 켤 때만 한다 — DEBUG 로 앱을 돌리면 박스를 그릴 때마다 클로저가 쌓여
-    /// 영영 안 빠진다(`SpriteView.constructionCount` 는 Int 라 커질 수가 없었다).
+    @MainActor static var constructed: [(id: UUID, onTap: () -> Void)] = []
     @MainActor static var isRecording = false
     @MainActor static func resetConstructed() {
         isRecording = true
@@ -147,17 +110,51 @@ struct CandyButton: View {
     }
     #endif
 
-    init(title: String, action: @escaping () -> Void) {
-        self.title = title
-        self.action = action
+    init(individual: Individual, isPartner: Bool, canEvolve: Bool, progress: Double,
+         partnerBadge: String, onTap: @escaping () -> Void) {
+        self.individual = individual
+        self.isPartner = isPartner
+        self.canEvolve = canEvolve
+        self.progress = progress
+        self.partnerBadge = partnerBadge
+        self.onTap = onTap
         #if DEBUG
-        if Self.isRecording { Self.constructed.append((title, action)) }
+        if Self.isRecording { Self.constructed.append((individual.id, onTap)) }
         #endif
     }
 
     var body: some View {
-        Button(title, action: action)
-            .buttonStyle(.borderless)
-            .font(.system(size: 10))
+        Button(action: onTap) {
+            VStack(spacing: 1) {
+                ZStack(alignment: .topTrailing) {
+                    SpriteView(speciesID: individual.speciesID, size: 40, shiny: individual.shiny)
+                        .frame(width: 40, height: 40)
+                    // 진화 가능은 칸에서 바로 보여야 한다 — 아니면 개체를 하나씩 열어봐야 안다.
+                    if canEvolve {
+                        Image(systemName: "arrow.up.circle.fill")
+                            .font(.system(size: 10))
+                            .foregroundStyle(Color.accentColor)
+                            .offset(x: 3, y: -2)
+                    }
+                }
+                ProgressView(value: progress)
+                    .progressViewStyle(.linear)
+                    .frame(width: 40, height: 3)
+                Text(isPartner ? partnerBadge : "#\(individual.speciesID)")
+                    .font(.system(size: 7, weight: isPartner ? .bold : .regular))
+                    .monospacedDigit()
+                    .foregroundStyle(isPartner ? Color.accentColor : .secondary)
+                    .lineLimit(1)
+            }
+            .frame(width: 56, height: 60)
+            .background(Color.secondary.opacity(isPartner ? 0.16 : 0.07),
+                        in: RoundedRectangle(cornerRadius: 8))
+            .overlay {
+                if individual.shiny {
+                    RoundedRectangle(cornerRadius: 8).strokeBorder(Color.yellow.opacity(0.8), lineWidth: 1)
+                }
+            }
+        }
+        .buttonStyle(.plain)
     }
 }
