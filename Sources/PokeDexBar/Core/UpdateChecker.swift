@@ -22,7 +22,7 @@ final class UpdateChecker {
 
     init(currentVersion: String? = nil, clock: @escaping () -> Date = Date.init) {
         self.currentVersion = currentVersion
-            ?? (Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String) ?? "0"
+            ?? AppEnv.appVersion ?? "0"
         self.clock = clock
     }
 

@@ -38,7 +38,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         signal(SIGPIPE, SIG_IGN)
         // 크래시·OOM·강제종료·런치실패를 로그에 남기는 전역 처리. 가능한 이르게(초기 크래시도 잡히게).
         CrashReporter.install(
-            version: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "?")
+            version: AppEnv.appVersion ?? "?")
         NSApp.setActivationPolicy(.accessory)
         store = UsageStore()
         player = PlayerStore()

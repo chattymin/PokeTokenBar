@@ -42,7 +42,7 @@ struct CodexRateLimitsProvider: CodexLimitsProviding {
     }
 
     private static func requestLines() throws -> [String] {
-        let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.1.0"
+        let version = AppEnv.appVersion ?? "0.1.0"
         let messages: [[String: Any]] = [
             [
                 "method": "initialize",

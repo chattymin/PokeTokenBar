@@ -18,7 +18,7 @@ struct SettingsView: View {
 
     /// 현재 앱 버전 — 업데이트 적용 여부 확인용으로 설정창 하단에 표기.
     private static var appVersion: String {
-        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "—"
+        AppEnv.appVersion ?? "—"
     }
 
     // MARK: 레이아웃 — 헤더 고정 / 본문 스크롤 / 푸터 고정
