@@ -298,8 +298,8 @@ enum AntigravityProto {
 
 // MARK: - Shared read
 
-/// Shares one native read between the Gemini provider's daily and enrichment calls, the way
-/// `LocalAdditionalUsageCache` does for the SQLite-backed providers.
+/// Shares one native read between the Antigravity provider's daily and enrichment calls, the
+/// way `LocalAdditionalUsageCache` does for the other SQLite-backed providers.
 actor LocalAntigravityUsageCache {
     static let shared = LocalAntigravityUsageCache()
 

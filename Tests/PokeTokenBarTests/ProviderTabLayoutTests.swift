@@ -17,12 +17,21 @@ final class ProviderTabLayoutTests: XCTestCase {
                          weekTotal: nil, monthTotal: nil, fetchedAt: Date())
     }
 
-    /// 현재 등록된 7개 프로바이더의 표시 이름 — UsageStore.init 기본 배열과 같은 순서.
+    /// 현재 등록된 전 프로바이더의 표시 이름 — UsageStore.init 기본 배열과 같은 순서.
     private var allProviders: [ProviderSnapshot] {
         [("claude_code", "Claude Code"), ("codex", "Codex"), ("gemini", "Gemini"),
-         ("opencode", "OpenCode"), ("hermes", "Hermes Agent"), ("cursor", "Cursor"),
-         ("grok", "Grok")]
+         ("antigravity", "Antigravity"), ("opencode", "OpenCode"), ("hermes", "Hermes Agent"),
+         ("cursor", "Cursor"), ("grok", "Grok")]
             .map { snapshot($0.0, $0.1) }
+    }
+
+    /// 이 파일의 목록이 실제 레지스트리와 어긋나면 위 가드들은 배포되지 않는 탭 바를 재고 있는 것이다
+    /// — Grok 추가 때 목록만 손대고 끝난 것과 같은 표류를 기계로 막는다.
+    func testTabListMatchesTheRegisteredProviders() {
+        let store = UsageStore(autoRefresh: false,
+                               defaults: UserDefaults(suiteName: "ProviderTabLayoutTests.\(UUID().uuidString)")!)
+        XCTAssertEqual(allProviders.map(\.providerID), store.registeredProviderIDs,
+                       "탭 레이아웃 가드의 프로바이더 목록이 UsageStore.init 기본 배열과 다르다")
     }
 
     private func bar(_ snaps: [ProviderSnapshot]) -> ProviderTabBar {

@@ -231,6 +231,36 @@ final class AntigravityUsageTests: XCTestCase {
             0, "the unprefixed name must keep its rate")
     }
 
+    // MARK: - Provider
+
+    /// Registered in its own right, so someone who runs only Antigravity sees their own tab
+    /// rather than their spend labelled "Gemini". The two share `~/.gemini/` and nothing else.
+    @MainActor
+    func testDefaultRegistryIncludesAntigravity() {
+        let suite = "AntigravityUsageTests.registry.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let store = UsageStore(autoRefresh: false, defaults: defaults)
+        XCTAssertTrue(store.registeredProviderIDs.contains("antigravity"))
+    }
+
+    /// The wire schema carries no amount and the rate lookup is short-circuited by the prefix,
+    /// so there is no cost to contribute. Reporting one would print `$0.00` next to the tokens
+    /// of a subscription that never billed per token — the same reason Cursor reports none.
+    func testProviderReportsTokensOnly() {
+        XCTAssertFalse(LocalAntigravityProvider().reportsCost)
+    }
+
+    /// Someone who has never run Antigravity must get silence rather than a zero: throwing
+    /// colours the whole refresh as an error, and a zero raises a tab for a tool they don't use.
+    func testProviderIsSilentWithoutAnyConversationStore() async throws {
+        guard !FileManager.default.fileExists(atPath: LocalAntigravityUsageReader.defaultRoot.path) else {
+            throw XCTSkip("this machine has Antigravity conversation stores — the absent path cannot be exercised")
+        }
+        let daily = try await LocalAntigravityProvider().fetchDaily()
+        XCTAssertNil(daily)
+    }
+
     // MARK: - Fixtures
 
     private func readAll() -> [LocalUsageReader.Entry] {
