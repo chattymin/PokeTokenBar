@@ -11,6 +11,10 @@ struct EggSlotsView: View {
     /// 1초 틱 — 남은 시간이 살아 움직이게. 호출부(PopoverView)가 이 뷰만 `TimelineView` 로
     /// 감싸 넘긴다 — 홈 탭 전체를 매초 다시 그리지 않기 위해서다.
     let now: Date
+    /// 종 번호 → 진화 라인. 거둔 개체의 **이름**을 보여주려면 필요하다(번호만으로는 무엇이
+    /// 나왔는지 와닿지 않는다). 아직 없으면 `onNeedLine` 으로 요청하고 번호로 떨어진다.
+    var lines: [Int: EvoLine] = [:]
+    var onNeedLine: (Int) -> Void = { _ in }
     /// 방금 거둔 개체 — 연출 중에만 non-nil. 이미 박스에 들어가 있어서 닫아도 잃는 것이 없다.
     @State private var hatched: Individual?
 
@@ -69,7 +73,10 @@ struct EggSlotsView: View {
         // 나왔는지 박스에 들어가서야 알게 된다.
         .overlay {
             if let hatched {
-                HatchedRevealView(individual: hatched, store: store) { self.hatched = nil }
+                HatchedRevealView(individual: hatched, store: store,
+                                  line: lines[hatched.baseID], onNeedLine: onNeedLine) {
+                    self.hatched = nil
+                }
             }
         }
     }

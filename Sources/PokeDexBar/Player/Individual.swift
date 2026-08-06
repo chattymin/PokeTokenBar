@@ -54,6 +54,21 @@ struct Individual: Identifiable, Codable, Sendable, Equatable {
         return l.togetherMinutes(minutes)
     }
 
+    /// 화면에 쓸 이름. 종 이름은 진화 라인(PokéAPI)에서 오므로 호출부가 넘긴다 —
+    /// 아직 못 받았으면 `#번호` 를 넘기면 된다. 접두는 하나만 붙는다: 메가·거다이맥스를 취하고
+    /// 있으면 그쪽이, 아니면 지방 이름이.
+    func displayName(speciesName: String, _ lang: AppLanguage) -> String {
+        if let slug = form, let known = FormCatalog.form(slug: slug) {
+            return known.displayName(base: speciesName, lang)
+        }
+        // 그 종에 지방 모습이 실제로 있을 때만 이름을 바꾼다 — 나이킹을 "가라르 나이킹"이라
+        // 부르지 않는다(가라르에서 왔다는 건 혈통이지 그 종의 모습 이름이 아니다).
+        if let region, RegionalFormCatalog.form(speciesID: speciesID, region: region) != nil {
+            return region.displayName(base: speciesName, lang)
+        }
+        return speciesName
+    }
+
     /// 지금까지 파트너로 지낸 총 시간(초) — 닫힌 구간 + 아직 진행 중인 구간.
     /// 시계가 뒤로 뛰어도 음수가 되지 않게 자른다.
     func partnerDuration(at now: Date) -> Int {

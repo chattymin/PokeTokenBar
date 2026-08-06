@@ -22,16 +22,7 @@ struct IndividualDetailView: View {
     /// 종 이름 — 라인을 아직 못 받았으면 번호로 폴백한다.
     /// 접두는 하나만 붙인다: 메가·거다이맥스를 취하고 있으면 그쪽이, 아니면 지방 이름이.
     private var displayName: String {
-        if let slug = individual.form, let form = FormCatalog.form(slug: slug) {
-            return form.displayName(base: baseName, store.language)
-        }
-        // 그 종에 지방 모습이 실제로 있을 때만 이름을 바꾼다 — 나이킹을 "가라르 나이킹"이라
-        // 부르지 않는다(가라르에서 왔다는 건 혈통이지 그 종의 모습 이름이 아니다).
-        if let region = individual.region,
-           RegionalFormCatalog.form(speciesID: individual.speciesID, region: region) != nil {
-            return region.displayName(base: baseName, store.language)
-        }
-        return baseName
+        individual.displayName(speciesName: baseName, store.language)
     }
 
     var body: some View {

@@ -140,3 +140,43 @@ final class BoxCandyWiringTests: XCTestCase {
         XCTAssertTrue(titles.contains(store.l.useExpCandy(1)), titles.description)
     }
 }
+
+/// 표시 이름 — 홈 카드는 진화 라인을 이미 받아 두고도 번호만 보여주고 있었다(사용자 지적).
+/// 이름 조립 규칙을 개체 한 곳에 두고 화면들이 같은 규칙을 쓰는지 잠근다.
+final class IndividualDisplayNameTests: XCTestCase {
+    private func make(species: Int, base: Int = 1) -> Individual {
+        Individual(baseID: base, speciesID: species, pathIDs: [base, species], nature: .serious,
+                   obtainedAt: Date(timeIntervalSince1970: 0), grade: .common)
+    }
+
+    func testPlainIndividualUsesTheSpeciesName() {
+        XCTAssertEqual(make(species: 6).displayName(speciesName: "리자몽", .ko), "리자몽")
+    }
+
+    /// 라인을 아직 못 받았으면 호출부가 번호를 넘긴다 — 그대로 나와야 한다.
+    func testFallsBackToWhateverTheCallerPassed() {
+        XCTAssertEqual(make(species: 6).displayName(speciesName: "#6", .ko), "#6")
+    }
+
+    func testRegionPrefixesTheName() {
+        var meowth = make(species: 52, base: 52)
+        meowth.region = .galar
+        XCTAssertEqual(meowth.displayName(speciesName: "나옹", .ko), "가라르 나옹")
+    }
+
+    /// 메가·거다이맥스가 지방보다 우선한다 — 접두는 하나만 붙는다.
+    func testFormWinsOverRegion() {
+        var charizard = make(species: 6, base: 4)
+        charizard.region = .galar
+        charizard.form = "charizard-megax"
+        XCTAssertEqual(charizard.displayName(speciesName: "Charizard", .en), "Mega Charizard X")
+    }
+
+    /// 그 종에 지방 모습이 없으면 접두를 안 붙인다 — 나이킹은 "가라르 나이킹"이 아니다.
+    /// (혈통은 남지만 그 종의 모습 이름은 아니다.)
+    func testNoPrefixWhenTheSpeciesHasNoRegionalLook() {
+        var perrserker = make(species: 863, base: 52)
+        perrserker.region = .galar
+        XCTAssertEqual(perrserker.displayName(speciesName: "나이킹", .ko), "나이킹")
+    }
+}

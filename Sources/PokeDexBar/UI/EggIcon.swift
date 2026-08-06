@@ -124,9 +124,18 @@ struct CrackShape: Shape {
 struct HatchedRevealView: View {
     let individual: Individual
     let store: PlayerStore
+    /// 종 이름을 아는 진화 라인. 없으면 번호로 떨어지고 `onNeedLine` 으로 받아온다.
+    var line: EvoLine?
+    var onNeedLine: (Int) -> Void = { _ in }
     let onDone: () -> Void
 
     private var l: L { store.l }
+
+    private var displayName: String {
+        let species = line?.localizedName(individual.speciesID, store.language)
+            ?? "#\(individual.speciesID)"
+        return individual.displayName(speciesName: species, store.language)
+    }
 
     var body: some View {
         ZStack {
@@ -136,8 +145,7 @@ struct HatchedRevealView: View {
                            size: 64, animated: true, shiny: individual.shiny, antialias: true)
                     .frame(width: 64, height: 64)
                 HStack(spacing: 5) {
-                    Text("#\(individual.speciesID)")
-                        .font(.system(size: 12, weight: .semibold)).monospacedDigit()
+                    Text(displayName).font(.system(size: 12, weight: .semibold))
                     if individual.shiny { Text("✨").font(.system(size: 11)) }
                     Text(individual.grade.label(store.language))
                         .font(.system(size: 8, weight: .bold))
@@ -155,6 +163,9 @@ struct HatchedRevealView: View {
         }
         .contentShape(Rectangle())
         .onTapGesture { onDone() }
+        .task(id: individual.baseID) {
+            if line == nil { onNeedLine(individual.baseID) }
+        }
         .task {
             try? await Task.sleep(for: .seconds(2.4))
             if !Task.isCancelled { onDone() }

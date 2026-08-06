@@ -145,10 +145,12 @@ struct PopoverView: View {
                 // (빈 슬롯 줄은 그대로 보여준다 — 알을 뽑으면 어디에 들어가는지가 보여야 한다).
                 if Self.needsCountdownTick(player.state) {
                     TimelineView(.periodic(from: .now, by: 1)) { context in
-                        EggSlotsView(store: player, now: context.date)
+                        EggSlotsView(store: player, now: context.date, lines: evoLines,
+                                     onNeedLine: { baseID in loadLine(baseID) })
                     }
                 } else {
-                    EggSlotsView(store: player, now: player.currentDate())
+                    EggSlotsView(store: player, now: player.currentDate(), lines: evoLines,
+                                 onNeedLine: { baseID in loadLine(baseID) })
                 }
                 Divider()
                 header
@@ -173,6 +175,14 @@ struct PopoverView: View {
         }
     }
 
+    /// 파트너 이름. 진화 라인을 아직 못 받았으면 번호로 떨어진다 — 라인은 아래 `.task` 가
+    /// 진화 배지를 위해 이미 받아 두는데, 정작 이름에는 안 쓰고 번호만 보여주고 있었다.
+    private func partnerName(_ partner: Individual) -> String {
+        let species = evoLines[partner.baseID]?
+            .localizedName(partner.speciesID, player.language) ?? "#\(partner.speciesID)"
+        return partner.displayName(speciesName: species, player.language)
+    }
+
     /// 홈 상단 — 지금 데리고 다니는 개체의 초상화 + 경험치 진행도. 파트너 상세(진화 실행 등)는 박스에서.
     @ViewBuilder
     private var partnerCard: some View {
@@ -185,7 +195,7 @@ struct PopoverView: View {
                     .clipShape(RoundedRectangle(cornerRadius: 12))
                 VStack(alignment: .leading, spacing: 4) {
                     HStack(spacing: 6) {
-                        Text("#\(partner.speciesID)").font(.callout.weight(.semibold))
+                        Text(partnerName(partner)).font(.callout.weight(.semibold))
                         if partner.shiny { Text("✨").font(.system(size: 11)) }
                         Text(partner.grade.label(player.language))
                             .font(.system(size: 8, weight: .bold))
