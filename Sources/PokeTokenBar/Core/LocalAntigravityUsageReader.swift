@@ -42,9 +42,15 @@ enum LocalAntigravityUsageReader {
         let directory = root ?? defaultRoot
         let formatter = LocalUsageReader.localDayFormatter()
         var entries: [LocalUsageReader.Entry] = []
+        var reads: [(conversation: String, read: ConversationRead)] = []
         for database in databases(in: directory, modifiedSince: modifiedSince) {
-            entries += conversationEntries(database, modifiedSince: modifiedSince, formatter: formatter)
+            let read = conversationEntries(database, modifiedSince: modifiedSince, formatter: formatter)
+            entries += read.entries
+            reads.append((database.deletingPathExtension().lastPathComponent, read))
         }
+        // The one place the side effect lives. `AppLog.write` returns early outside the bundled
+        // app, so the decision above it is kept pure and tested on its own (`lossLog`).
+        for line in lossLog(reads) { AppLog.write(line) }
         // `response_id` is unique per call, so this only ever collapses a re-read.
         return LocalUsageReader.dedupKeepMax(entries)
     }
@@ -72,25 +78,84 @@ enum LocalAntigravityUsageReader {
 
     // MARK: Reading one conversation
 
-    private static func conversationEntries(
+    /// What one conversation store yielded. Three of these four produce no rows, and only one
+    /// of those three is a fact about the user's usage — collapsing them all to `[]`, which is
+    /// what this reader used to do, is what let a store that could never be read pass for a
+    /// store that was never used.
+    enum ConversationRead: Sendable {
+        /// Read through to `SQLITE_DONE`: these rows are all of them.
+        case complete([LocalUsageReader.Entry])
+        /// The scan stopped early — BUSY because the CLI was writing, or a damaged page. Half a
+        /// conversation must not pass for the whole of it, so the rows read so far are dropped.
+        case incompleteScan(status: Int32, rows: Int)
+        /// Neither `mode=ro` nor `immutable=1` could open it, or the query failed for a reason
+        /// other than the table being absent.
+        case unreadable(status: Int32?)
+        /// No `gen_metadata`: this file is not a conversation store. A permanent, legitimate
+        /// empty — `~/.gemini/antigravity-cli/conversations/` may hold databases we don't read.
+        case notAConversation
+
+        var entries: [LocalUsageReader.Entry] {
+            if case .complete(let entries) = self { return entries }
+            return []
+        }
+    }
+
+    /// At most this many stores are named per scan; the rest are counted. A store that cannot be
+    /// read is re-read on every refresh (720 times a day at the default interval), so one line
+    /// per store per scan could rotate `AppLog`'s 2 MB file — and the crash-diagnostic history
+    /// with it — several times a day on a machine whose conversation directory went bad.
+    static let namedLossLimit = 5
+
+    /// The lines one scan leaves behind. Pure on purpose: `AppLog.write` returns early outside
+    /// the bundled app (`AppEnv.isBundledApp`), so a test that watched the log file would cover
+    /// nothing at all — the same reason the limit-alert decision was split out of its own
+    /// side effect.
+    static func lossLog(_ reads: [(conversation: String, read: ConversationRead)]) -> [String] {
+        let losses = reads.compactMap { entry -> String? in
+            switch entry.read {
+            case .complete, .notAConversation:
+                return nil
+            case .incompleteScan(let status, let rows):
+                return "antigravity: lost conversation=\(entry.conversation)"
+                    + " reason=scan-incomplete status=\(status) rows=\(rows)"
+            case .unreadable(let status):
+                return "antigravity: lost conversation=\(entry.conversation) reason=unreadable"
+                    + (status.map { " status=\($0)" } ?? "")
+            }
+        }
+        guard losses.count > namedLossLimit else { return losses }
+        return Array(losses.prefix(namedLossLimit))
+            + ["antigravity: lost \(losses.count) conversation(s) this scan"
+               + " (\(losses.count - namedLossLimit) not named)"]
+    }
+
+    static func conversationEntries(
         _ database: URL,
         modifiedSince: Date,
         formatter: DateFormatter
-    ) -> [LocalUsageReader.Entry] {
-        guard let handle = openReadOnly(database) else { return [] }
+    ) -> ConversationRead {
+        guard let handle = openReadOnly(database) else { return .unreadable(status: nil) }
         defer { sqlite3_close(handle) }
 
         var statement: OpaquePointer?
-        guard sqlite3_prepare_v2(
-            handle, "SELECT idx, data FROM gen_metadata WHERE data IS NOT NULL", -1, &statement, nil) == SQLITE_OK,
-              let statement else { return [] }
+        let prepared = sqlite3_prepare_v2(
+            handle, "SELECT idx, data FROM gen_metadata WHERE data IS NOT NULL", -1, &statement, nil)
+        guard prepared == SQLITE_OK, let statement else {
+            // `SQLITE_ERROR` here is "no such table", which is a fact about the file and will
+            // never change; anything else (BUSY, I/O) is this moment failing to read a store
+            // that may well be a conversation.
+            return prepared == SQLITE_ERROR ? .notAConversation : .unreadable(status: prepared)
+        }
         defer { sqlite3_finalize(statement) }
 
         let conversation = database.deletingPathExtension().lastPathComponent
         var entries: [LocalUsageReader.Entry] = []
+        var rows = 0
         while true {
             let step = sqlite3_step(statement)
             if step == SQLITE_ROW {
+                rows += 1
                 autoreleasepool {
                     let index = sqlite3_column_int64(statement, 0)
                     guard let pointer = sqlite3_column_blob(statement, 1) else { return }
@@ -107,10 +172,10 @@ enum LocalAntigravityUsageReader {
             // The CLI writes while the app polls, so a scan can end on BUSY rather than on
             // DONE. Half a conversation would otherwise be cached as the whole of it; drop
             // it instead and let the next refresh read it entire.
-            guard step == SQLITE_DONE else { return [] }
+            guard step == SQLITE_DONE else { return .incompleteScan(status: step, rows: rows) }
             break
         }
-        return entries
+        return .complete(entries)
     }
 
     /// `mode=ro` cannot create the `-shm` file a WAL database needs, so it fails outright on
