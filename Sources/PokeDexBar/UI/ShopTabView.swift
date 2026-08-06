@@ -13,6 +13,8 @@ struct ShopTabView: View {
     /// 방금 뽑은 결과 — 연출 중에만 non-nil. 알은 이미 슬롯에 들어갔고 이 화면은 그 사실을
     /// 알려주기만 한다(연출을 건너뛰거나 팝오버를 닫아도 잃는 것이 없다).
     @State private var reveal: (grade: Grade, shiny: Bool)?
+    /// 진화 도구 칸을 펼쳤나. 기본은 접힘 — 11줄이 늘 펼쳐져 있으면 상점이 안 읽힌다.
+    @State private var evolutionExpanded = false
 
     private var l: L { store.l }
 
@@ -42,9 +44,11 @@ struct ShopTabView: View {
                 drawSection
                 slotSection
                 categorySection(.candy)
-                evolutionItemSection
                 categorySection(.form)
                 categorySection(.charm)
+                // 진화 도구는 맨 아래에, 접은 채로. 11줄이라 펼쳐 두면 상점의 절반을 먹는데,
+                // 정작 "어떤 포켓몬을 진화시킬 때" 찾는 물건이라 늘 보고 있을 이유가 없다.
+                evolutionItemSection
             }
             .padding(.vertical, 2)
         }
@@ -124,9 +128,24 @@ struct ShopTabView: View {
     }
 
     /// 진화 도구 — 상점에서 파는 것만(돌 10종 + 연결의 끈). 특수 도구 10종은 리본 파트너가 물어 온다.
+    /// 기본은 접힘 — 목록이 길고 필요한 순간이 정해져 있다.
     private var evolutionItemSection: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text(l.shopEvolutionSection).font(.system(size: 12, weight: .semibold))
+            Button { withAnimation(.easeOut(duration: 0.15)) { evolutionExpanded.toggle() } } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: evolutionExpanded ? "chevron.down" : "chevron.right")
+                        .font(.system(size: 9, weight: .bold))
+                    Text(l.shopEvolutionSection).font(.system(size: 12, weight: .semibold))
+                    // 가진 게 있으면 접힌 채로도 보이게 — 안 그러면 산 걸 잊는다.
+                    let owned = EvolutionItem.allCases.reduce(0) { $0 + store.count(of: $1) }
+                    if owned > 0 {
+                        Text("×\(owned)").font(.system(size: 10)).foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                }
+            }
+            .buttonStyle(.plain)
+            if evolutionExpanded {
             ForEach(EvolutionItem.shopItems, id: \.self) { item in
                 HStack {
                     Text(item.label(store.language)).font(.system(size: 11, weight: .medium))
@@ -139,6 +158,7 @@ struct ShopTabView: View {
                         .buttonStyle(.bordered).controlSize(.small)
                         .disabled(store.state.wallet < item.price)
                 }
+            }
             }
         }
     }
