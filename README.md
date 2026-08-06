@@ -61,15 +61,15 @@ An animated Gen-V sprite lives next to today's total tokens (compact, e.g. <code
 <td width="45%" align="center"><img src="assets/shiny-banner.gif" width="340" alt="Normal vs shiny"></td>
 <td width="55%" valign="middle">
 <h3>✨ Once in a rare while — Shiny</h3>
-Shiny hatches keep their distinct colors everywhere — menu bar, home card, evolution line, Pokédex — through every evolution. A dedicated notification makes sure you don't miss the moment.
+Shiny hatches keep their distinct colors through every evolution — menu bar, home card, evolution line. In the Pokédex a ✨ sits next to the dex number, and tapping the cell swaps in the shiny colors. A dedicated notification makes sure you don't miss the moment.
 </td>
 </tr>
 <tr>
 <td width="55%" valign="middle">
 <h3>A Pokédex worth filling</h3>
-Graduated Pokémon are preserved with their full evolution line, rarity, nature, and capture date — shinies wear a ✨ badge. Sorted so your rarest catches sit on top.
+The <b>Pokédex</b> folds every species you've owned into one cell — 24 per page in dex-number order, tagged with the natures you caught it with. The <b>Catch log</b> keeps the individuals: newest first, each with its full evolution line, rarity, nature, and capture date.
 </td>
-<td width="45%" align="center"><img src="assets/screenshot-collection.png" width="300" alt="Pokédex"></td>
+<td width="45%" align="center"><img src="assets/screenshot-collection-pokedex.png" width="300" alt="Pokédex — one cell per species"><br><br><img src="assets/screenshot-collection-catchlog.png" width="300" alt="Catch log — one row per Pokémon raised"></td>
 </tr>
 <tr>
 <td width="45%" align="center"><img src="assets/settings.png" width="300" alt="Settings"></td>

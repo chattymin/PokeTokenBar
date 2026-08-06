@@ -61,15 +61,15 @@ PokeTokenBar は、あなたがすでに使っている AI コーディングト
 <td width="45%" align="center"><img src="assets/shiny-banner.gif" width="340" alt="通常 vs 色違い"></td>
 <td width="55%" valign="middle">
 <h3>✨ ごくまれな偶然、色違い</h3>
-色違いはメニューバー・ホームカード・進化ライン・図鑑のどこでも専用カラーで表示され、進化しても維持されます。専用通知でその瞬間を見逃しません。
+色違いはメニューバー・ホームカード・進化ラインで専用カラーで表示され、進化しても維持されます。図鑑では番号の横に ✨ が付き、マスをタップすると色違いカラーに切り替わります。専用通知でその瞬間を見逃しません。
 </td>
 </tr>
 <tr>
 <td width="55%" valign="middle">
 <h3>埋めたくなる図鑑</h3>
-卒業したポケモンは進化ライン全体・レア度・せいかく・捕獲日とともに保存されます — 色違いには ✨ バッジ。いちばんレアな仲間が上に並ぶ順です。
+<b>図鑑</b>は手に入れた種を1マスに畳んで図鑑番号順に並べます — 1ページ24マス、その種を捕まえたせいかくがタグとして付きます。<b>捕獲ログ</b>は個体をそのまま残します: 新しい順に、進化ライン全体・レア度・せいかく・捕獲日まで。
 </td>
-<td width="45%" align="center"><img src="assets/screenshot-collection.png" width="300" alt="図鑑"></td>
+<td width="45%" align="center"><img src="assets/screenshot-collection-pokedex.png" width="300" alt="図鑑 — 1種が1マス"><br><br><img src="assets/screenshot-collection-catchlog.png" width="300" alt="捕獲ログ — 育てた個体が1行"></td>
 </tr>
 <tr>
 <td width="45%" align="center"><img src="assets/settings-ja.png" width="300" alt="設定"></td>

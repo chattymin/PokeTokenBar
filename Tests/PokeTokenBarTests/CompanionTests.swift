@@ -289,6 +289,134 @@ final class CompanionStoreTests: XCTestCase {
         XCTAssertEqual(s.state.dex.first?.names?[2]?["ko"], "포2")  // 항목에 백필 저장됨(트리거 브랜치)
     }
 
+    // MARK: 도감 (종 단위 집계 — 로그의 개체 단위와 축이 다르다)
+
+    /// 도감의 핵심 계약 3개를 한 번에 고정한다. 상태는 파일 주입으로 구성해 성격을 결정적으로
+    /// 통제한다(부화 rng 롤에 의존하지 않게 — PerformanceTests 의 큰 도감 주입과 같은 방식).
+    ///  ① 같은 라인을 두 번 졸업해도 종은 한 칸으로 접히고 획득 성격이 둘 다 태그로 남는다
+    ///     (로그는 2행이 정상 — 중복 행이 도감 쪽에서 구조적으로 해소되는 지점).
+    ///  ② 현재 개체는 **도달분**(pathIDs[0...stageIndex])만 보유로 잡힌다. plannedPathIDs(계획 경로)나
+    ///     pathIDs 전체를 쓰면 아직 진화하지 않은 종이 보유로 새는데, 그 회귀를 여기서 막는다.
+    ///  ③ 성격 태그는 졸업분만 — 현재 개체 성격은 useMint() 로 언제든 바뀌므로 도감(확정 기록)에서 뺀다.
+    func testDexSpeciesFoldsDuplicateLinesAndTracksNatures() throws {
+        // 같은 라인(1→2→3)을 성격만 다르게 두 번 졸업한 도감.
+        let entries = [
+            DexEntry(baseID: 1, finalID: 3, chainOrder: [1, 2, 3], rarity: .common, caughtAt: fixedNow,
+                     nature: .rash,
+                     names: [1: ["ko": "포1"], 2: ["ko": "포2"], 3: ["ko": "포3"]]),
+            DexEntry(baseID: 1, finalID: 3, chainOrder: [1, 2, 3], rarity: .common, caughtAt: fixedNow,
+                     nature: .lax),
+        ]
+        // 현재 개체: 도달분은 [1] 뿐이지만 pathIDs 는 [1,2], 계획 경로는 [1,2,3] — 한 상태로 두 오용
+        // (pathIDs 전체 / plannedPathIDs)을 동시에 가드한다.
+        let active = MonState(baseID: 1, pathIDs: [1, 2], plannedPathIDs: [1, 2, 3], stageIndex: 0,
+                              usedAtStage: 0, rarity: .common, totalForms: 3, nature: .brave)
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("poke-\(UUID().uuidString).json")
+        let dexJSON = String(decoding: try JSONEncoder().encode(entries), as: UTF8.self)
+        let activeJSON = String(decoding: try JSONEncoder().encode(active), as: UTF8.self)
+        try Data(#"{"dex":\#(dexJSON),"active":\#(activeJSON),"language":"ko"}"#.utf8).write(to: url)
+
+        let s = CompanionStore(provider: StubProvider(value: linear3), clock: { fixedNow },
+                               fileURL: url, rng: SeededRNG(seed: 7))
+        XCTAssertEqual(s.state.dex.count, 2, "로그(개체 단위)는 2건")
+        XCTAssertEqual(s.state.active?.stageIndex, 0)
+
+        let folded = s.dexSpecies
+        XCTAssertEqual(folded.map(\.id), [1, 2, 3], "도감 번호 오름차순, 종은 각 1칸")
+        XCTAssertEqual(folded.map(\.name), ["포1", "포2", "포3"], "저장된 이름을 현재 언어로")
+
+        // 도달분(1)만 획득 수가 늘고, 미도달(2,3)은 졸업분 2건 그대로.
+        XCTAssertEqual(folded.map(\.obtained), [3, 2, 2], "pathIDs 전체·plannedPathIDs 누수 없음")
+
+        for sp in folded {
+            // 저장 순서(rash → lax)가 아니라 allCases 순서(lax #9 → rash #19)로 고정된다 —
+            // Set 순회 순서가 렌더마다 흔들려 태그 위치가 바뀌는 것을 막는 계약.
+            XCTAssertEqual(sp.natures, [.lax, .rash], "획득 성격 누적 + allCases 순서 고정")
+            XCTAssertFalse(sp.natures.contains(.brave),
+                           "성격 태그는 확정 기록(졸업분)만 — 현재 개체(민트로 변동)는 제외")
+        }
+        // 태그 수 == 획득 수 → 뷰의 ×N 배지 조건이 거짓(배지 없음)인 종.
+        let folded2 = try XCTUnwrap(folded.first { $0.id == 2 })
+        XCTAssertFalse(folded2.obtained > 1 && folded2.obtained > folded2.natures.count)
+        // 도달분으로 획득 수가 하나 더 붙은 종은 등식이 깨져 ×3 배지가 뜬다.
+        let folded1 = try XCTUnwrap(folded.first { $0.id == 1 })
+        XCTAssertTrue(folded1.obtained > 1 && folded1.obtained > folded1.natures.count)
+    }
+
+    /// 이로치는 종 단위 플래그다 — 개체 하나가 이로치면 그 개체가 지나온 체인 전 종이 표시된다.
+    /// 일반·이로치를 둘 다 가진 종은 한 칸으로 접히되 플래그가 서고, 성격 태그는 둘 다 남는다
+    /// (도감 칸은 기본 일반색으로 그리고 탭하면 이로치색으로 바꾼다 — 두 모습을 다 볼 수 있게).
+    func testDexSpeciesMarksShinyAcrossChainAndKeepsBothColours() throws {
+        let entries = [
+            DexEntry(baseID: 1, finalID: 2, chainOrder: [1, 2], rarity: .common, caughtAt: fixedNow,
+                     isShiny: false, nature: .timid),
+            DexEntry(baseID: 1, finalID: 2, chainOrder: [1, 2], rarity: .common, caughtAt: fixedNow,
+                     isShiny: true, nature: .brave),
+        ]
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("poke-\(UUID().uuidString).json")
+        let dexJSON = String(decoding: try JSONEncoder().encode(entries), as: UTF8.self)
+        try Data(#"{"dex":\#(dexJSON),"language":"ko"}"#.utf8).write(to: url)
+        let s = CompanionStore(provider: StubProvider(value: linear3), clock: { fixedNow },
+                              fileURL: url, rng: SeededRNG(seed: 7))
+
+        let folded = s.dexSpecies
+        XCTAssertEqual(folded.map(\.id), [1, 2], "이로치 개체가 지나온 체인 전 종")
+        for sp in folded {
+            XCTAssertTrue(sp.isShiny, "한 개체라도 이로치면 종에 플래그")
+            XCTAssertEqual(sp.obtained, 2, "일반 개체가 사라지지 않는다")
+            XCTAssertEqual(sp.natures, [.brave, .timid], "성격은 양쪽 다 태그로 남는다")
+        }
+    }
+
+    /// 위장 메타몽은 리빌 전까지 이로치를 숨긴다 — 도감도 그 규칙을 따라야 한다
+    /// (currentIsShiny 를 재사용하는 지점. 직접 isShiny 를 읽으면 정체가 미리 새어 나간다).
+    func testDexSpeciesHidesShinyWhileDittoIsDisguised() throws {
+        func store(revealed: Bool) throws -> CompanionStore {
+            let active = MonState(baseID: 1, pathIDs: [1], stageIndex: 0, usedAtStage: 0,
+                                  rarity: .common, totalForms: 3, isShiny: true,
+                                  dittoDisguise: 1, dittoRevealed: revealed)
+            let url = FileManager.default.temporaryDirectory
+                .appendingPathComponent("poke-\(UUID().uuidString).json")
+            let json = String(decoding: try JSONEncoder().encode(active), as: UTF8.self)
+            try Data(#"{"active":\#(json),"language":"ko"}"#.utf8).write(to: url)
+            return CompanionStore(provider: StubProvider(value: linear3), clock: { fixedNow },
+                                  fileURL: url, rng: SeededRNG(seed: 7))
+        }
+        let disguised = try store(revealed: false)
+        XCTAssertTrue(disguised.state.active?.isShiny ?? false, "내부적으론 이로치")
+        XCTAssertEqual(disguised.dexSpecies.first?.isShiny, false, "위장 중엔 도감에도 숨김")
+
+        let revealed = try store(revealed: true)
+        XCTAssertEqual(revealed.dexSpecies.first?.isShiny, true, "리빌 후엔 도감에 공개")
+    }
+
+    /// 지금 키우는 종의 이름은 **로드된 라인**에서 온다 — 졸업분이 아직 없어도 `#id` 로 떨어지지 않는다.
+    /// (부화 직후가 이 경로다. 파일 주입 테스트는 currentLine 이 nil 이라 이 분기를 밟지 못한다.)
+    func testDexSpeciesNamesActiveSpeciesFromLoadedLine() async {
+        let s = store(linear3)
+        s.setLanguage(.ko)
+        await s.hatch(baseID: 1)
+        let sp = s.dexSpecies
+        XCTAssertEqual(sp.map(\.id), [1], "도달분만 — 아직 진화 전이라 2·3 은 미보유")
+        XCTAssertEqual(sp.first?.name, "포1")
+        XCTAssertTrue(sp.first?.natures.isEmpty ?? false, "현재 개체 성격은 도감 태그에 안 들어간다")
+    }
+
+    /// 성격 미기록(구버전) 항목은 태그가 없어 태그 수 < 획득 수 → 뷰가 ×N 배지를 그려야 한다.
+    func testDexSpeciesLegacyEntryWithoutNatureFallsBackToCountBadge() {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("poke-\(UUID().uuidString).json")
+        let json = #"{"dex":[{"baseID":1,"finalID":1,"chainOrder":[1],"rarity":"common"},"#
+            + #"{"baseID":1,"finalID":1,"chainOrder":[1],"rarity":"common"}]}"#
+        try? Data(json.utf8).write(to: url)
+        let s = CompanionStore(provider: StubProvider(value: linear3), clock: { fixedNow },
+                               fileURL: url, rng: SeededRNG(seed: 7))
+        let sp = s.dexSpecies
+        XCTAssertEqual(sp.count, 1)
+        XCTAssertEqual(sp[0].obtained, 2)
+        XCTAssertTrue(sp[0].natures.isEmpty)
+        XCTAssertTrue(sp[0].obtained > 1 && sp[0].obtained > sp[0].natures.count, "×2 배지 조건 성립")
+    }
+
     /// 오프라인(line fetch 실패) + 저장 없음 → chainOrder 전 종을 종 번호(#id)로 폴백.
     func testDexResolveChainNamesOfflineFallback() async {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("poke-\(UUID().uuidString).json")
@@ -913,18 +1041,55 @@ final class CompanionStoreTests: XCTestCase {
     }
 }
 
-// MARK: 도감 정렬 / 요약
+// MARK: 표시 로케일 (자동 생성 문장)
+
+/// 앱 언어와 시스템 로케일이 다를 때 `Text(_, style: .relative)` 같은 자동 문장이 시스템을 따라가면
+/// 한 화면에 두 언어가 섞인다(한국어 Mac + 영어 앱 → "Catch log" 옆에 "3시간 46분").
+/// 팝오버 루트가 `\.locale` 로 앱 언어를 내려주므로, 그 매핑이 실제로 해당 언어의 상대 시각을
+/// 만들어내는지까지 고정한다 — 코드만 비교하면 잘못 매핑해도 통과한다.
+final class DisplayLocaleTests: XCTestCase {
+    func testDisplayLocaleMatchesLanguageCode() {
+        XCTAssertEqual(AppLanguage.ko.displayLocale.identifier, "ko")
+        XCTAssertEqual(AppLanguage.en.displayLocale.identifier, "en")
+        XCTAssertEqual(AppLanguage.ja.displayLocale.identifier, "ja")
+    }
+
+    func testRelativeTimeFollowsAppLanguageNotSystem() {
+        let now = Date(timeIntervalSince1970: 1_700_000_000)
+        let past = now.addingTimeInterval(-3 * 3600)
+
+        func relative(_ lang: AppLanguage) -> String {
+            let f = RelativeDateTimeFormatter()
+            f.locale = lang.displayLocale
+            return f.localizedString(for: past, relativeTo: now)
+        }
+
+        XCTAssertTrue(relative(.en).contains("hour"), "영어: \(relative(.en))")
+        XCTAssertTrue(relative(.ko).contains("시간"), "한국어: \(relative(.ko))")
+        XCTAssertTrue(relative(.ja).contains("時間"), "일본어: \(relative(.ja))")
+        // 세 언어가 서로 달라야 한다 — 하나로 고정돼 있으면 매핑이 죽은 것이다.
+        XCTAssertEqual(Set([relative(.en), relative(.ko), relative(.ja)]).count, 3)
+    }
+}
+
+// MARK: 포획 로그 정렬 / 요약
 
 @MainActor
 final class DexSortingTests: XCTestCase {
+    /// sortRank 는 목록 정렬 키가 아니지만(로그는 시각순) 프리미엄 알의 등급 게이트가
+    /// `line.rarity.sortRank < tier.sortRank` 로 쓴다 — 순서가 뒤집히면 고급/희귀 알이 조용히
+    /// 낮은 등급을 통과시킨다. 그래서 순서 보증만 여기 남긴다.
     func testSortRankOrdersRarityAscendingByValue() {
         XCTAssertLessThan(Rarity.common.sortRank, Rarity.uncommon.sortRank)
         XCTAssertLessThan(Rarity.uncommon.sortRank, Rarity.rare.sortRank)
         XCTAssertLessThan(Rarity.rare.sortRank, Rarity.legendary.sortRank)
     }
 
-    func testDexEntriesSortedLegendaryFirstThenRecency() async {
-        // common 라인 2개(시각 다름) + legendary 라인 1개를 같은 store 에 졸업시킨다.
+    /// 로그는 시간순 기록이다 — 희귀도가 높아도 오래되면 아래로 내려간다.
+    /// legendary 를 **가장 먼저** 졸업시켜, 희귀도 우선 정렬이면 통과하지 못하게 한다
+    /// (과거 정렬은 legendary 를 맨 앞에 고정해 오래된 상위 희귀도가 최신 일반 위에 남았다).
+    func testDexEntriesSortedByRecencyRegardlessOfRarity() async {
+        // legendary 1개 + common 라인 2개(시각 다름)를 같은 store 에 졸업시킨다.
         // StubProvider 는 라인 1개만 주므로, 라인별로 store 를 분리하지 않고
         // 직접 졸업 흐름을 재현: 무진화(단일 임계) 라인을 hatch→applyUsage 로 졸업.
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("poke-\(UUID().uuidString).json")
@@ -935,32 +1100,28 @@ final class DexSortingTests: XCTestCase {
                                clock: { fixedNow.addingTimeInterval(TimeInterval(tick)) },
                                fileURL: url, rng: SeededRNG(seed: 3))
 
-        // common #1 (가장 먼저)
-        provider.line = makeLine(base: 100, tree: node(100), rarity: .common)
-        tick = 1; await s.hatch(baseID: 100)
-        s.applyUsage(PokemonBalance.graduationTotal(.common))
-
-        // common #2 (더 나중)
-        provider.line = makeLine(base: 101, tree: node(101), rarity: .common)
-        tick = 2; await s.hatch(baseID: 101)
-        s.applyUsage(PokemonBalance.graduationTotal(.common))
-
-        // legendary (가장 나중이지만 희귀도가 더 높음)
+        // legendary (가장 먼저 — 희귀도 우선 정렬이면 맨 앞으로 올라온다)
         provider.line = makeLine(base: 200, tree: node(200), rarity: .legendary)
-        tick = 3; await s.hatch(baseID: 200)
+        tick = 1; await s.hatch(baseID: 200)
         s.applyUsage(PokemonBalance.graduationTotal(.legendary))
+
+        // common #1
+        provider.line = makeLine(base: 100, tree: node(100), rarity: .common)
+        tick = 2; await s.hatch(baseID: 100)
+        s.applyUsage(PokemonBalance.graduationTotal(.common))
+
+        // common #2 (가장 나중)
+        provider.line = makeLine(base: 101, tree: node(101), rarity: .common)
+        tick = 3; await s.hatch(baseID: 101)
+        s.applyUsage(PokemonBalance.graduationTotal(.common))
 
         XCTAssertEqual(s.dexEntries.count, 3)
         let sorted = s.dexEntriesSorted
-        // legendary 가 맨 앞
-        XCTAssertEqual(sorted[0].rarity, .legendary)
-        XCTAssertEqual(sorted[0].finalID, 200)
-        // 그다음 common 끼리는 최신(101)이 먼저
-        XCTAssertEqual(sorted[1].rarity, .common)
-        XCTAssertEqual(sorted[1].finalID, 101)
-        XCTAssertEqual(sorted[2].finalID, 100)
+        // 순수 시간 역순 — 희귀도는 순서에 관여하지 않는다.
+        XCTAssertEqual(sorted.map(\.finalID), [101, 100, 200])
+        XCTAssertEqual(sorted[2].rarity, .legendary, "가장 오래된 legendary 는 맨 뒤")
 
-        // 희귀도별 카운트
+        // 희귀도별 카운트(요약 헤더 — 정렬과 무관하게 개체 수 기준)
         XCTAssertEqual(s.dexCount(.common), 2)
         XCTAssertEqual(s.dexCount(.legendary), 1)
         XCTAssertEqual(s.dexCount(.rare), 0)

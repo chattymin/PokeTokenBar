@@ -52,6 +52,7 @@ struct PopoverView: View {
             }
         }
         .frame(width: PopoverMetrics.width)
+        .environment(\.locale, companion.language.displayLocale)
     }
 
     @ViewBuilder

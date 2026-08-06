@@ -17,7 +17,9 @@ struct L {
 
     // MARK: 탭
     var home: String { t("홈", "Home", "ホーム") }
-    var collection: String { t("도감", "Collection", "コレクション") }
+    /// 상위 탭 이름 — 안에서 도감/포획 로그를 세그먼트로 전환하므로 둘을 아우르는 말이어야 한다.
+    /// (ko 가 "도감"이면 탭과 세그먼트가 같은 이름이 돼 en/ja 의 Collection/コレクション 과도 어긋난다.)
+    var collection: String { t("컬렉션", "Collection", "コレクション") }
 
     // MARK: 헤더 (오늘/주/월)
     var todayTokens: String { t("오늘 사용한 토큰", "Today's tokens", "本日のトークン") }
@@ -319,12 +321,27 @@ struct L {
     // MARK: 도감 요약 헤더
     var dexTitle: String { t("도감", "Pokédex", "図鑑") }
     func dexTotal(_ n: Int) -> String { t("총 \(n)마리", "\(n) total", "全\(n)匹") }
+    /// 포획 로그 = 개체 단위 기록(같은 라인 중복이 정상). 도감 = 종 단위 집계.
+    var catchLogTitle: String { t("포획 로그", "Catch log", "捕獲ログ") }
+    /// 도감 총계는 개체가 아니라 종 수 — 로그의 dexTotal("총 N마리")과 단위가 다르다.
+    func dexSpeciesTotal(_ n: Int) -> String { t("\(n)종", "\(n) species", "\(n)種") }
+    func dexPageLabel(_ page: Int, _ total: Int) -> String {
+        t("\(total)페이지 중 \(page)페이지", "Page \(page) of \(total)", "\(total)ページ中 \(page)ページ")
+    }
+    var dexPagePrev: String { t("이전 페이지", "Previous page", "前のページ") }
+    var dexPageNext: String { t("다음 페이지", "Next page", "次のページ") }
     var dexRaising: String { t("키우는 중", "Raising", "育成中") }
     var rarityCommon: String { t("일반", "Common", "ノーマル") }
     var rarityUncommon: String { t("고급", "Uncommon", "アンコモン") }
     var rarityRare: String { t("희귀", "Rare", "レア") }
     var rarityLegendary: String { t("전설", "Legendary", "伝説") }
     var dexFilterHint: String { t("탭하면 이 희귀도만 보기 · 다시 탭하면 전체", "Tap to show only this rarity · tap again to clear", "タップでこの希少度のみ表示・再タップで全体") }
+    /// 도감 칸의 성격 태그는 폭 때문에 첫 개만 펼친다(나머지는 +N) — 전체는 탭으로 하단에 펼친다.
+    var dexTapForNatures: String {
+        t("칸을 탭하면 획득 성격 전체", "Tap a cell to see every nature", "マスをタップで全性格を表示")
+    }
+    /// 도감 칸의 ✨ 를 읽어주는 명사 — 이모지는 스크린리더가 일관되게 읽지 못한다.
+    var dexShinyLabel: String { t("이로치", "Shiny", "色違い") }
     func rarityLabel(_ r: Rarity) -> String {
         switch r {
         case .common:    return rarityCommon

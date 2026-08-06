@@ -61,15 +61,15 @@ PokeTokenBar는 당신이 이미 태우고 있는 AI 코딩 토큰(Claude Code �
 <td width="45%" align="center"><img src="assets/shiny-banner.gif" width="340" alt="일반 vs 이로치"></td>
 <td width="55%" valign="middle">
 <h3>✨ 아주 드문 우연, 이로치</h3>
-이로치는 메뉴바·홈 카드·진화 라인·도감 어디서나 전용 색으로 표시되고, 진화를 거쳐도 유지됩니다. 전용 알림이 그 순간을 놓치지 않게 해줘요.
+이로치는 메뉴바·홈 카드·진화 라인에서 전용 색으로 표시되고, 진화를 거쳐도 유지됩니다. 도감에서는 번호 옆에 ✨가 붙고, 칸을 탭하면 이로치 색으로 바뀝니다. 전용 알림이 그 순간을 놓치지 않게 해줘요.
 </td>
 </tr>
 <tr>
 <td width="55%" valign="middle">
 <h3>채우고 싶어지는 도감</h3>
-졸업한 포켓몬은 전체 진화 라인·희귀도·성격·획득일과 함께 보존됩니다 — 이로치는 ✨ 배지를 답니다. 가장 희귀한 수집이 맨 위에 오도록 정렬돼요.
+<b>도감</b>은 보유한 종을 한 칸으로 접어 도감 번호순으로 보여줍니다 — 한 페이지 24칸, 그 종을 얻은 성격이 태그로 붙어요. <b>포획 로그</b>는 개체를 그대로 남깁니다: 최신순으로 전체 진화 라인·희귀도·성격·획득일까지.
 </td>
-<td width="45%" align="center"><img src="assets/screenshot-collection.png" width="300" alt="도감"></td>
+<td width="45%" align="center"><img src="assets/screenshot-collection-pokedex.png" width="300" alt="도감 — 종 하나가 한 칸"><br><br><img src="assets/screenshot-collection-catchlog.png" width="300" alt="포획 로그 — 키운 개체 하나가 한 행"></td>
 </tr>
 <tr>
 <td width="45%" align="center"><img src="assets/settings-ko.png" width="300" alt="설정"></td>

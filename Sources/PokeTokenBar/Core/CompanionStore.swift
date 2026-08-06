@@ -155,7 +155,6 @@ final class CompanionStore {
     /// 같은 개체의 영구 DexEntry 가 추가되므로 목록 개수는 그대로 유지된다.
     private var activeDexEntry: DexEntry? {
         guard let active = state.active else { return nil }
-        let visibleShiny = active.isShiny && (active.dittoDisguise == nil || active.dittoRevealed)
         return DexEntry(
             id: "active-\(active.baseID)-\(active.currentID)",
             baseID: active.baseID,
@@ -163,7 +162,7 @@ final class CompanionStore {
             chainOrder: active.pathIDs,
             rarity: active.rarity,
             caughtAt: nil,
-            isShiny: visibleShiny,
+            isShiny: currentIsShiny,   // 위장 메타몽은 리빌 전까지 이로치를 숨긴다(판정 단일 소스)
             nature: active.nature,
             names: currentLine.map { line in
                 Dictionary(uniqueKeysWithValues:
@@ -182,21 +181,94 @@ final class CompanionStore {
         entry.id == activeDexEntry?.id
     }
 
-    /// 도감 표시 순서 — 현재 키우는 포켓몬을 맨 앞에 고정하고, 졸업 항목은 희귀도 내림차순
-    /// (legendary→common), 동급은 잡은 시각 최신순으로 정렬한다.
+    /// 포획 로그 표시 순서 — 현재 키우는 포켓몬을 맨 앞에 고정하고, 졸업 항목은 **기록 시각 최신순**.
+    ///
+    /// 과거에는 희귀도 내림차순이 먼저였다(종 단위 도감의 규칙). 로그는 시간순 기록이라 희귀도로
+    /// 먼저 묶으면 방금 졸업한 개체가 며칠 전에 잡은 상위 희귀도 밑에 묻힌다. 희귀도로 좁히는 일은
+    /// 이제 필터 캡슐과 도감이 담당한다.
+    ///
+    /// caughtAt 이 없는 구버전 항목은 .distantPast 로 묶여 맨 뒤에 온다(그들끼리의 순서는 미정).
     var dexEntriesSorted: [DexEntry] {
-        let graduated = state.dex.sorted { a, b in
-            if a.rarity.sortRank != b.rarity.sortRank { return a.rarity.sortRank > b.rarity.sortRank }
-            let ta = a.caughtAt ?? .distantPast
-            let tb = b.caughtAt ?? .distantPast
-            return ta > tb
+        let graduated = state.dex.sorted {
+            ($0.caughtAt ?? .distantPast) > ($1.caughtAt ?? .distantPast)
         }
         guard let activeDexEntry else { return graduated }
         return [activeDexEntry] + graduated
     }
 
-    /// 희귀도별 도감 개수(요약 헤더용).
+    /// 희귀도별 포획 로그 개수(요약 헤더용) — 개체 수 기준. 도감(종 단위)은 dexSpecies 를 쓴다.
     func dexCount(_ rarity: Rarity) -> Int { dexEntries.lazy.filter { $0.rarity == rarity }.count }
+
+    /// 도감 한 칸 — 종 1개로 접힌 수집 기록. 같은 라인을 여러 번 키워도 종은 한 칸이고,
+    /// 획득 성격이 태그로 누적된다(로그는 개체 단위라 중복 행이 정상 — 두 화면의 축이 다르다).
+    struct DexSpecies: Identifiable, Sendable {
+        let id: Int                     // speciesID = 도감 번호(정렬 키)
+        let name: String
+        let rarity: Rarity
+        let isShiny: Bool               // 이 종을 이로치로 보유한 적이 있는가
+        let obtained: Int               // 이 종을 거친 개체 수
+        let natures: [PokemonNature]    // 획득 성격(졸업분만, 표시 순서 고정)
+    }
+
+    /// 종 하나가 모으는 것 — 누적 전용. 병렬 딕셔너리를 여러 개 두면 키 집합이 서로 어긋날 수 있고
+    /// (한쪽에만 써서 그 종이 조용히 사라지거나), 읽는 쪽에 도달 불가한 기본값이 생긴다. 하나로 묶어
+    /// 두 여지를 함께 없앤다.
+    private struct DexAccumulator {
+        var rarity: Rarity
+        var names: [String: String]?
+        var isShiny = false
+        var obtained = 0
+        var natures: Set<PokemonNature> = []
+    }
+
+    /// 도감 목록 — 보유 종만, 도감 번호 오름차순.
+    ///
+    /// 포함 종 = 졸업분 `chainOrder` ∪ 현재 개체의 **도달분** `pathIDs[0...stageIndex]`.
+    /// `plannedPathIDs`(사전 선택된 전체 경로)는 미도달 단계를 포함하므로 절대 쓰지 않는다 — 쓰면
+    /// 아직 진화하지 않은 종이 보유로 잡힌다.
+    ///
+    /// 성격 태그는 **졸업분(state.dex)만** 집계한다. `useMint()` 가 현재 개체 성격을 언제든 바꾸므로
+    /// active 를 포함하면 아이템 하나로 도감 태그가 갈린다 — 도감은 확정된 기록이어야 한다.
+    /// (그래서 active 로만 보유한 종은 태그 0개가 되고, 뷰의 ×N 조건이 이를 그대로 흡수한다.)
+    var dexSpecies: [DexSpecies] {
+        // 종별 누적을 한 번에 훑는다(뷰가 body 에서 1회 소비 — 메모이즈 없이 충분).
+        var acc: [Int: DexAccumulator] = [:]
+        for entry in state.dex {
+            for id in entry.chainOrder {
+                var a = acc[id] ?? DexAccumulator(rarity: entry.rarity)
+                a.rarity = entry.rarity
+                if let n = entry.names?[id] { a.names = n }   // 이름 없는 구버전 항목이 덮어쓰지 않게
+                if entry.isShiny { a.isShiny = true }
+                a.obtained += 1
+                if let nature = entry.nature { a.natures.insert(nature) }
+                acc[id] = a
+            }
+        }
+        if let active = state.active {
+            // 도달분만 — stageIndex 가 pathIDs 범위 안임은 두 입구가 보장한다:
+            // MonState.init(from:) 의 clamp, 그리고 SaveTransfer 의 가져오기 정규화.
+            for id in active.pathIDs.prefix(active.stageIndex + 1) {
+                var a = acc[id] ?? DexAccumulator(rarity: active.rarity)
+                a.rarity = active.rarity
+                if let n = currentLine?.names[id] { a.names = n }
+                if currentIsShiny { a.isShiny = true }   // 위장 중 숨김 규칙 재사용
+                a.obtained += 1
+                // 성격은 의도적으로 누락 — 민트로 바뀔 수 있어 확정 기록이 아니다.
+                acc[id] = a
+            }
+        }
+        return acc.sorted { $0.key < $1.key }.map { id, a in
+            DexSpecies(
+                id: id,
+                name: a.names.flatMap { state.language.resolveName($0) } ?? "#\(id)",
+                rarity: a.rarity,
+                isShiny: a.isShiny,
+                obtained: a.obtained,
+                // 표시 순서는 PokemonNature.allCases 고정 — Set 순회 순서가 렌더마다 흔들리면
+                // 태그 위치가 바뀐다. 성격 없는 종(active 로만 보유)은 25회 순회를 건너뛴다.
+                natures: a.natures.isEmpty ? [] : PokemonNature.allCases.filter(a.natures.contains))
+        }
+    }
 
     /// 도감 항목 진화 체인 각 종의 이름(speciesID → 현재 언어 이름). 저장돼 있으면 즉시(네트워크 0),
     /// 없으면 nil(뷰가 async 조회로 폴백).

@@ -20,6 +20,8 @@ enum AppLanguage: String, Codable, Sendable, CaseIterable {
         switch self { case .ko: return "한국어"; case .en: return "English"; case .ja: return "日本語" }
     }
 
+    var displayLocale: Locale { Locale(identifier: rawValue) }
+
     /// byLang(langCode→name) 에서 이 언어의 이름을 고른다(apiCodes 첫 매칭 → 영어 폴백).
     func resolveName(_ byLang: [String: String]) -> String? {
         for code in apiCodes { if let n = byLang[code] { return n } }
@@ -40,7 +42,8 @@ enum AppLanguage: String, Codable, Sendable, CaseIterable {
 /// 희귀도 — PokéAPI capture_rate / is_legendary 로 판정.
 enum Rarity: String, Codable, Sendable {
     case common, uncommon, rare, legendary
-    /// 정렬 순위(높을수록 희귀). 도감 정렬 — legendary→rare→uncommon→common.
+    /// 등급 크기(높을수록 희귀) — 두 `Rarity` 를 비교하기 위한 순위. 뽑힌 등급이 산 보증보다 낮은지 판정한다. 
+    /// 순서가 뒤집히면 고급/희귀 알이 조용히 낮은 등급을 통과시키므로 `testSortRankOrdersRarityAscendingByValue` 가 순서를 고정한다.
     var sortRank: Int {
         switch self {
         case .common:    return 0
