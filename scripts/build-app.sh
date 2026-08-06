@@ -3,7 +3,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-VERSION="1.0.0"
+VERSION="1.0.1"
 APP_NAME="PokeDexBar"
 BUILD_DIR="build"
 APP="$BUILD_DIR/$APP_NAME.app"
@@ -100,7 +100,19 @@ fi
 
 echo "==> 기존 인스턴스 종료 + /Applications 설치"
 pkill -x "$APP_NAME" 2>/dev/null || true
-rm -rf "/Applications/$APP_NAME.app"
-cp -R "$APP" /Applications/
+# 설치는 개발 편의일 뿐 산출물의 일부가 아니다 — 실패해도 빌드는 성공으로 둔다.
+# macOS 의 App Management 보호 때문에 이 권한을 못 받은 셸에서는 /Applications 안의 앱 번들을
+# 지울 수 없다("Permission denied"). set -e 아래에서 그게 릴리스를 통째로 중단시켰다:
+# zip 은 이미 만들어졌는데 배포가 로컬 설치 권한에 걸려 죽는 건 말이 안 된다.
+if rm -rf "/Applications/$APP_NAME.app" 2>/dev/null && cp -R "$APP" /Applications/ 2>/dev/null; then
+    :
+elif ditto "$APP" "/Applications/$APP_NAME.app" 2>/dev/null; then
+    # 빈 껍데기만 남은 경우 — 번들을 지우진 못해도 그 안에 쓰는 건 통과한다.
+    codesign --force --deep --sign "${CODESIGN_IDENTITY:-PokeDexBar Local}" \
+        "/Applications/$APP_NAME.app" >/dev/null 2>&1 || true
+else
+    echo "   ⚠ /Applications 설치 실패(App Management 권한). 빌드 산출물은 정상: $APP"
+    echo "   직접 설치: ditto \"$APP\" \"/Applications/$APP_NAME.app\""
+fi
 
 echo "완료: open /Applications/$APP_NAME.app"
