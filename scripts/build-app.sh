@@ -110,21 +110,30 @@ else
     codesign --force -s - "$APP"
 fi
 
-echo "==> 기존 인스턴스 종료 + /Applications 설치"
-pkill -x "$APP_NAME" 2>/dev/null || true
-# 설치는 개발 편의일 뿐 산출물의 일부가 아니다 — 실패해도 빌드는 성공으로 둔다.
-# macOS 의 App Management 보호 때문에 이 권한을 못 받은 셸에서는 /Applications 안의 앱 번들을
-# 지울 수 없다("Permission denied"). set -e 아래에서 그게 릴리스를 통째로 중단시켰다:
-# zip 은 이미 만들어졌는데 배포가 로컬 설치 권한에 걸려 죽는 건 말이 안 된다.
-if rm -rf "/Applications/$APP_NAME.app" 2>/dev/null && cp -R "$APP" /Applications/ 2>/dev/null; then
-    :
-elif ditto "$APP" "/Applications/$APP_NAME.app" 2>/dev/null; then
-    # 빈 껍데기만 남은 경우 — 번들을 지우진 못해도 그 안에 쓰는 건 통과한다.
-    codesign --force --deep --sign "${CODESIGN_IDENTITY:-PokeDexBar Local}" \
-        "/Applications/$APP_NAME.app" >/dev/null 2>&1 || true
+# 설치는 **기본으로 하지 않는다.** 예전엔 늘 /Applications 에 복사했는데, 그러면 개발 빌드까지
+# 정식 앱 자리에 쌓이고(중복 5개까지 갔다) Homebrew 로 받은 배포본을 로컬 빌드가 조용히 덮어써서
+# "실사용 검증"이 성립하지 않는다. 정식 앱은 릴리스와 brew 로만 바뀌어야 한다.
+#   PTB_INSTALL=1  → 개발 빌드는 ~/Applications, 정식 빌드는 /Applications 에 설치
+if [[ "${PTB_INSTALL:-0}" == "1" ]]; then
+    if [[ "${PTB_DEV:-0}" == "1" ]]; then
+        DEST="$HOME/Applications"
+    else
+        DEST="/Applications"
+    fi
+    mkdir -p "$DEST"
+    pkill -x "$APP_NAME" 2>/dev/null || true
+    echo "==> $DEST 설치"
+    if rm -rf "$DEST/$APP_NAME.app" 2>/dev/null && cp -R "$APP" "$DEST/" 2>/dev/null; then
+        :
+    elif ditto "$APP" "$DEST/$APP_NAME.app" 2>/dev/null; then
+        # 빈 껍데기만 남은 경우 — 번들을 지우진 못해도 그 안에 쓰는 건 통과한다.
+        codesign --force --deep --sign "${CODESIGN_IDENTITY:-PokeDexBar Local}" \
+            "$DEST/$APP_NAME.app" >/dev/null 2>&1 || true
+    else
+        echo "   ⚠ $DEST 설치 실패(App Management 권한). 빌드 산출물은 정상: $APP"
+    fi
+    echo "완료: open \"$DEST/$APP_NAME.app\""
 else
-    echo "   ⚠ /Applications 설치 실패(App Management 권한). 빌드 산출물은 정상: $APP"
-    echo "   직접 설치: ditto \"$APP\" \"/Applications/$APP_NAME.app\""
+    echo "완료(설치 안 함): $APP"
+    echo "   설치하려면: PTB_INSTALL=1 $0"
 fi
-
-echo "완료: open /Applications/$APP_NAME.app"
