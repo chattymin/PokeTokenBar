@@ -20,9 +20,9 @@ enum CrashReporter {
     private static let logsDir: URL =
         FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("Logs")
-    private static var markerURL: URL { logsDir.appendingPathComponent("PokeDexBar.running") }
+    private static var markerURL: URL { logsDir.appendingPathComponent("\(AppEnv.storageName).running") }
     /// 크래시-시점 기록 전용(회전 안 함). 시그널/예외 핸들러가 async-signal-safe 하게 append.
-    private static var crashLogURL: URL { logsDir.appendingPathComponent("PokeDexBar.crash.log") }
+    private static var crashLogURL: URL { logsDir.appendingPathComponent("\(AppEnv.storageName).crash.log") }
     /// 위 crash.log 로 미리 연 fd(설치 시 1회 open). 회전 대상이 아니라 세션 내내 유효.
     nonisolated(unsafe) fileprivate static var logFD: Int32 = -1
 

@@ -25,8 +25,9 @@ actor SpriteStore {
     init(dir: URL? = nil, fetch: @escaping (URL) async throws -> (Data, URLResponse) = { url in
         try await URLSession.shared.data(from: url)
     }) {
-        let resolved = dir ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("PokeDexBar/sprites")
+        // 스프라이트 캐시는 진행 데이터가 아니라 그림이라 개발 빌드와 나눠 가져도 되지만,
+        // 경로 조립을 한 곳으로 모아 두는 편이 낫다(설치본마다 캐시가 따로 쌓이는 대신 명확하다).
+        let resolved = dir ?? AppEnv.supportDirectory().appendingPathComponent("sprites")
         try? FileManager.default.createDirectory(at: resolved, withIntermediateDirectories: true)
         self.dir = resolved
         self.fetch = fetch
@@ -132,7 +133,7 @@ actor SpriteStore {
 enum SpriteLoader {
     static let cacheDir: URL = {
         FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("PokeDexBar/sprites")
+            .appendingPathComponent("\(AppEnv.storageName)/sprites")
     }()
 
     /// 디스크 캐시에 이미 있으면 동기 반환(네트워크 없음). 없으면 nil.

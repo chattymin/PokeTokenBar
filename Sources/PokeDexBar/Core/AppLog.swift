@@ -9,7 +9,7 @@ enum AppLog {
         let dir = FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("Logs")
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        return dir.appendingPathComponent("PokeDexBar.log")
+        return dir.appendingPathComponent("\(AppEnv.storageName).log")
     }()
 
     private static let queue = DispatchQueue(label: "pokedexbar.log")

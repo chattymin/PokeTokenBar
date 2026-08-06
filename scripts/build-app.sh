@@ -4,8 +4,18 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 VERSION="1.1.0"
-APP_NAME="PokeDexBar"
 BUILD_DIR="build"
+# 개발 빌드는 정식 설치본과 **나란히** 깔고 쓸 수 있어야 한다: PTB_DEV=1 이면 앱 이름·번들 ID·
+# 실행 파일이 갈라지고, 앱은 CFBundleName 에서 저장 공간 이름을 뽑으므로(AppEnv.storageName)
+# 세이브·사용량 캐시·로그가 자동으로 따로 간다. 안 그러면 둘이 같은 세이브를 덮어써서
+# 시험 삼아 한 일이 실제 진행에 그대로 섞인다.
+if [[ "${PTB_DEV:-0}" == "1" ]]; then
+    APP_NAME="PokeDexBar Dev"
+    BUNDLE_ID="io.github.donky-ey.pokedexbar.dev"
+else
+    APP_NAME="PokeDexBar"
+    BUNDLE_ID="io.github.donky-ey.pokedexbar"
+fi
 APP="$BUILD_DIR/$APP_NAME.app"
 
 echo "==> swift build -c release"
@@ -14,7 +24,7 @@ swift build -c release
 echo "==> $APP 조립"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
-cp ".build/release/$APP_NAME" "$APP/Contents/MacOS/$APP_NAME"
+cp ".build/release/PokeDexBar" "$APP/Contents/MacOS/$APP_NAME"
 # 심볼 strip — 릴리스 바이너리 1.84MB → 0.80MB(-57%). codesign 전에 수행(서명 무효화 방지).
 strip -rSTx "$APP/Contents/MacOS/$APP_NAME" 2>/dev/null || strip -rSx "$APP/Contents/MacOS/$APP_NAME"
 cp assets/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
@@ -39,7 +49,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-    <key>CFBundleIdentifier</key><string>io.github.donky-ey.pokedexbar</string>
+    <key>CFBundleIdentifier</key><string>$BUNDLE_ID</string>
     <key>CFBundleName</key><string>$APP_NAME</string>
     <key>CFBundleExecutable</key><string>$APP_NAME</string>
     <key>CFBundlePackageType</key><string>APPL</string>
@@ -57,12 +67,12 @@ PLIST
 # 워치독으로 동작. 정상 종료(exit 0: 사용자 종료·업데이트)엔 재실행 안 함(SuccessfulExit=false).
 # ProgramArguments 는 brew 설치 경로(/Applications) 고정. codesign 전에 생성해 서명 seal 에 포함.
 mkdir -p "$APP/Contents/Library/LaunchAgents"
-cat > "$APP/Contents/Library/LaunchAgents/io.github.donky-ey.pokedexbar.login.plist" <<AGENT
+cat > "$APP/Contents/Library/LaunchAgents/$BUNDLE_ID.login.plist" <<AGENT
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-    <key>Label</key><string>io.github.donky-ey.pokedexbar.login</string>
+    <key>Label</key><string>$BUNDLE_ID.login</string>
     <key>ProgramArguments</key>
     <array>
         <string>/Applications/$APP_NAME.app/Contents/MacOS/$APP_NAME</string>

@@ -27,10 +27,7 @@ final class PlayerStore {
     }
 
     static func defaultURL() -> URL {
-        let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("PokeDexBar", isDirectory: true)
-        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        return dir.appendingPathComponent("player-state.json")
+        AppEnv.supportDirectory().appendingPathComponent("player-state.json")
     }
 
     // MARK: 스타터
