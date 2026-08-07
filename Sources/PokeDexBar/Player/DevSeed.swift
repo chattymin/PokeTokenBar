@@ -11,10 +11,14 @@ import Foundation
 /// (`scripts/build-app.sh`). 정식 배포본에는 코드 자체가 없다.
 ///
 /// ```
-/// PTB_SEED_RIBBON=lifelong PTB_SEED_SPECIES=25 open -a "PokeDexBar Dev"
-/// PTB_SEED_DITTO=1        open -a "PokeDexBar Dev"   # 위장한 메타몽을 파트너로
-/// PTB_SEED_DITTO=570      open -a "PokeDexBar Dev"   # 이미 570초 함께한 상태로(30초 뒤 풀림)
+/// # `open` 은 호출자의 환경변수를 안 넘긴다 — `--env` 로 하나씩 줘야 한다.
+/// open --env PTB_SEED_RIBBON=lifelong --env PTB_SEED_SPECIES=25 -a "PokeDexBar Dev"
+/// open --env PTB_SEED_DITTO=1   -a "PokeDexBar Dev"   # 위장한 메타몽을 파트너로
+/// open --env PTB_SEED_DITTO=570 -a "PokeDexBar Dev"   # 570초 함께한 상태로(30초 뒤 풀림)
 /// ```
+///
+/// 적용 여부는 `~/Library/Logs/PokeDexBarDev.log` 에 남는다 — 조용히 아무것도 안 하면
+/// 변수를 못 받은 것인지 조건에 안 걸린 것인지 구분할 수가 없다.
 struct DevSeed: Equatable, Sendable {
     let ribbon: Ribbon
     /// 대상 종. 비우면 지금 파트너에게 적용한다.
@@ -52,7 +56,10 @@ extension PlayerStore {
     func seedDisguisedDittoIfRequested(_ environment: [String: String]) {
         guard let raw = environment["PTB_SEED_DITTO"]?.trimmingCharacters(in: .whitespaces),
               !raw.isEmpty, raw != "0" else { return }
-        guard !state.box.contains(where: { $0.disguisedAs != nil }) else { return }
+        guard !state.box.contains(where: { $0.disguisedAs != nil }) else {
+            AppLog.write("dev seed: 위장한 메타몽이 이미 있어 건너뜀")
+            return
+        }
         let now = currentDate()
         var ditto = Individual(baseID: DittoDisguise.speciesID, speciesID: DittoDisguise.speciesID,
                                pathIDs: [DittoDisguise.speciesID], nature: .naughty,
@@ -66,6 +73,7 @@ extension PlayerStore {
         // 조기 반환하므로 `partnerSince` 가 안 잡히고, 그러면 함께한 시간이 영영 안 흘러
         // 위장이 절대 안 풀린다. 정상 경로로만 지정한다.
         setPartner(ditto.id)
+        AppLog.write("dev seed: 위장한 메타몽을 파트너로(이미 함께한 시간 \(ditto.partnerSeconds)초)")
     }
 
     /// 대상 개체의 누적 파트너 시간을 그 리본의 문턱으로 끌어올린다. **줄이지는 않는다** —
