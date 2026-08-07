@@ -42,6 +42,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         NSApp.setActivationPolicy(.accessory)
         store = UsageStore()
         player = PlayerStore()
+        #if DEBUG
+        // 개발 빌드 전용 — 리본처럼 시간으로만 열리는 상태를 세이브를 손대지 않고 만든다
+        // (`DevSeed`). 앱이 스스로 쓰므로 봉인이 정상이고 tampered 표시가 안 붙는다.
+        player.applyDevSeedFromEnvironment()
+        #endif
         updater = UpdateChecker()
         store.localizationLanguage = player.language   // 알림 현지화용 미러 시드
         store.onRefresh = { [weak self] in self?.onStoreRefreshed() }   // 한도 로드 후 player 갱신

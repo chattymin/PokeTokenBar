@@ -9,24 +9,33 @@ BUILD_DIR="build"
 # 실행 파일이 갈라지고, 앱은 CFBundleName 에서 저장 공간 이름을 뽑으므로(AppEnv.storageName)
 # 세이브·사용량 캐시·로그가 자동으로 따로 간다. 안 그러면 둘이 같은 세이브를 덮어써서
 # 시험 삼아 한 일이 실제 진행에 그대로 섞인다.
+# 개발 빌드는 **디버그 구성**으로 짓는다 — `#if DEBUG` 시드 경로(PTB_SEED_RIBBON 등)가 살아 있어야
+# 세이브를 손으로 고치지 않고 시험용 상태를 만들 수 있다. 봉인(SaveSeal)은 앱이 스스로 쓴 저장이라
+# 정상이고, tampered 표시가 안 붙는다. 대신 디버그 바이너리라 **에너지·CPU 실측에는 쓰지 마라**
+# (그 측정은 설치된 정식 앱으로만 — CLAUDE.md 의 메뉴바 idle 규율 참고).
 if [[ "${PTB_DEV:-0}" == "1" ]]; then
     APP_NAME="PokeDexBar Dev"
     BUNDLE_ID="io.github.donky-ey.pokedexbar.dev"
+    SWIFT_CONFIG="debug"
 else
     APP_NAME="PokeDexBar"
     BUNDLE_ID="io.github.donky-ey.pokedexbar"
+    SWIFT_CONFIG="release"
 fi
 APP="$BUILD_DIR/$APP_NAME.app"
 
-echo "==> swift build -c release"
-swift build -c release
+echo "==> swift build -c $SWIFT_CONFIG"
+swift build -c "$SWIFT_CONFIG"
 
 echo "==> $APP 조립"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
-cp ".build/release/PokeDexBar" "$APP/Contents/MacOS/$APP_NAME"
+cp ".build/$SWIFT_CONFIG/PokeDexBar" "$APP/Contents/MacOS/$APP_NAME"
 # 심볼 strip — 릴리스 바이너리 1.84MB → 0.80MB(-57%). codesign 전에 수행(서명 무효화 방지).
-strip -rSTx "$APP/Contents/MacOS/$APP_NAME" 2>/dev/null || strip -rSx "$APP/Contents/MacOS/$APP_NAME"
+# 디버그 빌드는 건드리지 않는다: 크기는 어차피 배포 대상이 아니고, 심볼을 지우면 크래시 로그가 안 읽힌다.
+if [[ "$SWIFT_CONFIG" == "release" ]]; then
+    strip -rSTx "$APP/Contents/MacOS/$APP_NAME" 2>/dev/null || strip -rSx "$APP/Contents/MacOS/$APP_NAME"
+fi
 cp assets/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
 
 # SwiftPM 리소스 번들(showdown-slugs.json 등). SwiftPM 이 생성하는 resource_bundle_accessor.swift 는
@@ -39,9 +48,9 @@ cp assets/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
 # (조용히 깨진 앱을 만들지 않는다).
 # 번들 이름은 SwiftPM 타깃 이름에서 나온다 — 앱 이름(개발 빌드는 "PokeDexBar Dev")이 아니라
 # 항상 "PokeDexBar" 다. 런타임 조회(SpeciesSlug/RibbonIcon)도 이 이름을 그대로 찾는다.
-RESOURCE_BUNDLE=".build/release/PokeDexBar_PokeDexBar.bundle"
+RESOURCE_BUNDLE=".build/$SWIFT_CONFIG/PokeDexBar_PokeDexBar.bundle"
 if [[ ! -d "$RESOURCE_BUNDLE" ]]; then
-    echo "   ✗ $RESOURCE_BUNDLE 없음 — swift build -c release 가 리소스 번들을 못 만들었다. 중단." >&2
+    echo "   ✗ $RESOURCE_BUNDLE 없음 — swift build -c $SWIFT_CONFIG 가 리소스 번들을 못 만들었다. 중단." >&2
     exit 1
 fi
 cp -R "$RESOURCE_BUNDLE" "$APP/Contents/Resources/"
