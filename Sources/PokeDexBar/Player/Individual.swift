@@ -44,6 +44,9 @@ struct Individual: Identifiable, Codable, Sendable, Equatable {
     /// 화면에 보여야 할 종. 위장 중이면 위장한 쪽, 아니면 정체.
     var displaySpeciesID: Int { disguisedAs ?? speciesID }
 
+    /// 정체를 알 수 없는 종의 표기. 원작이 쓰는 그대로라 번역하지 않는다.
+    static let unknownName = "???"
+
     /// 이름을 찾을 때 볼 진화 라인의 키. 위장 중이면 **위장한 종의 라인**을 봐야 한다 —
     /// 정체(메타몽)의 라인에는 위장한 종(뮤)의 이름이 없어서 "#151" 로 떨어진다.
     var displayLineID: Int { disguisedAs ?? baseID }
@@ -83,6 +86,10 @@ struct Individual: Identifiable, Codable, Sendable, Equatable {
     /// 아직 못 받았으면 `#번호` 를 넘기면 된다. 접두는 하나만 붙는다: 메가·거다이맥스를 취하고
     /// 있으면 그쪽이, 아니면 지방 이름이.
     func displayName(speciesName: String, _ lang: AppLanguage) -> String {
+        // **위장 중에는 이름을 감춘다.** 위장한 종의 이름을 그대로 쓰면 라인을 못 받아온 화면에서
+        // "#151" 같은 번호가 튀어나오고(홈이 그랬다), 이름을 정확히 대는 것 자체가 정체를 반쯤
+        // 알려 주는 일이다. 정체가 드러나면 진짜 이름으로 돌아온다.
+        guard disguisedAs == nil else { return Self.unknownName }
         if let slug = form, let known = FormCatalog.form(slug: slug) {
             return known.displayName(base: speciesName, lang)
         }

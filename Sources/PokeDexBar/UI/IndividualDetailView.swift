@@ -93,7 +93,10 @@ struct IndividualDetailView: View {
                     if individual.showsShiny { Text("✨").font(.system(size: 11)) }
                 }
                 HStack(spacing: 4) {
-                    Text("#\(individual.displaySpeciesID)")
+                    // 위장 중엔 번호도 감춘다 — 이름이 "???" 인데 아래에 번호가 적혀 있으면
+                    // 그 번호가 곧 정답이 된다.
+                    Text(individual.disguisedAs == nil
+                         ? "#\(individual.displaySpeciesID)" : "#\(Individual.unknownName)")
                         .font(.system(size: 10)).monospacedDigit().foregroundStyle(.secondary)
                     if let region = individual.region {
                         Text(region.label(store.language))

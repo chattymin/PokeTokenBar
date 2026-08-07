@@ -145,6 +145,23 @@ final class DittoDisguiseStoreTests: XCTestCase {
         XCTAssertTrue(individual.showsShiny, "정체가 드러났는데도 이로치가 안 보인다")
     }
 
+    /// **위장 중엔 이름을 감춘다.** 위장한 종의 이름을 그대로 쓰면 라인을 못 받아온 화면에서
+    /// 번호가 튀어나오고(홈이 "#151" 로 나왔다), 이름을 정확히 대는 것 자체가 정체를 반쯤
+    /// 알려 주는 일이다.
+    func testTheNameIsHiddenWhileDisguised() {
+        var individual = Individual(baseID: DittoDisguise.speciesID, speciesID: DittoDisguise.speciesID,
+                                    pathIDs: [DittoDisguise.speciesID], nature: .modest,
+                                    obtainedAt: Date(timeIntervalSince1970: 0), grade: .common)
+        individual.disguisedAs = DittoDisguise.disguisedAs
+        XCTAssertEqual(individual.displayName(speciesName: "뮤", .ko), Individual.unknownName)
+        // 라인을 못 받아 번호로 떨어진 경우에도 번호가 새면 안 된다 — 홈이 정확히 그 경로였다.
+        XCTAssertEqual(individual.displayName(speciesName: "#151", .ko), Individual.unknownName)
+
+        // 정체가 드러나면 진짜 이름으로 돌아온다.
+        individual.disguisedAs = nil
+        XCTAssertEqual(individual.displayName(speciesName: "메타몽", .ko), "메타몽")
+    }
+
     /// 이름은 **위장한 종의 라인**에서 찾아야 한다. 정체의 라인엔 뮤의 이름이 없어 "#151" 로 떨어진다.
     func testTheNameComesFromTheDisguisedSpeciesLine() {
         var individual = Individual(baseID: DittoDisguise.speciesID, speciesID: DittoDisguise.speciesID,
