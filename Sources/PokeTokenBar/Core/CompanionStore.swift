@@ -420,6 +420,8 @@ final class CompanionStore {
         activeGeneration += 1
         currentLine = nil
         state.eggUsage = 0   // 새 알은 처음부터 인큐베이션
+        // eggTier 는 손대지 않는다 — 여기 도달했다는 건 활성 포켓몬이 있었다는 뜻이라 보증은 이미 nil 이다
+        // (부화가 소비, 디스크/불러오기는 sanitized 가 정규화). 소비 지점은 hatchCore 한 곳으로 유지한다.
         // "알을 받는 순간" 즉시 프리패칭 시작 — 다음 부화의 종·라인·스프라이트 예열.
         Task { await self.ensureEggPrefetch() }
     }
@@ -503,12 +505,17 @@ final class CompanionStore {
             }
     }
 
-    /// 상점 표시 순서 — 판매 아이템 + (활성 포켓몬 있을 때) 새 알 리롤을 하나의 가격 오름차순 목록으로 병합.
+    /// 상점 표시 순서 — 판매 아이템 + (활성 포켓몬 있을 때) 알 3종을 하나의 가격 오름차순 목록으로 병합.
     /// 정렬 규칙은 purchasableItems 와 동일: 구매 완료한 보유형은 맨 아래, 나머지는 가격 저렴한 순.
-    /// 새 알(1B)은 즉시 액션이라 '보유' 개념이 없어 가격 순서에만 참여한다 → 사탕(500M)과 이로치 부적(3B) 사이.
+    /// 알은 즉시 액션이라 '보유' 개념이 없어 가격 순서에만 참여한다.
+    ///
+    /// 등급 알끼리 붙여 '티어 사다리'로 묶어 보이게 하는 안도 검토했으나 채택하지 않았다 — 지금의 순수
+    /// 가격 오름차순은 "알이 무조건 맨 아래로 append 돼 더 비싼 부적보다 아래에 놓이던" 표시 회귀를
+    /// 고치며 들어온 규칙이라(ShopTests 참조), 그룹 배치는 그 회귀를 부분적으로 되살린다. 티어 관계는
+    /// 카드의 등급 배지로 읽히게 한다.
     var shopEntries: [ShopEntry] {
         var entries: [ShopEntry] = purchasableItems.map { ShopEntry.item($0) }
-        if hasActive { entries.append(.freshEgg) }
+        if hasActive { entries += FreshEgg.shopTiers.map { ShopEntry.egg($0) } }
         return entries.sorted { a, b in
             let aDone = isPurchasedPassive(a)
             let bDone = isPurchasedPassive(b)
@@ -519,7 +526,7 @@ final class CompanionStore {
 
     /// 구매 완료한 보유형(이로치 부적 등)인지 — shopEntries 정렬에서 맨 아래로 보낼 판정.
     private func isPurchasedPassive(_ entry: ShopEntry) -> Bool {
-        guard case .item(let kind) = entry else { return false }   // 새 알은 즉시 액션 — 보유 개념 없음
+        guard case .item(let kind) = entry else { return false }   // 알은 즉시 액션 — 보유 개념 없음
         return kind.isPassive && itemCount(kind) > 0
     }
 
@@ -547,29 +554,51 @@ final class CompanionStore {
     @discardableResult
     func buyRareCandy() -> Bool { buy(.rareCandy) }
 
-    // MARK: 새 알 (리롤 — 현재 포켓몬 폐기, 도감·확률 무영향)
+    // MARK: 알 (리롤 — 현재 포켓몬 폐기, 도감·확률 무영향)
 
-    /// 새 알 구매 가능 — 폐기할 활성 포켓몬이 있고 지갑이 가격 이상일 때만(알 상태에선 리롤할 게 없음).
-    var canBuyFreshEgg: Bool { hasActive && availableTokens >= FreshEgg.price }
+    /// 현재 알이 보증하는 등급 하한(UI 표시용). 활성 포켓몬이 있으면 알이 없으므로 nil.
+    var eggGuarantee: Rarity? { state.active == nil ? state.eggTier : nil }
 
-    /// 새 알 구매 — 현재 포켓몬을 폐기하고 처음부터 인큐베이션하는 새 알로. 지갑에서 가격 차감.
+    /// 알 구매 가능 — 폐기할 활성 포켓몬이 있고 지갑이 그 티어 가격 이상일 때만.
+    /// 알 상태에서도 살 수 있게 하는 안은 채택하지 않았다(기존 새 알과 게이트 통일) — 알끼리 교체하는
+    /// 동작을 새로 만들지 않고, 상점의 알은 언제나 "지금 개체를 놓아주고 다시 뽑는다"는 한 가지 의미만 갖는다.
+    func canBuyEgg(_ tier: Rarity?) -> Bool {
+        // 파는 티어인지 먼저 확인한다 — 만족 불가능한 보증(전설: capture_rate 로 표현 불가)을 사면
+        // 두 롤 경로 모두 후보가 0개라 알이 영영 안 깨지고, 부화가 없으니 보증도 안 풀리며,
+        // 새 알 구매는 `hasActive` 에 막혀 되돌릴 수단이 없다. 가격만 계산되면 값이 빠져나가므로
+        // 판매 목록을 여기서 강제한다(호출부 하나가 실수하면 토큰이 통째로 사라진다).
+        guard FreshEgg.shopTiers.contains(tier) else { return false }
+        return hasActive && availableTokens >= FreshEgg.price(guaranteeing: tier)
+    }
+
+    /// 알 구매 — 현재 포켓몬을 폐기하고 처음부터 인큐베이션하는 새 알로. 지갑에서 가격 차감.
     /// graduate() 의 알-리셋만 미러링하고 dex/collectedFinals(도감·확률 가중)는 손대지 않는다
     /// → "뽑은 적 없던 것처럼". 성장(usedAtStage)은 소멸(추가 비용).
+    ///
+    /// 여기서 종을 롤하지 않는다 — 롤에는 네트워크가 필요해서 오프라인이면 토큰만 사라진다. 보증만
+    /// 상태(`eggTier`)에 적고, 실제 롤은 프리패치/부화 경로가 그 보증을 읽어 수행한다.
     @discardableResult
-    func buyFreshEgg() -> Bool {
-        guard canBuyFreshEgg else { return false }
-        state.spentTokens += FreshEgg.price
+    func buyEgg(_ tier: Rarity?) -> Bool {
+        guard canBuyEgg(tier) else { return false }
+        state.spentTokens += FreshEgg.price(guaranteeing: tier)
         state.active = nil            // 폐기 (졸업 아님 — dex/collectedFinals 미변경)
         activeGeneration += 1
         currentLine = nil
         state.eggUsage = 0            // 새 알은 처음부터 인큐베이션(재부화에 5M 필요)
-        state.pendingHatchID = nil    // 다음 부화는 새로 롤
+        state.eggTier = tier          // 등급 보증(nil = 보증 없음)
+        state.pendingHatchID = nil    // 새 보증으로 처음부터 롤(활성 포켓몬이 있는 동안엔 원래 비어 있다)
+        prefetchedLineID = nil
         justGraduated = nil; justEvolvedTo = nil; eventUntil = nil
-        AppLog.write("fresh egg: discarded active, reverted to egg")
+        AppLog.write("egg purchased: discarded active, tier=\(tier?.rawValue ?? "none")")
         Task { await self.ensureEggPrefetch() }   // 다음 부화 예열
         save()
         return true
     }
+
+    // 보증 없는 기본 알 래퍼 — 기존 호출부/테스트 호환.
+    var canBuyFreshEgg: Bool { canBuyEgg(nil) }
+    @discardableResult
+    func buyFreshEgg() -> Bool { buyEgg(nil) }
 
     /// 지급 판정(순수·엣지 트리거) — 한도 창이 100% 를 새로 넘어선 순간에만 지급.
     /// - 100% 미만 → 맵에서 제거(재무장). resets_at 등 휘발 필드는 key 에 없다(안정 식별자만).
@@ -743,10 +772,21 @@ final class CompanionStore {
             kickLineLoadIfNeeded()
             return
         }
+        // 산 보증을 지키는 마지막 관문 — 진짜 등급을 아는 건 여기뿐이다(후보 인덱스엔 capture_rate 만
+        // 있고 is_legendary 가 없다). 필터가 어긋났으면(인덱스 stale 등) 낮은 등급을 그냥 내주지 말고
+        // 알을 유지한 채 pre-roll 만 버려 다음 틱에 다시 뽑는다 — 사용자는 산 보증을 계속 들고 있는다.
+        if let tier = state.eggTier, line.rarity.sortRank < tier.sortRank {
+            AppLog.write("hatch: rolled \(line.rarity) below guaranteed \(tier) — discarded, re-roll next tick")
+            state.pendingHatchID = nil
+            prefetchedLineID = nil
+            save()
+            return
+        }
         currentLine = line
         // 부화 임계 초과분은 부화체 성장에 이월(낭비 없음).
         let overflow = max(0, state.eggUsage - PokemonBalance.eggHatchThreshold)
         state.eggUsage = 0
+        state.eggTier = nil   // 보증은 이 부화로 소비된다(다음 알은 다시 무보증)
         // 개체 롤 — shiny(1/64)·성격(25종)은 부화 순간 확정, 진화해도 유지.
         let isShiny = Self.rollsShiny(roll: rng.next(), charmOwned: ownsShinyCharm)
         let nature = PokemonNature.allCases[Int(rng.next() % UInt64(PokemonNature.allCases.count))]
@@ -843,7 +883,16 @@ final class CompanionStore {
     ///   ③ 누적 가중치에서 정확히 1롤 — 루프/재롤 없음, 시간 상한 확정적
     /// 인덱스 취득 실패(오프라인 + 캐시 없음) 시 nil → 알 유지, 다음 갱신 틱 재시도.
     private func chooseBase() async -> Int? {
-        if let index = try? await provider.baseSpeciesIndex(), !index.isEmpty {
+        let tier = state.eggTier
+        if let full = try? await provider.baseSpeciesIndex(), !full.isEmpty {
+            // 등급 보증 알은 후보를 먼저 좁힌다 — capture_rate 상한이 곧 등급 하한이므로
+            // (Rarity.captureRateCeiling) 전설도 자연히 포함된다("희귀 이상"에 전설이 들어가는 게 정상).
+            // 좁힌 결과가 비면 보증을 못 지키므로 전체 풀로 폴백하지 말고 알을 유지한다(다음 틱 재시도).
+            let index = tier.map { t in full.filter { t.includes(captureRate: $0.captureRate) } } ?? full
+            guard !index.isEmpty else {
+                AppLog.write("hatch: no candidate for guaranteed \(tier?.rawValue ?? "none") — egg kept, retry next tick")
+                return nil
+            }
             let weights = index.map { e in
                 state.collectedFinals.contains(where: { $0.hasPrefix("\(e.id):") })
                     ? max(1, e.captureRate / 2) : max(1, e.captureRate)
@@ -865,11 +914,15 @@ final class CompanionStore {
     /// GraphQL 인덱스가 죽어도 부화가 되게 한다. 가중치(capture_rate)는 생략 — 희귀도는 부화 후
     /// line() 이 실제 capture_rate 로 계산하므로 결과 개체의 등급은 정확하다. 인덱스 복구 시 가중 선택 재개.
     private func chooseBaseViaREST() async -> Int? {
+        let tier = state.eggTier
         for attempt in 1...16 {
             let ids = PokemonAssets.animatedSpeciesIDs
             let id = Int(rng.next() % UInt64(ids.count)) + ids.lowerBound
             do {
                 if let bs = try await provider.baseSpecies(id: id) {
+                    // 등급 보증은 가중 경로와 **같은 기준**으로 여기서도 걸러야 한다 — 이 폴백만 빠지면
+                    // GraphQL 인덱스 장애 때 보증이 조용히 깨진다. 못 찾으면 알 유지(구매 소멸 금지).
+                    if let tier, !tier.includes(captureRate: bs.captureRate) { continue }
                     AppLog.write("hatch: REST fallback picked base \(id) (cap \(bs.captureRate), \(attempt) tries)")
                     return id
                 }

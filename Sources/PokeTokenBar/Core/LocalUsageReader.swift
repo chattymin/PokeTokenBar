@@ -44,8 +44,167 @@ enum LocalUsageReader {
 
     // MARK: 경로
 
+    /// CLI 기본 위치의 홈 기준 상대 경로 — `claudeProjectsDir` 와 루트 목록이 같은 문자열을 공유한다
+    /// (양쪽에 리터럴을 따로 쓰면 한쪽만 바뀌어도 테스트가 못 잡는다).
+    static let defaultRelativeProjectsPath = ".claude/projects"
+    static let configRelativeProjectsPath = ".config/claude/projects"
+
     static var claudeProjectsDir: URL {
-        FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".claude/projects")
+        FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(defaultRelativeProjectsPath)
+    }
+
+    /// Claude 사용 로그(`<root>/**/*.jsonl`)가 있을 수 있는 **모든** projects 루트.
+    /// 새 위치를 지원할 땐 이 한 곳에만 추가한다 — 스캔·캐시·테스트가 이 단일 소스를 공유한다.
+    ///
+    /// - `CLAUDE_CONFIG_DIR`: 사용자가 설정 위치를 옮긴 경우. 콤마로 여러 개를 줄 수 있고 각각 `<값>/projects`.
+    /// - `~/.config/claude/projects`, `~/.claude/projects`: CLI 기본 위치(전자는 XDG 스타일 설치).
+    /// - Claude Desktop 임베디드 세션: 세션 디렉터리마다 CLI 와 같은 모양의 `.claude/projects` 를 갖는다.
+    ///   Desktop 으로 일한 사용량이 여기에만 남으므로 빼면 조용히 누락된다.
+    /// 계산에 파일시스템 탐색 + (GUI 앱에선) 로그인 셸 조회가 들어가는데 새로고침은 분 단위로 돈다.
+    /// 루트 구성은 Desktop 세션이 새로 생길 때만 바뀌므로 TTL 캐시로 재계산을 접는다.
+    static var claudeProjectRoots: [URL] { rootsCache.roots() }
+
+    /// 테스트·진단용 — 캐시를 무시하고 지금 상태로 계산한다.
+    static func computeClaudeProjectRoots(
+        configDirValue: String? = shellAwareClaudeConfigDir(),
+        home: URL = FileManager.default.homeDirectoryForCurrentUser) -> [URL]
+    {
+        var roots: [URL] = []
+        if let raw = configDirValue {
+            for part in raw.split(separator: ",") {
+                let path = part.trimmingCharacters(in: .whitespaces)
+                guard !path.isEmpty else { continue }
+                roots.append(URL(fileURLWithPath: NSString(string: path).expandingTildeInPath)
+                    .appendingPathComponent("projects"))
+            }
+        }
+        roots.append(home.appendingPathComponent(Self.configRelativeProjectsPath))
+        roots.append(home.appendingPathComponent(Self.defaultRelativeProjectsPath))
+
+        let desktop = home.appendingPathComponent("Library/Application Support/Claude")
+        for store in ["local-agent-mode-sessions", "claude-code-sessions"] {
+            roots.append(contentsOf: embeddedClaudeProjectRoots(under: desktop.appendingPathComponent(store)))
+        }
+        return normalizedRoots(roots)
+    }
+
+    /// `CLAUDE_CONFIG_DIR` 값. Finder/launchd 로 뜬 `.app` 은 셸 환경을 상속하지 않으므로
+    /// 프로세스 환경에 없으면 로그인 셸에 한 번 물어본다(`BinaryLocator` 가 PATH 에 쓰는 것과 같은 수법).
+    /// 이 조회가 없으면 설정 위치를 옮긴 사용자는 앱에서만 0 토큰을 보고, CLI·테스트에서는 정상이라
+    /// 재현이 안 된다.
+    /// 셸 조회는 프로세스 생애 1회만 한다 — 환경변수는 앱이 도는 동안 바뀌지 않는데, 루트 캐시의
+    /// TTL 에 묶으면 값을 안 쓰는 대다수 사용자까지 갱신마다 셸 spawn(실측 ~0.44s) 비용을 문다.
+    /// 못 찾은 결과(nil)도 함께 캐시해 재시도를 막는다. `static let` 은 lazy + once 라 이 자체가 캐시다.
+    static func shellAwareClaudeConfigDir() -> String? { cachedShellConfigDir }
+
+    private static let cachedShellConfigDir: String? = {
+        if let v = ProcessInfo.processInfo.environment["CLAUDE_CONFIG_DIR"], !v.isEmpty { return v }
+        return BinaryLocator.shellEnvironmentValue("CLAUDE_CONFIG_DIR")
+    }()
+
+    private static let rootsCache = RootsCache()
+
+    final class RootsCache: @unchecked Sendable {
+        private let lock = NSLock()
+        private var cached: [URL]?
+        private var computedAt: Date?
+        /// 새 Desktop 세션이 생겨도 이 시간 안에는 반영된다. 새로고침 주기(분 단위)보다 넉넉히 길게.
+        private let ttl: TimeInterval = 300
+
+        /// 락은 캐시 필드 접근에만 쥔다. 계산은 락 **밖에서** 한다 — 첫 호출은 로그인 셸 spawn(최대 8초
+        /// 대기)과 파일시스템 탐색을 포함하는데, 그 동안 락을 쥐면 동시 호출자가 통째로 막힌다
+        /// (`UsageStore` 는 프로바이더를 taskGroup 으로 병렬 fetch 한다). 결과가 idempotent 하므로
+        /// 경합 시 중복 계산이 나는 편이 블로킹보다 낫다.
+        func roots() -> [URL] {
+            lock.lock()
+            let hit = (cached, computedAt)
+            lock.unlock()
+            if let cached = hit.0, let at = hit.1, Date().timeIntervalSince(at) < ttl { return cached }
+
+            let fresh = computeClaudeProjectRoots()
+            lock.lock()
+            cached = fresh
+            computedAt = Date()
+            lock.unlock()
+            return fresh
+        }
+    }
+
+    /// Claude Desktop 임베디드 세션 스토어에서 `.claude/projects` 디렉터리를 찾는다.
+    /// 세션 경로는 `<store>/<uuid>/<uuid>/local_<uuid>/.claude/projects` 처럼 UUID 단계가 여러 겹이라
+    /// 고정 경로로는 못 잡고 탐색해야 한다. `.claude` 는 hidden 이므로 `skipsHiddenFiles` 를 쓰면 안 된다.
+    /// 탐색 중 내려가지 않는 디렉터리. **패키지·VCS 내부처럼 사용자 작업 트리가 아닌 것만** 넣는다.
+    ///
+    /// 이름 기반 가지치기는 *조상* 이름 하나로 그 아래 전부를 잘라내므로, 정당한 작업 디렉터리 이름을
+    /// 넣으면 원래 막으려던 "조용한 0건"을 그대로 재생산한다. 실측: 세션 레이아웃에 `uploads`·`outputs`
+    /// 가 실제로 존재하고(`local_<uuid>/uploads`, `/outputs`) 그 아래에서 돌린 Claude 세션은 정당한
+    /// 루트다. `build`·`target` 역시 흔한 프로젝트 이름이라 뺐다. 폭 제어의 주 수단은 깊이 상한이고,
+    /// 이 목록은 보조다. 가드: `testEmbeddedRootsFindRootsUnderWorkDirectoryNames`.
+    private static let rootScanSkippedDirectories: Set<String> =
+        ["node_modules", ".git", "venv", ".venv"]
+
+    /// 기본 깊이 7의 근거(실측): 세션 기본 루트는 깊이 5(`<uuid>/<uuid>/local_<uuid>/.claude/projects`),
+    /// 세션 작업 디렉터리 아래 저장소(`outputs/myrepo/.claude/projects`)는 깊이 7이다. 6 이면 후자를 놓치고,
+    /// 8·9 로 올려도 방문 수는 그대로였다(100 고정) — 폭은 깊이가 아니라 `node_modules` 류 가지치기가
+    /// 잡고 있다. 즉 7 이 "놓치지 않는 최소값"이면서 비용이 늘지 않는 지점이다.
+    static func embeddedClaudeProjectRoots(under base: URL, maxDepth: Int = 7) -> [URL] {
+        let fm = FileManager.default
+        var isDir: ObjCBool = false
+        guard fm.fileExists(atPath: base.path, isDirectory: &isDir), isDir.boolValue else { return [] }
+        guard let en = fm.enumerator(at: base, includingPropertiesForKeys: [.isDirectoryKey],
+                                     options: [.skipsPackageDescendants]) else { return [] }
+        var out: [URL] = []
+        var prunedByDepth = false
+        for case let url as URL in en {
+            let name = url.lastPathComponent
+            if name == "projects", url.deletingLastPathComponent().lastPathComponent == ".claude",
+               (try? url.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true {
+                out.append(url)
+                en.skipDescendants()   // 이 아래는 프로젝트 로그 — 루트 탐색 대상이 아니다.
+                continue
+            }
+            // 이 항목 자체는 위에서 검사한 뒤에 가지치기한다. `> maxDepth` 로 자르면 한 단계 더
+            // 내려간 뒤에야 멈춰 실제 탐색 폭이 의도보다 넓어진다.
+            if en.level >= maxDepth {
+                prunedByDepth = true
+                en.skipDescendants()
+            } else if rootScanSkippedDirectories.contains(name) {
+                en.skipDescendants()
+            }
+        }
+        // 깊이로 잘렸으면 무엇을 찾았든 남긴다. `out.isEmpty` 를 조건에 넣으면 **부분 절단**
+        // (세션 루트는 찾고 더 깊은 작업 디렉터리만 놓친 경우)이 조용히 지나가는데, 그게 가장 흔한 형태다.
+        if prunedByDepth {
+            AppLog.write("claude desktop scan: depth \(maxDepth) reached under \(base.lastPathComponent), found \(out.count) root(s) — deeper roots may be missed")
+        }
+        return out
+    }
+
+    /// 중복·중첩 루트를 제거한다. `CLAUDE_CONFIG_DIR=~/.claude` 처럼 기본 루트와 겹치게 지정하면
+    /// 같은 파일을 두 번 스캔한다 — 전역 dedup 이 합계는 바로잡지만 스캔 비용은 그대로 두 배다.
+    static func normalizedRoots(_ roots: [URL]) -> [URL] {
+        var seen = Set<String>()
+        var unique: [String] = []
+        for root in roots {
+            // 심볼릭 링크를 풀어서 비교한다(`~/.config/claude` → `~/.claude` 링크가 흔한 XDG 구성).
+            // `standardizedFileURL` 은 `..`·`.` 만 정리할 뿐 링크는 그대로 둬서 같은 트리를 두 번 훑게 된다.
+            // 비교는 소문자로 — macOS 기본 APFS 볼륨은 대소문자를 구분하지 않는다.
+            let path = root.resolvingSymlinksInPath().standardizedFileURL.path
+            if seen.insert(path.lowercased()).inserted { unique.append(path) }
+        }
+        // 짧은 경로부터 확정하고, 이미 확정된 루트의 하위면 버린다.
+        // 중첩 비교도 중복 비교와 같은 소문자 기준이어야 한다 — 한쪽만 대소문자를 무시하면
+        // `CLAUDE_CONFIG_DIR=~/.Claude` 같은 표기에서 두 검사가 엇갈려 중복 루트가 살아남는다.
+        var kept: [String] = []
+        for path in unique.sorted(by: { $0.count < $1.count })
+        where !kept.contains(where: {
+            let (p, k) = (path.lowercased(), $0.lowercased())
+            return p == k || p.hasPrefix(k + "/")
+        }) {
+            kept.append(path)
+        }
+        // 원래 순서(우선순위)를 보존해 돌려준다.
+        return unique.filter(kept.contains).map { URL(fileURLWithPath: $0) }
     }
     static var codexSessionsDir: URL {
         FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".codex/sessions")
@@ -103,11 +262,19 @@ enum LocalUsageReader {
     }
 
     /// `modifiedSince` 이후 파일에서 Claude 사용 엔트리(전역 dedup) — 테스트/캐시 미사용 경로.
+    /// `root` 를 주지 않으면 `claudeProjectRoots` 전체를 훑는다. 같은 턴이 여러 루트에 복사돼 있어도
+    /// `(message.id, requestId)` 전역 dedup 이 한 번만 세므로 루트가 겹쳐도 합계는 부풀지 않는다.
     static func claudeEntries(modifiedSince: Date, root: URL? = nil) -> [Entry] {
+        claudeEntries(modifiedSince: modifiedSince, roots: root.map { [$0] } ?? claudeProjectRoots)
+    }
+
+    static func claudeEntries(modifiedSince: Date, roots: [URL]) -> [Entry] {
         let fmt = localDayFormatter()
         var all: [Entry] = []
-        for file in jsonlFiles(in: root ?? claudeProjectsDir, modifiedSince: modifiedSince) {
-            all.append(contentsOf: parseClaudeFile(file, fmt: fmt))
+        for root in roots {
+            for file in jsonlFiles(in: root, modifiedSince: modifiedSince) {
+                all.append(contentsOf: parseClaudeFile(file, fmt: fmt))
+            }
         }
         return dedupKeepMax(all)
     }
@@ -132,74 +299,580 @@ enum LocalUsageReader {
 
     // MARK: Codex 파싱
 
+    struct CodexUsageVector: Equatable, Codable, Sendable {
+        let input: Int
+        let cachedInput: Int
+        let cacheWriteInput: Int
+        let output: Int
+        let reasoningOutput: Int
+        let total: Int
+
+        /// 누적 usage 는 `intOrNil` 로 읽는다 — `intValue` 의 `Int(d)` 는 `1e30` 같은 값에서 트랩(크래시)
+        /// 하고, 그 파일은 디스크에 남아 실행할 때마다 다시 죽인다. 클램프가 크래시보다 안전한 열화다.
+        init(_ raw: [String: Any]) {
+            input = intOrNil(raw["input_tokens"]) ?? 0
+            cachedInput = intOrNil(raw["cached_input_tokens"]) ?? 0
+            cacheWriteInput = intOrNil(raw["cache_write_input_tokens"]) ?? 0
+            output = intOrNil(raw["output_tokens"]) ?? 0
+            reasoningOutput = intOrNil(raw["reasoning_output_tokens"]) ?? 0
+            total = intOrNil(raw["total_tokens"]) ?? 0
+        }
+
+        var fingerprint: String {
+            "\(input),\(cachedInput),\(cacheWriteInput),\(output),\(reasoningOutput),\(total)"
+        }
+
+        func isLower(than previous: Self) -> Bool {
+            input < previous.input
+                || cachedInput < previous.cachedInput
+                || cacheWriteInput < previous.cacheWriteInput
+                || output < previous.output
+                || reasoningOutput < previous.reasoningOutput
+                || total < previous.total
+        }
+    }
+
+    struct CodexUsageState: Equatable, Codable, Sendable {
+        let cumulative: CodexUsageVector
+        let last: CodexUsageVector
+
+        var fingerprint: String {
+            "\(cumulative.fingerprint)|\(last.fingerprint)"
+        }
+    }
+
+    private struct ParsedCodexToken {
+        let entry: Entry
+        /// 구형 레코드는 cumulative 사용량이 없을 수 있음. 그런 레코드는 동일 상태 판정을 하지 않는다.
+        let usageState: CodexUsageState?
+    }
+
+    private struct CodexSessionMeta {
+        let id: String?
+        let parentID: String?
+        let date: Date?
+        let isSubagent: Bool
+    }
+
+    struct CodexUsageEvent: Codable, Sendable {
+        let entry: Entry
+        let usageState: CodexUsageState?
+        let sessionID: String?
+    }
+
+    struct CodexParsedRollout: Codable, Sendable {
+        let path: String
+        let sessionID: String?
+        let parentSessionID: String?
+        let forkedAt: Date?
+        let isSubagent: Bool
+        let events: [CodexUsageEvent]
+    }
+
+    private struct CodexResolvedEvent {
+        let entry: Entry
+        let usageState: CodexUsageState?
+    }
+
+    private struct CodexResolvedRollout {
+        let history: [CodexResolvedEvent]
+        let ownedEntries: [Entry]
+    }
+
     /// Codex 사용 엔트리. token_count 이벤트의 last_token_usage(턴 델타)를 4종 토큰으로 매핑.
     /// - input(비캐시) = input_tokens − cached_input_tokens, cacheRead = cached_input_tokens
     /// - output = output_tokens (reasoning 은 output 에 이미 포함), cacheWrite = 0
     /// Codex 파일 하나를 파싱(세션 단위 — token_count 이벤트의 턴 델타). 캐시가 파일 단위로 호출.
     static func parseCodexFile(_ url: URL, fmt: DateFormatter) -> [Entry] {
-        guard let text = try? String(contentsOf: url, encoding: .utf8) else { return [] }
-        var entries: [Entry] = []
+        let rollout = parseCodexRollout(url, fmt: fmt)
+        return resolveCodexRollouts([rollout], includedPaths: [rollout.path])
+    }
+
+    /// 파일 내부 정보만 파싱. fork replay 여부는 다른 rollout과 대조.
+    static func parseCodexRollout(_ url: URL, fmt: DateFormatter) -> CodexParsedRollout {
+        guard let text = try? String(contentsOf: url, encoding: .utf8) else {
+            return CodexParsedRollout(
+                path: url.path,
+                sessionID: nil,
+                parentSessionID: nil,
+                forkedAt: nil,
+                isSubagent: false,
+                events: []
+            )
+        }
+        var events: [CodexUsageEvent] = []
         var turn = 0
-        var isScanningInitialMetadata = true
-        var isForked = false
-        var replayTimestamp: Date?
+        var sessionID: String?
+        var parentSessionID: String?
+        var forkedAt: Date?
+        var isSubagent = false
+        var currentSessionID: String?
+        var previousUsageState: (sessionID: String, state: CodexUsageState)?
         // 실모델은 아래 codexModel 이 로그에서 동적 추출(신모델 자동 대응). 이 값은 세션에 model 라인이
         // 아예 없을 때만 쓰는 버전무관 폴백 — Codex 비용은 항상 0이라 표시 숫자엔 영향 없다(업데이트 불필요).
         var model = "codex"
         for line in text.split(separator: "\n", omittingEmptySubsequences: true) {
             autoreleasepool {   // JSONSerialization 의 autoreleased 객체를 라인마다 배출(콜드 파싱 피크 억제)
                 let record = String(line)
-                if isScanningInitialMetadata, isForkedSessionMeta(record) {
-                    isForked = true   // child meta 뒤 parent meta가 재삽입돼도 fork 판정을 되돌리지 않는다.
+                // NOTE: 여기에 `line.contains("session_meta")` prefilter 를 넣으면 **느려진다**.
+                // 실측(실기기 57 rollout, release 빌드, best of 3 × 2회): 없음 1.80/1.84s vs 있음 2.17/2.19s.
+                // Swift `String.contains(_:)` 는 grapheme 단위 탐색이라 라인마다 훑는 비용이
+                // JSONSerialization 의 파싱보다 크다 — "파싱 줄 수를 줄이면 빨라진다"는 직관이 틀린 자리다.
+                if let meta = codexSessionMeta(record) {
+                    if sessionID == nil {
+                        // subagent meta는 `id`가 child이고 `session_id`가 parent일 수 있으므로 id 우선.
+                        sessionID = meta.id
+                        parentSessionID = meta.parentID
+                        forkedAt = meta.date
+                        isSubagent = meta.isSubagent
+                    }
+                    if let id = meta.id, id != currentSessionID {
+                        currentSessionID = id
+                        previousUsageState = nil
+                    }
                 }
                 if line.contains("\"model\""), let m = codexModel(record) { model = m }
                 guard line.contains("token_count") else { return }
-                guard let e = parseCodexLine(record, file: url.lastPathComponent, turn: turn, model: model, fmt: fmt) else { return }
+                guard let parsed = parseCodexLine(
+                    record, file: url.lastPathComponent, turn: turn, model: model, fmt: fmt
+                ) else { return }
                 defer { turn += 1 }
 
-                // forked rollout의 첫 token_count는 부모 이력 replay다. session_meta 기록 시각은 디스크 지연에
-                // 영향받으므로 anchor로 쓰지 않는다. replay 내부는 수 ms 간격이고, 첫 1초 이상 공백부터는
-                // 실제 child turn으로 간주해 이후의 빠른 turn도 모두 보존한다.
-                if isScanningInitialMetadata {
-                    isScanningInitialMetadata = false
-                    if isForked {
-                        replayTimestamp = e.date
+                // Codex는 같은 cumulative/last usage 상태를 그대로 다시 기록할 수 있음. replay trimming을
+                // 하기 전에 파일 내부에서 정규화한다. 같은 세션의 연속 token_count 상태가 full vector까지
+                // 같으면 새 토큰 기여가 없는 동일 snapshot이므로 한 번만 남긴다.
+                if let state = parsed.usageState, let sessionID = currentSessionID {
+                    if let previous = previousUsageState,
+                       previous.sessionID == sessionID,
+                       previous.state == state {
                         return
                     }
+                    previousUsageState = (sessionID, state)
+                } else {
+                    previousUsageState = nil
                 }
-                if let previous = replayTimestamp {
-                    if e.date.timeIntervalSince(previous) < Self.forkReplayMaximumGap {
-                        replayTimestamp = e.date
-                        return
-                    }
-                    replayTimestamp = nil
-                }
-                entries.append(e)
+                events.append(CodexUsageEvent(
+                    entry: parsed.entry,
+                    usageState: parsed.usageState,
+                    sessionID: currentSessionID
+                ))
             }
         }
-        return entries
+        return CodexParsedRollout(
+            path: url.path,
+            sessionID: sessionID,
+            parentSessionID: parentSessionID,
+            forkedAt: forkedAt,
+            isSubagent: isSubagent,
+            events: events
+        )
+    }
+
+    /// 부모 탐색이 다루는 rollout 파일. 캐시는 `(path, mtime, size)` 로 blob 을 무효화하고 reader 는
+    /// mtime 으로 조회 윈도우만 나누므로, 두 경로가 같은 표현을 공유한다.
+    struct CodexRolloutFile {
+        let url: URL
+        let mtime: Date
+        let size: Int
+        var path: String { url.path }
+    }
+
+    /// 세션 id 조회 상태. `known(nil)`은 probe를 마쳤지만 id를 찾지 못한 상태이며,
+    /// `unknown`과 구분해야 같은 파일을 매 새로고침마다 다시 열지 않는다.
+    enum CodexSessionIDKnowledge {
+        case unknown
+        case known(String?)
+    }
+
+    /// Codex 루트의 rollout 파일 전체(mtime·size 포함). 조회 윈도우 밖 파일도 부모 후보라 걸러내지 않는다.
+    static func codexRolloutFiles(in root: URL) -> [CodexRolloutFile] {
+        guard let en = FileManager.default.enumerator(
+            at: root,
+            includingPropertiesForKeys: [.contentModificationDateKey, .fileSizeKey],
+            options: [.skipsHiddenFiles]
+        ) else { return [] }
+        var out: [CodexRolloutFile] = []
+        for case let url as URL in en where url.pathExtension == "jsonl" {
+            guard let values = try? url.resourceValues(forKeys: [.contentModificationDateKey, .fileSizeKey]),
+                  let mtime = values.contentModificationDate else { continue }
+            out.append(CodexRolloutFile(url: url, mtime: mtime, size: values.fileSize ?? 0))
+        }
+        return out
+    }
+
+    /// 조회 윈도우 안 rollout 에서 시작해, replay 대조에 필요한 부모(그 부모의 부모까지)를 dependency 로
+    /// 끌어온다. Codex 는 fork 파일 하나만 보고는 자기 usage 를 확정할 수 없기 때문이다.
+    ///
+    /// reader(직접 파싱)와 cache(blob 재사용)가 **같은 확장 규칙**을 쓰도록 파일 표현만 공유하고,
+    /// 달라지는 세 가지 — 파싱, 이미 아는 세션 id, 파일 내용 probe — 만 주입받는다. 규칙이 양쪽에
+    /// 복제돼 있으면 한쪽만 고쳐도 나머지 테스트가 초록으로 남는다.
+    /// (클로저는 non-escaping — 캐시는 actor 격리 상태를 만지며 호출한다.)
+    static func expandCodexParentClosure(
+        windowFiles: [CodexRolloutFile],
+        allFiles: [CodexRolloutFile],
+        load: (CodexRolloutFile) -> CodexParsedRollout,
+        sessionIDKnowledge: (CodexRolloutFile) -> CodexSessionIDKnowledge,
+        probeSessionID: (CodexRolloutFile) -> String?
+    ) -> (rollouts: [CodexParsedRollout], includedPaths: Set<String>) {
+        var rolloutsByPath = Dictionary(
+            uniqueKeysWithValues: windowFiles.map { file in
+                let rollout = load(file)
+                return (rollout.path, rollout)
+            }
+        )
+        let includedPaths = Set(windowFiles.map(\.path))
+
+        var pendingParentIDs = Set(rolloutsByPath.values.compactMap(\.parentSessionID))
+        var searchedParentIDs: Set<String> = []
+        while let parentID = pendingParentIDs.subtracting(searchedParentIDs).first {
+            searchedParentIDs.insert(parentID)
+            if rolloutsByPath.values.contains(where: { $0.sessionID == parentID }) { continue }
+
+            // 힌트는 후보를 고를 뿐이고, 채택은 실제 payload 의 세션 id 로만 판정한다.
+            func adopt(_ candidates: [CodexRolloutFile]) -> Bool {
+                var resolved = false
+                for candidate in candidates {
+                    let parent = load(candidate)
+                    guard parent.sessionID == parentID else { continue }
+                    rolloutsByPath[parent.path] = parent
+                    resolved = true
+                    if let ancestorID = parent.parentSessionID {
+                        pendingParentIDs.insert(ancestorID)
+                    }
+                }
+                return resolved
+            }
+
+            let unresolved = allFiles.filter { !rolloutsByPath.keys.contains($0.path) }
+            // 이미 아는 세션 id 와 파일명으로 후보를 좁혀 먼저 확인한다(파일을 열지 않는다).
+            let hinted = unresolved.filter {
+                switch sessionIDKnowledge($0) {
+                case .known(let id):
+                    // 세션 id 를 아는 파일은 그 값으로만 판정한다. 파일명까지 보면 id 가 다른데도
+                    // 후보로 뽑혀, 인덱스가 warm 이어도 매 새로고침 같은 파일을 다시 full-parse 한다.
+                    return id == parentID
+                case .unknown:
+                    return isUsableFilenameHint(parentID)
+                        && $0.url.lastPathComponent.contains(parentID)
+                }
+            }
+            if adopt(hinted) { continue }
+
+            // 힌트가 없었거나 전부 검증에 실패했으면 내용을 봐야 아는 파일만 연다.
+            // 세션 id 를 이미 아는 파일은 그 값이 parentID 가 아니므로 다시 열 이유가 없다.
+            let hintedPaths = Set(hinted.map(\.path))
+            _ = adopt(unresolved.filter {
+                guard !hintedPaths.contains($0.path),
+                      case .unknown = sessionIDKnowledge($0) else { return false }
+                return probeSessionID($0) == parentID
+            })
+        }
+        return (Array(rolloutsByPath.values), includedPaths)
     }
 
     static func codexEntries(modifiedSince: Date, root: URL? = nil) -> [Entry] {
         let fmt = localDayFormatter()
-        var entries: [Entry] = []
-        for file in jsonlFiles(in: root ?? codexSessionsDir, modifiedSince: modifiedSince) {
-            entries.append(contentsOf: parseCodexFile(file, fmt: fmt))
-        }
-        return entries
+        let allFiles = codexRolloutFiles(in: root ?? codexSessionsDir)
+        // 테스트/캐시 미사용 경로 — 아는 세션 id 가 없으니 파일명 힌트와 probe 만으로 부모를 찾는다.
+        let (rollouts, includedPaths) = expandCodexParentClosure(
+            windowFiles: allFiles.filter { $0.mtime >= modifiedSince },
+            allFiles: allFiles,
+            load: { parseCodexRollout($0.url, fmt: fmt) },
+            sessionIDKnowledge: { _ in .unknown },
+            probeSessionID: { codexRolloutSessionID(at: $0.url) }
+        )
+        return resolveCodexRollouts(rollouts, includedPaths: includedPaths)
     }
 
-    private static func isForkedSessionMeta(_ line: String) -> Bool {
+    /// 파일명 부분일치로 부모 후보를 좁힐 때 쓸 수 있는 id 인가.
+    /// 퇴화된 값(빈 문자열·`"-"` 같은 구분자만)은 거의 모든 rollout 파일명에 걸려 후보 필터가
+    /// 아무것도 걸러내지 못하고 전 rollout 을 full-parse 시킨다 — 실측 300파일 기준 0.009s → 18.2s.
+    /// 이건 파일을 열지 않는 값싼 사전 필터일 뿐이라, 통과해도 내용 대조는 그대로 수행된다.
+    static func isUsableFilenameHint(_ id: String) -> Bool {
+        id.count >= 4 && id.contains { $0.isLetter || $0.isNumber }
+    }
+
+    private static func codexSessionMeta(_ line: String) -> CodexSessionMeta? {
         guard let data = line.data(using: .utf8),
               let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               (obj["type"] as? String) == "session_meta",
-              let payload = obj["payload"] as? [String: Any],
-              ((payload["forked_from_id"] as? String)?.isEmpty == false
-                  || (payload["parent_thread_id"] as? String)?.isEmpty == false) else { return false }
-        return true
+              let payload = obj["payload"] as? [String: Any] else { return nil }
+        let id = (payload["id"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+            ?? (payload["session_id"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        let parentID = (payload["forked_from_id"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+            ?? (payload["parent_thread_id"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        let date = (obj["timestamp"] as? String).flatMap { ISO8601Parser.date(from: $0) }
+        let source = payload["source"] as? [String: Any]
+        let isSubagent = (payload["thread_source"] as? String) == "subagent"
+            || source?["subagent"] != nil
+        return CodexSessionMeta(id: id, parentID: parentID, date: date, isSubagent: isSubagent)
     }
 
-    private static func parseCodexLine(_ line: String, file: String, turn: Int, model: String, fmt: DateFormatter) -> Entry? {
+    /// probe 가 읽는 총 바이트 상한. 한 줄을 다 못 채운 채 상한에 닿아도 여기서 끊기므로
+    /// (buffer ⊆ 읽은 바이트) 비정상적으로 긴 단일 라인도 같은 예산 안에 갇힌다.
+    /// 상한을 넘는 metadata 는 nil → 부모를 못 찾고 timing fallback 으로 강등된다. 실측 `session_meta`
+    /// 첫 줄이 중앙값 ~22KB·최대 ~46KB(대부분 `dynamic_tools`·`base_instructions`)라 1MiB 는 ~22배 여유.
+    static let codexProbeByteLimit = 1 << 20
+
+    private static let codexProbeChunkSize = 64 * 1024
+
+    private enum CodexProbeOutcome {
+        case sessionID(String?)   // session_meta 발견 — id 가 비어 있으면 nil(기존 동작 유지)
+        case stop                 // token_count 도달 — 그 앞에 meta 가 없었다
+        case invalid              // 비어 있지 않은 줄이 UTF-8이 아님 — 이후 metadata로 오인하지 않음
+        case keepScanning
+    }
+
+    /// 오래된 parent dependency를 찾기 위한 metadata-only probe. 대형 rollout 전체를 읽지 않는다.
+    ///
+    /// **고정 크기 prefix 를 통째로 디코드하면 안 된다.** 컷이 멀티바이트 문자 중간에 떨어지면
+    /// `String(data:encoding:)` 이 통째로 nil 이 되어(실측: 로컬 rollout 109개 중 14개가 64KB 경계에서
+    /// strict 디코드 실패) "세션 id 없음"으로 잘못 보고하고, 첫 줄이 컷보다 길어도 같은 결과가 된다.
+    /// → chunk 를 읽되 **개행으로 완성된 줄만** 디코드한다.
+    /// 결과가 `nil` 이면 **정상적으로 읽었지만 쓸 수 있는 metadata 가 없다**는 뜻이다(meta 부재·
+    /// token_count 선행·손상된 줄·상한 초과 — 모두 파일 내용의 결정적 속성이라 재시도해도 같다).
+    /// 파일을 열거나 읽지 못한 경우는 throw 한다. 그 둘을 합치면 일시적인 I/O 실패가 "세션 id 없음"
+    /// 으로 캐시에 굳어, 파일의 mtime·size 가 바뀔 때까지 잘못된 판정이 유지된다.
+    static func probeCodexRolloutSessionID(
+        at url: URL,
+        byteLimit: Int = codexProbeByteLimit
+    ) throws -> String? {
+        let handle = try FileHandle(forReadingFrom: url)
+        defer { try? handle.close() }
+
+        var buffer = Data()
+        var read = 0
+        while read < byteLimit {
+            // 남은 예산까지만 읽어 상한을 정확히 지킨다(0 바이트 요청 = EOF 오인 방지).
+            guard let chunk = try handle.read(upToCount: min(codexProbeChunkSize, byteLimit - read)),
+                  !chunk.isEmpty else {
+                // EOF — 개행 없이 끝나는 마지막 줄도 완성된 줄로 취급한다.
+                if case .sessionID(let id) = codexProbeOutcome(of: buffer) { return id }
+                return nil
+            }
+            read += chunk.count
+            buffer.append(chunk)
+            var lineStart = buffer.startIndex
+            while lineStart < buffer.endIndex,
+                  let newline = buffer[lineStart...].firstIndex(of: 0x0A) {
+                let line = Data(buffer[lineStart..<newline])
+                let nextLineStart = buffer.index(after: newline)
+                switch codexProbeOutcome(of: line) {
+                case .sessionID(let id): return id
+                case .stop, .invalid: return nil
+                case .keepScanning: lineStart = nextLineStart
+                }
+            }
+            // 줄마다 남은 buffer 전체를 복사하지 않고, 이번 chunk에서 소비한 prefix를 한 번만 제거.
+            if lineStart != buffer.startIndex {
+                buffer.removeSubrange(buffer.startIndex..<lineStart)
+            }
+        }
+        // 파일이 개행 없이 정확히 byteLimit에서 끝난 경우에도 완성된 JSON 한 줄이면 인정한다.
+        if case .sessionID(let id) = codexProbeOutcome(of: buffer) { return id }
+        return nil   // 상한 도달 — 아직 meta 를 못 찾았거나 줄이 완성되지 않았다
+    }
+
+    /// 읽기 실패를 "metadata 없음"과 같은 `nil` 로 합치는 편의 API.
+    /// **결과를 영속화하는 호출자는 `probeCodexRolloutSessionID` 를 써야 한다** — 이 래퍼로 얻은
+    /// `nil` 을 캐시에 남기면 일시적 I/O 실패가 그대로 굳는다.
+    static func codexRolloutSessionID(at url: URL, byteLimit: Int = codexProbeByteLimit) -> String? {
+        try? probeCodexRolloutSessionID(at: url, byteLimit: byteLimit)
+    }
+
+    private static func codexProbeOutcome(of line: Data) -> CodexProbeOutcome {
+        guard !line.isEmpty else { return .keepScanning }
+        // 손상된 줄을 건너뛰면 뒤에 재삽입된 parent meta를 이 파일의 id로 오인할 수 있으므로 중단한다.
+        guard let text = String(data: line, encoding: .utf8) else { return .invalid }
+        if let meta = codexSessionMeta(text) { return .sessionID(meta.id) }
+        if text.contains("token_count") { return .stop }
+        return .keepScanning
+    }
+
+    /// 부모 관계가 확인된 rollout끼리 usage-state prefix를 대조해 실제로 복사된 replay만 제거.
+    /// 부모를 찾을 수 없는 manual fork만 기존 1초 trimming을 fallback으로 사용.
+    /// 실제 fixture에서 replay가 없다고 확인된 subagent는 부모 파일 유무와 관계없이 모두 보존.
+    static func resolveCodexRollouts(
+        _ rollouts: [CodexParsedRollout],
+        includedPaths: Set<String>
+    ) -> [Entry] {
+        let bySession = Dictionary(grouping: rollouts.compactMap { rollout in
+            rollout.sessionID.map { ($0, rollout) }
+        }, by: \.0).mapValues { $0.map(\.1).sorted { $0.path < $1.path } }
+        let byPath = Dictionary(uniqueKeysWithValues: rollouts.map { ($0.path, $0) })
+        var memo: [String: CodexResolvedRollout] = [:]
+
+        func resolve(_ rollout: CodexParsedRollout, visiting: inout Set<String>) -> CodexResolvedRollout {
+            if let cached = memo[rollout.path] { return cached }
+            guard visiting.insert(rollout.path).inserted else {
+                return resolveOwnedEvents(rollout, replayCount: fallbackReplayCount(rollout))
+            }
+            defer { visiting.remove(rollout.path) }
+
+            var bestParentMatch: (replayCount: Int, history: [CodexResolvedEvent])?
+            if let parentID = rollout.parentSessionID {
+                for candidate in bySession[parentID] ?? [] where candidate.path != rollout.path {
+                    let resolvedParent = resolve(candidate, visiting: &visiting)
+                    // prefix 가 하나도 안 겹치면(=0) 부모를 찾았어도 대조할 근거가 없다. 후보로 세면
+                    // replayCount 0 으로 아무것도 못 자르고 시간 fallback 도 건너뛰어 부모를 못 찾은
+                    // 경우보다 나빠진다(CLI 가 바뀌어 첫 vector 부터 어긋나는 fork). 여기서 걸러
+                    // `bestParentMatch` 는 "실제로 겹치는 prefix 를 가진 부모"만 담게 한다.
+                    guard let replayCount = comparableUsagePrefixCount(
+                        rollout.events,
+                        resolvedParent.history
+                    ), replayCount > 0 else { continue }
+                    if let current = bestParentMatch {
+                        if replayCount > current.replayCount {
+                            bestParentMatch = (replayCount, resolvedParent.history)
+                        }
+                    } else {
+                        bestParentMatch = (replayCount, resolvedParent.history)
+                    }
+                }
+            }
+
+            let resolved: CodexResolvedRollout
+            if let bestParentMatch {
+                resolved = resolveOwnedEvents(
+                    rollout,
+                    replayCount: bestParentMatch.replayCount,
+                    inheritedHistory: Array(
+                        bestParentMatch.history.prefix(bestParentMatch.replayCount)
+                    )
+                )
+            } else if rollout.parentSessionID != nil {
+                // 부모를 못 찾았거나 구형 usage에 cumulative state가 없어 구조 비교가 불가능.
+                // 실제 subagent는 fallbackReplayCount에서 보존하고 manual fork만 기존 시간 fallback.
+                resolved = resolveOwnedEvents(rollout, replayCount: fallbackReplayCount(rollout))
+            } else {
+                resolved = resolveOwnedEvents(rollout, replayCount: 0)
+            }
+            memo[rollout.path] = resolved
+            return resolved
+        }
+
+        var result: [Entry] = []
+        for path in includedPaths.sorted() {
+            guard let rollout = byPath[path] else { continue }
+            var visiting: Set<String> = []
+            result.append(contentsOf: resolve(rollout, visiting: &visiting).ownedEntries)
+        }
+        return dedupCodexCanonicalEntries(result)
+    }
+
+    /// 동일 canonical state가 여러 파일에 남아도 원래 시각에 가까운 가장 이른 기록을 보존.
+    /// token vector가 ID에 포함되므로 keep-max가 아니라 keep-earliest가 Codex의 날짜 의미에 적절한듯.
+    private static func dedupCodexCanonicalEntries(_ entries: [Entry]) -> [Entry] {
+        var byID: [String: Entry] = [:]
+        var order: [String] = []
+        for entry in entries {
+            if let existing = byID[entry.id] {
+                if entry.date < existing.date { byID[entry.id] = entry }
+            } else {
+                byID[entry.id] = entry
+                order.append(entry.id)
+            }
+        }
+        return order.compactMap { byID[$0] }
+    }
+
+    /// 비교 가능한 full usage state의 공통 prefix 길이. `nil`은 prefix 0이 아니라
+    /// cumulative state 부재로 구조 비교 자체가 불가능함을 의미.
+    private static func comparableUsagePrefixCount(
+        _ child: [CodexUsageEvent],
+        _ parent: [CodexResolvedEvent]
+    ) -> Int? {
+        if child.isEmpty { return 0 }
+        guard !parent.isEmpty else { return nil }
+        var count = 0
+        while count < child.count, count < parent.count {
+            guard let childState = child[count].usageState,
+                  let parentState = parent[count].usageState else { return nil }
+            guard childState == parentState else { break }
+            count += 1
+        }
+        return count
+    }
+
+    private static func fallbackReplayCount(_ rollout: CodexParsedRollout) -> Int {
+        // 확인된 0.142.5/0.145.0 subagent는 parent metadata만 삽입하고 token_count는 replay하지 않음.
+        // parent 파일이 삭제됐다는 이유만으로 첫 실제 subagent 턴을 timing heuristic으로 버리면 안 됨.
+        if rollout.isSubagent { return 0 }
+        let events = rollout.events
+        guard events.count > 1 else { return events.isEmpty ? 0 : 1 }
+        var count = 1
+        while count < events.count {
+            let gap = events[count].entry.date.timeIntervalSince(events[count - 1].entry.date)
+            guard gap < forkReplayMaximumGap else { break }
+            count += 1
+        }
+        return count
+    }
+
+    private static func resolveOwnedEvents(
+        _ rollout: CodexParsedRollout,
+        replayCount: Int,
+        inheritedHistory: [CodexResolvedEvent] = []
+    ) -> CodexResolvedRollout {
+        var history = inheritedHistory
+        var ownedEntries: [Entry] = []
+        var epoch = 0
+        var previousCumulative: CodexUsageVector?
+        var previousOwner: String?
+
+        for event in rollout.events.dropFirst(replayCount) {
+            // fork 파일의 unmatched suffix는 embedded parent meta 뒤에 있어도 child 소유이므로.
+            // non-fork 파일의 실제 session 전환은 event 시점 session id를 따름.
+            let owner = rollout.parentSessionID == nil
+                ? (event.sessionID ?? rollout.sessionID)
+                : rollout.sessionID
+            if owner != previousOwner {
+                epoch = 0
+                previousCumulative = nil
+                previousOwner = owner
+            }
+            if let cumulative = event.usageState?.cumulative {
+                if let previousCumulative, cumulative.isLower(than: previousCumulative) {
+                    epoch += 1
+                }
+                previousCumulative = cumulative
+            } else {
+                previousCumulative = nil
+            }
+
+            let entry: Entry
+            if let owner, let state = event.usageState {
+                entry = replacingID(
+                    of: event.entry,
+                    with: "codex|\(owner)|\(epoch)|\(state.fingerprint)"
+                )
+            } else {
+                // 누적 usage 또는 session id가 없는 구형 레코드는 기존 positional id를 유지.
+                entry = event.entry
+            }
+            ownedEntries.append(entry)
+            history.append(CodexResolvedEvent(entry: entry, usageState: event.usageState))
+        }
+        return CodexResolvedRollout(history: history, ownedEntries: ownedEntries)
+    }
+
+    private static func replacingID(of entry: Entry, with id: String) -> Entry {
+        Entry(
+            id: id,
+            date: entry.date,
+            localDay: entry.localDay,
+            model: entry.model,
+            input: entry.input,
+            output: entry.output,
+            cacheWrite: entry.cacheWrite,
+            cacheRead: entry.cacheRead,
+            explicitCost: entry.explicitCost
+        )
+    }
+
+    private static func parseCodexLine(
+        _ line: String, file: String, turn: Int, model: String, fmt: DateFormatter
+    ) -> ParsedCodexToken? {
         guard let data = line.data(using: .utf8),
               let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let payload = obj["payload"] as? [String: Any],
@@ -212,10 +885,14 @@ enum LocalUsageReader {
         let cached = intValue(last["cached_input_tokens"])
         let output = intValue(last["output_tokens"])
         let nonCachedInput = max(0, inputTotal - cached)
-        return Entry(
+        let entry = Entry(
             id: "codex|\(file)|\(turn)",
             date: date, localDay: fmt.string(from: date), model: model,
             input: nonCachedInput, output: output, cacheWrite: 0, cacheRead: cached)
+        let usageState = (info["total_token_usage"] as? [String: Any]).map {
+            CodexUsageState(cumulative: CodexUsageVector($0), last: CodexUsageVector(last))
+        }
+        return ParsedCodexToken(entry: entry, usageState: usageState)
     }
 
     // MARK: Gemini 파싱
@@ -548,12 +1225,18 @@ enum LocalUsageReader {
         return f
     }
 
-    private static func intValue(_ v: Any?) -> Int {
-        if let i = v as? Int { return i }
-        if let d = v as? Double { return Int(d) }
-        if let n = v as? NSNumber { return n.intValue }
-        return 0
-    }
+    /// 파싱 상한 — 실사용(수십억)의 10만 배라 정상 사용량을 자르지 않는다.
+    /// `Int.max` 로 잡지 않는 이유: 클램프 자체는 되지만 `output + thoughts` 처럼 **파싱 직후 더하는**
+    /// 지점에서 다시 오버플로 트랩이 난다. 이 값끼리 여러 번 더해도 Int64 안에 머무는 상한이어야 한다.
+    static let maxParsedTokenValue = 1_000_000_000_000_000
+
+    /// 숫자를 안전한 Int 로. 값이 없거나 숫자가 아니면 0.
+    ///
+    /// 예전엔 `Int(d)` 를 직접 불러 `1e30` 같은 값에서 **트랩(크래시)** 했다. 사용량 로그는 앱 밖에서
+    /// 오고(손편집·전송 손상·업스트림 버그) 그 파일은 디스크에 남으므로, 한 번 들어오면 새로고침마다
+    /// 그리고 재기동마다 다시 죽는다 — 사용자가 파일을 손으로 지우기 전까지 앱을 못 쓴다.
+    /// 클램프는 크래시보다 안전한 열화다. `intOrNil` 과 같은 규칙을 쓰되 부재를 0 으로 접는다.
+    private static func intValue(_ v: Any?) -> Int { intOrNil(v) ?? 0 }
 
     /// 숫자가 실제로 있을 때만 값을 준다. JSON `null`(=`NSNull`)·문자열·키 부재는 모두 nil —
     /// `usage["x"] != nil` 로 존재를 판정하면 null 이 "값 있음"으로 통과해 0 으로 뭉개진다.
@@ -566,7 +1249,8 @@ enum LocalUsageReader {
     private static func intOrNil(_ v: Any?) -> Int? {
         guard let d = doubleOrNil(v) else { return nil }
         guard d > 0 else { return 0 }                            // 음수 토큰은 없다
-        return d >= Double(Int.max) ? Int.max : Int(d)            // 비정상 큰 값에 트랩되지 않게
+        // 비정상 큰 값에 트랩되지 않게. 상한이 maxParsedTokenValue 인 이유는 그 정의 주석 참조.
+        return d >= Double(maxParsedTokenValue) ? maxParsedTokenValue : Int(d)
     }
 
     private static func boolValue(_ v: Any?) -> Bool {

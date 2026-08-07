@@ -373,6 +373,11 @@ struct L {
           "No Claude credential found. Sign in to Claude Code to see limits. If you only use Codex you can ignore this.",
           "Claude の認証情報が見つかりません。Claude Code にサインインすると上限が表示されます。Codex のみなら無視して構いません。")
     }
+    var limitRefreshReauthNeeded: String {
+        t("Claude 자격증명에 계정 로그인 정보가 없어요. Claude Code 에서 `/login` 으로 다시 로그인하면 한도가 표시됩니다.",
+          "Your Claude credential has no account sign-in. Run `/login` in Claude Code to sign in again and limits will appear.",
+          "Claude の認証情報にアカウントのサインインが含まれていません。Claude Code で `/login` を実行して再度サインインすると上限が表示されます。")
+    }
     var limitRefreshGeneric: String {
         t("Claude 한도 조회에 실패했어요. 잠시 후 다시 시도하세요.",
           "Couldn't fetch Claude limits. Please try again shortly.",
@@ -474,12 +479,38 @@ struct L {
     var shopPriceLabel: String { t("가격", "Price", "価格") }
     var ownedAlready: String { t("보유 중", "Owned", "所持済み") }
     var shinyCharmEffectHint: String { t("이로치 확률 ↑ · 적용 중", "Shiny rate ↑ · active", "色違い率↑ · 適用中") }
-    // 새 알 (리롤)
-    var freshEggName: String { t("포켓몬 알", "Pokémon Egg", "ポケモンのタマゴ") }
-    var freshEggDescription: String { t("지금 포켓몬을 놓아주고 새 알로 다시 시작해요.",
-                                        "Send off your current Pokémon and start fresh with a new egg.",
-                                        "いまのポケモンを手放して新しいタマゴからやり直します。") }
-    func freshEggConfirm(_ name: String) -> String { t("\(name)을(를) 놓아주고 새 알로 바꿀까요?", "Send off \(name) for a fresh egg?", "\(name) を手放して新しいタマゴにしますか？") }
+    // 알 (리롤) — tier = 보증 등급 하한(nil = 보증 없는 기본 알).
+    // 이름은 `rarityLabel(r) + " 알"` 식 조합으로 만들지 않는다: 한국어·영어는 맞아떨어져도 일본어에서
+    // 조사가 어긋난다(レアのタマゴ vs 자연스러운 レアなタマゴ). 세 언어를 명시 트리플로 적는다.
+    func eggName(_ tier: Rarity?) -> String {
+        switch tier {
+        case nil, .common?: return t("포켓몬 알", "Pokémon Egg", "ポケモンのタマゴ")
+        case .uncommon?:  return t("고급 알", "Uncommon Egg", "アンコモンのタマゴ")
+        case .rare?:      return t("희귀 알", "Rare Egg", "レアのタマゴ")
+        case .legendary?: return t("전설 알", "Legendary Egg", "でんせつのタマゴ")   // 미판매(FreshEgg.shopTiers)
+        }
+    }
+    func eggDescription(_ tier: Rarity?) -> String {
+        guard let tier, tier != .common else {
+            return t("지금 포켓몬을 놓아주고 새 알로 다시 시작해요.",
+                     "Send off your current Pokémon and start fresh with a new egg.",
+                     "いまのポケモンを手放して新しいタマゴからやり直します。")
+        }
+        let r = rarityLabel(tier)
+        return t("지금 포켓몬을 놓아주고 \(r) 이상이 확정으로 나오는 알을 받아요.",
+                 "Send off your current Pokémon for an egg guaranteed to hatch \(r) or better.",
+                 "いまのポケモンを手放して \(r) 以上が確定で孵るタマゴをもらいます。")
+    }
+    /// 인큐베이션 중 표시하는 보증 배지 — 어떤 알을 품고 있는지 한 줄로.
+    func eggGuaranteeHint(_ tier: Rarity) -> String {
+        let r = rarityLabel(tier)
+        return t("\(r) 이상 확정", "\(r) or better", "\(r) 以上確定")
+    }
+    func eggConfirm(_ monName: String, _ eggName: String) -> String {
+        t("\(monName)을(를) 놓아주고 \(eggName)(으)로 바꿀까요?",
+          "Send off \(monName) for the \(eggName)?",
+          "\(monName) を手放して \(eggName) にしますか？")
+    }
     var freshEggShinyWarning: String { t("⚠️ 이로치 포켓몬이에요! 정말 놓아줄까요?", "⚠️ This one is shiny! Really send it off?", "⚠️ 色違いです！本当に手放しますか？") }
     var freshEggDiscardShiny: String { t("이로치 놓아주기", "Send shiny off", "手放す") }
 
