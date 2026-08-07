@@ -261,36 +261,71 @@ final class DittoDisguiseSpriteTests: XCTestCase {
         XCTAssertEqual(pixels(after, where: white), 0, "흰 하이라이트가 남아 있다 — 눈에 초점이 살아 있다")
     }
 
-    /// **눈의 생김새는 그대로다.** 테두리를 덮으면 눈이 뭉개져 얼굴이 망가진다 —
-    /// 지우고 새로 그리던 예전 방식이 정확히 그래서 "네모"로 보였다.
-    func testTheEyeShapeSurvives() throws {
+    /// **메타몽 얼굴의 구조가 실제로 나와야 한다** — 위쪽에 작은 점 둘, 그 아래 넓은 입.
+    /// 이게 이 그림이 존재하는 이유다. 그냥 어두운 픽셀이 늘었는지만 보면, 눈을 시커멓게 칠하기만
+    /// 해도 통과한다 — 실제로 그렇게 만들었다가 "벌레 같지 메타몽이 아니다"라는 지적을 받았다.
+    func testTheFaceHasDittosShape() throws {
+        let after = try XCTUnwrap(DittoDisguiseSprite.disguise(face()))
+        // 줄마다 가장 긴 어두운 가로 연속 길이를 잰다.
+        var runs: [Int: Int] = [:]
+        let rep = NSBitmapImageRep(cgImage: after)
+        let bytes = try XCTUnwrap(rep.bitmapData)
+        let bpp = rep.bitsPerPixel / 8
+        for y in 0..<rep.pixelsHigh {
+            var run = 0, best = 0
+            for x in 0..<rep.pixelsWide {
+                let o = y * rep.bytesPerRow + x * bpp
+                let dark = Int(bytes[o + 3]) > 128 && Int(bytes[o]) < 150
+                    && Int(bytes[o + 1]) < 150 && Int(bytes[o + 2]) < 170
+                run = dark ? run + 1 : 0
+                best = max(best, run)
+            }
+            runs[y] = best
+        }
+        let mouth = try XCTUnwrap(runs.filter { $0.value >= 4 }.max { $0.value < $1.value },
+                                  "넓은 입이 없다 — 줄별 최대 길이: \(runs.sorted { $0.key < $1.key })")
+        XCTAssertGreaterThanOrEqual(mouth.value, 4, "입이 좁아 점 몇 개로 보인다")
+        // 눈은 입보다 **위에** 있고 **좁아야** 한다.
+        let eyeRows = runs.filter { $0.key < mouth.key && $0.value > 0 }
+        XCTAssertFalse(eyeRows.isEmpty, "입 위에 눈이 없다")
+        XCTAssertLessThan(try XCTUnwrap(eyeRows.map(\.value).max()), mouth.value,
+                          "눈이 입만큼 넓다 — 점이 아니라 덩어리로 보인다")
+    }
+
+    /// **원래 눈은 자리째 사라진다.** 눈두덩 그늘이 남으면 원래 눈의 윤곽이 그대로 보이고,
+    /// 그 위에 메타몽 눈을 얹으면 눈이 둘로 겹쳐 보인다(사용자 지적).
+    func testTheOriginalEyeIsGone() throws {
         let before = face()
         let expected = try lineColor(of: before)
         let after = try XCTUnwrap(DittoDisguiseSprite.disguise(before))
         let outline = { (r: Int, g: Int, b: Int, a: Int) in a > 128 && [r, g, b] == expected }
-        // 선은 늘어야 한다(홍채가 이 색으로 덮이므로) — 줄었다면 테두리를 지운 것이다.
-        XCTAssertGreaterThan(pixels(after, where: outline), pixels(before, where: outline),
-                             "홍채가 선 색으로 안 덮였다")
-        let opaque = { (_: Int, _: Int, _: Int, a: Int) in a > 128 }
-        XCTAssertEqual(pixels(after, where: opaque), pixels(before, where: opaque),
-                       "불투명 픽셀 수가 달라졌다 — 실루엣을 건드렸다")
+        XCTAssertLessThan(pixels(after, where: outline), pixels(before, where: outline),
+                          "원래 눈 테두리가 그대로 남아 있다")
     }
 
-    /// **선 색은 뮤에게서 빌린다.** 순수한 검정으로 덮으면 얹은 티가 나고, 스프라이트마다 선 색이
+    /// 몸의 실루엣은 그대로다 — 지우는 범위를 잘못 잡으면 머리에 구멍이 뚫린다.
+    func testTheBodyKeepsItsShape() throws {
+        let before = face()
+        let after = try XCTUnwrap(DittoDisguiseSprite.disguise(before))
+        let opaque = { (_: Int, _: Int, _: Int, a: Int) in a > 128 }
+        XCTAssertEqual(pixels(after, where: opaque), pixels(before, where: opaque),
+                       "불투명 픽셀 수가 달라졌다 — 몸에 구멍이 뚫렸거나 넘쳤다")
+    }
+
+    /// **선 색은 뮤에게서 빌린다.** 순수한 검정으로 그리면 얹은 티가 나고, 스프라이트마다 선 색이
     /// 다르다(움직이는 쪽 (98,80,87) · 정적 쪽 (90,41,82) — 실측).
     ///
     /// **기대 색은 그림에서 읽는다.** 그릴 때 지정한 값과 비교하면 안 된다 — `NSBitmapImageRep` 가
     /// 색공간을 옮기면서 값이 달라진다(실측: (98,80,87) 로 그린 픽셀이 (118,99,106) 으로 읽혔다).
-    func testTheEyesAreFilledWithMewsOwnLineColor() throws {
+    func testTheFaceIsDrawnInMewsOwnLineColor() throws {
         for line in [(r: 98, g: 80, b: 87), (r: 90, g: 41, b: 82)] {
             let before = face(line: line)
             let expected = try lineColor(of: before)
             let after = try XCTUnwrap(DittoDisguiseSprite.disguise(before))
-            XCTAssertGreaterThan(pixels(after) { r, g, b, a in a > 128 && [r, g, b] == expected },
-                                 pixels(before) { r, g, b, a in a > 128 && [r, g, b] == expected },
-                                 "눈이 그림의 선 색(\(expected))으로 안 덮였다")
+            XCTAssertGreaterThan(pixels(after) { r, g, b, a in a > 128 && [r, g, b] == expected }, 6,
+                                 "얼굴이 그림의 선 색(\(expected))으로 안 그려졌다")
             XCTAssertEqual(pixels(after) { r, g, b, a in a > 128 && r < 60 && g < 60 && b < 60 }, 0,
-                           "순수 검정으로 덮었다 — 뮤의 선 색을 안 썼다")
+                           "순수 검정으로 그렸다 — 뮤의 선 색을 안 썼다")
         }
     }
 
