@@ -948,3 +948,56 @@ final class SpriteTrimCostTests: XCTestCase {
         XCTAssertFalse(plain.fillFrame)
     }
 }
+
+/// EPX 확대 보관함 — 같은 프레임을 다시 그릴 때 확대를 건너뛴다.
+/// GIF 는 같은 프레임을 계속 반복하므로, 안 하면 반복마다 같은 계산을 다시 한다.
+@MainActor
+final class UpscaleCacheTests: XCTestCase {
+    private func image() -> NSImage {
+        let image = NSImage(size: NSSize(width: 8, height: 8))
+        image.lockFocus(); NSColor.red.setFill(); NSRect(x: 0, y: 0, width: 8, height: 8).fill()
+        image.unlockFocus()
+        return image
+    }
+
+    /// 두 번째부터는 안 만든다 — 이게 전부다.
+    func testTheSecondLookupDoesNotRebuild() {
+        let cache = UpscaleCache()
+        var built = 0
+        let first = cache.image(0) { built += 1; return self.image() }
+        let second = cache.image(0) { built += 1; return self.image() }
+        XCTAssertEqual(built, 1, "같은 자리를 다시 만들었다")
+        XCTAssertTrue(first === second)
+    }
+
+    /// 자리가 다르면 따로 만든다 — 안 그러면 모든 프레임이 첫 프레임으로 보인다.
+    func testDifferentFramesGetDifferentImages() {
+        let cache = UpscaleCache()
+        let a = cache.image(0) { self.image() }
+        let b = cache.image(1) { self.image() }
+        XCTAssertFalse(a === b)
+        XCTAssertEqual(cache.count, 2)
+    }
+
+    /// **종이 바뀌면 비워야 한다.** 안 비우면 옛 개체의 확대본이 새 개체 자리에 그려진다 —
+    /// 프레임 번호가 키라서 다른 종의 0번과 이 종의 0번이 같은 자리를 쓴다.
+    func testClearingDropsEverything() {
+        let cache = UpscaleCache()
+        _ = cache.image(0) { self.image() }
+        cache.clear()
+        XCTAssertEqual(cache.count, 0)
+        var rebuilt = false
+        _ = cache.image(0) { rebuilt = true; return self.image() }
+        XCTAssertTrue(rebuilt, "비운 뒤에도 옛 확대본이 남아 있다")
+    }
+
+    /// 종이 바뀔 때 실제로 비우는지 — 보관함만 테스트하면 뷰가 안 비워도 통과한다.
+    func testTheViewClearsTheCacheWhenTheSpeciesChanges() throws {
+        let source = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("Sources/PokeDexBar/UI/CompanionView.swift")
+        let text = try String(contentsOf: source, encoding: .utf8)
+        XCTAssertTrue(text.contains("upscales.clear()"),
+                      "종이 바뀌어도 확대본을 안 비운다 — 옛 개체 그림이 남는다")
+    }
+}

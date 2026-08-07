@@ -34,6 +34,30 @@ struct SpriteSubject: Equatable {
 
 /// 스프라이트 1개(런타임 로드 + 캐시). 없으면 알 글리프. bob 으로 가벼운 상하 움직임.
 /// animated=true 면 Gen-V GIF 프레임을 순환(미지원/오프라인이면 정적+bob 으로 폴백).
+/// EPX 확대 결과 보관함.
+///
+/// **참조 타입인 이유**: `body` 를 그리는 도중에 채워야 하는데, `@State` 값 타입을 body 에서
+/// 고치면 SwiftUI 가 "업데이트 중 상태 변경"으로 경고하고 갱신이 한 번 더 돈다. 클래스 내부를
+/// 바꾸는 것은 뷰 identity 를 안 건드려서 그 문제가 없다.
+@MainActor final class UpscaleCache {
+    private var images: [Int: NSImage] = [:]
+
+    /// 이 자리의 확대본. 없으면 만들어 보관한다.
+    func image(_ key: Int, make: () -> NSImage) -> NSImage {
+        if let hit = images[key] { return hit }
+        let made = make()
+        images[key] = made
+        return made
+    }
+
+    /// 종·폼이 바뀌면 비운다 — 안 그러면 옛 개체의 확대본이 새 개체 자리에 그려진다.
+    func clear() { images.removeAll() }
+
+    #if DEBUG
+    var count: Int { images.count }
+    #endif
+}
+
 struct SpriteView: View {
     let speciesID: Int?
     /// 메가·거다이맥스 폼의 Showdown 슬러그. nil 이면 보통 모습.
@@ -72,6 +96,8 @@ struct SpriteView: View {
     @State private var staticTrim: CGRect?
     @State private var frameTrim: CGRect?
     @State private var frames: [(image: NSImage, delay: TimeInterval)] = []
+    /// EPX 확대 결과 보관함 — 같은 프레임을 다시 그릴 때 확대를 건너뛴다.
+    @State private var upscales = UpscaleCache()
     @State private var frameIndex = 0
     /// 움직이는 스프라이트를 기다리는 중인가. **기다리는 동안에는 정적 스프라이트를 안 그린다** —
     /// 정적으로 먼저 떴다가 움직이는 것으로 바뀌는 순간이 어색하다는 지적을 받았다.
@@ -141,18 +167,28 @@ struct SpriteView: View {
 
     /// 그릴 이미지 — 투명 여백을 잘라낸 뒤 확대한다. 자르지 않으면 종마다 여백 비율이 달라
     /// 작은 포켓몬이 칸 안에서 작게 남는다(`SpriteTrim` 주석 참조).
-    private func drawable(_ image: NSImage, trim: CGRect?) -> NSImage {
-        guard fillFrame, let trim else { return upscaled(image) }
-        return upscaled(SpriteTrim.cropped(image, to: trim))
+    /// - Parameter key: 확대 결과 보관함의 자리. GIF 는 프레임 번호, 정적 이미지는 -1.
+    private func drawable(_ image: NSImage, trim: CGRect?, key: Int) -> NSImage {
+        guard fillFrame, let trim else { return upscaled(image, key: key) }
+        return upscaled(SpriteTrim.cropped(image, to: trim), key: key)
     }
 
     /// 표시 크기에 맞는 EPX 패스 수만큼 확대한 이미지. 토글이 꺼져 있으면 원본 그대로.
-    private func upscaled(_ image: NSImage) -> NSImage {
+    ///
+    /// **결과를 보관한다**(`upscales`). 확대는 그릴 때마다 다시 돌던 계산인데, GIF 는 같은
+    /// 프레임을 계속 반복하므로 한 번 만든 것을 다시 쓰면 된다. 실측: 작은 스프라이트가
+    /// 프레임당 1.2ms(60×60 → 1패스). 큰 스프라이트는 표시 크기가 원본과 비슷해 0패스라
+    /// 애초에 확대가 안 돌고, 그때는 원본 참조를 그대로 보관하므로 메모리도 안 는다.
+    ///
+    /// 상시 떠 있는 플로팅 펫과 칸이 많은 박스 그리드가 이 절약을 가장 크게 받는다.
+    private func upscaled(_ image: NSImage, key: Int) -> NSImage {
         guard antialias else { return image }
-        let passes = PixelScale.epxPasses(source: image.size,
-                                          in: CGSize(width: size, height: size),
-                                          displayScale: NSScreen.main?.backingScaleFactor ?? 2)
-        return passes > 0 ? PixelUpscaler.epx(image, passes: passes) : image
+        return upscales.image(key) {
+            let passes = PixelScale.epxPasses(source: image.size,
+                                              in: CGSize(width: size, height: size),
+                                              displayScale: NSScreen.main?.backingScaleFactor ?? 2)
+            return passes > 0 ? PixelUpscaler.epx(image, passes: passes) : image
+        }
     }
 
     /// 전이 결과를 @State 로 되돌린다(State 세터는 nonmutating). 값이 그대로면 쓰지 않는다 —
@@ -167,7 +203,8 @@ struct SpriteView: View {
         Group {
             if !frames.isEmpty {
                 // GIF 애니메이션 경로 — 현재 프레임만 렌더
-                Image(nsImage: drawable(frames[frameIndex % frames.count].image, trim: frameTrim))
+                Image(nsImage: drawable(frames[frameIndex % frames.count].image, trim: frameTrim,
+                                        key: frameIndex % frames.count))
                     .resizable().interpolation(.none)
                     .scaledToFit()   // 스프라이트마다 원본 비율이 달라 — 정사각형에 늘리면 찌부된다
                     .frame(width: size, height: size)
@@ -176,7 +213,7 @@ struct SpriteView: View {
                 // 잠시 뒤 움직이는 스프라이트로 바뀌면서 그 교체가 눈에 띈다.
                 Color.clear.frame(width: size, height: size)
             } else if let img {
-                Image(nsImage: drawable(img, trim: staticTrim))
+                Image(nsImage: drawable(img, trim: staticTrim, key: -1))
                     .renderingMode(silhouette ? .template : .original)
                     .resizable().interpolation(.none)
                     .scaledToFit()
@@ -198,6 +235,7 @@ struct SpriteView: View {
             frames = []
             frameIndex = 0
             frameTrim = nil
+            upscales.clear()   // 다른 종의 확대본을 이어 쓰면 엉뚱한 그림이 나온다
             // 종·폼이 바뀌면 다시 판단한다 — 새 종의 GIF 는 캐시에 없을 수 있다.
             awaitingAnimation = Self.needsToWait(speciesID: speciesID, form: form,
                                                  animated: animated, shiny: shiny)
