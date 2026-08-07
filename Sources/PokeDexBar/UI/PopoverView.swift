@@ -238,21 +238,20 @@ struct PopoverView: View {
                     }
                     Text(partner.nature.name(player.language))
                         .font(.caption2).foregroundStyle(.secondary)
+                    // 경험치는 강조색 — 상세 화면과 같은 색이어야 같은 뜻으로 읽힌다.
+                    // 주황은 사탕(`CandyMeter`)에 넘겼다: 둘 다 주황 5pt 이던 시절엔
+                    // 어느 쪽이 무엇인지 구분이 안 됐다.
                     ProgressView(value: BoxTabView.progress(partner))
-                        .controlSize(.small).tint(.orange)
+                        .progressViewStyle(.linear).frame(height: 5)
                     // 리본이 있으면 **지금 무엇을 채우고 있는지**를 경험치 바로 아래에 둔다.
                     // 둘 다 이 파트너가 채우는 것이라 같은 층위이고, 예전에는 홈 어디에도
                     // 리본이 안 보여 사탕이 언제 나오는지 알 길이 없었다.
                     if let ribbon = partner.ribbon(at: player.currentDate()) {
-                        HStack(spacing: 5) {
-                            Text(l.ribbonNextCandy)
-                                .font(.system(size: 9)).foregroundStyle(.secondary)
-                            ProgressView(value: IndividualDetailView.candyProgress(partner, ribbon))
-                                .controlSize(.small).tint(.orange)
-                            Text(TokenFormatter.compact(
-                                max(0, ribbon.tokensPerCandy - partner.candyProgress)))
-                                .font(.system(size: 9)).monospacedDigit().foregroundStyle(.tertiary)
-                        }
+                        CandyMeter(
+                            progress: IndividualDetailView.candyProgress(partner, ribbon),
+                            remaining: TokenFormatter.compact(
+                                max(0, ribbon.tokensPerCandy - partner.candyProgress)),
+                            label: l.ribbonNextCandy)
                     }
                     // 이 아이와 얼마나, 얼마만큼 — 경험치 게이지가 못 보여주는 누적을 여기서 보여준다.
                     HStack(spacing: 10) {

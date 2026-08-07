@@ -746,3 +746,42 @@ final class CandyProgressDisplayTests: XCTestCase {
         XCTAssertEqual(IndividualDetailView.candyProgress(individual(progress: carried), .lifelong), 1)
     }
 }
+
+/// [회귀] 경험치 바와 사탕 게이지가 **서로 다른 물건으로 보여야** 한다. 처음엔 둘 다 같은
+/// `ProgressView` 였고 홈에서는 색까지 주황으로 같아서, 어느 쪽이 무엇인지 읽히지 않았다.
+/// 색·높이·폭 셋 중 하나만 갈라도 부족해서 세 가지를 한꺼번에 나눴다.
+@MainActor
+final class ExpVersusCandyHierarchyTests: XCTestCase {
+    /// 사탕 게이지는 경험치 바(5pt)보다 확실히 얇아야 한다 — 1pt 차이는 눈에 안 띈다.
+    func testTheCandyMeterIsThinnerThanTheExpBar() {
+        XCTAssertLessThanOrEqual(CandyMeter.height, 3)
+        XCTAssertLessThan(CandyMeter.height, 5, "경험치 바와 두께가 같아지면 다시 헷갈린다")
+    }
+
+    /// 두 화면이 같은 부품을 써야 한다 — 홈과 상세가 따로 그리면 한쪽만 고쳐지고 갈라진다.
+    func testBothScreensRenderTheSameMeter() {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("meter-\(UUID().uuidString).json")
+        let store = PlayerStore(fileURL: url, rng: SeededRNG(seed: 1),
+                                now: { Date(timeIntervalSince1970: 0) })
+        var pikachu = Individual(baseID: 25, speciesID: 25, pathIDs: [25], nature: .serious,
+                                 obtainedAt: Date(timeIntervalSince1970: 0), grade: .rare)
+        pikachu.candyProgress = Ribbon.lifelong.tokensPerCandy / 4
+        pikachu.partnerSeconds = Ribbon.lifelong.requiredPartnerSeconds
+        store.addForTesting(pikachu)
+        store.setPartner(pikachu.id)
+
+        // 같은 계산을 쓴다 — 화면마다 다른 분모를 쓰면 같은 개체가 두 값을 갖게 된다.
+        let shown = store.state.box[0]
+        XCTAssertEqual(IndividualDetailView.candyProgress(shown, .lifelong), 0.25, accuracy: 0.01)
+
+        let host = NSHostingView(rootView: CandyMeter(progress: 0.25, remaining: "15M",
+                                                      label: "다음 사탕")
+            .frame(width: PopoverMetrics.contentWidth))
+        host.layoutSubtreeIfNeeded()
+        XCTAssertGreaterThan(host.fittingSize.height, 0)
+        // 한 줄에 들어가야 한다 — 두 줄이 되면 경험치 블록만큼 자리를 먹는다.
+        XCTAssertLessThan(host.fittingSize.height, 20,
+                          "사탕 줄이 \(Int(host.fittingSize.height))pt 다 — 한 줄을 넘었다")
+    }
+}

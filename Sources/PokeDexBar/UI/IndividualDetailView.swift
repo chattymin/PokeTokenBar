@@ -140,16 +140,12 @@ struct IndividualDetailView: View {
         }
     }
 
-    /// 다음 사탕까지 얼마나 왔나. 홈 파트너 카드와 같은 모양이라 두 화면이 같은 말을 한다.
-    @ViewBuilder
+    /// 다음 사탕까지 얼마나 왔나. 홈 파트너 카드와 같은 부품을 쓴다 — 두 화면이 같은 말을 한다.
     private func candyProgressRow(_ ribbon: Ribbon) -> some View {
-        HStack(spacing: 5) {
-            Text(l.ribbonNextCandy).font(.system(size: 9)).foregroundStyle(.secondary)
-            ProgressView(value: Self.candyProgress(individual, ribbon))
-                .controlSize(.small).tint(.orange)
-            Text(TokenFormatter.compact(max(0, ribbon.tokensPerCandy - individual.candyProgress)))
-                .font(.system(size: 9)).monospacedDigit().foregroundStyle(.tertiary)
-        }
+        CandyMeter(progress: Self.candyProgress(individual, ribbon),
+                   remaining: TokenFormatter.compact(
+                       max(0, ribbon.tokensPerCandy - individual.candyProgress)),
+                   label: l.ribbonNextCandy)
     }
 
     /// 0~1. 리본 단계가 올라 필요량이 줄면 이미 쌓은 진행분이 100% 를 넘을 수 있어 자른다.
