@@ -111,6 +111,17 @@ struct IndividualDetailView: View {
                     Text(l.ribbonCandyRate(TokenFormatter.compact(ribbon.tokensPerCandy)))
                         .font(.system(size: 9)).foregroundStyle(.secondary)
                 }
+                // 리본이 하는 일은 둘이다 — 사탕만 적어 두면 도구가 어디서 오는지 알 수 없다.
+                let targets = store.forageTargets(individual)
+                if targets.isEmpty {
+                    Text(l.ribbonForageDone).font(.system(size: 9)).foregroundStyle(.tertiary)
+                } else {
+                    Text(l.ribbonForageRate(ribbon.foragePermille / 10))
+                        .font(.system(size: 9)).foregroundStyle(.secondary)
+                    Text(l.ribbonForageTargets(Self.targetSummary(targets, l)))
+                        .font(.system(size: 9)).foregroundStyle(.tertiary)
+                        .lineLimit(2)
+                }
             } else {
                 Text(l.ribbonNone).font(.system(size: 9)).foregroundStyle(.tertiary)
             }
@@ -120,6 +131,13 @@ struct IndividualDetailView: View {
                     .font(.system(size: 9)).foregroundStyle(.tertiary)
             }
         }
+    }
+
+    /// 찾는 도구 목록을 한 줄로. 아르세우스는 17개라 전부 적으면 카드가 목록에 잡아먹힌다 —
+    /// 앞의 둘만 적고 나머지는 개수로 접는다.
+    static func targetSummary(_ names: [String], _ l: L) -> String {
+        guard names.count > 2 else { return names.joined(separator: ", ") }
+        return names.prefix(2).joined(separator: ", ") + " " + l.ribbonForageMore(names.count - 2)
     }
 
     private func fact(_ title: String, _ value: String) -> some View {

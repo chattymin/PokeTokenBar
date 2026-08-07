@@ -134,7 +134,24 @@ struct L {
     var detailPartnerTime: String { t("함께한 시간", "Time together", "一緒の時間") }
     /// 리본 — 오래 함께한 개체가 파트너일 때 토큰을 쓸수록 경험치 사탕을 만든다.
     func ribbonCandyRate(_ tokens: String) -> String {
-        t("\(tokens)마다 사탕 1개", "1 candy per \(tokens)", "\(tokens)ごとにアメ1個")
+        t("토큰 \(tokens)마다 사탕 1개", "1 candy per \(tokens) tokens", "トークン\(tokens)ごとにアメ1個")
+    }
+    /// 리본이 하는 일은 둘이다 — 사탕을 만들고, **그때마다 도구를 찾는다**. 예전에는 사탕만
+    /// 적혀 있어 리본이 사탕 공장으로만 읽혔고, 도구가 어디서 오는지 화면에 없었다.
+    func ribbonForageRate(_ percent: Int) -> String {
+        t("사탕이 나올 때마다 도구를 찾아요 (\(percent)%)",
+          "Each candy is also a \(percent)% chance to find an item",
+          "アメが出るたびに道具をさがします(\(percent)%)")
+    }
+    /// 지금 무엇을 노리고 있나 — 자기에게 필요한 것만 물어 오므로 대상이 정해져 있다.
+    func ribbonForageTargets(_ names: String) -> String {
+        t("찾는 중: \(names)", "Looking for: \(names)", "さがしもの: \(names)")
+    }
+    func ribbonForageMore(_ count: Int) -> String {
+        t("외 \(count)개", "and \(count) more", "ほか\(count)個")
+    }
+    var ribbonForageDone: String {
+        t("필요한 도구를 다 모았어요", "It has found every item it needs", "ひつような道具はすべて集めました")
     }
     func ribbonNext(_ name: String, _ remaining: String) -> String {
         t("\(remaining) 더 함께하면 \(name)", "\(name) in \(remaining) more together",

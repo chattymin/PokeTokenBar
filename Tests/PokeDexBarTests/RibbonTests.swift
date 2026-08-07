@@ -296,3 +296,67 @@ final class RibbonArtworkTests: XCTestCase {
         }
     }
 }
+
+/// 리본 화면이 **하는 일 둘을 다 말하는지** — 예전에는 "20M마다 사탕 1개"만 적혀 있어
+/// 리본이 사탕 공장으로만 읽혔고, 도구가 어디서 오는지는 화면 어디에도 없었다.
+@MainActor
+final class RibbonForageDisclosureTests: XCTestCase {
+    private func makeStore(_ species: Int) -> (PlayerStore, Individual) {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ribbon-ui-\(UUID().uuidString).json")
+        let store = PlayerStore(fileURL: url, rng: SeededRNG(seed: 1),
+                                now: { Date(timeIntervalSince1970: 0) })
+        let i = Individual(baseID: species, speciesID: species, pathIDs: [species],
+                           nature: .serious, obtainedAt: Date(timeIntervalSince1970: 0),
+                           grade: .common)
+        store.addForTesting(i)
+        return (store, i)
+    }
+
+    /// 진화 도구와 폼 도구를 **둘 다** 센다 — 한쪽만 세면 그 종은 "다 모았다"로 잘못 읽힌다.
+    func testTargetsCoverBothEvolutionAndFormItems() {
+        let (store, pikachu) = makeStore(25)          // 번개의돌(진화) + 변장 트렁크(폼)
+        let targets = store.forageTargets(pikachu)
+        XCTAssertTrue(targets.contains(EvolutionItem.thunderStone.label(.ko)))
+        XCTAssertTrue(targets.contains(FormItem.costumeTrunk.label(.ko)))
+    }
+
+    /// 이미 가진 건 빠진다 — 안 빠지면 다 모으고도 영원히 "찾는 중"으로 남는다.
+    func testOwnedItemsDropOutOfTheTargets() {
+        let (store, pikachu) = makeStore(25)
+        store.grantForTesting(EvolutionItem.thunderStone)
+        store.grantForTesting(FormItem.costumeTrunk)
+        XCTAssertTrue(store.forageTargets(pikachu).isEmpty)
+    }
+
+    /// 도구가 아예 없는 종은 처음부터 빈 목록 — 화면은 "다 모았어요"를 낸다.
+    func testSpeciesWithNothingToFindHasNoTargets() {
+        let (store, bulbasaur) = makeStore(1)
+        XCTAssertTrue(store.forageTargets(bulbasaur).isEmpty)
+    }
+
+    /// 아르세우스는 17개라 전부 적으면 카드를 잡아먹는다 — 둘만 적고 접는다.
+    func testLongTargetListsAreFolded() {
+        let l = L(.ko)
+        XCTAssertEqual(IndividualDetailView.targetSummary(["가", "나"], l), "가, 나")
+        let folded = IndividualDetailView.targetSummary(["가", "나", "다", "라"], l)
+        XCTAssertTrue(folded.hasPrefix("가, 나"), folded)
+        XCTAssertTrue(folded.contains("2"), "남은 개수를 안 알려준다: \(folded)")
+        XCTAssertFalse(folded.contains("다"), "접혔어야 할 항목이 그대로 있다")
+    }
+
+    /// 표기 확률은 실제 확률에서 나와야 한다 — 밸런스를 고치면 문구도 같이 움직인다.
+    func testTheShownPercentComesFromTheRibbon() {
+        for ribbon in Ribbon.allCases {
+            let shown = L(.ko).ribbonForageRate(ribbon.foragePermille / 10)
+            XCTAssertTrue(shown.contains("\(ribbon.foragePermille / 10)%"), shown)
+        }
+    }
+
+    func testForageCopyIsLocalized() {
+        for text in [L(.ko).ribbonForageDone, L(.en).ribbonForageDone, L(.ja).ribbonForageDone] {
+            XCTAssertFalse(text.isEmpty)
+        }
+        XCTAssertEqual(Set([L(.ko), L(.en), L(.ja)].map { $0.ribbonForageRate(25) }).count, 3)
+    }
+}

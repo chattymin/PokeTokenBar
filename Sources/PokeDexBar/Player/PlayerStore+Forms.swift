@@ -75,3 +75,22 @@ extension PlayerStore {
         return true
     }
 }
+
+/// 리본 파트너가 **지금 무엇을 찾고 있나**. 화면이 이걸 말해 줘야 리본이 사탕 공장으로만
+/// 읽히지 않는다 — 채집은 사탕이 나올 때 함께 굴러가는데, 그 사실이 어디에도 안 적혀 있었다.
+extension PlayerStore {
+    /// 이 개체가 아직 안 가진, 자기가 쓸 수 있는 도구들의 이름. 다 모았으면 빈 배열.
+    /// 진화 도구가 먼저 오고 폼 도구가 뒤에 온다 — 진화가 이 게임의 기본 동작이라 급하다.
+    func forageTargets(_ individual: Individual) -> [String] {
+        let evolution = ForageCatalog.needs(speciesID: individual.speciesID,
+                                            region: individual.region)
+            .filter { count(of: $0) == 0 }
+            .map { $0.label(language) }
+        let forms = FormForageCatalog.items(speciesID: individual.speciesID,
+                                            region: individual.region)
+            .map(\.item)
+            .filter { count(of: $0) == 0 }
+            .map { $0.label(language) }
+        return evolution + forms
+    }
+}
