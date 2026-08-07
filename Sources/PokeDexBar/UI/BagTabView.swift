@@ -99,7 +99,7 @@ struct BagTabView: View {
             .filter { store.count(of: $0) > 0 }
             .map { Row(name: $0.label(store.language), count: 0) }
         return [
-            .init(title: store.l.bagConsumables, rows: consumables, total: nil),
+            .init(title: ShopCategory.consumable.title(store.language), rows: consumables, total: nil),
             .init(title: ShopCategory.charm.title(store.language), rows: charms, total: nil),
             .init(title: store.l.shopEvolutionSection, rows: evolution,
                   total: EvolutionItem.allCases.count),

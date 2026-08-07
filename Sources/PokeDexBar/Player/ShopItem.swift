@@ -1,14 +1,19 @@
 import Foundation
 
-/// 상점 진열 분류. **화면이 아니라 품목이 자기 자리를 안다** — 뷰에 목록을 손으로 나열하면
+/// 품목 분류. **화면이 아니라 품목이 자기 자리를 안다** — 뷰에 목록을 손으로 나열하면
 /// 품목을 더할 때 어느 칸에 넣을지 매번 다시 정해야 하고, 빠뜨리면 조용히 안 팔린다.
+///
+/// 기준은 **쓰면 없어지는가**다. 예전에는 상점이 사탕·모습 바꾸기·부적 셋으로, 가방이
+/// 소모품·부적 둘로 나뉘어 같은 물건이 화면마다 다른 칸에 있었다. 사탕과 메가스톤은 종류가
+/// 달라 보여도 사용자에게는 똑같이 "사면 없어지는 것"이라, 그 하나가 실제로 쓰이는 구분이다.
+///
+/// 이름은 여기 한 곳에만 둔다 — 상점과 가방이 각자 문구를 들고 있으면 다시 갈라진다.
 enum ShopCategory: Int, CaseIterable, Sendable {
-    case candy, form, charm
+    case consumable, charm
 
     func title(_ lang: AppLanguage) -> String {
         let names: (String, String, String) = switch self {
-        case .candy: ("사탕", "Candy", "アメ")
-        case .form: ("모습 바꾸기", "Forms", "すがた")
+        case .consumable: ("소모품", "Consumables", "しょうひんアイテム")
         case .charm: ("부적", "Charms", "おまもり")
         }
         switch lang { case .ko: return names.0; case .en: return names.1; case .ja: return names.2 }
@@ -46,14 +51,8 @@ enum ShopItem: String, CaseIterable, Sendable {
         switch lang { case .ko: return names.0; case .en: return names.1; case .ja: return names.2 }
     }
 
-    /// 진열 분류. 부적은 보유형이라 한 칸에 모으고, 사탕과 모습 바꾸기는 쓰임이 달라 나눈다.
-    var category: ShopCategory {
-        switch self {
-        case .expCandy, .shinyCandy: .candy
-        case .megaStone, .dynamaxMushroom: .form
-        case .shinyCharm, .expCharm, .fortuneCharm: .charm
-        }
-    }
+    /// 진열 분류 — 쓰면 없어지는가로 갈린다(`isConsumable` 과 같은 기준이다).
+    var category: ShopCategory { isCharm ? .charm : .consumable }
 
     /// 부적은 보유형이라 개수를 세지 않고 한 번만 산다.
     var isConsumable: Bool { !isCharm }

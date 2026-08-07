@@ -41,9 +41,8 @@ struct ShopTabView: View {
                 walletRow
                 drawSection
                 slotSection
-                categorySection(.candy)
-                categorySection(.form)
-                categorySection(.charm)
+                // 목록은 `ShopCategory` 가 정한다 — 뷰가 칸을 나열하면 새 분류가 조용히 빠진다.
+                ForEach(ShopCategory.allCases, id: \.self) { categorySection($0) }
             }
             .padding(.vertical, 2)
         }

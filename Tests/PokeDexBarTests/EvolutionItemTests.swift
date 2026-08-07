@@ -397,14 +397,30 @@ final class ShopCategoryTests: XCTestCase {
         XCTAssertEqual(placed.count, ShopItem.allCases.count, "두 칸에 걸친 품목이 있다")
     }
 
-    func testCategoriesGroupWhatBelongsTogether() {
-        XCTAssertEqual(ShopItem.expCandy.category, .candy)
-        XCTAssertEqual(ShopItem.shinyCandy.category, .candy)
-        XCTAssertEqual(ShopItem.megaStone.category, .form)
-        XCTAssertEqual(ShopItem.dynamaxMushroom.category, .form)
-        for charm in ShopItem.allCases.filter(\.isCharm) {
-            XCTAssertEqual(charm.category, .charm, "\(charm) 이 부적 칸에 없다")
+    /// 분류 기준은 **쓰면 없어지는가** 하나다 — 상점과 가방이 같은 칸 이름을 쓰게 하려고
+    /// 종류별(사탕·폼)로 나누던 것을 합쳤다. 같은 물건이 화면마다 다른 칸에 있으면 안 된다.
+    func testCategoriesFollowWhetherTheItemIsSpent() {
+        for item in ShopItem.allCases {
+            XCTAssertEqual(item.category, item.isCharm ? .charm : .consumable, "\(item)")
         }
+        XCTAssertEqual(ShopItem.expCandy.category, ShopItem.megaStone.category,
+                       "사탕과 메가스톤은 둘 다 쓰면 없어진다 — 같은 칸이어야 한다")
+    }
+
+    /// 상점과 가방이 **같은 이름**을 써야 한다. 각자 문구를 들고 있으면 다시 갈라진다.
+    @MainActor
+    func testShopAndBagShareCategoryNames() {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cat-\(UUID().uuidString).json")
+        let store = PlayerStore(fileURL: url, rng: SeededRNG(seed: 1),
+                                now: { Date(timeIntervalSince1970: 0) })
+        store.seedForTesting(wallet: 100_000_000_000, slots: 3, eggs: 0,
+                             at: Date(timeIntervalSince1970: 0))
+        XCTAssertTrue(store.buy(ShopItem.expCandy))
+        XCTAssertTrue(store.buy(ShopItem.shinyCharm))
+        let titles = Set(BagTabView.sections(store).filter { !$0.rows.isEmpty }.map(\.title))
+        XCTAssertTrue(titles.contains(ShopCategory.consumable.title(.ko)), titles.description)
+        XCTAssertTrue(titles.contains(ShopCategory.charm.title(.ko)), titles.description)
     }
 
     /// 진화 도구는 `ShopItem` 이 아니라 별도 카탈로그다 — 두 목록이 겹치면 같은 것이 두 번 팔린다.

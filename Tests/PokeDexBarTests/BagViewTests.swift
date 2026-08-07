@@ -46,7 +46,7 @@ final class BagViewTests: XCTestCase {
 
         let sections = BagTabView.sections(store)
         let byTitle = Dictionary(uniqueKeysWithValues: sections.map { ($0.title, $0) })
-        XCTAssertEqual(byTitle[store.l.bagConsumables]?.rows.first?.name,
+        XCTAssertEqual(byTitle[ShopCategory.consumable.title(.ko)]?.rows.first?.name,
                        ShopItem.expCandy.label(.ko))
         XCTAssertEqual(byTitle[ShopCategory.charm.title(.ko)]?.rows.first?.name,
                        ShopItem.shinyCharm.label(.ko))
@@ -77,7 +77,7 @@ final class BagViewTests: XCTestCase {
         let byTitle = Dictionary(uniqueKeysWithValues: sections.map { ($0.title, $0.total) })
         XCTAssertEqual(byTitle[L(.ko).shopEvolutionSection], EvolutionItem.allCases.count)
         XCTAssertEqual(byTitle[L(.ko).shopFormItemSection], FormItem.allCases.count)
-        XCTAssertNil(byTitle[L(.ko).bagConsumables] ?? nil)
+        XCTAssertNil(byTitle[ShopCategory.consumable.title(.ko)] ?? nil)
     }
 
     /// 빈 가방 안내는 세 언어 모두 있어야 한다.

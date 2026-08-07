@@ -25,7 +25,6 @@ struct L {
     var shop: String { t("상점", "Shop", "ショップ") }
 
     // MARK: 가방 탭 — 가진 것을 보는 화면. 쓰는 건 개체 상세에서 한다.
-    var bagConsumables: String { t("소모품", "Consumables", "しょうひんアイテム") }
     var bagEmptyTitle: String { t("가방이 비어 있어요", "Your bag is empty", "バッグは空です") }
     var bagEmptyHint: String {
         t("파트너로 둔 포켓몬이 자기에게 필요한 도구를 물어 와요.\n사탕과 부적은 상점에서 살 수 있어요.",
@@ -59,7 +58,7 @@ struct L {
     /// 진화 도구 — 파는 목록이 아니라 모은 것을 보는 목록이다.
     var shopEvolutionSection: String { t("진화 도구", "Evolution items", "しんかのどうぐ") }
     /// 폼 도구 — 진화 도구와 같은 규칙(못 사고, 안 없어진다).
-    var shopFormItemSection: String { t("모습 도구", "Form items", "すがたのどうぐ") }
+    var shopFormItemSection: String { t("폼 도구", "Form items", "フォルムのどうぐ") }
     /// 도구는 못 산다는 사실 자체를 말해 줘야 한다 — 안 그러면 상점에 있는데 살 수가 없어 보인다.
     var shopEvolutionHint: String {
         t("살 수 없어요. 파트너로 둔 포켓몬이 자기에게 필요한 도구를 물어 와요. 한 번 얻으면 계속 쓸 수 있어요.",
@@ -153,7 +152,7 @@ struct L {
           "\(tokens)ごとにアメ · 道具さがし\(percent)%")
     }
     var ribbonNextCandy: String { t("다음 사탕", "Next candy", "つぎのアメ") }
-    var formSection: String { t("모습 바꾸기", "Change form", "すがたチェンジ") }
+    var formSection: String { t("폼 체인지", "Change form", "フォルムチェンジ") }
 
     func ribbonCandyRate(_ tokens: String) -> String {
         t("토큰 \(tokens)마다 사탕 1개", "1 candy per \(tokens) tokens", "トークン\(tokens)ごとにアメ1個")
@@ -220,9 +219,9 @@ struct L {
     }
     /// 폼이 있는 종인데 아이템이 없을 때 — 어디서 구하는지 알려준다.
     func formNeedsItem(_ item: String) -> String {
-        t("\(item)이 있으면 모습을 바꿀 수 있어요 (상점)",
+        t("\(item)\(Josa.iGa(item)) 있으면 폼을 바꿀 수 있어요 (상점)",
           "\(item) changes its form (Shop)",
-          "\(item)があればすがたを変えられます(ショップ)")
+          "\(item)があればフォルムを変えられます(ショップ)")
     }
     /// 물어 오는 폼 도구 — 상점에 없으므로 파트너로 두라고 말해야 한다.
     func formNeedsForagedItem(_ item: String) -> String {
@@ -236,7 +235,7 @@ struct L {
           "Needs \(species) in your box",
           "ボックスに\(species)がひつようです")
     }
-    var revertForm: String { t("원래 모습으로", "Revert form", "もとのすがたに") }
+    var revertForm: String { t("원래 폼으로", "Revert form", "もとのフォルムに") }
 
     // MARK: 세이브 봉인
     var tamperedBadge: String { t("조작된 세이브", "Edited save", "改変されたセーブ") }
