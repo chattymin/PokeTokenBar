@@ -1,74 +1,30 @@
 import SwiftUI
 
-/// 등급별 알 모양. 슬롯에서 남은 시간을 읽기 전에 **무엇을 기다리고 있는지** 먼저 보이게 한다.
-/// 색만 바꾸지 않고 무늬 수도 함께 늘린다 — 색약이거나 작은 타일에서도 구분되게.
+/// 등급별 알. **그림 파일**이다(`Resources/eggs/egg-<등급>.png`) — 예전에는 SwiftUI 도형으로
+/// 껍질과 무늬를 직접 그렸는데, 손으로 그린 일러스트가 훨씬 알처럼 보인다.
 ///
-/// 전부 순수 SwiftUI 도형이다. `.brightness` 같은 CALayer 필터를 쓰면 스크린샷 생성기의
-/// 오프스크린 렌더에서 통째로 사라진다(도감 실루엣에서 실제로 겪었다).
+/// 금 간 표시(`cracked`)만 그림 위에 도형으로 얹는다. 등급마다 금 간 그림을 따로 두면 파일이
+/// 여덟 장이 되고, 금은 "지금 확인할 수 있다"는 상태 표시라 껍질 무늬와 성격이 다르다.
+///
+/// 그림 로딩은 `RibbonIcon` 과 같은 방식이다 — 배포 `.app` 에서는 `Bundle.module` 을 못 쓴다.
 struct EggIcon: View {
     let grade: Grade
     var size: CGFloat = 20
     /// 부화 시각이 지났으면 금이 간 모습으로 — 슬롯을 훑을 때 "확인해야 할 것"이 즉시 보인다.
     var cracked: Bool = false
 
-    /// 껍질 색(위·아래). 위가 밝고 아래가 짙어 입체로 보인다.
-    private var shell: (Color, Color) {
-        switch grade {
-        case .common: (Color(red: 0.96, green: 0.95, blue: 0.92),
-                       Color(red: 0.82, green: 0.80, blue: 0.76))
-        case .rare: (Color(red: 0.71, green: 0.88, blue: 1.00),
-                     Color(red: 0.42, green: 0.66, blue: 0.88))
-        case .epic: (Color(red: 0.80, green: 0.66, blue: 1.00),
-                     Color(red: 0.53, green: 0.34, blue: 0.82))
-        case .legendary: (Color(red: 1.00, green: 0.87, blue: 0.52),
-                          Color(red: 0.93, green: 0.58, blue: 0.16))
-        }
-    }
-
-    /// 무늬 색 — 껍질보다 진하게.
-    private var speckle: Color {
-        switch grade {
-        case .common: Color(red: 0.66, green: 0.63, blue: 0.58)
-        case .rare: Color(red: 0.20, green: 0.45, blue: 0.72)
-        case .epic: Color(red: 0.34, green: 0.16, blue: 0.62)
-        case .legendary: Color(red: 0.72, green: 0.35, blue: 0.03)
-        }
-    }
-
-    /// 등급이 오를수록 무늬가 늘어난다 — 색과 별개로 세어서 구분할 수 있게.
-    private var speckleCount: Int {
-        switch grade {
-        case .common: 0
-        case .rare: 2
-        case .epic: 3
-        case .legendary: 4
-        }
-    }
-
-    /// 무늬 위치(알 폭·높이에 대한 비율)와 지름 비율. 난수를 안 쓴다 — 같은 등급의 알은
-    /// 언제나 같은 얼굴이어야 슬롯을 훑을 때 무늬 수가 정보로 읽힌다.
-    nonisolated static func speckleLayout(_ index: Int) -> (x: Double, y: Double, r: Double) {
-        let table: [(Double, Double, Double)] = [
-            (0.34, 0.58, 0.17), (0.63, 0.44, 0.13), (0.48, 0.74, 0.11), (0.70, 0.66, 0.09),
-        ]
-        return table[index % table.count]
-    }
+    /// 금 색 — 껍질 위에 얹히므로 어느 등급에서도 보이도록 어둡게.
+    private var crackColor: Color { Color(red: 0.16, green: 0.14, blue: 0.13) }
 
     var body: some View {
         ZStack {
-            // 알 실루엣 — 위가 좁고 아래가 둥근 타원.
-            EggShape()
-                .fill(LinearGradient(colors: [shell.0, shell.1],
-                                     startPoint: .top, endPoint: .bottom))
-            ForEach(0..<speckleCount, id: \.self) { index in
-                let spot = Self.speckleLayout(index)
-                Circle()
-                    .fill(speckle.opacity(0.55))
-                    .frame(width: size * spot.r, height: size * spot.r)
-                    .offset(x: size * (spot.x - 0.5), y: size * (spot.y - 0.5))
+            if let image = Self.image(for: grade) {
+                Image(nsImage: image)
+                    .resizable().interpolation(.high)
+                    .scaledToFit()
             }
             if cracked {
-                CrackShape().stroke(speckle.opacity(0.85), lineWidth: max(1, size * 0.06))
+                CrackShape().stroke(crackColor.opacity(0.9), lineWidth: max(1, size * 0.055))
             }
             if grade == .legendary {
                 // 전설만 반짝임 하나 — 슬롯 줄에서 눈이 먼저 가는 자리가 하나는 있어야 한다.
@@ -80,28 +36,33 @@ struct EggIcon: View {
         }
         .frame(width: size * 0.82, height: size)
     }
-}
 
-/// 알 윤곽 — 아래가 크고 위가 좁은 달걀형.
-struct EggShape: Shape {
-    func path(in rect: CGRect) -> Path {
-        var path = Path()
-        let w = rect.width, h = rect.height
-        path.move(to: CGPoint(x: rect.midX, y: rect.minY))
-        path.addCurve(to: CGPoint(x: rect.maxX, y: rect.minY + h * 0.62),
-                      control1: CGPoint(x: rect.midX + w * 0.34, y: rect.minY),
-                      control2: CGPoint(x: rect.maxX, y: rect.minY + h * 0.28))
-        path.addCurve(to: CGPoint(x: rect.midX, y: rect.maxY),
-                      control1: CGPoint(x: rect.maxX, y: rect.minY + h * 0.88),
-                      control2: CGPoint(x: rect.midX + w * 0.30, y: rect.maxY))
-        path.addCurve(to: CGPoint(x: rect.minX, y: rect.minY + h * 0.62),
-                      control1: CGPoint(x: rect.midX - w * 0.30, y: rect.maxY),
-                      control2: CGPoint(x: rect.minX, y: rect.minY + h * 0.88))
-        path.addCurve(to: CGPoint(x: rect.midX, y: rect.minY),
-                      control1: CGPoint(x: rect.minX, y: rect.minY + h * 0.28),
-                      control2: CGPoint(x: rect.midX - w * 0.34, y: rect.minY))
-        path.closeSubpath()
-        return path
+    /// 등급별 그림. 한 번 읽으면 캐시한다 — 박스·슬롯 그리드가 칸마다 디스크를 때리지 않게.
+    @MainActor private static var cache: [Grade: NSImage] = [:]
+
+    @MainActor static func image(for grade: Grade) -> NSImage? {
+        if let cached = cache[grade] { return cached }
+        guard let url = resourceURL(for: grade), let image = NSImage(contentsOf: url) else {
+            return nil
+        }
+        cache[grade] = image
+        return image
+    }
+
+    /// 리소스 번들 위치. 배포 `.app` 에서 `Bundle.module` 이 찾는 자리(번들 루트)에는 번들을 둘 수
+    /// 없다 — codesign 이 거부한다. 그래서 서명 가능한 `Contents/Resources/` 를 직접 찾는다.
+    /// (`RibbonIcon.resourceURL` 과 같은 이유·같은 모양.)
+    nonisolated static func resourceURL(for grade: Grade) -> URL? {
+        let name = "egg-\(grade.rawValue)"
+        guard AppEnv.isBundledApp else {
+            return Bundle.module.url(forResource: name, withExtension: "png", subdirectory: "eggs")
+                ?? Bundle.module.url(forResource: name, withExtension: "png")
+        }
+        let bundlePath = Bundle.main.bundleURL
+            .appendingPathComponent("Contents/Resources/PokeDexBar_PokeDexBar.bundle")
+        guard let bundle = Bundle(path: bundlePath.path) else { return nil }
+        return bundle.url(forResource: name, withExtension: "png", subdirectory: "eggs")
+            ?? bundle.url(forResource: name, withExtension: "png")
     }
 }
 

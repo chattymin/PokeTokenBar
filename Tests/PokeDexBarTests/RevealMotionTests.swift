@@ -119,3 +119,49 @@ final class HatchRevealTests: XCTestCase {
         XCTAssertGreaterThan(host.fittingSize.height, 0)
     }
 }
+
+/// 알 그림 — 등급마다 파일이 하나씩 있어야 한다. 하나라도 없으면 그 등급 알이 **아무것도 안
+/// 그려진 채** 슬롯에 앉는다(`EggIcon` 은 그림이 없으면 조용히 비운다).
+@MainActor
+final class EggArtTests: XCTestCase {
+    func testEveryGradeHasArt() {
+        for grade in Grade.allCases {
+            XCTAssertNotNil(EggIcon.resourceURL(for: grade), "\(grade) 알 그림 경로가 없다")
+            XCTAssertNotNil(EggIcon.image(for: grade), "\(grade) 알 그림을 못 읽는다")
+        }
+    }
+
+    /// 등급마다 다른 그림이어야 한다 — 같은 파일을 가리키면 슬롯에서 등급을 구분할 수 없다.
+    func testGradesUseDistinctArt() {
+        let names = Grade.allCases.compactMap { EggIcon.resourceURL(for: $0)?.lastPathComponent }
+        XCTAssertEqual(Set(names).count, Grade.allCases.count, names.description)
+    }
+
+    /// **배경이 투명해야 한다.** 원본은 흰 배경 위에 그려져 있어, 그대로 실으면 어두운 팝오버에
+    /// 흰 사각형이 뜬다. 네 귀퉁이가 모두 비어 있는지로 확인한다.
+    func testTheBackgroundWasRemoved() throws {
+        for grade in Grade.allCases {
+            let url = try XCTUnwrap(EggIcon.resourceURL(for: grade))
+            let rep = try XCTUnwrap(NSBitmapImageRep(data: try Data(contentsOf: url)))
+            XCTAssertTrue(rep.hasAlpha, "\(grade) 그림에 알파 채널이 없다")
+            let corners = [(0, 0), (rep.pixelsWide - 1, 0),
+                           (0, rep.pixelsHigh - 1), (rep.pixelsWide - 1, rep.pixelsHigh - 1)]
+            for (x, y) in corners {
+                let alpha = try XCTUnwrap(rep.colorAt(x: x, y: y)).alphaComponent
+                XCTAssertEqual(alpha, 0, accuracy: 0.02,
+                               "\(grade) 그림의 모서리(\(x),\(y))가 불투명하다 — 흰 배경이 남았다")
+            }
+        }
+    }
+
+    /// 안쪽 하이라이트까지 뚫리면 안 된다 — 커먼 알은 위쪽이 순백이라 흰색을 통째로 지우면
+    /// 구멍이 난다(테두리에서 번지는 flood fill 을 쓴 이유다).
+    func testTheInteriorSurvived() throws {
+        let url = try XCTUnwrap(EggIcon.resourceURL(for: .common))
+        let rep = try XCTUnwrap(NSBitmapImageRep(data: try Data(contentsOf: url)))
+        // 알 위쪽 하이라이트 자리 — 가로 중앙, 세로 20% 지점.
+        let alpha = try XCTUnwrap(rep.colorAt(x: rep.pixelsWide / 2,
+                                              y: rep.pixelsHigh / 5)).alphaComponent
+        XCTAssertEqual(alpha, 1, accuracy: 0.02, "커먼 알 안쪽 흰 하이라이트가 뚫렸다")
+    }
+}
