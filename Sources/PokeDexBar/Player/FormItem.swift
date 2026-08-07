@@ -8,16 +8,62 @@ import Foundation
 /// 얻는 방법은 진화 도구와 같다 — 리본을 단 파트너가 **자기가 쓸 것을** 물어 온다
 /// (`FormForageCatalog`). 다만 전설의 폼은 훨씬 낮은 확률로 나온다(`Ribbon.legendaryFormPermille`).
 ///
-/// 하나가 여러 종을 여는 경우가 있다: 빛의거울은 토네로스·볼트로스·랜드로스·러브로스 넷의
-/// 영물폼을 전부 열고, 플레이트 하나가 아르세우스의 17타입을 전부 연다. 폼은 도감에 따로
-/// 잡히지 않으므로 17개를 따로 모으게 하면 도감에 남지 않는 순수 노동이 된다.
+/// 개수는 **원작을 따른다**: 유석 하나가 데오키시스 세 모습을 열고 빛의거울 하나가 영물폼 넷을
+/// 열지만, 아르세우스의 플레이트는 원작에 17장이 따로 있으므로 여기서도 17개다.
+/// 묶어 두면 이 게임에서 플레이트만 유독 '한 장으로 17개'가 되어 규칙이 도구마다 달라진다.
 enum FormItem: String, CaseIterable, Codable, Sendable {
-    // 타입 세트 — 하나가 그 종의 모든 타입을 연다.
-    case plate = "form-plate"                 // 아르세우스
-    case memory = "form-memory"               // 실버디
-    case drive = "form-drive"                 // 게노세크트
-    case appliance = "form-appliance"         // 로토무
-    case mask = "form-mask"                   // 오거폰
+    // 타입 세트 — 원작에 플레이트가 17장 따로 있듯, 하나가 하나를 연다.
+    // 아르세우스
+    case plateFire = "form-plate-fire"
+    case plateWater = "form-plate-water"
+    case plateElectric = "form-plate-electric"
+    case plateGrass = "form-plate-grass"
+    case plateIce = "form-plate-ice"
+    case plateFighting = "form-plate-fighting"
+    case platePoison = "form-plate-poison"
+    case plateGround = "form-plate-ground"
+    case plateFlying = "form-plate-flying"
+    case platePsychic = "form-plate-psychic"
+    case plateBug = "form-plate-bug"
+    case plateRock = "form-plate-rock"
+    case plateGhost = "form-plate-ghost"
+    case plateDragon = "form-plate-dragon"
+    case plateDark = "form-plate-dark"
+    case plateSteel = "form-plate-steel"
+    case plateFairy = "form-plate-fairy"
+    // 실버디
+    case memoryFire = "form-memory-fire"
+    case memoryWater = "form-memory-water"
+    case memoryElectric = "form-memory-electric"
+    case memoryGrass = "form-memory-grass"
+    case memoryIce = "form-memory-ice"
+    case memoryFighting = "form-memory-fighting"
+    case memoryPoison = "form-memory-poison"
+    case memoryGround = "form-memory-ground"
+    case memoryFlying = "form-memory-flying"
+    case memoryPsychic = "form-memory-psychic"
+    case memoryBug = "form-memory-bug"
+    case memoryRock = "form-memory-rock"
+    case memoryGhost = "form-memory-ghost"
+    case memoryDragon = "form-memory-dragon"
+    case memoryDark = "form-memory-dark"
+    case memorySteel = "form-memory-steel"
+    case memoryFairy = "form-memory-fairy"
+    // 로토무
+    case applianceHeat = "form-appliance-heat"
+    case applianceWash = "form-appliance-wash"
+    case applianceFrost = "form-appliance-frost"
+    case applianceFan = "form-appliance-fan"
+    case applianceMow = "form-appliance-mow"
+    // 게노세크트
+    case driveDouse = "form-drive-douse"
+    case driveShock = "form-drive-shock"
+    case driveBurn = "form-drive-burn"
+    case driveChill = "form-drive-chill"
+    // 오거폰
+    case maskWellspring = "form-mask-wellspring"
+    case maskHearthflame = "form-mask-hearthflame"
+    case maskCornerstone = "form-mask-cornerstone"
 
     // 변장 — 능력과 무관한 겉모습.
     case costumeTrunk = "form-costume-trunk"  // 피카츄
@@ -47,11 +93,52 @@ enum FormItem: String, CaseIterable, Codable, Sendable {
 
     func label(_ lang: AppLanguage) -> String {
         let names: (String, String, String) = switch self {
-        case .plate: ("플레이트", "Plate", "プレート")
-        case .memory: ("메모리", "Memory", "メモリ")
-        case .drive: ("카세트", "Drive", "カセット")
-        case .appliance: ("가전제품", "Appliance", "かでんせいひん")
-        case .mask: ("가면", "Mask", "おめん")
+        case .plateFire: ("불꽃플레이트", "Flame Plate", "ひのたまプレート")
+        case .plateWater: ("물방울플레이트", "Splash Plate", "しずくプレート")
+        case .plateElectric: ("번개플레이트", "Zap Plate", "いかずちプレート")
+        case .plateGrass: ("초록플레이트", "Meadow Plate", "みどりのプレート")
+        case .plateIce: ("고드름플레이트", "Icicle Plate", "つららのプレート")
+        case .plateFighting: ("주먹플레이트", "Fist Plate", "こぶしのプレート")
+        case .platePoison: ("독플레이트", "Toxic Plate", "もうどくプレート")
+        case .plateGround: ("대지플레이트", "Earth Plate", "だいちのプレート")
+        case .plateFlying: ("푸른하늘플레이트", "Sky Plate", "あおぞらプレート")
+        case .platePsychic: ("이상한플레이트", "Mind Plate", "ふしぎなプレート")
+        case .plateBug: ("옥충플레이트", "Insect Plate", "たまむしプレート")
+        case .plateRock: ("암석플레이트", "Stone Plate", "がんせきプレート")
+        case .plateGhost: ("원령플레이트", "Spooky Plate", "もののけプレート")
+        case .plateDragon: ("용의플레이트", "Draco Plate", "りゅうのプレート")
+        case .plateDark: ("공포플레이트", "Dread Plate", "こわもてプレート")
+        case .plateSteel: ("강철플레이트", "Iron Plate", "こうてつプレート")
+        case .plateFairy: ("요정플레이트", "Pixie Plate", "せいれいプレート")
+        case .memoryFire: ("불꽃메모리", "Fire Memory", "ほのおメモリ")
+        case .memoryWater: ("물메모리", "Water Memory", "みずメモリ")
+        case .memoryElectric: ("전기메모리", "Electric Memory", "でんきメモリ")
+        case .memoryGrass: ("풀메모리", "Grass Memory", "くさメモリ")
+        case .memoryIce: ("얼음메모리", "Ice Memory", "こおりメモリ")
+        case .memoryFighting: ("격투메모리", "Fighting Memory", "かくとうメモリ")
+        case .memoryPoison: ("독메모리", "Poison Memory", "どくメモリ")
+        case .memoryGround: ("땅메모리", "Ground Memory", "じめんメモリ")
+        case .memoryFlying: ("비행메모리", "Flying Memory", "ひこうメモリ")
+        case .memoryPsychic: ("에스퍼메모리", "Psychic Memory", "エスパーメモリ")
+        case .memoryBug: ("벌레메모리", "Bug Memory", "むしメモリ")
+        case .memoryRock: ("바위메모리", "Rock Memory", "いわメモリ")
+        case .memoryGhost: ("고스트메모리", "Ghost Memory", "ゴーストメモリ")
+        case .memoryDragon: ("드래곤메모리", "Dragon Memory", "ドラゴンメモリ")
+        case .memoryDark: ("악메모리", "Dark Memory", "あくメモリ")
+        case .memorySteel: ("강철메모리", "Steel Memory", "はがねメモリ")
+        case .memoryFairy: ("페어리메모리", "Fairy Memory", "フェアリーメモリ")
+        case .applianceHeat: ("전자레인지", "Microwave", "でんしレンジ")
+        case .applianceWash: ("세탁기", "Washing Machine", "せんたっき")
+        case .applianceFrost: ("냉장고", "Refrigerator", "れいぞうこ")
+        case .applianceFan: ("선풍기", "Electric Fan", "せんぷうき")
+        case .applianceMow: ("잔디깎이", "Lawn Mower", "しばかりき")
+        case .driveDouse: ("샤워카세트", "Douse Drive", "シャワーカセット")
+        case .driveShock: ("번개카세트", "Shock Drive", "イナズマカセット")
+        case .driveBurn: ("화염카세트", "Burn Drive", "バーニングカセット")
+        case .driveChill: ("냉동카세트", "Chill Drive", "フリーズカセット")
+        case .maskWellspring: ("우물의가면", "Wellspring Mask", "いどのめん")
+        case .maskHearthflame: ("화덕의가면", "Hearthflame Mask", "かまどのめん")
+        case .maskCornerstone: ("주춧돌의가면", "Cornerstone Mask", "いしずえのめん")
         case .costumeTrunk: ("변장 트렁크", "Costume Trunk", "へんそうトランク")
         case .gsBall: ("GS볼", "GS Ball", "GSボール")
         case .meteorite: ("유석", "Meteorite", "いんせき")

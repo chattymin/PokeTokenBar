@@ -484,16 +484,35 @@ final class FormItemStoreTests: XCTestCase {
         XCTAssertNil(store.state.box[0].form)
     }
 
-    /// 하나의 도구가 그 종의 모든 타입을 연다 — 아르세우스 17폼에 플레이트 하나.
-    func testOnePlateOpensEveryArceusType() {
+    /// 타입 세트는 **하나가 하나를 연다** — 원작에 플레이트가 17장 따로 있는 그대로다.
+    /// 불꽃플레이트로 물 아르세우스가 되면 나머지 16장이 게임에서 의미를 잃는다.
+    func testOnePlateOpensExactlyOneArceusType() {
         let (store, ids) = makeStore(493)
-        store.grantForTesting(.plate)
+        store.grantForTesting(.plateFire)
         let types = FormCatalog.forms(speciesID: 493, kind: .typeSet)
         XCTAssertEqual(types.count, 17)
-        for type in types {
-            XCTAssertTrue(store.changeForm(individualID: ids[0], to: type), "\(type.slug) 로 못 바꾼다")
+        let fire = types.first { $0.slug == "arceus-fire" }!
+        XCTAssertTrue(store.changeForm(individualID: ids[0], to: fire))
+        for other in types where other.slug != "arceus-fire" {
+            XCTAssertFalse(store.canChange(store.state.box[0], to: other),
+                           "\(other.slug) 가 불꽃플레이트로 열린다")
         }
-        XCTAssertEqual(store.count(of: FormItem.plate), 1)
+        XCTAssertEqual(store.count(of: FormItem.plateFire), 1, "플레이트가 없어졌다")
+    }
+
+    /// 타입 세트의 도구는 폼과 **일대일**이어야 한다 — 하나가 여럿을 열면 나머지 도구가
+    /// 게임에서 사라지고, 규칙이 도구마다 달라진다.
+    func testTypeSetItemsMapOneToOne() {
+        let typeSet = FormCatalog.all.filter { $0.kind == .typeSet }
+        var byItem: [FormItem: Int] = [:]
+        for form in typeSet {
+            guard case .foraged(let item) = form.source else {
+                return XCTFail("\(form.slug) 이 상점 도구를 쓴다")
+            }
+            byItem[item, default: 0] += 1
+        }
+        XCTAssertEqual(byItem.count, typeSet.count, "타입 세트 도구가 폼보다 적다")
+        XCTAssertTrue(byItem.values.allSatisfy { $0 == 1 })
     }
 
     /// 빛의거울 하나가 네 종의 영물폼을 연다.
@@ -614,12 +633,12 @@ final class FormForageTests: XCTestCase {
     /// 각 후보는 **자기 갈래의 확률로** 판정돼야 한다.
     func testEachCandidateUsesItsOwnRate() {
         let legendary = [(item: FormItem.griseousCore, kind: FormKind.legendary)]
-        let ordinary = [(item: FormItem.plate, kind: FormKind.typeSet)]
+        let ordinary = [(item: FormItem.plateFire, kind: FormKind.typeSet)]
         let between = Double(Ribbon.bond.legendaryFormPermille + 1) / 1000
         XCTAssertNil(PlayerStore.forageFormItem(ribbon: .bond, candidates: legendary,
                                                 roll: between, pick: 0))
         XCTAssertEqual(PlayerStore.forageFormItem(ribbon: .bond, candidates: ordinary,
-                                                  roll: between, pick: 0), .plate)
+                                                  roll: between, pick: 0), .plateFire)
     }
 
     func testNoCandidatesMeansNothing() {
