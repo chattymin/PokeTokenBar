@@ -360,6 +360,15 @@ final class ScreenshotGeneratorTests: XCTestCase {
             XCTAssertTrue(player.buy(item), "\(item) 를 못 샀다 — 시드 지갑이 가격을 못 따라간다")
         }
 
+        // 파트너가 모아 온 것 — 가방 화면이 빈 상태로 찍히면 그 화면이 무엇인지 설명이 안 된다.
+        // 진화 도구와 폼 도구를 섞어 둔다: 두 칸이 다 차 있어야 분류가 보인다.
+        for item in [EvolutionItem.fireStone, .waterStone, .thunderStone, .linkingCord, .metalCoat] {
+            player.grantForTesting(item)
+        }
+        for item in [FormItem.griseousCore, .costumeTrunk, .plateFire] {
+            player.grantForTesting(item)
+        }
+
         // 알은 실제 뽑기 경로로 넣는다 — 시작 시각만 시계를 되감아 각자 다르게 잡는다.
         for egg in eggs {
             clock = base.addingTimeInterval(-egg.startedMinutesAgo * 60)
@@ -784,6 +793,11 @@ final class ScreenshotGeneratorTests: XCTestCase {
                                            selection: .constant(fixture.partnerID))),
                       fullScroll: true),
                   "screenshot-ribbon.png")
+
+        // 가방 — 파트너가 모아 온 것. 상점(사는 곳)과 갈라 둔 화면이라 따로 찍는다:
+        // 도구 106종 중 살 수 있는 건 7종뿐이고 나머지는 여기서만 볼 수 있다.
+        try write(png(tabChrome(BagTabView(store: fixture.player)), fullScroll: true),
+                  "screenshot-bag.png")
 
         // 도감 — 번호순 그리드 + 못 잡은 종 실루엣.
         try write(png(tabChrome(NationalDexView(store: fixture.player))), "screenshot-collection.png")
