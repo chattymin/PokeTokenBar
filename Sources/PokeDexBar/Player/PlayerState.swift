@@ -24,6 +24,9 @@ struct PlayerState: Codable, Sendable {
     var eggs: [Egg] = []
     /// 아이템 종류 → 개수.
     var inventory: [String: Int] = [:]
+    /// 파트너가 물어 왔는데 아직 확인 안 한 것(`Discovery`). 도구는 이미 `inventory` 에 들어가
+    /// 있고 이 목록은 **알림용**이다 — 확인이 늦어도 잃는 게 없다.
+    var discoveries: [Discovery] = []
     var ownsShinyCharm = false
     /// 경험치 부적 — 토큰·사탕으로 얻는 경험치가 2배가 된다. 보유형이라 개수를 세지 않는다.
     var ownsExpCharm = false
@@ -68,6 +71,8 @@ struct PlayerState: Codable, Sendable {
             AppLog.write("PlayerState: dropped \(wrappedBox.count - box.count) malformed individual(s) from box on decode")
         }
         dex = value(.dex, [])
+        // 알림 목록이라 통째로 관대하게 — 깨져도 도구는 인벤토리에 이미 있으므로 잃는 게 없다.
+        discoveries = value(.discoveries, [])
         // 관대 디코딩의 짝 — 값 범위 검증(CLAUDE.md 결함 대응 프로토콜). `"slots": 0` 은 디코드에
         // 성공해 경제를 영구히 잠근다: freeSlots 0 → canDraw false → nextSlotPrice nil 이라 상점은
         // "슬롯을 최대까지 늘렸어요"라고 말하는데 다시는 뽑을 수 없다. 상한도 자른다 — 거대한 값은

@@ -113,6 +113,16 @@ struct PopoverView: View {
         }
     }
 
+    /// 종 번호 → 현지화 이름. 라인은 베이스 종으로 캐시돼 있어 진화한 종은 키로 못 찾는다.
+    /// 못 찾으면 nil — 부르는 쪽이 #번호로 떨어뜨린다.
+    static func speciesName(_ speciesID: Int, in lines: [Int: EvoLine],
+                            _ lang: AppLanguage) -> String? {
+        for line in lines.values where line.tree.node(withID: speciesID) != nil {
+            return line.localizedName(speciesID, lang)
+        }
+        return nil
+    }
+
     private var mainContent: some View {
         @Bindable var nav = nav
         return VStack(alignment: .leading, spacing: 12) {
@@ -141,6 +151,12 @@ struct PopoverView: View {
                 ShopTabView(store: player, provider: provider)
             } else {
                 partnerCard
+                // 파트너가 물어 온 것 — 파트너 바로 아래에 둔다(그 개체가 한 일이다).
+                DiscoveryCard(store: player) { speciesID in
+                    // evoLines 는 **베이스 종**으로 키가 잡혀 있다 — 진화한 개체는
+                    // 그 키로 못 찾으므로 라인들을 훑어 이름을 가진 쪽을 쓴다.
+                    Self.speciesName(speciesID, in: evoLines, player.language)
+                }
                 Divider()
                 // NOTE: 부화 슬롯만 1초 틱으로 감싼다 — 홈 탭 전체를 TimelineView 로 감싸면
                 // 파트너 카드·헤더·한도 섹션까지 매초 다시 그려 팝오버 에너지 예산을 깬다.

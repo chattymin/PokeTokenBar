@@ -130,6 +130,8 @@ final class PlayerStore {
                                          roll: nextRandomUnit(),
                                          pick: nextRandomUnit()) else { continue }
             state.inventory[item.rawValue, default: 0] += 1
+            state.discoveries.append(.init(itemKey: item.rawValue,
+                                           speciesID: state.box[index].speciesID))
         }
 
         // 폼 도구는 따로 굴린다 — 확률이 다르기 때문이다(전설은 1/10). 진화 도구와 한 통에
@@ -142,6 +144,8 @@ final class PlayerStore {
                                                   roll: nextRandomUnit(),
                                                   pick: nextRandomUnit()) else { continue }
             state.inventory[found.rawValue, default: 0] += 1
+            state.discoveries.append(.init(itemKey: found.rawValue,
+                                           speciesID: state.box[index].speciesID))
         }
     }
 
@@ -221,6 +225,12 @@ final class PlayerStore {
     /// 거쳐야 해서 소모 여부 같은 다른 성질을 검증할 때 준비 과정이 본론을 덮는다.
     func grantForTesting(_ item: EvolutionItem) {
         mutate { $0.inventory[item.rawValue, default: 0] += 1 }
+    }
+
+    /// 테스트 전용 — 발견 알림을 직접 넣는다. 채집은 확률과 토큰 누적을 거쳐야 해서
+    /// 카드가 그려지는지만 볼 때는 준비 과정이 본론을 덮는다.
+    func grantDiscoveryForTesting(_ discovery: Discovery) {
+        mutate { $0.discoveries.append(discovery) }
     }
 
     /// 테스트 전용 — 폼 도구를 인벤토리에 직접 넣는다.

@@ -117,6 +117,19 @@ struct L {
     func useShinyCandy(_ remaining: Int) -> String {
         t("반짝이는 사탕 ×\(remaining)", "Shiny Candy ×\(remaining)", "ひかるアメ ×\(remaining)")
     }
+    // MARK: 발견 카드 — 파트너가 물어 온 것을 알려 준다. 확인은 흐름을 막지 않는다.
+    func discoveryFoundBy(_ name: String, _ count: Int) -> String {
+        t("\(name)이(가) 도구를 \(count)개 물어 왔어요",
+          "\(name) found \(count) item\(count == 1 ? "" : "s")",
+          "\(name)が道具を\(count)個もってきました")
+    }
+    func discoveryFoundBySeveral(_ species: Int, _ count: Int) -> String {
+        t("파트너 \(species)마리가 도구를 \(count)개 물어 왔어요",
+          "\(species) partners found \(count) items",
+          "パートナー\(species)ひきが道具を\(count)個もってきました")
+    }
+    var discoveryAcknowledge: String { t("확인했어요", "Got it", "かくにん") }
+
     /// 홈 파트너 카드의 진화 가능 배지 — 실제 진화 실행은 박스에서.
     var evolutionReadyBadge: String { t("진화 가능", "Can evolve", "しんか可能") }
     /// 상세 화면 — 그리드에서 개체를 눌러 들어간다. 사탕·진화·파트너 지정이 모두 여기 있다.
