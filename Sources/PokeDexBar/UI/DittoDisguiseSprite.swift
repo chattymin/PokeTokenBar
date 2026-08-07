@@ -143,14 +143,23 @@ enum DittoDisguiseSprite {
             canvas.set(Point(x: dot.x, y: dot.y), ink)
             canvas.set(Point(x: dot.x + 1, y: dot.y), ink)
         }
-        // 입 — 폭이 이 얼굴의 핵심이다. 메타몽의 입은 제 얼굴을 절반쯤 가로지르고, 짧게 그리면
-        // 점 몇 개로 보인다. 한 칸 층진 것도 원본 그대로다.
         if let mouth = layout.mouth {
-            for dx in -3...0 { canvas.set(Point(x: mouth.x + dx, y: mouth.y), ink) }
-            for dx in 1...3 { canvas.set(Point(x: mouth.x + dx, y: mouth.y + 1), ink) }
+            for point in mouthCells(x: mouth.x, y: mouth.y) { canvas.set(point, ink) }
         }
         guard let made = canvas.image else { return nil }
         return (made, layout)
+    }
+
+    /// 입이 차지할 칸 — **느슨하게 웃는 입**.
+    ///
+    /// 가운데 다섯 칸이 한 줄 처지고 양 끝이 그 위로 올라간다. 얕은 곡선이지만 이 크기에서는
+    /// 그것만으로 웃는 얼굴이 된다 — 전에 쓰던 계단 모양(왼쪽 네 칸, 오른쪽 세 칸이 한 칸 아래)은
+    /// 웃는 게 아니라 비스듬히 그은 선으로 읽혔다.
+    ///
+    /// 폭은 일곱 칸으로 둔다. 메타몽의 입은 제 얼굴을 절반쯤 가로지르고, 짧게 그리면 얼굴이
+    /// 아니라 점 몇 개로 보인다.
+    static func mouthCells(x: Int, y: Int) -> [Point] {
+        (-2...2).map { Point(x: x + $0, y: y + 1) } + [Point(x: x - 3, y: y), Point(x: x + 3, y: y)]
     }
 
     /// 네모 하나를 살색으로 비운다(실루엣은 남긴다).

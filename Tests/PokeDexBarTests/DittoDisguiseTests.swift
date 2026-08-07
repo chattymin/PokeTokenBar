@@ -329,6 +329,22 @@ final class DittoDisguiseSpriteTests: XCTestCase {
         }
     }
 
+    /// 입은 **웃는 모양**이어야 한다 — 가운데가 처지고 양 끝이 그 위로 올라간다.
+    /// 예전의 계단 모양(한쪽이 통째로 한 칸 아래)은 웃는 게 아니라 비스듬한 선으로 읽혔다.
+    func testTheMouthSmiles() {
+        let cells = DittoDisguiseSprite.mouthCells(x: 10, y: 10)
+        let rows = Dictionary(grouping: cells, by: \.y)
+        XCTAssertEqual(rows.count, 2, "입이 두 줄이 아니다")
+        let top = try? XCTUnwrap(rows.keys.min()), bottom = rows.keys.max()
+        let ends = rows[top!]!.map(\.x).sorted(), middle = rows[bottom!]!.map(\.x).sorted()
+        // 윗줄은 양 끝 둘뿐이고, 아랫줄이 그 사이를 채운다.
+        XCTAssertEqual(ends.count, 2, "윗줄이 양 끝이 아니다: \(ends)")
+        XCTAssertLessThan(ends[0], middle.min()!, "왼쪽 끝이 가운데보다 안쪽이다")
+        XCTAssertGreaterThan(ends[1], middle.max()!, "오른쪽 끝이 가운데보다 안쪽이다")
+        // 폭 — 좁으면 얼굴이 아니라 점 몇 개로 보인다.
+        XCTAssertGreaterThanOrEqual(ends[1] - ends[0] + 1, 7, "입이 좁다")
+    }
+
     /// **얼굴이 프레임마다 흔들리면 안 된다.** 뮤는 위아래로 까딱이는데, 얼굴이 그 움직임과
     /// 따로 놀면 붙었다 떨어졌다 하는 것처럼 보인다(사용자 지적).
     ///
