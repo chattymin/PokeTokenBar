@@ -34,15 +34,16 @@ struct DiscoveryCard: View {
                 Button {
                     withAnimation(.easeOut(duration: 0.18)) { opened = true }
                 } label: {
-                    HStack(spacing: 6) {
+                    HStack(spacing: 5) {
                         Image(systemName: opened ? "shippingbox" : "shippingbox.fill")
-                            .font(.system(size: 12))
+                            .font(.system(size: 11))
                             .foregroundStyle(.orange)
                         Text(Self.headline(finds, l: l, name: name))
-                            .font(.system(size: 11, weight: .semibold))
+                            .font(.system(size: 10, weight: .semibold))
+                            .lineLimit(1)
                         Spacer()
                         if !opened {
-                            Image(systemName: "chevron.right").font(.system(size: 9, weight: .bold))
+                            Image(systemName: "chevron.right").font(.system(size: 8, weight: .bold))
                                 .foregroundStyle(.tertiary)
                         }
                     }
@@ -69,7 +70,7 @@ struct DiscoveryCard: View {
                     .buttonStyle(.bordered).controlSize(.small)
                 }
             }
-            .padding(8)
+            .padding(.horizontal, 8).padding(.vertical, opened ? 8 : 5)
             .background(Color.orange.opacity(0.10), in: RoundedRectangle(cornerRadius: 8))
         }
     }

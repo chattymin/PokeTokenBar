@@ -12,6 +12,9 @@ struct IndividualDetailView: View {
 
     private var l: L { store.l }
     private var isPartner: Bool { individual.id == store.state.partnerID }
+    /// 폼 목록을 펼쳤나. 기본은 접힘 — 피카츄 15개·아르세우스 17개가 늘 펼쳐져 있으면
+    /// 리본·사탕·진화가 전부 그 아래로 밀려난다.
+    @State private var formsExpanded = false
     private var threshold: Int {
         ExpBalance.threshold(grade: individual.grade, stageIndex: individual.stageIndex)
     }
@@ -108,19 +111,23 @@ struct IndividualDetailView: View {
                     RibbonIcon(ribbon: ribbon, size: 22)
                     Text(ribbon.label(store.language))
                         .font(.system(size: 10, weight: .bold))
-                    Text(l.ribbonCandyRate(TokenFormatter.compact(ribbon.tokensPerCandy)))
+                    // 리본이 하는 일 둘을 한 줄로 — 따로 쓰면 세 줄이 되고, 그 아래 폼 목록이
+                    // 길어 리본이 화면에서 밀려난다.
+                    Text(l.ribbonRate(TokenFormatter.compact(ribbon.tokensPerCandy),
+                                      percent: ribbon.foragePermille / 10))
                         .font(.system(size: 9)).foregroundStyle(.secondary)
                 }
-                // 리본이 하는 일은 둘이다 — 사탕만 적어 두면 도구가 어디서 오는지 알 수 없다.
+                // 다음 사탕까지 — 리본이 지금 무엇을 채우고 있는지 보이는 유일한 자리다.
+                candyProgressRow(ribbon)
                 let targets = store.forageTargets(individual)
                 if targets.isEmpty {
                     Text(l.ribbonForageDone).font(.system(size: 9)).foregroundStyle(.tertiary)
                 } else {
-                    Text(l.ribbonForageRate(ribbon.foragePermille / 10))
-                        .font(.system(size: 9)).foregroundStyle(.secondary)
-                    Text(l.ribbonForageTargets(Self.targetSummary(targets, l)))
-                        .font(.system(size: 9)).foregroundStyle(.tertiary)
-                        .lineLimit(2)
+                    HStack(spacing: 4) {
+                        Image(systemName: "magnifyingglass").font(.system(size: 8))
+                        Text(Self.targetSummary(targets, l)).lineLimit(1)
+                    }
+                    .font(.system(size: 9)).foregroundStyle(.tertiary)
                 }
             } else {
                 Text(l.ribbonNone).font(.system(size: 9)).foregroundStyle(.tertiary)
@@ -131,6 +138,24 @@ struct IndividualDetailView: View {
                     .font(.system(size: 9)).foregroundStyle(.tertiary)
             }
         }
+    }
+
+    /// 다음 사탕까지 얼마나 왔나. 홈 파트너 카드와 같은 모양이라 두 화면이 같은 말을 한다.
+    @ViewBuilder
+    private func candyProgressRow(_ ribbon: Ribbon) -> some View {
+        HStack(spacing: 5) {
+            Text(l.ribbonNextCandy).font(.system(size: 9)).foregroundStyle(.secondary)
+            ProgressView(value: Self.candyProgress(individual, ribbon))
+                .controlSize(.small).tint(.orange)
+            Text(TokenFormatter.compact(max(0, ribbon.tokensPerCandy - individual.candyProgress)))
+                .font(.system(size: 9)).monospacedDigit().foregroundStyle(.tertiary)
+        }
+    }
+
+    /// 0~1. 리본 단계가 올라 필요량이 줄면 이미 쌓은 진행분이 100% 를 넘을 수 있어 자른다.
+    nonisolated static func candyProgress(_ individual: Individual, _ ribbon: Ribbon) -> Double {
+        guard ribbon.tokensPerCandy > 0 else { return 0 }
+        return min(1, max(0, Double(individual.candyProgress) / Double(ribbon.tokensPerCandy)))
     }
 
     /// 찾는 도구 목록을 한 줄로. 아르세우스는 17개라 전부 적으면 카드가 목록에 잡아먹힌다 —
@@ -196,32 +221,30 @@ struct IndividualDetailView: View {
                 Text(l.detailMaxStage).font(.system(size: 9)).foregroundStyle(.tertiary)
             }
 
-            formSection
+            // 사탕이 폼보다 먼저 — 사탕은 늘 하는 일이고 폼은 도구를 갖춘 뒤에나 누른다.
+            // 접힌 폼 섹션 아래에 사탕을 두면 "가진 사탕이 없어요"가 화면 맨 밑에 홀로 떨어진다.
             candySection
+            formSection
         }
     }
 
-    /// 폼 — 그 폼이 있는 종에만 나온다. 못 바꾸는 폼도 목록에 남기고 **이유를 적는다**:
-    /// 목록에서 빼면 큐레무 블랙이 이 게임에 있다는 사실 자체를 알 수가 없다.
+    /// 폼 — 그 폼이 있는 종에만 나온다. 못 바꾸는 폼도 **목록에는 남긴다**(빼면 큐레무 블랙이
+    /// 이 게임에 있다는 사실 자체를 알 수가 없다). 다만 **이유는 섹션에 한 번만** 적는다:
+    /// 피카츄는 15개, 아르세우스는 17개라 폼마다 같은 안내를 붙이면 그 문장이 화면을 통째로
+    /// 먹는다(실측: 상세 스크롤 1,800px). 그래서 목록이 길 때만 접는다(`formFoldThreshold`).
     @ViewBuilder
     private var formSection: some View {
-        ForEach(FormKind.allCases, id: \.self) { kind in
-            let choices = store.formChoices(individual, kind: kind)
-            ForEach(choices, id: \.slug) { form in
-                let can = store.canChange(individual, to: form)
-                let name = form.displayName(base: baseName, store.language)
-                VStack(alignment: .leading, spacing: 2) {
-                    if can {
-                        FormButton(title: l.changeToForm(name, remaining: formStock(form))) {
-                            store.changeForm(individualID: individual.id, to: form)
-                        }
-                    } else {
-                        DetailActionButton(title: name, prominent: false) {}
-                            .disabled(true).opacity(0.55)
-                        Text(formBlockReason(form)).font(.system(size: 9))
-                            .foregroundStyle(.tertiary)
-                    }
+        let forms = FormKind.allCases.flatMap { store.formChoices(individual, kind: $0) }
+        if !forms.isEmpty {
+            let usable = forms.filter { store.canChange(individual, to: $0) }
+            if forms.count < Self.formFoldThreshold || formsExpanded {
+                if forms.count >= Self.formFoldThreshold { formSectionHeader(forms, usable) }
+                // 쓸 수 있는 것이 먼저 — 못 쓰는 걸 위에 두면 매번 지나쳐야 한다.
+                ForEach(usable + forms.filter { !usable.contains($0) }, id: \.slug) { form in
+                    formRow(form, enabled: usable.contains(form))
                 }
+            } else {
+                formSectionHeader(forms, usable)
             }
         }
         if individual.form != nil {
@@ -229,6 +252,68 @@ struct IndividualDetailView: View {
                 store.revertForm(individualID: individual.id)
             }
         }
+    }
+
+    /// 여섯 이상이면 접는다. 실제 분포가 여기서 딱 갈린다: 96종이 5개 이하이고, 그 위는
+    /// 아르세우스·실버디(17)와 피카츄(15) 셋뿐이다. 문턱을 3으로 뒀더니 리자몽(메가 X/Y +
+    /// 거다이맥스 = 3)까지 접혀 버렸다 — 짧은 목록을 접는 건 한 번 더 누르게 만들 뿐이다.
+    static let formFoldThreshold = 6
+
+    /// 접기 머리줄 — 가진 것/전체와, 무엇이 있어야 열리는지를 **여기 한 번만** 적는다.
+    private func formSectionHeader(_ forms: [PokemonForm], _ usable: [PokemonForm]) -> some View {
+        Button {
+            withAnimation(.easeOut(duration: 0.15)) { formsExpanded.toggle() }
+        } label: {
+            VStack(alignment: .leading, spacing: 1) {
+                HStack(spacing: 4) {
+                    Image(systemName: formsExpanded ? "chevron.down" : "chevron.right")
+                        .font(.system(size: 9, weight: .bold))
+                    Text(l.formSection).font(.system(size: 11, weight: .semibold))
+                    Text("\(usable.count)/\(forms.count)")
+                        .font(.system(size: 9)).foregroundStyle(.secondary)
+                    Spacer()
+                }
+                if let needs = Self.formNeedSummary(forms, usable: usable, store: store, l: l) {
+                    Text(needs).font(.system(size: 9)).foregroundStyle(.tertiary)
+                        .padding(.leading, 17)
+                }
+            }
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func formRow(_ form: PokemonForm, enabled: Bool) -> some View {
+        let name = form.displayName(base: baseName, store.language)
+        return VStack(alignment: .leading, spacing: 2) {
+            if enabled {
+                FormButton(title: l.changeToForm(name, remaining: formStock(form))) {
+                    store.changeForm(individualID: individual.id, to: form)
+                }
+            } else {
+                DetailActionButton(title: name, prominent: false) {}
+                    .disabled(true).opacity(0.55)
+                // 펼쳤을 때만 폼별 이유를 적는다 — 접힌 머리줄이 이미 요약을 하고 있다.
+                Text(formBlockReason(form)).font(.system(size: 9)).foregroundStyle(.tertiary)
+            }
+        }
+    }
+
+    /// "변장 트렁크 14 · 다이맥스 버섯 1" — 못 여는 폼들이 **무엇을 기다리는지** 도구별로 센다.
+    /// 전부 열 수 있으면 nil(할 말이 없다).
+    nonisolated static func formNeedSummary(_ forms: [PokemonForm], usable: [PokemonForm],
+                                            store: PlayerStore, l: L) -> String? {
+        let blocked = forms.filter { !usable.contains($0) }
+        guard !blocked.isEmpty else { return nil }
+        var counts: [(name: String, count: Int)] = []
+        for form in blocked {
+            let name = switch form.source {
+            case .shop(let item): item.label(l.lang)
+            case .foraged(let item): item.label(l.lang)
+            }
+            if let index = counts.firstIndex(where: { $0.name == name }) { counts[index].count += 1 }
+            else { counts.append((name, 1)) }
+        }
+        return counts.map { "\($0.name) \($0.count)" }.joined(separator: " · ")
     }
 
     /// 남은 개수 표시용. 물어 온 도구는 없어지지 않으므로 개수가 의미 없어 0 을 돌려

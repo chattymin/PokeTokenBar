@@ -657,3 +657,92 @@ final class InventoryKeyCollisionTests: XCTestCase {
         XCTAssertTrue(evo.isDisjoint(with: form), "진화↔폼 키 충돌: \(evo.intersection(form))")
     }
 }
+
+/// [회귀] 상세 화면이 폼 목록에 잡아먹히지 않는지. 폼마다 "○○ 필요 · 파트너로 두면 물어 와요"를
+/// 붙였더니 피카츄(15개)에서 같은 문장이 14번 반복돼 상세 스크롤이 1,800px 이 됐다 —
+/// 팝오버 높이는 320pt 다. 이유는 **섹션에 한 번만** 적고 셋 이상이면 접는다.
+@MainActor
+final class FormSectionFoldingTests: XCTestCase {
+    private func makeStore(_ species: Int) -> (PlayerStore, Individual) {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("fold-\(UUID().uuidString).json")
+        let store = PlayerStore(fileURL: url, rng: SeededRNG(seed: 1),
+                                now: { Date(timeIntervalSince1970: 0) })
+        let i = Individual(baseID: species, speciesID: species, pathIDs: [species],
+                           nature: .serious, obtainedAt: Date(timeIntervalSince1970: 0),
+                           grade: .rare)
+        store.addForTesting(i)
+        return (store, i)
+    }
+
+    /// 못 여는 폼들이 **무엇을 기다리는지** 도구별로 세어 한 줄로 — 15줄이 1줄이 된다.
+    func testTheSummaryCountsBlockedFormsByItem() {
+        let (store, pikachu) = makeStore(25)
+        let forms = FormKind.allCases.flatMap { store.formChoices(pikachu, kind: $0) }
+        XCTAssertEqual(forms.count, 15, "피카츄는 변장 14 + 거다이맥스 1")
+        let text = IndividualDetailView.formNeedSummary(forms, usable: [], store: store, l: L(.ko))
+        XCTAssertNotNil(text)
+        XCTAssertTrue(text!.contains("\(FormItem.costumeTrunk.label(.ko)) 14"), text!)
+        XCTAssertTrue(text!.contains("\(ShopItem.dynamaxMushroom.label(.ko)) 1"), text!)
+        // 한 줄이어야 한다 — 줄바꿈이 들어가면 접은 의미가 없다.
+        XCTAssertFalse(text!.contains("\n"))
+    }
+
+    /// 전부 열 수 있으면 할 말이 없다.
+    func testNoSummaryWhenEverythingIsUsable() {
+        let (store, pikachu) = makeStore(25)
+        let forms = FormKind.allCases.flatMap { store.formChoices(pikachu, kind: $0) }
+        XCTAssertNil(IndividualDetailView.formNeedSummary(forms, usable: forms,
+                                                          store: store, l: L(.ko)))
+    }
+
+    /// 접는 문턱 — 짧은 목록은 접지 않는다(접으면 한 번 더 누르게만 만든다).
+    /// 실제 분포가 5개와 15개 사이에서 갈리므로, 접히는 건 아르세우스·실버디·피카츄 셋뿐이어야 한다.
+    func testOnlyTheThreeLongListsFold() {
+        var folded: [Int] = [], open: [Int] = []
+        for species in Set(FormCatalog.all.map(\.speciesID)) {
+            let (store, individual) = makeStore(species)
+            let count = FormKind.allCases.flatMap { store.formChoices(individual, kind: $0) }.count
+            if count >= IndividualDetailView.formFoldThreshold { folded.append(species) }
+            else if count > 0 { open.append(species) }
+        }
+        XCTAssertEqual(Set(folded), [493, 773, 25], "접히는 종이 달라졌다: \(folded.sorted())")
+        XCTAssertTrue(open.contains(6), "리자몽(메가 X/Y + 거다이맥스)이 접혔다")
+        XCTAssertTrue(open.contains(646), "큐레무가 접혔다")
+    }
+
+    /// 상세가 **스크롤 없이** 들어가야 한다. 팝오버 본문은 320pt 이고, 폼을 펼쳐 두면
+    /// 피카츄 하나로 그 다섯 배를 넘겼다.
+    func testTheDetailScreenFitsWithoutScrolling() {
+        let (store, pikachu) = makeStore(25)
+        let host = NSHostingView(rootView: IndividualDetailView(
+            store: store, individual: pikachu, line: nil, onNeedLine: { _ in }, onBack: {})
+            .frame(width: PopoverMetrics.contentWidth))
+        host.layoutSubtreeIfNeeded()
+        XCTAssertLessThan(host.fittingSize.height, 420,
+                          "상세가 \(Int(host.fittingSize.height))pt 다 — 폼 목록이 다시 펼쳐졌다")
+    }
+}
+
+/// 사탕 진행도 — 홈과 상세가 같은 계산을 쓴다.
+final class CandyProgressDisplayTests: XCTestCase {
+    private func individual(progress: Int) -> Individual {
+        var i = Individual(baseID: 25, speciesID: 25, pathIDs: [25], nature: .serious,
+                           obtainedAt: Date(timeIntervalSince1970: 0), grade: .common)
+        i.candyProgress = progress
+        return i
+    }
+
+    func testProgressIsTheFractionOfTheNextCandy() {
+        let half = Ribbon.bond.tokensPerCandy / 2
+        XCTAssertEqual(IndividualDetailView.candyProgress(individual(progress: half), .bond),
+                       0.5, accuracy: 0.01)
+        XCTAssertEqual(IndividualDetailView.candyProgress(individual(progress: 0), .bond), 0)
+    }
+
+    /// 리본이 오르면 필요량이 줄어 이미 쌓은 진행분이 100% 를 넘을 수 있다 — 게이지가 넘치면 안 된다.
+    func testProgressIsClampedWhenTheRibbonUpgrades() {
+        let carried = Ribbon.bond.tokensPerCandy      // 반려 기준으로는 필요량의 7.5배
+        XCTAssertEqual(IndividualDetailView.candyProgress(individual(progress: carried), .lifelong), 1)
+    }
+}

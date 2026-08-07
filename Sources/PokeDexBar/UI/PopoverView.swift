@@ -220,6 +220,15 @@ struct PopoverView: View {
                             .font(.system(size: 8, weight: .bold))
                             .padding(.horizontal, 5).padding(.vertical, 1)
                             .background(Color.secondary.opacity(0.18), in: Capsule())
+                        if let ribbon = partner.ribbon(at: player.currentDate()) {
+                            HStack(spacing: 2) {
+                                RibbonIcon(ribbon: ribbon, size: 12)
+                                Text(ribbon.label(player.language))
+                                    .font(.system(size: 8, weight: .bold))
+                            }
+                            .padding(.horizontal, 5).padding(.vertical, 1)
+                            .background(Color.orange.opacity(0.20), in: Capsule())
+                        }
                         if showsEvolutionBadge(for: partner) {
                             Text(l.evolutionReadyBadge)
                                 .font(.system(size: 8, weight: .bold)).foregroundStyle(.white)
@@ -231,6 +240,20 @@ struct PopoverView: View {
                         .font(.caption2).foregroundStyle(.secondary)
                     ProgressView(value: BoxTabView.progress(partner))
                         .controlSize(.small).tint(.orange)
+                    // 리본이 있으면 **지금 무엇을 채우고 있는지**를 경험치 바로 아래에 둔다.
+                    // 둘 다 이 파트너가 채우는 것이라 같은 층위이고, 예전에는 홈 어디에도
+                    // 리본이 안 보여 사탕이 언제 나오는지 알 길이 없었다.
+                    if let ribbon = partner.ribbon(at: player.currentDate()) {
+                        HStack(spacing: 5) {
+                            Text(l.ribbonNextCandy)
+                                .font(.system(size: 9)).foregroundStyle(.secondary)
+                            ProgressView(value: IndividualDetailView.candyProgress(partner, ribbon))
+                                .controlSize(.small).tint(.orange)
+                            Text(TokenFormatter.compact(
+                                max(0, ribbon.tokensPerCandy - partner.candyProgress)))
+                                .font(.system(size: 9)).monospacedDigit().foregroundStyle(.tertiary)
+                        }
+                    }
                     // 이 아이와 얼마나, 얼마만큼 — 경험치 게이지가 못 보여주는 누적을 여기서 보여준다.
                     HStack(spacing: 10) {
                         partnerStat(l.detailPartnerTime,
