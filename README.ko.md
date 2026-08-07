@@ -70,6 +70,13 @@ PokeDexBar는 당신이 이미 태우고 있는 AI 코딩 토큰(Claude Code · 
 </tr>
 <tr>
 <td width="55%" valign="middle">
+<h3>반짝임은 한 번만</h3>
+이로치는 원작이 하는 방식 그대로 자기를 드러냅니다 — 등장하는 순간 스프라이트 둘레에서 금색 별이 한 번 터져요. 알에서 나올 때 한 번, 박스에서 열어볼 때마다 한 번. 계속 반짝이면 특별하다는 신호가 아니라 배경 장식이 되니까요.
+</td>
+<td width="45%" align="center"><img src="assets/shiny-sparkle.gif" width="320" alt="이로치 개체의 상세 화면 — 스프라이트 둘레에서 금색 별이 한 번 터졌다 사라진다"></td>
+</tr>
+<tr>
+<td width="55%" valign="middle">
 <h3>도감</h3>
 <b>도감</b>은 1번부터 1025번까지 종을 체크하는 목록입니다 — 부화시키기 전엔 실루엣이에요.
 </td>

@@ -129,6 +129,25 @@ private struct HatchComposite: View {
     }
 }
 
+/// 이로치 개체의 상세 화면. 반짝임은 화면에 **들어오는 순간** 한 번 나므로
+/// (`IndividualDetailView` 의 `.task(id:)`), 창이 다 준비된 뒤에 열어야 연출의 시작과
+/// 촬영의 시작이 맞는다. `selection` 을 넣는 것이 곧 박스에서 한 마리를 누른 것이다.
+private struct SparkleComposite: View {
+    let store: PlayerStore
+    let selection: UUID?
+
+    var body: some View {
+        BoxTabView(store: store, lines: ScreenshotFixture.lines,
+                   onNeedLine: { _ in }, selection: .constant(selection))
+            .padding(PopoverMetrics.padding)
+            // 반짝임은 초상 둘레 96pt 판에서 난다. 아래로 긴 상세 화면을 통째로 담으면
+            // 정작 보여줄 것이 그림 한 귀퉁이가 된다. 다만 경험치 바에서 끊는다 —
+            // 글이 반쯤 잘린 채 끝나면 그림이 덜 만들어진 것처럼 보인다.
+            .frame(width: PopoverMetrics.width, height: 212, alignment: .top)
+            .background(Color(nsColor: .windowBackgroundColor))
+    }
+}
+
 /// `waitFor` 가 비동기 결과를 받아 두는 자리. 지역 `var` 캡처 대신 참조 하나를 쓴다.
 @MainActor
 private final class AsyncResult<T> {
@@ -243,6 +262,7 @@ enum ScreenshotFixture {
         4: [4: ["ko": "파이리", "en": "Charmander", "ja": "ヒトカゲ"],
             5: ["ko": "리자드", "en": "Charmeleon", "ja": "リザード"],
             6: ["ko": "리자몽", "en": "Charizard", "ja": "リザードン"]],
+        700: [700: ["ko": "님피아", "en": "Sylveon", "ja": "ニンフィア"]],
     ]
 
     private static let trees: [Int: EvoNode] = [
@@ -252,6 +272,8 @@ enum ScreenshotFixture {
                                                 EvoNode(speciesID: 136, children: [])]),
         4: EvoNode(speciesID: 4, children: [EvoNode(speciesID: 5,
                                                     children: [EvoNode(speciesID: 6, children: [])])]),
+        // 이로치 개체. 진화 갈래는 없지만 라인이 있어야 이름이 번호 대신 종명으로 찍힌다.
+        700: EvoNode(speciesID: 700, children: []),
     ]
 
     static func line(baseID: Int) -> EvoLine? {
@@ -288,6 +310,19 @@ enum ScreenshotFixture {
     /// 통째로 넣을 수 없다.
     static let menuBarMotion = Motion(frames: 12, delay: 0.4)
 
+    // MARK: 이로치 반짝임
+
+    /// 이 GIF 가 담을 개체 — `roster` 의 이로치. 반짝임은 이로치에게만 난다.
+    static let sparkleSpecies = 700
+
+    /// 길이는 연출 자신이 정한다(`ShinySparkles.duration`). 뒤에 여유를 붙여 **다 사그라든
+    /// 뒤**까지 담는 게 중요하다 — 한 번만 반짝인다는 게 이 그림의 요점이라, 꺼지는 장면이
+    /// 빠지면 계속 반짝이는 연출처럼 읽힌다.
+    static var sparkleMotion: Motion {
+        let delay = 0.06, tail = 0.3
+        return Motion(frames: Int(((ShinySparkles.duration + tail) / delay).rounded()), delay: delay)
+    }
+
     // MARK: 뽑기 연출
 
     /// 연출 GIF 가 담을 등급. **레전더리여야 한다** — 이 그림의 요점이 "등급이 오를수록 한 단계 더
@@ -322,6 +357,8 @@ final class ScreenshotGeneratorTests: XCTestCase {
         let detailID: UUID
         /// 파트너 — 리본 상세 화면이 쓴다(최고 단계 리본을 단 개체).
         let partnerID: UUID
+        /// 이로치 — 반짝임 GIF 가 쓴다.
+        let shinyID: UUID
     }
 
     /// - Parameters:
@@ -347,6 +384,7 @@ final class ScreenshotGeneratorTests: XCTestCase {
 
         var detailID: UUID?
         var partnerID: UUID?
+        var shinyID: UUID?
         for (index, entry) in ScreenshotFixture.roster.enumerated() {
             var individual = Individual(baseID: entry.path.first ?? entry.species,
                                         speciesID: entry.species, pathIDs: entry.path,
@@ -361,6 +399,7 @@ final class ScreenshotGeneratorTests: XCTestCase {
             player.addForTesting(individual)
             if index == 0 { partnerID = individual.id }
             if index == 1 { detailID = individual.id }
+            if entry.shiny { shinyID = individual.id }
         }
         if let partnerID {
             clock = base.addingTimeInterval(-ScreenshotFixture.partnerSinceDaysAgo * 86_400)
@@ -406,7 +445,7 @@ final class ScreenshotGeneratorTests: XCTestCase {
                                defaults: UserDefaults(suiteName: "ptb-shot-usage-\(UUID().uuidString)")!)
         return Fixture(player: player, usage: usage,
                        updater: UpdateChecker(currentVersion: AppEnv.appVersion ?? "0"),
-                       detailID: detailID!, partnerID: partnerID!)
+                       detailID: detailID!, partnerID: partnerID!, shinyID: shinyID!)
     }
 
     /// 홈 탭이 보여줄 사용량을 채운 스토어. `snapshots`·`limits`·`lastUpdated` 는 전부
@@ -862,6 +901,7 @@ final class ScreenshotGeneratorTests: XCTestCase {
         // 깨어나지 못하고 얼어붙는 실행이 절반쯤 나온다 — 한 번 얼면 그 프로세스에서는 다시
         // 찍어도 계속 언다(재시도 8번이 전부 얼어붙는 것을 실측). 프로세스가 깨끗할 때 찍는다.
         try write(try hatchAnimation(fixture), "screenshot-hatch.gif")
+        try write(try shinySparkleAnimation(fixture), "shiny-sparkle.gif")
         try write(try homeAnimation(fixture, usage: usage), "screenshot-home.gif")
         try write(try petAnimation(fixture, usage: usage), "floating-pet.gif")
         try write(try shinyAnimation(usage: usage), "shiny-banner.gif")
@@ -977,6 +1017,67 @@ final class ScreenshotGeneratorTests: XCTestCase {
             throw HatchCaptureFroze()   // 던져서 얼어붙은 프레임이 에셋에 안 쓰이게 한다
         }
         return try gif(frames, delay: motion.delay)
+    }
+
+    /// 이로치 반짝임 — 박스에서 이로치를 열면 초상 둘레에서 금색 별이 한 번 터지고 사라진다.
+    /// 앱에서 이 연출이 나는 곳이 바로 이 화면이라, 합성 배너가 아니라 상세 화면 그대로 담는다.
+    private func shinySparkleAnimation(_ fixture: Fixture) throws -> Data {
+        let motion = ScreenshotFixture.sparkleMotion
+        // **초상 스프라이트를 미리 받아 둔다.** 캐시에 GIF 가 없으면 `SpriteView` 는 다 받을
+        // 때까지 자리를 비워 두므로(정적 → 움직이는 것으로 바뀌는 순간이 어색하다는 지적을
+        // 받아 그렇게 고쳤다), 워밍업이 이 종을 안 지나면 반짝임만 있고 포켓몬이 없는 GIF 가 된다.
+        _ = try waitFor {
+            await SpriteLoader.image(speciesID: ScreenshotFixture.sparkleSpecies,
+                                     animated: true, shiny: true)
+        }
+        let frames = try liveFrames(
+            SparkleComposite(store: fixture.player, selection: nil),
+            motion, warmup: 1.0,
+            onReady: { host in
+                host.rootView = SparkleComposite(store: fixture.player, selection: fixture.shinyID)
+            })
+        try assertSparkleIsOneShot(in: frames)
+        return try gif(frames, delay: motion.delay)
+    }
+
+    /// 반짝임이 **한 번만** 났나. 이 GIF 가 존재하는 이유가 그것이라(원작처럼 등장하는 순간에만),
+    /// 연출이 상시 반복으로 되돌아가면 잘못된 그림을 릴리스에 싣는 대신 여기서 멈춰야 한다.
+    ///
+    /// 세는 것은 **금색 픽셀의 넓이**다. 스프라이트 자신이 계속 움직여 프레임마다 그림이 달라지므로
+    /// "프레임이 서로 다르다"로는 반짝임을 가려낼 수 없다. 대신 금색 넓이가 **솟았다가 바닥으로
+    /// 돌아오는지**를 본다 — 화면의 고정된 금빛(사탕 게이지 등)은 바닥값에 함께 깔리고, 상시
+    /// 반짝임이면 끝까지 안 내려온다.
+    private func assertSparkleIsOneShot(in frames: [NSBitmapImageRep]) throws {
+        // **찍힌 별은 호박색이 아니라 연한 크림색이다.** 처음엔 `ShinySparkles.gold` 의 바깥
+        // 색(252,184,41)을 기대해 `b < 130` 으로 걸렀는데, 실제 픽셀은 (254,246,207)·(253,242,191)
+        // 이었다 — 별이 작아 그라디언트의 흰 안쪽이 넓이의 거의 전부를 차지한다. 그 조건으로는
+        // 900 픽셀짜리 폭발이 30 으로 세어져 멀쩡한 GIF 가 실패했다. 그래서 "밝고 **따뜻한**"
+        // 픽셀로 센다 — 파랑보다 빨강이 뚜렷이 큰 것.
+        let gold = frames.map { frame -> Int in
+            guard let bytes = frame.bitmapData else { return 0 }
+            let bpp = frame.bitsPerPixel / 8
+            var count = 0
+            for y in 0..<frame.pixelsHigh {
+                for x in 0..<frame.pixelsWide {
+                    let o = y * frame.bytesPerRow + x * bpp
+                    let r = Int(bytes[o]), g = Int(bytes[o + 1]), b = Int(bytes[o + 2])
+                    if r > 170, g > 140, r > b + 40 { count += 1 }
+                }
+            }
+            return count
+        }
+        let floor = try XCTUnwrap(gold.min()), peak = try XCTUnwrap(gold.max())
+        let burst = peak - floor
+        // 실측: 바닥 135(이름 옆 ✨ 등 화면에 늘 있는 따뜻한 픽셀) · 꼭대기 1037.
+        XCTAssertGreaterThan(burst, 400, "반짝임이 프레임에 안 담겼다 — 금색 넓이가 평평하다: \(gold)")
+        // 등장하는 순간에 나야 한다 — 꼭대기가 뒤쪽이면 연출이 늦게 시작한 것이다.
+        let peakIndex = try XCTUnwrap(gold.firstIndex(of: peak))
+        XCTAssertLessThan(peakIndex, frames.count * 2 / 3,
+                          "반짝임이 뒤늦게 난다(\(peakIndex)/\(frames.count)): \(gold)")
+        // 그리고 꺼져야 한다. 이 검사가 상시 반짝임과 한 번 반짝임을 가르는 지점이다.
+        let tail = gold.suffix(4)
+        XCTAssertLessThan(tail.reduce(0, +) / tail.count, floor + burst / 4,
+                          "반짝임이 끝까지 남아 있다 — 한 번만 나는 연출이 아니다: \(gold)")
     }
 
     /// 알에서 포켓몬으로 바뀌는 순간이 실제로 찍혔나. 연출이 조용히 짧아지거나 순서가 바뀌면

@@ -70,6 +70,13 @@ Shiny hatches keep their distinct colors everywhere — menu bar, home card, evo
 </tr>
 <tr>
 <td width="55%" valign="middle">
+<h3>The sparkle, once</h3>
+A shiny announces itself the way the games do: a single burst of gold around the sprite the moment it appears — when it hatches, and again each time you open it in the Box. One burst, then gone. A permanent glitter would be decoration, not a signal.
+</td>
+<td width="45%" align="center"><img src="assets/shiny-sparkle.gif" width="320" alt="A shiny Pokémon's detail screen — gold stars burst around the sprite once, then fade"></td>
+</tr>
+<tr>
+<td width="55%" valign="middle">
 <h3>The National Dex</h3>
 The <b>National Dex</b> is a species checklist from #1 to #1025 — silhouettes until you've hatched one.
 </td>

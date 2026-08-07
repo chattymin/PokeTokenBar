@@ -103,12 +103,15 @@ struct ShinySparkles: View {
     @MainActor static func resetConstructed() { constructed = [] }
     #endif
 
+    // 타이밍 상수는 `nonisolated` 이다. `View` 는 메인 액터에 묶이지만 이 값들은 그냥 숫자라,
+    // 묶어 두면 스크린샷 생성기처럼 액터 밖에서 길이를 계산하는 곳이 전부 경고가 된다.
+
     /// 별 하나가 뜨고 지는 데 걸리는 시간.
-    static let pop = 0.62
+    nonisolated static let pop = 0.62
     /// 첫 별과 마지막 별 사이의 간격 — 이게 "뾰로롱"의 정체다. 0이면 한 번의 플래시가 된다.
-    static let stagger = 0.34
+    nonisolated static let stagger = 0.34
     /// 연출 전체 길이.
-    static var duration: Double { stagger + pop }
+    nonisolated static var duration: Double { stagger + pop }
 
     /// 금색 — 가운데가 희고 끝으로 갈수록 호박색. 끝을 완전히 투명하게 두어 뾰족한 끝이
     /// 잘린 것처럼 보이지 않게 한다.
