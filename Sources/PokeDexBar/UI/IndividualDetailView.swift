@@ -18,6 +18,9 @@ struct IndividualDetailView: View {
     /// 아직 못 가는 진화 갈래를 펼쳤나. 기본은 접힘 — 이브이는 여덟 갈래 중 넷이
     /// 막혀 있고, 그것들이 펼쳐져 있으면 갈 수 있는 곳이 화면 밖으로 밀린다.
     @State private var blockedEvolutionsExpanded = false
+    /// 이로치 반짝임의 방아쇠. 화면에 들어올 때 한 번 올린다 — 계속 반짝이면
+    /// 특별하다는 신호가 아니라 배경 장식이 된다.
+    @State private var sparkleBeat = 0
     private var threshold: Int {
         ExpBalance.threshold(grade: individual.grade, stageIndex: individual.stageIndex)
     }
@@ -44,8 +47,10 @@ struct IndividualDetailView: View {
                 }
             }
         }
-        .task(id: individual.baseID) {
+        .task(id: individual.id) {
             if line == nil { onNeedLine(individual.baseID) }
+            // 다른 개체를 열면 그 개체의 반짝임이 새로 난다.
+            if individual.shiny { sparkleBeat += 1 }
         }
     }
 
@@ -69,7 +74,8 @@ struct IndividualDetailView: View {
             // "이 아이가 그 아이"라는 게 먼저 보여야 한다.
             ZStack {
                 if individual.shiny {
-                    ShinySparkles(specs: SparkleSpec.ring(count: 6, radius: 0.44), period: 2.2)
+                    ShinySparkles(specs: SparkleSpec.ring(count: 7, radius: 0.44),
+                                  trigger: sparkleBeat)
                         .frame(width: 96, height: 96)
                 }
                 SpriteView(speciesID: individual.speciesID, form: individual.spriteForm, size: 72,

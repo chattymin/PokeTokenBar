@@ -100,6 +100,8 @@ struct HatchedRevealView: View {
     @State private var phase = Phase.shaking
     @State private var shakeBeat = 0
     @State private var burst = false
+    /// 이로치 반짝임의 방아쇠 — 껍질이 터지고 포켓몬이 나오는 그 순간에만 올린다.
+    @State private var sparkleBeat = 0
 
     private var l: L { store.l }
 
@@ -174,7 +176,8 @@ struct HatchedRevealView: View {
     private var hatchling: some View {
         ZStack {
             if individual.shiny {
-                ShinySparkles(specs: SparkleSpec.ring(count: 9, radius: 0.46), period: 1.4)
+                ShinySparkles(specs: SparkleSpec.ring(count: 9, radius: 0.46),
+                              trigger: sparkleBeat)
                     .frame(width: 128, height: 128)
             }
             SpriteView(speciesID: individual.speciesID, form: individual.spriteForm,
@@ -240,6 +243,10 @@ struct HatchedRevealView: View {
         phase = .cracking
         burst = true
         withAnimation(.spring(duration: 0.42, bounce: 0.45)) { phase = .revealed }
+        // 포켓몬이 자리를 잡은 다음에 반짝인다 — 껍질과 같이 터지면 파편에 묻힌다.
+        try? await Task.sleep(for: .seconds(0.22))
+        if Task.isCancelled { return }
+        if individual.shiny { sparkleBeat += 1 }
         try? await Task.sleep(for: .seconds(RevealMotion.hatchHold))
         if !Task.isCancelled { onDone() }
     }

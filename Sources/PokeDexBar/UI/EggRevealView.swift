@@ -79,6 +79,8 @@ struct EggRevealView: View {
     @State private var beat = 0
     @State private var burst = false
     @State private var showResult = false
+    /// 이로치 반짝임의 방아쇠 — 마지막 단계에서 한 번만 올린다.
+    @State private var sparkleBeat = 0
 
     private var stages: [RevealStage] { EggReveal.stages(for: grade) }
     private var stage: RevealStage { stages[min(stageIndex, stages.count - 1)] }
@@ -94,6 +96,11 @@ struct EggRevealView: View {
                     rings
                     particles
                     egg
+                    // 이로치는 결과를 말할 때 한 번 더 반짝인다 — 글자보다 이게 먼저 읽힌다.
+                    if shiny {
+                        ShinySparkles(specs: SparkleSpec.ring(count: 9, radius: 0.46),
+                                      trigger: sparkleBeat)
+                    }
                 }
                 .frame(width: 150, height: 150)
                 result
@@ -191,6 +198,7 @@ struct EggRevealView: View {
             burst = true                                  // 링·파티클이 터진다
             if index == stages.count - 1 {
                 withAnimation(.easeOut(duration: 0.28).delay(0.18)) { showResult = true }
+                if shiny { sparkleBeat += 1 }
             }
             let rest = EggReveal.duration(stageIndex: index, of: stages.count)
                 - RevealMotion.anticipation
