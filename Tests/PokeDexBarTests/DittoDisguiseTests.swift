@@ -195,12 +195,10 @@ final class DittoDisguiseStoreTests: XCTestCase {
     }
 }
 
-/// 위장 그림 — 뮤의 눈을 지우고 메타몽의 눈·입을 얹는다.
+/// 위장 그림 — 뮤의 눈에서 색을 뺀다.
 final class DittoDisguiseSpriteTests: XCTestCase {
-    /// 뮤의 얼굴을 흉내 낸 최소 픽스처: 살색 바탕 + **얼굴 선** + 파란 눈 둘.
+    /// 뮤의 얼굴을 흉내 낸 최소 픽스처: 살색 바탕 + **얼굴 선** + 파란 홍채 + 흰 하이라이트.
     /// 실제 뮤 스프라이트는 네트워크라 테스트가 못 쓴다.
-    ///
-    /// - Parameter line: 얼굴 선 색. 그린 얼굴이 이 색을 쓰는지 확인하는 데 쓴다.
     private func face(line: (r: Int, g: Int, b: Int) = (98, 80, 87)) -> CGImage {
         let (w, h) = (28, 28)
         let context = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4,
@@ -208,67 +206,18 @@ final class DittoDisguiseSpriteTests: XCTestCase {
                                 bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
         context.setFillColor(CGColor(red: 254/255.0, green: 213/255.0, blue: 229/255.0, alpha: 1))
         context.fill(CGRect(x: 4, y: 4, width: 20, height: 20))          // 살색 얼굴
-        // 얼굴 선 — 눈 위에 눈꺼풀처럼. 실루엣이 아니라 안쪽 선이어야 표본이 된다.
+        // 눈 테두리 — 이 선이 눈의 생김새다. 변환 뒤에도 그대로 남아 있어야 한다.
         context.setFillColor(CGColor(red: Double(line.r)/255, green: Double(line.g)/255,
                                      blue: Double(line.b)/255, alpha: 1))
-        context.fill(CGRect(x: 8, y: 19, width: 3, height: 1))
-        context.fill(CGRect(x: 17, y: 19, width: 3, height: 1))
+        context.fill(CGRect(x: 7, y: 15, width: 5, height: 5))
+        context.fill(CGRect(x: 16, y: 15, width: 5, height: 5))
         context.setFillColor(CGColor(red: 0.15, green: 0.35, blue: 0.85, alpha: 1))
-        context.fill(CGRect(x: 8, y: 16, width: 3, height: 2))           // 왼눈
-        context.fill(CGRect(x: 17, y: 16, width: 3, height: 2))          // 오른눈
+        context.fill(CGRect(x: 8, y: 16, width: 3, height: 2))           // 왼쪽 홍채
+        context.fill(CGRect(x: 17, y: 16, width: 3, height: 2))          // 오른쪽 홍채
+        context.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1))
+        context.fill(CGRect(x: 8, y: 18, width: 3, height: 1))           // 흰 하이라이트
+        context.fill(CGRect(x: 17, y: 18, width: 3, height: 1))
         return context.makeImage()!
-    }
-
-    private func pixels(_ image: CGImage, where matches: (Int, Int, Int, Int) -> Bool) -> Int {
-        let rep = NSBitmapImageRep(cgImage: image)
-        guard let bytes = rep.bitmapData else { return 0 }
-        let bpp = rep.bitsPerPixel / 8
-        var count = 0
-        for y in 0..<rep.pixelsHigh {
-            for x in 0..<rep.pixelsWide {
-                let o = y * rep.bytesPerRow + x * bpp
-                if matches(Int(bytes[o]), Int(bytes[o + 1]), Int(bytes[o + 2]),
-                           bpp > 3 ? Int(bytes[o + 3]) : 255) { count += 1 }
-            }
-        }
-        return count
-    }
-
-    /// 파란 눈이 사라지고 어두운 얼굴이 생긴다 — 위장의 전부가 이것이다.
-    func testTheBlueEyesBecomeADittoFace() throws {
-        let before = face()
-        let after = try XCTUnwrap(DittoDisguiseSprite.disguise(before))
-        let blue = { (r: Int, g: Int, b: Int, a: Int) in a > 128 && b > r + 25 && b > g + 10 }
-        let dark = { (r: Int, g: Int, b: Int, a: Int) in a > 128 && r < 150 && g < 150 && b < 170 }
-        XCTAssertGreaterThan(pixels(before, where: blue), 0, "픽스처에 파란 눈이 없다")
-        XCTAssertEqual(pixels(after, where: blue), 0, "뮤의 파란 눈이 남아 있다")
-        XCTAssertGreaterThan(pixels(after, where: dark), pixels(before, where: dark),
-                             "메타몽의 눈·입이 안 생겼다")
-    }
-
-    /// **선 색은 뮤에게서 빌린다.** 순수한 검정으로 그리면 얹은 티가 나고, 스프라이트마다 선 색이
-    /// 다르다(움직이는 쪽 (98,80,87) · 정적 쪽 (90,41,82) — 실측). 그림이 쓰는 색을 그대로 써야 한다.
-    ///
-    /// **기대 색은 그림에서 읽는다.** 그릴 때 지정한 값과 비교하면 안 된다 — `NSBitmapImageRep` 가
-    /// 색공간을 옮기면서 값이 달라진다(실측: (98,80,87) 로 그린 픽셀이 (118,99,106) 으로 읽혔다).
-    /// 확인하려는 건 "내가 적은 숫자"가 아니라 "그림이 실제로 쓰는 선 색"이다.
-    func testTheFaceIsDrawnInMewsOwnLineColor() throws {
-        for line in [(r: 98, g: 80, b: 87), (r: 90, g: 41, b: 82)] {
-            let before = face(line: line)
-            // 픽스처에서 가장 많이 쓰인 어두운 색 = 그 그림의 얼굴 선.
-            var tally: [[Int]: Int] = [:]
-            forEachPixel(before) { r, g, b, a in
-                if a > 128, r < 150, g < 150, b < 170 { tally[[r, g, b], default: 0] += 1 }
-            }
-            let expected = try XCTUnwrap(tally.max { $0.value < $1.value }?.key, "픽스처에 선이 없다")
-
-            let after = try XCTUnwrap(DittoDisguiseSprite.disguise(before))
-            let drawn = pixels(after) { r, g, b, a in a > 128 && [r, g, b] == expected }
-            let black = pixels(after) { r, g, b, a in a > 128 && r < 60 && g < 60 && b < 60 }
-            XCTAssertGreaterThan(drawn, pixels(before) { r, g, b, a in a > 128 && [r, g, b] == expected },
-                                 "얼굴이 그림의 선 색(\(expected))으로 안 그려졌다")
-            XCTAssertEqual(black, 0, "순수 검정으로 그렸다 — 뮤의 선 색을 안 썼다")
-        }
     }
 
     private func forEachPixel(_ image: CGImage, _ body: (Int, Int, Int, Int) -> Void) {
@@ -284,26 +233,68 @@ final class DittoDisguiseSpriteTests: XCTestCase {
         }
     }
 
-    /// 입은 눈보다 넓어야 한다 — 메타몽 얼굴을 메타몽으로 읽히게 하는 건 그 폭이다.
-    func testTheMouthIsWiderThanAnEye() {
-        let cells = DittoDisguiseSprite.mouthCells(x: 10, y: 10)
-        let span = cells.map(\.x).max()! - cells.map(\.x).min()! + 1
-        XCTAssertGreaterThanOrEqual(span, 6, "입이 좁아 점 몇 개로 보인다: \(span)픽셀")
-        // 두 줄로 층지게 — 한 줄짜리 직선은 메타몽이 아니라 그냥 선이다.
-        XCTAssertEqual(Set(cells.map(\.y)).count, 2)
+    private func pixels(_ image: CGImage, where matches: (Int, Int, Int, Int) -> Bool) -> Int {
+        var count = 0
+        forEachPixel(image) { r, g, b, a in if matches(r, g, b, a) { count += 1 } }
+        return count
     }
 
-    /// **실루엣은 그대로다.** 눈이 몸의 외곽선에 닿아 있어, 지우는 범위를 잘못 잡으면
-    /// 머리에 구멍이 뚫린다 — 실제로 처음 짤 때 밟은 결함이다.
-    func testTheBodyKeepsItsShape() throws {
+    /// 그림이 실제로 쓰는 얼굴 선 색 — 그릴 때 지정한 값과 다를 수 있다(아래 테스트 참고).
+    private func lineColor(of image: CGImage) throws -> [Int] {
+        var tally: [[Int]: Int] = [:]
+        forEachPixel(image) { r, g, b, a in
+            if a > 128, r < 150, g < 150, b < 170 { tally[[r, g, b], default: 0] += 1 }
+        }
+        return try XCTUnwrap(tally.max { $0.value < $1.value }?.key, "픽스처에 선이 없다")
+    }
+
+    /// **초점이 사라진다.** 파란 홍채도 흰 하이라이트도 남으면 안 된다 —
+    /// 하이라이트가 남으면 눈이 여전히 살아 있는 눈으로 보인다.
+    func testTheEyesLoseTheirColor() throws {
         let before = face()
         let after = try XCTUnwrap(DittoDisguiseSprite.disguise(before))
-        let opaque = { (_: Int, _: Int, _: Int, a: Int) in a > 128 }
-        XCTAssertEqual(pixels(after, where: opaque), pixels(before, where: opaque),
-                       "불투명 픽셀 수가 달라졌다 — 몸에 구멍이 뚫렸거나 넘쳤다")
+        let blue = { (r: Int, g: Int, b: Int, a: Int) in a > 128 && b > r + 25 && b > g + 10 }
+        let white = { (r: Int, g: Int, b: Int, a: Int) in a > 128 && r > 235 && g > 232 && b > 232 }
+        XCTAssertGreaterThan(pixels(before, where: blue), 0, "픽스처에 홍채가 없다")
+        XCTAssertGreaterThan(pixels(before, where: white), 0, "픽스처에 하이라이트가 없다")
+        XCTAssertEqual(pixels(after, where: blue), 0, "파란 홍채가 남아 있다")
+        XCTAssertEqual(pixels(after, where: white), 0, "흰 하이라이트가 남아 있다 — 눈에 초점이 살아 있다")
     }
 
-    /// 눈이 없으면(눈 감은 프레임) 손대지 않는다. 위조할 것이 없을 때 억지로 그리면 얼굴이 망가진다.
+    /// **눈의 생김새는 그대로다.** 테두리를 덮으면 눈이 뭉개져 얼굴이 망가진다 —
+    /// 지우고 새로 그리던 예전 방식이 정확히 그래서 "네모"로 보였다.
+    func testTheEyeShapeSurvives() throws {
+        let before = face()
+        let expected = try lineColor(of: before)
+        let after = try XCTUnwrap(DittoDisguiseSprite.disguise(before))
+        let outline = { (r: Int, g: Int, b: Int, a: Int) in a > 128 && [r, g, b] == expected }
+        // 선은 늘어야 한다(홍채가 이 색으로 덮이므로) — 줄었다면 테두리를 지운 것이다.
+        XCTAssertGreaterThan(pixels(after, where: outline), pixels(before, where: outline),
+                             "홍채가 선 색으로 안 덮였다")
+        let opaque = { (_: Int, _: Int, _: Int, a: Int) in a > 128 }
+        XCTAssertEqual(pixels(after, where: opaque), pixels(before, where: opaque),
+                       "불투명 픽셀 수가 달라졌다 — 실루엣을 건드렸다")
+    }
+
+    /// **선 색은 뮤에게서 빌린다.** 순수한 검정으로 덮으면 얹은 티가 나고, 스프라이트마다 선 색이
+    /// 다르다(움직이는 쪽 (98,80,87) · 정적 쪽 (90,41,82) — 실측).
+    ///
+    /// **기대 색은 그림에서 읽는다.** 그릴 때 지정한 값과 비교하면 안 된다 — `NSBitmapImageRep` 가
+    /// 색공간을 옮기면서 값이 달라진다(실측: (98,80,87) 로 그린 픽셀이 (118,99,106) 으로 읽혔다).
+    func testTheEyesAreFilledWithMewsOwnLineColor() throws {
+        for line in [(r: 98, g: 80, b: 87), (r: 90, g: 41, b: 82)] {
+            let before = face(line: line)
+            let expected = try lineColor(of: before)
+            let after = try XCTUnwrap(DittoDisguiseSprite.disguise(before))
+            XCTAssertGreaterThan(pixels(after) { r, g, b, a in a > 128 && [r, g, b] == expected },
+                                 pixels(before) { r, g, b, a in a > 128 && [r, g, b] == expected },
+                                 "눈이 그림의 선 색(\(expected))으로 안 덮였다")
+            XCTAssertEqual(pixels(after) { r, g, b, a in a > 128 && r < 60 && g < 60 && b < 60 }, 0,
+                           "순수 검정으로 덮었다 — 뮤의 선 색을 안 썼다")
+        }
+    }
+
+    /// 눈이 없으면(눈 감은 프레임) 손대지 않는다.
     func testAFaceWithNoEyesIsLeftAlone() {
         let (w, h) = (8, 8)
         let context = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4,
@@ -406,28 +397,3 @@ final class DittoDevSeedTests: XCTestCase {
     }
 }
 
-/// 눈을 몇 개로 볼 것인가 — 가운데로 자르면 한쪽 눈만 보이는 그림이 망가진다.
-final class DittoEyeSplitTests: XCTestCase {
-    private func points(_ xs: [Int]) -> [DittoDisguiseSprite.Point] {
-        xs.map { DittoDisguiseSprite.Point(x: $0, y: 10) }
-    }
-
-    /// 멀리 떨어진 두 무리는 두 눈이다(움직이는 스프라이트: 왼눈 14~16, 오른눈 23~26).
-    func testTwoSeparatedClustersAreTwoEyes() {
-        let split = DittoDisguiseSprite.splitEyes(points([14, 15, 16, 23, 24, 25, 26]))
-        XCTAssertEqual(split.count, 2)
-        XCTAssertEqual(split[0].map(\.x).sorted(), [14, 15, 16])
-        XCTAssertEqual(split[1].map(\.x).sorted(), [23, 24, 25, 26])
-    }
-
-    /// **붙어 있으면 눈 하나다.** 정적 스프라이트가 이 경우이고, 가운데로 자르면 눈 하나에
-    /// 점 두 개와 입이 구겨 들어간다.
-    func testOneContiguousClusterStaysOneEye() {
-        XCTAssertEqual(DittoDisguiseSprite.splitEyes(points([32, 33, 34, 35])).count, 1)
-    }
-
-    /// 한 칸 벌어진 정도로는 안 가른다 — 눈동자와 하이라이트 사이가 그렇게 비어 있을 수 있다.
-    func testASinglePixelGapIsNotTwoEyes() {
-        XCTAssertEqual(DittoDisguiseSprite.splitEyes(points([32, 33, 35, 36])).count, 1)
-    }
-}
