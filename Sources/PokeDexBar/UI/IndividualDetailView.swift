@@ -65,9 +65,18 @@ struct IndividualDetailView: View {
 
     private var portrait: some View {
         HStack(spacing: 10) {
-            SpriteView(speciesID: individual.speciesID, form: individual.spriteForm, size: 72,
-                       animated: true, shiny: individual.shiny, antialias: true)
-                .frame(width: 72, height: 72)
+            // 이로치는 초상 둘레가 반짝인다 — 이름 옆 ✨ 는 작아서, 박스에서 열어 보는 순간
+            // "이 아이가 그 아이"라는 게 먼저 보여야 한다.
+            ZStack {
+                if individual.shiny {
+                    ShinySparkles(specs: SparkleSpec.ring(count: 6, radius: 0.44), period: 2.2)
+                        .frame(width: 96, height: 96)
+                }
+                SpriteView(speciesID: individual.speciesID, form: individual.spriteForm, size: 72,
+                           animated: true, shiny: individual.shiny, antialias: true)
+                    .frame(width: 72, height: 72)
+            }
+            .frame(width: 96, height: 96)
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 5) {
                     Text(displayName).font(.system(size: 13, weight: .semibold))

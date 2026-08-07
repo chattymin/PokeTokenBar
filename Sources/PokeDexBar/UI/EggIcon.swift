@@ -169,12 +169,19 @@ struct HatchedRevealView: View {
         }
     }
 
-    /// 껍질이 터진 자리에서 튀어나온다.
+    /// 껍질이 터진 자리에서 튀어나온다. **이로치면 반짝임이 둘러싼다** — 이름 옆의 ✨ 하나로는
+    /// 1/64 짜리 사건이 그냥 지나간다. 여기가 그걸 처음 알게 되는 자리다.
     private var hatchling: some View {
-        SpriteView(speciesID: individual.speciesID, form: individual.spriteForm,
-                   size: 76, animated: true, shiny: individual.shiny, antialias: true)
-            .frame(width: 76, height: 76)
-            .transition(.scale(scale: 0.35).combined(with: .opacity))
+        ZStack {
+            if individual.shiny {
+                ShinySparkles(specs: SparkleSpec.ring(count: 9, radius: 0.46), period: 1.4)
+                    .frame(width: 128, height: 128)
+            }
+            SpriteView(speciesID: individual.speciesID, form: individual.spriteForm,
+                       size: 76, animated: true, shiny: individual.shiny, antialias: true)
+                .frame(width: 76, height: 76)
+        }
+        .transition(.scale(scale: 0.35).combined(with: .opacity))
     }
 
     private var rings: some View {
