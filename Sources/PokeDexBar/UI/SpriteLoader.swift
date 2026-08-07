@@ -60,6 +60,17 @@ actor SpriteStore {
         // 이 변형(종+shiny)의 애니메이션이 없다고 이미 확인됐으면 정적으로 떨어지게 nil 을 돌려준다(뷰가
         // 폴백). mem/disk 캐시 조회보다 아래에 둔다 — 위에 두면 이미 디스크에 있는 파일까지 막는다(리뷰 지적).
         if animated, missingAnimated.contains(key) { return nil }
+        // **위장 스프라이트는 받아오는 게 아니라 만든다.** 이 저장소는 포켓몬 에셋을 배포물에
+        // 담지 않으므로(README 명시) 미리 만들어 넣을 수 없다. 뮤를 받아 그 자리에서 변환하고,
+        // 결과는 위 캐시에 그대로 얹힌다 — 위장 슬러그가 키를 나누므로 원본 뮤와 안 섞인다.
+        if form == DittoDisguise.formSlug {
+            guard let mew = await data(speciesID: DittoDisguise.disguisedAs,
+                                       animated: animated, shiny: false),
+                  let made = DittoDisguiseSprite.apply(to: mew, animated: animated) else { return nil }
+            try? made.write(to: file, options: .atomic)
+            remember(key, made)
+            return made
+        }
         // 슬러그는 캐시 미스일 때만 필요하다 — 여기(캐시 조회 아래)에 두면 번들 슬러그 테이블 로드 실패가
         // 디스크에 이미 있는 스프라이트까지 막지 않는다(리뷰 지적).
         // 폼이 있으면 그 슬러그가 곧 스프라이트 이름이다(`charizard-megax`).

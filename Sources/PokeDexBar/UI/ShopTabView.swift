@@ -159,7 +159,13 @@ struct ShopTabView: View {
             // 그 사이 뷰가 사라져 취소됐으면(팝오버 닫힘 등) 착지하지 않는다 — 늦게 도착한
             // 조회가 다음 뽑기와 경합해 조용히 이기는 걸 막는다.
             guard !Task.isCancelled else { return }
-            let chosen = EggBalance.pickSpecies(from: index, grade: roll.grade, roll: store.nextRandomUnit())
+            var chosen = EggBalance.pickSpecies(from: index, grade: roll.grade, roll: store.nextRandomUnit())
+            // 메타몽은 일반 후보 풀에서 빠져 있어(`PokeAPIClient`) 여기서만 들어온다 — 커먼 1/128.
+            // 종을 고른 **뒤에** 굴려 덮어쓴다. 앞에 두면 이 굴림이 후보 선택의 난수를 밀어내
+            // 기존 뽑기 결과가 통째로 달라진다.
+            if DittoDisguise.hits(grade: roll.grade, roll: store.nextRandomUnit()) {
+                chosen = DittoDisguise.speciesID
+            }
             lastError = Self.landDraw(store, grade: roll.grade, speciesID: chosen, shiny: roll.shiny)
             // 착지에 실패했으면(슬롯이 찼다 등) 축하할 것이 없다 — 문구만 남긴다.
             if lastError == nil { reveal = (roll.grade, roll.shiny) }

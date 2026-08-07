@@ -52,8 +52,8 @@ final class PlayerStore {
     }
 
     /// 메뉴바 아이콘·플로팅 펫이 그릴 종. 파트너가 없으면 nil.
-    var displayedSpeciesID: Int? { state.partner?.speciesID }
-    var displayedIsShiny: Bool { state.partner?.shiny ?? false }
+    var displayedSpeciesID: Int? { state.partner?.displaySpeciesID }
+    var displayedIsShiny: Bool { state.partner?.showsShiny ?? false }
     /// 파트너가 메가·거다이맥스 폼이면 그 슬러그 — 메뉴바·플로팅 펫도 바뀐 모습으로 보여야 한다.
     var displayedForm: String? { state.partner?.spriteForm }
 

@@ -108,13 +108,13 @@ struct HatchedRevealView: View {
     /// 터질 때의 색. 등급의 마지막 연출 단계 색을 그대로 쓴다 — 뽑기와 부화가 같은 말을 해야
     /// "주황 = 레전더리"가 학습된다. 이로치만 예외로 노랗게 터뜨려 특별함을 먼저 알린다.
     private var flash: Color {
-        individual.shiny ? .yellow
+        individual.showsShiny ? .yellow
             : (EggReveal.stages(for: individual.grade).last ?? .white).color
     }
 
     private var displayName: String {
-        let species = line?.localizedName(individual.speciesID, store.language)
-            ?? "#\(individual.speciesID)"
+        let species = line?.localizedName(individual.displaySpeciesID, store.language)
+            ?? "#\(individual.displaySpeciesID)"
         return individual.displayName(speciesName: species, store.language)
     }
 
@@ -175,13 +175,13 @@ struct HatchedRevealView: View {
     /// 1/64 짜리 사건이 그냥 지나간다. 여기가 그걸 처음 알게 되는 자리다.
     private var hatchling: some View {
         ZStack {
-            if individual.shiny {
+            if individual.showsShiny {
                 ShinySparkles(specs: SparkleSpec.ring(count: 9, radius: 0.46),
                               trigger: sparkleBeat)
                     .frame(width: 128, height: 128)
             }
-            SpriteView(speciesID: individual.speciesID, form: individual.spriteForm,
-                       size: 76, animated: true, shiny: individual.shiny, antialias: true)
+            SpriteView(speciesID: individual.displaySpeciesID, form: individual.spriteForm,
+                       size: 76, animated: true, shiny: individual.showsShiny, antialias: true)
                 .frame(width: 76, height: 76)
         }
         .transition(.scale(scale: 0.35).combined(with: .opacity))
@@ -219,7 +219,7 @@ struct HatchedRevealView: View {
         VStack(spacing: 4) {
             HStack(spacing: 5) {
                 Text(displayName).font(.system(size: 13, weight: .semibold))
-                if individual.shiny { Text("✨").font(.system(size: 11)) }
+                if individual.showsShiny { Text("✨").font(.system(size: 11)) }
                 Text(individual.grade.label(store.language))
                     .font(.system(size: 8, weight: .bold))
                     .padding(.horizontal, 5).padding(.vertical, 1)
@@ -246,7 +246,7 @@ struct HatchedRevealView: View {
         // 포켓몬이 자리를 잡은 다음에 반짝인다 — 껍질과 같이 터지면 파편에 묻힌다.
         try? await Task.sleep(for: .seconds(0.22))
         if Task.isCancelled { return }
-        if individual.shiny { sparkleBeat += 1 }
+        if individual.showsShiny { sparkleBeat += 1 }
         try? await Task.sleep(for: .seconds(RevealMotion.hatchHold))
         if !Task.isCancelled { onDone() }
     }

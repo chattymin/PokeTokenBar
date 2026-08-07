@@ -34,10 +34,29 @@ struct Individual: Identifiable, Codable, Sendable, Equatable {
     var region: Region?
     /// 같은 지방에 모습이 여럿인 종의 구분(팔데아 켄타로스 combat/blaze/aqua).
     var regionVariant: String?
+    /// 위장 중이면 그 모습의 종 번호(메타몽이 뮤로 위장 중이면 151). 풀리면 nil 이 되고 다시 안 붙는다.
+    ///
+    /// **정체는 `speciesID` 에 그대로 둔다.** 위장 중에도 이 개체는 메타몽이고, 진화·리본·경험치가
+    /// 전부 메타몽 기준으로 돈다. 위장은 이름과 그림에만 얹는다 — 반대로 하면(뮤로 저장했다가
+    /// 나중에 바꾸기) 정체가 드러나는 순간 개체의 정체성이 통째로 바뀌어 여기저기가 어긋난다.
+    var disguisedAs: Int?
+
+    /// 화면에 보여야 할 종. 위장 중이면 위장한 쪽, 아니면 정체.
+    var displaySpeciesID: Int { disguisedAs ?? speciesID }
+
+    /// 이름을 찾을 때 볼 진화 라인의 키. 위장 중이면 **위장한 종의 라인**을 봐야 한다 —
+    /// 정체(메타몽)의 라인에는 위장한 종(뮤)의 이름이 없어서 "#151" 로 떨어진다.
+    var displayLineID: Int { disguisedAs ?? baseID }
+
+    /// 화면에 이로치로 보여야 하나. **위장 중에는 숨긴다** — 위장이 들킬 단서를 스스로 내밀면
+    /// 위장이 아니다. 정체가 드러난 뒤 진짜 모습에서 공개된다.
+    var showsShiny: Bool { shiny && disguisedAs == nil }
 
     /// 지금 그려야 할 Showdown 슬러그. 메가·거다이맥스가 우선이고(그 폼일 때만 지정된다),
     /// 다음이 지방 모습, 둘 다 없으면 nil 을 돌려 종 번호 기본 슬러그로 떨어진다.
     var spriteForm: String? {
+        // 위장이 가장 앞이다 — 위장 중엔 다른 무엇도 그려지면 안 된다.
+        if disguisedAs != nil { return DittoDisguise.formSlug }
         if let form { return form }
         guard let region else { return nil }
         return RegionalFormCatalog.form(speciesID: speciesID, region: region,
@@ -133,6 +152,7 @@ struct Individual: Identifiable, Codable, Sendable, Equatable {
         form = value(.form, nil)
         region = value(.region, nil)
         regionVariant = value(.regionVariant, nil)
+        disguisedAs = value(.disguisedAs, nil)
     }
 
     /// 관대 디코딩의 짝 — 값 범위 검증(CLAUDE.md 결함 대응 프로토콜).
@@ -152,6 +172,13 @@ struct Individual: Identifiable, Codable, Sendable, Equatable {
            RegionalFormCatalog.forms(speciesID: speciesID)
                .first(where: { $0.region == region && $0.variant == variant }) == nil {
             fixed.regionVariant = nil
+        }
+        // 위장은 메타몽이 뮤로 하는 것 하나뿐이다. 다른 값이 들어 있으면(외부 세이브를 들여올 때)
+        // 존재하지 않는 그림을 계속 요청하게 되므로 버린다 — 관대 디코딩의 짝인 값 범위 검증이다.
+        if let disguise = fixed.disguisedAs,
+           disguise != DittoDisguise.disguisedAs || speciesID != DittoDisguise.speciesID {
+            fixed.disguisedAs = nil
+            AppLog.write("Individual: dropped bogus disguise \(disguise) on species \(speciesID)")
         }
         return fixed
     }

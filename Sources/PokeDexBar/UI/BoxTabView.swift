@@ -61,7 +61,7 @@ struct BoxTabView: View {
         Group {
             if let selected {
                 IndividualDetailView(store: store, individual: selected,
-                                     line: lines[selected.baseID],
+                                     line: lines[selected.displayLineID],
                                      onNeedLine: onNeedLine,
                                      onBack: { selection = nil })
             } else {
@@ -202,8 +202,8 @@ struct BoxCell: View {
         Button(action: onTap) {
             VStack(spacing: 0) {
                 ZStack(alignment: .topTrailing) {
-                    SpriteView(speciesID: individual.speciesID, form: individual.spriteForm,
-                               size: 36, shiny: individual.shiny, fillFrame: fillFrame)
+                    SpriteView(speciesID: individual.displaySpeciesID, form: individual.spriteForm,
+                               size: 36, shiny: individual.showsShiny, fillFrame: fillFrame)
                         .frame(width: 36, height: 36)
                         // 리본은 좌측 상단, 진화 가능은 우측 상단 — 양쪽 귀퉁이로 갈라 둬야
                         // 둘 다 붙은 개체에서 서로 겹치지 않는다.
@@ -229,7 +229,7 @@ struct BoxCell: View {
             .overlay {
                 // 파트너는 테두리로, 이로치는 금테로 — 이름표가 없으니 칸 자체가 말해야 한다.
                 RoundedRectangle(cornerRadius: 7)
-                    .strokeBorder(individual.shiny ? Color.yellow.opacity(0.85)
+                    .strokeBorder(individual.showsShiny ? Color.yellow.opacity(0.85)
                                                    : (isPartner ? Color.accentColor : .clear),
                                   lineWidth: 1.2)
             }

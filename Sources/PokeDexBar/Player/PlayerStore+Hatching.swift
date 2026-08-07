@@ -45,7 +45,9 @@ extension PlayerStore {
         let individual = makeHatchling(from: egg, at: now)
         mutate { state in
             state.box.append(individual)
-            state.dex.insert(individual.speciesID)
+            // **위장 중이면 도감에 안 넣는다.** 넣으면 정체(메타몽)가 도감에서 먼저 새고,
+            // 위장한 종(뮤)을 넣으면 잡지도 않은 종이 도감에 남는다. 정체가 드러날 때 등록한다.
+            if individual.disguisedAs == nil { state.dex.insert(individual.speciesID) }
             state.eggs.removeAll { $0.id == eggID }
         }
         return individual
@@ -71,6 +73,9 @@ extension PlayerStore {
                                     nature: nature, exp: 0, obtainedAt: now, grade: egg.grade)
         individual.region = rolled?.0
         individual.regionVariant = rolled?.1
+        // 메타몽은 뮤의 모습을 하고 나온다. 위장은 **거두는 시점에** 붙인다 — 성격·지방과 같은
+        // 이유로, 알에 미리 넣어 두면 확인을 누르기 전에 세이브에 정체가 노출된다.
+        if egg.speciesID == DittoDisguise.speciesID { individual.disguisedAs = DittoDisguise.disguisedAs }
         return individual
     }
 }

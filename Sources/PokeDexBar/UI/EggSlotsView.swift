@@ -74,7 +74,7 @@ struct EggSlotsView: View {
         .overlay {
             if let hatched {
                 HatchedRevealView(individual: hatched, store: store,
-                                  line: lines[hatched.baseID], onNeedLine: onNeedLine) {
+                                  line: lines[hatched.displayLineID], onNeedLine: onNeedLine) {
                     self.hatched = nil
                 }
             }

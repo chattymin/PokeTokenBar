@@ -63,6 +63,13 @@ struct PopoverView: View {
     /// 알을 한 번도 안 뽑은 사용자에게 매초 재렌더를 시키지 않는다. 순수 판정이라 테스트로 잠근다.
     nonisolated static func needsCountdownTick(_ state: PlayerState) -> Bool { !state.eggs.isEmpty }
 
+    /// 위장이 풀리는 걸 **보고 있는 그 자리에서** 보이게 하려면 틱이 필요하다. 사용량 틱만으로는
+    /// 새로고침 간격만큼(수 분) 늦게 바뀌어, 10분을 세고 기다린 사용자가 아무 일도 안 일어난다고
+    /// 느낀다. 위장한 개체가 파트너일 때만 건다 — 그때만 시간이 흐르므로 다른 경우엔 켤 이유가 없다.
+    nonisolated static func needsDisguiseTick(_ state: PlayerState) -> Bool {
+        state.partner?.disguisedAs != nil
+    }
+
     var body: some View {
         Group {
             if Self.needsStarter(player.state) {
@@ -150,7 +157,19 @@ struct PopoverView: View {
             } else if nav.tab == .shop {
                 ShopTabView(store: player, provider: provider)
             } else {
-                partnerCard
+                // 위장이 풀리는 순간을 보고 있는 자리에서 보여준다. 파트너 카드만 감싼다 —
+                // 홈 탭 전체를 감싸면 헤더·한도 섹션까지 매초 다시 그려 에너지 예산을 깬다
+                // (부화 슬롯이 같은 이유로 같은 모양을 쓴다).
+                if Self.needsDisguiseTick(player.state) {
+                    TimelineView(.periodic(from: .now, by: 1)) { context in
+                        partnerCard
+                            .onChange(of: context.date) { _, date in
+                                player.revealDisguisesAndNotify(at: date)
+                            }
+                    }
+                } else {
+                    partnerCard
+                }
                 // 파트너가 물어 온 것 — 파트너 바로 아래에 둔다(그 개체가 한 일이다).
                 DiscoveryCard(store: player) { speciesID in
                     // evoLines 는 **베이스 종**으로 키가 잡혀 있다 — 진화한 개체는
@@ -197,8 +216,8 @@ struct PopoverView: View {
     /// 파트너 이름. 진화 라인을 아직 못 받았으면 번호로 떨어진다 — 라인은 아래 `.task` 가
     /// 진화 배지를 위해 이미 받아 두는데, 정작 이름에는 안 쓰고 번호만 보여주고 있었다.
     private func partnerName(_ partner: Individual) -> String {
-        let species = evoLines[partner.baseID]?
-            .localizedName(partner.speciesID, player.language) ?? "#\(partner.speciesID)"
+        let species = evoLines[partner.displayLineID]?
+            .localizedName(partner.displaySpeciesID, player.language) ?? "#\(partner.displaySpeciesID)"
         return partner.displayName(speciesName: species, player.language)
     }
 
@@ -207,15 +226,15 @@ struct PopoverView: View {
     private var partnerCard: some View {
         if let partner = player.state.partner {
             HStack(alignment: .top, spacing: 10) {
-                SpriteView(speciesID: partner.speciesID, form: partner.spriteForm, size: 64, bob: true, animated: true,
-                          shiny: partner.shiny, antialias: store.antialiasSprites)
+                SpriteView(speciesID: partner.displaySpeciesID, form: partner.spriteForm, size: 64, bob: true, animated: true,
+                          shiny: partner.showsShiny, antialias: store.antialiasSprites)
                     .frame(width: 64, height: 64)
                     .background(Color.secondary.opacity(0.06))
                     .clipShape(RoundedRectangle(cornerRadius: 12))
                 VStack(alignment: .leading, spacing: 4) {
                     HStack(spacing: 6) {
                         Text(partnerName(partner)).font(.callout.weight(.semibold))
-                        if partner.shiny { Text("✨").font(.system(size: 11)) }
+                        if partner.showsShiny { Text("✨").font(.system(size: 11)) }
                         Text(partner.grade.label(player.language))
                             .font(.system(size: 8, weight: .bold))
                             .padding(.horizontal, 5).padding(.vertical, 1)

@@ -544,4 +544,19 @@ struct L {
         let ja = shinyCount > 0 ? " (✨ \(shinyCount)匹)" : ""
         return t("\(count)마리가 부화했어요\(ko)", "\(count) hatched\(en)", "\(count)匹がふ化しました\(ja)")
     }
+
+    // MARK: 위장이 풀릴 때
+    var notifDisguiseTitle: String { t("정체가 드러났어요", "It was not what it seemed", "正体があらわれました") }
+    /// 무엇이었는지 짚어준다 — 정체가 이 연출의 전부라 문구가 애매하면 놓친 것과 같다.
+    func notifDisguiseBody(_ was: Int, shiny: Bool) -> String {
+        let mark = shiny ? "✨ " : ""
+        return t("\(mark)곁에 있던 아이는 #\(was) 이었어요",
+                 "\(mark)The one at your side was #\(was)",
+                 "\(mark)そばにいたのは #\(was) でした")
+    }
+    /// 둘 이상이 한꺼번에 풀렸을 때 — 알림을 하나로 묶는다(부화 알림과 같은 규칙).
+    func notifDisguiseMultipleBody(_ count: Int) -> String {
+        t("\(count)마리의 정체가 드러났어요", "\(count) of them were not what they seemed",
+          "\(count)匹の正体があらわれました")
+    }
 }

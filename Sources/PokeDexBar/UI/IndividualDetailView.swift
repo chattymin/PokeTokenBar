@@ -25,7 +25,11 @@ struct IndividualDetailView: View {
         ExpBalance.threshold(grade: individual.grade, stageIndex: individual.stageIndex)
     }
     private var choices: [Int] {
-        line.map { store.evolutionChoices(individual, line: $0) } ?? []
+        // 위장 중엔 진화를 안 내민다. 이 화면이 받은 라인은 **위장한 종의 것**이라(이름 때문)
+        // 정체의 진화 후보가 아니고, 애초에 위장 중인 아이에게 진화를 권하는 것 자체가
+        // 정체를 흘리는 일이다.
+        guard individual.disguisedAs == nil else { return [] }
+        return line.map { store.evolutionChoices(individual, line: $0) } ?? []
     }
 
     /// 종 이름 — 라인을 아직 못 받았으면 번호로 폴백한다.
@@ -48,9 +52,9 @@ struct IndividualDetailView: View {
             }
         }
         .task(id: individual.id) {
-            if line == nil { onNeedLine(individual.baseID) }
+            if line == nil { onNeedLine(individual.displayLineID) }
             // 다른 개체를 열면 그 개체의 반짝임이 새로 난다.
-            if individual.shiny { sparkleBeat += 1 }
+            if individual.showsShiny { sparkleBeat += 1 }
         }
     }
 
@@ -73,23 +77,23 @@ struct IndividualDetailView: View {
             // 이로치는 초상 둘레가 반짝인다 — 이름 옆 ✨ 는 작아서, 박스에서 열어 보는 순간
             // "이 아이가 그 아이"라는 게 먼저 보여야 한다.
             ZStack {
-                if individual.shiny {
+                if individual.showsShiny {
                     ShinySparkles(specs: SparkleSpec.ring(count: 7, radius: 0.44),
                                   trigger: sparkleBeat)
                         .frame(width: 96, height: 96)
                 }
-                SpriteView(speciesID: individual.speciesID, form: individual.spriteForm, size: 72,
-                           animated: true, shiny: individual.shiny, antialias: true)
+                SpriteView(speciesID: individual.displaySpeciesID, form: individual.spriteForm, size: 72,
+                           animated: true, shiny: individual.showsShiny, antialias: true)
                     .frame(width: 72, height: 72)
             }
             .frame(width: 96, height: 96)
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 5) {
                     Text(displayName).font(.system(size: 13, weight: .semibold))
-                    if individual.shiny { Text("✨").font(.system(size: 11)) }
+                    if individual.showsShiny { Text("✨").font(.system(size: 11)) }
                 }
                 HStack(spacing: 4) {
-                    Text("#\(individual.speciesID)")
+                    Text("#\(individual.displaySpeciesID)")
                         .font(.system(size: 10)).monospacedDigit().foregroundStyle(.secondary)
                     if let region = individual.region {
                         Text(region.label(store.language))
@@ -425,7 +429,7 @@ struct IndividualDetailView: View {
 
     /// 폼 접두를 붙이기 전의 종 이름.
     private var baseName: String {
-        line?.localizedName(individual.speciesID, store.language) ?? "#\(individual.speciesID)"
+        line?.localizedName(individual.displaySpeciesID, store.language) ?? "#\(individual.displaySpeciesID)"
     }
 
     /// 사탕 — 상점에서 산 사탕을 쓰는 유일한 화면이다.
