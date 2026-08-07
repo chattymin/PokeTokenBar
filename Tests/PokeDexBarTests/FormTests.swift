@@ -853,3 +853,53 @@ final class EvolutionBranchFoldingTests: XCTestCase {
                           "이브이 상세가 \(Int(host.fittingSize.height))pt 다 — 막힌 갈래가 다시 펼쳐졌다")
     }
 }
+
+/// [회귀] 정적 스프라이트가 먼저 떴다가 움직이는 스프라이트로 바뀌는 교체가 어색하다는 지적.
+/// 기다리는 동안에는 아무것도 안 그리되, **기다릴 이유가 없을 때는 기다리면 안 된다** —
+/// 정적 스크린샷은 `.task` 를 안 돌리므로 init 의 캐시 시드가 유일한 그림이다.
+@MainActor
+final class SpriteAnimationWaitTests: XCTestCase {
+    /// 움직이는 스프라이트를 요청하지 않았으면 기다릴 일이 없다.
+    func testStaticRequestsNeverWait() {
+        XCTAssertFalse(SpriteView.needsToWait(speciesID: 25, form: nil,
+                                              animated: false, shiny: false))
+    }
+
+    /// 알 상태(종 없음)도 기다리지 않는다 — 기다리면 알 자리가 영영 빈칸이 된다.
+    func testTheEggStateNeverWaits() {
+        XCTAssertFalse(SpriteView.needsToWait(speciesID: nil, form: nil,
+                                              animated: true, shiny: false))
+    }
+
+    /// 캐시에 GIF 가 있으면 기다리지 않는다. 이게 정적 스크린샷을 지키는 조건이다 —
+    /// 여기가 참이 되면 박스·도감·상세 PNG 가 전부 빈칸으로 생성된다.
+    func testACachedAnimationDoesNotWait() throws {
+        let species = 9_001                       // 실제 종과 안 겹치는 번호
+        let key = SpriteStore.cacheKey(speciesID: species, form: nil, animated: true, shiny: false)
+        let file = SpriteLoader.cacheDir.appendingPathComponent("\(key).gif")
+        try FileManager.default.createDirectory(at: SpriteLoader.cacheDir,
+                                                withIntermediateDirectories: true)
+        try Data([0x47, 0x49, 0x46]).write(to: file)      // 존재만 보므로 내용은 상관없다
+        defer { try? FileManager.default.removeItem(at: file) }
+
+        XCTAssertFalse(SpriteView.needsToWait(speciesID: species, form: nil,
+                                              animated: true, shiny: false),
+                       "캐시가 있는데 기다린다 — 정적 스크린샷이 빈칸이 된다")
+        XCTAssertTrue(SpriteView.needsToWait(speciesID: species + 1, form: nil,
+                                             animated: true, shiny: false),
+                      "캐시가 없는데 안 기다린다 — 정적→애니 교체가 그대로 보인다")
+    }
+
+    /// 이로치 GIF 가 없는 종은 일반 GIF 로 폴백하므로, 일반 캐시가 있으면 기다리지 않는다.
+    func testShinyFallsBackToThePlainAnimationCache() throws {
+        let species = 9_003
+        let key = SpriteStore.cacheKey(speciesID: species, form: nil, animated: true, shiny: false)
+        let file = SpriteLoader.cacheDir.appendingPathComponent("\(key).gif")
+        try FileManager.default.createDirectory(at: SpriteLoader.cacheDir,
+                                                withIntermediateDirectories: true)
+        try Data([0x47, 0x49, 0x46]).write(to: file)
+        defer { try? FileManager.default.removeItem(at: file) }
+        XCTAssertFalse(SpriteView.needsToWait(speciesID: species, form: nil,
+                                              animated: true, shiny: true))
+    }
+}

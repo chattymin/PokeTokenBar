@@ -148,6 +148,20 @@ enum SpriteLoader {
         return cachedImage(speciesID: speciesID, form: form, animated: animated, shiny: false)
     }
 
+    /// 움직이는 스프라이트가 **이미 디스크에 있나**. 디코드 없이 파일 존재만 본다 —
+    /// 뷰 `init` 에서 매번 부르므로(도감 그리드는 칸마다) 여기서 GIF 를 열면 안 된다.
+    ///
+    /// 쓰임: 캐시에 없으면 `SpriteView` 가 정적 스프라이트를 **감추고 기다린다**. 정적으로
+    /// 먼저 그렸다가 움직이는 것으로 바뀌는 순간이 눈에 띄게 어색하다는 지적을 받았다.
+    static func hasCachedAnimation(speciesID: Int, form: String? = nil, shiny: Bool = false) -> Bool {
+        let key = SpriteStore.cacheKey(speciesID: speciesID, form: form, animated: true, shiny: shiny)
+        if FileManager.default.fileExists(atPath:
+            cacheDir.appendingPathComponent("\(key).gif").path) { return true }
+        // 이로치 GIF 가 없는 종은 일반 GIF 로 폴백하므로 그쪽도 본다.
+        guard shiny else { return false }
+        return hasCachedAnimation(speciesID: speciesID, form: form, shiny: false)
+    }
+
     /// 정적 스프라이트. animated=true 면 Gen-V 움직이는 스프라이트(없으면 정적으로 폴백).
     /// shiny=true 는 색이 다른 스프라이트 — 미제공 종이면 일반으로 폴백.
     static func image(speciesID: Int, form: String? = nil, animated: Bool = false,

@@ -68,6 +68,13 @@ struct SpriteView: View {
     @State private var frameTrim: CGRect?
     @State private var frames: [(image: NSImage, delay: TimeInterval)] = []
     @State private var frameIndex = 0
+    /// 움직이는 스프라이트를 기다리는 중인가. **기다리는 동안에는 정적 스프라이트를 안 그린다** —
+    /// 정적으로 먼저 떴다가 움직이는 것으로 바뀌는 순간이 어색하다는 지적을 받았다.
+    ///
+    /// GIF 가 이미 캐시에 있으면 기다릴 것이 없으므로 곧바로 false 다. 그 경로를 남겨 둔 이유가
+    /// 둘 있다: 캐시가 있으면 교체가 한 프레임 안에 끝나 어차피 안 보이고, **정적 스크린샷은
+    /// `.task` 를 안 돌리므로**(`ScreenshotGenerator.png`) init 의 동기 캐시 시드가 유일한 그림이다.
+    @State private var awaitingAnimation: Bool
 
     #if DEBUG
     /// 테스트 전용 생성 카운터 — 지연 로드(LazyVGrid 등)가 실제로 화면 밖 칸을 안 만드는지 재는 계측.
@@ -102,6 +109,15 @@ struct SpriteView: View {
         let seeded = speciesID != nil && cached != nil
         _loadedID = State(initialValue: seeded ? speciesID : nil)
         _loadedForm = State(initialValue: seeded ? form : nil)
+        _awaitingAnimation = State(initialValue: Self.needsToWait(
+            speciesID: speciesID, form: form, animated: animated, shiny: shiny))
+    }
+
+    /// 움직이는 스프라이트를 기다려야 하나. 순수 함수라 테스트로 잠근다.
+    /// 캐시에 GIF 가 있으면 기다리지 않는다 — 그래야 정적 스크린샷이 빈칸으로 안 나온다.
+    static func needsToWait(speciesID: Int?, form: String?, animated: Bool, shiny: Bool) -> Bool {
+        guard animated, let speciesID else { return false }
+        return !SpriteLoader.hasCachedAnimation(speciesID: speciesID, form: form, shiny: shiny)
     }
 
     /// 프레임 지속(초) = max(원본 delay, 하한). 순수·테스트용 — fps 상한 회귀 가드.
@@ -150,6 +166,10 @@ struct SpriteView: View {
                     .resizable().interpolation(.none)
                     .scaledToFit()   // 스프라이트마다 원본 비율이 달라 — 정사각형에 늘리면 찌부된다
                     .frame(width: size, height: size)
+            } else if awaitingAnimation {
+                // 아직 기다리는 중 — 자리만 잡아 둔다. 여기서 정적 스프라이트나 🥚 를 그리면
+                // 잠시 뒤 움직이는 스프라이트로 바뀌면서 그 교체가 눈에 띈다.
+                Color.clear.frame(width: size, height: size)
             } else if let img {
                 Image(nsImage: drawable(img, trim: staticTrim))
                     .renderingMode(silhouette ? .template : .original)
@@ -173,6 +193,9 @@ struct SpriteView: View {
             frames = []
             frameIndex = 0
             frameTrim = nil
+            // 종·폼이 바뀌면 다시 판단한다 — 새 종의 GIF 는 캐시에 없을 수 있다.
+            awaitingAnimation = Self.needsToWait(speciesID: speciesID, form: form,
+                                                 animated: animated, shiny: shiny)
             guard let id = speciesID else {
                 // 알 상태 — 정적 알 스프라이트 로드(애니메이션 알은 없음). 실패/오프라인이면 body 가 🥚 폴백.
                 // 종 → 알(졸업·새 알)이면 이전 개체 이미지를 버려야 한다 — img 는 뷰 identity 가 살아있는 동안
@@ -194,7 +217,7 @@ struct SpriteView: View {
                     staticTrim = next.image.flatMap(SpriteTrim.contentRect(of:))
                 }
             }
-            guard animated else { return }
+            guard animated else { awaitingAnimation = false; return }
             // animated GIF 시도(shiny 미제공 종은 일반 GIF 폴백) → 프레임 2개 이상이면 순환 루프
             var gifData = await SpriteStore.shared.data(speciesID: id, form: form,
                                                        animated: true, shiny: shiny)
@@ -202,12 +225,15 @@ struct SpriteView: View {
                 gifData = await SpriteStore.shared.data(speciesID: id, form: form,
                                                         animated: true, shiny: false)
             }
-            guard let data = gifData else { return }
+            guard let data = gifData else { awaitingAnimation = false; return }
             // 단일 프레임/디코드 실패 → 정적 폴백. 취소됐으면 아예 반영하지 않는다(빈 배열이라 아래서 종료).
             let ready = Self.framesToApply(GIFDecoder.frames(from: data), cancelled: Task.isCancelled)
-            guard !ready.isEmpty else { return }
+            guard !ready.isEmpty else { awaitingAnimation = false; return }
             frameTrim = SpriteTrim.unionContentRect(of: ready.map(\.image))
+            // 프레임과 대기 해제를 **같은 갱신에서** 한다 — 따로 하면 그 사이에 정적 스프라이트가
+            // 한 프레임 보이면서, 없애려던 그 교체가 그대로 일어난다.
             frames = ready
+            awaitingAnimation = false
             // delay 기반 프레임 advance. .task 취소 시(speciesID 변경/뷰 소멸) 루프 종료 — 누수 없음
             while !Task.isCancelled {
                 let delay = Self.frameDelay(base: frames[frameIndex % frames.count].delay, floor: minFrameDelay)
