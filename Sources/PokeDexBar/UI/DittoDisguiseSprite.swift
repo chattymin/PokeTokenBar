@@ -11,8 +11,8 @@ import UniformTypeIdentifiers
 /// **왜 색으로 눈을 찾나.** 뮤의 몸은 분홍인데 눈만 파랗다. 프레임마다 머리가 움직여 좌표를 적어
 /// 둘 수 없으므로(50프레임), 매 프레임 파란 픽셀에서 눈을 찾아 들어간다.
 enum DittoDisguiseSprite {
-    /// 메타몽의 눈·입 색 — 실제 스프라이트에서 잰 값.
-    private static let ink = (r: 39, g: 39, b: 39)
+    /// 얼굴 선 색을 못 뽑았을 때의 마지막 보루 — 뮤 애니메이션의 얼굴 선 실측값.
+    private static let fallbackInk = (r: 98, g: 80, b: 87)
 
     /// GIF 든 PNG 든 프레임을 전부 변환해 같은 형식으로 돌려준다. 만들지 못하면 nil —
     /// 호출부가 원본을 그대로 쓰게 해서, 변환 실패가 빈 화면이 되지 않게 한다.
@@ -73,6 +73,11 @@ enum DittoDisguiseSprite {
 
         let sides = splitEyes(blues)
 
+        // **선 색은 뮤에게서 빌린다.** 순수한 검정으로 그리면 얹은 티가 나고, 스프라이트마다 선
+        // 색이 다르다 — 움직이는 쪽은 (98,80,87), 정적 쪽은 (90,41,82) 이다(실측). 박아 넣는 대신
+        // 지우려는 눈 주변의 선에서 뽑아 쓰면 어느 그림에서도 원래 있던 선처럼 보인다.
+        let ink = faceInk(canvas, near: blues)
+
         var centers: [(x: Int, y: Int)] = []
         for side in sides {
             let blob = eyeBlob(canvas, from: side)
@@ -83,20 +88,69 @@ enum DittoDisguiseSprite {
             centers.append((x: (xs.min()! + xs.max()!) / 2, y: (ys.min()! + ys.max()!) / 2))
         }
 
-        // 메타몽의 눈은 1픽셀 점이다. 원본이 딱 그렇고, 뮤의 머리는 13픽셀뿐이라 더 키우면 얼굴을 먹는다.
-        for center in centers { canvas.set(Point(x: center.x, y: center.y), ink) }
+        // 눈 — 2×2. 원본 메타몽은 1픽셀 점이지만, 그건 몸이 43픽셀일 때의 이야기다. 뮤의 머리
+        // 13픽셀에 1픽셀 점을 찍으면 얼굴이 있는지조차 안 보인다. 얼굴이 **명확히 읽히는 것**이
+        // 이 위장의 요점이므로 한 칸 키운다.
+        for center in centers {
+            for dy in 0...1 {
+                for dx in 0...1 { canvas.set(Point(x: center.x + dx, y: center.y + dy), ink) }
+            }
+        }
 
-        // 입 — 두 눈 사이 바로 아래. 메타몽의 입은 짧은 선과 한 칸 낮은 선으로 그려져 있고,
-        // 그 층짐이 얼굴을 메타몽으로 읽히게 하는 실제 신호다. 원본만큼 내리면(+3) 뮤의 턱·목
-        // 외곽선에 붙어 입이 아니라 얼룩이 된다(실측).
-        if centers.count == 2 {
-            let x = (centers[0].x + centers[1].x) / 2
-            let y = max(centers[0].y, centers[1].y) + 1
-            for dx in -2...(-1) { canvas.set(Point(x: x + dx, y: y), ink) }
-            for dx in 1...2 { canvas.set(Point(x: x + dx, y: y + 1), ink) }
+        // 입 — 두 눈 사이 아래. 메타몽의 입은 짧은 선과 한 칸 낮은 선으로 그려져 있고, 그 층짐이
+        // 얼굴을 메타몽으로 읽히게 하는 실제 신호다. 눈이 커진 만큼 한 칸 더 내리고 폭도 넓힌다 —
+        // 다만 원본만큼(+3) 내리면 뮤의 턱·목 외곽선에 붙어 입이 아니라 얼룩이 된다(실측).
+        if centers.count == 2, let mouth = mouthRow(canvas, centers: centers) {
+            for point in mouthCells(x: mouth.x, y: mouth.y) { canvas.set(point, ink) }
         }
         return canvas.image
     }
+
+    /// 입이 차지할 칸. 메타몽의 입은 짧은 선과 한 칸 낮은 선으로 그려져 있고, 그 층짐이
+    /// 얼굴을 메타몽으로 읽히게 하는 실제 신호다.
+    /// 폭이 이 얼굴의 핵심이다 — 메타몽의 입은 제 얼굴 폭의 절반쯤을 가로지른다. 좁게 그리면
+    /// 점 세 개가 되어 메타몽으로 안 읽힌다(실측: 5픽셀은 표시 크기에서 거의 안 보였다).
+    static func mouthCells(x: Int, y: Int) -> [Point] {
+        (-3...0).map { Point(x: x + $0, y: y) } + (1...3).map { Point(x: x + $0, y: y + 1) }
+    }
+
+    /// 입을 그릴 자리 — **자리가 나는 줄을 찾는다.** 줄을 고정하면 안 된다: 뮤의 머리는 13픽셀뿐이고
+    /// 3/4 로 돌아간 프레임에서는 두 눈의 높이가 두 칸까지 어긋난다. 평균에 맞추면 낮은 쪽 눈에
+    /// 겹치고, 낮은 쪽에 맞추면 턱·목 선에 달라붙는다 — 실측으로 둘 다 겪었다.
+    /// 빈 살결이 나오는 줄이 없으면 **입을 안 그린다**. 없는 자리에 억지로 그리면 입이 아니라 얼룩이다.
+    static func mouthRow(_ canvas: Canvas, centers: [(x: Int, y: Int)]) -> (x: Int, y: Int)? {
+        let x = (centers[0].x + centers[1].x) / 2
+        let top = max(centers[0].y, centers[1].y) + 2   // 2×2 눈의 아랫줄 바로 다음
+        for y in top...(top + 2) where mouthCells(x: x, y: y).allSatisfy({ point in
+            let pixel = canvas[point]
+            return pixel.a > 128 && !isInk(pixel) && !canvas.onSilhouette(point)
+        }) { return (x, y) }
+        return nil
+    }
+
+    /// 눈 둘레에서 가장 많이 쓰인 어두운 선 색. 얼굴을 그릴 때 이 색을 쓴다.
+    ///
+    /// 실루엣(투명에 닿은 픽셀)은 뺀다 — 바깥 테두리는 거의 검정이라(39,39,39) 그걸 뽑으면
+    /// 다시 새까만 얼굴이 된다. 얼굴 안쪽 선은 그보다 따뜻하다.
+    static func faceInk(_ canvas: Canvas, near blues: [Point]) -> (r: Int, g: Int, b: Int) {
+        let xs = blues.map(\.x), ys = blues.map(\.y)
+        var tally: [Pixel3: Int] = [:]
+        for y in (ys.min()! - 2)...(ys.max()! + 2) {
+            for x in (xs.min()! - 2)...(xs.max()! + 2) {
+                let point = Point(x: x, y: y)
+                let pixel = canvas[point]
+                guard isInk(pixel), !isBlue(pixel), !canvas.onSilhouette(point) else { continue }
+                tally[Pixel3(r: pixel.r, g: pixel.g, b: pixel.b), default: 0] += 1
+            }
+        }
+        // 동률이면 어두운 쪽으로 — 선은 진해야 얼굴로 읽힌다.
+        guard let best = tally.max(by: { ($0.value, $1.key.sum) < ($1.value, $0.key.sum) })?.key else {
+            return fallbackInk
+        }
+        return (best.r, best.g, best.b)
+    }
+
+    struct Pixel3: Hashable { let r: Int, g: Int, b: Int; var sum: Int { r + g + b } }
 
     /// 파란 픽셀을 눈별로 가른다.
     ///
