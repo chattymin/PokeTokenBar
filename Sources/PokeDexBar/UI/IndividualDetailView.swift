@@ -15,6 +15,9 @@ struct IndividualDetailView: View {
     /// 폼 목록을 펼쳤나. 기본은 접힘 — 피카츄 15개·아르세우스 17개가 늘 펼쳐져 있으면
     /// 리본·사탕·진화가 전부 그 아래로 밀려난다.
     @State private var formsExpanded = false
+    /// 아직 못 가는 진화 갈래를 펼쳤나. 기본은 접힘 — 이브이는 여덟 갈래 중 넷이
+    /// 막혀 있고, 그것들이 펼쳐져 있으면 갈 수 있는 곳이 화면 밖으로 밀린다.
+    @State private var blockedEvolutionsExpanded = false
     private var threshold: Int {
         ExpBalance.threshold(grade: individual.grade, stageIndex: individual.stageIndex)
     }
@@ -196,23 +199,7 @@ struct IndividualDetailView: View {
             }
 
             if store.canEvolve(individual), !choices.isEmpty, let line {
-                ForEach(choices, id: \.self) { target in
-                    let name = line.localizedName(target, store.language)
-                    let need = store.requirement(for: target, line: line)
-                    let met = store.meetsRequirement(need, for: individual)
-                    VStack(alignment: .leading, spacing: 2) {
-                        DetailActionButton(title: choices.count > 1 ? l.evolveTo(name) : l.evolve,
-                                           prominent: met) {
-                            store.evolve(individualID: individual.id, to: target, line: line)
-                        }
-                        .disabled(!met)
-                        .opacity(met ? 1 : 0.55)
-                        // 못 누르는 버튼은 이유를 말해야 한다 — 아니면 고장으로 읽힌다.
-                        if !met, let hint = requirementHint(need) {
-                            Text(hint).font(.system(size: 9)).foregroundStyle(.tertiary)
-                        }
-                    }
-                }
+                evolutionSection(line)
             } else if line != nil, choices.isEmpty {
                 Text(l.detailMaxStage).font(.system(size: 9)).foregroundStyle(.tertiary)
             }
@@ -221,6 +208,84 @@ struct IndividualDetailView: View {
             // 접힌 폼 섹션 아래에 사탕을 두면 "가진 사탕이 없어요"가 화면 맨 밑에 홀로 떨어진다.
             candySection
             formSection
+        }
+    }
+
+    /// 진화 — **지금 갈 수 있는 곳만 버튼**이고, 못 가는 곳은 한 줄로 접는다.
+    ///
+    /// 전에는 갈래마다 전폭 버튼 하나와 "○○의돌 필요 · 파트너로 두면 물어 와요" 한 줄을 냈다.
+    /// 이브이는 갈래가 여덟이라 상세가 605pt 가 됐고(팝오버 본문은 320pt), 같은 안내가 네 번
+    /// 반복됐다. 폼에서 겪은 것과 같은 병이라 같은 방식으로 고친다 —
+    /// **이유는 접힌 줄에 한 번만.**
+    ///
+    /// 못 가는 곳을 아예 숨기지는 않는다: 글레이시아가 이 게임에 있다는 걸 알 수 없게 된다.
+    @ViewBuilder
+    private func evolutionSection(_ line: EvoLine) -> some View {
+        let open = choices.filter { store.meetsRequirement(store.requirement(for: $0, line: line),
+                                                           for: individual) }
+        let blocked = choices.filter { !open.contains($0) }
+        ForEach(open, id: \.self) { target in
+            DetailActionButton(title: choices.count > 1
+                               ? l.evolveTo(line.localizedName(target, store.language)) : l.evolve,
+                               prominent: true) {
+                store.evolve(individualID: individual.id, to: target, line: line)
+            }
+        }
+        if !blocked.isEmpty { blockedEvolutions(blocked, line) }
+    }
+
+    /// 아직 못 가는 갈래 — 접으면 필요한 것들만, 펼치면 어디로 가는지까지.
+    @ViewBuilder
+    private func blockedEvolutions(_ blocked: [Int], _ line: EvoLine) -> some View {
+        Button {
+            withAnimation(.easeOut(duration: 0.15)) { blockedEvolutionsExpanded.toggle() }
+        } label: {
+            HStack(spacing: 4) {
+                Image(systemName: blockedEvolutionsExpanded ? "chevron.down" : "chevron.right")
+                    .font(.system(size: 9, weight: .bold))
+                Text(l.evolutionLocked(blocked.count)).font(.system(size: 10, weight: .medium))
+                if !blockedEvolutionsExpanded {
+                    Text(Self.blockedSummary(blocked, line: line, store: store))
+                        .font(.system(size: 9)).foregroundStyle(.tertiary).lineLimit(1)
+                }
+                Spacer()
+            }
+        }
+        .buttonStyle(.plain)
+        if blockedEvolutionsExpanded {
+            ForEach(blocked, id: \.self) { target in
+                HStack(spacing: 5) {
+                    Text(line.localizedName(target, store.language))
+                        .font(.system(size: 10))
+                    Spacer()
+                    Text(Self.shortNeed(store.requirement(for: target, line: line), l: l))
+                        .font(.system(size: 9)).foregroundStyle(.tertiary)
+                }
+                .padding(.leading, 17)
+            }
+            // 얻는 방법은 **여기 한 번만** — 갈래마다 붙이면 그 문장이 화면을 먹는다.
+            Text(l.evolutionLockedHint).font(.system(size: 9)).foregroundStyle(.tertiary)
+                .padding(.leading, 17)
+        }
+    }
+
+    /// 접힌 줄에 쓸 요약 — 필요한 것들을 중복 없이 나열한다.
+    @MainActor static func blockedSummary(_ blocked: [Int], line: EvoLine,
+                                          store: PlayerStore) -> String {
+        var names: [String] = []
+        for target in blocked {
+            let name = shortNeed(store.requirement(for: target, line: line), l: store.l)
+            if !names.contains(name) { names.append(name) }
+        }
+        return names.joined(separator: " · ")
+    }
+
+    /// 조건을 짧게 — 접힌 줄에 들어가야 하므로 문장이 아니라 이름만.
+    nonisolated static func shortNeed(_ need: EvoRequirement, l: L) -> String {
+        switch need {
+        case .none: ""
+        case .item(let item): item.label(l.lang)
+        case .friendship: l.evolveNeedsFriendshipShort
         }
     }
 

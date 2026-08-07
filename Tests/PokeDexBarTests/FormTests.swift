@@ -785,3 +785,71 @@ final class ExpVersusCandyHierarchyTests: XCTestCase {
                           "사탕 줄이 \(Int(host.fittingSize.height))pt 다 — 한 줄을 넘었다")
     }
 }
+
+/// [회귀] 진화 갈래가 많은 종의 상세가 길어지지 않는지. 갈래마다 전폭 버튼과
+/// "○○의돌 필요 · 파트너로 두면 물어 와요" 한 줄을 냈더니 이브이(8갈래)에서 605pt 가 됐다 —
+/// 팝오버 본문은 320pt 다. 갈 수 있는 곳만 버튼으로 내고 나머지는 한 줄로 접는다.
+@MainActor
+final class EvolutionBranchFoldingTests: XCTestCase {
+    /// 이브이의 여덟 갈래 — 돌 다섯(그중 물의돌만 보유), 친밀도 셋.
+    private func eeveeLine() -> EvoLine {
+        let stones: [(Int, String)] = [(134, "water-stone"), (135, "thunder-stone"),
+                                       (136, "fire-stone"), (470, "leaf-stone"), (471, "ice-stone")]
+        var children = stones.map { EvoNode(speciesID: $0.0, children: [], requirementRaw: .item($0.1)) }
+        children += [196, 197, 700].map { EvoNode(speciesID: $0, children: [], requirementRaw: .friendship) }
+        return EvoLine(baseID: 133, tree: EvoNode(speciesID: 133, children: children),
+                       rarity: .common, names: [:])
+    }
+
+    private func makeEevee() -> (PlayerStore, Individual) {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("eevee-\(UUID().uuidString).json")
+        let store = PlayerStore(fileURL: url, rng: SeededRNG(seed: 1),
+                                now: { Date(timeIntervalSince1970: 1_000_000) })
+        var eevee = Individual(baseID: 133, speciesID: 133, pathIDs: [133], nature: .serious,
+                               exp: 400_000_000, obtainedAt: Date(timeIntervalSince1970: 0),
+                               grade: .common)
+        eevee.partnerSeconds = Ribbon.lifelong.requiredPartnerSeconds
+        store.addForTesting(eevee)
+        store.setPartner(eevee.id)
+        store.grantForTesting(EvolutionItem.waterStone)
+        return (store, store.state.box[0])
+    }
+
+    /// 막힌 갈래들이 **한 줄**로 접힌다 — 필요한 것만 중복 없이.
+    func testBlockedBranchesFoldIntoOneLine() {
+        let (store, _) = makeEevee()
+        let line = eeveeLine()
+        let text = IndividualDetailView.blockedSummary([135, 136, 470, 471], line: line, store: store)
+        XCTAssertFalse(text.contains("\n"), "접힌 줄이 여러 줄이다: \(text)")
+        XCTAssertTrue(text.contains(EvolutionItem.thunderStone.label(.ko)), text)
+        XCTAssertTrue(text.contains(EvolutionItem.iceStone.label(.ko)), text)
+        // 물의돌은 이미 가졌으니 막힌 목록에 없다.
+        XCTAssertFalse(text.contains(EvolutionItem.waterStone.label(.ko)), text)
+    }
+
+    /// 같은 조건이 여럿이면 한 번만 적는다 — 친밀도 셋이 "함께한 시간"을 세 번 쓰면 안 된다.
+    func testTheSummaryDeduplicates() {
+        let (store, _) = makeEevee()
+        let text = IndividualDetailView.blockedSummary([196, 197, 700], line: eeveeLine(), store: store)
+        XCTAssertEqual(text, L(.ko).evolveNeedsFriendshipShort, text)
+    }
+
+    /// 조건 이름은 문장이 아니라 **이름**이어야 한 줄에 여럿이 들어간다.
+    func testShortNeedIsANameNotASentence() {
+        let short = IndividualDetailView.shortNeed(.item(.thunderStone), l: L(.ko))
+        XCTAssertEqual(short, EvolutionItem.thunderStone.label(.ko))
+        XCTAssertFalse(short.contains("파트너"), "짧은 이름에 안내 문장이 섞였다: \(short)")
+    }
+
+    /// 갈래가 가장 많은 종에서도 상세가 감당할 높이여야 한다. 접기 전에는 605pt 였다.
+    func testTheMostBranchedSpeciesStaysManageable() {
+        let (store, eevee) = makeEevee()
+        let host = NSHostingView(rootView: IndividualDetailView(
+            store: store, individual: eevee, line: eeveeLine(), onNeedLine: { _ in }, onBack: {})
+            .frame(width: PopoverMetrics.contentWidth))
+        host.layoutSubtreeIfNeeded()
+        XCTAssertLessThan(host.fittingSize.height, 500,
+                          "이브이 상세가 \(Int(host.fittingSize.height))pt 다 — 막힌 갈래가 다시 펼쳐졌다")
+    }
+}

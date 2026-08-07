@@ -192,6 +192,17 @@ struct L {
     func togetherMinutes(_ minutes: Int) -> String {
         t("\(minutes)분", "\(minutes)m", "\(minutes)分")
     }
+    /// 아직 못 가는 진화 갈래 — 접힌 줄. 이유는 펼쳤을 때 한 번만 적는다.
+    func evolutionLocked(_ count: Int) -> String {
+        t("아직 못 가는 곳 \(count)", "\(count) not available yet", "まだ行けない先 \(count)")
+    }
+    var evolutionLockedHint: String {
+        t("도구는 파트너로 두면 물어 와요", "Your partner finds the items",
+          "道具はパートナーがもってきます")
+    }
+    /// 접힌 줄에 들어갈 짧은 조건 이름 — 문장이 아니라 이름이어야 한 줄에 여럿이 들어간다.
+    var evolveNeedsFriendshipShort: String { t("함께한 시간", "Time together", "一緒の時間") }
+
     var detailMaxStage: String { t("더 진화하지 않아요", "Fully evolved", "これいじょうしんかしない") }
     var detailPartnerOnlyExp: String {
         t("경험치는 파트너만 쌓여요 — 사탕으로도 올릴 수 있어요",
