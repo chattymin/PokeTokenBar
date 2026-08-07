@@ -105,6 +105,13 @@ struct L {
     var todayTokensShort: String { t("오늘 토큰", "Today's tokens", "本日のトークン") }
     var todayCost: String { t("오늘 비용 ($)", "Today's cost ($)", "本日のコスト ($)") }
     var limitPercent: String { t("한도 %", "Limit %", "上限 %") }
+    var limitDisplayModeLabel: String { t("한도 표시 방식", "Limit display", "上限の表示") }
+    var limitDisplayUsed: String { t("사용량", "Used", "使用量") }
+    var limitDisplayRemaining: String { t("남은 양", "Remaining", "残量") }
+    /// 팝오버 한도 행의 remaining 모드 표시 — %에 자기설명 접미사를 붙인다.
+    func percentRemaining(_ percent: String) -> String {
+        t("\(percent) 남음", "\(percent) left", "残り\(percent)")
+    }
     var allOffHint: String { t("전부 끄면 캐릭터만 표시됩니다", "All off shows only the character", "すべてオフにするとキャラクターのみ表示") }
     // MARK: 플로팅 펫
     var floatingPetSectionTitle: String { t("플로팅 펫", "Floating Pet", "フローティングペット") }

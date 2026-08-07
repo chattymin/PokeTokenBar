@@ -61,6 +61,14 @@ final class UsageStore {
     var showLimitInMenu: Bool {
         didSet { defaults.set(showLimitInMenu, forKey: "showLimitInMenu") }
     }
+    /// 한도 % 표시 방식 — 사용한 양(기본) 또는 남은 양. 숫자 표시에만 적용되고
+    /// 경고/위험 판정·게이지 채움·알림은 사용률 원값 기준을 유지한다(경고 의미론 분리).
+    enum LimitDisplayMode: String, CaseIterable {
+        case used, remaining
+    }
+    var limitDisplayMode: LimitDisplayMode {
+        didSet { defaults.set(limitDisplayMode.rawValue, forKey: "limitDisplayMode") }
+    }
     // 알림(독립 토글)
     var limitNotifications: Bool {
         didSet { defaults.set(limitNotifications, forKey: "limitNotifications") }
@@ -166,17 +174,29 @@ final class UsageStore {
 
     /// 메뉴바 한도 줄 — **오늘 실제 사용한 프로바이더만** 한 줄에 나란히(미사용/미가용이면 nil).
     /// 한도 소스는 프로바이더 고유(Claude=OAuth·Codex=프로세스)라 providerID 로 명시 분기(확장 규약).
+    /// %는 limitDisplayMode 를 따르되 접미사 없음 — 좁은 표면이고 방향은 사용자가 고른 설정이 말해 준다
+    /// (배터리 메뉴바 % 관례). 자기설명 접미사("남음")는 팝오버 행에서만.
     private var menuLimitLine: String? {
         guard showLimitInMenu else { return nil }
         let usedToday = Set(snapshots.filter { $0.todayTotalTokens > 0 }.map(\.providerID))
         var parts: [String] = []
         if usedToday.contains("claude_code"), let utilization = limits?.fiveHour?.utilization {
-            parts.append("Claude \(TokenFormatter.percent(utilization))")
+            parts.append("Claude \(TokenFormatter.percent(limitDisplayPercent(utilization)))")
         }
         if usedToday.contains("codex"), let usedPercent = codexLimits?.maxPrimaryUsedPercent {
-            parts.append("Codex \(TokenFormatter.percent(Double(usedPercent)))")
+            parts.append("Codex \(TokenFormatter.percent(limitDisplayPercent(Double(usedPercent))))")
         }
         return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
+
+    /// 표시용 한도 % 변환 — remaining 모드면 100−사용률(0 하한: 사용률이 100 을 넘어도 음수 금지).
+    /// 순수 판정을 분리해 테스트한다. 숫자 *표시* 전용 — 색·게이지·알림 판정에는 쓰지 않는다.
+    nonisolated static func displayPercent(_ utilization: Double, mode: LimitDisplayMode) -> Double {
+        mode == .remaining ? max(0, 100 - utilization) : utilization
+    }
+
+    func limitDisplayPercent(_ utilization: Double) -> Double {
+        Self.displayPercent(utilization, mode: limitDisplayMode)
     }
 
     /// 단일 줄 표현 — 관찰(observeStore)·접근성·1줄 렌더 폴백용. 세로 렌더는 menuLines 사용.
@@ -380,6 +400,7 @@ final class UsageStore {
         showTokensInMenu = d.object(forKey: "showTokensInMenu") as? Bool ?? true
         showCostInMenu = d.object(forKey: "showCostInMenu") as? Bool ?? false
         showLimitInMenu = d.object(forKey: "showLimitInMenu") as? Bool ?? false
+        limitDisplayMode = LimitDisplayMode(rawValue: d.string(forKey: "limitDisplayMode") ?? "") ?? .used
         limitNotifications = d.object(forKey: "limitNotifications") as? Bool ?? true
         companionNotifications = d.object(forKey: "companionNotifications") as? Bool ?? true
         updateNotificationsEnabled = d.object(forKey: "updateNotificationsEnabled") as? Bool ?? true

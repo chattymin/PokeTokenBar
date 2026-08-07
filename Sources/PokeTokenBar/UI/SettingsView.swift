@@ -119,6 +119,16 @@ struct SettingsView: View {
             }
             Divider()
             groupRow {
+                Text(l.limitDisplayModeLabel)
+                Spacer()
+                Picker("", selection: $store.limitDisplayMode) {
+                    Text(l.limitDisplayUsed).tag(UsageStore.LimitDisplayMode.used)
+                    Text(l.limitDisplayRemaining).tag(UsageStore.LimitDisplayMode.remaining)
+                }
+                .labelsHidden().pickerStyle(.segmented).fixedSize()
+            }
+            Divider()
+            groupRow {
                 VStack(alignment: .leading, spacing: 1) {
                     Text(l.launchAtLogin)
                     if !isBundledApp {

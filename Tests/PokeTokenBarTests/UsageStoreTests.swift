@@ -523,6 +523,47 @@ final class UsageStoreTests: XCTestCase {
         XCTAssertTrue(three[1].contains("Claude"))           // 아랫줄=한도
     }
 
+    // MARK: 한도 표시 방식 (used / remaining)
+
+    /// 표시 변환 순수 판정 — remaining = 100−사용률, 0 하한(사용률 100 초과 시 음수 금지), 경계 포함.
+    func testLimitDisplayPercentModes() {
+        XCTAssertEqual(UsageStore.displayPercent(40, mode: .used), 40)
+        XCTAssertEqual(UsageStore.displayPercent(40, mode: .remaining), 60)
+        XCTAssertEqual(UsageStore.displayPercent(0, mode: .remaining), 100)
+        XCTAssertEqual(UsageStore.displayPercent(100, mode: .remaining), 0)
+        XCTAssertEqual(UsageStore.displayPercent(120, mode: .remaining), 0, "100% 초과 사용 → 남은 양 0 클램프")
+        XCTAssertEqual(UsageStore.displayPercent(40.5, mode: .remaining), 59.5, "소수 유지")
+    }
+
+    /// remaining 모드의 메뉴바 한도 줄 — 숫자만 반전, 프로바이더 라벨·조합 규칙은 그대로.
+    func testMenuBarLimitRemainingModeInvertsPercents() async {
+        let claude = FakeUsageProvider(id: "claude_code", displayName: "Claude Code", daily: todayDaily(10_000_000))
+        let codex = FakeUsageProvider(id: "codex", displayName: "Codex", daily: todayDaily(5_000_000))
+        let store = makeStore(
+            providers: [claude, codex],
+            claude: claudeLimits(fiveHourUtil: 40, resetsAt: "2099-01-01T00:00:00Z"),
+            codex: codexLimits(primaryUsed: 85))
+        store.showTokensInMenu = false
+        store.showCostInMenu = false
+        store.showLimitInMenu = true
+        store.limitDisplayMode = .remaining
+        await store.refresh(scheduleEmptyRetry: false)
+        XCTAssertTrue(store.menuTitle.contains("Claude 60%"), "used 40 → remaining 60: \(store.menuTitle)")
+        XCTAssertTrue(store.menuTitle.contains("Codex 15%"), "used 85 → remaining 15: \(store.menuTitle)")
+
+        store.limitDisplayMode = .used
+        XCTAssertTrue(store.menuTitle.contains("Claude 40%"), "used 모드 복귀: \(store.menuTitle)")
+    }
+
+    /// 설정 영속 — 기본은 used(기존 사용자 무변화), remaining 선택은 재시작(같은 defaults 재로드) 후 유지.
+    func testLimitDisplayModePersistsAcrossRestart() {
+        let s1 = makeStore(providers: [])
+        XCTAssertEqual(s1.limitDisplayMode, .used, "기본값 = used(현행 표시 유지)")
+        s1.limitDisplayMode = .remaining
+        let s2 = makeStore(providers: [])
+        XCTAssertEqual(s2.limitDisplayMode, .remaining, "같은 defaults 재로드 → 유지")
+    }
+
     // MARK: 집계
 
     func testAggregatesTodayTokensAcrossProviders() async {

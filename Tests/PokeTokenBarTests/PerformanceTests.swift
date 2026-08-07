@@ -187,14 +187,19 @@ final class FloatingPetEnergyTests: XCTestCase {
     }
 
     /// Hover tooltip is localized and pure — tokens always; limit % only when provided.
+    /// Remaining mode inverts the % and adds the self-describing suffix.
     func testHoverTooltipBuilder() {
         let l = L(.en)
         XCTAssertEqual(
-            FloatingPetView.hoverTooltip(todayTokens: 12_345, limitUtilization: nil, l: l),
+            FloatingPetView.hoverTooltip(todayTokens: 12_345, limitUtilization: nil, mode: .used, l: l),
             l.floatingPetHoverTokensOnly(TokenFormatter.grouped(12_345)))
         XCTAssertEqual(
-            FloatingPetView.hoverTooltip(todayTokens: 12_345, limitUtilization: 42, l: l),
+            FloatingPetView.hoverTooltip(todayTokens: 12_345, limitUtilization: 42, mode: .used, l: l),
             l.floatingPetHoverWithLimit(TokenFormatter.grouped(12_345), TokenFormatter.percent(42)))
+        XCTAssertEqual(
+            FloatingPetView.hoverTooltip(todayTokens: 12_345, limitUtilization: 42, mode: .remaining, l: l),
+            l.floatingPetHoverWithLimit(TokenFormatter.grouped(12_345),
+                                        l.percentRemaining(TokenFormatter.percent(58))))
     }
 
     /// Japanese (and ko/en) alert copy must fit the default bubble panel — width-capped wrap,
