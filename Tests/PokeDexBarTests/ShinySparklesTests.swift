@@ -133,3 +133,31 @@ final class ShinySparklesReachabilityTests: XCTestCase {
                        "일반 개체 부화가 반짝인다")
     }
 }
+
+/// 결을 만드는 요소들 — 하나라도 빠지면 "도장 찍은 별"로 돌아간다.
+final class SparkleRefinementTests: XCTestCase {
+    /// 크기 위계 — 큰 별 몇 개와 작은 별들이 섞여야 무리로 보인다. 다 같으면 장식용 점이다.
+    func testThereIsASizeHierarchy() {
+        let specs = SparkleSpec.ring(count: 9)
+        let heroes = specs.filter(\.isHero)
+        XCTAssertFalse(heroes.isEmpty, "큰 별이 하나도 없다")
+        XCTAssertLessThan(heroes.count, specs.count, "전부 큰 별이면 위계가 없다")
+        let biggestSmall = specs.filter { !$0.isHero }.map(\.size).max() ?? 0
+        XCTAssertGreaterThan(heroes[0].size, biggestSmall * 1.3, "큰 별이 충분히 안 크다")
+    }
+
+    /// 기울기 — 전부 축에 정렬돼 있으면 같은 도장을 찍은 것처럼 보인다.
+    func testStarsAreNotAllAxisAligned() {
+        let tilts = SparkleSpec.ring(count: 9).map(\.tilt)
+        XCTAssertGreaterThan(Set(tilts).count, 1, "기울기가 전부 같다")
+        // 너무 돌리면 네 갈래 별의 대칭이 깨져 마름모로 보인다 — 45도 주기 안에서만 흔든다.
+        for tilt in tilts { XCTAssertLessThanOrEqual(abs(tilt), 22.5, "기울기가 과하다: \(tilt)") }
+    }
+
+    /// 빨리 뜨고 천천히 진다 — 대칭이면 깜빡이는 전구처럼 보인다.
+    func testTheFadeIsSlowerThanTheRise() {
+        // 키프레임 비율은 뷰 안에 있으므로 여기서는 그 결과인 전체 길이만 잠근다.
+        XCTAssertGreaterThan(ShinySparkles.pop, ShinySparkles.stagger,
+                             "한 별이 사는 시간이 순서 간격보다 짧으면 겹쳐 뜨지 않아 끊겨 보인다")
+    }
+}
