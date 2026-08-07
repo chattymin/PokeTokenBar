@@ -858,11 +858,14 @@ final class ScreenshotGeneratorTests: XCTestCase {
         let usage = try waitFor { try await self.makeUsageStore() }
         usage.localizationLanguage = .en
 
+        // 부화를 **가장 먼저** 찍는다. 앞선 캡처를 여러 번 돌린 뒤에는 이 연출의 `.task` 가
+        // 깨어나지 못하고 얼어붙는 실행이 절반쯤 나온다 — 한 번 얼면 그 프로세스에서는 다시
+        // 찍어도 계속 언다(재시도 8번이 전부 얼어붙는 것을 실측). 프로세스가 깨끗할 때 찍는다.
+        try write(try hatchAnimation(fixture), "screenshot-hatch.gif")
         try write(try homeAnimation(fixture, usage: usage), "screenshot-home.gif")
         try write(try petAnimation(fixture, usage: usage), "floating-pet.gif")
         try write(try shinyAnimation(usage: usage), "shiny-banner.gif")
         try write(try revealAnimation(fixture), "screenshot-reveal.gif")
-        try write(try hatchAnimation(fixture), "screenshot-hatch.gif")
         try write(try menuBarAnimation(fixture, usage: usage), "menubar.gif")
     }
 
@@ -950,6 +953,17 @@ final class ScreenshotGeneratorTests: XCTestCase {
         let delay = 0.1
         let motion = ScreenshotFixture.Motion(
             frames: Int(((RevealMotion.hatchShake + 1.1) / delay).rounded()), delay: delay)
+
+        // **이 연출은 이 캡처 환경에서 가끔 얼어붙는다.** 오프스크린 창에서 `.task` 의
+        // `Task.sleep` 이 깨지 못해 알이 흔들리다 멈춘 채로 남는다(실측: 6번째 프레임부터 값이
+        // 완전히 고정 — 스프라이트 애니메이션까지 정지). 앱에서는 재현되지 않는다.
+        //
+        // 알아낸 것 둘: ① **한 번 얼면 그 프로세스에서는 계속 언다** — 여덟 번을 다시 찍어도
+        // 전부 얼어붙었다. 그래서 재시도는 시간만 버린다. ② 이 연출을 애니메이션 중 **맨 처음**
+        // 찍으면 빈도가 뚜렷하게 준다(실측 2/5 → 4/5 성공). 그래서 순서를 앞으로 옮겼다.
+        //
+        // 남은 실패는 조용히 넘기지 않고 **크게 터뜨린다** — 얼어붙은 프레임으로 GIF 를 만들면
+        // 알만 있고 부화가 없는 그림이 릴리스에 실린다. 다시 돌리면 대개 통과한다.
         let frames = try liveFrames(
             HatchComposite(store: fixture.player, individual: individual, armed: false),
             motion, warmup: 0.4,
@@ -957,16 +971,17 @@ final class ScreenshotGeneratorTests: XCTestCase {
                 host.rootView = HatchComposite(store: fixture.player, individual: individual,
                                                armed: true)
             })
-        try assertTheEggBecomesAPokemon(in: frames)
+        guard eggBecomesAPokemon(in: frames) else {
+            struct HatchCaptureFroze: Error {}
+            XCTFail("부화 캡처가 얼어붙었다(이 환경의 알려진 문제) — 다시 실행하면 대개 통과한다")
+            throw HatchCaptureFroze()   // 던져서 얼어붙은 프레임이 에셋에 안 쓰이게 한다
+        }
         return try gif(frames, delay: motion.delay)
     }
 
     /// 알에서 포켓몬으로 바뀌는 순간이 실제로 찍혔나. 연출이 조용히 짧아지거나 순서가 바뀌면
     /// 알만, 또는 포켓몬만 있는 GIF 를 릴리스에 실어 보내게 된다.
-    ///
-    /// 판정은 **가운데 세로줄의 불투명 픽셀 수**로 한다 — 알은 판을 꽉 채우고 스프라이트는
-    /// 성기므로, 알 구간이 뚜렷하게 더 두껍다.
-    private func assertTheEggBecomesAPokemon(in frames: [NSBitmapImageRep]) throws {
+    private func eggBecomesAPokemon(in frames: [NSBitmapImageRep]) -> Bool {
         // 가운데 판의 **밝은 픽셀 넓이**를 센다. 줄 하나의 폭으로 재던 것은 링·글로우까지
         // 같이 잡혀 알과 스프라이트가 구분이 안 됐다(실측: 92~115 로 평평했다).
         let areas = frames.map { frame -> Int in
@@ -984,13 +999,12 @@ final class ScreenshotGeneratorTests: XCTestCase {
             }
             return count
         }
-        let first = try XCTUnwrap(areas.first)
-        let last = try XCTUnwrap(areas.last)
+        guard let first = areas.first, let smallest = areas.min() else { return false }
         // 실측: 알 구간 약 11,000 · 포켓몬 구간 약 2,800.
         XCTAssertGreaterThan(first, 6000, "첫 프레임에 알이 안 보인다")
-        // 알은 판을 꽉 채우고 스프라이트는 성기다 — 끝이 시작보다 뚜렷하게 작아야 바뀐 것이다.
-        XCTAssertLessThan(last, first / 2,
-                          "알이 포켓몬으로 바뀌지 않았다 — 시작 \(first), 끝 \(last)")
+        // **마지막 프레임이 아니라 가장 작은 프레임**을 본다. 확인하려는 건 "알이 포켓몬으로
+        // 바뀌는 순간이 담겼나"이지 "마지막 프레임이 포켓몬인가"가 아니다.
+        return smallest < first / 2
     }
 
     /// 네 단계가 **순서대로** 프레임에 찍혔는지 확인한다. 이 GIF 는 에스컬레이션을 보여주려고
