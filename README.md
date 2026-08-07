@@ -99,9 +99,9 @@ Menu-bar items, refresh interval (1–15 min or manual), launch at login, a Keyc
 <tr>
 <td width="55%" valign="middle">
 <h3>🥚 Ready on the clock, opened by you</h3>
-Draw up to 3 eggs at once (6 with a slot upgrade) — each grade gets its own shell colour and speckle count, so you can tell what's incubating at a glance. Every egg counts down on its own wall-clock timer — 30 minutes for a Common up to 24 hours for a Legendary — live on Home even while you're away, and a notification tells you once it's ready. It then waits there, cracked, until you tap Open — that's when it actually hatches.
+Draw up to 3 eggs at once (6 with a slot upgrade) — each grade gets its own shell colour and speckle count, so you can tell what's incubating at a glance. Every egg counts down on its own wall-clock timer — 30 minutes for a Common up to 24 hours for a Legendary — live on Home even while you're away, and a notification tells you once it's ready. It then waits there, cracked, until you tap Open — the cracked egg rocks, bursts, and the Pokémon springs out of it.
 </td>
-<td width="45%" align="center"><img src="assets/screenshot-eggs.png" width="300" alt="Eggs incubating on Home"></td>
+<td width="45%" align="center"><img src="assets/screenshot-hatch.gif" width="300" alt="A cracked Legendary egg rocking, bursting, and Rayquaza springing out with its name and grade"></td>
 </tr>
 <tr>
 <td width="45%" align="center"><img src="assets/screenshot-shop.png" width="300" alt="Shop — egg draws, slot upgrades, EXP Candy, Shiny Candy, Shiny Charm"></td>

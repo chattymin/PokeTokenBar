@@ -105,6 +105,30 @@ private struct RevealComposite: View {
     }
 }
 
+/// 부화 연출을 홈 위에 얹은 화면. 앱에서도 슬롯의 '확인'을 누른 직후 그 자리에 덮이므로,
+/// 알 슬롯이 배경으로 보이는 이 구도가 실제 화면과 같다.
+private struct HatchComposite: View {
+    let store: PlayerStore
+    let individual: Individual
+    let armed: Bool
+
+    var body: some View {
+        EggSlotsView(store: store, now: ScreenshotFixture.now)
+            .padding(PopoverMetrics.padding)
+            // 연출은 알 그림·이름·등급까지 세로로 길다. 슬롯 줄 높이에 맞추면 이름이 잘려
+            // 정작 무엇이 나왔는지가 안 담긴다 — 연출이 다 들어갈 만큼 자리를 준다.
+            .frame(width: PopoverMetrics.width, height: 250, alignment: .top)
+            .background(Color(nsColor: .windowBackgroundColor))
+            .overlay {
+                if armed {
+                    HatchedRevealView(individual: individual, store: store,
+                                      line: ScreenshotFixture.lines[individual.baseID],
+                                      onDone: { })   // 끝나도 그대로 — 마지막 프레임이 결과여야 한다
+                }
+            }
+    }
+}
+
 /// `waitFor` 가 비동기 결과를 받아 두는 자리. 지역 `var` 캡처 대신 참조 하나를 쓴다.
 @MainActor
 private final class AsyncResult<T> {
@@ -838,6 +862,7 @@ final class ScreenshotGeneratorTests: XCTestCase {
         try write(try petAnimation(fixture, usage: usage), "floating-pet.gif")
         try write(try shinyAnimation(usage: usage), "shiny-banner.gif")
         try write(try revealAnimation(fixture), "screenshot-reveal.gif")
+        try write(try hatchAnimation(fixture), "screenshot-hatch.gif")
         try write(try menuBarAnimation(fixture, usage: usage), "menubar.gif")
     }
 
@@ -915,6 +940,57 @@ final class ScreenshotGeneratorTests: XCTestCase {
             })
         try assertEscalationIsVisible(in: frames)
         return try gif(frames, delay: motion.delay)
+    }
+
+    /// 부화 연출 — 금 간 알이 흔들리다 터지고 그 자리에서 포켓몬이 나온다. 뽑기 연출과 달리
+    /// 등급 에스컬레이션이 없으므로, 대신 **알에서 포켓몬으로 바뀌었는지**를 확인한다.
+    private func hatchAnimation(_ fixture: Fixture) throws -> Data {
+        let individual = try XCTUnwrap(fixture.player.state.box.first { $0.grade == .legendary }
+                                        ?? fixture.player.state.box.first)
+        let delay = 0.1
+        let motion = ScreenshotFixture.Motion(
+            frames: Int(((RevealMotion.hatchShake + 1.1) / delay).rounded()), delay: delay)
+        let frames = try liveFrames(
+            HatchComposite(store: fixture.player, individual: individual, armed: false),
+            motion, warmup: 0.4,
+            onReady: { host in
+                host.rootView = HatchComposite(store: fixture.player, individual: individual,
+                                               armed: true)
+            })
+        try assertTheEggBecomesAPokemon(in: frames)
+        return try gif(frames, delay: motion.delay)
+    }
+
+    /// 알에서 포켓몬으로 바뀌는 순간이 실제로 찍혔나. 연출이 조용히 짧아지거나 순서가 바뀌면
+    /// 알만, 또는 포켓몬만 있는 GIF 를 릴리스에 실어 보내게 된다.
+    ///
+    /// 판정은 **가운데 세로줄의 불투명 픽셀 수**로 한다 — 알은 판을 꽉 채우고 스프라이트는
+    /// 성기므로, 알 구간이 뚜렷하게 더 두껍다.
+    private func assertTheEggBecomesAPokemon(in frames: [NSBitmapImageRep]) throws {
+        // 가운데 판의 **밝은 픽셀 넓이**를 센다. 줄 하나의 폭으로 재던 것은 링·글로우까지
+        // 같이 잡혀 알과 스프라이트가 구분이 안 됐다(실측: 92~115 로 평평했다).
+        let areas = frames.map { frame -> Int in
+            guard let bytes = frame.bitmapData else { return 0 }
+            let bpp = frame.bitsPerPixel / 8
+            let xs = Int(Double(frame.pixelsWide) * 0.30)..<Int(Double(frame.pixelsWide) * 0.70)
+            let ys = Int(Double(frame.pixelsHigh) * 0.15)..<Int(Double(frame.pixelsHigh) * 0.75)
+            var count = 0
+            for y in ys {
+                for x in xs {
+                    let o = y * frame.bytesPerRow + x * bpp
+                    let lum = (Int(bytes[o]) + Int(bytes[o + 1]) + Int(bytes[o + 2])) / 3
+                    if lum > 110 { count += 1 }
+                }
+            }
+            return count
+        }
+        let first = try XCTUnwrap(areas.first)
+        let last = try XCTUnwrap(areas.last)
+        // 실측: 알 구간 약 11,000 · 포켓몬 구간 약 2,800.
+        XCTAssertGreaterThan(first, 6000, "첫 프레임에 알이 안 보인다")
+        // 알은 판을 꽉 채우고 스프라이트는 성기다 — 끝이 시작보다 뚜렷하게 작아야 바뀐 것이다.
+        XCTAssertLessThan(last, first / 2,
+                          "알이 포켓몬으로 바뀌지 않았다 — 시작 \(first), 끝 \(last)")
     }
 
     /// 네 단계가 **순서대로** 프레임에 찍혔는지 확인한다. 이 GIF 는 에스컬레이션을 보여주려고
