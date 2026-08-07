@@ -329,6 +329,18 @@ final class DittoDisguiseSpriteTests: XCTestCase {
         }
     }
 
+    /// **눈과 입 사이에 빈 줄이 있어야 한다.** 붙어 있으면 어디까지가 눈이고 어디부터가 입인지
+    /// 구분이 안 된다(사용자 지적) — 처음엔 입을 지운 네모의 아래끝에 걸어 한 줄 차이로 닿았다.
+    func testTheMouthKeepsItsDistanceFromTheEyes() throws {
+        let layout = try XCTUnwrap(DittoDisguiseSprite.disguise(face())).layout
+        let mouth = try XCTUnwrap(layout.mouth, "입이 없다")
+        let lowestEye = try XCTUnwrap(layout.eyeDots.map(\.y).max())
+        let mouthTop = try XCTUnwrap(DittoDisguiseSprite.mouthCells(x: mouth.x, y: mouth.y)
+                                        .map(\.y).min())
+        XCTAssertGreaterThanOrEqual(mouthTop - lowestEye, 2,
+                                    "눈(y\(lowestEye))과 입(y\(mouthTop))이 붙어 있다")
+    }
+
     /// 입은 **웃는 모양**이어야 한다 — 가운데가 처지고 양 끝이 그 위로 올라간다.
     /// 예전의 계단 모양(한쪽이 통째로 한 칸 아래)은 웃는 게 아니라 비스듬한 선으로 읽혔다.
     func testTheMouthSmiles() {

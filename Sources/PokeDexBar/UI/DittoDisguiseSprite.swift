@@ -101,12 +101,16 @@ enum DittoDisguiseSprite {
         /// 움직임을 그대로 따라가 매끄럽다 — 얼굴이 머리에 붙어 있으려면 이쪽을 봐야 한다.
         var eyeDots: [(x: Int, y: Int)] { eyes.map { ($0.iris.midX, $0.iris.maxY - 1) } }
 
-        /// 입이 놓일 자리 — 두 네모 사이를 가로지른다. 눈이 하나면 입은 없다.
+        /// 입이 놓일 자리 — 두 눈 사이를 가로지른다. 눈이 하나면 입은 없다.
+        ///
+        /// **높이는 눈에서 잰다.** 지운 네모의 아래끝에 걸었더니 눈과 한 줄 차이로 붙어 눈인지
+        /// 입인지 구분이 안 됐다(사용자 지적). 눈에서 두 줄 내리면 사이에 빈 줄이 하나 남고,
+        /// 눈이 위아래로 어긋난 프레임에서도 그 간격이 유지된다.
         var mouth: (x: Int, y: Int)? {
             guard eyes.count == 2 else { return nil }
             let sorted = eyes.sorted { $0.erased.minX < $1.erased.minX }
-            return ((sorted[0].erased.maxX + sorted[1].erased.minX) / 2,
-                    min(sorted[0].erased.maxY, sorted[1].erased.maxY) - 1)
+            let x = (sorted[0].erased.maxX + sorted[1].erased.minX) / 2
+            return (x, (eyeDots.map(\.y).max() ?? 0) + 2)
         }
     }
 
