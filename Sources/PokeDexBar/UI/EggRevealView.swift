@@ -16,9 +16,25 @@ enum RevealStage: Int, CaseIterable, Sendable {
 
     /// 마지막 단계만 반짝인다 — 계속 반짝이면 단계가 올라간 걸 못 알아챈다.
     var sparkles: Bool { self == .orange }
+
+    /// 이 단계에서 보여줄 알. 연출 중 알이 **등급을 거슬러 올라간다** — 커먼 알에서 시작해
+    /// 레어·에픽을 지나 진짜 등급에 닿는다. 등급 알 그림(`EggIcon`)을 그대로 쓰므로 새 그림이
+    /// 필요 없고, 슬롯에서 보던 껍질과 무늬가 그대로 커지며 바뀐다.
+    ///
+    /// 처음엔 알을 진짜 등급색으로 고정했는데, 레전더리의 금색 껍질이 화면 가운데를 차지해
+    /// 단계 색을 덮어 버렸다(스크린샷 생성기의 에스컬레이션 검사가 이걸 잡았다). 알이 같이
+    /// 올라가면 그 문제가 사라지고, "한 단계 더 갔다"가 알 자체로 보인다.
+    var grade: Grade {
+        switch self {
+        case .white: .common
+        case .blue: .rare
+        case .purple: .epic
+        case .orange: .legendary
+        }
+    }
 }
 
-/// 뽑기 연출의 순수 규칙. 뷰 없이 테스트한다.
+/// 뽑기 연출의 단계 표. 타이밍·기하는 `RevealMotion` 에 있다.
 enum EggReveal {
     /// 이 등급이 지나갈 단계들. 등급이 높을수록 길어지고, 앞 단계는 그대로 유지된다 —
     /// 레전더리는 흰색 → 하늘색 → 보라색 → 주황색을 다 지난다.
@@ -32,30 +48,25 @@ enum EggReveal {
         return Array(RevealStage.allCases.prefix(depth))
     }
 
-    /// 한 단계가 화면에 머무는 시간(초). 마지막 단계는 결과를 읽을 시간이 필요해 조금 길다.
+    /// 한 단계가 화면에 머무는 시간(초).
     static func duration(stageIndex: Int, of total: Int) -> Double {
-        stageIndex == total - 1 ? 0.85 : 0.42
+        RevealMotion.duration(stageIndex: stageIndex, of: total)
     }
 
-    /// 파티클 하나가 날아갈 방향과 거리. 난수 대신 인덱스에서 만든다 — 매번 같은 그림이어야
-    /// 스크린샷이 재현되고, 테스트가 "칸 밖으로 안 나간다"를 확인할 수 있다.
-    /// 각도를 황금비로 돌려 배수 개수에서도 뭉치지 않게 한다.
+    /// 파티클 하나가 날아갈 방향과 거리.
     static func particleOffset(index: Int, count: Int, radius: Double) -> CGSize {
-        guard count > 0 else { return .zero }
-        let golden = 2.399963   // 황금각(rad)
-        let angle = Double(index) * golden
-        // 거리를 조금씩 다르게 줘야 원이 아니라 흩어진 폭발로 보인다.
-        let spread = 0.62 + 0.38 * Double((index * 7) % count) / Double(count)
-        return CGSize(width: cos(angle) * radius * spread,
-                      height: sin(angle) * radius * spread)
+        RevealMotion.particleOffset(index: index, count: count, radius: radius)
     }
 
-    static let particleCount = 16
-    static let particleRadius: Double = 46
+    static let particleCount = RevealMotion.particleCount
+    static let particleRadius: Double = RevealMotion.particleRadius
 }
 
-/// 뽑기 결과 연출 — 등급이 올라갈 때마다 파티클이 한 번씩 더 터지고, 마지막에 등급을 알려준다.
+/// 뽑기 결과 연출 — 등급이 올라갈 때마다 한 번씩 더 터지고, 마지막에 등급을 알려준다.
 /// 팝오버 위에 잠깐 덮였다 사라지는 표면이라 타이머를 남기지 않는다(`.task` 가 끝나면 끝).
+///
+/// 구조는 **예비동작 → 충격 → 잔향**이다(`RevealMotion`). 예전에는 알이 커졌다 작아지기만 해서
+/// 터지는 순간이 없었고, 그래서 "한 번 더 터졌다 = 더 좋은 것"이라는 신호가 전달되지 않았다.
 struct EggRevealView: View {
     let grade: Grade
     let shiny: Bool
@@ -64,6 +75,8 @@ struct EggRevealView: View {
     let onDone: () -> Void
 
     @State private var stageIndex = 0
+    /// 이 값이 바뀔 때마다 한 번 터진다 — `KeyframeAnimator` 와 링·파티클의 방아쇠.
+    @State private var beat = 0
     @State private var burst = false
     @State private var showResult = false
 
@@ -72,62 +85,118 @@ struct EggRevealView: View {
 
     var body: some View {
         ZStack {
-            Color.black.opacity(0.82).ignoresSafeArea()
-            VStack(spacing: 14) {
+            // 가운데로 시선을 모으는 어둠 — 평평한 검정보다 무대처럼 읽힌다.
+            RadialGradient(colors: [stage.color.opacity(0.16), .black.opacity(0.93)],
+                           center: .center, startRadius: 0, endRadius: 190)
+                .ignoresSafeArea()
+            VStack(spacing: 16) {
                 ZStack {
+                    rings
                     particles
-                    // 알 자체는 단계 색으로 물든다 — 파티클이 사라진 뒤에도 지금 어디까지 왔는지 남는다.
-                    Text("🥚")
-                        .font(.system(size: 48))
-                        .shadow(color: stage.color.opacity(0.9), radius: burst ? 18 : 6)
-                        .scaleEffect(burst ? 1.16 : 0.94)
+                    egg
                 }
-                .frame(width: 140, height: 140)
-
-                if showResult {
-                    VStack(spacing: 3) {
-                        Text(grade.label(language))
-                            .font(.system(size: 15, weight: .bold))
-                            .foregroundStyle(stage.color)
-                        Text(shiny ? l.drawResultShiny : l.drawResultHatching)
-                            .font(.system(size: 10))
-                            .foregroundStyle(.secondary)
-                    }
-                    .transition(.opacity.combined(with: .scale(scale: 0.9)))
-                }
+                .frame(width: 150, height: 150)
+                result
             }
         }
         .contentShape(Rectangle())
         .onTapGesture { onDone() }   // 기다리기 싫으면 눌러서 건너뛴다
-        .task {
-            for index in stages.indices {
-                stageIndex = index
-                withAnimation(.easeOut(duration: 0.22)) { burst = true }
-                if index == stages.count - 1 {
-                    withAnimation(.easeOut(duration: 0.3).delay(0.12)) { showResult = true }
-                }
-                try? await Task.sleep(for: .seconds(EggReveal.duration(stageIndex: index,
-                                                                      of: stages.count)))
-                if Task.isCancelled { return }
-                withAnimation(.easeIn(duration: 0.16)) { burst = false }
+        .task { await run() }
+    }
+
+    /// 알 — **슬롯에서 보던 그 알**이 그대로 커진다. 예전에는 시스템 이모지라 등급 껍질도
+    /// 무늬도 없어서, 뽑기 화면과 부화 슬롯이 서로 다른 물건을 보여 주고 있었다.
+    private var egg: some View {
+        KeyframeAnimator(initialValue: EggPose.rest, trigger: beat) { pose in
+            EggIcon(grade: stage.grade, size: 78)
+                .scaleEffect(pose.scale)
+                .rotationEffect(.degrees(pose.rotation))
+                .offset(y: pose.lift)
+                .shadow(color: stage.color.opacity(0.85), radius: burst ? 22 : 8)
+        } keyframes: { _ in
+            // 움츠렸다가(예비동작) 튀어오르고(충격) 두어 번 흔들리며 가라앉는다.
+            KeyframeTrack(\.scale) {
+                CubicKeyframe(0.88, duration: RevealMotion.anticipation)
+                SpringKeyframe(1.24, duration: RevealMotion.impact, spring: .bouncy)
+                SpringKeyframe(1.0, duration: RevealMotion.settle, spring: .snappy)
             }
-            try? await Task.sleep(for: .seconds(0.5))
-            if Task.isCancelled { return }
-            onDone()
+            KeyframeTrack(\.rotation) {
+                CubicKeyframe(-7, duration: RevealMotion.anticipation)
+                CubicKeyframe(6, duration: RevealMotion.impact)
+                CubicKeyframe(-3, duration: RevealMotion.settle * 0.5)
+                CubicKeyframe(0, duration: RevealMotion.settle * 0.5)
+            }
+            KeyframeTrack(\.lift) {
+                CubicKeyframe(4, duration: RevealMotion.anticipation)
+                SpringKeyframe(-14, duration: RevealMotion.impact, spring: .bouncy)
+                SpringKeyframe(0, duration: RevealMotion.settle, spring: .snappy)
+            }
         }
     }
 
-    private var particles: some View {
-        ForEach(0..<EggReveal.particleCount, id: \.self) { index in
-            let offset = EggReveal.particleOffset(index: index, count: EggReveal.particleCount,
-                                                  radius: EggReveal.particleRadius)
+    /// 충격파 링 — 작은 판에서는 파티클보다 이쪽이 훨씬 잘 읽힌다. 둘을 어긋나게 띄운다.
+    private var rings: some View {
+        ForEach(0..<RevealMotion.ringCount, id: \.self) { index in
             Circle()
-                .fill(stage.color)
-                .frame(width: stage.sparkles && index.isMultiple(of: 2) ? 6 : 4)
-                .offset(x: burst ? offset.width : 0, y: burst ? offset.height : 0)
-                .opacity(burst ? 0 : 0.95)
-                .scaleEffect(burst ? 0.4 : 1)
-                .animation(.easeOut(duration: 0.42), value: burst)
+                .strokeBorder(stage.color, lineWidth: burst ? 1 : 3)
+                .frame(width: 74, height: 74)
+                .scaleEffect(burst ? RevealMotion.ringMaxScale : 0.35)
+                .opacity(burst ? 0 : 0.85)
+                .animation(.easeOut(duration: RevealMotion.burstDecay)
+                    .delay(RevealMotion.ringDelay(index)), value: burst)
         }
+    }
+
+    /// 바깥으로 뻗는 짧은 획 — 동그라미보다 방향과 속도가 보인다.
+    private var particles: some View {
+        ForEach(0..<RevealMotion.particleCount, id: \.self) { index in
+            let offset = RevealMotion.particleOffset(index: index,
+                                                     count: RevealMotion.particleCount,
+                                                     radius: RevealMotion.particleRadius)
+            Capsule()
+                .fill(stage.color)
+                .frame(width: RevealMotion.particleLength(index: index),
+                       height: stage.sparkles && index.isMultiple(of: 3) ? 4 : 3)
+                .rotationEffect(.degrees(RevealMotion.particleAngle(index: index)))
+                .offset(x: burst ? offset.width : 0, y: burst ? offset.height : 0)
+                .opacity(burst ? 0 : 1)
+                .animation(.easeOut(duration: RevealMotion.burstDecay), value: burst)
+        }
+    }
+
+    @ViewBuilder
+    private var result: some View {
+        if showResult {
+            VStack(spacing: 3) {
+                Text(grade.label(language))
+                    .font(.system(size: 16, weight: .bold))
+                    .foregroundStyle(stage.color)
+                Text(shiny ? l.drawResultShiny : l.drawResultHatching)
+                    .font(.system(size: 10))
+                    .foregroundStyle(.secondary)
+            }
+            .transition(.opacity.combined(with: .offset(y: 8)))
+        }
+    }
+
+    /// 단계를 하나씩 지나간다. 각 단계는 예비동작이 끝나는 시점에 터진다 —
+    /// 그래야 "움츠렸다가 터졌다"로 읽히고, 동시에 터지면 그냥 깜빡임이 된다.
+    private func run() async {
+        for index in stages.indices {
+            stageIndex = index
+            burst = false
+            beat += 1                                     // 알이 움츠러들기 시작
+            try? await Task.sleep(for: .seconds(RevealMotion.anticipation))
+            if Task.isCancelled { return }
+            burst = true                                  // 링·파티클이 터진다
+            if index == stages.count - 1 {
+                withAnimation(.easeOut(duration: 0.28).delay(0.18)) { showResult = true }
+            }
+            let rest = EggReveal.duration(stageIndex: index, of: stages.count)
+                - RevealMotion.anticipation
+            try? await Task.sleep(for: .seconds(rest))
+            if Task.isCancelled { return }
+        }
+        onDone()
     }
 }

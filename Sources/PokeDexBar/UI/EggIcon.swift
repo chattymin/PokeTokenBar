@@ -121,6 +121,10 @@ struct CrackShape: Shape {
 
 /// 거둔 개체를 한 번 보여주는 카드. 확인을 누른 직후에만 잠깐 덮인다 —
 /// 이걸 안 보면 무엇이 나왔는지 박스에 들어가서야 알게 된다.
+///
+/// **알에서 시작한다.** 예전에는 스프라이트가 처음부터 떠 있어서 부화라는 사건이 없었다:
+/// 슬롯에서 금 간 알을 눌렀는데 다음 화면에 이미 포켓몬이 있으면, 무엇이 열린 건지 안 보인다.
+/// 그래서 금 간 알이 흔들리다 터지고, 그 자리에서 포켓몬이 튀어나오는 순서로 바꿨다.
 struct HatchedRevealView: View {
     let individual: Individual
     let store: PlayerStore
@@ -129,7 +133,21 @@ struct HatchedRevealView: View {
     var onNeedLine: (Int) -> Void = { _ in }
     let onDone: () -> Void
 
+    /// 부화 연출의 국면. 알을 흔들다 → 터뜨리고 → 포켓몬을 보여준다.
+    private enum Phase { case shaking, cracking, revealed }
+
+    @State private var phase = Phase.shaking
+    @State private var shakeBeat = 0
+    @State private var burst = false
+
     private var l: L { store.l }
+
+    /// 터질 때의 색. 등급의 마지막 연출 단계 색을 그대로 쓴다 — 뽑기와 부화가 같은 말을 해야
+    /// "주황 = 레전더리"가 학습된다. 이로치만 예외로 노랗게 터뜨려 특별함을 먼저 알린다.
+    private var flash: Color {
+        individual.shiny ? .yellow
+            : (EggReveal.stages(for: individual.grade).last ?? .white).color
+    }
 
     private var displayName: String {
         let species = line?.localizedName(individual.speciesID, store.language)
@@ -139,26 +157,16 @@ struct HatchedRevealView: View {
 
     var body: some View {
         ZStack {
-            Color.black.opacity(0.84)
-            VStack(spacing: 6) {
-                SpriteView(speciesID: individual.speciesID, form: individual.spriteForm,
-                           size: 64, animated: true, shiny: individual.shiny, antialias: true)
-                    .frame(width: 64, height: 64)
-                HStack(spacing: 5) {
-                    Text(displayName).font(.system(size: 12, weight: .semibold))
-                    if individual.shiny { Text("✨").font(.system(size: 11)) }
-                    Text(individual.grade.label(store.language))
-                        .font(.system(size: 8, weight: .bold))
-                        .padding(.horizontal, 5).padding(.vertical, 1)
-                        .background(Color.secondary.opacity(0.22), in: Capsule())
-                    if let region = individual.region {
-                        Text(region.shortLabel(store.language))
-                            .font(.system(size: 8, weight: .bold))
-                            .padding(.horizontal, 5).padding(.vertical, 1)
-                            .background(Color.secondary.opacity(0.22), in: Capsule())
-                    }
+            RadialGradient(colors: [flash.opacity(0.16), .black.opacity(0.93)],
+                           center: .center, startRadius: 0, endRadius: 190)
+            VStack(spacing: 14) {
+                ZStack {
+                    rings
+                    particles
+                    if phase == .revealed { hatchling } else { shakingEgg }
                 }
-                Text(l.hatchedMovedToBox).font(.system(size: 9)).foregroundStyle(.secondary)
+                .frame(width: 150, height: 150)
+                if phase == .revealed { caption }
             }
         }
         .contentShape(Rectangle())
@@ -166,9 +174,105 @@ struct HatchedRevealView: View {
         .task(id: individual.baseID) {
             if line == nil { onNeedLine(individual.baseID) }
         }
-        .task {
-            try? await Task.sleep(for: .seconds(2.4))
-            if !Task.isCancelled { onDone() }
+        .task { await run() }
+    }
+
+    /// 금 간 알이 좌우로 흔들린다 — 안에서 뭔가 나오려 한다는 신호.
+    private var shakingEgg: some View {
+        KeyframeAnimator(initialValue: EggPose.rest, trigger: shakeBeat) { pose in
+            EggIcon(grade: individual.grade, size: 78, cracked: true)
+                .scaleEffect(pose.scale)
+                .rotationEffect(.degrees(pose.rotation))
+                .offset(y: pose.lift)
+                .shadow(color: flash.opacity(0.8), radius: phase == .cracking ? 24 : 8)
+        } keyframes: { _ in
+            // 흔들림은 점점 잦아들며 커진다 — 안에서 밀고 있는 것처럼. 구간 합이
+            // `hatchShake` 와 같아야 마지막에 멈춰 선 알을 보고 있지 않는다.
+            KeyframeTrack(\.rotation) {
+                CubicKeyframe(-11, duration: 0.14)
+                CubicKeyframe(12, duration: 0.16)
+                CubicKeyframe(-9, duration: 0.14)
+                CubicKeyframe(7, duration: 0.10)
+                CubicKeyframe(0, duration: 0.08)
+            }
+            KeyframeTrack(\.scale) {
+                CubicKeyframe(1.05, duration: 0.30)
+                CubicKeyframe(0.96, duration: 0.32)
+            }
+            KeyframeTrack(\.lift) {
+                CubicKeyframe(-3, duration: 0.14)
+                CubicKeyframe(2, duration: 0.16)
+                CubicKeyframe(-2, duration: 0.14)
+                CubicKeyframe(0, duration: 0.18)
+            }
         }
+    }
+
+    /// 껍질이 터진 자리에서 튀어나온다.
+    private var hatchling: some View {
+        SpriteView(speciesID: individual.speciesID, form: individual.spriteForm,
+                   size: 76, animated: true, shiny: individual.shiny, antialias: true)
+            .frame(width: 76, height: 76)
+            .transition(.scale(scale: 0.35).combined(with: .opacity))
+    }
+
+    private var rings: some View {
+        ForEach(0..<RevealMotion.ringCount, id: \.self) { index in
+            Circle()
+                .strokeBorder(flash, lineWidth: burst ? 1 : 3)
+                .frame(width: 74, height: 74)
+                .scaleEffect(burst ? RevealMotion.ringMaxScale : 0.35)
+                .opacity(burst ? 0 : 0.85)
+                .animation(.easeOut(duration: RevealMotion.burstDecay)
+                    .delay(RevealMotion.ringDelay(index)), value: burst)
+        }
+    }
+
+    /// 껍질 조각처럼 흩어진다.
+    private var particles: some View {
+        ForEach(0..<RevealMotion.particleCount, id: \.self) { index in
+            let offset = RevealMotion.particleOffset(index: index,
+                                                     count: RevealMotion.particleCount,
+                                                     radius: RevealMotion.particleRadius)
+            Capsule()
+                .fill(flash)
+                .frame(width: RevealMotion.particleLength(index: index), height: 3)
+                .rotationEffect(.degrees(RevealMotion.particleAngle(index: index)))
+                .offset(x: burst ? offset.width : 0, y: burst ? offset.height : 0)
+                .opacity(burst ? 0 : 1)
+                .animation(.easeOut(duration: RevealMotion.burstDecay), value: burst)
+        }
+    }
+
+    private var caption: some View {
+        VStack(spacing: 4) {
+            HStack(spacing: 5) {
+                Text(displayName).font(.system(size: 13, weight: .semibold))
+                if individual.shiny { Text("✨").font(.system(size: 11)) }
+                Text(individual.grade.label(store.language))
+                    .font(.system(size: 8, weight: .bold))
+                    .padding(.horizontal, 5).padding(.vertical, 1)
+                    .background(Color.secondary.opacity(0.22), in: Capsule())
+                if let region = individual.region {
+                    Text(region.shortLabel(store.language))
+                        .font(.system(size: 8, weight: .bold))
+                        .padding(.horizontal, 5).padding(.vertical, 1)
+                        .background(Color.secondary.opacity(0.22), in: Capsule())
+                }
+            }
+            Text(l.hatchedMovedToBox).font(.system(size: 9)).foregroundStyle(.secondary)
+        }
+        .transition(.opacity.combined(with: .offset(y: 8)))
+    }
+
+    private func run() async {
+        shakeBeat += 1
+        try? await Task.sleep(for: .seconds(RevealMotion.hatchShake))
+        if Task.isCancelled { return }
+        phase = .cracking
+        burst = true
+        withAnimation(.spring(duration: 0.42, bounce: 0.45)) { phase = .revealed }
+        try? await Task.sleep(for: .seconds(RevealMotion.hatchHold))
+        if !Task.isCancelled { onDone() }
     }
 }
