@@ -13,9 +13,6 @@ struct ShopTabView: View {
     /// 방금 뽑은 결과 — 연출 중에만 non-nil. 알은 이미 슬롯에 들어갔고 이 화면은 그 사실을
     /// 알려주기만 한다(연출을 건너뛰거나 팝오버를 닫아도 잃는 것이 없다).
     @State private var reveal: (grade: Grade, shiny: Bool)?
-    /// 진화 도구 칸을 펼쳤나. 기본은 접힘 — 11줄이 늘 펼쳐져 있으면 상점이 안 읽힌다.
-    @State private var evolutionExpanded = false
-    @State private var formExpanded = false
 
     private var l: L { store.l }
 
@@ -47,10 +44,6 @@ struct ShopTabView: View {
                 categorySection(.candy)
                 categorySection(.form)
                 categorySection(.charm)
-                // 도구는 맨 아래에, 접은 채로. 65줄이라 펼쳐 두면 상점을 통째로 먹는데,
-                // 정작 "어떤 포켓몬을 바꿀 때" 찾는 물건이라 늘 보고 있을 이유가 없다.
-                evolutionItemSection
-                formItemSection
             }
             .padding(.vertical, 2)
         }
@@ -127,90 +120,6 @@ struct ShopTabView: View {
                 itemRow(item)
             }
         }
-    }
-
-    /// 진화 도구 — **파는 게 아니라 모은 것을 보여 준다.** 41종 전부 리본 파트너가 물어 오고
-    /// 없어지지 않으므로, 이 목록은 구매 목록이 아니라 수집 현황이다(가진 것/전체).
-    /// 상점 탭에 두는 건 도구를 한자리에서 볼 유일한 화면이기 때문이다. 기본은 접힘 — 목록이 길다.
-    private var evolutionItemSection: some View {
-        let rows = Self.evolutionItemStatus(store)
-        let owned = rows.filter(\.owned).count
-        return VStack(alignment: .leading, spacing: 4) {
-            Button { withAnimation(.easeOut(duration: 0.15)) { evolutionExpanded.toggle() } } label: {
-                HStack(spacing: 4) {
-                    Image(systemName: evolutionExpanded ? "chevron.down" : "chevron.right")
-                        .font(.system(size: 9, weight: .bold))
-                    Text(l.shopEvolutionSection).font(.system(size: 12, weight: .semibold))
-                    Text("\(owned)/\(rows.count)")
-                        .font(.system(size: 10)).foregroundStyle(.secondary)
-                    Spacer()
-                }
-            }
-            .buttonStyle(.plain)
-            if evolutionExpanded {
-                // 못 사는 목록이라는 걸 말해 줘야 한다 — 없으면 "왜 살 수가 없지"로 읽힌다.
-                Text(l.shopEvolutionHint).font(.system(size: 9)).foregroundStyle(.tertiary)
-                ForEach(rows, id: \.item) { row in
-                    HStack(spacing: 5) {
-                        Image(systemName: row.owned ? "checkmark.circle.fill" : "circle.dashed")
-                            .font(.system(size: 9))
-                            .foregroundStyle(row.owned ? AnyShapeStyle(Color.accentColor)
-                                                       : AnyShapeStyle(.tertiary))
-                        Text(row.item.label(store.language))
-                            .font(.system(size: 11, weight: row.owned ? .medium : .regular))
-                            .foregroundStyle(row.owned ? .primary : .tertiary)
-                        Spacer()
-                    }
-                }
-            }
-        }
-    }
-
-    /// 폼 도구 수집 현황 — 진화 도구와 같은 자리, 같은 규칙(못 사고, 안 없어진다).
-    private var formItemSection: some View {
-        let rows = Self.formItemStatus(store)
-        let owned = rows.filter(\.owned).count
-        return VStack(alignment: .leading, spacing: 4) {
-            Button { withAnimation(.easeOut(duration: 0.15)) { formExpanded.toggle() } } label: {
-                HStack(spacing: 4) {
-                    Image(systemName: formExpanded ? "chevron.down" : "chevron.right")
-                        .font(.system(size: 9, weight: .bold))
-                    Text(l.shopFormItemSection).font(.system(size: 12, weight: .semibold))
-                    Text("\(owned)/\(rows.count)")
-                        .font(.system(size: 10)).foregroundStyle(.secondary)
-                    Spacer()
-                }
-            }
-            .buttonStyle(.plain)
-            if formExpanded {
-                Text(l.shopEvolutionHint).font(.system(size: 9)).foregroundStyle(.tertiary)
-                ForEach(rows, id: \.item) { row in
-                    HStack(spacing: 5) {
-                        Image(systemName: row.owned ? "checkmark.circle.fill" : "circle.dashed")
-                            .font(.system(size: 9))
-                            .foregroundStyle(row.owned ? AnyShapeStyle(Color.accentColor)
-                                                       : AnyShapeStyle(.tertiary))
-                        Text(row.item.label(store.language))
-                            .font(.system(size: 11, weight: row.owned ? .medium : .regular))
-                            .foregroundStyle(row.owned ? .primary : .tertiary)
-                        Spacer()
-                    }
-                }
-            }
-        }
-    }
-
-    /// 진화 도구 수집 현황. **41종 전부** 돌려준다 — 가진 것만 보여 주면 무엇이 남았는지
-    /// 알 수 없고, 이 목록은 도구를 한자리에서 볼 유일한 화면이다.
-    /// 뷰에서 떼어 둔 건 이 파일의 다른 정적 함수들(`oddsText`·`landDraw`)과 같은 이유로,
-    /// 목록이 조용히 줄어드는 걸 테스트가 잡게 하기 위해서다.
-    static func evolutionItemStatus(_ store: PlayerStore) -> [(item: EvolutionItem, owned: Bool)] {
-        EvolutionItem.allCases.map { ($0, store.count(of: $0) > 0) }
-    }
-
-    /// 폼 도구 수집 현황 — 24종 전부.
-    static func formItemStatus(_ store: PlayerStore) -> [(item: FormItem, owned: Bool)] {
-        FormItem.allCases.map { ($0, store.count(of: $0) > 0) }
     }
 
     private func itemRow(_ item: ShopItem) -> some View {

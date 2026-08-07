@@ -18,8 +18,20 @@ struct L {
     // MARK: 탭
     var home: String { t("홈", "Home", "ホーム") }
     var box: String { t("박스", "Box", "ボックス") }
-    var collection: String { t("도감", "Collection", "コレクション") }
+    /// 일본어는 `ずかん`(図鑑) — 표준 표기이고, `コレクション` 은 5탭이 되면서 세그먼트가
+    /// 360pt 팝오버를 12pt 넘겨 잘렸다(실측). 탭을 더할 땐 라벨 폭부터 재라.
+    var collection: String { t("도감", "Collection", "ずかん") }
+    var bag: String { t("가방", "Bag", "バッグ") }
     var shop: String { t("상점", "Shop", "ショップ") }
+
+    // MARK: 가방 탭 — 가진 것을 보는 화면. 쓰는 건 개체 상세에서 한다.
+    var bagConsumables: String { t("쓰면 없어지는 것", "Consumables", "つかうとなくなるもの") }
+    var bagEmptyTitle: String { t("가방이 비어 있어요", "Your bag is empty", "バッグは空です") }
+    var bagEmptyHint: String {
+        t("파트너로 둔 포켓몬이 자기에게 필요한 도구를 물어 옵니다.\n사탕과 부적은 상점에서 살 수 있어요.",
+          "Your partner finds the items it needs.\nCandy and charms are sold in the shop.",
+          "パートナーが自分にひつような道具をもってきます。\nアメとおまもりはショップで買えます。")
+    }
 
     // MARK: 상점 탭
     var shopWallet: String { t("재화", "Currency", "所持金") }
