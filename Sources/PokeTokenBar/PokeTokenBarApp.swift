@@ -68,6 +68,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         popover.delegate = self   // 닫힐 때(popoverDidClose) 호스팅 컨트롤러 해제 → 숨은 채 재레이아웃 비용 제거
 
         observeStore()
+        observeCompanionSprite()
         observeDisplaySleep()
         applyState()
     }
@@ -82,6 +83,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
                 guard let self else { return }
                 self.applyState()
                 self.observeStore()
+            }
+        }
+    }
+
+    /// Companion 스프라이트 정체성(종/shiny) 관찰 — 사탕 진화·졸업(BagView), 세이브 가져오기,
+    /// 부화·메타몽 리빌 async 완료처럼 store 갱신 틱 없이 companion 만 바뀌는 경로에서도 메뉴바
+    /// 스프라이트를 즉시 갱신한다. observeStore(menuTitle)만으론 다음 사용량 폴링(기본 120s)까지
+    /// 이전 포켓몬이 남는다(사탕 졸업 후 메뉴바 잔상 리포트 — UsageStore.onRefresh 주석과 같은 부류).
+    private func observeCompanionSprite() {
+        withObservationTracking {
+            _ = companion.currentSpeciesID
+            _ = companion.currentIsShiny
+        } onChange: { [weak self] in
+            Task { @MainActor in
+                guard let self else { return }
+                self.ensureMenuAnimation()
+                self.syncMenuAnimation()
+                self.observeCompanionSprite()
             }
         }
     }
