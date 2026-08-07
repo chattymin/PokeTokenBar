@@ -38,9 +38,13 @@ enum DittoDisguiseSprite {
             CGImageDestinationSetProperties(destination, [kCGImagePropertyGIFDictionary:
                 [kCGImagePropertyGIFLoopCount: 0]] as CFDictionary)
         }
+        var carried: FaceLayout?
         for index in 0..<count {
             guard let frame = CGImageSourceCreateImageAtIndex(source, index, nil) else { return nil }
-            let made = disguise(frame) ?? frame
+            // 자리를 다음 프레임으로 넘긴다 — 뮤가 눈을 감는 프레임에서 얼굴이 사라지지 않게.
+            let result = disguise(frame, reusing: carried)
+            if let result { carried = result.layout }
+            let made = result?.image ?? frame
             if animated {
                 // 원본 간격을 그대로 쓴다 — 손으로 적으면 위장 중일 때만 재생 속도가 달라진다.
                 let seconds = delay(of: source, at: index)
@@ -73,42 +77,94 @@ enum DittoDisguiseSprite {
 
     // MARK: 한 프레임
 
-    /// 한 프레임에 메타몽 얼굴을 넣는다. 눈을 못 찾으면 nil —
-    /// 눈을 감은 프레임이 그렇고, 그때는 위조할 것이 없으므로 원본이 맞다.
-    static func disguise(_ image: CGImage) -> CGImage? {
+    /// 얼굴이 놓일 자리 — 뮤의 눈을 지워 만든 네모 둘.
+    ///
+    /// 그리기와 갈라 둔 이유는 **프레임 사이의 흔들림을 잴 수 있어야** 하기 때문이다. 자리가
+    /// 프레임마다 튀면 얼굴이 붙었다 떨어졌다 하는 것처럼 보인다(사용자 지적).
+    struct FaceLayout: Equatable, Sendable {
+        struct Rect: Equatable, Sendable {
+            var minX: Int, maxX: Int, minY: Int, maxY: Int
+            var midX: Int { (minX + maxX) / 2 }
+        }
+        struct Room: Equatable, Sendable {
+            /// 지울 네모 — 눈 테두리와 그늘까지 넉넉히 덮는다.
+            var erased: Rect
+            /// 홍채의 네모 — 점을 찍을 자리는 여기서 잡는다.
+            var iris: Rect
+        }
+        var eyes: [Room]
+
+        /// 눈이 찍힐 자리.
+        ///
+        /// **지운 네모가 아니라 홍채에 건다.** 지운 네모의 경계는 그 프레임에서 눈 테두리가 어디까지
+        /// 이어졌느냐에 따라 달라져 프레임마다 세 칸씩 튄다(실측). 홍채의 아래끝은 머리의 위아래
+        /// 움직임을 그대로 따라가 매끄럽다 — 얼굴이 머리에 붙어 있으려면 이쪽을 봐야 한다.
+        var eyeDots: [(x: Int, y: Int)] { eyes.map { ($0.iris.midX, $0.iris.maxY - 1) } }
+
+        /// 입이 놓일 자리 — 두 네모 사이를 가로지른다. 눈이 하나면 입은 없다.
+        var mouth: (x: Int, y: Int)? {
+            guard eyes.count == 2 else { return nil }
+            let sorted = eyes.sorted { $0.erased.minX < $1.erased.minX }
+            return ((sorted[0].erased.maxX + sorted[1].erased.minX) / 2,
+                    min(sorted[0].erased.maxY, sorted[1].erased.maxY) - 1)
+        }
+    }
+
+    /// 한 프레임에 메타몽 얼굴을 넣는다.
+    ///
+    /// - Parameter previous: 직전 프레임의 자리. 눈을 못 찾은 프레임(뮤가 눈을 감는다)에 쓴다 —
+    ///   없으면 그 한 프레임만 얼굴이 사라져 깜빡인다. **메타몽은 눈을 안 감는다.**
+    /// - Returns: 만든 그림과 이번에 쓴 자리. 손댈 것이 없으면 nil.
+    static func disguise(_ image: CGImage,
+                         reusing previous: FaceLayout? = nil) -> (image: CGImage, layout: FaceLayout)? {
         let canvas = Canvas(image)
         let blues = canvas.coordinates { isBlue($0) }
-        guard !blues.isEmpty else { return nil }
+        // 선 색은 눈 둘레에서 뽑는다. 눈을 못 찾은 프레임은 직전 자리 둘레에서 뽑는다.
+        let probe = blues.isEmpty
+            ? (previous?.eyes.map { Point(x: $0.iris.midX, y: $0.iris.maxY) } ?? [])
+            : blues
+        guard !probe.isEmpty else { return nil }
+        let ink = faceInk(canvas, near: probe)
 
-        // **선 색은 뮤에게서 빌린다.** 순수한 검정으로 그리면 얹은 티가 나고, 스프라이트마다 선
-        // 색이 다르다 — 움직이는 쪽은 (98,80,87), 정적 쪽은 (90,41,82) 이다(실측).
-        let ink = faceInk(canvas, near: blues)
-
-        // 눈을 지워 빈 자리를 만든다. 자리를 기억해 뒀다가 그 안에 메타몽 얼굴을 넣는다.
-        var rooms: [(minX: Int, maxX: Int, minY: Int, maxY: Int)] = []
-        for side in splitEyes(blues) {
-            let room = erase(canvas, eye: side)
-            rooms.append(room)
-        }
-        rooms.sort { $0.minX < $1.minX }
-
-        // 눈 — 지운 자리의 **위쪽**에 작은 점. 메타몽의 눈은 점이고, 크게 그리면 "네모"로 읽힌다.
-        for room in rooms {
-            let x = (room.minX + room.maxX) / 2, y = room.minY + 1
-            canvas.set(Point(x: x, y: y), ink)
-            canvas.set(Point(x: x + 1, y: y), ink)
+        let layout: FaceLayout
+        if blues.isEmpty {
+            guard let previous else { return nil }
+            layout = previous
+            // 직전 자리를 그대로 비운다 — 감은 눈의 선이 남아 얼굴에 겹치지 않게.
+            for room in layout.eyes { blank(canvas, room.erased) }
+        } else {
+            var rooms = splitEyes(blues).map { erase(canvas, eye: $0) }
+            rooms.sort { $0.erased.minX < $1.erased.minX }
+            layout = FaceLayout(eyes: rooms)
         }
 
-        // 입 — 지운 자리의 **아래쪽**, 두 눈 사이를 가로지른다. 폭이 이 얼굴의 핵심이다:
-        // 메타몽의 입은 제 얼굴을 절반쯤 가로지르고, 짧게 그리면 점 몇 개로 보인다.
-        // 한 칸 층진 것도 원본 그대로다.
-        if rooms.count == 2 {
-            let x = (rooms[0].maxX + rooms[1].minX) / 2
-            let y = min(rooms[0].maxY, rooms[1].maxY) - 1
-            for dx in -3...0 { canvas.set(Point(x: x + dx, y: y), ink) }
-            for dx in 1...3 { canvas.set(Point(x: x + dx, y: y + 1), ink) }
+        // 눈 — 작은 점. 메타몽의 눈은 점이고, 크게 그리면 "네모"로 읽힌다.
+        for dot in layout.eyeDots {
+            canvas.set(Point(x: dot.x, y: dot.y), ink)
+            canvas.set(Point(x: dot.x + 1, y: dot.y), ink)
         }
-        return canvas.image
+        // 입 — 폭이 이 얼굴의 핵심이다. 메타몽의 입은 제 얼굴을 절반쯤 가로지르고, 짧게 그리면
+        // 점 몇 개로 보인다. 한 칸 층진 것도 원본 그대로다.
+        if let mouth = layout.mouth {
+            for dx in -3...0 { canvas.set(Point(x: mouth.x + dx, y: mouth.y), ink) }
+            for dx in 1...3 { canvas.set(Point(x: mouth.x + dx, y: mouth.y + 1), ink) }
+        }
+        guard let made = canvas.image else { return nil }
+        return (made, layout)
+    }
+
+    /// 네모 하나를 살색으로 비운다(실루엣은 남긴다).
+    private static func blank(_ canvas: Canvas, _ rect: FaceLayout.Rect) {
+        var cells: Set<Point> = []
+        for y in rect.minY...rect.maxY {
+            for x in rect.minX...rect.maxX {
+                let point = Point(x: x, y: y)
+                guard canvas[point].a > 128, !canvas.onSilhouette(point) else { continue }
+                cells.insert(point)
+            }
+        }
+        let fills = cells.map { ($0, skinNear(canvas, $0, avoiding: cells)) }
+        for (point, color) in fills { canvas.set(point, color) }
     }
 
     /// 눈 하나를 지우고, 지운 네모를 돌려준다.
@@ -117,16 +173,24 @@ enum DittoDisguiseSprite {
     /// 잉크도 파랑도 하이라이트도 아니라 어느 조건에도 안 걸린다. 그렇게 남은 그늘이 원래 눈의
     /// 윤곽을 그려서, 그 위에 메타몽 눈을 얹으면 눈이 둘로 겹쳐 보인다(사용자 지적).
     /// 실루엣만 빼고 다 지운다 — 바깥 테두리까지 지우면 머리에 구멍이 뚫린다.
-    @discardableResult
-    private static func erase(_ canvas: Canvas, eye seeds: [Point])
-    -> (minX: Int, maxX: Int, minY: Int, maxY: Int) {
+    private static func erase(_ canvas: Canvas, eye seeds: [Point]) -> FaceLayout.Room {
+        // **눈만큼만 번진다.** 뮤의 눈 테두리는 목·팔 같은 몸 안쪽 선과 이어져 있어서, 가두지
+        // 않으면 탐색이 얼굴 밖으로 새어 나가 몸의 절반을 눈으로 친다. 그러면 지운 네모가 프레임마다
+        // 들쭉날쭉해지고(실측: 눈 자리가 최대 아홉 칸씩 튀었다) 얼굴이 붙었다 떨어졌다 한다.
+        let sx = seeds.map(\.x), sy = seeds.map(\.y)
+        let reach = 3
+        let bounds = (minX: sx.min()! - reach, maxX: sx.max()! + reach,
+                      minY: sy.min()! - reach, maxY: sy.max()! + reach)
+
         var seen = Set(seeds)
         var queue = seeds
         let steps = [(-1, 0), (1, 0), (0, -1), (0, 1), (-1, -1), (1, -1), (-1, 1), (1, 1)]
         while let point = queue.popLast() {
             for (dx, dy) in steps {
                 let next = Point(x: point.x + dx, y: point.y + dy)
-                guard !seen.contains(next) else { continue }
+                guard !seen.contains(next),
+                      next.x >= bounds.minX, next.x <= bounds.maxX,
+                      next.y >= bounds.minY, next.y <= bounds.maxY else { continue }
                 let pixel = canvas[next]
                 guard isInk(pixel) || isBlue(pixel) || isHighlight(pixel) else { continue }
                 guard !canvas.onSilhouette(next) else { continue }
@@ -134,22 +198,15 @@ enum DittoDisguiseSprite {
             }
         }
         let xs = seen.map(\.x), ys = seen.map(\.y)
-        var room = seen
-        for y in (ys.min()! - 1)...(ys.max()! + 1) {
-            for x in (xs.min()! - 1)...(xs.max()! + 1) {
-                let point = Point(x: x, y: y)
-                guard canvas[point].a > 128, !canvas.onSilhouette(point) else { continue }
-                room.insert(point)
-            }
-        }
-        // 채울 색을 **먼저 다 읽고** 나중에 쓴다 — 지우면서 읽으면 방금 지운 자리를 다시 샘플링한다.
-        let fills = room.map { ($0, skinNear(canvas, $0, avoiding: room)) }
-        for (point, color) in fills { canvas.set(point, color) }
-        let rxs = room.map(\.x), rys = room.map(\.y)
-        return (rxs.min()!, rxs.max()!, rys.min()!, rys.max()!)
+        let erased = FaceLayout.Rect(minX: xs.min()! - 1, maxX: xs.max()! + 1,
+                                     minY: ys.min()! - 1, maxY: ys.max()! + 1)
+        blank(canvas, erased)
+        return FaceLayout.Room(erased: erased,
+                               iris: FaceLayout.Rect(minX: sx.min()!, maxX: sx.max()!,
+                                                     minY: sy.min()!, maxY: sy.max()!))
     }
 
-    /// 지운 자리를 메울 살색.
+    /// 지운 자리를 메울 살색.    /// 지운 자리를 메울 살색.
     ///
     /// **밝은 살결을 먼저 찾는다.** 가장 가까운 아무 픽셀이나 쓰면 눈두덩 그늘을 퍼오게 되고,
     /// 눈이 있던 자리에 회색 얼룩이 남아 "지웠다"가 아니라 "뭉갰다"로 보인다(실측).

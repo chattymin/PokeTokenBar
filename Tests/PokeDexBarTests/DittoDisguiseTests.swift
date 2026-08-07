@@ -252,7 +252,7 @@ final class DittoDisguiseSpriteTests: XCTestCase {
     /// 하이라이트가 남으면 눈이 여전히 살아 있는 눈으로 보인다.
     func testTheEyesLoseTheirColor() throws {
         let before = face()
-        let after = try XCTUnwrap(DittoDisguiseSprite.disguise(before))
+        let after = try XCTUnwrap(DittoDisguiseSprite.disguise(before)?.image)
         let blue = { (r: Int, g: Int, b: Int, a: Int) in a > 128 && b > r + 25 && b > g + 10 }
         let white = { (r: Int, g: Int, b: Int, a: Int) in a > 128 && r > 235 && g > 232 && b > 232 }
         XCTAssertGreaterThan(pixels(before, where: blue), 0, "픽스처에 홍채가 없다")
@@ -265,7 +265,7 @@ final class DittoDisguiseSpriteTests: XCTestCase {
     /// 이게 이 그림이 존재하는 이유다. 그냥 어두운 픽셀이 늘었는지만 보면, 눈을 시커멓게 칠하기만
     /// 해도 통과한다 — 실제로 그렇게 만들었다가 "벌레 같지 메타몽이 아니다"라는 지적을 받았다.
     func testTheFaceHasDittosShape() throws {
-        let after = try XCTUnwrap(DittoDisguiseSprite.disguise(face()))
+        let after = try XCTUnwrap(DittoDisguiseSprite.disguise(face())?.image)
         // 줄마다 가장 긴 어두운 가로 연속 길이를 잰다.
         var runs: [Int: Int] = [:]
         let rep = NSBitmapImageRep(cgImage: after)
@@ -297,7 +297,7 @@ final class DittoDisguiseSpriteTests: XCTestCase {
     func testTheOriginalEyeIsGone() throws {
         let before = face()
         let expected = try lineColor(of: before)
-        let after = try XCTUnwrap(DittoDisguiseSprite.disguise(before))
+        let after = try XCTUnwrap(DittoDisguiseSprite.disguise(before)?.image)
         let outline = { (r: Int, g: Int, b: Int, a: Int) in a > 128 && [r, g, b] == expected }
         XCTAssertLessThan(pixels(after, where: outline), pixels(before, where: outline),
                           "원래 눈 테두리가 그대로 남아 있다")
@@ -306,7 +306,7 @@ final class DittoDisguiseSpriteTests: XCTestCase {
     /// 몸의 실루엣은 그대로다 — 지우는 범위를 잘못 잡으면 머리에 구멍이 뚫린다.
     func testTheBodyKeepsItsShape() throws {
         let before = face()
-        let after = try XCTUnwrap(DittoDisguiseSprite.disguise(before))
+        let after = try XCTUnwrap(DittoDisguiseSprite.disguise(before)?.image)
         let opaque = { (_: Int, _: Int, _: Int, a: Int) in a > 128 }
         XCTAssertEqual(pixels(after, where: opaque), pixels(before, where: opaque),
                        "불투명 픽셀 수가 달라졌다 — 몸에 구멍이 뚫렸거나 넘쳤다")
@@ -321,12 +321,60 @@ final class DittoDisguiseSpriteTests: XCTestCase {
         for line in [(r: 98, g: 80, b: 87), (r: 90, g: 41, b: 82)] {
             let before = face(line: line)
             let expected = try lineColor(of: before)
-            let after = try XCTUnwrap(DittoDisguiseSprite.disguise(before))
+            let after = try XCTUnwrap(DittoDisguiseSprite.disguise(before)?.image)
             XCTAssertGreaterThan(pixels(after) { r, g, b, a in a > 128 && [r, g, b] == expected }, 6,
                                  "얼굴이 그림의 선 색(\(expected))으로 안 그려졌다")
             XCTAssertEqual(pixels(after) { r, g, b, a in a > 128 && r < 60 && g < 60 && b < 60 }, 0,
                            "순수 검정으로 그렸다 — 뮤의 선 색을 안 썼다")
         }
+    }
+
+    /// **얼굴이 프레임마다 흔들리면 안 된다.** 뮤는 위아래로 까딱이는데, 얼굴이 그 움직임과
+    /// 따로 놀면 붙었다 떨어졌다 하는 것처럼 보인다(사용자 지적).
+    ///
+    /// 여기서 재현하는 건 실제로 겪은 결함이다: **눈 테두리가 프레임마다 다르게 잡히는 것**.
+    /// 자리를 지운 네모에 걸면 그 변화가 그대로 얼굴로 새어 나온다. 홍채에 걸면 안 그렇다.
+    func testTheFaceDoesNotJitterWhenTheEyeOutlineChanges() throws {
+        var positions: [Int] = []
+        for extra in 0...3 {
+            // 홍채는 그대로 두고 눈 테두리만 위로 늘린다 — 프레임마다 잡히는 양이 달라지는 상황.
+            let (w, h) = (28, 28)
+            let context = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8,
+                                    bytesPerRow: w * 4, space: CGColorSpaceCreateDeviceRGB(),
+                                    bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+            context.setFillColor(CGColor(red: 254/255.0, green: 213/255.0, blue: 229/255.0, alpha: 1))
+            context.fill(CGRect(x: 2, y: 2, width: 24, height: 24))
+            context.setFillColor(CGColor(red: 98/255.0, green: 80/255.0, blue: 87/255.0, alpha: 1))
+            context.fill(CGRect(x: 7, y: 15, width: 5, height: 5 + extra))
+            context.fill(CGRect(x: 16, y: 15, width: 5, height: 5 + extra))
+            context.setFillColor(CGColor(red: 0.15, green: 0.35, blue: 0.85, alpha: 1))
+            context.fill(CGRect(x: 8, y: 16, width: 3, height: 2))
+            context.fill(CGRect(x: 17, y: 16, width: 3, height: 2))
+            let layout = try XCTUnwrap(DittoDisguiseSprite.disguise(context.makeImage()!)).layout
+            positions.append(try XCTUnwrap(layout.eyeDots.first).y)
+        }
+        XCTAssertEqual(Set(positions).count, 1,
+                       "눈 테두리가 달라졌다고 얼굴이 따라 움직였다: \(positions)")
+    }
+
+    /// **눈 감는 프레임에서 얼굴이 사라지면 안 된다.** 뮤는 깜빡이지만 메타몽은 안 깜빡인다 —
+    /// 그 한 프레임만 얼굴이 없으면 그게 곧 깜빡임으로 보인다(실제 GIF 의 42번 프레임).
+    func testAClosedEyeFrameKeepsTheFace() throws {
+        let previous = try XCTUnwrap(DittoDisguiseSprite.disguise(face())).layout
+        let (w, h) = (28, 28)
+        let context = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4,
+                                space: CGColorSpaceCreateDeviceRGB(),
+                                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+        context.setFillColor(CGColor(red: 254/255.0, green: 213/255.0, blue: 229/255.0, alpha: 1))
+        context.fill(CGRect(x: 4, y: 4, width: 20, height: 20))   // 파랑이 하나도 없는 얼굴
+        let blink = context.makeImage()!
+
+        XCTAssertNil(DittoDisguiseSprite.disguise(blink), "이어받을 자리가 없으면 손대지 않는다")
+        let carried = try XCTUnwrap(DittoDisguiseSprite.disguise(blink, reusing: previous),
+                                    "눈 감은 프레임에서 얼굴이 사라졌다")
+        XCTAssertEqual(carried.layout, previous, "이어받은 자리가 달라졌다")
+        XCTAssertGreaterThan(pixels(carried.image) { r, g, b, a in
+            a > 128 && r < 150 && g < 150 && b < 170 }, 0, "얼굴이 안 그려졌다")
     }
 
     /// 눈이 없으면(눈 감은 프레임) 손대지 않는다.
@@ -337,7 +385,7 @@ final class DittoDisguiseSpriteTests: XCTestCase {
                                 bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
         context.setFillColor(CGColor(red: 1, green: 0.84, blue: 0.9, alpha: 1))
         context.fill(CGRect(x: 0, y: 0, width: w, height: h))
-        XCTAssertNil(DittoDisguiseSprite.disguise(context.makeImage()!))
+        XCTAssertNil(DittoDisguiseSprite.disguise(context.makeImage()!)?.image)
     }
 }
 
