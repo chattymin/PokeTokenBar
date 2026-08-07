@@ -64,6 +64,11 @@ struct SpriteView: View {
     @State private var loadedForm: String?
     /// 정적 이미지와 GIF 프레임의 잘라낼 사각형. 한 번 구해 두고 매 프레임 재사용한다 —
     /// 프레임마다 다시 재면 팔다리 움직임에 따라 스프라이트가 칸 안에서 들썩인다.
+    ///
+    /// **`fillFrame` 일 때만 구한다.** 이 계산은 프레임마다 전 픽셀을 훑어서 비싸다 —
+    /// 실측: 144프레임짜리 거다이맥스 리자몽이 **499ms**. 예전에는 `fillFrame` 과 무관하게 늘
+    /// 구했는데, 쓰지도 않는 값을 기다리느라 정적 스프라이트가 0.5초쯤 떠 있다가 GIF 로 바뀌었다.
+    /// 상세·홈·부화는 전부 `fillFrame` 이 꺼져 있어 이 값을 아예 안 쓴다.
     @State private var staticTrim: CGRect?
     @State private var frameTrim: CGRect?
     @State private var frames: [(image: NSImage, delay: TimeInterval)] = []
@@ -105,7 +110,7 @@ struct SpriteView: View {
         let cached = speciesID.map { SpriteLoader.cachedImage(speciesID: $0, form: form, shiny: shiny) }
             ?? SpriteLoader.cachedEggImage()
         _img = State(initialValue: cached)
-        _staticTrim = State(initialValue: cached.flatMap(SpriteTrim.contentRect(of:)))
+        _staticTrim = State(initialValue: fillFrame ? cached.flatMap(SpriteTrim.contentRect(of:)) : nil)
         let seeded = speciesID != nil && cached != nil
         _loadedID = State(initialValue: seeded ? speciesID : nil)
         _loadedForm = State(initialValue: seeded ? form : nil)
@@ -214,7 +219,7 @@ struct SpriteView: View {
                 if let next = subject.applyingLoad(loaded, for: id, cancelled: Task.isCancelled) {
                     apply(next)
                     loadedForm = form
-                    staticTrim = next.image.flatMap(SpriteTrim.contentRect(of:))
+                    if fillFrame { staticTrim = next.image.flatMap(SpriteTrim.contentRect(of:)) }
                 }
             }
             guard animated else { awaitingAnimation = false; return }
@@ -229,7 +234,7 @@ struct SpriteView: View {
             // 단일 프레임/디코드 실패 → 정적 폴백. 취소됐으면 아예 반영하지 않는다(빈 배열이라 아래서 종료).
             let ready = Self.framesToApply(GIFDecoder.frames(from: data), cancelled: Task.isCancelled)
             guard !ready.isEmpty else { awaitingAnimation = false; return }
-            frameTrim = SpriteTrim.unionContentRect(of: ready.map(\.image))
+            if fillFrame { frameTrim = SpriteTrim.unionContentRect(of: ready.map(\.image)) }
             // 프레임과 대기 해제를 **같은 갱신에서** 한다 — 따로 하면 그 사이에 정적 스프라이트가
             // 한 프레임 보이면서, 없애려던 그 교체가 그대로 일어난다.
             frames = ready

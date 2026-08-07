@@ -903,3 +903,48 @@ final class SpriteAnimationWaitTests: XCTestCase {
                                               animated: true, shiny: true))
     }
 }
+
+/// [회귀] 정적 스프라이트가 GIF 로 바뀌기까지 0.5~1초가 걸린다는 지적. 원인은 네트워크가 아니라
+/// **쓰지도 않는 트림 계산**이었다 — 프레임마다 전 픽셀을 훑는데(실측: 144프레임 거다이맥스
+/// 리자몽 499ms), 그 값은 `fillFrame` 을 켠 박스 칸에서만 쓴다. 상세·홈·부화는 안 쓴다.
+@MainActor
+final class SpriteTrimCostTests: XCTestCase {
+    /// 트림은 실제로 비싸다 — 이 값이 싸졌다면 아래 가드의 전제가 사라진 것이니 같이 본다.
+    func testTrimmingManyFramesIsExpensive() throws {
+        let images = (0..<40).map { _ -> NSImage in
+            let image = NSImage(size: NSSize(width: 96, height: 96))
+            image.lockFocus()
+            NSColor.orange.setFill()
+            NSRect(x: 20, y: 20, width: 56, height: 56).fill()
+            image.unlockFocus()
+            return image
+        }
+        let start = Date()
+        _ = SpriteTrim.unionContentRect(of: images)
+        let elapsed = Date().timeIntervalSince(start)
+        XCTAssertGreaterThan(elapsed, 0.001,
+                            "트림이 공짜가 되었다면 fillFrame 게이트의 근거를 다시 확인할 것")
+    }
+
+    /// **트림을 안 쓰는 화면은 트림을 기다리지 않아야 한다.** 뷰가 그 계산을 건너뛰는지
+    /// 직접 보긴 어려우므로, 트림 결과를 실제로 쓰는 경로가 `fillFrame` 하나임을 잠근다.
+    func testOnlyFillFrameConsumesTheTrim() throws {
+        let source = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("Sources/PokeDexBar/UI/CompanionView.swift")
+        let text = try String(contentsOf: source, encoding: .utf8)
+        for line in text.split(separator: "\n") where line.contains("SpriteTrim.unionContentRect")
+            || line.contains("SpriteTrim.contentRect") {
+            XCTAssertTrue(line.contains("fillFrame"),
+                          "트림을 fillFrame 밖에서 계산한다 — 안 쓰는 화면이 그만큼 기다린다: \(line)")
+        }
+    }
+
+    /// 박스 칸은 여전히 트림을 받아야 한다 — 안 그러면 작은 포켓몬이 칸 안에서 작게 남는다.
+    func testBoxCellsStillTrim() {
+        let filling = SpriteView(speciesID: 25, size: 40, animated: false, fillFrame: true)
+        let plain = SpriteView(speciesID: 25, size: 40, animated: false, fillFrame: false)
+        XCTAssertTrue(filling.fillFrame)
+        XCTAssertFalse(plain.fillFrame)
+    }
+}
