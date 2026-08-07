@@ -359,7 +359,7 @@ struct IndividualDetailView: View {
         }
     }
 
-    /// "변장 트렁크 14 · 다이맥스 버섯 1" — 못 여는 폼들이 **무엇을 기다리는지** 도구별로 센다.
+    /// "변장 트렁크 14 · 다이버섯 1" — 못 여는 폼들이 **무엇을 기다리는지** 도구별로 센다.
     /// 전부 열 수 있으면 nil(할 말이 없다).
     nonisolated static func formNeedSummary(_ forms: [PokemonForm], usable: [PokemonForm],
                                             store: PlayerStore, l: L) -> String? {

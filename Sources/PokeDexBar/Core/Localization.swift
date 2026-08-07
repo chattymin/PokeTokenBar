@@ -25,10 +25,10 @@ struct L {
     var shop: String { t("상점", "Shop", "ショップ") }
 
     // MARK: 가방 탭 — 가진 것을 보는 화면. 쓰는 건 개체 상세에서 한다.
-    var bagConsumables: String { t("쓰면 없어지는 것", "Consumables", "つかうとなくなるもの") }
+    var bagConsumables: String { t("소모품", "Consumables", "しょうひんアイテム") }
     var bagEmptyTitle: String { t("가방이 비어 있어요", "Your bag is empty", "バッグは空です") }
     var bagEmptyHint: String {
-        t("파트너로 둔 포켓몬이 자기에게 필요한 도구를 물어 옵니다.\n사탕과 부적은 상점에서 살 수 있어요.",
+        t("파트너로 둔 포켓몬이 자기에게 필요한 도구를 물어 와요.\n사탕과 부적은 상점에서 살 수 있어요.",
           "Your partner finds the items it needs.\nCandy and charms are sold in the shop.",
           "パートナーが自分にひつような道具をもってきます。\nアメとおまもりはショップで買えます。")
     }
@@ -59,10 +59,10 @@ struct L {
     /// 진화 도구 — 파는 목록이 아니라 모은 것을 보는 목록이다.
     var shopEvolutionSection: String { t("진화 도구", "Evolution items", "しんかのどうぐ") }
     /// 폼 도구 — 진화 도구와 같은 규칙(못 사고, 안 없어진다).
-    var shopFormItemSection: String { t("폼 도구", "Form items", "フォルムのどうぐ") }
+    var shopFormItemSection: String { t("모습 도구", "Form items", "すがたのどうぐ") }
     /// 도구는 못 산다는 사실 자체를 말해 줘야 한다 — 안 그러면 상점에 있는데 살 수가 없어 보인다.
     var shopEvolutionHint: String {
-        t("살 수 없어요. 파트너로 둔 포켓몬이 자기에게 필요한 도구를 물어 옵니다. 한 번 얻으면 계속 쓸 수 있어요.",
+        t("살 수 없어요. 파트너로 둔 포켓몬이 자기에게 필요한 도구를 물어 와요. 한 번 얻으면 계속 쓸 수 있어요.",
           "Not for sale. Your partner finds the item it needs. Once found, it is yours for good.",
           "こうにゅうできません。パートナーが自分にひつような道具をもってきます。一度手にいれるとずっと使えます。")
     }
@@ -91,7 +91,7 @@ struct L {
     // MARK: 스타터 픽커 (첫 실행 — 27마리 중 1마리 선택)
     var starterPickerTitle: String { t("함께 시작할 포켓몬을 고르세요", "Choose your starting Pokémon", "一緒に始めるポケモンを選んでください") }
     var starterPickerSubtitle: String {
-        t("고른 포켓몬이 첫 파트너가 됩니다. 토큰을 쓸수록 경험치가 쌓여요.",
+        t("고른 포켓몬이 첫 파트너가 돼요. 토큰을 쓸수록 경험치가 쌓여요.",
           "Your pick becomes your first partner. The more tokens you use, the more experience it earns.",
           "選んだポケモンが最初のパートナーになります。トークンを使うほど経験値がたまります。")
     }
@@ -119,7 +119,7 @@ struct L {
     }
     // MARK: 발견 카드 — 파트너가 물어 온 것을 알려 준다. 확인은 흐름을 막지 않는다.
     func discoveryFoundBy(_ name: String, _ count: Int) -> String {
-        t("\(name)이(가) 도구를 \(count)개 물어 왔어요",
+        t("\(name)\(Josa.iGa(name)) 도구를 \(count)개 물어 왔어요",
           "\(name) found \(count) item\(count == 1 ? "" : "s")",
           "\(name)が道具を\(count)個もってきました")
     }
@@ -194,14 +194,14 @@ struct L {
     }
     /// 아직 못 가는 진화 갈래 — 접힌 줄. 이유는 펼쳤을 때 한 번만 적는다.
     func evolutionLocked(_ count: Int) -> String {
-        t("아직 못 가는 곳 \(count)", "\(count) not available yet", "まだ行けない先 \(count)")
+        t("조건이 필요한 진화 \(count)", "\(count) locked", "条件がひつような進化 \(count)")
     }
     var evolutionLockedHint: String {
         t("도구는 파트너로 두면 물어 와요", "Your partner finds the items",
           "道具はパートナーがもってきます")
     }
     /// 접힌 줄에 들어갈 짧은 조건 이름 — 문장이 아니라 이름이어야 한 줄에 여럿이 들어간다.
-    var evolveNeedsFriendshipShort: String { t("함께한 시간", "Time together", "一緒の時間") }
+    var evolveNeedsFriendshipShort: String { t("함께 다니기", "Time together", "一緒にいること") }
 
     var detailMaxStage: String { t("더 진화하지 않아요", "Fully evolved", "これいじょうしんかしない") }
     var detailPartnerOnlyExp: String {
@@ -232,7 +232,7 @@ struct L {
     }
     /// 합체 폼 — 도구가 아니라 **상대 포켓몬**이 없는 경우. 할 일이 전혀 달라서 따로 말한다.
     func formNeedsFusionPartner(_ species: String) -> String {
-        t("\(species)이(가) 박스에 있어야 해요",
+        t("\(species)\(Josa.iGa(species)) 박스에 있어야 해요",
           "Needs \(species) in your box",
           "ボックスに\(species)がひつようです")
     }
@@ -241,7 +241,7 @@ struct L {
     // MARK: 세이브 봉인
     var tamperedBadge: String { t("조작된 세이브", "Edited save", "改変されたセーブ") }
     var tamperedExplanation: String {
-        t("세이브 파일을 직접 고친 흔적이 있어요. 스프라이트가 위아래로 뒤집힌 채로 남습니다 — 진행에는 영향이 없어요.",
+        t("세이브 파일을 직접 고친 흔적이 있어요. 스프라이트가 위아래로 뒤집힌 채로 남아요 — 진행에는 영향이 없어요.",
           "This save was edited by hand. Sprites stay upside down — it doesn't affect progress.",
           "セーブファイルを直接編集した記録があります。スプライトは上下反転のままです — 進行には影響しません。")
     }
@@ -355,7 +355,7 @@ struct L {
     /// 곱한 금액을 "쓴 돈"이라 부르면 안 나간 돈을 나갔다고 말하는 셈이라, 이름을 환산으로 둔다.
     var todayCost: String { t("오늘 API 환산 ($)", "Today's API equivalent ($)", "本日のAPI換算 ($)") }
     var limitPercent: String { t("한도 %", "Limit %", "上限 %") }
-    var allOffHint: String { t("전부 끄면 캐릭터만 표시됩니다", "All off shows only the character", "すべてオフにするとキャラクターのみ表示") }
+    var allOffHint: String { t("전부 끄면 캐릭터만 보여요", "All off shows only the character", "すべてオフにするとキャラクターのみ表示") }
     // MARK: 플로팅 펫
     var floatingPetSectionTitle: String { t("플로팅 펫", "Floating Pet", "フローティングペット") }
     var floatingPetEnableLabel: String { t("플로팅 펫 표시", "Show floating pet", "フローティングペットを表示") }
@@ -391,7 +391,7 @@ struct L {
     }
 
     var disableKeychain: String { t("Keychain 접근 끄기", "Disable Keychain access", "Keychainアクセスを無効化") }
-    var disableKeychainHint: String { t("켜면 Keychain 접근 허용 팝업이 더 안 뜹니다 — 공식 한도(%)만 숨겨지고 토큰·비용은 그대로", "When on, no more Keychain permission pop-ups — only official limits (%) are hidden; tokens/cost stay", "オンにするとKeychain許可のポップアップが出なくなります — 公式上限(%)のみ非表示、トークン・費用はそのまま") }
+    var disableKeychainHint: String { t("켜면 Keychain 접근 허용 팝업이 더 안 떠요 — 공식 한도(%)만 숨겨지고 토큰·비용은 그대로", "When on, no more Keychain permission pop-ups — only official limits (%) are hidden; tokens/cost stay", "オンにするとKeychain許可のポップアップが出なくなります — 公式上限(%)のみ非表示、トークン・費用はそのまま") }
     var refreshLimitToken: String { t("한도 토큰 캐시 갱신", "Refresh limit token cache", "上限トークンキャッシュを更新") }
     var onlyOnPress: String { t("누를 때만 Keychain 을 읽어요 — 자동 폴링은 안 읽어 팝업이 안 떠요. 토큰 만료 후 이 버튼으로 한도 갱신", "Reads Keychain only when pressed — auto-polling never does, so no pop-ups. Refresh limits here after the token expires", "押した時のみKeychainを読みます — 自動更新では読まずポップアップも出ません。トークン期限切れ後はこのボタンで上限を更新") }
     var launchAtLogin: String { t("로그인 시 자동 시작", "Launch at login", "ログイン時に自動起動") }
@@ -470,14 +470,14 @@ struct L {
     func limitRefreshHTTPError(_ status: Int) -> String {
         if status == 401 || status == 403 {
             return t(
-                "Claude 자격증명이 만료됐거나 권한이 없어요 (\(status)). Claude Code 로그인을 확인하세요. Codex만 쓴다면 무시해도 됩니다 — Codex 한도는 따로 표시돼요.",
+                "Claude 자격증명이 만료됐거나 권한이 없어요 (\(status)). Claude Code 로그인을 확인하세요. Codex만 쓴다면 무시해도 돼요 — Codex 한도는 따로 보여요.",
                 "Claude credential is expired or unauthorized (\(status)). Check that you're signed in to Claude Code. If you only use Codex you can ignore this — Codex limits show separately.",
                 "Claude の認証情報が期限切れか権限がありません (\(status))。Claude Code にサインインしているか確認してください。Codex のみ使用する場合は無視できます — Codex の上限は別に表示されます。")
         }
         return t("Claude 한도 조회 실패 (\(status)).", "Failed to fetch Claude limits (\(status)).", "Claude の上限取得に失敗しました (\(status))。")
     }
     var limitRefreshNoCredential: String {
-        t("Claude 자격증명을 찾지 못했어요. Claude Code 에 로그인하면 한도가 표시됩니다. Codex만 쓴다면 무시해도 돼요.",
+        t("Claude 자격증명을 찾지 못했어요. Claude Code 에 로그인하면 한도가 보여요. Codex만 쓴다면 무시해도 돼요.",
           "No Claude credential found. Sign in to Claude Code to see limits. If you only use Codex you can ignore this.",
           "Claude の認証情報が見つかりません。Claude Code にサインインすると上限が表示されます。Codex のみなら無視して構いません。")
     }
@@ -487,7 +487,7 @@ struct L {
           "Claude の上限取得に失敗しました。しばらくして再試行してください。")
     }
     var limitRefreshRateLimited: String {
-        t("Claude 한도 조회가 일시 제한됐어요 (429). 잠시 쉬었다가 자동으로 재시도합니다.",
+        t("Claude 한도 조회가 일시 제한됐어요 (429). 잠시 쉬었다가 자동으로 다시 시도해요.",
           "Claude limit checks are temporarily rate-limited (429). Backing off and retrying automatically.",
           "Claude の上限取得が一時的に制限されています (429)。少し待って自動的に再試行します。")
     }
@@ -499,7 +499,7 @@ struct L {
           "Claude セッション期限切れ — 上限を更新できません")
     }
     var claudeAuthExpiredHint: String {
-        t("표시된 값은 만료 전 기준이에요. 다시 시도하거나, Claude Code 를 한 번 실행하면 자동 갱신됩니다.",
+        t("표시된 값은 만료 전 기준이에요. 다시 시도하거나, Claude Code 를 한 번 실행하면 자동으로 갱신돼요.",
           "Values shown are from before expiry. Retry, or run Claude Code once to refresh automatically.",
           "表示値は期限切れ前のものです。再試行するか、Claude Code を一度実行すると自動更新されます。")
     }

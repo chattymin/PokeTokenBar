@@ -254,7 +254,7 @@ final class FormDecodeGuardTests: XCTestCase {
     }
 }
 
-/// 배선 — 상점에서 파는 메가스톤·다이맥스 버섯을 **상세 화면에서 실제로 쓸 수 있는지**.
+/// 배선 — 상점에서 파는 메가스톤·다이버섯을 **상세 화면에서 실제로 쓸 수 있는지**.
 /// 스토어 메서드만 부르는 테스트는 UI 가 통째로 빠져도 통과한다(이 앱에서 그렇게 한 번 나갔다).
 @MainActor
 final class FormWiringTests: XCTestCase {
@@ -402,7 +402,7 @@ final class RegionalFormsHaveNoMegaOrGmaxTests: XCTestCase {
         let g = FormCatalog.forms(speciesID: 52, kind: .gmax).first!
         XCTAssertFalse(store.changeForm(individualID: id, to: g))
         XCTAssertNil(individual(store, id).form)
-        XCTAssertEqual(store.count(of: .dynamaxMushroom), 1, "실패한 사용이 다이맥스 버섯을 먹었다")
+        XCTAssertEqual(store.count(of: .dynamaxMushroom), 1, "실패한 사용이 다이버섯을 먹었다")
     }
 
     /// 알로라 나옹도 마찬가지 — 지방이 어디든 규칙은 같다.
@@ -609,7 +609,7 @@ final class FormForageTests: XCTestCase {
         }
     }
 
-    /// 상점에서 파는 메가스톤·다이맥스 버섯은 채집 대상이 아니다 — 섞이면 상점이 무의미해진다.
+    /// 상점에서 파는 메가스톤·다이버섯은 채집 대상이 아니다 — 섞이면 상점이 무의미해진다.
     func testShopFormsAreNotForaged() {
         let charizard = FormForageCatalog.items(speciesID: 6, region: nil)
         XCTAssertTrue(charizard.isEmpty, "메가스톤이 채집으로 샌다")

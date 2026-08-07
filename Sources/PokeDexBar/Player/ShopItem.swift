@@ -38,7 +38,7 @@ enum ShopItem: String, CaseIterable, Sendable {
         case .expCandy: names = ("경험치 사탕", "EXP Candy", "けいけんちアメ")
         case .shinyCandy: names = ("반짝이는 사탕", "Shiny Candy", "ひかるアメ")
         case .megaStone: names = ("메가스톤", "Mega Stone", "メガストーン")
-        case .dynamaxMushroom: names = ("다이맥스 버섯", "Dynamax Mushroom", "ダイマックスたけ")
+        case .dynamaxMushroom: names = ("다이버섯", "Max Mushroom", "ダイマックスウキノコ")
         case .shinyCharm: names = ("이로치 부적", "Shiny Charm", "ひかるおまもり")
         case .expCharm: names = ("경험치 부적", "EXP Charm", "けいけんちおまもり")
         case .fortuneCharm: names = ("행운의 부적", "Fortune Charm", "こううんのおまもり")

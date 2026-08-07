@@ -359,7 +359,7 @@ enum FormCatalog {
 /// 표를 따로 두지 않고 `FormCatalog` 에서 뽑아 쓰는 건, 폼을 추가할 때 채집 표를 같이 고치는 걸
 /// 잊으면 "화면에는 있는데 도구를 얻을 길이 없는" 폼이 조용히 생기기 때문이다.
 enum FormForageCatalog {
-    /// 이 종이 물어 올 수 있는 폼 도구들. 상점에서 파는 메가스톤·다이맥스 버섯은 빠진다.
+    /// 이 종이 물어 올 수 있는 폼 도구들. 상점에서 파는 메가스톤·다이버섯은 빠진다.
     /// 지방 모습은 폼을 못 가지므로(`hasForms`) 지방이 있으면 빈 배열이다.
     static func items(speciesID: Int, region: Region?) -> [(item: FormItem, kind: FormKind)] {
         guard region == nil else { return [] }
