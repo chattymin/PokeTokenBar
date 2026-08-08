@@ -302,19 +302,19 @@ final class CompanionStoreTests: XCTestCase {
     func testInstallBaselineExcludesPreInstallUsage() {
         let s = store(linear3)
         // 데이터 도착 전 → baseline 미설정
-        s.update(todayTokens: 0, todayDate: "d1", monthTotal: 0, burnTier: .idle, limitWarning: false, hasUsageData: false)
+        s.update(todayTokensByProvider: ["test": 0], todayDate: "d1", monthTotal: 0, burnTier: .idle, limitWarning: false, hasUsageData: false)
         XCTAssertFalse(s.state.installBaselineSet)
         // 첫 실데이터 → baseline = 그 시점 today(이전 사용량 미카운트)
-        s.update(todayTokens: 48_000_000, todayDate: "d1", monthTotal: 0, burnTier: .idle, limitWarning: false, hasUsageData: true)
+        s.update(todayTokensByProvider: ["test": 48_000_000], todayDate: "d1", monthTotal: 0, burnTier: .idle, limitWarning: false, hasUsageData: true)
         XCTAssertTrue(s.state.installBaselineSet)
         XCTAssertEqual(s.state.usedSinceInstall, 0)
         // 이후 증가분만 누적
-        s.update(todayTokens: 148_000_000, todayDate: "d1", monthTotal: 0, burnTier: .idle, limitWarning: false, hasUsageData: true)
+        s.update(todayTokensByProvider: ["test": 148_000_000], todayDate: "d1", monthTotal: 0, burnTier: .idle, limitWarning: false, hasUsageData: true)
         XCTAssertEqual(s.state.usedSinceInstall, 100_000_000)
     }
 
     /// [회귀] 로컬 사용량 재집계가 기존 값보다 낮아진 뒤에도, 새 기준점 이후의 증가분은 알에 반영한다.
-    /// 예전에는 claimedTodayTokens 를 high-water mark 로만 유지해 감소 후 증가가 영구히 무시됐다.
+    /// 예전에는 aggregate high-water mark 로만 유지해 감소 후 증가가 영구히 무시됐다.
     func testUsageIncreaseAfterValidDropContinuesEggProgress() {
         let s = store(linear3)
         base(s)
@@ -324,7 +324,7 @@ final class CompanionStoreTests: XCTestCase {
         // 유효한 낮은 스냅샷: 이 자체는 토큰 사용량으로 지급하지 않고 기준점만 재설정한다.
         use(s, 40)
         XCTAssertEqual(s.state.eggUsage, 200)
-        XCTAssertEqual(s.state.claimedTodayTokens, 40)
+        XCTAssertEqual(s.state.claimedTodayTokensByProvider?["test"], 40)
 
         // 새 기준점 이후의 증가분만 반영한다.
         use(s, 75)
@@ -341,18 +341,80 @@ final class CompanionStoreTests: XCTestCase {
 
         use(s, 0, hasUsageData: false) // 빈 스냅샷/조회 공백
         XCTAssertEqual(s.state.eggUsage, 200)
-        XCTAssertEqual(s.state.claimedTodayTokens, 200)
+        XCTAssertEqual(s.state.claimedTodayTokensByProvider?["test"], 200)
 
         use(s, 250)
         XCTAssertEqual(s.state.eggUsage, 250)
         XCTAssertEqual(s.state.usedSinceInstall, 250)
     }
 
+    /// [회귀] 프로바이더 하나가 일시적으로 snapshot을 내놓지 않아도 다른 프로바이더의
+    /// 증가분만 적립하고, 사라졌던 프로바이더가 복구될 때 과거 사용량을 중복 지급하지 않는다.
+    func testProviderLedgerDoesNotRecreditMissingProviderAfterPartialSnapshotLoss() {
+        let s = store(linear3)
+        useMap(s, ["claude_code": 0, "codex": 0])
+        useMap(s, ["claude_code": 1_000, "codex": 500])
+        XCTAssertEqual(s.state.usedSinceInstall, 1_500)
+
+        // codex today == nil인 carrier snapshot은 map에서 빠진다. codex line은 그대로 보존한다.
+        useMap(s, ["claude_code": 1_000], hasUsageData: true)
+        XCTAssertEqual(s.state.usedSinceInstall, 1_500)
+        XCTAssertEqual(s.state.claimedTodayTokensByProvider,
+                       ["claude_code": 1_000, "codex": 500])
+
+        // 복구된 codex의 기존 500을 다시 지급하지 않고 이후 증가분만 지급한다.
+        useMap(s, ["claude_code": 1_000, "codex": 500])
+        XCTAssertEqual(s.state.usedSinceInstall, 1_500)
+        useMap(s, ["claude_code": 1_000, "codex": 700])
+        XCTAssertEqual(s.state.usedSinceInstall, 1_700)
+    }
+
+    /// [회귀] carrier만 남아 오늘 map이 비어도 프로바이더별 ledger를 0으로 낮추지 않는다.
+    /// 정상 snapshot 복구 뒤에는 복구 시점 이후 증가분만 적립한다.
+    func testCarrierWithoutTodayDataDoesNotRebaseProviderLedger() {
+        let s = store(linear3)
+        useMap(s, ["codex": 0])
+        useMap(s, ["codex": 2_000])
+        XCTAssertEqual(s.state.usedSinceInstall, 2_000)
+
+        useMap(s, [:], hasUsageData: false)
+        XCTAssertEqual(s.state.usedSinceInstall, 2_000)
+        XCTAssertEqual(s.state.claimedTodayTokensByProvider, ["codex": 2_000])
+
+        useMap(s, ["codex": 2_200])
+        XCTAssertEqual(s.state.usedSinceInstall, 2_200)
+    }
+
+    /// [마이그레이션] aggregate high-water mark만 가진 구버전 세이브는 값을 프로바이더별로
+    /// 추정하지 않고 첫 유효 snapshot을 seed한다. 이후 증가분은 새 ledger로 정상 적립한다.
+    func testLegacyAggregateLedgerSeedsProviderMapWithoutRetrospectiveCredit() throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("poke-\(UUID().uuidString).json")
+        let legacy = #"{"installBaselineSet":true,"usedSinceInstall":10000,"claimedTodayTokens":9000,"lastDate":"d1"}"#
+        try Data(legacy.utf8).write(to: url)
+
+        let s = CompanionStore(provider: StubProvider(value: linear3), clock: { fixedNow }, fileURL: url,
+                               rng: SeededRNG(seed: 7))
+        XCTAssertNil(s.state.claimedTodayTokensByProvider)
+
+        s.update(todayTokensByProvider: ["codex": 500], todayDate: "d1", monthTotal: 0,
+                 burnTier: .idle, limitWarning: false, hasUsageData: true)
+        XCTAssertEqual(s.state.usedSinceInstall, 10_000)
+        XCTAssertEqual(s.state.claimedTodayTokensByProvider, ["codex": 500])
+
+        s.update(todayTokensByProvider: ["codex": 700], todayDate: "d1", monthTotal: 0,
+                 burnTier: .idle, limitWarning: false, hasUsageData: true)
+        XCTAssertEqual(s.state.usedSinceInstall, 10_200)
+    }
+
     private func base(_ s: CompanionStore) {
-        s.update(todayTokens: 0, todayDate: "d1", monthTotal: 0, burnTier: .idle, limitWarning: false, hasUsageData: true)
+        s.update(todayTokensByProvider: ["test": 0], todayDate: "d1", monthTotal: 0, burnTier: .idle, limitWarning: false, hasUsageData: true)
     }
     private func use(_ s: CompanionStore, _ today: Int, hasUsageData: Bool = true) {
-        s.update(todayTokens: today, todayDate: "d1", monthTotal: 0, burnTier: .idle, limitWarning: false, hasUsageData: hasUsageData)
+        s.update(todayTokensByProvider: ["test": today], todayDate: "d1", monthTotal: 0, burnTier: .idle, limitWarning: false, hasUsageData: hasUsageData)
+    }
+    private func useMap(_ s: CompanionStore, _ todayTokensByProvider: [String: Int], hasUsageData: Bool = true) {
+        s.update(todayTokensByProvider: todayTokensByProvider, todayDate: "d1", monthTotal: 0,
+                 burnTier: .idle, limitWarning: false, hasUsageData: hasUsageData)
     }
 
     func testEggDoesNotHatchBelowThreshold() async {
@@ -481,6 +543,7 @@ final class CompanionStoreTests: XCTestCase {
         let state = try JSONDecoder().decode(CompanionState.self, from: Data(json.utf8))
         XCTAssertEqual(state.eggUsage, 0)
         XCTAssertEqual(state.usedSinceInstall, 5)
+        XCTAssertNil(state.claimedTodayTokensByProvider)
     }
 
     func testEvolvesThroughLineAndGraduatesWithFullChain() async {
@@ -633,7 +696,7 @@ final class CompanionStoreTests: XCTestCase {
         XCTAssertEqual(opposing.next() % 2, 1, "a reroll would select the opposite branch (3)")
         let rng = CountingRNG(seed: 1)
         let s2 = CompanionStore(provider: StubProvider(value: line), clock: { fixedNow }, fileURL: url, rng: rng)
-        s2.update(todayTokens: 0, todayDate: "d1", monthTotal: 0,
+        s2.update(todayTokensByProvider: ["test": 0], todayDate: "d1", monthTotal: 0,
                   burnTier: .idle, limitWarning: false, hasUsageData: true)
         let loaded = await waitUntil { s2.currentLine != nil }
         XCTAssertTrue(loaded, "line should load before evolution")
@@ -655,7 +718,7 @@ final class CompanionStoreTests: XCTestCase {
         let rng = CountingRNG(seed: 7)
         let s = CompanionStore(provider: StubProvider(value: line), clock: { fixedNow }, fileURL: url, rng: rng)
 
-        s.update(todayTokens: 0, todayDate: "d1", monthTotal: 0,
+        s.update(todayTokensByProvider: ["test": 0], todayDate: "d1", monthTotal: 0,
                  burnTier: .idle, limitWarning: false, hasUsageData: true)
         let loaded = await waitUntil { s.currentLine != nil }
         XCTAssertTrue(loaded, "line should load legacy state")
@@ -668,7 +731,7 @@ final class CompanionStoreTests: XCTestCase {
 
         let reloadRNG = CountingRNG(seed: 1)
         let reloaded = CompanionStore(provider: StubProvider(value: line), clock: { fixedNow }, fileURL: url, rng: reloadRNG)
-        reloaded.update(todayTokens: 0, todayDate: "d1", monthTotal: 0,
+        reloaded.update(todayTokensByProvider: ["test": 0], todayDate: "d1", monthTotal: 0,
                         burnTier: .idle, limitWarning: false, hasUsageData: true)
         let reloadedLine = await waitUntil { reloaded.currentLine != nil }
         XCTAssertTrue(reloadedLine)
@@ -682,7 +745,7 @@ final class CompanionStoreTests: XCTestCase {
         try Data(saved.utf8).write(to: url)
         let s = CompanionStore(provider: StubProvider(value: wurmpleLine), clock: { fixedNow }, fileURL: url, rng: SeededRNG(seed: 9))
 
-        s.update(todayTokens: 0, todayDate: "d1", monthTotal: 0,
+        s.update(todayTokensByProvider: ["test": 0], todayDate: "d1", monthTotal: 0,
                  burnTier: .idle, limitWarning: false, hasUsageData: true)
         let loaded = await waitUntil { s.currentLine != nil }
         XCTAssertTrue(loaded)
@@ -700,7 +763,7 @@ final class CompanionStoreTests: XCTestCase {
         try Data(saved.utf8).write(to: url)
         let s = CompanionStore(provider: StubProvider(value: wurmpleLine), clock: { fixedNow }, fileURL: url, rng: SeededRNG(seed: 9))
 
-        s.update(todayTokens: 0, todayDate: "d1", monthTotal: 0,
+        s.update(todayTokensByProvider: ["test": 0], todayDate: "d1", monthTotal: 0,
                  burnTier: .idle, limitWarning: false, hasUsageData: true)
         let loaded = await waitUntil { s.currentLine != nil }
         XCTAssertTrue(loaded)
@@ -721,7 +784,7 @@ final class CompanionStoreTests: XCTestCase {
         let rng = CountingRNG(seed: 9)
         let s = CompanionStore(provider: StubProvider(value: wurmpleLine), clock: { fixedNow }, fileURL: url, rng: rng)
 
-        s.update(todayTokens: 0, todayDate: "d1", monthTotal: 0,
+        s.update(todayTokensByProvider: ["test": 0], todayDate: "d1", monthTotal: 0,
                  burnTier: .idle, limitWarning: false, hasUsageData: true)
         let loaded = await waitUntil { s.currentLine != nil }
         XCTAssertTrue(loaded)
@@ -738,7 +801,7 @@ final class CompanionStoreTests: XCTestCase {
         let provider = SuspendedLineProvider(value: linear3)
         let s = CompanionStore(provider: provider, clock: { fixedNow }, fileURL: url, rng: SeededRNG(seed: 7))
 
-        s.update(todayTokens: 0, todayDate: "d1", monthTotal: 0,
+        s.update(todayTokensByProvider: ["test": 0], todayDate: "d1", monthTotal: 0,
                  burnTier: .idle, limitWarning: false, hasUsageData: true)
         let suspensionDeadline = Date().addingTimeInterval(1)
         while !(await provider.isSuspended()), Date() < suspensionDeadline {
@@ -920,6 +983,7 @@ final class CompanionIdentityTests: XCTestCase {
         XCTAssertEqual(s.active?.plannedPathIDs, [1])
         XCTAssertEqual(s.active?.isShiny, false)
         XCTAssertNil(s.active?.nature)
+        XCTAssertNil(s.claimedTodayTokensByProvider, "구버전 aggregate ledger는 프로바이더별 값으로 추정하지 않는다")
         XCTAssertEqual(s.dex[0].isShiny, false)
         XCTAssertNil(s.dex[0].nature)
         // 재인코딩 후 재디코딩도 안정적(라운드트립)
@@ -975,7 +1039,7 @@ final class CompanionIdentityTests: XCTestCase {
         // 1차 스토어: 부화 후 저장
         let s1 = CompanionStore(provider: StubProvider(value: linear3), clock: { fixedNow },
                                 fileURL: url, rng: SeededRNG(seed: 5))
-        s1.update(todayTokens: 0, todayDate: "d1", monthTotal: 0, burnTier: .idle, limitWarning: false, hasUsageData: true)
+        s1.update(todayTokensByProvider: ["test": 0], todayDate: "d1", monthTotal: 0, burnTier: .idle, limitWarning: false, hasUsageData: true)
         await s1.hatch(baseID: 1)
         XCTAssertNotNil(s1.state.active)
 
@@ -989,7 +1053,7 @@ final class CompanionIdentityTests: XCTestCase {
         XCTAssertEqual(s2.state.active?.usedAtStage, 300_000_000, "라인 미로딩 중 델타가 유실되면 안 된다")
         XCTAssertEqual(s2.state.active?.stageIndex, 0)
         // update → loadCurrentLine 완료 시 적립분으로 진화 판정(드레인)
-        s2.update(todayTokens: 0, todayDate: "d1", monthTotal: 0, burnTier: .idle, limitWarning: false, hasUsageData: true)
+        s2.update(todayTokensByProvider: ["test": 0], todayDate: "d1", monthTotal: 0, burnTier: .idle, limitWarning: false, hasUsageData: true)
         for _ in 0..<50 where s2.currentLine == nil { await Task.yield() }
         XCTAssertNotNil(s2.currentLine)
         XCTAssertEqual(s2.state.active?.stageIndex, 1, "라인 로드 후 적립분으로 진화해야 한다")
@@ -1006,7 +1070,7 @@ final class CompanionIdentityTests: XCTestCase {
         let s = CompanionStore(provider: StubProvider(value: supportedLine), clock: { fixedNow },
                                fileURL: url, rng: SeededRNG(seed: 5))
 
-        s.update(todayTokens: 0, todayDate: "d1", monthTotal: 0,
+        s.update(todayTokensByProvider: ["test": 0], todayDate: "d1", monthTotal: 0,
                  burnTier: .idle, limitWarning: false, hasUsageData: true)
         for _ in 0..<50 where s.currentLine == nil { await Task.yield() }
 
@@ -1031,9 +1095,9 @@ final class CompanionIdentityTests: XCTestCase {
         guard let seed else { return XCTFail("shiny 시드 탐색 실패") }
 
         let s = store(linear3, seed: seed)
-        s.update(todayTokens: 0, todayDate: "d1", monthTotal: 0, burnTier: .idle, limitWarning: false, hasUsageData: true)
+        s.update(todayTokensByProvider: ["test": 0], todayDate: "d1", monthTotal: 0, burnTier: .idle, limitWarning: false, hasUsageData: true)
         // 알 임계(5M) + stage0 임계(125M) 초과 → 부화 즉시 1회 진화하는 이월
-        s.update(todayTokens: 135_000_000, todayDate: "d1", monthTotal: 0, burnTier: .idle, limitWarning: false, hasUsageData: true)
+        s.update(todayTokensByProvider: ["test": 135_000_000], todayDate: "d1", monthTotal: 0, burnTier: .idle, limitWarning: false, hasUsageData: true)
         await s.hatchIfNeeded()
         XCTAssertEqual(s.state.active?.isShiny, true)
         XCTAssertEqual(s.state.active?.stageIndex, 1, "이월로 1회 진화했어야 함")
@@ -1043,9 +1107,9 @@ final class CompanionIdentityTests: XCTestCase {
     /// [회귀] 이월이 졸업 총량을 넘어 부화 즉시 졸업한 극단 케이스 — hatch 연출은 생략(이미 도감행).
     func testHatchCelebrationSkippedOnInstantGraduate() async {
         let s = store(noEvo, seed: 11)
-        s.update(todayTokens: 0, todayDate: "d1", monthTotal: 0, burnTier: .idle, limitWarning: false, hasUsageData: true)
+        s.update(todayTokensByProvider: ["test": 0], todayDate: "d1", monthTotal: 0, burnTier: .idle, limitWarning: false, hasUsageData: true)
         // 알 임계 + 졸업 총량(750M) 초과
-        s.update(todayTokens: 800_000_000, todayDate: "d1", monthTotal: 0, burnTier: .idle, limitWarning: false, hasUsageData: true)
+        s.update(todayTokensByProvider: ["test": 800_000_000], todayDate: "d1", monthTotal: 0, burnTier: .idle, limitWarning: false, hasUsageData: true)
         await s.hatchIfNeeded()
         XCTAssertNil(s.state.active, "즉시 졸업")
         XCTAssertEqual(s.state.dex.count, 1)
@@ -1142,11 +1206,11 @@ final class CompanionIdentityTests: XCTestCase {
         st.lastDate = "d1"
         let s = samplerStore(p, seed: 5, preloadState: st)
         // 임계 미만 사용 → 부화는 안 되지만 프리패칭은 돌아야 한다
-        s.update(todayTokens: 1_000, todayDate: "d1", monthTotal: 0, burnTier: .idle, limitWarning: false, hasUsageData: true)
+        s.update(todayTokensByProvider: ["test": 1_000], todayDate: "d1", monthTotal: 0, burnTier: .idle, limitWarning: false, hasUsageData: true)
         for _ in 0..<50 where s.state.pendingHatchID == nil { await Task.yield() }
         XCTAssertEqual(s.state.pendingHatchID, 77, "알 상태에서 종이 미리 롤/저장돼야 한다")
         // 임계 도달 → 부화는 pending 그대로 (추가 선택 롤 없음: shiny/nature 만 소비)
-        s.update(todayTokens: 6_000_000, todayDate: "d1", monthTotal: 0, burnTier: .idle, limitWarning: false, hasUsageData: true)
+        s.update(todayTokensByProvider: ["test": 6_000_000], todayDate: "d1", monthTotal: 0, burnTier: .idle, limitWarning: false, hasUsageData: true)
         await s.hatchIfNeeded()
         XCTAssertEqual(s.state.active?.baseID, 77)
         XCTAssertNil(s.state.pendingHatchID, "부화 후 pending 은 비워져야 한다")
@@ -1159,7 +1223,7 @@ final class CompanionIdentityTests: XCTestCase {
         p.index = [BaseSpecies(id: 88, captureRate: 255)]
         p.failAll = true
         let s = samplerStore(p, seed: 9, preloadState: eggReadyState())
-        s.update(todayTokens: 0, todayDate: "d1", monthTotal: 0, burnTier: .idle, limitWarning: false, hasUsageData: true)
+        s.update(todayTokensByProvider: ["test": 0], todayDate: "d1", monthTotal: 0, burnTier: .idle, limitWarning: false, hasUsageData: true)
         for _ in 0..<10 { await Task.yield() }        // 프리패치 시도 소진(실패)
         XCTAssertNil(s.state.pendingHatchID)
         await s.hatchIfNeeded()                        // 여전히 오프라인 → 알 유지

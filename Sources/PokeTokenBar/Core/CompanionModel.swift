@@ -504,7 +504,14 @@ struct CompanionState: Codable, Sendable {
     var eggTier: Rarity?
     // 알 상태에서 미리 롤해둔 부화 종(프리패칭) — 부화 순간 네트워크 딜레이 제거. 재시작에도 유지.
     var pendingHatchID: Int?
-    var claimedTodayTokens = 0
+    /// 오늘 사용량 적립 기준값 — 프로바이더별로 독립 관리한다.
+    ///
+    /// `nil`은 aggregate `claimedTodayTokens`만 가지고 있던 구버전 세이브가 아직 첫 유효
+    /// snapshot을 기준으로 seed되지 않았다는 뜻이다. 첫 update에서 현재 프로바이더 값을
+    /// 기준값으로만 저장하고, 과거 사용량은 소급 지급하지 않는다. 빈 map은 이미 seed된 뒤
+    /// 오늘 보고한 프로바이더가 없는 정상 상태와 구분되어야 하므로 `nil`과 별도로 유지한다.
+    /// 키는 `UsageProvider.id`를 그대로 사용한다.
+    var claimedTodayTokensByProvider: [String: Int]? = nil
     var lastDate = ""
     // 현재 포켓몬(없으면 알)
     var active: MonState?
@@ -534,7 +541,15 @@ struct CompanionState: Codable, Sendable {
         // 모르는 rawValue 는 nil(보증 없음)로 강등 — 관대 디코딩의 안전한 방향(있지도 않은 보증을 만들지 않는다).
         eggTier            = c.lenientOptional(Rarity.self, forKey: .eggTier)
         pendingHatchID     = c.lenientOptional(Int.self, forKey: .pendingHatchID)
-        claimedTodayTokens = c.lenient(Int.self, forKey: .claimedTodayTokens, default: 0)
+        if c.contains(.claimedTodayTokensByProvider) {
+            claimedTodayTokensByProvider = c.lenient([String: Int].self,
+                                                      forKey: .claimedTodayTokensByProvider,
+                                                      default: [:])
+        } else {
+            // 구버전의 aggregate claimedTodayTokens 키는 의도적으로 읽지 않는다. 프로바이더별
+            // 분해가 불가능하므로 다음 CompanionStore.update에서 현재 snapshot을 기준점으로 seed한다.
+            claimedTodayTokensByProvider = nil
+        }
         lastDate           = c.lenient(String.self, forKey: .lastDate, default: "")
         // active 손상(빈 pathIDs 등) → 알로 폴백하되 도감·인벤토리는 보존.
         active             = c.lenientOptional(MonState.self, forKey: .active)

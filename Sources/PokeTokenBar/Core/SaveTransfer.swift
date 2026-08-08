@@ -145,7 +145,9 @@ enum SaveTransfer {
         s.usedSinceInstall = clampToken(s.usedSinceInstall)
         s.spentTokens = clampToken(s.spentTokens)
         s.eggUsage = clampToken(s.eggUsage)
-        s.claimedTodayTokens = clampToken(s.claimedTodayTokens)
+        s.claimedTodayTokensByProvider = s.claimedTodayTokensByProvider?.reduce(into: [:]) { result, entry in
+            result[entry.key] = clampToken(entry.value)
+        }
         // 알 보증은 "지금 품고 있는 알"에만 붙는 값이라 활성 포켓몬과 공존할 수 없다. 손편집·구버전
         // 조합으로 둘 다 들어오면 그 보증이 다음 알로 새어 영구 프리미엄이 되므로 여기서 떨군다.
         // 그 보증으로 미리 뽑아둔 종(pendingHatchID)도 함께 버린다 — 보증만 지우면 졸업 후 받는 **무료**
@@ -172,9 +174,9 @@ enum SaveTransfer {
     /// `CompanionState` 의 필드는 이전 관점에서 세 부류다.
     ///  - **진행**: 어느 기기에서든 참(`usedSinceInstall`·`dex`·`inventory`·`active`·`eggUsage`·`eggTier`…)
     ///    → 그대로. 알 보증(`eggTier`)은 산 물건이지 이 기기의 장부가 아니라 기기를 옮겨도 따라간다.
-    ///  - **로컬 장부**: *그 기기가* 어디까지 적립했나(`claimedTodayTokens`·`lastDate`·`installBaselineSet`)
+    ///  - **로컬 장부**: *그 기기가* 어디까지 적립했나(`claimedTodayTokensByProvider`·`lastDate`·`installBaselineSet`)
     ///    → 새 기기 기준으로 다시 잡는다. 그대로 들여오면 옛 기기의 오늘 총량이 문턱이 되어
-    ///    `CompanionStore.update` 의 `todayTokens > claimedTodayTokens` 게이트가 이전 당일 내내 거짓이 되고,
+    ///    `CompanionStore.update` 의 프로바이더별 증분 게이트가 이전 당일 내내 거짓이 되고,
     ///    새 기기 사용분이 조용히 안 잡힌다(자정에 저절로 낫기 때문에 버그로 안 보인다).
     ///  - **기기 환경설정**: 진행이 아니라 이 기기에서 보는 방식(`language`) → **현재 기기 값을 지킨다**.
     ///    일본어 Mac 의 세이브가 영어 Mac 의 UI 언어를 바꾸면 안 된다.
@@ -184,7 +186,7 @@ enum SaveTransfer {
     /// 사라져 같은 창에서 사탕이 재지급된다(보존만으로는 이 역방향을 못 막는다).
     static func rebasedForThisDevice(_ imported: CompanionState,
                                      current: CompanionState,
-                                     todayTokens: Int,
+                                     todayTokensByProvider: [String: Int],
                                      todayDate: String,
                                      hasUsageData: Bool) -> CompanionState {
         var state = imported
@@ -194,13 +196,13 @@ enum SaveTransfer {
         if hasUsageData {
             // 신규 설치와 같은 규칙: 불러온 시점 이전의 이 기기 사용량은 소급 적립하지 않는다.
             state.installBaselineSet = true
-            state.claimedTodayTokens = todayTokens
+            state.claimedTodayTokensByProvider = todayTokensByProvider
             state.lastDate = todayDate
         } else {
             // 아직 이 기기의 오늘 사용량을 모른다(파싱 전·프로바이더 없음). 여기서 0 으로 잡으면
             // 첫 파싱 때 하루치가 통째로 델타가 된다 → baseline 판정을 신규 설치 경로에 넘긴다.
             state.installBaselineSet = false
-            state.claimedTodayTokens = 0
+            state.claimedTodayTokensByProvider = nil
             state.lastDate = ""
         }
         return state

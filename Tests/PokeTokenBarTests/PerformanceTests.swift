@@ -52,7 +52,7 @@ final class StorePerformanceTests: XCTestCase {
         measure {
             for _ in 0..<500 {
                 token += 100
-                s.update(todayTokens: token, todayDate: "d", monthTotal: 0,
+                s.update(todayTokensByProvider: ["test": token], todayDate: "d", monthTotal: 0,
                          burnTier: .normal, limitWarning: false, hasUsageData: true)
             }
         }

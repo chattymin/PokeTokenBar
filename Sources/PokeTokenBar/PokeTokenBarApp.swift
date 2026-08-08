@@ -163,7 +163,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     /// UsageStore 값 → CompanionStore (사용량 적립 + 표시 상태). 매 관찰 변경 시 호출.
     private func updateCompanion() {
         companion.update(
-            todayTokens: store.todayTotalTokens,
+            todayTokensByProvider: store.todayTokensByProvider,
             todayDate: LocalUsageReader.todayKey(),
             monthTotal: store.monthTotalTokens,
             burnTier: store.burnTier,

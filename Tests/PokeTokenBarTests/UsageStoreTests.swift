@@ -572,6 +572,9 @@ final class UsageStoreTests: XCTestCase {
         let store = makeStore(providers: [claude, codex])
         await store.refresh(scheduleEmptyRetry: false)
         XCTAssertEqual(store.todayTotalTokens, 150_000_000)
+        XCTAssertEqual(store.todayTokensByProvider,
+                       ["claude_code": 100_000_000, "codex": 50_000_000])
+        XCTAssertEqual(store.todayTokensByProvider.values.reduce(0, +), store.todayTotalTokens)
         XCTAssertNotNil(store.lastUpdated)
         XCTAssertNil(store.lastErrorDescription)
     }
@@ -585,6 +588,7 @@ final class UsageStoreTests: XCTestCase {
         XCTAssertTrue(store.hasUsageData)
         XCTAssertEqual(store.snapshots.count, 1)        // claude 는 today nil → 스냅샷 미생성
         XCTAssertEqual(store.snapshots.first?.providerID, "codex")
+        XCTAssertEqual(store.todayTokensByProvider, ["codex": 50_000_000])
     }
 
     func testStaleDatedSnapshotExcludedFromTodayTotal() async {
@@ -596,6 +600,7 @@ final class UsageStoreTests: XCTestCase {
         let store = makeStore(providers: [claude, codex])
         await store.refresh(scheduleEmptyRetry: false)
         XCTAssertEqual(store.todayTotalTokens, 100_000_000)   // codex 999 제외
+        XCTAssertEqual(store.todayTokensByProvider, ["claude_code": 100_000_000])
     }
 
     func testProviderFailureKeepsPreviousTodayValue() async {
