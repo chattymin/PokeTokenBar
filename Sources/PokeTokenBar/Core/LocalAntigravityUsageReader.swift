@@ -378,6 +378,20 @@ enum AntigravityProto {
     /// Tokens are `uint64` on the wire. Widening one straight into `Int` hands unbounded
     /// values to arithmetic that traps on overflow, and a trap here would kill the app on
     /// every refresh until the file changed. A count this large is a sentinel, not a count.
+    ///
+    /// This is the sibling of `LocalUsageReader.maxParsedTokenValue`, which guards the JSON
+    /// readers, and the two deliberately differ on both axes — see the PR for whether they
+    /// should be reconciled:
+    ///
+    /// - **Ceiling.** That one leaves room for sums taken straight after parsing
+    ///   (`output + thoughts`); nothing here adds two parsed values before `Entry.total`, whose
+    ///   four terms are each bounded by this, so a tighter ceiling costs nothing. A per-call
+    ///   counter three orders of magnitude past the largest context window is already a
+    ///   sentinel.
+    /// - **What happens above it.** That one clamps to the ceiling; this one discards the
+    ///   counter. Both avoid the trap. Clamping keeps a number that then dominates every
+    ///   aggregate it reaches — today's total, the burn tier, the companion — while discarding
+    ///   loses that one counter and leaves the rest of the record intact.
     static let tokenCeiling: UInt64 = 1_000_000_000
 
     /// `nil` means the field was there and its value cannot be a count. That is not the same as
