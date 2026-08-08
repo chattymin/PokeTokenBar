@@ -193,14 +193,17 @@ enum SaveTransfer {
         state.language = current.language
         state.candyGrantTier = mergedGrantTier(imported.candyGrantTier, current.candyGrantTier)
         state.candyFeatureSeeded = imported.candyFeatureSeeded || current.candyFeatureSeeded
-        if hasUsageData {
+        let hasCurrentProviderData = hasUsageData && !todayTokensByProvider.isEmpty
+        if hasCurrentProviderData {
             // 신규 설치와 같은 규칙: 불러온 시점 이전의 이 기기 사용량은 소급 적립하지 않는다.
             state.installBaselineSet = true
             state.claimedTodayTokensByProvider = todayTokensByProvider
             state.lastDate = todayDate
         } else {
-            // 아직 이 기기의 오늘 사용량을 모른다(파싱 전·프로바이더 없음). 여기서 0 으로 잡으면
-            // 첫 파싱 때 하루치가 통째로 델타가 된다 → baseline 판정을 신규 설치 경로에 넘긴다.
+            // 아직 이 기기의 오늘 사용량을 모른다(파싱 전·프로바이더 없음·stale snapshot만 존재).
+            // `hasUsageData`는 snapshot 존재 여부일 뿐 오늘 날짜 데이터의 존재를 보장하지 않는다.
+            // 여기서 빈 map을 이미 seed된 장부로 저장하면 첫 정상 snapshot이 "새 provider"로
+            // 취급되어 그 시점까지의 하루치가 조용히 누락된다 → baseline 판정을 신규 설치 경로에 넘긴다.
             state.installBaselineSet = false
             state.claimedTodayTokensByProvider = nil
             state.lastDate = ""

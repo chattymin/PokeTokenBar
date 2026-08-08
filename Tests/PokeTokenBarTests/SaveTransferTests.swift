@@ -229,6 +229,37 @@ final class SaveTransferTests: XCTestCase {
         XCTAssertEqual(s.state.usedSinceInstall - before, 1_000_000)
     }
 
+    /// [회귀] stale snapshot만 남아 `hasUsageData`는 true인데 오늘 map은 비어 있는 상태로
+    /// 세이브를 불러와도, 빈 provider ledger를 유효한 기준점으로 저장하면 안 된다.
+    /// 첫 정상 snapshot은 baseline으로만 잡고, 그 이후 증가분부터 적립해야 한다.
+    func testImportWithStaleOnlyUsageDefersBaselineInsteadOfSeedingEmptyLedger() throws {
+        let today = "2026-08-03"
+        let url = tempURL("stale-only")
+        let s = store(at: url)
+        let data = try SaveTransfer.encode(state: oldMacState(today: today), appVersion: "2.5.0",
+                                           deviceName: "Old Mac", now: transferNow)
+
+        // snapshots가 stale이거나 carrier만 남은 상태: 표시용 hasUsageData는 true지만
+        // 오늘 날짜가 확인된 provider 데이터는 없다.
+        try s.applySave(try SaveTransfer.decode(data), todayTokensByProvider: [:], todayDate: today,
+                        hasUsageData: true)
+
+        XCTAssertFalse(s.state.installBaselineSet)
+        XCTAssertNil(s.state.claimedTodayTokensByProvider)
+        XCTAssertEqual(s.state.lastDate, "")
+
+        let before = s.state.usedSinceInstall
+        s.update(todayTokensByProvider: ["test": 40_000_000], todayDate: today, monthTotal: 0,
+                 burnTier: .idle, limitWarning: false, hasUsageData: true)
+        XCTAssertEqual(s.state.usedSinceInstall, before, "첫 정상 snapshot은 baseline만 설정해야 한다")
+        XCTAssertEqual(s.state.claimedTodayTokensByProvider?["test"], 40_000_000)
+
+        s.update(todayTokensByProvider: ["test": 41_000_000], todayDate: today, monthTotal: 0,
+                 burnTier: .idle, limitWarning: false, hasUsageData: true)
+        XCTAssertEqual(s.state.usedSinceInstall - before, 1_000_000,
+                       "빈 ledger로 import해도 이후 증가분은 정상 적립돼야 한다")
+    }
+
     // MARK: 진행 보존 · 가드레일
 
     func testImportKeepsProgressAndCandyGrantLedger() throws {
