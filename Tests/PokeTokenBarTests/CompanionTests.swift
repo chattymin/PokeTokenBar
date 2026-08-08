@@ -385,6 +385,38 @@ final class CompanionStoreTests: XCTestCase {
         XCTAssertEqual(s.state.usedSinceInstall, 2_200)
     }
 
+    /// [회귀] 날짜가 바뀌면 이전 날짜의 provider별 기준값과 비교하지 않고,
+    /// 새 날짜에 이미 사용한 누적값 전체를 적립한 뒤 이후 증가분을 이어서 적립한다.
+    func testDateRolloverCreditsCurrentDayUsage() {
+        let s = store(linear3)
+        useMap(s, ["codex": 0], date: "d1")
+        useMap(s, ["codex": 200], date: "d1")
+        XCTAssertEqual(s.state.usedSinceInstall, 200)
+
+        useMap(s, ["codex": 100], date: "d2")
+        XCTAssertEqual(s.state.usedSinceInstall, 300)
+        XCTAssertEqual(s.state.claimedTodayTokensByProvider, ["codex": 100])
+
+        useMap(s, ["codex": 150], date: "d2")
+        XCTAssertEqual(s.state.usedSinceInstall, 350)
+    }
+
+    /// [회귀] stale snapshot처럼 오늘 provider map이 비어 있는 refresh는 날짜 경계를 소비하지
+    /// 않는다. 다음 유효한 새 날짜 snapshot이 들어오면 그 시점의 오늘 사용량을 적립한다.
+    func testStaleSnapshotDoesNotConsumeDateBoundary() {
+        let s = store(linear3)
+        useMap(s, ["codex": 0], date: "d1")
+        useMap(s, ["codex": 200], date: "d1")
+
+        useMap(s, [:], date: "d2", hasUsageData: true)
+        XCTAssertEqual(s.state.usedSinceInstall, 200)
+        XCTAssertEqual(s.state.lastDate, "d1")
+        XCTAssertEqual(s.state.claimedTodayTokensByProvider, ["codex": 200])
+
+        useMap(s, ["codex": 100], date: "d2")
+        XCTAssertEqual(s.state.usedSinceInstall, 300)
+    }
+
     /// [마이그레이션] aggregate high-water mark만 가진 구버전 세이브는 값을 프로바이더별로
     /// 추정하지 않고 첫 유효 snapshot을 seed한다. 이후 증가분은 새 ledger로 정상 적립한다.
     func testLegacyAggregateLedgerSeedsProviderMapWithoutRetrospectiveCredit() throws {
@@ -412,8 +444,9 @@ final class CompanionStoreTests: XCTestCase {
     private func use(_ s: CompanionStore, _ today: Int, hasUsageData: Bool = true) {
         s.update(todayTokensByProvider: ["test": today], todayDate: "d1", monthTotal: 0, burnTier: .idle, limitWarning: false, hasUsageData: hasUsageData)
     }
-    private func useMap(_ s: CompanionStore, _ todayTokensByProvider: [String: Int], hasUsageData: Bool = true) {
-        s.update(todayTokensByProvider: todayTokensByProvider, todayDate: "d1", monthTotal: 0,
+    private func useMap(_ s: CompanionStore, _ todayTokensByProvider: [String: Int], date: String = "d1",
+                        hasUsageData: Bool = true) {
+        s.update(todayTokensByProvider: todayTokensByProvider, todayDate: date, monthTotal: 0,
                  burnTier: .idle, limitWarning: false, hasUsageData: hasUsageData)
     }
 

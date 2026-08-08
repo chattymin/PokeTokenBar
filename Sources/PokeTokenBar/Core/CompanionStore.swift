@@ -229,10 +229,14 @@ final class CompanionStore {
     func update(todayTokensByProvider: [String: Int], todayDate: String, monthTotal: Int,
                 burnTier: BurnTier, limitWarning: Bool, hasUsageData: Bool) {
         let todayTokens = todayTokensByProvider.values.reduce(0, +)
+        // `hasUsageData`는 표시용 snapshot 존재 여부이고, 이 map은 오늘 날짜가 확인된
+        // provider 데이터만 담는다. stale snapshot이나 today == nil carrier만 있는 refresh는
+        // ledger의 기준점을 움직일 수 있는 관측으로 취급하지 않는다.
+        let hasCurrentProviderData = hasUsageData && !todayTokensByProvider.isEmpty
         if !state.installBaselineSet {
             // 설치 기준선 — 실제 데이터가 도착한 시점의 today 를 baseline 으로(이전 사용량 미카운트).
             // 데이터 도착 전(기동 직후 빈 새로고침)에는 잡지 않는다.
-            guard hasUsageData else {
+            guard hasCurrentProviderData else {
                 // 세이브 불러오기가 baseline 판정을 이 경로에 넘겼을 수 있다(SaveTransfer.rebasedForThisDevice).
                 // 그 경우 개체는 이미 들어와 있으므로 알로 표시하면 안 되고, 진화 라인 로드도 계속 재시도해야
                 // 한다 — 새 Mac 은 AI CLI 를 처음 쓸 때까지 hasUsageData 가 false 라 여기서 막히면 그날 내내
@@ -249,18 +253,29 @@ final class CompanionStore {
             // `today == nil` carrier만 남거나 파싱이 실패한 refresh는 현재 map이 비어 있을 수
             // 있다. 그런 관측으로 날짜·ledger를 움직이면 다음 정상 snapshot을 당일 전체 신규
             // 사용량으로 오인할 수 있으므로, 유효한 사용량이 있는 refresh만 ledger를 갱신한다.
-            if hasUsageData {
+            if hasCurrentProviderData {
                 let dateChanged = todayDate != state.lastDate
-                if dateChanged {
-                    // 일자별 snapshot은 서로 비교할 수 없다. 새 날짜의 첫 관측은 프로바이더별
-                    // 기준점으로 seed하고, 그 이전 날짜의 사용량을 새 날짜로 이월하지 않는다.
-                    state.lastDate = todayDate
-                    state.claimedTodayTokensByProvider = todayTokensByProvider
-                } else if state.claimedTodayTokensByProvider == nil {
+                if state.claimedTodayTokensByProvider == nil {
                     // 구버전 세이브에는 aggregate high-water mark만 있어 프로바이더별로 분해할 수 없다.
                     // 첫 유효 관측을 새 장부의 기준점으로만 저장해 과거 사용량을 소급 지급하지 않는다.
                     state.claimedTodayTokensByProvider = todayTokensByProvider
+                    state.lastDate = todayDate
                     AppLog.write("companion provider ledger seeded date=\(todayDate) providers=\(todayTokensByProvider.keys.sorted().joined(separator: ","))")
+                } else if dateChanged {
+                    // 일자별 snapshot은 서로 비교할 수 없다. 새 날짜에는 이전 날짜의 ledger를
+                    // 기준으로 삼지 않고, 현재 날짜의 누적값 전체를 새 날짜 사용량으로 적립한다.
+                    // 단, 위의 nil migration 경로는 구버전 aggregate를 분해할 수 없으므로 seed만 한다.
+                    state.lastDate = todayDate
+                    state.claimedTodayTokensByProvider = todayTokensByProvider
+                    let delta = todayTokensByProvider.values.reduce(0, +)
+                    if delta > 0 {
+                        state.usedSinceInstall += delta
+                        if state.active == nil {
+                            state.eggUsage += delta
+                        } else {
+                            applyUsage(delta)
+                        }
+                    }
                 } else {
                     var ledger = state.claimedTodayTokensByProvider ?? [:]
                     var delta = 0
