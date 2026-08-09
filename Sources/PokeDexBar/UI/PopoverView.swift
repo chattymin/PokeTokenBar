@@ -160,15 +160,11 @@ struct PopoverView: View {
                 // 위장이 풀리는 순간을 보고 있는 자리에서 보여준다. 파트너 카드만 감싼다 —
                 // 홈 탭 전체를 감싸면 헤더·한도 섹션까지 매초 다시 그려 에너지 예산을 깬다
                 // (부화 슬롯이 같은 이유로 같은 모양을 쓴다).
-                if Self.needsDisguiseTick(player.state) {
-                    TimelineView(.periodic(from: .now, by: 1)) { context in
-                        partnerCard
-                            .onChange(of: context.date) { _, date in
-                                player.revealDisguisesAndNotify(at: date)
-                            }
-                    }
-                } else {
+                TimelineView(TogglingSecondTick(isOn: Self.needsDisguiseTick(player.state))) { context in
                     partnerCard
+                        .onChange(of: context.date) { _, date in
+                            player.revealDisguisesAndNotify(at: date)
+                        }
                 }
                 // 파트너가 물어 온 것 — 파트너 바로 아래에 둔다(그 개체가 한 일이다).
                 DiscoveryCard(store: player) { speciesID in
@@ -177,17 +173,15 @@ struct PopoverView: View {
                     Self.speciesName(speciesID, in: evoLines, player.language)
                 }
                 Divider()
-                // NOTE: 부화 슬롯만 1초 틱으로 감싼다 — 홈 탭 전체를 TimelineView 로 감싸면
-                // 파트너 카드·헤더·한도 섹션까지 매초 다시 그려 팝오버 에너지 예산을 깬다.
-                // 알이 하나도 없으면 셀 시간도 정산할 것도 없으므로 틱 자체를 걸지 않는다
-                // (빈 슬롯 줄은 그대로 보여준다 — 알을 뽑으면 어디에 들어가는지가 보여야 한다).
-                if Self.needsCountdownTick(player.state) {
-                    TimelineView(.periodic(from: .now, by: 1)) { context in
-                        EggSlotsView(store: player, now: context.date, lines: evoLines,
-                                     onNeedLine: { baseID in loadLine(baseID) })
-                    }
-                } else {
-                    EggSlotsView(store: player, now: player.currentDate(), lines: evoLines,
+                // 부화 슬롯만 1초 틱을 받는다 — 홈 탭 전체를 `TimelineView` 로 감싸면 파트너
+                // 카드·헤더·한도 섹션까지 매초 다시 그려 팝오버 에너지 예산을 깬다.
+                //
+                // **가지를 나누지 않는다.** 예전엔 `if` 로 감싼 쪽과 안 감싼 쪽을 따로 뒀는데,
+                // 마지막 알을 확인해 알이 0개가 되는 순간 가지가 바뀌면서 `EggSlotsView` 가 새로
+                // 만들어져 방금 심은 `hatched` 가 날아갔다 — 부화 연출이 안 떴다. 일정만 끈다
+                // (알이 없으면 틱도 없다 — `TogglingSecondTick`).
+                TimelineView(TogglingSecondTick(isOn: Self.needsCountdownTick(player.state))) { context in
+                    EggSlotsView(store: player, now: context.date, lines: evoLines,
                                  onNeedLine: { baseID in loadLine(baseID) })
                 }
                 Divider()
