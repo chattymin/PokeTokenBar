@@ -401,6 +401,30 @@ final class CompanionStoreTests: XCTestCase {
         XCTAssertEqual(s.state.usedSinceInstall, 350)
     }
 
+    /// [회귀] 날짜 경계의 첫 refresh에서 provider 하나가 빠져도, 같은 날 복구된 현재 사용량을
+    /// 누락하지 않는다. 이전 날짜의 ledger 값은 새 날짜와 비교할 수 없으므로 복구 provider의
+    /// 새 날짜 기준은 0으로 열고, 그 날 처음 확인된 누적값을 적립한다.
+    func testLateProviderRecoveryAfterDateRolloverCreditsCurrentDayUsage() {
+        let s = store(linear3)
+        useMap(s, ["claude_code": 0, "codex": 0], date: "d1")
+        useMap(s, ["claude_code": 1_000, "codex": 500], date: "d1")
+        XCTAssertEqual(s.state.usedSinceInstall, 1_500)
+
+        // 날짜가 바뀐 첫 응답에는 codex가 빠졌다. Claude의 d2 사용량만 먼저 적립한다.
+        useMap(s, ["claude_code": 100], date: "d2")
+        XCTAssertEqual(s.state.usedSinceInstall, 1_600)
+        XCTAssertEqual(s.state.claimedTodayTokensByProvider,
+                       ["claude_code": 100, "codex": 0])
+
+        // 같은 날 codex가 복구되면 d2의 현재 누적값 전체가 적립되어야 한다.
+        useMap(s, ["claude_code": 100, "codex": 700], date: "d2")
+        XCTAssertEqual(s.state.usedSinceInstall, 2_300)
+
+        // 이후에는 복구 시점 기준의 증가분만 적립한다.
+        useMap(s, ["claude_code": 100, "codex": 900], date: "d2")
+        XCTAssertEqual(s.state.usedSinceInstall, 2_500)
+    }
+
     /// [회귀] stale snapshot처럼 오늘 provider map이 비어 있는 refresh는 날짜 경계를 소비하지
     /// 않는다. 다음 유효한 새 날짜 snapshot이 들어오면 그 시점의 오늘 사용량을 적립한다.
     func testStaleSnapshotDoesNotConsumeDateBoundary() {

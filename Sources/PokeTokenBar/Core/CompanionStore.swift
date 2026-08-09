@@ -265,8 +265,20 @@ final class CompanionStore {
                     // 일자별 snapshot은 서로 비교할 수 없다. 새 날짜에는 이전 날짜의 ledger를
                     // 기준으로 삼지 않고, 현재 날짜의 누적값 전체를 새 날짜 사용량으로 적립한다.
                     // 단, 위의 nil migration 경로는 구버전 aggregate를 분해할 수 없으므로 seed만 한다.
+                    //
+                    // 이전 날짜에 이미 알려진 provider가 첫 새로고침에서 빠질 수 있다(오늘 데이터
+                    // 없음, stale 응답, 일시 실패). 그 provider를 아예 ledger에서 제거하면 같은
+                    // 날짜에 복구될 때 현재 누적값을 "이미 적립한 값"으로 seed해 사용량이 누락된다.
+                    // 이전 날짜의 숫자는 비교에 사용할 수 없으므로, 알려진 provider의 새 날짜 기준을
+                    // 0으로 열어 둔다. 이후 복구된 현재 날짜 값은 그 날짜의 실제 사용량으로 적립되고,
+                    // 같은 날짜의 부분 응답에서는 이 기준을 그대로 보존한다.
                     state.lastDate = todayDate
-                    state.claimedTodayTokensByProvider = todayTokensByProvider
+                    var newLedger = Dictionary(uniqueKeysWithValues:
+                        state.claimedTodayTokensByProvider!.keys.map { ($0, 0) })
+                    for (providerID, current) in todayTokensByProvider {
+                        newLedger[providerID] = current
+                    }
+                    state.claimedTodayTokensByProvider = newLedger
                     let delta = todayTokensByProvider.values.reduce(0, +)
                     if delta > 0 {
                         state.usedSinceInstall += delta

@@ -603,6 +603,33 @@ final class UsageStoreTests: XCTestCase {
         XCTAssertEqual(store.todayTokensByProvider, ["claude_code": 100_000_000])
     }
 
+    /// [회귀] 한 provider의 성공 응답이 today=nil이 된 partial snapshot에서도 다른 provider의
+    /// 당일 값은 유지하고, 빠졌던 provider가 실제 refresh 결과에 복귀하면 다시 map에 포함한다.
+    /// CompanionStore가 이 map을 소비할 때 provider별 ledger line을 보존할 수 있도록 하는 경계 테스트다.
+    func testRefreshPreservesProviderIdentityAcrossPartialSnapshotLossAndRecovery() async {
+        let claude = FakeUsageProvider(id: "claude_code", displayName: "Claude Code",
+                                       daily: todayDaily(1_000))
+        let codex = FakeUsageProvider(id: "codex", displayName: "Codex", daily: todayDaily(500))
+        let store = makeStore(providers: [claude, codex])
+
+        await store.refresh(scheduleEmptyRetry: false)
+        XCTAssertEqual(store.todayTokensByProvider,
+                       ["claude_code": 1_000, "codex": 500])
+
+        // 성공했지만 오늘 데이터가 없는 응답은 해당 provider snapshot을 제거한다.
+        codex.daily = nil
+        claude.daily = todayDaily(1_200)
+        await store.refresh(scheduleEmptyRetry: false)
+        XCTAssertEqual(store.todayTokensByProvider, ["claude_code": 1_200])
+        XCTAssertEqual(store.snapshots.map(\.providerID), ["claude_code"])
+
+        // 복구된 provider는 같은 provider ID로 map에 돌아온다.
+        codex.daily = todayDaily(700)
+        await store.refresh(scheduleEmptyRetry: false)
+        XCTAssertEqual(store.todayTokensByProvider,
+                       ["claude_code": 1_200, "codex": 700])
+    }
+
     func testProviderFailureKeepsPreviousTodayValue() async {
         let claude = FakeUsageProvider(id: "claude_code", displayName: "Claude Code", daily: todayDaily(100_000_000))
         let store = makeStore(providers: [claude])
