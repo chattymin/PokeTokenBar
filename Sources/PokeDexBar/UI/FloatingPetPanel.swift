@@ -139,6 +139,12 @@ final class FloatingPetController: NSObject, NSWindowDelegate {
                 FloatingPetView(animated: wantAnimated)
                     .environment(store).environment(player)))
             hosting.onOpenPopover = onOpenPopover
+            // 맞으면 깨지는 아이를 데리고 다닐 때만 연타를 센다. 다른 포켓몬이면 이 경로가
+            // 통째로 꺼져 팝오버 여는 속도가 지금 그대로다.
+            hosting.breakableProvider = { [weak self] in
+                BrokenForm.breaks(speciesID: self?.player.state.partner?.speciesID)
+            }
+            hosting.onTapped = { [weak self] in self?.player.breakPartnerForm() }
             hosting.onHide = onHide
             hosting.languageProvider = { [weak self] in self?.player.language ?? .systemDefault }
             hosting.onHoverChange = { [weak self] hovering in
@@ -281,6 +287,12 @@ final class FloatingPetController: NSObject, NSWindowDelegate {
 
 final class PetHostingView: NSHostingView<AnyView> {
     var onOpenPopover: (() -> Void)?
+    /// 지금 파트너가 두드려서 깨질 수 있는 아이인가.
+    var breakableProvider: (() -> Bool)?
+    /// 연타가 문턱을 넘었을 때.
+    var onTapped: (() -> Void)?
+    /// 미뤄 둔 팝오버 열기 — 연타가 이어지면 취소한다.
+    private var pendingOpen: DispatchWorkItem?
     var onHide: (() -> Void)?
     var onHoverChange: ((Bool) -> Void)?
     var languageProvider: () -> AppLanguage = { .systemDefault }
@@ -310,6 +322,7 @@ final class PetHostingView: NSHostingView<AnyView> {
     override func mouseExited(with event: NSEvent) { onHoverChange?(false) }
 
     override func mouseDown(with event: NSEvent) {
+        pendingOpen?.cancel()   // 다음 클릭이 왔다 — 미뤄 둔 열기는 취소한다
         if event.modifierFlags.contains(.control) {
             showContextMenu(event)
             return
@@ -334,9 +347,23 @@ final class PetHostingView: NSHostingView<AnyView> {
             didDrag = false
         }
         guard !didDrag, let start = mouseDownScreen else { return }
-        if Self.isClick(from: start, to: NSEvent.mouseLocation) {
-            onOpenPopover?()
+        guard Self.isClick(from: start, to: NSEvent.mouseLocation) else { return }
+
+        // 깨질 수 있는 아이가 아니면 예전 그대로 — 즉시 연다.
+        guard breakableProvider?() == true else { onOpenPopover?(); return }
+
+        // **팝오버를 바로 열면 안 된다.** 열리는 순간 다음 클릭이 펫에 안 닿아 연타를 셀 수 없다.
+        // 그래서 더블클릭 간격만큼 미뤄 두고, 그 사이에 다음 클릭이 오면 취소한다.
+        // 연타 판정은 `clickCount` 로 한다 — OS 가 이미 세고 있는 값이라 내가 타이밍을 만들 필요가 없다.
+        pendingOpen?.cancel()
+        if event.clickCount >= BrokenForm.tapsToBreak {
+            pendingOpen = nil
+            onTapped?()
+            return
         }
+        let open = DispatchWorkItem { [weak self] in self?.onOpenPopover?() }
+        pendingOpen = open
+        DispatchQueue.main.asyncAfter(deadline: .now() + NSEvent.doubleClickInterval, execute: open)
     }
 
     override func rightMouseDown(with event: NSEvent) {

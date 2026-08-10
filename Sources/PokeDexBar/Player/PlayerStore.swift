@@ -196,6 +196,16 @@ final class PlayerStore {
         save()
     }
 
+    /// 파트너의 겉모습을 깨뜨린다 — 두드릴 수 있는 아이일 때만.
+    /// 이미 깨져 있으면 아무 일도 없다(저장을 헛되이 다시 쓰지 않는다).
+    func breakPartnerForm() {
+        guard let id = state.partnerID,
+              let index = state.box.firstIndex(where: { $0.id == id }),
+              BrokenForm.breaks(speciesID: state.box[index].speciesID),
+              !state.box[index].formBroken else { return }
+        mutate { $0.box[index].formBroken = true }
+    }
+
     /// 지금 파트너의 진행 중인 구간을 닫아 누적에 더한다. 파트너를 바꾸기 직전에 부른다 —
     /// 안 닫으면 이전 파트너의 `partnerSince` 가 남아 파트너가 아닌데도 시간이 계속 늘어난다.
     static func closePartnerStint(in state: inout PlayerState, at now: Date) {
@@ -204,6 +214,8 @@ final class PlayerStore {
               let since = state.box[index].partnerSince else { return }
         state.box[index].partnerSeconds += max(0, Int(now.timeIntervalSince(since)))
         state.box[index].partnerSince = nil
+        // 곁에서 내려오면 깨진 겉모습이 돌아온다 — 그 아이의 배틀이 끝나는 셈이다.
+        state.box[index].formBroken = false
     }
 
     func registerInDex(_ speciesID: Int) {

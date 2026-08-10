@@ -34,6 +34,11 @@ struct Individual: Identifiable, Codable, Sendable, Equatable {
     var region: Region?
     /// 같은 지방에 모습이 여럿인 종의 구분(팔데아 켄타로스 combat/blaze/aqua).
     var regionVariant: String?
+    /// 맞아서 겉모습이 깨졌나(따라큐의 탈, 빙큐보의 얼음머리).
+    ///
+    /// 파트너에서 내려오면 돌아온다(`PlayerStore.closePartnerStint`) — 그 아이의 배틀이
+    /// 끝나는 것에 해당한다. 앱을 껐다 켜도 유지되므로 저장한다.
+    var formBroken = false
     /// 태어날 때 정해진 겉모습의 변종 키(`"c"` · `"polar"` · `"blue"` · `"east"`).
     ///
     /// 지방(`region`)과 성격이 같다 — 부화할 때 정해지고 평생 안 바뀌며 진화해도 이어진다.
@@ -83,6 +88,8 @@ struct Individual: Identifiable, Codable, Sendable, Equatable {
         // 위장이 가장 앞이다 — 위장 중엔 다른 무엇도 그려지면 안 된다.
         if disguisedAs != nil { return DittoDisguise.formSlug }
         if let form { return form }
+        // 깨진 모습이 가장 먼저다 — 깨져 있으면 그게 지금 이 아이의 모습이다.
+        if formBroken, let broken = BrokenForm.slugs[speciesID] { return broken }
         // 스트린더는 저장된 값이 없다 — 성격에서 나온다.
         if speciesID == 849 { return BirthFormBalance.toxtricitySlug(nature: nature) }
         // 태어날 때 정해진 겉모습. **그 단계에 해당 그림이 없으면 그냥 넘어간다** —
@@ -191,6 +198,7 @@ struct Individual: Identifiable, Codable, Sendable, Equatable {
         regionVariant = value(.regionVariant, nil)
         disguisedAs = value(.disguisedAs, nil)
         birthForm = value(.birthForm, nil)
+        formBroken = value(.formBroken, false)
     }
 
     /// 관대 디코딩의 짝 — 값 범위 검증(CLAUDE.md 결함 대응 프로토콜).
@@ -210,6 +218,11 @@ struct Individual: Identifiable, Codable, Sendable, Equatable {
            RegionalFormCatalog.forms(speciesID: speciesID)
                .first(where: { $0.region == region && $0.variant == variant }) == nil {
             fixed.regionVariant = nil
+        }
+        // 깨질 수 없는 종에 깨졌다고 적혀 있으면 버린다 — 그대로 두면 없는 슬러그를 요청한다.
+        if fixed.formBroken, BrokenForm.slugs[speciesID] == nil {
+            fixed.formBroken = false
+            AppLog.write("Individual: dropped formBroken on species \(speciesID)")
         }
         // 카탈로그에 없는 변종은 버린다. 그대로 두면 그 개체만 영영 기본 모습으로 보이는데,
         // 값은 남아 있어 원인이 안 보인다 — 관대 디코딩의 짝인 값 범위 검증이다.
