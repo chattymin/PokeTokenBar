@@ -62,6 +62,15 @@ PokeDexBar는 당신이 이미 태우고 있는 AI 코딩 토큰(Claude Code · 
 <td width="45%" align="center"><img src="assets/menubar.gif" width="240" alt="메뉴바"></td>
 </tr>
 <tr>
+<td width="45%" align="center"><img src="assets/screenshot-birth-form.png" width="300" alt="비비용 상세 화면 — 번호 옆에 설국의 모양 배지"></td>
+<td width="55%" valign="middle">
+<h3>태어날 때부터 다른 아이들</h3>
+어떤 종은 처음부터 다르게 나옵니다. 안농은 26글자 중 하나, 플라베베는 다섯 꽃 색 중 하나, 베가베가는 동쪽바다와 서쪽바다 중 하나 — 부화하는 순간 정해져 평생 가고, 진화해도 이어집니다. 번호 옆 배지가 어떤 아이인지 말해줘요.
+<br><br>
+비비용은 원작의 지역 규칙을 그대로 따릅니다. 맥의 국가 설정이 18가지 무늬 중 어떤 것으로 태어날 수 있는지를 정하고, 가끔 다른 지역에서 온 무늬가 섞여요. 스트린더는 아무것도 기록하지 않습니다 — 태어날 때 정해진 성격에서 모습이 나오고, 원작이 가른 13종과 12종 그대로입니다.
+</td>
+</tr>
+<tr>
 <td width="45%" align="center"><img src="assets/shiny-banner.gif" width="340" alt="일반 vs 이로치"></td>
 <td width="55%" valign="middle">
 <h3>✨ 아주 드문 우연, 이로치</h3>

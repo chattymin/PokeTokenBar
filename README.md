@@ -62,6 +62,15 @@ An animated Gen-V sprite lives next to today's total tokens (compact, e.g. <code
 <td width="45%" align="center"><img src="assets/menubar.gif" width="240" alt="Menu bar"></td>
 </tr>
 <tr>
+<td width="45%" align="center"><img src="assets/screenshot-birth-form.png" width="300" alt="A Vivillon's detail screen with a Polar pattern badge next to its number"></td>
+<td width="55%" valign="middle">
+<h3>Born with a look of its own</h3>
+Some species arrive already different. An Unown is one of 26 letters, a Flabébé one of five flower colours, a Shellos from the east or the west sea — decided at hatch and kept for life, through every evolution. A badge beside the number says which one you got.
+<br><br>
+Vivillon follows the region rule from the games: your Mac's country decides which of the 18 wing patterns it can be born with, and once in a while one turns up from somewhere else. Toxtricity needs nothing recorded at all — its form is read from the nature it hatched with, the same 13 and 12 natures the games split on.
+</td>
+</tr>
+<tr>
 <td width="45%" align="center"><img src="assets/shiny-banner.gif" width="340" alt="Normal vs shiny"></td>
 <td width="55%" valign="middle">
 <h3>✨ Once in a rare while — Shiny</h3>

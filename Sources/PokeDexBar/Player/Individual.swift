@@ -86,7 +86,7 @@ struct Individual: Identifiable, Codable, Sendable, Equatable {
         // 스트린더는 저장된 값이 없다 — 성격에서 나온다.
         if speciesID == 849 { return BirthFormBalance.toxtricitySlug(nature: nature) }
         // 태어날 때 정해진 겉모습. **그 단계에 해당 그림이 없으면 그냥 넘어간다** —
-        // 스카바는 무늬를 갖고 있어도 겉모습이 같아서 카탈로그에 항목이 없다.
+        // 분이벌레는 무늬를 갖고 있어도 겉모습이 같아서 카탈로그에 항목이 없다.
         if let birthForm,
            let known = BirthFormCatalog.form(speciesID: speciesID, variant: birthForm) {
             return known.slug
@@ -213,7 +213,7 @@ struct Individual: Identifiable, Codable, Sendable, Equatable {
         }
         // 카탈로그에 없는 변종은 버린다. 그대로 두면 그 개체만 영영 기본 모습으로 보이는데,
         // 값은 남아 있어 원인이 안 보인다 — 관대 디코딩의 짝인 값 범위 검증이다.
-        // **라인 기준으로 본다** — 스카바는 자기 단계엔 항목이 없지만 무늬는 가져야 한다.
+        // **라인 기준으로 본다** — 분이벌레는 자기 단계엔 항목이 없지만 무늬는 가져야 한다.
         if let variant = fixed.birthForm,
            !BirthFormCatalog.variants(forLineStartingAt: baseID).contains(variant) {
             fixed.birthForm = nil

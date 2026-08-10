@@ -18,15 +18,15 @@ final class BirthFormCatalogTests: XCTestCase {
         }
     }
 
-    /// 무늬를 갖고 있어도 **비비용이 되어야 보인다.** 스카바·스피아에 항목이 있으면 진화가
+    /// 무늬를 갖고 있어도 **비비용이 되어야 보인다.** 분이벌레·분떠도리에 항목이 있으면 진화가
     /// 사건이 아니게 되고, 있지도 않은 슬러그를 요청하게 된다.
     func testThePatternOnlyShowsOnVivillon() {
-        XCTAssertTrue(BirthFormCatalog.forms(speciesID: 664).isEmpty, "스카바에 무늬가 붙어 있다")
-        XCTAssertTrue(BirthFormCatalog.forms(speciesID: 665).isEmpty, "스피아에 무늬가 붙어 있다")
+        XCTAssertTrue(BirthFormCatalog.forms(speciesID: 664).isEmpty, "분이벌레에 무늬가 붙어 있다")
+        XCTAssertTrue(BirthFormCatalog.forms(speciesID: 665).isEmpty, "분떠도리에 무늬가 붙어 있다")
         XCTAssertEqual(BirthFormCatalog.forms(speciesID: 666).count, 18)
     }
 
-    /// 기본형은 접미 없는 슬러그다 — 언노운 A, 빨간 꽃, 서쪽바다, 화원의 모양.
+    /// 기본형은 접미 없는 슬러그다 — 안농 A, 빨간 꽃, 서쪽바다, 화원의 모양.
     func testDefaultVariantsUseThePlainSlug() {
         XCTAssertEqual(BirthFormCatalog.form(speciesID: 201, variant: "a")?.slug, "unown")
         XCTAssertEqual(BirthFormCatalog.form(speciesID: 669, variant: "red")?.slug, "flabebe")
@@ -34,7 +34,7 @@ final class BirthFormCatalogTests: XCTestCase {
         XCTAssertEqual(BirthFormCatalog.form(speciesID: 666, variant: "meadow")?.slug, "vivillon")
     }
 
-    /// 언노운은 A–Z 26자. `!` `?` 는 Showdown 에 스프라이트가 없어 뺐다(실측 404) —
+    /// 안농은 A–Z 26자. `!` `?` 는 Showdown 에 스프라이트가 없어 뺐다(실측 404) —
     /// 이 저장소는 그림이 있는 것만 담는다.
     func testUnownHasTwentySixLetters() {
         let letters = BirthFormCatalog.forms(speciesID: 201)
@@ -43,7 +43,7 @@ final class BirthFormCatalogTests: XCTestCase {
     }
 
     /// 라벨은 세 언어가 다 채워져 있어야 한다 — 한 언어만 비어도 그 언어에서 배지가 빈칸이 된다.
-    /// 언노운 글자는 예외다(세 언어가 같은 글자 하나).
+    /// 안농 글자는 예외다(세 언어가 같은 글자 하나).
     func testEveryLabelIsFilledInAllThreeLanguages() {
         for form in BirthFormCatalog.all where form.speciesID != 201 {
             for lang in AppLanguage.allCases where lang != .systemDefault {
@@ -62,7 +62,7 @@ final class BirthFormBalanceTests: XCTestCase {
     }
 
     /// **확률 게이트가 없다.** 지방 모습은 "20%로 변종, 아니면 원종"이지만 여기엔 원종이 없다 —
-    /// 모든 언노운은 어떤 글자다. 어떤 난수를 줘도 항상 나와야 한다.
+    /// 모든 안농은 어떤 글자다. 어떤 난수를 줘도 항상 나와야 한다.
     func testEveryUnownGetsALetter() {
         for step in 0..<20 {
             let value = Double(step) / 20
@@ -181,7 +181,7 @@ final class BirthFormIndividualTests: XCTestCase {
         XCTAssertEqual(make(speciesID: 671, baseID: 669, variant: "blue").spriteForm, "florges-blue")
     }
 
-    /// 무늬를 가진 스카바는 **평소 모습으로 그려진다** — 그 단계엔 그림이 없다.
+    /// 무늬를 가진 분이벌레는 **평소 모습으로 그려진다** — 그 단계엔 그림이 없다.
     /// 슬러그를 만들어 내면 404 를 계속 요청하게 된다.
     func testAScatterbugWithAPatternStillLooksOrdinary() {
         XCTAssertNil(make(speciesID: 664, baseID: 664, variant: "polar").spriteForm)
@@ -221,7 +221,7 @@ final class BirthFormIndividualTests: XCTestCase {
     func testABogusVariantIsDropped() {
         XCTAssertNil(make(speciesID: 201, baseID: 201, variant: "9").sanitized().birthForm)
         XCTAssertEqual(make(speciesID: 201, baseID: 201, variant: "c").sanitized().birthForm, "c")
-        // 라인 기준이라 스카바의 무늬도 살아남아야 한다(자기 단계엔 항목이 없다).
+        // 라인 기준이라 분이벌레의 무늬도 살아남아야 한다(자기 단계엔 항목이 없다).
         XCTAssertEqual(make(speciesID: 664, baseID: 664, variant: "polar").sanitized().birthForm,
                        "polar")
     }
@@ -246,7 +246,7 @@ final class BirthFormIndividualTests: XCTestCase {
     }
 
     /// 구 세이브의 개체는 필드가 없다 — 지금과 똑같이 보여야 한다.
-    /// 이미 가진 언노운이 갑자기 글자를 얻지는 않는다.
+    /// 이미 가진 안농이 갑자기 글자를 얻지는 않는다.
     func testOlderIndividualsAreUnaffected() {
         let old = make(speciesID: 201, baseID: 201, variant: nil)
         XCTAssertNil(old.spriteForm)

@@ -13,7 +13,7 @@ enum BirthFormBalance {
     /// 태어날 때 겉모습을 굴린다. 겉모습이 갈리지 않는 종이면 nil.
     ///
     /// - Parameters:
-    ///   - baseID: **부화하는 종**(라인의 시작). 스카바로 태어나도 비비용의 무늬를 정해 둬야 한다.
+    ///   - baseID: **부화하는 종**(라인의 시작). 분이벌레로 태어나도 비비용의 무늬를 정해 둬야 한다.
     ///   - roll: 해외 무늬 판정용(0~1). 비비용이 아니면 안 쓴다.
     ///   - pick: 후보 중 하나를 고르는 값(0~1).
     ///   - homeRegion: 이 기기의 지역(ISO 국가 코드). 비비용 무늬가 여기서 갈린다.
@@ -28,7 +28,7 @@ enum BirthFormBalance {
     /// 고를 후보. 비비용만 지역을 본다 — 나머지는 언제나 전체가 후보다.
     ///
     /// **확률 게이트가 없다는 점이 지방 모습과 다르다.** 지방은 "20% 확률로 변종, 아니면 원종"이지만
-    /// 여기엔 원종이 없다 — 모든 언노운은 어떤 글자이고 모든 비비용은 어떤 무늬다.
+    /// 여기엔 원종이 없다 — 모든 안농은 어떤 글자이고 모든 비비용은 어떤 무늬다.
     static func candidateVariants(baseID: Int, roll: Double, homeRegion: String?) -> [String] {
         let all = BirthFormCatalog.variants(forLineStartingAt: baseID)
         guard baseID == 664, !all.isEmpty else { return all }

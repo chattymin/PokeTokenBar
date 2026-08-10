@@ -62,6 +62,15 @@ PokeDexBar は、あなたがすでに使っている AI コーディングト�
 <td width="45%" align="center"><img src="assets/menubar.gif" width="240" alt="メニューバー"></td>
 </tr>
 <tr>
+<td width="45%" align="center"><img src="assets/screenshot-birth-form.png" width="300" alt="ビビヨンの詳細画面 — 番号の隣にゆきぐにのもようバッジ"></td>
+<td width="55%" valign="middle">
+<h3>生まれたときから違う子たち</h3>
+最初から違う姿で生まれてくる種がいます。アンノーンは26文字のひとつ、フラベベは5色の花のひとつ、カラナクシは東の海か西の海か — 孵化した瞬間に決まり、進化しても一生変わりません。番号の隣のバッジがどの子なのかを教えてくれます。
+<br><br>
+ビビヨンは原作の地域ルールをそのまま守ります。Mac の国設定が18種類のもようのうちどれで生まれうるかを決め、ときどき別の地域のもようが混ざります。ストリンダーは何も記録しません — 生まれたときのせいかくから姿が決まり、原作が分けた13種と12種のとおりです。
+</td>
+</tr>
+<tr>
 <td width="45%" align="center"><img src="assets/shiny-banner.gif" width="340" alt="通常 vs 色違い"></td>
 <td width="55%" valign="middle">
 <h3>✨ ごくまれな偶然、色違い</h3>

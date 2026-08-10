@@ -163,26 +163,32 @@ enum ScreenshotFixture {
     /// 파트너는 진화까지 절반쯤 온 리자드, 그 옆에 임계를 넘긴 피카츄(진화 배지·상세 화면용),
     /// 이로치 하나, 같은 라인의 서로 다른 단계(파이리·리자드·리자몽 / 피카츄·라이츄), 지방 모습 넷.
     static let roster: [(species: Int, path: [Int], grade: Grade, nature: PokemonNature,
-                         exp: Int, shiny: Bool, region: Region?)] = [
-        (5, [4, 5], .epic, .brave, 380_000_000, false, nil),          // 파트너 — 리자몽까지 63%
-        (25, [25], .common, .jolly, 55_000_000, false, nil),          // 임계 초과 → 진화 배지
-        (700, [700], .epic, .modest, 90_000_000, true, nil),          // 이로치
-        (37, [37], .rare, .timid, 40_000_000, false, .alola),         // 알로라 식스테일
-        (52, [52], .common, .naughty, 12_000_000, false, .galar),     // 가라르 나옹
-        (26, [25, 26], .common, .hasty, 30_000_000, false, nil),      // 피카츄 라인의 진화형
-        (6, [4, 5, 6], .epic, .adamant, 120_000_000, false, nil),     // 파이리 라인의 최종형
-        (133, [133], .rare, .calm, 130_000_000, false, nil),          // 임계 초과 → 진화 배지
-        (94, [92, 93, 94], .epic, .quiet, 300_000_000, false, nil),
-        (143, [143], .rare, .relaxed, 60_000_000, false, nil),
-        (215, [215], .rare, .sassy, 25_000_000, false, .hisui),       // 히스이 포푸니
-        (448, [447, 448], .epic, .serious, 150_000_000, false, nil),
-        (9, [7, 8, 9], .epic, .bold, 200_000_000, false, nil),
-        (194, [194], .common, .docile, 8_000_000, false, .paldea),    // 팔데아 우파
-        (131, [131], .rare, .gentle, 45_000_000, false, nil),
-        (212, [123, 212], .epic, .impish, 90_000_000, false, nil),
-        (282, [280, 281, 282], .epic, .mild, 250_000_000, false, nil),
-        (384, [384], .legendary, .lonely, 500_000_000, false, nil),
-        (150, [150], .legendary, .bashful, 380_000_000, false, nil),
+                         exp: Int, shiny: Bool, region: Region?, birthForm: String?)] = [
+        (5, [4, 5], .epic, .brave, 380_000_000, false, nil, nil),          // 파트너 — 리자몽까지 63%
+        (25, [25], .common, .jolly, 55_000_000, false, nil, nil),          // 임계 초과 → 진화 배지
+        (700, [700], .epic, .modest, 90_000_000, true, nil, nil),          // 이로치
+        (37, [37], .rare, .timid, 40_000_000, false, .alola, nil),         // 알로라 식스테일
+        (52, [52], .common, .naughty, 12_000_000, false, .galar, nil),     // 가라르 나옹
+        (26, [25, 26], .common, .hasty, 30_000_000, false, nil, nil),      // 피카츄 라인의 진화형
+        (6, [4, 5, 6], .epic, .adamant, 120_000_000, false, nil, nil),     // 파이리 라인의 최종형
+        (133, [133], .rare, .calm, 130_000_000, false, nil, nil),          // 임계 초과 → 진화 배지
+        (94, [92, 93, 94], .epic, .quiet, 300_000_000, false, nil, nil),
+        (143, [143], .rare, .relaxed, 60_000_000, false, nil, nil),
+        (215, [215], .rare, .sassy, 25_000_000, false, .hisui, nil),       // 히스이 포푸니
+        (448, [447, 448], .epic, .serious, 150_000_000, false, nil, nil),
+        (9, [7, 8, 9], .epic, .bold, 200_000_000, false, nil, nil),
+        (194, [194], .common, .docile, 8_000_000, false, .paldea, nil),    // 팔데아 우파
+        (131, [131], .rare, .gentle, 45_000_000, false, nil, nil),
+        (212, [123, 212], .epic, .impish, 90_000_000, false, nil, nil),
+        (282, [280, 281, 282], .epic, .mild, 250_000_000, false, nil, nil),
+        (384, [384], .legendary, .lonely, 500_000_000, false, nil, nil),
+        (150, [150], .legendary, .bashful, 380_000_000, false, nil, nil),
+        // 태어날 때 정해지는 겉모습 — 배지가 붙는 개체들. 무늬는 비비용이 되어야 보이므로
+        // 이미 진화한 개체를 넣는다(분이벌레로 두면 그림이 평소와 같아 설명이 안 된다).
+        (666, [664, 665, 666], .rare, .gentle, 70_000_000, false, nil, "polar"),   // 설국의 모양
+        (201, [201], .common, .quirky, 6_000_000, false, nil, "q"),                // 안농 Q
+        (671, [669, 670, 671], .rare, .calm, 110_000_000, false, nil, "blue"),     // 파란 꽃
+        (849, [848, 849], .rare, .calm, 95_000_000, false, nil, nil),              // 로우한 모습(성격)
     ]
 
     /// 부화 슬롯이 몇 칸인가. 알보다 하나 많게 둬서 빈 슬롯(점선 칸)도 함께 보이게 한다.
@@ -263,6 +269,15 @@ enum ScreenshotFixture {
             5: ["ko": "리자드", "en": "Charmeleon", "ja": "リザード"],
             6: ["ko": "리자몽", "en": "Charizard", "ja": "リザードン"]],
         700: [700: ["ko": "님피아", "en": "Sylveon", "ja": "ニンフィア"]],
+        201: [201: ["ko": "안농", "en": "Unown", "ja": "アンノーン"]],
+        664: [664: ["ko": "분이벌레", "en": "Scatterbug", "ja": "コフキムシ"],
+              665: ["ko": "분떠도리", "en": "Spewpa", "ja": "コフーライ"],
+              666: ["ko": "비비용", "en": "Vivillon", "ja": "ビビヨン"]],
+        669: [669: ["ko": "플라베베", "en": "Flabébé", "ja": "フラベベ"],
+              670: ["ko": "플라엣테", "en": "Floette", "ja": "フラエッテ"],
+              671: ["ko": "플라제스", "en": "Florges", "ja": "フラージェス"]],
+        848: [848: ["ko": "일레즌", "en": "Toxel", "ja": "エレズン"],
+              849: [ "ko": "스트린더", "en": "Toxtricity", "ja": "ストリンダー"]],
     ]
 
     private static let trees: [Int: EvoNode] = [
@@ -274,6 +289,13 @@ enum ScreenshotFixture {
                                                     children: [EvoNode(speciesID: 6, children: [])])]),
         // 이로치 개체. 진화 갈래는 없지만 라인이 있어야 이름이 번호 대신 종명으로 찍힌다.
         700: EvoNode(speciesID: 700, children: []),
+        // 태어날 때 겉모습이 갈리는 라인들 — 이름이 번호로 안 떨어지게 라인을 넣는다.
+        201: EvoNode(speciesID: 201, children: []),
+        664: EvoNode(speciesID: 664, children: [EvoNode(speciesID: 665,
+                                                        children: [EvoNode(speciesID: 666, children: [])])]),
+        669: EvoNode(speciesID: 669, children: [EvoNode(speciesID: 670,
+                                                        children: [EvoNode(speciesID: 671, children: [])])]),
+        848: EvoNode(speciesID: 848, children: [EvoNode(speciesID: 849, children: [])]),
     ]
 
     static func line(baseID: Int) -> EvoLine? {
@@ -359,6 +381,8 @@ final class ScreenshotGeneratorTests: XCTestCase {
         let partnerID: UUID
         /// 이로치 — 반짝임 GIF 가 쓴다.
         let shinyID: UUID
+        /// 태어날 때 정해진 겉모습을 가진 개체 — 그 배지를 보여주는 스크린샷이 쓴다.
+        let birthFormID: UUID
     }
 
     /// - Parameters:
@@ -385,6 +409,7 @@ final class ScreenshotGeneratorTests: XCTestCase {
         var detailID: UUID?
         var partnerID: UUID?
         var shinyID: UUID?
+        var birthFormID: UUID?
         for (index, entry) in ScreenshotFixture.roster.enumerated() {
             var individual = Individual(baseID: entry.path.first ?? entry.species,
                                         speciesID: entry.species, pathIDs: entry.path,
@@ -392,6 +417,7 @@ final class ScreenshotGeneratorTests: XCTestCase {
                                         obtainedAt: base.addingTimeInterval(-Double(index) * 3600),
                                         grade: entry.grade)
             individual.region = entry.region
+            individual.birthForm = entry.birthForm
             // 함께 쓴 토큰 — 오래 데리고 다닌 개체일수록 크게. 0 만 늘어서면 이 칸이 무슨 뜻인지 안 보인다.
             individual.partnerTokens = entry.exp * 3 + index * 17_000_000
             // 파트너만 예전 동행분을 안고 시작한다 — 지금 구간(46일)만으로는 최고 리본에 못 닿는다.
@@ -400,6 +426,8 @@ final class ScreenshotGeneratorTests: XCTestCase {
             if index == 0 { partnerID = individual.id }
             if index == 1 { detailID = individual.id }
             if entry.shiny { shinyID = individual.id }
+            // 비비용 — 무늬 배지가 가장 잘 읽히는 개체(이름이 짧고 그림이 크다).
+            if entry.species == 666 { birthFormID = individual.id }
         }
         if let partnerID {
             clock = base.addingTimeInterval(-ScreenshotFixture.partnerSinceDaysAgo * 86_400)
@@ -445,7 +473,8 @@ final class ScreenshotGeneratorTests: XCTestCase {
                                defaults: UserDefaults(suiteName: "ptb-shot-usage-\(UUID().uuidString)")!)
         return Fixture(player: player, usage: usage,
                        updater: UpdateChecker(currentVersion: AppEnv.appVersion ?? "0"),
-                       detailID: detailID!, partnerID: partnerID!, shinyID: shinyID!)
+                       detailID: detailID!, partnerID: partnerID!, shinyID: shinyID!,
+                       birthFormID: birthFormID!)
     }
 
     /// 홈 탭이 보여줄 사용량을 채운 스토어. `snapshots`·`limits`·`lastUpdated` 는 전부
@@ -864,6 +893,14 @@ final class ScreenshotGeneratorTests: XCTestCase {
 
         // 도감 — 번호순 그리드 + 못 잡은 종 실루엣.
         try write(png(tabChrome(NationalDexView(store: fixture.player))), "screenshot-collection.png")
+
+        // 태어날 때 정해지는 겉모습 — 이름 옆 배지가 그 개체가 어떤 무늬로 태어났는지 말한다.
+        // 지방 배지와 같은 자리를 쓰므로, 이 그림 하나로 두 규칙이 같이 설명된다.
+        try write(png(tabChrome(BoxTabView(store: fixture.player, lines: ScreenshotFixture.lines,
+                                           onNeedLine: { _ in },
+                                           selection: .constant(fixture.birthFormID))),
+                      fullScroll: true),
+                  "screenshot-birth-form.png")
 
         for (language, suffix) in Self.languages {
             setLanguage(language, fixture)

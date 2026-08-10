@@ -3,7 +3,7 @@ import Foundation
 /// 태어날 때 정해지는 겉모습 하나 — 어떤 종의 어떤 변종이고, Showdown 슬러그와 이름이 무엇인가.
 ///
 /// 지방 모습(`RegionalForm`)과 같은 모양이지만 **지방이 아니라 개체 차이**다. 알로라 라이츄는
-/// 어디서 왔는지를 말하지만, 언노운의 글자나 비비용의 무늬는 그냥 그 아이가 그렇게 태어난 것이다.
+/// 어디서 왔는지를 말하지만, 안농의 글자나 비비용의 무늬는 그냥 그 아이가 그렇게 태어난 것이다.
 struct BirthForm: Sendable, Equatable, Hashable {
     let speciesID: Int
     /// 개체에 저장되는 키(`"c"` · `"polar"` · `"blue"` · `"east"`).
@@ -19,12 +19,12 @@ struct BirthForm: Sendable, Equatable, Hashable {
 /// 태어날 때 정해지는 겉모습 목록.
 ///
 /// **Showdown 에 실제로 스프라이트가 있는 것만 담았다** — 지방 모습·메가와 같은 규칙이다.
-/// 언노운의 `!` `?` 는 그래서 빠졌다(`unown-exclamation`·`unown-question` 둘 다 404).
+/// 안농의 `!` `?` 는 그래서 빠졌다(`unown-exclamation`·`unown-question` 둘 다 404).
 ///
 /// 비비용 팬시·몬스터볼 무늬도 뺐다. 그 둘은 배포로만 얻는 것이라 "태어난 지역이 정한다"는
 /// 규칙 밖이고, 섞으면 규칙이 흐려진다.
 enum BirthFormCatalog {
-    // MARK: 언노운 — A부터 Z까지
+    // MARK: 안농 — A부터 Z까지
 
     /// A 는 기본 슬러그(`unown`), 나머지는 `unown-b` … `unown-z`.
     private static let unown: [BirthForm] = "abcdefghijklmnopqrstuvwxyz".map { letter in
@@ -38,7 +38,7 @@ enum BirthFormCatalog {
 
     // MARK: 비비용 — 18가지 무늬
 
-    /// 무늬는 비비용(666)에서만 보인다. 스카바(664)·스피아(665)는 무늬를 갖고 있어도 겉모습이
+    /// 무늬는 비비용(666)에서만 보인다. 분이벌레(664)·분떠도리(665)는 무늬를 갖고 있어도 겉모습이
     /// 같아서 카탈로그에 항목이 없다 — 그래서 평소 슬러그로 그려지고, **진화가 사건이 된다.**
     static let vivillonPatterns: [(variant: String, slug: String, label: FormLabel)] = [
         ("icysnow", "vivillon-icysnow", .init("빙설의 모양", "Icy Snow", "ひょうせつのもよう")),
@@ -101,7 +101,7 @@ enum BirthFormCatalog {
     private static let bySpecies: [Int: [BirthForm]] = Dictionary(grouping: all, by: \.speciesID)
 
     /// 이 종이 태어날 때 겉모습이 갈리는가 — 갈린다면 그 후보들.
-    /// **어느 단계에서 물어보느냐에 따라 다르다**: 스카바는 비었고 비비용은 18개다.
+    /// **어느 단계에서 물어보느냐에 따라 다르다**: 분이벌레는 비었고 비비용은 18개다.
     static func forms(speciesID: Int) -> [BirthForm] { bySpecies[speciesID] ?? [] }
 
     /// 이 종의 이 변종. 그 단계에 해당 겉모습이 없으면 nil(평소 슬러그로 떨어진다).
@@ -110,11 +110,11 @@ enum BirthFormCatalog {
     }
 
     /// 이 라인이 태어날 때 겉모습이 갈리는가 — **어느 단계에서 물어도** 답이 같아야 하는 질문.
-    /// 스카바로 태어난 개체에 무늬를 심을지 정할 때 쓴다(스카바 자신은 후보가 없다).
+    /// 분이벌레로 태어난 개체에 무늬를 심을지 정할 때 쓴다(분이벌레 자신은 후보가 없다).
     static func variants(forLineStartingAt baseID: Int) -> [String] {
         switch baseID {
         case 201: unown.map(\.variant)
-        case 664: vivillon.map(\.variant)              // 스카바 → 비비용
+        case 664: vivillon.map(\.variant)              // 분이벌레 → 비비용
         case 669: flowerColors.map(\.variant)          // 플라베베 라인
         case 422: ["west", "east"]                     // 베가베가 라인
         default: []
