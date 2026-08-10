@@ -62,6 +62,13 @@ PokeDexBar は、あなたがすでに使っている AI コーディングト�
 <td width="45%" align="center"><img src="assets/menubar.gif" width="240" alt="メニューバー"></td>
 </tr>
 <tr>
+<td width="55%" valign="middle">
+<h3>そばに置くことで変わる子たち</h3>
+イルカマンは原作のとおり、出てくるときではなく<b>引っ込むとき</b>にマイティフォルムになります。そばに置いてから別の子に替えると変わっていて、もう一度替えると戻ります。テラパゴスはもっと単純で、そばにいるあいだはずっとテラスタルフォルム。テラスタルオーブがそこからもう一歩先へ連れていきます。
+</td>
+<td width="45%" align="center"><img src="assets/form-banner.png" width="300" alt="イルカマンとテラパゴス、それぞれが変わる姿"></td>
+</tr>
+<tr>
 <td width="45%" align="center"><img src="assets/screenshot-birth-form.png" width="300" alt="ビビヨンの詳細画面 — 番号の隣にゆきぐにのもようバッジ"></td>
 <td width="55%" valign="middle">
 <h3>生まれたときから違う子たち</h3>

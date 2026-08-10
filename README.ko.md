@@ -62,6 +62,13 @@ PokeDexBar는 당신이 이미 태우고 있는 AI 코딩 토큰(Claude Code · 
 <td width="45%" align="center"><img src="assets/menubar.gif" width="240" alt="메뉴바"></td>
 </tr>
 <tr>
+<td width="55%" valign="middle">
+<h3>곁에 두는 것으로 바뀌는 아이들</h3>
+돌핀맨은 원작 그대로 — 나올 때가 아니라 <b>물러날 때</b> 마이티폼이 됩니다. 곁에 뒀다가 다른 아이로 바꾸면 그때 달라져 있고, 또 바꾸면 되돌아옵니다. 테라파고스는 더 단순해요. 곁에 있는 동안 계속 테라스탈 폼이고, 테라스탈 오브가 거기서 한 걸음 더 데려갑니다.
+</td>
+<td width="45%" align="center"><img src="assets/form-banner.png" width="300" alt="돌핀맨과 테라파고스, 그리고 각자 바뀌는 모습"></td>
+</tr>
+<tr>
 <td width="45%" align="center"><img src="assets/screenshot-birth-form.png" width="300" alt="비비용 상세 화면 — 번호 옆에 설국의 모양 배지"></td>
 <td width="55%" valign="middle">
 <h3>태어날 때부터 다른 아이들</h3>

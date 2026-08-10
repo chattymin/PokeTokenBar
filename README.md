@@ -62,6 +62,13 @@ An animated Gen-V sprite lives next to today's total tokens (compact, e.g. <code
 <td width="45%" align="center"><img src="assets/menubar.gif" width="240" alt="Menu bar"></td>
 </tr>
 <tr>
+<td width="55%" valign="middle">
+<h3>Some change by who you keep close</h3>
+Palafin turns Hero the way it does in the games — not when it comes out, but when it steps back. Put it at your side, swap someone else in, and it returns changed; swap again and it drops back. Terapagos is simpler: it wears its Terastal Form for as long as it is with you, and a Tera Orb takes it the rest of the way to Stellar.
+</td>
+<td width="45%" align="center"><img src="assets/form-banner.png" width="300" alt="Palafin and Terapagos beside the forms they change into"></td>
+</tr>
+<tr>
 <td width="45%" align="center"><img src="assets/screenshot-birth-form.png" width="300" alt="A Vivillon's detail screen with a Polar pattern badge next to its number"></td>
 <td width="55%" valign="middle">
 <h3>Born with a look of its own</h3>

@@ -894,6 +894,10 @@ final class ScreenshotGeneratorTests: XCTestCase {
         // 도감 — 번호순 그리드 + 못 잡은 종 실루엣.
         try write(png(tabChrome(NationalDexView(store: fixture.player))), "screenshot-collection.png")
 
+        // 곁에 두면 바뀌는 폼 — 이 규칙은 한 화면에 안 담긴다(파트너로 뒀다 내려야 보인다).
+        // 그래서 이로치 배너와 같은 방식으로, 앱이 쓰는 `SpriteView` 를 나란히 놓아 대비를 보인다.
+        try write(png(partnerFormBanner(fixture)), "form-banner.png")
+
         // 태어날 때 정해지는 겉모습 — 이름 옆 배지가 그 개체가 어떤 무늬로 태어났는지 말한다.
         // 지방 배지와 같은 자리를 쓰므로, 이 그림 하나로 두 규칙이 같이 설명된다.
         try write(png(tabChrome(BoxTabView(store: fixture.player, lines: ScreenshotFixture.lines,
@@ -944,6 +948,38 @@ final class ScreenshotGeneratorTests: XCTestCase {
         try write(try shinyAnimation(usage: usage), "shiny-banner.gif")
         try write(try revealAnimation(fixture), "screenshot-reveal.gif")
         try write(try menuBarAnimation(fixture, usage: usage), "menubar.gif")
+    }
+
+    /// 곁에 두면 바뀌는 폼 — 평소 모습과 바뀐 모습을 나란히.
+    ///
+    /// 앱에 이런 화면이 따로 있는 건 아니고, 앱이 쓰는 `SpriteView` 를 README 용으로 짝지어
+    /// 놓은 배너다(이로치 배너와 같은 방식). 규칙 자체가 시간에 걸쳐 일어나는 일이라
+    /// 한 화면으로는 안 담긴다.
+    ///
+    /// **정적 PNG 다.** 테라파고스는 Showdown 에 움직이는 스프라이트가 없어(실측) GIF 로 만들면
+    /// 한쪽만 멈춘 그림이 된다.
+    private func partnerFormBanner(_ fixture: Fixture) throws -> some View {
+        // `png` 는 `.task` 를 안 돌린다 — 그림은 `SpriteView.init` 의 동기 디스크 캐시에서만 온다.
+        // 그래서 먼저 받아 둔다(안 그러면 새 종이 빈칸으로 찍힌다).
+        for (species, form) in [(964, nil), (964, "palafin-hero"),
+                                (1024, nil), (1024, "terapagos-terastal")] as [(Int, String?)] {
+            _ = try waitFor { await SpriteLoader.image(speciesID: species, form: form) }
+        }
+        func pair(_ species: Int, _ changed: String) -> some View {
+            HStack(spacing: 20) {
+                SpriteView(speciesID: species, size: 68)
+                Image(systemName: "arrow.right").font(.system(size: 11, weight: .bold))
+                    .foregroundStyle(.secondary)
+                SpriteView(speciesID: species, form: changed, size: 68)
+            }
+        }
+        return VStack(spacing: 14) {
+            pair(964, "palafin-hero")
+            Divider().frame(width: 200)
+            pair(1024, "terapagos-terastal")
+        }
+        .padding(.horizontal, 28).padding(.vertical, 18)
+        .background(Color(nsColor: .windowBackgroundColor))
     }
 
     /// 히어로 — 팝오버 홈 탭 전체. 움직이는 것은 두 가지이고 둘 다 앱이 스스로 하는 일이다:
