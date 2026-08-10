@@ -122,3 +122,40 @@ final class HatchSpeedupTests: XCTestCase {
                             .remaining(at: clock), before, "감면이 안 걸렸다")
     }
 }
+
+/// 부화 줄의 감면 표시 — 카운트다운만 짧아지면 왜 빨라졌는지 알 길이 없다.
+@MainActor
+final class HatchSpeedupBadgeTests: XCTestCase {
+    /// 배지가 뜨는 조건이 곧 감면이 걸리는 조건이어야 한다. 둘이 갈라지면 표시가 거짓말을 한다 —
+    /// 빨라졌는데 표시가 없거나, 표시만 있고 안 빨라지거나.
+    func testTheBadgeAppearsExactlyWhenTheDiscountApplies() {
+        let ordinary = [Individual(baseID: 25, speciesID: 25, pathIDs: [25], nature: .hardy,
+                                   obtainedAt: Date(timeIntervalSince1970: 0), grade: .common)]
+        XCTAssertFalse(HatchSpeedup.present(in: []))
+        XCTAssertFalse(HatchSpeedup.present(in: ordinary))
+        let warmed = ordinary + [Individual(baseID: 218, speciesID: 218, pathIDs: [218],
+                                           nature: .hardy,
+                                           obtainedAt: Date(timeIntervalSince1970: 0), grade: .rare)]
+        XCTAssertTrue(HatchSpeedup.present(in: warmed))
+    }
+
+    /// 배지와 설명이 세 언어 모두 채워져 있어야 한다.
+    func testTheBadgeIsLocalized() {
+        for text in [\L.eggWarmedBadge, \L.eggWarmedHint] as [KeyPath<L, String>] {
+            let all = [AppLanguage.ko, .en, .ja].map { L($0)[keyPath: text] }
+            XCTAssertEqual(Set(all).count, 3, all.description)
+            XCTAssertFalse(all.contains { $0.isEmpty })
+        }
+    }
+
+    /// 부화 줄이 배지를 실제로 그리는지 — 조건만 맞고 화면에 안 닿으면 이 저장소가
+    /// 반복해서 밟은 "기능은 있는데 화면이 없다" 가 된다.
+    func testTheEggRowActuallyDrawsIt() throws {
+        let source = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("Sources/PokeDexBar/UI/EggSlotsView.swift")
+        let text = try String(contentsOf: source, encoding: .utf8)
+        XCTAssertTrue(text.contains("HatchSpeedup.present"), "부화 줄이 감면 여부를 안 본다")
+        XCTAssertTrue(text.contains("eggWarmedBadge"), "배지 문구를 안 쓴다")
+    }
+}

@@ -52,6 +52,18 @@ struct EggSlotsView: View {
                 Text(l.eggSlotsHeader).font(.system(size: 10, weight: .semibold))
                     .foregroundStyle(.secondary)
                 Spacer()
+                // 감면은 알마다가 아니라 줄 전체에 걸리는 상태다 — 그래서 슬롯이 아니라 여기 한 번.
+                // 이게 없으면 카운트다운만 짧아져서 왜 빨라졌는지 알 길이 없다.
+                if HatchSpeedup.present(in: store.state.box) {
+                    HStack(spacing: 2) {
+                        Image(systemName: "flame.fill").font(.system(size: 8))
+                        Text(l.eggWarmedBadge).font(.system(size: 8, weight: .bold))
+                    }
+                    .foregroundStyle(.orange)
+                    .padding(.horizontal, 5).padding(.vertical, 1)
+                    .background(Color.orange.opacity(0.15), in: Capsule())
+                    .help(l.eggWarmedHint)
+                }
                 Text("\(store.state.eggs.count) / \(store.state.slots)")
                     .font(.system(size: 9)).monospacedDigit().foregroundStyle(.tertiary)
             }

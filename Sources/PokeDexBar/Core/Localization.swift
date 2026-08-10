@@ -247,6 +247,14 @@ struct L {
 
     // MARK: 홈 — 부화 슬롯
     var eggSlotsHeader: String { t("부화 중", "Hatching", "ふ化中") }
+    /// 알을 빨리 깨우는 아이가 박스에 있을 때 부화 줄에 붙는 배지.
+    var eggWarmedBadge: String { t("따뜻함", "Warmed", "あたたかい") }
+    /// 그 배지에 마우스를 올렸을 때 — 왜 빨라졌는지 여기서만 설명한다.
+    var eggWarmedHint: String {
+        t("불꽃몸·마그마의무장·증기기관을 가진 아이가 박스에 있어 부화가 절반으로 빨라져요",
+          "A Pokémon with Flame Body, Magma Armor or Steam Engine is in your box — eggs hatch in half the time",
+          "ほのおのからだ・マグマのよろい・じょうききかんを持つ子がボックスにいて、ふ化が半分の時間になります")
+    }
     var eggHatchingNow: String { t("부화!", "Hatched!", "ふ化!") }
     /// 익은 알을 거두는 버튼 — 누르기 전까지 알은 슬롯에 남는다.
     var eggClaim: String { t("확인", "Open", "かくにん") }
