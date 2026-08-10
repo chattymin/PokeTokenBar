@@ -54,11 +54,24 @@ doc_check() {
     ui_feats=$(git log "$last_tag"..HEAD --format='%s' -- 'Sources/PokeDexBar/UI/' 2>/dev/null \
                  | grep -iE '^(feat|feature)[(:]' || true)
     new_assets=$(git diff --name-only --diff-filter=A "$last_tag"..HEAD -- 'assets/' 2>/dev/null)
-    if [[ -n "$ui_feats" && -z "$new_assets" ]]; then
+    # 예외 — "찾는 재미가 곧 내용"인 기능은 그림을 만드는 순간 목적을 잃는다.
+    # 그 판단을 docs/undocumented.md 에 **버전을 적어** 남긴 경우에만 통과시킨다(다음 릴리스는 다시 막힘).
+    local excused=""
+    if [[ -n "${VERSION:-}" ]] \
+       && grep -qE "^## ${VERSION//./\\.}[[:space:]]*$" docs/undocumented.md 2>/dev/null; then
+      excused=1
+    fi
+    if [[ -n "$ui_feats" && -z "$new_assets" && -n "$excused" ]]; then
+      echo "  ⚠ 신규 에셋 없이 통과 — docs/undocumented.md 에 $VERSION 예외가 적혀 있습니다:"
+      echo "$ui_feats" | sed 's/^/       /'
+      echo "     → 릴리스 노트·README·랜딩에 넣지 않기로 한 기능입니다. 그 판단은 그 파일에 남아 있습니다."
+      warn=1
+    elif [[ -n "$ui_feats" && -z "$new_assets" ]]; then
       echo "  ✗ UI 를 바꾼 신규 기능이 있는데 assets/ 에 **새로 추가된** 파일이 없습니다:"
       echo "$ui_feats" | sed 's/^/       /'
       echo "     → 새 화면·새 표면이면 전용 스크린샷을 만들어 README(ko/ja 포함)와 랜딩에 넣으세요."
-      echo "     → 이미지가 정말 불필요하다고 판단되면 그 판단을 커밋에 남기세요(feat 가 아닌 타입으로)."
+      echo "     → 찾는 재미가 곧 내용인 기능이라 그림을 만들면 안 되는 경우엔"
+      echo "       docs/undocumented.md 에 '## <버전>' 과 이유를 적으세요(그 버전에만 열립니다)."
       # 예외 없음. 경고(return 1, y/N 프롬프트)와 달리 return 2 는 호출부에서 즉시 중단시킨다 —
       # 환경변수 우회구를 두면 결국 그 변수가 습관이 된다. 통과시키려면 에셋을 만들거나
       # 커밋 타입을 바꿔야 한다(= 판단을 기록으로 남겨야 한다).

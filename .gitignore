@@ -22,6 +22,8 @@ build/
 
 # Personal dev notes (kept locally, not published)
 docs/*
+# 이 파일은 릴리스 게이트가 읽는다 — 저장소에 없으면 다른 클론에서 게이트가 못 통과한다.
+!docs/undocumented.md
 # This fork's design and plan documents are tracked — they are the contract
 # implementation works from, not personal notes.
 !docs/superpowers/
