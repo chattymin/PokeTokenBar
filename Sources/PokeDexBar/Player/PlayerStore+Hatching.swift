@@ -73,6 +73,11 @@ extension PlayerStore {
                                     nature: nature, exp: 0, obtainedAt: now, grade: egg.grade)
         individual.region = rolled?.0
         individual.regionVariant = rolled?.1
+        // 태어날 때 정해지는 겉모습(언노운의 글자, 비비용의 무늬). 지방과 같은 자리에서 굴린다.
+        // **부화하는 종이 아니라 라인 기준**이다 — 스카바로 태어나도 비비용의 무늬를 지금 정해 둔다.
+        individual.birthForm = BirthFormBalance.rollBirthForm(
+            baseID: egg.speciesID, roll: nextRandomUnit(), pick: nextRandomUnit(),
+            homeRegion: VivillonRegions.current)
         // 메타몽은 뮤의 모습을 하고 나온다. 위장은 **거두는 시점에** 붙인다 — 성격·지방과 같은
         // 이유로, 알에 미리 넣어 두면 확인을 누르기 전에 세이브에 정체가 노출된다.
         if egg.speciesID == DittoDisguise.speciesID { individual.disguisedAs = DittoDisguise.disguisedAs }

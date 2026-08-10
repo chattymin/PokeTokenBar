@@ -104,6 +104,12 @@ struct IndividualDetailView: View {
                             .padding(.horizontal, 5).padding(.vertical, 1)
                             .background(Color.secondary.opacity(0.18), in: Capsule())
                     }
+                    if let birth = individual.birthFormLabel(store.language) {
+                        Text(birth)
+                            .font(.system(size: 8, weight: .bold))
+                            .padding(.horizontal, 5).padding(.vertical, 1)
+                            .background(Color.secondary.opacity(0.18), in: Capsule())
+                    }
                 }
                 if isPartner {
                     Text(l.partnerBadge)

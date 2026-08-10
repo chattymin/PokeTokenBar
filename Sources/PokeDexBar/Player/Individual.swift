@@ -34,6 +34,13 @@ struct Individual: Identifiable, Codable, Sendable, Equatable {
     var region: Region?
     /// 같은 지방에 모습이 여럿인 종의 구분(팔데아 켄타로스 combat/blaze/aqua).
     var regionVariant: String?
+    /// 태어날 때 정해진 겉모습의 변종 키(`"c"` · `"polar"` · `"blue"` · `"east"`).
+    ///
+    /// 지방(`region`)과 성격이 같다 — 부화할 때 정해지고 평생 안 바뀌며 진화해도 이어진다.
+    /// 다만 지방은 "어디서 왔나"이고 이건 **그냥 그렇게 태어난 것**이다.
+    /// 슬러그가 아니라 키를 담는 이유는 단계마다 슬러그가 다르기 때문이다
+    /// (`flabebe-blue` → `floette-blue` → `florges-blue`).
+    var birthForm: String?
     /// 위장 중이면 그 모습의 종 번호(메타몽이 뮤로 위장 중이면 151). 풀리면 nil 이 되고 다시 안 붙는다.
     ///
     /// **정체는 `speciesID` 에 그대로 둔다.** 위장 중에도 이 개체는 메타몽이고, 진화·리본·경험치가
@@ -46,6 +53,21 @@ struct Individual: Identifiable, Codable, Sendable, Equatable {
 
     /// 정체를 알 수 없는 종의 표기. 원작이 쓰는 그대로라 번역하지 않는다.
     static let unknownName = "???"
+
+    /// 태어날 때 정해진 겉모습의 이름 — 배지에 쓴다. 없으면 nil.
+    ///
+    /// **이름 앞에 붙이지 않는다.** "알로라 라이츄"는 자연스럽지만 "설국의 모양 비비용"은 아니다.
+    /// 지방 배지와 같은 자리에 같은 모양으로 놓는다(둘 다 붙는 개체는 없다 — 이 다섯 라인에는
+    /// 지방 모습이 없다).
+    func birthFormLabel(_ lang: AppLanguage) -> String? {
+        // 위장 중이면 아무것도 안 내민다 — 정체를 알려 주는 단서가 된다.
+        guard disguisedAs == nil else { return nil }
+        if speciesID == 849 { return BirthFormBalance.toxtricityLabel(nature: nature).text(lang) }
+        guard let birthForm,
+              let known = BirthFormCatalog.form(speciesID: speciesID, variant: birthForm)
+        else { return nil }
+        return known.label.text(lang)
+    }
 
     /// 이름을 찾을 때 볼 진화 라인의 키. 위장 중이면 **위장한 종의 라인**을 봐야 한다 —
     /// 정체(메타몽)의 라인에는 위장한 종(뮤)의 이름이 없어서 "#151" 로 떨어진다.
@@ -61,6 +83,14 @@ struct Individual: Identifiable, Codable, Sendable, Equatable {
         // 위장이 가장 앞이다 — 위장 중엔 다른 무엇도 그려지면 안 된다.
         if disguisedAs != nil { return DittoDisguise.formSlug }
         if let form { return form }
+        // 스트린더는 저장된 값이 없다 — 성격에서 나온다.
+        if speciesID == 849 { return BirthFormBalance.toxtricitySlug(nature: nature) }
+        // 태어날 때 정해진 겉모습. **그 단계에 해당 그림이 없으면 그냥 넘어간다** —
+        // 스카바는 무늬를 갖고 있어도 겉모습이 같아서 카탈로그에 항목이 없다.
+        if let birthForm,
+           let known = BirthFormCatalog.form(speciesID: speciesID, variant: birthForm) {
+            return known.slug
+        }
         guard let region else { return nil }
         return RegionalFormCatalog.form(speciesID: speciesID, region: region,
                                         variant: regionVariant)?.slug
@@ -160,6 +190,7 @@ struct Individual: Identifiable, Codable, Sendable, Equatable {
         region = value(.region, nil)
         regionVariant = value(.regionVariant, nil)
         disguisedAs = value(.disguisedAs, nil)
+        birthForm = value(.birthForm, nil)
     }
 
     /// 관대 디코딩의 짝 — 값 범위 검증(CLAUDE.md 결함 대응 프로토콜).
@@ -179,6 +210,14 @@ struct Individual: Identifiable, Codable, Sendable, Equatable {
            RegionalFormCatalog.forms(speciesID: speciesID)
                .first(where: { $0.region == region && $0.variant == variant }) == nil {
             fixed.regionVariant = nil
+        }
+        // 카탈로그에 없는 변종은 버린다. 그대로 두면 그 개체만 영영 기본 모습으로 보이는데,
+        // 값은 남아 있어 원인이 안 보인다 — 관대 디코딩의 짝인 값 범위 검증이다.
+        // **라인 기준으로 본다** — 스카바는 자기 단계엔 항목이 없지만 무늬는 가져야 한다.
+        if let variant = fixed.birthForm,
+           !BirthFormCatalog.variants(forLineStartingAt: baseID).contains(variant) {
+            fixed.birthForm = nil
+            AppLog.write("Individual: dropped unknown birth form \(variant) for line \(baseID)")
         }
         // 위장은 메타몽이 뮤로 하는 것 하나뿐이다. 다른 값이 들어 있으면(외부 세이브를 들여올 때)
         // 존재하지 않는 그림을 계속 요청하게 되므로 버린다 — 관대 디코딩의 짝인 값 범위 검증이다.
