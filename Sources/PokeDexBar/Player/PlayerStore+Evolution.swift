@@ -47,6 +47,7 @@ extension PlayerStore {
               meetsRequirement(need, for: individual) else { return false }
         let threshold = ExpBalance.threshold(grade: individual.grade,
                                              stageIndex: individual.stageIndex)
+        let hadSpeedup = HatchSpeedup.present(in: state.box)
         mutate { state in
             state.box[index].speciesID = speciesID
             state.box[index].pathIDs.append(speciesID)
@@ -57,6 +58,8 @@ extension PlayerStore {
             // 도구는 소모하지 않는다 — 다시 얻는 값이 며칠의 파트너 시간이라, 없어지면 같은
             // 도구를 두 번째 개체에 쓸 방법이 사실상 없다. 한 번 물어 오면 영구 해금이다.
         }
+        // 진화로 종이 바뀌면서 알을 빨리 깨우는 아이가 될 수 있다 — 부화와 같은 처리를 받는다.
+        applyHatchSpeedupIfNewlyEarned(hadSpeedupBefore: hadSpeedup)
         return true
     }
 }

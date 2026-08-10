@@ -20,9 +20,11 @@ extension PlayerStore {
     func startEgg(grade: Grade, speciesID: Int, shiny: Bool) -> Egg? {
         guard canDraw else { return nil }
         let started = currentDate()
+        // 알을 빨리 깨우는 아이를 이미 데리고 있으면 처음부터 절반으로 시작한다.
+        let full = EggBalance.duration(grade)
+        let span = HatchSpeedup.present(in: state.box) ? full * HatchSpeedup.multiplier : full
         let egg = Egg(grade: grade, speciesID: speciesID, shiny: shiny,
-                      startedAt: started,
-                      hatchesAt: started.addingTimeInterval(EggBalance.duration(grade)))
+                      startedAt: started, hatchesAt: started.addingTimeInterval(span))
         mutate {
             $0.spentTokens += EggBalance.drawPrice
             $0.eggs.append(egg)

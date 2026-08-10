@@ -42,12 +42,14 @@ final class PlayerStore {
         let individual = Individual(baseID: speciesID, speciesID: speciesID, pathIDs: [speciesID],
                                     shiny: false, nature: nature, exp: 0,
                                     obtainedAt: now(), grade: grade)
+        let hadSpeedup = HatchSpeedup.present(in: state.box)
         state.box.append(individual)
         state.box[state.box.count - 1].partnerSince = now()
         state.partnerID = individual.id
         state.starterChosen = true
         state.dex.insert(speciesID)
         save()
+        applyHatchSpeedupIfNewlyEarned(hadSpeedupBefore: hadSpeedup)
         return individual
     }
 
@@ -196,6 +198,27 @@ final class PlayerStore {
         save()
     }
 
+    /// 알을 빨리 깨우는 아이를 **처음** 얻었으면, 진행 중인 알의 남은 시간을 절반으로 줄인다.
+    ///
+    /// 개체가 박스에 들어오거나 진화로 종이 바뀐 뒤에 부른다. 이미 그런 아이가 있었다면 아무 일도
+    /// 없다 — 원작에서도 여러 마리는 중첩되지 않는다.
+    ///
+    /// **지나간 시간은 안 건드린다.** 남은 몫만 줄어드니 20분 굴린 30분짜리 알은 남은 10분이
+    /// 5분이 되는 것이지, 유효 시간이 15분이 되어 이미 익어 있지는 않다.
+    ///
+    /// - Parameter hadSpeedupBefore: 이 개체가 들어오기 **전에** 이미 있었나. 호출부가 먼저 재서
+    ///   넘긴다 — 들어온 뒤에 재면 방금 들어온 아이 때문에 항상 참이 되어 감면이 영영 안 걸린다.
+    func applyHatchSpeedupIfNewlyEarned(hadSpeedupBefore: Bool) {
+        guard !hadSpeedupBefore, HatchSpeedup.present(in: state.box) else { return }
+        let now = currentDate()
+        mutate { state in
+            for index in state.eggs.indices {
+                state.eggs[index].hatchesAt = HatchSpeedup.halvedRemaining(
+                    hatchesAt: state.eggs[index].hatchesAt, now: now)
+            }
+        }
+    }
+
     /// 파트너의 겉모습을 깨뜨린다 — 두드릴 수 있는 아이일 때만.
     /// 이미 깨져 있으면 아무 일도 없다(저장을 헛되이 다시 쓰지 않는다).
     func breakPartnerForm() {
@@ -230,7 +253,9 @@ final class PlayerStore {
     /// 테스트 전용 — 부화가 없는 2a 단계에서 박스에 개체를 넣는 유일한 경로.
     /// 획득 불변식(스타터 1회·카탈로그 소속·성격 굴림)을 전부 우회하므로 릴리스 빌드에서 잘라낸다.
     func addForTesting(_ individual: Individual) {
+        let hadSpeedup = HatchSpeedup.present(in: state.box)
         state.box.append(individual)
+        applyHatchSpeedupIfNewlyEarned(hadSpeedupBefore: hadSpeedup)
         state.dex.insert(individual.speciesID)
         save()
     }
