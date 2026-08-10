@@ -70,6 +70,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         observeStore()
         observeCompanionSprite()
         observeDisplaySleep()
+        observeAppResignActive()
         applyState()
     }
 
@@ -383,6 +384,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             forName: NSWindow.didChangeOcclusionStateNotification, object: nil, queue: .main
         ) { [weak self] _ in
             Task { @MainActor in self?.syncMenuAnimation() }
+        }
+    }
+
+    /// 다른 메뉴바 팝업은 outside 클릭 없이 앱만 비활성화 → .transient 팝오버가 안 닫힘. resignActive 시 직접 닫는다.
+    private func observeAppResignActive() {
+        NotificationCenter.default.addObserver(
+            forName: NSApplication.didResignActiveNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in
+                guard let self, self.popover.isShown else { return }
+                self.popover.performClose(nil)
+            }
         }
     }
 
