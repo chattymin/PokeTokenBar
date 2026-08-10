@@ -213,8 +213,11 @@ final class PartnerFormTests: XCTestCase {
     }
 
     /// 스텔라를 여는 도구가 카탈로그에 이어져 있는지 — 파트너가 물어 오는 경로다.
-    func testTheStellarShardReachesTerapagos() {
+    ///
+    /// **테라스탈 오브여야 한다.** 스텔라는 테라스탈해서 나오고 그걸 일으키는 게 이 도구다 —
+    /// 테라피스는 테라스탈 *타입* 을 바꾸는 물건이라 무관하고, 테라파고스는 그 대상에서 빠져 있다.
+    func testTheTeraOrbReachesTerapagos() {
         let items = FormForageCatalog.items(speciesID: 1024, region: nil).map(\.item)
-        XCTAssertTrue(items.contains(.stellarTeraShard), "테라파고스가 테라피스를 못 물어온다")
+        XCTAssertTrue(items.contains(.teraOrb), "테라파고스가 테라스탈 오브를 못 물어온다")
     }
 }

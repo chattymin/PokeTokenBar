@@ -338,12 +338,15 @@ enum FormCatalog {
               label: .init("검의 왕", "Crowned", "けんのおう"), source: .foraged(.rustedSword)),
         // 테라파고스 — 스텔라 폼.
         //
-        // **원작엔 없는 용법이다.** 테라피스는 테라스탈 타입을 바꾸는 도구인데 테라파고스는
-        // 타입이 스텔라로 고정돼 있어 대상에서 빠져 있다(오거폰과 함께). 진짜 트리거는 *배틀 중
-        // 테라스탈* 인데 이 앱엔 그에 대응할 조작이 없어서, 이미 쓰고 있는 문법(전용 도구)으로
-        // 가장 가깝게 옮겼다. 노말 → 테라스탈은 도구가 아니라 곁에 두는 것으로 일어난다.
+        // 스텔라는 테라파고스가 **테라스탈했을 때** 나오고, 테라스탈을 일으키는 도구가 테라스탈
+        // 오브다. 그래서 원인이 그대로 맞는다 — 처음엔 테라피스를 쓰려 했는데, 그건 테라스탈
+        // *타입*을 바꾸는 도구라 무관한 데다 테라파고스는 그 대상에서 아예 빠져 있다(타입이
+        // 스텔라로 고정돼 있어서, 오거폰과 함께 명시적으로 제외).
+        //
+        // 트레이너가 쓰는 키 아이템이지만 앞선 선례가 있다 — 유전자쐐기·지가르데큐브·감옥병.
+        // 노말 → 테라스탈은 도구가 아니라 곁에 두는 것으로 일어난다(특성 「테라체인지」).
         .init(speciesID: 1024, slug: "terapagos-stellar", kind: .legendary, variant: nil,
-              label: .init("스텔라", "Stellar", "ステラ"), source: .foraged(.stellarTeraShard)),
+              label: .init("스텔라", "Stellar", "ステラ"), source: .foraged(.teraOrb)),
         .init(speciesID: 889, slug: "zamazenta-crowned", kind: .legendary, variant: nil,
               label: .init("방패의 왕", "Crowned", "たてのおう"), source: .foraged(.rustedShield)),
         .init(speciesID: 801, slug: "magearna-original", kind: .legendary, variant: nil,
