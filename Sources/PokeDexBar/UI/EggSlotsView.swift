@@ -52,18 +52,6 @@ struct EggSlotsView: View {
                 Text(l.eggSlotsHeader).font(.system(size: 10, weight: .semibold))
                     .foregroundStyle(.secondary)
                 Spacer()
-                // 감면은 알마다가 아니라 줄 전체에 걸리는 상태다 — 그래서 슬롯이 아니라 여기 한 번.
-                // 이게 없으면 카운트다운만 짧아져서 왜 빨라졌는지 알 길이 없다.
-                if HatchSpeedup.present(in: store.state.box) {
-                    HStack(spacing: 2) {
-                        Image(systemName: "flame.fill").font(.system(size: 8))
-                        Text(l.eggWarmedBadge).font(.system(size: 8, weight: .bold))
-                    }
-                    .foregroundStyle(.orange)
-                    .padding(.horizontal, 5).padding(.vertical, 1)
-                    .background(Color.orange.opacity(0.15), in: Capsule())
-                    .help(l.eggWarmedHint)
-                }
                 Text("\(store.state.eggs.count) / \(store.state.slots)")
                     .font(.system(size: 9)).monospacedDigit().foregroundStyle(.tertiary)
             }
@@ -79,6 +67,21 @@ struct EggSlotsView: View {
             }
             // 슬롯이 적으면(대부분의 사용자) 스크롤·바운스가 생기지 않아 기존과 동일하게 보인다.
             .scrollBounceBehavior(.basedOnSize, axes: .horizontal)
+            // **툴팁이 아니라 인라인 한 줄이다.** 팝오버 안에서는 `.help` 가 안 뜬다(실사용 확인) —
+            // 이 앱의 다른 `.help` 들도 마찬가지라, 안 보이는 곳에 설명을 두면 없는 것과 같다.
+            //
+            // 감면은 알마다가 아니라 부화 전체에 걸리는 상태라 슬롯이 아니라 줄 아래 한 번 적는다.
+            // 이게 없으면 카운트다운만 짧아져서 왜 빨라졌는지 알 길이 없다.
+            if let warmer = HatchSpeedup.warmer(in: store.state.box) {
+                HStack(spacing: 3) {
+                    Image(systemName: "flame.fill").font(.system(size: 8)).foregroundStyle(.orange)
+                    Text(warmedHint).font(.system(size: 9)).foregroundStyle(.tertiary)
+                }
+                .task(id: warmer.displayLineID) {
+                    // 이름은 네트워크로 오는 값이다 — 없으면 요청해 두고, 오는 대로 문장이 채워진다.
+                    if lines[warmer.displayLineID] == nil { onNeedLine(warmer.displayLineID) }
+                }
+            }
         }
         .onChange(of: now) { _, date in announceRipeEggs(at: date) }
         // 거둔 개체를 한 번 보여준다 — 확인을 누른 보람이 있어야 하고, 이걸 안 보면 무엇이
@@ -98,6 +101,17 @@ struct EggSlotsView: View {
     /// "수동"으로 둔 사용자(`UsageStore` 의 0초 프리셋)는 타이머가 아예 없어 영영 안 나간다.
     /// 이미 도는 1초 틱에 얹으므로 새 타이머는 없고, 익은 알이 없으면 아무 일도 하지 않는다.
     /// **거두는 건 여기서 하지 않는다** — 그건 사용자가 확인을 눌러야 한다.
+    /// 감면을 준 아이의 이름을 넣은 안내. 라인이 아직 없으면 요청하고 일반 문구로 떨어진다 —
+    /// 이름이 번호(`#663`)로 나오느니 "어떤 아이 덕"이라고만 말하는 편이 낫다.
+    private var warmedHint: String {
+        guard let warmer = HatchSpeedup.warmer(in: store.state.box) else { return l.eggWarmedHint }
+        guard let name = lines[warmer.displayLineID]?
+                .localizedName(warmer.displaySpeciesID, store.language) else {
+            return l.eggWarmedHint
+        }
+        return l.eggWarmedBy(warmer.displayName(speciesName: name, store.language))
+    }
+
     private func announceRipeEggs(at date: Date) {
         guard store.readyEggCount(at: date) > 0 else { return }
         store.announceReadyEggsAndNotify(at: date)

@@ -247,9 +247,13 @@ struct L {
 
     // MARK: 홈 — 부화 슬롯
     var eggSlotsHeader: String { t("부화 중", "Hatching", "ふ化中") }
-    /// 알을 빨리 깨우는 아이가 박스에 있을 때 부화 줄에 붙는 배지.
-    var eggWarmedBadge: String { t("따뜻함", "Warmed", "あたたかい") }
-    /// 그 배지에 마우스를 올렸을 때 — 왜 빨라졌는지 여기서만 설명한다.
+    /// 배지에 마우스를 올렸을 때 — 누구 덕인지 짚어 준다.
+    func eggWarmedBy(_ name: String) -> String {
+        t("\(name)의 도움으로 부화가 빨라졌어요",
+          "\(name) is keeping your eggs warm — they hatch in half the time",
+          "\(name) のおかげでふ化が早くなっています")
+    }
+    /// 이름을 아직 못 받아온 경우 — 라인은 네트워크로 오므로 첫 순간엔 비어 있을 수 있다.
     var eggWarmedHint: String {
         t("불꽃몸·마그마의무장·증기기관을 가진 아이가 박스에 있어 부화가 절반으로 빨라져요",
           "A Pokémon with Flame Body, Magma Armor or Steam Engine is in your box — eggs hatch in half the time",

@@ -141,7 +141,7 @@ final class HatchSpeedupBadgeTests: XCTestCase {
 
     /// 배지와 설명이 세 언어 모두 채워져 있어야 한다.
     func testTheBadgeIsLocalized() {
-        for text in [\L.eggWarmedBadge, \L.eggWarmedHint] as [KeyPath<L, String>] {
+        for text in [\L.eggWarmedHint] as [KeyPath<L, String>] {
             let all = [AppLanguage.ko, .en, .ja].map { L($0)[keyPath: text] }
             XCTAssertEqual(Set(all).count, 3, all.description)
             XCTAssertFalse(all.contains { $0.isEmpty })
@@ -155,7 +155,46 @@ final class HatchSpeedupBadgeTests: XCTestCase {
             .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
             .appendingPathComponent("Sources/PokeDexBar/UI/EggSlotsView.swift")
         let text = try String(contentsOf: source, encoding: .utf8)
-        XCTAssertTrue(text.contains("HatchSpeedup.present"), "부화 줄이 감면 여부를 안 본다")
-        XCTAssertTrue(text.contains("eggWarmedBadge"), "배지 문구를 안 쓴다")
+        XCTAssertTrue(text.contains("HatchSpeedup.warmer"), "부화 줄이 감면 여부를 안 본다")
+        XCTAssertTrue(text.contains("warmedHint"), "안내 문구를 안 쓴다")
+        // **툴팁으로 돌아가면 안 된다.** 팝오버 안에서는 `.help` 가 안 뜬다(실사용 확인) —
+        // 안 보이는 곳에 설명을 두면 없는 것과 같다.
+        XCTAssertFalse(text.contains(".help("), "설명이 툴팁으로 돌아갔다 — 팝오버에서는 안 보인다")
+    }
+}
+
+/// 안내 문구에 이름을 넣는 부분.
+@MainActor
+final class HatchSpeedupNamingTests: XCTestCase {
+    private func make(_ speciesID: Int) -> Individual {
+        Individual(baseID: speciesID, speciesID: speciesID, pathIDs: [speciesID], nature: .hardy,
+                   obtainedAt: Date(timeIntervalSince1970: 0), grade: .rare)
+    }
+
+    /// **가장 먼저 얻은 아이**를 고른다. 박스는 얻은 순서라 맨 앞이 그 감면을 처음 준 개체이고,
+    /// 이름을 내밀 때 그쪽이 말이 된다.
+    func testItNamesTheOneThatEarnedIt() {
+        let box = [make(25), make(218), make(663)]      // 피카츄 · 마그마그 · 파이어로
+        XCTAssertEqual(HatchSpeedup.warmer(in: box)?.speciesID, 218)
+        XCTAssertNil(HatchSpeedup.warmer(in: [make(25)]))
+    }
+
+    /// `present` 와 `warmer` 가 같은 답을 해야 한다 — 갈라지면 배지는 뜨는데 이름이 없거나
+    /// 그 반대가 된다.
+    func testPresenceAndWarmerAgree() {
+        for box in [[], [make(25)], [make(218)], [make(25), make(935)]] {
+            XCTAssertEqual(HatchSpeedup.present(in: box), HatchSpeedup.warmer(in: box) != nil)
+        }
+    }
+
+    /// 이름이 들어간 문구가 세 언어 모두 있고, 이름이 실제로 박힌다.
+    func testTheNamedHintIsLocalized() {
+        for lang in [AppLanguage.ko, .en, .ja] {
+            let text = L(lang).eggWarmedBy("파이어로")
+            XCTAssertTrue(text.contains("파이어로"), "\(lang) 문구에 이름이 안 들어갔다: \(text)")
+            XCTAssertFalse(text.isEmpty)
+        }
+        let all = [AppLanguage.ko, .en, .ja].map { L($0).eggWarmedBy("X") }
+        XCTAssertEqual(Set(all).count, 3, "번역이 겹친다: \(all)")
     }
 }

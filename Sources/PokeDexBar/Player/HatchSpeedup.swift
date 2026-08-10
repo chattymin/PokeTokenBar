@@ -24,8 +24,12 @@ enum HatchSpeedup {
     ]
 
     /// 이 개체들 중에 알을 빨리 깨우는 아이가 있나.
-    static func present(in box: [Individual]) -> Bool {
-        box.contains { species.contains($0.speciesID) }
+    static func present(in box: [Individual]) -> Bool { warmer(in: box) != nil }
+
+    /// 알을 데워 주는 아이. 여럿이면 **가장 먼저 얻은** 아이다 — 박스는 얻은 순서라
+    /// 맨 앞이 그 감면을 처음 준 개체이고, 화면에 이름을 내밀 때 그쪽이 말이 된다.
+    static func warmer(in box: [Individual]) -> Individual? {
+        box.first { species.contains($0.speciesID) }
     }
 
     /// 남은 시간을 절반으로 줄인 부화 시각.
