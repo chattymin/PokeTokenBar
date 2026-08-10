@@ -85,6 +85,7 @@ enum FormItem: String, CaseIterable, Codable, Sendable {
     case reinsOfUnity = "form-reins-of-unity"         // 버드렉스
     case rustedSword = "form-rusted-sword"            // 자시안
     case rustedShield = "form-rusted-shield"          // 자마젠타
+    case stellarTeraShard = "form-stellar-tera-shard"  // 테라파고스
     case soulHeart = "form-soul-heart"                // 마기아나
 
     /// 저장 키가 상점 품목·진화 도구와 겹치면 인벤토리 한 칸을 두고 다툰다.
@@ -156,6 +157,7 @@ enum FormItem: String, CaseIterable, Codable, Sendable {
         case .reinsOfUnity: ("유대의 고삐", "Reins of Unity", "たづな")
         case .rustedSword: ("녹슨 검", "Rusted Sword", "くちたけん")
         case .rustedShield: ("녹슨 방패", "Rusted Shield", "くちたたて")
+        case .stellarTeraShard: ("스텔라 테라피스", "Stellar Tera Shard", "テラピースステラ")
         case .soulHeart: ("소울하트", "Soul-Heart", "ソウルハート")
         }
         switch lang { case .ko: return names.0; case .en: return names.1; case .ja: return names.2 }

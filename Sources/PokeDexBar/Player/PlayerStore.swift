@@ -216,6 +216,8 @@ final class PlayerStore {
         state.box[index].partnerSince = nil
         // 곁에서 내려오면 깨진 겉모습이 돌아온다 — 그 아이의 배틀이 끝나는 셈이다.
         state.box[index].formBroken = false
+        // 물러난 횟수가 하나 는다 — 돌핀맨의 모습이 여기서 번갈아 바뀐다.
+        state.box[index].partnerStintsEnded += 1
     }
 
     func registerInDex(_ speciesID: Int) {

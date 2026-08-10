@@ -135,3 +135,86 @@ final class BrokenFormTests: XCTestCase {
         XCTAssertGreaterThan(BrokenForm.tapsToBreak, 1)
     }
 }
+
+/// 곁에 두는 것으로 바뀌는 폼 — 돌핀맨과 테라파고스.
+@MainActor
+final class PartnerFormTests: XCTestCase {
+    private func makeStore() -> PlayerStore {
+        PlayerStore(fileURL: FileManager.default.temporaryDirectory
+                        .appendingPathComponent("pform-\(UUID().uuidString).json"),
+                    rng: SeededRNG(seed: 6), now: { Date(timeIntervalSince1970: 0) },
+                    defaults: UserDefaults(suiteName: "ptb-pform-\(UUID().uuidString)")!)
+    }
+
+    private func make(_ speciesID: Int) -> Individual {
+        Individual(baseID: speciesID, speciesID: speciesID, pathIDs: [speciesID], nature: .hardy,
+                   obtainedAt: Date(timeIntervalSince1970: 0), grade: .legendary)
+    }
+
+    // MARK: 돌핀맨 — 곁에 뒀다 내렸다 할 때마다 번갈아
+
+    /// 원작의 「제로 투 히어로」는 **물러날 때** 발동한다 — 처음 내보낼 때가 아니다.
+    func testPalafinTogglesEachTimeItStandsDown() {
+        let store = makeStore()
+        let palafin = make(964), other = make(25)
+        store.addForTesting(palafin)
+        store.addForTesting(other)
+        func form() -> String? { store.state.box.first { $0.id == palafin.id }?.spriteForm }
+
+        store.setPartner(palafin.id)
+        XCTAssertNil(form(), "처음 곁에 뒀는데 벌써 바뀌었다 — 물러나야 바뀐다")
+
+        store.setPartner(other.id)                    // 한 번 물러남
+        XCTAssertEqual(form(), "palafin-hero")
+        store.setPartner(palafin.id)
+        XCTAssertEqual(form(), "palafin-hero", "다시 데려왔다고 풀리면 안 된다")
+
+        store.setPartner(other.id)                    // 두 번째 물러남
+        XCTAssertNil(form(), "번갈아 안 바뀐다")
+        store.setPartner(palafin.id)
+        store.setPartner(other.id)                    // 세 번째
+        XCTAssertEqual(form(), "palafin-hero")
+    }
+
+    /// **횟수를 담는다.** 뒤집힌 상태를 불리언으로 담으면 저장된 값이 "몇 번 물러났나"가 아니라
+    /// "지금 어느 폼인가"가 되어, 규칙을 바꾸는 순간 옛 세이브의 뜻이 달라진다.
+    func testItStoresTheCountNotTheForm() {
+        let store = makeStore()
+        let palafin = make(964), other = make(25)
+        store.addForTesting(palafin); store.addForTesting(other)
+        store.setPartner(palafin.id); store.setPartner(other.id)
+        store.setPartner(palafin.id); store.setPartner(other.id)
+        XCTAssertEqual(store.state.box.first { $0.id == palafin.id }?.partnerStintsEnded, 2)
+    }
+
+    // MARK: 테라파고스 — 곁에 있으면 테라스탈
+
+    /// 특성 「테라체인지」는 *배틀에 나오면* 발동한다 — 테라스탈 기믹과 별개로 등장이 트리거다.
+    func testTerapagosIsTerastalWhileAtYourSide() {
+        let store = makeStore()
+        let terapagos = make(1024), other = make(25)
+        store.addForTesting(terapagos); store.addForTesting(other)
+        func form() -> String? { store.state.box.first { $0.id == terapagos.id }?.spriteForm }
+
+        XCTAssertNil(form(), "곁에 없는데 테라스탈이다")
+        store.setPartner(terapagos.id)
+        XCTAssertEqual(form(), "terapagos-terastal")
+        store.setPartner(other.id)
+        XCTAssertNil(form(), "곁에서 내려왔는데 안 돌아왔다")
+    }
+
+    /// **도구로 연 스텔라가 이긴다.** 원작에서도 스텔라는 테라스탈 폼에서 한 단계 더 간 모습이라,
+    /// 곁에 있다고 테라스탈로 되돌아가면 안 된다.
+    func testStellarOutranksTerastal() {
+        var terapagos = make(1024)
+        terapagos.form = "terapagos-stellar"
+        terapagos.partnerSince = Date(timeIntervalSince1970: 0)
+        XCTAssertEqual(terapagos.spriteForm, "terapagos-stellar")
+    }
+
+    /// 스텔라를 여는 도구가 카탈로그에 이어져 있는지 — 파트너가 물어 오는 경로다.
+    func testTheStellarShardReachesTerapagos() {
+        let items = FormForageCatalog.items(speciesID: 1024, region: nil).map(\.item)
+        XCTAssertTrue(items.contains(.stellarTeraShard), "테라파고스가 테라피스를 못 물어온다")
+    }
+}

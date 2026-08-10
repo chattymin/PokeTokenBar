@@ -34,6 +34,16 @@ struct Individual: Identifiable, Codable, Sendable, Equatable {
     var region: Region?
     /// 같은 지방에 모습이 여럿인 종의 구분(팔데아 켄타로스 combat/blaze/aqua).
     var regionVariant: String?
+    /// 파트너 자리에서 **몇 번 물러났나.**
+    ///
+    /// 돌핀맨(#964)의 모습이 여기서 나온다 — 홀수 번 물러났으면 마이티폼, 짝수면 평소 모습.
+    /// 곁에 뒀다 내렸다 할 때마다 번갈아 바뀐다.
+    ///
+    /// **횟수를 담고 해석은 읽는 쪽에서 한다.** 뒤집힌 상태를 불리언으로 담으면 저장된 값이
+    /// "몇 번 물러났나"가 아니라 "지금 어느 폼인가"가 되어, 규칙을 바꾸는 순간 옛 세이브의 뜻이
+    /// 달라진다. `partnerSeconds > 0` 으로 파생시키지 않는 이유도 같다 — 1초 미만으로 교체하면
+    /// 그 값이 0이라, 대체로 맞을 뿐 사실 자체가 아니다.
+    var partnerStintsEnded = 0
     /// 맞아서 겉모습이 깨졌나(따라큐의 탈, 빙큐보의 얼음머리).
     ///
     /// 파트너에서 내려오면 돌아온다(`PlayerStore.closePartnerStint`) — 그 아이의 배틀이
@@ -88,6 +98,19 @@ struct Individual: Identifiable, Codable, Sendable, Equatable {
         // 위장이 가장 앞이다 — 위장 중엔 다른 무엇도 그려지면 안 된다.
         if disguisedAs != nil { return DittoDisguise.formSlug }
         if let form { return form }
+        // 테라파고스 — 곁에 두면 테라스탈 폼. 특성 「테라체인지」가 *배틀에 나오면* 발동하는
+        // 그대로다(테라스탈 기믹과는 별개로, 등장 자체가 트리거다). 저장할 값이 없다.
+        //
+        // **도구로 연 스텔라가 이걸 이긴다** — 위의 `form` 분기가 먼저라 이 줄까지 안 온다.
+        // 원작에서도 스텔라는 테라스탈 폼에서 한 단계 더 간 모습이다.
+        if speciesID == 1024, partnerSince != nil { return "terapagos-terastal" }
+        // 돌핀맨 — 물러난 횟수가 홀수면 마이티폼. 저장된 슬러그가 아니라 그 횟수에서 나온다.
+        //
+        // 원작의 「제로 투 히어로」는 *배틀에서 물러날 때* 발동하고 그 배틀 동안 유지된다.
+        // 이 앱엔 배틀 경계가 없어서 "언제 노말로 돌아가나"에 답이 없다 — 그래서 곁에 뒀다
+        // 내렸다 할 때마다 번갈아 바뀌게 뒀다. 사용자가 직접 오가게 만드는 조작이라 변신을
+        // 눈으로 보게 된다.
+        if speciesID == 964, partnerStintsEnded.isMultiple(of: 2) == false { return "palafin-hero" }
         // 깨진 모습이 가장 먼저다 — 깨져 있으면 그게 지금 이 아이의 모습이다.
         if formBroken, let broken = BrokenForm.slugs[speciesID] { return broken }
         // 스트린더는 저장된 값이 없다 — 성격에서 나온다.
@@ -199,6 +222,7 @@ struct Individual: Identifiable, Codable, Sendable, Equatable {
         disguisedAs = value(.disguisedAs, nil)
         birthForm = value(.birthForm, nil)
         formBroken = value(.formBroken, false)
+        partnerStintsEnded = value(.partnerStintsEnded, 0)
     }
 
     /// 관대 디코딩의 짝 — 값 범위 검증(CLAUDE.md 결함 대응 프로토콜).
