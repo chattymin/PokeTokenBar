@@ -62,6 +62,13 @@ An animated Gen-V sprite lives next to today's total tokens (compact, e.g. <code
 <td width="45%" align="center"><img src="assets/menubar.gif" width="240" alt="Menu bar"></td>
 </tr>
 <tr>
+<td width="45%" align="center"><img src="assets/hatch-speedup.png" width="300" alt="The same two eggs hatching in half the time, with a line naming the Talonflame responsible"></td>
+<td width="55%" valign="middle">
+<h3>A warm Pokémon in the box hatches eggs faster</h3>
+Flame Body, Magma Armor and Steam Engine halve egg hatching in the games, and the 23 species that carry one of them do it here too. Owning any of them is enough — no need to keep it at your side. Whatever is already incubating loses half its remaining time the moment it arrives, and every egg after that starts at half. The hatching row says which Pokémon you have to thank.
+</td>
+</tr>
+<tr>
 <td width="55%" valign="middle">
 <h3>Some change by who you keep close</h3>
 Palafin turns Hero the way it does in the games — not when it comes out, but when it steps back. Put it at your side, swap someone else in, and it returns changed; swap again and it drops back. Terapagos is simpler: it wears its Terastal Form for as long as it is with you, and a Tera Orb takes it the rest of the way to Stellar.

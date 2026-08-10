@@ -898,6 +898,9 @@ final class ScreenshotGeneratorTests: XCTestCase {
         // 그래서 이로치 배너와 같은 방식으로, 앱이 쓰는 `SpriteView` 를 나란히 놓아 대비를 보인다.
         try write(png(partnerFormBanner(fixture)), "form-banner.png")
 
+        // 부화 감면 — 같은 알이 얼마나 줄어드는지는 한 화면에 안 담긴다(감면 전후를 같이 봐야 한다).
+        try write(png(hatchSpeedupBanner()), "hatch-speedup.png")
+
         // 태어날 때 정해지는 겉모습 — 이름 옆 배지가 그 개체가 어떤 무늬로 태어났는지 말한다.
         // 지방 배지와 같은 자리를 쓰므로, 이 그림 하나로 두 규칙이 같이 설명된다.
         try write(png(tabChrome(BoxTabView(store: fixture.player, lines: ScreenshotFixture.lines,
@@ -948,6 +951,44 @@ final class ScreenshotGeneratorTests: XCTestCase {
         try write(try shinyAnimation(usage: usage), "shiny-banner.gif")
         try write(try revealAnimation(fixture), "screenshot-reveal.gif")
         try write(try menuBarAnimation(fixture, usage: usage), "menubar.gif")
+    }
+
+    /// 부화 감면 — 같은 알을 감면 전후로 나란히.
+    ///
+    /// 알 줄 스크린샷 하나로는 "빨라졌다"가 안 보인다. 비교가 있어야 2시간이 1시간이 된 것이
+    /// 읽히고, 아래 줄의 안내 문구가 그 이유를 말한다.
+    private func hatchSpeedupBanner() -> some View {
+        let now = ScreenshotFixture.now
+        func row(warmed: Bool) -> some View {
+            let store = PlayerStore(fileURL: FileManager.default.temporaryDirectory
+                                        .appendingPathComponent("warm-\(UUID().uuidString).json"),
+                                    rng: SeededRNG(seed: 11), now: { now },
+                                    defaults: UserDefaults(suiteName: "ptb-warm-\(UUID().uuidString)")!)
+            store.setLanguage(.en)
+            store.seedForTesting(wallet: 100_000_000_000, slots: 4, eggs: 0, at: now)
+            for (grade, species) in [(Grade.rare, 133), (.legendary, 384)] {
+                XCTAssertNotNil(store.startEgg(grade: grade, speciesID: species, shiny: false),
+                                "알을 못 넣었다 — 슬롯이나 지갑이 모자란다")
+            }
+            var lines: [Int: EvoLine] = [:]
+            if warmed {
+                // 파이어로(불꽃몸). **알을 넣은 뒤에** 더해야 감면이 남은 시간에 걸리는 게 보인다.
+                store.addForTesting(Individual(baseID: 661, speciesID: 663, pathIDs: [661, 662, 663],
+                                               nature: .jolly, obtainedAt: now, grade: .rare))
+                lines[661] = EvoLine(baseID: 661, tree: EvoNode(speciesID: 663, children: []),
+                                     rarity: .rare, names: [663: ["ko": "파이어로", "en": "Talonflame",
+                                                                  "ja": "ファイアロー"]])
+            }
+            return EggSlotsView(store: store, now: now, lines: lines)
+        }
+        let plain = row(warmed: false), warmed = row(warmed: true)
+        return VStack(alignment: .leading, spacing: 16) {
+            plain
+            warmed
+        }
+        .padding(.horizontal, 14).padding(.vertical, 14)
+        .frame(width: PopoverMetrics.width, alignment: .leading)
+        .background(Color(nsColor: .windowBackgroundColor))
     }
 
     /// 곁에 두면 바뀌는 폼 — 평소 모습과 바뀐 모습을 나란히.
