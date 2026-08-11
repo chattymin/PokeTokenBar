@@ -46,6 +46,18 @@ struct EggSlotsView: View {
         return CGFloat(count) * tileSize + CGFloat(count - 1) * tileSpacing
     }
 
+    /// 빈 슬롯 `index`번째 칸이 보여줄 교환권 — 있으면 그 자리만 누를 수 있는 칸이 된다.
+    ///
+    /// 모든 빈 슬롯이 `vouchers.first` 를 봤다면 교환권 1장을 가졌을 때 빈 칸 전부가 똑같이
+    /// 눌리는 것처럼 보였다(실제로는 첫 탭 이후 자연히 사라지지만, 탭 전에는 개수가 부풀어 보인다).
+    /// 인덱스로 골라야 칸 하나당 교환권 하나가 대응하고, 종이 다른 교환권 두 장도 각자 자기
+    /// 칸을 갖는다.
+    nonisolated static func voucher(forEmptySlotIndex index: Int,
+                                     in vouchers: [EggVoucher]) -> EggVoucher? {
+        guard index < vouchers.count else { return nil }
+        return vouchers[index]
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack {
@@ -60,8 +72,8 @@ struct EggSlotsView: View {
                     ForEach(store.state.eggs) { egg in
                         slot(egg)
                     }
-                    ForEach(0..<max(0, store.state.slots - store.state.eggs.count), id: \.self) { _ in
-                        emptySlot
+                    ForEach(0..<max(0, store.state.slots - store.state.eggs.count), id: \.self) { index in
+                        emptySlot(at: index)
                     }
                 }
             }
@@ -148,10 +160,10 @@ struct EggSlotsView: View {
         hatched = individual
     }
 
-    /// 빈 슬롯. 쓸 수 있는 교환권이 있으면 누를 수 있는 칸이 된다.
+    /// 빈 슬롯. 이 위치(`index`)에 대응하는 교환권이 있으면 누를 수 있는 칸이 된다.
     @ViewBuilder
-    private var emptySlot: some View {
-        if let voucher = store.state.eggVouchers.first {
+    private func emptySlot(at index: Int) -> some View {
+        if let voucher = Self.voucher(forEmptySlotIndex: index, in: store.state.eggVouchers) {
             Button {
                 store.redeemEggVoucher(baseID: voucher.baseID)
             } label: {

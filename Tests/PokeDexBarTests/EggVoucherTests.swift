@@ -309,4 +309,22 @@ final class EggVoucherTests: XCTestCase {
             XCTAssertFalse(l.voucherSlotBadge.isEmpty, "\(lang)")
         }
     }
+
+    /// **빈 슬롯마다 같은 교환권을 가리키면 안 된다.** 교환권 1장 + 빈 칸 3개면 눌리는 칸은
+    /// 딱 하나여야 한다 — 전부 눌리면 실제로는 1장인데 3장을 가진 것처럼 보인다.
+    func testOnlyOneEmptySlotOffersASingleVoucher() {
+        let vouchers = [EggVoucher(baseID: 4, grade: .epic)]
+        XCTAssertEqual(EggSlotsView.voucher(forEmptySlotIndex: 0, in: vouchers), vouchers[0])
+        XCTAssertNil(EggSlotsView.voucher(forEmptySlotIndex: 1, in: vouchers))
+        XCTAssertNil(EggSlotsView.voucher(forEmptySlotIndex: 2, in: vouchers))
+    }
+
+    /// 종이 다른 교환권 두 장은 각자 자기 칸을 가져야 한다 — 둘 다 `.first` 를 보면 두 번째
+    /// 종은 슬롯 줄에서 영영 손이 안 닿는다.
+    func testEachVoucherGetsItsOwnSlotByIndex() {
+        let vouchers = [EggVoucher(baseID: 4, grade: .epic), EggVoucher(baseID: 6, grade: .rare)]
+        XCTAssertEqual(EggSlotsView.voucher(forEmptySlotIndex: 0, in: vouchers), vouchers[0])
+        XCTAssertEqual(EggSlotsView.voucher(forEmptySlotIndex: 1, in: vouchers), vouchers[1])
+        XCTAssertNil(EggSlotsView.voucher(forEmptySlotIndex: 2, in: vouchers))
+    }
 }
