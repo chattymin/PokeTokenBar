@@ -90,7 +90,7 @@ private struct RevealComposite: View {
     let armed: Bool
 
     var body: some View {
-        ShopTabView(store: store, provider: provider)
+        ShopTabView(store: store, provider: provider, lines: ScreenshotFixture.lines)
             .padding(PopoverMetrics.padding)
             .frame(width: PopoverMetrics.width)
             .background(Color(nsColor: .windowBackgroundColor))
@@ -905,6 +905,10 @@ final class ScreenshotGeneratorTests: XCTestCase {
         // 홈에서 실제로 붙어 있는 배치 그대로다.
         try write(png(foundEggBanner()), "found-egg.png")
 
+        // 박사에게 보내기 · 박사의 제안 — 이 브랜치가 새로 여는 화면. §릴리스 1 하드 게이트가
+        // 요구하는 신규 에셋이 이것이다.
+        try write(png(professorBanner()), "professor-banner.png")
+
         // 태어날 때 정해지는 겉모습 — 이름 옆 배지가 그 개체가 어떤 무늬로 태어났는지 말한다.
         // 지방 배지와 같은 자리를 쓰므로, 이 그림 하나로 두 규칙이 같이 설명된다.
         try write(png(tabChrome(BoxTabView(store: fixture.player, lines: ScreenshotFixture.lines,
@@ -912,6 +916,30 @@ final class ScreenshotGeneratorTests: XCTestCase {
                                            selection: .constant(fixture.birthFormID))),
                       fullScroll: true),
                   "screenshot-birth-form.png")
+
+        // 박사의 제안 — 오프스크린 렌더는 `.task` 를 안 돌리므로(헤더 주석 참고) 실제 새로고침
+        // 경로(`refreshProfessorOffers`)가 착지하지 않는다. 그대로 두면 상점 캡처가 "오늘의
+        // 제안을 준비하고 있어요" 만 찍힌다 — 직접 채워 넣는다. 이로치 한 자리·데려간 한 자리를
+        // 섞어 두 상태가 다 보이게 한다. **정적 상점 픽스처에만 건다** — `generateAnimations()`
+        // 는 이 `fixture` 를 안 쓰고 자기만의 픽스처를 새로 만들므로, 여기서 더한 카드가 뽑기
+        // 연출(`revealAnimation`)의 그리기 비용을 늘려 실시간 캡처 타이밍을 밀어내지 않는다
+        // (실측: 여기 대신 `makeFixture` 안에 심었더니 연출 오버레이 착지가 실패했다).
+        fixture.player.mutate {
+            $0.researchPoints = 40
+            $0.professorOfferDate = $0.lastDate
+            $0.professorOffers = [
+                ProfessorOffer(individual: Individual(baseID: 25, speciesID: 25, pathIDs: [25],
+                                                      nature: .jolly, obtainedAt: ScreenshotFixture.now,
+                                                      grade: .common)),
+                ProfessorOffer(individual: Individual(baseID: 700, speciesID: 700, pathIDs: [700],
+                                                      shiny: true, nature: .modest,
+                                                      obtainedAt: ScreenshotFixture.now, grade: .epic)),
+                ProfessorOffer(individual: Individual(baseID: 133, speciesID: 133, pathIDs: [133],
+                                                      nature: .calm, obtainedAt: ScreenshotFixture.now,
+                                                      grade: .rare),
+                              claimed: true),
+            ]
+        }
 
         for (language, suffix) in Self.languages {
             setLanguage(language, fixture)
@@ -921,7 +949,8 @@ final class ScreenshotGeneratorTests: XCTestCase {
             try write(png(tabChrome(EggSlotsView(store: fixture.player, now: ScreenshotFixture.now))),
                       "screenshot-eggs\(suffix).png")
 
-            try write(png(tabChrome(ShopTabView(store: fixture.player, provider: StubProvider())),
+            try write(png(tabChrome(ShopTabView(store: fixture.player, provider: StubProvider(),
+                                                lines: ScreenshotFixture.lines)),
                           fullScroll: true),
                       "screenshot-shop\(suffix).png")
             try write(png(SettingsView(onClose: { })
@@ -995,6 +1024,61 @@ final class ScreenshotGeneratorTests: XCTestCase {
             EggSlotsView(store: store, now: now, lines: [133: EvoLine(
                 baseID: 133, tree: EvoNode(speciesID: 133, children: []), rarity: .rare,
                 names: [133: ["ko": "메타몽", "en": "Ditto", "ja": "メタモン"]])])
+        }
+        .padding(.horizontal, 14).padding(.vertical, 14)
+        .frame(width: PopoverMetrics.width, alignment: .leading)
+        .background(Color(nsColor: .windowBackgroundColor))
+    }
+
+    /// 박사에게 보내기 · 박사의 제안 — 이 브랜치가 여는 새 화면이라 새 에셋이 필요하다(§릴리스 1
+    /// 하드 게이트). 보내기 버튼(상세 화면 조각)과 오늘의 제안(상점 섹션)을 한 그림에 담아
+    /// 두 절반이 한 번에 보이게 한다 — 보내서 번 포인트로 다시 사 오는 순환이 이 기능의 요점이다.
+    private func professorBanner() throws -> some View {
+        let now = ScreenshotFixture.now
+        let store = PlayerStore(fileURL: FileManager.default.temporaryDirectory
+                                    .appendingPathComponent("professor-\(UUID().uuidString).json"),
+                                rng: SeededRNG(seed: 13), now: { now },
+                                defaults: UserDefaults(suiteName: "ptb-professor-\(UUID().uuidString)")!)
+        store.setLanguage(.en)
+        store.seedForTesting(wallet: 0, slots: 1, eggs: 0, at: now)
+
+        // 보내기 버튼 — 파트너가 아닌 개체라야 버튼이 뜬다(파트너는 못 보낸다).
+        let sendable = Individual(baseID: 1, speciesID: 1, pathIDs: [1], nature: .hardy,
+                                  obtainedAt: now, grade: .common)
+        store.addForTesting(sendable)
+        let keep = Individual(baseID: 4, speciesID: 4, pathIDs: [4], nature: .hardy,
+                              obtainedAt: now, grade: .common)
+        store.addForTesting(keep)
+        store.setPartner(keep.id)
+        let points = try XCTUnwrap(store.releaseValue(sendable), "보낼 개체의 값을 못 정했다")
+
+        // 오늘의 제안 — 오프스크린 렌더는 `.task` 를 안 돌리므로 직접 채운다(`makeFixture` 와
+        // 같은 이유, 헤더 주석 참고).
+        store.mutate {
+            $0.researchPoints = 40
+            $0.professorOffers = [
+                ProfessorOffer(individual: Individual(baseID: 25, speciesID: 25, pathIDs: [25],
+                                                      nature: .jolly, obtainedAt: now, grade: .common)),
+                ProfessorOffer(individual: Individual(baseID: 4, speciesID: 4, pathIDs: [4],
+                                                      shiny: true, nature: .modest, obtainedAt: now,
+                                                      grade: .epic)),
+                ProfessorOffer(individual: Individual(baseID: 150, speciesID: 150, pathIDs: [150],
+                                                      nature: .calm, obtainedAt: now, grade: .legendary)),
+            ]
+        }
+        let lines: [Int: EvoLine] = [
+            25: EvoLine(baseID: 25, tree: EvoNode(speciesID: 25, children: []), rarity: .common,
+                       names: [25: ["ko": "피카츄", "en": "Pikachu", "ja": "ピカチュウ"]]),
+            4: EvoLine(baseID: 4, tree: EvoNode(speciesID: 4, children: []), rarity: .common,
+                      names: [4: ["ko": "파이리", "en": "Charmander", "ja": "ヒトカゲ"]]),
+            150: EvoLine(baseID: 150, tree: EvoNode(speciesID: 150, children: []), rarity: .legendary,
+                        names: [150: ["ko": "뮤츠", "en": "Mewtwo", "ja": "ミュウツー"]]),
+        ]
+
+        return VStack(alignment: .leading, spacing: 12) {
+            DetailActionButton(title: store.l.sendToProfessor(points), prominent: false, action: {})
+                .frame(width: 170)
+            ProfessorOfferSection(store: store, provider: StubProvider(), lines: lines)
         }
         .padding(.horizontal, 14).padding(.vertical, 14)
         .frame(width: PopoverMetrics.width, alignment: .leading)
