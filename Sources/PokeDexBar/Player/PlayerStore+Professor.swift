@@ -92,12 +92,17 @@ extension PlayerStore {
         var taken = offer.individual
         taken.id = UUID()
         taken.obtainedAt = currentDate()
+        // **넣기 전에** 재야 한다 — 부화·진화와 같은 이유로, 넣은 뒤에 재면 방금 데려온 아이
+        // 때문에 항상 참이 되어 감면이 영영 안 걸린다. 박스에 개체가 들어오는 경로는 전부
+        // 이 순서를 지켜야 한다(`chooseStarter`·`claimHatch`·`evolve`·`addForTesting`).
+        let hadSpeedup = HatchSpeedup.present(in: state.box)
         mutate {
             $0.researchPoints -= price
             $0.professorOffers[slot].claimed = true
             $0.box.append(taken)
             $0.dex.insert(taken.speciesID)
         }
+        applyHatchSpeedupIfNewlyEarned(hadSpeedupBefore: hadSpeedup)
         return taken
     }
 }
