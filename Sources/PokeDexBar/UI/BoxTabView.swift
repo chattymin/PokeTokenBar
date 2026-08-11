@@ -94,7 +94,6 @@ struct BoxTabView: View {
                                 isPartner: individual.id == store.state.partnerID,
                                 ribbon: individual.ribbon(at: store.currentDate()),
                                 canEvolve: readyToEvolve(individual),
-                                readyToTakeEgg: readyToTakeEgg(individual),
                                 partnerBadge: l.partnerBadge, fillFrame: fillFrame) {
                             selection = individual.id
                         }
@@ -162,13 +161,6 @@ struct BoxTabView: View {
         guard let line = lines[individual.baseID] else { return false }
         return store.canEvolve(individual) && !store.evolutionChoices(individual, line: line).isEmpty
     }
-
-    /// 알을 받을 수 있나 — 진화 배지와 같은 이유로 칸에서 보여야 한다. `canTakeFoundEgg` 를
-    /// 그대로 쓴다 — 빈 슬롯까지 이미 보는 함수라 배지가 곧 "지금 눌러 받을 수 있나"가 된다.
-    private func readyToTakeEgg(_ individual: Individual) -> Bool {
-        guard let line = lines[individual.baseID] else { return false }
-        return store.canTakeFoundEgg(individual, line: line)
-    }
 }
 
 /// 그리드 한 칸. 눌러서 상세로 들어가는 유일한 통로라 별도 타입으로 뽑아 테스트로 잠근다
@@ -179,8 +171,6 @@ struct BoxCell: View {
     /// 단 리본 — 칸에서 바로 보여야 "오래 데리고 다닌 아이"가 구분되고, 단계까지 읽힌다.
     let ribbon: Ribbon?
     let canEvolve: Bool
-    /// 알을 받을 수 있나 — 진화 배지와 같은 이유로 칸에서 보여야 한다.
-    let readyToTakeEgg: Bool
     let fillFrame: Bool
     let partnerBadge: String
     let onTap: () -> Void
@@ -195,13 +185,11 @@ struct BoxCell: View {
     #endif
 
     init(individual: Individual, isPartner: Bool, ribbon: Ribbon? = nil, canEvolve: Bool,
-         readyToTakeEgg: Bool, partnerBadge: String, fillFrame: Bool = true,
-         onTap: @escaping () -> Void) {
+         partnerBadge: String, fillFrame: Bool = true, onTap: @escaping () -> Void) {
         self.individual = individual
         self.isPartner = isPartner
         self.ribbon = ribbon
         self.canEvolve = canEvolve
-        self.readyToTakeEgg = readyToTakeEgg
         self.fillFrame = fillFrame
         self.partnerBadge = partnerBadge
         self.onTap = onTap
@@ -227,16 +215,6 @@ struct BoxCell: View {
                     // 진화 가능은 칸에서 바로 보여야 한다 — 아니면 개체를 하나씩 열어봐야 안다.
                     if canEvolve {
                         Image(systemName: "arrow.up.circle.fill")
-                            .font(.system(size: 10))
-                            .foregroundStyle(Color.accentColor)
-                            .offset(x: 3, y: -2)
-                    }
-                    // 진화와 알 발견은 동시에 성립하지 않는다(하나는 갈 곳이 있을 때,
-                    // 다른 하나는 없을 때) — 같은 귀퉁이를 써도 겹치지 않는다.
-                    // 알 모양(타원) — 위쪽 화살표(진화 배지)와 10pt 에서도 헷갈리지 않도록
-                    // 형태 자체가 다른 기호를 쓴다.
-                    if readyToTakeEgg {
-                        Image(systemName: "oval.fill")
                             .font(.system(size: 10))
                             .foregroundStyle(Color.accentColor)
                             .offset(x: 3, y: -2)

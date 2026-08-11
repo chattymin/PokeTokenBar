@@ -214,6 +214,12 @@ struct L {
           "All hatch slots are full — your experience stays banked",
           "ふ化スロットがいっぱいです — けいけんちはそのまま残ります")
     }
+    /// 홈의 알 발견 알림 — 파트너가 곁에서 알을 건네는 장면이라 상세 화면(`eggFound`)과 문구가
+    /// 다르다. 둘 다 같은 뜻이지만 서 있는 자리가 다르다: 상세는 그 개체 자신의 진행,
+    /// 여기는 파트너가 지금 막 가져온 것.
+    func partnerFoundEgg(_ name: String) -> String {
+        t("\(name)의 알을 가져왔어요!", "\(name) brought you an Egg!", "\(name)がタマゴを もってきました！")
+    }
     var detailPartnerOnlyExp: String {
         t("경험치는 파트너만 쌓여요 — 사탕으로도 올릴 수 있어요",
           "Only your partner earns EXP — candy works too",

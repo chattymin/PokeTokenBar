@@ -245,17 +245,12 @@ final class FoundEggTests: XCTestCase {
         XCTAssertTrue(text.contains("takeFoundEgg"), "상세에 알 발견 버튼이 없다")
     }
 
-    /// 박스 칸이 배지를 그린다 — 개체를 하나씩 열어보지 않아도 받을 수 있는 아이가 보인다.
-    func testTheBoxCellShowsAReadyToTakeEggBadge() throws {
-        let text = try source("Sources/PokeDexBar/UI/BoxTabView.swift")
-        XCTAssertTrue(text.contains("readyToTakeEgg"), "박스 칸에 알 발견 배지가 없다")
-    }
-
     /// **`.help()` 를 쓰지 않는다.** 이 팝오버 안에서 툴팁은 뜨지 않는다(실사용 확인).
     /// 설명은 인라인 한 줄로 적는다.
     func testNoTooltipsInTheTouchedViews() throws {
         for path in ["Sources/PokeDexBar/UI/EggSlotsView.swift",
-                     "Sources/PokeDexBar/UI/IndividualDetailView.swift"] {
+                     "Sources/PokeDexBar/UI/IndividualDetailView.swift",
+                     "Sources/PokeDexBar/UI/FoundEggAnnouncementCard.swift"] {
             XCTAssertFalse(try source(path).contains(".help("),
                            "\(path) 에 안 뜨는 툴팁이 들어왔다")
         }
@@ -268,6 +263,7 @@ final class FoundEggTests: XCTestCase {
             let l = L(lang)
             XCTAssertFalse(l.eggFound("파이리").isEmpty, "\(lang)")
             XCTAssertFalse(l.eggFoundNoFreeSlot.isEmpty, "\(lang)")
+            XCTAssertFalse(l.partnerFoundEgg("파이리").isEmpty, "\(lang)")
         }
     }
 

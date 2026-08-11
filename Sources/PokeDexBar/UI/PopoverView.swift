@@ -172,6 +172,12 @@ struct PopoverView: View {
                     // 그 키로 못 찾으므로 라인들을 훑어 이름을 가진 쪽을 쓴다.
                     Self.speciesName(speciesID, in: evoLines, player.language)
                 }
+                // 알 발견도 파트너가 한 일이라 발견 카드 바로 아래, 부화 슬롯 바로 위에 둔다 —
+                // 눌렀을 때 알이 그 아래 줄에 떨어지는 걸 그 자리에서 볼 수 있다. 라인은
+                // 위 partnerCard 의 `.task(id: partner.baseID)` 가 이미 같은 키로 요청해 두므로
+                // 여기서 새로 fetch 하지 않는다.
+                FoundEggAnnouncementCard(store: player, partner: player.state.partner,
+                                         line: player.state.partner.flatMap { evoLines[$0.baseID] })
                 Divider()
                 // 부화 슬롯만 1초 틱을 받는다 — 홈 탭 전체를 `TimelineView` 로 감싸면 파트너
                 // 카드·헤더·한도 섹션까지 매초 다시 그려 팝오버 에너지 예산을 깬다.
