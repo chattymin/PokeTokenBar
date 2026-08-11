@@ -81,18 +81,30 @@ enum EggBalance {
         precondition(!index.isEmpty, "index must not be empty")
         let order = Grade.allCases   // 선언 순서 == common, rare, epic, legendary(낮은 등급 → 높은 등급)
         var candidates: [BaseSpecies] = []
+        // 실제로 뽑히는 등급 — 요청 등급이 비어 아래로 내려갔으면 그 등급이다. 가중 방식이
+        // 등급마다 다르므로(아래 참고) 요청값이 아니라 이 값으로 판단해야 한다.
+        var resolved = grade
         if let start = order.firstIndex(of: grade) {
             var i = start
             while true {
                 let pool = index.filter { speciesGrade($0) == order[i] }
-                if !pool.isEmpty { candidates = pool; break }
+                if !pool.isEmpty { candidates = pool; resolved = order[i]; break }
                 guard i > 0 else { break }
                 i -= 1
             }
         }
         if candidates.isEmpty { candidates = index }   // 이론상 도달 불가 — 안전망
 
-        let weights = candidates.map { max(1, $0.captureRate) }
+        // **레전더리만 균등하다.** 커먼·레어·에픽은 등급 자체가 포획률로 정의되므로(≤45=에픽 …)
+        // 풀 안의 값이 좁고, 남은 편차는 진짜 희귀도다 — 에픽 135종 중 102종이 45 로 같고 나머지
+        // 편차는 메탕(3)처럼 원작에서도 희귀한 꼬리에만 있다. 가중이 뜻을 갖는다.
+        //
+        // 레전더리는 다르다. 등급이 포획률이 아니라 **플래그**(`isLegendary`)로 정해지므로 풀에
+        // 3부터 255까지 섞여 들어온다. 그 255 는 "흔하다"가 아니라 원작에서 스토리상 반드시
+        // 잡게 되는 아이라 붙은 값이다(테라파고스·무한다이노·네크로즈마). 포획률로 가중하면
+        // 이 셋이 각 18.6%, 합쳐서 레전더리 알의 56% 를 차지하고 뮤츠·루기아는 0.22% 가 된다 —
+        // 테라파고스가 뮤츠보다 85배 잘 나왔다. 이 풀에서 포획률은 희귀도 정보가 아니라 잡음이다.
+        let weights = candidates.map { resolved == .legendary ? 1 : max(1, $0.captureRate) }
         let total = weights.reduce(0, +)
         let clampedRoll = min(1, max(0, roll))
         var pick = Int(clampedRoll * Double(total))

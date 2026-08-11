@@ -84,6 +84,46 @@ final class EggBalanceTests: XCTestCase {
         }
     }
 
+    /// **레전더리 풀은 포획률을 안 본다.** 이 등급만 포획률이 아니라 플래그로 정해져, 풀에
+    /// 3부터 255까지 섞여 들어온다. 그 255 는 원작에서 스토리상 반드시 잡게 되는 아이라 붙은
+    /// 값이지 흔하다는 뜻이 아니다(테라파고스·무한다이노·네크로즈마). 포획률로 가중하던 시절엔
+    /// 이 셋이 레전더리 알의 56% 를 차지하고 뮤츠는 0.22% 였다 — 85배 차이.
+    func testLegendaryCandidatesAreEquallyLikelyRegardlessOfCaptureRate() {
+        let index = [
+            BaseSpecies(id: 1, captureRate: 3, isLegendary: true, isMythical: false),    // 뮤츠 부류
+            BaseSpecies(id: 2, captureRate: 255, isLegendary: true, isMythical: false),  // 테라파고스 부류
+            BaseSpecies(id: 3, captureRate: 45, isLegendary: false, isMythical: true),   // 뮤 부류
+        ]
+        var counts: [Int: Int] = [:]
+        let samples = 3000
+        for i in 0..<samples {
+            counts[EggBalance.pickSpecies(from: index, grade: .legendary,
+                                          roll: Double(i) / Double(samples)), default: 0] += 1
+        }
+        let expected = samples / index.count
+        for id in [1, 2, 3] {
+            XCTAssertEqual(counts[id] ?? 0, expected, accuracy: 2,
+                           "#\(id) 이 균등하지 않다 — \(counts)")
+        }
+    }
+
+    /// **아래 등급으로 내려갔으면 그 등급의 가중 방식을 쓴다.** 레전더리 요청이 비어 에픽으로
+    /// 떨어졌는데도 균등을 적용하면, 포획률이 뜻을 갖는 풀에서 그 정보를 잃는다.
+    func testFallingBackFromLegendaryStillWeightsTheLowerGrade() {
+        let index = [
+            BaseSpecies(id: 1, captureRate: 3, isLegendary: false, isMythical: false),   // 에픽, 희귀
+            BaseSpecies(id: 2, captureRate: 45, isLegendary: false, isMythical: false),  // 에픽, 흔함
+        ]
+        var counts: [Int: Int] = [1: 0, 2: 0]
+        let samples = 480
+        for i in 0..<samples {
+            counts[EggBalance.pickSpecies(from: index, grade: .legendary,
+                                          roll: Double(i) / Double(samples)), default: 0] += 1
+        }
+        XCTAssertGreaterThan(counts[2] ?? 0, (counts[1] ?? 0) * 10,
+                             "에픽으로 내려갔는데 포획률 가중이 사라졌다 — \(counts)")
+    }
+
     /// 포획률이 낮을수록(=더 흔함) 가중이 커진다. 첫 후보·마지막 후보 모두 어떤 굴림으로도 뽑혀야
     /// 한다(경계에서 누락되면 그 종은 영원히 안 나온다). 두 후보 모두 커먼 등급(포획률 >120)이라
     /// 등급 필터를 그대로 통과하고 가중치 차이만 순수하게 본다.
