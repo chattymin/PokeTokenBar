@@ -801,7 +801,8 @@ final class EvolutionBranchFoldingTests: XCTestCase {
                        rarity: .common, names: [:])
     }
 
-    private func makeEevee() -> (PlayerStore, Individual) {
+    private func makeEevee(partnerSeconds: Int = Ribbon.lifelong.requiredPartnerSeconds)
+        -> (PlayerStore, Individual) {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("eevee-\(UUID().uuidString).json")
         let store = PlayerStore(fileURL: url, rng: SeededRNG(seed: 1),
@@ -809,7 +810,7 @@ final class EvolutionBranchFoldingTests: XCTestCase {
         var eevee = Individual(baseID: 133, speciesID: 133, pathIDs: [133], nature: .serious,
                                exp: 400_000_000, obtainedAt: Date(timeIntervalSince1970: 0),
                                grade: .common)
-        eevee.partnerSeconds = Ribbon.lifelong.requiredPartnerSeconds
+        eevee.partnerSeconds = partnerSeconds
         store.addForTesting(eevee)
         store.setPartner(eevee.id)
         store.grantForTesting(EvolutionItem.waterStone)
@@ -851,6 +852,58 @@ final class EvolutionBranchFoldingTests: XCTestCase {
         host.layoutSubtreeIfNeeded()
         XCTAssertLessThan(host.fittingSize.height, 500,
                           "이브이 상세가 \(Int(host.fittingSize.height))pt 다 — 막힌 갈래가 다시 펼쳐졌다")
+    }
+
+    /// 루리리 — 갈래 하나, 조건은 친밀도뿐. 도구는 이 아이의 진화와 아무 상관이 없다.
+    private func azurillLine() -> EvoLine {
+        EvoLine(baseID: 298,
+                tree: EvoNode(speciesID: 298,
+                              children: [EvoNode(speciesID: 183, children: [],
+                                                 requirementRaw: .friendship)]),
+                rarity: .common, names: [:])
+    }
+
+    private func makeAzurill(partnerSeconds: Int) -> (PlayerStore, Individual) {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("azurill-\(UUID().uuidString).json")
+        let store = PlayerStore(fileURL: url, rng: SeededRNG(seed: 1),
+                                now: { Date(timeIntervalSince1970: 1_000_000) })
+        var azurill = Individual(baseID: 298, speciesID: 298, pathIDs: [298], nature: .serious,
+                                 exp: 400_000_000, partnerSeconds: partnerSeconds,
+                                 obtainedAt: Date(timeIntervalSince1970: 0), grade: .common)
+        store.addForTesting(azurill)
+        return (store, store.state.box[0])
+    }
+
+    /// [회귀] 조건이 친밀도뿐인 갈래에도 "도구는 파트너로 두면 물어 와요"가 붙었다 — 루리리에게
+    /// 있지도 않은 도구를 기다리게 만든 문장이다. 안내는 **실제로 막고 있는 것**만 말해야 한다.
+    func testFriendshipOnlyBranchNeverMentionsItems() {
+        let (store, azurill) = makeAzurill(partnerSeconds: 3_600)
+        let hints = IndividualDetailView.blockedHints([183], line: azurillLine(),
+                                                      individual: azurill, store: store)
+        XCTAssertFalse(hints.contains(L(.ko).evolutionLockedHint),
+                       "친밀도만 막고 있는데 도구 안내가 붙었다: \(hints)")
+        // 대신 남은 시간을 말한다 — 무엇을 기다리는지는 알 수 있어야 한다.
+        XCTAssertEqual(hints, [L(.ko).evolveNeedsTime(Individual.togetherText(
+            seconds: EvoRequirement.friendshipSeconds - 3_600, L(.ko)))], "\(hints)")
+    }
+
+    /// 대조군 — 도구가 막고 있으면 그 문장은 그대로 나와야 한다(게이트가 늘 꺼져 있으면 안 된다).
+    func testItemBlockedBranchStillSaysWhereItemsComeFrom() {
+        let (store, eevee) = makeEevee()
+        let hints = IndividualDetailView.blockedHints([135, 136], line: eeveeLine(),
+                                                      individual: eevee, store: store)
+        XCTAssertEqual(hints, [L(.ko).evolutionLockedHint], "\(hints)")
+    }
+
+    /// 둘 다 막고 있으면 둘 다 — 이브이는 돌과 친밀도를 함께 기다린다.
+    /// 친밀도 문턱은 종과 무관한 단일 값이라 갈래가 셋이어도 시간 줄은 하나뿐이다.
+    func testBothKindsBlockedGetOneLineEach() {
+        let (store, eevee) = makeEevee(partnerSeconds: 0)
+        let hints = IndividualDetailView.blockedHints([135, 196, 197, 700], line: eeveeLine(),
+                                                      individual: eevee, store: store)
+        XCTAssertEqual(hints.count, 2, "\(hints)")
+        XCTAssertEqual(hints.first, L(.ko).evolutionLockedHint, "\(hints)")
     }
 }
 

@@ -65,14 +65,8 @@ struct L {
           "Not for sale. Your partner finds the item it needs. Once found, it is yours for good.",
           "こうにゅうできません。パートナーが自分にひつような道具をもってきます。一度手にいれるとずっと使えます。")
     }
-    /// 못 갖춘 도구 안내. **도구를 얻는 길은 파트너뿐이라 그 말을 같이 한다** — 아니면
-    /// 마그마부스터를 어디서 구하는지 알 길이 없어 진화가 영영 막힌 것처럼 보인다.
-    func evolveNeedsItem(_ item: EvolutionItem) -> String {
-        let name = item.label(lang)
-        return t("\(name) 필요 · 파트너로 두면 물어 와요",
-                 "Needs \(name) · set as partner and it will find one",
-                 "\(name)がひつよう · パートナーにすると持ってきます")
-    }
+    /// 아직 못 채운 함께한 시간. 도구와 달리 **얼마나 남았는지**가 곧 안내다 — 어디서 얻는지는
+    /// 물을 것이 없고, 기다릴 값만 알면 된다.
     func evolveNeedsTime(_ remaining: String) -> String {
         t("\(remaining) 더 함께해야 해요", "\(remaining) more together", "あと\(remaining)一緒に")
     }

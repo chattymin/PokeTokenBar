@@ -341,25 +341,26 @@ final class ForageCatalogIntegrityTests: XCTestCase {
 
 /// 상점에 없는 도구는 **얻는 길이 파트너뿐**이라 화면이 그 말을 해야 한다. 안 하면
 /// "마그마부스터 필요"에서 끝나 어디서 구하는지 알 수 없고, 진화가 고장난 것처럼 보인다.
+///
+/// 그 일은 두 곳이 나눠 맡는다: **이름은 갈래 줄**(`shortNeed`), **얻는 방법은 섹션 안내**
+/// (`evolutionLockedHint`) 한 줄. 갈래마다 문장을 붙이면 이브이(8갈래)에서 화면을 먹는다.
 final class ForagedItemHintTests: XCTestCase {
-    func testForagedItemsTellYouToSetThePartner() {
+    func testEachBranchNamesTheItemItWaitsFor() {
         for lang in AppLanguage.allCases {
-            let l = L(lang)
-            // 돌이든 특수 도구든 얻는 길은 하나뿐이므로 안내도 같아야 한다.
+            // 돌이든 특수 도구든 얻는 길은 하나뿐이므로 표기도 같아야 한다.
             for item in [EvolutionItem.magmarizer, .fireStone, .linkingCord] {
-                let hint = l.evolveNeedsItem(item)
-                XCTAssertTrue(hint.contains(item.label(lang)), "\(lang) \(item): 안내에 이름이 없다")
-                XCTAssertNotEqual(hint, item.label(lang),
-                                  "\(lang) \(item): 이름만 있고 얻는 방법이 없다")
+                XCTAssertEqual(IndividualDetailView.shortNeed(.item(item), l: L(lang)),
+                               item.label(lang), "\(lang) \(item): 갈래 줄에 이름이 없다")
             }
         }
     }
 
-    /// 안내가 실제로 파트너를 가리키는지 — 한국어에서만 문자열로 확인한다(번역은 위에서 길이로).
+    /// 안내가 실제로 파트너를 가리키는지 — 한국어에서만 문자열로 확인한다(번역은 빈 문구만).
     func testTheHintPointsAtThePartner() {
-        for item in EvolutionItem.allCases {
-            XCTAssertTrue(L(.ko).evolveNeedsItem(item).contains("파트너"),
-                          "\(item) 안내가 얻는 방법을 안 알려준다")
+        XCTAssertTrue(L(.ko).evolutionLockedHint.contains("파트너"),
+                      "도구 안내가 얻는 방법을 안 알려준다: \(L(.ko).evolutionLockedHint)")
+        for lang in AppLanguage.allCases {
+            XCTAssertFalse(L(lang).evolutionLockedHint.isEmpty, "\(lang): 안내가 비었다")
         }
     }
 }

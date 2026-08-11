@@ -375,8 +375,11 @@ struct IndividualDetailView: View {
                 .padding(.leading, 17)
             }
             // 얻는 방법은 **여기 한 번만** — 갈래마다 붙이면 그 문장이 화면을 먹는다.
-            Text(l.evolutionLockedHint).font(.system(size: 9)).foregroundStyle(.tertiary)
-                .padding(.leading, 17)
+            ForEach(Self.blockedHints(blocked, line: line, individual: individual, store: store),
+                    id: \.self) { hint in
+                Text(hint).font(.system(size: 9)).foregroundStyle(.tertiary)
+                    .padding(.leading, 17)
+            }
         }
     }
 
@@ -389,6 +392,30 @@ struct IndividualDetailView: View {
             if !names.contains(name) { names.append(name) }
         }
         return names.joined(separator: " · ")
+    }
+
+    /// 펼쳤을 때 아래에 붙일 안내 — **막힌 갈래가 실제로 기다리는 것만** 말한다. 종류마다 한 줄씩,
+    /// 갈래마다가 아니다(이브이는 여덟이라 갈래마다 붙이면 그 문장이 화면을 먹는다).
+    ///
+    /// 도구 문장을 무조건 내면 조건이 친밀도뿐인 아이(루리리)가 있지도 않은 도구를 기다리는 것처럼
+    /// 보인다 — 갈래마다 조건을 보고 쓰던 안내를 섹션에 한 줄로 접으면서 그 조건 분기가 빠졌었다.
+    ///
+    /// 친밀도 문턱은 종과 무관한 단일 값(`EvoRequirement.friendshipSeconds`)이라, 친밀도 갈래가
+    /// 여럿이어도 남은 시간은 하나뿐이다.
+    @MainActor static func blockedHints(_ blocked: [Int], line: EvoLine,
+                                        individual: Individual, store: PlayerStore) -> [String] {
+        let needs = blocked.map { store.requirement(for: $0, line: line) }
+        var hints: [String] = []
+        if needs.contains(where: { if case .item = $0 { return true } else { return false } }) {
+            hints.append(store.l.evolutionLockedHint)
+        }
+        if needs.contains(.friendship) {
+            let remaining = max(0, EvoRequirement.friendshipSeconds
+                                - individual.partnerDuration(at: store.currentDate()))
+            hints.append(store.l.evolveNeedsTime(
+                Individual.togetherText(seconds: remaining, store.l)))
+        }
+        return hints
     }
 
     /// 조건을 짧게 — 접힌 줄에 들어가야 하므로 문장이 아니라 이름만.
@@ -505,18 +532,6 @@ struct IndividualDetailView: View {
         }
         let partner = form.fusionPartner.map { line?.localizedName($0, store.language) ?? "#\($0)" }
         return l.formNeedsFusionPartner(partner ?? "")
-    }
-
-    /// 아직 못 갖춘 조건을 사람 말로. 조건이 없으면 nil.
-    private func requirementHint(_ need: EvoRequirement) -> String? {
-        switch need {
-        case .none: nil
-        case .item(let item): l.evolveNeedsItem(item)
-        case .friendship:
-            l.evolveNeedsTime(Individual.togetherText(
-                seconds: max(0, EvoRequirement.friendshipSeconds
-                             - individual.partnerDuration(at: store.currentDate())), l))
-        }
     }
 
     /// 폼 접두를 붙이기 전의 종 이름.

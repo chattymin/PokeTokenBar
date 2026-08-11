@@ -223,3 +223,12 @@
   넣어 보고, 로컬 장부만 새 기기 기준으로 다시 잡는다(`SaveTransfer.rebasedForThisDevice`). 회귀 가드:
   `testTransferDayTokensStillCountAfterRebase` — 재정렬 없는 대조군을 같이 돌려 결함 조건이 살아 있는지도
   함께 확인한다(테스트가 트리거 브랜치를 실제로 밟는지 보증).
+- **항목별 안내를 섹션 한 줄로 접을 때 조건 분기를 같이 접지 마라.** 화면이 길어져 "이유는 한 번만"으로
+  접는 리팩터(폼·진화에서 두 번 했다)는 *항목마다 조건을 보고 고르던* 문장을 *무조건 내는* 한 줄로
+  바꾸기 쉽다. 그러면 그 조건이 아닌 개체에게 거짓말이 된다 — 조건이 친밀도뿐인 루리리 상세에 "도구는
+  파트너로 두면 물어 와요"가 붙어, 있지도 않은 도구를 기다리게 했다. 접은 줄은 **막고 있는 것의 종류를
+  모아** 종류마다 하나씩 내라(`IndividualDetailView.blockedHints`). 조건 분기가 사라지면 그걸 하던
+  헬퍼가 죽은 코드로 남으니(`requirementHint` 가 그랬다) 그 잔해가 곧 신호다. 테스트 공백의 정체:
+  픽스처(이브이)가 **모든 종류를 동시에** 막고 있어 어떤 문장을 내도 참이었다 — 한 종류만 막힌 픽스처가
+  있어야 이 부류가 걸린다. 회귀 가드: `testFriendshipOnlyBranchNeverMentionsItems` + 대조군
+  `testItemBlockedBranchStillSaysWhereItemsComeFrom`(게이트가 늘 꺼져 있지 않은지).
