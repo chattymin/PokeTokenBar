@@ -24,6 +24,10 @@ struct PlayerState: Codable, Sendable {
     var eggs: [Egg] = []
     /// 아이템 종류 → 개수.
     var inventory: [String: Int] = [:]
+    /// 확정 알 교환권. 장수는 원소 개수다 — 같은 종 두 장이면 원소가 둘.
+    /// `inventory`(도구용 문자열 키)와 섞지 않는다 — 종 번호가 키인 다른 성격의 물건이라,
+    /// 가방 탭이 모르는 키를 만나게 된다.
+    var eggVouchers: [EggVoucher] = []
     /// 파트너가 물어 왔는데 아직 확인 안 한 것(`Discovery`). 도구는 이미 `inventory` 에 들어가
     /// 있고 이 목록은 **알림용**이다 — 확인이 늦어도 잃는 게 없다.
     var discoveries: [Discovery] = []
@@ -89,6 +93,11 @@ struct PlayerState: Codable, Sendable {
             AppLog.write("PlayerState: dropped \(wrappedEggs.count - eggs.count) malformed egg(s) from eggs on decode")
         }
         inventory = value(.inventory, [:])
+        // 교환권도 박스·알과 같은 이유로 원소 단위 관대 디코딩한다 — 한 장이 깨졌다고 나머지
+        // 교환권까지 통째로 날아가면 안 된다(한 장이 5000만 토큰어치다). 값 범위 검증(`isSane`)이
+        // 짝으로 붙는다: 항목이므로 개수는 안 자르고, 말이 안 되는 원소만 버린다.
+        let wrappedVouchers = (try? c.decode([LossyEggVoucher].self, forKey: .eggVouchers)) ?? []
+        eggVouchers = wrappedVouchers.compactMap(\.voucher)
         ownsShinyCharm = value(.ownsShinyCharm, false)
         language = value(.language, .systemDefault)
     }
@@ -109,5 +118,14 @@ private struct LossyEgg: Decodable {
     let egg: Egg?
     init(from decoder: Decoder) throws {
         egg = (try? Egg(from: decoder))?.sanitized()
+    }
+}
+
+/// `[EggVoucher]` 원소 단위 관대 디코딩 래퍼 — `LossyEgg` 와 같은 패턴에, 값 범위 검증을 겸한다.
+private struct LossyEggVoucher: Decodable {
+    let voucher: EggVoucher?
+    init(from decoder: Decoder) throws {
+        let decoded = try? EggVoucher(from: decoder)
+        voucher = decoded?.isSane == true ? decoded : nil
     }
 }
