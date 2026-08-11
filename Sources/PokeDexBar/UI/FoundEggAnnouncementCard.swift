@@ -76,17 +76,23 @@ struct FoundEggAnnouncementCard: View {
                 (speciesName, canTake, { store.takeFoundEgg(individualID: partner.id, line: line) })) }()
             #endif
             VStack(alignment: .leading, spacing: 3) {
+                // **누를 곳에 배경이 있어야 버튼으로 읽힌다.** 처음엔 바깥 상자에만 옅은 색을
+                // 깔고 버튼은 투명하게 뒀는데, 그러면 알림 카드로 보이고 눌러 볼 생각이 안 든다
+                // (사용자 지적). 이 앱의 "누르는 것" 관례는 `DetailActionButton(prominent:)` —
+                // accent 로 꽉 찬 배경 · 흰 굵은 글씨 · 전폭 — 이라 그쪽에 맞춘다.
                 Button {
                     store.takeFoundEgg(individualID: partner.id, line: line)
                 } label: {
                     HStack(spacing: 5) {
-                        Image(systemName: "oval.fill")
-                            .font(.system(size: 11)).foregroundStyle(.orange)
+                        Image(systemName: "oval.fill").font(.system(size: 10))
                         Text(l.partnerFoundEgg(speciesName))
-                            .font(.system(size: 10, weight: .semibold))
+                            .font(.system(size: 11, weight: .semibold))
                             .lineLimit(1)
-                        Spacer()
                     }
+                    .foregroundStyle(Color.white)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 5)
+                    .background(Color.accentColor, in: RoundedRectangle(cornerRadius: 6))
                 }
                 .buttonStyle(.plain)
                 // 빈 슬롯이 없으면 숨기지 않고 비활성으로 둔다(상세 화면과 같은 규칙) —
@@ -97,8 +103,6 @@ struct FoundEggAnnouncementCard: View {
                     Text(l.eggFoundNoFreeSlot).font(.system(size: 9)).foregroundStyle(.tertiary)
                 }
             }
-            .padding(.horizontal, 8).padding(.vertical, 5)
-            .background(Color.orange.opacity(0.10), in: RoundedRectangle(cornerRadius: 8))
         }
     }
 }
