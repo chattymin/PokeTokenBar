@@ -78,4 +78,94 @@ final class ProfessorTests: XCTestCase {
         XCTAssertEqual(try JSONDecoder().decode(PlayerState.self,
                                                 from: Data(negative.utf8)).researchPoints, 0)
     }
+
+    // MARK: 보내기
+
+    /// **파트너는 못 보낸다.** 값 자체가 nil 이라 화면이 버튼을 못 만든다.
+    func testThePartnerCannotBeSent() {
+        let store = makeStore()
+        let partner = make(.common, path: [1])
+        store.addForTesting(partner)
+        store.setPartner(partner.id)
+
+        XCTAssertNil(store.releaseValue(partner))
+        XCTAssertNil(store.releaseToProfessor(individualID: partner.id))
+        XCTAssertEqual(store.state.box.count, 1, "파트너가 사라졌다")
+        XCTAssertEqual(store.state.researchPoints, 0)
+    }
+
+    /// 보내면 박스에서 빠지고 포인트가 들어온다.
+    func testSendingRemovesTheIndividualAndPaysPoints() {
+        let store = makeStore()
+        let keep = make(.common, path: [1])
+        let send = make(.epic, path: [4, 5, 6])
+        store.addForTesting(keep)
+        store.addForTesting(send)
+        store.setPartner(keep.id)
+
+        XCTAssertEqual(store.releaseValue(send), 36)
+        XCTAssertEqual(store.releaseToProfessor(individualID: send.id), 36)
+        XCTAssertEqual(store.state.box.map(\.id), [keep.id], "박스에서 안 빠졌다")
+        XCTAssertEqual(store.state.researchPoints, 36)
+    }
+
+    /// **도감은 그대로다.** 도감은 만난 기록이지 소유 기록이 아니다.
+    func testSendingKeepsTheDexEntry() {
+        let store = makeStore()
+        let send = make(.rare, path: [25])
+        store.addForTesting(send)
+        store.mutate { $0.dex.insert(25) }
+
+        store.releaseToProfessor(individualID: send.id)
+        XCTAssertTrue(store.state.dex.contains(25), "도감에서 지워졌다")
+    }
+
+    /// 박스에 없는 개체는 아무 일도 안 일어난다.
+    func testSendingAnUnknownIndividualDoesNothing() {
+        let store = makeStore()
+        XCTAssertNil(store.releaseToProfessor(individualID: UUID()))
+        XCTAssertEqual(store.state.researchPoints, 0)
+    }
+
+    // MARK: 딸린 정리 — 부화 감면
+
+    /// **유일한 불꽃몸을 보내도 부화 감면이 남는다.**
+    ///
+    /// `HatchSpeedup` 은 "개체가 박스에서 빠지는 경로가 없다" 는 전제 위에 있었고 주석이 그걸
+    /// 명시했다. 이 기능이 그 전제를 깬다 — `dex`(한 번이라도 보유한 종)를 보게 고쳐야 주석이
+    /// 원래 말하려던 것과 같아진다.
+    func testTheHatchDiscountSurvivesSendingTheOnlyWarmPokemon() {
+        let store = makeStore()
+        let keep = make(.common, path: [1])
+        store.addForTesting(keep)
+        store.setPartner(keep.id)
+        // 마그마그(불꽃몸 계열).
+        let slugma = make(.common, path: [218])
+        store.addForTesting(slugma)
+        store.mutate { $0.dex.insert(218) }
+        XCTAssertTrue(HatchSpeedup.present(in: store.state.dex))
+
+        store.releaseToProfessor(individualID: slugma.id)
+
+        XCTAssertTrue(HatchSpeedup.present(in: store.state.dex), "보냈다고 감면이 사라졌다")
+        let egg = store.placeEgg(grade: .common, speciesID: 1, shiny: false)
+        XCTAssertEqual(egg?.hatchesAt.timeIntervalSince(now) ?? 0,
+                       EggBalance.duration(.common) * HatchSpeedup.multiplier, accuracy: 1,
+                       "새 알이 감면을 못 받았다")
+    }
+
+    /// **감면과 그 이름은 갈린다.** 감면은 `dex` 로 남고, 화면에 이름을 내밀 개체는 박스에서
+    /// 사라졌으니 없다 — `EggSlotsView` 의 안내 줄만 빠지고 감면 자체는 유지된다.
+    func testTheWarmPokemonsNameDisappearsButTheDiscountDoesNot() {
+        let store = makeStore()
+        let slugma = make(.common, path: [218])
+        store.addForTesting(slugma)
+        store.mutate { $0.dex.insert(218) }
+        XCTAssertNotNil(HatchSpeedup.warmer(in: store.state.box))
+
+        store.releaseToProfessor(individualID: slugma.id)
+
+        XCTAssertNil(HatchSpeedup.warmer(in: store.state.box), "박스에 없는데 이름이 나온다")
+        XCTAssertTrue(HatchSpeedup.present(in: store.state.dex), "이름이 없다고 감면까지 사라졌다")
+    }
 }

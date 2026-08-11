@@ -42,7 +42,7 @@ final class PlayerStore {
         let individual = Individual(baseID: speciesID, speciesID: speciesID, pathIDs: [speciesID],
                                     shiny: false, nature: nature, exp: 0,
                                     obtainedAt: now(), grade: grade)
-        let hadSpeedup = HatchSpeedup.present(in: state.box)
+        let hadSpeedup = HatchSpeedup.present(in: state.dex)
         state.box.append(individual)
         state.box[state.box.count - 1].partnerSince = now()
         state.partnerID = individual.id
@@ -219,7 +219,7 @@ final class PlayerStore {
     /// - Parameter hadSpeedupBefore: 이 개체가 들어오기 **전에** 이미 있었나. 호출부가 먼저 재서
     ///   넘긴다 — 들어온 뒤에 재면 방금 들어온 아이 때문에 항상 참이 되어 감면이 영영 안 걸린다.
     func applyHatchSpeedupIfNewlyEarned(hadSpeedupBefore: Bool) {
-        guard !hadSpeedupBefore, HatchSpeedup.present(in: state.box) else { return }
+        guard !hadSpeedupBefore, HatchSpeedup.present(in: state.dex) else { return }
         let now = currentDate()
         mutate { state in
             for index in state.eggs.indices {
@@ -263,10 +263,12 @@ final class PlayerStore {
     /// 테스트 전용 — 부화가 없는 2a 단계에서 박스에 개체를 넣는 유일한 경로.
     /// 획득 불변식(스타터 1회·카탈로그 소속·성격 굴림)을 전부 우회하므로 릴리스 빌드에서 잘라낸다.
     func addForTesting(_ individual: Individual) {
-        let hadSpeedup = HatchSpeedup.present(in: state.box)
+        let hadSpeedup = HatchSpeedup.present(in: state.dex)
         state.box.append(individual)
-        applyHatchSpeedupIfNewlyEarned(hadSpeedupBefore: hadSpeedup)
+        // dex 갱신이 판정보다 먼저 와야 한다 — 판정이 이제 `dex` 를 보므로, 이 개체의 종을
+        // 넣기 전에 재면 방금 들어온 아이가 "새로 얻었다" 는 신호로 안 잡힌다.
         state.dex.insert(individual.speciesID)
+        applyHatchSpeedupIfNewlyEarned(hadSpeedupBefore: hadSpeedup)
         save()
     }
 

@@ -47,7 +47,7 @@ extension PlayerStore {
               meetsRequirement(need, for: individual) else { return false }
         let threshold = ExpBalance.threshold(grade: individual.grade,
                                              stageIndex: individual.stageIndex)
-        let hadSpeedup = HatchSpeedup.present(in: state.box)
+        let hadSpeedup = HatchSpeedup.present(in: state.dex)
         mutate { state in
             state.box[index].speciesID = speciesID
             state.box[index].pathIDs.append(speciesID)

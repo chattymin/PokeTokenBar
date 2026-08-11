@@ -45,7 +45,7 @@ extension PlayerStore {
         let individual = makeHatchling(from: egg, at: now)
         // **넣기 전에** 재야 한다 — 넣은 뒤에 재면 방금 나온 아이 때문에 항상 참이 되어
         // 감면이 영영 안 걸린다.
-        let hadSpeedup = HatchSpeedup.present(in: state.box)
+        let hadSpeedup = HatchSpeedup.present(in: state.dex)
         mutate { state in
             state.box.append(individual)
             // **위장 중이면 도감에 안 넣는다.** 넣으면 정체(메타몽)가 도감에서 먼저 새고,
