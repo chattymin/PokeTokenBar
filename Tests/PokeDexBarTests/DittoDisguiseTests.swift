@@ -110,7 +110,7 @@ final class DittoDisguiseStoreTests: XCTestCase {
         let egg = try XCTUnwrap(store.startEgg(grade: .common,
                                                speciesID: DittoDisguise.speciesID, shiny: false))
         clock = clock.addingTimeInterval(86_400)
-        let hatched = try XCTUnwrap(store.claimHatch(eggID: egg.id, at: clock))
+        _ = try XCTUnwrap(store.claimHatch(eggID: egg.id, at: clock))
         // 파트너로 지정하지 않는다.
         XCTAssertTrue(store.revealDisguises(at: clock.addingTimeInterval(86_400)).isEmpty,
                       "박스에 두기만 했는데 하루 만에 풀렸다")
