@@ -25,7 +25,7 @@ extension PlayerStore {
         let started = currentDate()
         // 알을 빨리 깨우는 아이를 이미 데리고 있으면 처음부터 절반으로 시작한다.
         let full = EggBalance.duration(grade)
-        let span = HatchSpeedup.present(in: state.dex) ? full * HatchSpeedup.multiplier : full
+        let span = HatchSpeedup.present(in: state.box) ? full * HatchSpeedup.multiplier : full
         let egg = Egg(grade: grade, speciesID: speciesID, shiny: shiny,
                       startedAt: started, hatchesAt: started.addingTimeInterval(span))
         mutate { $0.eggs.append(egg) }

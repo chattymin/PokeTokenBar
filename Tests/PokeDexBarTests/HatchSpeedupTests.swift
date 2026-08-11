@@ -132,11 +132,11 @@ final class HatchSpeedupBadgeTests: XCTestCase {
         let ordinary = [Individual(baseID: 25, speciesID: 25, pathIDs: [25], nature: .hardy,
                                    obtainedAt: Date(timeIntervalSince1970: 0), grade: .common)]
         XCTAssertFalse(HatchSpeedup.present(in: []))
-        XCTAssertFalse(HatchSpeedup.present(in: Set(ordinary.map(\.speciesID))))
+        XCTAssertFalse(HatchSpeedup.present(in: ordinary))
         let warmed = ordinary + [Individual(baseID: 218, speciesID: 218, pathIDs: [218],
                                            nature: .hardy,
                                            obtainedAt: Date(timeIntervalSince1970: 0), grade: .rare)]
-        XCTAssertTrue(HatchSpeedup.present(in: Set(warmed.map(\.speciesID))))
+        XCTAssertTrue(HatchSpeedup.present(in: warmed))
     }
 
     /// 배지와 설명이 세 언어 모두 채워져 있어야 한다.
@@ -183,8 +183,7 @@ final class HatchSpeedupNamingTests: XCTestCase {
     /// 그 반대가 된다.
     func testPresenceAndWarmerAgree() {
         for box in [[], [make(25)], [make(218)], [make(25), make(935)]] {
-            XCTAssertEqual(HatchSpeedup.present(in: Set(box.map(\.speciesID))),
-                           HatchSpeedup.warmer(in: box) != nil)
+            XCTAssertEqual(HatchSpeedup.present(in: box), HatchSpeedup.warmer(in: box) != nil)
         }
     }
 

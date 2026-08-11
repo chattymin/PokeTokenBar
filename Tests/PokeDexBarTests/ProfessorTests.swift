@@ -129,12 +129,10 @@ final class ProfessorTests: XCTestCase {
 
     // MARK: 딸린 정리 — 부화 감면
 
-    /// **유일한 불꽃몸을 보내도 부화 감면이 남는다.**
-    ///
-    /// `HatchSpeedup` 은 "개체가 박스에서 빠지는 경로가 없다" 는 전제 위에 있었고 주석이 그걸
-    /// 명시했다. 이 기능이 그 전제를 깬다 — `dex`(한 번이라도 보유한 종)를 보게 고쳐야 주석이
-    /// 원래 말하려던 것과 같아진다.
-    func testTheHatchDiscountSurvivesSendingTheOnlyWarmPokemon() {
+    /// **유일한 불꽃몸을 보내면 감면이 끝난다.** 감면은 지금 가지고 있는 동안만 걸린다 —
+    /// 보내는 대가로 이후에 거는 알은 더 이상 절반을 못 받는다. 다만 **소급되지는 않는다**:
+    /// 보내기 전에 이미 걸어 둔 알은 그때 받은 감면을 그대로 유지한다.
+    func testSendingTheOnlyWarmPokemonEndsTheDiscountForFutureEggs() {
         let store = makeStore()
         let keep = make(.common, path: [1])
         store.addForTesting(keep)
@@ -142,30 +140,24 @@ final class ProfessorTests: XCTestCase {
         // 마그마그(불꽃몸 계열).
         let slugma = make(.common, path: [218])
         store.addForTesting(slugma)
-        store.mutate { $0.dex.insert(218) }
-        XCTAssertTrue(HatchSpeedup.present(in: store.state.dex))
+        XCTAssertTrue(HatchSpeedup.present(in: store.state.box))
+
+        // 보내기 **전**에 건 알 — 이미 받은 감면은 소급해서 뺏기지 않는다.
+        let discounted = store.placeEgg(grade: .common, speciesID: 1, shiny: false)
+        let discountedHatchesAt = discounted?.hatchesAt
+        XCTAssertEqual(discountedHatchesAt?.timeIntervalSince(now) ?? 0,
+                       EggBalance.duration(.common) * HatchSpeedup.multiplier, accuracy: 1,
+                       "이미 걸 때는 감면을 못 받았다")
 
         store.releaseToProfessor(individualID: slugma.id)
 
-        XCTAssertTrue(HatchSpeedup.present(in: store.state.dex), "보냈다고 감면이 사라졌다")
+        XCTAssertFalse(HatchSpeedup.present(in: store.state.box), "보냈는데 감면이 남았다")
+        XCTAssertEqual(store.state.eggs.first { $0.id == discounted?.id }?.hatchesAt,
+                       discountedHatchesAt, "이미 건 알의 감면이 소급 취소됐다")
+
         let egg = store.placeEgg(grade: .common, speciesID: 1, shiny: false)
         XCTAssertEqual(egg?.hatchesAt.timeIntervalSince(now) ?? 0,
-                       EggBalance.duration(.common) * HatchSpeedup.multiplier, accuracy: 1,
-                       "새 알이 감면을 못 받았다")
-    }
-
-    /// **감면과 그 이름은 갈린다.** 감면은 `dex` 로 남고, 화면에 이름을 내밀 개체는 박스에서
-    /// 사라졌으니 없다 — `EggSlotsView` 의 안내 줄만 빠지고 감면 자체는 유지된다.
-    func testTheWarmPokemonsNameDisappearsButTheDiscountDoesNot() {
-        let store = makeStore()
-        let slugma = make(.common, path: [218])
-        store.addForTesting(slugma)
-        store.mutate { $0.dex.insert(218) }
-        XCTAssertNotNil(HatchSpeedup.warmer(in: store.state.box))
-
-        store.releaseToProfessor(individualID: slugma.id)
-
-        XCTAssertNil(HatchSpeedup.warmer(in: store.state.box), "박스에 없는데 이름이 나온다")
-        XCTAssertTrue(HatchSpeedup.present(in: store.state.dex), "이름이 없다고 감면까지 사라졌다")
+                       EggBalance.duration(.common), accuracy: 1,
+                       "보낸 뒤에 건 알이 아직도 감면을 받는다")
     }
 }
