@@ -901,6 +901,10 @@ final class ScreenshotGeneratorTests: XCTestCase {
         // 부화 감면 — 같은 알이 얼마나 줄어드는지는 한 화면에 안 담긴다(감면 전후를 같이 봐야 한다).
         try write(png(hatchSpeedupBanner()), "hatch-speedup.png")
 
+        // 알 발견 — 다 키운 파트너가 자기 라인의 알을 부른다. 버튼과 그 알이 떨어질 슬롯 줄이
+        // 홈에서 실제로 붙어 있는 배치 그대로다.
+        try write(png(foundEggBanner()), "found-egg.png")
+
         // 태어날 때 정해지는 겉모습 — 이름 옆 배지가 그 개체가 어떤 무늬로 태어났는지 말한다.
         // 지방 배지와 같은 자리를 쓰므로, 이 그림 하나로 두 규칙이 같이 설명된다.
         try write(png(tabChrome(BoxTabView(store: fixture.player, lines: ScreenshotFixture.lines,
@@ -957,6 +961,46 @@ final class ScreenshotGeneratorTests: XCTestCase {
     ///
     /// 알 줄 스크린샷 하나로는 "빨라졌다"가 안 보인다. 비교가 있어야 2시간이 1시간이 된 것이
     /// 읽히고, 아래 줄의 안내 문구가 그 이유를 말한다.
+    /// 알 발견 — 다 진화한 파트너의 경험치가 가는 곳.
+    ///
+    /// 홈의 실제 배치를 그대로 쓴다: 발견 버튼 바로 아래가 알 슬롯 줄이라, 누르면 알이 어디로
+    /// 떨어지는지가 그림 하나로 읽힌다. 리자몽 파트너가 **파이리** 알을 부르는 것도 같이 보인다 —
+    /// 이 기능의 요점(도감 앞 단계 메우기)이 그 한 줄에 다 있다.
+    private func foundEggBanner() -> some View {
+        let now = ScreenshotFixture.now
+        let store = PlayerStore(fileURL: FileManager.default.temporaryDirectory
+                                    .appendingPathComponent("egg-\(UUID().uuidString).json"),
+                                rng: SeededRNG(seed: 12), now: { now },
+                                defaults: UserDefaults(suiteName: "ptb-egg-\(UUID().uuidString)")!)
+        store.setLanguage(.en)
+        store.seedForTesting(wallet: 100_000_000_000, slots: 3, eggs: 0, at: now)
+        var charizard = Individual(baseID: 4, speciesID: 6, pathIDs: [4, 5, 6],
+                                   nature: .adamant, obtainedAt: now, grade: .epic)
+        // 임계를 정확히 채운 상태 — 막대가 꽉 차고 버튼이 열린다.
+        charizard.exp = ExpBalance.eggThreshold(grade: .epic)
+        store.addForTesting(charizard)
+        store.setPartner(charizard.id)
+        XCTAssertNotNil(store.startEgg(grade: .rare, speciesID: 133, shiny: false),
+                        "알을 못 넣었다 — 슬롯이나 지갑이 모자란다")
+
+        let line = EvoLine(baseID: 4,
+                           tree: EvoNode(speciesID: 4, children: [
+                               EvoNode(speciesID: 5, children: [EvoNode(speciesID: 6, children: [])]),
+                           ]),
+                           rarity: .rare,
+                           names: [4: ["ko": "파이리", "en": "Charmander", "ja": "ヒトカゲ"],
+                                   6: ["ko": "리자몽", "en": "Charizard", "ja": "リザードン"]])
+        return VStack(alignment: .leading, spacing: 10) {
+            FoundEggAnnouncementCard(store: store, partner: store.state.partner, line: line)
+            EggSlotsView(store: store, now: now, lines: [133: EvoLine(
+                baseID: 133, tree: EvoNode(speciesID: 133, children: []), rarity: .rare,
+                names: [133: ["ko": "메타몽", "en": "Ditto", "ja": "メタモン"]])])
+        }
+        .padding(.horizontal, 14).padding(.vertical, 14)
+        .frame(width: PopoverMetrics.width, alignment: .leading)
+        .background(Color(nsColor: .windowBackgroundColor))
+    }
+
     private func hatchSpeedupBanner() -> some View {
         let now = ScreenshotFixture.now
         func row(warmed: Bool) -> some View {

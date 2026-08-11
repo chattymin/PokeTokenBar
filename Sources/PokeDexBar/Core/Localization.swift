@@ -217,8 +217,15 @@ struct L {
     /// 홈의 알 발견 알림 — 파트너가 곁에서 알을 건네는 장면이라 상세 화면(`eggFound`)과 문구가
     /// 다르다. 둘 다 같은 뜻이지만 서 있는 자리가 다르다: 상세는 그 개체 자신의 진행,
     /// 여기는 파트너가 지금 막 가져온 것.
+    ///
+    /// **`name` 은 알의 종이지 가져온 아이가 아니다.** 리자몽 파트너가 파이리 알을 가져온다.
+    /// 한국어·일본어는 주어를 생략해 "(파트너가) 파이리의 알을 가져왔다"로 자연히 읽히지만,
+    /// 영어는 주어를 세워야 해서 처음에 "Charmander brought you an Egg!" 로 나갔다 —
+    /// 파이리가 가져온 것이 된다. 영어는 파트너를 주어로 두고 종은 알을 꾸미게 한다.
     func partnerFoundEgg(_ name: String) -> String {
-        t("\(name)의 알을 가져왔어요!", "\(name) brought you an Egg!", "\(name)がタマゴを もってきました！")
+        t("\(name)의 알을 가져왔어요!",
+          "Your partner brought a \(name) Egg!",
+          "\(name)のタマゴを もってきました！")
     }
     var detailPartnerOnlyExp: String {
         t("경험치는 파트너만 쌓여요 — 사탕으로도 올릴 수 있어요",
