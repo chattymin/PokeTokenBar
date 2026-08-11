@@ -13,7 +13,11 @@ import Foundation
 /// ```
 /// # `open` 은 호출자의 환경변수를 안 넘긴다 — `--env` 로 하나씩 줘야 한다.
 /// open --env PTB_SEED_RIBBON=lifelong --env PTB_SEED_SPECIES=25 -a "PokeDexBar Dev"
+/// open --env PTB_SEED_EXP=1500000000 -a "PokeDexBar Dev"
 /// ```
+///
+/// `PTB_SEED_EXP` 는 `ExpSeed` 가 파싱한다 — 알 발견은 5억~40억 경험치가 있어야 보이는데,
+/// 그건 실제로는 며칠에서 몇 주 치 토큰 사용량이다. `PTB_SEED_SPECIES` 는 두 시드가 공유한다.
 ///
 /// 적용 여부는 `~/Library/Logs/PokeDexBarDev.log` 에 남는다 — 조용히 아무것도 안 하면
 /// 변수를 못 받은 것인지 조건에 안 걸린 것인지 구분할 수가 없다.
@@ -42,43 +46,47 @@ struct DevSeed: Equatable, Sendable {
     }
 }
 
+/// 경험치 시드 — 알 발견처럼 **오래 써야만 열리는 상태**를 확인하려고 있다.
+/// 리본 시드와 같은 규칙: 이미 있는 개체의 값만 올리고, 개체를 만들지 않는다.
+struct ExpSeed: Equatable, Sendable {
+    /// 끌어올릴 경험치. 0 이하면 시드가 없는 것으로 본다.
+    let exp: Int
+    /// 대상 종. 비우면 지금 파트너에게 적용한다.
+    let speciesID: Int?
+
+    /// 환경변수 → 시드. 값이 없거나 숫자가 아니거나 0 이하면 nil(= 아무것도 안 한다).
+    static func parse(_ environment: [String: String]) -> ExpSeed? {
+        guard let raw = environment["PTB_SEED_EXP"]?.trimmingCharacters(in: .whitespaces),
+              let exp = Int(raw), exp > 0 else { return nil }
+        return ExpSeed(exp: exp, speciesID: environment["PTB_SEED_SPECIES"].flatMap { Int($0) })
+    }
+}
+
 extension PlayerStore {
     #if DEBUG
     /// 환경변수에 시드가 있으면 적용한다. 기동 때 한 번 부른다.
     func applyDevSeedFromEnvironment() {
-        applyExpSeedFromEnvironment()
-        guard let seed = DevSeed.parse(ProcessInfo.processInfo.environment) else { return }
-        applyDevSeed(seed)
+        let environment = ProcessInfo.processInfo.environment
+        if let seed = ExpSeed.parse(environment) { applyExpSeed(seed) }
+        if let seed = DevSeed.parse(environment) { applyDevSeed(seed) }
     }
 
-    // MARK: 임시 — 알 발견 화면 확인용. 확인 끝나면 지운다.
-    //
-    /// `PTB_SEED_EXP` 가 있으면 대상 개체의 경험치를 그 값까지 **끌어올린다**(줄이지는 않는다).
-    /// 알 발견은 5천만~4억 경험치가 있어야 보이는데, 그건 실제로는 며칠 치 토큰 사용량이다.
-    /// 리본 시드와 같은 부류 — 이미 있는 개체의 값만 올린다.
-    ///
-    /// ```
-    /// open --env PTB_SEED_EXP=500000000 -a "PokeDexBar Dev"
-    /// open --env PTB_SEED_EXP=500000000 --env PTB_SEED_SPECIES=663 -a "PokeDexBar Dev"
-    /// ```
-    func applyExpSeedFromEnvironment() {
-        let environment = ProcessInfo.processInfo.environment
-        guard let wanted = environment["PTB_SEED_EXP"].flatMap({ Int($0) }), wanted > 0 else { return }
-        let species = environment["PTB_SEED_SPECIES"].flatMap { Int($0) }
+    /// 대상 개체의 경험치를 시드 값까지 **끌어올린다**(줄이지는 않는다) — 리본 시드와 같은 규칙.
+    func applyExpSeed(_ seed: ExpSeed) {
         let targets = state.box.indices.filter { index in
-            if let species { return state.box[index].speciesID == species }
+            if let species = seed.speciesID { return state.box[index].speciesID == species }
             return state.box[index].id == state.partnerID
         }
         guard !targets.isEmpty else {
-            AppLog.write("DevSeed: PTB_SEED_EXP=\(wanted) 이지만 대상 개체가 없다")
+            AppLog.write("ExpSeed: PTB_SEED_EXP=\(seed.exp) 이지만 대상 개체가 없다")
             return
         }
         mutate { state in
-            for index in targets where state.box[index].exp < wanted {
-                state.box[index].exp = wanted
+            for index in targets where state.box[index].exp < seed.exp {
+                state.box[index].exp = seed.exp
             }
         }
-        AppLog.write("DevSeed: \(targets.count)마리의 경험치를 \(wanted) 로 올렸다")
+        AppLog.write("ExpSeed: \(targets.count)마리의 경험치를 \(seed.exp) 로 올렸다")
     }
 
     /// 대상 개체의 누적 파트너 시간을 그 리본의 문턱으로 끌어올린다. **줄이지는 않는다** —

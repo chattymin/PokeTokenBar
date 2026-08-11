@@ -98,3 +98,29 @@ final class DevSeedApplyTests: XCTestCase {
         XCTAssertNil(find(store, ids[0]).ribbon(at: clock))
     }
 }
+
+/// 경험치 시드 — 알 발견처럼 오래 써야만 열리는 상태를 확인용으로 여는 것.
+final class ExpSeedTests: XCTestCase {
+    func testParsesAPositiveAmount() {
+        XCTAssertEqual(ExpSeed.parse(["PTB_SEED_EXP": "1500000000"])?.exp, 1_500_000_000)
+    }
+
+    func testTrimsWhitespace() {
+        XCTAssertEqual(ExpSeed.parse(["PTB_SEED_EXP": " 500000000 "])?.exp, 500_000_000)
+    }
+
+    /// 종을 지정하면 그 종에만. 리본 시드와 같은 변수를 공유한다.
+    func testTakesAnOptionalSpecies() {
+        XCTAssertEqual(ExpSeed.parse(["PTB_SEED_EXP": "1", "PTB_SEED_SPECIES": "663"])?.speciesID, 663)
+        XCTAssertNil(ExpSeed.parse(["PTB_SEED_EXP": "1"])?.speciesID)
+    }
+
+    /// 말이 안 되는 값이면 아무것도 안 한다 — 조용히 0 으로 떨어뜨려 경험치를 깎으면 안 된다.
+    func testIgnoresNonsense() {
+        XCTAssertNil(ExpSeed.parse([:]))
+        XCTAssertNil(ExpSeed.parse(["PTB_SEED_EXP": ""]))
+        XCTAssertNil(ExpSeed.parse(["PTB_SEED_EXP": "lots"]))
+        XCTAssertNil(ExpSeed.parse(["PTB_SEED_EXP": "0"]))
+        XCTAssertNil(ExpSeed.parse(["PTB_SEED_EXP": "-5"]))
+    }
+}
