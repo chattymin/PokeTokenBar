@@ -18,22 +18,33 @@ final class FoundEggTests: XCTestCase {
 
     // MARK: 임계
 
-    /// **진화 임계와 같은 환율이다.** 최종진화체에 갇힌 경험치가 새 환율이 아니라
-    /// 진화와 같은 값으로 다시 흐르게 하는 것이 이 기능의 요점이라, 등급 기본값을 그대로 쓴다.
-    func testEggThresholdMatchesTheFirstEvolutionStep() {
-        for grade in Grade.allCases {
-            XCTAssertEqual(ExpBalance.eggThreshold(grade: grade),
-                           ExpBalance.threshold(grade: grade, stageIndex: 0),
-                           "\(grade) 의 알 임계가 진화 기본값과 다르다")
+    /// 표에 적힌 절대값. 커먼 5억에서 등급마다 두 배다.
+    func testEggThresholdValues() {
+        XCTAssertEqual(ExpBalance.eggThreshold(grade: .common), 500_000_000)
+        XCTAssertEqual(ExpBalance.eggThreshold(grade: .rare), 1_000_000_000)
+        XCTAssertEqual(ExpBalance.eggThreshold(grade: .epic), 2_000_000_000)
+        XCTAssertEqual(ExpBalance.eggThreshold(grade: .legendary), 4_000_000_000)
+    }
+
+    /// 등급이 오를 때마다 정확히 두 배 — 값이 하나만 조정되어 비율이 무너지는 것을 막는다.
+    func testEggThresholdDoublesEachGrade() {
+        let ladder: [Grade] = [.common, .rare, .epic, .legendary]
+        for (lower, higher) in zip(ladder, ladder.dropFirst()) {
+            XCTAssertEqual(ExpBalance.eggThreshold(grade: higher),
+                           ExpBalance.eggThreshold(grade: lower) * 2,
+                           "\(higher) 가 \(lower) 의 두 배가 아니다")
         }
     }
 
-    /// 표에 적힌 절대값 — 위 테스트는 두 식이 같이 틀려도 통과하므로 값 자체를 따로 못박는다.
-    func testEggThresholdValues() {
-        XCTAssertEqual(ExpBalance.eggThreshold(grade: .common), 50_000_000)
-        XCTAssertEqual(ExpBalance.eggThreshold(grade: .rare), 100_000_000)
-        XCTAssertEqual(ExpBalance.eggThreshold(grade: .epic), 200_000_000)
-        XCTAssertEqual(ExpBalance.eggThreshold(grade: .legendary), 400_000_000)
+    /// **진화 임계와 별개다.** 예전엔 알 임계가 `threshold(grade:stageIndex: 0)` 을 그대로 썼다.
+    /// 지금은 근거가 다르다 — 진화는 "얼마나 써야 다음 단계인가", 알은 "확정 종 하나가 얼마인가".
+    /// 한쪽을 조정할 때 다른 쪽이 딸려 움직이면 안 된다.
+    func testEggThresholdIsNotDerivedFromTheEvolutionThreshold() {
+        for grade in Grade.allCases {
+            XCTAssertNotEqual(ExpBalance.eggThreshold(grade: grade),
+                              ExpBalance.threshold(grade: grade, stageIndex: 0),
+                              "\(grade) 의 알 임계가 진화 임계에 다시 묶였다")
+        }
     }
 
     // MARK: 슬롯 배치와 값 치르기의 분리
