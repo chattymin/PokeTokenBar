@@ -8,20 +8,22 @@ struct ProfessorOfferSection: View {
     let store: PlayerStore
     /// 베이스 종 인덱스를 받아 올 곳. 상점이 뽑기에 쓰는 것과 같은 프로바이더다.
     let provider: any PokeProviding
+    /// 종 번호 → 진화 라인. 카드에 이름을 보여주려면 필요하다(박스·부화 슬롯과 같은 이유 —
+    /// 스프라이트만으로는 지역 폼·태생폼처럼 미묘한 리컬러를 구분할 수 없다). 아직 없으면
+    /// `onNeedLine` 으로 요청하고 번호로 떨어진다(`Individual.displayName` 의 fallback).
+    var lines: [Int: EvoLine] = [:]
+    var onNeedLine: (Int) -> Void = { _ in }
 
     /// 받아 온 후보. 네트워크로 오므로 처음엔 비어 있고, 그동안은 준비 중이라고 적는다.
     @State private var index: [BaseSpecies] = []
 
     private var l: L { store.l }
 
-    /// 살 수 있나. 순수 함수라 뷰 없이 테스트로 잠근다.
-    nonisolated static func canAfford(price: Int, points: Int) -> Bool { points >= price }
-
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
                 Text(l.professorOffersTitle)
-                    .font(.system(size: 11, weight: .semibold))
+                    .font(.system(size: 12, weight: .semibold))
                 Spacer()
                 Text(l.researchPoints(store.state.researchPoints))
                     .font(.system(size: 10, weight: .medium)).monospacedDigit()
@@ -50,36 +52,90 @@ struct ProfessorOfferSection: View {
         }
     }
 
+    /// 종 번호 → 현지화 이름. 라인이 아직 없으면 요청해 두고 번호로 떨어진다 — 정체를 감추면
+    /// (`PlayerStore+Professor.swift` 의 위장 금지 결정과 같은 이유로) 안 된다.
+    private func name(_ individual: Individual) -> String {
+        let species = PopoverView.speciesName(individual.displaySpeciesID, in: lines, store.language)
+            ?? "#\(individual.displaySpeciesID)"
+        return individual.displayName(speciesName: species, store.language)
+    }
+
     @ViewBuilder
     private func card(_ offer: ProfessorOffer) -> some View {
         let individual = offer.individual
         let price = ProfessorBalance.price(grade: individual.grade)
-        let affordable = Self.canAfford(price: price, points: store.state.researchPoints)
+        let affordable = store.state.researchPoints >= price
         VStack(spacing: 3) {
             SpriteView(speciesID: individual.displaySpeciesID, form: individual.spriteForm,
                        size: 40, shiny: individual.showsShiny)
                 .frame(width: 40, height: 40)
+            Text(name(individual))
+                .font(.system(size: 8, weight: .medium))
+                .lineLimit(1).minimumScaleFactor(0.7)
             Text(individual.grade.label(store.language))
                 .font(.system(size: 8)).foregroundStyle(.secondary)
             if offer.claimed {
                 Text(l.offerTaken).font(.system(size: 9)).foregroundStyle(.tertiary)
             } else {
-                Button { store.acceptProfessorOffer(offerID: offer.id) } label: {
-                    Text(l.offerPrice(price))
-                        .font(.system(size: 9, weight: .medium))
-                        .foregroundStyle(affordable ? Color.white : Color.secondary)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 3)
-                        .background(affordable ? Color.accentColor : Color.secondary.opacity(0.15),
-                                    in: RoundedRectangle(cornerRadius: 5))
+                ProfessorOfferButton(title: l.offerPrice(price), affordable: affordable) {
+                    store.acceptProfessorOffer(offerID: offer.id)
                 }
-                .buttonStyle(.plain)
-                .disabled(!affordable)
             }
         }
         .frame(maxWidth: .infinity)
         .opacity(offer.claimed ? 0.5 : 1)
         .padding(6)
         .background(Color.secondary.opacity(0.10), in: RoundedRectangle(cornerRadius: 8))
+        .overlay {
+            // 이로치 표시 — 칸 테두리를 금테로. 박스 칸(`BoxCell`)과 같은 처리를 그대로 쓴다
+            // (새 표현을 발명하지 않는다 — 카드마다 이로치가 다른 뜻이 되면 안 된다).
+            RoundedRectangle(cornerRadius: 8)
+                .strokeBorder(individual.showsShiny ? Color.yellow.opacity(0.85) : .clear, lineWidth: 1.2)
+        }
+        .task(id: individual.displayLineID) {
+            // 이름은 네트워크로 온다 — 없으면 요청해 두고, 오는 대로 카드가 채워진다.
+            if lines[individual.displayLineID] == nil { onNeedLine(individual.displayLineID) }
+        }
+    }
+}
+
+/// 제안 카드의 구매 버튼. 별도 타입으로 뽑은 이유는 **배선 자체를 테스트로 잠그기 위해서**다 —
+/// `DetailActionButton`/`CandyButton` 과 같은 패턴. 값(가격·잔액)은 맞는데 화면이 엉뚱한 제안을
+/// 사거나 안 그리는 결함은 순수 함수 테스트로는 못 잡는다.
+struct ProfessorOfferButton: View {
+    let title: String
+    let affordable: Bool
+    let action: () -> Void
+
+    #if DEBUG
+    @MainActor static var constructed: [(title: String, affordable: Bool, action: () -> Void)] = []
+    @MainActor static var isRecording = false
+    @MainActor static func resetConstructed() {
+        isRecording = true
+        constructed = []
+    }
+    #endif
+
+    init(title: String, affordable: Bool, action: @escaping () -> Void) {
+        self.title = title
+        self.affordable = affordable
+        self.action = action
+        #if DEBUG
+        if Self.isRecording { Self.constructed.append((title, affordable, action)) }
+        #endif
+    }
+
+    var body: some View {
+        Button(action: action) {
+            Text(title)
+                .font(.system(size: 9, weight: .medium))
+                .foregroundStyle(affordable ? Color.white : Color.secondary)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 3)
+                .background(affordable ? Color.accentColor : Color.secondary.opacity(0.15),
+                            in: RoundedRectangle(cornerRadius: 5))
+        }
+        .buttonStyle(.plain)
+        .disabled(!affordable)
     }
 }

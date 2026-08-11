@@ -4,6 +4,10 @@ import SwiftUI
 struct ShopTabView: View {
     let store: PlayerStore
     let provider: any PokeProviding
+    /// 종 번호 → 진화 라인. "박사의 제안" 카드가 이름을 보여주려면 필요하다 — 박스·부화 슬롯과
+    /// 같은 방식으로 위에서 받아 내려보낸다(`ProfessorOfferSection` 참고).
+    var lines: [Int: EvoLine] = [:]
+    var onNeedLine: (Int) -> Void = { _ in }
 
     @State private var drawing = false
     @State private var lastError: String?
@@ -39,7 +43,7 @@ struct ShopTabView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 12) {
                 walletRow
-                ProfessorOfferSection(store: store, provider: provider)
+                ProfessorOfferSection(store: store, provider: provider, lines: lines, onNeedLine: onNeedLine)
                 Divider()
                 drawSection
                 slotSection

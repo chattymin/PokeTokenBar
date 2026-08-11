@@ -155,7 +155,8 @@ struct PopoverView: View {
             } else if nav.tab == .bag {
                 BagTabView(store: player)
             } else if nav.tab == .shop {
-                ShopTabView(store: player, provider: provider)
+                ShopTabView(store: player, provider: provider, lines: evoLines,
+                           onNeedLine: { baseID in loadLine(baseID) })
             } else {
                 // 위장이 풀리는 순간을 보고 있는 자리에서 보여준다. 파트너 카드만 감싼다 —
                 // 홈 탭 전체를 감싸면 헤더·한도 섹션까지 매초 다시 그려 에너지 예산을 깬다
