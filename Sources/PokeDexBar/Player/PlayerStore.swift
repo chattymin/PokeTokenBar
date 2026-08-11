@@ -90,7 +90,17 @@ final class PlayerStore {
             state.claimedTodayTokens = todayTokens
             state.earnedTokens += Self.currencyGain(delta, charm: state.ownsFortuneCharm)
             if let index = state.box.firstIndex(where: { $0.id == state.partnerID }) {
-                state.box[index].exp += Self.expGain(delta, charm: state.ownsExpCharm)
+                // **알 임계에서 멈춘다.** 다 찬 뒤에도 계속 쌓이면 한 번 안 열어 본 사이에 알
+                // 두세 개가 예약돼 버려, 알을 받는 것이 결정이 아니라 밀린 수령이 된다.
+                // 받아야 다시 쌓인다(`takeFoundEgg` 이 0으로 되돌린다).
+                //
+                // 상한이 **알 임계**인 것은 진화와 무관하기 때문이다: 알 임계는 어느 등급에서도
+                // 그 등급의 최대 진화 임계(기본값 × 3)보다 3배 이상 크다(커먼 5억 vs 1억 5천만).
+                // 그래서 이 상한은 진화를 절대 막지 않고, `EvoLine`(네트워크) 없이도 걸 수 있다 —
+                // 여기는 사용량 갱신 경로라 라인이 없다.
+                let cap = ExpBalance.eggThreshold(grade: state.box[index].grade)
+                state.box[index].exp = min(cap, state.box[index].exp
+                                                + Self.expGain(delta, charm: state.ownsExpCharm))
                 // 봉인 이전 세이브의 파트너에는 시작 시각이 없다 — 여기서 늦게라도 시계를 건다.
                 if state.box[index].partnerSince == nil { state.box[index].partnerSince = now() }
                 // 함께 쓴 토큰 기록은 부적과 무관하게 실제 쓴 만큼만 센다.

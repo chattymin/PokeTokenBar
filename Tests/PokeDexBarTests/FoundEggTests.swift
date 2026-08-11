@@ -201,22 +201,46 @@ final class FoundEggTests: XCTestCase {
         XCTAssertEqual(results, [true, false], "이로치가 굴려지지 않고 고정돼 있다")
     }
 
-    /// **경험치는 임계만큼만 줄고 초과분은 남는다** — 진화의 이월과 같다. 그래서 오래 비워
-    /// 둔 사용자가 한꺼번에 여러 알을 연속으로 받을 수 있다(슬롯이 허용하는 만큼).
-    func testExpCarriesOverSoEggsCanBeTakenInARow() {
+    /// **받으면 0 으로 돌아가고, 한 번에 한 개다.** 이월을 남기면 오래 비워 둔 사용자에게
+    /// 알이 두세 개 예약돼 버려, 받는 것이 결정이 아니라 밀린 수령이 된다.
+    ///
+    /// 경험치를 임계의 두 배로 넣어 두고도 두 번째가 안 나와야 한다 — 실제 경로에서는 상한
+    /// (`testExpStopsAtTheEggThreshold`)이 있어 두 배까지 쌓이지도 않지만, 두 장치가 각각
+    /// 독립적으로 성립해야 한 쪽이 무너져도 알이 밀리지 않는다.
+    func testTakingAnEggResetsExpToZero() {
         let store = makeStore()
         let threshold = ExpBalance.eggThreshold(grade: .epic)
         let charizard = charizard(store, exp: threshold * 2 + 7)
 
         XCTAssertNotNil(store.takeFoundEgg(individualID: charizard.id, line: charLine()))
-        XCTAssertEqual(store.state.box.first { $0.id == charizard.id }?.exp, threshold + 7)
-
-        XCTAssertNotNil(store.takeFoundEgg(individualID: charizard.id, line: charLine()))
-        XCTAssertEqual(store.state.box.first { $0.id == charizard.id }?.exp, 7)
-        XCTAssertEqual(store.state.eggs.count, 2)
+        XCTAssertEqual(store.state.box.first { $0.id == charizard.id }?.exp, 0, "이월이 남았다")
 
         XCTAssertNil(store.takeFoundEgg(individualID: charizard.id, line: charLine()))
-        XCTAssertEqual(store.state.eggs.count, 2, "경험치가 없는데 세 번째 알이 나왔다")
+        XCTAssertEqual(store.state.eggs.count, 1, "받자마자 두 번째 알이 나왔다")
+    }
+
+    /// **경험치는 알 임계에서 멈춘다.** 다 찬 뒤에도 계속 쌓이면 알이 여러 개 예약된다.
+    func testExpStopsAtTheEggThreshold() {
+        let store = makeStore()
+        let charizard = charizard(store, exp: 0)
+        store.setPartner(charizard.id)
+        let cap = ExpBalance.eggThreshold(grade: .epic)
+
+        store.update(todayTokens: 0, todayDate: "d", hasUsageData: true)      // 기준선
+        store.update(todayTokens: cap * 3, todayDate: "d", hasUsageData: true)
+        XCTAssertEqual(store.state.box.first { $0.id == charizard.id }?.exp, cap,
+                       "상한을 넘어 쌓였다")
+    }
+
+    /// **상한은 진화를 막지 않는다.** 알 임계는 어느 등급에서도 그 등급의 최대 진화 임계
+    /// (기본값 × 3)보다 훨씬 크므로, 상한에 걸린 개체는 언제나 진화 임계를 이미 넘어 있다.
+    /// 이게 깨지면 상한이 진화를 영구히 잠근다 — `EvoLine` 없이 상한을 걸 수 있는 근거다.
+    func testTheCapNeverBlocksAnEvolution() {
+        for grade in Grade.allCases {
+            let deepest = ExpBalance.threshold(grade: grade, stageIndex: 1)
+            XCTAssertGreaterThan(ExpBalance.eggThreshold(grade: grade), deepest,
+                                 "\(grade) 는 상한에 걸린 채로도 진화를 못 한다")
+        }
     }
 
     /// 박스에 없는 개체는 지급 대상이 아니다.
