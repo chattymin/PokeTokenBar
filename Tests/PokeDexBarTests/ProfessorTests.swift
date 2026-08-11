@@ -1,3 +1,5 @@
+import AppKit
+import SwiftUI
 import XCTest
 @testable import PokeDexBar
 
@@ -380,5 +382,135 @@ final class ProfessorTests: XCTestCase {
             XCTAssertFalse(l.sendCancel.isEmpty, "\(lang)")
             XCTAssertFalse(l.sendNow.isEmpty, "\(lang)")
         }
+    }
+
+    /// **확인 화면의 문구 자체를 판정하는 순수 함수.** `releaseConfirmSteps` 만 테스트하고
+    /// 화면이 그 값을 어떻게 문구로 옮기는지는 안 잰 게 fix round 1 의 결함이 새어 나간 자리다 —
+    /// "몇 번째로 누르면 끝나는지"(`releaseStep < steps`)로 문구를 갈랐더니, 1단계짜리 개체
+    /// (일반·희귀)는 확인 화면에 들어온 순간 `releaseStep` 이 이미 마지막이라 되돌릴 수 없다는
+    /// 경고가 구조적으로 안 뜰 수 있었다. 이 테스트는 **몇 번째로 묻는 화면인지**로 갈라야
+    /// 함을 고정한다 — 1단계·2단계 개체 모두 처음 묻는 화면(step 1)은 항상 경고여야 한다.
+    func testFirstConfirmScreenShowsTheIrreversibilityWarning() {
+        let l = L(.ko)
+        // 1단계짜리(일반·희귀)든 2단계짜리(이로치·전설)든, **처음 묻는 화면**은 항상 경고다.
+        XCTAssertEqual(IndividualDetailView.releaseConfirmText(step: 1, l: l), l.sendConfirmNoReturn,
+                       "처음 묻는 화면인데 되돌릴 수 없다는 경고가 아니다")
+        // 두 번째로 묻는 화면(이로치·전설에만 있다)만 반복 문구다.
+        XCTAssertEqual(IndividualDetailView.releaseConfirmText(step: 2, l: l), l.sendConfirmAgain,
+                       "두 번째로 묻는 화면인데 반복 문구가 아니다")
+    }
+
+    // MARK: 보내기 화면 — 실제로 눌러 본다
+    //
+    // 위의 `releaseConfirmSteps`/`releaseConfirmText` 는 순수 함수만 잠근다 — 값은 맞는데 화면이
+    // 그 값을 잘못 배선하는 결함(fix round 1)은 못 잡는다. `FoundEggTests.renderedDetailButtons`
+    // 와 같은 패턴으로 실제 뷰를 그리고 버튼을 눌러, 배선 자체를 검증한다.
+
+    /// `IndividualDetailView` 를 실제로 그린다. `AnyView` 로 지우는 이유는 이 host 를 여러 번
+    /// 다시 레이아웃해(=버튼을 누른 뒤 상태 전환을 반영해) 재사용해야 하기 때문이다.
+    private func hostedDetail(_ store: PlayerStore, individual: Individual) -> NSHostingView<AnyView> {
+        DetailActionButton.resetConstructed()
+        let host = NSHostingView(rootView: AnyView(IndividualDetailView(
+            store: store, individual: individual, line: nil, onNeedLine: { _ in }, onBack: {}
+        ).frame(width: PopoverMetrics.width)))
+        host.layoutSubtreeIfNeeded()
+        return host
+    }
+
+    /// 버튼을 누른 뒤(=상태가 바뀐 뒤) 지금 화면에 뜬 버튼을 다시 읽는다.
+    private func currentButtons(_ host: NSHostingView<AnyView>) -> [(title: String, action: () -> Void)] {
+        DetailActionButton.resetConstructed()
+        host.layoutSubtreeIfNeeded()
+        return DetailActionButton.constructed
+    }
+
+    /// **한 번만 눌러서는 안 나간다 — 이로치.** 초기 버튼 한 번은 확인 화면으로 넘어갈 뿐이어야
+    /// 한다. fix round 1 은 문구만 틀렸지 조작 자체는 안 샜지만, 배선이 그 결함과 같은 자리에
+    /// 있었으므로 조작이 새는지도 따로 잰다.
+    func testASinglePressOnAShinyDoesNotSendIt() {
+        let store = makeStore()
+        let keep = make(.common, path: [1])
+        store.addForTesting(keep)
+        store.setPartner(keep.id)
+        let shiny = Individual(baseID: 25, speciesID: 25, pathIDs: [25], shiny: true,
+                               nature: .hardy, exp: 0, obtainedAt: now, grade: .rare)
+        store.addForTesting(shiny)
+        let points = store.releaseValue(shiny)!
+
+        _ = hostedDetail(store, individual: shiny)
+        guard let send = DetailActionButton.constructed.first(where: { $0.title == store.l.sendToProfessor(points) }) else {
+            return XCTFail("보내기 버튼이 안 보인다")
+        }
+        send.action()
+
+        XCTAssertEqual(Set(store.state.box.map(\.id)), Set([keep.id, shiny.id]), "한 번 눌렀는데 박스에서 빠졌다")
+        XCTAssertEqual(store.state.researchPoints, 0, "한 번 눌렀는데 포인트가 들어왔다")
+    }
+
+    /// **한 번만 눌러서는 안 나간다 — 전설.** 위와 같은 이유, 등급 경로로 한 번 더.
+    func testASinglePressOnALegendaryDoesNotSendIt() {
+        let store = makeStore()
+        let keep = make(.common, path: [1])
+        store.addForTesting(keep)
+        store.setPartner(keep.id)
+        let legendary = make(.legendary, path: [150])
+        store.addForTesting(legendary)
+        let points = store.releaseValue(legendary)!
+
+        _ = hostedDetail(store, individual: legendary)
+        guard let send = DetailActionButton.constructed.first(where: { $0.title == store.l.sendToProfessor(points) }) else {
+            return XCTFail("보내기 버튼이 안 보인다")
+        }
+        send.action()
+
+        XCTAssertEqual(Set(store.state.box.map(\.id)), Set([keep.id, legendary.id]), "한 번 눌렀는데 박스에서 빠졌다")
+        XCTAssertEqual(store.state.researchPoints, 0, "한 번 눌렀는데 포인트가 들어왔다")
+    }
+
+    /// **전체 단계를 다 누르면 실제로 나간다.** 일반 개체는 1단계라 초기 버튼 → 보내기 두 번이면
+    /// 끝난다. 박스에서 사라지고 포인트가 들어와야 한다 — `onBack` 은 뷰 레벨이라 여기서
+    /// 직접 못 재지만, 사라진 개체의 상세에 `onBack` 없이 남아 있을 수는 없다는 전제만 남긴다.
+    func testTheFullConfirmSequenceSendsAnOrdinaryIndividual() {
+        let store = makeStore()
+        let keep = make(.common, path: [1])
+        store.addForTesting(keep)
+        store.setPartner(keep.id)
+        let send = make(.common, path: [1, 2])
+        store.addForTesting(send)
+        let points = store.releaseValue(send)!
+
+        let host = hostedDetail(store, individual: send)
+        guard let firstButton = DetailActionButton.constructed.first(where: { $0.title == store.l.sendToProfessor(points) }) else {
+            return XCTFail("보내기 버튼이 안 보인다")
+        }
+        firstButton.action()   // 0단계 → 1단계(확인 화면)
+
+        let confirmButtons = currentButtons(host)
+        guard let sendNow = confirmButtons.first(where: { $0.title == store.l.sendNow }) else {
+            return XCTFail("확인 화면에 보내기 버튼이 없다: \(confirmButtons.map(\.title))")
+        }
+        XCTAssertNotNil(confirmButtons.first(where: { $0.title == store.l.sendCancel }),
+                        "확인 화면에 그만두기 버튼이 없다")
+        sendNow.action()   // 일반 개체는 1단계라 이 한 번으로 끝난다
+
+        XCTAssertFalse(store.state.box.contains { $0.id == send.id }, "다 눌렀는데 박스에 남아 있다")
+        XCTAssertTrue(store.state.box.contains { $0.id == keep.id }, "관계 없는 개체까지 사라졌다")
+        XCTAssertEqual(store.state.researchPoints, points, "다 눌렀는데 포인트가 안 들어왔다")
+    }
+
+    /// **파트너는 보내기 버튼 자체가 없다.** `releaseValue` 가 nil 이라 `releaseSection` 이 아무것도
+    /// 안 그린다 — 값을 감춰서 막는 게 아니라 버튼 구성이 애초에 없어야 한다.
+    func testThePartnerNeverGetsAReleaseButton() {
+        let store = makeStore()
+        let partner = make(.common, path: [1])
+        store.addForTesting(partner)
+        store.setPartner(partner.id)
+        // 파트너가 아니었다면 받았을 점수 — 이 문구가 화면 어디에도 없어야 한다.
+        let wouldBePoints = ReleaseBalance.points(for: partner)
+
+        _ = hostedDetail(store, individual: partner)
+
+        XCTAssertNil(DetailActionButton.constructed.first(where: { $0.title == store.l.sendToProfessor(wouldBePoints) }),
+                     "파트너인데 보내기 버튼이 떴다: \(DetailActionButton.constructed.map(\.title))")
     }
 }

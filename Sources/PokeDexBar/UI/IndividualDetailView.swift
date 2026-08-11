@@ -43,6 +43,15 @@ struct IndividualDetailView: View {
         (shiny || grade == .legendary) ? 2 : 1
     }
 
+    /// 확인 화면에 뜨는 문구 — **몇 번째로 묻는 화면인지**로 가른다. "몇 번째로 누르면
+    /// 끝나는지"(`releaseStep < steps`)로 가르면, 1단계짜리 개체(일반·희귀)는 확인 화면에
+    /// 들어온 순간부터 `releaseStep` 이 늘 1이라 그 비교가 항상 거짓이 되어 되돌릴 수 없다는
+    /// 경고(`sendConfirmNoReturn`)가 절대 안 뜨는 결함이 났다. 처음 묻는 화면(`step == 1`)은
+    /// 언제나 그 경고이고, 그다음 화면(이로치·전설에만 있는 두 번째 화면)만 반복 문구다.
+    nonisolated static func releaseConfirmText(step: Int, l: L) -> String {
+        step == 1 ? l.sendConfirmNoReturn : l.sendConfirmAgain
+    }
+
     /// 경험치 막대의 분모 — **무엇을 향한 진행인지**를 정한다. 진화할 곳이 남았으면 다음
     /// 단계까지, 더 갈 곳이 없으면 다음 알까지다.
     ///
@@ -345,7 +354,7 @@ struct IndividualDetailView: View {
                         releaseStep = 1
                     }
                 } else {
-                    Text(releaseStep < steps ? l.sendConfirmNoReturn : l.sendConfirmAgain)
+                    Text(Self.releaseConfirmText(step: releaseStep, l: l))
                         .font(.system(size: 9)).foregroundStyle(.secondary)
                     HStack(spacing: 6) {
                         DetailActionButton(title: l.sendCancel, prominent: false) {
