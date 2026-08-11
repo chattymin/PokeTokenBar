@@ -160,4 +160,190 @@ final class ProfessorTests: XCTestCase {
                        EggBalance.duration(.common), accuracy: 1,
                        "보낸 뒤에 건 알이 아직도 감면을 받는다")
     }
+
+    // MARK: 결정적 굴림
+
+    /// **`String.hashValue` 를 쓰면 안 된다** — Swift 기본 해시는 프로세스마다 무작위로
+    /// 시딩되므로 앱을 껐다 켤 때마다 다른 값이 나온다. FNV-1a 는 어디서든 같은 값이다.
+    func testTheHashIsStableAndNotSwiftsOwn() {
+        XCTAssertEqual(ProfessorRoll.hash("2026-08-11"), ProfessorRoll.hash("2026-08-11"))
+        XCTAssertNotEqual(ProfessorRoll.hash("2026-08-11"), ProfessorRoll.hash("2026-08-12"))
+        // FNV-1a 64비트 표준 벡터 — 구현이 슬쩍 바뀌면 여기서 걸린다.
+        XCTAssertEqual(ProfessorRoll.hash(""), 0xcbf2_9ce4_8422_2325)
+    }
+
+    /// 굴림은 0…1 안에 있고, 같은 (날짜·자리·용도) 면 언제나 같다.
+    func testRollsAreInRangeAndRepeatable() {
+        for slot in 0..<3 {
+            for salt in [ProfessorRoll.Salt.grade, ProfessorRoll.Salt.species, ProfessorRoll.Salt.shiny] {
+                let a = ProfessorRoll.unit(date: "2026-08-11", slot: slot, salt: salt)
+                XCTAssertEqual(a, ProfessorRoll.unit(date: "2026-08-11", slot: slot, salt: salt))
+                XCTAssertGreaterThanOrEqual(a, 0)
+                XCTAssertLessThan(a, 1)
+            }
+        }
+    }
+
+    /// **자리와 용도가 다르면 값도 달라야 한다.** 같으면 세 자리가 똑같은 포켓몬이 되거나
+    /// 등급과 이로치가 붙어 움직인다.
+    func testRollsDifferBySlotAndSalt() {
+        let bySlot = (0..<3).map { ProfessorRoll.unit(date: "d", slot: $0, salt: ProfessorRoll.Salt.grade) }
+        XCTAssertEqual(Set(bySlot).count, 3, "자리마다 굴림이 같다")
+        let bySalt = [ProfessorRoll.Salt.grade, ProfessorRoll.Salt.species, ProfessorRoll.Salt.shiny]
+            .map { ProfessorRoll.unit(date: "d", slot: 0, salt: $0) }
+        XCTAssertEqual(Set(bySalt).count, 3, "용도마다 굴림이 같다")
+    }
+
+    // MARK: 오늘의 제안
+
+    private func index() -> [BaseSpecies] {
+        [BaseSpecies(id: 1, captureRate: 255, isLegendary: false, isMythical: false),
+         BaseSpecies(id: 4, captureRate: 45, isLegendary: false, isMythical: false),
+         BaseSpecies(id: 25, captureRate: 190, isLegendary: false, isMythical: false),
+         BaseSpecies(id: 133, captureRate: 35, isLegendary: false, isMythical: false),
+         BaseSpecies(id: 150, captureRate: 3, isLegendary: true, isMythical: false)]
+    }
+
+    /// 날짜가 정해진 뒤 준비하면 3마리가 뜬다.
+    func testPreparingTodaysOffers() {
+        let store = makeStore()
+        store.update(todayTokens: 0, todayDate: "2026-08-11", hasUsageData: true)
+        store.refreshProfessorOffers(index: index())
+        XCTAssertEqual(store.state.professorOffers.count, 3)
+        XCTAssertEqual(store.state.professorOfferDate, "2026-08-11")
+        XCTAssertTrue(store.state.professorOffers.allSatisfy { !$0.claimed })
+    }
+
+    /// **같은 날 두 번 준비해도 같은 3마리.** 인덱스가 늦게 와서 다시 부르는 일이 실제로 있다.
+    func testPreparingTwiceInADayKeepsTheSameThree() {
+        let store = makeStore()
+        store.update(todayTokens: 0, todayDate: "2026-08-11", hasUsageData: true)
+        store.refreshProfessorOffers(index: index())
+        let first = store.state.professorOffers.map(\.individual.speciesID)
+        store.refreshProfessorOffers(index: index())
+        XCTAssertEqual(store.state.professorOffers.map(\.individual.speciesID), first)
+    }
+
+    /// **앱을 껐다 켜도 같은 3마리.** 여기가 `String.hashValue` 를 썼을 때 깨지는 자리다 —
+    /// 저장된 제안을 지우고 새 프로세스가 다시 굴려도 같은 종이 나와야 한다.
+    func testTheSameDayRollsTheSameThreeInAFreshStore() {
+        func speciesOfFreshStore() -> [Int] {
+            let s = makeStore()
+            s.update(todayTokens: 0, todayDate: "2026-08-11", hasUsageData: true)
+            s.refreshProfessorOffers(index: index())
+            return s.state.professorOffers.map(\.individual.speciesID)
+        }
+        XCTAssertEqual(speciesOfFreshStore(), speciesOfFreshStore())
+    }
+
+    /// 날짜가 바뀌면 새로 뽑는다.
+    func testANewDayRollsNewOffers() {
+        let store = makeStore()
+        store.update(todayTokens: 0, todayDate: "2026-08-11", hasUsageData: true)
+        store.refreshProfessorOffers(index: index())
+        let first = store.state.professorOffers.map(\.individual.speciesID)
+
+        store.update(todayTokens: 1, todayDate: "2026-08-12", hasUsageData: true)
+        store.refreshProfessorOffers(index: index())
+        XCTAssertEqual(store.state.professorOfferDate, "2026-08-12")
+        XCTAssertNotEqual(store.state.professorOffers.map(\.individual.speciesID), first)
+    }
+
+    /// 인덱스가 아직 없으면 아무것도 안 한다 — 빈 후보로 굴리면 크래시다.
+    func testAnEmptyIndexPreparesNothing() {
+        let store = makeStore()
+        store.update(todayTokens: 0, todayDate: "2026-08-11", hasUsageData: true)
+        store.refreshProfessorOffers(index: [])
+        XCTAssertTrue(store.state.professorOffers.isEmpty)
+        XCTAssertEqual(store.state.professorOfferDate, "")
+    }
+
+    // MARK: 교환
+
+    private func preparedStore() -> PlayerStore {
+        let store = makeStore()
+        store.update(todayTokens: 0, todayDate: "2026-08-11", hasUsageData: true)
+        store.refreshProfessorOffers(index: index())
+        return store
+    }
+
+    /// 포인트가 모자라면 교환 실패 + **포인트 미차감**.
+    func testAcceptingWithoutEnoughPointsChangesNothing() {
+        let store = preparedStore()
+        let offer = store.state.professorOffers[0]
+        XCTAssertNil(store.acceptProfessorOffer(offerID: offer.id))
+        XCTAssertEqual(store.state.researchPoints, 0)
+        XCTAssertTrue(store.state.box.isEmpty)
+        XCTAssertFalse(store.state.professorOffers[0].claimed)
+    }
+
+    /// 교환하면 값을 치르고 박스와 도감에 들어간다. **보이던 개체 그대로**여야 한다.
+    func testAcceptingTakesTheExactPokemonShown() {
+        let store = preparedStore()
+        store.mutate { $0.researchPoints = 1000 }
+        let offer = store.state.professorOffers[0]
+        let price = ProfessorBalance.price(grade: offer.individual.grade)
+
+        let taken = store.acceptProfessorOffer(offerID: offer.id)
+        XCTAssertEqual(taken?.speciesID, offer.individual.speciesID)
+        XCTAssertEqual(taken?.shiny, offer.individual.shiny)
+        XCTAssertEqual(taken?.nature, offer.individual.nature)
+        XCTAssertEqual(taken?.grade, offer.individual.grade)
+        XCTAssertEqual(store.state.researchPoints, 1000 - price)
+        XCTAssertEqual(store.state.box.count, 1)
+        XCTAssertTrue(store.state.dex.contains(offer.individual.speciesID))
+    }
+
+    /// **교환한 자리는 그날 다시 안 채워진다** — 자리는 남고 표시만 붙는다.
+    func testAClaimedOfferStaysClaimedForTheDay() {
+        let store = preparedStore()
+        store.mutate { $0.researchPoints = 1000 }
+        let offer = store.state.professorOffers[0]
+        store.acceptProfessorOffer(offerID: offer.id)
+
+        XCTAssertEqual(store.state.professorOffers.count, 3, "자리가 없어졌다")
+        XCTAssertTrue(store.state.professorOffers[0].claimed)
+        XCTAssertNil(store.acceptProfessorOffer(offerID: offer.id), "두 번 데려갔다")
+        XCTAssertEqual(store.state.box.count, 1)
+
+        store.refreshProfessorOffers(index: index())
+        XCTAssertTrue(store.state.professorOffers[0].claimed, "같은 날에 되살아났다")
+    }
+
+    /// **두 재화가 안 섞인다** — 포인트로 알을 못 사고, 토큰으로 제안을 못 산다.
+    func testPointsAndTokensNeverMix() {
+        let store = preparedStore()
+        store.mutate { $0.researchPoints = 1000 }
+        let walletBefore = store.state.wallet
+        store.acceptProfessorOffer(offerID: store.state.professorOffers[0].id)
+        XCTAssertEqual(store.state.wallet, walletBefore, "제안을 토큰으로 샀다")
+
+        let pointsBefore = store.state.researchPoints
+        store.update(todayTokens: EggBalance.drawPrice * 2, todayDate: "2026-08-11",
+                     hasUsageData: true)
+        store.startEgg(grade: .common, speciesID: 1, shiny: false)
+        XCTAssertEqual(store.state.researchPoints, pointsBefore, "알을 포인트로 샀다")
+    }
+
+    /// 저장 왕복 — 오늘의 제안이 재기동 후에도 남는다.
+    func testOffersSurviveARestart() {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("prof-offers-\(UUID().uuidString).json")
+        let store = PlayerStore(fileURL: url, rng: SeededRNG(seed: 1), now: { self.now })
+        store.update(todayTokens: 0, todayDate: "2026-08-11", hasUsageData: true)
+        store.refreshProfessorOffers(index: index())
+        let species = store.state.professorOffers.map(\.individual.speciesID)
+
+        let reloaded = PlayerStore(fileURL: url, rng: SeededRNG(seed: 1), now: { self.now })
+        XCTAssertEqual(reloaded.state.professorOffers.map(\.individual.speciesID), species)
+        XCTAssertEqual(reloaded.state.professorOfferDate, "2026-08-11")
+    }
+
+    /// 가격표.
+    func testOfferPrices() {
+        XCTAssertEqual(ProfessorBalance.price(grade: .common), 10)
+        XCTAssertEqual(ProfessorBalance.price(grade: .rare), 25)
+        XCTAssertEqual(ProfessorBalance.price(grade: .epic), 60)
+        XCTAssertEqual(ProfessorBalance.price(grade: .legendary), 200)
+    }
 }

@@ -28,6 +28,10 @@ struct PlayerState: Codable, Sendable {
     /// 토큰으로는 박사와 거래할 수 없다. 섞으면 토큰을 안 쓰고도 재화가 도는 순환이 생겨,
     /// "쓴 토큰이 곧 재화" 라는 이 앱의 전제가 흐려진다.
     var researchPoints = 0
+    /// 오늘의 제안을 뽑은 날짜. `lastDate` 와 다르면 새로 뽑는다.
+    var professorOfferDate = ""
+    /// 오늘의 제안. 데려간 자리는 빠지지 않고 `claimed` 로 남는다.
+    var professorOffers: [ProfessorOffer] = []
     /// 파트너가 물어 왔는데 아직 확인 안 한 것(`Discovery`). 도구는 이미 `inventory` 에 들어가
     /// 있고 이 목록은 **알림용**이다 — 확인이 늦어도 잃는 게 없다.
     var discoveries: [Discovery] = []
@@ -95,6 +99,14 @@ struct PlayerState: Codable, Sendable {
         inventory = value(.inventory, [:])
         // 관대 디코딩의 짝 — 값 범위 검증. 산술에 쓰이는 수치이므로 자른다.
         researchPoints = min(ReleaseBalance.maxPoints, max(0, value(.researchPoints, 0)))
+        professorOfferDate = value(.professorOfferDate, "")
+        // 제안도 박스·알과 같은 이유로 원소 단위 관대 디코딩한다 — 한 자리가 깨졌다고 오늘 치가
+        // 통째로 날아가면 안 된다. 항목이므로 개수는 안 자르고, 말이 안 되는 원소만 버린다.
+        let wrappedOffers = (try? c.decode([LossyProfessorOffer].self, forKey: .professorOffers)) ?? []
+        professorOffers = wrappedOffers.compactMap(\.offer)
+        if professorOffers.count != wrappedOffers.count {
+            AppLog.write("PlayerState: dropped \(wrappedOffers.count - professorOffers.count) malformed professor offer(s) on decode")
+        }
         ownsShinyCharm = value(.ownsShinyCharm, false)
         language = value(.language, .systemDefault)
     }
@@ -115,5 +127,17 @@ private struct LossyEgg: Decodable {
     let egg: Egg?
     init(from decoder: Decoder) throws {
         egg = (try? Egg(from: decoder))?.sanitized()
+    }
+}
+
+/// `[ProfessorOffer]` 원소 단위 관대 디코딩 래퍼 — `LossyEgg` 와 같은 패턴에, 개체 자체의
+/// 값 범위 검증(`Individual.sanitized`)을 겸한다.
+private struct LossyProfessorOffer: Decodable {
+    let offer: ProfessorOffer?
+    init(from decoder: Decoder) throws {
+        guard var decoded = try? ProfessorOffer(from: decoder), decoded.individual.speciesID >= 1
+        else { offer = nil; return }
+        decoded.individual = decoded.individual.sanitized()
+        offer = decoded
     }
 }
