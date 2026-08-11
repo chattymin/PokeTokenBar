@@ -513,4 +513,38 @@ final class ProfessorTests: XCTestCase {
         XCTAssertNil(DetailActionButton.constructed.first(where: { $0.title == store.l.sendToProfessor(wouldBePoints) }),
                      "파트너인데 보내기 버튼이 떴다: \(DetailActionButton.constructed.map(\.title))")
     }
+
+    // MARK: 제안 화면
+
+    /// 살 수 있나 — 순수 판정이라 뷰 없이 잠근다.
+    func testOfferAffordability() {
+        XCTAssertTrue(ProfessorOfferSection.canAfford(price: 10, points: 10))
+        XCTAssertTrue(ProfessorOfferSection.canAfford(price: 10, points: 11))
+        XCTAssertFalse(ProfessorOfferSection.canAfford(price: 10, points: 9))
+    }
+
+    /// 상점이 제안 경로에 닿아 있다 — 안 닿으면 제안을 영원히 못 본다.
+    func testTheShopReachesTheOfferSection() throws {
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let shop = try String(contentsOf: root.appendingPathComponent(
+            "Sources/PokeDexBar/UI/ShopTabView.swift"), encoding: .utf8)
+        XCTAssertTrue(shop.contains("ProfessorOfferSection"), "상점에 박사의 제안이 없다")
+        let section = try String(contentsOf: root.appendingPathComponent(
+            "Sources/PokeDexBar/UI/ProfessorOfferSection.swift"), encoding: .utf8)
+        XCTAssertTrue(section.contains("acceptProfessorOffer"), "교환 경로에 안 닿는다")
+        XCTAssertTrue(section.contains("refreshProfessorOffers"), "제안을 준비하지 않는다")
+        XCTAssertFalse(section.contains(".help("), "안 뜨는 툴팁이 들어왔다")
+    }
+
+    /// 문구가 세 언어를 다 채운다.
+    func testOfferStringsCoverAllThreeLanguages() {
+        for lang in AppLanguage.allCases {
+            let l = L(lang)
+            XCTAssertFalse(l.professorOffersTitle.isEmpty, "\(lang)")
+            XCTAssertFalse(l.researchPoints(7).isEmpty, "\(lang)")
+            XCTAssertFalse(l.offerTaken.isEmpty, "\(lang)")
+            XCTAssertFalse(l.offerPrice(10).isEmpty, "\(lang)")
+        }
+    }
 }

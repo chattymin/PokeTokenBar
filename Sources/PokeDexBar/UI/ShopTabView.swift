@@ -39,6 +39,8 @@ struct ShopTabView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 12) {
                 walletRow
+                ProfessorOfferSection(store: store, provider: provider)
+                Divider()
                 drawSection
                 slotSection
                 // 목록은 `ShopCategory` 가 정한다 — 뷰가 칸을 나열하면 새 분류가 조용히 빠진다.

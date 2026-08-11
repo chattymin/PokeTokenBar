@@ -243,6 +243,18 @@ struct L {
     }
     var sendCancel: String { t("그만두기", "Keep it", "やめる") }
     var sendNow: String { t("보내기", "Send", "おくる") }
+    var professorOffersTitle: String { t("박사의 제안", "The Professor's offer", "はかせのていあん") }
+    func researchPoints(_ points: Int) -> String {
+        t("\(points)P", "\(points)P", "\(points)P")
+    }
+    var offerTaken: String { t("데려갔어요", "Taken", "つれていきました") }
+    func offerPrice(_ points: Int) -> String {
+        t("\(points)P 로 데려가기", "Take for \(points)P", "\(points)Pでつれていく")
+    }
+    var professorOffersEmpty: String {
+        t("오늘의 제안을 준비하고 있어요", "Getting today's offer ready",
+          "きょうのていあんをじゅんびしています")
+    }
     var detailNoCandy: String {
         t("가진 사탕이 없어요 (상점)", "No candy yet (Shop)", "アメがありません(ショップ)")
     }
