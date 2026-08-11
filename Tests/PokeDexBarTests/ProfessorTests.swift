@@ -3,6 +3,18 @@ import SwiftUI
 import XCTest
 @testable import PokeDexBar
 
+/// 제안 화면 렌더 테스트가 쓰는 프로바이더 — 빈 인덱스를 돌려줘 `ProfessorOfferSection.task` 가
+/// `refreshProfessorOffers` 를 다시 부르지 않게 한다(`DiscoveryTests` 의 `StubDiscoveryProvider` 와
+/// 같은 패턴). 미리 심어 둔 `professorOffers` 를 렌더 중에 덮어쓰면 무엇을 확인하는지가 흐려진다.
+private struct StubOfferProvider: PokeProviding {
+    func baseSpeciesIndex() async throws -> [BaseSpecies] { [] }
+    func baseSpecies(id: Int) async throws -> BaseSpecies? { nil }
+    func line(baseSpeciesID: Int) async throws -> EvoLine {
+        EvoLine(baseID: baseSpeciesID, tree: EvoNode(speciesID: baseSpeciesID, children: []),
+                rarity: .common, names: [:])
+    }
+}
+
 /// 박사에게 보내기 · 박사의 제안.
 @MainActor
 final class ProfessorTests: XCTestCase {
@@ -514,13 +526,126 @@ final class ProfessorTests: XCTestCase {
                      "파트너인데 보내기 버튼이 떴다: \(DetailActionButton.constructed.map(\.title))")
     }
 
-    // MARK: 제안 화면
+    // MARK: 딸린 정리 — 부화 감면(제안 경로)
 
-    /// 살 수 있나 — 순수 판정이라 뷰 없이 잠근다.
-    func testOfferAffordability() {
-        XCTAssertTrue(ProfessorOfferSection.canAfford(price: 10, points: 10))
-        XCTAssertTrue(ProfessorOfferSection.canAfford(price: 10, points: 11))
-        XCTAssertFalse(ProfessorOfferSection.canAfford(price: 10, points: 9))
+    /// **제안으로 데려온 개체도 감면을 건다.** 박스에 개체가 들어오는 경로는 스타터·부화·진화·
+    /// `acceptProfessorOffer` 넷인데, 앞의 셋은 `applyHatchSpeedupIfNewlyEarned` 를 부르지만
+    /// 제안 교환만 빠져 있었다 — 마그마그를 박사에게서 데려오면 진행 중이던 알이 그대로였다
+    /// (같은 마그마그를 부화로 얻으면 절반이 됐다). 슬러그마는 `HatchSpeedup.species` 의 베이스
+    /// 종이자 `pickSpecies` 가 뽑을 수 있는 종이라 실제로 걸리는 경로다.
+    func testAcceptingAWarmOfferSpeedsUpAnEggAlreadyInFlight() {
+        let store = makeStore()
+        let keep = make(.common, path: [1])
+        store.addForTesting(keep)
+        store.setPartner(keep.id)
+
+        // 이미 걸린 알 — 감면 전 정가로 시작한다.
+        let egg = store.placeEgg(grade: .common, speciesID: 1, shiny: false)
+        XCTAssertEqual(egg?.hatchesAt.timeIntervalSince(now) ?? 0,
+                       EggBalance.duration(.common), accuracy: 1, "감면 없이 시작하지 않았다")
+
+        // 슬러그마(불꽃몸 계열)를 제안에 심어 교환한다.
+        store.update(todayTokens: 0, todayDate: "2026-08-11", hasUsageData: true)
+        store.mutate {
+            $0.professorOfferDate = "2026-08-11"
+            $0.professorOffers = [ProfessorOffer(individual: make(.common, path: [218]))]
+            $0.researchPoints = 1000
+        }
+        let offerID = store.state.professorOffers[0].id
+        XCTAssertNotNil(store.acceptProfessorOffer(offerID: offerID), "교환이 실패했다")
+        XCTAssertTrue(HatchSpeedup.present(in: store.state.box), "박스에 감면 대상이 없다")
+
+        XCTAssertEqual(store.state.eggs.first { $0.id == egg?.id }?.hatchesAt.timeIntervalSince(now) ?? 0,
+                       EggBalance.duration(.common) * HatchSpeedup.multiplier, accuracy: 1,
+                       "제안으로 데려왔는데 이미 걸린 알의 감면이 안 걸렸다")
+    }
+
+    // MARK: 제안 화면 — 실제로 그려 본다
+    //
+    // 아래 순수 판정(`testOfferPrices` 등)은 값만 잠근다 — 카드가 이름 없이 그려지거나, 버튼이
+    // 엉뚱한 제안을 사거나, 데려간 자리에 버튼이 남는 배선 결함은 못 잡는다(같은 부류를 보내기
+    // 화면에서 db3a942 가 이미 한 번 냈다). `hostedDetail`/`currentButtons` 와 같은 패턴으로
+    // 실제 뷰를 그리고 기록된 동작을 불러 배선 자체를 검증한다.
+
+    private func hostedOfferSection(_ store: PlayerStore) -> NSHostingView<AnyView> {
+        ProfessorOfferButton.resetConstructed()
+        let host = NSHostingView(rootView: AnyView(
+            ProfessorOfferSection(store: store, provider: StubOfferProvider())
+                .frame(width: PopoverMetrics.width)))
+        host.layoutSubtreeIfNeeded()
+        return host
+    }
+
+    /// **등급을 서로 다르게 둔다** — 무작위 뽑기(`preparedStore`)는 세 자리가 같은 등급으로 겹칠
+    /// 수 있어, 가격으로 카드 수를 세는 근거가 안 된다. `NSHostingView` 는 측정·배치 두 패스로
+    /// body 를 두 번 평가하므로(`constructed` 가 매번 그만큼 쌓인다) `.count` 를 그대로 못 쓴다 —
+    /// 값(가격) 의 **Set** 으로 세면 중복 패스와 무관하게 "몇 종류의 카드가 떴나"를 잰다.
+    private func threeOfferStore(points: Int) -> PlayerStore {
+        let store = makeStore()
+        store.mutate {
+            $0.professorOfferDate = "2026-08-11"
+            $0.professorOffers = [ProfessorOffer(individual: make(.common, path: [1])),
+                                  ProfessorOffer(individual: make(.rare, path: [4])),
+                                  ProfessorOffer(individual: make(.epic, path: [25]))]
+            $0.researchPoints = points
+        }
+        return store
+    }
+
+    /// 세 카드가 실제로 뜨고, 각 카드의 값 치르기 버튼에 그 자리의 가격이 정확히 실린다.
+    func testOfferSectionRendersThreeCardsWithCorrectPrices() {
+        let store = threeOfferStore(points: 1000)
+
+        _ = hostedOfferSection(store)
+
+        let titles = Set(ProfessorOfferButton.constructed.map(\.title))
+        XCTAssertEqual(titles, Set([10, 25, 60].map { store.l.offerPrice($0) }),
+                       "카드 세 장의 가격이 안 맞는다: \(ProfessorOfferButton.constructed.map(\.title))")
+        XCTAssertTrue(ProfessorOfferButton.constructed.allSatisfy(\.affordable),
+                     "포인트가 충분한데 비활성 카드가 있다")
+    }
+
+    /// 포인트가 모자란 자리는 버튼이 **비활성으로** 그려진다.
+    func testOfferSectionDisablesUnaffordableCards() {
+        let store = threeOfferStore(points: 0)
+
+        _ = hostedOfferSection(store)
+
+        XCTAssertEqual(Set(ProfessorOfferButton.constructed.map(\.title)).count, 3,
+                       "카드 세 장이 안 떴다: \(ProfessorOfferButton.constructed.map(\.title))")
+        XCTAssertTrue(ProfessorOfferButton.constructed.allSatisfy { !$0.affordable },
+                     "포인트가 0 인데 활성 버튼이 있다")
+    }
+
+    /// 데려간 자리는 버튼 자체가 **안 그려진다** — 흐리게 표시만 남고 "데려갔어요"로 바뀐다.
+    func testOfferSectionRecordsNoButtonForAClaimedSlot() {
+        let store = threeOfferStore(points: 1000)
+        store.mutate { $0.professorOffers[0].claimed = true }   // common(10) 자리
+
+        _ = hostedOfferSection(store)
+
+        let titles = Set(ProfessorOfferButton.constructed.map(\.title))
+        XCTAssertFalse(titles.contains(store.l.offerPrice(10)),
+                       "데려간 자리에도 버튼이 그려졌다: \(ProfessorOfferButton.constructed.map(\.title))")
+        XCTAssertEqual(titles, Set([25, 60].map { store.l.offerPrice($0) }))
+    }
+
+    /// **기록된 동작을 실제로 부르면** 그 포켓몬이 박스에 들어온다 — 배선이 살아 있는지의 핵심.
+    func testInvokingARecordedActionMovesThePokemonIntoTheBox() {
+        let store = threeOfferStore(points: 1000)
+        let rareOffer = store.state.professorOffers[1]   // 25P 자리 — 결정적으로 지목한다
+
+        _ = hostedOfferSection(store)
+        guard let recorded = ProfessorOfferButton.constructed.first(where: {
+            $0.title == store.l.offerPrice(25)
+        }) else {
+            return XCTFail("25P 카드가 안 떴다: \(ProfessorOfferButton.constructed.map(\.title))")
+        }
+        recorded.action()
+
+        XCTAssertTrue(store.state.box.contains { $0.speciesID == rareOffer.individual.speciesID },
+                     "버튼을 불렀는데 박스에 안 들어왔다")
+        XCTAssertTrue(store.state.professorOffers[1].claimed, "버튼을 불렀는데 그 자리가 안 바뀌었다")
     }
 
     /// 상점이 제안 경로에 닿아 있다 — 안 닿으면 제안을 영원히 못 본다.
