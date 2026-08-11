@@ -21,8 +21,30 @@ struct IndividualDetailView: View {
     /// 이로치 반짝임의 방아쇠. 화면에 들어올 때 한 번 올린다 — 계속 반짝이면
     /// 특별하다는 신호가 아니라 배경 장식이 된다.
     @State private var sparkleBeat = 0
-    private var threshold: Int {
-        ExpBalance.threshold(grade: individual.grade, stageIndex: individual.stageIndex)
+    /// 위장 중이 아니고 라인이 있고 더 진화할 곳이 없으면 교환권 대상이다 — `actions` 의 분기와
+    /// `canClaimEggVoucher` 가 보는 것과 같은 조건. `expSection`·`voucherSection` 이 이 값 하나로
+    /// 갈려야 두 자리가 다른 답을 하지 않는다.
+    private var isVoucherCandidate: Bool {
+        Self.isVoucherCandidate(hasLine: line != nil, hasEvolutionChoices: !choices.isEmpty,
+                                isDisguised: individual.disguisedAs != nil)
+    }
+
+    /// 순수 함수 버전 — 뷰 인스턴스 없이 조건 자체를 테스트로 잠근다.
+    nonisolated static func isVoucherCandidate(hasLine: Bool, hasEvolutionChoices: Bool,
+                                               isDisguised: Bool) -> Bool {
+        hasLine && !hasEvolutionChoices && !isDisguised
+    }
+
+    /// 경험치 막대의 분모. 교환권 대상이면 **교환권 임계**(진화 한 단계와 같은 환율)로 그린다 —
+    /// 최종형의 진화 임계(등급 기본값 × 3)를 쓰면 교환권으로는 절대 못 채우는 막대가 된다.
+    /// `expSection`·`voucherSection` 이 공유하는 단일 소스 — 따로 계산하면 같은 경험치가
+    /// 두 자리에서 다른 퍼센트로 보일 수 있다.
+    private var threshold: Int { Self.expThreshold(individual: individual, isVoucherCandidate: isVoucherCandidate) }
+
+    /// 순수 함수 버전.
+    nonisolated static func expThreshold(individual: Individual, isVoucherCandidate: Bool) -> Int {
+        isVoucherCandidate ? EggVoucher.threshold(grade: individual.grade)
+                           : ExpBalance.threshold(grade: individual.grade, stageIndex: individual.stageIndex)
     }
     private var choices: [Int] {
         // 위장 중엔 진화를 안 내민다. 이 화면이 받은 라인은 **위장한 종의 것**이라(이름 때문)
@@ -200,6 +222,10 @@ struct IndividualDetailView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
+    /// 경험치 막대 — 진화할 곳이 있으면 다음 진화 임계, 없으면(교환권 대상) 교환권 임계로 찬다.
+    /// 예전엔 여기 항상 진화 임계만 그렸다 — 최종형은 못 채우는 막대가 되어(임계가 진화 3단계치)
+    /// 그 바로 아래 교환권 막대와 같은 개체의 같은 경험치를 두 다른 분모로 두 번 보여줬다.
+    /// 이제 분모는 `threshold` 하나뿐이다.
     private var expSection: some View {
         VStack(alignment: .leading, spacing: 3) {
             HStack {
@@ -208,13 +234,18 @@ struct IndividualDetailView: View {
                 Text("\(TokenFormatter.compact(individual.exp)) / \(TokenFormatter.compact(threshold))")
                     .font(.system(size: 10)).monospacedDigit().foregroundStyle(.secondary)
             }
-            ProgressView(value: BoxTabView.progress(individual))
+            ProgressView(value: expProgress)
                 .progressViewStyle(.linear).frame(height: 5)
             if !isPartner {
                 Text(l.detailPartnerOnlyExp)
                     .font(.system(size: 9)).foregroundStyle(.tertiary)
             }
         }
+    }
+
+    /// 0…1. `threshold` 가 0일 리는 없지만(등급 기본값은 항상 양수) 방어적으로 자른다.
+    private var expProgress: Double {
+        threshold > 0 ? min(1, max(0, Double(individual.exp) / Double(threshold))) : 0
     }
 
     @ViewBuilder
@@ -229,7 +260,15 @@ struct IndividualDetailView: View {
             if store.canEvolve(individual), !choices.isEmpty, let line {
                 evolutionSection(line)
             } else if let line, choices.isEmpty {
-                voucherSection(line)
+                // 위장 중엔 진짜로 최종형인지 알 수 없다(받은 라인이 위장한 종의 것이라 `choices`
+                // 가 강제로 비어 있을 뿐이다) — `canClaimEggVoucher` 도 위장 중이면 거절한다.
+                // 이 화면도 같은 질문을 해야 한다: 교환권 자리 대신 이 branch 가 원래 있던 자리인
+                // "더 진화하지 않아요" 한 줄만 남긴다.
+                if individual.disguisedAs != nil {
+                    Text(l.detailMaxStage).font(.system(size: 9)).foregroundStyle(.tertiary)
+                } else {
+                    voucherSection(line)
+                }
             }
 
             // 사탕이 폼보다 먼저 — 사탕은 늘 하는 일이고 폼은 도구를 갖춘 뒤에나 누른다.
@@ -242,20 +281,13 @@ struct IndividualDetailView: View {
     /// 더 진화하지 않는 아이의 경험치가 가는 곳.
     ///
     /// 전에는 여기에 "더 진화하지 않아요" 한 줄만 있었다 — 그 아이의 경험치가 어디로 가는지
-    /// 알 길이 없었고, 실제로 아무 데도 안 갔다. 이제 그 자리가 진행 막대가 된다.
+    /// 알 길이 없었고, 실제로 아무 데도 안 갔다. 막대는 위 `expSection` 이 이미 교환권 임계로
+    /// 그리므로(`isVoucherCandidate`) 여기서는 다시 그리지 않는다 — 두 막대가 다른 분모를
+    /// 갖고 따로 놀면 임계에 닿았는데 위 막대는 33%인 것처럼 보이는 결함이 난다.
     @ViewBuilder
     private func voucherSection(_ line: EvoLine) -> some View {
-        let need = EggVoucher.threshold(grade: individual.grade)
-        VStack(alignment: .leading, spacing: 4) {
-            Text(l.detailMaxStage).font(.system(size: 9)).foregroundStyle(.tertiary)
-            HStack {
-                Text(l.voucherSectionTitle).font(.system(size: 9)).foregroundStyle(.secondary)
-                Spacer()
-                Text("\(TokenFormatter.compact(min(individual.exp, need))) / \(TokenFormatter.compact(need))")
-                    .font(.system(size: 10)).monospacedDigit().foregroundStyle(.secondary)
-            }
-            ProgressView(value: min(1, Double(individual.exp) / Double(need)))
-                .progressViewStyle(.linear).frame(height: 5)
+        VStack(alignment: .leading, spacing: 3) {
+            Text(l.voucherSectionTitle).font(.system(size: 9)).foregroundStyle(.secondary)
             if store.canClaimEggVoucher(individual, line: line) {
                 DetailActionButton(title: l.voucherClaim, prominent: true) {
                     store.claimEggVoucher(individualID: individual.id, line: line)
@@ -522,11 +554,31 @@ struct FormButton: View {
     }
 }
 
-/// 상세 화면의 액션 버튼 — 폭을 꽉 채워 누를 곳이 분명하게.
+/// 상세 화면의 액션 버튼 — 폭을 꽉 채워 누를 곳이 분명하게. 진화 버튼과 교환권 버튼이
+/// 둘 다 이 타입을 거치므로, "이 조건에서 어떤 버튼이 뜨는가"를 잠그려면 여기서 수집해야
+/// 한다 — `BoxCell`·`CandyButton` 이 쓰는 것과 같은 `#if DEBUG` 레코더 패턴.
 struct DetailActionButton: View {
     let title: String
     let prominent: Bool
     let action: () -> Void
+
+    #if DEBUG
+    @MainActor static var constructed: [(title: String, action: () -> Void)] = []
+    @MainActor static var isRecording = false
+    @MainActor static func resetConstructed() {
+        isRecording = true
+        constructed = []
+    }
+    #endif
+
+    init(title: String, prominent: Bool, action: @escaping () -> Void) {
+        self.title = title
+        self.prominent = prominent
+        self.action = action
+        #if DEBUG
+        if Self.isRecording { Self.constructed.append((title, action)) }
+        #endif
+    }
 
     var body: some View {
         Button(action: action) {

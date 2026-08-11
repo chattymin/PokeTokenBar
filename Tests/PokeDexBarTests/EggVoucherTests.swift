@@ -1,3 +1,5 @@
+import AppKit
+import SwiftUI
 import XCTest
 @testable import PokeDexBar
 
@@ -326,5 +328,97 @@ final class EggVoucherTests: XCTestCase {
         XCTAssertEqual(EggSlotsView.voucher(forEmptySlotIndex: 0, in: vouchers), vouchers[0])
         XCTAssertEqual(EggSlotsView.voucher(forEmptySlotIndex: 1, in: vouchers), vouchers[1])
         XCTAssertNil(EggSlotsView.voucher(forEmptySlotIndex: 2, in: vouchers))
+    }
+
+    // MARK: 경험치 막대의 분모 (finding 2) — expSection·voucherSection 이 공유하는 단일 소스
+
+    /// **교환권 대상이면 교환권 임계를 쓴다.** 최종형의 진화 임계(등급 기본값 × 3)를 쓰면
+    /// 200M 을 채워 버튼이 떴는데 막대는 33%인 결함이 난다.
+    func testExpThresholdUsesVoucherRateWhenEligible() {
+        let charizard = charizard(makeStore(), exp: 0)
+        XCTAssertEqual(IndividualDetailView.expThreshold(individual: charizard, isVoucherCandidate: true),
+                       EggVoucher.threshold(grade: .epic))
+    }
+
+    /// 대조군 — 진화할 곳이 있으면 그 등급·단계의 진화 임계를 그대로 쓴다.
+    func testExpThresholdUsesEvolutionRateWhenNotEligible() {
+        let charizard = charizard(makeStore(), exp: 0)
+        XCTAssertEqual(IndividualDetailView.expThreshold(individual: charizard, isVoucherCandidate: false),
+                       ExpBalance.threshold(grade: .epic, stageIndex: charizard.stageIndex))
+    }
+
+    /// 교환권 대상 판정 — 라인이 있고, 갈 곳이 없고, 위장 중이 아니어야 한다. 셋 중 하나만
+    /// 빠져도 대상이 아니다(finding 1 이 지적한 위장 케이스 포함).
+    func testIsVoucherCandidateRequiresLineNoChoicesAndNotDisguised() {
+        XCTAssertTrue(IndividualDetailView.isVoucherCandidate(hasLine: true, hasEvolutionChoices: false,
+                                                               isDisguised: false))
+        XCTAssertFalse(IndividualDetailView.isVoucherCandidate(hasLine: false, hasEvolutionChoices: false,
+                                                                isDisguised: false), "라인이 없는데 대상이다")
+        XCTAssertFalse(IndividualDetailView.isVoucherCandidate(hasLine: true, hasEvolutionChoices: true,
+                                                                isDisguised: false), "진화할 곳이 있는데 대상이다")
+        XCTAssertFalse(IndividualDetailView.isVoucherCandidate(hasLine: true, hasEvolutionChoices: false,
+                                                                isDisguised: true), "위장 중인데 대상이다")
+    }
+
+    // MARK: 상세 렌더 — 어떤 버튼이 실제로 뜨나 (finding 1·4)
+    //
+    // `testTheDetailViewReachesTheClaimPath` 같은 문자열 스캔은 "코드 어딘가에 이 심볼이
+    // 있나"만 본다 — 잘못된 조건이나 빠진 분기는 못 잡는다(그게 이번 리뷰의 finding 1이었다).
+    // `BoxCandyWiringTests` 가 쓰는 것과 같은 패턴으로 뷰를 실제로 그려 `DetailActionButton`
+    // 을 수집한다.
+
+    private func renderedDetailButtons(_ store: PlayerStore, individual: Individual,
+                                       line: EvoLine?) -> [(title: String, action: () -> Void)] {
+        DetailActionButton.resetConstructed()
+        let host = NSHostingView(rootView: IndividualDetailView(
+            store: store, individual: individual, line: line,
+            onNeedLine: { _ in }, onBack: {}
+        ).frame(width: PopoverMetrics.width))
+        host.layoutSubtreeIfNeeded()
+        return DetailActionButton.constructed
+    }
+
+    /// 최종형 + 임계 도달 → 교환권 버튼이 뜨고, **누르면 실제로 지급된다.**
+    func testFullyEvolvedIndividualAtThresholdOffersClaimAndInvokingItGrantsTheVoucher() {
+        let store = makeStore()
+        let charizard = charizard(store, exp: EggVoucher.threshold(grade: .epic))
+        let buttons = renderedDetailButtons(store, individual: charizard, line: charLine())
+        guard let claim = buttons.first(where: { $0.title == store.l.voucherClaim }) else {
+            return XCTFail("최종형이 임계를 채웠는데 교환권 버튼이 안 보인다: \(buttons.map(\.title))")
+        }
+        claim.action()
+        XCTAssertEqual(store.state.eggVouchers, [EggVoucher(baseID: 4, grade: .epic)],
+                       "버튼을 눌렀는데 교환권이 안 생겼다")
+    }
+
+    /// **위장 중인 개체는 임계를 채워도 교환권 버튼이 없다** — finding 1 이 지적한, 이전엔
+    /// 아무 테스트도 없던 자리.
+    func testDisguisedIndividualOffersNoClaimButtonEvenAtThreshold() {
+        let store = makeStore()
+        var ditto = Individual(baseID: 132, speciesID: 132, pathIDs: [132],
+                               nature: .hardy, obtainedAt: now, grade: .epic)
+        ditto.disguisedAs = 151   // 메타몽이 뮤로 위장 중
+        ditto.exp = EggVoucher.threshold(grade: .epic)
+        store.addForTesting(ditto)
+        // 위장 중엔 화면이 위장한 종(뮤)의 라인을 받는다.
+        let mewLine = EvoLine(baseID: 151, tree: EvoNode(speciesID: 151, children: []),
+                              rarity: .legendary, names: [:])
+        let buttons = renderedDetailButtons(store, individual: ditto, line: mewLine)
+        XCTAssertNil(buttons.first(where: { $0.title == store.l.voucherClaim }),
+                     "위장 중인 개체에 교환권 버튼이 떴다: \(buttons.map(\.title))")
+    }
+
+    /// 진화할 곳이 있으면 진화 버튼이지 교환권 버튼이 아니다.
+    func testAnIndividualThatCanStillEvolveOffersEvolveNotClaim() {
+        let store = makeStore()
+        var charmander = Individual(baseID: 4, speciesID: 4, pathIDs: [4],
+                                    nature: .hardy, obtainedAt: now, grade: .epic)
+        charmander.exp = ExpBalance.threshold(grade: .epic, stageIndex: 0)
+        store.addForTesting(charmander)
+        let buttons = renderedDetailButtons(store, individual: charmander, line: charLine())
+        XCTAssertNotNil(buttons.first(where: { $0.title == store.l.evolve }),
+                        "진화 가능한 개체에 진화 버튼이 없다: \(buttons.map(\.title))")
+        XCTAssertNil(buttons.first(where: { $0.title == store.l.voucherClaim }),
+                     "진화 가능한 개체에 교환권 버튼이 떴다: \(buttons.map(\.title))")
     }
 }
