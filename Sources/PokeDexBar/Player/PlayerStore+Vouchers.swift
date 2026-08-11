@@ -42,15 +42,19 @@ extension PlayerStore {
     /// 같은 종이 여러 장이면 한 장만 없앤다.
     @discardableResult
     func redeemEggVoucher(baseID: Int) -> Egg? {
-        guard let index = state.eggVouchers.firstIndex(where: { $0.baseID == baseID })
-        else { return nil }
-        let voucher = state.eggVouchers[index]
+        guard let voucher = state.eggVouchers.first(where: { $0.baseID == baseID }) else { return nil }
         // 종은 확정이지만 이로치는 평소 확률로 굴린다 — 확정으로 만들면 이로치 부적이 무의미해진다.
         let shiny = EggBalance.rollShiny(nextRandomUnit(), hasCharm: state.ownsShinyCharm)
         // 알을 먼저 세운다. 슬롯이 없어 실패하면 교환권을 안 쓴 채로 돌아간다.
         guard let egg = placeEgg(grade: voucher.grade, speciesID: voucher.baseID, shiny: shiny)
         else { return nil }
-        mutate { $0.eggVouchers.remove(at: index) }
+        // 인덱스는 `placeEgg`(state 변형 + save) 가 끝난 **뒤에 다시 찾는다** — 미리 잡아 두면
+        // 그 사이 바뀐 배열에 옛 인덱스로 지우는 꼴이 된다. 같은 종이 여러 장이면 한 장만.
+        mutate { s in
+            if let index = s.eggVouchers.firstIndex(where: { $0.baseID == baseID }) {
+                s.eggVouchers.remove(at: index)
+            }
+        }
         return egg
     }
 }

@@ -231,8 +231,11 @@ struct BoxCell: View {
                     }
                     // 진화와 교환권은 동시에 성립하지 않는다(하나는 갈 곳이 있을 때,
                     // 다른 하나는 없을 때) — 같은 귀퉁이를 써도 겹치지 않는다.
+                    // 티켓 아이콘 — 진화 배지(위쪽 화살표)와 같은 자리·크기·색이던 아래쪽
+                    // 화살표는 거의 구분이 안 됐고, 아래 화살표는 "퇴화"로도 읽혔다. 슬롯
+                    // 타일의 교환권 아이콘(`ticket.fill`)과 같은 기호로 맞춘다.
                     if canClaimVoucher {
-                        Image(systemName: "arrow.down.circle.fill")
+                        Image(systemName: "ticket.fill")
                             .font(.system(size: 10))
                             .foregroundStyle(Color.accentColor)
                             .offset(x: 3, y: -2)

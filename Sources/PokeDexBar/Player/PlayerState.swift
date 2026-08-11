@@ -98,6 +98,9 @@ struct PlayerState: Codable, Sendable {
         // 짝으로 붙는다: 항목이므로 개수는 안 자르고, 말이 안 되는 원소만 버린다.
         let wrappedVouchers = (try? c.decode([LossyEggVoucher].self, forKey: .eggVouchers)) ?? []
         eggVouchers = wrappedVouchers.compactMap(\.voucher)
+        if eggVouchers.count != wrappedVouchers.count {
+            AppLog.write("PlayerState: dropped \(wrappedVouchers.count - eggVouchers.count) malformed egg voucher(s) on decode")
+        }
         ownsShinyCharm = value(.ownsShinyCharm, false)
         language = value(.language, .systemDefault)
     }
