@@ -68,4 +68,62 @@ final class EggVoucherTests: XCTestCase {
         XCTAssertEqual(state.eggVouchers, [EggVoucher(baseID: 25, grade: .common)],
                        "깨진 한 장 때문에 전부 날아갔다")
     }
+
+    // MARK: 슬롯 배치와 값 치르기의 분리
+
+    /// 지갑을 채운다 — `update` 의 기준선을 잡고 그 위로 사용량을 올린다.
+    private func giveWallet(_ store: PlayerStore, _ tokens: Int) {
+        store.update(todayTokens: 0, todayDate: "d", hasUsageData: true)
+        store.update(todayTokens: tokens, todayDate: "d", hasUsageData: true)
+    }
+
+    /// **`placeEgg` 는 값을 안 치른다.** 교환권 경로가 이걸 부른다 — `startEgg` 을 그대로
+    /// 부르면 교환권을 쓰고 토큰까지 내게 된다.
+    func testPlaceEggCostsNothing() {
+        let store = makeStore()
+        let before = store.state.spentTokens
+        XCTAssertNotNil(store.placeEgg(grade: .common, speciesID: 4, shiny: false))
+        XCTAssertEqual(store.state.spentTokens, before, "교환권 알에 토큰이 나갔다")
+        XCTAssertEqual(store.state.eggs.count, 1)
+    }
+
+    /// **대조군 — `startEgg` 은 여전히 값을 치른다.** 떼어내다 상점 뽑기가 공짜가 되는 것이
+    /// 이 변경에서 가장 그럴듯한 사고다.
+    func testStartEggStillCharges() {
+        let store = makeStore()
+        giveWallet(store, EggBalance.drawPrice * 2)
+        let before = store.state.spentTokens
+        XCTAssertNotNil(store.startEgg(grade: .common, speciesID: 4, shiny: false))
+        XCTAssertEqual(store.state.spentTokens, before + EggBalance.drawPrice,
+                       "상점 뽑기가 공짜가 됐다")
+    }
+
+    /// 지갑이 비어도 `placeEgg` 는 된다 — 교환권이 값이기 때문이다.
+    func testPlaceEggWorksWithAnEmptyWallet() {
+        let store = makeStore()
+        XCTAssertEqual(store.state.wallet, 0)
+        XCTAssertNotNil(store.placeEgg(grade: .common, speciesID: 4, shiny: false))
+    }
+
+    /// 빈 슬롯이 없으면 둘 다 못 넣는다.
+    func testPlaceEggNeedsAFreeSlot() {
+        let store = makeStore()
+        for _ in 0..<store.state.slots {
+            XCTAssertNotNil(store.placeEgg(grade: .common, speciesID: 4, shiny: false))
+        }
+        XCTAssertNil(store.placeEgg(grade: .common, speciesID: 4, shiny: false))
+    }
+
+    /// **교환권 알도 부화 감면을 받는다.** 감면 계산이 `startEgg` 안에 있으므로, 떼어내면서
+    /// 값 치르는 쪽에 남겨두기 쉬운 자리다.
+    func testPlaceEggGetsTheHatchSpeedup() throws {
+        let store = makeStore()
+        // 마그마그(불꽃몸 계열)를 박스에 넣으면 감면이 걸린다.
+        store.addForTesting(Individual(baseID: 218, speciesID: 218, pathIDs: [218],
+                                       nature: .hardy, obtainedAt: now, grade: .common))
+        let egg = try XCTUnwrap(store.placeEgg(grade: .common, speciesID: 4, shiny: false))
+        XCTAssertEqual(egg.hatchesAt.timeIntervalSince(now),
+                       EggBalance.duration(.common) * HatchSpeedup.multiplier,
+                       accuracy: 1, "교환권 알이 감면을 못 받았다")
+    }
 }
