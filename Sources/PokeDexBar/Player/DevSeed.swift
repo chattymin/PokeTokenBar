@@ -46,8 +46,39 @@ extension PlayerStore {
     #if DEBUG
     /// 환경변수에 시드가 있으면 적용한다. 기동 때 한 번 부른다.
     func applyDevSeedFromEnvironment() {
+        applyExpSeedFromEnvironment()
         guard let seed = DevSeed.parse(ProcessInfo.processInfo.environment) else { return }
         applyDevSeed(seed)
+    }
+
+    // MARK: 임시 — 알 발견 화면 확인용. 확인 끝나면 지운다.
+    //
+    /// `PTB_SEED_EXP` 가 있으면 대상 개체의 경험치를 그 값까지 **끌어올린다**(줄이지는 않는다).
+    /// 알 발견은 5천만~4억 경험치가 있어야 보이는데, 그건 실제로는 며칠 치 토큰 사용량이다.
+    /// 리본 시드와 같은 부류 — 이미 있는 개체의 값만 올린다.
+    ///
+    /// ```
+    /// open --env PTB_SEED_EXP=500000000 -a "PokeDexBar Dev"
+    /// open --env PTB_SEED_EXP=500000000 --env PTB_SEED_SPECIES=663 -a "PokeDexBar Dev"
+    /// ```
+    func applyExpSeedFromEnvironment() {
+        let environment = ProcessInfo.processInfo.environment
+        guard let wanted = environment["PTB_SEED_EXP"].flatMap({ Int($0) }), wanted > 0 else { return }
+        let species = environment["PTB_SEED_SPECIES"].flatMap { Int($0) }
+        let targets = state.box.indices.filter { index in
+            if let species { return state.box[index].speciesID == species }
+            return state.box[index].id == state.partnerID
+        }
+        guard !targets.isEmpty else {
+            AppLog.write("DevSeed: PTB_SEED_EXP=\(wanted) 이지만 대상 개체가 없다")
+            return
+        }
+        mutate { state in
+            for index in targets where state.box[index].exp < wanted {
+                state.box[index].exp = wanted
+            }
+        }
+        AppLog.write("DevSeed: \(targets.count)마리의 경험치를 \(wanted) 로 올렸다")
     }
 
     /// 대상 개체의 누적 파트너 시간을 그 리본의 문턱으로 끌어올린다. **줄이지는 않는다** —

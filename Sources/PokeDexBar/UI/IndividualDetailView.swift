@@ -35,10 +35,14 @@ struct IndividualDetailView: View {
         hasLine && !hasEvolutionChoices && !isDisguised
     }
 
-    /// 경험치 막대의 분모. 알 발견 후보면 **알 임계**(진화 한 단계와 같은 환율)로 그린다 —
-    /// 최종형의 진화 임계(등급 기본값 × 3)를 쓰면 알로는 절대 못 채우는 막대가 된다.
-    /// `expSection`·`foundEggSection` 이 공유하는 단일 소스 — 따로 계산하면 같은 경험치가
-    /// 두 자리에서 다른 퍼센트로 보일 수 있다.
+    /// 경험치 막대의 분모 — **무엇을 향한 진행인지**를 정한다. 진화할 곳이 남았으면 다음
+    /// 단계까지, 더 갈 곳이 없으면 다음 알까지다.
+    ///
+    /// 최종형에 진화 임계(등급 기본값 × 3)를 쓰면 이미 지나 버린 값이라 막대가 100%에 붙은 채
+    /// 아무 뜻도 없어진다 — 경험치는 오르는데 바는 안 움직인다.
+    ///
+    /// 상세 화면과 홈(`BoxTabView.progress`)이 **이 함수 하나만** 쓴다. 같은 개체가 두 화면에서
+    /// 다른 퍼센트로 보이면 안 된다.
     private var threshold: Int {
         Self.expThreshold(individual: individual, isFoundEggCandidate: isFoundEggCandidate)
     }

@@ -18,10 +18,20 @@ struct BoxTabView: View {
 
     private var l: L { store.l }
 
-    /// 현재 단계의 경험치 진행도(0…1). 순수 함수라 테스트로 잠근다.
-    nonisolated static func progress(_ individual: Individual) -> Double {
-        let threshold = ExpBalance.threshold(grade: individual.grade,
-                                             stageIndex: individual.stageIndex)
+    /// 경험치 진행도(0…1). 순수 함수라 테스트로 잠근다.
+    ///
+    /// **무엇을 향한 진행인지는 개체마다 다르다.** 진화할 곳이 남았으면 다음 단계까지고, 더 갈
+    /// 곳이 없으면 다음 알까지다. 전에는 늘 진화 임계를 분모로 썼는데, 최종형은 그 값을 이미
+    /// 지나 있어 막대가 100%에 붙은 채 아무 뜻도 없었다 — 경험치는 계속 오르는데 바는 안 움직였다.
+    ///
+    /// 분모는 `IndividualDetailView.expThreshold` 한 곳에서만 정한다. 상세 화면과 홈이 같은
+    /// 개체를 다른 퍼센트로 그리면 안 된다.
+    ///
+    /// - Parameter isFoundEggCandidate: 더 진화할 곳이 없고 위장 중도 아닌가.
+    ///   판정에 `EvoLine`(네트워크)이 필요해 호출부가 넘긴다.
+    nonisolated static func progress(_ individual: Individual, isFoundEggCandidate: Bool) -> Double {
+        let threshold = IndividualDetailView.expThreshold(
+            individual: individual, isFoundEggCandidate: isFoundEggCandidate)
         guard threshold > 0 else { return 0 }
         return min(1, max(0, Double(individual.exp) / Double(threshold)))
     }

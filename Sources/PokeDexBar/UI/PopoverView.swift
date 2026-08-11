@@ -260,7 +260,8 @@ struct PopoverView: View {
                     // 경험치는 강조색 — 상세 화면과 같은 색이어야 같은 뜻으로 읽힌다.
                     // 주황은 사탕(`CandyMeter`)에 넘겼다: 둘 다 주황 5pt 이던 시절엔
                     // 어느 쪽이 무엇인지 구분이 안 됐다.
-                    ProgressView(value: BoxTabView.progress(partner))
+                    ProgressView(value: BoxTabView.progress(
+                        partner, isFoundEggCandidate: isFoundEggCandidate(partner)))
                         .progressViewStyle(.linear).frame(height: 5)
                     // 리본이 있으면 **지금 무엇을 채우고 있는지**를 경험치 바로 아래에 둔다.
                     // 둘 다 이 파트너가 채우는 것이라 같은 층위이고, 예전에는 홈 어디에도
@@ -296,6 +297,19 @@ struct PopoverView: View {
     private func showsEvolutionBadge(for partner: Individual) -> Bool {
         guard player.canEvolve(partner), let line = evoLines[partner.baseID] else { return false }
         return !player.evolutionChoices(partner, line: line).isEmpty
+    }
+
+    /// 더 진화할 곳이 없어 경험치가 알로 흐르는 개체인가 — 경험치 막대의 분모를 가른다.
+    ///
+    /// 판정 자체는 `IndividualDetailView.isFoundEggCandidate` **한 곳**에만 있다. 화면마다
+    /// 조건을 따로 적으면 갈린다 — 위장 판정이 실제로 그렇게 갈린 적이 있다(상세는 알 칸을
+    /// 내밀고 스토어는 거절해서, 절대 못 누르는 버튼을 광고했다).
+    private func isFoundEggCandidate(_ partner: Individual) -> Bool {
+        guard let line = evoLines[partner.baseID] else { return false }
+        return IndividualDetailView.isFoundEggCandidate(
+            hasLine: true,
+            hasEvolutionChoices: !player.evolutionChoices(partner, line: line).isEmpty,
+            isDisguised: partner.disguisedAs != nil)
     }
 
     // MARK: 박스 — 진화 라인 로드

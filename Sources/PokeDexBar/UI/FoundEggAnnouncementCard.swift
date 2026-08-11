@@ -83,16 +83,15 @@ struct FoundEggAnnouncementCard: View {
                 Button {
                     store.takeFoundEgg(individualID: partner.id, line: line)
                 } label: {
-                    HStack(spacing: 5) {
-                        Image(systemName: "oval.fill").font(.system(size: 10))
-                        Text(l.partnerFoundEgg(speciesName))
-                            .font(.system(size: 11, weight: .semibold))
-                            .lineLimit(1)
-                    }
-                    .foregroundStyle(Color.white)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 5)
-                    .background(Color.accentColor, in: RoundedRectangle(cornerRadius: 6))
+                    // 기호는 안 붙인다 — SF Symbols 에 알이 없어 `oval.fill` 을 썼더니 알이
+                    // 아니라 글머리 점으로 읽혔다. 문장이 이미 "알" 이라고 말한다.
+                    Text(l.partnerFoundEgg(speciesName))
+                        .font(.system(size: 11, weight: .semibold))
+                        .lineLimit(1)
+                        .foregroundStyle(Color.white)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 5)
+                        .background(Color.accentColor, in: RoundedRectangle(cornerRadius: 6))
                 }
                 .buttonStyle(.plain)
                 // 빈 슬롯이 없으면 숨기지 않고 비활성으로 둔다(상세 화면과 같은 규칙) —
