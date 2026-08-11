@@ -24,6 +24,10 @@ struct PlayerState: Codable, Sendable {
     var eggs: [Egg] = []
     /// 아이템 종류 → 개수.
     var inventory: [String: Int] = [:]
+    /// 박사에게 쌓인 포인트. `wallet`(토큰) 과 완전히 별개다 — 포인트로는 알을 못 사고
+    /// 토큰으로는 박사와 거래할 수 없다. 섞으면 토큰을 안 쓰고도 재화가 도는 순환이 생겨,
+    /// "쓴 토큰이 곧 재화" 라는 이 앱의 전제가 흐려진다.
+    var researchPoints = 0
     /// 파트너가 물어 왔는데 아직 확인 안 한 것(`Discovery`). 도구는 이미 `inventory` 에 들어가
     /// 있고 이 목록은 **알림용**이다 — 확인이 늦어도 잃는 게 없다.
     var discoveries: [Discovery] = []
@@ -89,6 +93,8 @@ struct PlayerState: Codable, Sendable {
             AppLog.write("PlayerState: dropped \(wrappedEggs.count - eggs.count) malformed egg(s) from eggs on decode")
         }
         inventory = value(.inventory, [:])
+        // 관대 디코딩의 짝 — 값 범위 검증. 산술에 쓰이는 수치이므로 자른다.
+        researchPoints = min(ReleaseBalance.maxPoints, max(0, value(.researchPoints, 0)))
         ownsShinyCharm = value(.ownsShinyCharm, false)
         language = value(.language, .systemDefault)
     }
