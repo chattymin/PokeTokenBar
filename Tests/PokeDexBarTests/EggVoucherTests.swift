@@ -309,25 +309,35 @@ final class EggVoucherTests: XCTestCase {
             XCTAssertFalse(l.voucherClaim.isEmpty, "\(lang)")
             XCTAssertFalse(l.voucherExplain.isEmpty, "\(lang)")
             XCTAssertFalse(l.voucherSlotBadge.isEmpty, "\(lang)")
+            XCTAssertFalse(l.voucherCountBadge(3).isEmpty, "\(lang)")
         }
     }
 
-    /// **빈 슬롯마다 같은 교환권을 가리키면 안 된다.** 교환권 1장 + 빈 칸 3개면 눌리는 칸은
-    /// 딱 하나여야 한다 — 전부 눌리면 실제로는 1장인데 3장을 가진 것처럼 보인다.
-    func testOnlyOneEmptySlotOffersASingleVoucher() {
-        let vouchers = [EggVoucher(baseID: 4, grade: .epic)]
-        XCTAssertEqual(EggSlotsView.voucher(forEmptySlotIndex: 0, in: vouchers), vouchers[0])
-        XCTAssertNil(EggSlotsView.voucher(forEmptySlotIndex: 1, in: vouchers))
-        XCTAssertNil(EggSlotsView.voucher(forEmptySlotIndex: 2, in: vouchers))
+    // MARK: 슬롯 타일 — 여러 종은 메뉴에서 고른다 (`voucher(forEmptySlotIndex:in:)` 는 폐기)
+
+    /// **메뉴는 종(baseID) 기준으로 중복 제거한다.** 같은 종 두 장을 가졌어도 메뉴 줄은 하나 —
+    /// 줄이 둘이면 마치 서로 다른 알을 부르는 것처럼 보인다.
+    func testMenuVouchersDedupsBySpecies() {
+        let vouchers = [EggVoucher(baseID: 4, grade: .epic), EggVoucher(baseID: 4, grade: .epic),
+                        EggVoucher(baseID: 25, grade: .common)]
+        XCTAssertEqual(EggSlotsView.menuVouchers(vouchers),
+                       [EggVoucher(baseID: 4, grade: .epic), EggVoucher(baseID: 25, grade: .common)],
+                       "같은 종 두 장이 메뉴에 두 줄로 나왔다")
     }
 
-    /// 종이 다른 교환권 두 장은 각자 자기 칸을 가져야 한다 — 둘 다 `.first` 를 보면 두 번째
-    /// 종은 슬롯 줄에서 영영 손이 안 닿는다.
-    func testEachVoucherGetsItsOwnSlotByIndex() {
-        let vouchers = [EggVoucher(baseID: 4, grade: .epic), EggVoucher(baseID: 6, grade: .rare)]
-        XCTAssertEqual(EggSlotsView.voucher(forEmptySlotIndex: 0, in: vouchers), vouchers[0])
-        XCTAssertEqual(EggSlotsView.voucher(forEmptySlotIndex: 1, in: vouchers), vouchers[1])
-        XCTAssertNil(EggSlotsView.voucher(forEmptySlotIndex: 2, in: vouchers))
+    func testMenuVouchersEmptyWhenNoneHeld() {
+        XCTAssertTrue(EggSlotsView.menuVouchers([]).isEmpty)
+    }
+
+    /// **타일은 교환권이 있고 빈 슬롯이 있을 때만 눌린다.** 종류마다 칸을 나누던 예전과 달리
+    /// 타일이 하나뿐이라, 눌림 여부를 정하는 조건도 하나로 합친다.
+    func testVoucherTileIsActionableOnlyWithVouchersAndAFreeSlot() {
+        let vouchers = [EggVoucher(baseID: 4, grade: .epic)]
+        XCTAssertTrue(EggSlotsView.voucherTileIsActionable(vouchers: vouchers, freeSlots: 1))
+        XCTAssertFalse(EggSlotsView.voucherTileIsActionable(vouchers: vouchers, freeSlots: 0),
+                       "슬롯이 꽉 찼는데도 타일이 눌린다")
+        XCTAssertFalse(EggSlotsView.voucherTileIsActionable(vouchers: [], freeSlots: 3),
+                       "교환권이 없는데도 타일이 눌린다")
     }
 
     // MARK: 경험치 막대의 분모 (finding 2) — expSection·voucherSection 이 공유하는 단일 소스

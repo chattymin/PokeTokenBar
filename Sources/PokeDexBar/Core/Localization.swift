@@ -215,6 +215,10 @@ struct L {
           "しんかしきったポケモンは けいけんちで じぶんのタマゴをよびます")
     }
     var voucherSlotBadge: String { t("교환권", "Voucher", "こうかんけん") }
+    /// 슬롯 줄 머리에 붙는 보유 장수 — 알 슬롯이 꽉 찼을 때도 교환권을 가졌다는 사실이 보여야 한다.
+    func voucherCountBadge(_ count: Int) -> String {
+        t("교환권 \(count)장", "\(count) voucher\(count == 1 ? "" : "s")", "こうかんけん\(count)まい")
+    }
     var detailPartnerOnlyExp: String {
         t("경험치는 파트너만 쌓여요 — 사탕으로도 올릴 수 있어요",
           "Only your partner earns EXP — candy works too",
