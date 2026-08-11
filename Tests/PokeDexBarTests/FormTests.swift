@@ -868,7 +868,7 @@ final class EvolutionBranchFoldingTests: XCTestCase {
             .appendingPathComponent("azurill-\(UUID().uuidString).json")
         let store = PlayerStore(fileURL: url, rng: SeededRNG(seed: 1),
                                 now: { Date(timeIntervalSince1970: 1_000_000) })
-        var azurill = Individual(baseID: 298, speciesID: 298, pathIDs: [298], nature: .serious,
+        let azurill = Individual(baseID: 298, speciesID: 298, pathIDs: [298], nature: .serious,
                                  exp: 400_000_000, partnerSeconds: partnerSeconds,
                                  obtainedAt: Date(timeIntervalSince1970: 0), grade: .common)
         store.addForTesting(azurill)
