@@ -126,4 +126,139 @@ final class EggVoucherTests: XCTestCase {
                        EggBalance.duration(.common) * HatchSpeedup.multiplier,
                        accuracy: 1, "교환권 알이 감면을 못 받았다")
     }
+
+    // MARK: 지급
+
+    /// 파이리 → 리자드 → 리자몽 (일직선). 리자몽 노드에는 자식이 없다 = 최종형.
+    private func charLine() -> EvoLine {
+        EvoLine(baseID: 4,
+                tree: EvoNode(speciesID: 4, children: [
+                    EvoNode(speciesID: 5, children: [EvoNode(speciesID: 6, children: [])]),
+                ]),
+                rarity: .rare, names: [:])
+    }
+
+    /// 리자몽 한 마리를 박스에 넣고 돌려준다.
+    private func charizard(_ store: PlayerStore, exp: Int) -> Individual {
+        var individual = Individual(baseID: 4, speciesID: 6, pathIDs: [4, 5, 6],
+                                    nature: .hardy, obtainedAt: now, grade: .epic)
+        individual.exp = exp
+        store.addForTesting(individual)
+        return individual
+    }
+
+    /// **진화할 곳이 있으면 못 받는다.** 경험치는 진화에 쓰는 것이 먼저다.
+    func testAnIndividualThatCanStillEvolveEarnsNothing() {
+        let store = makeStore()
+        var charmander = Individual(baseID: 4, speciesID: 4, pathIDs: [4],
+                                    nature: .hardy, obtainedAt: now, grade: .epic)
+        charmander.exp = EggVoucher.threshold(grade: .epic) * 10
+        store.addForTesting(charmander)
+
+        XCTAssertFalse(store.canClaimEggVoucher(charmander, line: charLine()))
+        XCTAssertFalse(store.claimEggVoucher(individualID: charmander.id, line: charLine()))
+        XCTAssertTrue(store.state.eggVouchers.isEmpty)
+    }
+
+    /// 최종형이어도 경험치가 모자라면 못 받는다.
+    func testNotEnoughExpEarnsNothing() {
+        let store = makeStore()
+        let charizard = charizard(store, exp: EggVoucher.threshold(grade: .epic) - 1)
+        XCTAssertFalse(store.canClaimEggVoucher(charizard, line: charLine()))
+        XCTAssertFalse(store.claimEggVoucher(individualID: charizard.id, line: charLine()))
+    }
+
+    /// 최종형 + 경험치가 찼으면 받는다. **교환권은 `baseID` 를 가리킨다** — 리자몽이
+    /// 부르는 것은 파이리 알이다. 이게 이 기능의 존재 이유(도감 구멍 메우기)다.
+    func testAFullyEvolvedIndividualClaimsAVoucherForItsBase() {
+        let store = makeStore()
+        let charizard = charizard(store, exp: EggVoucher.threshold(grade: .epic))
+        XCTAssertTrue(store.canClaimEggVoucher(charizard, line: charLine()))
+        XCTAssertTrue(store.claimEggVoucher(individualID: charizard.id, line: charLine()))
+        XCTAssertEqual(store.state.eggVouchers, [EggVoucher(baseID: 4, grade: .epic)])
+    }
+
+    /// **경험치는 임계만큼만 줄고 초과분은 남는다** — 진화의 이월과 같다.
+    /// 이게 없으면 오래 비워 둔 사용자가 쌓아 둔 경험치를 한 장에 통째로 잃는다.
+    func testExpCarriesOverSoVouchersCanBeClaimedInARow() {
+        let store = makeStore()
+        let threshold = EggVoucher.threshold(grade: .epic)
+        let charizard = charizard(store, exp: threshold * 2 + 7)
+
+        XCTAssertTrue(store.claimEggVoucher(individualID: charizard.id, line: charLine()))
+        XCTAssertEqual(store.state.box.first { $0.id == charizard.id }?.exp, threshold + 7)
+
+        XCTAssertTrue(store.claimEggVoucher(individualID: charizard.id, line: charLine()))
+        XCTAssertEqual(store.state.box.first { $0.id == charizard.id }?.exp, 7)
+        XCTAssertEqual(store.state.eggVouchers.count, 2)
+
+        XCTAssertFalse(store.claimEggVoucher(individualID: charizard.id, line: charLine()))
+        XCTAssertEqual(store.state.eggVouchers.count, 2, "경험치가 없는데 세 장째가 나왔다")
+    }
+
+    /// 박스에 없는 개체는 지급 대상이 아니다.
+    func testClaimingForAnUnknownIndividualDoesNothing() {
+        let store = makeStore()
+        XCTAssertFalse(store.claimEggVoucher(individualID: UUID(), line: charLine()))
+        XCTAssertTrue(store.state.eggVouchers.isEmpty)
+    }
+
+    // MARK: 사용
+
+    /// **종이 확정이다 — 시드를 바꿔도 같은 종이 나온다.** 이 확정성이 기능의 이름 그 자체다.
+    func testTheRedeemedEggIsAlwaysTheVouchersSpecies() {
+        for seed in UInt64(1)...20 {
+            let store = makeStore(seed: seed)
+            store.mutate { $0.eggVouchers = [EggVoucher(baseID: 4, grade: .epic)] }
+            let egg = store.redeemEggVoucher(baseID: 4)
+            XCTAssertEqual(egg?.speciesID, 4, "시드 \(seed) 에서 다른 종이 나왔다")
+            XCTAssertEqual(egg?.grade, .epic)
+        }
+    }
+
+    /// 쓰면 한 장만 없어진다.
+    func testRedeemingConsumesExactlyOneVoucher() {
+        let store = makeStore()
+        store.mutate { $0.eggVouchers = [EggVoucher(baseID: 4, grade: .epic),
+                                         EggVoucher(baseID: 4, grade: .epic),
+                                         EggVoucher(baseID: 25, grade: .common)] }
+        XCTAssertNotNil(store.redeemEggVoucher(baseID: 4))
+        XCTAssertEqual(store.state.eggVouchers,
+                       [EggVoucher(baseID: 4, grade: .epic), EggVoucher(baseID: 25, grade: .common)])
+    }
+
+    /// 없는 교환권을 쓰려 하면 실패하고, 알도 안 생긴다.
+    func testRedeemingAVoucherYouDoNotHaveFails() {
+        let store = makeStore()
+        XCTAssertNil(store.redeemEggVoucher(baseID: 4))
+        XCTAssertTrue(store.state.eggs.isEmpty)
+    }
+
+    /// **슬롯이 꽉 차면 실패하고 교환권은 그대로 남는다.** 차감만 되고 알이 안 생기면
+    /// 5000만 토큰어치가 조용히 증발한다.
+    func testRedeemingWithNoFreeSlotKeepsTheVoucher() {
+        let store = makeStore()
+        store.mutate { $0.eggVouchers = [EggVoucher(baseID: 4, grade: .epic)] }
+        for _ in 0..<store.state.slots {
+            store.placeEgg(grade: .common, speciesID: 1, shiny: false)
+        }
+        XCTAssertNil(store.redeemEggVoucher(baseID: 4))
+        XCTAssertEqual(store.state.eggVouchers, [EggVoucher(baseID: 4, grade: .epic)],
+                       "알도 못 받고 교환권만 사라졌다")
+    }
+
+    /// **이로치는 확정이 아니다.** 종만 확정이다 — 이로치까지 확정이면 이로치 부적이 무의미해진다.
+    /// 시드를 넓게 돌려 갈리는지 본다.
+    func testShinyIsStillRolled() {
+        var results = Set<Bool>()
+        for seed in UInt64(1)...400 {
+            let store = makeStore(seed: seed)
+            store.mutate {
+                $0.ownsShinyCharm = true      // 확률을 올려 400회 안에 양쪽이 나오게 한다
+                $0.eggVouchers = [EggVoucher(baseID: 4, grade: .epic)]
+            }
+            if let egg = store.redeemEggVoucher(baseID: 4) { results.insert(egg.shiny) }
+        }
+        XCTAssertEqual(results, [true, false], "이로치가 굴려지지 않고 고정돼 있다")
+    }
 }
