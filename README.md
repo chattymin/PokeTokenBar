@@ -70,6 +70,13 @@ Flame Body, Magma Armor and Steam Engine halve egg hatching in the games, and th
 </tr>
 <tr>
 <td width="55%" valign="middle">
+<h3>A Pokémon with nothing left to become brings you an Egg</h3>
+Once a Pokémon is fully evolved its experience has nowhere to go. Now it gathers into an Egg of that Pokémon's own line — a Charizard brings a Charmander Egg, so the earlier stages you skipped can still fill in. Press the announcement on the home screen and the Egg drops straight into a hatching slot below it. Experience stops once the Egg is ready and resets when you take it, so there is never more than one waiting.
+</td>
+<td width="45%" align="center"><img src="assets/found-egg.png" width="300" alt="A green button reading 'Your partner brought a Charmander Egg!' directly above the hatching row it drops into"></td>
+</tr>
+<tr>
+<td width="55%" valign="middle">
 <h3>Some change by who you keep close</h3>
 Palafin turns Hero the way it does in the games — not when it comes out, but when it steps back. Put it at your side, swap someone else in, and it returns changed; swap again and it drops back. Terapagos is simpler: it wears its Terastal Form for as long as it is with you, and a Tera Orb takes it the rest of the way to Stellar.
 </td>
