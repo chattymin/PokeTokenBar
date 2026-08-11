@@ -374,8 +374,11 @@ final class FoundEggTests: XCTestCase {
         let mewLine = EvoLine(baseID: 151, tree: EvoNode(speciesID: 151, children: []),
                               rarity: .legendary, names: [:])
         let buttons = renderedDetailButtons(store, individual: ditto, line: mewLine)
-        // 위장 중엔 진화 버튼도 안 뜨므로(정체를 흘린다), 남는 건 "파트너로" 뿐이어야 한다.
-        XCTAssertEqual(buttons.map(\.title), [store.l.makePartner],
+        // 위장 중엔 진화 버튼도 안 뜨므로(정체를 흘린다), 남는 건 "파트너로"·"박사에게 보내기"뿐이다.
+        // 보내기는 위장과 무관하게 뜨는 버튼이라(파트너가 아니면 누구나) 목록에서 빼지 않는다 —
+        // 점수는 `releaseValue` 로 직접 구해 밸런스 값이 바뀌어도 이 테스트가 안 깨지게 한다.
+        let releasePoints = store.releaseValue(ditto)!
+        XCTAssertEqual(buttons.map(\.title), [store.l.makePartner, store.l.sendToProfessor(releasePoints)],
                        "위장 중인 개체에 알 발견 버튼이 떴다: \(buttons.map(\.title))")
     }
 

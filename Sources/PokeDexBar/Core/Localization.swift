@@ -226,6 +226,23 @@ struct L {
           "Only your partner earns EXP — candy works too",
           "けいけんちはパートナーのみ — アメでも上げられます")
     }
+    /// 박사에게 보내기 — 받을 포인트를 제목에 적어, 누르기 전에 값을 알 수 있게 한다.
+    func sendToProfessor(_ points: Int) -> String {
+        t("박사에게 보내기 · +\(points)P", "Send to the Professor · +\(points)P",
+          "はかせにおくる · +\(points)P")
+    }
+    var sendConfirmNoReturn: String {
+        t("돌아오지 않아요. 정말 보낼까요?",
+          "This cannot be undone. Send it?",
+          "もどってきません。おくりますか？")
+    }
+    var sendConfirmAgain: String {
+        t("한 번 더 물을게요 — 다시 만나기 어려운 아이예요",
+          "Asking once more — this one is hard to come by",
+          "もういちどだけ — なかなか出会えない子です")
+    }
+    var sendCancel: String { t("그만두기", "Keep it", "やめる") }
+    var sendNow: String { t("보내기", "Send", "おくる") }
     var detailNoCandy: String {
         t("가진 사탕이 없어요 (상점)", "No candy yet (Shop)", "アメがありません(ショップ)")
     }

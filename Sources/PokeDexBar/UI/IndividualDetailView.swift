@@ -21,6 +21,8 @@ struct IndividualDetailView: View {
     /// 이로치 반짝임의 방아쇠. 화면에 들어올 때 한 번 올린다 — 계속 반짝이면
     /// 특별하다는 신호가 아니라 배경 장식이 된다.
     @State private var sparkleBeat = 0
+    /// 보내기 확인이 몇 단계까지 진행됐나. 0 이면 아직 안 눌렀다.
+    @State private var releaseStep = 0
     /// 위장 중이 아니고 라인이 있고 더 진화할 곳이 없으면 알 발견 후보다 — `actions` 의 분기와
     /// `canTakeFoundEgg` 가 보는 것과 같은 조건. `expSection`·`foundEggSection` 이 이 값 하나로
     /// 갈려야 두 자리가 다른 답을 하지 않는다.
@@ -33,6 +35,12 @@ struct IndividualDetailView: View {
     nonisolated static func isFoundEggCandidate(hasLine: Bool, hasEvolutionChoices: Bool,
                                                 isDisguised: Bool) -> Bool {
         hasLine && !hasEvolutionChoices && !isDisguised
+    }
+
+    /// 보내기 전에 몇 번 확인하나. **이로치와 전설은 한 번 더 묻는다** — 되돌릴 수 없는데
+    /// 다시 만나기 어려운 아이라, 실수 한 번의 값이 다른 개체와 다르다.
+    nonisolated static func releaseConfirmSteps(shiny: Bool, grade: Grade) -> Int {
+        (shiny || grade == .legendary) ? 2 : 1
     }
 
     /// 경험치 막대의 분모 — **무엇을 향한 진행인지**를 정한다. 진화할 곳이 남았으면 다음
@@ -278,6 +286,7 @@ struct IndividualDetailView: View {
 
             // 사탕이 폼보다 먼저 — 사탕은 늘 하는 일이고 폼은 도구를 갖춘 뒤에나 누른다.
             // 접힌 폼 섹션 아래에 사탕을 두면 "가진 사탕이 없어요"가 화면 맨 밑에 홀로 떨어진다.
+            releaseSection
             candySection
             formSection
         }
@@ -319,6 +328,42 @@ struct IndividualDetailView: View {
             if !canTake {
                 Text(l.eggFoundNoFreeSlot).font(.system(size: 9)).foregroundStyle(.tertiary)
             }
+        }
+    }
+
+    /// 박사에게 보내기 — 단계로 나눠 한 번에 안 나가게 한다. 이 앱에는 확인 다이얼로그 전례가
+    /// 없고 팝오버 안에서는 help 툴팁조차 안 뜨므로, 모달을 새로 들이지 않고 버튼 자리를 바꾼다.
+    @ViewBuilder
+    private var releaseSection: some View {
+        // `releaseValue` 가 nil 이면 보낼 수 없는 개체다(파트너) — 조건을 여기서 따로 적으면
+        // 스토어와 갈린다. 알 발견에서 실제로 그렇게 갈린 적이 있다.
+        if let points = store.releaseValue(individual) {
+            let steps = Self.releaseConfirmSteps(shiny: individual.shiny, grade: individual.grade)
+            VStack(alignment: .leading, spacing: 4) {
+                if releaseStep == 0 {
+                    DetailActionButton(title: l.sendToProfessor(points), prominent: false) {
+                        releaseStep = 1
+                    }
+                } else {
+                    Text(releaseStep < steps ? l.sendConfirmNoReturn : l.sendConfirmAgain)
+                        .font(.system(size: 9)).foregroundStyle(.secondary)
+                    HStack(spacing: 6) {
+                        DetailActionButton(title: l.sendCancel, prominent: false) {
+                            releaseStep = 0
+                        }
+                        DetailActionButton(title: l.sendNow, prominent: true) {
+                            if releaseStep < steps {
+                                releaseStep += 1
+                            } else {
+                                store.releaseToProfessor(individualID: individual.id)
+                                releaseStep = 0
+                                onBack()   // 박스에서 사라진 개체의 상세에 남아 있을 수 없다
+                            }
+                        }
+                    }
+                }
+            }
+            .task(id: individual.id) { releaseStep = 0 }   // 다른 개체를 열면 처음부터
         }
     }
 

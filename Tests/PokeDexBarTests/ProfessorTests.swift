@@ -346,4 +346,39 @@ final class ProfessorTests: XCTestCase {
         XCTAssertEqual(ProfessorBalance.price(grade: .epic), 60)
         XCTAssertEqual(ProfessorBalance.price(grade: .legendary), 200)
     }
+
+    // MARK: 보내기 화면
+
+    /// 확인 단계 — 되돌릴 수 없는 조작이라 한 번에 안 나간다. 이로치·전설은 한 단계 더.
+    func testConfirmStepsByRarity() {
+        XCTAssertEqual(IndividualDetailView.releaseConfirmSteps(shiny: false, grade: .common), 1)
+        XCTAssertEqual(IndividualDetailView.releaseConfirmSteps(shiny: false, grade: .rare), 1)
+        XCTAssertEqual(IndividualDetailView.releaseConfirmSteps(shiny: true, grade: .common), 2,
+                       "이로치를 한 번에 보낼 수 있다")
+        XCTAssertEqual(IndividualDetailView.releaseConfirmSteps(shiny: false, grade: .legendary), 2,
+                       "전설을 한 번에 보낼 수 있다")
+        XCTAssertEqual(IndividualDetailView.releaseConfirmSteps(shiny: true, grade: .legendary), 2)
+    }
+
+    /// 상세 화면이 보내기 경로에 닿아 있다.
+    func testTheDetailViewReachesTheReleasePath() throws {
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let text = try String(contentsOf: root.appendingPathComponent(
+            "Sources/PokeDexBar/UI/IndividualDetailView.swift"), encoding: .utf8)
+        XCTAssertTrue(text.contains("releaseToProfessor"), "상세에 보내기 버튼이 없다")
+        XCTAssertFalse(text.contains(".help("), "안 뜨는 툴팁이 들어왔다")
+    }
+
+    /// 문구가 세 언어를 다 채운다.
+    func testReleaseStringsCoverAllThreeLanguages() {
+        for lang in AppLanguage.allCases {
+            let l = L(lang)
+            XCTAssertFalse(l.sendToProfessor(4).isEmpty, "\(lang)")
+            XCTAssertFalse(l.sendConfirmNoReturn.isEmpty, "\(lang)")
+            XCTAssertFalse(l.sendConfirmAgain.isEmpty, "\(lang)")
+            XCTAssertFalse(l.sendCancel.isEmpty, "\(lang)")
+            XCTAssertFalse(l.sendNow.isEmpty, "\(lang)")
+        }
+    }
 }
