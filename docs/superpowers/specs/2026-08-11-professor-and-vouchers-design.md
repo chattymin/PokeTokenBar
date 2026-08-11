@@ -268,14 +268,18 @@ struct ProfessorOffer: Codable, Sendable, Equatable, Identifiable {
 > 디코더에 안 들어가 "저장은 되는데 못 읽는" 상태로 나갔다. 필드를 더할 때 `init(from:)` 을
 > 같이 고치고, 저장 왕복 테스트로 못박는다.
 
-`SaveTransfer.sanitized` 도 손본다 — `researchPoints` 는 산술에 쓰이는 수치이므로 외부 파일에서
-`Int.max` 가 들어오면 오버플로 트랩으로 프로세스가 죽는다. 경계 한 곳에서 자른다. `eggVouchers`
-는 *항목* 이므로 개수를 자르지 않는다(자르면 데이터 손실이다) — 대신 말이 안 되는 `baseID` 를 가진
-원소만 버린다.
+값 범위 검증은 **`PlayerState.init(from:)` 안**, `slots` 를 자르는 바로 그 자리에서 한다.
 
-`SaveTransfer.rebasedForThisDevice` 는 손대지 않는다 — 넷 다 **진행**이지 이 기기 장부가 아니다.
-(`professorOfferDate` 는 날짜라 장부처럼 보이지만, 다른 기기에서 들여온 날짜가 오늘과 다르면
-그냥 새로 뽑히므로 자체 교정된다.)
+> **CLAUDE.md 가 이 자리에서 `SaveTransfer.sanitized` 를 가리키지만 그런 타입은 이 코드베이스에
+> 없다.** 세이브 가져오기·내보내기 경로 자체가 없다(2026-08-11 확인). 값 범위 검증은
+> `PlayerState.init(from:)` 의 `slots` clamp 와 `Egg.sanitized()`·`Individual.sanitized()` 세
+> 군데에만 있다. 없는 파일을 찾아 헤매지 말 것.
+
+- `researchPoints` 는 산술에 쓰이는 수치다. 봉인을 깬 세이브에 `Int.max` 가 들어 있으면 이후
+  덧셈이 Swift 오버플로 트랩으로 프로세스를 죽이고, 재기동해도 같은 파일을 읽어 다시 죽는다
+  (디코드는 *성공* 하므로 `.corrupt` 복구가 안 걸린다). `max(0, min(...))` 로 자른다.
+- `eggVouchers` 는 *항목* 이므로 **개수를 자르지 않는다** — 자르면 데이터 손실이다. 대신 말이
+  안 되는 `baseID`(1 미만)를 가진 원소만 버린다. 도감·인벤토리를 안 자르는 것과 같은 이유다.
 
 ### 딸린 정리 — `HatchSpeedup`
 
