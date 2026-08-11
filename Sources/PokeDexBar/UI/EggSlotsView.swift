@@ -148,9 +148,27 @@ struct EggSlotsView: View {
         hatched = individual
     }
 
+    /// 빈 슬롯. 쓸 수 있는 교환권이 있으면 누를 수 있는 칸이 된다.
+    @ViewBuilder
     private var emptySlot: some View {
-        RoundedRectangle(cornerRadius: 8)
-            .stroke(Color.secondary.opacity(0.25), style: StrokeStyle(lineWidth: 1, dash: [3]))
-            .frame(width: Self.tileSize, height: Self.tileSize)
+        if let voucher = store.state.eggVouchers.first {
+            Button {
+                store.redeemEggVoucher(baseID: voucher.baseID)
+            } label: {
+                VStack(spacing: 2) {
+                    Image(systemName: "ticket.fill")
+                        .font(.system(size: 13)).foregroundStyle(Color.accentColor)
+                    Text(l.voucherSlotBadge).font(.system(size: 8)).foregroundStyle(.secondary)
+                }
+                .frame(width: Self.tileSize, height: Self.tileSize)
+                .background(Color.accentColor.opacity(0.12),
+                            in: RoundedRectangle(cornerRadius: 8))
+            }
+            .buttonStyle(.plain)
+        } else {
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(Color.secondary.opacity(0.25), style: StrokeStyle(lineWidth: 1, dash: [3]))
+                .frame(width: Self.tileSize, height: Self.tileSize)
+        }
     }
 }

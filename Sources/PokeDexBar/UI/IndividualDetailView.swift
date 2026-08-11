@@ -228,14 +228,41 @@ struct IndividualDetailView: View {
 
             if store.canEvolve(individual), !choices.isEmpty, let line {
                 evolutionSection(line)
-            } else if line != nil, choices.isEmpty {
-                Text(l.detailMaxStage).font(.system(size: 9)).foregroundStyle(.tertiary)
+            } else if let line, choices.isEmpty {
+                voucherSection(line)
             }
 
             // 사탕이 폼보다 먼저 — 사탕은 늘 하는 일이고 폼은 도구를 갖춘 뒤에나 누른다.
             // 접힌 폼 섹션 아래에 사탕을 두면 "가진 사탕이 없어요"가 화면 맨 밑에 홀로 떨어진다.
             candySection
             formSection
+        }
+    }
+
+    /// 더 진화하지 않는 아이의 경험치가 가는 곳.
+    ///
+    /// 전에는 여기에 "더 진화하지 않아요" 한 줄만 있었다 — 그 아이의 경험치가 어디로 가는지
+    /// 알 길이 없었고, 실제로 아무 데도 안 갔다. 이제 그 자리가 진행 막대가 된다.
+    @ViewBuilder
+    private func voucherSection(_ line: EvoLine) -> some View {
+        let need = EggVoucher.threshold(grade: individual.grade)
+        VStack(alignment: .leading, spacing: 4) {
+            Text(l.detailMaxStage).font(.system(size: 9)).foregroundStyle(.tertiary)
+            HStack {
+                Text(l.voucherSectionTitle).font(.system(size: 9)).foregroundStyle(.secondary)
+                Spacer()
+                Text("\(TokenFormatter.compact(min(individual.exp, need))) / \(TokenFormatter.compact(need))")
+                    .font(.system(size: 10)).monospacedDigit().foregroundStyle(.secondary)
+            }
+            ProgressView(value: min(1, Double(individual.exp) / Double(need)))
+                .progressViewStyle(.linear).frame(height: 5)
+            if store.canClaimEggVoucher(individual, line: line) {
+                DetailActionButton(title: l.voucherClaim, prominent: true) {
+                    store.claimEggVoucher(individualID: individual.id, line: line)
+                }
+            } else {
+                Text(l.voucherExplain).font(.system(size: 9)).foregroundStyle(.tertiary)
+            }
         }
     }
 

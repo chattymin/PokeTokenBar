@@ -94,6 +94,7 @@ struct BoxTabView: View {
                                 isPartner: individual.id == store.state.partnerID,
                                 ribbon: individual.ribbon(at: store.currentDate()),
                                 canEvolve: readyToEvolve(individual),
+                                canClaimVoucher: readyToClaimVoucher(individual),
                                 partnerBadge: l.partnerBadge, fillFrame: fillFrame) {
                             selection = individual.id
                         }
@@ -161,6 +162,11 @@ struct BoxTabView: View {
         guard let line = lines[individual.baseID] else { return false }
         return store.canEvolve(individual) && !store.evolutionChoices(individual, line: line).isEmpty
     }
+
+    private func readyToClaimVoucher(_ individual: Individual) -> Bool {
+        guard let line = lines[individual.baseID] else { return false }
+        return store.canClaimEggVoucher(individual, line: line)
+    }
 }
 
 /// 그리드 한 칸. 눌러서 상세로 들어가는 유일한 통로라 별도 타입으로 뽑아 테스트로 잠근다
@@ -171,6 +177,8 @@ struct BoxCell: View {
     /// 단 리본 — 칸에서 바로 보여야 "오래 데리고 다닌 아이"가 구분되고, 단계까지 읽힌다.
     let ribbon: Ribbon?
     let canEvolve: Bool
+    /// 교환권을 받을 수 있나 — 진화 배지와 같은 이유로 칸에서 보여야 한다.
+    let canClaimVoucher: Bool
     let fillFrame: Bool
     let partnerBadge: String
     let onTap: () -> Void
@@ -185,11 +193,13 @@ struct BoxCell: View {
     #endif
 
     init(individual: Individual, isPartner: Bool, ribbon: Ribbon? = nil, canEvolve: Bool,
-         partnerBadge: String, fillFrame: Bool = true, onTap: @escaping () -> Void) {
+         canClaimVoucher: Bool, partnerBadge: String, fillFrame: Bool = true,
+         onTap: @escaping () -> Void) {
         self.individual = individual
         self.isPartner = isPartner
         self.ribbon = ribbon
         self.canEvolve = canEvolve
+        self.canClaimVoucher = canClaimVoucher
         self.fillFrame = fillFrame
         self.partnerBadge = partnerBadge
         self.onTap = onTap
@@ -215,6 +225,14 @@ struct BoxCell: View {
                     // 진화 가능은 칸에서 바로 보여야 한다 — 아니면 개체를 하나씩 열어봐야 안다.
                     if canEvolve {
                         Image(systemName: "arrow.up.circle.fill")
+                            .font(.system(size: 10))
+                            .foregroundStyle(Color.accentColor)
+                            .offset(x: 3, y: -2)
+                    }
+                    // 진화와 교환권은 동시에 성립하지 않는다(하나는 갈 곳이 있을 때,
+                    // 다른 하나는 없을 때) — 같은 귀퉁이를 써도 겹치지 않는다.
+                    if canClaimVoucher {
+                        Image(systemName: "arrow.down.circle.fill")
                             .font(.system(size: 10))
                             .foregroundStyle(Color.accentColor)
                             .offset(x: 3, y: -2)

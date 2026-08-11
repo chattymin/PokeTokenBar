@@ -261,4 +261,52 @@ final class EggVoucherTests: XCTestCase {
         }
         XCTAssertEqual(results, [true, false], "이로치가 굴려지지 않고 고정돼 있다")
     }
+
+    // MARK: 화면 배선
+
+    private func source(_ path: String) throws -> String {
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        return try String(contentsOf: root.appendingPathComponent(path), encoding: .utf8)
+    }
+
+    /// 상세 화면이 지급 경로에 닿아 있다 — 안 닿으면 교환권을 영원히 못 받는다.
+    func testTheDetailViewReachesTheClaimPath() throws {
+        let text = try source("Sources/PokeDexBar/UI/IndividualDetailView.swift")
+        XCTAssertTrue(text.contains("claimEggVoucher"), "상세에 교환권 받기 버튼이 없다")
+    }
+
+    /// 알 슬롯이 사용 경로에 닿아 있다 — 안 닿으면 받은 교환권을 영원히 못 쓴다.
+    func testTheEggSlotsReachTheRedeemPath() throws {
+        let text = try source("Sources/PokeDexBar/UI/EggSlotsView.swift")
+        XCTAssertTrue(text.contains("redeemEggVoucher"), "알 슬롯에 교환권 쓰기가 없다")
+    }
+
+    /// 박스 칸이 배지를 그린다 — 개체를 하나씩 열어보지 않아도 받을 수 있는 아이가 보인다.
+    func testTheBoxCellShowsAVoucherBadge() throws {
+        let text = try source("Sources/PokeDexBar/UI/BoxTabView.swift")
+        XCTAssertTrue(text.contains("canClaimVoucher"), "박스 칸에 교환권 배지가 없다")
+    }
+
+    /// **`.help()` 를 쓰지 않는다.** 이 팝오버 안에서 툴팁은 뜨지 않는다(실사용 확인).
+    /// 설명은 인라인 한 줄로 적는다 — 부화 감면 안내에서 이미 한 번 밟았다.
+    func testNoTooltipsInTheTouchedViews() throws {
+        for path in ["Sources/PokeDexBar/UI/EggSlotsView.swift",
+                     "Sources/PokeDexBar/UI/IndividualDetailView.swift"] {
+            XCTAssertFalse(try source(path).contains(".help("),
+                           "\(path) 에 안 뜨는 툴팁이 들어왔다")
+        }
+    }
+
+    /// 문구가 세 언어를 다 채운다. `AppLanguage` 는 `ko`·`en`·`ja` 세 케이스다
+    /// (`systemDefault` 는 케이스가 아니라 static var 이므로 `allCases` 에 안 들어온다).
+    func testStringsCoverAllThreeLanguages() {
+        for lang in AppLanguage.allCases {
+            let l = L(lang)
+            XCTAssertFalse(l.voucherSectionTitle.isEmpty, "\(lang)")
+            XCTAssertFalse(l.voucherClaim.isEmpty, "\(lang)")
+            XCTAssertFalse(l.voucherExplain.isEmpty, "\(lang)")
+            XCTAssertFalse(l.voucherSlotBadge.isEmpty, "\(lang)")
+        }
+    }
 }

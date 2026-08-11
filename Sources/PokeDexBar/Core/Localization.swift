@@ -203,6 +203,18 @@ struct L {
     var evolveNeedsFriendshipShort: String { t("함께 다니기", "Time together", "一緒にいること") }
 
     var detailMaxStage: String { t("더 진화하지 않아요", "Fully evolved", "これいじょうしんかしない") }
+    var voucherSectionTitle: String {
+        t("확정 알 교환권", "Guaranteed Egg Voucher", "かくていタマゴこうかんけん")
+    }
+    var voucherClaim: String {
+        t("교환권 받기", "Claim voucher", "こうかんけんをうけとる")
+    }
+    var voucherExplain: String {
+        t("더 진화하지 않는 아이는 경험치를 모아 자기 알을 불러와요",
+          "A fully evolved Pokémon turns its experience into an egg of its own line",
+          "しんかしきったポケモンは けいけんちで じぶんのタマゴをよびます")
+    }
+    var voucherSlotBadge: String { t("교환권", "Voucher", "こうかんけん") }
     var detailPartnerOnlyExp: String {
         t("경험치는 파트너만 쌓여요 — 사탕으로도 올릴 수 있어요",
           "Only your partner earns EXP — candy works too",
