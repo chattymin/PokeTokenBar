@@ -692,8 +692,9 @@ struct DexSummaryHeader: View {
 /// 컬렉션 탭 — 도감과 포획 로그를 하위 세그먼트로 전환한다.
 ///
 /// 두 화면은 같은 데이터를 다른 축으로 본다:
-///  - **도감**: 종 1개 = 1칸. 같은 라인을 여러 번 키워도 한 칸으로 접히고 성격이 태그로 남는다.
-///  - **로그**: 개체 1마리 = 1행. 같은 라인이 여러 행으로 나오는 게 정상(개체별 성격·시각 기록).
+///  - **도감**: 종 1개 = 1칸. 같은 라인을 여러 번 키워도 한 칸으로 접힌다(종 정보만).
+///  - **로그**: 개체 1마리 = 1행. 같은 라인이 여러 행으로 나오는 게 정상 — 성격·획득 시각처럼
+///    개체에 딸린 정보는 여기에만 있다.
 /// 상위 탭(PopoverTab)은 그대로 4개 — 세그먼트 폭(332/2)이 넉넉해 탭바를 늘릴 필요가 없다.
 struct CollectionView: View {
     let store: CompanionStore
@@ -701,11 +702,12 @@ struct CollectionView: View {
     /// 로그 전용 희귀도 필터. 도감은 개수 단위가 종이라 자기 필터를 따로 갖는다(DexGridView).
     @State private var selectedRarity: Rarity?
 
-    /// 도감·로그 공통 높이 — 세그먼트를 전환할 때 팝오버가 리사이즈되며 튀지 않게 통일한다.
-    /// 4열×6행이 스프라이트 40 + 이름 + 성격 태그를 담으려면 다른 탭이 쓰는 520 으로는 부족하다
-    /// (세그먼트가 크롬을 한 줄 늘려 스프라이트가 36pt 아래로 눌린다). 로그는 스크롤이라 더 보일 뿐 무해.
-    /// 상점·가방(520)과 달라 탭을 넘나들 때 팝오버 높이가 바뀐다.
-    private static let contentHeight: CGFloat = 580
+    /// 도감·로그 공통 높이 — 상점·가방과 같은 520. 세그먼트를 전환할 때도, 탭을 넘나들 때도
+    /// 팝오버가 리사이즈되지 않는다.
+    ///
+    /// 예산: 520 − 세그먼트 24 − 헤더 39 − 하단 줄 18 − 간격 24 = 격자 415. 6행 spacing 4 면
+    /// 행이 65.8 이고, 칸 여백 6 과 이름 12 를 빼면 스프라이트에 47.8 이 남는다(현재 44).
+    private static let contentHeight: CGFloat = 520
 
     /// 선택된 희귀도만 노출(없으면 전체). 상단 캡슐 토글로 설정.
     private var visibleEntries: [DexEntry] {
@@ -784,7 +786,7 @@ private struct DexGridView: View {
     @State private var selectedRarity: Rarity?
     @State private var page = 0
 
-    /// 탭으로 펼친 칸 — 하단 줄에 획득 성격 전체를 보여준다(칸은 폭이 80pt 뿐이라 첫 개 + N).
+    /// 선택한 칸 — 하단 줄에 희귀도를 띄우고, 이로치를 잡은 종이면 스프라이트를 그 색으로 바꾼다.
     @State private var selectedID: Int?
 
     private static let columns = 4
@@ -824,7 +826,7 @@ private struct DexGridView: View {
                         withAnimation(.easeInOut(duration: 0.15)) {
                             selectedRarity = (selectedRarity == r) ? nil : r
                             page = 0        // 필터가 바뀌면 페이지 범위도 바뀐다 — 항상 첫 페이지부터
-                            selectedID = nil // 펼친 칸이 필터 밖으로 나가면 하단 줄이 유령 정보를 남긴다
+                            selectedID = nil // 선택한 칸이 필터 밖으로 나가면 하단 줄이 유령 정보를 남긴다
                         }
                     } label: {
                         RarityTally(label: store.l.rarityLabel(r), count: count,
@@ -840,7 +842,7 @@ private struct DexGridView: View {
 
     /// 고정 격자 — 남는 칸은 투명(테두리·물음표 없이 정렬만 유지).
     /// 모든 행에 maxHeight 를 걸어 6행이 높이를 균등 분할하게 한다 — 빈 칸의 Color 는 유연 크기라,
-    /// 행마다 안 걸면 빈 행이 늘어나 채워진 행을 짓눌린다(보유 종이 적을 때 첫 줄이 찌그러짐).
+    /// 행마다 안 걸면 빈 행이 늘어나 채워진 행을 짓누른다(보유 종이 적을 때 첫 줄이 찌그러짐).
     private func grid(_ slice: [CompanionStore.DexSpecies]) -> some View {
         VStack(spacing: Self.spacing) {
             ForEach(0..<Self.rows, id: \.self) { row in
@@ -864,23 +866,16 @@ private struct DexGridView: View {
         .frame(maxHeight: .infinity)
     }
 
-    /// 하단 한 줄 — 왼쪽은 펼친 칸의 획득 성격 전체(없으면 발견용 힌트), 오른쪽은 페이저.
-    /// 페이저가 1페이지라 안 보일 때도 이 줄을 **항상** 예약한다 — 페이지 수에 따라 격자 높이가
-    /// 흔들리지 않고, 칸 폭에 안 들어간 성격을 펼칠 자리도 여기서 나온다.
+    /// 하단 한 줄 — 왼쪽은 선택한 칸의 희귀도, 오른쪽은 페이저.
+    /// 페이저가 1페이지라 안 보일 때도 이 줄을 **항상** 예약한다 — 페이지 수나 선택 여부에 따라
+    /// 격자 높이가 흔들리지 않게.
     private func footer(_ slice: [CompanionStore.DexSpecies],
                         current: Int, pageCount: Int) -> some View {
         HStack(spacing: 8) {
             if let sel = slice.first(where: { $0.id == selectedID }) {
-                // 성격이 없는 종(현재 키우는 개체로만 보유 — 민트로 변동해 도감에 안 넣는다)은
-                // 대신 희귀도를 보여준다. 빈 줄로 두면 탭이 먹히지 않은 것처럼 보인다.
-                let detail = sel.natures.isEmpty
-                    ? store.l.rarityLabel(sel.rarity)
-                    : sel.natures.map { $0.name(store.language) }.joined(separator: ", ")
-                Text("#\(sel.id) \(sel.name) · \(detail)")
+                // 칸은 번호·스프라이트·이름만 보여주므로 희귀도가 선택으로 얻는 정보다.
+                Text("#\(sel.id) \(sel.name) · \(store.l.rarityLabel(sel.rarity))")
                     .font(.system(size: 9)).foregroundStyle(.secondary).lineLimit(1)
-            } else {
-                Text(store.l.dexTapForNatures)
-                    .font(.system(size: 9)).foregroundStyle(.tertiary).lineLimit(1)
             }
             Spacer(minLength: 4)
             if pageCount > 1 {
@@ -905,7 +900,7 @@ private struct DexGridView: View {
     }
 }
 
-/// 도감 한 칸 — 스프라이트 + 종 이름 + 획득 성격 태그.
+/// 도감 한 칸 — 도감 번호 + 스프라이트 + 종 이름. 종 정보만 담는다(성격·획득 횟수는 로그의 몫).
 /// 정적 스프라이트만 쓴다(animated 생략) — 한 페이지 24칸을 GIF 로 동시 재생하면 CPU 가 안 된다.
 private struct DexSpeciesCell: View {
     let store: CompanionStore
@@ -913,14 +908,14 @@ private struct DexSpeciesCell: View {
     let isSelected: Bool
     let onTap: () -> Void
 
-    /// 로그(56)보다 작다 — 24칸 격자에 이름·태그까지 담아야 하고, 원본 96×96 픽셀아트를
+    /// 로그(56)보다 작다 — 24칸 격자에 이름까지 담아야 한다. 원본 96×96 픽셀아트를
     /// interpolation(.none) 으로 축소하므로 이 크기에서도 식별에 문제없다.
-    private static let thumb: CGFloat = 40
+    private static let thumb: CGFloat = 44
 
     var body: some View {
         Button(action: onTap) {
             VStack(spacing: 1) {
-                // 기본은 일반색. 이로치를 잡은 종은 탭해서 펼치면 이로치색으로 바뀐다 —
+                // 기본은 일반색. 이로치를 잡은 종은 선택하면 이로치색으로 바뀐다 —
                 // 일반·이로치를 둘 다 가진 종도 두 모습을 다 볼 수 있다(본가 HOME 의 이로치 토글과 같은 결).
                 SpriteView(speciesID: species.id, size: Self.thumb,
                            shiny: species.isShiny && isSelected)
@@ -943,7 +938,6 @@ private struct DexSpeciesCell: View {
                 Text(species.name)
                     .font(.system(size: 9))
                     .lineLimit(1).minimumScaleFactor(0.8)
-                tagLine
             }
             .frame(maxWidth: .infinity)
             .padding(3)
@@ -961,40 +955,11 @@ private struct DexSpeciesCell: View {
         .accessibilityLabel(tooltip)
     }
 
-    /// 성격 태그 한 줄. 성격이 겹치지 않는 한 **태그 개수 = 획득 횟수**라, ×N 배지는 그 등식이
-    /// 깨질 때만 그린다 — 같은 종을 같은 성격으로 또 얻었거나(1/25), 성격 미기록 구버전 항목.
-    /// 셀 폭이 80pt(4열)뿐이라 첫 태그만 펼치고 나머지는 +N 으로 접는다 — 전체는 칸을 탭하면
-    /// 하단 줄에 펼쳐지고, hover 툴팁에도 들어 있다.
-    private var tagLine: some View {
-        HStack(spacing: 2) {
-            if let first = species.natures.first {
-                Text(first.name(store.language))
-                    .font(.system(size: 8))
-                    .lineLimit(1).minimumScaleFactor(0.85)
-                    .padding(.horizontal, 4).padding(.vertical, 1)
-                    .background(Color.secondary.opacity(0.14))
-                    .clipShape(Capsule())
-            }
-            if species.natures.count > 1 {
-                Text("+\(species.natures.count - 1)")
-                    .font(.system(size: 8, weight: .bold)).foregroundStyle(.secondary)
-            }
-            if species.obtained > 1, species.obtained > species.natures.count {
-                Text("×\(species.obtained)")
-                    .font(.system(size: 8, weight: .bold)).foregroundStyle(.secondary)
-            }
-        }
-        .frame(height: 12)
-    }
-
-    /// 접힌 태그를 복구하는 단일 소스 — 툴팁과 접근성 라벨이 같은 문장을 쓴다.
+    /// 툴팁과 접근성 라벨이 같은 문장을 쓴다 — 칸이 글자로 못 보여주는 희귀도를 담는다.
     /// ✨ 는 이모지라 스크린리더가 일관되게 읽지 못하므로 명사로 함께 넣는다.
     private var tooltip: String {
         var parts = ["#\(species.id) \(species.name)", store.l.rarityLabel(species.rarity)]
         if species.isShiny { parts.append(store.l.dexShinyLabel) }
-        if !species.natures.isEmpty {
-            parts.append(species.natures.map { $0.name(store.language) }.joined(separator: ", "))
-        }
         return parts.joined(separator: " · ")
     }
 }

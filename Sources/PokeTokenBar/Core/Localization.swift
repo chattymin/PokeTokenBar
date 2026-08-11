@@ -336,10 +336,6 @@ struct L {
     var rarityRare: String { t("희귀", "Rare", "レア") }
     var rarityLegendary: String { t("전설", "Legendary", "伝説") }
     var dexFilterHint: String { t("탭하면 이 희귀도만 보기 · 다시 탭하면 전체", "Tap to show only this rarity · tap again to clear", "タップでこの希少度のみ表示・再タップで全体") }
-    /// 도감 칸의 성격 태그는 폭 때문에 첫 개만 펼친다(나머지는 +N) — 전체는 탭으로 하단에 펼친다.
-    var dexTapForNatures: String {
-        t("칸을 탭하면 획득 성격 전체", "Tap a cell to see every nature", "マスをタップで全性格を表示")
-    }
     /// 도감 칸의 ✨ 를 읽어주는 명사 — 이모지는 스크린리더가 일관되게 읽지 못한다.
     var dexShinyLabel: String { t("이로치", "Shiny", "色違い") }
     func rarityLabel(_ r: Rarity) -> String {

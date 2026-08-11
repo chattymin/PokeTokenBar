@@ -67,7 +67,7 @@ PokeTokenBar は、あなたがすでに使っている AI コーディングト
 <tr>
 <td width="55%" valign="middle">
 <h3>埋めたくなる図鑑</h3>
-<b>図鑑</b>は手に入れた種を1マスに畳んで図鑑番号順に並べます — 1ページ24マス、その種を捕まえたせいかくがタグとして付きます。<b>捕獲ログ</b>は個体をそのまま残します: 新しい順に、進化ライン全体・レア度・せいかく・捕獲日まで。
+<b>図鑑</b>は手に入れた種を1マスに畳んで図鑑番号順に並べます — 1ページ24マス、色違いで捕まえた種には ✨ が付きます。<b>捕獲ログ</b>は個体をそのまま残します: 新しい順に、進化ライン全体・レア度・せいかく・捕獲日まで。
 </td>
 <td width="45%" align="center"><img src="assets/screenshot-collection-pokedex.png" width="300" alt="図鑑 — 1種が1マス"><br><br><img src="assets/screenshot-collection-catchlog.png" width="300" alt="捕獲ログ — 育てた個体が1行"></td>
 </tr>

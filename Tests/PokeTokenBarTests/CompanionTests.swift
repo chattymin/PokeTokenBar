@@ -291,15 +291,9 @@ final class CompanionStoreTests: XCTestCase {
 
     // MARK: 도감 (종 단위 집계 — 로그의 개체 단위와 축이 다르다)
 
-    /// 도감의 핵심 계약 3개를 한 번에 고정한다. 상태는 파일 주입으로 구성해 성격을 결정적으로
-    /// 통제한다(부화 rng 롤에 의존하지 않게 — PerformanceTests 의 큰 도감 주입과 같은 방식).
-    ///  ① 같은 라인을 두 번 졸업해도 종은 한 칸으로 접히고 획득 성격이 둘 다 태그로 남는다
-    ///     (로그는 2행이 정상 — 중복 행이 도감 쪽에서 구조적으로 해소되는 지점).
-    ///  ② 현재 개체는 **도달분**(pathIDs[0...stageIndex])만 보유로 잡힌다. plannedPathIDs(계획 경로)나
-    ///     pathIDs 전체를 쓰면 아직 진화하지 않은 종이 보유로 새는데, 그 회귀를 여기서 막는다.
-    ///  ③ 성격 태그는 졸업분만 — 현재 개체 성격은 useMint() 로 언제든 바뀌므로 도감(확정 기록)에서 뺀다.
-    func testDexSpeciesFoldsDuplicateLinesAndTracksNatures() throws {
-        // 같은 라인(1→2→3)을 성격만 다르게 두 번 졸업한 도감.
+    /// 같은 라인을 두 번 졸업해도 종은 한 칸으로 접힌다 — 로그가 2행인 게 정상이고, 중복은 도감
+    /// 쪽에서 구조적으로 사라진다. 도감은 종 정보만 담으므로 성격·획득 횟수는 여기서 보지 않는다.
+    func testDexSpeciesFoldsDuplicateLinesToOneCellPerSpecies() throws {
         let entries = [
             DexEntry(baseID: 1, finalID: 3, chainOrder: [1, 2, 3], rarity: .common, caughtAt: fixedNow,
                      nature: .rash,
@@ -307,51 +301,46 @@ final class CompanionStoreTests: XCTestCase {
             DexEntry(baseID: 1, finalID: 3, chainOrder: [1, 2, 3], rarity: .common, caughtAt: fixedNow,
                      nature: .lax),
         ]
-        // 현재 개체: 도달분은 [1] 뿐이지만 pathIDs 는 [1,2], 계획 경로는 [1,2,3] — 한 상태로 두 오용
-        // (pathIDs 전체 / plannedPathIDs)을 동시에 가드한다.
-        let active = MonState(baseID: 1, pathIDs: [1, 2], plannedPathIDs: [1, 2, 3], stageIndex: 0,
-                              usedAtStage: 0, rarity: .common, totalForms: 3, nature: .brave)
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("poke-\(UUID().uuidString).json")
         let dexJSON = String(decoding: try JSONEncoder().encode(entries), as: UTF8.self)
-        let activeJSON = String(decoding: try JSONEncoder().encode(active), as: UTF8.self)
-        try Data(#"{"dex":\#(dexJSON),"active":\#(activeJSON),"language":"ko"}"#.utf8).write(to: url)
+        try Data(#"{"dex":\#(dexJSON),"language":"ko"}"#.utf8).write(to: url)
 
         let s = CompanionStore(provider: StubProvider(value: linear3), clock: { fixedNow },
                                fileURL: url, rng: SeededRNG(seed: 7))
         XCTAssertEqual(s.state.dex.count, 2, "로그(개체 단위)는 2건")
-        XCTAssertEqual(s.state.active?.stageIndex, 0)
 
         let folded = s.dexSpecies
-        XCTAssertEqual(folded.map(\.id), [1, 2, 3], "도감 번호 오름차순, 종은 각 1칸")
+        XCTAssertEqual(folded.map(\.id), [1, 2, 3], "6칸이 아니라 종별 1칸, 도감 번호 오름차순")
         XCTAssertEqual(folded.map(\.name), ["포1", "포2", "포3"], "저장된 이름을 현재 언어로")
-
-        // 도달분(1)만 획득 수가 늘고, 미도달(2,3)은 졸업분 2건 그대로.
-        XCTAssertEqual(folded.map(\.obtained), [3, 2, 2], "pathIDs 전체·plannedPathIDs 누수 없음")
-
-        for sp in folded {
-            // 저장 순서(rash → lax)가 아니라 allCases 순서(lax #9 → rash #19)로 고정된다 —
-            // Set 순회 순서가 렌더마다 흔들려 태그 위치가 바뀌는 것을 막는 계약.
-            XCTAssertEqual(sp.natures, [.lax, .rash], "획득 성격 누적 + allCases 순서 고정")
-            XCTAssertFalse(sp.natures.contains(.brave),
-                           "성격 태그는 확정 기록(졸업분)만 — 현재 개체(민트로 변동)는 제외")
-        }
-        // 태그 수 == 획득 수 → 뷰의 ×N 배지 조건이 거짓(배지 없음)인 종.
-        let folded2 = try XCTUnwrap(folded.first { $0.id == 2 })
-        XCTAssertFalse(folded2.obtained > 1 && folded2.obtained > folded2.natures.count)
-        // 도달분으로 획득 수가 하나 더 붙은 종은 등식이 깨져 ×3 배지가 뜬다.
-        let folded1 = try XCTUnwrap(folded.first { $0.id == 1 })
-        XCTAssertTrue(folded1.obtained > 1 && folded1.obtained > folded1.natures.count)
+        XCTAssertEqual(folded.map(\.rarity), [.common, .common, .common])
     }
 
-    /// 이로치는 종 단위 플래그다 — 개체 하나가 이로치면 그 개체가 지나온 체인 전 종이 표시된다.
-    /// 일반·이로치를 둘 다 가진 종은 한 칸으로 접히되 플래그가 서고, 성격 태그는 둘 다 남는다
-    /// (도감 칸은 기본 일반색으로 그리고 탭하면 이로치색으로 바꾼다 — 두 모습을 다 볼 수 있게).
-    func testDexSpeciesMarksShinyAcrossChainAndKeepsBothColours() throws {
+    /// 현재 개체는 **도달분**만 보유로 잡힌다. 졸업분을 비워 두면 누수가 종 목록에 그대로 드러난다 —
+    /// pathIDs 전체를 쓰면 [1,2], plannedPathIDs(계획 경로)를 쓰면 [1,2,3] 이 되므로 한 상태로
+    /// 두 오용을 동시에 가드한다.
+    func testDexSpeciesCountsOnlyReachedStagesOfActive() throws {
+        let active = MonState(baseID: 1, pathIDs: [1, 2], plannedPathIDs: [1, 2, 3], stageIndex: 0,
+                              usedAtStage: 0, rarity: .common, totalForms: 3, nature: .brave)
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("poke-\(UUID().uuidString).json")
+        let json = String(decoding: try JSONEncoder().encode(active), as: UTF8.self)
+        try Data(#"{"active":\#(json),"language":"ko"}"#.utf8).write(to: url)
+
+        let s = CompanionStore(provider: StubProvider(value: linear3), clock: { fixedNow },
+                               fileURL: url, rng: SeededRNG(seed: 7))
+        XCTAssertTrue(s.state.dex.isEmpty)
+        XCTAssertEqual(s.state.active?.stageIndex, 0)
+        XCTAssertEqual(s.dexSpecies.map(\.id), [1], "미도달 단계가 보유로 새지 않는다")
+    }
+
+    /// 이로치는 종 단위 플래그다 — 개체 하나가 이로치면 그 개체가 지나온 체인 전 종에 표식이 선다.
+    /// 일반 개체와 이로치 개체를 둘 다 가진 종도 한 칸으로 접히되 플래그가 서고, 칸은 기본 일반색으로
+    /// 그려 두었다가 선택하면 이로치색으로 바꾼다(두 모습을 다 볼 수 있게).
+    func testDexSpeciesMarksShinyAcrossTheChain() throws {
         let entries = [
             DexEntry(baseID: 1, finalID: 2, chainOrder: [1, 2], rarity: .common, caughtAt: fixedNow,
-                     isShiny: false, nature: .timid),
+                     isShiny: false),
             DexEntry(baseID: 1, finalID: 2, chainOrder: [1, 2], rarity: .common, caughtAt: fixedNow,
-                     isShiny: true, nature: .brave),
+                     isShiny: true),
         ]
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("poke-\(UUID().uuidString).json")
         let dexJSON = String(decoding: try JSONEncoder().encode(entries), as: UTF8.self)
@@ -361,11 +350,7 @@ final class CompanionStoreTests: XCTestCase {
 
         let folded = s.dexSpecies
         XCTAssertEqual(folded.map(\.id), [1, 2], "이로치 개체가 지나온 체인 전 종")
-        for sp in folded {
-            XCTAssertTrue(sp.isShiny, "한 개체라도 이로치면 종에 플래그")
-            XCTAssertEqual(sp.obtained, 2, "일반 개체가 사라지지 않는다")
-            XCTAssertEqual(sp.natures, [.brave, .timid], "성격은 양쪽 다 태그로 남는다")
-        }
+        XCTAssertEqual(folded.map(\.isShiny), [true, true], "한 개체라도 이로치면 종에 플래그")
     }
 
     /// 위장 메타몽은 리빌 전까지 이로치를 숨긴다 — 도감도 그 규칙을 따라야 한다
@@ -399,22 +384,6 @@ final class CompanionStoreTests: XCTestCase {
         let sp = s.dexSpecies
         XCTAssertEqual(sp.map(\.id), [1], "도달분만 — 아직 진화 전이라 2·3 은 미보유")
         XCTAssertEqual(sp.first?.name, "포1")
-        XCTAssertTrue(sp.first?.natures.isEmpty ?? false, "현재 개체 성격은 도감 태그에 안 들어간다")
-    }
-
-    /// 성격 미기록(구버전) 항목은 태그가 없어 태그 수 < 획득 수 → 뷰가 ×N 배지를 그려야 한다.
-    func testDexSpeciesLegacyEntryWithoutNatureFallsBackToCountBadge() {
-        let url = FileManager.default.temporaryDirectory.appendingPathComponent("poke-\(UUID().uuidString).json")
-        let json = #"{"dex":[{"baseID":1,"finalID":1,"chainOrder":[1],"rarity":"common"},"#
-            + #"{"baseID":1,"finalID":1,"chainOrder":[1],"rarity":"common"}]}"#
-        try? Data(json.utf8).write(to: url)
-        let s = CompanionStore(provider: StubProvider(value: linear3), clock: { fixedNow },
-                               fileURL: url, rng: SeededRNG(seed: 7))
-        let sp = s.dexSpecies
-        XCTAssertEqual(sp.count, 1)
-        XCTAssertEqual(sp[0].obtained, 2)
-        XCTAssertTrue(sp[0].natures.isEmpty)
-        XCTAssertTrue(sp[0].obtained > 1 && sp[0].obtained > sp[0].natures.count, "×2 배지 조건 성립")
     }
 
     /// 오프라인(line fetch 실패) + 저장 없음 → chainOrder 전 종을 종 번호(#id)로 폴백.
