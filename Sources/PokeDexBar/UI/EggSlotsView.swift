@@ -46,41 +46,12 @@ struct EggSlotsView: View {
         return CGFloat(count) * tileSize + CGFloat(count - 1) * tileSpacing
     }
 
-    /// 메뉴에 낼 교환권 — **종(baseID) 기준으로 중복 제거**한다. 같은 종 두 장을 가졌어도
-    /// 메뉴 줄은 하나만 낸다("같은 종을 두 번 더 고를 이유가 없다"). 사용자가 그 줄을 고르면
-    /// `redeemEggVoucher` 가 알아서 한 장만 지운다 — 메뉴는 "무엇을 부를지"만 고른다.
-    nonisolated static func menuVouchers(_ vouchers: [EggVoucher]) -> [EggVoucher] {
-        var seen = Set<Int>()
-        return vouchers.filter { seen.insert($0.baseID).inserted }
-    }
-
-    /// 교환권 타일이 눌릴 수 있나 — 교환권을 하나라도 가졌고 빈 슬롯이 있어야 한다.
-    /// 타일은 종류와 무관하게 **하나뿐**이다(메뉴가 여러 종을 담으므로 칸을 나눌 필요가 없다).
-    nonisolated static func voucherTileIsActionable(vouchers: [EggVoucher], freeSlots: Int) -> Bool {
-        !vouchers.isEmpty && freeSlots > 0
-    }
-
-    /// 빈 슬롯 수 — 알로 안 찬 슬롯. 교환권 타일이 이 중 하나를 쓴다.
-    private var freeSlots: Int { max(0, store.state.slots - store.state.eggs.count) }
-    /// 교환권 타일 뒤에 그릴 **빈** 빈 칸 수. 타일이 뜨면 그만큼 하나 줄어든다.
-    private var plainEmptySlotCount: Int {
-        freeSlots - (Self.voucherTileIsActionable(vouchers: store.state.eggVouchers,
-                                                   freeSlots: freeSlots) ? 1 : 0)
-    }
-
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack {
                 Text(l.eggSlotsHeader).font(.system(size: 10, weight: .semibold))
                     .foregroundStyle(.secondary)
                 Spacer()
-                // 슬롯이 꽉 차 있어도 교환권을 가졌다는 사실은 보여야 한다 — 안 그러면 받은
-                // 교환권이 있는지 확인할 길이 없다(가방 탭도 안 보여준다, `PlayerState.eggVouchers`).
-                if !store.state.eggVouchers.isEmpty {
-                    Text(l.voucherCountBadge(store.state.eggVouchers.count))
-                        .font(.system(size: 9)).foregroundStyle(.secondary)
-                    Text("·").font(.system(size: 9)).foregroundStyle(.tertiary)
-                }
                 Text("\(store.state.eggs.count) / \(store.state.slots)")
                     .font(.system(size: 9)).monospacedDigit().foregroundStyle(.tertiary)
             }
@@ -89,11 +60,7 @@ struct EggSlotsView: View {
                     ForEach(store.state.eggs) { egg in
                         slot(egg)
                     }
-                    if Self.voucherTileIsActionable(vouchers: store.state.eggVouchers,
-                                                    freeSlots: freeSlots) {
-                        voucherTile
-                    }
-                    ForEach(0..<plainEmptySlotCount, id: \.self) { _ in
+                    ForEach(0..<max(0, store.state.slots - store.state.eggs.count), id: \.self) { _ in
                         emptySlot
                     }
                 }
@@ -181,45 +148,9 @@ struct EggSlotsView: View {
         hatched = individual
     }
 
-    /// 그냥 빈 슬롯 — 알도 교환권도 없다.
     private var emptySlot: some View {
         RoundedRectangle(cornerRadius: 8)
             .stroke(Color.secondary.opacity(0.25), style: StrokeStyle(lineWidth: 1, dash: [3]))
             .frame(width: Self.tileSize, height: Self.tileSize)
-    }
-
-    /// 교환권 타일 — 종류마다 칸을 나누지 않고 **메뉴로 고른다**(설계 문서: "교환권이 여러
-    /// 종이면 목록에서 고른다"). 예전엔 빈 칸마다 인덱스로 교환권 하나씩을 붙였는데, 그러면
-    /// 목록 순서가 곧 "먼저 써야 할 것"이 되어 뒤쪽 종은 앞쪽을 다 쓸 때까지 손이 안 닿았다.
-    private var voucherTile: some View {
-        Menu {
-            ForEach(Self.menuVouchers(store.state.eggVouchers), id: \.baseID) { voucher in
-                Button(voucherLabel(voucher)) {
-                    store.redeemEggVoucher(baseID: voucher.baseID)
-                }
-            }
-        } label: {
-            VStack(spacing: 2) {
-                Image(systemName: "ticket.fill")
-                    .font(.system(size: 13)).foregroundStyle(Color.accentColor)
-                Text(l.voucherSlotBadge).font(.system(size: 8)).foregroundStyle(.secondary)
-            }
-            .frame(width: Self.tileSize, height: Self.tileSize)
-            .background(Color.accentColor.opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
-        }
-        .menuStyle(.borderlessButton)
-        .menuIndicator(.hidden)
-        // 이름은 네트워크로 오는 값이다 — 가진 교환권들의 종 번호(baseID) 를 모아 아직 없는
-        // 라인만 요청한다. 부화 감면 안내(위 `warmedHint`)와 같은 `.task(id:)` 패턴.
-        .task(id: Set(store.state.eggVouchers.map(\.baseID))) {
-            for baseID in Set(store.state.eggVouchers.map(\.baseID)) where lines[baseID] == nil {
-                onNeedLine(baseID)
-            }
-        }
-    }
-
-    /// 메뉴 줄 이름 — 라인이 아직 없으면 번호로 폴백한다(`baseName` 과 같은 이유).
-    private func voucherLabel(_ voucher: EggVoucher) -> String {
-        lines[voucher.baseID]?.localizedName(voucher.baseID, store.language) ?? "#\(voucher.baseID)"
     }
 }

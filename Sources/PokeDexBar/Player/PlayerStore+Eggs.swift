@@ -17,7 +17,7 @@ extension PlayerStore {
 
     /// 값과 무관하게 알을 슬롯에 넣는다. 빈 슬롯이 없으면 아무것도 하지 않고 nil.
     ///
-    /// **값 치르기와 나뉘어 있는 이유:** 확정 알 교환권은 교환권이 값이라 토큰이 안 든다.
+    /// **값 치르기와 나뉘어 있는 이유:** 알 발견은 경험치가 값이라 토큰이 안 든다.
     /// 부화 감면은 여기 있으므로 어느 경로로 들어온 알이든 똑같이 받는다.
     @discardableResult
     func placeEgg(grade: Grade, speciesID: Int, shiny: Bool) -> Egg? {

@@ -94,7 +94,7 @@ struct BoxTabView: View {
                                 isPartner: individual.id == store.state.partnerID,
                                 ribbon: individual.ribbon(at: store.currentDate()),
                                 canEvolve: readyToEvolve(individual),
-                                canClaimVoucher: readyToClaimVoucher(individual),
+                                readyToTakeEgg: readyToTakeEgg(individual),
                                 partnerBadge: l.partnerBadge, fillFrame: fillFrame) {
                             selection = individual.id
                         }
@@ -163,9 +163,11 @@ struct BoxTabView: View {
         return store.canEvolve(individual) && !store.evolutionChoices(individual, line: line).isEmpty
     }
 
-    private func readyToClaimVoucher(_ individual: Individual) -> Bool {
+    /// 알을 받을 수 있나 — 진화 배지와 같은 이유로 칸에서 보여야 한다. `canTakeFoundEgg` 를
+    /// 그대로 쓴다 — 빈 슬롯까지 이미 보는 함수라 배지가 곧 "지금 눌러 받을 수 있나"가 된다.
+    private func readyToTakeEgg(_ individual: Individual) -> Bool {
         guard let line = lines[individual.baseID] else { return false }
-        return store.canClaimEggVoucher(individual, line: line)
+        return store.canTakeFoundEgg(individual, line: line)
     }
 }
 
@@ -177,8 +179,8 @@ struct BoxCell: View {
     /// 단 리본 — 칸에서 바로 보여야 "오래 데리고 다닌 아이"가 구분되고, 단계까지 읽힌다.
     let ribbon: Ribbon?
     let canEvolve: Bool
-    /// 교환권을 받을 수 있나 — 진화 배지와 같은 이유로 칸에서 보여야 한다.
-    let canClaimVoucher: Bool
+    /// 알을 받을 수 있나 — 진화 배지와 같은 이유로 칸에서 보여야 한다.
+    let readyToTakeEgg: Bool
     let fillFrame: Bool
     let partnerBadge: String
     let onTap: () -> Void
@@ -193,13 +195,13 @@ struct BoxCell: View {
     #endif
 
     init(individual: Individual, isPartner: Bool, ribbon: Ribbon? = nil, canEvolve: Bool,
-         canClaimVoucher: Bool, partnerBadge: String, fillFrame: Bool = true,
+         readyToTakeEgg: Bool, partnerBadge: String, fillFrame: Bool = true,
          onTap: @escaping () -> Void) {
         self.individual = individual
         self.isPartner = isPartner
         self.ribbon = ribbon
         self.canEvolve = canEvolve
-        self.canClaimVoucher = canClaimVoucher
+        self.readyToTakeEgg = readyToTakeEgg
         self.fillFrame = fillFrame
         self.partnerBadge = partnerBadge
         self.onTap = onTap
@@ -229,13 +231,12 @@ struct BoxCell: View {
                             .foregroundStyle(Color.accentColor)
                             .offset(x: 3, y: -2)
                     }
-                    // 진화와 교환권은 동시에 성립하지 않는다(하나는 갈 곳이 있을 때,
+                    // 진화와 알 발견은 동시에 성립하지 않는다(하나는 갈 곳이 있을 때,
                     // 다른 하나는 없을 때) — 같은 귀퉁이를 써도 겹치지 않는다.
-                    // 티켓 아이콘 — 진화 배지(위쪽 화살표)와 같은 자리·크기·색이던 아래쪽
-                    // 화살표는 거의 구분이 안 됐고, 아래 화살표는 "퇴화"로도 읽혔다. 슬롯
-                    // 타일의 교환권 아이콘(`ticket.fill`)과 같은 기호로 맞춘다.
-                    if canClaimVoucher {
-                        Image(systemName: "ticket.fill")
+                    // 알 모양(타원) — 위쪽 화살표(진화 배지)와 10pt 에서도 헷갈리지 않도록
+                    // 형태 자체가 다른 기호를 쓴다.
+                    if readyToTakeEgg {
+                        Image(systemName: "oval.fill")
                             .font(.system(size: 10))
                             .foregroundStyle(Color.accentColor)
                             .offset(x: 3, y: -2)

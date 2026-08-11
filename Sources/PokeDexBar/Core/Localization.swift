@@ -203,21 +203,16 @@ struct L {
     var evolveNeedsFriendshipShort: String { t("함께 다니기", "Time together", "一緒にいること") }
 
     var detailMaxStage: String { t("더 진화하지 않아요", "Fully evolved", "これいじょうしんかしない") }
-    var voucherSectionTitle: String {
-        t("확정 알 교환권", "Guaranteed Egg Voucher", "かくていタマゴこうかんけん")
+    /// 알 발견 버튼 — 사육가가 알을 발견해 건네주는 원작 문구 그대로다. 그래서 버튼 하나가
+    /// 곧 "받는다" 동작이 된다. 종 이름은 그 개체의 baseID(원종)다.
+    func eggFound(_ name: String) -> String {
+        t("\(name)의 알이 발견되었어요!", "You found a \(name) Egg!", "\(name)のタマゴを みつけた！")
     }
-    var voucherClaim: String {
-        t("교환권 받기", "Claim voucher", "こうかんけんをうけとる")
-    }
-    var voucherExplain: String {
-        t("더 진화하지 않는 아이는 경험치를 모아 자기 알을 불러와요",
-          "A fully evolved Pokémon turns its experience into an egg of its own line",
-          "しんかしきったポケモンは けいけんちで じぶんのタマゴをよびます")
-    }
-    var voucherSlotBadge: String { t("교환권", "Voucher", "こうかんけん") }
-    /// 슬롯 줄 머리에 붙는 보유 장수 — 알 슬롯이 꽉 찼을 때도 교환권을 가졌다는 사실이 보여야 한다.
-    func voucherCountBadge(_ count: Int) -> String {
-        t("교환권 \(count)장", "\(count) voucher\(count == 1 ? "" : "s")", "こうかんけん\(count)まい")
+    /// 빈 부화 슬롯이 없어 버튼이 비활성일 때 — 경험치는 잃지 않는다는 사실이 같이 보여야 한다.
+    var eggFoundNoFreeSlot: String {
+        t("부화 슬롯이 다 찼어요 — 경험치는 그대로 남아 있어요",
+          "All hatch slots are full — your experience stays banked",
+          "ふ化スロットがいっぱいです — けいけんちはそのまま残ります")
     }
     var detailPartnerOnlyExp: String {
         t("경험치는 파트너만 쌓여요 — 사탕으로도 올릴 수 있어요",

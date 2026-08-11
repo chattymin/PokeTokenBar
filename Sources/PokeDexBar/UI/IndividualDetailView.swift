@@ -21,30 +21,32 @@ struct IndividualDetailView: View {
     /// 이로치 반짝임의 방아쇠. 화면에 들어올 때 한 번 올린다 — 계속 반짝이면
     /// 특별하다는 신호가 아니라 배경 장식이 된다.
     @State private var sparkleBeat = 0
-    /// 위장 중이 아니고 라인이 있고 더 진화할 곳이 없으면 교환권 대상이다 — `actions` 의 분기와
-    /// `canClaimEggVoucher` 가 보는 것과 같은 조건. `expSection`·`voucherSection` 이 이 값 하나로
+    /// 위장 중이 아니고 라인이 있고 더 진화할 곳이 없으면 알 발견 후보다 — `actions` 의 분기와
+    /// `canTakeFoundEgg` 가 보는 것과 같은 조건. `expSection`·`foundEggSection` 이 이 값 하나로
     /// 갈려야 두 자리가 다른 답을 하지 않는다.
-    private var isVoucherCandidate: Bool {
-        Self.isVoucherCandidate(hasLine: line != nil, hasEvolutionChoices: !choices.isEmpty,
-                                isDisguised: individual.disguisedAs != nil)
+    private var isFoundEggCandidate: Bool {
+        Self.isFoundEggCandidate(hasLine: line != nil, hasEvolutionChoices: !choices.isEmpty,
+                                 isDisguised: individual.disguisedAs != nil)
     }
 
     /// 순수 함수 버전 — 뷰 인스턴스 없이 조건 자체를 테스트로 잠근다.
-    nonisolated static func isVoucherCandidate(hasLine: Bool, hasEvolutionChoices: Bool,
-                                               isDisguised: Bool) -> Bool {
+    nonisolated static func isFoundEggCandidate(hasLine: Bool, hasEvolutionChoices: Bool,
+                                                isDisguised: Bool) -> Bool {
         hasLine && !hasEvolutionChoices && !isDisguised
     }
 
-    /// 경험치 막대의 분모. 교환권 대상이면 **교환권 임계**(진화 한 단계와 같은 환율)로 그린다 —
-    /// 최종형의 진화 임계(등급 기본값 × 3)를 쓰면 교환권으로는 절대 못 채우는 막대가 된다.
-    /// `expSection`·`voucherSection` 이 공유하는 단일 소스 — 따로 계산하면 같은 경험치가
+    /// 경험치 막대의 분모. 알 발견 후보면 **알 임계**(진화 한 단계와 같은 환율)로 그린다 —
+    /// 최종형의 진화 임계(등급 기본값 × 3)를 쓰면 알로는 절대 못 채우는 막대가 된다.
+    /// `expSection`·`foundEggSection` 이 공유하는 단일 소스 — 따로 계산하면 같은 경험치가
     /// 두 자리에서 다른 퍼센트로 보일 수 있다.
-    private var threshold: Int { Self.expThreshold(individual: individual, isVoucherCandidate: isVoucherCandidate) }
+    private var threshold: Int {
+        Self.expThreshold(individual: individual, isFoundEggCandidate: isFoundEggCandidate)
+    }
 
     /// 순수 함수 버전.
-    nonisolated static func expThreshold(individual: Individual, isVoucherCandidate: Bool) -> Int {
-        isVoucherCandidate ? EggVoucher.threshold(grade: individual.grade)
-                           : ExpBalance.threshold(grade: individual.grade, stageIndex: individual.stageIndex)
+    nonisolated static func expThreshold(individual: Individual, isFoundEggCandidate: Bool) -> Int {
+        isFoundEggCandidate ? ExpBalance.eggThreshold(grade: individual.grade)
+                            : ExpBalance.threshold(grade: individual.grade, stageIndex: individual.stageIndex)
     }
     private var choices: [Int] {
         // 위장 중엔 진화를 안 내민다. 이 화면이 받은 라인은 **위장한 종의 것**이라(이름 때문)
@@ -222,9 +224,9 @@ struct IndividualDetailView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    /// 경험치 막대 — 진화할 곳이 있으면 다음 진화 임계, 없으면(교환권 대상) 교환권 임계로 찬다.
+    /// 경험치 막대 — 진화할 곳이 있으면 다음 진화 임계, 없으면(알 발견 후보) 알 임계로 찬다.
     /// 예전엔 여기 항상 진화 임계만 그렸다 — 최종형은 못 채우는 막대가 되어(임계가 진화 3단계치)
-    /// 그 바로 아래 교환권 막대와 같은 개체의 같은 경험치를 두 다른 분모로 두 번 보여줬다.
+    /// 그 바로 아래 알 발견 막대와 같은 개체의 같은 경험치를 두 다른 분모로 두 번 보여줬다.
     /// 이제 분모는 `threshold` 하나뿐이다.
     private var expSection: some View {
         VStack(alignment: .leading, spacing: 3) {
@@ -260,14 +262,13 @@ struct IndividualDetailView: View {
             if store.canEvolve(individual), !choices.isEmpty, let line {
                 evolutionSection(line)
             } else if let line, choices.isEmpty {
-                // 위장 중엔 진짜로 최종형인지 알 수 없다(받은 라인이 위장한 종의 것이라 `choices`
-                // 가 강제로 비어 있을 뿐이다) — `canClaimEggVoucher` 도 위장 중이면 거절한다.
-                // 이 화면도 같은 질문을 해야 한다: 교환권 자리 대신 이 branch 가 원래 있던 자리인
-                // "더 진화하지 않아요" 한 줄만 남긴다.
-                if individual.disguisedAs != nil {
-                    Text(l.detailMaxStage).font(.system(size: 9)).foregroundStyle(.tertiary)
+                // `foundEggReady` 가 위장 여부까지 본다(`isFoundEggCandidate`) — 위장 중엔
+                // 받은 라인이 위장한 종의 것이라(이름 때문) 진짜 최종형인지 알 수 없고,
+                // `canTakeFoundEgg` 도 위장 중이면 거절한다. 이 화면도 같은 질문을 해야 한다.
+                if foundEggReady {
+                    foundEggSection(line)
                 } else {
-                    voucherSection(line)
+                    Text(l.detailMaxStage).font(.system(size: 9)).foregroundStyle(.tertiary)
                 }
             }
 
@@ -278,22 +279,41 @@ struct IndividualDetailView: View {
         }
     }
 
+    /// 알 발견 버튼을 낼 조건 — 후보이고 경험치가 알 임계(=`threshold`, 후보일 때는 알 임계와
+    /// 같다)를 채웠을 때. 후보가 아니면 뒤 항은 의미가 없지만 `&&` 가 단락 평가하므로 안전하다.
+    private var foundEggReady: Bool { isFoundEggCandidate && individual.exp >= threshold }
+
+    /// 발견되는 알의 종 이름 — 그 개체의 **baseID**(원종)다. 리자몽이 알리는 것은 파이리 알이지
+    /// 리자몽 알이 아니다. 라인이 아직 없으면 번호로 폴백한다.
+    private var foundEggSpeciesName: String {
+        line?.localizedName(individual.baseID, store.language) ?? "#\(individual.baseID)"
+    }
+
     /// 더 진화하지 않는 아이의 경험치가 가는 곳.
     ///
     /// 전에는 여기에 "더 진화하지 않아요" 한 줄만 있었다 — 그 아이의 경험치가 어디로 가는지
-    /// 알 길이 없었고, 실제로 아무 데도 안 갔다. 막대는 위 `expSection` 이 이미 교환권 임계로
-    /// 그리므로(`isVoucherCandidate`) 여기서는 다시 그리지 않는다 — 두 막대가 다른 분모를
+    /// 알 길이 없었고, 실제로 아무 데도 안 갔다. 막대는 위 `expSection` 이 이미 알 임계로
+    /// 그리므로(`isFoundEggCandidate`) 여기서는 다시 그리지 않는다 — 두 막대가 다른 분모를
     /// 갖고 따로 놀면 임계에 닿았는데 위 막대는 33%인 것처럼 보이는 결함이 난다.
+    ///
+    /// **버튼 하나가 곧 "받는다" 동작이다** — 누르면 그 자리에서 경험치가 깎이고 알이 부화
+    /// 슬롯에 들어간다. 중간에 보관되는 물건은 없다. **빈 슬롯이 없으면 숨기지 않고 비활성으로
+    /// 둔다** — 경험치는 그대로 남아 잃는 게 없다는 걸 보여야 한다. `DetailActionButton` 은
+    /// 자체 비활성 상태가 없어 `.disabled` + `.opacity` 로 표시한다 — 이 파일의 `formRow` 가
+    /// 못 쓰는 폼에 쓰는 것과 같은 관례다.
     @ViewBuilder
-    private func voucherSection(_ line: EvoLine) -> some View {
+    private func foundEggSection(_ line: EvoLine) -> some View {
+        // 버튼의 활성 조건은 `canTakeFoundEgg` 하나다 — 뷰가 따로 조건을 만들면 스토어와
+        // 갈라질 수 있다(위장 판정이 실제로 한 번 갈렸다).
+        let canTake = store.canTakeFoundEgg(individual, line: line)
         VStack(alignment: .leading, spacing: 3) {
-            Text(l.voucherSectionTitle).font(.system(size: 9)).foregroundStyle(.secondary)
-            if store.canClaimEggVoucher(individual, line: line) {
-                DetailActionButton(title: l.voucherClaim, prominent: true) {
-                    store.claimEggVoucher(individualID: individual.id, line: line)
-                }
-            } else {
-                Text(l.voucherExplain).font(.system(size: 9)).foregroundStyle(.tertiary)
+            DetailActionButton(title: l.eggFound(foundEggSpeciesName), prominent: true) {
+                store.takeFoundEgg(individualID: individual.id, line: line)
+            }
+            .disabled(!canTake)
+            .opacity(canTake ? 1 : 0.55)
+            if !canTake {
+                Text(l.eggFoundNoFreeSlot).font(.system(size: 9)).foregroundStyle(.tertiary)
             }
         }
     }
@@ -554,7 +574,7 @@ struct FormButton: View {
     }
 }
 
-/// 상세 화면의 액션 버튼 — 폭을 꽉 채워 누를 곳이 분명하게. 진화 버튼과 교환권 버튼이
+/// 상세 화면의 액션 버튼 — 폭을 꽉 채워 누를 곳이 분명하게. 진화 버튼과 알 발견 버튼이
 /// 둘 다 이 타입을 거치므로, "이 조건에서 어떤 버튼이 뜨는가"를 잠그려면 여기서 수집해야
 /// 한다 — `BoxCell`·`CandyButton` 이 쓰는 것과 같은 `#if DEBUG` 레코더 패턴.
 struct DetailActionButton: View {

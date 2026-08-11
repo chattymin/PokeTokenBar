@@ -12,4 +12,12 @@ enum ExpBalance {
         }
         return stageIndex <= 0 ? base : base * 3
     }
+
+    /// 알 하나를 발견할 값어치. **진화 한 단계와 같은 환율**(`stageIndex: 0` 의 기본값)이다 —
+    /// 최종형에 갇힌 경험치가 새 환율이 아니라 진화와 같은 값으로 다시 흐르는 것이 요점이다.
+    /// 최종형의 진화 임계(기본값 × 3)를 쓰지 않는 이유는, 그게 "갈 곳도 없는데 세 배를 내라"가
+    /// 되기 때문이다.
+    static func eggThreshold(grade: Grade) -> Int {
+        threshold(grade: grade, stageIndex: 0)
+    }
 }
