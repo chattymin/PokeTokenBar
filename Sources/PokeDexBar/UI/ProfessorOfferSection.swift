@@ -76,22 +76,11 @@ struct ProfessorOfferSection: View {
         if !offer.opened {
             // 박사가 아직 들고 있다 — 얼굴을 흐리게 깔아 "누가 쥐고 있는지"만 말하고
             // 무엇인지는 아무것도 안 말한다.
-            Button {
+            ProfessorClosedOfferButton(offerID: offer.id, text: Self.closedCardText(l: l)) {
                 if let taken = store.openProfessorOffer(offerID: offer.id) {
                     onReveal(taken.grade, taken.showsShiny)
                 }
-            } label: {
-                VStack(spacing: 3) {
-                    ProfessorIcon(size: 30).opacity(0.35)
-                    Text(Self.closedCardText(l: l))
-                        .font(.system(size: 9, weight: .medium))
-                        .foregroundStyle(Color.accentColor)
-                }
-                .frame(maxWidth: .infinity)
-                .padding(6)
-                .background(Color.secondary.opacity(0.10), in: RoundedRectangle(cornerRadius: 8))
             }
-            .buttonStyle(.plain)
         } else {
             let price = ProfessorBalance.price(grade: individual.grade)
             let affordable = store.state.researchPoints >= price
@@ -127,6 +116,50 @@ struct ProfessorOfferSection: View {
                 if lines[individual.displayLineID] == nil { onNeedLine(individual.displayLineID) }
             }
         }
+    }
+}
+
+/// 닫힌 카드의 "열어보기" 버튼. 별도 타입으로 뽑은 이유는 `ProfessorOfferButton` 과 같다 —
+/// **배선 자체를 테스트로 잠그기 위해서**다. 닫힌 카드는 세 칸이 일부러 전부 같은 문구를 쓰므로
+/// (그게 새지 않는다는 증거다) 화면에 뜬 문자열만으로는 "이 버튼이 몇 번째 자리를 여는지"를
+/// 구분할 수 없다 — 그래서 recorder 가 `offerID` 를 문구와 별도로 들고 있어서, 특정 자리를
+/// 지목해 "그 버튼을 부르면 그 자리만 열리는가"를 검사할 수 있게 한다.
+struct ProfessorClosedOfferButton: View {
+    let offerID: UUID
+    let text: String
+    let action: () -> Void
+
+    #if DEBUG
+    @MainActor static var constructed: [(offerID: UUID, action: () -> Void)] = []
+    @MainActor static var isRecording = false
+    @MainActor static func resetConstructed() {
+        isRecording = true
+        constructed = []
+    }
+    #endif
+
+    init(offerID: UUID, text: String, action: @escaping () -> Void) {
+        self.offerID = offerID
+        self.text = text
+        self.action = action
+        #if DEBUG
+        if Self.isRecording { Self.constructed.append((offerID, action)) }
+        #endif
+    }
+
+    var body: some View {
+        Button(action: action) {
+            VStack(spacing: 3) {
+                ProfessorIcon(size: 30).opacity(0.35)
+                Text(text)
+                    .font(.system(size: 9, weight: .medium))
+                    .foregroundStyle(Color.accentColor)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(6)
+            .background(Color.secondary.opacity(0.10), in: RoundedRectangle(cornerRadius: 8))
+        }
+        .buttonStyle(.plain)
     }
 }
 
