@@ -42,6 +42,17 @@ struct BoxTabView: View {
         store.releaseValue(individual) != nil
     }
 
+    /// 칸을 눌렀을 때 무슨 일이 일어나나. 선택 모드가 곧 안전장치라 — 모드 밖에서는 상세로 가고,
+    /// 안에서는 절대 안 간다. 그 판단을 뷰 본문에 두면 테스트가 못 본다.
+    enum CellTap: Equatable { case openDetail, toggle, ignore }
+
+    /// 모드 밖에서는 `isPickable` 을 아예 안 본다 — 파트너도 상세는 지금처럼 열려야 한다.
+    /// 선택 모드 안에서만 못 고르는 아이(파트너)를 무시한다.
+    nonisolated static func cellTap(selecting: Bool, isPickable: Bool) -> CellTap {
+        guard selecting else { return .openDetail }
+        return isPickable ? .toggle : .ignore
+    }
+
     /// 고른 아이들을 보내면 받을 포인트 합.
     @MainActor static func pickedTotal(_ individuals: [Individual], store: PlayerStore) -> Int {
         individuals.reduce(0) { $0 + (store.releaseValue($1) ?? 0) }
@@ -125,17 +136,19 @@ struct BoxTabView: View {
                                 partnerBadge: l.partnerBadge,
                                 picked: selecting && picked.contains(individual.id),
                                 fillFrame: fillFrame) {
-                            if selecting {
-                                // 못 고르는 아이(파트너)를 눌러도 아무 일도 안 일어난다.
-                                guard Self.isPickable(individual, store: store) else { return }
+                            switch Self.cellTap(selecting: selecting,
+                                                isPickable: Self.isPickable(individual, store: store)) {
+                            case .openDetail:
+                                selection = individual.id
+                            case .toggle:
                                 if picked.contains(individual.id) {
                                     picked.remove(individual.id)
                                 } else {
                                     picked.insert(individual.id)
                                 }
                                 bulkStep = 0   // 담은 것이 바뀌면 확인은 처음부터
-                            } else {
-                                selection = individual.id
+                            case .ignore:
+                                break   // 못 고르는 아이(파트너)를 눌러도 아무 일도 안 일어난다.
                             }
                         }
                         // 진화 가능 표시를 그리려면 라인이 필요하다 — 보이는 칸만 요청한다.
@@ -326,16 +339,20 @@ struct BoxCell: View {
                                 RibbonIcon(ribbon: ribbon, size: 15).offset(x: -3, y: -2)
                             }
                         }
+                        // 담김 표시는 우측 하단 — 위와 같은 이유다. 진화 가능한 아이도 담을 수
+                        // 있어서 우측 상단을 같이 쓰면 체크가 화살표를 완전히 가린다.
+                        .overlay(alignment: .bottomTrailing) {
+                            if picked {
+                                Image(systemName: "checkmark.circle.fill")
+                                    .font(.system(size: 12))
+                                    .foregroundStyle(Color.accentColor)
+                                    .offset(x: 3, y: 2)
+                            }
+                        }
                     // 진화 가능은 칸에서 바로 보여야 한다 — 아니면 개체를 하나씩 열어봐야 안다.
                     if canEvolve {
                         Image(systemName: "arrow.up.circle.fill")
                             .font(.system(size: 10))
-                            .foregroundStyle(Color.accentColor)
-                            .offset(x: 3, y: -2)
-                    }
-                    if picked {
-                        Image(systemName: "checkmark.circle.fill")
-                            .font(.system(size: 12))
                             .foregroundStyle(Color.accentColor)
                             .offset(x: 3, y: -2)
                     }

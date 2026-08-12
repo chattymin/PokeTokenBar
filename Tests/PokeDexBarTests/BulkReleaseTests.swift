@@ -194,4 +194,18 @@ final class BulkReleaseTests: XCTestCase {
             XCTAssertFalse(l.bulkConfirmRisky("파이리").isEmpty, "\(lang)")
         }
     }
+
+    /// 칸 탭의 안전장치 — 이 네 조합이 선택 모드의 전부다. 셋째·넷째가 뒤집힌 게이트를 잡는다.
+    /// 모드 밖에서는 `isPickable` 을 아예 안 봐야 한다 — 파트너도 상세는 지금처럼 열려야 한다.
+    func testCellTapOutsideSelectingAlwaysOpensDetailRegardlessOfPickability() {
+        XCTAssertEqual(BoxTabView.cellTap(selecting: false, isPickable: true), .openDetail)
+        XCTAssertEqual(BoxTabView.cellTap(selecting: false, isPickable: false), .openDetail,
+                       "파트너도 모드 밖에서는 상세가 열려야 한다")
+    }
+
+    func testCellTapInsideSelectingTogglesPickableAndIgnoresTheRest() {
+        XCTAssertEqual(BoxTabView.cellTap(selecting: true, isPickable: true), .toggle)
+        XCTAssertEqual(BoxTabView.cellTap(selecting: true, isPickable: false), .ignore,
+                       "선택 모드에서 파트너를 눌러 상세로 새면 안 된다")
+    }
 }
