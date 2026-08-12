@@ -179,7 +179,12 @@ struct BoxTabView: View {
         // `selected` 가 있을 때는 늘 `selecting == false` 다(상세는 선택 모드 밖에서만 연다) —
         // 그래도 조건은 `selecting` 하나만 본다. 상세 화면은 그리드와 무관하게 항상 기본
         // 높이여야 하는데, `selected != nil` 을 따로 검사하지 않아도 이 불변식 때문에 맞는다.
-        .frame(height: selecting ? Self.selectingHeight : Self.baseHeight)
+        //
+        // **`alignment: .top` 이 없으면 안 된다.** 기본값은 가운데 정렬이라, 높이가 320↔380 으로
+        // 바뀔 때 남는 공간이 위아래로 갈려 헤더와 그리드가 통째로 ~17pt 내려앉는다 — 선택 모드에
+        // 들어갈 때 한 번, 확인 단계가 늘 때마다 또. 넘침을 고치면서 흔들림을 들여온 자리였다.
+        // 위로 붙여 두면 늘어난 높이는 전부 아래(=`bulkBar` 가 자라는 쪽)로만 간다.
+        .frame(height: selecting ? Self.selectingHeight : Self.baseHeight, alignment: .top)
     }
 
     private var pageCount: Int { Self.pageCount(forBoxCount: store.state.box.count) }

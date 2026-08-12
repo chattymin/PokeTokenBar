@@ -261,7 +261,8 @@ struct L {
     var riskyShinyMark: String { t("이로치", "Shiny", "色違い") }
     /// 배치에 이로치·전설이 섞였을 때 **그 아이들만 이름으로** 불러 준다 — 스무 마리를 다
     /// 나열하면 아무도 안 읽는다. 조사는 합쳐진 목록의 마지막 글자에 붙는다
-    /// (`Josa.iGa` — "리자몽가" 처럼 받침 없는 이름 뒤에 "가" 를 고정하면 어색해진다).
+    /// (`Josa.iGa` — 받침 **있는** 이름 뒤에 "가" 를 고정하면 "리자몽가" 가 된다.
+    ///  라인이 아직 없을 때의 `#번호` 폴백도 마찬가지로 "#1가" 가 된다).
     func bulkConfirmRisky(_ names: String) -> String {
         t("\(names)\(Josa.iGa(names)) 들어 있어요", "\(names) is in this batch",
           "\(names)がふくまれています")
