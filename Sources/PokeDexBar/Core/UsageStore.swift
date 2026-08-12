@@ -90,6 +90,11 @@ final class UsageStore {
     var floatingPetBubbleAlerts: Bool {
         didSet { defaults.set(floatingPetBubbleAlerts, forKey: "floatingPetBubbleAlerts") }
     }
+    /// 토큰을 태우는 동안 펫이 더 빨리 움직이게 할지. 기본 켬 — 유휴일 때는 배속이 정확히
+    /// 1.0이라(`PetSpeed.idle`) 안 쓰는 사람에게는 지금과 아무 차이가 없다.
+    var floatingPetBurnSpeed: Bool {
+        didSet { defaults.set(floatingPetBurnSpeed, forKey: "floatingPetBurnSpeed") }
+    }
     var disableKeychainAccess: Bool {
         didSet {
             defaults.set(disableKeychainAccess, forKey: "disableKeychainAccess")   // 저장 누락이던 기존 버그 — 재시작 후 풀렸음
@@ -271,6 +276,24 @@ final class UsageStore {
         return utils.max()
     }
 
+    /// 지금 이 순간의 분당 토큰 — **전 프로바이더 합산**. 플로팅 펫 재생 속도가 이 값을 탄다.
+    ///
+    /// 한 프로바이더에만 붙이지 않는다(CLAUDE.md 확장 규약) — Codex 전용 사용자의 펫이 영원히
+    /// 느린 회귀가 예전에 burn 에서 정확히 이렇게 났다.
+    ///
+    /// **오래됐으면 0.** 새로고침이 멈춘 동안(슬립·오류) 마지막 값이 굳으면 아무 일도 안 하는데
+    /// 펫이 계속 빨리 뛴다. 0 은 지금과 완전히 같은 속도라 안전한 쪽으로 떨어진다.
+    var recentBurnPerMinute: Double {
+        Self.burnPerMinute(snapshots: snapshots, isStale: isStale)
+    }
+
+    /// 판정만 떼어 낸 순수 함수 — stale 분기는 시계에 달려 있어 실 스토어로는 결정적으로 못 밟는다
+    /// (`evaluateLimitAlerts` 를 뗀 것과 같은 이유).
+    nonisolated static func burnPerMinute(snapshots: [ProviderSnapshot], isStale: Bool) -> Double {
+        guard !isStale else { return 0 }
+        return snapshots.reduce(0) { $0 + $1.recentTokensPerMinute }
+    }
+
     var isStale: Bool {
         guard let lastUpdated else { return true }
         let allowance = refreshInterval > 0 ? refreshInterval * 2 : 1800
@@ -309,6 +332,7 @@ final class UsageStore {
         fillBoxSlots = d.object(forKey: "fillBoxSlots") as? Bool ?? true
         floatingPetSize = d.object(forKey: "floatingPetSize") as? Double ?? 96
         floatingPetBubbleAlerts = d.object(forKey: "floatingPetBubbleAlerts") as? Bool ?? true
+        floatingPetBurnSpeed = d.object(forKey: "floatingPetBurnSpeed") as? Bool ?? true
         disableKeychainAccess = d.object(forKey: "disableKeychainAccess") as? Bool ?? false
 
         reschedule()
@@ -431,11 +455,13 @@ final class UsageStore {
             // 날짜 가드: 이전 스냅샷의 어제 데이터는 유지하지 않는다 (자정 동결 방지)
             var prevToday: DailyUsage?
             var prevBlock: BlockUsage?
+            var prevRecentRate: Double = 0
             var prevWeek: PeriodUsage?
             var prevMonth: PeriodUsage?
             if let previous = snapshots.first(where: { $0.providerID == provider.id }) {
                 if previous.today?.date == todayKey { prevToday = previous.today }
                 prevBlock = previous.activeBlock
+                prevRecentRate = previous.recentTokensPerMinute
                 // 주/월 누적도 이어받는다 — phase 2 가 다시 채우기 전까지 nil 로 비면
                 // 팝오버의 "이번 주/이번 달" 행이 사라졌다 나타나 깜빡인다.
                 prevWeek = previous.weekTotal
@@ -457,6 +483,7 @@ final class UsageStore {
                     displayName: provider.displayName,
                     today: today,
                     activeBlock: prevBlock,
+                    recentTokensPerMinute: prevRecentRate,
                     weekTotal: prevWeek,
                     monthTotal: prevMonth,
                     fetchedAt: Date(),
@@ -493,6 +520,7 @@ final class UsageStore {
                         snapshots.append(ProviderSnapshot(
                             providerID: id, displayName: provider.displayName, today: nil,
                             activeBlock: enrichment.activeBlock,
+                            recentTokensPerMinute: enrichment.recentTokensPerMinute,
                             weekTotal: enrichment.periodsOK ? enrichment.weekTotal : nil,
                             monthTotal: enrichment.periodsOK ? enrichment.monthTotal : nil,
                             fetchedAt: Date(),
@@ -500,7 +528,10 @@ final class UsageStore {
                     }
                     continue
                 }
-                if enrichment.blocksOK { snapshots[index].activeBlock = enrichment.activeBlock }
+                if enrichment.blocksOK {
+                    snapshots[index].activeBlock = enrichment.activeBlock
+                    snapshots[index].recentTokensPerMinute = enrichment.recentTokensPerMinute
+                }
                 if enrichment.periodsOK {
                     snapshots[index].weekTotal = enrichment.weekTotal
                     snapshots[index].monthTotal = enrichment.monthTotal

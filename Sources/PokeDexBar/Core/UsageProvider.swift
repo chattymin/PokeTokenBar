@@ -23,6 +23,9 @@ extension UsageProvider {
 /// 부가 정보 수집 결과. *OK 플래그가 false 면 수집 실패 → 이전 값 유지.
 struct ProviderEnrichment: Sendable {
     var activeBlock: BlockUsage?
+    /// 최근 몇 분의 분당 토큰(`LocalUsageReader.recentRate`). 블록과 같은 스캔에서 나오므로
+    /// `blocksOK` 를 함께 탄다 — 실패하면 이전 값을 유지한다.
+    var recentTokensPerMinute: Double = 0
     var blocksOK = false
     var weekTotal: PeriodUsage?
     var monthTotal: PeriodUsage?

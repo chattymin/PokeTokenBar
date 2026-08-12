@@ -20,6 +20,7 @@ struct LocalClaudeProvider: UsageProvider {
         let fmt = LocalUsageReader.localDayFormatter()
         var r = ProviderEnrichment()
         r.activeBlock = LocalUsageReader.activeBlock(entries: entries, now: now)
+        r.recentTokensPerMinute = LocalUsageReader.recentRate(entries: entries, now: now)
         r.blocksOK = true
         let weekStart = LocalUsageReader.startOfWeek(now)
         r.weekTotal = LocalUsageReader.period(
@@ -54,6 +55,7 @@ struct LocalGeminiProvider: UsageProvider {
         var r = ProviderEnrichment()
         // 블록(burn rate) 계산은 프로바이더 공통 — companion 리듬이 전 프로바이더를 따르게.
         r.activeBlock = LocalUsageReader.activeBlock(entries: entries, now: now)
+        r.recentTokensPerMinute = LocalUsageReader.recentRate(entries: entries, now: now)
         r.blocksOK = true
         let weekStart = LocalUsageReader.startOfWeek(now)
         r.weekTotal = LocalUsageReader.period(entries: entries, periodKey: fmt.string(from: weekStart),
@@ -86,6 +88,7 @@ struct LocalGrokProvider: UsageProvider {
         var r = ProviderEnrichment()
         // 블록(burn rate) 계산은 프로바이더 공통 — companion 리듬이 전 프로바이더를 따르게.
         r.activeBlock = LocalUsageReader.activeBlock(entries: entries, now: now)
+        r.recentTokensPerMinute = LocalUsageReader.recentRate(entries: entries, now: now)
         r.blocksOK = true
         let weekStart = LocalUsageReader.startOfWeek(now)
         r.weekTotal = LocalUsageReader.period(entries: entries, periodKey: fmt.string(from: weekStart),
@@ -121,6 +124,7 @@ struct LocalCodexProvider: UsageProvider {
         var r = ProviderEnrichment()
         // 블록(burn rate) 계산은 프로바이더 공통 — companion 리듬이 전 프로바이더를 따르게.
         r.activeBlock = LocalUsageReader.activeBlock(entries: entries, now: now)
+        r.recentTokensPerMinute = LocalUsageReader.recentRate(entries: entries, now: now)
         r.blocksOK = true
         let weekStart = LocalUsageReader.startOfWeek(now)
         let week = LocalUsageReader.period(entries: entries, periodKey: fmt.string(from: weekStart),

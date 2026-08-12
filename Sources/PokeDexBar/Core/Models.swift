@@ -374,6 +374,9 @@ struct ProviderSnapshot: Sendable, Identifiable {
     var displayName: String
     var today: DailyUsage?
     var activeBlock: BlockUsage?
+    /// 최근 몇 분의 분당 토큰 — "지금 이 프로바이더가 돌아가고 있나"(`LocalUsageReader.recentRate`).
+    /// `activeBlock.tokensPerMinute`(5시간 평균)와는 다른 질문에 답한다.
+    var recentTokensPerMinute: Double = 0
     var weekTotal: PeriodUsage?
     var monthTotal: PeriodUsage?
     var fetchedAt: Date

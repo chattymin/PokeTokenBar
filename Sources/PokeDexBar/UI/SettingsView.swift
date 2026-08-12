@@ -182,6 +182,16 @@ struct SettingsView: View {
                 }
                 Divider()
                 toggleRow(l.floatingPetBubbleAlertsLabel, $store.floatingPetBubbleAlerts)
+                Divider()
+                groupRow {
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(l.floatingPetBurnSpeedLabel)
+                        Text(l.floatingPetBurnSpeedHint).font(.caption2).foregroundStyle(.tertiary)
+                    }
+                    Spacer()
+                    Toggle("", isOn: $store.floatingPetBurnSpeed)
+                        .labelsHidden().toggleStyle(.switch).controlSize(.small)
+                }
             }
         }
     }

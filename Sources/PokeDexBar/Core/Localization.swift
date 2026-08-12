@@ -453,6 +453,15 @@ struct L {
     var floatingPetBubbleAlertsLabel: String {
         t("말풍선으로 알림 받기", "Show notifications as bubbles", "通知を吹き出しで表示")
     }
+    var floatingPetBurnSpeedLabel: String {
+        t("바쁠수록 빠르게", "Speed up when busy", "忙しいほど速く")
+    }
+    /// 배수를 적지 않는다 — 사다리(`PetSpeed.ladder`)가 바뀌면 문구가 조용히 거짓말이 된다.
+    var floatingPetBurnSpeedHint: String {
+        t("토큰을 많이 쓰는 동안 펫이 더 빨리 움직여요 — 쉬는 동안엔 원래 속도예요",
+          "Your pet moves faster while you're burning tokens, and idles at its normal speed",
+          "トークンを多く使っている間はペットが速く動き、休んでいる間は元の速さになります")
+    }
     /// 설정의 박스 섹션 — 보관함 칸을 어떻게 그릴지. 박스 전용 설정만 들어간다.
     var boxSectionTitle: String { t("박스", "Box", "ボックス") }
     var fillBoxSlotsLabel: String {

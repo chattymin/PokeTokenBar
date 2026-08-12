@@ -63,6 +63,7 @@ private func enrichment(entries: [LocalUsageReader.Entry]) -> ProviderEnrichment
     let formatter = LocalUsageReader.localDayFormatter()
     var result = ProviderEnrichment()
     result.activeBlock = LocalUsageReader.activeBlock(entries: entries, now: now)
+    result.recentTokensPerMinute = LocalUsageReader.recentRate(entries: entries, now: now)
     result.blocksOK = true
     result.weekTotal = LocalUsageReader.period(
         entries: entries, periodKey: formatter.string(from: weekStart),

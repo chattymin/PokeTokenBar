@@ -13,6 +13,9 @@ enum LocalUsageReader {
 
     /// 활성 블록(번 레이트)과 enrichment 스캔 하한이 공유하는 5시간 롤링 윈도우 길이.
     static let blockWindow: TimeInterval = 5 * 3600
+    /// "지금 돌아가고 있나"를 재는 짧은 창(`recentRate`). 5분인 이유: 에이전트가 생각하거나
+    /// 사용자가 타이핑하는 수십 초 공백에는 안 식고, 손을 뗀 뒤엔 5분 안에 0으로 돌아온다.
+    static let recentWindow: TimeInterval = 5 * 60
     /// Fork replay는 수 ms 간격으로 기록된다. 이보다 긴 첫 공백부터는 실제 child turn으로 본다.
     private static let forkReplayMaximumGap: TimeInterval = 1
 
@@ -506,6 +509,22 @@ enum LocalUsageReader {
             startTime: iso.string(from: first.date),
             endTime: iso.string(from: first.date.addingTimeInterval(blockWindow)),
             isActive: true, totalTokens: b.total, costUSD: b.cost, tokensPerMinute: tpm)
+    }
+
+    /// 지금 돌아가고 있나 — **짧은 창**의 분당 토큰. 플로팅 펫 재생 속도가 이 값을 탄다.
+    ///
+    /// `activeBlock` 의 `tokensPerMinute` 를 안 쓰는 이유: 그건 5시간 창의 평균이라 한도 소진
+    /// 예측에는 맞지만 "지금 세션이 돌아가나"에는 못 쓴다. 방금 폭주해도 5시간 평균은 거의 안
+    /// 움직이고, 손을 뗀 뒤에도 몇 시간 높은 채로 남는다.
+    ///
+    /// 나누는 값은 *창 길이*지 첫 항목 이후 경과가 아니다(`activeBlock` 과 다른 점). 방금 한 건만
+    /// 찍힌 순간 "1분에 30만" 같은 값이 튀지 않게 — 창을 다 채운 만큼만 빠르다.
+    static func recentRate(entries: [Entry], now: Date, window: TimeInterval = recentWindow) -> Double {
+        guard window > 0 else { return 0 }
+        let start = now.addingTimeInterval(-window)
+        var b = Bucket()
+        for e in entries where e.date >= start && e.date <= now { b.add(e) }
+        return Double(b.total) / (window / 60)
     }
 
     // MARK: 유틸

@@ -70,6 +70,9 @@ struct SpriteView: View {
     /// idle 배터리를 통제한다 — 항상 떠 있는 플로팅 펫(0.4s≈2.5fps)이 메뉴바 GIF 규율과 동치가 되게.
     /// 팝오버 등 일시적 표시는 0(기본)으로 두어 네이티브 fps 유지.
     var minFrameDelay: TimeInterval = 0
+    /// 재생 배속(1 = 원본). >1 이면 프레임 간격이 그만큼 짧아진다. 플로팅 펫이 토큰 소모 속도에
+    /// 맞춰 빨라지는 데 쓴다(`PetSpeed`).
+    var speed: Double = 1
     /// 켜면 표시 크기에 맞춰 EPX 로 확대한 뒤 그린다. 기본은 끔 — 도감 썸네일처럼 작은 표시는
     /// 원본 픽셀이 더 또렷하다.
     var antialias: Bool = false
@@ -99,6 +102,12 @@ struct SpriteView: View {
     /// EPX 확대 결과 보관함 — 같은 프레임을 다시 그릴 때 확대를 건너뛴다.
     @State private var upscales = UpscaleCache()
     @State private var frameIndex = 0
+    /// 프레임 루프가 읽는 배속. **`speed` 를 그대로 읽으면 안 된다** — `.task` 클로저는 뷰 값을
+    /// 시작 시점에 가둬서, 배속이 바뀌어도 루프는 옛 값으로 영원히 돈다(`frames` 가 `@State` 라
+    /// 매 회 새 값으로 읽히는 것과 같은 이유로, 배속도 `@State` 를 거쳐야 산 값이 된다).
+    /// `.task(id:)` 에 배속을 넣어 루프를 재시작하는 방법도 있지만 그건 GIF 를 다시 디코드하고
+    /// 프레임을 0으로 되돌린다 — 속도가 바뀔 때마다 펫이 튄다.
+    @State private var liveSpeed: Double
     /// 움직이는 스프라이트를 기다리는 중인가. **기다리는 동안에는 정적 스프라이트를 안 그린다** —
     /// 정적으로 먼저 떴다가 움직이는 것으로 바뀌는 순간이 어색하다는 지적을 받았다.
     ///
@@ -113,10 +122,19 @@ struct SpriteView: View {
     /// DEBUG 빌드에만 존재 — 릴리스 바이너리는 이 카운터를 전혀 담지 않는다.
     @MainActor static var constructionCount = 0
     @MainActor static func resetConstructionCount() { constructionCount = 0 }
+    /// 그려진 스프라이트가 어떤 배속으로 만들어졌는지 — 화면이 배속을 **실제로 넘기는지**
+    /// 재려면 필요하다. 배속은 프레임 간격에만 나타나서 그림으로는 못 읽는다.
+    @MainActor static var constructedSpeeds: [Double] = []
+    @MainActor static var isRecordingSpeeds = false
+    @MainActor static func resetConstructedSpeeds() {
+        isRecordingSpeeds = true
+        constructedSpeeds = []
+    }
     #endif
 
     init(speciesID: Int?, form: String? = nil, size: CGFloat = 84, bob: Bool = false,
          animated: Bool = false, shiny: Bool = false, minFrameDelay: TimeInterval = 0,
+         speed: Double = 1,
          antialias: Bool = false, silhouette: Bool = false, fillFrame: Bool = false) {
         self.speciesID = speciesID
         self.form = form
@@ -125,11 +143,13 @@ struct SpriteView: View {
         self.animated = animated
         self.shiny = shiny
         self.minFrameDelay = minFrameDelay
+        self.speed = speed
         self.antialias = antialias
         self.silhouette = silhouette
         self.fillFrame = fillFrame
         #if DEBUG
         Self.constructionCount += 1
+        if Self.isRecordingSpeeds { Self.constructedSpeeds.append(speed) }
         #endif
         // 캐시에 있으면 즉시(동기) 표시 — 재렌더 플래시 방지 + 정적 스냅샷에서도 보임.
         // speciesID==nil(알 상태)이면 알 스프라이트를 시드(없으면 body 가 🥚 폴백).
@@ -140,6 +160,7 @@ struct SpriteView: View {
         let seeded = speciesID != nil && cached != nil
         _loadedID = State(initialValue: seeded ? speciesID : nil)
         _loadedForm = State(initialValue: seeded ? form : nil)
+        _liveSpeed = State(initialValue: speed)
         _awaitingAnimation = State(initialValue: Self.needsToWait(
             speciesID: speciesID, form: form, animated: animated, shiny: shiny))
     }
@@ -151,8 +172,14 @@ struct SpriteView: View {
         return !SpriteLoader.hasCachedAnimation(speciesID: speciesID, form: form, shiny: shiny)
     }
 
-    /// 프레임 지속(초) = max(원본 delay, 하한). 순수·테스트용 — fps 상한 회귀 가드.
-    static func frameDelay(base: TimeInterval, floor: TimeInterval) -> TimeInterval { max(base, floor) }
+    /// 프레임 지속(초) = max(원본 delay ÷ 배속, 하한). 순수·테스트용 — fps 상한 회귀 가드.
+    /// 하한이 배속보다 세다 — 메뉴바처럼 fps 상한이 걸린 표면은 배속을 줘도 상한을 안 넘는다.
+    /// 배속이 0 이하·NaN 이면 1로 본다(0으로 나눠 프레임 간격이 무한이 되는 걸 막는다).
+    static func frameDelay(base: TimeInterval, floor: TimeInterval,
+                           speed: Double = 1) -> TimeInterval {
+        let factor = (speed.isFinite && speed > 0) ? speed : 1
+        return max(base / factor, floor)
+    }
 
     /// 디코드된 GIF 프레임 중 실제로 재생할 것 — 취소됐거나 2프레임 미만이면 빈 배열(정적 폴백).
     /// 취소 검사가 여기 있는 이유: `frames` 는 body 에서 `img` 보다 먼저 그려지므로, 취소된 로드가
@@ -279,7 +306,8 @@ struct SpriteView: View {
             awaitingAnimation = false
             // delay 기반 프레임 advance. .task 취소 시(speciesID 변경/뷰 소멸) 루프 종료 — 누수 없음
             while !Task.isCancelled {
-                let delay = Self.frameDelay(base: frames[frameIndex % frames.count].delay, floor: minFrameDelay)
+                let delay = Self.frameDelay(base: frames[frameIndex % frames.count].delay,
+                                            floor: minFrameDelay, speed: liveSpeed)
                 // minFrameDelay>0(플로팅 펫): fps 상한 + tolerance 로 wakeup 코얼레싱 — 메뉴바
                 // max(0.4,delay)+timer.tolerance 규율과 동치(항상 뜬 표면의 idle 배터리 통제). 0 이면 네이티브.
                 try? await Task.sleep(for: .seconds(delay),
@@ -288,6 +316,8 @@ struct SpriteView: View {
                 frameIndex = (frameIndex + 1) % frames.count
             }
         }
+        // 배속이 바뀌면 산 값을 갈아 끼운다 — 루프는 다음 프레임부터 새 간격으로 잔다.
+        .onChange(of: speed) { _, next in liveSpeed = next }
         .onAppear {
             guard bob else { return }
             withAnimation(.easeInOut(duration: 0.9).repeatForever(autoreverses: true)) { up = true }

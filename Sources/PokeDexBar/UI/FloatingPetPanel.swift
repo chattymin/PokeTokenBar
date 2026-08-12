@@ -412,6 +412,7 @@ struct FloatingPetView: View {
             SpriteView(speciesID: player.displayedSpeciesID, form: player.displayedForm,
                        size: size, animated: animated,
                        shiny: player.displayedIsShiny, minFrameDelay: Self.frameFloor,
+                       speed: Self.speed(store),
                        antialias: store.antialiasSprites)
                 .frame(width: size, height: size)
                 .zIndex(0)
@@ -419,6 +420,13 @@ struct FloatingPetView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
         .animation(animated ? .spring(response: 0.3, dampingFraction: 0.7) : nil,
                    value: store.currentBubbleAlert)
+    }
+
+    /// 지금 걸릴 배속. 스토어에서 값을 꺼내는 곳이 여기 한 곳뿐이라, 배선이 끊기면
+    /// (예: 설정 토글을 안 보고 늘 가속) 테스트가 이 함수 하나로 잡는다.
+    static func speed(_ store: UsageStore) -> Double {
+        PetSpeed.multiplier(tokensPerMinute: store.recentBurnPerMinute,
+                            enabled: store.floatingPetBurnSpeed)
     }
 
     static func hoverTooltip(todayTokens: Int, limitUtilization: Double?, l: L) -> String {
