@@ -255,10 +255,16 @@ struct L {
           "Sending \(count). This cannot be undone.",
           "\(count)ひきをおくります。もどってきません。")
     }
+    /// 위험한 아이 이름 앞에 붙는 표식 — 이로치. 이름만으론 "왜 불려 있는지" 안 보인다
+    /// (파이리가 두 마리면 이로치가 어느 쪽인지 이름만으로 모른다). `BulkRelease.riskyLabel`
+    /// 이 이 표식과 `Grade.label` 을 조합해 실제로 붙는 문자열을 만든다.
+    var riskyShinyMark: String { t("이로치", "Shiny", "色違い") }
     /// 배치에 이로치·전설이 섞였을 때 **그 아이들만 이름으로** 불러 준다 — 스무 마리를 다
-    /// 나열하면 아무도 안 읽는다.
+    /// 나열하면 아무도 안 읽는다. 조사는 합쳐진 목록의 마지막 글자에 붙는다
+    /// (`Josa.iGa` — "리자몽가" 처럼 받침 없는 이름 뒤에 "가" 를 고정하면 어색해진다).
     func bulkConfirmRisky(_ names: String) -> String {
-        t("\(names)가 들어 있어요", "\(names) is in this batch", "\(names)がふくまれています")
+        t("\(names)\(Josa.iGa(names)) 들어 있어요", "\(names) is in this batch",
+          "\(names)がふくまれています")
     }
     var professorOffersTitle: String { t("박사의 제안", "The Professor's offer", "はかせのていあん") }
     func researchPoints(_ points: Int) -> String {

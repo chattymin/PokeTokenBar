@@ -23,4 +23,20 @@ enum BulkRelease {
     static func risky(_ individuals: [Individual]) -> [Individual] {
         individuals.filter { $0.shiny || $0.grade == .legendary }
     }
+
+    /// 확인 줄에 실제로 찍히는 이름 — **왜 불려 있는지**를 이름 앞에 달아 준다.
+    /// `Individual.displayName` 은 메가·거다이맥스·지방 접두는 알아도 이로치 여부는 모른다.
+    /// 그래서 이로치 파이리와 평범한 파이리가 한 배치에 있으면 이름만으로는 어느 쪽이
+    /// 불려 있는지 갈리지 않는다 — 표식이 이 리스트의 존재 이유다.
+    ///
+    /// **위장 중인 아이는 표식을 안 붙인다.** 이름이 이미 "???" 라 표식을 더 붙이면
+    /// (예: "이로치 ???") 정체는 몰라도 "뭔가 특별한 게 숨어 있다"는 힌트가 반쯤 새는
+    /// 셈이라, 위장 규칙("정체가 드러나기 전엔 아무것도 티 내지 않는다")과 어긋난다.
+    static func riskyLabel(_ individual: Individual, name: String, l: L) -> String {
+        guard individual.disguisedAs == nil else { return name }
+        var marks: [String] = []
+        if individual.shiny { marks.append(l.riskyShinyMark) }
+        if individual.grade == .legendary { marks.append(individual.grade.label(l.lang)) }
+        return (marks + [name]).joined(separator: " ")
+    }
 }
