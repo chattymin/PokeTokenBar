@@ -40,6 +40,17 @@ extension PlayerStore {
             && meetsRequirement(requirement(for: speciesID, line: line), for: individual)
     }
 
+    /// "진화 가능" 배지 판정 — 박스 칸(`BoxTabView.readyToEvolve`)과 홈(`PopoverView.
+    /// showsEvolutionBadge`)이 함께 쓰는 **단일 소스**. 갈 수 있는 갈래 중 **하나라도** 지금
+    /// 조건을 채웠으면 참이다.
+    ///
+    /// **첫 갈래만 보면 안 된다.** 이브이처럼 첫 갈래(예: 샤미드, 도구 필요)가 막혀 있어도
+    /// 다른 갈래(예: 쥬피썬더, 레벨만 필요)가 열려 있을 수 있다 — `.first` 로 줄이면 그 경우
+    /// 배지가 다시 죽는다. 두 화면이 이 함수 하나만 쓰게 해서, 한쪽만 고치다 갈리는 것도 막는다.
+    func isReadyToEvolve(_ individual: Individual, line: EvoLine) -> Bool {
+        evolutionChoices(individual, line: line).contains { canEvolve(individual, to: $0, line: line) }
+    }
+
     /// 진화 실행. 갈 수 없는 종이거나 조건을 못 채웠으면 아무것도 하지 않고 false —
     /// 도구도 소모하지 않는다.
     @discardableResult

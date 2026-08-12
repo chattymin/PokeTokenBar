@@ -290,6 +290,10 @@ struct IndividualDetailView: View {
                 }
                 ProgressView(value: Self.eggProgress(individual))
                     .progressViewStyle(.linear).frame(height: 5)
+                if !isPartner {
+                    Text(l.detailPartnerOnlyEgg)
+                        .font(.system(size: 9)).foregroundStyle(.tertiary)
+                }
             }
         }
     }

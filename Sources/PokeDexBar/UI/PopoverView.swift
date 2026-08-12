@@ -298,12 +298,11 @@ struct PopoverView: View {
 
     /// 홈 진화 배지 표시 여부 — 라인이 아직 없으면(로딩 중) 배지를 숨긴다. 라인 미로드 상태에서
     /// 배지부터 보여주면, 나중에 최종형으로 판명될 때 "눌러도 갈 곳 없는" 배지를 보여준 셈이
-    /// 된다 — 판단 못 하면 아무것도 보여주지 않는다. **갈 수 있는 갈래 중 하나라도 지금 조건을
-    /// 채웠으면** 배지가 뜬다.
+    /// 된다 — 판단 못 하면 아무것도 보여주지 않는다. 판정 자체는 `PlayerStore.isReadyToEvolve`
+    /// **한 곳**에만 있다(박스 칸 배지와 공유) — 화면마다 따로 적으면 갈린다.
     private func showsEvolutionBadge(for partner: Individual) -> Bool {
         guard let line = evoLines[partner.baseID] else { return false }
-        return player.evolutionChoices(partner, line: line)
-            .contains { player.canEvolve(partner, to: $0, line: line) }
+        return player.isReadyToEvolve(partner, line: line)
     }
 
     // MARK: 박스 — 진화 라인 로드

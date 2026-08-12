@@ -48,6 +48,42 @@ final class LevelEvolutionTests: XCTestCase {
         XCTAssertEqual(store.state.box.first?.speciesID, 5)
     }
 
+    /// 이브이 → (샤미드=도구 필요 | 쥬피썬더=레벨 12) 두 갈래 라인. **첫 갈래가 막혀 있다** —
+    /// "진화 가능" 판정이 첫 갈래만 보고 그친다면 절대 안 열리는 픽스처다.
+    private func eeveeLine() -> EvoLine {
+        EvoLine(baseID: 133,
+                tree: EvoNode(speciesID: 133, children: [
+                    EvoNode(speciesID: 134, children: [], requirementRaw: .item("water-stone")),
+                    EvoNode(speciesID: 135, children: [], requirementRaw: .level(12)),
+                ]),
+                rarity: .rare, names: [:])
+    }
+
+    /// **회귀 가드 — 첫 갈래가 아니라 "하나라도" 열려야 배지가 뜬다.**
+    ///
+    /// `PlayerStore.isReadyToEvolve` 는 박스 칸(`BoxTabView.readyToEvolve`)과 홈
+    /// (`PopoverView.showsEvolutionBadge`) 배지가 함께 쓰는 단일 소스다. 도구가 없어 첫 갈래
+    /// (샤미드)는 막혀 있고, 레벨만 있으면 되는 둘째 갈래(쥬피썬더)는 열려 있는 이브이로,
+    /// `.contains { canEvolve(...) }` 를 `.first.map { canEvolve(...) } ?? false` 로 되돌리면
+    /// (첫 갈래만 보게 줄이면) 이 테스트가 실패해야 한다 — 실제로 그렇게 바꿔서 실패를 확인한
+    /// 뒤 `.contains` 로 되돌렸다(리뷰 요청 검증).
+    func testReadyToEvolveLooksAtEveryBranchNotJustTheFirst() {
+        let store = makeStore()
+        let line = eeveeLine()
+        let eevee = Individual(baseID: 133, speciesID: 133, pathIDs: [133], nature: .serious,
+                               exp: GrowthRate.mediumFast.totalExp(at: 12), obtainedAt: now,
+                               grade: .rare, growthRate: .mediumFast)
+        store.addForTesting(eevee)
+
+        // 대조군: 첫 갈래(도구)는 실제로 막혀 있다 — 그래서 이 픽스처가 뜻이 있다.
+        XCTAssertFalse(store.canEvolve(eevee, to: 134, line: line), "도구 없이 첫 갈래가 열려 있다")
+        // 둘째 갈래(레벨)는 열려 있다.
+        XCTAssertTrue(store.canEvolve(eevee, to: 135, line: line), "레벨을 채웠는데 둘째 갈래가 막혀 있다")
+
+        XCTAssertTrue(store.isReadyToEvolve(eevee, line: line),
+                      "첫 갈래만 보면 이 배지가 절대 안 켜진다")
+    }
+
     /// **진화해도 경험치는 안 깎인다.** 본가에서 진화는 레벨을 되돌리지 않는다.
     func testEvolvingKeepsTheExperience() {
         let store = makeStore()

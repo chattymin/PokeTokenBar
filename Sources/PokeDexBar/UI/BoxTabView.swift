@@ -373,11 +373,10 @@ struct BoxTabView: View {
             ?? "#\(individual.displaySpeciesID)"
     }
 
-    /// 진화 가능 — 갈 수 있는 갈래 중 **하나라도** 지금 조건을 채웠으면 참이다.
+    /// 진화 가능 — 판정 자체는 `PlayerStore.isReadyToEvolve` **한 곳**에만 있다(홈 배지와 공유).
     private func readyToEvolve(_ individual: Individual) -> Bool {
         guard let line = lines[individual.baseID] else { return false }
-        return store.evolutionChoices(individual, line: line)
-            .contains { store.canEvolve(individual, to: $0, line: line) }
+        return store.isReadyToEvolve(individual, line: line)
     }
 }
 

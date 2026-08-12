@@ -233,6 +233,12 @@ struct L {
           "Only your partner earns EXP — candy works too",
           "けいけんちはパートナーのみ — アメでも上げられます")
     }
+    /// 알 계량기도 경험치와 같은 규칙(파트너만 쌓인다)을 따른다 — 문구는 따로 둔다. "사탕으로도
+    /// 올릴 수 있어요"가 경험치 사탕에만 해당해 알에는 안 맞는 말이 되기 때문이다.
+    var detailPartnerOnlyEgg: String {
+        t("알은 파트너만 쌓여요", "Only your partner fills the Egg meter",
+          "タマゴはパートナーのみたまります")
+    }
     /// 박사에게 보내기 — 받을 포인트를 제목에 적어, 누르기 전에 값을 알 수 있게 한다.
     func sendToProfessor(_ points: Int) -> String {
         t("박사에게 보내기 · +\(points)P", "Send to the Professor · +\(points)P",
