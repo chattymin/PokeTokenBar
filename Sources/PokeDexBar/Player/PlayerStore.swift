@@ -110,7 +110,14 @@ final class PlayerStore {
                 // 경험치와 알은 **같은 토큰 흐름에서 나란히** 찬다. 서로를 깎지 않는다.
                 // 예전에는 `exp` 하나가 둘을 겸해서, 진화가 알 진행분을 먹었다.
                 let expCap = state.box[index].growthRate.totalExp(at: GrowthRate.maxLevel)
-                let gained = Self.expGain(delta, charm: state.ownsExpCharm) / ExpBalance.tokensPerExp
+                // **나머지를 이월한다.** 이 갱신은 짧은 주기(기본 120초)로 자주 불려서, 델타가
+                // 환율(500)에 못 미치는 가벼운 사용자는 매번 정수 나눗셈이 0이 된다 — 이월이
+                // 없으면 exp 가 영원히 0에 머문다. 지난 나머지와 이번 몫을 합쳐 나누고,
+                // 못 나눈 자투리만 다시 남긴다(사탕의 `candyYield` 와 같은 몫·나머지 패턴).
+                let pool = state.box[index].expRemainder
+                    + Self.expGain(delta, charm: state.ownsExpCharm)
+                let gained = pool / ExpBalance.tokensPerExp
+                state.box[index].expRemainder = pool % ExpBalance.tokensPerExp
                 state.box[index].exp = min(expCap, state.box[index].exp + gained)
                 // 알은 토큰 그대로다 — 부적을 안 받는다(경험치 부적은 경험치에 걸린다).
                 // 상한에서 멈추는 이유는 예전과 같다: 안 멈추면 안 열어 본 사이에 알이 여러 개

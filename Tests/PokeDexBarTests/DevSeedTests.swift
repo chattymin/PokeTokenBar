@@ -124,3 +124,40 @@ final class ExpSeedTests: XCTestCase {
         XCTAssertNil(ExpSeed.parse(["PTB_SEED_EXP": "-5"]))
     }
 }
+
+/// [회귀] `PTB_SEED_EXP` 는 알 발견 화면을 미리 보려고 있는데, 그 화면이 `eggProgress` 로
+/// 옮겨간 뒤에도 계속 `exp` 를 올렸다 — 아무리 값을 키워도 알 발견 카드가 안 떴다.
+@MainActor
+final class ExpSeedApplyTests: XCTestCase {
+    private let clock = Date(timeIntervalSince1970: 1_000_000)
+
+    private func makeStore(_ species: [Int]) -> (PlayerStore, [UUID]) {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("expseed-\(UUID().uuidString).json")
+        let store = PlayerStore(fileURL: url, rng: SeededRNG(seed: 1), now: { self.clock })
+        let ids = species.map { sp -> UUID in
+            let i = Individual(baseID: sp, speciesID: sp, pathIDs: [sp], nature: .serious,
+                               obtainedAt: self.clock, grade: .common)
+            store.addForTesting(i)
+            return i.id
+        }
+        return (store, ids)
+    }
+
+    /// 알 계량기가 올라야 한다 — 경험치(`exp`)는 이 시드의 대상이 아니다.
+    func testSeedRaisesTheEggMeterNotExp() {
+        let (store, ids) = makeStore([4])
+        store.applyExpSeed(ExpSeed(exp: 1_500_000_000, speciesID: 4))
+        let individual = store.state.box.first { $0.id == ids[0] }!
+        XCTAssertEqual(individual.eggProgress, 1_500_000_000, "알 계량기가 안 올랐다")
+        XCTAssertEqual(individual.exp, 0, "exp 가 올랐다 — 더 이상 이 시드의 대상이 아니다")
+    }
+
+    /// 리본 시드와 같은 규칙 — 이미 더 높으면 깎지 않는다.
+    func testSeedNeverLowersAnExistingEggMeter() {
+        let (store, ids) = makeStore([4])
+        store.mutate { $0.box[0].eggProgress = 2_000_000_000 }
+        store.applyExpSeed(ExpSeed(exp: 1_500_000_000, speciesID: 4))
+        XCTAssertEqual(store.state.box.first { $0.id == ids[0] }?.eggProgress, 2_000_000_000)
+    }
+}

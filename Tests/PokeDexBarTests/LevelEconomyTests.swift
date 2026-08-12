@@ -115,6 +115,23 @@ final class LevelEconomyTests: XCTestCase {
         XCTAssertEqual(p.exp, expBefore, "알을 받았더니 경험치가 깎였다")
     }
 
+    /// [회귀] **작은 델타가 반복돼도 나머지가 이월돼야 한다.** 갱신은 짧은 주기(기본 120초)로
+    /// 자주 불리는데, 델타가 환율(500)에 못 미치면 정수 나눗셈이 매번 0이 된다 — 이월이 없으면
+    /// 하루 10만 토큰을 쓰는 가벼운 사용자는 exp 가 영원히 0이다. 300토큰씩 열 번(3,000토큰)이면
+    /// 정확히 6EXP 여야 한다.
+    func testTenSmallDeltasCarryTheRemainderIntoWholeExp() {
+        let store = makeStore()
+        let id = partnered(store)
+        var claimed = 0
+        store.update(todayTokens: claimed, todayDate: "2026-08-12", hasUsageData: true)   // 기준선
+        for _ in 0..<10 {
+            claimed += 300
+            store.update(todayTokens: claimed, todayDate: "2026-08-12", hasUsageData: true)
+        }
+        XCTAssertEqual(partner(store, id).exp, 6,
+                       "300토큰씩 10번(3,000토큰)이면 6EXP 여야 한다 — 나머지 이월이 없으면 0에 머문다")
+    }
+
     /// **사탕은 EXP 를 준다.** 값어치는 지금과 같다(1억 토큰 ÷ 500).
     func testCandyGivesExperienceNotTokens() {
         let store = makeStore()

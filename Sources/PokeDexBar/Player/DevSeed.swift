@@ -16,8 +16,9 @@ import Foundation
 /// open --env PTB_SEED_EXP=1500000000 -a "PokeDexBar Dev"
 /// ```
 ///
-/// `PTB_SEED_EXP` 는 `ExpSeed` 가 파싱한다 — 알 발견은 5억~40억 경험치가 있어야 보이는데,
-/// 그건 실제로는 며칠에서 몇 주 치 토큰 사용량이다. `PTB_SEED_SPECIES` 는 두 시드가 공유한다.
+/// `PTB_SEED_EXP` 는 `ExpSeed` 가 파싱해 **알 계량기(`eggProgress`)** 를 올린다 — 알 발견은
+/// 등급별로 5억~40억이 있어야 보이는데, 그건 실제로는 며칠에서 몇 주 치 토큰 사용량이다.
+/// `PTB_SEED_SPECIES` 는 두 시드가 공유한다.
 ///
 /// 적용 여부는 `~/Library/Logs/PokeDexBarDev.log` 에 남는다 — 조용히 아무것도 안 하면
 /// 변수를 못 받은 것인지 조건에 안 걸린 것인지 구분할 수가 없다.
@@ -46,10 +47,16 @@ struct DevSeed: Equatable, Sendable {
     }
 }
 
-/// 경험치 시드 — 알 발견처럼 **오래 써야만 열리는 상태**를 확인하려고 있다.
+/// 알 계량기 시드 — 알 발견처럼 **오래 써야만 열리는 상태**를 확인하려고 있다.
 /// 리본 시드와 같은 규칙: 이미 있는 개체의 값만 올리고, 개체를 만들지 않는다.
+///
+/// **`eggProgress` 를 올린다 — `exp` 가 아니다.** 알 계량기가 `exp` 에서 분리되기 전에는
+/// 이 시드가 `exp` 를 올리는 게 맞았다(그때는 `exp` 하나가 두 역할을 겸했다). 분리된 뒤에도
+/// 안 옮겨져 있었던 게 결함이었다 — 알 발견 화면은 이제 `eggProgress` 만 보는데, 이 시드는
+/// 계속 `exp` 를 올려서 아무리 값을 키워도 알이 안 떴다. 이름(`PTB_SEED_EXP`)은 그 흔적으로
+/// 남겨 뒀다 — 이미 쓰는 명령(`open --env PTB_SEED_EXP=...`)까지 바꿀 이유는 없다.
 struct ExpSeed: Equatable, Sendable {
-    /// 끌어올릴 경험치. 0 이하면 시드가 없는 것으로 본다.
+    /// 끌어올릴 알 계량기 값. 0 이하면 시드가 없는 것으로 본다.
     let exp: Int
     /// 대상 종. 비우면 지금 파트너에게 적용한다.
     let speciesID: Int?
@@ -71,7 +78,9 @@ extension PlayerStore {
         if let seed = DevSeed.parse(environment) { applyDevSeed(seed) }
     }
 
-    /// 대상 개체의 경험치를 시드 값까지 **끌어올린다**(줄이지는 않는다) — 리본 시드와 같은 규칙.
+    /// 대상 개체의 알 계량기(`eggProgress`)를 시드 값까지 **끌어올린다**(줄이지는 않는다) —
+    /// 리본 시드와 같은 규칙. `exp` 가 아니라 `eggProgress` 를 올려야 알 발견 화면(`eggProgress`
+    /// 만 본다)이 실제로 뜬다.
     func applyExpSeed(_ seed: ExpSeed) {
         let targets = state.box.indices.filter { index in
             if let species = seed.speciesID { return state.box[index].speciesID == species }
@@ -82,11 +91,11 @@ extension PlayerStore {
             return
         }
         mutate { state in
-            for index in targets where state.box[index].exp < seed.exp {
-                state.box[index].exp = seed.exp
+            for index in targets where state.box[index].eggProgress < seed.exp {
+                state.box[index].eggProgress = seed.exp
             }
         }
-        AppLog.write("ExpSeed: \(targets.count)마리의 경험치를 \(seed.exp) 로 올렸다")
+        AppLog.write("ExpSeed: \(targets.count)마리의 알 계량기를 \(seed.exp) 로 올렸다")
     }
 
     /// 대상 개체의 누적 파트너 시간을 그 리본의 문턱으로 끌어올린다. **줄이지는 않는다** —

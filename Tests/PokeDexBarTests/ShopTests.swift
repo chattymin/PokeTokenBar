@@ -95,6 +95,32 @@ final class ShopTests: XCTestCase {
         XCTAssertEqual(store.state.box.first { $0.id == id }?.exp, 0)
     }
 
+    /// [회귀] 만렙 개체에 쓴 사탕은 아무 효과가 없는데도 소모됐다 — "초과분이 진화 때 다음
+    /// 단계로 이월된다"던 근거가 사라졌는데(`evolve` 는 경험치를 그대로 둔다) 소모만 남아,
+    /// 사탕 한 개(약 1.5억 토큰어치)가 그대로 증발했다.
+    func testExpCandyAtMaxLevelDoesNothingAndStays() {
+        let store = makeStore(wallet: ShopItem.expCandy.price)
+        let id = addIndividual(store)
+        let cap = GrowthRate.mediumFast.totalExp(at: GrowthRate.maxLevel)
+        store.mutate { s in
+            s.box[s.box.firstIndex { $0.id == id }!].exp = cap
+        }
+        XCTAssertTrue(store.buy(.expCandy))
+        XCTAssertFalse(store.useExpCandy(on: id), "만렙인데 사탕을 소모했다")
+        XCTAssertEqual(store.state.box.first { $0.id == id }?.exp, cap, "만렙 경험치가 바뀌었다")
+        XCTAssertEqual(store.count(of: .expCandy), 1, "실패한 사용인데 사탕이 없어졌다")
+    }
+
+    /// 대조군 — 만렙이 아니면 지금처럼 그대로 동작한다.
+    func testExpCandyBelowMaxLevelStillWorks() {
+        let store = makeStore(wallet: ShopItem.expCandy.price)
+        let id = addIndividual(store)
+        XCTAssertTrue(store.buy(.expCandy))
+        XCTAssertTrue(store.useExpCandy(on: id))
+        XCTAssertEqual(store.state.box.first { $0.id == id }?.exp, ExpBalance.candyExp)
+        XCTAssertEqual(store.count(of: .expCandy), 0)
+    }
+
     func testShinyCandyMakesTheIndividualShiny() {
         let store = makeStore(wallet: ShopItem.shinyCandy.price)
         let id = addIndividual(store)

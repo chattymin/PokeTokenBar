@@ -3,6 +3,33 @@ import Foundation
 /// 진화 — 조건 판정과 실행. **자동으로 일어나지 않는다.** 조건을 채우면 UI 가 배지를 띄우고,
 /// 사용자가 누를 때 `evolve` 가 불린다(미루기·분기 선택이 가능해야 하기 때문).
 extension PlayerStore {
+    /// **라인이 도착하면 그 라인이 아는 모든 종의 성장 곡선으로 박스를 바로잡는다.**
+    ///
+    /// `growthRate` 를 갱신하는 자리가 예전엔 `evolve` 하나뿐이었다 — 마이그레이션으로 들어온
+    /// 개체와 스타터는 전부 `.mediumFast` 로 태어나는데(네트워크 없이 만들어지는 자리라 실제
+    /// 곡선을 모른다), 그 뒤로 진화하지 않으면(이미 최종형이거나 아직 안 컸으면) 영영
+    /// 안 바로잡힌다. 그러면 실제로는 `slow`인 레거시 전설이 `mediumFast` 곡선으로 레벨이
+    /// 계산되고, 그 레벨이 그대로 `ReleaseBalance.points` 로 새 나간다.
+    ///
+    /// 호출부(`PopoverView.loadLine`)는 라인을 fetch 할 때마다 이 함수를 부른다 — **멱등**이라
+    /// (이미 맞는 값이면 손대지 않는다) 몇 번을 다시 불러도 값싸다. 그 라인이 모르는 종(다른
+    /// 라인 소속)은 그대로 둔다.
+    func backfillGrowthRates(from line: EvoLine) {
+        // 먼저 읽기만 해서 바뀔 게 있는지 본다 — `state` 는 밖에서 못 쓰므로(private(set))
+        // 실제 대입은 `mutate` 안에서 하는데, 바뀐 게 없어도 `mutate` 를 부르면 매번 저장이
+        // 돈다(멱등이 아니게 된다). 그래서 쓰기 전에 먼저 없는지를 판정한다.
+        let indicesToFix = state.box.indices.filter { index in
+            guard let rate = line.growthRate(of: state.box[index].speciesID) else { return false }
+            return state.box[index].growthRate != rate
+        }
+        guard !indicesToFix.isEmpty else { return }
+        mutate { s in
+            for index in indicesToFix {
+                if let rate = line.growthRate(of: s.box[index].speciesID) { s.box[index].growthRate = rate }
+            }
+        }
+    }
+
     /// 지금 형태에서 갈 수 있는 다음 종들. 최종형이면 빈 배열.
     func evolutionChoices(_ individual: Individual, line: EvoLine) -> [Int] {
         guard let node = line.tree.node(withID: individual.speciesID) else { return [] }

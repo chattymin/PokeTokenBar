@@ -453,7 +453,7 @@ struct IndividualDetailView: View {
                     Text(line.localizedName(target, store.language))
                         .font(.system(size: 10))
                     Spacer()
-                    Text(Self.shortNeed(store.requirement(for: target, line: line), l: l))
+                    Text(Self.shortNeed(store.requirement(for: target, line: line), line: line, l: l))
                         .font(.system(size: 9)).foregroundStyle(.tertiary)
                 }
                 .padding(.leading, 17)
@@ -472,7 +472,7 @@ struct IndividualDetailView: View {
                                           store: PlayerStore) -> String {
         var names: [String] = []
         for target in blocked {
-            let name = shortNeed(store.requirement(for: target, line: line), l: store.l)
+            let name = shortNeed(store.requirement(for: target, line: line), line: line, l: store.l)
             if !names.contains(name) { names.append(name) }
         }
         return names.joined(separator: " · ")
@@ -499,19 +499,35 @@ struct IndividualDetailView: View {
             hints.append(store.l.evolveNeedsTime(
                 Individual.togetherText(seconds: remaining, store.l)))
         }
+        // 걸음 조건도 친밀도와 같은 "함께한 시간" 문턱이다(문턱 값만 더 낮다) — 남은 시간을
+        // 같은 방식으로 말한다. 이게 없으면 빠르모트·공푸리·베라카스 계열은 6시간을 기다린다는
+        // 사실 자체를 알 길이 없다.
+        if needs.contains(.walked) {
+            let remaining = max(0, EvoRequirement.walkSeconds
+                                - individual.partnerDuration(at: store.currentDate()))
+            hints.append(store.l.evolveNeedsTime(
+                Individual.togetherText(seconds: remaining, store.l)))
+        }
+        // 소유 조건 — 갈래 줄(`shortNeed`)이 이미 필요한 종의 이름을 보여 주므로, 여기서는
+        // 그게 "박스에 갖고 있어야 한다"는 조건이라는 것만 짚는다(도구 안내와 같은 역할).
+        if needs.contains(where: { if case .owns = $0 { return true } else { return false } }) {
+            hints.append(store.l.evolutionOwnsHint)
+        }
         return hints
     }
 
     /// 조건을 짧게 — 접힌 줄에 들어가야 하므로 문장이 아니라 이름만.
-    nonisolated static func shortNeed(_ need: EvoRequirement, l: L) -> String {
+    nonisolated static func shortNeed(_ need: EvoRequirement, line: EvoLine, l: L) -> String {
         switch need {
         case .none: ""
         case .item(let item): item.label(l.lang)
         case .friendship: l.evolveNeedsFriendshipShort
         case .level(let n): "Lv.\(n)"
-        // 파서(`PokeAPIClient.requirement`)는 아직 이 둘을 만들지 않는다 — 화면 배선은 그 갈래를
-        // 실제로 만드는 작업(소유/걸음 진화)과 함께 온다.
-        case .owns, .walked: ""
+        // 소유 조건은 필요한 종의 이름이 곧 조건이다(만타인 ← 총어). 총어는 만타인 자신의
+        // 라인에 없는 종이라 이 라인의 `names` 에는 없을 수 있는데, 그때는 `EvoLine.localizedName`
+        // 이 스스로 "#번호" 로 떨어뜨린다 — 코드베이스 다른 곳(예: `formBlockReason`)과 같은 폴백이다.
+        case .owns(let speciesID): line.localizedName(speciesID, l.lang)
+        case .walked: l.evolveNeedsWalkedShort
         }
     }
 
@@ -631,13 +647,14 @@ struct IndividualDetailView: View {
     /// 재고가 0이어도 안내를 남긴다(예전엔 줄 자체가 사라져서 어디서 쓰는지 알 수가 없었다).
     @ViewBuilder
     private var candySection: some View {
-        let expCandies = store.count(of: .expCandy)
+        // 만렙이면 경험치 사탕이 줄 것이 없다 — `useExpCandy` 가 그 경우 소모를 거부한다(더 이상
+        // 진화로 이월되지 않는다). 눌러도 아무 일도 안 나는 버튼을 남겨 두면 사탕이 조용히
+        // 사라진 것처럼 보인다 — 이미 이로치면 반짝이는 사탕을 숨기는 것과 같은 규칙이다.
+        let expCandies = individual.level < GrowthRate.maxLevel ? store.count(of: .expCandy) : 0
         // 이미 이로치면 반짝이는 사탕은 할 일이 없다 — `useShinyCandy` 도 그 경우 false 를 돌려준다.
         let shinyCandies = individual.shiny ? 0 : store.count(of: .shinyCandy)
         if expCandies > 0 || shinyCandies > 0 {
             if expCandies > 0 {
-                // 임계를 넘긴 개체에도 열어 둔다 — `useExpCandy` 는 임계를 보지 않고, 초과분은
-                // 진화 때 다음 단계로 이월되므로(`evolve` 의 `exp - threshold`) 낭비가 아니다.
                 CandyButton(title: l.useExpCandy(expCandies)) {
                     _ = store.useExpCandy(on: individual.id)
                 }

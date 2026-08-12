@@ -838,7 +838,7 @@ final class EvolutionBranchFoldingTests: XCTestCase {
 
     /// 조건 이름은 문장이 아니라 **이름**이어야 한 줄에 여럿이 들어간다.
     func testShortNeedIsANameNotASentence() {
-        let short = IndividualDetailView.shortNeed(.item(.thunderStone), l: L(.ko))
+        let short = IndividualDetailView.shortNeed(.item(.thunderStone), line: eeveeLine(), l: L(.ko))
         XCTAssertEqual(short, EvolutionItem.thunderStone.label(.ko))
         XCTAssertFalse(short.contains("파트너"), "짧은 이름에 안내 문장이 섞였다: \(short)")
     }
@@ -904,6 +904,90 @@ final class EvolutionBranchFoldingTests: XCTestCase {
                                                       individual: eevee, store: store)
         XCTAssertEqual(hints.count, 2, "\(hints)")
         XCTAssertEqual(hints.first, L(.ko).evolutionLockedHint, "\(hints)")
+    }
+}
+
+/// [회귀] `.owns`·`.walked` 진화 조건이 빈 문자열을 냈다 — `shortNeed` 가 아직 이 둘을
+/// 만들지 않는다는 낡은 전제(주석) 때문이었는데, `UnstatedEvolutionCatalog` 는 실제로 만타인
+/// (`.owns(223)`)과 빠르모트·공푸리·베라카스(`.walked`)를 만든다. 그래서 만타인 상세는
+/// "1 locked"만 뜨고 이유가 안 보였고, 빠르모트 계열은 6시간을 기다려야 한다는 사실 자체를
+/// 알 길이 없었다.
+@MainActor
+final class OwnsAndWalkedEvolutionHintTests: XCTestCase {
+    /// 만타인(226)← 총어(223) 보유. 만타인의 라인(만타인의새끼→만타인)에는 총어 이름이 없다 —
+    /// 실제로도 그렇다(총어는 별개 라인이다).
+    private func mantykeLine(namesKnowRemoraid: Bool) -> EvoLine {
+        var names: [Int: [String: String]] = [458: ["ko": "만타인의새끼"], 226: ["ko": "만타인"]]
+        if namesKnowRemoraid { names[223] = ["ko": "총어", "en": "Remoraid", "ja": "テッポウオ"] }
+        return EvoLine(baseID: 458,
+                       tree: EvoNode(speciesID: 458, children: [
+                           EvoNode(speciesID: 226, children: [], requirementRaw: .owns(223)),
+                       ]),
+                       rarity: .common, names: names)
+    }
+
+    /// 빠르모트 계열 — 걸음(파트너 시간) 조건 하나뿐인 라인.
+    private func pawmoLine() -> EvoLine {
+        EvoLine(baseID: 921,
+               tree: EvoNode(speciesID: 921, children: [
+                   EvoNode(speciesID: 922, children: [], requirementRaw: .walked),
+               ]),
+               rarity: .common, names: [:])
+    }
+
+    private func makeStore() -> PlayerStore {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("owns-walked-\(UUID().uuidString).json")
+        return PlayerStore(fileURL: url, rng: SeededRNG(seed: 1),
+                           now: { Date(timeIntervalSince1970: 1_000_000) })
+    }
+
+    private func individual(baseID: Int, partnerSeconds: Int = 0) -> Individual {
+        Individual(baseID: baseID, speciesID: baseID, pathIDs: [baseID], nature: .serious,
+                  partnerSeconds: partnerSeconds,
+                  obtainedAt: Date(timeIntervalSince1970: 0), grade: .common)
+    }
+
+    /// 소유 조건은 필요한 종의 이름을 갈래 줄에 낸다 — 라인이 그 이름을 알면.
+    func testOwnsRequirementShowsTheRequiredSpeciesName() {
+        let line = mantykeLine(namesKnowRemoraid: true)
+        XCTAssertEqual(IndividualDetailView.shortNeed(.owns(223), line: line, l: L(.ko)), "총어")
+    }
+
+    /// 총어는 만타인 자신의 라인에 없는 종이라 이름이 없을 수 있다 — 그럴 땐 번호로 떨어진다
+    /// (`EvoLine.localizedName` 의 폴백, 폼 화면의 융합 상대 이름과 같은 방식).
+    func testOwnsRequirementFallsBackToTheNumberWhenTheNameIsUnavailable() {
+        let line = mantykeLine(namesKnowRemoraid: false)
+        XCTAssertEqual(IndividualDetailView.shortNeed(.owns(223), line: line, l: L(.ko)), "#223")
+    }
+
+    /// 걸음 조건은 언어마다 실제 라벨이 있어야 한다 — 빈 문자열이면 회귀다.
+    func testWalkedRequirementHasARealLabelInEveryLanguage() {
+        for lang in AppLanguage.allCases {
+            let short = IndividualDetailView.shortNeed(.walked, line: pawmoLine(), l: L(lang))
+            XCTAssertFalse(short.isEmpty, "\(lang): 걸음 조건 라벨이 비었다")
+        }
+    }
+
+    /// 걸음 조건이 막고 있으면 **친밀도와 같은 방식으로 남은 시간**을 안내한다 —
+    /// 얼마나 더 함께해야 하는지가 곧 안내다(도구처럼 "어디서 구하는지"를 물을 게 없다).
+    func testWalkedBranchShowsRemainingTimeLikeFriendship() {
+        let store = makeStore()
+        let pawmi = individual(baseID: 921, partnerSeconds: 3_600)
+        let hints = IndividualDetailView.blockedHints([922], line: pawmoLine(),
+                                                       individual: pawmi, store: store)
+        XCTAssertEqual(hints, [L(.ko).evolveNeedsTime(Individual.togetherText(
+            seconds: EvoRequirement.walkSeconds - 3_600, L(.ko)))], "\(hints)")
+    }
+
+    /// 소유 조건이 막고 있으면 "박스에 갖고 있어야 한다"는 안내가 붙는다 — 예전에는 아무
+    /// 안내도 없어 만타인 상세가 "1 locked"에서 이유 없이 끝났다.
+    func testOwnsBranchGetsAHint() {
+        let store = makeStore()
+        let mantyke = individual(baseID: 458)
+        let hints = IndividualDetailView.blockedHints([226], line: mantykeLine(namesKnowRemoraid: true),
+                                                       individual: mantyke, store: store)
+        XCTAssertEqual(hints, [L(.ko).evolutionOwnsHint], "\(hints)")
     }
 }
 

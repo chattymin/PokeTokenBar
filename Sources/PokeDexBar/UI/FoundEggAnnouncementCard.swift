@@ -43,8 +43,9 @@ struct FoundEggAnnouncementCard: View {
 
     /// 위장 중이 아니고 라인이 있으면 후보다. **더 이상 최종형일 필요가 없다** — `eggProgress`
     /// 가 `exp` 와 분리된 뒤로는 진화 중인 개체도 알을 부를 수 있다(`canTakeFoundEgg` 와 같은
-    /// 판단). 그래서 상세 화면의 `isFoundEggCandidate`(아직 "최종형만" 규칙을 쓴다)를 그대로
-    /// 빌리지 않고 이 카드만의 술어를 둔다.
+    /// 판단). 상세 화면의 `IndividualDetailView.isFoundEggCandidate` 도 지금은 같은 조건이지만,
+    /// 그쪽은 `individual: Individual`(항상 있음)을, 이 카드는 `partner: Individual?`(옵셔널 —
+    /// 파트너가 없을 수 있다)을 다뤄야 해서 술어를 각자 둔다.
     private var isCandidate: Bool {
         guard let partner, line != nil else { return false }
         return partner.disguisedAs == nil

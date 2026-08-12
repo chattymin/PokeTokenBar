@@ -202,6 +202,14 @@ struct L {
     }
     /// 접힌 줄에 들어갈 짧은 조건 이름 — 문장이 아니라 이름이어야 한 줄에 여럿이 들어간다.
     var evolveNeedsFriendshipShort: String { t("함께 다니기", "Time together", "一緒にいること") }
+    /// 걸음 조건의 짧은 이름 — 친밀도와 같은 자리(접힌 줄)에 쓴다.
+    var evolveNeedsWalkedShort: String { t("함께 걷기", "Walking together", "一緒に歩くこと") }
+    /// 소유 조건 안내 — 필요한 종의 이름은 갈래 줄에 이미 나오므로, 여기서는 그게 "박스에 갖고
+    /// 있어야 한다"는 조건임을 짚는다(도구 안내가 얻는 방법을 짚는 것과 같은 역할).
+    var evolutionOwnsHint: String {
+        t("그 포켓몬을 박스에 갖고 있어야 열려요", "You need that Pokémon in your box",
+          "そのポケモンをボックスに持っている必要があります")
+    }
 
     var detailMaxStage: String { t("더 진화하지 않아요", "Fully evolved", "これいじょうしんかしない") }
     /// 알 발견 버튼 — 사육가가 알을 발견해 건네주는 원작 문구 그대로다. 그래서 버튼 하나가

@@ -317,6 +317,9 @@ struct PopoverView: View {
             defer { loadingLines.remove(baseID) }
             if let line = try? await provider.line(baseSpeciesID: baseID) {
                 evoLines[baseID] = line
+                // 라인이 아는 종은 여기서 성장 곡선을 바로잡는다 — 마이그레이션된 개체·스타터가
+                // 진화 없이도(이미 최종형이면 영영 진화가 안 온다) 맞는 곡선을 받게 하는 유일한 자리다.
+                player.backfillGrowthRates(from: line)
             }
         }
     }

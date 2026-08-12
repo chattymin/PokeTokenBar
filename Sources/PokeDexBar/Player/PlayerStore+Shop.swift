@@ -65,9 +65,14 @@ extension PlayerStore {
     func useExpCandy(on individualID: UUID) -> Bool {
         guard count(of: .expCandy) > 0,
               let index = state.box.firstIndex(where: { $0.id == individualID }) else { return false }
+        // 사탕은 **경험치**를 준다(알은 안 건드린다) — 만렙 상한도 사용량 갱신과 같다.
+        let cap = state.box[index].growthRate.totalExp(at: GrowthRate.maxLevel)
+        // **만렙이면 줄 것이 없다 — 여기서 거부해야 한다.** 예전엔 그냥 소모했다. 그 근거였던
+        // "초과분은 진화 때 다음 단계로 이월된다"가 지금은 사실이 아니다(`evolve` 는 경험치를
+        // 그대로 둔다, 이월하지 않는다) — 만렙 개체에 쓴 사탕(약 1.5억 토큰어치)이 아무 효과
+        // 없이 그대로 사라졌다.
+        guard state.box[index].exp < cap else { return false }
         mutate {
-            // 사탕은 **경험치**를 준다(알은 안 건드린다) — 만렙 상한도 사용량 갱신과 같다.
-            let cap = $0.box[index].growthRate.totalExp(at: GrowthRate.maxLevel)
             $0.box[index].exp = min(cap, $0.box[index].exp
                                     + PlayerStore.expGain(ExpBalance.candyExp, charm: $0.ownsExpCharm))
             Self.consume(.expCandy, in: &$0)

@@ -118,6 +118,16 @@ final class BoxCandyWiringTests: XCTestCase {
         XCTAssertFalse(titles.contains(store.l.useShinyCandy(1)), titles.description)
         XCTAssertTrue(titles.contains(store.l.useExpCandy(1)), titles.description)
     }
+
+    /// [회귀] 만렙 개체에는 경험치 사탕 버튼을 권하지 않는다(`useExpCandy` 가 거절하는 조건과
+    /// 같다) — 눌러도 사탕만 사라지고 아무 효과가 없는 버튼을 남겨 두지 않는다.
+    func testExpCandyHiddenAtMaxLevel() {
+        let store = makeStore(expCandies: 1)
+        let cap = GrowthRate.mediumFast.totalExp(at: GrowthRate.maxLevel)
+        store.mutate { $0.box[0].exp = cap }
+        let titles = renderedCandyButtons(store).map(\.title)
+        XCTAssertFalse(titles.contains(store.l.useExpCandy(1)), titles.description)
+    }
 }
 
 /// 표시 이름 — 홈 카드는 진화 라인을 이미 받아 두고도 번호만 보여주고 있었다(사용자 지적).

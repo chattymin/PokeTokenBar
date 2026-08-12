@@ -361,8 +361,10 @@ final class ForagedItemHintTests: XCTestCase {
     func testEachBranchNamesTheItemItWaitsFor() {
         for lang in AppLanguage.allCases {
             // 돌이든 특수 도구든 얻는 길은 하나뿐이므로 표기도 같아야 한다.
+            let line = EvoLine(baseID: 1, tree: EvoNode(speciesID: 1, children: []),
+                               rarity: .common, names: [:])
             for item in [EvolutionItem.magmarizer, .fireStone, .linkingCord] {
-                XCTAssertEqual(IndividualDetailView.shortNeed(.item(item), l: L(lang)),
+                XCTAssertEqual(IndividualDetailView.shortNeed(.item(item), line: line, l: L(lang)),
                                item.label(lang), "\(lang) \(item): 갈래 줄에 이름이 없다")
             }
         }

@@ -51,6 +51,13 @@ struct Individual: Identifiable, Codable, Sendable, Equatable {
     /// `exp` 와 서로를 깎지 않는다. 예전에는 `exp` 하나가 두 역할을 겸했고, 그것 때문에
     /// 등급이 경험치에 끼어들어야 했다.
     var eggProgress = 0
+    /// **경험치로 못 바꾼 토큰의 나머지.** 환율(`ExpBalance.tokensPerExp` = 500)로 나눈
+    /// 정수 나눗셈은 매 갱신(`PlayerStore.update`, 기본 120초 주기)마다 자투리를 버린다 —
+    /// 이월이 없으면 한 번에 500토큰을 못 채우는 가벼운 사용자는 `exp` 가 **영원히 0**이다
+    /// (하루 10만 토큰이면 한 틱에 약 400토큰 → 400/500=0). 그래서 여기 남겨 뒀다가 다음
+    /// 갱신의 몫과 합쳐서 나눈다 — 사탕처럼 이미 "몫과 나머지" 로 정산하는 자리(`candyYield`)
+    /// 와 같은 패턴이다.
+    var expRemainder = 0
     /// 맞아서 겉모습이 깨졌나(따라큐의 탈, 빙큐보의 얼음머리).
     ///
     /// 파트너에서 내려오면 돌아온다(`PlayerStore.closePartnerStint`) — 그 아이의 배틀이
@@ -183,7 +190,7 @@ struct Individual: Identifiable, Codable, Sendable, Equatable {
          nature: PokemonNature, exp: Int = 0, partnerTokens: Int = 0, partnerSeconds: Int = 0,
          partnerSince: Date? = nil, candyProgress: Int = 0, obtainedAt: Date,
          grade: Grade, form: String? = nil, region: Region? = nil, regionVariant: String? = nil,
-         growthRate: GrowthRate = .mediumFast, eggProgress: Int = 0) {
+         growthRate: GrowthRate = .mediumFast, eggProgress: Int = 0, expRemainder: Int = 0) {
         self.id = id
         self.baseID = baseID
         self.speciesID = speciesID
@@ -202,6 +209,7 @@ struct Individual: Identifiable, Codable, Sendable, Equatable {
         self.regionVariant = regionVariant
         self.growthRate = growthRate
         self.eggProgress = eggProgress
+        self.expRemainder = expRemainder
     }
 
     /// **필드를 더할 때 박스가 통째로 사라지지 않게 하는 장치.**
@@ -237,6 +245,9 @@ struct Individual: Identifiable, Codable, Sendable, Equatable {
         formBroken = value(.formBroken, false)
         partnerStintsEnded = value(.partnerStintsEnded, 0)
         growthRate = value(.growthRate, .mediumFast)
+        // 새 필드라 반드시 `value(_:_:)` 를 거친다 — 합성 디코더로 그냥 `decode` 하면 이 키가
+        // 없는 기존 세이브의 개체 전부가 `LossyIndividual` 에서 조용히 버려진다(주석 참고).
+        expRemainder = value(.expRemainder, 0)
         // **레벨 이전 세이브 판별.** `eggProgress` 키가 없으면 `exp` 는 아직 "쓴 토큰" 이다.
         // 그때는 그 값을 둘로 나눠 준다 — 알 진행분은 그대로 물려주고(쌓아 둔 걸 뺏지 않는다),
         // 경험치는 환율로 나눠 실제 EXP 로 만든다. 키가 있으면 이미 이전이 끝난 세이브다.
@@ -291,6 +302,8 @@ struct Individual: Identifiable, Codable, Sendable, Equatable {
         // 재기동해도 같은 파일을 읽어 또 죽는다.
         fixed.exp = min(fixed.growthRate.totalExp(at: GrowthRate.maxLevel), max(0, fixed.exp))
         fixed.eggProgress = min(ExpBalance.eggThreshold(grade: fixed.grade), max(0, fixed.eggProgress))
+        // 나머지는 정의상 환율 미만이어야 한다 — 그 이상이면 몫으로 나갔어야 할 값이다.
+        fixed.expRemainder = min(ExpBalance.tokensPerExp - 1, max(0, fixed.expRemainder))
         return fixed
     }
 }
