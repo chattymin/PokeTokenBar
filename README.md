@@ -79,8 +79,15 @@ Once a Pokémon is fully evolved its experience has nowhere to go. Now it gather
 <td width="45%" align="center"><img src="assets/professor-banner.png" width="300" alt="The Professor's offer — three cards with sprites, names, grades and prices, the shiny one ringed in gold, above a Send to the Professor button"></td>
 <td width="55%" valign="middle">
 <h3>Send what you don't need to the Professor</h3>
-Pokémon you were never going to raise can go to the Professor, who pays in research points — more for the ones you did raise, so what you clear out is naturally the duplicates you left alone. Points are their own currency: they can't buy Eggs, and tokens can't buy from him. Every day he offers three Pokémon in exchange, leaning toward species missing from your Dex, and you can see exactly what each one is before you spend. Pick several at once in the Box; anything shiny or Legendary in the batch is called out by name and asked about twice.
+Pokémon you were never going to raise can go to the Professor, who pays in research points — more for the ones you did raise, so what you clear out is naturally the duplicates you left alone. Points are their own currency: they can't buy Eggs, and tokens can't buy from him. Every day he offers three Pokémon in exchange, leaning toward species missing from your Dex, and you can see exactly what each one is before you spend a point. Pick several at once in the Box; anything shiny or Legendary in the batch is called out by name and asked about twice.
 </td>
+</tr>
+<tr>
+<td width="55%" valign="middle">
+<h3>Today's three arrive face down</h3>
+The offers come covered, and you turn them over one at a time — each card opens where it sits, with rings that widen and colour by grade the way a hatching Egg does. Nothing about a card leaks before you open it, not even the gold ring a shiny wears. The three are yours alone: each save now rolls its own, so what the Professor holds out to you is not what he holds out to anyone else.
+</td>
+<td width="45%" align="center"><img src="assets/blind-offers.png" width="300" alt="The Professor's offer shown three times: all three cards face down, then one turned over to a Pikachu, then all three open with a shiny Charmander ringed in gold"></td>
 </tr>
 <tr>
 <td width="55%" valign="middle">
@@ -172,7 +179,7 @@ The shop sells seven things. The other 105 items only ever arrive in a partner's
 
 ## Also in the box
 
-- **Interactive floating pet** — hover for today's usage, click to open the main window, right-click for a menu; limit alerts can pop up as speech bubbles.
+- **Interactive floating pet** — hover for today's usage, click to open the main window, right-click for a menu; limit alerts can pop up as speech bubbles. It also **moves faster while you're burning tokens** and idles at its normal speed (optional, on by default).
 - **Per-service tabs** — when two or more of Claude Code, Codex, Gemini CLI, OpenCode, Hermes Agent, Cursor, and Grok CLI are detected, compact tabs switch between them; today's total stays combined.
 - **Official limits** — Claude & Codex 5-hour / weekly utilization with reset countdowns, right under today's numbers.
 - **Burn-rate forecast** — projects when the current 5h window hits 100%.

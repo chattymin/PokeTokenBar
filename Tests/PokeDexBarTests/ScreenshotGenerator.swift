@@ -471,6 +471,11 @@ final class ScreenshotGeneratorTests: XCTestCase {
 
         let usage = UsageStore(providers: [], autoRefresh: false,
                                defaults: UserDefaults(suiteName: "ptb-shot-usage-\(UUID().uuidString)")!)
+        // **펫을 켠 채로 찍는다.** 설정의 플로팅 펫 하위 항목(크기·말풍선·바쁠수록 빠르게)은
+        // 이 토글이 켜져야만 그려진다 — 꺼 두면 설정 스크린샷을 아무리 다시 그려도 그 줄들이
+        // 영영 안 담기고, "에셋을 갱신했으니 새 UI도 찍혔겠지"가 조용히 거짓이 된다
+        // (CLAUDE.md §릴리스 1 — 갱신과 커버리지는 다른 질문이다).
+        usage.floatingPetEnabled = true
         return Fixture(player: player, usage: usage,
                        updater: UpdateChecker(currentVersion: AppEnv.appVersion ?? "0"),
                        detailID: detailID!, partnerID: partnerID!, shinyID: shinyID!,
@@ -916,6 +921,11 @@ final class ScreenshotGeneratorTests: XCTestCase {
         // 요구하는 신규 에셋이 이것이다.
         try write(png(professorBanner()), "professor-banner.png")
 
+        // 가려진 채로 오는 제안 — 한 칸씩 열어 본다. 이 릴리스가 새로 여는 화면이라 §릴리스 1
+        // 하드 게이트가 요구하는 신규 에셋이 이것이다. 닫힘 → 하나 열림 → 셋 다 열림을 위아래로
+        // 놓아 "한 칸씩 뒤집는다"가 한 그림에서 읽히게 한다(정적 캡처라 연출 자체는 못 담는다).
+        try write(png(blindOffersBanner()), "blind-offers.png")
+
         // 태어날 때 정해지는 겉모습 — 이름 옆 배지가 그 개체가 어떤 무늬로 태어났는지 말한다.
         // 지방 배지와 같은 자리를 쓰므로, 이 그림 하나로 두 규칙이 같이 설명된다.
         try write(png(tabChrome(BoxTabView(store: fixture.player, lines: ScreenshotFixture.lines,
@@ -1097,6 +1107,55 @@ final class ScreenshotGeneratorTests: XCTestCase {
             DetailActionButton(title: store.l.sendToProfessor(points), prominent: false, action: {})
                 .frame(width: 170)
             ProfessorOfferSection(store: store, provider: StubProvider(), lines: lines)
+        }
+        .padding(.horizontal, 14).padding(.vertical, 14)
+        .frame(width: PopoverMetrics.width, alignment: .leading)
+        .background(Color(nsColor: .windowBackgroundColor))
+    }
+
+    /// 가려진 채로 오는 오늘의 제안 — 같은 세 자리를 세 단계로 보인다.
+    private func blindOffersBanner() -> some View {
+        let now = ScreenshotFixture.now
+        func store(opened: [Bool]) -> PlayerStore {
+            let store = PlayerStore(fileURL: FileManager.default.temporaryDirectory
+                                        .appendingPathComponent("blind-\(UUID().uuidString).json"),
+                                    rng: SeededRNG(seed: 13), now: { now },
+                                    defaults: UserDefaults(suiteName: "ptb-blind-\(UUID().uuidString)")!)
+            store.setLanguage(.en)
+            store.seedForTesting(wallet: 0, slots: 1, eggs: 0, at: now)
+            // 오프스크린 렌더는 `.task` 를 안 돌리므로 오늘의 제안을 직접 심는다(`professorBanner` 와 같은 이유).
+            store.mutate {
+                $0.researchPoints = 40
+                $0.professorOffers = [
+                    ProfessorOffer(individual: Individual(baseID: 25, speciesID: 25, pathIDs: [25],
+                                                          nature: .jolly, obtainedAt: now,
+                                                          grade: .common),
+                                   opened: opened[0]),
+                    ProfessorOffer(individual: Individual(baseID: 4, speciesID: 4, pathIDs: [4],
+                                                          shiny: true, nature: .modest,
+                                                          obtainedAt: now, grade: .epic),
+                                   opened: opened[1]),
+                    ProfessorOffer(individual: Individual(baseID: 150, speciesID: 150, pathIDs: [150],
+                                                          nature: .calm, obtainedAt: now,
+                                                          grade: .legendary),
+                                   opened: opened[2]),
+                ]
+            }
+            return store
+        }
+        let lines: [Int: EvoLine] = [
+            25: EvoLine(baseID: 25, tree: EvoNode(speciesID: 25, children: []), rarity: .common,
+                        names: [25: ["ko": "피카츄", "en": "Pikachu", "ja": "ピカチュウ"]]),
+            4: EvoLine(baseID: 4, tree: EvoNode(speciesID: 4, children: []), rarity: .common,
+                       names: [4: ["ko": "파이리", "en": "Charmander", "ja": "ヒトカゲ"]]),
+            150: EvoLine(baseID: 150, tree: EvoNode(speciesID: 150, children: []), rarity: .legendary,
+                         names: [150: ["ko": "뮤츠", "en": "Mewtwo", "ja": "ミュウツー"]]),
+        ]
+        return VStack(alignment: .leading, spacing: 14) {
+            ForEach([[false, false, false], [true, false, false], [true, true, true]], id: \.self) { opened in
+                ProfessorOfferSection(store: store(opened: opened), provider: StubProvider(),
+                                      lines: lines)
+            }
         }
         .padding(.horizontal, 14).padding(.vertical, 14)
         .frame(width: PopoverMetrics.width, alignment: .leading)
