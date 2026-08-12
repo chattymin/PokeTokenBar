@@ -76,6 +76,13 @@ Once a Pokémon is fully evolved its experience has nowhere to go. Now it gather
 <td width="45%" align="center"><img src="assets/found-egg.png" width="300" alt="A green button reading 'Your partner brought a Charmander Egg!' directly above the hatching row it drops into"></td>
 </tr>
 <tr>
+<td width="45%" align="center"><img src="assets/professor-banner.png" width="300" alt="The Professor's offer — three cards with sprites, names, grades and prices, the shiny one ringed in gold, above a Send to the Professor button"></td>
+<td width="55%" valign="middle">
+<h3>Send what you don't need to the Professor</h3>
+Pokémon you were never going to raise can go to the Professor, who pays in research points — more for the ones you did raise, so what you clear out is naturally the duplicates you left alone. Points are their own currency: they can't buy Eggs, and tokens can't buy from him. Every day he offers three Pokémon in exchange, leaning toward species missing from your Dex, and you can see exactly what each one is before you spend. Pick several at once in the Box; anything shiny or Legendary in the batch is called out by name and asked about twice.
+</td>
+</tr>
+<tr>
 <td width="55%" valign="middle">
 <h3>Some change by who you keep close</h3>
 Palafin turns Hero the way it does in the games — not when it comes out, but when it steps back. Put it at your side, swap someone else in, and it returns changed; swap again and it drops back. Terapagos is simpler: it wears its Terastal Form for as long as it is with you, and a Tera Orb takes it the rest of the way to Stellar.
