@@ -53,18 +53,24 @@ final class ProfessorTests: XCTestCase {
         }
     }
 
-    /// **지금 단계에서 채운 경험치가 더해진다** — 키운 아이일수록 값이 나가야 정리 대상이
-    /// 자연히 "안 키운 중복" 이 된다.
-    func testReleasePointsIncludeBankedExperience() {
-        let threshold = ExpBalance.threshold(grade: .epic, stageIndex: 0)
-        let half = make(.epic, path: [4], exp: threshold / 2)
-        XCTAssertEqual(ReleaseBalance.points(for: half), 18)   // floor(12 × (0 + 1 + 0.5))
+    /// **값은 레벨을 따른다.** 100레벨이 한 단계를 통째로 더 얹는 것과 같다.
+    func testReleasePointsFollowTheLevel() {
+        func made(_ level: Int) -> Individual {
+            Individual(baseID: 4, speciesID: 4, pathIDs: [4], nature: .hardy,
+                       exp: GrowthRate.mediumFast.totalExp(at: level), obtainedAt: now,
+                       grade: .epic, growthRate: .mediumFast)
+        }
+        XCTAssertEqual(ReleaseBalance.points(for: made(1)), 12)    // 12 × (0 + 1 + 0.01)
+        XCTAssertEqual(ReleaseBalance.points(for: made(50)), 18)   // 12 × (0 + 1 + 0.50)
+        XCTAssertEqual(ReleaseBalance.points(for: made(100)), 24)  // 12 × (0 + 1 + 1.00)
     }
 
-    /// 경험치 비율은 1 에서 멈춘다 — 알 임계까지 쌓인 최종형이 배수로 튀면 안 된다.
-    func testReleasePointsClampTheExperienceRatio() {
-        let huge = make(.epic, path: [4, 5, 6], exp: Int.max / 4)
-        XCTAssertEqual(ReleaseBalance.points(for: huge), 48)   // floor(12 × (2 + 1 + 1))
+    /// 진화 단계도 그대로 값에 실린다 — 레벨만 보는 구현이면 여기서 걸린다.
+    func testReleasePointsStillCountTheStages() {
+        let grown = Individual(baseID: 4, speciesID: 6, pathIDs: [4, 5, 6], nature: .hardy,
+                               exp: GrowthRate.mediumFast.totalExp(at: 100), obtainedAt: now,
+                               grade: .epic, growthRate: .mediumFast)
+        XCTAssertEqual(ReleaseBalance.points(for: grown), 48)      // 12 × (2 + 1 + 1.00)
     }
 
     // MARK: 포인트 저장

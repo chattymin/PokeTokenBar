@@ -20,19 +20,14 @@ enum ReleaseBalance {
         }
     }
 
-    /// `등급기본 × (진화 횟수 + 1 + 지금 단계에서 채운 경험치 비율)`, 내림.
+    /// `등급기본 × (진화 횟수 + 1 + 레벨/100)`, 내림.
     ///
-    /// 경험치 비율의 분모는 **진화 임계**다(알 임계가 아니다). 알 발견은 최종형에만 열리는
-    /// 별개의 길이고, 여기서 재는 것은 "이 단계에서 얼마나 키웠나" 다. 최종형은 알 임계까지
-    /// 쌓이므로 이 비율이 1 에서 포화되는데, 최종형이라는 사실은 이미 `stageIndex` 로 값에
-    /// 반영돼 있다.
+    /// 예전에는 "지금 단계에서 채운 경험치 비율" 이었는데, 경험치가 레벨이 되면서 **레벨 자체가
+    /// 얼마나 키웠나** 를 곧바로 말해 준다. 100레벨이 한 단계를 통째로 더 얹는 것과 같아
+    /// 자릿수는 예전과 같다.
     static func points(for individual: Individual) -> Int {
-        let threshold = ExpBalance.threshold(grade: individual.grade,
-                                             stageIndex: individual.stageIndex)
-        let ratio = threshold > 0
-            ? min(1, max(0, Double(individual.exp) / Double(threshold)))
-            : 0
-        let grown = Double(individual.stageIndex) + 1 + ratio
+        let grown = Double(individual.stageIndex) + 1
+            + Double(individual.level) / Double(GrowthRate.maxLevel)
         return Int(Double(base(grade: individual.grade)) * grown)
     }
 }
