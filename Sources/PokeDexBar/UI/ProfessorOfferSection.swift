@@ -21,7 +21,10 @@ struct ProfessorOfferSection: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            HStack {
+            HStack(spacing: 6) {
+                // 얼굴이 제목 왼쪽에 온다 — 이 자리가 상점의 다른 진열대가 아니라 **누군가와
+                // 거래하는 자리**라는 걸 글자보다 먼저 말한다.
+                ProfessorIcon()
                 Text(l.professorOffersTitle)
                     .font(.system(size: 12, weight: .semibold))
                 Spacer()

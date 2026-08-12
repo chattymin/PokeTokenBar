@@ -863,6 +863,13 @@ final class ScreenshotGeneratorTests: XCTestCase {
         }
         defer { AppEnv.appVersionOverride = nil }
 
+        // 디스크에서 읽어 오는 그림은 **미리 캐시에 올려 둔다.** 첫 접근이 디스크 읽기 + PNG
+        // 디코드를 동기로 하는데, 아래 애니메이션 캡처는 `pump(0.05)` 창 안에서 레이아웃이
+        // 끝나기를 기대한다 — 그 창에 디코드가 끼면 프레임 간격이 밀리고 연출 단계가 잘린다
+        // (박사 얼굴을 상점 헤더에 붙였을 때 실제로 두 단언이 깨졌다). 실앱에서는 상점을 한 번
+        // 열고 나면 이미 캐시돼 있어 이 비용이 사용자에게 보이지 않는다.
+        _ = ProfessorIcon.image
+
         let fixture = makeFixture()
         setLanguage(.en, fixture)
 
