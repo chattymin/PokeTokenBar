@@ -34,10 +34,15 @@ enum ProfessorRoll {
         return h
     }
 
-    /// 0…1 굴림(1 미포함). 같은 (날짜·자리·용도) 면 언제나 같은 값이다.
-    static func unit(date: String, slot: Int, salt: UInt64) -> Double {
+    /// 0…1 굴림(1 미포함). 같은 (시드·날짜·자리·용도) 면 언제나 같은 값이다.
+    ///
+    /// **`seed` 가 사람을 가른다.** 이 인자가 없던 시절에는 입력이 날짜뿐이라 같은 날 모든 설치가
+    /// 같은 세 마리를 받았다. 기본값을 두지 않는 이유가 여기 있다 — 기본값이 있으면 시드를 안
+    /// 넘긴 호출부가 조용히 옛 동작으로 돌아가고, 그게 정확히 원래 결함이다.
+    static func unit(seed: UInt64, date: String, slot: Int, salt: UInt64) -> Double {
         // SplitMix64 믹싱 — FNV 는 비트가 고르게 안 퍼져서 하위 비트만 쓰면 편향이 남는다.
-        var z = hash(date) &+ (UInt64(bitPattern: Int64(slot)) &* 0x9E37_79B9_7F4A_7C15) &+ salt
+        var z = hash(date) &+ seed
+            &+ (UInt64(bitPattern: Int64(slot)) &* 0x9E37_79B9_7F4A_7C15) &+ salt
         z = (z ^ (z >> 30)) &* 0xBF58_476D_1CE4_E5B9
         z = (z ^ (z >> 27)) &* 0x94D0_49BB_1331_11EB
         z ^= (z >> 31)

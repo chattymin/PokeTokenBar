@@ -24,6 +24,20 @@ final class PlayerStore {
         self.now = now
         self.defaults = defaults
         load()
+        ensureOfferSeed()
+    }
+
+    /// 시드가 없으면 지금 만들어 **저장한다**. 저장을 빼먹으면 매 기동 다시 만들어져 오늘의
+    /// 제안이 앱을 껐다 켤 때마다 바뀐다 — 결정적 굴림을 쓴 이유 자체가 없어진다.
+    ///
+    /// 기존 세이브(1.6.0 이전)에는 이 값이 없으므로 여기서 처음 생긴다. 오늘 치 제안은
+    /// `professorOfferDate == lastDate` 라 다시 안 굴린다 — **개인화는 내일부터**다. 이미 열어
+    /// 보거나 데려온 자리를 손대지 않으려는 의도된 선택이다.
+    private func ensureOfferSeed() {
+        guard state.offerSeed == 0 else { return }
+        var seed = rng.next()
+        while seed == 0 { seed = rng.next() }   // 0 은 "아직 없음" 이라 시드로 못 쓴다
+        mutate { $0.offerSeed = seed }
     }
 
     static func defaultURL() -> URL {

@@ -28,6 +28,15 @@ struct PlayerState: Codable, Sendable {
     /// 토큰으로는 박사와 거래할 수 없다. 섞으면 토큰을 안 쓰고도 재화가 도는 순환이 생겨,
     /// "쓴 토큰이 곧 재화" 라는 이 앱의 전제가 흐려진다.
     var researchPoints = 0
+    /// 이 세이브만의 굴림 시드. **박사의 제안이 사람마다 달라지게 하는 유일한 근거**다.
+    ///
+    /// 처음엔 없었고, 그래서 제안이 날짜·자리·용도로만 결정돼 **같은 날 모든 설치가 같은 세 마리**를
+    /// 받았다(2026-08-12 사용자 리포트: 주리비얀·깨봉이가 전원에게 동일). 도감 가중은 방어가 못 됐다 —
+    /// 도감이 비었거나 꽉 찼으면 모든 후보가 같은 배수를 받아 경계가 안 움직인다.
+    ///
+    /// **세이브 안에 산다**(설정이 아니라). 사람에 붙는 값이라 세이브를 옮기면 같이 가야 하고,
+    /// 기기마다 달라지면 옮긴 순간 제안이 통째로 갈린다. 0 = 아직 없음 → 첫 기동에 만들어 저장한다.
+    var offerSeed: UInt64 = 0
     /// 오늘의 제안을 뽑은 날짜. `lastDate` 와 다르면 새로 뽑는다.
     var professorOfferDate = ""
     /// 오늘의 제안. 데려간 자리는 빠지지 않고 `claimed` 로 남는다.
@@ -99,6 +108,9 @@ struct PlayerState: Codable, Sendable {
         inventory = value(.inventory, [:])
         // 관대 디코딩의 짝 — 값 범위 검증. 산술에 쓰이는 수치이므로 자른다.
         researchPoints = min(ReleaseBalance.maxPoints, max(0, value(.researchPoints, 0)))
+        // 값 범위를 안 자른다 — 해시 입력일 뿐이라 어떤 값이 와도 산술이 넘치지 않는다
+        // (`ProfessorRoll` 은 전부 `&+`/`&*`). 0 만 "아직 없음"으로 취급한다.
+        offerSeed = value(.offerSeed, 0)
         professorOfferDate = value(.professorOfferDate, "")
         // 제안도 박스·알과 같은 이유로 원소 단위 관대 디코딩한다 — 한 자리가 깨졌다고 오늘 치가
         // 통째로 날아가면 안 된다. 항목이므로 개수는 안 자르고, 말이 안 되는 원소만 버린다.

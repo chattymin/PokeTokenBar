@@ -66,7 +66,8 @@ extension PlayerStore {
         guard state.professorOfferDate != state.lastDate else { return }
         let date = state.lastDate
         let offers = (0..<ProfessorBalance.offerCount).map { slot in
-            ProfessorOffer(individual: Self.offeredIndividual(date: date, slot: slot,
+            ProfessorOffer(individual: Self.offeredIndividual(seed: state.offerSeed, date: date,
+                                                              slot: slot,
                                                               index: index, dex: state.dex,
                                                               at: currentDate()))
         }
@@ -84,10 +85,12 @@ extension PlayerStore {
     /// **도감에 없는 종을 밀어 준다**(`EggBalance.unseenBoost`). 제안은 무엇인지 보고 고르는
     /// 자리라, 이미 가진 아이만 셋 뜨면 포인트를 쓸 이유가 없다. 알 뽑기는 이 가중을 안 받는다 —
     /// 무엇이 나올지 모르고 사는 것이 알의 성격이다.
-    private static func offeredIndividual(date: String, slot: Int,
+    private static func offeredIndividual(seed: UInt64, date: String, slot: Int,
                                           index: [BaseSpecies], dex: Set<Int>,
                                           at now: Date) -> Individual {
-        func roll(_ salt: UInt64) -> Double { ProfessorRoll.unit(date: date, slot: slot, salt: salt) }
+        func roll(_ salt: UInt64) -> Double {
+            ProfessorRoll.unit(seed: seed, date: date, slot: slot, salt: salt)
+        }
         let grade = EggBalance.rollGrade(roll(ProfessorRoll.Salt.grade))
         let species = EggBalance.pickSpecies(from: index, grade: grade,
                                              roll: roll(ProfessorRoll.Salt.species),

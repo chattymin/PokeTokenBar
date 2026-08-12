@@ -190,8 +190,8 @@ final class ProfessorTests: XCTestCase {
     func testRollsAreInRangeAndRepeatable() {
         for slot in 0..<3 {
             for salt in [ProfessorRoll.Salt.grade, ProfessorRoll.Salt.species, ProfessorRoll.Salt.shiny] {
-                let a = ProfessorRoll.unit(date: "2026-08-11", slot: slot, salt: salt)
-                XCTAssertEqual(a, ProfessorRoll.unit(date: "2026-08-11", slot: slot, salt: salt))
+                let a = ProfessorRoll.unit(seed: 7, date: "2026-08-11", slot: slot, salt: salt)
+                XCTAssertEqual(a, ProfessorRoll.unit(seed: 7, date: "2026-08-11", slot: slot, salt: salt))
                 XCTAssertGreaterThanOrEqual(a, 0)
                 XCTAssertLessThan(a, 1)
             }
@@ -201,10 +201,10 @@ final class ProfessorTests: XCTestCase {
     /// **자리와 용도가 다르면 값도 달라야 한다.** 같으면 세 자리가 똑같은 포켓몬이 되거나
     /// 등급과 이로치가 붙어 움직인다.
     func testRollsDifferBySlotAndSalt() {
-        let bySlot = (0..<3).map { ProfessorRoll.unit(date: "d", slot: $0, salt: ProfessorRoll.Salt.grade) }
+        let bySlot = (0..<3).map { ProfessorRoll.unit(seed: 7, date: "d", slot: $0, salt: ProfessorRoll.Salt.grade) }
         XCTAssertEqual(Set(bySlot).count, 3, "자리마다 굴림이 같다")
         let bySalt = [ProfessorRoll.Salt.grade, ProfessorRoll.Salt.species, ProfessorRoll.Salt.shiny]
-            .map { ProfessorRoll.unit(date: "d", slot: 0, salt: $0) }
+            .map { ProfessorRoll.unit(seed: 7, date: "d", slot: 0, salt: $0) }
         XCTAssertEqual(Set(bySalt).count, 3, "용도마다 굴림이 같다")
     }
 
@@ -353,6 +353,102 @@ final class ProfessorTests: XCTestCase {
         let reloaded = PlayerStore(fileURL: url, rng: SeededRNG(seed: 1), now: { self.now })
         XCTAssertEqual(reloaded.state.professorOffers.map(\.individual.speciesID), species)
         XCTAssertEqual(reloaded.state.professorOfferDate, "2026-08-11")
+    }
+
+    // MARK: 사람마다 다른 제안 (2026-08-12 회귀)
+    //
+    // 제안이 날짜·자리·용도로만 결정돼 **같은 날 모든 설치가 같은 세 마리**를 받았다. 기존
+    // 테스트가 못 걸른 이유는 분명하다 — `unit` 에 사용자가 아예 없어서 "다른 사람끼리 다른가"를
+    // **물어볼 수조차 없었다**. 안정성(같은 날 = 같은 셋)만 잠겨 있었고, 그 테스트는 결함이
+    // 있을 때도 똑같이 통과한다. 아래 셋이 그 질문을 처음으로 던진다.
+
+    /// **시드가 다르면 굴림이 다르다.** 다른 축(날짜·자리·용도)은 이미 잠겨 있으므로
+    /// 여기서는 시드만 바꾼다 — 다른 것을 같이 바꾸면 무엇이 값을 갈랐는지 알 수 없다.
+    func testRollsDifferBySeed() {
+        let bySeed = (1...8).map {
+            ProfessorRoll.unit(seed: UInt64($0), date: "d", slot: 0, salt: ProfessorRoll.Salt.grade)
+        }
+        XCTAssertEqual(Set(bySeed).count, 8, "시드가 달라도 굴림이 같다 — 전원이 같은 제안을 받는다")
+    }
+
+    /// **다른 두 사용자가 같은 날 다른 제안을 받는다.** 후보가 5종뿐이라 하루치는 우연히
+    /// 겹칠 수 있어 여러 날을 이어 붙여 비교한다 — 열흘이 통째로 같으면 그건 우연이 아니다.
+    func testTwoPlayersGetDifferentOffersOnTheSameDays() {
+        func offers(of store: PlayerStore) -> [String] {
+            (11...20).map { day in
+                store.update(todayTokens: day, todayDate: "2026-08-\(day)", hasUsageData: true)
+                store.refreshProfessorOffers(index: index())
+                return store.state.professorOffers
+                    .map { "\($0.individual.speciesID)/\($0.individual.grade)/\($0.individual.nature)" }
+                    .joined(separator: ",")
+            }
+        }
+        let mine = offers(of: makeStore(seed: 1))
+        let theirs = offers(of: makeStore(seed: 99))
+
+        XCTAssertEqual(mine.count, 10)
+        XCTAssertNotEqual(mine, theirs, "두 사용자가 열흘 내내 같은 제안을 받는다")
+    }
+
+    /// **시드는 세이브에 산다 — 파일을 옮기면 따라간다.** 설정(UserDefaults)에 뒀다면 세이브를
+    /// 옮긴 순간 제안이 통째로 갈린다. 파일만 복사한 새 스토어가(난수기는 일부러 다르게 준다)
+    /// 같은 제안을 뽑아야 한다.
+    func testTheSeedTravelsWithTheSaveFile() throws {
+        let origin = FileManager.default.temporaryDirectory
+            .appendingPathComponent("prof-seed-a-\(UUID().uuidString).json")
+        let store = PlayerStore(fileURL: origin, rng: SeededRNG(seed: 1), now: { self.now })
+        store.update(todayTokens: 0, todayDate: "2026-08-11", hasUsageData: true)
+        store.refreshProfessorOffers(index: index())
+        let species = store.state.professorOffers.map(\.individual.speciesID)
+
+        // 다른 기기로 세이브만 옮긴 상황 — 난수기가 다르므로 시드를 세이브에서 못 읽으면 갈린다.
+        let moved = origin.deletingLastPathComponent()
+            .appendingPathComponent("prof-seed-b-\(UUID().uuidString).json")
+        try FileManager.default.copyItem(at: origin, to: moved)
+        let elsewhere = PlayerStore(fileURL: moved, rng: SeededRNG(seed: 12345), now: { self.now })
+        XCTAssertEqual(elsewhere.state.offerSeed, store.state.offerSeed, "시드가 안 따라왔다")
+
+        // 옮긴 쪽에서 다시 굴려도(오늘 치를 지우고) 같은 셋이어야 한다.
+        elsewhere.mutate { $0.professorOfferDate = "" }
+        elsewhere.refreshProfessorOffers(index: index())
+        XCTAssertEqual(elsewhere.state.professorOffers.map(\.individual.speciesID), species,
+                       "세이브를 옮겼더니 제안이 갈렸다")
+    }
+
+    /// **시드는 첫 기동에 생겨 저장된다.** 저장을 빼먹으면 매 기동 새로 만들어져 오늘의 제안이
+    /// 앱을 껐다 켤 때마다 바뀐다 — 결정적 굴림을 쓴 이유가 통째로 사라진다.
+    func testTheSeedIsCreatedOnceAndPersisted() {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("prof-seed-\(UUID().uuidString).json")
+        let first = PlayerStore(fileURL: url, rng: SeededRNG(seed: 1), now: { self.now })
+        XCTAssertNotEqual(first.state.offerSeed, 0, "시드가 안 만들어졌다")
+
+        // 난수기를 일부러 다르게 준다 — 저장된 값을 안 읽으면 여기서 갈린다.
+        let second = PlayerStore(fileURL: url, rng: SeededRNG(seed: 777), now: { self.now })
+        XCTAssertEqual(second.state.offerSeed, first.state.offerSeed, "기동할 때마다 시드가 새로 생긴다")
+    }
+
+    /// **개인화는 내일부터 — 오늘 치는 안 건드린다.** 1.6.0 세이브가 올라오는 그 순간
+    /// 이미 열어 보거나 데려온 자리가 다른 포켓몬으로 바뀌면 안 된다.
+    func testUpgradingAnOldSaveKeepsTodaysOffersAndPersonalisesTomorrow() {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("prof-legacy-\(UUID().uuidString).json")
+        let old = PlayerStore(fileURL: url, rng: SeededRNG(seed: 1), now: { self.now })
+        old.update(todayTokens: 0, todayDate: "2026-08-11", hasUsageData: true)
+        old.refreshProfessorOffers(index: index())
+        let today = old.state.professorOffers.map(\.individual.speciesID)
+        // 시드가 없던 시절의 세이브로 되돌린다 — 업그레이드 직전 상태.
+        old.mutate { $0.offerSeed = 0 }
+
+        let upgraded = PlayerStore(fileURL: url, rng: SeededRNG(seed: 42), now: { self.now })
+        XCTAssertNotEqual(upgraded.state.offerSeed, 0, "업그레이드된 세이브에 시드가 안 생겼다")
+        upgraded.refreshProfessorOffers(index: index())
+        XCTAssertEqual(upgraded.state.professorOffers.map(\.individual.speciesID), today,
+                       "오늘 치가 다시 굴려졌다 — 이미 연 카드가 다른 포켓몬으로 바뀐다")
+
+        upgraded.update(todayTokens: 1, todayDate: "2026-08-12", hasUsageData: true)
+        upgraded.refreshProfessorOffers(index: index())
+        XCTAssertEqual(upgraded.state.professorOfferDate, "2026-08-12", "다음 날 제안이 안 갈렸다")
     }
 
     /// 가격표.
