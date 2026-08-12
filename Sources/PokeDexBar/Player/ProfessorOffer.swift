@@ -7,6 +7,12 @@ import Foundation
 struct ProfessorOffer: Codable, Sendable, Equatable, Identifiable {
     var id = UUID()
     var individual: Individual
+    /// 오늘 이미 열어 봤나. **제안은 가려진 채로 온다** — 미리 등급을 보이면 전설은 열기 전에
+    /// 이미 알아버려서 터지는 연출이 확인 절차로 전락한다.
+    ///
+    /// 개체 자체는 뽑을 때 이미 다 정해져 여기 들어 있다(그래야 보이는 것과 받는 것이 안 갈린다).
+    /// 이 플래그는 데이터가 아니라 **아직 안 보여준다**는 표시다.
+    var opened = false
     /// 오늘 이미 데려갔나. 배열에서 빼지 않고 표시로 남긴다 — 빈 칸 두 개보다 "셋 중 하나는
     /// 이미 데려갔다" 가 사용자에게 더 정확하다.
     var claimed = false

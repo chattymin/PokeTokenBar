@@ -298,6 +298,7 @@ final class ProfessorTests: XCTestCase {
         let offer = store.state.professorOffers[0]
         let price = ProfessorBalance.price(grade: offer.individual.grade)
 
+        store.openProfessorOffer(offerID: offer.id)
         let taken = store.acceptProfessorOffer(offerID: offer.id)
         XCTAssertEqual(taken?.speciesID, offer.individual.speciesID)
         XCTAssertEqual(taken?.shiny, offer.individual.shiny)
@@ -313,6 +314,7 @@ final class ProfessorTests: XCTestCase {
         let store = preparedStore()
         store.mutate { $0.researchPoints = 1000 }
         let offer = store.state.professorOffers[0]
+        store.openProfessorOffer(offerID: offer.id)
         store.acceptProfessorOffer(offerID: offer.id)
 
         XCTAssertEqual(store.state.professorOffers.count, 3, "자리가 없어졌다")
@@ -552,6 +554,7 @@ final class ProfessorTests: XCTestCase {
             $0.researchPoints = 1000
         }
         let offerID = store.state.professorOffers[0].id
+        store.openProfessorOffer(offerID: offerID)
         XCTAssertNotNil(store.acceptProfessorOffer(offerID: offerID), "교환이 실패했다")
         XCTAssertTrue(HatchSpeedup.present(in: store.state.box), "박스에 감면 대상이 없다")
 
@@ -634,6 +637,10 @@ final class ProfessorTests: XCTestCase {
     func testInvokingARecordedActionMovesThePokemonIntoTheBox() {
         let store = threeOfferStore(points: 1000)
         let rareOffer = store.state.professorOffers[1]   // 25P 자리 — 결정적으로 지목한다
+        // 제안은 이제 가려진 채로 온다 — 열어야 교환할 수 있다.
+        for offer in store.state.professorOffers {
+            store.openProfessorOffer(offerID: offer.id)
+        }
 
         _ = hostedOfferSection(store)
         guard let recorded = ProfessorOfferButton.constructed.first(where: {

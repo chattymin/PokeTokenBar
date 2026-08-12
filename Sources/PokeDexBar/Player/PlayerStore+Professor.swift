@@ -112,10 +112,23 @@ extension PlayerStore {
         return individual
     }
 
+    /// 제안 한 칸을 연다. 이미 열었거나 없는 자리면 nil — 그때는 연출도 다시 안 뜬다.
+    ///
+    /// **값은 안 든다.** 여는 것은 무엇인지 보는 일이고, 값은 데려갈 때 치른다.
+    @discardableResult
+    func openProfessorOffer(offerID: UUID) -> Individual? {
+        guard let slot = state.professorOffers.firstIndex(where: { $0.id == offerID }),
+              !state.professorOffers[slot].opened else { return nil }
+        let individual = state.professorOffers[slot].individual
+        mutate { $0.professorOffers[slot].opened = true }
+        return individual
+    }
+
     /// 제안을 교환한다. 포인트가 모자라거나 이미 데려간 자리면 nil — **이때 차감도 없다.**
     @discardableResult
     func acceptProfessorOffer(offerID: UUID) -> Individual? {
         guard let slot = state.professorOffers.firstIndex(where: { $0.id == offerID }),
+              state.professorOffers[slot].opened,          // 안 연 것은 못 데려간다
               !state.professorOffers[slot].claimed else { return nil }
         let offer = state.professorOffers[slot]
         let price = ProfessorBalance.price(grade: offer.individual.grade)
