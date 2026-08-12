@@ -29,6 +29,34 @@ extension PlayerStore {
         return points
     }
 
+    /// 여러 마리를 한 번에 보낸다. 보낼 수 없는 id(파트너·박스에 없는 개체)는 건너뛰고 나머지를
+    /// 보내며, 돌려주는 값은 **실제로 보낸 만큼**의 포인트 합이다.
+    ///
+    /// **한 번의 `mutate`** 로 끝난다 — 마리마다 `releaseToProfessor` 를 부르면 저장이 스무 번
+    /// 일어나고, 중간에 실패하면 절반만 나간 상태가 남는다.
+    ///
+    /// 파트너를 거르는 것은 화면이 아니라 여기다. 화면이 못 고르게 돼 있어도 마지막 방어선은
+    /// 스토어여야 한다 — 파트너가 사라지면 함께한 시계와 폼 상태가 통째로 없어진다.
+    @discardableResult
+    func releaseManyToProfessor(individualIDs: [UUID]) -> Int {
+        // 같은 id 가 두 번 들어와도 한 번만 — 값이 두 배로 잡히면 포인트가 공짜로 는다.
+        var seen = Set<UUID>()
+        let sendable = individualIDs.filter { seen.insert($0).inserted }
+            .compactMap { id -> (UUID, Int)? in
+                guard let individual = state.box.first(where: { $0.id == id }),
+                      let points = releaseValue(individual) else { return nil }
+                return (id, points)
+            }
+        guard !sendable.isEmpty else { return 0 }
+        let total = sendable.reduce(0) { $0 + $1.1 }
+        let ids = Set(sendable.map(\.0))
+        mutate { s in
+            s.box.removeAll { ids.contains($0.id) }
+            s.researchPoints = min(ReleaseBalance.maxPoints, s.researchPoints + total)
+        }
+        return total
+    }
+
     /// 오늘의 제안을 준비한다. 이미 오늘 것이 있거나 인덱스가 아직 없으면 아무것도 하지 않는다.
     ///
     /// 인덱스가 네트워크로 오므로 이 함수는 하루에 여러 번 불릴 수 있다 — 그래도 `ProfessorRoll`
