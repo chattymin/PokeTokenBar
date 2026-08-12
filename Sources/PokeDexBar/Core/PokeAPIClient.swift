@@ -244,20 +244,21 @@ actor PokeAPIClient: PokeProviding {
     }
 
     private func node(from link: ChainLink, parentLevel: Int = 1) -> EvoNode {
-        let raw = Self.requirement(from: link.evolution_details, parentLevel: parentLevel)
+        let speciesID = Self.id(from: link.species.url ?? "")
+        let raw = Self.requirement(from: link.evolution_details, speciesID: speciesID, parentLevel: parentLevel)
         let myLevel = if case .level(let n) = raw { n } else { parentLevel }
-        return EvoNode(speciesID: Self.id(from: link.species.url ?? ""),
+        return EvoNode(speciesID: speciesID,
                        children: link.evolves_to.map { node(from: $0, parentLevel: myLevel) },
                        requirementRaw: raw)
     }
 
     /// 조건 목록 → 이 앱이 쓰는 요구 조건. 여러 건이면 **재현 가능한 것 중 첫 번째**를 쓴다
     /// (버전별로 갈리는 경우가 있고, 그중 하나만 만족하면 되는 것이 본가 규칙이다). 우선순위는
-    /// 도구 → 통신교환 → 든 도구 → 친밀도 → 명시된 레벨 → 레벨 규칙(미명시) 순으로 고정이다.
-    /// 통신교환은 도구가 따로 없으므로 연결의 끈으로 대신한다 — 이 앱에는 교환 상대가 없다.
-    /// `parentLevel` 은 이 갈래 바로 앞 단계가 도달한 레벨(뿌리는 1) — 레벨이 안 적힌 갈래의
-    /// 하한 계산(`EvoBalance`)에 쓴다.
-    static func requirement(from details: [EvolutionDetail]?, parentLevel: Int) -> EvoRequirementRaw {
+    /// 도구 → 통신교환 → 든 도구 → 친밀도 → 명시된 레벨 → **카탈로그(레벨이 안 적힌 31종)** →
+    /// 레벨 규칙(그 외 미명시) 순으로 고정이다. 통신교환은 도구가 따로 없으므로 연결의 끈으로
+    /// 대신한다 — 이 앱에는 교환 상대가 없다. `speciesID` 는 카탈로그 조회 키, `parentLevel` 은
+    /// 이 갈래 바로 앞 단계가 도달한 레벨(뿌리는 1) — 레벨이 안 적힌 갈래의 하한 계산(`EvoBalance`)에 쓴다.
+    static func requirement(from details: [EvolutionDetail]?, speciesID: Int, parentLevel: Int) -> EvoRequirementRaw {
         guard let details, !details.isEmpty else { return .none }
         for d in details {
             if let item = d.item?.name, EvolutionItem.named(item) != nil { return .item(item) }
@@ -276,8 +277,11 @@ actor PokeAPIClient: PokeProviding {
         }
         for d in details where (d.min_happiness ?? 0) > 0 { return .friendship }
         if let stated = details.compactMap(\.min_level).min() { return .level(stated) }
-        // 레벨이 안 적힌 갈래(장소·기술 등 이 앱이 재현 못 하는 조건)는 앞 단계 레벨 위로
-        // 일정 간격 띄운 값으로 채운다 — `.none` 으로 두면 조건 없이 즉시 진화해 버린다.
+        // PokéAPI 가 레벨을 아예 안 주는 31종(기술·전투·조작 조건)은 이 앱이 옮긴 표를 먼저 본다 —
+        // `min_level` 이 없을 때만 의미가 있으므로 명시된 레벨보다 뒤, 일반 폴백보다는 앞이다.
+        if let override = UnstatedEvolutionCatalog.override(speciesID: speciesID) { return override }
+        // 카탈로그에도 없는(장소 등) 갈래는 앞 단계 레벨 위로 일정 간격 띄운 값으로 채운다 —
+        // `.none` 으로 두면 조건 없이 즉시 진화해 버린다.
         return .level(max(parentLevel + EvoBalance.marginOverParent, EvoBalance.unstatedLevel))
     }
     private func allIDs(_ n: EvoNode) -> [Int] { [n.speciesID] + n.children.flatMap(allIDs) }
