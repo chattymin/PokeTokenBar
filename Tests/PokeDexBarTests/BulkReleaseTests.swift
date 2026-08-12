@@ -144,4 +144,54 @@ final class BulkReleaseTests: XCTestCase {
         store.releaseManyToProfessor(individualIDs: [slugma.id, other.id])
         XCTAssertFalse(HatchSpeedup.present(in: store.state.box), "보냈는데 감면이 남았다")
     }
+
+    // MARK: 선택 모드
+
+    /// 고를 수 있는 아이인가 — **판정은 `releaseValue` 하나**다. 화면이 조건을 따로 적으면
+    /// 스토어와 갈린다(이 기능에서 실제로 한 번 났다).
+    func testOnlySendableIndividualsArePickable() {
+        let store = makeStore()
+        let partner = make(.common, path: [1]), other = make(.common, path: [4])
+        store.addForTesting(partner); store.addForTesting(other)
+        store.setPartner(partner.id)
+
+        XCTAssertFalse(BoxTabView.isPickable(partner, store: store), "파트너를 고를 수 있다")
+        XCTAssertTrue(BoxTabView.isPickable(other, store: store))
+    }
+
+    /// 고른 아이들의 합계 — 바에 적히는 값이다.
+    func testPickedTotalIsTheSumOfTheirValues() {
+        let store = makeStore()
+        let keep = make(.common, path: [1])
+        let a = make(.epic, path: [4, 5, 6]), b = make(.rare, path: [25])
+        for individual in [keep, a, b] { store.addForTesting(individual) }
+        store.setPartner(keep.id)
+
+        XCTAssertEqual(BoxTabView.pickedTotal([a, b], store: store),
+                       store.releaseValue(a)! + store.releaseValue(b)!)
+        XCTAssertEqual(BoxTabView.pickedTotal([], store: store), 0)
+    }
+
+    /// 화면이 실제로 일괄 경로에 닿아 있다 — 안 닿으면 고를 수는 있는데 보낼 수가 없다.
+    func testTheBoxReachesTheBulkPath() throws {
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let text = try String(contentsOf: root.appendingPathComponent(
+            "Sources/PokeDexBar/UI/BoxTabView.swift"), encoding: .utf8)
+        XCTAssertTrue(text.contains("releaseManyToProfessor"), "박스에 일괄 보내기가 없다")
+        XCTAssertTrue(text.contains("BulkRelease.confirmSteps"), "확인 단계 규칙을 안 쓴다")
+        XCTAssertFalse(text.contains(".help("), "안 뜨는 툴팁이 들어왔다")
+    }
+
+    /// 문구가 세 언어를 다 채운다.
+    func testBulkStringsCoverAllThreeLanguages() {
+        for lang in AppLanguage.allCases {
+            let l = L(lang)
+            XCTAssertFalse(l.bulkSelect.isEmpty, "\(lang)")
+            XCTAssertFalse(l.bulkDone.isEmpty, "\(lang)")
+            XCTAssertFalse(l.bulkPicked(3, 18).isEmpty, "\(lang)")
+            XCTAssertFalse(l.bulkConfirm(3).isEmpty, "\(lang)")
+            XCTAssertFalse(l.bulkConfirmRisky("파이리").isEmpty, "\(lang)")
+        }
+    }
 }

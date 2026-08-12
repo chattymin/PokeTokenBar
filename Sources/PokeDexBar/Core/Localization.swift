@@ -243,6 +243,23 @@ struct L {
     }
     var sendCancel: String { t("그만두기", "Keep it", "やめる") }
     var sendNow: String { t("보내기", "Send", "おくる") }
+    /// 박스의 선택 모드 — 여러 마리를 골라 한 번에 보낸다.
+    var bulkSelect: String { t("선택", "Select", "えらぶ") }
+    var bulkDone: String { t("완료", "Done", "おわり") }
+    func bulkPicked(_ count: Int, _ points: Int) -> String {
+        t("\(count)마리 · +\(points)P", "\(count) selected · +\(points)P",
+          "\(count)ひき · +\(points)P")
+    }
+    func bulkConfirm(_ count: Int) -> String {
+        t("\(count)마리를 보냅니다. 돌아오지 않아요.",
+          "Sending \(count). This cannot be undone.",
+          "\(count)ひきをおくります。もどってきません。")
+    }
+    /// 배치에 이로치·전설이 섞였을 때 **그 아이들만 이름으로** 불러 준다 — 스무 마리를 다
+    /// 나열하면 아무도 안 읽는다.
+    func bulkConfirmRisky(_ names: String) -> String {
+        t("\(names)가 들어 있어요", "\(names) is in this batch", "\(names)がふくまれています")
+    }
     var professorOffersTitle: String { t("박사의 제안", "The Professor's offer", "はかせのていあん") }
     func researchPoints(_ points: Int) -> String {
         t("\(points)P", "\(points)P", "\(points)P")

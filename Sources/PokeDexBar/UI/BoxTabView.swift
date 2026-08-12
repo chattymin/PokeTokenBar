@@ -36,6 +36,17 @@ struct BoxTabView: View {
         return min(1, max(0, Double(individual.exp) / Double(threshold)))
     }
 
+    /// 이 개체를 골라 담을 수 있나. **판정은 `releaseValue` 하나** — 파트너면 nil 이다.
+    /// 화면이 "파트너인가"를 따로 적으면 스토어와 갈린다.
+    @MainActor static func isPickable(_ individual: Individual, store: PlayerStore) -> Bool {
+        store.releaseValue(individual) != nil
+    }
+
+    /// 고른 아이들을 보내면 받을 포인트 합.
+    @MainActor static func pickedTotal(_ individuals: [Individual], store: PlayerStore) -> Int {
+        individuals.reduce(0) { $0 + (store.releaseValue($1) ?? 0) }
+    }
+
     /// 획득 순(오래된 것부터). 본가 PC 처럼 **자리가 고정**돼야 보관함으로 읽힌다 —
     /// 최신순이면 한 마리 얻을 때마다 전부 한 칸씩 밀려 어제 본 자리에 없다.
     private var sorted: [Individual] {
@@ -66,6 +77,13 @@ struct BoxTabView: View {
     private let columns = Array(repeating: GridItem(.fixed(48), spacing: 5),
                                 count: BoxTabView.columnCount)
     @State private var page = 0
+    /// 선택 모드인가. 모드 밖에서는 칸을 누르면 지금처럼 상세로 간다 —
+    /// **되돌릴 수 없는 조작으로 가는 문은 눌러서 연다.**
+    @State private var selecting = false
+    /// 골라 담은 아이들. 페이지를 넘겨도 유지된다 — 30칸을 넘겨 정리하는 것이 이 기능의 이유다.
+    @State private var picked: Set<UUID> = []
+    /// 확인이 몇 단계까지 진행됐나. 0 이면 아직 안 눌렀다.
+    @State private var bulkStep = 0
 
     var body: some View {
         Group {
@@ -104,8 +122,21 @@ struct BoxTabView: View {
                                 isPartner: individual.id == store.state.partnerID,
                                 ribbon: individual.ribbon(at: store.currentDate()),
                                 canEvolve: readyToEvolve(individual),
-                                partnerBadge: l.partnerBadge, fillFrame: fillFrame) {
-                            selection = individual.id
+                                partnerBadge: l.partnerBadge,
+                                picked: selecting && picked.contains(individual.id),
+                                fillFrame: fillFrame) {
+                            if selecting {
+                                // 못 고르는 아이(파트너)를 눌러도 아무 일도 안 일어난다.
+                                guard Self.isPickable(individual, store: store) else { return }
+                                if picked.contains(individual.id) {
+                                    picked.remove(individual.id)
+                                } else {
+                                    picked.insert(individual.id)
+                                }
+                                bulkStep = 0   // 담은 것이 바뀌면 확인은 처음부터
+                            } else {
+                                selection = individual.id
+                            }
                         }
                         // 진화 가능 표시를 그리려면 라인이 필요하다 — 보이는 칸만 요청한다.
                         .task(id: individual.baseID) {
@@ -122,6 +153,7 @@ struct BoxTabView: View {
                 RoundedRectangle(cornerRadius: 10)
                     .strokeBorder(Color.secondary.opacity(0.22), lineWidth: 1)
             }
+            if selecting { bulkBar }
             if store.state.box.isEmpty {
                 Text(l.boxEmpty).font(.system(size: 10)).foregroundStyle(.tertiary)
             }
@@ -144,6 +176,15 @@ struct BoxTabView: View {
             pageButton(systemName: "chevron.right", enabled: currentPage < pageCount - 1) {
                 page = currentPage + 1
             }
+            Button(selecting ? l.bulkDone : l.bulkSelect) {
+                selecting.toggle()
+                // 모드를 나가면 담은 것도 확인 단계도 비운다 — 다음에 열었을 때 지난 선택이
+                // 남아 있으면 무엇을 보내는지 모르는 채로 누르게 된다.
+                if !selecting { picked = []; bulkStep = 0 }
+            }
+            .buttonStyle(.plain)
+            .font(.system(size: 10, weight: .medium))
+            .foregroundStyle(Color.accentColor)
         }
     }
 
@@ -167,6 +208,65 @@ struct BoxTabView: View {
             .frame(width: 48, height: 50)
     }
 
+    /// 고른 아이들을 한 번에 보내는 바. 단일 보내기와 같은 방식으로 **버튼 자리가 확인으로
+    /// 바뀐다** — 이 앱에는 확인 다이얼로그 전례가 없고 팝오버 안에서는 help 툴팁 수정자조차 안 뜬다.
+    @ViewBuilder
+    private var bulkBar: some View {
+        let chosen = store.state.box.filter { picked.contains($0.id) }
+        let steps = BulkRelease.confirmSteps(for: chosen)
+        VStack(alignment: .leading, spacing: 4) {
+            if bulkStep > 0 {
+                Text(l.bulkConfirm(chosen.count))
+                    .font(.system(size: 9)).foregroundStyle(.secondary)
+                // 위험한 아이들만 이름으로 — 스무 마리를 다 나열하면 아무도 안 읽는다.
+                let names = BulkRelease.risky(chosen).map {
+                    $0.displayName(speciesName: Self.speciesName($0, in: lines, store.language),
+                                   store.language)
+                }
+                if !names.isEmpty {
+                    Text(l.bulkConfirmRisky(names.joined(separator: " · ")))
+                        .font(.system(size: 9, weight: .semibold)).foregroundStyle(.orange)
+                }
+            }
+            HStack(spacing: 6) {
+                Text(l.bulkPicked(chosen.count, Self.pickedTotal(chosen, store: store)))
+                    .font(.system(size: 10, weight: .medium)).monospacedDigit()
+                Spacer()
+                if bulkStep > 0 {
+                    Button(l.sendCancel) { bulkStep = 0 }
+                        .buttonStyle(.plain).font(.system(size: 10))
+                        .foregroundStyle(.secondary)
+                }
+                Button(l.sendNow) {
+                    if bulkStep < steps {
+                        bulkStep += 1
+                    } else {
+                        store.releaseManyToProfessor(individualIDs: Array(picked))
+                        // 모드에는 머무른다 — 정리는 보통 한 번에 안 끝나고, 보낸 직후가
+                        // 다음 것을 고르기 가장 좋은 순간이다. 담은 것만 비운다.
+                        picked = []
+                        bulkStep = 0
+                    }
+                }
+                .buttonStyle(.plain)
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(chosen.isEmpty ? Color.secondary : Color.white)
+                .padding(.horizontal, 8).padding(.vertical, 3)
+                .background(chosen.isEmpty ? Color.secondary.opacity(0.15) : Color.accentColor,
+                            in: RoundedRectangle(cornerRadius: 5))
+                .disabled(chosen.isEmpty)
+            }
+        }
+        .padding(.horizontal, 4)
+    }
+
+    /// 종 이름 — 라인이 아직 없으면 번호로 떨어진다(`Individual.displayName` 이 정한 폴백 형식).
+    @MainActor static func speciesName(_ individual: Individual, in lines: [Int: EvoLine],
+                                       _ lang: AppLanguage) -> String {
+        lines[individual.displayLineID]?.localizedName(individual.displaySpeciesID, lang)
+            ?? "#\(individual.displaySpeciesID)"
+    }
+
     private func readyToEvolve(_ individual: Individual) -> Bool {
         guard let line = lines[individual.baseID] else { return false }
         return store.canEvolve(individual) && !store.evolutionChoices(individual, line: line).isEmpty
@@ -181,6 +281,8 @@ struct BoxCell: View {
     /// 단 리본 — 칸에서 바로 보여야 "오래 데리고 다닌 아이"가 구분되고, 단계까지 읽힌다.
     let ribbon: Ribbon?
     let canEvolve: Bool
+    /// 선택 모드에서 담긴 상태인가. 모드 밖에서는 항상 false 다.
+    let picked: Bool
     let fillFrame: Bool
     let partnerBadge: String
     let onTap: () -> Void
@@ -195,13 +297,15 @@ struct BoxCell: View {
     #endif
 
     init(individual: Individual, isPartner: Bool, ribbon: Ribbon? = nil, canEvolve: Bool,
-         partnerBadge: String, fillFrame: Bool = true, onTap: @escaping () -> Void) {
+         partnerBadge: String, picked: Bool = false, fillFrame: Bool = true,
+         onTap: @escaping () -> Void) {
         self.individual = individual
         self.isPartner = isPartner
         self.ribbon = ribbon
         self.canEvolve = canEvolve
         self.fillFrame = fillFrame
         self.partnerBadge = partnerBadge
+        self.picked = picked
         self.onTap = onTap
         #if DEBUG
         if Self.isRecording { Self.constructed.append((individual.id, onTap)) }
@@ -229,12 +333,20 @@ struct BoxCell: View {
                             .foregroundStyle(Color.accentColor)
                             .offset(x: 3, y: -2)
                     }
+                    if picked {
+                        Image(systemName: "checkmark.circle.fill")
+                            .font(.system(size: 12))
+                            .foregroundStyle(Color.accentColor)
+                            .offset(x: 3, y: -2)
+                    }
                 }
                 // 본가 PC 는 칸에 이름도 게이지도 안 적는다 — 스프라이트가 곧 식별자다.
                 // 지금 손댈 수 있는 것(진화 가능)만 표시하고, 진행도는 상세에서 본다.
             }
             .frame(width: 48, height: 50)
-            .background(isPartner ? Color.accentColor.opacity(0.22) : Color.secondary.opacity(0.16),
+            .background(picked ? Color.accentColor.opacity(0.30)
+                               : (isPartner ? Color.accentColor.opacity(0.22)
+                                            : Color.secondary.opacity(0.16)),
                         in: RoundedRectangle(cornerRadius: 7))
             .overlay {
                 // 파트너는 테두리로, 이로치는 금테로 — 이름표가 없으니 칸 자체가 말해야 한다.
