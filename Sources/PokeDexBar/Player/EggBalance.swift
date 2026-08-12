@@ -77,7 +77,15 @@ enum EggBalance {
     /// 종을 오히려 편애해, "레전더리 5%"를 뽑고 최흔 종을 받는 사태가 난다. 대신 한 단계 아래
     /// 등급에서 다시 찾는다(레전더리 없음 → 에픽 → 레어 → 커먼). 커먼까지 내려가도 비어 있으면
     /// (인덱스 자체가 비어있지 않다고 보장되므로 이론상 불가능한 경우) 최후의 보루로 전체를 쓴다.
-    static func pickSpecies(from index: [BaseSpecies], grade: Grade, roll: Double) -> Int {
+    /// 도감에 없는 종에 주는 배수. **"살짝"이다** — 실제 커먼 풀(252종)로 재면 도감 80% 에서
+    /// 미보유가 뜰 확률이 20% → 43% 가 된다. ×5 면 55% 라 "우선"이 아니라 "거의 항상"이 되고,
+    /// ×2 면 33% 라 하루 세 마리로는 체감이 안 된다.
+    static let unseenBoost = 3
+
+    /// - Parameter unseenIn: 이미 가진 종(`dex`). 주면 그 안에 **없는** 종이 `unseenBoost` 배
+    ///   가중을 받는다. nil 이면 가중을 아예 안 곱한다 — 알 뽑기가 쓰는 기본값이다.
+    static func pickSpecies(from index: [BaseSpecies], grade: Grade, roll: Double,
+                            unseenIn: Set<Int>? = nil) -> Int {
         precondition(!index.isEmpty, "index must not be empty")
         let order = Grade.allCases   // 선언 순서 == common, rare, epic, legendary(낮은 등급 → 높은 등급)
         var candidates: [BaseSpecies] = []
@@ -104,7 +112,19 @@ enum EggBalance {
         // 잡게 되는 아이라 붙은 값이다(테라파고스·무한다이노·네크로즈마). 포획률로 가중하면
         // 이 셋이 각 18.6%, 합쳐서 레전더리 알의 56% 를 차지하고 뮤츠·루기아는 0.22% 가 된다 —
         // 테라파고스가 뮤츠보다 85배 잘 나왔다. 이 풀에서 포획률은 희귀도 정보가 아니라 잡음이다.
-        let weights = candidates.map { resolved == .legendary ? 1 : max(1, $0.captureRate) }
+        // 아직 도감에 없는 종을 밀어 준다 — **`unseenIn` 을 준 호출부만.** nil 이면 곱하는 일
+        // 자체가 없어 알 뽑기의 분포는 한 비트도 안 바뀐다(알은 무엇이 나올지 모르고 사는 것이라
+        // 도감을 봐 주면 그 성격이 달라진다).
+        //
+        // **등급이 정해진 뒤 그 풀 안에서만** 적용한다. 인덱스를 미리 걸러 넘기면, 어떤 등급에
+        // 미보유 종이 하나도 없을 때 위 등급 걷기가 아래 등급으로 내려가 **굴려 놓은 등급이
+        // 바뀐다.** 여기서 곱하면 그런 일이 없다 — 전부 보유한 등급이면 모든 후보가 같은 배수를
+        // 받아 분포가 원래대로 돌아온다.
+        let weights = candidates.map { candidate -> Int in
+            let base = resolved == .legendary ? 1 : max(1, candidate.captureRate)
+            guard let seen = unseenIn else { return base }
+            return seen.contains(candidate.id) ? base : base * unseenBoost
+        }
         let total = weights.reduce(0, +)
         let clampedRoll = min(1, max(0, roll))
         var pick = Int(clampedRoll * Double(total))

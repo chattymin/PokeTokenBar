@@ -196,3 +196,59 @@ final class EggTests: XCTestCase {
         XCTAssertEqual(egg(hatchesIn: 60).remaining(at: now.addingTimeInterval(999)), 0)
     }
 }
+
+/// 도감에 없는 종 밀어주기 — 박사의 제안만 쓴다.
+final class UnseenBoostTests: XCTestCase {
+    private func index() -> [BaseSpecies] {
+        // 전부 커먼(포획률 >120)이고 값이 같아, 가중 차이는 도감 여부에서만 온다.
+        (1...4).map { BaseSpecies(id: $0, captureRate: 200, isLegendary: false, isMythical: false) }
+    }
+
+    /// **`unseenIn` 을 안 주면 알 뽑기의 분포가 한 비트도 안 바뀐다.** 알은 무엇이 나올지
+    /// 모르고 사는 것이라 도감을 봐 주면 성격이 달라진다.
+    func testOmittingTheDexLeavesTheDistributionUntouched() {
+        for i in 0..<400 {
+            let roll = Double(i) / 400
+            XCTAssertEqual(EggBalance.pickSpecies(from: index(), grade: .common, roll: roll),
+                           EggBalance.pickSpecies(from: index(), grade: .common, roll: roll,
+                                                  unseenIn: nil),
+                           "roll \(roll)")
+        }
+    }
+
+    /// 미보유 종이 보유 종보다 자주 나온다 — 배수만큼.
+    func testUnseenSpeciesComeUpMoreOften() {
+        var counts: [Int: Int] = [:]
+        let samples = 2000
+        for i in 0..<samples {
+            let chosen = EggBalance.pickSpecies(from: index(), grade: .common,
+                                                roll: Double(i) / Double(samples),
+                                                unseenIn: [1, 2])   // 3·4 가 미보유
+            counts[chosen, default: 0] += 1
+        }
+        let seen = (counts[1] ?? 0) + (counts[2] ?? 0)
+        let unseen = (counts[3] ?? 0) + (counts[4] ?? 0)
+        // 같은 포획률 2:2 이므로 미보유 쪽이 정확히 `unseenBoost` 배.
+        XCTAssertEqual(Double(unseen) / Double(seen), Double(EggBalance.unseenBoost),
+                       accuracy: 0.05, "seen \(seen) unseen \(unseen)")
+    }
+
+    /// **그 등급을 다 모았으면 분포가 원래대로 돌아온다** — 모두가 같은 배수를 받으므로.
+    /// 인덱스를 미리 걸러 넘겼다면 여기서 등급이 아래로 내려갔을 자리다.
+    func testAFullyCollectedGradeFallsBackToTheNormalDistribution() {
+        let all: Set<Int> = [1, 2, 3, 4]
+        for i in 0..<400 {
+            let roll = Double(i) / 400
+            XCTAssertEqual(EggBalance.pickSpecies(from: index(), grade: .common, roll: roll,
+                                                  unseenIn: all),
+                           EggBalance.pickSpecies(from: index(), grade: .common, roll: roll),
+                           "roll \(roll)")
+        }
+    }
+
+    /// 배수는 "살짝" 이다 — 1 이면 기능이 없는 것이고, 너무 크면 우선이 아니라 확정이 된다.
+    func testTheBoostIsModest() {
+        XCTAssertGreaterThan(EggBalance.unseenBoost, 1)
+        XCTAssertLessThanOrEqual(EggBalance.unseenBoost, 4)
+    }
+}

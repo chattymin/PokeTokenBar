@@ -67,7 +67,8 @@ extension PlayerStore {
         let date = state.lastDate
         let offers = (0..<ProfessorBalance.offerCount).map { slot in
             ProfessorOffer(individual: Self.offeredIndividual(date: date, slot: slot,
-                                                              index: index, at: currentDate()))
+                                                              index: index, dex: state.dex,
+                                                              at: currentDate()))
         }
         mutate {
             $0.professorOfferDate = date
@@ -80,12 +81,17 @@ extension PlayerStore {
     ///
     /// **이로치 부적은 안 본다.** 이건 박사가 가진 아이지 사용자의 운이 아니고, 부적을 하루
     /// 중간에 사면 이미 뜬 제안과 앞뒤가 안 맞는다.
+    /// **도감에 없는 종을 밀어 준다**(`EggBalance.unseenBoost`). 제안은 무엇인지 보고 고르는
+    /// 자리라, 이미 가진 아이만 셋 뜨면 포인트를 쓸 이유가 없다. 알 뽑기는 이 가중을 안 받는다 —
+    /// 무엇이 나올지 모르고 사는 것이 알의 성격이다.
     private static func offeredIndividual(date: String, slot: Int,
-                                          index: [BaseSpecies], at now: Date) -> Individual {
+                                          index: [BaseSpecies], dex: Set<Int>,
+                                          at now: Date) -> Individual {
         func roll(_ salt: UInt64) -> Double { ProfessorRoll.unit(date: date, slot: slot, salt: salt) }
         let grade = EggBalance.rollGrade(roll(ProfessorRoll.Salt.grade))
         let species = EggBalance.pickSpecies(from: index, grade: grade,
-                                             roll: roll(ProfessorRoll.Salt.species))
+                                             roll: roll(ProfessorRoll.Salt.species),
+                                             unseenIn: dex)
         let natures = PokemonNature.allCases
         let nature = natures[Int(roll(ProfessorRoll.Salt.nature) * Double(natures.count))
                              % natures.count]
