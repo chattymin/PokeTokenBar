@@ -218,45 +218,54 @@ final class BlindOfferTests: XCTestCase {
         }
     }
 
-    /// 화면이 여는 경로와 연출에 닿아 있다 — 안 닿으면 영원히 못 연다.
+    /// 화면이 여는 경로에 닿아 있다 — 안 닿으면 영원히 못 연다.
     ///
-    /// **소스 스캔이라 배선의 옳고 그름은 못 잰다** — `openProfessorOffer`/`onReveal` 이라는
-    /// 글자가 파일 어딘가에 있다는 것만 본다. 엉뚱한 자리를 열거나 잘못된 등급을 연출에 넘겨도
-    /// 이 테스트는 그대로 통과한다. 그 구멍은 아래 "실제로 그려 본다" 절의 네 테스트가 메운다.
-    /// 그래도 남겨 두는 이유는 둘: ① 배선 자체가 통째로 삭제되는 큰 퇴행을 값싸게 잡고, ②
-    /// `ShopTabView` 가 `onReveal:` 을 실제로 받는지는 `ProfessorOfferSection` 만 그리는 아래
-    /// 렌더 테스트로는 못 본다 — 상점까지 올라가는 배선은 여전히 이 문자열 검사가 유일하다.
-    func testTheSectionReachesTheOpenPathAndTheReveal() throws {
+    /// **소스 스캔이라 배선의 옳고 그름은 못 잰다** — `openProfessorOffer` 라는 글자가 파일
+    /// 어딘가에 있다는 것만 본다. 엉뚱한 자리를 열어도 이 테스트는 그대로 통과한다. 그 구멍은
+    /// 아래 "실제로 그려 본다" 절의 테스트들이 메운다. 그래도 남겨 두는 이유는 배선 자체가
+    /// 통째로 삭제되는 큰 퇴행을 값싸게 잡기 위해서다.
+    func testTheSectionReachesTheOpenPath() throws {
         let root = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
         let section = try String(contentsOf: root.appendingPathComponent(
             "Sources/PokeDexBar/UI/ProfessorOfferSection.swift"), encoding: .utf8)
         XCTAssertTrue(section.contains("openProfessorOffer"), "여는 경로에 안 닿는다")
-        XCTAssertTrue(section.contains("onReveal"), "연출을 요청하지 않는다")
         XCTAssertFalse(section.contains(".help("), "안 뜨는 툴팁이 들어왔다")
+    }
 
+    /// **개봉 연출은 상점을 덮지 않는다.** 전면 오버레이(`EggRevealView`)는 알 뽑기의 자리다 —
+    /// 세 칸을 하나씩 뒤집어 보는 리듬을 화면 전체를 덮어 끊으면 안 된다. 상점이 제안 섹션에
+    /// 연출 콜백을 다시 물리면 그 순간 되돌아간 것이므로, 그 배선이 없다는 걸 못으로 박아 둔다.
+    func testTheShopDoesNotWireOffersIntoTheFullScreenReveal() throws {
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
         let shop = try String(contentsOf: root.appendingPathComponent(
             "Sources/PokeDexBar/UI/ShopTabView.swift"), encoding: .utf8)
-        XCTAssertTrue(shop.contains("onReveal:"), "상점이 연출 요청을 안 받는다")
+        XCTAssertFalse(shop.contains("onReveal:"), "제안 개봉이 다시 전면 오버레이로 갔다")
     }
 
     // MARK: 닫힌 카드 — 실제로 그려 본다
     //
-    // 위 `testTheSectionReachesTheOpenPathAndTheReveal` 은 문자열만 본다 — 버튼이 엉뚱한 자리를
-    // 열거나, `onReveal` 에 잘못된 등급·이로치를 넘기거나, 이미 연 카드에 열기 버튼이 새로 그려지는
-    // 결함은 못 잡는다(`ProfessorOfferButton` 계열 결함과 같은 부류). `ProfessorTests.hostedOfferSection`
+    // 위 `testTheSectionReachesTheOpenPath` 는 문자열만 본다 — 버튼이 엉뚱한 자리를 열거나,
+    // 잘못된 등급으로 연출이 뜨거나, 이미 연 카드에 열기 버튼이 새로 그려지는 결함은 못 잡는다
+    // (`ProfessorOfferButton` 계열 결함과 같은 부류). `ProfessorTests.hostedOfferSection`
     // 과 같은 패턴으로 실제 뷰를 그리고, `ProfessorClosedOfferButton` 이 기록한 동작을 직접 불러
     // 배선 자체를 검증한다.
 
-    private func hostedOfferSection(
-        _ store: PlayerStore, onReveal: @escaping (Grade, Bool) -> Void = { _, _ in }
-    ) -> NSHostingView<AnyView> {
+    @discardableResult
+    private func hostedOfferSection(_ store: PlayerStore) -> NSHostingView<AnyView> {
         ProfessorClosedOfferButton.resetConstructed()
+        OfferRevealBurst.resetConstructed()
         let host = NSHostingView(rootView: AnyView(
-            ProfessorOfferSection(store: store, provider: StubOfferProvider(), onReveal: onReveal)
+            ProfessorOfferSection(store: store, provider: StubOfferProvider())
                 .frame(width: PopoverMetrics.width)))
         host.layoutSubtreeIfNeeded()
         return host
+    }
+
+    /// SwiftUI 는 상태가 바뀐 그 자리에서 다시 그리지 않는다 — 런루프를 잠깐 돌려 줘야 한다.
+    private func pump(_ seconds: TimeInterval) {
+        RunLoop.current.run(until: Date().addingTimeInterval(seconds))
     }
 
     /// **세 자리가 서로 다른 등급·이로치를 갖는 제안.** 무작위 뽑기(`prepared`)는 세 자리가 같은
@@ -309,24 +318,36 @@ final class BlindOfferTests: XCTestCase {
                        "지목한 자리가 아니라 엉뚱한 자리가 열렸다")
     }
 
-    /// **`onReveal` 이 그 자리의 등급·이로치를 그대로 받는다.** 세 자리가 서로 다른
+    /// **연출은 연 카드 안에서, 그 자리의 등급으로 뜬다.** 세 자리가 서로 다른
     /// (`distinctOfferStore`) 상태에서 검사해야 한다 — 셋이 같은 등급이면 엉뚱한 자리를 열어도,
     /// 값을 하드코딩해도 이 단언이 우연히 참이 되어 아무것도 증명하지 못한다.
-    func testOnRevealFiresWithThatOffersGradeAndShiny() {
+    func testOpeningACardPlaysTheBurstWithThatOffersGrade() {
         let store = distinctOfferStore()
-        let target = store.state.professorOffers[1]   // rare, 이로치 — 나머지 두 자리와 둘 다 다르다
-        var revealed: (grade: Grade, shiny: Bool)?
+        let target = store.state.professorOffers[1]   // rare — 나머지 두 자리(common·legendary)와 다르다
 
-        _ = hostedOfferSection(store, onReveal: { grade, shiny in revealed = (grade, shiny) })
+        let host = hostedOfferSection(store)
         guard let recorded = ProfessorClosedOfferButton.constructed.first(where: {
             $0.offerID == target.id
         }) else {
             return XCTFail("그 자리의 열기 버튼이 안 떴다: \(ProfessorClosedOfferButton.constructed.map(\.offerID))")
         }
         recorded.action()
+        host.layoutSubtreeIfNeeded()
+        pump(0.05)
 
-        XCTAssertEqual(revealed?.grade, target.individual.grade, "연출에 넘긴 등급이 그 자리 것이 아니다")
-        XCTAssertEqual(revealed?.shiny, target.individual.showsShiny, "연출에 넘긴 이로치 여부가 그 자리 것이 아니다")
+        XCTAssertEqual(OfferRevealBurst.constructed, [target.individual.grade],
+                       "연출이 그 자리 등급으로 안 떴다: \(OfferRevealBurst.constructed)")
+    }
+
+    /// **안 연 카드에는 연출이 없다.** 위 테스트가 "떴다"만 보므로, 아무 카드에나 늘 뜨는
+    /// 구현도 통과한다 — 여는 동작을 한 번도 안 부른 대조군이 그 구멍을 막는다.
+    func testNoBurstPlaysBeforeAnyCardIsOpened() {
+        let store = distinctOfferStore()
+
+        hostedOfferSection(store)
+        pump(0.05)
+
+        XCTAssertEqual(OfferRevealBurst.constructed, [], "아무도 안 열었는데 연출이 떴다")
     }
 
     /// **이미 연 카드는 열기 버튼을 안 남긴다.** 닫힌 분기가 열린 상태로 새면 이미 연 자리에
