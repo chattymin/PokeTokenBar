@@ -141,6 +141,11 @@ final class LevelEvolutionTests: XCTestCase {
         XCTAssertEqual(store.state.box.count, 2, "껍질몬이 안 생겼다")
         XCTAssertTrue(store.state.box.contains { $0.speciesID == 292 })
         XCTAssertTrue(store.state.dex.contains(292), "도감에 껍질몬이 안 들어갔다")
+        // 껍질몬은 `state.box[index]`(아이스크가 된 그 슬롯)를 통째로 복사해 만든다 — `id` 를
+        // 새로 갈아 끼우지 않으면 두 개체가 같은 id 를 공유해, id 로 찾는 모든 경로(파트너 지정,
+        // 박사에게 보내기, 재진화)가 둘 중 아무거나를 집거나 둘 다를 건드리는 식으로 어긋난다.
+        XCTAssertEqual(Set(store.state.box.map(\.id)).count, store.state.box.count,
+                       "껍질몬이 아이스크와 id 를 공유한다")
     }
 
     /// 껍질몬은 **토중몬일 때만** 생긴다 — 아무 진화에나 딸려 나오면 안 된다.
@@ -173,6 +178,7 @@ final class LevelEvolutionTests: XCTestCase {
         nincada.partnerTokens = 42
         nincada.candyProgress = 12_345
         nincada.partnerStintsEnded = 3
+        nincada.eggProgress = 555_555
         store.mutate { $0.box = [nincada] }
 
         XCTAssertTrue(store.evolve(individualID: nincada.id, to: 291, line: line))
@@ -182,11 +188,15 @@ final class LevelEvolutionTests: XCTestCase {
         XCTAssertEqual(shedinja?.partnerTokens, 0, "껍질몬이 이싱카의 사탕 진행 토큰을 물려받았다")
         XCTAssertEqual(shedinja?.candyProgress, 0, "껍질몬이 이싱카의 사탕 진행분을 물려받았다")
         XCTAssertEqual(shedinja?.partnerStintsEnded, 0, "껍질몬이 이싱카의 파트너 교체 횟수를 물려받았다")
+        // eggProgress 도 같은 부류의 "공짜 출발" 이다 — 이미 쌓인 알 진행분을 물려받으면 방금 생긴
+        // 껍질몬이 부화 직전 상태로 등장한다.
+        XCTAssertEqual(shedinja?.eggProgress, 0, "껍질몬이 이싱카의 알 진행분을 물려받았다")
 
         // 대조군 — 껍질몬을 낳은 아이스크 본체는 이싱카의 기록을 그대로 이어받아야 한다
         // (같은 개체가 진화한 것이지, 새로 생긴 것이 아니다).
         let ninjask = store.state.box.first { $0.speciesID == 291 }
         XCTAssertEqual(ninjask?.partnerSeconds, 999_999, "아이스크는 이싱카의 파트너 시간을 이어받아야 한다")
         XCTAssertEqual(ninjask?.partnerTokens, 42)
+        XCTAssertEqual(ninjask?.eggProgress, 555_555, "아이스크는 이싱카의 알 진행분을 이어받아야 한다")
     }
 }
