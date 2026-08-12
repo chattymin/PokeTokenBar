@@ -112,4 +112,60 @@ final class BlindOfferTests: XCTestCase {
         XCTAssertTrue(store.state.professorOffers.allSatisfy { !$0.opened },
                       "새 날인데 열린 채로 왔다")
     }
+
+    /// **마이그레이션:** 업그레이드 전 저장에 opened 키가 없어도 제안을 버리지 않고 닫힌 상태로 복구한다.
+    /// 손쓴 디코더 없이는 DecodingError.keyNotFound 로 제안 전체가 nil 이 되고, LossyProfessorOffer 의
+    /// try? 가 걸러 같은 날 업그레이드한 사용자는 제안 패널이 비어 있다가 자정까지 기다린다.
+    func testLegacySaveWithoutOpenedFieldSurvivesAndLoadsAsClosed() {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("legacy-offer-\(UUID().uuidString).json")
+
+        // 오래된 저장 형식 — opened 키 없음
+        let legacyJSON = """
+        {
+            "professorOfferDate": "2026-08-12",
+            "professorOffers": [
+                {
+                    "id": "550E8400-E29B-41D4-A716-446655440000",
+                    "individual": {
+                        "id": "12345678-1234-1234-1234-123456789001",
+                        "baseID": 1,
+                        "speciesID": 1,
+                        "pathIDs": [1],
+                        "shiny": false,
+                        "nature": "hardy",
+                        "exp": 0,
+                        "partnerTokens": 0,
+                        "partnerSeconds": 0,
+                        "candyProgress": 0,
+                        "partnerSince": null,
+                        "obtainedAt": "2023-11-14T22:13:20Z",
+                        "grade": "common",
+                        "form": null,
+                        "region": null,
+                        "regionVariant": null,
+                        "partnerStintsEnded": 0,
+                        "formBroken": false,
+                        "birthForm": null,
+                        "disguisedAs": null
+                    },
+                    "claimed": false
+                }
+            ]
+        }
+        """
+
+        try? legacyJSON.data(using: .utf8)?.write(to: url)
+
+        // 레거시 저장 로드 — opened 키가 없어도 제안이 살아남는다
+        let decoder = JSONDecoder()
+        if let data = try? Data(contentsOf: url),
+           let state = try? decoder.decode(PlayerState.self, from: data) {
+            XCTAssertEqual(state.professorOffers.count, 1, "제안이 드러났다")
+            XCTAssertFalse(state.professorOffers[0].opened, "레거시 제안이 열린 상태로 왔다")
+            XCTAssertFalse(state.professorOffers[0].claimed, "클레임 상태가 안 맞는다")
+        } else {
+            XCTFail("레거시 저장을 디코드할 수 없다")
+        }
+    }
 }

@@ -12,10 +12,50 @@ struct ProfessorOffer: Codable, Sendable, Equatable, Identifiable {
     ///
     /// 개체 자체는 뽑을 때 이미 다 정해져 여기 들어 있다(그래야 보이는 것과 받는 것이 안 갈린다).
     /// 이 플래그는 데이터가 아니라 **아직 안 보여준다**는 표시다.
+    ///
+    /// **손쓴 디코더가 있는 이유:** Swift의 합성 Decodable은 기본값이 있는 필드라도 키가 없으면
+    /// DecodingError.keyNotFound 를 던진다. 기존 저장에서 이 필드가 없는 제안이 전부 드러나면
+    /// (LossyProfessorOffer의 try? 로 nil → compactMap 제거) 사용자는 같은 날 업그레이드 중엔
+    /// 제안 패널이 비어 있다가 자정에 새로 뽑을 때까지 본다. 손쓴 init(from:) 은 opened 이 없는
+    /// 레거시 저장을 받아들여 기본값으로 닫힌 상태로 복구한다. 필드를 더할 때 같은 처리가 필요하면
+    /// decodeIfPresent 를 써서 기본값을 제공하고, 진짜로 깨진 개체는 id/individual 을 strict 로
+    /// 두어 여전히 LossyProfessorOffer 에서 nil 이 되게 한다.
     var opened = false
     /// 오늘 이미 데려갔나. 배열에서 빼지 않고 표시로 남긴다 — 빈 칸 두 개보다 "셋 중 하나는
     /// 이미 데려갔다" 가 사용자에게 더 정확하다.
     var claimed = false
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case individual
+        case opened
+        case claimed
+    }
+
+    init(individual: Individual, id: UUID = UUID(), opened: Bool = false, claimed: Bool = false) {
+        self.id = id
+        self.individual = individual
+        self.opened = opened
+        self.claimed = claimed
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        individual = try container.decode(Individual.self, forKey: .individual)
+        // opened 은 기존 저장에서 빠질 수 있다 — 기본값으로 false 를 쓴다.
+        opened = try container.decodeIfPresent(Bool.self, forKey: .opened) ?? false
+        // claimed 도 같은 이유로 tolerant 하게 한다.
+        claimed = try container.decodeIfPresent(Bool.self, forKey: .claimed) ?? false
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(individual, forKey: .individual)
+        try container.encode(opened, forKey: .opened)
+        try container.encode(claimed, forKey: .claimed)
+    }
 }
 
 /// 박사와의 거래 밸런스.
