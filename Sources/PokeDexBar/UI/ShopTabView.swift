@@ -43,7 +43,9 @@ struct ShopTabView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 12) {
                 walletRow
-                ProfessorOfferSection(store: store, provider: provider, lines: lines, onNeedLine: onNeedLine)
+                ProfessorOfferSection(store: store, provider: provider, lines: lines,
+                                      onNeedLine: onNeedLine,
+                                      onReveal: { grade, shiny in reveal = (grade, shiny) })
                 Divider()
                 drawSection
                 slotSection

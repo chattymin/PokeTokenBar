@@ -931,20 +931,25 @@ final class ScreenshotGeneratorTests: XCTestCase {
         // 는 이 `fixture` 를 안 쓰고 자기만의 픽스처를 새로 만들므로, 여기서 더한 카드가 뽑기
         // 연출(`revealAnimation`)의 그리기 비용을 늘려 실시간 캡처 타이밍을 밀어내지 않는다
         // (실측: 여기 대신 `makeFixture` 안에 심었더니 연출 오버레이 착지가 실패했다).
+        //
+        // 세 자리 중 하나(이로치 자리)는 **닫힌 채로** 둔다 — README 그림이 이 기능(가려진 채로
+        // 와서 한 칸씩 연다)을 보여 주려면 닫힌 카드가 실제로 찍혀야 한다. 데려간 자리는 열어야만
+        // 데려갈 수 있으므로(스토어 가드) opened 를 같이 켠다 — 안 그러면 실제로는 못 만드는 조합이다.
         fixture.player.mutate {
             $0.researchPoints = 40
             $0.professorOfferDate = $0.lastDate
             $0.professorOffers = [
                 ProfessorOffer(individual: Individual(baseID: 25, speciesID: 25, pathIDs: [25],
                                                       nature: .jolly, obtainedAt: ScreenshotFixture.now,
-                                                      grade: .common)),
+                                                      grade: .common),
+                              opened: true),
                 ProfessorOffer(individual: Individual(baseID: 700, speciesID: 700, pathIDs: [700],
                                                       shiny: true, nature: .modest,
                                                       obtainedAt: ScreenshotFixture.now, grade: .epic)),
                 ProfessorOffer(individual: Individual(baseID: 133, speciesID: 133, pathIDs: [133],
                                                       nature: .calm, obtainedAt: ScreenshotFixture.now,
                                                       grade: .rare),
-                              claimed: true),
+                              opened: true, claimed: true),
             ]
         }
 
@@ -1061,14 +1066,20 @@ final class ScreenshotGeneratorTests: XCTestCase {
 
         // 오늘의 제안 — 오프스크린 렌더는 `.task` 를 안 돌리므로 직접 채운다(`makeFixture` 와
         // 같은 이유, 헤더 주석 참고).
+        //
+        // 전설 자리는 **닫힌 채로** 둔다 — 이 배너가 이 브랜치가 여는 화면(가려진 채로 와서
+        // 한 칸씩 연다)의 대표 그림이라, 닫힌 카드가 실제로 찍혀야 한다. 나머지 둘은 열어 카드
+        // 본문(스프라이트·이름·가격, 이로치 자리는 금테까지)도 같이 보이게 한다.
         store.mutate {
             $0.researchPoints = 40
             $0.professorOffers = [
                 ProfessorOffer(individual: Individual(baseID: 25, speciesID: 25, pathIDs: [25],
-                                                      nature: .jolly, obtainedAt: now, grade: .common)),
+                                                      nature: .jolly, obtainedAt: now, grade: .common),
+                              opened: true),
                 ProfessorOffer(individual: Individual(baseID: 4, speciesID: 4, pathIDs: [4],
                                                       shiny: true, nature: .modest, obtainedAt: now,
-                                                      grade: .epic)),
+                                                      grade: .epic),
+                              opened: true),
                 ProfessorOffer(individual: Individual(baseID: 150, speciesID: 150, pathIDs: [150],
                                                       nature: .calm, obtainedAt: now, grade: .legendary)),
             ]

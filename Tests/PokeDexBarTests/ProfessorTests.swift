@@ -583,13 +583,17 @@ final class ProfessorTests: XCTestCase {
     /// 수 있어, 가격으로 카드 수를 세는 근거가 안 된다. `NSHostingView` 는 측정·배치 두 패스로
     /// body 를 두 번 평가하므로(`constructed` 가 매번 그만큼 쌓인다) `.count` 를 그대로 못 쓴다 —
     /// 값(가격) 의 **Set** 으로 세면 중복 패스와 무관하게 "몇 종류의 카드가 떴나"를 잰다.
+    ///
+    /// 셋 다 **이미 연 채로** 만든다 — 이 아래 테스트들은 카드 본문(스프라이트·이름·가격·버튼)
+    /// 렌더를 검증하고, 그건 연 카드에서만 그려진다. 닫힌 채 렌더되는 걸 보고 싶으면
+    /// `BlindOfferTests.testAClosedCardSaysNothingAboutWhatIsInside` 를 본다.
     private func threeOfferStore(points: Int) -> PlayerStore {
         let store = makeStore()
         store.mutate {
             $0.professorOfferDate = "2026-08-11"
-            $0.professorOffers = [ProfessorOffer(individual: make(.common, path: [1])),
-                                  ProfessorOffer(individual: make(.rare, path: [4])),
-                                  ProfessorOffer(individual: make(.epic, path: [25]))]
+            $0.professorOffers = [ProfessorOffer(individual: make(.common, path: [1]), opened: true),
+                                  ProfessorOffer(individual: make(.rare, path: [4]), opened: true),
+                                  ProfessorOffer(individual: make(.epic, path: [25]), opened: true)]
             $0.researchPoints = points
         }
         return store
@@ -637,10 +641,6 @@ final class ProfessorTests: XCTestCase {
     func testInvokingARecordedActionMovesThePokemonIntoTheBox() {
         let store = threeOfferStore(points: 1000)
         let rareOffer = store.state.professorOffers[1]   // 25P 자리 — 결정적으로 지목한다
-        // 제안은 이제 가려진 채로 온다 — 열어야 교환할 수 있다.
-        for offer in store.state.professorOffers {
-            store.openProfessorOffer(offerID: offer.id)
-        }
 
         _ = hostedOfferSection(store)
         guard let recorded = ProfessorOfferButton.constructed.first(where: {

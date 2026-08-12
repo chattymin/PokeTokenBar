@@ -168,4 +168,54 @@ final class BlindOfferTests: XCTestCase {
             XCTFail("레거시 저장을 디코드할 수 없다")
         }
     }
+
+    // MARK: 닫힌 카드가 무엇을 말하나
+
+    /// **닫힌 카드는 종·등급·가격을 한 글자도 안 말한다.** 블라인드가 새는 것은 "안 보이게
+    /// 했다고 생각했는데 라벨에 남아 있는" 식으로 일어나므로, 소스 스캔이 아니라 **닫힌 상태에서
+    /// 실제로 그리는 문자열**을 검사한다.
+    func testAClosedCardSaysNothingAboutWhatIsInside() {
+        let store = prepared()
+        let offer = store.state.professorOffers[0]
+        let l = store.l
+        let shown = ProfessorOfferSection.closedCardText(l: l)
+
+        let grade = offer.individual.grade
+        XCTAssertFalse(shown.contains(grade.label(store.language)), "등급이 샜다: \(shown)")
+        XCTAssertFalse(shown.contains("\(ProfessorBalance.price(grade: grade))"),
+                       "가격이 샜다: \(shown)")
+        XCTAssertFalse(shown.contains("\(offer.individual.displaySpeciesID)"),
+                       "종 번호가 샜다: \(shown)")
+    }
+
+    /// 세 칸이 **같은 문구**를 쓴다 — 칸마다 다르면 그 차이가 곧 힌트다.
+    func testEveryClosedCardLooksTheSame() {
+        let store = prepared()
+        let texts = store.state.professorOffers.map { _ in
+            ProfessorOfferSection.closedCardText(l: store.l)
+        }
+        XCTAssertEqual(Set(texts).count, 1, "닫힌 카드가 서로 다르다: \(texts)")
+    }
+
+    /// 문구가 세 언어를 다 채운다.
+    func testBlindStringsCoverAllThreeLanguages() {
+        for lang in AppLanguage.allCases {
+            XCTAssertFalse(L(lang).offerOpen.isEmpty, "\(lang)")
+        }
+    }
+
+    /// 화면이 여는 경로와 연출에 닿아 있다 — 안 닿으면 영원히 못 연다.
+    func testTheSectionReachesTheOpenPathAndTheReveal() throws {
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let section = try String(contentsOf: root.appendingPathComponent(
+            "Sources/PokeDexBar/UI/ProfessorOfferSection.swift"), encoding: .utf8)
+        XCTAssertTrue(section.contains("openProfessorOffer"), "여는 경로에 안 닿는다")
+        XCTAssertTrue(section.contains("onReveal"), "연출을 요청하지 않는다")
+        XCTAssertFalse(section.contains(".help("), "안 뜨는 툴팁이 들어왔다")
+
+        let shop = try String(contentsOf: root.appendingPathComponent(
+            "Sources/PokeDexBar/UI/ShopTabView.swift"), encoding: .utf8)
+        XCTAssertTrue(shop.contains("onReveal:"), "상점이 연출 요청을 안 받는다")
+    }
 }

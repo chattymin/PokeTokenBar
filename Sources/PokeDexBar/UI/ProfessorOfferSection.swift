@@ -13,6 +13,9 @@ struct ProfessorOfferSection: View {
     /// `onNeedLine` 으로 요청하고 번호로 떨어진다(`Individual.displayName` 의 fallback).
     var lines: [Int: EvoLine] = [:]
     var onNeedLine: (Int) -> Void = { _ in }
+    /// 카드를 열었을 때 연출을 띄워 달라고 상점에 알린다 — 오버레이는 상점이 소유한다
+    /// (알 뽑기 결과가 쓰는 그 자리이고, 섹션 안에 덮으면 카드 세 장 위에만 깔린다).
+    var onReveal: (Grade, Bool) -> Void = { _, _ in }
 
     /// 받아 온 후보. 네트워크로 오므로 처음엔 비어 있고, 그동안은 준비 중이라고 적는다.
     @State private var index: [BaseSpecies] = []
@@ -55,6 +58,10 @@ struct ProfessorOfferSection: View {
         }
     }
 
+    /// 닫힌 카드에 적히는 문자열 전부. **순수 함수로 뽑아 두는 이유는 새는지 검사하기 위해서다** —
+    /// 종·등급·가격이 한 글자도 안 들어가야 하고, 그건 눈이 아니라 테스트가 봐야 한다.
+    nonisolated static func closedCardText(l: L) -> String { l.offerOpen }
+
     /// 종 번호 → 현지화 이름. 라인이 아직 없으면 요청해 두고 번호로 떨어진다 — 정체를 감추면
     /// (`PlayerStore+Professor.swift` 의 위장 금지 결정과 같은 이유로) 안 된다.
     private func name(_ individual: Individual) -> String {
@@ -66,38 +73,59 @@ struct ProfessorOfferSection: View {
     @ViewBuilder
     private func card(_ offer: ProfessorOffer) -> some View {
         let individual = offer.individual
-        let price = ProfessorBalance.price(grade: individual.grade)
-        let affordable = store.state.researchPoints >= price
-        VStack(spacing: 3) {
-            SpriteView(speciesID: individual.displaySpeciesID, form: individual.spriteForm,
-                       size: 40, shiny: individual.showsShiny)
-                .frame(width: 40, height: 40)
-            Text(name(individual))
-                .font(.system(size: 8, weight: .medium))
-                .lineLimit(1).minimumScaleFactor(0.7)
-            Text(individual.grade.label(store.language))
-                .font(.system(size: 8)).foregroundStyle(.secondary)
-            if offer.claimed {
-                Text(l.offerTaken).font(.system(size: 9)).foregroundStyle(.tertiary)
-            } else {
-                ProfessorOfferButton(title: l.offerPrice(price), affordable: affordable) {
-                    store.acceptProfessorOffer(offerID: offer.id)
+        if !offer.opened {
+            // 박사가 아직 들고 있다 — 얼굴을 흐리게 깔아 "누가 쥐고 있는지"만 말하고
+            // 무엇인지는 아무것도 안 말한다.
+            Button {
+                if let taken = store.openProfessorOffer(offerID: offer.id) {
+                    onReveal(taken.grade, taken.showsShiny)
+                }
+            } label: {
+                VStack(spacing: 3) {
+                    ProfessorIcon(size: 30).opacity(0.35)
+                    Text(Self.closedCardText(l: l))
+                        .font(.system(size: 9, weight: .medium))
+                        .foregroundStyle(Color.accentColor)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(6)
+                .background(Color.secondary.opacity(0.10), in: RoundedRectangle(cornerRadius: 8))
+            }
+            .buttonStyle(.plain)
+        } else {
+            let price = ProfessorBalance.price(grade: individual.grade)
+            let affordable = store.state.researchPoints >= price
+            VStack(spacing: 3) {
+                SpriteView(speciesID: individual.displaySpeciesID, form: individual.spriteForm,
+                           size: 40, shiny: individual.showsShiny)
+                    .frame(width: 40, height: 40)
+                Text(name(individual))
+                    .font(.system(size: 8, weight: .medium))
+                    .lineLimit(1).minimumScaleFactor(0.7)
+                Text(individual.grade.label(store.language))
+                    .font(.system(size: 8)).foregroundStyle(.secondary)
+                if offer.claimed {
+                    Text(l.offerTaken).font(.system(size: 9)).foregroundStyle(.tertiary)
+                } else {
+                    ProfessorOfferButton(title: l.offerPrice(price), affordable: affordable) {
+                        store.acceptProfessorOffer(offerID: offer.id)
+                    }
                 }
             }
-        }
-        .frame(maxWidth: .infinity)
-        .opacity(offer.claimed ? 0.5 : 1)
-        .padding(6)
-        .background(Color.secondary.opacity(0.10), in: RoundedRectangle(cornerRadius: 8))
-        .overlay {
-            // 이로치 표시 — 칸 테두리를 금테로. 박스 칸(`BoxCell`)과 같은 처리를 그대로 쓴다
-            // (새 표현을 발명하지 않는다 — 카드마다 이로치가 다른 뜻이 되면 안 된다).
-            RoundedRectangle(cornerRadius: 8)
-                .strokeBorder(individual.showsShiny ? Color.yellow.opacity(0.85) : .clear, lineWidth: 1.2)
-        }
-        .task(id: individual.displayLineID) {
-            // 이름은 네트워크로 온다 — 없으면 요청해 두고, 오는 대로 카드가 채워진다.
-            if lines[individual.displayLineID] == nil { onNeedLine(individual.displayLineID) }
+            .frame(maxWidth: .infinity)
+            .opacity(offer.claimed ? 0.5 : 1)
+            .padding(6)
+            .background(Color.secondary.opacity(0.10), in: RoundedRectangle(cornerRadius: 8))
+            .overlay {
+                // 이로치 표시 — 칸 테두리를 금테로. 박스 칸(`BoxCell`)과 같은 처리를 그대로 쓴다
+                // (새 표현을 발명하지 않는다 — 카드마다 이로치가 다른 뜻이 되면 안 된다).
+                RoundedRectangle(cornerRadius: 8)
+                    .strokeBorder(individual.showsShiny ? Color.yellow.opacity(0.85) : .clear, lineWidth: 1.2)
+            }
+            .task(id: individual.displayLineID) {
+                // 이름은 네트워크로 온다 — 없으면 요청해 두고, 오는 대로 카드가 채워진다.
+                if lines[individual.displayLineID] == nil { onNeedLine(individual.displayLineID) }
+            }
         }
     }
 }

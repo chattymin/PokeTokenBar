@@ -279,6 +279,8 @@ struct L {
         t("오늘의 제안을 준비하고 있어요", "Getting today's offer ready",
           "きょうのていあんをじゅんびしています")
     }
+    /// 가려진 카드에 적히는 말. **세 칸이 같은 문구**를 쓴다 — 칸마다 다르면 그 차이가 곧 힌트다.
+    var offerOpen: String { t("열어보기", "Open", "あけてみる") }
     var detailNoCandy: String {
         t("가진 사탕이 없어요 (상점)", "No candy yet (Shop)", "アメがありません(ショップ)")
     }
