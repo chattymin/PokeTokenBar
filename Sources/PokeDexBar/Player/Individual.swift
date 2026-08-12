@@ -44,6 +44,13 @@ struct Individual: Identifiable, Codable, Sendable, Equatable {
     /// 달라진다. `partnerSeconds > 0` 으로 파생시키지 않는 이유도 같다 — 1초 미만으로 교체하면
     /// 그 값이 0이라, 대체로 맞을 뿐 사실 자체가 아니다.
     var partnerStintsEnded = 0
+    /// 이 개체의 경험치 곡선. **개체가 들고 다니는** 이유는 `GrowthRate` 주석에 있다 —
+    /// 레벨 계산 자리에 네트워크가 없기 때문이다. 진화하면 새 종의 것으로 갱신한다.
+    var growthRate: GrowthRate = .mediumFast
+    /// 알 계량기. 파트너인 동안 쓴 **토큰**만큼 찬다(EXP 가 아니다 — 임계가 토큰 단위다).
+    /// `exp` 와 서로를 깎지 않는다. 예전에는 `exp` 하나가 두 역할을 겸했고, 그것 때문에
+    /// 등급이 경험치에 끼어들어야 했다.
+    var eggProgress = 0
     /// 맞아서 겉모습이 깨졌나(따라큐의 탈, 빙큐보의 얼음머리).
     ///
     /// 파트너에서 내려오면 돌아온다(`PlayerStore.closePartnerStint`) — 그 아이의 배틀이
@@ -129,6 +136,9 @@ struct Individual: Identifiable, Codable, Sendable, Equatable {
     /// 몇 번째 형태인가(0 = 아직 안 진화). 경로가 비어도 음수로 새지 않는다.
     var stageIndex: Int { max(0, pathIDs.count - 1) }
 
+    /// 지금 레벨. 경험치에서 파생되므로 따로 저장하지 않는다 — 저장하면 둘이 어긋날 수 있다.
+    var level: Int { growthRate.level(forExp: exp) }
+
     /// 지금 달고 있는 리본. 파트너로 지낸 누적 시간에서 파생되므로 따로 저장하지 않는다 —
     /// 저장하면 시간과 리본이 어긋날 수 있고, 어느 쪽이 진실인지 애매해진다.
     func ribbon(at now: Date) -> Ribbon? { Ribbon.earned(partnerSeconds: partnerDuration(at: now)) }
@@ -172,7 +182,8 @@ struct Individual: Identifiable, Codable, Sendable, Equatable {
     init(id: UUID = UUID(), baseID: Int, speciesID: Int, pathIDs: [Int], shiny: Bool = false,
          nature: PokemonNature, exp: Int = 0, partnerTokens: Int = 0, partnerSeconds: Int = 0,
          partnerSince: Date? = nil, candyProgress: Int = 0, obtainedAt: Date,
-         grade: Grade, form: String? = nil, region: Region? = nil, regionVariant: String? = nil) {
+         grade: Grade, form: String? = nil, region: Region? = nil, regionVariant: String? = nil,
+         growthRate: GrowthRate = .mediumFast, eggProgress: Int = 0) {
         self.id = id
         self.baseID = baseID
         self.speciesID = speciesID
@@ -189,6 +200,8 @@ struct Individual: Identifiable, Codable, Sendable, Equatable {
         self.form = form
         self.region = region
         self.regionVariant = regionVariant
+        self.growthRate = growthRate
+        self.eggProgress = eggProgress
     }
 
     /// **필드를 더할 때 박스가 통째로 사라지지 않게 하는 장치.**
@@ -223,6 +236,16 @@ struct Individual: Identifiable, Codable, Sendable, Equatable {
         birthForm = value(.birthForm, nil)
         formBroken = value(.formBroken, false)
         partnerStintsEnded = value(.partnerStintsEnded, 0)
+        growthRate = value(.growthRate, .mediumFast)
+        // **레벨 이전 세이브 판별.** `eggProgress` 키가 없으면 `exp` 는 아직 "쓴 토큰" 이다.
+        // 그때는 그 값을 둘로 나눠 준다 — 알 진행분은 그대로 물려주고(쌓아 둔 걸 뺏지 않는다),
+        // 경험치는 환율로 나눠 실제 EXP 로 만든다. 키가 있으면 이미 이전이 끝난 세이브다.
+        if let carried = try? c.decode(Int.self, forKey: .eggProgress) {
+            eggProgress = carried
+        } else {
+            eggProgress = exp
+            exp = exp / ExpBalance.tokensPerExp
+        }
     }
 
     /// 관대 디코딩의 짝 — 값 범위 검증(CLAUDE.md 결함 대응 프로토콜).
@@ -263,6 +286,11 @@ struct Individual: Identifiable, Codable, Sendable, Equatable {
             fixed.disguisedAs = nil
             AppLog.write("Individual: dropped bogus disguise \(disguise) on species \(speciesID)")
         }
+        // 관대 디코딩의 짝 — 산술에 쓰이는 수치는 경계 한 곳에서 자른다(CLAUDE.md).
+        // 자르지 않으면 `Int.max` 가 그대로 저장돼 이후 덧셈이 오버플로 트랩으로 프로세스를 죽이고,
+        // 재기동해도 같은 파일을 읽어 또 죽는다.
+        fixed.exp = min(fixed.growthRate.totalExp(at: GrowthRate.maxLevel), max(0, fixed.exp))
+        fixed.eggProgress = min(ExpBalance.eggThreshold(grade: fixed.grade), max(0, fixed.eggProgress))
         return fixed
     }
 }

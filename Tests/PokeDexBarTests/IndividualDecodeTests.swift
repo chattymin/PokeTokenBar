@@ -16,7 +16,10 @@ final class IndividualForwardCompatibilityTests: XCTestCase {
     func testLegacyIndividualStillDecodes() throws {
         let individual = try JSONDecoder().decode(Individual.self, from: Data(legacy.utf8))
         XCTAssertEqual(individual.speciesID, 17)
-        XCTAssertEqual(individual.exp, 1234)
+        // `eggProgress` 키가 없는 옛 세이브라 레벨 이전이 발동한다 — `exp` 는 원래 쓴 토큰이었으므로
+        // 알 진행분으로 그대로 물려주고, 경험치는 환율로 나눈다(`Individual.init(from:)` 참고).
+        XCTAssertEqual(individual.eggProgress, 1234)
+        XCTAssertEqual(individual.exp, 1234 / ExpBalance.tokensPerExp)
         XCTAssertTrue(individual.shiny)
         XCTAssertEqual(individual.partnerTokens, 0, "없던 필드는 기본값으로 들어와야 한다")
     }

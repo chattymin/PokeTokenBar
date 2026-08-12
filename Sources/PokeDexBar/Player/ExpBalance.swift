@@ -2,6 +2,13 @@ import Foundation
 
 /// 진화 임계. 파트너는 토큰 사용량만큼 경험치를 얻으므로 이 값이 곧 "얼마나 써야 진화하나"다.
 enum ExpBalance {
+    /// 토큰 몇 개가 1EXP 인가. **이 앱의 손잡이**이고, 곡선은 본가 값 그대로다.
+    /// 500인 근거: 실측 하루 평균 3.65억 토큰에서 `mediumFast` 만렙(5억 토큰)이 약 1.5일.
+    static let tokensPerExp = 500
+
+    /// 경험치 사탕 하나가 주는 EXP. 예전 값(1억 토큰)을 환율로 나눈 값이라 **값어치가 안 바뀐다**.
+    static let candyExp = 200_000
+
     /// 등급·단계별 임계. 2→3단계는 1→2단계의 3배 — 뒤로 갈수록 무겁게.
     static func threshold(grade: Grade, stageIndex: Int) -> Int {
         let base: Int = switch grade {
