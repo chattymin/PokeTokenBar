@@ -19,9 +19,9 @@ struct FoundEggAnnouncementCard: View {
     let store: PlayerStore
     /// 지금 데리고 다니는 개체. 없으면(이론상 스타터를 고르면 항상 있다) 카드도 없다.
     let partner: Individual?
-    /// 파트너의 진화 라인. 최종형 판정에 필요한데 네트워크에서 비동기로 온다 — 아직 없으면
-    /// 판단 자체를 보류한다(`PopoverView.showsEvolutionBadge` 와 같은 원칙: 모르면 아무것도
-    /// 보여주지 않는다).
+    /// 파트너의 진화 라인. 발견되는 알의 종 이름(`speciesName`)을 읽는 데 필요한데 네트워크에서
+    /// 비동기로 온다 — 아직 없으면 판단 자체를 보류한다(`PopoverView.showsEvolutionBadge` 와
+    /// 같은 원칙: 모르면 아무것도 보여주지 않는다).
     let line: EvoLine?
 
     #if DEBUG
@@ -41,22 +41,20 @@ struct FoundEggAnnouncementCard: View {
 
     private var l: L { store.l }
 
-    /// 위장 중이 아니고 더 진화할 곳이 없으면 후보다 — 상세 화면의 `isFoundEggCandidate` 와
-    /// **같은 술어**를 그대로 쓴다. 뷰마다 조건을 따로 정의하면 갈릴 수 있다(위장 판정이
-    /// 실제로 한 번 갈린 적이 있다).
+    /// 위장 중이 아니고 라인이 있으면 후보다. **더 이상 최종형일 필요가 없다** — `eggProgress`
+    /// 가 `exp` 와 분리된 뒤로는 진화 중인 개체도 알을 부를 수 있다(`canTakeFoundEgg` 와 같은
+    /// 판단). 그래서 상세 화면의 `isFoundEggCandidate`(아직 "최종형만" 규칙을 쓴다)를 그대로
+    /// 빌리지 않고 이 카드만의 술어를 둔다.
     private var isCandidate: Bool {
-        guard let partner, let line else { return false }
-        return IndividualDetailView.isFoundEggCandidate(
-            hasLine: true,
-            hasEvolutionChoices: !store.evolutionChoices(partner, line: line).isEmpty,
-            isDisguised: partner.disguisedAs != nil)
+        guard let partner, line != nil else { return false }
+        return partner.disguisedAs == nil
     }
 
-    /// 후보이고 경험치가 알 임계를 채웠으면 카드가 뜬다. **빈 슬롯 여부는 안 본다** —
+    /// 후보이고 알 계량기가 알 임계를 채웠으면 카드가 뜬다. **빈 슬롯 여부는 안 본다** —
     /// 그건 카드가 뜨느냐가 아니라 버튼이 활성이냐만 가른다(상세 화면과 같은 구분).
     private var isReady: Bool {
         guard let partner else { return false }
-        return isCandidate && partner.exp >= ExpBalance.eggThreshold(grade: partner.grade)
+        return isCandidate && partner.eggProgress >= ExpBalance.eggThreshold(grade: partner.grade)
     }
 
     /// 발견되는 알의 종 이름 — **baseID**(원종) 기준. 리자몽 파트너가 알리는 건 파이리 알이다.

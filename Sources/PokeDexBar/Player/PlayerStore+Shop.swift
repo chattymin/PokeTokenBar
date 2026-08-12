@@ -2,8 +2,6 @@ import Foundation
 
 /// 상점 — 슬롯 확장과 아이템. 실패한 구매·사용은 재화도 아이템도 건드리지 않는다.
 extension PlayerStore {
-    static let expCandyAmount = 100_000_000
-
     // MARK: 슬롯
 
     /// 다음 슬롯을 산다. 상한이거나 재화가 모자라면 false.
@@ -68,7 +66,10 @@ extension PlayerStore {
         guard count(of: .expCandy) > 0,
               let index = state.box.firstIndex(where: { $0.id == individualID }) else { return false }
         mutate {
-            $0.box[index].exp += PlayerStore.expGain(Self.expCandyAmount, charm: $0.ownsExpCharm)
+            // 사탕은 **경험치**를 준다(알은 안 건드린다) — 만렙 상한도 사용량 갱신과 같다.
+            let cap = $0.box[index].growthRate.totalExp(at: GrowthRate.maxLevel)
+            $0.box[index].exp = min(cap, $0.box[index].exp
+                                    + PlayerStore.expGain(ExpBalance.candyExp, charm: $0.ownsExpCharm))
             Self.consume(.expCandy, in: &$0)
         }
         return true
