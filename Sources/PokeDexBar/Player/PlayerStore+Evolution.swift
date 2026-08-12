@@ -39,31 +39,67 @@ extension PlayerStore {
         }
     }
 
-    /// 진화 실행. 경험치가 모자라거나 트리에서 갈 수 없는 종이거나 조건을 못 채웠으면
-    /// 아무것도 하지 않고 false — 도구도 소모하지 않는다.
+    /// 이 종으로 갈 수 있고, 그 조건을 만족하는가. **경험치 임계는 더 이상 없다** —
+    /// 조건 자체가 게이트다(레벨 진화면 레벨이, 도구 진화면 도구가). 위 `canEvolve(_:)` 는
+    /// "지금 형태에서 아무 갈래로나 갈 수 있나"만 보는 옛 경험치 판정으로, 화면 쪽이 아직
+    /// 그것에 기대고 있어(Task 9 가 정리) 남겨 둔다 — 이건 그와 별개로 **특정 갈래**를 판정한다.
+    func canEvolve(_ individual: Individual, to speciesID: Int, line: EvoLine) -> Bool {
+        evolutionChoices(individual, line: line).contains(speciesID)
+            && meetsRequirement(requirement(for: speciesID, line: line), for: individual)
+    }
+
+    /// 진화 실행. 갈 수 없는 종이거나 조건을 못 채웠으면 아무것도 하지 않고 false —
+    /// 도구도 소모하지 않는다.
     @discardableResult
     func evolve(individualID: UUID, to speciesID: Int, line: EvoLine) -> Bool {
         guard let index = state.box.firstIndex(where: { $0.id == individualID }) else { return false }
         let individual = state.box[index]
-        let need = requirement(for: speciesID, line: line)
-        guard canEvolve(individual),
-              evolutionChoices(individual, line: line).contains(speciesID),
-              meetsRequirement(need, for: individual) else { return false }
-        let threshold = ExpBalance.threshold(grade: individual.grade,
-                                             stageIndex: individual.stageIndex)
+        guard canEvolve(individual, to: speciesID, line: line) else { return false }
         let hadSpeedup = HatchSpeedup.present(in: state.box)
         mutate { state in
             state.box[index].speciesID = speciesID
             state.box[index].pathIDs.append(speciesID)
-            state.box[index].exp = individual.exp - threshold   // 초과분 이월
+            // **경험치는 그대로 둔다.** 본가에서 진화는 레벨을 되돌리지 않는다.
+            // 알 진행분(`eggProgress`)도 마찬가지다 — 두 계량기 모두 진화와 무관하다.
             // 폼은 종에 달린 것이라 진화하면 풀린다 — 피카츄의 거다이맥스를 라이츄가 이어받을 수 없다.
             state.box[index].form = nil
+            // 성장 타입은 종에 달린 것이라 진화하면 새 종의 것으로 갱신한다.
+            if let rate = line.growthRate(of: speciesID) { state.box[index].growthRate = rate }
             state.dex.insert(speciesID)
             // 도구는 소모하지 않는다 — 다시 얻는 값이 며칠의 파트너 시간이라, 없어지면 같은
             // 도구를 두 번째 개체에 쓸 방법이 사실상 없다. 한 번 물어 오면 영구 해금이다.
+
+            // 토중몬(#290) → 아이스크(#291) 진화에 껍질몬(#292)이 딸려 나온다. 본가에서 빈
+            // 몬스터볼에 껍질몬이 남는 것을 옮긴 것 — 요구 조건이 아니라 **부수 효과**라 여기 있다.
+            if Self.shedinjaParent == individual.speciesID, speciesID == Self.shedinjaSibling {
+                var shed = state.box[index]
+                shed.id = UUID()
+                shed.speciesID = Self.shedinjaID
+                shed.pathIDs = individual.pathIDs + [Self.shedinjaID]
+                shed.eggProgress = 0
+                // **파트너로 지낸 기록은 물려주지 않는다.** `state.box[index]` 를 통째로 복사하면
+                // 이싱카와 함께한 시간·리본·사탕 진행분까지 따라와, 방금 생긴 껍질몬이 실제로
+                // 함께한 적 없는 시간을 이미 채운 채 등장한다 — eggProgress 와 같은 부류의
+                // "공짜 출발" 이다. 껍질몬은 지금 막 생긴 개체이므로 그 기록은 0에서 시작한다.
+                shed.partnerSeconds = 0
+                shed.partnerSince = nil
+                shed.partnerTokens = 0
+                shed.candyProgress = 0
+                shed.partnerStintsEnded = 0
+                shed.obtainedAt = currentDate()
+                state.box.append(shed)
+                state.dex.insert(Self.shedinjaID)
+            }
         }
         // 진화로 종이 바뀌면서 알을 빨리 깨우는 아이가 될 수 있다 — 부화와 같은 처리를 받는다.
+        // 껍질몬이 늘어난 뒤(위 `mutate` 가 끝난 뒤) 판정해야, 껍질몬이 바로 그 조건을 채우는
+        // 경우도 놓치지 않는다.
         applyHatchSpeedupIfNewlyEarned(hadSpeedupBefore: hadSpeedup)
         return true
     }
+
+    /// 토중몬(#290) → 아이스크(#291) 진화에 껍질몬(#292)이 딸려 나온다.
+    static let shedinjaParent = 290
+    static let shedinjaSibling = 291
+    static let shedinjaID = 292
 }

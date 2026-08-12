@@ -142,14 +142,14 @@ final class EvolutionGateTests: XCTestCase {
         XCTAssertEqual(store.state.box.first?.speciesID, 2)
     }
 
-    /// 실패한 진화는 도구를 먹지 않는다 — 경험치가 모자란 경우.
+    /// 실패한 진화는 도구를 먹지 않는다 — 트리에 없는 종으로 시도한 경우.
+    /// (도구 진화는 레벨을 안 보므로 "경험치가 모자란" 실패는 더 이상 없다 — Task 7.)
     func testAFailedEvolutionKeepsTheItem() {
         let store = makeStore()
-        let young = Individual(baseID: 1, speciesID: 1, pathIDs: [1], nature: .serious, exp: 0,
-                               obtainedAt: clock, grade: .common)
-        store.addForTesting(young)
+        let individual = ready(store)
         store.grantForTesting(.fireStone)
-        XCTAssertFalse(store.evolve(individualID: young.id, to: 2, line: line(.item("fire-stone"))))
+        XCTAssertFalse(store.evolve(individualID: individual.id, to: 99,
+                                    line: line(.item("fire-stone"))), "라인에 없는 종인데 된다")
         XCTAssertEqual(store.count(of: .fireStone), 1, "실패한 진화가 도구를 먹었다")
     }
 

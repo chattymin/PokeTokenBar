@@ -41,11 +41,11 @@ final class EvolutionTests: XCTestCase {
 
     private func partner(of store: PlayerStore) -> Individual { store.state.partner! }
 
-    /// 파트너의 경험치를 직접 끌어올린다. 진화 임계(`ExpBalance.threshold`)는 아직 옛
-    /// "토큰=경험치" 규모(5천만+)를 쓰는데, `update` 는 이제 환율(÷500)과 성장 곡선 만렙 상한이
-    /// 걸려 있어 그 규모에 영원히 못 닿는다(mediumFast 만렙이 100만 EXP 다 — Task 7 이 진화
-    /// 조건을 실제 레벨로 바꾼다). 이 스위트가 보는 것은 진화 자체의 동작이지 토큰→경험치
-    /// 환산이 아니므로, 경험치는 직접 꽂는다.
+    /// 파트너의 경험치를 직접 끌어올린다. 옛 경험치 임계(`ExpBalance.threshold`, 5천만+)는
+    /// `canEvolve(_:)`(1-인자, 화면이 아직 쓴다 — Task 9 가 정리) 에만 남아 있는데, `update` 는
+    /// 이제 환율(÷500)과 성장 곡선 만렙 상한이 걸려 있어 그 규모에 영원히 못 닿는다(mediumFast
+    /// 만렙이 100만 EXP 다). 이 스위트가 보는 것은 진화 자체의 동작이지 토큰→경험치 환산이
+    /// 아니므로, 경험치는 직접 꽂는다.
     private func giveExp(_ store: PlayerStore, _ amount: Int) {
         guard let index = store.state.box.firstIndex(where: { $0.id == store.state.partnerID })
         else { return }
@@ -70,7 +70,9 @@ final class EvolutionTests: XCTestCase {
 
     // MARK: 진화
 
-    func testEvolvingAdvancesPathAndCarriesOverflow() {
+    /// 진화는 경로만 진전시킨다 — **경험치를 깎지 않는다.** `bulbaLine()` 은 조건 없는(`.none`)
+    /// 라인이라 얼마를 들고 있든 그대로 이월된다(옛 임계 초과분 이월은 Task 7 로 없어졌다).
+    func testEvolvingAdvancesPathAndKeepsExperience() {
         let store = makeStore()
         store.chooseStarter(speciesID: 1, grade: .common)
         giveExp(store, 60_000_000)
@@ -78,16 +80,21 @@ final class EvolutionTests: XCTestCase {
         let p = partner(of: store)
         XCTAssertEqual(p.speciesID, 2)
         XCTAssertEqual(p.pathIDs, [1, 2])
-        XCTAssertEqual(p.exp, 10_000_000, "초과분은 다음 단계로 이월된다")
+        XCTAssertEqual(p.exp, 60_000_000, "진화가 경험치를 깎았다")
         XCTAssertTrue(store.state.dex.contains(2), "진화한 형태도 도감에 등록된다")
     }
 
-    /// 임계에 못 미치면 진화하지 않는다 — UI 가 실수로 불러도 상태가 변하면 안 된다.
-    func testEvolveRejectedBelowThreshold() {
+    /// 조건(여기선 레벨)을 못 채우면 진화하지 않는다 — UI 가 실수로 불러도 상태가 변하면 안 된다.
+    /// `bulbaLine()` 은 조건 없는 라인이라 여기서만 레벨 조건을 실은 별도 라인을 쓴다.
+    func testEvolveRejectedWithoutMeetingTheRequirement() {
         let store = makeStore()
         store.chooseStarter(speciesID: 1, grade: .common)
-        giveExp(store, 1_000)
-        XCTAssertFalse(store.evolve(individualID: partner(of: store).id, to: 2, line: bulbaLine()))
+        let levelGatedLine = EvoLine(baseID: 1,
+                                     tree: EvoNode(speciesID: 1, children: [
+                                         EvoNode(speciesID: 2, children: [], requirementRaw: .level(16)),
+                                     ]),
+                                     rarity: .rare, names: [:])
+        XCTAssertFalse(store.evolve(individualID: partner(of: store).id, to: 2, line: levelGatedLine))
         XCTAssertEqual(partner(of: store).speciesID, 1)
     }
 

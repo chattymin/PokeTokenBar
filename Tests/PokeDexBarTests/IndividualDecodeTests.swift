@@ -96,22 +96,22 @@ final class PartnerTokenLedgerTests: XCTestCase {
         XCTAssertEqual(find(store, bench.id).partnerTokens, 0)
     }
 
-    /// 진화해도 안 줄어든다 — 경험치는 초기화되지만 이건 "함께 일한 기록"이다.
+    /// 진화해도 안 줄어든다 — 경험치와 달리 이건 "함께 일한 기록"이다.
     func testPartnerTokensSurviveEvolution() {
         let store = makeStore()
         let id = partnered(store)
         store.update(todayTokens: 90_000_000, todayDate: "2026-01-01", hasUsageData: true)
-        // 진화 임계(`ExpBalance.threshold`)는 아직 옛 "토큰=경험치" 규모(5천만+)를 쓰는데,
-        // `update` 는 이제 환율(÷500)과 성장 곡선 만렙 상한이 걸려 그 규모에 영원히 못 닿는다
-        // (Task 7 이 진화 조건을 실제 레벨로 바꾼다). 이 테스트가 보는 것은 "진화해도 함께
-        // 쓴 토큰 기록은 안 줄어든다"이지 환율 자체가 아니므로, 진화 가능 상태는 직접 만든다.
+        // 진화 게이트가 레벨로 바뀌면서(Task 7) 경험치 자체는 더 이상 진화 조건이 아니다 —
+        // 조건 없는 라인(`.none`)이면 경험치가 얼마든 바로 진화한다. 이 테스트가 보는 것은
+        // "진화해도 함께 쓴 토큰 기록(`partnerTokens`)은 안 줄고, 경험치(`exp`)도 안 깎인다"이므로
+        // 경험치 값 자체는 임의로 둔다.
         let index = store.state.box.firstIndex { $0.id == id }!
         store.mutate { $0.box[index].exp = 90_000_000 }
         let line = EvoLine(baseID: 1,
                            tree: EvoNode(speciesID: 1, children: [EvoNode(speciesID: 2, children: [])]),
                            rarity: .common, names: [:])
         XCTAssertTrue(store.evolve(individualID: id, to: 2, line: line))
-        XCTAssertEqual(find(store, id).exp, 40_000_000, "경험치는 초과분만 이월된다")
+        XCTAssertEqual(find(store, id).exp, 90_000_000, "진화가 경험치를 깎았다")
         XCTAssertEqual(find(store, id).partnerTokens, 90_000_000, "함께 쓴 토큰이 진화로 줄었다")
     }
 
