@@ -259,21 +259,34 @@ struct BoxTabView: View {
     /// 화살표 사이에서 옆으로 튀었다(영어 Select→Done 폭 차가 특히 크다). overlay 는 헤더
     /// 전체 폭을 기준으로 가운데를 잡으므로 옆 버튼 폭과 무관하게 항상 같은 자리다.
     private var boxHeader: some View {
-        HStack(spacing: 8) {
+        // **성격이 다른 둘을 양쪽 끝으로 가른다.** 페이지 이동은 한 쌍이 곧 하나의 조작이라
+        // 붙여서 왼쪽에 두고(◀ 는 왼쪽 끝을 지킨다 — "이전"은 왼쪽이다), 모드 토글은 오른쪽
+        // 끝에 혼자 둔다. 전에는 ▶ 옆에 초록 글자를 붙여 놨는데, 종류가 다른 컨트롤이 맞닿아
+        // 한 무리로 읽히고 왼쪽 끝은 화살표 하나뿐이라 무게가 한쪽으로 쏠렸다.
+        HStack(spacing: 4) {
             pageButton(systemName: "chevron.left", enabled: currentPage > 0) {
                 page = currentPage - 1
             }
-            Spacer(minLength: 0)
             pageButton(systemName: "chevron.right", enabled: currentPage < pageCount - 1) {
                 page = currentPage + 1
             }
-            Button(selecting ? l.bulkDone : l.bulkSelect) {
+            Spacer(minLength: 0)
+            // 글자를 남기되 화살표와 같은 칩으로 — 아이콘만 두면 무엇인지 알 수 없고,
+            // 맨 글자로 두면 옆 칩들과 무게가 안 맞는다.
+            Button {
                 let next = Self.afterToggleMode(.init(selecting: selecting, picked: picked,
                                                        bulkStep: bulkStep))
                 selecting = next.selecting; picked = next.picked; bulkStep = next.bulkStep
+            } label: {
+                Text(selecting ? l.bulkDone : l.bulkSelect)
+                    .font(.system(size: 10, weight: .medium))
+                    .frame(height: 18)
+                    .padding(.horizontal, 7)
+                    .background(selecting ? Color.accentColor.opacity(0.25)
+                                          : Color.secondary.opacity(0.18),
+                                in: RoundedRectangle(cornerRadius: 5))
             }
             .buttonStyle(.plain)
-            .font(.system(size: 10, weight: .medium))
             .foregroundStyle(Color.accentColor)
         }
         .overlay {
