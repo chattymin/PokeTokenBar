@@ -116,26 +116,33 @@ final class FoundEggTests: XCTestCase {
                 rarity: .rare, names: [:])
     }
 
-    /// 리자몽 한 마리를 박스에 넣고 돌려준다.
+    /// 리자몽 한 마리를 박스에 넣고 돌려준다. **알 발견 게이트는 이제 `eggProgress` 다** —
+    /// 이 스위트의 대부분은 상세 화면(아직 `exp` 로 막대를 그린다, 다음 태스크가 바꾼다)과
+    /// 스토어 게이트를 함께 확인하므로 `exp` 인자 값을 두 필드에 똑같이 심는다.
     private func charizard(_ store: PlayerStore, exp: Int) -> Individual {
         var individual = Individual(baseID: 4, speciesID: 6, pathIDs: [4, 5, 6],
                                     nature: .hardy, obtainedAt: now, grade: .epic)
         individual.exp = exp
+        individual.eggProgress = exp
         store.addForTesting(individual)
         return individual
     }
 
-    /// **진화할 곳이 있으면 못 받는다.** 경험치는 진화에 쓰는 것이 먼저다.
-    func testAnIndividualThatCanStillEvolveTakesNoEgg() {
+    /// **더 진화할 곳이 있어도 이제는 알을 받을 수 있다.** 예전엔 "최종형만"이었지만, `exp` 와
+    /// `eggProgress` 가 분리된 뒤로는 둘이 서로를 깎지 않으므로 파트너 조건 하나로 충분하다.
+    func testAnIndividualStillAbleToEvolveCanTakeAnEggToo() {
         let store = makeStore()
         var charmander = Individual(baseID: 4, speciesID: 4, pathIDs: [4],
                                     nature: .hardy, obtainedAt: now, grade: .epic)
-        charmander.exp = ExpBalance.eggThreshold(grade: .epic) * 10
+        charmander.eggProgress = ExpBalance.eggThreshold(grade: .epic)
         store.addForTesting(charmander)
+        XCTAssertFalse(store.evolutionChoices(charmander, line: charLine()).isEmpty,
+                       "이 테스트는 진화할 곳이 남은 개체를 전제로 한다")
 
-        XCTAssertFalse(store.canTakeFoundEgg(charmander, line: charLine()))
-        XCTAssertNil(store.takeFoundEgg(individualID: charmander.id, line: charLine()))
-        XCTAssertTrue(store.state.eggs.isEmpty)
+        XCTAssertTrue(store.canTakeFoundEgg(charmander, line: charLine()))
+        let egg = store.takeFoundEgg(individualID: charmander.id, line: charLine())
+        XCTAssertEqual(egg?.speciesID, 4)
+        XCTAssertEqual(store.state.eggs.count, 1)
     }
 
     /// **위장 중인 개체는 알을 못 받는다.** 뷰와 스토어가 같은 술어를 쓰는지 — 예전 갈래
@@ -145,7 +152,7 @@ final class FoundEggTests: XCTestCase {
         var ditto = Individual(baseID: 132, speciesID: 132, pathIDs: [132],
                                nature: .hardy, obtainedAt: now, grade: .epic)
         ditto.disguisedAs = 151   // 메타몽이 뮤로 위장 중
-        ditto.exp = ExpBalance.eggThreshold(grade: .epic)
+        ditto.eggProgress = ExpBalance.eggThreshold(grade: .epic)
         store.addForTesting(ditto)
         let mewLine = EvoLine(baseID: 151, tree: EvoNode(speciesID: 151, children: []),
                               rarity: .legendary, names: [:])
@@ -155,7 +162,7 @@ final class FoundEggTests: XCTestCase {
         XCTAssertTrue(store.state.eggs.isEmpty)
     }
 
-    /// 최종형이어도 경험치가 모자라면 못 받는다.
+    /// 알 계량기가 모자라면 못 받는다.
     func testNotEnoughExpTakesNoEgg() {
         let store = makeStore()
         let charizard = charizard(store, exp: ExpBalance.eggThreshold(grade: .epic) - 1)
@@ -201,26 +208,33 @@ final class FoundEggTests: XCTestCase {
         XCTAssertEqual(results, [true, false], "이로치가 굴려지지 않고 고정돼 있다")
     }
 
-    /// **받으면 0 으로 돌아가고, 한 번에 한 개다.** 이월을 남기면 오래 비워 둔 사용자에게
-    /// 알이 두세 개 예약돼 버려, 받는 것이 결정이 아니라 밀린 수령이 된다.
+    /// **받으면 알 계량기만 0 으로 돌아가고, 한 번에 한 개다.** 이월을 남기면 오래 비워 둔
+    /// 사용자에게 알이 두세 개 예약돼 버려, 받는 것이 결정이 아니라 밀린 수령이 된다.
+    /// **경험치(`exp`)는 건드리지 않는다** — 그게 두 계량기 분리의 뜻이다.
     ///
-    /// 경험치를 임계의 두 배로 넣어 두고도 두 번째가 안 나와야 한다 — 실제 경로에서는 상한
-    /// (`testExpStopsAtTheEggThreshold`)이 있어 두 배까지 쌓이지도 않지만, 두 장치가 각각
-    /// 독립적으로 성립해야 한 쪽이 무너져도 알이 밀리지 않는다.
-    func testTakingAnEggResetsExpToZero() {
+    /// 알 진행분을 임계의 두 배로 넣어 두고도 두 번째가 안 나와야 한다 — 실제 경로에서는 상한
+    /// (`testEggProgressStopsAtItsOwnThreshold`)이 있어 두 배까지 쌓이지도 않지만, 두 장치가
+    /// 각각 독립적으로 성립해야 한 쪽이 무너져도 알이 밀리지 않는다.
+    func testTakingAnEggResetsEggProgressToZeroButKeepsExp() {
         let store = makeStore()
         let threshold = ExpBalance.eggThreshold(grade: .epic)
-        let charizard = charizard(store, exp: threshold * 2 + 7)
+        var charizard = Individual(baseID: 4, speciesID: 6, pathIDs: [4, 5, 6],
+                                   nature: .hardy, obtainedAt: now, grade: .epic)
+        charizard.exp = 123   // 알 계량기와 무관하게 그대로 남아야 하는 값
+        charizard.eggProgress = threshold * 2 + 7
+        store.addForTesting(charizard)
 
         XCTAssertNotNil(store.takeFoundEgg(individualID: charizard.id, line: charLine()))
-        XCTAssertEqual(store.state.box.first { $0.id == charizard.id }?.exp, 0, "이월이 남았다")
+        let after = store.state.box.first { $0.id == charizard.id }!
+        XCTAssertEqual(after.eggProgress, 0, "이월이 남았다")
+        XCTAssertEqual(after.exp, 123, "알을 받았더니 경험치가 깎였다")
 
         XCTAssertNil(store.takeFoundEgg(individualID: charizard.id, line: charLine()))
         XCTAssertEqual(store.state.eggs.count, 1, "받자마자 두 번째 알이 나왔다")
     }
 
-    /// **경험치는 알 임계에서 멈춘다.** 다 찬 뒤에도 계속 쌓이면 알이 여러 개 예약된다.
-    func testExpStopsAtTheEggThreshold() {
+    /// **알 계량기는 알 임계에서 멈춘다.** 다 찬 뒤에도 계속 쌓이면 알이 여러 개 예약된다.
+    func testEggProgressStopsAtItsOwnThreshold() {
         let store = makeStore()
         let charizard = charizard(store, exp: 0)
         store.setPartner(charizard.id)
@@ -228,7 +242,7 @@ final class FoundEggTests: XCTestCase {
 
         store.update(todayTokens: 0, todayDate: "d", hasUsageData: true)      // 기준선
         store.update(todayTokens: cap * 3, todayDate: "d", hasUsageData: true)
-        XCTAssertEqual(store.state.box.first { $0.id == charizard.id }?.exp, cap,
+        XCTAssertEqual(store.state.box.first { $0.id == charizard.id }?.eggProgress, cap,
                        "상한을 넘어 쌓였다")
     }
 
@@ -250,9 +264,9 @@ final class FoundEggTests: XCTestCase {
         XCTAssertTrue(store.state.eggs.isEmpty)
     }
 
-    /// **슬롯이 꽉 차면 실패하고, 경험치도 안 줄어든다.** 알을 먼저 놓고 놓였을 때만 깎는
-    /// 순서를 뒤집으면 여기서 깨진다 — 5000만~4억 토큰어치가 조용히 증발한다.
-    func testTakingAnEggWithNoFreeSlotKeepsTheExp() {
+    /// **슬롯이 꽉 차면 실패하고, 알 진행분도 안 줄어든다.** 알을 먼저 놓고 놓였을 때만 깎는
+    /// 순서를 뒤집으면 여기서 깨진다 — 5억~40억 토큰어치가 조용히 증발한다.
+    func testTakingAnEggWithNoFreeSlotKeepsTheProgress() {
         let store = makeStore()
         let threshold = ExpBalance.eggThreshold(grade: .epic)
         let charizard = charizard(store, exp: threshold)
@@ -261,8 +275,8 @@ final class FoundEggTests: XCTestCase {
         }
         XCTAssertFalse(store.canTakeFoundEgg(charizard, line: charLine()))
         XCTAssertNil(store.takeFoundEgg(individualID: charizard.id, line: charLine()))
-        XCTAssertEqual(store.state.box.first { $0.id == charizard.id }?.exp, threshold,
-                       "알도 못 받고 경험치만 사라졌다")
+        XCTAssertEqual(store.state.box.first { $0.id == charizard.id }?.eggProgress, threshold,
+                       "알도 못 받고 알 진행분만 사라졌다")
         XCTAssertEqual(store.state.eggs.count, store.state.slots)
     }
 

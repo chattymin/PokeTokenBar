@@ -134,7 +134,7 @@ final class BoxCandyWiringTests: XCTestCase {
             return XCTFail("경험치 사탕 버튼이 박스에 없다 — 산 사탕을 쓸 수 있는 화면이 없다: \(buttons.map(\.title))")
         }
         button.action()
-        XCTAssertEqual(store.state.box.first?.exp, PlayerStore.expCandyAmount)
+        XCTAssertEqual(store.state.box.first?.exp, ExpBalance.candyExp)
         XCTAssertEqual(store.count(of: .expCandy), 1, "쓴 사탕이 재고에서 빠져야 한다")
     }
 

@@ -193,7 +193,7 @@ final class RibbonProductionTests: XCTestCase {
                      hasUsageData: true)
         XCTAssertEqual(store.count(of: .expCandy), 1)
         XCTAssertTrue(store.useExpCandy(on: other.id))
-        XCTAssertEqual(find(store, other.id).exp, PlayerStore.expCandyAmount)
+        XCTAssertEqual(find(store, other.id).exp, ExpBalance.candyExp)
     }
 
     /// 생산이 지갑이나 함께 쓴 토큰 기록을 건드리지 않는다 — 사탕은 덤이지 대체가 아니다.
@@ -240,7 +240,8 @@ final class FortuneCharmTests: XCTestCase {
         store.update(todayTokens: 1_000, todayDate: "2026-01-01", hasUsageData: true)
         XCTAssertEqual(store.state.wallet, after + 1_500, "재화가 1.5배가 아니다")
         let individual = store.state.box.first { $0.id == id }!
-        XCTAssertEqual(individual.exp, 1_000, "행운의 부적이 경험치까지 늘렸다")
+        // 환율(÷500)만 걸린 값이다 — 행운의 부적은 재화 전용이라 경험치엔 안 걸린다.
+        XCTAssertEqual(individual.exp, 2, "행운의 부적이 경험치까지 늘렸다")
         XCTAssertEqual(individual.partnerTokens, 1_000, "기록은 실제 쓴 토큰만 센다")
     }
 

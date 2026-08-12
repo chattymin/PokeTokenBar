@@ -29,12 +29,15 @@ final class FoundEggAnnouncementCardTests: XCTestCase {
     }
 
     /// 리자몽을 박스에 넣고 **파트너로 지정한** 뒤 돌려준다 — 경험치는 파트너에게만 쌓이므로
-    /// 이 카드가 보는 것은 항상 파트너다.
+    /// 이 카드가 보는 것은 항상 파트너다. 카드의 판정은 `eggProgress` 다(`exp` 가 아니다) —
+    /// `exp` 도 같이 심어 두는 것은 이 값을 그대로 여러 값 확인에 재사용하는 다른 테스트와의
+    /// 호환을 위해서일 뿐, 카드 자체는 `eggProgress` 만 본다.
     @discardableResult
     private func charizardPartner(_ store: PlayerStore, exp: Int) -> Individual {
         var individual = Individual(baseID: 4, speciesID: 6, pathIDs: [4, 5, 6],
                                     nature: .hardy, obtainedAt: now, grade: .epic)
         individual.exp = exp
+        individual.eggProgress = exp
         store.addForTesting(individual)
         store.setPartner(individual.id)
         return individual
@@ -73,16 +76,19 @@ final class FoundEggAnnouncementCardTests: XCTestCase {
         XCTAssertEqual(host.fittingSize.height, 0, "경험치가 안 찼는데 카드가 뜬다")
     }
 
-    /// 진화할 곳이 있으면 경험치는 진화용이다 — 알 카드가 뜨면 안 된다.
-    func testNoCardWhenEvolutionIsStillAvailable() {
+    /// **더 진화할 곳이 있어도 이제는 카드가 뜬다.** 예전엔 "최종형만"이었지만, `exp` 와
+    /// `eggProgress` 가 분리된 뒤로는 파트너 조건 하나로 충분하다.
+    func testCardAppearsEvenWhenEvolutionIsStillAvailable() {
         let store = makeStore()
         var charmander = Individual(baseID: 4, speciesID: 4, pathIDs: [4],
                                     nature: .hardy, obtainedAt: now, grade: .epic)
-        charmander.exp = ExpBalance.eggThreshold(grade: .epic) * 10
+        charmander.eggProgress = ExpBalance.eggThreshold(grade: .epic)
         store.addForTesting(charmander)
         store.setPartner(charmander.id)
+        XCTAssertFalse(store.evolutionChoices(charmander, line: charLine()).isEmpty,
+                       "이 테스트는 진화할 곳이 남은 개체를 전제로 한다")
         let host = render(store, partner: charmander, line: charLine())
-        XCTAssertEqual(host.fittingSize.height, 0, "진화할 곳이 있는데 카드가 뜬다")
+        XCTAssertGreaterThan(host.fittingSize.height, 0, "진화할 곳이 있다고 카드가 안 뜬다")
     }
 
     /// **위장 중인 파트너는 카드가 없다.** 상세 화면의 `canTakeFoundEgg`/`isFoundEggCandidate`
@@ -139,8 +145,9 @@ final class FoundEggAnnouncementCardTests: XCTestCase {
         button.action()
         XCTAssertEqual(store.state.eggs.count, 1, "버튼을 눌렀는데 알이 안 생겼다")
         XCTAssertEqual(store.state.eggs.first?.speciesID, 4)
-        XCTAssertEqual(store.state.box.first { $0.id == partner.id }?.exp, 0,
-                       "경험치가 임계만큼 안 깎였다")
+        // **알 계량기만 0 이 된다.** 경험치(`exp`)는 그대로다 — 두 계량기 분리의 뜻이다.
+        XCTAssertEqual(store.state.box.first { $0.id == partner.id }?.eggProgress, 0,
+                       "알 계량기가 임계만큼 안 깎였다")
     }
 
     /// **빈 슬롯이 없으면 버튼은 뜨지만(숨지 않는다) 비활성으로 기록되고, 눌러도 아무 일이 없다.**
@@ -161,9 +168,9 @@ final class FoundEggAnnouncementCardTests: XCTestCase {
         let eggsBefore = store.state.eggs.count
         button.action()
         XCTAssertEqual(store.state.eggs.count, eggsBefore, "비활성이어야 할 버튼을 눌렀는데 알이 생겼다")
-        XCTAssertEqual(store.state.box.first { $0.id == partner.id }?.exp,
+        XCTAssertEqual(store.state.box.first { $0.id == partner.id }?.eggProgress,
                        ExpBalance.eggThreshold(grade: .epic),
-                       "비활성이어야 할 버튼을 눌렀는데 경험치가 깎였다")
+                       "비활성이어야 할 버튼을 눌렀는데 알 계량기가 깎였다")
     }
 
     // MARK: 홈 탭 배선 — 실제로 만드는지 (도달성)

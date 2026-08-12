@@ -84,7 +84,7 @@ final class ShopTests: XCTestCase {
         let id = addIndividual(store)
         XCTAssertTrue(store.buy(.expCandy))
         XCTAssertTrue(store.useExpCandy(on: id))
-        XCTAssertEqual(store.state.box.first { $0.id == id }?.exp, PlayerStore.expCandyAmount)
+        XCTAssertEqual(store.state.box.first { $0.id == id }?.exp, ExpBalance.candyExp)
         XCTAssertEqual(store.count(of: .expCandy), 0)
     }
 

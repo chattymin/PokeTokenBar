@@ -76,7 +76,8 @@ final class PlayerStoreTests: XCTestCase {
         store.update(todayTokens: 4_000, todayDate: "2026-08-05", hasUsageData: true)
         XCTAssertEqual(store.state.earnedTokens, 3_000)
         XCTAssertEqual(store.state.wallet, 3_000)
-        XCTAssertEqual(store.state.partner?.exp, 3_000)
+        // 경험치는 환율(÷500)을 거친다 — 지갑·장부는 토큰 그대로다.
+        XCTAssertEqual(store.state.partner?.exp, 6)
     }
 
     /// 파트너만 경험치를 얻는다 — 박스의 다른 개체는 그대로다.
@@ -88,7 +89,8 @@ final class PlayerStoreTests: XCTestCase {
         store.addForTesting(other)
         store.update(todayTokens: 1_000, todayDate: "2026-08-05", hasUsageData: true)
         store.update(todayTokens: 2_000, todayDate: "2026-08-05", hasUsageData: true)
-        XCTAssertEqual(store.state.partner?.exp, 1_000)
+        // 경험치는 환율(÷500)을 거친다: 델타 1,000 토큰 → 2EXP.
+        XCTAssertEqual(store.state.partner?.exp, 2)
         XCTAssertEqual(store.state.box.first(where: { $0.id == other.id })?.exp, 0)
     }
 

@@ -41,9 +41,15 @@ final class EvolutionTests: XCTestCase {
 
     private func partner(of store: PlayerStore) -> Individual { store.state.partner! }
 
+    /// 파트너의 경험치를 직접 끌어올린다. 진화 임계(`ExpBalance.threshold`)는 아직 옛
+    /// "토큰=경험치" 규모(5천만+)를 쓰는데, `update` 는 이제 환율(÷500)과 성장 곡선 만렙 상한이
+    /// 걸려 있어 그 규모에 영원히 못 닿는다(mediumFast 만렙이 100만 EXP 다 — Task 7 이 진화
+    /// 조건을 실제 레벨로 바꾼다). 이 스위트가 보는 것은 진화 자체의 동작이지 토큰→경험치
+    /// 환산이 아니므로, 경험치는 직접 꽂는다.
     private func giveExp(_ store: PlayerStore, _ amount: Int) {
-        store.update(todayTokens: 0, todayDate: "d", hasUsageData: true)   // 기준선
-        store.update(todayTokens: amount, todayDate: "d", hasUsageData: true)
+        guard let index = store.state.box.firstIndex(where: { $0.id == store.state.partnerID })
+        else { return }
+        store.mutate { $0.box[index].exp = amount }
     }
 
     // MARK: 임계 판정

@@ -1027,8 +1027,10 @@ final class ScreenshotGeneratorTests: XCTestCase {
         store.seedForTesting(wallet: 100_000_000_000, slots: 3, eggs: 0, at: now)
         var charizard = Individual(baseID: 4, speciesID: 6, pathIDs: [4, 5, 6],
                                    nature: .adamant, obtainedAt: now, grade: .epic)
-        // 임계를 정확히 채운 상태 — 막대가 꽉 차고 버튼이 열린다.
+        // 임계를 정확히 채운 상태 — 막대가 꽉 차고 버튼이 열린다. 카드의 판정은 `eggProgress`
+        // 다(`exp` 가 아니다) — 둘 다 채워야 카드가 실제로 뜬다.
         charizard.exp = ExpBalance.eggThreshold(grade: .epic)
+        charizard.eggProgress = ExpBalance.eggThreshold(grade: .epic)
         store.addForTesting(charizard)
         store.setPartner(charizard.id)
         XCTAssertNotNil(store.startEgg(grade: .rare, speciesID: 133, shiny: false),

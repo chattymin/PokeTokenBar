@@ -101,6 +101,12 @@ final class PartnerTokenLedgerTests: XCTestCase {
         let store = makeStore()
         let id = partnered(store)
         store.update(todayTokens: 90_000_000, todayDate: "2026-01-01", hasUsageData: true)
+        // 진화 임계(`ExpBalance.threshold`)는 아직 옛 "토큰=경험치" 규모(5천만+)를 쓰는데,
+        // `update` 는 이제 환율(÷500)과 성장 곡선 만렙 상한이 걸려 그 규모에 영원히 못 닿는다
+        // (Task 7 이 진화 조건을 실제 레벨로 바꾼다). 이 테스트가 보는 것은 "진화해도 함께
+        // 쓴 토큰 기록은 안 줄어든다"이지 환율 자체가 아니므로, 진화 가능 상태는 직접 만든다.
+        let index = store.state.box.firstIndex { $0.id == id }!
+        store.mutate { $0.box[index].exp = 90_000_000 }
         let line = EvoLine(baseID: 1,
                            tree: EvoNode(speciesID: 1, children: [EvoNode(speciesID: 2, children: [])]),
                            rarity: .common, names: [:])
@@ -118,7 +124,8 @@ final class PartnerTokenLedgerTests: XCTestCase {
         XCTAssertTrue(store.buy(.expCharm))
         let walletAfterPurchase = store.state.wallet
         store.update(todayTokens: 1_000, todayDate: "2026-01-01", hasUsageData: true)
-        XCTAssertEqual(find(store, id).exp, 2_000, "부적이 경험치를 2배로 안 만든다")
+        // 환율(÷500)을 거친 뒤 부적이 걸린다: 1,000 토큰 → 2EXP, 부적으로 2배 → 4.
+        XCTAssertEqual(find(store, id).exp, 4, "부적이 경험치를 2배로 안 만든다")
         XCTAssertEqual(find(store, id).partnerTokens, 1_000, "기록은 실제 쓴 토큰만 세야 한다")
         XCTAssertEqual(store.state.wallet, walletAfterPurchase + 1_000, "부적이 재화까지 2배로 만들었다")
     }
@@ -166,13 +173,13 @@ final class ExpCharmTests: XCTestCase {
         let (store, id) = makeStore(wallet: ShopItem.expCharm.price + ShopItem.expCandy.price * 2)
         XCTAssertTrue(store.buy(.expCandy))
         XCTAssertTrue(store.useExpCandy(on: id))
-        XCTAssertEqual(store.state.box.first { $0.id == id }?.exp, PlayerStore.expCandyAmount)
+        XCTAssertEqual(store.state.box.first { $0.id == id }?.exp, ExpBalance.candyExp)
 
         XCTAssertTrue(store.buy(.expCharm))
         XCTAssertTrue(store.buy(.expCandy))
         XCTAssertTrue(store.useExpCandy(on: id))
         XCTAssertEqual(store.state.box.first { $0.id == id }?.exp,
-                       PlayerStore.expCandyAmount * 3, "부적을 산 뒤의 사탕이 2배가 아니다")
+                       ExpBalance.candyExp * 3, "부적을 산 뒤의 사탕이 2배가 아니다")
     }
 
     /// 부적은 재고를 세지 않는다 — 상점 표시가 개수형과 갈린다.
