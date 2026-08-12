@@ -98,10 +98,12 @@ extension PlayerStore {
         let natures = PokemonNature.allCases
         let nature = natures[Int(roll(ProfessorRoll.Salt.nature) * Double(natures.count))
                              % natures.count]
+        // 인덱스에 실린 그 종의 성장 타입을 그대로 싣는다 — 못 찾으면(이론상 도달 불가) 기본값.
+        let growthRate = index.first(where: { $0.id == species })?.growthRate ?? .mediumFast
         var individual = Individual(
             baseID: species, speciesID: species, pathIDs: [species],
             shiny: EggBalance.rollShiny(roll(ProfessorRoll.Salt.shiny), hasCharm: false),
-            nature: nature, exp: 0, obtainedAt: now, grade: grade)
+            nature: nature, exp: 0, obtainedAt: now, grade: grade, growthRate: growthRate)
         let region = RegionBalance.rollRegion(speciesID: species,
                                               roll: roll(ProfessorRoll.Salt.region),
                                               pick: roll(ProfessorRoll.Salt.regionPick))

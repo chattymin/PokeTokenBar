@@ -12,6 +12,9 @@ struct Egg: Identifiable, Codable, Sendable, Equatable {
     /// 부화 시각이 지났다고 이미 알렸나. 알림은 한 번만 — 익은 알은 사용자가 확인을 누를 때까지
     /// 슬롯에 남으므로, 이 표시가 없으면 매 틱마다 같은 알을 다시 알리게 된다.
     var announced = false
+    /// 이 알에서 나올 개체의 경험치 곡선. 부화 시점에는 `BaseSpecies` 가 없으므로
+    /// 뽑을 때 적어 둔다 — `shiny`·`grade` 를 알이 들고 있는 것과 같은 이유다.
+    var growthRate: GrowthRate = .mediumFast
 
     /// **필드를 더할 때 알이 통째로 사라지지 않게 하는 장치.** Swift 합성 디코더는 기본값이 있어도
     /// 키가 없으면 던지고, `LossyEgg` 는 그 예외를 "이 알을 버린다"로 바꾼다 — `Individual` 에서
@@ -28,10 +31,12 @@ struct Egg: Identifiable, Codable, Sendable, Equatable {
         shiny = value(.shiny, false)
         startedAt = value(.startedAt, hatchesAt)
         announced = value(.announced, false)
+        growthRate = value(.growthRate, .mediumFast)
     }
 
     init(id: UUID = UUID(), grade: Grade, speciesID: Int, shiny: Bool,
-         startedAt: Date, hatchesAt: Date, announced: Bool = false) {
+         startedAt: Date, hatchesAt: Date, announced: Bool = false,
+         growthRate: GrowthRate = .mediumFast) {
         self.id = id
         self.grade = grade
         self.speciesID = speciesID
@@ -39,6 +44,7 @@ struct Egg: Identifiable, Codable, Sendable, Equatable {
         self.startedAt = startedAt
         self.hatchesAt = hatchesAt
         self.announced = announced
+        self.growthRate = growthRate
     }
 
     func isReady(at now: Date) -> Bool { now >= hatchesAt }

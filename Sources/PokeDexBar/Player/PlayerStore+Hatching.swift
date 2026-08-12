@@ -74,7 +74,8 @@ extension PlayerStore {
                                               roll: nextRandomUnit(), pick: nextRandomUnit())
         var individual = Individual(baseID: egg.speciesID, speciesID: egg.speciesID,
                                     pathIDs: [egg.speciesID], shiny: egg.shiny,
-                                    nature: nature, exp: 0, obtainedAt: now, grade: egg.grade)
+                                    nature: nature, exp: 0, obtainedAt: now, grade: egg.grade,
+                                    growthRate: egg.growthRate)
         individual.region = rolled?.0
         individual.regionVariant = rolled?.1
         // 태어날 때 정해지는 겉모습(안농의 글자, 비비용의 무늬). 지방과 같은 자리에서 굴린다.

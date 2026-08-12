@@ -53,6 +53,9 @@ final class PlayerStore {
         guard !state.starterChosen, StarterCatalog.contains(speciesID) else { return nil }
         let natures = PokemonNature.allCases
         let nature = natures[Int(rng.next() % UInt64(natures.count))]
+        // 스타터는 번들 카탈로그에서만 오고 여기엔 `BaseSpecies`(성장 타입 출처)가 없다 —
+        // 네트워크 없이 고르는 화면이라 못 받아 온다. 기본값(`.mediumFast`)으로 태어나고,
+        // 첫 진화(Task 7)가 실제 라인의 성장 타입으로 바로잡아 준다.
         let individual = Individual(baseID: speciesID, speciesID: speciesID, pathIDs: [speciesID],
                                     shiny: false, nature: nature, exp: 0,
                                     obtainedAt: now(), grade: grade)

@@ -39,7 +39,12 @@ extension PlayerStore {
         // 종은 확정이지만 이로치는 평소 확률로 굴린다 — 확정으로 만들면 이로치 부적이 무의미해진다.
         let shiny = EggBalance.rollShiny(nextRandomUnit(), hasCharm: state.ownsShinyCharm)
         // 종은 그 개체의 baseID(리자몽은 파이리를 부른다), 등급은 그 개체의 등급을 그대로 쓴다.
-        guard let egg = placeEgg(grade: individual.grade, speciesID: individual.baseID, shiny: shiny)
+        // 성장 타입은 라인에서 baseID 기준으로 다시 찾는다 — 진화한 개체의 growthRate 는 지금
+        // 폼(예: 리자몽) 기준일 수 있어, 알이 될 baseID(파이리) 의 값과 다를 수 있다. 라인이
+        // 아직 안 받아져 있으면(nil) 그 개체가 이미 들고 있는 값으로 물러난다.
+        let growthRate = line.growthRate(of: individual.baseID) ?? individual.growthRate
+        guard let egg = placeEgg(grade: individual.grade, speciesID: individual.baseID, shiny: shiny,
+                                 growthRate: growthRate)
         else { return nil }
         // 인덱스는 `placeEgg`(state 변형 + save) 가 끝난 **뒤에 다시 찾는다** — 미리 잡아 두면
         // 그 사이 바뀐 배열에 옛 인덱스로 깎는 꼴이 된다.

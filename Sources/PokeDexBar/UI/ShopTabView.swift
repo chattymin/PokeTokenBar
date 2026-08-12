@@ -34,8 +34,10 @@ struct ShopTabView: View {
     /// 슬롯·아이템 버튼은 살아 있어 지갑이 뽑기 값 아래로 내려갈 수 있다. 그 nil 을 버리면
     /// 사용자는 눌렀는데 재화도 안 줄고 알도 안 생기는 침묵을 본다.
     /// 뷰 밖에서 잠글 수 있게 착지 지점만 떼어 둔다(`draw()` 는 네트워크 await 라 통째로는 못 잡는다).
-    static func landDraw(_ store: PlayerStore, grade: Grade, speciesID: Int, shiny: Bool) -> String? {
-        store.startEgg(grade: grade, speciesID: speciesID, shiny: shiny) == nil
+    static func landDraw(_ store: PlayerStore, grade: Grade, speciesID: Int, shiny: Bool,
+                         growthRate: GrowthRate = .mediumFast) -> String? {
+        store.startEgg(grade: grade, speciesID: speciesID, shiny: shiny,
+                       growthRate: growthRate) == nil
             ? store.l.shopDrawUnavailable : nil
     }
 
@@ -173,7 +175,12 @@ struct ShopTabView: View {
             if DittoDisguise.hits(grade: roll.grade, roll: store.nextRandomUnit()) {
                 chosen = DittoDisguise.speciesID
             }
-            lastError = Self.landDraw(store, grade: roll.grade, speciesID: chosen, shiny: roll.shiny)
+            // 고른 종의 성장 타입을 인덱스에서 찾아 그대로 싣는다. 메타몽은 인덱스 자체에서
+            // 빠져 있어(`PokeAPIClient`) 못 찾으면 기본값(`.mediumFast`)으로 태어나는데,
+            // 실제로도 메타몽의 성장 타입이 미디엄패스트라 값이 어긋나지 않는다.
+            let growthRate = index.first(where: { $0.id == chosen })?.growthRate ?? .mediumFast
+            lastError = Self.landDraw(store, grade: roll.grade, speciesID: chosen, shiny: roll.shiny,
+                                      growthRate: growthRate)
             // 착지에 실패했으면(슬롯이 찼다 등) 축하할 것이 없다 — 문구만 남긴다.
             if lastError == nil { reveal = (roll.grade, roll.shiny) }
         }
