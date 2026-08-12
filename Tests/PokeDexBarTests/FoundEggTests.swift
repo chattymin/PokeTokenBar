@@ -3,9 +3,10 @@ import SwiftUI
 import XCTest
 @testable import PokeDexBar
 
-/// 알 발견 — 더 진화할 곳이 없는 개체가 경험치를 모아 자기 라인의 알을 부른다. 받는 순간
-/// 곧바로 부화 슬롯에 들어간다. 중간에 보관되는 물건은 없다(2026-08-11 개정 — 확정 알
-/// 교환권을 없애고 받기·보관·쓰기 3단계를 한 단계로 합쳤다).
+/// 알 발견 — 위장 중이 아닌 파트너가 알 계량기(`eggProgress`)를 채워 자기 라인의 알을 부른다.
+/// **더 이상 최종형일 필요가 없다** — `eggProgress` 가 `exp` 와 분리된 뒤로는 진화 중인 개체도
+/// 알을 부를 수 있다. 받는 순간 곧바로 부화 슬롯에 들어간다. 중간에 보관되는 물건은 없다
+/// (2026-08-11 개정 — 확정 알 교환권을 없애고 받기·보관·쓰기 3단계를 한 단계로 합쳤다).
 @MainActor
 final class FoundEggTests: XCTestCase {
     private let now = Date(timeIntervalSince1970: 1_700_000_000)
@@ -33,17 +34,6 @@ final class FoundEggTests: XCTestCase {
             XCTAssertEqual(ExpBalance.eggThreshold(grade: higher),
                            ExpBalance.eggThreshold(grade: lower) * 2,
                            "\(higher) 가 \(lower) 의 두 배가 아니다")
-        }
-    }
-
-    /// **진화 임계와 별개다.** 예전엔 알 임계가 `threshold(grade:stageIndex: 0)` 을 그대로 썼다.
-    /// 지금은 근거가 다르다 — 진화는 "얼마나 써야 다음 단계인가", 알은 "확정 종 하나가 얼마인가".
-    /// 한쪽을 조정할 때 다른 쪽이 딸려 움직이면 안 된다.
-    func testEggThresholdIsNotDerivedFromTheEvolutionThreshold() {
-        for grade in Grade.allCases {
-            XCTAssertNotEqual(ExpBalance.eggThreshold(grade: grade),
-                              ExpBalance.threshold(grade: grade, stageIndex: 0),
-                              "\(grade) 의 알 임계가 진화 임계에 다시 묶였다")
         }
     }
 
@@ -246,17 +236,6 @@ final class FoundEggTests: XCTestCase {
                        "상한을 넘어 쌓였다")
     }
 
-    /// **상한은 진화를 막지 않는다.** 알 임계는 어느 등급에서도 그 등급의 최대 진화 임계
-    /// (기본값 × 3)보다 훨씬 크므로, 상한에 걸린 개체는 언제나 진화 임계를 이미 넘어 있다.
-    /// 이게 깨지면 상한이 진화를 영구히 잠근다 — `EvoLine` 없이 상한을 걸 수 있는 근거다.
-    func testTheCapNeverBlocksAnEvolution() {
-        for grade in Grade.allCases {
-            let deepest = ExpBalance.threshold(grade: grade, stageIndex: 1)
-            XCTAssertGreaterThan(ExpBalance.eggThreshold(grade: grade), deepest,
-                                 "\(grade) 는 상한에 걸린 채로도 진화를 못 한다")
-        }
-    }
-
     /// 박스에 없는 개체는 지급 대상이 아니다.
     func testTakingAnEggForAnUnknownIndividualDoesNothing() {
         let store = makeStore()
@@ -316,34 +295,16 @@ final class FoundEggTests: XCTestCase {
         }
     }
 
-    // MARK: 경험치 막대의 분모 — expSection·foundEggSection 이 공유하는 단일 소스
+    // MARK: 알 발견 후보 판정 — eggSection·foundEggSection 이 공유하는 단일 소스
 
-    /// **알 발견 후보면 알 임계를 쓴다.** 최종형의 진화 임계(등급 기본값 × 3)를 쓰면
-    /// 200M 을 채워 버튼이 떴는데 막대는 33%인 결함이 난다.
-    func testExpThresholdUsesEggRateWhenEligible() {
-        let charizard = charizard(makeStore(), exp: 0)
-        XCTAssertEqual(IndividualDetailView.expThreshold(individual: charizard, isFoundEggCandidate: true),
-                       ExpBalance.eggThreshold(grade: .epic))
-    }
-
-    /// 대조군 — 진화할 곳이 있으면 그 등급·단계의 진화 임계를 그대로 쓴다.
-    func testExpThresholdUsesEvolutionRateWhenNotEligible() {
-        let charizard = charizard(makeStore(), exp: 0)
-        XCTAssertEqual(IndividualDetailView.expThreshold(individual: charizard, isFoundEggCandidate: false),
-                       ExpBalance.threshold(grade: .epic, stageIndex: charizard.stageIndex))
-    }
-
-    /// 알 발견 후보 판정 — 라인이 있고, 갈 곳이 없고, 위장 중이 아니어야 한다. 셋 중 하나만
-    /// 빠져도 대상이 아니다.
-    func testIsFoundEggCandidateRequiresLineNoChoicesAndNotDisguised() {
-        XCTAssertTrue(IndividualDetailView.isFoundEggCandidate(hasLine: true, hasEvolutionChoices: false,
-                                                                isDisguised: false))
-        XCTAssertFalse(IndividualDetailView.isFoundEggCandidate(hasLine: false, hasEvolutionChoices: false,
-                                                                 isDisguised: false), "라인이 없는데 대상이다")
-        XCTAssertFalse(IndividualDetailView.isFoundEggCandidate(hasLine: true, hasEvolutionChoices: true,
-                                                                 isDisguised: false), "진화할 곳이 있는데 대상이다")
-        XCTAssertFalse(IndividualDetailView.isFoundEggCandidate(hasLine: true, hasEvolutionChoices: false,
-                                                                 isDisguised: true), "위장 중인데 대상이다")
+    /// 알 발견 후보 판정 — 라인이 있고, 위장 중이 아니어야 한다. **더 이상 최종형일 필요가
+    /// 없다** — `eggProgress` 가 `exp` 와 분리된 뒤로는 진화 중인 개체도 후보다.
+    func testIsFoundEggCandidateRequiresLineAndNotDisguised() {
+        XCTAssertTrue(IndividualDetailView.isFoundEggCandidate(hasLine: true, isDisguised: false))
+        XCTAssertFalse(IndividualDetailView.isFoundEggCandidate(hasLine: false, isDisguised: false),
+                       "라인이 없는데 대상이다")
+        XCTAssertFalse(IndividualDetailView.isFoundEggCandidate(hasLine: true, isDisguised: true),
+                       "위장 중인데 대상이다")
     }
 
     // MARK: 상세 렌더 — 어떤 버튼이 실제로 뜨나
@@ -399,9 +360,8 @@ final class FoundEggTests: XCTestCase {
     /// 진화할 곳이 있으면 진화 버튼이지 알 발견 버튼이 아니다.
     func testAnIndividualThatCanStillEvolveOffersEvolveNotFoundEgg() {
         let store = makeStore()
-        var charmander = Individual(baseID: 4, speciesID: 4, pathIDs: [4],
+        let charmander = Individual(baseID: 4, speciesID: 4, pathIDs: [4],
                                     nature: .hardy, obtainedAt: now, grade: .epic)
-        charmander.exp = ExpBalance.threshold(grade: .epic, stageIndex: 0)
         store.addForTesting(charmander)
         let buttons = renderedDetailButtons(store, individual: charmander, line: charLine())
         XCTAssertNotNil(buttons.first(where: { $0.title == store.l.evolve }),

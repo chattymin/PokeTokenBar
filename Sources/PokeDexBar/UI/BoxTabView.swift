@@ -18,24 +18,6 @@ struct BoxTabView: View {
 
     private var l: L { store.l }
 
-    /// 경험치 진행도(0…1). 순수 함수라 테스트로 잠근다.
-    ///
-    /// **무엇을 향한 진행인지는 개체마다 다르다.** 진화할 곳이 남았으면 다음 단계까지고, 더 갈
-    /// 곳이 없으면 다음 알까지다. 전에는 늘 진화 임계를 분모로 썼는데, 최종형은 그 값을 이미
-    /// 지나 있어 막대가 100%에 붙은 채 아무 뜻도 없었다 — 경험치는 계속 오르는데 바는 안 움직였다.
-    ///
-    /// 분모는 `IndividualDetailView.expThreshold` 한 곳에서만 정한다. 상세 화면과 홈이 같은
-    /// 개체를 다른 퍼센트로 그리면 안 된다.
-    ///
-    /// - Parameter isFoundEggCandidate: 더 진화할 곳이 없고 위장 중도 아닌가.
-    ///   판정에 `EvoLine`(네트워크)이 필요해 호출부가 넘긴다.
-    nonisolated static func progress(_ individual: Individual, isFoundEggCandidate: Bool) -> Double {
-        let threshold = IndividualDetailView.expThreshold(
-            individual: individual, isFoundEggCandidate: isFoundEggCandidate)
-        guard threshold > 0 else { return 0 }
-        return min(1, max(0, Double(individual.exp) / Double(threshold)))
-    }
-
     /// 이 개체를 골라 담을 수 있나. **판정은 `releaseValue` 하나** — 파트너면 nil 이다.
     /// 화면이 "파트너인가"를 따로 적으면 스토어와 갈린다.
     @MainActor static func isPickable(_ individual: Individual, store: PlayerStore) -> Bool {
@@ -211,6 +193,7 @@ struct BoxTabView: View {
                                 ribbon: individual.ribbon(at: store.currentDate()),
                                 canEvolve: readyToEvolve(individual),
                                 partnerBadge: l.partnerBadge,
+                                levelLabel: l.levelLabel(individual.level),
                                 picked: selecting && picked.contains(individual.id),
                                 fillFrame: fillFrame) {
                             switch Self.cellTap(selecting: selecting,
@@ -390,9 +373,11 @@ struct BoxTabView: View {
             ?? "#\(individual.displaySpeciesID)"
     }
 
+    /// 진화 가능 — 갈 수 있는 갈래 중 **하나라도** 지금 조건을 채웠으면 참이다.
     private func readyToEvolve(_ individual: Individual) -> Bool {
         guard let line = lines[individual.baseID] else { return false }
-        return store.canEvolve(individual) && !store.evolutionChoices(individual, line: line).isEmpty
+        return store.evolutionChoices(individual, line: line)
+            .contains { store.canEvolve(individual, to: $0, line: line) }
     }
 }
 
@@ -408,6 +393,9 @@ struct BoxCell: View {
     let picked: Bool
     let fillFrame: Bool
     let partnerBadge: String
+    /// "Lv.N" — 스프라이트 한 귀퉁이에 작게 붙는다. 본가 PC 는 칸에 아무것도 안 적지만,
+    /// 레벨은 이제 이 게임의 진짜 진행 지표라 칸에서부터 보여야 한다.
+    let levelLabel: String
     let onTap: () -> Void
 
     #if DEBUG
@@ -420,7 +408,7 @@ struct BoxCell: View {
     #endif
 
     init(individual: Individual, isPartner: Bool, ribbon: Ribbon? = nil, canEvolve: Bool,
-         partnerBadge: String, picked: Bool = false, fillFrame: Bool = true,
+         partnerBadge: String, levelLabel: String, picked: Bool = false, fillFrame: Bool = true,
          onTap: @escaping () -> Void) {
         self.individual = individual
         self.isPartner = isPartner
@@ -428,6 +416,7 @@ struct BoxCell: View {
         self.canEvolve = canEvolve
         self.fillFrame = fillFrame
         self.partnerBadge = partnerBadge
+        self.levelLabel = levelLabel
         self.picked = picked
         self.onTap = onTap
         #if DEBUG
@@ -467,8 +456,13 @@ struct BoxCell: View {
                             .offset(x: 3, y: -2)
                     }
                 }
-                // 본가 PC 는 칸에 이름도 게이지도 안 적는다 — 스프라이트가 곧 식별자다.
-                // 지금 손댈 수 있는 것(진화 가능)만 표시하고, 진행도는 상세에서 본다.
+                // 본가 PC 는 칸에 이름도 게이지도 안 적는다 — 스프라이트가 곧 식별자다. 지금
+                // 손댈 수 있는 것(진화 가능)과, 이 게임의 진짜 진행 지표인 레벨만 작게 덧붙인다.
+                Text(levelLabel)
+                    .font(.system(size: 7, weight: .bold))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .padding(.top, 1)
             }
             .frame(width: 48, height: 50)
             .background(picked ? Color.accentColor.opacity(0.30)

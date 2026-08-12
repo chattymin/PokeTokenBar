@@ -1,14 +1,8 @@
 import Foundation
 
-/// 진화 — 임계 판정과 실행. **자동으로 일어나지 않는다.** 임계에 닿으면 UI 가 배지를 띄우고,
+/// 진화 — 조건 판정과 실행. **자동으로 일어나지 않는다.** 조건을 채우면 UI 가 배지를 띄우고,
 /// 사용자가 누를 때 `evolve` 가 불린다(미루기·분기 선택이 가능해야 하기 때문).
 extension PlayerStore {
-    /// 다음 단계로 갈 경험치가 찼나. 최종형인지까지는 여기서 모른다 — 그건 라인이 필요하다.
-    func canEvolve(_ individual: Individual) -> Bool {
-        individual.exp >= ExpBalance.threshold(grade: individual.grade,
-                                               stageIndex: individual.stageIndex)
-    }
-
     /// 지금 형태에서 갈 수 있는 다음 종들. 최종형이면 빈 배열.
     func evolutionChoices(_ individual: Individual, line: EvoLine) -> [Int] {
         guard let node = line.tree.node(withID: individual.speciesID) else { return [] }
@@ -40,9 +34,7 @@ extension PlayerStore {
     }
 
     /// 이 종으로 갈 수 있고, 그 조건을 만족하는가. **경험치 임계는 더 이상 없다** —
-    /// 조건 자체가 게이트다(레벨 진화면 레벨이, 도구 진화면 도구가). 위 `canEvolve(_:)` 는
-    /// "지금 형태에서 아무 갈래로나 갈 수 있나"만 보는 옛 경험치 판정으로, 화면 쪽이 아직
-    /// 그것에 기대고 있어(Task 9 가 정리) 남겨 둔다 — 이건 그와 별개로 **특정 갈래**를 판정한다.
+    /// 조건 자체가 게이트다(레벨 진화면 레벨이, 도구 진화면 도구가).
     func canEvolve(_ individual: Individual, to speciesID: Int, line: EvoLine) -> Bool {
         evolutionChoices(individual, line: line).contains(speciesID)
             && meetsRequirement(requirement(for: speciesID, line: line), for: individual)

@@ -41,31 +41,14 @@ final class EvolutionTests: XCTestCase {
 
     private func partner(of store: PlayerStore) -> Individual { store.state.partner! }
 
-    /// 파트너의 경험치를 직접 끌어올린다. 옛 경험치 임계(`ExpBalance.threshold`, 5천만+)는
-    /// `canEvolve(_:)`(1-인자, 화면이 아직 쓴다 — Task 9 가 정리) 에만 남아 있는데, `update` 는
-    /// 이제 환율(÷500)과 성장 곡선 만렙 상한이 걸려 있어 그 규모에 영원히 못 닿는다(mediumFast
-    /// 만렙이 100만 EXP 다). 이 스위트가 보는 것은 진화 자체의 동작이지 토큰→경험치 환산이
-    /// 아니므로, 경험치는 직접 꽂는다.
+    /// 파트너의 경험치를 직접 끌어올린다. 진화는 이제 경험치 임계가 아니라 조건(레벨·도구·
+    /// 친밀도 등, `canEvolve(_:to:line:)`)이 게이트라 대부분의 테스트에서 값 자체는 의미가
+    /// 없다 — 이 스위트가 보는 것은 진화 자체의 동작이지 토큰→경험치 환산이 아니므로, 경험치는
+    /// (필요한 곳에서만) 직접 꽂는다.
     private func giveExp(_ store: PlayerStore, _ amount: Int) {
         guard let index = store.state.box.firstIndex(where: { $0.id == store.state.partnerID })
         else { return }
         store.mutate { $0.box[index].exp = amount }
-    }
-
-    // MARK: 임계 판정
-
-    func testCannotEvolveBelowThreshold() {
-        let store = makeStore()
-        store.chooseStarter(speciesID: 1, grade: .common)
-        giveExp(store, 49_999_999)
-        XCTAssertFalse(store.canEvolve(partner(of: store)))
-    }
-
-    func testCanEvolveAtThreshold() {
-        let store = makeStore()
-        store.chooseStarter(speciesID: 1, grade: .common)
-        giveExp(store, 50_000_000)
-        XCTAssertTrue(store.canEvolve(partner(of: store)))
     }
 
     // MARK: 진화
@@ -130,9 +113,8 @@ final class EvolutionTests: XCTestCase {
     /// 분기에서 고른 쪽만 경로에 남는다.
     func testBranchTakesTheChosenPath() {
         let store = makeStore()
-        var eevee = Individual(baseID: 133, speciesID: 133, pathIDs: [133],
+        let eevee = Individual(baseID: 133, speciesID: 133, pathIDs: [133],
                                nature: .serious, obtainedAt: now, grade: .rare)
-        eevee.exp = ExpBalance.threshold(grade: .rare, stageIndex: 0)
         store.addForTesting(eevee)
         XCTAssertTrue(store.evolve(individualID: eevee.id, to: 135, line: eeveeLine()))
         let after = store.state.box.first { $0.id == eevee.id }!
@@ -142,28 +124,38 @@ final class EvolutionTests: XCTestCase {
 
     // MARK: 개체 독립성 — 같은 종이라도 개체별로 진화 상태가 갈린다
 
-    /// 구구 두 마리가 서로 다른 경험치를 쌓으면 한쪽만 진화 가능해야 한다.
+    /// 구구 → 피죤(L18) 한 갈래짜리, 레벨로 막힌 라인. 개체 독립성 스위트가 "레벨을 채운
+    /// 쪽만 진화 가능"을 보이는 데 쓴다.
+    private func levelGatedPidgeyLine() -> EvoLine {
+        EvoLine(baseID: 16,
+                tree: EvoNode(speciesID: 16, children: [
+                    EvoNode(speciesID: 17, children: [], requirementRaw: .level(18)),
+                ]),
+                rarity: .common, names: [:])
+    }
+
+    /// 구구 두 마리가 서로 다른 레벨을 쌓으면 한쪽만 진화 가능해야 한다.
     func testSameSpeciesIndividualsDivergeIndependently() {
         let store = makeStore()
-        var ready = Individual(baseID: 16, speciesID: 16, pathIDs: [16],
-                               nature: .serious, obtainedAt: now, grade: .common)
-        ready.exp = ExpBalance.threshold(grade: .common, stageIndex: 0)   // 임계 도달
-        var notReady = Individual(baseID: 16, speciesID: 16, pathIDs: [16],
-                                  nature: .jolly, obtainedAt: now, grade: .common)
-        notReady.exp = 10_000_000   // 임계 미달
+        let line = levelGatedPidgeyLine()
+        let ready = Individual(baseID: 16, speciesID: 16, pathIDs: [16], nature: .serious,
+                               exp: GrowthRate.mediumFast.totalExp(at: 18),   // 조건 도달
+                               obtainedAt: now, grade: .common)
+        let notReady = Individual(baseID: 16, speciesID: 16, pathIDs: [16], nature: .jolly,
+                                  exp: GrowthRate.mediumFast.totalExp(at: 17),   // 조건 미달
+                                  obtainedAt: now, grade: .common)
         store.addForTesting(ready)
         store.addForTesting(notReady)
 
-        XCTAssertTrue(store.canEvolve(ready))
-        XCTAssertFalse(store.canEvolve(notReady))
+        XCTAssertTrue(store.canEvolve(ready, to: 17, line: line))
+        XCTAssertFalse(store.canEvolve(notReady, to: 17, line: line))
     }
 
     /// 한쪽 구구를 진화시켜도 다른 쪽 구구는 그대로 남는다 — 종 단위가 아니라 개체 단위로 진화한다.
     func testEvolvingOneLeavesOtherUntouched() {
         let store = makeStore()
-        var ready = Individual(baseID: 16, speciesID: 16, pathIDs: [16],
+        let ready = Individual(baseID: 16, speciesID: 16, pathIDs: [16],
                                nature: .serious, obtainedAt: now, grade: .common)
-        ready.exp = ExpBalance.threshold(grade: .common, stageIndex: 0)
         var notReady = Individual(baseID: 16, speciesID: 16, pathIDs: [16],
                                   nature: .jolly, obtainedAt: now, grade: .common)
         notReady.exp = 10_000_000
@@ -186,9 +178,8 @@ final class EvolutionTests: XCTestCase {
     /// 진화 후에도 박스와 도감에 16 번(구구)과 17 번(피죤)이 동시에 존재해야 한다.
     func testBothFormsCoexistAfterEvolution() {
         let store = makeStore()
-        var ready = Individual(baseID: 16, speciesID: 16, pathIDs: [16],
+        let ready = Individual(baseID: 16, speciesID: 16, pathIDs: [16],
                                nature: .serious, obtainedAt: now, grade: .common)
-        ready.exp = ExpBalance.threshold(grade: .common, stageIndex: 0)
         var notReady = Individual(baseID: 16, speciesID: 16, pathIDs: [16],
                                   nature: .jolly, obtainedAt: now, grade: .common)
         notReady.exp = 10_000_000

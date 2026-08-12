@@ -134,7 +134,14 @@ struct L {
     func boxSlotUsage(_ used: Int, _ total: Int) -> String { "\(used) / \(total)" }
     var detailNature: String { t("성격", "Nature", "せいかく") }
     var detailGrade: String { t("등급", "Grade", "ランク") }
-    var detailExp: String { t("경험치", "EXP", "けいけんち") }
+    /// 레벨 표시 — 박스 칸의 작은 배지와 상세 화면이 함께 쓴다.
+    func levelLabel(_ level: Int) -> String { t("Lv.\(level)", "Lv.\(level)", "Lv.\(level)") }
+    /// 다음 레벨까지 남은 경험치.
+    func expToNextLevel(_ remaining: String) -> String {
+        t("다음 레벨까지 \(remaining)", "\(remaining) to next level", "つぎのレベルまで \(remaining)")
+    }
+    /// 알 계량기 — 파트너로 지내는 동안 채워진다(더 이상 최종형에만 국한되지 않는다).
+    var eggProgressLabel: String { t("알", "Egg", "タマゴ") }
     /// 이 개체를 파트너로 두고 함께 쓴 토큰 누적 — 진화해도 안 줄어드는 "같이 일한 기록".
     var detailPartnerTokens: String { t("함께 쓴 토큰", "Tokens together", "一緒に使ったトークン") }
     var detailPartnerTime: String { t("함께한 시간", "Time together", "一緒の時間") }

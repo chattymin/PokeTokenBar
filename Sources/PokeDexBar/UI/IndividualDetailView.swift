@@ -23,18 +23,17 @@ struct IndividualDetailView: View {
     @State private var sparkleBeat = 0
     /// 보내기 확인이 몇 단계까지 진행됐나. 0 이면 아직 안 눌렀다.
     @State private var releaseStep = 0
-    /// 위장 중이 아니고 라인이 있고 더 진화할 곳이 없으면 알 발견 후보다 — `actions` 의 분기와
-    /// `canTakeFoundEgg` 가 보는 것과 같은 조건. `expSection`·`foundEggSection` 이 이 값 하나로
-    /// 갈려야 두 자리가 다른 답을 하지 않는다.
+    /// 위장 중이 아니고 라인이 있으면 알 발견 후보다 — `actions` 의 분기와 `canTakeFoundEgg` 가
+    /// 보는 것과 같은 조건. **더 이상 최종형일 필요가 없다** — `eggProgress` 가 `exp` 와 분리된
+    /// 뒤로는 진화 중인 개체도 알을 부를 수 있다(`FoundEggAnnouncementCard.isCandidate` 와 같은
+    /// 판단 — 그 카드와 이 화면이 서로 다른 술어를 쓰면 갈린다).
     private var isFoundEggCandidate: Bool {
-        Self.isFoundEggCandidate(hasLine: line != nil, hasEvolutionChoices: !choices.isEmpty,
-                                 isDisguised: individual.disguisedAs != nil)
+        Self.isFoundEggCandidate(hasLine: line != nil, isDisguised: individual.disguisedAs != nil)
     }
 
     /// 순수 함수 버전 — 뷰 인스턴스 없이 조건 자체를 테스트로 잠근다.
-    nonisolated static func isFoundEggCandidate(hasLine: Bool, hasEvolutionChoices: Bool,
-                                                isDisguised: Bool) -> Bool {
-        hasLine && !hasEvolutionChoices && !isDisguised
+    nonisolated static func isFoundEggCandidate(hasLine: Bool, isDisguised: Bool) -> Bool {
+        hasLine && !isDisguised
     }
 
     /// 보내기 전에 몇 번 확인하나. **이로치와 전설은 한 번 더 묻는다** — 되돌릴 수 없는데
@@ -52,23 +51,33 @@ struct IndividualDetailView: View {
         step == 1 ? l.sendConfirmNoReturn : l.sendConfirmAgain
     }
 
-    /// 경험치 막대의 분모 — **무엇을 향한 진행인지**를 정한다. 진화할 곳이 남았으면 다음
-    /// 단계까지, 더 갈 곳이 없으면 다음 알까지다.
-    ///
-    /// 최종형에 진화 임계(등급 기본값 × 3)를 쓰면 이미 지나 버린 값이라 막대가 100%에 붙은 채
-    /// 아무 뜻도 없어진다 — 경험치는 오르는데 바는 안 움직인다.
-    ///
-    /// 상세 화면과 홈(`BoxTabView.progress`)이 **이 함수 하나만** 쓴다. 같은 개체가 두 화면에서
-    /// 다른 퍼센트로 보이면 안 된다.
-    private var threshold: Int {
-        Self.expThreshold(individual: individual, isFoundEggCandidate: isFoundEggCandidate)
+    /// 다음 레벨까지 남은 EXP. 100레벨이면 0.
+    nonisolated static func expToNext(_ individual: Individual) -> Int {
+        let level = individual.level
+        guard level < GrowthRate.maxLevel else { return 0 }
+        return individual.growthRate.totalExp(at: level + 1) - individual.exp
     }
 
-    /// 순수 함수 버전.
-    nonisolated static func expThreshold(individual: Individual, isFoundEggCandidate: Bool) -> Int {
-        isFoundEggCandidate ? ExpBalance.eggThreshold(grade: individual.grade)
-                            : ExpBalance.threshold(grade: individual.grade, stageIndex: individual.stageIndex)
+    /// 지금 레벨 구간 안에서의 진행도(0…1). 100레벨이면 가득.
+    ///
+    /// 상세 화면과 홈(`PopoverView.partnerCard`)이 **이 함수 하나만** 쓴다. 같은 개체가 두
+    /// 화면에서 다른 퍼센트로 보이면 안 된다.
+    nonisolated static func levelProgress(_ individual: Individual) -> Double {
+        let level = individual.level
+        guard level < GrowthRate.maxLevel else { return 1 }
+        let floorExp = individual.growthRate.totalExp(at: level)
+        let span = individual.growthRate.totalExp(at: level + 1) - floorExp
+        guard span > 0 else { return 1 }
+        return min(1, max(0, Double(individual.exp - floorExp) / Double(span)))
     }
+
+    /// 알 계량기 진행도(0…1). 상한(`PlayerStore.update`)에서 이미 멈추지만 방어적으로 자른다.
+    nonisolated static func eggProgress(_ individual: Individual) -> Double {
+        let cap = ExpBalance.eggThreshold(grade: individual.grade)
+        guard cap > 0 else { return 0 }
+        return min(1, max(0, Double(individual.eggProgress) / Double(cap)))
+    }
+
     private var choices: [Int] {
         // 위장 중엔 진화를 안 내민다. 이 화면이 받은 라인은 **위장한 종의 것**이라(이름 때문)
         // 정체의 진화 후보가 아니고, 애초에 위장 중인 아이에게 진화를 권하는 것 자체가
@@ -90,7 +99,8 @@ struct IndividualDetailView: View {
                 VStack(alignment: .leading, spacing: 10) {
                     portrait
                     facts
-                    expSection
+                    levelSection
+                    eggSection
                     ribbonSection
                     actions
                 }
@@ -245,19 +255,18 @@ struct IndividualDetailView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    /// 경험치 막대 — 진화할 곳이 있으면 다음 진화 임계, 없으면(알 발견 후보) 알 임계로 찬다.
-    /// 예전엔 여기 항상 진화 임계만 그렸다 — 최종형은 못 채우는 막대가 되어(임계가 진화 3단계치)
-    /// 그 바로 아래 알 발견 막대와 같은 개체의 같은 경험치를 두 다른 분모로 두 번 보여줬다.
-    /// 이제 분모는 `threshold` 하나뿐이다.
-    private var expSection: some View {
+    /// 레벨 막대 — 경험치가 이제 곧바로 레벨(성장 곡선)로 드러난다. 예전엔 여기 진화 임계까지의
+    /// 막대가 있었다 — 최종형은 그 값을 채울 수 없어 막대가 100%에 붙은 채 아무 뜻도 없어지는
+    /// 결함이 있었다. 분모가 늘 "다음 레벨"이라 그 문제 자체가 사라진다.
+    private var levelSection: some View {
         VStack(alignment: .leading, spacing: 3) {
             HStack {
-                Text(l.detailExp).font(.system(size: 9)).foregroundStyle(.secondary)
+                Text(l.levelLabel(individual.level)).font(.system(size: 11, weight: .semibold))
                 Spacer()
-                Text("\(TokenFormatter.compact(individual.exp)) / \(TokenFormatter.compact(threshold))")
-                    .font(.system(size: 10)).monospacedDigit().foregroundStyle(.secondary)
+                Text(l.expToNextLevel(TokenFormatter.compact(Self.expToNext(individual))))
+                    .font(.system(size: 9)).monospacedDigit().foregroundStyle(.secondary)
             }
-            ProgressView(value: expProgress)
+            ProgressView(value: Self.levelProgress(individual))
                 .progressViewStyle(.linear).frame(height: 5)
             if !isPartner {
                 Text(l.detailPartnerOnlyExp)
@@ -266,9 +275,23 @@ struct IndividualDetailView: View {
         }
     }
 
-    /// 0…1. `threshold` 가 0일 리는 없지만(등급 기본값은 항상 양수) 방어적으로 자른다.
-    private var expProgress: Double {
-        threshold > 0 ? min(1, max(0, Double(individual.exp) / Double(threshold))) : 0
+    /// 알 계량기 — 레벨과 별개로 **어떤 파트너든** 채워진다(더 이상 최종형에만 국한되지 않는다).
+    /// `isFoundEggCandidate` 가 위장 여부까지 보므로, 정체를 숨긴 개체에는 이 바 자체를 안 낸다.
+    @ViewBuilder
+    private var eggSection: some View {
+        if isFoundEggCandidate {
+            VStack(alignment: .leading, spacing: 3) {
+                HStack {
+                    Text(l.eggProgressLabel).font(.system(size: 9)).foregroundStyle(.secondary)
+                    Spacer()
+                    Text("\(TokenFormatter.compact(individual.eggProgress)) / "
+                         + TokenFormatter.compact(ExpBalance.eggThreshold(grade: individual.grade)))
+                        .font(.system(size: 10)).monospacedDigit().foregroundStyle(.secondary)
+                }
+                ProgressView(value: Self.eggProgress(individual))
+                    .progressViewStyle(.linear).frame(height: 5)
+            }
+        }
     }
 
     @ViewBuilder
@@ -280,17 +303,20 @@ struct IndividualDetailView: View {
                 }
             }
 
-            if store.canEvolve(individual), !choices.isEmpty, let line {
+            // **갈 곳이 있으면 늘 보여준다** — 지금 열 수 있는 갈래는 버튼으로, 아직 못 여는
+            // 갈래는 접힌 안내로(`evolutionSection` 내부). 조건을 채웠을 때만 이 섹션 자체를
+            // 냈더니, 조건을 못 채운 대다수 개체에서 진화 안내가 통째로 사라지는 결함이 났다.
+            if let line, !choices.isEmpty {
                 evolutionSection(line)
-            } else if let line, choices.isEmpty {
-                // `foundEggReady` 가 위장 여부까지 본다(`isFoundEggCandidate`) — 위장 중엔
-                // 받은 라인이 위장한 종의 것이라(이름 때문) 진짜 최종형인지 알 수 없고,
-                // `canTakeFoundEgg` 도 위장 중이면 거절한다. 이 화면도 같은 질문을 해야 한다.
-                if foundEggReady {
-                    foundEggSection(line)
-                } else {
-                    Text(l.detailMaxStage).font(.system(size: 9)).foregroundStyle(.tertiary)
-                }
+            }
+            // 알 발견은 진화와 **독립된 트랙**이다 — 아직 진화 중인 개체도 알 계량기를 채울 수
+            // 있으므로, 위 진화 섹션과 동시에 뜰 수 있다. `foundEggReady` 가 위장 여부까지 본다
+            // (`isFoundEggCandidate`) — 위장 중엔 받은 라인이 위장한 종의 것이라(이름 때문) 진짜
+            // 정체를 알 수 없고, `canTakeFoundEgg` 도 위장 중이면 거절한다.
+            if let line, foundEggReady {
+                foundEggSection(line)
+            } else if line != nil, choices.isEmpty {
+                Text(l.detailMaxStage).font(.system(size: 9)).foregroundStyle(.tertiary)
             }
 
             // 사탕이 폼보다 먼저 — 사탕은 늘 하는 일이고 폼은 도구를 갖춘 뒤에나 누른다.
@@ -301,9 +327,12 @@ struct IndividualDetailView: View {
         }
     }
 
-    /// 알 발견 버튼을 낼 조건 — 후보이고 경험치가 알 임계(=`threshold`, 후보일 때는 알 임계와
-    /// 같다)를 채웠을 때. 후보가 아니면 뒤 항은 의미가 없지만 `&&` 가 단락 평가하므로 안전하다.
-    private var foundEggReady: Bool { isFoundEggCandidate && individual.exp >= threshold }
+    /// 알 발견 버튼을 낼 조건 — 후보이고 알 계량기가 알 임계를 채웠을 때. 후보가 아니면 뒤 항은
+    /// 의미가 없지만 `&&` 가 단락 평가하므로 안전하다. `canTakeFoundEgg`(빈 슬롯까지 본다)와는
+    /// 다른 질문이다 — 여기는 "버튼을 낼까", 그쪽은 "눌러도 될까".
+    private var foundEggReady: Bool {
+        isFoundEggCandidate && individual.eggProgress >= ExpBalance.eggThreshold(grade: individual.grade)
+    }
 
     /// 발견되는 알의 종 이름 — 그 개체의 **baseID**(원종)다. 리자몽이 알리는 것은 파이리 알이지
     /// 리자몽 알이 아니다. 라인이 아직 없으면 번호로 폴백한다.
@@ -311,18 +340,15 @@ struct IndividualDetailView: View {
         line?.localizedName(individual.baseID, store.language) ?? "#\(individual.baseID)"
     }
 
-    /// 더 진화하지 않는 아이의 경험치가 가는 곳.
+    /// 알 계량기가 다 찬 개체가 알을 받는 곳. 막대는 위 `eggSection` 이 이미 그리므로 여기서는
+    /// 다시 그리지 않는다 — 두 막대가 다른 분모를 갖고 따로 놀면 임계에 닿았는데 위 막대는
+    /// 33%인 것처럼 보이는 결함이 난다.
     ///
-    /// 전에는 여기에 "더 진화하지 않아요" 한 줄만 있었다 — 그 아이의 경험치가 어디로 가는지
-    /// 알 길이 없었고, 실제로 아무 데도 안 갔다. 막대는 위 `expSection` 이 이미 알 임계로
-    /// 그리므로(`isFoundEggCandidate`) 여기서는 다시 그리지 않는다 — 두 막대가 다른 분모를
-    /// 갖고 따로 놀면 임계에 닿았는데 위 막대는 33%인 것처럼 보이는 결함이 난다.
-    ///
-    /// **버튼 하나가 곧 "받는다" 동작이다** — 누르면 그 자리에서 경험치가 깎이고 알이 부화
-    /// 슬롯에 들어간다. 중간에 보관되는 물건은 없다. **빈 슬롯이 없으면 숨기지 않고 비활성으로
-    /// 둔다** — 경험치는 그대로 남아 잃는 게 없다는 걸 보여야 한다. `DetailActionButton` 은
-    /// 자체 비활성 상태가 없어 `.disabled` + `.opacity` 로 표시한다 — 이 파일의 `formRow` 가
-    /// 못 쓰는 폼에 쓰는 것과 같은 관례다.
+    /// **버튼 하나가 곧 "받는다" 동작이다** — 누르면 그 자리에서 알 계량기가 0 으로 돌아가고
+    /// 알이 부화 슬롯에 들어간다. 경험치(`exp`)는 건드리지 않는다 — 중간에 보관되는 물건도
+    /// 없다. **빈 슬롯이 없으면 숨기지 않고 비활성으로 둔다** — 알 진행분은 그대로 남아 잃는
+    /// 게 없다는 걸 보여야 한다. `DetailActionButton` 은 자체 비활성 상태가 없어 `.disabled` +
+    /// `.opacity` 로 표시한다 — 이 파일의 `formRow` 가 못 쓰는 폼에 쓰는 것과 같은 관례다.
     @ViewBuilder
     private func foundEggSection(_ line: EvoLine) -> some View {
         // 버튼의 활성 조건은 `canTakeFoundEgg` 하나다 — 뷰가 따로 조건을 만들면 스토어와

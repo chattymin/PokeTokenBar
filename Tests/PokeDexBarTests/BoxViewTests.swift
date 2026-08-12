@@ -5,51 +5,6 @@ import XCTest
 
 @MainActor
 final class BoxViewTests: XCTestCase {
-    private func individual(grade: Grade, exp: Int, path: [Int]) -> Individual {
-        Individual(baseID: path.first ?? 1, speciesID: path.last ?? 1, pathIDs: path,
-                   nature: .serious, exp: exp,
-                   obtainedAt: Date(timeIntervalSince1970: 0), grade: grade)
-    }
-
-    func testProgressIsExpOverThreshold() {
-        let half = individual(grade: .common, exp: 25_000_000, path: [1])
-        XCTAssertEqual(BoxTabView.progress(half, isFoundEggCandidate: false), 0.5, accuracy: 0.001)
-    }
-
-    /// 임계를 넘겨도 1을 넘지 않는다 — 게이지가 칸 밖으로 나가면 안 된다.
-    func testProgressClampsAtOne() {
-        let over = individual(grade: .common, exp: 999_000_000, path: [1])
-        XCTAssertEqual(BoxTabView.progress(over, isFoundEggCandidate: false), 1.0, accuracy: 0.001)
-    }
-
-    func testProgressIsZeroForFreshIndividual() {
-        XCTAssertEqual(BoxTabView.progress(individual(grade: .epic, exp: 0, path: [4]),
-                                           isFoundEggCandidate: false), 0)
-    }
-
-    /// **더 갈 곳이 없는 개체는 다음 알까지를 잰다.** 진화 임계로 재면 최종형은 그 값을 이미
-    /// 지나 있어 막대가 100%에 붙은 채 경험치가 올라도 안 움직인다 — 뜻이 없는 막대가 된다.
-    func testProgressMeasuresTheNextEggWhenThereIsNowhereLeftToEvolve() {
-        // 이상해꽃(3단계 커먼) — 진화 임계는 5천만 × 3 = 1억 5천만, 알 임계는 5억.
-        let florges = individual(grade: .common, exp: 250_000_000, path: [1, 2, 3])
-        XCTAssertEqual(BoxTabView.progress(florges, isFoundEggCandidate: false), 1.0, accuracy: 0.001,
-                       "진화 기준으로는 이미 꽉 찬 상태여야 이 테스트가 뜻이 있다")
-        XCTAssertEqual(BoxTabView.progress(florges, isFoundEggCandidate: true), 0.5, accuracy: 0.001,
-                       "알 기준으로 다시 재지 않는다")
-    }
-
-    /// 홈과 상세가 같은 분모를 쓴다 — 같은 개체가 두 화면에서 다른 퍼센트로 보이면 안 된다.
-    func testHomeAndDetailShareTheSameDenominator() {
-        for candidate in [true, false] {
-            let individual = individual(grade: .epic, exp: 300_000_000, path: [4, 5, 6])
-            let denominator = IndividualDetailView.expThreshold(individual: individual,
-                                                               isFoundEggCandidate: candidate)
-            XCTAssertEqual(BoxTabView.progress(individual, isFoundEggCandidate: candidate),
-                           Double(individual.exp) / Double(denominator), accuracy: 0.001,
-                           "candidate=\(candidate) 에서 홈 막대가 상세와 다른 분모를 쓴다")
-        }
-    }
-
     // MARK: 진화 라인 fetch 중복방지 — 같은 종 여럿이 동시에 화면에 뜨는 게 박스의 정상 시나리오.
 
     func testShouldStartLoadingLineWhenNeitherLoadedNorLoading() {

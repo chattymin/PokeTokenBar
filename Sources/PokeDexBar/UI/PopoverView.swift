@@ -236,6 +236,10 @@ struct PopoverView: View {
                     HStack(spacing: 6) {
                         Text(partnerName(partner)).font(.callout.weight(.semibold))
                         if partner.showsShiny { Text("✨").font(.system(size: 11)) }
+                        Text(l.levelLabel(partner.level))
+                            .font(.system(size: 8, weight: .bold))
+                            .padding(.horizontal, 5).padding(.vertical, 1)
+                            .background(Color.secondary.opacity(0.18), in: Capsule())
                         Text(partner.grade.label(player.language))
                             .font(.system(size: 8, weight: .bold))
                             .padding(.horizontal, 5).padding(.vertical, 1)
@@ -258,11 +262,11 @@ struct PopoverView: View {
                     }
                     Text(partner.nature.name(player.language))
                         .font(.caption2).foregroundStyle(.secondary)
-                    // 경험치는 강조색 — 상세 화면과 같은 색이어야 같은 뜻으로 읽힌다.
-                    // 주황은 사탕(`CandyMeter`)에 넘겼다: 둘 다 주황 5pt 이던 시절엔
-                    // 어느 쪽이 무엇인지 구분이 안 됐다.
-                    ProgressView(value: BoxTabView.progress(
-                        partner, isFoundEggCandidate: isFoundEggCandidate(partner)))
+                    // 레벨 진행도 — 상세 화면과 같은 계산(`IndividualDetailView.levelProgress`)을
+                    // 써야 두 화면이 같은 개체를 다른 퍼센트로 그리지 않는다. 주황은 사탕
+                    // (`CandyMeter`)에 넘겼다: 둘 다 주황 5pt 이던 시절엔 어느 쪽이 무엇인지
+                    // 구분이 안 됐다.
+                    ProgressView(value: IndividualDetailView.levelProgress(partner))
                         .progressViewStyle(.linear).frame(height: 5)
                     // 리본이 있으면 **지금 무엇을 채우고 있는지**를 경험치 바로 아래에 둔다.
                     // 둘 다 이 파트너가 채우는 것이라 같은 층위이고, 예전에는 홈 어디에도
@@ -292,25 +296,14 @@ struct PopoverView: View {
         }
     }
 
-    /// 홈 진화 배지 표시 여부 — 경험치가 찼어도(canEvolve) 라인이 아직 없거나(로딩 중) 최종형이면
-    /// (진화 후보 없음) 배지를 숨긴다. 라인 미로드 상태에서 배지부터 보여주면, 나중에 최종형으로
-    /// 판명될 때 "눌러도 갈 곳 없는" 배지를 보여준 셈이 된다 — 판단 못 하면 아무것도 보여주지 않는다.
+    /// 홈 진화 배지 표시 여부 — 라인이 아직 없으면(로딩 중) 배지를 숨긴다. 라인 미로드 상태에서
+    /// 배지부터 보여주면, 나중에 최종형으로 판명될 때 "눌러도 갈 곳 없는" 배지를 보여준 셈이
+    /// 된다 — 판단 못 하면 아무것도 보여주지 않는다. **갈 수 있는 갈래 중 하나라도 지금 조건을
+    /// 채웠으면** 배지가 뜬다.
     private func showsEvolutionBadge(for partner: Individual) -> Bool {
-        guard player.canEvolve(partner), let line = evoLines[partner.baseID] else { return false }
-        return !player.evolutionChoices(partner, line: line).isEmpty
-    }
-
-    /// 더 진화할 곳이 없어 경험치가 알로 흐르는 개체인가 — 경험치 막대의 분모를 가른다.
-    ///
-    /// 판정 자체는 `IndividualDetailView.isFoundEggCandidate` **한 곳**에만 있다. 화면마다
-    /// 조건을 따로 적으면 갈린다 — 위장 판정이 실제로 그렇게 갈린 적이 있다(상세는 알 칸을
-    /// 내밀고 스토어는 거절해서, 절대 못 누르는 버튼을 광고했다).
-    private func isFoundEggCandidate(_ partner: Individual) -> Bool {
         guard let line = evoLines[partner.baseID] else { return false }
-        return IndividualDetailView.isFoundEggCandidate(
-            hasLine: true,
-            hasEvolutionChoices: !player.evolutionChoices(partner, line: line).isEmpty,
-            isDisguised: partner.disguisedAs != nil)
+        return player.evolutionChoices(partner, line: line)
+            .contains { player.canEvolve(partner, to: $0, line: line) }
     }
 
     // MARK: 박스 — 진화 라인 로드
