@@ -9,6 +9,11 @@ struct BaseSpecies: Sendable, Codable {
     let captureRate: Int    // 3(뮤츠급)~255(캐터피급), 공식 희귀도 신호
     let isLegendary: Bool
     let isMythical: Bool
+    /// 성장 곡선. 기본값(`mediumFast`)은 이 필드를 생략하는 기존 테스트 호출부가 계속 컴파일되게
+    /// 하기 위한 메모리와이즈 이니셜라이저 편의일 뿐이다 — Codable 합성 디코드는 기본값을 무시하고
+    /// 키를 그대로 요구하므로, 이 필드가 없던 구 디스크 캐시(`base-index.json`)는 여전히 디코드가
+    /// 실패해 자동 재구축된다(위 isLegendary/isMythical 과 같은 이유).
+    var growthRate: GrowthRate = .mediumFast
 }
 
 /// 메타몽 종 id — 위장·변신 등 별도 처리가 필요한 특수종이라 일반 부화 후보 풀에서 제외한다.
@@ -45,15 +50,18 @@ actor PokeAPIClient: PokeProviding {
         let rarity = Rarity.from(captureRate: baseSpecies.capture_rate,
                                  isLegendary: baseSpecies.is_legendary,
                                  isMythical: baseSpecies.is_mythical)
-        // 라인의 모든 종 이름(지원 언어만)
+        // 라인의 모든 종 이름(지원 언어만) + 성장 곡선
         var names: [Int: [String: String]] = [:]
+        var growthRates: [Int: GrowthRate] = [:]
         for id in allIDs(tree) {
             let sp = try await species(id)
             var byLang: [String: String] = [:]
             for n in sp.names where langCodes.contains(n.language.name) { byLang[n.language.name] = n.name }
             names[id] = byLang
+            growthRates[id] = GrowthRate.fromAPI(sp.growth_rate.name)
         }
-        let line = EvoLine(baseID: baseSpeciesID, tree: tree, rarity: rarity, names: names)
+        let line = EvoLine(baseID: baseSpeciesID, tree: tree, rarity: rarity, names: names,
+                           growthRates: growthRates)
         lineCache[baseSpeciesID] = line
         return line
     }
@@ -104,6 +112,8 @@ actor PokeAPIClient: PokeProviding {
             let capture_rate: Int
             let is_legendary: Bool
             let is_mythical: Bool
+            /// PokéAPI GraphQL 은 REST 의 `growth_rate` 와 달리 밑줄 없는 관계명 `growthrate` 를 쓴다.
+            let growthrate: NamedRef
         }
         let data: DataBox
     }
@@ -194,14 +204,15 @@ actor PokeAPIClient: PokeProviding {
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         // 메타몽(#132)은 별도 처리가 필요한 특수종이라 일반 부화 풀에서 제외(_neq).
         let maxID = PokemonAssets.speciesIDs.upperBound
-        let query = "{ pokemonspecies(where: {evolves_from_species_id: {_is_null: true}, id: {_lte: \(maxID), _neq: \(dittoSpeciesID)}}, order_by: {id: asc}) { id capture_rate is_legendary is_mythical } }"
+        let query = "{ pokemonspecies(where: {evolves_from_species_id: {_is_null: true}, id: {_lte: \(maxID), _neq: \(dittoSpeciesID)}}, order_by: {id: asc}) { id capture_rate is_legendary is_mythical growthrate { name } } }"
         req.httpBody = try JSONSerialization.data(withJSONObject: ["query": query])
         let (data, resp) = try await URLSession.shared.data(for: req)
         guard (resp as? HTTPURLResponse)?.statusCode == 200 else { throw URLError(.badServerResponse) }
         let decoded = try JSONDecoder().decode(GraphQLBaseResponse.self, from: data)
         let entries = decoded.data.pokemonspecies.map {
             BaseSpecies(id: $0.id, captureRate: $0.capture_rate,
-                       isLegendary: $0.is_legendary, isMythical: $0.is_mythical)
+                       isLegendary: $0.is_legendary, isMythical: $0.is_mythical,
+                       growthRate: GrowthRate.fromAPI($0.growthrate.name))
         }
         guard !entries.isEmpty else { throw URLError(.cannotParseResponse) }
         return entries
@@ -221,7 +232,8 @@ actor PokeAPIClient: PokeProviding {
         let dto = try await species(id)
         guard dto.evolves_from_species == nil else { return nil }   // 진화 중간체는 부화 후보 아님
         return BaseSpecies(id: id, captureRate: dto.capture_rate,
-                           isLegendary: dto.is_legendary, isMythical: dto.is_mythical)
+                           isLegendary: dto.is_legendary, isMythical: dto.is_mythical,
+                           growthRate: GrowthRate.fromAPI(dto.growth_rate.name))
     }
 
     private func get<T: Decodable>(_ url: URL) async throws -> T {
@@ -231,16 +243,21 @@ actor PokeAPIClient: PokeProviding {
         return try JSONDecoder().decode(T.self, from: data)
     }
 
-    private func node(from link: ChainLink) -> EvoNode {
-        EvoNode(speciesID: Self.id(from: link.species.url ?? ""),
-                children: link.evolves_to.map(node(from:)),
-                requirementRaw: Self.requirement(from: link.evolution_details))
+    private func node(from link: ChainLink, parentLevel: Int = 1) -> EvoNode {
+        let raw = Self.requirement(from: link.evolution_details, parentLevel: parentLevel)
+        let myLevel = if case .level(let n) = raw { n } else { parentLevel }
+        return EvoNode(speciesID: Self.id(from: link.species.url ?? ""),
+                       children: link.evolves_to.map { node(from: $0, parentLevel: myLevel) },
+                       requirementRaw: raw)
     }
 
     /// 조건 목록 → 이 앱이 쓰는 요구 조건. 여러 건이면 **재현 가능한 것 중 첫 번째**를 쓴다
-    /// (버전별로 갈리는 경우가 있고, 그중 하나만 만족하면 되는 것이 본가 규칙이다).
+    /// (버전별로 갈리는 경우가 있고, 그중 하나만 만족하면 되는 것이 본가 규칙이다). 우선순위는
+    /// 도구 → 통신교환 → 든 도구 → 친밀도 → 명시된 레벨 → 레벨 규칙(미명시) 순으로 고정이다.
     /// 통신교환은 도구가 따로 없으므로 연결의 끈으로 대신한다 — 이 앱에는 교환 상대가 없다.
-    static func requirement(from details: [EvolutionDetail]?) -> EvoRequirementRaw {
+    /// `parentLevel` 은 이 갈래 바로 앞 단계가 도달한 레벨(뿌리는 1) — 레벨이 안 적힌 갈래의
+    /// 하한 계산(`EvoBalance`)에 쓴다.
+    static func requirement(from details: [EvolutionDetail]?, parentLevel: Int) -> EvoRequirementRaw {
         guard let details, !details.isEmpty else { return .none }
         for d in details {
             if let item = d.item?.name, EvolutionItem.named(item) != nil { return .item(item) }
@@ -252,9 +269,16 @@ actor PokeAPIClient: PokeProviding {
                 }
                 return .item(EvolutionItem.linkingCord.rawValue)
             }
-            if let happiness = d.min_happiness, happiness > 0 { return .friendship }
+            // **든 도구도 도구다.** 럭키(둥근돌)·글라이온(예리한이빨)·포푸니라/포푸니크(예리한손톱)
+            // 넷이 여기 걸린다 — 지금까지는 통신교환일 때만 held_item 을 봤다. 원작의 "밤에" 같은
+            // 시간대 조건은 이 앱에 밤낮이 없어 버린다(포푸니라/포푸니크가 같은 물건을 공유하게 된다).
+            if let held = d.held_item?.name, EvolutionItem.named(held) != nil { return .item(held) }
         }
-        return .none
+        for d in details where (d.min_happiness ?? 0) > 0 { return .friendship }
+        if let stated = details.compactMap(\.min_level).min() { return .level(stated) }
+        // 레벨이 안 적힌 갈래(장소·기술 등 이 앱이 재현 못 하는 조건)는 앞 단계 레벨 위로
+        // 일정 간격 띄운 값으로 채운다 — `.none` 으로 두면 조건 없이 즉시 진화해 버린다.
+        return .level(max(parentLevel + EvoBalance.marginOverParent, EvoBalance.unstatedLevel))
     }
     private func allIDs(_ n: EvoNode) -> [Int] { [n.speciesID] + n.children.flatMap(allIDs) }
 
@@ -281,6 +305,7 @@ struct SpeciesDTO: Decodable, Sendable {
     let names: [NameDTO]
     let evolution_chain: URLRef
     let evolves_from_species: NamedRef?   // nil = 진화라인 시작점(base)
+    let growth_rate: NamedRef
 }
 struct NameDTO: Decodable, Sendable { let name: String; let language: NamedRef }
 struct NamedRef: Decodable, Sendable { let name: String; let url: String? }
@@ -298,7 +323,9 @@ struct ChainLink: Decodable, Sendable {
 struct EvolutionDetail: Decodable, Sendable {
     let trigger: NamedRef?
     let item: NamedRef?
-    /// 통신교환에 들고 가는 물건. 25종 중 15종이 이걸 요구한다.
+    /// 통신교환/레벨업 때 들고 있어야 하는 물건. 통신교환 25종 중 15종, 레벨업 4종이 이걸 요구한다.
     let held_item: NamedRef?
     let min_happiness: Int?
+    /// 본가 `min_level`. 명시가 없는 갈래(장소·기술 등)는 nil — `EvoBalance` 규칙으로 채운다.
+    let min_level: Int?
 }

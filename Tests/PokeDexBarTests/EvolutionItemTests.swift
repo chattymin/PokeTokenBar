@@ -50,38 +50,44 @@ final class EvoRequirementParsingTests: XCTestCase {
     }
 
     func testItemBecomesAnItemRequirement() {
-        XCTAssertEqual(PokeAPIClient.requirement(from: [detail(trigger: "use-item", item: "fire-stone")]),
+        XCTAssertEqual(PokeAPIClient.requirement(from: [detail(trigger: "use-item", item: "fire-stone")],
+                                                 parentLevel: 1),
                        .item("fire-stone"))
     }
 
     /// 통신교환은 도구가 없다 — 이 앱에는 교환 상대가 없으므로 연결의 끈으로 대신한다.
     func testTradeBecomesTheLinkingCord() {
-        XCTAssertEqual(PokeAPIClient.requirement(from: [detail(trigger: "trade")]),
+        XCTAssertEqual(PokeAPIClient.requirement(from: [detail(trigger: "trade")], parentLevel: 1),
                        .item(EvolutionItem.linkingCord.rawValue))
     }
 
     func testHappinessBecomesFriendship() {
-        XCTAssertEqual(PokeAPIClient.requirement(from: [detail(trigger: "level-up", happiness: 160)]),
+        XCTAssertEqual(PokeAPIClient.requirement(from: [detail(trigger: "level-up", happiness: 160)],
+                                                 parentLevel: 1),
                        .friendship)
     }
 
-    /// 재현할 수 없는 조건(장소·특정 기술)은 조건 없음이어야 한다 — 막으면 그 종을 영영 못 얻는다.
-    func testUnreproducibleConditionsFallThroughToNone() {
-        XCTAssertEqual(PokeAPIClient.requirement(from: [detail(trigger: "level-up")]), .none)
-        XCTAssertEqual(PokeAPIClient.requirement(from: []), .none)
-        XCTAssertEqual(PokeAPIClient.requirement(from: nil), .none)
+    /// 재현할 수 없는 조건(장소·특정 기술)은 막다른 벽이 되면 안 된다 — 명시된 레벨이 없으면
+    /// `EvoBalance` 규칙(앞 단계 레벨 + 여유분, 하한 20)으로 떨어져 여전히 진화할 길이 남는다.
+    func testUnreproducibleConditionsFallBackToALevel() {
+        XCTAssertEqual(PokeAPIClient.requirement(from: [detail(trigger: "level-up")], parentLevel: 1),
+                       .level(20))
+        XCTAssertEqual(PokeAPIClient.requirement(from: [], parentLevel: 1), .none)
+        XCTAssertEqual(PokeAPIClient.requirement(from: nil, parentLevel: 1), .none)
     }
 
-    /// 모르는 아이템이면 그 조건은 없는 셈 친다 — 카탈로그에 없는 도구를 요구하면 못 넘는 벽이 된다.
-    func testUnknownItemDoesNotBlockTheEvolution() {
-        XCTAssertEqual(PokeAPIClient.requirement(from: [detail(trigger: "use-item", item: "odd-rock")]),
-                       .none)
+    /// 모르는 아이템이면 그 조건은 없는 셈 치고 레벨 규칙으로 떨어진다 — 카탈로그에 없는 도구를
+    /// 요구한다고 못 넘는 벽이 되면 안 된다.
+    func testUnknownItemFallsBackToALevel() {
+        XCTAssertEqual(PokeAPIClient.requirement(from: [detail(trigger: "use-item", item: "odd-rock")],
+                                                 parentLevel: 1),
+                       .level(20))
     }
 
     /// 여러 건이면 재현 가능한 첫 번째를 쓴다 — 본가도 그중 하나만 만족하면 된다.
     func testPicksTheFirstReproducibleCondition() {
         let details = [detail(trigger: "level-up"), detail(trigger: "use-item", item: "moon-stone")]
-        XCTAssertEqual(PokeAPIClient.requirement(from: details), .item("moon-stone"))
+        XCTAssertEqual(PokeAPIClient.requirement(from: details, parentLevel: 1), .item("moon-stone"))
     }
 }
 
@@ -303,8 +309,8 @@ final class ForageCatalogIntegrityTests: XCTestCase {
                 let byItem: EvoRequirementRaw = PokeAPIClient.requirement(from: [
                     EvolutionDetail(trigger: NamedRef(name: "use-item", url: nil),
                                     item: NamedRef(name: need.item.rawValue, url: nil),
-                                    held_item: nil, min_happiness: nil),
-                ])
+                                    held_item: nil, min_happiness: nil, min_level: nil),
+                ], parentLevel: 1)
                 XCTAssertEqual(byItem, .item(need.item.rawValue),
                                "#\(from) → #\(need.to): 게이트가 \(need.item) 을 못 알아본다")
             }
@@ -453,21 +459,21 @@ final class TradeHeldItemTests: XCTestCase {
     }
 
     func testHeldItemWinsOverTheCord() {
-        XCTAssertEqual(PokeAPIClient.requirement(from: [tradeDetail(held: "metal-coat")]),
+        XCTAssertEqual(PokeAPIClient.requirement(from: [tradeDetail(held: "metal-coat")], parentLevel: 1),
                        .item("metal-coat"))
-        XCTAssertEqual(PokeAPIClient.requirement(from: [tradeDetail(held: "electirizer")]),
+        XCTAssertEqual(PokeAPIClient.requirement(from: [tradeDetail(held: "electirizer")], parentLevel: 1),
                        .item("electirizer"))
     }
 
     /// 물건 없이 교환하는 10종만 연결의 끈이 담당한다.
     func testPlainTradeStillUsesTheCord() {
-        XCTAssertEqual(PokeAPIClient.requirement(from: [tradeDetail(held: nil)]),
+        XCTAssertEqual(PokeAPIClient.requirement(from: [tradeDetail(held: nil)], parentLevel: 1),
                        .item(EvolutionItem.linkingCord.rawValue))
     }
 
     /// 모르는 물건이면 연결의 끈으로 떨어진다 — 못 넘는 벽을 만들지 않는다.
     func testUnknownHeldItemFallsBackToTheCord() {
-        XCTAssertEqual(PokeAPIClient.requirement(from: [tradeDetail(held: "odd-charm")]),
+        XCTAssertEqual(PokeAPIClient.requirement(from: [tradeDetail(held: "odd-charm")], parentLevel: 1),
                        .item(EvolutionItem.linkingCord.rawValue))
     }
 

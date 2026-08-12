@@ -25,7 +25,7 @@ final class BaseIndexCacheTests: XCTestCase {
     /// 범위 필드가 없던 구 형식은 0으로 읽혀 항상 재구축된다(entries 자체는 현재 스키마로 채워 둔다 —
     /// entries 스키마 자체가 구식인 경우는 아래 `testLegacyEntryWithoutLegendaryFlagsFailsToDecode`).
     func testLegacySnapshotWithoutRangeIsRejected() throws {
-        let json = #"{"fetchedAt":0,"entries":[{"id":1,"captureRate":45,"isLegendary":false,"isMythical":false}]}"#
+        let json = #"{"fetchedAt":0,"entries":[{"id":1,"captureRate":45,"isLegendary":false,"isMythical":false,"growthRate":"mediumFast"}]}"#
         let decoded = try JSONDecoder().decode(Snapshot.self, from: Data(json.utf8))
         XCTAssertEqual(decoded.maxSpeciesID, 0)
         XCTAssertFalse(decoded.matchesCurrentRange())
@@ -38,6 +38,17 @@ final class BaseIndexCacheTests: XCTestCase {
         let json = #"{"fetchedAt":0,"entries":[{"id":1,"captureRate":45}],"maxSpeciesID":1025}"#
         XCTAssertThrowsError(try JSONDecoder().decode(Snapshot.self, from: Data(json.utf8))) { error in
             XCTAssertTrue(error is DecodingError, "구 스키마는 디코딩 에러로 실패해 재구축을 트리거해야 한다")
+        }
+    }
+
+    /// `growthRate` 는 기본값(mediumFast)이 있어 메모리와이즈 이니셜라이저는 생략을 허용하지만,
+    /// Codable 합성 디코드는 그 기본값을 무시하고 키를 그대로 요구한다 — 이 필드가 없던 구
+    /// `base-index.json` 항목은 여전히 디코드가 실패해, 모든 종이 mediumFast 로 조용히 굳는
+    /// 대신 자동 재구축된다.
+    func testLegacyEntryWithoutGrowthRateFailsToDecode() {
+        let json = #"{"fetchedAt":0,"entries":[{"id":1,"captureRate":45,"isLegendary":false,"isMythical":false}],"maxSpeciesID":1025}"#
+        XCTAssertThrowsError(try JSONDecoder().decode(Snapshot.self, from: Data(json.utf8))) { error in
+            XCTAssertTrue(error is DecodingError, "growthRate 없는 구 스키마는 디코딩 에러로 실패해야 한다")
         }
     }
 

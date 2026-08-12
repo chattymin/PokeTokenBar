@@ -478,6 +478,10 @@ struct IndividualDetailView: View {
         case .none: ""
         case .item(let item): item.label(l.lang)
         case .friendship: l.evolveNeedsFriendshipShort
+        case .level(let n): "Lv.\(n)"
+        // 파서(`PokeAPIClient.requirement`)는 아직 이 둘을 만들지 않는다 — 화면 배선은 그 갈래를
+        // 실제로 만드는 작업(소유/걸음 진화)과 함께 온다.
+        case .owns, .walked: ""
         }
     }
 

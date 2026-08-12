@@ -87,6 +87,15 @@ enum ForageCatalog {
         191: [.init(to: 192, item: .sunStone, scope: .any)],
         198: [.init(to: 430, item: .duskStone, scope: .any)],
         200: [.init(to: 429, item: .duskStone, scope: .any)],
+        // 글라이온(207)·포챠나(215)는 통신교환이 아니라 레벨업 + 든 도구다(Task 4) — 예전에는
+        // held_item 을 통신교환에서만 봐서 조건 없이 진화했다.
+        207: [.init(to: 472, item: .razorFang, scope: .any)],
+        215: [
+            // 원종 → 포푸니라(461), 히스이 모습 → 포푸니크(903). 둘 다 같은 도구(예리한손톱)를
+            // 쓰므로 좁히지 않는다(가디처럼) — 어느 쪽이든 갈 수 있는 물건은 하나다.
+            .init(to: 461, item: .razorClaw, scope: .any),
+            .init(to: 903, item: .razorClaw, scope: .any),
+        ],
         217: [.init(to: 901, item: .peatBlock, scope: .any)],
         233: [.init(to: 474, item: .dubiousDisc, scope: .any)],
         271: [.init(to: 272, item: .waterStone, scope: .any)],
@@ -102,6 +111,8 @@ enum ForageCatalog {
             .init(to: 367, item: .deepSeaTooth, scope: .any),
             .init(to: 368, item: .deepSeaScale, scope: .any),
         ],
+        // 럭키(440)도 통신교환이 아니라 레벨업 + 든 도구다(Task 4) — 위 글라이온과 같은 이유.
+        440: [.init(to: 113, item: .ovalStone, scope: .any)],
         511: [.init(to: 512, item: .leafStone, scope: .any)],
         513: [.init(to: 514, item: .fireStone, scope: .any)],
         515: [.init(to: 516, item: .waterStone, scope: .any)],

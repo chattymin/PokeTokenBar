@@ -59,6 +59,12 @@ enum EvoRequirementRaw: Codable, Sendable, Equatable {
     case none
     case item(String)
     case friendship
+    /// 이 레벨에 닿아야 한다 — 본가 `min_level`(명시가 없으면 `EvoBalance` 규칙으로 채운 값).
+    case level(Int)
+    /// 이 종(speciesID)을 박스에 갖고 있어야 한다.
+    case owns(Int)
+    /// 충분히 걸어야 한다 — 본가의 1000걸음.
+    case walked
 }
 
 /// PokéAPI evolution-chain 을 파싱한 트리. 분기(evolves_to 다수)를 children 으로.
@@ -74,6 +80,9 @@ struct EvoNode: Codable, Sendable {
         case .none: .none
         case .friendship: .friendship
         case .item(let name): EvolutionItem.named(name).map(EvoRequirement.item) ?? .none
+        case .level(let n): .level(n)
+        case .owns(let id): .owns(id)
+        case .walked: .walked
         }
     }
 
@@ -128,18 +137,27 @@ struct EvoLine: Sendable {
     let rarity: Rarity
     /// speciesID → (langCode → name)
     let names: [Int: [String: String]]
+    /// speciesID → 성장 곡선. 진화 후 개체가 새 종의 곡선으로 갈아 끼우는 데 쓴다(Task 7).
+    /// 기본값 `[:]` 인 이유는 이 라인을 손으로 구성하는 기존 테스트가 대부분이라서다 — 실제
+    /// 라인은 `PokeAPIClient.line(baseSpeciesID:)` 이 매 종마다 채워 넣는다.
+    let growthRates: [Int: GrowthRate]
     var totalForms: Int { tree.depth }
 
-    init(baseID: Int, tree: EvoNode, rarity: Rarity, names: [Int: [String: String]]) {
+    init(baseID: Int, tree: EvoNode, rarity: Rarity, names: [Int: [String: String]],
+         growthRates: [Int: GrowthRate] = [:]) {
         self.baseID = baseID
         self.tree = tree.keepingSupportedSpecies() ?? EvoNode(speciesID: baseID, children: [])
         self.rarity = rarity
         self.names = names
+        self.growthRates = growthRates
     }
 
     func localizedName(_ id: Int, _ lang: AppLanguage) -> String {
         lang.resolveName(names[id] ?? [:]) ?? "#\(id)"   // 폴백 순서는 AppLanguage.resolveName 단일 소스
     }
+
+    /// `speciesID` 의 성장 곡선. 라인 fetch 가 안 됐거나 오래된 캐시라면 nil.
+    func growthRate(of speciesID: Int) -> GrowthRate? { growthRates[speciesID] }
 }
 
 /// 성격 — 본가 25종. 부화 시 확정, 능력치 영향 없음(개체 아이덴티티 표시용).

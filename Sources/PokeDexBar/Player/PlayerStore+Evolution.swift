@@ -25,13 +25,17 @@ extension PlayerStore {
     }
 
     /// 그 조건을 지금 만족하는가. 도구는 **갖고 있으면** 되고(쓰는 건 진화 실행 때),
-    /// 친밀도는 그 개체와 함께한 시간으로 판단한다.
+    /// 친밀도·걸음은 그 개체와 함께한 시간으로, 레벨은 성장 곡선으로, 소유는 박스로 판단한다.
     func meetsRequirement(_ requirement: EvoRequirement, for individual: Individual) -> Bool {
         switch requirement {
         case .none: true
         case .item(let item): count(of: item) > 0
         case .friendship:
             individual.partnerDuration(at: currentDate()) >= EvoRequirement.friendshipSeconds
+        case .level(let n): individual.level >= n
+        case .owns(let speciesID): state.box.contains { $0.speciesID == speciesID }
+        case .walked:
+            individual.partnerDuration(at: currentDate()) >= EvoRequirement.walkSeconds
         }
     }
 

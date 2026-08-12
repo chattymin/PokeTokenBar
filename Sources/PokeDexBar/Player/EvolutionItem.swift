@@ -47,7 +47,8 @@ enum EvolutionItem: String, CaseIterable, Codable, Sendable {
     case scrollOfDarkness = "scroll-of-darkness"
     case scrollOfWaters = "scroll-of-waters"
 
-    // 통신교환에 들고 가는 물건 — 25종 중 15종이 이걸 요구한다. 연결의 끈으로 뭉뚱그리면
+    // 통신교환/레벨업 때 들고 있어야 하는 물건. 통신교환 25종 중 15종, 레벨업 4종
+    // (럭키·글라이온·포푸니라·포푸니크)이 이걸 요구한다. 연결의 끈으로 뭉뚱그리면
     // 에레키부스터·금속코트 같은 것이 게임에서 아예 사라진다.
     case metalCoat = "metal-coat"
     case electirizer = "electirizer"
@@ -63,6 +64,9 @@ enum EvolutionItem: String, CaseIterable, Codable, Sendable {
     case whippedDream = "whipped-dream"
     case upGrade = "up-grade"
     case prismScale = "prism-scale"
+    case ovalStone = "oval-stone"
+    case razorClaw = "razor-claw"
+    case razorFang = "razor-fang"
 
     /// PokéAPI 가 돌려주는 아이템 이름 → 도구. 모르는 이름이면 nil(그 진화는 조건 없이 둔다).
     static func named(_ apiName: String) -> EvolutionItem? { EvolutionItem(rawValue: apiName) }
@@ -110,6 +114,9 @@ enum EvolutionItem: String, CaseIterable, Codable, Sendable {
         case .whippedDream: ("생크림", "Whipped Dream", "ホイップポップ")
         case .upGrade: ("업그레이드", "Up-Grade", "アップグレード")
         case .prismScale: ("고운비늘", "Prism Scale", "きれいなウロコ")
+        case .ovalStone: ("둥근돌", "Oval Stone", "まるいいし")
+        case .razorClaw: ("예리한손톱", "Razor Claw", "するどいツメ")
+        case .razorFang: ("예리한이빨", "Razor Fang", "するどいキバ")
         }
         switch lang { case .ko: return names.0; case .en: return names.1; case .ja: return names.2 }
     }
@@ -125,7 +132,26 @@ enum EvoRequirement: Equatable, Sendable {
     case item(EvolutionItem)
     /// 충분히 오래 함께 다녀야 한다 — 본가의 친밀도를 이 앱의 "함께한 시간"으로 옮긴 것.
     case friendship
+    /// 이 레벨에 닿아야 한다 — 본가 `min_level`.
+    case level(Int)
+    /// 이 종을 박스에 갖고 있어야 한다(만타인 ← 총어). 본가의 "파티 동행" 을 옮긴 것.
+    case owns(Int)
+    /// 충분히 걸어야 한다 — 본가의 1000걸음. 친밀도보다 가볍다.
+    case walked
 
     /// 친밀도 진화에 요구하는 함께한 시간. 인연 리본과 같은 문턱이라 화면에서 이미 익숙한 값이다.
     static let friendshipSeconds = Ribbon.bond.requiredPartnerSeconds
+
+    /// 걸음 진화가 요구하는 함께한 시간. 친밀도(1일)보다 짧게 잡는다 —
+    /// 본가에서 1000걸음이 친밀도보다 훨씬 가벼운 것과 같은 비율이다.
+    static let walkSeconds = 6 * 3600
+}
+
+/// 진화 레벨 규칙의 손잡이 — 본가 값이 아니라 이 앱이 정한 값이다.
+enum EvoBalance {
+    /// 레벨이 안 적힌 갈래의 하한. 앞 단계가 알에서 바로 나오는 25종이 여기 걸린다.
+    static let unstatedLevel = 20
+    /// 앞 단계 레벨 위로 얼마나 띄울지. 이게 없으면 절각참(L52)이 되는 순간
+    /// 대도각참 문턱(20)을 이미 넘겨 두 단계가 한 번에 터진다.
+    static let marginOverParent = 8
 }
