@@ -58,6 +58,56 @@ struct BoxTabView: View {
         individuals.reduce(0) { $0 + (store.releaseValue($1) ?? 0) }
     }
 
+    /// 확인 바의 보내기 버튼을 눌렀을 때 무슨 일이 일어나나 — 다음 확인 단계로 가는지,
+    /// 실제로 보내는지. 이 판단을 뷰 클로저 안의 삼항연산자로만 두면, 게이트를 지우고
+    /// 첫 클릭에 바로 보내도(`step` 비교를 안 쓰게 고쳐도) 컴파일은 그대로 되고 아무 테스트도
+    /// 안 걸린다 — 실제로 `testTheBoxReachesTheBulkPath` 는 `let steps = …` 바인딩이 있다는
+    /// 것만 grep 으로 확인해, `steps` 를 한 번도 안 읽어도 통과했다. 이 함수를 따로 빼서
+    /// 직접 테스트한다.
+    enum BulkSendPress: Equatable { case advance, send }
+
+    nonisolated static func bulkSendPress(step: Int, steps: Int) -> BulkSendPress {
+        step < steps ? .advance : .send
+    }
+
+    /// 확인 바에 뜨는 문구 — **첫 확인과 마지막 확인이 달라야** 세 번 연타해도 몇 번째
+    /// 클릭인지 알 수 있다(이로치가 섞인 배치가 첫 클릭인지 두 번째 클릭인지 모른 채 보내지는
+    /// 것이 이 기능의 유일한 진짜 사고다). 문구 자체는 단일 보내기의 `releaseConfirmText` 를
+    /// 그대로 재사용한다 — 여기서 세 번째 문구 규칙을 새로 적으면 두 흐름이 갈린다.
+    /// 마릿수를 아는 문구(`bulkConfirm`)는 첫 확인에서만 쓴다 — 마지막 확인은 위험한 이름이
+    /// 마릿수를 대신하고, 둘 다 적으면 확인 바가 세 줄이 되어 `selectingHeight` 예산을 넘는다.
+    nonisolated static func bulkConfirmText(step: Int, count: Int, l: L) -> String {
+        step == 1 ? l.bulkConfirm(count) : IndividualDetailView.releaseConfirmText(step: step, l: l)
+    }
+
+    /// 선택 모드 스냅샷 — 모드·담은 것·확인 단계. 모드를 나갈 때와 보낸 뒤에 이 셋을
+    /// 어떻게 되돌리는지가 스펙의 안전장치라("모드를 나가면 선택이 비워지고, 보낸 뒤에는
+    /// 모드는 남고 선택만 비워진다") 뷰의 `@State` 대입 세 줄로만 적으면 그 규칙 자체를
+    /// 테스트로 못 잠근다.
+    struct BulkSelection: Equatable {
+        var selecting: Bool
+        var picked: Set<UUID>
+        var bulkStep: Int
+    }
+
+    /// 「선택」/「완료」 버튼을 눌렀을 때. 들어갈 때는 그대로 두고, 나갈 때만 비운다 —
+    /// 다음에 열었을 때 지난 선택이 남아 있으면 뭘 보내는지 모른 채 누르게 된다.
+    nonisolated static func afterToggleMode(_ state: BulkSelection) -> BulkSelection {
+        var next = state
+        next.selecting.toggle()
+        if !next.selecting { next.picked = []; next.bulkStep = 0 }
+        return next
+    }
+
+    /// 보낸 뒤. **모드에는 머무른다** — 정리는 보통 한 번에 안 끝나고, 보낸 직후가 다음 것을
+    /// 고르기 가장 좋은 순간이다. 담은 것과 확인 단계만 비운다.
+    nonisolated static func afterSend(_ state: BulkSelection) -> BulkSelection {
+        var next = state
+        next.picked = []
+        next.bulkStep = 0
+        return next
+    }
+
     /// 획득 순(오래된 것부터). 본가 PC 처럼 **자리가 고정**돼야 보관함으로 읽힌다 —
     /// 최신순이면 한 마리 얻을 때마다 전부 한 칸씩 밀려 어제 본 자리에 없다.
     private var sorted: [Individual] {
@@ -96,6 +146,25 @@ struct BoxTabView: View {
     /// 확인이 몇 단계까지 진행됐나. 0 이면 아직 안 눌렀다.
     @State private var bulkStep = 0
 
+    /// 선택 모드가 아닐 때의 탭 높이 — 다른 탭(상점·가방)과 같은 320 을 맞춰 탭을 오갈 때
+    /// 팝오버가 안 흔들린다. 예산: 헤더(제목 11pt+칸 사용 8pt ≈ 23) + 그리드와의 간격(6) +
+    /// 그리드(5행×50 + 4간격×5 + 안쪽 패딩 12 = 282) = 311 — 320 에 9pt 슬랙.
+    /// (`assets/screenshot-box.png`, 720×696@2x 실측: 그리드 밴드가 96→660px = 282pt.)
+    private static let baseHeight: CGFloat = 320
+
+    /// 선택 모드일 때의 탭 높이. 이 모드는 `bulkBar` 한 덩이가 그대로 얹히므로 밑에서부터
+    /// 예산을 다시 쌓아야 한다 — 320 은 고를 칸 수만 생각한 값이라 확인 문구가 들어갈 자리가
+    /// 없다(리뷰 실측: 최악의 경우 320 짜리 프레임에 ~366pt 가 들어가려 해서 확인 줄과
+    /// 보내기 버튼이 통째로 밖으로 넘쳤다).
+    ///
+    /// 예산(위 `baseHeight` 의 311 위에 더한다):
+    /// - `bulkBar` 자체(간격 6 + 마릿수·보내기 한 줄 ≈ 19) → 311 + 6 + 19 = 336
+    /// - 확인 1단계 문구 한 줄 추가(간격 4 + 9pt 텍스트 ≈ 15) → 336 + 15 = 351
+    /// - 위험한 아이 이름 줄까지(2단계에서만, 한 번 더 +15) → 351 + 15 = 366
+    ///
+    /// 366 에 여유(14)를 더해 380 으로 잡는다 — `baseHeight` 의 슬랙(9)과 비슷한 비율이다.
+    private static let selectingHeight: CGFloat = 380
+
     var body: some View {
         Group {
             if let selected {
@@ -107,7 +176,10 @@ struct BoxTabView: View {
                 grid
             }
         }
-        .frame(height: 320)
+        // `selected` 가 있을 때는 늘 `selecting == false` 다(상세는 선택 모드 밖에서만 연다) —
+        // 그래도 조건은 `selecting` 하나만 본다. 상세 화면은 그리드와 무관하게 항상 기본
+        // 높이여야 하는데, `selected != nil` 을 따로 검사하지 않아도 이 불변식 때문에 맞는다.
+        .frame(height: selecting ? Self.selectingHeight : Self.baseHeight)
     }
 
     private var pageCount: Int { Self.pageCount(forBoxCount: store.state.box.count) }
@@ -175,29 +247,37 @@ struct BoxTabView: View {
 
     /// 상자 이름과 좌우 이동. 상자가 하나뿐이어도 화살표를 비활성으로 남겨 둔다 —
     /// 사라지면 페이지가 늘었을 때 어디를 눌러야 하는지 새로 배워야 한다.
+    ///
+    /// 제목은 **HStack 흐름 밖에서 overlay 로** 얹는다. 전에는 가운데 `VStack` 이
+    /// `maxWidth: .infinity` 로 화살표·선택 버튼과 남는 공간을 나눠 가졌는데, 그러면
+    /// 「선택」↔「완료」처럼 라벨 폭이 크게 바뀔 때마다 나눠 갖는 공간 자체가 바뀌어 제목이
+    /// 화살표 사이에서 옆으로 튀었다(영어 Select→Done 폭 차가 특히 크다). overlay 는 헤더
+    /// 전체 폭을 기준으로 가운데를 잡으므로 옆 버튼 폭과 무관하게 항상 같은 자리다.
     private var boxHeader: some View {
         HStack(spacing: 8) {
             pageButton(systemName: "chevron.left", enabled: currentPage > 0) {
                 page = currentPage - 1
             }
+            Spacer(minLength: 0)
+            pageButton(systemName: "chevron.right", enabled: currentPage < pageCount - 1) {
+                page = currentPage + 1
+            }
+            Button(selecting ? l.bulkDone : l.bulkSelect) {
+                let next = Self.afterToggleMode(.init(selecting: selecting, picked: picked,
+                                                       bulkStep: bulkStep))
+                selecting = next.selecting; picked = next.picked; bulkStep = next.bulkStep
+            }
+            .buttonStyle(.plain)
+            .font(.system(size: 10, weight: .medium))
+            .foregroundStyle(Color.accentColor)
+        }
+        .overlay {
             VStack(spacing: 0) {
                 Text(l.boxTitle(currentPage + 1)).font(.system(size: 11, weight: .semibold))
                 Text(l.boxSlotUsage(store.state.box.count, Self.pageSize * pageCount))
                     .font(.system(size: 8)).monospacedDigit().foregroundStyle(.tertiary)
             }
-            .frame(maxWidth: .infinity)
-            pageButton(systemName: "chevron.right", enabled: currentPage < pageCount - 1) {
-                page = currentPage + 1
-            }
-            Button(selecting ? l.bulkDone : l.bulkSelect) {
-                selecting.toggle()
-                // 모드를 나가면 담은 것도 확인 단계도 비운다 — 다음에 열었을 때 지난 선택이
-                // 남아 있으면 무엇을 보내는지 모르는 채로 누르게 된다.
-                if !selecting { picked = []; bulkStep = 0 }
-            }
-            .buttonStyle(.plain)
-            .font(.system(size: 10, weight: .medium))
-            .foregroundStyle(Color.accentColor)
+            .allowsHitTesting(false)
         }
     }
 
@@ -225,18 +305,30 @@ struct BoxTabView: View {
     /// 바뀐다** — 이 앱에는 확인 다이얼로그 전례가 없고 팝오버 안에서는 help 툴팁 수정자조차 안 뜬다.
     @ViewBuilder
     private var bulkBar: some View {
+        // 확인이 실제로 나가는 값은 `picked`(id 집합)가 아니라 **이 `chosen`** 이어야 한다 —
+        // 마릿수·포인트·위험 이름이 전부 이걸로 계산되므로, 보내는 것도 같은 값이어야
+        // "확인한 것"과 "보낸 것"이 글자 그대로 같다. 오늘은 갈릴 길이 없어도(파트너는 애초에
+        // 못 고르고, 없는 id 는 안 담긴다) 되돌릴 수 없는 동작이라 값 하나를 두 번 계산하지 않는다.
         let chosen = store.state.box.filter { picked.contains($0.id) }
         let steps = BulkRelease.confirmSteps(for: chosen)
+        // 위험한 아이들만 이름으로 — 스무 마리를 다 나열하면 아무도 안 읽는다. 표식은
+        // `BulkRelease.riskyLabel` 한 곳에서만 정한다(단일 소스) — 이로치·전설을 여기서
+        // 또 판정하면 위와 갈릴 수 있다.
+        let names = BulkRelease.risky(chosen).map { individual in
+            BulkRelease.riskyLabel(individual,
+                name: individual.displayName(speciesName: Self.speciesName(individual, in: lines,
+                                                                            store.language),
+                                             store.language),
+                l: l)
+        }
         VStack(alignment: .leading, spacing: 4) {
             if bulkStep > 0 {
-                Text(l.bulkConfirm(chosen.count))
+                Text(Self.bulkConfirmText(step: bulkStep, count: chosen.count, l: l))
                     .font(.system(size: 9)).foregroundStyle(.secondary)
-                // 위험한 아이들만 이름으로 — 스무 마리를 다 나열하면 아무도 안 읽는다.
-                let names = BulkRelease.risky(chosen).map {
-                    $0.displayName(speciesName: Self.speciesName($0, in: lines, store.language),
-                                   store.language)
-                }
-                if !names.isEmpty {
+                // 위험한 이름은 **마지막 확인에서만** — steps 가 2일 때만 도달하는 화면이라,
+                // 이름이 뜨는 것 자체가 "왜 한 번 더 묻는지"의 답이자 두 화면을 실제로 가르는
+                // 표식이다(첫 확인과 마지막 확인이 항상 같은 두 줄을 보여 주던 게 원래 문제였다).
+                if bulkStep == steps, !names.isEmpty {
                     Text(l.bulkConfirmRisky(names.joined(separator: " · ")))
                         .font(.system(size: 9, weight: .semibold)).foregroundStyle(.orange)
                 }
@@ -251,14 +343,14 @@ struct BoxTabView: View {
                         .foregroundStyle(.secondary)
                 }
                 Button(l.sendNow) {
-                    if bulkStep < steps {
+                    switch Self.bulkSendPress(step: bulkStep, steps: steps) {
+                    case .advance:
                         bulkStep += 1
-                    } else {
-                        store.releaseManyToProfessor(individualIDs: Array(picked))
-                        // 모드에는 머무른다 — 정리는 보통 한 번에 안 끝나고, 보낸 직후가
-                        // 다음 것을 고르기 가장 좋은 순간이다. 담은 것만 비운다.
-                        picked = []
-                        bulkStep = 0
+                    case .send:
+                        store.releaseManyToProfessor(individualIDs: chosen.map(\.id))
+                        let next = Self.afterSend(.init(selecting: selecting, picked: picked,
+                                                        bulkStep: bulkStep))
+                        selecting = next.selecting; picked = next.picked; bulkStep = next.bulkStep
                     }
                 }
                 .buttonStyle(.plain)

@@ -208,4 +208,131 @@ final class BulkReleaseTests: XCTestCase {
         XCTAssertEqual(BoxTabView.cellTap(selecting: true, isPickable: false), .ignore,
                        "선택 모드에서 파트너를 눌러 상세로 새면 안 된다")
     }
+
+    // MARK: 보내기 버튼의 게이트 — grep 이 아니라 값으로 잠근다
+    //
+    // `testTheBoxReachesTheBulkPath` 는 소스에 "BulkRelease.confirmSteps" 문자열이 있는지만
+    // 본다. `let steps = …` 바인딩만 있으면 `steps` 를 한 번도 안 읽어도 통과하므로, 게이트를
+    // `bulkStep < steps ? … : send` 에서 `steps` 비교를 지우고 첫 클릭에 바로 보내도 안 걸린다.
+    // `bulkSendPress` 를 직접 테스트해 이 부류를 잡는다.
+
+    /// 마지막 단계 전까지는 다음 단계로만 간다. **첫 클릭도 예외가 아니다** — 담은 것만
+    /// 있고 아직 한 번도 안 누른 상태(`step == 0`)에서 처음 누르면 확인 화면을 여는 것으로
+    /// 끝난다(평범한 배치도 마찬가지다), 곧바로 보내지 않는다.
+    func testBulkSendPressAdvancesBeforeTheFinalStep() {
+        XCTAssertEqual(BoxTabView.bulkSendPress(step: 0, steps: 1), .advance,
+                       "담기만 하고 아직 한 번도 안 누른 상태에서 곧바로 보내면 안 된다")
+        XCTAssertEqual(BoxTabView.bulkSendPress(step: 0, steps: 2), .advance)
+        XCTAssertEqual(BoxTabView.bulkSendPress(step: 1, steps: 2), .advance)
+    }
+
+    /// 마지막 단계에 이르면 보낸다 — 평범한 배치(steps=1)는 확인 화면(step=1)이 곧 마지막
+    /// 단계라 거기서 한 번 더 누르면 나간다.
+    func testBulkSendPressSendsAtTheFinalStep() {
+        XCTAssertEqual(BoxTabView.bulkSendPress(step: 1, steps: 1), .send)
+        XCTAssertEqual(BoxTabView.bulkSendPress(step: 2, steps: 2), .send)
+    }
+
+    // MARK: 확인 문구 — 첫 확인과 마지막 확인이 화면에서 실제로 갈려야 한다
+    //
+    // 전에는 `bulkStep > 0` 하나로만 갈라 이로치·전설이 섞인 배치(steps=2)의 1단계·2단계
+    // 화면이 완전히 같은 문구를 냈다 — 세 번 연타해도 첫 클릭이 먹었는지 알 길이 없었다.
+
+    /// 첫 확인은 마릿수를 담은 `bulkConfirm`.
+    func testBulkConfirmTextAtFirstStepCarriesTheCount() {
+        let l = L(.ko)
+        XCTAssertEqual(BoxTabView.bulkConfirmText(step: 1, count: 3, l: l), l.bulkConfirm(3))
+    }
+
+    /// 마지막 확인(이로치·전설이 섞였을 때만 도달)은 단일 보내기의 재확인 문구를 그대로
+    /// 재사용한다 — 여기서 세 번째 문구 규칙을 새로 적지 않는다.
+    func testBulkConfirmTextAtFinalStepReusesTheSingleSendWording() {
+        let l = L(.ko)
+        XCTAssertEqual(BoxTabView.bulkConfirmText(step: 2, count: 3, l: l), l.sendConfirmAgain)
+    }
+
+    /// **두 화면이 실제로 다른 문구를 낸다.** 이게 없으면 게이트는 맞아도 화면이 똑같아
+    /// 사용자가 몇 번째 클릭인지 못 느낀다 — 이 리뷰가 잡은 결함 그 자체다.
+    func testBulkConfirmTextDiffersBetweenFirstAndFinalStep() {
+        let l = L(.ko)
+        XCTAssertNotEqual(BoxTabView.bulkConfirmText(step: 1, count: 3, l: l),
+                          BoxTabView.bulkConfirmText(step: 2, count: 3, l: l))
+    }
+
+    // MARK: 모드 전환 — "모드를 나가면 선택이 비워지고, 보낸 뒤에는 모드는 남고 선택만 비워진다"
+
+    /// 모드 안으로 들어갈 때는 담은 것·확인 단계를 그대로 둔다(들어가는 순간엔 비어 있으니
+    /// 사실상 항상 빈 채로 시작하지만, 이 함수가 나갈 때만 비운다는 것 자체를 잠근다).
+    func testAfterToggleModeEnteringLeavesPickedAndStepUntouched() {
+        let entering = BoxTabView.BulkSelection(selecting: false, picked: [], bulkStep: 0)
+        let next = BoxTabView.afterToggleMode(entering)
+        XCTAssertTrue(next.selecting)
+        XCTAssertTrue(next.picked.isEmpty)
+        XCTAssertEqual(next.bulkStep, 0)
+    }
+
+    /// 모드를 나가면 담은 것과 확인 단계가 **둘 다** 비워진다 — 다음에 열었을 때 지난 선택이
+    /// 남아 있으면 무엇을 보내는지 모르는 채로 누르게 된다.
+    func testAfterToggleModeExitingClearsBothPickedAndStep() {
+        let leaving = BoxTabView.BulkSelection(selecting: true, picked: [UUID(), UUID()], bulkStep: 2)
+        let next = BoxTabView.afterToggleMode(leaving)
+        XCTAssertFalse(next.selecting)
+        XCTAssertTrue(next.picked.isEmpty)
+        XCTAssertEqual(next.bulkStep, 0)
+    }
+
+    /// 보낸 뒤에는 **모드에 머무른다** — 정리는 보통 한 번에 안 끝나고, 보낸 직후가 다음 것을
+    /// 고르기 가장 좋은 순간이다. 담은 것과 확인 단계만 비운다.
+    func testAfterSendClearsPickedAndStepButKeepsMode() {
+        let midConfirm = BoxTabView.BulkSelection(selecting: true, picked: [UUID(), UUID()], bulkStep: 2)
+        let next = BoxTabView.afterSend(midConfirm)
+        XCTAssertTrue(next.selecting, "보낸 뒤 모드가 꺼지면 다음 정리를 또 처음부터 열어야 한다")
+        XCTAssertTrue(next.picked.isEmpty)
+        XCTAssertEqual(next.bulkStep, 0)
+    }
+
+    // MARK: 위험한 아이 이름의 표식 — 이름만으론 "왜 불려 있는지" 안 보인다
+
+    /// 이로치는 표식이 붙고, 평범한 아이는 이름 그대로다.
+    func testRiskyLabelMarksShiny() {
+        let l = L(.ko)
+        let shiny = make(.rare, path: [4], shiny: true)
+        XCTAssertEqual(BulkRelease.riskyLabel(shiny, name: "파이리", l: l), "이로치 파이리")
+
+        let plain = make(.common, path: [1])
+        XCTAssertEqual(BulkRelease.riskyLabel(plain, name: "이상해씨", l: l), "이상해씨")
+    }
+
+    /// 전설은 등급 이름이 표식으로 붙는다 — `Grade.label` 하나만 쓴다(두 번째 등급 이름을
+    /// 새로 안 적는다).
+    func testRiskyLabelMarksLegendaryWithItsGradeLabel() {
+        let l = L(.ko)
+        let legendary = make(.legendary, path: [150])
+        XCTAssertEqual(BulkRelease.riskyLabel(legendary, name: "뮤츠", l: l),
+                       "\(Grade.legendary.label(.ko)) 뮤츠")
+    }
+
+    /// 이로치 전설은 두 표식이 다 붙는다.
+    func testRiskyLabelMarksBothWhenShinyAndLegendary() {
+        let l = L(.ko)
+        let both = make(.legendary, path: [150], shiny: true)
+        XCTAssertEqual(BulkRelease.riskyLabel(both, name: "뮤츠", l: l),
+                       "이로치 \(Grade.legendary.label(.ko)) 뮤츠")
+    }
+
+    /// **위장 중인 아이는 표식을 안 붙인다.** 이름이 이미 "???" 라, 표식을 더 붙이면 정체는
+    /// 몰라도 "뭔가 특별한 게 숨어 있다"는 힌트가 반쯤 샌다.
+    func testRiskyLabelLeavesDisguisedNameAlone() {
+        var disguised = make(.legendary, path: [132], shiny: true)
+        disguised.disguisedAs = 151
+        XCTAssertEqual(BulkRelease.riskyLabel(disguised, name: Individual.unknownName, l: L(.ko)),
+                       Individual.unknownName)
+    }
+
+    /// 세 언어 모두 표식이 비어 있지 않다.
+    func testRiskyShinyMarkCoversAllThreeLanguages() {
+        for lang in AppLanguage.allCases {
+            XCTAssertFalse(L(lang).riskyShinyMark.isEmpty, "\(lang)")
+        }
+    }
 }
