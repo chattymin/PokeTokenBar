@@ -196,6 +196,69 @@ final class CopilotUsageTests: XCTestCase {
         XCTAssertEqual(result.highWaterRowID, 1)
     }
 
+    /// Copilot-only path for the shared scanner (#157): a failed open/prepare must
+    /// not look like a shrink. Cursor already covers this; A||B needs B alone.
+    func testUnreadableDatabaseKeepsWatermarkAndDoesNotReset() throws {
+        try seed(rows: [
+            Row(id: 1, model: "claude-opus-5", input: 100, output: 10,
+                cacheRead: 0, cacheWrite: 0, reasoning: 0, createdAt: "2026-01-04T10:00:00.000Z"),
+        ])
+        let since = try date("2026-01-01T00:00:00Z")
+        let first = LocalAdditionalUsageReader.copilotEntries(modifiedSince: since, roots: [temporaryDirectory])
+        let watermark = first.highWaterRowID
+        XCTAssertGreaterThan(watermark, 0)
+
+        try Data("not-a-sqlite-database".utf8).write(to: databaseURL, options: .atomic)
+
+        let second = LocalAdditionalUsageReader.copilotEntries(
+            modifiedSince: since, afterRowIDByPath: first.highWaterByPath, roots: [temporaryDirectory])
+        XCTAssertFalse(second.didReset, "failed read must not be treated as a shrink")
+        XCTAssertEqual(second.highWaterRowID, watermark)
+        XCTAssertTrue(second.entries.isEmpty)
+    }
+
+    /// Copilot-only dual-root reset: rewriting one store must still return the
+    /// other store's history in the replacement payload.
+    func testResetInOneRootKeepsOtherRootHistory() throws {
+        try seed(rows: (1...5).map {
+            Row(id: $0, model: "claude-opus-5", input: 100, output: 10,
+                cacheRead: 0, cacheWrite: 0, reasoning: 0,
+                createdAt: "2026-01-04T10:0\($0):00.000Z")
+        })
+        let otherRoot = temporaryDirectory.appendingPathComponent("other")
+        try FileManager.default.createDirectory(at: otherRoot, withIntermediateDirectories: true)
+        let otherDatabase = otherRoot.appendingPathComponent("session-store.db")
+        try seed(rows: (1...5).map {
+            Row(id: $0, model: "gpt-5.4-mini", input: 200, output: 20,
+                cacheRead: 0, cacheWrite: 0, reasoning: 0,
+                createdAt: "2026-01-04T11:0\($0):00.000Z")
+        }, in: otherDatabase)
+
+        let since = try date("2026-01-01T00:00:00Z")
+        let first = LocalAdditionalUsageReader.copilotEntries(
+            modifiedSince: since, roots: [temporaryDirectory, otherRoot])
+        XCTAssertEqual(first.entries.count, 10)
+
+        try FileManager.default.removeItem(at: otherDatabase)
+        try seed(rows: [
+            Row(id: 1, model: "gpt-5.4-mini", input: 700, output: 70,
+                cacheRead: 0, cacheWrite: 0, reasoning: 0, createdAt: "2026-01-05T10:00:00.000Z"),
+        ], in: otherDatabase)
+
+        let second = LocalAdditionalUsageReader.copilotEntries(
+            modifiedSince: since, afterRowIDByPath: first.highWaterByPath,
+            roots: [temporaryDirectory, otherRoot])
+        XCTAssertTrue(second.didReset)
+        XCTAssertEqual(
+            second.entries.filter { $0.id.hasPrefix("copilot|\(databaseURL.path)|") }.count, 5,
+            "first store history must be in the reset payload")
+        XCTAssertEqual(second.entries.filter { $0.id.hasPrefix("copilot|\(otherDatabase.path)|") }.map(\.id),
+                       [entryID(1, in: otherDatabase)])
+        XCTAssertEqual(
+            second.highWaterByPath[databaseURL.path], first.highWaterByPath[databaseURL.path],
+            "healthy store watermark must survive the other store's cold rescan")
+    }
+
     // MARK: - Multiple stores
 
     /// `$COPILOT_HOME` may name more than one store, and each numbers its rows from 1. Keying

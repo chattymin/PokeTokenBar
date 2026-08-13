@@ -26,3 +26,6 @@ read_when:
   추가한다. 스캔(`LocalUsageReader`)·캐시(`LocalUsageCache`)·테스트가 그 단일 소스를 공유해야 한다.
   루트가 겹쳐도 합계는 전역 dedup 이 바로잡지만, 중복 루트는 스캔 비용을 배로 늘리므로
   `normalizedRoots` 로 접는다.
+- **append-only SQLite 사용량 스토어** (Cursor `cursorDiskKV`, Copilot `assistant_usage_events`,
+  앞으로 같은 형태의 세 번째 소스) = `LocalAdditionalUsageReader.scanIncrementalStores`. URL 매핑·
+  `MAX` SQL·row query·parse 만 넘긴다. watermark 루프를 프로바이더마다 복사하지 마라 (#157).

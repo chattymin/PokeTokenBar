@@ -70,6 +70,9 @@ CI はすべてのプルリクエストで `swift build` と `swift test` を実
 - **バージョンマネージャー / インストールパスの追加** =
   `BinaryLocator.commonToolDirectories()` に追加します — 探索と子プロセスの `PATH` が
   共有する単一のソースです。
+- **追記専用 SQLite 使用量ストアの追加**（Cursor・Copilot のように rowid/`id` ウォーターマーク）=
+  `LocalAdditionalUsageReader.scanIncrementalStores` に URL / `MAX` SQL / row query /
+  parse だけ渡す。ウォーターマーク・ループをコピーしない。
 
 ## 法務 / 知的財産
 

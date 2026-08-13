@@ -185,6 +185,10 @@ final class CursorUsageTests: XCTestCase {
         XCTAssertFalse(
             second.entries.contains { $0.id.contains("bubbleId:b:") && !$0.id.contains("b-new") },
             "old root B bubbles must not linger after its rewrite")
+        let pathA = rootA.appendingPathComponent("state.vscdb").path
+        XCTAssertEqual(
+            second.highWaterByPath[pathA], marks[pathA],
+            "healthy root watermark must survive the other root's cold rescan")
     }
 
     func testCursorSkipsBubblesBeforeModifiedSince() throws {
@@ -239,6 +243,27 @@ final class CursorUsageTests: XCTestCase {
         XCTAssertEqual(second.entries.count, 1)
         XCTAssertEqual(second.entries.first?.id, "cursor|bubbleId:tab:b")
         XCTAssertGreaterThan(second.highWaterRowID, first.highWaterRowID)
+    }
+
+    func testCursorEmptyIncrementalReadPreservesWatermark() throws {
+        let database = temporaryDirectory.appendingPathComponent("state.vscdb")
+        try execute(database, sql: """
+        CREATE TABLE cursorDiskKV (key TEXT UNIQUE ON CONFLICT REPLACE, value BLOB);
+        INSERT INTO cursorDiskKV VALUES (
+            'bubbleId:tab:a',
+            '{"tokenCount":{"inputTokens":100,"outputTokens":50},"createdAt":"2026-01-04T10:00:00.000Z","modelType":"gpt-4o"}'
+        );
+        """)
+        let since = try date("2026-01-01T00:00:00Z")
+        let first = LocalAdditionalUsageReader.cursorEntries(
+            modifiedSince: since, roots: [temporaryDirectory])
+        XCTAssertGreaterThan(first.highWaterRowID, 0)
+
+        let second = LocalAdditionalUsageReader.cursorEntries(
+            modifiedSince: since, afterRowID: first.highWaterRowID, roots: [temporaryDirectory])
+        XCTAssertTrue(second.entries.isEmpty)
+        XCTAssertEqual(second.highWaterRowID, first.highWaterRowID)
+        XCTAssertFalse(second.didReset)
     }
 
     func testParseCursorBubbleAcceptsNumericCreatedAt() {
