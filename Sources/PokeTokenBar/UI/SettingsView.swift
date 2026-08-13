@@ -186,6 +186,24 @@ struct SettingsView: View {
             if store.floatingPetEnabled {
                 Divider()
                 groupRow {
+                    Text(l.floatingPetPokemonLabel).font(.callout)
+                    Spacer()
+                    Picker("", selection: Binding<Int?>(
+                        get: { companion.floatingPetSpeciesID },
+                        set: { companion.setFloatingPetSpeciesID($0) }
+                    )) {
+                        Text(l.floatingPetFollowCurrent).tag(nil as Int?)
+                        ForEach(companion.dexSpecies) { species in
+                            Text("#\(species.id) \(species.name)\(species.isShiny ? " ✨" : "")")
+                                .tag(Optional(species.id))
+                        }
+                    }
+                    .labelsHidden()
+                    .pickerStyle(.menu)
+                    .frame(maxWidth: 190, alignment: .trailing)
+                }
+                Divider()
+                groupRow {
                     Text(l.floatingPetSizeLabel).font(.callout)
                     Slider(value: $store.floatingPetSize, in: 48...192, step: 8)
                     Text("\(Int(store.floatingPetSize))px")

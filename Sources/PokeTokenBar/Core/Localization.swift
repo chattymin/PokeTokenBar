@@ -125,6 +125,10 @@ struct L {
           "ポケモンが画面の上に浮かびます — ドラッグで移動できます",
           "Tu Pokémon flota sobre la pantalla — arrástralo para moverlo")
     }
+    var floatingPetPokemonLabel: String { t("대표 포켓몬", "Pet Pokémon", "代表ポケモン", "Pokémon mascota") }
+    var floatingPetFollowCurrent: String {
+        t("현재 포켓몬 따라가기", "Follow current companion", "現在のポケモンに合わせる", "Seguir al compañero actual")
+    }
     var floatingPetSizeLabel: String { t("크기", "Size", "サイズ", "Tamaño") }
     /// 지금은 한도 알림만 말풍선으로 뜨지만, 알림 종류가 늘어도 이 라벨은 그대로 쓴다.
     var floatingPetBubbleAlertsLabel: String {

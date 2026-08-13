@@ -92,6 +92,32 @@ final class CompanionStore {
     }
     var currentNature: PokemonNature? { state.active?.nature }
 
+    /// 플로팅 펫이 그릴 종과 색. nil 선택은 기존 동작(현재 개체/알)을 보존하고, 고정 선택은 도감의
+    /// 종 단위 shiny 플래그를 사용한다. 홈·메뉴바는 이 값을 읽지 않아 육성 대상과 표시 대상을 분리한다.
+    struct FloatingPetSubject: Equatable, Sendable {
+        let speciesID: Int?
+        let isShiny: Bool
+    }
+
+    var floatingPetSpeciesID: Int? { state.floatingPetSpeciesID }
+    var floatingPetSubject: FloatingPetSubject {
+        if let selected = state.floatingPetSpeciesID,
+           let species = dexSpecies.first(where: { $0.id == selected }) {
+            return FloatingPetSubject(speciesID: species.id, isShiny: species.isShiny)
+        }
+        return FloatingPetSubject(speciesID: currentSpeciesID, isShiny: currentIsShiny)
+    }
+
+    /// nil 은 자동 추적. 도감에 없는 id 는 저장하지 않는다 — UI 밖 호출이나 손상된 입력도 같은
+    /// 불변식을 지키며, 실패한 요청이 기존 선택을 조용히 해제하지 않도록 false 만 반환한다.
+    @discardableResult
+    func setFloatingPetSpeciesID(_ id: Int?) -> Bool {
+        if let id, !dexSpecies.contains(where: { $0.id == id }) { return false }
+        state.floatingPetSpeciesID = id
+        save()
+        return true
+    }
+
     // 알 인큐베이션 (active 없을 때)
     var isEgg: Bool { state.active == nil }
     var eggStarted: Bool { state.eggUsage > 0 }
@@ -557,6 +583,7 @@ final class CompanionStore {
         notifyCompanionEvent(l.notifGraduateTitle, l.notifGraduateBody(name))
         eventUntil = clock().addingTimeInterval(6)
         state.active = nil
+        state.reconcileFloatingPetSelection()   // 졸업 체인이 dex 로 옮겨져 선택은 정상적으로 유지된다
         activeGeneration += 1
         currentLine = nil
         state.eggUsage = 0   // 새 알은 처음부터 인큐베이션
@@ -722,6 +749,7 @@ final class CompanionStore {
         guard canBuyEgg(tier) else { return false }
         state.spentTokens += FreshEgg.price(guaranteeing: tier)
         state.active = nil            // 폐기 (졸업 아님 — dex/collectedFinals 미변경)
+        state.reconcileFloatingPetSelection()   // 미졸업 개체에만 있던 대표 종은 자동 추적으로 복귀
         activeGeneration += 1
         currentLine = nil
         state.eggUsage = 0            // 새 알은 처음부터 인큐베이션(재부화에 5M 필요)
@@ -988,6 +1016,7 @@ final class CompanionStore {
         m.dittoRevealed = true
         let shiny = m.isShiny
         state.active = m
+        state.reconcileFloatingPetSelection()   // 위장 종만 근거였던 선택은 리빌과 함께 제거
         currentLine = dittoLine
         AppLog.write("ditto reveal: disguise=\(m.dittoDisguise ?? -1) → ditto rarity=\(dittoLine.rarity) shiny=\(shiny)")
         fireCelebration(.dittoReveal(shiny: shiny))
@@ -1010,6 +1039,7 @@ final class CompanionStore {
             guard activeGeneration == generation,
                   let latest = state.active, latest.baseID == a.baseID, currentLine == nil else { return }
             state.active = normalizedEvolutionState(latest, from: line.tree)
+            state.reconcileFloatingPetSelection()   // 손상 경로 정규화로 사라진 단계가 대표로 남지 않게
             currentLine = line
             save()   // 마이그레이션 선택을 사용량 재평가 전에 영속화해 재시작마다 다시 롤리지 않는다.
             applyUsage(0)   // 라인 미로딩 동안 적립된 사용량이 임계를 넘었으면 지금 진화 판정

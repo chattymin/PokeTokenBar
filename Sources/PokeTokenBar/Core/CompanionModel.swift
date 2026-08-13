@@ -523,6 +523,10 @@ struct CompanionState: Codable, Sendable {
     var lastDate = ""
     // 현재 포켓몬(없으면 알)
     var active: MonState?
+    // 플로팅 펫에 고정한 대표 종. nil = 현재 키우는 포켓몬(또는 알)을 그대로 따라간다.
+    // 종 단위 선택이라 성격 같은 개체 정보는 들고 있지 않는다. 선택 가능한 범위는 도감과 동일하게
+    // 졸업분 + 현재 개체의 도달 단계이며, 그 범위에서 빠지면 reconcileFloatingPetSelection 이 nil 로 복구한다.
+    var floatingPetSpeciesID: Int? = nil
     // 도감
     var dex: [DexEntry] = []
     // 소유한 (base,final) 쌍 — 분기 다양성용
@@ -561,6 +565,7 @@ struct CompanionState: Codable, Sendable {
         lastDate           = c.lenient(String.self, forKey: .lastDate, default: "")
         // active 손상(빈 pathIDs 등) → 알로 폴백하되 도감·인벤토리는 보존.
         active             = c.lenientOptional(MonState.self, forKey: .active)
+        floatingPetSpeciesID = c.lenientOptional(Int.self, forKey: .floatingPetSpeciesID)
         // 도감은 항목별 격리 — 손상 항목 하나가 도감 전체를 날리지 않게.
         dex                = c.lenient([Lossy<DexEntry>].self, forKey: .dex, default: []).compactMap(\.value)
         collectedFinals    = c.lenient(Set<String>.self, forKey: .collectedFinals, default: [])
@@ -568,6 +573,17 @@ struct CompanionState: Codable, Sendable {
         inventory          = c.lenient([String: Int].self, forKey: .inventory, default: [:])
         candyGrantTier     = c.lenient([String: Int].self, forKey: .candyGrantTier, default: [:])
         candyFeatureSeeded = c.lenient(Bool.self, forKey: .candyFeatureSeeded, default: false)
+    }
+
+    /// 대표 펫은 사용자가 현재 보유한 종만 가리킨다. 도감의 종 집계와 같은 포함 규칙을 모델에 두어
+    /// Fresh Egg·메타몽 리빌·손편집 세이브가 유령 종을 플로팅 펫에 영구히 남기지 않게 한다.
+    mutating func reconcileFloatingPetSelection() {
+        guard let selected = floatingPetSpeciesID else { return }
+        var available = Set(dex.flatMap(\.chainOrder))
+        if let active {
+            available.formUnion(active.pathIDs.prefix(active.stageIndex + 1))
+        }
+        if !available.contains(selected) { floatingPetSpeciesID = nil }
     }
 }
 

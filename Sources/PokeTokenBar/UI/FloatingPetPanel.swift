@@ -418,6 +418,7 @@ struct FloatingPetView: View {
 
     var body: some View {
         let size = CGFloat(store.floatingPetSize)
+        let subject = companion.floatingPetSubject
         VStack(spacing: 8) {
             if let alert = store.currentBubbleAlert {
                 SpeechBubbleView(alert: alert, l: L(companion.language))
@@ -425,8 +426,8 @@ struct FloatingPetView: View {
                     .zIndex(1)
             }
 
-            SpriteView(speciesID: companion.currentSpeciesID, size: size, animated: animated,
-                       shiny: companion.currentIsShiny, minFrameDelay: Self.frameFloor)
+            SpriteView(speciesID: subject.speciesID, size: size, animated: animated,
+                       shiny: subject.isShiny, minFrameDelay: Self.frameFloor)
                 .frame(width: size, height: size)
                 .zIndex(0)
         }
