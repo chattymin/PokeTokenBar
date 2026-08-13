@@ -98,6 +98,13 @@ The offers come covered, and you turn them over one at a time — each card open
 </tr>
 <tr>
 <td width="55%" valign="middle">
+<h3>Tidy the Box when it gets away from you</h3>
+A Box fills in the order things arrived, which is fine until it isn't. <b>Tidy</b> rearranges it once — by level, grade, Dex number, shinies first, or Ribbon — and that arrangement is what stays. New arrivals still land at the end rather than slotting into place, so nothing shuffles under you while you work, and tidying by when you got them puts everything back exactly as it was.
+</td>
+<td width="45%" align="center"><img src="assets/box-tidy.png" width="300" alt="A Box shown twice: as acquired, then tidied by highest level so Snorlax leads and the level-6 Spearow falls to the end"></td>
+</tr>
+<tr>
+<td width="55%" valign="middle">
 <h3>Some change by who you keep close</h3>
 Palafin turns Hero the way it does in the games — not when it comes out, but when it steps back. Put it at your side, swap someone else in, and it returns changed; swap again and it drops back. Terapagos is simpler: it wears its Terastal Form for as long as it is with you, and a Tera Orb takes it the rest of the way to Stellar.
 </td>

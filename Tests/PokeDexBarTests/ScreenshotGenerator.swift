@@ -931,6 +931,10 @@ final class ScreenshotGeneratorTests: XCTestCase {
         // §릴리스 1 하드 게이트가 요구하는 신규 에셋이 이것이다.
         try write(png(levelBanner(), fullScroll: true), "levels.png")
 
+        // 박스 정리 — 같은 박스를 정리 전후로 나란히. 이 릴리스가 새로 여는 화면이라
+        // §릴리스 1 하드 게이트가 요구하는 신규 에셋이 이것이다.
+        try write(png(boxTidyBanner()), "box-tidy.png")
+
         // 태어날 때 정해지는 겉모습 — 이름 옆 배지가 그 개체가 어떤 무늬로 태어났는지 말한다.
         // 지방 배지와 같은 자리를 쓰므로, 이 그림 하나로 두 규칙이 같이 설명된다.
         try write(png(tabChrome(BoxTabView(store: fixture.player, lines: ScreenshotFixture.lines,
@@ -1203,6 +1207,50 @@ final class ScreenshotGeneratorTests: XCTestCase {
                                     onNeedLine: { _ in }, onBack: {})
             .frame(width: PopoverMetrics.width)
             .background(Color(nsColor: .windowBackgroundColor))
+    }
+
+    /// 정리 전후의 같은 박스. **한 번 누르면 저장된 순서가 다시 배열된다**는 것이 요점이라
+    /// 전후를 같이 보여야 무슨 일이 일어나는지 읽힌다.
+    private func boxTidyBanner() -> some View {
+        let now = ScreenshotFixture.now
+        // 등급·레벨이 뒤섞인 박스 한 벌. 두 스토어가 **같은 개체 목록**을 갖고, 한쪽만 정리한다.
+        let roster: [(species: Int, level: Int, grade: Grade)] = [
+            (10, 8, .common), (147, 44, .epic), (19, 12, .common), (25, 31, .rare),
+            (133, 27, .rare), (16, 6, .common), (143, 52, .epic), (129, 15, .common),
+        ]
+        func store(tidied: Bool) -> PlayerStore {
+            let store = PlayerStore(fileURL: FileManager.default.temporaryDirectory
+                                        .appendingPathComponent("tidy-\(UUID().uuidString).json"),
+                                    rng: SeededRNG(seed: 31), now: { now },
+                                    defaults: UserDefaults(suiteName: "ptb-tidy-\(UUID().uuidString)")!)
+            store.setLanguage(.en)
+            store.seedForTesting(wallet: 0, slots: 1, eggs: 0, at: now)
+            store.mutate { state in
+                state.box = roster.enumerated().map { index, entry in
+                    Individual(baseID: entry.species, speciesID: entry.species,
+                               pathIDs: [entry.species], nature: .hardy,
+                               exp: GrowthRate.mediumFast.totalExp(at: entry.level),
+                               obtainedAt: now.addingTimeInterval(Double(index)),
+                               grade: entry.grade, growthRate: .mediumFast)
+                }
+            }
+            if tidied { store.sortBox(.levelHigh) }
+            return store
+        }
+        func grid(_ tidied: Bool, _ caption: String) -> some View {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(caption).font(.system(size: 10, weight: .semibold)).foregroundStyle(.secondary)
+                BoxTabView(store: store(tidied: tidied), lines: ScreenshotFixture.lines,
+                           onNeedLine: { _ in }, selection: .constant(nil))
+            }
+        }
+        return VStack(alignment: .leading, spacing: 10) {
+            grid(false, "As you got them")
+            grid(true, "Tidied by highest level")
+        }
+        .padding(.horizontal, 14).padding(.vertical, 14)
+        .frame(width: PopoverMetrics.width, alignment: .leading)
+        .background(Color(nsColor: .windowBackgroundColor))
     }
 
     private func hatchSpeedupBanner() -> some View {
