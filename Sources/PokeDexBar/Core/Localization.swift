@@ -132,6 +132,8 @@ struct L {
     /// 보관함 상자 이름과 사용 칸 — 본가 PC 처럼 고정 30칸 상자를 넘겨 본다.
     func boxTitle(_ number: Int) -> String { t("박스 \(number)", "Box \(number)", "ボックス \(number)") }
     func boxSlotUsage(_ used: Int, _ total: Int) -> String { "\(used) / \(total)" }
+    /// 박스 헤더의 정렬 메뉴. **상태가 아니라 명령**이라 "정렬 기준"이 아니라 "정리"라고 부른다.
+    var boxSortMenu: String { t("정리", "Tidy", "せいり") }
     var detailNature: String { t("성격", "Nature", "せいかく") }
     var detailGrade: String { t("등급", "Grade", "ランク") }
     /// 레벨 표시 — 박스 칸의 작은 배지와 상세 화면이 함께 쓴다.

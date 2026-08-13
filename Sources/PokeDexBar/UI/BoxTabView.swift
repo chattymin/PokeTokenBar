@@ -90,12 +90,6 @@ struct BoxTabView: View {
         return next
     }
 
-    /// 획득 순(오래된 것부터). 본가 PC 처럼 **자리가 고정**돼야 보관함으로 읽힌다 —
-    /// 최신순이면 한 마리 얻을 때마다 전부 한 칸씩 밀려 어제 본 자리에 없다.
-    private var sorted: [Individual] {
-        store.state.box.sorted { $0.obtainedAt < $1.obtainedAt }
-    }
-
     /// 상자 하나에 들어가는 칸 수와 배열 — 본가와 같은 6×5.
     nonisolated static let columnCount = 6
     nonisolated static let rowCount = 5
@@ -173,8 +167,12 @@ struct BoxTabView: View {
     private var currentPage: Int { Self.clampedPage(page, pageCount: pageCount) }
 
     /// 이 상자에 놓인 개체들 — 빈 자리는 nil. 고정 30칸이라 뒤가 비어도 칸은 그린다.
+    ///
+    /// **저장된 순서를 그대로 그린다** — 다시 정렬하지 않는다. 정리는 `BoxSortMenu` 가 눌렀을 때
+    /// `store.sortBox(_:)` 로 저장소 자체를 재배치하는 일회성 명령이고, 화면은 그 결과를 그대로
+    /// 비출 뿐이다. 여기서 또 정렬하면 정리해도 화면이 안 바뀐 것처럼 보인다.
     private var slots: [Individual?] {
-        let all = sorted
+        let all = store.state.box
         let start = currentPage * Self.pageSize
         return (0..<Self.pageSize).map { offset in
             let index = start + offset
@@ -254,6 +252,8 @@ struct BoxTabView: View {
                 page = currentPage + 1
             }
             Spacer(minLength: 0)
+            BoxSortMenu(title: l.boxSortMenu, options: BoxSort.allCases,
+                        language: store.language) { store.sortBox($0) }
             // 글자를 남기되 화살표와 같은 칩으로 — 아이콘만 두면 무엇인지 알 수 없고,
             // 맨 글자로 두면 옆 칩들과 무게가 안 맞는다.
             Button {
@@ -377,6 +377,56 @@ struct BoxTabView: View {
     private func readyToEvolve(_ individual: Individual) -> Bool {
         guard let line = lines[individual.baseID] else { return false }
         return store.isReadyToEvolve(individual, line: line)
+    }
+}
+
+/// 박스 헤더의 정리 메뉴. 별도 타입으로 뽑은 이유는 `ProfessorOfferButton` 계열과 같다 —
+/// **배선 자체를 테스트로 잠그기 위해서**다. 메뉴 항목이 그려지는 것과 그것이 실제로 박스를
+/// 재배치하는 것은 다른 이야기이고, 후자는 순수 함수 테스트로는 못 잡는다.
+struct BoxSortMenu: View {
+    let title: String
+    let options: [BoxSort]
+    let language: AppLanguage
+    let action: (BoxSort) -> Void
+
+    #if DEBUG
+    @MainActor static var constructed: [(options: [BoxSort], action: (BoxSort) -> Void)] = []
+    @MainActor static var isRecording = false
+    @MainActor static func resetConstructed() {
+        isRecording = true
+        constructed = []
+    }
+    #endif
+
+    init(title: String, options: [BoxSort], language: AppLanguage,
+         action: @escaping (BoxSort) -> Void) {
+        self.title = title
+        self.options = options
+        self.language = language
+        self.action = action
+        #if DEBUG
+        if Self.isRecording { Self.constructed.append((options, action)) }
+        #endif
+    }
+
+    var body: some View {
+        Menu {
+            ForEach(options, id: \.self) { option in
+                Button(option.label(language)) { action(option) }
+            }
+        } label: {
+            Image(systemName: "arrow.up.arrow.down")
+                .font(.system(size: 10, weight: .bold))
+                .frame(width: 20, height: 18)
+                .background(Color.secondary.opacity(0.18), in: RoundedRectangle(cornerRadius: 5))
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        // 도움말 툴팁 수정자는 일부러 안 붙인다 — 이 파일의 `bulkBar` 주석대로 이 앱 팝오버
+        // 안에서는 그 수정자가 안 뜬다(`testTheBoxReachesTheBulkPath` 가 이 파일에 다시
+        // 들어오지 않는지 지킨다). `title` 은 지금은 안 쓰지만 시그니처는 `ProfessorOfferButton`
+        // 계열과 맞춰 둔다 — 나중에 실제로 뜨는 자리(예: 접근성 레이블)가 생기면 그때 쓴다.
     }
 }
 
