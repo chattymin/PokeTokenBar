@@ -38,6 +38,18 @@ final class LevelEconomyTests: XCTestCase {
         XCTAssertEqual(partner(store, id).exp, 1_000, "환율이 안 걸렸다")
     }
 
+    /// **지금 배포되는 환율을 못으로 박는다.** 다른 테스트는 전부 `tokensPerExp` 상대값이라
+    /// 환율이 실수로 바뀌어도 통과한다 — 밸런스 상수는 그 자체가 결정이므로 한 곳에서 값을 고정한다
+    /// (`ReleaseBalance.testReleaseBaseValues` 와 같은 이유). 바꿀 때는 이 줄도 같이 바꾼다.
+    func testTheShippedExchangeRate() {
+        XCTAssertEqual(ExpBalance.tokensPerExp, 8_000)
+        // 사탕은 토큰 값어치로 못 박혀 있어 환율을 바꿔도 지갑 기준 값어치가 안 변한다.
+        XCTAssertEqual(ExpBalance.candyExp * ExpBalance.tokensPerExp, 100_000_000)
+        // mediumFast 만렙 = 80억 토큰. 커먼 알(5억)의 16배 — 레벨이 알보다 훨씬 긴 프로젝트다.
+        XCTAssertEqual(GrowthRate.mediumFast.totalExp(at: 100) * ExpBalance.tokensPerExp,
+                       8_000_000_000)
+    }
+
     /// **알은 토큰 그대로 찬다.** 경험치와 같은 수가 되면 분리가 안 된 것이다.
     func testTheEggMeterCountsRawTokens() {
         let store = makeStore()

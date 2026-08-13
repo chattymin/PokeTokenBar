@@ -51,10 +51,10 @@ struct Individual: Identifiable, Codable, Sendable, Equatable {
     /// `exp` 와 서로를 깎지 않는다. 예전에는 `exp` 하나가 두 역할을 겸했고, 그것 때문에
     /// 등급이 경험치에 끼어들어야 했다.
     var eggProgress = 0
-    /// **경험치로 못 바꾼 토큰의 나머지.** 환율(`ExpBalance.tokensPerExp` = 500)로 나눈
+    /// **경험치로 못 바꾼 토큰의 나머지.** 환율(`ExpBalance.tokensPerExp`)로 나눈
     /// 정수 나눗셈은 매 갱신(`PlayerStore.update`, 기본 120초 주기)마다 자투리를 버린다 —
     /// 이월이 없으면 한 번에 500토큰을 못 채우는 가벼운 사용자는 `exp` 가 **영원히 0**이다
-    /// (하루 10만 토큰이면 한 틱에 약 400토큰 → 400/500=0). 그래서 여기 남겨 뒀다가 다음
+    /// (하루 10만 토큰이면 한 틱에 약 400토큰 → 400/8000=0). 그래서 여기 남겨 뒀다가 다음
     /// 갱신의 몫과 합쳐서 나눈다 — 사탕처럼 이미 "몫과 나머지" 로 정산하는 자리(`candyYield`)
     /// 와 같은 패턴이다.
     var expRemainder = 0
