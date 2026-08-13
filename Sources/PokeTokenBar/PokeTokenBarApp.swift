@@ -17,6 +17,7 @@ struct PokeTokenBarApp: App {
 final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private var statusItem: NSStatusItem!
     private let popover = NSPopover()
+    private var outsideClickMonitor: Any?
     private var store: UsageStore!
     private var companion: CompanionStore!
     private var updater: UpdateChecker!
@@ -70,7 +71,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         observeStore()
         observeCompanionSprite()
         observeDisplaySleep()
-        observeAppResignActive()
         applyState()
     }
 
@@ -357,6 +357,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             NSApp.activate(ignoringOtherApps: true)
             popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
             popover.contentViewController?.view.window?.makeKeyAndOrderFront(nil)
+            startOutsideClickMonitor()
             syncMenuAnimation()   // 팝오버 열림 → 메뉴바 애니메이션 정지(중복 + WindowServer 부하 회피)
             store.requestNotificationAuthorizationIfNeeded()   // 알림 권한은 사용자가 앱을 처음 열 때 요청
             Task { await updater.check() }   // 팝오버 열 때 재확인(내부 minInterval 디바운스)
@@ -365,8 +366,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
 
     /// 팝오버가 닫히면 호스팅 컨트롤러 해제(숨은 트리 재레이아웃 비용 제거) + 메뉴바 애니메이션 재개.
     func popoverDidClose(_ notification: Notification) {
+        stopOutsideClickMonitor()
         popover.contentViewController = nil
         syncMenuAnimation()
+    }
+
+    /// 다른 메뉴바 팝업은 앱을 비활성화 안 시켜 .transient 가 못 닫는다 → 열림 동안만 앱 밖 클릭을 직접 감지해 닫는다(관찰 전용, 권한 불필요).
+    private func startOutsideClickMonitor() {
+        outsideClickMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
+            Task { @MainActor in
+                guard let self, self.popover.isShown else { return }
+                self.popover.performClose(nil)
+            }
+        }
+    }
+
+    private func stopOutsideClickMonitor() {
+        if let m = outsideClickMonitor { NSEvent.removeMonitor(m); outsideClickMonitor = nil }
     }
 
     // MARK: 디스플레이 / 메뉴바 가시성 (에너지 절약 — 안 보이면 애니메이션 정지)
@@ -384,18 +400,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             forName: NSWindow.didChangeOcclusionStateNotification, object: nil, queue: .main
         ) { [weak self] _ in
             Task { @MainActor in self?.syncMenuAnimation() }
-        }
-    }
-
-    /// 다른 메뉴바 팝업은 outside 클릭 없이 앱만 비활성화 → .transient 팝오버가 안 닫힘. resignActive 시 직접 닫는다.
-    private func observeAppResignActive() {
-        NotificationCenter.default.addObserver(
-            forName: NSApplication.didResignActiveNotification, object: nil, queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor in
-                guard let self, self.popover.isShown else { return }
-                self.popover.performClose(nil)
-            }
         }
     }
 
