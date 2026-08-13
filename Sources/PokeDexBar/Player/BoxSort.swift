@@ -8,7 +8,7 @@ import Foundation
 ///
 /// `obtained` 는 **유일한 되돌리기**다. `obtainedAt` 은 개체마다 그대로 남으므로 언제든 원래
 /// 배치로 돌아올 수 있다. 정렬이 파괴적인 동작인 만큼 이 항목은 메뉴에서 빠지면 안 된다.
-enum BoxSort: String, CaseIterable, Sendable {
+enum BoxSort: CaseIterable, Sendable {
     case obtained
     case levelHigh, levelLow
     case grade

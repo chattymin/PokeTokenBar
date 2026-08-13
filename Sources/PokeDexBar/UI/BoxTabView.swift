@@ -16,6 +16,20 @@ struct BoxTabView: View {
     /// 스프라이트를 칸에 꽉 채울지(설정).
     var fillFrame = true
 
+    /// 선택 모드로 바로 시작할지. 실사용에서는 늘 기본값(false)으로 시작해 헤더의
+    /// 「선택」 버튼을 눌러야 들어간다 — 이 초기값은 그 버튼을 누른 뒤의 상태를 테스트가
+    /// 재현하기 위한 것이다(`picked` 는 id 를 직접 안 받는다 — 렌더된 `BoxCell` 을 탭해서
+    /// 채우는 것도 검증의 일부라, 값을 심는 대신 실제 탭 경로를 타게 한다).
+    init(store: PlayerStore, lines: [Int: EvoLine], onNeedLine: @escaping (Int) -> Void,
+         selection: Binding<UUID?>, fillFrame: Bool = true, selecting: Bool = false) {
+        self.store = store
+        self.lines = lines
+        self.onNeedLine = onNeedLine
+        self._selection = selection
+        self.fillFrame = fillFrame
+        self._selecting = State(initialValue: selecting)
+    }
+
     private var l: L { store.l }
 
     /// 이 개체를 골라 담을 수 있나. **판정은 `releaseValue` 하나** — 파트너면 nil 이다.
@@ -423,10 +437,11 @@ struct BoxSortMenu: View {
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
         .fixedSize()
+        // 아이콘만 있고 글자가 없는 메뉴라 VoiceOver 가 이름을 못 읽는다 — `title` 이 그 이름이다.
         // 도움말 툴팁 수정자는 일부러 안 붙인다 — 이 파일의 `bulkBar` 주석대로 이 앱 팝오버
         // 안에서는 그 수정자가 안 뜬다(`testTheBoxReachesTheBulkPath` 가 이 파일에 다시
-        // 들어오지 않는지 지킨다). `title` 은 지금은 안 쓰지만 시그니처는 `ProfessorOfferButton`
-        // 계열과 맞춰 둔다 — 나중에 실제로 뜨는 자리(예: 접근성 레이블)가 생기면 그때 쓴다.
+        // 들어오지 않는지 지킨다). `.accessibilityLabel` 은 그 수정자가 아니라 이 가드에 안 걸린다.
+        .accessibilityLabel(title)
     }
 }
 
@@ -448,7 +463,9 @@ struct BoxCell: View {
     let onTap: () -> Void
 
     #if DEBUG
-    @MainActor static var constructed: [(id: UUID, onTap: () -> Void)] = []
+    /// `picked` 도 같이 기록한다 — 정렬 뒤 다시 그린 칸이 여전히 담긴 상태로 보이는지가
+    /// `testTidyingKeepsTheCurrentSelection` 의 관심사라, onTap 만으로는 그걸 못 잰다.
+    @MainActor static var constructed: [(id: UUID, picked: Bool, onTap: () -> Void)] = []
     @MainActor static var isRecording = false
     @MainActor static func resetConstructed() {
         isRecording = true
@@ -469,7 +486,7 @@ struct BoxCell: View {
         self.picked = picked
         self.onTap = onTap
         #if DEBUG
-        if Self.isRecording { Self.constructed.append((individual.id, onTap)) }
+        if Self.isRecording { Self.constructed.append((individual.id, picked, onTap)) }
         #endif
     }
 

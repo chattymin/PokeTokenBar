@@ -28,10 +28,14 @@ enum HatchSpeedup {
     /// 이 개체들 중에 알을 빨리 깨우는 아이가 있나.
     static func present(in box: [Individual]) -> Bool { warmer(in: box) != nil }
 
-    /// 알을 데워 주는 아이. 여럿이면 **가장 먼저 얻은** 아이다 — 박스는 얻은 순서라
-    /// 맨 앞이 그 감면을 처음 준 개체이고, 화면에 이름을 내밀 때 그쪽이 말이 된다.
+    /// 알을 데워 주는 아이. 여럿이면 **가장 먼저 얻은** 아이다 — 화면에 이름을 내밀 때
+    /// 그쪽이 말이 된다.
+    ///
+    /// **배열 순서와 무관하게 `obtainedAt` 으로 고른다.** 박스 정리(`BoxSort`)가 생긴 뒤로
+    /// 배열 순서는 더 이상 획득 순서가 아니다 — `box.first { … }` 로 짰다면, 정리로 배열이
+    /// 뒤집히기만 해도 감면을 준 적 없는 다른 개체의 이름이 튀어나온다.
     static func warmer(in box: [Individual]) -> Individual? {
-        box.first { species.contains($0.speciesID) }
+        box.filter { species.contains($0.speciesID) }.min { $0.obtainedAt < $1.obtainedAt }
     }
 
     /// 남은 시간을 절반으로 줄인 부화 시각.

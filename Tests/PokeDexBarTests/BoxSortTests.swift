@@ -110,6 +110,27 @@ final class BoxSortTests: XCTestCase {
         XCTAssertEqual(order(.grade, box), [1, 2, 3])
     }
 
+    /// **1차·2차 키까지 동률이면 `id` 가 갈라야 한다.** 리뷰가 `id.uuidString < …` 를 `false` 로
+    /// 바꿔도 22개 테스트가 전부 통과했다 — 모든 픽스처가 `obtainedAt` 까지는 서로 달라서 이
+    /// 세 번째 키가 한 번도 안 밟혔다. `ScreenshotGenerator` 처럼 `obtainedAt` 까지 같은 개체가
+    /// 실제로 있으므로(픽스처 무관하게), 등급까지 같은 둘을 만들어 이 키를 직접 밟는다. 두 번
+    /// 정렬해 같은 배치가 나오는지, 그 배치가 `uuidString` 순인지를 확인한다.
+    func testTiesAtEveryKeyFallBackToUUIDStringOrder() {
+        let sameInstant = epoch.addingTimeInterval(10)
+        let low = Individual(id: UUID(uuidString: "00000000-0000-0000-0000-000000000001")!,
+                             baseID: 1, speciesID: 1, pathIDs: [1], nature: .hardy,
+                             obtainedAt: sameInstant, grade: .rare)
+        let high = Individual(id: UUID(uuidString: "FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFFFFFF")!,
+                              baseID: 2, speciesID: 2, pathIDs: [2], nature: .hardy,
+                              obtainedAt: sameInstant, grade: .rare)
+        let box = [high, low]   // 일부러 uuidString 역순으로 넣는다.
+
+        let once = BoxSort.grade.apply(to: box, at: epoch)
+        let twice = BoxSort.grade.apply(to: once, at: epoch)
+        XCTAssertEqual(once.map(\.id), twice.map(\.id), "같은 동률 배치가 호출마다 달라진다")
+        XCTAssertEqual(once.map(\.id), [low.id, high.id], "동률 폴백이 uuidString 순이 아니다")
+    }
+
     /// 같은 입력을 두 번 정렬하면 같은 배치. 그리고 이미 정렬된 것을 또 정렬해도 안 흔들린다.
     func testSortingIsStableAndIdempotent() {
         let box = (0..<12).map { make("x\($0)", order: $0, grade: .rare, species: 100 + $0) }

@@ -171,12 +171,30 @@ final class HatchSpeedupNamingTests: XCTestCase {
                    obtainedAt: Date(timeIntervalSince1970: 0), grade: .rare)
     }
 
-    /// **가장 먼저 얻은 아이**를 고른다. 박스는 얻은 순서라 맨 앞이 그 감면을 처음 준 개체이고,
-    /// 이름을 내밀 때 그쪽이 말이 된다.
+    /// **가장 먼저 얻은 아이**를 고른다. 이름을 내밀 때 그쪽이 말이 된다.
     func testItNamesTheOneThatEarnedIt() {
         let box = [make(25), make(218), make(663)]      // 피카츄 · 마그마그 · 파이어로
         XCTAssertEqual(HatchSpeedup.warmer(in: box)?.speciesID, 218)
         XCTAssertNil(HatchSpeedup.warmer(in: [make(25)]))
+    }
+
+    /// **정리로 배열 순서가 바뀌어도 감면을 준 이름은 안 바뀐다.** 마그카르고(#219)를 먼저,
+    /// 포니타(#77)를 나중에 얻은 뒤 도감번호순으로 정리하면 배열은 뒤집히지만(포니타가 앞으로
+    /// 온다) 감면을 준 건 여전히 먼저 얻은 마그카르고다 — `warmer` 가 `box.first` 였을 때는
+    /// 이 시점에 대답이 조용히 바뀌었다.
+    func testTidyingDoesNotChangeWhoGetsCredited() {
+        let now = Date(timeIntervalSince1970: 0)
+        let magcargo = Individual(baseID: 219, speciesID: 219, pathIDs: [219], nature: .hardy,
+                                  obtainedAt: now, grade: .common)
+        let ponyta = Individual(baseID: 77, speciesID: 77, pathIDs: [77], nature: .hardy,
+                                obtainedAt: now.addingTimeInterval(10), grade: .common)
+        let box = [magcargo, ponyta]
+        XCTAssertEqual(HatchSpeedup.warmer(in: box)?.speciesID, 219, "정리 전부터 틀렸다")
+
+        let tidied = BoxSort.dex.apply(to: box, at: now)
+        XCTAssertEqual(tidied.map(\.speciesID), [77, 219], "이 테스트가 전제하는 뒤집힘 자체가 안 일어났다")
+        XCTAssertEqual(HatchSpeedup.warmer(in: tidied)?.speciesID, 219,
+                       "정리로 배열이 뒤집혔는데 감면을 준 이름이 바뀌었다")
     }
 
     /// `present` 와 `warmer` 가 같은 답을 해야 한다 — 갈라지면 배지는 뜨는데 이름이 없거나
