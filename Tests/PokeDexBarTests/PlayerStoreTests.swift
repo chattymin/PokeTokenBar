@@ -72,12 +72,14 @@ final class PlayerStoreTests: XCTestCase {
     func testDeltaAccruesToWalletAndPartnerExp() {
         let (store, _) = makeStore()
         store.chooseStarter(speciesID: 1, grade: .common)
+        // 델타를 환율의 배수로 잡는다 — 환율을 조정해도 이 테스트가 뜻을 유지한다.
+        let delta = ExpBalance.tokensPerExp * 3
         store.update(todayTokens: 1_000, todayDate: "2026-08-05", hasUsageData: true)
-        store.update(todayTokens: 4_000, todayDate: "2026-08-05", hasUsageData: true)
-        XCTAssertEqual(store.state.earnedTokens, 3_000)
-        XCTAssertEqual(store.state.wallet, 3_000)
-        // 경험치는 환율(÷500)을 거친다 — 지갑·장부는 토큰 그대로다.
-        XCTAssertEqual(store.state.partner?.exp, 6)
+        store.update(todayTokens: 1_000 + delta, todayDate: "2026-08-05", hasUsageData: true)
+        XCTAssertEqual(store.state.earnedTokens, delta)
+        XCTAssertEqual(store.state.wallet, delta)
+        // 경험치만 환율을 거친다 — 지갑·장부는 토큰 그대로다.
+        XCTAssertEqual(store.state.partner?.exp, 3)
     }
 
     /// 파트너만 경험치를 얻는다 — 박스의 다른 개체는 그대로다.
@@ -88,8 +90,9 @@ final class PlayerStoreTests: XCTestCase {
                                obtainedAt: self.now, grade: .epic)
         store.addForTesting(other)
         store.update(todayTokens: 1_000, todayDate: "2026-08-05", hasUsageData: true)
-        store.update(todayTokens: 2_000, todayDate: "2026-08-05", hasUsageData: true)
-        // 경험치는 환율(÷500)을 거친다: 델타 1,000 토큰 → 2EXP.
+        store.update(todayTokens: 1_000 + ExpBalance.tokensPerExp * 2,
+                     todayDate: "2026-08-05", hasUsageData: true)
+        // 경험치는 환율을 거친다: 환율 두 배어치를 썼으니 2EXP.
         XCTAssertEqual(store.state.partner?.exp, 2)
         XCTAssertEqual(store.state.box.first(where: { $0.id == other.id })?.exp, 0)
     }

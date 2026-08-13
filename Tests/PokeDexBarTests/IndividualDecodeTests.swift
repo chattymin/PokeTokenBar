@@ -123,12 +123,13 @@ final class PartnerTokenLedgerTests: XCTestCase {
                              at: Date(timeIntervalSince1970: 0))
         XCTAssertTrue(store.buy(.expCharm))
         let walletAfterPurchase = store.state.wallet
-        store.update(todayTokens: 1_000, todayDate: "2026-01-01", hasUsageData: true)
-        // 부적이 먼저 걸리고 환율(÷500)은 그 다음이다: 1,000 토큰 → 부적으로 2배 → 2,000,
-        // 환율을 거쳐 4EXP. (이 순서가 자투리를 덜 버린다 — 나눗셈을 먼저 하면 자투리가 사라진다.)
+        let spent = ExpBalance.tokensPerExp * 2
+        store.update(todayTokens: spent, todayDate: "2026-01-01", hasUsageData: true)
+        // 부적이 먼저 걸리고 환율은 그 다음이다: 환율 두 배어치 → 부적으로 2배 → 4EXP.
+        // (이 순서가 자투리를 덜 버린다 — 나눗셈을 먼저 하면 자투리가 사라진다.)
         XCTAssertEqual(find(store, id).exp, 4, "부적이 경험치를 2배로 안 만든다")
-        XCTAssertEqual(find(store, id).partnerTokens, 1_000, "기록은 실제 쓴 토큰만 세야 한다")
-        XCTAssertEqual(store.state.wallet, walletAfterPurchase + 1_000, "부적이 재화까지 2배로 만들었다")
+        XCTAssertEqual(find(store, id).partnerTokens, spent, "기록은 실제 쓴 토큰만 세야 한다")
+        XCTAssertEqual(store.state.wallet, walletAfterPurchase + spent, "부적이 재화까지 2배로 만들었다")
     }
 }
 

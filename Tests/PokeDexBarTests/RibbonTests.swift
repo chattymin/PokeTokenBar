@@ -237,12 +237,13 @@ final class FortuneCharmTests: XCTestCase {
         let (store, id) = makeStore(wallet: ShopItem.fortuneCharm.price)
         XCTAssertTrue(store.buy(.fortuneCharm))
         let after = store.state.wallet
-        store.update(todayTokens: 1_000, todayDate: "2026-01-01", hasUsageData: true)
-        XCTAssertEqual(store.state.wallet, after + 1_500, "재화가 1.5배가 아니다")
+        let spent = ExpBalance.tokensPerExp * 2
+        store.update(todayTokens: spent, todayDate: "2026-01-01", hasUsageData: true)
+        XCTAssertEqual(store.state.wallet, after + spent + spent / 2, "재화가 1.5배가 아니다")
         let individual = store.state.box.first { $0.id == id }!
-        // 환율(÷500)만 걸린 값이다 — 행운의 부적은 재화 전용이라 경험치엔 안 걸린다.
+        // 환율만 걸린 값이다 — 행운의 부적은 재화 전용이라 경험치엔 안 걸린다(걸렸으면 3).
         XCTAssertEqual(individual.exp, 2, "행운의 부적이 경험치까지 늘렸다")
-        XCTAssertEqual(individual.partnerTokens, 1_000, "기록은 실제 쓴 토큰만 센다")
+        XCTAssertEqual(individual.partnerTokens, spent, "기록은 실제 쓴 토큰만 센다")
     }
 
     func testCharmIsBoughtOnlyOnceAndIsIndependent() {

@@ -36,9 +36,12 @@ final class LevelMigrationTests: XCTestCase {
          "nature":"hardy","obtainedAt":0,"grade":"common","exp":250000000}
         """
         let individual = try decode(json)
-        XCTAssertEqual(individual.exp, 500_000)
-        XCTAssertEqual(individual.level, GrowthRate.mediumFast.level(forExp: 500_000))
-        XCTAssertEqual(individual.level, 79)
+        // 구 세이브의 2.5억 토큰을 지금 환율로 나눈 값. 환율이 바뀌면 이 수도 같이 움직이는 게
+        // 맞다 — 옛 토큰을 **지금 값어치로** 환산하는 것이 이 이전의 뜻이다.
+        let expected = 250_000_000 / ExpBalance.tokensPerExp
+        XCTAssertEqual(individual.exp, expected)
+        XCTAssertEqual(individual.level, GrowthRate.mediumFast.level(forExp: expected))
+        XCTAssertGreaterThan(individual.level, 1, "환산이 통째로 0으로 떨어졌다")
     }
 
     /// **새 세이브는 환산하지 않는다.** `eggProgress` 키가 있으면 이미 이전이 끝난 것이다 —
