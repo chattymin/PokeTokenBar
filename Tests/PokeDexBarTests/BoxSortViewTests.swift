@@ -104,6 +104,8 @@ final class BoxSortViewTests: XCTestCase {
             XCTAssertFalse(text.contains("stays put once it's filled"), "\(name)")
             XCTAssertFalse(text.contains("한번 채워진 칸은 움직이지 않습니다"), "\(name)")
             XCTAssertFalse(text.contains("자리가 고정돼"), "\(name)")
+            XCTAssertFalse(text.contains("一度埋まったマスは動きません"), "\(name)")
+            XCTAssertFalse(text.contains("場所が固定され"), "\(name)")
         }
     }
 }
