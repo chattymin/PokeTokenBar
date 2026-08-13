@@ -432,11 +432,15 @@ struct BoxSortMenu: View {
             Image(systemName: "arrow.up.arrow.down")
                 .font(.system(size: 10, weight: .bold))
                 .frame(width: 20, height: 18)
-                .background(Color.secondary.opacity(0.18), in: RoundedRectangle(cornerRadius: 5))
         }
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
         .fixedSize()
+        // **칩은 라벨 안이 아니라 메뉴 밖에 씌운다.** 안쪽에 두면 `.borderlessButton` 이 라벨을
+        // 다시 그리면서 배경이 날아가, 화살표·「선택」은 칩인데 이 아이콘만 맨 글리프로 떠
+        // 미완성처럼 보인다(렌더해서 확인한 자리다).
+        .frame(width: 20, height: 18)
+        .background(Color.secondary.opacity(0.18), in: RoundedRectangle(cornerRadius: 5))
         // 아이콘만 있고 글자가 없는 메뉴라 VoiceOver 가 이름을 못 읽는다 — `title` 이 그 이름이다.
         // 도움말 툴팁 수정자는 일부러 안 붙인다 — 이 파일의 `bulkBar` 주석대로 이 앱 팝오버
         // 안에서는 그 수정자가 안 뜬다(`testTheBoxReachesTheBulkPath` 가 이 파일에 다시
