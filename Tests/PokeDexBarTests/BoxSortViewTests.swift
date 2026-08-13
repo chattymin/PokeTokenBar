@@ -92,4 +92,18 @@ final class BoxSortViewTests: XCTestCase {
             XCTAssertFalse(L(lang).boxSortMenu.isEmpty, "\(lang)")
         }
     }
+
+    /// **"자리가 절대 안 움직인다"는 약속은 이제 거짓이다.** 정리 버튼이 자리를 옮기므로
+    /// README 세 벌에서 그 문장이 사라져야 한다 — 문서가 조용히 거짓말하는 걸 막는 못이다.
+    func testTheReadmesNoLongerPromiseSlotsNeverMove() throws {
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        for name in ["README.md", "README.ko.md", "README.ja.md"] {
+            let text = try String(contentsOf: root.appendingPathComponent(name), encoding: .utf8)
+            XCTAssertFalse(text.contains("never moves once it's filled"), "\(name)")
+            XCTAssertFalse(text.contains("stays put once it's filled"), "\(name)")
+            XCTAssertFalse(text.contains("한번 채워진 칸은 움직이지 않습니다"), "\(name)")
+            XCTAssertFalse(text.contains("자리가 고정돼"), "\(name)")
+        }
+    }
 }
