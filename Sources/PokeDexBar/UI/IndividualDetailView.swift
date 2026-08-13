@@ -51,6 +51,14 @@ struct IndividualDetailView: View {
         step == 1 ? l.sendConfirmNoReturn : l.sendConfirmAgain
     }
 
+    /// 레벨 줄 오른쪽에 적히는 말. **100레벨에서는 "다음 레벨까지 0" 이 아니라 최고 레벨이라고
+    /// 적는다** — 0은 다음 레벨이 있는데 코앞인 것처럼 읽힌다. 순수 함수라 테스트로 잠근다.
+    nonisolated static func levelTrailing(_ individual: Individual, l: L) -> String {
+        individual.level >= GrowthRate.maxLevel
+            ? l.maxLevelLabel
+            : l.expToNextLevel(TokenFormatter.compact(expToNext(individual)))
+    }
+
     /// 다음 레벨까지 남은 EXP. 100레벨이면 0.
     nonisolated static func expToNext(_ individual: Individual) -> Int {
         let level = individual.level
@@ -263,7 +271,7 @@ struct IndividualDetailView: View {
             HStack {
                 Text(l.levelLabel(individual.level)).font(.system(size: 11, weight: .semibold))
                 Spacer()
-                Text(l.expToNextLevel(TokenFormatter.compact(Self.expToNext(individual))))
+                Text(Self.levelTrailing(individual, l: l))
                     .font(.system(size: 9)).monospacedDigit().foregroundStyle(.secondary)
             }
             ProgressView(value: Self.levelProgress(individual))

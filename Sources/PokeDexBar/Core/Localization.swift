@@ -136,6 +136,9 @@ struct L {
     var detailGrade: String { t("등급", "Grade", "ランク") }
     /// 레벨 표시 — 박스 칸의 작은 배지와 상세 화면이 함께 쓴다.
     func levelLabel(_ level: Int) -> String { t("Lv.\(level)", "Lv.\(level)", "Lv.\(level)") }
+    /// 100레벨에 닿으면 "다음 레벨까지"가 성립하지 않는다 — 0이라고 적으면 다음 레벨이 있는데
+    /// 코앞인 것처럼 읽힌다. 더 갈 곳이 없다는 사실 자체를 말한다.
+    var maxLevelLabel: String { t("최고 레벨", "Max level", "さいこうレベル") }
     /// 다음 레벨까지 남은 경험치.
     func expToNextLevel(_ remaining: String) -> String {
         t("다음 레벨까지 \(remaining)", "\(remaining) to next level", "つぎのレベルまで \(remaining)")

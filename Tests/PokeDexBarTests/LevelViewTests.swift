@@ -34,12 +34,22 @@ final class LevelViewTests: XCTestCase {
                        0.5, accuracy: 0.01)
     }
 
+    /// **100레벨에는 "다음 레벨까지"를 안 쓴다.** 0이라고 적으면 다음 레벨이 코앞인 것처럼
+    /// 읽힌다 — 갈 곳이 없다는 사실 자체를 말해야 한다.
+    func testMaxLevelSaysSoInsteadOfCountingDownToZero() {
+        XCTAssertEqual(IndividualDetailView.levelTrailing(made(100), l: L(.ko)), L(.ko).maxLevelLabel)
+        XCTAssertNotEqual(IndividualDetailView.levelTrailing(made(99), l: L(.ko)), L(.ko).maxLevelLabel,
+                          "99레벨까지 최고 레벨이라고 말한다")
+        XCTAssertTrue(IndividualDetailView.levelTrailing(made(99), l: L(.ko)).contains("다음 레벨"))
+    }
+
     /// 문구가 세 언어를 다 채운다.
     func testLevelStringsCoverAllThreeLanguages() {
         for lang in AppLanguage.allCases {
             XCTAssertFalse(L(lang).levelLabel(47).isEmpty, "\(lang)")
             XCTAssertFalse(L(lang).expToNextLevel("8,240").isEmpty, "\(lang)")
             XCTAssertFalse(L(lang).eggProgressLabel.isEmpty, "\(lang)")
+            XCTAssertFalse(L(lang).maxLevelLabel.isEmpty, "\(lang) 최고 레벨")
         }
         XCTAssertTrue(L(.en).levelLabel(47).contains("47"))
     }
