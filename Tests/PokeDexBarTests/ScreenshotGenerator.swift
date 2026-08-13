@@ -926,6 +926,11 @@ final class ScreenshotGeneratorTests: XCTestCase {
         // 놓아 "한 칸씩 뒤집는다"가 한 그림에서 읽히게 한다(정적 캡처라 연출 자체는 못 담는다).
         try write(png(blindOffersBanner()), "blind-offers.png")
 
+        // 레벨 — 이 릴리스가 바꾼 것의 전부가 이 한 화면에 있다: 이름 옆 Lv., 다음 레벨까지
+        // 남은 EXP, 그 아래 알 계량기(경험치와 별개로 찬다), 그리고 도달한 진화 조건.
+        // §릴리스 1 하드 게이트가 요구하는 신규 에셋이 이것이다.
+        try write(png(levelBanner(), fullScroll: true), "levels.png")
+
         // 태어날 때 정해지는 겉모습 — 이름 옆 배지가 그 개체가 어떤 무늬로 태어났는지 말한다.
         // 지방 배지와 같은 자리를 쓰므로, 이 그림 하나로 두 규칙이 같이 설명된다.
         try write(png(tabChrome(BoxTabView(store: fixture.player, lines: ScreenshotFixture.lines,
@@ -1162,6 +1167,42 @@ final class ScreenshotGeneratorTests: XCTestCase {
         .padding(.horizontal, 14).padding(.vertical, 14)
         .frame(width: PopoverMetrics.width, alignment: .leading)
         .background(Color(nsColor: .windowBackgroundColor))
+    }
+
+    /// 레벨이 보이는 개체 상세 — 두 계량기가 나란히 있는 것이 이 릴리스의 요점이다.
+    private func levelBanner() -> some View {
+        let now = ScreenshotFixture.now
+        let store = PlayerStore(fileURL: FileManager.default.temporaryDirectory
+                                    .appendingPathComponent("lvl-\(UUID().uuidString).json"),
+                                rng: SeededRNG(seed: 21), now: { now },
+                                defaults: UserDefaults(suiteName: "ptb-lvl-\(UUID().uuidString)")!)
+        store.setLanguage(.en)
+        store.seedForTesting(wallet: 0, slots: 3, eggs: 0, at: now)
+        // 파이리 — 16레벨이면 리자드가 된다. 아직 못 미친 상태로 두면 "무엇을 기다리는지"가
+        // 화면에 남고, 레벨이 진화의 게이트라는 것이 그림 하나로 읽힌다.
+        var charmander = Individual(baseID: 4, speciesID: 4, pathIDs: [4], nature: .adamant,
+                                    exp: GrowthRate.mediumSlow.totalExp(at: 14) + 900,
+                                    obtainedAt: now.addingTimeInterval(-6 * 86_400),
+                                    grade: .rare, growthRate: .mediumSlow)
+        charmander.eggProgress = ExpBalance.eggThreshold(grade: .rare) * 2 / 5
+        charmander.partnerSeconds = 6 * 86_400
+        charmander.partnerTokens = 740_000_000
+        store.addForTesting(charmander)
+        store.setPartner(charmander.id)
+
+        let line = EvoLine(baseID: 4,
+                           tree: EvoNode(speciesID: 4, children: [
+                               EvoNode(speciesID: 5, children: [
+                                   EvoNode(speciesID: 6, children: [], requirementRaw: .level(36))],
+                                       requirementRaw: .level(16))]),
+                           rarity: .rare,
+                           names: [4: ["ko": "파이리", "en": "Charmander", "ja": "ヒトカゲ"],
+                                   5: ["ko": "리자드", "en": "Charmeleon", "ja": "リザード"],
+                                   6: ["ko": "리자몽", "en": "Charizard", "ja": "リザードン"]])
+        return IndividualDetailView(store: store, individual: store.state.box[0], line: line,
+                                    onNeedLine: { _ in }, onBack: {})
+            .frame(width: PopoverMetrics.width)
+            .background(Color(nsColor: .windowBackgroundColor))
     }
 
     private func hatchSpeedupBanner() -> some View {

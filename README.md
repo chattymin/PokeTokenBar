@@ -41,7 +41,7 @@ PokeDexBar turns the AI coding tokens you're already burning — Claude Code, Co
 2. 🪙 **Code as usual.** The tokens you burn in Claude Code, Codex, Gemini CLI, OpenCode, Hermes Agent, Cursor, or Grok CLI become spendable currency and feed your partner's experience at the same time — nothing extra to run.
 3. 🥚 **Draw an egg.** Spend currency in the **Shop** for an egg of a randomly rolled grade — Common 60% / Rare 22% / Epic 15% / Legendary 3%, never chosen. A short reveal plays first: a white burst, plus a second in pale blue if it's Rare, a third in purple if Epic, and a fourth sparkling orange if Legendary — the number of bursts tells you the grade before the label does. Up to 3 eggs incubate at once, expandable to 6 with a slot upgrade.
 4. 🐣 **Hatch on real time.** Commons are ready in 30 minutes, Rares in 2 hours, Epics in 6, Legendaries in 24 — real wall-clock time, even while the app is closed, with a single notification when it's ready. A ripe egg doesn't hatch itself: it waits in its slot, cracked, until you tap **Open** — that's what actually hatches a base (unevolved) species with real evolution data from [PokéAPI](https://pokeapi.co/), rolls one of 25 natures, and — once in a rare while — comes out **✨ Shiny**. Species with a regional look have a 20% chance to hatch as their Alolan, Galarian, Hisuian, or Paldean form instead — a look that individual keeps for life.
-5. ⚡ **Evolve by hand.** Feed a hatchling experience by coding (or with EXP Candy), then tap it to evolve once it's ready — branching lines let you pick the path, and a regional form can lead somewhere different (a Galarian Meowth evolves into Perrserker where a Kantonian one becomes Persian). Experience alone isn't always enough: 56 branches want an evolution stone, 25 want a trade — stood in for by a Linking Cord, or by the item that trade would have held, like a Metal Coat — and others want time together. **Those items are never for sale.** A partner wearing a Ribbon brings back the one *it* needs, and once found it stays yours and works on every individual after it.
+5. ⚡ **Evolve by hand.** Pokémon level from 1 to 100 on the games' own six experience curves, and evolve at the games' own levels — a Charmander becomes a Charmeleon at 16. Code (or feed EXP Candy) to level up, then tap to evolve once it's ready — branching lines let you pick the path, and a regional form can lead somewhere different (a Galarian Meowth evolves into Perrserker where a Kantonian one becomes Persian). A level alone isn't always enough: 56 branches want an evolution stone, 25 want a trade — stood in for by a Linking Cord, or by the item that trade would have held, like a Metal Coat — and others want time together. **Those items are never for sale.** A partner wearing a Ribbon brings back the one *it* needs, and once found it stays yours and works on every individual after it.
 6. 📖 **Fill two collections.** The **National Dex** tracks every species you've ever hatched, #1 to #1025, with silhouettes for the rest. Your **Box** is a fixed 6×5 case you page through — sorted oldest-first, so a slot never moves once it's filled — with partner, shiny, ribbon, and evolve-ready status carried by the sprite itself, its border, and its corner markers instead of a label. Tap a cell to open a detail screen where you set your partner, feed candy, evolve, and change form. Duplicates are normal, and each individual keeps its own experience and evolution progress, so you can own both a Pidgey and a Pidgeotto at once.
 
 ## Tour
@@ -70,10 +70,17 @@ Flame Body, Magma Armor and Steam Engine halve egg hatching in the games, and th
 </tr>
 <tr>
 <td width="55%" valign="middle">
-<h3>A Pokémon with nothing left to become brings you an Egg</h3>
-Once a Pokémon is fully evolved its experience has nowhere to go. Now it gathers into an Egg of that Pokémon's own line — a Charizard brings a Charmander Egg, so the earlier stages you skipped can still fill in. Press the announcement on the home screen and the Egg drops straight into a hatching slot below it. Experience stops once the Egg is ready and resets when you take it, so there is never more than one waiting.
+<h3>Your partner brings you an Egg</h3>
+Whoever is at your side fills an Egg of its own line — a Charizard brings a Charmander Egg, so the earlier stages you skipped can still fill in. It runs on its own meter, beside experience and untouched by it, so evolving costs the Egg nothing. Watch it fill on the home screen; when it is full it rocks, and pressing it drops the Egg straight into a hatching slot. It stops there until you take it, so there is never more than one waiting.
 </td>
 <td width="45%" align="center"><img src="assets/found-egg.png" width="300" alt="A green button reading 'Your partner brought a Charmander Egg!' directly above the hatching row it drops into"></td>
+</tr>
+<tr>
+<td width="45%" align="center"><img src="assets/levels.png" width="300" alt="A Charmander's detail screen: Lv.15 with the experience bar nearly full, a separate Egg meter below it, and one evolution locked until Lv.16"></td>
+<td width="55%" valign="middle">
+<h3>Levels, the way the games do them</h3>
+Experience is no longer a raw count of tokens. Every Pokémon has one of the games' six growth curves and levels from 1 to 100 along it, so a Slow-growing legendary really does take longer than a Caterpie. Evolution follows the games too — Charmander at 16, Charmeleon at 36 — and where an evolution needs a specific move, an item held at a certain hour, or a companion in your party, it is translated into something this app can actually offer.
+</td>
 </tr>
 <tr>
 <td width="45%" align="center"><img src="assets/professor-banner.png" width="300" alt="The Professor's offer — three cards with sprites, names, grades and prices, the shiny one ringed in gold, above a Send to the Professor button"></td>
@@ -136,7 +143,7 @@ Your <b>Box</b> is storage, not a list: a fixed 6×5 case you page through with 
 <tr>
 <td width="55%" valign="middle">
 <h3>A detail screen for every individual</h3>
-Tapping a cell opens a detail screen with grade, nature, tokens and time spent together (unlike experience, these survive evolution), an EXP bar, and Ribbon progress, plus the controls to set a partner, feed candy, evolve, or change form.
+Tapping a cell opens a detail screen with grade, nature, tokens and time spent together, its level and how far it is from the next one, its Egg meter, and Ribbon progress, plus the controls to set a partner, feed candy, evolve, or change form.
 </td>
 <td width="45%" align="center"><img src="assets/screenshot-detail.png" width="300" alt="Pokémon detail screen — sprite and name, grade, nature, and lifetime tokens spent together, an EXP bar, and action buttons for partner, evolve, Gigantamax, EXP Candy, and Shiny Candy"></td>
 </tr>
