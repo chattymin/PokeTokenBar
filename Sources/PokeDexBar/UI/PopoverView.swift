@@ -222,6 +222,23 @@ struct PopoverView: View {
         return partner.displayName(speciesName: species, player.language)
     }
 
+    /// 파트너의 알 게이지. **알림 카드(`FoundEggAnnouncementCard`)와 같은 조건·같은 동작**이다 —
+    /// 다른 건 하나뿐, 이쪽은 아직 덜 찼을 때도 얼마나 왔는지 보여 준다. 위장 중이거나 라인이
+    /// 아직 안 왔으면 아무것도 안 낸다(모르면 안 보여 준다 — `showsEvolutionBadge` 와 같은 원칙).
+    @ViewBuilder
+    private func eggGauge(for partner: Individual) -> some View {
+        if partner.disguisedAs == nil, let line = evoLines[partner.baseID] {
+            let threshold = ExpBalance.eggThreshold(grade: partner.grade)
+            HomeEggGauge(grade: partner.grade,
+                         progress: IndividualDetailView.eggProgress(partner),
+                         shaking: HomeEggGauge.shouldShake(
+                             full: partner.eggProgress >= threshold,
+                             hasFreeSlot: player.freeSlots > 0)) {
+                player.takeFoundEgg(individualID: partner.id, line: line)
+            }
+        }
+    }
+
     /// 홈 상단 — 지금 데리고 다니는 개체의 초상화 + 경험치 진행도. 파트너 상세(진화 실행 등)는 박스에서.
     @ViewBuilder
     private var partnerCard: some View {
@@ -259,6 +276,10 @@ struct PopoverView: View {
                                 .padding(.horizontal, 5).padding(.vertical, 1)
                                 .background(Color.orange, in: Capsule())
                         }
+                        // 알 게이지는 이 줄 오른쪽 끝 — 이름·레벨과 같은 층위다. 바로 아래
+                        // 경험치 바와 형태부터 갈라야 해서(가로 막대 vs 세로로 차는 알) 여기 둔다.
+                        Spacer(minLength: 4)
+                        eggGauge(for: partner)
                     }
                     Text(partner.nature.name(player.language))
                         .font(.caption2).foregroundStyle(.secondary)
