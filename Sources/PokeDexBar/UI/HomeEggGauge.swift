@@ -23,7 +23,7 @@ struct HomeEggGauge: View {
     var size: CGFloat = 22
 
     /// 아직 안 찬 부분의 진하기. 0 이면 빈 알이 안 보여 게이지가 아니라 "알이 없다"로 읽힌다.
-    private static let dimOpacity: Double = 0.15
+    private static let dimOpacity: Double = 0.30
 
     #if DEBUG
     /// 눌렀을 때 실제로 알을 받는지까지 테스트가 잠글 수 있게 동작을 들고 있는다 —
