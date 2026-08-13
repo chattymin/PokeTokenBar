@@ -5,6 +5,9 @@ import Foundation
 enum Grade: String, Codable, Sendable, CaseIterable {
     case common, rare, epic, legendary
 
+    /// 표시 서열 — 정렬에만 쓴다. 커먼 0 … 레전더리 3.
+    var rank: Int { Self.allCases.firstIndex(of: self) ?? 0 }
+
     static func from(captureRate: Int, isLegendary: Bool, isMythical: Bool) -> Grade {
         if isLegendary || isMythical { return .legendary }
         if captureRate <= 45 { return .epic }
