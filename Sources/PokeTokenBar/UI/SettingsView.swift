@@ -7,6 +7,8 @@ struct SettingsView: View {
     @Environment(UpdateChecker.self) private var updater
     /// 팝오버 내부 화면 전환 방식 — sheet/dismiss 를 쓰지 않는다 (PopoverView 의 NOTE 참조)
     var onClose: () -> Void
+    /// 기존 컬렉션의 도감으로 돌아가 대표 포켓몬을 고르게 한다.
+    var onChooseFloatingPet: () -> Void
     @State private var launchAtLogin = LoginItem.isEnabled
     @State private var launchAtLoginError: String?
     @State private var reportError: String?
@@ -16,6 +18,14 @@ struct SettingsView: View {
     private var l: L { companion.l }
 
     private var isBundledApp: Bool { AppEnv.isBundledApp }
+
+    private var floatingPetSelectionText: String {
+        guard let selected = companion.floatingPetSpeciesID,
+              let species = companion.dexSpecies.first(where: { $0.id == selected }) else {
+            return l.floatingPetFollowCurrent
+        }
+        return "#\(species.id) \(species.name)\(species.isShiny ? " ✨" : "")"
+    }
 
     /// 세이브 봉투에 남길 출처 표기 — 어느 Mac에서 내보낸 파일인지 나중에 알아보기 위한 것.
     private static var deviceName: String {
@@ -186,21 +196,14 @@ struct SettingsView: View {
             if store.floatingPetEnabled {
                 Divider()
                 groupRow {
-                    Text(l.floatingPetPokemonLabel).font(.callout)
-                    Spacer()
-                    Picker("", selection: Binding<Int?>(
-                        get: { companion.floatingPetSpeciesID },
-                        set: { companion.setFloatingPetSpeciesID($0) }
-                    )) {
-                        Text(l.floatingPetFollowCurrent).tag(nil as Int?)
-                        ForEach(companion.dexSpecies) { species in
-                            Text("#\(species.id) \(species.name)\(species.isShiny ? " ✨" : "")")
-                                .tag(Optional(species.id))
-                        }
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(l.floatingPetPokemonLabel).font(.callout)
+                        Text(floatingPetSelectionText)
+                            .font(.caption2).foregroundStyle(.tertiary).lineLimit(1)
                     }
-                    .labelsHidden()
-                    .pickerStyle(.menu)
-                    .frame(maxWidth: 190, alignment: .trailing)
+                    Spacer()
+                    Button(l.floatingPetChooseFromDex, action: onChooseFloatingPet)
+                        .controlSize(.small)
                 }
                 Divider()
                 groupRow {

@@ -19,4 +19,14 @@ final class PopoverNavigationTests: XCTestCase {
         XCTAssertFalse(nav.showSettings)   // 설정 화면 닫힘
         XCTAssertEqual(nav.tab, .home)     // 탭도 Home 으로
     }
+
+    func testOpenFloatingPetDexLeavesSettingsForCollection() {
+        let nav = PopoverNavigation()
+        nav.showSettings = true
+
+        nav.openFloatingPetDex()
+
+        XCTAssertFalse(nav.showSettings)
+        XCTAssertEqual(nav.tab, .collection)
+    }
 }

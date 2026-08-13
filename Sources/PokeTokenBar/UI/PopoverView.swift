@@ -27,6 +27,13 @@ final class PopoverNavigation {
         showSettings = false
         tab = .home
     }
+
+    /// 설정의 대표 포켓몬 행에서 기존 도감으로 이동한다. 별도 선택 화면을 만들지 않고
+    /// 컬렉션의 기본 세그먼트(도감)를 그대로 재사용한다.
+    func openFloatingPetDex() {
+        showSettings = false
+        tab = .collection
+    }
 }
 
 struct PopoverView: View {
@@ -43,7 +50,10 @@ struct PopoverView: View {
         @Bindable var nav = nav
         Group {
             if nav.showSettings {
-                SettingsView(onClose: { nav.showSettings = false })
+                SettingsView(
+                    onClose: { nav.showSettings = false },
+                    onChooseFloatingPet: { nav.openFloatingPetDex() }
+                )
                     .environment(store)
                     .environment(companion)
                     .environment(updater)

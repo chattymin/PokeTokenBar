@@ -129,6 +129,16 @@ struct L {
     var floatingPetFollowCurrent: String {
         t("현재 포켓몬 따라가기", "Follow current companion", "現在のポケモンに合わせる", "Seguir al compañero actual")
     }
+    var floatingPetChooseFromDex: String {
+        t("도감에서 선택…", "Choose in Pokédex…", "図鑑で選ぶ…", "Elegir en la Pokédex…")
+    }
+    var floatingPetSetRepresentative: String {
+        t("대표로 설정", "Set as pet", "代表に設定", "Establecer como mascota")
+    }
+    var floatingPetUnsetRepresentative: String {
+        t("대표 해제", "Unset pet", "代表を解除", "Quitar mascota")
+    }
+    var floatingPetRepresentativeBadge: String { t("대표", "Pet", "代表", "Mascota") }
     var floatingPetSizeLabel: String { t("크기", "Size", "サイズ", "Tamaño") }
     /// 지금은 한도 알림만 말풍선으로 뜨지만, 알림 종류가 늘어도 이 라벨은 그대로 쓴다.
     var floatingPetBubbleAlertsLabel: String {

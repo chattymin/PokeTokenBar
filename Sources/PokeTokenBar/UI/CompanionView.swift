@@ -854,7 +854,9 @@ private struct DexGridView: View {
                         let i = row * Self.columns + col
                         if i < slice.count {
                             let sp = slice[i]
-                            DexSpeciesCell(store: store, species: sp, isSelected: selectedID == sp.id) {
+                            DexSpeciesCell(store: store, species: sp,
+                                           isSelected: selectedID == sp.id,
+                                           isRepresentative: store.floatingPetSpeciesID == sp.id) {
                                 selectedID = (selectedID == sp.id) ? nil : sp.id
                             }
                             .frame(maxWidth: .infinity)
@@ -879,6 +881,17 @@ private struct DexGridView: View {
                 // 칸은 번호·스프라이트·이름만 보여주므로 희귀도가 선택으로 얻는 정보다.
                 Text("#\(sel.id) \(sel.name) · \(store.l.rarityLabel(sel.rarity))")
                     .font(.system(size: 9)).foregroundStyle(.secondary).lineLimit(1)
+                let isRepresentative = store.floatingPetSpeciesID == sel.id
+                Button {
+                    _ = store.setFloatingPetSpeciesID(isRepresentative ? nil : sel.id)
+                } label: {
+                    Label(isRepresentative ? store.l.floatingPetUnsetRepresentative
+                                           : store.l.floatingPetSetRepresentative,
+                          systemImage: isRepresentative ? "star.slash" : "star")
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.mini)
+                .fixedSize()
             }
             Spacer(minLength: 4)
             if pageCount > 1 {
@@ -909,6 +922,7 @@ private struct DexSpeciesCell: View {
     let store: CompanionStore
     let species: CompanionStore.DexSpecies
     let isSelected: Bool
+    let isRepresentative: Bool
     let onTap: () -> Void
 
     /// 로그(56)보다 작다 — 24칸 격자에 이름까지 담아야 한다. 원본 96×96 픽셀아트를
@@ -951,7 +965,10 @@ private struct DexSpeciesCell: View {
                 }
             }
             .padding(3)
-            .background(Color.secondary.opacity(isSelected ? 0.16 : 0.06))
+            // 대표 = 영속적인 accent 배경, 방금 클릭한 칸 = 기존 accent 테두리.
+            // 서로 다른 카드여도 같은 강조 두 개가 선택된 것처럼 보이지 않는다.
+            .background(isRepresentative ? Color.accentColor.opacity(0.16)
+                                         : Color.secondary.opacity(isSelected ? 0.16 : 0.06))
             .clipShape(RoundedRectangle(cornerRadius: 8))
             .overlay {
                 if isSelected {
@@ -963,12 +980,32 @@ private struct DexSpeciesCell: View {
         .buttonStyle(.plain)
         .help(tooltip)
         .accessibilityLabel(tooltip)
+        .contextMenu {
+            Button {
+                _ = store.setFloatingPetSpeciesID(isRepresentative ? nil : species.id)
+            } label: {
+                Label(isRepresentative ? store.l.floatingPetUnsetRepresentative
+                                       : store.l.floatingPetSetRepresentative,
+                      systemImage: isRepresentative ? "star.slash" : "star")
+            }
+        }
     }
 
     /// material 판 — 어두운 스프라이트 위에서도 읽히게(라이트/다크 자동).
     /// 스프라이트 위 라벨에 이미 쓰는 패턴과 동일.
     private var numberTag: some View {
-        Text("#\(species.id)")
+        HStack(spacing: 2) {
+            Text("#\(species.id)")
+            // 기존 번호 캡슐에 결합해 이로치(우측 상단)·키우는 중(스프라이트 하단)·이름과
+            // 새 자리를 다투지 않는다. 아이콘은 언어에 따라 폭이 달라지지 않고, 의미는 셀의
+            // 현지화된 툴팁·접근성 라벨이 보완한다.
+            if isRepresentative {
+                Image(systemName: "star.fill")
+                    .font(.system(size: 6, weight: .bold))
+                    .foregroundStyle(Color.accentColor)
+                    .accessibilityHidden(true)
+            }
+        }
             .font(.system(size: 8, weight: .medium))
             .foregroundStyle(.secondary)
             .padding(.horizontal, 2)
@@ -993,6 +1030,7 @@ private struct DexSpeciesCell: View {
         var parts = ["#\(species.id) \(species.name)", store.l.rarityLabel(species.rarity)]
         if species.isShiny { parts.append(store.l.dexShinyLabel) }
         if species.isRaising { parts.append(store.l.dexRaising) }
+        if isRepresentative { parts.append(store.l.floatingPetRepresentativeBadge) }
         return parts.joined(separator: " · ")
     }
 }
