@@ -39,67 +39,221 @@ enum LocalAntigravityUsageReader {
 
     /// Usage rows whose `created_at` falls at or after `modifiedSince`.
     static func entries(modifiedSince: Date, root: URL? = nil) -> [LocalUsageReader.Entry] {
-        let directory = root ?? defaultRoot
+        let scanned = scan(root: root ?? defaultRoot, modifiedSince: modifiedSince, known: [:])
+        // The one place the side effects live. `AppLog.write` returns early outside the bundled
+        // app, so the decisions above it are kept pure and tested on their own.
+        for line in scanned.log { AppLog.write(line) }
+        return assemble(scanned.blobs, since: modifiedSince)
+    }
+
+    /// One conversation store's rows, valid for as long as its `(mtime, size)` hold. The rows
+    /// are deliberately *unfiltered*: the window is applied after the lookup, so one blob serves
+    /// both the daily call and the enrichment call — the contract `LocalUsageCache.Blob` keeps,
+    /// and the reason a blob cache needs no time-based expiry.
+    struct Blob: Sendable {
+        let mtime: Date
+        let size: Int
+        let entries: [LocalUsageReader.Entry]
+    }
+
+    /// What one sweep produced: the surviving blobs keyed by path, and the lines it left behind.
+    struct Scan: Sendable {
+        var blobs: [String: Blob]
+        var log: [String]
+    }
+
+    /// Rows from every blob, narrowed to the window and deduplicated. `response_id` is unique
+    /// per call, so the dedup only ever collapses the same turn copied into a second store.
+    static func assemble(_ blobs: [String: Blob], since: Date) -> [LocalUsageReader.Entry] {
+        LocalUsageReader.dedupKeepMax(blobs.values.flatMap(\.entries).filter { $0.date >= since })
+    }
+
+    /// Reads every conversation store the window admits, reusing any blob in `known` whose
+    /// signature still matches. `known` is empty for a one-shot read.
+    static func scan(root: URL, modifiedSince: Date, known: [String: Blob]) -> Scan {
         let formatter = LocalUsageReader.localDayFormatter()
-        var entries: [LocalUsageReader.Entry] = []
-        for database in databases(in: directory, modifiedSince: modifiedSince) {
-            entries += conversationEntries(database, modifiedSince: modifiedSince, formatter: formatter)
+        var blobs: [String: Blob] = [:]
+        var reads: [(conversation: String, read: ConversationRead)] = []
+
+        for database in databases(in: root) {
+            // Stat before the read, never after. A commit that lands mid-read then differs from
+            // the stored signature on the next sweep and is re-read; stat afterwards and that
+            // same commit is frozen into a signature that already looks current.
+            guard let signature = signature(of: database), signature.mtime >= modifiedSince else { continue }
+            let key = database.path
+            if let blob = known[key], blob.mtime == signature.mtime, blob.size == signature.size {
+                blobs[key] = blob
+                continue
+            }
+
+            let read = conversationEntries(database, formatter: formatter)
+            reads.append((database.deletingPathExtension().lastPathComponent, read))
+            switch read {
+            case .complete(let entries, _):
+                blobs[key] = Blob(mtime: signature.mtime, size: signature.size, entries: entries)
+            case .notAConversation:
+                // A permanent property of the file, so cache the empty — otherwise every
+                // database in the directory that is not a conversation store is reopened on
+                // every refresh for the life of the install.
+                blobs[key] = Blob(mtime: signature.mtime, size: signature.size, entries: [])
+            case .incompleteScan, .unreadable:
+                // Never write an empty blob under a signature that may never change again: the
+                // store would read as no usage for as long as it sat still, and the retry the
+                // discard was for would never happen. Carry the previous rows forward under
+                // their *old* signature so the next sweep tries again.
+                if let stale = known[key] { blobs[key] = stale }
+            }
         }
-        // `response_id` is unique per call, so this only ever collapses a re-read.
-        return LocalUsageReader.dedupKeepMax(entries)
+        return Scan(blobs: blobs, log: lossLog(reads) + discardLog(reads))
     }
 
     // MARK: Database discovery
 
-    /// A WAL commit lands in the `-wal` sibling and leaves the main file's timestamp alone,
-    /// so the newest of the three is the only honest "has this conversation moved" signal.
-    static func effectiveModificationDate(of database: URL) -> Date? {
+    /// The cache key for one conversation store, and the same value the scan window is tested
+    /// against. A WAL commit lands in the `-wal` sibling and leaves the main file's timestamp
+    /// and length alone, so keying on the `.db` would miss precisely the stores that had just
+    /// moved.
+    ///
+    /// `-shm` is deliberately excluded. It carries no committed data — it is a rebuildable index
+    /// over `-wal` — and a read-only WAL connection writes read marks into it, so including it
+    /// would let this reader invalidate the blob it had just written, on every sweep, forever.
+    /// For the same reason it adds nothing to the window test: a `-shm` that is newer than both
+    /// of the others means somebody read the store, not that anything was written to it.
+    static func signature(of database: URL) -> (mtime: Date, size: Int)? {
         let manager = FileManager.default
-        return [database.path, database.path + "-wal", database.path + "-shm"]
-            .compactMap { (try? manager.attributesOfItem(atPath: $0))?[.modificationDate] as? Date }
-            .max()
+        var newest: Date?
+        var size = 0
+        for path in [database.path, database.path + "-wal"] {
+            guard let attributes = try? manager.attributesOfItem(atPath: path) else { continue }
+            if let mtime = attributes[.modificationDate] as? Date {
+                newest = max(newest ?? mtime, mtime)
+            }
+            size += (attributes[.size] as? Int) ?? 0
+        }
+        return newest.map { ($0, size) }
     }
 
-    private static func databases(in root: URL, modifiedSince: Date) -> [URL] {
-        let manager = FileManager.default
-        guard let names = try? manager.contentsOfDirectory(atPath: root.path) else { return [] }
-        return names
-            .filter { $0.hasSuffix(".db") }
-            .sorted()
-            .map { root.appendingPathComponent($0) }
-            .filter { (effectiveModificationDate(of: $0) ?? .distantPast) >= modifiedSince }
+    private static func databases(in root: URL) -> [URL] {
+        guard let names = try? FileManager.default.contentsOfDirectory(atPath: root.path) else { return [] }
+        return names.filter { $0.hasSuffix(".db") }.sorted().map { root.appendingPathComponent($0) }
     }
 
     // MARK: Reading one conversation
 
-    private static func conversationEntries(
+    /// What one conversation store yielded. Three of these four produce no rows, and only one
+    /// of those three is a fact about the user's usage — collapsing them all to `[]`, which is
+    /// what this reader used to do, is what let a store that could never be read pass for a
+    /// store that was never used.
+    enum ConversationRead: Sendable {
+        /// Read through to `SQLITE_DONE`: these rows are all of them. `discardedCounters` is how
+        /// many token fields across those rows carried a value too large to be a count.
+        case complete(entries: [LocalUsageReader.Entry], discardedCounters: Int)
+        /// The scan stopped early — BUSY because the CLI was writing, or a damaged page. Half a
+        /// conversation must not pass for the whole of it, so the rows read so far are dropped.
+        case incompleteScan(status: Int32, rows: Int)
+        /// Neither `mode=ro` nor `immutable=1` could open it, or the query failed for a reason
+        /// other than the table being absent.
+        case unreadable(status: Int32?)
+        /// No `gen_metadata`: this file is not a conversation store. A permanent, legitimate
+        /// empty — `~/.gemini/antigravity-cli/conversations/` may hold databases we don't read.
+        case notAConversation
+
+        var entries: [LocalUsageReader.Entry] {
+            if case .complete(let entries, _) = self { return entries }
+            return []
+        }
+    }
+
+    /// At most this many stores are named per scan; the rest are counted. A store that cannot be
+    /// read is re-read on every refresh (720 times a day at the default interval), so one line
+    /// per store per scan could rotate `AppLog`'s 2 MB file — and the crash-diagnostic history
+    /// with it — several times a day on a machine whose conversation directory went bad.
+    static let namedLossLimit = 5
+
+    /// The lines one scan leaves behind. Pure on purpose: `AppLog.write` returns early outside
+    /// the bundled app (`AppEnv.isBundledApp`), so a test that watched the log file would cover
+    /// nothing at all — the same reason the limit-alert decision was split out of its own
+    /// side effect.
+    static func lossLog(_ reads: [(conversation: String, read: ConversationRead)]) -> [String] {
+        capped(reads.compactMap { entry -> String? in
+            switch entry.read {
+            case .complete, .notAConversation:
+                return nil
+            case .incompleteScan(let status, let rows):
+                return "antigravity: lost conversation=\(entry.conversation)"
+                    + " reason=scan-incomplete status=\(status) rows=\(rows)"
+            case .unreadable(let status):
+                return "antigravity: lost conversation=\(entry.conversation) reason=unreadable"
+                    + (status.map { " status=\($0)" } ?? "")
+            }
+        }) { total, hidden in
+            "antigravity: lost \(total) conversation(s) this scan (\(hidden) not named)"
+        }
+    }
+
+    /// Token counters dropped for being too large to be counts, totalled per store. Reporting
+    /// them where they happen would be up to four lines per record — tens of thousands from one
+    /// scan of a live store — and the point of the ceiling is that this is rare enough to notice.
+    static func discardLog(_ reads: [(conversation: String, read: ConversationRead)]) -> [String] {
+        capped(reads.compactMap { entry -> String? in
+            guard case .complete(_, let discarded) = entry.read, discarded > 0 else { return nil }
+            return "antigravity: conversation=\(entry.conversation) discarded=\(discarded)"
+                + " token counter(s) over \(AntigravityProto.tokenCeiling)"
+        }) { total, hidden in
+            "antigravity: discarded token counters in \(total) conversation(s) (\(hidden) not named)"
+        }
+    }
+
+    private static func capped(_ lines: [String], summary: (Int, Int) -> String) -> [String] {
+        guard lines.count > namedLossLimit else { return lines }
+        return Array(lines.prefix(namedLossLimit))
+            + [summary(lines.count, lines.count - namedLossLimit)]
+    }
+
+    /// Reads every row in the store. The window is *not* applied here: these rows go into a
+    /// blob that outlives the call that produced it, and a cutoff baked into a cached unit is
+    /// wrong the moment the window moves.
+    static func conversationEntries(
         _ database: URL,
-        modifiedSince: Date,
         formatter: DateFormatter
-    ) -> [LocalUsageReader.Entry] {
-        guard let handle = openReadOnly(database) else { return [] }
-        defer { sqlite3_close(handle) }
+    ) -> ConversationRead {
+        guard let handle = openReadOnly(database) else { return .unreadable(status: nil) }
+        // `_v2` because the guarantee this needs is a property of the close, not of the order
+        // the `defer`s happen to run in. `sqlite3_close` leaves the handle open and leaks it if
+        // any statement is still live; today the finalize below is registered later and so runs
+        // first, but that is an accident of two lines' relative position, and this function has
+        // already grown early returns between the two.
+        defer { sqlite3_close_v2(handle) }
 
         var statement: OpaquePointer?
-        guard sqlite3_prepare_v2(
-            handle, "SELECT idx, data FROM gen_metadata WHERE data IS NOT NULL", -1, &statement, nil) == SQLITE_OK,
-              let statement else { return [] }
+        let prepared = sqlite3_prepare_v2(
+            handle, "SELECT idx, data FROM gen_metadata WHERE data IS NOT NULL", -1, &statement, nil)
+        guard prepared == SQLITE_OK, let statement else {
+            // `SQLITE_ERROR` here is "no such table", which is a fact about the file and will
+            // never change; anything else (BUSY, I/O) is this moment failing to read a store
+            // that may well be a conversation.
+            return prepared == SQLITE_ERROR ? .notAConversation : .unreadable(status: prepared)
+        }
         defer { sqlite3_finalize(statement) }
 
         let conversation = database.deletingPathExtension().lastPathComponent
         var entries: [LocalUsageReader.Entry] = []
+        var discardedCounters = 0
+        var rows = 0
         while true {
             let step = sqlite3_step(statement)
             if step == SQLITE_ROW {
+                rows += 1
                 autoreleasepool {
                     let index = sqlite3_column_int64(statement, 0)
                     guard let pointer = sqlite3_column_blob(statement, 1) else { return }
                     let count = Int(sqlite3_column_bytes(statement, 1))
                     guard count > 0 else { return }
                     let blob = Data(bytes: pointer, count: count)
-                    guard let entry = parseGenerationMetadata(
-                        blob, conversation: conversation, index: index, formatter: formatter),
-                          entry.date >= modifiedSince else { return }
+                    let record = parseGenerationMetadata(
+                        blob, conversation: conversation, index: index, formatter: formatter)
+                    discardedCounters += record.discardedCounters
+                    guard let entry = record.entry else { return }
                     entries.append(entry)
                 }
                 continue
@@ -107,10 +261,10 @@ enum LocalAntigravityUsageReader {
             // The CLI writes while the app polls, so a scan can end on BUSY rather than on
             // DONE. Half a conversation would otherwise be cached as the whole of it; drop
             // it instead and let the next refresh read it entire.
-            guard step == SQLITE_DONE else { return [] }
+            guard step == SQLITE_DONE else { return .incompleteScan(status: step, rows: rows) }
             break
         }
-        return entries
+        return .complete(entries: entries, discardedCounters: discardedCounters)
     }
 
     /// `mode=ro` cannot create the `-shm` file a WAL database needs, so it fails outright on
@@ -132,23 +286,31 @@ enum LocalAntigravityUsageReader {
                sqlite3_exec(handle, "SELECT count(*) FROM sqlite_master", nil, nil, nil) == SQLITE_OK {
                 return handle
             }
-            if let handle { sqlite3_close(handle) }
+            if let handle { sqlite3_close_v2(handle) }
         }
         return nil
     }
 
     // MARK: Parsing one generation record
 
+    /// What one `gen_metadata` row yielded. `discardedCounters` travels with the entry because
+    /// `tokenCount` runs four times per row and a live store holds thousands of them — the scan
+    /// totals these rather than reporting each one where it happens.
+    struct Record: Sendable {
+        var entry: LocalUsageReader.Entry?
+        var discardedCounters = 0
+    }
+
     static func parseGenerationMetadata(
         _ blob: Data,
         conversation: String,
         index: Int64,
         formatter: DateFormatter
-    ) -> LocalUsageReader.Entry? {
+    ) -> Record {
         let bytes = [UInt8](blob)
         guard let chatModel = AntigravityProto.message(bytes[...], field: 1),
               let usage = AntigravityProto.message(chatModel, field: 4),
-              let date = createdAt(chatModel) else { return nil }
+              let date = createdAt(chatModel) else { return Record() }
 
         // The turn's own id, not the file it happens to sit in — a copied conversation must
         // not read as fresh spend. `response_id` is populated on every recorded call.
@@ -159,15 +321,22 @@ enum LocalAntigravityUsageReader {
         // by the prefix, because Antigravity is a subscription and bills no per-token amount.
         let model = AntigravityProto.string(chatModel, field: 19) ?? "unknown"
 
-        return makeEntry(
-            id: identity,
-            date: date,
-            localDay: formatter.string(from: date),
-            model: "antigravity/\(model)",
-            input: AntigravityProto.tokenCount(usage, field: 2),
-            output: AntigravityProto.tokenCount(usage, field: 3),
-            cacheWrite: AntigravityProto.tokenCount(usage, field: 4),
-            cacheRead: AntigravityProto.tokenCount(usage, field: 5))
+        let input = AntigravityProto.tokenCount(usage, field: 2)
+        let output = AntigravityProto.tokenCount(usage, field: 3)
+        let cacheWrite = AntigravityProto.tokenCount(usage, field: 4)
+        let cacheRead = AntigravityProto.tokenCount(usage, field: 5)
+
+        return Record(
+            entry: makeEntry(
+                id: identity,
+                date: date,
+                localDay: formatter.string(from: date),
+                model: "antigravity/\(model)",
+                input: input ?? 0,
+                output: output ?? 0,
+                cacheWrite: cacheWrite ?? 0,
+                cacheRead: cacheRead ?? 0),
+            discardedCounters: [input, output, cacheWrite, cacheRead].filter { $0 == nil }.count)
     }
 
     /// `chat_start_metadata.created_at`, a `google.protobuf.Timestamp`.
@@ -209,11 +378,28 @@ enum AntigravityProto {
     /// Tokens are `uint64` on the wire. Widening one straight into `Int` hands unbounded
     /// values to arithmetic that traps on overflow, and a trap here would kill the app on
     /// every refresh until the file changed. A count this large is a sentinel, not a count.
+    ///
+    /// This is the sibling of `LocalUsageReader.maxParsedTokenValue`, which guards the JSON
+    /// readers, and the two deliberately differ on both axes — see the PR for whether they
+    /// should be reconciled:
+    ///
+    /// - **Ceiling.** That one leaves room for sums taken straight after parsing
+    ///   (`output + thoughts`); nothing here adds two parsed values before `Entry.total`, whose
+    ///   four terms are each bounded by this, so a tighter ceiling costs nothing. A per-call
+    ///   counter three orders of magnitude past the largest context window is already a
+    ///   sentinel.
+    /// - **What happens above it.** That one clamps to the ceiling; this one discards the
+    ///   counter. Both avoid the trap. Clamping keeps a number that then dominates every
+    ///   aggregate it reaches — today's total, the burn tier, the companion — while discarding
+    ///   loses that one counter and leaves the rest of the record intact.
     static let tokenCeiling: UInt64 = 1_000_000_000
 
-    static func tokenCount(_ data: ArraySlice<UInt8>, field: Int) -> Int {
-        guard let value = varint(data, field: field), value <= tokenCeiling else { return 0 }
-        return Int(value)
+    /// `nil` means the field was there and its value cannot be a count. That is not the same as
+    /// the field being absent, which is a legitimate zero — `cache_write_tokens` is declared and
+    /// never written — and the caller needs to tell them apart to be able to say one happened.
+    static func tokenCount(_ data: ArraySlice<UInt8>, field: Int) -> Int? {
+        guard let value = varint(data, field: field) else { return 0 }
+        return value <= tokenCeiling ? Int(value) : nil
     }
 
     static func varint(_ data: ArraySlice<UInt8>, field: Int) -> UInt64? {
@@ -298,21 +484,21 @@ enum AntigravityProto {
 
 // MARK: - Shared read
 
-/// Shares one native read between the Antigravity provider's daily and enrichment calls, the
-/// way `LocalAdditionalUsageCache` does for the other SQLite-backed providers.
+/// Holds the parse of each conversation store between calls, keyed on that store's
+/// `(path, mtime, size)` the way `LocalUsageCache` keys its per-file blobs. The Antigravity
+/// provider's daily and enrichment calls therefore share one parse without a clock being
+/// involved: both re-stat every store, and neither reopens one that has not moved.
+///
+/// The keying replaces a 30-second expiry, which had the two failings a timer always has — it
+/// served a store that had just changed from a stale parse for up to half a minute, and once it
+/// lapsed it reopened all of them to find out that none had.
 actor LocalAntigravityUsageCache {
     static let shared = LocalAntigravityUsageCache()
 
-    private struct Cached: Sendable {
-        let loadedAt: Date
-        let monthKey: String
-        let entries: [LocalUsageReader.Entry]
-    }
-
     private let root: URL?
     private let now: @Sendable () -> Date
-    private var cached: Cached?
-    private var inFlight: Task<[LocalUsageReader.Entry], Never>?
+    private var blobs: [String: LocalAntigravityUsageReader.Blob] = [:]
+    private var inFlight: Task<LocalAntigravityUsageReader.Scan, Never>?
 
     init(root: URL? = nil, now: @escaping @Sendable () -> Date = Date.init) {
         self.root = root
@@ -320,24 +506,37 @@ actor LocalAntigravityUsageCache {
     }
 
     func entries() async -> [LocalUsageReader.Entry] {
-        let moment = now()
-        let monthKey = LocalUsageReader.monthKey(moment)
-        if let cached, cached.monthKey == monthKey, moment.timeIntervalSince(cached.loadedAt) < 30 {
-            return cached.entries
-        }
-        if let inFlight { return await inFlight.value }
+        // One scan covers every window the provider reports — the block, the week and the month
+        // — so the lower bound is the earliest of the three. It is a min of three non-decreasing
+        // functions of `now`, so it only ever advances: a bound sampled before the scan admits a
+        // superset of what the bound current after it would have, which is why the blobs stay
+        // sound across a month boundary that a `monthKey` guard used to throw them away at.
+        let since = LocalUsageReader.enrichmentScanStart(now: now())
 
-        // One scan covers every window the provider reports — the block, the week and the
-        // month — so the lower bound is the earliest of the three.
-        let since = LocalUsageReader.enrichmentScanStart(now: moment)
-        let root = root
-        let task = Task.detached(priority: .utility) {
-            LocalAntigravityUsageReader.entries(modifiedSince: since, root: root)
+        let scanned: LocalAntigravityUsageReader.Scan
+        if let inFlight {
+            // Join rather than start a second scan, and leave the log to the owner.
+            scanned = await inFlight.value
+        } else {
+            let root = self.root ?? LocalAntigravityUsageReader.defaultRoot
+            let known = blobs
+            // Nothing awaits between the miss above and this assignment — that is what stops two
+            // callers from both starting a scan.
+            let task = Task.detached(priority: .utility) {
+                LocalAntigravityUsageReader.scan(root: root, modifiedSince: since, known: known)
+            }
+            inFlight = task
+            scanned = await task.value
+            inFlight = nil
+            // A visited-only rebuild is the prune: a store that fell out of the window or off
+            // the disk leaves the cache with it, exactly rather than on a 40-day approximation.
+            blobs = scanned.blobs
+            for line in scanned.log { AppLog.write(line) }
         }
-        inFlight = task
-        let entries = await task.value
-        inFlight = nil
-        cached = Cached(loadedAt: moment, monthKey: monthKey, entries: entries)
-        return entries
+
+        // Re-sampled after the suspension. `since` above bounds discovery; this bounds what the
+        // caller is told, and the two are not the same instant.
+        return LocalAntigravityUsageReader.assemble(
+            scanned.blobs, since: LocalUsageReader.enrichmentScanStart(now: now()))
     }
 }

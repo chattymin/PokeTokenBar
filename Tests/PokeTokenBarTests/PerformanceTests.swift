@@ -52,7 +52,7 @@ final class StorePerformanceTests: XCTestCase {
         measure {
             for _ in 0..<500 {
                 token += 100
-                s.update(todayTokens: token, todayDate: "d", monthTotal: 0,
+                s.update(todayTokensByProvider: ["test": token], todayDate: "d", monthTotal: 0,
                          burnTier: .normal, limitWarning: false, hasUsageData: true)
             }
         }
@@ -80,19 +80,14 @@ final class StorePerformanceTests: XCTestCase {
             let sorted = s.dexEntriesSorted
             XCTAssertEqual(sorted.count, 1000)
         }
-        // 정렬 정확성: 희귀도 sortRank 비증가(내림차순) 유지
+        // 정렬 정확성: 포획 로그는 기록 시각 최신순 — 희귀도는 순서에 관여하지 않는다.
         let sorted = s.dexEntriesSorted
-        XCTAssertEqual(sorted.first?.rarity, .legendary)
         for i in 1..<sorted.count {
-            XCTAssertGreaterThanOrEqual(sorted[i - 1].rarity.sortRank, sorted[i].rarity.sortRank)
-        }
-        // 동급 내에서는 최신(caughtAt 큰) 우선
-        let legendaries = sorted.filter { $0.rarity == .legendary }
-        for i in 1..<legendaries.count {
             XCTAssertGreaterThanOrEqual(
-                legendaries[i - 1].caughtAt ?? .distantPast,
-                legendaries[i].caughtAt ?? .distantPast)
+                sorted[i - 1].caughtAt ?? .distantPast,
+                sorted[i].caughtAt ?? .distantPast)
         }
+        XCTAssertEqual(sorted.first?.caughtAt, pNow.addingTimeInterval(999), "가장 최신 항목이 맨 앞")
         XCTAssertEqual(s.dexCount(.legendary), 250)
     }
 }

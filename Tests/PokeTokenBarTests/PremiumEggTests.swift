@@ -376,7 +376,7 @@ final class PremiumEggTests: XCTestCase {
         imported.eggTier = .uncommon
         imported.usedSinceInstall = 1_000_000
         let rebased = SaveTransfer.rebasedForThisDevice(imported, current: CompanionState(),
-                                                        todayTokens: 0, todayDate: "d", hasUsageData: true)
+                                                        todayTokensByProvider: ["test": 0], todayDate: "d", hasUsageData: true)
         XCTAssertEqual(rebased.eggTier, .uncommon)
     }
 

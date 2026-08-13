@@ -5,6 +5,7 @@ private enum LocalAdditionalSource: String, Sendable {
     case opencode
     case hermes
     case cursor
+    case copilot
 }
 
 /// OpenCode usage from its local SQLite database and legacy message files.
@@ -52,6 +53,24 @@ struct LocalCursorProvider: UsageProvider {
 
     func fetchEnrichment() async -> ProviderEnrichment {
         let entries = await LocalAdditionalUsageCache.shared.entries(for: .cursor)
+        return enrichment(entries: entries)
+    }
+}
+
+/// GitHub Copilot CLI usage from its local session store database.
+struct LocalCopilotProvider: UsageProvider {
+    let id = "copilot"
+    let displayName = "Copilot"
+    /// Copilot bills subscription premium requests, not per-token dollars — tokens only.
+    let reportsCost = false
+
+    func fetchDaily() async throws -> DailyUsage? {
+        let entries = await LocalAdditionalUsageCache.shared.entries(for: .copilot)
+        return LocalUsageReader.daily(entries: entries, localDay: LocalUsageReader.todayKey())
+    }
+
+    func fetchEnrichment() async -> ProviderEnrichment {
+        let entries = await LocalAdditionalUsageCache.shared.entries(for: .copilot)
         return enrichment(entries: entries)
     }
 }
@@ -118,6 +137,11 @@ private actor LocalAdditionalUsageCache {
         case .cursor:
             since = periodStart
             afterRowIDByPath = previous?.highWaterByPath ?? [:]
+        case .copilot:
+            // `assistant_usage_events` is append-only with an AUTOINCREMENT id — replay
+            // only the rows written since the last scan.
+            since = periodStart
+            afterRowIDByPath = previous?.highWaterByPath ?? [:]
         case .hermes:
             since = periodStart
             afterRowIDByPath = [:]
@@ -136,6 +160,17 @@ private actor LocalAdditionalUsageCache {
                     modifiedSince: since, afterRowIDByPath: afterRowIDByPath)
                 // DB rewrite / VACUUM can drop max(rowid) below the watermark — discard
                 // the stale in-memory set and take the full rescan result.
+                if loaded.didReset {
+                    return (loaded.entries, loaded.highWaterByPath)
+                }
+                return (
+                    LocalUsageReader.dedupKeepMax(existing + loaded.entries),
+                    loaded.highWaterByPath)
+            case .copilot:
+                let loaded = LocalAdditionalUsageReader.copilotEntries(
+                    modifiedSince: since, afterRowIDByPath: afterRowIDByPath)
+                // A pruned / recreated session store restarts ids — the cached rows would
+                // then collide with different events, so keep only the rescan.
                 if loaded.didReset {
                     return (loaded.entries, loaded.highWaterByPath)
                 }
@@ -519,6 +554,198 @@ enum LocalAdditionalUsageReader {
         return dateValue(value)
     }
 
+    // MARK: Copilot CLI database
+
+    struct CopilotLoadResult: Sendable {
+        var entries: [LocalUsageReader.Entry]
+        var highWaterByPath: [String: Int64]
+        /// True when a database was rescanned from scratch (watermark invalidated).
+        var didReset: Bool
+
+        /// Convenience for single-database tests.
+        var highWaterRowID: Int64 { highWaterByPath.values.max() ?? 0 }
+    }
+
+    static var defaultCopilotRoots: [URL] {
+        environmentPaths("COPILOT_HOME")
+            ?? [FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".copilot")]
+    }
+
+    /// Read Copilot CLI usage rows newer than `modifiedSince`.
+    ///
+    /// Every row in `assistant_usage_events` is one billed API call, including the ones a
+    /// subagent makes — those are separate requests, not a copy of the parent turn, so
+    /// unlike Grok's session logs there is nothing to exclude here.
+    ///
+    /// `afterRowIDByPath` carries the previous scan's high-water `id` per database so
+    /// steady-state refreshes touch only the rows appended since then.
+    static func copilotEntries(
+        modifiedSince: Date,
+        afterRowID: Int64 = 0,
+        afterRowIDByPath: [String: Int64]? = nil,
+        roots: [URL]? = nil
+    ) -> CopilotLoadResult {
+        let sourceRoots = roots ?? defaultCopilotRoots
+        let marks = copilotWatermarks(
+            roots: sourceRoots, afterRowID: afterRowID, afterRowIDByPath: afterRowIDByPath)
+        var result = scanCopilotRoots(sourceRoots, modifiedSince: modifiedSince, marks: marks)
+        if result.didReset {
+            // A partial incremental payload must not replace the cache — rescan every root cold.
+            let recovered = scanCopilotRoots(sourceRoots, modifiedSince: modifiedSince, marks: [:])
+            result = CopilotLoadResult(
+                entries: recovered.entries,
+                highWaterByPath: recovered.highWaterByPath,
+                didReset: true)
+        }
+        return result
+    }
+
+    private static func copilotWatermarks(
+        roots: [URL],
+        afterRowID: Int64,
+        afterRowIDByPath: [String: Int64]?
+    ) -> [String: Int64] {
+        if let afterRowIDByPath { return afterRowIDByPath }
+        guard afterRowID > 0 else { return [:] }
+        return Dictionary(uniqueKeysWithValues: roots.map { root in
+            (copilotDatabaseURL(from: root).path, afterRowID)
+        })
+    }
+
+    private static func copilotDatabaseURL(from root: URL) -> URL {
+        root.pathExtension == "db" ? root : root.appendingPathComponent("session-store.db")
+    }
+
+    private static func scanCopilotRoots(
+        _ sourceRoots: [URL],
+        modifiedSince: Date,
+        marks: [String: Int64]
+    ) -> CopilotLoadResult {
+        var entries: [LocalUsageReader.Entry] = []
+        var highWaterByPath: [String: Int64] = [:]
+        var didReset = false
+        for root in sourceRoots {
+            let database = copilotDatabaseURL(from: root)
+            let pathKey = database.path
+            let loaded = copilotDatabaseEntries(
+                database, modifiedSince: modifiedSince, afterRowID: marks[pathKey] ?? 0)
+            entries += loaded.entries
+            highWaterByPath[pathKey] = loaded.highWaterRowID
+            if loaded.didReset { didReset = true }
+        }
+        return CopilotLoadResult(
+            entries: LocalUsageReader.dedupKeepMax(entries.filter { $0.date >= modifiedSince }),
+            highWaterByPath: highWaterByPath,
+            didReset: didReset)
+    }
+
+    private struct CopilotDatabaseLoad {
+        var entries: [LocalUsageReader.Entry]
+        var highWaterRowID: Int64
+        var didReset: Bool
+    }
+
+    private static func copilotDatabaseEntries(
+        _ database: URL,
+        modifiedSince: Date,
+        afterRowID: Int64
+    ) -> CopilotDatabaseLoad {
+        // A failed MAX(id) is not a shrink: open/prepare can fail while the CLI writes the
+        // store. Collapsing nil → 0 would wipe the cache for up to one refresh interval.
+        guard let maxRowID = scalarInt64(database, sql: "SELECT MAX(id) FROM assistant_usage_events") else {
+            return CopilotDatabaseLoad(entries: [], highWaterRowID: afterRowID, didReset: false)
+        }
+        let didReset = afterRowID > 0 && maxRowID < afterRowID
+        let effectiveAfter = didReset ? 0 : afterRowID
+
+        // `created_at` is text, so the cutoff is a lexicographic compare, not a time compare.
+        // It is only a coarse prefilter — `scanCopilotRoots` re-filters on parsed dates — but
+        // it must never drop a row that belongs in the window, and a dropped row is lost for
+        // good once a later id advances the watermark. A same-day row in the ISO-8601 shape is
+        // safe (its "T" sorts after the cutoff's space), yet a row carrying a UTC offset can
+        // still render an earlier calendar day than the instant it represents
+        // ("2026-01-03T20:00:00-05:00" is 2026-01-04T01:00:00Z). Backing the cutoff off by a
+        // full day covers every offset SQLite accepts (±14h) and costs one extra day of rows.
+        let sql = """
+        SELECT id, model, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, created_at
+        FROM assistant_usage_events
+        WHERE id > ?1 AND created_at >= ?2
+        """
+        guard let rows = query(
+            database, sql: sql,
+            bindInt64: effectiveAfter,
+            bindText: copilotDayCutoff(modifiedSince),
+            row: { statement -> (Int64, LocalUsageReader.Entry?) in
+                (sqlite3_column_int64(statement, 0), parseCopilotUsageRow(statement, database: database))
+            }) else {
+            // Incomplete scan (BUSY / interrupt) — keep the prior watermark.
+            return CopilotDatabaseLoad(entries: [], highWaterRowID: afterRowID, didReset: false)
+        }
+
+        var highWater: Int64 = 0
+        var entries: [LocalUsageReader.Entry] = []
+        for (rowID, entry) in rows {
+            highWater = max(highWater, rowID)
+            if let entry { entries.append(entry) }
+        }
+        // Rows before the cutoff are filtered out in SQL, so an empty incremental read must
+        // not reset the watermark back to zero.
+        if highWater == 0 { highWater = effectiveAfter }
+        return CopilotDatabaseLoad(entries: entries, highWaterRowID: highWater, didReset: didReset)
+    }
+
+    private static func parseCopilotUsageRow(
+        _ statement: OpaquePointer,
+        database: URL
+    ) -> LocalUsageReader.Entry? {
+        let id = sqlite3_column_int64(statement, 0)
+        guard let rawDate = columnText(statement, 6),
+              let date = copilotDate(rawDate) else { return nil }
+        let model = stringValue(columnText(statement, 1)) ?? "unknown"
+        let cacheRead = columnInt(statement, 4)
+        let cacheWrite = columnInt(statement, 5)
+        // `input_tokens` is the whole prompt: cached reads and writes are a subset of it.
+        // Subtracting them keeps the same prompt tokens from being counted three times.
+        let input = max(0, columnInt(statement, 2) - cacheRead - cacheWrite)
+        // `reasoning_tokens` is a breakdown of `output_tokens`, not an extra charge.
+        return makeEntry(
+            // The row id is only unique *within* one store, and `$COPILOT_HOME` may name
+            // several. Without the database in the key, id 1 of each store would collapse
+            // into a single event during dedup and the usage would silently go missing.
+            id: "copilot|\(database.path)|\(id)",
+            date: date,
+            model: model,
+            input: input,
+            output: columnInt(statement, 3),
+            cacheWrite: cacheWrite,
+            cacheRead: cacheRead)
+    }
+
+    /// Start of the UTC day *before* `date`, in the SQLite default text shape
+    /// ("YYYY-MM-DD HH:MM:SS"), so the coarse text cutoff always sits below the window.
+    private static func copilotDayCutoff(_ date: Date) -> String {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0) ?? .gmt
+        let shifted = date.addingTimeInterval(-86_400)
+        let parts = calendar.dateComponents([.year, .month, .day], from: shifted)
+        return String(
+            format: "%04d-%02d-%02d 00:00:00",
+            parts.year ?? 1970, parts.month ?? 1, parts.day ?? 1)
+    }
+
+    /// Copilot writes ISO-8601 with a "Z" suffix, while the column default
+    /// (`datetime('now')`) writes "YYYY-MM-DD HH:MM:SS" in UTC. Normalize both.
+    static func copilotDate(_ raw: String) -> Date? {
+        var text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard text.count >= 19 else { return nil }
+        if let separator = text.firstIndex(of: " ") {
+            text.replaceSubrange(separator...separator, with: "T")
+        }
+        let time = text.dropFirst(11)
+        if !time.contains("Z"), !time.contains("+"), !time.contains("-") { text += "Z" }
+        return parseISO8601(text)
+    }
+
     // MARK: Shared utilities
 
     private static func makeEntry(
@@ -612,6 +839,7 @@ enum LocalAdditionalUsageReader {
         _ databaseURL: URL,
         sql: String,
         bindInt64: Int64? = nil,
+        bindText: String? = nil,
         row: (OpaquePointer) -> T?
     ) -> [T]? {
         guard FileManager.default.fileExists(atPath: databaseURL.path) else { return [] }
@@ -626,6 +854,10 @@ enum LocalAdditionalUsageReader {
               let statement else { return nil }
         defer { sqlite3_finalize(statement) }
         if let bindInt64 { sqlite3_bind_int64(statement, 1, bindInt64) }
+        if let bindText {
+            // SQLITE_TRANSIENT: SQLite must copy the bytes, the Swift string dies at return.
+            sqlite3_bind_text(statement, 2, bindText, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+        }
 
         var result: [T] = []
         while true {

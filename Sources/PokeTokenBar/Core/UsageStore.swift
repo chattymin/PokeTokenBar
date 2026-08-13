@@ -148,6 +148,22 @@ final class UsageStore {
         return snapshots.reduce(0) { $0 + ($1.today?.date == todayKey ? $1.todayTotalTokens : 0) }
     }
 
+    /// 오늘 사용량을 프로바이더 고유 ID별로 제공한다.
+    ///
+    /// companion 적립 장부는 전체 합계가 아니라 이 map을 기준으로 한다. `today == nil`인
+    /// carrier snapshot이나 오늘이 아닌 snapshot은 map에서 제외한다. 그러면 프로바이더가
+    /// 이번 refresh에서 보고하지 않은 경우에는 해당 프로바이더의 기존 장부를 건드리지 않고,
+    /// 실제 오늘 수치가 있는 프로바이더만 증분 계산에 참여한다.
+    /// 키는 `UsageProvider.id`를 그대로 사용하며, 프로바이더 등록/식별자 정책은
+    /// `docs/reference/provider-extension.md`를 따른다.
+    var todayTokensByProvider: [String: Int] {
+        let todayKey = LocalUsageReader.todayKey()
+        return snapshots.reduce(into: [:]) { result, snapshot in
+            guard let today = snapshot.today, today.date == todayKey else { return }
+            result[snapshot.providerID] = today.totalTokens
+        }
+    }
+
     /// 사용량 데이터(스냅샷)가 하나라도 있는가 — companion sleep 판정용
     var hasUsageData: Bool { !snapshots.isEmpty }
 
@@ -381,7 +397,7 @@ final class UsageStore {
     init(providers: [any UsageProvider] = [
         LocalClaudeProvider(), LocalCodexProvider(), LocalGeminiProvider(),
         LocalAntigravityProvider(), LocalOpenCodeProvider(), LocalHermesProvider(),
-        LocalCursorProvider(), LocalGrokProvider(),
+        LocalCursorProvider(), LocalGrokProvider(), LocalCopilotProvider(),
     ],
          claudeLimitsProvider: any ClaudeLimitsProviding = OAuthLimitsProvider(),
          codexLimitsProvider: any CodexLimitsProviding = CodexRateLimitsProvider(),
@@ -543,6 +559,9 @@ final class UsageStore {
 
             let today: DailyUsage?
             if let fetched = dailyByID[provider.id] {
+                if let previous = prevToday, fetched.totalTokens < previous.totalTokens {
+                    AppLog.write("usage regression provider=\(provider.id) date=\(fetched.date) previous=\(previous.totalTokens) current=\(fetched.totalTokens) drop=\(previous.totalTokens - fetched.totalTokens) — provider returned lower daily snapshot")
+                }
                 today = fetched
             } else if failedIDs.contains(provider.id) {
                 today = prevToday   // 실패 → 오늘자 이전 값 유지

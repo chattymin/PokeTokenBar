@@ -85,7 +85,7 @@ final class SaveTransferTests: XCTestCase {
         s.installBaselineSet = true
         s.usedSinceInstall = 8_000_000_000
         s.spentTokens = 3_500_000_000
-        s.claimedTodayTokens = 56_800_000
+        s.claimedTodayTokensByProvider = ["test": 56_800_000]
         s.lastDate = today
         s.inventory = ["rareCandy": 2]
         s.collectedFinals = ["1-3"]
@@ -166,7 +166,7 @@ final class SaveTransferTests: XCTestCase {
 
     /// [회귀] 이전 당일에 새 Mac 에서 쓴 토큰이 조용히 누락되던 결함.
     ///
-    /// `claimedTodayTokens` 는 "이 기기가 오늘 어디까지 적립했나"인데 옛 기기 값(56.8M)이 그대로
+    /// `claimedTodayTokensByProvider` 는 "이 기기가 프로바이더별로 오늘 어디까지 적립했나"인데 옛 기기 값(56.8M)이 그대로
     /// 따라오면 `update` 의 `todayTokens > claimedTodayTokens` 게이트가 하루 종일 거짓이 된다.
     /// 대조군(재정렬 없음)을 같이 돌려 트리거 브랜치를 실제로 밟는지 확인한다.
     func testTransferDayTokensStillCountAfterRebase() throws {
@@ -180,7 +180,7 @@ final class SaveTransferTests: XCTestCase {
         try JSONEncoder().encode(imported).write(to: rawURL)
         let raw = store(at: rawURL)
         let rawBefore = raw.state.usedSinceInstall
-        raw.update(todayTokens: newMacTodayLater, todayDate: today, monthTotal: 0,
+        raw.update(todayTokensByProvider: ["test": newMacTodayLater], todayDate: today, monthTotal: 0,
                    burnTier: .idle, limitWarning: false, hasUsageData: true)
         XCTAssertEqual(raw.state.usedSinceInstall - rawBefore, 0,
                        "재현 실패 — 이 대조군이 0 이 아니면 결함 조건이 바뀐 것이므로 테스트가 무의미해진다")
@@ -191,14 +191,14 @@ final class SaveTransferTests: XCTestCase {
         let data = try SaveTransfer.encode(state: imported, appVersion: "2.5.0",
                                            deviceName: "Old Mac", now: transferNow)
         let envelope = try SaveTransfer.decode(data)
-        try s.applySave(envelope, todayTokens: newMacTodaySoFar, todayDate: today, hasUsageData: true)
+        try s.applySave(envelope, todayTokensByProvider: ["test": newMacTodaySoFar], todayDate: today, hasUsageData: true)
 
-        XCTAssertEqual(s.state.claimedTodayTokens, newMacTodaySoFar)
+        XCTAssertEqual(s.state.claimedTodayTokensByProvider?["test"], newMacTodaySoFar)
         XCTAssertEqual(s.state.lastDate, today)
         XCTAssertTrue(s.state.installBaselineSet)
 
         let before = s.state.usedSinceInstall
-        s.update(todayTokens: newMacTodayLater, todayDate: today, monthTotal: 0,
+        s.update(todayTokensByProvider: ["test": newMacTodayLater], todayDate: today, monthTotal: 0,
                  burnTier: .idle, limitWarning: false, hasUsageData: true)
         XCTAssertEqual(s.state.usedSinceInstall - before, newMacTodayLater - newMacTodaySoFar,
                        "이전 당일에도 새 Mac 에서 쓴 증분이 적립돼야 한다")
@@ -212,21 +212,52 @@ final class SaveTransferTests: XCTestCase {
         let s = store(at: url)
         let data = try SaveTransfer.encode(state: oldMacState(today: today), appVersion: "2.5.0",
                                            deviceName: "Old Mac", now: transferNow)
-        try s.applySave(try SaveTransfer.decode(data), todayTokens: 0, todayDate: today, hasUsageData: false)
+        try s.applySave(try SaveTransfer.decode(data), todayTokensByProvider: ["test": 0], todayDate: today, hasUsageData: false)
 
         XCTAssertFalse(s.state.installBaselineSet)
 
         // 데이터가 도착하는 첫 틱은 baseline 만 잡고 적립하지 않는다.
         let before = s.state.usedSinceInstall
-        s.update(todayTokens: 40_000_000, todayDate: today, monthTotal: 0,
+        s.update(todayTokensByProvider: ["test": 40_000_000], todayDate: today, monthTotal: 0,
                  burnTier: .idle, limitWarning: false, hasUsageData: true)
         XCTAssertEqual(s.state.usedSinceInstall, before, "도착 시점의 하루치를 소급 적립하지 않는다")
-        XCTAssertEqual(s.state.claimedTodayTokens, 40_000_000)
+        XCTAssertEqual(s.state.claimedTodayTokensByProvider?["test"], 40_000_000)
 
         // 그 다음부터는 정상 적립.
-        s.update(todayTokens: 41_000_000, todayDate: today, monthTotal: 0,
+        s.update(todayTokensByProvider: ["test": 41_000_000], todayDate: today, monthTotal: 0,
                  burnTier: .idle, limitWarning: false, hasUsageData: true)
         XCTAssertEqual(s.state.usedSinceInstall - before, 1_000_000)
+    }
+
+    /// [회귀] stale snapshot만 남아 `hasUsageData`는 true인데 오늘 map은 비어 있는 상태로
+    /// 세이브를 불러와도, 빈 provider ledger를 유효한 기준점으로 저장하면 안 된다.
+    /// 첫 정상 snapshot은 baseline으로만 잡고, 그 이후 증가분부터 적립해야 한다.
+    func testImportWithStaleOnlyUsageDefersBaselineInsteadOfSeedingEmptyLedger() throws {
+        let today = "2026-08-03"
+        let url = tempURL("stale-only")
+        let s = store(at: url)
+        let data = try SaveTransfer.encode(state: oldMacState(today: today), appVersion: "2.5.0",
+                                           deviceName: "Old Mac", now: transferNow)
+
+        // snapshots가 stale이거나 carrier만 남은 상태: 표시용 hasUsageData는 true지만
+        // 오늘 날짜가 확인된 provider 데이터는 없다.
+        try s.applySave(try SaveTransfer.decode(data), todayTokensByProvider: [:], todayDate: today,
+                        hasUsageData: true)
+
+        XCTAssertFalse(s.state.installBaselineSet)
+        XCTAssertNil(s.state.claimedTodayTokensByProvider)
+        XCTAssertEqual(s.state.lastDate, "")
+
+        let before = s.state.usedSinceInstall
+        s.update(todayTokensByProvider: ["test": 40_000_000], todayDate: today, monthTotal: 0,
+                 burnTier: .idle, limitWarning: false, hasUsageData: true)
+        XCTAssertEqual(s.state.usedSinceInstall, before, "첫 정상 snapshot은 baseline만 설정해야 한다")
+        XCTAssertEqual(s.state.claimedTodayTokensByProvider?["test"], 40_000_000)
+
+        s.update(todayTokensByProvider: ["test": 41_000_000], todayDate: today, monthTotal: 0,
+                 burnTier: .idle, limitWarning: false, hasUsageData: true)
+        XCTAssertEqual(s.state.usedSinceInstall - before, 1_000_000,
+                       "빈 ledger로 import해도 이후 증가분은 정상 적립돼야 한다")
     }
 
     // MARK: 진행 보존 · 가드레일
@@ -242,7 +273,7 @@ final class SaveTransferTests: XCTestCase {
         let s = store(at: url)
         let data = try SaveTransfer.encode(state: imported, appVersion: "2.5.0",
                                            deviceName: "Old Mac", now: transferNow)
-        try s.applySave(try SaveTransfer.decode(data), todayTokens: 1, todayDate: today, hasUsageData: true)
+        try s.applySave(try SaveTransfer.decode(data), todayTokensByProvider: ["test": 1], todayDate: today, hasUsageData: true)
 
         XCTAssertEqual(s.state.usedSinceInstall, 8_000_000_000)
         XCTAssertEqual(s.state.spentTokens, 3_500_000_000)
@@ -268,7 +299,7 @@ final class SaveTransferTests: XCTestCase {
 
         let data = try SaveTransfer.encode(state: oldMacState(today: today), appVersion: "2.5.0",
                                            deviceName: "Old Mac", now: transferNow)
-        try s.applySave(try SaveTransfer.decode(data), todayTokens: 0, todayDate: today, hasUsageData: true)
+        try s.applySave(try SaveTransfer.decode(data), todayTokensByProvider: ["test": 0], todayDate: today, hasUsageData: true)
 
         let backup = url.deletingLastPathComponent()
             .appendingPathComponent(SaveTransfer.backupFileName(date: transferNow))
@@ -296,7 +327,7 @@ final class SaveTransferTests: XCTestCase {
                                    stageIndex: 0, usedAtStage: 0, rarity: .common, totalForms: 1)
         let data = try SaveTransfer.encode(state: imported, appVersion: "2.5.0",
                                            deviceName: "Old Mac", now: transferNow)
-        try s.applySave(try SaveTransfer.decode(data), todayTokens: 1,
+        try s.applySave(try SaveTransfer.decode(data), todayTokensByProvider: ["test": 1],
                     todayDate: "2026-08-03", hasUsageData: true)
 
         await release.fire()
@@ -335,7 +366,7 @@ final class SaveTransferTests: XCTestCase {
                                    stageIndex: 0, usedAtStage: 0, rarity: .common, totalForms: 1)
         let data = try SaveTransfer.encode(state: imported, appVersion: "2.5.0",
                                            deviceName: "Old Mac", now: transferNow)
-        try s.applySave(try SaveTransfer.decode(data), todayTokens: 1,
+        try s.applySave(try SaveTransfer.decode(data), todayTokensByProvider: ["test": 1],
                     todayDate: "2026-08-03", hasUsageData: true)
 
         await release.fire()
@@ -367,7 +398,7 @@ final class SaveTransferTests: XCTestCase {
                                    stageIndex: 0, usedAtStage: 0, rarity: .common, totalForms: 1)
         let data = try SaveTransfer.encode(state: imported, appVersion: "2.5.0",
                                            deviceName: "Old Mac", now: transferNow)
-        try s.applySave(try SaveTransfer.decode(data), todayTokens: 1,
+        try s.applySave(try SaveTransfer.decode(data), todayTokensByProvider: ["test": 1],
                     todayDate: "2026-08-03", hasUsageData: true)
         XCTAssertNil(s.currentLine, "전제: 부화 락에 막혀 라인이 아직 없다")
 
@@ -394,10 +425,10 @@ final class SaveTransferTests: XCTestCase {
                                    stageIndex: 0, usedAtStage: 0, rarity: .common, totalForms: 1)
         let data = try SaveTransfer.encode(state: imported, appVersion: "2.5.0",
                                            deviceName: "Old Mac", now: transferNow)
-        try s.applySave(try SaveTransfer.decode(data), todayTokens: 0, todayDate: today, hasUsageData: false)
+        try s.applySave(try SaveTransfer.decode(data), todayTokensByProvider: ["test": 0], todayDate: today, hasUsageData: false)
         XCTAssertFalse(s.state.installBaselineSet, "전제: baseline 판정을 미룬 상태")
 
-        s.update(todayTokens: 0, todayDate: today, monthTotal: 0,
+        s.update(todayTokensByProvider: ["test": 0], todayDate: today, monthTotal: 0,
                  burnTier: .idle, limitWarning: false, hasUsageData: false)
         XCTAssertNotNil(s.state.active, "개체는 그대로 있어야 한다")
         XCTAssertEqual(s.displayState, .idle, "개체가 있는데 알로 표시하면 안 된다")
@@ -405,7 +436,7 @@ final class SaveTransferTests: XCTestCase {
         // 알 상태에서 같은 경로를 타면 여전히 알이어야 한다(반대 방향 고정).
         let eggURL = tempURL("stillegg")
         let e = store(at: eggURL)
-        e.update(todayTokens: 0, todayDate: today, monthTotal: 0,
+        e.update(todayTokensByProvider: ["test": 0], todayDate: today, monthTotal: 0,
                  burnTier: .idle, limitWarning: false, hasUsageData: false)
         XCTAssertEqual(e.displayState, .egg)
     }
@@ -420,7 +451,7 @@ final class SaveTransferTests: XCTestCase {
         evil.usedSinceInstall = Int.max
         evil.spentTokens = Int.min
         evil.eggUsage = Int.max
-        evil.claimedTodayTokens = -42
+        evil.claimedTodayTokensByProvider = ["test": -42]
         evil.active = MonState(baseID: 1, pathIDs: [1], plannedPathIDs: [1],
                                stageIndex: Int.max, usedAtStage: Int.max, rarity: .common,
                                totalForms: Int.max)
@@ -433,7 +464,7 @@ final class SaveTransferTests: XCTestCase {
         XCTAssertEqual(s.usedSinceInstall, SaveTransfer.maxTokenValue)
         XCTAssertEqual(s.spentTokens, 0, "음수는 0 으로")
         XCTAssertEqual(s.eggUsage, SaveTransfer.maxTokenValue)
-        XCTAssertEqual(s.claimedTodayTokens, 0)
+        XCTAssertEqual(s.claimedTodayTokensByProvider?["test"], 0)
         XCTAssertEqual(s.active?.usedAtStage, SaveTransfer.maxTokenValue)
         XCTAssertEqual(s.active?.totalForms, 12)
         XCTAssertEqual(s.active?.stageIndex, 0, "pathIDs 범위를 넘지 않아야 한다")
@@ -441,9 +472,9 @@ final class SaveTransferTests: XCTestCase {
         // 정규화된 값으로 실제 산술 경로를 태워 트랩이 안 나는지 확인한다.
         let url = tempURL("clamped")
         let store = store(at: url)
-        try store.applySave(envelope, todayTokens: 0, todayDate: "2026-08-03", hasUsageData: true)
+        try store.applySave(envelope, todayTokensByProvider: ["test": 0], todayDate: "2026-08-03", hasUsageData: true)
         XCTAssertGreaterThanOrEqual(store.availableTokens, 0)
-        store.update(todayTokens: 1_000, todayDate: "2026-08-03", monthTotal: 0,
+        store.update(todayTokensByProvider: ["test": 1_000], todayDate: "2026-08-03", monthTotal: 0,
                      burnTier: .idle, limitWarning: false, hasUsageData: true)
         XCTAssertLessThanOrEqual(store.state.usedSinceInstall, SaveTransfer.maxTokenValue + 1_000)
     }
@@ -463,11 +494,11 @@ final class SaveTransferTests: XCTestCase {
         XCTAssertEqual(s.state.usedSinceInstall, SaveTransfer.maxTokenValue)
         XCTAssertEqual(s.state.spentTokens, 0)
         XCTAssertEqual(s.state.eggUsage, SaveTransfer.maxTokenValue)
-        XCTAssertEqual(s.state.claimedTodayTokens, 0)
+        XCTAssertNil(s.state.claimedTodayTokensByProvider, "구버전 aggregate field는 프로바이더별 ledger로 추정하지 않는다")
 
         // 정규화된 값으로 실제 산술 경로를 태워 트랩이 안 나는지 확인(이 줄이 예전엔 SIGTRAP).
         XCTAssertGreaterThanOrEqual(s.availableTokens, 0)
-        s.update(todayTokens: 1_000, todayDate: "2026-08-03", monthTotal: 0,
+        s.update(todayTokensByProvider: ["test": 1_000], todayDate: "2026-08-03", monthTotal: 0,
                  burnTier: .idle, limitWarning: false, hasUsageData: true)
         XCTAssertLessThanOrEqual(s.state.usedSinceInstall, SaveTransfer.maxTokenValue + 1_000)
     }
@@ -480,7 +511,7 @@ final class SaveTransferTests: XCTestCase {
         // eggTier(알 등급 보증) = 진행 — 산 물건이지 이 기기의 장부가 아니라 기기를 옮겨도 따라간다.
         let progress: Set<String> = ["usedSinceInstall", "spentTokens", "eggUsage", "eggTier",
                                      "pendingHatchID", "active", "dex", "collectedFinals", "inventory"]
-        let deviceLedger: Set<String> = ["installBaselineSet", "claimedTodayTokens", "lastDate"]
+        let deviceLedger: Set<String> = ["installBaselineSet", "claimedTodayTokensByProvider", "lastDate"]
         let accountLedger: Set<String> = ["candyGrantTier", "candyFeatureSeeded"]
         let devicePreference: Set<String> = ["language"]
 
@@ -508,7 +539,7 @@ final class SaveTransferTests: XCTestCase {
         imported.language = .ja
         let data = try SaveTransfer.encode(state: imported, appVersion: "2.5.0",
                                            deviceName: "JA Mac", now: transferNow)
-        try s.applySave(try SaveTransfer.decode(data), todayTokens: 1,
+        try s.applySave(try SaveTransfer.decode(data), todayTokensByProvider: ["test": 1],
                         todayDate: today, hasUsageData: true)
 
         XCTAssertEqual(s.language, .en, "불러온 세이브의 언어가 이 기기 설정을 덮으면 안 된다")
@@ -531,7 +562,7 @@ final class SaveTransferTests: XCTestCase {
         older.candyGrantTier = ["weekly|B": 50, "five_hour|C": 100]
         let data = try SaveTransfer.encode(state: older, appVersion: "2.5.0",
                                            deviceName: "Old Mac", now: transferNow)
-        try s.applySave(try SaveTransfer.decode(data), todayTokens: 1,
+        try s.applySave(try SaveTransfer.decode(data), todayTokensByProvider: ["test": 1],
                         todayDate: today, hasUsageData: true)
 
         XCTAssertEqual(s.state.candyGrantTier["five_hour|A"], 100, "이 기기가 이미 지급한 창이 사라지면 재지급된다")
@@ -561,7 +592,7 @@ final class SaveTransferTests: XCTestCase {
         let data = try SaveTransfer.encode(state: oldMacState(today: today), appVersion: "2.5.0",
                                            deviceName: "Old Mac", now: transferNow)
         let envelope = try SaveTransfer.decode(data)
-        XCTAssertThrowsError(try s.applySave(envelope, todayTokens: 1, todayDate: today, hasUsageData: true)) {
+        XCTAssertThrowsError(try s.applySave(envelope, todayTokensByProvider: ["test": 1], todayDate: today, hasUsageData: true)) {
             XCTAssertEqual($0 as? SaveTransferError, .backupFailed)
         }
         XCTAssertEqual(s.state.usedSinceInstall, 123_456_789, "중단했으면 진행이 그대로여야 한다")
@@ -584,13 +615,13 @@ final class SaveTransferTests: XCTestCase {
         var first = oldMacState(today: today); first.usedSinceInstall = 222
         try s.applySave(try SaveTransfer.decode(
             try SaveTransfer.encode(state: first, appVersion: "2.5.0", deviceName: "A", now: transferNow)),
-                        todayTokens: 1, todayDate: today, hasUsageData: true)
+                        todayTokensByProvider: ["test": 1], todayDate: today, hasUsageData: true)
 
         clock.now = transferNow.addingTimeInterval(60)   // 다음 백업은 다른 슬롯
         var second = oldMacState(today: today); second.usedSinceInstall = 333
         try s.applySave(try SaveTransfer.decode(
             try SaveTransfer.encode(state: second, appVersion: "2.5.0", deviceName: "B", now: transferNow)),
-                        todayTokens: 1, todayDate: today, hasUsageData: true)
+                        todayTokensByProvider: ["test": 1], todayDate: today, hasUsageData: true)
 
         let dir = url.deletingLastPathComponent()
         let backups = try FileManager.default.contentsOfDirectory(atPath: dir.path)
@@ -622,14 +653,14 @@ final class SaveTransferTests: XCTestCase {
         let a = store(at: tempURL("dispA"))
         try a.applySave(try SaveTransfer.decode(
             try SaveTransfer.encode(state: withMon, appVersion: "2.5.0", deviceName: "A", now: transferNow)),
-                        todayTokens: 1, todayDate: today, hasUsageData: true)
+                        todayTokensByProvider: ["test": 1], todayDate: today, hasUsageData: true)
         XCTAssertEqual(a.displayState, .idle)
 
         let eggOnly = oldMacState(today: today)   // active == nil
         let b = store(at: tempURL("dispB"))
         try b.applySave(try SaveTransfer.decode(
             try SaveTransfer.encode(state: eggOnly, appVersion: "2.5.0", deviceName: "B", now: transferNow)),
-                        todayTokens: 1, todayDate: today, hasUsageData: true)
+                        todayTokensByProvider: ["test": 1], todayDate: today, hasUsageData: true)
         XCTAssertEqual(b.displayState, .egg)
     }
 

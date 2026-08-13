@@ -100,7 +100,7 @@ final class DittoRevealTests: XCTestCase {
 
     /// update → loadCurrentLine → applyUsage(0) → (임계 초과 시) revealDitto 비동기 체인을 드레인.
     private func drainReveal(_ s: CompanionStore) async {
-        s.update(todayTokens: 0, todayDate: "d1", monthTotal: 0, burnTier: .idle, limitWarning: false, hasUsageData: true)
+        s.update(todayTokensByProvider: ["test": 0], todayDate: "d1", monthTotal: 0, burnTier: .idle, limitWarning: false, hasUsageData: true)
         for _ in 0..<200 where !(s.state.active?.dittoRevealed ?? false) { await Task.yield() }
     }
 
@@ -179,7 +179,7 @@ final class DittoRevealTests: XCTestCase {
         let s = CompanionStore(provider: provider, clock: { dNow }, fileURL: url,
                                rng: SeededRNG(seed: selectedSeed), dittoDisguiseRollingEnabled: true)
 
-        s.update(todayTokens: 0, todayDate: "d1", monthTotal: 0,
+        s.update(todayTokensByProvider: ["test": 0], todayDate: "d1", monthTotal: 0,
                  burnTier: .idle, limitWarning: false, hasUsageData: true)
         let deadline = Date().addingTimeInterval(1)
         while !(await provider.isSuspended()), Date() < deadline {

@@ -9,6 +9,10 @@ func rarityColor(_ r: Rarity?) -> Color {
     }
 }
 
+/// 희귀도 캡슐을 늘어놓는 순서(귀한 것부터) — 포획 로그 요약 헤더와 도감 헤더가 공유한다.
+/// 순수 표시 순서다. 목록 정렬에는 쓰지 않는다.
+let rarityDisplayOrder: [Rarity] = [.legendary, .rare, .uncommon, .common]
+
 /// 아이템 아이콘 — 실제 스프라이트(런타임 로드+캐시) 우선, 로딩 전/미제공/실패 시 이모지 폴백.
 struct ItemIconView: View {
     let kind: ItemKind
@@ -86,6 +90,8 @@ struct SpriteView: View {
     @State private var img: NSImage?
     @State private var up = false
     @State private var loadedID: Int?   // img 가 어느 speciesID 것인지(id 변경 시 갱신 판단)
+    /// img 가 이로치 스프라이트인지 — 재로드 판정의 두 번째 축(근거는 needsReload).
+    @State private var loadedShiny = false
     @State private var frames: [(image: NSImage, delay: TimeInterval)] = []
     @State private var frameIndex = 0
 
@@ -102,6 +108,7 @@ struct SpriteView: View {
         let cached = speciesID.map { SpriteLoader.cachedImage(speciesID: $0, shiny: shiny) } ?? SpriteLoader.cachedEggImage()
         _img = State(initialValue: cached)
         _loadedID = State(initialValue: (speciesID != nil && cached != nil) ? speciesID : nil)
+        _loadedShiny = State(initialValue: shiny)
     }
 
     /// 프레임 지속(초) = max(원본 delay, 하한). 순수·테스트용 — fps 상한 회귀 가드.
@@ -124,6 +131,12 @@ struct SpriteView: View {
         guard next != subject else { return }
         img = next.image
         loadedID = next.loadedID
+    }
+    /// 정적 스프라이트를 다시 불러야 하는가 — 종이 바뀌었거나 **이로치 여부가 뒤집혔을 때**.
+    /// 순수·테스트용(frameDelay 와 같은 이유). 종만 비교하던 과거 판정은 도감의 이로치 토글에서
+    /// .task 가 다시 돌아도 "이미 그 종을 로드했다"로 판정해 색이 안 바뀌는 회귀를 낳았다.
+    static func needsReload(loadedID: Int?, loadedShiny: Bool, id: Int, shiny: Bool) -> Bool {
+        loadedID != id || loadedShiny != shiny
     }
 
     var body: some View {
@@ -157,10 +170,16 @@ struct SpriteView: View {
                 }
                 return
             }
-            // 정적 스프라이트 먼저(즉시 표시 + 폴백 보장). 캐시 시드로 이미 같은 id 면 재요청 생략(플래시 방지)
-            if loadedID != id {
+            // 정적 스프라이트 먼저(즉시 표시 + 폴백 보장).
+            // 캐시 시드로 이미 같은 종·같은 이로치 여부면 재요청 생략(플래시 방지)
+            if Self.needsReload(loadedID: loadedID, loadedShiny: loadedShiny, id: id, shiny: shiny) {
                 let loaded = await SpriteLoader.image(speciesID: id, animated: false, shiny: shiny)
-                if let next = subject.applyingLoad(loaded, for: id, cancelled: Task.isCancelled) { apply(next) }
+                // 취소된 로드는 반영하지 않는다(#138). 이로치 축은 **반영될 때만** 기록해
+                // subject(종)와 loadedShiny 가 어긋나 다음 판정이 틀어지는 것을 막는다.
+                if let next = subject.applyingLoad(loaded, for: id, cancelled: Task.isCancelled) {
+                    apply(next)
+                    loadedShiny = shiny
+                }
             }
             guard animated else { return }
             // animated GIF 시도(shiny 미제공 종은 일반 GIF 폴백) → 프레임 2개 이상이면 순환 루프
@@ -640,21 +659,21 @@ struct RarityTally: View {
     }
 }
 
-/// 도감 요약 헤더 — 총 개수 + 희귀도별 개수 캡슐.
+/// 포획 로그 요약 헤더 — 총 개체 수 + 희귀도별 개체 수 캡슐.
+/// 개수 단위가 개체(store.dexCount)라 종 단위인 도감 헤더와 공유하지 않는다.
 struct DexSummaryHeader: View {
     let store: CompanionStore
     let selected: Rarity?                  // nil = 필터 없음(전체)
     let onSelect: (Rarity) -> Void         // 캡슐 탭 → 토글
-    private let order: [Rarity] = [.legendary, .rare, .uncommon, .common]
     var body: some View {
         VStack(alignment: .leading, spacing: 5) {
             HStack(spacing: 6) {
-                Text(store.l.dexTitle).font(.callout.weight(.semibold))
+                Text(store.l.catchLogTitle).font(.callout.weight(.semibold))
                 Text(store.l.dexTotal(store.dexEntries.count))
                     .font(.caption2).foregroundStyle(.secondary)
             }
             HStack(spacing: 4) {
-                ForEach(order, id: \.self) { r in
+                ForEach(rarityDisplayOrder, id: \.self) { r in
                     let count = store.dexCount(r)
                     Button { onSelect(r) } label: {
                         RarityTally(
@@ -670,10 +689,25 @@ struct DexSummaryHeader: View {
     }
 }
 
-/// 도감 — 현재 키우는 포켓몬과 졸업해 영구 보존된 라인 목록.
+/// 컬렉션 탭 — 도감과 포획 로그를 하위 세그먼트로 전환한다.
+///
+/// 두 화면은 같은 데이터를 다른 축으로 본다:
+///  - **도감**: 종 1개 = 1칸. 같은 라인을 여러 번 키워도 한 칸으로 접힌다(종 정보만).
+///  - **로그**: 개체 1마리 = 1행. 같은 라인이 여러 행으로 나오는 게 정상 — 성격·획득 시각처럼
+///    개체에 딸린 정보는 여기에만 있다.
+/// 상위 탭(PopoverTab)은 그대로 4개 — 세그먼트 폭(332/2)이 넉넉해 탭바를 늘릴 필요가 없다.
 struct CollectionView: View {
     let store: CompanionStore
+    @State private var showingLog = false
+    /// 로그 전용 희귀도 필터. 도감은 개수 단위가 종이라 자기 필터를 따로 갖는다(DexGridView).
     @State private var selectedRarity: Rarity?
+
+    /// 도감·로그 공통 높이 — 상점·가방과 같은 520. 세그먼트를 전환할 때도, 탭을 넘나들 때도
+    /// 팝오버가 리사이즈되지 않는다.
+    ///
+    /// 예산: 520 − 세그먼트 24 − 헤더 39 − 하단 줄 18 − 간격 24 = 격자 415. 6행 spacing 4 면
+    /// 행이 65.8 이고, 칸 여백 6 과 이름 12 를 빼면 스프라이트에 47.8 이 남는다(현재 44).
+    private static let contentHeight: CGFloat = 520
 
     /// 선택된 희귀도만 노출(없으면 전체). 상단 캡슐 토글로 설정.
     private var visibleEntries: [DexEntry] {
@@ -683,34 +717,47 @@ struct CollectionView: View {
 
     var body: some View {
         if store.dexEntries.isEmpty {
-            emptyState
+            emptyState   // 둘 다 비어 있으니 세그먼트를 그리지 않는다
         } else {
-            // 필터(요약 헤더)는 고정, 포켓몬 목록만 스크롤 — 아래로 내리는 중에도 희귀도 필터를 토글할 수 있다.
             VStack(alignment: .leading, spacing: 8) {
-                DexSummaryHeader(store: store, selected: selectedRarity) { r in
-                    withAnimation(.easeInOut(duration: 0.15)) {
-                        selectedRarity = (selectedRarity == r) ? nil : r
-                    }
+                Picker("", selection: $showingLog) {
+                    Text(store.l.dexTitle).tag(false)
+                    Text(store.l.catchLogTitle).tag(true)
                 }
-                // 고정 높이 — maxHeight 는 팝오버 재오픈 시 ScrollView fitting size 가 작게 잡혀
-                // 크기가 줄어드는 문제가 있어, 바깥 VStack 을 height 로 고정해 스크롤 영역이 나머지를 채우게 한다.
-                ScrollViewReader { proxy in
-                    ScrollView {
-                        VStack(alignment: .leading, spacing: 8) {
-                            Color.clear.frame(height: 0).id("dexTop")   // 스크롤 최상단 앵커
-                            ForEach(visibleEntries) { entry in
-                                DexEntryRow(store: store, entry: entry)
-                            }
-                        }
-                    }
-                    .frame(maxHeight: .infinity)
-                    // 필터 토글 시 목록 최상단으로 — 이전 스크롤 위치가 새 필터 결과 밖이어도 처음부터 보이게.
-                    .onChange(of: selectedRarity) {
-                        withAnimation(.easeInOut(duration: 0.2)) { proxy.scrollTo("dexTop", anchor: .top) }
-                    }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                if showingLog { catchLog } else { DexGridView(store: store) }
+            }
+            .frame(height: Self.contentHeight)
+        }
+    }
+
+    /// 포획 로그 — 개체 단위 기록. 필터(요약 헤더)는 고정, 목록만 스크롤한다
+    /// (아래로 내리는 중에도 희귀도 필터를 토글할 수 있다).
+    private var catchLog: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            DexSummaryHeader(store: store, selected: selectedRarity) { r in
+                withAnimation(.easeInOut(duration: 0.15)) {
+                    selectedRarity = (selectedRarity == r) ? nil : r
                 }
             }
-            .frame(height: 520)
+            // maxHeight 는 팝오버 재오픈 시 ScrollView fitting size 가 작게 잡혀 크기가 줄어드는
+            // 문제가 있어, 바깥 VStack 을 height 로 고정해 스크롤 영역이 나머지를 채우게 한다.
+            ScrollViewReader { proxy in
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Color.clear.frame(height: 0).id("dexTop")   // 스크롤 최상단 앵커
+                        ForEach(visibleEntries) { entry in
+                            DexEntryRow(store: store, entry: entry)
+                        }
+                    }
+                }
+                .frame(maxHeight: .infinity)
+                // 필터 토글 시 목록 최상단으로 — 이전 스크롤 위치가 새 필터 결과 밖이어도 처음부터 보이게.
+                .onChange(of: selectedRarity) {
+                    withAnimation(.easeInOut(duration: 0.2)) { proxy.scrollTo("dexTop", anchor: .top) }
+                }
+            }
         }
     }
 
@@ -728,7 +775,229 @@ struct CollectionView: View {
     }
 }
 
-/// 도감 한 항목 — 희귀도·성격 헤더 + 진화 체인 스프라이트(각 밑에 종 이름) + 잡은 시각.
+/// 도감 — 보유 종만 도감 번호순으로, 한 페이지 24칸(4열×6행) 고정 격자.
+///
+/// 페이지식이라 ScrollView 를 쓰지 않는다 — 팝오버 재오픈 시 fitting size 가 줄어드는 기존 결함을
+/// 우회(고정 높이 + maxHeight)가 아니라 회피로 피한다. 페이지 크기가 고정이라 모든 칸이 항상
+/// 렌더되므로 지연 격자(LazyVGrid)도 필요 없다 — 평범한 VStack/HStack 으로 동기 렌더한다.
+/// 미보유 종은 아예 그리지 않는다(물음표·실루엣 칸 없음).
+private struct DexGridView: View {
+    let store: CompanionStore
+    @State private var selectedRarity: Rarity?
+    @State private var page = 0
+
+    /// 선택한 칸 — 하단 줄에 희귀도를 띄우고, 이로치를 잡은 종이면 스프라이트를 그 색으로 바꾼다.
+    @State private var selectedID: Int?
+
+    private static let columns = 4
+    private static let rows = 6
+    private static let pageSize = columns * rows      // 24
+    private static let spacing: CGFloat = 4
+
+    var body: some View {
+        // 종별 집계는 한 번만 훑고 하위로 넘긴다 — 칸마다 재집계하면 도감이 O(칸×도감) 이 된다.
+        let all = store.dexSpecies
+        let visible = selectedRarity.map { r in all.filter { $0.rarity == r } } ?? all
+        let pageCount = max(1, (visible.count + Self.pageSize - 1) / Self.pageSize)
+        let current = min(page, pageCount - 1)   // 보유 종이 줄어든 경우(필터 등) 범위 방어
+        let slice = Array(visible.dropFirst(current * Self.pageSize).prefix(Self.pageSize))
+        VStack(alignment: .leading, spacing: 8) {
+            header(all)
+            grid(slice)
+            footer(slice, current: current, pageCount: pageCount)
+        }
+        // 이름이 저장돼 있지 않은 구버전 졸업분을 채운다 — 격자는 저장분만 읽으므로 이게 없으면
+        // 칸이 `#41` 로 남는다. 저장된 항목은 조회하지 않으므로 채워진 뒤로는 아무 일도 하지 않는다.
+        .task { await store.backfillMissingDexNames() }
+    }
+
+    /// 희귀도 필터 — 로그와 같은 RarityTally 를 쓰되 개수는 **종 단위**다.
+    /// (DexSummaryHeader 는 개체 수 dexCount 를 내부에서 직접 부르므로 재사용하려면 시그니처를 바꿔
+    ///  로그 경로까지 건드려야 한다. 캡슐 4개짜리 헤더라 여기서는 인라인으로 둔다.)
+    private func header(_ all: [CompanionStore.DexSpecies]) -> some View {
+        VStack(alignment: .leading, spacing: 5) {
+            HStack(spacing: 6) {
+                Text(store.l.dexTitle).font(.callout.weight(.semibold))
+                // 총계는 필터와 무관한 전체 종 수 — 로그 헤더(dexTotal)와 같은 규칙.
+                // 필터 중인 희귀도의 개수는 아래 캡슐이 이미 보여준다.
+                Text(store.l.dexSpeciesTotal(all.count)).font(.caption2).foregroundStyle(.secondary)
+            }
+            HStack(spacing: 4) {
+                ForEach(rarityDisplayOrder, id: \.self) { r in
+                    let count = all.lazy.filter { $0.rarity == r }.count
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.15)) {
+                            selectedRarity = (selectedRarity == r) ? nil : r
+                            page = 0        // 필터가 바뀌면 페이지 범위도 바뀐다 — 항상 첫 페이지부터
+                            selectedID = nil // 선택한 칸이 필터 밖으로 나가면 하단 줄이 유령 정보를 남긴다
+                        }
+                    } label: {
+                        RarityTally(label: store.l.rarityLabel(r), count: count,
+                                    color: rarityColor(r), isSelected: selectedRarity == r)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(count == 0)          // 0종 희귀도는 필터 불가
+                    .help(store.l.dexFilterHint)
+                }
+            }
+        }
+    }
+
+    /// 고정 격자 — 남는 칸은 투명(테두리·물음표 없이 정렬만 유지).
+    /// 모든 행에 maxHeight 를 걸어 6행이 높이를 균등 분할하게 한다 — 빈 칸의 Color 는 유연 크기라,
+    /// 행마다 안 걸면 빈 행이 늘어나 채워진 행을 짓누른다(보유 종이 적을 때 첫 줄이 찌그러짐).
+    private func grid(_ slice: [CompanionStore.DexSpecies]) -> some View {
+        VStack(spacing: Self.spacing) {
+            ForEach(0..<Self.rows, id: \.self) { row in
+                HStack(spacing: Self.spacing) {
+                    ForEach(0..<Self.columns, id: \.self) { col in
+                        let i = row * Self.columns + col
+                        if i < slice.count {
+                            let sp = slice[i]
+                            DexSpeciesCell(store: store, species: sp, isSelected: selectedID == sp.id) {
+                                selectedID = (selectedID == sp.id) ? nil : sp.id
+                            }
+                            .frame(maxWidth: .infinity)
+                        } else {
+                            Color.clear.frame(maxWidth: .infinity)
+                        }
+                    }
+                }
+                .frame(maxHeight: .infinity)
+            }
+        }
+        .frame(maxHeight: .infinity)
+    }
+
+    /// 하단 한 줄 — 왼쪽은 선택한 칸의 희귀도, 오른쪽은 페이저.
+    /// 페이저가 1페이지라 안 보일 때도 이 줄을 **항상** 예약한다 — 페이지 수나 선택 여부에 따라
+    /// 격자 높이가 흔들리지 않게.
+    private func footer(_ slice: [CompanionStore.DexSpecies],
+                        current: Int, pageCount: Int) -> some View {
+        HStack(spacing: 8) {
+            if let sel = slice.first(where: { $0.id == selectedID }) {
+                // 칸은 번호·스프라이트·이름만 보여주므로 희귀도가 선택으로 얻는 정보다.
+                Text("#\(sel.id) \(sel.name) · \(store.l.rarityLabel(sel.rarity))")
+                    .font(.system(size: 9)).foregroundStyle(.secondary).lineLimit(1)
+            }
+            Spacer(minLength: 4)
+            if pageCount > 1 {
+                Button { page = max(0, current - 1); selectedID = nil } label: {
+                    Image(systemName: "chevron.left")
+                }
+                .buttonStyle(.plain).disabled(current == 0)
+                .accessibilityLabel(store.l.dexPagePrev)
+                Text("\(current + 1) / \(pageCount)")
+                    .font(.system(size: 10, weight: .semibold)).monospacedDigit()
+                    .foregroundStyle(.secondary)
+                    .accessibilityLabel(store.l.dexPageLabel(current + 1, pageCount))
+                Button { page = min(pageCount - 1, current + 1); selectedID = nil } label: {
+                    Image(systemName: "chevron.right")
+                }
+                .buttonStyle(.plain).disabled(current == pageCount - 1)
+                .accessibilityLabel(store.l.dexPageNext)
+            }
+        }
+        .font(.system(size: 11, weight: .semibold))
+        .frame(height: 18)
+    }
+}
+
+/// 도감 한 칸 — 도감 번호 + 스프라이트 + 종 이름. 종 정보만 담는다(성격·획득 횟수는 로그의 몫).
+/// 정적 스프라이트만 쓴다(animated 생략) — 한 페이지 24칸을 GIF 로 동시 재생하면 CPU 가 안 된다.
+private struct DexSpeciesCell: View {
+    let store: CompanionStore
+    let species: CompanionStore.DexSpecies
+    let isSelected: Bool
+    let onTap: () -> Void
+
+    /// 로그(56)보다 작다 — 24칸 격자에 이름까지 담아야 한다. 원본 96×96 픽셀아트를
+    /// interpolation(.none) 으로 축소하므로 이 크기에서도 식별에 문제없다.
+    private static let thumb: CGFloat = 44
+
+    var body: some View {
+        Button(action: onTap) {
+            VStack(spacing: 1) {
+                // 기본은 일반색. 이로치를 잡은 종은 선택하면 이로치색으로 바뀐다 —
+                // 일반·이로치를 둘 다 가진 종도 두 모습을 다 볼 수 있다(본가 HOME 의 이로치 토글과 같은 결).
+                SpriteView(speciesID: species.id, size: Self.thumb,
+                           shiny: species.isShiny && isSelected)
+                    .frame(width: Self.thumb, height: Self.thumb)
+                    // 표식은 스프라이트 아래가 아니라 위에 겹친다 — 별도 줄로 빼면 칸 높이가 넘친다.
+                    // 이 줄은 번호·이로치와 폭을 다투지 않아 세 언어 모두 8pt 그대로 들어간다
+                    // (가장 긴 en "RAISING" 이 캡슐 포함 45pt, 칸 안쪽 폭 74pt).
+                    // `fixedSize` 필수 — 오버레이는 붙은 뷰(스프라이트 44)의 폭을 제안받아서, 없으면
+                    // 칸이 아니라 스프라이트 폭에 갇혀 "RAISIN/G" 로 줄바꿈된다.
+                    .overlay(alignment: .bottom) {
+                        if species.isRaising { raisingBadge.fixedSize() }
+                    }
+                Text(species.name)
+                    .font(.system(size: 9))
+                    .lineLimit(1).minimumScaleFactor(0.8)
+            }
+            .frame(maxWidth: .infinity)
+            // 번호·이로치는 스프라이트(44)가 아니라 **칸 안쪽 폭**(74)에 건다 — 스프라이트에 걸면
+            // 가운데 정렬된 44 기준이라 좌우 15 씩 안으로 밀려 번호가 칸 중앙 쪽에 떠 보인다.
+            // 칸 기준으로 두면 양 끝으로 붙고, 픽셀아트 몸통과 겹치는 폭도 줄어든다.
+            .overlay(alignment: .topLeading) { numberTag }
+            .overlay(alignment: .topTrailing) {
+                // ✨ = 이 종의 이로치를 잡은 적이 있다는 표식(탭하면 그 색으로 바뀐다).
+                if species.isShiny {
+                    Text("✨")
+                        .font(.system(size: 8))
+                        .padding(.horizontal, 2)
+                        .background(.regularMaterial, in: Capsule())
+                        .accessibilityLabel(store.l.dexShinyLabel)
+                }
+            }
+            .padding(3)
+            .background(Color.secondary.opacity(isSelected ? 0.16 : 0.06))
+            .clipShape(RoundedRectangle(cornerRadius: 8))
+            .overlay {
+                if isSelected {
+                    RoundedRectangle(cornerRadius: 8)
+                        .strokeBorder(Color.accentColor, lineWidth: 1.5)
+                }
+            }
+        }
+        .buttonStyle(.plain)
+        .help(tooltip)
+        .accessibilityLabel(tooltip)
+    }
+
+    /// material 판 — 어두운 스프라이트 위에서도 읽히게(라이트/다크 자동).
+    /// 스프라이트 위 라벨에 이미 쓰는 패턴과 동일.
+    private var numberTag: some View {
+        Text("#\(species.id)")
+            .font(.system(size: 8, weight: .medium))
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 2)
+            .background(.regularMaterial, in: Capsule())
+    }
+
+    /// "키우는 중" — 아직 졸업 기록이 없어 사라질 수 있는 칸임을 알린다. 포획 로그의 같은 뱃지와
+    /// 글자·색을 맞춰 두 화면이 같은 말을 쓰게 한다. accent 틴트는 반투명이라 스프라이트가 비치므로
+    /// material 을 한 겹 깔아 대비를 확보한다(로그는 카드 배경 위라 필요 없었다).
+    private var raisingBadge: some View {
+        Text(store.l.dexRaising.uppercased())
+            .font(.system(size: 8, weight: .bold))
+            .padding(.horizontal, 5).padding(.vertical, 1)
+            .foregroundStyle(Color.accentColor)
+            .background(Color.accentColor.opacity(0.14), in: Capsule())
+            .background(.regularMaterial, in: Capsule())
+    }
+
+    /// 툴팁과 접근성 라벨이 같은 문장을 쓴다 — 칸이 글자로 못 보여주는 희귀도를 담는다.
+    /// ✨ 는 이모지라 스크린리더가 일관되게 읽지 못하므로 명사로 함께 넣는다.
+    private var tooltip: String {
+        var parts = ["#\(species.id) \(species.name)", store.l.rarityLabel(species.rarity)]
+        if species.isShiny { parts.append(store.l.dexShinyLabel) }
+        if species.isRaising { parts.append(store.l.dexRaising) }
+        return parts.joined(separator: " · ")
+    }
+}
+
+/// 포획 로그 한 항목 — 희귀도·성격 헤더 + 진화 체인 스프라이트(각 밑에 종 이름) + 잡은 시각.
 /// 체인 각 종의 이름은 저장분이 있으면 body 에서 즉시(플래시 없음), 없으면(구버전) .task 로 조회 후 백필.
 private struct DexEntryRow: View {
     let store: CompanionStore
@@ -756,7 +1025,11 @@ private struct DexEntryRow: View {
                         .foregroundStyle(Color.accentColor)
                         .clipShape(Capsule())
                 }
-                if entry.isShiny { Text("✨").font(.system(size: 10)) }
+                if entry.isShiny {
+                    // 이모지는 스크린리더가 일관되게 읽지 못해 명사 라벨을 붙인다(도감 칸과 동일 규칙).
+                    Text("✨").font(.system(size: 10))
+                        .accessibilityLabel(store.l.dexShinyLabel)
+                }
                 Spacer()
                 if let nature = entry.nature {
                     Text(nature.name(store.language))

@@ -522,7 +522,7 @@ struct SettingsView: View {
 
         do {
             try companion.applySave(envelope,
-                                    todayTokens: store.todayTotalTokens,
+                                    todayTokensByProvider: store.todayTokensByProvider,
                                     todayDate: LocalUsageReader.todayKey(),
                                     hasUsageData: store.hasUsageData)
         } catch {
