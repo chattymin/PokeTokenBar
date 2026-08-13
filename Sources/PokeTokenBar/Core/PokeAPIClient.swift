@@ -21,7 +21,7 @@ protocol PokeProviding: Sendable {
 actor PokeAPIClient: PokeProviding {
     static let shared = PokeAPIClient()
     private let base = URL(string: "https://pokeapi.co/api/v2")!
-    private let langCodes = ["ko", "en", "ja-Hrkt", "ja"]
+    private let langCodes = ["ko", "en", "ja-Hrkt", "ja", "es"]
     private var speciesCache: [Int: SpeciesDTO] = [:]
     private var lineCache: [Int: EvoLine] = [:]   // 프리패칭 → 부화 순간 네트워크 0
 
