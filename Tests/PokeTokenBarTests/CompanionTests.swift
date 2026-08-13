@@ -126,6 +126,15 @@ private struct FallbackOnlyProvider: PokeProviding {
     func baseSpecies(id: Int) async throws -> BaseSpecies? { BaseSpecies(id: id, captureRate: 100) }
 }
 
+/// line() 호출 횟수를 센다 — 이미 저장된 항목에 불필요한 조회가 붙는지 검증용.
+private final class CountingLineProvider: PokeProviding, @unchecked Sendable {
+    let value: EvoLine
+    nonisolated(unsafe) private(set) var lineCalls = 0
+    init(value: EvoLine) { self.value = value }
+    func line(baseSpeciesID: Int) async throws -> EvoLine { lineCalls += 1; return value }
+    func baseSpeciesIndex() async throws -> [BaseSpecies] { [BaseSpecies(id: value.baseID, captureRate: 255)] }
+}
+
 /// line() 자체가 실패(오프라인) — 도감 이름 조회 폴백 검증용.
 private struct LineThrowsProvider: PokeProviding {
     func line(baseSpeciesID: Int) async throws -> EvoLine { throw PokeStubError.boom }
@@ -384,6 +393,109 @@ final class CompanionStoreTests: XCTestCase {
         let sp = s.dexSpecies
         XCTAssertEqual(sp.map(\.id), [1], "도달분만 — 아직 진화 전이라 2·3 은 미보유")
         XCTAssertEqual(sp.first?.name, "포1")
+    }
+
+    // MARK: 도감 이름 백필 (격자는 저장분만 읽는다)
+
+    /// 이름이 저장되기 전 버전의 졸업분은 격자에서 `#id` 로 뜬다 — 격자 진입 시 백필이 이를 채운다.
+    /// 백필 전/후를 한 테스트에서 함께 본다: 백필 호출을 지우면 첫 단언에서 멈추므로 가드가 살아 있다.
+    func testBackfillFillsNamesForEntriesSavedBeforeNamesExisted() async throws {
+        let s = try storeWithNamelessEntry()
+        XCTAssertNil(s.state.dex.first?.names, "구버전 저장분엔 이름이 없다")
+        XCTAssertEqual(s.dexSpecies.map(\.name), ["#1", "#2", "#3"], "백필 전엔 종 번호")
+
+        await s.backfillMissingDexNames()
+
+        XCTAssertEqual(s.dexSpecies.map(\.name), ["포1", "포2", "포3"])
+        XCTAssertNotNil(s.state.dex.first?.names, "항목에 저장돼 다음 실행부터 네트워크 0")
+    }
+
+    /// 이미 이름이 저장된 항목은 조회하지 않는다 — 격자를 열 때마다 도감 전체를 다시 받아오면 안 된다.
+    func testBackfillDoesNotFetchWhenNamesAreAlreadyStored() async throws {
+        let entry = DexEntry(baseID: 1, finalID: 3, chainOrder: [1, 2, 3], rarity: .common, caughtAt: fixedNow,
+                             names: [1: ["ko": "포1"], 2: ["ko": "포2"], 3: ["ko": "포3"]])
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("poke-\(UUID().uuidString).json")
+        let dexJSON = String(decoding: try JSONEncoder().encode([entry]), as: UTF8.self)
+        try Data(#"{"dex":\#(dexJSON),"language":"ko"}"#.utf8).write(to: url)
+        let provider = CountingLineProvider(value: linear3)
+        let s = CompanionStore(provider: provider, clock: { fixedNow }, fileURL: url, rng: SeededRNG(seed: 7))
+
+        await s.backfillMissingDexNames()
+
+        XCTAssertEqual(provider.lineCalls, 0, "저장분은 건너뛴다")
+        XCTAssertEqual(s.dexSpecies.map(\.name), ["포1", "포2", "포3"])
+    }
+
+    /// 오프라인이면 폴백(`#id`)을 **저장하지 않는다** — 저장해 버리면 이름이 영원히 번호로 굳는다.
+    /// 다음 진입(온라인)에서 다시 시도해 채워지는 것까지 확인한다.
+    func testBackfillRetriesAfterAnOfflineAttempt() async throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("poke-\(UUID().uuidString).json")
+        let bare = DexEntry(baseID: 1, finalID: 3, chainOrder: [1, 2, 3], rarity: .common, caughtAt: fixedNow)
+        let dexJSON = String(decoding: try JSONEncoder().encode([bare]), as: UTF8.self)
+        try Data(#"{"dex":\#(dexJSON),"language":"ko"}"#.utf8).write(to: url)
+
+        let offline = CompanionStore(provider: LineThrowsProvider(), clock: { fixedNow },
+                                     fileURL: url, rng: SeededRNG(seed: 7))
+        await offline.backfillMissingDexNames()
+        XCTAssertNil(offline.state.dex.first?.names, "폴백은 저장하지 않는다")
+        XCTAssertEqual(offline.dexSpecies.map(\.name), ["#1", "#2", "#3"])
+
+        // 같은 저장 파일을 온라인 provider 로 다시 연다(= 다음 진입).
+        let online = CompanionStore(provider: StubProvider(value: linear3), clock: { fixedNow },
+                                    fileURL: url, rng: SeededRNG(seed: 7))
+        await online.backfillMissingDexNames()
+        XCTAssertEqual(online.dexSpecies.map(\.name), ["포1", "포2", "포3"])
+    }
+
+    // MARK: 도감 "키우는 중" 표식 (아직 확정이 아닌 칸)
+
+    /// 졸업 기록이 없는 종은 현재 개체가 사라지면 함께 사라진다 — **도달 단계 전부**에 표식이 선다.
+    /// (진화 3단까지 왔으면 3칸 모두. 알을 새로 사면 실제로 3칸이 다 빠진다.)
+    func testDexSpeciesMarksEveryUnsecuredStageAsRaising() async {
+        let s = store(linear3)
+        s.setLanguage(.ko)
+        await s.hatch(baseID: 1)
+        s.applyUsage(PokemonBalance.phaseThreshold(rarity: .common, totalForms: 3, stageIndex: 0))
+        XCTAssertEqual(s.state.active?.stageIndex, 1, "2단계까지 진화")
+
+        let sp = s.dexSpecies
+        XCTAssertEqual(sp.map(\.id), [1, 2])
+        XCTAssertEqual(sp.map(\.isRaising), [true, true], "졸업 기록이 없으니 둘 다 미확정")
+    }
+
+    /// 트리거 브랜치 — 같은 라인을 졸업한 뒤 **다시 키우는 중**. 종은 이미 영구 보존분이라 사라지지 않으므로
+    /// 표식이 서면 안 된다. "현재 개체에 속하면 표식"으로 판정하면 여기서 깨진다.
+    func testAlreadyGraduatedSpeciesIsNotMarkedWhileRaisedAgain() throws {
+        let graduated = DexEntry(baseID: 1, finalID: 3, chainOrder: [1, 2, 3], rarity: .common, caughtAt: fixedNow,
+                                 names: [1: ["ko": "포1"], 2: ["ko": "포2"], 3: ["ko": "포3"]])
+        let active = MonState(baseID: 1, pathIDs: [1, 2, 3], stageIndex: 1,
+                              usedAtStage: 0, rarity: .common, totalForms: 3, nature: .brave)
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("poke-\(UUID().uuidString).json")
+        let dexJSON = String(decoding: try JSONEncoder().encode([graduated]), as: UTF8.self)
+        let activeJSON = String(decoding: try JSONEncoder().encode(active), as: UTF8.self)
+        try Data(#"{"dex":\#(dexJSON),"active":\#(activeJSON),"language":"ko"}"#.utf8).write(to: url)
+
+        let s = CompanionStore(provider: StubProvider(value: linear3), clock: { fixedNow },
+                               fileURL: url, rng: SeededRNG(seed: 7))
+        XCTAssertEqual(s.dexSpecies.map(\.isRaising), [false, false, false],
+                       "졸업분이 있는 종은 현재 키우는 중이어도 확정분")
+    }
+
+    /// 졸업분만 있고 현재 개체가 없으면 표식은 하나도 없다(모두 영구 기록).
+    func testGraduatedOnlyDexHasNoRaisingMark() throws {
+        let s = try storeWithNamelessEntry()
+        XCTAssertNil(s.state.active)
+        XCTAssertEqual(s.dexSpecies.map(\.isRaising), [false, false, false])
+    }
+
+    /// 이름 없는 구버전 졸업분 1건(체인 1→2→3)만 담긴 store — 백필/표식 테스트 공용.
+    private func storeWithNamelessEntry() throws -> CompanionStore {
+        let bare = DexEntry(baseID: 1, finalID: 3, chainOrder: [1, 2, 3], rarity: .common, caughtAt: fixedNow)
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("poke-\(UUID().uuidString).json")
+        let dexJSON = String(decoding: try JSONEncoder().encode([bare]), as: UTF8.self)
+        try Data(#"{"dex":\#(dexJSON),"language":"ko"}"#.utf8).write(to: url)
+        return CompanionStore(provider: StubProvider(value: linear3), clock: { fixedNow },
+                              fileURL: url, rng: SeededRNG(seed: 7))
     }
 
     /// 오프라인(line fetch 실패) + 저장 없음 → chainOrder 전 종을 종 번호(#id)로 폴백.

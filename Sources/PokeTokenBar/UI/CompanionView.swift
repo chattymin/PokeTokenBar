@@ -806,6 +806,9 @@ private struct DexGridView: View {
             grid(slice)
             footer(slice, current: current, pageCount: pageCount)
         }
+        // 이름이 저장돼 있지 않은 구버전 졸업분을 채운다 — 격자는 저장분만 읽으므로 이게 없으면
+        // 칸이 `#41` 로 남는다. 저장된 항목은 조회하지 않으므로 채워진 뒤로는 아무 일도 하지 않는다.
+        .task { await store.backfillMissingDexNames() }
     }
 
     /// 희귀도 필터 — 로그와 같은 RarityTally 를 쓰되 개수는 **종 단위**다.
@@ -920,26 +923,33 @@ private struct DexSpeciesCell: View {
                 SpriteView(speciesID: species.id, size: Self.thumb,
                            shiny: species.isShiny && isSelected)
                     .frame(width: Self.thumb, height: Self.thumb)
-                    // 도감 번호는 스프라이트 위에 얹는다 — 별도 줄로 빼면 칸 높이가 넘친다.
-                    // 좌상단은 픽셀아트 스프라이트에서 대개 투명해 몸통을 가리지 않는다.
-                    .overlay(alignment: .topLeading) {
-                        // material 판 — 어두운 스프라이트 위에서도 읽히게(라이트/다크 자동).
-                        // 스프라이트 위 라벨에 이미 쓰는 패턴과 동일.
-                        HStack(spacing: 1) {
-                            Text("#\(species.id)")
-                            // ✨ = 이 종의 이로치를 잡은 적이 있다는 표식(탭하면 그 색으로 바뀐다).
-                            if species.isShiny { Text("✨") }
-                        }
-                        .font(.system(size: 8, weight: .medium))
-                        .foregroundStyle(.secondary)
-                        .padding(.horizontal, 2)
-                        .background(.regularMaterial, in: Capsule())
+                    // 표식은 스프라이트 아래가 아니라 위에 겹친다 — 별도 줄로 빼면 칸 높이가 넘친다.
+                    // 이 줄은 번호·이로치와 폭을 다투지 않아 세 언어 모두 8pt 그대로 들어간다
+                    // (가장 긴 en "RAISING" 이 캡슐 포함 45pt, 칸 안쪽 폭 74pt).
+                    // `fixedSize` 필수 — 오버레이는 붙은 뷰(스프라이트 44)의 폭을 제안받아서, 없으면
+                    // 칸이 아니라 스프라이트 폭에 갇혀 "RAISIN/G" 로 줄바꿈된다.
+                    .overlay(alignment: .bottom) {
+                        if species.isRaising { raisingBadge.fixedSize() }
                     }
                 Text(species.name)
                     .font(.system(size: 9))
                     .lineLimit(1).minimumScaleFactor(0.8)
             }
             .frame(maxWidth: .infinity)
+            // 번호·이로치는 스프라이트(44)가 아니라 **칸 안쪽 폭**(74)에 건다 — 스프라이트에 걸면
+            // 가운데 정렬된 44 기준이라 좌우 15 씩 안으로 밀려 번호가 칸 중앙 쪽에 떠 보인다.
+            // 칸 기준으로 두면 양 끝으로 붙고, 픽셀아트 몸통과 겹치는 폭도 줄어든다.
+            .overlay(alignment: .topLeading) { numberTag }
+            .overlay(alignment: .topTrailing) {
+                // ✨ = 이 종의 이로치를 잡은 적이 있다는 표식(탭하면 그 색으로 바뀐다).
+                if species.isShiny {
+                    Text("✨")
+                        .font(.system(size: 8))
+                        .padding(.horizontal, 2)
+                        .background(.regularMaterial, in: Capsule())
+                        .accessibilityLabel(store.l.dexShinyLabel)
+                }
+            }
             .padding(3)
             .background(Color.secondary.opacity(isSelected ? 0.16 : 0.06))
             .clipShape(RoundedRectangle(cornerRadius: 8))
@@ -955,11 +965,34 @@ private struct DexSpeciesCell: View {
         .accessibilityLabel(tooltip)
     }
 
+    /// material 판 — 어두운 스프라이트 위에서도 읽히게(라이트/다크 자동).
+    /// 스프라이트 위 라벨에 이미 쓰는 패턴과 동일.
+    private var numberTag: some View {
+        Text("#\(species.id)")
+            .font(.system(size: 8, weight: .medium))
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 2)
+            .background(.regularMaterial, in: Capsule())
+    }
+
+    /// "키우는 중" — 아직 졸업 기록이 없어 사라질 수 있는 칸임을 알린다. 포획 로그의 같은 뱃지와
+    /// 글자·색을 맞춰 두 화면이 같은 말을 쓰게 한다. accent 틴트는 반투명이라 스프라이트가 비치므로
+    /// material 을 한 겹 깔아 대비를 확보한다(로그는 카드 배경 위라 필요 없었다).
+    private var raisingBadge: some View {
+        Text(store.l.dexRaising.uppercased())
+            .font(.system(size: 8, weight: .bold))
+            .padding(.horizontal, 5).padding(.vertical, 1)
+            .foregroundStyle(Color.accentColor)
+            .background(Color.accentColor.opacity(0.14), in: Capsule())
+            .background(.regularMaterial, in: Capsule())
+    }
+
     /// 툴팁과 접근성 라벨이 같은 문장을 쓴다 — 칸이 글자로 못 보여주는 희귀도를 담는다.
     /// ✨ 는 이모지라 스크린리더가 일관되게 읽지 못하므로 명사로 함께 넣는다.
     private var tooltip: String {
         var parts = ["#\(species.id) \(species.name)", store.l.rarityLabel(species.rarity)]
         if species.isShiny { parts.append(store.l.dexShinyLabel) }
+        if species.isRaising { parts.append(store.l.dexRaising) }
         return parts.joined(separator: " · ")
     }
 }

@@ -206,6 +206,10 @@ final class CompanionStore {
         let name: String
         let rarity: Rarity
         let isShiny: Bool               // 이 종을 이로치로 보유한 적이 있는가
+        /// 이 칸의 근거가 **지금 키우는 개체뿐**이다 — 졸업 기록이 없어 아직 확정이 아니다.
+        /// 알을 새로 사면 개체가 폐기되고(dex 미변경) 이 칸은 사라지며, 메타몽이 리빌하면 위장했던
+        /// 종이 빠진다. 영구 기록과 같은 모양으로 두면 종 수가 줄어드는 게 결함으로 보이므로 뷰가 표식을 단다.
+        let isRaising: Bool
     }
 
     /// 종 하나가 모으는 것 — 누적 전용. 병렬 딕셔너리를 여러 개 두면 키 집합이 서로 어긋날 수 있고
@@ -216,6 +220,9 @@ final class CompanionStore {
         let rarity: Rarity
         var names: [String: String]?
         var isShiny = false
+        /// 졸업 기록에서 온 적이 있는가 — 한 번이라도 true 면 이 종은 영구 보존분이라 사라지지 않는다.
+        /// 같은 라인을 다시 키우는 중이어도(현재 개체와 겹쳐도) 표식 대상이 아니다.
+        var isGraduated = false
     }
 
     /// 도감 목록 — 보유 종만, 도감 번호 오름차순.
@@ -231,6 +238,7 @@ final class CompanionStore {
                 var a = acc[id] ?? DexAccumulator(rarity: entry.rarity)
                 if let n = entry.names?[id] { a.names = n }   // 이름 없는 구버전 항목이 덮어쓰지 않게
                 if entry.isShiny { a.isShiny = true }
+                a.isGraduated = true
                 acc[id] = a
             }
         }
@@ -249,7 +257,20 @@ final class CompanionStore {
                 id: id,
                 name: a.names.flatMap { state.language.resolveName($0) } ?? "#\(id)",
                 rarity: a.rarity,
-                isShiny: a.isShiny)
+                isShiny: a.isShiny,
+                isRaising: !a.isGraduated)
+        }
+    }
+
+    /// 이름이 없는 구버전 졸업 항목의 체인 이름을 채운다(도감 격자 진입 시 1회).
+    ///
+    /// 격자는 저장된 이름만 읽으므로 백필이 없으면 칸이 종 번호(`#41`)로 남는다. 포획 로그는 행이
+    /// 뜰 때 행 단위로 같은 일을 해 왔지만, 로그를 한 번도 안 열면 격자는 계속 번호다.
+    /// 라인 조회는 `PokeAPIClient` 가 base 단위로 캐시하므로 같은 라인이 여러 항목이어도 네트워크는 1회.
+    /// 오프라인이면 `dexResolveChainNames` 가 저장 없이 폴백만 돌려주므로 다음 진입에서 다시 시도한다.
+    func backfillMissingDexNames() async {
+        for entry in state.dex where entry.names == nil {
+            _ = await dexResolveChainNames(entry)   // 성공분만 내부에서 state.dex 에 저장
         }
     }
 
