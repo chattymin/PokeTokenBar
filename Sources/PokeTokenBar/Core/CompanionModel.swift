@@ -8,12 +8,13 @@ enum CompanionStateKind: String, Sendable {
 /// 앱 언어. 포켓몬 이름은 PokéAPI 다국어 names 에서 가져온다.
 enum AppLanguage: String, Codable, Sendable, CaseIterable {
     case ko, en, ja
-    /// PokéAPI language.name 후보(첫 매칭 사용)
+    /// PokéAPI language.name 후보(첫 매칭 사용). **소문자 고정** — 실제 값이 `ja-hrkt` 라 딕셔너리
+    /// 조회에서 대문자는 죽은 후보. `ja`(한자) 우선, 버전 이름은 `ja` 가 없어 `ja-hrkt` 가 받음.
     var apiCodes: [String] {
         switch self {
         case .ko: return ["ko"]
         case .en: return ["en"]
-        case .ja: return ["ja-Hrkt", "ja"]
+        case .ja: return ["ja", "ja-hrkt"]
         }
     }
     var label: String {
