@@ -154,6 +154,16 @@ struct L {
     var statusChecksHint: String { t("Claude·OpenAI 장애를 팝오버에 표시 (알림 아님)", "Show Claude / OpenAI incidents in the popover (not a notification)", "Claude・OpenAIの障害をポップオーバーに表示（通知ではない）") }
     var warning: String { t("경고", "Warning", "警告") }
     var critical: String { t("임박", "Critical", "切迫") }
+    var customScanRootsLabel: String { t("추가 스캔 폴더", "Additional scan folders", "追加スキャンフォルダ") }
+    var customScanRootsHint: String {
+        t("Claude 세션 로그(.jsonl)를 더 찾을 폴더 — 멀티 계정 래퍼 등 기본 위치 밖의 사용량용. 콤마·줄바꿈 구분, * 와일드카드 지원",
+          "Extra folders to scan for Claude session logs (.jsonl) — for usage outside the default locations, e.g. multi-account wrappers. Comma/newline separated, * wildcard supported",
+          "Claudeセッションログ(.jsonl)を追加で探すフォルダ — マルチアカウントラッパーなど既定外の使用量向け。カンマ・改行区切り、*ワイルドカード対応")
+    }
+    var customScanRootsPlaceholder: String { "~/some/dir/*/projects" }
+    func customScanRootsMatches(_ n: Int) -> String {
+        t("지금 \(n)개 폴더에 매치", "Matches \(n) folder(s) now", "現在\(n)個のフォルダに一致")
+    }
     var aggregationNote: String { t("토큰 집계 기준: totalTokens (input + output + cache, 로컬 날짜)", "Token basis: totalTokens (input + output + cache, local date)", "集計基準: totalTokens (input + output + cache, ローカル日付)") }
     var close: String { t("닫기", "Close", "閉じる") }
 

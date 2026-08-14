@@ -355,6 +355,22 @@ struct SettingsView: View {
                         .padding(.horizontal, 12).padding(.bottom, 6)
                 }
                 Divider()
+                groupRow {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(l.customScanRootsLabel)
+                        Text(l.customScanRootsHint).font(.caption2).foregroundStyle(.tertiary)
+                        TextField(l.customScanRootsPlaceholder, text: $store.customScanRoots)
+                            .textFieldStyle(.roundedBorder).font(.caption)
+                        // 오타·잘못된 패턴을 저장 전에 알 수 있는 유일한 신호 — 다음 새로고침까지
+                        // 숫자가 안 변하는 것만으로는 "매치 0"과 "이미 집계됨"을 구분할 수 없다.
+                        if !store.customScanRoots.trimmingCharacters(in: .whitespaces).isEmpty {
+                            Text(l.customScanRootsMatches(
+                                LocalUsageReader.expandedCustomRoots(store.customScanRoots).count))
+                                .font(.caption2).foregroundStyle(.tertiary)
+                        }
+                    }
+                }
+                Divider()
                 Text(l.aggregationNote)
                     .font(.caption2).foregroundStyle(.tertiary)
                     .padding(.horizontal, 12).padding(.vertical, 8)

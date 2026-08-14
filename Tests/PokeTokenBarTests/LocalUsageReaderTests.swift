@@ -169,6 +169,46 @@ final class LocalUsageReaderTests: XCTestCase {
         }
     }
 
+    /// 사용자 지정 스캔 폴더: 콤마·개행 분리, `*` 세그먼트 확장, 존재하는 디렉터리만, 정렬 순서.
+    /// 계정별 격리 래퍼의 `instances/<name>/projects` 레이아웃이 동기 사례라 그 모양으로 검증한다.
+    func testCustomScanRootsExpandGlobAndKeepOnlyExistingDirs() {
+        let base = tempDir()
+        for name in ["b-inst", "a-inst"] {
+            try? FileManager.default.createDirectory(
+                at: base.appendingPathComponent("instances/\(name)/projects"),
+                withIntermediateDirectories: true)
+        }
+        try? FileManager.default.createDirectory(          // projects 없는 인스턴스 — 제외돼야 함
+            at: base.appendingPathComponent("instances/empty"),
+            withIntermediateDirectories: true)
+        let literal = base.appendingPathComponent("literal")
+        try? FileManager.default.createDirectory(at: literal, withIntermediateDirectories: true)
+        try? "x".write(to: base.appendingPathComponent("file"), atomically: true, encoding: .utf8)
+
+        let raw = "\(base.path)/instances/*/projects, \(literal.path)\n\(base.path)/nope/*, \(base.path)/file, relative/path"
+        let roots = LocalUsageReader.expandedCustomRoots(raw).map(\.path)
+
+        XCTAssertEqual(roots, [
+            base.appendingPathComponent("instances/a-inst/projects").path,   // 와일드카드 매치는 정렬 순
+            base.appendingPathComponent("instances/b-inst/projects").path,
+            literal.path,
+        ], "glob 확장·존재 필터·정렬이 어긋났다: \(roots)")
+    }
+
+    /// 사용자 지정 폴더는 기본 루트에 **더해지고**(union), 값이 없으면 아무것도 바뀌지 않는다.
+    func testComputeRootsUnionCustomRootsAndDefaultUnchangedWithoutValue() {
+        let home = URL(fileURLWithPath: "/Users/testhome")
+        let extra = tempDir()
+        let roots = LocalUsageReader.computeClaudeProjectRoots(
+            configDirValue: nil, customRootsValue: extra.path, home: home).map(\.path)
+        XCTAssertTrue(roots.contains(extra.resolvingSymlinksInPath().path))
+        XCTAssertTrue(roots.contains("/Users/testhome/.claude/projects"))
+
+        let none = LocalUsageReader.computeClaudeProjectRoots(
+            configDirValue: nil, customRootsValue: nil, home: home).map(\.path)
+        XCTAssertFalse(none.contains(extra.resolvingSymlinksInPath().path))
+    }
+
     /// `CLAUDE_CONFIG_DIR` 파싱: 콤마 분리·공백 트림·빈 조각 무시·틸드 확장.
     func testConfigDirParsingHandlesCommasWhitespaceAndTilde() {
         let home = URL(fileURLWithPath: "/Users/testhome")

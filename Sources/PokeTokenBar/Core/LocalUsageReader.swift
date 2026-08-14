@@ -58,6 +58,10 @@ enum LocalUsageReader {
     ///
     /// - `CLAUDE_CONFIG_DIR`: 사용자가 설정 위치를 옮긴 경우. 콤마로 여러 개를 줄 수 있고 각각 `<값>/projects`.
     /// - `~/.config/claude/projects`, `~/.claude/projects`: CLI 기본 위치(전자는 XDG 스타일 설치).
+    /// - 사용자 지정 스캔 폴더(설정): 계정별 격리 래퍼나 커스텀 레이아웃은 세션 로그가
+    ///   위 어디에도 안 남는다. 래퍼가 `CLAUDE_CONFIG_DIR` 를 자식 프로세스에만 주입하면 셸 조회로도
+    ///   못 잡으므로, 사용자가 폴더를 직접 등록하는 것이 유일한 범용 경로다. `*` 와일드카드를 지원해
+    ///   인스턴스가 늘어도 설정을 다시 만질 필요가 없게 한다.
     /// - Claude Desktop 임베디드 세션: 세션 디렉터리마다 CLI 와 같은 모양의 `.claude/projects` 를 갖는다.
     ///   Desktop 으로 일한 사용량이 여기에만 남으므로 빼면 조용히 누락된다.
     /// 계산에 파일시스템 탐색 + (GUI 앱에선) 로그인 셸 조회가 들어가는데 새로고침은 분 단위로 돈다.
@@ -67,6 +71,7 @@ enum LocalUsageReader {
     /// 테스트·진단용 — 캐시를 무시하고 지금 상태로 계산한다.
     static func computeClaudeProjectRoots(
         configDirValue: String? = shellAwareClaudeConfigDir(),
+        customRootsValue: String? = storedCustomScanRoots(),
         home: URL = FileManager.default.homeDirectoryForCurrentUser) -> [URL]
     {
         var roots: [URL] = []
@@ -80,6 +85,9 @@ enum LocalUsageReader {
         }
         roots.append(home.appendingPathComponent(Self.configRelativeProjectsPath))
         roots.append(home.appendingPathComponent(Self.defaultRelativeProjectsPath))
+        if let raw = customRootsValue {
+            roots.append(contentsOf: expandedCustomRoots(raw))
+        }
 
         let desktop = home.appendingPathComponent("Library/Application Support/Claude")
         for store in ["local-agent-mode-sessions", "claude-code-sessions"] {
@@ -101,6 +109,57 @@ enum LocalUsageReader {
         if let v = ProcessInfo.processInfo.environment["CLAUDE_CONFIG_DIR"], !v.isEmpty { return v }
         return BinaryLocator.shellEnvironmentValue("CLAUDE_CONFIG_DIR")
     }()
+
+    /// 사용자 지정 스캔 폴더 설정(`UserDefaults`). `UsageStore` 가 같은 키에 쓴다 — GUI 앱은 셸 env 를
+    /// 상속하지 않으므로 `CLAUDE_CONFIG_DIR` 류 다중 경로를 실제로 쓸 수 있는 곳은 앱 설정뿐이다.
+    static let customScanRootsDefaultsKey = "customScanRoots"
+
+    static func storedCustomScanRoots() -> String? {
+        UserDefaults.standard.string(forKey: customScanRootsDefaultsKey)
+    }
+
+    /// 설정 변경 즉시 루트 캐시를 비운다 — TTL(300초)을 기다리면 사용자가 폴더를 추가하고도
+    /// 다음 몇 번의 새로고침 동안 숫자가 안 변해 "설정이 안 먹었다"로 보인다.
+    static func invalidateProjectRootsCache() { rootsCache.invalidate() }
+
+    /// 사용자 지정 스캔 폴더 파싱: 콤마·개행 구분, 공백 트림, `~` 확장, 세그먼트 단위 `*` 와일드카드.
+    /// 항목은 `CLAUDE_CONFIG_DIR` 와 달리 **로그 루트 자체**를 가리킨다(`/projects` 를 덧붙이지 않는다)
+    /// — 래퍼마다 레이아웃이 달라 접미사를 강제하면 표현 못 하는 배치가 생긴다.
+    /// 확장 결과는 존재하는 디렉터리만 남기고 정렬한다(루트 목록이 흔들리면 진단이 어렵다).
+    /// 존재하지 않는 항목은 오류가 아니다 — 인스턴스가 아직 없는 패턴을 미리 등록해 둘 수 있어야 한다.
+    static func expandedCustomRoots(_ raw: String) -> [URL] {
+        let fm = FileManager.default
+        var out: [URL] = []
+        for part in raw.split(whereSeparator: { $0 == "," || $0.isNewline }) {
+            let pattern = part.trimmingCharacters(in: .whitespaces)
+            guard !pattern.isEmpty else { continue }
+            let absolute = NSString(string: pattern).expandingTildeInPath
+            guard absolute.hasPrefix("/") else { continue }   // 상대 경로는 GUI 앱에서 기준이 없다
+
+            var paths = [""]
+            for segment in absolute.split(separator: "/").map(String.init) {
+                if segment.contains("*") {
+                    var next: [String] = []
+                    for base in paths {
+                        guard let names = try? fm.contentsOfDirectory(atPath: base.isEmpty ? "/" : base)
+                        else { continue }
+                        // fnmatch: `*` 외에 `?`·`[]` 도 공짜로 온다. 플래그 0 → 숨김 파일(.claude 류)도 매치.
+                        next.append(contentsOf: names.sorted()
+                            .filter { fnmatch(segment, $0, 0) == 0 }
+                            .map { base + "/" + $0 })
+                    }
+                    paths = next
+                } else {
+                    paths = paths.map { $0 + "/" + segment }
+                }
+            }
+            var isDir: ObjCBool = false
+            out.append(contentsOf: paths
+                .filter { fm.fileExists(atPath: $0, isDirectory: &isDir) && isDir.boolValue }
+                .map { URL(fileURLWithPath: $0) })
+        }
+        return out
+    }
 
     private static let rootsCache = RootsCache()
 
@@ -127,6 +186,13 @@ enum LocalUsageReader {
             computedAt = Date()
             lock.unlock()
             return fresh
+        }
+
+        func invalidate() {
+            lock.lock()
+            cached = nil
+            computedAt = nil
+            lock.unlock()
         }
     }
 

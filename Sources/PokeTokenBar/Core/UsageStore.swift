@@ -96,6 +96,17 @@ final class UsageStore {
     var floatingPetBubbleAlerts: Bool {
         didSet { defaults.set(floatingPetBubbleAlerts, forKey: "floatingPetBubbleAlerts") }
     }
+    /// 사용자 지정 스캔 폴더(콤마·개행 구분, `*` 와일드카드) — 파싱·확장 의미는
+    /// `LocalUsageReader.expandedCustomRoots` 가 정본. 저장 키도 reader 와 공유한다
+    /// (reader 는 didSet 경로 밖(RootsCache 갱신)에서도 스스로 읽어야 하기 때문).
+    var customScanRoots: String {
+        didSet {
+            guard customScanRoots != oldValue else { return }
+            defaults.set(customScanRoots, forKey: LocalUsageReader.customScanRootsDefaultsKey)
+            LocalUsageReader.invalidateProjectRootsCache()
+            Task { await refresh() }   // 다음 자동 폴(최대 refreshInterval)을 기다리게 하지 않는다
+        }
+    }
     var disableKeychainAccess: Bool {
         didSet {
             defaults.set(disableKeychainAccess, forKey: "disableKeychainAccess")   // 저장 누락이던 기존 버그 — 재시작 후 풀렸음
@@ -425,6 +436,7 @@ final class UsageStore {
         floatingPetSize = d.object(forKey: "floatingPetSize") as? Double ?? 96
         floatingPetBubbleAlerts = d.object(forKey: "floatingPetBubbleAlerts") as? Bool ?? true
         disableKeychainAccess = d.object(forKey: "disableKeychainAccess") as? Bool ?? false
+        customScanRoots = d.string(forKey: LocalUsageReader.customScanRootsDefaultsKey) ?? ""
 
         reschedule()
 
