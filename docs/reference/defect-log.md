@@ -266,6 +266,12 @@ read_when:
   (`hasCachedShinySprite`). 회귀 가드는 판정 함수에 값을 *주입*하는 것으로 끝내면 안 된다 —
   기존 `needsReload` 테스트 3개가 전부 `loadedShiny` 를 입력으로 받아서, 그 값이 **어떻게 정해지는지**는
   아무도 안 봤다(`testShinySeedIsFalseWhenOnlyNonShinyCacheExists` 로 시드 자체를 잠금).
+- **애니메이션 GIF ↔ 정적 PNG 는 같은 프레임에서 크기가 다르게 보인다.** Gen-V 애니메이션은 타이트
+  크롭(피카츄 50×46)이고 정적 스프라이트는 96×96 캔버스에 여백이 있어, `resizable().frame(size×size)`
+  로 같이 늘이면 GIF 쪽이 확연히 크다. `SpriteView.task` 는 종/이로치가 바뀌면 맨 먼저 `frames = []`
+  를 하므로(잔상 방지) **GIF→정적→GIF 로 스프라이트가 작아졌다 커지는 깜빡임**이 생긴다. 종 변경처럼
+  드문 전이면 감수할 만하지만, **사용자가 반복해서 누르는 컨트롤**(도감 이로치 토글) 옆에서는 안 된다 —
+  그 자리는 `animated` 를 끈다. (2026-08-14, 도감 상세.)
 
 ## 에너지 (상시 표시 애니메이션)
 

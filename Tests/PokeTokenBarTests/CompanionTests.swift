@@ -115,6 +115,8 @@ extension PokeProviding {
     func baseSpecies(id: Int) async throws -> BaseSpecies? {
         try await baseSpeciesIndex().first { $0.id == id }
     }
+    /// 도감 설명은 대부분의 스텁과 무관 — 검증하는 테스트만 override.
+    func flavorTexts(speciesID: Int, language: AppLanguage) async throws -> [DexFlavorText] { [] }
 }
 
 private enum PokeStubError: Error { case boom }

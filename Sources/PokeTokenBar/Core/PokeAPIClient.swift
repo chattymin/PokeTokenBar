@@ -6,6 +6,15 @@ struct BaseSpecies: Sendable, Codable {
     let captureRate: Int    // 3(뮤츠급)~255(캐터피급), 공식 희귀도 신호
 }
 
+/// 버전별 도감 설명 한 줄 — 게임 버전 라벨 + 설명문.
+/// 제공 버전 수는 언어마다 다름(ko/ja 는 6세대부터라 피카츄 12개, en 33개). 없는 건 빼고 영어로 대체 안 함.
+struct DexFlavorText: Sendable, Equatable, Identifiable {
+    let versionKey: String     // PokéAPI version.name — 안정 식별자(ForEach id)
+    let versionLabel: String   // 표시용 현지화 이름. 못 얻으면 슬러그 정돈본
+    let text: String           // 게임 화면 줄바꿈을 걷어낸 한 문단
+    var id: String { versionKey }
+}
+
 /// 포켓몬 라인 데이터 제공(주입 가능 — 테스트는 스텁 사용).
 protocol PokeProviding: Sendable {
     func line(baseSpeciesID: Int) async throws -> EvoLine
@@ -14,6 +23,8 @@ protocol PokeProviding: Sendable {
     /// 단일 종이 base(진화 시작점)면 BaseSpecies, 아니면 nil.
     /// GraphQL 인덱스 엔드포인트 장애 시 REST(pokemon-species)로 부화 후보를 뽑는 폴백용.
     func baseSpecies(id: Int) async throws -> BaseSpecies?
+    /// 종의 버전별 도감 설명(요청 언어, 발매순). 그 언어 설명이 없는 버전은 제외.
+    func flavorTexts(speciesID: Int, language: AppLanguage) async throws -> [DexFlavorText]
 }
 
 /// PokéAPI 클라이언트 — 종/진화체인을 런타임 fetch + 파싱. 포켓몬 데이터는 레포에 번들하지 않는다.
@@ -176,6 +187,115 @@ actor PokeAPIClient: PokeProviding {
         return BaseSpecies(id: id, captureRate: dto.capture_rate)
     }
 
+    // MARK: 도감 설명 (버전별 flavor text)
+
+    private struct FlavorCacheKey: Hashable { let speciesID: Int; let language: AppLanguage }
+    private var flavorCache: [FlavorCacheKey: [DexFlavorText]] = [:]
+
+    private struct GraphQLFlavorResponse: Decodable {
+        struct Lang: Decodable { let name: String }
+        struct VersionName: Decodable { let name: String; let language: Lang }
+        struct Version: Decodable { let name: String; let versionnames: [VersionName] }
+        struct Row: Decodable { let flavor_text: String; let language: Lang; let version: Version }
+        struct DataBox: Decodable { let pokemonspeciesflavortext: [Row] }
+        let data: DataBox
+    }
+
+    /// 종의 버전별 도감 설명. GraphQL 1쿼리 우선, 죽어 있으면 REST 폴백 — base 인덱스와 같은 이중화.
+    /// 폴백은 버전 이름 현지화가 없어 라벨이 슬러그 정돈본으로 내려감(설명문은 요청 언어 그대로).
+    func flavorTexts(speciesID: Int, language: AppLanguage) async throws -> [DexFlavorText] {
+        let key = FlavorCacheKey(speciesID: speciesID, language: language)
+        if let cached = flavorCache[key] { return cached }
+        do {
+            let entries = try await fetchFlavorTextsViaGraphQL(speciesID: speciesID, language: language)
+            flavorCache[key] = entries
+            return entries
+        } catch {
+            AppLog.write("dex flavor text (GraphQL) failed for #\(speciesID) — REST fallback: \(error)")
+            // 폴백 결과는 **캐시하지 않음** — 열화본을 캐시하면 GraphQL 이 살아나도 세션 내내 영어 제목.
+            // 재생성 비용은 0(`speciesCache` 재사용)이고 다음 열람이 다시 시도해 스스로 복구.
+            return try await flavorTextsViaREST(speciesID: speciesID, language: language)
+        }
+    }
+
+    private func fetchFlavorTextsViaGraphQL(speciesID: Int, language: AppLanguage) async throws -> [DexFlavorText] {
+        guard let url = URL(string: "https://graphql.pokeapi.co/v1beta2") else { throw URLError(.badURL) }
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.timeoutInterval = 15
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        // 언어를 서버에서 걸러 받아 REST 전문(~50KB)의 5% 남짓. version_id 오름차순 = 발매순.
+        // 버전 이름도 같은 쿼리에서 조인 — 왕복 추가 없음.
+        let codes = language.apiCodes.map { "\"\($0)\"" }.joined(separator: ",")
+        let query = """
+        { pokemonspeciesflavortext(where: {pokemon_species_id: {_eq: \(speciesID)}, \
+        language: {name: {_in: [\(codes)]}}}, order_by: {version_id: asc}) \
+        { flavor_text language { name } \
+        version { name versionnames(where: {language: {name: {_in: [\(codes)]}}}) { name language { name } } } } }
+        """
+        req.httpBody = try JSONSerialization.data(withJSONObject: ["query": query])
+        let (data, resp) = try await URLSession.shared.data(for: req)
+        guard (resp as? HTTPURLResponse)?.statusCode == 200 else { throw URLError(.badServerResponse) }
+        let decoded = try JSONDecoder().decode(GraphQLFlavorResponse.self, from: data)
+        let rows = decoded.data.pokemonspeciesflavortext.map {
+            FlavorRow(versionKey: $0.version.name, languageCode: $0.language.name, text: $0.flavor_text,
+                      labels: Dictionary($0.version.versionnames.map { ($0.language.name, $0.name) },
+                                         uniquingKeysWith: { first, _ in first }))
+        }
+        return Self.collapse(rows, language: language)
+    }
+
+    private func flavorTextsViaREST(speciesID: Int, language: AppLanguage) async throws -> [DexFlavorText] {
+        let dto = try await species(speciesID)
+        let rows = (dto.flavor_text_entries ?? []).map {
+            FlavorRow(versionKey: $0.version.name, languageCode: $0.language.name, text: $0.flavor_text, labels: [:])
+        }
+        return Self.collapse(rows, language: language)
+    }
+
+    /// 언어 후보가 여러 줄로 오는 원본(일본어는 `ja`·`ja-hrkt` 두 벌)을 버전당 한 줄로 접기.
+    /// 버전 순서는 입력(발매순) 유지, 같은 버전 안에서는 `apiCodes` 앞 후보가 우선.
+    static func collapse(_ rows: [FlavorRow], language: AppLanguage) -> [DexFlavorText] {
+        // 순서는 배열, 중복 판정은 인덱스 맵. 키로 다시 조회하지 않는 건 nil 이 될 수 없는 Optional 이
+        // 테스트로 덮을 수 없는 분기를 만들기 때문.
+        var picked: [(key: String, rank: Int, row: FlavorRow)] = []
+        var slotByKey: [String: Int] = [:]
+        for row in rows {
+            // 요청하지 않은 언어가 섞여 오는 경로(REST 전문)를 여기서 제외.
+            guard let rank = language.apiCodes.firstIndex(of: row.languageCode) else { continue }
+            if let slot = slotByKey[row.versionKey] {
+                if rank < picked[slot].rank { picked[slot] = (row.versionKey, rank, row) }
+            } else {
+                slotByKey[row.versionKey] = picked.count
+                picked.append((row.versionKey, rank, row))
+            }
+        }
+        return picked.map { entry in
+            let label = language.apiCodes.lazy.compactMap { entry.row.labels[$0] }.first
+                ?? Self.versionLabelFallback(entry.key)
+            return DexFlavorText(versionKey: entry.key, versionLabel: label,
+                                 text: Self.sanitizeFlavorText(entry.row.text))
+        }
+    }
+
+    /// 원문 제어문자 제거 — 줄바꿈·페이지구분(`\u{0C}`)은 화면 폭에 맞춘 것이라 공백으로 흡수,
+    /// soft hyphen 은 삭제. 일본어의 전각 공백(U+3000)은 의도된 표기라 유지.
+    static func sanitizeFlavorText(_ raw: String) -> String {
+        var s = raw.replacingOccurrences(of: "\u{00AD}", with: "")
+        for control in ["\n", "\r", "\u{000C}"] {
+            s = s.replacingOccurrences(of: control, with: " ")
+        }
+        return s.split(separator: " ", omittingEmptySubsequences: true).joined(separator: " ")
+    }
+
+    /// 현지화 버전 이름을 못 얻었을 때의 라벨 — 슬러그 정돈만("omega-ruby" → "Omega Ruby").
+    /// 번역이 아니라 어느 언어에서든 영어 제목으로 보임.
+    static func versionLabelFallback(_ slug: String) -> String {
+        slug.split(separator: "-")
+            .map { $0.prefix(1).uppercased() + $0.dropFirst() }
+            .joined(separator: " ")
+    }
+
     private func get<T: Decodable>(_ url: URL) async throws -> T {
         var req = URLRequest(url: url)
         req.timeoutInterval = 15
@@ -212,6 +332,21 @@ struct SpeciesDTO: Decodable, Sendable {
     let names: [NameDTO]
     let evolution_chain: URLRef
     let evolves_from_species: NamedRef?   // nil = 진화라인 시작점(base)
+    /// 도감 설명(전 언어·전 버전). optional 인 이유 — 이 키가 빠진 응답 하나가 같은 DTO 를 쓰는
+    /// 부화 경로까지 디코드 실패로 끌고 가면 안 되기 때문.
+    let flavor_text_entries: [FlavorTextDTO]?
+}
+struct FlavorTextDTO: Decodable, Sendable {
+    let flavor_text: String
+    let language: NamedRef
+    let version: NamedRef
+}
+/// 소스(GraphQL/REST)에 무관한 도감 설명 한 줄의 원본 — 접기(`collapse`) 입력.
+struct FlavorRow: Sendable {
+    let versionKey: String
+    let languageCode: String
+    let text: String
+    let labels: [String: String]   // 언어코드 → 현지화된 버전 이름(REST 폴백은 빈 값)
 }
 struct NameDTO: Decodable, Sendable { let name: String; let language: NamedRef }
 struct NamedRef: Decodable, Sendable { let name: String; let url: String? }

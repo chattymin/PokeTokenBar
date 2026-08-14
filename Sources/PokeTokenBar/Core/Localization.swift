@@ -338,6 +338,26 @@ struct L {
     var dexFilterHint: String { t("탭하면 이 희귀도만 보기 · 다시 탭하면 전체", "Tap to show only this rarity · tap again to clear", "タップでこの希少度のみ表示・再タップで全体") }
     /// 도감 칸의 ✨ 를 읽어주는 명사 — 이모지는 스크린리더가 일관되게 읽지 못한다.
     var dexShinyLabel: String { t("이로치", "Shiny", "色違い") }
+
+    // MARK: 도감 상세 (버전별 도감 설명)
+    /// 칸을 눌러 상세로 갈 수 있다는 안내 — 칸 툴팁·접근성 라벨 끝에 덧붙임.
+    var dexOpenDetailHint: String { t("탭하면 도감 설명", "Tap for Pokédex entries", "タップで図鑑説明") }
+    var dexBack: String { t("도감으로 돌아가기", "Back to Pokédex", "図鑑に戻る") }
+    /// 이로치 보기 스위치 — 격자와 상세가 같은 상태를 공유하므로 문구도 하나만 유지.
+    var dexShinyToggleHint: String {
+        t("이로치로 잡은 종을 이로치 색으로 보기", "Show species you caught shiny in their shiny colors",
+          "色違いで捕まえた種を色違いの姿で表示")
+    }
+    var dexFlavorLoading: String { t("도감 설명 불러오는 중…", "Loading Pokédex entries…", "図鑑説明を読み込み中…") }
+    var dexFlavorFailed: String {
+        t("도감 설명을 불러오지 못했어요", "Couldn't load Pokédex entries", "図鑑説明を読み込めませんでした")
+    }
+    /// 요청 언어 설명이 한 줄도 없을 때. 앱 도감 범위(1~649)에선 실측상 안 나지만 언어 확장 대비.
+    var dexFlavorEmpty: String {
+        t("이 언어로 제공되는 도감 설명이 없어요", "No Pokédex entries in this language",
+          "この言語の図鑑説明はありません")
+    }
+    var dexRetry: String { t("다시 시도", "Retry", "再試行") }
     func rarityLabel(_ r: Rarity) -> String {
         switch r {
         case .common:    return rarityCommon
