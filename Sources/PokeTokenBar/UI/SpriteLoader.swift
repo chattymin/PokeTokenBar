@@ -108,6 +108,14 @@ enum SpriteLoader {
         return cachedImage(speciesID: speciesID, animated: animated, shiny: false)
     }
 
+    /// 이로치 캐시 **자체**의 존재 여부 — 일반 폴백을 타는 `cachedImage` 로는 판정 불가.
+    /// 시드(`SpriteView.seededShiny`)가 폴백 이미지를 이로치로 오인하지 않게 하는 유일한 근거.
+    static func hasCachedShinySprite(speciesID: Int, animated: Bool = false) -> Bool {
+        let key = SpriteStore.cacheKey(speciesID: speciesID, animated: animated, shiny: true)
+        let f = cacheDir.appendingPathComponent("\(key).\(animated ? "gif" : "png")")
+        return FileManager.default.fileExists(atPath: f.path)
+    }
+
     /// 정적 스프라이트. animated=true 면 Gen-V 움직이는 스프라이트(없으면 정적으로 폴백).
     /// shiny=true 는 색이 다른 스프라이트 — 미제공 종이면 일반으로 폴백.
     static func image(speciesID: Int, animated: Bool = false, shiny: Bool = false) async -> NSImage? {

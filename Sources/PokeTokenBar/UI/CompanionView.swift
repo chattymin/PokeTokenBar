@@ -108,7 +108,16 @@ struct SpriteView: View {
         let cached = speciesID.map { SpriteLoader.cachedImage(speciesID: $0, shiny: shiny) } ?? SpriteLoader.cachedEggImage()
         _img = State(initialValue: cached)
         _loadedID = State(initialValue: (speciesID != nil && cached != nil) ? speciesID : nil)
-        _loadedShiny = State(initialValue: shiny)
+        // 시드는 요청값이 아니라 **실제로 받은 이미지**를 기록.
+        let shinyCacheHit = speciesID.map { SpriteLoader.hasCachedShinySprite(speciesID: $0) } ?? false
+        _loadedShiny = State(initialValue: Self.seededShiny(requestedShiny: shiny, shinyCacheHit: shinyCacheHit))
+    }
+
+    /// 캐시 시드가 정말 이로치 픽셀이었는지 — `loadedShiny` 초기값. 순수·테스트용.
+    /// `cachedImage(shiny: true)` 는 캐시가 없으면 일반 이미지로 폴백하므로, 요청값을 그대로 적으면
+    /// `needsReload` 가 영영 거짓이 되어 **이로치가 안 불러와짐**.
+    static func seededShiny(requestedShiny: Bool, shinyCacheHit: Bool) -> Bool {
+        requestedShiny && shinyCacheHit
     }
 
     /// 프레임 지속(초) = max(원본 delay, 하한). 순수·테스트용 — fps 상한 회귀 가드.
