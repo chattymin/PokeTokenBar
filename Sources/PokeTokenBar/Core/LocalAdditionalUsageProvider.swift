@@ -334,17 +334,69 @@ enum LocalAdditionalUsageReader {
         } ?? []
     }
 
-    // MARK: Cursor database
+    // MARK: Incremental SQLite scanning (shared)
 
-    struct CursorLoadResult: Sendable {
+    typealias CursorLoadResult = IncrementalSQLiteLoadResult
+    typealias CopilotLoadResult = IncrementalSQLiteLoadResult
+
+    private struct IncrementalDatabaseLoad: Sendable {
+        var entries: [LocalUsageReader.Entry]
+        var highWaterRowID: Int64
+        var didReset: Bool
+    }
+
+    struct IncrementalSQLiteLoadResult: Sendable {
         var entries: [LocalUsageReader.Entry]
         var highWaterByPath: [String: Int64]
-        /// True when any DB was rescanned from scratch (watermark invalidated).
+        /// True when any database was rescanned from scratch (watermark invalidated).
         var didReset: Bool
 
         /// Convenience for single-database tests.
         var highWaterRowID: Int64 { highWaterByPath.values.max() ?? 0 }
     }
+
+    /// Shared shrink detection for incremental SQLite readers (Cursor, Copilot, …).
+    private static func incrementalScanBoundary(
+        afterRowID: Int64,
+        maxRowID: Int64?
+    ) -> (effectiveAfter: Int64, didReset: Bool, failedMaxQuery: Bool) {
+        guard let maxRowID else {
+            return (afterRowID, false, true)
+        }
+        let didReset = afterRowID > 0 && maxRowID < afterRowID
+        let effectiveAfter = didReset ? 0 : afterRowID
+        return (effectiveAfter, didReset, false)
+    }
+
+    private static func finalizeIncrementalHighWater(_ highWater: Int64, effectiveAfter: Int64) -> Int64 {
+        highWater == 0 ? effectiveAfter : highWater
+    }
+
+    private static func scanIncrementalSQLiteRoots(
+        _ sourceRoots: [URL],
+        modifiedSince: Date,
+        marks: [String: Int64],
+        databaseURL: (URL) -> URL,
+        loadDatabase: (URL, Date, Int64) -> IncrementalDatabaseLoad
+    ) -> IncrementalSQLiteLoadResult {
+        var entries: [LocalUsageReader.Entry] = []
+        var highWaterByPath: [String: Int64] = [:]
+        var didReset = false
+        for root in sourceRoots {
+            let database = databaseURL(root)
+            let pathKey = database.path
+            let loaded = loadDatabase(database, modifiedSince, marks[pathKey] ?? 0)
+            entries += loaded.entries
+            highWaterByPath[pathKey] = loaded.highWaterRowID
+            if loaded.didReset { didReset = true }
+        }
+        return IncrementalSQLiteLoadResult(
+            entries: LocalUsageReader.dedupKeepMax(entries.filter { $0.date >= modifiedSince }),
+            highWaterByPath: highWaterByPath,
+            didReset: didReset)
+    }
+
+    // MARK: Cursor database
 
     static var defaultCursorRoots: [URL] {
         environmentPaths("CURSOR_DATA_DIR") ?? [
@@ -369,7 +421,7 @@ enum LocalAdditionalUsageReader {
             // A partial incremental payload must not replace the cache — rescan every root cold.
             // Keep didReset=true so the provider cache discards `existing` rather than merging.
             let recovered = scanCursorRoots(sourceRoots, modifiedSince: modifiedSince, marks: [:])
-            result = CursorLoadResult(
+            result = IncrementalSQLiteLoadResult(
                 entries: recovered.entries,
                 highWaterByPath: recovered.highWaterByPath,
                 didReset: true)
@@ -399,22 +451,12 @@ enum LocalAdditionalUsageReader {
         modifiedSince: Date,
         marks: [String: Int64]
     ) -> CursorLoadResult {
-        var entries: [LocalUsageReader.Entry] = []
-        var highWaterByPath: [String: Int64] = [:]
-        var didReset = false
-        for root in sourceRoots {
-            let database = cursorDatabaseURL(from: root)
-            let pathKey = database.path
-            let watermark = marks[pathKey] ?? 0
-            let loaded = cursorDatabaseEntries(database, modifiedSince: modifiedSince, afterRowID: watermark)
-            entries += loaded.entries
-            highWaterByPath[pathKey] = loaded.highWaterRowID
-            if loaded.didReset { didReset = true }
-        }
-        return CursorLoadResult(
-            entries: LocalUsageReader.dedupKeepMax(entries.filter { $0.date >= modifiedSince }),
-            highWaterByPath: highWaterByPath,
-            didReset: didReset)
+        scanIncrementalSQLiteRoots(
+            sourceRoots,
+            modifiedSince: modifiedSince,
+            marks: marks,
+            databaseURL: cursorDatabaseURL(from:),
+            loadDatabase: cursorDatabaseEntries)
     }
 
     /// Exposed for regression tests — incremental plan must walk rowids, not the key index.
@@ -428,17 +470,11 @@ enum LocalAdditionalUsageReader {
         return explainQueryPlan(database, sql: sql, bindInt64: afterRowID)
     }
 
-    private struct CursorDatabaseLoad {
-        var entries: [LocalUsageReader.Entry]
-        var highWaterRowID: Int64
-        var didReset: Bool
-    }
-
     private static func cursorDatabaseEntries(
         _ database: URL,
         modifiedSince: Date,
         afterRowID: Int64
-    ) -> CursorDatabaseLoad {
+    ) -> IncrementalDatabaseLoad {
         // cursorDiskKV: key TEXT UNIQUE, value BLOB. No time column — filter by createdAt in JSON.
         // Cold start (afterRowID == 0): GLOB uses the key index over bubbleId:* only.
         // Incremental: NOT INDEXED + rowid > ? forces a rowid walk of *new* rows only.
@@ -446,11 +482,14 @@ enum LocalAdditionalUsageReader {
         //
         // A failed MAX(rowid) is *not* a shrink: open/prepare can fail while Cursor writes
         // state.vscdb. Collapsing nil → 0 would wipe the cache for up to one refreshInterval.
-        guard let maxRowID = scalarInt64(database, sql: "SELECT MAX(rowid) FROM cursorDiskKV") else {
-            return CursorDatabaseLoad(entries: [], highWaterRowID: afterRowID, didReset: false)
+        let boundary = incrementalScanBoundary(
+            afterRowID: afterRowID,
+            maxRowID: scalarInt64(database, sql: "SELECT MAX(rowid) FROM cursorDiskKV"))
+        if boundary.failedMaxQuery {
+            return IncrementalDatabaseLoad(entries: [], highWaterRowID: afterRowID, didReset: false)
         }
-        let didReset = afterRowID > 0 && maxRowID < afterRowID
-        let effectiveAfter = didReset ? 0 : afterRowID
+        let effectiveAfter = boundary.effectiveAfter
+        let didReset = boundary.didReset
 
         let sql: String
         let bind: Int64?
@@ -472,7 +511,7 @@ enum LocalAdditionalUsageReader {
             let entry = parseCursorBubbleRow(statement, modifiedSince: modifiedSince)
             return (rowID, entry)
         }) else {
-            return CursorDatabaseLoad(entries: [], highWaterRowID: afterRowID, didReset: false)
+            return IncrementalDatabaseLoad(entries: [], highWaterRowID: afterRowID, didReset: false)
         }
 
         var highWater: Int64 = 0
@@ -481,9 +520,10 @@ enum LocalAdditionalUsageReader {
             highWater = max(highWater, rowID)
             if let entry { entries.append(entry) }
         }
-        // Preserve watermark when an incremental miss returns no new rows.
-        if highWater == 0 { highWater = effectiveAfter }
-        return CursorDatabaseLoad(entries: entries, highWaterRowID: highWater, didReset: didReset)
+        return IncrementalDatabaseLoad(
+            entries: entries,
+            highWaterRowID: finalizeIncrementalHighWater(highWater, effectiveAfter: effectiveAfter),
+            didReset: didReset)
     }
 
     private static func parseCursorBubbleRow(
@@ -556,16 +596,6 @@ enum LocalAdditionalUsageReader {
 
     // MARK: Copilot CLI database
 
-    struct CopilotLoadResult: Sendable {
-        var entries: [LocalUsageReader.Entry]
-        var highWaterByPath: [String: Int64]
-        /// True when a database was rescanned from scratch (watermark invalidated).
-        var didReset: Bool
-
-        /// Convenience for single-database tests.
-        var highWaterRowID: Int64 { highWaterByPath.values.max() ?? 0 }
-    }
-
     static var defaultCopilotRoots: [URL] {
         environmentPaths("COPILOT_HOME")
             ?? [FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".copilot")]
@@ -592,7 +622,7 @@ enum LocalAdditionalUsageReader {
         if result.didReset {
             // A partial incremental payload must not replace the cache — rescan every root cold.
             let recovered = scanCopilotRoots(sourceRoots, modifiedSince: modifiedSince, marks: [:])
-            result = CopilotLoadResult(
+            result = IncrementalSQLiteLoadResult(
                 entries: recovered.entries,
                 highWaterByPath: recovered.highWaterByPath,
                 didReset: true)
@@ -621,42 +651,29 @@ enum LocalAdditionalUsageReader {
         modifiedSince: Date,
         marks: [String: Int64]
     ) -> CopilotLoadResult {
-        var entries: [LocalUsageReader.Entry] = []
-        var highWaterByPath: [String: Int64] = [:]
-        var didReset = false
-        for root in sourceRoots {
-            let database = copilotDatabaseURL(from: root)
-            let pathKey = database.path
-            let loaded = copilotDatabaseEntries(
-                database, modifiedSince: modifiedSince, afterRowID: marks[pathKey] ?? 0)
-            entries += loaded.entries
-            highWaterByPath[pathKey] = loaded.highWaterRowID
-            if loaded.didReset { didReset = true }
-        }
-        return CopilotLoadResult(
-            entries: LocalUsageReader.dedupKeepMax(entries.filter { $0.date >= modifiedSince }),
-            highWaterByPath: highWaterByPath,
-            didReset: didReset)
-    }
-
-    private struct CopilotDatabaseLoad {
-        var entries: [LocalUsageReader.Entry]
-        var highWaterRowID: Int64
-        var didReset: Bool
+        scanIncrementalSQLiteRoots(
+            sourceRoots,
+            modifiedSince: modifiedSince,
+            marks: marks,
+            databaseURL: copilotDatabaseURL(from:),
+            loadDatabase: copilotDatabaseEntries)
     }
 
     private static func copilotDatabaseEntries(
         _ database: URL,
         modifiedSince: Date,
         afterRowID: Int64
-    ) -> CopilotDatabaseLoad {
+    ) -> IncrementalDatabaseLoad {
         // A failed MAX(id) is not a shrink: open/prepare can fail while the CLI writes the
         // store. Collapsing nil → 0 would wipe the cache for up to one refresh interval.
-        guard let maxRowID = scalarInt64(database, sql: "SELECT MAX(id) FROM assistant_usage_events") else {
-            return CopilotDatabaseLoad(entries: [], highWaterRowID: afterRowID, didReset: false)
+        let boundary = incrementalScanBoundary(
+            afterRowID: afterRowID,
+            maxRowID: scalarInt64(database, sql: "SELECT MAX(id) FROM assistant_usage_events"))
+        if boundary.failedMaxQuery {
+            return IncrementalDatabaseLoad(entries: [], highWaterRowID: afterRowID, didReset: false)
         }
-        let didReset = afterRowID > 0 && maxRowID < afterRowID
-        let effectiveAfter = didReset ? 0 : afterRowID
+        let effectiveAfter = boundary.effectiveAfter
+        let didReset = boundary.didReset
 
         // `created_at` is text, so the cutoff is a lexicographic compare, not a time compare.
         // It is only a coarse prefilter — `scanCopilotRoots` re-filters on parsed dates — but
@@ -679,7 +696,7 @@ enum LocalAdditionalUsageReader {
                 (sqlite3_column_int64(statement, 0), parseCopilotUsageRow(statement, database: database))
             }) else {
             // Incomplete scan (BUSY / interrupt) — keep the prior watermark.
-            return CopilotDatabaseLoad(entries: [], highWaterRowID: afterRowID, didReset: false)
+            return IncrementalDatabaseLoad(entries: [], highWaterRowID: afterRowID, didReset: false)
         }
 
         var highWater: Int64 = 0
@@ -688,10 +705,10 @@ enum LocalAdditionalUsageReader {
             highWater = max(highWater, rowID)
             if let entry { entries.append(entry) }
         }
-        // Rows before the cutoff are filtered out in SQL, so an empty incremental read must
-        // not reset the watermark back to zero.
-        if highWater == 0 { highWater = effectiveAfter }
-        return CopilotDatabaseLoad(entries: entries, highWaterRowID: highWater, didReset: didReset)
+        return IncrementalDatabaseLoad(
+            entries: entries,
+            highWaterRowID: finalizeIncrementalHighWater(highWater, effectiveAfter: effectiveAfter),
+            didReset: didReset)
     }
 
     private static func parseCopilotUsageRow(
