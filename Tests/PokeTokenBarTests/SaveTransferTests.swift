@@ -689,8 +689,9 @@ final class SaveTransferTests: XCTestCase {
 
     /// 매핑이 어긋나면 `SaveTransferError` 는 LocalizedError 가 아니라 "The operation couldn't be
     /// completed. (PokeTokenBar.SaveTransferError error 0.)" 가 그대로 사용자에게 뜬다.
+    /// 언어는 `allCases` 로 돈다 — 리터럴 목록은 언어가 늘어난 순간 조용히 커버를 멈춘다.
     func testImportErrorMessagesAreLocalizedNotRawSwiftText() {
-        for lang in [AppLanguage.ko, .en, .ja] {
+        for lang in AppLanguage.allCases {
             let l = L(lang)
             let notSave = l.importErrorMessage(SaveTransferError.notASaveFile)
             let newer = l.importErrorMessage(SaveTransferError.newerSchema(found: 2, supported: 1))

@@ -197,8 +197,10 @@ final class FloatingPetEnergyTests: XCTestCase {
                                         l.percentRemaining(TokenFormatter.percent(58))))
     }
 
-    /// Japanese (and ko/en) alert copy must fit the default bubble panel — width-capped wrap,
+    /// Alert copy in *every* language must fit the default bubble panel — width-capped wrap,
     /// not intrinsic `.fixedSize` that clipped ja by ~9pt (owner review on #124).
+    /// Iterate `allCases`, never a literal list: a hardcoded `[.ko, .en, .ja]` silently stopped
+    /// covering Spanish the moment #159 landed, which is exactly when a layout guard matters.
     func testLocalizedAlertBubbleFitsDefaultPanel() {
         let pet: CGFloat = 96
         let panel = FloatingPetController.panelSize(petSize: pet, showingBubble: true)
@@ -210,7 +212,7 @@ final class FloatingPetEnergyTests: XCTestCase {
             FloatingPetController.bubbleMinWidth,
             "content column + horizontal padding must equal panel width")
 
-        for lang in [AppLanguage.ko, .en, .ja] {
+        for lang in AppLanguage.allCases {
             let l = L(lang)
             let title = l.notifCritical
             let body = l.notifBody(l.claudeFiveHour, TokenFormatter.percent(85))
