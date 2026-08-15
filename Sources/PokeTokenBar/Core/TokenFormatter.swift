@@ -18,9 +18,15 @@ enum TokenFormatter {
     }
 
     /// 팝오버 상세용 천 단위 구분 (190,612,940)
-    static func grouped(_ value: Int) -> String {
+    ///
+    /// 구분기호는 macOS 관례대로 *시스템 지역 설정*(`Locale.current`)을 따른다 — 앱 언어가 아니다.
+    /// (en/ko/ja `253,412,890` · es/de `253.412.890` · fr/ru `253 412 890`)
+    /// `locale` 파라미터는 그 관례를 바꾸려는 게 아니라 테스트가 러너의 지역 설정에 좌우되지 않게
+    /// 하려고 있다 — 기본값을 쓰면 프로덕션 동작은 그대로다.
+    static func grouped(_ value: Int, locale: Locale = .current) -> String {
         let f = NumberFormatter()
         f.numberStyle = .decimal
+        f.locale = locale
         return f.string(from: NSNumber(value: value)) ?? "\(value)"
     }
 

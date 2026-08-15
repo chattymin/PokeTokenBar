@@ -701,8 +701,15 @@ final class LocalUsageCacheTests: XCTestCase {
     }
 
     /// 포매터 — grouped/cost/costCompact 경계값(메뉴바·팝오버 표기 계약).
+    ///
+    /// `grouped` 는 로케일을 명시해 단언한다. 기본값(`Locale.current`)으로 두면 쉼표를 쓰지 않는
+    /// 지역 설정의 기여자 머신에서만 빨갛게 뜬다(`253 412 890` — PR #160 보고). CI(en_US)와
+    /// 국내 머신(ko_KR)은 둘 다 쉼표라 이 실패를 영영 못 본다.
+    /// cost/costCompact/percent 는 `String(format:)` 이라 로케일과 무관하다.
     func testFormatterEdges() {
-        XCTAssertEqual(TokenFormatter.grouped(253_412_890), "253,412,890")
+        XCTAssertEqual(TokenFormatter.grouped(253_412_890, locale: Locale(identifier: "en_US")), "253,412,890")
+        // 구분기호가 지역 설정을 따르는지 — locale 인자가 무시되면 여기서 걸린다.
+        XCTAssertEqual(TokenFormatter.grouped(253_412_890, locale: Locale(identifier: "es_ES")), "253.412.890")
         XCTAssertEqual(TokenFormatter.cost(48.104), "$48.10")
         XCTAssertEqual(TokenFormatter.costCompact(9.54), "$9.5")     // < 100 → 소수 1자리
         XCTAssertEqual(TokenFormatter.costCompact(311.4), "$311")    // < 10K → 정수
