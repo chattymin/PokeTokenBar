@@ -6,6 +6,7 @@ private enum LocalAdditionalSource: String, Sendable {
     case hermes
     case cursor
     case copilot
+    case kiro
 }
 
 /// OpenCode usage from its local SQLite database and legacy message files.
@@ -71,6 +72,35 @@ struct LocalCopilotProvider: UsageProvider {
 
     func fetchEnrichment() async -> ProviderEnrichment {
         let entries = await LocalAdditionalUsageCache.shared.entries(for: .copilot)
+        return enrichment(entries: entries)
+    }
+}
+
+/// Kiro CLI usage estimated from its local conversation-history database.
+///
+/// Kiro's `RequestMetadata` (verified against `aws/amazon-q-developer-cli`, the upstream
+/// kiro-cli forks) never persists a token count. Tokens here are a bytes/4 estimate built
+/// from the stored conversation text — see `kiroTurnEntries` for why the ready-made
+/// `user_prompt_length` field can't be used as-is. There is no real dollar figure to
+/// report on top of an estimate (`reportsCost = false`, same reasoning as Copilot).
+///
+/// Kiro also *deletes* turns from its database on `/clear` or compaction (unlike every other
+/// local source here, whose on-disk logs only grow), so this provider merges each scan with
+/// previously-seen entries — see the `.kiro` case in `LocalAdditionalUsageCache`. A cleared
+/// conversation's already-counted tokens stay counted for the rest of the app's process
+/// lifetime, but are lost like any other in-memory cache on the next app restart.
+struct LocalKiroProvider: UsageProvider {
+    let id = "kiro"
+    let displayName = "Kiro"
+    let reportsCost = false
+
+    func fetchDaily() async throws -> DailyUsage? {
+        let entries = await LocalAdditionalUsageCache.shared.entries(for: .kiro)
+        return LocalUsageReader.daily(entries: entries, localDay: LocalUsageReader.todayKey())
+    }
+
+    func fetchEnrichment() async -> ProviderEnrichment {
+        let entries = await LocalAdditionalUsageCache.shared.entries(for: .kiro)
         return enrichment(entries: entries)
     }
 }
@@ -145,6 +175,16 @@ private actor LocalAdditionalUsageCache {
         case .hermes:
             since = periodStart
             afterRowIDByPath = [:]
+        case .kiro:
+            // Kiro rewrites a conversation's whole history JSON in place every turn — there
+            // is no append-only table with a monotonic id to watermark, so every scan
+            // re-reads and re-derives entries (idempotent via the stable per-turn id).
+            // Unlike Hermes' durable `sessions` table, `/clear` and compaction *delete* turns
+            // from Kiro's DB outright, so this source also merges with `existing` below —
+            // a cleared turn must stay counted for the rest of the process lifetime, not
+            // silently drop out of today's total.
+            since = periodStart
+            afterRowIDByPath = [:]
         }
         let existing = previous?.entries ?? []
         let task = Task.detached(priority: .utility) {
@@ -155,6 +195,9 @@ private actor LocalAdditionalUsageCache {
                 return (LocalUsageReader.dedupKeepMax(existing + loaded), [:])
             case .hermes:
                 return (LocalAdditionalUsageReader.hermesEntries(modifiedSince: since), [:])
+            case .kiro:
+                let loaded = LocalAdditionalUsageReader.kiroEntries(modifiedSince: since)
+                return (LocalUsageReader.dedupKeepMax(existing + loaded), [:])
             case .cursor:
                 let loaded = LocalAdditionalUsageReader.cursorEntries(
                     modifiedSince: since, afterRowIDByPath: afterRowIDByPath)
@@ -744,6 +787,140 @@ enum LocalAdditionalUsageReader {
         let time = text.dropFirst(11)
         if !time.contains("Z"), !time.contains("+"), !time.contains("-") { text += "Z" }
         return parseISO8601(text)
+    }
+
+    // MARK: Kiro CLI database
+
+    static var defaultKiroRoots: [URL] {
+        environmentPaths("KIRO_CLI_HOME")
+            ?? [FileManager.default.homeDirectoryForCurrentUser
+                .appendingPathComponent("Library/Application Support/kiro-cli")]
+    }
+
+    /// Read Kiro CLI usage turns newer than `modifiedSince`.
+    ///
+    /// Kiro persists a conversation as one row whose `value` column holds the *entire*
+    /// history as JSON, rewritten in place on every turn — there is no per-row token count
+    /// (see the type doc on `LocalKiroProvider`) and no append-only id to watermark, so this
+    /// re-parses every stored conversation on every call. Two schema generations coexist:
+    /// `conversations_v2` (kiro-cli < 2.0.1, dedicated `conversation_id`/`key`/timestamp
+    /// columns) and `conversations` (2.0.1+, keyed by working directory; the JSON itself
+    /// carries `conversation_id`). Both wrap the same turn shape, so they share a parser.
+    static func kiroEntries(
+        modifiedSince: Date,
+        roots: [URL]? = nil
+    ) -> [LocalUsageReader.Entry] {
+        let sourceRoots = roots ?? defaultKiroRoots
+        var entries: [LocalUsageReader.Entry] = []
+        for root in sourceRoots {
+            entries += kiroDatabaseEntries(kiroDatabaseURL(from: root), modifiedSince: modifiedSince)
+        }
+        return LocalUsageReader.dedupKeepMax(entries)
+    }
+
+    private static func kiroDatabaseURL(from root: URL) -> URL {
+        root.pathExtension == "sqlite3" ? root : root.appendingPathComponent("data.sqlite3")
+    }
+
+    private static func kiroDatabaseEntries(
+        _ database: URL,
+        modifiedSince: Date
+    ) -> [LocalUsageReader.Entry] {
+        var entries: [LocalUsageReader.Entry] = []
+
+        // kiro-cli < 2.0.1: one row per conversation, with dedicated id/timestamp columns.
+        let v2Rows = query(database, sql: "SELECT conversation_id, value FROM conversations_v2") {
+            statement -> (id: String?, value: String)? in
+            guard let value = columnText(statement, 1) else { return nil }
+            return (columnText(statement, 0), value)
+        }
+        for row in v2Rows ?? [] {
+            guard let object = jsonObject(data: Data(row.value.utf8)) else { continue }
+            let conversationID = row.id ?? stringValue(object["conversation_id"]) ?? database.path
+            entries += kiroTurnEntries(conversationID: conversationID, object: object, modifiedSince: modifiedSince)
+        }
+
+        // kiro-cli 2.0.1+: one row per working directory; the conversation id lives in the JSON.
+        let v1Rows = query(database, sql: "SELECT value FROM conversations") {
+            statement -> String? in columnText(statement, 0)
+        }
+        for value in v1Rows ?? [] {
+            guard let object = jsonObject(data: Data(value.utf8)),
+                  let conversationID = stringValue(object["conversation_id"]) else { continue }
+            entries += kiroTurnEntries(conversationID: conversationID, object: object, modifiedSince: modifiedSince)
+        }
+
+        return entries
+    }
+
+    /// Bytes-per-token used to turn estimated byte counts into an approximate token count.
+    /// There is nothing more precise available locally.
+    private static let kiroBytesPerToken = 4
+
+    /// Kiro has no server-side session — every turn resends the *whole* conversation, so a
+    /// turn's real prompt size is the accumulated history plus its own new user message.
+    /// `request_metadata.user_prompt_length` is **not** that: in kiro-cli's upstream
+    /// (`aws/amazon-q-developer-cli`, `crates/chat-cli/src/cli/chat/parser.rs`) it is assigned
+    /// from `conversation_state.user_input_message.content.len()` — only the bytes the user
+    /// just typed, excluding the resent history entirely. Using it as-is would undercount a
+    /// prompt by orders of magnitude once a conversation has any length. `response_size`
+    /// (`received_response_size`, accumulated from the actual streamed response/tool-input
+    /// bytes) has no such gap and is used as-is for output.
+    private static func kiroTurnEntries(
+        conversationID: String,
+        object: Object,
+        modifiedSince: Date
+    ) -> [LocalUsageReader.Entry] {
+        guard let turns = object["history"] as? [Any] else { return [] }
+        var entries: [LocalUsageReader.Entry] = []
+        // `latest_summary` stands in for turns compaction deleted from `history` — it still
+        // gets resent on every later request, so it seeds the running total (matches the
+        // reference `kiro-usage` tool's `cumulative = summary_tok`).
+        var cumulativeHistoryBytes = kiroJSONValueByteLength(object["latest_summary"] ?? 0)
+        for turn in turns {
+            guard let turnObject = turn as? Object else { continue }
+            let userBytes = kiroFieldByteLength(turnObject["user"])
+            // Bytes must accumulate into history even for turns skipped below (missing
+            // timestamp, outside the window) — later turns still resend them.
+            defer { cumulativeHistoryBytes += userBytes + kiroFieldByteLength(turnObject["assistant"]) }
+
+            guard let meta = turnObject["request_metadata"] as? Object,
+                  // A turn missing its timestamp has nothing stable to key an entry id on —
+                  // skip it rather than invent one, matching the reference `kiro-usage` tool.
+                  let rawTimestamp = doubleValue(meta["request_start_timestamp_ms"]), rawTimestamp > 0,
+                  let date = dateValue(meta["request_start_timestamp_ms"]),
+                  date >= modifiedSince else { continue }
+            let promptBytes = cumulativeHistoryBytes + userBytes
+            guard let entry = makeEntry(
+                id: "kiro|\(conversationID)|\(Int64(rawTimestamp))",
+                date: date,
+                model: stringValue(meta["model_id"]) ?? "unknown",
+                input: promptBytes / kiroBytesPerToken,
+                output: intValue(meta["response_size"]) / kiroBytesPerToken) else { continue }
+            entries.append(entry)
+        }
+        return entries
+    }
+
+    /// Byte length of a turn's `user`/`assistant` field, matching the reference `kiro-usage`
+    /// tool's `_text_len`: sum the stringified value of every key except `images` (a base64
+    /// blob that would otherwise dwarf the actual text and isn't separately token-modeled here).
+    private static func kiroFieldByteLength(_ value: Any?) -> Int {
+        guard let dict = value as? Object else {
+            if let string = value as? String { return string.utf8.count }
+            return 0
+        }
+        return dict.reduce(0) { total, entry in
+            entry.key == "images" ? total : total + kiroJSONValueByteLength(entry.value)
+        }
+    }
+
+    private static func kiroJSONValueByteLength(_ value: Any) -> Int {
+        if let string = value as? String { return string.utf8.count }
+        if let number = value as? NSNumber { return number.stringValue.utf8.count }
+        if let array = value as? [Any] { return array.reduce(0) { $0 + kiroJSONValueByteLength($1) } }
+        if let dict = value as? Object { return dict.values.reduce(0) { $0 + kiroJSONValueByteLength($1) } }
+        return 0
     }
 
     // MARK: Shared utilities
