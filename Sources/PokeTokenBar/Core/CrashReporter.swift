@@ -62,9 +62,13 @@ enum CrashReporter {
     }
 
     /// 정상 종료 — running 마커 제거 + 기록. (크래시/강제종료 땐 호출 안 됨 → 마커 잔존 → 다음 실행 감지.)
+    /// `writeAndFlush`: AppKit posts `willTerminate` and then exits, so a bare
+    /// `write` races teardown and `clean shutdown` is usually lost (#174).
+    /// The marker file itself is removed synchronously above — detection is
+    /// unaffected; this is the human-readable half of the shutdown record.
     static func markClean() {
         try? FileManager.default.removeItem(at: markerURL)
-        AppLog.write("clean shutdown")
+        AppLog.writeAndFlush("clean shutdown")
     }
 
     /// 직전 세션이 crash.log 에 남긴 크래시-시점 기록을 메인 로그로 합치고 crash.log 를 비운다.
