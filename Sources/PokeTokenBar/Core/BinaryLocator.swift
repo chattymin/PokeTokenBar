@@ -111,12 +111,18 @@ enum BinaryLocator {
     /// 파이프 버퍼(64KB)를 넘게 찍으면 자식이 write 에서 막혀 영영 종료하지 않고, 종료를 먼저 기다리는
     /// 구조에서는 타임아웃까지 통째로 날린 뒤 nil 을 돌려준다.
     private static func shellMarkedValue(script: String, argument: String, label: String) -> String? {
+        shellMarkedOutput(script: script, arguments: [argument], label: label).flatMap(parseMarkedPath)
+    }
+
+    /// 셸을 띄워 stdout 을 통째로 돌려준다(마커 추출은 호출자 몫). 값을 **여러 개** 받는 스크립트는
+    /// 마커가 여러 쌍이라 `parseMarkedPath`(첫 쌍만) 로는 못 읽으므로 원문이 필요하다.
+    private static func shellMarkedOutput(script: String, arguments: [String], label: String) -> String? {
         let shell = ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh"
         guard FileManager.default.isExecutableFile(atPath: shell) else { return nil }
 
         let process = Process()
         process.executableURL = URL(fileURLWithPath: shell)
-        process.arguments = ["-ilc", script, "sh", argument]
+        process.arguments = ["-ilc", script, "sh"] + arguments
         process.standardInput = FileHandle.nullDevice
         let output = Pipe()
         process.standardOutput = output
@@ -153,10 +159,7 @@ enum BinaryLocator {
             AppLog.write("\(label) output drain timed out")
             return nil
         }
-        guard let raw = String(data: box.data, encoding: .utf8),
-              let value = parseMarkedPath(raw)
-        else { return nil }
-        return value
+        return String(data: box.data, encoding: .utf8)
     }
 
     /// 로그인 셸에서 환경변수 하나를 읽는다. Finder/launchd 로 뜬 `.app` 은 셸 환경(`~/.zshrc` 의
@@ -166,14 +169,53 @@ enum BinaryLocator {
         // 변수명은 ASCII 대문자·숫자·밑줄만 허용 — 셸 주입 방지.
         // `isUppercase`/`isNumber` 는 유니코드 기준이라 `Σ`·키릴 `А`·`٣` 도 통과한다. 셸 메타문자는
         // 아니라 실제 주입은 안 되지만, 가드가 선언한 범위와 실제 허용 범위를 일치시킨다.
-        guard !name.isEmpty,
-              name.allSatisfy({ $0.isASCII && ($0.isUppercase || $0.isNumber || $0 == "_") })
-        else { return nil }
+        guard isShellSafeEnvironmentName(name) else { return nil }
         // 변수명은 위치 인자($1)로 넘기고 `eval` 은 그 이름의 값만 전개한다. 전개 결과는 재파싱되지
         // 않으므로 값에 셸 메타문자가 있어도 그대로 돌아온다(실측 확인).
         return shellMarkedValue(
             script: #"printf '<<<BIN:%s:BIN>>>' "$(eval printf '%s' \"\$$1\" 2>/dev/null)""#,
             argument: name, label: "\(name) shell env lookup")
+    }
+
+    /// 환경변수 **여러 개**를 셸 spawn **한 번**으로 읽는다. 이름마다 부르면 프로바이더가 늘수록
+    /// 기동이 그만큼 느려진다(셸 조회 실측 ~0.44s × 이름 수). 미설정·빈 값은 결과에서 빠지므로
+    /// 반환 딕셔너리에 키가 없는 것이 곧 "그 사용자는 이 변수를 안 쓴다"이다.
+    static func shellEnvironmentValues(_ names: [String]) -> [String: String] {
+        let safe = names.filter(isShellSafeEnvironmentName)
+        guard !safe.isEmpty else { return [:] }
+        // 이름은 전부 위치 인자로 넘기고 `$@` 로 순회한다 — 스크립트에 이름을 보간하지 않으므로
+        // 단일 조회와 같은 주입 안전성을 유지한다. 마커에 이름을 함께 실어 값과 짝을 잃지 않게 한다.
+        guard let raw = shellMarkedOutput(
+            script: #"for n in "$@"; do printf '<<<BIN:%s:%s:BIN>>>' "$n" "$(eval printf '%s' \"\$$n\" 2>/dev/null)"; done"#,
+            arguments: safe, label: "env batch lookup(\(safe.count))")
+        else { return [:] }
+
+        var out: [String: String] = [:]
+        for name in safe {
+            guard let value = parseMarkedValue(raw, name: name) else { continue }
+            out[name] = value
+        }
+        return out
+    }
+
+    /// 셸 주입 방지 — ASCII 대문자·숫자·밑줄만.
+    /// `isUppercase`/`isNumber` 는 유니코드 기준이라 `Σ`·키릴 `А`·`٣` 도 통과한다. 셸 메타문자는
+    /// 아니라 실제 주입은 안 되지만, 가드가 선언한 범위와 실제 허용 범위를 일치시킨다.
+    static func isShellSafeEnvironmentName(_ name: String) -> Bool {
+        !name.isEmpty
+            && name.allSatisfy { $0.isASCII && ($0.isUppercase || $0.isNumber || $0 == "_") }
+    }
+
+    /// `<<<BIN:NAME:value:BIN>>>` 에서 `NAME` 의 값만 추출. 프로파일 noise 와 다른 이름의 쌍은 무시.
+    /// 이름을 마커에 실어야 하는 이유: 인터랙티브 프로파일이 stdout 에 찍는 noise 가 쌍 사이에
+    /// 섞여도 순서가 아니라 이름으로 짝을 찾을 수 있다.
+    static func parseMarkedValue(_ s: String, name: String) -> String? {
+        guard let start = s.range(of: "<<<BIN:\(name):"),
+              let end = s.range(of: ":BIN>>>", range: start.upperBound..<s.endIndex)
+        else { return nil }
+        let value = s[start.upperBound..<end.lowerBound]
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return value.isEmpty ? nil : value
     }
 
     /// `<<<BIN:/path/to/tool:BIN>>>` 에서 경로만 추출. 프로파일 noise 무시.

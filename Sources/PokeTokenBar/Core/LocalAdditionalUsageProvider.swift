@@ -769,8 +769,10 @@ enum LocalAdditionalUsageReader {
             explicitCost: cost)
     }
 
+    /// GUI 앱은 셸 환경을 상속하지 않으므로 `UsageEnvironment` 를 통해 읽는다 — 프로세스 환경만
+    /// 보면 `~/.zshrc` 에 `export OPENCODE_DATA_DIR=…` 해 둔 사용자가 앱에서만 조용히 0 을 본다.
     private static func environmentPaths(_ key: String) -> [URL]? {
-        guard let raw = ProcessInfo.processInfo.environment[key] else { return nil }
+        guard let raw = UsageEnvironment.value(key) else { return nil }
         return raw.split(separator: ",")
             .map { $0.trimmingCharacters(in: .whitespaces) }
             .filter { !$0.isEmpty }

@@ -92,15 +92,11 @@ enum LocalUsageReader {
     /// 프로세스 환경에 없으면 로그인 셸에 한 번 물어본다(`BinaryLocator` 가 PATH 에 쓰는 것과 같은 수법).
     /// 이 조회가 없으면 설정 위치를 옮긴 사용자는 앱에서만 0 토큰을 보고, CLI·테스트에서는 정상이라
     /// 재현이 안 된다.
-    /// 셸 조회는 프로세스 생애 1회만 한다 — 환경변수는 앱이 도는 동안 바뀌지 않는데, 루트 캐시의
-    /// TTL 에 묶으면 값을 안 쓰는 대다수 사용자까지 갱신마다 셸 spawn(실측 ~0.44s) 비용을 문다.
-    /// 못 찾은 결과(nil)도 함께 캐시해 재시도를 막는다. `static let` 은 lazy + once 라 이 자체가 캐시다.
-    static func shellAwareClaudeConfigDir() -> String? { cachedShellConfigDir }
-
-    private static let cachedShellConfigDir: String? = {
-        if let v = ProcessInfo.processInfo.environment["CLAUDE_CONFIG_DIR"], !v.isEmpty { return v }
-        return BinaryLocator.shellEnvironmentValue("CLAUDE_CONFIG_DIR")
-    }()
+    /// 조회·캐시는 `UsageEnvironment` 가 담당한다 — 같은 문제를 가진 프로바이더 override 변수를
+    /// 한 곳에 모아 셸 spawn(실측 ~0.44s)을 이름 수와 무관하게 1회로 묶기 위해서다.
+    static func shellAwareClaudeConfigDir() -> String? {
+        UsageEnvironment.value("CLAUDE_CONFIG_DIR")
+    }
 
     private static let rootsCache = RootsCache()
 
@@ -968,8 +964,10 @@ enum LocalUsageReader {
     static let grokUpdatesFileName = "updates.jsonl"
 
     /// Grok CLI 세션 루트. CLI 와 같은 규칙으로 `$GROK_HOME` 을 우선한다.
+    /// GUI 앱은 셸 환경을 상속하지 않으므로 `UsageEnvironment` 를 통해 읽는다 — 프로세스 환경만
+    /// 보면 `~/.zshrc` 에 export 해 둔 사용자가 앱에서만 조용히 0 을 본다.
     static var grokSessionsDir: URL {
-        if let home = ProcessInfo.processInfo.environment["GROK_HOME"]?
+        if let home = UsageEnvironment.value("GROK_HOME")?
             .trimmingCharacters(in: .whitespacesAndNewlines), !home.isEmpty {
             return URL(fileURLWithPath: home).appendingPathComponent("sessions")
         }
