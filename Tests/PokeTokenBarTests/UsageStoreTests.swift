@@ -579,6 +579,27 @@ final class UsageStoreTests: XCTestCase {
         XCTAssertNil(store.lastErrorDescription)
     }
 
+    /// [issue #115 DoD] 신규 provider(kiro) 의 snapshot 이 today/week/month/burn 전부에 흘러가는지 확인.
+    /// (파서/스키마 회귀는 KiroUsageTests.swift 담당 — 여기는 store 집계 경로만 본다.)
+    func testKiroSnapshotFlowsThroughTodayWeekMonthAndBurn() async {
+        let claude = FakeUsageProvider(id: "claude_code", displayName: "Claude Code", daily: todayDaily(100_000_000))
+        let kiro = FakeUsageProvider(id: "kiro", displayName: "Kiro", daily: todayDaily(50_000_000), reportsCost: false)
+        kiro.enrichment = ProviderEnrichment(
+            activeBlock: block(tokensPerMinute: 200_000), blocksOK: true,
+            weekTotal: PeriodUsage(period: "w", totalTokens: 90_000_000, totalCost: 0),
+            monthTotal: PeriodUsage(period: "m", totalTokens: 300_000_000, totalCost: 0),
+            periodsOK: true)
+        let store = makeStore(providers: [claude, kiro])
+        await store.refresh(scheduleEmptyRetry: false)
+
+        XCTAssertEqual(store.todayTotalTokens, 150_000_000)
+        XCTAssertEqual(store.todayTokensByProvider["kiro"], 50_000_000)
+        XCTAssertEqual(store.weekTotalTokens, 90_000_000)
+        XCTAssertEqual(store.monthTotalTokens, 300_000_000)
+        XCTAssertEqual(store.burnTier, .fast, "burn 이 kiro 의 활성 블록을 반영")
+        XCTAssertEqual(store.snapshot(preferring: "kiro")?.providerID, "kiro", "탭에 노출됨")
+    }
+
     func testCodexOnlyWhenClaudeHasNoData() async {
         let claude = FakeUsageProvider(id: "claude_code", displayName: "Claude Code", daily: nil) // 데이터 없음
         let codex = FakeUsageProvider(id: "codex", displayName: "Codex", daily: todayDaily(50_000_000))
