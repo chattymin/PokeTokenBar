@@ -201,6 +201,12 @@ final class FloatingPetEnergyTests: XCTestCase {
     /// not intrinsic `.fixedSize` that clipped ja by ~9pt (owner review on #124).
     /// Iterate `allCases`, never a literal list: a hardcoded `[.ko, .en, .ja]` silently stopped
     /// covering Spanish the moment #159 landed, which is exactly when a layout guard matters.
+    ///
+    /// The view draws body with `.lineLimit(2)` (#167). An unconstrained height check
+    /// against `bubbleHeadroom` stays green for 3-line copy that still measures ≤70pt
+    /// while the view truncates — so this guard fails on `wouldTruncate`, not only overflow.
+    /// The tautological `measured.width ≤ panel.width` is gone: `measureSpeechBubble`
+    /// clamps width to the column by construction, so that assert could never fail.
     func testLocalizedAlertBubbleFitsDefaultPanel() {
         let pet: CGFloat = 96
         let panel = FloatingPetController.panelSize(petSize: pet, showingBubble: true)
@@ -211,18 +217,115 @@ final class FloatingPetEnergyTests: XCTestCase {
                 + FloatingPetController.bubbleHorizontalPadding * 2,
             FloatingPetController.bubbleMinWidth,
             "content column + horizontal padding must equal panel width")
+        XCTAssertEqual(
+            FloatingPetController.bubbleBodyLineLimit, 2,
+            "must stay in lockstep with SpeechBubbleView.lineLimit")
 
         for lang in AppLanguage.allCases {
             let l = L(lang)
-            let title = l.notifCritical
-            let body = l.notifBody(l.claudeFiveHour, TokenFormatter.percent(85))
-            let measured = FloatingPetController.measureSpeechBubble(title: title, body: body)
-            XCTAssertLessThanOrEqual(
-                measured.width, panel.width + 0.5,
-                "\(lang.rawValue) bubble width \(measured.width) must fit panel \(panel.width)")
-            XCTAssertLessThanOrEqual(
-                measured.height, FloatingPetController.bubbleHeadroom - 2,
-                "\(lang.rawValue) bubble height \(measured.height) must fit headroom \(FloatingPetController.bubbleHeadroom)")
+            for title in [l.notifCritical, l.notifWarning] {
+                for window in Self.alertWindows(l) {
+                    let body = l.notifBody(window, TokenFormatter.percent(85))
+                    let layout = FloatingPetController.measureSpeechBubbleLayout(title: title, body: body)
+                    XCTAssertFalse(
+                        layout.wouldTruncate,
+                        "\(lang.rawValue) '\(title)' / '\(body)' wraps to \(layout.bodyLineCount) lines and would truncate at lineLimit(\(FloatingPetController.bubbleBodyLineLimit))")
+                    XCTAssertLessThanOrEqual(
+                        layout.size.height, FloatingPetController.bubbleHeadroom - 2,
+                        "\(lang.rawValue) bubble height \(layout.size.height) must fit headroom \(FloatingPetController.bubbleHeadroom)")
+                }
+            }
         }
+    }
+
+    /// #167: 3-line copy that still fits the 70pt headroom must fail the guard.
+    /// Height-only would stay green (owner's table: 3-line ≈69pt). Injected independently
+    /// of Localization.swift so a green localized run can't hide a broken truncate check.
+    func testThreeLineBodyThatFitsHeadroomWouldTruncate() {
+        let title = "Límite inminente"
+        let body = Self.bodyWrappingExtraLines(2, title: title)
+        let layout = FloatingPetController.measureSpeechBubbleLayout(title: title, body: body)
+        XCTAssertEqual(layout.bodyLineCount, 3)
+        XCTAssertLessThanOrEqual(
+            layout.size.height, FloatingPetController.bubbleHeadroom - 2,
+            "precondition: 3-line copy still fits the panel — the defect is truncation, not overflow")
+        XCTAssertTrue(
+            layout.wouldTruncate,
+            "view lineLimit(2) truncates this copy; a headroom-only guard would miss it")
+    }
+
+    /// Two-line wrap is the view's designed capacity — must not trip truncation.
+    func testTwoLineBodyDoesNotTruncate() {
+        let title = "Límite inminente"
+        let body = Self.bodyWrappingExtraLines(1, title: title)
+        let layout = FloatingPetController.measureSpeechBubbleLayout(title: title, body: body)
+        XCTAssertEqual(layout.bodyLineCount, 2)
+        XCTAssertFalse(layout.wouldTruncate)
+        XCTAssertLessThanOrEqual(layout.size.height, FloatingPetController.bubbleHeadroom - 2)
+    }
+
+    /// 4-line copy overflows the panel *and* truncates — the other threshold in the owner's table.
+    func testFourLineBodyExceedsHeadroomAndWouldTruncate() {
+        let title = "Límite inminente"
+        let body = Self.bodyWrappingExtraLines(3, title: title)
+        let layout = FloatingPetController.measureSpeechBubbleLayout(title: title, body: body)
+        XCTAssertEqual(layout.bodyLineCount, 4)
+        XCTAssertTrue(layout.wouldTruncate)
+        XCTAssertGreaterThan(
+            layout.size.height, FloatingPetController.bubbleHeadroom - 2,
+            "4-line unconstrained height must miss the panel so the overflow assert can still fail")
+    }
+
+    /// Unclamped single-line width must be able to exceed the content column.
+    /// `measureSpeechBubble` returns `min(contentWidth, …) + padding` (= panel width),
+    /// so comparing that to `panel.width` can never fail (#167).
+    func testUnclampedBubbleTextWidthCanExceedContentColumn() {
+        let title = "Límite inminente"
+        let body = String(repeating: "M", count: 80)
+        let layout = FloatingPetController.measureSpeechBubbleLayout(title: title, body: body)
+        XCTAssertGreaterThan(
+            layout.unclampedBodyWidth, layout.size.width,
+            "unclamped width must exceed the clamped chrome, not echo min(contentWidth, …) + padding")
+        XCTAssertGreaterThan(
+            layout.unclampedBodyWidth, FloatingPetController.bubbleContentWidth)
+
+        let short = FloatingPetController.measureSpeechBubbleLayout(title: "Hi", body: "Hi")
+        XCTAssertEqual(short.bodyLineCount, 1)
+        XCTAssertFalse(short.wouldTruncate)
+        XCTAssertLessThanOrEqual(short.unclampedBodyWidth, FloatingPetController.bubbleContentWidth)
+        XCTAssertLessThanOrEqual(short.unclampedTitleWidth, FloatingPetController.bubbleContentWidth)
+    }
+
+    /// Window names that `buildLimitWindows` can put in a bubble body.
+    private static func alertWindows(_ l: L) -> [String] {
+        [
+            l.claudeFiveHour,
+            l.claudeWeekly,
+            "Claude \(l.weeklyOpus)",
+            "Claude \(l.weeklySonnet)",
+            l.codexPersonalLimit,
+            "Codex \(l.codexWindow(300))",
+            "Codex \(l.codexWindow(10_080))",
+            "Claude \(l.claudeLimitEntry(kind: "weekly_scoped", model: "Opus"))",
+        ]
+    }
+
+    /// Grow a wrapping body until unconstrained `measureSpeechBubble` height has jumped
+    /// `extraLines` times past a single line. Independent of `bodyLineCount` so the
+    /// fixture still works if that field is the thing under test.
+    private static func bodyWrappingExtraLines(_ extraLines: Int, title: String) -> String {
+        var text = "word"
+        var lastHeight = FloatingPetController.measureSpeechBubble(title: title, body: text).height
+        var jumps = 0
+        for _ in 0..<400 {
+            text += " word"
+            let height = FloatingPetController.measureSpeechBubble(title: title, body: text).height
+            if height > lastHeight + 2 {
+                jumps += 1
+                lastHeight = height
+                if jumps == extraLines { return text }
+            }
+        }
+        return text
     }
 }
