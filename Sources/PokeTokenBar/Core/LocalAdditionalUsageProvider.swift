@@ -793,10 +793,18 @@ enum LocalAdditionalUsageReader {
     /// Kiro persists a conversation as one row whose `value` column holds the *entire*
     /// history as JSON, rewritten in place on every turn — there is no per-row token count
     /// (see the type doc on `LocalKiroProvider`) and no append-only id to watermark, so this
-    /// re-parses every stored conversation on every call. Two schema generations coexist:
+    /// cannot advance a row id. Two schema generations coexist:
     /// `conversations_v2` (kiro-cli < 2.0.1, dedicated `conversation_id`/`key`/timestamp
     /// columns) and `conversations` (2.0.1+, keyed by working directory; the JSON itself
     /// carries `conversation_id`). Both wrap the same turn shape, so they share a parser.
+    ///
+    /// `modifiedSince` is applied *after* the JSON parse (`kiroTurnEntries`), so it
+    /// bounds the output, not the work (#178). The cheap gate is the database
+    /// file's own signature — reused from `LocalAntigravityUsageReader.signature`
+    /// (`.sqlite3` + `-wal`, never `-shm`). An unchanged file returns `[]`; the
+    /// `.kiro` cache merges `existing + loaded`, so that keeps previously-seen
+    /// entries. The first scan of a process has no recorded signature and is
+    /// never skipped.
     static func kiroEntries(
         modifiedSince: Date,
         roots: [URL]? = nil
@@ -809,6 +817,18 @@ enum LocalAdditionalUsageReader {
         return LocalUsageReader.dedupKeepMax(entries)
     }
 
+    /// Process-lifetime skip cache for #178. Tests reset it in `setUp` so one
+    /// case cannot leak a signature into the next.
+    private static let kiroScanCache = KiroDatabaseScanCache()
+
+    static func clearKiroScanCache() {
+        kiroScanCache.clear()
+    }
+
+    static func recordedKiroSignature(for database: URL) -> (mtime: Date, size: Int)? {
+        kiroScanCache.recordedSignature(for: database)
+    }
+
     private static func kiroDatabaseURL(from root: URL) -> URL {
         root.pathExtension == "sqlite3" ? root : root.appendingPathComponent("data.sqlite3")
     }
@@ -817,6 +837,14 @@ enum LocalAdditionalUsageReader {
         _ database: URL,
         modifiedSince: Date
     ) -> [LocalUsageReader.Entry] {
+        // Stat before the read. A commit that lands mid-read then differs from
+        // the stored signature on the next poll and is re-read; stat afterwards
+        // and that same commit is frozen into a signature that already looks current.
+        let signature = LocalAntigravityUsageReader.signature(of: database)
+        if let signature, kiroScanCache.shouldSkip(database, signature: signature) {
+            return []
+        }
+
         var entries: [LocalUsageReader.Entry] = []
 
         // kiro-cli < 2.0.1: one row per conversation, with dedicated id/timestamp columns.
@@ -825,15 +853,20 @@ enum LocalAdditionalUsageReader {
             guard let value = columnText(statement, 1) else { return nil }
             return (columnText(statement, 0), value)
         }
+        // kiro-cli 2.0.1+: one row per working directory; the conversation id lives in the JSON.
+        let v1Rows = query(database, sql: "SELECT value FROM conversations") {
+            statement -> String? in columnText(statement, 0)
+        }
+        // Both nil: open/prepare/step failed (BUSY, corrupt, missing file that
+        // still couldn't be opened). Do not occupy the skip slot — the next
+        // poll must retry. A missing table on one generation is nil while the
+        // other succeeds, so "at least one non-nil" is a completed scan.
+        guard v2Rows != nil || v1Rows != nil else { return [] }
+
         for row in v2Rows ?? [] {
             guard let object = jsonObject(data: Data(row.value.utf8)) else { continue }
             let conversationID = row.id ?? stringValue(object["conversation_id"]) ?? database.path
             entries += kiroTurnEntries(conversationID: conversationID, object: object, modifiedSince: modifiedSince)
-        }
-
-        // kiro-cli 2.0.1+: one row per working directory; the conversation id lives in the JSON.
-        let v1Rows = query(database, sql: "SELECT value FROM conversations") {
-            statement -> String? in columnText(statement, 0)
         }
         for value in v1Rows ?? [] {
             guard let object = jsonObject(data: Data(value.utf8)),
@@ -841,7 +874,40 @@ enum LocalAdditionalUsageReader {
             entries += kiroTurnEntries(conversationID: conversationID, object: object, modifiedSince: modifiedSince)
         }
 
+        if let signature { kiroScanCache.remember(database, signature: signature) }
         return entries
+    }
+
+    /// Skip cache for a whole-document SQLite store that cannot be watermarked.
+    /// Signature is `LocalAntigravityUsageReader.signature` — do not copy it.
+    private final class KiroDatabaseScanCache: @unchecked Sendable {
+        private var signatures: [String: (mtime: Date, size: Int)] = [:]
+        private let lock = NSLock()
+
+        func clear() {
+            lock.lock()
+            signatures = [:]
+            lock.unlock()
+        }
+
+        func recordedSignature(for database: URL) -> (mtime: Date, size: Int)? {
+            lock.lock()
+            defer { lock.unlock() }
+            return signatures[database.path]
+        }
+
+        func shouldSkip(_ database: URL, signature: (mtime: Date, size: Int)) -> Bool {
+            lock.lock()
+            defer { lock.unlock() }
+            guard let known = signatures[database.path] else { return false }
+            return known.mtime == signature.mtime && known.size == signature.size
+        }
+
+        func remember(_ database: URL, signature: (mtime: Date, size: Int)) {
+            lock.lock()
+            signatures[database.path] = signature
+            lock.unlock()
+        }
     }
 
     /// Bytes-per-token used to turn estimated byte counts into an approximate token count.

@@ -9,6 +9,7 @@ final class KiroUsageTests: XCTestCase {
         temporaryDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent("PokeTokenBar-KiroUsageTests-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
+        LocalAdditionalUsageReader.clearKiroScanCache()
     }
 
     override func tearDownWithError() throws {
@@ -123,11 +124,98 @@ final class KiroUsageTests: XCTestCase {
         let since = try date("2026-01-01T00:00:00Z")
 
         let first = LocalAdditionalUsageReader.kiroEntries(modifiedSince: since, roots: [temporaryDirectory])
+        // Parse stability is a property of the reader, not of the mtime gate —
+        // clear so the second call actually re-reads (#178 would otherwise
+        // return [] and this assert would pass for the wrong reason).
+        LocalAdditionalUsageReader.clearKiroScanCache()
         let second = LocalAdditionalUsageReader.kiroEntries(modifiedSince: since, roots: [temporaryDirectory])
 
         XCTAssertEqual(Set(first.map(\.id)), Set(second.map(\.id)))
         XCTAssertEqual(LocalUsageReader.dedupKeepMax(first + second).count, first.count,
                        "merging two identical scans must not double the entries")
+    }
+
+    /// #178: `modifiedSince` is applied after the JSON parse, so an unchanged
+    /// database still pays the full read. The cheap gate is the file's own
+    /// signature — a second scan that sees the same mtime+size must return
+    /// nothing. The `.kiro` cache merges `existing + loaded`, so empty is
+    /// the correct "nothing new" signal, not a wipe.
+    func testUnchangedDatabaseSkipsTheRescan() throws {
+        try seedV2(conversations: [
+            (id: "conv-1", turns: [
+                turn(timestampMs: 1_780_000_000_000, model: "claude-sonnet-4.5",
+                     userText: String(repeating: "u", count: 40), responseBytes: 40),
+            ]),
+        ])
+        let since = try date("2026-01-01T00:00:00Z")
+
+        let first = LocalAdditionalUsageReader.kiroEntries(modifiedSince: since, roots: [temporaryDirectory])
+        XCTAssertEqual(first.map(\.id), ["kiro|conv-1|1780000000000"])
+
+        let second = LocalAdditionalUsageReader.kiroEntries(modifiedSince: since, roots: [temporaryDirectory])
+        XCTAssertTrue(second.isEmpty, "unchanged database must not be re-parsed; empty keeps the cached entries")
+        XCTAssertEqual(LocalUsageReader.dedupKeepMax(first + second).count, first.count)
+    }
+
+    /// A WAL commit leaves the main file's mtime alone. Keying the skip on
+    /// `data.sqlite3` only would miss the turn that just landed — the same
+    /// class `LocalAntigravityUsageReader.signature` already records. Do not
+    /// copy that function; reuse it.
+    func testWalCommitForcesARescan() throws {
+        try seedV2(conversations: [
+            (id: "conv-1", turns: [
+                turn(timestampMs: 1_780_000_000_000, model: "claude-sonnet-4.5",
+                     userText: String(repeating: "u", count: 40), responseBytes: 40),
+            ]),
+        ])
+        let since = try date("2026-01-01T00:00:00Z")
+        let first = LocalAdditionalUsageReader.kiroEntries(modifiedSince: since, roots: [temporaryDirectory])
+        XCTAssertFalse(first.isEmpty)
+
+        try Data("wal-commit".utf8).write(to: URL(fileURLWithPath: databaseURL.path + "-wal"))
+        let second = LocalAdditionalUsageReader.kiroEntries(modifiedSince: since, roots: [temporaryDirectory])
+        XCTAssertEqual(Set(second.map(\.id)), Set(first.map(\.id)),
+                       "a newer -wal sibling must invalidate the skip")
+    }
+
+    /// `-shm` is a rebuildable index. A read-only connection writes read
+    /// marks into it, so including it would let the skip invalidate itself
+    /// on every poll (hit rate 0). Same exclusion as Antigravity.
+    func testShmChurnDoesNotForceARescan() throws {
+        try seedV2(conversations: [
+            (id: "conv-1", turns: [
+                turn(timestampMs: 1_780_000_000_000, model: "claude-sonnet-4.5",
+                     userText: String(repeating: "u", count: 40), responseBytes: 40),
+            ]),
+        ])
+        let since = try date("2026-01-01T00:00:00Z")
+        _ = LocalAdditionalUsageReader.kiroEntries(modifiedSince: since, roots: [temporaryDirectory])
+
+        try Data("shm-read-mark".utf8).write(to: URL(fileURLWithPath: databaseURL.path + "-shm"))
+        let second = LocalAdditionalUsageReader.kiroEntries(modifiedSince: since, roots: [temporaryDirectory])
+        XCTAssertTrue(second.isEmpty, "-shm churn is a read, not a write")
+    }
+
+    /// A failed open must not occupy the skip slot — otherwise a BUSY or
+    /// corrupt page is frozen as "no usage" until the file's mtime moves.
+    func testFailedOpenDoesNotOccupyTheSkipSlot() throws {
+        try Data("not-a-sqlite-database".utf8).write(to: databaseURL)
+        let since = try date("2026-01-01T00:00:00Z")
+        let first = LocalAdditionalUsageReader.kiroEntries(modifiedSince: since, roots: [temporaryDirectory])
+        XCTAssertTrue(first.isEmpty)
+        XCTAssertNil(
+            LocalAdditionalUsageReader.recordedKiroSignature(for: databaseURL),
+            "failed open must not record a signature")
+
+        try FileManager.default.removeItem(at: databaseURL)
+        try seedV2(conversations: [
+            (id: "conv-1", turns: [
+                turn(timestampMs: 1_780_000_000_000, model: "claude-sonnet-4.5",
+                     userText: String(repeating: "u", count: 40), responseBytes: 40),
+            ]),
+        ])
+        let second = LocalAdditionalUsageReader.kiroEntries(modifiedSince: since, roots: [temporaryDirectory])
+        XCTAssertEqual(second.map(\.id), ["kiro|conv-1|1780000000000"])
     }
 
     func testMissingModelIDFallsBackToUnknown() throws {
