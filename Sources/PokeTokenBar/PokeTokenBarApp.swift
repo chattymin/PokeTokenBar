@@ -39,6 +39,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         // 종료 시 `markClean()` 이 발화해, 살아남은 쪽이 나중에 크래시해도 다음 실행이 정상 종료로 읽는다.
         if SingleInstance.shouldYieldToRunningInstance() {
             AppLog.write("duplicate instance: yielding to the instance already running")
+            // write 는 async — terminate 이 곧 exit(0) 에 닿으므로 이 줄이 파일에 닿을 때까지 기다린다.
+            // 이 로그가 없으면 가드의 오작동("앱이 안 뜬다")과 크래시를 구별할 단서가 사라진다.
+            AppLog.flush()
             NSApp.terminate(nil)
             return
         }

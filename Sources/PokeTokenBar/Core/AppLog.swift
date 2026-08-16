@@ -19,6 +19,13 @@ enum AppLog {
     /// 레퍼런스(size-capped 회전, 수 MB)에 맞춤 — 일자별 폴더는 무한 성장/정리 필요라 채택 안 함.
     private static let maxBytes = 2 * 1024 * 1024
 
+    /// 큐에 쌓인 기록이 파일에 닿을 때까지 기다린다 — **곧 프로세스가 끝나는 자리에서만** 쓴다.
+    /// `write` 는 async 라, 기록 직후 `NSApp.terminate` 이 `exit(0)` 에 닿으면 그 줄이 통째로 사라진다.
+    /// serial 큐라 빈 블록을 sync 로 넣으면 앞서 넣은 기록이 모두 끝난 뒤에 돌아온다.
+    static func flush() {
+        queue.sync {}
+    }
+
     static func write(_ message: String) {
         // 실제 .app 실행에서만 기록 — swift test / 로우 바이너리 실행이 프로덕션 로그를 오염시키지
         // 않게(형제 write 경로 writeParitySnapshot·checkLimitNotifications 와 동일 가드). 테스트가
