@@ -418,7 +418,7 @@ struct FloatingPetView: View {
 
     var body: some View {
         let size = CGFloat(store.floatingPetSize)
-        let subject = companion.floatingPetSubject
+        let subject = companion.representativeSubject
         VStack(spacing: 8) {
             if let alert = store.currentBubbleAlert {
                 SpeechBubbleView(alert: alert, l: L(companion.language))

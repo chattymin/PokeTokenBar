@@ -24,7 +24,7 @@ final class PopoverNavigationTests: XCTestCase {
         let nav = PopoverNavigation()
         nav.showSettings = true
 
-        nav.openFloatingPetDex()
+        nav.openRepresentativeDex()
 
         XCTAssertFalse(nav.showSettings)
         XCTAssertEqual(nav.tab, .collection)

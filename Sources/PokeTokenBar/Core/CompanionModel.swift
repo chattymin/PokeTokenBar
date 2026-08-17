@@ -523,10 +523,10 @@ struct CompanionState: Codable, Sendable {
     var lastDate = ""
     // 현재 포켓몬(없으면 알)
     var active: MonState?
-    // 플로팅 펫에 고정한 대표 종. nil = 현재 키우는 포켓몬(또는 알)을 그대로 따라간다.
+    // 메뉴바와 플로팅 펫에 고정한 대표 종. nil = 현재 키우는 포켓몬(또는 알)을 그대로 따라간다.
     // 종 단위 선택이라 성격 같은 개체 정보는 들고 있지 않는다. 선택 가능한 범위는 도감과 동일하게
-    // 졸업분 + 현재 개체의 도달 단계이며, 그 범위에서 빠지면 reconcileFloatingPetSelection 이 nil 로 복구한다.
-    var floatingPetSpeciesID: Int? = nil
+    // 졸업분 + 현재 개체의 도달 단계이며, 그 범위에서 빠지면 reconcileRepresentativeSelection 이 nil 로 복구한다.
+    var representativeSpeciesID: Int? = nil
     // 도감
     var dex: [DexEntry] = []
     // 소유한 (base,final) 쌍 — 분기 다양성용
@@ -565,7 +565,7 @@ struct CompanionState: Codable, Sendable {
         lastDate           = c.lenient(String.self, forKey: .lastDate, default: "")
         // active 손상(빈 pathIDs 등) → 알로 폴백하되 도감·인벤토리는 보존.
         active             = c.lenientOptional(MonState.self, forKey: .active)
-        floatingPetSpeciesID = c.lenientOptional(Int.self, forKey: .floatingPetSpeciesID)
+        representativeSpeciesID = c.lenientOptional(Int.self, forKey: .representativeSpeciesID)
         // 도감은 항목별 격리 — 손상 항목 하나가 도감 전체를 날리지 않게.
         dex                = c.lenient([Lossy<DexEntry>].self, forKey: .dex, default: []).compactMap(\.value)
         collectedFinals    = c.lenient(Set<String>.self, forKey: .collectedFinals, default: [])
@@ -575,15 +575,29 @@ struct CompanionState: Codable, Sendable {
         candyFeatureSeeded = c.lenient(Bool.self, forKey: .candyFeatureSeeded, default: false)
     }
 
-    /// 대표 펫은 사용자가 현재 보유한 종만 가리킨다. 도감의 종 집계와 같은 포함 규칙을 모델에 두어
-    /// Fresh Egg·메타몽 리빌·손편집 세이브가 유령 종을 플로팅 펫에 영구히 남기지 않게 한다.
-    mutating func reconcileFloatingPetSelection() {
-        guard let selected = floatingPetSpeciesID else { return }
-        var available = Set(dex.flatMap(\.chainOrder))
-        if let active {
-            available.formUnion(active.pathIDs.prefix(active.stageIndex + 1))
-        }
-        if !available.contains(selected) { floatingPetSpeciesID = nil }
+    /// 졸업 기록 또는 현재 개체가 실제로 도달한 단계에 이 종이 포함되는가.
+    /// 도감 전체 표시 모델을 만들지 않고 대표 종 하나만 확인하는 경량 경로다.
+    func ownsSpecies(_ speciesID: Int) -> Bool {
+        if dex.contains(where: { $0.chainOrder.contains(speciesID) }) { return true }
+        guard let active else { return false }
+        return active.pathIDs.prefix(active.stageIndex + 1).contains(speciesID)
+    }
+
+    /// 보유한 특정 종의 이로치 여부. 졸업 기록과 현재 도달 단계만 훑으며 이름·정렬·희귀도 등
+    /// 도감 표시 모델은 계산하지 않는다. 위장 중인 메타몽의 이로치는 리빌 전까지 숨긴다.
+    func ownsShinySpecies(_ speciesID: Int) -> Bool {
+        if dex.contains(where: { $0.isShiny && $0.chainOrder.contains(speciesID) }) { return true }
+        guard let active,
+              active.pathIDs.prefix(active.stageIndex + 1).contains(speciesID),
+              active.isShiny else { return false }
+        return active.dittoDisguise == nil || active.dittoRevealed
+    }
+
+    /// 대표 포켓몬은 사용자가 현재 보유한 종만 가리킨다. Fresh Egg·메타몽 리빌·손편집 세이브가
+    /// 유령 종을 메뉴바와 플로팅 펫에 영구히 남기지 않게 한다.
+    mutating func reconcileRepresentativeSelection() {
+        guard let selected = representativeSpeciesID else { return }
+        if !ownsSpecies(selected) { representativeSpeciesID = nil }
     }
 }
 

@@ -8,7 +8,7 @@ struct SettingsView: View {
     /// 팝오버 내부 화면 전환 방식 — sheet/dismiss 를 쓰지 않는다 (PopoverView 의 NOTE 참조)
     var onClose: () -> Void
     /// 기존 컬렉션의 도감으로 돌아가 대표 포켓몬을 고르게 한다.
-    var onChooseFloatingPet: () -> Void
+    var onChooseRepresentative: () -> Void
     @State private var launchAtLogin = LoginItem.isEnabled
     @State private var launchAtLoginError: String?
     @State private var reportError: String?
@@ -19,10 +19,10 @@ struct SettingsView: View {
 
     private var isBundledApp: Bool { AppEnv.isBundledApp }
 
-    private var floatingPetSelectionText: String {
-        guard let selected = companion.floatingPetSpeciesID,
+    private var representativeSelectionText: String {
+        guard let selected = companion.representativeSpeciesID,
               let species = companion.dexSpecies.first(where: { $0.id == selected }) else {
-            return l.floatingPetFollowCurrent
+            return l.representativeFollowCurrent
         }
         return "#\(species.id) \(species.name)\(species.isShiny ? " ✨" : "")"
     }
@@ -197,12 +197,12 @@ struct SettingsView: View {
                 Divider()
                 groupRow {
                     VStack(alignment: .leading, spacing: 1) {
-                        Text(l.floatingPetPokemonLabel).font(.callout)
-                        Text(floatingPetSelectionText)
+                        Text(l.representativePokemonLabel).font(.callout)
+                        Text(representativeSelectionText)
                             .font(.caption2).foregroundStyle(.tertiary).lineLimit(1)
                     }
                     Spacer()
-                    Button(l.floatingPetChooseFromDex, action: onChooseFloatingPet)
+                    Button(l.representativeChooseFromDex, action: onChooseRepresentative)
                         .controlSize(.small)
                 }
                 Divider()

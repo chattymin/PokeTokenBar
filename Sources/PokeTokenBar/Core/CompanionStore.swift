@@ -10,6 +10,7 @@ final class CompanionStore {
     private(set) var state = CompanionState()
     private(set) var displayState: CompanionStateKind = .egg
     private(set) var currentLine: EvoLine?
+    private(set) var representativeSubject = RepresentativeSubject(speciesID: nil, isShiny: false)
     private(set) var isHatching = false
     private var isRevealingDitto = false   // 메타몽 리빌 비동기 중복 방지(isHatching 자매)
     private(set) var justEvolvedTo: String?     // 이름(연출/문구)
@@ -55,6 +56,7 @@ final class CompanionStore {
         self.rng = rng
         self.dittoDisguiseRollingEnabled = dittoDisguiseRollingEnabled
         load()
+        refreshRepresentativeSubject()
         if state.active != nil { displayState = .idle }
     }
 
@@ -92,28 +94,34 @@ final class CompanionStore {
     }
     var currentNature: PokemonNature? { state.active?.nature }
 
-    /// 플로팅 펫이 그릴 종과 색. nil 선택은 기존 동작(현재 개체/알)을 보존하고, 고정 선택은 도감의
-    /// 종 단위 shiny 플래그를 사용한다. 홈·메뉴바는 이 값을 읽지 않아 육성 대상과 표시 대상을 분리한다.
-    struct FloatingPetSubject: Equatable, Sendable {
+    /// 메뉴바와 플로팅 펫이 그릴 대표 종과 색. nil 선택은 기존 동작(현재 개체/알)을 보존한다.
+    /// 저장된 값이라 상시 렌더링 경로가 도감 전체를 다시 접거나 불필요한 상태를 관찰하지 않는다.
+    struct RepresentativeSubject: Equatable, Sendable {
         let speciesID: Int?
         let isShiny: Bool
     }
 
-    var floatingPetSpeciesID: Int? { state.floatingPetSpeciesID }
-    var floatingPetSubject: FloatingPetSubject {
-        if let selected = state.floatingPetSpeciesID,
-           let species = dexSpecies.first(where: { $0.id == selected }) {
-            return FloatingPetSubject(speciesID: species.id, isShiny: species.isShiny)
+    var representativeSpeciesID: Int? { state.representativeSpeciesID }
+
+    /// 관련 상태가 바뀌어 저장되는 경계에서만 갱신한다. 고정 종 하나의 이로치 여부만 조회하므로
+    /// 이름 해석·정렬을 포함한 `dexSpecies` 계산을 메뉴바/플로팅 펫 렌더마다 반복하지 않는다.
+    private func refreshRepresentativeSubject() {
+        let next: RepresentativeSubject
+        if let selected = state.representativeSpeciesID {
+            next = RepresentativeSubject(speciesID: selected,
+                                         isShiny: state.ownsShinySpecies(selected))
+        } else {
+            next = RepresentativeSubject(speciesID: currentSpeciesID, isShiny: currentIsShiny)
         }
-        return FloatingPetSubject(speciesID: currentSpeciesID, isShiny: currentIsShiny)
+        if representativeSubject != next { representativeSubject = next }
     }
 
     /// nil 은 자동 추적. 도감에 없는 id 는 저장하지 않는다 — UI 밖 호출이나 손상된 입력도 같은
     /// 불변식을 지키며, 실패한 요청이 기존 선택을 조용히 해제하지 않도록 false 만 반환한다.
     @discardableResult
-    func setFloatingPetSpeciesID(_ id: Int?) -> Bool {
-        if let id, !dexSpecies.contains(where: { $0.id == id }) { return false }
-        state.floatingPetSpeciesID = id
+    func setRepresentativeSpeciesID(_ id: Int?) -> Bool {
+        if let id, !state.ownsSpecies(id) { return false }
+        state.representativeSpeciesID = id
         save()
         return true
     }
@@ -583,7 +591,7 @@ final class CompanionStore {
         notifyCompanionEvent(l.notifGraduateTitle, l.notifGraduateBody(name))
         eventUntil = clock().addingTimeInterval(6)
         state.active = nil
-        state.reconcileFloatingPetSelection()   // 졸업 체인이 dex 로 옮겨져 선택은 정상적으로 유지된다
+        state.reconcileRepresentativeSelection()   // 졸업 체인이 dex 로 옮겨져 선택은 정상적으로 유지된다
         activeGeneration += 1
         currentLine = nil
         state.eggUsage = 0   // 새 알은 처음부터 인큐베이션
@@ -749,7 +757,7 @@ final class CompanionStore {
         guard canBuyEgg(tier) else { return false }
         state.spentTokens += FreshEgg.price(guaranteeing: tier)
         state.active = nil            // 폐기 (졸업 아님 — dex/collectedFinals 미변경)
-        state.reconcileFloatingPetSelection()   // 미졸업 개체에만 있던 대표 종은 자동 추적으로 복귀
+        state.reconcileRepresentativeSelection()   // 미졸업 개체에만 있던 대표 종은 자동 추적으로 복귀
         activeGeneration += 1
         currentLine = nil
         state.eggUsage = 0            // 새 알은 처음부터 인큐베이션(재부화에 5M 필요)
@@ -1016,7 +1024,7 @@ final class CompanionStore {
         m.dittoRevealed = true
         let shiny = m.isShiny
         state.active = m
-        state.reconcileFloatingPetSelection()   // 위장 종만 근거였던 선택은 리빌과 함께 제거
+        state.reconcileRepresentativeSelection()   // 위장 종만 근거였던 선택은 리빌과 함께 제거
         currentLine = dittoLine
         AppLog.write("ditto reveal: disguise=\(m.dittoDisguise ?? -1) → ditto rarity=\(dittoLine.rarity) shiny=\(shiny)")
         fireCelebration(.dittoReveal(shiny: shiny))
@@ -1039,7 +1047,7 @@ final class CompanionStore {
             guard activeGeneration == generation,
                   let latest = state.active, latest.baseID == a.baseID, currentLine == nil else { return }
             state.active = normalizedEvolutionState(latest, from: line.tree)
-            state.reconcileFloatingPetSelection()   // 손상 경로 정규화로 사라진 단계가 대표로 남지 않게
+            state.reconcileRepresentativeSelection()   // 손상 경로 정규화로 사라진 단계가 대표로 남지 않게
             currentLine = line
             save()   // 마이그레이션 선택을 사용량 재평가 전에 영속화해 재시작마다 다시 롤리지 않는다.
             applyUsage(0)   // 라인 미로딩 동안 적립된 사용량이 임계를 넘었으면 지금 진화 판정
@@ -1208,6 +1216,7 @@ final class CompanionStore {
         state = SaveTransfer.sanitized(s)
     }
     private func save() {
+        refreshRepresentativeSubject()
         guard let data = try? JSONEncoder().encode(state) else { return }
         try? data.write(to: fileURL, options: .atomic)   // 부분 쓰기 손상 방지(펫 상태)
     }

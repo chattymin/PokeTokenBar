@@ -856,7 +856,7 @@ private struct DexGridView: View {
                             let sp = slice[i]
                             DexSpeciesCell(store: store, species: sp,
                                            isSelected: selectedID == sp.id,
-                                           isRepresentative: store.floatingPetSpeciesID == sp.id) {
+                                           isRepresentative: store.representativeSpeciesID == sp.id) {
                                 selectedID = (selectedID == sp.id) ? nil : sp.id
                             }
                             .frame(maxWidth: .infinity)
@@ -881,12 +881,12 @@ private struct DexGridView: View {
                 // 칸은 번호·스프라이트·이름만 보여주므로 희귀도가 선택으로 얻는 정보다.
                 Text("#\(sel.id) \(sel.name) · \(store.l.rarityLabel(sel.rarity))")
                     .font(.system(size: 9)).foregroundStyle(.secondary).lineLimit(1)
-                let isRepresentative = store.floatingPetSpeciesID == sel.id
+                let isRepresentative = store.representativeSpeciesID == sel.id
                 Button {
-                    _ = store.setFloatingPetSpeciesID(isRepresentative ? nil : sel.id)
+                    _ = store.setRepresentativeSpeciesID(isRepresentative ? nil : sel.id)
                 } label: {
-                    Label(isRepresentative ? store.l.floatingPetUnsetRepresentative
-                                           : store.l.floatingPetSetRepresentative,
+                    Label(isRepresentative ? store.l.representativeUnset
+                                           : store.l.representativeSet,
                           systemImage: isRepresentative ? "star.slash" : "star")
                 }
                 .buttonStyle(.bordered)
@@ -982,10 +982,10 @@ private struct DexSpeciesCell: View {
         .accessibilityLabel(tooltip)
         .contextMenu {
             Button {
-                _ = store.setFloatingPetSpeciesID(isRepresentative ? nil : species.id)
+                _ = store.setRepresentativeSpeciesID(isRepresentative ? nil : species.id)
             } label: {
-                Label(isRepresentative ? store.l.floatingPetUnsetRepresentative
-                                       : store.l.floatingPetSetRepresentative,
+                Label(isRepresentative ? store.l.representativeUnset
+                                       : store.l.representativeSet,
                       systemImage: isRepresentative ? "star.slash" : "star")
             }
         }
@@ -1030,7 +1030,7 @@ private struct DexSpeciesCell: View {
         var parts = ["#\(species.id) \(species.name)", store.l.rarityLabel(species.rarity)]
         if species.isShiny { parts.append(store.l.dexShinyLabel) }
         if species.isRaising { parts.append(store.l.dexRaising) }
-        if isRepresentative { parts.append(store.l.floatingPetRepresentativeBadge) }
+        if isRepresentative { parts.append(store.l.representativeBadge) }
         return parts.joined(separator: " · ")
     }
 }
