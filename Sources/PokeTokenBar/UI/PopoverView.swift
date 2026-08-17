@@ -39,6 +39,7 @@ final class PopoverNavigation {
     }
 }
 
+@MainActor
 struct PopoverView: View {
     @Environment(UsageStore.self) private var store
     @Environment(CompanionStore.self) private var companion
@@ -623,6 +624,7 @@ struct PopoverView: View {
 /// "Curso/r"·"Code/x" 처럼 **단어 중간에서** 접고 탭 바가 2~3줄이 된다.
 /// 가로 스크롤 + `lineLimit(1)`/`fixedSize` 로 각 탭이 항상 자연 폭 한 줄을 유지한다.
 /// (`Spacer()` 는 가로 ScrollView 안에서 무한 확장하므로 쓰지 않는다.)
+@MainActor
 struct ProviderTabBar: View {
     let snapshots: [ProviderSnapshot]
     let selectedID: String?

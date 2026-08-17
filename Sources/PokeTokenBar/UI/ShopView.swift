@@ -3,6 +3,7 @@ import SwiftUI
 /// 상점 — 사용한 토큰(재화 = usedSinceInstall − spentTokens)으로 아이템 구매(이상한 사탕·민트).
 /// 인라인 확인(버튼 morph) — .sheet/.alert 금지(BagView 주석과 동일: transient 팝오버가 닫힐 때
 /// 고아 시트가 이후 클릭을 먹통내는 결함 회피).
+@MainActor
 struct ShopView: View {
     let store: CompanionStore
     let nav: PopoverNavigation
@@ -46,6 +47,7 @@ struct ShopView: View {
 
 /// 상점 아이템 1장 — 아이콘·이름·설명(사탕 XP / 민트 "성격 랜덤 변경")·보유수 + 가격/구매(인라인 확인).
 /// kind 별 store.canBuy(kind)/buy(kind) 로 일반화 — 판매 목록은 store.purchasableItems.
+@MainActor
 private struct ShopItemCard: View {
     let store: CompanionStore
     let kind: ItemKind
@@ -126,6 +128,7 @@ private struct ShopItemCard: View {
 ///
 /// 등급 알의 시각 구분은 **카드의 등급 배지**로만 한다 — 알 스프라이트는 한 장뿐이고, 메뉴바·플로팅 펫은
 /// 기존 알 그대로 둔다(새 에셋 없이 구분이 서는 최소 범위).
+@MainActor
 private struct EggCard: View {
     let store: CompanionStore
     let nav: PopoverNavigation
