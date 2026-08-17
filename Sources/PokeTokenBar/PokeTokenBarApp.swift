@@ -100,14 +100,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         }
     }
 
-    /// Companion 스프라이트 정체성(종/shiny) 관찰 — 사탕 진화·졸업(BagView), 세이브 가져오기,
-    /// 부화·메타몽 리빌 async 완료처럼 store 갱신 틱 없이 companion 만 바뀌는 경로에서도 메뉴바
-    /// 스프라이트를 즉시 갱신한다. observeStore(menuTitle)만으론 다음 사용량 폴링(기본 120s)까지
+    /// 대표 스프라이트 정체성(종/shiny) 관찰 — 대표 선택·해제뿐 아니라 사탕 진화·졸업(BagView),
+    /// 세이브 가져오기, 부화·메타몽 리빌 async 완료처럼 store 갱신 틱 없이 companion 만 바뀌는
+    /// 경로에서도 메뉴바를 즉시 갱신한다. observeStore(menuTitle)만으론 다음 사용량 폴링(기본 120s)까지
     /// 이전 포켓몬이 남는다(사탕 졸업 후 메뉴바 잔상 리포트 — UsageStore.onRefresh 주석과 같은 부류).
     private func observeCompanionSprite() {
         withObservationTracking {
-            _ = companion.currentSpeciesID
-            _ = companion.currentIsShiny
+            _ = companion.representativeSubject
         } onChange: { [weak self] in
             Task { @MainActor in
                 guard let self else { return }
@@ -193,13 +192,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
 
     // MARK: 메뉴바 애니메이션
 
-    /// 현재 포켓몬에 맞춰 메뉴바 프레임을 준비. 종이 바뀐 경우에만 재로딩.
+    /// 대표 포켓몬에 맞춰 메뉴바 프레임을 준비. 종이 바뀐 경우에만 재로딩.
     /// 정적 스프라이트로 먼저 보여주고, animated GIF 가 받아지면 교체한다(메뉴바도 GIF로 움직임).
     /// 에너지 통제는 ① delay 하한 0.2s(≈5fps) ② 안 보이면 정지(menuShouldAnimate) ③ 저전력 모드
     /// 에선 GIF 생략(가벼운 bob)로 처리한다 — 통제된 저프레임 + 비가시 시 정지로 저전력.
     private func ensureMenuAnimation() {
-        let id = companion.currentSpeciesID
-        let shiny = companion.currentIsShiny
+        let subject = companion.representativeSubject
+        let id = subject.speciesID
+        let shiny = subject.isShiny
         let key = id.map { "\($0)-\(shiny)" }
         if key == menuSpriteKey, !menuFrames.isEmpty { return }   // 이미 이 개체로 애니메이션 중
         menuSpriteKey = key

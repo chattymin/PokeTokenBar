@@ -1,4 +1,5 @@
 import XCTest
+import Observation
 @testable import PokeTokenBar
 
 // MARK: 경제
@@ -414,12 +415,41 @@ final class CompanionStoreTests: XCTestCase {
 
         for stage in 0..<3 {
             s.applyUsage(PokemonBalance.phaseThreshold(rarity: .common, totalForms: 3, stageIndex: stage))
+            XCTAssertEqual(s.representativeSubject.speciesID, 1,
+                           "진화·졸업·새 알 전환이 고정한 대표 포켓몬을 덮어쓰면 안 된다")
         }
 
         XCTAssertNil(s.state.active, "졸업 후 새 알")
         XCTAssertEqual(s.state.dex.first?.chainOrder, [1, 2, 3])
         XCTAssertEqual(s.representativeSpeciesID, 1, "도감에 영구 보존됐으므로 고정 유지")
         XCTAssertEqual(s.representativeSubject.speciesID, 1)
+    }
+
+    /// 메뉴바 관찰자는 이 캐시 하나만 구독한다. 대표 선택을 해제하는 즉시 캐시가 바뀌고
+    /// Observation 콜백이 발화해야 다음 사용량 폴링을 기다리지 않고 메뉴바도 현재 개체로 돌아간다.
+    func testRepresentativeSubjectNotifiesImmediatelyWhenSelectionChanges() throws {
+        let dex = [DexEntry(baseID: 1, finalID: 1, chainOrder: [1], rarity: .common,
+                            caughtAt: fixedNow)]
+        let active = MonState(baseID: 20, pathIDs: [20], stageIndex: 0, usedAtStage: 0,
+                              rarity: .common, totalForms: 1)
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("poke-\(UUID().uuidString).json")
+        let dexJSON = String(decoding: try JSONEncoder().encode(dex), as: UTF8.self)
+        let activeJSON = String(decoding: try JSONEncoder().encode(active), as: UTF8.self)
+        try Data(#"{"dex":\#(dexJSON),"active":\#(activeJSON),"representativeSpeciesID":1}"#.utf8)
+            .write(to: url)
+        let s = CompanionStore(provider: StubProvider(value: linear3), clock: { fixedNow },
+                               fileURL: url, rng: SeededRNG(seed: 7))
+
+        nonisolated(unsafe) var didChange = false   // onChange는 동기 발화; 테스트 스레드 밖 접근 없음
+        withObservationTracking {
+            _ = s.representativeSubject
+        } onChange: {
+            didChange = true
+        }
+
+        XCTAssertTrue(s.setRepresentativeSpeciesID(nil))
+        XCTAssertTrue(didChange)
+        XCTAssertEqual(s.representativeSubject.speciesID, 20)
     }
 
     /// Fresh Egg 는 미졸업 개체를 도감에 남기지 않는다. 그 개체만 근거였던 대표 종도 함께 해제돼
