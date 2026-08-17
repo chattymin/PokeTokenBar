@@ -20,7 +20,7 @@ final class PopoverNavigationTests: XCTestCase {
         XCTAssertEqual(nav.tab, .home)     // 탭도 Home 으로
     }
 
-    func testOpenFloatingPetDexLeavesSettingsForCollection() {
+    func testOpenRepresentativeDexLeavesSettingsForCollection() {
         let nav = PopoverNavigation()
         nav.showSettings = true
 

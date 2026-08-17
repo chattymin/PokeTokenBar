@@ -885,9 +885,9 @@ private struct DexGridView: View {
                 Button {
                     _ = store.setRepresentativeSpeciesID(isRepresentative ? nil : sel.id)
                 } label: {
-                    Label(isRepresentative ? store.l.representativeUnset
+                    Label(isRepresentative ? store.l.representativeFollowCurrent
                                            : store.l.representativeSet,
-                          systemImage: isRepresentative ? "star.slash" : "star")
+                          systemImage: isRepresentative ? "arrow.triangle.2.circlepath" : "star")
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.mini)
@@ -984,9 +984,9 @@ private struct DexSpeciesCell: View {
             Button {
                 _ = store.setRepresentativeSpeciesID(isRepresentative ? nil : species.id)
             } label: {
-                Label(isRepresentative ? store.l.representativeUnset
+                Label(isRepresentative ? store.l.representativeFollowCurrent
                                        : store.l.representativeSet,
-                      systemImage: isRepresentative ? "star.slash" : "star")
+                      systemImage: isRepresentative ? "arrow.triangle.2.circlepath" : "star")
             }
         }
     }

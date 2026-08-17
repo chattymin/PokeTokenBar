@@ -56,6 +56,7 @@ struct SettingsView: View {
                     aboutSupportGroup
                 }
                 .padding(16)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
             Divider()
             footer
@@ -117,6 +118,29 @@ struct SettingsView: View {
                     ForEach(AppLanguage.allCases, id: \.self) { Text($0.label).tag($0) }
                 }
                 .labelsHidden().pickerStyle(.menu).fixedSize()
+            }
+            Divider()
+            groupRow {
+                Text(l.representativePokemonLabel)
+                    .lineLimit(1).minimumScaleFactor(0.75)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                Menu {
+                    Button {
+                        _ = companion.setRepresentativeSpeciesID(nil)
+                    } label: {
+                        if companion.representativeSpeciesID == nil {
+                            Label(l.representativeFollowCurrent, systemImage: "checkmark")
+                        } else {
+                            Text(l.representativeFollowCurrent)
+                        }
+                    }
+                    Button(l.representativeChooseFromDex, action: onChooseRepresentative)
+                } label: {
+                    Text(representativeSelectionText).lineLimit(1).truncationMode(.tail)
+                }
+                .controlSize(.small)
+                .frame(width: 150, alignment: .trailing)
+                .layoutPriority(1)
             }
             Divider()
             groupRow {
@@ -194,17 +218,6 @@ struct SettingsView: View {
                     .labelsHidden().toggleStyle(.switch).controlSize(.small)
             }
             if store.floatingPetEnabled {
-                Divider()
-                groupRow {
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text(l.representativePokemonLabel).font(.callout)
-                        Text(representativeSelectionText)
-                            .font(.caption2).foregroundStyle(.tertiary).lineLimit(1)
-                    }
-                    Spacer()
-                    Button(l.representativeChooseFromDex, action: onChooseRepresentative)
-                        .controlSize(.small)
-                }
                 Divider()
                 groupRow {
                     Text(l.floatingPetSizeLabel).font(.callout)
