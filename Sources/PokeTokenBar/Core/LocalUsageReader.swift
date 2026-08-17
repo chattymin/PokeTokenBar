@@ -1,6 +1,6 @@
 import Foundation
 
-/// Claude/Codex 로컬 사용 로그를 직접 파싱해 토큰/비용을 집계한다(ccusage CLI 대체).
+/// 로컬 AI 코딩 도구 사용 로그를 직접 파싱해 토큰/비용을 집계한다(ccusage CLI 대체).
 ///
 /// - Claude: `~/.claude/projects/**/*.jsonl` 의 `type:"assistant"` 라인
 ///   (`message.usage` 4종 토큰, `message.model`, `message.id`+`requestId`, `timestamp`).
@@ -8,6 +8,8 @@ import Foundation
 /// - Codex: `~/.codex/sessions/**/rollout-*.jsonl` 및 보관된
 ///   `~/.codex/archived_sessions/rollout-*.jsonl` 의
 ///   `event_msg.payload.type:"token_count"` (`info.last_token_usage` 턴 델타) 합산.
+/// - Pi: `~/.pi/agent/sessions/**/*.jsonl` 의 message/compaction/branch-summary direct usage.
+///   reasoning 은 output 에 포함하고, fork 가 복사한 entry id 는 전역 중복 제거한다.
 ///
 /// 성능: mtime 윈도우로 스캔 파일을 한정(범위 시작 이전에 수정된 파일은 범위 내 엔트리가 없음).
 enum LocalUsageReader {
@@ -288,6 +290,31 @@ enum LocalUsageReader {
     static var codexScanRoots: [URL] {
         computeCodexScanRoots()
     }
+
+    static let defaultPiSessionsPath = ".pi/agent/sessions"
+
+    static var piSessionRoots: [URL] {
+        computePiSessionRoots(
+            agentDirValue: UsageEnvironment.value("PI_CODING_AGENT_DIR"),
+            sessionDirValue: UsageEnvironment.value("PI_CODING_AGENT_SESSION_DIR"))
+    }
+
+    static func computePiSessionRoots(
+        agentDirValue: String? = UsageEnvironment.value("PI_CODING_AGENT_DIR"),
+        sessionDirValue: String? = UsageEnvironment.value("PI_CODING_AGENT_SESSION_DIR"),
+        home: URL = FileManager.default.homeDirectoryForCurrentUser
+    ) -> [URL] {
+        var roots = [home.appendingPathComponent(defaultPiSessionsPath)]
+        if let agentDirValue, !agentDirValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            roots.append(URL(fileURLWithPath: NSString(string: agentDirValue).expandingTildeInPath)
+                .appendingPathComponent("sessions"))
+        }
+        if let sessionDirValue, !sessionDirValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            roots.append(URL(fileURLWithPath: NSString(string: sessionDirValue).expandingTildeInPath))
+        }
+        return normalizedRoots(roots)
+    }
+
     static var geminiTmpDir: URL {
         FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".gemini/tmp")
     }
@@ -374,6 +401,89 @@ enum LocalUsageReader {
             output: intValue(usage["output_tokens"]),
             cacheWrite: intValue(usage["cache_creation_input_tokens"]),
             cacheRead: intValue(usage["cache_read_input_tokens"]))
+    }
+
+    static func parsePiFile(_ url: URL, fmt: DateFormatter) -> [Entry]? {
+        guard let text = try? String(contentsOf: url, encoding: .utf8) else { return nil }
+        var out: [Entry] = []
+        for line in text.split(separator: "\n", omittingEmptySubsequences: true) {
+            guard line.contains("\"usage\"") else { continue }
+            autoreleasepool {
+                guard let data = String(line).data(using: .utf8),
+                      let envelope = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                      let id = envelope["id"] as? String, !id.isEmpty,
+                      let type = envelope["type"] as? String else { return }
+
+                let usage: [String: Any]?
+                let date: Date?
+                switch type {
+                case "message":
+                    guard let message = envelope["message"] as? [String: Any],
+                          let messageUsage = message["usage"] as? [String: Any] else { return }
+                    usage = messageUsage
+                    date = piMessageDate(message, envelope: envelope)
+                case "compaction", "branch_summary":
+                    usage = envelope["usage"] as? [String: Any]
+                    date = piEnvelopeDate(envelope)
+                default:
+                    return
+                }
+                guard let usage, let date,
+                      let entry = piEntry(id: id, date: date, usage: usage, fmt: fmt) else { return }
+                out.append(entry)
+            }
+        }
+        return dedupKeepMax(out)
+    }
+
+    static func piEntries(modifiedSince: Date, roots: [URL] = piSessionRoots) -> [Entry] {
+        var all: [Entry] = []
+        let fmt = localDayFormatter()
+        for root in normalizedRoots(roots) {
+            for file in jsonlFiles(in: root, modifiedSince: modifiedSince) {
+                all.append(contentsOf: parsePiFile(file, fmt: fmt) ?? [])
+            }
+        }
+        return dedupKeepMax(all)
+    }
+
+    private static func piEntry(
+        id: String, date: Date, usage: [String: Any], fmt: DateFormatter
+    ) -> Entry? {
+        let names = ["input", "output", "reasoning", "cacheWrite", "cacheRead"]
+        let hasGranularUsage = names.contains { intOrNil(usage[$0]) != nil }
+        let input: Int
+        let output: Int
+        let cacheWrite: Int
+        let cacheRead: Int
+        if hasGranularUsage {
+            input = intOrNil(usage["input"]) ?? 0
+            output = (intOrNil(usage["output"]) ?? 0) + (intOrNil(usage["reasoning"]) ?? 0)
+            cacheWrite = intOrNil(usage["cacheWrite"]) ?? 0
+            cacheRead = intOrNil(usage["cacheRead"]) ?? 0
+        } else if let total = intOrNil(usage["totalTokens"]) {
+            input = total
+            output = 0
+            cacheWrite = 0
+            cacheRead = 0
+        } else {
+            return nil
+        }
+        return Entry(
+            id: id, date: date, localDay: fmt.string(from: date), model: "pi",
+            input: input, output: output, cacheWrite: cacheWrite, cacheRead: cacheRead)
+    }
+
+    private static func piMessageDate(_ message: [String: Any], envelope: [String: Any]) -> Date? {
+        if let milliseconds = doubleOrNil(message["timestamp"]), milliseconds > 0 {
+            return Date(timeIntervalSince1970: milliseconds / 1_000)
+        }
+        return piEnvelopeDate(envelope)
+    }
+
+    private static func piEnvelopeDate(_ envelope: [String: Any]) -> Date? {
+        guard let timestamp = envelope["timestamp"] as? String else { return nil }
+        return ISO8601Parser.date(from: timestamp)
     }
 
     // MARK: Codex 파싱

@@ -456,6 +456,7 @@ final class UsageStore {
         LocalClaudeProvider(), LocalCodexProvider(), LocalGeminiProvider(),
         LocalAntigravityProvider(), LocalOpenCodeProvider(), LocalHermesProvider(),
         LocalCursorProvider(), LocalGrokProvider(), LocalCopilotProvider(), LocalKiroProvider(),
+        LocalPiProvider(),
     ],
          claudeLimitsProvider: any ClaudeLimitsProviding = OAuthLimitsProvider(),
          codexLimitsProvider: any CodexLimitsProviding = CodexRateLimitsProvider(),

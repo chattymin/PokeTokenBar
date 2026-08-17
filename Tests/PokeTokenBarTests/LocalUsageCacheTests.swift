@@ -76,6 +76,13 @@ final class LocalUsageCacheTests: XCTestCase {
         """
     }
 
+    private func piLine(id: String, output: Int, ts: String = "2026-07-02T01:00:00.000Z") -> String {
+        let milliseconds = (ISO8601Parser.date(from: ts)?.timeIntervalSince1970 ?? 0) * 1_000
+        return """
+        {"type":"message","id":"\(id)","parentId":null,"timestamp":"\(ts)","message":{"role":"assistant","provider":"test","model":"model","timestamp":\(milliseconds),"usage":{"input":10,"output":\(output),"cacheRead":20,"cacheWrite":0,"reasoning":1,"totalTokens":\(30 + output)}}}
+        """
+    }
+
     private func codexStateLine(ts: String, cumulativeInput: Int, cumulativeOutput: Int,
                                 lastInput: Int, lastOutput: Int) -> String {
         """
@@ -123,10 +130,10 @@ final class LocalUsageCacheTests: XCTestCase {
     private func makeCache(now: @escaping @Sendable () -> Date = Date.init,
                            probes: ProbeCounter? = nil,
                            probe: (@Sendable (URL) throws -> String?)? = nil,
-                           codexRoots: [URL]? = nil) -> LocalUsageCache {
+                           codexRoots: [URL]? = nil, piRoots: [URL]? = nil) -> LocalUsageCache {
         LocalUsageCache(claudeRoot: root,
                         codexRoot: codexRoots == nil ? root : nil,
-                        codexRoots: codexRoots,
+                        codexRoots: codexRoots, piRoots: piRoots,
                         fileURL: cacheFile, now: now,
                         codexProbe: { url in
                             probes?.bump()
@@ -844,5 +851,80 @@ final class LocalUsageCacheTests: XCTestCase {
             entries: fixed, periodKey: "w",
             fromDay: fmt.string(from: weekStart), toDay: fmt.string(from: now))
         XCTAssertGreaterThan(week.totalTokens, 0, "이번 주 합계에 반영돼야 한다")
+    }
+
+    func testPiCacheInvalidatesGrowingFilesAndDedupsAcrossRoots() async throws {
+        let second = root.deletingLastPathComponent().appendingPathComponent("pi-second")
+        try FileManager.default.createDirectory(at: second, withIntermediateDirectories: true)
+        let shared = piLine(id: "shared", output: 10)
+        try writeFile("pi-a.jsonl", lines: [shared, piLine(id: "a", output: 20)])
+        try [shared, piLine(id: "b", output: 30)].joined(separator: "\n")
+            .write(to: second.appendingPathComponent("pi-b.jsonl"), atomically: true, encoding: .utf8)
+
+        let cache = makeCache(piRoots: [root, second])
+        let first = await cache.piEntries(modifiedSince: since)
+        XCTAssertEqual(Set(first.map(\.id)), ["shared", "a", "b"])
+
+        try writeFile("pi-a.jsonl", lines: [
+            shared, piLine(id: "a", output: 20), piLine(id: "grown", output: 40),
+        ])
+        let grown = await cache.piEntries(modifiedSince: since)
+        XCTAssertEqual(Set(grown.map(\.id)), ["shared", "a", "b", "grown"])
+    }
+
+    func testPiCacheRoundTripsAcrossInstances() async throws {
+        let mtime = Date(timeIntervalSince1970: floor(Date().timeIntervalSince1970) - 3_600)
+        try writeFile("pi.jsonl", lines: [piLine(id: "turn", output: 11)], mtime: mtime)
+        let first = await makeCache(piRoots: [root]).piEntries(modifiedSince: since)
+        XCTAssertEqual(first.map(\.output), [12])
+
+        // Same signature, different same-width payload: a new actor must use the persisted blob.
+        try writeFile("pi.jsonl", lines: [piLine(id: "turn", output: 22)], mtime: mtime)
+        let second = await makeCache(piRoots: [root]).piEntries(modifiedSince: since)
+        XCTAssertEqual(second.map(\.output), [12])
+    }
+
+    func testPiReadFailureKeepsOldBlobAndRetriesNextRefresh() async throws {
+        let file = try writeFile("pi.jsonl", lines: [piLine(id: "turn", output: 10)])
+        let cache = makeCache(piRoots: [root])
+        let initial = await cache.piEntries(modifiedSince: since)
+        XCTAssertEqual(initial.map(\.output), [11])
+
+        try FileManager.default.removeItem(at: file)
+        try FileManager.default.createDirectory(at: file, withIntermediateDirectories: false)
+        let duringFailure = await cache.piEntries(modifiedSince: since)
+        XCTAssertEqual(duringFailure.map(\.output), [11],
+                       "transient read failure should retain the previous blob")
+
+        try FileManager.default.removeItem(at: file)
+        try writeFile("pi.jsonl", lines: [piLine(id: "turn", output: 20)])
+        let restored = await cache.piEntries(modifiedSince: since)
+        XCTAssertEqual(restored.map(\.output), [21],
+                       "failed signature must not be cached; the restored file should be retried")
+    }
+
+    func testPiCacheInvalidatesOutdatedOrMissingParserVersion() async throws {
+        try writeFile("pi.jsonl", lines: [piLine(id: "turn", output: 10)])
+        _ = await makeCache(piRoots: [root]).piEntries(modifiedSince: since)
+
+        let raw = try Data(contentsOf: cacheFile)
+        let plain = (try? (raw as NSData).decompressed(using: .zlib) as Data) ?? raw
+        var snapshot = try XCTUnwrap(JSONSerialization.jsonObject(with: plain) as? [String: Any])
+        var pi = try XCTUnwrap(snapshot["pi"] as? [String: Any])
+        for (path, value) in pi {
+            var blob = try XCTUnwrap(value as? [String: Any])
+            var entries = try XCTUnwrap(blob["entries"] as? [[String: Any]])
+            entries[0]["output"] = 999
+            blob["entries"] = entries
+            pi[path] = blob
+        }
+        snapshot["pi"] = pi
+        snapshot.removeValue(forKey: "piParserVersion") // legacy snapshot => version 0
+        let changed = try JSONSerialization.data(withJSONObject: snapshot)
+        let compressed = try (changed as NSData).compressed(using: .zlib) as Data
+        try compressed.write(to: cacheFile, options: .atomic)
+
+        let entries = await makeCache(piRoots: [root]).piEntries(modifiedSince: since)
+        XCTAssertEqual(entries.map(\.output), [11], "legacy pi blobs must be invalidated and reparsed")
     }
 }
