@@ -86,6 +86,7 @@ actor LocalUsageCache {
     // 테스트 시임 — 기본값은 실환경(실 로그 루트·Application Support·실시간).
     private let claudeRoot: URL?
     private let codexRoot: URL?
+    private let codexRoots: [URL]?
     private let geminiRoot: URL?
     private let grokRoot: URL?
     private let fileURL: URL
@@ -98,7 +99,8 @@ actor LocalUsageCache {
     private let claudeRoots: [URL]?
 
     init(claudeRoot: URL? = nil, claudeRoots: [URL]? = nil,
-         codexRoot: URL? = nil, geminiRoot: URL? = nil, grokRoot: URL? = nil,
+         codexRoot: URL? = nil, codexRoots: [URL]? = nil,
+         geminiRoot: URL? = nil, grokRoot: URL? = nil,
          fileURL: URL? = nil, now: @escaping @Sendable () -> Date = Date.init,
          codexProbe: @escaping @Sendable (URL) throws -> String? = {
              try LocalUsageReader.probeCodexRolloutSessionID(at: $0)
@@ -109,6 +111,7 @@ actor LocalUsageCache {
         self.claudeRoots = claudeRoots
         self.claudeRoot = claudeRoot
         self.codexRoot = codexRoot
+        self.codexRoots = codexRoots
         self.geminiRoot = geminiRoot
         self.grokRoot = grokRoot
         self.fileURL = fileURL ?? Self.defaultFileURL
@@ -143,8 +146,9 @@ actor LocalUsageCache {
     func codexEntries(modifiedSince: Date) -> [LocalUsageReader.Entry] {
         ensureLoaded()
         let fmt = LocalUsageReader.localDayFormatter()
+        let roots = codexRoots ?? codexRoot.map { [$0] } ?? LocalUsageReader.codexScanRoots
         let (rollouts, includedPaths) = collectCodexRollouts(
-            root: codexRoot ?? LocalUsageReader.codexSessionsDir,
+            roots: roots,
             since: modifiedSince,
             fmt: fmt
         )
@@ -221,11 +225,11 @@ actor LocalUsageCache {
     /// Codex는 fork 파일을 단독으로 확정할 수 없으므로 final Entry 대신 parsed rollout을 캐시.
     /// 조회 범위 밖 부모도 replay 판정에는 필요해 session id로 찾아 dependency로 함께 반환.
     private func collectCodexRollouts(
-        root: URL,
+        roots: [URL],
         since: Date,
         fmt: DateFormatter
     ) -> (rollouts: [LocalUsageReader.CodexParsedRollout], includedPaths: Set<String>) {
-        let files = LocalUsageReader.codexRolloutFiles(in: root)
+        let files = LocalUsageReader.codexRolloutFiles(in: roots)
 
         func rememberSessionID(_ id: String?, of file: LocalUsageReader.CodexRolloutFile) {
             codexSessionIDs[file.path] = CodexSessionProbe(

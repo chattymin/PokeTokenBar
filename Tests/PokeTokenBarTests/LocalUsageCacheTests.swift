@@ -46,13 +46,16 @@ private final class Clock: @unchecked Sendable {
 /// (재사용/재파싱 판정, 디스크 영속·라운드트립, 40일 prune, 60초 저장 throttle)
 final class LocalUsageCacheTests: XCTestCase {
     private var root: URL!
+    private var archivedRoot: URL!
     private var cacheFile: URL!
 
     override func setUpWithError() throws {
         let base = FileManager.default.temporaryDirectory
             .appendingPathComponent("ptb-cache-\(UUID().uuidString)")
         root = base.appendingPathComponent("projects")
+        archivedRoot = base.appendingPathComponent("archived")
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: archivedRoot, withIntermediateDirectories: true)
         cacheFile = base.appendingPathComponent("usage-cache.json")
     }
 
@@ -119,13 +122,23 @@ final class LocalUsageCacheTests: XCTestCase {
 
     private func makeCache(now: @escaping @Sendable () -> Date = Date.init,
                            probes: ProbeCounter? = nil,
-                           probe: (@Sendable (URL) throws -> String?)? = nil) -> LocalUsageCache {
-        LocalUsageCache(claudeRoot: root, codexRoot: root, fileURL: cacheFile, now: now,
+                           probe: (@Sendable (URL) throws -> String?)? = nil,
+                           codexRoots: [URL]? = nil) -> LocalUsageCache {
+        LocalUsageCache(claudeRoot: root,
+                        codexRoot: codexRoots == nil ? root : nil,
+                        codexRoots: codexRoots,
+                        fileURL: cacheFile, now: now,
                         codexProbe: { url in
                             probes?.bump()
                             if let probe { return try probe(url) }
                             return try LocalUsageReader.probeCodexRolloutSessionID(at: url)
                         })
+    }
+
+    private func writeLines(_ lines: [String], to directory: URL, name: String) throws -> URL {
+        let url = directory.appendingPathComponent(name)
+        try lines.joined(separator: "\n").write(to: url, atomically: true, encoding: .utf8)
+        return url
     }
 
     private func forkMeta(id: String, parentID: String, ts: String) -> String {
@@ -245,6 +258,49 @@ final class LocalUsageCacheTests: XCTestCase {
         let entries = await makeCache().codexEntries(modifiedSince: since)
 
         XCTAssertEqual(entries.map(\.total), [110])
+    }
+
+    /// 활성 세션과 보관 세션에 같은 rollout이 동시에 보이는 이동 중 상태에서도
+    /// 파일 경로가 아니라 session/state ID 기준으로 한 번만 집계해야 한다.
+    func testCodexCacheDeduplicatesRolloutAcrossActiveAndArchivedRoots() async throws {
+        let lines = [
+            sessionMeta(id: "moved-session", ts: "2026-07-29T01:00:00.000Z"),
+            codexStateLine(
+                ts: "2026-07-29T01:00:01.000Z",
+                cumulativeInput: 100, cumulativeOutput: 10,
+                lastInput: 100, lastOutput: 10),
+        ]
+        try writeFile("rollout.jsonl", lines: lines)
+        _ = try writeLines(lines, to: archivedRoot, name: "rollout.jsonl")
+
+        let entries = await makeCache(codexRoots: [root, archivedRoot])
+            .codexEntries(modifiedSince: since)
+
+        XCTAssertEqual(entries.map(\.total), [110], "양쪽 루트의 같은 rollout은 한 번만 집계해야 한다")
+    }
+
+    /// Codex의 정상적인 sessions → archived_sessions 이동을 같은 캐시 인스턴스가
+    /// 따라가야 한다. 이동 전 경로의 cache blob이 남아 있어도 보관 경로의 새 파일을
+    /// 읽고, 이전 경로와 합산하지 않아야 한다.
+    func testCodexCacheFollowsRolloutWhenMovedToArchivedRoot() async throws {
+        let lines = [
+            sessionMeta(id: "archived-session", ts: "2026-07-29T01:00:00.000Z"),
+            codexStateLine(
+                ts: "2026-07-29T01:00:01.000Z",
+                cumulativeInput: 100, cumulativeOutput: 10,
+                lastInput: 100, lastOutput: 10),
+        ]
+        let activeFile = try writeFile("rollout.jsonl", lines: lines)
+        let archivedFile = archivedRoot.appendingPathComponent("rollout.jsonl")
+        let cache = makeCache(codexRoots: [root, archivedRoot])
+
+        let beforeMove = await cache.codexEntries(modifiedSince: since)
+        XCTAssertEqual(beforeMove.map(\.total), [110])
+
+        try FileManager.default.moveItem(at: activeFile, to: archivedFile)
+
+        let afterMove = await cache.codexEntries(modifiedSince: since)
+        XCTAssertEqual(afterMove.map(\.total), [110], "rollout 이동 후에도 기존 집계가 유지돼야 한다")
     }
 
     func testCodexCacheKeepsSubagentFirstTurnWhenParentIsMissing() async throws {
