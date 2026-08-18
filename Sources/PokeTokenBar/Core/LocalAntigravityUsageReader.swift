@@ -341,8 +341,18 @@ enum LocalAntigravityUsageReader {
     ) -> Record {
         let bytes = [UInt8](blob)
         guard let chatModel = AntigravityProto.message(bytes[...], field: 1),
-              let usage = AntigravityProto.message(chatModel, field: 4),
-              let date = createdAt(chatModel) ?? fallbackDate else { return Record() }
+              let usage = AntigravityProto.message(chatModel, field: 4) else { return Record() }
+
+        let date: Date
+        switch createdAt(chatModel) {
+        case .valid(let d):
+            date = d
+        case .absent:
+            guard let fallbackDate else { return Record() }
+            date = fallbackDate
+        case .invalid:
+            return Record()
+        }
 
         // The turn's own id, not the file it happens to sit in — a copied conversation must
         // not read as fresh spend. `response_id` is populated on every recorded call.
@@ -371,16 +381,24 @@ enum LocalAntigravityUsageReader {
             discardedCounters: [input, output, cacheWrite, cacheRead].filter { $0 == nil }.count)
     }
 
+    private enum ParsedDate {
+        case valid(Date)
+        case absent
+        case invalid
+    }
+
     /// `chat_start_metadata.created_at`, a `google.protobuf.Timestamp`.
-    private static func createdAt(_ chatModel: ArraySlice<UInt8>) -> Date? {
+    private static func createdAt(_ chatModel: ArraySlice<UInt8>) -> ParsedDate {
         guard let start = AntigravityProto.message(chatModel, field: 9),
-              let stamp = AntigravityProto.message(start, field: 4),
-              let seconds = AntigravityProto.varint(stamp, field: 1) else { return nil }
-        // A malformed varint can carry the whole uint64 range; a date built from it would
-        // overflow downstream arithmetic. Anything outside a plausible window is not a time.
-        guard seconds >= 1_000_000_000, seconds <= 4_102_444_800 else { return nil }
+              let stamp = AntigravityProto.message(start, field: 4) else {
+            return .absent
+        }
+        guard let seconds = AntigravityProto.varint(stamp, field: 1),
+              seconds >= 1_000_000_000, seconds <= 4_102_444_800 else {
+            return .invalid
+        }
         let nanos = AntigravityProto.varint(stamp, field: 2).map { $0 < 1_000_000_000 ? Double($0) : 0 } ?? 0
-        return Date(timeIntervalSince1970: Double(seconds) + nanos / 1_000_000_000)
+        return .valid(Date(timeIntervalSince1970: Double(seconds) + nanos / 1_000_000_000))
     }
 
     private static func makeEntry(
