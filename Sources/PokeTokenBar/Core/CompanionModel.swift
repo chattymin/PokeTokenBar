@@ -18,7 +18,7 @@ enum AppLanguage: String, Codable, Sendable, CaseIterable {
         case .ja: return ["ja-Hrkt", "ja"]
         case .es: return ["es"]
         // PokéAPI 의 language.name 은 소문자다("zh-hant"). 대문자 표기는 응답과 매칭되지 않는다.
-        case .zhHant: return ["zh-hant", "zh-Hant"]
+        case .zhHant: return ["zh-hant"]
         }
     }
     var label: String {

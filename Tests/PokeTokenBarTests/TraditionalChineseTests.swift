@@ -79,6 +79,10 @@ final class TraditionalChineseLocalizationTests: XCTestCase {
     /// PokéAPI 응답의 `language.name` 은 소문자다("zh-hant"). 대문자만 넣으면 매칭이 실패해
     /// 조용히 영어 이름(Pikachu)이 표시된다 — 그 경로를 실제 매칭으로 고정한다.
     func testSpeciesNameResolvesFromLowercaseAPICode() {
+        // 소문자 하나만 둔다 — 대문자 변형은 응답에 존재하지 않아 매칭되지 않는 죽은 항목이고,
+        // `PokeAPIClient.langCodes` 에도 그대로 실린다.
+        XCTAssertEqual(AppLanguage.zhHant.apiCodes, ["zh-hant"])
+
         let byLang = ["en": "Pikachu", "ja": "ピカチュウ", "ko": "피카츄", "zh-hant": "皮卡丘"]
         XCTAssertEqual(AppLanguage.zhHant.resolveName(byLang), "皮卡丘")
         // 번체 이름이 없는 종은 영어로 폴백 — 빈 칸이 되지 않는다.
