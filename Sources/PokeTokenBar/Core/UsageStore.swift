@@ -815,7 +815,9 @@ final class UsageStore {
         guard !notifAuthRequested else { return }
         guard AppEnv.isBundledApp else { return }
         notifAuthRequested = true
-        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
+        Task {
+            try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound])
+        }
     }
 
     /// 한도 알림 1건의 발화 지시(순수 판정 결과). 부수효과와 분리해 테스트 가능하게.
