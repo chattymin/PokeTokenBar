@@ -92,6 +92,19 @@ read_when:
   `LocalUsageReader.claudeProjectRoots` 한 곳에서만 한다. 임베디드 루트 탐색은 `.claude` 가 **hidden** 이라
   `skipsHiddenFiles` 를 켜면 조용히 0건이 된다 — 회귀 가드
   `testEmbeddedRootsFindHiddenClaudeProjectsDirs` 가 그 브랜치를 밟는다.
+- **커스텀 스캔 루트는 기본 루트에 더하기만 한다.** 사용자가 지정한 조상 경로(`~`, 홈 폴더)를
+  `normalizedRoots` 에 넣으면 짧은 쪽이 이기고 기본 `~/.claude/projects` 가 접혀 사라진다.
+  `jsonlFiles` 는 `skipsHiddenFiles` 를 쓰므로 살아남은 `~` 은 `.claude` 아래로 내려가지 않고
+  합계가 조용히 0 이 된다(#162-B). 가드: `testAncestorCustomRootDoesNotEvictCuratedDefault`.
+  `skipsHiddenFiles` 자체는 건드리지 않는다. 저장 키는 `customScanRoots.<providerID>` —
+  공용 키에 Claude 전용 값을 넣으면 일반화할 때 마이그레이션이 생긴다(#162-C, #177).
+  조상 판정은 `extra + "/"` 접두사만으로 부족하다 — 커스텀이 `/` 이면 접두사가 `"//"` 가 되어
+  기본 루트를 안 접는 대신 **디스크 전체를 스캔**한다. `/` 는 모든 경로의 조상으로 취급하고 버린다.
+  Codex 세션-id 인덱스는 **모든 루트를 모은 뒤에** 한 번만 prune 하고, parent-closure 도
+  루트 합집합 위에서 한 번만 확장한다. 루트마다 확장하면 커스텀 폴더의 fork 가
+  `~/.codex/sessions` 의 부모를 못 보고 replay 를 이중 집계한다.
+  OpenCode/Hermes/Cursor/Copilot/Kiro 의 30초 엔트리 캐시는 저장 시 `invalidateScanCache` 로
+  비운다 — Claude 의 300초 루트 캐시만 비우면 추가 폴더가 TTL 동안 안 보인다.
 - **GUI 앱은 셸 환경을 상속하지 않는다 — 환경변수로 설정되는 경로는 셸에 물어봐야 한다.** Finder/launchd 로
   뜬 `.app` 의 `ProcessInfo.processInfo.environment` 에는 `~/.zshrc` 의 export 가 없다. 그래서
   `CLAUDE_CONFIG_DIR` 같은 값을 프로세스 환경에서만 읽으면 **CLI·`swift test` 에서는 통과하고 배포된 앱에서만

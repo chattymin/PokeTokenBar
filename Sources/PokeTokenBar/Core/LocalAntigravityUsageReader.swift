@@ -65,9 +65,21 @@ enum LocalAntigravityUsageReader {
         defaultRoots[0]
     }
 
+    static func resolvedRoots(
+        customRootsValue: String? = nil,
+        home: URL = FileManager.default.homeDirectoryForCurrentUser
+    ) -> [URL] {
+        CustomScanRoots.union(
+            defaults: [home.appendingPathComponent(".gemini/antigravity-cli/conversations")],
+            extraRaw: customRootsValue)
+    }
+
     /// Usage rows whose `created_at` falls at or after `modifiedSince`.
     static func entries(modifiedSince: Date, roots: [URL]? = nil) -> [LocalUsageReader.Entry] {
-        let scanned = scan(roots: roots ?? defaultRoots, modifiedSince: modifiedSince, known: [:])
+        let scanned = scan(
+            roots: roots ?? resolvedRoots(
+                customRootsValue: CustomScanRoots.storedValue(for: "antigravity")),
+            modifiedSince: modifiedSince, known: [:])
         // The one place the side effects live. `AppLog.write` returns early outside the bundled
         // app, so the decisions above it are kept pure and tested on their own.
         for line in scanned.log { AppLog.write(line) }
@@ -76,7 +88,10 @@ enum LocalAntigravityUsageReader {
 
     /// Single-root overload for backwards compatibility and tests.
     static func entries(modifiedSince: Date, root: URL?) -> [LocalUsageReader.Entry] {
-        entries(modifiedSince: modifiedSince, roots: root.map { [$0] } ?? defaultRoots)
+        entries(
+            modifiedSince: modifiedSince,
+            roots: root.map { [$0] } ?? resolvedRoots(
+                customRootsValue: CustomScanRoots.storedValue(for: "antigravity")))
     }
 
     /// One conversation store's rows, valid for as long as its `(mtime, size)` hold. The rows
@@ -666,10 +681,9 @@ actor LocalAntigravityUsageCache {
             // Join rather than start a second scan, and leave the log to the owner.
             scanned = await inFlight.value
         } else {
-            let targetRoots = self.roots ?? LocalAntigravityUsageReader.defaultRoots
+            let targetRoots = self.roots ?? LocalAntigravityUsageReader.resolvedRoots(
+                customRootsValue: CustomScanRoots.storedValue(for: "antigravity"))
             let known = blobs
-            // Nothing awaits between the miss above and this assignment — that is what stops two
-            // callers from both starting a scan.
             let task = Task.detached(priority: .utility) {
                 LocalAntigravityUsageReader.scan(roots: targetRoots, modifiedSince: since, known: known)
             }

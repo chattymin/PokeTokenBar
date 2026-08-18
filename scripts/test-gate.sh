@@ -28,6 +28,7 @@ LOGIC_CORE=(
   "Sources/PokeTokenBar/Core/LocalUsageReader.swift"
   "Sources/PokeTokenBar/Core/LocalUsageCache.swift"
   "Sources/PokeTokenBar/Core/ModelPricing.swift"
+  "Sources/PokeTokenBar/Core/CustomScanRoots.swift"
 )
 
 echo "▶ swift test (--enable-code-coverage)"

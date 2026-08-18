@@ -15,6 +15,16 @@ struct SettingsView: View {
     @State private var advancedExpanded = false
     @State private var isCheckingUpdate = false
     @State private var didCheckUpdate = false
+    @State private var selectedScanProviderID = "claude_code"
+    /// Provider the draft currently describes. Picker change updates `selectedScanProviderID`
+    /// before the TextField blurs; committing against the selection would write Claude paths
+    /// into `customScanRoots.gemini`.
+    @State private var customScanDraftOwnerID = "claude_code"
+    @State private var customScanDraft = ""
+    @State private var customScanMatchCount = 0
+    @State private var customScanMatchTask: Task<Void, Never>?
+    @State private var customScanMatchGeneration = 0
+    @FocusState private var customScanFocused: Bool
     private var l: L { companion.l }
 
     private var isBundledApp: Bool { AppEnv.isBundledApp }
@@ -353,6 +363,12 @@ struct SettingsView: View {
             }
             .buttonStyle(.plain)
             .padding(.horizontal, 12).padding(.vertical, 9)
+            .onChange(of: advancedExpanded) { _, expanded in
+                if !expanded {
+                    commitCustomScanDraft()
+                    customScanMatchTask?.cancel()
+                }
+            }
 
             if advancedExpanded {
                 Divider()
@@ -387,6 +403,52 @@ struct SettingsView: View {
                     Text(limitTokenRefreshError)
                         .font(.caption2).foregroundStyle(.orange).lineLimit(2)
                         .padding(.horizontal, 12).padding(.bottom, 6)
+                }
+                Divider()
+                groupRow {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(l.customScanRootsLabel)
+                        Text(l.customScanRootsHint).font(.caption2).foregroundStyle(.tertiary)
+                        HStack {
+                            Text(l.customScanProviderLabel).font(.caption)
+                            Spacer()
+                            Picker("", selection: $selectedScanProviderID) {
+                                ForEach(store.registeredProviders, id: \.id) { provider in
+                                    Text(provider.displayName).tag(provider.id)
+                                }
+                            }
+                            .labelsHidden().pickerStyle(.menu).fixedSize()
+                        }
+                        TextField(l.customScanRootsPlaceholder, text: $customScanDraft, axis: .vertical)
+                            .textFieldStyle(.roundedBorder).font(.caption)
+                            .focused($customScanFocused)
+                            .onSubmit { commitCustomScanDraft() }
+                        if !customScanDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                            Text(l.customScanRootsMatches(customScanMatchCount))
+                                .font(.caption2).foregroundStyle(.tertiary)
+                        }
+                    }
+                }
+                .onAppear {
+                    customScanDraftOwnerID = selectedScanProviderID
+                    customScanDraft = store.customScanRoots(for: selectedScanProviderID)
+                    scheduleCustomScanMatchCount()
+                }
+                .onDisappear {
+                    commitCustomScanDraft()
+                    customScanMatchTask?.cancel()
+                }
+                .onChange(of: selectedScanProviderID) { _, newID in
+                    store.setCustomScanRoots(customScanDraft, for: customScanDraftOwnerID)
+                    customScanDraftOwnerID = newID
+                    customScanDraft = store.customScanRoots(for: newID)
+                    scheduleCustomScanMatchCount()
+                }
+                .onChange(of: customScanDraft) { _, _ in
+                    scheduleCustomScanMatchCount()
+                }
+                .onChange(of: customScanFocused) { _, focused in
+                    if !focused { commitCustomScanDraft() }
                 }
                 Divider()
                 Text(l.aggregationNote)
@@ -466,6 +528,30 @@ struct SettingsView: View {
         }
         .buttonStyle(.plain)
         .help(urlString)
+    }
+
+    private func commitCustomScanDraft() {
+        store.setCustomScanRoots(customScanDraft, for: customScanDraftOwnerID)
+    }
+
+    private func scheduleCustomScanMatchCount() {
+        customScanMatchTask?.cancel()
+        customScanMatchGeneration += 1
+        let generation = customScanMatchGeneration
+        let raw = customScanDraft
+        let providerID = selectedScanProviderID
+        customScanMatchTask = Task.detached(priority: .utility) {
+            try? await Task.sleep(nanoseconds: 250_000_000)
+            guard !Task.isCancelled else { return }
+            let count = CustomScanRoots.survivingExtraCount(
+                defaults: CustomScanRoots.curatedRoots(for: providerID),
+                extraRaw: raw)
+            guard !Task.isCancelled else { return }
+            await MainActor.run {
+                guard generation == customScanMatchGeneration else { return }
+                customScanMatchCount = count
+            }
+        }
     }
 
     // MARK: 동작
