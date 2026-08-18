@@ -266,6 +266,7 @@ enum LocalAntigravityUsageReader {
         }
         defer { sqlite3_finalize(statement) }
 
+        let fallbackDate = signature(of: database)?.mtime ?? Date()
         let conversation = database.deletingPathExtension().lastPathComponent
         var entries: [LocalUsageReader.Entry] = []
         var discardedCounters = 0
@@ -281,7 +282,7 @@ enum LocalAntigravityUsageReader {
                     guard count > 0 else { return }
                     let blob = Data(bytes: pointer, count: count)
                     let record = parseGenerationMetadata(
-                        blob, conversation: conversation, index: index, formatter: formatter)
+                        blob, conversation: conversation, index: index, fallbackDate: fallbackDate, formatter: formatter)
                     discardedCounters += record.discardedCounters
                     guard let entry = record.entry else { return }
                     entries.append(entry)
@@ -335,12 +336,13 @@ enum LocalAntigravityUsageReader {
         _ blob: Data,
         conversation: String,
         index: Int64,
+        fallbackDate: Date? = nil,
         formatter: DateFormatter
     ) -> Record {
         let bytes = [UInt8](blob)
         guard let chatModel = AntigravityProto.message(bytes[...], field: 1),
               let usage = AntigravityProto.message(chatModel, field: 4),
-              let date = createdAt(chatModel) else { return Record() }
+              let date = createdAt(chatModel) ?? fallbackDate else { return Record() }
 
         // The turn's own id, not the file it happens to sit in — a copied conversation must
         // not read as fresh spend. `response_id` is populated on every recorded call.

@@ -620,11 +620,35 @@ final class AntigravityUsageTests: XCTestCase {
                    input: input, output: output, cacheRead: cacheRead)
     }
 
+    /// Antigravity 2.0 / IDE sessions may omit `chat_start_metadata.created_at` from the protobuf.
+    /// The reader should fallback to the database file's mtime so tokens are not dropped.
+    func testConversationWithoutProtobufCreatedAtUsesFileMtimeFallback() throws {
+        let recordWithoutTimestamp = makeRecord(
+            responseID: "r_modern_1",
+            model: "gemini-3.7-flash",
+            createdAtSeconds: nil,
+            input: 500,
+            output: 100,
+            cacheRead: 2000
+        )
+        try writeConversation("c_modern", records: [recordWithoutTimestamp])
+
+        let entries = readAll()
+        XCTAssertEqual(entries.count, 1)
+        let entry = try XCTUnwrap(entries.first)
+        XCTAssertEqual(entry.id, "antigravity|r_modern_1")
+        XCTAssertEqual(entry.input, 500)
+        XCTAssertEqual(entry.output, 100)
+        XCTAssertEqual(entry.cacheRead, 2000)
+        XCTAssertEqual(entry.total, 2600)
+        XCTAssertEqual(entry.model, "antigravity/gemini-3.7-flash")
+    }
+
     /// `CortexStepGeneratorMetadata { 1 chat_model { 4 usage, 9 chat_start_metadata, 19 response_model } }`
     private func makeRecord(
         responseID: String?,
         model: String,
-        createdAtSeconds: UInt64,
+        createdAtSeconds: UInt64? = nil,
         input: UInt64,
         output: UInt64,
         cacheRead: UInt64,
@@ -640,12 +664,13 @@ final class AntigravityUsageTests: XCTestCase {
         if let response { usage += AntigravityProto.encodeVarint(field: 10, response) }
         if let responseID { usage += AntigravityProto.encodeString(field: 11, responseID) }
 
-        let timestamp = AntigravityProto.encodeVarint(field: 1, createdAtSeconds)
-        let chatStart = AntigravityProto.encodeMessage(field: 4, timestamp)
-
         var chatModel = AntigravityProto.encodeVarint(field: 3, 1071)
         chatModel += AntigravityProto.encodeMessage(field: 4, usage)
-        chatModel += AntigravityProto.encodeMessage(field: 9, chatStart)
+        if let createdAtSeconds {
+            let timestamp = AntigravityProto.encodeVarint(field: 1, createdAtSeconds)
+            let chatStart = AntigravityProto.encodeMessage(field: 4, timestamp)
+            chatModel += AntigravityProto.encodeMessage(field: 9, chatStart)
+        }
         chatModel += AntigravityProto.encodeString(field: 19, model)
 
         return Data(AntigravityProto.encodeMessage(field: 1, chatModel))
