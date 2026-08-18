@@ -1,8 +1,10 @@
 import Foundation
 import SQLite3
 
-/// Antigravity CLI usage, read from the conversation stores the CLI writes under
-/// `~/.gemini/antigravity-cli/conversations/<conversation>.db`.
+/// Antigravity usage, read from the conversation stores written under
+/// `~/.gemini/antigravity/conversations/<conversation>.db`,
+/// `~/.gemini/antigravity-cli/conversations/<conversation>.db`, or
+/// `~/.gemini/antigravity-ide/conversations/<conversation>.db`.
 ///
 /// Antigravity shares the `~/.gemini/` parent directory with Gemini CLI and nothing else.
 /// Where Gemini CLI appends JSON lines, Antigravity keeps one SQLite database per
@@ -183,7 +185,7 @@ enum LocalAntigravityUsageReader {
         /// other than the table being absent.
         case unreadable(status: Int32?)
         /// No `gen_metadata`: this file is not a conversation store. A permanent, legitimate
-        /// empty — `~/.gemini/antigravity-cli/conversations/` may hold databases we don't read.
+        /// empty — the candidate directories may hold databases we don't read.
         case notAConversation
 
         var entries: [LocalUsageReader.Entry] {
