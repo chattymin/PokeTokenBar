@@ -13,7 +13,7 @@
 [![License](https://img.shields.io/badge/license-MIT-3fb950)](LICENSE)
 [![Sponsor](https://img.shields.io/badge/Sponsor-%E2%99%A5-ea4aaa?logo=githubsponsors&logoColor=white)](https://github.com/sponsors/chattymin)
 
-[English](README.md) · [한국어](README.ko.md) · **日本語**
+[English](README.md) · [한국어](README.ko.md) · **日本語** · [繁體中文](README.zh-Hant.md)
 
 </div>
 
@@ -75,7 +75,7 @@ PokeTokenBar は、あなたがすでに使っている AI コーディングト
 <td width="45%" align="center"><img src="assets/settings-ja.png" width="300" alt="設定"></td>
 <td width="55%" valign="middle">
 <h3>設定はお好みで</h3>
-メニューバー表示項目、更新間隔（1–15分／手動）、ログイン時に起動、上限セクションだけを隠す Keychain オフ、警告／危険の閾値つき上限通知、パートナーのイベント通知。<b>韓国語／英語／日本語</b>の UI とポケモン名を完備。
+メニューバー表示項目、更新間隔（1–15分／手動）、ログイン時に起動、上限セクションだけを隠す Keychain オフ、警告／危険の閾値つき上限通知、パートナーのイベント通知。<b>韓国語／英語／日本語／スペイン語／繁体字中国語</b>の UI とポケモン名を完備。
 </td>
 </tr>
 <tr>
