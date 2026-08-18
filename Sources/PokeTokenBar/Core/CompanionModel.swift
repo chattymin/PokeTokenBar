@@ -8,6 +8,8 @@ enum CompanionStateKind: String, Sendable {
 /// 앱 언어. 포켓몬 이름은 PokéAPI 다국어 names 에서 가져온다.
 enum AppLanguage: String, Codable, Sendable, CaseIterable {
     case ko, en, ja, es
+    /// 繁體中文 — rawValue 는 저장 포맷이자 `displayLocale` 식별자다(BCP-47 스크립트 태그).
+    case zhHant = "zh-Hant"
     /// PokéAPI language.name 후보(첫 매칭 사용)
     var apiCodes: [String] {
         switch self {
@@ -15,10 +17,15 @@ enum AppLanguage: String, Codable, Sendable, CaseIterable {
         case .en: return ["en"]
         case .ja: return ["ja-Hrkt", "ja"]
         case .es: return ["es"]
+        // PokéAPI 의 language.name 은 소문자다("zh-hant"). 대문자 표기는 응답과 매칭되지 않는다.
+        case .zhHant: return ["zh-hant", "zh-Hant"]
         }
     }
     var label: String {
-        switch self { case .ko: return "한국어"; case .en: return "English"; case .ja: return "日本語"; case .es: return "Español" }
+        switch self {
+        case .ko: return "한국어"; case .en: return "English"; case .ja: return "日本語"
+        case .es: return "Español"; case .zhHant: return "繁體中文"
+        }
     }
 
     var displayLocale: Locale { Locale(identifier: rawValue) }
@@ -30,14 +37,33 @@ enum AppLanguage: String, Codable, Sendable, CaseIterable {
     }
 
     /// 신규 설치 기본 언어 — 시스템 선호 언어에서 유추(글로벌 출시: 한국어 강제 금지).
-    /// ko/ja/es 만 매칭, 그 외 전부 영어(fallback-of-fallback). 기존 사용자는 저장된 언어를 그대로 쓴다.
-    static var systemDefault: AppLanguage {
-        switch Locale.preferredLanguages.first?.prefix(2).lowercased() {
+    /// ko/ja/es/zh-Hant 만 매칭, 그 외 전부 영어(fallback-of-fallback). 기존 사용자는 저장된 언어를 그대로 쓴다.
+    /// 중국어는 번체(zh-Hant/TW/HK/MO)만 매칭한다 — 간체(zh-Hans/CN/SG) 사용자에게 번체를 주면
+    /// 시스템 언어와 어긋난 화면이 되므로, 간체는 지원 전까지 영어 폴백을 유지한다.
+    static var systemDefault: AppLanguage { resolve(preferredLanguages: Locale.preferredLanguages) }
+
+    /// `systemDefault` 의 판정부 — 시스템 로케일을 주입받는 순수 함수로 분리했다.
+    /// `Locale.preferredLanguages` 를 직접 읽으면 테스트가 실행 기기의 언어에 따라 다른 분기만
+    /// 밟아, 새 언어의 매칭이 실제로 되는지 확인할 수 없다(커버리지는 통과하는 무테스트 상태).
+    static func resolve(preferredLanguages: [String]) -> AppLanguage {
+        guard let tag = preferredLanguages.first?.lowercased() else { return .en }
+        if isTraditionalChinese(tag) { return .zhHant }
+        switch tag.prefix(2) {
         case "ko": return .ko
         case "ja": return .ja
         case "es": return .es
         default:   return .en
         }
+    }
+
+    /// BCP-47 태그가 번체 중국어인지 — 스크립트 태그(Hant) 우선, 없으면 번체권 지역으로 판정.
+    /// 입력은 소문자로 정규화된 태그다(예: "zh-hant-tw", "zh-tw", "zh-hans-cn").
+    static func isTraditionalChinese(_ tag: String) -> Bool {
+        guard tag == "zh" || tag.hasPrefix("zh-") || tag.hasPrefix("zh_") else { return false }
+        let parts = tag.split(whereSeparator: { $0 == "-" || $0 == "_" }).map(String.init)
+        if parts.contains("hans") { return false }
+        if parts.contains("hant") { return true }
+        return parts.contains { ["tw", "hk", "mo"].contains($0) }
     }
 }
 
@@ -324,37 +350,40 @@ enum PokemonNature: String, Codable, Sendable, CaseIterable {
     case modest, mild, quiet, bashful, rash
     case calm, gentle, sassy, careful, quirky
 
-    /// 본가 공식 번역 명칭 (ko/en/ja/es).
+    /// 본가 공식 번역 명칭 (ko/en/ja/es/zh-Hant).
     func name(_ lang: AppLanguage) -> String {
-        let names: (String, String, String, String)
+        let names: (String, String, String, String, String)
         switch self {
-        case .hardy:   names = ("노력", "Hardy", "がんばりや", "Fuerte")
-        case .lonely:  names = ("외로움", "Lonely", "さみしがり", "Huraña")
-        case .brave:   names = ("용감", "Brave", "ゆうかん", "Audaz")
-        case .adamant: names = ("고집", "Adamant", "いじっぱり", "Firme")
-        case .naughty: names = ("개구쟁이", "Naughty", "やんちゃ", "Pícara")
-        case .bold:    names = ("대담", "Bold", "ずぶとい", "Osada")
-        case .docile:  names = ("온순", "Docile", "すなお", "Dócil")
-        case .relaxed: names = ("무사태평", "Relaxed", "のんき", "Plácida")
-        case .impish:  names = ("장난꾸러기", "Impish", "わんぱく", "Agitada")
-        case .lax:     names = ("촐랑", "Lax", "のうてんき", "Floja")
-        case .timid:   names = ("겁쟁이", "Timid", "おくびょう", "Miedosa")
-        case .hasty:   names = ("성급", "Hasty", "せっかち", "Activa")
-        case .serious: names = ("성실", "Serious", "まじめ", "Seria")
-        case .jolly:   names = ("명랑", "Jolly", "ようき", "Alegre")
-        case .naive:   names = ("천진난만", "Naive", "むじゃき", "Ingenua")
-        case .modest:  names = ("조심", "Modest", "ひかえめ", "Modesta")
-        case .mild:    names = ("의젓", "Mild", "おっとり", "Afable")
-        case .quiet:   names = ("냉정", "Quiet", "れいせい", "Mansa")
-        case .bashful: names = ("수줍음", "Bashful", "てれや", "Tímida")
-        case .rash:    names = ("덜렁", "Rash", "うっかりや", "Alocada")
-        case .calm:    names = ("차분", "Calm", "おだやか", "Serena")
-        case .gentle:  names = ("얌전", "Gentle", "おとなしい", "Amable")
-        case .sassy:   names = ("건방", "Sassy", "なまいき", "Grosera")
-        case .careful: names = ("신중", "Careful", "しんちょう", "Cauta")
-        case .quirky:  names = ("변덕", "Quirky", "きまぐれ", "Rara")
+        case .hardy:   names = ("노력", "Hardy", "がんばりや", "Fuerte", "勤奮")
+        case .lonely:  names = ("외로움", "Lonely", "さみしがり", "Huraña", "怕寂寞")
+        case .brave:   names = ("용감", "Brave", "ゆうかん", "Audaz", "勇敢")
+        case .adamant: names = ("고집", "Adamant", "いじっぱり", "Firme", "固執")
+        case .naughty: names = ("개구쟁이", "Naughty", "やんちゃ", "Pícara", "頑皮")
+        case .bold:    names = ("대담", "Bold", "ずぶとい", "Osada", "大膽")
+        case .docile:  names = ("온순", "Docile", "すなお", "Dócil", "坦率")
+        case .relaxed: names = ("무사태평", "Relaxed", "のんき", "Plácida", "悠閒")
+        case .impish:  names = ("장난꾸러기", "Impish", "わんぱく", "Agitada", "淘氣")
+        case .lax:     names = ("촐랑", "Lax", "のうてんき", "Floja", "樂天")
+        case .timid:   names = ("겁쟁이", "Timid", "おくびょう", "Miedosa", "膽小")
+        case .hasty:   names = ("성급", "Hasty", "せっかち", "Activa", "急躁")
+        case .serious: names = ("성실", "Serious", "まじめ", "Seria", "認真")
+        case .jolly:   names = ("명랑", "Jolly", "ようき", "Alegre", "開朗")
+        case .naive:   names = ("천진난만", "Naive", "むじゃき", "Ingenua", "天真")
+        case .modest:  names = ("조심", "Modest", "ひかえめ", "Modesta", "內斂")
+        case .mild:    names = ("의젓", "Mild", "おっとり", "Afable", "慢吞吞")
+        case .quiet:   names = ("냉정", "Quiet", "れいせい", "Mansa", "冷靜")
+        case .bashful: names = ("수줍음", "Bashful", "てれや", "Tímida", "害羞")
+        case .rash:    names = ("덜렁", "Rash", "うっかりや", "Alocada", "馬虎")
+        case .calm:    names = ("차분", "Calm", "おだやか", "Serena", "溫和")
+        case .gentle:  names = ("얌전", "Gentle", "おとなしい", "Amable", "溫順")
+        case .sassy:   names = ("건방", "Sassy", "なまいき", "Grosera", "自大")
+        case .careful: names = ("신중", "Careful", "しんちょう", "Cauta", "慎重")
+        case .quirky:  names = ("변덕", "Quirky", "きまぐれ", "Rara", "浮躁")
         }
-        switch lang { case .ko: return names.0; case .en: return names.1; case .ja: return names.2; case .es: return names.3 }
+        switch lang {
+        case .ko: return names.0; case .en: return names.1; case .ja: return names.2
+        case .es: return names.3; case .zhHant: return names.4
+        }
     }
 }
 
