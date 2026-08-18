@@ -13,7 +13,7 @@
 [![License](https://img.shields.io/badge/license-MIT-3fb950)](LICENSE)
 [![Sponsor](https://img.shields.io/badge/Sponsor-%E2%99%A5-ea4aaa?logo=githubsponsors&logoColor=white)](https://github.com/sponsors/chattymin)
 
-**English** · [한국어](README.ko.md) · [日本語](README.ja.md)
+**English** · [한국어](README.ko.md) · [日本語](README.ja.md) · [繁體中文](README.zh-Hant.md)
 
 </div>
 
@@ -75,7 +75,7 @@ The <b>Pokédex</b> folds every species you've owned into one cell — 24 per pa
 <td width="45%" align="center"><img src="assets/settings.png" width="300" alt="Settings"></td>
 <td width="55%" valign="middle">
 <h3>Tune it your way</h3>
-Menu-bar items, refresh interval (1–15 min or manual), launch at login, a Keychain opt-out that just hides the limits section, limit alerts with warning/critical thresholds, and companion event notifications. Full <b>KO / EN / JA</b> UI and Pokémon names.
+Menu-bar items, refresh interval (1–15 min or manual), launch at login, a Keychain opt-out that just hides the limits section, limit alerts with warning/critical thresholds, and companion event notifications. Full <b>KO / EN / JA / ES / ZH-Hant</b> UI and Pokémon names.
 </td>
 </tr>
 <tr>

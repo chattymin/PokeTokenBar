@@ -21,7 +21,9 @@ protocol PokeProviding: Sendable {
 actor PokeAPIClient: PokeProviding {
     static let shared = PokeAPIClient()
     private let base = URL(string: "https://pokeapi.co/api/v2")!
-    private let langCodes = ["ko", "en", "ja-Hrkt", "ja", "es"]
+    /// 종 이름을 보관할 언어 코드 — `AppLanguage.apiCodes` 에서 파생한다(단일 소스).
+    /// 리터럴 목록으로 두면 언어를 추가할 때 이 줄을 잊고, 새 언어만 조용히 영어 이름이 된다.
+    static let langCodes = Set(AppLanguage.allCases.flatMap(\.apiCodes))
     private var speciesCache: [Int: SpeciesDTO] = [:]
     private var lineCache: [Int: EvoLine] = [:]   // 프리패칭 → 부화 순간 네트워크 0
 
@@ -42,7 +44,7 @@ actor PokeAPIClient: PokeProviding {
         for id in allIDs(tree) {
             let sp = try await species(id)
             var byLang: [String: String] = [:]
-            for n in sp.names where langCodes.contains(n.language.name) { byLang[n.language.name] = n.name }
+            for n in sp.names where Self.langCodes.contains(n.language.name) { byLang[n.language.name] = n.name }
             names[id] = byLang
         }
         let line = EvoLine(baseID: baseSpeciesID, tree: tree, rarity: rarity, names: names)
