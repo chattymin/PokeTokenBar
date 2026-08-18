@@ -35,7 +35,22 @@ swift test --enable-code-coverage
 
 PROF=$(find .build -name 'default.profdata' | head -1)
 # dSYM 안에도 같은 이름의 DWARF 바이너리가 있어 head -1 이 그걸 집으면 llvm-cov 가 실패한다 → 제외.
-BIN=$(find .build -name 'PokeTokenBarPackageTests' -type f ! -path '*.dSYM/*' | head -1)
+# Linux 의 테스트 산출물은 `.xctest` 접미사를 달고 나오므로 두 이름을 모두 받는다.
+BIN=$(find .build \( -name 'PokeTokenBarPackageTests' -o -name 'PokeTokenBarPackageTests.xctest' \) \
+  -type f ! -path '*.dSYM/*' | head -1)
+
+# 커버리지 도구 — macOS 는 xcrun, Linux 는 스위프트 툴체인 안의 llvm-cov(보통 PATH 에 없다).
+# 하드코딩하면 한쪽 플랫폼에서 게이트가 통째로 안 돈다.
+if command -v xcrun >/dev/null 2>&1; then
+  LLVM_COV=(xcrun llvm-cov)
+elif [[ -x "$(dirname "$(readlink -f "$(command -v swift)")")/llvm-cov" ]]; then
+  LLVM_COV=("$(dirname "$(readlink -f "$(command -v swift)")")/llvm-cov")
+elif command -v llvm-cov >/dev/null 2>&1; then
+  LLVM_COV=(llvm-cov)
+else
+  echo "✗ llvm-cov 를 찾지 못했습니다(커버리지 게이트 실행 불가)." >&2
+  exit 1
+fi
 if [[ -z "$PROF" || -z "$BIN" ]]; then
   echo "✗ 커버리지 산출물(profdata/binary)을 찾지 못했습니다." >&2
   exit 1
@@ -43,7 +58,7 @@ fi
 
 echo
 echo "▶ 로직 코어 커버리지 (임계값 ${THRESHOLD}%)"
-REPORT=$(xcrun llvm-cov report "$BIN" -instr-profile="$PROF" "${LOGIC_CORE[@]}" 2>/dev/null)
+REPORT=$("${LLVM_COV[@]}" report "$BIN" -instr-profile="$PROF" "${LOGIC_CORE[@]}" 2>/dev/null)
 echo "$REPORT"
 
 # TOTAL 행의 라인 커버리지(%) 추출 — 컬럼: ... Lines MissedLines Cover(=$10)

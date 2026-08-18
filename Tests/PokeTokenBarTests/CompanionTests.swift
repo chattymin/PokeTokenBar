@@ -186,7 +186,7 @@ final class CompanionStoreTests: XCTestCase {
 
     /// [회귀] 도감 항목 하나가 손상돼도(구버전/필드 누락) 나머지 도감·companion·인벤토리를 지킨다 —
     /// 예전엔 `[DexEntry]` 배열 전체 decode 가 throw 돼 상태가 전면 초기화됐다(항목별 격리로 수정).
-    func testCorruptDexEntryDroppedWhileRestSurvives() throws {
+    func testCorruptDexEntryDroppedWhileRestSurvives() async throws {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("poke-dex-\(UUID().uuidString).json")
         // 유효 2개 + 손상 1개(finalID/chainOrder 누락).
         let json = #"{"dex":[{"baseID":1,"finalID":3,"chainOrder":[1,2,3],"rarity":"common"},"#
@@ -204,7 +204,7 @@ final class CompanionStoreTests: XCTestCase {
 
     /// [회귀] 전면 손상 상태 파일은 fresh 로 시작하되, 다음 save() 가 덮어써 영구 유실되기 전에
     /// 원본을 `.corrupt` 로 백업해 수동 복구 여지를 남긴다.
-    func testCorruptStateFileBackedUpBeforeReset() throws {
+    func testCorruptStateFileBackedUpBeforeReset() async throws {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("poke-corrupt-\(UUID().uuidString).json")
         let garbage = "this is not valid json {{{ 손상"
         try Data(garbage.utf8).write(to: url)
@@ -225,7 +225,7 @@ final class CompanionStoreTests: XCTestCase {
 
     /// [회귀] active(현재 포켓몬)가 손상돼도(pathIDs 누락 등) 알로 폴백하되 도감·인벤토리·누적은 보존한다 —
     /// 예전엔 active decode 실패가 CompanionState 전체를 throw 시켜 전면 초기화됐다(필드별 관대화로 수정).
-    func testCorruptActiveFallsBackToEggWhileRestSurvives() throws {
+    func testCorruptActiveFallsBackToEggWhileRestSurvives() async throws {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("poke-active-corrupt-\(UUID().uuidString).json")
         // active 는 pathIDs 누락 → MonState decode 실패. dex/inventory/usedSinceInstall 은 유효.
         let json = #"{"active":{"baseID":1},"#
@@ -247,7 +247,7 @@ final class CompanionStoreTests: XCTestCase {
     // MARK: 도감 이름 (컬렉션 표시)
 
     /// 저장된 체인 종별 다국어 이름을 현재 언어로 해석 — 없으면 nil(뷰가 async 조회로 폴백).
-    func testDexStoredChainNamesResolvePerLanguage() {
+    func testDexStoredChainNamesResolvePerLanguage() async {
         let s = store(linear3)
         let named = DexEntry(baseID: 1, finalID: 3, chainOrder: [1, 2, 3], rarity: .common, caughtAt: nil,
                              names: [1: ["ko": "포1", "en": "P1"], 2: ["ko": "포2", "en": "P2"], 3: ["ko": "포3", "en": "P3"]])
@@ -302,7 +302,7 @@ final class CompanionStoreTests: XCTestCase {
 
     /// 같은 라인을 두 번 졸업해도 종은 한 칸으로 접힌다 — 로그가 2행인 게 정상이고, 중복은 도감
     /// 쪽에서 구조적으로 사라진다. 도감은 종 정보만 담으므로 성격·획득 횟수는 여기서 보지 않는다.
-    func testDexSpeciesFoldsDuplicateLinesToOneCellPerSpecies() throws {
+    func testDexSpeciesFoldsDuplicateLinesToOneCellPerSpecies() async throws {
         let entries = [
             DexEntry(baseID: 1, finalID: 3, chainOrder: [1, 2, 3], rarity: .common, caughtAt: fixedNow,
                      nature: .rash,
@@ -327,7 +327,7 @@ final class CompanionStoreTests: XCTestCase {
     /// 현재 개체는 **도달분**만 보유로 잡힌다. 졸업분을 비워 두면 누수가 종 목록에 그대로 드러난다 —
     /// pathIDs 전체를 쓰면 [1,2], plannedPathIDs(계획 경로)를 쓰면 [1,2,3] 이 되므로 한 상태로
     /// 두 오용을 동시에 가드한다.
-    func testDexSpeciesCountsOnlyReachedStagesOfActive() throws {
+    func testDexSpeciesCountsOnlyReachedStagesOfActive() async throws {
         let active = MonState(baseID: 1, pathIDs: [1, 2], plannedPathIDs: [1, 2, 3], stageIndex: 0,
                               usedAtStage: 0, rarity: .common, totalForms: 3, nature: .brave)
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("poke-\(UUID().uuidString).json")
@@ -344,7 +344,7 @@ final class CompanionStoreTests: XCTestCase {
     /// 이로치는 종 단위 플래그다 — 개체 하나가 이로치면 그 개체가 지나온 체인 전 종에 표식이 선다.
     /// 일반 개체와 이로치 개체를 둘 다 가진 종도 한 칸으로 접히되 플래그가 서고, 칸은 기본 일반색으로
     /// 그려 두었다가 선택하면 이로치색으로 바꾼다(두 모습을 다 볼 수 있게).
-    func testDexSpeciesMarksShinyAcrossTheChain() throws {
+    func testDexSpeciesMarksShinyAcrossTheChain() async throws {
         let entries = [
             DexEntry(baseID: 1, finalID: 2, chainOrder: [1, 2], rarity: .common, caughtAt: fixedNow,
                      isShiny: false),
@@ -364,7 +364,7 @@ final class CompanionStoreTests: XCTestCase {
 
     /// 위장 메타몽은 리빌 전까지 이로치를 숨긴다 — 도감도 그 규칙을 따라야 한다
     /// (currentIsShiny 를 재사용하는 지점. 직접 isShiny 를 읽으면 정체가 미리 새어 나간다).
-    func testDexSpeciesHidesShinyWhileDittoIsDisguised() throws {
+    func testDexSpeciesHidesShinyWhileDittoIsDisguised() async throws {
         func store(revealed: Bool) throws -> CompanionStore {
             let active = MonState(baseID: 1, pathIDs: [1], stageIndex: 0, usedAtStage: 0,
                                   rarity: .common, totalForms: 3, isShiny: true,
@@ -465,7 +465,7 @@ final class CompanionStoreTests: XCTestCase {
 
     /// 트리거 브랜치 — 같은 라인을 졸업한 뒤 **다시 키우는 중**. 종은 이미 영구 보존분이라 사라지지 않으므로
     /// 표식이 서면 안 된다. "현재 개체에 속하면 표식"으로 판정하면 여기서 깨진다.
-    func testAlreadyGraduatedSpeciesIsNotMarkedWhileRaisedAgain() throws {
+    func testAlreadyGraduatedSpeciesIsNotMarkedWhileRaisedAgain() async throws {
         let graduated = DexEntry(baseID: 1, finalID: 3, chainOrder: [1, 2, 3], rarity: .common, caughtAt: fixedNow,
                                  names: [1: ["ko": "포1"], 2: ["ko": "포2"], 3: ["ko": "포3"]])
         let active = MonState(baseID: 1, pathIDs: [1, 2, 3], stageIndex: 1,
@@ -482,7 +482,7 @@ final class CompanionStoreTests: XCTestCase {
     }
 
     /// 졸업분만 있고 현재 개체가 없으면 표식은 하나도 없다(모두 영구 기록).
-    func testGraduatedOnlyDexHasNoRaisingMark() throws {
+    func testGraduatedOnlyDexHasNoRaisingMark() async throws {
         let s = try storeWithNamelessEntry()
         XCTAssertNil(s.state.active)
         XCTAssertEqual(s.dexSpecies.map(\.isRaising), [false, false, false])
@@ -508,7 +508,7 @@ final class CompanionStoreTests: XCTestCase {
         XCTAssertEqual(names, [1: "#1", 2: "#2", 3: "#3"])
     }
 
-    func testInstallBaselineExcludesPreInstallUsage() {
+    func testInstallBaselineExcludesPreInstallUsage() async {
         let s = store(linear3)
         // 데이터 도착 전 → baseline 미설정
         s.update(todayTokensByProvider: ["test": 0], todayDate: "d1", monthTotal: 0, burnTier: .idle, limitWarning: false, hasUsageData: false)
@@ -524,7 +524,7 @@ final class CompanionStoreTests: XCTestCase {
 
     /// [회귀] 로컬 사용량 재집계가 기존 값보다 낮아진 뒤에도, 새 기준점 이후의 증가분은 알에 반영한다.
     /// 예전에는 aggregate high-water mark 로만 유지해 감소 후 증가가 영구히 무시됐다.
-    func testUsageIncreaseAfterValidDropContinuesEggProgress() {
+    func testUsageIncreaseAfterValidDropContinuesEggProgress() async {
         let s = store(linear3)
         base(s)
         use(s, 200)
@@ -543,7 +543,7 @@ final class CompanionStoreTests: XCTestCase {
 
     /// [회귀] 데이터 공백/조회 실패로 today=0 이 들어와도 당일 기준점을 0으로 낮추지 않는다.
     /// 다음 정상 조회 때 당일 전체를 중복 지급하면 안 된다.
-    func testEmptyUsageSnapshotDoesNotRebaseDailyLedger() {
+    func testEmptyUsageSnapshotDoesNotRebaseDailyLedger() async {
         let s = store(linear3)
         base(s)
         use(s, 200)
@@ -559,7 +559,7 @@ final class CompanionStoreTests: XCTestCase {
 
     /// [회귀] 프로바이더 하나가 일시적으로 snapshot을 내놓지 않아도 다른 프로바이더의
     /// 증가분만 적립하고, 사라졌던 프로바이더가 복구될 때 과거 사용량을 중복 지급하지 않는다.
-    func testProviderLedgerDoesNotRecreditMissingProviderAfterPartialSnapshotLoss() {
+    func testProviderLedgerDoesNotRecreditMissingProviderAfterPartialSnapshotLoss() async {
         let s = store(linear3)
         useMap(s, ["claude_code": 0, "codex": 0])
         useMap(s, ["claude_code": 1_000, "codex": 500])
@@ -580,7 +580,7 @@ final class CompanionStoreTests: XCTestCase {
 
     /// [회귀] carrier만 남아 오늘 map이 비어도 프로바이더별 ledger를 0으로 낮추지 않는다.
     /// 정상 snapshot 복구 뒤에는 복구 시점 이후 증가분만 적립한다.
-    func testCarrierWithoutTodayDataDoesNotRebaseProviderLedger() {
+    func testCarrierWithoutTodayDataDoesNotRebaseProviderLedger() async {
         let s = store(linear3)
         useMap(s, ["codex": 0])
         useMap(s, ["codex": 2_000])
@@ -596,7 +596,7 @@ final class CompanionStoreTests: XCTestCase {
 
     /// [회귀] 날짜가 바뀌면 이전 날짜의 provider별 기준값과 비교하지 않고,
     /// 새 날짜에 이미 사용한 누적값 전체를 적립한 뒤 이후 증가분을 이어서 적립한다.
-    func testDateRolloverCreditsCurrentDayUsage() {
+    func testDateRolloverCreditsCurrentDayUsage() async {
         let s = store(linear3)
         useMap(s, ["codex": 0], date: "d1")
         useMap(s, ["codex": 200], date: "d1")
@@ -613,7 +613,7 @@ final class CompanionStoreTests: XCTestCase {
     /// [회귀] 날짜 경계의 첫 refresh에서 provider 하나가 빠져도, 같은 날 복구된 현재 사용량을
     /// 누락하지 않는다. 이전 날짜의 ledger 값은 새 날짜와 비교할 수 없으므로 복구 provider의
     /// 새 날짜 기준은 0으로 열고, 그 날 처음 확인된 누적값을 적립한다.
-    func testLateProviderRecoveryAfterDateRolloverCreditsCurrentDayUsage() {
+    func testLateProviderRecoveryAfterDateRolloverCreditsCurrentDayUsage() async {
         let s = store(linear3)
         useMap(s, ["claude_code": 0, "codex": 0], date: "d1")
         useMap(s, ["claude_code": 1_000, "codex": 500], date: "d1")
@@ -636,7 +636,7 @@ final class CompanionStoreTests: XCTestCase {
 
     /// [회귀] stale snapshot처럼 오늘 provider map이 비어 있는 refresh는 날짜 경계를 소비하지
     /// 않는다. 다음 유효한 새 날짜 snapshot이 들어오면 그 시점의 오늘 사용량을 적립한다.
-    func testStaleSnapshotDoesNotConsumeDateBoundary() {
+    func testStaleSnapshotDoesNotConsumeDateBoundary() async {
         let s = store(linear3)
         useMap(s, ["codex": 0], date: "d1")
         useMap(s, ["codex": 200], date: "d1")
@@ -652,7 +652,7 @@ final class CompanionStoreTests: XCTestCase {
 
     /// [마이그레이션] aggregate high-water mark만 가진 구버전 세이브는 값을 프로바이더별로
     /// 추정하지 않고 첫 유효 snapshot을 seed한다. 이후 증가분은 새 ledger로 정상 적립한다.
-    func testLegacyAggregateLedgerSeedsProviderMapWithoutRetrospectiveCredit() throws {
+    func testLegacyAggregateLedgerSeedsProviderMapWithoutRetrospectiveCredit() async throws {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("poke-\(UUID().uuidString).json")
         let legacy = #"{"installBaselineSet":true,"usedSinceInstall":10000,"claimedTodayTokens":9000,"lastDate":"d1"}"#
         try Data(legacy.utf8).write(to: url)
@@ -729,7 +729,7 @@ final class CompanionStoreTests: XCTestCase {
 
     /// 사용자 리포트와 같은 재시작 상태: active 는 저장돼 있지만 dex=[] 인 기존 상태 파일도
     /// 도감 빈 화면으로 떨어지지 않는다.
-    func testLoadedActiveCompanionPreventsEmptyDexState() throws {
+    func testLoadedActiveCompanionPreventsEmptyDexState() async throws {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("poke-active-\(UUID().uuidString).json")
         let json = #"{"active":{"baseID":529,"pathIDs":[529],"stageIndex":0,"usedAtStage":148344233,"rarity":"uncommon","totalForms":2,"isShiny":false,"nature":"timid"},"dex":[]}"#
         try json.data(using: .utf8)!.write(to: url)
@@ -744,7 +744,7 @@ final class CompanionStoreTests: XCTestCase {
 
     /// [회귀] 현재 키우는 common 포켓몬은 더 희귀한 졸업 항목보다도 위에 고정된다.
     /// caughtAt 이 없는 구버전 졸업 항목은 active 로 오인하지 않는다.
-    func testActiveCompanionPinnedBeforeGraduatedEntries() throws {
+    func testActiveCompanionPinnedBeforeGraduatedEntries() async throws {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("poke-active-sort-\(UUID().uuidString).json")
         let json = #"{"active":{"baseID":1,"pathIDs":[1],"stageIndex":0,"usedAtStage":5,"rarity":"common","totalForms":3},"dex":[{"id":"legacy-graduated","baseID":150,"finalID":150,"chainOrder":[150],"rarity":"legendary"}]}"#
         try json.data(using: .utf8)!.write(to: url)
@@ -758,13 +758,13 @@ final class CompanionStoreTests: XCTestCase {
         XCTAssertFalse(s.isActiveDexEntry(sorted[1]), "caughtAt=nil 만으로 active 를 판별하면 안 됨")
     }
 
-    func testDexRaisingLabelLocalized() {
+    func testDexRaisingLabelLocalized() async {
         XCTAssertEqual(L(.en).dexRaising, "Raising")
         XCTAssertEqual(L(.ko).dexRaising, "키우는 중")
         XCTAssertEqual(L(.ja).dexRaising, "育成中")
     }
 
-    func testUnknownNextEvolutionAccessibilityLabelLocalized() {
+    func testUnknownNextEvolutionAccessibilityLabelLocalized() async {
         XCTAssertEqual(L(.ko).unknownNextEvolution, "알 수 없는 다음 진화")
         XCTAssertEqual(L(.en).unknownNextEvolution, "Unknown next evolution")
         XCTAssertEqual(L(.ja).unknownNextEvolution, "次の進化先は不明")
@@ -803,7 +803,7 @@ final class CompanionStoreTests: XCTestCase {
         XCTAssertNil(s.state.active)
     }
 
-    func testStateDecodesWithoutEggUsage() throws {
+    func testStateDecodesWithoutEggUsage() async throws {
         // 기존 저장(필드 없음)도 깨지지 않고 eggUsage=0 으로 로드
         let json = #"{"installBaselineSet":true,"usedSinceInstall":5,"claimedTodayTokens":5,"lastDate":"d","active":null,"dex":[],"collectedFinals":[],"language":"ko"}"#
         let state = try JSONDecoder().decode(CompanionState.self, from: Data(json.utf8))
@@ -850,14 +850,14 @@ final class CompanionStoreTests: XCTestCase {
         ])
     }
 
-    func testRealizedLineItemsUsesStageIndexForCurrentMarker() {
+    func testRealizedLineItemsUsesStageIndexForCurrentMarker() async {
         XCTAssertEqual(CompanionStore.realizedLineItems(pathIDs: [1, 2], stageIndex: 0), [
             EvoLineItem(.species(1), .current),
             EvoLineItem(.species(2), .done),
         ])
     }
 
-    func testRepairedPlanAppendsFallbackRouteToCurrentPath() {
+    func testRepairedPlanAppendsFallbackRouteToCurrentPath() async {
         XCTAssertEqual(CompanionStore.repairedPlan(
             realizedPath: [265], stageIndex: 0, fallbackRoute: [265, 266, 267]),
             [265, 266, 267])
@@ -1129,13 +1129,17 @@ final class CompanionStoreTests: XCTestCase {
 /// 팝오버 루트가 `\.locale` 로 앱 언어를 내려주므로, 그 매핑이 실제로 해당 언어의 상대 시각을
 /// 만들어내는지까지 고정한다 — 코드만 비교하면 잘못 매핑해도 통과한다.
 final class DisplayLocaleTests: XCTestCase {
-    func testDisplayLocaleMatchesLanguageCode() {
+    func testDisplayLocaleMatchesLanguageCode() async {
         XCTAssertEqual(AppLanguage.ko.displayLocale.identifier, "ko")
         XCTAssertEqual(AppLanguage.en.displayLocale.identifier, "en")
         XCTAssertEqual(AppLanguage.ja.displayLocale.identifier, "ja")
     }
 
-    func testRelativeTimeFollowsAppLanguageNotSystem() {
+    // `RelativeDateTimeFormatter` does not exist in corelibs-foundation (Linux). What this test is
+    // really about is `AppLanguage.displayLocale`, but that platform offers no way to observe it,
+    // so the test goes with it.
+    #if os(macOS)
+    func testRelativeTimeFollowsAppLanguageNotSystem() async {
         let now = Date(timeIntervalSince1970: 1_700_000_000)
         let past = now.addingTimeInterval(-3 * 3600)
 
@@ -1151,6 +1155,7 @@ final class DisplayLocaleTests: XCTestCase {
         // 세 언어가 서로 달라야 한다 — 하나로 고정돼 있으면 매핑이 죽은 것이다.
         XCTAssertEqual(Set([relative(.en), relative(.ko), relative(.ja)]).count, 3)
     }
+    #endif
 }
 
 // MARK: 포획 로그 정렬 / 요약
@@ -1160,7 +1165,7 @@ final class DexSortingTests: XCTestCase {
     /// sortRank 는 목록 정렬 키가 아니지만(로그는 시각순) 프리미엄 알의 등급 게이트가
     /// `line.rarity.sortRank < tier.sortRank` 로 쓴다 — 순서가 뒤집히면 고급/희귀 알이 조용히
     /// 낮은 등급을 통과시킨다. 그래서 순서 보증만 여기 남긴다.
-    func testSortRankOrdersRarityAscendingByValue() {
+    func testSortRankOrdersRarityAscendingByValue() async {
         XCTAssertLessThan(Rarity.common.sortRank, Rarity.uncommon.sortRank)
         XCTAssertLessThan(Rarity.uncommon.sortRank, Rarity.rare.sortRank)
         XCTAssertLessThan(Rarity.rare.sortRank, Rarity.legendary.sortRank)
@@ -1270,7 +1275,7 @@ final class CompanionIdentityTests: XCTestCase {
     }
 
     /// 구버전 저장(shiny/nature 키 없음) 디코딩 — 기본값(false/nil)으로 로드.
-    func testBackwardCompatibleDecode() throws {
+    func testBackwardCompatibleDecode() async throws {
         let old = """
         {"installBaselineSet":true,"usedSinceInstall":100,"eggUsage":0,
          "claimedTodayTokens":100,"lastDate":"d1",
@@ -1293,7 +1298,7 @@ final class CompanionIdentityTests: XCTestCase {
     /// [출시 안전] 손상된 상태 파일: active.pathIDs 가 비면 그 active 만 nil(알)로 폴백하되 나머지 상태는
     /// 보존한다(필드별 관대화). 깨진 active 를 살려두면 currentID out-of-bounds 위험이므로 nil 이어야 한다
     /// (예전엔 전체 디코드를 throw 시켜 상태 전면 초기화 → 도감·인벤토리까지 유실됐다).
-    func testEmptyPathIDsActiveFallsBackToNilPreservingRest() {
+    func testEmptyPathIDsActiveFallsBackToNilPreservingRest() async {
         let corrupt = """
         {"installBaselineSet":true,"eggUsage":0,"lastDate":"d1",
          "active":{"baseID":1,"pathIDs":[],"stageIndex":0,"usedAtStage":0,"rarity":"common","totalForms":3}}
@@ -1305,13 +1310,13 @@ final class CompanionIdentityTests: XCTestCase {
     }
 
     /// currentID 는 pathIDs 가 비어도(방어) baseID 로 폴백 — 크래시 없음.
-    func testCurrentIDFallsBackToBaseWhenPathEmpty() {
+    func testCurrentIDFallsBackToBaseWhenPathEmpty() async {
         let m = MonState(baseID: 42, pathIDs: [], stageIndex: 0, usedAtStage: 0, rarity: .common, totalForms: 1)
         XCTAssertEqual(m.currentID, 42)
     }
 
     /// 신규 설치 기본 언어는 시스템 로케일에서 유추 — 유효한 케이스이고 크래시 없음(한국어 강제 아님).
-    func testSystemDefaultLanguageResolves() {
+    func testSystemDefaultLanguageResolves() async {
         XCTAssertTrue(AppLanguage.allCases.contains(AppLanguage.systemDefault))
         XCTAssertEqual(CompanionState().language, AppLanguage.systemDefault)
     }
@@ -1550,7 +1555,7 @@ final class CompanionIdentityTests: XCTestCase {
     }
 
     /// 스프라이트 캐시 키 — 기존 키("25-a"/"25-s") 불변 + shiny 접두.
-    func testSpriteCacheKeyScheme() {
+    func testSpriteCacheKeyScheme() async {
         XCTAssertEqual(SpriteStore.cacheKey(speciesID: 25, animated: true, shiny: false), "25-a")
         XCTAssertEqual(SpriteStore.cacheKey(speciesID: 25, animated: false, shiny: false), "25-s")
         XCTAssertEqual(SpriteStore.cacheKey(speciesID: 25, animated: true, shiny: true), "25-sha")
@@ -1558,7 +1563,7 @@ final class CompanionIdentityTests: XCTestCase {
     }
 
     /// 성격 25종 — 3개 언어 명칭이 전부 비어있지 않고 중복 없는지.
-    func testNatureNamesComplete() {
+    func testNatureNamesComplete() async {
         XCTAssertEqual(PokemonNature.allCases.count, 25)
         for lang in AppLanguage.allCases {
             let names = PokemonNature.allCases.map { $0.name(lang) }
@@ -1571,10 +1576,10 @@ final class CompanionIdentityTests: XCTestCase {
 // MARK: PokéAPI SSRF 가드 (evolution_chain URL 검증 — 응답 변조 시 임의 호스트 fetch 방지)
 
 final class PokeAPIGuardTests: XCTestCase {
-    func testValidatedChainURLAcceptsPokeapiHttps() {
+    func testValidatedChainURLAcceptsPokeapiHttps() async {
         XCTAssertNotNil(PokeAPIClient.validatedChainURL("https://pokeapi.co/api/v2/evolution-chain/1/"))
     }
-    func testValidatedChainURLRejectsUntrusted() {
+    func testValidatedChainURLRejectsUntrusted() async {
         XCTAssertNil(PokeAPIClient.validatedChainURL("https://evil.example.com/x"), "임의 호스트 거부(SSRF)")
         XCTAssertNil(PokeAPIClient.validatedChainURL("https://pokeapi.co.evil.com/x"), "유사 호스트 거부")
         XCTAssertNil(PokeAPIClient.validatedChainURL("http://pokeapi.co/x"), "http 거부(https 고정)")

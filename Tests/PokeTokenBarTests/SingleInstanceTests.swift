@@ -57,6 +57,11 @@ final class SingleInstanceTests: XCTestCase {
     }
 
     // MARK: 입력 — 시작 시각을 실제로 읽어내는가
+    //
+    // macOS only — the Linux decision never reads start times at all; it uses `flock`
+    // (see SingleInstance). That path has no "the guard is void because a time could not be read"
+    // failure mode, so there is no regression guard to carry over.
+    #if os(macOS)
 
     /// 회귀 가드(핵심). 첫 구현은 `NSRunningApplication.launchDate` 로 판정했는데, 그 값은 launchd 가
     /// 직접 exec 한 프로세스에서 nil 이라 정작 물러나야 할 인스턴스가 판정에서 빠져나가 가드가 통째로
@@ -79,4 +84,5 @@ final class SingleInstanceTests: XCTestCase {
     func testProcessStartTimeIsNilForAnUnknownProcess() {
         XCTAssertNil(SingleInstance.processStartTime(pid_t(Int32.max)))
     }
+    #endif
 }

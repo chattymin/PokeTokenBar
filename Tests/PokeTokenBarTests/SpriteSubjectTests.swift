@@ -1,3 +1,4 @@
+#if os(macOS)   // macOS frontend layout contracts (332pt popover, NSImage) — the Linux UI carries its own guards
 import XCTest
 import AppKit
 @testable import PokeTokenBar
@@ -53,7 +54,7 @@ final class SpriteSubjectTests: XCTestCase {
     // MARK: 주체가 알로 바뀔 때 (#135)
 
     /// 졸업·Fresh Egg — 이전 개체의 픽셀은 다른 주체의 것이라 버리고 알로 교체한다.
-    func testBecomingEggDropsPreviousSpeciesPixels() {
+    func testBecomingEggDropsPreviousSpeciesPixels() async {
         let species = image(4), egg = image(2)
         let next = SpriteSubject(image: species, loadedID: 25).becomingEgg(cachedEgg: egg)
         XCTAssertTrue(next.image === egg, "옛 개체 이미지가 남으면 플로팅 펫이 졸업 후에도 그 포켓몬을 그린다")
@@ -61,14 +62,14 @@ final class SpriteSubjectTests: XCTestCase {
     }
 
     /// 알 이미지가 아직 캐시에 없으면(콜드) 옛 개체를 남기는 대신 글리프로 떨어뜨린다.
-    func testBecomingEggWithColdCacheClearsToGlyph() {
+    func testBecomingEggWithColdCacheClearsToGlyph() async {
         let next = SpriteSubject(image: image(4), loadedID: 25).becomingEgg(cachedEgg: nil)
         XCTAssertNil(next.image, "캐시가 없다고 옛 개체를 남기면 안 된다 — 🥚 글리프가 옳다")
         XCTAssertNil(next.loadedID)
     }
 
     /// 이미 알이던 주체는 건드리지 않는다 — 시드된 알 이미지를 지우면 글리프로 한 번 깜빡인다.
-    func testBecomingEggLeavesAnExistingEggAlone() {
+    func testBecomingEggLeavesAnExistingEggAlone() async {
         let egg = image(2)
         let next = SpriteSubject(image: egg, loadedID: nil).becomingEgg(cachedEgg: nil)
         XCTAssertTrue(next.image === egg)
@@ -80,14 +81,14 @@ final class SpriteSubjectTests: XCTestCase {
     /// [트리거] 취소된 정적 로드는 이미지도 loadedID 도 건드리지 않는다.
     /// 반영하면 (a) 알 위에 옛 개체가 되살아나고 (b) loadedID 가 오염돼 다음에 그 종이 활성일 때
     /// "이미 로드됨"으로 판단해 살아있는 포켓몬 자리에 🥚 글리프가 고정된다.
-    func testCancelledLoadLeavesSubjectUntouched() {
+    func testCancelledLoadLeavesSubjectUntouched() async {
         let species = image(4)
         XCTAssertNil(SpriteSubject(image: image(2), loadedID: nil).applyingLoad(species, for: 26, cancelled: true),
                      "취소된 로드는 상태를 아예 건드리면 안 된다 — 이미지 복원과 loadedID 오염이 여기서 갈린다")
     }
 
     /// 취소되지 않은 로드는 그대로 반영한다(가드가 과잉 차단하지 않는지).
-    func testAcceptedLoadUpdatesImageAndID() throws {
+    func testAcceptedLoadUpdatesImageAndID() async throws {
         let species = image(4)
         let next = try XCTUnwrap(SpriteSubject(image: nil, loadedID: nil)
             .applyingLoad(species, for: 26, cancelled: false))
@@ -96,7 +97,7 @@ final class SpriteSubjectTests: XCTestCase {
     }
 
     /// 로드 실패(오프라인)는 기존 동작대로 "시도했음"을 남긴다 — 같은 id 재요청 폭주 방지.
-    func testFailedButNotCancelledLoadStillMarksTheAttempt() throws {
+    func testFailedButNotCancelledLoadStillMarksTheAttempt() async throws {
         let next = try XCTUnwrap(SpriteSubject(image: image(4), loadedID: 25)
             .applyingLoad(nil, for: 26, cancelled: false))
         XCTAssertNil(next.image)
@@ -104,7 +105,7 @@ final class SpriteSubjectTests: XCTestCase {
     }
 
     /// 알 이미지 로드도 같은 규칙 — 취소면 무시, 아니면 반영하되 loadedID 는 알(nil) 그대로.
-    func testEggImageAppliesOnlyWhenNotCancelled() throws {
+    func testEggImageAppliesOnlyWhenNotCancelled() async throws {
         let egg = image(2)
         XCTAssertNil(SpriteSubject(image: nil, loadedID: nil).applyingEgg(egg, cancelled: true))
 
@@ -117,18 +118,18 @@ final class SpriteSubjectTests: XCTestCase {
 
     /// [트리거] 취소된 GIF 는 반영하지 않는다 — body 가 frames 를 img 보다 먼저 그리므로,
     /// 뒤늦게 대입되면 알 위에 옛 개체의 프레임이 정지 상태로 올라온다(#135 와 같은 증상).
-    func testFramesDroppedWhenCancelled() {
+    func testFramesDroppedWhenCancelled() async {
         let decoded = [frame(image(4)), frame(image(4))]
         XCTAssertTrue(SpriteView.framesToApply(decoded, cancelled: true).isEmpty)
     }
 
     /// 2프레임 미만은 애니메이션이 아니다 → 정적 폴백(기존 규칙 보존).
-    func testSingleFrameFallsBackToStatic() {
+    func testSingleFrameFallsBackToStatic() async {
         XCTAssertTrue(SpriteView.framesToApply([frame(image(4))], cancelled: false).isEmpty)
         XCTAssertTrue(SpriteView.framesToApply([], cancelled: false).isEmpty)
     }
 
-    func testMultiFrameAcceptedWhenNotCancelled() {
+    func testMultiFrameAcceptedWhenNotCancelled() async {
         let first = image(4), second = image(4)
         let ready = SpriteView.framesToApply([frame(first), frame(second)], cancelled: false)
         XCTAssertEqual(ready.count, 2)
@@ -199,3 +200,4 @@ final class SpriteSubjectTests: XCTestCase {
         XCTAssertNil(box.subject.loadedID)
     }
 }
+#endif   // os(macOS)

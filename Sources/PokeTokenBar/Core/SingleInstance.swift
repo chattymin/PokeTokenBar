@@ -1,5 +1,10 @@
+#if os(macOS)
 import AppKit
 import Darwin
+#else
+import Foundation
+import Glibc
+#endif
 
 /// 같은 앱이 두 번 뜨는 것을 막는 가드 — **나중에 뜬 인스턴스가 물러난다**.
 ///
@@ -41,6 +46,7 @@ enum SingleInstance {
     /// 프로세스라, launchDate 로 판정하면 가드가 통째로 무효가 된다(실측: 로그인 에이전트가 띄운
     /// 인스턴스는 `launchDate == nil`, 같은 pid 의 `p_starttime` 은 정상). 커널 값은 두 경로 모두에
     /// 남고 프로세스 간 비교도 성립한다.
+    #if os(macOS)
     static func processStartTime(_ pid: pid_t) -> Date? {
         var info = kinfo_proc()
         var size = MemoryLayout<kinfo_proc>.stride
@@ -53,10 +59,10 @@ enum SingleInstance {
     }
 
     /// 위 판정을 실제 실행 중인 인스턴스에 적용한다. 실앱에서만 동작한다 —
-    /// `swift test`/로우 바이너리(dev 실행)는 번들이 아니라 항상 `false`(`AppEnv.isBundledApp`).
+    /// `swift test`/로우 바이너리(dev 실행)는 번들이 아니라 항상 `false`(`AppEnv.isProductionInstall`).
     @MainActor
     static func shouldYieldToRunningInstance() -> Bool {
-        guard AppEnv.isBundledApp, let bundleID = Bundle.main.bundleIdentifier else { return false }
+        guard AppEnv.isProductionInstall, let bundleID = Bundle.main.bundleIdentifier else { return false }
         let me = NSRunningApplication.current.processIdentifier
         let others = NSRunningApplication.runningApplications(withBundleIdentifier: bundleID)
             .map(\.processIdentifier)
@@ -64,4 +70,33 @@ enum SingleInstance {
             .map(processStartTime)
         return shouldYield(myStartTime: processStartTime(me), otherStartTimes: others)
     }
+    #else
+    /// On Linux the decision is an **exclusive lock**, not a start-time comparison.
+    ///
+    /// macOS compares timestamps because of launchd's habit of exec'ing an already-running app a
+    /// second time, and that comparison has a known gap: if a time cannot be read, both instances
+    /// stay (see the doc above). Linux has no such constraint, so it uses `flock`, which the kernel
+    /// makes atomic — whoever takes it first stays, whoever cannot yields. The "the later instance
+    /// yields" contract is unchanged, and the tie / unreadable-clock edge cases disappear entirely.
+    ///
+    /// The fd is deliberately never closed (process lifetime = lock lifetime). On abnormal exit the
+    /// kernel reclaims it, so no stale lock is left behind — which a pidfile would have suffered.
+    nonisolated(unsafe) private static var lockFD: Int32 = -1
+
+    @MainActor
+    static func shouldYieldToRunningInstance() -> Bool {
+        guard AppEnv.isProductionInstall else { return false }
+        let path = PlatformPaths.runtimeDirectory
+            .appendingPathComponent("poketokenbar.lock").path
+        let fd = open(path, O_CREAT | O_RDWR | O_CLOEXEC, 0o644)
+        // If the lock cannot even be created, do not yield — losing the only instance is worse.
+        guard fd >= 0 else { return false }
+        if flock(fd, LOCK_EX | LOCK_NB) == 0 {
+            lockFD = fd
+            return false
+        }
+        close(fd)
+        return true
+    }
+    #endif
 }

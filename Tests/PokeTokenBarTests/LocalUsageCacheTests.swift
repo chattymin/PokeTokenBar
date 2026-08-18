@@ -280,7 +280,7 @@ final class LocalUsageCacheTests: XCTestCase {
 
     private func rewriteCodexCacheAsPriorParserVersion() throws {
         let raw = try Data(contentsOf: cacheFile)
-        let plain = (try? (raw as NSData).decompressed(using: .zlib) as Data) ?? raw
+        let plain = PlatformCompression.decompress(raw) ?? raw
         var snapshot = try XCTUnwrap(JSONSerialization.jsonObject(with: plain) as? [String: Any])
         var codex = try XCTUnwrap(snapshot["codex"] as? [String: Any])
 
@@ -302,7 +302,7 @@ final class LocalUsageCacheTests: XCTestCase {
         snapshot["codexParserVersion"] = 3
 
         let data = try JSONSerialization.data(withJSONObject: snapshot)
-        let compressed = try (data as NSData).compressed(using: .zlib) as Data
+        let compressed = try XCTUnwrap(PlatformCompression.compress(data))
         try compressed.write(to: cacheFile, options: .atomic)
     }
 
@@ -463,7 +463,7 @@ final class LocalUsageCacheTests: XCTestCase {
 
     private func downgradeCodexSessionIndexVersion() throws {
         let raw = try Data(contentsOf: cacheFile)
-        let plain = (try? (raw as NSData).decompressed(using: .zlib) as Data) ?? raw
+        let plain = PlatformCompression.decompress(raw) ?? raw
         var snapshot = try XCTUnwrap(JSONSerialization.jsonObject(with: plain) as? [String: Any])
         XCTAssertFalse(
             (snapshot["codexSessionIDs"] as? [String: Any] ?? [:]).isEmpty,
@@ -471,7 +471,7 @@ final class LocalUsageCacheTests: XCTestCase {
         snapshot["codexSessionIndexVersion"] = 1
 
         let data = try JSONSerialization.data(withJSONObject: snapshot)
-        let compressed = try (data as NSData).compressed(using: .zlib) as Data
+        let compressed = try XCTUnwrap(PlatformCompression.compress(data))
         try compressed.write(to: cacheFile, options: .atomic)
     }
 
@@ -636,7 +636,7 @@ final class LocalUsageCacheTests: XCTestCase {
         XCTAssertEqual(Set(entries.map(\.output)), [1, 2], "조회 자체는 둘 다 반환")
 
         let raw = try Data(contentsOf: cacheFile)
-        let plain = (try? (raw as NSData).decompressed(using: .zlib) as Data) ?? raw
+        let plain = PlatformCompression.decompress(raw) ?? raw
         let snap = String(decoding: plain, as: UTF8.self)
         XCTAssertFalse(snap.contains("old.jsonl"), "45일 지난 blob 은 스냅샷에서 prune")
         XCTAssertTrue(snap.contains("new.jsonl"))
@@ -681,7 +681,7 @@ final class LocalUsageCacheTests: XCTestCase {
 
         // 압축 해제해 평문으로 다운그레이드(구버전 캐시 파일 시뮬레이션)
         let raw = try Data(contentsOf: cacheFile)
-        let plain = try (raw as NSData).decompressed(using: .zlib) as Data
+        let plain = try XCTUnwrap(PlatformCompression.decompress(raw))
         try plain.write(to: cacheFile)
 
         // 내용을 몰래 바꿔도(길이·mtime 동일) 평문 스냅샷이 로드되면 42 유지
@@ -696,7 +696,7 @@ final class LocalUsageCacheTests: XCTestCase {
         try writeFile("a.jsonl", lines: (1...50).map { claudeLine(id: "\($0)", output: $0) }, mtime: t)
         _ = await makeCache().claudeEntries(modifiedSince: since)
         let raw = try Data(contentsOf: cacheFile)
-        let plain = try (raw as NSData).decompressed(using: .zlib) as Data   // zlib 아니면 throw
+        let plain = try XCTUnwrap(PlatformCompression.decompress(raw))   // zlib 아니면 throw
         XCTAssertLessThan(raw.count, plain.count, "압축본이 평문보다 작아야 한다")
     }
 

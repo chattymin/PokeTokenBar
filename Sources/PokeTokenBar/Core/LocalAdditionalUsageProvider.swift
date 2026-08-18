@@ -1,5 +1,9 @@
 import Foundation
-import SQLite3
+#if canImport(SQLite3)
+import SQLite3   // Darwin-only module name
+#else
+import CSQLite   // Linux: the Sources/CSQLite module map
+#endif
 
 private enum LocalAdditionalSource: String, Sendable {
     case opencode
@@ -546,10 +550,8 @@ enum LocalAdditionalUsageReader {
 
     static var defaultCursorRoots: [URL] {
         environmentPaths("CURSOR_DATA_DIR") ?? [
-            FileManager.default.homeDirectoryForCurrentUser
-                .appendingPathComponent("Library/Application Support/Cursor/User/globalStorage"),
-            FileManager.default.homeDirectoryForCurrentUser
-                .appendingPathComponent("Library/Application Support/Cursor Nightly/User/globalStorage"),
+            PlatformPaths.electronAppData("Cursor").appendingPathComponent("User/globalStorage"),
+            PlatformPaths.electronAppData("Cursor Nightly").appendingPathComponent("User/globalStorage"),
         ]
     }
 
@@ -783,9 +785,7 @@ enum LocalAdditionalUsageReader {
     // MARK: Kiro CLI database
 
     static var defaultKiroRoots: [URL] {
-        environmentPaths("KIRO_CLI_HOME")
-            ?? [FileManager.default.homeDirectoryForCurrentUser
-                .appendingPathComponent("Library/Application Support/kiro-cli")]
+        environmentPaths("KIRO_CLI_HOME") ?? [PlatformPaths.cliToolData("kiro-cli")]
     }
 
     /// Read Kiro CLI usage turns newer than `modifiedSince`.

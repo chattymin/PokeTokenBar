@@ -1,4 +1,8 @@
-import SQLite3
+#if canImport(SQLite3)
+import SQLite3   // Darwin-only module name
+#else
+import CSQLite   // Linux: the Sources/CSQLite module map
+#endif
 import XCTest
 @testable import PokeTokenBar
 
@@ -364,10 +368,23 @@ final class KiroUsageTests: XCTestCase {
     }
 
     func testDefaultRootIsTheKiroCliHome() {
+        // kiro-cli is a CLI tool, so the convention differs per platform: Application Support on
+        // macOS, the XDG data directory on Linux. Calling the implementation back would just
+        // compare it with itself, so the paths are spelled out — that is the contract under test.
+        #if os(macOS)
         let expected = FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent("Library/Application Support/kiro-cli")
+        let overridden = ProcessInfo.processInfo.environment["KIRO_CLI_HOME"] != nil
+        #else
+        let expected = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".local/share/kiro-cli")
+        // With XDG_DATA_HOME relocated the default is not under home — skipped for the same
+        // reason as KIRO_CLI_HOME.
+        let overridden = ProcessInfo.processInfo.environment["KIRO_CLI_HOME"] != nil
+            || ProcessInfo.processInfo.environment["XDG_DATA_HOME"]?.hasPrefix("/") == true
+        #endif
         let roots = LocalAdditionalUsageReader.defaultKiroRoots
-        if ProcessInfo.processInfo.environment["KIRO_CLI_HOME"] == nil {
+        if !overridden {
             XCTAssertEqual(roots, [expected])
         }
         XCTAssertFalse(roots.isEmpty)

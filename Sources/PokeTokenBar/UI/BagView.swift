@@ -1,3 +1,4 @@
+#if os(macOS)
 import SwiftUI
 
 /// 가방(인벤토리) — 소유 아이템 카드 + 사용. 빈 상태는 움직이는 잠만보(컬렉션의 피카츄 패턴).
@@ -136,3 +137,4 @@ private struct ItemCard: View {
         nav.tab = .home
     }
 }
+#endif   // os(macOS)

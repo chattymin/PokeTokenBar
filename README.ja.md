@@ -8,6 +8,7 @@
 
 [![Release](https://img.shields.io/github/v/release/chattymin/PokeTokenBar?color=444d56&label=release)](https://github.com/chattymin/PokeTokenBar/releases)
 [![macOS](https://img.shields.io/badge/macOS-14%2B-0969da)](https://www.apple.com/macos/)
+[![Linux](https://img.shields.io/badge/Linux-KDE%20Plasma%20%28%E9%83%A8%E5%88%86%29-1793d1)](#linux-kde-plasma)
 [![Swift](https://img.shields.io/badge/Swift-6-f05138)](https://swift.org)
 [![Homebrew](https://img.shields.io/badge/Homebrew-cask-8957e5)](#homebrew)
 [![License](https://img.shields.io/badge/license-MIT-3fb950)](LICENSE)
@@ -17,7 +18,7 @@
 
 </div>
 
-PokeTokenBar は、あなたがすでに使っている AI コーディングトークン（Claude Code・Codex・Gemini CLI・Antigravity・OpenCode・Hermes Agent・Cursor・Grok CLI・Copilot CLI・Kiro CLI）を、macOS メニューバーの中で育っていく **ポケモンのパートナー** に変えます。トークンを使うとタマゴが孵化し、実際の進化ラインに沿って進化し、最終進化後に図鑑へ卒業して、また新しいタマゴが始まります。パートナーの下には正確な使用量トラッカーがあります — 今日の使用量・コスト、公式の5時間／週間上限をローカルログから直接読み取ります。
+PokeTokenBar は、あなたがすでに使っている AI コーディングトークン（Claude Code・Codex・Gemini CLI・Antigravity・OpenCode・Hermes Agent・Cursor・Grok CLI・Copilot CLI・Kiro CLI）を、macOS メニューバー、そして [部分的に](#linux-kde-plasma) Linux の KDE Plasma システムトレイの中で育っていく **ポケモンのパートナー** に変えます。トークンを使うとタマゴが孵化し、実際の進化ラインに沿って進化し、最終進化後に図鑑へ卒業して、また新しいタマゴが始まります。パートナーの下には正確な使用量トラッカーがあります — 今日の使用量・コスト、公式の5時間／週間上限をローカルログから直接読み取ります。
 
 > トークン使用量はローカルの Claude Code・Codex・Gemini CLI・Antigravity・OpenCode・Hermes Agent・Cursor・Grok CLI・Copilot CLI・Kiro CLI データから直接読み取ります（`totalTokens` = input + output + cache、ローカル日付）— 外部 CLI 不要。非公式・非商用のポケモンファンプロジェクトです — [ライセンス & 免責](#ライセンス--免責) を参照。
 
@@ -125,6 +126,8 @@ PokeTokenBar は、あなたがすでに使っている AI コーディングト
 
 macOS 14+（Apple Silicon または Intel）。それだけ — トークン使用量はローカルの Claude Code・Codex・Gemini CLI・Antigravity・OpenCode・Hermes Agent・Cursor・Grok CLI・Copilot CLI・Kiro CLI データから直接読み取り、外部の使用量 CLI は不要です。
 
+Linux は **部分対応** です — [Linux (KDE Plasma)](#linux-kde-plasma) を参照。
+
 ### Homebrew
 
 ```bash
@@ -151,6 +154,36 @@ swift build                  # デバッグ
 swift test                   # ユニットテスト
 ./scripts/build-app.sh       # release → PokeTokenBar.app → /Applications
 ```
+
+### Linux (KDE Plasma)
+
+GTK3 フロントエンドが同じパートナーと使用量トラッカーをシステムトレイに表示します。**Arch Linux・
+KDE Plasma 6・Wayland** でビルドと動作確認をしています。StatusNotifierItem を実装したデスクトップ
+なら動作するはずですが、それ以外は未検証です。パッケージはまだないので自分でビルドします:
+
+```bash
+sudo pacman -S --needed swift-bin gtk3 libappindicator libnotify   # ディストリに合わせて
+make run                     # ビルドして実行
+make install                 # → ~/.local/bin（root 不要）、.desktop エントリとアイコン付き
+make autostart-enable        # ログイン時に自動起動（systemd --user）
+```
+
+`make` だけで全ターゲットが一覧表示されます。
+
+**動くもの:** アニメーションするパートナーと今日の使用量を載せたトレイアイコン、ホーム／ショップ／
+バッグ／コレクションのウィンドウ、進化ライン、公式の5時間・週間上限メーター、上限・孵化・進化の
+デスクトップ通知、フローティングペット、設定（言語・更新間隔・自動起動・通知）。使用量の解析、
+パートナーの進行、セーブデータは macOS と **同じコード** です。
+
+**まだ動かないもの:**
+
+| 未対応 | 理由 |
+|---|---|
+| フローティングペットのドラッグ・位置の記憶 | Wayland はクライアントが自分のウィンドウ位置を知ることも決めることも許しません — KWin のウィンドウルールで配置してください |
+| ウィンドウがトレイアイコンに吸着せず、フォーカスを失っても閉じない | 同じ理由（パネル項目の隣にサーフェスを置く手段がない） |
+| セーブのエクスポート・インポート | GTK のファイル選択ダイアログが必要です（macOS の設定にはあります） |
+| 図鑑の詳細画面・捕獲ログ | コレクションはグリッドとレア度の集計のみ表示します |
+| アプリ内アップデート・Homebrew cask | アプリが Linux のインストール形態を判別できないため、リリースページを開くまでで止まります |
 
 ## データソース
 

@@ -60,17 +60,36 @@ enum BinaryLocator {
     /// 새 버전매니저 지원 시 여기 한 곳만 추가하면 두 경로 모두에 반영된다.
     static func commonToolDirectories() -> [String] {
         let home = NSHomeDirectory()
-        return [
+        // Only the head and tail are platform-specific; **the version-manager block is shared** —
+        // mise, asdf, volta and bun use the same paths on both. Order is priority (first match
+        // wins), so the existing macOS order is left untouched.
+        #if os(macOS)
+        let systemFirst = [
             "/opt/homebrew/bin",                 // Homebrew (Apple Silicon)
             "/usr/local/bin",                    // Homebrew (Intel) / npm prefix
+        ]
+        let systemLast = ["/usr/bin"]
+        #else
+        let systemFirst = [
+            "/home/linuxbrew/.linuxbrew/bin",    // Homebrew on Linux
+            "/usr/local/bin",                    // npm prefix / manual install
+        ]
+        let systemLast = [
+            "\(home)/.local/share/pnpm",         // pnpm global bin
+            "\(home)/.local/share/flatpak/exports/bin",   // Flatpak (user install)
+            "/var/lib/flatpak/exports/bin",      // Flatpak (system install)
+            "/snap/bin",                         // Snap
+            "/usr/bin",
+        ]
+        #endif
+        return systemFirst + [
             "\(home)/.local/share/mise/shims",   // mise (shims 모드)
             "\(home)/.asdf/shims",               // asdf
             "\(home)/.volta/bin",                // Volta
             "\(home)/.bun/bin",                  // Bun
             "\(home)/.npm-global/bin",           // npm prefix=~/.npm-global
             "\(home)/.local/bin",
-            "/usr/bin",
-        ]
+        ] + systemLast
     }
 
     /// 버전매니저 공통 shim/bin 경로 + 주어진 정적 경로. (절대경로 우선 탐색용)
@@ -81,7 +100,7 @@ enum BinaryLocator {
     private static func locate(_ binary: String, staticPaths: [String]) -> String? {
         let fm = FileManager.default
         // 0) 사용자 수동 지정
-        if let override = UserDefaults.standard.string(forKey: "\(binary)Path"),
+        if let override = PlatformDefaults.standard.string(forKey: "\(binary)Path"),
            !override.isEmpty, fm.isExecutableFile(atPath: override) {
             return override
         }

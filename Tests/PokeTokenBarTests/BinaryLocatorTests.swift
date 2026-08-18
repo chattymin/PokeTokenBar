@@ -2,6 +2,15 @@ import XCTest
 @testable import PokeTokenBar
 
 final class BinaryLocatorTests: XCTestCase {
+    /// The platform's Homebrew bin. The point is to lock in "a package-manager install is among
+    /// the candidates", so hardcoding the path string breaks on the other platform for reasons
+    /// that have nothing to do with the intent.
+    #if os(macOS)
+    private let brewBin = "/opt/homebrew/bin"
+    #else
+    private let brewBin = "/home/linuxbrew/.linuxbrew/bin"
+    #endif
+
     /// mise shim 이 버전매니저 본체를 찾을 수 있도록 PATH 가 보강되는지 (버그 리포트 시나리오).
     func testAugmentedEnvironmentPrependsToolPaths() {
         let home = NSHomeDirectory()
@@ -11,7 +20,7 @@ final class BinaryLocatorTests: XCTestCase {
         let paths = env["PATH"]!.split(separator: ":").map(String.init)
 
         XCTAssertEqual(paths.first, "\(home)/.local/share/mise/shims")   // 바이너리 디렉토리 최우선
-        XCTAssertTrue(paths.contains("/opt/homebrew/bin"))               // mise 본체 위치 후보
+        XCTAssertTrue(paths.contains(brewBin))                           // mise 본체 위치 후보
         XCTAssertTrue(paths.contains("\(home)/.local/bin"))
         XCTAssertTrue(paths.contains("/usr/bin"))                        // 기존 PATH 보존
         XCTAssertEqual(paths.filter { $0 == "\(home)/.local/share/mise/shims" }.count, 1)  // dedup
@@ -61,7 +70,7 @@ final class BinaryLocatorTests: XCTestCase {
 
     func testCommonPathsIncludeManagersForBinary() {
         let paths = BinaryLocator.commonNodeToolPaths("ccusage")
-        XCTAssertTrue(paths.contains("/opt/homebrew/bin/ccusage"))
+        XCTAssertTrue(paths.contains("\(brewBin)/ccusage"))
         XCTAssertTrue(paths.contains { $0.contains("/.local/share/mise/shims/ccusage") })
         XCTAssertTrue(paths.contains { $0.contains("/.asdf/shims/ccusage") })
         XCTAssertTrue(paths.contains { $0.contains("/.volta/bin/ccusage") })

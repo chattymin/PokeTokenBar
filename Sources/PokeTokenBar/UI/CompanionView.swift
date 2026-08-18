@@ -1,3 +1,4 @@
+#if os(macOS)
 import SwiftUI
 
 func rarityColor(_ r: Rarity?) -> Color {
@@ -112,7 +113,9 @@ struct SpriteView: View {
     }
 
     /// 프레임 지속(초) = max(원본 delay, 하한). 순수·테스트용 — fps 상한 회귀 가드.
-    static func frameDelay(base: TimeInterval, floor: TimeInterval) -> TimeInterval { max(base, floor) }
+    static func frameDelay(base: TimeInterval, floor: TimeInterval) -> TimeInterval {
+        SpriteAnimationPolicy.frameDelay(base: base, floor: floor)
+    }
 
     /// 디코드된 GIF 프레임 중 실제로 재생할 것 — 취소됐거나 2프레임 미만이면 빈 배열(정적 폴백).
     /// 취소 검사가 여기 있는 이유: `frames` 는 body 에서 `img` 보다 먼저 그려지므로, 취소된 로드가
@@ -616,18 +619,8 @@ struct CompanionHeader: View {
         }
     }
 
-    private var statusLine: String {
-        let l = store.l
-        switch store.displayState {
-        case .egg:     return l.statusEgg
-        case .idle:    return l.statusIdle
-        case .working: return l.statusWorking
-        case .focus:   return l.statusFocus
-        case .tired:   return l.statusTired
-        case .sleep:   return l.statusSleep
-        case .levelUp: return store.justEvolvedTo.map { l.statusEvolved($0) } ?? l.statusGrew
-        }
-    }
+    /// Moved to `CompanionStore.statusLine` so the Linux frontend shows the same sentence.
+    private var statusLine: String { store.statusLine }
 }
 
 /// 희귀도 1종 캡슐 — 색 점 + 라벨 + 개수. 선택 시 원색 링 + 체크마크로 강조.
@@ -1054,3 +1047,4 @@ private struct DexEntryRow: View {
         }
     }
 }
+#endif   // os(macOS)

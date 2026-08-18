@@ -1,7 +1,5 @@
-import AppKit
 import Foundation
 import Observation
-import UserNotifications
 
 /// burn rate 단계 — companion 표시 상태(작업/집중) 판정에 사용.
 enum BurnTier: Sendable {
@@ -403,7 +401,7 @@ final class UsageStore {
          codexLimitsProvider: any CodexLimitsProviding = CodexRateLimitsProvider(),
          statusProvider: any ProviderStatusProviding = StatuspageStatusProvider(),
          autoRefresh: Bool = true,
-         defaults: UserDefaults = .standard) {
+         defaults: UserDefaults = PlatformDefaults.standard) {
         self.providers = providers
         self.limitsProvider = claudeLimitsProvider
         self.codexLimitsProvider = codexLimitsProvider
@@ -434,23 +432,12 @@ final class UsageStore {
         ) { [weak self] _ in
             Task { @MainActor in await self?.refresh() }
         }
-        // 슬립 복귀 시 즉시 갱신
-        NSWorkspace.shared.notificationCenter.addObserver(
-            forName: NSWorkspace.didWakeNotification, object: nil, queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor in await self?.refresh() }
-        }
-        // 디스플레이 꺼짐 → 폴링(ccusage 서브프로세스 spawn) 일시정지, 켜짐 → 재개 + 즉시 갱신 (배터리)
-        NSWorkspace.shared.notificationCenter.addObserver(
-            forName: NSWorkspace.screensDidSleepNotification, object: nil, queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor in self?.suspendPolling() }
-        }
-        NSWorkspace.shared.notificationCenter.addObserver(
-            forName: NSWorkspace.screensDidWakeNotification, object: nil, queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor in self?.resumePolling() }
-        }
+        // Refresh on wake; pause polling (which spawns ccusage subprocesses) when the display
+        // sleeps and resume plus refresh when it wakes — battery.
+        PlatformPowerEvents.observe(
+            onWake: { [weak self] in Task { @MainActor in await self?.refresh() } },
+            onScreenSleep: { [weak self] in Task { @MainActor in self?.suspendPolling() } },
+            onScreenWake: { [weak self] in Task { @MainActor in self?.resumePolling() } })
 
         // 알림 권한은 기동 즉시 묻지 않는다 — 앱을 이해하기 전 콜드 프롬프트는 거부율이 높고
         // 거부 시 재요청 경로가 없다. 팝오버 첫 오픈(사용자 의도)에 requestNotificationAuthorizationIfNeeded 로 1회 요청.
@@ -493,10 +480,11 @@ final class UsageStore {
         if isRefreshing { refreshPending = true; return }
         isRefreshing = true
         // App Nap 방지 — 백그라운드 스로틀로 ccusage 가 타임아웃되는 것을 막는다 (시스템 슬립은 허용)
-        let activity = ProcessInfo.processInfo.beginActivity(
-            options: .userInitiatedAllowingIdleSystemSleep, reason: "PokeTokenBar usage refresh")
+        // Spelled out because Token is Void on Linux, where inference would warn about a Void constant.
+        let activity: PlatformActivity.Token =
+            PlatformActivity.beginUserInitiated(reason: "PokeTokenBar usage refresh")
         defer {
-            ProcessInfo.processInfo.endActivity(activity)
+            PlatformActivity.end(activity)
             isRefreshing = false
             // 진행 중 겹쳐 들어온 요청을 1회 반영. 요청 도착률이 유한하므로 무한 재실행 없음.
             if refreshPending {
@@ -813,9 +801,9 @@ final class UsageStore {
     /// 팝오버 첫 오픈 등 사용자 의도 시점에 1회만 알림 권한 요청(멱등).
     func requestNotificationAuthorizationIfNeeded() {
         guard !notifAuthRequested else { return }
-        guard AppEnv.isBundledApp else { return }
+        guard AppEnv.isProductionInstall else { return }
         notifAuthRequested = true
-        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
+        PlatformNotifier.requestAuthorization()
     }
 
     /// 한도 알림 1건의 발화 지시(순수 판정 결과). 부수효과와 분리해 테스트 가능하게.
@@ -876,7 +864,7 @@ final class UsageStore {
             windows: windows, warn: warnThreshold, crit: critThreshold, tiers: &notifiedTier)
         guard !alerts.isEmpty else { return }
 
-        if limitNotifications, AppEnv.isBundledApp {
+        if limitNotifications, AppEnv.isProductionInstall {
             postLimitNotifications(alerts)
         }
         if floatingPetEnabled, floatingPetBubbleAlerts {
@@ -934,14 +922,11 @@ final class UsageStore {
     private func postLimitNotifications(_ alerts: [LimitAlert]) {
         let l = L(localizationLanguage)
         for alert in alerts {
-            let content = UNMutableNotificationContent()
-            content.title = alert.isCritical ? l.notifCritical : l.notifWarning
-            content.body = l.notifBody(alert.window, TokenFormatter.percent(alert.utilization))
-            content.sound = alert.isCritical ? .default : nil
-            UNUserNotificationCenter.current().add(
-                UNNotificationRequest(
-                    identifier: "\(alert.key)-\(alert.isCritical ? "critical" : "warning")",
-                    content: content, trigger: nil))
+            PlatformNotifier.post(
+                identifier: "\(alert.key)-\(alert.isCritical ? "critical" : "warning")",
+                title: alert.isCritical ? l.notifCritical : l.notifWarning,
+                body: l.notifBody(alert.window, TokenFormatter.percent(alert.utilization)),
+                sound: alert.isCritical, critical: alert.isCritical)
         }
     }
 
@@ -962,10 +947,8 @@ final class UsageStore {
 
     private func writeParitySnapshot() {
         // .app 번들에서만 기록 — 테스트가 실제 사용자 데이터 디렉토리의 스냅샷을 덮어쓰지 않도록.
-        guard AppEnv.isBundledApp else { return }
-        let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("PokeTokenBar")
-        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        guard AppEnv.isProductionInstall else { return }
+        let dir = PlatformPaths.appDirectory()
         var providerEntries: [[String: Any]] = []
         for snapshot in snapshots {
             providerEntries.append([

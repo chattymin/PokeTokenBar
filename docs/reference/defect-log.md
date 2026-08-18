@@ -5,6 +5,7 @@ read_when:
   - 동시성/await·옵셔널 판정·캐시 무효화·외부 로그 포맷을 건드릴 때
   - 메뉴바·플로팅 펫 등 상시 표시 애니메이션의 성능을 손볼 때
   - 세이브 이전/병합·외부 파일 입력 경로를 만들 때
+  - 테스트가 실행 환경(타임존·로케일·플랫폼)을 전제하고 있지 않은지 볼 때 / checking whether a test assumes its environment
 ---
 
 # 결함 대응 축적 규칙
@@ -342,3 +343,34 @@ read_when:
   넣어 보고, 로컬 장부만 새 기기 기준으로 다시 잡는다(`SaveTransfer.rebasedForThisDevice`). 회귀 가드:
   `testTransferDayTokensStillCountAfterRebase` — 재정렬 없는 대조군을 같이 돌려 결함 조건이 살아 있는지도
   함께 확인한다(테스트가 트리거 브랜치를 실제로 밟는지 보증).
+
+## Test environment assumptions
+
+> This section is written in English — see `CLAUDE.md` §기여 언어 규약 (English-first).
+
+- **Never compare a UTC instant against a local-date literal.** `LocalUsageReader.localDayFormatter()`
+  sets `timeZone = .current`, so `localDay` is exactly what its name says: a *local* date.
+  `testHermesAcceptsMillisecondStartedAt` put `1767312000000`ms (= 2026-01-02T00:00:00**Z**) in the
+  fixture and asserted the literal `"2026-01-02"`, so it **only broke at negative UTC offsets**
+  (UTC-03 → local 2026-01-01 21:00 → `"2026-01-01"`). This is not a platform defect — it fails on a
+  Mac in the same timezone. Development and CI simply sit at UTC+9, so nobody stepped on it.
+  The fix is not a different literal but **deriving the expectation from the same instant**
+  (`localDayFormatter().string(from:)`). It looks like comparing the code with itself, yet it keeps
+  all of its discriminating power: the subject of that test is "are ms mistaken for seconds", and if
+  they were, the date lands in the year 57973 and fails instantly.
+  Class sweep (2026-08-17): of the 15 `yyyy-MM-dd` literals in the tests, **this was the only place
+  asserting an instant→local-date conversion**. The rest are fixture *inputs* (`Entry(localDay:)`)
+  or plain JSON string comparisons, where no timezone is involved. Same class as pinning the locale
+  (#166) — **do not drag the environment into an assertion.**
+- **Inject the defect at the layer the defect lives in.** To check the guard above actually bites, the
+  fixture was changed from `1767312000000` to `1767312000` — and **the test still passed**, because ms
+  and seconds there are *the same instant*, so the injection changed nothing. The real injection is
+  removing the reader's discriminator (`raw >= 100_000_000_000 ? raw / 1_000 : raw` in `dateValue`),
+  and only then did it fail with `57973-11-20`. Do not read "injected and still passing" as "the guard
+  is useless" — **first check the injection reproduced the defect at all.**
+- **Asserting platform-specific behaviour as a precondition means asserting someone else's bug
+  elsewhere.** `testCheckpointedWalDatabaseIsStillReadable` first asserts that opening with `mode=ro`
+  must fail, to prove the fallback is really exercised. That is a property of macOS's SQLite (it
+  cannot create the `-shm` a checkpointed WAL store needs); Linux's SQLite opens the same file
+  without complaint. Narrow the precondition to that platform (`#if os(macOS)`) and check **what the
+  test actually guards** — that the reader returns the rows — on both.

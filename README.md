@@ -8,6 +8,7 @@
 
 [![Release](https://img.shields.io/github/v/release/chattymin/PokeTokenBar?color=444d56&label=release)](https://github.com/chattymin/PokeTokenBar/releases)
 [![macOS](https://img.shields.io/badge/macOS-14%2B-0969da)](https://www.apple.com/macos/)
+[![Linux](https://img.shields.io/badge/Linux-KDE%20Plasma%20%28partial%29-1793d1)](#linux-kde-plasma)
 [![Swift](https://img.shields.io/badge/Swift-6-f05138)](https://swift.org)
 [![Homebrew](https://img.shields.io/badge/Homebrew-cask-8957e5)](#homebrew)
 [![License](https://img.shields.io/badge/license-MIT-3fb950)](LICENSE)
@@ -17,7 +18,7 @@
 
 </div>
 
-PokeTokenBar turns the AI coding tokens you're already burning — Claude Code, Codex, Gemini CLI, Antigravity, OpenCode, Hermes Agent, Cursor, Grok CLI, Copilot CLI & Kiro CLI — into a growing **Pokémon companion** in your macOS menu bar. Spend tokens, hatch an egg, evolve it through its real evolution line, graduate it into your Pokédex, and start again. Underneath the companion it's a precise usage tracker — today's spend, cost, and official 5-hour / weekly limits, read straight from your local logs.
+PokeTokenBar turns the AI coding tokens you're already burning — Claude Code, Codex, Gemini CLI, Antigravity, OpenCode, Hermes Agent, Cursor, Grok CLI, Copilot CLI & Kiro CLI — into a growing **Pokémon companion** in your macOS menu bar — and, [partially](#linux-kde-plasma), in your KDE Plasma system tray on Linux. Spend tokens, hatch an egg, evolve it through its real evolution line, graduate it into your Pokédex, and start again. Underneath the companion it's a precise usage tracker — today's spend, cost, and official 5-hour / weekly limits, read straight from your local logs.
 
 > Token usage is read directly from local Claude Code, Codex, Gemini CLI, Antigravity, OpenCode, Hermes Agent, Cursor, Grok CLI, Copilot CLI, and Kiro CLI data (`totalTokens` = input + output + cache, local date) — no external CLI needed. Unofficial, non-commercial Pokémon fan project — see [License & disclaimer](#license--disclaimer).
 
@@ -125,6 +126,8 @@ All read locally — no external usage CLI required. Adding a tool is one provid
 
 macOS 14+ (Apple Silicon or Intel). That's it — token usage is read directly from local Claude Code, Codex, Gemini CLI, Antigravity, OpenCode, Hermes Agent, Cursor, Grok CLI, Copilot CLI, and Kiro CLI data, with no external usage CLI required.
 
+Linux is **partially supported** — see [Linux (KDE Plasma)](#linux-kde-plasma).
+
 ### Homebrew
 
 ```bash
@@ -151,6 +154,37 @@ swift build                  # debug
 swift test                   # unit tests
 ./scripts/build-app.sh       # release → PokeTokenBar.app → /Applications
 ```
+
+### Linux (KDE Plasma)
+
+A GTK3 frontend puts the same companion and usage tracker in the system tray. Built and verified on
+**Arch Linux, KDE Plasma 6, Wayland**; it should work on any desktop that implements
+StatusNotifierItem, but nothing else has been tested. There is no package yet — build it:
+
+```bash
+sudo pacman -S --needed swift-bin gtk3 libappindicator libnotify   # or your distro's equivalents
+make run                     # build and run
+make install                 # → ~/.local/bin (no root), with .desktop entry and icon
+make autostart-enable        # start at login (systemd --user)
+```
+
+`make` on its own lists every target.
+
+**What works:** the tray icon with your animated companion and today's usage; the main window with
+Home / Shop / Bag / Collection; the evolution line; official 5-hour and weekly limit meters;
+desktop notifications for limits, hatches and evolutions; the floating pet; and Settings
+(language, interval, autostart, notifications). All usage parsing, companion progression and save
+data are the same code as macOS.
+
+**What doesn't, yet:**
+
+| Gap | Why |
+|---|---|
+| Floating pet can't be dragged or remember its position | Wayland denies clients their own surface position — place it with a KWin window rule |
+| The window doesn't anchor to the tray icon or close on focus-out | Same reason: no way to position a surface next to a panel item |
+| Save export / import | Needs a GTK file chooser (macOS Settings has it) |
+| Pokédex detail view and catch log | Collection shows the grid and rarity counts only |
+| In-app update / Homebrew cask | Linux install method is unknown to the app, so it opens the release page instead |
 
 ## Data sources
 

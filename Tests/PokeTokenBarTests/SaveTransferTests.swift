@@ -95,7 +95,7 @@ final class SaveTransferTests: XCTestCase {
 
     // MARK: 봉투
 
-    func testRoundTripPreservesProgress() throws {
+    func testRoundTripPreservesProgress() async throws {
         let original = oldMacState(today: "2026-08-03")
         let data = try SaveTransfer.encode(state: original, appVersion: "2.5.0",
                                            deviceName: "Old Mac", now: transferNow)
@@ -112,7 +112,7 @@ final class SaveTransferTests: XCTestCase {
 
     /// [핵심] 봉투가 없으면 `CompanionState` 의 관대 디코딩이 아무 JSON 이나 빈 상태로 흡수해
     /// "불러오기 성공 → 도감이 사라짐"이 된다. 포맷 id 로 먼저 거른다.
-    func testForeignJSONIsRejectedRatherThanImportedAsEmptyState() throws {
+    func testForeignJSONIsRejectedRatherThanImportedAsEmptyState() async throws {
         // 관대 디코딩이면 통째로 통과해 버릴 모양의 JSON.
         let foreign = Data(#"{"some":"other app","dex":123}"#.utf8)
         XCTAssertThrowsError(try SaveTransfer.decode(foreign)) { error in
@@ -130,7 +130,7 @@ final class SaveTransferTests: XCTestCase {
     /// 기존 두 케이스는 모두 필수 키 누락이라 A 로만 통과했다 — `format` 비교를 통째로 삭제해도
     /// 전체 스위트가 그대로 통과했다(뮤테이션으로 확인). 여기서 **B 단독**을 고정한다:
     /// 6개 필드가 전부 유효하고 `format` 값만 다른 완전한 봉투.
-    func testValidEnvelopeWithWrongFormatIDIsRejected() throws {
+    func testValidEnvelopeWithWrongFormatIDIsRejected() async throws {
         let data = try SaveTransfer.encode(state: oldMacState(today: "2026-08-03"),
                                            appVersion: "2.5.0", deviceName: "Other App", now: transferNow)
         var json = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
@@ -148,7 +148,7 @@ final class SaveTransferTests: XCTestCase {
         }
     }
 
-    func testNewerSchemaIsRejected() throws {
+    func testNewerSchemaIsRejected() async throws {
         var data = try SaveTransfer.encode(state: CompanionState(), appVersion: "2.5.0",
                                            deviceName: "Future Mac", now: transferNow)
         var json = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
@@ -169,7 +169,7 @@ final class SaveTransferTests: XCTestCase {
     /// `claimedTodayTokensByProvider` 는 "이 기기가 프로바이더별로 오늘 어디까지 적립했나"인데 옛 기기 값(56.8M)이 그대로
     /// 따라오면 `update` 의 `todayTokens > claimedTodayTokens` 게이트가 하루 종일 거짓이 된다.
     /// 대조군(재정렬 없음)을 같이 돌려 트리거 브랜치를 실제로 밟는지 확인한다.
-    func testTransferDayTokensStillCountAfterRebase() throws {
+    func testTransferDayTokensStillCountAfterRebase() async throws {
         let today = "2026-08-03"
         let imported = oldMacState(today: today)
         let newMacTodaySoFar = 5_000_000
@@ -206,7 +206,7 @@ final class SaveTransferTests: XCTestCase {
 
     /// 불러올 때 이 기기의 오늘 사용량을 아직 모르면(파싱 전·프로바이더 없음) baseline 판정을
     /// 신규 설치 경로에 넘긴다 — 여기서 0 으로 잡으면 첫 파싱 때 하루치가 통째로 델타가 된다.
-    func testImportWithoutUsageDataDefersBaselineInsteadOfCreditingWholeDay() throws {
+    func testImportWithoutUsageDataDefersBaselineInsteadOfCreditingWholeDay() async throws {
         let today = "2026-08-03"
         let url = tempURL("nodata")
         let s = store(at: url)
@@ -232,7 +232,7 @@ final class SaveTransferTests: XCTestCase {
     /// [회귀] stale snapshot만 남아 `hasUsageData`는 true인데 오늘 map은 비어 있는 상태로
     /// 세이브를 불러와도, 빈 provider ledger를 유효한 기준점으로 저장하면 안 된다.
     /// 첫 정상 snapshot은 baseline으로만 잡고, 그 이후 증가분부터 적립해야 한다.
-    func testImportWithStaleOnlyUsageDefersBaselineInsteadOfSeedingEmptyLedger() throws {
+    func testImportWithStaleOnlyUsageDefersBaselineInsteadOfSeedingEmptyLedger() async throws {
         let today = "2026-08-03"
         let url = tempURL("stale-only")
         let s = store(at: url)
@@ -262,7 +262,7 @@ final class SaveTransferTests: XCTestCase {
 
     // MARK: 진행 보존 · 가드레일
 
-    func testImportKeepsProgressAndCandyGrantLedger() throws {
+    func testImportKeepsProgressAndCandyGrantLedger() async throws {
         let today = "2026-08-03"
         var imported = oldMacState(today: today)
         // 한도는 계정 전역이라 같은 창 key 가 새 기기에서도 유효하다 — 원장을 버리면 사탕이 중복 지급된다.
@@ -285,7 +285,7 @@ final class SaveTransferTests: XCTestCase {
     }
 
     /// 덮어쓰기 전 직전 상태를 남긴다 — 잘못 불러왔을 때 손으로 되돌릴 수단.
-    func testPreviousStateIsBackedUpBeforeOverwrite() throws {
+    func testPreviousStateIsBackedUpBeforeOverwrite() async throws {
         let today = "2026-08-03"
         let url = tempURL("backup")
 
@@ -416,7 +416,7 @@ final class SaveTransferTests: XCTestCase {
 
     /// [회귀·딥리뷰 H1] 새 Mac 에서 AI CLI 를 아직 안 쓴 시점(hasUsageData=false)에 불러오면,
     /// 개체가 있는데도 알로 표시되고 진화 라인 로드 재시도가 도달 불가였다.
-    func testImportedCompanionIsNotShownAsEggBeforeUsageArrives() throws {
+    func testImportedCompanionIsNotShownAsEggBeforeUsageArrives() async throws {
         let today = "2026-08-03"
         let url = tempURL("noegg")
         let s = store(at: url)
@@ -445,7 +445,7 @@ final class SaveTransferTests: XCTestCase {
 
     /// [회귀·딥리뷰 H2] 극단값 세이브가 그대로 저장되면 이후 산술이 오버플로 트랩으로 프로세스를 죽이고,
     /// 재기동해도 같은 파일을 읽어 다시 죽는다(수동 삭제 전까지 복구 불가).
-    func testExtremeValuesAreClampedAtTheTrustBoundary() throws {
+    func testExtremeValuesAreClampedAtTheTrustBoundary() async throws {
         var evil = CompanionState()
         evil.installBaselineSet = true
         evil.usedSinceInstall = Int.max
@@ -482,7 +482,7 @@ final class SaveTransferTests: XCTestCase {
     /// [회귀·딥리뷰 H2 후속] 불러오기 경계만 막으면 **이미 디스크에 있는** 극단값은 남아, 매 기동마다
     /// 같은 값을 읽어 산술 트랩으로 죽는 상태를 벗어나지 못한다(디코드가 성공하므로 `.corrupt` 복구도
     /// 발동 안 함). 상태 파일을 읽는 경로에서도 같은 정규화가 걸려야 자가 복구된다.
-    func testCorruptStateOnDiskIsClampedOnLoadNotJustOnImport() throws {
+    func testCorruptStateOnDiskIsClampedOnLoadNotJustOnImport() async throws {
         let url = tempURL("diskclamp")
         // 앱이 아니라 손편집·이전 버전이 남긴 것처럼 극단값을 직접 파일에 심는다.
         let json = #"{"installBaselineSet":true,"usedSinceInstall":9223372036854775807,"#
@@ -507,7 +507,7 @@ final class SaveTransferTests: XCTestCase {
 
     /// [딥리뷰 M-g] 이전 시 필드 분류가 산문 규약뿐이라, 새 필드가 추가되면 아무 판단 없이 "진행"으로
     /// 딸려 들어간다(`language` 가 실제로 그랬다). 필드 목록을 테스트로 고정해 **분류를 강제**한다.
-    func testEveryCompanionStateFieldIsClassifiedForTransfer() {
+    func testEveryCompanionStateFieldIsClassifiedForTransfer() async {
         // eggTier(알 등급 보증) = 진행 — 산 물건이지 이 기기의 장부가 아니라 기기를 옮겨도 따라간다.
         let progress: Set<String> = ["usedSinceInstall", "spentTokens", "eggUsage", "eggTier",
                                      "pendingHatchID", "active", "dex", "collectedFinals", "inventory"]
@@ -525,7 +525,7 @@ final class SaveTransferTests: XCTestCase {
 
     /// [딥리뷰 M-c] `language` 는 진행이 아니라 이 기기에서 보는 방식이다. 일본어 Mac 의 세이브가
     /// 영어 Mac 의 UI 언어를 조용히 바꾸면 안 된다.
-    func testImportKeepsThisDevicesLanguage() throws {
+    func testImportKeepsThisDevicesLanguage() async throws {
         let today = "2026-08-03"
         let url = tempURL("lang")
         var mine = CompanionState()
@@ -548,7 +548,7 @@ final class SaveTransferTests: XCTestCase {
 
     /// [딥리뷰 M-e] 사탕 지급 원장은 계정 전역(한도 창 key)이라 통째 교체하면 안 된다.
     /// **더 오래된** 세이브를 불러오면 이미 지급한 창의 기록이 사라져 같은 창에서 재지급된다.
-    func testCandyGrantLedgerMergesInsteadOfBeingReplacedByAnOlderSave() throws {
+    func testCandyGrantLedgerMergesInsteadOfBeingReplacedByAnOlderSave() async throws {
         let today = "2026-08-03"
         let url = tempURL("candy")
         var mine = CompanionState()
@@ -574,7 +574,7 @@ final class SaveTransferTests: XCTestCase {
 
     /// [딥리뷰 M-a] 확인창은 3개 언어로 "직전 상태가 남는다"고 약속한다. 백업을 못 남기면 그 약속을
     /// 못 지키는 것이므로 **덮어쓰지 않고 중단**해야 한다(예전엔 `try?` 로 삼키고 그냥 진행했다).
-    func testImportAbortsWhenBackupCannotBeWritten() throws {
+    func testImportAbortsWhenBackupCannotBeWritten() async throws {
         let today = "2026-08-03"
         let url = tempURL("nobackup")
         var mine = CompanionState()
@@ -601,7 +601,7 @@ final class SaveTransferTests: XCTestCase {
 
     /// [딥리뷰 M-b] 백업 슬롯이 하나면 두 번째 불러오기가 **원본**을 덮어써, 되돌리려는 바로 그
     /// 순간 되돌릴 대상이 사라진다. 불러올 때마다 새 슬롯이어야 한다.
-    func testSecondImportDoesNotDestroyTheOriginalBackup() throws {
+    func testSecondImportDoesNotDestroyTheOriginalBackup() async throws {
         let today = "2026-08-03"
         let url = tempURL("twoimports")
         var original = CompanionState()
@@ -637,7 +637,7 @@ final class SaveTransferTests: XCTestCase {
 
     /// [딥리뷰 M-f] 파괴적 버튼이 기본이면 Return 한 키로 진행이 대체된다. `NSAlert` 구성은 XCTest 에서
     /// 도달 불가라 규칙만 순수 함수로 빼 고정한다.
-    func testCancelIsTheDefaultButtonOnTheImportConfirmation() {
+    func testCancelIsTheDefaultButtonOnTheImportConfirmation() async {
         XCTAssertEqual(ImportConfirmPolicy.keyEquivalent(forButtonAt: ImportConfirmPolicy.cancelButtonIndex), "\r")
         XCTAssertEqual(ImportConfirmPolicy.keyEquivalent(forButtonAt: ImportConfirmPolicy.replaceButtonIndex), "",
                        "대체(파괴적) 버튼이 기본이면 안 된다")
@@ -645,7 +645,7 @@ final class SaveTransferTests: XCTestCase {
 
     /// [딥리뷰 M-h] `applySave` 가 정하는 표시 상태가 어떤 테스트에서도 단언되지 않아, 삼항을 뒤집어도
     /// 통과했다.
-    func testApplySaveSetsDisplayStateFromWhetherACompanionCameIn() throws {
+    func testApplySaveSetsDisplayStateFromWhetherACompanionCameIn() async throws {
         let today = "2026-08-03"
         var withMon = oldMacState(today: today)
         withMon.active = MonState(baseID: 403, pathIDs: [403], plannedPathIDs: [403],
@@ -667,7 +667,7 @@ final class SaveTransferTests: XCTestCase {
     // MARK: 파일 경계 (딥리뷰 LOW)
 
     /// 거대한 JSON 은 메인스레드 파싱을 수 초간 잡는다(실측 39MB ≈ 1.8초). 세이브는 수 KB 라 상한이 안전하다.
-    func testOversizedFileIsRejectedBeforeParsing() {
+    func testOversizedFileIsRejectedBeforeParsing() async {
         let huge = Data(count: SaveTransfer.maxFileBytes + 1)
         XCTAssertThrowsError(try SaveTransfer.decode(huge)) { error in
             XCTAssertEqual(error as? SaveTransferError,
@@ -677,7 +677,7 @@ final class SaveTransferTests: XCTestCase {
 
     /// 상위 스키마 세이브는 본문 모양이 달라 전체 디코드가 실패할 수 있다. 그래도 "세이브 파일이
     /// 아니에요"가 아니라 "앱을 업데이트하라"로 안내해야 한다 — 헤더를 먼저 읽는 이유다.
-    func testNewerSchemaIsReportedEvenWhenTheBodyIsUnreadable() throws {
+    func testNewerSchemaIsReportedEvenWhenTheBodyIsUnreadable() async throws {
         let json = #"{"format":"poketokenbar.save","schema":99,"whatever":{"unknown":true}}"#
         XCTAssertThrowsError(try SaveTransfer.decode(Data(json.utf8))) { error in
             XCTAssertEqual(error as? SaveTransferError,
@@ -690,7 +690,7 @@ final class SaveTransferTests: XCTestCase {
     /// 매핑이 어긋나면 `SaveTransferError` 는 LocalizedError 가 아니라 "The operation couldn't be
     /// completed. (PokeTokenBar.SaveTransferError error 0.)" 가 그대로 사용자에게 뜬다.
     /// 언어는 `allCases` 로 돈다 — 리터럴 목록은 언어가 늘어난 순간 조용히 커버를 멈춘다.
-    func testImportErrorMessagesAreLocalizedNotRawSwiftText() {
+    func testImportErrorMessagesAreLocalizedNotRawSwiftText() async {
         for lang in AppLanguage.allCases {
             let l = L(lang)
             let notSave = l.importErrorMessage(SaveTransferError.notASaveFile)
@@ -707,7 +707,7 @@ final class SaveTransferTests: XCTestCase {
         XCTAssertEqual(L(.en).importErrorMessage(other), other.localizedDescription)
     }
 
-    func testSuggestedFileNameCarriesDate() {
+    func testSuggestedFileNameCarriesDate() async {
         // 2026-08-03 12:00 UTC — 정오라 표준시대가 달라도 날짜 경계를 넘지 않는다(파일명은 로컬 날짜).
         let name = SaveTransfer.suggestedFileName(date: Date(timeIntervalSince1970: 1_785_758_400))
         XCTAssertTrue(name.hasPrefix("PokeTokenBar-Save-"))

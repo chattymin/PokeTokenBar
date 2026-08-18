@@ -1,4 +1,8 @@
-import SQLite3
+#if canImport(SQLite3)
+import SQLite3   // Darwin-only module name
+#else
+import CSQLite   // Linux: the Sources/CSQLite module map
+#endif
 import XCTest
 @testable import PokeTokenBar
 
@@ -120,7 +124,15 @@ final class LocalAdditionalUsageTests: XCTestCase {
             modifiedSince: try date("2026-01-01T00:00:00Z"), roots: [database])
 
         XCTAssertEqual(entries.count, 1)
-        XCTAssertEqual(entries.first?.localDay, "2026-01-02")
+        // `localDay` is exactly what the name says: a **local** date (localDayFormatter uses
+        // timeZone = .current). The fixture's 1767312000000ms is 2026-01-02T00:00:00**Z**, so a
+        // literal "2026-01-02" only breaks at negative UTC offsets (at UTC-03 it is
+        // 2026-01-01 21:00 → "2026-01-01"). What this test is actually about is whether ms are
+        // mistaken for seconds, so deriving the expectation from the same instant keeps all of its
+        // discriminating power — read as seconds it lands in the far future and fails immediately.
+        let expectedDay = LocalUsageReader.localDayFormatter()
+            .string(from: try date("2026-01-02T00:00:00Z"))
+        XCTAssertEqual(entries.first?.localDay, expectedDay)
         XCTAssertEqual(entries.first?.total, 15)
     }
 

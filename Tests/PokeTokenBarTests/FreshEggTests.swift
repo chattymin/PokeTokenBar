@@ -30,7 +30,7 @@ final class FreshEggTests: XCTestCase {
     func testPriceIsOneBillion() { XCTAssertEqual(FreshEgg.price, 1_000_000_000) }
 
     /// [핵심] 리롤 = 폐기: active 사라지고 새 알(eggUsage 0). **도감·확률(collectedFinals) 불변** = "뽑은 적 없던 것처럼".
-    func testBuyFreshEggDiscardsWithoutDexOrProbabilityImpact() {
+    func testBuyFreshEggDiscardsWithoutDexOrProbabilityImpact() async {
         let s = store(used: 5_000_000_000, spent: 0)
         let persistedDexBefore = s.state.dex
         let collectedBefore = s.state.collectedFinals
@@ -52,7 +52,7 @@ final class FreshEggTests: XCTestCase {
     }
 
     /// 폐기한 개체(baseID 10)의 종은 collectedFinals 에 들어가지 않는다(이후 부화 확률에 영향 없음).
-    func testDiscardedSpeciesNotCollected() {
+    func testDiscardedSpeciesNotCollected() async {
         let s = store()
         XCTAssertTrue(s.buyFreshEgg())
         XCTAssertFalse(s.state.collectedFinals.contains { $0.hasPrefix("10:") },
@@ -60,7 +60,7 @@ final class FreshEggTests: XCTestCase {
     }
 
     /// 알 상태(활성 없음)에선 리롤할 게 없어 불가.
-    func testCannotRerollWhenEgg() {
+    func testCannotRerollWhenEgg() async {
         let s = store(active: false, used: 5_000_000_000)
         XCTAssertFalse(s.hasActive)
         XCTAssertFalse(s.canBuyFreshEgg)
@@ -69,7 +69,7 @@ final class FreshEggTests: XCTestCase {
     }
 
     /// 잔액이 가격 미만이면 불가 — 활성 유지.
-    func testCannotRerollWithoutFunds() {
+    func testCannotRerollWithoutFunds() async {
         let s = store(used: 500_000_000)   // 1B 미만
         XCTAssertFalse(s.canBuyFreshEgg)
         XCTAssertFalse(s.buyFreshEgg())
@@ -78,7 +78,7 @@ final class FreshEggTests: XCTestCase {
     }
 
     /// 이로치도 폐기 가능(추가 경고는 UI 단계, 로직은 동일) — 리롤 후 흔적 없음.
-    func testShinyCanBeRerolled() {
+    func testShinyCanBeRerolled() async {
         let s = store(shiny: true)
         XCTAssertTrue(s.currentIsShiny)
         XCTAssertTrue(s.buyFreshEgg())

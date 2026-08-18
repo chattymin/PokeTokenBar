@@ -1,4 +1,6 @@
+#if os(macOS)
 import AppKit
+#endif
 import Foundation
 
 /// 앱이 크래시·강제종료·OOM(SIGKILL)·런치실패로 죽으면 **반드시 로그(AppLog)에 흔적**을 남긴다(전역 처리).
@@ -17,14 +19,26 @@ import Foundation
 ///
 /// crash.log 의 기록은 **다음 실행 때 메인 로그로 합쳐 비운다**(사용자는 PokeTokenBar.log 한 곳만 봐도 됨).
 enum CrashReporter {
-    private static let logsDir: URL =
-        FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("Logs")
+    private static let logsDir: URL = PlatformPaths.logsDirectory
     private static var markerURL: URL { logsDir.appendingPathComponent("PokeTokenBar.running") }
     /// 크래시-시점 기록 전용(회전 안 함). 시그널/예외 핸들러가 async-signal-safe 하게 append.
     private static var crashLogURL: URL { logsDir.appendingPathComponent("PokeTokenBar.crash.log") }
     /// 위 crash.log 로 미리 연 fd(설치 시 1회 open). 회전 대상이 아니라 세션 내내 유효.
     nonisolated(unsafe) fileprivate static var logFD: Int32 = -1
+
+    #if !os(macOS)
+    /// The marker path the SIGTERM/SIGINT handler unlinks — allocated up front, because the
+    /// handler itself must not allocate.
+    nonisolated(unsafe) fileprivate static var markerPathForSignalHandler: UnsafeMutablePointer<CChar>?
+
+    /// Clean-exit signal — clear the marker, then hand off to the default action.
+    /// async-signal-safe: unlink/signal/raise only.
+    private static let cleanExitHandler: @convention(c) (Int32) -> Void = { received in
+        if let path = CrashReporter.markerPathForSignalHandler { _ = unlink(path) }
+        signal(received, SIG_DFL)
+        raise(received)
+    }
+    #endif
 
     /// 앱 기동 최초에 1회 호출(가능한 한 이르게 — 런치 초기 크래시도 잡히게).
     static func install(version: String) {
@@ -42,9 +56,20 @@ enum CrashReporter {
         AppLog.write("launch: PokeTokenBar \(version) 시작")
 
         // 3) 정상 종료 시 마커 제거(다음 실행이 '비정상'으로 오인하지 않게).
+        #if os(macOS)
         NotificationCenter.default.addObserver(
             forName: NSApplication.willTerminateNotification, object: nil, queue: .main
         ) { _ in markClean() }
+        #else
+        // Linux has no equivalent of willTerminate, so two paths cover it:
+        //  - user Quit (tray menu) → the frontend calls markClean() itself, same place as AppDelegate.
+        //  - SIGTERM/SIGINT (logout, systemctl stop, Ctrl-C) → the handler below.
+        // The handler does not call markClean() because that function is not async-signal-safe
+        // (FileManager and AppLog allocate and take locks). Clearing the marker needs nothing but
+        // unlink, so the path is built as a C string in advance and only that is called.
+        markerPathForSignalHandler = strdup(markerURL.path)
+        for sig in [SIGTERM, SIGINT] { signal(sig, CrashReporter.cleanExitHandler) }
+        #endif
 
         // 2) 치명 시그널 → crash.log 에 발생 시점 기록(async-signal-safe).
         logFD = open(crashLogURL.path, O_WRONLY | O_APPEND | O_CREAT, 0o644)
@@ -53,12 +78,17 @@ enum CrashReporter {
         }
 
         // 4) 잡히지 않은 NSException — 동기 write(비-시그널 컨텍스트라 문자열 포맷 가능).
+        // Linux has no Obj-C runtime, so this layer does not exist there. Swift's own fatal errors
+        // (fatalError, force-unwrap) land on SIGILL/SIGTRAP on both platforms and are caught by the
+        // signal handler in (2), so nothing is left uncovered.
+        #if os(macOS)
         NSSetUncaughtExceptionHandler { ex in
             let line = "[CRASH] uncaught exception: \(ex.name.rawValue) — \(ex.reason ?? "")\n"
             if let d = line.data(using: .utf8) {
                 d.withUnsafeBytes { _ = write(CrashReporter.logFD, $0.baseAddress, $0.count) }
             }
         }
+        #endif
     }
 
     /// 정상 종료 — running 마커 제거 + 기록. (크래시/강제종료 땐 호출 안 됨 → 마커 잔존 → 다음 실행 감지.)

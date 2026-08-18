@@ -105,7 +105,7 @@ final class DittoRevealTests: XCTestCase {
     }
 
     /// 위장 중엔 이로치가 표시상 숨겨진다(내부 isShiny 는 유지 — 리빌 때 공개).
-    func testShinyHiddenDuringDisguise() {
+    func testShinyHiddenDuringDisguise() async {
         let s = seedDisguise(shiny: true)
         XCTAssertTrue(s.state.active?.isShiny ?? false, "내부적으론 이로치")
         XCTAssertFalse(s.currentIsShiny, "위장 중엔 표시상 숨김")
@@ -225,7 +225,7 @@ final class DittoRevealTests: XCTestCase {
     }
 
     /// 구버전 저장(ditto 필드 없음) → nil/false, 일반 포켓몬으로 동작(이로치는 그대로 표시).
-    func testBackwardCompatDecodeNoDittoFields() {
+    func testBackwardCompatDecodeNoDittoFields() async {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("ditto-bc-\(UUID().uuidString).json")
         let active = "{\"baseID\":1,\"pathIDs\":[1],\"stageIndex\":0,\"usedAtStage\":0,"
             + "\"rarity\":\"common\",\"totalForms\":3,\"isShiny\":true}"   // ditto 필드 없음

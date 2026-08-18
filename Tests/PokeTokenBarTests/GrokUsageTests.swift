@@ -472,11 +472,11 @@ final class GrokUsageTests: XCTestCase {
 
     private func rewriteSnapshot(_ mutate: (inout [String: Any]) throws -> Void) throws {
         let raw = try Data(contentsOf: cacheFile)
-        let plain = (try? (raw as NSData).decompressed(using: .zlib) as Data) ?? raw
+        let plain = PlatformCompression.decompress(raw) ?? raw
         var snapshot = try XCTUnwrap(JSONSerialization.jsonObject(with: plain) as? [String: Any])
         try mutate(&snapshot)
         let data = try JSONSerialization.data(withJSONObject: snapshot)
-        try ((data as NSData).compressed(using: .zlib) as Data).write(to: cacheFile, options: .atomic)
+        try XCTUnwrap(PlatformCompression.compress(data)).write(to: cacheFile, options: .atomic)
     }
 
     // MARK: 등록·집계 패리티

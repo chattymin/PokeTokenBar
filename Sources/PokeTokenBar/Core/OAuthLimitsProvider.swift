@@ -1,9 +1,16 @@
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking   // Linux: URLSession/URLRequest live in this separate module
+#endif
+#if os(macOS)
 import Security
+#endif
 
 enum LimitsError: Error {
     case keychainAccessDisabled
-    case keychainUnavailable(OSStatus)
+    /// Keychain lookup failure code. macOS's `OSStatus` is an `Int32`, so it carries through
+    /// unchanged; the underlying type is spelled out because Linux has no `OSStatus`.
+    case keychainUnavailable(Int32)
     case keychainInteractionNotAllowed
     case credentialFormat
     /// 자격증명은 읽혔지만 Claude 계정 OAuth(`claudeAiOauth`)가 없다 — MCP 서버 OAuth 상태만 들어있는 경우.
@@ -101,6 +108,16 @@ private actor OAuthAccessTokenCache {
                 : LimitsError.keychainInteractionNotAllowed
         }
 
+        #if !os(macOS)
+        // Linux has no keychain: the only credential path is `~/.claude/.credentials.json` above,
+        // and if that came up empty there is nowhere further to look, even on a user action like
+        // the refresh button. So this stops here instead of taking the prompt path. A file with
+        // only MCP OAuth still maps to the same "log in again" guidance as macOS.
+        throw Self.credentialsFileIsAccountOAuthMissing()
+            ? LimitsError.credentialMissingAccountOAuth
+            : LimitsError.credentialFormat
+        #else
+
         // 사용자 동작 경로: 무프롬프트로 먼저 시도(과거 '항상 허용'했다면 조용히 성공), 안 되면 프롬프트를
         // 동반해 읽어 최초 1회 '항상 허용'을 유도한다.
         if let credential = Self.readClaudeKeychainSilently() {
@@ -110,8 +127,10 @@ private actor OAuthAccessTokenCache {
         let credential = try Self.readClaudeKeychain(allowKeychainPrompt: true)
         cachedCredential = credential
         return credential.accessToken
+        #endif
     }
 
+    #if os(macOS)
     /// 무프롬프트 Keychain 읽기 — no-UI 쿼리라 권한이 없으면 프롬프트 대신 errSecInteractionNotAllowed.
     /// '아직 항상 허용 전'(interactionNotAllowed)은 정상 흐름이라 조용히 nil. 그 외(형식 오류·접근 불가)는
     /// 진단을 위해 로그를 남기고 nil — 자동 경로가 왜 토큰을 못 구했는지 추적 가능하게.
@@ -125,6 +144,7 @@ private actor OAuthAccessTokenCache {
             return nil
         }
     }
+    #endif
 
     /// 마지막으로 사용한 자격증명의 플랜 정보. accessToken() 이 모든 경로에서 cachedCredential 을
     /// 반환 토큰과 일치시키므로, fetch 가 토큰 취득 직후 호출하면 동일 자격증명 기준이다.
@@ -170,6 +190,7 @@ private actor OAuthAccessTokenCache {
         return credential
     }
 
+    #if os(macOS)
     private nonisolated static func readClaudeKeychain(
         allowKeychainPrompt: Bool) throws -> OAuthCredentialData.Credential
     {
@@ -202,6 +223,7 @@ private actor OAuthAccessTokenCache {
         }
         return credential
     }
+    #endif
 }
 
 enum OAuthCredentialData {

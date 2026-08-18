@@ -117,9 +117,7 @@ actor LocalUsageCache {
     }
 
     private static let defaultFileURL: URL = {
-        let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("PokeTokenBar")
-        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let dir = PlatformPaths.appDirectory()
         return dir.appendingPathComponent("usage-cache.json")
     }()
 
@@ -315,7 +313,7 @@ actor LocalUsageCache {
         loaded = true
         guard let raw = try? Data(contentsOf: fileURL) else { return }
         // zlib 압축 스냅샷(현행) → 실패 시 평문 JSON(구버전 캐시) 폴백
-        let data = (try? (raw as NSData).decompressed(using: .zlib) as Data) ?? raw
+        let data = PlatformCompression.decompress(raw) ?? raw
         guard let snap = try? JSONDecoder().decode(Snapshot.self, from: data) else { return }
         claudeCache = snap.claude
         codexCache = snap.codex
@@ -364,7 +362,7 @@ actor LocalUsageCache {
             grokParserVersion: Self.grokParserVersion)
         if let data = try? JSONEncoder().encode(snap) {
             // JSON 은 zlib 로 크게 압축됨(수 MB → 수백 KB). 실패 시 평문 저장(로드가 양쪽 다 처리).
-            let out = (try? (data as NSData).compressed(using: .zlib) as Data) ?? data
+            let out = PlatformCompression.compress(data) ?? data
             try? out.write(to: fileURL, options: .atomic)
             dirty = false
             lastSave = now()

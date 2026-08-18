@@ -1,3 +1,4 @@
+#if os(macOS)
 import AppKit
 import SwiftUI
 
@@ -411,7 +412,8 @@ final class PetHostingView: NSHostingView<AnyView> {
 }
 
 struct FloatingPetView: View {
-    static let frameFloor: TimeInterval = 0.4
+    /// Shared with the Linux tray via `SpriteAnimationPolicy`.
+    static let frameFloor: TimeInterval = SpriteAnimationPolicy.idleFrameFloor
     var animated: Bool = true
     @Environment(UsageStore.self) private var store
     @Environment(CompanionStore.self) private var companion
@@ -484,3 +486,4 @@ private struct SpeechBubbleView: View {
         .padding(.bottom, 6)
     }
 }
+#endif   // os(macOS)

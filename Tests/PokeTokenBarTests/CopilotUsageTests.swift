@@ -1,4 +1,8 @@
-import SQLite3
+#if canImport(SQLite3)
+import SQLite3   // Darwin-only module name
+#else
+import CSQLite   // Linux: the Sources/CSQLite module map
+#endif
 import XCTest
 @testable import PokeTokenBar
 

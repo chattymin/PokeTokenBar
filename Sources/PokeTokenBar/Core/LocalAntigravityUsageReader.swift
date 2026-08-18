@@ -1,5 +1,9 @@
 import Foundation
-import SQLite3
+#if canImport(SQLite3)
+import SQLite3   // Darwin-only module name
+#else
+import CSQLite   // Linux: the Sources/CSQLite module map
+#endif
 
 /// Antigravity CLI usage, read from the conversation stores the CLI writes under
 /// `~/.gemini/antigravity-cli/conversations/<conversation>.db`.
@@ -171,7 +175,7 @@ enum LocalAntigravityUsageReader {
     static let namedLossLimit = 5
 
     /// The lines one scan leaves behind. Pure on purpose: `AppLog.write` returns early outside
-    /// the bundled app (`AppEnv.isBundledApp`), so a test that watched the log file would cover
+    /// the bundled app (`AppEnv.isProductionInstall`), so a test that watched the log file would cover
     /// nothing at all — the same reason the limit-alert decision was split out of its own
     /// side effect.
     static func lossLog(_ reads: [(conversation: String, read: ConversationRead)]) -> [String] {

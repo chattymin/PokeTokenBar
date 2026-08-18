@@ -1,18 +1,24 @@
 import Foundation
 
-#if os(macOS)
-import Darwin
-import LocalAuthentication
-import Security
-
+/// The process-wide keychain-read gate — **shared across platforms**.
+///
+/// Confining it to macOS would split `UsageStore`'s settings plumbing (`disableKeychainAccess`
+/// didSet) per platform, leaving the same toggle wired to nothing on one of them — a dead switch.
+/// Linux has no keychain for the gate to actually block, but keeping the store/restore behaviour
+/// identical is what lets the settings UI be shared.
 enum KeychainAccessGate {
     /// 프로세스 전역 게이트(메모리) — 기동 시 저장값으로 1회 시드하고, 영속은
     /// UsageStore.disableKeychainAccess(didSet)가 전담한다. UserDefaults.standard 에
     /// 직접 쓰던 이전 구현은 테스트 실행이 실제 사용자 설정을 오염시켰다.
     /// (Bool 단일 플래그 — MainActor 쓰기/actor 읽기의 경합은 무해)
     nonisolated(unsafe) static var isDisabled: Bool =
-        UserDefaults.standard.bool(forKey: "disableKeychainAccess")
+        PlatformDefaults.standard.bool(forKey: "disableKeychainAccess")
 }
+
+#if os(macOS)
+import Darwin
+import LocalAuthentication
+import Security
 
 enum KeychainNoUIQuery {
     private static let uiFailPolicy = resolveUIFailPolicy()

@@ -8,6 +8,7 @@
 
 [![Release](https://img.shields.io/github/v/release/chattymin/PokeTokenBar?color=444d56&label=release)](https://github.com/chattymin/PokeTokenBar/releases)
 [![macOS](https://img.shields.io/badge/macOS-14%2B-0969da)](https://www.apple.com/macos/)
+[![Linux](https://img.shields.io/badge/Linux-KDE%20Plasma%20%28%EB%B6%80%EB%B6%84%29-1793d1)](#linux-kde-plasma)
 [![Swift](https://img.shields.io/badge/Swift-6-f05138)](https://swift.org)
 [![Homebrew](https://img.shields.io/badge/Homebrew-cask-8957e5)](#homebrew)
 [![License](https://img.shields.io/badge/license-MIT-3fb950)](LICENSE)
@@ -17,7 +18,7 @@
 
 </div>
 
-PokeTokenBar는 당신이 이미 태우고 있는 AI 코딩 토큰(Claude Code · Codex · Gemini CLI · Antigravity · OpenCode · Hermes Agent · Cursor · Grok CLI · Copilot CLI · Kiro CLI)을 macOS 메뉴바 속 자라나는 **포켓몬 companion**으로 바꿔줍니다. 토큰을 쓰면 알이 부화하고, 실제 진화 라인을 따라 진화하며, 최종 진화 후 도감에 졸업하고, 다시 새 알이 시작됩니다. companion 아래에는 정확한 사용량 트래커가 있습니다 — 오늘의 사용량·비용, 공식 5시간/주간 한도를 로컬 로그에서 직접 읽습니다.
+PokeTokenBar는 당신이 이미 태우고 있는 AI 코딩 토큰(Claude Code · Codex · Gemini CLI · Antigravity · OpenCode · Hermes Agent · Cursor · Grok CLI · Copilot CLI · Kiro CLI)을 macOS 메뉴바 — 그리고 [부분적으로](#linux-kde-plasma) Linux 의 KDE Plasma 시스템 트레이 — 속 자라나는 **포켓몬 companion**으로 바꿔줍니다. 토큰을 쓰면 알이 부화하고, 실제 진화 라인을 따라 진화하며, 최종 진화 후 도감에 졸업하고, 다시 새 알이 시작됩니다. companion 아래에는 정확한 사용량 트래커가 있습니다 — 오늘의 사용량·비용, 공식 5시간/주간 한도를 로컬 로그에서 직접 읽습니다.
 
 > 토큰 사용량은 로컬 Claude Code·Codex·Gemini CLI·Antigravity·OpenCode·Hermes Agent·Cursor·Grok CLI·Copilot CLI·Kiro CLI 데이터에서 직접 읽습니다(`totalTokens` = input + output + cache, 로컬 날짜) — 외부 CLI 불필요. 비공식·비상업 포켓몬 팬 프로젝트 — [라이선스 & 면책](#라이선스--면책) 참고.
 
@@ -125,6 +126,8 @@ PokeTokenBar는 당신이 이미 태우고 있는 AI 코딩 토큰(Claude Code �
 
 macOS 14+ (Apple Silicon 또는 Intel). 끝입니다 — 토큰 사용량은 로컬 Claude Code·Codex·Gemini CLI·Antigravity·OpenCode·Hermes Agent·Cursor·Grok CLI·Copilot CLI·Kiro CLI 데이터에서 직접 읽으며 외부 사용량 CLI가 필요 없습니다.
 
+Linux 는 **부분 지원**입니다 — [Linux (KDE Plasma)](#linux-kde-plasma) 참고.
+
 ### Homebrew
 
 ```bash
@@ -151,6 +154,35 @@ swift build                  # 디버그
 swift test                   # 단위 테스트
 ./scripts/build-app.sh       # release → PokeTokenBar.app → /Applications
 ```
+
+### Linux (KDE Plasma)
+
+GTK3 프런트엔드가 같은 companion 과 사용량 트래커를 시스템 트레이에 올립니다. **Arch Linux · KDE
+Plasma 6 · Wayland** 에서 빌드·검증했습니다. StatusNotifierItem 을 구현한 데스크톱이면 동작할
+것으로 보이지만 그 외 환경은 검증하지 않았습니다. 아직 패키지는 없고 직접 빌드합니다:
+
+```bash
+sudo pacman -S --needed swift-bin gtk3 libappindicator libnotify   # 배포판에 맞는 패키지로
+make run                     # 빌드 후 실행
+make install                 # → ~/.local/bin (root 불필요), .desktop 항목·아이콘 포함
+make autostart-enable        # 로그인 시 자동 시작 (systemd --user)
+```
+
+`make` 만 치면 전체 타깃이 나옵니다.
+
+**되는 것:** 애니메이션 companion 과 오늘 사용량이 붙은 트레이 아이콘, 홈/상점/가방/컬렉션 창,
+진화 라인, 공식 5시간·주간 한도 게이지, 한도·부화·진화 데스크톱 알림, 플로팅 펫, 설정(언어·주기·
+자동 시작·알림). 사용량 파싱·companion 진행·세이브는 macOS 와 **같은 코드**입니다.
+
+**아직 안 되는 것:**
+
+| 공백 | 이유 |
+|---|---|
+| 플로팅 펫 드래그·위치 기억 | Wayland 는 클라이언트가 자기 창 위치를 알거나 정하는 것을 막습니다 — KWin 창 규칙으로 배치하세요 |
+| 창이 트레이 아이콘에 붙지 않고, 포커스를 잃어도 닫히지 않음 | 같은 이유(패널 항목 옆에 표면을 놓을 방법이 없음) |
+| 세이브 내보내기·가져오기 | GTK 파일 선택창이 필요합니다(macOS 설정에는 있음) |
+| 도감 상세 화면·포획 로그 | 컬렉션은 그리드와 희귀도 집계만 표시합니다 |
+| 인앱 업데이트·Homebrew cask | 앱이 Linux 설치 형태를 알 수 없어 릴리스 페이지를 여는 데서 멈춥니다 |
 
 ## 데이터 소스
 

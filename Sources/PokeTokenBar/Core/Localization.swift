@@ -91,6 +91,11 @@ struct L {
 
     // MARK: 푸터
     var refreshNow: String { t("지금 새로고침", "Refresh now", "今すぐ更新", "Actualizar ahora") }
+    /// Tray menu item that opens the main window. macOS opens the popover by clicking the status
+    /// item; a StatusNotifierItem click opens the menu instead, so Linux needs an explicit entry.
+    var openWindow: String { t("열기", "Open", "開く", "Abrir") }
+    /// First state of the tray menu summary row, before any usage has been read.
+    var loading: String { t("불러오는 중…", "Loading…", "読み込み中…", "Cargando…") }
     var updated: String { t("갱신", "Updated", "更新", "Actualizado") }
     var settings: String { t("설정", "Settings", "設定", "Ajustes") }
     var back: String { t("뒤로", "Back", "戻る", "Atrás") }

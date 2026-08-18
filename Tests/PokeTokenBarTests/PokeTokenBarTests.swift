@@ -1,4 +1,7 @@
 import XCTest
+#if canImport(FoundationNetworking)
+import FoundationNetworking   // Linux: HTTPURLResponse lives in this module
+#endif
 @testable import PokeTokenBar
 
 #if os(macOS)

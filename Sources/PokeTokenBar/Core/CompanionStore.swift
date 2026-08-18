@@ -1,6 +1,5 @@
 import Foundation
 import Observation
-import UserNotifications
 
 /// 게임 상태의 출처. 설치 이후 토큰 사용량으로 포켓몬을 진화시키고, 최종체 + 추가 임계 도달 시
 /// 도감(라인 전체)에 보존 + 새 알. 진화 트리/희귀도/이름은 PokeProviding 으로 런타임 주입.
@@ -48,7 +47,7 @@ final class CompanionStore {
          clock: @escaping () -> Date = Date.init,
          fileURL: URL? = nil,
          rng: any RandomNumberGenerator = SystemRandomNumberGenerator(),
-         dittoDisguiseRollingEnabled: Bool = AppEnv.isBundledApp) {
+         dittoDisguiseRollingEnabled: Bool = AppEnv.isProductionInstall) {
         self.provider = provider
         self.clock = clock
         self.fileURL = fileURL ?? Self.defaultURL()
@@ -69,8 +68,7 @@ final class CompanionStore {
         if !override.isEmpty {
             dir = URL(fileURLWithPath: override, isDirectory: true)
         } else {
-            dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-                .appendingPathComponent("PokeTokenBar")
+            dir = PlatformPaths.appDirectory()
         }
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         return dir.appendingPathComponent("companion-state.json")
@@ -82,6 +80,23 @@ final class CompanionStore {
     func setLanguage(_ lang: AppLanguage) { state.language = lang; save() }
     /// 앱 전체 UI 문자열 — language 변경 시 자동 재렌더.
     var l: L { L(language) }
+
+    /// The one-line mood text under the companion.
+    ///
+    /// Lives here rather than in a view because both frontends show it, and the mapping from state
+    /// to sentence is a product decision, not a layout one — duplicating it is how the two
+    /// platforms end up disagreeing about what the same state says.
+    var statusLine: String {
+        switch displayState {
+        case .egg:     return l.statusEgg
+        case .idle:    return l.statusIdle
+        case .working: return l.statusWorking
+        case .focus:   return l.statusFocus
+        case .tired:   return l.statusTired
+        case .sleep:   return l.statusSleep
+        case .levelUp: return justEvolvedTo.map { l.statusEvolved($0) } ?? l.statusGrew
+        }
+    }
 
     var hasActive: Bool { state.active != nil }
     var rarity: Rarity? { state.active?.rarity }
@@ -790,15 +805,12 @@ final class CompanionStore {
     /// companion 이벤트 시스템 알림(.app + 토글 ON 일 때만). 한도 알림과 독립.
     private var notifSeq = 0
     private func notifyCompanionEvent(_ title: String, _ body: String) {
-        guard AppEnv.isBundledApp else { return }
-        guard UserDefaults.standard.object(forKey: "companionNotifications") as? Bool ?? true else { return }
+        guard AppEnv.isProductionInstall else { return }
+        guard PlatformDefaults.standard.object(forKey: "companionNotifications") as? Bool ?? true else { return }
         notifSeq += 1
-        let content = UNMutableNotificationContent()
-        content.title = title
-        content.body = body
-        content.sound = .default
-        UNUserNotificationCenter.current().add(
-            UNNotificationRequest(identifier: "companion-event-\(notifSeq)", content: content, trigger: nil))
+        PlatformNotifier.post(
+            identifier: "companion-event-\(notifSeq)", title: title, body: body,
+            sound: true, critical: false)
     }
 
     // MARK: 부화
@@ -870,7 +882,7 @@ final class CompanionStore {
         guard let line = try? await provider.line(baseSpeciesID: id) else { return }   // 라인 예열
         // 스프라이트 예열 — 부화 직후 보일 것들: base 정적+애니메이션, shiny 롤(1/64) 대비 shiny 애니메이션.
         // .app 번들에서만(단위 테스트가 실네트워크에 닿지 않도록 — 알림과 동일한 게이트).
-        if AppEnv.isBundledApp {
+        if AppEnv.isProductionInstall {
             _ = await SpriteStore.shared.data(speciesID: line.baseID, animated: false, shiny: false)
             _ = await SpriteStore.shared.data(speciesID: line.baseID, animated: true, shiny: false)
             _ = await SpriteStore.shared.data(speciesID: line.baseID, animated: true, shiny: true)

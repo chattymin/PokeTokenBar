@@ -1,3 +1,4 @@
+#if os(macOS)   // macOS frontend layout contracts (332pt popover, NSImage) — the Linux UI carries its own guards
 import XCTest
 import SwiftUI
 @testable import PokeTokenBar
@@ -32,7 +33,7 @@ final class EvoLineLayoutTests: XCTestCase {
     // MARK: 렌더 폭 — 실제 레이아웃 회귀
 
     /// 트리거 재현: 폭 제한이 없으면 긴 라인은 팝오버 콘텐츠 폭을 넘는다(= 버그 조건).
-    func testLongEvolutionLineWithoutMaxWidthOverflowsPopoverContent() {
+    func testLongEvolutionLineWithoutMaxWidthOverflowsPopoverContent() async {
         let w = renderedWidth(EvoLineView(nodes: longNodes, mysteryLabel: L(.en).unknownNextEvolution),
                               proposing: PopoverMetrics.contentWidth)
         XCTAssertGreaterThan(w, PopoverMetrics.contentWidth,
@@ -40,7 +41,7 @@ final class EvoLineLayoutTests: XCTestCase {
     }
 
     /// 수정 후: 팝오버가 주는 폭을 넘지 않는다(→ 부모 VStack 이 안 부풀고 팝오버가 안 잘린다).
-    func testLongEvolutionLineFitsPopoverContentWidth() {
+    func testLongEvolutionLineFitsPopoverContentWidth() async {
         let w = renderedWidth(EvoLineView(nodes: longNodes, mysteryLabel: L(.en).unknownNextEvolution,
                                           maxWidth: PopoverMetrics.contentWidth),
                               proposing: PopoverMetrics.contentWidth)
@@ -48,7 +49,7 @@ final class EvoLineLayoutTests: XCTestCase {
     }
 
     /// 도감 행(썸네일 56 + 이름 라벨)도 카드 안쪽 폭을 넘지 않는다.
-    func testLongDexChainFitsCardWidth() {
+    func testLongDexChainFitsCardWidth() async {
         let cardWidth = PopoverMetrics.contentWidth - 16   // DexEntryRow 카드 좌우 패딩 8pt
         let ids = [1, 2, 3, 4, 5]
         let nodes = ids.map { EvoLineItem(.species($0), .done) }
@@ -61,7 +62,7 @@ final class EvoLineLayoutTests: XCTestCase {
     }
 
     /// 짧은 라인은 스크롤 컨테이너 없이 예전과 똑같은 폭으로 그려진다(일반 라인 시각 회귀 방지).
-    func testShortChainRendersInlineAtNaturalWidth() {
+    func testShortChainRendersInlineAtNaturalWidth() async {
         // 3칸 = 40*3 + 화살표 10*2 + 간격 2*4 = 148pt
         let expected = EvoLineView.rowWidth(count: 3, thumb: 40, hasNames: false)
         XCTAssertEqual(expected, 148)
@@ -74,7 +75,7 @@ final class EvoLineLayoutTests: XCTestCase {
     // MARK: 순수 판정 — 스크롤 전환 경계
 
     /// rowWidth 는 레이아웃과 같은 식이어야 한다(측정값과 일치 — 어긋나면 스크롤 판정이 틀어진다).
-    func testRowWidthMatchesRenderedWidth() {
+    func testRowWidthMatchesRenderedWidth() async {
         for count in 1...9 {
             let nodes = (1...count).map { i in
                 i == count ? EvoLineItem(.mystery, .future) : EvoLineItem(.species(i), .done)
@@ -88,7 +89,7 @@ final class EvoLineLayoutTests: XCTestCase {
     }
 
     /// mystery 는 이름이 없더라도 도감 라인의 이름 열 폭을 예약해야 rowWidth 기반 스크롤 판정과 일치한다.
-    func testNamedMysteryCellReservesNameColumnWidth() {
+    func testNamedMysteryCellReservesNameColumnWidth() async {
         let nodes = [EvoLineItem(.species(1), .done), EvoLineItem(.mystery, .future)]
         let names = [1: String(repeating: "W", count: 20)]
         let rendered = renderedWidth(EvoLineView(nodes: nodes, mysteryLabel: L(.en).unknownNextEvolution, names: names),
@@ -100,7 +101,7 @@ final class EvoLineLayoutTests: XCTestCase {
     }
 
     /// 홈 라인(썸네일 40)은 6칸까지 그대로, 7칸부터 스크롤.
-    func testNeedsScrollBoundaryForHomeLine() {
+    func testNeedsScrollBoundaryForHomeLine() async {
         let w = PopoverMetrics.contentWidth
         XCTAssertFalse(EvoLineView.needsScroll(count: 6, thumb: 40, hasNames: false, maxWidth: w))
         XCTAssertTrue(EvoLineView.needsScroll(count: 7, thumb: 40, hasNames: false, maxWidth: w))
@@ -108,14 +109,14 @@ final class EvoLineLayoutTests: XCTestCase {
     }
 
     /// 도감 행(썸네일 56 + 이름)은 4칸까지 그대로, 5칸부터 스크롤.
-    func testNeedsScrollBoundaryForDexRow() {
+    func testNeedsScrollBoundaryForDexRow() async {
         let w = PopoverMetrics.contentWidth - 16
         XCTAssertFalse(EvoLineView.needsScroll(count: 4, thumb: 56, hasNames: true, maxWidth: w))
         XCTAssertTrue(EvoLineView.needsScroll(count: 5, thumb: 56, hasNames: true, maxWidth: w))
     }
 
     /// maxWidth 를 안 주면(기본 .infinity) 스크롤을 붙이지 않는다 — 폭이 고정되지 않은 호출부용 기본값.
-    func testUnboundedWidthNeverScrolls() {
+    func testUnboundedWidthNeverScrolls() async {
         XCTAssertFalse(EvoLineView.needsScroll(count: 99, thumb: 40, hasNames: false, maxWidth: .infinity))
     }
 
@@ -123,7 +124,7 @@ final class EvoLineLayoutTests: XCTestCase {
 
     /// 페이드·셰브론은 "그쪽에 더 있을 때만" 떠야 한다. 스냅샷으로는 첫 프레임(맨 왼쪽)밖에 못 봐서
     /// 스크롤 중간/끝 상태는 이 순수 판정으로 잠근다.
-    func testAffordanceShowsOnlyWhereContentRemains() {
+    func testAffordanceShowsOnlyWhereContentRemains() async {
         let content = EvoLineView.rowWidth(count: 9, thumb: 40, hasNames: false)   // 472
         let view = PopoverMetrics.contentWidth                                      // 332
 
@@ -142,7 +143,7 @@ final class EvoLineLayoutTests: XCTestCase {
 
     /// 셰브론은 누를 때마다 더 나아가야 한다 — 목표가 현재 위치에 따라 바뀌는지, 범위를 안 넘는지.
     /// (고정 목표로 두면 한 번 이동한 뒤 다시 눌러도 제자리가 된다.)
-    func testPageTargetAdvancesAndStaysInBounds() {
+    func testPageTargetAdvancesAndStaysInBounds() async {
         let w = PopoverMetrics.contentWidth
         func target(_ forward: Bool, at scrollX: CGFloat) -> Int {
             EvoLineView.pageTarget(forward: forward, scrollX: scrollX, count: 9,
@@ -160,9 +161,10 @@ final class EvoLineLayoutTests: XCTestCase {
     }
 
     /// 넘치지 않는 줄에는 어느 쪽 신호도 뜨지 않는다.
-    func testAffordanceHiddenWhenContentFits() {
+    func testAffordanceHiddenWhenContentFits() async {
         let a = EvoLineView.scrollAffordance(scrollX: 0, contentWidth: 148,
                                              maxWidth: PopoverMetrics.contentWidth)
         XCTAssertFalse(a.back); XCTAssertFalse(a.forward)
     }
 }
+#endif   // os(macOS)

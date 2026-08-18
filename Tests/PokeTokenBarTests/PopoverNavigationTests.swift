@@ -5,13 +5,13 @@ import XCTest
 // 항상 Home 으로 돌아가게 한다(설정 화면 잔류 방지).
 @MainActor
 final class PopoverNavigationTests: XCTestCase {
-    func testDefaultsToHome() {
+    func testDefaultsToHome() async {
         let nav = PopoverNavigation()
         XCTAssertFalse(nav.showSettings)
         XCTAssertEqual(nav.tab, .home)
     }
 
-    func testResetReturnsToHomeFromSettings() {
+    func testResetReturnsToHomeFromSettings() async {
         let nav = PopoverNavigation()
         nav.showSettings = true
         nav.tab = .collection

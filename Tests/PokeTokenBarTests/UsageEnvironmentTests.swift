@@ -125,12 +125,18 @@ final class UsageEnvironmentTests: XCTestCase {
     /// - `CompanionStore`: `PTB_STATE_DIR` 은 개발/QA 격리용
     /// - `OAuthLimitsProvider`: 의도적으로 프로세스 환경만 본다(자동 폴링 경로에서 셸 spawn 금지 —
     ///   해당 함수 주석 참조). 값이 필요한 사용량 스캔 쪽이 이미 셸 조회를 한다.
+    /// - `PlatformPaths`: XDG variables address **our own storage location, not a usage-log
+    ///   location**, and they are not values a user exports from a shell rc — the login session
+    ///   (systemd/PAM) puts them into the process directly. So the "a GUI app does not inherit the
+    ///   shell environment" hazard does not apply. Routing them through `UsageEnvironment` would in
+    ///   fact spawn a login shell just to locate a save directory.
     func testNoProviderReadsUsageLocationEnvDirectly() throws {
         let allowed: Set<String> = [
             "UsageEnvironment.swift",
             "BinaryLocator.swift",
             "CompanionStore.swift",
             "OAuthLimitsProvider.swift",
+            "PlatformPaths.swift",
         ]
         let sources = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()    // PokeTokenBarTests

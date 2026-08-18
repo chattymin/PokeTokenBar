@@ -1,4 +1,10 @@
+#if os(macOS)
 import AppKit
+#endif
+import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking   // Linux: URLSession/URLRequest live in this separate module
+#endif
 import Observation
 
 /// GitHub 릴리스 최신 버전을 확인해 새 버전이 있으면 팝오버에 알린다.
@@ -18,7 +24,7 @@ final class UpdateChecker {
 
     init(currentVersion: String? = nil, clock: @escaping () -> Date = Date.init) {
         self.currentVersion = currentVersion
-            ?? (Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String) ?? "0"
+            ?? AppVersion.current
         self.clock = clock
     }
 
@@ -39,7 +45,7 @@ final class UpdateChecker {
               let htmlURL = URL(string: html), htmlURL.scheme == "https", htmlURL.host == "github.com"
         else { return }
         let latest = tag.hasPrefix("v") ? String(tag.dropFirst()) : tag
-        let skipped = UserDefaults.standard.string(forKey: "skippedUpdateVersion")
+        let skipped = PlatformDefaults.standard.string(forKey: "skippedUpdateVersion")
         if Self.isNewer(latest, than: currentVersion), latest != skipped {
             available = Available(version: latest, url: html)
         } else {
@@ -49,7 +55,7 @@ final class UpdateChecker {
 
     /// 이 버전은 다시 알리지 않음.
     func skipCurrent() {
-        if let v = available?.version { UserDefaults.standard.set(v, forKey: "skippedUpdateVersion") }
+        if let v = available?.version { PlatformDefaults.standard.set(v, forKey: "skippedUpdateVersion") }
         available = nil
     }
 
@@ -58,17 +64,22 @@ final class UpdateChecker {
         guard let update = available, !isUpdating else { return }
         isUpdating = true
         Task { @MainActor in
+            #if os(macOS)
             // brew cask 설치본이면 분리(detached) 스크립트가 앱 종료 후 tap 갱신→업그레이드→재오픈.
             // 그 외(brew 미설치/비-cask 설치)면 릴리스 페이지를 연다.
             let brew = await Task.detached { Self.brewCaskPath() }.value
             if let brew {
                 Self.launchDetachedUpgrade(brew: brew)
                 NSApp.terminate(nil)
-            } else {
-                isUpdating = false
-                AppLog.write("update: brew cask 아님/brew 미설치 → 릴리스 페이지 열기")
-                if let u = URL(string: update.url) { NSWorkspace.shared.open(u) }
+                return
             }
+            #endif
+            // Linux has no self-apply path: the app cannot tell how it was installed (distro
+            // package, manual build), and guessing wrong means damaging the user's installation.
+            // It stops at opening the release page.
+            isUpdating = false
+            AppLog.write("update: no self-apply path — opening the release page")
+            if let u = URL(string: update.url) { PlatformOpener.open(u) }
         }
     }
 
@@ -86,7 +97,9 @@ final class UpdateChecker {
         return false
     }
 
-    // MARK: brew 적용 (nonisolated — 블로킹 Process 는 detached 에서)
+    // MARK: brew 적용 (nonisolated — 블로킹 Process 는 detached 에서). macOS only.
+
+    #if os(macOS)
 
     /// poke-token-bar 가 brew cask 로 설치돼 있으면 brew 경로 반환, 아니면 nil(→ 릴리스 페이지 폴백).
     private nonisolated static func brewCaskPath() -> String? {
@@ -137,4 +150,5 @@ final class UpdateChecker {
         task.arguments = ["-c", script, "sh", brew, bundlePath]
         try? task.run()
     }
+    #endif
 }

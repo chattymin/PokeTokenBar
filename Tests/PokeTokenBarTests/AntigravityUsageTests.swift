@@ -1,4 +1,8 @@
-import SQLite3
+#if canImport(SQLite3)
+import SQLite3   // Darwin-only module name
+#else
+import CSQLite   // Linux: the Sources/CSQLite module map
+#endif
 import XCTest
 @testable import PokeTokenBar
 
@@ -326,8 +330,16 @@ final class AntigravityUsageTests: XCTestCase {
 
         // Assert the condition the fallback exists for, so this test cannot pass through the
         // ordinary path and quietly stop covering it.
+        //
+        // macOS only: this precondition is a property of that platform's SQLite, which refuses to
+        // create the `-shm` file a checkpointed WAL store needs under `mode=ro`. Linux's SQLite
+        // opens the same database read-only without complaint, so asserting the failure there
+        // would be asserting someone else's bug. What the test actually guards — that the reader
+        // returns the rows — is checked on both.
+        #if os(macOS)
         XCTAssertNil(openReadOnlyWithoutFallback(database),
                      "mode=ro must fail here — otherwise this no longer exercises the fallback")
+        #endif
         XCTAssertEqual(readAll().count, 1)
     }
 

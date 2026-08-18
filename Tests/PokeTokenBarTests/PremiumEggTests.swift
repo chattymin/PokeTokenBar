@@ -97,7 +97,7 @@ final class PremiumEggTests: XCTestCase {
 
     /// capture_rate 전 구간 × 등급 전수. `includes(captureRate:)` 가 참인 것과 `from` 이 그 등급 이상으로
     /// 분류하는 것이 **정확히 일치**해야 한다. 한쪽 임계만 바꾸면 여기서 깨진다.
-    func testCaptureRateCeilingIsTheSameThresholdAsClassification() {
+    func testCaptureRateCeilingIsTheSameThresholdAsClassification() async {
         for cr in 0...255 {
             let classified = Rarity.from(captureRate: cr, isLegendary: false, isMythical: false)
             for tier in [Rarity.common, .uncommon, .rare] {
@@ -110,7 +110,7 @@ final class PremiumEggTests: XCTestCase {
 
     /// 전설은 capture_rate 로 판정할 수 없다(인덱스에 is_legendary 가 없음) → 필터 대상 아님.
     /// 동시에 전설은 전원 capture_rate ≤ 45 라 고급·희귀 필터에 **자연히 포함**된다("이상" 규칙 성립).
-    func testLegendaryHasNoCaptureRateCeilingButPassesLowerTierFilters() {
+    func testLegendaryHasNoCaptureRateCeilingButPassesLowerTierFilters() async {
         XCTAssertNil(Rarity.legendary.captureRateCeiling)
         XCTAssertFalse(Rarity.legendary.includes(captureRate: 3))
         // 실제 전설의 capture_rate 대역(3·30·45)은 고급/희귀 필터를 모두 통과한다.
@@ -123,7 +123,7 @@ final class PremiumEggTests: XCTestCase {
 
     // MARK: 가격 — 졸업 총량 배율(새 상수 금지)
 
-    func testPricesFollowGraduationTotalRatio() {
+    func testPricesFollowGraduationTotalRatio() async {
         XCTAssertEqual(FreshEgg.price(guaranteeing: nil), 1_000_000_000)
         XCTAssertEqual(FreshEgg.price(guaranteeing: .uncommon), 2_500_000_000)
         XCTAssertEqual(FreshEgg.price(guaranteeing: .rare), 4_000_000_000)
@@ -145,7 +145,7 @@ final class PremiumEggTests: XCTestCase {
     ///
     /// 출처: PokéAPI GraphQL v1beta2, `evolves_from_species_id IS NULL` · id ≤ 649 · 메타몽 제외,
     /// 2026-08-04 측정(base 328종). 풀이 크게 바뀌면 이 값을 다시 재고 결론을 재확인해야 한다.
-    func testRareEggIsNotDominatedAtMeasuredPoolComposition() {
+    func testRareEggIsNotDominatedAtMeasuredPoolComposition() async {
         let weight: [Rarity: Double] = [.common: 37_240, .uncommon: 3_135, .rare: 3_053, .legendary: 339]
         // 고급 알 = 고급 이상 풀(전설 포함). 그 안에서 희귀 이상이 나올 확률.
         let uncommonEggPool = weight[.uncommon]! + weight[.rare]! + weight[.legendary]!
@@ -173,7 +173,7 @@ final class PremiumEggTests: XCTestCase {
 
     // MARK: 구매 — 게이트·차감·보증 기록
 
-    func testBuyPremiumEggRecordsGuaranteeAndDebitsTierPrice() {
+    func testBuyPremiumEggRecordsGuaranteeAndDebitsTierPrice() async {
         let s = activeStore()
         XCTAssertTrue(s.canBuyEgg(.rare))
         XCTAssertTrue(s.buyEgg(.rare))
@@ -186,7 +186,7 @@ final class PremiumEggTests: XCTestCase {
     }
 
     /// 알 상태에선 등급 알도 못 산다 — 기존 새 알과 게이트 통일.
-    func testCannotBuyAnyEggWhileIncubating() {
+    func testCannotBuyAnyEggWhileIncubating() async {
         let s = eggStore(tier: nil, seed: 1, provider: TieredProvider())
         XCTAssertFalse(s.hasActive)
         for tier in FreshEgg.shopTiers {
@@ -197,7 +197,7 @@ final class PremiumEggTests: XCTestCase {
     }
 
     /// 잔액이 그 **티어의** 가격에 미달이면 불가 — 기본 알은 살 수 있어도 희귀 알은 못 산다.
-    func testFundsAreCheckedAgainstTierPrice() {
+    func testFundsAreCheckedAgainstTierPrice() async {
         let s = activeStore(used: 3_000_000_000)   // 1B·2.5B 는 되고 4B 는 안 되는 잔액
         XCTAssertTrue(s.canBuyEgg(nil))
         XCTAssertTrue(s.canBuyEgg(.uncommon))
@@ -213,7 +213,7 @@ final class PremiumEggTests: XCTestCase {
     /// (활성 포켓몬과 pre-roll 은 애초에 공존하지 않는다: 프리패치는 알 상태에서만 돌고 `hatchIfNeeded`
     /// 가 부화 직전 비운다. 그 불변식이 밖에서 들어온 파일에도 유지되는지는
     /// `testSanitizedDropsGuaranteeAndItsPreRollWhenActiveExists` 가 지킨다.)
-    func testPurchaseStartsFromCleanRollState() {
+    func testPurchaseStartsFromCleanRollState() async {
         let s = activeStore()
         XCTAssertNil(s.state.pendingHatchID, "활성 포켓몬이 있는 동안엔 pre-roll 이 없다")
         XCTAssertTrue(s.buyEgg(.rare))
@@ -223,7 +223,7 @@ final class PremiumEggTests: XCTestCase {
     }
 
     /// 보증은 재시작을 건너 살아남아야 한다 — 구매 시점엔 종을 못 정하기 때문(롤에 네트워크 필요).
-    func testGuaranteeSurvivesRestart() {
+    func testGuaranteeSurvivesRestart() async {
         let f = url()
         let s1 = activeStore(at: f)
         XCTAssertTrue(s1.buyEgg(.uncommon))
@@ -371,7 +371,7 @@ final class PremiumEggTests: XCTestCase {
     // MARK: 세이브 이전 / 정규화
 
     /// 보증은 산 물건이지 기기 장부가 아니다 — 기기를 옮겨도 따라간다.
-    func testGuaranteeTravelsWithSave() {
+    func testGuaranteeTravelsWithSave() async {
         var imported = CompanionState()
         imported.eggTier = .uncommon
         imported.usedSinceInstall = 1_000_000
@@ -384,7 +384,7 @@ final class PremiumEggTests: XCTestCase {
     /// 안 그러면 지금 개체가 졸업할 때 그 보증이 다음 알로 새어 영구 프리미엄이 된다.
     /// 그 보증으로 미리 뽑아둔 종(pendingHatchID)도 같이 버려야 한다: 보증만 지우면 졸업으로 받는 **무료**
     /// 알이 그 pre-roll 로 부화해 아무도 사지 않은 프리미엄 결과가 나온다.
-    func testSanitizedDropsGuaranteeAndItsPreRollWhenActiveExists() {
+    func testSanitizedDropsGuaranteeAndItsPreRollWhenActiveExists() async {
         var s = CompanionState()
         s.eggTier = .rare
         s.pendingHatchID = 3
@@ -416,7 +416,7 @@ final class PremiumEggTests: XCTestCase {
 
     /// 판매 목록에 없는 티어는 살 수 없다 — 가격만 계산되면(전설 8B) 호출부 하나가 실수했을 때 토큰이
     /// 통째로 사라지고 그 알은 영영 안 깨진다.
-    func testCannotBuyTierThatIsNotSold() {
+    func testCannotBuyTierThatIsNotSold() async {
         let s = activeStore()
         XCTAssertFalse(FreshEgg.shopTiers.contains(.legendary))
         XCTAssertFalse(s.canBuyEgg(.legendary))
@@ -427,7 +427,7 @@ final class PremiumEggTests: XCTestCase {
     }
 
     /// 모르는 등급 rawValue 는 nil(보증 없음)로 강등 — 관대 디코딩의 안전한 방향.
-    func testUnknownGuaranteeDecodesAsNoGuarantee() throws {
+    func testUnknownGuaranteeDecodesAsNoGuarantee() async throws {
         let json = "{\"installBaselineSet\":true,\"usedSinceInstall\":0,\"spentTokens\":0,"
             + "\"lastDate\":\"d\",\"dex\":[],\"collectedFinals\":[],\"eggTier\":\"mythic\"}"
         let decoded = try JSONDecoder().decode(CompanionState.self, from: Data(json.utf8))

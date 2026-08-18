@@ -28,7 +28,7 @@ final class CompanionDisplayStateTests: XCTestCase {
         return (s, clock)
     }
 
-    func testEggWhenNoUsageData() {
+    func testEggWhenNoUsageData() async {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("poke-disp-\(UUID().uuidString).json")
         let s = CompanionStore(provider: StubProvider(value: dline(base: 1)),
                                clock: { dNow }, fileURL: url, rng: SeededRNG(seed: 1))
@@ -97,7 +97,7 @@ final class CompanionDisplayStateTests: XCTestCase {
 
     // MARK: 알(egg) 인큐베이션 파생값
 
-    func testEggProgressAndTokensToHatch() {
+    func testEggProgressAndTokensToHatch() async {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("poke-disp-\(UUID().uuidString).json")
         let s = CompanionStore(provider: StubProvider(value: dline(base: 1)),
                                clock: { dNow }, fileURL: url, rng: SeededRNG(seed: 1))

@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking   // Linux: URLSession/URLRequest live in this separate module
+#endif
 
 /// 프로바이더 상태 페이지(statuspage.io)의 인시던트 지표.
 /// 목적: Claude/OpenAI API 장애 시 stale·0·에러 표시를 "앱 고장"으로 오인하지 않도록 **표시 전용** 신호.

@@ -32,7 +32,7 @@ final class MintTests: XCTestCase {
 
     // MARK: 사용
 
-    func testUseMintChangesNatureToDifferent() {
+    func testUseMintChangesNatureToDifferent() async {
         let s = store(nature: "adamant", mint: 1)
         XCTAssertEqual(s.state.active?.nature, .adamant)
         let new = s.useMint()
@@ -43,7 +43,7 @@ final class MintTests: XCTestCase {
     }
 
     /// 여러 번 써도 매번 '직전 성격과 다른' 값으로만 바뀐다(현재 제외 롤).
-    func testMintNeverRepeatsCurrentAcrossUses() {
+    func testMintNeverRepeatsCurrentAcrossUses() async {
         let s = store(nature: "adamant", mint: 6)
         for _ in 0..<6 {
             let before = s.state.active?.nature
@@ -54,7 +54,7 @@ final class MintTests: XCTestCase {
     }
 
     /// 성격 nil(구버전 개체) → 유효한 성격이 설정된다.
-    func testUseMintFromNilNatureSetsValid() {
+    func testUseMintFromNilNatureSetsValid() async {
         let s = store(nature: nil, mint: 1)
         XCTAssertNil(s.state.active?.nature)
         let new = s.useMint()
@@ -63,7 +63,7 @@ final class MintTests: XCTestCase {
     }
 
     /// 성장·종·shiny·usedAtStage·통계 전부 불변(순수 코스메틱).
-    func testUseMintDoesNotAffectGrowthOrIdentity() {
+    func testUseMintDoesNotAffectGrowthOrIdentity() async {
         let s = store(nature: "adamant", mint: 1, used: 1_000_000_000, usedAtStage: 50_000_000, shiny: true)
         let beforeStage = s.state.active?.stageIndex
         let beforeUsed = s.state.usedSinceInstall
@@ -78,7 +78,7 @@ final class MintTests: XCTestCase {
 
     // MARK: 게이트
 
-    func testCannotUseMintOnEgg() {
+    func testCannotUseMintOnEgg() async {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("mint-egg-\(UUID().uuidString).json")
         let json = "{\"installBaselineSet\":true,\"usedSinceInstall\":1,\"lastDate\":\"d\","
             + "\"dex\":[],\"collectedFinals\":[],\"inventory\":{\"mint\":2}}"
@@ -90,7 +90,7 @@ final class MintTests: XCTestCase {
         XCTAssertEqual(s.itemCount(.mint), 2, "알 상태에선 소모 안 됨")
     }
 
-    func testCannotUseMintWithoutStock() {
+    func testCannotUseMintWithoutStock() async {
         let s = store(nature: "adamant", mint: 0)
         XCTAssertFalse(s.canUseMint)
         XCTAssertNil(s.useMint())
@@ -98,7 +98,7 @@ final class MintTests: XCTestCase {
 
     // MARK: 피드백
 
-    func testMintFeedbackSetAndConsumed() {
+    func testMintFeedbackSetAndConsumed() async {
         let s = store(nature: "adamant", mint: 1)
         let before = s.mintFeedbackSeq
         let new = s.useMint()
@@ -110,7 +110,7 @@ final class MintTests: XCTestCase {
 
     // MARK: 영속
 
-    func testUseMintPersistsAcrossRestart() {
+    func testUseMintPersistsAcrossRestart() async {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("mint-persist-\(UUID().uuidString).json")
         let json = "{\"installBaselineSet\":true,\"usedSinceInstall\":1,\"lastDate\":\"d\","
             + "\"active\":{\"baseID\":1,\"pathIDs\":[1],\"stageIndex\":0,\"usedAtStage\":0,\"rarity\":\"common\",\"totalForms\":3,\"nature\":\"adamant\"},"
@@ -127,7 +127,7 @@ final class MintTests: XCTestCase {
 
     // MARK: 상점 구매
 
-    func testMintShopPriceAndPurchasable() {
+    func testMintShopPriceAndPurchasable() async {
         XCTAssertEqual(ItemKind.mint.shopPrice, Mint.price)
         XCTAssertEqual(ItemKind.mint.shopPrice, 100_000_000)
         let s = store(mint: 0)
@@ -135,7 +135,7 @@ final class MintTests: XCTestCase {
         XCTAssertTrue(s.purchasableItems.contains(.mint))
     }
 
-    func testBuyMintDebitsWalletAndCredits() {
+    func testBuyMintDebitsWalletAndCredits() async {
         let s = store(mint: 0, used: 300_000_000)
         XCTAssertTrue(s.canBuy(.mint))
         XCTAssertTrue(s.buy(.mint))
@@ -144,7 +144,7 @@ final class MintTests: XCTestCase {
         XCTAssertEqual(s.availableTokens, 300_000_000 - Mint.price)
     }
 
-    func testCannotBuyMintBelowPrice() {
+    func testCannotBuyMintBelowPrice() async {
         let s = store(mint: 0, used: Mint.price - 1)
         XCTAssertFalse(s.canBuy(.mint))
         XCTAssertFalse(s.buy(.mint))

@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking   // Linux: URLSession/URLRequest live in this separate module
+#endif
 
 /// 부화 후보 — 진화라인 시작점(base) 종과 공식 희귀도.
 struct BaseSpecies: Sendable, Codable {
@@ -56,9 +59,7 @@ actor PokeAPIClient: PokeProviding {
     private var restBuildInFlight = false
     private var restBuildTried = false   // 세션당 1회 (GraphQL 다운 시 REST 인덱스 구축 트리거)
     private static let baseIndexFile: URL = {
-        let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("PokeTokenBar")
-        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let dir = PlatformPaths.appDirectory()
         return dir.appendingPathComponent("base-index.json")
     }()
     private struct BaseIndexSnapshot: Codable { let fetchedAt: Date; let entries: [BaseSpecies] }

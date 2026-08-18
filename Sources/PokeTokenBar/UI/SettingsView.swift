@@ -1,3 +1,4 @@
+#if os(macOS)
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -15,7 +16,7 @@ struct SettingsView: View {
     @State private var didCheckUpdate = false
     private var l: L { companion.l }
 
-    private var isBundledApp: Bool { AppEnv.isBundledApp }
+    private var isProductionInstall: Bool { AppEnv.isProductionInstall }
 
     /// 세이브 봉투에 남길 출처 표기 — 어느 Mac에서 내보낸 파일인지 나중에 알아보기 위한 것.
     private static var deviceName: String {
@@ -24,7 +25,7 @@ struct SettingsView: View {
 
     /// 현재 앱 버전 — 업데이트 적용 여부 확인용으로 설정창 하단에 표기.
     private static var appVersion: String {
-        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "—"
+        AppVersion.current
     }
 
     // MARK: 레이아웃 — 헤더 고정 / 본문 스크롤 / 푸터 고정
@@ -131,7 +132,7 @@ struct SettingsView: View {
             groupRow {
                 VStack(alignment: .leading, spacing: 1) {
                     Text(l.launchAtLogin)
-                    if !isBundledApp {
+                    if !isProductionInstall {
                         Text(l.bundledOnly).font(.caption2).foregroundStyle(.tertiary)
                     }
                     if let launchAtLoginError {
@@ -141,7 +142,7 @@ struct SettingsView: View {
                 Spacer()
                 Toggle("", isOn: $launchAtLogin)
                     .labelsHidden().toggleStyle(.switch).controlSize(.small)
-                    .disabled(!isBundledApp)
+                    .disabled(!isProductionInstall)
                     .onChange(of: launchAtLogin) { _, newValue in
                         do {
                             try LoginItem.setEnabled(newValue)   // KeepAlive 에이전트(로그인 실행+크래시 재실행)
@@ -378,7 +379,7 @@ struct SettingsView: View {
                 Text(l.showLogFile)
                 Spacer()
                 Button("Finder") {
-                    NSWorkspace.shared.activateFileViewerSelecting([AppLog.logFileURL])
+                    PlatformOpener.reveal(AppLog.logFileURL)
                 }
             }
             if let reportError {
@@ -426,7 +427,7 @@ struct SettingsView: View {
     /// 푸터 링크 — 버전 표기와 동일한 크기·색을 상속하고 밑줄로만 구분.
     private func footerLink(_ title: String, _ urlString: String) -> some View {
         Button {
-            if let url = URL(string: urlString) { NSWorkspace.shared.open(url) }
+            if let url = URL(string: urlString) { PlatformOpener.open(url) }
         } label: {
             Text(title).underline()
         }
@@ -444,7 +445,7 @@ struct SettingsView: View {
             version: Self.appVersion,
             os: ProcessInfo.processInfo.operatingSystemVersionString)
         guard let url = SupportMail.mailtoURL(subject: subject, body: body),
-              NSWorkspace.shared.open(url) else {
+              PlatformOpener.open(url) else {
             reportError = l.reportMailFallback(SupportMail.address)
             return
         }
@@ -474,7 +475,7 @@ struct SettingsView: View {
         do {
             let data = try companion.exportedSaveData(appVersion: Self.appVersion, deviceName: Self.deviceName)
             try data.write(to: url, options: .atomic)
-            NSWorkspace.shared.activateFileViewerSelecting([url])
+            PlatformOpener.reveal(url)
         } catch {
             presentAlert(title: l.exportSaveLabel, message: error.localizedDescription, style: .warning)
         }
@@ -553,3 +554,4 @@ struct SettingsView: View {
         alert.runModal()
     }
 }
+#endif   // os(macOS)
