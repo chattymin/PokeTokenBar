@@ -73,6 +73,10 @@ The app is provider-agnostic by design. When extending it, follow these rules
 - **Adding a version manager / install path** = add it to
   `BinaryLocator.commonToolDirectories()` — the single source that discovery and
   child-process `PATH` both share.
+- **Adding an append-only SQLite usage store** (rowid/`id` high-water, like Cursor
+  or Copilot) = call `LocalAdditionalUsageReader.scanIncrementalStores` with the
+  format-specific URL / `MAX` SQL / row query / parse. Do not copy the watermark
+  loop.
 
 ## Legal / intellectual property
 

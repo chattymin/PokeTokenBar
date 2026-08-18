@@ -29,7 +29,14 @@ echo "▶ 2/5 기동"
 MARK=$(date +%s)
 open "$APP" || sleep 2 && open "$APP" 2>/dev/null   # LaunchServices -600 재시도
 sleep 2
-if pgrep -x PokeTokenBar >/dev/null; then ok "프로세스 생존 (pid $(pgrep -x PokeTokenBar))"; else bad "프로세스 없음"; exit 1; fi
+INSTANCES=$(pgrep -x PokeTokenBar | wc -l | tr -d ' ')
+case "$INSTANCES" in
+  0) bad "프로세스 없음"; exit 1 ;;
+  1) ok "프로세스 생존, 단일 인스턴스 (pid $(pgrep -x PokeTokenBar))" ;;
+  # 로그인 에이전트 등록(RunAtLoad)이 이미 떠 있는 앱을 한 번 더 실행하던 회귀 — SingleInstance 가드가
+  # 막는다. launchd 경계는 단위 테스트로 못 밟으니 개수 검사를 여기 둔다(defect-log 프로세스·인스턴스).
+  *) bad "인스턴스 $INSTANCES 개 — 중복 실행 (pid $(pgrep -x PokeTokenBar | tr '\n' ' '))" ;;
+esac
 
 echo "▶ 3/5 데이터 파이프라인 (스냅샷 갱신 대기, 최대 90s)"
 found=""

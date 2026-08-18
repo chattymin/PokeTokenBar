@@ -17,6 +17,7 @@ struct PokeTokenBarApp: App {
 final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private var statusItem: NSStatusItem!
     private let popover = NSPopover()
+    private var outsideClickMonitor: Any?
     private var store: UsageStore!
     private var companion: CompanionStore!
     private var updater: UpdateChecker!
@@ -33,6 +34,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private var displayAwake = true     // 디스플레이 켜짐 여부 (꺼지면 메뉴 애니메이션 정지 — 배터리)
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // 로그인 에이전트 등록(plist 의 RunAtLoad)이 이미 떠 있는 앱을 한 번 더 실행한다 — 나중에 뜬
+        // 쪽이 물러난다. 메뉴바 항목을 만들기 전에 판정해 아이콘이 떴다 사라지는 깜빡임을 없애고,
+        // **`CrashReporter.install` 보다도 앞**에 둔다: 뒤면 물러나는 인스턴스가 running 마커를 덮어쓰고
+        // 종료 시 `markClean()` 이 발화해, 살아남은 쪽이 나중에 크래시해도 다음 실행이 정상 종료로 읽는다.
+        if SingleInstance.shouldYieldToRunningInstance() {
+            AppLog.write("duplicate instance: yielding to the instance already running")
+            // write 는 async — terminate 이 곧 exit(0) 에 닿으므로 이 줄이 파일에 닿을 때까지 기다린다.
+            // 이 로그가 없으면 가드의 오작동("앱이 안 뜬다")과 크래시를 구별할 단서가 사라진다.
+            AppLog.flush()
+            NSApp.terminate(nil)
+            return
+        }
         // 서브프로세스(codex app-server 등) 파이프가 조기 종료로 끊겨도 SIGPIPE 로 앱이 죽지 않게
         // 무시한다. ProcessRunner 의 throwing write 와 함께 broken-pipe 크래시를 막는 이중 방어.
         signal(SIGPIPE, SIG_IGN)
@@ -356,6 +369,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             NSApp.activate(ignoringOtherApps: true)
             popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
             popover.contentViewController?.view.window?.makeKeyAndOrderFront(nil)
+            startOutsideClickMonitor()
             syncMenuAnimation()   // 팝오버 열림 → 메뉴바 애니메이션 정지(중복 + WindowServer 부하 회피)
             store.requestNotificationAuthorizationIfNeeded()   // 알림 권한은 사용자가 앱을 처음 열 때 요청
             Task { await updater.check() }   // 팝오버 열 때 재확인(내부 minInterval 디바운스)
@@ -364,8 +378,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
 
     /// 팝오버가 닫히면 호스팅 컨트롤러 해제(숨은 트리 재레이아웃 비용 제거) + 메뉴바 애니메이션 재개.
     func popoverDidClose(_ notification: Notification) {
+        stopOutsideClickMonitor()
         popover.contentViewController = nil
         syncMenuAnimation()
+    }
+
+    /// 다른 메뉴바 팝업은 앱을 비활성화 안 시켜 .transient 가 못 닫는다 → 열림 동안만 앱 밖 클릭을 직접 감지해 닫는다(관찰 전용, 권한 불필요).
+    private func startOutsideClickMonitor() {
+        outsideClickMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
+            Task { @MainActor in
+                guard let self, self.popover.isShown else { return }
+                self.popover.performClose(nil)
+            }
+        }
+    }
+
+    private func stopOutsideClickMonitor() {
+        if let m = outsideClickMonitor { NSEvent.removeMonitor(m); outsideClickMonitor = nil }
     }
 
     // MARK: 디스플레이 / 메뉴바 가시성 (에너지 절약 — 안 보이면 애니메이션 정지)

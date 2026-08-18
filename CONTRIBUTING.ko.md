@@ -68,6 +68,9 @@ CI는 모든 풀 리퀘스트에서 `swift build`와 `swift test`를 실행합�
   (예: 공식 한도)만 `providerID`로 분기할 수 있습니다.
 - **버전 매니저 / 설치 경로 추가** = `BinaryLocator.commonToolDirectories()`에
   추가합니다 — 탐색과 자식 프로세스 `PATH`가 공유하는 단일 소스입니다.
+- **append-only SQLite 사용량 스토어 추가** (Cursor·Copilot처럼 rowid/`id` 워터마크) =
+  `LocalAdditionalUsageReader.scanIncrementalStores`에 URL / `MAX` SQL / row query /
+  parse만 넘기세요. watermark 루프를 복사하지 마세요.
 
 ## 법적 / 지식재산
 

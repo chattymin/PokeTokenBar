@@ -1101,7 +1101,7 @@ private struct DexDetailView: View {
             centered {
                 VStack(spacing: 6) {
                     Text(store.l.dexFlavorFailed).font(.caption).foregroundStyle(.secondary)
-                    Button(store.l.dexRetry) { Task { await load() } }
+                    Button(store.l.retry) { Task { await load() } }
                         .buttonStyle(.link).font(.caption)
                 }
             }

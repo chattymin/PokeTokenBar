@@ -34,7 +34,7 @@ actor PokeAPIClient: PokeProviding {
     private let base = URL(string: "https://pokeapi.co/api/v2")!
     /// 저장할 이름의 언어 집합. `ja-hrkt` 제외 — 1~649 전 종에서 `ja` 와 글자가 같아(실측) 세이브만
     /// 부풀림. (버전 이름은 `ja` 가 없어 `ja-hrkt` 가 필요하지만 그건 도감 설명 경로의 몫.)
-    private let langCodes = ["ko", "en", "ja"]
+    private let langCodes = ["ko", "en", "ja", "es"]
     private var speciesCache: [Int: SpeciesDTO] = [:]
     private var lineCache: [Int: EvoLine] = [:]   // 프리패칭 → 부화 순간 네트워크 0
 
