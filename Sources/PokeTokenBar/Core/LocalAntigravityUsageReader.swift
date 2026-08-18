@@ -31,19 +31,34 @@ import SQLite3
 /// populated counters — which is exactly the identity `LocalUsageReader.Entry` already keeps.
 enum LocalAntigravityUsageReader {
 
-    /// One database per conversation. The directory is absent unless Antigravity CLI ran.
+    /// Known conversation directories across Antigravity editions (2.0/Core, CLI, IDE).
+    /// The directory is absent unless the respective Antigravity flavor ran.
+    static var defaultRoots: [URL] {
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        return [
+            home.appendingPathComponent(".gemini/antigravity/conversations"),
+            home.appendingPathComponent(".gemini/antigravity-cli/conversations"),
+            home.appendingPathComponent(".gemini/antigravity-ide/conversations"),
+        ]
+    }
+
+    /// Primary default directory for single-root callers and backwards compatibility.
     static var defaultRoot: URL {
-        FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".gemini/antigravity-cli/conversations")
+        defaultRoots[0]
     }
 
     /// Usage rows whose `created_at` falls at or after `modifiedSince`.
-    static func entries(modifiedSince: Date, root: URL? = nil) -> [LocalUsageReader.Entry] {
-        let scanned = scan(root: root ?? defaultRoot, modifiedSince: modifiedSince, known: [:])
+    static func entries(modifiedSince: Date, roots: [URL]? = nil) -> [LocalUsageReader.Entry] {
+        let scanned = scan(roots: roots ?? defaultRoots, modifiedSince: modifiedSince, known: [:])
         // The one place the side effects live. `AppLog.write` returns early outside the bundled
         // app, so the decisions above it are kept pure and tested on their own.
         for line in scanned.log { AppLog.write(line) }
         return assemble(scanned.blobs, since: modifiedSince)
+    }
+
+    /// Single-root overload for backwards compatibility and tests.
+    static func entries(modifiedSince: Date, root: URL?) -> [LocalUsageReader.Entry] {
+        entries(modifiedSince: modifiedSince, roots: root.map { [$0] } ?? defaultRoots)
     }
 
     /// One conversation store's rows, valid for as long as its `(mtime, size)` hold. The rows
@@ -68,14 +83,14 @@ enum LocalAntigravityUsageReader {
         LocalUsageReader.dedupKeepMax(blobs.values.flatMap(\.entries).filter { $0.date >= since })
     }
 
-    /// Reads every conversation store the window admits, reusing any blob in `known` whose
-    /// signature still matches. `known` is empty for a one-shot read.
-    static func scan(root: URL, modifiedSince: Date, known: [String: Blob]) -> Scan {
+    /// Reads every conversation store the window admits across roots, reusing any blob in `known`
+    /// whose signature still matches. `known` is empty for a one-shot read.
+    static func scan(roots: [URL], modifiedSince: Date, known: [String: Blob]) -> Scan {
         let formatter = LocalUsageReader.localDayFormatter()
         var blobs: [String: Blob] = [:]
         var reads: [(conversation: String, read: ConversationRead)] = []
 
-        for database in databases(in: root) {
+        for database in databases(in: roots) {
             // Stat before the read, never after. A commit that lands mid-read then differs from
             // the stored signature on the next sweep and is re-read; stat afterwards and that
             // same commit is frozen into a signature that already looks current.
@@ -107,6 +122,11 @@ enum LocalAntigravityUsageReader {
         return Scan(blobs: blobs, log: lossLog(reads) + discardLog(reads))
     }
 
+    /// Single-root scan overload.
+    static func scan(root: URL, modifiedSince: Date, known: [String: Blob]) -> Scan {
+        scan(roots: [root], modifiedSince: modifiedSince, known: known)
+    }
+
     // MARK: Database discovery
 
     /// The cache key for one conversation store, and the same value the scan window is tested
@@ -133,9 +153,17 @@ enum LocalAntigravityUsageReader {
         return newest.map { ($0, size) }
     }
 
+    private static func databases(in roots: [URL]) -> [URL] {
+        var results: [URL] = []
+        for root in roots {
+            guard let names = try? FileManager.default.contentsOfDirectory(atPath: root.path) else { continue }
+            results.append(contentsOf: names.filter { $0.hasSuffix(".db") }.sorted().map { root.appendingPathComponent($0) })
+        }
+        return results
+    }
+
     private static func databases(in root: URL) -> [URL] {
-        guard let names = try? FileManager.default.contentsOfDirectory(atPath: root.path) else { return [] }
-        return names.filter { $0.hasSuffix(".db") }.sorted().map { root.appendingPathComponent($0) }
+        databases(in: [root])
     }
 
     // MARK: Reading one conversation
@@ -495,13 +523,18 @@ enum AntigravityProto {
 actor LocalAntigravityUsageCache {
     static let shared = LocalAntigravityUsageCache()
 
-    private let root: URL?
+    private let roots: [URL]?
     private let now: @Sendable () -> Date
     private var blobs: [String: LocalAntigravityUsageReader.Blob] = [:]
     private var inFlight: Task<LocalAntigravityUsageReader.Scan, Never>?
 
-    init(root: URL? = nil, now: @escaping @Sendable () -> Date = Date.init) {
-        self.root = root
+    init(roots: [URL]? = nil, now: @escaping @Sendable () -> Date = Date.init) {
+        self.roots = roots
+        self.now = now
+    }
+
+    init(root: URL?, now: @escaping @Sendable () -> Date = Date.init) {
+        self.roots = root.map { [$0] }
         self.now = now
     }
 
@@ -518,12 +551,12 @@ actor LocalAntigravityUsageCache {
             // Join rather than start a second scan, and leave the log to the owner.
             scanned = await inFlight.value
         } else {
-            let root = self.root ?? LocalAntigravityUsageReader.defaultRoot
+            let targetRoots = self.roots ?? LocalAntigravityUsageReader.defaultRoots
             let known = blobs
             // Nothing awaits between the miss above and this assignment — that is what stops two
             // callers from both starting a scan.
             let task = Task.detached(priority: .utility) {
-                LocalAntigravityUsageReader.scan(root: root, modifiedSince: since, known: known)
+                LocalAntigravityUsageReader.scan(roots: targetRoots, modifiedSince: since, known: known)
             }
             inFlight = task
             scanned = await task.value

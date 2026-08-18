@@ -514,11 +514,48 @@ final class AntigravityUsageTests: XCTestCase {
     /// Someone who has never run Antigravity must get silence rather than a zero: throwing
     /// colours the whole refresh as an error, and a zero raises a tab for a tool they don't use.
     func testProviderIsSilentWithoutAnyConversationStore() async throws {
-        guard !FileManager.default.fileExists(atPath: LocalAntigravityUsageReader.defaultRoot.path) else {
+        let hasAnyStore = LocalAntigravityUsageReader.defaultRoots.contains {
+            FileManager.default.fileExists(atPath: $0.path)
+        }
+        guard !hasAnyStore else {
             throw XCTSkip("this machine has Antigravity conversation stores — the absent path cannot be exercised")
         }
         let daily = try await LocalAntigravityProvider().fetchDaily()
         XCTAssertNil(daily)
+    }
+
+    func testDefaultRootsContainsAllKnownLocations() {
+        let paths = LocalAntigravityUsageReader.defaultRoots.map(\.path)
+        XCTAssertTrue(paths.contains { $0.hasSuffix(".gemini/antigravity/conversations") })
+        XCTAssertTrue(paths.contains { $0.hasSuffix(".gemini/antigravity-cli/conversations") })
+        XCTAssertTrue(paths.contains { $0.hasSuffix(".gemini/antigravity-ide/conversations") })
+        XCTAssertEqual(LocalAntigravityUsageReader.defaultRoot, LocalAntigravityUsageReader.defaultRoots[0])
+    }
+
+    func testMultiRootScanDiscoversAndDeduplicatesAcrossDirectories() throws {
+        let rootA = temporaryDirectory.appendingPathComponent("rootA")
+        let rootB = temporaryDirectory.appendingPathComponent("rootB")
+        try FileManager.default.createDirectory(at: rootA, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: rootB, withIntermediateDirectories: true)
+
+        let stamp = try date("2026-03-04T10:00:00Z")
+
+        // rootA has unique entry r1, and duplicate r_shared
+        try writeConversation("c1", at: rootA, records: [
+            record(responseID: "r1", model: "gemini-3.6-flash", createdAt: stamp, input: 100, output: 50, cacheRead: 0),
+            record(responseID: "r_shared", model: "gemini-3.6-flash", createdAt: stamp, input: 200, output: 100, cacheRead: 0),
+        ])
+
+        // rootB has unique entry r2, and duplicate r_shared
+        try writeConversation("c2", at: rootB, records: [
+            record(responseID: "r2", model: "gemini-3.6-flash", createdAt: stamp, input: 300, output: 150, cacheRead: 0),
+            record(responseID: "r_shared", model: "gemini-3.6-flash", createdAt: stamp, input: 200, output: 100, cacheRead: 0),
+        ])
+
+        let entries = LocalAntigravityUsageReader.entries(modifiedSince: .distantPast, roots: [rootA, rootB])
+        let ids = Set(entries.map(\.id))
+        XCTAssertEqual(ids, ["antigravity|r1", "antigravity|r2", "antigravity|r_shared"])
+        XCTAssertEqual(entries.count, 3, "duplicate r_shared must collapse to a single entry")
     }
 
     // MARK: - Fixtures
@@ -614,8 +651,8 @@ final class AntigravityUsageTests: XCTestCase {
         return Data(AntigravityProto.encodeMessage(field: 1, chatModel))
     }
 
-    private func writeConversation(_ name: String, records: [Data], walMode: Bool = false) throws {
-        try writeConversation(name, blobs: records, walMode: walMode)
+    private func writeConversation(_ name: String, at root: URL? = nil, records: [Data], walMode: Bool = false) throws {
+        try writeConversation(name, at: root, blobs: records, walMode: walMode)
     }
 
     /// A store spanning several pages, so damaging the last one still leaves earlier rows
@@ -674,9 +711,10 @@ final class AntigravityUsageTests: XCTestCase {
         }
     }
 
-    private func writeConversation(_ name: String, blobs: [Data], walMode: Bool = false,
+    private func writeConversation(_ name: String, at root: URL? = nil, blobs: [Data], walMode: Bool = false,
                                    pageSize: Int? = nil) throws {
-        let database = temporaryDirectory.appendingPathComponent("\(name).db")
+        let directory = root ?? temporaryDirectory!
+        let database = directory.appendingPathComponent("\(name).db")
         // `page_size` only takes effect before the first table exists.
         var sql = pageSize.map { "PRAGMA page_size=\($0);\n" } ?? ""
         sql += walMode ? "PRAGMA journal_mode=WAL;\n" : ""
