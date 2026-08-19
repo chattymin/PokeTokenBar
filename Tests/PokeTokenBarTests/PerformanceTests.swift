@@ -197,6 +197,32 @@ final class FloatingPetEnergyTests: XCTestCase {
                                         l.percentRemaining(TokenFormatter.percent(58))))
     }
 
+    /// [회귀] 호버 콜아웃의 글자와 외곽선은 같은 appearance에서 해석되어야 한다.
+    /// 기존 경로는 텍스트 필드에 동적 `.labelColor`를 지정하면서 뷰를 만드는 동안
+    /// `windowBackgroundColor.cgColor`를 굳혔다. 그 결과 다크 모드에서 밝은 말풍선에
+    /// 흰 글자가 놓일 수 있었다.
+    func testHoverCalloutColorsFollowLightAndDarkAppearance() throws {
+        let light = try XCTUnwrap(NSAppearance(named: .aqua))
+        let dark = try XCTUnwrap(NSAppearance(named: .darkAqua))
+        let lightColors = FloatingPetController.hoverCalloutColors(for: light)
+        let darkColors = FloatingPetController.hoverCalloutColors(for: dark)
+
+        XCTAssertTrue(lightColors.text.isEqual(Self.snapshot(NSColor.labelColor, for: light)))
+        XCTAssertTrue(lightColors.background.isEqual(Self.snapshot(NSColor.windowBackgroundColor, for: light)))
+        XCTAssertTrue(lightColors.border.isEqual(Self.snapshot(NSColor.separatorColor, for: light)))
+        XCTAssertTrue(darkColors.text.isEqual(Self.snapshot(NSColor.labelColor, for: dark)))
+        XCTAssertTrue(darkColors.background.isEqual(Self.snapshot(NSColor.windowBackgroundColor, for: dark)))
+        XCTAssertTrue(darkColors.border.isEqual(Self.snapshot(NSColor.separatorColor, for: dark)))
+
+        XCTAssertFalse(lightColors.text.isEqual(darkColors.text), "text color must change with appearance")
+        XCTAssertFalse(lightColors.background.isEqual(darkColors.background),
+                      "bubble background must change with appearance")
+        XCTAssertFalse(lightColors.text.isEqual(lightColors.background),
+                       "라이트 모드 콜아웃 글자는 배경과 달라야 함")
+        XCTAssertFalse(darkColors.text.isEqual(darkColors.background),
+                       "다크 모드 콜아웃 글자는 배경과 달라야 함")
+    }
+
     /// Alert copy in *every* language must fit the default bubble panel — width-capped wrap,
     /// not intrinsic `.fixedSize` that clipped ja by ~9pt (owner review on #124).
     /// Iterate `allCases`, never a literal list: a hardcoded `[.ko, .en, .ja]` silently stopped
@@ -308,6 +334,14 @@ final class FloatingPetEnergyTests: XCTestCase {
             "Codex \(l.codexWindow(10_080))",
             "Claude \(l.claudeLimitEntry(kind: "weekly_scoped", model: "Opus"))",
         ]
+    }
+
+    private static func snapshot(_ color: NSColor, for appearance: NSAppearance) -> NSColor {
+        var resolved = color
+        appearance.performAsCurrentDrawingAppearance {
+            resolved = NSColor(cgColor: color.cgColor) ?? color
+        }
+        return resolved
     }
 
     /// Grow a wrapping body until unconstrained `measureSpeechBubble` height has jumped
