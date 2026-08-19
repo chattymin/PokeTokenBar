@@ -26,7 +26,7 @@ enum CursorUsageAPI {
     }
 
     static func fetchEntries(modifiedSince: Date) async -> [LocalUsageReader.Entry] {
-        guard ProcessInfo.processInfo.environment["CURSOR_USAGE_API"] != "0" else { return [] }
+        guard UsageEnvironment.value("CURSOR_USAGE_API") != "0" else { return [] }
         guard let token = sessionToken() else {
             AppLog.write("cursor api: no session token — \(LocalAdditionalUsageReader.cursorAuthDiagnostics())")
             return []
@@ -158,17 +158,8 @@ enum CursorUsageAPI {
     // MARK: - Cache
 
     private static func cacheFileURL() -> URL {
-        let override = (ProcessInfo.processInfo.environment["PTB_STATE_DIR"] ?? "")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        let dir: URL
-        if !override.isEmpty {
-            dir = URL(fileURLWithPath: override, isDirectory: true)
-        } else {
-            dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-                .appendingPathComponent("PokeTokenBar")
-        }
-        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        return dir.appendingPathComponent("cursor-usage-api-cache.json")
+        CompanionStore.defaultURL().deletingLastPathComponent()
+            .appendingPathComponent("cursor-usage-api-cache.json")
     }
 
     private static func cachedEntries() -> DiskCache? {

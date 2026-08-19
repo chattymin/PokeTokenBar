@@ -491,7 +491,11 @@ final class CursorUsageTests: XCTestCase {
     // MARK: - Helpers
 
     private func date(_ value: String) throws -> Date {
-        try XCTUnwrap(ISO8601DateFormatter().date(from: value))
+        let iso = ISO8601DateFormatter()
+        iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let parsed = iso.date(from: value) { return parsed }
+        iso.formatOptions = [.withInternetDateTime]
+        return try XCTUnwrap(iso.date(from: value))
     }
 
     private func seedBubbles(in database: URL, prefix: String, count: Int) throws {
