@@ -41,7 +41,9 @@ struct LocalHermesProvider: UsageProvider {
     }
 }
 
-/// Cursor IDE usage from its local SQLite chat database (cursorDiskKV table).
+/// Cursor usage from the dashboard API when signed in, with local SQLite and
+/// optional CSV export as fallbacks. `reportsCost` is false — included-plan
+/// usage is token-only in the dashboard export.
 struct LocalCursorProvider: UsageProvider {
     let id = "cursor"
     let displayName = "Cursor"
@@ -189,7 +191,7 @@ private actor LocalAdditionalUsageCache {
         }
         let existing = previous?.entries ?? []
         let task = Task.detached(priority: .utility) {
-            () -> (entries: [LocalUsageReader.Entry], highWaterByPath: [String: Int64]) in
+            () async -> (entries: [LocalUsageReader.Entry], highWaterByPath: [String: Int64]) in
             switch source {
             case .opencode:
                 let loaded = LocalAdditionalUsageReader.openCodeEntries(modifiedSince: since)
@@ -200,11 +202,16 @@ private actor LocalAdditionalUsageCache {
                 let loaded = LocalAdditionalUsageReader.kiroEntries(modifiedSince: since)
                 return (LocalUsageReader.dedupKeepMax(existing + loaded), [:])
             case .cursor:
-                let loaded = LocalAdditionalUsageReader.cursorEntries(
+                let loaded = await LocalAdditionalUsageReader.cursorEntriesAsync(
                     modifiedSince: since, afterRowIDByPath: afterRowIDByPath)
                 // DB rewrite / VACUUM can drop max(rowid) below the watermark — discard
                 // the stale in-memory set and take the full rescan result.
                 if loaded.didReset {
+                    return (loaded.entries, loaded.highWaterByPath)
+                }
+                // Dashboard API/CSV rows are authoritative — do not accumulate stale
+                // bubble rows with different ids (they inflate totals).
+                if loaded.entries.contains(where: LocalAdditionalUsageReader.isCursorDashboardEntry) {
                     return (loaded.entries, loaded.highWaterByPath)
                 }
                 return (
@@ -557,19 +564,257 @@ enum LocalAdditionalUsageReader {
         modifiedSince: Date,
         afterRowID: Int64 = 0,
         afterRowIDByPath: [String: Int64]? = nil,
+        roots: [URL]? = nil,
+        exportRoots: [URL]? = nil
+    ) -> CursorLoadResult {
+        cursorEntriesSync(
+            modifiedSince: modifiedSince,
+            afterRowID: afterRowID,
+            afterRowIDByPath: afterRowIDByPath,
+            roots: roots,
+            exportRoots: exportRoots,
+            apiEntries: [])
+    }
+
+    static func cursorEntriesAsync(
+        modifiedSince: Date,
+        afterRowID: Int64 = 0,
+        afterRowIDByPath: [String: Int64]? = nil,
+        roots: [URL]? = nil,
+        exportRoots: [URL]? = nil
+    ) async -> CursorLoadResult {
+        let api = await CursorUsageAPI.fetchEntries(modifiedSince: modifiedSince)
+        return cursorEntriesSync(
+            modifiedSince: modifiedSince,
+            afterRowID: afterRowID,
+            afterRowIDByPath: afterRowIDByPath,
+            roots: roots,
+            exportRoots: exportRoots,
+            apiEntries: api)
+    }
+
+    /// Test hook for the dashboard/API path without network I/O.
+    static func cursorEntriesFromDashboard(
+        modifiedSince: Date,
+        dashboardEntries: [LocalUsageReader.Entry],
         roots: [URL]? = nil
     ) -> CursorLoadResult {
-        scanIncrementalStores(
-            roots: roots ?? defaultCursorRoots,
+        cursorEntriesSync(
             modifiedSince: modifiedSince,
+            afterRowID: 0,
+            afterRowIDByPath: nil,
+            roots: roots,
+            exportRoots: [],
+            apiEntries: dashboardEntries)
+    }
+
+    private static func cursorEntriesSync(
+        modifiedSince: Date,
+        afterRowID: Int64,
+        afterRowIDByPath: [String: Int64]?,
+        roots: [URL]?,
+        exportRoots: [URL]?,
+        apiEntries: [LocalUsageReader.Entry]
+    ) -> CursorLoadResult {
+        if !apiEntries.isEmpty {
+            return IncrementalStoreLoadResult(
+                entries: LocalUsageReader.dedupKeepMax(apiEntries),
+                highWaterByPath: afterRowIDByPath ?? [:],
+                didReset: false)
+        }
+
+        let csvRoots = exportRoots ?? (roots == nil ? defaultCursorExportRoots : [])
+        let csv = cursorCSVEntries(modifiedSince: modifiedSince, roots: csvRoots)
+        let sqliteSince = csv.map(\.date).max().map { max(modifiedSince, $0) } ?? modifiedSince
+        var loaded = scanIncrementalStores(
+            roots: roots ?? defaultCursorRoots,
+            modifiedSince: sqliteSince,
             afterRowID: afterRowID,
             afterRowIDByPath: afterRowIDByPath,
             databaseURL: cursorDatabaseURL(from:),
             maxRowIDSQL: "SELECT MAX(rowid) FROM cursorDiskKV",
             rowSQL: { effectiveAfter, _ in cursorRowQuery(effectiveAfter: effectiveAfter) },
             parse: { statement, _ in
-                parseCursorBubbleRow(statement, modifiedSince: modifiedSince)
+                parseCursorBubbleRow(statement, modifiedSince: sqliteSince)
             })
+        if !csv.isEmpty {
+            loaded.entries = LocalUsageReader.dedupKeepMax(csv + loaded.entries)
+        }
+        return loaded
+    }
+
+    /// Cursor dashboard CSV exports (`usage-events-YYYY-MM-DD.csv`).
+    static var defaultCursorExportRoots: [URL] {
+        environmentPaths("CURSOR_USAGE_CSV_DIR") ?? [
+            FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Downloads"),
+        ]
+    }
+
+    /// Cursor IDE login token stored in `state.vscdb` ItemTable.
+    static func cursorAuthAccessToken(roots: [URL]? = nil) -> String? {
+        for root in roots ?? defaultCursorRoots {
+            let database = root.appendingPathComponent("state.vscdb")
+            guard FileManager.default.fileExists(atPath: database.path) else { continue }
+            for attempt in 0 ..< 6 {
+                let rows = query(database, sql: """
+                    SELECT value FROM ItemTable WHERE key = 'cursorAuth/accessToken' LIMIT 1
+                    """) { statement -> String? in
+                    columnText(statement, 0)
+                }
+                if let token = rows?.first?.trimmingCharacters(in: .whitespacesAndNewlines), !token.isEmpty {
+                    return token
+                }
+                if rows != nil { break }
+                Thread.sleep(forTimeInterval: 0.05 * Double(attempt + 1))
+            }
+        }
+        return nil
+    }
+
+    /// Debug string for AppLog when session token lookup fails (no secret values).
+    static func cursorAuthDiagnostics(roots: [URL]? = nil) -> String {
+        var parts: [String] = []
+        for root in roots ?? defaultCursorRoots {
+            let database = root.appendingPathComponent("state.vscdb")
+            guard FileManager.default.fileExists(atPath: database.path) else {
+                parts.append("\(database.lastPathComponent): missing")
+                continue
+            }
+            let rows = query(database, sql: """
+                SELECT value FROM ItemTable WHERE key = 'cursorAuth/accessToken' LIMIT 1
+                """) { statement -> String? in
+                columnText(statement, 0)
+            }
+            switch rows {
+            case .none:
+                parts.append("\(root.lastPathComponent): sqlite busy/error")
+            case .some(let values) where values.isEmpty:
+                parts.append("\(root.lastPathComponent): key absent (not logged in?)")
+            case .some(let values):
+                parts.append("\(root.lastPathComponent): ok (\(values[0].count) chars)")
+            }
+        }
+        return parts.isEmpty ? "no cursor data dirs" : parts.joined(separator: "; ")
+    }
+
+    /// Usage from Cursor's dashboard API or official CSV export (`cursor|api|`, `cursor|csv|`).
+    static func isCursorDashboardEntry(_ entry: LocalUsageReader.Entry) -> Bool {
+        entry.id.hasPrefix("cursor|api|") || entry.id.hasPrefix("cursor|csv|")
+    }
+
+    static func makeUsageEntry(
+        id: String,
+        date: Date,
+        model: String,
+        input: Int = 0,
+        output: Int = 0,
+        cacheWrite: Int = 0,
+        cacheRead: Int = 0,
+        cost: Double? = nil
+    ) -> LocalUsageReader.Entry? {
+        makeEntry(
+            id: id, date: date, model: model,
+            input: input, output: output, cacheWrite: cacheWrite, cacheRead: cacheRead,
+            cost: cost)
+    }
+
+    static func cursorCSVEntries(modifiedSince: Date, roots: [URL]) -> [LocalUsageReader.Entry] {
+        var entries: [LocalUsageReader.Entry] = []
+        for root in roots {
+            let files = (try? FileManager.default.contentsOfDirectory(
+                at: root, includingPropertiesForKeys: [.isRegularFileKey], options: [.skipsHiddenFiles])) ?? []
+            for file in files where isCursorUsageCSV(file) {
+                entries.append(contentsOf: parseCursorUsageCSV(file, modifiedSince: modifiedSince))
+            }
+        }
+        return LocalUsageReader.dedupKeepMax(entries)
+    }
+
+    static func parseCursorUsageCSV(_ url: URL, modifiedSince: Date) -> [LocalUsageReader.Entry] {
+        guard let text = try? String(contentsOf: url, encoding: .utf8) else { return [] }
+        let lines = text.split(whereSeparator: \.isNewline).map(String.init)
+        guard let headerLine = lines.first else { return [] }
+        let headers = parseCSVLine(headerLine)
+        func index(_ name: String) -> Int? {
+            headers.firstIndex { $0.caseInsensitiveCompare(name) == .orderedSame }
+        }
+        guard let dateIndex = index("Date"),
+              let inputIndex = index("Input (w/o Cache Write)"),
+              let cacheWriteIndex = index("Input (w/ Cache Write)"),
+              let cacheReadIndex = index("Cache Read"),
+              let outputIndex = index("Output Tokens") else { return [] }
+        let modelIndex = index("Model")
+        var entries: [LocalUsageReader.Entry] = []
+        for (rowIndex, line) in lines.dropFirst().enumerated() {
+            let cols = parseCSVLine(line)
+            let needed = [dateIndex, inputIndex, cacheWriteIndex, cacheReadIndex, outputIndex].max() ?? 0
+            guard cols.count > needed,
+                  let date = flexibleDateValue(cols[dateIndex]),
+                  date >= modifiedSince else { continue }
+            let model = modelIndex.flatMap { cols.indices.contains($0) ? cols[$0] : nil }
+                .flatMap { $0.isEmpty ? nil : $0 } ?? "unknown"
+            let input = parseCSVInt(cols[inputIndex])
+            let cacheWrite = parseCSVInt(cols[cacheWriteIndex])
+            let cacheRead = parseCSVInt(cols[cacheReadIndex])
+            let output = parseCSVInt(cols[outputIndex])
+            guard let entry = makeEntry(
+                id: "cursor|csv|\(cols[dateIndex])|\(model)|\(rowIndex)",
+                date: date,
+                model: model,
+                input: input,
+                output: output,
+                cacheWrite: cacheWrite,
+                cacheRead: cacheRead) else { continue }
+            entries.append(entry)
+        }
+        return entries
+    }
+
+    private static func isCursorUsageCSV(_ url: URL) -> Bool {
+        let name = url.lastPathComponent.lowercased()
+        return name.hasPrefix("usage-events-") && name.hasSuffix(".csv")
+    }
+
+    private static func parseCSVInt(_ raw: String) -> Int {
+        let digits = raw.replacingOccurrences(of: ",", with: "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return Int(digits) ?? 0
+    }
+
+    static func parseCSVLine(_ line: String) -> [String] {
+        var fields: [String] = []
+        var current = ""
+        var inQuotes = false
+        var index = line.startIndex
+        if index < line.endIndex, line[index] == "\u{feff}" {
+            index = line.index(after: index)
+        }
+        while index < line.endIndex {
+            let character = line[index]
+            if inQuotes {
+                if character == "\"" {
+                    let next = line.index(after: index)
+                    if next < line.endIndex, line[next] == "\"" {
+                        current.append("\"")
+                        index = next
+                    } else {
+                        inQuotes = false
+                    }
+                } else {
+                    current.append(character)
+                }
+            } else if character == "\"" {
+                inQuotes = true
+            } else if character == "," {
+                fields.append(current)
+                current = ""
+            } else {
+                current.append(character)
+            }
+            index = line.index(after: index)
+        }
+        fields.append(current)
+        return fields
     }
 
     /// cursorDiskKV: key TEXT UNIQUE, value BLOB. No time column — filter by
