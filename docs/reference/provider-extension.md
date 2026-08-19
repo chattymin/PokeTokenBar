@@ -24,6 +24,11 @@ read_when:
   (탐색·자식 프로세스 PATH 보강이 이 단일 소스를 공유).
 - **로그 스캔 루트 추가** = `LocalUsageReader.claudeProjectRoots` 같은 프로바이더별 루트 목록 한 곳에만
   추가한다. 스캔(`LocalUsageReader`)·캐시(`LocalUsageCache`)·테스트가 그 단일 소스를 공유해야 한다.
+  Codex의 기본 목록은 활성 세션 파일이 있는 `~/.codex/sessions`와 보관된 세션 파일을 옮기는
+  `~/.codex/archived_sessions`를 모두 포함해야 한다. 두 경로는 서로 다른 사용량이 아니라
+  같은 rollout이 이동하는 위치이므로, 어느 한쪽만 읽으면 기존 사용량이 사라진 것처럼 보일 수 있다.
+  기본 목록을 테스트할 때는 `computeCodexScanRoots(home:)`에 가짜 home을 주입해 실제 사용자
+  디렉터리에 의존하지 않도록 한다.
   루트가 겹쳐도 합계는 전역 dedup 이 바로잡지만, 중복 루트는 스캔 비용을 배로 늘리므로
   `normalizedRoots` 로 접는다.
 - **append-only SQLite 사용량 스토어** (Cursor `cursorDiskKV`, Copilot `assistant_usage_events`,

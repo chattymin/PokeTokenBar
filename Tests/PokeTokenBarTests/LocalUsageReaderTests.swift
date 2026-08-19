@@ -31,6 +31,30 @@ final class LocalUsageReaderTests: XCTestCase {
         return destination
     }
 
+    func testCodexScanRootsShareInjectableDefaultHome() {
+        let home = URL(fileURLWithPath: "/Users/testhome")
+        let roots = LocalUsageReader.computeCodexScanRoots(home: home).map(\.path)
+
+        XCTAssertEqual(roots, [
+            home.appendingPathComponent(LocalUsageReader.codexSessionsRelativePath).path,
+            home.appendingPathComponent(LocalUsageReader.codexArchivedSessionsRelativePath).path,
+        ])
+        XCTAssertEqual(Set(roots).count, roots.count)
+    }
+
+    func testCodexRolloutFilesNormalizeSymlinkedRoots() throws {
+        let base = tempDir()
+        let real = base.appendingPathComponent("real")
+        try FileManager.default.createDirectory(at: real, withIntermediateDirectories: true)
+        write(["{}"], to: real, name: "rollout.jsonl")
+
+        let link = base.appendingPathComponent("linked")
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: real)
+
+        let files = LocalUsageReader.codexRolloutFiles(in: [real, link])
+        XCTAssertEqual(files.count, 1, "심볼릭 링크로 같은 Codex 루트를 두 번 스캔하지 않아야 한다")
+    }
+
     // MARK: ModelPricing
 
     func testPricingExactAndFallbackAndZero() {
