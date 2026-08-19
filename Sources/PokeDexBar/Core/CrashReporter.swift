@@ -30,13 +30,22 @@ enum CrashReporter {
     static func install(version: String) {
         try? FileManager.default.createDirectory(at: logsDir, withIntermediateDirectories: true)
 
-        // 직전 세션의 크래시-시점 기록(있으면)을 메인 로그로 합치고 비운다.
-        drainCrashLog()
-
         // 1) 직전 세션 비정상 종료 감지 — 마커가 남아 있으면 정상 종료되지 않은 것.
-        if FileManager.default.fileExists(atPath: markerURL.path) {
+        let unclean = FileManager.default.fileExists(atPath: markerURL.path)
+
+        // **순서가 load-bearing 이다.** 스냅샷을 먼저 뜨고 그 다음에 비운다 — 뒤집으면 빈 기록이
+        // 남고, 그 결함은 "이슈에 빵부스러기가 없다"로만 보여 원인을 못 찾는다.
+        let crashLines = readCrashLog()
+        captureLastCrash(version: version, afterUncleanShutdown: unclean, crashLines: crashLines)
+
+        // 직전 세션의 크래시-시점 기록(있으면)을 메인 로그로 합치고 비운다.
+        drainCrashLog(crashLines)
+        if unclean {
             AppLog.write("⚠️ 직전 세션이 정상 종료되지 않았습니다(크래시·OOM·강제종료 추정). "
                 + "원인 스택은 ~/Library/Logs/DiagnosticReports/PokeDexBar-*.ips 참조.")
+        }
+        if let trail = drainBreadcrumbs(afterUncleanShutdown: unclean) {
+            AppLog.write("직전 세션이 하던 일:\n\(trail)")
         }
         try? Data().write(to: markerURL, options: .atomic)   // 이번 세션 running 마커
         AppLog.write("launch: PokeDexBar \(version) 시작")
@@ -67,13 +76,48 @@ enum CrashReporter {
         AppLog.write("clean shutdown")
     }
 
+    /// crash.log 의 줄들. **지우지 않는다** — 스냅샷과 로그 합치기가 같은 내용을 봐야 하므로
+    /// 읽기와 지우기를 갈라 뒀다.
+    private static func readCrashLog() -> [String] {
+        guard let data = try? Data(contentsOf: crashLogURL),
+              let text = String(data: data, encoding: .utf8) else { return [] }
+        return text.split(separator: "\n", omittingEmptySubsequences: true)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+    }
+
     /// 직전 세션이 crash.log 에 남긴 크래시-시점 기록을 메인 로그로 합치고 crash.log 를 비운다.
-    private static func drainCrashLog() {
-        guard let data = try? Data(contentsOf: crashLogURL), !data.isEmpty,
-              let text = String(data: data, encoding: .utf8) else { return }
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !trimmed.isEmpty { AppLog.write("직전 세션 크래시-시점 기록: \(trimmed)") }
+    private static func drainCrashLog(_ lines: [String]) {
+        if !lines.isEmpty {
+            AppLog.write("직전 세션 크래시-시점 기록: \(lines.joined(separator: " / "))")
+        }
         try? FileManager.default.removeItem(at: crashLogURL)
+    }
+
+    /// 직전 세션의 빵부스러기를 메인 로그용 문자열로 내고 링·파일을 비운다.
+    ///
+    /// **정상 종료였으면 nil.** 매번 합치면 메인 로그가 잡음으로 차서 2MB 회전이 빨라지고
+    /// 정작 필요한 이력이 밀려난다. 어느 쪽이든 **비우는 것은 같다** — 이번 세션의 흔적에
+    /// 직전 세션이 섞이면 안 된다.
+    static func drainBreadcrumbs(afterUncleanShutdown unclean: Bool) -> String? {
+        let lines = Breadcrumbs.read()
+        Breadcrumbs.clear()
+        guard unclean, !lines.isEmpty else { return nil }
+        return lines.joined(separator: "\n")
+    }
+
+    /// 크래시 시점의 문맥을 **다음 크래시가 덮을 때까지** 보존한다.
+    ///
+    /// `Breadcrumbs.clear()` **전에** 불러야 한다 — `LastCrash` 주석 참고.
+    /// 정상 종료였으면 아무것도 안 만든다(옛 기록은 그대로 둔다 — 아직 제보 안 했을 수 있다).
+    @discardableResult
+    static func captureLastCrash(version: String, afterUncleanShutdown unclean: Bool,
+                                 crashLines: [String] = []) -> LastCrashRecord? {
+        guard unclean else { return nil }
+        let record = LastCrashRecord(at: Date(), version: version, crashLines: crashLines,
+                                     breadcrumbs: Breadcrumbs.read(), acknowledged: false)
+        LastCrash.save(record)
+        return record
     }
 
     /// 치명 시그널 핸들러 — async-signal-safe 만 사용(write/signal/raise, StaticString=무할당).
