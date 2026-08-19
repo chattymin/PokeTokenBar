@@ -4,7 +4,6 @@ import Foundation
 /// Auth comes from the local Cursor login (`cursorAuth/accessToken`) or
 /// `CURSOR_SESSION_TOKEN` / browser cookie `WorkosCursorSessionToken`.
 enum CursorUsageAPI {
-    private static let exportURL = URL(string: "https://cursor.com/api/dashboard/export-usage-events-csv?strategy=tokens")!
     private static let filteredURL = URL(string: "https://cursor.com/api/dashboard/get-filtered-usage-events")!
 
     private struct DiskCache: Codable {
@@ -52,44 +51,7 @@ enum CursorUsageAPI {
 
     private static func fetchFromNetwork(modifiedSince: Date) async -> [LocalUsageReader.Entry]? {
         guard let token = sessionToken() else { return nil }
-        if let csv = await fetchCSVExport(token: token, modifiedSince: modifiedSince), !csv.isEmpty {
-            return csv
-        }
         return await fetchFilteredEvents(token: token, modifiedSince: modifiedSince)
-    }
-
-    private static func fetchCSVExport(
-        token: String,
-        modifiedSince: Date
-    ) async -> [LocalUsageReader.Entry]? {
-        for mode in AuthMode.allCases {
-            var request = URLRequest(url: exportURL)
-            request.httpMethod = "GET"
-            request.setValue("Mozilla/5.0", forHTTPHeaderField: "User-Agent")
-            request.setValue("https://cursor.com", forHTTPHeaderField: "Origin")
-            request.setValue("https://cursor.com/dashboard/usage", forHTTPHeaderField: "Referer")
-            mode.apply(to: &request, token: token)
-            guard let (data, status) = await perform(request) else { continue }
-            guard (200 ... 299).contains(status) else {
-                AppLog.write("cursor api: csv export \(mode) http \(status)")
-                continue
-            }
-            guard !data.isEmpty, String(data: data.prefix(64), encoding: .utf8)?.contains("Date") == true else {
-                AppLog.write("cursor api: csv export \(mode) unexpected body (\(data.count) bytes)")
-                continue
-            }
-            let temp = FileManager.default.temporaryDirectory
-                .appendingPathComponent("cursor-usage-export-\(UUID().uuidString).csv")
-            defer { try? FileManager.default.removeItem(at: temp) }
-            do {
-                try data.write(to: temp, options: .atomic)
-                let entries = LocalAdditionalUsageReader.parseCursorUsageCSV(temp, modifiedSince: modifiedSince)
-                if !entries.isEmpty { return entries }
-            } catch {
-                continue
-            }
-        }
-        return nil
     }
 
     private static func fetchFilteredEvents(

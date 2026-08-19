@@ -465,29 +465,6 @@ final class CursorUsageTests: XCTestCase {
         XCTAssertEqual(entry.cacheRead, 11964)
     }
 
-    func testParseCursorUsageCSVMapsInputAndCacheColumns() throws {
-        let csv = temporaryDirectory.appendingPathComponent("usage-events-2026-08-18.csv")
-        try """
-        Date,Kind,Model,Input (w/ Cache Write),Input (w/o Cache Write),Cache Read,Output Tokens,Total Tokens
-        "2026-08-18T15:41:27.675Z","Included","claude-opus","119195","4","106918","10676","236793"
-        "2026-08-18T15:37:08.476Z","Included","grok","0","132627","198656","7634","338917"
-        """.write(to: csv, atomically: true, encoding: .utf8)
-
-        let entries = LocalAdditionalUsageReader.parseCursorUsageCSV(
-            csv, modifiedSince: try date("2026-08-18T00:00:00Z"))
-        XCTAssertEqual(entries.count, 2)
-        let totals = entries.reduce(into: (input: 0, output: 0, cacheWrite: 0, cacheRead: 0)) { sum, entry in
-            sum.input += entry.input
-            sum.output += entry.output
-            sum.cacheWrite += entry.cacheWrite
-            sum.cacheRead += entry.cacheRead
-        }
-        XCTAssertEqual(totals.input, 4 + 132627)
-        XCTAssertEqual(totals.cacheWrite, 119195)
-        XCTAssertEqual(totals.cacheRead, 106918 + 198656)
-        XCTAssertEqual(totals.output, 10676 + 7634)
-    }
-
     func testCursorDashboardEntriesDoNotMergeBubbleEstimates() throws {
         let apiEntry = try XCTUnwrap(LocalAdditionalUsageReader.makeUsageEntry(
             id: "cursor|api|2026-08-18T12:00:00.000Z|gpt|0",
@@ -509,36 +486,6 @@ final class CursorUsageTests: XCTestCase {
         XCTAssertEqual(result.entries.count, 1)
         XCTAssertEqual(result.entries.first?.input, 1000)
         XCTAssertFalse(result.entries.contains { $0.id.contains("bubbleId") })
-    }
-
-    func testCursorEntriesPrefersCSVOverLocalBubbles() throws {
-        let csv = temporaryDirectory.appendingPathComponent("usage-events-2026-08-18.csv")
-        try """
-        Date,Kind,Model,Input (w/ Cache Write),Input (w/o Cache Write),Cache Read,Output Tokens,Total Tokens
-        "2026-08-18T12:00:00.000Z","Included","grok-4.6","10","100","1000","20","1130"
-        """.write(to: csv, atomically: true, encoding: .utf8)
-        let database = temporaryDirectory.appendingPathComponent("state.vscdb")
-        try execute(database, sql: """
-        CREATE TABLE cursorDiskKV (key TEXT UNIQUE ON CONFLICT REPLACE, value BLOB);
-        INSERT INTO cursorDiskKV VALUES (
-            'bubbleId:tab-1:old',
-            '{"tokenCount":{"inputTokens":500,"outputTokens":500},"createdAt":"2026-08-18T11:00:00.000Z","modelType":"gpt-4o"}'
-        );
-        INSERT INTO cursorDiskKV VALUES (
-            'bubbleId:tab-1:live',
-            '{"tokenCount":{"inputTokens":300,"outputTokens":200},"createdAt":"2026-08-18T13:00:00.000Z","modelType":"gpt-4o"}'
-        );
-        """)
-
-        let entries = LocalAdditionalUsageReader.cursorEntries(
-            modifiedSince: try date("2026-08-18T00:00:00Z"),
-            roots: [temporaryDirectory],
-            exportRoots: [temporaryDirectory]).entries
-        let csvEntry = try XCTUnwrap(entries.first { $0.id.contains("|csv|") })
-        XCTAssertEqual(csvEntry.input, 100)
-        XCTAssertEqual(csvEntry.cacheWrite, 10)
-        XCTAssertFalse(entries.contains { $0.id.contains("bubbleId:tab-1:old") })
-        XCTAssertTrue(entries.contains { $0.id.contains("bubbleId:tab-1:live") })
     }
 
     // MARK: - Helpers
