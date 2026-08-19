@@ -698,7 +698,7 @@ struct DexSummaryHeader: View {
 /// 상위 탭(PopoverTab)은 그대로 4개 — 세그먼트 폭(332/2)이 넉넉해 탭바를 늘릴 필요가 없다.
 struct CollectionView: View {
     let store: CompanionStore
-    @State private var showingLog = false
+    let navigation: PopoverNavigation
     /// 로그 전용 희귀도 필터. 도감은 개수 단위가 종이라 자기 필터를 따로 갖는다(DexGridView).
     @State private var selectedRarity: Rarity?
 
@@ -716,17 +716,18 @@ struct CollectionView: View {
     }
 
     var body: some View {
+        @Bindable var nav = navigation
         if store.dexEntries.isEmpty {
             emptyState   // 둘 다 비어 있으니 세그먼트를 그리지 않는다
         } else {
             VStack(alignment: .leading, spacing: 8) {
-                Picker("", selection: $showingLog) {
+                Picker("", selection: $nav.showingCollectionLog) {
                     Text(store.l.dexTitle).tag(false)
                     Text(store.l.catchLogTitle).tag(true)
                 }
                 .pickerStyle(.segmented)
                 .labelsHidden()
-                if showingLog { catchLog } else { DexGridView(store: store) }
+                if nav.showingCollectionLog { catchLog } else { DexGridView(store: store) }
             }
             .frame(height: Self.contentHeight)
         }
@@ -772,6 +773,30 @@ struct CollectionView: View {
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 28)
+    }
+}
+
+/// 도감 하단의 대표 설정 액션. 문구는 툴팁·접근성에 유지하되 시각적으로는 아이콘만 써서,
+/// 긴 en/es 문구가 선택한 종의 이름·희귀도를 밀어내지 않게 한다.
+struct RepresentativeFooterButton: View {
+    let localization: L
+    let isRepresentative: Bool
+    let action: () -> Void
+
+    private var title: String {
+        isRepresentative ? localization.representativeFollowCurrent : localization.representativeSet
+    }
+
+    var body: some View {
+        Button(action: action) {
+            Label(title, systemImage: isRepresentative ? "arrow.triangle.2.circlepath" : "star")
+        }
+        .labelStyle(.iconOnly)
+        .help(title)
+        .accessibilityLabel(title)
+        .buttonStyle(.bordered)
+        .controlSize(.mini)
+        .fixedSize()
     }
 }
 
@@ -882,16 +907,10 @@ private struct DexGridView: View {
                 Text("#\(sel.id) \(sel.name) · \(store.l.rarityLabel(sel.rarity))")
                     .font(.system(size: 9)).foregroundStyle(.secondary).lineLimit(1)
                 let isRepresentative = store.representativeSpeciesID == sel.id
-                Button {
+                RepresentativeFooterButton(localization: store.l,
+                                           isRepresentative: isRepresentative) {
                     _ = store.setRepresentativeSpeciesID(isRepresentative ? nil : sel.id)
-                } label: {
-                    Label(isRepresentative ? store.l.representativeFollowCurrent
-                                           : store.l.representativeSet,
-                          systemImage: isRepresentative ? "arrow.triangle.2.circlepath" : "star")
                 }
-                .buttonStyle(.bordered)
-                .controlSize(.mini)
-                .fixedSize()
             }
             Spacer(minLength: 4)
             if pageCount > 1 {

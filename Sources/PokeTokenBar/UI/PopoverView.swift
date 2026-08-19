@@ -12,7 +12,7 @@ enum PopoverMetrics {
     static let contentWidth: CGFloat = width - padding * 2
 }
 
-/// 팝오버 내부 내비게이션 상태(현재 탭 / 설정 표시 여부).
+/// 팝오버 내부 내비게이션 상태(현재 탭 / 컬렉션 세그먼트 / 설정 표시 여부).
 /// NSHostingController 는 팝오버를 닫아도 재사용되어 @State 가 유지되므로, 화면 상태를 이
 /// Observable 로 분리해 AppDelegate 가 팝오버를 열 때마다 reset() 한다 — 닫혔다 열리면 항상 Home.
 @MainActor
@@ -20,6 +20,8 @@ enum PopoverMetrics {
 final class PopoverNavigation {
     var showSettings = false
     var tab: PopoverTab = .home
+    /// 일반적인 컬렉션 재진입에는 마지막 세그먼트를 유지하되, 대표 포켓몬 선택 진입점은 도감으로 강제한다.
+    var showingCollectionLog = false
     /// 프로바이더 탭 선택 — reset() 대상이 아님(팝오버를 다시 열어도 보던 서비스 유지).
     var providerID: String?
 
@@ -29,9 +31,10 @@ final class PopoverNavigation {
     }
 
     /// 설정의 대표 포켓몬 행에서 기존 도감으로 이동한다. 별도 선택 화면을 만들지 않고
-    /// 컬렉션의 기본 세그먼트(도감)를 그대로 재사용한다.
+    /// 컬렉션 세그먼트를 도감으로 명시해, 직전에 포획 로그를 봤어도 선택 액션이 있는 화면을 연다.
     func openRepresentativeDex() {
         showSettings = false
+        showingCollectionLog = false
         tab = .collection
     }
 }
@@ -102,7 +105,7 @@ struct PopoverView: View {
             .labelsHidden()
 
             if nav.tab == .collection {
-                CollectionView(store: companion)
+                CollectionView(store: companion, navigation: nav)
             } else if nav.tab == .bag {
                 BagView(store: companion, nav: nav)
             } else if nav.tab == .shop {
