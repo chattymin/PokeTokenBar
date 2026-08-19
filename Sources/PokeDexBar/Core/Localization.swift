@@ -524,56 +524,41 @@ struct L {
     var aggregationNote: String { t("토큰 집계 기준: totalTokens (input + output + cache, 로컬 날짜)", "Token basis: totalTokens (input + output + cache, local date)", "集計基準: totalTokens (input + output + cache, ローカル日付)") }
     var close: String { t("닫기", "Close", "閉じる") }
 
-    // MARK: 문제점 알리기 (설정 → 메일 리포트)
-    var reportProblem: String { t("문제점 알리기", "Report a problem", "問題を報告") }
+    // MARK: 문제 제보 (설정 → GitHub 이슈)
+    var reportProblem: String { t("문제 제보", "Report a problem", "問題を報告") }
     var showLogFile: String { t("로그 파일 보기", "Show log file", "ログファイルを表示") }
+    var reportOnGitHub: String { t("GitHub", "GitHub", "GitHub") }
+    /// **짧게 유지한다.** "진단 정보 복사"/"Copy diagnostics" 로 뒀더니 GitHub 버튼과 한 줄에
+    /// 들어가면서 잘렸고(`assets/settings.png` 에서 "Copy diagno…"), 왼쪽 설명이 6줄 기둥으로
+    /// 접혔다. 옆 문장이 이미 무엇을 복사하는지 말한다.
+    var copyDiagnostics: String { t("복사", "Copy", "コピー") }
+    var diagnosticsCopied: String { t("복사됨", "Copied", "コピー済") }
     var reportAttachHint: String {
-        t("메일에 로그 파일을 첨부해 주시면 원인 파악에 큰 도움이 돼요.",
-          "Attaching the log file to the email helps a lot with diagnosis.",
-          "メールにログファイルを添付していただくと原因の特定に役立ちます。")
+        t("앱 버전·macOS·직전 크래시 기록이 함께 담겨요. 보내기 전에 내용을 확인하실 수 있어요.",
+          "Includes app version, macOS, and the last crash record. You can review it before sending.",
+          "アプリのバージョン・macOS・直前のクラッシュ記録が含まれます。送信前に内容を確認できます。")
     }
-    func reportMailFallback(_ address: String) -> String {
-        t("메일 앱을 열 수 없어요. \(address) 로 직접 보내주세요.",
-          "Couldn't open a mail app. Please email \(address) directly.",
-          "メールアプリを開けません。\(address) 宛に直接お送りください。")
+    func reportIssueTitle(_ version: String) -> String {
+        t("[v\(version)] 문제 리포트", "[v\(version)] Problem report", "[v\(version)] 問題レポート")
     }
-    func reportMailSubject(_ version: String) -> String {
-        t("[PokeDexBar] 문제 리포트 (v\(version))",
-          "[PokeDexBar] Problem report (v\(version))",
-          "[PokeDexBar] 問題レポート (v\(version))")
+    func reportBrowserFallback(_ url: String) -> String {
+        t("브라우저를 열 수 없어요. 이 주소로 들어가 주세요: \(url)",
+          "Couldn't open a browser. Please visit: \(url)",
+          "ブラウザを開けません。こちらへアクセスしてください: \(url)")
     }
-    func reportMailBody(version: String, os: String) -> String {
-        t("""
-        문제 내용:
-        (겪으신 문제를 적어주세요 — 언제, 어떤 화면에서, 어떻게 되었는지)
 
-
-        ---
-        앱 버전: v\(version)
-        macOS: \(os)
-        로그 파일(첨부 권장): ~/Library/Logs/PokeDexBar.log
-        """,
-        """
-        What happened:
-        (Describe the problem — when, on which screen, and what you saw)
-
-
-        ---
-        App version: v\(version)
-        macOS: \(os)
-        Log file (please attach): ~/Library/Logs/PokeDexBar.log
-        """,
-        """
-        問題の内容:
-        （いつ・どの画面で・どうなったかをご記入ください）
-
-
-        ---
-        アプリのバージョン: v\(version)
-        macOS: \(os)
-        ログファイル（添付推奨）: ~/Library/Logs/PokeDexBar.log
-        """)
+    // MARK: 크래시 배너 (홈 탭)
+    var crashCardTitle: String {
+        t("직전에 예기치 않게 종료됐어요",
+          "The app closed unexpectedly last time",
+          "前回、予期せず終了しました")
     }
+    var crashCardBody: String {
+        t("무엇을 하던 중이었는지 기록해 뒀어요. 제보해 주시면 고치는 데 큰 도움이 돼요.",
+          "We saved what the app was doing. Reporting it helps a lot with a fix.",
+          "何をしていたかを記録しました。ご報告いただけると修正に大きく役立ちます。")
+    }
+    var crashCardReport: String { t("제보하기", "Report", "報告する") }
 
     /// 새로고침 간격 라벨 (초 단위 값 → 표시). 0 = 수동.
     func intervalLabel(_ seconds: TimeInterval) -> String {

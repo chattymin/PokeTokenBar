@@ -145,7 +145,12 @@ struct PopoverView: View {
             .pickerStyle(.segmented)
             .labelsHidden()
             // 탭을 옮기면 상세를 닫는다 — 도감에 갔다 오면 박스는 목록부터 보여야 한다.
-            .onChange(of: nav.tab) { _, _ in boxSelection = nil }
+            .onChange(of: nav.tab) { _, tab in
+                boxSelection = nil
+                // 탭 전환은 사용자 동작이라 `.onChange` 로 충분하다 — 상세 진입과 달리
+                // 이 자리에서 죽는 경로가 없다.
+                Breadcrumbs.record("tab: \(tab)")
+            }
 
             if nav.tab == .box {
                 BoxTabView(store: player, lines: evoLines, onNeedLine: { baseID in loadLine(baseID) },
@@ -167,6 +172,10 @@ struct PopoverView: View {
                             player.revealDisguisesAndNotify(at: date)
                         }
                 }
+                // 직전 세션이 크래시로 끝났으면 제보를 권한다 — **파트너 카드 바로 아래,
+                // 다른 알림들보다 위.** 사용자가 박스를 다시 뒤져 같은 개체를 또 눌러 죽기
+                // 전에 먼저 보여야 한다.
+                CrashReportCard(store: player, version: AppEnv.appVersion ?? "—")
                 // 파트너가 물어 온 것 — 파트너 바로 아래에 둔다(그 개체가 한 일이다).
                 DiscoveryCard(store: player) { speciesID in
                     // evoLines 는 **베이스 종**으로 키가 잡혀 있다 — 진화한 개체는

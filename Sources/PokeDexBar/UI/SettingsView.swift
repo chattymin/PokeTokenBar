@@ -9,6 +9,7 @@ struct SettingsView: View {
     @State private var launchAtLogin = LoginItem.isEnabled
     @State private var launchAtLoginError: String?
     @State private var reportError: String?
+    @State private var didCopyDiagnostics = false
     @State private var advancedExpanded = false
     @State private var isCheckingUpdate = false
     @State private var didCheckUpdate = false
@@ -345,13 +346,26 @@ struct SettingsView: View {
 
     private var aboutSupportGroup: some View {
         settingsSection(l.aboutSupportSectionTitle) {
+            // **버튼을 아랫줄로 내린다.** 설명 옆에 나란히 뒀더니 332pt 안에서 제목이 두 줄로
+            // 접히고 설명이 6줄 기둥이 되며 두 번째 버튼 라벨이 잘렸다(렌더로 확인). 설명은
+            // 전폭으로 두고 버튼만 오른쪽 아래에 모은다.
             groupRow {
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(l.reportProblem)
-                    Text(l.reportAttachHint).font(.caption2).foregroundStyle(.tertiary)
+                VStack(alignment: .leading, spacing: 6) {
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(l.reportProblem)
+                        Text(l.reportAttachHint).font(.caption2).foregroundStyle(.tertiary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    HStack(spacing: 6) {
+                        Spacer()
+                        // GitHub 이 주 경로, 복사는 계정이 없거나 이슈가 잘렸을 때의 탈출구다.
+                        SupportActionRow(label: l.reportOnGitHub, action: reportProblem)
+                        SupportActionRow(
+                            label: didCopyDiagnostics ? l.diagnosticsCopied : l.copyDiagnostics,
+                            action: copyDiagnostics)
+                    }
                 }
-                Spacer()
-                Button(l.reportProblem) { reportProblem() }
             }
             Divider()
             // 로그 파일 보기 — 문제 제보 시 바로 첨부할 수 있게 같은 그룹에 둔다(고급 접기 밖).
@@ -413,21 +427,49 @@ struct SettingsView: View {
 
     // MARK: 동작
 
-    /// 문제점 알리기 — 진단 정보(버전·macOS)가 채워진 리포트 메일을 기본 메일 앱으로 연다.
-    /// 메일 앱이 없거나 열기에 실패하면 수신 주소를 안내(복사 가능)한다.
+    /// 문제 제보 — 진단이 채워진 GitHub 새 이슈 작성 페이지를 연다.
+    /// 브라우저를 못 열면 주소를 안내(복사 가능)한다.
     private func reportProblem() {
-        let subject = l.reportMailSubject(Self.appVersion)
-        let body = l.reportMailBody(
-            version: Self.appVersion,
-            os: ProcessInfo.processInfo.operatingSystemVersionString)
-        guard let url = SupportMail.mailtoURL(subject: subject, body: body),
-              NSWorkspace.shared.open(url) else {
-            reportError = l.reportMailFallback(SupportMail.address)
-            return
-        }
-        reportError = nil
+        reportError = ProblemReport.openIssue(version: Self.appVersion, player: player, l: l)
     }
 
+    /// 진단 전문을 클립보드에 — 이슈가 잘렸거나 다른 곳에 붙일 때의 탈출구.
+    private func copyDiagnostics() {
+        ProblemReport.copy(version: Self.appVersion, player: player)
+        reportError = nil
+        didCopyDiagnostics = true
+    }
+
+}
+
+/// 제보 버튼 한 개. `SettingsToggleRow` 와 **같은 이유로** 별도 타입이다 — 버튼이 화면에서
+/// 사라져도 로직 테스트는 전부 통과하므로, 화면에 실제로 붙어 있고 눌리는지를 여기서 잠근다.
+struct SupportActionRow: View {
+    let label: String
+    let action: () -> Void
+
+    #if DEBUG
+    /// 테스트 전용 — 라벨과 **동작까지** 들고 있는다. 뷰만 만들고 안 누르면 배선이 끊겨
+    /// 있어도 통과하기 때문이다.
+    @MainActor static var constructed: [(label: String, action: () -> Void)] = []
+    @MainActor static var isRecording = false
+    @MainActor static func resetConstructed() {
+        isRecording = true
+        constructed = []
+    }
+    #endif
+
+    init(label: String, action: @escaping () -> Void) {
+        self.label = label
+        self.action = action
+        #if DEBUG
+        if Self.isRecording { Self.constructed.append((label, action)) }
+        #endif
+    }
+
+    var body: some View {
+        Button(label, action: action)
+    }
 }
 
 /// 설정 토글 한 줄. 별도 타입으로 뽑은 이유는 **설정이 화면에 실제로 붙어 있는지 잠그기 위해서**다 —

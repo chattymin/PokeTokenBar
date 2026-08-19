@@ -10,6 +10,32 @@ struct IndividualDetailView: View {
     let onNeedLine: (Int) -> Void
     let onBack: () -> Void
 
+    /// **`.onAppear` 가 아니라 여기서 빵부스러기를 남긴다.** 크래시가 `body` 평가 중에 나면
+    /// `.onAppear` 는 영영 안 온다 — "특정 이로치 상세에 들어가면 죽는다"는 제보가 정확히 그
+    /// 부류일 가능성이 높아, 그 경우에도 종 번호가 남아야 한다.
+    ///
+    /// SwiftUI 가 같은 뷰를 자주 다시 만들지만 `Breadcrumbs.record` 가 연속 중복을 접으므로
+    /// 링이 도배되지 않는다.
+    init(store: PlayerStore, individual: Individual, line: EvoLine?,
+         onNeedLine: @escaping (Int) -> Void, onBack: @escaping () -> Void) {
+        self.store = store
+        self.individual = individual
+        self.line = line
+        self.onNeedLine = onNeedLine
+        self.onBack = onBack
+        Breadcrumbs.record(Self.breadcrumb(for: individual, hasLine: line != nil))
+    }
+
+    /// 진단용 한 줄. **위장 중이어도 진짜 종과 표시 종을 둘 다 남긴다** — 이 파일은 사용자에게
+    /// 안 보이는 자리이고, 진단은 진실이 필요하다.
+    nonisolated static func breadcrumb(for individual: Individual, hasLine: Bool) -> String {
+        "detail open: species=\(individual.speciesID) display=\(individual.displaySpeciesID)"
+            + " shiny=\(individual.shiny) shown=\(individual.showsShiny)"
+            + " region=\(individual.region?.rawValue ?? "-") form=\(individual.form ?? "-")"
+            + " birth=\(individual.birthForm ?? "-") level=\(individual.level)"
+            + " grade=\(individual.grade.rawValue) line=\(hasLine ? "loaded" : "none")"
+    }
+
     private var l: L { store.l }
     private var isPartner: Bool { individual.id == store.state.partnerID }
     /// 폼 목록을 펼쳤나. 기본은 접힘 — 피카츄 15개·아르세우스 17개가 늘 펼쳐져 있으면

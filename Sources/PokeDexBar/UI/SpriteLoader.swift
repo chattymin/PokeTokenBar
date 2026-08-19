@@ -143,7 +143,7 @@ actor SpriteStore {
 @MainActor
 enum SpriteLoader {
     static let cacheDir: URL = {
-        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        AppEnv.userDirectory(.applicationSupportDirectory)
             .appendingPathComponent("\(AppEnv.storageName)/sprites")
     }()
 

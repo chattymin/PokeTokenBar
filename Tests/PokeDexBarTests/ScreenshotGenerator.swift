@@ -935,6 +935,12 @@ final class ScreenshotGeneratorTests: XCTestCase {
         // §릴리스 1 하드 게이트가 요구하는 신규 에셋이 이것이다.
         try write(png(boxTidyBanner()), "box-tidy.png")
 
+        // 문제 제보 — 크래시 배너(홈)와 설정의 제보 줄을 위아래로. **픽스처에 크래시 기록을
+        // 심어야 배너가 찍힌다** — 안 심으면 아무리 다시 생성해도 빈 자리만 나온다(설정
+        // 스크린샷에 플로팅 펫이 꺼져 있어 새 토글이 영영 안 찍히던 함정과 같은 부류).
+        // §릴리스 1 하드 게이트가 요구하는 신규 에셋이 이것이다.
+        try write(png(crashReportBanner()), "report.png")
+
         // 태어날 때 정해지는 겉모습 — 이름 옆 배지가 그 개체가 어떤 무늬로 태어났는지 말한다.
         // 지방 배지와 같은 자리를 쓰므로, 이 그림 하나로 두 규칙이 같이 설명된다.
         try write(png(tabChrome(BoxTabView(store: fixture.player, lines: ScreenshotFixture.lines,
@@ -1247,6 +1253,52 @@ final class ScreenshotGeneratorTests: XCTestCase {
         return VStack(alignment: .leading, spacing: 10) {
             grid(false, "As you got them")
             grid(true, "Tidied by highest level")
+        }
+        .padding(.horizontal, 14).padding(.vertical, 14)
+        .frame(width: PopoverMetrics.width, alignment: .leading)
+        .background(Color(nsColor: .windowBackgroundColor))
+    }
+
+    /// 크래시 제보 — 홈에 뜨는 배너와 설정의 제보 줄을 한 그림에.
+    ///
+    /// **크래시 기록을 실제로 심는다.** 배너는 `LastCrash.load()` 가 확인 전 기록을 돌려줄 때만
+    /// 뜨므로, 심지 않으면 이 캡처는 영원히 빈 자리다.
+    private func crashReportBanner() -> some View {
+        let now = ScreenshotFixture.now
+        let store = PlayerStore(fileURL: FileManager.default.temporaryDirectory
+                                    .appendingPathComponent("crash-\(UUID().uuidString).json"),
+                                rng: SeededRNG(seed: 41), now: { now },
+                                defaults: UserDefaults(suiteName: "ptb-crash-\(UUID().uuidString)")!)
+        store.setLanguage(.en)
+        store.seedForTesting(wallet: 0, slots: 1, eggs: 0, at: now)
+
+        LastCrash.fileURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("shot-lc-\(UUID().uuidString).json")
+        LastCrash.save(LastCrashRecord(at: now, version: AppEnv.appVersion ?? "1.9.0",
+                                       crashLines: ["[CRASH] fatal signal SIGTRAP"],
+                                       breadcrumbs: ["detail open: species=133 shiny=true"],
+                                       acknowledged: false))
+
+        return VStack(alignment: .leading, spacing: 10) {
+            Text("On the home tab, after an unexpected quit")
+                .font(.system(size: 10, weight: .semibold)).foregroundStyle(.secondary)
+            CrashReportCard(store: store, version: AppEnv.appVersion ?? "1.9.0")
+            Divider()
+            Text("In Settings, any time")
+                .font(.system(size: 10, weight: .semibold)).foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: 6) {
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(L(.en).reportProblem)
+                    Text(L(.en).reportAttachHint).font(.caption2).foregroundStyle(.tertiary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                HStack(spacing: 6) {
+                    Spacer()
+                    SupportActionRow(label: L(.en).reportOnGitHub, action: {})
+                    SupportActionRow(label: L(.en).copyDiagnostics, action: {})
+                }
+            }
         }
         .padding(.horizontal, 14).padding(.vertical, 14)
         .frame(width: PopoverMetrics.width, alignment: .leading)

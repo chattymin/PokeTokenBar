@@ -6,7 +6,7 @@ enum AppLog {
     static var logFileURL: URL { url }
 
     private static let url: URL = {
-        let dir = FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask)[0]
+        let dir = AppEnv.userDirectory(.libraryDirectory)
             .appendingPathComponent("Logs")
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         return dir.appendingPathComponent("\(AppEnv.storageName).log")
