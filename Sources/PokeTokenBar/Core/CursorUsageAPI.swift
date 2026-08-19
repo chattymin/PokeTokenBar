@@ -6,11 +6,23 @@ import Foundation
 /// `CURSOR_SESSION_TOKEN` / browser cookie `WorkosCursorSessionToken`.
 enum CursorUsageAPI {
     private static let filteredURL = URL(string: "https://cursor.com/api/dashboard/get-filtered-usage-events")!
+    private static let pageSize = 100
+    private static let maxPages = 200
+    private static let requestTimeout: TimeInterval = 10
+    private static let fetchDeadline: TimeInterval = 120
+    private static let cacheMaxAge: TimeInterval = 6 * 60 * 60
 
     private struct DiskCache: Codable {
         var fetchedAt: Date
         var accountIdentifier: String?
+        /// Earliest `modifiedSince` this cache was fetched for.
+        var coveredSince: Date?
         var entries: [LocalUsageReader.Entry]
+
+        func covers(modifiedSince: Date) -> Bool {
+            guard let coveredSince else { return true }
+            return coveredSince <= modifiedSince
+        }
     }
 
     struct UsageResult: Sendable {
@@ -20,11 +32,25 @@ enum CursorUsageAPI {
 
     private enum NetworkResult {
         case success([LocalUsageReader.Entry])
-        case failure
+        case failure(String)
     }
+
+    typealias Transport = @Sendable (URLRequest) async -> (Data, Int)?
 
     nonisolated(unsafe) private static var memoryCache: DiskCache?
     private static let cacheLock = NSLock()
+
+    /// Test hook — inject canned HTTP responses for pagination/auth tests.
+    nonisolated(unsafe) static var transportForTesting: Transport?
+
+    private static let session: URLSession = {
+        let config = URLSessionConfiguration.ephemeral
+        config.httpShouldSetCookies = false
+        config.httpCookieAcceptPolicy = .never
+        config.timeoutIntervalForRequest = requestTimeout
+        config.timeoutIntervalForResource = fetchDeadline
+        return URLSession(configuration: config)
+    }()
 
     /// Session token for dashboard API calls.
     /// 1. `CURSOR_SESSION_TOKEN` env (also read from login shell via `UsageEnvironment`)
@@ -48,103 +74,159 @@ enum CursorUsageAPI {
         AppLog.write("cursor api: session token ready (\(token.count) chars)")
         let accountIdentifier = cacheAccountIdentifier(from: token)
 
-        switch await fetchFromNetwork(token: token, modifiedSince: modifiedSince) {
+        switch await fetchFilteredEvents(token: token, modifiedSince: modifiedSince) {
         case .success(let fresh):
-            storeCache(entries: fresh, accountIdentifier: accountIdentifier)
+            storeCache(
+                entries: fresh,
+                accountIdentifier: accountIdentifier,
+                coveredSince: modifiedSince)
             AppLog.write("cursor api: fetched \(fresh.count) events")
             return UsageResult(
                 entries: fresh.filter { $0.date >= modifiedSince },
                 isAuthoritative: true)
-        case .failure:
-            break
+        case .failure(let reason):
+            AppLog.write("cursor api: fetch failed — \(reason)")
+            if let stale = cachedEntries(accountIdentifier: accountIdentifier, modifiedSince: modifiedSince) {
+                let age = Date().timeIntervalSince(stale.fetchedAt)
+                if age > cacheMaxAge {
+                    AppLog.write("cursor api: disk cache expired (\(Int(age))s old), skipping")
+                    return UsageResult(entries: [], isAuthoritative: false)
+                }
+                let authoritative = stale.covers(modifiedSince: modifiedSince)
+                AppLog.write(
+                    "cursor api: using disk cache (\(stale.entries.count) events, "
+                    + "authoritative=\(authoritative), age=\(Int(age))s)")
+                return UsageResult(
+                    entries: stale.entries.filter { $0.date >= modifiedSince },
+                    isAuthoritative: authoritative)
+            }
+            AppLog.write("cursor api: fetch failed and no cache")
+            return UsageResult(entries: [], isAuthoritative: false)
         }
-
-        if let stale = cachedEntries(accountIdentifier: accountIdentifier) {
-            AppLog.write("cursor api: network failed, using stale cache (\(stale.entries.count) events)")
-            return UsageResult(
-                entries: stale.entries.filter { $0.date >= modifiedSince },
-                isAuthoritative: true)
-        }
-        AppLog.write("cursor api: fetch failed and no cache")
-        return UsageResult(entries: [], isAuthoritative: false)
     }
 
     // MARK: - Network
 
-    private static func fetchFromNetwork(
+    static func fetchFilteredEventsForTesting(
         token: String,
-        modifiedSince: Date
-    ) async -> NetworkResult {
-        return await fetchFilteredEvents(token: token, modifiedSince: modifiedSince)
+        modifiedSince: Date,
+        transport: @escaping Transport
+    ) async -> (entries: [LocalUsageReader.Entry]?, failureReason: String?) {
+        switch await fetchFilteredEvents(
+            token: token,
+            modifiedSince: modifiedSince,
+            transport: transport) {
+        case .success(let entries):
+            return (entries, nil)
+        case .failure(let reason):
+            return (nil, reason)
+        }
     }
 
     private static func fetchFilteredEvents(
         token: String,
-        modifiedSince: Date
+        modifiedSince: Date,
+        transport: Transport? = nil
     ) async -> NetworkResult {
+        let send = transport ?? activeTransport()
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         let startDate = formatter.string(from: modifiedSince)
         let endDate = formatter.string(from: Date())
+        let deadline = Date().addingTimeInterval(fetchDeadline)
         var page = 1
+        var globalIndex = 0
         var collected: [LocalUsageReader.Entry] = []
         var authMode = AuthMode.allCases[0]
         var authIndex = 0
 
-        while page <= 200 {
+        while page <= maxPages {
+            guard Date() < deadline else {
+                return .failure("pagination deadline exceeded after page \(page - 1)")
+            }
+
             let body: [String: Any] = [
                 "teamId": 0,
                 "startDate": startDate,
                 "endDate": endDate,
                 "page": page,
-                "pageSize": 100,
+                "pageSize": pageSize,
             ]
             guard let payload = try? JSONSerialization.data(withJSONObject: body) else {
-                return .failure
+                return .failure("failed to encode request body for page \(page)")
             }
 
             var request = URLRequest(url: filteredURL)
             request.httpMethod = "POST"
             request.httpBody = payload
+            request.timeoutInterval = requestTimeout
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
             request.setValue("Mozilla/5.0", forHTTPHeaderField: "User-Agent")
             request.setValue("https://cursor.com", forHTTPHeaderField: "Origin")
             request.setValue("https://cursor.com/dashboard/usage", forHTTPHeaderField: "Referer")
             authMode.apply(to: &request, token: token)
 
-            guard let (data, status) = await perform(request) else { return .failure }
+            guard let (data, status) = await send(request) else {
+                return .failure("transport error on page \(page)")
+            }
             if status == 401 || status == 403 {
                 AppLog.write("cursor api: filtered events \(authMode) http \(status)")
                 authIndex += 1
-                guard authIndex < AuthMode.allCases.count else { return .failure }
+                guard authIndex < AuthMode.allCases.count else {
+                    return .failure("auth rejected for all modes (last http \(status))")
+                }
                 authMode = AuthMode.allCases[authIndex]
                 continue
             }
-            guard (200 ... 299).contains(status),
-                  let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-                return .failure
+            guard (200 ... 299).contains(status) else {
+                let preview = String(data: data.prefix(160), encoding: .utf8)?
+                    .replacingOccurrences(of: "\n", with: " ") ?? ""
+                return .failure("http \(status) on page \(page) (\(data.count) bytes) \(preview)")
+            }
+            guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                return .failure("invalid JSON on page \(page) (\(data.count) bytes)")
             }
 
             guard let events = (object["usageEvents"] as? [[String: Any]])
                 ?? (object["events"] as? [[String: Any]]) else {
-                return .failure
+                return .failure("missing usageEvents/events on page \(page)")
             }
-            for (index, event) in events.enumerated() {
-                let globalIndex = (page - 1) * 100 + index
-                if let entry = parseUsageEvent(event, rowIndex: globalIndex, modifiedSince: modifiedSince) {
+            for event in events {
+                if let entry = parseUsageEvent(
+                    event, rowIndex: globalIndex, modifiedSince: modifiedSince) {
                     collected.append(entry)
                 }
+                globalIndex += 1
             }
 
-            let pagination = object["pagination"] as? [String: Any]
-            let hasNext = (pagination?["hasNextPage"] as? Bool)
-                ?? ((pagination?["numPages"] as? Int).map { page < $0 } ?? false)
-            guard hasNext else { return .success(LocalUsageReader.dedupKeepMax(collected)) }
-            guard !events.isEmpty, page < 200 else { return .failure }
+            let hasNext = hasNextPage(pagination: object["pagination"] as? [String: Any],
+                                      page: page,
+                                      eventCount: events.count)
+            guard hasNext else {
+                return .success(LocalUsageReader.dedupKeepMax(collected))
+            }
+            guard !events.isEmpty else {
+                return .failure("pagination indicated next page but page \(page) was empty")
+            }
             page += 1
         }
 
-        return .failure
+        return .failure("pagination exceeded \(maxPages) pages")
+    }
+
+    static func hasNextPage(
+        pagination: [String: Any]?,
+        page: Int,
+        eventCount: Int
+    ) -> Bool {
+        if let explicit = pagination?["hasNextPage"] as? Bool {
+            return explicit
+        }
+        if let numPages = pagination?["numPages"] as? Int {
+            return page < numPages
+        }
+        // Missing pagination metadata — keep going while pages are full.
+        return eventCount >= pageSize
     }
 
     static func parseUsageEvent(
@@ -154,6 +236,9 @@ enum CursorUsageAPI {
     ) -> LocalUsageReader.Entry? {
         guard let date = usageEventDate(event), date >= modifiedSince else { return nil }
         let model = stringValue(event["model"]) ?? "unknown"
+        let stableID = stringValue(event["id"])
+            ?? stringValue(event["eventId"])
+            ?? stringValue(event["requestId"])
         let usage = event["tokenUsage"] as? [String: Any] ?? [:]
         let input = intValue(usage["inputTokens"])
         let output = intValue(usage["outputTokens"])
@@ -161,8 +246,10 @@ enum CursorUsageAPI {
         let cacheRead = intValue(usage["cacheReadTokens"])
         let costCents = doubleValue(usage["totalCents"]).map { $0 / 100 }
         let stamp = stringValue(event["timestamp"]) ?? ISO8601DateFormatter().string(from: date)
+        let entryID = stableID.map { "cursor|api|\($0)" }
+            ?? "cursor|api|\(stamp)|\(model)|\(rowIndex)"
         return LocalAdditionalUsageReader.makeUsageEntry(
-            id: "cursor|api|\(stamp)|\(model)|\(rowIndex)",
+            id: entryID,
             date: date,
             model: model,
             input: input,
@@ -172,15 +259,26 @@ enum CursorUsageAPI {
             cost: costCents)
     }
 
-    private static func usageEventDate(_ event: [String: Any]) -> Date? {
-        if let raw = stringValue(event["timestamp"]), let ms = Double(raw), ms > 1_000_000_000_000 {
-            return Date(timeIntervalSince1970: ms / 1000)
+    static func usageEventDate(_ event: [String: Any]) -> Date? {
+        if let raw = stringValue(event["timestamp"]), let epoch = Double(raw),
+           let date = epochDate(epoch) {
+            return date
         }
         if let raw = stringValue(event["timestamp"]) {
             return flexibleDateValue(raw)
         }
-        if let ms = doubleValue(event["timestamp"]), ms > 1_000_000_000_000 {
-            return Date(timeIntervalSince1970: ms / 1000)
+        if let epoch = doubleValue(event["timestamp"]), let date = epochDate(epoch) {
+            return date
+        }
+        return nil
+    }
+
+    static func epochDate(_ value: Double) -> Date? {
+        if value > 1_000_000_000_000 {
+            return Date(timeIntervalSince1970: value / 1000)
+        }
+        if value >= 1_000_000_000 {
+            return Date(timeIntervalSince1970: value)
         }
         return nil
     }
@@ -191,23 +289,42 @@ enum CursorUsageAPI {
         AppStatePaths.directory().appendingPathComponent("cursor-usage-api-cache.json")
     }
 
-    private static func cachedEntries(accountIdentifier: String) -> DiskCache? {
+    private static func cachedEntries(
+        accountIdentifier: String,
+        modifiedSince: Date
+    ) -> DiskCache? {
         cacheLock.lock()
         defer { cacheLock.unlock() }
-        if let memoryCache {
-            return memoryCache.accountIdentifier == accountIdentifier ? memoryCache : nil
+        let candidate: DiskCache?
+        if let memoryCache, memoryCache.accountIdentifier == accountIdentifier {
+            candidate = memoryCache
+        } else if let data = try? Data(contentsOf: cacheFileURL()),
+                  let decoded = try? JSONDecoder().decode(DiskCache.self, from: data),
+                  decoded.accountIdentifier == accountIdentifier {
+            memoryCache = decoded
+            candidate = decoded
+        } else {
+            candidate = nil
         }
-        guard let data = try? Data(contentsOf: cacheFileURL()),
-              let decoded = try? JSONDecoder().decode(DiskCache.self, from: data),
-              decoded.accountIdentifier == accountIdentifier else { return nil }
-        memoryCache = decoded
-        return decoded
+        guard let candidate else { return nil }
+        if !candidate.covers(modifiedSince: modifiedSince) {
+            AppLog.write("cursor api: disk cache window mismatch "
+                + "(cached since \(candidate.coveredSince?.description ?? "unknown"), "
+                + "need \(modifiedSince))")
+            return nil
+        }
+        return candidate
     }
 
-    private static func storeCache(entries: [LocalUsageReader.Entry], accountIdentifier: String) {
+    private static func storeCache(
+        entries: [LocalUsageReader.Entry],
+        accountIdentifier: String,
+        coveredSince: Date
+    ) {
         let cache = DiskCache(
             fetchedAt: Date(),
             accountIdentifier: accountIdentifier,
+            coveredSince: coveredSince,
             entries: LocalUsageReader.dedupKeepMax(entries))
         cacheLock.lock()
         memoryCache = cache
@@ -280,9 +397,14 @@ enum CursorUsageAPI {
         }
     }
 
+    private static func activeTransport() -> Transport {
+        if let transportForTesting { return transportForTesting }
+        return perform
+    }
+
     private static func perform(_ request: URLRequest) async -> (Data, Int)? {
         do {
-            let (data, response) = try await URLSession.shared.data(for: request)
+            let (data, response) = try await session.data(for: request)
             let status = (response as? HTTPURLResponse)?.statusCode ?? 0
             return (data, status)
         } catch {
@@ -316,8 +438,8 @@ enum CursorUsageAPI {
     }
 
     private static func flexibleDateValue(_ raw: String) -> Date? {
-        if let ms = Double(raw), ms > 1_000_000_000_000 {
-            return Date(timeIntervalSince1970: ms / 1000)
+        if let epoch = Double(raw), let date = epochDate(epoch) {
+            return date
         }
         let iso = ISO8601DateFormatter()
         iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]

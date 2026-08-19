@@ -620,7 +620,7 @@ enum LocalAdditionalUsageReader {
         if apiIsAuthoritative {
             return IncrementalStoreLoadResult(
                 entries: LocalUsageReader.dedupKeepMax(apiEntries),
-                highWaterByPath: afterRowIDByPath ?? [:],
+                highWaterByPath: [:],
                 didReset: false,
                 isAuthoritative: true)
         }

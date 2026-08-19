@@ -538,6 +538,109 @@ final class CursorUsageTests: XCTestCase {
 
         XCTAssertTrue(result.entries.isEmpty)
         XCTAssertTrue(result.isAuthoritative)
+        XCTAssertTrue(result.highWaterByPath.isEmpty)
+    }
+
+    func testUsageEventDateAcceptsSecondsPrecisionEpoch() throws {
+        let event: [String: Any] = [
+            "timestamp": "1750979225",
+            "model": "gpt",
+            "tokenUsage": ["inputTokens": 10],
+        ]
+        let entry = try XCTUnwrap(CursorUsageAPI.parseUsageEvent(
+            event, rowIndex: 0, modifiedSince: try date("2025-01-01T00:00:00Z")))
+        XCTAssertEqual(entry.input, 10)
+    }
+
+    func testHasNextPageWithoutMetadataKeepsPaginatingWhileFull() {
+        XCTAssertTrue(CursorUsageAPI.hasNextPage(pagination: nil, page: 1, eventCount: 100))
+        XCTAssertFalse(CursorUsageAPI.hasNextPage(pagination: nil, page: 1, eventCount: 42))
+    }
+
+    func testFetchFilteredEventsPaginatesAcrossPages() async throws {
+        let since = try date("2025-01-01T00:00:00Z")
+        var seenPages: [Int] = []
+        let transport: CursorUsageAPI.Transport = { request in
+            let body = try XCTUnwrap(request.httpBody)
+            let json = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any])
+            let page = json["page"] as? Int ?? 0
+            seenPages.append(page)
+            let events: [[String: Any]]
+            let pagination: [String: Any]?
+            switch page {
+            case 1:
+                events = (0 ..< 100).map { index in
+                    [
+                        "timestamp": "1750979225854",
+                        "model": "gpt",
+                        "tokenUsage": ["inputTokens": index + 1],
+                    ] as [String: Any]
+                }
+                pagination = ["hasNextPage": true]
+            default:
+                events = [[
+                    "timestamp": "1750979225854",
+                    "model": "gpt",
+                    "tokenUsage": ["inputTokens": 999],
+                ]]
+                pagination = ["hasNextPage": false]
+            }
+            let payload = try JSONSerialization.data(withJSONObject: [
+                "usageEvents": events,
+                "pagination": pagination as Any,
+            ])
+            return (payload, 200)
+        }
+
+        let result = await CursorUsageAPI.fetchFilteredEventsForTesting(
+            token: "test-token",
+            modifiedSince: since,
+            transport: transport)
+        XCTAssertNil(result.failureReason)
+        XCTAssertEqual(seenPages, [1, 2])
+        XCTAssertEqual(result.entries?.count, 101)
+    }
+
+    func testFetchFilteredEventsReturnsFailureReasonForHTTPError() async throws {
+        let since = try date("2025-01-01T00:00:00Z")
+        let transport: CursorUsageAPI.Transport = { _ in
+            (Data("rate limited".utf8), 429)
+        }
+        let result = await CursorUsageAPI.fetchFilteredEventsForTesting(
+            token: "test-token",
+            modifiedSince: since,
+            transport: transport)
+        XCTAssertNil(result.entries)
+        XCTAssertEqual(result.failureReason, "http 429 on page 1 (12 bytes) rate limited")
+    }
+
+    func testFetchFilteredEventsEmptyPageIsSuccess() async throws {
+        let since = try date("2025-01-01T00:00:00Z")
+        let transport: CursorUsageAPI.Transport = { _ in
+            let payload = try! JSONSerialization.data(withJSONObject: [
+                "usageEvents": [] as [[String: Any]],
+                "pagination": ["hasNextPage": false],
+            ])
+            return (payload, 200)
+        }
+        let result = await CursorUsageAPI.fetchFilteredEventsForTesting(
+            token: "test-token",
+            modifiedSince: since,
+            transport: transport)
+        XCTAssertNil(result.failureReason)
+        XCTAssertEqual(result.entries, [])
+    }
+
+    func testParseUsageEventPrefersStableEventID() throws {
+        let event: [String: Any] = [
+            "id": "evt-stable-123",
+            "timestamp": "1750979225854",
+            "model": "gpt",
+            "tokenUsage": ["inputTokens": 1],
+        ]
+        let entry = try XCTUnwrap(CursorUsageAPI.parseUsageEvent(
+            event, rowIndex: 0, modifiedSince: try date("2025-01-01T00:00:00Z")))
+        XCTAssertEqual(entry.id, "cursor|api|evt-stable-123")
     }
 
     // MARK: - Helpers
