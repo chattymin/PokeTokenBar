@@ -130,6 +130,7 @@ final class UsageEnvironmentTests: XCTestCase {
             "UsageEnvironment.swift",
             "BinaryLocator.swift",
             "CompanionStore.swift",
+            "AppStatePaths.swift",
             "OAuthLimitsProvider.swift",
         ]
         let sources = URL(fileURLWithPath: #filePath)

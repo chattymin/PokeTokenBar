@@ -158,8 +158,7 @@ enum CursorUsageAPI {
     // MARK: - Cache
 
     private static func cacheFileURL() -> URL {
-        CompanionStore.defaultURL().deletingLastPathComponent()
-            .appendingPathComponent("cursor-usage-api-cache.json")
+        AppStatePaths.directory().appendingPathComponent("cursor-usage-api-cache.json")
     }
 
     private static func cachedEntries() -> DiskCache? {
