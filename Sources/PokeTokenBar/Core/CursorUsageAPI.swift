@@ -123,16 +123,19 @@ enum CursorUsageAPI {
         }
     }
 
+    static func epochMillisecondString(_ date: Date) -> String {
+        String(Int64((date.timeIntervalSince1970 * 1000).rounded()))
+    }
+
     private static func fetchFilteredEvents(
         token: String,
         modifiedSince: Date,
         transport: Transport? = nil
     ) async -> NetworkResult {
         let send = transport ?? activeTransport()
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        let startDate = formatter.string(from: modifiedSince)
-        let endDate = formatter.string(from: Date())
+        // The dashboard endpoint expects epoch milliseconds as strings; ISO8601 makes it return 500.
+        let startDate = epochMillisecondString(modifiedSince)
+        let endDate = epochMillisecondString(Date())
         let deadline = Date().addingTimeInterval(fetchDeadline)
         var page = 1
         var globalIndex = 0
@@ -187,9 +190,11 @@ enum CursorUsageAPI {
                 return .failure("invalid JSON on page \(page) (\(data.count) bytes)")
             }
 
-            guard let events = (object["usageEvents"] as? [[String: Any]])
+            guard let events = (object["usageEventsDisplay"] as? [[String: Any]])
+                ?? (object["usageEvents"] as? [[String: Any]])
                 ?? (object["events"] as? [[String: Any]]) else {
-                return .failure("missing usageEvents/events on page \(page)")
+                let keys = object.keys.sorted().joined(separator: ",")
+                return .failure("missing usageEvents/events on page \(page) (keys: \(keys))")
             }
             for event in events {
                 if let entry = parseUsageEvent(
@@ -200,6 +205,7 @@ enum CursorUsageAPI {
             }
 
             let hasNext = hasNextPage(pagination: object["pagination"] as? [String: Any],
+                                      totalCount: intValue(object["totalUsageEventsCount"]),
                                       page: page,
                                       eventCount: events.count)
             guard hasNext else {
@@ -216,6 +222,7 @@ enum CursorUsageAPI {
 
     static func hasNextPage(
         pagination: [String: Any]?,
+        totalCount: Int? = nil,
         page: Int,
         eventCount: Int
     ) -> Bool {
@@ -224,6 +231,9 @@ enum CursorUsageAPI {
         }
         if let numPages = pagination?["numPages"] as? Int {
             return page < numPages
+        }
+        if let totalCount {
+            return page * pageSize < totalCount
         }
         // Missing pagination metadata — keep going while pages are full.
         return eventCount >= pageSize

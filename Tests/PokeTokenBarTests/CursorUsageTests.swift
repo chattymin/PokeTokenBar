@@ -557,6 +557,66 @@ final class CursorUsageTests: XCTestCase {
         XCTAssertFalse(CursorUsageAPI.hasNextPage(pagination: nil, page: 1, eventCount: 42))
     }
 
+    func testHasNextPageUsesTotalUsageEventsCount() {
+        XCTAssertTrue(
+            CursorUsageAPI.hasNextPage(pagination: nil, totalCount: 239, page: 1, eventCount: 100))
+        XCTAssertTrue(
+            CursorUsageAPI.hasNextPage(pagination: nil, totalCount: 239, page: 2, eventCount: 100))
+        XCTAssertFalse(
+            CursorUsageAPI.hasNextPage(pagination: nil, totalCount: 239, page: 3, eventCount: 39))
+    }
+
+    /// The dashboard rejects ISO8601 range bounds with HTTP 500, so the request
+    /// must send epoch milliseconds as strings.
+    func testFilteredEventsRequestSendsEpochMillisecondRange() async throws {
+        let since = try date("2025-01-01T00:00:00Z")
+        final class BodyRecorder: @unchecked Sendable {
+            var body: [String: Any]?
+        }
+        let recorder = BodyRecorder()
+        let transport: CursorUsageAPI.Transport = { request in
+            if let data = request.httpBody {
+                recorder.body = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+            }
+            guard let payload = try? JSONSerialization.data(withJSONObject: [
+                "usageEventsDisplay": [] as [[String: Any]],
+                "totalUsageEventsCount": 0,
+            ]) else { return nil }
+            return (payload, 200)
+        }
+
+        _ = await CursorUsageAPI.fetchFilteredEventsForTesting(
+            token: "test-token", modifiedSince: since, transport: transport)
+
+        let start = try XCTUnwrap(recorder.body?["startDate"] as? String)
+        let end = try XCTUnwrap(recorder.body?["endDate"] as? String)
+        XCTAssertEqual(start, "1735689600000")
+        XCTAssertGreaterThan(try XCTUnwrap(Int64(end)), 1_700_000_000_000)
+    }
+
+    /// The live endpoint returns events under `usageEventsDisplay`.
+    func testFetchFilteredEventsReadsUsageEventsDisplayKey() async throws {
+        let since = try date("2025-01-01T00:00:00Z")
+        let transport: CursorUsageAPI.Transport = { _ in
+            guard let payload = try? JSONSerialization.data(withJSONObject: [
+                "usageEventsDisplay": [[
+                    "timestamp": "1750979225854",
+                    "model": "composer-2.5-fast",
+                    "tokenUsage": ["inputTokens": 12, "outputTokens": 34],
+                ]] as [[String: Any]],
+                "totalUsageEventsCount": 1,
+            ]) else { return nil }
+            return (payload, 200)
+        }
+
+        let result = await CursorUsageAPI.fetchFilteredEventsForTesting(
+            token: "test-token", modifiedSince: since, transport: transport)
+        XCTAssertNil(result.failureReason)
+        let entries = try XCTUnwrap(result.entries)
+        XCTAssertEqual(entries.count, 1)
+        XCTAssertEqual(entries.first?.model, "composer-2.5-fast")
+    }
+
     func testFetchFilteredEventsPaginatesAcrossPages() async throws {
         let since = try date("2025-01-01T00:00:00Z")
         final class PageRecorder: @unchecked Sendable {
