@@ -12,8 +12,10 @@ final class SettingsReportTests: XCTestCase {
     private var board: NSPasteboard!
     private var crashFile: URL!
 
-    override func setUp() {
-        super.setUp()
+    // `async` 오버라이드라야 `@MainActor` 격리가 유지된다 — 동기 `setUp()` 은 nonisolated 라
+    // 메인액터 프로퍼티를 건드리면 경고가 난다(이 레포는 경고 0 이 규약이다).
+    override func setUp() async throws {
+        try await super.setUp()
         opened = []
         // **사용자의 실제 클립보드를 안 건드린다.** 전용 pasteboard 를 주입한다.
         board = NSPasteboard(name: .init("ptb-test-\(UUID().uuidString)"))
@@ -25,12 +27,12 @@ final class SettingsReportTests: XCTestCase {
         LastCrash.clear()
     }
 
-    override func tearDown() {
+    override func tearDown() async throws {
         ProblemReport.pasteboard = .general
         ProblemReport.openURL = { NSWorkspace.shared.open($0) }
         board.releaseGlobally()
         try? FileManager.default.removeItem(at: crashFile)
-        super.tearDown()
+        try await super.tearDown()
     }
 
     /// 설정 화면을 실제로 그려 제보 버튼들을 모은다.
