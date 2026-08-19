@@ -296,11 +296,15 @@ enum CursorUsageAPI {
         cacheLock.lock()
         defer { cacheLock.unlock() }
         let candidate: DiskCache?
-        if let memoryCache, memoryCache.accountIdentifier == accountIdentifier {
-            candidate = memoryCache
+        if let memoryCache {
+            let accountMatches = memoryCache.accountIdentifier == nil
+                || memoryCache.accountIdentifier == accountIdentifier
+            candidate = accountMatches ? memoryCache : nil
         } else if let data = try? Data(contentsOf: cacheFileURL()),
-                  let decoded = try? JSONDecoder().decode(DiskCache.self, from: data),
-                  decoded.accountIdentifier == accountIdentifier {
+                  let decoded = try? JSONDecoder().decode(DiskCache.self, from: data) {
+            let accountMatches = decoded.accountIdentifier == nil
+                || decoded.accountIdentifier == accountIdentifier
+            guard accountMatches else { return nil }
             memoryCache = decoded
             candidate = decoded
         } else {
