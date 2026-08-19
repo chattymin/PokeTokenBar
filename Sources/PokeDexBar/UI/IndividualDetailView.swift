@@ -28,11 +28,20 @@ struct IndividualDetailView: View {
 
     /// 진단용 한 줄. **위장 중이어도 진짜 종과 표시 종을 둘 다 남긴다** — 이 파일은 사용자에게
     /// 안 보이는 자리이고, 진단은 진실이 필요하다.
+    /// **개체의 상태를 되도록 다 적는다.** 첫 제보(2026-08-19)는 종·이로치·레벨·등급만 있어서,
+    /// 그 개체를 그대로 만들어도 재현이 안 됐다 — 성격·리본·알 진행도·진화 경로가 빠져 있었다.
+    /// 재현할 수 없는 제보는 코드를 눈으로 훑는 수밖에 없다.
     nonisolated static func breadcrumb(for individual: Individual, hasLine: Bool) -> String {
         "detail open: species=\(individual.speciesID) display=\(individual.displaySpeciesID)"
+            + " base=\(individual.baseID) path=\(individual.pathIDs.map(String.init).joined(separator: ">"))"
             + " shiny=\(individual.shiny) shown=\(individual.showsShiny)"
-            + " region=\(individual.region?.rawValue ?? "-") form=\(individual.form ?? "-")"
-            + " birth=\(individual.birthForm ?? "-") level=\(individual.level)"
+            + " region=\(individual.region?.rawValue ?? "-")"
+            + " variant=\(individual.regionVariant ?? "-") form=\(individual.form ?? "-")"
+            + " birth=\(individual.birthForm ?? "-") broken=\(individual.formBroken)"
+            + " nature=\(individual.nature.rawValue) growth=\(individual.growthRate.rawValue)"
+            + " level=\(individual.level) exp=\(individual.exp) rem=\(individual.expRemainder)"
+            + " egg=\(individual.eggProgress) ptok=\(individual.partnerTokens)"
+            + " psec=\(individual.partnerSeconds) candy=\(individual.candyProgress)"
             + " grade=\(individual.grade.rawValue) line=\(hasLine ? "loaded" : "none")"
     }
 
