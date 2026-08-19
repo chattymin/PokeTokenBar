@@ -804,6 +804,7 @@ struct CollectionView: View {
 
 /// 도감 하단의 대표 설정 액션. 문구는 툴팁·접근성에 유지하되 시각적으로는 아이콘만 써서,
 /// 긴 en/es 문구가 선택한 종의 이름·희귀도를 밀어내지 않게 한다.
+@MainActor
 struct RepresentativeFooterButton: View {
     let localization: L
     let isRepresentative: Bool
