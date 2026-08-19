@@ -528,8 +528,11 @@ struct L {
     var reportProblem: String { t("문제 제보", "Report a problem", "問題を報告") }
     var showLogFile: String { t("로그 파일 보기", "Show log file", "ログファイルを表示") }
     var reportOnGitHub: String { t("GitHub", "GitHub", "GitHub") }
-    var copyDiagnostics: String { t("진단 정보 복사", "Copy diagnostics", "診断情報をコピー") }
-    var diagnosticsCopied: String { t("복사했어요", "Copied", "コピーしました") }
+    /// **짧게 유지한다.** "진단 정보 복사"/"Copy diagnostics" 로 뒀더니 GitHub 버튼과 한 줄에
+    /// 들어가면서 잘렸고(`assets/settings.png` 에서 "Copy diagno…"), 왼쪽 설명이 6줄 기둥으로
+    /// 접혔다. 옆 문장이 이미 무엇을 복사하는지 말한다.
+    var copyDiagnostics: String { t("복사", "Copy", "コピー") }
+    var diagnosticsCopied: String { t("복사됨", "Copied", "コピー済") }
     var reportAttachHint: String {
         t("앱 버전·macOS·직전 크래시 기록이 함께 담겨요. 보내기 전에 내용을 확인하실 수 있어요.",
           "Includes app version, macOS, and the last crash record. You can review it before sending.",

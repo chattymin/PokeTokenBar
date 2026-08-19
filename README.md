@@ -205,6 +205,7 @@ The shop sells seven things. The other 105 items only ever arrive in a partner's
 - **Regional forms** — Alolan, Galarian, Hisuian, and Paldean variants can hatch instead of the original (20% chance for species that have one) and stay with that individual for life, sometimes changing what it evolves into; Mega and Gigantamax forms aren't available to them.
 - **Ribbons** — keeping the same Pokémon as your partner for a day, a week, a month, or three months earns it Bond, Trust, Kinship, or Lifelong, each with its own badge; the tier sets how many tokens you spend before it produces one EXP Candy (150M down to 20M), and that candy can feed any individual in the Box, not just the partner. Each candy is also a roll for an item that partner needs.
 - **Found it!** — when a partner turns something up, a card on Home names what it brought and opens item by item. Acknowledging it is never a gate: foraging runs on tokens, so a day of work counts whether or not you were watching.
+- **Crash reports that name the culprit** — if the app ever quits unexpectedly, it keeps the last twenty things it was doing (which Pokémon you opened, which tab you were on) and offers to file a GitHub issue with them the next time you open the popover. Your home directory is stripped from the text, your save is never included, and nothing is sent until you press submit yourself.
 - **Save integrity check** — hand-editing the save file is detected, not prevented: it marks the save permanently and turns every sprite upside down, but your progress is never discarded.
 
 ## Works with

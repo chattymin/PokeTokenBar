@@ -346,17 +346,26 @@ struct SettingsView: View {
 
     private var aboutSupportGroup: some View {
         settingsSection(l.aboutSupportSectionTitle) {
+            // **버튼을 아랫줄로 내린다.** 설명 옆에 나란히 뒀더니 332pt 안에서 제목이 두 줄로
+            // 접히고 설명이 6줄 기둥이 되며 두 번째 버튼 라벨이 잘렸다(렌더로 확인). 설명은
+            // 전폭으로 두고 버튼만 오른쪽 아래에 모은다.
             groupRow {
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(l.reportProblem)
-                    Text(l.reportAttachHint).font(.caption2).foregroundStyle(.tertiary)
+                VStack(alignment: .leading, spacing: 6) {
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(l.reportProblem)
+                        Text(l.reportAttachHint).font(.caption2).foregroundStyle(.tertiary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    HStack(spacing: 6) {
+                        Spacer()
+                        // GitHub 이 주 경로, 복사는 계정이 없거나 이슈가 잘렸을 때의 탈출구다.
+                        SupportActionRow(label: l.reportOnGitHub, action: reportProblem)
+                        SupportActionRow(
+                            label: didCopyDiagnostics ? l.diagnosticsCopied : l.copyDiagnostics,
+                            action: copyDiagnostics)
+                    }
                 }
-                Spacer()
-                // 두 버튼을 한 줄에 — GitHub 이 주 경로, 복사는 계정이 없거나 이슈가 잘렸을 때의
-                // 탈출구다. 계정 없이 막히는 사람이 아무 데도 못 가는 상태를 안 만든다.
-                SupportActionRow(label: l.reportOnGitHub, action: reportProblem)
-                SupportActionRow(label: didCopyDiagnostics ? l.diagnosticsCopied : l.copyDiagnostics,
-                                 action: copyDiagnostics)
             }
             Divider()
             // 로그 파일 보기 — 문제 제보 시 바로 첨부할 수 있게 같은 그룹에 둔다(고급 접기 밖).
