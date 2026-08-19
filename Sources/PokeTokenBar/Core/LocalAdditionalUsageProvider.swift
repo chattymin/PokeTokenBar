@@ -208,13 +208,16 @@ private actor LocalAdditionalUsageCache {
                 if loaded.didReset {
                     return (loaded.entries, loaded.highWaterByPath)
                 }
-                // Dashboard API rows are authoritative — do not accumulate stale
-                // bubble rows with different ids (they inflate totals).
-                if loaded.entries.contains(where: LocalAdditionalUsageReader.isCursorDashboardEntry) {
+                // A successful dashboard response is authoritative even when it is empty.
+                // Do not retain stale API rows or merge local bubble estimates.
+                if loaded.isAuthoritative {
                     return (loaded.entries, loaded.highWaterByPath)
                 }
+                let localExisting = existing.filter {
+                    !LocalAdditionalUsageReader.isCursorDashboardEntry($0)
+                }
                 return (
-                    LocalUsageReader.dedupKeepMax(existing + loaded.entries),
+                    LocalUsageReader.dedupKeepMax(localExisting + loaded.entries),
                     loaded.highWaterByPath)
             case .copilot:
                 let loaded = LocalAdditionalUsageReader.copilotEntries(
@@ -406,6 +409,8 @@ enum LocalAdditionalUsageReader {
         var highWaterByPath: [String: Int64]
         /// True when any DB was rescanned from scratch (watermark invalidated).
         var didReset: Bool
+        /// True when a remote source produced a complete result, including an empty one.
+        var isAuthoritative: Bool = false
 
         /// Convenience for single-database tests.
         var highWaterRowID: Int64 { highWaterByPath.values.max() ?? 0 }
@@ -585,7 +590,8 @@ enum LocalAdditionalUsageReader {
             afterRowID: afterRowID,
             afterRowIDByPath: afterRowIDByPath,
             roots: roots,
-            apiEntries: api)
+            apiEntries: api.entries,
+            apiIsAuthoritative: api.isAuthoritative)
     }
 
     /// Test hook for the dashboard/API path without network I/O.
@@ -599,7 +605,8 @@ enum LocalAdditionalUsageReader {
             afterRowID: 0,
             afterRowIDByPath: nil,
             roots: roots,
-            apiEntries: dashboardEntries)
+            apiEntries: dashboardEntries,
+            apiIsAuthoritative: true)
     }
 
     private static func cursorEntriesSync(
@@ -607,13 +614,15 @@ enum LocalAdditionalUsageReader {
         afterRowID: Int64,
         afterRowIDByPath: [String: Int64]?,
         roots: [URL]?,
-        apiEntries: [LocalUsageReader.Entry]
+        apiEntries: [LocalUsageReader.Entry],
+        apiIsAuthoritative: Bool = false
     ) -> CursorLoadResult {
-        if !apiEntries.isEmpty {
+        if apiIsAuthoritative {
             return IncrementalStoreLoadResult(
                 entries: LocalUsageReader.dedupKeepMax(apiEntries),
                 highWaterByPath: afterRowIDByPath ?? [:],
-                didReset: false)
+                didReset: false,
+                isAuthoritative: true)
         }
         return scanIncrementalStores(
             roots: roots ?? defaultCursorRoots,

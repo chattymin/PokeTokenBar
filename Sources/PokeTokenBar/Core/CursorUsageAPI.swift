@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 
 /// Cursor dashboard usage API (unofficial personal-account endpoints).
@@ -8,7 +9,18 @@ enum CursorUsageAPI {
 
     private struct DiskCache: Codable {
         var fetchedAt: Date
+        var accountIdentifier: String?
         var entries: [LocalUsageReader.Entry]
+    }
+
+    struct UsageResult: Sendable {
+        let entries: [LocalUsageReader.Entry]
+        let isAuthoritative: Bool
+    }
+
+    private enum NetworkResult {
+        case success([LocalUsageReader.Entry])
+        case failure
     }
 
     nonisolated(unsafe) private static var memoryCache: DiskCache?
@@ -25,39 +37,51 @@ enum CursorUsageAPI {
         return LocalAdditionalUsageReader.cursorAuthAccessToken()
     }
 
-    static func fetchEntries(modifiedSince: Date) async -> [LocalUsageReader.Entry] {
-        guard UsageEnvironment.value("CURSOR_USAGE_API") != "0" else { return [] }
+    static func fetchEntries(modifiedSince: Date) async -> UsageResult {
+        guard UsageEnvironment.value("CURSOR_USAGE_API") != "0" else {
+            return UsageResult(entries: [], isAuthoritative: false)
+        }
         guard let token = sessionToken() else {
             AppLog.write("cursor api: no session token — \(LocalAdditionalUsageReader.cursorAuthDiagnostics())")
-            return []
+            return UsageResult(entries: [], isAuthoritative: false)
         }
         AppLog.write("cursor api: session token ready (\(token.count) chars)")
+        let accountIdentifier = cacheAccountIdentifier(from: token)
 
-        if let fresh = await fetchFromNetwork(modifiedSince: modifiedSince), !fresh.isEmpty {
-            storeCache(entries: fresh)
+        switch await fetchFromNetwork(token: token, modifiedSince: modifiedSince) {
+        case .success(let fresh):
+            storeCache(entries: fresh, accountIdentifier: accountIdentifier)
             AppLog.write("cursor api: fetched \(fresh.count) events")
-            return fresh.filter { $0.date >= modifiedSince }
+            return UsageResult(
+                entries: fresh.filter { $0.date >= modifiedSince },
+                isAuthoritative: true)
+        case .failure:
+            break
         }
 
-        if let stale = cachedEntries() {
+        if let stale = cachedEntries(accountIdentifier: accountIdentifier) {
             AppLog.write("cursor api: network failed, using stale cache (\(stale.entries.count) events)")
-            return stale.entries.filter { $0.date >= modifiedSince }
+            return UsageResult(
+                entries: stale.entries.filter { $0.date >= modifiedSince },
+                isAuthoritative: true)
         }
         AppLog.write("cursor api: fetch failed and no cache")
-        return []
+        return UsageResult(entries: [], isAuthoritative: false)
     }
 
     // MARK: - Network
 
-    private static func fetchFromNetwork(modifiedSince: Date) async -> [LocalUsageReader.Entry]? {
-        guard let token = sessionToken() else { return nil }
+    private static func fetchFromNetwork(
+        token: String,
+        modifiedSince: Date
+    ) async -> NetworkResult {
         return await fetchFilteredEvents(token: token, modifiedSince: modifiedSince)
     }
 
     private static func fetchFilteredEvents(
         token: String,
         modifiedSince: Date
-    ) async -> [LocalUsageReader.Entry]? {
+    ) async -> NetworkResult {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         let startDate = formatter.string(from: modifiedSince)
@@ -75,7 +99,9 @@ enum CursorUsageAPI {
                 "page": page,
                 "pageSize": 100,
             ]
-            guard let payload = try? JSONSerialization.data(withJSONObject: body) else { break }
+            guard let payload = try? JSONSerialization.data(withJSONObject: body) else {
+                return .failure
+            }
 
             var request = URLRequest(url: filteredURL)
             request.httpMethod = "POST"
@@ -86,22 +112,26 @@ enum CursorUsageAPI {
             request.setValue("https://cursor.com/dashboard/usage", forHTTPHeaderField: "Referer")
             authMode.apply(to: &request, token: token)
 
-            guard let (data, status) = await perform(request) else { break }
+            guard let (data, status) = await perform(request) else { return .failure }
             if status == 401 || status == 403 {
                 AppLog.write("cursor api: filtered events \(authMode) http \(status)")
                 authIndex += 1
-                guard authIndex < AuthMode.allCases.count else { break }
+                guard authIndex < AuthMode.allCases.count else { return .failure }
                 authMode = AuthMode.allCases[authIndex]
                 continue
             }
             guard (200 ... 299).contains(status),
-                  let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { break }
+                  let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                return .failure
+            }
 
-            let events = (object["usageEvents"] as? [[String: Any]])
-                ?? (object["events"] as? [[String: Any]])
-                ?? []
+            guard let events = (object["usageEvents"] as? [[String: Any]])
+                ?? (object["events"] as? [[String: Any]]) else {
+                return .failure
+            }
             for (index, event) in events.enumerated() {
-                if let entry = parseUsageEvent(event, rowIndex: index, modifiedSince: modifiedSince) {
+                let globalIndex = (page - 1) * 100 + index
+                if let entry = parseUsageEvent(event, rowIndex: globalIndex, modifiedSince: modifiedSince) {
                     collected.append(entry)
                 }
             }
@@ -109,12 +139,12 @@ enum CursorUsageAPI {
             let pagination = object["pagination"] as? [String: Any]
             let hasNext = (pagination?["hasNextPage"] as? Bool)
                 ?? ((pagination?["numPages"] as? Int).map { page < $0 } ?? false)
-            guard hasNext, !events.isEmpty else { break }
+            guard hasNext else { return .success(LocalUsageReader.dedupKeepMax(collected)) }
+            guard !events.isEmpty, page < 200 else { return .failure }
             page += 1
         }
 
-        guard !collected.isEmpty else { return nil }
-        return LocalUsageReader.dedupKeepMax(collected)
+        return .failure
     }
 
     static func parseUsageEvent(
@@ -161,18 +191,24 @@ enum CursorUsageAPI {
         AppStatePaths.directory().appendingPathComponent("cursor-usage-api-cache.json")
     }
 
-    private static func cachedEntries() -> DiskCache? {
+    private static func cachedEntries(accountIdentifier: String) -> DiskCache? {
         cacheLock.lock()
         defer { cacheLock.unlock() }
-        if let memoryCache { return memoryCache }
+        if let memoryCache {
+            return memoryCache.accountIdentifier == accountIdentifier ? memoryCache : nil
+        }
         guard let data = try? Data(contentsOf: cacheFileURL()),
-              let decoded = try? JSONDecoder().decode(DiskCache.self, from: data) else { return nil }
+              let decoded = try? JSONDecoder().decode(DiskCache.self, from: data),
+              decoded.accountIdentifier == accountIdentifier else { return nil }
         memoryCache = decoded
         return decoded
     }
 
-    private static func storeCache(entries: [LocalUsageReader.Entry]) {
-        let cache = DiskCache(fetchedAt: Date(), entries: LocalUsageReader.dedupKeepMax(entries))
+    private static func storeCache(entries: [LocalUsageReader.Entry], accountIdentifier: String) {
+        let cache = DiskCache(
+            fetchedAt: Date(),
+            accountIdentifier: accountIdentifier,
+            entries: LocalUsageReader.dedupKeepMax(entries))
         cacheLock.lock()
         memoryCache = cache
         cacheLock.unlock()
@@ -182,6 +218,19 @@ enum CursorUsageAPI {
     }
 
     // MARK: - HTTP helpers
+
+    static func cacheAccountIdentifier(from token: String) -> String {
+        let decoded = token.removingPercentEncoding ?? token
+        if let separator = decoded.range(of: "::") {
+            let subject = String(decoded[..<separator.lowerBound])
+            if !subject.isEmpty { return "subject:\(subject)" }
+        }
+        if let subject = jwtSubject(decoded) {
+            return "subject:\(subject)"
+        }
+        let digest = SHA256.hash(data: Data(decoded.utf8))
+        return "token:" + digest.map { String(format: "%02x", $0) }.joined()
+    }
 
     /// Dashboard cookie is `sub::jwt`, not the bare accessToken JWT.
     static func workosSessionCookie(from accessToken: String) -> String {

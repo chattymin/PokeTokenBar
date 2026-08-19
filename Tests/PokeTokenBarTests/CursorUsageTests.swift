@@ -436,6 +436,24 @@ final class CursorUsageTests: XCTestCase {
         XCTAssertEqual(CursorUsageAPI.workosSessionCookie(from: jwt), "user_01TEST::hdr.\(payload).sig")
     }
 
+    func testCursorCacheIdentifierUsesAccountSubject() {
+        let payload = Data("{\"sub\":\"user_01TEST\"}".utf8).base64EncodedString()
+            .replacingOccurrences(of: "+", with: "-")
+            .replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: "=", with: "")
+        let jwt = "hdr.\(payload).sig"
+
+        XCTAssertEqual(
+            CursorUsageAPI.cacheAccountIdentifier(from: jwt),
+            "subject:user_01TEST")
+        XCTAssertEqual(
+            CursorUsageAPI.cacheAccountIdentifier(from: "user_01TEST::\(jwt)"),
+            "subject:user_01TEST")
+        XCTAssertNotEqual(
+            CursorUsageAPI.cacheAccountIdentifier(from: "opaque-token-a"),
+            CursorUsageAPI.cacheAccountIdentifier(from: "opaque-token-b"))
+    }
+
     func testCursorAuthAccessTokenReadsItemTable() throws {
         let database = temporaryDirectory.appendingPathComponent("state.vscdb")
         try execute(database, sql: """
@@ -465,6 +483,21 @@ final class CursorUsageTests: XCTestCase {
         XCTAssertEqual(entry.cacheRead, 11964)
     }
 
+    func testCursorUsageEventIDsUseGlobalRowIndex() throws {
+        let event: [String: Any] = [
+            "timestamp": "1750979225854",
+            "model": "gpt",
+            "tokenUsage": ["inputTokens": 1],
+        ]
+        let since = try date("2025-01-01T00:00:00Z")
+        let firstPage = try XCTUnwrap(CursorUsageAPI.parseUsageEvent(
+            event, rowIndex: 0, modifiedSince: since))
+        let secondPage = try XCTUnwrap(CursorUsageAPI.parseUsageEvent(
+            event, rowIndex: 100, modifiedSince: since))
+
+        XCTAssertNotEqual(firstPage.id, secondPage.id)
+    }
+
     func testCursorDashboardEntriesDoNotMergeBubbleEstimates() throws {
         let apiEntry = try XCTUnwrap(LocalAdditionalUsageReader.makeUsageEntry(
             id: "cursor|api|2026-08-18T12:00:00.000Z|gpt|0",
@@ -486,6 +519,25 @@ final class CursorUsageTests: XCTestCase {
         XCTAssertEqual(result.entries.count, 1)
         XCTAssertEqual(result.entries.first?.input, 1000)
         XCTAssertFalse(result.entries.contains { $0.id.contains("bubbleId") })
+    }
+
+    func testEmptyCursorDashboardResultSuppressesBubbleFallback() throws {
+        let database = temporaryDirectory.appendingPathComponent("state.vscdb")
+        try execute(database, sql: """
+        CREATE TABLE cursorDiskKV (key TEXT UNIQUE ON CONFLICT REPLACE, value BLOB);
+        INSERT INTO cursorDiskKV VALUES (
+            'bubbleId:tab-1:live',
+            '{"tokenCount":{"inputTokens":999,"outputTokens":888},"createdAt":"2026-08-18T13:00:00.000Z","modelType":"gpt-4o"}'
+        );
+        """)
+
+        let result = LocalAdditionalUsageReader.cursorEntriesFromDashboard(
+            modifiedSince: try date("2026-08-18T00:00:00Z"),
+            dashboardEntries: [],
+            roots: [temporaryDirectory])
+
+        XCTAssertTrue(result.entries.isEmpty)
+        XCTAssertTrue(result.isAuthoritative)
     }
 
     // MARK: - Helpers
