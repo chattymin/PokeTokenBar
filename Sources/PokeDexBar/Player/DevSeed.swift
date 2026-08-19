@@ -76,6 +76,31 @@ extension PlayerStore {
         let environment = ProcessInfo.processInfo.environment
         if let seed = ExpSeed.parse(environment) { applyExpSeed(seed) }
         if let seed = DevSeed.parse(environment) { applyDevSeed(seed) }
+        if let raw = environment["PTB_SEED_SHINY"], let species = Int(raw) {
+            applyShinySeed(speciesID: species,
+                           level: environment["PTB_SEED_SHINY_LEVEL"].flatMap { Int($0) } ?? 1)
+        }
+    }
+
+    /// 제보 재현용 — 특정 종의 **이로치** 개체를 박스에 넣는다.
+    ///
+    /// ```
+    /// open --env PTB_SEED_SHINY=23 -a "PokeDexBar Dev"            # 이로치 아보, 레벨 1
+    /// open --env PTB_SEED_SHINY=23 --env PTB_SEED_SHINY_LEVEL=40 -a "PokeDexBar Dev"
+    /// ```
+    ///
+    /// **종 번호를 받는다** — 특정 제보를 하드코딩하면 다음 제보에 또 코드를 고쳐야 한다.
+    /// 세이브를 손으로 고치는 대신 있는 것이고, 개발 빌드는 세이브가 따로 가므로 정식 진행에
+    /// 안 섞인다.
+    func applyShinySeed(speciesID: Int, level: Int) {
+        let now = currentDate()
+        let growth = GrowthRate.mediumFast
+        let made = Individual(baseID: speciesID, speciesID: speciesID, pathIDs: [speciesID],
+                              shiny: true, nature: .hardy,
+                              exp: growth.totalExp(at: max(1, level)),
+                              obtainedAt: now, grade: .common, growthRate: growth)
+        mutate { $0.box.append(made) }
+        AppLog.write("ShinySeed: 이로치 \(speciesID) 레벨 \(level) 을 박스에 넣었다 (id \(made.id))")
     }
 
     /// 대상 개체의 알 계량기(`eggProgress`)를 시드 값까지 **끌어올린다**(줄이지는 않는다) —

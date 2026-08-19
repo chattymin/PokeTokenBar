@@ -13,28 +13,47 @@ enum SpriteTrim {
     /// 알파가 있는 부분을 감싸는 최소 사각형. **이미지 자신의 좌표계(포인트, 위가 원점)** 로
     /// 돌려준다 — 비트맵이 2x 백킹이면 픽셀 수가 두 배라, 픽셀 좌표를 그대로 쓰면 자른 결과가
     /// 두 배 크기로 나온다. 전부 투명하면 nil.
+    /// **버퍼를 만지는 일은 전부 `withUnsafeMutableBytes` 안에서 한다.**
+    ///
+    /// 예전에는 `CGContext(data: &pixels, ...)` 로 만들고 **호출이 끝난 뒤** `ctx.draw(...)` 를
+    /// 했다. Swift 의 `&배열` 은 그 호출 동안만 유효한 임시 포인터라, `CGContext` 가 들고 있던
+    /// 포인터는 그 뒤로 매달린 포인터가 된다 — 해제되었거나 옮겨진 메모리에 그림을 그리는 것이다.
+    ///
+    /// 대개는 "동작"한다(배열이 안 옮겨지므로). 그러다 할당자 상태에 따라 **힙이 손상되고,
+    /// 터지는 것은 `malloc` 이 다음에 그 영역을 만질 때**라 원인과 증상이 멀리 떨어진다 —
+    /// 사용자 제보는 "박스를 보다 특정 개체 상세를 열면 죽는다"(SIGABRT)였는데, 실제로 망친 것은
+    /// 그 직전에 그린 박스 그리드였다. 같은 파일의 다른 네 곳은 처음부터 이 형태를 쓰고 있었다.
     static func contentRect(of image: NSImage) -> CGRect? {
         guard let cg = image.cgImage(forProposedRect: nil, context: nil, hints: nil),
               cg.width > 0, cg.height > 0 else { return nil }
         let width = cg.width, height = cg.height
         var pixels = [UInt8](repeating: 0, count: width * height * 4)
-        guard let ctx = CGContext(data: &pixels, width: width, height: height,
-                                  bitsPerComponent: 8, bytesPerRow: width * 4,
-                                  space: CGColorSpaceCreateDeviceRGB(),
-                                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
-        else { return nil }
-        ctx.draw(cg, in: CGRect(x: 0, y: 0, width: width, height: height))
 
-        var minX = width, minY = height, maxX = -1, maxY = -1
-        for y in 0..<height {
-            let row = y * width * 4
-            for x in 0..<width where pixels[row + x * 4 + 3] > 8 {   // 거의 투명한 안티앨리어싱 가장자리는 무시
-                if x < minX { minX = x }
-                if x > maxX { maxX = x }
-                if y < minY { minY = y }
-                if y > maxY { maxY = y }
+        let bounds: (minX: Int, minY: Int, maxX: Int, maxY: Int)? =
+            pixels.withUnsafeMutableBytes { buffer in
+                guard let ctx = CGContext(data: buffer.baseAddress, width: width, height: height,
+                                          bitsPerComponent: 8, bytesPerRow: width * 4,
+                                          space: CGColorSpaceCreateDeviceRGB(),
+                                          bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+                else { return nil }
+                ctx.draw(cg, in: CGRect(x: 0, y: 0, width: width, height: height))
+
+                var minX = width, minY = height, maxX = -1, maxY = -1
+                for y in 0..<height {
+                    let row = y * width * 4
+                    // 거의 투명한 안티앨리어싱 가장자리는 무시한다.
+                    for x in 0..<width where buffer[row + x * 4 + 3] > 8 {
+                        if x < minX { minX = x }
+                        if x > maxX { maxX = x }
+                        if y < minY { minY = y }
+                        if y > maxY { maxY = y }
+                    }
+                }
+                return (minX, minY, maxX, maxY)
             }
-        }
+
+        guard let bounds else { return nil }
+        let (minX, minY, maxX, maxY) = bounds
         guard maxX >= minX, maxY >= minY else { return nil }
         let scale = image.size.width > 0 ? CGFloat(width) / image.size.width : 1
         guard scale > 0 else { return nil }

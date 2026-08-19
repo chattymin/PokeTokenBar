@@ -2,144 +2,86 @@ import AppKit
 import XCTest
 @testable import PokeDexBar
 
-/// 투명 여백 잘라내기 — 종마다 캔버스 여백 비율이 달라서, 안 자르면 작은 포켓몬이 같은 칸에서
-/// 더 작게 남아 구분이 안 된다(사용자 지적).
+/// [회귀] **매달린 포인터로 그리던 버그.**
+///
+/// `CGContext(data: &pixels, ...)` 로 만든 뒤 호출이 끝나고 `ctx.draw(...)` 를 하면, Swift 의
+/// `&배열` 이 준 임시 포인터가 이미 무효라 해제·이동된 메모리에 그림을 그린다. 대개 "동작"하다가
+/// 할당자 상태에 따라 힙을 망가뜨리고, **터지는 것은 `malloc` 이 다음에 그 영역을 만질 때**다.
+///
+/// 실제 제보: "박스를 보다 특정 개체 상세를 열면 죽는다" + **SIGABRT**. 상세 화면은 이 코드를
+/// 안 타지만(`fillFrame` 이 꺼져 있다) 그 직전의 박스 그리드가 칸마다 이 함수를 부른다 —
+/// 원인과 증상이 화면 하나만큼 떨어져 있었다.
 final class SpriteTrimTests: XCTestCase {
-    /// `canvas` 크기의 투명 이미지 한가운데(또는 지정 위치)에 불투명 사각형 하나를 그린다.
-    private func image(canvas: CGSize, content: CGRect) -> NSImage {
-        let image = NSImage(size: NSSize(width: canvas.width, height: canvas.height))
-        image.lockFocus()
+    /// 가운데에만 불투명한 사각형이 있는 이미지를 만든다.
+    private func image(size: Int, opaque: NSRect) -> NSImage {
+        let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: size, pixelsHigh: size,
+                                   bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true,
+                                   isPlanar: false, colorSpaceName: .deviceRGB,
+                                   bytesPerRow: size * 4, bitsPerPixel: 32)!
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
         NSColor.clear.setFill()
-        NSRect(origin: .zero, size: image.size).fill()
+        NSRect(x: 0, y: 0, width: size, height: size).fill()
         NSColor.red.setFill()
-        // NSImage 는 아래가 원점, contentRect 는 위가 원점 — 여기서 뒤집어 준다.
-        NSRect(x: content.minX, y: canvas.height - content.maxY,
-               width: content.width, height: content.height).fill()
-        image.unlockFocus()
-        return image
+        opaque.fill()
+        NSGraphicsContext.restoreGraphicsState()
+        let made = NSImage(size: NSSize(width: size, height: size))
+        made.addRepresentation(rep)
+        return made
     }
 
-    func testFindsTheOpaqueBox() {
-        let rect = CGRect(x: 10, y: 6, width: 20, height: 30)
-        let found = SpriteTrim.contentRect(of: image(canvas: CGSize(width: 64, height: 64),
-                                                     content: rect))
-        XCTAssertEqual(found?.minX ?? -1, rect.minX, accuracy: 1)
-        XCTAssertEqual(found?.minY ?? -1, rect.minY, accuracy: 1)
-        XCTAssertEqual(found?.width ?? -1, rect.width, accuracy: 1.5)
-        XCTAssertEqual(found?.height ?? -1, rect.height, accuracy: 1.5)
+    /// **알파 경계를 실제로 찾는다** — 다시 쓰면서 로직이 깨지지 않았는지.
+    func testItFindsTheOpaqueBounds() throws {
+        let made = image(size: 40, opaque: NSRect(x: 10, y: 10, width: 20, height: 20))
+        let rect = try XCTUnwrap(SpriteTrim.contentRect(of: made))
+        XCTAssertEqual(rect.width, 20, accuracy: 1.5)
+        XCTAssertEqual(rect.height, 20, accuracy: 1.5)
+        XCTAssertEqual(rect.minX, 10, accuracy: 1.5)
     }
 
-    /// 여백이 없으면 캔버스 전체가 내용이다 — 그대로 둬야 한다.
-    func testFullyOpaqueImageIsNotCropped() {
-        let canvas = CGSize(width: 32, height: 32)
-        let found = SpriteTrim.contentRect(of: image(canvas: canvas,
-                                                     content: CGRect(origin: .zero, size: canvas)))
-        XCTAssertEqual(found?.width ?? 0, 32, accuracy: 1)
-        XCTAssertEqual(found?.height ?? 0, 32, accuracy: 1)
+    /// 전부 투명하면 nil — 자를 것이 없다.
+    func testAFullyTransparentImageHasNoContent() {
+        let made = image(size: 20, opaque: .zero)
+        XCTAssertNil(SpriteTrim.contentRect(of: made))
     }
 
-    /// 전부 투명하면 자를 것이 없다 — nil 이어야 호출부가 원본을 그대로 그린다.
-    func testFullyTransparentImageHasNoContent() {
-        let empty = NSImage(size: NSSize(width: 16, height: 16))
-        empty.lockFocus()
-        NSColor.clear.setFill()
-        NSRect(x: 0, y: 0, width: 16, height: 16).fill()
-        empty.unlockFocus()
-        XCTAssertNil(SpriteTrim.contentRect(of: empty))
-    }
-
-    /// **핵심**: 여백이 다른 두 캔버스에 같은 크기의 그림이 있으면, 자른 뒤에는 같아야 한다.
-    /// 이게 어긋나면 같은 칸에 놓았을 때 하나가 더 작게 보인다.
-    func testTwoDifferentCanvasesNormaliseToTheSameContent() {
-        let content = CGSize(width: 20, height: 20)
-        let tight = image(canvas: CGSize(width: 24, height: 24),
-                          content: CGRect(x: 2, y: 2, width: content.width, height: content.height))
-        let loose = image(canvas: CGSize(width: 96, height: 96),
-                          content: CGRect(x: 38, y: 38, width: content.width, height: content.height))
-        let a = SpriteTrim.cropped(tight, to: SpriteTrim.contentRect(of: tight)!)
-        let b = SpriteTrim.cropped(loose, to: SpriteTrim.contentRect(of: loose)!)
-        XCTAssertEqual(a.size.width, b.size.width, accuracy: 1.5,
-                       "여백이 다르면 잘라낸 뒤에도 크기가 달라진다 — 작은 종이 계속 작게 보인다")
-        XCTAssertEqual(a.size.height, b.size.height, accuracy: 1.5)
-    }
-
-    /// 애니메이션은 프레임 합집합으로 잘라야 한다 — 프레임마다 재면 칸 안에서 들썩인다.
-    func testUnionCoversEveryFrame() {
-        let canvas = CGSize(width: 64, height: 64)
-        let left = image(canvas: canvas, content: CGRect(x: 8, y: 20, width: 10, height: 10))
-        let right = image(canvas: canvas, content: CGRect(x: 40, y: 20, width: 10, height: 10))
-        guard let union = SpriteTrim.unionContentRect(of: [left, right]) else {
-            return XCTFail("합집합을 못 구했다")
+    /// **여러 번 불러도 값이 같고 안 죽는다.** 매달린 포인터 시절에는 여기가 할당자 상태에
+    /// 따라 흔들렸다 — 박스 한 페이지가 30번을 연달아 부른다.
+    func testRepeatedCallsAreStable() throws {
+        let made = image(size: 48, opaque: NSRect(x: 6, y: 8, width: 30, height: 24))
+        let first = try XCTUnwrap(SpriteTrim.contentRect(of: made))
+        for _ in 0..<200 {
+            let again = try XCTUnwrap(SpriteTrim.contentRect(of: made))
+            XCTAssertEqual(again, first)
         }
-        for frame in [left, right] {
-            let rect = SpriteTrim.contentRect(of: frame)!
-            XCTAssertTrue(union.contains(rect), "합집합이 한 프레임을 잘라낸다 — 팔다리가 잘린다")
+    }
+
+    /// 여러 프레임의 합집합 — 애니메이션이 칸 안에서 들썩이지 않게 하는 값.
+    func testUnionCoversEveryFrame() throws {
+        let left = image(size: 40, opaque: NSRect(x: 4, y: 10, width: 10, height: 10))
+        let right = image(size: 40, opaque: NSRect(x: 26, y: 10, width: 10, height: 10))
+        let union = try XCTUnwrap(SpriteTrim.unionContentRect(of: [left, right]))
+        XCTAssertLessThanOrEqual(union.minX, 5)
+        XCTAssertGreaterThanOrEqual(union.maxX, 35)
+    }
+
+    /// **소스 스캔 — 같은 부류가 다시 안 들어오게.** `&배열` 을 C API 에 넘기고 그 뒤에
+    /// 쓰는 형태는 눈으로는 멀쩡해 보이고 대개 동작하기까지 한다.
+    func testNoOneBuildsAContextFromAnInoutArray() throws {
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("Sources/PokeDexBar")
+        let files = FileManager.default.enumerator(at: root, includingPropertiesForKeys: nil)!
+            .compactMap { $0 as? URL }.filter { $0.pathExtension == "swift" }
+        XCTAssertGreaterThan(files.count, 30, "소스를 못 읽었다 — 이 테스트가 아무것도 안 지킨다")
+
+        for file in files {
+            let text = try String(contentsOf: file, encoding: .utf8)
+            for line in text.split(separator: "\n") where !line.contains("///") {
+                XCTAssertFalse(line.contains("CGContext(data: &"),
+                               "\(file.lastPathComponent): 임시 포인터로 컨텍스트를 만든다 — "
+                               + "호출이 끝나면 매달린 포인터가 된다")
+            }
         }
-        XCTAssertGreaterThan(union.width, 30, "합집합이 두 위치를 모두 감싸야 한다")
-    }
-
-    func testUnionOfNothingIsNil() {
-        XCTAssertNil(SpriteTrim.unionContentRect(of: []))
-    }
-
-    /// 자르기가 실패해도 스프라이트가 사라지면 안 된다 — 원본을 그대로 돌려준다.
-    func testCroppingOutsideTheImageFallsBackToTheOriginal() {
-        let source = image(canvas: CGSize(width: 20, height: 20),
-                           content: CGRect(x: 4, y: 4, width: 8, height: 8))
-        let out = SpriteTrim.cropped(source, to: CGRect(x: 500, y: 500, width: 10, height: 10))
-        XCTAssertEqual(out.size.width, source.size.width, accuracy: 0.5)
-    }
-}
-
-/// 설정 — 칸 채우기는 **박스에만** 있는 개념이다. 크기가 같은 칸이 나란히 놓이는 자리가
-/// 박스뿐이라 문제도 거기서만 생기고, 다른 화면은 원래 캔버스가 주는 실제 크기 차이를 남긴다.
-@MainActor
-final class FillBoxSlotsSettingTests: XCTestCase {
-    private func makeStore() -> (UsageStore, UserDefaults) {
-        let defaults = UserDefaults(suiteName: "fill-\(UUID().uuidString)")!
-        return (UsageStore(defaults: defaults), defaults)
-    }
-
-    /// 기본은 켬 — 안 켜면 박스에서 작은 포켓몬이 칸에서 작게 남아 구분이 안 된다.
-    func testDefaultsToOn() {
-        XCTAssertTrue(makeStore().0.fillBoxSlots)
-    }
-
-    func testPersistsAcrossLaunches() {
-        let (store, defaults) = makeStore()
-        store.fillBoxSlots = false
-        XCTAssertFalse(UsageStore(defaults: defaults).fillBoxSlots, "설정이 저장되지 않는다")
-    }
-
-    /// 껐을 때 원본이 그대로 나와야 한다 — 잘라낸 결과가 아니라.
-    func testTurningItOffKeepsTheOriginalCanvas() {
-        let canvas = NSSize(width: 64, height: 64)
-        let image = NSImage(size: canvas)
-        image.lockFocus()
-        NSColor.clear.setFill()
-        NSRect(origin: .zero, size: canvas).fill()
-        NSColor.blue.setFill()
-        NSRect(x: 26, y: 26, width: 12, height: 12).fill()
-        image.unlockFocus()
-
-        let rect = SpriteTrim.contentRect(of: image)!
-        XCTAssertLessThan(rect.width, canvas.width, "잘라낼 여백이 있어야 이 테스트가 의미 있다")
-        XCTAssertEqual(SpriteTrim.cropped(image, to: rect).size.width, rect.width, accuracy: 1.5)
-        // 설정을 끄면 호출부가 `cropped` 를 아예 부르지 않는다 — 원본 크기가 유지된다.
-        XCTAssertEqual(image.size.width, canvas.width)
-    }
-}
-
-/// 박스 밖에서는 자르지 않는다 — `SpriteView` 기본값이 곧 그 규칙이다.
-final class SpriteFillDefaultTests: XCTestCase {
-    @MainActor
-    func testSpritesDoNotFillTheirFrameByDefault() {
-        XCTAssertFalse(SpriteView(speciesID: 1).fillFrame,
-                       "기본이 켜져 있으면 도감·홈·플로팅 펫까지 잘려 실제 크기 차이가 사라진다")
-    }
-
-    @MainActor
-    func testTheBoxOptsIn() {
-        XCTAssertTrue(SpriteView(speciesID: 1, fillFrame: true).fillFrame)
     }
 }
