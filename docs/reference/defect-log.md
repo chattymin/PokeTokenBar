@@ -80,6 +80,14 @@ read_when:
   (`shellEnvironmentValues`) — 이름마다 띄우면 프로바이더가 늘수록 기동이 그만큼 느려진다.
   프로세스 환경에 전부 있으면 셸을 아예 안 띄우는 분기도 함께 가드한다(`…SkipsShellLookup`).
   `export FOO=` 처럼 **빈 값은 미설정으로** 취급한다 — 값으로 받으면 없는 경로를 스캔하고 조용히 0 이 된다.
+- **레지스트리 가드를 하드코딩 목록으로 쓰면 목록 두 벌이 함께 표류한다 — 가드는 소스에서 유도하라.**
+  위 `UsageEnvironment` 체계가 생긴 *뒤에* 추가된 `CURSOR_DATA_DIR`·`KIRO_CLI_HOME` 은
+  `environmentPaths()` 로 조회는 하는데 `names` 등록이 빠졌고(`value()` 는 `names` 만 resolve → override 가
+  조용히 죽음), 가드 테스트가 하드코딩 5개 이름만 비교해서 그대로 통과했다(docker 추가 중 발견, 함께 수정).
+  등록 강제 가드는 기대 목록을 손으로 두 번 쓰는 형태가 아니라 **소스를 스캔해 실제 사용처에서 유도**한다 —
+  `testRegisteredNamesCoverEveryProviderOverride` 가 `environmentPaths("…")`/`UsageEnvironment.value("…")`
+  호출을 긁어 `names` 와 대조한다. 같은 부류: 기대 집합을 하드코딩하는 가드는 새 항목이 *양쪽 다* 빠졌을 때
+  침묵한다 — 진실의 원천(소스·레지스트리)에서 한쪽을 유도할 수 있으면 반드시 그렇게 한다.
 - **디렉터리 탐색은 깊이만 막으면 폭이 안 막히지만, 이름 기반 가지치기는 더 위험하다.** 깊이 가지치기는
   `> maxDepth` 가 아니라 `>= maxDepth` 에서 걸어야 한 단계 더 내려가지 않는다(전자는 상한+1 까지 방문).
   깊이 상한은 **실제 레이아웃 깊이를 테스트로 고정**하고 여유를 둔다 — 경계에 붙여 두면 상위 소스가 한 단계

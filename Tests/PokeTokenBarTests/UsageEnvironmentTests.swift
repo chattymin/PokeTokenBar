@@ -157,10 +157,34 @@ final class UsageEnvironmentTests: XCTestCase {
     }
 
     /// 실제로 조회되는 이름 집합이 프로바이더 override 와 어긋나지 않게 고정한다.
-    func testRegisteredNamesCoverEveryProviderOverride() {
-        for name in ["CLAUDE_CONFIG_DIR", "OPENCODE_DATA_DIR", "HERMES_HOME", "COPILOT_HOME", "GROK_HOME"] {
-            XCTAssertTrue(UsageEnvironment.names.contains(name), "\(name) 이 조회 대상에서 빠졌다")
+    ///
+    /// 원래는 하드코딩 목록 5개와 비교했는데, 그 형태는 `CURSOR_DATA_DIR`/`KIRO_CLI_HOME` 이
+    /// `names` 에 빠진 채(= override 가 조용히 죽은 채) 통과했다 — 목록 두 벌이 함께 표류한 것.
+    /// 그래서 소스에서 실제 조회 지점(`environmentPaths("…")`/`UsageEnvironment.value("…")`)을
+    /// 긁어와 대조한다. 새 프로바이더가 이름 등록을 빼먹으면 여기서 기계로 걸린다.
+    func testRegisteredNamesCoverEveryProviderOverride() throws {
+        let sources = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()    // PokeTokenBarTests
+            .deletingLastPathComponent()    // Tests
+            .deletingLastPathComponent()    // repo root
+            .appendingPathComponent("Sources/PokeTokenBar")
+        let lookup = try NSRegularExpression(
+            pattern: #"(?:environmentPaths|UsageEnvironment\.value)\("([A-Z0-9_]+)"\)"#)
+
+        var used: Set<String> = []
+        let enumerator = try XCTUnwrap(FileManager.default.enumerator(
+            at: sources, includingPropertiesForKeys: nil))
+        for case let url as URL in enumerator where url.pathExtension == "swift" {
+            let text = try String(contentsOf: url, encoding: .utf8)
+            for match in lookup.matches(in: text, range: NSRange(text.startIndex..., in: text)) {
+                guard let range = Range(match.range(at: 1), in: text) else { continue }
+                used.insert(String(text[range]))
+            }
         }
+
+        XCTAssertFalse(used.isEmpty, "조회 지점을 하나도 못 찾았다 — 정규식/경로가 소스와 표류")
+        let missing = used.subtracting(UsageEnvironment.names)
+        XCTAssertTrue(missing.isEmpty, "소스가 조회하는 override 가 names 에 없다(죽은 override): \(missing.sorted())")
         XCTAssertEqual(Set(UsageEnvironment.names).count, UsageEnvironment.names.count, "이름 중복")
         for name in UsageEnvironment.names {
             XCTAssertTrue(BinaryLocator.isShellSafeEnvironmentName(name), "\(name) 은 셸 조회가 거부한다")
