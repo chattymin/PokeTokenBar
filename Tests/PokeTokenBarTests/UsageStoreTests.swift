@@ -600,6 +600,32 @@ final class UsageStoreTests: XCTestCase {
         XCTAssertEqual(store.snapshot(preferring: "kiro")?.providerID, "kiro", "탭에 노출됨")
     }
 
+    /// 신규 provider(docker) 의 snapshot 이 today/week/month/burn 에 흘러가는지 확인.
+    /// kiro 와 달리 `reportsCost = true` 라 비용 집계 경로까지 함께 본다.
+    /// (파서/스키마 회귀는 DockerUsageTests.swift 담당 — 여기는 store 집계 경로만 본다.)
+    func testDockerSnapshotFlowsThroughTodayWeekMonthBurnAndCost() async {
+        let claude = FakeUsageProvider(id: "claude_code", displayName: "Claude Code", daily: todayDaily(100_000_000))
+        let docker = FakeUsageProvider(id: "docker", displayName: "Docker Agent",
+                                       daily: todayDaily(50_000_000, cost: 1.25))
+        docker.enrichment = ProviderEnrichment(
+            activeBlock: block(tokensPerMinute: 200_000), blocksOK: true,
+            weekTotal: PeriodUsage(period: "w", totalTokens: 90_000_000, totalCost: 2.5),
+            monthTotal: PeriodUsage(period: "m", totalTokens: 300_000_000, totalCost: 7.5),
+            periodsOK: true)
+        let store = makeStore(providers: [claude, docker])
+        await store.refresh(scheduleEmptyRetry: false)
+
+        XCTAssertEqual(store.todayTotalTokens, 150_000_000)
+        XCTAssertEqual(store.todayTokensByProvider["docker"], 50_000_000)
+        XCTAssertEqual(store.weekTotalTokens, 90_000_000)
+        XCTAssertEqual(store.monthTotalTokens, 300_000_000)
+        XCTAssertEqual(store.todayCostTotal, 1.25, "docker 는 reportsCost=true → 비용 합계에 포함")
+        XCTAssertEqual(store.weekCostTotal, 2.5)
+        XCTAssertEqual(store.monthCostTotal, 7.5)
+        XCTAssertEqual(store.burnTier, .fast, "burn 이 docker 의 활성 블록을 반영")
+        XCTAssertEqual(store.snapshot(preferring: "docker")?.providerID, "docker", "탭에 노출됨")
+    }
+
     func testCodexOnlyWhenClaudeHasNoData() async {
         let claude = FakeUsageProvider(id: "claude_code", displayName: "Claude Code", daily: nil) // 데이터 없음
         let codex = FakeUsageProvider(id: "codex", displayName: "Codex", daily: todayDaily(50_000_000))

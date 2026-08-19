@@ -7,6 +7,7 @@ private enum LocalAdditionalSource: String, Sendable {
     case cursor
     case copilot
     case kiro
+    case docker
 }
 
 /// OpenCode usage from its local SQLite database and legacy message files.
@@ -105,6 +106,28 @@ struct LocalKiroProvider: UsageProvider {
     }
 }
 
+/// Docker Agent (docker/docker-agent, previously "cagent") usage from its local
+/// session store (`~/.cagent/session.db`).
+///
+/// Every `session_items` row is one chat message; assistant rows persist per-message
+/// token usage plus the dollar cost docker-agent itself computed against the models.dev
+/// catalog. That figure flows through `Entry.explicitCost`, so `reportsCost` stays the
+/// protocol default (true) — no estimate is being dressed up as money here.
+struct LocalDockerProvider: UsageProvider {
+    let id = "docker"
+    let displayName = "Docker Agent"
+
+    func fetchDaily() async throws -> DailyUsage? {
+        let entries = await LocalAdditionalUsageCache.shared.entries(for: .docker)
+        return LocalUsageReader.daily(entries: entries, localDay: LocalUsageReader.todayKey())
+    }
+
+    func fetchEnrichment() async -> ProviderEnrichment {
+        let entries = await LocalAdditionalUsageCache.shared.entries(for: .docker)
+        return enrichment(entries: entries)
+    }
+}
+
 private func enrichment(entries: [LocalUsageReader.Entry]) -> ProviderEnrichment {
     let now = Date()
     let monthStart = LocalUsageReader.startOfMonth(now)
@@ -186,6 +209,11 @@ private actor LocalAdditionalUsageCache {
             // silently drop out of today's total.
             since = periodStart
             afterRowIDByPath = [:]
+        case .docker:
+            // `session_items` appends one row per message in steady state; `/undo` and
+            // session deletes can shrink MAX(rowid), which surfaces as `didReset` below.
+            since = periodStart
+            afterRowIDByPath = previous?.highWaterByPath ?? [:]
         }
         let existing = previous?.entries ?? []
         let task = Task.detached(priority: .utility) {
@@ -215,6 +243,17 @@ private actor LocalAdditionalUsageCache {
                     modifiedSince: since, afterRowIDByPath: afterRowIDByPath)
                 // A pruned / recreated session store restarts ids — the cached rows would
                 // then collide with different events, so keep only the rescan.
+                if loaded.didReset {
+                    return (loaded.entries, loaded.highWaterByPath)
+                }
+                return (
+                    LocalUsageReader.dedupKeepMax(existing + loaded.entries),
+                    loaded.highWaterByPath)
+            case .docker:
+                let loaded = LocalAdditionalUsageReader.dockerEntries(
+                    modifiedSince: since, afterRowIDByPath: afterRowIDByPath)
+                // An undone tail / recreated DB / VACUUM restarts rowids — cached entry ids
+                // would then name different items, so keep only the rescan.
                 if loaded.didReset {
                     return (loaded.entries, loaded.highWaterByPath)
                 }
@@ -912,6 +951,98 @@ enum LocalAdditionalUsageReader {
         if let array = value as? [Any] { return array.reduce(0) { $0 + kiroJSONValueByteLength($1) } }
         if let dict = value as? Object { return dict.values.reduce(0) { $0 + kiroJSONValueByteLength($1) } }
         return 0
+    }
+
+    // MARK: Docker Agent (cagent) database
+
+    static var defaultDockerRoots: [URL] {
+        environmentPaths("DOCKER_AGENT_DATA_DIR")
+            ?? environmentPaths("CAGENT_DATA_DIR")
+            ?? [FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".cagent")]
+    }
+
+    /// Read Docker Agent usage rows newer than `modifiedSince`.
+    ///
+    /// docker-agent persists one `session_items` row per chat message. Rows are appended
+    /// in steady state, so the scan watermarks on `rowid` like Cursor; `/undo`, session
+    /// deletion and VACUUM can shrink `MAX(rowid)`, which the shared scanner turns into a
+    /// cold rescan (`didReset`). There is no time column to prefilter on — the timestamp
+    /// lives inside `message_json` — so windowing is left to the scanner's date filter.
+    static func dockerEntries(
+        modifiedSince: Date,
+        afterRowID: Int64 = 0,
+        afterRowIDByPath: [String: Int64]? = nil,
+        roots: [URL]? = nil
+    ) -> IncrementalStoreLoadResult {
+        scanIncrementalStores(
+            roots: roots ?? defaultDockerRoots,
+            modifiedSince: modifiedSince,
+            afterRowID: afterRowID,
+            afterRowIDByPath: afterRowIDByPath,
+            databaseURL: dockerDatabaseURL(from:),
+            maxRowIDSQL: "SELECT MAX(rowid) FROM session_items",
+            rowSQL: { effectiveAfter, _ in
+                IncrementalRowQuery(
+                    sql: """
+                    SELECT rowid, message_json, usage_json, model, cost
+                    FROM session_items WHERE rowid > ?1
+                    """,
+                    bindInt64: effectiveAfter,
+                    bindText: nil)
+            },
+            parse: { statement, database in
+                parseDockerSessionItemRow(statement, database: database)
+            })
+    }
+
+    private static func dockerDatabaseURL(from root: URL) -> URL {
+        root.pathExtension == "db" ? root : root.appendingPathComponent("session.db")
+    }
+
+    private static func parseDockerSessionItemRow(
+        _ statement: OpaquePointer,
+        database: URL
+    ) -> LocalUsageReader.Entry? {
+        let rowID = sqlite3_column_int64(statement, 0)
+        guard let payload = columnText(statement, 1),
+              let message = jsonObject(data: Data(payload.utf8)) else { return nil }
+        // The `usage_json`/`model`/`cost` columns were denormalized out of `message_json`
+        // by a later migration and stay NULL on rows written before it — each value falls
+        // back to the copy embedded in the message independently.
+        guard let usage = columnText(statement, 2).flatMap({ jsonObject(data: Data($0.utf8)) })
+            ?? message["usage"] as? Object else { return nil } // user/tool rows carry no usage
+        guard let createdAt = stringValue(message["created_at"]),
+              // No timestamp → no stable local day to attribute to. Skip rather than fall
+              // back to the session's start, which would misdate a long session's later usage.
+              let date = parseISO8601(createdAt) else { return nil }
+        let model = stringValue(columnText(statement, 3))
+            ?? stringValue(message["model"]) ?? "unknown"
+        let columnCost = sqlite3_column_type(statement, 4) == SQLITE_NULL
+            ? nil : sqlite3_column_double(statement, 4)
+        // docker-agent's own models.dev dollar figure; 0 means "unknown/free", and passing
+        // it through would suppress the pricing-table fallback in `Bucket.add`.
+        let cost = [columnCost, doubleValue(message["cost"])]
+            .compactMap { $0 }.first { $0 > 0 }
+        let cacheRead = intValue(usage["cached_input_tokens"])
+        let cacheWrite = intValue(usage["cached_write_tokens"])
+        // docker-agent normalizes several upstream providers into one usage shape, and the
+        // OpenAI-shaped rows count cached tokens inside `input_tokens` — subtract them so
+        // the same prompt tokens aren't counted twice; the clamp covers providers that
+        // already exclude them (a bounded undercount of the uncached suffix).
+        let input = max(0, intValue(usage["input_tokens"]) - cacheRead - cacheWrite)
+        // `reasoning_tokens` is a breakdown of `output_tokens`, not an extra charge.
+        return makeEntry(
+            // rowid is only unique within one store, and the env override may name several
+            // roots — without the database in the key, same-numbered rows would collapse
+            // during dedup (same hazard as Copilot's multi-store ids).
+            id: "docker|\(database.path)|\(rowID)",
+            date: date,
+            model: model,
+            input: input,
+            output: intValue(usage["output_tokens"]),
+            cacheWrite: cacheWrite,
+            cacheRead: cacheRead,
+            cost: cost)
     }
 
     // MARK: Shared utilities
