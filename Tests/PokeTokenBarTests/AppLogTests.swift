@@ -55,6 +55,25 @@ final class AppLogTests: XCTestCase {
         XCTAssertEqual(landed.lines, ["clean shutdown"])
     }
 
+    /// Production `AppLog.writeAndFlush` must go through the tested
+    /// `backend.writeAndFlush`. `write()`+`flush()` is a second, untested
+    /// pair — dropping `flush()` there reintroduces #174 with a green suite.
+    func testAppLogWriteAndFlushRoutesThroughBackend() throws {
+        let source = try String(contentsOf: repositoryFile("Sources/PokeTokenBar/Core/AppLog.swift"))
+        let body = try XCTUnwrap(
+            functionBody(named: "writeAndFlush", in: source),
+            "AppLog.writeAndFlush is the production exit-path pair")
+        XCTAssertTrue(
+            body.contains("backend.writeAndFlush("),
+            "the shipped writeAndFlush must call the tested drain, not a second pair")
+        XCTAssertTrue(
+            body.contains("AppEnv.isBundledApp"),
+            "bypassing write() without the bundled-app guard lets swift test pollute the real log")
+        XCTAssertFalse(
+            body.contains("write(message)"),
+            "write()+flush() is the untested pair the owner removed and the suite stayed green")
+    }
+
     /// Wiring: `markClean` must go through `writeAndFlush`, not `write`
     /// alone. `AppLog.write` is a no-op under `swift test`, so calling
     /// `markClean` cannot prove the drain. The source scan does — the same
@@ -74,18 +93,23 @@ final class AppLogTests: XCTestCase {
 
     /// Sweep: the #163 yield path is the other write-then-exit site. It
     /// already flushed; keep it on the same pair so a future edit cannot
-    /// drop one and keep the other.
+    /// drop one and keep the other. Scan only the yield `if` — `functionBody`
+    /// on `applicationDidFinishLaunching` spans ~ten methods and rejects a
+    /// correct launch-path `AppLog.write`.
     func testDuplicateYieldUsesWriteAndFlushBeforeTerminate() throws {
         let source = try String(contentsOf: repositoryFile("Sources/PokeTokenBar/PokeTokenBarApp.swift"))
         let body = try XCTUnwrap(
-            functionBody(named: "applicationDidFinishLaunching", in: source),
-            "the yield path lives in applicationDidFinishLaunching")
+            yieldBlock(in: source),
+            "the yield path lives in the shouldYieldToRunningInstance block")
         XCTAssertTrue(
             body.contains("AppLog.writeAndFlush(\"duplicate instance: yielding to the instance already running\")"),
             "the yield path must flush before terminate — #163 review, 42/100 lost")
         XCTAssertFalse(
             body.contains("AppLog.write("),
             "write() without flush on this path is the race #163 already closed")
+        XCTAssertTrue(
+            body.contains("NSApp.terminate"),
+            "the scanned block must still be the write-then-exit site")
     }
 
     // MARK: - Helpers
@@ -103,6 +127,16 @@ final class AppLogTests: XCTestCase {
             .deletingLastPathComponent() // Tests
             .deletingLastPathComponent() // repo root
             .appendingPathComponent(relative)
+    }
+
+    /// The `if SingleInstance.shouldYieldToRunningInstance()` block only —
+    /// not the rest of `applicationDidFinishLaunching`. A launch-path
+    /// `AppLog.write` after SIGPIPE is not an exit-path race.
+    private func yieldBlock(in source: String) -> String? {
+        guard let start = source.range(of: "if SingleInstance.shouldYieldToRunningInstance()") else { return nil }
+        let rest = source[start.lowerBound...]
+        guard let end = rest.range(of: "signal(SIGPIPE") else { return nil }
+        return String(rest[..<end.lowerBound])
     }
 
     /// Body of `func <name>` up to the next top-level `func` / `///` type doc

@@ -43,10 +43,11 @@ enum AppLog {
     }
 
     /// Exit-path pair: enqueue, then wait until the line has been sunk.
-    /// Callers that reach `exit()` after `write` alone lose the line (#174).
+    /// Routes through the tested `backend.writeAndFlush` — a second
+    /// `write()`+`flush()` pair is untested and reintroduces #174.
     static func writeAndFlush(_ message: String) {
-        write(message)
-        flush()
+        guard AppEnv.isBundledApp else { return }
+        backend.writeAndFlush(formatted(message))
     }
 
     static func write(_ message: String) {
@@ -54,8 +55,11 @@ enum AppLog {
         // 않게(형제 write 경로 writeParitySnapshot·checkLimitNotifications 와 동일 가드). 테스트가
         // 크래시 진단 로그에 fixture 값을 남기고 회전으로 실이력을 밀어내던 결함 차단.
         guard AppEnv.isBundledApp else { return }
-        let line = "[\(ISO8601DateFormatter().string(from: Date()))] \(message)\n"
-        backend.write(line)
+        backend.write(formatted(message))
+    }
+
+    private static func formatted(_ message: String) -> String {
+        "[\(ISO8601DateFormatter().string(from: Date()))] \(message)\n"
     }
 }
 
