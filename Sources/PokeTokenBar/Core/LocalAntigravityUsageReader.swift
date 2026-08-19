@@ -26,8 +26,24 @@ import SQLite3
 ///       1.4.5     cache_read_tokens    prompt cache hit
 ///       1.4.11    response_id          globally unique per call
 ///       1.9     chat_start_metadata    exa.cortex_pb.ChatStartMetadata
-///       1.9.4     created_at           google.protobuf.Timestamp
+///       1.9.4     created_at           google.protobuf.Timestamp, absent since Antigravity 2.0
 ///       1.19    response_model         e.g. "gemini-3.6-flash"
+///       4       execution_id           the execution these tokens were spent in
+///
+/// Records written by Antigravity 2.0 carry `chat_start_metadata` with `created_at` removed, and
+/// nothing else in the blob is a time. The date for those comes from the `steps` table of the
+/// same store, whose `metadata` is an `exa.cortex_pb.StepMetadata`:
+///
+///     steps.metadata          exa.cortex_pb.StepMetadata
+///       1     created_at        google.protobuf.Timestamp — when the step was queued
+///       8     finished_at       google.protobuf.Timestamp — absent while the step is running
+///       12    execution_id      matches `gen_metadata.data` field 4
+///
+/// The join is on `execution_id`, not on `idx`: `gen_metadata.idx` is its own dense sequence and
+/// drifts from `steps.idx` by minutes within a single conversation. Against the stores that still
+/// carry `created_at`, dating each record from the step timings of its own execution lands within
+/// ~2 minutes of the writer's own value, where the store's mtime — one value for every record it
+/// holds — moves a conversation's earlier days onto the day it was last written.
 ///
 /// There is no total field anywhere in the schema, so the total is the sum of the three
 /// populated counters — which is exactly the identity `LocalUsageReader.Entry` already keeps.
@@ -257,7 +273,8 @@ enum LocalAntigravityUsageReader {
 
         var statement: OpaquePointer?
         let prepared = sqlite3_prepare_v2(
-            handle, "SELECT idx, data FROM gen_metadata WHERE data IS NOT NULL", -1, &statement, nil)
+            handle, "SELECT idx, data FROM gen_metadata WHERE data IS NOT NULL ORDER BY idx",
+            -1, &statement, nil)
         guard prepared == SQLITE_OK, let statement else {
             // `SQLITE_ERROR` here is "no such table", which is a fact about the file and will
             // never change; anything else (BUSY, I/O) is this moment failing to read a store
@@ -266,7 +283,13 @@ enum LocalAntigravityUsageReader {
         }
         defer { sqlite3_finalize(statement) }
 
-        let fallbackDate = signature(of: database)?.mtime ?? Date()
+        // Three sources, most specific first: the writer's own `created_at`, the timings of the
+        // execution the record belongs to, and — for a store that offers neither — the file's
+        // own mtime, which is the same date for every record it holds.
+        let storeDate = signature(of: database)?.mtime ?? Date()
+        // Loads itself on the first record that has no `created_at`, so a store written before
+        // Antigravity 2.0 never reads `steps` at all.
+        let timeline = StepTimeline(handle: handle)
         let conversation = database.deletingPathExtension().lastPathComponent
         var entries: [LocalUsageReader.Entry] = []
         var discardedCounters = 0
@@ -282,7 +305,9 @@ enum LocalAntigravityUsageReader {
                     guard count > 0 else { return }
                     let blob = Data(bytes: pointer, count: count)
                     let record = parseGenerationMetadata(
-                        blob, conversation: conversation, index: index, fallbackDate: fallbackDate, formatter: formatter)
+                        blob, conversation: conversation, index: index,
+                        fallbackDate: { timeline.next(for: $0) ?? storeDate },
+                        formatter: formatter)
                     discardedCounters += record.discardedCounters
                     guard let entry = record.entry else { return }
                     entries.append(entry)
@@ -295,6 +320,10 @@ enum LocalAntigravityUsageReader {
             guard step == SQLITE_DONE else { return .incompleteScan(status: step, rows: rows) }
             break
         }
+        // A `steps` read that stopped early leaves some records dated from their own execution
+        // and the rest from the store's mtime. That mixture must not be cached as the whole of
+        // the conversation, for the same reason half its rows must not be.
+        if let status = timeline.failure { return .incompleteScan(status: status, rows: rows) }
         return .complete(entries: entries, discardedCounters: discardedCounters)
     }
 
@@ -322,6 +351,83 @@ enum LocalAntigravityUsageReader {
         return nil
     }
 
+    // MARK: Dating a record Antigravity 2.0 left undated
+
+    /// Step timings from the same store, grouped by the execution that produced them, handed out
+    /// in order to the generation records of that execution.
+    ///
+    /// Ordered rather than "the last step of the execution": both sequences run forward in time,
+    /// so pairing the nth generation with the nth step follows a long execution as it goes
+    /// instead of collapsing all of its records onto its final moment. Measured against the
+    /// stores that still carry `created_at`, ordered pairing lands a couple of minutes out where
+    /// taking the last step is four times that — and the further out it is, the more turns a day
+    /// boundary can catch on the wrong side.
+    ///
+    /// A `class` because it is loaded lazily from inside the row loop and every call must see the
+    /// same consumption.
+    final class StepTimeline {
+        private let handle: OpaquePointer
+        private var times: [String: [Date]] = [:]
+        private var taken: [String: Int] = [:]
+        private var loaded = false
+
+        /// The status of a `steps` read that stopped before `SQLITE_DONE`. A store with no
+        /// `steps` table at all is not a failure — it is one this fallback does not apply to,
+        /// and the caller still has the store's mtime to date it with.
+        private(set) var failure: Int32?
+
+        init(handle: OpaquePointer) { self.handle = handle }
+
+        /// The next unclaimed step time of `execution`, or its last one once they run out — a
+        /// step whose `finished_at` has not been written yet still dates the turn it belongs to.
+        func next(for execution: String?) -> Date? {
+            guard let execution else { return nil }
+            if !loaded {
+                loaded = true
+                load()
+            }
+            guard let steps = times[execution], !steps.isEmpty else { return nil }
+            let ordinal = taken[execution, default: 0]
+            taken[execution] = ordinal + 1
+            return steps[min(ordinal, steps.count - 1)]
+        }
+
+        private func load() {
+            var statement: OpaquePointer?
+            let prepared = sqlite3_prepare_v2(
+                handle, "SELECT metadata FROM steps WHERE metadata IS NOT NULL ORDER BY idx",
+                -1, &statement, nil)
+            guard prepared == SQLITE_OK, let statement else {
+                // `SQLITE_ERROR` is "no such table": a store that keeps generation metadata and
+                // no steps is one this fallback does not apply to, not one that failed to read.
+                if prepared != SQLITE_ERROR { failure = prepared }
+                return
+            }
+            defer { sqlite3_finalize(statement) }
+
+            while true {
+                let step = sqlite3_step(statement)
+                if step == SQLITE_ROW {
+                    autoreleasepool {
+                        guard let pointer = sqlite3_column_blob(statement, 0) else { return }
+                        let count = Int(sqlite3_column_bytes(statement, 0))
+                        guard count > 0 else { return }
+                        let bytes = [UInt8](Data(bytes: pointer, count: count))
+                        guard let execution = AntigravityProto.string(bytes[...], field: 12),
+                              // `finished_at` is when the tokens were actually spent; a step
+                              // still running has only the moment it was queued.
+                              let date = timestamp(bytes[...], field: 8)
+                                ?? timestamp(bytes[...], field: 1) else { return }
+                        times[execution, default: []].append(date)
+                    }
+                    continue
+                }
+                if step != SQLITE_DONE { failure = step }
+                return
+            }
+        }
+    }
+
     // MARK: Parsing one generation record
 
     /// What one `gen_metadata` row yielded. `discardedCounters` travels with the entry because
@@ -336,7 +442,7 @@ enum LocalAntigravityUsageReader {
         _ blob: Data,
         conversation: String,
         index: Int64,
-        fallbackDate: Date? = nil,
+        fallbackDate: (_ execution: String?) -> Date? = { _ in nil },
         formatter: DateFormatter
     ) -> Record {
         let bytes = [UInt8](blob)
@@ -348,8 +454,12 @@ enum LocalAntigravityUsageReader {
         case .valid(let d):
             date = d
         case .absent:
-            guard let fallbackDate else { return Record() }
-            date = fallbackDate
+            // `execution_id` names the execution this record belongs to; the resolver turns it
+            // into a time from the same store's steps.
+            guard let inferred = fallbackDate(AntigravityProto.string(bytes[...], field: 4)) else {
+                return Record()
+            }
+            date = inferred
         case .invalid:
             return Record()
         }
@@ -399,6 +509,17 @@ enum LocalAntigravityUsageReader {
         }
         let nanos = AntigravityProto.varint(stamp, field: 2).map { $0 < 1_000_000_000 ? Double($0) : 0 } ?? 0
         return .valid(Date(timeIntervalSince1970: Double(seconds) + nanos / 1_000_000_000))
+    }
+
+    /// A `google.protobuf.Timestamp` held at `field`, with the same plausibility window
+    /// `createdAt` applies — a malformed varint can carry the whole `uint64` range, and a `Date`
+    /// built from one would overflow the arithmetic downstream of it.
+    static func timestamp(_ data: ArraySlice<UInt8>, field: Int) -> Date? {
+        guard let stamp = AntigravityProto.message(data, field: field),
+              let seconds = AntigravityProto.varint(stamp, field: 1),
+              seconds >= 1_000_000_000, seconds <= 4_102_444_800 else { return nil }
+        let nanos = AntigravityProto.varint(stamp, field: 2).map { $0 < 1_000_000_000 ? Double($0) : 0 } ?? 0
+        return Date(timeIntervalSince1970: Double(seconds) + nanos / 1_000_000_000)
     }
 
     private static func makeEntry(
