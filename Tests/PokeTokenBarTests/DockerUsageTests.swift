@@ -69,7 +69,8 @@ final class DockerUsageTests: XCTestCase {
             modifiedSince: try date("2026-01-01T00:00:00Z"),
             roots: [temporaryDirectory]).entries.first)
         XCTAssertEqual(entry.model, "gpt-5")
-        XCTAssertEqual(entry.explicitCost, 0.07)
+        // NSNumber-decoded JSON doubles round-trip inexactly (0.07 → 0.07000000000000003).
+        XCTAssertEqual(try XCTUnwrap(entry.explicitCost), 0.07, accuracy: 0.000_001)
         XCTAssertEqual(entry.input, 100)
         XCTAssertEqual(entry.output, 30)
         XCTAssertEqual(entry.cacheRead, 20)
