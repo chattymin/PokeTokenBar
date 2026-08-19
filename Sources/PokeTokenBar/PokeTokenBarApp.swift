@@ -306,14 +306,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         [(eggImage(up: false), 0.5), (eggImage(up: true), 0.5)]
     }
 
-    private static func menuBarImage(from sprite: NSImage, up: Bool) -> NSImage {
-        let h: CGFloat = 22
-        let img = NSImage(size: NSSize(width: h, height: h))
+    /// 메뉴바 프레임 기하 — **비율 유지**(SpriteFit). 순수·테스트용.
+    ///
+    /// 캔버스 세로는 22 로 고정(baseline 이 프레임마다 흔들리면 안 된다), 가로는 맞춘 스프라이트 폭
+    /// + 좌우 1pt 만큼만. 정사각 22 고정으로 두면 세로로 긴 종(잭키 36×66 → 폭 10.9)의 좌우에 죽은
+    /// 여백이 5pt 씩 생겨 사용량 숫자와 사이가 벌어진다. 세로 기준선은 바닥 정렬 유지 — GIF 캔버스는
+    /// 스프라이트에 딱 맞게 크롭돼 있어 바닥이 곧 발밑이고, 정사각 원본은 예전과 픽셀 단위로 같다.
+    nonisolated static func menuBarLayout(for pixelSize: CGSize, height h: CGFloat = 22,
+                                          up: Bool) -> (canvas: NSSize, rect: NSRect) {
+        let fit = SpriteFit.size(for: pixelSize, box: h - 2)
+        return (NSSize(width: fit.width + 2, height: h),
+                NSRect(x: 1, y: up ? 1 : 0, width: fit.width, height: fit.height))
+    }
+
+    static func menuBarImage(from sprite: NSImage, up: Bool) -> NSImage {
+        let layout = menuBarLayout(for: sprite.size, up: up)
+        let img = NSImage(size: layout.canvas)
         img.lockFocus()
         NSGraphicsContext.current?.imageInterpolation = .none
-        let off: CGFloat = up ? 1 : 0
-        sprite.draw(in: NSRect(x: 1, y: off, width: h - 2, height: h - 2),
-                    from: .zero, operation: .sourceOver, fraction: 1)
+        sprite.draw(in: layout.rect, from: .zero, operation: .sourceOver, fraction: 1)
         img.unlockFocus()
         return img
     }

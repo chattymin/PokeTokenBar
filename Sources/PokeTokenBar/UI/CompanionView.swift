@@ -29,7 +29,11 @@ struct ItemIconView: View {
     var body: some View {
         Group {
             if let img {
+                // 아이템 PNG 는 대체로 정사각(30×30)이라 늘려도 티가 안 났지만, 소스가 외부(PokeAPI
+                // items)라 비정사각이 섞이면 그대로 왜곡된다 — 스프라이트와 같은 SpriteFit 규율.
+                let fit = SpriteFit.size(for: img.size, box: size)
                 Image(nsImage: img).resizable().interpolation(.none)
+                    .frame(width: fit.width, height: fit.height)
                     .frame(width: size, height: size)
             } else {
                 Text(kind.fallbackEmoji).font(.system(size: size))
@@ -139,16 +143,31 @@ struct SpriteView: View {
         loadedID != id || loadedShiny != shiny
     }
 
+    /// size×size 슬롯 안에서 이 이미지가 실제로 차지할 크기 — 원본 비율 유지(SpriteFit).
+    /// 순수·테스트용. `.resizable()` 은 프레임을 그대로 채우므로(늘어남) 프레임을 미리 재서 넘긴다.
+    /// 정사각 원본(정적 96×96·아이템 30×30)은 size×size 그대로라 기존 레이아웃과 동일하다.
+    static func imageSize(for image: NSImage, box: CGFloat) -> CGSize {
+        SpriteFit.size(for: image.size, box: box)
+    }
+
+    /// 비율 유지로 잰 이미지 프레임 + 바깥 size×size 슬롯. 바깥 슬롯을 유지하는 이유: 진화 라인·도감
+    /// 그리드의 폭 계산(EvoLineView.rowWidth 등)이 칸을 정사각으로 전제한다 — 안쪽만 줄여야 안 흔들린다.
+    @ViewBuilder
+    private func fitted(_ image: NSImage) -> some View {
+        let fit = Self.imageSize(for: image, box: size)
+        Image(nsImage: image).resizable().interpolation(.none)
+            .frame(width: fit.width, height: fit.height)
+            .frame(width: size, height: size)
+    }
+
     var body: some View {
         Group {
             if !frames.isEmpty {
-                // GIF 애니메이션 경로 — 현재 프레임만 렌더
-                Image(nsImage: frames[frameIndex % frames.count].image)
-                    .resizable().interpolation(.none)
-                    .frame(width: size, height: size)
+                // GIF 애니메이션 경로 — 현재 프레임만 렌더. Gen-V GIF 캔버스는 종마다 비정사각이라
+                // (잭키 36×66) 정사각으로 늘리면 뚱뚱해진다 → fitted 로 비율 유지.
+                fitted(frames[frameIndex % frames.count].image)
             } else if let img {
-                Image(nsImage: img).resizable().interpolation(.none)
-                    .frame(width: size, height: size)
+                fitted(img)
             } else {
                 Text("🥚").font(.system(size: size * 0.62)).frame(width: size, height: size)
             }
