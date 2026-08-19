@@ -561,12 +561,14 @@ final class CursorUsageTests: XCTestCase {
         let since = try date("2025-01-01T00:00:00Z")
         var seenPages: [Int] = []
         let transport: CursorUsageAPI.Transport = { request in
-            let body = try XCTUnwrap(request.httpBody)
-            let json = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any])
+            guard let body = request.httpBody,
+                  let json = try? JSONSerialization.jsonObject(with: body) as? [String: Any] else {
+                return nil
+            }
             let page = json["page"] as? Int ?? 0
             seenPages.append(page)
             let events: [[String: Any]]
-            let pagination: [String: Any]?
+            let pagination: [String: Any]
             switch page {
             case 1:
                 events = (0 ..< 100).map { index in
@@ -585,10 +587,10 @@ final class CursorUsageTests: XCTestCase {
                 ]]
                 pagination = ["hasNextPage": false]
             }
-            let payload = try JSONSerialization.data(withJSONObject: [
+            guard let payload = try? JSONSerialization.data(withJSONObject: [
                 "usageEvents": events,
-                "pagination": pagination as Any,
-            ])
+                "pagination": pagination,
+            ]) else { return nil }
             return (payload, 200)
         }
 
@@ -628,7 +630,7 @@ final class CursorUsageTests: XCTestCase {
             modifiedSince: since,
             transport: transport)
         XCTAssertNil(result.failureReason)
-        XCTAssertEqual(result.entries, [])
+        XCTAssertEqual(result.entries?.count, 0)
     }
 
     func testParseUsageEventPrefersStableEventID() throws {
