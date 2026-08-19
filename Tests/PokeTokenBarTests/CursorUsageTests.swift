@@ -559,14 +559,17 @@ final class CursorUsageTests: XCTestCase {
 
     func testFetchFilteredEventsPaginatesAcrossPages() async throws {
         let since = try date("2025-01-01T00:00:00Z")
-        var seenPages: [Int] = []
+        final class PageRecorder: @unchecked Sendable {
+            var pages: [Int] = []
+        }
+        let recorder = PageRecorder()
         let transport: CursorUsageAPI.Transport = { request in
             guard let body = request.httpBody,
                   let json = try? JSONSerialization.jsonObject(with: body) as? [String: Any] else {
                 return nil
             }
             let page = json["page"] as? Int ?? 0
-            seenPages.append(page)
+            recorder.pages.append(page)
             let events: [[String: Any]]
             let pagination: [String: Any]
             switch page {
@@ -599,7 +602,7 @@ final class CursorUsageTests: XCTestCase {
             modifiedSince: since,
             transport: transport)
         XCTAssertNil(result.failureReason)
-        XCTAssertEqual(seenPages, [1, 2])
+        XCTAssertEqual(recorder.pages, [1, 2])
         XCTAssertEqual(result.entries?.count, 101)
     }
 
