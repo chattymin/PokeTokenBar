@@ -186,15 +186,27 @@ git commit -m "feat: record breadcrumbs synchronously so a crash keeps its conte
 
 ---
 
-### Task 2: 크래시 리포터와 합치기
+### Task 2: 마지막 크래시 보존 + 합치기
 
 **Files:**
+- Create: `Sources/PokeDexBar/Core/LastCrash.swift`
 - Modify: `Sources/PokeDexBar/Core/CrashReporter.swift`
-- Test: `Tests/PokeDexBarTests/CrashReporterBreadcrumbTests.swift`
+- Test: `Tests/PokeDexBarTests/LastCrashTests.swift`
 
 **Interfaces:**
 - Consumes: `Breadcrumbs`
-- Produces: `CrashReporter.drainBreadcrumbs(afterUncleanShutdown: Bool) -> String?` — 순수하게 만들 수 있는 부분을 분리해 테스트 가능하게 한다
+- Produces:
+  - `struct LastCrashRecord: Codable, Sendable, Equatable { let at: Date; let version: String; let crashLines: [String]; let breadcrumbs: [String]; var acknowledged: Bool }`
+  - `enum LastCrash` — `static var fileURL: URL` (테스트가 갈아끼운다), `static func load() -> LastCrashRecord?`, `static func save(_:)`, `static func acknowledge()`, `static func clear()`
+  - `CrashReporter.drainBreadcrumbs(afterUncleanShutdown: Bool) -> String?`
+
+**왜 따로 보존하나 (설계 §1b):** 빵부스러기 링은 기동과 함께 비워지고 **지금 세션**의 행동으로
+다시 찬다. 제보는 며칠 뒤에 눌릴 수 있으므로, 그때 링을 읽으면 이슈에 `tab: settings` 만 담기고
+정작 필요한 `detail open: species=133` 은 안 담긴다. 메인 로그를 훑는 것도 안 된다 — 2MB 회전으로
+밀려나 있을 수 있다.
+
+**순서가 load-bearing 이다:** 링을 비우기 **전에** 스냅샷을 뜬다. 뒤집히면 빈 기록이 남고, 그
+결함은 "이슈에 빵부스러기가 없다"로만 보여 원인을 못 찾는다.
 
 - [ ] **Step 1: 실패하는 테스트를 쓴다**
 
@@ -244,18 +256,82 @@ final class CrashReporterBreadcrumbTests: XCTestCase {
     func testNoBreadcrumbsYieldsNothing() {
         XCTAssertNil(CrashReporter.drainBreadcrumbs(afterUncleanShutdown: true))
     }
+
+    // MARK: 보존 — 제보에 담기는 것이 **그 크래시의 것**이어야 한다
+
+    /// **이 기능의 목적 자체.** 크래시 세션의 빵부스러기를 남기고, 기동한 뒤 지금 세션에서
+    /// 다른 행동을 여러 개 더 한 다음 기록을 읽어 — 크래시 것이 담기고 지금 것은 안 담기는지.
+    /// 살아 있는 링을 읽는 구현은 여기서 반드시 걸린다.
+    func testTheStoredRecordHoldsTheCrashSessionNotTheCurrentOne() {
+        Breadcrumbs.record("detail open: species=133 shiny=true")
+        CrashReporter.captureLastCrash(version: "1.8.0", afterUncleanShutdown: true)
+
+        // 기동 이후의 이번 세션 행동들
+        Breadcrumbs.record("tab: settings")
+        Breadcrumbs.record("tab: box")
+
+        let record = LastCrash.load()
+        XCTAssertTrue(record?.breadcrumbs.contains { $0.contains("species=133") } == true,
+                      "크래시 세션의 빵부스러기가 없다")
+        XCTAssertFalse(record?.breadcrumbs.contains { $0.contains("tab: settings") } == true,
+                       "지금 세션의 행동이 섞여 들어갔다 — 살아 있는 링을 읽고 있다")
+    }
+
+    /// **스냅샷은 링을 비우기 전에 뜬다.** 순서가 뒤집히면 빈 기록이 남는다.
+    func testTheSnapshotIsTakenBeforeTheRingIsCleared() {
+        Breadcrumbs.record("detail open: species=7")
+        CrashReporter.captureLastCrash(version: "1.8.0", afterUncleanShutdown: true)
+        XCTAssertFalse(LastCrash.load()?.breadcrumbs.isEmpty ?? true,
+                       "빈 기록이 남았다 — 비우기가 스냅샷보다 먼저 돌았다")
+    }
+
+    /// **대조군 — 정상 종료면 기록을 안 만든다.**
+    func testACleanShutdownStoresNoRecord() {
+        Breadcrumbs.record("detail open: species=7")
+        CrashReporter.captureLastCrash(version: "1.8.0", afterUncleanShutdown: false)
+        XCTAssertNil(LastCrash.load())
+    }
+
+    /// 하나만 들고 있는다 — 새 크래시가 옛 기록을 덮고, `acknowledged` 도 함께 풀린다.
+    func testANewCrashReplacesTheOldRecordAndReArmsTheBanner() {
+        Breadcrumbs.record("detail open: species=7")
+        CrashReporter.captureLastCrash(version: "1.8.0", afterUncleanShutdown: true)
+        LastCrash.acknowledge()
+        XCTAssertEqual(LastCrash.load()?.acknowledged, true)
+
+        Breadcrumbs.record("detail open: species=8")
+        CrashReporter.captureLastCrash(version: "1.8.0", afterUncleanShutdown: true)
+        XCTAssertEqual(LastCrash.load()?.acknowledged, false, "새 크래시인데 배너가 안 재무장됐다")
+        XCTAssertTrue(LastCrash.load()?.breadcrumbs.contains { $0.contains("species=8") } == true)
+    }
+
+    /// 깨진 JSON 이 있어도 안 죽는다 — 손댄 파일이나 중간에 끊긴 write.
+    func testACorruptRecordIsTreatedAsAbsent() {
+        try? Data("not json".utf8).write(to: LastCrash.fileURL)
+        XCTAssertNil(LastCrash.load())
+    }
 }
 ```
 
 - [ ] **Step 2~4: 실패 확인 → 구현 → 통과 확인**
 
-`install(version:)` 의 마커 검사 결과를 `drainBreadcrumbs(afterUncleanShutdown:)` 에 넘기고, 돌려받은 문자열이 있으면 `AppLog.write` 한다. **마커를 지우기 전에** 부른다 — 순서가 뒤집히면 항상 "정상 종료"로 보여 아무것도 안 합쳐진다.
+`install(version:)` 의 마커 검사 결과를 아래 **순서 그대로** 흘린다:
 
-- [ ] **Step 5: 커밋**
+1. `captureLastCrash(version:afterUncleanShutdown:)` — 링이 아직 직전 세션 것을 들고 있는 동안 스냅샷
+2. `drainBreadcrumbs(afterUncleanShutdown:)` → 결과가 있으면 `AppLog.write`, 그리고 링·파일 비우기
+3. 마커 갱신
+
+**마커를 지우기 전에** 1·2 를 부른다 — 순서가 뒤집히면 항상 "정상 종료"로 보여 아무것도 안 남는다.
+
+- [ ] **Step 5: 돌연변이 확인**
+
+`captureLastCrash` 와 `drainBreadcrumbs` 의 호출 순서를 바꿔 보고 `testTheSnapshotIsTakenBeforeTheRingIsCleared` 가 실패하는지 확인한다. 되돌린다.
+
+- [ ] **Step 6: 커밋**
 
 ```bash
 git add -A
-git commit -m "feat: fold breadcrumbs into the log after an unclean shutdown"
+git commit -m "feat: preserve the last crash context across launches"
 ```
 
 ---
@@ -267,10 +343,12 @@ git commit -m "feat: fold breadcrumbs into the log after an unclean shutdown"
 - Test: `Tests/PokeDexBarTests/DiagnosticsTests.swift`
 
 **Interfaces:**
-- Consumes: `Breadcrumbs`, `AppLog`
+- Consumes: `LastCrash`, `AppLog`
 - Produces:
   - `Diagnostics.redact(_ text: String, home: String) -> String`
-  - `Diagnostics.report(version:os:uncleanShutdown:breadcrumbs:boxCount:dexCount:) -> String`
+  - `Diagnostics.report(version:os:lastCrash:boxCount:dexCount:) -> String`
+
+**`lastCrash: LastCrashRecord?` 를 받는다 — `Breadcrumbs.read()` 를 넘기지 않는다.** 살아 있는 링은 제보를 누르는 **지금 세션**의 것이라, 넘기면 이슈에 `tab: settings` 만 담기고 크래시 문맥은 안 담긴다. 이 실수가 조용한 이유는 이슈가 *비어 보이지 않고* **그럴듯하게 잘못 채워지기** 때문이다.
   - `Diagnostics.issueURL(repo:title:body:limit:) -> (url: URL, truncated: Bool)?`
   - `Diagnostics.urlLimit = 6000`
   - `Diagnostics.repo = "donky-ey/PokeDexBar"`
@@ -349,31 +427,43 @@ final class DiagnosticsTests: XCTestCase {
 
     // MARK: 리포트 본문
 
+    private func record(_ crumbs: [String]) -> LastCrashRecord {
+        LastCrashRecord(at: Date(timeIntervalSince1970: 1_700_000_000), version: "1.8.0",
+                        crashLines: ["[CRASH] fatal signal SIGTRAP"], breadcrumbs: crumbs,
+                        acknowledged: false)
+    }
+
     /// 리포트에 진단에 필요한 것이 들어 있다.
     func testTheReportCarriesVersionOsAndBreadcrumbs() {
         let text = Diagnostics.report(version: "1.8.0", os: "Version 26.5",
-                                      uncleanShutdown: true,
-                                      breadcrumbs: ["[t] detail open: species=133"],
+                                      lastCrash: record(["[t] detail open: species=133"]),
                                       boxCount: 12, dexCount: 40)
-        for needle in ["1.8.0", "26.5", "species=133"] {
+        for needle in ["1.8.0", "26.5", "species=133", "SIGTRAP"] {
             XCTAssertTrue(text.contains(needle), "\(needle) 가 없다:\n\(text)")
         }
     }
 
-    /// **비정상 종료 여부가 양쪽 다 표시된다** — "정상"이 조용히 생략되면
-    /// 그 이슈가 크래시인지 아닌지 읽는 사람이 알 수 없다.
-    func testUncleanShutdownIsStatedEitherWay() {
-        let crashed = Diagnostics.report(version: "1", os: "o", uncleanShutdown: true,
-                                         breadcrumbs: [], boxCount: 0, dexCount: 0)
-        let clean = Diagnostics.report(version: "1", os: "o", uncleanShutdown: false,
-                                       breadcrumbs: [], boxCount: 0, dexCount: 0)
+    /// **크래시 기록이 있는지 없는지가 양쪽 다 표시된다** — 크래시가 아닌 제보(기능 문의)도
+    /// 이 경로로 오므로, "정상"이 조용히 생략되면 읽는 사람이 구분할 수 없다.
+    func testTheCrashPresenceIsStatedEitherWay() {
+        let crashed = Diagnostics.report(version: "1", os: "o", lastCrash: record([]),
+                                         boxCount: 0, dexCount: 0)
+        let clean = Diagnostics.report(version: "1", os: "o", lastCrash: nil,
+                                       boxCount: 0, dexCount: 0)
         XCTAssertNotEqual(crashed, clean)
+    }
+
+    /// 크래시 기록이 없어도 제보는 만들어진다 — 기능 문의로도 쓸 수 있어야 한다.
+    func testAReportWithoutACrashStillCarriesTheVersion() {
+        let text = Diagnostics.report(version: "1.8.0", os: "o", lastCrash: nil,
+                                      boxCount: 0, dexCount: 0)
+        XCTAssertTrue(text.contains("1.8.0"))
     }
 
     /// **세이브 내용은 안 들어간다.** 규모(개수)만 넣는다.
     func testTheReportDoesNotCarrySaveContents() {
-        let text = Diagnostics.report(version: "1", os: "o", uncleanShutdown: false,
-                                      breadcrumbs: [], boxCount: 12, dexCount: 40)
+        let text = Diagnostics.report(version: "1", os: "o", lastCrash: nil,
+                                      boxCount: 12, dexCount: 40)
         XCTAssertTrue(text.contains("12"))
         XCTAssertFalse(text.lowercased().contains("earnedtokens"))
         XCTAssertFalse(text.lowercased().contains("partnerid"))
@@ -474,7 +564,79 @@ git commit -m "feat: report problems through GitHub issues instead of mail"
 
 ---
 
-### Task 6: 빵부스러기를 실제로 남기는 자리들
+### Task 6: 크래시 배너 — 흐름이 끊기던 자리
+
+**Files:**
+- Create: `Sources/PokeDexBar/UI/CrashReportCard.swift`
+- Modify: `Sources/PokeDexBar/UI/PopoverView.swift` (홈 탭에 배치)
+- Test: `Tests/PokeDexBarTests/CrashReportCardTests.swift`
+
+**Interfaces:**
+- Consumes: `LastCrash`, `Diagnostics`
+- Produces: `struct CrashReportCard: View` + `#if DEBUG` 레코더 `constructed: [(report: () -> Void, dismiss: () -> Void)]`
+
+**이것이 없으면 앞의 다섯 태스크가 아무 일도 안 한다.** 진단이 아무리 잘 쌓여도, 사용자가
+스스로 설정에 들어가 "문제 제보"를 누를 이유가 없다. 메뉴바 앱은 조용히 사라졌다 다시 켜질
+뿐이다.
+
+`FoundEggAnnouncementCard`·`DiscoveryCard` 와 **같은 자리·같은 모양**을 쓴다 — 이 앱은 이미
+"알릴 것이 생기면 홈에 카드" 라는 관례를 갖고 있다.
+
+- [ ] **Step 1: 실패하는 테스트를 쓴다**
+
+```swift
+import XCTest
+import SwiftUI
+@testable import PokeDexBar
+
+@MainActor
+final class CrashReportCardTests: XCTestCase {
+    // setUp 에서 `LastCrash.fileURL` 을 임시 파일로 갈아끼우고 tearDown 에서 지운다.
+
+    /// 크래시 기록이 있고 아직 확인 전이면 뜬다.
+    func testTheCardAppearsForAnUnacknowledgedCrash() {}
+
+    /// **대조군 ① — 기록이 없으면 안 뜬다.**
+    func testNoCardWithoutACrash() {}
+
+    /// **대조군 ② — 이미 확인했으면 안 뜬다.** 같은 크래시로 매번 조르면 배경이 된다.
+    func testNoCardOnceAcknowledged() {}
+
+    /// **대조군 ③ — 새 크래시가 나면 다시 뜬다.** 게이트가 한 번 닫히고 영영 안 열리면
+    /// 두 번째 크래시부터 아무도 제보하지 않는다.
+    func testTheCardComesBackForANewCrash() {}
+
+    /// **"닫기"를 실제로 눌러** `acknowledged` 가 저장되고, 다시 만들면 안 뜨는지.
+    func testTappingDismissPersistsTheAcknowledgement() {}
+
+    /// **"제보하기"를 실제로 눌러** 제보 흐름이 돌고 확인 처리까지 되는지.
+    /// 뷰만 만들고 안 누르면 배선이 끊겨 있어도 통과한다.
+    func testTappingReportRunsTheReportFlowAndAcknowledges() {}
+
+    /// 카드가 넘기는 진단에 **그 크래시의** 빵부스러기가 담기는지 —
+    /// Task 3 의 계약이 화면까지 실제로 이어지는지 끝에서 확인한다.
+    func testTheCardsReportCarriesTheCrashBreadcrumbs() {}
+}
+```
+
+**구현자에게:** 본문을 전부 채운다. 기존 `FoundEggAnnouncementCard` 테스트의 호스팅 방식을 그대로 재사용한다.
+
+- [ ] **Step 2~4: 실패 확인 → 구현 → 통과 확인**
+
+- [ ] **Step 5: 렌더해서 확인한다**
+
+홈 탭에 카드가 얹혔을 때 파트너 카드·알 슬롯과 안 부딪히는지, **세 언어**에서 안 깨지는지 오프스크린 렌더로 본다.
+
+- [ ] **Step 6: 커밋**
+
+```bash
+git add -A
+git commit -m "feat: offer to report after an unclean shutdown"
+```
+
+---
+
+### Task 7: 빵부스러기를 실제로 남기는 자리들
 
 **Files:**
 - Modify: `Sources/PokeDexBar/UI/IndividualDetailView.swift` (상세 진입)
@@ -521,7 +683,7 @@ git commit -m "feat: leave breadcrumbs when opening a detail view and switching 
 
 ---
 
-### Task 7: `[0]` 부류 스윕
+### Task 8: `[0]` 부류 스윕
 
 **Files:**
 - Modify: `Sources/PokeDexBar/UI/SpriteLoader.swift:146` 외 스윕 결과
@@ -548,7 +710,7 @@ git commit -m "fix: stop indexing possibly-empty directory lookups"
 
 ---
 
-### Task 8: README·스크린샷
+### Task 9: README·스크린샷
 
 **Files:**
 - Modify: `Tests/PokeDexBarTests/ScreenshotGenerator.swift`
@@ -574,13 +736,28 @@ git commit -m "docs: document GitHub issue reporting with a new screenshot"
 
 ## 자체 점검 결과
 
-**스펙 커버리지:** §1 빵부스러기 → Task 1·6 / §2 진단·경로지우기 → Task 3 / §3 GitHub URL → Task 3·5 / §4 화면·메일 삭제 → Task 4·5 / §5 `[0]` 스윕 → Task 7 / §6 테스트 → 각 태스크. 빠진 절 없음.
+**스펙 커버리지:** §1 빵부스러기 → Task 1·7 / §1b 마지막 크래시 보존 → Task 2 / §2 진단·경로지우기 → Task 3 / §3 GitHub URL → Task 3·5 / §3b 배너 → Task 6 / §4 화면·메일 삭제 → Task 4·5 / §5 `[0]` 스윕 → Task 8 / §6 테스트 → 각 태스크. 빠진 절 없음.
 
-**타입 정합:** `Breadcrumbs.fileURL`/`read()`/`clear()` 가 Task 1 에서 정의되고 Task 2·3·6 이 같은 이름으로 쓴다. `Diagnostics.repo`·`urlLimit` 이 Task 3 에서 정의되고 Task 5 가 쓴다.
+**타입 정합:** `Breadcrumbs.fileURL`/`read()`/`clear()` 가 Task 1 에서 정의되고 Task 2·7 이 같은 이름으로 쓴다. `LastCrash`·`LastCrashRecord` 가 Task 2 에서 정의되고 Task 3·5·6 이 쓴다. `Diagnostics.report(version:os:lastCrash:boxCount:dexCount:)` 는 **어디서도 `Breadcrumbs.read()` 를 인자로 안 받는다.**
+
+**흐름 점검 — 크래시부터 이슈까지 끊기는 데가 없나:**
+
+| 단계 | 담당 |
+|---|---|
+| 상세 진입 → 문맥이 **동기로** 디스크에 | Task 1·7 |
+| 크래시 → crash.log + 마커 잔존 | 기존 `CrashReporter` |
+| 기동 → 그 세션의 문맥을 **스냅샷으로 보존** | Task 2 |
+| **사용자가 제보할 일이 생겼음을 안다** | **Task 6** |
+| 진단 조립(경로 지우기·자르기) | Task 3 |
+| GitHub 이슈 열기 / 복사 | Task 3·5 |
+| 이슈에 **그 크래시의** 문맥이 담긴다 | Task 2·3 |
 
 **알려진 위험 — 구현자가 먼저 볼 것:**
 
 1. **Task 1 Step 5(돌연변이 확인)를 건너뛰지 말 것.** 동기 write 가 이 기능의 유일한 load-bearing 성질이고, 그것만 지키면 나머지는 부수적이다.
-2. **Task 6 의 기록 위치.** `.onAppear` 에 걸면 `body` 평가 중 크래시를 못 잡는다 — 이 제보가 정확히 그 부류일 가능성이 높다.
-3. **Task 3 의 자르기 순서.** 안내 문구를 붙인 *뒤* 길이를 재야 한다. 붙이기 전 길이로 판정하면 한도를 넘는다.
-4. **Task 5 의 클립보드 테스트가 사용자의 실제 클립보드를 덮어쓸 수 있다.** 주입 가능한 pasteboard 를 쓰는 편이 안전하다.
+2. **Task 2 의 순서.** 스냅샷을 링 비우기 **전에** 뜬다. 뒤집히면 이슈의 빵부스러기가 빈다.
+3. **`Breadcrumbs.read()` 를 진단에 넘기고 싶은 유혹.** 그건 제보를 누르는 **지금 세션**이다. 이슈가 *비어 보이지 않고 그럴듯하게 잘못 채워지므로* 눈으로는 절대 안 걸린다 — `testTheStoredRecordHoldsTheCrashSessionNotTheCurrentOne` 이 유일한 방어다.
+4. **Task 6 이 없으면 앞의 다섯 태스크가 아무 일도 안 한다.** 진단이 쌓여도 사용자가 설정에 스스로 들어갈 이유가 없다. 이 태스크를 "UI 장식"으로 보고 뒤로 미루지 말 것.
+5. **Task 7 의 기록 위치.** `.onAppear` 에 걸면 `body` 평가 중 크래시를 못 잡는다 — 이 제보가 정확히 그 부류일 가능성이 높다.
+6. **Task 3 의 자르기 순서.** 안내 문구를 붙인 *뒤* 길이를 재야 한다. 붙이기 전 길이로 판정하면 한도를 넘는다.
+7. **Task 5 의 클립보드 테스트가 사용자의 실제 클립보드를 덮어쓸 수 있다.** 주입 가능한 pasteboard 를 쓰는 편이 안전하다.
