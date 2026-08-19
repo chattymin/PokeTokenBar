@@ -145,7 +145,12 @@ struct PopoverView: View {
             .pickerStyle(.segmented)
             .labelsHidden()
             // 탭을 옮기면 상세를 닫는다 — 도감에 갔다 오면 박스는 목록부터 보여야 한다.
-            .onChange(of: nav.tab) { _, _ in boxSelection = nil }
+            .onChange(of: nav.tab) { _, tab in
+                boxSelection = nil
+                // 탭 전환은 사용자 동작이라 `.onChange` 로 충분하다 — 상세 진입과 달리
+                // 이 자리에서 죽는 경로가 없다.
+                Breadcrumbs.record("tab: \(tab)")
+            }
 
             if nav.tab == .box {
                 BoxTabView(store: player, lines: evoLines, onNeedLine: { baseID in loadLine(baseID) },

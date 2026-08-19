@@ -18,7 +18,7 @@ import Foundation
 /// crash.log 의 기록은 **다음 실행 때 메인 로그로 합쳐 비운다**(사용자는 PokeDexBar.log 한 곳만 봐도 됨).
 enum CrashReporter {
     private static let logsDir: URL =
-        FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask)[0]
+        AppEnv.userDirectory(.libraryDirectory)
             .appendingPathComponent("Logs")
     private static var markerURL: URL { logsDir.appendingPathComponent("\(AppEnv.storageName).running") }
     /// 크래시-시점 기록 전용(회전 안 함). 시그널/예외 핸들러가 async-signal-safe 하게 append.

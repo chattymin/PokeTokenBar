@@ -28,9 +28,26 @@ enum AppEnv {
         return name.replacingOccurrences(of: " ", with: "")
     }
 
+    /// 사용자 도메인의 표준 디렉터리. **`[0]` 을 안 쓴다** — `FileManager.urls(for:in:)` 는
+    /// 배열을 돌려주고 빈 배열이면 첨자가 프로세스를 죽인다. 실제로 비는 일은 드물지만,
+    /// 크래시 진단을 넣는 마당에 죽을 수 있는 자리를 남겨 둘 이유가 없다.
+    /// 홈 디렉터리 기준으로 떨어뜨리면 최소한 앱이 살아서 동작한다.
+    static func userDirectory(_ directory: FileManager.SearchPathDirectory) -> URL {
+        if let url = FileManager.default.urls(for: directory, in: .userDomainMask).first {
+            return url
+        }
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        return switch directory {
+        case .applicationSupportDirectory: home.appendingPathComponent("Library/Application Support")
+        case .libraryDirectory: home.appendingPathComponent("Library")
+        case .cachesDirectory: home.appendingPathComponent("Library/Caches")
+        default: home
+        }
+    }
+
     /// 이 빌드의 Application Support 디렉터리. 없으면 만든다.
     static func supportDirectory() -> URL {
-        let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        let dir = userDirectory(.applicationSupportDirectory)
             .appendingPathComponent(storageName, isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         return dir

@@ -24,6 +24,8 @@ enum Breadcrumbs {
     nonisolated(unsafe) static var fileURL: URL = defaultURL()
 
     private nonisolated(unsafe) static var ring: [String] = []
+    /// 직전에 남긴 내용(시각 제외) — 연속 중복을 접는 데 쓴다.
+    private nonisolated(unsafe) static var lastMessage: String?
     private static let lock = NSLock()
 
     /// 한 줄 남긴다. **돌아왔을 때 이미 디스크에 있다.**
@@ -36,6 +38,15 @@ enum Breadcrumbs {
         let stamped = "[\(ISO8601DateFormatter().string(from: Date()))] \(flat)"
 
         lock.lock()
+        // **직전과 같은 내용이면 안 남긴다.** 화면 진입은 뷰가 만들어지는 자리에서 기록하는데
+        // (`.onAppear` 는 body 평가 중 크래시를 못 잡는다), SwiftUI 는 같은 뷰를 자주 다시
+        // 만든다. 그대로 두면 링 20칸이 같은 줄로 도배돼 그 앞의 행동이 전부 밀려난다.
+        // A → B → A 는 세 번 다 남는다 — 직전 것하고만 비교하기 때문이다.
+        if lastMessage == flat {
+            lock.unlock()
+            return
+        }
+        lastMessage = flat
         ring.append(stamped)
         if ring.count > capacity { ring.removeFirst(ring.count - capacity) }
         let snapshot = ring.joined(separator: "\n")
@@ -59,6 +70,7 @@ enum Breadcrumbs {
     static func clear() {
         lock.lock()
         ring = []
+        lastMessage = nil
         let target = fileURL
         lock.unlock()
         try? FileManager.default.removeItem(at: target)
