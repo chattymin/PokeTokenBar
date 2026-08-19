@@ -236,6 +236,11 @@ enum LocalAntigravityUsageReader {
         }
         defer { sqlite3_finalize(statement) }
 
+        let stepDates = generationStepDates(handle)
+        if let status = stepDates.status {
+            return .incompleteScan(status: status, rows: 0)
+        }
+
         let conversation = database.deletingPathExtension().lastPathComponent
         var entries: [LocalUsageReader.Entry] = []
         var discardedCounters = 0
@@ -251,7 +256,8 @@ enum LocalAntigravityUsageReader {
                     guard count > 0 else { return }
                     let blob = Data(bytes: pointer, count: count)
                     let record = parseGenerationMetadata(
-                        blob, conversation: conversation, index: index, formatter: formatter)
+                        blob, conversation: conversation, index: index, formatter: formatter,
+                        stepDates: stepDates.dates)
                     discardedCounters += record.discardedCounters
                     guard let entry = record.entry else { return }
                     entries.append(entry)
@@ -265,6 +271,45 @@ enum LocalAntigravityUsageReader {
             break
         }
         return .complete(entries: entries, discardedCounters: discardedCounters)
+    }
+
+    /// Current Antigravity stores keep the generation's timestamp in the corresponding
+    /// `steps.metadata` row rather than in `gen_metadata.data`. The response id is present in
+    /// both records, so the lookup does not depend on either table's row numbering.
+    private static func generationStepDates(
+        _ handle: OpaquePointer
+    ) -> (dates: [String: Date], status: Int32?) {
+        var statement: OpaquePointer?
+        let prepared = sqlite3_prepare_v2(
+            handle,
+            "SELECT metadata FROM steps WHERE step_type = 15 AND metadata IS NOT NULL",
+            -1,
+            &statement,
+            nil)
+        guard prepared == SQLITE_OK, let statement else {
+            // Older/minimal stores may not have a steps table. Direct timestamps in the
+            // generation blob still work in that case; a different SQLite error is retriable.
+            return ([:], prepared == SQLITE_ERROR ? nil : prepared)
+        }
+        defer { sqlite3_finalize(statement) }
+
+        var dates: [String: Date] = [:]
+        while true {
+            let step = sqlite3_step(statement)
+            if step == SQLITE_ROW {
+                guard let pointer = sqlite3_column_blob(statement, 0) else { continue }
+                let count = Int(sqlite3_column_bytes(statement, 0))
+                guard count > 0 else { continue }
+                let bytes = ArraySlice(Data(bytes: pointer, count: count))
+                guard let model = AntigravityProto.message(bytes, field: 9),
+                      let responseID = AntigravityProto.string(model, field: 11),
+                      let stamp = AntigravityProto.message(bytes, field: 1),
+                      let date = timestampDate(stamp) else { continue }
+                dates[responseID] = date
+                continue
+            }
+            return (dates, step == SQLITE_DONE ? nil : step)
+        }
     }
 
     /// `mode=ro` cannot create the `-shm` file a WAL database needs, so it fails outright on
@@ -305,16 +350,21 @@ enum LocalAntigravityUsageReader {
         _ blob: Data,
         conversation: String,
         index: Int64,
-        formatter: DateFormatter
+        formatter: DateFormatter,
+        stepDates: [String: Date] = [:]
     ) -> Record {
         let bytes = [UInt8](blob)
         guard let chatModel = AntigravityProto.message(bytes[...], field: 1),
-              let usage = AntigravityProto.message(chatModel, field: 4),
-              let date = createdAt(chatModel) else { return Record() }
+              let usage = AntigravityProto.message(chatModel, field: 4) else { return Record() }
+
+        let responseID = AntigravityProto.string(usage, field: 11)
+        guard let date = createdAt(chatModel) ?? responseID.flatMap({ stepDates[$0] }) else {
+            return Record()
+        }
 
         // The turn's own id, not the file it happens to sit in — a copied conversation must
         // not read as fresh spend. `response_id` is populated on every recorded call.
-        let identity = AntigravityProto.string(usage, field: 11).map { "antigravity|\($0)" }
+        let identity = responseID.map { "antigravity|\($0)" }
             ?? "antigravity|\(conversation)|\(index)"
 
         // `response_model` names the model that answered; the rate lookup is short-circuited
@@ -342,8 +392,13 @@ enum LocalAntigravityUsageReader {
     /// `chat_start_metadata.created_at`, a `google.protobuf.Timestamp`.
     private static func createdAt(_ chatModel: ArraySlice<UInt8>) -> Date? {
         guard let start = AntigravityProto.message(chatModel, field: 9),
-              let stamp = AntigravityProto.message(start, field: 4),
-              let seconds = AntigravityProto.varint(stamp, field: 1) else { return nil }
+              let stamp = AntigravityProto.message(start, field: 4) else { return nil }
+        return timestampDate(stamp)
+    }
+
+    /// A `google.protobuf.Timestamp` with the same bounds used by the legacy generation path.
+    private static func timestampDate(_ stamp: ArraySlice<UInt8>) -> Date? {
+        guard let seconds = AntigravityProto.varint(stamp, field: 1) else { return nil }
         // A malformed varint can carry the whole uint64 range; a date built from it would
         // overflow downstream arithmetic. Anything outside a plausible window is not a time.
         guard seconds >= 1_000_000_000, seconds <= 4_102_444_800 else { return nil }

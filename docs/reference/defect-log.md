@@ -53,6 +53,11 @@ read_when:
   계약 테스트)를 열어 키·타입·의미를 확정 ② 그 계약으로 픽스처 작성 ③ 가능하면 실파일 1건 캡처. 특히
   **같은 스펠링이 표면마다 의미가 다를 수 있다**(Grok `inputTokens`=캐시 포함 durable wire vs `input_tokens`=캐시
   제외 헤드리스 투영) — 별칭으로 합치면 캐시분을 두 번 빼거나 두 번 더한다.
+- **Antigravity의 생성 시각은 `gen_metadata` 한 곳에 고정돼 있지 않다.** 구 포맷은
+  `chat_start_metadata.created_at`에 시각을 넣지만, 현재 포맷은 같은 `response_id`를 가진
+  `steps(step_type=15).metadata`에 타임스탬프를 둔다. 토큰 필드는 유지되므로 `gen_metadata`만 읽으면
+  오늘 사용량이 통째로 `nil`이 된다. 두 레코드의 행 순서가 같다는 가정 대신 `response_id`로 연결하고,
+  구 포맷의 직접 시각은 계속 우선한다. 회귀 가드는 `testCurrentGenerationFormatUsesStepMetadataTimestamp`다.
 - **사용량 소스의 "복사·재기록" 경로를 먼저 찾아라 (이중집계·재날짜화).** 세션 fork·재생·서브에이전트는 같은
   지출을 여러 파일에 남기거나 시각을 다시 찍는다. 규칙: ① dedup 키는 *턴 자체* 의 전역 유일 id(파일·세션 경로를
   섞지 마라 — 복사본이 별건이 된다) ② 시각은 *기록* 시각이 아니라 *턴* 시각(fork 는 봉투 timestamp 를 새로

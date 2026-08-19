@@ -108,6 +108,41 @@ final class AntigravityUsageTests: XCTestCase {
         XCTAssertEqual(entry.localDay, LocalUsageReader.localDayFormatter().string(from: created))
     }
 
+    /// New Antigravity stores omit `chat_start_metadata.created_at` from the generation blob.
+    /// The same response id and timestamp remain in the corresponding generation step metadata.
+    func testCurrentGenerationFormatUsesStepMetadataTimestamp() throws {
+        let firstID = "synthetic-new-format-call-1"
+        let secondID = "synthetic-new-format-call-2"
+        let firstDate = try date("2026-08-19T10:00:00Z")
+        let secondDate = try date("2026-08-19T10:01:00Z")
+        try writeConversation(
+            "c1",
+            blobs: [
+                currentFormatRecord(responseID: firstID, createdAt: firstDate,
+                                    input: 100, output: 20, cacheRead: 300),
+                currentFormatRecord(responseID: secondID, createdAt: secondDate,
+                                    input: 200, output: 30, cacheRead: 400),
+            ],
+            // Deliberately reverse the rows: correlation must use response_id, not table order.
+            stepMetadata: [
+                stepMetadata(responseID: secondID, createdAt: secondDate),
+                stepMetadata(responseID: firstID, createdAt: firstDate),
+            ])
+
+        let entries = readAll()
+        XCTAssertEqual(entries.count, 2)
+        let byID = Dictionary(uniqueKeysWithValues: entries.map { ($0.id, $0) })
+        let first = try XCTUnwrap(byID["antigravity|\(firstID)"])
+        let second = try XCTUnwrap(byID["antigravity|\(secondID)"])
+        XCTAssertEqual(first.date.timeIntervalSince1970, firstDate.timeIntervalSince1970, accuracy: 0.001)
+        XCTAssertEqual(second.date.timeIntervalSince1970, secondDate.timeIntervalSince1970, accuracy: 0.001)
+        let formatter = LocalUsageReader.localDayFormatter()
+        XCTAssertEqual(first.localDay, formatter.string(from: firstDate))
+        XCTAssertEqual(second.localDay, formatter.string(from: secondDate))
+        XCTAssertEqual(first.total, 420)
+        XCTAssertEqual(second.total, 630)
+    }
+
     func testRecordsBeforeTheWindowAreExcluded() throws {
         try writeConversation("c1", records: [
             record(responseID: "old", model: "gemini-3.6-flash", createdAt: try date("2026-03-01T10:00:00Z"),
@@ -614,6 +649,45 @@ final class AntigravityUsageTests: XCTestCase {
         return Data(AntigravityProto.encodeMessage(field: 1, chatModel))
     }
 
+    /// Minimal current-format record: the generation blob keeps usage/identity but no longer
+    /// carries `chat_start_metadata.created_at`.
+    private func currentFormatRecord(
+        responseID: String,
+        createdAt: Date,
+        input: UInt64,
+        output: UInt64,
+        cacheRead: UInt64
+    ) -> Data {
+        var usage = AntigravityProto.encodeVarint(field: 2, input)
+        usage += AntigravityProto.encodeVarint(field: 3, output)
+        usage += AntigravityProto.encodeVarint(field: 5, cacheRead)
+        usage += AntigravityProto.encodeString(field: 11, responseID)
+
+        // `chat_start_metadata` now contains other metadata at field 10, but not field 4
+        // (`created_at`). It is included only to keep the fixture on the new wire shape.
+        var start = AntigravityProto.encodeVarint(field: 2, 1)
+        start += AntigravityProto.encodeMessage(
+            field: 10,
+            AntigravityProto.encodeVarint(field: 1, 1)
+                + AntigravityProto.encodeVarint(field: 4, 256_000))
+
+        var chatModel = AntigravityProto.encodeMessage(field: 4, usage)
+        chatModel += AntigravityProto.encodeMessage(field: 9, start)
+        chatModel += AntigravityProto.encodeString(field: 19, "gemini-3.6-flash")
+        return Data(AntigravityProto.encodeMessage(field: 1, chatModel))
+    }
+
+    /// Minimal `steps.metadata` record used by the current writer. The timestamp and response
+    /// id are the only fields needed to correlate it with a generation metadata row.
+    private func stepMetadata(responseID: String, createdAt: Date) -> Data {
+        let timestamp = AntigravityProto.encodeVarint(
+            field: 1, UInt64(createdAt.timeIntervalSince1970))
+        var metadata = AntigravityProto.encodeMessage(field: 1, timestamp)
+        metadata += AntigravityProto.encodeMessage(
+            field: 9, AntigravityProto.encodeString(field: 11, responseID))
+        return Data(metadata)
+    }
+
     private func writeConversation(_ name: String, records: [Data], walMode: Bool = false) throws {
         try writeConversation(name, blobs: records, walMode: walMode)
     }
@@ -675,7 +749,7 @@ final class AntigravityUsageTests: XCTestCase {
     }
 
     private func writeConversation(_ name: String, blobs: [Data], walMode: Bool = false,
-                                   pageSize: Int? = nil) throws {
+                                   pageSize: Int? = nil, stepMetadata: [Data] = []) throws {
         let database = temporaryDirectory.appendingPathComponent("\(name).db")
         // `page_size` only takes effect before the first table exists.
         var sql = pageSize.map { "PRAGMA page_size=\($0);\n" } ?? ""
@@ -683,6 +757,12 @@ final class AntigravityUsageTests: XCTestCase {
         sql += "CREATE TABLE gen_metadata (idx integer, data blob, size integer NOT NULL DEFAULT 0, PRIMARY KEY (idx));\n"
         for (index, blob) in blobs.enumerated() {
             sql += "INSERT INTO gen_metadata VALUES (\(index), X'\(blob.map { String(format: "%02x", $0) }.joined())', \(blob.count));\n"
+        }
+        if !stepMetadata.isEmpty {
+            sql += "CREATE TABLE steps (idx integer, step_type integer NOT NULL DEFAULT 0, metadata blob, PRIMARY KEY (idx));\n"
+            for (index, metadata) in stepMetadata.enumerated() {
+                sql += "INSERT INTO steps VALUES (\(index), 15, X'\(metadata.map { String(format: "%02x", $0) }.joined())');\n"
+            }
         }
         try execute(database, sql: sql)
     }
