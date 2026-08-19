@@ -8,6 +8,9 @@ struct LastCrashRecord: Codable, Sendable, Equatable {
     let crashLines: [String]
     /// 죽기 직전 세션의 빵부스러기.
     let breadcrumbs: [String]
+    /// macOS 가 남긴 `.ips` 에서 뽑은 스택 요약. 없으면 빈 배열 — 리포트가 아직 안 써졌거나
+    /// 지워졌을 수 있다.
+    var stack: [String] = []
     /// 사용자가 제보했거나 배너를 닫았나. 새 크래시가 오면 다시 false 가 된다.
     var acknowledged: Bool
 }

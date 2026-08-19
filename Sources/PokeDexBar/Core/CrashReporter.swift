@@ -62,12 +62,42 @@ enum CrashReporter {
         }
 
         // 4) 잡히지 않은 NSException — 동기 write(비-시그널 컨텍스트라 문자열 포맷 가능).
-        NSSetUncaughtExceptionHandler { ex in
-            let line = "[CRASH] uncaught exception: \(ex.name.rawValue) — \(ex.reason ?? "")\n"
-            if let d = line.data(using: .utf8) {
-                d.withUnsafeBytes { _ = write(CrashReporter.logFD, $0.baseAddress, $0.count) }
-            }
+        //
+        // **한 번 더 건다.** `NSApplication` 은 기동을 마치며 자기 핸들러를 설치할 수 있고,
+        // 그러면 여기서 건 것이 조용히 덮인다. 첫 제보(2026-08-19)가 SIGABRT 인데 예외 줄이
+        // 하나도 없어 원인을 못 좁혔던 것이 이 경로로 설명된다 — 예외였다면 이름이 남았어야 했다.
+        // 앞서 걸려 있던 핸들러가 있으면 **사슬로 잇는다**(그쪽 동작을 뺏지 않는다).
+        installExceptionHandler()
+        NotificationCenter.default.addObserver(
+            forName: NSApplication.didFinishLaunchingNotification, object: nil, queue: .main
+        ) { _ in reinstallAfterLaunch() }
+    }
+
+    /// 예외 핸들러 설치 — 이미 우리 것이 걸려 있으면 아무것도 안 한다.
+    ///
+    /// C 함수 포인터는 비교할 수 없어(`Equatable` 아님) 우리가 걸었는지를 **플래그로** 기억한다.
+    private static func installExceptionHandler() {
+        guard !installedOurs else { return }
+        previous = NSGetUncaughtExceptionHandler()
+        NSSetUncaughtExceptionHandler(ours)
+        installedOurs = true
+    }
+
+    /// AppKit 이 덮어썼는지 알 길이 없으므로, 기동 완료 뒤 한 번 더 걸 때는 이 플래그를 푼다.
+    private static func reinstallAfterLaunch() {
+        installedOurs = false
+        installExceptionHandler()
+    }
+
+    nonisolated(unsafe) private static var installedOurs = false
+    nonisolated(unsafe) private static var previous: (@convention(c) (NSException) -> Void)?
+
+    private static let ours: @convention(c) (NSException) -> Void = { ex in
+        let line = "[CRASH] uncaught exception: \(ex.name.rawValue) — \(ex.reason ?? "")\n"
+        if let d = line.data(using: .utf8) {
+            d.withUnsafeBytes { _ = write(CrashReporter.logFD, $0.baseAddress, $0.count) }
         }
+        CrashReporter.previous?(ex)
     }
 
     /// 정상 종료 — running 마커 제거 + 기록. (크래시/강제종료 땐 호출 안 됨 → 마커 잔존 → 다음 실행 감지.)
@@ -114,8 +144,12 @@ enum CrashReporter {
     static func captureLastCrash(version: String, afterUncleanShutdown unclean: Bool,
                                  crashLines: [String] = []) -> LastCrashRecord? {
         guard unclean else { return nil }
+        // macOS 리포트는 **크래시 직후 몇 초 뒤에** 써진다(실측). 기동이 빠르면 아직 없을 수
+        // 있으므로 없어도 기록은 남긴다 — 스택은 있으면 좋은 것이지 전제가 아니다.
         let record = LastCrashRecord(at: Date(), version: version, crashLines: crashLines,
-                                     breadcrumbs: Breadcrumbs.read(), acknowledged: false)
+                                     breadcrumbs: Breadcrumbs.read(),
+                                     stack: CrashStack.latestSummary() ?? [],
+                                     acknowledged: false)
         LastCrash.save(record)
         return record
     }

@@ -45,6 +45,15 @@ enum Diagnostics {
                 lines.append(contentsOf: crash.crashLines)
                 lines.append("```")
             }
+            // **스택이 제일 먼저다.** 잘릴 때 뒤에서부터 덜어내므로, 결론을 내는 데 가장
+            // 중요한 것이 앞에 있어야 한다(빵부스러기보다 스택이 훨씬 결정적이다).
+            if !crash.stack.isEmpty {
+                lines.append("")
+                lines.append("### Crash stack (from macOS)")
+                lines.append("```")
+                lines.append(contentsOf: crash.stack)
+                lines.append("```")
+            }
             lines.append("")
             lines.append("### What the app was doing")
             lines.append("```")
