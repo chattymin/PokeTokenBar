@@ -25,11 +25,17 @@ final class PhonePayloadStore {
         didSet { defaults.set(refreshInterval, forKey: "phoneRefreshInterval") }
     }
 
+    /// App appearance preference (system, light, or dark).
+    var appearance: AppAppearance {
+        didSet { defaults.set(appearance.rawValue, forKey: "phoneAppearance") }
+    }
+
     private var timer: Timer?
 
     init() {
         self.host = defaults.string(forKey: "phoneHost") ?? ""
         self.refreshInterval = defaults.object(forKey: "phoneRefreshInterval") as? TimeInterval ?? 120
+        self.appearance = AppAppearance(rawValue: defaults.string(forKey: "phoneAppearance") ?? "") ?? .system
         reschedule()
     }
 
