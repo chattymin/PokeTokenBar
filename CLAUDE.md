@@ -11,8 +11,22 @@
 | `docs/reference/release-workflow.md` | 버전을 배포할 때, `release.sh` 게이트에 막혔을 때, UI 변경으로 스크린샷·랜딩을 갱신할 때 |
 | `docs/reference/provider-extension.md` | 새 사용량 소스·버전매니저·로그 루트를 추가할 때, 프로바이더 분기를 리뷰할 때 |
 | `docs/reference/defect-log.md` | 결함·회귀를 고치는 중(부류 스윕 근거), 동시성·캐시·외부 로그 포맷·대용량 파일 읽기·상시 애니메이션·세이브 이전을 건드릴 때 |
+| `docs/reference/ios-device-deploy.md` | 사용자가 iOS 앱을 아이폰에 올려달라고 할 때 ("폰에 푸시해줘", "폰에 올려줘" 등) |
 
 각 문서의 frontmatter(`summary`/`read_when`)가 그 문서의 적용 범위를 다시 명시한다.
+
+## 작업 흐름 (worktree · 브랜치 · PR)
+
+- **모든 코드·문서 작업은 새 worktree + feature branch 로 시작한다.** main 워킹카피는
+  main 을 추적하는 빌드·배포 전용으로 둔다 (기기 배포·`swift test` 는 main 에서).
+  작업 시작: `git checkout main && git pull --ff-only origin main` 후
+  `git worktree add ../PokeTokenBar-iOS-<작업명> -b <type>/<scope> origin/main`.
+  브랜치 관례는 기존 그대로 (`feat/`·`fix/`·`docs/`·`chore/` + scope). PR 머지 후
+  `git worktree remove` 로 정리한다.
+- **PR 은 항상 `cte13/PokeTokenBar-iOS` 로 연다 — upstream(`chattymin/PokeTokenBar`) 금지.**
+  remote 가 origin(포크)·upstream 두 개라 `gh` 가 기본 대상을 upstream 으로 잡는다 (실제로
+  upstream 에 잘못 열린 적이 있다). 그래서 **`--repo cte13/PokeTokenBar-iOS` 를 항상 명시**한다:
+  `gh pr create --repo cte13/PokeTokenBar-iOS --base main …`
 
 ## 기여 언어 규약 (오픈소스 대비 — English first)
 
