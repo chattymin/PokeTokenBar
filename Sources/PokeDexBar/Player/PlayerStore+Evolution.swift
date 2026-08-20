@@ -95,7 +95,9 @@ extension PlayerStore {
             state.box[index].form = nil
             // 성장 타입은 종에 달린 것이라 진화하면 새 종의 것으로 갱신한다.
             if let rate = line.growthRate(of: speciesID) { state.box[index].growthRate = rate }
-            state.dex.insert(speciesID)
+            // 진화가 끝난 개체로 키를 계산한다 — 지방 혈통이면 새 종의 지방 폼으로 등록된다
+            // (알로라 식스테일 → 알로라 나인테일즈).
+            state.dexForms.insert(DexKey.key(for: state.box[index]))
             // 도구는 소모하지 않는다 — 다시 얻는 값이 며칠의 파트너 시간이라, 없어지면 같은
             // 도구를 두 번째 개체에 쓸 방법이 사실상 없다. 한 번 물어 오면 영구 해금이다.
 
@@ -118,7 +120,7 @@ extension PlayerStore {
                 shed.partnerStintsEnded = 0
                 shed.obtainedAt = currentDate()
                 state.box.append(shed)
-                state.dex.insert(Self.shedinjaID)
+                state.dexForms.insert(DexKey.key(for: shed))
             }
         }
         // 진화로 종이 바뀌면서 알을 빨리 깨우는 아이가 될 수 있다 — 부화와 같은 처리를 받는다.

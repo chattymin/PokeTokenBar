@@ -50,7 +50,7 @@ extension PlayerStore {
             state.box.append(individual)
             // **위장 중이면 도감에 안 넣는다.** 넣으면 정체(메타몽)가 도감에서 먼저 새고,
             // 위장한 종(뮤)을 넣으면 잡지도 않은 종이 도감에 남는다. 정체가 드러날 때 등록한다.
-            if individual.disguisedAs == nil { state.dex.insert(individual.speciesID) }
+            if individual.disguisedAs == nil { state.dexForms.insert(DexKey.key(for: individual)) }
             state.eggs.removeAll { $0.id == eggID }
         }
         applyHatchSpeedupIfNewlyEarned(hadSpeedupBefore: hadSpeedup)

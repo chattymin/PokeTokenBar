@@ -88,7 +88,7 @@ final class BoxTidyTests: XCTestCase {
         seed(store)
         let partnerID = store.state.box[2].id
         store.setPartner(partnerID)
-        store.mutate { $0.dex = [1, 4, 7]; $0.researchPoints = 42 }
+        store.mutate { $0.dexForms = ["1", "4", "7"]; $0.researchPoints = 42 }
 
         store.sortBox(.dex)
 

@@ -134,7 +134,7 @@ final class ProfessorTests: XCTestCase {
         let store = makeStore()
         let send = make(.rare, path: [25])
         store.addForTesting(send)
-        store.mutate { $0.dex.insert(25) }
+        store.mutate { $0.dexForms.insert("25") }
 
         store.releaseToProfessor(individualID: send.id)
         XCTAssertTrue(store.state.dex.contains(25), "도감에서 지워졌다")

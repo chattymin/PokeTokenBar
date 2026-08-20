@@ -16,8 +16,9 @@ struct PlayerState: Codable, Sendable {
     var partnerID: UUID?
     /// 보유 개체. 중복 허용.
     var box: [Individual] = []
-    /// 한 번이라도 보유한 종 번호.
-    var dex: Set<Int> = []
+    /// 한 번이라도 보유한 도감 키(`DexKey`) — 원종 `"37"`, 태생 폼 `"37/vulpix-alola"`.
+    /// 폼 단위 도감의 단일 저장 소스다.
+    var dexForms: Set<String> = []
     /// 동시 부화 슬롯 수(2b 에서 쓴다). 기본 3, 상한 6.
     var slots = 3
     /// 부화 중인 알. 개수는 `slots` 를 넘지 않는다.
@@ -56,10 +57,16 @@ struct PlayerState: Codable, Sendable {
     /// names 에서 따로 온다(EvoLine.localizedName).
     var language: AppLanguage = .systemDefault
 
+    /// 종 단위 도감(파생). 카운터(`N / 1025`)·박사의 미조우 가중·진단 리포트처럼 종만 필요한
+    /// 소비자용 — 저장하지 않는다(저장하면 `dexForms` 와 어긋날 수 있다).
+    var dex: Set<Int> { DexKey.species(of: dexForms) }
     /// 상점에서 쓸 수 있는 재화.
     var wallet: Int { max(0, earnedTokens - spentTokens) }
     /// 데리고 다니는 개체. 박스에서 사라졌으면 nil.
     var partner: Individual? { box.first { $0.id == partnerID } }
+
+    /// 폼 도감 이전(구 세이브)의 옛 키. `dex` 는 이제 계산 프로퍼티라 합성 CodingKeys 에 없다.
+    private enum LegacyKeys: String, CodingKey { case dex }
 
     init() {}
 
@@ -87,7 +94,18 @@ struct PlayerState: Codable, Sendable {
         if box.count != wrappedBox.count {
             AppLog.write("PlayerState: dropped \(wrappedBox.count - box.count) malformed individual(s) from box on decode")
         }
-        dex = value(.dex, [])
+        // 폼 도감. 경계 검증(sanitized)이 관대 디코딩의 짝이다 — 종 범위 밖·카탈로그에 없는
+        // 유령 키가 도감 카운터를 부풀리지 않게 여기 한 곳에서 버린다.
+        dexForms = DexKey.sanitized(value(.dexForms, []))
+        // 구 세이브 이전 — 옛 종 단위 `dex` 를 원종 키로 인정한다. 저장 프로퍼티가 사라져
+        // CodingKeys 에서 빠졌으므로 디코드 전용 키를 따로 쓴다.
+        if dexForms.isEmpty, let legacy = try? decoder.container(keyedBy: LegacyKeys.self),
+           let old = try? legacy.decode(Set<Int>.self, forKey: .dex) {
+            dexForms = Set(old.filter(DexKey.speciesRange.contains).map(String.init))
+        }
+        // 박스 재스캔 — 지금 보유 중인 개체의 폼을 등록한다. 매 디코드에 돌아도 멱등이라
+        // 이전 플래그가 필요 없다. 위장 중인 개체는 제외 — 정체가 도감에서 먼저 새면 안 된다.
+        dexForms.formUnion(box.filter { $0.disguisedAs == nil }.map(DexKey.key(for:)))
         // 알림 목록이라 통째로 관대하게 — 깨져도 도구는 인벤토리에 이미 있으므로 잃는 게 없다.
         discoveries = value(.discoveries, [])
         // 관대 디코딩의 짝 — 값 범위 검증(CLAUDE.md 결함 대응 프로토콜). `"slots": 0` 은 디코드에

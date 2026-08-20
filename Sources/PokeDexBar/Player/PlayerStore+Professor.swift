@@ -152,7 +152,7 @@ extension PlayerStore {
             $0.researchPoints -= price
             $0.professorOffers[slot].claimed = true
             $0.box.append(taken)
-            $0.dex.insert(taken.speciesID)
+            $0.dexForms.insert(DexKey.key(for: taken))
         }
         applyHatchSpeedupIfNewlyEarned(hadSpeedupBefore: hadSpeedup)
         return taken

@@ -21,7 +21,7 @@ extension PlayerStore {
             for index in state.box.indices where ids.contains(state.box[index].id) {
                 state.box[index].disguisedAs = nil
                 // 정체가 드러난 지금이 도감에 들어갈 때다 — 위장 중엔 미뤄 두었다.
-                state.dex.insert(state.box[index].speciesID)
+                state.dexForms.insert(DexKey.key(for: state.box[index]))
             }
         }
         return state.box.filter { ids.contains($0.id) }

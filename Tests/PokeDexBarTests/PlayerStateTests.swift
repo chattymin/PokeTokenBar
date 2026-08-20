@@ -82,7 +82,7 @@ final class PlayerStateTests: XCTestCase {
         s.starterChosen = true
         s.earnedTokens = 12_345
         s.box = [individual(UUID())]
-        s.dex = [1, 4, 7]
+        s.dexForms = ["1", "4", "7"]
         s.slots = 4
         s.inventory = ["expCandy": 2]
         let data = try JSONEncoder().encode(s)

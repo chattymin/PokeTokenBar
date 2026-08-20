@@ -64,7 +64,7 @@ final class PlayerStore {
         state.box[state.box.count - 1].partnerSince = now()
         state.partnerID = individual.id
         state.starterChosen = true
-        state.dex.insert(speciesID)
+        state.dexForms.insert(DexKey.key(for: individual))
         save()
         applyHatchSpeedupIfNewlyEarned(hadSpeedupBefore: hadSpeedup)
         return individual
@@ -277,8 +277,9 @@ final class PlayerStore {
     }
 
     func registerInDex(_ speciesID: Int) {
-        guard !state.dex.contains(speciesID) else { return }
-        state.dex.insert(speciesID)
+        let key = String(speciesID)
+        guard !state.dexForms.contains(key) else { return }
+        state.dexForms.insert(key)
         save()
     }
 
@@ -289,7 +290,7 @@ final class PlayerStore {
         let hadSpeedup = HatchSpeedup.present(in: state.box)
         state.box.append(individual)
         applyHatchSpeedupIfNewlyEarned(hadSpeedupBefore: hadSpeedup)
-        state.dex.insert(individual.speciesID)
+        state.dexForms.insert(DexKey.key(for: individual))
         save()
     }
 
