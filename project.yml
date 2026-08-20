@@ -59,8 +59,8 @@ targets:
     platform: iOS
     sources:
       - PokeTokenBariOS/Sources
-    resources:
-      - PokeTokenBariOS/Resources
+      - path: PokeTokenBariOS/Resources/Assets.xcassets
+        type: folder.assetCatalog
     entitlements:
       path: PokeTokenBariOS/PokeTokenBariOS.entitlements
       properties:
@@ -91,8 +91,10 @@ targets:
     platform: iOS
     sources:
       - PokeTokenBarWidget/Sources
-    resources:
-      - PokeTokenBarWidget/Resources
+      # 자산 카탈로그는 folder.assetCatalog 로 명시해야 리소스 빌드 페이즈가 생긴다.
+      # `resources:` 키만 쓰면 PBXResourcesBuildPhase 가 아예 생성되지 않는다 — defect-log 참조.
+      - path: PokeTokenBarWidget/Resources/Assets.xcassets
+        type: folder.assetCatalog
     entitlements:
       path: PokeTokenBarWidget/PokeTokenBarWidget.entitlements
       properties:
