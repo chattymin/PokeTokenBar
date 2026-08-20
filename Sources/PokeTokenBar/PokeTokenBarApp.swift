@@ -264,6 +264,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         if let data = try? JSONEncoder().encode(payload) {
             phoneServer.updatePayload(data)
         }
+        Task { @MainActor in
+            do { try await CloudKitSync.save(payload) }
+            catch { AppLog.write("CloudKit sync failed: \(error)") }
+        }
     }
 
     // MARK: 메뉴바 애니메이션

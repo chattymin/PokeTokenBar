@@ -29,16 +29,29 @@ struct WidgetTimelineProvider: TimelineProvider {
     }
 
     func getTimeline(in context: Context, completion: @escaping (Timeline<WidgetEntry>) -> Void) {
-        let entry = WidgetEntry(date: Date(), payload: loadPayload())
-        let nextUpdate = Calendar.current.date(byAdding: .minute, value: 15, to: Date())!
-        let timeline = Timeline(entries: [entry], policy: .after(nextUpdate))
-        completion(timeline)
+        Task {
+            var payload = loadPayload()
+            if let ck = try? await CloudKitSync.fetch() {
+                payload = ck
+                saveToAppGroup(ck)
+            }
+            let entry = WidgetEntry(date: Date(), payload: payload)
+            let nextUpdate = Calendar.current.date(byAdding: .minute, value: 15, to: Date())!
+            completion(Timeline(entries: [entry], policy: .after(nextUpdate)))
+        }
     }
 
     private func loadPayload() -> PhonePayload? {
         guard let data = UserDefaults(suiteName: "group.io.github.chattymin.poketokenbar")?
             .data(forKey: "latestPayload") else { return nil }
         return try? JSONDecoder().decode(PhonePayload.self, from: data)
+    }
+
+    private func saveToAppGroup(_ payload: PhonePayload) {
+        guard let data = try? JSONEncoder().encode(payload) else { return }
+        let suite = UserDefaults(suiteName: "group.io.github.chattymin.poketokenbar")
+        suite?.set(data, forKey: "latestPayload")
+        suite?.set(Date(), forKey: "lastFetchTime")
     }
 }
 

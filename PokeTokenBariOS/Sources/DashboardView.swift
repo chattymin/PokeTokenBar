@@ -396,7 +396,7 @@ struct SetupView: View {
             Text("Connect to Mac")
                 .font(.title.bold())
 
-            Text("Enter your Mac's local IP address. Both devices must be on the same Wi-Fi network.")
+            Text("Data syncs automatically via iCloud when both devices share the same Apple ID.\n\nFor local network sync, enter your Mac's IP address below.")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)

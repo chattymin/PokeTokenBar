@@ -6,10 +6,25 @@ struct SettingsView: View {
     @State private var hostInput: String = ""
     @State private var connectionCheckResult: String?
     @State private var isChecking = false
+    @State private var iCloudAvailable = false
 
     var body: some View {
         Form {
-            Section("Mac Connection") {
+            Section("iCloud Sync") {
+                HStack {
+                    Label("iCloud", systemImage: "icloud")
+                    Spacer()
+                    if iCloudAvailable {
+                        Label("Available", systemImage: "checkmark.circle.fill")
+                            .foregroundStyle(.green)
+                    } else {
+                        Label("Not Available", systemImage: "xmark.circle.fill")
+                            .foregroundStyle(.red)
+                    }
+                }
+            }
+
+            Section("Local Network (Optional)") {
                 HStack {
                     Label("Mac IP Address", systemImage: "desktopcomputer")
                     TextField("192.168.1.42", text: $hostInput)
@@ -77,11 +92,12 @@ struct SettingsView: View {
             } header: {
                 Text("Current Data")
             } footer: {
-                Text("Data is fetched from the Mac app running on your local network.")
+                Text("Data syncs via iCloud. Local network is used as fallback when iCloud is unavailable.")
             }
         }
         .navigationTitle("Settings")
         .onAppear { hostInput = store.host }
+        .task { iCloudAvailable = await CloudKitSync.isAvailable() }
     }
 
     private func saveHost() {

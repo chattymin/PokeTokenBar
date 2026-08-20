@@ -25,13 +25,24 @@ targets:
     platform: macOS
     sources:
       - Sources/PokeTokenBar
+    entitlements:
+      path: Sources/PokeTokenBar/PokeTokenBar.entitlements
+      properties:
+        com.apple.security.application-groups:
+          - group.io.github.chattymin.poketokenbar
+        com.apple.developer.icloud-container-identifiers:
+          - iCloud.io.github.chattymin.poketokenbar
+        com.apple.developer.icloud-services:
+          - CloudDocuments
+          - CloudKit
+        com.apple.developer.ubiquity-container-identifiers:
+          - iCloud.io.github.chattymin.poketokenbar
     dependencies:
       - package: PokeTokenBarShared
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: io.github.chattymin.poketokenbar
         GENERATE_INFOPLIST_FILE: YES
-        CODE_SIGN_IDENTITY: "-"
         CODE_SIGN_STYLE: Automatic
         PRODUCT_NAME: PokeTokenBar
         LD_RUNPATH_SEARCH_PATHS: "@executable_path/../Frameworks"
