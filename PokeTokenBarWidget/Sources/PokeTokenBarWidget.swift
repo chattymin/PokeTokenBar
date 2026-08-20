@@ -47,10 +47,6 @@ struct WidgetTimelineProvider: TimelineProvider {
         return try? JSONDecoder().decode(PhonePayload.self, from: data)
     }
 
-    private func saveToAppGroup(_ payload: PhonePayload) {
-        Self.persistPayload(payload)
-    }
-
     static func persistPayload(_ payload: PhonePayload) {
         guard let data = try? JSONEncoder().encode(payload) else { return }
         let suite = UserDefaults(suiteName: "group.io.github.chattymin.poketokenbar")

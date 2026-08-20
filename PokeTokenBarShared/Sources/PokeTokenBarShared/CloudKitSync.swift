@@ -16,10 +16,16 @@ public enum CloudKitSync {
         guard let json = String(data: data, encoding: .utf8) else {
             throw CloudKitSyncError.encodingFailed
         }
-        let record = CKRecord(recordType: recordType, recordID: recordID)
+        let db = database()
+        let record: CKRecord
+        if let existing = try? await db.record(for: recordID) {
+            record = existing
+        } else {
+            record = CKRecord(recordType: recordType, recordID: recordID)
+        }
         record[payloadField] = json
         record[updatedField] = Date()
-        try await database().save(record)
+        try await db.save(record)
     }
 
     // MARK: - Read

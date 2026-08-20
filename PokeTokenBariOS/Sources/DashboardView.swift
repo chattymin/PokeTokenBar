@@ -7,7 +7,7 @@ struct DashboardView: View {
     var body: some View {
         NavigationStack {
             Group {
-                if store.host.isEmpty {
+                if store.host.isEmpty && store.payload == nil {
                     SetupView()
                 } else if let payload = store.payload {
                     dashboardContent(payload)
@@ -424,5 +424,6 @@ struct SetupView: View {
                 .padding(.horizontal, 32)
         }
         .navigationTitle("Setup")
+        .task { await store.fetch() }
     }
 }

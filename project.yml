@@ -33,10 +33,7 @@ targets:
         com.apple.developer.icloud-container-identifiers:
           - iCloud.io.github.chattymin.poketokenbar
         com.apple.developer.icloud-services:
-          - CloudDocuments
           - CloudKit
-        com.apple.developer.ubiquity-container-identifiers:
-          - iCloud.io.github.chattymin.poketokenbar
     dependencies:
       - package: PokeTokenBarShared
     settings:
@@ -44,6 +41,7 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: io.github.chattymin.poketokenbar
         GENERATE_INFOPLIST_FILE: YES
         CODE_SIGN_STYLE: Automatic
+        DEVELOPMENT_TEAM: B2G47QWXN7
         PRODUCT_NAME: PokeTokenBar
         LD_RUNPATH_SEARCH_PATHS: "@executable_path/../Frameworks"
       configs:
@@ -69,6 +67,10 @@ targets:
         com.apple.security.application-groups:
           - group.io.github.chattymin.poketokenbar
           - group.com.poketokenbar.ios.widget
+        com.apple.developer.icloud-container-identifiers:
+          - iCloud.io.github.chattymin.poketokenbar
+        com.apple.developer.icloud-services:
+          - CloudKit
     dependencies:
       - package: PokeTokenBarShared
       - target: PokeTokenBarWidget
@@ -97,6 +99,10 @@ targets:
         com.apple.security.application-groups:
           - group.io.github.chattymin.poketokenbar
           - group.com.poketokenbar.ios.widget
+        com.apple.developer.icloud-container-identifiers:
+          - iCloud.io.github.chattymin.poketokenbar
+        com.apple.developer.icloud-services:
+          - CloudKit
     dependencies:
       - package: PokeTokenBarShared
     settings:
