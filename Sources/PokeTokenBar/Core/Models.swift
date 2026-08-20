@@ -365,6 +365,11 @@ struct CodexRateLimitStatus: Decodable, Sendable {
     var maxPrimaryUsedPercent: Int? {
         visibleSnapshots.compactMap { $0.primary?.usedPercent }.max()
     }
+
+    /// 전체 bucket 중 최대 secondary 사용률 — iPhone companion 표시용.
+    var maxSecondaryUsedPercent: Int? {
+        visibleSnapshots.compactMap { $0.secondary?.usedPercent }.max()
+    }
 }
 
 // MARK: - Provider snapshot

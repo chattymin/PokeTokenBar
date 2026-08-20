@@ -3,6 +3,9 @@
 .swiftpm/
 Package.resolved
 
+# XcodeGen-generated project
+PokeTokenBar.xcodeproj/
+
 # App bundle build output
 build/
 
