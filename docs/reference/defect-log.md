@@ -7,6 +7,7 @@ read_when:
   - 메뉴바·플로팅 펫 등 상시 표시 애니메이션의 성능을 손볼 때
   - 스프라이트·이미지를 고정 크기 프레임에 그릴 때(비율 왜곡 부류)
   - 세이브 이전/병합·외부 파일 입력 경로를 만들 때
+  - `project.yml`(xcodegen)에 리소스·자산 카탈로그를 추가할 때, 앱 아이콘을 교체할 때
 ---
 
 # 결함 대응 축적 규칙
@@ -423,3 +424,29 @@ read_when:
   자동 업데이트 시 앱 종료를 기다릴 때 `pgrep -x PokeTokenBar`를 쓰면, 중복 인스턴스가 살아있는 동안 루프를
   결코 빠져나오지 못하고 20초 타임아웃을 온전히 소모한다(#175). `ProcessInfo.processInfo.processIdentifier`로
   종료 대상 프로세스 PID를 전달하고 `kill -0 "$3"`로 특정 프로세스의 종료를 대기한다.
+
+## 빌드·패키징 (xcodegen·자산 카탈로그)
+
+- **xcodegen 의 `resources:` 키는 리소스 빌드 페이즈를 만들지 않는다 — 그런데 빌드는 성공한다.**
+  `resources: - PokeTokenBariOS/Resources` 로 자산 카탈로그를 선언해도 xcodegen 2.46.0 은
+  `PBXResourcesBuildPhase` 를 아예 생성하지 않는다(생성된 pbxproj 에 `.xcassets` 참조가 0건).
+  결과는 `Assets.car` 가 번들에 없는 앱이고, **`xcodebuild` 는 경고 하나 없이 BUILD SUCCEEDED 를 낸다.**
+  자산 카탈로그는 `sources:` 에 타입을 명시해야 한다:
+  `- path: <...>/Assets.xcassets` + `type: folder.assetCatalog`.
+  **이 부류가 오래 안 잡힌 이유가 핵심이다 — 빌드 성공은 리소스가 실렸다는 증거가 아니다.**
+  컴파일·서명·설치가 전부 통과하므로 유일한 신호가 육안 확인인데, 그마저 "iOS 아이콘 캐시" 로 오귀인하기
+  쉽다(재설치·재부팅·SpringBoard 를 여러 라운드 헛돌았다). 검증은 산출물을 직접 본다:
+  `ls <build>/*.app/Assets.car` 와 `grep -c PBXResourcesBuildPhase *.xcodeproj/project.pbxproj`.
+  **부류 스윕에서 위젯 타깃도 같은 패턴이었다** — 카탈로그가 비어 있어 증상만 없었을 뿐, 자산을 넣는
+  순간 조용히 누락됐을 잠복 결함이라 함께 고쳤다.
+
+- **iOS 18 앱 아이콘은 외형 변형 3개(light/dark/tinted)를 각각 이미지로 줘야 한다.**
+  `AppIcon.appiconset/Contents.json` 에 이미지 하나만 두면, 사용자가 홈 화면을 **틴트 모드**로 쓸 때
+  iOS 가 라이트 아이콘을 평탄화해 tinted 렌디션을 자동 생성하고 **투명 영역을 흰색으로 채운다** → 타일이
+  흰 사각형이 된다. 소스 이미지를 어떻게 바꿔도(투명 배경, 검정 배경, 심지어 단색 빨강 테스트) 결과가
+  똑같아서 **"iOS 가 아이콘을 아예 안 읽는다"는 오진을 유발한다** — 실제로는 읽고 나서 평탄화하는 것이다.
+  각 변형은 `appearances: [{appearance: luminosity, value: dark|tinted}]` 로 선언한다.
+  **tinted 변형은 투명도를 보존한다** — 흑백(투명 배경 + 흰 글리프)으로 만들면 iOS 가 사용자의 틴트
+  색으로 매핑한다. 검증은 컴파일된 카탈로그에서 렌디션 수를 센다(1개가 아니라 3개여야 한다):
+  `xcrun assetutil --info <...>/Assets.car` → `AssetType == "Icon Image"` 가 3건
+  (RGB/opaque=true, RGB/opaque=false, Monochrome/opaque=false).
