@@ -7,7 +7,10 @@ struct DashboardView: View {
     var body: some View {
         NavigationStack {
             Group {
-                if store.host.isEmpty && store.payload == nil {
+                if !store.hasCompletedInitialFetch {
+                    LaunchView()
+                        .task { await store.fetch() }
+                } else if store.host.isEmpty && store.payload == nil {
                     SetupView()
                 } else if let payload = store.payload {
                     dashboardContent(payload)
@@ -381,6 +384,27 @@ struct ProviderDetailCard: View {
     }
 }
 
+// MARK: - Launch View
+
+/// Entry screen shown while the first data-source determination (iCloud or local HTTP)
+/// is in flight, so the setup view never flashes before a CloudKit payload lands.
+struct LaunchView: View {
+    var body: some View {
+        VStack(spacing: 16) {
+            Image(systemName: "desktopcomputer.and.iphone")
+                .font(.system(size: 56))
+                .foregroundStyle(.secondary)
+            Text("PokeTokenBar")
+                .font(.title2.bold())
+            ProgressView()
+            Text("Looking for data source…")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+        }
+        .padding()
+    }
+}
+
 // MARK: - Setup View
 
 struct SetupView: View {
@@ -424,6 +448,5 @@ struct SetupView: View {
                 .padding(.horizontal, 32)
         }
         .navigationTitle("Setup")
-        .task { await store.fetch() }
     }
 }
