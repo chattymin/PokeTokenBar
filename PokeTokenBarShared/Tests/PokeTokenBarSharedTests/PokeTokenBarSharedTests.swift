@@ -47,6 +47,20 @@ struct PhonePayloadTests {
                 dexCount: 12, eggProgress: 0, displayState: "working"),
             providers: [
                 PhoneProviderSnapshot(id: "claude_code", displayName: "Claude", todayTokens: 1_000_000, todayCost: 10.0),
+            ],
+            bag: [
+                PhoneBagItem(id: "rareCandy", name: "Rare Candy",
+                             itemDescription: "Raises your Pokémon's EXP by 100M.",
+                             count: 3, isPassive: false, effectHint: "",
+                             iconName: "rare-candy", fallbackEmoji: "🍬"),
+                PhoneBagItem(id: "shinyCharm", name: "Shiny Charm",
+                             itemDescription: "While owned, raises the chance of hatching a shiny.",
+                             count: 1, isPassive: true, effectHint: "Shiny rate ↑ · active",
+                             iconName: "shiny-charm", fallbackEmoji: "✨"),
+            ],
+            dex: [
+                PhoneDexSpecies(id: 25, name: "Pikachu", rarity: "common", isShiny: false, isRaising: false),
+                PhoneDexSpecies(id: 143, name: "Snorlax", rarity: "rare", isShiny: true, isRaising: true),
             ])
 
         let data = try JSONEncoder().encode(payload)
@@ -54,6 +68,31 @@ struct PhonePayloadTests {
         #expect(decoded.todayTokens == 1_500_000)
         #expect(decoded.companion?.name == "Pikachu")
         #expect(decoded.providers.count == 1)
+        #expect(decoded.bag == payload.bag)
+        #expect(decoded.dex == payload.dex)
+    }
+
+    /// Payloads published by older Macs lack `bag`/`dex` entirely. Decoding must
+    /// succeed with empty collections — a decode failure would freeze the iPhone at
+    /// its last cached payload until the Mac is updated.
+    @Test func payloadDecodesWithoutBagAndDexFields() throws {
+        let legacyJSON = """
+        {
+          "todayTokens": 1000,
+          "todayCost": 1.5,
+          "weekTokens": 10000,
+          "monthTokens": 40000,
+          "lastUpdated": 1700000000,
+          "serverVersion": "1.0",
+          "limits": null,
+          "companion": null,
+          "providers": []
+        }
+        """
+        let decoded = try JSONDecoder().decode(PhonePayload.self, from: Data(legacyJSON.utf8))
+        #expect(decoded.todayTokens == 1000)
+        #expect(decoded.bag.isEmpty)
+        #expect(decoded.dex.isEmpty)
     }
 
     // MARK: - CloudKitSync

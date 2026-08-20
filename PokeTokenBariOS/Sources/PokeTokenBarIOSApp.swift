@@ -7,9 +7,16 @@ struct PokeTokenBarIOSApp: App {
 
     var body: some Scene {
         WindowGroup {
-            DashboardView()
-                .environment(store)
-                .preferredColorScheme(store.appearance.colorScheme)
+            TabView {
+                DashboardView()
+                    .tabItem { Label("Home", systemImage: "house") }
+                BagView()
+                    .tabItem { Label("Bag", systemImage: "bag") }
+                CollectionView()
+                    .tabItem { Label("Collection", systemImage: "square.grid.3x3") }
+            }
+            .environment(store)
+            .preferredColorScheme(store.appearance.colorScheme)
         }
     }
 }

@@ -166,19 +166,11 @@ struct CompanionCard: View {
 
     private var spriteURL: URL? {
         guard let id = companion.speciesID else { return nil }
-        let base = "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon"
-        let file = companion.isShiny ? "shiny/\(id).png" : "\(id).png"
-        return URL(string: "\(base)/\(file)")
+        return PokeSprite.speciesURL(id: id, shiny: companion.isShiny)
     }
 
     private var rarityColor: Color {
-        switch companion.rarity {
-        case "common": return .gray
-        case "uncommon": return .green
-        case "rare": return .blue
-        case "legendary": return .purple
-        default: return .gray
-        }
+        RarityStyle.color(companion.rarity ?? "")
     }
 }
 
