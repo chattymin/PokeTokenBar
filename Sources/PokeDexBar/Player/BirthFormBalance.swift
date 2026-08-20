@@ -51,11 +51,13 @@ enum BirthFormBalance {
         .mild, .quiet, .bashful, .calm, .gentle, .careful,
     ]
 
+    /// 스트린더 폼의 배지 이름 — 도감 후보 행(`DexKey.candidates`)과 배지가 같은 값을 쓴다.
+    static let ampedLabel = FormLabel("하이한 모습", "Amped", "ハイなすがた")
+    static let lowKeyLabel = FormLabel("로우한 모습", "Low Key", "ローなすがた")
+
     /// 스트린더 폼의 배지 이름.
     static func toxtricityLabel(nature: PokemonNature) -> FormLabel {
-        lowKeyNatures.contains(nature)
-            ? .init("로우한 모습", "Low Key", "ローなすがた")
-            : .init("하이한 모습", "Amped", "ハイなすがた")
+        lowKeyNatures.contains(nature) ? lowKeyLabel : ampedLabel
     }
 }
 
