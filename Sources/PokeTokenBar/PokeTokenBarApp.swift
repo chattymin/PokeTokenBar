@@ -242,13 +242,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             graduationTokens: companion.tokensToGraduation)
         let providers = store.snapshots.map { snapshot -> PhoneProviderSnapshot in
             PhoneProviderSnapshot(id: snapshot.providerID, displayName: snapshot.displayName,
-                                  todayTokens: snapshot.todayTotalTokens,
-                                  todayCost: snapshot.today?.totalCost ?? 0,
-                                  inputTokens: snapshot.today?.inputTokens ?? 0,
-                                  outputTokens: snapshot.today?.outputTokens ?? 0,
-                                  cacheWriteTokens: snapshot.today?.cacheCreationTokens ?? 0,
-                                  cacheReadTokens: snapshot.today?.cacheReadTokens ?? 0,
-                                  reportsCost: snapshot.reportsCost)
+                                   todayTokens: snapshot.todayTotalTokens,
+                                   todayCost: snapshot.today?.totalCost ?? 0,
+                                   inputTokens: snapshot.today?.inputTokens ?? 0,
+                                   outputTokens: snapshot.today?.outputTokens ?? 0,
+                                   cacheWriteTokens: snapshot.today?.cacheCreationTokens ?? 0,
+                                   cacheReadTokens: snapshot.today?.cacheReadTokens ?? 0,
+                                   reportsCost: snapshot.reportsCost)
+        }
+        // 가방·도감(폰 읽기 전용) — 표시 문자열은 폰에 현지화 인프라가 없어 여기서 미리 만든다
+        // (companion.stageText 를 폰에 그대로 보내는 것과 같은 규약).
+        let l = companion.l
+        let bag = companion.ownedItems.map { item in
+            PhoneBagItem(
+                id: item.kind.rawValue,
+                name: l.itemName(item.kind),
+                itemDescription: l.itemDescription(item.kind),
+                count: item.count,
+                isPassive: item.kind.isPassive,
+                effectHint: item.kind.isPassive ? l.shinyCharmEffectHint : "",
+                iconName: item.kind.spriteName,
+                fallbackEmoji: item.kind.fallbackEmoji)
+        }
+        let dex = companion.dexSpecies.map { sp in
+            PhoneDexSpecies(id: sp.id, name: sp.name, rarity: sp.rarity.rawValue,
+                            isShiny: sp.isShiny, isRaising: sp.isRaising)
         }
         let payload = PhonePayload(
             todayTokens: store.todayTotalTokens,
@@ -259,7 +277,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             serverVersion: "1.0",
             limits: limits,
             companion: companionState,
-            providers: providers)
+            providers: providers,
+            bag: bag,
+            dex: dex)
         if phoneServer.isRunning, let data = try? JSONEncoder().encode(payload) {
             phoneServer.updatePayload(data)
         }

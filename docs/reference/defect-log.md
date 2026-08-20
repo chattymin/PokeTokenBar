@@ -228,11 +228,15 @@ read_when:
   마라** — DerivedData는 Xcode가 지운다. 동기화가 필요한 상시 실행은 안정 경로(/Applications)의
   자동 서명 빌드로 한다. 실패는 AppLog에만 남고 앱 UI는 멀쩡하므로(**조용한 부실**) iPhone의
   "Updated N ago"가 유일한 신호다 — 의심되면 `grep "CloudKit sync failed" ~/Library/Logs/PokeTokenBar.log`.
-- **`build-app.sh` 산출물에는 iCloud 자격증명이 없다.** 스크립트의 codesign은 `--entitlements`를 주지
-  않고, iCloud container 자격증명은 팀 프로비저닝(Xcode 자동 서명)이 필요하다 — 스크립트 빌드를
-  /Applications에 깔면 폰 서버(HTTP)는 되는데 iCloud 동기화만 조용히 죽는다. 게다가 launchd KeepAlive
-  에이전트가 그 경로를 계속 재실행하므로 "가끔씩 동기화가 끊긴다"처럼 보인다. iCloud 동기화가 필요한
-  설치본은 xcodebuild(자동 서명, embedded.provisionprofile) 산출물로 대체한다(2026-08-20 조치).
+- **`build-app.sh` 산출물에는 iCloud 자격증명이 없다 — 크래시 루프다.** 스크립트의 codesign은
+  `--entitlements`를 주지 않는데, 자격증명 없는 프로세스에서는 `CloudKitSync.save()`의
+  `CKContainer(identifier:)` 초기화 자체가 SIGTRAP으로 프로세스를 죽인다(2026-08-20 오후 실측 —
+  같은 날 오전의 "iCloud 동기화만 조용히 죽는다" 진단은 과소평가였다). launchd KeepAlive 에이전트가
+  재실행을 반복해 **~8초 주기 크래시 루프**가 되고, 루프 사이 잠깐 폰 서버(HTTP)가 살아 있어
+  "서버는 되는데 동기화만 죽는다"로 오진하기 쉽다. iCloud 동기화가 필요한 설치본은 xcodebuild
+  (자동 서명, entitlements 포함) 산출물로 대체한다 — 실행 절차는 `dev-deploy.md`. **릴리스 빚**:
+  `release.sh`가 이 스크립트로 배포하므로 CloudKit 시대 릴리스가 나가면 전 사용자 크래시 루프가
+  된다. 다음 릴리스 전에 entitlements 서명 추가 필수.
 - **서브 패키지 테스트가 깨진 채 PR이 머지됐다.** `PokeTokenBarSharedTests`의 `PhoneLimitStatus`
   초기화가 위젯 PR(#3)에서 추가된 파라미터를 못 따라갔는데 아무도 서브 패키지의 `swift test`를
   돌리지 않아 컴파일 조차 안 되는 상태로 지나갔다. 루트 패키지 게이트만 돌리면 잡히지 않는다 —
@@ -491,3 +495,13 @@ read_when:
   색으로 매핑한다. 검증은 컴파일된 카탈로그에서 렌디션 수를 센다(1개가 아니라 3개여야 한다):
   `xcrun assetutil --info <...>/Assets.car` → `AssetType == "Icon Image"` 가 3건
   (RGB/opaque=true, RGB/opaque=false, Monochrome/opaque=false).
+
+## 테스트
+
+- **시간대 의존 단언 — UTC 시각의 local-day 를 기대하면 UTC 보다 느린 시간대에서 실패한다.**
+  `testHermesAcceptsMillisecondStartedAt`(LocalAdditionalUsageTests)은 epoch `1767312000000`
+  (2026-01-02T00:00:00Z)의 `localDay`가 `"2026-01-02"`라고 단언한다. UTC-7 로컬에서는 이 시각이
+  1월 1일 저녁이라 `"2026-01-01"`이 나와 실패 — **`main`에서도 실패하는 기지 결함**(CI macos-15는
+  UTC라 통과하고 로컬만 실패한다). 시간대가 스레드에 관여하는 순간 단언값도 시간대를 고정해야 한다:
+  테스트에서 locale/TimeZone을 주입하거나, 파서가 UTC로 정규화하는지를 검증하는 형태로 바꾼다.
+  이 판별법을 매번 반복하지 않도록 `dev-deploy.md` §기지의 선례에 목록으로 유지한다.

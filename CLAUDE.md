@@ -9,6 +9,7 @@
 | 문서 | 언제 읽나 |
 |---|---|
 | `docs/reference/release-workflow.md` | 버전을 배포할 때, `release.sh` 게이트에 막혔을 때, UI 변경으로 스크린샷·랜딩을 갱신할 때 |
+| `docs/reference/dev-deploy.md` | 개발 빌드를 Mac·iPhone 실기기에 올릴 때 ("올려줘"), 설치 후 크래시 루프가 날 때, 테스트 실패가 기지 결함인지 가릴 때 |
 | `docs/reference/provider-extension.md` | 새 사용량 소스·버전매니저·로그 루트를 추가할 때, 프로바이더 분기를 리뷰할 때 |
 | `docs/reference/defect-log.md` | 결함·회귀를 고치는 중(부류 스윕 근거), 동시성·캐시·외부 로그 포맷·대용량 파일 읽기·상시 애니메이션·세이브 이전을 건드릴 때 |
 
