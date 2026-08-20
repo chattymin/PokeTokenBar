@@ -1,8 +1,10 @@
 import Foundation
 import SQLite3
 
-/// Antigravity CLI usage, read from the conversation stores the CLI writes under
-/// `~/.gemini/antigravity-cli/conversations/<conversation>.db`.
+/// Antigravity usage, read from the conversation stores written under
+/// `~/.gemini/antigravity/conversations/<conversation>.db`,
+/// `~/.gemini/antigravity-cli/conversations/<conversation>.db`, or
+/// `~/.gemini/antigravity-ide/conversations/<conversation>.db`.
 ///
 /// Antigravity shares the `~/.gemini/` parent directory with Gemini CLI and nothing else.
 /// Where Gemini CLI appends JSON lines, Antigravity keeps one SQLite database per
@@ -24,26 +26,57 @@ import SQLite3
 ///       1.4.5     cache_read_tokens    prompt cache hit
 ///       1.4.11    response_id          globally unique per call
 ///       1.9     chat_start_metadata    exa.cortex_pb.ChatStartMetadata
-///       1.9.4     created_at           google.protobuf.Timestamp
+///       1.9.4     created_at           google.protobuf.Timestamp, absent since Antigravity 2.0
 ///       1.19    response_model         e.g. "gemini-3.6-flash"
+///       4       execution_id           the execution these tokens were spent in
+///
+/// Records written by Antigravity 2.0 carry `chat_start_metadata` with `created_at` removed, and
+/// nothing else in the blob is a time. The date for those comes from the `steps` table of the
+/// same store, whose `metadata` is an `exa.cortex_pb.StepMetadata`:
+///
+///     steps.metadata          exa.cortex_pb.StepMetadata
+///       1     created_at        google.protobuf.Timestamp — when the step was queued
+///       8     finished_at       google.protobuf.Timestamp — absent while the step is running
+///       12    execution_id      matches `gen_metadata.data` field 4
+///
+/// The join is on `execution_id`, not on `idx`: `gen_metadata.idx` is its own dense sequence and
+/// drifts from `steps.idx` by minutes within a single conversation. Against the stores that still
+/// carry `created_at`, dating each record from the step timings of its own execution lands within
+/// ~2 minutes of the writer's own value, where the store's mtime — one value for every record it
+/// holds — moves a conversation's earlier days onto the day it was last written.
 ///
 /// There is no total field anywhere in the schema, so the total is the sum of the three
 /// populated counters — which is exactly the identity `LocalUsageReader.Entry` already keeps.
 enum LocalAntigravityUsageReader {
 
-    /// One database per conversation. The directory is absent unless Antigravity CLI ran.
+    /// Known conversation directories across Antigravity editions (2.0/Core, CLI, IDE).
+    /// The directory is absent unless the respective Antigravity flavor ran.
+    static var defaultRoots: [URL] {
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        return [
+            home.appendingPathComponent(".gemini/antigravity/conversations"),
+            home.appendingPathComponent(".gemini/antigravity-cli/conversations"),
+            home.appendingPathComponent(".gemini/antigravity-ide/conversations"),
+        ]
+    }
+
+    /// Primary default directory for single-root callers and backwards compatibility.
     static var defaultRoot: URL {
-        FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".gemini/antigravity-cli/conversations")
+        defaultRoots[0]
     }
 
     /// Usage rows whose `created_at` falls at or after `modifiedSince`.
-    static func entries(modifiedSince: Date, root: URL? = nil) -> [LocalUsageReader.Entry] {
-        let scanned = scan(root: root ?? defaultRoot, modifiedSince: modifiedSince, known: [:])
+    static func entries(modifiedSince: Date, roots: [URL]? = nil) -> [LocalUsageReader.Entry] {
+        let scanned = scan(roots: roots ?? defaultRoots, modifiedSince: modifiedSince, known: [:])
         // The one place the side effects live. `AppLog.write` returns early outside the bundled
         // app, so the decisions above it are kept pure and tested on their own.
         for line in scanned.log { AppLog.write(line) }
         return assemble(scanned.blobs, since: modifiedSince)
+    }
+
+    /// Single-root overload for backwards compatibility and tests.
+    static func entries(modifiedSince: Date, root: URL?) -> [LocalUsageReader.Entry] {
+        entries(modifiedSince: modifiedSince, roots: root.map { [$0] } ?? defaultRoots)
     }
 
     /// One conversation store's rows, valid for as long as its `(mtime, size)` hold. The rows
@@ -68,14 +101,14 @@ enum LocalAntigravityUsageReader {
         LocalUsageReader.dedupKeepMax(blobs.values.flatMap(\.entries).filter { $0.date >= since })
     }
 
-    /// Reads every conversation store the window admits, reusing any blob in `known` whose
-    /// signature still matches. `known` is empty for a one-shot read.
-    static func scan(root: URL, modifiedSince: Date, known: [String: Blob]) -> Scan {
+    /// Reads every conversation store the window admits across roots, reusing any blob in `known`
+    /// whose signature still matches. `known` is empty for a one-shot read.
+    static func scan(roots: [URL], modifiedSince: Date, known: [String: Blob]) -> Scan {
         let formatter = LocalUsageReader.localDayFormatter()
         var blobs: [String: Blob] = [:]
         var reads: [(conversation: String, read: ConversationRead)] = []
 
-        for database in databases(in: root) {
+        for database in databases(in: roots) {
             // Stat before the read, never after. A commit that lands mid-read then differs from
             // the stored signature on the next sweep and is re-read; stat afterwards and that
             // same commit is frozen into a signature that already looks current.
@@ -107,6 +140,11 @@ enum LocalAntigravityUsageReader {
         return Scan(blobs: blobs, log: lossLog(reads) + discardLog(reads))
     }
 
+    /// Single-root scan overload.
+    static func scan(root: URL, modifiedSince: Date, known: [String: Blob]) -> Scan {
+        scan(roots: [root], modifiedSince: modifiedSince, known: known)
+    }
+
     // MARK: Database discovery
 
     /// The cache key for one conversation store, and the same value the scan window is tested
@@ -133,9 +171,17 @@ enum LocalAntigravityUsageReader {
         return newest.map { ($0, size) }
     }
 
+    private static func databases(in roots: [URL]) -> [URL] {
+        var results: [URL] = []
+        for root in roots {
+            guard let names = try? FileManager.default.contentsOfDirectory(atPath: root.path) else { continue }
+            results.append(contentsOf: names.filter { $0.hasSuffix(".db") }.sorted().map { root.appendingPathComponent($0) })
+        }
+        return results
+    }
+
     private static func databases(in root: URL) -> [URL] {
-        guard let names = try? FileManager.default.contentsOfDirectory(atPath: root.path) else { return [] }
-        return names.filter { $0.hasSuffix(".db") }.sorted().map { root.appendingPathComponent($0) }
+        databases(in: [root])
     }
 
     // MARK: Reading one conversation
@@ -155,7 +201,7 @@ enum LocalAntigravityUsageReader {
         /// other than the table being absent.
         case unreadable(status: Int32?)
         /// No `gen_metadata`: this file is not a conversation store. A permanent, legitimate
-        /// empty — `~/.gemini/antigravity-cli/conversations/` may hold databases we don't read.
+        /// empty — the candidate directories may hold databases we don't read.
         case notAConversation
 
         var entries: [LocalUsageReader.Entry] {
@@ -227,7 +273,8 @@ enum LocalAntigravityUsageReader {
 
         var statement: OpaquePointer?
         let prepared = sqlite3_prepare_v2(
-            handle, "SELECT idx, data FROM gen_metadata WHERE data IS NOT NULL", -1, &statement, nil)
+            handle, "SELECT idx, data FROM gen_metadata WHERE data IS NOT NULL ORDER BY idx",
+            -1, &statement, nil)
         guard prepared == SQLITE_OK, let statement else {
             // `SQLITE_ERROR` here is "no such table", which is a fact about the file and will
             // never change; anything else (BUSY, I/O) is this moment failing to read a store
@@ -236,10 +283,17 @@ enum LocalAntigravityUsageReader {
         }
         defer { sqlite3_finalize(statement) }
 
+        let stepDates = generationStepDates(handle)
+        if let status = stepDates.status {
+            return .incompleteScan(status: status, rows: 0)
+        }
+
+        let storeDate = signature(of: database)?.mtime ?? Date()
         let conversation = database.deletingPathExtension().lastPathComponent
         var entries: [LocalUsageReader.Entry] = []
         var discardedCounters = 0
         var rows = 0
+        var takenByExecution: [String: Int] = [:]
         while true {
             let step = sqlite3_step(statement)
             if step == SQLITE_ROW {
@@ -251,7 +305,19 @@ enum LocalAntigravityUsageReader {
                     guard count > 0 else { return }
                     let blob = Data(bytes: pointer, count: count)
                     let record = parseGenerationMetadata(
-                        blob, conversation: conversation, index: index, formatter: formatter)
+                        blob, conversation: conversation, index: index,
+                        fallbackDate: { responseID, executionID in
+                            if let responseID, let date = stepDates.byResponse[responseID] {
+                                return date
+                            }
+                            if let executionID, let list = stepDates.byExecution[executionID], !list.isEmpty {
+                                let ordinal = takenByExecution[executionID, default: 0]
+                                takenByExecution[executionID] = ordinal + 1
+                                return list[min(ordinal, list.count - 1)]
+                            }
+                            return storeDate
+                        },
+                        formatter: formatter)
                     discardedCounters += record.discardedCounters
                     guard let entry = record.entry else { return }
                     entries.append(entry)
@@ -291,6 +357,48 @@ enum LocalAntigravityUsageReader {
         return nil
     }
 
+    // MARK: Dating a record Antigravity 2.0 left undated
+
+    /// Current Antigravity stores keep the generation timestamp in the corresponding `steps.metadata`
+    /// row rather than in `gen_metadata.data`. Records are correlated by `response_id` (1:1), falling
+    /// back to `execution_id` and file mtime.
+    private static func generationStepDates(
+        _ handle: OpaquePointer
+    ) -> (byResponse: [String: Date], byExecution: [String: [Date]], status: Int32?) {
+        var statement: OpaquePointer?
+        let sql = "SELECT metadata FROM steps WHERE metadata IS NOT NULL ORDER BY idx"
+        let prepared = sqlite3_prepare_v2(handle, sql, -1, &statement, nil)
+        guard prepared == SQLITE_OK, let statement else {
+            return ([:], [:], prepared == SQLITE_ERROR ? nil : prepared)
+        }
+        defer { sqlite3_finalize(statement) }
+
+        var byResponse: [String: Date] = [:]
+        var byExecution: [String: [Date]] = [:]
+        while true {
+            let step = sqlite3_step(statement)
+            if step == SQLITE_ROW {
+                autoreleasepool {
+                    guard let pointer = sqlite3_column_blob(statement, 0) else { return }
+                    let count = Int(sqlite3_column_bytes(statement, 0))
+                    guard count > 0 else { return }
+                    let bytes = [UInt8](Data(bytes: pointer, count: count))
+                    let date = timestamp(bytes[...], field: 8) ?? timestamp(bytes[...], field: 1)
+                    guard let date else { return }
+                    if let model = AntigravityProto.message(bytes[...], field: 9),
+                       let responseID = AntigravityProto.string(model, field: 11) {
+                        byResponse[responseID] = date
+                    }
+                    if let executionID = AntigravityProto.string(bytes[...], field: 12) {
+                        byExecution[executionID, default: []].append(date)
+                    }
+                }
+                continue
+            }
+            return (byResponse, byExecution, step == SQLITE_DONE ? nil : step)
+        }
+    }
+
     // MARK: Parsing one generation record
 
     /// What one `gen_metadata` row yielded. `discardedCounters` travels with the entry because
@@ -305,16 +413,32 @@ enum LocalAntigravityUsageReader {
         _ blob: Data,
         conversation: String,
         index: Int64,
+        fallbackDate: (_ responseID: String?, _ executionID: String?) -> Date? = { _, _ in nil },
         formatter: DateFormatter
     ) -> Record {
         let bytes = [UInt8](blob)
         guard let chatModel = AntigravityProto.message(bytes[...], field: 1),
-              let usage = AntigravityProto.message(chatModel, field: 4),
-              let date = createdAt(chatModel) else { return Record() }
+              let usage = AntigravityProto.message(chatModel, field: 4) else { return Record() }
+
+        let responseID = AntigravityProto.string(usage, field: 11)
+        let executionID = AntigravityProto.string(bytes[...], field: 4)
+
+        let date: Date
+        switch createdAt(chatModel) {
+        case .valid(let d):
+            date = d
+        case .absent:
+            guard let inferred = fallbackDate(responseID, executionID) else {
+                return Record()
+            }
+            date = inferred
+        case .invalid:
+            return Record()
+        }
 
         // The turn's own id, not the file it happens to sit in — a copied conversation must
         // not read as fresh spend. `response_id` is populated on every recorded call.
-        let identity = AntigravityProto.string(usage, field: 11).map { "antigravity|\($0)" }
+        let identity = responseID.map { "antigravity|\($0)" }
             ?? "antigravity|\(conversation)|\(index)"
 
         // `response_model` names the model that answered; the rate lookup is short-circuited
@@ -339,14 +463,33 @@ enum LocalAntigravityUsageReader {
             discardedCounters: [input, output, cacheWrite, cacheRead].filter { $0 == nil }.count)
     }
 
+    private enum ParsedDate {
+        case valid(Date)
+        case absent
+        case invalid
+    }
+
     /// `chat_start_metadata.created_at`, a `google.protobuf.Timestamp`.
-    private static func createdAt(_ chatModel: ArraySlice<UInt8>) -> Date? {
+    private static func createdAt(_ chatModel: ArraySlice<UInt8>) -> ParsedDate {
         guard let start = AntigravityProto.message(chatModel, field: 9),
-              let stamp = AntigravityProto.message(start, field: 4),
-              let seconds = AntigravityProto.varint(stamp, field: 1) else { return nil }
-        // A malformed varint can carry the whole uint64 range; a date built from it would
-        // overflow downstream arithmetic. Anything outside a plausible window is not a time.
-        guard seconds >= 1_000_000_000, seconds <= 4_102_444_800 else { return nil }
+              let stamp = AntigravityProto.message(start, field: 4) else {
+            return .absent
+        }
+        guard let seconds = AntigravityProto.varint(stamp, field: 1),
+              seconds >= 1_000_000_000, seconds <= 4_102_444_800 else {
+            return .invalid
+        }
+        let nanos = AntigravityProto.varint(stamp, field: 2).map { $0 < 1_000_000_000 ? Double($0) : 0 } ?? 0
+        return .valid(Date(timeIntervalSince1970: Double(seconds) + nanos / 1_000_000_000))
+    }
+
+    /// A `google.protobuf.Timestamp` held at `field`, with the same plausibility window
+    /// `createdAt` applies — a malformed varint can carry the whole `uint64` range, and a `Date`
+    /// built from one would overflow the arithmetic downstream of it.
+    static func timestamp(_ data: ArraySlice<UInt8>, field: Int) -> Date? {
+        guard let stamp = AntigravityProto.message(data, field: field),
+              let seconds = AntigravityProto.varint(stamp, field: 1),
+              seconds >= 1_000_000_000, seconds <= 4_102_444_800 else { return nil }
         let nanos = AntigravityProto.varint(stamp, field: 2).map { $0 < 1_000_000_000 ? Double($0) : 0 } ?? 0
         return Date(timeIntervalSince1970: Double(seconds) + nanos / 1_000_000_000)
     }
@@ -495,13 +638,18 @@ enum AntigravityProto {
 actor LocalAntigravityUsageCache {
     static let shared = LocalAntigravityUsageCache()
 
-    private let root: URL?
+    private let roots: [URL]?
     private let now: @Sendable () -> Date
     private var blobs: [String: LocalAntigravityUsageReader.Blob] = [:]
     private var inFlight: Task<LocalAntigravityUsageReader.Scan, Never>?
 
-    init(root: URL? = nil, now: @escaping @Sendable () -> Date = Date.init) {
-        self.root = root
+    init(roots: [URL]? = nil, now: @escaping @Sendable () -> Date = Date.init) {
+        self.roots = roots
+        self.now = now
+    }
+
+    init(root: URL?, now: @escaping @Sendable () -> Date = Date.init) {
+        self.roots = root.map { [$0] }
         self.now = now
     }
 
@@ -518,12 +666,12 @@ actor LocalAntigravityUsageCache {
             // Join rather than start a second scan, and leave the log to the owner.
             scanned = await inFlight.value
         } else {
-            let root = self.root ?? LocalAntigravityUsageReader.defaultRoot
+            let targetRoots = self.roots ?? LocalAntigravityUsageReader.defaultRoots
             let known = blobs
             // Nothing awaits between the miss above and this assignment — that is what stops two
             // callers from both starting a scan.
             let task = Task.detached(priority: .utility) {
-                LocalAntigravityUsageReader.scan(root: root, modifiedSince: since, known: known)
+                LocalAntigravityUsageReader.scan(roots: targetRoots, modifiedSince: since, known: known)
             }
             inFlight = task
             scanned = await task.value

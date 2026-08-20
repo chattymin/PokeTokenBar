@@ -134,6 +134,210 @@ final class AntigravityUsageTests: XCTestCase {
         XCTAssertTrue(readAll().isEmpty)
     }
 
+    // MARK: - Dating what Antigravity 2.0 leaves undated
+
+    /// The store's mtime is one value for every record it holds, so a conversation that ran
+    /// across midnight files yesterday's spend under today. The step that produced the record
+    /// knows better, and it is in the same database.
+    func testStepTimeWinsOverTheStoreMtime() throws {
+        let yesterday = try date("2026-03-04T23:40:00Z")
+        try writeConversation("c1", records: [
+            undatedRecord(responseID: "r1", model: "gemini-3.7-flash", execution: "e1",
+                          input: 100, output: 20, cacheRead: 300),
+        ], steps: [makeStep(execution: "e1", queued: yesterday, finished: yesterday)])
+        // The store was last written well after the turn it holds, which is the ordinary state
+        // of a conversation somebody is still using.
+        let database = temporaryDirectory.appendingPathComponent("c1.db")
+        let touched = try date("2026-03-05T09:00:00Z")
+        try FileManager.default.setAttributes([.modificationDate: touched], ofItemAtPath: database.path)
+
+        let entry = try XCTUnwrap(readAll().first)
+        XCTAssertEqual(entry.date.timeIntervalSince1970, yesterday.timeIntervalSince1970, accuracy: 0.001)
+        XCTAssertEqual(entry.localDay, LocalUsageReader.localDayFormatter().string(from: yesterday),
+                       "the mtime would have moved this turn onto the following day")
+    }
+
+    /// `finished_at` is when the tokens were spent, so it is preferred over the moment the step
+    /// was queued.
+    func testRecordIsDatedFromTheFinishOfItsStep() throws {
+        let queued = try date("2026-03-04T10:00:00Z")
+        let finished = try date("2026-03-04T10:00:12Z")
+        try writeConversation("c1", records: [
+            undatedRecord(responseID: "r1", model: "gemini-3.7-flash", execution: "e1",
+                          input: 100, output: 20, cacheRead: 300),
+        ], steps: [makeStep(execution: "e1", queued: queued, finished: finished)])
+
+        let entry = try XCTUnwrap(readAll().first)
+        XCTAssertEqual(entry.date.timeIntervalSince1970, finished.timeIntervalSince1970, accuracy: 0.001)
+        XCTAssertEqual(entry.total, 420, "the counters are the writer's — only the date is inferred")
+    }
+
+    /// `gen_metadata.idx` is its own dense sequence and drifts from `steps.idx` by minutes inside
+    /// one conversation, so the join has to be the execution id and nothing else.
+    func testTheJoinIsTheExecutionIdAndNotTheRowIndex() throws {
+        let first = try date("2026-03-04T10:00:00Z")
+        let second = try date("2026-03-05T18:00:00Z")
+        try writeConversation("c1", records: [
+            undatedRecord(responseID: "r1", model: "gemini-3.7-flash", execution: "e2",
+                          input: 100, output: 20, cacheRead: 300),
+        ], steps: [
+            makeStep(execution: "e1", queued: first, finished: first),
+            makeStep(execution: "e2", queued: second, finished: second),
+        ])
+
+        let entry = try XCTUnwrap(readAll().first)
+        XCTAssertEqual(entry.date.timeIntervalSince1970, second.timeIntervalSince1970, accuracy: 0.001,
+                       "row 0 was dated from step 0 instead of from its own execution")
+    }
+
+    /// One execution answers several times. Pairing them in order follows the execution as it
+    /// runs; collapsing them onto its last step would file a turn under the wrong day whenever
+    /// an execution straddles midnight.
+    /// The step lookup does not filter on `step_type`, so every row that carries the execution id
+    /// joins the ordinal list — including rows that are not generations. Characterises the current
+    /// join so that narrowing it later (which needs the real `step_type` values first) shows up here
+    /// rather than in someone's daily total.
+    func testAnyStepSharingTheExecutionJoinsTheOrdinal() throws {
+        let early = try date("2026-03-04T10:00:00Z")
+        let late = try date("2026-03-04T20:00:00Z")
+        try writeConversation("c1", records: [
+            undatedRecord(responseID: "r0", model: "gemini-3.7-flash", execution: "e1",
+                          input: 100, output: 20, cacheRead: 300),
+        ], steps: [
+            makeStep(execution: "e1", queued: early, finished: early),
+            makeStep(execution: "e1", responseID: "a-different-response", queued: late, finished: late),
+        ])
+
+        let entry = try XCTUnwrap(readAll().first)
+        XCTAssertEqual(entry.date.timeIntervalSince1970, early.timeIntervalSince1970, accuracy: 1)
+    }
+
+    func testStepTimesAreHandedOutInOrderWithinAnExecution() throws {
+        let times = try [
+            date("2026-03-04T23:50:00Z"), date("2026-03-04T23:55:00Z"), date("2026-03-05T00:05:00Z"),
+        ]
+        try writeConversation("c1", records: (0..<3).map {
+            undatedRecord(responseID: "r\($0)", model: "gemini-3.7-flash", execution: "e1",
+                          input: 100, output: 20, cacheRead: 300)
+        }, steps: times.map { makeStep(execution: "e1", queued: $0, finished: $0) })
+
+        let dates = readAll().sorted { $0.id < $1.id }.map(\.date.timeIntervalSince1970)
+        XCTAssertEqual(dates, times.map(\.timeIntervalSince1970))
+    }
+
+    /// A step still running has no `finished_at`, and more records than steps is what a store
+    /// read mid-execution looks like. The last known time still dates them.
+    func testRecordsBeyondTheStepsFallBackToTheLastKnownTime() throws {
+        let queued = try date("2026-03-04T10:00:00Z")
+        try writeConversation("c1", records: (0..<2).map {
+            undatedRecord(responseID: "r\($0)", model: "gemini-3.7-flash", execution: "e1",
+                          input: 100, output: 20, cacheRead: 300)
+        }, steps: [makeStep(execution: "e1", queued: queued, finished: nil)])
+
+        let dates = readAll().map(\.date.timeIntervalSince1970)
+        XCTAssertEqual(dates.count, 2)
+        XCTAssertEqual(Set(dates), [queued.timeIntervalSince1970])
+    }
+
+    /// New Antigravity stores omit `chat_start_metadata.created_at` from the generation blob.
+    /// The same response id and timestamp remain in the corresponding generation step metadata.
+    func testCurrentGenerationFormatUsesStepMetadataTimestamp() throws {
+        let firstID = "synthetic-new-format-call-1"
+        let secondID = "synthetic-new-format-call-2"
+        let firstDate = try date("2026-08-19T10:00:00Z")
+        let secondDate = try date("2026-08-19T10:01:00Z")
+        try writeConversation(
+            "c1",
+            records: [
+                undatedRecord(responseID: firstID, model: "gemini-3.7-flash", execution: "e1",
+                              input: 100, output: 20, cacheRead: 300),
+                undatedRecord(responseID: secondID, model: "gemini-3.7-flash", execution: "e1",
+                              input: 200, output: 30, cacheRead: 400),
+            ],
+            // Deliberately reverse the rows: correlation must use response_id, not table order.
+            steps: [
+                makeStep(execution: "e1", responseID: secondID, queued: secondDate, finished: secondDate),
+                makeStep(execution: "e1", responseID: firstID, queued: firstDate, finished: firstDate),
+            ])
+
+        let entries = readAll()
+        XCTAssertEqual(entries.count, 2)
+        let byID = Dictionary(uniqueKeysWithValues: entries.map { ($0.id, $0) })
+        let first = try XCTUnwrap(byID["antigravity|\(firstID)"])
+        let second = try XCTUnwrap(byID["antigravity|\(secondID)"])
+        XCTAssertEqual(first.date.timeIntervalSince1970, firstDate.timeIntervalSince1970, accuracy: 0.001)
+        XCTAssertEqual(second.date.timeIntervalSince1970, secondDate.timeIntervalSince1970, accuracy: 0.001)
+        let formatter = LocalUsageReader.localDayFormatter()
+        XCTAssertEqual(first.localDay, formatter.string(from: firstDate))
+        XCTAssertEqual(second.localDay, formatter.string(from: secondDate))
+        XCTAssertEqual(first.total, 420)
+        XCTAssertEqual(second.total, 630)
+    }
+
+    /// Multiple generations in the same conversation sharing an execution_id are correlated
+    /// directly by response_id even across midnight.
+    func testMultipleGenerationsSharingExecutionIdAreCorrelatedByResponseId() throws {
+        let firstID = "synthetic-shared-exec-call-1"
+        let secondID = "synthetic-shared-exec-call-2"
+        let firstDate = try date("2026-08-18T10:00:00Z")
+        let secondDate = try date("2026-08-19T10:00:00Z")
+        let executionID = "shared-execution-uuid"
+        try writeConversation(
+            "c1",
+            records: [
+                undatedRecord(responseID: firstID, model: "gemini-3.7-flash", execution: executionID,
+                              input: 100, output: 20, cacheRead: 300),
+                undatedRecord(responseID: secondID, model: "gemini-3.7-flash", execution: executionID,
+                              input: 200, output: 30, cacheRead: 400),
+            ],
+            steps: [
+                makeStep(execution: executionID, responseID: secondID, queued: secondDate, finished: secondDate),
+                makeStep(execution: executionID, responseID: firstID, queued: firstDate, finished: firstDate),
+            ])
+
+        let entries = readAll()
+        let byID = Dictionary(uniqueKeysWithValues: entries.map { ($0.id, $0) })
+        let first = try XCTUnwrap(byID["antigravity|\(firstID)"])
+        let second = try XCTUnwrap(byID["antigravity|\(secondID)"])
+        let formatter = LocalUsageReader.localDayFormatter()
+        XCTAssertEqual(first.localDay, formatter.string(from: firstDate))
+        XCTAssertEqual(second.localDay, formatter.string(from: secondDate))
+        XCTAssertNotEqual(first.localDay, second.localDay)
+    }
+
+    /// The writer's own value where there is one — the step time is an inference, and an
+    /// inference must never displace the thing it stands in for.
+    func testWriterCreatedAtWinsOverTheStepTime() throws {
+        let created = try date("2026-03-04T10:00:00Z")
+        try writeConversation("c1", records: [
+            makeRecord(responseID: "r1", model: "gemini-3.6-flash",
+                       createdAtSeconds: UInt64(created.timeIntervalSince1970),
+                       input: 100, output: 20, cacheRead: 300, execution: "e1"),
+        ], steps: [makeStep(execution: "e1",
+                            queued: try date("2026-03-09T10:00:00Z"),
+                            finished: try date("2026-03-09T10:00:01Z"))])
+
+        let entry = try XCTUnwrap(readAll().first)
+        XCTAssertEqual(entry.date.timeIntervalSince1970, created.timeIntervalSince1970, accuracy: 0.001)
+    }
+
+    /// The store's mtime stays as the last resort: a record whose execution has no steps to date
+    /// it with must still be counted rather than dropped.
+    func testStoreMtimeRemainsTheLastResort() throws {
+        try writeConversation("c1", records: [
+            undatedRecord(responseID: "r1", model: "gemini-3.7-flash", execution: "e1",
+                          input: 100, output: 20, cacheRead: 300),
+        ], steps: [makeStep(execution: "another-execution",
+                            queued: try date("2026-03-01T10:00:00Z"), finished: nil)])
+        let database = temporaryDirectory.appendingPathComponent("c1.db")
+        let touched = try date("2026-03-05T09:00:00Z")
+        try FileManager.default.setAttributes([.modificationDate: touched], ofItemAtPath: database.path)
+
+        let entry = try XCTUnwrap(readAll().first)
+        XCTAssertEqual(entry.date.timeIntervalSince1970, touched.timeIntervalSince1970, accuracy: 1)
+        XCTAssertEqual(entry.total, 420)
+    }
+
     // MARK: - Hostile input
 
     /// A `uint64` sentinel widened into `Int` would trap the process on the next addition, and
@@ -514,11 +718,48 @@ final class AntigravityUsageTests: XCTestCase {
     /// Someone who has never run Antigravity must get silence rather than a zero: throwing
     /// colours the whole refresh as an error, and a zero raises a tab for a tool they don't use.
     func testProviderIsSilentWithoutAnyConversationStore() async throws {
-        guard !FileManager.default.fileExists(atPath: LocalAntigravityUsageReader.defaultRoot.path) else {
+        let hasAnyStore = LocalAntigravityUsageReader.defaultRoots.contains {
+            FileManager.default.fileExists(atPath: $0.path)
+        }
+        guard !hasAnyStore else {
             throw XCTSkip("this machine has Antigravity conversation stores — the absent path cannot be exercised")
         }
         let daily = try await LocalAntigravityProvider().fetchDaily()
         XCTAssertNil(daily)
+    }
+
+    func testDefaultRootsContainsAllKnownLocations() {
+        let paths = LocalAntigravityUsageReader.defaultRoots.map(\.path)
+        XCTAssertTrue(paths.contains { $0.hasSuffix(".gemini/antigravity/conversations") })
+        XCTAssertTrue(paths.contains { $0.hasSuffix(".gemini/antigravity-cli/conversations") })
+        XCTAssertTrue(paths.contains { $0.hasSuffix(".gemini/antigravity-ide/conversations") })
+        XCTAssertEqual(LocalAntigravityUsageReader.defaultRoot, LocalAntigravityUsageReader.defaultRoots[0])
+    }
+
+    func testMultiRootScanDiscoversAndDeduplicatesAcrossDirectories() throws {
+        let rootA = temporaryDirectory.appendingPathComponent("rootA")
+        let rootB = temporaryDirectory.appendingPathComponent("rootB")
+        try FileManager.default.createDirectory(at: rootA, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: rootB, withIntermediateDirectories: true)
+
+        let stamp = try date("2026-03-04T10:00:00Z")
+
+        // rootA has unique entry r1, and duplicate r_shared
+        try writeConversation("c1", at: rootA, records: [
+            record(responseID: "r1", model: "gemini-3.6-flash", createdAt: stamp, input: 100, output: 50, cacheRead: 0),
+            record(responseID: "r_shared", model: "gemini-3.6-flash", createdAt: stamp, input: 200, output: 100, cacheRead: 0),
+        ])
+
+        // rootB has unique entry r2, and duplicate r_shared
+        try writeConversation("c2", at: rootB, records: [
+            record(responseID: "r2", model: "gemini-3.6-flash", createdAt: stamp, input: 300, output: 150, cacheRead: 0),
+            record(responseID: "r_shared", model: "gemini-3.6-flash", createdAt: stamp, input: 200, output: 100, cacheRead: 0),
+        ])
+
+        let entries = LocalAntigravityUsageReader.entries(modifiedSince: .distantPast, roots: [rootA, rootB])
+        let ids = Set(entries.map(\.id))
+        XCTAssertEqual(ids, ["antigravity|r1", "antigravity|r2", "antigravity|r_shared"])
+        XCTAssertEqual(entries.count, 3, "duplicate r_shared must collapse to a single entry")
     }
 
     // MARK: - Fixtures
@@ -583,16 +824,73 @@ final class AntigravityUsageTests: XCTestCase {
                    input: input, output: output, cacheRead: cacheRead)
     }
 
+    /// Antigravity 2.0 / IDE sessions may omit `chat_start_metadata.created_at` from the protobuf.
+    /// The reader should fallback to the database file's mtime so tokens are not dropped.
+    func testConversationWithoutProtobufCreatedAtUsesFileMtimeFallback() throws {
+        let recordWithoutTimestamp = makeRecord(
+            responseID: "r_modern_1",
+            model: "gemini-3.7-flash",
+            createdAtSeconds: nil,
+            input: 500,
+            output: 100,
+            cacheRead: 2000
+        )
+        try writeConversation("c_modern", records: [recordWithoutTimestamp])
+
+        let entries = readAll()
+        XCTAssertEqual(entries.count, 1)
+        let entry = try XCTUnwrap(entries.first)
+        XCTAssertEqual(entry.id, "antigravity|r_modern_1")
+        XCTAssertEqual(entry.input, 500)
+        XCTAssertEqual(entry.output, 100)
+        XCTAssertEqual(entry.cacheRead, 2000)
+        XCTAssertEqual(entry.total, 2600)
+        XCTAssertEqual(entry.model, "antigravity/gemini-3.7-flash")
+    }
+
     /// `CortexStepGeneratorMetadata { 1 chat_model { 4 usage, 9 chat_start_metadata, 19 response_model } }`
+    /// An Antigravity 2.0 record: it names the execution it belongs to and carries no time.
+    private func undatedRecord(
+        responseID: String?,
+        model: String,
+        execution: String?,
+        input: UInt64,
+        output: UInt64,
+        cacheRead: UInt64
+    ) -> Data {
+        makeRecord(responseID: responseID, model: model, createdAtSeconds: nil,
+                   input: input, output: output, cacheRead: cacheRead, execution: execution)
+    }
+
+    /// `StepMetadata { 1 created_at, 8 finished_at, 9 { 11 response_id }, 12 execution_id }`
+    private func makeStep(execution: String? = nil, responseID: String? = nil, queued: Date, finished: Date?) -> Data {
+        func stamp(_ field: Int, _ date: Date) -> [UInt8] {
+            AntigravityProto.encodeMessage(
+                field: field,
+                AntigravityProto.encodeVarint(field: 1, UInt64(date.timeIntervalSince1970)))
+        }
+        var metadata = stamp(1, queued)
+        if let finished { metadata += stamp(8, finished) }
+        if let responseID {
+            metadata += AntigravityProto.encodeMessage(
+                field: 9, AntigravityProto.encodeString(field: 11, responseID))
+        }
+        if let execution {
+            metadata += AntigravityProto.encodeString(field: 12, execution)
+        }
+        return Data(metadata)
+    }
+
     private func makeRecord(
         responseID: String?,
         model: String,
-        createdAtSeconds: UInt64,
+        createdAtSeconds: UInt64? = nil,
         input: UInt64,
         output: UInt64,
         cacheRead: UInt64,
         thinking: UInt64? = nil,
-        response: UInt64? = nil
+        response: UInt64? = nil,
+        execution: String? = nil
     ) -> Data {
         var usage = AntigravityProto.encodeVarint(field: 1, 1071)          // model enum
         usage += AntigravityProto.encodeVarint(field: 2, input)            // input_tokens
@@ -603,19 +901,25 @@ final class AntigravityUsageTests: XCTestCase {
         if let response { usage += AntigravityProto.encodeVarint(field: 10, response) }
         if let responseID { usage += AntigravityProto.encodeString(field: 11, responseID) }
 
-        let timestamp = AntigravityProto.encodeVarint(field: 1, createdAtSeconds)
-        let chatStart = AntigravityProto.encodeMessage(field: 4, timestamp)
-
         var chatModel = AntigravityProto.encodeVarint(field: 3, 1071)
         chatModel += AntigravityProto.encodeMessage(field: 4, usage)
+        // Antigravity 2.0 still writes `chat_start_metadata`; it is `created_at` inside it that
+        // is gone. Dropping the whole message instead would let a future writer that puts
+        // something else at field 4 pass these tests unnoticed.
+        let chatStart = createdAtSeconds.map {
+            AntigravityProto.encodeMessage(field: 4, AntigravityProto.encodeVarint(field: 1, $0))
+        } ?? AntigravityProto.encodeVarint(field: 2, UInt64.max)
         chatModel += AntigravityProto.encodeMessage(field: 9, chatStart)
         chatModel += AntigravityProto.encodeString(field: 19, model)
 
-        return Data(AntigravityProto.encodeMessage(field: 1, chatModel))
+        var record = AntigravityProto.encodeMessage(field: 1, chatModel)
+        if let execution { record += AntigravityProto.encodeString(field: 4, execution) }
+        return Data(record)
     }
 
-    private func writeConversation(_ name: String, records: [Data], walMode: Bool = false) throws {
-        try writeConversation(name, blobs: records, walMode: walMode)
+    private func writeConversation(_ name: String, at root: URL? = nil, records: [Data],
+                                   steps: [Data] = [], walMode: Bool = false) throws {
+        try writeConversation(name, at: root, blobs: records, steps: steps, walMode: walMode)
     }
 
     /// A store spanning several pages, so damaging the last one still leaves earlier rows
@@ -663,7 +967,7 @@ final class AntigravityUsageTests: XCTestCase {
         defer { sqlite3_close_v2(handle) }
         var statement: OpaquePointer?
         XCTAssertEqual(sqlite3_prepare_v2(
-            handle, "SELECT idx, data FROM gen_metadata WHERE data IS NOT NULL",
+            handle, "SELECT idx, data FROM gen_metadata WHERE data IS NOT NULL ORDER BY idx",
             -1, &statement, nil), SQLITE_OK)
         defer { sqlite3_finalize(statement) }
         var rows = 0
@@ -674,15 +978,23 @@ final class AntigravityUsageTests: XCTestCase {
         }
     }
 
-    private func writeConversation(_ name: String, blobs: [Data], walMode: Bool = false,
+    private func writeConversation(_ name: String, at root: URL? = nil, blobs: [Data],
+                                   steps: [Data] = [], walMode: Bool = false,
                                    pageSize: Int? = nil) throws {
-        let database = temporaryDirectory.appendingPathComponent("\(name).db")
+        let directory = root ?? temporaryDirectory!
+        let database = directory.appendingPathComponent("\(name).db")
         // `page_size` only takes effect before the first table exists.
         var sql = pageSize.map { "PRAGMA page_size=\($0);\n" } ?? ""
         sql += walMode ? "PRAGMA journal_mode=WAL;\n" : ""
         sql += "CREATE TABLE gen_metadata (idx integer, data blob, size integer NOT NULL DEFAULT 0, PRIMARY KEY (idx));\n"
         for (index, blob) in blobs.enumerated() {
             sql += "INSERT INTO gen_metadata VALUES (\(index), X'\(blob.map { String(format: "%02x", $0) }.joined())', \(blob.count));\n"
+        }
+        if !steps.isEmpty {
+            sql += "CREATE TABLE steps (idx integer, metadata blob, PRIMARY KEY (idx));\n"
+            for (index, blob) in steps.enumerated() {
+                sql += "INSERT INTO steps VALUES (\(index), X'\(blob.map { String(format: "%02x", $0) }.joined())');\n"
+            }
         }
         try execute(database, sql: sql)
     }

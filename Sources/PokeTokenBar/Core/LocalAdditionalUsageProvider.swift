@@ -134,10 +134,20 @@ private actor LocalAdditionalUsageCache {
         /// Cursor `cursorDiskKV` / Copilot `assistant_usage_events` have no usable
         /// time column for the cache key — per-DB high-water for append-only rows.
         let highWaterByPath: [String: Int64]
+        /// Kiro skip state lives next to the entries it justifies. A month-key
+        /// drop that empties `entries` also drops the signatures, so the skip
+        /// cannot fire against an empty `existing` (#179).
+        let kiroSignatures: [String: (mtime: Date, size: Int)]
+    }
+
+    private struct ScanResult: Sendable {
+        var entries: [LocalUsageReader.Entry]
+        var highWaterByPath: [String: Int64] = [:]
+        var kiroSignatures: [String: (mtime: Date, size: Int)] = [:]
     }
 
     private var cached: [LocalAdditionalSource: Cached] = [:]
-    private var inFlight: [LocalAdditionalSource: Task<(entries: [LocalUsageReader.Entry], highWaterByPath: [String: Int64]), Never>] = [:]
+    private var inFlight: [LocalAdditionalSource: Task<ScanResult, Never>] = [:]
 
     func entries(for source: LocalAdditionalSource) async -> [LocalUsageReader.Entry] {
         let now = Date()
@@ -188,39 +198,43 @@ private actor LocalAdditionalUsageCache {
             afterRowIDByPath = [:]
         }
         let existing = previous?.entries ?? []
+        let knownKiro = previous?.kiroSignatures ?? [:]
         let task = Task.detached(priority: .utility) {
-            () -> (entries: [LocalUsageReader.Entry], highWaterByPath: [String: Int64]) in
+            () -> ScanResult in
             switch source {
             case .opencode:
                 let loaded = LocalAdditionalUsageReader.openCodeEntries(modifiedSince: since)
-                return (LocalUsageReader.dedupKeepMax(existing + loaded), [:])
+                return ScanResult(entries: LocalUsageReader.dedupKeepMax(existing + loaded))
             case .hermes:
-                return (LocalAdditionalUsageReader.hermesEntries(modifiedSince: since), [:])
+                return ScanResult(entries: LocalAdditionalUsageReader.hermesEntries(modifiedSince: since))
             case .kiro:
-                let loaded = LocalAdditionalUsageReader.kiroEntries(modifiedSince: since)
-                return (LocalUsageReader.dedupKeepMax(existing + loaded), [:])
+                let loaded = LocalAdditionalUsageReader.kiroEntries(
+                    modifiedSince: since, knownSignatures: knownKiro)
+                return ScanResult(
+                    entries: LocalUsageReader.dedupKeepMax(existing + loaded.entries),
+                    kiroSignatures: loaded.signatures)
             case .cursor:
                 let loaded = LocalAdditionalUsageReader.cursorEntries(
                     modifiedSince: since, afterRowIDByPath: afterRowIDByPath)
                 // DB rewrite / VACUUM can drop max(rowid) below the watermark — discard
                 // the stale in-memory set and take the full rescan result.
                 if loaded.didReset {
-                    return (loaded.entries, loaded.highWaterByPath)
+                    return ScanResult(entries: loaded.entries, highWaterByPath: loaded.highWaterByPath)
                 }
-                return (
-                    LocalUsageReader.dedupKeepMax(existing + loaded.entries),
-                    loaded.highWaterByPath)
+                return ScanResult(
+                    entries: LocalUsageReader.dedupKeepMax(existing + loaded.entries),
+                    highWaterByPath: loaded.highWaterByPath)
             case .copilot:
                 let loaded = LocalAdditionalUsageReader.copilotEntries(
                     modifiedSince: since, afterRowIDByPath: afterRowIDByPath)
                 // A pruned / recreated session store restarts ids — the cached rows would
                 // then collide with different events, so keep only the rescan.
                 if loaded.didReset {
-                    return (loaded.entries, loaded.highWaterByPath)
+                    return ScanResult(entries: loaded.entries, highWaterByPath: loaded.highWaterByPath)
                 }
-                return (
-                    LocalUsageReader.dedupKeepMax(existing + loaded.entries),
-                    loaded.highWaterByPath)
+                return ScanResult(
+                    entries: LocalUsageReader.dedupKeepMax(existing + loaded.entries),
+                    highWaterByPath: loaded.highWaterByPath)
             }
         }
         inFlight[source] = task
@@ -228,7 +242,8 @@ private actor LocalAdditionalUsageCache {
         inFlight[source] = nil
         cached[source] = Cached(
             loadedAt: now, monthKey: monthKey, entries: result.entries,
-            highWaterByPath: result.highWaterByPath)
+            highWaterByPath: result.highWaterByPath,
+            kiroSignatures: result.kiroSignatures)
         return result.entries
     }
 }
@@ -793,20 +808,44 @@ enum LocalAdditionalUsageReader {
     /// Kiro persists a conversation as one row whose `value` column holds the *entire*
     /// history as JSON, rewritten in place on every turn — there is no per-row token count
     /// (see the type doc on `LocalKiroProvider`) and no append-only id to watermark, so this
-    /// re-parses every stored conversation on every call. Two schema generations coexist:
+    /// cannot advance a row id. Two schema generations coexist:
     /// `conversations_v2` (kiro-cli < 2.0.1, dedicated `conversation_id`/`key`/timestamp
     /// columns) and `conversations` (2.0.1+, keyed by working directory; the JSON itself
     /// carries `conversation_id`). Both wrap the same turn shape, so they share a parser.
+    ///
+    /// `modifiedSince` is applied *after* the JSON parse (`kiroTurnEntries`), so it
+    /// bounds the output, not the work (#178). The cheap gate is the database
+    /// file's own signature — reused from `LocalAntigravityUsageReader.signature`
+    /// (`.sqlite3` + `-wal`, never `-shm`). An unchanged file returns `[]`; the
+    /// `.kiro` cache merges `existing + loaded`, so that keeps previously-seen
+    /// entries. Signatures are supplied by that cache (`knownSignatures`) and
+    /// die with it on a month-key drop, so a skip cannot fire against empty
+    /// `existing` (#179). The first scan of a process passes `[:]`.
     static func kiroEntries(
         modifiedSince: Date,
         roots: [URL]? = nil
     ) -> [LocalUsageReader.Entry] {
+        kiroEntries(modifiedSince: modifiedSince, knownSignatures: [:], roots: roots).entries
+    }
+
+    static func kiroEntries(
+        modifiedSince: Date,
+        knownSignatures: [String: (mtime: Date, size: Int)],
+        roots: [URL]? = nil
+    ) -> (entries: [LocalUsageReader.Entry], signatures: [String: (mtime: Date, size: Int)]) {
         let sourceRoots = roots ?? defaultKiroRoots
         var entries: [LocalUsageReader.Entry] = []
+        var signatures: [String: (mtime: Date, size: Int)] = [:]
         for root in sourceRoots {
-            entries += kiroDatabaseEntries(kiroDatabaseURL(from: root), modifiedSince: modifiedSince)
+            let database = kiroDatabaseURL(from: root)
+            let scanned = kiroDatabaseEntries(
+                database, modifiedSince: modifiedSince, known: knownSignatures)
+            entries += scanned.entries
+            if let signature = scanned.signature {
+                signatures[database.path] = signature
+            }
         }
-        return LocalUsageReader.dedupKeepMax(entries)
+        return (LocalUsageReader.dedupKeepMax(entries), signatures)
     }
 
     private static func kiroDatabaseURL(from root: URL) -> URL {
@@ -815,8 +854,20 @@ enum LocalAdditionalUsageReader {
 
     private static func kiroDatabaseEntries(
         _ database: URL,
-        modifiedSince: Date
-    ) -> [LocalUsageReader.Entry] {
+        modifiedSince: Date,
+        known: [String: (mtime: Date, size: Int)]
+    ) -> (entries: [LocalUsageReader.Entry], signature: (mtime: Date, size: Int)?) {
+        // Stat before the read. A commit that lands mid-read then differs from
+        // the stored signature on the next poll and is re-read; stat afterwards
+        // and that same commit is frozen into a signature that already looks current.
+        let signature = LocalAntigravityUsageReader.signature(of: database)
+        if let signature,
+           let remembered = known[database.path],
+           remembered.mtime == signature.mtime,
+           remembered.size == signature.size {
+            return ([], signature)
+        }
+
         var entries: [LocalUsageReader.Entry] = []
 
         // kiro-cli < 2.0.1: one row per conversation, with dedicated id/timestamp columns.
@@ -825,15 +876,23 @@ enum LocalAdditionalUsageReader {
             guard let value = columnText(statement, 1) else { return nil }
             return (columnText(statement, 0), value)
         }
+        // kiro-cli 2.0.1+: one row per working directory; the conversation id lives in the JSON.
+        // A 2.0.1+ store may still keep `conversations_v2` (nil here is a missing table
+        // *or* a scan that stopped early). `query` cannot tell them apart, so a BUSY on
+        // one generation plus a success on the other still counts as a completed scan.
+        let v1Rows = query(database, sql: "SELECT value FROM conversations") {
+            statement -> String? in columnText(statement, 0)
+        }
+        // Both nil: open/prepare/step failed (BUSY, corrupt, missing file that
+        // still couldn't be opened). Do not occupy the skip slot — the next
+        // poll must retry. A missing table on one generation is nil while the
+        // other succeeds, so "at least one non-nil" is a completed scan.
+        guard v2Rows != nil || v1Rows != nil else { return ([], nil) }
+
         for row in v2Rows ?? [] {
             guard let object = jsonObject(data: Data(row.value.utf8)) else { continue }
             let conversationID = row.id ?? stringValue(object["conversation_id"]) ?? database.path
             entries += kiroTurnEntries(conversationID: conversationID, object: object, modifiedSince: modifiedSince)
-        }
-
-        // kiro-cli 2.0.1+: one row per working directory; the conversation id lives in the JSON.
-        let v1Rows = query(database, sql: "SELECT value FROM conversations") {
-            statement -> String? in columnText(statement, 0)
         }
         for value in v1Rows ?? [] {
             guard let object = jsonObject(data: Data(value.utf8)),
@@ -841,7 +900,7 @@ enum LocalAdditionalUsageReader {
             entries += kiroTurnEntries(conversationID: conversationID, object: object, modifiedSince: modifiedSince)
         }
 
-        return entries
+        return (entries, signature)
     }
 
     /// Bytes-per-token used to turn estimated byte counts into an approximate token count.

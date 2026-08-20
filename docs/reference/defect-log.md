@@ -5,6 +5,7 @@ read_when:
   - 동시성/await·옵셔널 판정·캐시 무효화·외부 로그 포맷을 건드릴 때
   - 크기 상한이 없는 사용자 파일을 읽는 코드(사용량 로그 파서)의 메모리를 손볼 때
   - 메뉴바·플로팅 펫 등 상시 표시 애니메이션의 성능을 손볼 때
+  - 스프라이트·이미지를 고정 크기 프레임에 그릴 때(비율 왜곡 부류)
   - 세이브 이전/병합·외부 파일 입력 경로를 만들 때
 ---
 
@@ -47,6 +48,16 @@ read_when:
   같은 `didReset` / `highWater == 0` 규칙을 두 벌로 들고 있으면 한쪽만 고친 수정이 다른 쪽에 남는다
   (#157). 루프는 `scanIncrementalStores` 한 곳, 포맷만 콜백. 회귀는 공유 헬퍼 테스트 **그리고**
   Copilot-only / Cursor-only 각 경로(A\|\|B 의 B 단독)를 모두 밟아야 한다.
+- **파싱 뒤에 걸린 필터는 출력을 줄이지 일을 줄이지 않는다.** `modifiedSince` 가 호출부에선
+  스캔 창처럼 보이지만, 행 watermark 가 있는 리더에서만 창이다. 통문서 저장(Kiro 가 대화 JSON 을
+  제자리 재기록)은 창을 파싱 *뒤에* 적용해서 읽기·`jsonObject` 비용이 그대로다(실측 30×80턴:
+  리턴 0건도 37ms). watermark 를 못 쓰면 싼 게이트는 파일 자신의 signature 다 — 이미 있는
+  `LocalAntigravityUsageReader.signature` 를 재사용한다(`.db`/`.sqlite3` + `-wal`, `-shm` 제외).
+  첫 스캔은 기록된 signature 가 없어 건너뛰지 않고, 실패한 open 은 슬롯을 차지하지 않는다.
+  `.kiro` 캐시는 `existing + loaded` 를 병합하므로 빈 스캔은 캐시를 지우지 않는다.
+  signature 는 process-lifetime 맵이 아니라 `Cached` 의 `kiroSignatures` 로 entries 옆에 둔다 —
+  month-key 가 바뀌면 `previous` 가 nil 이라 skip 도 같이 죽는다. skip 이 `existing` 없이
+  남으면 `[] + []` 로 주/블록 합계가 0 이 된다(#179). (#178)
 - **외부 로그 포맷은 *상위 소스의 writer* 로 검증한다 — 내 픽스처는 증거가 아니다.** 새 프로바이더 파서를
   쓸 때 "이렇게 생겼을 것"으로 픽스처를 만들면 파서와 픽스처가 같은 오해를 공유해 테스트가 전부 통과하면서
   실사용은 0 을 표시한다(#133: 봉투 래퍼 키를 `update` 로 봤으나 실제는 `params`, `timestamp` 는 ISO 문자열이
@@ -54,6 +65,23 @@ read_when:
   계약 테스트)를 열어 키·타입·의미를 확정 ② 그 계약으로 픽스처 작성 ③ 가능하면 실파일 1건 캡처. 특히
   **같은 스펠링이 표면마다 의미가 다를 수 있다**(Grok `inputTokens`=캐시 포함 durable wire vs `input_tokens`=캐시
   제외 헤드리스 투영) — 별칭으로 합치면 캐시분을 두 번 빼거나 두 번 더한다.
+- **Antigravity의 생성 시각은 `gen_metadata` 한 곳에 고정돼 있지 않다.** 구 포맷은
+  `chat_start_metadata.created_at`에 시각을 넣지만, 현재 포맷은 그 필드를 비우고 `steps.metadata`에
+  타임스탬프를 둔다(`8 finished_at`, 없으면 `1 created_at`). 토큰 필드는 유지되므로 `gen_metadata`만
+  읽으면 오늘 사용량이 통째로 `nil`이 된다. 연결은 네 단계다: 구 포맷의 직접 시각 → `response_id`
+  1:1(`steps.metadata` 의 `9.11`) → 같은 `execution_id`(`12`) 안에서의 등장 순서 → 스토어 mtime.
+  **행 순서(`idx`)로 잇지 마라** — `gen_metadata.idx` 는 자기만의 조밀한 수열이라 같은 대화 안에서도
+  `steps.idx` 와 분 단위로 어긋난다. mtime 이 최후수단인 이유는 스토어 하나에 값이 하나뿐이라
+  대화의 앞선 날들을 마지막 기록일로 끌어오기 때문이다(실측: 신포맷 스토어 10개에서 11,523,909 토큰이
+  하루 뒤로 이동하고 원래 날짜는 0이 됐다).
+  **`steps` 는 종류를 가리지 않고 전부 읽는다** — 쿼리에 `step_type` 조건이 없다. `execution_id` 를 가진
+  행은 generation 이 아니어도 순서 대응 후보 목록에 들어가므로, 3단계는 그 실행의 다른 step 시각을
+  집어갈 수 있다(합성 스토어로 확인). 실제 스토어에서 이 혼입이 얼마나 되는지는 **아직 측정되지 않았다** —
+  근거는 `created_at` 이 남아 있는 스토어와 대조해 ~2분 이내라는 것뿐이다. 좁히려면 `step_type` 값을
+  실데이터로 먼저 확정하라: 테스트 픽스처의 `steps` 에는 그 컬럼 자체가 없어, 실측 없이 조건만 넣으면
+  스토어를 통째로 못 읽는 쪽으로 무너진다. 회귀 가드는
+  `testCurrentGenerationFormatUsesStepMetadataTimestamp`·`testTheJoinIsTheExecutionIdAndNotTheRowIndex`·
+  `testStepTimesAreHandedOutInOrderWithinAnExecution`·`testStoreMtimeRemainsTheLastResort`.
 - **사용량 소스의 "복사·재기록" 경로를 먼저 찾아라 (이중집계·재날짜화).** 세션 fork·재생·서브에이전트는 같은
   지출을 여러 파일에 남기거나 시각을 다시 찍는다. 규칙: ① dedup 키는 *턴 자체* 의 전역 유일 id(파일·세션 경로를
   섞지 마라 — 복사본이 별건이 된다) ② 시각은 *기록* 시각이 아니라 *턴* 시각(fork 는 봉투 timestamp 를 새로
@@ -371,6 +399,23 @@ read_when:
   `testTransferDayTokensStillCountAfterRebase` — 재정렬 없는 대조군을 같이 돌려 결함 조건이 살아 있는지도
   함께 확인한다(테스트가 트리거 브랜치를 실제로 밟는지 보증).
 
+## 렌더 기하 (스프라이트·이미지)
+
+- **`.resizable()` + `.frame(w:h:)` 는 "맞춤"이 아니라 "늘여 채움"이다.** 대조 없이 정사각 프레임에 넣으면
+  비정사각 원본은 그대로 왜곡된다. 이 부류가 오래 안 잡힌 이유가 핵심이다 — **정적 자산이 전부 정사각이라
+  증상이 안 났다**(종 PNG 96×96, 아이템 30×30). 왜곡은 캔버스가 종마다 크롭된 **Gen-V 움직이는 GIF**
+  에서만 드러났다(잭키 #325 는 36×66 → 가로 1.83배 뚱뚱, 피카츄 #25 50×46, 팬텀 #143 74×75). 즉 정적
+  경로만 검증한 테스트는 통과하면서 GIF 경로를 통째로 비워 둔다. 규율은 셋이다:
+  ① 원본 비율은 한 곳(`SpriteFit.size`)에서만 계산하고 **모든 렌더 경로가 그걸 공유한다** — SwiftUI
+  (`SpriteView`·`ItemIconView`)든 AppKit `draw(in:)`(메뉴바 `menuBarLayout`)든.
+  ② **바깥 슬롯은 정사각으로 유지하고 안쪽 이미지만 줄인다** — 진화 라인·도감 그리드의 폭 계산
+  (`EvoLineView.rowWidth`)이 칸을 정사각으로 전제하므로 바깥을 건드리면 레이아웃이 흔들린다.
+  (메뉴바는 예외: 세로 22 고정 + 가로는 맞춘 폭 — 정사각 고정이면 세로로 긴 종 좌우에 죽은 여백이 생겨
+  사용량 숫자와 벌어진다.)
+  ③ **크기가 0 인 원본**(디코드 실패)은 0 나눗셈이 되므로 정사각 폴백으로 막는다.
+  회귀 가드(`SpriteAspectRatioTests`)는 실제 PokeAPI 캔버스 치수를 넣고, **"비정사각이 정사각으로 나오지
+  않는다"는 트리거 명제를 따로 둔다** — 이게 없으면 원본이 애초에 정사각인 케이스로도 전부 통과한다.
+
 ## 프로세스 제어·업데이트
 
 - **`pgrep -x <name>` 은 실행 파일의 정체성 검사이지, 기다리는 특정 프로세스에 대한 검사가 아니다.**
@@ -378,4 +423,3 @@ read_when:
   자동 업데이트 시 앱 종료를 기다릴 때 `pgrep -x PokeTokenBar`를 쓰면, 중복 인스턴스가 살아있는 동안 루프를
   결코 빠져나오지 못하고 20초 타임아웃을 온전히 소모한다(#175). `ProcessInfo.processInfo.processIdentifier`로
   종료 대상 프로세스 PID를 전달하고 `kill -0 "$3"`로 특정 프로세스의 종료를 대기한다.
-
