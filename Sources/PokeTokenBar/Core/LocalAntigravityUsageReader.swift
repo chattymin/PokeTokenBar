@@ -283,17 +283,17 @@ enum LocalAntigravityUsageReader {
         }
         defer { sqlite3_finalize(statement) }
 
-        // Three sources, most specific first: the writer's own `created_at`, the timings of the
-        // execution the record belongs to, and — for a store that offers neither — the file's
-        // own mtime, which is the same date for every record it holds.
+        let stepDates = generationStepDates(handle)
+        if let status = stepDates.status {
+            return .incompleteScan(status: status, rows: 0)
+        }
+
         let storeDate = signature(of: database)?.mtime ?? Date()
-        // Loads itself on the first record that has no `created_at`, so a store written before
-        // Antigravity 2.0 never reads `steps` at all.
-        let timeline = StepTimeline(handle: handle)
         let conversation = database.deletingPathExtension().lastPathComponent
         var entries: [LocalUsageReader.Entry] = []
         var discardedCounters = 0
         var rows = 0
+        var takenByExecution: [String: Int] = [:]
         while true {
             let step = sqlite3_step(statement)
             if step == SQLITE_ROW {
@@ -306,7 +306,17 @@ enum LocalAntigravityUsageReader {
                     let blob = Data(bytes: pointer, count: count)
                     let record = parseGenerationMetadata(
                         blob, conversation: conversation, index: index,
-                        fallbackDate: { timeline.next(for: $0) ?? storeDate },
+                        fallbackDate: { responseID, executionID in
+                            if let responseID, let date = stepDates.byResponse[responseID] {
+                                return date
+                            }
+                            if let executionID, let list = stepDates.byExecution[executionID], !list.isEmpty {
+                                let ordinal = takenByExecution[executionID, default: 0]
+                                takenByExecution[executionID] = ordinal + 1
+                                return list[min(ordinal, list.count - 1)]
+                            }
+                            return storeDate
+                        },
                         formatter: formatter)
                     discardedCounters += record.discardedCounters
                     guard let entry = record.entry else { return }
@@ -320,10 +330,6 @@ enum LocalAntigravityUsageReader {
             guard step == SQLITE_DONE else { return .incompleteScan(status: step, rows: rows) }
             break
         }
-        // A `steps` read that stopped early leaves some records dated from their own execution
-        // and the rest from the store's mtime. That mixture must not be cached as the whole of
-        // the conversation, for the same reason half its rows must not be.
-        if let status = timeline.failure { return .incompleteScan(status: status, rows: rows) }
         return .complete(entries: entries, discardedCounters: discardedCounters)
     }
 
@@ -353,78 +359,43 @@ enum LocalAntigravityUsageReader {
 
     // MARK: Dating a record Antigravity 2.0 left undated
 
-    /// Step timings from the same store, grouped by the execution that produced them, handed out
-    /// in order to the generation records of that execution.
-    ///
-    /// Ordered rather than "the last step of the execution": both sequences run forward in time,
-    /// so pairing the nth generation with the nth step follows a long execution as it goes
-    /// instead of collapsing all of its records onto its final moment. Measured against the
-    /// stores that still carry `created_at`, ordered pairing lands a couple of minutes out where
-    /// taking the last step is four times that — and the further out it is, the more turns a day
-    /// boundary can catch on the wrong side.
-    ///
-    /// A `class` because it is loaded lazily from inside the row loop and every call must see the
-    /// same consumption.
-    final class StepTimeline {
-        private let handle: OpaquePointer
-        private var times: [String: [Date]] = [:]
-        private var taken: [String: Int] = [:]
-        private var loaded = false
-
-        /// The status of a `steps` read that stopped before `SQLITE_DONE`. A store with no
-        /// `steps` table at all is not a failure — it is one this fallback does not apply to,
-        /// and the caller still has the store's mtime to date it with.
-        private(set) var failure: Int32?
-
-        init(handle: OpaquePointer) { self.handle = handle }
-
-        /// The next unclaimed step time of `execution`, or its last one once they run out — a
-        /// step whose `finished_at` has not been written yet still dates the turn it belongs to.
-        func next(for execution: String?) -> Date? {
-            guard let execution else { return nil }
-            if !loaded {
-                loaded = true
-                load()
-            }
-            guard let steps = times[execution], !steps.isEmpty else { return nil }
-            let ordinal = taken[execution, default: 0]
-            taken[execution] = ordinal + 1
-            return steps[min(ordinal, steps.count - 1)]
+    /// Current Antigravity stores keep the generation timestamp in the corresponding `steps.metadata`
+    /// row rather than in `gen_metadata.data`. Records are correlated by `response_id` (1:1), falling
+    /// back to `execution_id` and file mtime.
+    private static func generationStepDates(
+        _ handle: OpaquePointer
+    ) -> (byResponse: [String: Date], byExecution: [String: [Date]], status: Int32?) {
+        var statement: OpaquePointer?
+        let sql = "SELECT metadata FROM steps WHERE metadata IS NOT NULL ORDER BY idx"
+        let prepared = sqlite3_prepare_v2(handle, sql, -1, &statement, nil)
+        guard prepared == SQLITE_OK, let statement else {
+            return ([:], [:], prepared == SQLITE_ERROR ? nil : prepared)
         }
+        defer { sqlite3_finalize(statement) }
 
-        private func load() {
-            var statement: OpaquePointer?
-            let prepared = sqlite3_prepare_v2(
-                handle, "SELECT metadata FROM steps WHERE metadata IS NOT NULL ORDER BY idx",
-                -1, &statement, nil)
-            guard prepared == SQLITE_OK, let statement else {
-                // `SQLITE_ERROR` is "no such table": a store that keeps generation metadata and
-                // no steps is one this fallback does not apply to, not one that failed to read.
-                if prepared != SQLITE_ERROR { failure = prepared }
-                return
-            }
-            defer { sqlite3_finalize(statement) }
-
-            while true {
-                let step = sqlite3_step(statement)
-                if step == SQLITE_ROW {
-                    autoreleasepool {
-                        guard let pointer = sqlite3_column_blob(statement, 0) else { return }
-                        let count = Int(sqlite3_column_bytes(statement, 0))
-                        guard count > 0 else { return }
-                        let bytes = [UInt8](Data(bytes: pointer, count: count))
-                        guard let execution = AntigravityProto.string(bytes[...], field: 12),
-                              // `finished_at` is when the tokens were actually spent; a step
-                              // still running has only the moment it was queued.
-                              let date = timestamp(bytes[...], field: 8)
-                                ?? timestamp(bytes[...], field: 1) else { return }
-                        times[execution, default: []].append(date)
+        var byResponse: [String: Date] = [:]
+        var byExecution: [String: [Date]] = [:]
+        while true {
+            let step = sqlite3_step(statement)
+            if step == SQLITE_ROW {
+                autoreleasepool {
+                    guard let pointer = sqlite3_column_blob(statement, 0) else { return }
+                    let count = Int(sqlite3_column_bytes(statement, 0))
+                    guard count > 0 else { return }
+                    let bytes = [UInt8](Data(bytes: pointer, count: count))
+                    let date = timestamp(bytes[...], field: 8) ?? timestamp(bytes[...], field: 1)
+                    guard let date else { return }
+                    if let model = AntigravityProto.message(bytes[...], field: 9),
+                       let responseID = AntigravityProto.string(model, field: 11) {
+                        byResponse[responseID] = date
                     }
-                    continue
+                    if let executionID = AntigravityProto.string(bytes[...], field: 12) {
+                        byExecution[executionID, default: []].append(date)
+                    }
                 }
-                if step != SQLITE_DONE { failure = step }
-                return
+                continue
             }
+            return (byResponse, byExecution, step == SQLITE_DONE ? nil : step)
         }
     }
 
@@ -442,21 +413,22 @@ enum LocalAntigravityUsageReader {
         _ blob: Data,
         conversation: String,
         index: Int64,
-        fallbackDate: (_ execution: String?) -> Date? = { _ in nil },
+        fallbackDate: (_ responseID: String?, _ executionID: String?) -> Date? = { _, _ in nil },
         formatter: DateFormatter
     ) -> Record {
         let bytes = [UInt8](blob)
         guard let chatModel = AntigravityProto.message(bytes[...], field: 1),
               let usage = AntigravityProto.message(chatModel, field: 4) else { return Record() }
 
+        let responseID = AntigravityProto.string(usage, field: 11)
+        let executionID = AntigravityProto.string(bytes[...], field: 4)
+
         let date: Date
         switch createdAt(chatModel) {
         case .valid(let d):
             date = d
         case .absent:
-            // `execution_id` names the execution this record belongs to; the resolver turns it
-            // into a time from the same store's steps.
-            guard let inferred = fallbackDate(AntigravityProto.string(bytes[...], field: 4)) else {
+            guard let inferred = fallbackDate(responseID, executionID) else {
                 return Record()
             }
             date = inferred
@@ -466,7 +438,7 @@ enum LocalAntigravityUsageReader {
 
         // The turn's own id, not the file it happens to sit in — a copied conversation must
         // not read as fresh spend. `response_id` is populated on every recorded call.
-        let identity = AntigravityProto.string(usage, field: 11).map { "antigravity|\($0)" }
+        let identity = responseID.map { "antigravity|\($0)" }
             ?? "antigravity|\(conversation)|\(index)"
 
         // `response_model` names the model that answered; the rate lookup is short-circuited

@@ -220,6 +220,72 @@ final class AntigravityUsageTests: XCTestCase {
         XCTAssertEqual(Set(dates), [queued.timeIntervalSince1970])
     }
 
+    /// New Antigravity stores omit `chat_start_metadata.created_at` from the generation blob.
+    /// The same response id and timestamp remain in the corresponding generation step metadata.
+    func testCurrentGenerationFormatUsesStepMetadataTimestamp() throws {
+        let firstID = "synthetic-new-format-call-1"
+        let secondID = "synthetic-new-format-call-2"
+        let firstDate = try date("2026-08-19T10:00:00Z")
+        let secondDate = try date("2026-08-19T10:01:00Z")
+        try writeConversation(
+            "c1",
+            records: [
+                undatedRecord(responseID: firstID, model: "gemini-3.7-flash", execution: "e1",
+                              input: 100, output: 20, cacheRead: 300),
+                undatedRecord(responseID: secondID, model: "gemini-3.7-flash", execution: "e1",
+                              input: 200, output: 30, cacheRead: 400),
+            ],
+            // Deliberately reverse the rows: correlation must use response_id, not table order.
+            steps: [
+                makeStep(execution: "e1", responseID: secondID, queued: secondDate, finished: secondDate),
+                makeStep(execution: "e1", responseID: firstID, queued: firstDate, finished: firstDate),
+            ])
+
+        let entries = readAll()
+        XCTAssertEqual(entries.count, 2)
+        let byID = Dictionary(uniqueKeysWithValues: entries.map { ($0.id, $0) })
+        let first = try XCTUnwrap(byID["antigravity|\(firstID)"])
+        let second = try XCTUnwrap(byID["antigravity|\(secondID)"])
+        XCTAssertEqual(first.date.timeIntervalSince1970, firstDate.timeIntervalSince1970, accuracy: 0.001)
+        XCTAssertEqual(second.date.timeIntervalSince1970, secondDate.timeIntervalSince1970, accuracy: 0.001)
+        let formatter = LocalUsageReader.localDayFormatter()
+        XCTAssertEqual(first.localDay, formatter.string(from: firstDate))
+        XCTAssertEqual(second.localDay, formatter.string(from: secondDate))
+        XCTAssertEqual(first.total, 420)
+        XCTAssertEqual(second.total, 630)
+    }
+
+    /// Multiple generations in the same conversation sharing an execution_id are correlated
+    /// directly by response_id even across midnight.
+    func testMultipleGenerationsSharingExecutionIdAreCorrelatedByResponseId() throws {
+        let firstID = "synthetic-shared-exec-call-1"
+        let secondID = "synthetic-shared-exec-call-2"
+        let firstDate = try date("2026-08-18T10:00:00Z")
+        let secondDate = try date("2026-08-19T10:00:00Z")
+        let executionID = "shared-execution-uuid"
+        try writeConversation(
+            "c1",
+            records: [
+                undatedRecord(responseID: firstID, model: "gemini-3.7-flash", execution: executionID,
+                              input: 100, output: 20, cacheRead: 300),
+                undatedRecord(responseID: secondID, model: "gemini-3.7-flash", execution: executionID,
+                              input: 200, output: 30, cacheRead: 400),
+            ],
+            steps: [
+                makeStep(execution: executionID, responseID: secondID, queued: secondDate, finished: secondDate),
+                makeStep(execution: executionID, responseID: firstID, queued: firstDate, finished: firstDate),
+            ])
+
+        let entries = readAll()
+        let byID = Dictionary(uniqueKeysWithValues: entries.map { ($0.id, $0) })
+        let first = try XCTUnwrap(byID["antigravity|\(firstID)"])
+        let second = try XCTUnwrap(byID["antigravity|\(secondID)"])
+        let formatter = LocalUsageReader.localDayFormatter()
+        XCTAssertEqual(first.localDay, formatter.string(from: firstDate))
+        XCTAssertEqual(second.localDay, formatter.string(from: secondDate))
+        XCTAssertNotEqual(first.localDay, second.localDay)
+    }
+
     /// The writer's own value where there is one — the step time is an inference, and an
     /// inference must never displace the thing it stands in for.
     func testWriterCreatedAtWinsOverTheStepTime() throws {
@@ -777,8 +843,8 @@ final class AntigravityUsageTests: XCTestCase {
                    input: input, output: output, cacheRead: cacheRead, execution: execution)
     }
 
-    /// `StepMetadata { 1 created_at, 8 finished_at, 12 execution_id }`
-    private func makeStep(execution: String, queued: Date, finished: Date?) -> Data {
+    /// `StepMetadata { 1 created_at, 8 finished_at, 9 { 11 response_id }, 12 execution_id }`
+    private func makeStep(execution: String? = nil, responseID: String? = nil, queued: Date, finished: Date?) -> Data {
         func stamp(_ field: Int, _ date: Date) -> [UInt8] {
             AntigravityProto.encodeMessage(
                 field: field,
@@ -786,7 +852,13 @@ final class AntigravityUsageTests: XCTestCase {
         }
         var metadata = stamp(1, queued)
         if let finished { metadata += stamp(8, finished) }
-        metadata += AntigravityProto.encodeString(field: 12, execution)
+        if let responseID {
+            metadata += AntigravityProto.encodeMessage(
+                field: 9, AntigravityProto.encodeString(field: 11, responseID))
+        }
+        if let execution {
+            metadata += AntigravityProto.encodeString(field: 12, execution)
+        }
         return Data(metadata)
     }
 
