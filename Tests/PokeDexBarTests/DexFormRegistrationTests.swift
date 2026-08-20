@@ -102,6 +102,34 @@ final class DexFormRegistrationTests: XCTestCase {
         XCTAssertEqual(state.dexForms, [])
     }
 
+    /// 태생 무늬 종은 "원종 인정"을 받지 않는다 — 안농의 bare 키는 원종이 아니라 **A 폼**이라,
+    /// 종 번호만 남은 옛 세이브로는 A 를 잡았다고 말할 수 없다(실제 리포트: C 만 잡았는데 A 가
+    /// 등록됨). 그 종은 박스 재스캔만 믿는다. 스트린더(bare = 하이한 모습)도 같은 부류다.
+    func testLegacyMigrationDoesNotClaimASpecificBirthFormVariant() throws {
+        let json = """
+        {"dex": [201, 849, 37],
+         "box": [{"baseID": 201, "speciesID": 201, "nature": "hardy", "grade": "common",
+                  "birthForm": "c"}]}
+        """
+        let state = try JSONDecoder().decode(PlayerState.self, from: Data(json.utf8))
+        XCTAssertFalse(state.dexForms.contains("201"), "잡은 적 없는 A 안농이 등록됐다")
+        XCTAssertFalse(state.dexForms.contains("849"), "잡은 적 없는 하이한 스트린더가 등록됐다")
+        XCTAssertTrue(state.dexForms.contains("201/unown-c"), "박스의 C 안농은 재스캔으로 등록된다")
+        XCTAssertTrue(state.dexForms.contains("37"), "원종 행이 진짜 원종인 종은 인정이 유지된다")
+    }
+
+    /// 대조군 — A 안농을 실제로 보유 중이면 bare 키가 재스캔으로 정상 등록된다
+    /// (게이트가 늘 꺼져 있지 않은지 보증).
+    func testAnActualUnownAStillRegistersViaTheBoxRescan() throws {
+        let json = """
+        {"dex": [201],
+         "box": [{"baseID": 201, "speciesID": 201, "nature": "hardy", "grade": "common",
+                  "birthForm": "a"}]}
+        """
+        let state = try JSONDecoder().decode(PlayerState.self, from: Data(json.utf8))
+        XCTAssertEqual(state.dexForms, ["201"])
+    }
+
     /// 새 형식 세이브 디코드 — 경계 검증이 유령 키만 버리고 정상 키는 지킨다.
     func testBogusDexKeysAreDroppedAtTheDecodeBoundary() throws {
         let json = """

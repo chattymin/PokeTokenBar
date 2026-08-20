@@ -91,6 +91,10 @@ static func dexFormCandidates(speciesID: Int) -> [DexFormCandidate]
 
 - **디코더 이전**: `PlayerState.init(from:)`에서 `dexForms` 키가 없으면 옛 `dex`(Int 배열)를
   읽어 각 종을 bare 키로 넣는다 — "원종 인정". 옛 `dex` 키는 이후 인코딩에서 쓰지 않는다.
+  **단, 태생 무늬 종은 제외**(`DexKey.bareKeyIsAPlainBase`) — 안농·스트린더 같은 종은 bare
+  키가 원종이 아니라 특정 변종(A·하이한 모습)이라, 종 번호만으로는 그 변종을 잡았다고 말할
+  수 없다(사용자 리포트 2026-08-20: C 안농만 잡았는데 A 가 등록됨). 그 종은 박스 재스캔만
+  믿는다. 판별은 "원종 행(label == nil)이 후보에 실제로 있는가".
 - **박스 재스캔**: `PlayerStore.load()` 직후 1회, 박스의 모든 개체에 `dexKey(for:)`를 돌려
   합친다. 세이브 이전 직후뿐 아니라 매 기동에 돌아도 무해하다(멱등) — 별도 마이그레이션
   플래그를 두지 않는다.

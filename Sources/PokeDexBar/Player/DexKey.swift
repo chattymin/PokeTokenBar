@@ -70,6 +70,16 @@ enum DexKey {
         return Set(valid)
     }
 
+    /// 옛 세이브(종 번호만)의 "원종 인정"이 유효한 종인가.
+    ///
+    /// 태생 무늬 종은 bare 키가 원종이 아니라 **특정 변종**이다 — 안농은 A, 스트린더는 하이한
+    /// 모습, 비비용은 화원. 종 번호만 남은 옛 세이브로는 그 변종을 잡았다고 말할 수 없으므로
+    /// (실제 리포트: C 안농만 잡았는데 A 가 등록됨) 그런 종은 박스 재스캔만 믿는다.
+    /// 판별은 "원종 행(label == nil)이 실제로 있는가" — 지방 모습 종·일반 종만 통과한다.
+    static func bareKeyIsAPlainBase(speciesID id: Int) -> Bool {
+        candidates(speciesID: id).contains { $0.key == String(id) && $0.label == nil }
+    }
+
     /// 이 종의 도감 행 후보 — 표시 순서대로. 대다수 종은 원종 한 행이다.
     /// 태생 무늬 종은 원종 행이 따로 없다 — 기본 슬러그 변종(안농 A·화원 비비용)이 그 자리다.
     static func candidates(speciesID id: Int) -> [DexFormCandidate] {

@@ -98,10 +98,14 @@ struct PlayerState: Codable, Sendable {
         // 유령 키가 도감 카운터를 부풀리지 않게 여기 한 곳에서 버린다.
         dexForms = DexKey.sanitized(value(.dexForms, []))
         // 구 세이브 이전 — 옛 종 단위 `dex` 를 원종 키로 인정한다. 저장 프로퍼티가 사라져
-        // CodingKeys 에서 빠졌으므로 디코드 전용 키를 따로 쓴다.
+        // CodingKeys 에서 빠졌으므로 디코드 전용 키를 따로 쓴다. **태생 무늬 종은 제외** —
+        // 그 종의 bare 키는 원종이 아니라 특정 변종(안농 A)이라, 종 번호만으로는 인정할 수
+        // 없다. 보유 중인 실물은 아래 박스 재스캔이 정확한 폼으로 등록한다.
         if dexForms.isEmpty, let legacy = try? decoder.container(keyedBy: LegacyKeys.self),
            let old = try? legacy.decode(Set<Int>.self, forKey: .dex) {
-            dexForms = Set(old.filter(DexKey.speciesRange.contains).map(String.init))
+            dexForms = Set(old.filter {
+                DexKey.speciesRange.contains($0) && DexKey.bareKeyIsAPlainBase(speciesID: $0)
+            }.map(String.init))
         }
         // 박스 재스캔 — 지금 보유 중인 개체의 폼을 등록한다. 매 디코드에 돌아도 멱등이라
         // 이전 플래그가 필요 없다. 위장 중인 개체는 제외 — 정체가 도감에서 먼저 새면 안 된다.
