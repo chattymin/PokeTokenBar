@@ -21,6 +21,12 @@ PokeTokenBar turns the AI coding tokens you're already burning — Claude Code, 
 
 > Token usage is read directly from local Claude Code, Codex, Gemini CLI, Antigravity, OpenCode, Hermes Agent, Cursor, Grok CLI, Copilot CLI, and Kiro CLI data (`totalTokens` = input + output + cache, local date) — no external CLI needed. Unofficial, non-commercial Pokémon fan project — see [License & disclaimer](#license--disclaimer).
 
+## Fork of [chattymin/PokeTokenBar](https://github.com/chattymin/PokeTokenBar)
+
+This repository is a fork of [PokeTokenBar](https://github.com/chattymin/PokeTokenBar) by [chattymin](https://github.com/chattymin). All credit for the original macOS menu-bar app, the Pokémon companion system, and the underlying usage-tracking design belongs to the original author.
+
+This fork adds an **iOS companion app** and **WidgetKit extension** that connect to the Mac app over the local network. The upstream project may not adopt these additions — see the [original repo](https://github.com/chattymin/PokeTokenBar) for the macOS-only version.
+
 ## Why
 
 - **The usage tracker you actually enjoy opening.** Your spend raises a Pokémon that hatches, evolves, graduates, and fills a Pokédex — and every shiny is a reason to check back.
@@ -102,6 +108,8 @@ The tokens you've already used are your currency. Spend them in the new <b>Shop<
 - **Official limits** — Claude & Codex 5-hour / weekly utilization with reset countdowns, right under today's numbers.
 - **Burn-rate forecast** — projects when the current 5h window hits 100%.
 - **In-app updates** — one-click update check; current version shown in Settings.
+- **iOS companion app** *(this fork)* — connects to the Mac app over your local network and shows token usage, limits, and your companion on your iPhone.
+- **WidgetKit extension** *(this fork)* — home-screen widgets (small/medium/large) with your companion sprite, token usage, cost, and limit utilization — no network required once data is synced.
 
 ## Works with
 
