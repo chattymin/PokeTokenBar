@@ -7,18 +7,5 @@
 		<string>group.io.github.chattymin.poketokenbar</string>
 		<string>group.com.poketokenbar.ios.widget</string>
 	</array>
-	<key>com.apple.developer.icloud-container-identifiers</key>
-	<array>
-		<string>iCloud.io.github.chattymin.poketokenbar</string>
-	</array>
-	<key>com.apple.developer.icloud-services</key>
-	<array>
-		<string>CloudDocuments</string>
-		<string>CloudKit</string>
-	</array>
-	<key>com.apple.developer.ubiquity-container-identifiers</key>
-	<array>
-		<string>iCloud.io.github.chattymin.poketokenbar</string>
-	</array>
 </dict>
 </plist>
