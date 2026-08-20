@@ -91,7 +91,6 @@ actor LocalUsageCache {
     private let grokRoot: URL?
     private let geminiRoots: [URL]?
     private let grokRoots: [URL]?
-    private let codexRoots: [URL]?
     private let fileURL: URL
     private let now: @Sendable () -> Date
     /// throwing probe 를 쓴다 — 읽기 실패(throw)와 "metadata 없음"(`nil`)은 인덱스에 남길지가 다르다.

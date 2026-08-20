@@ -380,6 +380,28 @@ final class CustomScanRootsTests: XCTestCase {
         XCTAssertTrue(missing.isEmpty, "provider(s) never read customScanRoots.<id>: \(missing)")
         XCTAssertFalse(corpus.contains("\"customScanRoots\""),
                        "generic customScanRoots key would force a migration (#162-C)")
+
+        var missingCurated: [String] = []
+        for id in ids {
+            if CustomScanRoots.curatedRoots(for: id).isEmpty {
+                missingCurated.append(id)
+            }
+        }
+        XCTAssertTrue(
+            missingCurated.isEmpty,
+            "curatedRoots(for:) default: [] — Settings match count goes silent for: \(missingCurated)")
+    }
+
+    /// #181 archived sessions must survive the custom-root union. Hardcoding
+    /// `~/.codex/sessions` alone would drop kept usage the way the CLI-only Antigravity
+    /// literal dropped 2.0/IDE stores.
+    func testCodexSessionRootsIncludeArchivedSessions() {
+        let home = tempDir()
+        let roots = LocalUsageReader.codexSessionRoots(customRootsValue: nil, home: home).map(\.path)
+        XCTAssertTrue(roots.contains { $0.hasSuffix(".codex/sessions") })
+        XCTAssertTrue(
+            roots.contains { $0.hasSuffix(".codex/archived_sessions") },
+            "codexSessionRoots must union computeCodexScanRoots, not only the active sessions dir")
     }
 
     func testSettingsUsesProviderPickerAndCommitsOnSubmit() throws {

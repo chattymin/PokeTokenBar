@@ -102,7 +102,7 @@ enum LocalUsageReader {
         home: URL = FileManager.default.homeDirectoryForCurrentUser
     ) -> [URL] {
         CustomScanRoots.union(
-            defaults: [home.appendingPathComponent(".codex/sessions")],
+            defaults: computeCodexScanRoots(home: home),
             extraRaw: customRootsValue)
     }
 

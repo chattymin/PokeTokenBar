@@ -51,14 +51,17 @@ enum LocalAntigravityUsageReader {
 
     /// Known conversation directories across Antigravity editions (2.0/Core, CLI, IDE).
     /// The directory is absent unless the respective Antigravity flavor ran.
-    static var defaultRoots: [URL] {
-        let home = FileManager.default.homeDirectoryForCurrentUser
-        return [
+    static func defaultRoots(
+        home: URL = FileManager.default.homeDirectoryForCurrentUser
+    ) -> [URL] {
+        [
             home.appendingPathComponent(".gemini/antigravity/conversations"),
             home.appendingPathComponent(".gemini/antigravity-cli/conversations"),
             home.appendingPathComponent(".gemini/antigravity-ide/conversations"),
         ]
     }
+
+    static var defaultRoots: [URL] { defaultRoots() }
 
     /// Primary default directory for single-root callers and backwards compatibility.
     static var defaultRoot: URL {
@@ -70,7 +73,7 @@ enum LocalAntigravityUsageReader {
         home: URL = FileManager.default.homeDirectoryForCurrentUser
     ) -> [URL] {
         CustomScanRoots.union(
-            defaults: [home.appendingPathComponent(".gemini/antigravity-cli/conversations")],
+            defaults: defaultRoots(home: home),
             extraRaw: customRootsValue)
     }
 

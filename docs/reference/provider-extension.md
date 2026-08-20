@@ -35,7 +35,10 @@ read_when:
   프로바이더 리더만 읽는다. 공통 헬퍼는 `CustomScanRoots.union` — 커스텀 루트는 기본 루트에
   *더하기만* 한다. 조상 경로(`~`)가 `normalizedRoots` 로 기본 루트를 접어 없애면
   `skipsHiddenFiles` 가 `.claude` 를 못 내려가 합계가 조용히 0 이 된다(#162-B, #177).
-  새 프로바이더는 `storedValue(for: "<id>")` 를 자기 루트 함수에 연결한다.
+  새 프로바이더는 `storedValue(for: "<id>")` 를 자기 루트 함수에 연결하고,
+  `CustomScanRoots.curatedRoots(for:)` 에도 그 기본 루트 목록을 넣는다 — Settings 매치 카운트가
+  이 두 번째 레지스트리를 본다. 빼먹으면 `default: []` 로 카운트만 0 이 되고 스캔은 리더 쪽
+  기본값으로 돌아간다.
 - **append-only SQLite 사용량 스토어** (Cursor `cursorDiskKV`, Copilot `assistant_usage_events`,
   앞으로 같은 형태의 세 번째 소스) = `LocalAdditionalUsageReader.scanIncrementalStores`. URL 매핑·
   `MAX` SQL·row query·parse 만 넘긴다. watermark 루프를 프로바이더마다 복사하지 마라 (#157).
