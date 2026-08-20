@@ -108,6 +108,11 @@ final class UsageStore {
             }
         }
     }
+    /// iPhone companion HTTP server — 기본 꺼짐. 켜면 port 7845 에 NWListener 를 열어
+    /// PhonePayloadServer 가 /stats 엔드포인트로 JSON 을 서빙한다.
+    var phoneServerEnabled: Bool {
+        didSet { defaults.set(phoneServerEnabled, forKey: "phoneServerEnabled") }
+    }
 
     static let intervalPresets: [(label: String, value: TimeInterval)] = [
         ("수동", 0), ("1분", 60), ("2분", 120), ("5분", 300), ("15분", 900),
@@ -250,6 +255,9 @@ final class UsageStore {
     private var combinedBurnPerMinute: Double {
         snapshots.compactMap { $0.activeBlock?.tokensPerMinute }.reduce(0, +)
     }
+
+    /// iPhone companion burn rate — public accessor for PhonePayloadServer.
+    var combinedBurnPerMinuteForPhone: Double { combinedBurnPerMinute }
 
     // MARK: 한도 소진 예측
 
@@ -425,6 +433,7 @@ final class UsageStore {
         floatingPetSize = d.object(forKey: "floatingPetSize") as? Double ?? 96
         floatingPetBubbleAlerts = d.object(forKey: "floatingPetBubbleAlerts") as? Bool ?? true
         disableKeychainAccess = d.object(forKey: "disableKeychainAccess") as? Bool ?? false
+        phoneServerEnabled = d.object(forKey: "phoneServerEnabled") as? Bool ?? false
 
         reschedule()
 

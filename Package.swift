@@ -4,9 +4,13 @@ import PackageDescription
 let package = Package(
     name: "PokeTokenBar",
     platforms: [.macOS(.v14)],
+    dependencies: [
+        .package(path: "PokeTokenBarShared"),
+    ],
     targets: [
         .executableTarget(
             name: "PokeTokenBar",
+            dependencies: ["PokeTokenBarShared"],
             path: "Sources/PokeTokenBar",
             linkerSettings: [.linkedLibrary("sqlite3")]
         ),

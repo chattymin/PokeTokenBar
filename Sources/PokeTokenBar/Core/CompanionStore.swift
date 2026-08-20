@@ -154,6 +154,10 @@ final class CompanionStore {
         return min(1, max(0, Double(a.usedAtStage) / Double(threshold)))
     }
     var tokensToNext: Int { guard let a = state.active else { return 0 }; return max(0, threshold - a.usedAtStage) }
+    /// iPhone companion: tokens to next evolution.
+    var tokensToNextEvolution: Int { tokensToNext }
+    /// iPhone companion: tokens to graduation (final form) — estimated remaining.
+    var tokensToGraduation: Int { tokensToNext }
 
     /// 진화 라인 표시용: 실현된 경로 + 다음 단계 미리보기.
     /// 유일하게 이어지는 단계 뒤에 분기가 있으면, 그 확정 접두어와 하나의 미지 항목을 함께 보여 준다.

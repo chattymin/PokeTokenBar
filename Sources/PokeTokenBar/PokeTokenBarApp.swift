@@ -1,6 +1,7 @@
 import AppKit
 import QuartzCore
 import SwiftUI
+import PokeTokenBarShared
 
 @main
 struct PokeTokenBarApp: App {
@@ -22,6 +23,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private var companion: CompanionStore!
     private var updater: UpdateChecker!
     private var floatingPet: FloatingPetController!
+    private var phoneServer: PhonePayloadServer!
     private let navigation = PopoverNavigation()
 
     // 메뉴바 캐릭터 애니메이션 — 단일 타이머로 프레임 순환.
@@ -65,6 +67,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             onOpenPopover: { [weak self] in self?.openPopover() },
             onHide: { [weak self] in self?.store.floatingPetEnabled = false }
         )   // 데스크톱 플로팅 펫(옵트인)
+        phoneServer = PhonePayloadServer()
+        if store.phoneServerEnabled {
+            phoneServer.start()
+            Task { await buildAndPublishPayload() }
+        }
         Task { await updater.check() }                    // 기동 시 1회 업데이트 확인
 
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
@@ -84,6 +91,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         observeCompanionSprite()
         observeDisplaySleep()
         applyState()
+        updateAppIcon()
     }
 
     /// Observation 기반 상태 반영 — store 의 menuTitle(=menuLines) 변경 시 재호출.
@@ -112,6 +120,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
                 guard let self else { return }
                 self.ensureMenuAnimation()
                 self.syncMenuAnimation()
+                self.updateAppIcon()
                 self.observeCompanionSprite()
             }
         }
@@ -188,6 +197,73 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private func onStoreRefreshed() {
         updateCompanion()
         companion.grantCandies(from: store.candyEligibleWindows, limitsReady: store.limitsReady)
+        Task { await buildAndPublishPayload() }
+    }
+
+    // MARK: - Phone Payload Server
+
+    private func buildAndPublishPayload() async {
+        guard phoneServer.isRunning else { return }
+        let limits = PhoneLimitStatus(
+            claude5h: store.limits?.fiveHour?.utilization.map {
+                PhoneLimitWindow(label: "5h Session", utilization: $0,
+                                 resetsAt: store.limits?.fiveHour?.resetDate)
+            },
+            claudeWeekly: store.limits?.sevenDay?.utilization.map {
+                PhoneLimitWindow(label: "Weekly", utilization: $0,
+                                 resetsAt: store.limits?.sevenDay?.resetDate)
+            },
+            claudeOpusWeekly: store.limits?.sevenDayOpus?.utilization.map {
+                PhoneLimitWindow(label: "Opus Weekly", utilization: $0,
+                                 resetsAt: store.limits?.sevenDayOpus?.resetDate)
+            },
+            claudeSonnetWeekly: store.limits?.sevenDaySonnet?.utilization.map {
+                PhoneLimitWindow(label: "Sonnet Weekly", utilization: $0,
+                                 resetsAt: store.limits?.sevenDaySonnet?.resetDate)
+            },
+            codexPrimary: store.codexLimits?.maxPrimaryUsedPercent.map {
+                PhoneLimitWindow(label: "Codex", utilization: Double($0), resetsAt: nil)
+            },
+            codexSecondary: store.codexLimits?.maxSecondaryUsedPercent.map {
+                PhoneLimitWindow(label: "Codex 2nd", utilization: Double($0), resetsAt: nil)
+            },
+            planDisplay: store.limits?.planDisplay)
+        let companionState = PhoneCompanionState(
+            name: companion.displayName,
+            speciesID: companion.currentSpeciesID,
+            isShiny: companion.currentIsShiny,
+            isEgg: companion.isEgg,
+            progress: companion.progress,
+            stageText: companion.stageText,
+            rarity: companion.rarity?.rawValue,
+            dexCount: companion.dexEntries.count,
+            eggProgress: companion.eggProgress,
+            displayState: companion.displayState.rawValue,
+            evolutionTokens: companion.tokensToNextEvolution,
+            graduationTokens: companion.tokensToGraduation)
+        let providers = store.snapshots.map { snapshot -> PhoneProviderSnapshot in
+            PhoneProviderSnapshot(id: snapshot.providerID, displayName: snapshot.displayName,
+                                  todayTokens: snapshot.todayTotalTokens,
+                                  todayCost: snapshot.today?.totalCost ?? 0,
+                                  inputTokens: snapshot.today?.inputTokens ?? 0,
+                                  outputTokens: snapshot.today?.outputTokens ?? 0,
+                                  cacheWriteTokens: snapshot.today?.cacheCreationTokens ?? 0,
+                                  cacheReadTokens: snapshot.today?.cacheReadTokens ?? 0,
+                                  reportsCost: snapshot.reportsCost)
+        }
+        let payload = PhonePayload(
+            todayTokens: store.todayTotalTokens,
+            todayCost: store.todayCostTotal,
+            weekTokens: store.weekTotalTokens,
+            monthTokens: store.monthTotalTokens,
+            lastUpdated: store.lastUpdated ?? Date(),
+            serverVersion: "1.0",
+            limits: limits,
+            companion: companionState,
+            providers: providers)
+        if let data = try? JSONEncoder().encode(payload) {
+            phoneServer.updatePayload(data)
+        }
     }
 
     // MARK: 메뉴바 애니메이션
@@ -436,5 +512,45 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             menuTimer?.invalidate()
             menuTimer = nil
         }
+    }
+
+    // MARK: - Dynamic App Icon
+
+    /// 대표 포켓몬이 바뀔 때 Dock 아이콘도 동기화 — 1024×1024 캔버스에 스프라이트 중앙 배치.
+    /// 에그면 기본 아이콘으로 복귀. 캐시된 정적 스프라이트만 사용(동기, 아이콘 변경 비용 최소).
+    private func updateAppIcon() {
+        let subject = companion.representativeSubject
+        guard let id = subject.speciesID, !companion.isEgg else {
+            // 알 또는 대표 없음 → 빌트인 아이콘으로 복귀
+            if let iconURL = Bundle.main.url(forResource: "AppIcon", withExtension: "icns"),
+               let image = NSImage(contentsOf: iconURL) {
+                NSApp.applicationIconImage = image
+            }
+            return
+        }
+        guard let sprite = SpriteLoader.cachedImage(speciesID: id, shiny: subject.isShiny) else { return }
+        NSApp.applicationIconImage = Self.appIconImage(from: sprite)
+    }
+
+    /// 스프라이트를 1024×1024 아이콘 캔버스에 중앙 배치 (배경: 디스플레이 팔레트 미러).
+    private static func appIconImage(from sprite: NSImage) -> NSImage {
+        let size = NSSize(width: 1024, height: 1024)
+        let icon = NSImage(size: size)
+        icon.lockFocus()
+        NSGraphicsContext.current?.imageInterpolation = .high
+        // 배경 — 다크 블렌드(폴백: #1a1a2e)
+        let bg = NSColor(red: 0.102, green: 0.102, blue: 0.18, alpha: 1)
+        bg.setFill()
+        NSRect(origin: .zero, size: size).fill()
+        // 스프라이트 — 72% 영역에 중앙 정렬
+        let spriteArea: CGFloat = 738  // 1024 × 0.72
+        let spriteSize = NSSize(width: spriteArea, height: spriteArea)
+        let origin = NSPoint(
+            x: (size.width - spriteSize.width) / 2,
+            y: (size.height - spriteSize.height) / 2)
+        sprite.draw(in: NSRect(origin: origin, size: spriteSize),
+                     from: .zero, operation: .sourceOver, fraction: 1)
+        icon.unlockFocus()
+        return icon
     }
 }
