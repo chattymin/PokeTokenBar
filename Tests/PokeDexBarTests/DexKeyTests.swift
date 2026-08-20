@@ -99,3 +99,25 @@ final class DexKeyTests: XCTestCase {
         XCTAssertEqual(cleaned, ["37/vulpix-alola", "25"])
     }
 }
+
+/// 도감 칸의 순수 판정 — 어떤 그림을 밝게/실루엣으로 그릴 것인가.
+final class NationalDexViewCellTests: XCTestCase {
+    func testAnUnregisteredSpeciesIsASilhouette() {
+        let cell = NationalDexView.cellState(speciesID: 37, dexForms: [])
+        XCTAssertFalse(cell.caught)
+        XCTAssertNil(cell.slug)
+    }
+
+    func testTheBaseFormWinsWhenOwned() {
+        let cell = NationalDexView.cellState(speciesID: 37, dexForms: ["37", "37/vulpix-alola"])
+        XCTAssertTrue(cell.caught)
+        XCTAssertNil(cell.slug, "원종을 보유했으면 종 기본 그림")
+    }
+
+    /// 알로라만 보유했으면 칸도 알로라 그림이다 — 원종 그림이 밝게 뜨면 안 잡은 모습이 잡힌 척한다.
+    func testAFormOnlyOwnerSeesThatFormInTheCell() {
+        let cell = NationalDexView.cellState(speciesID: 37, dexForms: ["37/vulpix-alola"])
+        XCTAssertTrue(cell.caught)
+        XCTAssertEqual(cell.slug, "vulpix-alola")
+    }
+}

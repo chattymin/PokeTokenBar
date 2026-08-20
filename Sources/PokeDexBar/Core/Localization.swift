@@ -21,6 +21,12 @@ struct L {
     /// 일본어는 `ずかん`(図鑑) — 표준 표기이고, `コレクション` 은 5탭이 되면서 세그먼트가
     /// 360pt 팝오버를 12pt 넘겨 잘렸다(실측). 탭을 더할 땐 라벨 폭부터 재라.
     var collection: String { t("도감", "Collection", "ずかん") }
+    /// 도감 폼 상세 — 원종 행의 이름(폼 이름이 없는 행).
+    var dexBaseForm: String { t("원종", "Original", "原種") }
+    /// 도감 폼 상세 헤더의 진행 표시.
+    func dexFormProgress(_ owned: Int, _ total: Int) -> String {
+        t("모습 \(owned)/\(total)", "Forms \(owned)/\(total)", "すがた \(owned)/\(total)")
+    }
     var bag: String { t("가방", "Bag", "バッグ") }
     var shop: String { t("상점", "Shop", "ショップ") }
 
