@@ -72,7 +72,28 @@ struct SparkleSpec: Equatable, Sendable {
 
 /// 반짝임 하나가 지나가는 자세. `KeyframeAnimator` 가 보간한다.
 struct SparklePose: Equatable, Sendable {
-    var scale: Double = 0
+    /// 배율의 하한. **정확히 0 이 되면 안 된다.**
+    ///
+    /// 배율 0 은 행렬식이 0 이라 역행렬이 없다. SwiftUI 가 이 항목을 NSView 로 backing 하면
+    /// 그 변환이 `-[NSView setFrameTransform:]` 로 내려가고, AppKit 은 특이행렬을 받으면
+    /// `_os_crash_msg` 로 **프로세스를 abort 시킨다**(실측: 배율 0·NaN 은 죽고, identity 와
+    /// 1e-8 은 통과). 화면에서 안 보이게 하는 일은 `opacity` 가 맡는다 — 배율로 하지 마라.
+    ///
+    /// 사용자 제보 2건(2026-08-19·08-20, macOS 15.6)이 이것이었다. 둘 다 이로치 개체의 상세를
+    /// 여는 순간 SIGABRT 였고, 스택은 `setFrameTransform:` → `_os_crash_msg` 였다.
+    /// 반짝임은 이로치에서만 그려지므로 증상이 "이 개체만 죽는다" 로 보였다.
+    static let minScale = 0.001
+
+    /// 변환에 넣어도 안전한 배율. NaN·무한대·0 이하를 하한으로 끌어올린다.
+    ///
+    /// `Swift.max` 하나로 두지 않는 이유는 **NaN 이 max 를 그냥 통과할 수 있어서**다 —
+    /// 그 동작에 기대면 표준 라이브러리의 비교 규칙에 목숨을 거는 셈이 된다.
+    static func safeScale(_ raw: Double) -> Double {
+        guard raw.isFinite else { return minScale }
+        return Swift.max(minScale, raw)
+    }
+
+    var scale: Double = minScale
     var opacity: Double = 0
     /// 뜨는 동안 살짝 돈다 — 제자리에서 커졌다 작아지기만 하면 스티커처럼 보인다.
     var spin: Double = -18
@@ -147,7 +168,10 @@ struct ShinySparkles: View {
     }
 
     private func star(_ spec: SparkleSpec, side: CGFloat) -> some View {
-        let wait = Self.stagger * spec.phase      // 순서대로 조금씩 늦게 터진다
+        // 순서대로 조금씩 늦게 터진다. **0 으로 두면 안 된다** — `phase` 가 0 인 첫 별은
+        // 길이 0 짜리 키프레임을 만들고, 길이로 나누는 보간이 0/0 = NaN 을 낼 수 있다.
+        // NaN 배율·NaN 위치는 위 `minScale` 과 같은 abort 로 간다. 아래 `length` 와 같은 방어다.
+        let wait = max(0.0001, Self.stagger * spec.phase)
         let box = side * spec.size
         // 바깥을 향해 흘러간다 — 중심에서 멀어지는 방향이 자연스럽다.
         let length = max(0.0001, hypot(spec.x, spec.y))
@@ -165,16 +189,20 @@ struct ShinySparkles: View {
                     .rotationEffect(.degrees(spec.tilt + pose.spin))
                     .opacity(pose.opacity)
             }
-            .scaleEffect(pose.scale)
+            // **보간 결과를 그대로 변환에 넣지 않는다.** 스프링은 목표값 아래로 내려갔다 오고
+            // 큐빅은 끝값으로 가는 도중 0 을 지날 수 있다 — 그 한 프레임이 abort 다.
+            .scaleEffect(SparklePose.safeScale(pose.scale))
             .offset(x: side * spec.x + drift.width * pose.drift,
                     y: side * spec.y + drift.height * pose.drift)
         } keyframes: { _ in
             // 빨리 뜨고 천천히 진다 — 대칭이면 깜빡이는 전구처럼 보인다.
+            // 끝값이 0 이 아니라 `minScale` 인 이유는 위 주석 참고. 눈에는 차이가 없다
+            // (그 구간은 `opacity` 가 이미 0 이다).
             KeyframeTrack(\.scale) {
-                LinearKeyframe(0, duration: wait)
+                LinearKeyframe(SparklePose.minScale, duration: wait)
                 SpringKeyframe(1.18, duration: Self.pop * 0.26, spring: .bouncy)
                 CubicKeyframe(1.0, duration: Self.pop * 0.16)
-                CubicKeyframe(0, duration: Self.pop * 0.58)
+                CubicKeyframe(SparklePose.minScale, duration: Self.pop * 0.58)
             }
             KeyframeTrack(\.opacity) {
                 LinearKeyframe(0, duration: wait)

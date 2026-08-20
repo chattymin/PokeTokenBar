@@ -160,4 +160,100 @@ final class SparkleRefinementTests: XCTestCase {
         XCTAssertGreaterThan(ShinySparkles.pop, ShinySparkles.stagger,
                              "한 별이 사는 시간이 순서 간격보다 짧으면 겹쳐 뜨지 않아 끊겨 보인다")
     }
+
+    // MARK: - 특이행렬 abort (사용자 제보 2건, macOS 15.6)
+
+    /// **AppKit 이 실제로 무엇에 죽는지를 AppKit 에 물어본다.**
+    ///
+    /// 여기서 내 짐작으로 "0 이면 죽겠지" 하고 픽스처를 쓰면, 픽스처와 코드가 같은 오해를
+    /// 공유해 둘 다 통과하면서 실기기에서는 계속 죽는다(이 레포의 #133 부류). 그래서 문제의
+    /// 그 메서드를 런타임으로 직접 부른다 — `-[NSView setFrameTransform:]` 는 Swift 에
+    /// 노출돼 있지 않고 `CGAffineTransform` **구조체**를 받으므로 IMP 를 타입 지어 부른다
+    /// (`perform(_:with:)` 로 부르면 포인터가 구조체로 해석돼 엉뚱하게 죽는다 — 실제로 겪었다).
+    ///
+    /// 이 테스트는 **살아남는 값만** 넣는다. 배율 0 을 넣으면 실제로 abort 하는데, 그러면
+    /// 스위트 전체가 리포트 없이 죽는다. "0 이 죽는다" 는 사실은 `xform2` 프로브로 따로
+    /// 실측했고(0·NaN → SIGABRT, identity·1e-8 → 통과), 여기서는 **우리가 넣는 값이
+    /// 그 문턱 위에 있는지**를 지킨다.
+    @MainActor
+    func testAppKitAcceptsTheScaleWeActuallyApply() throws {
+        let sel = NSSelectorFromString("setFrameTransform:")
+        let view = NSView(frame: NSRect(x: 0, y: 0, width: 10, height: 10))
+        XCTAssertTrue(view.responds(to: sel), "setFrameTransform: 이 사라졌다 — 이 방어의 전제가 바뀐 것")
+        typealias Fn = @convention(c) (NSView, Selector, CGAffineTransform) -> Void
+        let apply = unsafeBitCast(class_getMethodImplementation(NSView.self, sel)!, to: Fn.self)
+
+        // 연출이 실제로 지나가는 배율 — 하한, 최대 오버슈트, 그리고 그 사이.
+        for raw in [SparklePose.minScale, 0.5, 1.0, 1.18] {
+            let s = SparklePose.safeScale(raw)
+            apply(view, sel, CGAffineTransform(scaleX: s, y: s))
+        }
+        // 여기 도달했으면 전부 통과한 것이다.
+    }
+
+    /// 변환에 들어가는 배율은 **어떤 입력에도** 0 이 아니고 유한해야 한다.
+    ///
+    /// 0 만 막으면 부족하다 — 스프링은 목표 아래로 내려갔다 오고, 길이 0 짜리 키프레임은
+    /// 0/0 으로 NaN 을 낼 수 있다. 둘 다 같은 abort 로 간다.
+    func testTheAppliedScaleIsNeverSingularOrNaN() {
+        let hostile = [0.0, -0.0, -1e-30, -5.0, .nan, .infinity, -.infinity,
+                       Double.leastNonzeroMagnitude]
+        for raw in hostile {
+            let s = SparklePose.safeScale(raw)
+            XCTAssertTrue(s.isFinite, "배율이 유한하지 않다: \(raw) -> \(s)")
+            XCTAssertGreaterThanOrEqual(s, SparklePose.minScale, "배율이 하한 아래다: \(raw) -> \(s)")
+        }
+        // 정상값은 손대지 않는다 — 하한이 연출을 눌러 버리면 안 된다.
+        XCTAssertEqual(SparklePose.safeScale(1.18), 1.18, accuracy: 1e-12)
+    }
+
+    /// 쉬고 있는 자세도 화면에 올라간다(연출 전·후). 여기가 0 이면 여는 즉시 죽는다.
+    func testTheRestPoseIsNotSingular() {
+        XCTAssertGreaterThan(SparklePose().scale, 0, "쉬는 자세의 배율이 0 이다")
+    }
+
+    /// **결함을 만든 조건 그 자체.** 첫 별은 `phase` 가 0 이라 대기 시간이 0 이 되고,
+    /// 그러면 길이 0 짜리 키프레임이 만들어진다. 조건이 살아 있음을 먼저 확인하고,
+    /// 뷰가 그 값을 바닥으로 끌어올리는지를 소스에서 확인한다 —
+    /// `KeyframeTrack` 의 내부 보간값은 밖에서 읽을 방법이 없다.
+    func testTheFirstSparkleWouldOtherwiseGetAZeroLengthKeyframe() throws {
+        let first = try XCTUnwrap(SparkleSpec.ring(count: 7).first)
+        XCTAssertEqual(first.phase, 0, accuracy: 1e-12,
+                       "첫 별의 위상이 더는 0 이 아니다 — 이 방어의 전제가 바뀐 것")
+
+        let text = try String(contentsOf: Self.uiSource("ShinySparkles.swift"), encoding: .utf8)
+        XCTAssertTrue(text.contains("let wait = max("),
+                      "대기 시간에 하한이 없다 — 첫 별이 길이 0 키프레임을 만든다")
+        XCTAssertFalse(text.contains(".scaleEffect(pose.scale)"),
+                       "보간값을 그대로 변환에 넣고 있다 — safeScale 을 지나야 한다")
+    }
+
+    /// [부류 스윕] **어떤 화면에서도 배율 0 을 변환에 넣지 않는다.**
+    ///
+    /// 이 결함은 반짝임 하나의 실수가 아니라 "0 배율은 그리기가 아니라 abort" 라는 사실을
+    /// 몰랐던 것이다. 다른 화면이 같은 값을 쓰면 같은 방식으로 죽는다.
+    func testNoViewScalesToExactlyZero() throws {
+        let dir = Self.uiSource(".").deletingLastPathComponent()
+        let files = try FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)
+        var offenders: [String] = []
+        for file in files where file.pathExtension == "swift" {
+            let text = try String(contentsOf: file, encoding: .utf8)
+            for (n, line) in text.split(separator: "\n", omittingEmptySubsequences: false).enumerated()
+            where line.contains(".scaleEffect(") {
+                // 배율 자리에 0 리터럴이 오는 형태만 잡는다.
+                for bad in [".scaleEffect(0)", ".scaleEffect(0.0)", ".scaleEffect(0,",
+                            "scale: 0)", "scale: 0,"] where line.contains(bad) {
+                    offenders.append("\(file.lastPathComponent):\(n + 1) \(line.trimmingCharacters(in: .whitespaces))")
+                }
+            }
+        }
+        XCTAssertTrue(offenders.isEmpty,
+                      "배율 0 은 역행렬이 없어 NSView 로 내려가면 abort 한다:\n" + offenders.joined(separator: "\n"))
+    }
+
+    private static func uiSource(_ name: String) -> URL {
+        URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("Sources/PokeDexBar/UI/").appendingPathComponent(name)
+    }
 }
