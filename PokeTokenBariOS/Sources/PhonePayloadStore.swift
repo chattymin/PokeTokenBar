@@ -15,6 +15,11 @@ final class PhonePayloadStore {
     var lastError: String?
     var isConnected = false
 
+    /// Whether the first data-source determination (iCloud or local HTTP) has finished.
+    /// Until then the app has not yet decided between setup and dashboard, so the UI
+    /// shows an entry screen instead of flashing the setup view.
+    var hasCompletedInitialFetch = false
+
     /// Mac host IP address or hostname.
     var host: String {
         didSet { defaults.set(host, forKey: "phoneHost") }
@@ -43,7 +48,10 @@ final class PhonePayloadStore {
         guard !isLoading else { return }
         isLoading = true
         lastError = nil
-        defer { isLoading = false }
+        defer {
+            isLoading = false
+            hasCompletedInitialFetch = true
+        }
 
         // iCloud primary
         if await CloudKitSync.isAvailable() {
