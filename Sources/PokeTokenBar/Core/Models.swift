@@ -201,6 +201,10 @@ struct LimitStatus: Decodable, Sendable {
     /// CodingKeys 에 없어 디코드 시 무시되고, OAuthLimitsProvider.fetch 가 채운다.
     var subscriptionType: String?
     var rateLimitTier: String?
+    /// 토큰의 실제 주인 — usage 응답이 아니라 profile endpoint(OAuthProfileCache)에서 주입한다.
+    /// 같은 기기에서 두 계정이 하나의 Keychain 항목을 덮어쓸 때 어느 계정의 한도인지 구분하는 라벨.
+    var accountEmail: String?
+    var accountOrganizationName: String?
 
     private enum CodingKeys: String, CodingKey {
         case fiveHour = "five_hour"
@@ -221,6 +225,17 @@ struct LimitStatus: Decodable, Sendable {
             return "\(base) \(multiplier)"
         }
         return base
+    }
+
+    /// 계정 라벨 — "email · 조직명". 개인 플랜의 자동 생성 조직명("<email>'s Organization")은
+    /// 이메일과 중복 정보라 생략한다(조직명에 이메일이 포함되는지로 판정). 이메일 없으면 nil —
+    /// 조직명만으로는 어느 로그인인지 특정되지 않아 부분 라벨을 만들지 않는다.
+    var accountDisplay: String? {
+        guard let accountEmail, !accountEmail.isEmpty else { return nil }
+        guard let org = accountOrganizationName, !org.isEmpty, !org.contains(accountEmail) else {
+            return accountEmail
+        }
+        return "\(accountEmail) · \(org)"
     }
 
     /// rateLimitTier 끝의 배수 토큰("20x"/"5x") 추출 — "_" 로 나눠 숫자+x 형태를 찾는다.

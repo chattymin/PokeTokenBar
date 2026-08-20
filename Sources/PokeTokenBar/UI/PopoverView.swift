@@ -308,6 +308,13 @@ struct PopoverView: View {
                         .font(.caption)
                         .foregroundStyle(.tertiary)
                 }
+                // 계정 라벨 — 두 계정이 한 Keychain 항목을 번갈아 쓰는 기기에서 이 한도가
+                // 어느 계정 것인지 알려준다 (없으면 라벨 없이 종전과 동일).
+                if let account = limits.accountDisplay {
+                    Text(l.limitsAccount(account))
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                }
                 // 세션 만료 시 표시값은 만료 전 기준 → 흐리게 처리해 "현재 값 아님"을 시각적으로 전달
                 VStack(alignment: .leading, spacing: 8) {
                     limitRow(name: l.fiveHourSession, window: limits.fiveHour)

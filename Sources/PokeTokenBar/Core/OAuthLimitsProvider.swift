@@ -27,6 +27,7 @@ struct OAuthLimitsProvider: ClaudeLimitsProviding, Sendable {
 
     func fetch(allowKeychainPrompt: Bool = false) async throws -> LimitStatus {
         let token = try await accessTokenCache.accessToken(allowKeychainPrompt: allowKeychainPrompt)
+        var activeToken = token
         var status: LimitStatus
         do {
             status = try await fetchStatus(accessToken: token)
@@ -39,11 +40,19 @@ struct OAuthLimitsProvider: ClaudeLimitsProviding, Sendable {
                 allowKeychainPrompt: allowKeychainPrompt, bypassCache: true)
             guard refreshed != token else { throw error }
             status = try await fetchStatus(accessToken: refreshed)
+            activeToken = refreshed
         }
         // 플랜은 usage 응답이 아니라 방금 읽은 자격증명(캐시)에 담겨 있다 — 추가 Keychain 접근 없음.
         let plan = await accessTokenCache.planInfo()
         status.subscriptionType = plan.subscriptionType
         status.rateLimitTier = plan.rateLimitTier
+        // 계정 식별(이메일·조직) — 같은 기기에서 두 계정이 하나의 Keychain 항목을 번갈아 덮어쓰면
+        // 한도 바가 어느 계정 것인지 소리 없이 뒤바뀐다. 토큰의 실제 주인을 profile endpoint 로
+        // 조회해 라벨링한다. best-effort: 실패해도 한도 표시는 그대로 (라벨만 생략).
+        if let identity = await OAuthProfileCache.shared.identity(accessToken: activeToken) {
+            status.accountEmail = identity.email
+            status.accountOrganizationName = identity.organizationName
+        }
         return status
     }
 
@@ -69,6 +78,58 @@ struct OAuthLimitsProvider: ClaudeLimitsProviding, Sendable {
               let seconds = TimeInterval(raw.trimmingCharacters(in: .whitespaces)),
               seconds > 0 else { return nil }
         return min(seconds, 3600)
+    }
+}
+
+/// OAuth 토큰의 실제 주인(계정 이메일·조직명). usage 응답에는 계정 정보가 없어 profile endpoint 로 조회한다.
+struct AccountIdentity: Equatable, Sendable {
+    let email: String
+    let organizationName: String?
+}
+
+/// profile 조회 캐시 — 토큰이 바뀌지 않는 한 계정 주인도 바뀌지 않으므로 토큰당 1회만 네트워크를 탄다
+/// (한도 폴링마다 HTTP 요청이 2배가 되는 것을 방지). 실패는 캐시하지 않는다 — 토큰이 바뀐 직후 조회가
+/// 실패했을 때 이전 계정 라벨을 계속 보여주면 라벨링이 없느니만 못하다(잘못된 계정 표시).
+actor OAuthProfileCache {
+    static let shared = OAuthProfileCache()
+    private var cachedToken: String?
+    private var cachedIdentity: AccountIdentity?
+
+    func identity(accessToken: String) async -> AccountIdentity? {
+        if cachedToken == accessToken { return cachedIdentity }
+        guard let identity = await Self.fetchIdentity(accessToken: accessToken) else { return nil }
+        cachedToken = accessToken
+        cachedIdentity = identity
+        return identity
+    }
+
+    private static let profileURL = URL(string: "https://api.anthropic.com/api/oauth/profile")!
+
+    private static func fetchIdentity(accessToken: String) async -> AccountIdentity? {
+        var request = URLRequest(url: profileURL, timeoutInterval: 15)
+        request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+        request.setValue("oauth-2025-04-20", forHTTPHeaderField: "anthropic-beta")
+        guard let (data, response) = try? await URLSession.shared.data(for: request),
+              (response as? HTTPURLResponse)?.statusCode == 200 else { return nil }
+        return OAuthProfileData.identity(from: data)
+    }
+}
+
+/// profile 응답 파싱 — 순수 함수로 분리해 픽스처로 테스트한다.
+enum OAuthProfileData {
+    /// `{"account":{"email":...},"organization":{"name":...}}` → AccountIdentity.
+    /// email 이 없거나 비면 응답 전체를 버린다(부분 라벨은 오인 소지) — organization 은 선택.
+    static func identity(from data: Data) -> AccountIdentity? {
+        guard
+            let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+            let account = json["account"] as? [String: Any],
+            let email = account["email"] as? String, !email.isEmpty
+        else {
+            return nil
+        }
+        let organization = json["organization"] as? [String: Any]
+        let orgName = (organization?["name"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        return AccountIdentity(email: email, organizationName: orgName)
     }
 }
 
