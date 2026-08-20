@@ -63,6 +63,7 @@ static func dexKey(for individual: Individual) -> String   // 개체 → 도감 
 | `PlayerStore+Hatching.claimHatch` (:53) | `dexKey(for:)` — 위장 중 등록 유예는 그대로 |
 | `PlayerStore+Evolution` (:98, :121 껍질몬) | `dexKey(for:)` — 진화 후 개체로 계산해 알로라 식스테일 → 나인테일즈-알로라가 자동으로 맞는다 |
 | `PlayerStore+Ditto.revealDisguises` (:24) | 정체 공개 시 `dexKey(for:)` |
+| `PlayerStore+Professor` 데려오기 (:155) | 박사 제안 수령 시 `dexKey(for:)` |
 
 ## 도감 UI — 탭 상세
 
