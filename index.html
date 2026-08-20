@@ -229,9 +229,14 @@
   .copy:hover { color: #fff; border-color: rgba(255,255,255,0.3); }
   .copy.done { color: var(--green); border-color: var(--green); }
   .req-list { list-style: none; padding: 0; margin: 0; }
-  .req-list li { display: flex; gap: 11px; padding: 9px 0; border-bottom: 1px solid var(--border); color: var(--muted); }
+  /* 긴 서비스 목록도 이름 열 안에서 줄바꿈되어 설명 열을 밀어내거나 겹치지 않는다. */
+  .req-list li {
+    display: grid; grid-template-columns: minmax(96px, .95fr) minmax(0, 1.05fr);
+    gap: 11px; align-items: start; padding: 9px 0; border-bottom: 1px solid var(--border); color: var(--muted);
+  }
   .req-list li:last-child { border-bottom: 0; }
-  .req-list .k { color: var(--fg); font-weight: 600; min-width: 96px; }
+  .req-list .k, .req-list li > span:not(.k) { min-width: 0; overflow-wrap: anywhere; }
+  .req-list .k { color: var(--fg); font-weight: 600; }
   .note { color: var(--faint); font-size: 0.86rem; margin-top: 14px; }
 
   /* ---------- Footer ---------- */
@@ -301,6 +306,9 @@
     .companion-shots { grid-template-columns: 1fr; }
     .nav-cta { display: none; }
     .brand span { display: none; }
+  }
+  @media (max-width: 420px) {
+    .req-list li { grid-template-columns: 1fr; gap: 2px; }
   }
 
 
