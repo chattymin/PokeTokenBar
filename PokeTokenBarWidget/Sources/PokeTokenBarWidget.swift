@@ -225,15 +225,17 @@ struct PokeTokenBarWidgetEntryView: View {
 
                 if let limits = payload.limits {
                     Divider()
-                    VStack(spacing: 4) {
+                    VStack(spacing: 6) {
                         if let w = limits.claude5h {
-                            limitLine(label: "Claude 5h", utilization: w.utilization)
+                            limitBar(label: "Claude 5h", utilization: w.utilization)
                         }
                         if let w = limits.claudeWeekly {
-                            limitLine(label: "Weekly", utilization: w.utilization)
+                            limitBar(label: "Weekly", utilization: w.utilization)
                         }
-                        if let w = limits.codexPrimary {
-                            limitLine(label: "Codex", utilization: w.utilization)
+                        if let w = limits.claudeOpusWeekly {
+                            limitBar(label: "Weekly Fable", utilization: w.utilization)
+                        } else if let w = limits.claudeSonnetWeekly {
+                            limitBar(label: "Weekly Fable", utilization: w.utilization)
                         }
                     }
                 }
@@ -314,6 +316,38 @@ struct PokeTokenBarWidgetEntryView: View {
                                     utilization >= 80 ? .orange : .primary)
         }
     }
+
+    @ViewBuilder
+    private func limitBar(label: String, utilization: Double) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            HStack {
+                Text(label)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Text(TokenFormatter.percent(utilization))
+                    .font(.caption2.monospacedDigit().bold())
+                    .foregroundStyle(limitBarColor(utilization))
+            }
+            GeometryReader { geo in
+                ZStack(alignment: .leading) {
+                    RoundedRectangle(cornerRadius: 3)
+                        .fill(.quaternary)
+                        .frame(height: 6)
+                    RoundedRectangle(cornerRadius: 3)
+                        .fill(limitBarColor(utilization))
+                        .frame(width: geo.size.width * min(1, utilization / 100), height: 6)
+                }
+            }
+            .frame(height: 6)
+        }
+    }
+
+    private func limitBarColor(_ utilization: Double) -> Color {
+        if utilization >= 95 { return .red }
+        if utilization >= 80 { return .orange }
+        return .blue
+    }
 }
 
 // MARK: - Preview
@@ -343,6 +377,26 @@ struct PokeTokenBarWidgetEntryView: View {
         limits: PhoneLimitStatus(claude5h: PhoneLimitWindow(label: "5h", utilization: 65, resetsAt: nil),
                                   claudeWeekly: PhoneLimitWindow(label: "Weekly", utilization: 32, resetsAt: nil),
                                   claudeOpusWeekly: nil, claudeSonnetWeekly: nil,
+                                  codexPrimary: nil, codexSecondary: nil, planDisplay: "Max 20x"),
+        companion: PhoneCompanionState(name: "Pikachu", speciesID: 25, isShiny: true, isEgg: false,
+                                        progress: 0.42, stageText: "Stage 1/3", rarity: "rare",
+                                        dexCount: 12, eggProgress: 0, displayState: "working"),
+        providers: [
+            PhoneProviderSnapshot(id: "claude_code", displayName: "Claude", todayTokens: 1_000_000, todayCost: 10.0),
+            PhoneProviderSnapshot(id: "codex", displayName: "Codex", todayTokens: 500_000, todayCost: 2.34),
+        ]))
+}
+
+#Preview(as: .systemLarge) {
+    PokeTokenBarWidget()
+} timeline: {
+    WidgetEntry(date: Date(), payload: PhonePayload(
+        todayTokens: 1_500_000, todayCost: 12.34, weekTokens: 10_000_000,
+        monthTokens: 40_000_000, lastUpdated: Date(), serverVersion: "1.0",
+        limits: PhoneLimitStatus(claude5h: PhoneLimitWindow(label: "5h", utilization: 82, resetsAt: nil),
+                                  claudeWeekly: PhoneLimitWindow(label: "Weekly", utilization: 45, resetsAt: nil),
+                                  claudeOpusWeekly: PhoneLimitWindow(label: "Weekly Fable", utilization: 97, resetsAt: nil),
+                                  claudeSonnetWeekly: nil,
                                   codexPrimary: nil, codexSecondary: nil, planDisplay: "Max 20x"),
         companion: PhoneCompanionState(name: "Pikachu", speciesID: 25, isShiny: true, isEgg: false,
                                         progress: 0.42, stageText: "Stage 1/3", rarity: "rare",
