@@ -34,11 +34,29 @@ final class PhonePayloadStore {
     }
 
     func fetch() async {
-        guard !host.isEmpty, !isLoading else { return }
+        guard !isLoading else { return }
         isLoading = true
         lastError = nil
         defer { isLoading = false }
 
+        // iCloud primary
+        if await CloudKitSync.isAvailable() {
+            do {
+                if let newPayload = try await CloudKitSync.fetch() {
+                    payload = newPayload
+                    isConnected = true
+                    saveToSharedContainer(newPayload)
+                    return
+                }
+            } catch { /* fall through to HTTP */ }
+        }
+
+        // Local HTTP fallback
+        guard !host.isEmpty else {
+            lastError = "No data source available"
+            isConnected = false
+            return
+        }
         do {
             let newPayload = try await client.fetch(host: host)
             payload = newPayload

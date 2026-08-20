@@ -70,8 +70,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         phoneServer = PhonePayloadServer()
         if store.phoneServerEnabled {
             phoneServer.start()
-            Task { await buildAndPublishPayload() }
         }
+        Task { await buildAndPublishPayload() }
         Task { await updater.check() }                    // 기동 시 1회 업데이트 확인
 
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
@@ -203,7 +203,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     // MARK: - Phone Payload Server
 
     private func buildAndPublishPayload() async {
-        guard phoneServer.isRunning else { return }
         let limits = PhoneLimitStatus(
             claude5h: store.limits?.fiveHour?.utilization.map {
                 PhoneLimitWindow(label: "5h Session", utilization: $0,
@@ -261,8 +260,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             limits: limits,
             companion: companionState,
             providers: providers)
-        if let data = try? JSONEncoder().encode(payload) {
+        if phoneServer.isRunning, let data = try? JSONEncoder().encode(payload) {
             phoneServer.updatePayload(data)
+        }
+        Task { @MainActor in
+            do { try await CloudKitSync.save(payload) }
+            catch { AppLog.write("CloudKit sync failed: \(error)") }
         }
     }
 

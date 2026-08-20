@@ -33,12 +33,25 @@ struct WidgetTimelineProvider: TimelineProvider {
         let nextUpdate = Calendar.current.date(byAdding: .minute, value: 15, to: Date())!
         let timeline = Timeline(entries: [entry], policy: .after(nextUpdate))
         completion(timeline)
+
+        Task.detached(priority: .utility) {
+            guard let ck = try? await CloudKitSync.fetch() else { return }
+            WidgetTimelineProvider.persistPayload(ck)
+            WidgetCenter.shared.reloadAllTimelines()
+        }
     }
 
     private func loadPayload() -> PhonePayload? {
         guard let data = UserDefaults(suiteName: "group.io.github.chattymin.poketokenbar")?
             .data(forKey: "latestPayload") else { return nil }
         return try? JSONDecoder().decode(PhonePayload.self, from: data)
+    }
+
+    static func persistPayload(_ payload: PhonePayload) {
+        guard let data = try? JSONEncoder().encode(payload) else { return }
+        let suite = UserDefaults(suiteName: "group.io.github.chattymin.poketokenbar")
+        suite?.set(data, forKey: "latestPayload")
+        suite?.set(Date(), forKey: "lastFetchTime")
     }
 }
 

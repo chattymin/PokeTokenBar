@@ -1,6 +1,7 @@
 import AppKit
 import Foundation
 import Observation
+import PokeTokenBarShared
 import UserNotifications
 
 /// burn rate 단계 — companion 표시 상태(작업/집중) 판정에 사용.
@@ -111,7 +112,12 @@ final class UsageStore {
     /// iPhone companion HTTP server — 기본 꺼짐. 켜면 port 7845 에 NWListener 를 열어
     /// PhonePayloadServer 가 /stats 엔드포인트로 JSON 을 서빙한다.
     var phoneServerEnabled: Bool {
-        didSet { defaults.set(phoneServerEnabled, forKey: "phoneServerEnabled") }
+        didSet {
+            defaults.set(phoneServerEnabled, forKey: "phoneServerEnabled")
+            if !phoneServerEnabled {
+                Task { try? await CloudKitSync.delete() }
+            }
+        }
     }
 
     static let intervalPresets: [(label: String, value: TimeInterval)] = [
