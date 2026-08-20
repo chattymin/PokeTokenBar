@@ -10,6 +10,15 @@ struct SettingsView: View {
 
     var body: some View {
         Form {
+            Section("Appearance") {
+                @Bindable var store = store
+                Picker("Theme", selection: $store.appearance) {
+                    ForEach(AppAppearance.allCases) { appearance in
+                        Text(appearance.label).tag(appearance)
+                    }
+                }
+            }
+
             Section("iCloud Sync") {
                 HStack {
                     Label("iCloud", systemImage: "icloud")

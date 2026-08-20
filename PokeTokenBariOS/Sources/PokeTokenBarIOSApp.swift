@@ -9,6 +9,7 @@ struct PokeTokenBarIOSApp: App {
         WindowGroup {
             DashboardView()
                 .environment(store)
+                .preferredColorScheme(store.appearance.colorScheme)
         }
     }
 }
