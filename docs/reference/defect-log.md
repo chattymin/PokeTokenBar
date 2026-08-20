@@ -8,6 +8,7 @@ read_when:
   - 스프라이트·이미지를 고정 크기 프레임에 그릴 때(비율 왜곡 부류)
   - 세이브 이전/병합·외부 파일 입력 경로를 만들 때
   - `project.yml`(xcodegen)에 리소스·자산 카탈로그를 추가할 때, 앱 아이콘을 교체할 때
+  - iCloud/CloudKit 동기화(iPhone 컴패니언 페이로드)를 건드릴 때, 앱을 Xcode Debug 빌드로 상시 운용할 때
 ---
 
 # 결함 대응 축적 규칙
@@ -206,6 +207,36 @@ read_when:
   부류이긴 하다(실기기 Claude jsonl 863개, 최대 90MB). 회귀 가드: `CodexLargeRolloutPerformanceTests` —
   **opt-in(`POKETOKENBAR_RUN_LARGE_PERF=1` / `scripts/perf-codex-large-rollout.sh`)이라 CI 는 돌리지 않는다.**
   자동으로 막히지 않으므로 이 부류를 건드리면 직접 돌린다. (#184)
+
+## 외부 동기화 (iCloud·CloudKit)
+
+- **CloudKit 쓰기를 'fetch → 수정 → save'로 만들지 마라 — last-write-wins면 `.allKeys` 덮어쓰기 한 방이다.**
+  fetch가 일시적 오류로 실패하면 `try?`가 삼키고 "레코드 없음"으로 재해석해 같은 recordName의 *새*
+  CKRecord를 insert한다. 레코드가 이미 서버에 있으면 `serverRecordChanged`("record to insert already
+  exists")가 매 폴링마다 **결정적으로** 실패한다(2026-08-20 실측: 21연속, 별도 etag 경합 "client oplock
+  error"까지 발생). etag 협상을 요구하는 `CKDatabase.save` 편의 API 대신
+  `CKModifyRecordsOperation` + `savePolicy = .allKeys` — fetch도 etag도 없이 서버 레코드를 통째로
+  덮는다(`CloudKitSync.makeRecord`/`makeSaveOperation`). 회귀 가드:
+  `saveOperationIsForceOverwriteWithoutPrefetch`(결함 주입 — `.allKeys` 제거 시 실패 확인) +
+  `recordPayloadRoundTripsThroughJSONField`(iPhone이 복호화하는 json 필드의 인코딩 계약).
+  CKContainer는 호출마다 새로 만들지 않고 프로세스 수명 static으로 둔다.
+- **실행 중인 프로세스의 .app 번들이 지워지거나 교체되면 CloudKit는 그 프로세스를 영구히 파기한다.**
+  "Client went away before operation could be validated"(CKError 1/2005)는 cloudd가 *작업 단위로* 클라이언트
+  코드서명을 검증한다는 뜻이다 — Xcode rebuild/clean이 실행 중 앱의 번들을 대체·삭제하면 그 검증이
+  이후 모든 작업에서 실패한다(실측: 같은 PID로 19:46–20:16 저장 성공 → 번들 교체 후 20:18부터 48연속
+  실패, 재시작 전까지 자가회복 없음). **메뉴바 앱을 Xcode Debug 빌드(DerivedData)로 상시 운용하지
+  마라** — DerivedData는 Xcode가 지운다. 동기화가 필요한 상시 실행은 안정 경로(/Applications)의
+  자동 서명 빌드로 한다. 실패는 AppLog에만 남고 앱 UI는 멀쩡하므로(**조용한 부실**) iPhone의
+  "Updated N ago"가 유일한 신호다 — 의심되면 `grep "CloudKit sync failed" ~/Library/Logs/PokeTokenBar.log`.
+- **`build-app.sh` 산출물에는 iCloud 자격증명이 없다.** 스크립트의 codesign은 `--entitlements`를 주지
+  않고, iCloud container 자격증명은 팀 프로비저닝(Xcode 자동 서명)이 필요하다 — 스크립트 빌드를
+  /Applications에 깔면 폰 서버(HTTP)는 되는데 iCloud 동기화만 조용히 죽는다. 게다가 launchd KeepAlive
+  에이전트가 그 경로를 계속 재실행하므로 "가끔씩 동기화가 끊긴다"처럼 보인다. iCloud 동기화가 필요한
+  설치본은 xcodebuild(자동 서명, embedded.provisionprofile) 산출물로 대체한다(2026-08-20 조치).
+- **서브 패키지 테스트가 깨진 채 PR이 머지됐다.** `PokeTokenBarSharedTests`의 `PhoneLimitStatus`
+  초기화가 위젯 PR(#3)에서 추가된 파라미터를 못 따라갔는데 아무도 서브 패키지의 `swift test`를
+  돌리지 않아 컴파일 조차 안 되는 상태로 지나갔다. 루트 패키지 게이트만 돌리면 잡히지 않는다 —
+  `PokeTokenBarShared` 테스트도 게이트에 묶는다.
 
 ## 자격증명·Keychain
 

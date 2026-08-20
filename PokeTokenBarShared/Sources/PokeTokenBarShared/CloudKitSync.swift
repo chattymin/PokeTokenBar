@@ -9,23 +9,52 @@ public enum CloudKitSync {
     static let payloadField = "json"
     static let updatedField = "updatedAt"
 
+    /// Process-lifetime container. Short-lived CKContainer instances can tear down the
+    /// cloudd client session while operations are still pending ("Client went away before
+    /// operation could be validated"), so the container must outlive every operation.
+    private static let container = CKContainer(identifier: containerID)
+
     // MARK: - Write
 
+    /// Last-write-wins overwrite of the single payload record.
+    ///
+    /// Deliberately does NOT fetch the existing record first: a failed fetch used to be
+    /// swallowed by `try?` and "recovered" by inserting a fresh CKRecord under the same
+    /// record name — a deterministic `serverRecordChanged` ("record to insert already
+    /// exists") once the record exists. The `.allKeys` save policy overwrites the server
+    /// record with no etag negotiation, so no pre-fetch is needed.
     public static func save(_ payload: PhonePayload) async throws {
+        let record = try makeRecord(payload)
+        let operation = makeSaveOperation(record: record)
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            operation.modifyRecordsResultBlock = { result in
+                switch result {
+                case .success: continuation.resume()
+                case .failure(let error): continuation.resume(throwing: error)
+                }
+            }
+            database().add(operation)
+        }
+    }
+
+    /// Record construction (testable seam) — payload must round-trip through the json field.
+    static func makeRecord(_ payload: PhonePayload) throws -> CKRecord {
         let data = try JSONEncoder().encode(payload)
         guard let json = String(data: data, encoding: .utf8) else {
             throw CloudKitSyncError.encodingFailed
         }
-        let db = database()
-        let record: CKRecord
-        if let existing = try? await db.record(for: recordID) {
-            record = existing
-        } else {
-            record = CKRecord(recordType: recordType, recordID: recordID)
-        }
+        let record = CKRecord(recordType: recordType, recordID: recordID)
         record[payloadField] = json
         record[updatedField] = Date()
-        try await db.save(record)
+        return record
+    }
+
+    /// Save operation (testable seam) — `.allKeys` pins the etag-free overwrite policy.
+    static func makeSaveOperation(record: CKRecord) -> CKModifyRecordsOperation {
+        let operation = CKModifyRecordsOperation(recordsToSave: [record], recordIDsToDelete: [])
+        operation.savePolicy = .allKeys
+        operation.qualityOfService = .utility
+        return operation
     }
 
     // MARK: - Read
@@ -56,7 +85,7 @@ public enum CloudKitSync {
     // MARK: - Private
 
     private static func database() -> CKDatabase {
-        CKContainer(identifier: containerID).privateCloudDatabase
+        container.privateCloudDatabase
     }
 }
 

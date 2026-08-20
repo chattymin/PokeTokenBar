@@ -1,3 +1,4 @@
+import CloudKit
 import Foundation
 import Testing
 @testable import PokeTokenBarShared
@@ -35,7 +36,11 @@ struct PhonePayloadTests {
             limits: PhoneLimitStatus(
                 claude5h: PhoneLimitWindow(label: "5h", utilization: 65.0, resetsAt: nil),
                 claudeWeekly: nil,
-                codexPrimary: nil),
+                claudeOpusWeekly: nil,
+                claudeSonnetWeekly: nil,
+                codexPrimary: nil,
+                codexSecondary: nil,
+                planDisplay: nil),
             companion: PhoneCompanionState(
                 name: "Pikachu", speciesID: 25, isShiny: false, isEgg: false,
                 progress: 0.42, stageText: "Stage 1/3", rarity: "common",
@@ -49,5 +54,41 @@ struct PhonePayloadTests {
         #expect(decoded.todayTokens == 1_500_000)
         #expect(decoded.companion?.name == "Pikachu")
         #expect(decoded.providers.count == 1)
+    }
+
+    // MARK: - CloudKitSync
+
+    private func minimalPayload(todayTokens: Int) -> PhonePayload {
+        PhonePayload(
+            todayTokens: todayTokens, todayCost: 1.5, weekTokens: 10, monthTokens: 100,
+            lastUpdated: Date(timeIntervalSince1970: 1_700_000_000), serverVersion: "1.0",
+            limits: nil, companion: nil, providers: [])
+    }
+
+    /// The single payload record must round-trip through the json field — the iPhone
+    /// decodes exactly this field, so any encoding drift breaks sync silently.
+    @Test func recordPayloadRoundTripsThroughJSONField() throws {
+        let payload = minimalPayload(todayTokens: 51_917_894)
+        let record = try CloudKitSync.makeRecord(payload)
+
+        #expect(record.recordType == CloudKitSync.recordType)
+        #expect(record.recordID == CloudKitSync.recordID)
+        let json = try #require(record[CloudKitSync.payloadField] as? String)
+        let decoded = try JSONDecoder().decode(PhonePayload.self, from: Data(json.utf8))
+        #expect(decoded == payload)
+        #expect(record[CloudKitSync.updatedField] as? Date != nil)
+    }
+
+    /// Save must be an etag-free overwrite (`.allKeys`). The previous fetch-then-insert
+    /// implementation turned any transient fetch failure into a permanent
+    /// "record to insert already exists" collision (2026-08-20 incident: 21 consecutive
+    /// serverRecordChanged failures, iPhone frozen at a stale payload).
+    @Test func saveOperationIsForceOverwriteWithoutPrefetch() throws {
+        let record = try CloudKitSync.makeRecord(minimalPayload(todayTokens: 1))
+        let operation = CloudKitSync.makeSaveOperation(record: record)
+
+        #expect(operation.savePolicy == CKModifyRecordsOperation.RecordSavePolicy.allKeys)
+        #expect(operation.recordsToSave?.count == 1)
+        #expect(operation.recordIDsToDelete?.isEmpty == true)
     }
 }
