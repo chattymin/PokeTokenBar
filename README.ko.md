@@ -141,6 +141,13 @@ PokeDexBar는 당신이 이미 태우고 있는 AI 코딩 토큰(Claude Code · 
 <td width="45%" align="center"><img src="assets/screenshot-collection.png" width="300" alt="도감 그리드 — 1번부터 1025번까지, 잡은 종은 컬러로, 아직 못 잡은 종은 검은 실루엣으로 표시"></td>
 </tr>
 <tr>
+<td width="45%" align="center"><img src="assets/screenshot-dex-forms.png" width="300" alt="도감의 비비용 무늬 목록 — 18개 중 3개 등록, 빙설·설원·정원의 모양은 컬러로 나머지는 이름이 붙은 실루엣으로 표시"></td>
+<td width="55%" valign="middle">
+<h3>모습도 따로 모읍니다</h3>
+모습이 여럿인 종 — 지방 모습이거나, 태어날 때 무늬가 정해지는 종 — 은 도감 칸을 누르면 그 종만의 목록이 열립니다. 비비용은 무늬가 18가지, 안농은 26가지입니다. 부화시킨 모습은 컬러로 나오고 나머지는 실루엣으로 남지만 <b>이름은 가리지 않습니다</b> — 무엇이 남았는지 보여야 모을 마음이 생기니까요. 종 카운터는 그대로입니다. 어떤 모습이든 하나면 그 칸은 채워집니다.
+</td>
+</tr>
+<tr>
 <td width="45%" align="center"><img src="assets/screenshot-box.png" width="300" alt="박스 — 보유한 모든 개체"></td>
 <td width="55%" valign="middle">
 <h3>박스</h3>

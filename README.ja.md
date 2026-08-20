@@ -141,6 +141,13 @@ PokeDexBar は、あなたがすでに使っている AI コーディングト�
 <td width="45%" align="center"><img src="assets/screenshot-collection.png" width="300" alt="図鑑グリッド — 1番から1025番まで、捕まえた種はカラーで、未捕獲の種は黒いシルエットで表示"></td>
 </tr>
 <tr>
+<td width="45%" align="center"><img src="assets/screenshot-dex-forms.png" width="300" alt="図鑑のビビヨンの模様一覧 — 18種中3種を登録、ふぶき・ヒョウガ・ハナゾノの模様はカラー、残りは名前つきのシルエットで表示"></td>
+<td width="55%" valign="middle">
+<h3>すがたも別々に集まります</h3>
+すがたが複数ある種 — リージョンフォームや、生まれたときに模様が決まる種 — は、図鑑のマスをタップするとその種だけの一覧が開きます。ビビヨンは模様が18種類、アンノーンは26種類。孵化させたすがたはカラーで表示され、残りはシルエットのままですが<b>名前は隠しません</b> — 何が残っているか見えてこそ集める気になるからです。種のカウンターは変わりません。どのすがたでも1匹いればそのマスは埋まります。
+</td>
+</tr>
+<tr>
 <td width="45%" align="center"><img src="assets/screenshot-box.png" width="300" alt="ボックス — 所持しているすべての個体"></td>
 <td width="55%" valign="middle">
 <h3>ボックス</h3>

@@ -906,6 +906,14 @@ final class ScreenshotGeneratorTests: XCTestCase {
         // 도감 — 번호순 그리드 + 못 잡은 종 실루엣.
         try write(png(tabChrome(NationalDexView(store: fixture.player))), "screenshot-collection.png")
 
+        // 폼 도감 — 종 칸을 누르면 그 종의 무늬가 행으로 펼쳐진다. **그리드만 찍으면 이 기능이
+        // 그림에 한 번도 안 담긴다**(칸 겉모습은 예전과 같다). 비비용을 고른 것은 18개 무늬로
+        // 후보가 가장 많아, 모은 것과 안 모은 것이 한 화면에 같이 보이기 때문이다.
+        // 오프스크린 렌더는 탭을 못 보내므로 `detailSpeciesID` 로 그 장면을 직접 연다.
+        try write(png(tabChrome(NationalDexView(store: try dexFormStore(),
+                                                detailSpeciesID: 666))),
+                  "screenshot-dex-forms.png")
+
         // 곁에 두면 바뀌는 폼 — 이 규칙은 한 화면에 안 담긴다(파트너로 뒀다 내려야 보인다).
         // 그래서 이로치 배너와 같은 방식으로, 앱이 쓰는 `SpriteView` 를 나란히 놓아 대비를 보인다.
         try write(png(partnerFormBanner(fixture)), "form-banner.png")
@@ -1067,6 +1075,29 @@ final class ScreenshotGeneratorTests: XCTestCase {
         .padding(.horizontal, 14).padding(.vertical, 14)
         .frame(width: PopoverMetrics.width, alignment: .leading)
         .background(Color(nsColor: .windowBackgroundColor))
+    }
+
+    /// 폼 도감 상세용 저장소. **공용 픽스처를 건드리지 않는다** — `dexForms` 를 거기에 더하면
+    /// 이미 찍은 도감 그리드의 진행도와 어긋나고, 앞으로 추가될 그림이 찍는 순서에 묶인다.
+    ///
+    /// 무늬 셋만 등록해 둔다. 전부 등록하면 "모아야 할 것이 남아 있다"가 안 보이고, 하나도
+    /// 등록 안 하면 실루엣만 늘어서서 무엇을 모으는 화면인지 안 읽힌다.
+    private func dexFormStore() throws -> PlayerStore {
+        let now = ScreenshotFixture.now
+        let store = PlayerStore(fileURL: FileManager.default.temporaryDirectory
+                                    .appendingPathComponent("dexform-\(UUID().uuidString).json"),
+                                rng: SeededRNG(seed: 21), now: { now },
+                                defaults: UserDefaults(suiteName: "ptb-dexform-\(UUID().uuidString)")!)
+        store.setLanguage(.en)
+        store.seedForTesting(wallet: 0, slots: 1, eggs: 0, at: now)
+        let owned = ["666/vivillon-icysnow", "666/vivillon-tundra", "666/vivillon-garden"]
+        let candidates = Set(DexKey.candidates(speciesID: 666).map(\.key))
+        for key in owned {
+            XCTAssertTrue(candidates.contains(key),
+                          "\(key) 가 비비용 후보에 없다 — 슬러그가 바뀌면 이 그림이 조용히 실루엣만 남는다")
+        }
+        store.mutate { $0.dexForms.formUnion(owned) }
+        return store
     }
 
     /// 박사에게 보내기 · 박사의 제안 — 이 브랜치가 여는 새 화면이라 새 에셋이 필요하다(§릴리스 1

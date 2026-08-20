@@ -141,6 +141,13 @@ The <b>National Dex</b> is a species checklist from #1 to #1025 — silhouettes 
 <td width="45%" align="center"><img src="assets/screenshot-collection.png" width="300" alt="National Dex grid — species #1 to #1025, caught species shown in colour, uncaught ones as black silhouettes"></td>
 </tr>
 <tr>
+<td width="45%" align="center"><img src="assets/screenshot-dex-forms.png" width="300" alt="Vivillon's form list in the Dex — Forms 3/18, with Icy Snow, Tundra and Garden in colour and the rest as named silhouettes"></td>
+<td width="55%" valign="middle">
+<h3>Forms count separately</h3>
+A species with more than one look — a regional form, or a pattern it's born with — opens into its own list when you tap its Dex cell. Vivillon has eighteen patterns; Unown has twenty-six. Forms you've hatched show in colour, the rest stay silhouetted <b>but keep their names</b>, so you can see what's still out there rather than guessing. The species counter is unchanged: one of any form still fills the cell.
+</td>
+</tr>
+<tr>
 <td width="45%" align="center"><img src="assets/screenshot-box.png" width="300" alt="Box — every individual you own"></td>
 <td width="55%" valign="middle">
 <h3>Your Box</h3>
