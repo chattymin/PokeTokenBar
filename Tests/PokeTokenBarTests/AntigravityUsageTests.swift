@@ -193,6 +193,25 @@ final class AntigravityUsageTests: XCTestCase {
     /// One execution answers several times. Pairing them in order follows the execution as it
     /// runs; collapsing them onto its last step would file a turn under the wrong day whenever
     /// an execution straddles midnight.
+    /// The step lookup does not filter on `step_type`, so every row that carries the execution id
+    /// joins the ordinal list — including rows that are not generations. Characterises the current
+    /// join so that narrowing it later (which needs the real `step_type` values first) shows up here
+    /// rather than in someone's daily total.
+    func testAnyStepSharingTheExecutionJoinsTheOrdinal() throws {
+        let early = try date("2026-03-04T10:00:00Z")
+        let late = try date("2026-03-04T20:00:00Z")
+        try writeConversation("c1", records: [
+            undatedRecord(responseID: "r0", model: "gemini-3.7-flash", execution: "e1",
+                          input: 100, output: 20, cacheRead: 300),
+        ], steps: [
+            makeStep(execution: "e1", queued: early, finished: early),
+            makeStep(execution: "e1", responseID: "a-different-response", queued: late, finished: late),
+        ])
+
+        let entry = try XCTUnwrap(readAll().first)
+        XCTAssertEqual(entry.date.timeIntervalSince1970, early.timeIntervalSince1970, accuracy: 1)
+    }
+
     func testStepTimesAreHandedOutInOrderWithinAnExecution() throws {
         let times = try [
             date("2026-03-04T23:50:00Z"), date("2026-03-04T23:55:00Z"), date("2026-03-05T00:05:00Z"),
