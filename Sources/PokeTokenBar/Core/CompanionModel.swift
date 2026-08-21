@@ -15,6 +15,11 @@ enum AppLanguage: String, Codable, Sendable, CaseIterable {
         case .en: return ["en"]
         case .ja: return ["ja-Hrkt", "ja"]
         case .es: return ["es"]
+        // PokéAPI has no `pt` in its language list, so this falls through to
+        // resolveName's English fallback. That fallback IS the expected result:
+        // the core series was never localised into Portuguese, so Brazilian
+        // players use the English species names anyway. The code is listed
+        // regardless, so the day PokéAPI adds it, it works with no edit here.
         // PokéAPI 의 language 목록에 pt 는 없다 → resolveName 의 영어 폴백으로 내려간다.
         // 본가 시리즈가 포르투갈어로 나온 적이 없어 브라질에서도 종 이름은 영어를 쓰므로 폴백이 곧 기대값이다.
         // 그래도 코드를 적어두는 건 PokéAPI 가 pt 를 추가하는 순간 분기 수정 없이 반영되게 하기 위해서다.
@@ -330,6 +335,11 @@ enum PokemonNature: String, Codable, Sendable, CaseIterable {
     case calm, gentle, sassy, careful, quirky
 
     /// 본가 공식 번역 명칭 (ko/en/ja/es).
+    /// pt is the one exception: the core series has no Portuguese release, so no
+    /// official set exists to copy. The pt column is therefore our own wording —
+    /// adjectives agreeing with the feminine "natureza", picked so all 25 stay
+    /// distinct (`testNatureNamesComplete` guards duplicates and blanks).
+    ///
     /// pt 만 예외다 — 본가 시리즈에 포르투갈어판이 없어 공식 명칭 자체가 존재하지 않는다.
     /// 그래서 pt 열은 "natureza"(여성 명사)에 맞춘 형용사 자체 번역이고, 25종이 서로 겹치지 않게 골랐다
     /// (`testNatureNamesComplete` 가 중복·공백을 막는다).
