@@ -203,45 +203,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     // MARK: - Phone Payload Server
 
     private func buildAndPublishPayload() async {
-        let limits = PhoneLimitStatus(
-            claude5h: store.limits?.fiveHour?.utilization.map {
-                PhoneLimitWindow(label: "5h Session", utilization: $0,
-                                 resetsAt: store.limits?.fiveHour?.resetDate)
-            },
-            claudeWeekly: store.limits?.sevenDay?.utilization.map {
-                PhoneLimitWindow(label: "Weekly", utilization: $0,
-                                 resetsAt: store.limits?.sevenDay?.resetDate)
-            },
-            claudeOpusWeekly: store.limits?.sevenDayOpus?.utilization.map {
-                PhoneLimitWindow(label: "Opus Weekly", utilization: $0,
-                                 resetsAt: store.limits?.sevenDayOpus?.resetDate)
-            },
-            claudeSonnetWeekly: store.limits?.sevenDaySonnet?.utilization.map {
-                PhoneLimitWindow(label: "Sonnet Weekly", utilization: $0,
-                                 resetsAt: store.limits?.sevenDaySonnet?.resetDate)
-            },
-            codexPrimary: store.codexLimits?.maxPrimaryUsedPercent.map {
-                PhoneLimitWindow(label: "Codex", utilization: Double($0), resetsAt: nil)
-            },
-            codexSecondary: store.codexLimits?.maxSecondaryUsedPercent.map {
-                PhoneLimitWindow(label: "Codex 2nd", utilization: Double($0), resetsAt: nil)
-            },
-            opencodeGo5h: store.opencodeGoLimits?.rolling.flatMap { window in
-                window.utilization.map {
-                    PhoneLimitWindow(label: "Go 5h", utilization: $0, resetsAt: window.resetDate)
-                }
-            },
-            opencodeGoWeekly: store.opencodeGoLimits?.weekly.flatMap { window in
-                window.utilization.map {
-                    PhoneLimitWindow(label: "Go Weekly", utilization: $0, resetsAt: window.resetDate)
-                }
-            },
-            opencodeGoMonthly: store.opencodeGoLimits?.monthly.flatMap { window in
-                window.utilization.map {
-                    PhoneLimitWindow(label: "Go Monthly", utilization: $0, resetsAt: window.resetDate)
-                }
-            },
-            planDisplay: store.limits?.planDisplay)
+        let limits = Self.phoneLimitStatus(
+            limits: store.limits, codex: store.codexLimits,
+            opencodeGo: store.opencodeGoLimits, l: companion.l)
         let companionState = PhoneCompanionState(
             name: companion.displayName,
             speciesID: companion.currentSpeciesID,
@@ -304,6 +268,60 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             do { try await CloudKitSync.save(payload) }
             catch { AppLog.write("CloudKit sync failed: \(error)") }
         }
+    }
+
+    /// 폰·위젯이 그대로 표시할 한도 페이로드. 라벨은 여기서 프로바이더 접두어를 붙여 현지화한다
+    /// (bag/dex 와 같은 규약 — 폰엔 현지화 인프라가 없다). 순수 함수라 라벨/매핑을 단위 테스트한다.
+    /// Opus/Sonnet 레거시 필드 밖의 모델별 주간(예: Fable)은 scopedLimitEntries → claudeScoped 로 싣는다.
+    static func phoneLimitStatus(
+        limits: LimitStatus?,
+        codex: CodexRateLimitStatus?,
+        opencodeGo: OpenCodeGoLimitStatus?,
+        l: L
+    ) -> PhoneLimitStatus {
+        let scoped: [PhoneLimitWindow] = (limits?.scopedLimitEntries ?? []).compactMap { entry in
+            guard let percent = entry.percent else { return nil }
+            return PhoneLimitWindow(
+                label: l.phoneClaudeScoped(model: entry.scope?.model?.displayName),
+                utilization: percent,
+                resetsAt: entry.resetsAt.flatMap { ISO8601Parser.date(from: $0) })
+        }
+        return PhoneLimitStatus(
+            claude5h: limits?.fiveHour?.utilization.map {
+                PhoneLimitWindow(label: l.phoneClaude5h, utilization: $0, resetsAt: limits?.fiveHour?.resetDate)
+            },
+            claudeWeekly: limits?.sevenDay?.utilization.map {
+                PhoneLimitWindow(label: l.phoneClaudeWeekly, utilization: $0, resetsAt: limits?.sevenDay?.resetDate)
+            },
+            claudeOpusWeekly: limits?.sevenDayOpus?.utilization.map {
+                PhoneLimitWindow(label: l.phoneClaudeOpusWeekly, utilization: $0, resetsAt: limits?.sevenDayOpus?.resetDate)
+            },
+            claudeSonnetWeekly: limits?.sevenDaySonnet?.utilization.map {
+                PhoneLimitWindow(label: l.phoneClaudeSonnetWeekly, utilization: $0, resetsAt: limits?.sevenDaySonnet?.resetDate)
+            },
+            claudeScoped: scoped.isEmpty ? nil : scoped,
+            codexPrimary: codex?.maxPrimaryUsedPercent.map {
+                PhoneLimitWindow(label: l.phoneCodex, utilization: Double($0), resetsAt: nil)
+            },
+            codexSecondary: codex?.maxSecondaryUsedPercent.map {
+                PhoneLimitWindow(label: l.phoneCodexSecondary, utilization: Double($0), resetsAt: nil)
+            },
+            opencodeGo5h: opencodeGo?.rolling.flatMap { window in
+                window.utilization.map {
+                    PhoneLimitWindow(label: l.phoneGo5h, utilization: $0, resetsAt: window.resetDate)
+                }
+            },
+            opencodeGoWeekly: opencodeGo?.weekly.flatMap { window in
+                window.utilization.map {
+                    PhoneLimitWindow(label: l.phoneGoWeekly, utilization: $0, resetsAt: window.resetDate)
+                }
+            },
+            opencodeGoMonthly: opencodeGo?.monthly.flatMap { window in
+                window.utilization.map {
+                    PhoneLimitWindow(label: l.phoneGoMonthly, utilization: $0, resetsAt: window.resetDate)
+                }
+            },
+            planDisplay: limits?.planDisplay)
     }
 
     /// 상점 목록(판매 아이템 + 알 3종) → 폰 읽기 전용 엔트리 매핑. 순서·가격·구매가능 판정은

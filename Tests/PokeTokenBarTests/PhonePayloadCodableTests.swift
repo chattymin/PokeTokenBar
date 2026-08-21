@@ -5,7 +5,7 @@ import PokeTokenBarShared
 /// TokenFormatter 가 app target 과 shared package 양쪽에 있어 import 를 섞으면 모호해지므로
 /// shared 타입만 쓰는 테스트를 별도 파일로 둔다.
 final class PhonePayloadCodableTests: XCTestCase {
-    /// 구 Mac 이 보낸 페이로드(OpenCode Go 필드 없음)도 폰 코드에서 깨지지 않는다 — nil 로 디코드.
+    /// 구 Mac 이 보낸 페이로드(OpenCode Go·claudeScoped 필드 없음)도 폰 코드에서 깨지지 않는다 — nil 로 디코드.
     func testLimitStatusDecodesLegacyPayloadWithoutOpenCodeGo() throws {
         let legacy = Data("""
         {"claude5h":{"label":"5h Session","utilization":42,"resetsAt":null},
@@ -13,9 +13,29 @@ final class PhonePayloadCodableTests: XCTestCase {
         """.utf8)
         let status = try JSONDecoder().decode(PhoneLimitStatus.self, from: legacy)
         XCTAssertEqual(status.claude5h?.label, "5h Session")
+        XCTAssertNil(status.claudeScoped)
         XCTAssertNil(status.opencodeGo5h)
         XCTAssertNil(status.opencodeGoWeekly)
         XCTAssertNil(status.opencodeGoMonthly)
+    }
+
+    /// 모델별(scoped) 주간 창 왕복 + orderedWindows 순서/포함 검증.
+    func testLimitStatusRoundTripsScopedAndOrders() throws {
+        let status = PhoneLimitStatus(
+            claude5h: PhoneLimitWindow(label: "Claude 5h", utilization: 2, resetsAt: nil),
+            claudeWeekly: PhoneLimitWindow(label: "Claude Weekly", utilization: 13, resetsAt: nil),
+            claudeOpusWeekly: nil, claudeSonnetWeekly: nil,
+            claudeScoped: [PhoneLimitWindow(label: "Claude Weekly Fable", utilization: 41, resetsAt: nil)],
+            codexPrimary: PhoneLimitWindow(label: "Codex 5h", utilization: 61, resetsAt: nil),
+            codexSecondary: nil,
+            opencodeGo5h: PhoneLimitWindow(label: "Go 5h", utilization: 92, resetsAt: nil),
+            opencodeGoWeekly: nil, opencodeGoMonthly: nil,
+            planDisplay: "Max 20x")
+        let decoded = try JSONDecoder().decode(
+            PhoneLimitStatus.self, from: JSONEncoder().encode(status))
+        XCTAssertEqual(decoded.claudeScoped?.map(\.label), ["Claude Weekly Fable"])
+        XCTAssertEqual(decoded.orderedWindows.map(\.label),
+                       ["Claude 5h", "Claude Weekly", "Claude Weekly Fable", "Codex 5h", "Go 5h"])
     }
 
     /// 새 필드 왕복 — Go 세 창이 인코딩·디코딩을 그대로 통과한다.

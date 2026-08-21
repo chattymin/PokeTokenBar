@@ -69,6 +69,9 @@ public struct PhoneLimitStatus: Codable, Sendable, Equatable {
     public let claudeWeekly: PhoneLimitWindow?
     public let claudeOpusWeekly: PhoneLimitWindow?
     public let claudeSonnetWeekly: PhoneLimitWindow?
+    /// 모델별 주간(weekly_scoped — Opus/Sonnet 레거시 필드 밖 창, 예: Fable 주간).
+    /// Mac 이 현지화한 label 을 담는다. 구 Mac 페이로드에는 없어 nil 로 디코드된다.
+    public let claudeScoped: [PhoneLimitWindow]?
     public let codexPrimary: PhoneLimitWindow?
     public let codexSecondary: PhoneLimitWindow?
     /// OpenCode Go 구독 한도(5h rolling/주간/월간) — 구독+키 보유 사용자만 전송된다.
@@ -80,6 +83,7 @@ public struct PhoneLimitStatus: Codable, Sendable, Equatable {
 
     public init(claude5h: PhoneLimitWindow?, claudeWeekly: PhoneLimitWindow?,
                 claudeOpusWeekly: PhoneLimitWindow?, claudeSonnetWeekly: PhoneLimitWindow?,
+                claudeScoped: [PhoneLimitWindow]? = nil,
                 codexPrimary: PhoneLimitWindow?, codexSecondary: PhoneLimitWindow?,
                 opencodeGo5h: PhoneLimitWindow? = nil,
                 opencodeGoWeekly: PhoneLimitWindow? = nil,
@@ -89,12 +93,30 @@ public struct PhoneLimitStatus: Codable, Sendable, Equatable {
         self.claudeWeekly = claudeWeekly
         self.claudeOpusWeekly = claudeOpusWeekly
         self.claudeSonnetWeekly = claudeSonnetWeekly
+        self.claudeScoped = claudeScoped
         self.codexPrimary = codexPrimary
         self.codexSecondary = codexSecondary
         self.opencodeGo5h = opencodeGo5h
         self.opencodeGoWeekly = opencodeGoWeekly
         self.opencodeGoMonthly = opencodeGoMonthly
         self.planDisplay = planDisplay
+    }
+
+    /// 표시 순서대로 존재하는 모든 한도 창(nil 제외) — 폰 카드·위젯이 공유하는 단일 순서 소스.
+    /// Claude(5h→주간→Opus→Sonnet→모델별) → Codex(5h→주간) → OpenCode Go(5h→주간→월간).
+    public var orderedWindows: [PhoneLimitWindow] {
+        var out: [PhoneLimitWindow] = []
+        if let w = claude5h { out.append(w) }
+        if let w = claudeWeekly { out.append(w) }
+        if let w = claudeOpusWeekly { out.append(w) }
+        if let w = claudeSonnetWeekly { out.append(w) }
+        out.append(contentsOf: claudeScoped ?? [])
+        if let w = codexPrimary { out.append(w) }
+        if let w = codexSecondary { out.append(w) }
+        if let w = opencodeGo5h { out.append(w) }
+        if let w = opencodeGoWeekly { out.append(w) }
+        if let w = opencodeGoMonthly { out.append(w) }
+        return out
     }
 }
 

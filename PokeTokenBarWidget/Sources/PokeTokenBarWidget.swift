@@ -165,16 +165,11 @@ struct PokeTokenBarWidgetEntryView: View {
                     statLine(label: "Cost", value: TokenFormatter.costCompact(payload.todayCost))
                     statLine(label: "Week", value: TokenFormatter.compact(payload.weekTokens))
 
-                    if let limits = payload.limits {
+                    if let limits = payload.limits, !limits.orderedWindows.isEmpty {
                         Divider()
-                        if let w = limits.claude5h {
-                            limitLine(label: "Claude 5h", utilization: w.utilization)
-                        }
-                        if let w = limits.claudeWeekly {
-                            limitLine(label: "Weekly", utilization: w.utilization)
-                        }
-                        if let w = limits.codexPrimary {
-                            limitLine(label: "Codex", utilization: w.utilization)
+                        // 중간 위젯은 높이가 빠듯해 상위 3개 창만(전체는 large 위젯에서).
+                        ForEach(Array(limits.orderedWindows.prefix(3).enumerated()), id: \.offset) { _, w in
+                            limitLine(label: w.label, utilization: w.utilization)
                         }
                     }
                 } else {
@@ -220,30 +215,16 @@ struct PokeTokenBarWidgetEntryView: View {
                     statLine(label: "Today", value: TokenFormatter.compact(payload.todayTokens))
                     statLine(label: "Cost", value: TokenFormatter.costCompact(payload.todayCost))
                     statLine(label: "Week", value: TokenFormatter.compact(payload.weekTokens))
-                    statLine(label: "Month", value: TokenFormatter.compact(payload.monthTokens))
                 }
 
-                if let limits = payload.limits {
+                // 모든 프로바이더의 한도 창을 한 줄씩 condense 해 표시(라벨은 Mac 이 프로바이더 접두어와
+                // 함께 현지화해 보낸다). 창이 많아도 large 위젯 높이에 맞도록 바 대신 한 줄 행을 쓴다.
+                if let limits = payload.limits, !limits.orderedWindows.isEmpty {
                     Divider()
-                    VStack(spacing: 6) {
-                        if let w = limits.claude5h {
-                            limitBar(label: "Claude 5h", utilization: w.utilization)
+                    VStack(spacing: 3) {
+                        ForEach(Array(limits.orderedWindows.enumerated()), id: \.offset) { _, w in
+                            limitLine(label: w.label, utilization: w.utilization)
                         }
-                        if let w = limits.claudeWeekly {
-                            limitBar(label: "Weekly", utilization: w.utilization)
-                        }
-                        if let w = limits.claudeOpusWeekly {
-                            limitBar(label: "Weekly Fable", utilization: w.utilization)
-                        } else if let w = limits.claudeSonnetWeekly {
-                            limitBar(label: "Weekly Fable", utilization: w.utilization)
-                        }
-                    }
-                }
-
-                if !payload.providers.isEmpty {
-                    Divider()
-                    ForEach(payload.providers, id: \.id) { p in
-                        statLine(label: p.displayName, value: TokenFormatter.compact(p.todayTokens))
                     }
                 }
             } else {
@@ -393,11 +374,17 @@ struct PokeTokenBarWidgetEntryView: View {
     WidgetEntry(date: Date(), payload: PhonePayload(
         todayTokens: 1_500_000, todayCost: 12.34, weekTokens: 10_000_000,
         monthTokens: 40_000_000, lastUpdated: Date(), serverVersion: "1.0",
-        limits: PhoneLimitStatus(claude5h: PhoneLimitWindow(label: "5h", utilization: 82, resetsAt: nil),
-                                  claudeWeekly: PhoneLimitWindow(label: "Weekly", utilization: 45, resetsAt: nil),
-                                  claudeOpusWeekly: PhoneLimitWindow(label: "Weekly Fable", utilization: 97, resetsAt: nil),
+        limits: PhoneLimitStatus(claude5h: PhoneLimitWindow(label: "Claude 5h", utilization: 82, resetsAt: nil),
+                                  claudeWeekly: PhoneLimitWindow(label: "Claude Weekly", utilization: 45, resetsAt: nil),
+                                  claudeOpusWeekly: nil,
                                   claudeSonnetWeekly: nil,
-                                  codexPrimary: nil, codexSecondary: nil, planDisplay: "Max 20x"),
+                                  claudeScoped: [PhoneLimitWindow(label: "Claude Weekly Fable", utilization: 97, resetsAt: nil)],
+                                  codexPrimary: PhoneLimitWindow(label: "Codex 5h", utilization: 61, resetsAt: nil),
+                                  codexSecondary: nil,
+                                  opencodeGo5h: PhoneLimitWindow(label: "Go 5h", utilization: 92, resetsAt: nil),
+                                  opencodeGoWeekly: PhoneLimitWindow(label: "Go Weekly", utilization: 74, resetsAt: nil),
+                                  opencodeGoMonthly: PhoneLimitWindow(label: "Go Monthly", utilization: 38, resetsAt: nil),
+                                  planDisplay: "Max 20x"),
         companion: PhoneCompanionState(name: "Pikachu", speciesID: 25, isShiny: true, isEgg: false,
                                         progress: 0.42, stageText: "Stage 1/3", rarity: "rare",
                                         dexCount: 12, eggProgress: 0, displayState: "working"),

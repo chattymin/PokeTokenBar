@@ -506,6 +506,22 @@ struct L {
     var opencodeGoWeekly: String { t("OpenCode Go 주간", "OpenCode Go weekly", "OpenCode Go 週間", "OpenCode Go semanal") }
     var opencodeGoMonthly: String { t("OpenCode Go 월간", "OpenCode Go monthly", "OpenCode Go 月間", "OpenCode Go mensual") }
 
+    // MARK: 폰·위젯 한도 라벨 (compact — 프로바이더 접두어 포함, Mac 이 현지화해 페이로드로 보낸다)
+    var phoneClaude5h: String { t("Claude 5시간", "Claude 5h", "Claude 5時間", "Claude 5h") }
+    var phoneClaudeWeekly: String { t("Claude 주간", "Claude Weekly", "Claude 週間", "Claude semanal") }
+    var phoneClaudeOpusWeekly: String { t("Claude Opus 주간", "Claude Opus Weekly", "Claude Opus 週間", "Claude Opus semanal") }
+    var phoneClaudeSonnetWeekly: String { t("Claude Sonnet 주간", "Claude Sonnet Weekly", "Claude Sonnet 週間", "Claude Sonnet semanal") }
+    /// 모델별 주간(weekly_scoped) — "Claude 주간 <모델>". 모델명이 없으면 접미어만.
+    func phoneClaudeScoped(model: String?) -> String {
+        guard let model else { return t("Claude 주간(모델별)", "Claude Weekly (scoped)", "Claude 週間（モデル別）", "Claude semanal (por modelo)") }
+        return t("Claude 주간 \(model)", "Claude Weekly \(model)", "Claude 週間 \(model)", "Claude semanal \(model)")
+    }
+    var phoneCodex: String { t("Codex 5시간", "Codex 5h", "Codex 5時間", "Codex 5h") }
+    var phoneCodexSecondary: String { t("Codex 주간", "Codex Weekly", "Codex 週間", "Codex semanal") }
+    var phoneGo5h: String { t("Go 5시간", "Go 5h", "Go 5時間", "Go 5h") }
+    var phoneGoWeekly: String { t("Go 주간", "Go Weekly", "Go 週間", "Go semanal") }
+    var phoneGoMonthly: String { t("Go 월간", "Go Monthly", "Go 月間", "Go mensual") }
+
     // MARK: 가방 / 아이템
     var bag: String { t("가방", "Bag", "バッグ", "Bolsa") }
     var bagEmptyTitle: String { t("아직 가방이 비어있어요!", "Your bag is empty!", "バッグはまだ空っぽです！", "¡Tu bolsa todavía está vacía!") }

@@ -248,6 +248,9 @@ struct LimitsCard: View {
             if let w = limits.claudeSonnetWeekly {
                 LimitRow(window: w)
             }
+            ForEach(Array((limits.claudeScoped ?? []).enumerated()), id: \.offset) { _, w in
+                LimitRow(window: w)
+            }
             if let w = limits.codexPrimary {
                 LimitRow(window: w)
             }
@@ -265,7 +268,8 @@ struct LimitsCard: View {
             }
 
             if limits.claude5h == nil && limits.claudeWeekly == nil && limits.claudeOpusWeekly == nil
-                && limits.claudeSonnetWeekly == nil && limits.codexPrimary == nil && limits.codexSecondary == nil
+                && limits.claudeSonnetWeekly == nil && (limits.claudeScoped ?? []).isEmpty
+                && limits.codexPrimary == nil && limits.codexSecondary == nil
                 && limits.opencodeGo5h == nil && limits.opencodeGoWeekly == nil && limits.opencodeGoMonthly == nil {
                 Text("No rate limits active")
                     .font(.caption)
