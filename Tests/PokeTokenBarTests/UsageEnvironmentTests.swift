@@ -158,7 +158,7 @@ final class UsageEnvironmentTests: XCTestCase {
 
     /// 실제로 조회되는 이름 집합이 프로바이더 override 와 어긋나지 않게 고정한다.
     func testRegisteredNamesCoverEveryProviderOverride() {
-        for name in ["CLAUDE_CONFIG_DIR", "OPENCODE_DATA_DIR", "HERMES_HOME", "COPILOT_HOME", "GROK_HOME"] {
+        for name in ["CLAUDE_CONFIG_DIR", "OPENCODE_DATA_DIR", "HERMES_HOME", "COPILOT_HOME", "GROK_HOME", "CLOUD_CODE_URL"] {
             XCTAssertTrue(UsageEnvironment.names.contains(name), "\(name) 이 조회 대상에서 빠졌다")
         }
         XCTAssertEqual(Set(UsageEnvironment.names).count, UsageEnvironment.names.count, "이름 중복")

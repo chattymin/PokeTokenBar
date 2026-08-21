@@ -89,6 +89,19 @@ struct L {
         }
     }
 
+    /// Antigravity 한도 그룹 및 윈도우 이름
+    var antigravityGeminiGroup: String { t("Gemini 모델군", "Gemini Models", "Gemini モデル群", "Modelos Gemini") }
+    var antigravityThirdPartyGroup: String { t("Claude & GPT 모델군", "Claude & GPT Models", "Claude & GPT モデル群", "Modelos Claude y GPT") }
+    func antigravityWindow(window: String?, bucketId: String) -> String {
+        if window == "5h" || bucketId.contains("5h") {
+            return fiveHourSession
+        }
+        if window == "weekly" || bucketId.contains("weekly") {
+            return weekly
+        }
+        return t("한도", "Limit", "上限", "Límite")
+    }
+
     // MARK: 푸터
     var refreshNow: String { t("지금 새로고침", "Refresh now", "今すぐ更新", "Actualizar ahora") }
     var updated: String { t("갱신", "Updated", "更新", "Actualizado") }
