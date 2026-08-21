@@ -279,13 +279,55 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             companion: companionState,
             providers: providers,
             bag: bag,
-            dex: dex)
+            dex: dex,
+            spendableTokens: companion.availableTokens,
+            shop: Self.phoneShopEntries(companion))
         if phoneServer.isRunning, let data = try? JSONEncoder().encode(payload) {
             phoneServer.updatePayload(data)
         }
         Task { @MainActor in
             do { try await CloudKitSync.save(payload) }
             catch { AppLog.write("CloudKit sync failed: \(error)") }
+        }
+    }
+
+    /// 상점 목록(판매 아이템 + 알 3종) → 폰 읽기 전용 엔트리 매핑. 순서·가격·구매가능 판정은
+    /// CompanionStore.shopEntries/canBuy 를 그대로 따른다(폰은 재현하지 않고 표시만).
+    /// 표시 문자열은 bag/dex 와 같은 규약으로 여기서 미리 현지화해 보낸다.
+    static func phoneShopEntries(_ companion: CompanionStore) -> [PhoneShopEntry] {
+        let l = companion.l
+        return companion.shopEntries.map { entry in
+            switch entry {
+            case .item(let kind):
+                let owned = companion.itemCount(kind)
+                return PhoneShopEntry(
+                    id: "item:\(kind.rawValue)",
+                    isEgg: false,
+                    name: l.itemName(kind),
+                    itemDescription: l.itemDescription(kind),
+                    price: entry.price,
+                    rarity: nil,
+                    ownedCount: owned,
+                    isPassive: kind.isPassive,
+                    isOwned: kind.isPassive && owned > 0,
+                    canAfford: companion.canBuy(kind),
+                    iconName: kind.spriteName,
+                    fallbackEmoji: kind.fallbackEmoji)
+            case .egg(let tier):
+                return PhoneShopEntry(
+                    id: "egg:\(tier?.rawValue ?? "plain")",
+                    isEgg: true,
+                    name: l.eggName(tier),
+                    itemDescription: l.eggDescription(tier),
+                    price: entry.price,
+                    rarity: tier?.rawValue,
+                    ownedCount: 0,
+                    isPassive: false,
+                    isOwned: false,
+                    canAfford: companion.canBuyEgg(tier),
+                    iconName: nil,
+                    fallbackEmoji: "🥚")
+            }
         }
     }
 

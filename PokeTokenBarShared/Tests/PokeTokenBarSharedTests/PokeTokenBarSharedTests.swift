@@ -61,6 +61,19 @@ struct PhonePayloadTests {
             dex: [
                 PhoneDexSpecies(id: 25, name: "Pikachu", rarity: "common", isShiny: false, isRaising: false),
                 PhoneDexSpecies(id: 143, name: "Snorlax", rarity: "rare", isShiny: true, isRaising: true),
+            ],
+            spendableTokens: 4_200_000_000,
+            shop: [
+                PhoneShopEntry(id: "item:rareCandy", isEgg: false, name: "Rare Candy",
+                               itemDescription: "Raises your Pokémon's EXP by 100M.",
+                               price: 500_000_000, rarity: nil, ownedCount: 3,
+                               isPassive: false, isOwned: false, canAfford: true,
+                               iconName: "rare-candy", fallbackEmoji: "🍬"),
+                PhoneShopEntry(id: "egg:uncommon", isEgg: true, name: "Uncommon Egg",
+                               itemDescription: "Send off your current Pokémon for an egg guaranteed to hatch Uncommon or better.",
+                               price: 2_500_000_000, rarity: "uncommon", ownedCount: 0,
+                               isPassive: false, isOwned: false, canAfford: true,
+                               iconName: nil, fallbackEmoji: "🥚"),
             ])
 
         let data = try JSONEncoder().encode(payload)
@@ -70,12 +83,14 @@ struct PhonePayloadTests {
         #expect(decoded.providers.count == 1)
         #expect(decoded.bag == payload.bag)
         #expect(decoded.dex == payload.dex)
+        #expect(decoded.spendableTokens == 4_200_000_000)
+        #expect(decoded.shop == payload.shop)
     }
 
-    /// Payloads published by older Macs lack `bag`/`dex` entirely. Decoding must
+    /// Payloads published by older Macs lack `bag`/`dex`/`shop` entirely. Decoding must
     /// succeed with empty collections — a decode failure would freeze the iPhone at
     /// its last cached payload until the Mac is updated.
-    @Test func payloadDecodesWithoutBagAndDexFields() throws {
+    @Test func payloadDecodesWithoutBagDexAndShopFields() throws {
         let legacyJSON = """
         {
           "todayTokens": 1000,
@@ -93,6 +108,8 @@ struct PhonePayloadTests {
         #expect(decoded.todayTokens == 1000)
         #expect(decoded.bag.isEmpty)
         #expect(decoded.dex.isEmpty)
+        #expect(decoded.shop.isEmpty)
+        #expect(decoded.spendableTokens == 0)
     }
 
     // MARK: - CloudKitSync

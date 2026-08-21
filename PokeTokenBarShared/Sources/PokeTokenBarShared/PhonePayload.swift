@@ -17,11 +17,16 @@ public struct PhonePayload: Codable, Sendable, Equatable {
     public let bag: [PhoneBagItem]
     /// Collected species (graduated + current) for the read-only phone dex.
     public let dex: [PhoneDexSpecies]
+    /// Shop wallet — tokens spendable in the shop (usedSinceInstall − spentTokens).
+    public let spendableTokens: Int
+    /// Shop listing (read-only on the phone; purchases happen on the Mac).
+    public let shop: [PhoneShopEntry]
 
     public init(todayTokens: Int, todayCost: Double, weekTokens: Int, monthTokens: Int,
                 lastUpdated: Date, serverVersion: String, limits: PhoneLimitStatus?,
                 companion: PhoneCompanionState?, providers: [PhoneProviderSnapshot],
-                bag: [PhoneBagItem] = [], dex: [PhoneDexSpecies] = []) {
+                bag: [PhoneBagItem] = [], dex: [PhoneDexSpecies] = [],
+                spendableTokens: Int = 0, shop: [PhoneShopEntry] = []) {
         self.todayTokens = todayTokens
         self.todayCost = todayCost
         self.weekTokens = weekTokens
@@ -33,10 +38,12 @@ public struct PhonePayload: Codable, Sendable, Equatable {
         self.providers = providers
         self.bag = bag
         self.dex = dex
+        self.spendableTokens = spendableTokens
+        self.shop = shop
     }
 
-    /// Older Mac versions publish payloads without `bag`/`dex` — decode them as empty
-    /// instead of failing the whole sync.
+    /// Older Mac versions publish payloads without `bag`/`dex`/`shop` — decode them
+    /// as empty instead of failing the whole sync.
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         todayTokens = try c.decode(Int.self, forKey: .todayTokens)
@@ -50,6 +57,8 @@ public struct PhonePayload: Codable, Sendable, Equatable {
         providers = try c.decodeIfPresent([PhoneProviderSnapshot].self, forKey: .providers) ?? []
         bag = try c.decodeIfPresent([PhoneBagItem].self, forKey: .bag) ?? []
         dex = try c.decodeIfPresent([PhoneDexSpecies].self, forKey: .dex) ?? []
+        spendableTokens = try c.decodeIfPresent(Int.self, forKey: .spendableTokens) ?? 0
+        shop = try c.decodeIfPresent([PhoneShopEntry].self, forKey: .shop) ?? []
     }
 }
 
@@ -223,5 +232,53 @@ public struct PhoneDexSpecies: Codable, Sendable, Equatable, Identifiable {
         self.rarity = rarity
         self.isShiny = isShiny
         self.isRaising = isRaising
+    }
+}
+
+// MARK: - Shop (read-only)
+
+/// One shop listing — a purchasable item or an egg reroll. The phone renders the
+/// catalog read-only; buying happens on the Mac. Display strings are pre-localized
+/// by the Mac, mirroring `PhoneBagItem`'s convention.
+public struct PhoneShopEntry: Codable, Sendable, Equatable, Identifiable {
+    /// Stable identifier: "item:<ItemKind rawValue>" or "egg:<tier|plain>".
+    public let id: String
+    /// Egg reroll listing (vs. inventory item).
+    public let isEgg: Bool
+    public let name: String
+    public let itemDescription: String
+    /// Price in spendable tokens.
+    public let price: Int
+    /// Egg tier floor rawValue ("uncommon"/"rare") for the rarity badge;
+    /// nil = plain egg (no guarantee) or a regular item.
+    public let rarity: String?
+    /// Owned consumable count (passive items report 1 while owned). 0 = none.
+    public let ownedCount: Int
+    /// Passive (own-to-apply) item — no use action, permanently effective.
+    public let isPassive: Bool
+    /// A passive item already purchased — renders as "Owned" instead of a price CTA.
+    public let isOwned: Bool
+    /// Spendable tokens currently cover the price.
+    public let canAfford: Bool
+    /// PokéAPI item sprite filename (…/sprites/items/{name}.png). nil = emoji fallback.
+    public let iconName: String?
+    /// Emoji fallback when the sprite is unavailable (eggs always use this).
+    public let fallbackEmoji: String
+
+    public init(id: String, isEgg: Bool, name: String, itemDescription: String,
+                price: Int, rarity: String?, ownedCount: Int, isPassive: Bool,
+                isOwned: Bool, canAfford: Bool, iconName: String?, fallbackEmoji: String) {
+        self.id = id
+        self.isEgg = isEgg
+        self.name = name
+        self.itemDescription = itemDescription
+        self.price = price
+        self.rarity = rarity
+        self.ownedCount = ownedCount
+        self.isPassive = isPassive
+        self.isOwned = isOwned
+        self.canAfford = canAfford
+        self.iconName = iconName
+        self.fallbackEmoji = fallbackEmoji
     }
 }

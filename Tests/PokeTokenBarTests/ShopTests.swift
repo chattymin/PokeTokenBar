@@ -179,4 +179,62 @@ final class ShopTests: XCTestCase {
             XCTAssertFalse(s.shopEntries.contains(.egg(tier)), "알 상태에선 \(tier?.rawValue ?? "기본") 알도 미노출")
         }
     }
+
+    // MARK: 폰 페이로드 매핑 (읽기 전용 상점 — AppDelegate.phoneShopEntries)
+
+    private func storeWithMon(used: Int, file: String = #filePath) -> CompanionStore {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("shop-phone-\(UUID().uuidString).json")
+        let mon = "{\"baseID\":10,\"pathIDs\":[10],\"stageIndex\":0,\"usedAtStage\":200000000,"
+            + "\"rarity\":\"common\",\"totalForms\":3,\"isShiny\":false}"
+        let json = "{\"installBaselineSet\":true,\"usedSinceInstall\":\(used),\"spentTokens\":0,"
+            + "\"lastDate\":\"d\",\"active\":\(mon),\"dex\":[],\"collectedFinals\":[]}"
+        try? json.data(using: .utf8)!.write(to: url)
+        return CompanionStore(provider: ShopNoProvider(), clock: { self.now }, fileURL: url, rng: SeededRNG(seed: 1))
+    }
+
+    /// 폰 상점은 shopEntries 의 순서·가격을 그대로 이어받는다 — 아이템/알 식별자와 등급 알 배지용
+    /// rarity 만 폰 표현으로 바뀐다.
+    func testPhoneShopEntriesMapItemsAndEggs() {
+        let entries = AppDelegate.phoneShopEntries(storeWithMon(used: 5_000_000_000))
+        XCTAssertEqual(entries.map(\.id),
+                       ["item:mint", "item:rareCandy", "egg:plain", "egg:uncommon", "item:shinyCharm", "egg:rare"])
+        XCTAssertEqual(entries.map(\.price),
+                       [Mint.price, RareCandy.price, FreshEgg.price,
+                        FreshEgg.price(guaranteeing: .uncommon), ShinyCharm.price,
+                        FreshEgg.price(guaranteeing: .rare)])
+        XCTAssertEqual(entries.map(\.isEgg), [false, false, true, true, false, true])
+        XCTAssertEqual(entries.compactMap(\.rarity), ["uncommon", "rare"],
+                       "rarity 배지는 등급 알에만 — 기본 알·아이템은 nil")
+    }
+
+    /// 구매 가능 판정 경계(잔액 = 가격 정확히)와 소비형 보유수가 폰 엔트리에 그대로 흐른다.
+    func testPhoneShopEntryAffordabilityAndOwnedCount() {
+        let s = store(used: RareCandy.price, rareCandy: 2)   // active 없음 → 알은 제외됨
+        let byID = Dictionary(uniqueKeysWithValues: AppDelegate.phoneShopEntries(s).map { ($0.id, $0) })
+        XCTAssertTrue(byID["item:rareCandy"]!.canAfford, "잔액 = 가격 정확히 → 구매 가능")
+        XCTAssertTrue(byID["item:mint"]!.canAfford)
+        XCTAssertFalse(byID["item:shinyCharm"]!.canAfford)
+        XCTAssertEqual(byID["item:rareCandy"]!.ownedCount, 2)
+        XCTAssertFalse(byID["item:rareCandy"]!.isOwned, "소비형은 보유수만 — isOwned 는 보유형 전용")
+    }
+
+    /// 구매 완료한 보유형(이로치 부적)은 isOwned — 폰이 "보유 중" 상태로 그린다(재구매 없음).
+    func testPhoneShopEntryOwnedPassive() {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("shop-phone-passive-\(UUID().uuidString).json")
+        let json = "{\"installBaselineSet\":true,\"usedSinceInstall\":0,\"spentTokens\":0,"
+            + "\"lastDate\":\"d\",\"dex\":[],\"collectedFinals\":[],\"inventory\":{\"shinyCharm\":1}}"
+        try? json.data(using: .utf8)!.write(to: url)
+        let s = CompanionStore(provider: ShopNoProvider(), clock: { self.now }, fileURL: url, rng: SeededRNG(seed: 1))
+        let entries = AppDelegate.phoneShopEntries(s)
+        XCTAssertEqual(entries.last?.id, "item:shinyCharm", "구매 완료 보유형은 shopEntries 정렬 그대로 최하단")
+        XCTAssertEqual(entries.last?.isOwned, true)
+        XCTAssertEqual(entries.last?.isPassive, true)
+    }
+
+    /// 알 상태(활성 포켓몬 없음)에선 폰 목록에서도 알이 전부 빠진다 — shopEntries 게이트의 폰 미러.
+    func testPhoneShopEntriesOmitEggsWhenNoActive() {
+        let entries = AppDelegate.phoneShopEntries(store(used: 5_000_000_000))
+        XCTAssertFalse(entries.contains(where: \.isEgg))
+        XCTAssertEqual(entries.map(\.id), ["item:mint", "item:rareCandy", "item:shinyCharm"])
+    }
 }
