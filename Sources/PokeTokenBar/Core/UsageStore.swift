@@ -96,6 +96,13 @@ final class UsageStore {
     var floatingPetBubbleAlerts: Bool {
         didSet { defaults.set(floatingPetBubbleAlerts, forKey: "floatingPetBubbleAlerts") }
     }
+    /// 펫을 팝오버와 같은 네이티브 fps(10~16)로 돌릴지. 끄면 `FloatingPetView.frameFloor`(0.4s≈2.5fps)
+    /// 배터리 캡이 걸린다 — 상시 표시 표면의 idle wakeup 을 억제하는 원래 규율(defect-log §에너지).
+    /// 켜면 팝오버와 같은 부드러움을 얻는 대신 wakeup 이 늘어난다. 저전력 모드의 정적화는 이 설정과
+    /// 무관하게 항상 우선한다(`FloatingPetController.shouldAnimate`).
+    var floatingPetSmoothAnimation: Bool {
+        didSet { defaults.set(floatingPetSmoothAnimation, forKey: "floatingPetSmoothAnimation") }
+    }
     var disableKeychainAccess: Bool {
         didSet {
             defaults.set(disableKeychainAccess, forKey: "disableKeychainAccess")   // 저장 누락이던 기존 버그 — 재시작 후 풀렸음
@@ -424,6 +431,7 @@ final class UsageStore {
         floatingPetEnabled = d.object(forKey: "floatingPetEnabled") as? Bool ?? false
         floatingPetSize = d.object(forKey: "floatingPetSize") as? Double ?? 96
         floatingPetBubbleAlerts = d.object(forKey: "floatingPetBubbleAlerts") as? Bool ?? true
+        floatingPetSmoothAnimation = d.object(forKey: "floatingPetSmoothAnimation") as? Bool ?? true
         disableKeychainAccess = d.object(forKey: "disableKeychainAccess") as? Bool ?? false
 
         reschedule()

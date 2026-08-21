@@ -412,6 +412,13 @@ final class PetHostingView: NSHostingView<AnyView> {
 
 struct FloatingPetView: View {
     static let frameFloor: TimeInterval = 0.4
+
+    /// 푸터 토글의 SF Symbol — 지금 상태를 그린다(보이는 중 = 뜬 눈). 순수 판정이라 뒤집힘을 테스트로 잠근다.
+    static func visibilitySymbol(visible: Bool) -> String { visible ? "eye" : "eye.slash" }
+
+    /// 실제로 적용할 프레임 하한 — 부드러움 설정이 켜지면 네이티브(0, 팝오버와 동일),
+    /// 꺼지면 배터리 캡(`frameFloor`). 순수 판정이라 두 분기를 테스트로 잠근다.
+    static func effectiveFrameFloor(smooth: Bool) -> TimeInterval { smooth ? 0 : frameFloor }
     var animated: Bool = true
     @Environment(UsageStore.self) private var store
     @Environment(CompanionStore.self) private var companion
@@ -427,7 +434,8 @@ struct FloatingPetView: View {
             }
 
             SpriteView(speciesID: subject.speciesID, size: size, animated: animated,
-                       shiny: subject.isShiny, minFrameDelay: Self.frameFloor)
+                       shiny: subject.isShiny,
+                       minFrameDelay: Self.effectiveFrameFloor(smooth: store.floatingPetSmoothAnimation))
                 .frame(width: size, height: size)
                 .zIndex(0)
         }

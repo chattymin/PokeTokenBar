@@ -146,11 +146,45 @@ final class FloatingPetEnergyTests: XCTestCase {
         XCTAssertTrue(FloatingPetController.shouldAnimate(lowPower: false))
     }
 
-    /// [회귀] 펫은 반드시 fps 캡이 걸려야 한다 — frameFloor 가 0 으로 돌아가면(네이티브 fps) 메뉴바에서
-    /// 고친 wakeup 회귀가 재발한다. 뷰가 실제로 넘기는 상수를 그대로 가드한다(리터럴 유실 방지).
+    /// [회귀] 절전 모드(부드러움 끔)의 fps 캡 상수는 그대로 유지돼야 한다 — 0 으로 돌아가면
+    /// 메뉴바에서 고친 wakeup 회귀가 절전 경로에서까지 재발한다.
+    ///
+    /// **주의**: 이 상수만으로는 "펫이 실제로 캡을 쓴다"를 더는 보장하지 않는다(부드러움 설정이
+    /// 생기면서 적용 여부가 갈린다) — 실제 적용은 아래 effectiveFrameFloor 테스트가 잠근다.
     func testPetFrameFloorIsCapped() {
         XCTAssertGreaterThan(FloatingPetView.frameFloor, 0, "펫 fps 캡이 해제되면 idle wakeup 회귀")
         XCTAssertEqual(FloatingPetView.frameFloor, 0.4, accuracy: 1e-9, "메뉴바와 동일한 0.4s≈2.5fps 캡")
+    }
+
+    /// 푸터 눈 아이콘은 **현재 상태**를 그린다 — 뒤집히면 "숨김"인데 켜진 것처럼 보인다.
+    /// 아이콘/툴팁이 설정창 스위치와 같은 값에서 파생되는지는 두 곳 모두 store.floatingPetEnabled 를
+    /// 읽는 것으로 보장되고(별도 상태 없음), 여기선 그 값 → 심볼 매핑만 잠근다.
+    func testFooterEyeSymbolFollowsVisibility() {
+        XCTAssertEqual(FloatingPetView.visibilitySymbol(visible: true), "eye")
+        XCTAssertEqual(FloatingPetView.visibilitySymbol(visible: false), "eye.slash")
+    }
+
+    /// 부드러움 설정이 실제로 프레임 하한을 가른다 — 켜면 네이티브(팝오버와 동일), 끄면 배터리 캡.
+    /// 두 분기를 모두 잠근다: 한쪽만 보면 설정이 상수에 묶여 버린 회귀를 못 잡는다.
+    func testSmoothSettingSelectsFrameFloor() {
+        XCTAssertEqual(FloatingPetView.effectiveFrameFloor(smooth: true), 0, accuracy: 1e-9,
+                       "켜짐 = 네이티브 fps(팝오버와 동일)")
+        XCTAssertEqual(FloatingPetView.effectiveFrameFloor(smooth: false), FloatingPetView.frameFloor,
+                       accuracy: 1e-9, "꺼짐 = 배터리 캡")
+    }
+
+    /// 부드러움이 켜져도 프레임 지속은 GIF 원본 delay 그대로여야 한다(하한 0 = 캡 없음).
+    /// 팝오버가 쓰는 경로와 같은 계산인지 확인 — 두 표면이 같은 규칙을 쓰는 게 이 설정의 목적이다.
+    func testSmoothPetUsesTheSameDelayAsThePopover() {
+        for native in [0.05, 0.062, 0.1, 0.5] {
+            XCTAssertEqual(SpriteView.frameDelay(base: native,
+                                                 floor: FloatingPetView.effectiveFrameFloor(smooth: true)),
+                           SpriteView.frameDelay(base: native, floor: 0), accuracy: 1e-9)
+        }
+        // 꺼짐: 네이티브가 캡보다 빠른 구간은 캡으로 눌린다(절전 경로가 살아 있는지).
+        XCTAssertEqual(SpriteView.frameDelay(base: 0.1,
+                                             floor: FloatingPetView.effectiveFrameFloor(smooth: false)),
+                       0.4, accuracy: 1e-9)
     }
 
     /// Bubble needs headroom + width beyond the square pet size — otherwise content is clipped.

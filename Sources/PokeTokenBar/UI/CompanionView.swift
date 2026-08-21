@@ -174,7 +174,9 @@ struct SpriteView: View {
         }
         // GIF 재생 중엔 bob 정지(프레임 자체가 움직임) — 폴백/정적일 때만 상하 움직임
         .offset(y: bob && frames.isEmpty && up ? -3 : 0)
-        .task(id: "\(speciesID.map(String.init) ?? "nil")-\(shiny)") {
+        // minFrameDelay 를 id 에 포함한다 — 프레임 루프는 시작 시점의 하한을 들고 돌기 때문에,
+        // 빠지면 설정을 바꿔도 다음 스프라이트 교체 전까지 옛 fps 로 계속 돈다(설정이 안 먹는 것처럼 보인다).
+        .task(id: "\(speciesID.map(String.init) ?? "nil")-\(shiny)-\(minFrameDelay)") {
             // animated 프레임은 id/shiny 변경 시 항상 초기화(이전 개체 프레임 잔상 방지)
             frames = []
             frameIndex = 0

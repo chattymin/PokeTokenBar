@@ -376,6 +376,15 @@ read_when:
   (팝오버 `popoverDidClose` 패턴). 회귀 가드: `FloatingPetEnergyTests`(fps 하한 clamp·`frameFloor>0`·팝오버 불변·
   low-power 정적화 순수 판정 — SwiftUI `.task` 타이밍 자체는 호스트 없이 xctest 불가라 순수 경로만 잠금). occlusion 게이팅은
   all-spaces/`.floating` 펫이 실제로 거의 안 가려져 메뉴바와 동일 수확체감으로 미도입. (#102 리뷰 지적 반영, 2026-07-22.)
+- **fps 하한은 이제 무조건이 아니라 사용자 설정이다** (`UsageStore.floatingPetSmoothAnimation`, 기본 켬).
+  실측 배경: 펫은 0.4s 캡 때문에 2.5fps 인데 스프라이트 원본은 10~16fps 라 4~6배 느리고, 여기에 sleep
+  `tolerance`(delay×0.5) 지터가 겹쳐 "버벅인다"는 인상이 된다 — 팝오버(하한 0)와 나란히 두면 차이가 명확하다.
+  켜면 하한 0(팝오버와 동일), 끄면 기존 0.4s 캡. **`frameFloor` 상수만 보는 가드로는 더 이상 "펫이 캡을
+  쓴다"가 보장되지 않는다** — 적용 분기는 `FloatingPetView.effectiveFrameFloor(smooth:)` 이고
+  `testSmoothSettingSelectsFrameFloor` 가 두 분기를 잠근다. 저전력 모드 정적화(`shouldAnimate`)는 이
+  설정과 무관하게 항상 우선한다. 함정: 프레임 루프는 **시작 시점의 하한을 들고 도는** 구조라
+  `SpriteView` 의 `.task(id:)` 에 `minFrameDelay` 를 넣지 않으면 설정을 바꿔도 다음 스프라이트 교체
+  전까지 옛 fps 로 계속 돌아 "설정이 안 먹는" 것처럼 보인다. (2026-08-20.)
 
 ## 알림
 

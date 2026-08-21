@@ -4,6 +4,9 @@ import Foundation
 struct BaseSpecies: Sendable, Codable {
     let id: Int
     let captureRate: Int    // 3(뮤츠급)~255(캐터피급), 공식 희귀도 신호
+    /// 언어코드→이름(설정의 알 스폰 목록 표시용). base 인덱스 1쿼리에 실려 오므로 추가 요청이 없다.
+    /// **비어 있을 수 있다** — REST 폴백 경로와 이 필드 이전에 저장된 디스크 캐시. 표시는 #id 로 폴백한다.
+    var names: [String: String]? = nil
 }
 
 /// 포켓몬 라인 데이터 제공(주입 가능 — 테스트는 스텁 사용).
@@ -62,9 +65,28 @@ actor PokeAPIClient: PokeProviding {
         return dir.appendingPathComponent("base-index.json")
     }()
     private struct BaseIndexSnapshot: Codable { let fetchedAt: Date; let entries: [BaseSpecies] }
+
+    /// 이름 필드가 생기기 전에 저장된 캐시인가. 관대 디코딩(`names` 옵셔널) 덕에 옛 스냅샷도 그대로
+    /// 읽히지만, 그러면 30일 TTL 이 끝날 때까지 스폰 목록이 전부 "#id" 로 남는다 — **스키마가 바뀐
+    /// 캐시는 만료로 취급**해 다시 받아야 한다. 디코딩 호환성은 캐시 무효화를 대신해 주지 않는다.
+    ///
+    /// 재요청이 실패하면 호출부의 catch 가 이 스냅샷으로 폴백한다 — 이름이 없어도 부화 후보로는
+    /// 멀쩡하므로 오프라인 동작은 그대로다(이름은 있으면 좋은 것이지 부화의 전제가 아니다).
+    static func indexPredatesNames(_ entries: [BaseSpecies]) -> Bool {
+        !entries.contains { !($0.names?.isEmpty ?? true) }
+    }
     private struct GraphQLBaseResponse: Decodable {
         struct DataBox: Decodable { let pokemonspecies: [Row] }
-        struct Row: Decodable { let id: Int; let capture_rate: Int }
+        struct NameRow: Decodable {
+            struct Language: Decodable { let name: String }
+            let name: String
+            let language: Language
+        }
+        struct Row: Decodable {
+            let id: Int
+            let capture_rate: Int
+            let pokemonspeciesnames: [NameRow]
+        }
         let data: DataBox
     }
 
@@ -75,7 +97,8 @@ actor PokeAPIClient: PokeProviding {
         if let c = baseIndexCache { return c }
         let disk = (try? Data(contentsOf: Self.baseIndexFile))
             .flatMap { try? JSONDecoder().decode(BaseIndexSnapshot.self, from: $0) }
-        if let disk, Date().timeIntervalSince(disk.fetchedAt) < 30 * 86400, !disk.entries.isEmpty {
+        if let disk, !Self.indexPredatesNames(disk.entries),
+           Date().timeIntervalSince(disk.fetchedAt) < 30 * 86400, !disk.entries.isEmpty {
             baseIndexCache = disk.entries
             return disk.entries
         }
@@ -148,12 +171,19 @@ actor PokeAPIClient: PokeProviding {
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         // 메타몽(#132)은 위장 리빌 전용 → 일반 부화 풀에서 제외(_neq).
         let maxID = PokemonAssets.animatedSpeciesIDs.upperBound
-        let query = "{ pokemonspecies(where: {evolves_from_species_id: {_is_null: true}, id: {_lte: \(maxID), _neq: \(PokemonOdds.dittoSpeciesID)}}, order_by: {id: asc}) { id capture_rate } }"
+        // 이름을 같은 쿼리에 실어 온다(중첩 조인) — 설정의 스폰 목록이 329종 이름을 위해
+        // 별도 요청을 돌리지 않게. 언어는 line() 과 같은 langCodes 단일 소스를 쓴다.
+        let langFilter = langCodes.map { "\"\($0)\"" }.joined(separator: ", ")
+        let query = "{ pokemonspecies(where: {evolves_from_species_id: {_is_null: true}, id: {_lte: \(maxID), _neq: \(PokemonOdds.dittoSpeciesID)}}, order_by: {id: asc}) { id capture_rate pokemonspeciesnames(where: {language: {name: {_in: [\(langFilter)]}}}) { name language { name } } } }"
         req.httpBody = try JSONSerialization.data(withJSONObject: ["query": query])
         let (data, resp) = try await URLSession.shared.data(for: req)
         guard (resp as? HTTPURLResponse)?.statusCode == 200 else { throw URLError(.badServerResponse) }
         let decoded = try JSONDecoder().decode(GraphQLBaseResponse.self, from: data)
-        let entries = decoded.data.pokemonspecies.map { BaseSpecies(id: $0.id, captureRate: $0.capture_rate) }
+        let entries = decoded.data.pokemonspecies.map { row in
+            BaseSpecies(id: row.id, captureRate: row.capture_rate,
+                        names: Dictionary(row.pokemonspeciesnames.map { ($0.language.name, $0.name) },
+                                          uniquingKeysWith: { first, _ in first }))
+        }
         guard !entries.isEmpty else { throw URLError(.cannotParseResponse) }
         return entries
     }

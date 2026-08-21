@@ -13,6 +13,7 @@ struct SettingsView: View {
     @State private var launchAtLoginError: String?
     @State private var reportError: String?
     @State private var advancedExpanded = false
+    @State private var spawnBaseID: Int?
     @State private var isCheckingUpdate = false
     @State private var didCheckUpdate = false
     private var l: L { companion.l }
@@ -47,6 +48,8 @@ struct SettingsView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
                     generalGroup(store)
+                    difficultyGroup
+                    spawnEggGroup
                     menuBarGroup(store)
                     floatingPetGroup(store)
                     notificationsGroup(store)
@@ -189,6 +192,95 @@ struct SettingsView: View {
         }
     }
 
+    /// 난이도 — 성장(부화·진화·졸업 임계)과 상점 가격에 각각 곱하는 배율. 즉시 반영된다.
+    private var difficultyGroup: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            settingsSection(l.difficultySectionTitle) {
+                difficultyRow(l.difficultyGrowthLabel, value: companion.growthDifficulty,
+                              position: Binding(
+                                get: { PokemonBalance.difficultyPosition(companion.growthDifficulty) },
+                                set: { companion.setGrowthDifficulty(PokemonBalance.difficulty(atPosition: $0)) }))
+                Divider()
+                difficultyRow(l.difficultyShopLabel, value: companion.shopDifficulty,
+                              position: Binding(
+                                get: { PokemonBalance.difficultyPosition(companion.shopDifficulty) },
+                                set: { companion.setShopDifficulty(PokemonBalance.difficulty(atPosition: $0)) }))
+            }
+            Text(l.difficultyHint).font(.caption2).foregroundStyle(.tertiary).padding(.leading, 4)
+        }
+    }
+
+    /// 배율 슬라이더 한 줄 — 플로팅 펫 크기 행과 같은 형태(라벨 / 슬라이더 / 우측 고정폭 수치).
+    /// 슬라이더가 움직이는 건 배율이 아니라 **로그 위치(0…1)** 다(PokemonBalance 주석 참조).
+    /// step 을 두지 않는다 — 눈금 간격이 배율 단위로 일정하지 않고, 스냅은 값 쪽에서 한다.
+    private func difficultyRow(_ label: String, value: Double,
+                               position: Binding<Double>) -> some View {
+        groupRow {
+            Text(label).font(.callout).frame(width: 76, alignment: .leading)
+            Slider(value: position, in: 0...1)
+            Text(l.difficultyValue(value))
+                .font(.caption).monospacedDigit().frame(width: 52, alignment: .trailing)
+        }
+    }
+
+    /// 세대 구간 — 329종을 한 메뉴에 평면으로 쏟으면 고르기가 어려워 세대별 서브메뉴로 나눈다.
+    /// 표시 전용 묶음이라 이 뷰 안에 둔다(부화 후보 규칙은 여전히 base 인덱스가 단일 소스).
+    private static let generations: [(number: Int, range: ClosedRange<Int>)] = [
+        (1, 1...151), (2, 152...251), (3, 252...386), (4, 387...493), (5, 494...649),
+    ]
+
+    private var spawnSelectionText: String {
+        guard let id = spawnBaseID,
+              let species = companion.spawnableBases.first(where: { $0.id == id }) else {
+            return l.spawnEggChoosePlaceholder
+        }
+        return companion.spawnableLabel(species)
+    }
+
+    /// 알 스폰 — 종을 지정해 새 알로 갈아끼운다. 부화 자체는 평소 규칙(인큐베이션·이로치 롤) 그대로다.
+    private var spawnEggGroup: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            settingsSection(l.spawnEggSectionTitle) {
+                groupRow {
+                    Text(l.spawnEggSpeciesLabel)
+                        .lineLimit(1).frame(maxWidth: .infinity, alignment: .leading)
+                    Menu {
+                        ForEach(Self.generations, id: \.number) { generation in
+                            let members = companion.spawnableBases.filter { generation.range.contains($0.id) }
+                            if !members.isEmpty {
+                                Menu(l.generationLabel(generation.number)) {
+                                    ForEach(members, id: \.id) { species in
+                                        Button(companion.spawnableLabel(species)) {
+                                            spawnBaseID = species.id
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    } label: {
+                        Text(spawnSelectionText).lineLimit(1).truncationMode(.tail)
+                    }
+                    .controlSize(.small)
+                    .frame(width: 132, alignment: .trailing)
+                    .layoutPriority(1)
+                    .disabled(companion.spawnableBases.isEmpty)
+
+                    Button(l.spawnEggButton) {
+                        guard let id = spawnBaseID else { return }
+                        companion.spawnEgg(baseID: id)
+                        onClose()   // 방금 놓인 알을 홈에서 바로 보여 준다
+                    }
+                    .controlSize(.small)
+                    .disabled(spawnBaseID == nil)
+                }
+            }
+            Text(companion.spawnableBases.isEmpty ? l.spawnEggUnavailable : l.spawnEggHint)
+                .font(.caption2).foregroundStyle(.tertiary).padding(.leading, 4)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .task { await companion.loadSpawnableBases() }
+    }
+
     @ViewBuilder
     private func menuBarGroup(_ store: UsageStore) -> some View {
         @Bindable var store = store
@@ -224,6 +316,17 @@ struct SettingsView: View {
                     Slider(value: $store.floatingPetSize, in: 48...192, step: 8)
                     Text("\(Int(store.floatingPetSize))px")
                         .font(.caption).monospacedDigit().frame(width: 44, alignment: .trailing)
+                }
+                Divider()
+                groupRow {
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(l.floatingPetSmoothLabel)
+                        Text(l.floatingPetSmoothHint).font(.caption2).foregroundStyle(.tertiary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    Spacer()
+                    Toggle("", isOn: $store.floatingPetSmoothAnimation)
+                        .labelsHidden().toggleStyle(.switch).controlSize(.small)
                 }
                 Divider()
                 toggleRow(l.floatingPetBubbleAlertsLabel, $store.floatingPetBubbleAlerts)
