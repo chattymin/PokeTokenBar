@@ -118,6 +118,40 @@ public struct PhoneLimitStatus: Codable, Sendable, Equatable {
         if let w = opencodeGoMonthly { out.append(w) }
         return out
     }
+
+    /// 프로바이더별로 묶은 한도 창 — 위젯의 파이+퍼센트 그룹 행용. 빈 그룹은 만들지 않는다.
+    /// 창 순서는 orderedWindows 와 동일하다.
+    public var limitGroups: [PhoneLimitGroup] {
+        var out: [PhoneLimitGroup] = []
+        var claude: [PhoneLimitWindow] = []
+        if let w = claude5h { claude.append(w) }
+        if let w = claudeWeekly { claude.append(w) }
+        if let w = claudeOpusWeekly { claude.append(w) }
+        if let w = claudeSonnetWeekly { claude.append(w) }
+        claude.append(contentsOf: claudeScoped ?? [])
+        if !claude.isEmpty { out.append(PhoneLimitGroup(title: "Claude", windows: claude)) }
+        var codex: [PhoneLimitWindow] = []
+        if let w = codexPrimary { codex.append(w) }
+        if let w = codexSecondary { codex.append(w) }
+        if !codex.isEmpty { out.append(PhoneLimitGroup(title: "Codex", windows: codex)) }
+        var go: [PhoneLimitWindow] = []
+        if let w = opencodeGo5h { go.append(w) }
+        if let w = opencodeGoWeekly { go.append(w) }
+        if let w = opencodeGoMonthly { go.append(w) }
+        if !go.isEmpty { out.append(PhoneLimitGroup(title: "Go", windows: go)) }
+        return out
+    }
+}
+
+/// 한 프로바이더의 한도 창 묶음 — 제목(브랜드명, 위젯 그룹 헤더)과 orderedWindows 순서 창들.
+public struct PhoneLimitGroup: Sendable, Equatable {
+    public let title: String
+    public let windows: [PhoneLimitWindow]
+
+    public init(title: String, windows: [PhoneLimitWindow]) {
+        self.title = title
+        self.windows = windows
+    }
 }
 
 public struct PhoneLimitWindow: Codable, Sendable, Equatable {

@@ -38,6 +38,27 @@ final class PhonePayloadCodableTests: XCTestCase {
                        ["Claude 5h", "Claude Weekly", "Claude Weekly Fable", "Codex 5h", "Go 5h"])
     }
 
+    /// 프로바이더 그룹(위젯 파이+퍼센트 행용) — 제목·순서·빈 그룹 제외를 고정한다.
+    func testLimitGroupsByProviderOmitEmpty() {
+        let status = PhoneLimitStatus(
+            claude5h: PhoneLimitWindow(label: "Claude 5h", utilization: 2, resetsAt: nil),
+            claudeWeekly: PhoneLimitWindow(label: "Claude Weekly", utilization: 13, resetsAt: nil),
+            claudeOpusWeekly: nil, claudeSonnetWeekly: nil,
+            claudeScoped: [PhoneLimitWindow(label: "Claude Weekly Fable", utilization: 41, resetsAt: nil)],
+            codexPrimary: nil, codexSecondary: nil,   // Codex 미사용 → 그룹 없음
+            opencodeGo5h: PhoneLimitWindow(label: "Go 5h", utilization: 92, resetsAt: nil),
+            opencodeGoWeekly: PhoneLimitWindow(label: "Go Weekly", utilization: 74, resetsAt: nil),
+            opencodeGoMonthly: PhoneLimitWindow(label: "Go Monthly", utilization: 38, resetsAt: nil),
+            planDisplay: nil)
+
+        let groups = status.limitGroups
+        XCTAssertEqual(groups.map(\.title), ["Claude", "Go"], "창 없는 프로바이더는 그룹 생성 안 함")
+        XCTAssertEqual(groups[0].windows.count, 3, "Claude = 5h+주간+scoped(Fable)")
+        XCTAssertEqual(groups[1].windows.map(\.label), ["Go 5h", "Go Weekly", "Go Monthly"])
+        // 그룹 창 순서는 orderedWindows 와 동일 소스여야 한다(두 순서가 어긋나면 위젯/앱 불일치).
+        XCTAssertEqual(groups.flatMap(\.windows).map(\.label), status.orderedWindows.map(\.label))
+    }
+
     /// 새 필드 왕복 — Go 세 창이 인코딩·디코딩을 그대로 통과한다.
     func testLimitStatusRoundTripsOpenCodeGoWindows() throws {
         let status = PhoneLimitStatus(
