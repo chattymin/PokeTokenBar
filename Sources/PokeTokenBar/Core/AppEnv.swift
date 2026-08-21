@@ -8,4 +8,11 @@ enum AppEnv {
     static var isBundledApp: Bool {
         Bundle.main.bundleIdentifier != nil && Bundle.main.bundlePath.hasSuffix(".app")
     }
+
+    /// `PTB_PARITY=1` 로 지정된 QA/파리티 실행 — 라이브 엔드포인트 검증(LocalUsageParityTests)처럼
+    /// 실 IO 가 *허용*되는 모드. isBundledApp 게이트를 여는 방향으로만 쓴다(닫는 방향 아님).
+    /// CompanionStore 의 PTB_STATE_DIR 과 같은 개발/QA 전용 플래그 부류라 여기서 직독한다.
+    static var isParityRun: Bool {
+        ProcessInfo.processInfo.environment["PTB_PARITY"] == "1"
+    }
 }

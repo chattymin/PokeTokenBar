@@ -81,6 +81,23 @@ private struct FakeCodexLimits: CodexLimitsProviding {
     func fetch() async throws -> CodexRateLimitStatus? { status }
 }
 
+private struct FakeOpenCodeGoLimits: OpenCodeGoLimitsProviding {
+    var status: OpenCodeGoLimitStatus?
+    func fetch() async throws -> OpenCodeGoLimitStatus? { status }
+}
+
+/// fetch 호출 수를 세는 스텁 — OpenCode Go 폴링 스로틀(최소 5분) 회귀 검증용.
+private final class CountingOpenCodeGoLimits: OpenCodeGoLimitsProviding, @unchecked Sendable {
+    nonisolated(unsafe) var calls = 0
+    nonisolated(unsafe) var status: OpenCodeGoLimitStatus?
+    nonisolated(unsafe) var error: (any Error)?
+    func fetch() async throws -> OpenCodeGoLimitStatus? {
+        calls += 1
+        if let error { throw error }
+        return status
+    }
+}
+
 /// 호출마다 allowKeychainPrompt 값을 기록 — 자동/수동 경로가 올바른 플래그를 쓰는지 회귀 검증용.
 private final class RecordingClaudeLimits: ClaudeLimitsProviding, @unchecked Sendable {
     nonisolated(unsafe) var promptFlags: [Bool] = []
@@ -127,6 +144,16 @@ private func codexLimits(primaryUsed: Int? = nil, secondaryUsed: Int? = nil) -> 
     return try! JSONDecoder().decode(CodexRateLimitStatus.self, from: Data(json.utf8))
 }
 
+private func opencodeGoLimits(rolling: Int? = nil, weekly: Int? = nil, monthly: Int? = nil) -> OpenCodeGoLimitStatus {
+    func win(_ p: Int) -> String { "{\"status\":\"ok\",\"percent\":\(p),\"resetsAt\":\"2099-01-01T00:00:00Z\"}" }
+    var parts: [String] = []
+    if let rolling { parts.append("\"rolling\":\(win(rolling))") }
+    if let weekly { parts.append("\"weekly\":\(win(weekly))") }
+    if let monthly { parts.append("\"monthly\":\(win(monthly))") }
+    let json = "{\"usage\":{\(parts.joined(separator: ","))}}"
+    return try! JSONDecoder().decode(OpenCodeGoLimitStatus.self, from: Data(json.utf8))
+}
+
 // MARK: 테스트
 
 @MainActor
@@ -152,11 +179,13 @@ final class UsageStoreTests: XCTestCase {
     private func makeStore(
         providers: [any UsageProvider],
         claude: LimitStatus? = nil,
-        codex: CodexRateLimitStatus? = nil
+        codex: CodexRateLimitStatus? = nil,
+        opencodeGo: OpenCodeGoLimitStatus? = nil
     ) -> UsageStore {
         UsageStore(providers: providers,
                    claudeLimitsProvider: FakeClaudeLimits(status: claude),
                    codexLimitsProvider: FakeCodexLimits(status: codex),
+                   opencodeGoLimitsProvider: FakeOpenCodeGoLimits(status: opencodeGo),
                    autoRefresh: false,
                    defaults: testDefaults)
     }
@@ -178,6 +207,7 @@ final class UsageStoreTests: XCTestCase {
         let store = UsageStore(providers: [p],
                                claudeLimitsProvider: FakeClaudeLimits(status: nil),
                                codexLimitsProvider: FakeCodexLimits(status: nil),
+                               opencodeGoLimitsProvider: FakeOpenCodeGoLimits(status: nil),
                                statusProvider: FakeStatusProvider([:]),
                                autoRefresh: false, defaults: testDefaults)
         // A: 첫 refresh — fetchDaily 의 gate 에 걸려 in-flight 로 멈춘다.
@@ -205,6 +235,7 @@ final class UsageStoreTests: XCTestCase {
         let store = UsageStore(providers: [claude],
                                claudeLimitsProvider: limits,
                                codexLimitsProvider: FakeCodexLimits(status: nil),
+                               opencodeGoLimitsProvider: FakeOpenCodeGoLimits(status: nil),
                                autoRefresh: false,
                                defaults: testDefaults)
 
@@ -719,6 +750,112 @@ final class UsageStoreTests: XCTestCase {
         XCTAssertTrue(store.isLimitWarning)
     }
 
+    // MARK: OpenCode Go 한도
+
+    func testLimitWarningFromOpenCodeGoMonthly() async {
+        let opencode = FakeUsageProvider(id: "opencode", displayName: "OpenCode", daily: todayDaily(1_000_000))
+        let store = makeStore(providers: [opencode],
+                              opencodeGo: opencodeGoLimits(rolling: 3, weekly: 41, monthly: 97))
+        store.critThreshold = 95
+        await store.refresh(scheduleEmptyRetry: false)
+        XCTAssertTrue(store.isLimitWarning, "월간 97% ≥ crit 95 → 경고")
+    }
+
+    func testNoLimitWarningWhenOpenCodeGoUnderCritical() async {
+        let opencode = FakeUsageProvider(id: "opencode", displayName: "OpenCode", daily: todayDaily(1_000_000))
+        let store = makeStore(providers: [opencode],
+                              opencodeGo: opencodeGoLimits(rolling: 2, weekly: 41, monthly: 20))
+        store.critThreshold = 95
+        await store.refresh(scheduleEmptyRetry: false)
+        XCTAssertFalse(store.isLimitWarning)
+        XCTAssertTrue(store.limitsReady, "Go 한도만 있어도 limitsReady(사탕 시드 게이트)")
+    }
+
+    func testMenuBarLimitIncludesOpenCodeGoWhenUsedToday() async {
+        let opencode = FakeUsageProvider(id: "opencode", displayName: "OpenCode", daily: todayDaily(1_000_000))
+        let store = makeStore(providers: [opencode],
+                              opencodeGo: opencodeGoLimits(rolling: 2, weekly: 41, monthly: 20))
+        store.showTokensInMenu = false
+        store.showCostInMenu = false
+        store.showLimitInMenu = true
+        await store.refresh(scheduleEmptyRetry: false)
+        XCTAssertEqual(store.menuTitle, "OpenCode 41%", "세 창 최대값(41) 표기")
+    }
+
+    /// 오늘 사용 게이트 — OpenCode 를 안 썼으면 한도가 로드돼도 메뉴바에 뜨지 않는다(codex 와 대칭).
+    func testMenuBarLimitExcludesOpenCodeGoWhenNotUsedToday() async {
+        let claude = FakeUsageProvider(id: "claude_code", displayName: "Claude Code", daily: todayDaily(1_000))
+        let opencode = FakeUsageProvider(id: "opencode", displayName: "OpenCode", daily: nil)
+        let store = makeStore(providers: [claude, opencode],
+                              claude: claudeLimits(fiveHourUtil: 42),
+                              opencodeGo: opencodeGoLimits(weekly: 90))
+        store.showTokensInMenu = false
+        store.showCostInMenu = false
+        store.showLimitInMenu = true
+        await store.refresh(scheduleEmptyRetry: false)
+        XCTAssertEqual(store.menuTitle, "Claude 42%", "미사용 프로바이더 한도는 메뉴바 제외")
+    }
+
+    /// highestLimitUtilization 도 오늘 사용 게이트를 따른다 — compact 표면 오염 방지.
+    func testHighestLimitUtilizationGatesOpenCodeGoByTodayUsage() async {
+        let opencode = FakeUsageProvider(id: "opencode", displayName: "OpenCode", daily: todayDaily(1_000))
+        let used = makeStore(providers: [opencode], opencodeGo: opencodeGoLimits(weekly: 77))
+        await used.refresh(scheduleEmptyRetry: false)
+        XCTAssertEqual(used.highestLimitUtilization, 77)
+
+        let unused = FakeUsageProvider(id: "opencode", displayName: "OpenCode", daily: nil)
+        let idle = makeStore(providers: [unused], opencodeGo: opencodeGoLimits(weekly: 77))
+        await idle.refresh(scheduleEmptyRetry: false)
+        XCTAssertNil(idle.highestLimitUtilization)
+    }
+
+    /// 사탕 지급 대상 창 — Go 세 창이 각각 세션/주간/주간급으로 들어간다.
+    func testCandyEligibleWindowsIncludeOpenCodeGo() async {
+        let opencode = FakeUsageProvider(id: "opencode", displayName: "OpenCode", daily: todayDaily(1_000))
+        let store = makeStore(providers: [opencode],
+                              opencodeGo: opencodeGoLimits(rolling: 5, weekly: 50, monthly: 30))
+        await store.refresh(scheduleEmptyRetry: false)
+        let windows = store.candyEligibleWindows
+        XCTAssertEqual(windows.count, 3)
+        XCTAssertEqual(windows.map(\.key), ["opencodeGo.rolling", "opencodeGo.weekly", "opencodeGo.monthly"])
+        XCTAssertEqual(windows.first { $0.key == "opencodeGo.rolling" }?.kind, .session)
+        XCTAssertEqual(windows.first { $0.key == "opencodeGo.weekly" }?.kind, .weekly)
+        XCTAssertEqual(windows.first { $0.key == "opencodeGo.monthly" }?.kind, .weekly)
+    }
+
+    /// 폴링 스로틀 — 5분 최소 간격 동안 다시 fetch 하지 않는다(실패 포함, 서버 예의).
+    func testOpenCodeGoFetchThrottledWithinPollInterval() async {
+        let stub = CountingOpenCodeGoLimits()
+        stub.status = opencodeGoLimits(weekly: 41)
+        let opencode = FakeUsageProvider(id: "opencode", displayName: "OpenCode", daily: todayDaily(1_000))
+        let store = UsageStore(providers: [opencode],
+                               claudeLimitsProvider: FakeClaudeLimits(status: nil),
+                               codexLimitsProvider: FakeCodexLimits(status: nil),
+                               opencodeGoLimitsProvider: stub,
+                               autoRefresh: false, defaults: testDefaults)
+        await store.refresh(scheduleEmptyRetry: false)
+        await store.refresh(scheduleEmptyRetry: false)
+        await store.refresh(scheduleEmptyRetry: false)
+        XCTAssertEqual(stub.calls, 1, "스로틀 미적용 시 매 refresh(기본 2분)마다 요청한다")
+        XCTAssertEqual(store.opencodeGoLimits?.weekly?.percent, 41)
+    }
+
+    /// 조회 실패(403 등) → 한도 없음 상태 유지(codex 와 동일하게 catch 후 조용히 숨김).
+    /// 같은 스토어에서 성공→실패 전환은 스로틀(시도마다 5분) 때문에 도달 불가 — 검증 대상이 아니다.
+    func testOpenCodeGoFailureLeavesLimitsHidden() async {
+        let stub = CountingOpenCodeGoLimits()
+        stub.error = LimitsError.httpStatus(403)
+        let opencode = FakeUsageProvider(id: "opencode", displayName: "OpenCode", daily: todayDaily(1_000))
+        let store = UsageStore(providers: [opencode],
+                               claudeLimitsProvider: FakeClaudeLimits(status: nil),
+                               codexLimitsProvider: FakeCodexLimits(status: nil),
+                               opencodeGoLimitsProvider: stub,
+                               autoRefresh: false, defaults: testDefaults)
+        await store.refresh(scheduleEmptyRetry: false)
+        XCTAssertNil(store.opencodeGoLimits, "실패 → 섹션 숨김")
+        XCTAssertFalse(store.limitsReady)
+    }
+
     func testLimitWarningFromForecastAtFullUtilization() async {
         // crit 을 100 초과로 올려 임계 분기를 끄고, util 100 → 예측 분기만으로 경고가 켜지는지 확인
         let claude = FakeUsageProvider(id: "claude_code", displayName: "Claude Code", daily: todayDaily(10_000_000))
@@ -851,6 +988,7 @@ final class UsageStoreTests: XCTestCase {
                                        success: claudeLimits(fiveHourUtil: 12, resetsAt: "2099-01-01T00:00:00Z"))
         let store = UsageStore(providers: [claude], claudeLimitsProvider: seq,
                                codexLimitsProvider: FakeCodexLimits(status: nil),
+                               opencodeGoLimitsProvider: FakeOpenCodeGoLimits(status: nil),
                                autoRefresh: false, defaults: testDefaults)
         await store.refresh(scheduleEmptyRetry: false)
         XCTAssertTrue(store.limitsAuthExpired, "401 → 세션 만료 안내 상태")
@@ -863,6 +1001,7 @@ final class UsageStoreTests: XCTestCase {
         let store = UsageStore(providers: [claude],
                                claudeLimitsProvider: SequenceClaudeLimits(errors: [LimitsError.httpStatus(500)]),
                                codexLimitsProvider: FakeCodexLimits(status: nil),
+                               opencodeGoLimitsProvider: FakeOpenCodeGoLimits(status: nil),
                                autoRefresh: false, defaults: testDefaults)
         await store.refresh(scheduleEmptyRetry: false)
         XCTAssertFalse(store.limitsAuthExpired, "500 은 세션 만료 아님 — 오탐 방지")

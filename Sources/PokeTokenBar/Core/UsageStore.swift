@@ -18,6 +18,10 @@ final class UsageStore {
     private(set) var limits: LimitStatus?
     private(set) var codexLimits: CodexRateLimitStatus?
     private(set) var codexLimitsUpdatedAt: Date?
+    private(set) var opencodeGoLimits: OpenCodeGoLimitStatus?
+    private(set) var opencodeGoLimitsUpdatedAt: Date?
+    /// OpenCode Go 폴링 예의용 마지막 시도 시각(성공·실패 무관) — 5분 최소 간격 스로틀.
+    private var opencodeGoLimitsCheckedAt: Date?
     private(set) var limitsUpdatedAt: Date?
     private(set) var limitsAvailable = true
     /// Claude 한도 조회가 401/403(세션 만료)로 실패한 상태 — UI 에서 명확한 안내+재시도 노출용.
@@ -134,6 +138,7 @@ final class UsageStore {
     var registeredProviderIDs: [String] { providers.map(\.id) }
     private let limitsProvider: any ClaudeLimitsProviding
     private let codexLimitsProvider: any CodexLimitsProviding
+    private let opencodeGoLimitsProvider: any OpenCodeGoLimitsProviding
     private let statusProvider: any ProviderStatusProviding
     /// 설정 저장소 — 테스트는 suite 를 주입해 실제 사용자 설정을 오염시키지 않는다.
     private let defaults: UserDefaults
@@ -212,6 +217,9 @@ final class UsageStore {
         }
         if usedToday.contains("codex"), let usedPercent = codexLimits?.maxPrimaryUsedPercent {
             parts.append("Codex \(TokenFormatter.percent(limitDisplayPercent(Double(usedPercent))))")
+        }
+        if usedToday.contains("opencode"), let usedPercent = opencodeGoLimits?.maxUsedPercent {
+            parts.append("OpenCode \(TokenFormatter.percent(limitDisplayPercent(Double(usedPercent))))")
         }
         return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
@@ -316,6 +324,10 @@ final class UsageStore {
             if let utilization = bucket.individualLimit?.usedPercent,
                Double(utilization) >= critThreshold { return true }
         }
+        for u in [opencodeGoLimits?.rolling?.utilization, opencodeGoLimits?.weekly?.utilization,
+                  opencodeGoLimits?.monthly?.utilization] {
+            if let u, u >= critThreshold { return true }
+        }
         if let forecast = fiveHourForecast, forecast.beforeReset { return true }
         return false
     }
@@ -342,11 +354,17 @@ final class UsageStore {
                 // individualLimit is a $ spend cap — intentionally omitted (candyEligibleWindows parity).
             }
         }
+        if usedToday.contains("opencode") {
+            for u in [opencodeGoLimits?.rolling?.utilization, opencodeGoLimits?.weekly?.utilization,
+                      opencodeGoLimits?.monthly?.utilization] {
+                if let u { utils.append(u) }
+            }
+        }
         return utils.max()
     }
 
     /// 사탕 지급 대상 한도 창 — 세션급(≈5h)=1개, 주간급=5개, 전 프로바이더. 공식 한도 신호가 없는
-    /// 프로바이더(Gemini·Antigravity·OpenCode·Hermes·Cursor·Grok)는 자연히 빠진다(창 목록에 없음).
+    /// 프로바이더(Gemini·Antigravity·Hermes·Cursor·Grok)는 자연히 빠진다(창 목록에 없음).
     /// 지급 제외: Opus/Sonnet 주간·scoped·Codex 개인 spend
     /// limit(헤드라인 창의 하위/중복 → 이중지급 방지). 알림(checkLimitAlerts)보다 좁은 지급 전용.
     var candyEligibleWindows: [CandyWindow] {
@@ -378,6 +396,19 @@ final class UsageStore {
                     utilization: Double(secondary.usedPercent)))
             }
         }
+        if let u = opencodeGoLimits?.rolling?.utilization {
+            windows.append(CandyWindow(key: "opencodeGo.rolling", name: l.opencodeGoFiveHour,
+                                       kind: .session, utilization: u))
+        }
+        if let u = opencodeGoLimits?.weekly?.utilization {
+            windows.append(CandyWindow(key: "opencodeGo.weekly", name: l.opencodeGoWeekly,
+                                       kind: .weekly, utilization: u))
+        }
+        // 월간은 주간급보다 긴 창이지만 지급 등급은 주간과 동일하게 취급한다(별도 등급 없음).
+        if let u = opencodeGoLimits?.monthly?.utilization {
+            windows.append(CandyWindow(key: "opencodeGo.monthly", name: l.opencodeGoMonthly,
+                                       kind: .weekly, utilization: u))
+        }
         return windows
     }
 
@@ -388,7 +419,7 @@ final class UsageStore {
     }
 
     /// 한도 데이터가 최소 1개 프로바이더 로드됐는가 — 사탕 첫 실행 시드 게이트(미로딩 중 시드 방지).
-    var limitsReady: Bool { limits != nil || codexLimits != nil }
+    var limitsReady: Bool { limits != nil || codexLimits != nil || opencodeGoLimits != nil }
 
     /// burn rate 티어 — companion 표시 상태(idle/working/focus) 판정에 사용.
     /// 전 프로바이더 합산 — Codex/Gemini 전용 사용자도 코딩 리듬이 반영된다.
@@ -415,12 +446,14 @@ final class UsageStore {
     ],
          claudeLimitsProvider: any ClaudeLimitsProviding = OAuthLimitsProvider(),
          codexLimitsProvider: any CodexLimitsProviding = CodexRateLimitsProvider(),
+         opencodeGoLimitsProvider: any OpenCodeGoLimitsProviding = OpenCodeGoLimitsProvider(),
          statusProvider: any ProviderStatusProviding = StatuspageStatusProvider(),
          autoRefresh: Bool = true,
          defaults: UserDefaults = .standard) {
         self.providers = providers
         self.limitsProvider = claudeLimitsProvider
         self.codexLimitsProvider = codexLimitsProvider
+        self.opencodeGoLimitsProvider = opencodeGoLimitsProvider
         self.statusProvider = statusProvider
         self.defaults = defaults
         let d = defaults
@@ -667,6 +700,7 @@ final class UsageStore {
             }
         }
         await refreshCodexLimits()
+        await refreshOpenCodeGoLimits()
         await refreshProviderStatuses()
 
         checkLimitAlerts()
@@ -781,6 +815,33 @@ final class UsageStore {
         }
     }
 
+    /// OpenCode Go 한도 폴링 최소 간격 — 기본 refresh 주기(2분)보다 넉넉히. 엔드포인트는 3-table join
+    /// 이고 공식 캐시 헤더/폴링 가이드가 없다(anomalyco/opencode#16513 리뷰 지적). 시도(성공·실패
+    /// 무관)마다 스로틀을 걸어 실패 사용자도 최대 12 req/h 로 묶는다.
+    private static let opencodeGoPollInterval: TimeInterval = 300
+
+    private func refreshOpenCodeGoLimits() async {
+        if let checked = opencodeGoLimitsCheckedAt,
+           Date().timeIntervalSince(checked) < Self.opencodeGoPollInterval { return }
+        opencodeGoLimitsCheckedAt = Date()
+        do {
+            if let status = try await opencodeGoLimitsProvider.fetch() {
+                opencodeGoLimits = status
+                opencodeGoLimitsUpdatedAt = Date()
+                func pct(_ window: OpenCodeGoLimitWindow?) -> String {
+                    window.flatMap { $0.percent.map(String.init) } ?? "nil"
+                }
+                AppLog.write("opencode go limits refreshed rolling=\(pct(status.rolling)) weekly=\(pct(status.weekly)) monthly=\(pct(status.monthly))")
+            } else {
+                AppLog.write("opencode go limits skipped: no opencode-go key in auth.json")
+            }
+        } catch {
+            // 401/403(미구독·불명 키)·네트워크 실패 → 이전 값 유지(codex 와 동일). 섹션은 표시값이
+            // 있으면 그대로 두고, 갱신이 15분+ 이어지지 않으면 stale 배지로 노출된다.
+            AppLog.write("opencode go limits unavailable: \(error)")
+        }
+    }
+
     /// 프로바이더 상태 페이지(인시던트) 조회 — 표시 전용, 기존 refresh 루프에 편승(별도 타이머 없음).
     /// 조회 실패한 provider 는 결과에서 빠지므로 이전 값 유지(keep-previous — flaky 엔드포인트가 앱을
     /// 흔들지 않게). 껐으면 저장된 상태를 비워 UI 에서 사라지게 한다.
@@ -820,6 +881,13 @@ final class UsageStore {
     var claudeLimitsStale: Bool {
         guard limits != nil, let limitsUpdatedAt else { return false }
         return Date().timeIntervalSince(limitsUpdatedAt) > 15 * 60
+    }
+
+    /// OpenCode Go 한도 staleness — Claude/Codex 와 동일 임계(15분). 폴링 스로틀(5분) 때문에
+    /// 정상 최대 지연은 5분이고, 15분 초과는 갱신 실패가 이어진다는 뜻이다.
+    var opencodeGoLimitsStale: Bool {
+        guard opencodeGoLimits != nil, let opencodeGoLimitsUpdatedAt else { return false }
+        return Date().timeIntervalSince(opencodeGoLimitsUpdatedAt) > 15 * 60
     }
 
     // MARK: 한도 알림 (ClaudeBar 임계값 패턴)
@@ -943,6 +1011,17 @@ final class UsageStore {
             if let individual = bucket.individualLimit {
                 windows.append(("codex.\(bucketKey).individual",
                                 l.codexPersonalLimit, Double(individual.usedPercent)))
+            }
+        }
+        if let goLimits = opencodeGoLimits {
+            if let u = goLimits.rolling?.utilization {
+                windows.append(("opencodeGo.rolling", l.opencodeGoFiveHour, u))
+            }
+            if let u = goLimits.weekly?.utilization {
+                windows.append(("opencodeGo.weekly", l.opencodeGoWeekly, u))
+            }
+            if let u = goLimits.monthly?.utilization {
+                windows.append(("opencodeGo.monthly", l.opencodeGoMonthly, u))
             }
         }
         return windows

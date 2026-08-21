@@ -337,6 +337,87 @@ final class ModelDecodingTests: XCTestCase {
         XCTAssertEqual(status.snapshots.count, 1)
         XCTAssertEqual(status.maxPrimaryUsedPercent, 30)
     }
+
+    // MARK: OpenCode Go 한도 (/zen/go/v1/usage)
+
+    /// 실측 페이로드(2026-08-21) — usage 중첩 + 밀리초 resetsAt + rate-limited 창.
+    func testOpenCodeGoLimitStatus() throws {
+        let json = """
+        {"usage":{
+        "rolling":{"status":"ok","percent":2,"resetsAt":"2026-08-21T21:10:21.506Z"},
+        "weekly":{"status":"ok","percent":41,"resetsAt":"2026-08-24T00:00:00.506Z"},
+        "monthly":{"status":"rate-limited","percent":100,"resetsAt":"2026-09-20T21:06:25.506Z"}}}
+        """.data(using: .utf8)!
+
+        let status = try JSONDecoder().decode(OpenCodeGoLimitStatus.self, from: json)
+
+        XCTAssertEqual(status.rolling?.percent, 2)
+        XCTAssertEqual(status.rolling?.utilization, 2)
+        XCTAssertFalse(status.rolling?.isRateLimited ?? true)
+        XCTAssertEqual(status.weekly?.percent, 41)
+        XCTAssertTrue(status.monthly?.isRateLimited ?? false)
+        XCTAssertTrue(status.isRateLimited)
+        XCTAssertTrue(status.hasVisibleLimit)
+        XCTAssertEqual(status.maxUsedPercent, 100)
+
+        // 밀리초 소수점 ISO-8601 도 ISO8601Parser 가 처리 — 리셋 카운트다운 표시의 기반.
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        let rollingReset = try XCTUnwrap(status.rolling?.resetDate)
+        let components = calendar.dateComponents([.year, .month, .day, .hour, .minute], from: rollingReset)
+        XCTAssertEqual(components.year, 2026)
+        XCTAssertEqual(components.month, 8)
+        XCTAssertEqual(components.day, 21)
+        XCTAssertEqual(components.minute, 10)
+    }
+
+    /// 창이 빠진/전부 nil 인 응답 — 섹션 숨김 판정(hasVisibleLimit=false)과 maxUsedPercent=nil.
+    func testOpenCodeGoLimitStatusEmptyWindows() throws {
+        let status = try JSONDecoder().decode(
+            OpenCodeGoLimitStatus.self, from: Data("{\"usage\":{}}".utf8))
+        XCTAssertFalse(status.hasVisibleLimit)
+        XCTAssertFalse(status.isRateLimited)
+        XCTAssertNil(status.maxUsedPercent)
+
+        let partial = try JSONDecoder().decode(OpenCodeGoLimitStatus.self, from: Data(
+            "{\"usage\":{\"weekly\":{\"status\":\"ok\",\"percent\":7}}}".utf8))
+        XCTAssertTrue(partial.hasVisibleLimit)
+        XCTAssertEqual(partial.maxUsedPercent, 7)
+        XCTAssertNil(partial.rolling?.percent)
+    }
+
+    // MARK: OpenCode Go 프로바이더 (auth.json 키·요청 헤더)
+
+    func testOpenCodeGoAuthKeyParsing() throws {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("opencode-go-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let auth = dir.appendingPathComponent("auth.json")
+        try Data("""
+        {"opencode":{"type":"api","key":"zen-key"},
+         "opencode-go":{"type":"api","key":"go-key"}}
+        """.utf8).write(to: auth)
+
+        // opencode-go 항목 우선 — zen 페이즈유고 키("opencode")는 폴백 대상이 아니다.
+        XCTAssertEqual(OpenCodeGoLimitsProvider.readAPIKey(candidates: [auth]), "go-key")
+        // 후보 전부 없음 → nil (섹션 숨김)
+        let missing = dir.appendingPathComponent("missing/auth.json")
+        XCTAssertNil(OpenCodeGoLimitsProvider.readAPIKey(candidates: [missing, dir.appendingPathComponent("nope.json")]))
+        // 첫 후보 실패 시 다음 후보로 진행
+        XCTAssertEqual(OpenCodeGoLimitsProvider.readAPIKey(candidates: [missing, auth]), "go-key")
+    }
+
+    /// 서버가 도구 기본 User-Agent 를 403 차단한 실측(2026-08-21, Python-urllib)이 있다 —
+    /// 명시적 UA 없이는 URLSession 기본 UA 도 같은 위험에 놓인다. 회귀 방지용 헤더 검증.
+    func testOpenCodeGoRequestSetsExplicitUserAgent() {
+        let request = OpenCodeGoLimitsProvider.makeRequest(key: "sk-test")
+        XCTAssertEqual(request.url?.absoluteString, "https://opencode.ai/zen/go/v1/usage")
+        XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer sk-test")
+        let userAgent = request.value(forHTTPHeaderField: "User-Agent")
+        XCTAssertNotNil(userAgent)
+        XCTAssertTrue(userAgent?.hasPrefix("PokeTokenBar/") ?? false, "UA must identify the app: \(userAgent ?? "nil")")
+    }
 }
 
 final class LimitsBackoffTests: XCTestCase {

@@ -250,6 +250,9 @@ struct PopoverView: View {
         // (자동 Keychain 읽기는 팝업 방지로 여전히 안 함 — 발견성만 살린다.)
         case "claude_code": return !store.disableKeychainAccess || store.limits != nil || store.limitsAuthExpired
         case "codex": return store.codexLimits?.hasVisibleLimit == true
+        // OpenCode Go 구독 한도 — auth.json 의 opencode-go 키가 있을 때만 endpoint 가 200 을
+        // 주므로, 로드된 한도가 있을 때만 섹션을 노출한다(zen 페이즈유고 사용자는 빈 섹션 안 뜸).
+        case "opencode": return store.opencodeGoLimits?.hasVisibleLimit == true
         default: return false
         }
     }
@@ -357,6 +360,36 @@ struct PopoverView: View {
                     codexLimitRow(name: l.codexWindow(bucket.primary?.windowDurationMins), window: bucket.primary)
                     codexLimitRow(name: l.codexWindow(bucket.secondary?.windowDurationMins), window: bucket.secondary)
                     codexSpendLimitRow(bucket.individualLimit)
+                }
+            }
+            // OpenCode Go 구독 한도 — 5h rolling / 주간 / 월간 세 창(Claude/Codex 행과 동일 스타일).
+            if selectedSnapshot?.providerID == "opencode",
+               let goStatus = store.opencodeGoLimits, goStatus.hasVisibleLimit {
+                opencodeGoMetaRow(goStatus)
+                limitRow(name: l.fiveHourSession, window: goStatus.rolling.map(Self.limitWindow))
+                limitRow(name: l.weekly, window: goStatus.weekly.map(Self.limitWindow))
+                limitRow(name: l.monthly, window: goStatus.monthly.map(Self.limitWindow))
+            }
+        }
+    }
+
+    /// OpenCodeGoLimitWindow → 표시용 LimitWindow 변환 — 기존 limitRow 렌더러를 그대로 재사용한다.
+    private static func limitWindow(_ window: OpenCodeGoLimitWindow) -> LimitWindow {
+        LimitWindow(utilization: window.utilization, resetsAt: window.resetsAt)
+    }
+
+    /// OpenCode Go 메타 행 — 플랜 정보는 응답에 없으므로 "한도 도달"·stale 배지만 표시(codexMetaRow 대응).
+    @ViewBuilder
+    private func opencodeGoMetaRow(_ status: OpenCodeGoLimitStatus) -> some View {
+        if status.isRateLimited || store.opencodeGoLimitsStale {
+            HStack(spacing: 8) {
+                if status.isRateLimited {
+                    Text(l.limitReached)
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                }
+                if store.opencodeGoLimitsStale {
+                    staleBadge(updatedAt: store.opencodeGoLimitsUpdatedAt)
                 }
             }
         }

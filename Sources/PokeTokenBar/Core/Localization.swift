@@ -31,6 +31,7 @@ struct L {
     var limitsOfficial: String { t("한도 (공식)", "Limits (official)", "上限（公式）", "Límites (oficial)") }
     var fiveHourSession: String { t("5시간 세션", "5-hour session", "5時間セッション", "Sesión de 5 horas") }
     var weekly: String { t("주간", "Weekly", "週間", "Semanal") }
+    var monthly: String { t("월간", "Monthly", "月間", "Mensual") }
     var weeklyOpus: String { t("주간 Opus", "Weekly Opus", "週間 Opus", "Opus semanal") }
     var weeklySonnet: String { t("주간 Sonnet", "Weekly Sonnet", "週間 Sonnet", "Sonnet semanal") }
     var claudeCurrentBlock: String { t("Claude 현재 5h 블록", "Claude current 5h block", "Claude 現在の5hブロック", "Bloque actual de 5h de Claude") }
@@ -501,6 +502,9 @@ struct L {
     var claudeFiveHour: String { t("Claude 5시간 세션", "Claude 5-hour session", "Claude 5時間セッション", "Sesión de 5 horas de Claude") }
     var claudeWeekly: String { t("Claude 주간", "Claude weekly", "Claude 週間", "Semanal de Claude") }
     var codexPersonalLimit: String { t("Codex 개인 한도", "Codex personal limit", "Codex 個人上限", "Límite personal de Codex") }
+    var opencodeGoFiveHour: String { t("OpenCode Go 5시간", "OpenCode Go 5-hour", "OpenCode Go 5時間", "OpenCode Go 5 horas") }
+    var opencodeGoWeekly: String { t("OpenCode Go 주간", "OpenCode Go weekly", "OpenCode Go 週間", "OpenCode Go semanal") }
+    var opencodeGoMonthly: String { t("OpenCode Go 월간", "OpenCode Go monthly", "OpenCode Go 月間", "OpenCode Go mensual") }
 
     // MARK: 가방 / 아이템
     var bag: String { t("가방", "Bag", "バッグ", "Bolsa") }

@@ -17,9 +17,13 @@ read_when:
   합산이어야 한다(`snapshots` reduce). 한 프로바이더에만 계산을 붙이지 마라(과거 회귀: burn 이 Claude
   블록만 관측 → Codex/Gemini 전용 사용자 companion 이 항상 idle). 패리티 테스트가 이를 강제한다
   (`UsageStoreTests` 의 "unknown provider" 계열).
-- **프로바이더 고유 동작만 `providerID` 로 명시 분기**: 공식 한도(Claude=HTTP·Codex=프로세스),
-  5h forecast·"현재 블록" 행처럼 *특정 프로바이더에만 존재하는* 기능만 id 로 조건 분기한다.
+- **프로바이더 고유 동작만 `providerID` 로 명시 분기**: 공식 한도(Claude=HTTP·Codex=프로세스·
+  OpenCode Go=HTTP `/zen/go/v1/usage`, `OpenCodeGoLimitsProvider`), 5h forecast·"현재 블록" 행처럼
+  *특정 프로바이더에만 존재하는* 기능만 id 로 조건 분기한다.
   범용 경로에 `== "claude_code"` 류 리터럴 분기를 추가하는 건 금지.
+  한도 프로바이더가 `UsageStore` 에 새로 붙으면 기존 테스트의 스토어 구성 전부가 실 구현을 기본
+  파라미터로 물고 돌게 된다 — 네트워크를 치는 프로바이더는 `AppEnv.isBundledApp` 게이트로
+  테스트 실행을 원천 차단해야 한다(OpenCodeGoLimitsProvider 사례; 스텁은 값 주입용).
 - **버전매니저/설치경로 추가** = `BinaryLocator.commonToolDirectories()` 한 곳에만 추가한다
   (탐색·자식 프로세스 PATH 보강이 이 단일 소스를 공유).
 - **로그 스캔 루트 추가** = `LocalUsageReader.claudeProjectRoots` 같은 프로바이더별 루트 목록 한 곳에만

@@ -26,6 +26,9 @@ private struct NoLimitsForGrok: ClaudeLimitsProviding {
 private struct NoCodexLimitsForGrok: CodexLimitsProviding {
     func fetch() async throws -> CodexRateLimitStatus? { nil }
 }
+private struct NoOpenCodeGoLimitsForGrok: OpenCodeGoLimitsProviding {
+    func fetch() async throws -> OpenCodeGoLimitStatus? { nil }
+}
 private struct NoStatusForGrok: ProviderStatusProviding {
     func fetch() async -> [String: ProviderStatus] { [:] }
 }
@@ -500,6 +503,7 @@ final class GrokUsageTests: XCTestCase {
                 block: block)],
             claudeLimitsProvider: NoLimitsForGrok(),
             codexLimitsProvider: NoCodexLimitsForGrok(),
+            opencodeGoLimitsProvider: NoOpenCodeGoLimitsForGrok(),
             statusProvider: NoStatusForGrok(),
             autoRefresh: false,
             defaults: defaults)

@@ -159,4 +159,15 @@ final class LocalUsageParityTests: XCTestCase {
         let warm = Date().timeIntervalSince(t)
         print(String(format: "PARITY-PERF claude month scan: cold %.0fms  warm %.0fms", cold * 1000, warm * 1000))
     }
+
+    /// 실제 auth.json 키로 /zen/go/v1/usage 라이브 조회 — 엔드포인트 스키마 드리프트 감지용.
+    /// 키가 없는 머신(비구독·다른 CLI)은 skip. 401/403은 결함이 아니라 미구독 상태다.
+    func testLiveOpenCodeGoUsageEndpoint() async throws {
+        guard ProcessInfo.processInfo.environment["PTB_PARITY"] == "1" else { throw XCTSkip("PTB_PARITY != 1") }
+        let provider = OpenCodeGoLimitsProvider()
+        let status = try await provider.fetch()
+        guard let status else { throw XCTSkip("~/.local/share/opencode/auth.json 에 opencode-go 키 없음") }
+        print("PARITY-GO rolling=\(status.rolling?.percent ?? -1) weekly=\(status.weekly?.percent ?? -1) monthly=\(status.monthly?.percent ?? -1) rateLimited=\(status.isRateLimited)")
+        XCTAssertTrue(status.hasVisibleLimit, "200 응답인데 표시할 창이 없다 — 응답 스키마가 바뀌었다")
+    }
 }

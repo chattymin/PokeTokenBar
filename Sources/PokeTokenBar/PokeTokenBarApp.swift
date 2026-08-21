@@ -226,6 +226,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             codexSecondary: store.codexLimits?.maxSecondaryUsedPercent.map {
                 PhoneLimitWindow(label: "Codex 2nd", utilization: Double($0), resetsAt: nil)
             },
+            opencodeGo5h: store.opencodeGoLimits?.rolling.flatMap { window in
+                window.utilization.map {
+                    PhoneLimitWindow(label: "Go 5h", utilization: $0, resetsAt: window.resetDate)
+                }
+            },
+            opencodeGoWeekly: store.opencodeGoLimits?.weekly.flatMap { window in
+                window.utilization.map {
+                    PhoneLimitWindow(label: "Go Weekly", utilization: $0, resetsAt: window.resetDate)
+                }
+            },
+            opencodeGoMonthly: store.opencodeGoLimits?.monthly.flatMap { window in
+                window.utilization.map {
+                    PhoneLimitWindow(label: "Go Monthly", utilization: $0, resetsAt: window.resetDate)
+                }
+            },
             planDisplay: store.limits?.planDisplay)
         let companionState = PhoneCompanionState(
             name: companion.displayName,

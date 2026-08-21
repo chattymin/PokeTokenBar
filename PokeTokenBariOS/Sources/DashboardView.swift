@@ -254,9 +254,19 @@ struct LimitsCard: View {
             if let w = limits.codexSecondary {
                 LimitRow(window: w)
             }
+            if let w = limits.opencodeGo5h {
+                LimitRow(window: w)
+            }
+            if let w = limits.opencodeGoWeekly {
+                LimitRow(window: w)
+            }
+            if let w = limits.opencodeGoMonthly {
+                LimitRow(window: w)
+            }
 
             if limits.claude5h == nil && limits.claudeWeekly == nil && limits.claudeOpusWeekly == nil
-                && limits.claudeSonnetWeekly == nil && limits.codexPrimary == nil && limits.codexSecondary == nil {
+                && limits.claudeSonnetWeekly == nil && limits.codexPrimary == nil && limits.codexSecondary == nil
+                && limits.opencodeGo5h == nil && limits.opencodeGoWeekly == nil && limits.opencodeGoMonthly == nil {
                 Text("No rate limits active")
                     .font(.caption)
                     .foregroundStyle(.secondary)

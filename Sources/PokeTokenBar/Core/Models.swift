@@ -372,6 +372,62 @@ struct CodexRateLimitStatus: Decodable, Sendable {
     }
 }
 
+// MARK: - OpenCode Go limits (opencode.ai/zen/go/v1/usage)
+
+/// OpenCode Go 구독의 한도 창 하나 — 달러 예산($12/$30/$60)의 사용률 백분율.
+/// 달러 한도 자체는 응답에 없으므로(공식 문서상 고정) %만 표시한다.
+struct OpenCodeGoLimitWindow: Decodable, Sendable {
+    /// "ok" | "rate-limited" — 창 소진 시 "rate-limited".
+    var status: String?
+    var percent: Int?
+    var resetsAt: String?
+
+    var utilization: Double? { percent.map(Double.init) }
+    var isRateLimited: Bool { status == "rate-limited" }
+    var resetDate: Date? { resetsAt.flatMap { ISO8601Parser.date(from: $0) } }
+}
+
+/// OpenCode Go 구독 한도 — 5h rolling / 주간 / 월간 세 창. 응답은 `{"usage": {...}}` 로 중첩된다.
+/// 200 응답 자체가 Go 구독 보유를 뜻한다(미구독 키는 403).
+struct OpenCodeGoLimitStatus: Decodable, Sendable {
+    var rolling: OpenCodeGoLimitWindow?
+    var weekly: OpenCodeGoLimitWindow?
+    var monthly: OpenCodeGoLimitWindow?
+
+    init(rolling: OpenCodeGoLimitWindow? = nil,
+         weekly: OpenCodeGoLimitWindow? = nil,
+         monthly: OpenCodeGoLimitWindow? = nil) {
+        self.rolling = rolling
+        self.weekly = weekly
+        self.monthly = monthly
+    }
+
+    private enum CodingKeys: String, CodingKey { case usage }
+    private enum WindowKeys: String, CodingKey { case rolling, weekly, monthly }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let usage = try container.nestedContainer(keyedBy: WindowKeys.self, forKey: .usage)
+        rolling = try usage.decodeIfPresent(OpenCodeGoLimitWindow.self, forKey: .rolling)
+        weekly = try usage.decodeIfPresent(OpenCodeGoLimitWindow.self, forKey: .weekly)
+        monthly = try usage.decodeIfPresent(OpenCodeGoLimitWindow.self, forKey: .monthly)
+    }
+
+    var hasVisibleLimit: Bool {
+        rolling?.utilization != nil || weekly?.utilization != nil || monthly?.utilization != nil
+    }
+
+    /// 세 창 중 어느 하나라도 소진(rate-limited) 상태면 true — "한도 도달" 배지 표시용.
+    var isRateLimited: Bool {
+        [rolling, weekly, monthly].contains { $0?.isRateLimited == true }
+    }
+
+    /// 메뉴바 표기·경고 판정용 — 세 창 중 최대 사용률.
+    var maxUsedPercent: Int? {
+        [rolling?.percent, weekly?.percent, monthly?.percent].compactMap { $0 }.max()
+    }
+}
+
 // MARK: - Provider snapshot
 
 struct ProviderSnapshot: Sendable, Identifiable {

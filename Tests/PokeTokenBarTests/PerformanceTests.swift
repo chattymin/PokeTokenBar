@@ -307,6 +307,9 @@ final class FloatingPetEnergyTests: XCTestCase {
             "Codex \(l.codexWindow(300))",
             "Codex \(l.codexWindow(10_080))",
             "Claude \(l.claudeLimitEntry(kind: "weekly_scoped", model: "Opus"))",
+            l.opencodeGoFiveHour,
+            l.opencodeGoWeekly,
+            l.opencodeGoMonthly,
         ]
     }
 

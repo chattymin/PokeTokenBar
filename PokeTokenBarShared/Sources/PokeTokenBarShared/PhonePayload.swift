@@ -71,11 +71,19 @@ public struct PhoneLimitStatus: Codable, Sendable, Equatable {
     public let claudeSonnetWeekly: PhoneLimitWindow?
     public let codexPrimary: PhoneLimitWindow?
     public let codexSecondary: PhoneLimitWindow?
+    /// OpenCode Go 구독 한도(5h rolling/주간/월간) — 구독+키 보유 사용자만 전송된다.
+    /// 구 Mac 이 보낸 페이로드에는 없으므로 옵셔널이며 디코드 시 nil 로 떨어진다.
+    public let opencodeGo5h: PhoneLimitWindow?
+    public let opencodeGoWeekly: PhoneLimitWindow?
+    public let opencodeGoMonthly: PhoneLimitWindow?
     public let planDisplay: String?
 
     public init(claude5h: PhoneLimitWindow?, claudeWeekly: PhoneLimitWindow?,
                 claudeOpusWeekly: PhoneLimitWindow?, claudeSonnetWeekly: PhoneLimitWindow?,
                 codexPrimary: PhoneLimitWindow?, codexSecondary: PhoneLimitWindow?,
+                opencodeGo5h: PhoneLimitWindow? = nil,
+                opencodeGoWeekly: PhoneLimitWindow? = nil,
+                opencodeGoMonthly: PhoneLimitWindow? = nil,
                 planDisplay: String?) {
         self.claude5h = claude5h
         self.claudeWeekly = claudeWeekly
@@ -83,6 +91,9 @@ public struct PhoneLimitStatus: Codable, Sendable, Equatable {
         self.claudeSonnetWeekly = claudeSonnetWeekly
         self.codexPrimary = codexPrimary
         self.codexSecondary = codexSecondary
+        self.opencodeGo5h = opencodeGo5h
+        self.opencodeGoWeekly = opencodeGoWeekly
+        self.opencodeGoMonthly = opencodeGoMonthly
         self.planDisplay = planDisplay
     }
 }

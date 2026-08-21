@@ -383,6 +383,9 @@ private struct RCFakeCodex: CodexLimitsProviding {
     var status: CodexRateLimitStatus?
     func fetch() async throws -> CodexRateLimitStatus? { status }
 }
+private struct RCFakeOpenCodeGo: OpenCodeGoLimitsProviding {
+    func fetch() async throws -> OpenCodeGoLimitStatus? { nil }
+}
 private final class RCFakeStatus: ProviderStatusProviding, @unchecked Sendable {
     func fetch() async -> [String: ProviderStatus] { [:] }
 }
@@ -442,6 +445,7 @@ final class RareCandyGrantIntegrationTests: XCTestCase {
             providers: providers ?? [RCFakeProvider(id: "claude_code", displayName: "Claude Code", daily: rcDaily(1_000))],
             claudeLimitsProvider: RCFakeClaude(status: claude),
             codexLimitsProvider: RCFakeCodex(status: codex),
+            opencodeGoLimitsProvider: RCFakeOpenCodeGo(),
             statusProvider: RCFakeStatus(),
             autoRefresh: false, defaults: defaults)
     }
