@@ -70,7 +70,7 @@ private struct BagItemCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .top, spacing: 10) {
-                ItemIcon(item: item, size: 34)
+                ItemIconView(iconName: item.iconName, fallbackEmoji: item.fallbackEmoji, size: 34)
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(spacing: 6) {
                         Text(item.name)
@@ -108,23 +108,24 @@ private struct BagItemCard: View {
     }
 }
 
-/// Item icon — PokéAPI item sprite with emoji fallback.
-private struct ItemIcon: View {
-    let item: PhoneBagItem
+/// Item icon — PokéAPI item sprite with emoji fallback. Shared by bag/shop cards.
+struct ItemIconView: View {
+    let iconName: String?
+    let fallbackEmoji: String
     let size: CGFloat
 
     var body: some View {
         Group {
-            if let url = item.iconName.flatMap(PokeSprite.itemURL(name:)) {
+            if let url = iconName.flatMap(PokeSprite.itemURL(name:)) {
                 AsyncImage(url: url) { image in
                     image.resizable().interpolation(.none)
                 } placeholder: {
-                    Text(item.fallbackEmoji)
+                    Text(fallbackEmoji)
                         .font(.system(size: size * 0.6))
                 }
                 .frame(width: size, height: size)
             } else {
-                Text(item.fallbackEmoji)
+                Text(fallbackEmoji)
                     .font(.system(size: size * 0.6))
                     .frame(width: size, height: size)
             }
