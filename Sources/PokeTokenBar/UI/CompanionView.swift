@@ -976,7 +976,7 @@ private struct DexSpeciesCell: View {
                            shiny: species.isShiny && isSelected)
                     .frame(width: Self.thumb, height: Self.thumb)
                     // 표식은 스프라이트 아래가 아니라 위에 겹친다 — 별도 줄로 빼면 칸 높이가 넘친다.
-                    // 이 줄은 번호·이로치와 폭을 다투지 않아 세 언어 모두 8pt 그대로 들어간다
+                    // 이 줄은 번호·이로치와 폭을 다투지 않아 네 언어 모두 8pt 그대로 들어간다
                     // (가장 긴 en "RAISING" 이 캡슐 포함 45pt, 칸 안쪽 폭 74pt).
                     // `fixedSize` 필수 — 오버레이는 붙은 뷰(스프라이트 44)의 폭을 제안받아서, 없으면
                     // 칸이 아니라 스프라이트 폭에 갇혀 "RAISIN/G" 로 줄바꿈된다.
@@ -1050,9 +1050,8 @@ private struct DexSpeciesCell: View {
             .background(.regularMaterial, in: Capsule())
     }
 
-    /// "키우는 중" — 아직 졸업 기록이 없어 사라질 수 있는 칸임을 알린다. 포획 로그의 같은 뱃지와
-    /// 글자·색을 맞춰 두 화면이 같은 말을 쓰게 한다. accent 틴트는 반투명이라 스프라이트가 비치므로
-    /// material 을 한 겹 깔아 대비를 확보한다(로그는 카드 배경 위라 필요 없었다).
+    /// "키우는 중"은 현재 개체의 현재 형태 한 칸에만 표시한다. accent 틴트는 반투명이라
+    /// 스프라이트가 비치므로 material 을 한 겹 깔아 대비를 확보한다(로그는 카드 배경 위라 불필요).
     private var raisingBadge: some View {
         Text(store.l.dexRaising.uppercased())
             .font(.system(size: 8, weight: .bold))

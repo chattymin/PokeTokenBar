@@ -566,11 +566,11 @@ final class CompanionStoreTests: XCTestCase {
         XCTAssertEqual(online.dexSpecies.map(\.name), ["포1", "포2", "포3"])
     }
 
-    // MARK: 도감 "키우는 중" 표식 (아직 확정이 아닌 칸)
+    // MARK: 도감 "키우는 중" 표식 (현재 형태 한 칸)
 
-    /// 졸업 기록이 없는 종은 현재 개체가 사라지면 함께 사라진다 — **도달 단계 전부**에 표식이 선다.
-    /// (진화 3단까지 왔으면 3칸 모두. 알을 새로 사면 실제로 3칸이 다 빠진다.)
-    func testDexSpeciesMarksEveryUnsecuredStageAsRaising() async {
+    /// 진화 뒤에도 Raising 은 현재 형태에만 선다. 지나온 형태를 함께 표시하면 두 포켓몬을 동시에
+    /// 키우는 것처럼 읽히므로, 도감 포함 여부와 현재 상태 표식은 서로 다른 규칙이다.
+    func testDexSpeciesMarksOnlyCurrentEvolutionStageAsRaising() async {
         let s = store(linear3)
         s.setLanguage(.ko)
         await s.hatch(baseID: 1)
@@ -579,12 +579,12 @@ final class CompanionStoreTests: XCTestCase {
 
         let sp = s.dexSpecies
         XCTAssertEqual(sp.map(\.id), [1, 2])
-        XCTAssertEqual(sp.map(\.isRaising), [true, true], "졸업 기록이 없으니 둘 다 미확정")
+        XCTAssertEqual(sp.map(\.isRaising), [false, true])
     }
 
-    /// 트리거 브랜치 — 같은 라인을 졸업한 뒤 **다시 키우는 중**. 종은 이미 영구 보존분이라 사라지지 않으므로
-    /// 표식이 서면 안 된다. "현재 개체에 속하면 표식"으로 판정하면 여기서 깨진다.
-    func testAlreadyGraduatedSpeciesIsNotMarkedWhileRaisedAgain() throws {
+    /// 같은 라인을 이미 졸업했어도 현재 다시 키우는 형태에는 Raising 이 선다. 이 뱃지는 기록의
+    /// 영구 보존 여부가 아니라 지금 키우는 포켓몬을 뜻한다.
+    func testAlreadyGraduatedLineStillMarksOnlyCurrentStageAsRaising() throws {
         let graduated = DexEntry(baseID: 1, finalID: 3, chainOrder: [1, 2, 3], rarity: .common, caughtAt: fixedNow,
                                  names: [1: ["ko": "포1"], 2: ["ko": "포2"], 3: ["ko": "포3"]])
         let active = MonState(baseID: 1, pathIDs: [1, 2, 3], stageIndex: 1,
@@ -596,15 +596,14 @@ final class CompanionStoreTests: XCTestCase {
 
         let s = CompanionStore(provider: StubProvider(value: linear3), clock: { fixedNow },
                                fileURL: url, rng: SeededRNG(seed: 7))
-        XCTAssertEqual(s.dexSpecies.map(\.isRaising), [false, false, false],
-                       "졸업분이 있는 종은 현재 키우는 중이어도 확정분")
+        XCTAssertEqual(s.dexSpecies.map(\.isRaising), [false, true, false])
     }
 
     /// 졸업분만 있고 현재 개체가 없으면 표식은 하나도 없다(모두 영구 기록).
     func testGraduatedOnlyDexHasNoRaisingMark() throws {
         let s = try storeWithNamelessEntry()
         XCTAssertNil(s.state.active)
-        XCTAssertEqual(s.dexSpecies.map(\.isRaising), [false, false, false])
+        XCTAssertTrue(s.dexSpecies.allSatisfy { !$0.isRaising })
     }
 
     /// 이름 없는 구버전 졸업분 1건(체인 1→2→3)만 담긴 store — 백필/표식 테스트 공용.

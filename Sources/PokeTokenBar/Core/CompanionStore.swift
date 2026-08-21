@@ -240,9 +240,7 @@ final class CompanionStore {
         let name: String
         let rarity: Rarity
         let isShiny: Bool               // 이 종을 이로치로 보유한 적이 있는가
-        /// 이 칸의 근거가 **지금 키우는 개체뿐**이다 — 졸업 기록이 없어 아직 확정이 아니다.
-        /// 알을 새로 사면 개체가 폐기되고(dex 미변경) 이 칸은 사라지며, 메타몽이 리빌하면 위장했던
-        /// 종이 빠진다. 영구 기록과 같은 모양으로 두면 종 수가 줄어드는 게 결함으로 보이므로 뷰가 표식을 단다.
+        /// 이 종이 현재 키우는 개체의 **현재 형태**인가. 지나온 진화 단계에는 서지 않는다.
         let isRaising: Bool
     }
 
@@ -254,9 +252,6 @@ final class CompanionStore {
         let rarity: Rarity
         var names: [String: String]?
         var isShiny = false
-        /// 졸업 기록에서 온 적이 있는가 — 한 번이라도 true 면 이 종은 영구 보존분이라 사라지지 않는다.
-        /// 같은 라인을 다시 키우는 중이어도(현재 개체와 겹쳐도) 표식 대상이 아니다.
-        var isGraduated = false
     }
 
     /// 도감 목록 — 보유 종만, 도감 번호 오름차순.
@@ -272,7 +267,6 @@ final class CompanionStore {
                 var a = acc[id] ?? DexAccumulator(rarity: entry.rarity)
                 if let n = entry.names?[id] { a.names = n }   // 이름 없는 구버전 항목이 덮어쓰지 않게
                 if entry.isShiny { a.isShiny = true }
-                a.isGraduated = true
                 acc[id] = a
             }
         }
@@ -292,7 +286,7 @@ final class CompanionStore {
                 name: a.names.flatMap { state.language.resolveName($0) } ?? "#\(id)",
                 rarity: a.rarity,
                 isShiny: a.isShiny,
-                isRaising: !a.isGraduated)
+                isRaising: id == state.active?.currentID)
         }
     }
 
