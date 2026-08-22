@@ -9,7 +9,7 @@ import Foundation
 ///   `~/.codex/archived_sessions/rollout-*.jsonl` 의
 ///   `event_msg.payload.type:"token_count"` (`info.last_token_usage` 턴 델타) 합산.
 /// - Pi: `~/.pi/agent/sessions/**/*.jsonl` 의 message/compaction/branch-summary direct usage.
-///   reasoning 은 output 에 포함하고, fork 가 복사한 entry id 는 전역 중복 제거한다.
+///   reasoning 은 output 에 이미 포함되며, fork 가 복사한 entry id 는 전역 중복 제거한다.
 ///
 /// 성능: mtime 윈도우로 스캔 파일을 한정(범위 시작 이전에 수정된 파일은 범위 내 엔트리가 없음).
 enum LocalUsageReader {
@@ -419,6 +419,8 @@ enum LocalUsageReader {
                 switch type {
                 case "message":
                     guard let message = envelope["message"] as? [String: Any],
+                          message["stopReason"] as? String != "aborted",
+                          message["stopReason"] as? String != "error",
                           let messageUsage = message["usage"] as? [String: Any] else { return }
                     usage = messageUsage
                     date = piMessageDate(message, envelope: envelope)
@@ -450,7 +452,7 @@ enum LocalUsageReader {
     private static func piEntry(
         id: String, date: Date, usage: [String: Any], fmt: DateFormatter
     ) -> Entry? {
-        let names = ["input", "output", "reasoning", "cacheWrite", "cacheRead"]
+        let names = ["input", "output", "cacheWrite", "cacheRead"]
         let hasGranularUsage = names.contains { intOrNil(usage[$0]) != nil }
         let input: Int
         let output: Int
@@ -458,10 +460,11 @@ enum LocalUsageReader {
         let cacheRead: Int
         if hasGranularUsage {
             input = intOrNil(usage["input"]) ?? 0
-            output = (intOrNil(usage["output"]) ?? 0) + (intOrNil(usage["reasoning"]) ?? 0)
+            output = intOrNil(usage["output"]) ?? 0 // Pi reasoning is already a subset of output.
             cacheWrite = intOrNil(usage["cacheWrite"]) ?? 0
             cacheRead = intOrNil(usage["cacheRead"]) ?? 0
         } else if let total = intOrNil(usage["totalTokens"]) {
+            // Malformed total-only usage has no recoverable bucket split; preserve its aggregate total.
             input = total
             output = 0
             cacheWrite = 0

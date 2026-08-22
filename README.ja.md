@@ -168,7 +168,7 @@ swift test                   # ユニットテスト
 | `~/.grok/sessions/**/updates.jsonl` | Grok CLI daily/blocks/weekly/monthly | `turn_completed` レコード（ターン単位の `usage`、サーバー報告のコスト）；`$GROK_HOME` を設定していればそのパス；サブエージェントのセッションは親ターンに合算済みのため除外 |
 | `~/.copilot/session-store.db` | Copilot CLI daily/blocks/weekly/monthly | SQLite 読み取り専用；`assistant_usage_events` の1行が API 呼び出し1回；`$COPILOT_HOME` を設定していればそのパス；`input_tokens` にキャッシュ分が含まれるため cache read/write を差し引いて集計；premium request 課金のためコストは推定しない |
 | `~/Library/Application Support/kiro-cli/data.sqlite3` | Kiro CLI daily/blocks/weekly/monthly | SQLite 読み取り専用；会話履歴 JSON（`conversations`/`conversations_v2`）；Kiro のローカル DB は実際のトークン数を記録せず、サーバー側セッションも無いため、input は毎ターン再送される累積会話テキストをバイト÷4 で**推定**（output は実際のストリーミング応答バイトから算出）；`/clear`・圧縮で消えた会話の集計済みトークンはアプリ再起動まで数え続ける；コストは推定しない |
-| `~/.pi/agent/sessions/**/*.jsonl` | Pi Agent daily/blocks/weekly/monthly | 全プロジェクトの保存済み usage を直接集計；`$PI_CODING_AGENT_DIR`・`$PI_CODING_AGENT_SESSION_DIR` override 対応；reasoning は output に含める；fork のコピーは entry ID で重複排除；コストは表示しない |
+| `~/.pi/agent/sessions/**/*.jsonl` | Pi Agent daily/blocks/weekly/monthly | 全プロジェクトの保存済み usage を直接集計；`$PI_CODING_AGENT_DIR`・`$PI_CODING_AGENT_SESSION_DIR` override 対応；output には reasoning がすでに含まれるため二重計上しない；fork のコピーは entry ID で重複排除；コストは表示しない |
 | Keychain / `~/.claude/.credentials.json` → `api.anthropic.com` | Claude 公式 5h/週間 % | 非公式 endpoint；Keychain は**更新ボタンを押した時のみ**読み取り — 自動更新では読みません |
 | `codex app-server` | Codex 公式 5h/週間 % | ローカル子プロセス；アカウント snapshot のみ、モデル turn なし |
 | [PokéAPI](https://pokeapi.co/) — `pokeapi.co`, `graphql.pokeapi.co` | ポケモンの種・進化 | ランタイム取得；ローカルキャッシュ、バンドルしない |

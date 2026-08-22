@@ -38,6 +38,7 @@ final class PiUsageTests: XCTestCase {
         id: String, role: String = "assistant",
         envelopeTimestamp: String = "2026-08-17T10:00:00.000Z",
         messageTimestamp: Double? = nil,
+        stopReason: String? = nil,
         usage: [String: Any]
     ) -> [String: Any] {
         var nested: [String: Any] = [
@@ -48,6 +49,7 @@ final class PiUsageTests: XCTestCase {
             "usage": usage,
         ]
         if let messageTimestamp { nested["timestamp"] = messageTimestamp }
+        if let stopReason { nested["stopReason"] = stopReason }
         return [
             "type": "message",
             "id": id,
@@ -74,7 +76,7 @@ final class PiUsageTests: XCTestCase {
         try XCTUnwrap(LocalUsageReader.parsePiFile(url, fmt: LocalUsageReader.localDayFormatter()))
     }
 
-    func testPiTokenBucketsIncludeReasoningAndPreferMessageTimestamp() throws {
+    func testPiOutputAlreadyIncludesReasoningAndPrefersMessageTimestamp() throws {
         let actualDate = try XCTUnwrap(ISO8601Parser.date(from: "2026-08-16T23:59:59.000Z"))
         let url = try write([message(
             id: "turn-1",
@@ -87,10 +89,10 @@ final class PiUsageTests: XCTestCase {
         XCTAssertEqual(entry.id, "turn-1")
         XCTAssertEqual(entry.model, "pi")
         XCTAssertEqual(entry.input, 10)
-        XCTAssertEqual(entry.output, 25)
+        XCTAssertEqual(entry.output, 20, "Pi reasoning is a subset of output")
         XCTAssertEqual(entry.cacheWrite, 4)
         XCTAssertEqual(entry.cacheRead, 30)
-        XCTAssertEqual(entry.total, 69, "pi totalTokens excludes reasoning; recompute from buckets")
+        XCTAssertEqual(entry.total, 64, "Pi totalTokens already includes reasoning through output")
         XCTAssertEqual(entry.date.timeIntervalSince1970, actualDate.timeIntervalSince1970, accuracy: 0.001)
         XCTAssertEqual(entry.localDay, LocalUsageReader.localDayFormatter().string(from: actualDate))
     }
@@ -119,6 +121,16 @@ final class PiUsageTests: XCTestCase {
         XCTAssertFalse(entries.contains { $0.id == "copied" }, "retainedTail is copied context, not new usage")
     }
 
+    func testPiSkipsAbortedAndErroredMessages() throws {
+        let url = try write([
+            message(id: "aborted", stopReason: "aborted", usage: usage(input: 10)),
+            message(id: "errored", stopReason: "error", usage: usage(input: 20)),
+            message(id: "complete", stopReason: "stop", usage: usage(input: 30)),
+        ])
+
+        XCTAssertEqual(try parsed(url).map(\.id), ["complete"])
+    }
+
     func testFallbackMalformedAndPartialRecordsAreSafe() throws {
         let totalOnly = [
             "type": "message", "id": "total-only", "parentId": NSNull(),
@@ -144,7 +156,7 @@ final class PiUsageTests: XCTestCase {
         XCTAssertEqual(byID.count, 3)
     }
 
-    func testOversizedFieldsClampBeforeReasoningAddition() throws {
+    func testOversizedFieldsClampWithoutDoubleCountingReasoning() throws {
         let url = try write([message(
             id: "huge",
             usage: usage(input: 1e30, output: 1e30, reasoning: 1e30,
@@ -153,10 +165,10 @@ final class PiUsageTests: XCTestCase {
         let entry = try XCTUnwrap(parsed(url).first)
         let max = LocalUsageReader.maxParsedTokenValue
         XCTAssertEqual(entry.input, max)
-        XCTAssertEqual(entry.output, max * 2)
+        XCTAssertEqual(entry.output, max)
         XCTAssertEqual(entry.cacheWrite, max)
         XCTAssertEqual(entry.cacheRead, max)
-        XCTAssertEqual(entry.total, max * 5)
+        XCTAssertEqual(entry.total, max * 4)
     }
 
     func testGlobalEnvelopeIDDedupRemovesForkCopiesButKeepsUniqueBranches() throws {

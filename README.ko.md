@@ -168,7 +168,7 @@ swift test                   # 단위 테스트
 | `~/.grok/sessions/**/updates.jsonl` | Grok CLI daily/blocks/weekly/monthly | `turn_completed` 레코드(턴 단위 `usage`, 서버 보고 비용); `$GROK_HOME` 설정 시 그 경로; 서브에이전트 세션은 토큰이 부모 턴에 이미 포함돼 제외 |
 | `~/.copilot/session-store.db` | Copilot CLI daily/blocks/weekly/monthly | SQLite 읽기 전용; `assistant_usage_events` 1행 = API 호출 1건; `$COPILOT_HOME` 설정 시 그 경로; `input_tokens` 에 캐시 프롬프트가 이미 포함돼 캐시 read/write 를 빼고 집계; premium request 과금이라 비용은 추정하지 않음 |
 | `~/Library/Application Support/kiro-cli/data.sqlite3` | Kiro CLI daily/blocks/weekly/monthly | SQLite 읽기 전용; 대화 히스토리 JSON(`conversations`/`conversations_v2`); Kiro 로컬 DB 는 실제 토큰 수를 저장하지 않고 서버 측 세션도 없어, input 은 매 턴 재전송되는 누적 대화 텍스트를 바이트÷4 로 **추정**(output 은 실제 스트리밍 응답 바이트 기준); `/clear`·압축으로 지워진 대화의 이미 집계된 토큰은 앱을 재시작하기 전까지는 계속 집계됨; 비용은 추정하지 않음 |
-| `~/.pi/agent/sessions/**/*.jsonl` | Pi Agent daily/blocks/weekly/monthly | 모든 프로젝트의 저장된 usage를 직접 집계; `$PI_CODING_AGENT_DIR`·`$PI_CODING_AGENT_SESSION_DIR` override 지원; reasoning은 output에 포함; fork 복사본은 entry ID로 중복 제거; 비용은 표시하지 않음 |
+| `~/.pi/agent/sessions/**/*.jsonl` | Pi Agent daily/blocks/weekly/monthly | 모든 프로젝트의 저장된 usage를 직접 집계; `$PI_CODING_AGENT_DIR`·`$PI_CODING_AGENT_SESSION_DIR` override 지원; output에는 reasoning이 이미 포함되어 별도 합산하지 않음; fork 복사본은 entry ID로 중복 제거; 비용은 표시하지 않음 |
 | Keychain / `~/.claude/.credentials.json` → `api.anthropic.com` | Claude 공식 5h/주간 % | 비공식 endpoint; Keychain 은 **갱신 버튼을 누를 때만** 읽음 — 자동 폴링은 읽지 않음 |
 | `codex app-server` | Codex 공식 5h/주간 % | 로컬 자식 프로세스; 계정 snapshot만, 모델 turn 없음 |
 | [PokéAPI](https://pokeapi.co/) — `pokeapi.co`, `graphql.pokeapi.co` | 포켓몬 종·진화 | 런타임 fetch; 로컬 캐시, 번들 안 함 |

@@ -80,7 +80,7 @@ actor LocalUsageCache {
     /// Grok 토큰 매핑(캐시분 분리·비용 신뢰 조건) 변경 시 Grok blob만 재파싱한다.
     private static let grokParserVersion = 1
     /// Pi usage mapping/dedup semantics. Bump when the direct usage paths or bucket mapping changes.
-    private static let piParserVersion = 1
+    private static let piParserVersion = 2
 
     private var claudeCache: [String: Blob] = [:]
     private var codexCache: [String: CodexBlob] = [:]

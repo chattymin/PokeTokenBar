@@ -876,30 +876,30 @@ final class LocalUsageCacheTests: XCTestCase {
         let mtime = Date(timeIntervalSince1970: floor(Date().timeIntervalSince1970) - 3_600)
         try writeFile("pi.jsonl", lines: [piLine(id: "turn", output: 11)], mtime: mtime)
         let first = await makeCache(piRoots: [root]).piEntries(modifiedSince: since)
-        XCTAssertEqual(first.map(\.output), [12])
+        XCTAssertEqual(first.map(\.output), [11])
 
         // Same signature, different same-width payload: a new actor must use the persisted blob.
         try writeFile("pi.jsonl", lines: [piLine(id: "turn", output: 22)], mtime: mtime)
         let second = await makeCache(piRoots: [root]).piEntries(modifiedSince: since)
-        XCTAssertEqual(second.map(\.output), [12])
+        XCTAssertEqual(second.map(\.output), [11])
     }
 
     func testPiReadFailureKeepsOldBlobAndRetriesNextRefresh() async throws {
         let file = try writeFile("pi.jsonl", lines: [piLine(id: "turn", output: 10)])
         let cache = makeCache(piRoots: [root])
         let initial = await cache.piEntries(modifiedSince: since)
-        XCTAssertEqual(initial.map(\.output), [11])
+        XCTAssertEqual(initial.map(\.output), [10])
 
         try FileManager.default.removeItem(at: file)
         try FileManager.default.createDirectory(at: file, withIntermediateDirectories: false)
         let duringFailure = await cache.piEntries(modifiedSince: since)
-        XCTAssertEqual(duringFailure.map(\.output), [11],
+        XCTAssertEqual(duringFailure.map(\.output), [10],
                        "transient read failure should retain the previous blob")
 
         try FileManager.default.removeItem(at: file)
         try writeFile("pi.jsonl", lines: [piLine(id: "turn", output: 20)])
         let restored = await cache.piEntries(modifiedSince: since)
-        XCTAssertEqual(restored.map(\.output), [21],
+        XCTAssertEqual(restored.map(\.output), [20],
                        "failed signature must not be cached; the restored file should be retried")
     }
 
@@ -919,12 +919,12 @@ final class LocalUsageCacheTests: XCTestCase {
             pi[path] = blob
         }
         snapshot["pi"] = pi
-        snapshot.removeValue(forKey: "piParserVersion") // legacy snapshot => version 0
+        snapshot["piParserVersion"] = 1 // v1 added reasoning to output; v2 must reparse this blob.
         let changed = try JSONSerialization.data(withJSONObject: snapshot)
         let compressed = try (changed as NSData).compressed(using: .zlib) as Data
         try compressed.write(to: cacheFile, options: .atomic)
 
         let entries = await makeCache(piRoots: [root]).piEntries(modifiedSince: since)
-        XCTAssertEqual(entries.map(\.output), [11], "legacy pi blobs must be invalidated and reparsed")
+        XCTAssertEqual(entries.map(\.output), [10], "v1 Pi blobs must be invalidated and reparsed")
     }
 }
