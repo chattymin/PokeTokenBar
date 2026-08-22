@@ -119,8 +119,30 @@ final class UsageStore {
 
     private let providers: [any UsageProvider]
 
+    /// Registered usage sources — Settings lists these so extra scan folders
+    /// stay provider-tagged (#177). Do not grow one text field per provider.
+    var registeredProviders: [(id: String, displayName: String)] {
+        providers.map { (id: $0.id, displayName: $0.displayName) }
+    }
+
     /// 등록된 프로바이더 id 목록 — 확장 규약 레지스트리 무결성 테스트용.
-    var registeredProviderIDs: [String] { providers.map(\.id) }
+    var registeredProviderIDs: [String] { registeredProviders.map(\.id) }
+
+    func customScanRoots(for providerID: String) -> String {
+        defaults.string(forKey: CustomScanRoots.defaultsKey(for: providerID)) ?? ""
+    }
+
+    func setCustomScanRoots(_ value: String, for providerID: String) {
+        let key = CustomScanRoots.defaultsKey(for: providerID)
+        let previous = defaults.string(forKey: key) ?? ""
+        guard value != previous else { return }
+        defaults.set(value, forKey: key)
+        LocalUsageReader.invalidateProjectRootsCache()
+        Task {
+            await LocalAdditionalUsageReader.invalidateScanCache()
+            await refresh()
+        }
+    }
     private let limitsProvider: any ClaudeLimitsProviding
     private let codexLimitsProvider: any CodexLimitsProviding
     private let statusProvider: any ProviderStatusProviding

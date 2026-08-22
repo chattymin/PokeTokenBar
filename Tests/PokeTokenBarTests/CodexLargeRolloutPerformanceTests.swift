@@ -1,4 +1,4 @@
-import Darwin
+@preconcurrency import Darwin
 import Foundation
 import XCTest
 @testable import PokeTokenBar

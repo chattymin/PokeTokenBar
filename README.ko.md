@@ -174,6 +174,8 @@ swift test                   # 단위 테스트
 | `status.claude.com`, `status.openai.com` | 프로바이더 장애 배너 | statuspage 요약; 표시 전용 — 설정에서 끌 수 있음 |
 | `api.github.com` | 업데이트 확인 | 최신 릴리스 태그; 기동 시와 팝오버를 열 때 |
 
+로그가 **위 기본 경로 밖**에 있으면 **설정 → 고급 → 추가 스캔 폴더**에 그 폴더를 넣습니다. 프로바이더를 먼저 고르세요 — 폴더는 그 프로바이더만 파싱하므로, Gemini 칸에 Claude 로그를 넣으면 토큰이 잘못 귀속됩니다. 추가 폴더는 기본 위치에 *더해질* 뿐 대체하지 않습니다.
+
 ## 프라이버시 & 권한
 
 - **온디바이스.** 토큰 사용량은 로컬 Claude Code·Codex·Gemini CLI·Antigravity·OpenCode·Hermes Agent·Cursor·Grok CLI·Copilot CLI·Kiro CLI 데이터에서 직접 읽습니다. 사용량을 업로드하거나 모델 turn을 실행하지 않습니다.
