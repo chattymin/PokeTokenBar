@@ -121,6 +121,10 @@ enum PokemonBalance {
         let denom = Double(kk * (kk + 1)) / 2.0
         return Int((total * Double(i) / denom).rounded())
     }
+
+    /// 이동 비용 — 같은 지역 내 위치 이동 (50M) vs 다른 지역으로 이동 (250M).
+    static let sameRegionTravelCost = 50_000_000
+    static let differentRegionTravelCost = 250_000_000
 }
 
 /// 인벤토리 아이템 종류 — 확장 대비 enum(현재 이상한 사탕 1종). rawValue 로 CompanionState.inventory 에 저장.
@@ -552,6 +556,18 @@ struct CompanionState: Codable, Sendable {
     var candyGrantTier: [String: Int] = [:]
     // 사탕 지급 첫 실행 시드 완료 — 업데이트 직후 이미 100%였던 창의 소급 지급 차단.
     var candyFeatureSeeded = false
+    // 활성 알 선택 지역 ID (nil = 전체 지역)
+    var activeRegionID: Int? = nil
+    // 위치 & 여행 시스템 — 기본 시작 위치는 Pallet Town (관동)
+    var currentLocationID: String = "pallet-town"
+    var currentRegionID: Int = 1
+    var hasClaimedEggForLocation: Bool = false
+    // 여행 여정 커밋먼트 (Progressive Travel Journey)
+    var travelDestinationID: String? = nil
+    var travelDestinationRegionID: Int? = nil
+    var travelTargetTokens: Int = 0
+    var travelTokensUsed: Int = 0
+    var travelNotifiedHalfway: Bool = false
 
     init() {}
 
@@ -587,6 +603,15 @@ struct CompanionState: Codable, Sendable {
         inventory          = c.lenient([String: Int].self, forKey: .inventory, default: [:])
         candyGrantTier     = c.lenient([String: Int].self, forKey: .candyGrantTier, default: [:])
         candyFeatureSeeded = c.lenient(Bool.self, forKey: .candyFeatureSeeded, default: false)
+        activeRegionID     = c.lenientOptional(Int.self, forKey: .activeRegionID)
+        currentLocationID  = c.lenient(String.self, forKey: .currentLocationID, default: "pallet-town")
+        currentRegionID    = c.lenient(Int.self, forKey: .currentRegionID, default: 1)
+        hasClaimedEggForLocation  = c.lenient(Bool.self, forKey: .hasClaimedEggForLocation, default: false)
+        travelDestinationID       = c.lenientOptional(String.self, forKey: .travelDestinationID)
+        travelDestinationRegionID = c.lenientOptional(Int.self, forKey: .travelDestinationRegionID)
+        travelTargetTokens        = c.lenient(Int.self, forKey: .travelTargetTokens, default: 0)
+        travelTokensUsed          = c.lenient(Int.self, forKey: .travelTokensUsed, default: 0)
+        travelNotifiedHalfway     = c.lenient(Bool.self, forKey: .travelNotifiedHalfway, default: false)
     }
 
     /// 졸업 기록 또는 현재 개체가 실제로 도달한 단계에 이 종이 포함되는가.
@@ -617,3 +642,71 @@ struct CompanionState: Codable, Sendable {
 
 // NOTE: 부화 후보는 더 이상 하드코딩하지 않는다 — CompanionStore.chooseBase() 가
 // PokéAPI 전수(1~5세대)를 capture_rate 가중 rejection sampling 으로 선정한다.
+
+/// 지역 정보 — PokéAPI /region/ 엔드포인트 응답 표현.
+struct RegionInfo: Sendable, Codable, Identifiable, Hashable {
+    let id: Int
+    let name: String
+    /// 다국어 이름 (언어 코드 -> 이름)
+    let names: [String: String]
+
+    /// 이 지역이 속한 세대 (Kanto=1, Johto=2, Hoenn=3, Sinnoh=4, Unova=5)
+    var generationID: Int { id }
+}
+
+/// 위치 종류 (도시, 도로, 숲, 동굴/산, 수역, 명소/타워 등)
+enum LocationCategory: String, Codable, Sendable, CaseIterable {
+    case town
+    case route
+    case forest
+    case cave
+    case water
+    case landmark
+
+    var emoji: String {
+        switch self {
+        case .town: return "🏙️"
+        case .route: return "🛣️"
+        case .forest: return "🌲"
+        case .cave: return "⛰️"
+        case .water: return "🌊"
+        case .landmark: return "🏰"
+        }
+    }
+}
+
+/// 위치 정보 — PokéAPI /location/ 엔드포인트 응답 표현.
+struct LocationInfo: Sendable, Codable, Identifiable, Hashable {
+    let id: String         // e.g. "viridian-forest"
+    let regionID: Int      // 1=Kanto, 2=Johto, 3=Hoenn, 4=Sinnoh, 5=Unova
+    let name: String       // raw name e.g. "viridian-forest"
+    let category: LocationCategory
+    let names: [String: String]
+    let encounterSpeciesIDs: Set<Int>?
+
+    init(id: String, regionID: Int, name: String, category: LocationCategory = .town, names: [String: String], encounterSpeciesIDs: Set<Int>? = nil) {
+        self.id = id
+        self.regionID = regionID
+        self.name = name
+        self.category = category
+        self.names = names
+        self.encounterSpeciesIDs = encounterSpeciesIDs
+    }
+
+    var availablePokemonCount: Int? {
+        guard let set = encounterSpeciesIDs, !set.isEmpty else { return nil }
+        return set.count
+    }
+
+    func caughtCount(given caughtSet: Set<Int>) -> Int {
+        guard let speciesIDs = encounterSpeciesIDs, !speciesIDs.isEmpty else { return 0 }
+        return speciesIDs.intersection(caughtSet).count
+    }
+
+    func localizedName(_ lang: AppLanguage) -> String {
+        lang.resolveName(names) ?? name.capitalized.replacingOccurrences(of: "-", with: " ")
+    }
+}
+
+
+

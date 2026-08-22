@@ -114,6 +114,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         withObservationTracking {
             _ = companion.representativeSubject
             _ = store.animationQuality
+            _ = companion.isTraveling
+            _ = companion.isEgg
         } onChange: { [weak self] in
             Task { @MainActor in
                 guard let self else { return }
@@ -219,27 +221,51 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     /// 에너지 통제는 ① delay 하한 `menuFrameFloor` ② 안 보이면 정지(menuShouldAnimate) ③ 저전력 모드
     /// 에선 GIF 생략(가벼운 bob)로 처리한다 — 통제된 저프레임 + 비가시 시 정지로 저전력.
     private func ensureMenuAnimation() {
+        if companion.isTraveling {
+            let key = "traveling"
+            if key == menuSpriteKey, !menuFrames.isEmpty { return }
+            menuSpriteKey = key
+            menuLoadGen += 1
+            setMenuFrames(Self.travelFrames())
+            return
+        }
+
         let subject = companion.representativeSubject
         let id = subject.speciesID
         let shiny = subject.isShiny
-        let key = id.map { Self.menuSpriteKey(id: $0, shiny: shiny, floor: menuFrameFloor) }
-        if key == menuSpriteKey, !menuFrames.isEmpty { return }   // 이미 이 개체로 애니메이션 중
+        if id == nil {
+            if companion.isEgg {
+                let key = "egg"
+                if key == menuSpriteKey, !menuFrames.isEmpty { return }
+                menuSpriteKey = key
+                menuLoadGen += 1
+                setMenuFrames(Self.eggFrames())
+                return
+            } else {
+                let key = "arrived"
+                if key == menuSpriteKey, !menuFrames.isEmpty { return }
+                menuSpriteKey = key
+                menuLoadGen += 1
+                setMenuFrames(Self.arrivedFrames())
+                return
+            }
+        }
+
+        guard let speciesID = id else { return }
+
+        let key = Self.menuSpriteKey(id: speciesID, shiny: shiny, floor: menuFrameFloor)
+        if key == menuSpriteKey, !menuFrames.isEmpty { return }
         menuSpriteKey = key
         menuLoadGen += 1
         let gen = menuLoadGen
-
-        guard let id else {                  // 알: 2프레임 bob
-            setMenuFrames(Self.eggFrames())
-            return
-        }
         // 정적 스프라이트 bob 을 먼저(없으면 받아와서). GIF 가 받아지면 아래에서 교체.
-        if let cached = SpriteLoader.cachedImage(speciesID: id, shiny: shiny) {
+        if let cached = SpriteLoader.cachedImage(speciesID: speciesID, shiny: shiny) {
             setMenuFrames(Self.bobFrames(from: cached))
         } else {
             setMenuFrames(Self.eggFrames())
             Task { @MainActor [weak self] in
                 guard let self, gen == self.menuLoadGen,
-                      let sprite = await SpriteLoader.image(speciesID: id, shiny: shiny) else { return }
+                      let sprite = await SpriteLoader.image(speciesID: speciesID, shiny: shiny) else { return }
                 guard gen == self.menuLoadGen else { return }
                 self.setMenuFrames(Self.bobFrames(from: sprite))
             }
@@ -250,9 +276,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         Task { @MainActor [weak self] in
             guard let self, gen == self.menuLoadGen else { return }
             // shiny GIF 미제공 종이면 일반 GIF 폴백
-            var data = await SpriteStore.shared.data(speciesID: id, animated: true, shiny: shiny)
+            var data = await SpriteStore.shared.data(speciesID: speciesID, animated: true, shiny: shiny)
             if data == nil, shiny {
-                data = await SpriteStore.shared.data(speciesID: id, animated: true, shiny: false)
+                data = await SpriteStore.shared.data(speciesID: speciesID, animated: true, shiny: false)
             }
             guard let data else { return }
             let raw = GIFDecoder.frames(from: data)
@@ -338,7 +364,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
 
     /// 부화 전/로딩 중 알 글리프 2프레임 bob.
     private static func eggFrames() -> [(image: NSImage, delay: TimeInterval)] {
-        [(eggImage(up: false), 0.5), (eggImage(up: true), 0.5)]
+        [(emojiImage("🥚", up: false), 0.5), (emojiImage("🥚", up: true), 0.5)]
+    }
+
+    /// 여행 중 2프레임 bob (✈️).
+    private static func travelFrames() -> [(image: NSImage, delay: TimeInterval)] {
+        [(emojiImage("✈️", up: false), 0.5), (emojiImage("✈️", up: true), 0.5)]
+    }
+
+    /// 위치 도착 / 알 없음 상태 2프레임 bob (📍).
+    private static func arrivedFrames() -> [(image: NSImage, delay: TimeInterval)] {
+        [(emojiImage("📍", up: false), 0.5), (emojiImage("📍", up: true), 0.5)]
+    }
+
+    private static func emojiImage(_ emoji: String, up: Bool) -> NSImage {
+        let h: CGFloat = 22
+        let img = NSImage(size: NSSize(width: h, height: h))
+        img.lockFocus()
+        let off: CGFloat = up ? 1 : 0
+        let s = emoji as NSString
+        s.draw(in: NSRect(x: 2, y: off, width: h - 2, height: h - 2),
+               withAttributes: [.font: NSFont.systemFont(ofSize: 15)])
+        img.unlockFocus()
+        return img
     }
 
     /// 메뉴바 프레임 기하 — **비율 유지**(SpriteFit). 순수·테스트용.

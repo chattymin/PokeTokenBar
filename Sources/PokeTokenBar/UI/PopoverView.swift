@@ -112,7 +112,15 @@ struct PopoverView: View {
             } else if nav.tab == .shop {
                 ShopView(store: companion, nav: nav)
             } else {
-                CompanionHeader(store: companion)
+                CurrentLocationBar(store: companion)
+                if companion.isTraveling {
+                    TravelJourneyHeroCard(store: companion)
+                } else {
+                    CompanionHeader(store: companion)
+                    if !companion.hasActive && !companion.isEgg {
+                        LocationPromptView(store: companion)
+                    }
+                }
                 Divider()
                 header
                 Divider()

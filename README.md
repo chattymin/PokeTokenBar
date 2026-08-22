@@ -17,15 +17,19 @@
 
 </div>
 
-PokeTokenBar turns the AI coding tokens you're already burning — Claude Code, Codex, Gemini CLI, Antigravity, OpenCode, Hermes Agent, Cursor, Grok CLI, Copilot CLI, Kiro CLI, Pi Agent & omp — into a growing **Pokémon companion** in your macOS menu bar. Spend tokens, hatch an egg, evolve it through its real evolution line, graduate it into your Pokédex, and start again. Underneath the companion it's a precise usage tracker — today's spend, cost, and official 5-hour / weekly limits, read straight from your local logs.
+PokeTokenBar turns the AI coding tokens you're already burning — Claude Code, Codex, Gemini CLI, Antigravity, OpenCode, Hermes Agent, Cursor, Grok CLI, Copilot CLI, Kiro CLI, Pi Agent & omp — into a growing **Pokémon companion** in your macOS menu bar. Spend tokens, travel across regions, hatch location eggs, evolve through real evolution lines, graduate into your Pokédex, and explore new locations. Underneath the companion it's a precise usage tracker — today's spend, cost, and official 5-hour / weekly limits, read straight from your local logs.
+=======
+PokeTokenBar turns the AI coding tokens you're already burning — Claude Code, Codex, Gemini CLI, Antigravity, OpenCode, Hermes Agent, Cursor, Grok CLI, Copilot CLI & Kiro CLI — into a growing **Pokémon companion** in your macOS menu bar. Spend tokens, travel across regions, hatch location eggs, evolve through real evolution lines, graduate into your Pokédex, and explore new locations. Underneath the companion it's a precise usage tracker — today's spend, cost, and official 5-hour / weekly limits, read straight from your local logs.
+>>>>>>> 0fc7e9c (feat: add progressive location travel, location eggs, x/y pokedex progress, and v2.6.0 updates)
 
 > Token usage is read directly from local Claude Code, Codex, Gemini CLI, Antigravity, OpenCode, Hermes Agent, Cursor, Grok CLI, Copilot CLI, Kiro CLI, Pi Agent, and omp data (`totalTokens` = input + output + cache, local date) — no external CLI needed. Unofficial, non-commercial Pokémon fan project — see [License & disclaimer](#license--disclaimer).
 
 ## Why
 
-- **The usage tracker you actually enjoy opening.** Your spend raises a Pokémon that hatches, evolves, graduates, and fills a Pokédex — and every shiny is a reason to check back.
+- **The usage tracker you actually enjoy opening.** Your spend raises a Pokémon that hatches, evolves, graduates, and fills a Pokédex — and every location discovery and shiny is a reason to check back.
 - See today's token spend & cost at a glance — no dashboard, no browser tab.
 - Track official **5-hour / weekly** limits with reset countdowns and a burn-rate forecast for when you'll hit them.
+- **Travel 5 Regions & 523 Locations** while coding, tracking your location Pokédex progress (`x/y caught`).
 
 <div align="center">
 <img src="assets/screenshot-home.gif" width="420" alt="Popover home — companion, today's tokens, official limits">
@@ -33,12 +37,13 @@ PokeTokenBar turns the AI coding tokens you're already burning — Claude Code, 
 
 ## How it works
 
-1. 🥚 **Code as usual.** The tokens you burn in Claude Code, Codex, Gemini CLI, Antigravity, OpenCode, Hermes Agent, Cursor, Grok CLI, Copilot CLI, Kiro CLI, Pi Agent, or omp incubate an egg — nothing extra to run.
-2. 🐣 **Hatch.** Eggs hatch into Pokémon with real evolution lines from [PokéAPI](https://pokeapi.co/) — any Gen 1–5 line (329 possible starts), weighted by the official capture rate: commons hatch often, a legendary is a 1-in-129 event. It appears in your **Pokédex** immediately while you raise it. Every hatch rolls one of 25 natures — and once in a rare while, the egg hatches **✨ Shiny**.
-3. ⚡ **Evolve.** Keep coding and it grows through its actual evolution tree (1/2/3 stages, branching), with a little flash celebration at each step.
-4. 🎓 **Graduate & collect.** Final form + threshold permanently archives it in your **Pokédex** — rarer takes longer (≈3 days common → ≈24 days legendary at heavy use) — and a fresh egg arrives.
-5. 🍬 **Max out, get a candy.** Fill a 5-hour or weekly usage limit and you earn **Rare Candy** — spend it from the **Bag** to grow your current Pokémon.
-6. 🛒 **Spend at the Shop.** Every token you've used is spendable currency — buy **Rare Candy**, a **Mint** that re-rolls your Pokémon's nature, a **Shiny Charm** that permanently raises your shiny odds, or an egg to send off your current companion and start over. Eggs come in three grades: a plain **Pokémon Egg**, an **Uncommon Egg** guaranteed to hatch Uncommon or better, and a **Rare Egg** guaranteed to hatch Rare or better.
+1. 🥚 **Code as usual.** The tokens you burn in Claude Code, Codex, Gemini CLI, Antigravity, OpenCode, Hermes Agent, Cursor, Grok CLI, Copilot CLI, Kiro CLI, Pi Agent, or omp incubate an egg or advance your travel journey — nothing extra to run.
+2. 🗺️ **Travel & Explore.** Travel across 5 regions and 523 dynamic locations from [PokéAPI](https://pokeapi.co/). Coding tokens propel your travel progress towards your destination, with notifications at 50% and arrival.
+3. 🐣 **Hatch Location Eggs.** Eggs hatch into Pokémon found at your current location, weighted by official capture rates: commons hatch often, a legendary is a rare event. Track location species progress (`x/y caught`) for every location to fill your Pokédex! Every hatch rolls one of 25 natures — and once in a rare while, the egg hatches **✨ Shiny**.
+4. ⚡ **Evolve.** Keep coding and it grows through its actual evolution tree (1/2/3 stages, branching), with a little flash celebration at each step.
+5. 🎓 **Graduate & collect.** Final form + threshold permanently archives it in your **Pokédex** — rarer takes longer (≈3 days common → ≈24 days legendary at heavy use) — and a fresh egg arrives.
+6. 🍬 **Max out, get a candy.** Fill a 5-hour or weekly usage limit and you earn **Rare Candy** — spend it from the **Bag** to grow your current Pokémon.
+7. 🛒 **Spend at the Shop.** Every token you've used is spendable currency — buy **Rare Candy**, a **Mint** that re-rolls your Pokémon's nature, a **Shiny Charm** that permanently raises your shiny odds, or an egg to send off your current companion and start over. Eggs come in three grades: a plain **Pokémon Egg**, an **Uncommon Egg** guaranteed to hatch Uncommon or better, and a **Rare Egg** guaranteed to hatch Rare or better.
 
 ## Tour
 
@@ -66,8 +71,8 @@ Shiny hatches keep their distinct colors through every evolution — menu bar, h
 </tr>
 <tr>
 <td width="55%" valign="middle">
-<h3>A Pokédex worth filling</h3>
-The <b>Pokédex</b> folds every species you've owned into one cell — 24 per page in dex-number order, and a ✨ on the ones you own shiny. The <b>Catch log</b> keeps the individuals: newest first, each with its full evolution line, rarity, nature, and capture date.
+<h3>A Pokédex worth filling (`x/y` Progress)</h3>
+The <b>Pokédex</b> folds every species you've owned into one cell — 24 per page in dex-number order, and a ✨ on the ones you own shiny. Track location wild species progress (<code>🐾 x/y caught</code>) across all 523 locations to systematically complete your Pokédex region by region.
 </td>
 <td width="45%" align="center"><img src="assets/screenshot-collection-pokedex.png" width="300" alt="Pokédex — one cell per species"><br><br><img src="assets/screenshot-collection-catchlog.png" width="300" alt="Catch log — one row per Pokémon raised"></td>
 </tr>
@@ -75,7 +80,7 @@ The <b>Pokédex</b> folds every species you've owned into one cell — 24 per pa
 <td width="45%" align="center"><img src="assets/settings.png" width="300" alt="Settings"></td>
 <td width="55%" valign="middle">
 <h3>Tune it your way</h3>
-Menu-bar items, refresh interval (1–15 min or manual), launch at login, a Keychain opt-out that just hides the limits section, limit alerts with warning/critical thresholds, and companion event notifications. Full <b>KO / EN / JA / ES / FR / PT</b> UI and Pokémon names.
+Menu-bar items, refresh interval (1–15 min or manual), launch at login, a Keychain opt-out that just hides the limits section, limit alerts with warning/critical thresholds, travel notifications, and companion event notifications. Full <b>KO / EN / JA / ES / FR / PT</b> UI and Pokémon names.
 </td>
 </tr>
 <tr>

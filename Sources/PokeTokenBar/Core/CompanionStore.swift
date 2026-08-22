@@ -71,6 +71,101 @@ final class CompanionStore {
 
     var language: AppLanguage { state.language }
     func setLanguage(_ lang: AppLanguage) { state.language = lang; save() }
+    var activeRegionID: Int? { state.activeRegionID }
+    func setActiveRegionID(_ id: Int?) {
+        guard state.activeRegionID != id else { return }
+        state.activeRegionID = id
+        if state.active == nil {
+            state.pendingHatchID = nil
+            prefetchedLineID = nil
+        }
+        save()
+        Task { await ensureEggPrefetch() }
+    }
+
+    var currentLocationID: String { state.currentLocationID }
+    var currentRegionID: Int { state.currentRegionID }
+    var hasClaimedEggForLocation: Bool { state.hasClaimedEggForLocation }
+
+    func fetchLocations(regionID: Int) async -> [LocationInfo] {
+        (try? await provider.fetchLocations(regionID: regionID)) ?? []
+    }
+
+    /// 현재 위치에서 알을 선택해 품기 시작 — 흔한(common) 포켓몬 알만 지급.
+    func claimEggAtCurrentLocation() async {
+        guard state.active == nil, !isHatching else { return }
+        let generation = activeGeneration
+        isHatching = true
+        defer { isHatching = false }
+
+        let regionID = state.currentRegionID
+        let locationID = state.currentLocationID
+        let encounterIDs = (try? await provider.fetchLocationEncounterSpeciesIDs(locationID: locationID)) ?? []
+        let fullBases = (try? await provider.baseSpeciesIndex()) ?? []
+
+        let commonBasesInRegion = fullBases.filter { $0.generationID == regionID && $0.captureRate >= 121 }
+        let locationBases = commonBasesInRegion.filter { encounterIDs.contains($0.id) }
+        let candidates = locationBases.isEmpty ? (commonBasesInRegion.isEmpty ? fullBases : commonBasesInRegion) : locationBases
+
+        guard activeGeneration == generation, state.active == nil else { return }
+        guard let chosen = candidates.randomElement(using: &rng) ?? fullBases.randomElement(using: &rng) else { return }
+
+        state.pendingHatchID = chosen.id
+        state.hasClaimedEggForLocation = true
+        save()
+        Task { await self.ensureEggPrefetch() }
+    }
+
+    var isTraveling: Bool { state.travelDestinationID != nil }
+    var travelDestinationID: String? { state.travelDestinationID }
+    var travelDestinationRegionID: Int? { state.travelDestinationRegionID }
+    var travelTargetTokens: Int { state.travelTargetTokens }
+    var travelTokensUsed: Int { state.travelTokensUsed }
+    var travelProgress: Double {
+        guard state.travelTargetTokens > 0 else { return 0 }
+        return min(1.0, Double(state.travelTokensUsed) / Double(state.travelTargetTokens))
+    }
+    var travelTokensRemaining: Int {
+        max(0, state.travelTargetTokens - state.travelTokensUsed)
+    }
+
+    /// 이동 여정 커밋먼트 시작 — 기존 포켓몬/알이 있다면 포기하고 새로운 여정을 시작.
+    @discardableResult
+    func startTravelJourney(to location: LocationInfo) -> Bool {
+        let isSameRegion = location.regionID == state.currentRegionID
+        let target = isSameRegion ? PokemonBalance.sameRegionTravelCost : PokemonBalance.differentRegionTravelCost
+        state.active = nil
+        currentLine = nil
+        state.eggUsage = 0
+        state.pendingHatchID = nil
+        state.hasClaimedEggForLocation = false
+        state.travelDestinationID = location.id
+        state.travelDestinationRegionID = location.regionID
+        state.travelTargetTokens = target
+        state.travelTokensUsed = 0
+        state.travelNotifiedHalfway = false
+        save()
+        let destName = location.localizedName(state.language)
+        let regName = l.regionName(id: location.regionID)
+        notifyCompanionEvent(l.travelStartedNotifTitle(destName), l.travelStartedNotifBody(destName, regName))
+        return true
+    }
+
+    /// 진행 중인 이동 여정 취소 — 원래 출발지에 남는다.
+    func cancelTravelJourney() {
+        if let destID = state.travelDestinationID, let destRegionID = state.travelDestinationRegionID {
+            let destLoc = (PokeAPIClient.fallbackLocations[destRegionID] ?? []).first(where: { $0.id == destID })
+            let destName = destLoc?.localizedName(state.language) ?? destID.capitalized.replacingOccurrences(of: "-", with: " ")
+            notifyCompanionEvent(l.travelCancelledNotifTitle, l.travelCancelledNotifBody(destName))
+        }
+        state.travelDestinationID = nil
+        state.travelDestinationRegionID = nil
+        state.travelTargetTokens = 0
+        state.travelTokensUsed = 0
+        state.travelNotifiedHalfway = false
+        save()
+    }
+
     /// 앱 전체 UI 문자열 — language 변경 시 자동 재렌더.
     var l: L { L(language) }
 
@@ -116,14 +211,19 @@ final class CompanionStore {
     }
 
     // 알 인큐베이션 (active 없을 때)
-    var isEgg: Bool { state.active == nil }
+    var isEgg: Bool { state.active == nil && state.hasClaimedEggForLocation }
     var eggStarted: Bool { state.eggUsage > 0 }
     var eggProgress: Double { min(1, max(0, Double(state.eggUsage) / Double(PokemonBalance.eggHatchThreshold))) }
     var eggTokensToHatch: Int { max(0, PokemonBalance.eggHatchThreshold - state.eggUsage) }
 
     var displayName: String {
-        guard let a = state.active, let line = currentLine else { return "Token Egg" }
-        return line.localizedName(a.currentID, state.language)
+        if let a = state.active, let line = currentLine {
+            return line.localizedName(a.currentID, state.language)
+        }
+        if isEgg {
+            return l.eggName(state.eggTier)
+        }
+        return l.noEggHeaderTitle
     }
     var currentSpeciesID: Int? { state.active?.currentID }
     var isFinalStage: Bool {
@@ -279,6 +379,11 @@ final class CompanionStore {
         }
     }
 
+    /// 사용자가 보유/등록한 모든 종 ID 집합 (도감 + 현재 활성 개체)
+    var caughtSpeciesIDs: Set<Int> {
+        Set(dexSpecies.map(\.id))
+    }
+
     /// 이름이 없는 구버전 졸업 항목의 체인 이름을 채운다(도감 격자 진입 시 1회).
     ///
     /// 격자는 저장된 이름만 읽으므로 백필이 없으면 칸이 종 번호(`#41`)로 남는다. 포획 로그는 행이
@@ -317,7 +422,44 @@ final class CompanionStore {
         })
     }
 
-    // MARK: 갱신 (AppDelegate 가 UsageStore 값으로 호출)
+    private func applyDeltaUsage(_ delta: Int) {
+        guard delta > 0 else { return }
+        state.usedSinceInstall += delta
+        if state.active == nil {
+            if state.travelDestinationID != nil {
+                state.travelTokensUsed += delta
+                if !state.travelNotifiedHalfway && state.travelTokensUsed >= state.travelTargetTokens / 2 && state.travelTargetTokens > 0 {
+                    state.travelNotifiedHalfway = true
+                    let destID = state.travelDestinationID!
+                    let destRegionID = state.travelDestinationRegionID ?? state.currentRegionID
+                    let destLoc = (PokeAPIClient.fallbackLocations[destRegionID] ?? []).first(where: { $0.id == destID })
+                    let destName = destLoc?.localizedName(state.language) ?? destID.capitalized.replacingOccurrences(of: "-", with: " ")
+                    notifyCompanionEvent(l.travelHalfwayNotifTitle(destName), l.travelHalfwayNotifBody(destName))
+                }
+                if state.travelTokensUsed >= state.travelTargetTokens {
+                    let destID = state.travelDestinationID!
+                    let destRegionID = state.travelDestinationRegionID ?? state.currentRegionID
+                    state.currentLocationID = destID
+                    state.currentRegionID = destRegionID
+                    state.travelDestinationID = nil
+                    state.travelDestinationRegionID = nil
+                    state.travelTargetTokens = 0
+                    state.travelTokensUsed = 0
+                    state.travelNotifiedHalfway = false
+                    state.hasClaimedEggForLocation = false
+                    
+                    let destLoc = (PokeAPIClient.fallbackLocations[destRegionID] ?? []).first(where: { $0.id == destID })
+                    let destName = destLoc?.localizedName(state.language) ?? destID.capitalized.replacingOccurrences(of: "-", with: " ")
+                    let regName = l.regionName(id: destRegionID)
+                    notifyCompanionEvent(l.arrivedNotifTitle(destName), l.arrivedNotifBody(destName, regName))
+                }
+            } else if state.hasClaimedEggForLocation {
+                state.eggUsage += delta
+            }
+        } else {
+            applyUsage(delta)
+        }
+    }
 
     func update(todayTokensByProvider: [String: Int], todayDate: String, monthTotal: Int,
                 burnTier: BurnTier, limitWarning: Bool, hasUsageData: Bool) {
@@ -374,12 +516,7 @@ final class CompanionStore {
                     state.claimedTodayTokensByProvider = newLedger
                     let delta = todayTokensByProvider.values.reduce(0, +)
                     if delta > 0 {
-                        state.usedSinceInstall += delta
-                        if state.active == nil {
-                            state.eggUsage += delta
-                        } else {
-                            applyUsage(delta)
-                        }
+                        applyDeltaUsage(delta)
                     }
                 } else {
                     var ledger = state.claimedTodayTokensByProvider ?? [:]
@@ -404,12 +541,7 @@ final class CompanionStore {
                     }
                     state.claimedTodayTokensByProvider = ledger
                     if delta > 0 {
-                        state.usedSinceInstall += delta
-                        if state.active == nil {
-                            state.eggUsage += delta   // 알 인큐베이션 누적
-                        } else {
-                            applyUsage(delta)
-                        }
+                        applyDeltaUsage(delta)
                     }
                 }
             }
@@ -422,11 +554,11 @@ final class CompanionStore {
         }
         // 알 상태 프리패칭 — 종 pre-roll + 라인/스프라이트 예열(부화 순간 딜레이 제거).
         // 성공할 때까지 매 update 틱마다 재시도(성공 후엔 no-op).
-        if state.active == nil, state.installBaselineSet, !isHatching {
+        if state.active == nil, state.hasClaimedEggForLocation, state.installBaselineSet, !isHatching {
             Task { await ensureEggPrefetch() }
         }
         // 알이 부화 임계에 도달하면 부화
-        if state.active == nil, state.eggUsage >= PokemonBalance.eggHatchThreshold, !isHatching {
+        if state.active == nil, state.hasClaimedEggForLocation, state.eggUsage >= PokemonBalance.eggHatchThreshold, !isHatching {
             Task { await hatchIfNeeded() }
         }
         // active 인데 라인 미로딩(앱 재시작) → 로드
@@ -574,14 +706,12 @@ final class CompanionStore {
         notifyCompanionEvent(l.notifGraduateTitle, l.notifGraduateBody(name))
         eventUntil = clock().addingTimeInterval(6)
         state.active = nil
+        state.hasClaimedEggForLocation = false
+        state.pendingHatchID = nil
         state.reconcileRepresentativeSelection()   // 졸업 체인이 dex 로 옮겨져 선택은 정상적으로 유지된다
         activeGeneration += 1
         currentLine = nil
-        state.eggUsage = 0   // 새 알은 처음부터 인큐베이션
-        // eggTier 는 손대지 않는다 — 여기 도달했다는 건 활성 포켓몬이 있었다는 뜻이라 보증은 이미 nil 이다
-        // (부화가 소비, 디스크/불러오기는 sanitized 가 정규화). 소비 지점은 hatchCore 한 곳으로 유지한다.
-        // "알을 받는 순간" 즉시 프리패칭 시작 — 다음 부화의 종·라인·스프라이트 예열.
-        Task { await self.ensureEggPrefetch() }
+        state.eggUsage = 0
     }
 
     // MARK: 인벤토리 / 이상한 사탕
@@ -754,6 +884,22 @@ final class CompanionStore {
         return true
     }
 
+    /// 현재 위치에서 프리미엄/보증 알 구매 및 인큐베이션 시작
+    @discardableResult
+    func buyEggAtCurrentLocation(_ tier: Rarity?) -> Bool {
+        let price = FreshEgg.price(guaranteeing: tier)
+        guard availableTokens >= price else { return false }
+        state.spentTokens += price
+        state.active = nil
+        state.eggUsage = 0
+        state.eggTier = tier
+        state.hasClaimedEggForLocation = true
+        state.travelDestinationID = nil
+        save()
+        Task { await self.ensureEggPrefetch() }
+        return true
+    }
+
     // 보증 없는 기본 알 래퍼 — 기존 호출부/테스트 호환.
     var canBuyFreshEgg: Bool { canBuyEgg(nil) }
     @discardableResult
@@ -823,7 +969,7 @@ final class CompanionStore {
     // MARK: 부화
 
     func hatchIfNeeded() async {
-        guard state.active == nil, !isHatching, state.eggUsage >= PokemonBalance.eggHatchThreshold else { return }
+        guard state.active == nil, !isHatching, state.eggUsage >= PokemonBalance.eggHatchThreshold, state.hasClaimedEggForLocation else { return }
         // 프리패치가 "종 롤 중"(pending 미확정)일 때만 대기 — 이중 rng 소비 방지.
         // pending 확정 후의 예열(라인/스프라이트)과는 동시 진행해도 안전하다.
         guard state.pendingHatchID != nil || !prefetchInFlight else { return }
@@ -872,7 +1018,7 @@ final class CompanionStore {
     /// fetch(provider 캐시 적재) ③ 스프라이트 예열(정적+애니메이션+shiny 애니메이션).
     /// 전부 성공하면 부화 순간 네트워크 0. 실패 지점부터 다음 update 틱에 이어서 재시도.
     private func ensureEggPrefetch() async {
-        guard state.active == nil, !isHatching, !prefetchInFlight else { return }
+        guard state.active == nil, !isHatching, !prefetchInFlight, state.hasClaimedEggForLocation else { return }
         let generation = activeGeneration
         prefetchInFlight = true
         defer { prefetchInFlight = false }
@@ -1045,13 +1191,35 @@ final class CompanionStore {
     /// 인덱스 취득 실패(오프라인 + 캐시 없음) 시 nil → 알 유지, 다음 갱신 틱 재시도.
     private func chooseBase() async -> Int? {
         let tier = state.eggTier
+        let regionID = state.currentRegionID
+        let locationID = state.currentLocationID
+
         if let full = try? await provider.baseSpeciesIndex(), !full.isEmpty {
-            // 등급 보증 알은 후보를 먼저 좁힌다 — capture_rate 상한이 곧 등급 하한이므로
-            // (Rarity.captureRateCeiling) 전설도 자연히 포함된다("희귀 이상"에 전설이 들어가는 게 정상).
-            // 좁힌 결과가 비면 보증을 못 지키므로 전체 풀로 폴백하지 말고 알을 유지한다(다음 틱 재시도).
-            let index = tier.map { t in full.filter { t.includes(captureRate: $0.captureRate) } } ?? full
+            // 1. 현재 지역 및 등급 보증 필터링
+            let regionTierCandidates = full.filter { e in
+                (tier == nil || tier!.includes(captureRate: e.captureRate)) &&
+                (e.generationID == regionID)
+            }
+            
+            // 2. 현재 장소(Location)에 출현하는 종이 있다면 좁히기
+            var index = regionTierCandidates
+            if let encounterIDs = try? await provider.fetchLocationEncounterSpeciesIDs(locationID: locationID),
+               !encounterIDs.isEmpty {
+                let locationTierCandidates = regionTierCandidates.filter { encounterIDs.contains($0.id) }
+                if !locationTierCandidates.isEmpty {
+                    index = locationTierCandidates
+                }
+            }
+
+            // 3. 해당 지역에 등급 후보가 없는 예외 경우 전체 지역 등급 후보로 폴백
+            if index.isEmpty {
+                index = full.filter { e in
+                    tier == nil || tier!.includes(captureRate: e.captureRate)
+                }
+            }
+
             guard !index.isEmpty else {
-                AppLog.write("hatch: no candidate for guaranteed \(tier?.rawValue ?? "none") — egg kept, retry next tick")
+                AppLog.write("hatch: no candidate for guaranteed tier=\(tier?.rawValue ?? "none") region=\(regionID) location=\(locationID)")
                 return nil
             }
             let weights = index.map { e in
@@ -1072,19 +1240,18 @@ final class CompanionStore {
     }
 
     /// REST 폴백 — animated 에셋 지원 범위에서 무작위 id 를 뽑아 base 인지 확인(rejection sampling).
-    /// GraphQL 인덱스가 죽어도 부화가 되게 한다. 가중치(capture_rate)는 생략 — 희귀도는 부화 후
-    /// line() 이 실제 capture_rate 로 계산하므로 결과 개체의 등급은 정확하다. 인덱스 복구 시 가중 선택 재개.
     private func chooseBaseViaREST() async -> Int? {
         let tier = state.eggTier
+        let regionID = state.currentRegionID
         for attempt in 1...16 {
             let ids = PokemonAssets.animatedSpeciesIDs
             let id = Int(rng.next() % UInt64(ids.count)) + ids.lowerBound
             do {
                 if let bs = try await provider.baseSpecies(id: id) {
-                    // 등급 보증은 가중 경로와 **같은 기준**으로 여기서도 걸러야 한다 — 이 폴백만 빠지면
-                    // GraphQL 인덱스 장애 때 보증이 조용히 깨진다. 못 찾으면 알 유지(구매 소멸 금지).
+                    // 등급 보증 및 지역 조건 검사
                     if let tier, !tier.includes(captureRate: bs.captureRate) { continue }
-                    AppLog.write("hatch: REST fallback picked base \(id) (cap \(bs.captureRate), \(attempt) tries)")
+                    if bs.generationID != regionID { continue }
+                    AppLog.write("hatch: REST fallback picked base \(id) (cap \(bs.captureRate), region \(bs.generationID), \(attempt) tries)")
                     return id
                 }
                 // nil = base 아님(진화 중간체) → 다음 시도

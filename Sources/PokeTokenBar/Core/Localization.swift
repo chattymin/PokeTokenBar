@@ -120,6 +120,20 @@ struct L {
     // MARK: 설정
     var refreshInterval: String { t("새로고침 간격", "Refresh interval", "更新間隔", "Intervalo de actualización", "Intervalle d'actualisation", "Intervalo de atualização") }
     var language: String { t("언어", "Language", "言語", "Idioma", "Langue", "Idioma") }
+    var activeRegionSectionTitle: String { t("활성 지역 (알 부화)", "Active region (Egg hatch)", "アクティブな地方（タマゴ孵化）", "Región activa (Eclosión de huevos)", "Région active (Éclosion d'œuf)", "Região ativa (Eclosão de ovo)") }
+    var activeRegionLabel: String { t("부화 지역", "Hatching region", "孵化する地方", "Región de eclosión", "Région d'éclosion", "Região de eclosão") }
+    var allRegions: String { t("전체 지역", "All regions", "すべての地方", "Todas las regiones", "Toutes les régions", "Todas as regiões") }
+    func regionEggBadge(_ regionName: String) -> String { "📍 \(regionName)" }
+    func regionName(id: Int) -> String {
+        switch id {
+        case 1: return t("관동", "Kanto", "カントー", "Kanto", "Kanto", "Kanto")
+        case 2: return t("성도", "Johto", "ジョウト", "Johto", "Johto", "Johto")
+        case 3: return t("호연", "Hoenn", "ホウエン", "Hoenn", "Hoenn", "Hoenn")
+        case 4: return t("신오", "Sinnoh", "シンオウ", "Sinnoh", "Sinnoh", "Sinnoh")
+        case 5: return t("하나", "Unova", "イッシュ", "Teselia", "Unys", "Unova")
+        default: return allRegions
+        }
+    }
     var menuBarItems: String { t("메뉴바 표시 항목 (복수 선택)", "Menu bar items (multi-select)", "メニューバー表示項目（複数選択）", "Elementos de la barra de menús (selección múltiple)", "Éléments de la barre des menus (sélection multiple)", "Itens da barra de menus (seleção múltipla)") }
     var todayTokensShort: String { t("오늘 토큰", "Today's tokens", "本日のトークン", "Tokens de hoy", "Tokens du jour", "Tokens de hoje") }
     var todayCost: String { t("오늘 비용 ($)", "Today's cost ($)", "本日のコスト ($)", "Coste de hoy ($)", "Coût du jour ($)", "Custo de hoje ($)") }

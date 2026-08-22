@@ -116,6 +116,15 @@ extension PokeProviding {
     func baseSpecies(id: Int) async throws -> BaseSpecies? {
         try await baseSpeciesIndex().first { $0.id == id }
     }
+    func fetchRegions() async throws -> [RegionInfo] {
+        PokeAPIClient.fallbackRegions
+    }
+    func fetchLocations(regionID: Int) async throws -> [LocationInfo] {
+        PokeAPIClient.fallbackLocations[regionID] ?? []
+    }
+    func fetchLocationEncounterSpeciesIDs(locationID: String) async throws -> Set<Int> {
+        []
+    }
 }
 
 private enum PokeStubError: Error { case boom }
@@ -1697,5 +1706,141 @@ final class PokeAPIGuardTests: XCTestCase {
         XCTAssertNil(PokeAPIClient.validatedChainURL("https://pokeapi.co.evil.com/x"), "유사 호스트 거부")
         XCTAssertNil(PokeAPIClient.validatedChainURL("http://pokeapi.co/x"), "http 거부(https 고정)")
         XCTAssertNil(PokeAPIClient.validatedChainURL(""), "빈 문자열 거부")
+    }
+}
+
+// MARK: 지역 (Region) 및 알 부화 지역 필터링 테스트
+
+private struct MultiRegionIndexProvider: PokeProviding {
+    let speciesList: [BaseSpecies]
+    func line(baseSpeciesID: Int) async throws -> EvoLine { makeLine(base: baseSpeciesID, tree: node(baseSpeciesID)) }
+    func baseSpeciesIndex() async throws -> [BaseSpecies] { speciesList }
+}
+
+final class RegionTests: XCTestCase {
+    func testBaseSpeciesGenerationInference() {
+        XCTAssertEqual(BaseSpecies(id: 1, captureRate: 45).generationID, 1)
+        XCTAssertEqual(BaseSpecies(id: 152, captureRate: 45).generationID, 2)
+        XCTAssertEqual(BaseSpecies(id: 252, captureRate: 45).generationID, 3)
+        XCTAssertEqual(BaseSpecies(id: 387, captureRate: 45).generationID, 4)
+        XCTAssertEqual(BaseSpecies(id: 494, captureRate: 45).generationID, 5)
+    }
+
+    func testCompanionStateActiveRegionPersistence() throws {
+        var state = CompanionState()
+        XCTAssertNil(state.activeRegionID)
+        state.activeRegionID = 2
+        let data = try JSONEncoder().encode(state)
+        let decoded = try JSONDecoder().decode(CompanionState.self, from: data)
+        XCTAssertEqual(decoded.activeRegionID, 2)
+    }
+
+    @MainActor
+    func testSetActiveRegionIDResetsPendingHatch() async {
+        let p = MultiRegionIndexProvider(speciesList: [
+            BaseSpecies(id: 1, captureRate: 45, generationID: 1),
+            BaseSpecies(id: 152, captureRate: 45, generationID: 2)
+        ])
+        let url = tempURL()
+        let store = CompanionStore(provider: p, fileURL: url)
+        store.setActiveRegionID(1)
+        XCTAssertEqual(store.activeRegionID, 1)
+
+        // Switch to Johto (2)
+        store.setActiveRegionID(2)
+        XCTAssertEqual(store.activeRegionID, 2)
+    }
+
+    @MainActor
+    func testRegionRestrictedHatch() async {
+        let species = [
+            BaseSpecies(id: 1, captureRate: 45, generationID: 1),   // Kanto
+            BaseSpecies(id: 152, captureRate: 45, generationID: 2)  // Johto
+        ]
+        let p = MultiRegionIndexProvider(speciesList: species)
+        let url = tempURL()
+        var s = CompanionState()
+        s.eggUsage = PokemonBalance.eggHatchThreshold
+        s.activeRegionID = 2 // Johto only!
+        let data = try! JSONEncoder().encode(s)
+        try! data.write(to: url)
+
+        let store = CompanionStore(provider: p, fileURL: url)
+        await store.hatchIfNeeded()
+
+        XCTAssertNotNil(store.state.active)
+        XCTAssertEqual(store.state.active?.baseID, 152, "Must hatch Johto species (#152)")
+    }
+}
+
+// MARK: 위치 & 여행 (Location & Travel) 테스트
+
+final class LocationAndTravelTests: XCTestCase {
+    func testDefaultStartLocationIsPalletTown() {
+        let state = CompanionState()
+        XCTAssertEqual(state.currentLocationID, "pallet-town")
+        XCTAssertEqual(state.currentRegionID, 1)
+        XCTAssertFalse(state.hasClaimedEggForLocation)
+    }
+
+    @MainActor
+    func testClaimEggAtCurrentLocationGrantsCommonEgg() async {
+        let species = [
+            BaseSpecies(id: 1, captureRate: 45, generationID: 1),    // rare/common threshold
+            BaseSpecies(id: 16, captureRate: 255, generationID: 1)   // Pidgey (common)
+        ]
+        let p = MultiRegionIndexProvider(speciesList: species)
+        let store = CompanionStore(provider: p, fileURL: tempURL())
+        XCTAssertFalse(store.hasClaimedEggForLocation)
+
+        await store.claimEggAtCurrentLocation()
+
+        XCTAssertTrue(store.hasClaimedEggForLocation)
+        XCTAssertEqual(store.state.pendingHatchID, 16, "Must pick common base species (#16)")
+    }
+
+    @MainActor
+    func testTravelJourneyProgressionAndArrival() async {
+        let p = MultiRegionIndexProvider(speciesList: [])
+        let url = tempURL()
+        let store = CompanionStore(provider: p, fileURL: url)
+
+        // Same region journey (Kanto -> Viridian City): 50M target
+        let viridian = LocationInfo(id: "viridian-city", regionID: 1, name: "viridian-city", names: [:])
+        let started = store.startTravelJourney(to: viridian)
+        XCTAssertTrue(started)
+        XCTAssertTrue(store.isTraveling)
+        XCTAssertEqual(store.travelDestinationID, "viridian-city")
+        XCTAssertEqual(store.travelTargetTokens, 50_000_000)
+        XCTAssertEqual(store.travelTokensUsed, 0)
+        XCTAssertEqual(store.travelProgress, 0.0)
+
+        // Simulate 25M token gain
+        base(store)
+        use(store, 25_000_000)
+        XCTAssertTrue(store.isTraveling)
+        XCTAssertEqual(store.travelTokensUsed, 25_000_000)
+        XCTAssertEqual(store.travelProgress, 0.5)
+        XCTAssertEqual(store.currentLocationID, "pallet-town", "Location remains origin until arrival")
+
+        // Simulate another 25M token gain (reaching 50M 100%)
+        use(store, 50_000_000)
+
+        XCTAssertFalse(store.isTraveling, "Journey completes upon hitting 100%")
+        XCTAssertEqual(store.currentLocationID, "viridian-city", "Arrived at destination")
+    }
+
+    @MainActor
+    func testCancelTravelJourney() {
+        let p = MultiRegionIndexProvider(speciesList: [])
+        let store = CompanionStore(provider: p, fileURL: tempURL())
+        let goldenrod = LocationInfo(id: "goldenrod-city", regionID: 2, name: "goldenrod-city", names: [:])
+
+        store.startTravelJourney(to: goldenrod)
+        XCTAssertTrue(store.isTraveling)
+
+        store.cancelTravelJourney()
+        XCTAssertFalse(store.isTraveling)
+        XCTAssertEqual(store.currentLocationID, "pallet-town", "Remains at origin after cancellation")
     }
 }
