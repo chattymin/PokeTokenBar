@@ -53,6 +53,12 @@ protocol PokeProviding: Sendable {
     func fetchLocationEncounterSpeciesIDs(locationID: String) async throws -> Set<Int>
 }
 
+extension PokeProviding {
+    func fetchRegions() async throws -> [RegionInfo] { [] }
+    func fetchLocations(regionID: Int) async throws -> [LocationInfo] { [] }
+    func fetchLocationEncounterSpeciesIDs(locationID: String) async throws -> Set<Int> { [] }
+}
+
 /// PokéAPI 클라이언트 — 종/진화체인을 런타임 fetch + 파싱. 포켓몬 데이터는 레포에 번들하지 않는다.
 /// species 응답은 actor 캐시(다국어 이름 재사용).
 actor PokeAPIClient: PokeProviding {
