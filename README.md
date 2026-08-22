@@ -6,12 +6,10 @@
 
 **Your AI coding tokens, hatched into Pokémon — right in your menu bar.**
 
-[![Release](https://img.shields.io/github/v/release/chattymin/PokeTokenBar?color=444d56&label=release)](https://github.com/chattymin/PokeTokenBar/releases)
+[![Release](https://img.shields.io/github/v/release/MSommo/PokeTokenBar?color=444d56&label=release)](https://github.com/MSommo/PokeTokenBar/releases)
 [![macOS](https://img.shields.io/badge/macOS-14%2B-0969da)](https://www.apple.com/macos/)
 [![Swift](https://img.shields.io/badge/Swift-6-f05138)](https://swift.org)
-[![Homebrew](https://img.shields.io/badge/Homebrew-cask-8957e5)](#homebrew)
 [![License](https://img.shields.io/badge/license-MIT-3fb950)](LICENSE)
-[![Sponsor](https://img.shields.io/badge/Sponsor-%E2%99%A5-ea4aaa?logo=githubsponsors&logoColor=white)](https://github.com/sponsors/chattymin)
 
 **English** · [한국어](README.ko.md) · [日本語](README.ja.md)
 
@@ -57,8 +55,8 @@ Move your companion out of the menu bar and onto the desktop, at any size from 4
 </tr>
 <tr>
 <td width="55%" valign="middle">
-<h3>In your menu bar</h3>
-An animated Gen-V sprite lives next to today's total tokens (compact, e.g. <code>200.7M</code>). Add today's cost (<code>$</code>) or official limit <code>%</code> — or turn everything off for a character-only bar.
+<h3>In your menu bar & Status Icons</h3>
+An animated Gen-V sprite lives next to today's total tokens (compact, e.g. <code>200.7M</code>). The status bar icon dynamically updates between <code>✈️</code> (Traveling), <code>📍</code> (Arrived / Ready for Egg), <code>🥚</code> (Incubating Egg), and <code>🐹</code> (Active Pokémon).
 </td>
 <td width="45%" align="center"><img src="assets/menubar.gif" width="240" alt="Menu bar"></td>
 </tr>

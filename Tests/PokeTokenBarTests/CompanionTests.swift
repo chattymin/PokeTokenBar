@@ -1773,6 +1773,18 @@ final class RegionTests: XCTestCase {
     }
 }
 
+fileprivate func tempURL() -> URL {
+    FileManager.default.temporaryDirectory.appendingPathComponent("poke-\(UUID().uuidString).json")
+}
+
+fileprivate func testBase(_ s: CompanionStore) {
+    s.update(todayTokensByProvider: ["test": 0], todayDate: "d1", monthTotal: 0, burnTier: .idle, limitWarning: false, hasUsageData: true)
+}
+
+fileprivate func testUse(_ s: CompanionStore, _ today: Int) {
+    s.update(todayTokensByProvider: ["test": today], todayDate: "d1", monthTotal: 0, burnTier: .idle, limitWarning: false, hasUsageData: true)
+}
+
 // MARK: 위치 & 여행 (Location & Travel) 테스트
 
 final class LocationAndTravelTests: XCTestCase {
@@ -1816,15 +1828,15 @@ final class LocationAndTravelTests: XCTestCase {
         XCTAssertEqual(store.travelProgress, 0.0)
 
         // Simulate 25M token gain
-        base(store)
-        use(store, 25_000_000)
+        testBase(store)
+        testUse(store, 25_000_000)
         XCTAssertTrue(store.isTraveling)
         XCTAssertEqual(store.travelTokensUsed, 25_000_000)
         XCTAssertEqual(store.travelProgress, 0.5)
         XCTAssertEqual(store.currentLocationID, "pallet-town", "Location remains origin until arrival")
 
         // Simulate another 25M token gain (reaching 50M 100%)
-        use(store, 50_000_000)
+        testUse(store, 50_000_000)
 
         XCTAssertFalse(store.isTraveling, "Journey completes upon hitting 100%")
         XCTAssertEqual(store.currentLocationID, "viridian-city", "Arrived at destination")
