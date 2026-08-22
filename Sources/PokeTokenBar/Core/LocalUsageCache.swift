@@ -221,7 +221,9 @@ actor LocalUsageCache {
     func piEntries(modifiedSince: Date) -> [LocalUsageReader.Entry] {
         ensureLoaded()
         let fmt = LocalUsageReader.localDayFormatter()
-        let roots = LocalUsageReader.normalizedRoots(piRoots ?? LocalUsageReader.piSessionRoots)
+        let roots = piRoots ?? CustomScanRoots.union(
+            defaults: LocalUsageReader.piSessionRoots,
+            extraRaw: CustomScanRoots.storedValue(for: "pi"))
         var all: [LocalUsageReader.Entry] = []
         for root in roots {
             all += collect(root: root, since: modifiedSince, cache: &piCache) {
