@@ -174,7 +174,8 @@ final class UsageStore {
     private let statusProvider: any ProviderStatusProviding
     /// 설정 저장소 — 테스트는 suite 를 주입해 실제 사용자 설정을 오염시키지 않는다.
     private let defaults: UserDefaults
-    private var timer: Timer?
+    @ObservationIgnored nonisolated(unsafe) private var timer: Timer?
+    @ObservationIgnored nonisolated(unsafe) private var notificationTokens: [NSObjectProtocol] = []
     private var pollingSuspended = false   // 디스플레이 꺼짐 동안 폴링 정지 (배터리)
     private var emptyUsageRetryTask: Task<Void, Never>?
     /// 한도 알림 상태(엣지 트리거) — 창 이름 → 이미 알린 최고 tier(0=없음, 1=경고, 2=위험).
@@ -516,32 +517,48 @@ final class UsageStore {
         reschedule()
 
         // 자정 경계: 날짜가 바뀌면 "오늘" 버킷 즉시 갱신
-        NotificationCenter.default.addObserver(
-            forName: .NSCalendarDayChanged, object: nil, queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor in await self?.refresh() }
-        }
+        notificationTokens.append(
+            NotificationCenter.default.addObserver(
+                forName: .NSCalendarDayChanged, object: nil, queue: .main
+            ) { [weak self] _ in
+                Task { @MainActor in await self?.refresh() }
+            }
+        )
         // 슬립 복귀 시 즉시 갱신
-        NSWorkspace.shared.notificationCenter.addObserver(
-            forName: NSWorkspace.didWakeNotification, object: nil, queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor in await self?.refresh() }
-        }
+        notificationTokens.append(
+            NSWorkspace.shared.notificationCenter.addObserver(
+                forName: NSWorkspace.didWakeNotification, object: nil, queue: .main
+            ) { [weak self] _ in
+                Task { @MainActor in await self?.refresh() }
+            }
+        )
         // 디스플레이 꺼짐 → 폴링(ccusage 서브프로세스 spawn) 일시정지, 켜짐 → 재개 + 즉시 갱신 (배터리)
-        NSWorkspace.shared.notificationCenter.addObserver(
-            forName: NSWorkspace.screensDidSleepNotification, object: nil, queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor in self?.suspendPolling() }
-        }
-        NSWorkspace.shared.notificationCenter.addObserver(
-            forName: NSWorkspace.screensDidWakeNotification, object: nil, queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor in self?.resumePolling() }
-        }
+        notificationTokens.append(
+            NSWorkspace.shared.notificationCenter.addObserver(
+                forName: NSWorkspace.screensDidSleepNotification, object: nil, queue: .main
+            ) { [weak self] _ in
+                Task { @MainActor in self?.suspendPolling() }
+            }
+        )
+        notificationTokens.append(
+            NSWorkspace.shared.notificationCenter.addObserver(
+                forName: NSWorkspace.screensDidWakeNotification, object: nil, queue: .main
+            ) { [weak self] _ in
+                Task { @MainActor in self?.resumePolling() }
+            }
+        )
 
         // 알림 권한은 기동 즉시 묻지 않는다 — 앱을 이해하기 전 콜드 프롬프트는 거부율이 높고
         // 거부 시 재요청 경로가 없다. 팝오버 첫 오픈(사용자 의도)에 requestNotificationAuthorizationIfNeeded 로 1회 요청.
         if autoRefresh { Task { await refresh() } }
+    }
+
+    deinit {
+        timer?.invalidate()
+        for token in notificationTokens {
+            NotificationCenter.default.removeObserver(token)
+            NSWorkspace.shared.notificationCenter.removeObserver(token)
+        }
     }
 
     private func reschedule() {
