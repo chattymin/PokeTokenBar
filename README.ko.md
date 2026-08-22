@@ -159,7 +159,7 @@ swift test                   # 단위 테스트
 |---|---|---|
 | `~/.claude/projects/**/*.jsonl` | Claude Code daily/blocks/weekly/monthly | 직접 읽음; 메시지 id 로 중복제거; 증분 캐시 |
 | `~/.gemini/tmp/**/chats/*.json(l)` | Gemini CLI daily/monthly | 세션 레코드(메시지별 `tokens`); 주간 = daily 합산 |
-| `~/.gemini/antigravity-cli/conversations/*.db` | Antigravity daily/blocks/weekly/monthly | SQLite 읽기 전용; Cascade protobuf blob 의 호출별 사용량; Gemini 에 합산하지 않는 별도 프로바이더; 구독제라 비용은 추정하지 않음 |
+| `~/.gemini/antigravity/conversations/*.db`<br>`~/.gemini/antigravity-cli/conversations/*.db`<br>`~/.gemini/antigravity-ide/conversations/*.db` | Antigravity daily/blocks/weekly/monthly | SQLite 읽기 전용; Cascade protobuf blob 의 호출별 사용량; Antigravity 2.0/Core, CLI, IDE 모두 지원; Gemini 에 합산하지 않는 별도 프로바이더; 구독제라 비용은 추정하지 않음 |
 | `~/.codex/sessions/**/*.jsonl` | Codex daily/monthly | `token_count` 이벤트; 주간 = daily 합산 |
 | `~/.local/share/opencode/opencode.db` | OpenCode daily/blocks/weekly/monthly | SQLite 읽기 전용; 레거시 `storage/message` JSON도 지원 |
 | `~/.hermes/state.db` | Hermes Agent daily/blocks/weekly/monthly | SQLite 읽기 전용; 세션 토큰 합계와 저장된 비용 |
@@ -174,6 +174,8 @@ swift test                   # 단위 테스트
 | `raw.githubusercontent.com/PokeAPI/sprites` | 포켓몬·아이템 스프라이트 | 런타임 fetch; Application Support 에 캐시, 번들 안 함 |
 | `status.claude.com`, `status.openai.com` | 프로바이더 장애 배너 | statuspage 요약; 표시 전용 — 설정에서 끌 수 있음 |
 | `api.github.com` | 업데이트 확인 | 최신 릴리스 태그; 기동 시와 팝오버를 열 때 |
+
+로그가 **위 기본 경로 밖**에 있으면 **설정 → 고급 → 추가 스캔 폴더**에 그 폴더를 넣습니다. 프로바이더를 먼저 고르세요 — 폴더는 그 프로바이더만 파싱하므로, Gemini 칸에 Claude 로그를 넣으면 토큰이 잘못 귀속됩니다. 추가 폴더는 기본 위치에 *더해질* 뿐 대체하지 않습니다.
 
 ## 프라이버시 & 권한
 

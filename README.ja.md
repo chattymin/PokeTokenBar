@@ -159,7 +159,7 @@ swift test                   # ユニットテスト
 |---|---|---|
 | `~/.claude/projects/**/*.jsonl` | Claude Code daily/blocks/weekly/monthly | 直接読み取り；メッセージ id で重複排除；増分キャッシュ |
 | `~/.gemini/tmp/**/chats/*.json(l)` | Gemini CLI daily/monthly | セッションレコード（メッセージ別 `tokens`）；週間 = daily 合算 |
-| `~/.gemini/antigravity-cli/conversations/*.db` | Antigravity daily/blocks/weekly/monthly | SQLite 読み取り専用；Cascade protobuf blob の呼び出し単位の使用量；Gemini には合算しない独立プロバイダ；サブスクのためコストは推定しない |
+| `~/.gemini/antigravity/conversations/*.db`<br>`~/.gemini/antigravity-cli/conversations/*.db`<br>`~/.gemini/antigravity-ide/conversations/*.db` | Antigravity daily/blocks/weekly/monthly | SQLite 読み取り専用；Cascade protobuf blob の呼び出し単位の使用量；Antigravity 2.0/Core, CLI, IDE をサポート；Gemini には合算しない独立プロバイダ；サブスクのためコストは推定しない |
 | `~/.codex/sessions/**/*.jsonl` | Codex daily/monthly | `token_count` イベント；週間 = daily 合算 |
 | `~/.local/share/opencode/opencode.db` | OpenCode daily/blocks/weekly/monthly | SQLite 読み取り専用；レガシー `storage/message` JSON にも対応 |
 | `~/.hermes/state.db` | Hermes Agent daily/blocks/weekly/monthly | SQLite 読み取り専用；セッショントークン合計と保存済みコスト |
@@ -174,6 +174,8 @@ swift test                   # ユニットテスト
 | `raw.githubusercontent.com/PokeAPI/sprites` | ポケモン・アイテムのスプライト | ランタイム取得；Application Support にキャッシュ、バンドルしない |
 | `status.claude.com`, `status.openai.com` | プロバイダ障害バナー | statuspage の要約；表示専用 — 設定でオフにできます |
 | `api.github.com` | アップデート確認 | 最新リリースのタグ；起動時とポップオーバーを開いた時 |
+
+ログが**上記の既定パスの外**にある場合は、**設定 → 詳細 → 追加スキャンフォルダ**にそのフォルダを追加します。先にプロバイダーを選んでください — フォルダはそのプロバイダーだけが解析するので、Gemini 欄に Claude のログを指定するとトークンの帰属が壊れます。追加フォルダは既定の場所に*足すだけ*で、置き換えません。
 
 ## プライバシー & 権限
 

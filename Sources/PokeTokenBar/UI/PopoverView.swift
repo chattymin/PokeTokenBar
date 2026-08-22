@@ -39,6 +39,7 @@ final class PopoverNavigation {
     }
 }
 
+@MainActor
 struct PopoverView: View {
     @Environment(UsageStore.self) private var store
     @Environment(CompanionStore.self) private var companion
@@ -305,6 +306,13 @@ struct PopoverView: View {
                 // 플랜(계정 속성) — Codex codexMetaRow 와 동일 스타일. 구독 정보 있을 때만 노출.
                 if let plan = limits.planDisplay {
                     Text(l.plan(plan))
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                }
+                // 계정 라벨 — 두 계정이 한 Keychain 항목을 번갈아 쓰는 기기에서 이 한도가
+                // 어느 계정 것인지 알려준다 (없으면 라벨 없이 종전과 동일).
+                if let account = limits.accountDisplay {
+                    Text(l.limitsAccount(account))
                         .font(.caption)
                         .foregroundStyle(.tertiary)
                 }
@@ -623,6 +631,7 @@ struct PopoverView: View {
 /// "Curso/r"·"Code/x" 처럼 **단어 중간에서** 접고 탭 바가 2~3줄이 된다.
 /// 가로 스크롤 + `lineLimit(1)`/`fixedSize` 로 각 탭이 항상 자연 폭 한 줄을 유지한다.
 /// (`Spacer()` 는 가로 ScrollView 안에서 무한 확장하므로 쓰지 않는다.)
+@MainActor
 struct ProviderTabBar: View {
     let snapshots: [ProviderSnapshot]
     let selectedID: String?
