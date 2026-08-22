@@ -28,6 +28,7 @@ LOGIC_CORE=(
   "Sources/PokeTokenBar/Core/LocalUsageReader.swift"
   "Sources/PokeTokenBar/Core/LocalUsageCache.swift"
   "Sources/PokeTokenBar/Core/ModelPricing.swift"
+  "Sources/PokeTokenBar/Core/CustomScanRoots.swift"
 )
 
 echo "▶ swift test (--enable-code-coverage)"
@@ -41,9 +42,18 @@ if [[ -z "$PROF" || -z "$BIN" ]]; then
   exit 1
 fi
 
+# Coverage profile format is tied to the Swift/LLVM toolchain that produced it. Homebrew Swift 6.x
+# profiles are newer than the llvm-cov bundled with older Xcode, so prefer the sibling llvm-cov.
+SWIFT_TOOL_DIR=$(dirname "$(realpath "$(command -v swift)")")
+if [[ -x "$SWIFT_TOOL_DIR/llvm-cov" ]]; then
+  LLVM_COV="$SWIFT_TOOL_DIR/llvm-cov"
+else
+  LLVM_COV=$(xcrun --find llvm-cov)
+fi
+
 echo
 echo "▶ 로직 코어 커버리지 (임계값 ${THRESHOLD}%)"
-REPORT=$(xcrun llvm-cov report "$BIN" -instr-profile="$PROF" "${LOGIC_CORE[@]}" 2>/dev/null)
+REPORT=$("$LLVM_COV" report "$BIN" -instr-profile="$PROF" "${LOGIC_CORE[@]}" 2>/dev/null)
 echo "$REPORT"
 
 # TOTAL 행의 라인 커버리지(%) 추출 — 컬럼: ... Lines MissedLines Cover(=$10)

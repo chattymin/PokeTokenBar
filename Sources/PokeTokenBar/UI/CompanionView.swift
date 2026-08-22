@@ -14,6 +14,7 @@ func rarityColor(_ r: Rarity?) -> Color {
 let rarityDisplayOrder: [Rarity] = [.legendary, .rare, .uncommon, .common]
 
 /// 아이템 아이콘 — 실제 스프라이트(런타임 로드+캐시) 우선, 로딩 전/미제공/실패 시 이모지 폴백.
+@MainActor
 struct ItemIconView: View {
     let kind: ItemKind
     var size: CGFloat = 30
@@ -81,6 +82,7 @@ struct SpriteSubject: Equatable {
 
 /// 스프라이트 1개(런타임 로드 + 캐시). 없으면 알 글리프. bob 으로 가벼운 상하 움직임.
 /// animated=true 면 Gen-V GIF 프레임을 순환(미지원/오프라인이면 정적+bob 으로 폴백).
+@MainActor
 struct SpriteView: View {
     let speciesID: Int?
     var size: CGFloat = 84
@@ -235,6 +237,7 @@ struct SpriteView: View {
 /// 폭 제한 없는 HStack 은 팝오버 콘텐츠 폭(332pt)을 넘고, **넘친 자식이 부모 VStack 폭을 부풀려
 /// 팝오버 전체가 좌우로 잘린다**(진화줄뿐 아니라 탭바·합계까지). `maxWidth` 를 주면 그 폭 안에서
 /// 가로 스크롤한다 — 썸네일 크기는 유지하고, 가장자리 페이드 + 셰브론으로 스크롤 가능함을 알린다.
+@MainActor
 struct EvoLineView: View {
     let nodes: [EvoLineItem]
     let mysteryLabel: String
@@ -435,6 +438,7 @@ struct EvoLineView: View {
 }
 
 /// 팝오버 상단 — 현재 포켓몬 + 진화 진행 + 부화/진화 연출.
+@MainActor
 struct CompanionHeader: View {
     let store: CompanionStore
     // 연출 상태 — 부화/진화 순간 흰 플래시 + 스프링 스케일(본가 진화 신 오마주)
@@ -653,6 +657,7 @@ struct CompanionHeader: View {
 /// (solid 채움 대신 링+체크 — green/orange 위 흰 텍스트 대비 문제 회피 + 라이트/다크 양쪽 가독.
 ///  텍스트는 .primary 라 모드 자동 적응, 색 정체성은 점·링·체크로 유지 → 엔트리 배지와 안 어긋남.)
 /// 0이면 흐리게(필터 불가).
+@MainActor
 struct RarityTally: View {
     let label: String
     let count: Int
@@ -680,6 +685,7 @@ struct RarityTally: View {
 
 /// 포획 로그 요약 헤더 — 총 개체 수 + 희귀도별 개체 수 캡슐.
 /// 개수 단위가 개체(store.dexCount)라 종 단위인 도감 헤더와 공유하지 않는다.
+@MainActor
 struct DexSummaryHeader: View {
     let store: CompanionStore
     let selected: Rarity?                  // nil = 필터 없음(전체)
@@ -715,6 +721,7 @@ struct DexSummaryHeader: View {
 ///  - **로그**: 개체 1마리 = 1행. 같은 라인이 여러 행으로 나오는 게 정상 — 성격·획득 시각처럼
 ///    개체에 딸린 정보는 여기에만 있다.
 /// 상위 탭(PopoverTab)은 그대로 4개 — 세그먼트 폭(332/2)이 넉넉해 탭바를 늘릴 필요가 없다.
+@MainActor
 struct CollectionView: View {
     let store: CompanionStore
     let navigation: PopoverNavigation
@@ -797,6 +804,7 @@ struct CollectionView: View {
 
 /// 도감 하단의 대표 설정 액션. 문구는 툴팁·접근성에 유지하되 시각적으로는 아이콘만 써서,
 /// 긴 en/es 문구가 선택한 종의 이름·희귀도를 밀어내지 않게 한다.
+@MainActor
 struct RepresentativeFooterButton: View {
     let localization: L
     let isRepresentative: Bool
@@ -825,6 +833,7 @@ struct RepresentativeFooterButton: View {
 /// 우회(고정 높이 + maxHeight)가 아니라 회피로 피한다. 페이지 크기가 고정이라 모든 칸이 항상
 /// 렌더되므로 지연 격자(LazyVGrid)도 필요 없다 — 평범한 VStack/HStack 으로 동기 렌더한다.
 /// 미보유 종은 아예 그리지 않는다(물음표·실루엣 칸 없음).
+@MainActor
 private struct DexGridView: View {
     let store: CompanionStore
     @State private var selectedRarity: Rarity?
@@ -956,6 +965,7 @@ private struct DexGridView: View {
 
 /// 도감 한 칸 — 도감 번호 + 스프라이트 + 종 이름. 종 정보만 담는다(성격·획득 횟수는 로그의 몫).
 /// 정적 스프라이트만 쓴다(animated 생략) — 한 페이지 24칸을 GIF 로 동시 재생하면 CPU 가 안 된다.
+@MainActor
 private struct DexSpeciesCell: View {
     let store: CompanionStore
     let species: CompanionStore.DexSpecies
@@ -1075,6 +1085,7 @@ private struct DexSpeciesCell: View {
 
 /// 포획 로그 한 항목 — 희귀도·성격 헤더 + 진화 체인 스프라이트(각 밑에 종 이름) + 잡은 시각.
 /// 체인 각 종의 이름은 저장분이 있으면 body 에서 즉시(플래시 없음), 없으면(구버전) .task 로 조회 후 백필.
+@MainActor
 private struct DexEntryRow: View {
     let store: CompanionStore
     let entry: DexEntry

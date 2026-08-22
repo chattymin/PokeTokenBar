@@ -89,6 +89,8 @@ actor LocalUsageCache {
     private let codexRoots: [URL]?
     private let geminiRoot: URL?
     private let grokRoot: URL?
+    private let geminiRoots: [URL]?
+    private let grokRoots: [URL]?
     private let fileURL: URL
     private let now: @Sendable () -> Date
     /// throwing probe 를 쓴다 — 읽기 실패(throw)와 "metadata 없음"(`nil`)은 인덱스에 남길지가 다르다.
@@ -101,6 +103,7 @@ actor LocalUsageCache {
     init(claudeRoot: URL? = nil, claudeRoots: [URL]? = nil,
          codexRoot: URL? = nil, codexRoots: [URL]? = nil,
          geminiRoot: URL? = nil, grokRoot: URL? = nil,
+         geminiRoots: [URL]? = nil, grokRoots: [URL]? = nil,
          fileURL: URL? = nil, now: @escaping @Sendable () -> Date = Date.init,
          codexProbe: @escaping @Sendable (URL) throws -> String? = {
              try LocalUsageReader.probeCodexRolloutSessionID(at: $0)
@@ -113,7 +116,9 @@ actor LocalUsageCache {
         self.codexRoot = codexRoot
         self.codexRoots = codexRoots
         self.geminiRoot = geminiRoot
+        self.geminiRoots = geminiRoots
         self.grokRoot = grokRoot
+        self.grokRoots = grokRoots
         self.fileURL = fileURL ?? Self.defaultFileURL
         self.now = now
         self.codexProbe = codexProbe
@@ -146,7 +151,8 @@ actor LocalUsageCache {
     func codexEntries(modifiedSince: Date) -> [LocalUsageReader.Entry] {
         ensureLoaded()
         let fmt = LocalUsageReader.localDayFormatter()
-        let roots = codexRoots ?? codexRoot.map { [$0] } ?? LocalUsageReader.codexScanRoots
+        let roots = codexRoots ?? codexRoot.map { [$0] } ?? LocalUsageReader.codexSessionRoots(
+            customRootsValue: CustomScanRoots.storedValue(for: "codex"))
         let (rollouts, includedPaths) = collectCodexRollouts(
             roots: roots,
             since: modifiedSince,
@@ -166,12 +172,17 @@ actor LocalUsageCache {
     func geminiEntries(modifiedSince: Date) -> [LocalUsageReader.Entry] {
         ensureLoaded()
         let fmt = LocalUsageReader.localDayFormatter()
-        let r = collect(root: geminiRoot ?? LocalUsageReader.geminiTmpDir, since: modifiedSince,
-                        cache: &geminiCache, allowJSON: true) {
-            LocalUsageReader.parseGeminiFile($0, fmt: fmt)
+        let roots = geminiRoots ?? geminiRoot.map { [$0] } ?? LocalUsageReader.geminiScanRoots(
+            customRootsValue: CustomScanRoots.storedValue(for: "gemini"))
+        var all: [LocalUsageReader.Entry] = []
+        for root in roots {
+            all += collect(root: root, since: modifiedSince,
+                           cache: &geminiCache, allowJSON: true) {
+                LocalUsageReader.parseGeminiFile($0, fmt: fmt)
+            }
         }
         saveIfNeeded()
-        return r
+        return LocalUsageReader.dedupKeepMax(all)
     }
 
     func grokEntries(modifiedSince: Date) -> [LocalUsageReader.Entry] {
@@ -181,9 +192,14 @@ actor LocalUsageCache {
         // 파싱 캐시 **앞**에 있어야 한다 — blob 은 updates.jsonl 의 mtime·size 로만 무효화되는데
         // 서브에이전트 판정 근거는 옆 파일(summary.json)이라, 파싱 안에서 걸러내면 늦게 쓰인
         // session_kind 가 blob 에 굳어 이중집계가 영구화된다.
-        let all = collect(root: grokRoot ?? LocalUsageReader.grokSessionsDir, since: modifiedSince,
-                          cache: &grokCache, include: LocalUsageReader.isGrokUsageFile) {
-            LocalUsageReader.parseGrokFile($0, fmt: fmt)
+        let roots = grokRoots ?? grokRoot.map { [$0] } ?? LocalUsageReader.grokSessionRoots(
+            customRootsValue: CustomScanRoots.storedValue(for: "grok"))
+        var all: [LocalUsageReader.Entry] = []
+        for root in roots {
+            all += collect(root: root, since: modifiedSince,
+                           cache: &grokCache, include: LocalUsageReader.isGrokUsageFile) {
+                LocalUsageReader.parseGrokFile($0, fmt: fmt)
+            }
         }
         saveIfNeeded()
         // fork 세션이 부모 updates 를 복사해도 같은 턴은 한 번만(전역 dedup).

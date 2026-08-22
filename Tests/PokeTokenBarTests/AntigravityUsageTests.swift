@@ -762,6 +762,53 @@ final class AntigravityUsageTests: XCTestCase {
         XCTAssertEqual(entries.count, 3, "duplicate r_shared must collapse to a single entry")
     }
 
+    /// #187 review: `resolvedRoots` hardcoded the CLI path (`defaultRoots[1]`). The no-root
+    /// `entries(modifiedSince:)` overload goes through that list, so 2.0/Core and IDE stores
+    /// silently dropped. Seed one turn in each default relative path under a fake home and
+    /// scan via `resolvedRoots` — the same list the no-root overload uses.
+    func testNoRootScanReadsEveryDefaultRoot() throws {
+        let home = temporaryDirectory.appendingPathComponent("home")
+        let stamp = try date("2026-03-04T10:00:00Z")
+        let relative = [
+            ".gemini/antigravity/conversations",
+            ".gemini/antigravity-cli/conversations",
+            ".gemini/antigravity-ide/conversations",
+        ]
+        for (index, rel) in relative.enumerated() {
+            let root = home.appendingPathComponent(rel)
+            try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+            try writeConversation("c\(index)", at: root, records: [
+                record(responseID: "r\(index)", model: "gemini-3.6-flash", createdAt: stamp,
+                       input: UInt64(10 + index), output: 1, cacheRead: 0),
+            ])
+        }
+
+        let roots = LocalAntigravityUsageReader.resolvedRoots(customRootsValue: nil, home: home)
+        let entries = LocalAntigravityUsageReader.entries(modifiedSince: .distantPast, roots: roots)
+        XCTAssertEqual(
+            Set(entries.map(\.id)),
+            ["antigravity|r0", "antigravity|r1", "antigravity|r2"],
+            "resolvedRoots must union every defaultRoots path, not only antigravity-cli")
+    }
+
+    /// The no-root `entries(modifiedSince:)` / cache path must call `resolvedRoots`, not
+    /// `defaultRoots` alone — otherwise custom extras never apply and the test above is
+    /// not load-bearing for production.
+    func testEntriesWithoutRootsGoesThroughResolvedRoots() throws {
+        let source = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("Sources/PokeTokenBar/Core/LocalAntigravityUsageReader.swift")
+        let text = try String(contentsOf: source, encoding: .utf8)
+        XCTAssertTrue(
+            text.contains("roots ?? resolvedRoots"),
+            "entries(modifiedSince:) with no roots must scan resolvedRoots")
+        XCTAssertTrue(
+            text.contains("self.roots ?? LocalAntigravityUsageReader.resolvedRoots"),
+            "the cache actor must use the same list")
+    }
+
     // MARK: - Fixtures
 
     private func readAll() -> [LocalUsageReader.Entry] {

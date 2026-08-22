@@ -174,6 +174,8 @@ swift test                   # unit tests
 | `status.claude.com`, `status.openai.com` | provider incident banner | statuspage summary; display only — turn it off in Settings |
 | `api.github.com` | update check | latest release tag; on launch and when the popover opens |
 
+If a provider's logs live **outside** those built-in paths, add the folder in **Settings → Advanced → Additional scan folders**. Pick the provider first — each folder is parsed only by that provider, so pointing a Gemini field at Claude logs would mis-attribute tokens. Extra folders are added to the built-in locations; they never replace them.
+
 ## Privacy & permissions
 
 - **On-device.** Token usage is read directly from local Claude Code, Codex, Gemini CLI, Antigravity, OpenCode, Hermes Agent, Cursor, Grok CLI, Copilot CLI, and Kiro CLI data. The app never uploads usage or runs model turns.

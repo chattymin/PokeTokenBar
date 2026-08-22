@@ -54,6 +54,7 @@ struct L {
         }
     }
     func plan(_ p: String) -> String { t("플랜 \(p)", "Plan \(p)", "プラン \(p)", "Plan \(p)", "Plano \(p)") }
+    func limitsAccount(_ a: String) -> String { t("계정 \(a)", "Account \(a)", "アカウント \(a)", "Cuenta \(a)", "Conta \(a)") }
     func forecastReach(_ time: String) -> String {
         t("현재 속도면 \(time) 한도 도달", "At current rate, limit hit at \(time)", "現在のペースで \(time) に上限到達", "Al ritmo actual, límite alcanzado a las \(time)", "No ritmo atual, limite atingido às \(time)")
     }
@@ -175,6 +176,19 @@ struct L {
     var warning: String { t("경고", "Warning", "警告", "Aviso", "Aviso") }
     var critical: String { t("임박", "Critical", "切迫", "Crítico", "Crítico") }
     var aggregationNote: String { t("토큰 집계 기준: totalTokens (input + output + cache, 로컬 날짜)", "Token basis: totalTokens (input + output + cache, local date)", "集計基準: totalTokens (input + output + cache, ローカル日付)", "Base de cálculo: totalTokens (input + output + cache, fecha local)", "Base de cálculo: totalTokens (input + output + cache, data local)") }
+    var customScanProviderLabel: String { t("프로바이더", "Provider", "プロバイダー", "Proveedor", "Provedor") }
+    var customScanRootsLabel: String { t("추가 스캔 폴더", "Additional scan folders", "追加スキャンフォルダ", "Carpetas de escaneo adicionales", "Pastas extras para escanear") }
+    var customScanRootsHint: String {
+        t("선택한 프로바이더의 로그가 기본 위치 밖에 있을 때만. 콤마·줄바꿈 구분, * 와일드카드. 다른 프로바이더 폴더를 넣지 마세요.",
+          "Only for this provider's logs outside the built-in locations. Comma/newline separated, * wildcards. Do not point at another provider's folder.",
+          "選択したプロバイダーのログが既定の場所にないときだけ。カンマ・改行区切り、*ワイルドカード。別プロバイダーのフォルダは指定しないでください。",
+          "Solo para los registros de este proveedor fuera de las ubicaciones integradas. Separados por coma o salto de línea; comodines *. No indiques la carpeta de otro proveedor.",
+          "Só para os logs deste provedor fora dos locais padrão. Separados por vírgula ou quebra de linha; curingas *. Não aponte para a pasta de outro provedor.")
+    }
+    var customScanRootsPlaceholder: String { t("~/path/to/sessions", "~/path/to/sessions", "~/path/to/sessions", "~/path/to/sessions", "~/path/to/sessions") }
+    func customScanRootsMatches(_ n: Int) -> String {
+        t("지금 \(n)개 추가 폴더를 스캔함", "Scans \(n) extra folder(s) now", "現在\(n)個の追加フォルダをスキャン", "Escanea \(n) carpeta(s) extra ahora", "Escaneando \(n) pasta(s) extra agora")
+    }
     var close: String { t("닫기", "Close", "閉じる", "Cerrar", "Fechar") }
 
     // MARK: 세이브 이전 (설정 → 백업 & 이전)
