@@ -1777,10 +1777,12 @@ fileprivate func tempURL() -> URL {
     FileManager.default.temporaryDirectory.appendingPathComponent("poke-\(UUID().uuidString).json")
 }
 
+@MainActor
 fileprivate func testBase(_ s: CompanionStore) {
     s.update(todayTokensByProvider: ["test": 0], todayDate: "d1", monthTotal: 0, burnTier: .idle, limitWarning: false, hasUsageData: true)
 }
 
+@MainActor
 fileprivate func testUse(_ s: CompanionStore, _ today: Int) {
     s.update(todayTokensByProvider: ["test": today], todayDate: "d1", monthTotal: 0, burnTier: .idle, limitWarning: false, hasUsageData: true)
 }
