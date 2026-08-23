@@ -144,7 +144,7 @@ struct PopoverView: View {
                     .monospacedDigit()
                 Spacer()
                 if store.showsCost {
-                    Text(TokenFormatter.cost(todayCost))
+                    Text(costText(todayCost))
                         .font(.callout)
                         .foregroundStyle(.secondary)
                 }
@@ -193,7 +193,7 @@ struct PopoverView: View {
                 .font(.caption.weight(.semibold))
                 .monospacedDigit()
             if let cost {
-                Text(TokenFormatter.cost(cost))
+                Text(costText(cost))
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -202,6 +202,12 @@ struct PopoverView: View {
 
     private var todayCost: Double {
         store.costingSnapshots.reduce(0) { $0 + ($1.today?.totalCost ?? 0) }
+    }
+
+    /// Max/Pro/Team 이면 `$12.34 (API-equiv.)`. API 키·Free 는 숫자만.
+    /// 접미사는 L 에서 오고, 판정은 스토어(공식 한도의 플랜)에 둔다.
+    private func costText(_ usd: Double) -> String {
+        TokenFormatter.cost(usd, labeled: store.labelsCostAsAPIEquivalent ? l.apiEquivalentCaption : nil)
     }
 
     private func providerRow(snapshot: ProviderSnapshot, today: DailyUsage) -> some View {
@@ -214,7 +220,7 @@ struct PopoverView: View {
                     .font(.callout)
                     .monospacedDigit()
                 if snapshot.reportsCost {
-                    Text(TokenFormatter.cost(today.totalCost))
+                    Text(costText(today.totalCost))
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }

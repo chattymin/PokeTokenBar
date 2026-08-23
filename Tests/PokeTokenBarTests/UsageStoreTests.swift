@@ -990,6 +990,34 @@ final class UsageStoreTests: XCTestCase {
         XCTAssertEqual(store.snapshots.count, 2, "Both providers should have snapshots")
     }
 
+    /// 팝오버 API 환산 라벨은 스토어가 들고 있는 Claude 플랜을 따른다.
+    /// 한도가 아직 없거나 Free 면 꺼지고, Max/Pro/Team 이면 켜진다 — 뷰가 구독 문자열을 직접 파싱하지 않게.
+    func testAPIEquivalentCostLabelFollowsClaudeSubscription() async {
+        let claude = FakeUsageProvider(id: "claude_code", displayName: "Claude Code", daily: todayDaily(1_000))
+
+        var maxPlan = claudeLimits(fiveHourUtil: 10)
+        maxPlan.subscriptionType = "max"
+        let maxStore = makeStore(providers: [claude], claude: maxPlan)
+        await maxStore.refresh(scheduleEmptyRetry: false)
+        XCTAssertTrue(maxStore.labelsCostAsAPIEquivalent, "Max → qualifier on")
+
+        var teamPlan = claudeLimits(fiveHourUtil: 10)
+        teamPlan.subscriptionType = "team"
+        let teamStore = makeStore(providers: [claude], claude: teamPlan)
+        await teamStore.refresh(scheduleEmptyRetry: false)
+        XCTAssertTrue(teamStore.labelsCostAsAPIEquivalent, "Team → qualifier on")
+
+        var freePlan = claudeLimits(fiveHourUtil: 10)
+        freePlan.subscriptionType = "free"
+        let freeStore = makeStore(providers: [claude], claude: freePlan)
+        await freeStore.refresh(scheduleEmptyRetry: false)
+        XCTAssertFalse(freeStore.labelsCostAsAPIEquivalent, "Free → no qualifier")
+
+        let unknown = makeStore(providers: [claude], claude: nil)
+        await unknown.refresh(scheduleEmptyRetry: false)
+        XCTAssertFalse(unknown.labelsCostAsAPIEquivalent, "no limits loaded → no qualifier")
+    }
+
     func testCursorContributesZeroToTodayCostTotal() async {
         let claude = FakeUsageProvider(
             id: "claude_code", displayName: "Claude Code",

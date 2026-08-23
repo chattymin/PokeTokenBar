@@ -289,6 +289,68 @@ final class ModelDecodingTests: XCTestCase {
         XCTAssertNil(status.planDisplay)
     }
 
+    /// Max/Pro/Team 은 정액 구독이라 ModelPricing 달러가 청구액이 아니다 → API 환산 라벨.
+    /// Free·API 키(값 없음)는 그 숫자가 비용에 가깝다. 외부 JSON 이라 대소문자를 접는다.
+    /// A=false(free/nil) 만 검증하면 구독 분기가 죽은 채 통과하므로 B=true(max/pro/team) 도 잠근다.
+    func testLabelsCostAsAPIEquivalent() throws {
+        var status = try JSONDecoder().decode(LimitStatus.self, from: Data("{}".utf8))
+
+        for plan in ["max", "pro", "team", "MAX", "Pro"] {
+            status.subscriptionType = plan
+            XCTAssertTrue(status.labelsCostAsAPIEquivalent, "\(plan) is a flat-rate subscription")
+        }
+
+        for plan in ["free", "api", "", nil] as [String?] {
+            status.subscriptionType = plan
+            XCTAssertFalse(status.labelsCostAsAPIEquivalent,
+                           "\(plan ?? "nil") is billed like API (or unknown) — no qualifier")
+        }
+    }
+
+    /// `$610.30 (API-equiv.)` — 숫자 포맷은 그대로, 접미사만 붙는다. 빈 접미사는 무라벨.
+    func testCostLabeledAsAPIEquivalent() {
+        XCTAssertEqual(TokenFormatter.cost(610.3), "$610.30")
+        XCTAssertEqual(TokenFormatter.cost(610.3, labeled: "(API-equiv.)"), "$610.30 (API-equiv.)")
+        XCTAssertEqual(TokenFormatter.cost(610.3, labeled: nil), "$610.30")
+        XCTAssertEqual(TokenFormatter.cost(610.3, labeled: ""), "$610.30",
+                       "empty suffix must not add a trailing space")
+    }
+
+    /// 팝오버 비용 행만 라벨을 타고, 메뉴바 costCompact 경로는 접미사를 모른다.
+    /// (이슈 #200 의 두 번째 설계 질문 — 메뉴바는 후속.)
+    func testPopoverCostRowsUseAPIEquivalentLabelAndMenuBarDoesNot() throws {
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let popover = try String(contentsOf: root.appendingPathComponent("Sources/PokeTokenBar/UI/PopoverView.swift"), encoding: .utf8)
+        XCTAssertTrue(popover.contains("labelsCostAsAPIEquivalent"),
+                      "popover cost rows must consult the subscription predicate")
+        XCTAssertTrue(popover.contains("apiEquivalentCaption"),
+                      "qualifier copy must come from L, not a hardcoded English suffix")
+        XCTAssertFalse(popover.contains("TokenFormatter.costCompact"),
+                       "compact menu-bar cost must not leak into the popover")
+
+        let store = try String(contentsOf: root.appendingPathComponent("Sources/PokeTokenBar/Core/UsageStore.swift"), encoding: .utf8)
+        let compactIdx = try XCTUnwrap(store.range(of: "TokenFormatter.costCompact"),
+                                       "menu bar still uses costCompact")
+        let window = store[compactIdx.lowerBound...].prefix(180)
+        XCTAssertFalse(window.contains("labeled:"),
+                       "menu-bar costCompact must stay unlabeled (#200 follow-up)")
+        XCTAssertFalse(window.contains("apiEquivalentCaption"),
+                       "menu bar must not grow the qualifier")
+    }
+
+    /// 접미사는 모든 언어에 "API" 가 남고 괄호로 한정어임을 표시한다.
+    /// `allCases` 라야 언어가 늘어도 커버가 조용히 멈추지 않는다.
+    func testAPIEquivalentCaptionMentionsAPIInEveryLanguage() {
+        for lang in AppLanguage.allCases {
+            let s = L(lang).apiEquivalentCaption
+            XCTAssertTrue(s.contains("API"), "\(lang.rawValue): \(s)")
+            XCTAssertTrue(s.hasPrefix("(") && s.hasSuffix(")"), "\(lang.rawValue): \(s) should be parenthetical")
+        }
+    }
+
     /// 자격증명 파싱이 subscriptionType/rateLimitTier 를 추출하는지 — 실 keychain JSON 형태 기반.
     func testCredentialParsesPlanFields() throws {
         let json = Data("""

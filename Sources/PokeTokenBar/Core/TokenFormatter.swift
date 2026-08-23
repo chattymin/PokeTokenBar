@@ -30,8 +30,10 @@ enum TokenFormatter {
         return f.string(from: NSNumber(value: value)) ?? "\(value)"
     }
 
-    static func cost(_ usd: Double) -> String {
-        String(format: "$%.2f", usd)
+    static func cost(_ usd: Double, labeled suffix: String? = nil) -> String {
+        let figure = String(format: "$%.2f", usd)
+        guard let suffix, !suffix.isEmpty else { return figure }
+        return "\(figure) \(suffix)"
     }
 
     /// 메뉴바용 짧은 비용 표기: $9.5 / $311 / $1.2K

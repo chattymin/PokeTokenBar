@@ -123,6 +123,8 @@ struct L {
     var menuBarItems: String { t("메뉴바 표시 항목 (복수 선택)", "Menu bar items (multi-select)", "メニューバー表示項目（複数選択）", "Elementos de la barra de menús (selección múltiple)", "Éléments de la barre des menus (sélection multiple)", "Itens da barra de menus (seleção múltipla)") }
     var todayTokensShort: String { t("오늘 토큰", "Today's tokens", "本日のトークン", "Tokens de hoy", "Tokens du jour", "Tokens de hoje") }
     var todayCost: String { t("오늘 비용 ($)", "Today's cost ($)", "本日のコスト ($)", "Coste de hoy ($)", "Coût du jour ($)", "Custo de hoje ($)") }
+    /// Max/Pro/Team 팝오버 비용 접미사 — 숫자가 API 환산가임을 표시. 짧아야 캡션 폭에 들어간다.
+    var apiEquivalentCaption: String { t("(API 환산)", "(API-equiv.)", "(API換算)", "(equiv. API)", "(éq. API)", "(equiv. API)") }
     var limitPercent: String { t("한도 %", "Limit %", "上限 %", "Límite %", "Limite %", "Limite %") }
     var limitDisplayModeLabel: String { t("한도 표시 방식", "Limit display", "上限の表示", "Visualización del límite", "Affichage de la limite", "Exibição do limite") }
     var limitDisplayUsed: String { t("사용량", "Used", "使用量", "Usado", "Utilisé", "Usado") }

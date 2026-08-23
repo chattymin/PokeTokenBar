@@ -253,6 +253,11 @@ final class UsageStore {
     /// Whether any connected provider reports real spend — gates menu/header `$0.00` for flat-rate-only setups.
     var showsCost: Bool { !costingSnapshots.isEmpty }
 
+    /// Max/Pro/Team — ModelPricing dollars are API-equivalent, not a bill.
+    /// The plan lives on official Claude limits; this does not branch generic
+    /// totals on `providerID` (provider-extension rule).
+    var labelsCostAsAPIEquivalent: Bool { limits?.labelsCostAsAPIEquivalent == true }
+
     var todayCostTotal: Double {
         let todayKey = LocalUsageReader.todayKey()
         return costingSnapshots.reduce(0) { $0 + ($1.today?.date == todayKey ? ($1.today?.totalCost ?? 0) : 0) }

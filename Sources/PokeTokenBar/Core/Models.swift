@@ -227,6 +227,17 @@ struct LimitStatus: Decodable, Sendable {
         return base
     }
 
+    /// Max/Pro/Team 은 정액 구독이라 ModelPricing × tokens 가 청구서가 아니다.
+    /// Free·API 키(`subscriptionType` 없음)는 그 숫자가 비용에 가깝다.
+    /// 자격증명 JSON 이라 대소문자 섞임을 허용한다. 범용 합계 경로에 providerID 분기를
+    /// 넣지 않기 위해 판정은 플랜이 실리는 이 타입에만 둔다.
+    var labelsCostAsAPIEquivalent: Bool {
+        switch subscriptionType?.lowercased() {
+        case "max", "pro", "team": return true
+        default: return false
+        }
+    }
+
     /// 계정 라벨 — "email · 조직명". 개인 플랜의 자동 생성 조직명("<email>'s Organization")은
     /// 이메일과 중복 정보라 생략한다(조직명에 이메일이 포함되는지로 판정). 이메일 없으면 nil —
     /// 조직명만으로는 어느 로그인인지 특정되지 않아 부분 라벨을 만들지 않는다.

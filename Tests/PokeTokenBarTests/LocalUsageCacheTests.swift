@@ -774,6 +774,7 @@ final class LocalUsageCacheTests: XCTestCase {
         // 구분기호가 지역 설정을 따르는지 — locale 인자가 무시되면 여기서 걸린다.
         XCTAssertEqual(TokenFormatter.grouped(253_412_890, locale: Locale(identifier: "es_ES")), "253.412.890")
         XCTAssertEqual(TokenFormatter.cost(48.104), "$48.10")
+        XCTAssertEqual(TokenFormatter.cost(48.104, labeled: "(API-equiv.)"), "$48.10 (API-equiv.)")
         XCTAssertEqual(TokenFormatter.costCompact(9.54), "$9.5")     // < 100 → 소수 1자리
         XCTAssertEqual(TokenFormatter.costCompact(311.4), "$311")    // < 10K → 정수
         XCTAssertEqual(TokenFormatter.costCompact(12_340), "$12.3K") // ≥ 10K → K
