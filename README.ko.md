@@ -75,7 +75,7 @@ PokeTokenBar는 당신이 이미 태우고 있는 AI 코딩 토큰(Claude Code �
 <td width="45%" align="center"><img src="assets/settings-ko.png" width="300" alt="설정"></td>
 <td width="55%" valign="middle">
 <h3>설정에서 취향대로</h3>
-메뉴바 표시 항목, 새로고침 간격(1–15분/수동), 로그인 시 자동 시작, 한도 섹션만 숨기는 Keychain 끄기, 경고/임박 임계값 한도 알림, companion 이벤트 알림. <b>한국어/영어/일본어</b> UI·포켓몬 이름 완비.
+메뉴바 표시 항목, 새로고침 간격(1–15분/수동), 로그인 시 자동 시작, 한도 섹션만 숨기는 Keychain 끄기, 경고/임박 임계값 한도 알림, companion 이벤트 알림. <b>한국어/영어/일본어/스페인어/프랑스어/포르투갈어</b> UI·포켓몬 이름 완비.
 </td>
 </tr>
 <tr>
@@ -92,6 +92,20 @@ PokeTokenBar는 당신이 이미 태우고 있는 AI 코딩 토큰(Claude Code �
 그동안 쓴 토큰이 곧 재화입니다 — 새 <b>상점</b> 탭에서 <b>이상한 사탕</b>으로 현재 포켓몬을 키우거나, <b>민트</b>로 성격을 다시 굴리거나, <b>이로치 부적</b>으로 이로치 확률을 영구히 올리거나, 알을 사서 지금 포켓몬을 놓아주고 다시 시작하세요. 알은 세 종류입니다 — 일반 <b>포켓몬 알</b>, 고급 이상이 확정으로 나오는 <b>고급 알</b>, 희귀 이상이 확정으로 나오는 <b>희귀 알</b>. 등급 알에도 전설은 그대로 섞여 있어서, 확정 부화에도 깜짝 놀랄 여지가 남습니다.
 </td>
 </tr>
+<tr>
+<td width="55%" valign="middle">
+<h3>📊 공식 한도, 이제 Antigravity 도</h3>
+Antigravity 2.0 과 IDE 가 추정치가 아닌 실제 할당량을 보고합니다. Gemini 모델군과 Claude &amp; GPT 모델군이 각각 <b>5시간</b>·<b>주간</b> 버킷과 리셋 카운트다운을 갖고, Claude Code·Codex 와 나란히 표시됩니다. 백그라운드에서 조용히 읽어와서 Keychain 팝업이 뜨지 않고, 세션도 알아서 갱신됩니다.
+</td>
+<td width="45%" align="center"><img src="assets/screenshot-antigravity-limits-ko.png" width="300" alt="Antigravity 공식 한도 — 모델군별 5시간·주간 버킷"></td>
+</tr>
+<tr>
+<td width="45%" align="center"><img src="assets/screenshot-scan-folders-ko.png" width="300" alt="설정 → 고급의 추가 스캔 폴더"></td>
+<td width="55%" valign="middle">
+<h3>📁 로그가 엉뚱한 데 있다면 직접 지정</h3>
+어떤 도구가 세션을 기본 경로 밖에 둔다면 <b>설정 → 고급</b>에서 직접 루트를 추가하세요 — 콤마·줄바꿈 구분, <code>*</code> 와일드카드, 지금 몇 개 폴더가 걸리는지 실시간 표시. 프로바이더마다 목록이 따로라 한 도구의 폴더가 다른 도구의 파서로 넘어가지 않고, 추가한 경로는 기본 경로를 대체하는 게 아니라 더해집니다.
+</td>
+</tr>
 </table>
 
 ## 이 밖에도
@@ -100,6 +114,7 @@ PokeTokenBar는 당신이 이미 태우고 있는 AI 코딩 토큰(Claude Code �
 - **인터랙티브 플로팅 펫** — 호버로 오늘 사용량, 클릭으로 메인 창, 우클릭 메뉴, 한도 알림은 말풍선으로 표시.
 - **서비스별 탭** — Claude Code·Codex·Gemini CLI·Antigravity·OpenCode·Hermes Agent·Cursor·Grok CLI·Copilot CLI·Kiro CLI·Pi Agent 중 2개 이상 감지되면 작은 탭으로 상세를 서비스별 전환(오늘 합계는 통합 유지).
 - **공식 한도** — Claude·Codex·Antigravity 5시간/주간 사용률 + 리셋 카운트다운을 오늘 숫자 바로 아래에.
+- **추가 스캔 폴더** — 기본 경로 밖에 있는 로그를 위해 프로바이더별로 스캔 루트를 더 지정 (설정 → 고급).
 - **소진 예측** — 현재 5시간 창이 100%에 도달할 시각 예측.
 - **인앱 업데이트** — 원클릭 업데이트 확인, 설정에 현재 버전 표시.
 
