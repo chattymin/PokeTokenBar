@@ -92,8 +92,8 @@ struct L {
     }
 
     /// Antigravity 한도 그룹 및 윈도우 이름
-    var antigravityGeminiGroup: String { t("Gemini 모델군", "Gemini Models", "Gemini モデル群", "Modelos Gemini") }
-    var antigravityThirdPartyGroup: String { t("Claude & GPT 모델군", "Claude & GPT Models", "Claude & GPT モデル群", "Modelos Claude y GPT") }
+    var antigravityGeminiGroup: String { t("Gemini 모델군", "Gemini Models", "Gemini モデル群", "Modelos Gemini", "Modèles Gemini") }
+    var antigravityThirdPartyGroup: String { t("Claude & GPT 모델군", "Claude & GPT Models", "Claude & GPT モデル群", "Modelos Claude y GPT", "Modèles Claude et GPT") }
     func antigravityWindow(window: String?, bucketId: String) -> String {
         if window == "5h" || bucketId.contains("5h") {
             return fiveHourSession
@@ -101,7 +101,7 @@ struct L {
         if window == "weekly" || bucketId.contains("weekly") {
             return weekly
         }
-        return t("한도", "Limit", "上限", "Límite")
+        return t("한도", "Limit", "上限", "Límite", "Limite")
     }
 
     // MARK: 푸터
