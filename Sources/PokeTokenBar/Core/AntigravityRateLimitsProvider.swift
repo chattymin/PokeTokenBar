@@ -84,30 +84,36 @@ private actor AntigravityTokenCache {
             return cachedCredential.accessToken
         }
 
-        // 1. 파일 크리덴셜 확인 (~/.gemini/jetski-standalone-oauth-token)
+        // 1. 파일 크리덴셜(~/.gemini/jetski-standalone-oauth-token) — 키체인 무관, 프롬프트 없음.
+        //    파일로 답할 수 있으면 여기서 끝낸다. 이 return 이 없으면 유효한 파일 토큰이 있어도
+        //    매 호출이 키체인까지 내려간다(프롬프트를 피할 수 있는 경로를 두고 쓰지 않는 셈).
         if let fileToken = Self.readTokenFile() {
             if cachedCredential?.accessToken != fileToken {
                 cachedCredential = AntigravityOAuthCredential(
                     accessToken: fileToken, refreshToken: nil, expiresAt: nil)
             }
+            return fileToken
         }
 
-        // 2. 키체인 읽기
-        if allowKeychainPrompt {
-            if let cred = Self.readKeychainSilently() {
-                return try await resolveValidToken(from: cred)
-            }
-            let cred = try Self.readKeychain(allowKeychainPrompt: true)
-            return try await resolveValidToken(from: cred)
-        } else {
-            if let cred = Self.readKeychainSilently() {
-                return try await resolveValidToken(from: cred)
-            }
-            if let cached = cachedCredential, !cached.isExpired {
-                return cached.accessToken
+        // 2. 자동(타이머) 경로는 Keychain 을 일절 읽지 않는다. no-UI 쿼리(kSecUseAuthenticationUIFail
+        //    /LAContext)로도 잠긴·미승인 login 키체인의 '암호 입력' 다이얼로그는 억제되지 않는다 —
+        //    OAuthLimitsProvider 가 같은 이유로 자동 경로에서 키체인을 열지 않는다(실측: 캐시 만료 폴
+        //    도중 SecItemCopyMatching 이 13초간 블록하며 팝업). 캐시가 살아있으면 그 토큰으로 계속
+        //    갱신하고, 없으면 한도를 stale 로 두고 사용자가 갱신을 누를 때 재취득한다.
+        guard allowKeychainPrompt else {
+            if let cachedCredential, !cachedCredential.isExpired {
+                return cachedCredential.accessToken
             }
             throw LimitsError.keychainInteractionNotAllowed
         }
+
+        // 3. 사용자 동작 경로: 무프롬프트로 먼저 시도(과거 '항상 허용'했다면 조용히 성공), 안 되면
+        //    프롬프트를 동반해 읽어 최초 1회 '항상 허용'을 유도한다.
+        if let cred = Self.readKeychainSilently() {
+            return try await resolveValidToken(from: cred)
+        }
+        let cred = try Self.readKeychain(allowKeychainPrompt: true)
+        return try await resolveValidToken(from: cred)
     }
 
     private func resolveValidToken(from cred: AntigravityOAuthCredential) async throws -> String {
@@ -201,7 +207,7 @@ private actor AntigravityTokenCache {
         }
 
         var item: CFTypeRef?
-        let status = SecItemCopyMatching(query as CFDictionary, &item)
+        let status = KeychainReader.copyMatching(query, &item)
         if status == errSecInteractionNotAllowed {
             throw LimitsError.keychainInteractionNotAllowed
         }
