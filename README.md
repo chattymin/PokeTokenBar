@@ -99,7 +99,7 @@ The tokens you've already used are your currency. Spend them in the new <b>Shop<
 - **Representative Pokémon** — pin any owned Pokédex species to the menu bar and optional floating pet, independently of the companion you're raising. While pinned, the menu bar stops following egg, hatch, and evolution changes; raising progress remains visible on Home.
 - **Interactive floating pet** — hover for today's usage, click to open the main window, right-click for a menu, and show limit alerts as speech bubbles.
 - **Per-service tabs** — when two or more of Claude Code, Codex, Gemini CLI, Antigravity, OpenCode, Hermes Agent, Cursor, Grok CLI, Copilot CLI, and Kiro CLI are detected, compact tabs switch between them; today's total stays combined.
-- **Official limits** — Claude & Codex 5-hour / weekly utilization with reset countdowns, right under today's numbers.
+- **Official limits** — Claude, Codex & Antigravity 5-hour / weekly utilization with reset countdowns, right under today's numbers.
 - **Burn-rate forecast** — projects when the current 5h window hits 100%.
 - **In-app updates** — one-click update check; current version shown in Settings.
 
@@ -110,7 +110,7 @@ The tokens you've already used are your currency. Spend them in the new <b>Shop<
 | **Claude Code** | today · 5h block · week · month | ✅ 5h / weekly |
 | **Codex** | today · week · month | ✅ 5h / weekly |
 | **Gemini CLI** | today · week · month | — |
-| **Antigravity** | today · 5h block · week · month | — |
+| **Antigravity** | today · 5h block · week · month | ✅ 5h / weekly |
 | **OpenCode** | today · 5h block · week · month | — |
 | **Hermes Agent** | today · 5h block · week · month | — |
 | **Cursor** | today · 5h block · week · month | — |
@@ -179,7 +179,7 @@ If a provider's logs live **outside** those built-in paths, add the folder in **
 ## Privacy & permissions
 
 - **On-device.** Token usage is read directly from local Claude Code, Codex, Gemini CLI, Antigravity, OpenCode, Hermes Agent, Cursor, Grok CLI, Copilot CLI, and Kiro CLI data. The app never uploads usage or runs model turns.
-- **Outbound requests.** The app is not fully offline. It talks to seven hosts: `pokeapi.co` and `graphql.pokeapi.co` (species/evolution), `raw.githubusercontent.com` (sprites), `api.anthropic.com` (Claude official limits), `status.claude.com` and `status.openai.com` (incident banner — off switch in Settings), and `api.github.com` (update check). **None of them carry your usage, tokens, prompts, or project paths** — only the request itself.
+- **Outbound requests.** The app is not fully offline. It talks to ten hosts: `pokeapi.co` and `graphql.pokeapi.co` (species/evolution), `raw.githubusercontent.com` (sprites), `api.anthropic.com` (Claude official limits), `cloudcode-pa.googleapis.com` and `daily-cloudcode-pa.googleapis.com` (Antigravity official limits) plus `oauth2.googleapis.com` (their token refresh), `status.claude.com` and `status.openai.com` (incident banner — off switch in Settings), and `api.github.com` (update check). **None of them carry your usage, tokens, prompts, or project paths** — only the request itself.
 - **Keychain (optional).** The Claude OAuth credential is read **only when you press a refresh button** (Settings, or the limits row in the popover). Automatic polling never touches the Keychain, so it never raises a password prompt; when available, the credential is taken from `~/.claude/.credentials.json` instead. The token is held in memory only — the app creates no Keychain item of its own. Once the token expires, limits stay visible but stale until you refresh. Turn it off in Settings — the limits section simply hides.
 - **Pokémon assets** are fetched at runtime from PokéAPI and cached only under `~/Library/Application Support/PokeTokenBar/`. The app binary and its release artifacts contain no Pokémon assets.
 
