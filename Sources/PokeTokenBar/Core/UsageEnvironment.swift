@@ -21,6 +21,7 @@ enum UsageEnvironment {
         "HERMES_HOME",         // Hermes 홈
         "COPILOT_HOME",        // Copilot CLI 홈
         "GROK_HOME",           // Grok CLI 홈
+        "CLOUD_CODE_URL",      // Google CloudCode Quota API 엔드포인트 override
     ]
 
     /// `name` 의 값. 프로세스 환경이 우선이고, 없으면 로그인 셸에서 읽은 값을 쓴다.

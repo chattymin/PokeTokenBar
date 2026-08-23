@@ -99,7 +99,7 @@ PokeTokenBar は、あなたがすでに使っている AI コーディングト
 - **代表ポケモン** — 図鑑で所有している種を選び、育成中のポケモンとは別にメニューバーと任意のフローティングペットへ固定。固定中はメニューバーがタマゴ・孵化・進化を追わなくなりますが、育成の進行は Home で引き続き確認できます。
 - **インタラクティブなフローティングペット** — ホバーで今日の使用量、クリックでメイン画面、右クリックでメニュー、上限アラートは吹き出しで表示。
 - **サービス別タブ** — Claude Code・Codex・Gemini CLI・Antigravity・OpenCode・Hermes Agent・Cursor・Grok CLI・Copilot CLI・Kiro CLI のうち2つ以上が検出されると、小さなタブでサービス別の詳細を切替（今日の合計は合算のまま）。
-- **公式の上限** — Claude・Codex の5時間／週間使用率とリセットのカウントダウンを、今日の数字のすぐ下に。
+- **公式の上限** — Claude・Codex・Antigravity の5時間／週間使用率とリセットのカウントダウンを、今日の数字のすぐ下に。
 - **消費予測** — 現在の5時間ウィンドウが100%に達する時刻を予測。
 - **アプリ内アップデート** — ワンクリックの更新確認、設定に現在のバージョンを表示。
 
@@ -110,7 +110,7 @@ PokeTokenBar は、あなたがすでに使っている AI コーディングト
 | **Claude Code** | 今日 · 5時間ブロック · 週 · 月 | ✅ 5時間／週間 |
 | **Codex** | 今日 · 週 · 月 | ✅ 5時間／週間 |
 | **Gemini CLI** | 今日 · 週 · 月 | — |
-| **Antigravity** | 今日 · 5時間ブロック · 週 · 月 | — |
+| **Antigravity** | 今日 · 5時間ブロック · 週 · 月 | ✅ 5時間／週間 |
 | **OpenCode** | 今日 · 5時間ブロック · 週 · 月 | — |
 | **Hermes Agent** | 今日 · 5時間ブロック · 週 · 月 | — |
 | **Cursor** | 今日 · 5時間ブロック · 週 · 月 | — |
@@ -179,7 +179,7 @@ swift test                   # ユニットテスト
 ## プライバシー & 権限
 
 - **オンデバイス。** トークン使用量はローカルの Claude Code・Codex・Gemini CLI・Antigravity・OpenCode・Hermes Agent・Cursor・Grok CLI・Copilot CLI・Kiro CLI データから直接読み取ります。使用量のアップロードも、モデルの推論実行も行いません。
-- **外部リクエスト。** 本アプリは完全オフラインではありません。7つのホストに接続します — `pokeapi.co`・`graphql.pokeapi.co`（種・進化）、`raw.githubusercontent.com`（スプライト）、`api.anthropic.com`（Claude 公式の上限）、`status.claude.com`・`status.openai.com`（障害バナー — 設定でオフ可）、`api.github.com`（アップデート確認）。**いずれのリクエストにも使用量・トークン・プロンプト・プロジェクトのパスは含まれません** — 送られるのはリクエストそのものだけです。
+- **外部リクエスト。** 本アプリは完全オフラインではありません。10のホストに接続します — `pokeapi.co`・`graphql.pokeapi.co`（種・進化）、`raw.githubusercontent.com`（スプライト）、`api.anthropic.com`（Claude 公式の上限）、`cloudcode-pa.googleapis.com`・`daily-cloudcode-pa.googleapis.com`（Antigravity 公式の上限）と `oauth2.googleapis.com`（トークン更新）、`status.claude.com`・`status.openai.com`（障害バナー — 設定でオフ可）、`api.github.com`（アップデート確認）。**いずれのリクエストにも使用量・トークン・プロンプト・プロジェクトのパスは含まれません** — 送られるのはリクエストそのものだけです。
 - **Keychain（任意）。** Claude OAuth 資格情報は**更新ボタンを押した時のみ**読み取ります（設定、またはポップオーバーの上限行）。自動更新では Keychain に触れないためパスワードのプロンプトは表示されず、`~/.claude/.credentials.json` があればそちらから取得します。トークンはメモリ上にのみ保持し、**アプリ自身の Keychain 項目は作成しません。** トークンが期限切れになると、上限は更新するまで以前の値（stale）として表示されます。設定でオフにすると上限セクションが非表示になります。
 - **ポケモンのアセット** はランタイムに PokéAPI から取得し、`~/Library/Application Support/PokeTokenBar/` にのみキャッシュされます。アプリのバイナリおよびリリース成果物にポケモンのアセットは含まれません。
 

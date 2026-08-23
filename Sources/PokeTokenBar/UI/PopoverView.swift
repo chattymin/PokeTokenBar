@@ -251,6 +251,7 @@ struct PopoverView: View {
         // (자동 Keychain 읽기는 팝업 방지로 여전히 안 함 — 발견성만 살린다.)
         case "claude_code": return !store.disableKeychainAccess || store.limits != nil || store.limitsAuthExpired
         case "codex": return store.codexLimits?.hasVisibleLimit == true
+        case "antigravity": return !store.disableKeychainAccess || store.antigravityLimits?.hasVisibleLimit == true || store.antigravityLimitsAuthExpired
         default: return false
         }
     }
@@ -367,7 +368,111 @@ struct PopoverView: View {
                     codexSpendLimitRow(bucket.individualLimit)
                 }
             }
+            if selectedSnapshot?.providerID == "antigravity" {
+                antigravityLimitsContent
+            }
         }
+    }
+
+    @ViewBuilder
+    private var antigravityLimitsContent: some View {
+        if store.antigravityLimitsAuthExpired {
+            antigravityAuthExpiredNotice
+        } else if !store.disableKeychainAccess && (store.antigravityLimits == nil || store.antigravityLimitsStale) {
+            antigravityRefreshRow
+        }
+        if let status = store.antigravityLimits, status.hasVisibleLimit {
+            if store.antigravityLimitsStale {
+                staleBadge(updatedAt: store.antigravityLimitsUpdatedAt)
+            }
+            VStack(alignment: .leading, spacing: 10) {
+                ForEach(Array(status.groups.enumerated()), id: \.offset) { _, group in
+                    VStack(alignment: .leading, spacing: 4) {
+                        let groupTitle = group.displayName.localizedCaseInsensitiveContains("gemini")
+                            ? l.antigravityGeminiGroup
+                            : (group.displayName.localizedCaseInsensitiveContains("claude") ? l.antigravityThirdPartyGroup : group.displayName)
+                        Text(groupTitle)
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.secondary)
+
+                        ForEach(group.buckets, id: \.bucketId) { bucket in
+                            antigravityBucketRow(bucket)
+                        }
+                    }
+                }
+            }
+            .opacity(store.antigravityLimitsAuthExpired ? 0.5 : 1)
+        }
+    }
+
+    @ViewBuilder
+    private func antigravityBucketRow(_ bucket: AntigravityQuotaBucket) -> some View {
+        let name = l.antigravityWindow(window: bucket.window, bucketId: bucket.bucketId)
+        let utilization = bucket.usedPercent
+        VStack(alignment: .leading, spacing: 2) {
+            HStack {
+                Text(name)
+                    .font(.callout)
+                Spacer()
+                Text(limitPercentText(utilization))
+                    .font(.callout)
+                    .monospacedDigit()
+                    .foregroundStyle(limitColor(utilization))
+                if let reset = bucket.resetDate {
+                    Text("· \(reset, style: .relative)")
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                }
+            }
+            ProgressView(value: min(utilization, 100), total: 100)
+                .tint(limitColor(utilization))
+                .controlSize(.small)
+        }
+    }
+
+    @ViewBuilder
+    private var antigravityRefreshRow: some View {
+        Button {
+            Task { await store.refreshAntigravityLimitsFromKeychain() }
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: "key.fill")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Text(l.limitsTapToLoad)
+                    .font(.caption)
+                Spacer()
+                Text(l.refresh)
+                    .font(.caption)
+                    .foregroundStyle(Color.accentColor)
+            }
+            .padding(.vertical, 4)
+        }
+        .buttonStyle(.plain)
+    }
+
+    @ViewBuilder
+    private var antigravityAuthExpiredNotice: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 6) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .foregroundStyle(.orange)
+                Text("Antigravity 세션 갱신 필요")
+                    .font(.caption).fontWeight(.medium)
+            }
+            Text("인증 토큰이 만료되었습니다. Antigravity IDE를 실행하거나 갱신을 시도하세요.")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+            Button("다시 시도") {
+                Task { await store.refreshAntigravityLimitsFromKeychain() }
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.mini)
+            .padding(.top, 2)
+        }
+        .padding(8)
+        .background(Color.orange.opacity(0.1))
+        .clipShape(RoundedRectangle(cornerRadius: 6))
     }
 
 
