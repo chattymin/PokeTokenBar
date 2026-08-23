@@ -148,6 +148,14 @@ private actor LocalAdditionalUsageCache {
 
     private var cached: [LocalAdditionalSource: Cached] = [:]
     private var inFlight: [LocalAdditionalSource: Task<ScanResult, Never>] = [:]
+    /// Bumped by `invalidate()` so a scan that started on old roots cannot republish.
+    private var epoch = 0
+
+    func invalidate() {
+        epoch += 1
+        cached = [:]
+        inFlight = [:]
+    }
 
     func entries(for source: LocalAdditionalSource) async -> [LocalUsageReader.Entry] {
         let now = Date()
@@ -237,8 +245,12 @@ private actor LocalAdditionalUsageCache {
                     highWaterByPath: loaded.highWaterByPath)
             }
         }
+        let startEpoch = epoch
         inFlight[source] = task
         let result = await task.value
+        if startEpoch != epoch {
+            return result.entries
+        }
         inFlight[source] = nil
         cached[source] = Cached(
             loadedAt: now, monthKey: monthKey, entries: result.entries,
@@ -253,16 +265,45 @@ private actor LocalAdditionalUsageCache {
 enum LocalAdditionalUsageReader {
     typealias Object = [String: Any]
 
+    /// Drop the 30s hit so a newly saved extra folder is scanned on the next refresh (#177).
+    static func invalidateScanCache() async {
+        await LocalAdditionalUsageCache.shared.invalidate()
+    }
+
     static var defaultOpenCodeRoots: [URL] {
         environmentPaths("OPENCODE_DATA_DIR")
             ?? [FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".local/share/opencode")]
+    }
+
+    static func openCodeRoots(
+        customRootsValue: String? = nil,
+        home: URL = FileManager.default.homeDirectoryForCurrentUser
+    ) -> [URL] {
+        let curated = environmentPaths("OPENCODE_DATA_DIR")
+            ?? [home.appendingPathComponent(".local/share/opencode")]
+        return CustomScanRoots.union(defaults: curated, extraRaw: customRootsValue)
+    }
+
+    static var defaultHermesRoots: [URL] {
+        environmentPaths("HERMES_HOME")
+            ?? [FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".hermes")]
+    }
+
+    static func hermesRoots(
+        customRootsValue: String? = nil,
+        home: URL = FileManager.default.homeDirectoryForCurrentUser
+    ) -> [URL] {
+        let curated = environmentPaths("HERMES_HOME")
+            ?? [home.appendingPathComponent(".hermes")]
+        return CustomScanRoots.union(defaults: curated, extraRaw: customRootsValue)
     }
 
     static func openCodeEntries(
         modifiedSince: Date,
         roots: [URL]? = nil
     ) -> [LocalUsageReader.Entry] {
-        let sourceRoots = roots ?? defaultOpenCodeRoots
+        let sourceRoots = roots ?? openCodeRoots(
+            customRootsValue: CustomScanRoots.storedValue(for: "opencode"))
         var entries: [LocalUsageReader.Entry] = []
         for root in sourceRoots {
             if let database = preferredOpenCodeDatabase(in: root) {
@@ -283,8 +324,8 @@ enum LocalAdditionalUsageReader {
         modifiedSince: Date,
         roots: [URL]? = nil
     ) -> [LocalUsageReader.Entry] {
-        let sourceRoots = roots ?? environmentPaths("HERMES_HOME")
-            ?? [FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".hermes")]
+        let sourceRoots = roots ?? hermesRoots(
+            customRootsValue: CustomScanRoots.storedValue(for: "hermes"))
         var seen = Set<String>()
         var entries: [LocalUsageReader.Entry] = []
         for root in sourceRoots {
@@ -568,6 +609,17 @@ enum LocalAdditionalUsageReader {
         ]
     }
 
+    static func cursorRoots(
+        customRootsValue: String? = nil,
+        home: URL = FileManager.default.homeDirectoryForCurrentUser
+    ) -> [URL] {
+        let curated = environmentPaths("CURSOR_DATA_DIR") ?? [
+            home.appendingPathComponent("Library/Application Support/Cursor/User/globalStorage"),
+            home.appendingPathComponent("Library/Application Support/Cursor Nightly/User/globalStorage"),
+        ]
+        return CustomScanRoots.union(defaults: curated, extraRaw: customRootsValue)
+    }
+
     static func cursorEntries(
         modifiedSince: Date,
         afterRowID: Int64 = 0,
@@ -575,7 +627,7 @@ enum LocalAdditionalUsageReader {
         roots: [URL]? = nil
     ) -> CursorLoadResult {
         scanIncrementalStores(
-            roots: roots ?? defaultCursorRoots,
+            roots: roots ?? cursorRoots(customRootsValue: CustomScanRoots.storedValue(for: "cursor")),
             modifiedSince: modifiedSince,
             afterRowID: afterRowID,
             afterRowIDByPath: afterRowIDByPath,
@@ -693,6 +745,15 @@ enum LocalAdditionalUsageReader {
             ?? [FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".copilot")]
     }
 
+    static func copilotRoots(
+        customRootsValue: String? = nil,
+        home: URL = FileManager.default.homeDirectoryForCurrentUser
+    ) -> [URL] {
+        let curated = environmentPaths("COPILOT_HOME")
+            ?? [home.appendingPathComponent(".copilot")]
+        return CustomScanRoots.union(defaults: curated, extraRaw: customRootsValue)
+    }
+
     /// Read Copilot CLI usage rows newer than `modifiedSince`.
     ///
     /// Every row in `assistant_usage_events` is one billed API call, including the ones a
@@ -708,7 +769,7 @@ enum LocalAdditionalUsageReader {
         roots: [URL]? = nil
     ) -> CopilotLoadResult {
         scanIncrementalStores(
-            roots: roots ?? defaultCopilotRoots,
+            roots: roots ?? copilotRoots(customRootsValue: CustomScanRoots.storedValue(for: "copilot")),
             modifiedSince: modifiedSince,
             afterRowID: afterRowID,
             afterRowIDByPath: afterRowIDByPath,
@@ -803,6 +864,15 @@ enum LocalAdditionalUsageReader {
                 .appendingPathComponent("Library/Application Support/kiro-cli")]
     }
 
+    static func kiroRoots(
+        customRootsValue: String? = nil,
+        home: URL = FileManager.default.homeDirectoryForCurrentUser
+    ) -> [URL] {
+        let curated = environmentPaths("KIRO_CLI_HOME")
+            ?? [home.appendingPathComponent("Library/Application Support/kiro-cli")]
+        return CustomScanRoots.union(defaults: curated, extraRaw: customRootsValue)
+    }
+
     /// Read Kiro CLI usage turns newer than `modifiedSince`.
     ///
     /// Kiro persists a conversation as one row whose `value` column holds the *entire*
@@ -833,7 +903,8 @@ enum LocalAdditionalUsageReader {
         knownSignatures: [String: (mtime: Date, size: Int)],
         roots: [URL]? = nil
     ) -> (entries: [LocalUsageReader.Entry], signatures: [String: (mtime: Date, size: Int)]) {
-        let sourceRoots = roots ?? defaultKiroRoots
+        let sourceRoots = roots ?? kiroRoots(
+            customRootsValue: CustomScanRoots.storedValue(for: "kiro"))
         var entries: [LocalUsageReader.Entry] = []
         var signatures: [String: (mtime: Date, size: Int)] = [:]
         for root in sourceRoots {

@@ -22,6 +22,9 @@ final class UsageStore {
     private(set) var opencodeGoLimitsUpdatedAt: Date?
     /// OpenCode Go 폴링 예의용 마지막 시도 시각(성공·실패 무관) — 5분 최소 간격 스로틀.
     private var opencodeGoLimitsCheckedAt: Date?
+    private(set) var antigravityLimits: AntigravityRateLimitStatus?
+    private(set) var antigravityLimitsUpdatedAt: Date?
+    private(set) var antigravityLimitsAuthExpired = false
     private(set) var limitsUpdatedAt: Date?
     private(set) var limitsAvailable = true
     /// Claude 한도 조회가 401/403(세션 만료)로 실패한 상태 — UI 에서 명확한 안내+재시도 노출용.
@@ -134,11 +137,34 @@ final class UsageStore {
 
     private let providers: [any UsageProvider]
 
+    /// Registered usage sources — Settings lists these so extra scan folders
+    /// stay provider-tagged (#177). Do not grow one text field per provider.
+    var registeredProviders: [(id: String, displayName: String)] {
+        providers.map { (id: $0.id, displayName: $0.displayName) }
+    }
+
     /// 등록된 프로바이더 id 목록 — 확장 규약 레지스트리 무결성 테스트용.
-    var registeredProviderIDs: [String] { providers.map(\.id) }
+    var registeredProviderIDs: [String] { registeredProviders.map(\.id) }
+
+    func customScanRoots(for providerID: String) -> String {
+        defaults.string(forKey: CustomScanRoots.defaultsKey(for: providerID)) ?? ""
+    }
+
+    func setCustomScanRoots(_ value: String, for providerID: String) {
+        let key = CustomScanRoots.defaultsKey(for: providerID)
+        let previous = defaults.string(forKey: key) ?? ""
+        guard value != previous else { return }
+        defaults.set(value, forKey: key)
+        LocalUsageReader.invalidateProjectRootsCache()
+        Task {
+            await LocalAdditionalUsageReader.invalidateScanCache()
+            await refresh()
+        }
+    }
     private let limitsProvider: any ClaudeLimitsProviding
     private let codexLimitsProvider: any CodexLimitsProviding
     private let opencodeGoLimitsProvider: any OpenCodeGoLimitsProviding
+    private let antigravityLimitsProvider: any AntigravityLimitsProviding
     private let statusProvider: any ProviderStatusProviding
     /// 설정 저장소 — 테스트는 suite 를 주입해 실제 사용자 설정을 오염시키지 않는다.
     private let defaults: UserDefaults
@@ -205,7 +231,7 @@ final class UsageStore {
     }
 
     /// 메뉴바 한도 줄 — **오늘 실제 사용한 프로바이더만** 한 줄에 나란히(미사용/미가용이면 nil).
-    /// 한도 소스는 프로바이더 고유(Claude=OAuth·Codex=프로세스)라 providerID 로 명시 분기(확장 규약).
+    /// 한도 소스는 프로바이더 고유(Claude=OAuth·Codex=프로세스·Antigravity=OAuth)라 providerID 로 명시 분기(확장 규약).
     /// %는 limitDisplayMode 를 따르되 접미사 없음 — 좁은 표면이고 방향은 사용자가 고른 설정이 말해 준다
     /// (배터리 메뉴바 % 관례). 자기설명 접미사("남음")는 팝오버 행에서만.
     private var menuLimitLine: String? {
@@ -220,6 +246,9 @@ final class UsageStore {
         }
         if usedToday.contains("opencode"), let usedPercent = opencodeGoLimits?.maxUsedPercent {
             parts.append("OpenCode \(TokenFormatter.percent(limitDisplayPercent(Double(usedPercent))))")
+        }
+        if usedToday.contains("antigravity"), let usedPercent = antigravityLimits?.maxPrimaryUsedPercent {
+            parts.append("AGY \(TokenFormatter.percent(limitDisplayPercent(usedPercent)))")
         }
         return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
@@ -328,6 +357,11 @@ final class UsageStore {
                   opencodeGoLimits?.monthly?.utilization] {
             if let u, u >= critThreshold { return true }
         }
+        for group in antigravityLimits?.groups ?? [] {
+            for bucket in group.buckets {
+                if bucket.usedPercent >= critThreshold { return true }
+            }
+        }
         if let forecast = fiveHourForecast, forecast.beforeReset { return true }
         return false
     }
@@ -360,11 +394,18 @@ final class UsageStore {
                 if let u { utils.append(u) }
             }
         }
+        if usedToday.contains("antigravity") {
+            for group in antigravityLimits?.groups ?? [] {
+                for bucket in group.buckets {
+                    utils.append(bucket.usedPercent)
+                }
+            }
+        }
         return utils.max()
     }
 
     /// 사탕 지급 대상 한도 창 — 세션급(≈5h)=1개, 주간급=5개, 전 프로바이더. 공식 한도 신호가 없는
-    /// 프로바이더(Gemini·Antigravity·Hermes·Cursor·Grok)는 자연히 빠진다(창 목록에 없음).
+    /// 프로바이더(Gemini·Hermes·Cursor·Grok)는 자연히 빠진다(창 목록에 없음).
     /// 지급 제외: Opus/Sonnet 주간·scoped·Codex 개인 spend
     /// limit(헤드라인 창의 하위/중복 → 이중지급 방지). 알림(checkLimitAlerts)보다 좁은 지급 전용.
     var candyEligibleWindows: [CandyWindow] {
@@ -409,6 +450,23 @@ final class UsageStore {
             windows.append(CandyWindow(key: "opencodeGo.monthly", name: l.opencodeGoMonthly,
                                        kind: .weekly, utilization: u))
         }
+        for group in antigravityLimits?.groups ?? [] {
+            let groupKey = group.displayName.localizedCaseInsensitiveContains("gemini") ? "gemini" : "3p"
+            if let fiveHour = group.fiveHourBucket {
+                windows.append(CandyWindow(
+                    key: "antigravity.\(groupKey).5h",
+                    name: "\(group.displayName) \(l.fiveHourSession)",
+                    kind: .session,
+                    utilization: fiveHour.usedPercent))
+            }
+            if let weekly = group.weeklyBucket {
+                windows.append(CandyWindow(
+                    key: "antigravity.\(groupKey).weekly",
+                    name: "\(group.displayName) \(l.weekly)",
+                    kind: .weekly,
+                    utilization: weekly.usedPercent))
+            }
+        }
         return windows
     }
 
@@ -419,7 +477,7 @@ final class UsageStore {
     }
 
     /// 한도 데이터가 최소 1개 프로바이더 로드됐는가 — 사탕 첫 실행 시드 게이트(미로딩 중 시드 방지).
-    var limitsReady: Bool { limits != nil || codexLimits != nil || opencodeGoLimits != nil }
+    var limitsReady: Bool { limits != nil || codexLimits != nil || opencodeGoLimits != nil || antigravityLimits != nil }
 
     /// burn rate 티어 — companion 표시 상태(idle/working/focus) 판정에 사용.
     /// 전 프로바이더 합산 — Codex/Gemini 전용 사용자도 코딩 리듬이 반영된다.
@@ -447,6 +505,7 @@ final class UsageStore {
          claudeLimitsProvider: any ClaudeLimitsProviding = OAuthLimitsProvider(),
          codexLimitsProvider: any CodexLimitsProviding = CodexRateLimitsProvider(),
          opencodeGoLimitsProvider: any OpenCodeGoLimitsProviding = OpenCodeGoLimitsProvider(),
+         antigravityLimitsProvider: any AntigravityLimitsProviding = AntigravityRateLimitsProvider(),
          statusProvider: any ProviderStatusProviding = StatuspageStatusProvider(),
          autoRefresh: Bool = true,
          defaults: UserDefaults = .standard) {
@@ -454,6 +513,7 @@ final class UsageStore {
         self.limitsProvider = claudeLimitsProvider
         self.codexLimitsProvider = codexLimitsProvider
         self.opencodeGoLimitsProvider = opencodeGoLimitsProvider
+        self.antigravityLimitsProvider = antigravityLimitsProvider
         self.statusProvider = statusProvider
         self.defaults = defaults
         let d = defaults
@@ -701,6 +761,7 @@ final class UsageStore {
         }
         await refreshCodexLimits()
         await refreshOpenCodeGoLimits()
+        await refreshAntigravityLimits(allowKeychainPrompt: false)
         await refreshProviderStatuses()
 
         checkLimitAlerts()
@@ -746,6 +807,33 @@ final class UsageStore {
             updateAuthExpired(from: error)
             applyLimitsBackoffIfRateLimited(error)
             AppLog.write("limits user refresh failed: \(error)")
+        }
+    }
+
+    func refreshAntigravityLimitsFromKeychain() async {
+        await refreshAntigravityLimits(allowKeychainPrompt: true)
+    }
+
+    private func refreshAntigravityLimits(allowKeychainPrompt: Bool) async {
+        if disableKeychainAccess {
+            antigravityLimits = nil
+            antigravityLimitsAuthExpired = false
+            return
+        }
+        do {
+            let status = try await antigravityLimitsProvider.fetch(allowKeychainPrompt: allowKeychainPrompt)
+            antigravityLimits = status
+            antigravityLimitsUpdatedAt = Date()
+            antigravityLimitsAuthExpired = false
+            let groupsDesc = status.groups.map { group in
+                "\(group.displayName): " + group.buckets.map { "\($0.bucketId)=\(String(format: "%.1f", $0.usedPercent))%" }.joined(separator: ", ")
+            }.joined(separator: " | ")
+            AppLog.write("antigravity limits refreshed [\(groupsDesc)]")
+        } catch {
+            if case LimitsError.httpStatus(let code) = error, code == 401 || code == 403 {
+                antigravityLimitsAuthExpired = true
+            }
+            AppLog.write("antigravity limits unavailable: \(error)")
         }
     }
 
@@ -840,6 +928,12 @@ final class UsageStore {
             // 있으면 그대로 두고, 갱신이 15분+ 이어지지 않으면 stale 배지로 노출된다.
             AppLog.write("opencode go limits unavailable: \(error)")
         }
+    }
+
+    /// Antigravity 한도 staleness — 15분 경과 시 stale
+    var antigravityLimitsStale: Bool {
+        guard antigravityLimits != nil, let antigravityLimitsUpdatedAt else { return false }
+        return Date().timeIntervalSince(antigravityLimitsUpdatedAt) > 15 * 60
     }
 
     /// 프로바이더 상태 페이지(인시던트) 조회 — 표시 전용, 기존 refresh 루프에 편승(별도 타이머 없음).
@@ -1022,6 +1116,15 @@ final class UsageStore {
             }
             if let u = goLimits.monthly?.utilization {
                 windows.append(("opencodeGo.monthly", l.opencodeGoMonthly, u))
+            }
+        }
+        for group in antigravityLimits?.groups ?? [] {
+            let groupKey = group.displayName.localizedCaseInsensitiveContains("gemini") ? "gemini" : "3p"
+            for bucket in group.buckets {
+                let windowName = l.antigravityWindow(window: bucket.window, bucketId: bucket.bucketId)
+                windows.append(("antigravity.\(groupKey).\(bucket.bucketId)",
+                                "\(group.displayName) \(windowName)",
+                                bucket.usedPercent))
             }
         }
         return windows

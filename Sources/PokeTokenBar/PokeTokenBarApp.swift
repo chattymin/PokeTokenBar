@@ -4,6 +4,7 @@ import SwiftUI
 import PokeTokenBarShared
 
 @main
+@MainActor
 struct PokeTokenBarApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 

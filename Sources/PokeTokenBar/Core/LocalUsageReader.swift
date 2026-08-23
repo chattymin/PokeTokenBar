@@ -59,6 +59,8 @@ enum LocalUsageReader {
     ///
     /// - `CLAUDE_CONFIG_DIR`: 사용자가 설정 위치를 옮긴 경우. 콤마로 여러 개를 줄 수 있고 각각 `<값>/projects`.
     /// - `~/.config/claude/projects`, `~/.claude/projects`: CLI 기본 위치(전자는 XDG 스타일 설치).
+    /// - 사용자 지정 스캔 폴더(설정): 기본 위치 밖의 로그. `CustomScanRoots.union` 으로
+    ///   기본 루트에 *더하기만* 한다. 조상 경로는 기본 루트를 접어 없애지 못하게 버린다.
     /// - Claude Desktop 임베디드 세션: 세션 디렉터리마다 CLI 와 같은 모양의 `.claude/projects` 를 갖는다.
     ///   Desktop 으로 일한 사용량이 여기에만 남으므로 빼면 조용히 누락된다.
     /// 계산에 파일시스템 탐색 + (GUI 앱에선) 로그인 셸 조회가 들어가는데 새로고침은 분 단위로 돈다.
@@ -68,6 +70,7 @@ enum LocalUsageReader {
     /// 테스트·진단용 — 캐시를 무시하고 지금 상태로 계산한다.
     static func computeClaudeProjectRoots(
         configDirValue: String? = shellAwareClaudeConfigDir(),
+        customRootsValue: String? = nil,
         home: URL = FileManager.default.homeDirectoryForCurrentUser) -> [URL]
     {
         var roots: [URL] = []
@@ -86,7 +89,45 @@ enum LocalUsageReader {
         for store in ["local-agent-mode-sessions", "claude-code-sessions"] {
             roots.append(contentsOf: embeddedClaudeProjectRoots(under: desktop.appendingPathComponent(store)))
         }
-        return normalizedRoots(roots)
+        // Custom roots are unioned *after* curated defaults so an ancestor extra cannot
+        // evict `~/.claude/projects` (#162-B / #177).
+        return CustomScanRoots.union(defaults: roots, extraRaw: customRootsValue)
+    }
+
+    /// Setting change must not wait for the 300s TTL — the next refresh should see the folder.
+    static func invalidateProjectRootsCache() { rootsCache.invalidate() }
+
+    static func codexSessionRoots(
+        customRootsValue: String? = nil,
+        home: URL = FileManager.default.homeDirectoryForCurrentUser
+    ) -> [URL] {
+        CustomScanRoots.union(
+            defaults: computeCodexScanRoots(home: home),
+            extraRaw: customRootsValue)
+    }
+
+    static func geminiScanRoots(
+        customRootsValue: String? = nil,
+        home: URL = FileManager.default.homeDirectoryForCurrentUser
+    ) -> [URL] {
+        CustomScanRoots.union(
+            defaults: [home.appendingPathComponent(".gemini/tmp")],
+            extraRaw: customRootsValue)
+    }
+
+    static func grokSessionRoots(
+        customRootsValue: String? = nil,
+        home: URL = FileManager.default.homeDirectoryForCurrentUser
+    ) -> [URL] {
+        let curated: URL
+        if home == FileManager.default.homeDirectoryForCurrentUser,
+           let env = UsageEnvironment.value("GROK_HOME")?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !env.isEmpty {
+            curated = URL(fileURLWithPath: env).appendingPathComponent("sessions")
+        } else {
+            curated = home.appendingPathComponent(".grok/sessions")
+        }
+        return CustomScanRoots.union(defaults: [curated], extraRaw: customRootsValue)
     }
 
     /// `CLAUDE_CONFIG_DIR` 값. Finder/launchd 로 뜬 `.app` 은 셸 환경을 상속하지 않으므로
@@ -118,12 +159,20 @@ enum LocalUsageReader {
             lock.unlock()
             if let cached = hit.0, let at = hit.1, Date().timeIntervalSince(at) < ttl { return cached }
 
-            let fresh = computeClaudeProjectRoots()
+            let fresh = computeClaudeProjectRoots(
+                customRootsValue: CustomScanRoots.storedValue(for: "claude_code"))
             lock.lock()
             cached = fresh
             computedAt = Date()
             lock.unlock()
             return fresh
+        }
+
+        func invalidate() {
+            lock.lock()
+            cached = nil
+            computedAt = nil
+            lock.unlock()
         }
     }
 
@@ -658,7 +707,8 @@ enum LocalUsageReader {
 
     static func codexEntries(modifiedSince: Date, root: URL? = nil) -> [Entry] {
         let fmt = localDayFormatter()
-        let roots = root.map { [$0] } ?? codexScanRoots
+        let roots = root.map { [$0] } ?? codexSessionRoots(
+            customRootsValue: CustomScanRoots.storedValue(for: "codex"))
         let allFiles = codexRolloutFiles(in: roots)
         // 테스트/캐시 미사용 경로 — 아는 세션 id 가 없으니 파일명 힌트와 probe 만으로 부모를 찾는다.
         let (rollouts, includedPaths) = expandCodexParentClosure(
@@ -1041,11 +1091,15 @@ enum LocalUsageReader {
 
     static func geminiEntries(modifiedSince: Date, root: URL? = nil) -> [Entry] {
         let fmt = localDayFormatter()
+        let roots = root.map { [$0] } ?? geminiScanRoots(
+            customRootsValue: CustomScanRoots.storedValue(for: "gemini"))
         var entries: [Entry] = []
-        for file in jsonlFiles(in: root ?? geminiTmpDir, modifiedSince: modifiedSince, allowJSON: true) {
-            entries.append(contentsOf: parseGeminiFile(file, fmt: fmt))
+        for scanRoot in roots {
+            for file in jsonlFiles(in: scanRoot, modifiedSince: modifiedSince, allowJSON: true) {
+                entries.append(contentsOf: parseGeminiFile(file, fmt: fmt))
+            }
         }
-        return entries
+        return dedupKeepMax(entries)
     }
 
     // MARK: Grok 파싱
@@ -1098,10 +1152,14 @@ enum LocalUsageReader {
 
     static func grokEntries(modifiedSince: Date, root: URL? = nil) -> [Entry] {
         let fmt = localDayFormatter()
+        let roots = root.map { [$0] } ?? grokSessionRoots(
+            customRootsValue: CustomScanRoots.storedValue(for: "grok"))
         var entries: [Entry] = []
-        for file in jsonlFiles(in: root ?? grokSessionsDir, modifiedSince: modifiedSince)
-        where isGrokUsageFile(file) {
-            entries.append(contentsOf: parseGrokFile(file, fmt: fmt))
+        for scanRoot in roots {
+            for file in jsonlFiles(in: scanRoot, modifiedSince: modifiedSince)
+            where isGrokUsageFile(file) {
+                entries.append(contentsOf: parseGrokFile(file, fmt: fmt))
+            }
         }
         // fork 세션이 부모 updates 를 복사해도 턴 id 가 같아 한 번만 남는다(전역 dedup).
         return dedupKeepMax(entries)

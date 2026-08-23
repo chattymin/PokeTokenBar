@@ -386,6 +386,13 @@ private struct RCFakeCodex: CodexLimitsProviding {
 private struct RCFakeOpenCodeGo: OpenCodeGoLimitsProviding {
     func fetch() async throws -> OpenCodeGoLimitStatus? { nil }
 }
+private struct RCFakeAntigravity: AntigravityLimitsProviding {
+    var status: AntigravityRateLimitStatus?
+    func fetch(allowKeychainPrompt: Bool) async throws -> AntigravityRateLimitStatus {
+        guard let status else { throw LimitsError.keychainInteractionNotAllowed }
+        return status
+    }
+}
 private final class RCFakeStatus: ProviderStatusProviding, @unchecked Sendable {
     func fetch() async -> [String: ProviderStatus] { [:] }
 }
@@ -440,12 +447,14 @@ final class RareCandyGrantIntegrationTests: XCTestCase {
     }
 
     private func usage(claude: LimitStatus? = nil, codex: CodexRateLimitStatus? = nil,
+                       antigravity: AntigravityRateLimitStatus? = nil,
                        providers: [any UsageProvider]? = nil) -> UsageStore {
         UsageStore(
             providers: providers ?? [RCFakeProvider(id: "claude_code", displayName: "Claude Code", daily: rcDaily(1_000))],
             claudeLimitsProvider: RCFakeClaude(status: claude),
             codexLimitsProvider: RCFakeCodex(status: codex),
             opencodeGoLimitsProvider: RCFakeOpenCodeGo(),
+            antigravityLimitsProvider: RCFakeAntigravity(status: antigravity),
             statusProvider: RCFakeStatus(),
             autoRefresh: false, defaults: defaults)
     }

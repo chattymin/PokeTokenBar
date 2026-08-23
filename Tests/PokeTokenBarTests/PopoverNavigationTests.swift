@@ -47,6 +47,8 @@ final class RepresentativeLocalizationTests: XCTestCase {
             (.ja, "代表ポケモン", "現在のポケモンに合わせる", "図鑑で選ぶ…", "代表ポケモンに設定"),
             (.es, "Pokémon representativo", "Seguir al compañero actual", "Elegir en la Pokédex…",
              "Establecer como representante"),
+            (.fr, "Pokémon représentatif", "Suivre le compagnon actuel", "Choisir dans le Pokédex…",
+             "Définir comme représentatif"),
         ]
 
         XCTAssertEqual(expected.map(\.0), AppLanguage.allCases)

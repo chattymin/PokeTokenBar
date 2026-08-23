@@ -98,6 +98,14 @@ private final class CountingOpenCodeGoLimits: OpenCodeGoLimitsProviding, @unchec
     }
 }
 
+private struct FakeAntigravityLimits: AntigravityLimitsProviding {
+    var status: AntigravityRateLimitStatus?
+    func fetch(allowKeychainPrompt: Bool) async throws -> AntigravityRateLimitStatus {
+        guard let status else { throw LimitsError.keychainInteractionNotAllowed }
+        return status
+    }
+}
+
 /// 호출마다 allowKeychainPrompt 값을 기록 — 자동/수동 경로가 올바른 플래그를 쓰는지 회귀 검증용.
 private final class RecordingClaudeLimits: ClaudeLimitsProviding, @unchecked Sendable {
     nonisolated(unsafe) var promptFlags: [Bool] = []
@@ -180,12 +188,14 @@ final class UsageStoreTests: XCTestCase {
         providers: [any UsageProvider],
         claude: LimitStatus? = nil,
         codex: CodexRateLimitStatus? = nil,
-        opencodeGo: OpenCodeGoLimitStatus? = nil
+        opencodeGo: OpenCodeGoLimitStatus? = nil,
+        antigravity: AntigravityRateLimitStatus? = nil
     ) -> UsageStore {
         UsageStore(providers: providers,
                    claudeLimitsProvider: FakeClaudeLimits(status: claude),
                    codexLimitsProvider: FakeCodexLimits(status: codex),
                    opencodeGoLimitsProvider: FakeOpenCodeGoLimits(status: opencodeGo),
+                   antigravityLimitsProvider: FakeAntigravityLimits(status: antigravity),
                    autoRefresh: false,
                    defaults: testDefaults)
     }
@@ -193,7 +203,10 @@ final class UsageStoreTests: XCTestCase {
     private func makeStatusStore(_ stub: FakeStatusProvider) -> UsageStore {
         let claude = FakeUsageProvider(id: "claude_code", displayName: "Claude Code", daily: todayDaily(1_000))
         return UsageStore(providers: [claude], claudeLimitsProvider: FakeClaudeLimits(status: nil),
-                          codexLimitsProvider: FakeCodexLimits(status: nil), statusProvider: stub,
+                          codexLimitsProvider: FakeCodexLimits(status: nil),
+                          opencodeGoLimitsProvider: FakeOpenCodeGoLimits(status: nil),
+                          antigravityLimitsProvider: FakeAntigravityLimits(status: nil),
+                          statusProvider: stub,
                           autoRefresh: false, defaults: testDefaults)
     }
 
@@ -208,6 +221,7 @@ final class UsageStoreTests: XCTestCase {
                                claudeLimitsProvider: FakeClaudeLimits(status: nil),
                                codexLimitsProvider: FakeCodexLimits(status: nil),
                                opencodeGoLimitsProvider: FakeOpenCodeGoLimits(status: nil),
+                               antigravityLimitsProvider: FakeAntigravityLimits(status: nil),
                                statusProvider: FakeStatusProvider([:]),
                                autoRefresh: false, defaults: testDefaults)
         // A: 첫 refresh — fetchDaily 의 gate 에 걸려 in-flight 로 멈춘다.
