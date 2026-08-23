@@ -581,6 +581,24 @@ struct L {
     }
     var retry: String { t("다시 시도", "Retry", "再試行", "Reintentar", "Réessayer", "Tentar de novo") }
 
+    // MARK: Antigravity 세션 만료(401) 안내 — Claude 쪽과 동일 문안 구조로 통일
+    var antigravityAuthExpiredTitle: String {
+        t("Antigravity 세션 만료 — 한도가 갱신 안 돼요",
+          "Antigravity session expired — limits can't refresh",
+          "Antigravity セッション期限切れ — 上限を更新できません",
+          "Sesión de Antigravity expirada — los límites no se pueden actualizar",
+          "Session Antigravity expirée — les limites ne s'actualisent pas",
+          "Sessão do Antigravity expirada — não dá para atualizar os limites")
+    }
+    var antigravityAuthExpiredHint: String {
+        t("인증 토큰이 만료됐어요. 다시 시도하거나, Antigravity IDE 를 한 번 실행하면 자동 갱신됩니다.",
+          "The auth token expired. Retry, or run Antigravity IDE once to refresh automatically.",
+          "認証トークンの期限が切れました。再試行するか、Antigravity IDE を一度実行すると自動更新されます。",
+          "El token de autenticación expiró. Reinténtalo, o ejecuta Antigravity IDE una vez para actualizarlo automáticamente.",
+          "Le jeton d'authentification a expiré. Réessaie, ou lance Antigravity IDE une fois pour actualiser automatiquement.",
+          "O token de autenticação expirou. Tente de novo, ou abra o Antigravity IDE uma vez para atualizar automaticamente.")
+    }
+
     // MARK: 업데이트 알림
     func updateAvailable(_ version: String, current: String) -> String {
         t("🆕 v\(version) 사용 가능 (현재 \(current))",

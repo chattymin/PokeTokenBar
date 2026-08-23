@@ -457,13 +457,13 @@ struct PopoverView: View {
             HStack(spacing: 6) {
                 Image(systemName: "exclamationmark.triangle.fill")
                     .foregroundStyle(.orange)
-                Text("Antigravity 세션 갱신 필요")
+                Text(l.antigravityAuthExpiredTitle)
                     .font(.caption).fontWeight(.medium)
             }
-            Text("인증 토큰이 만료되었습니다. Antigravity IDE를 실행하거나 갱신을 시도하세요.")
+            Text(l.antigravityAuthExpiredHint)
                 .font(.caption2)
                 .foregroundStyle(.secondary)
-            Button("다시 시도") {
+            Button(l.retry) {
                 Task { await store.refreshAntigravityLimitsFromKeychain() }
             }
             .buttonStyle(.borderedProminent)
