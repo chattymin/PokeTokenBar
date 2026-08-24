@@ -5,10 +5,14 @@ import Foundation
 /// **이 앱에서 개체가 박스에서 빠지는 유일한 경로다.** 되돌릴 수 없으므로 확인은 화면이 맡고,
 /// 여기서는 파트너만 막는다(파트너 시계·폼 상태가 통째로 사라지는 것을 원천 차단).
 extension PlayerStore {
-    /// 이 개체를 보내면 받을 포인트. **파트너면 nil** — 보낼 수 없다는 뜻이고, 화면은 이 nil 로
-    /// 버튼을 안 만든다(조건을 화면이 따로 적으면 스토어와 갈린다).
+    /// 이 개체를 보내면 받을 포인트. **파트너거나 별표면 nil** — 보낼 수 없다는 뜻이고, 화면은
+    /// 이 nil 로 버튼을 안 만든다(조건을 화면이 따로 적으면 스토어와 갈린다).
+    ///
+    /// 이 판정 하나가 단건 보내기·대량 보내기·선택 모드의 셀 판정을 전부 지킨다 — 별표 가드를
+    /// 여기 두면 새 경로가 생겨도 자동으로 막힌다.
     func releaseValue(_ individual: Individual) -> Int? {
         guard individual.id != state.partnerID else { return nil }
+        guard !individual.starred else { return nil }
         return ReleaseBalance.points(for: individual)
     }
 
