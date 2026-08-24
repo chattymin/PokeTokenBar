@@ -58,14 +58,15 @@ final class DexMissionTests: XCTestCase {
     func testClaimOnceAndOnlyWhenAchieved() throws {
         let store = makeStore()
         let mission = try XCTUnwrap(DexMissions.all.first { $0.id == "species-10" })
-        XCTAssertFalse(store.claimDexMission(mission), "빈 도감인데 받아진다")
+        XCTAssertNil(store.claimDexMission(mission), "빈 도감인데 받아진다")
 
         seedDex(store, species: 1...10)
         XCTAssertTrue(store.canClaimDexMission(mission))
-        XCTAssertTrue(store.claimDexMission(mission))
+        // 아이템만 있는 미션은 빈 배열 — 성공과 "알 없음" 을 한 번에 말한다.
+        XCTAssertEqual(store.claimDexMission(mission), [])
         XCTAssertEqual(store.count(of: ShopItem.expCandy), 3, "보상이 안 들어왔다")
 
-        XCTAssertFalse(store.claimDexMission(mission), "같은 미션을 두 번 받는다")
+        XCTAssertNil(store.claimDexMission(mission), "같은 미션을 두 번 받는다")
         XCTAssertEqual(store.count(of: ShopItem.expCandy), 3)
     }
 
@@ -75,8 +76,12 @@ final class DexMissionTests: XCTestCase {
         let mission = try XCTUnwrap(DexMissions.all.first { $0.id == "species-25" })
         seedDex(store, species: 1...25)
 
-        XCTAssertFalse(store.claimDexMission(mission), "알 종 없이 받아진다")
-        XCTAssertTrue(store.claimDexMission(mission, eggSpecies: [(7, .mediumFast)]))
+        XCTAssertNil(store.claimDexMission(mission), "알 종 없이 받아진다")
+        let placed = store.claimDexMission(mission, eggSpecies: [(7, .mediumFast)])
+        // **놓인 알을 돌려준다** — 화면이 이걸로 상점과 같은 연출을 띄운다. 안 돌려주면
+        // "받기를 눌렀는데 받아졌는지 모르겠다"(사용자 지적)로 돌아간다.
+        XCTAssertEqual(placed?.count, 1)
+        XCTAssertEqual(placed?.first?.grade, .rare, "돌려준 알과 보상 등급이 다르다")
         XCTAssertEqual(store.state.eggs.count, 1, "알이 슬롯에 안 놓였다")
         XCTAssertEqual(store.state.eggs.first?.grade, .rare, "보상 등급과 알 등급이 다르다")
         XCTAssertTrue(store.state.claimedDexMissions.contains("species-25"))
@@ -92,7 +97,7 @@ final class DexMissionTests: XCTestCase {
         XCTAssertEqual(store.freeSlots, 0)
 
         XCTAssertFalse(store.canClaimDexMission(mission))
-        XCTAssertFalse(store.claimDexMission(mission, eggSpecies: [(7, .mediumFast)]))
+        XCTAssertNil(store.claimDexMission(mission, eggSpecies: [(7, .mediumFast)]))
         XCTAssertFalse(store.state.claimedDexMissions.contains("species-25"),
                        "못 받았는데 수령 처리됐다")
     }
@@ -119,7 +124,7 @@ final class DexMissionTests: XCTestCase {
         XCTAssertFalse(store.state.ownsShinyCharm, "픽스처가 이미 이로치 부적을 갖고 있다")
         seedDex(store, species: 1...1025)
 
-        XCTAssertTrue(store.claimDexMission(mission))
+        XCTAssertNotNil(store.claimDexMission(mission))
         XCTAssertTrue(store.state.ownsRainbowCharm)
         XCTAssertTrue(store.owns(ShopItem.rainbowCharm), "가방의 부적 판정이 못 본다")
         XCTAssertEqual(store.shinyDenominator, 32)
@@ -144,7 +149,7 @@ final class DexMissionTests: XCTestCase {
         let store = PlayerStore(fileURL: url, rng: SeededRNG(seed: 1), now: { self.now })
         let mission = try XCTUnwrap(DexMissions.all.first { $0.id == "species-10" })
         seedDex(store, species: 1...10)
-        XCTAssertTrue(store.claimDexMission(mission))
+        XCTAssertNotNil(store.claimDexMission(mission))
         store.mutate { $0.ownsRainbowCharm = true }
 
         let back = PlayerStore(fileURL: url, rng: SeededRNG(seed: 1), now: { self.now })

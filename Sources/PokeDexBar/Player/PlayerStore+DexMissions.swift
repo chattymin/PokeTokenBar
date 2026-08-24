@@ -36,20 +36,27 @@ extension PlayerStore {
     ///
     /// 이로치는 여기서 굴린다 — 부적 상태(`shinyDenominator`)를 받는 건 뽑기·발견 알과 같고,
     /// **미션 알이라고 더 잘 나오지 않는다.**
+    ///
+    /// **놓인 알들을 돌려준다**(실패면 nil, 아이템만 있는 미션이면 빈 배열) — 화면이 상점
+    /// 뽑기와 같은 연출(`EggRevealView`)을 띄우려면 굴려 나온 등급·이로치를 알아야 한다.
+    /// 안 돌려주면 "받기를 눌렀는데 알이 실제로 받아졌는지 모르겠다" 가 된다(사용자 지적).
     @discardableResult
     func claimDexMission(_ mission: DexMission,
-                         eggSpecies: [(speciesID: Int, growthRate: GrowthRate)] = []) -> Bool {
-        guard canClaimDexMission(mission) else { return false }
-        guard eggSpecies.count == DexMissions.eggCount(in: mission.rewards) else { return false }
+                         eggSpecies: [(speciesID: Int, growthRate: GrowthRate)] = []) -> [Egg]? {
+        guard canClaimDexMission(mission) else { return nil }
+        guard eggSpecies.count == DexMissions.eggCount(in: mission.rewards) else { return nil }
 
         var eggQueue = eggSpecies
+        var placed: [Egg] = []
         for reward in mission.rewards {
             guard case .egg(let grade) = reward, let pick = eggQueue.first else { continue }
             eggQueue.removeFirst()
             let shiny = EggBalance.rollShiny(nextRandomUnit(), denominator: shinyDenominator)
             // `canClaim` 이 빈 슬롯을 확인했고 여기는 MainActor 라 그 사이에 찰 수 없다.
-            placeEgg(grade: grade, speciesID: pick.speciesID, shiny: shiny,
-                     growthRate: pick.growthRate)
+            if let egg = placeEgg(grade: grade, speciesID: pick.speciesID, shiny: shiny,
+                                  growthRate: pick.growthRate) {
+                placed.append(egg)
+            }
         }
         mutate { s in
             for reward in mission.rewards {
@@ -65,6 +72,6 @@ extension PlayerStore {
             }
             s.claimedDexMissions.insert(mission.id)
         }
-        return true
+        return placed
     }
 }
