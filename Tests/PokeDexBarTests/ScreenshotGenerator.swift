@@ -917,6 +917,11 @@ final class ScreenshotGeneratorTests: XCTestCase {
         // 도감 — 번호순 그리드 + 못 잡은 종 실루엣.
         try write(png(tabChrome(NationalDexView(store: fixture.player))), "screenshot-collection.png")
 
+        // 도감 미션 — 목록을 펼친 채로. 픽스처 도감(20여 종)이면 10종 미션이 "받기" 로 서 있어
+        // 배지·진행 바·보상 문구가 한 장에 같이 나온다.
+        try write(png(tabChrome(NationalDexView(store: fixture.player, missionsExpanded: true))),
+                  "screenshot-dex-missions.png")
+
         // 폼 도감 — 종 칸을 누르면 그 종의 무늬가 행으로 펼쳐진다. **그리드만 찍으면 이 기능이
         // 그림에 한 번도 안 담긴다**(칸 겉모습은 예전과 같다). 비비용을 고른 것은 18개 무늬로
         // 후보가 가장 많아, 모은 것과 안 모은 것이 한 화면에 같이 보이기 때문이다.

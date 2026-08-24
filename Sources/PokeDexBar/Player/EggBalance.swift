@@ -62,9 +62,19 @@ enum EggBalance {
         }
     }
 
-    /// 이로치 판정. 부적은 분모를 낮춘다(1/64 → 1/48).
-    static func rollShiny(_ roll: Double, hasCharm: Bool) -> Bool {
-        roll < (hasCharm ? 1.0 / 48 : 1.0 / 64)
+    /// 이로치 분모. 부적이 낮춘다 — 이로치 부적 1/48, 무지개 부적 1/32(둘 다 있어도 32).
+    ///
+    /// 무지개 부적은 이로치 부적의 **업그레이드**라 겹쳐도 더 안 좋아진다 — 전국도감 완성
+    /// 보상이고, 이로치 부적 없이도 받을 수 있으므로 독립으로 판정한다.
+    static func shinyDenominator(shinyCharm: Bool, rainbowCharm: Bool) -> Int {
+        if rainbowCharm { return 32 }
+        if shinyCharm { return 48 }
+        return 64
+    }
+
+    /// 이로치 판정.
+    static func rollShiny(_ roll: Double, denominator: Int) -> Bool {
+        roll < 1.0 / Double(max(1, denominator))
     }
 
     // MARK: 뽑기 종 선택

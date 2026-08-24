@@ -10,6 +10,9 @@ import SwiftUI
 /// 폼 목록 상세가 열리고, 등록한 폼만 그림이 보인다(미등록은 실루엣 + 이름).
 struct NationalDexView: View {
     let store: PlayerStore
+    /// 알 보상 수령에 필요한 종 인덱스(네트워크). 스크린샷·테스트는 안 넘긴다 —
+    /// 그때 알 미션 수령은 실패 문구로 떨어질 뿐 화면은 그대로 선다.
+    let provider: (any PokeProviding)?
 
     nonisolated static let speciesRange = DexKey.speciesRange
 
@@ -32,18 +35,153 @@ struct NationalDexView: View {
     /// 폼 상세를 열어 둔 종. nil 이면 그리드.
     @State private var detailSpeciesID: Int?
 
-    /// `detailSpeciesID` 를 심을 수 있는 이니셜라이저 — 스크린샷 생성기가 탭 없이 폼 상세
-    /// 장면을 렌더하는 데 쓴다(오프스크린 렌더는 제스처를 못 보낸다).
-    init(store: PlayerStore, detailSpeciesID: Int? = nil) {
+    /// `detailSpeciesID`·`missionsExpanded` 를 심을 수 있는 이니셜라이저 — 스크린샷 생성기가
+    /// 탭 없이 그 장면을 렌더하는 데 쓴다(오프스크린 렌더는 제스처를 못 보낸다).
+    init(store: PlayerStore, provider: (any PokeProviding)? = nil,
+         detailSpeciesID: Int? = nil, missionsExpanded: Bool = false) {
         self.store = store
+        self.provider = provider
         _detailSpeciesID = State(initialValue: detailSpeciesID)
+        _missionsExpanded = State(initialValue: missionsExpanded)
     }
+
+    // MARK: 미션
+
+    @State private var missionsExpanded = false
+    @State private var claimingID: String?
+    @State private var missionError: String?
+    @State private var claimTask: Task<Void, Never>?
 
     var body: some View {
         if let speciesID = detailSpeciesID {
             formDetail(speciesID)
         } else {
             grid
+        }
+    }
+
+    // MARK: 미션 섹션
+
+    /// 접이식 미션 목록 — 수령한 미션은 사라지고, 달성한 미션이 있으면 접혀 있어도 배지가 알린다.
+    @ViewBuilder
+    private var missionsSection: some View {
+        let statuses = store.dexMissionStatuses().filter { !$0.claimed }
+        let claimable = statuses.count(where: \.claimable)
+        VStack(alignment: .leading, spacing: 4) {
+            Button {
+                withAnimation(.easeInOut(duration: 0.15)) { missionsExpanded.toggle() }
+            } label: {
+                HStack(spacing: 5) {
+                    Image(systemName: missionsExpanded ? "chevron.down" : "chevron.right")
+                        .font(.system(size: 8, weight: .bold)).foregroundStyle(.secondary)
+                    Text(store.l.missionSection).font(.system(size: 10, weight: .semibold))
+                    if claimable > 0 {
+                        Text(store.l.missionClaimableBadge(claimable))
+                            .font(.system(size: 8, weight: .bold)).foregroundStyle(.white)
+                            .padding(.horizontal, 5).padding(.vertical, 1)
+                            .background(Color.accentColor, in: Capsule())
+                    }
+                    Spacer()
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            if missionsExpanded {
+                ForEach(statuses) { status in missionRow(status) }
+                if let missionError {
+                    Text(missionError).font(.system(size: 8)).foregroundStyle(.orange)
+                }
+            }
+        }
+        .padding(8)
+        .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
+        .onDisappear { claimTask?.cancel() }
+    }
+
+    private func missionRow(_ status: PlayerStore.DexMissionStatus) -> some View {
+        HStack(spacing: 6) {
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 4) {
+                    Text(missionTitle(status.mission))
+                        .font(.system(size: 9, weight: .medium))
+                    Text("\(status.done)/\(status.target)")
+                        .font(.system(size: 8).monospacedDigit()).foregroundStyle(.secondary)
+                }
+                Text(rewardText(status.mission.rewards))
+                    .font(.system(size: 8)).foregroundStyle(.tertiary)
+                GeometryReader { geo in
+                    ZStack(alignment: .leading) {
+                        Capsule().fill(Color.secondary.opacity(0.15))
+                        Capsule().fill(status.claimable ? Color.accentColor : Color.secondary)
+                            .frame(width: max(2, geo.size.width
+                                * CGFloat(status.done) / CGFloat(max(1, status.target))))
+                    }
+                }
+                .frame(height: 3)
+            }
+            if status.claimable {
+                // 알 보상인데 빈 슬롯이 없으면 스토어 판정이 막는다 — 버튼은 그 판정 그대로.
+                Button(claimingID == status.id ? "…" : store.l.missionClaim) { claim(status) }
+                    .buttonStyle(.borderedProminent).controlSize(.mini)
+                    .disabled(!store.canClaimDexMission(status.mission) || claimingID != nil)
+            }
+        }
+        .padding(.vertical, 2)
+    }
+
+    private func missionTitle(_ mission: DexMission) -> String {
+        switch mission.kind {
+        case .species(let n): store.l.missionSpecies(n)
+        case .generation(let n): store.l.missionGeneration(n)
+        case .completion: store.l.missionCompletion
+        }
+    }
+
+    private func rewardText(_ rewards: [DexMissionReward]) -> String {
+        rewards.map { reward in
+            switch reward {
+            case .egg(let grade):
+                store.l.missionRewardEgg(grade.label(store.language))
+            case .expCandy(let n):
+                "\(ShopItem.expCandy.label(store.language)) ×\(n)"
+            case .shinyCandy(let n):
+                "\(ShopItem.shinyCandy.label(store.language)) ×\(n)"
+            case .rainbowCharm:
+                ShopItem.rainbowCharm.label(store.language)
+            }
+        }.joined(separator: " · ")
+    }
+
+    /// 수령. 알 보상은 상점 뽑기와 같은 흐름으로 종을 네트워크 인덱스에서 고른다.
+    private func claim(_ status: PlayerStore.DexMissionStatus) {
+        missionError = nil
+        let eggCount = DexMissions.eggCount(in: status.mission.rewards)
+        guard eggCount > 0 else {
+            if !store.claimDexMission(status.mission) { missionError = store.l.missionNeedsSlot }
+            return
+        }
+        claimingID = status.id
+        claimTask = Task {
+            defer { claimingID = nil }
+            guard let provider,
+                  let index = try? await provider.baseSpeciesIndex(), !index.isEmpty else {
+                // 그 사이 뷰가 사라져 취소됐으면 착지하지 않는다(상점 뽑기와 같은 규칙).
+                guard !Task.isCancelled else { return }
+                missionError = store.l.shopDrawFetchFailed
+                return
+            }
+            guard !Task.isCancelled else { return }
+            var picks: [(speciesID: Int, growthRate: GrowthRate)] = []
+            for reward in status.mission.rewards {
+                guard case .egg(let grade) = reward else { continue }
+                let species = EggBalance.pickSpecies(from: index, grade: grade,
+                                                     roll: store.nextRandomUnit())
+                picks.append((species,
+                              index.first(where: { $0.id == species })?.growthRate ?? .mediumFast))
+            }
+            if !store.claimDexMission(status.mission, eggSpecies: picks) {
+                missionError = store.l.missionNeedsSlot
+            }
         }
     }
 
@@ -60,9 +198,12 @@ struct NationalDexView: View {
                     .font(.system(size: 10)).monospacedDigit().foregroundStyle(.secondary)
             }
             ScrollView {
-                LazyVGrid(columns: columns, spacing: 6) {
-                    ForEach(Self.speciesRange, id: \.self) { id in
-                        cell(id, dexForms: dexForms)
+                VStack(alignment: .leading, spacing: 6) {
+                    missionsSection
+                    LazyVGrid(columns: columns, spacing: 6) {
+                        ForEach(Self.speciesRange, id: \.self) { id in
+                            cell(id, dexForms: dexForms)
+                        }
                     }
                 }
             }

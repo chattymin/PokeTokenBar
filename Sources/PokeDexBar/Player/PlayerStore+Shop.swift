@@ -34,6 +34,8 @@ extension PlayerStore {
         case .shinyCharm: state.ownsShinyCharm
         case .expCharm: state.ownsExpCharm
         case .fortuneCharm: state.ownsFortuneCharm
+        // 무지개 부적은 상점이 아니라 도감 완성 미션에서 온다 — 보유 판정은 같은 자리에서.
+        case .rainbowCharm: state.ownsRainbowCharm
         default: false
         }
     }

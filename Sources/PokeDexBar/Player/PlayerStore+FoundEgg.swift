@@ -37,7 +37,7 @@ extension PlayerStore {
         let individual = state.box[index]
         guard canTakeFoundEgg(individual, line: line) else { return nil }
         // 종은 확정이지만 이로치는 평소 확률로 굴린다 — 확정으로 만들면 이로치 부적이 무의미해진다.
-        let shiny = EggBalance.rollShiny(nextRandomUnit(), hasCharm: state.ownsShinyCharm)
+        let shiny = EggBalance.rollShiny(nextRandomUnit(), denominator: shinyDenominator)
         // 종은 그 개체의 baseID(리자몽은 파이리를 부른다), 등급은 그 개체의 등급을 그대로 쓴다.
         // 성장 타입은 라인에서 baseID 기준으로 다시 찾는다 — 진화한 개체의 growthRate 는 지금
         // 폼(예: 리자몽) 기준일 수 있어, 알이 될 baseID(파이리) 의 값과 다를 수 있다. 라인이

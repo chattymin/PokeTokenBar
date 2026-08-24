@@ -12,7 +12,13 @@ extension PlayerStore {
         let gradeRoll = Double(nextRandomUnit())
         let shinyRoll = Double(nextRandomUnit())
         return (EggBalance.rollGrade(gradeRoll),
-                EggBalance.rollShiny(shinyRoll, hasCharm: state.ownsShinyCharm))
+                EggBalance.rollShiny(shinyRoll, denominator: shinyDenominator))
+    }
+
+    /// 지금 부적 상태의 이로치 분모 — 뽑기·발견 알·미션 알이 전부 이 하나를 읽는다.
+    var shinyDenominator: Int {
+        EggBalance.shinyDenominator(shinyCharm: state.ownsShinyCharm,
+                                    rainbowCharm: state.ownsRainbowCharm)
     }
 
     /// 값과 무관하게 알을 슬롯에 넣는다. 빈 슬롯이 없으면 아무것도 하지 않고 nil.

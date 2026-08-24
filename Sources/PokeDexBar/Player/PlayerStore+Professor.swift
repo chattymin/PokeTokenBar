@@ -106,7 +106,9 @@ extension PlayerStore {
         let growthRate = index.first(where: { $0.id == species })?.growthRate ?? .mediumFast
         var individual = Individual(
             baseID: species, speciesID: species, pathIDs: [species],
-            shiny: EggBalance.rollShiny(roll(ProfessorRoll.Salt.shiny), hasCharm: false),
+            // 박사의 제안은 부적을 안 받는다(결정적 굴림 — 부적 상태가 끼면 사람마다 같은
+            // 날 다른 제안이 되어 되돌릴 수 없는 축이 하나 는다). 기본 분모 64 그대로.
+            shiny: EggBalance.rollShiny(roll(ProfessorRoll.Salt.shiny), denominator: 64),
             nature: nature, exp: 0, obtainedAt: now, grade: grade, growthRate: growthRate)
         let region = RegionBalance.rollRegion(speciesID: species,
                                               roll: roll(ProfessorRoll.Salt.region),

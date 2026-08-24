@@ -124,7 +124,8 @@ struct ShopTabView: View {
     private func categorySection(_ category: ShopCategory) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(category.title(store.language)).font(.system(size: 12, weight: .semibold))
-            ForEach(ShopItem.allCases.filter { $0.category == category }, id: \.self) { item in
+            ForEach(ShopItem.allCases.filter { $0.category == category && $0.isSold },
+                    id: \.self) { item in
                 itemRow(item)
             }
         }

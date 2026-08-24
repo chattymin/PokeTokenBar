@@ -23,6 +23,9 @@ enum ShopCategory: Int, CaseIterable, Sendable {
 /// 상점 품목(알 뽑기·슬롯 확장 제외 — 그 둘은 값이 상황에 따라 달라 따로 다룬다).
 enum ShopItem: String, CaseIterable, Sendable {
     case expCandy, shinyCandy, megaStone, dynamaxMushroom, shinyCharm, expCharm, fortuneCharm
+    /// 무지개 부적 — 이로치 부적의 업그레이드(1/64 → 1/32). **팔지 않는다** — 전국도감 완성
+    /// 미션에서만 나온다. 가방의 부적 칸에는 다른 부적처럼 선다.
+    case rainbowCharm
 
     var price: Int {
         switch self {
@@ -33,8 +36,14 @@ enum ShopItem: String, CaseIterable, Sendable {
         case .shinyCharm: 3_000_000_000
         case .expCharm: 4_000_000_000
         case .fortuneCharm: 5_000_000_000
+        // 못 사는 물건의 가격 — 상점 목록에서 빠지므로 표시될 일이 없고, 혹시 새 화면이
+        // 실수로 노출해도 살 수 없는 값이다.
+        case .rainbowCharm: Int.max
         }
     }
+
+    /// 상점에 진열되는가. 무지개 부적은 미션 보상 전용이라 상점에 안 선다.
+    var isSold: Bool { self != .rainbowCharm }
 
     /// 표시용 이름 — 언어별(ko/en/ja). `Grade.label(_:)`/`PokemonNature.name(_:)` 와 같은 관례.
     func label(_ lang: AppLanguage) -> String {
@@ -47,6 +56,7 @@ enum ShopItem: String, CaseIterable, Sendable {
         case .shinyCharm: names = ("이로치 부적", "Shiny Charm", "ひかるおまもり")
         case .expCharm: names = ("경험치 부적", "EXP Charm", "けいけんちおまもり")
         case .fortuneCharm: names = ("행운의 부적", "Fortune Charm", "こううんのおまもり")
+        case .rainbowCharm: names = ("무지개 부적", "Rainbow Charm", "にじいろおまもり")
         }
         switch lang { case .ko: return names.0; case .en: return names.1; case .ja: return names.2 }
     }
@@ -57,7 +67,9 @@ enum ShopItem: String, CaseIterable, Sendable {
     /// 부적은 보유형이라 개수를 세지 않고 한 번만 산다.
     var isConsumable: Bool { !isCharm }
     /// 보유형(한 번 사면 계속 효과가 있는 것). 재고를 세지 않는다.
-    var isCharm: Bool { self == .shinyCharm || self == .expCharm || self == .fortuneCharm }
+    var isCharm: Bool {
+        self == .shinyCharm || self == .expCharm || self == .fortuneCharm || self == .rainbowCharm
+    }
 
     func detail(_ lang: AppLanguage) -> String {
         let texts: (String, String, String)
@@ -90,6 +102,10 @@ enum ShopItem: String, CaseIterable, Sendable {
             texts = ("재화 획득량이 1.5배가 됩니다",
                      "Earns 1.5x the currency",
                      "所持金の獲得量が1.5倍になります")
+        case .rainbowCharm:
+            texts = ("이로치 부적의 업그레이드 — 이로치 확률이 1/32이 됩니다. 전국도감 완성의 증표",
+                     "The Shiny Charm perfected — shiny odds become 1/32. Proof of a complete Dex",
+                     "ひかるおまもりの上位版 — ひかる確率が1/32に。全国図鑑完成のあかし")
         }
         switch lang { case .ko: return texts.0; case .en: return texts.1; case .ja: return texts.2 }
     }
