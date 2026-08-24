@@ -418,6 +418,9 @@ final class ScreenshotGeneratorTests: XCTestCase {
                                         grade: entry.grade)
             individual.region = entry.region
             individual.birthForm = entry.birthForm
+            // 별표 — 즐겨찾기 겸 보호. 상세 화면 개체(index 1)와 이로치에 붙여, 상세의
+            // 별표 토글·보내기 차단 안내와 박스 배지가 스크린샷에 함께 나온다.
+            if index == 1 || entry.shiny { individual.starred = true }
             // 함께 쓴 토큰 — 오래 데리고 다닌 개체일수록 크게. 0 만 늘어서면 이 칸이 무슨 뜻인지 안 보인다.
             individual.partnerTokens = entry.exp * 3 + index * 17_000_000
             // 파트너만 예전 동행분을 안고 시작한다 — 지금 구간(46일)만으로는 최고 리본에 못 닿는다.
@@ -897,6 +900,14 @@ final class ScreenshotGeneratorTests: XCTestCase {
                                            selection: .constant(fixture.partnerID))),
                       fullScroll: true),
                   "screenshot-ribbon.png")
+
+        // 별표 — 즐겨찾기 겸 보호(포켓몬 GO 규칙). "별표 먼저" 정렬을 실제로 적용해 배지와
+        // 정렬이 한 장에 같이 나온다. **다른 박스 샷들 뒤에 온다** — 정렬이 박스 순서를
+        // 실제로 바꾸므로(파괴적), 앞에 두면 위 스크린샷들의 배치가 달라진다.
+        fixture.player.sortBox(.starred)
+        try write(png(tabChrome(BoxTabView(store: fixture.player, lines: ScreenshotFixture.lines,
+                                           onNeedLine: { _ in }, selection: .constant(nil)))),
+                  "screenshot-box-star.png")
 
         // 가방 — 파트너가 모아 온 것. 상점(사는 곳)과 갈라 둔 화면이라 따로 찍는다:
         // 도구 106종 중 살 수 있는 건 7종뿐이고 나머지는 여기서만 볼 수 있다.

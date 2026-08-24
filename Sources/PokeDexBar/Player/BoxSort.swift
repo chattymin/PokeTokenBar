@@ -10,6 +10,8 @@ import Foundation
 /// 배치로 돌아올 수 있다. 정렬이 파괴적인 동작인 만큼 이 항목은 메뉴에서 빠지면 안 된다.
 enum BoxSort: CaseIterable, Sendable {
     case obtained
+    /// 별표 먼저 — 아끼는 개체를 위로 모아 훑어본다(포켓몬 GO 의 즐겨찾기 정렬).
+    case starred
     case levelHigh, levelLow
     case grade
     case dex
@@ -37,6 +39,7 @@ enum BoxSort: CaseIterable, Sendable {
     private func key(_ individual: Individual, at now: Date) -> Int {
         switch self {
         case .obtained: 0
+        case .starred: individual.starred ? 0 : 1
         case .levelHigh: -individual.level
         case .levelLow: individual.level
         case .grade: -individual.grade.rank
@@ -53,6 +56,7 @@ enum BoxSort: CaseIterable, Sendable {
         let names: (String, String, String)
         switch self {
         case .obtained:  names = ("획득순", "By when you got it", "手にいれた順")
+        case .starred:   names = ("별표 먼저", "Starred first", "★を先に")
         case .levelHigh: names = ("레벨 높은 순", "Highest level", "レベルの高い順")
         case .levelLow:  names = ("레벨 낮은 순", "Lowest level", "レベルの低い順")
         case .grade:     names = ("등급 높은 순", "Highest grade", "ランクの高い順")

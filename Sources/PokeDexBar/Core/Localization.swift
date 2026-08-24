@@ -141,6 +141,14 @@ struct L {
     /// 박스 헤더의 정렬 메뉴. **상태가 아니라 명령**이라 "정렬 기준"이 아니라 "정리"라고 부른다.
     var boxSortMenu: String { t("정리", "Tidy", "せいり") }
     var detailNature: String { t("성격", "Nature", "せいかく") }
+    // MARK: 별표 — 즐겨찾기 겸 보호(포켓몬 GO 규칙)
+    var starOn: String { t("별표", "Star", "★をつける") }
+    var starOff: String { t("별표 해제", "Unstar", "★をはずす") }
+    var starredCannotSend: String {
+        t("별표한 포켓몬은 박사에게 보낼 수 없어요. 보내려면 별표를 해제하세요.",
+          "Starred Pokémon can't be sent to the Professor. Unstar it first.",
+          "★をつけたポケモンは はかせに おくれません。おくるには★をはずしてください。")
+    }
     var detailGrade: String { t("등급", "Grade", "ランク") }
     /// 레벨 표시 — 박스 칸의 작은 배지와 상세 화면이 함께 쓴다.
     func levelLabel(_ level: Int) -> String { t("Lv.\(level)", "Lv.\(level)", "Lv.\(level)") }

@@ -189,6 +189,17 @@ struct IndividualDetailView: View {
                 HStack(spacing: 5) {
                     Text(displayName).font(.system(size: 13, weight: .semibold))
                     if individual.showsShiny { Text("✨").font(.system(size: 11)) }
+                    // **별표 — 누르면 바로 토글.** 포켓몬 GO 의 즐겨찾기 그대로, 보호를 겸한다:
+                    // 별표한 개체는 박사에게 보낼 수 없다(아래 releaseSection 이 안내한다).
+                    Button {
+                        store.toggleStar(individualID: individual.id)
+                    } label: {
+                        Image(systemName: individual.starred ? "star.fill" : "star")
+                            .font(.system(size: 11))
+                            .foregroundStyle(individual.starred ? Color.yellow : Color.secondary)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(individual.starred ? l.starOff : l.starOn)
                 }
                 HStack(spacing: 4) {
                     // 위장 중엔 번호도 감춘다 — 이름이 "???" 인데 아래에 번호가 적혀 있으면
@@ -419,7 +430,13 @@ struct IndividualDetailView: View {
     private var releaseSection: some View {
         // `releaseValue` 가 nil 이면 보낼 수 없는 개체다(파트너) — 조건을 여기서 따로 적으면
         // 스토어와 갈린다. 알 발견에서 실제로 그렇게 갈린 적이 있다.
-        if let points = store.releaseValue(individual) {
+        if individual.starred {
+            // **왜 버튼이 없는지 말한다.** 별표는 보호를 겸하므로 보내기 버튼이 사라지는데,
+            // 말없이 사라지면 기능이 고장 난 것으로 읽힌다 — 파트너와 달리 별표는 사용자가
+            // 방금 누른 것이라 이유를 짚어 주면 바로 이해된다.
+            Text(l.starredCannotSend)
+                .font(.system(size: 9)).foregroundStyle(.secondary)
+        } else if let points = store.releaseValue(individual) {
             let steps = Self.releaseConfirmSteps(shiny: individual.shiny, grade: individual.grade)
             VStack(alignment: .leading, spacing: 4) {
                 if releaseStep == 0 {

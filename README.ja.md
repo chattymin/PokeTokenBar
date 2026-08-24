@@ -162,6 +162,13 @@ PokeDexBar は、あなたがすでに使っている AI コーディングト�
 <td width="45%" align="center"><img src="assets/screenshot-detail.png" width="300" alt="ポケモンの詳細画面 — スプライトと名前、等級・せいかく・パートナーとして共に使ったトークンの累計、経験値バー、パートナー設定・進化・ダイマックス・けいけんちアメ・ひかるアメのボタン"></td>
 </tr>
 <tr>
+<td width="45%" align="center"><img src="assets/screenshot-box-star.png" width="300" alt="★を先に並べたボックス — ★をつけたポケモンが角に黄色い星をつけて前に集まっている"></td>
+<td width="55%" valign="middle">
+<h3>⭐ お気に入りには★を</h3>
+詳細画面で★をつけると、そのポケモンは はかせに送れません — ★を外すまで送るボタンの代わりに案内が出て、まとめて送るときも外されます。ボックスのマスの角に★が見え、<b>せいり</b>に<b>★を先に</b>が加わってお気に入りを前に集められます。ポケモンGOのお気に入りをそのまま持ってきました。
+</td>
+</tr>
+<tr>
 <td width="45%" align="center"><img src="assets/settings-ja.png" width="300" alt="設定"></td>
 <td width="55%" valign="middle">
 <h3>設定はお好みで</h3>

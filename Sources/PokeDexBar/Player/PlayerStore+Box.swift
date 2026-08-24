@@ -10,4 +10,12 @@ extension PlayerStore {
         let now = currentDate()
         mutate { $0.box = sort.apply(to: $0.box, at: now) }
     }
+
+    /// 별표를 켜고 끈다. 별표한 개체는 박사에게 보낼 수 없다(`releaseValue` 참고).
+    func toggleStar(individualID: UUID) {
+        mutate { s in
+            guard let i = s.box.firstIndex(where: { $0.id == individualID }) else { return }
+            s.box[i].starred.toggle()
+        }
+    }
 }

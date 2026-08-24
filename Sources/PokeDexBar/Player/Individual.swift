@@ -11,6 +11,10 @@ struct Individual: Identifiable, Codable, Sendable, Equatable {
     /// 실제로 지나온 경로(baseID 로 시작). 분기 진화에서 어느 쪽으로 갔는지 남는다.
     var pathIDs: [Int]
     var shiny = false
+    /// 별표 — 포켓몬 GO 의 즐겨찾기 그대로, **보호를 겸한다.** 별표한 개체는 박사에게 보낼 수
+    /// 없고(`releaseValue` 가 nil), 정렬에서 앞으로 온다. 실수로 보내는 것을 막는 장치라
+    /// 세이브에 남는 진행이다.
+    var starred = false
     var nature: PokemonNature
     /// 현재 단계에서 쌓은 경험치. 진화하면 0으로 돌아가고 초과분만 이월한다.
     var exp = 0
@@ -187,7 +191,7 @@ struct Individual: Identifiable, Codable, Sendable, Equatable {
 
     /// 기본 이니셜라이저 — 아래 `init(from:)` 을 직접 쓰면서 합성 이니셜라이저가 사라지므로 명시한다.
     init(id: UUID = UUID(), baseID: Int, speciesID: Int, pathIDs: [Int], shiny: Bool = false,
-         nature: PokemonNature, exp: Int = 0, partnerTokens: Int = 0, partnerSeconds: Int = 0,
+         starred: Bool = false, nature: PokemonNature, exp: Int = 0, partnerTokens: Int = 0, partnerSeconds: Int = 0,
          partnerSince: Date? = nil, candyProgress: Int = 0, obtainedAt: Date,
          grade: Grade, form: String? = nil, region: Region? = nil, regionVariant: String? = nil,
          growthRate: GrowthRate = .mediumFast, eggProgress: Int = 0, expRemainder: Int = 0) {
@@ -196,6 +200,7 @@ struct Individual: Identifiable, Codable, Sendable, Equatable {
         self.speciesID = speciesID
         self.pathIDs = pathIDs
         self.shiny = shiny
+        self.starred = starred
         self.nature = nature
         self.exp = exp
         self.partnerTokens = partnerTokens
@@ -231,6 +236,8 @@ struct Individual: Identifiable, Codable, Sendable, Equatable {
         id = value(.id, UUID())
         pathIDs = value(.pathIDs, [speciesID])
         shiny = value(.shiny, false)
+        // 새 필드 — `value(_:_:)` 를 거쳐야 이 키가 없는 기존 세이브가 그대로 열린다.
+        starred = value(.starred, false)
         exp = value(.exp, 0)
         partnerTokens = value(.partnerTokens, 0)
         partnerSeconds = value(.partnerSeconds, 0)

@@ -508,6 +508,16 @@ struct BoxCell: View {
                                 RibbonIcon(ribbon: ribbon, size: 15).offset(x: -3, y: -2)
                             }
                         }
+                        // 별표는 좌측 하단 — 네 귀퉁이 중 마지막 빈 자리다(좌상 리본·우상
+                        // 진화·우하 담김). 칸에서 바로 보여야 정렬 없이도 눈에 걸린다.
+                        .overlay(alignment: .bottomLeading) {
+                            if individual.starred {
+                                Image(systemName: "star.fill")
+                                    .font(.system(size: 9))
+                                    .foregroundStyle(Color.yellow)
+                                    .offset(x: -2, y: 2)
+                            }
+                        }
                         // 담김 표시는 우측 하단 — 위와 같은 이유다. 진화 가능한 아이도 담을 수
                         // 있어서 우측 상단을 같이 쓰면 체크가 화살표를 완전히 가린다.
                         .overlay(alignment: .bottomTrailing) {
