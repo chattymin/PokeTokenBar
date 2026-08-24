@@ -3,6 +3,7 @@ import QuartzCore
 import SwiftUI
 
 @main
+@MainActor
 struct PokeTokenBarApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 
@@ -17,7 +18,7 @@ struct PokeTokenBarApp: App {
 final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private var statusItem: NSStatusItem!
     private let popover = NSPopover()
-    private var outsideClickMonitor: Any?
+    private var outsideClickMonitor = OutsideClickMonitor()
     private var store: UsageStore!
     private var companion: CompanionStore!
     private var updater: UpdateChecker!
@@ -39,10 +40,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         // **`CrashReporter.install` 보다도 앞**에 둔다: 뒤면 물러나는 인스턴스가 running 마커를 덮어쓰고
         // 종료 시 `markClean()` 이 발화해, 살아남은 쪽이 나중에 크래시해도 다음 실행이 정상 종료로 읽는다.
         if SingleInstance.shouldYieldToRunningInstance() {
-            AppLog.write("duplicate instance: yielding to the instance already running")
-            // write 는 async — terminate 이 곧 exit(0) 에 닿으므로 이 줄이 파일에 닿을 때까지 기다린다.
-            // 이 로그가 없으면 가드의 오작동("앱이 안 뜬다")과 크래시를 구별할 단서가 사라진다.
-            AppLog.flush()
+            // writeAndFlush: write is async and terminate reaches exit(0) in
+            // the same turn. Without the drain this line is lost (42 of 100
+            // in the #163 review) and a false positive looks like a crash.
+            AppLog.writeAndFlush("duplicate instance: yielding to the instance already running")
             NSApp.terminate(nil)
             return
         }
@@ -78,7 +79,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         }
 
         popover.behavior = .transient
-        popover.delegate = self   // 닫힐 때(popoverDidClose) 호스팅 컨트롤러 해제 → 숨은 채 재레이아웃 비용 제거
+        popover.delegate = self   // didShow: outside-click monitor; didClose: 호스팅 해제 + 모니터 제거
 
         observeStore()
         observeCompanionSprite()
@@ -100,14 +101,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         }
     }
 
-    /// Companion 스프라이트 정체성(종/shiny) 관찰 — 사탕 진화·졸업(BagView), 세이브 가져오기,
-    /// 부화·메타몽 리빌 async 완료처럼 store 갱신 틱 없이 companion 만 바뀌는 경로에서도 메뉴바
-    /// 스프라이트를 즉시 갱신한다. observeStore(menuTitle)만으론 다음 사용량 폴링(기본 120s)까지
+    /// 대표 스프라이트 정체성(종/shiny) 관찰 — 대표 선택·해제뿐 아니라 사탕 진화·졸업(BagView),
+    /// 세이브 가져오기, 부화·메타몽 리빌 async 완료처럼 store 갱신 틱 없이 companion 만 바뀌는
+    /// 경로에서도 메뉴바를 즉시 갱신한다. observeStore(menuTitle)만으론 다음 사용량 폴링(기본 120s)까지
     /// 이전 포켓몬이 남는다(사탕 졸업 후 메뉴바 잔상 리포트 — UsageStore.onRefresh 주석과 같은 부류).
     private func observeCompanionSprite() {
         withObservationTracking {
-            _ = companion.currentSpeciesID
-            _ = companion.currentIsShiny
+            _ = companion.representativeSubject
         } onChange: { [weak self] in
             Task { @MainActor in
                 guard let self else { return }
@@ -193,13 +193,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
 
     // MARK: 메뉴바 애니메이션
 
-    /// 현재 포켓몬에 맞춰 메뉴바 프레임을 준비. 종이 바뀐 경우에만 재로딩.
+    /// 대표 포켓몬에 맞춰 메뉴바 프레임을 준비. 종이 바뀐 경우에만 재로딩.
     /// 정적 스프라이트로 먼저 보여주고, animated GIF 가 받아지면 교체한다(메뉴바도 GIF로 움직임).
     /// 에너지 통제는 ① delay 하한 0.2s(≈5fps) ② 안 보이면 정지(menuShouldAnimate) ③ 저전력 모드
     /// 에선 GIF 생략(가벼운 bob)로 처리한다 — 통제된 저프레임 + 비가시 시 정지로 저전력.
     private func ensureMenuAnimation() {
-        let id = companion.currentSpeciesID
-        let shiny = companion.currentIsShiny
+        let subject = companion.representativeSubject
+        let id = subject.speciesID
+        let shiny = subject.isShiny
         let key = id.map { "\($0)-\(shiny)" }
         if key == menuSpriteKey, !menuFrames.isEmpty { return }   // 이미 이 개체로 애니메이션 중
         menuSpriteKey = key
@@ -306,14 +307,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         [(eggImage(up: false), 0.5), (eggImage(up: true), 0.5)]
     }
 
-    private static func menuBarImage(from sprite: NSImage, up: Bool) -> NSImage {
-        let h: CGFloat = 22
-        let img = NSImage(size: NSSize(width: h, height: h))
+    /// 메뉴바 프레임 기하 — **비율 유지**(SpriteFit). 순수·테스트용.
+    ///
+    /// 캔버스 세로는 22 로 고정(baseline 이 프레임마다 흔들리면 안 된다), 가로는 맞춘 스프라이트 폭
+    /// + 좌우 1pt 만큼만. 정사각 22 고정으로 두면 세로로 긴 종(잭키 36×66 → 폭 10.9)의 좌우에 죽은
+    /// 여백이 5pt 씩 생겨 사용량 숫자와 사이가 벌어진다. 세로 기준선은 바닥 정렬 유지 — GIF 캔버스는
+    /// 스프라이트에 딱 맞게 크롭돼 있어 바닥이 곧 발밑이고, 정사각 원본은 예전과 픽셀 단위로 같다.
+    nonisolated static func menuBarLayout(for pixelSize: CGSize, height h: CGFloat = 22,
+                                          up: Bool) -> (canvas: NSSize, rect: NSRect) {
+        let fit = SpriteFit.size(for: pixelSize, box: h - 2)
+        return (NSSize(width: fit.width + 2, height: h),
+                NSRect(x: 1, y: up ? 1 : 0, width: fit.width, height: fit.height))
+    }
+
+    static func menuBarImage(from sprite: NSImage, up: Bool) -> NSImage {
+        let layout = menuBarLayout(for: sprite.size, up: up)
+        let img = NSImage(size: layout.canvas)
         img.lockFocus()
         NSGraphicsContext.current?.imageInterpolation = .none
-        let off: CGFloat = up ? 1 : 0
-        sprite.draw(in: NSRect(x: 1, y: off, width: h - 2, height: h - 2),
-                    from: .zero, operation: .sourceOver, fraction: 1)
+        sprite.draw(in: layout.rect, from: .zero, operation: .sourceOver, fraction: 1)
         img.unlockFocus()
         return img
     }
@@ -369,11 +381,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             NSApp.activate(ignoringOtherApps: true)
             popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
             popover.contentViewController?.view.window?.makeKeyAndOrderFront(nil)
-            startOutsideClickMonitor()
             syncMenuAnimation()   // 팝오버 열림 → 메뉴바 애니메이션 정지(중복 + WindowServer 부하 회피)
             store.requestNotificationAuthorizationIfNeeded()   // 알림 권한은 사용자가 앱을 처음 열 때 요청
             Task { await updater.check() }   // 팝오버 열 때 재확인(내부 minInterval 디바운스)
         }
+    }
+
+    /// Start and stop are both delegate-driven so a second `show` path cannot
+    /// overwrite a live token (#168). `start` is also idempotent if `didShow` fires twice.
+    func popoverDidShow(_ notification: Notification) {
+        startOutsideClickMonitor()
     }
 
     /// 팝오버가 닫히면 호스팅 컨트롤러 해제(숨은 트리 재레이아웃 비용 제거) + 메뉴바 애니메이션 재개.
@@ -385,16 +402,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
 
     /// 다른 메뉴바 팝업은 앱을 비활성화 안 시켜 .transient 가 못 닫는다 → 열림 동안만 앱 밖 클릭을 직접 감지해 닫는다(관찰 전용, 권한 불필요).
     private func startOutsideClickMonitor() {
-        outsideClickMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
-            Task { @MainActor in
-                guard let self, self.popover.isShown else { return }
-                self.popover.performClose(nil)
+        outsideClickMonitor.start {
+            NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
+                Task { @MainActor in
+                    guard let self, self.popover.isShown else { return }
+                    self.popover.performClose(nil)
+                }
             }
         }
     }
 
     private func stopOutsideClickMonitor() {
-        if let m = outsideClickMonitor { NSEvent.removeMonitor(m); outsideClickMonitor = nil }
+        outsideClickMonitor.stop { NSEvent.removeMonitor($0) }
     }
 
     // MARK: 디스플레이 / 메뉴바 가시성 (에너지 절약 — 안 보이면 애니메이션 정지)

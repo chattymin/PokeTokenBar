@@ -133,6 +133,27 @@ final class DittoRevealTests: XCTestCase {
         XCTAssertEqual(s.celebration, .dittoReveal(shiny: false), "리빌 연출 발화")
     }
 
+    /// [회귀] 위장 종만 근거로 고정한 대표 선택은 리빌과 함께 무효가 된다. 공개 뒤에는 유령 위장 종을
+    /// 계속 그리지 않고 자동 추적으로 돌아가 실제 메타몽과 공개된 이로치 상태를 즉시 반영해야 한다.
+    func testRevealClearsRepresentativePinnedToDisguiseAndFollowsDitto() async {
+        let s = seedDisguise(shiny: true)
+        XCTAssertTrue(s.setRepresentativeSpeciesID(1), "현재 도달한 위장 종은 리빌 전에는 선택 가능")
+        XCTAssertEqual(s.representativeSpeciesID, 1)
+        XCTAssertEqual(s.representativeSubject,
+                       CompanionStore.RepresentativeSubject(speciesID: 1, isShiny: false),
+                       "위장 중에는 대표 스프라이트도 이로치를 숨김")
+
+        s.applyUsage(300_000_000)
+        await drainReveal(s)
+
+        XCTAssertTrue(s.state.active?.dittoRevealed ?? false)
+        XCTAssertNil(s.representativeSpeciesID, "더는 보유하지 않은 위장 종 고정을 해제")
+        XCTAssertEqual(s.representativeSubject,
+                       CompanionStore.RepresentativeSubject(speciesID: PokemonOdds.dittoSpeciesID,
+                                                            isShiny: true),
+                       "자동 추적으로 돌아가 공개된 이로치 메타몽을 표시")
+    }
+
     /// [회귀] 에셋 정규화로 위장체가 leaf가 되어도, 위장체로 졸업하지 않고 현재 단일형태 임계에서 리빌한다.
     func testPrunedLeafDisguiseRevealsBeforeGraduation() async throws {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("ditto-pruned-\(UUID().uuidString).json")

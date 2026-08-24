@@ -17,9 +17,9 @@
 
 </div>
 
-PokeTokenBar turns the AI coding tokens you're already burning — Claude Code, Codex, Gemini CLI, Antigravity, OpenCode, Hermes Agent, Cursor, Grok CLI, Copilot CLI & Kiro CLI — into a growing **Pokémon companion** in your macOS menu bar. Spend tokens, hatch an egg, evolve it through its real evolution line, graduate it into your Pokédex, and start again. Underneath the companion it's a precise usage tracker — today's spend, cost, and official 5-hour / weekly limits, read straight from your local logs.
+PokeTokenBar turns the AI coding tokens you're already burning — Claude Code, Codex, Gemini CLI, Antigravity, OpenCode, Hermes Agent, Cursor, Grok CLI, Copilot CLI, Kiro CLI & Pi Agent — into a growing **Pokémon companion** in your macOS menu bar. Spend tokens, hatch an egg, evolve it through its real evolution line, graduate it into your Pokédex, and start again. Underneath the companion it's a precise usage tracker — today's spend, cost, and official 5-hour / weekly limits, read straight from your local logs.
 
-> Token usage is read directly from local Claude Code, Codex, Gemini CLI, Antigravity, OpenCode, Hermes Agent, Cursor, Grok CLI, Copilot CLI, and Kiro CLI data (`totalTokens` = input + output + cache, local date) — no external CLI needed. Unofficial, non-commercial Pokémon fan project — see [License & disclaimer](#license--disclaimer).
+> Token usage is read directly from local Claude Code, Codex, Gemini CLI, Antigravity, OpenCode, Hermes Agent, Cursor, Grok CLI, Copilot CLI, Kiro CLI, and Pi Agent data (`totalTokens` = input + output + cache, local date) — no external CLI needed. Unofficial, non-commercial Pokémon fan project — see [License & disclaimer](#license--disclaimer).
 
 ## Why
 
@@ -33,7 +33,7 @@ PokeTokenBar turns the AI coding tokens you're already burning — Claude Code, 
 
 ## How it works
 
-1. 🥚 **Code as usual.** The tokens you burn in Claude Code, Codex, Gemini CLI, Antigravity, OpenCode, Hermes Agent, Cursor, Grok CLI, Copilot CLI, or Kiro CLI incubate an egg — nothing extra to run.
+1. 🥚 **Code as usual.** The tokens you burn in Claude Code, Codex, Gemini CLI, Antigravity, OpenCode, Hermes Agent, Cursor, Grok CLI, Copilot CLI, Kiro CLI, or Pi Agent incubate an egg — nothing extra to run.
 2. 🐣 **Hatch.** Eggs hatch into Pokémon with real evolution lines from [PokéAPI](https://pokeapi.co/) — any Gen 1–5 line (329 possible starts), weighted by the official capture rate: commons hatch often, a legendary is a 1-in-129 event. It appears in your **Pokédex** immediately while you raise it. Every hatch rolls one of 25 natures — and once in a rare while, the egg hatches **✨ Shiny**.
 3. ⚡ **Evolve.** Keep coding and it grows through its actual evolution tree (1/2/3 stages, branching), with a little flash celebration at each step.
 4. 🎓 **Graduate & collect.** Final form + threshold permanently archives it in your **Pokédex** — rarer takes longer (≈3 days common → ≈24 days legendary at heavy use) — and a fresh egg arrives.
@@ -75,7 +75,7 @@ The <b>Pokédex</b> folds every species you've owned into one cell — 24 per pa
 <td width="45%" align="center"><img src="assets/settings.png" width="300" alt="Settings"></td>
 <td width="55%" valign="middle">
 <h3>Tune it your way</h3>
-Menu-bar items, refresh interval (1–15 min or manual), launch at login, a Keychain opt-out that just hides the limits section, limit alerts with warning/critical thresholds, and companion event notifications. Full <b>KO / EN / JA</b> UI and Pokémon names.
+Menu-bar items, refresh interval (1–15 min or manual), launch at login, a Keychain opt-out that just hides the limits section, limit alerts with warning/critical thresholds, and companion event notifications. Full <b>KO / EN / JA / ES / FR / PT</b> UI and Pokémon names.
 </td>
 </tr>
 <tr>
@@ -92,13 +92,29 @@ Max out a 5-hour or weekly usage limit and you're handed a <b>Rare Candy</b> —
 The tokens you've already used are your currency. Spend them in the new <b>Shop</b> tab on <b>Rare Candy</b> to grow your current Pokémon, a <b>Mint</b> to re-roll its nature, a <b>Shiny Charm</b> that permanently raises your shiny hatch odds, or an egg to send off your companion and start over. Eggs come in three grades — a plain <b>Pokémon Egg</b>, an <b>Uncommon Egg</b> that always hatches Uncommon or better, and a <b>Rare Egg</b> that always hatches Rare or better. Legendaries stay in the pool for both graded eggs, so a guaranteed hatch can still surprise you.
 </td>
 </tr>
+<tr>
+<td width="55%" valign="middle">
+<h3>📊 Official limits, now for Antigravity too</h3>
+Antigravity 2.0 and the IDE report real quota, not an estimate. Gemini models and Claude &amp; GPT models each get their own <b>5-hour</b> and <b>weekly</b> buckets with reset countdowns, alongside Claude Code and Codex. Read quietly in the background — no Keychain prompt, and the session refreshes itself.
+</td>
+<td width="45%" align="center"><img src="assets/screenshot-antigravity-limits.png" width="300" alt="Antigravity official limits — 5-hour and weekly buckets per model group"></td>
+</tr>
+<tr>
+<td width="45%" align="center"><img src="assets/screenshot-scan-folders.png" width="300" alt="Additional scan folders in Settings → Advanced"></td>
+<td width="55%" valign="middle">
+<h3>📁 Logs somewhere unusual? Point at them</h3>
+If a tool keeps its sessions outside the built-in paths, add your own roots under <b>Settings → Advanced</b> — comma or newline separated, <code>*</code> wildcards, with a live count of how many extra folders currently match. Every provider keeps its own list, so one tool's folders are never handed to another tool's parser, and your custom roots are added to the built-in ones rather than replacing them.
+</td>
+</tr>
 </table>
 
 ## Also in the box
 
-- **Interactive floating pet** — hover for today's usage, click to open the main window, right-click for a menu; limit alerts can pop up as speech bubbles.
-- **Per-service tabs** — when two or more of Claude Code, Codex, Gemini CLI, Antigravity, OpenCode, Hermes Agent, Cursor, Grok CLI, Copilot CLI, and Kiro CLI are detected, compact tabs switch between them; today's total stays combined.
-- **Official limits** — Claude & Codex 5-hour / weekly utilization with reset countdowns, right under today's numbers.
+- **Representative Pokémon** — pin any owned Pokédex species to the menu bar and optional floating pet, independently of the companion you're raising. While pinned, the menu bar stops following egg, hatch, and evolution changes; raising progress remains visible on Home.
+- **Interactive floating pet** — hover for today's usage, click to open the main window, right-click for a menu, and show limit alerts as speech bubbles.
+- **Per-service tabs** — when two or more of Claude Code, Codex, Gemini CLI, Antigravity, OpenCode, Hermes Agent, Cursor, Grok CLI, Copilot CLI, Kiro CLI, and Pi Agent are detected, compact tabs switch between them; today's total stays combined.
+- **Official limits** — Claude, Codex & Antigravity 5-hour / weekly utilization with reset countdowns, right under today's numbers.
+- **Additional scan folders** — per-provider extra scan roots for logs kept outside the built-in paths (Settings → Advanced).
 - **Burn-rate forecast** — projects when the current 5h window hits 100%.
 - **In-app updates** — one-click update check; current version shown in Settings.
 
@@ -109,13 +125,14 @@ The tokens you've already used are your currency. Spend them in the new <b>Shop<
 | **Claude Code** | today · 5h block · week · month | ✅ 5h / weekly |
 | **Codex** | today · week · month | ✅ 5h / weekly |
 | **Gemini CLI** | today · week · month | — |
-| **Antigravity** | today · 5h block · week · month | — |
+| **Antigravity** | today · 5h block · week · month | ✅ 5h / weekly |
 | **OpenCode** | today · 5h block · week · month | — |
 | **Hermes Agent** | today · 5h block · week · month | — |
 | **Cursor** | today · 5h block · week · month | — |
 | **Grok CLI** | today · 5h block · week · month | — |
 | **Copilot CLI** | today · 5h block · week · month | — |
 | **Kiro CLI** | today · 5h block · week · month | — (estimated) |
+| **Pi Agent** | today · 5h block · week · month | — |
 
 All read locally — no external usage CLI required. Adding a tool is one provider file (see [CONTRIBUTING.md](CONTRIBUTING.md)).
 
@@ -123,7 +140,7 @@ All read locally — no external usage CLI required. Adding a tool is one provid
 
 ### Requirements
 
-macOS 14+ (Apple Silicon or Intel). That's it — token usage is read directly from local Claude Code, Codex, Gemini CLI, Antigravity, OpenCode, Hermes Agent, Cursor, Grok CLI, Copilot CLI, and Kiro CLI data, with no external usage CLI required.
+macOS 14+ (Apple Silicon or Intel). That's it — token usage is read directly from local Claude Code, Codex, Gemini CLI, Antigravity, OpenCode, Hermes Agent, Cursor, Grok CLI, Copilot CLI, Kiro CLI, and Pi Agent data, with no external usage CLI required.
 
 ### Homebrew
 
@@ -158,7 +175,7 @@ swift test                   # unit tests
 |---|---|---|
 | `~/.claude/projects/**/*.jsonl` | Claude Code daily/blocks/weekly/monthly | read directly; deduped by message id; cached incrementally |
 | `~/.gemini/tmp/**/chats/*.json(l)` | Gemini CLI daily/monthly | session records (`tokens` per message); weekly = daily sum |
-| `~/.gemini/antigravity-cli/conversations/*.db` | Antigravity daily/blocks/weekly/monthly | SQLite read-only; per-call usage from the Cascade protobuf blob; its own provider, not folded into Gemini; a subscription, so no cost is estimated |
+| `~/.gemini/antigravity/conversations/*.db`<br>`~/.gemini/antigravity-cli/conversations/*.db`<br>`~/.gemini/antigravity-ide/conversations/*.db` | Antigravity daily/blocks/weekly/monthly | SQLite read-only; per-call usage from the Cascade protobuf blob; supports Antigravity 2.0/Core, CLI & IDE; its own provider, not folded into Gemini; a subscription, so no cost is estimated |
 | `~/.codex/sessions/**/*.jsonl` | Codex daily/monthly | `token_count` events; weekly = daily sum |
 | `~/.local/share/opencode/opencode.db` | OpenCode daily/blocks/weekly/monthly | SQLite read-only; legacy `storage/message` JSON is also supported |
 | `~/.hermes/state.db` | Hermes Agent daily/blocks/weekly/monthly | SQLite read-only; session token totals and persisted cost |
@@ -166,6 +183,7 @@ swift test                   # unit tests
 | `~/.grok/sessions/**/updates.jsonl` | Grok CLI daily/blocks/weekly/monthly | `turn_completed` records (per-turn `usage`, server-reported cost); honours `$GROK_HOME`; subagent sessions are skipped because their tokens are already folded into the parent turn |
 | `~/.copilot/session-store.db` | Copilot CLI daily/blocks/weekly/monthly | SQLite read-only; one `assistant_usage_events` row per API call; honours `$COPILOT_HOME`; `input_tokens` already contains the cached prompt, so cache reads/writes are subtracted; premium-request billing, so no cost is estimated |
 | `~/Library/Application Support/kiro-cli/data.sqlite3` | Kiro CLI daily/blocks/weekly/monthly | SQLite read-only; conversation history JSON (`conversations`/`conversations_v2`); Kiro's local database never records real token counts, and there is no server-side session, so input is a bytes÷4 **estimate** of the accumulated conversation text resent on every turn (output likewise from the real streamed response size); a `/clear`d or compacted conversation's already-counted tokens stay counted until the app restarts; no cost is estimated |
+| `~/.pi/agent/sessions/**/*.jsonl` | Pi Agent daily/blocks/weekly/monthly | Direct persisted usage from all projects; `$PI_CODING_AGENT_DIR` and `$PI_CODING_AGENT_SESSION_DIR` overrides supported; output already includes reasoning (not counted twice); forked history deduplicated by entry ID; no cost is reported |
 | Keychain / `~/.claude/.credentials.json` → `api.anthropic.com` | Claude official 5h/weekly % | unofficial endpoint; the Keychain is read **only when you press refresh** — auto-polling never reads it |
 | `codex app-server` | Codex official 5h/weekly % | local child process; account snapshot only, no model turn |
 | [PokéAPI](https://pokeapi.co/) — `pokeapi.co`, `graphql.pokeapi.co` | Pokémon species &amp; evolution | runtime fetch; cached locally, never bundled |
@@ -173,10 +191,12 @@ swift test                   # unit tests
 | `status.claude.com`, `status.openai.com` | provider incident banner | statuspage summary; display only — turn it off in Settings |
 | `api.github.com` | update check | latest release tag; on launch and when the popover opens |
 
+If a provider's logs live **outside** those built-in paths, add the folder in **Settings → Advanced → Additional scan folders**. Pick the provider first — each folder is parsed only by that provider, so pointing a Gemini field at Claude logs would mis-attribute tokens. Extra folders are added to the built-in locations; they never replace them.
+
 ## Privacy & permissions
 
-- **On-device.** Token usage is read directly from local Claude Code, Codex, Gemini CLI, Antigravity, OpenCode, Hermes Agent, Cursor, Grok CLI, Copilot CLI, and Kiro CLI data. The app never uploads usage or runs model turns.
-- **Outbound requests.** The app is not fully offline. It talks to seven hosts: `pokeapi.co` and `graphql.pokeapi.co` (species/evolution), `raw.githubusercontent.com` (sprites), `api.anthropic.com` (Claude official limits), `status.claude.com` and `status.openai.com` (incident banner — off switch in Settings), and `api.github.com` (update check). **None of them carry your usage, tokens, prompts, or project paths** — only the request itself.
+- **On-device.** Token usage is read directly from local Claude Code, Codex, Gemini CLI, Antigravity, OpenCode, Hermes Agent, Cursor, Grok CLI, Copilot CLI, Kiro CLI, and Pi Agent data. The app never uploads usage or runs model turns.
+- **Outbound requests.** The app is not fully offline. It talks to ten hosts: `pokeapi.co` and `graphql.pokeapi.co` (species/evolution), `raw.githubusercontent.com` (sprites), `api.anthropic.com` (Claude official limits), `cloudcode-pa.googleapis.com` and `daily-cloudcode-pa.googleapis.com` (Antigravity official limits) plus `oauth2.googleapis.com` (their token refresh), `status.claude.com` and `status.openai.com` (incident banner — off switch in Settings), and `api.github.com` (update check). **None of them carry your usage, tokens, prompts, or project paths** — only the request itself.
 - **Keychain (optional).** The Claude OAuth credential is read **only when you press a refresh button** (Settings, or the limits row in the popover). Automatic polling never touches the Keychain, so it never raises a password prompt; when available, the credential is taken from `~/.claude/.credentials.json` instead. The token is held in memory only — the app creates no Keychain item of its own. Once the token expires, limits stay visible but stale until you refresh. Turn it off in Settings — the limits section simply hides.
 - **Pokémon assets** are fetched at runtime from PokéAPI and cached only under `~/Library/Application Support/PokeTokenBar/`. The app binary and its release artifacts contain no Pokémon assets.
 

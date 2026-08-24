@@ -15,6 +15,15 @@ struct DexFlavorText: Sendable, Equatable, Identifiable {
     var id: String { versionKey }
 }
 
+/// 도감 설명 묶음 — **실제로 쓰인 언어**를 함께 돌려준다.
+/// 요청 언어에 설명이 한 줄도 없으면 영어로 채우는데, 뷰가 그 사실을 알아야 안내를 띄운다.
+struct DexEntries: Sendable, Equatable {
+    let entries: [DexFlavorText]
+    let language: AppLanguage
+    /// 요청한 언어가 아닌 언어로 채워졌는가 — "영어로 표시 중" 안내 판정.
+    func isFallback(from requested: AppLanguage) -> Bool { language != requested }
+}
+
 /// 포켓몬 라인 데이터 제공(주입 가능 — 테스트는 스텁 사용).
 protocol PokeProviding: Sendable {
     func line(baseSpeciesID: Int) async throws -> EvoLine
@@ -23,8 +32,9 @@ protocol PokeProviding: Sendable {
     /// 단일 종이 base(진화 시작점)면 BaseSpecies, 아니면 nil.
     /// GraphQL 인덱스 엔드포인트 장애 시 REST(pokemon-species)로 부화 후보를 뽑는 폴백용.
     func baseSpecies(id: Int) async throws -> BaseSpecies?
-    /// 종의 버전별 도감 설명(요청 언어, 발매순). 그 언어 설명이 없는 버전은 제외.
-    func flavorTexts(speciesID: Int, language: AppLanguage) async throws -> [DexFlavorText]
+    /// 종의 버전별 도감 설명(요청 언어, 발매순). 그 언어 설명이 없는 버전은 제외,
+    /// 한 줄도 없으면 영어로 대체(무엇으로 채웠는지는 `DexEntries.language`).
+    func flavorTexts(speciesID: Int, language: AppLanguage) async throws -> DexEntries
 }
 
 /// PokéAPI 클라이언트 — 종/진화체인을 런타임 fetch + 파싱. 포켓몬 데이터는 레포에 번들하지 않는다.
@@ -32,9 +42,13 @@ protocol PokeProviding: Sendable {
 actor PokeAPIClient: PokeProviding {
     static let shared = PokeAPIClient()
     private let base = URL(string: "https://pokeapi.co/api/v2")!
-    /// 저장할 이름의 언어 집합. `ja-hrkt` 제외 — 1~649 전 종에서 `ja` 와 글자가 같아(실측) 세이브만
-    /// 부풀림. (버전 이름은 `ja` 가 없어 `ja-hrkt` 가 필요하지만 그건 도감 설명 경로의 몫.)
-    private let langCodes = ["ko", "en", "ja", "es"]
+    // Lockstep with the union of AppLanguage.apiCodes. "pt" collects nothing today
+    // (PokéAPI has no such language) but is listed so it is picked up the moment
+    // one appears — omit it and EvoLine.names never carries it, pinning English.
+    // AppLanguage.apiCodes 의 합집합과 lockstep. "pt" 는 아직 PokéAPI 에 없어 수집되지 않지만,
+    // 추가되는 즉시 잡히도록 함께 둔다(없으면 EvoLine.names 에 안 담겨 영어 폴백이 고정된다).
+    // `ja-hrkt` 는 소문자 — PokéAPI 가 내보내는 실제 값이라 대문자면 아무것도 매칭되지 않는다.
+    private let langCodes = ["ko", "en", "ja", "ja-hrkt", "es", "fr", "pt"]
     private var speciesCache: [Int: SpeciesDTO] = [:]
     private var lineCache: [Int: EvoLine] = [:]   // 프리패칭 → 부화 순간 네트워크 0
 
@@ -189,8 +203,11 @@ actor PokeAPIClient: PokeProviding {
 
     // MARK: 도감 설명 (버전별 flavor text)
 
-    private struct FlavorCacheKey: Hashable { let speciesID: Int; let language: AppLanguage }
-    private var flavorCache: [FlavorCacheKey: [DexFlavorText]] = [:]
+    private struct FlavorCacheKey: Hashable {
+        let speciesID: Int
+        let language: AppLanguage
+    }
+    private var flavorCache: [FlavorCacheKey: DexEntries] = [:]
 
     private struct GraphQLFlavorResponse: Decodable {
         struct Lang: Decodable { let name: String }
@@ -201,20 +218,44 @@ actor PokeAPIClient: PokeProviding {
         let data: DataBox
     }
 
+    /// 요청 언어 결과를 그대로 쓸지, 영어로 대체할지 — 순수 판정(테스트용).
+    ///
+    /// **비어 있을 때만** 대체한다. 버전 단위 누락은 대체 대상이 아니다 — 한국어에 없는 초대작 설명을
+    /// 영어로 끼워 넣으면 한 화면에 두 언어가 섞인다(그건 그냥 목록에서 뺀다). 언어 *전체*가 빈 경우는
+    /// 층위가 다르다: PokéAPI 에 `pt` 처럼 그 언어 자체가 없으면 상세가 통째로 빈 화면이 되는데,
+    /// 그런 언어는 종 이름도 이미 영어로 폴백돼 있어 영어로 채우는 쪽이 화면이 일관된다.
+    /// 영어 자체가 비면 더 갈 곳이 없으므로 대체하지 않는다(무한 폴백 방지).
+    static func needsEnglishFallback(entries: [DexFlavorText], language: AppLanguage) -> Bool {
+        entries.isEmpty && language != .en
+    }
+
     /// 종의 버전별 도감 설명. GraphQL 1쿼리 우선, 죽어 있으면 REST 폴백 — base 인덱스와 같은 이중화.
-    /// 폴백은 버전 이름 현지화가 없어 라벨이 슬러그 정돈본으로 내려감(설명문은 요청 언어 그대로).
-    func flavorTexts(speciesID: Int, language: AppLanguage) async throws -> [DexFlavorText] {
+    /// 요청 언어에 한 줄도 없으면 영어로 한 번 더 조회한다(`needsEnglishFallback`).
+    func flavorTexts(speciesID: Int, language: AppLanguage) async throws -> DexEntries {
         let key = FlavorCacheKey(speciesID: speciesID, language: language)
         if let cached = flavorCache[key] { return cached }
+        var (entries, degraded) = try await loadFlavorTexts(speciesID: speciesID, language: language)
+        var used = language
+        if Self.needsEnglishFallback(entries: entries, language: language) {
+            let english = try await loadFlavorTexts(speciesID: speciesID, language: .en)
+            (entries, used) = (english.entries, .en)
+            degraded = degraded || english.degraded
+        }
+        let result = DexEntries(entries: entries, language: used)
+        // 열화본(REST 폴백 — 버전 라벨이 슬러그)은 캐시하지 않는다. 캐시하면 GraphQL 이 살아나도
+        // 세션 내내 영어 제목이 남는다. 재생성 비용은 0(`speciesCache` 재사용)이라 다음 열람이 복구한다.
+        if !degraded { flavorCache[key] = result }
+        return result
+    }
+
+    /// 한 언어치 조회 — GraphQL 우선, 실패 시 REST. `degraded` = 버전 라벨이 현지화 없이 슬러그로 내려감.
+    private func loadFlavorTexts(speciesID: Int,
+                                 language: AppLanguage) async throws -> (entries: [DexFlavorText], degraded: Bool) {
         do {
-            let entries = try await fetchFlavorTextsViaGraphQL(speciesID: speciesID, language: language)
-            flavorCache[key] = entries
-            return entries
+            return (try await fetchFlavorTextsViaGraphQL(speciesID: speciesID, language: language), false)
         } catch {
             AppLog.write("dex flavor text (GraphQL) failed for #\(speciesID) — REST fallback: \(error)")
-            // 폴백 결과는 **캐시하지 않음** — 열화본을 캐시하면 GraphQL 이 살아나도 세션 내내 영어 제목.
-            // 재생성 비용은 0(`speciesCache` 재사용)이고 다음 열람이 다시 시도해 스스로 복구.
-            return try await flavorTextsViaREST(speciesID: speciesID, language: language)
+            return (try await flavorTextsViaREST(speciesID: speciesID, language: language), true)
         }
     }
 

@@ -12,7 +12,7 @@ enum PopoverMetrics {
     static let contentWidth: CGFloat = width - padding * 2
 }
 
-/// 팝오버 내부 내비게이션 상태(현재 탭 / 설정 표시 여부).
+/// 팝오버 내부 내비게이션 상태(현재 탭 / 컬렉션 세그먼트 / 설정 표시 여부).
 /// NSHostingController 는 팝오버를 닫아도 재사용되어 @State 가 유지되므로, 화면 상태를 이
 /// Observable 로 분리해 AppDelegate 가 팝오버를 열 때마다 reset() 한다 — 닫혔다 열리면 항상 Home.
 @MainActor
@@ -20,6 +20,8 @@ enum PopoverMetrics {
 final class PopoverNavigation {
     var showSettings = false
     var tab: PopoverTab = .home
+    /// 일반적인 컬렉션 재진입에는 마지막 세그먼트를 유지하되, 대표 포켓몬 선택 진입점은 도감으로 강제한다.
+    var showingCollectionLog = false
     /// 프로바이더 탭 선택 — reset() 대상이 아님(팝오버를 다시 열어도 보던 서비스 유지).
     var providerID: String?
 
@@ -27,8 +29,17 @@ final class PopoverNavigation {
         showSettings = false
         tab = .home
     }
+
+    /// 설정의 대표 포켓몬 행에서 기존 도감으로 이동한다. 별도 선택 화면을 만들지 않고
+    /// 컬렉션 세그먼트를 도감으로 명시해, 직전에 포획 로그를 봤어도 선택 액션이 있는 화면을 연다.
+    func openRepresentativeDex() {
+        showSettings = false
+        showingCollectionLog = false
+        tab = .collection
+    }
 }
 
+@MainActor
 struct PopoverView: View {
     @Environment(UsageStore.self) private var store
     @Environment(CompanionStore.self) private var companion
@@ -43,7 +54,10 @@ struct PopoverView: View {
         @Bindable var nav = nav
         Group {
             if nav.showSettings {
-                SettingsView(onClose: { nav.showSettings = false })
+                SettingsView(
+                    onClose: { nav.showSettings = false },
+                    onChooseRepresentative: { nav.openRepresentativeDex() }
+                )
                     .environment(store)
                     .environment(companion)
                     .environment(updater)
@@ -92,7 +106,7 @@ struct PopoverView: View {
             .labelsHidden()
 
             if nav.tab == .collection {
-                CollectionView(store: companion)
+                CollectionView(store: companion, navigation: nav)
             } else if nav.tab == .bag {
                 BagView(store: companion, nav: nav)
             } else if nav.tab == .shop {
@@ -237,6 +251,7 @@ struct PopoverView: View {
         // (자동 Keychain 읽기는 팝업 방지로 여전히 안 함 — 발견성만 살린다.)
         case "claude_code": return !store.disableKeychainAccess || store.limits != nil || store.limitsAuthExpired
         case "codex": return store.codexLimits?.hasVisibleLimit == true
+        case "antigravity": return !store.disableKeychainAccess || store.antigravityLimits?.hasVisibleLimit == true || store.antigravityLimitsAuthExpired
         default: return false
         }
     }
@@ -295,6 +310,13 @@ struct PopoverView: View {
                         .font(.caption)
                         .foregroundStyle(.tertiary)
                 }
+                // 계정 라벨 — 두 계정이 한 Keychain 항목을 번갈아 쓰는 기기에서 이 한도가
+                // 어느 계정 것인지 알려준다 (없으면 라벨 없이 종전과 동일).
+                if let account = limits.accountDisplay {
+                    Text(l.limitsAccount(account))
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                }
                 // 세션 만료 시 표시값은 만료 전 기준 → 흐리게 처리해 "현재 값 아님"을 시각적으로 전달
                 VStack(alignment: .leading, spacing: 8) {
                     limitRow(name: l.fiveHourSession, window: limits.fiveHour)
@@ -346,7 +368,111 @@ struct PopoverView: View {
                     codexSpendLimitRow(bucket.individualLimit)
                 }
             }
+            if selectedSnapshot?.providerID == "antigravity" {
+                antigravityLimitsContent
+            }
         }
+    }
+
+    @ViewBuilder
+    private var antigravityLimitsContent: some View {
+        if store.antigravityLimitsAuthExpired {
+            antigravityAuthExpiredNotice
+        } else if !store.disableKeychainAccess && (store.antigravityLimits == nil || store.antigravityLimitsStale) {
+            antigravityRefreshRow
+        }
+        if let status = store.antigravityLimits, status.hasVisibleLimit {
+            if store.antigravityLimitsStale {
+                staleBadge(updatedAt: store.antigravityLimitsUpdatedAt)
+            }
+            VStack(alignment: .leading, spacing: 10) {
+                ForEach(Array(status.groups.enumerated()), id: \.offset) { _, group in
+                    VStack(alignment: .leading, spacing: 4) {
+                        let groupTitle = group.displayName.localizedCaseInsensitiveContains("gemini")
+                            ? l.antigravityGeminiGroup
+                            : (group.displayName.localizedCaseInsensitiveContains("claude") ? l.antigravityThirdPartyGroup : group.displayName)
+                        Text(groupTitle)
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.secondary)
+
+                        ForEach(group.buckets, id: \.bucketId) { bucket in
+                            antigravityBucketRow(bucket)
+                        }
+                    }
+                }
+            }
+            .opacity(store.antigravityLimitsAuthExpired ? 0.5 : 1)
+        }
+    }
+
+    @ViewBuilder
+    private func antigravityBucketRow(_ bucket: AntigravityQuotaBucket) -> some View {
+        let name = l.antigravityWindow(window: bucket.window, bucketId: bucket.bucketId)
+        let utilization = bucket.usedPercent
+        VStack(alignment: .leading, spacing: 2) {
+            HStack {
+                Text(name)
+                    .font(.callout)
+                Spacer()
+                Text(limitPercentText(utilization))
+                    .font(.callout)
+                    .monospacedDigit()
+                    .foregroundStyle(limitColor(utilization))
+                if let reset = bucket.resetDate {
+                    Text("· \(reset, style: .relative)")
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                }
+            }
+            ProgressView(value: min(utilization, 100), total: 100)
+                .tint(limitColor(utilization))
+                .controlSize(.small)
+        }
+    }
+
+    @ViewBuilder
+    private var antigravityRefreshRow: some View {
+        Button {
+            Task { await store.refreshAntigravityLimitsFromKeychain() }
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: "key.fill")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Text(l.limitsTapToLoad)
+                    .font(.caption)
+                Spacer()
+                Text(l.refresh)
+                    .font(.caption)
+                    .foregroundStyle(Color.accentColor)
+            }
+            .padding(.vertical, 4)
+        }
+        .buttonStyle(.plain)
+    }
+
+    @ViewBuilder
+    private var antigravityAuthExpiredNotice: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 6) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .foregroundStyle(.orange)
+                Text(l.antigravityAuthExpiredTitle)
+                    .font(.caption).fontWeight(.medium)
+            }
+            Text(l.antigravityAuthExpiredHint)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+            Button(l.retry) {
+                Task { await store.refreshAntigravityLimitsFromKeychain() }
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.mini)
+            .padding(.top, 2)
+        }
+        .padding(8)
+        .background(Color.orange.opacity(0.1))
+        .clipShape(RoundedRectangle(cornerRadius: 6))
     }
 
 
@@ -610,6 +736,7 @@ struct PopoverView: View {
 /// "Curso/r"·"Code/x" 처럼 **단어 중간에서** 접고 탭 바가 2~3줄이 된다.
 /// 가로 스크롤 + `lineLimit(1)`/`fixedSize` 로 각 탭이 항상 자연 폭 한 줄을 유지한다.
 /// (`Spacer()` 는 가로 ScrollView 안에서 무한 확장하므로 쓰지 않는다.)
+@MainActor
 struct ProviderTabBar: View {
     let snapshots: [ProviderSnapshot]
     let selectedID: String?

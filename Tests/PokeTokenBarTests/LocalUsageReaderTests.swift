@@ -31,15 +31,40 @@ final class LocalUsageReaderTests: XCTestCase {
         return destination
     }
 
+    func testCodexScanRootsShareInjectableDefaultHome() {
+        let home = URL(fileURLWithPath: "/Users/testhome")
+        let roots = LocalUsageReader.computeCodexScanRoots(home: home).map(\.path)
+
+        XCTAssertEqual(roots, [
+            home.appendingPathComponent(LocalUsageReader.codexSessionsRelativePath).path,
+            home.appendingPathComponent(LocalUsageReader.codexArchivedSessionsRelativePath).path,
+        ])
+        XCTAssertEqual(Set(roots).count, roots.count)
+    }
+
+    func testCodexRolloutFilesNormalizeSymlinkedRoots() throws {
+        let base = tempDir()
+        let real = base.appendingPathComponent("real")
+        try FileManager.default.createDirectory(at: real, withIntermediateDirectories: true)
+        write(["{}"], to: real, name: "rollout.jsonl")
+
+        let link = base.appendingPathComponent("linked")
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: real)
+
+        let files = LocalUsageReader.codexRolloutFiles(in: [real, link])
+        XCTAssertEqual(files.count, 1, "심볼릭 링크로 같은 Codex 루트를 두 번 스캔하지 않아야 한다")
+    }
+
     // MARK: ModelPricing
 
     func testPricingExactAndFallbackAndZero() {
         XCTAssertEqual(ModelPricing.cost(model: "claude-opus-4-8", input: 1_000_000, output: 0, cacheWrite: 0, cacheRead: 0), 5.0, accuracy: 1e-6)
         XCTAssertEqual(ModelPricing.cost(model: "claude-opus-4-8", input: 0, output: 1_000_000, cacheWrite: 0, cacheRead: 0), 25.0, accuracy: 1e-6)
         XCTAssertEqual(ModelPricing.cost(model: "claude-haiku-4-5-20251001", input: 1_000_000, output: 0, cacheWrite: 0, cacheRead: 0), 1.0, accuracy: 1e-6)
-        XCTAssertEqual(ModelPricing.cost(model: "claude-fable-5", input: 1_000_000, output: 1_000_000, cacheWrite: 1_000_000, cacheRead: 1_000_000), 0, accuracy: 1e-9)
+        XCTAssertEqual(ModelPricing.cost(model: "claude-fable-5", input: 1_000_000, output: 1_000_000, cacheWrite: 1_000_000, cacheRead: 1_000_000), 73.5, accuracy: 1e-6)
         // 미지 모델 → 패밀리 폴백
         XCTAssertEqual(ModelPricing.cost(model: "claude-opus-4-99", input: 1_000_000, output: 0, cacheWrite: 0, cacheRead: 0), 5.0, accuracy: 1e-6)
+        XCTAssertEqual(ModelPricing.cost(model: "claude-fable-6", input: 1_000_000, output: 0, cacheWrite: 0, cacheRead: 0), 10.0, accuracy: 1e-6)
         XCTAssertEqual(ModelPricing.cost(model: "totally-unknown", input: 1_000_000, output: 0, cacheWrite: 0, cacheRead: 0), 0, accuracy: 1e-9)
     }
 

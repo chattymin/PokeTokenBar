@@ -46,13 +46,16 @@ private final class Clock: @unchecked Sendable {
 /// (재사용/재파싱 판정, 디스크 영속·라운드트립, 40일 prune, 60초 저장 throttle)
 final class LocalUsageCacheTests: XCTestCase {
     private var root: URL!
+    private var archivedRoot: URL!
     private var cacheFile: URL!
 
     override func setUpWithError() throws {
         let base = FileManager.default.temporaryDirectory
             .appendingPathComponent("ptb-cache-\(UUID().uuidString)")
         root = base.appendingPathComponent("projects")
+        archivedRoot = base.appendingPathComponent("archived")
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: archivedRoot, withIntermediateDirectories: true)
         cacheFile = base.appendingPathComponent("usage-cache.json")
     }
 
@@ -70,6 +73,13 @@ final class LocalUsageCacheTests: XCTestCase {
     private func codexLine(ts: String, output: Int = 50) -> String {
         """
         {"type":"event_msg","timestamp":"\(ts)","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":1000,"cached_input_tokens":200,"cache_write_input_tokens":0,"output_tokens":\(output),"reasoning_output_tokens":10,"total_tokens":\(1000 + output)}}}}
+        """
+    }
+
+    private func piLine(id: String, output: Int, ts: String = "2026-07-02T01:00:00.000Z") -> String {
+        let milliseconds = (ISO8601Parser.date(from: ts)?.timeIntervalSince1970 ?? 0) * 1_000
+        return """
+        {"type":"message","id":"\(id)","parentId":null,"timestamp":"\(ts)","message":{"role":"assistant","provider":"test","model":"model","timestamp":\(milliseconds),"usage":{"input":10,"output":\(output),"cacheRead":20,"cacheWrite":0,"reasoning":1,"totalTokens":\(30 + output)}}}
         """
     }
 
@@ -119,13 +129,23 @@ final class LocalUsageCacheTests: XCTestCase {
 
     private func makeCache(now: @escaping @Sendable () -> Date = Date.init,
                            probes: ProbeCounter? = nil,
-                           probe: (@Sendable (URL) throws -> String?)? = nil) -> LocalUsageCache {
-        LocalUsageCache(claudeRoot: root, codexRoot: root, fileURL: cacheFile, now: now,
+                           probe: (@Sendable (URL) throws -> String?)? = nil,
+                           codexRoots: [URL]? = nil, piRoots: [URL]? = nil) -> LocalUsageCache {
+        LocalUsageCache(claudeRoot: root,
+                        codexRoot: codexRoots == nil ? root : nil,
+                        codexRoots: codexRoots, piRoots: piRoots,
+                        fileURL: cacheFile, now: now,
                         codexProbe: { url in
                             probes?.bump()
                             if let probe { return try probe(url) }
                             return try LocalUsageReader.probeCodexRolloutSessionID(at: url)
                         })
+    }
+
+    private func writeLines(_ lines: [String], to directory: URL, name: String) throws -> URL {
+        let url = directory.appendingPathComponent(name)
+        try lines.joined(separator: "\n").write(to: url, atomically: true, encoding: .utf8)
+        return url
     }
 
     private func forkMeta(id: String, parentID: String, ts: String) -> String {
@@ -245,6 +265,49 @@ final class LocalUsageCacheTests: XCTestCase {
         let entries = await makeCache().codexEntries(modifiedSince: since)
 
         XCTAssertEqual(entries.map(\.total), [110])
+    }
+
+    /// 활성 세션과 보관 세션에 같은 rollout이 동시에 보이는 이동 중 상태에서도
+    /// 파일 경로가 아니라 session/state ID 기준으로 한 번만 집계해야 한다.
+    func testCodexCacheDeduplicatesRolloutAcrossActiveAndArchivedRoots() async throws {
+        let lines = [
+            sessionMeta(id: "moved-session", ts: "2026-07-29T01:00:00.000Z"),
+            codexStateLine(
+                ts: "2026-07-29T01:00:01.000Z",
+                cumulativeInput: 100, cumulativeOutput: 10,
+                lastInput: 100, lastOutput: 10),
+        ]
+        try writeFile("rollout.jsonl", lines: lines)
+        _ = try writeLines(lines, to: archivedRoot, name: "rollout.jsonl")
+
+        let entries = await makeCache(codexRoots: [root, archivedRoot])
+            .codexEntries(modifiedSince: since)
+
+        XCTAssertEqual(entries.map(\.total), [110], "양쪽 루트의 같은 rollout은 한 번만 집계해야 한다")
+    }
+
+    /// Codex의 정상적인 sessions → archived_sessions 이동을 같은 캐시 인스턴스가
+    /// 따라가야 한다. 이동 전 경로의 cache blob이 남아 있어도 보관 경로의 새 파일을
+    /// 읽고, 이전 경로와 합산하지 않아야 한다.
+    func testCodexCacheFollowsRolloutWhenMovedToArchivedRoot() async throws {
+        let lines = [
+            sessionMeta(id: "archived-session", ts: "2026-07-29T01:00:00.000Z"),
+            codexStateLine(
+                ts: "2026-07-29T01:00:01.000Z",
+                cumulativeInput: 100, cumulativeOutput: 10,
+                lastInput: 100, lastOutput: 10),
+        ]
+        let activeFile = try writeFile("rollout.jsonl", lines: lines)
+        let archivedFile = archivedRoot.appendingPathComponent("rollout.jsonl")
+        let cache = makeCache(codexRoots: [root, archivedRoot])
+
+        let beforeMove = await cache.codexEntries(modifiedSince: since)
+        XCTAssertEqual(beforeMove.map(\.total), [110])
+
+        try FileManager.default.moveItem(at: activeFile, to: archivedFile)
+
+        let afterMove = await cache.codexEntries(modifiedSince: since)
+        XCTAssertEqual(afterMove.map(\.total), [110], "rollout 이동 후에도 기존 집계가 유지돼야 한다")
     }
 
     func testCodexCacheKeepsSubagentFirstTurnWhenParentIsMissing() async throws {
@@ -788,5 +851,80 @@ final class LocalUsageCacheTests: XCTestCase {
             entries: fixed, periodKey: "w",
             fromDay: fmt.string(from: weekStart), toDay: fmt.string(from: now))
         XCTAssertGreaterThan(week.totalTokens, 0, "이번 주 합계에 반영돼야 한다")
+    }
+
+    func testPiCacheInvalidatesGrowingFilesAndDedupsAcrossRoots() async throws {
+        let second = root.deletingLastPathComponent().appendingPathComponent("pi-second")
+        try FileManager.default.createDirectory(at: second, withIntermediateDirectories: true)
+        let shared = piLine(id: "shared", output: 10)
+        try writeFile("pi-a.jsonl", lines: [shared, piLine(id: "a", output: 20)])
+        try [shared, piLine(id: "b", output: 30)].joined(separator: "\n")
+            .write(to: second.appendingPathComponent("pi-b.jsonl"), atomically: true, encoding: .utf8)
+
+        let cache = makeCache(piRoots: [root, second])
+        let first = await cache.piEntries(modifiedSince: since)
+        XCTAssertEqual(Set(first.map(\.id)), ["shared", "a", "b"])
+
+        try writeFile("pi-a.jsonl", lines: [
+            shared, piLine(id: "a", output: 20), piLine(id: "grown", output: 40),
+        ])
+        let grown = await cache.piEntries(modifiedSince: since)
+        XCTAssertEqual(Set(grown.map(\.id)), ["shared", "a", "b", "grown"])
+    }
+
+    func testPiCacheRoundTripsAcrossInstances() async throws {
+        let mtime = Date(timeIntervalSince1970: floor(Date().timeIntervalSince1970) - 3_600)
+        try writeFile("pi.jsonl", lines: [piLine(id: "turn", output: 11)], mtime: mtime)
+        let first = await makeCache(piRoots: [root]).piEntries(modifiedSince: since)
+        XCTAssertEqual(first.map(\.output), [11])
+
+        // Same signature, different same-width payload: a new actor must use the persisted blob.
+        try writeFile("pi.jsonl", lines: [piLine(id: "turn", output: 22)], mtime: mtime)
+        let second = await makeCache(piRoots: [root]).piEntries(modifiedSince: since)
+        XCTAssertEqual(second.map(\.output), [11])
+    }
+
+    func testPiReadFailureKeepsOldBlobAndRetriesNextRefresh() async throws {
+        let file = try writeFile("pi.jsonl", lines: [piLine(id: "turn", output: 10)])
+        let cache = makeCache(piRoots: [root])
+        let initial = await cache.piEntries(modifiedSince: since)
+        XCTAssertEqual(initial.map(\.output), [10])
+
+        try FileManager.default.removeItem(at: file)
+        try FileManager.default.createDirectory(at: file, withIntermediateDirectories: false)
+        let duringFailure = await cache.piEntries(modifiedSince: since)
+        XCTAssertEqual(duringFailure.map(\.output), [10],
+                       "transient read failure should retain the previous blob")
+
+        try FileManager.default.removeItem(at: file)
+        try writeFile("pi.jsonl", lines: [piLine(id: "turn", output: 20)])
+        let restored = await cache.piEntries(modifiedSince: since)
+        XCTAssertEqual(restored.map(\.output), [20],
+                       "failed signature must not be cached; the restored file should be retried")
+    }
+
+    func testPiCacheInvalidatesOutdatedOrMissingParserVersion() async throws {
+        try writeFile("pi.jsonl", lines: [piLine(id: "turn", output: 10)])
+        _ = await makeCache(piRoots: [root]).piEntries(modifiedSince: since)
+
+        let raw = try Data(contentsOf: cacheFile)
+        let plain = (try? (raw as NSData).decompressed(using: .zlib) as Data) ?? raw
+        var snapshot = try XCTUnwrap(JSONSerialization.jsonObject(with: plain) as? [String: Any])
+        var pi = try XCTUnwrap(snapshot["pi"] as? [String: Any])
+        for (path, value) in pi {
+            var blob = try XCTUnwrap(value as? [String: Any])
+            var entries = try XCTUnwrap(blob["entries"] as? [[String: Any]])
+            entries[0]["output"] = 999
+            blob["entries"] = entries
+            pi[path] = blob
+        }
+        snapshot["pi"] = pi
+        snapshot["piParserVersion"] = 1 // v1 added reasoning to output; v2 must reparse this blob.
+        let changed = try JSONSerialization.data(withJSONObject: snapshot)
+        let compressed = try (changed as NSData).compressed(using: .zlib) as Data
+        try compressed.write(to: cacheFile, options: .atomic)
+
+        let entries = await makeCache(piRoots: [root]).piEntries(modifiedSince: since)
+        XCTAssertEqual(entries.map(\.output), [10], "v1 Pi blobs must be invalidated and reparsed")
     }
 }

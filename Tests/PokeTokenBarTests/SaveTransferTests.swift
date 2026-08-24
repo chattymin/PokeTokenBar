@@ -90,6 +90,7 @@ final class SaveTransferTests: XCTestCase {
         s.inventory = ["rareCandy": 2]
         s.collectedFinals = ["1-3"]
         s.dex = [DexEntry(baseID: 1, finalID: 3, chainOrder: [1, 2, 3], rarity: .common, caughtAt: transferNow)]
+        s.representativeSpeciesID = 2
         return s
     }
 
@@ -108,6 +109,7 @@ final class SaveTransferTests: XCTestCase {
         XCTAssertEqual(envelope.state.inventory, original.inventory)
         XCTAssertEqual(envelope.state.dex.count, 1)
         XCTAssertEqual(envelope.state.collectedFinals, original.collectedFinals)
+        XCTAssertEqual(envelope.state.representativeSpeciesID, 2, "대표 포켓몬 선택도 세이브와 함께 이동")
     }
 
     /// [핵심] 봉투가 없으면 `CompanionState` 의 관대 디코딩이 아무 JSON 이나 빈 상태로 흡수해
@@ -279,6 +281,7 @@ final class SaveTransferTests: XCTestCase {
         XCTAssertEqual(s.state.spentTokens, 3_500_000_000)
         XCTAssertEqual(s.state.dex.count, 1)
         XCTAssertEqual(s.state.inventory["rareCandy"], 2)
+        XCTAssertEqual(s.state.representativeSpeciesID, 2, "대표 포켓몬은 진행 상태와 함께 보존")
         XCTAssertEqual(s.state.candyGrantTier["five_hour|2026-08-03T00:00:00Z"], 100,
                        "사탕 지급 원장 보존 — 버리면 같은 창에서 재지급된다")
         XCTAssertTrue(s.state.candyFeatureSeeded)
@@ -510,7 +513,8 @@ final class SaveTransferTests: XCTestCase {
     func testEveryCompanionStateFieldIsClassifiedForTransfer() {
         // eggTier(알 등급 보증) = 진행 — 산 물건이지 이 기기의 장부가 아니라 기기를 옮겨도 따라간다.
         let progress: Set<String> = ["usedSinceInstall", "spentTokens", "eggUsage", "eggTier",
-                                     "pendingHatchID", "active", "dex", "collectedFinals", "inventory"]
+                                     "pendingHatchID", "active", "representativeSpeciesID", "dex",
+                                     "collectedFinals", "inventory"]
         let deviceLedger: Set<String> = ["installBaselineSet", "claimedTodayTokensByProvider", "lastDate"]
         let accountLedger: Set<String> = ["candyGrantTier", "candyFeatureSeeded"]
         let devicePreference: Set<String> = ["language"]

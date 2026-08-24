@@ -30,22 +30,26 @@ actor LocalUsageCache {
         var codexSessionIDs: [String: CodexSessionProbe]
         var gemini: [String: Blob]
         var grok: [String: Blob]
+        var pi: [String: Blob]
         var codexParserVersion: Int
         var codexSessionIndexVersion: Int
         var grokParserVersion: Int
+        var piParserVersion: Int
 
         init(claude: [String: Blob], codex: [String: CodexBlob],
              codexSessionIDs: [String: CodexSessionProbe], gemini: [String: Blob],
-             grok: [String: Blob], codexParserVersion: Int, codexSessionIndexVersion: Int,
-             grokParserVersion: Int) {
+             grok: [String: Blob], pi: [String: Blob], codexParserVersion: Int,
+             codexSessionIndexVersion: Int, grokParserVersion: Int, piParserVersion: Int) {
             self.claude = claude
             self.codex = codex
             self.codexSessionIDs = codexSessionIDs
             self.gemini = gemini
             self.grok = grok
+            self.pi = pi
             self.codexParserVersion = codexParserVersion
             self.codexSessionIndexVersion = codexSessionIndexVersion
             self.grokParserVersion = grokParserVersion
+            self.piParserVersion = piParserVersion
         }
 
         // 하위호환: gemini/grok/codexSessionIDs 키가 없는 구버전 스냅샷도 로드(콜드 스타트 재발 방지).
@@ -58,9 +62,11 @@ actor LocalUsageCache {
             codexSessionIDs = (try? c.decode([String: CodexSessionProbe].self, forKey: .codexSessionIDs)) ?? [:]
             gemini = try c.decodeIfPresent([String: Blob].self, forKey: .gemini) ?? [:]
             grok = try c.decodeIfPresent([String: Blob].self, forKey: .grok) ?? [:]
+            pi = try c.decodeIfPresent([String: Blob].self, forKey: .pi) ?? [:]
             codexParserVersion = try c.decodeIfPresent(Int.self, forKey: .codexParserVersion) ?? 0
             codexSessionIndexVersion = try c.decodeIfPresent(Int.self, forKey: .codexSessionIndexVersion) ?? 0
             grokParserVersion = try c.decodeIfPresent(Int.self, forKey: .grokParserVersion) ?? 0
+            piParserVersion = try c.decodeIfPresent(Int.self, forKey: .piParserVersion) ?? 0
         }
     }
 
@@ -73,12 +79,15 @@ actor LocalUsageCache {
     private static let codexSessionIndexVersion = 2
     /// Grok 토큰 매핑(캐시분 분리·비용 신뢰 조건) 변경 시 Grok blob만 재파싱한다.
     private static let grokParserVersion = 1
+    /// Pi usage mapping/dedup semantics. Bump when the direct usage paths or bucket mapping changes.
+    private static let piParserVersion = 2
 
     private var claudeCache: [String: Blob] = [:]
     private var codexCache: [String: CodexBlob] = [:]
     private var codexSessionIDs: [String: CodexSessionProbe] = [:]
     private var geminiCache: [String: Blob] = [:]
     private var grokCache: [String: Blob] = [:]
+    private var piCache: [String: Blob] = [:]
     private var loaded = false
     private var dirty = false
     private var lastSave: Date?
@@ -86,8 +95,12 @@ actor LocalUsageCache {
     // 테스트 시임 — 기본값은 실환경(실 로그 루트·Application Support·실시간).
     private let claudeRoot: URL?
     private let codexRoot: URL?
+    private let codexRoots: [URL]?
     private let geminiRoot: URL?
     private let grokRoot: URL?
+    private let geminiRoots: [URL]?
+    private let grokRoots: [URL]?
+    private let piRoots: [URL]?
     private let fileURL: URL
     private let now: @Sendable () -> Date
     /// throwing probe 를 쓴다 — 읽기 실패(throw)와 "metadata 없음"(`nil`)은 인덱스에 남길지가 다르다.
@@ -98,7 +111,10 @@ actor LocalUsageCache {
     private let claudeRoots: [URL]?
 
     init(claudeRoot: URL? = nil, claudeRoots: [URL]? = nil,
-         codexRoot: URL? = nil, geminiRoot: URL? = nil, grokRoot: URL? = nil,
+         codexRoot: URL? = nil, codexRoots: [URL]? = nil,
+         geminiRoot: URL? = nil, grokRoot: URL? = nil,
+         geminiRoots: [URL]? = nil, grokRoots: [URL]? = nil,
+         piRoots: [URL]? = nil,
          fileURL: URL? = nil, now: @escaping @Sendable () -> Date = Date.init,
          codexProbe: @escaping @Sendable (URL) throws -> String? = {
              try LocalUsageReader.probeCodexRolloutSessionID(at: $0)
@@ -109,8 +125,12 @@ actor LocalUsageCache {
         self.claudeRoots = claudeRoots
         self.claudeRoot = claudeRoot
         self.codexRoot = codexRoot
+        self.codexRoots = codexRoots
         self.geminiRoot = geminiRoot
+        self.geminiRoots = geminiRoots
         self.grokRoot = grokRoot
+        self.grokRoots = grokRoots
+        self.piRoots = piRoots
         self.fileURL = fileURL ?? Self.defaultFileURL
         self.now = now
         self.codexProbe = codexProbe
@@ -143,8 +163,10 @@ actor LocalUsageCache {
     func codexEntries(modifiedSince: Date) -> [LocalUsageReader.Entry] {
         ensureLoaded()
         let fmt = LocalUsageReader.localDayFormatter()
+        let roots = codexRoots ?? codexRoot.map { [$0] } ?? LocalUsageReader.codexSessionRoots(
+            customRootsValue: CustomScanRoots.storedValue(for: "codex"))
         let (rollouts, includedPaths) = collectCodexRollouts(
-            root: codexRoot ?? LocalUsageReader.codexSessionsDir,
+            roots: roots,
             since: modifiedSince,
             fmt: fmt
         )
@@ -162,12 +184,17 @@ actor LocalUsageCache {
     func geminiEntries(modifiedSince: Date) -> [LocalUsageReader.Entry] {
         ensureLoaded()
         let fmt = LocalUsageReader.localDayFormatter()
-        let r = collect(root: geminiRoot ?? LocalUsageReader.geminiTmpDir, since: modifiedSince,
-                        cache: &geminiCache, allowJSON: true) {
-            LocalUsageReader.parseGeminiFile($0, fmt: fmt)
+        let roots = geminiRoots ?? geminiRoot.map { [$0] } ?? LocalUsageReader.geminiScanRoots(
+            customRootsValue: CustomScanRoots.storedValue(for: "gemini"))
+        var all: [LocalUsageReader.Entry] = []
+        for root in roots {
+            all += collect(root: root, since: modifiedSince,
+                           cache: &geminiCache, allowJSON: true) {
+                LocalUsageReader.parseGeminiFile($0, fmt: fmt)
+            }
         }
         saveIfNeeded()
-        return r
+        return LocalUsageReader.dedupKeepMax(all)
     }
 
     func grokEntries(modifiedSince: Date) -> [LocalUsageReader.Entry] {
@@ -177,12 +204,33 @@ actor LocalUsageCache {
         // 파싱 캐시 **앞**에 있어야 한다 — blob 은 updates.jsonl 의 mtime·size 로만 무효화되는데
         // 서브에이전트 판정 근거는 옆 파일(summary.json)이라, 파싱 안에서 걸러내면 늦게 쓰인
         // session_kind 가 blob 에 굳어 이중집계가 영구화된다.
-        let all = collect(root: grokRoot ?? LocalUsageReader.grokSessionsDir, since: modifiedSince,
-                          cache: &grokCache, include: LocalUsageReader.isGrokUsageFile) {
-            LocalUsageReader.parseGrokFile($0, fmt: fmt)
+        let roots = grokRoots ?? grokRoot.map { [$0] } ?? LocalUsageReader.grokSessionRoots(
+            customRootsValue: CustomScanRoots.storedValue(for: "grok"))
+        var all: [LocalUsageReader.Entry] = []
+        for root in roots {
+            all += collect(root: root, since: modifiedSince,
+                           cache: &grokCache, include: LocalUsageReader.isGrokUsageFile) {
+                LocalUsageReader.parseGrokFile($0, fmt: fmt)
+            }
         }
         saveIfNeeded()
         // fork 세션이 부모 updates 를 복사해도 같은 턴은 한 번만(전역 dedup).
+        return LocalUsageReader.dedupKeepMax(all)
+    }
+
+    func piEntries(modifiedSince: Date) -> [LocalUsageReader.Entry] {
+        ensureLoaded()
+        let fmt = LocalUsageReader.localDayFormatter()
+        let roots = piRoots ?? CustomScanRoots.union(
+            defaults: LocalUsageReader.piSessionRoots,
+            extraRaw: CustomScanRoots.storedValue(for: "pi"))
+        var all: [LocalUsageReader.Entry] = []
+        for root in roots {
+            all += collect(root: root, since: modifiedSince, cache: &piCache) {
+                LocalUsageReader.parsePiFile($0, fmt: fmt)
+            }
+        }
+        saveIfNeeded()
         return LocalUsageReader.dedupKeepMax(all)
     }
 
@@ -190,7 +238,7 @@ actor LocalUsageCache {
     /// 캐시에 굳히지 않기 위해서다.
     private func collect(root: URL, since: Date, cache: inout [String: Blob],
                          allowJSON: Bool = false, include: ((URL) -> Bool)? = nil,
-                         parse: (URL) -> [LocalUsageReader.Entry]) -> [LocalUsageReader.Entry] {
+                         parse: (URL) -> [LocalUsageReader.Entry]?) -> [LocalUsageReader.Entry] {
         let fm = FileManager.default
         guard let en = fm.enumerator(
             at: root,
@@ -208,11 +256,14 @@ actor LocalUsageCache {
             let key = url.path
             if let blob = cache[key], blob.mtime == mtime, blob.size == size {
                 result.append(contentsOf: blob.entries)            // 변경 없음 → 재파싱 안 함
-            } else {
-                let entries = parse(url)
+            } else if let entries = parse(url) {
                 cache[key] = Blob(mtime: mtime, size: size, entries: entries)
                 dirty = true
                 result.append(contentsOf: entries)
+            } else if let blob = cache[key] {
+                // 일시적 읽기 실패는 현재 signature에 굳히지 않는다. 이전 blob을 쓰되,
+                // signature는 옛 상태로 남겨 다음 refresh에서 다시 읽게 한다.
+                result.append(contentsOf: blob.entries)
             }
         }
         return result
@@ -221,11 +272,11 @@ actor LocalUsageCache {
     /// Codex는 fork 파일을 단독으로 확정할 수 없으므로 final Entry 대신 parsed rollout을 캐시.
     /// 조회 범위 밖 부모도 replay 판정에는 필요해 session id로 찾아 dependency로 함께 반환.
     private func collectCodexRollouts(
-        root: URL,
+        roots: [URL],
         since: Date,
         fmt: DateFormatter
     ) -> (rollouts: [LocalUsageReader.CodexParsedRollout], includedPaths: Set<String>) {
-        let files = LocalUsageReader.codexRolloutFiles(in: root)
+        let files = LocalUsageReader.codexRolloutFiles(in: roots)
 
         func rememberSessionID(_ id: String?, of file: LocalUsageReader.CodexRolloutFile) {
             codexSessionIDs[file.path] = CodexSessionProbe(
@@ -322,6 +373,7 @@ actor LocalUsageCache {
         codexSessionIDs = snap.codexSessionIDs
         geminiCache = snap.gemini
         grokCache = snap.grok
+        piCache = snap.pi
 
         if snap.codexParserVersion != Self.codexParserVersion {
             codexCache = [:]
@@ -335,6 +387,10 @@ actor LocalUsageCache {
             grokCache = [:]
             dirty = true
         }
+        if snap.piParserVersion != Self.piParserVersion {
+            piCache = [:]
+            dirty = true
+        }
     }
 
     /// 어떤 조회 윈도우(오늘/주/월)에도 들지 않는 오래된 파일 blob 을 제거해 캐시 무한 증가를 막는다.
@@ -346,6 +402,7 @@ actor LocalUsageCache {
         codexCache = codexCache.filter { $0.value.mtime >= cutoff }
         geminiCache = geminiCache.filter { $0.value.mtime >= cutoff }
         grokCache = grokCache.filter { $0.value.mtime >= cutoff }
+        piCache = piCache.filter { $0.value.mtime >= cutoff }
     }
 
     /// 변경이 있으면 디스크에 저장(최소 60초 간격으로 throttle — 잦은 쓰기 방지).
@@ -359,9 +416,11 @@ actor LocalUsageCache {
             codexSessionIDs: codexSessionIDs,
             gemini: geminiCache,
             grok: grokCache,
+            pi: piCache,
             codexParserVersion: Self.codexParserVersion,
             codexSessionIndexVersion: Self.codexSessionIndexVersion,
-            grokParserVersion: Self.grokParserVersion)
+            grokParserVersion: Self.grokParserVersion,
+            piParserVersion: Self.piParserVersion)
         if let data = try? JSONEncoder().encode(snap) {
             // JSON 은 zlib 로 크게 압축됨(수 MB → 수백 KB). 실패 시 평문 저장(로드가 양쪽 다 처리).
             let out = (try? (data as NSData).compressed(using: .zlib) as Data) ?? data

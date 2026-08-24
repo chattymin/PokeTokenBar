@@ -1,4 +1,5 @@
 import XCTest
+import Observation
 @testable import PokeTokenBar
 
 // MARK: 경제
@@ -116,7 +117,9 @@ extension PokeProviding {
         try await baseSpeciesIndex().first { $0.id == id }
     }
     /// 도감 설명은 대부분의 스텁과 무관 — 검증하는 테스트만 override.
-    func flavorTexts(speciesID: Int, language: AppLanguage) async throws -> [DexFlavorText] { [] }
+    func flavorTexts(speciesID: Int, language: AppLanguage) async throws -> DexEntries {
+        DexEntries(entries: [], language: language)
+    }
 }
 
 private enum PokeStubError: Error { case boom }
@@ -362,6 +365,124 @@ final class CompanionStoreTests: XCTestCase {
         let folded = s.dexSpecies
         XCTAssertEqual(folded.map(\.id), [1, 2], "이로치 개체가 지나온 체인 전 종")
         XCTAssertEqual(folded.map(\.isShiny), [true, true], "한 개체라도 이로치면 종에 플래그")
+    }
+
+    // MARK: 대표 플로팅 펫 (육성 대상과 표시 대상 분리)
+
+    /// 구버전 세이브에는 선택 키가 없다. nil 은 기존 동작을 뜻하므로 현재 개체와 shiny 를 그대로 따른다.
+    func testRepresentativeDefaultsToCurrentCompanionForLegacySave() throws {
+        let active = MonState(baseID: 1, pathIDs: [1], stageIndex: 0, usedAtStage: 0,
+                              rarity: .common, totalForms: 3, isShiny: true)
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("poke-\(UUID().uuidString).json")
+        let activeJSON = String(decoding: try JSONEncoder().encode(active), as: UTF8.self)
+        try Data(#"{"active":\#(activeJSON)}"#.utf8).write(to: url)
+
+        let s = CompanionStore(provider: StubProvider(value: linear3), clock: { fixedNow },
+                               fileURL: url, rng: SeededRNG(seed: 7))
+        XCTAssertNil(s.representativeSpeciesID)
+        XCTAssertEqual(s.representativeSubject,
+                       CompanionStore.RepresentativeSubject(speciesID: 1, isShiny: true))
+    }
+
+    /// 대표 종은 현재 개체와 무관하게 그 종을 그리고, 도감에서 이로치를 보유했다면 이로치 색을 쓴다.
+    /// 선택은 companion-state.json 에 저장돼 재실행 후에도 유지된다.
+    func testRepresentativeSelectionUsesOwnedShinySpeciesAndPersists() throws {
+        let dex = [DexEntry(baseID: 1, finalID: 3, chainOrder: [1, 2, 3], rarity: .common,
+                            caughtAt: fixedNow, isShiny: true,
+                            names: [1: ["en": "P1"], 2: ["en": "P2"], 3: ["en": "P3"]])]
+        let active = MonState(baseID: 20, pathIDs: [20], stageIndex: 0, usedAtStage: 0,
+                              rarity: .common, totalForms: 1)
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("poke-\(UUID().uuidString).json")
+        let dexJSON = String(decoding: try JSONEncoder().encode(dex), as: UTF8.self)
+        let activeJSON = String(decoding: try JSONEncoder().encode(active), as: UTF8.self)
+        try Data(#"{"dex":\#(dexJSON),"active":\#(activeJSON),"language":"en"}"#.utf8).write(to: url)
+
+        let s = CompanionStore(provider: StubProvider(value: linear3), clock: { fixedNow },
+                               fileURL: url, rng: SeededRNG(seed: 7))
+        XCTAssertTrue(s.setRepresentativeSpeciesID(2))
+        XCTAssertEqual(s.currentSpeciesID, 20, "육성 대상은 그대로")
+        XCTAssertEqual(s.representativeSubject,
+                       CompanionStore.RepresentativeSubject(speciesID: 2, isShiny: true))
+
+        let reloaded = CompanionStore(provider: StubProvider(value: linear3), clock: { fixedNow },
+                                      fileURL: url, rng: SeededRNG(seed: 7))
+        XCTAssertEqual(reloaded.representativeSpeciesID, 2)
+        XCTAssertEqual(reloaded.representativeSubject,
+                       CompanionStore.RepresentativeSubject(speciesID: 2, isShiny: true))
+    }
+
+    /// 현재 개체에서 고른 종도 졸업 순간 같은 체인이 영구 dex 로 이동하므로 대표 선택이 끊기지 않는다.
+    func testRepresentativeSelectionSurvivesGraduation() async {
+        let s = store(linear3)
+        await s.hatch(baseID: 1)
+        XCTAssertTrue(s.setRepresentativeSpeciesID(1))
+
+        for stage in 0..<3 {
+            s.applyUsage(PokemonBalance.phaseThreshold(rarity: .common, totalForms: 3, stageIndex: stage))
+            XCTAssertEqual(s.representativeSubject.speciesID, 1,
+                           "진화·졸업·새 알 전환이 고정한 대표 포켓몬을 덮어쓰면 안 된다")
+        }
+
+        XCTAssertNil(s.state.active, "졸업 후 새 알")
+        XCTAssertEqual(s.state.dex.first?.chainOrder, [1, 2, 3])
+        XCTAssertEqual(s.representativeSpeciesID, 1, "도감에 영구 보존됐으므로 고정 유지")
+        XCTAssertEqual(s.representativeSubject.speciesID, 1)
+    }
+
+    /// 메뉴바 관찰자는 이 캐시 하나만 구독한다. 대표 선택을 해제하는 즉시 캐시가 바뀌고
+    /// Observation 콜백이 발화해야 다음 사용량 폴링을 기다리지 않고 메뉴바도 현재 개체로 돌아간다.
+    func testRepresentativeSubjectNotifiesImmediatelyWhenSelectionChanges() throws {
+        let dex = [DexEntry(baseID: 1, finalID: 1, chainOrder: [1], rarity: .common,
+                            caughtAt: fixedNow)]
+        let active = MonState(baseID: 20, pathIDs: [20], stageIndex: 0, usedAtStage: 0,
+                              rarity: .common, totalForms: 1)
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("poke-\(UUID().uuidString).json")
+        let dexJSON = String(decoding: try JSONEncoder().encode(dex), as: UTF8.self)
+        let activeJSON = String(decoding: try JSONEncoder().encode(active), as: UTF8.self)
+        try Data(#"{"dex":\#(dexJSON),"active":\#(activeJSON),"representativeSpeciesID":1}"#.utf8)
+            .write(to: url)
+        let s = CompanionStore(provider: StubProvider(value: linear3), clock: { fixedNow },
+                               fileURL: url, rng: SeededRNG(seed: 7))
+
+        nonisolated(unsafe) var didChange = false   // onChange는 동기 발화; 테스트 스레드 밖 접근 없음
+        withObservationTracking {
+            _ = s.representativeSubject
+        } onChange: {
+            didChange = true
+        }
+
+        XCTAssertTrue(s.setRepresentativeSpeciesID(nil))
+        XCTAssertTrue(didChange)
+        XCTAssertEqual(s.representativeSubject.speciesID, 20)
+    }
+
+    /// Fresh Egg 는 미졸업 개체를 도감에 남기지 않는다. 그 개체만 근거였던 대표 종도 함께 해제돼
+    /// 존재하지 않는 종을 계속 그리지 않고 기본값(현재 개체/알 추적)으로 돌아간다.
+    func testFreshEggClearsRaisingOnlyRepresentativeSelection() throws {
+        let active = MonState(baseID: 1, pathIDs: [1], stageIndex: 0, usedAtStage: 0,
+                              rarity: .common, totalForms: 3)
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("poke-\(UUID().uuidString).json")
+        let activeJSON = String(decoding: try JSONEncoder().encode(active), as: UTF8.self)
+        try Data(#"{"active":\#(activeJSON),"representativeSpeciesID":1,"usedSinceInstall":1000000000}"#.utf8)
+            .write(to: url)
+
+        let s = CompanionStore(provider: StubProvider(value: linear3), clock: { fixedNow },
+                               fileURL: url, rng: SeededRNG(seed: 7))
+        XCTAssertEqual(s.representativeSpeciesID, 1)
+        XCTAssertTrue(s.buyFreshEgg())
+        XCTAssertNil(s.representativeSpeciesID)
+        XCTAssertNil(s.representativeSubject.speciesID, "자동 추적 + active 없음 = 알")
+    }
+
+    /// 외부에서 손편집했거나 다른 상태와 잘못 합쳐진 선택은 로드 경계에서 제거한다.
+    func testUnavailableRepresentativeSelectionIsDroppedAtLoad() throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("poke-\(UUID().uuidString).json")
+        try Data(#"{"representativeSpeciesID":999}"#.utf8).write(to: url)
+
+        let s = CompanionStore(provider: StubProvider(value: linear3), clock: { fixedNow },
+                               fileURL: url, rng: SeededRNG(seed: 7))
+        XCTAssertNil(s.representativeSpeciesID)
+        XCTAssertFalse(s.setRepresentativeSpeciesID(999), "도감 밖 종은 새로 저장할 수도 없다")
     }
 
     /// 위장 메타몽은 리빌 전까지 이로치를 숨긴다 — 도감도 그 규칙을 따라야 한다

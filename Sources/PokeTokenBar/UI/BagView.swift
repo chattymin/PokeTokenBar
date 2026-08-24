@@ -1,6 +1,7 @@
 import SwiftUI
 
 /// 가방(인벤토리) — 소유 아이템 카드 + 사용. 빈 상태는 움직이는 잠만보(컬렉션의 피카츄 패턴).
+@MainActor
 struct BagView: View {
     let store: CompanionStore
     let nav: PopoverNavigation
@@ -36,6 +37,7 @@ struct BagView: View {
 /// 아이템 1장 — 아이콘·이름·개수·설명 + 인라인 확인 사용.
 /// 확인은 인라인(버튼 morph) — .sheet/.alert 금지: transient 팝오버가 닫힐 때 고아 시트가
 /// 이후 클릭을 먹통내는 기존 결함(PopoverView 주석) 회피.
+@MainActor
 private struct ItemCard: View {
     let store: CompanionStore
     let nav: PopoverNavigation

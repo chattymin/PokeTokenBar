@@ -24,7 +24,7 @@ enum ModelPricing {
         "claude-opus-4-7":            .perMillion(5, 25, 6.25, 0.5),
         "claude-sonnet-4-6":          .perMillion(3, 15, 3.75, 0.3),
         "claude-haiku-4-5-20251001":  .perMillion(1, 5, 1.25, 0.1),
-        "claude-fable-5":             .zero,                          // ccusage 미가격 → $0
+        "claude-fable-5":             .perMillion(10, 50, 12.5, 1.0), // LiteLLM 스냅샷 가격 등재됨(2026-08) — 기존 미가격 $0 플레이스홀더 대체
         "gpt-5.5":                    .perMillion(5, 30, 0, 0.5),
         // Gemini — 공식 API 단가(기본 티어, ≤200K 프롬프트). 캐시는 read 단가만(스토리지 시간요금 제외).
         "gemini-2.5-pro":             .perMillion(1.25, 10, 0, 0.3125),
@@ -32,7 +32,7 @@ enum ModelPricing {
         "gemini-2.0-flash":           .perMillion(0.10, 0.4, 0, 0.025),
     ]
 
-    /// 모델명 → 단가. 정확 매칭 우선, 없으면 패밀리(opus/sonnet/haiku/gpt) 폴백(버전 드리프트 대비),
+    /// 모델명 → 단가. 정확 매칭 우선, 없으면 패밀리(fable/opus/sonnet/haiku/gpt) 폴백(버전 드리프트 대비),
     /// 그래도 없으면 0(ccusage 가 미가격 모델을 0 으로 처리하는 것과 동일).
     static func rate(for model: String) -> ModelRate {
         if let r = table[model] { return r }
@@ -44,6 +44,7 @@ enum ModelPricing {
         // 붙는 `antigravity/` 접두사가 정확매칭 표를 비껴가게 하고(이 CLI 는 `claude-sonnet-4-6`
         // 도 부른다 — 접두사가 없으면 표에 그대로 걸린다), 이 줄이 패밀리 폴백까지 막는다.
         if m.hasPrefix("antigravity/") { return .zero }
+        if m.contains("fable")  { return .perMillion(10, 50, 12.5, 1.0) }
         if m.contains("opus")   { return .perMillion(5, 25, 6.25, 0.5) }
         if m.contains("sonnet") { return .perMillion(3, 15, 3.75, 0.3) }
         if m.contains("haiku")  { return .perMillion(1, 5, 1.25, 0.1) }

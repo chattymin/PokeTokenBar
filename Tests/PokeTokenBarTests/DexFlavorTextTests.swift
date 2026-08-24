@@ -102,28 +102,51 @@ final class DexFlavorCollapseTests: XCTestCase {
     }
 }
 
+// MARK: 영어 폴백 판정
+
+final class DexEnglishFallbackTests: XCTestCase {
+    /// **트리거 분기** — 요청 언어에 한 줄도 없을 때만 영어로 대체.
+    /// PokéAPI 에 `pt` 라는 언어 자체가 없어서 브라질 포르투갈어가 실제로 밟는 경로다.
+    func testEmptyNonEnglishLanguageFallsBackToEnglish() {
+        XCTAssertTrue(PokeAPIClient.needsEnglishFallback(entries: [], language: .pt))
+        XCTAssertTrue(PokeAPIClient.needsEnglishFallback(entries: [], language: .ko))
+    }
+
+    /// 영어가 비면 더 갈 곳이 없다 — 대체하면 같은 조회를 무한 반복한다.
+    func testEmptyEnglishDoesNotFallBack() {
+        XCTAssertFalse(PokeAPIClient.needsEnglishFallback(entries: [], language: .en))
+    }
+
+    /// 버전 단위 누락은 대체 대상이 **아니다** — 한 줄이라도 있으면 그 언어 그대로 둔다
+    /// (없는 세대를 영어로 끼워 넣으면 한 화면에 두 언어가 섞인다).
+    func testPartialCoverageKeepsTheRequestedLanguage() {
+        let one = [DexFlavorText(versionKey: "x", versionLabel: "X", text: "설명")]
+        XCTAssertFalse(PokeAPIClient.needsEnglishFallback(entries: one, language: .ko))
+    }
+}
+
 // MARK: 스토어 경유(언어 주입·실패 전파)
 
 private enum FlavorStubError: Error { case boom }
 
 /// 도감 설명 요청만 기록하는 스텁 — 부화 경로는 안 쓰므로 line/index 는 최소 구현.
 private final class FlavorStubProvider: PokeProviding, @unchecked Sendable {
-    let entries: [DexFlavorText]
+    let result: DexEntries
     let shouldThrow: Bool
     nonisolated(unsafe) private(set) var receivedLanguage: AppLanguage?
     nonisolated(unsafe) private(set) var receivedSpeciesID: Int?
 
-    init(entries: [DexFlavorText] = [], shouldThrow: Bool = false) {
-        self.entries = entries
+    init(result: DexEntries = DexEntries(entries: [], language: .en), shouldThrow: Bool = false) {
+        self.result = result
         self.shouldThrow = shouldThrow
     }
     func line(baseSpeciesID: Int) async throws -> EvoLine { throw FlavorStubError.boom }
     func baseSpeciesIndex() async throws -> [BaseSpecies] { [] }
-    func flavorTexts(speciesID: Int, language: AppLanguage) async throws -> [DexFlavorText] {
+    func flavorTexts(speciesID: Int, language: AppLanguage) async throws -> DexEntries {
         receivedSpeciesID = speciesID
         receivedLanguage = language
         if shouldThrow { throw FlavorStubError.boom }
-        return entries
+        return result
     }
 }
 
@@ -138,7 +161,7 @@ final class DexFlavorStoreTests: XCTestCase {
     /// 설명은 **앱 언어를 따라감**. 스토어가 언어를 안 넘기면 클라이언트가 조용히 영어로 조회.
     func testPassesCurrentAppLanguageToProvider() async throws {
         let entry = DexFlavorText(versionKey: "sword", versionLabel: "ソード", text: "電気")
-        let provider = FlavorStubProvider(entries: [entry])
+        let provider = FlavorStubProvider(result: DexEntries(entries: [entry], language: .ja))
         let s = store(provider)
         s.setLanguage(.ja)
 
@@ -146,7 +169,21 @@ final class DexFlavorStoreTests: XCTestCase {
 
         XCTAssertEqual(provider.receivedLanguage, .ja)
         XCTAssertEqual(provider.receivedSpeciesID, 25)
-        XCTAssertEqual(out, [entry])
+        XCTAssertEqual(out.entries, [entry])
+        XCTAssertFalse(out.isFallback(from: .ja), "요청 언어로 채워졌으면 안내를 띄우지 않는다")
+    }
+
+    /// PokéAPI 에 그 언어 도감 설명이 아예 없는 경우(`pt`) — 영어로 채우고 뷰가 안내를 띄울 수 있어야 한다.
+    func testEnglishFallbackIsReportedToTheView() async throws {
+        let entry = DexFlavorText(versionKey: "sword", versionLabel: "Sword", text: "Electricity")
+        let provider = FlavorStubProvider(result: DexEntries(entries: [entry], language: .en))
+        let s = store(provider)
+        s.setLanguage(.pt)
+
+        let out = try await s.dexFlavorTexts(speciesID: 25)
+
+        XCTAssertEqual(provider.receivedLanguage, .pt, "요청은 앱 언어 그대로 나가야 한다")
+        XCTAssertTrue(out.isFallback(from: .pt), "영어로 채워졌으면 안내를 띄워야 한다")
     }
 
     /// 실패를 삼키지 않음 — `[]` 로 접으면 "설명 없음"과 "못 불러옴"을 구분할 방법이 사라짐.

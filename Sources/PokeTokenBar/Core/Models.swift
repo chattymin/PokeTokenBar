@@ -201,6 +201,10 @@ struct LimitStatus: Decodable, Sendable {
     /// CodingKeys 에 없어 디코드 시 무시되고, OAuthLimitsProvider.fetch 가 채운다.
     var subscriptionType: String?
     var rateLimitTier: String?
+    /// 토큰의 실제 주인 — usage 응답이 아니라 profile endpoint(OAuthProfileCache)에서 주입한다.
+    /// 같은 기기에서 두 계정이 하나의 Keychain 항목을 덮어쓸 때 어느 계정의 한도인지 구분하는 라벨.
+    var accountEmail: String?
+    var accountOrganizationName: String?
 
     private enum CodingKeys: String, CodingKey {
         case fiveHour = "five_hour"
@@ -221,6 +225,17 @@ struct LimitStatus: Decodable, Sendable {
             return "\(base) \(multiplier)"
         }
         return base
+    }
+
+    /// 계정 라벨 — "email · 조직명". 개인 플랜의 자동 생성 조직명("<email>'s Organization")은
+    /// 이메일과 중복 정보라 생략한다(조직명에 이메일이 포함되는지로 판정). 이메일 없으면 nil —
+    /// 조직명만으로는 어느 로그인인지 특정되지 않아 부분 라벨을 만들지 않는다.
+    var accountDisplay: String? {
+        guard let accountEmail, !accountEmail.isEmpty else { return nil }
+        guard let org = accountOrganizationName, !org.isEmpty, !org.contains(accountEmail) else {
+            return accountEmail
+        }
+        return "\(accountEmail) · \(org)"
     }
 
     /// rateLimitTier 끝의 배수 토큰("20x"/"5x") 추출 — "_" 로 나눠 숫자+x 형태를 찾는다.
@@ -364,6 +379,106 @@ struct CodexRateLimitStatus: Decodable, Sendable {
     /// 메뉴바 표기·경고 판정용 — 전체 bucket 중 최대 5h(primary) 사용률.
     var maxPrimaryUsedPercent: Int? {
         visibleSnapshots.compactMap { $0.primary?.usedPercent }.max()
+    }
+}
+
+// MARK: - Antigravity Quota Summary (CloudCode PredictionService)
+
+public struct AntigravityQuotaBucket: Decodable, Sendable {
+    public var bucketId: String
+    public var displayName: String
+    public var window: String? // "5h", "weekly"
+    public var resetTime: String?
+    public var description: String?
+    public var remainingFraction: Double
+
+    public var resetDate: Date? {
+        guard let resetTime else { return nil }
+        return ISO8601Parser.date(from: resetTime)
+    }
+
+    /// 사용률 (0.0 ~ 100.0%) — remainingFraction(0.0~1.0)을 역산
+    public var usedPercent: Double {
+        max(0.0, min(100.0, (1.0 - remainingFraction) * 100.0))
+    }
+
+    public var is5HourWindow: Bool {
+        window == "5h" || bucketId.contains("5h")
+    }
+
+    public var isWeeklyWindow: Bool {
+        window == "weekly" || bucketId.contains("weekly")
+    }
+
+    public init(
+        bucketId: String,
+        displayName: String,
+        window: String? = nil,
+        resetTime: String? = nil,
+        description: String? = nil,
+        remainingFraction: Double
+    ) {
+        self.bucketId = bucketId
+        self.displayName = displayName
+        self.window = window
+        self.resetTime = resetTime
+        self.description = description
+        self.remainingFraction = remainingFraction
+    }
+}
+
+public struct AntigravityQuotaGroup: Decodable, Sendable {
+    public var displayName: String
+    public var description: String?
+    public var buckets: [AntigravityQuotaBucket]
+
+    public var fiveHourBucket: AntigravityQuotaBucket? {
+        buckets.first(where: { $0.is5HourWindow })
+    }
+
+    public var weeklyBucket: AntigravityQuotaBucket? {
+        buckets.first(where: { $0.isWeeklyWindow })
+    }
+
+    public init(
+        displayName: String,
+        description: String? = nil,
+        buckets: [AntigravityQuotaBucket] = []
+    ) {
+        self.displayName = displayName
+        self.description = description
+        self.buckets = buckets
+    }
+}
+
+public struct AntigravityRateLimitStatus: Decodable, Sendable {
+    public var groups: [AntigravityQuotaGroup]
+    public var description: String?
+
+    public var hasVisibleLimit: Bool {
+        !groups.isEmpty && groups.contains(where: { !$0.buckets.isEmpty })
+    }
+
+    /// 메뉴바 표기·경고 판정용 — 전체 그룹 중 최대 5h 사용률
+    public var maxPrimaryUsedPercent: Double? {
+        groups.compactMap { $0.fiveHourBucket?.usedPercent }.max()
+    }
+
+    public var geminiGroup: AntigravityQuotaGroup? {
+        groups.first(where: { $0.displayName.localizedCaseInsensitiveContains("gemini") })
+    }
+
+    public var thirdPartyGroup: AntigravityQuotaGroup? {
+        groups.first(where: {
+            $0.displayName.localizedCaseInsensitiveContains("claude")
+            || $0.displayName.localizedCaseInsensitiveContains("gpt")
+            || $0.displayName.localizedCaseInsensitiveContains("3p")
+        })
+    }
+
+    public init(groups: [AntigravityQuotaGroup] = [], description: String? = nil) {
+        self.groups = groups
+        self.description = description
     }
 }
 

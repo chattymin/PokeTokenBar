@@ -410,6 +410,7 @@ final class PetHostingView: NSHostingView<AnyView> {
     @objc func handleHide(_ sender: Any?) { onHide?() }
 }
 
+@MainActor
 struct FloatingPetView: View {
     static let frameFloor: TimeInterval = 0.4
     var animated: Bool = true
@@ -418,6 +419,7 @@ struct FloatingPetView: View {
 
     var body: some View {
         let size = CGFloat(store.floatingPetSize)
+        let subject = companion.representativeSubject
         VStack(spacing: 8) {
             if let alert = store.currentBubbleAlert {
                 SpeechBubbleView(alert: alert, l: L(companion.language))
@@ -425,8 +427,8 @@ struct FloatingPetView: View {
                     .zIndex(1)
             }
 
-            SpriteView(speciesID: companion.currentSpeciesID, size: size, animated: animated,
-                       shiny: companion.currentIsShiny, minFrameDelay: Self.frameFloor)
+            SpriteView(speciesID: subject.speciesID, size: size, animated: animated,
+                       shiny: subject.isShiny, minFrameDelay: Self.frameFloor)
                 .frame(width: size, height: size)
                 .zIndex(0)
         }
@@ -447,6 +449,7 @@ struct FloatingPetView: View {
 }
 
 /// Transient limit-alert bubble. Width is capped so copy wraps instead of clipping the panel.
+@MainActor
 private struct SpeechBubbleView: View {
     let alert: UsageStore.LimitAlert
     let l: L

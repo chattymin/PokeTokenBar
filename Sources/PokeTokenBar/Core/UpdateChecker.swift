@@ -110,31 +110,36 @@ final class UpdateChecker {
         return process.terminationStatus == 0
     }
 
-    /// 앱이 완전히 종료된 뒤 tap 갱신 + cask 업그레이드 + 재오픈을 수행하는 분리(detached) 스크립트.
+    /// 앱이 완전히 종료된 뒤 tap 갱신 + cask 업그레이드 + 재오픈을 수행하는 분리(detached) 스크립트 본문.
     /// - `brew update` 선행: auto-update 빈도 제한(기본 24h)으로 stale 한 로컬 tap 때문에 `brew upgrade`
     ///   가 no-op(exit 0) 되어 "업데이트 안 됨 + 앱만 종료"가 나던 문제를 막는다.
-    /// - 앱 종료를 기다림(pgrep): 실행 중 번들 교체 레이스 + 재오픈 LaunchServices(-600) 레이스 회피.
+    /// - 앱 종료를 기다림(`kill -0 $3`): 실행 중 번들 교체 레이스 + 재오픈 LaunchServices(-600) 레이스 회피.
+    ///   `pgrep -x` 대신 특정 PID를 감시하여 중복 인스턴스가 실행 중일 때도 20s 타임아웃 없이 즉시 진행 (#175).
     /// - brew 를 백그라운드+워치독(≤300s)으로 감싸 hang 시에도 reopen 이 반드시 실행되게 함
     ///   (앱이 종료된 채 영영 안 돌아오는 것 방지). 종료 직후 재오픈 실패 대비 `open` 재시도.
-    /// 인자는 positional($1=brew, $2=bundlePath)로 전달 — 셸 인젝션 차단.
-    private static func launchDetachedUpgrade(brew: String) {
-        let bundlePath = Bundle.main.bundlePath
-        let script = """
-        for i in $(seq 1 40); do pgrep -x PokeTokenBar >/dev/null 2>&1 || break; sleep 0.5; done
-        export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:$PATH"
-        ( "$1" update; "$1" upgrade --cask poke-token-bar ) &
-        brew_pid=$!
-        for i in $(seq 1 300); do kill -0 "$brew_pid" 2>/dev/null || break; sleep 1; done
-        kill "$brew_pid" 2>/dev/null
-        for i in $(seq 1 15); do
-          launchctl kickstart -k "gui/$(id -u)/io.github.chattymin.poketokenbar.login" 2>/dev/null && break
-          open "$2" 2>/dev/null && break
-          sleep 1
-        done
-        """
+    /// 인자는 positional($1=brew, $2=bundlePath, $3=pid)로 전달 — 셸 인젝션 차단.
+    nonisolated static let detachedUpgradeScript = """
+    for i in $(seq 1 40); do kill -0 "$3" 2>/dev/null || break; sleep 0.5; done
+    export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:$PATH"
+    ( "$1" update; "$1" upgrade --cask poke-token-bar ) &
+    brew_pid=$!
+    for i in $(seq 1 300); do kill -0 "$brew_pid" 2>/dev/null || break; sleep 1; done
+    kill "$brew_pid" 2>/dev/null
+    for i in $(seq 1 15); do
+      launchctl kickstart -k "gui/$(id -u)/io.github.chattymin.poketokenbar.login" 2>/dev/null && break
+      open "$2" 2>/dev/null && break
+      sleep 1
+    done
+    """
+
+    nonisolated static func launchDetachedUpgrade(
+        brew: String,
+        pid: pid_t = ProcessInfo.processInfo.processIdentifier,
+        bundlePath: String = Bundle.main.bundlePath
+    ) {
         let task = Process()
         task.executableURL = URL(fileURLWithPath: "/bin/sh")
-        task.arguments = ["-c", script, "sh", brew, bundlePath]
+        task.arguments = ["-c", detachedUpgradeScript, "sh", brew, bundlePath, String(pid)]
         try? task.run()
     }
 }
