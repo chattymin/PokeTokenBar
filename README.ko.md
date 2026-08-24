@@ -162,6 +162,13 @@ PokeDexBar는 당신이 이미 태우고 있는 AI 코딩 토큰(Claude Code · 
 <td width="45%" align="center"><img src="assets/screenshot-detail.png" width="300" alt="포켓몬 상세 화면 — 스프라이트와 이름, 등급·성격·평생 함께 쓴 토큰, 경험치 바, 파트너 지정·진화·다이맥스·경험치 사탕·반짝이는 사탕 버튼"></td>
 </tr>
 <tr>
+<td width="45%" align="center"><img src="assets/screenshot-box-star.png" width="300" alt="별표 우선으로 정리된 박스 — 별표한 포켓몬이 모서리에 노란 별을 달고 앞쪽에 모여 있다"></td>
+<td width="55%" valign="middle">
+<h3>⭐ 아끼는 아이는 별표</h3>
+상세 화면에서 별표를 누르면 그 포켓몬은 박사에게 보낼 수 없어요 — 별표를 해제하기 전까지 보내기 버튼 대신 안내가 뜨고, 여러 마리 보내기에서도 건너뛰어요. 박스 칸 모서리에 별이 보이고, <b>정리</b> 메뉴에 <b>별표 먼저</b> 정렬이 생겨 아끼는 아이들을 앞으로 모아 볼 수 있어요. 포켓몬 GO 의 즐겨찾기를 그대로 가져왔어요 — "내 것" 과 "보내지 마" 를 표시 하나로.
+</td>
+</tr>
+<tr>
 <td width="45%" align="center"><img src="assets/settings-ko.png" width="300" alt="설정"></td>
 <td width="55%" valign="middle">
 <h3>설정에서 취향대로</h3>

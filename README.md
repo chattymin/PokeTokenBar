@@ -162,6 +162,13 @@ Tapping a cell opens a detail screen with grade, nature, tokens and time spent t
 <td width="45%" align="center"><img src="assets/screenshot-detail.png" width="300" alt="Pokémon detail screen — sprite and name, grade, nature, and lifetime tokens spent together, an EXP bar, and action buttons for partner, evolve, Gigantamax, EXP Candy, and Shiny Candy"></td>
 </tr>
 <tr>
+<td width="45%" align="center"><img src="assets/screenshot-box-star.png" width="300" alt="Box sorted starred-first — starred Pokémon carry a yellow star in the corner and gather at the front of the grid"></td>
+<td width="55%" valign="middle">
+<h3>⭐ Star the keepers</h3>
+Star a Pokémon on its detail screen and it can't be sent to the Professor — the send button gives way to a note until you unstar it, and bulk-select skips it too. The star shows in its Box corner, and <b>Tidy</b> gains a <b>Starred first</b> sort so your keepers gather at the front. Borrowed whole from Pokémon GO's favorites: one mark that says both "mine" and "hands off".
+</td>
+</tr>
+<tr>
 <td width="45%" align="center"><img src="assets/settings.png" width="300" alt="Settings"></td>
 <td width="55%" valign="middle">
 <h3>Tune it your way</h3>
