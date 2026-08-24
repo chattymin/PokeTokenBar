@@ -454,6 +454,10 @@ final class ScreenshotGeneratorTests: XCTestCase {
             XCTAssertTrue(player.buy(item), "\(item) 를 못 샀다 — 시드 지갑이 가격을 못 따라간다")
         }
 
+        // 도감 미션에서 온 확정권 — 상점 뽑기 아래에 확정권 버튼이 서고, 가방 소모품 칸에도
+        // 개수로 선다. 미션 전용이라 살 수는 없으니 인벤토리에 직접 심는다.
+        player.mutate { $0.inventory[ShopItem.epicEggTicket.rawValue] = 1 }
+
         // 파트너가 모아 온 것 — 가방 화면이 빈 상태로 찍히면 그 화면이 무엇인지 설명이 안 된다.
         // 진화 도구와 폼 도구를 섞어 둔다: 두 칸이 다 차 있어야 분류가 보인다.
         for item in [EvolutionItem.fireStone, .waterStone, .thunderStone, .linkingCord, .metalCoat] {

@@ -97,6 +97,21 @@ struct ShopTabView: View {
                 .buttonStyle(.borderedProminent)
                 .controlSize(.small)
                 .disabled(!store.canDraw || drawing)
+            // 도감 미션의 알 확정권 — **뽑기 버튼 바로 아래**가 이 물건의 자리다. 미션에서 알을
+            // 직접 주던 판은 "받아졌는지 모르겠다" 가 됐다(사용자 지적) — 확정권은 가방에
+            // 담겼다가 여기서 쓰이므로, 개봉이 항상 알이 태어나는 자리에서 일어난다.
+            ForEach([ShopItem.rareEggTicket, .epicEggTicket, .legendaryEggTicket],
+                    id: \.self) { ticket in
+                if let grade = ticket.guaranteedGrade, store.count(of: ticket) > 0 {
+                    Button(l.shopTicketDraw(ticket.label(store.language),
+                                            store.count(of: ticket))) {
+                        drawWithTicket(grade)
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .disabled(store.freeSlots == 0 || drawing)
+                }
+            }
         }
     }
 
@@ -184,6 +199,34 @@ struct ShopTabView: View {
                                       growthRate: growthRate)
             // 착지에 실패했으면(슬롯이 찼다 등) 축하할 것이 없다 — 문구만 남긴다.
             if lastError == nil { reveal = (roll.grade, roll.shiny) }
+        }
+    }
+
+    /// 확정권 뽑기 — 등급이 정해져 있고 무료라는 점만 다르고, 종 선택·이로치·연출은 일반
+    /// 뽑기와 같은 길을 걷는다(메타몽 위장 포함 — 확정권이라고 위장이 안 오면 그게 특례다).
+    private func drawWithTicket(_ grade: Grade) {
+        drawing = true
+        lastError = nil
+        drawTask = Task {
+            defer { drawing = false }
+            guard let index = try? await provider.baseSpeciesIndex(), !index.isEmpty else {
+                guard !Task.isCancelled else { return }
+                lastError = l.shopDrawFetchFailed
+                return
+            }
+            guard !Task.isCancelled else { return }
+            var chosen = EggBalance.pickSpecies(from: index, grade: grade,
+                                                roll: store.nextRandomUnit())
+            if DittoDisguise.hits(grade: grade, roll: store.nextRandomUnit()) {
+                chosen = DittoDisguise.speciesID
+            }
+            let growthRate = index.first(where: { $0.id == chosen })?.growthRate ?? .mediumFast
+            guard let egg = store.redeemEggTicket(grade: grade, speciesID: chosen,
+                                                  growthRate: growthRate) else {
+                lastError = l.shopDrawUnavailable
+                return
+            }
+            reveal = (egg.grade, egg.shiny)
         }
     }
 }

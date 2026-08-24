@@ -221,12 +221,20 @@ final class ShopPriceTests: XCTestCase {
 
     /// 소모품이 부적보다 비싸지는 않아야 한다 — 영구 효과가 더 싸면 소모품을 살 이유가 없다.
     /// 같은 값은 허용한다: 반짝이는 사탕과 이로치 부적은 의도적으로 둘 다 3B 다.
+    ///
+    /// **진열되는 것만 잰다** — 미션 전용(확정권·무지개 부적)은 가격이 "못 사는 값"(Int.max)
+    /// 이라 이 비교의 대상이 아니다. 대신 그것들이 실제로 진열에서 빠져 있는지를 함께 잠근다.
     func testNoConsumableCostsMoreThanACharm() {
         XCTAssertEqual(ShopItem.expCharm.price, 4_000_000_000)
         XCTAssertEqual(ShopItem.fortuneCharm.price, 5_000_000_000)
-        let cheapestCharm = ShopItem.allCases.filter(\.isCharm).map(\.price).min()!
-        for item in ShopItem.allCases where !item.isCharm {
+        let cheapestCharm = ShopItem.allCases.filter { $0.isCharm && $0.isSold }
+            .map(\.price).min()!
+        for item in ShopItem.allCases where !item.isCharm && item.isSold {
             XCTAssertLessThanOrEqual(item.price, cheapestCharm, "\(item) 이 부적보다 비싸다")
+        }
+        // 못 사는 값이 붙은 것은 반드시 진열 밖이어야 한다 — 아니면 상점에 Int.max 가 뜬다.
+        for item in ShopItem.allCases where item.price == Int.max {
+            XCTAssertFalse(item.isSold, "\(item) 이 못 사는 값으로 진열돼 있다")
         }
     }
 

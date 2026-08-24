@@ -10,9 +10,6 @@ import SwiftUI
 /// 폼 목록 상세가 열리고, 등록한 폼만 그림이 보인다(미등록은 실루엣 + 이름).
 struct NationalDexView: View {
     let store: PlayerStore
-    /// 알 보상 수령에 필요한 종 인덱스(네트워크). 스크린샷·테스트는 안 넘긴다 —
-    /// 그때 알 미션 수령은 실패 문구로 떨어질 뿐 화면은 그대로 선다.
-    let provider: (any PokeProviding)?
 
     nonisolated static let speciesRange = DexKey.speciesRange
 
@@ -37,10 +34,8 @@ struct NationalDexView: View {
 
     /// `detailSpeciesID`·`missionsExpanded` 를 심을 수 있는 이니셜라이저 — 스크린샷 생성기가
     /// 탭 없이 그 장면을 렌더하는 데 쓴다(오프스크린 렌더는 제스처를 못 보낸다).
-    init(store: PlayerStore, provider: (any PokeProviding)? = nil,
-         detailSpeciesID: Int? = nil, missionsExpanded: Bool = false) {
+    init(store: PlayerStore, detailSpeciesID: Int? = nil, missionsExpanded: Bool = false) {
         self.store = store
-        self.provider = provider
         _detailSpeciesID = State(initialValue: detailSpeciesID)
         _missionsExpanded = State(initialValue: missionsExpanded)
     }
@@ -48,13 +43,9 @@ struct NationalDexView: View {
     // MARK: 미션
 
     @State private var missionsExpanded = false
-    @State private var claimingID: String?
-    @State private var missionError: String?
-    @State private var claimTask: Task<Void, Never>?
-    /// 방금 받은 알 — 상점 뽑기와 같은 연출(`EggRevealView`)을 띄운다. **"받아졌는지 모르겠다"
-    /// 의 답이 이 연출이다** — 알은 홈 탭에 놓이는데 받기는 도감 탭에서 눌러서, 연출이 없으면
-    /// 버튼이 아무 일도 안 한 것처럼 읽힌다(사용자 지적).
-    @State private var reveal: (grade: Grade, shiny: Bool)?
+    /// 방금 받은 미션 id — "가방에 담았어요" 확인을 그 자리에 잠깐 남긴다. 보상이 전부
+    /// 아이템이라 알 연출은 여기 없다 — 확정권의 개봉은 상점의 알 뽑기에서 일어난다.
+    @State private var justClaimedID: String?
 
     var body: some View {
         if let speciesID = detailSpeciesID {
@@ -69,7 +60,7 @@ struct NationalDexView: View {
     /// 접이식 미션 목록 — 수령한 미션은 사라지고, 달성한 미션이 있으면 접혀 있어도 배지가 알린다.
     @ViewBuilder
     private var missionsSection: some View {
-        let statuses = store.dexMissionStatuses().filter { !$0.claimed }
+        let statuses = store.dexMissionStatuses().filter { !$0.claimed || $0.id == justClaimedID }
         let claimable = statuses.count(where: \.claimable)
         VStack(alignment: .leading, spacing: 4) {
             Button {
@@ -92,14 +83,10 @@ struct NationalDexView: View {
             .buttonStyle(.plain)
             if missionsExpanded {
                 ForEach(statuses) { status in missionRow(status) }
-                if let missionError {
-                    Text(missionError).font(.system(size: 8)).foregroundStyle(.orange)
-                }
             }
         }
         .padding(8)
         .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
-        .onDisappear { claimTask?.cancel() }
     }
 
     private func missionRow(_ status: PlayerStore.DexMissionStatus) -> some View {
@@ -111,24 +98,8 @@ struct NationalDexView: View {
                     Text("\(status.done)/\(status.target)")
                         .font(.system(size: 8).monospacedDigit()).foregroundStyle(.secondary)
                 }
-                // 알 보상은 **빈 슬롯 수를 그 자리에서 보인다** — 알은 홈 탭의 부화 슬롯에
-                // 놓이므로, 여기서 안 보이면 버튼이 왜 죽어 있는지 알 길이 없다(사용자 지적).
-                let eggs = DexMissions.eggCount(in: status.mission.rewards)
-                HStack(spacing: 4) {
-                    Text(rewardText(status.mission.rewards))
-                        .font(.system(size: 8)).foregroundStyle(.tertiary)
-                    if eggs > 0 {
-                        Text("· \(store.l.shopFreeSlots(store.freeSlots, store.state.slots))")
-                            .font(.system(size: 8).monospacedDigit())
-                            .foregroundStyle(store.freeSlots >= eggs
-                                             ? AnyShapeStyle(.tertiary)
-                                             : AnyShapeStyle(Color.orange))
-                    }
-                }
-                if status.claimable, eggs > 0, store.freeSlots < eggs {
-                    Text(store.l.missionNeedsSlot)
-                        .font(.system(size: 8)).foregroundStyle(.orange)
-                }
+                Text(rewardText(status.mission.rewards))
+                    .font(.system(size: 8)).foregroundStyle(.tertiary)
                 GeometryReader { geo in
                     ZStack(alignment: .leading) {
                         Capsule().fill(Color.secondary.opacity(0.15))
@@ -139,11 +110,14 @@ struct NationalDexView: View {
                 }
                 .frame(height: 3)
             }
-            if status.claimable {
-                // 알 보상인데 빈 슬롯이 없으면 스토어 판정이 막는다 — 버튼은 그 판정 그대로.
-                Button(claimingID == status.id ? "…" : store.l.missionClaim) { claim(status) }
+            if status.id == justClaimedID {
+                // **받아졌다는 확인** — 줄이 말없이 사라지면 버튼이 고장 난 것으로 읽힌다.
+                // 확정권·사탕은 가방으로 가므로 어디 갔는지도 이 문구가 말한다.
+                Text(store.l.missionClaimedToBag)
+                    .font(.system(size: 8, weight: .semibold)).foregroundStyle(Color.accentColor)
+            } else if status.claimable {
+                Button(store.l.missionClaim) { claim(status) }
                     .buttonStyle(.borderedProminent).controlSize(.mini)
-                    .disabled(!store.canClaimDexMission(status.mission) || claimingID != nil)
             }
         }
         .padding(.vertical, 2)
@@ -160,8 +134,8 @@ struct NationalDexView: View {
     private func rewardText(_ rewards: [DexMissionReward]) -> String {
         rewards.map { reward in
             switch reward {
-            case .egg(let grade):
-                store.l.missionRewardEgg(grade.label(store.language))
+            case .eggTicket(let grade):
+                ShopItem.eggTicket(for: grade)?.label(store.language) ?? ""
             case .expCandy(let n):
                 "\(ShopItem.expCandy.label(store.language)) ×\(n)"
             case .shinyCandy(let n):
@@ -172,42 +146,11 @@ struct NationalDexView: View {
         }.joined(separator: " · ")
     }
 
-    /// 수령. 알 보상은 상점 뽑기와 같은 흐름으로 종을 네트워크 인덱스에서 고른다.
+    /// 수령 — 아이템뿐이라 동기이고 실패할 길이 없다(버튼이 `claimable` 로만 선다).
+    /// 받은 줄은 확인 문구를 단 채 잠깐 남았다가, 다음에 열 때 사라진다.
     private func claim(_ status: PlayerStore.DexMissionStatus) {
-        missionError = nil
-        let eggCount = DexMissions.eggCount(in: status.mission.rewards)
-        guard eggCount > 0 else {
-            if store.claimDexMission(status.mission) == nil {
-                missionError = store.l.missionNeedsSlot
-            }
-            return
-        }
-        claimingID = status.id
-        claimTask = Task {
-            defer { claimingID = nil }
-            guard let provider,
-                  let index = try? await provider.baseSpeciesIndex(), !index.isEmpty else {
-                // 그 사이 뷰가 사라져 취소됐으면 착지하지 않는다(상점 뽑기와 같은 규칙).
-                guard !Task.isCancelled else { return }
-                missionError = store.l.shopDrawFetchFailed
-                return
-            }
-            guard !Task.isCancelled else { return }
-            var picks: [(speciesID: Int, growthRate: GrowthRate)] = []
-            for reward in status.mission.rewards {
-                guard case .egg(let grade) = reward else { continue }
-                let species = EggBalance.pickSpecies(from: index, grade: grade,
-                                                     roll: store.nextRandomUnit())
-                picks.append((species,
-                              index.first(where: { $0.id == species })?.growthRate ?? .mediumFast))
-            }
-            guard let placed = store.claimDexMission(status.mission, eggSpecies: picks) else {
-                missionError = store.l.missionNeedsSlot
-                return
-            }
-            // 받은 알을 상점 뽑기처럼 보여준다. 미션 하나에 알은 최대 하나다.
-            if let egg = placed.first { reveal = (egg.grade, egg.shiny) }
-        }
+        guard store.claimDexMission(status.mission) else { return }
+        withAnimation(.easeInOut(duration: 0.15)) { justClaimedID = status.id }
     }
 
     // MARK: 그리드
@@ -225,8 +168,6 @@ struct NationalDexView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 6) {
                     missionsSection
-                        // 연출은 도감 위에만 덮인다 — 팝오버 전체를 가리면 탭 전환이 막힌다
-                        // (상점과 같은 규칙).
                     LazyVGrid(columns: columns, spacing: 6) {
                         ForEach(Self.speciesRange, id: \.self) { id in
                             cell(id, dexForms: dexForms)
@@ -235,12 +176,6 @@ struct NationalDexView: View {
                 }
             }
             .frame(height: 300)
-            .overlay {
-                if let reveal {
-                    EggRevealView(grade: reveal.grade, shiny: reveal.shiny, l: store.l,
-                                  language: store.language) { self.reveal = nil }
-                }
-            }
         }
     }
 

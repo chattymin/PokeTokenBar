@@ -58,48 +58,55 @@ final class DexMissionTests: XCTestCase {
     func testClaimOnceAndOnlyWhenAchieved() throws {
         let store = makeStore()
         let mission = try XCTUnwrap(DexMissions.all.first { $0.id == "species-10" })
-        XCTAssertNil(store.claimDexMission(mission), "빈 도감인데 받아진다")
+        XCTAssertFalse(store.claimDexMission(mission), "빈 도감인데 받아진다")
 
         seedDex(store, species: 1...10)
         XCTAssertTrue(store.canClaimDexMission(mission))
-        // 아이템만 있는 미션은 빈 배열 — 성공과 "알 없음" 을 한 번에 말한다.
-        XCTAssertEqual(store.claimDexMission(mission), [])
+        XCTAssertTrue(store.claimDexMission(mission))
         XCTAssertEqual(store.count(of: ShopItem.expCandy), 3, "보상이 안 들어왔다")
 
-        XCTAssertNil(store.claimDexMission(mission), "같은 미션을 두 번 받는다")
+        XCTAssertFalse(store.claimDexMission(mission), "같은 미션을 두 번 받는다")
         XCTAssertEqual(store.count(of: ShopItem.expCandy), 3)
     }
 
-    /// 알 보상 — 종 수가 안 맞으면 실패, 맞으면 슬롯에 알이 놓이고 수령 처리된다.
-    func testAnEggRewardLandsInAHatchSlot() throws {
+    /// 알 보상은 **확정권**으로 온다 — 수령은 가방에 담고 끝이고, 알은 상점에서 태어난다.
+    ///
+    /// 알을 그 자리에서 주던 첫 판은 "받기를 눌렀는데 알이 받아졌는지 모르겠다"(사용자 지적)
+    /// 가 됐다 — 알은 홈 탭 슬롯에 놓이는데 받기는 도감 탭이라서다. 확정권은 그 어긋남 자체를
+    /// 없앤다: 수령엔 슬롯 조건이 없고, 개봉은 항상 상점의 알 뽑기 자리에서 일어난다.
+    func testAnEggRewardArrivesAsATicket() throws {
         let store = makeStore()
         let mission = try XCTUnwrap(DexMissions.all.first { $0.id == "species-25" })
         seedDex(store, species: 1...25)
-
-        XCTAssertNil(store.claimDexMission(mission), "알 종 없이 받아진다")
-        let placed = store.claimDexMission(mission, eggSpecies: [(7, .mediumFast)])
-        // **놓인 알을 돌려준다** — 화면이 이걸로 상점과 같은 연출을 띄운다. 안 돌려주면
-        // "받기를 눌렀는데 받아졌는지 모르겠다"(사용자 지적)로 돌아간다.
-        XCTAssertEqual(placed?.count, 1)
-        XCTAssertEqual(placed?.first?.grade, .rare, "돌려준 알과 보상 등급이 다르다")
-        XCTAssertEqual(store.state.eggs.count, 1, "알이 슬롯에 안 놓였다")
-        XCTAssertEqual(store.state.eggs.first?.grade, .rare, "보상 등급과 알 등급이 다르다")
-        XCTAssertTrue(store.state.claimedDexMissions.contains("species-25"))
-    }
-
-    /// **알 보상은 빈 슬롯이 있어야 받는다** — 꽉 찼으면 판정부터 막힌다.
-    func testAnEggRewardNeedsAFreeSlot() throws {
-        let store = makeStore()
-        let mission = try XCTUnwrap(DexMissions.all.first { $0.id == "species-25" })
-        seedDex(store, species: 1...25)
-        // 기본 3슬롯을 다 채운다.
+        // 슬롯이 꽉 차 있어도 받는다 — 확정권은 아이템이라 슬롯과 무관하다.
         for i in 0..<3 { store.placeEgg(grade: .common, speciesID: 1 + i, shiny: false) }
         XCTAssertEqual(store.freeSlots, 0)
 
-        XCTAssertFalse(store.canClaimDexMission(mission))
-        XCTAssertNil(store.claimDexMission(mission, eggSpecies: [(7, .mediumFast)]))
-        XCTAssertFalse(store.state.claimedDexMissions.contains("species-25"),
-                       "못 받았는데 수령 처리됐다")
+        XCTAssertTrue(store.claimDexMission(mission))
+        XCTAssertEqual(store.count(of: ShopItem.rareEggTicket), 1, "확정권이 가방에 안 담겼다")
+        XCTAssertEqual(store.state.eggs.count, 3, "수령이 알을 만들었다 — 확정권이어야 한다")
+        XCTAssertTrue(store.state.claimedDexMissions.contains("species-25"))
+    }
+
+    /// 확정권 사용 — 등급 확정·무료·한 장 차감. 빈 슬롯이 없으면 실패하고 권은 안 준다.
+    func testRedeemingATicketPlacesTheEggAndSpendsOneTicket() {
+        let store = makeStore()
+        store.mutate { $0.inventory[ShopItem.epicEggTicket.rawValue] = 2 }
+        let before = store.state.wallet
+
+        let egg = store.redeemEggTicket(grade: .epic, speciesID: 7)
+        XCTAssertEqual(egg?.grade, .epic, "확정 등급이 아니다")
+        XCTAssertEqual(store.count(of: ShopItem.epicEggTicket), 1, "한 장이 안 줄었다")
+        XCTAssertEqual(store.state.wallet, before, "무료여야 하는데 재화가 줄었다")
+
+        // 슬롯을 다 채우면 실패하고 권은 그대로다.
+        while store.freeSlots > 0 { store.placeEgg(grade: .common, speciesID: 1, shiny: false) }
+        XCTAssertNil(store.redeemEggTicket(grade: .epic, speciesID: 7))
+        XCTAssertEqual(store.count(of: ShopItem.epicEggTicket), 1,
+                       "알을 못 놓았는데 확정권이 사라졌다")
+
+        // 없는 등급의 권 — 커먼 확정권은 존재하지 않는다.
+        XCTAssertNil(store.redeemEggTicket(grade: .common, speciesID: 1))
     }
 
     /// 세대 완성 — 그 세대의 전 종이라야 달성이고, 다른 세대 종은 안 낀다.
@@ -124,22 +131,31 @@ final class DexMissionTests: XCTestCase {
         XCTAssertFalse(store.state.ownsShinyCharm, "픽스처가 이미 이로치 부적을 갖고 있다")
         seedDex(store, species: 1...1025)
 
-        XCTAssertNotNil(store.claimDexMission(mission))
+        XCTAssertTrue(store.claimDexMission(mission))
         XCTAssertTrue(store.state.ownsRainbowCharm)
         XCTAssertTrue(store.owns(ShopItem.rainbowCharm), "가방의 부적 판정이 못 본다")
         XCTAssertEqual(store.shinyDenominator, 32)
     }
 
-    /// 무지개 부적은 상점에 안 선다 — 미션 전용이다.
-    func testTheRainbowCharmIsNotSold() {
-        XCTAssertFalse(ShopItem.rainbowCharm.isSold)
+    /// 무지개 부적·확정권은 상점에 안 선다 — 미션 전용이다.
+    func testMissionOnlyItemsAreNotSold() {
+        for item in [ShopItem.rainbowCharm, .rareEggTicket, .epicEggTicket, .legendaryEggTicket] {
+            XCTAssertFalse(item.isSold, "\(item) 이 상점에 선다")
+            for lang in AppLanguage.allCases {
+                XCTAssertFalse(item.label(lang).isEmpty)
+                XCTAssertFalse(item.detail(lang).isEmpty)
+            }
+        }
         XCTAssertTrue(ShopItem.rainbowCharm.isCharm)
+        // 확정권은 소모품 — 가방의 소모품 칸에 개수로 선다.
+        XCTAssertTrue(ShopItem.epicEggTicket.isConsumable)
         // 팔리는 것들은 그대로 팔린다 — 게이트가 뒤집히면 상점이 통째로 빈다.
         XCTAssertTrue(ShopItem.shinyCharm.isSold)
-        for lang in AppLanguage.allCases {
-            XCTAssertFalse(ShopItem.rainbowCharm.label(lang).isEmpty)
-            XCTAssertFalse(ShopItem.rainbowCharm.detail(lang).isEmpty)
-        }
+        XCTAssertTrue(ShopItem.expCandy.isSold)
+        // 등급 ↔ 확정권 대응 — 커먼은 없다(커먼 확정에 값이 없다).
+        XCTAssertEqual(ShopItem.eggTicket(for: .rare), .rareEggTicket)
+        XCTAssertEqual(ShopItem.eggTicket(for: .legendary), .legendaryEggTicket)
+        XCTAssertNil(ShopItem.eggTicket(for: .common))
     }
 
     /// 수령 기록·부적이 저장을 오간다 — 만들고 저장을 빼먹는 부류를 잠근다.
@@ -149,7 +165,7 @@ final class DexMissionTests: XCTestCase {
         let store = PlayerStore(fileURL: url, rng: SeededRNG(seed: 1), now: { self.now })
         let mission = try XCTUnwrap(DexMissions.all.first { $0.id == "species-10" })
         seedDex(store, species: 1...10)
-        XCTAssertNotNil(store.claimDexMission(mission))
+        XCTAssertTrue(store.claimDexMission(mission))
         store.mutate { $0.ownsRainbowCharm = true }
 
         let back = PlayerStore(fileURL: url, rng: SeededRNG(seed: 1), now: { self.now })

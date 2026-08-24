@@ -42,13 +42,12 @@ struct L {
         t("\(n)세대 완성", "Complete Gen \(n)", "だい\(n)せだい かんせい")
     }
     var missionCompletion: String { t("전국도감 완성", "Complete the National Dex", "ぜんこくずかん かんせい") }
-    var missionNeedsSlot: String {
-        t("빈 부화 슬롯이 있어야 알을 받을 수 있어요",
-          "You need an open hatch slot to claim an egg",
-          "タマゴをうけとるには 空きスロットがひつようです")
+    var missionClaimedToBag: String {
+        t("가방에 담았어요", "Added to your Bag", "バッグに いれました")
     }
-    func missionRewardEgg(_ grade: String) -> String {
-        t("\(grade) 알", "\(grade) Egg", "\(grade)タマゴ")
+    /// 상점 알 뽑기의 확정권 버튼 — 등급 이름과 남은 장수.
+    func shopTicketDraw(_ ticket: String, _ n: Int) -> String {
+        t("\(ticket) ×\(n)", "\(ticket) ×\(n)", "\(ticket) ×\(n)")
     }
     var shop: String { t("상점", "Shop", "ショップ") }
 

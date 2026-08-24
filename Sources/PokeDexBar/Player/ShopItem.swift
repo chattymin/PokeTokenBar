@@ -26,6 +26,9 @@ enum ShopItem: String, CaseIterable, Sendable {
     /// 무지개 부적 — 이로치 부적의 업그레이드(1/64 → 1/32). **팔지 않는다** — 전국도감 완성
     /// 미션에서만 나온다. 가방의 부적 칸에는 다른 부적처럼 선다.
     case rainbowCharm
+    /// 알 뽑기 확정권 — 그 등급이 확정으로 나오는 무료 뽑기 한 번. **팔지 않는다** — 도감
+    /// 미션에서만 나오고, 상점의 알 뽑기 자리에서 쓴다. 소모품이라 가방 소모품 칸에 선다.
+    case rareEggTicket, epicEggTicket, legendaryEggTicket
 
     var price: Int {
         switch self {
@@ -38,12 +41,37 @@ enum ShopItem: String, CaseIterable, Sendable {
         case .fortuneCharm: 5_000_000_000
         // 못 사는 물건의 가격 — 상점 목록에서 빠지므로 표시될 일이 없고, 혹시 새 화면이
         // 실수로 노출해도 살 수 없는 값이다.
-        case .rainbowCharm: Int.max
+        case .rainbowCharm, .rareEggTicket, .epicEggTicket, .legendaryEggTicket: Int.max
         }
     }
 
-    /// 상점에 진열되는가. 무지개 부적은 미션 보상 전용이라 상점에 안 선다.
-    var isSold: Bool { self != .rainbowCharm }
+    /// 상점에 진열되는가. 무지개 부적·알 확정권은 미션 보상 전용이라 상점에 안 선다.
+    var isSold: Bool {
+        switch self {
+        case .rainbowCharm, .rareEggTicket, .epicEggTicket, .legendaryEggTicket: false
+        default: true
+        }
+    }
+
+    /// 확정권이 보장하는 등급. 확정권이 아니면 nil.
+    var guaranteedGrade: Grade? {
+        switch self {
+        case .rareEggTicket: .rare
+        case .epicEggTicket: .epic
+        case .legendaryEggTicket: .legendary
+        default: nil
+        }
+    }
+
+    /// 등급 → 그 등급의 확정권.
+    static func eggTicket(for grade: Grade) -> ShopItem? {
+        switch grade {
+        case .rare: .rareEggTicket
+        case .epic: .epicEggTicket
+        case .legendary: .legendaryEggTicket
+        case .common: nil
+        }
+    }
 
     /// 표시용 이름 — 언어별(ko/en/ja). `Grade.label(_:)`/`PokemonNature.name(_:)` 와 같은 관례.
     func label(_ lang: AppLanguage) -> String {
@@ -57,6 +85,10 @@ enum ShopItem: String, CaseIterable, Sendable {
         case .expCharm: names = ("경험치 부적", "EXP Charm", "けいけんちおまもり")
         case .fortuneCharm: names = ("행운의 부적", "Fortune Charm", "こううんのおまもり")
         case .rainbowCharm: names = ("무지개 부적", "Rainbow Charm", "にじいろおまもり")
+        case .rareEggTicket: names = ("레어 알 확정권", "Rare Egg Ticket", "レアタマゴかくていけん")
+        case .epicEggTicket: names = ("에픽 알 확정권", "Epic Egg Ticket", "エピックタマゴかくていけん")
+        case .legendaryEggTicket:
+            names = ("레전더리 알 확정권", "Legendary Egg Ticket", "でんせつタマゴかくていけん")
         }
         switch lang { case .ko: return names.0; case .en: return names.1; case .ja: return names.2 }
     }
@@ -106,6 +138,10 @@ enum ShopItem: String, CaseIterable, Sendable {
             texts = ("이로치 부적의 업그레이드 — 이로치 확률이 1/32이 됩니다. 전국도감 완성의 증표",
                      "The Shiny Charm perfected — shiny odds become 1/32. Proof of a complete Dex",
                      "ひかるおまもりの上位版 — ひかる確率が1/32に。全国図鑑完成のあかし")
+        case .rareEggTicket, .epicEggTicket, .legendaryEggTicket:
+            texts = ("그 등급이 확정인 무료 알 뽑기 한 번 — 상점의 알 뽑기에서 씁니다",
+                     "One free egg draw with the grade guaranteed — used at the Shop's egg draw",
+                     "その等級かくていの無料タマゴ抽選1回 — ショップのタマゴ抽選でつかいます")
         }
         switch lang { case .ko: return texts.0; case .en: return texts.1; case .ja: return texts.2 }
     }

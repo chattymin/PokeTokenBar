@@ -156,7 +156,7 @@ struct PopoverView: View {
                 BoxTabView(store: player, lines: evoLines, onNeedLine: { baseID in loadLine(baseID) },
                            selection: $boxSelection, fillFrame: store.fillBoxSlots)
             } else if nav.tab == .collection {
-                NationalDexView(store: player, provider: provider)
+                NationalDexView(store: player)
             } else if nav.tab == .bag {
                 BagTabView(store: player)
             } else if nav.tab == .shop {

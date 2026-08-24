@@ -23,45 +23,26 @@ extension PlayerStore {
         }
     }
 
-    /// 이 미션을 지금 받을 수 있나 — 달성·미수령에 더해, 알 보상이면 빈 슬롯도 본다.
-    /// 화면이 버튼 활성을 이 판정으로 정한다(조건을 화면이 따로 적으면 스토어와 갈린다).
+    /// 이 미션을 지금 받을 수 있나 — 달성했고 아직 안 받았으면 된다. **보상이 전부
+    /// 아이템(확정권·사탕·부적)이라 다른 조건이 없다** — 알을 직접 주던 판에는 빈 부화
+    /// 슬롯 요구가 여기 붙어 있었는데, 그게 "받기가 왜 안 되지" 를 만들었다(사용자 지적).
     func canClaimDexMission(_ mission: DexMission) -> Bool {
-        guard !state.claimedDexMissions.contains(mission.id) else { return false }
-        guard DexMissions.achieved(mission, dex: state.dex) else { return false }
-        return freeSlots >= DexMissions.eggCount(in: mission.rewards)
+        !state.claimedDexMissions.contains(mission.id)
+            && DexMissions.achieved(mission, dex: state.dex)
     }
 
-    /// 받는다. 알 보상은 종이 필요하므로 **뷰가 인덱스에서 골라 넘긴다**(상점 뽑기와 같은
-    /// 흐름 — 후보가 네트워크에 살기 때문이다). 알 수만큼 안 넘어오면 실패다.
-    ///
-    /// 이로치는 여기서 굴린다 — 부적 상태(`shinyDenominator`)를 받는 건 뽑기·발견 알과 같고,
-    /// **미션 알이라고 더 잘 나오지 않는다.**
-    ///
-    /// **놓인 알들을 돌려준다**(실패면 nil, 아이템만 있는 미션이면 빈 배열) — 화면이 상점
-    /// 뽑기와 같은 연출(`EggRevealView`)을 띄우려면 굴려 나온 등급·이로치를 알아야 한다.
-    /// 안 돌려주면 "받기를 눌렀는데 알이 실제로 받아졌는지 모르겠다" 가 된다(사용자 지적).
+    /// 받는다 — 보상이 전부 아이템이라 가방에 담고 끝이다. 알 확정권은 상점의 알 뽑기
+    /// 자리에서 쓴다(`redeemEggTicket`).
     @discardableResult
-    func claimDexMission(_ mission: DexMission,
-                         eggSpecies: [(speciesID: Int, growthRate: GrowthRate)] = []) -> [Egg]? {
-        guard canClaimDexMission(mission) else { return nil }
-        guard eggSpecies.count == DexMissions.eggCount(in: mission.rewards) else { return nil }
-
-        var eggQueue = eggSpecies
-        var placed: [Egg] = []
-        for reward in mission.rewards {
-            guard case .egg(let grade) = reward, let pick = eggQueue.first else { continue }
-            eggQueue.removeFirst()
-            let shiny = EggBalance.rollShiny(nextRandomUnit(), denominator: shinyDenominator)
-            // `canClaim` 이 빈 슬롯을 확인했고 여기는 MainActor 라 그 사이에 찰 수 없다.
-            if let egg = placeEgg(grade: grade, speciesID: pick.speciesID, shiny: shiny,
-                                  growthRate: pick.growthRate) {
-                placed.append(egg)
-            }
-        }
+    func claimDexMission(_ mission: DexMission) -> Bool {
+        guard canClaimDexMission(mission) else { return false }
         mutate { s in
             for reward in mission.rewards {
                 switch reward {
-                case .egg: break   // 위에서 놓았다
+                case .eggTicket(let grade):
+                    if let ticket = ShopItem.eggTicket(for: grade) {
+                        s.inventory[ticket.rawValue, default: 0] += 1
+                    }
                 case .expCandy(let n):
                     s.inventory[ShopItem.expCandy.rawValue, default: 0] += n
                 case .shinyCandy(let n):
@@ -72,6 +53,26 @@ extension PlayerStore {
             }
             s.claimedDexMissions.insert(mission.id)
         }
-        return placed
+        return true
+    }
+
+    /// 확정권으로 알을 뽑는다 — **무료이고 등급이 확정**이라는 점만 다르고, 나머지(빈 슬롯
+    /// 요구·이로치 굴림·부화 감면)는 일반 뽑기와 같다. 종 선택은 뷰가 인덱스에서 해 온다
+    /// (상점 뽑기와 같은 흐름 — 후보가 네트워크에 산다).
+    ///
+    /// 확정권 차감과 알 놓기가 한 함수에 있다 — 갈라 두면 "권은 줄었는데 알이 없다" 나
+    /// 그 반대가 생길 수 있다.
+    @discardableResult
+    func redeemEggTicket(grade: Grade, speciesID: Int,
+                         growthRate: GrowthRate = .mediumFast) -> Egg? {
+        guard let ticket = ShopItem.eggTicket(for: grade), count(of: ticket) > 0 else { return nil }
+        let shiny = EggBalance.rollShiny(nextRandomUnit(), denominator: shinyDenominator)
+        guard let egg = placeEgg(grade: grade, speciesID: speciesID, shiny: shiny,
+                                 growthRate: growthRate) else { return nil }
+        mutate { s in
+            s.inventory[ticket.rawValue, default: 0] -= 1
+            if s.inventory[ticket.rawValue] ?? 0 <= 0 { s.inventory[ticket.rawValue] = nil }
+        }
+        return egg
     }
 }

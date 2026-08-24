@@ -9,7 +9,11 @@ import Foundation
 /// **보상은 알과 아이템뿐이다.** 토큰은 이 앱에서 오직 실제 AI 사용량에서만 나온다 — 그 약속을
 /// 미션이 깨면 재화의 뜻 자체가 흐려진다. 알 보상은 도감을 다시 채우는 순환이 된다.
 enum DexMissionReward: Equatable, Sendable {
-    case egg(Grade)
+    /// 그 등급이 **확정**인 알 뽑기 확정권. 알을 그 자리에서 주지 않는 이유: 알은 홈 탭의
+    /// 부화 슬롯에 놓여서, 도감 탭에서 받으면 "받아졌는지" 가 안 보이고 빈 슬롯 요구까지
+    /// 딸려 온다(사용자 지적 — "자꾸 까먹을 것 같다"). 확정권은 가방에 담겼다가 **상점의
+    /// 알 뽑기 자리에서** 쓰인다 — 개봉의 순간이 원래 알이 태어나는 자리로 돌아간다.
+    case eggTicket(Grade)
     case expCandy(Int)
     case shinyCandy(Int)
     /// 무지개 부적 — 이로치 부적의 업그레이드(1/64 → 1/32). 전국도감 완성에서만 나오고,
@@ -46,15 +50,15 @@ enum DexMissions {
     static let all: [DexMission] = {
         let ladder: [(Int, [DexMissionReward])] = [
             (10, [.expCandy(3)]),
-            (25, [.egg(.rare)]),
+            (25, [.eggTicket(.rare)]),
             (50, [.expCandy(10)]),
-            (100, [.egg(.epic)]),
+            (100, [.eggTicket(.epic)]),
             (150, [.shinyCandy(1)]),
-            (250, [.egg(.epic)]),
+            (250, [.eggTicket(.epic)]),
             (400, [.shinyCandy(2)]),
-            (600, [.egg(.legendary)]),
+            (600, [.eggTicket(.legendary)]),
             (800, [.shinyCandy(3)]),
-            (1000, [.egg(.legendary)]),
+            (1000, [.eggTicket(.legendary)]),
         ]
         var missions = ladder.map { count, rewards in
             DexMission(id: "species-\(count)", kind: .species(count), rewards: rewards)
@@ -62,7 +66,7 @@ enum DexMissions {
         // 세대 완성 — 그 세대의 레전더리까지 전부라 난도가 높다. 보상도 그만큼.
         for generation in generations.keys.sorted() {
             missions.append(DexMission(id: "gen-\(generation)", kind: .generation(generation),
-                                       rewards: [.egg(.legendary), .shinyCandy(1)]))
+                                       rewards: [.eggTicket(.legendary), .shinyCandy(1)]))
         }
         missions.append(DexMission(id: "completion", kind: .completion,
                                    rewards: [.rainbowCharm]))
@@ -85,10 +89,5 @@ enum DexMissions {
     static func achieved(_ mission: DexMission, dex: Set<Int>) -> Bool {
         let p = progress(of: mission, dex: dex)
         return p.done >= p.target
-    }
-
-    /// 이 보상 묶음에 알이 몇 개 들었나 — 수령에 빈 부화 슬롯이 그만큼 필요하다.
-    static func eggCount(in rewards: [DexMissionReward]) -> Int {
-        rewards.count { if case .egg = $0 { return true }; return false }
     }
 }
