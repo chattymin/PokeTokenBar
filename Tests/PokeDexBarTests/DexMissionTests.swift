@@ -77,10 +77,13 @@ final class DexMissionTests: XCTestCase {
         XCTAssertFalse(DexMissions.all.isEmpty)
     }
 
-    /// 100종은 레전더리 확정권 — 사다리의 첫 큰 고비다(사용자 지정).
-    func testTheHundredMilestonePaysALegendaryTicket() throws {
-        let mission = try XCTUnwrap(DexMissions.all.first { $0.id == "species-100" })
-        XCTAssertEqual(mission.rewards, [.eggTicket(.legendary)])
+    /// 100종·250종은 레전더리 확정권(사용자 지정) — 사다리의 큰 고비들이다. 이로써 사다리의
+    /// 확정권은 25종 레어 하나 빼고 전부 레전더리다(100·250·600·1000).
+    func testTheBigMilestonesPayLegendaryTickets() throws {
+        for id in ["species-100", "species-250", "species-600", "species-1000"] {
+            let mission = try XCTUnwrap(DexMissions.all.first { $0.id == id })
+            XCTAssertEqual(mission.rewards, [.eggTicket(.legendary)], "\(id) 가 레전더리권이 아니다")
+        }
     }
 
     /// 마릿수 사다리는 오름차순이고 도감 크기를 안 넘는다.

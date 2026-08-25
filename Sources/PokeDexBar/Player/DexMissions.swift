@@ -58,7 +58,7 @@ enum DexMissions {
             (50, [.item(.expCandy, 10)]),
             (100, [.eggTicket(.legendary)]),
             (150, [.item(.expCandy, 20)]),
-            (250, [.eggTicket(.epic)]),
+            (250, [.eggTicket(.legendary)]),
             (400, [.item(.shinyCandy, 1)]),
             (600, [.eggTicket(.legendary)]),
             (800, [.item(.shinyCandy, 1)]),
