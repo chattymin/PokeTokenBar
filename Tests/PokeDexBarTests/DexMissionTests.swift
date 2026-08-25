@@ -86,6 +86,18 @@ final class DexMissionTests: XCTestCase {
         }
     }
 
+    /// **에픽 확정권은 미션에서 안 나온다(의도됨).** 100·250종이 레전더리로 오르며 수급처가
+    /// 사라졌고, 아이템은 지우는 대신 미래 기능의 보상 자리로 남겼다(사용자 결정). 이 테스트는
+    /// 그 상태가 **의도**임을 기록한다 — 미션이 다시 에픽권을 주게 되면 여기부터 고칠 것.
+    func testTheEpicTicketHasNoMissionSourceOnPurpose() {
+        let epicSources = DexMissions.all.filter { mission in
+            mission.rewards.contains { if case .eggTicket(.epic) = $0 { return true }; return false }
+        }
+        XCTAssertTrue(epicSources.isEmpty,
+                      "에픽권 수급처가 생겼다 — 의도가 바뀌었으면 이 테스트를 갱신하라: "
+                      + "\(epicSources.map(\.id))")
+    }
+
     /// 마릿수 사다리는 오름차순이고 도감 크기를 안 넘는다.
     func testTheSpeciesLadderClimbs() {
         let counts = DexMissions.all.compactMap { mission -> Int? in
