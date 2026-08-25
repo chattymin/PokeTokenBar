@@ -14,8 +14,8 @@ enum DexMissionReward: Equatable, Sendable {
     /// 딸려 온다(사용자 지적 — "자꾸 까먹을 것 같다"). 확정권은 가방에 담겼다가 **상점의
     /// 알 뽑기 자리에서** 쓰인다 — 개봉의 순간이 원래 알이 태어나는 자리로 돌아간다.
     case eggTicket(Grade)
-    case expCandy(Int)
-    case shinyCandy(Int)
+    /// 상점 소모품 n 개 — 사탕, 그리고 세대 완성의 대표 아이템(메가스톤·다이버섯).
+    case item(ShopItem, Int)
     /// 무지개 부적 — 이로치 부적의 업그레이드(1/64 → 1/32). 전국도감 완성에서만 나오고,
     /// 이로치 부적이 없어도 받는다.
     case rainbowCharm
@@ -53,24 +53,34 @@ enum DexMissions {
     /// 두 곳이면 족하다 — 세대 완성은 레전더리 확정권만으로 이미 크다. 테스트가 총량을 잠근다.
     static let all: [DexMission] = {
         let ladder: [(Int, [DexMissionReward])] = [
-            (10, [.expCandy(3)]),
+            (10, [.item(.expCandy, 3)]),
             (25, [.eggTicket(.rare)]),
-            (50, [.expCandy(10)]),
+            (50, [.item(.expCandy, 10)]),
             (100, [.eggTicket(.epic)]),
-            (150, [.expCandy(20)]),
+            (150, [.item(.expCandy, 20)]),
             (250, [.eggTicket(.epic)]),
-            (400, [.shinyCandy(1)]),
+            (400, [.item(.shinyCandy, 1)]),
             (600, [.eggTicket(.legendary)]),
-            (800, [.shinyCandy(1)]),
+            (800, [.item(.shinyCandy, 1)]),
             (1000, [.eggTicket(.legendary)]),
         ]
         var missions = ladder.map { count, rewards in
             DexMission(id: "species-\(count)", kind: .species(count), rewards: rewards)
         }
         // 세대 완성 — 그 세대의 레전더리까지 전부라 난도가 높다. 보상도 그만큼.
+        //
+        // **그 세대를 대표하는 아이템이 있으면 함께 준다**(사용자 제안): 메가진화는 6세대,
+        // 다이맥스는 8세대 것이다. 나머지 세대는 이 앱에 대표 아이템이 없어(Z크리스탈·테라스탈
+        // 미구현) 확정권만 준다 — 억지로 하나씩 붙이면 대표성이 사라진다.
         for generation in generations.keys.sorted() {
+            var rewards: [DexMissionReward] = [.eggTicket(.legendary)]
+            switch generation {
+            case 6: rewards.append(.item(.megaStone, 1))
+            case 8: rewards.append(.item(.dynamaxMushroom, 1))
+            default: break
+            }
             missions.append(DexMission(id: "gen-\(generation)", kind: .generation(generation),
-                                       rewards: [.eggTicket(.legendary)]))
+                                       rewards: rewards))
         }
         missions.append(DexMission(id: "completion", kind: .completion,
                                    rewards: [.rainbowCharm]))

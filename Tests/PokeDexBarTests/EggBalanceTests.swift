@@ -9,8 +9,10 @@ final class EggBalanceTests: XCTestCase {
         XCTAssertEqual(EggBalance.rollGrade(0.60), .rare)
         XCTAssertEqual(EggBalance.rollGrade(0.819), .rare)
         XCTAssertEqual(EggBalance.rollGrade(0.82), .epic)
-        XCTAssertEqual(EggBalance.rollGrade(0.969), .epic)
-        XCTAssertEqual(EggBalance.rollGrade(0.97), .legendary)
+        // 에픽/레전더리 경계 — 레전더리 3% → 2%(도감 미션의 확정권 11장과 맞바꾼 억제,
+        // 남은 1%p 는 에픽으로). 경계 바로 안팎을 잠근다.
+        XCTAssertEqual(EggBalance.rollGrade(0.979), .epic)
+        XCTAssertEqual(EggBalance.rollGrade(0.98), .legendary)
         XCTAssertEqual(EggBalance.rollGrade(0.999), .legendary)
     }
 

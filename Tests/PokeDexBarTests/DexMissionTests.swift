@@ -40,16 +40,38 @@ final class DexMissionTests: XCTestCase {
     /// 어느 방향으로든 잠근다: 다시 불어나도, 0 이 되어 큰 고비 보상이 사라져도 깨진다.
     func testShinyCandyStaysScarce() {
         let total = DexMissions.all.flatMap(\.rewards).reduce(0) { sum, reward in
-            if case .shinyCandy(let n) = reward { return sum + n }
+            if case .item(.shinyCandy, let n) = reward { return sum + n }
             return sum
         }
         XCTAssertEqual(total, 2, "미션 전체의 반짝사탕이 2개가 아니다: \(total)")
-        // 세대 완성은 레전더리 확정권만 — 아홉 번 반복되는 자리라 사탕이 붙으면 총량이 튄다.
+        // 세대 완성은 아홉 번 반복되는 자리라 여기 붙는 보상이 총량을 정한다. 기본은 레전더리
+        // 확정권 하나 — **대표 아이템이 있는 세대만 그 하나를 더 얹는다**(사용자 제안:
+        // 메가진화 = 6세대, 다이맥스 = 8세대). 사탕이 다시 붙거나 목록이 불면 여기서 깨진다.
         for mission in DexMissions.all {
-            guard case .generation = mission.kind else { continue }
-            XCTAssertEqual(mission.rewards, [.eggTicket(.legendary)],
-                           "\(mission.id) 보상이 불었다")
+            guard case .generation(let generation) = mission.kind else { continue }
+            switch generation {
+            case 6:
+                XCTAssertEqual(mission.rewards, [.eggTicket(.legendary), .item(.megaStone, 1)],
+                               "6세대는 메가스톤이 대표다")
+            case 8:
+                XCTAssertEqual(mission.rewards,
+                               [.eggTicket(.legendary), .item(.dynamaxMushroom, 1)],
+                               "8세대는 다이버섯이 대표다")
+            default:
+                XCTAssertEqual(mission.rewards, [.eggTicket(.legendary)],
+                               "\(mission.id) 보상이 불었다")
+            }
         }
+    }
+
+    /// 세대 대표 아이템이 실제로 지급된다 — 6세대 완성이 메가스톤을 가방에 담는다.
+    func testGenerationSixPaysAMegaStone() throws {
+        let store = makeStore()
+        let mission = try XCTUnwrap(DexMissions.all.first { $0.id == "gen-6" })
+        seedDex(store, species: 650...721)
+        XCTAssertTrue(store.claimDexMission(mission))
+        XCTAssertEqual(store.count(of: ShopItem.megaStone), 1, "메가스톤이 안 들어왔다")
+        XCTAssertEqual(store.count(of: ShopItem.legendaryEggTicket), 1)
     }
 
     /// 미션 id 는 유일하다 — 수령 기록이 id 로 남으므로 겹치면 하나 받고 둘이 지워진다.

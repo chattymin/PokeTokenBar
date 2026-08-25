@@ -136,10 +136,8 @@ struct NationalDexView: View {
             switch reward {
             case .eggTicket(let grade):
                 ShopItem.eggTicket(for: grade)?.label(store.language) ?? ""
-            case .expCandy(let n):
-                "\(ShopItem.expCandy.label(store.language)) ×\(n)"
-            case .shinyCandy(let n):
-                "\(ShopItem.shinyCandy.label(store.language)) ×\(n)"
+            case .item(let item, let n):
+                "\(item.label(store.language)) ×\(n)"
             case .rainbowCharm:
                 ShopItem.rainbowCharm.label(store.language)
             }

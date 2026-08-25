@@ -43,10 +43,8 @@ extension PlayerStore {
                     if let ticket = ShopItem.eggTicket(for: grade) {
                         s.inventory[ticket.rawValue, default: 0] += 1
                     }
-                case .expCandy(let n):
-                    s.inventory[ShopItem.expCandy.rawValue, default: 0] += n
-                case .shinyCandy(let n):
-                    s.inventory[ShopItem.shinyCandy.rawValue, default: 0] += n
+                case .item(let item, let n):
+                    s.inventory[item.rawValue, default: 0] += n
                 case .rainbowCharm:
                     s.ownsRainbowCharm = true
                 }

@@ -7,8 +7,9 @@ final class ShopViewTests: XCTestCase {
         let text = ShopTabView.oddsText(.ko)
         XCTAssertTrue(text.contains("커먼 60%"), text)
         XCTAssertTrue(text.contains("레어 22%"), text)
-        XCTAssertTrue(text.contains("에픽 15%"), text)
-        XCTAssertTrue(text.contains("레전더리 3%"), text)
+        XCTAssertTrue(text.contains("에픽 16%"), text)
+        // 레전더리 3% → 2% — 도감 미션의 확정권 11장과 맞바꾼 억제(`EggBalance.odds` 참고).
+        XCTAssertTrue(text.contains("레전더리 2%"), text)
     }
 
     /// 표기 확률의 합은 100% 여야 한다 — 밸런스를 고치면 문구도 같이 틀어지는 걸 막는다.
