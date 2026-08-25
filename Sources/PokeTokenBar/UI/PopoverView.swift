@@ -225,6 +225,22 @@ struct PopoverView: View {
                 tokenTypeLabel("cache w", today.cacheCreationTokens)
                 tokenTypeLabel("cache r", today.cacheReadTokens)
             }
+            if let models = today.models, models.count > 1 {
+                ForEach(models.sorted(by: { $0.value > $1.value }), id: \.key) { model, tokens in
+                    HStack(spacing: 6) {
+                        Text(model.split(separator: "/").last.map(String.init) ?? model)
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                        Spacer()
+                        Text(TokenFormatter.compact(tokens))
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
+                            .monospacedDigit()
+                    }
+                }
+            }
         }
         .padding(.top, 2)
     }
