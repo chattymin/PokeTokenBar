@@ -32,12 +32,20 @@ struct NationalDexView: View {
     /// 폼 상세를 열어 둔 종. nil 이면 그리드.
     @State private var detailSpeciesID: Int?
 
-    /// `detailSpeciesID` 를 심을 수 있는 이니셜라이저 — 스크린샷 생성기가 탭 없이 폼 상세
-    /// 장면을 렌더하는 데 쓴다(오프스크린 렌더는 제스처를 못 보낸다).
-    init(store: PlayerStore, detailSpeciesID: Int? = nil) {
+    /// `detailSpeciesID`·`missionsExpanded` 를 심을 수 있는 이니셜라이저 — 스크린샷 생성기가
+    /// 탭 없이 그 장면을 렌더하는 데 쓴다(오프스크린 렌더는 제스처를 못 보낸다).
+    init(store: PlayerStore, detailSpeciesID: Int? = nil, missionsExpanded: Bool = false) {
         self.store = store
         _detailSpeciesID = State(initialValue: detailSpeciesID)
+        _missionsExpanded = State(initialValue: missionsExpanded)
     }
+
+    // MARK: 미션
+
+    @State private var missionsExpanded = false
+    /// 방금 받은 미션 id — "가방에 담았어요" 확인을 그 자리에 잠깐 남긴다. 보상이 전부
+    /// 아이템이라 알 연출은 여기 없다 — 확정권의 개봉은 상점의 알 뽑기에서 일어난다.
+    @State private var justClaimedID: String?
 
     var body: some View {
         if let speciesID = detailSpeciesID {
@@ -45,6 +53,102 @@ struct NationalDexView: View {
         } else {
             grid
         }
+    }
+
+    // MARK: 미션 섹션
+
+    /// 접이식 미션 목록 — 수령한 미션은 사라지고, 달성한 미션이 있으면 접혀 있어도 배지가 알린다.
+    @ViewBuilder
+    private var missionsSection: some View {
+        let statuses = store.dexMissionStatuses().filter { !$0.claimed || $0.id == justClaimedID }
+        let claimable = statuses.count(where: \.claimable)
+        VStack(alignment: .leading, spacing: 4) {
+            Button {
+                withAnimation(.easeInOut(duration: 0.15)) { missionsExpanded.toggle() }
+            } label: {
+                HStack(spacing: 5) {
+                    Image(systemName: missionsExpanded ? "chevron.down" : "chevron.right")
+                        .font(.system(size: 8, weight: .bold)).foregroundStyle(.secondary)
+                    Text(store.l.missionSection).font(.system(size: 10, weight: .semibold))
+                    if claimable > 0 {
+                        Text(store.l.missionClaimableBadge(claimable))
+                            .font(.system(size: 8, weight: .bold)).foregroundStyle(.white)
+                            .padding(.horizontal, 5).padding(.vertical, 1)
+                            .background(Color.accentColor, in: Capsule())
+                    }
+                    Spacer()
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            if missionsExpanded {
+                ForEach(statuses) { status in missionRow(status) }
+            }
+        }
+        .padding(8)
+        .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
+    }
+
+    private func missionRow(_ status: PlayerStore.DexMissionStatus) -> some View {
+        HStack(spacing: 6) {
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 4) {
+                    Text(missionTitle(status.mission))
+                        .font(.system(size: 9, weight: .medium))
+                    Text("\(status.done)/\(status.target)")
+                        .font(.system(size: 8).monospacedDigit()).foregroundStyle(.secondary)
+                }
+                Text(rewardText(status.mission.rewards))
+                    .font(.system(size: 8)).foregroundStyle(.tertiary)
+                GeometryReader { geo in
+                    ZStack(alignment: .leading) {
+                        Capsule().fill(Color.secondary.opacity(0.15))
+                        Capsule().fill(status.claimable ? Color.accentColor : Color.secondary)
+                            .frame(width: max(2, geo.size.width
+                                * CGFloat(status.done) / CGFloat(max(1, status.target))))
+                    }
+                }
+                .frame(height: 3)
+            }
+            if status.id == justClaimedID {
+                // **받아졌다는 확인** — 줄이 말없이 사라지면 버튼이 고장 난 것으로 읽힌다.
+                // 확정권·사탕은 가방으로 가므로 어디 갔는지도 이 문구가 말한다.
+                Text(store.l.missionClaimedToBag)
+                    .font(.system(size: 8, weight: .semibold)).foregroundStyle(Color.accentColor)
+            } else if status.claimable {
+                Button(store.l.missionClaim) { claim(status) }
+                    .buttonStyle(.borderedProminent).controlSize(.mini)
+            }
+        }
+        .padding(.vertical, 2)
+    }
+
+    private func missionTitle(_ mission: DexMission) -> String {
+        switch mission.kind {
+        case .species(let n): store.l.missionSpecies(n)
+        case .generation(let n): store.l.missionGeneration(n)
+        case .completion: store.l.missionCompletion
+        }
+    }
+
+    private func rewardText(_ rewards: [DexMissionReward]) -> String {
+        rewards.map { reward in
+            switch reward {
+            case .eggTicket(let grade):
+                ShopItem.eggTicket(for: grade)?.label(store.language) ?? ""
+            case .item(let item, let n):
+                "\(item.label(store.language)) ×\(n)"
+            case .rainbowCharm:
+                ShopItem.rainbowCharm.label(store.language)
+            }
+        }.joined(separator: " · ")
+    }
+
+    /// 수령 — 아이템뿐이라 동기이고 실패할 길이 없다(버튼이 `claimable` 로만 선다).
+    /// 받은 줄은 확인 문구를 단 채 잠깐 남았다가, 다음에 열 때 사라진다.
+    private func claim(_ status: PlayerStore.DexMissionStatus) {
+        guard store.claimDexMission(status.mission) else { return }
+        withAnimation(.easeInOut(duration: 0.15)) { justClaimedID = status.id }
     }
 
     // MARK: 그리드
@@ -60,9 +164,12 @@ struct NationalDexView: View {
                     .font(.system(size: 10)).monospacedDigit().foregroundStyle(.secondary)
             }
             ScrollView {
-                LazyVGrid(columns: columns, spacing: 6) {
-                    ForEach(Self.speciesRange, id: \.self) { id in
-                        cell(id, dexForms: dexForms)
+                VStack(alignment: .leading, spacing: 6) {
+                    missionsSection
+                    LazyVGrid(columns: columns, spacing: 6) {
+                        ForEach(Self.speciesRange, id: \.self) { id in
+                            cell(id, dexForms: dexForms)
+                        }
                     }
                 }
             }

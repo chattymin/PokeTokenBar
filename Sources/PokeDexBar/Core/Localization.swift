@@ -28,6 +28,27 @@ struct L {
         t("모습 \(owned)/\(total)", "Forms \(owned)/\(total)", "すがた \(owned)/\(total)")
     }
     var bag: String { t("가방", "Bag", "バッグ") }
+
+    // MARK: 도감 미션
+    var missionSection: String { t("미션", "Missions", "ミッション") }
+    var missionClaim: String { t("받기", "Claim", "うけとる") }
+    func missionClaimableBadge(_ n: Int) -> String {
+        t("받을 수 있음 \(n)", "\(n) ready", "うけとれる \(n)")
+    }
+    func missionSpecies(_ n: Int) -> String {
+        t("\(n)종 등록", "Register \(n) species", "\(n)しゅ とうろく")
+    }
+    func missionGeneration(_ n: Int) -> String {
+        t("\(n)세대 완성", "Complete Gen \(n)", "だい\(n)せだい かんせい")
+    }
+    var missionCompletion: String { t("전국도감 완성", "Complete the National Dex", "ぜんこくずかん かんせい") }
+    var missionClaimedToBag: String {
+        t("가방에 담았어요", "Added to your Bag", "バッグに いれました")
+    }
+    /// 상점 알 뽑기의 확정권 버튼 — 등급 이름과 남은 장수.
+    func shopTicketDraw(_ ticket: String, _ n: Int) -> String {
+        t("\(ticket) ×\(n)", "\(ticket) ×\(n)", "\(ticket) ×\(n)")
+    }
     var shop: String { t("상점", "Shop", "ショップ") }
 
     // MARK: 가방 탭 — 가진 것을 보는 화면. 쓰는 건 개체 상세에서 한다.

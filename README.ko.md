@@ -169,6 +169,13 @@ PokeDexBar는 당신이 이미 태우고 있는 AI 코딩 토큰(Claude Code · 
 </td>
 </tr>
 <tr>
+<td width="55%" valign="middle">
+<h3>🎯 도감이 보답해요</h3>
+도감 채우기에 미션이 붙었어요 — 본가의 구조 그대로: 등록 마릿수 고비(10종부터 1000종까지)마다 보상, 세대 하나를 완성하면 <b>레전더리 알 확정권</b> 위에 그 세대의 대표 아이템(메가진화 세대는 메가스톤, 관동·가라르는 다이버섯, 나머지는 반짝이는 사탕), 그리고 1025종 전부를 채우면 <b>무지개 부적</b> — 이로치 부적의 완성형으로 이로치 확률이 1/32이 되고, 기존 부적이 없어도 지급돼요. 확정권은 가방에 담겼다가 상점 뽑기 버튼 아래에서 무료·등급 확정 뽑기로 쓰여요.
+</td>
+<td width="45%" align="center"><img src="assets/screenshot-dex-missions.png" width="300" alt="도감 탭의 미션 목록 — 마릿수 고비를 향한 진행 바와 받기 버튼 세 줄"></td>
+</tr>
+<tr>
 <td width="45%" align="center"><img src="assets/settings-ko.png" width="300" alt="설정"></td>
 <td width="55%" valign="middle">
 <h3>설정에서 취향대로</h3>

@@ -169,6 +169,13 @@ Star a Pokémon on its detail screen and it can't be sent to the Professor — t
 </td>
 </tr>
 <tr>
+<td width="55%" valign="middle">
+<h3>🎯 The Dex pays you back</h3>
+Filling the Dex now carries missions, shaped after the games: rewards at registration milestones (10 up to 1000 species), a reward for completing each generation's slice — Mega Stones for the Mega Evolution generations, Max Mushrooms for Kanto and Galar, Shiny Candy for the rest, always on top of a <b>Legendary Egg Ticket</b> — and, for the full 1025, the <b>Rainbow Charm</b>: the Shiny Charm perfected, 1/32 shiny odds, granted even if you never bought the base charm. Tickets are the missions' egg currency: claimed into your Bag, they stand under the Shop's Draw button as a free draw with the grade guaranteed.
+</td>
+<td width="45%" align="center"><img src="assets/screenshot-dex-missions.png" width="300" alt="The Dex tab's missions list — progress bars toward species milestones, three rows ready to claim"></td>
+</tr>
+<tr>
 <td width="45%" align="center"><img src="assets/settings.png" width="300" alt="Settings"></td>
 <td width="55%" valign="middle">
 <h3>Tune it your way</h3>

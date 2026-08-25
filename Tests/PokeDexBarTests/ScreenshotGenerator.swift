@@ -454,6 +454,10 @@ final class ScreenshotGeneratorTests: XCTestCase {
             XCTAssertTrue(player.buy(item), "\(item) 를 못 샀다 — 시드 지갑이 가격을 못 따라간다")
         }
 
+        // 도감 미션에서 온 확정권 — 상점 뽑기 아래에 확정권 버튼이 서고, 가방 소모품 칸에도
+        // 개수로 선다. 미션 전용이라 살 수는 없으니 인벤토리에 직접 심는다.
+        player.mutate { $0.inventory[ShopItem.epicEggTicket.rawValue] = 1 }
+
         // 파트너가 모아 온 것 — 가방 화면이 빈 상태로 찍히면 그 화면이 무엇인지 설명이 안 된다.
         // 진화 도구와 폼 도구를 섞어 둔다: 두 칸이 다 차 있어야 분류가 보인다.
         for item in [EvolutionItem.fireStone, .waterStone, .thunderStone, .linkingCord, .metalCoat] {
@@ -916,6 +920,11 @@ final class ScreenshotGeneratorTests: XCTestCase {
 
         // 도감 — 번호순 그리드 + 못 잡은 종 실루엣.
         try write(png(tabChrome(NationalDexView(store: fixture.player))), "screenshot-collection.png")
+
+        // 도감 미션 — 목록을 펼친 채로. 픽스처 도감(20여 종)이면 10종 미션이 "받기" 로 서 있어
+        // 배지·진행 바·보상 문구가 한 장에 같이 나온다.
+        try write(png(tabChrome(NationalDexView(store: fixture.player, missionsExpanded: true))),
+                  "screenshot-dex-missions.png")
 
         // 폼 도감 — 종 칸을 누르면 그 종의 무늬가 행으로 펼쳐진다. **그리드만 찍으면 이 기능이
         // 그림에 한 번도 안 담긴다**(칸 겉모습은 예전과 같다). 비비용을 고른 것은 18개 무늬로

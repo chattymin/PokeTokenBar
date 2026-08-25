@@ -9,8 +9,10 @@ final class EggBalanceTests: XCTestCase {
         XCTAssertEqual(EggBalance.rollGrade(0.60), .rare)
         XCTAssertEqual(EggBalance.rollGrade(0.819), .rare)
         XCTAssertEqual(EggBalance.rollGrade(0.82), .epic)
-        XCTAssertEqual(EggBalance.rollGrade(0.969), .epic)
-        XCTAssertEqual(EggBalance.rollGrade(0.97), .legendary)
+        // 에픽/레전더리 경계 — 레전더리 3% → 2%(도감 미션의 확정권 11장과 맞바꾼 억제,
+        // 남은 1%p 는 에픽으로). 경계 바로 안팎을 잠근다.
+        XCTAssertEqual(EggBalance.rollGrade(0.979), .epic)
+        XCTAssertEqual(EggBalance.rollGrade(0.98), .legendary)
         XCTAssertEqual(EggBalance.rollGrade(0.999), .legendary)
     }
 
@@ -43,20 +45,33 @@ final class EggBalanceTests: XCTestCase {
         XCTAssertNil(EggBalance.slotPrice(forSlotNumber: 3), "기본 3슬롯은 사는 게 아니다")
     }
 
-    /// 이로치는 1/64, 부적이 있으면 1/48 — 경계 바로 안팎을 잠근다.
+    /// 이로치 분모 — 부적 없음 64, 이로치 부적 48, 무지개 부적 32(겹쳐도 32).
+    /// 경계 바로 안팎을 잠근다.
     func testShinyOdds() {
-        XCTAssertTrue(EggBalance.rollShiny(1.0 / 64 - 0.0001, hasCharm: false))
-        XCTAssertFalse(EggBalance.rollShiny(1.0 / 64 + 0.0001, hasCharm: false))
-        XCTAssertTrue(EggBalance.rollShiny(1.0 / 48 - 0.0001, hasCharm: true))
-        XCTAssertFalse(EggBalance.rollShiny(1.0 / 48 + 0.0001, hasCharm: true))
+        XCTAssertEqual(EggBalance.shinyDenominator(shinyCharm: false, rainbowCharm: false), 64)
+        XCTAssertEqual(EggBalance.shinyDenominator(shinyCharm: true, rainbowCharm: false), 48)
+        // 무지개 부적은 이로치 부적의 업그레이드 — 없이도 32, 겹쳐도 32.
+        XCTAssertEqual(EggBalance.shinyDenominator(shinyCharm: false, rainbowCharm: true), 32)
+        XCTAssertEqual(EggBalance.shinyDenominator(shinyCharm: true, rainbowCharm: true), 32)
+
+        XCTAssertTrue(EggBalance.rollShiny(1.0 / 64 - 0.0001, denominator: 64))
+        XCTAssertFalse(EggBalance.rollShiny(1.0 / 64 + 0.0001, denominator: 64))
+        XCTAssertTrue(EggBalance.rollShiny(1.0 / 48 - 0.0001, denominator: 48))
+        XCTAssertFalse(EggBalance.rollShiny(1.0 / 48 + 0.0001, denominator: 48))
+        XCTAssertTrue(EggBalance.rollShiny(1.0 / 32 - 0.0001, denominator: 32))
+        XCTAssertFalse(EggBalance.rollShiny(1.0 / 32 + 0.0001, denominator: 32))
     }
 
-    /// 부적은 확률을 낮추지 않는다 — 같은 굴림이면 부적 쪽이 더 자주 이로치다.
+    /// 부적은 확률을 낮추지 않는다 — 같은 굴림이면 분모가 작은 쪽이 더 자주 이로치다.
     func testCharmNeverHurts() {
         for step in 0...100 {
             let roll = Double(step) / 100
-            if EggBalance.rollShiny(roll, hasCharm: false) {
-                XCTAssertTrue(EggBalance.rollShiny(roll, hasCharm: true))
+            if EggBalance.rollShiny(roll, denominator: 64) {
+                XCTAssertTrue(EggBalance.rollShiny(roll, denominator: 48))
+                XCTAssertTrue(EggBalance.rollShiny(roll, denominator: 32))
+            }
+            if EggBalance.rollShiny(roll, denominator: 48) {
+                XCTAssertTrue(EggBalance.rollShiny(roll, denominator: 32))
             }
         }
     }
