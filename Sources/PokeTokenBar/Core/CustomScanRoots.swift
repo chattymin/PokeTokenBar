@@ -98,6 +98,9 @@ enum CustomScanRoots {
             return LocalAdditionalUsageReader.copilotRoots(customRootsValue: nil)
         case "kiro":
             return LocalAdditionalUsageReader.kiroRoots(customRootsValue: nil)
+        case "pi":
+            return CustomScanRoots.union(
+                defaults: LocalUsageReader.computePiSessionRoots(), extraRaw: nil)
         default:
             return []
         }

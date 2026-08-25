@@ -21,7 +21,12 @@ protocol PokeProviding: Sendable {
 actor PokeAPIClient: PokeProviding {
     static let shared = PokeAPIClient()
     private let base = URL(string: "https://pokeapi.co/api/v2")!
-    private let langCodes = ["ko", "en", "ja-Hrkt", "ja", "es", "fr"]
+    // Lockstep with the union of AppLanguage.apiCodes. "pt" collects nothing today
+    // (PokéAPI has no such language) but is listed so it is picked up the moment
+    // one appears — omit it and EvoLine.names never carries it, pinning English.
+    // AppLanguage.apiCodes 의 합집합과 lockstep. "pt" 는 아직 PokéAPI 에 없어 수집되지 않지만,
+    // 추가되는 즉시 잡히도록 함께 둔다(없으면 EvoLine.names 에 안 담겨 영어 폴백이 고정된다).
+    private let langCodes = ["ko", "en", "ja-Hrkt", "ja", "es", "fr", "pt"]
     private var speciesCache: [Int: SpeciesDTO] = [:]
     private var lineCache: [Int: EvoLine] = [:]   // 프리패칭 → 부화 순간 네트워크 0
 

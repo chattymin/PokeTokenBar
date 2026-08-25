@@ -21,7 +21,8 @@ final class ProviderTabLayoutTests: XCTestCase {
     private var allProviders: [ProviderSnapshot] {
         [("claude_code", "Claude Code"), ("codex", "Codex"), ("gemini", "Gemini"),
          ("antigravity", "Antigravity"), ("opencode", "OpenCode"), ("hermes", "Hermes Agent"),
-         ("cursor", "Cursor"), ("grok", "Grok"), ("copilot", "Copilot"), ("kiro", "Kiro")]
+         ("cursor", "Cursor"), ("grok", "Grok"), ("copilot", "Copilot"), ("kiro", "Kiro"),
+         ("pi", "Pi")]
             .map { snapshot($0.0, $0.1) }
     }
 
