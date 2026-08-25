@@ -1242,6 +1242,31 @@ final class CompanionStoreTests: XCTestCase {
 
 // MARK: 표시 로케일 (자동 생성 문장)
 
+final class AppLanguageTests: XCTestCase {
+    func testGermanLanguageMetadata() {
+        XCTAssertEqual(AppLanguage.de.rawValue, "de")
+        XCTAssertEqual(AppLanguage.de.apiCodes, ["de"])
+        XCTAssertEqual(AppLanguage.de.label, "Deutsch")
+    }
+
+    func testGermanLanguagePersistsInCompanionState() throws {
+        var state = CompanionState()
+        state.language = .de
+
+        let data = try JSONEncoder().encode(state)
+        XCTAssertTrue(String(decoding: data, as: UTF8.self).contains(#""language":"de""#))
+        XCTAssertEqual(try JSONDecoder().decode(CompanionState.self, from: data).language, .de)
+    }
+
+    func testGermanPreferredLanguagesMapToGerman() {
+        for identifier in ["de", "de-DE", "de-AT", "DE-de"] {
+            XCTAssertEqual(AppLanguage.systemDefault(for: identifier), .de, identifier)
+        }
+        XCTAssertEqual(AppLanguage.systemDefault(for: "it-IT"), .en)
+        XCTAssertEqual(AppLanguage.systemDefault(for: nil), .en)
+    }
+}
+
 /// 앱 언어와 시스템 로케일이 다를 때 `Text(_, style: .relative)` 같은 자동 문장이 시스템을 따라가면
 /// 한 화면에 두 언어가 섞인다(한국어 Mac + 영어 앱 → "Catch log" 옆에 "3시간 46분").
 /// 팝오버 루트가 `\.locale` 로 앱 언어를 내려주므로, 그 매핑이 실제로 해당 언어의 상대 시각을
@@ -1251,6 +1276,7 @@ final class DisplayLocaleTests: XCTestCase {
         XCTAssertEqual(AppLanguage.ko.displayLocale.identifier, "ko")
         XCTAssertEqual(AppLanguage.en.displayLocale.identifier, "en")
         XCTAssertEqual(AppLanguage.ja.displayLocale.identifier, "ja")
+        XCTAssertEqual(AppLanguage.de.displayLocale.identifier, "de")
     }
 
     func testRelativeTimeFollowsAppLanguageNotSystem() {
@@ -1266,8 +1292,9 @@ final class DisplayLocaleTests: XCTestCase {
         XCTAssertTrue(relative(.en).contains("hour"), "영어: \(relative(.en))")
         XCTAssertTrue(relative(.ko).contains("시간"), "한국어: \(relative(.ko))")
         XCTAssertTrue(relative(.ja).contains("時間"), "일본어: \(relative(.ja))")
-        // 세 언어가 서로 달라야 한다 — 하나로 고정돼 있으면 매핑이 죽은 것이다.
-        XCTAssertEqual(Set([relative(.en), relative(.ko), relative(.ja)]).count, 3)
+        XCTAssertTrue(relative(.de).lowercased().contains("stund"), "독일어: \(relative(.de))")
+        // 네 언어가 서로 달라야 한다 — 하나로 고정돼 있으면 매핑이 죽은 것이다.
+        XCTAssertEqual(Set([relative(.en), relative(.ko), relative(.ja), relative(.de)]).count, 4)
     }
 }
 
@@ -1675,7 +1702,25 @@ final class CompanionIdentityTests: XCTestCase {
         XCTAssertEqual(SpriteStore.cacheKey(speciesID: 25, animated: false, shiny: true), "25-shs")
     }
 
-    /// 성격 25종 — 3개 언어 명칭이 전부 비어있지 않고 중복 없는지.
+    func testGermanNatureNamesMatchOfficialMainlineNames() {
+        let expected = [
+            "Robust", "Solo", "Mutig", "Hart", "Frech",
+            "Kühn", "Sanft", "Locker", "Pfiffig", "Lasch",
+            "Scheu", "Hastig", "Ernst", "Froh", "Naiv",
+            "Mäßig", "Mild", "Ruhig", "Zaghaft", "Hitzig",
+            "Still", "Zart", "Forsch", "Sacht", "Kauzig",
+        ]
+
+        XCTAssertEqual(PokemonNature.allCases.map { $0.name(.de) }, expected)
+    }
+
+    func testGermanItemNamesUseOfficialMainlineTerms() {
+        let l = L(.de)
+        XCTAssertEqual(l.itemName(.rareCandy), "Sonderbonbon")
+        XCTAssertEqual(l.itemName(.shinyCharm), "Schillerpin")
+    }
+
+    /// 성격 25종 — 모든 지원 언어 명칭이 전부 비어있지 않고 중복 없는지.
     func testNatureNamesComplete() {
         XCTAssertEqual(PokemonNature.allCases.count, 25)
         for lang in AppLanguage.allCases {
