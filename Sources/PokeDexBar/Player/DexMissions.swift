@@ -44,20 +44,24 @@ enum DexMissions {
 
     /// 전체 미션. 순서가 곧 화면 순서다 — 마릿수 사다리, 세대, 완성.
     ///
-    /// 마릿수 보상은 상점 시세와 재 본 것이다: 반짝사탕은 상점에서 30억이라 큰 고비에만 두고,
-    /// 알은 뽑기(1천만)보다 "등급이 보장된다"는 점이 값이다. 전부 **일회성**이라 후해도 경제가
-    /// 안 밀린다.
+    /// 마릿수 보상은 상점 시세와 재 본 것이다: 알 확정권은 뽑기(1천만)보다 "등급이 보장된다"
+    /// 는 점이 값이고, 전부 일회성이라 후해도 경제가 안 밀린다.
+    ///
+    /// **반짝사탕은 전체를 통틀어 2개다**(400종·800종). 처음엔 사다리에 6개 + 세대 완성마다
+    /// 1개씩 15개였는데, 상점가 3B 짜리가 45B 어치 쏟아지는 셈이라 걷어냈다(사용자 지적 —
+    /// "너무 많이 주는 것 같아"). 이로치는 이 앱에서 가장 귀한 것이라, 확정 지급은 큰 고비
+    /// 두 곳이면 족하다 — 세대 완성은 레전더리 확정권만으로 이미 크다. 테스트가 총량을 잠근다.
     static let all: [DexMission] = {
         let ladder: [(Int, [DexMissionReward])] = [
             (10, [.expCandy(3)]),
             (25, [.eggTicket(.rare)]),
             (50, [.expCandy(10)]),
             (100, [.eggTicket(.epic)]),
-            (150, [.shinyCandy(1)]),
+            (150, [.expCandy(20)]),
             (250, [.eggTicket(.epic)]),
-            (400, [.shinyCandy(2)]),
+            (400, [.shinyCandy(1)]),
             (600, [.eggTicket(.legendary)]),
-            (800, [.shinyCandy(3)]),
+            (800, [.shinyCandy(1)]),
             (1000, [.eggTicket(.legendary)]),
         ]
         var missions = ladder.map { count, rewards in
@@ -66,7 +70,7 @@ enum DexMissions {
         // 세대 완성 — 그 세대의 레전더리까지 전부라 난도가 높다. 보상도 그만큼.
         for generation in generations.keys.sorted() {
             missions.append(DexMission(id: "gen-\(generation)", kind: .generation(generation),
-                                       rewards: [.eggTicket(.legendary), .shinyCandy(1)]))
+                                       rewards: [.eggTicket(.legendary)]))
         }
         missions.append(DexMission(id: "completion", kind: .completion,
                                    rewards: [.rainbowCharm]))

@@ -80,6 +80,27 @@ extension PlayerStore {
             applyShinySeed(speciesID: species,
                            level: environment["PTB_SEED_SHINY_LEVEL"].flatMap { Int($0) } ?? 1)
         }
+        if environment["PTB_SEED_TICKETS"] != nil { applyTicketSeed() }
+    }
+
+    /// 알 확정권 시험용 — 세 등급을 **한 장씩** 넣는다.
+    ///
+    /// ```
+    /// open --env PTB_SEED_TICKETS=1 -a "PokeDexBar Dev"
+    /// ```
+    ///
+    /// 미션 전용이라 정상 경로로는 도감을 채워야만 나오는데, 상점의 확정권 버튼·가방 표시를
+    /// 보려고 도감 25종을 채울 수는 없다. 리본 시드와 같은 규칙 — 값만 올리고 개체는 안 만든다.
+    /// **더하지 않고 "한 장까지 끌어올린다"** — 켤 때마다 쌓이면 시험용 재고가 실사용처럼 보인다
+    /// (개체 시드를 걷어낸 것과 같은 이유).
+    func applyTicketSeed() {
+        mutate { state in
+            for ticket in [ShopItem.rareEggTicket, .epicEggTicket, .legendaryEggTicket]
+            where (state.inventory[ticket.rawValue] ?? 0) < 1 {
+                state.inventory[ticket.rawValue] = 1
+            }
+        }
+        AppLog.write("TicketSeed: 알 확정권 세 등급을 한 장씩 채웠다")
     }
 
     /// 제보 재현용 — 특정 종의 **이로치** 개체를 박스에 넣는다.

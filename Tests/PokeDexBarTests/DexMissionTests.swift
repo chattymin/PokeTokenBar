@@ -35,6 +35,23 @@ final class DexMissionTests: XCTestCase {
         XCTAssertEqual(DexMissions.generations[9], 906...1025)
     }
 
+    /// **반짝사탕 총량은 2개다.** 상점가 3B 짜리라 미션이 쏟으면 상점의 그 품목이 죽는다 —
+    /// 처음에 15개(사다리 6 + 세대마다 1)를 뒀다가 "너무 많이 준다"(사용자 지적)로 걷어냈다.
+    /// 어느 방향으로든 잠근다: 다시 불어나도, 0 이 되어 큰 고비 보상이 사라져도 깨진다.
+    func testShinyCandyStaysScarce() {
+        let total = DexMissions.all.flatMap(\.rewards).reduce(0) { sum, reward in
+            if case .shinyCandy(let n) = reward { return sum + n }
+            return sum
+        }
+        XCTAssertEqual(total, 2, "미션 전체의 반짝사탕이 2개가 아니다: \(total)")
+        // 세대 완성은 레전더리 확정권만 — 아홉 번 반복되는 자리라 사탕이 붙으면 총량이 튄다.
+        for mission in DexMissions.all {
+            guard case .generation = mission.kind else { continue }
+            XCTAssertEqual(mission.rewards, [.eggTicket(.legendary)],
+                           "\(mission.id) 보상이 불었다")
+        }
+    }
+
     /// 미션 id 는 유일하다 — 수령 기록이 id 로 남으므로 겹치면 하나 받고 둘이 지워진다.
     func testMissionIDsAreUnique() {
         let ids = DexMissions.all.map(\.id)
