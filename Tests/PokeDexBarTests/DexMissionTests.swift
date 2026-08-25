@@ -43,24 +43,20 @@ final class DexMissionTests: XCTestCase {
             if case .item(.shinyCandy, let n) = reward { return sum + n }
             return sum
         }
-        XCTAssertEqual(total, 2, "미션 전체의 반짝사탕이 2개가 아니다: \(total)")
-        // 세대 완성은 아홉 번 반복되는 자리라 여기 붙는 보상이 총량을 정한다. 기본은 레전더리
-        // 확정권 하나 — **대표 아이템이 있는 세대만 그 하나를 더 얹는다**(사용자 제안:
-        // 메가진화 = 6세대, 다이맥스 = 8세대). 사탕이 다시 붙거나 목록이 불면 여기서 깨진다.
+        // 사다리 2(400·800) + 세대 4(2·4·5·9) = 6. 15개이던 첫 판을 "너무 많다" 로 2까지
+        // 걷어냈다가, 세대 보상이 약하다는 후속 판단에서 사용자가 직접 4개를 배정해 6이 됐다.
+        XCTAssertEqual(total, 6, "미션 전체의 반짝사탕이 6개가 아니다: \(total)")
+        // 세대 완성 = 레전더리 확정권 + 대표 아이템 하나(사용자 배정): 메가스톤은 메가진화
+        // 세대들(3·6·7), 다이버섯은 다이맥스·거다이맥스(1·8), 나머지(2·4·5·9)는 반짝사탕.
         for mission in DexMissions.all {
             guard case .generation(let generation) = mission.kind else { continue }
-            switch generation {
-            case 6:
-                XCTAssertEqual(mission.rewards, [.eggTicket(.legendary), .item(.megaStone, 1)],
-                               "6세대는 메가스톤이 대표다")
-            case 8:
-                XCTAssertEqual(mission.rewards,
-                               [.eggTicket(.legendary), .item(.dynamaxMushroom, 1)],
-                               "8세대는 다이버섯이 대표다")
-            default:
-                XCTAssertEqual(mission.rewards, [.eggTicket(.legendary)],
-                               "\(mission.id) 보상이 불었다")
+            let signature: DexMissionReward = switch generation {
+            case 3, 6, 7: .item(.megaStone, 1)
+            case 1, 8: .item(.dynamaxMushroom, 1)
+            default: .item(.shinyCandy, 1)
             }
+            XCTAssertEqual(mission.rewards, [.eggTicket(.legendary), signature],
+                           "\(mission.id) 보상이 배정과 다르다")
         }
     }
 
@@ -79,6 +75,12 @@ final class DexMissionTests: XCTestCase {
         let ids = DexMissions.all.map(\.id)
         XCTAssertEqual(ids.count, Set(ids).count)
         XCTAssertFalse(DexMissions.all.isEmpty)
+    }
+
+    /// 100종은 레전더리 확정권 — 사다리의 첫 큰 고비다(사용자 지정).
+    func testTheHundredMilestonePaysALegendaryTicket() throws {
+        let mission = try XCTUnwrap(DexMissions.all.first { $0.id == "species-100" })
+        XCTAssertEqual(mission.rewards, [.eggTicket(.legendary)])
     }
 
     /// 마릿수 사다리는 오름차순이고 도감 크기를 안 넘는다.

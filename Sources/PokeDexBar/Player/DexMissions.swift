@@ -56,7 +56,7 @@ enum DexMissions {
             (10, [.item(.expCandy, 3)]),
             (25, [.eggTicket(.rare)]),
             (50, [.item(.expCandy, 10)]),
-            (100, [.eggTicket(.epic)]),
+            (100, [.eggTicket(.legendary)]),
             (150, [.item(.expCandy, 20)]),
             (250, [.eggTicket(.epic)]),
             (400, [.item(.shinyCandy, 1)]),
@@ -67,20 +67,20 @@ enum DexMissions {
         var missions = ladder.map { count, rewards in
             DexMission(id: "species-\(count)", kind: .species(count), rewards: rewards)
         }
-        // 세대 완성 — 그 세대의 레전더리까지 전부라 난도가 높다. 보상도 그만큼.
-        //
-        // **그 세대를 대표하는 아이템이 있으면 함께 준다**(사용자 제안): 메가진화는 6세대,
-        // 다이맥스는 8세대 것이다. 나머지 세대는 이 앱에 대표 아이템이 없어(Z크리스탈·테라스탈
-        // 미구현) 확정권만 준다 — 억지로 하나씩 붙이면 대표성이 사라진다.
+        // 세대 완성 — 그 세대의 레전더리까지 전부라 난도가 높다(달성 비용 수십 B 규모).
+        // 레전더리 확정권 하나(~500M)로는 약해서, **세대마다 대표 아이템을 하나씩 얹는다**
+        // (사용자 배정): 메가스톤은 메가진화의 세대들(6=XY · 3=ORAS 리메이크 · 7=SM 계승),
+        // 다이버섯은 다이맥스의 8세대와 거다이맥스가 몰린 관동(1). 남는 2·4·5·9 는 반짝사탕 —
+        // 이 넷이 반짝사탕 총량을 2 → 6 으로 되돌리는데, "너무 많다" 로 걷어낸 15 와 달리
+        // 사용자가 직접 고른 수준이다(가드가 6 을 잠근다).
         for generation in generations.keys.sorted() {
-            var rewards: [DexMissionReward] = [.eggTicket(.legendary)]
-            switch generation {
-            case 6: rewards.append(.item(.megaStone, 1))
-            case 8: rewards.append(.item(.dynamaxMushroom, 1))
-            default: break
+            let signature: DexMissionReward = switch generation {
+            case 3, 6, 7: .item(.megaStone, 1)
+            case 1, 8: .item(.dynamaxMushroom, 1)
+            default: .item(.shinyCandy, 1)
             }
             missions.append(DexMission(id: "gen-\(generation)", kind: .generation(generation),
-                                       rewards: rewards))
+                                       rewards: [.eggTicket(.legendary), signature]))
         }
         missions.append(DexMission(id: "completion", kind: .completion,
                                    rewards: [.rainbowCharm]))
