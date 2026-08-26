@@ -252,10 +252,20 @@ read_when:
   팝업(토큰 만료 시점마다 하루 몇 회, 아침 등). self-signed 앱은 '항상 허용' 승인도 불안정. → 타이머 경로
   `fetch(allowKeychainPrompt: false)` 는 캐시+파일만 쓰고 키체인은 건드리지 않는다(`OAuthLimitsProvider`
   의 `guard allowKeychainPrompt` 가 키체인 읽기 앞에 위치). 키체인 읽기는 명시적 사용자 버튼
-  (설정 갱신·팝오버 `claudeLimitsRefreshRow`, `refreshLimitTokenFromKeychain`)에서만. 캐시 토큰이 살아있는
-  동안은 자동 폴이 그 토큰으로 한도를 계속 갱신하고, 만료되면 stale 표시 후 사용자가 갱신한다. 회귀 가드:
-  `testAutoRefreshUsesNoPromptPathManualUsesPromptPath`. (완전 근절은 Developer ID notarization 으로
-  '항상 허용' 승인을 안정화하는 것뿐 — 신뢰된 서명 신원이라야 ACL 승인이 지속된다. 미도입.)
+  (설정 갱신·팝오버 `claudeLimitsRefreshRow`, `refreshLimitTokenFromKeychain`)에서만. 파일이 유효
+  토큰을 들고 있으면 매 자동 폴이 그걸 다시 읽고, 파일이 없을 때만 캐시가 버티다가 만료 후 stale.
+  회귀 가드: `testAutoRefreshUsesNoPromptPathManualUsesPromptPath`. (완전 근절은 Developer ID
+  notarization 으로 '항상 허용' 승인을 안정화하는 것뿐 — 신뢰된 서명 신원이라야 ACL 승인이 지속된다.
+  미도입.)
+- **인메모리 토큰 캐시는 만료만 보면 안 된다 — 원본 파일이 다른 유효 토큰으로 바뀌었는지도 본다.**
+  `/login` 으로 계정을 갈아타면 `~/.claude/.credentials.json` 이 새 토큰으로 덮이지만, 캐시가 옛
+  토큰의 `expiresAt` 까지 그걸 무시하면 공식 5h/주 바가 이전 계정에 붙고 컴패니언 EXP 만 로컬
+  jsonl 로 계속 오른다(#227). 자동 폴은 키체인을 안 읽으므로 **파일 peek 를 캐시 히트보다 앞에**
+  둔다. 파일이 없거나 `"claudeAiOauth": null` 이면 캐시를 유지(로그아웃·`CLAUDE_CONFIG_DIR` 잔여
+  파일 — 기존 `credentialsFileIsAccountOAuthMissing` 과 같은 이유). 같은 부류: Antigravity
+  `jetski-standalone-oauth-token` 은 파일 로드 시 `expiresAt=nil` 이라 캐시가 만료로 풀리지 않는다.
+  회귀: `testClaudeAutoPollPicksUpInPlaceAccountSwitch`·`testAntigravityAutoPollPicksUpTokenFileSwitch`.
+  캐시-우선 early return 을 되돌리면 이 두 테스트가 실패해야 한다.
 - **자격증명 "없음"과 "계정 로그인 없음"은 다른 안내다.** Claude Code 2.1.x 의 `Claude Code-credentials`
   항목이 MCP 서버 OAuth(`mcpOAuth`) 상태만 담고 계정 토큰(`claudeAiOauth`)은 안 담는 경우가 있다. 이때
   파싱 실패를 형식 오류로 뭉뚱그리면 "재로그인하면 된다"를 안내 못 해 한도 섹션이 원인 불명으로 사라진다.
