@@ -170,8 +170,8 @@ struct CompanionCard: View {
                 ProgressView(value: companion.progress)
                     .tint(companion.isShiny ? .yellow : .blue)
 
-                if let evo = companion.evolutionTokens, evo > 0 {
-                    Text("\(TokenFormatter.compact(evo)) to next evolution")
+                if let remaining = companion.tokensRemainingText {
+                    Text(remaining)
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -197,6 +197,27 @@ struct CompanionCard: View {
 
     private var rarityColor: Color {
         RarityStyle.color(companion.rarity ?? "")
+    }
+}
+
+extension PhoneCompanionState {
+    /// Final stage when the Mac says so (evolution counter absent) or, for older Macs that send both
+    /// counters, when the evolution line has no future node after the current one.
+    var isFinalStage: Bool {
+        if evolutionTokens == nil, graduationTokens != nil { return true }
+        if let nodes = lineNodes, !nodes.isEmpty { return !nodes.contains { $0.state == .future } }
+        return false
+    }
+
+    /// "1.2M to graduation" on the final form, else "1.2M to next evolution". nil when nothing to show.
+    var tokensRemainingText: String? {
+        if isFinalStage, let g = graduationTokens, g > 0 {
+            return String(localized: "\(TokenFormatter.compact(g)) to graduation")
+        }
+        if let e = evolutionTokens, e > 0 {
+            return String(localized: "\(TokenFormatter.compact(e)) to next evolution")
+        }
+        return nil
     }
 }
 

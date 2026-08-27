@@ -1771,6 +1771,28 @@
     },
     "🥚": {
       "shouldTranslate": false
+    },
+    "%@ to graduation": {
+      "localizations": {
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "졸업까지 %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "卒業まで %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ para graduarse"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

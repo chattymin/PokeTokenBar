@@ -220,8 +220,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             dexCount: companion.dexEntries.count,
             eggProgress: companion.eggProgress,
             displayState: companion.displayState.rawValue,
-            evolutionTokens: companion.tokensToNextEvolution,
-            graduationTokens: companion.tokensToGraduation,
+            // Final stage → graduation counter only; otherwise evolution only. Sending both (as older
+            // Macs did) leaves the phone unable to tell which wording applies.
+            evolutionTokens: companion.isFinalStage ? nil : companion.tokensToNextEvolution,
+            graduationTokens: companion.isFinalStage ? companion.tokensToGraduation : nil,
             representativeSpeciesID: companion.representativeSubject.speciesID,
             representativeIsShiny: companion.representativeSubject.isShiny,
             statusText: companion.statusText,
