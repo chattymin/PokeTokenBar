@@ -8,6 +8,16 @@ public enum PokeSpriteURL {
         URL(string: "\(base)/pokemon/\(shiny ? "shiny/" : "")\(id).png")
     }
 
+    /// Gen-V animated GIF — only species 1…649 have one (same rule as the Mac's PokemonAssets).
+    public static func hasAnimatedSprite(id: Int) -> Bool { (1...649).contains(id) }
+
+    public static func animatedSpecies(id: Int, shiny: Bool) -> URL? {
+        guard hasAnimatedSprite(id: id) else { return nil }
+        return URL(string: "\(base)/pokemon/versions/generation-v/black-white/animated/\(shiny ? "shiny/" : "")\(id).gif")
+    }
+
+    public static func animatedSpeciesKey(id: Int, shiny: Bool) -> String { "\(id)_\(shiny)_anim.gif" }
+
     public static func item(name: String) -> URL? {
         URL(string: "\(base)/items/\(name).png")
     }
@@ -55,15 +65,23 @@ public final class SpriteCache: @unchecked Sendable {
     /// Cached image or a network fetch that populates both layers. nil on any failure.
     public func image(for url: URL?, key: String) async -> UIImage? {
         if let hit = cachedImage(key: key) { return hit }
+        guard let data = await data(for: url, key: key), let image = UIImage(data: data) else { return nil }
+        memory.setObject(image, forKey: key as NSString)
+        return image
+    }
+
+    /// Raw bytes (e.g. an animated GIF) from disk, else fetched and written to disk. nil on failure.
+    public func data(for url: URL?, key: String) async -> Data? {
+        if let file = directory?.appendingPathComponent(key), let data = try? Data(contentsOf: file) {
+            return data
+        }
         guard let url,
               let (data, response) = try? await session.data(from: url),
-              (response as? HTTPURLResponse)?.statusCode == 200,
-              let image = UIImage(data: data) else { return nil }
-        memory.setObject(image, forKey: key as NSString)
+              (response as? HTTPURLResponse)?.statusCode == 200, !data.isEmpty else { return nil }
         if let file = directory?.appendingPathComponent(key) {
             try? data.write(to: file, options: .atomic)
         }
-        return image
+        return data
     }
 
     /// Warm the disk layer for what the widget will need (current + representative sprite).

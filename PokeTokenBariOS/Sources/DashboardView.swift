@@ -140,7 +140,7 @@ struct CompanionCard: View {
                     .foregroundStyle(.secondary)
             } else {
                 if let id = companion.speciesID {
-                    SpeciesSprite(speciesID: id, shiny: companion.isShiny, size: 96)
+                    AnimatedSpeciesSprite(speciesID: id, shiny: companion.isShiny, size: 96)
                 }
 
                 HStack {
@@ -227,43 +227,49 @@ struct EvolutionLineStrip: View {
     let nodes: [PhoneEvoNode]
 
     var body: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 4) {
-                ForEach(Array(nodes.enumerated()), id: \.offset) { index, node in
-                    if index > 0 {
-                        Image(systemName: "chevron.right")
-                            .font(.system(size: 9, weight: .semibold))
-                            .foregroundStyle(.tertiary)
-                    }
-                    VStack(spacing: 2) {
-                        Group {
-                            if let id = node.speciesID {
-                                SpeciesSprite(speciesID: id, shiny: false, size: 40)
-                                    .saturation(node.state == .future ? 0 : 1)
-                                    .opacity(node.state == .future ? 0.45 : 1)
-                            } else {
-                                Text("?")
-                                    .font(.title3.bold())
-                                    .foregroundStyle(.tertiary)
-                                    .frame(width: 40, height: 40)
-                            }
-                        }
-                        .padding(2)
-                        .background(
-                            RoundedRectangle(cornerRadius: 8)
-                                .stroke(node.state == .current ? Color.accentColor : .clear, lineWidth: 1.5)
-                        )
-                        Text(node.name ?? "???")
-                            .font(.system(size: 9))
-                            .foregroundStyle(node.state == .current ? .primary : .secondary)
-                            .lineLimit(1)
-                    }
-                    .frame(width: 56)
-                }
-            }
-            .padding(.horizontal, 4)
+        // Centered when the chain fits; a leading-aligned horizontal scroll only when it doesn't.
+        ViewThatFits(in: .horizontal) {
+            row
+            ScrollView(.horizontal, showsIndicators: false) { row }
         }
         .frame(maxWidth: .infinity)
+    }
+
+    private var row: some View {
+        HStack(spacing: 4) {
+            ForEach(Array(nodes.enumerated()), id: \.offset) { index, node in
+                if index > 0 {
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundStyle(.tertiary)
+                }
+                VStack(spacing: 2) {
+                    Group {
+                        if let id = node.speciesID {
+                            SpeciesSprite(speciesID: id, shiny: false, size: 40)
+                                .saturation(node.state == .future ? 0 : 1)
+                                .opacity(node.state == .future ? 0.45 : 1)
+                        } else {
+                            Text("?")
+                                .font(.title3.bold())
+                                .foregroundStyle(.tertiary)
+                                .frame(width: 40, height: 40)
+                        }
+                    }
+                    .padding(2)
+                    .background(
+                        RoundedRectangle(cornerRadius: 8)
+                            .stroke(node.state == .current ? Color.accentColor : .clear, lineWidth: 1.5)
+                    )
+                    Text(node.name ?? "???")
+                        .font(.system(size: 9))
+                        .foregroundStyle(node.state == .current ? .primary : .secondary)
+                        .lineLimit(1)
+                }
+                .frame(width: 56)
+            }
+        }
+        .padding(.horizontal, 4)
     }
 }
 
