@@ -101,6 +101,8 @@ enum CustomScanRoots {
         case "pi":
             return CustomScanRoots.union(
                 defaults: LocalUsageReader.computePiSessionRoots(), extraRaw: nil)
+        case "ollama":
+            return LocalOllamaUsageReader.roots(customRootsValue: nil)
         default:
             return []
         }
