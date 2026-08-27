@@ -25,8 +25,10 @@ struct CachedSprite<Placeholder: View>: View {
                 placeholder()
             }
         }
+        // Always resolve the current key: SwiftUI keeps this view's @State across a key change
+        // (e.g. the companion evolving), so an `if image == nil` guard would keep the old sprite.
         .task(id: key) {
-            if image == nil { image = await SpriteCache.shared.image(for: url, key: key) }
+            image = await SpriteCache.shared.image(for: url, key: key)
         }
     }
 }
