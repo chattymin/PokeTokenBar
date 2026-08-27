@@ -639,18 +639,7 @@ struct CompanionHeader: View {
         }
     }
 
-    private var statusLine: String {
-        let l = store.l
-        switch store.displayState {
-        case .egg:     return l.statusEgg
-        case .idle:    return l.statusIdle
-        case .working: return l.statusWorking
-        case .focus:   return l.statusFocus
-        case .tired:   return l.statusTired
-        case .sleep:   return l.statusSleep
-        case .levelUp: return store.justEvolvedTo.map { l.statusEvolved($0) } ?? l.statusGrew
-        }
-    }
+    private var statusLine: String { store.statusText }
 }
 
 /// 희귀도 1종 캡슐 — 색 점 + 라벨 + 개수. 선택 시 원색 링 + 체크마크로 강조.

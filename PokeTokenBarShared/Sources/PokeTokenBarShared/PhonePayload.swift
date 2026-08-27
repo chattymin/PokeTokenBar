@@ -21,12 +21,19 @@ public struct PhonePayload: Codable, Sendable, Equatable {
     public let spendableTokens: Int
     /// Shop listing (read-only on the phone; purchases happen on the Mac).
     public let shop: [PhoneShopEntry]
+    /// Week / month cost in USD. nil from Macs that predate the field.
+    public let weekCost: Double?
+    public let monthCost: Double?
+    /// Claude 5h depletion forecast (nil when no forecast can be made).
+    public let burn: PhoneBurnForecast?
 
     public init(todayTokens: Int, todayCost: Double, weekTokens: Int, monthTokens: Int,
                 lastUpdated: Date, serverVersion: String, limits: PhoneLimitStatus?,
                 companion: PhoneCompanionState?, providers: [PhoneProviderSnapshot],
                 bag: [PhoneBagItem] = [], dex: [PhoneDexSpecies] = [],
-                spendableTokens: Int = 0, shop: [PhoneShopEntry] = []) {
+                spendableTokens: Int = 0, shop: [PhoneShopEntry] = [],
+                weekCost: Double? = nil, monthCost: Double? = nil,
+                burn: PhoneBurnForecast? = nil) {
         self.todayTokens = todayTokens
         self.todayCost = todayCost
         self.weekTokens = weekTokens
@@ -40,6 +47,9 @@ public struct PhonePayload: Codable, Sendable, Equatable {
         self.dex = dex
         self.spendableTokens = spendableTokens
         self.shop = shop
+        self.weekCost = weekCost
+        self.monthCost = monthCost
+        self.burn = burn
     }
 
     /// Older Mac versions publish payloads without `bag`/`dex`/`shop` — decode them
@@ -59,6 +69,9 @@ public struct PhonePayload: Codable, Sendable, Equatable {
         dex = try c.decodeIfPresent([PhoneDexSpecies].self, forKey: .dex) ?? []
         spendableTokens = try c.decodeIfPresent(Int.self, forKey: .spendableTokens) ?? 0
         shop = try c.decodeIfPresent([PhoneShopEntry].self, forKey: .shop) ?? []
+        weekCost = try c.decodeIfPresent(Double.self, forKey: .weekCost)
+        monthCost = try c.decodeIfPresent(Double.self, forKey: .monthCost)
+        burn = try c.decodeIfPresent(PhoneBurnForecast.self, forKey: .burn)
     }
 }
 
@@ -79,7 +92,19 @@ public struct PhoneLimitStatus: Codable, Sendable, Equatable {
     public let opencodeGo5h: PhoneLimitWindow?
     public let opencodeGoWeekly: PhoneLimitWindow?
     public let opencodeGoMonthly: PhoneLimitWindow?
+    /// Antigravity quota buckets (Gemini / Claude&GPT groups × 5h/weekly), flattened in Mac
+    /// display order. nil from Macs that predate the field.
+    public let antigravity: [PhoneLimitWindow]?
     public let planDisplay: String?
+    /// The Mac's warn / critical utilization thresholds so phone + widget colour rows the same
+    /// way. nil → use `PhoneLimitStatus.defaultWarnThreshold` / `defaultCritThreshold`.
+    public let warnThreshold: Double?
+    public let critThreshold: Double?
+
+    public static let defaultWarnThreshold: Double = 80
+    public static let defaultCritThreshold: Double = 95
+    public var effectiveWarnThreshold: Double { warnThreshold ?? Self.defaultWarnThreshold }
+    public var effectiveCritThreshold: Double { critThreshold ?? Self.defaultCritThreshold }
 
     public init(claude5h: PhoneLimitWindow?, claudeWeekly: PhoneLimitWindow?,
                 claudeOpusWeekly: PhoneLimitWindow?, claudeSonnetWeekly: PhoneLimitWindow?,
@@ -88,7 +113,9 @@ public struct PhoneLimitStatus: Codable, Sendable, Equatable {
                 opencodeGo5h: PhoneLimitWindow? = nil,
                 opencodeGoWeekly: PhoneLimitWindow? = nil,
                 opencodeGoMonthly: PhoneLimitWindow? = nil,
-                planDisplay: String?) {
+                antigravity: [PhoneLimitWindow]? = nil,
+                planDisplay: String?,
+                warnThreshold: Double? = nil, critThreshold: Double? = nil) {
         self.claude5h = claude5h
         self.claudeWeekly = claudeWeekly
         self.claudeOpusWeekly = claudeOpusWeekly
@@ -99,24 +126,17 @@ public struct PhoneLimitStatus: Codable, Sendable, Equatable {
         self.opencodeGo5h = opencodeGo5h
         self.opencodeGoWeekly = opencodeGoWeekly
         self.opencodeGoMonthly = opencodeGoMonthly
+        self.antigravity = antigravity
         self.planDisplay = planDisplay
+        self.warnThreshold = warnThreshold
+        self.critThreshold = critThreshold
     }
 
     /// 표시 순서대로 존재하는 모든 한도 창(nil 제외) — 폰 카드·위젯이 공유하는 단일 순서 소스.
-    /// Claude(5h→주간→Opus→Sonnet→모델별) → Codex(5h→주간) → OpenCode Go(5h→주간→월간).
+    /// Claude(5h→주간→Opus→Sonnet→모델별) → Codex(5h→주간) → OpenCode Go(5h→주간→월간) → Antigravity.
+    /// limitGroups 를 평탄화한 것과 동일 — 순서 소스는 하나다.
     public var orderedWindows: [PhoneLimitWindow] {
-        var out: [PhoneLimitWindow] = []
-        if let w = claude5h { out.append(w) }
-        if let w = claudeWeekly { out.append(w) }
-        if let w = claudeOpusWeekly { out.append(w) }
-        if let w = claudeSonnetWeekly { out.append(w) }
-        out.append(contentsOf: claudeScoped ?? [])
-        if let w = codexPrimary { out.append(w) }
-        if let w = codexSecondary { out.append(w) }
-        if let w = opencodeGo5h { out.append(w) }
-        if let w = opencodeGoWeekly { out.append(w) }
-        if let w = opencodeGoMonthly { out.append(w) }
-        return out
+        limitGroups.flatMap(\.windows)
     }
 
     /// 프로바이더별로 묶은 한도 창 — 위젯의 파이+퍼센트 그룹 행용. 빈 그룹은 만들지 않는다.
@@ -139,8 +159,20 @@ public struct PhoneLimitStatus: Codable, Sendable, Equatable {
         if let w = opencodeGoWeekly { go.append(w) }
         if let w = opencodeGoMonthly { go.append(w) }
         if !go.isEmpty { out.append(PhoneLimitGroup(title: "Go", windows: go)) }
+        if let agy = antigravity, !agy.isEmpty { out.append(PhoneLimitGroup(title: "Antigravity", windows: agy)) }
         return out
     }
+
+    /// Colour tier for a utilization value using the Mac's thresholds.
+    public func tier(for utilization: Double) -> PhoneLimitTier {
+        if utilization >= effectiveCritThreshold { return .critical }
+        if utilization >= effectiveWarnThreshold { return .warning }
+        return .normal
+    }
+}
+
+public enum PhoneLimitTier: Sendable, Equatable {
+    case normal, warning, critical
 }
 
 /// 한 프로바이더의 한도 창 묶음 — 제목(브랜드명, 위젯 그룹 헤더)과 orderedWindows 순서 창들.
@@ -181,11 +213,24 @@ public struct PhoneCompanionState: Codable, Sendable, Equatable {
     public let displayState: String
     public let evolutionTokens: Int?
     public let graduationTokens: Int?
+    /// Species the Mac shows in its menu bar / Dock — the user's pinned representative, or the
+    /// current mon when nothing is pinned. Widgets mirror this; the dashboard shows the current mon.
+    public let representativeSpeciesID: Int?
+    public let representativeIsShiny: Bool?
+    /// Pre-localized one-line status ("In focus mode now.") matching the Mac companion header.
+    public let statusText: String?
+    /// Pre-localized nature name of the current mon (nil for eggs / old Macs).
+    public let natureText: String?
+    /// Evolution line strip: realized path + guaranteed next stages (+ one mystery node on a branch).
+    public let lineNodes: [PhoneEvoNode]?
 
     public init(name: String, speciesID: Int?, isShiny: Bool, isEgg: Bool,
                 progress: Double, stageText: String, rarity: String?,
                 dexCount: Int, eggProgress: Double, displayState: String,
-                evolutionTokens: Int? = nil, graduationTokens: Int? = nil) {
+                evolutionTokens: Int? = nil, graduationTokens: Int? = nil,
+                representativeSpeciesID: Int? = nil, representativeIsShiny: Bool? = nil,
+                statusText: String? = nil, natureText: String? = nil,
+                lineNodes: [PhoneEvoNode]? = nil) {
         self.name = name
         self.speciesID = speciesID
         self.isShiny = isShiny
@@ -198,6 +243,26 @@ public struct PhoneCompanionState: Codable, Sendable, Equatable {
         self.displayState = displayState
         self.evolutionTokens = evolutionTokens
         self.graduationTokens = graduationTokens
+        self.representativeSpeciesID = representativeSpeciesID
+        self.representativeIsShiny = representativeIsShiny
+        self.statusText = statusText
+        self.natureText = natureText
+        self.lineNodes = lineNodes
+    }
+}
+
+/// One node of the evolution line strip. `speciesID == nil` is the "?" mystery node.
+public struct PhoneEvoNode: Codable, Sendable, Equatable {
+    public enum State: String, Codable, Sendable { case done, current, future }
+    public let speciesID: Int?
+    /// Pre-localized species name (nil for the mystery node).
+    public let name: String?
+    public let state: State
+
+    public init(speciesID: Int?, name: String?, state: State) {
+        self.speciesID = speciesID
+        self.name = name
+        self.state = state
     }
 }
 

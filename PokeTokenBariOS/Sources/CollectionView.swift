@@ -59,7 +59,7 @@ struct CollectionView: View {
             HStack(spacing: 6) {
                 Text("Collection")
                     .font(.callout.weight(.semibold))
-                Text("\(totalCount) species")
+                Text("\(totalCount) species", comment: "Species count in the collection header")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
             }
@@ -116,12 +116,7 @@ private struct DexCell: View {
 
     var body: some View {
         VStack(spacing: 2) {
-            AsyncImage(url: PokeSprite.speciesURL(id: species.id, shiny: species.isShiny)) { image in
-                image.resizable().interpolation(.none)
-            } placeholder: {
-                ProgressView()
-            }
-            .frame(width: Self.thumb, height: Self.thumb)
+            SpeciesSprite(speciesID: species.id, shiny: species.isShiny, size: Self.thumb)
             .overlay(alignment: .topTrailing) {
                 if species.isShiny {
                     Text("✨").font(.caption2)

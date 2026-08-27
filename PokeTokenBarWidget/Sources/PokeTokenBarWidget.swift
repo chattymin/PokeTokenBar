@@ -129,7 +129,7 @@ struct PokeTokenBarWidgetEntryView: View {
                         .font(.caption.bold())
                         .lineLimit(1)
                         .minimumScaleFactor(0.8)
-                    if companion.isShiny {
+                    if companion.representativeSpeciesID != nil ? (companion.representativeIsShiny ?? false) : companion.isShiny {
                         Image(systemName: "sparkles")
                             .font(.system(size: 9))
                             .foregroundStyle(.yellow)
@@ -165,9 +165,9 @@ struct PokeTokenBarWidgetEntryView: View {
     /// Today tokens dominant, cost and week as smaller companions on the same baseline.
     private func headlineRow(_ payload: PhonePayload) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
-            stat(label: "Today", value: TokenFormatter.compact(payload.todayTokens), prominent: true)
-            stat(label: "Cost", value: TokenFormatter.costCompact(payload.todayCost), prominent: false)
-            stat(label: "Week", value: TokenFormatter.compact(payload.weekTokens), prominent: false)
+            stat(label: String(localized: "Today"), value: TokenFormatter.compact(payload.todayTokens), prominent: true)
+            stat(label: String(localized: "Cost"), value: TokenFormatter.costCompact(payload.todayCost), prominent: false)
+            stat(label: String(localized: "Week"), value: TokenFormatter.compact(payload.weekTokens), prominent: false)
             Spacer(minLength: 0)
         }
     }
@@ -200,22 +200,25 @@ struct PokeTokenBarWidgetEntryView: View {
             }
         } else {
             // Five two-column rows is the most the medium height holds; anything beyond is summarised.
+            // Column-major so provider groups stay together (Claude ×3 | Go ×3) instead of
+            // interleaving row by row.
             let visible = Array(rows.prefix(Self.maxDenseRows))
-            let pairs = stride(from: 0, to: visible.count, by: 2).map { Array(visible[$0..<min($0 + 2, visible.count)]) }
-            VStack(alignment: .leading, spacing: 3) {
-                ForEach(Array(pairs.enumerated()), id: \.offset) { _, pair in
-                    HStack(alignment: .top, spacing: 10) {
-                        ForEach(Array(pair.enumerated()), id: \.offset) { _, row in
+            let half = (visible.count + 1) / 2
+            let columns = [Array(visible[0..<half]), Array(visible[half...])]
+            HStack(alignment: .top, spacing: 10) {
+                ForEach(Array(columns.enumerated()), id: \.offset) { _, column in
+                    VStack(alignment: .leading, spacing: 3) {
+                        ForEach(Array(column.enumerated()), id: \.offset) { _, row in
                             limitBar(row, showsReset: false, dense: true)
                         }
-                        if pair.count == 1 { Color.clear.frame(maxWidth: .infinity, maxHeight: 1) }
                     }
+                    .frame(maxWidth: .infinity)
                 }
-                if rows.count > visible.count {
-                    Text("+\(rows.count - visible.count) more in app")
-                        .font(.system(size: 9))
-                        .foregroundStyle(.tertiary)
-                }
+            }
+            if rows.count > visible.count {
+                Text("+\(rows.count - visible.count) more in app")
+                    .font(.system(size: 9))
+                    .foregroundStyle(.tertiary)
             }
         }
     }
@@ -264,40 +267,41 @@ struct PokeTokenBarWidgetEntryView: View {
 
     // MARK: - Helpers
 
+    /// Mirrors the Mac menu bar: the pinned representative species when set, else the current mon.
     @ViewBuilder
     private func spriteImage(companion: PhoneCompanionState) -> some View {
-        if companion.isEgg {
+        let id = companion.representativeSpeciesID ?? companion.speciesID
+        let shiny = companion.representativeSpeciesID != nil
+            ? (companion.representativeIsShiny ?? false) : companion.isShiny
+        if let id, let img = SpriteCache.shared.cachedImage(key: PokeSpriteURL.speciesKey(id: id, shiny: shiny)) {
+            Image(uiImage: img)
+                .resizable()
+                .interpolation(.none)
+        } else if companion.isEgg {
             Text("🥚").font(.system(size: 40))
-        } else if let id = companion.speciesID {
-            if let img = loadSprite(id: id, shiny: companion.isShiny) {
-                Image(uiImage: img)
-                    .resizable()
-                    .interpolation(.none)
-            } else {
-                AsyncImage(url: URL(string: "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/\(companion.isShiny ? "shiny/" : "")\(id).png")) { image in
-                    image.resizable().interpolation(.none)
-                } placeholder: {
-                    ProgressView()
-                }
+        } else if let id {
+            // Not cached yet (app hasn't run since this mon appeared) — the widget may not get
+            // network, so fall back to the Mac-side name over a placeholder rather than spinning.
+            AsyncImage(url: PokeSpriteURL.species(id: id, shiny: shiny)) { image in
+                image.resizable().interpolation(.none)
+            } placeholder: {
+                Image(systemName: "questionmark.circle").font(.title).foregroundStyle(.tertiary)
             }
         } else {
             Image(systemName: "questionmark")
         }
     }
 
-    private func loadSprite(id: Int, shiny: Bool) -> UIImage? {
-        guard let groupDir = FileManager.default
-            .containerURL(forSecurityApplicationGroupIdentifier: "group.io.github.chattymin.poketokenbar")?
-            .appendingPathComponent("WidgetSprites", isDirectory: true) else { return nil }
-        let file = groupDir.appendingPathComponent("\(id)_\(shiny).png")
-        guard let data = try? Data(contentsOf: file) else { return nil }
-        return UIImage(data: data)
-    }
-
+    /// Same colour rule as the Mac — thresholds travel in the payload.
     private func limitBarColor(_ utilization: Double) -> Color {
-        if utilization >= 95 { return .red }
-        if utilization >= 80 { return .orange }
-        return .blue
+        switch entry.payload?.limits?.tier(for: utilization) {
+        case .critical: return .red
+        case .warning: return .orange
+        default:
+            if utilization >= PhoneLimitStatus.defaultCritThreshold { return .red }
+            if utilization >= PhoneLimitStatus.defaultWarnThreshold { return .orange }
+            return .blue
+        }
     }
 }
 

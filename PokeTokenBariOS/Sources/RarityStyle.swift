@@ -17,10 +17,10 @@ enum RarityStyle {
 
     static func label(_ rarity: String) -> String {
         switch rarity {
-        case "uncommon": return "Uncommon"
-        case "rare": return "Rare"
-        case "legendary": return "Legendary"
-        default: return "Common"
+        case "uncommon": return String(localized: "Uncommon")
+        case "rare": return String(localized: "Rare")
+        case "legendary": return String(localized: "Legendary")
+        default: return String(localized: "Common")
         }
     }
 }

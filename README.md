@@ -123,7 +123,7 @@ If a tool keeps its sessions outside the built-in paths, add your own roots unde
 - **Additional scan folders** — per-provider extra scan roots for logs kept outside the built-in paths (Settings → Advanced).
 - **Burn-rate forecast** — projects when the current 5h window hits 100%.
 - **In-app updates** — one-click update check; current version shown in Settings.
-- **iOS companion app** *(this fork)* — connects to the Mac app over your local network and shows token usage, limits, and your companion on your iPhone.
+- **iOS companion app** *(this fork)* — syncs from the Mac app via iCloud (or your local network) and shows token usage and cost (today/week/month), burn-rate forecast, rate limits per provider (Claude, Codex, OpenCode Go, Antigravity) with the Mac's own warning thresholds, your companion with its status line and evolution line, plus read-only Shop, Bag, and Collection tabs. UI localized in English, Korean, Japanese, and Spanish.
 - **WidgetKit extension** *(this fork)* — a medium home-screen widget with your companion sprite, today/week usage, cost, and a utilization bar per rate-limit window (with reset countdowns) — no network required once data is synced.
 
 ## Works with

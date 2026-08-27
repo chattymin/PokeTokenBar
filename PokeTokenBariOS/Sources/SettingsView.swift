@@ -70,7 +70,7 @@ struct SettingsView: View {
                     Task {
                         await store.checkConnection()
                         isChecking = false
-                        connectionCheckResult = store.isConnected ? "Connected!" : "Cannot reach Mac"
+                        connectionCheckResult = store.isConnected ? String(localized: "Connected!") : String(localized: "Cannot reach Mac")
                     }
                 }
                 .disabled(hostInput.trimmingCharacters(in: .whitespaces).isEmpty)

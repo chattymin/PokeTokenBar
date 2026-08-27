@@ -15,6 +15,10 @@ final class PhonePayloadStore {
     var lastError: String?
     var isConnected = false
 
+    enum Source { case iCloud, localNetwork }
+    /// Which channel delivered the current payload (nil before the first successful fetch).
+    var source: Source?
+
     /// Whether the first data-source determination (iCloud or local HTTP) has finished.
     /// Until then the app has not yet decided between setup and dashboard, so the UI
     /// shows an entry screen instead of flashing the setup view.
@@ -58,6 +62,7 @@ final class PhonePayloadStore {
             do {
                 if let newPayload = try await CloudKitSync.fetch() {
                     payload = newPayload
+                    source = .iCloud
                     isConnected = true
                     saveToSharedContainer(newPayload)
                     return
@@ -67,13 +72,14 @@ final class PhonePayloadStore {
 
         // Local HTTP fallback
         guard !host.isEmpty else {
-            lastError = "No data source available"
+            lastError = String(localized: "No data source available")
             isConnected = false
             return
         }
         do {
             let newPayload = try await client.fetch(host: host)
             payload = newPayload
+            source = .localNetwork
             isConnected = true
             saveToSharedContainer(newPayload)
         } catch {
@@ -101,20 +107,19 @@ final class PhonePayloadStore {
         WidgetCenter.shared.reloadAllTimelines()
     }
 
+    /// Warm the shared sprite cache so the widget (which never hits the network) can render the
+    /// current and representative mon right away.
     private func saveSpriteToSharedContainer(companion: PhoneCompanionState?) {
-        guard let companion, let id = companion.speciesID else { return }
-        let groupDir = FileManager.default
-            .containerURL(forSecurityApplicationGroupIdentifier: "group.io.github.chattymin.poketokenbar")?
-            .appendingPathComponent("WidgetSprites", isDirectory: true)
-        guard let groupDir else { return }
-        try? FileManager.default.createDirectory(at: groupDir, withIntermediateDirectories: true)
-        let file = groupDir.appendingPathComponent("\(id)_\(companion.isShiny).png")
-        guard !FileManager.default.fileExists(atPath: file.path) else { return }
-        let base = "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon"
-        let suffix = companion.isShiny ? "shiny/\(id)" : "\(id)"
-        guard let url = URL(string: "\(base)/\(suffix).png"),
-              let imgData = try? Data(contentsOf: url) else { return }
-        try? imgData.write(to: file)
+        guard let companion else { return }
+        var pairs: [(id: Int, shiny: Bool)] = []
+        if let id = companion.speciesID { pairs.append((id, companion.isShiny)) }
+        if let rep = companion.representativeSpeciesID {
+            pairs.append((rep, companion.representativeIsShiny ?? false))
+        }
+        Task.detached(priority: .utility) {
+            await SpriteCache.shared.prefetchSpecies(pairs)
+            WidgetCenter.shared.reloadAllTimelines()
+        }
     }
 
     // MARK: - Auto-refresh

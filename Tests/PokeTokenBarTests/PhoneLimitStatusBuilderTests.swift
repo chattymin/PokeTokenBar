@@ -70,4 +70,69 @@ final class PhoneLimitStatusBuilderTests: XCTestCase {
         XCTAssertNil(status.claudeScoped)
         XCTAssertTrue(status.orderedWindows.isEmpty)
     }
+
+    /// Codex 리셋 시각은 최대 사용률 창의 resetsAt 을 짝지어 보낸다 (이전엔 항상 nil → 폰 카운트다운 불가).
+    func testCodexWindowsCarryResetDates() {
+        let codex = try! JSONDecoder().decode(CodexRateLimitStatus.self, from: Data(
+            #"{"rateLimits":{"primary":{"usedPercent":61,"windowDurationMins":300,"resetsAt":4102444800},"secondary":{"usedPercent":40,"windowDurationMins":10080,"resetsAt":4102531200}}}"#.utf8))
+        let status = AppDelegate.phoneLimitStatus(limits: nil, codex: codex, opencodeGo: nil, l: L(.en))
+        XCTAssertEqual(status.codexPrimary?.resetsAt, Date(timeIntervalSince1970: 4_102_444_800))
+        XCTAssertEqual(status.codexSecondary?.resetsAt, Date(timeIntervalSince1970: 4_102_531_200))
+    }
+
+    /// Antigravity 버킷은 그룹(Gemini / Claude & GPT)·창 순서대로 평탄화되고 라벨에 접두어가 붙는다.
+    func testAntigravityBucketsFlattenWithGroupLabels() {
+        let agy = AntigravityRateLimitStatus(groups: [
+            AntigravityQuotaGroup(displayName: "Gemini models", buckets: [
+                AntigravityQuotaBucket(bucketId: "gemini-5h", displayName: "5h", window: "5h",
+                                       resetTime: "2099-01-01T00:00:00Z", remainingFraction: 0.25),
+                AntigravityQuotaBucket(bucketId: "gemini-weekly", displayName: "weekly", window: "weekly",
+                                       remainingFraction: 0.9),
+            ]),
+            AntigravityQuotaGroup(displayName: "Claude/GPT", buckets: [
+                AntigravityQuotaBucket(bucketId: "3p-5h", displayName: "5h", window: "5h", remainingFraction: 0.5),
+            ]),
+        ])
+        let status = AppDelegate.phoneLimitStatus(limits: nil, codex: nil, opencodeGo: nil, antigravity: agy, l: L(.en))
+        XCTAssertEqual(status.antigravity?.map(\.label),
+                       ["Antigravity Gemini 5h", "Antigravity Gemini Weekly", "Antigravity Claude & GPT 5h"])
+        let utilizations = status.antigravity?.map(\.utilization) ?? []
+        XCTAssertEqual(utilizations.count, 3)
+        for (got, want) in zip(utilizations, [75.0, 10.0, 50.0]) { XCTAssertEqual(got, want, accuracy: 0.001) }
+        XCTAssertNotNil(status.antigravity?.first?.resetsAt)
+        XCTAssertEqual(status.limitGroups.map(\.title), ["Antigravity"])
+        XCTAssertEqual(status.orderedWindows.count, 3, "orderedWindows 에 Antigravity 창이 포함돼야 위젯/앱에 보인다")
+    }
+
+    /// 버킷이 하나도 없으면 antigravity 는 nil (빈 그룹 헤더가 폰에 생기지 않게).
+    func testAntigravityWithoutBucketsIsNil() {
+        let agy = AntigravityRateLimitStatus(groups: [AntigravityQuotaGroup(displayName: "Gemini models")])
+        let status = AppDelegate.phoneLimitStatus(limits: nil, codex: nil, opencodeGo: nil, antigravity: agy, l: L(.en))
+        XCTAssertNil(status.antigravity)
+    }
+
+    /// Mac 임계값이 그대로 실려 폰·위젯 색 규칙이 Mac 과 일치한다.
+    func testThresholdsForwarded() {
+        let status = AppDelegate.phoneLimitStatus(limits: nil, codex: nil, opencodeGo: nil,
+                                                  warnThreshold: 50, critThreshold: 80, l: L(.en))
+        XCTAssertEqual(status.effectiveWarnThreshold, 50)
+        XCTAssertEqual(status.effectiveCritThreshold, 80)
+        XCTAssertEqual(status.tier(for: 79), .warning)
+        XCTAssertEqual(status.tier(for: 80), .critical)
+        XCTAssertEqual(status.tier(for: 49), .normal)
+    }
+
+    /// 예측이 없고 burn 도 0 이면 nil; 예측만 있으면 tokensPerMinute 는 nil 로 보낸다.
+    func testBurnForecastMapping() {
+        XCTAssertNil(AppDelegate.phoneBurnForecast(forecast: nil, tokensPerMinute: 0))
+        let onlyBurn = AppDelegate.phoneBurnForecast(forecast: nil, tokensPerMinute: 1200)
+        XCTAssertNil(onlyBurn?.depletionDate)
+        XCTAssertEqual(onlyBurn?.tokensPerMinute, 1200)
+        let at = Date(timeIntervalSince1970: 4_102_444_800)
+        let full = AppDelegate.phoneBurnForecast(
+            forecast: UsageStore.FiveHourForecast(depletionDate: at, beforeReset: true), tokensPerMinute: 0)
+        XCTAssertEqual(full?.depletionDate, at)
+        XCTAssertTrue(full?.beforeReset ?? false)
+        XCTAssertNil(full?.tokensPerMinute)
+    }
 }

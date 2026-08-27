@@ -647,6 +647,20 @@ struct L {
     var phoneGo5h: String { t("Go 5시간", "Go 5h", "Go 5時間", "Go 5h", "Go 5 h", "Go 5 h") }
     var phoneGoWeekly: String { t("Go 주간", "Go Weekly", "Go 週間", "Go semanal", "Go hebdo", "Go semanal") }
     var phoneGoMonthly: String { t("Go 월간", "Go Monthly", "Go 月間", "Go mensual", "Go mensuel", "Go mensal") }
+    /// Antigravity 버킷 — "Antigravity <그룹> <창>". 그룹은 Gemini / Claude & GPT / 원문 표시명.
+    func phoneAntigravity(group: String, window: String?, bucketId: String) -> String {
+        let windowText: String
+        if window == "5h" || bucketId.contains("5h") {
+            windowText = t("5시간", "5h", "5時間", "5h", "5 h", "5 h")
+        } else if window == "weekly" || bucketId.contains("weekly") {
+            windowText = t("주간", "Weekly", "週間", "semanal", "hebdo", "semanal")
+        } else {
+            windowText = t("한도", "Limit", "上限", "Límite", "Limite", "Limite")
+        }
+        return "Antigravity \(group) \(windowText)"
+    }
+    var phoneAntigravityGeminiGroup: String { "Gemini" }
+    var phoneAntigravityThirdPartyGroup: String { "Claude & GPT" }
 
     // MARK: 가방 / 아이템
     var bag: String { t("가방", "Bag", "バッグ", "Bolsa", "Sac", "Bolsa") }

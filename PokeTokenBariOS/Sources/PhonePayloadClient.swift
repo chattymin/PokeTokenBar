@@ -37,8 +37,8 @@ enum PhonePayloadError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .httpError(let code): return "Server returned HTTP \(code)"
-        case .connectionFailed: return "Cannot connect to Mac"
+        case .httpError(let code): return String(localized: "Server returned HTTP \(code)")
+        case .connectionFailed: return String(localized: "Cannot connect to Mac")
         }
     }
 }

@@ -75,4 +75,56 @@ final class PhonePayloadCodableTests: XCTestCase {
         XCTAssertEqual(decoded.opencodeGoWeekly?.label, "Go Weekly")
         XCTAssertEqual(decoded.opencodeGoMonthly?.utilization, 20)
     }
+
+    /// 새 필드(antigravity·임계값·주/월 비용·burn·컴패니언 확장)가 없는 구 페이로드도 nil/기본값으로 디코드된다.
+    func testNewOptionalFieldsDecodeAsNilFromLegacyPayload() throws {
+        let legacy = Data("""
+        {"todayTokens":1,"todayCost":0.5,"weekTokens":2,"monthTokens":3,
+         "lastUpdated":0,"serverVersion":"1.0",
+         "limits":{"claude5h":{"label":"Claude 5h","utilization":42,"resetsAt":null},"planDisplay":null},
+         "companion":{"name":"Pikachu","speciesID":25,"isShiny":false,"isEgg":false,"progress":0.1,
+                      "stageText":"Stage 1/3","rarity":"common","dexCount":1,"eggProgress":0,"displayState":"idle"},
+         "providers":[]}
+        """.utf8)
+        let payload = try JSONDecoder().decode(PhonePayload.self, from: legacy)
+        XCTAssertNil(payload.weekCost)
+        XCTAssertNil(payload.monthCost)
+        XCTAssertNil(payload.burn)
+        XCTAssertNil(payload.limits?.antigravity)
+        XCTAssertNil(payload.limits?.warnThreshold)
+        XCTAssertEqual(payload.limits?.effectiveWarnThreshold, 80)
+        XCTAssertEqual(payload.limits?.effectiveCritThreshold, 95)
+        XCTAssertNil(payload.companion?.representativeSpeciesID)
+        XCTAssertNil(payload.companion?.statusText)
+        XCTAssertNil(payload.companion?.lineNodes)
+    }
+
+    /// 확장 필드 왕복 + Antigravity 그룹이 orderedWindows 의 마지막에 온다.
+    func testExtendedFieldsRoundTrip() throws {
+        let limits = PhoneLimitStatus(
+            claude5h: PhoneLimitWindow(label: "Claude 5h", utilization: 2, resetsAt: nil),
+            claudeWeekly: nil, claudeOpusWeekly: nil, claudeSonnetWeekly: nil,
+            codexPrimary: nil, codexSecondary: nil,
+            antigravity: [PhoneLimitWindow(label: "Antigravity Gemini 5h", utilization: 75, resetsAt: nil)],
+            planDisplay: "Max", warnThreshold: 60, critThreshold: 90)
+        let companion = PhoneCompanionState(
+            name: "Pikachu", speciesID: 25, isShiny: false, isEgg: false, progress: 0.4,
+            stageText: "Stage 1/3", rarity: "common", dexCount: 3, eggProgress: 0, displayState: "focus",
+            representativeSpeciesID: 6, representativeIsShiny: true, statusText: "In focus mode now.",
+            natureText: "Jolly",
+            lineNodes: [PhoneEvoNode(speciesID: 25, name: "Pikachu", state: .current),
+                        PhoneEvoNode(speciesID: nil, name: nil, state: .future)])
+        let payload = PhonePayload(
+            todayTokens: 1, todayCost: 0.5, weekTokens: 2, monthTokens: 3,
+            lastUpdated: Date(timeIntervalSince1970: 0), serverVersion: "2.6.0",
+            limits: limits, companion: companion, providers: [],
+            weekCost: 12.5, monthCost: 40,
+            burn: PhoneBurnForecast(depletionDate: Date(timeIntervalSince1970: 100), beforeReset: true, tokensPerMinute: 900))
+        let data = try JSONEncoder().encode(payload)
+        let back = try JSONDecoder().decode(PhonePayload.self, from: data)
+        XCTAssertEqual(back, payload)
+        XCTAssertEqual(back.limits?.limitGroups.map(\.title), ["Claude", "Antigravity"])
+        XCTAssertEqual(back.limits?.orderedWindows.last?.label, "Antigravity Gemini 5h")
+        XCTAssertEqual(back.companion?.lineNodes?.last?.speciesID, nil)
+    }
 }

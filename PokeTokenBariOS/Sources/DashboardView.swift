@@ -39,7 +39,7 @@ struct DashboardView: View {
     private func dashboardContent(_ payload: PhonePayload) -> some View {
         ScrollView {
             VStack(spacing: 16) {
-                ConnectionIndicator(connected: store.isConnected)
+                SourceIndicator(source: store.source, connected: store.isConnected, lastUpdated: payload.lastUpdated)
 
                 if let companion = payload.companion {
                     CompanionCard(companion: companion)
@@ -57,9 +57,9 @@ struct DashboardView: View {
                     }
                 }
 
-                Text("Updated \(payload.lastUpdated, style: .relative) ago")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                Text("Mac app v\(payload.serverVersion)")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
             }
             .padding()
         }
@@ -84,18 +84,39 @@ struct DashboardView: View {
     }
 }
 
-// MARK: - Connection
+// MARK: - Source indicator
 
-struct ConnectionIndicator: View {
+/// Where the payload came from and how fresh it is. "Connected" was misleading for iCloud
+/// (there is no live connection) — show the source and the Mac-side timestamp instead.
+struct SourceIndicator: View {
+    let source: PhonePayloadStore.Source?
     let connected: Bool
+    let lastUpdated: Date
+
+    private var isStale: Bool { Date().timeIntervalSince(lastUpdated) > 30 * 60 }
+
     var body: some View {
         HStack(spacing: 6) {
-            Circle()
-                .fill(connected ? Color.green : Color.red)
-                .frame(width: 8, height: 8)
-            Text(connected ? "Connected" : "Disconnected")
+            Image(systemName: source == .localNetwork ? "wifi" : "icloud")
+                .font(.caption2)
+                .foregroundStyle(connected && !isStale ? Color.green : (isStale ? Color.orange : Color.red))
+            Text(sourceLabel)
                 .font(.caption)
                 .foregroundStyle(.secondary)
+            Text("·")
+                .font(.caption)
+                .foregroundStyle(.tertiary)
+            Text("updated \(lastUpdated, style: .relative) ago")
+                .font(.caption)
+                .foregroundStyle(isStale ? .orange : .secondary)
+        }
+    }
+
+    private var sourceLabel: String {
+        switch source {
+        case .iCloud: return String(localized: "iCloud")
+        case .localNetwork: return String(localized: "Local network")
+        case nil: return String(localized: "Cached")
         }
     }
 }
@@ -118,12 +139,9 @@ struct CompanionCard: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             } else {
-                AsyncImage(url: spriteURL) { image in
-                    image.resizable().interpolation(.none)
-                } placeholder: {
-                    ProgressView()
+                if let id = companion.speciesID {
+                    SpeciesSprite(speciesID: id, shiny: companion.isShiny, size: 96)
                 }
-                .frame(width: 96, height: 96)
 
                 HStack {
                     Text(companion.name)
@@ -135,7 +153,7 @@ struct CompanionCard: View {
                 }
 
                 if let rarity = companion.rarity {
-                    Text(rarity.uppercased())
+                    Text(RarityStyle.label(rarity).uppercased())
                         .font(.caption2.weight(.semibold))
                         .padding(.horizontal, 8)
                         .padding(.vertical, 2)
@@ -144,7 +162,8 @@ struct CompanionCard: View {
                         .clipShape(Capsule())
                 }
 
-                Text(companion.stageText)
+                // Stage + nature on one line, same as the Mac header ("Stage 1/3 · Jolly").
+                Text([companion.stageText, companion.natureText].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · "))
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
 
@@ -156,6 +175,18 @@ struct CompanionCard: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
+
+                if let nodes = companion.lineNodes, nodes.count > 1 {
+                    EvolutionLineStrip(nodes: nodes)
+                }
+            }
+
+            if let status = companion.statusText, !status.isEmpty {
+                Text(status)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .italic()
+                    .multilineTextAlignment(.center)
             }
         }
         .padding()
@@ -164,13 +195,54 @@ struct CompanionCard: View {
         .clipShape(RoundedRectangle(cornerRadius: 16))
     }
 
-    private var spriteURL: URL? {
-        guard let id = companion.speciesID else { return nil }
-        return PokeSprite.speciesURL(id: id, shiny: companion.isShiny)
-    }
-
     private var rarityColor: Color {
         RarityStyle.color(companion.rarity ?? "")
+    }
+}
+
+/// Evolution line — done / current / future sprites with a "?" for an unrevealed branch,
+/// mirroring the Mac's line strip. Scrolls horizontally for long lines.
+struct EvolutionLineStrip: View {
+    let nodes: [PhoneEvoNode]
+
+    var body: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 4) {
+                ForEach(Array(nodes.enumerated()), id: \.offset) { index, node in
+                    if index > 0 {
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 9, weight: .semibold))
+                            .foregroundStyle(.tertiary)
+                    }
+                    VStack(spacing: 2) {
+                        Group {
+                            if let id = node.speciesID {
+                                SpeciesSprite(speciesID: id, shiny: false, size: 40)
+                                    .saturation(node.state == .future ? 0 : 1)
+                                    .opacity(node.state == .future ? 0.45 : 1)
+                            } else {
+                                Text("?")
+                                    .font(.title3.bold())
+                                    .foregroundStyle(.tertiary)
+                                    .frame(width: 40, height: 40)
+                            }
+                        }
+                        .padding(2)
+                        .background(
+                            RoundedRectangle(cornerRadius: 8)
+                                .stroke(node.state == .current ? Color.accentColor : .clear, lineWidth: 1.5)
+                        )
+                        Text(node.name ?? "???")
+                            .font(.system(size: 9))
+                            .foregroundStyle(node.state == .current ? .primary : .secondary)
+                            .lineLimit(1)
+                    }
+                    .frame(width: 56)
+                }
+            }
+            .padding(.horizontal, 4)
+        }
+        .frame(maxWidth: .infinity)
     }
 }
 
@@ -181,17 +253,21 @@ struct UsageCard: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            statRow(icon: "calendar", title: "Today",
-                    value: TokenFormatter.compact(payload.todayTokens))
+            statRow(icon: "calendar", title: String(localized: "Today"),
+                    value: TokenFormatter.compact(payload.todayTokens),
+                    cost: TokenFormatter.costCompact(payload.todayCost))
             Divider().padding(.horizontal)
-            statRow(icon: "dollarsign.circle", title: "Cost",
-                    value: TokenFormatter.costCompact(payload.todayCost))
+            statRow(icon: "calendar.badge.clock", title: String(localized: "This Week"),
+                    value: TokenFormatter.compact(payload.weekTokens),
+                    cost: payload.weekCost.map(TokenFormatter.costCompact))
             Divider().padding(.horizontal)
-            statRow(icon: "calendar.badge.clock", title: "This Week",
-                    value: TokenFormatter.compact(payload.weekTokens))
-            Divider().padding(.horizontal)
-            statRow(icon: "calendar.badge.plus", title: "This Month",
-                    value: TokenFormatter.compact(payload.monthTokens))
+            statRow(icon: "calendar.badge.plus", title: String(localized: "This Month"),
+                    value: TokenFormatter.compact(payload.monthTokens),
+                    cost: payload.monthCost.map(TokenFormatter.costCompact))
+            if let burn = payload.burn, burn.depletionDate != nil || burn.tokensPerMinute != nil {
+                Divider().padding(.horizontal)
+                burnRow(burn)
+            }
         }
         .padding(.vertical, 4)
         .padding(.horizontal)
@@ -201,14 +277,45 @@ struct UsageCard: View {
     }
 
     @ViewBuilder
-    private func statRow(icon: String, title: String, value: String) -> some View {
+    private func statRow(icon: String, title: String, value: String, cost: String?) -> some View {
         HStack {
             Label(title, systemImage: icon)
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
             Spacer()
+            if let cost {
+                Text(cost)
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+            }
             Text(value)
                 .font(.body.monospacedDigit().bold())
+        }
+        .padding(.vertical, 10)
+    }
+
+    /// Mac's "will hit the 5h limit at HH:mm" forecast row, plus the current burn rate.
+    @ViewBuilder
+    private func burnRow(_ burn: PhoneBurnForecast) -> some View {
+        HStack {
+            Label(String(localized: "Burn"), systemImage: "flame")
+                .font(.subheadline)
+                .foregroundStyle(burn.beforeReset ? .orange : .secondary)
+            Spacer()
+            VStack(alignment: .trailing, spacing: 1) {
+                if let at = burn.depletionDate {
+                    Text(burn.beforeReset
+                         ? String(localized: "5h limit at \(at.formatted(date: .omitted, time: .shortened))")
+                         : String(localized: "Won't reach the 5h limit before reset"))
+                        .font(.caption.weight(burn.beforeReset ? .semibold : .regular))
+                        .foregroundStyle(burn.beforeReset ? .orange : .secondary)
+                }
+                if let tpm = burn.tokensPerMinute, tpm > 0 {
+                    Text("\(TokenFormatter.compact(Int(tpm)))/min")
+                        .font(.caption2.monospacedDigit())
+                        .foregroundStyle(.tertiary)
+                }
+            }
         }
         .padding(.vertical, 10)
     }
@@ -216,6 +323,8 @@ struct UsageCard: View {
 
 // MARK: - Limits Card
 
+/// One card per provider group (Claude / Codex / Go / Antigravity) driven by `limitGroups`, so any
+/// window the Mac adds to the payload shows up here without another hand-written `if let`.
 struct LimitsCard: View {
     let limits: PhoneLimitStatus
 
@@ -236,44 +345,24 @@ struct LimitsCard: View {
                 }
             }
 
-            if let w = limits.claude5h {
-                LimitRow(window: w)
-            }
-            if let w = limits.claudeWeekly {
-                LimitRow(window: w)
-            }
-            if let w = limits.claudeOpusWeekly {
-                LimitRow(window: w)
-            }
-            if let w = limits.claudeSonnetWeekly {
-                LimitRow(window: w)
-            }
-            ForEach(Array((limits.claudeScoped ?? []).enumerated()), id: \.offset) { _, w in
-                LimitRow(window: w)
-            }
-            if let w = limits.codexPrimary {
-                LimitRow(window: w)
-            }
-            if let w = limits.codexSecondary {
-                LimitRow(window: w)
-            }
-            if let w = limits.opencodeGo5h {
-                LimitRow(window: w)
-            }
-            if let w = limits.opencodeGoWeekly {
-                LimitRow(window: w)
-            }
-            if let w = limits.opencodeGoMonthly {
-                LimitRow(window: w)
-            }
-
-            if limits.claude5h == nil && limits.claudeWeekly == nil && limits.claudeOpusWeekly == nil
-                && limits.claudeSonnetWeekly == nil && (limits.claudeScoped ?? []).isEmpty
-                && limits.codexPrimary == nil && limits.codexSecondary == nil
-                && limits.opencodeGo5h == nil && limits.opencodeGoWeekly == nil && limits.opencodeGoMonthly == nil {
+            let groups = limits.limitGroups
+            if groups.isEmpty {
                 Text("No rate limits active")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+            }
+            ForEach(Array(groups.enumerated()), id: \.offset) { index, group in
+                if index > 0 { Divider() }
+                VStack(alignment: .leading, spacing: 8) {
+                    if groups.count > 1 {
+                        Text(group.title)
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                    }
+                    ForEach(Array(group.windows.enumerated()), id: \.offset) { _, w in
+                        LimitRow(window: w, label: shortLabel(w.label, group: group.title), limits: limits)
+                    }
+                }
             }
         }
         .padding()
@@ -281,15 +370,24 @@ struct LimitsCard: View {
         .background(.ultraThinMaterial)
         .clipShape(RoundedRectangle(cornerRadius: 16))
     }
+
+    /// With a group header above, drop the repeated brand prefix ("Claude Weekly" → "Weekly").
+    private func shortLabel(_ label: String, group: String) -> String {
+        guard limits.limitGroups.count > 1, label.hasPrefix(group + " ") else { return label }
+        let trimmed = String(label.dropFirst(group.count + 1))
+        return trimmed.isEmpty ? label : trimmed
+    }
 }
 
 struct LimitRow: View {
     let window: PhoneLimitWindow
+    var label: String? = nil
+    var limits: PhoneLimitStatus? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack {
-                Text(window.label)
+                Text(label ?? window.label)
                     .font(.subheadline)
                 Spacer()
                 if let resetsAt = window.resetsAt {
@@ -317,9 +415,25 @@ struct LimitRow: View {
     }
 
     private var utilizationColor: Color {
-        if window.utilization >= 95 { return .red }
-        if window.utilization >= 80 { return .orange }
-        return .blue
+        LimitColor.color(for: window.utilization, limits: limits)
+    }
+}
+
+/// Utilization colour using the Mac's thresholds when the payload carries them.
+enum LimitColor {
+    static func color(for utilization: Double, limits: PhoneLimitStatus?) -> Color {
+        let tier = limits?.tier(for: utilization) ?? fallbackTier(utilization)
+        switch tier {
+        case .critical: return .red
+        case .warning: return .orange
+        case .normal: return .blue
+        }
+    }
+
+    private static func fallbackTier(_ u: Double) -> PhoneLimitTier {
+        if u >= PhoneLimitStatus.defaultCritThreshold { return .critical }
+        if u >= PhoneLimitStatus.defaultWarnThreshold { return .warning }
+        return .normal
     }
 }
 

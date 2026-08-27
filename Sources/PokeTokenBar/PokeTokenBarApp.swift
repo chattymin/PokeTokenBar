@@ -206,7 +206,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private func buildAndPublishPayload() async {
         let limits = Self.phoneLimitStatus(
             limits: store.limits, codex: store.codexLimits,
-            opencodeGo: store.opencodeGoLimits, l: companion.l)
+            opencodeGo: store.opencodeGoLimits, antigravity: store.antigravityLimits,
+            warnThreshold: store.warnThreshold, critThreshold: store.critThreshold,
+            l: companion.l)
         let companionState = PhoneCompanionState(
             name: companion.displayName,
             speciesID: companion.currentSpeciesID,
@@ -219,7 +221,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             eggProgress: companion.eggProgress,
             displayState: companion.displayState.rawValue,
             evolutionTokens: companion.tokensToNextEvolution,
-            graduationTokens: companion.tokensToGraduation)
+            graduationTokens: companion.tokensToGraduation,
+            representativeSpeciesID: companion.representativeSubject.speciesID,
+            representativeIsShiny: companion.representativeSubject.isShiny,
+            statusText: companion.statusText,
+            natureText: companion.currentNature?.name(companion.language),
+            lineNodes: companion.phoneLineNodes)
         let providers = store.snapshots.map { snapshot -> PhoneProviderSnapshot in
             PhoneProviderSnapshot(id: snapshot.providerID, displayName: snapshot.displayName,
                                    todayTokens: snapshot.todayTotalTokens,
@@ -254,14 +261,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             weekTokens: store.weekTotalTokens,
             monthTokens: store.monthTotalTokens,
             lastUpdated: store.lastUpdated ?? Date(),
-            serverVersion: "1.0",
+            serverVersion: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.0",
             limits: limits,
             companion: companionState,
             providers: providers,
             bag: bag,
             dex: dex,
             spendableTokens: companion.availableTokens,
-            shop: Self.phoneShopEntries(companion))
+            shop: Self.phoneShopEntries(companion),
+            weekCost: store.weekCostTotal,
+            monthCost: store.monthCostTotal,
+            burn: Self.phoneBurnForecast(forecast: store.fiveHourForecast,
+                                         tokensPerMinute: store.combinedBurnPerMinuteForPhone))
         if phoneServer.isRunning, let data = try? JSONEncoder().encode(payload) {
             phoneServer.updatePayload(data)
         }
@@ -278,8 +289,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         limits: LimitStatus?,
         codex: CodexRateLimitStatus?,
         opencodeGo: OpenCodeGoLimitStatus?,
+        antigravity: AntigravityRateLimitStatus? = nil,
+        warnThreshold: Double? = nil,
+        critThreshold: Double? = nil,
         l: L
     ) -> PhoneLimitStatus {
+        // Codex 리셋 시각: 최대 사용률을 가진 창(메뉴바/폰이 표시하는 값)의 resetDate 를 짝지어 보낸다.
+        let codexPrimaryWindow = codex?.visibleSnapshots.compactMap(\.primary).max { $0.usedPercent < $1.usedPercent }
+        let codexSecondaryWindow = codex?.visibleSnapshots.compactMap(\.secondary).max { $0.usedPercent < $1.usedPercent }
+        // Antigravity: 팝오버와 같은 그룹 순서·버킷 순서로 평탄화. 그룹명은 Gemini / Claude & GPT 로 정규화.
+        let agy: [PhoneLimitWindow] = (antigravity?.groups ?? []).flatMap { group -> [PhoneLimitWindow] in
+            let title = group.displayName.localizedCaseInsensitiveContains("gemini")
+                ? l.phoneAntigravityGeminiGroup
+                : (group.displayName.localizedCaseInsensitiveContains("claude") ? l.phoneAntigravityThirdPartyGroup : group.displayName)
+            return group.buckets.map { bucket in
+                PhoneLimitWindow(label: l.phoneAntigravity(group: title, window: bucket.window, bucketId: bucket.bucketId),
+                                 utilization: bucket.usedPercent, resetsAt: bucket.resetDate)
+            }
+        }
         let scoped: [PhoneLimitWindow] = (limits?.scopedLimitEntries ?? []).compactMap { entry in
             guard let percent = entry.percent else { return nil }
             return PhoneLimitWindow(
@@ -302,10 +329,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             },
             claudeScoped: scoped.isEmpty ? nil : scoped,
             codexPrimary: codex?.maxPrimaryUsedPercent.map {
-                PhoneLimitWindow(label: l.phoneCodex, utilization: Double($0), resetsAt: nil)
+                PhoneLimitWindow(label: l.phoneCodex, utilization: Double($0), resetsAt: codexPrimaryWindow?.resetDate)
             },
             codexSecondary: codex?.maxSecondaryUsedPercent.map {
-                PhoneLimitWindow(label: l.phoneCodexSecondary, utilization: Double($0), resetsAt: nil)
+                PhoneLimitWindow(label: l.phoneCodexSecondary, utilization: Double($0), resetsAt: codexSecondaryWindow?.resetDate)
             },
             opencodeGo5h: opencodeGo?.rolling.flatMap { window in
                 window.utilization.map {
@@ -322,7 +349,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
                     PhoneLimitWindow(label: l.phoneGoMonthly, utilization: $0, resetsAt: window.resetDate)
                 }
             },
-            planDisplay: limits?.planDisplay)
+            antigravity: agy.isEmpty ? nil : agy,
+            planDisplay: limits?.planDisplay,
+            warnThreshold: warnThreshold,
+            critThreshold: critThreshold)
+    }
+
+    /// Claude 5h 소진 예측 → 폰. 예측이 없어도 burn 이 있으면 tokens/min 만 보낸다.
+    static func phoneBurnForecast(forecast: UsageStore.FiveHourForecast?, tokensPerMinute: Double) -> PhoneBurnForecast? {
+        guard forecast != nil || tokensPerMinute > 0 else { return nil }
+        return PhoneBurnForecast(depletionDate: forecast?.depletionDate,
+                                 beforeReset: forecast?.beforeReset ?? false,
+                                 tokensPerMinute: tokensPerMinute > 0 ? tokensPerMinute : nil)
     }
 
     /// 상점 목록(판매 아이템 + 알 3종) → 폰 읽기 전용 엔트리 매핑. 순서·가격·구매가능 판정은
