@@ -190,6 +190,31 @@ final class EggBalanceTests: XCTestCase {
         let chosen = EggBalance.pickSpecies(from: index, grade: .common, roll: 0.5)
         XCTAssertEqual(chosen, 9)
     }
+
+    /// **레지기가스(486)는 알에서 안 나온다 — 어떤 굴림에도.** 레지 패밀리 완성 보상이
+    /// 유일한 입수처라는 약속이고, `pickSpecies` 가 종 선택의 유일한 관문이라(뽑기·확정권·
+    /// 박사의 제안) 여기 하나로 전 경로가 잠긴다.
+    func testRewardOnlySpeciesNeverComeFromAnyRoll() {
+        let index = [
+            BaseSpecies(id: 486, captureRate: 3, isLegendary: true, isMythical: false),
+            BaseSpecies(id: 150, captureRate: 3, isLegendary: true, isMythical: false),
+        ]
+        for roll in stride(from: 0.0, through: 1.0, by: 0.01) {
+            XCTAssertEqual(EggBalance.pickSpecies(from: index, grade: .legendary, roll: roll),
+                           150, "굴림 \(roll) 에서 보상 전용 종이 알로 나왔다")
+        }
+    }
+
+    /// 풀에 보상 전용 종만 남으면 그 등급은 **빈 것으로 취급**된다 — 등급 걷기가 아래로
+    /// 내려간다(빈 풀 규칙 그대로). 제외를 등급 걷기 *뒤에* 하면 후보 0 으로 크래시하는 부류다.
+    func testAGradeMadeOfRewardOnlySpeciesCountsAsEmpty() {
+        let index = [
+            BaseSpecies(id: 486, captureRate: 3, isLegendary: true, isMythical: false),  // 유일한 레전더리
+            BaseSpecies(id: 2, captureRate: 45, isLegendary: false, isMythical: false),  // 에픽
+        ]
+        let chosen = EggBalance.pickSpecies(from: index, grade: .legendary, roll: 0.5)
+        XCTAssertEqual(chosen, 2, "보상 전용 종뿐인 등급은 한 단계 아래로 내려가야 한다")
+    }
 }
 
 final class EggTests: XCTestCase {

@@ -42,8 +42,28 @@ struct L {
         t("\(n)세대 완성", "Complete Gen \(n)", "だい\(n)せだい かんせい")
     }
     var missionCompletion: String { t("전국도감 완성", "Complete the National Dex", "ぜんこくずかん かんせい") }
+    var collectionSection: String { t("컬렉션", "Collections", "コレクション") }
+    // MARK: 도감 상세
+    var dexHeight: String { t("키", "Height", "たかさ") }
+    var dexWeight: String { t("몸무게", "Weight", "おもさ") }
+    var dexEntryLoading: String { t("도감을 펼치는 중…", "Opening the Dex…", "ずかんを ひらいています…") }
+    var dexEntryUnavailable: String {
+        t("도감 정보를 받지 못했어요. 잠시 뒤 다시 열어 주세요.",
+          "Couldn't fetch the Dex entry. Try again shortly.",
+          "ずかんの じょうほうを とれませんでした。しばらくして ひらいてください。")
+    }
+    /// 미등록 종 — 본가처럼 정보를 가린다.
+    var dexEntryUnknown: String { t("???", "???", "???") }
+    func dexFormsButton(_ n: Int) -> String {
+        t("모습 \(n)종 보기", "See \(n) forms", "すがた \(n)しゅを みる")
+    }
+    var collectionCompleteBadge: String { t("완성", "Complete", "かんせい") }
     var missionClaimedToBag: String {
         t("가방에 담았어요", "Added to your Bag", "バッグに いれました")
+    }
+    /// 포켓몬을 주는 컬렉션 보상의 수령 확인 — 가방이 아니라 박스로 간다.
+    var collectionJoinedBox: String {
+        t("박스에 합류했어요", "Joined your Box", "ボックスに くわわりました")
     }
     /// 상점 알 뽑기의 확정권 버튼 — 등급 이름과 남은 장수.
     func shopTicketDraw(_ ticket: String, _ n: Int) -> String {

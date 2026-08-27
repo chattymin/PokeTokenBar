@@ -27,6 +27,17 @@ protocol PokeProviding: Sendable {
     /// 단일 종이 base(진화 시작점)면 BaseSpecies, 아니면 nil.
     /// GraphQL 인덱스 엔드포인트 장애 시 REST(pokemon-species)로 부화 후보를 뽑는 폴백용.
     func baseSpecies(id: Int) async throws -> BaseSpecies?
+
+    /// 도감 상세의 프로필(키·몸무게·분류·도감설명). 디스크에 캐시된다 — 종 하나에 평생 한 번.
+    func speciesProfile(id: Int) async throws -> SpeciesProfile
+}
+
+extension PokeProviding {
+    /// 기본은 "없다" — 테스트 스텁 여럿이 이 프로토콜을 입는데, 도감 상세를 안 다루는 스텁까지
+    /// 프로필을 지어내게 하는 것보다 던지는 쪽이 정직하다. 실제 클라이언트는 구현을 갖는다.
+    func speciesProfile(id: Int) async throws -> SpeciesProfile {
+        throw URLError(.unsupportedURL)
+    }
 }
 
 /// PokéAPI 클라이언트 — 종/진화체인을 런타임 fetch + 파싱. 포켓몬 데이터는 레포에 번들하지 않는다.
@@ -236,6 +247,54 @@ actor PokeAPIClient: PokeProviding {
                            growthRate: GrowthRate.fromAPI(dto.growth_rate.name))
     }
 
+    private var profileCache: [Int: SpeciesProfile] = [:]
+
+    /// 프로필 디스크 캐시 자리. 스프라이트 캐시와 같은 지붕(Application Support) 아래다.
+    private static func profileURL(id: Int) -> URL {
+        let dir = AppEnv.supportDirectory().appendingPathComponent("species-profiles")
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir.appendingPathComponent("\(id).json")
+    }
+
+    func speciesProfile(id: Int) async throws -> SpeciesProfile {
+        if let cached = profileCache[id] { return cached }
+        // 디스크 — 도감설명·키·몸무게는 안 변하는 값이라 무효화가 필요 없다.
+        if let data = try? Data(contentsOf: Self.profileURL(id: id)),
+           let stored = try? JSONDecoder().decode(SpeciesProfile.self, from: data) {
+            profileCache[id] = stored
+            return stored
+        }
+        let dto = try await species(id)
+        let size: PokemonSizeDTO = try await get(base.appendingPathComponent("pokemon/\(id)"))
+        // ko/en/ja 만 담는다 — 다른 언어까지 실으면 프로필 캐시가 열 배로 는다.
+        let flavors = (dto.flavor_text_entries ?? []).compactMap { entry -> FlavorRecord? in
+            guard ["ko", "en", "ja"].contains(entry.language.name),
+                  let version = entry.version?.name else { return nil }
+            return FlavorRecord(version: version, language: entry.language.name,
+                                text: SpeciesProfile.cleaned(entry.flavor_text))
+        }
+        func genus(_ lang: String) -> String {
+            (dto.genera ?? []).first(where: { $0.language.name == lang })?.genus
+                ?? (dto.genera ?? []).first(where: { $0.language.name == "en" })?.genus ?? ""
+        }
+        func name(_ lang: String) -> String {
+            dto.names.first(where: { $0.language.name == lang })?.name
+                ?? dto.names.first(where: { $0.language.name == "en" })?.name ?? "#\(id)"
+        }
+        let profile = SpeciesProfile(
+            speciesID: id,
+            nameKo: name("ko"), nameEn: name("en"), nameJa: name("ja"),
+            typeSlugs: size.types.sorted { $0.slot < $1.slot }.map(\.type.name),
+            heightDm: size.height, weightHg: size.weight,
+            genusKo: genus("ko"), genusEn: genus("en"), genusJa: genus("ja"),
+            flavors: flavors)
+        profileCache[id] = profile
+        if let data = try? JSONEncoder().encode(profile) {
+            try? data.write(to: Self.profileURL(id: id))
+        }
+        return profile
+    }
+
     private func get<T: Decodable>(_ url: URL) async throws -> T {
         var req = URLRequest(url: url)
         req.timeoutInterval = 15
@@ -310,7 +369,24 @@ struct SpeciesDTO: Decodable, Sendable {
     let evolution_chain: URLRef
     let evolves_from_species: NamedRef?   // nil = 진화라인 시작점(base)
     let growth_rate: NamedRef
+    /// 도감설명 — (언어 × 게임 버전) 격자라 같은 언어가 여러 번 온다.
+    let flavor_text_entries: [FlavorDTO]?
+    /// 분류("쥐포켓몬") — 언어별.
+    let genera: [GenusDTO]?
 }
+struct FlavorDTO: Decodable, Sendable {
+    let flavor_text: String
+    let language: NamedRef
+    let version: NamedRef?
+}
+struct GenusDTO: Decodable, Sendable { let genus: String; let language: NamedRef }
+/// `pokemon/{id}` 에서 키·몸무게·타입만 — 나머지 필드(수백 줄)는 안 읽는다.
+struct PokemonSizeDTO: Decodable, Sendable {
+    let height: Int
+    let weight: Int
+    let types: [TypeSlotDTO]
+}
+struct TypeSlotDTO: Decodable, Sendable { let slot: Int; let type: NamedRef }
 struct NameDTO: Decodable, Sendable { let name: String; let language: NamedRef }
 struct NamedRef: Decodable, Sendable { let name: String; let url: String? }
 struct URLRef: Decodable, Sendable { let url: String }

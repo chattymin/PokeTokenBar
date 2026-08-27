@@ -33,6 +33,8 @@ struct PlayerState: Codable, Sendable {
     var ownsRainbowCharm = false
     /// 수령한 도감 미션 id 들. 진행.
     var claimedDexMissions: Set<String> = []
+    /// 보상을 받은 컬렉션 id 들. 배지는 도감에서 파생되므로 기록이 없고, **보상 수령만** 남는다.
+    var claimedCollections: Set<String> = []
     /// 이 세이브만의 굴림 시드. **박사의 제안이 사람마다 달라지게 하는 유일한 근거**다.
     ///
     /// 처음엔 없었고, 그래서 제안이 날짜·자리·용도로만 결정돼 **같은 날 모든 설치가 같은 세 마리**를
@@ -136,6 +138,7 @@ struct PlayerState: Codable, Sendable {
         researchPoints = min(ReleaseBalance.maxPoints, max(0, value(.researchPoints, 0)))
         ownsRainbowCharm = value(.ownsRainbowCharm, false)
         claimedDexMissions = value(.claimedDexMissions, [])
+        claimedCollections = value(.claimedCollections, [])
         // 값 범위를 안 자른다 — 해시 입력일 뿐이라 어떤 값이 와도 산술이 넘치지 않는다
         // (`ProfessorRoll` 은 전부 `&+`/`&*`). 0 만 "아직 없음"으로 취급한다.
         offerSeed = value(.offerSeed, 0)

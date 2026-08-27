@@ -926,6 +926,35 @@ final class ScreenshotGeneratorTests: XCTestCase {
         try write(png(tabChrome(NationalDexView(store: fixture.player, missionsExpanded: true))),
                   "screenshot-dex-missions.png")
 
+        // 도감 상세(종 항목) — 프로필은 네트워크라 실물 모양의 값을 심어 렌더한다.
+        // 피카츄: 도감설명·분류·키·몸무게에 소속 컬렉션(피카츄 닮은꼴)까지 한 장에 나온다.
+        let pikachuProfile = SpeciesProfile(
+            speciesID: 25, nameKo: "피카츄", nameEn: "Pikachu", nameJa: "ピカチュウ",
+            typeSlugs: ["electric"], heightDm: 4, weightHg: 60,
+            genusKo: "쥐포켓몬", genusEn: "Mouse Pokémon", genusJa: "ねずみポケモン",
+            flavors: [
+                FlavorRecord(version: "red", language: "en",
+                             text: "When several of these POKeMON gather, their electricity could build and cause lightning storms."),
+                FlavorRecord(version: "x", language: "en",
+                             text: "It occasionally uses an electric shock to recharge a fellow Pikachu that is in a weakened state."),
+                FlavorRecord(version: "x", language: "ko",
+                             text: "약해진 동료 피카츄에게 전기를 나눠주며 충전해 주기도 한다."),
+                FlavorRecord(version: "sword", language: "en",
+                             text: "Pikachu greet one another by touching tails and exchanging electricity."),
+                FlavorRecord(version: "sword", language: "ko",
+                             text: "서로의 꼬리를 붙여서 전기를 흐르게 하는 게 피카츄 사이의 인사법이다."),
+            ])
+        try write(png(tabChrome(NationalDexView(store: fixture.player,
+                                                entrySpeciesID: 25,
+                                                entryProfile: pikachuProfile))),
+                  "screenshot-dex-entry.png")
+
+        // 컬렉션 — 목록을 펼친 채로. 픽스처에 이브이·전설의 새 일부가 있어 진행 중인 세트와
+        // 실루엣이 같이 나온다.
+        try write(png(tabChrome(NationalDexView(store: fixture.player,
+                                                collectionsExpanded: true))),
+                  "screenshot-collections.png")
+
         // 폼 도감 — 종 칸을 누르면 그 종의 무늬가 행으로 펼쳐진다. **그리드만 찍으면 이 기능이
         // 그림에 한 번도 안 담긴다**(칸 겉모습은 예전과 같다). 비비용을 고른 것은 18개 무늬로
         // 후보가 가장 많아, 모은 것과 안 모은 것이 한 화면에 같이 보이기 때문이다.

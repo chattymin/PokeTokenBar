@@ -19,6 +19,24 @@ enum DexMissionReward: Equatable, Sendable {
     /// 무지개 부적 — 이로치 부적의 업그레이드(1/64 → 1/32). 전국도감 완성에서만 나오고,
     /// 이로치 부적이 없어도 받는다.
     case rainbowCharm
+    /// 포켓몬 개체를 직접 지급 — 받는 즉시 박스와 도감에 들어간다. 알에서 안 나오는 종
+    /// (`EggBalance.rewardOnlySpecies`)의 유일한 입수처다 — 레지 패밀리를 다 모으면
+    /// 레지기가스가 깨어나는 본가 전승 그대로. 등급·곡선을 값으로 들고 다니는 이유:
+    /// 지급 자리(`PlayerStore.grant`)에는 네트워크 인덱스가 없다.
+    case pokemon(speciesID: Int, grade: Grade, growthRate: GrowthRate)
+}
+
+extension DexMissionReward {
+    /// 지급 종의 표시 이름. 종 이름은 원래 네트워크(진화 라인)에서 오지만, 보상 줄은 인덱스가
+    /// 아직 없어도 그려져야 해서 지급되는 종만 여기 상수로 둔다 — 지급 종을 더하면 여기도 더한다.
+    static func speciesName(_ id: Int, _ lang: AppLanguage) -> String {
+        let names: (String, String, String)
+        switch id {
+        case 486: names = ("레지기가스", "Regigigas", "レジギガス")
+        default: names = ("#\(id)", "#\(id)", "#\(id)")
+        }
+        switch lang { case .ko: return names.0; case .en: return names.1; case .ja: return names.2 }
+    }
 }
 
 struct DexMission: Equatable, Sendable, Identifiable {

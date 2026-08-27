@@ -37,21 +37,43 @@ extension PlayerStore {
     func claimDexMission(_ mission: DexMission) -> Bool {
         guard canClaimDexMission(mission) else { return false }
         mutate { s in
-            for reward in mission.rewards {
-                switch reward {
-                case .eggTicket(let grade):
-                    if let ticket = ShopItem.eggTicket(for: grade) {
-                        s.inventory[ticket.rawValue, default: 0] += 1
-                    }
-                case .item(let item, let n):
-                    s.inventory[item.rawValue, default: 0] += n
-                case .rainbowCharm:
-                    s.ownsRainbowCharm = true
-                }
-            }
+            grant(mission.rewards, into: &s)
             s.claimedDexMissions.insert(mission.id)
         }
         return true
+    }
+
+    /// 보상 묶음을 상태에 얹는다 — 미션과 컬렉션이 **같은 지급 경로**를 쓴다. 갈라 두면
+    /// 한쪽만 고쳐지는 부류(두 화면이 각자 고르던 결함)가 여기서도 난다.
+    /// 인스턴스 메서드인 이유: 포켓몬 지급이 시계(`obtainedAt`)와 굴림(성격·이로치)을 쓴다.
+    func grant(_ rewards: [DexMissionReward], into s: inout PlayerState) {
+        for reward in rewards {
+            switch reward {
+            case .eggTicket(let grade):
+                if let ticket = ShopItem.eggTicket(for: grade) {
+                    s.inventory[ticket.rawValue, default: 0] += 1
+                }
+            case .item(let item, let n):
+                s.inventory[item.rawValue, default: 0] += n
+            case .rainbowCharm:
+                s.ownsRainbowCharm = true
+            case .pokemon(let speciesID, let grade, let growthRate):
+                // 부화(`makeHatchling`)가 굴리는 것 중 성격·이로치만 굴린다 — 지방·무늬는
+                // 지금의 지급 종(레지기가스)에 없어서 안 굴린다(생기면 그때 얹는다).
+                // 이로치 분모는 부적 상태를 따른다 — 확정권 뽑기와 같은 규칙.
+                let natures = PokemonNature.allCases
+                let nature = natures[Int(nextRandomUnit() * Double(natures.count)) % natures.count]
+                let denominator = EggBalance.shinyDenominator(
+                    shinyCharm: s.ownsShinyCharm, rainbowCharm: s.ownsRainbowCharm)
+                let shiny = EggBalance.rollShiny(nextRandomUnit(), denominator: denominator)
+                let individual = Individual(baseID: speciesID, speciesID: speciesID,
+                                            pathIDs: [speciesID], shiny: shiny, nature: nature,
+                                            obtainedAt: currentDate(), grade: grade,
+                                            growthRate: growthRate)
+                s.box.append(individual)
+                s.dexForms.insert(DexKey.key(for: individual))
+            }
+        }
     }
 
     /// 확정권으로 알을 뽑는다 — **무료이고 등급이 확정**이라는 점만 다르고, 나머지(빈 슬롯

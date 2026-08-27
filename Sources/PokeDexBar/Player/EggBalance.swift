@@ -99,11 +99,19 @@ enum EggBalance {
     /// ×2 면 33% 라 하루 세 마리로는 체감이 안 된다.
     static let unseenBoost = 3
 
+    /// 알에서 나오지 않는 종 — 컬렉션 보상으로만 들어온다(레지기가스: 레지 패밀리를 다 모아야
+    /// 깨어난다, 본가 전승 그대로). `pickSpecies` 가 종 선택의 유일한 관문이라(상점 뽑기·
+    /// 확정권·박사의 제안 전부 여기를 지난다) 이 한 곳에서 빼면 전 경로가 막힌다.
+    static let rewardOnlySpecies: Set<Int> = [486]
+
     /// - Parameter unseenIn: 이미 가진 종(`dex`). 주면 그 안에 **없는** 종이 `unseenBoost` 배
     ///   가중을 받는다. nil 이면 가중을 아예 안 곱한다 — 알 뽑기가 쓰는 기본값이다.
     static func pickSpecies(from index: [BaseSpecies], grade: Grade, roll: Double,
                             unseenIn: Set<Int>? = nil) -> Int {
         precondition(!index.isEmpty, "index must not be empty")
+        // 보상 전용 종은 후보에서 먼저 뺀다 — 등급 걷기 전에 빼야, 그 등급에 남는 후보가
+        // 없을 때 아래 등급으로 내려가는 규칙이 이 종들에도 똑같이 적용된다.
+        let eligible = index.filter { !rewardOnlySpecies.contains($0.id) }
         let order = Grade.allCases   // 선언 순서 == common, rare, epic, legendary(낮은 등급 → 높은 등급)
         var candidates: [BaseSpecies] = []
         // 실제로 뽑히는 등급 — 요청 등급이 비어 아래로 내려갔으면 그 등급이다. 가중 방식이
@@ -112,13 +120,15 @@ enum EggBalance {
         if let start = order.firstIndex(of: grade) {
             var i = start
             while true {
-                let pool = index.filter { speciesGrade($0) == order[i] }
+                let pool = eligible.filter { speciesGrade($0) == order[i] }
                 if !pool.isEmpty { candidates = pool; resolved = order[i]; break }
                 guard i > 0 else { break }
                 i -= 1
             }
         }
-        if candidates.isEmpty { candidates = index }   // 이론상 도달 불가 — 안전망
+        // 이론상 도달 불가 — 안전망. 인덱스가 통째로 보상 전용 종뿐이면(더 이론적인 경우)
+        // 크래시 대신 원본으로 물러난다 — `candidates[0]` 접근이 있어서 빈 배열은 안 된다.
+        if candidates.isEmpty { candidates = eligible.isEmpty ? index : eligible }
 
         // **레전더리만 균등하다.** 커먼·레어·에픽은 등급 자체가 포획률로 정의되므로(≤45=에픽 …)
         // 풀 안의 값이 좁고, 남은 편차는 진짜 희귀도다 — 에픽 135종 중 102종이 45 로 같고 나머지
