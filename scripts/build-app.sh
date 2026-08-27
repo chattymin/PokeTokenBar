@@ -3,7 +3,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-VERSION="1.10.0"
+VERSION="1.11.0"
 BUILD_DIR="build"
 # 개발 빌드는 정식 설치본과 **나란히** 깔고 쓸 수 있어야 한다: PTB_DEV=1 이면 앱 이름·번들 ID·
 # 실행 파일이 갈라지고, 앱은 CFBundleName 에서 저장 공간 이름을 뽑으므로(AppEnv.storageName)
