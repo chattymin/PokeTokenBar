@@ -241,7 +241,7 @@ private actor OAuthAccessTokenCache {
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: OAuthCredentialData.claudeKeychainService,
             kSecReturnData as String: true,
-            kSecMatchLimit as String: kSecMatchLimitOne,
+            kSecMatchLimit as String: kSecMatchLimitAll,
         ]
         if !allowKeychainPrompt {
             KeychainNoUIQuery.apply(to: &query)
@@ -252,21 +252,56 @@ private actor OAuthAccessTokenCache {
         if status == errSecInteractionNotAllowed {
             throw LimitsError.keychainInteractionNotAllowed
         }
-        guard status == errSecSuccess, let data = item as? Data else {
+        guard status == errSecSuccess, let item else {
             throw LimitsError.keychainUnavailable(status)
         }
-        guard let credential = OAuthCredentialData.credential(from: data) else {
-            // 항목은 있는데 계정 OAuth 만 없는 상태(MCP OAuth 전용)는 재로그인 안내 대상이라 구분한다.
-            throw OAuthCredentialData.isAccountOAuthMissing(data)
-                ? LimitsError.credentialMissingAccountOAuth
-                : LimitsError.credentialFormat
+
+        let dataItems = OAuthCredentialData.extractDataItems(from: item)
+        guard !dataItems.isEmpty else {
+            throw LimitsError.keychainUnavailable(status)
         }
-        return credential
+
+        // 여러 키체인 항목(예: acct="unknown" MCP 전용 + acct="<user>" 계정 토큰) 중
+        // 유효한 claudeAiOauth 계정 토큰이 있는 자격증명을 먼저 찾는다.
+        for data in dataItems {
+            if let credential = OAuthCredentialData.credential(from: data) {
+                return credential
+            }
+        }
+
+        // 모든 항목에 유효한 계정 토큰이 없는 경우:
+        // 항목은 있는데 계정 OAuth 만 없는 상태(MCP OAuth 전용)는 재로그인 안내 대상이라 구분한다.
+        throw dataItems.contains(where: { OAuthCredentialData.isAccountOAuthMissing($0) })
+            ? LimitsError.credentialMissingAccountOAuth
+            : LimitsError.credentialFormat
     }
 }
 
 enum OAuthCredentialData {
     static let claudeKeychainService = "Claude Code-credentials"
+
+    /// SecItemCopyMatching 결과(단일 Data 또는 [Data] 등)에서 [Data] 목록을 추출한다.
+    static func extractDataItems(from item: Any?) -> [Data] {
+        guard let item else { return [] }
+        if let data = item as? Data {
+            return [data]
+        }
+        if let array = item as? [Data] {
+            return array
+        }
+        if let array = item as? [Any] {
+            var result: [Data] = []
+            for element in array {
+                if let data = element as? Data {
+                    result.append(data)
+                } else if let dict = element as? [String: Any], let data = dict[kSecValueData as String] as? Data {
+                    result.append(data)
+                }
+            }
+            return result
+        }
+        return []
+    }
 
     struct Credential {
         let accessToken: String
