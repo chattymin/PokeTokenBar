@@ -13,7 +13,7 @@ struct PokeTokenBarWidget: Widget {
         }
         .configurationDisplayName("PokeTokenBar")
         .description("Your AI token usage at a glance.")
-        .supportedFamilies([.systemSmall, .systemMedium, .systemLarge])
+        .supportedFamilies([.systemMedium])
     }
 }
 
@@ -64,199 +64,202 @@ struct WidgetEntry: TimelineEntry {
 
 // MARK: - Widget Views
 
+/// Medium-only widget. Left: companion sprite + name + stage progress + sync age.
+/// Right: headline usage row (Today / Cost / Week) and one bar per limit window,
+/// switching to two columns when there are more than four windows so nothing is dropped.
 struct PokeTokenBarWidgetEntryView: View {
     let entry: WidgetEntry
-    @Environment(\.widgetFamily) var family
 
     var body: some View {
-        switch family {
-        case .systemSmall:
-            smallView
-        case .systemMedium:
-            mediumView
-        case .systemLarge:
-            largeView
-        default:
-            smallView
+        if let payload = entry.payload {
+            mediumView(payload)
+        } else {
+            emptyView
         }
     }
 
-    // MARK: - Small Widget
-
-    private var smallView: some View {
-        VStack(spacing: 4) {
-            if let payload = entry.payload, let companion = payload.companion {
-                spriteImage(companion: companion)
-                    .frame(width: 48, height: 48)
-
-                Text(companion.name)
-                    .font(.caption.bold())
-                    .lineLimit(1)
-
-                if companion.isShiny {
-                    Text("★ Shiny")
-                        .font(.caption2)
-                        .foregroundStyle(.yellow)
-                }
-
-                Divider()
-
-                statLine(label: "Today", value: TokenFormatter.compact(payload.todayTokens))
-
-                if let limits = payload.limits, let w = limits.claude5h {
-                    Divider()
-                    HStack {
-                        Text("5h")
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                        Spacer()
-                        Text(TokenFormatter.percent(w.utilization))
-                            .font(.caption2.monospacedDigit().bold())
-                            .foregroundStyle(w.utilization >= 95 ? .red :
-                                                w.utilization >= 80 ? .orange : .primary)
-                    }
-                }
-            } else {
-                Image(systemName: "gamecontroller")
-                    .font(.title2)
-                Text("PokeTokenBar")
-                    .font(.caption)
-                Text("Open app to sync")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-            }
+    private var emptyView: some View {
+        VStack(spacing: 6) {
+            Image(systemName: "gamecontroller")
+                .font(.title)
+            Text("PokeTokenBar")
+                .font(.headline)
+            Text("Open the app to sync from your Mac")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     // MARK: - Medium Widget
 
-    private var mediumView: some View {
-        HStack(spacing: 10) {
-            VStack(spacing: 4) {
-                if let payload = entry.payload, let companion = payload.companion {
-                    spriteImage(companion: companion)
-                        .frame(width: 52, height: 52)
+    private func mediumView(_ payload: PhonePayload) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            companionColumn(payload)
+                .frame(width: 78)
 
-                    Text(companion.name)
-                        .font(.caption.bold())
-                        .lineLimit(1)
+            VStack(alignment: .leading, spacing: 6) {
+                headlineRow(payload)
 
-                    if companion.isShiny {
-                        Text("★")
-                            .font(.caption2)
-                            .foregroundStyle(.yellow)
-                    }
+                if let limits = payload.limits, !limits.orderedWindows.isEmpty {
+                    Divider()
+                    limitBars(limits)
                 } else {
-                    Image(systemName: "gamecontroller")
-                        .font(.title)
-                    Text("No Data")
-                        .font(.caption)
+                    Spacer(minLength: 0)
+                    Text("No rate limits active")
+                        .font(.caption2)
                         .foregroundStyle(.secondary)
-                }
-            }
-            .frame(minWidth: 80)
-
-            Divider()
-
-            VStack(alignment: .leading, spacing: 5) {
-                if let payload = entry.payload {
-                    statLine(label: "Today", value: TokenFormatter.compact(payload.todayTokens))
-                    statLine(label: "Cost", value: TokenFormatter.costCompact(payload.todayCost))
-                    statLine(label: "Week", value: TokenFormatter.compact(payload.weekTokens))
-
-                    if let limits = payload.limits, !limits.orderedWindows.isEmpty {
-                        Divider()
-                        // 프로바이더별 그룹 행 — 제목 뒤에 파이+퍼센트 칩이 이어지고, 좁으면 다음 줄로 흐른다.
-                        // 창 라벨("Claude 5h")을 매 칩마다 반복하는 대신 그룹 제목("Claude")으로 접두어 반복을 없앤다.
-                        VStack(alignment: .leading, spacing: 3) {
-                            ForEach(Array(limits.limitGroups.enumerated()), id: \.offset) { _, group in
-                                FlowLayout(spacing: 5) {
-                                    Text(group.title)
-                                        .font(.caption2)
-                                        .foregroundStyle(.secondary)
-                                    ForEach(Array(group.windows.enumerated()), id: \.offset) { _, w in
-                                        limitChip(w)
-                                    }
-                                }
-                            }
-                        }
-                    }
-                } else {
-                    Text("Open app to fetch")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
                 }
                 Spacer(minLength: 0)
             }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
-    // MARK: - Large Widget
+    @ViewBuilder
+    private func companionColumn(_ payload: PhonePayload) -> some View {
+        VStack(spacing: 4) {
+            if let companion = payload.companion {
+                spriteImage(companion: companion)
+                    .frame(width: 56, height: 56)
 
-    private var largeView: some View {
-        VStack(spacing: 8) {
-            if let payload = entry.payload, let companion = payload.companion {
-                HStack(spacing: 12) {
-                    spriteImage(companion: companion)
-                        .frame(width: 64, height: 64)
-                    VStack(alignment: .leading, spacing: 2) {
-                        HStack {
-                            Text(companion.name).font(.headline)
-                            if companion.isShiny {
-                                Image(systemName: "star.fill")
-                                    .font(.caption2)
-                                    .foregroundStyle(.yellow)
-                            }
-                        }
-                        Text(companion.stageText)
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                        ProgressView(value: companion.progress)
-                            .tint(.blue)
-                            .frame(height: 4)
+                HStack(spacing: 2) {
+                    Text(companion.name)
+                        .font(.caption.bold())
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
+                    if companion.isShiny {
+                        Image(systemName: "sparkles")
+                            .font(.system(size: 9))
+                            .foregroundStyle(.yellow)
                     }
                 }
 
-                Divider()
-
-                VStack(spacing: 4) {
-                    statLine(label: "Today", value: TokenFormatter.compact(payload.todayTokens))
-                    statLine(label: "Cost", value: TokenFormatter.costCompact(payload.todayCost))
-                    statLine(label: "Week", value: TokenFormatter.compact(payload.weekTokens))
-                }
-
-                // 프로바이더 카테고리(claude/codex/go) 아래 모든 timeframe 을 한 줄로 — 각 칩은
-                // 파이 표시기(한눈에 빈/참 파악) + 퍼센트. 창 순서 = orderedWindows(5h→주간→월간…).
-                if let limits = payload.limits, !limits.orderedWindows.isEmpty {
-                    Divider()
-                    VStack(alignment: .leading, spacing: 4) {
-                        ForEach(Array(limits.limitGroups.enumerated()), id: \.offset) { _, group in
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(group.title)
-                                    .font(.caption2.weight(.semibold))
-                                    .foregroundStyle(.secondary)
-                                FlowLayout(spacing: 6) {
-                                    ForEach(Array(group.windows.enumerated()), id: \.offset) { _, w in
-                                        limitChip(w)
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
+                // Egg hatch or evolution progress — same bar the app's dashboard shows.
+                let progress = companion.isEgg ? companion.eggProgress : companion.progress
+                ProgressView(value: min(1, max(0, progress)))
+                    .tint(companion.isEgg ? .orange : .blue)
+                    .scaleEffect(x: 1, y: 0.6, anchor: .center)
             } else {
                 Image(systemName: "gamecontroller")
-                    .font(.largeTitle)
-                Text("PokeTokenBar")
-                    .font(.headline)
-                Text("Open app to sync data")
-                    .font(.caption)
+                    .font(.title)
+                    .frame(height: 56)
+                Text("No companion")
+                    .font(.caption2)
                     .foregroundStyle(.secondary)
             }
+
+            Spacer(minLength: 0)
+
+            // Staleness at a glance: the widget only re-renders when the app/CloudKit hands it a payload.
+            Text(payload.lastUpdated, style: .relative)
+                .font(.system(size: 9).monospacedDigit())
+                .foregroundStyle(.tertiary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .frame(maxHeight: .infinity)
+    }
+
+    /// Today tokens dominant, cost and week as smaller companions on the same baseline.
+    private func headlineRow(_ payload: PhonePayload) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            stat(label: "Today", value: TokenFormatter.compact(payload.todayTokens), prominent: true)
+            stat(label: "Cost", value: TokenFormatter.costCompact(payload.todayCost), prominent: false)
+            stat(label: "Week", value: TokenFormatter.compact(payload.weekTokens), prominent: false)
+            Spacer(minLength: 0)
+        }
+    }
+
+    private func stat(label: String, value: String, prominent: Bool) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text(label)
+                .font(.system(size: 9, weight: .medium))
+                .foregroundStyle(.secondary)
+                .textCase(.uppercase)
+            Text(value)
+                .font(prominent ? .title3.monospacedDigit().bold() : .subheadline.monospacedDigit().weight(.semibold))
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+        }
+    }
+
+    /// One bar per window in orderedWindows order. ≤4 windows: single column with reset countdown.
+    /// >4: two columns (countdown dropped for room) so every provider stays visible.
+    @ViewBuilder
+    private func limitBars(_ limits: PhoneLimitStatus) -> some View {
+        let rows = limits.limitGroups.flatMap { group in
+            group.windows.map { LimitBarRow(title: shortLabel($0.label, group: group.title), window: $0) }
+        }
+        if rows.count <= 4 {
+            VStack(alignment: .leading, spacing: 4) {
+                ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
+                    limitBar(row, showsReset: true)
+                }
+            }
+        } else {
+            // Five two-column rows is the most the medium height holds; anything beyond is summarised.
+            let visible = Array(rows.prefix(Self.maxDenseRows))
+            let pairs = stride(from: 0, to: visible.count, by: 2).map { Array(visible[$0..<min($0 + 2, visible.count)]) }
+            VStack(alignment: .leading, spacing: 3) {
+                ForEach(Array(pairs.enumerated()), id: \.offset) { _, pair in
+                    HStack(alignment: .top, spacing: 10) {
+                        ForEach(Array(pair.enumerated()), id: \.offset) { _, row in
+                            limitBar(row, showsReset: false, dense: true)
+                        }
+                        if pair.count == 1 { Color.clear.frame(maxWidth: .infinity, maxHeight: 1) }
+                    }
+                }
+                if rows.count > visible.count {
+                    Text("+\(rows.count - visible.count) more in app")
+                        .font(.system(size: 9))
+                        .foregroundStyle(.tertiary)
+                }
+            }
+        }
+    }
+
+    /// "Claude Weekly" → "Claude · Weekly": keeps the brand prefix the Mac already localised
+    /// but visually separates it from the window so the eye can scan the column.
+    private func shortLabel(_ label: String, group: String) -> String {
+        let trimmed = label.hasPrefix(group + " ")
+            ? String(label.dropFirst(group.count + 1)) : label
+        return trimmed.isEmpty ? group : "\(group) · \(trimmed)"
+    }
+
+    private static let maxDenseRows = 10
+
+    private func limitBar(_ row: LimitBarRow, showsReset: Bool, dense: Bool = false) -> some View {
+        let color = limitBarColor(row.window.utilization)
+        return VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: 4) {
+                Text(row.title)
+                    .font(.system(size: 10))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.75)
+                Spacer(minLength: 2)
+                if showsReset, let resetsAt = row.window.resetsAt, resetsAt > entry.date {
+                    Text(resetsAt, style: .timer)
+                        .font(.system(size: 9).monospacedDigit())
+                        .foregroundStyle(.tertiary)
+                        .lineLimit(1)
+                }
+                Text(TokenFormatter.percent(row.window.utilization))
+                    .font(.system(size: 10, weight: .bold).monospacedDigit())
+                    .foregroundStyle(color)
+            }
+            GeometryReader { geo in
+                ZStack(alignment: .leading) {
+                    Capsule().fill(.quaternary)
+                    Capsule().fill(color)
+                        .frame(width: geo.size.width * min(1, max(0, row.window.utilization / 100)))
+                }
+            }
+            .frame(height: dense ? 4 : 5)
+        }
+        .frame(maxWidth: .infinity)
     }
 
     // MARK: - Helpers
@@ -291,30 +294,6 @@ struct PokeTokenBarWidgetEntryView: View {
         return UIImage(data: data)
     }
 
-    @ViewBuilder
-    private func statLine(label: String, value: String) -> some View {
-        HStack {
-            Text(label)
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-            Spacer()
-            Text(value)
-                .font(.caption.monospacedDigit().bold())
-        }
-    }
-
-    /// 한도 칩 — 파이 표시기(퍼센트 텍스트와 같은 높이, 빈/참을 한눈에) + 퍼센트. 색은 임계 공통 규칙.
-    @ViewBuilder
-    private func limitChip(_ w: PhoneLimitWindow) -> some View {
-        HStack(spacing: 2) {
-            LimitPieIndicator(utilization: w.utilization)
-                .frame(width: 10, height: 10)
-            Text(TokenFormatter.percent(w.utilization))
-                .font(.caption2.monospacedDigit().bold())
-                .foregroundStyle(limitBarColor(w.utilization))
-        }
-    }
-
     private func limitBarColor(_ utilization: Double) -> Color {
         if utilization >= 95 { return .red }
         if utilization >= 80 { return .orange }
@@ -322,113 +301,16 @@ struct PokeTokenBarWidgetEntryView: View {
     }
 }
 
-/// 미니 파이 표시기 — 12시 방향에서 시계 방향으로 사용률만큼 채운 원. 퍼센트 텍스트와 나란히
-/// 같은 높이로 놓여 "읽기 전에" 빈/참을 보여 준다.
-private struct LimitPieIndicator: View {
-    let utilization: Double
-
-    var body: some View {
-        ZStack {
-            Circle().fill(.quaternary)
-            PieShape(fraction: min(1, max(0, utilization / 100)))
-                .fill(color)
-        }
-    }
-
-    private var color: Color {
-        if utilization >= 95 { return .red }
-        if utilization >= 80 { return .orange }
-        return .blue
-    }
-}
-
-/// 사용률 비율의 부채꼴(wedge) — fraction 0…1.
-private struct PieShape: Shape {
-    var fraction: Double
-
-    func path(in rect: CGRect) -> Path {
-        var path = Path()
-        guard fraction > 0 else { return path }
-        let center = CGPoint(x: rect.midX, y: rect.midY)
-        let radius = min(rect.width, rect.height) / 2
-        path.move(to: center)
-        path.addArc(
-            center: center, radius: radius,
-            startAngle: .degrees(-90),
-            endAngle: .degrees(-90 + 360 * fraction),
-            clockwise: false)
-        path.closeSubpath()
-        return path
-    }
-}
-
-/// 좁으면 다음 줄로 흐르는 HStack — 위젯 폭에서 칩 개수가 가변일 때(그룹 제목+칩들) 잘린다.
-private struct FlowLayout: Layout {
-    var spacing: CGFloat
-
-    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
-        layout(subviews: subviews, maxWidth: proposal.width ?? .infinity).size
-    }
-
-    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
-        let result = layout(subviews: subviews, maxWidth: bounds.width)
-        for (subview, origin) in zip(subviews, result.origins) {
-            subview.place(
-                at: CGPoint(x: bounds.minX + origin.x, y: bounds.minY + origin.y),
-                anchor: .topLeading,
-                proposal: .unspecified)
-        }
-    }
-
-    private func layout(subviews: Subviews, maxWidth: CGFloat) -> (size: CGSize, origins: [CGPoint]) {
-        var origins: [CGPoint] = []
-        var x: CGFloat = 0
-        var y: CGFloat = 0
-        var rowHeight: CGFloat = 0
-        var maxRowWidth: CGFloat = 0
-        for subview in subviews {
-            let size = subview.sizeThatFits(.unspecified)
-            if x > 0, x + size.width > maxWidth {
-                maxRowWidth = max(maxRowWidth, x)
-                x = 0
-                y += rowHeight + spacing
-                rowHeight = 0
-            }
-            origins.append(CGPoint(x: x, y: y))
-            x += size.width + spacing
-            rowHeight = max(rowHeight, size.height)
-        }
-        maxRowWidth = max(maxRowWidth, x - spacing)
-        return (CGSize(width: maxRowWidth, height: y + rowHeight), origins)
-    }
-}
-
 // MARK: - Preview
 
-#Preview(as: .systemSmall) {
+#Preview("Basic", as: .systemMedium) {
     PokeTokenBarWidget()
 } timeline: {
     WidgetEntry(date: Date(), payload: PhonePayload(
         todayTokens: 1_500_000, todayCost: 12.34, weekTokens: 10_000_000,
         monthTokens: 40_000_000, lastUpdated: Date(), serverVersion: "1.0",
-        limits: PhoneLimitStatus(claude5h: PhoneLimitWindow(label: "5h", utilization: 65, resetsAt: nil),
-                                  claudeWeekly: nil, claudeOpusWeekly: nil, claudeSonnetWeekly: nil,
-                                  codexPrimary: nil, codexSecondary: nil, planDisplay: "Max 20x"),
-        companion: PhoneCompanionState(name: "Pikachu", speciesID: 25, isShiny: false, isEgg: false,
-                                        progress: 0.42, stageText: "Stage 1/3", rarity: "common",
-                                        dexCount: 12, eggProgress: 0, displayState: "working"),
-        providers: [PhoneProviderSnapshot(id: "claude_code", displayName: "Claude",
-                                          todayTokens: 1_000_000, todayCost: 10.0)]))
-}
-
-#Preview(as: .systemMedium) {
-    PokeTokenBarWidget()
-} timeline: {
-    WidgetEntry(date: Date(), payload: PhonePayload(
-        todayTokens: 1_500_000, todayCost: 12.34, weekTokens: 10_000_000,
-        monthTokens: 40_000_000, lastUpdated: Date(), serverVersion: "1.0",
-        limits: PhoneLimitStatus(claude5h: PhoneLimitWindow(label: "5h", utilization: 65, resetsAt: nil),
-                                  claudeWeekly: PhoneLimitWindow(label: "Weekly", utilization: 32, resetsAt: nil),
+        limits: PhoneLimitStatus(claude5h: PhoneLimitWindow(label: "5h", utilization: 65, resetsAt: Date().addingTimeInterval(2 * 3600 + 720)),
+                                  claudeWeekly: PhoneLimitWindow(label: "Weekly", utilization: 32, resetsAt: Date().addingTimeInterval(3 * 86400)),
                                   claudeOpusWeekly: nil, claudeSonnetWeekly: nil,
                                   codexPrimary: nil, codexSecondary: nil, planDisplay: "Max 20x"),
         companion: PhoneCompanionState(name: "Pikachu", speciesID: 25, isShiny: true, isEgg: false,
@@ -440,7 +322,7 @@ private struct FlowLayout: Layout {
         ]))
 }
 
-#Preview(as: .systemLarge) {
+#Preview("Many windows", as: .systemMedium) {
     PokeTokenBarWidget()
 } timeline: {
     WidgetEntry(date: Date(), payload: PhonePayload(
@@ -464,4 +346,10 @@ private struct FlowLayout: Layout {
             PhoneProviderSnapshot(id: "claude_code", displayName: "Claude", todayTokens: 1_000_000, todayCost: 10.0),
             PhoneProviderSnapshot(id: "codex", displayName: "Codex", todayTokens: 500_000, todayCost: 2.34),
         ]))
+}
+
+/// A limit window paired with its display title (group-prefixed).
+private struct LimitBarRow {
+    let title: String
+    let window: PhoneLimitWindow
 }

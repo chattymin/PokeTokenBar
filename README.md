@@ -124,7 +124,7 @@ If a tool keeps its sessions outside the built-in paths, add your own roots unde
 - **Burn-rate forecast** — projects when the current 5h window hits 100%.
 - **In-app updates** — one-click update check; current version shown in Settings.
 - **iOS companion app** *(this fork)* — connects to the Mac app over your local network and shows token usage, limits, and your companion on your iPhone.
-- **WidgetKit extension** *(this fork)* — home-screen widgets (small/medium/large) with your companion sprite, token usage, cost, and limit utilization — no network required once data is synced.
+- **WidgetKit extension** *(this fork)* — a medium home-screen widget with your companion sprite, today/week usage, cost, and a utilization bar per rate-limit window (with reset countdowns) — no network required once data is synced.
 
 ## Works with
 
