@@ -237,15 +237,8 @@ private actor OAuthAccessTokenCache {
         if KeychainAccessGate.isDisabled {
             throw LimitsError.keychainAccessDisabled
         }
-        var query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: OAuthCredentialData.claudeKeychainService,
-            kSecReturnData as String: true,
-            kSecMatchLimit as String: kSecMatchLimitOne,
-        ]
-        if !allowKeychainPrompt {
-            KeychainNoUIQuery.apply(to: &query)
-        }
+        let query = OAuthCredentialData.claudeKeychainQuery(
+            allowKeychainPrompt: allowKeychainPrompt)
 
         var item: CFTypeRef?
         let status = KeychainReader.copyMatching(query, &item)
@@ -267,6 +260,23 @@ private actor OAuthAccessTokenCache {
 
 enum OAuthCredentialData {
     static let claudeKeychainService = "Claude Code-credentials"
+
+    static func claudeKeychainQuery(
+        account: String = NSUserName(),
+        allowKeychainPrompt: Bool
+    ) -> [String: Any] {
+        var query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: claudeKeychainService,
+            kSecAttrAccount as String: account,
+            kSecReturnData as String: true,
+            kSecMatchLimit as String: kSecMatchLimitOne,
+        ]
+        if !allowKeychainPrompt {
+            KeychainNoUIQuery.apply(to: &query)
+        }
+        return query
+    }
 
     struct Credential {
         let accessToken: String

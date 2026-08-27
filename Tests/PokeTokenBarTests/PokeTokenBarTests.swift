@@ -493,4 +493,35 @@ final class OAuthCredentialDataTests: XCTestCase {
 
         XCTAssertEqual(OAuthCredentialData.credential(from: data)?.accessToken, "token-1")
     }
+
+    #if os(macOS)
+    func testClaudeKeychainQueryScopesByAccount() {
+        let defaultQuery = OAuthCredentialData.claudeKeychainQuery(allowKeychainPrompt: true)
+        XCTAssertEqual(
+            defaultQuery[kSecClass as String] as? String,
+            kSecClassGenericPassword as String)
+        XCTAssertEqual(
+            defaultQuery[kSecAttrService as String] as? String,
+            OAuthCredentialData.claudeKeychainService)
+        XCTAssertEqual(defaultQuery[kSecAttrAccount as String] as? String, NSUserName())
+        XCTAssertEqual(defaultQuery[kSecReturnData as String] as? Bool, true)
+        XCTAssertEqual(
+            defaultQuery[kSecMatchLimit as String] as? String,
+            kSecMatchLimitOne as String)
+
+        let customQuery = OAuthCredentialData.claudeKeychainQuery(
+            account: "custom-user",
+            allowKeychainPrompt: true)
+        XCTAssertEqual(customQuery[kSecAttrAccount as String] as? String, "custom-user")
+    }
+
+    func testClaudeKeychainQueryAppliesNoUIWhenPromptDisallowed() {
+        let query = OAuthCredentialData.claudeKeychainQuery(allowKeychainPrompt: false)
+        XCTAssertNotNil(query[kSecUseAuthenticationContext as String])
+        XCTAssertEqual(
+            query[kSecUseAuthenticationUI as String] as? String,
+            KeychainNoUIQuery.uiFailPolicyForTesting())
+    }
+    #endif
 }
+
