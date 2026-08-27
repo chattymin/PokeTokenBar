@@ -37,7 +37,7 @@ final class PopoverNavigationTests: XCTestCase {
 }
 
 final class RepresentativeLocalizationTests: XCTestCase {
-    /// 대표 포켓몬은 메뉴바와 플로팅 펫에 함께 쓰이는 독립 개념이다. 네 언어가 pet 전용 표현으로
+    /// 대표 포켓몬은 메뉴바와 플로팅 펫에 함께 쓰이는 독립 개념이다. 모든 언어가 pet 전용 표현으로
     /// 되돌아가거나 스페인어 추가 뒤 한 언어만 빠지지 않도록 사용자가 보는 핵심 액션을 고정한다.
     func testRepresentativeActionsAreLocalizedInEverySupportedLanguage() {
         let expected: [(AppLanguage, label: String, follow: String, choose: String, set: String)] = [
@@ -47,6 +47,10 @@ final class RepresentativeLocalizationTests: XCTestCase {
             (.ja, "代表ポケモン", "現在のポケモンに合わせる", "図鑑で選ぶ…", "代表ポケモンに設定"),
             (.es, "Pokémon representativo", "Seguir al compañero actual", "Elegir en la Pokédex…",
              "Establecer como representante"),
+            (.fr, "Pokémon représentatif", "Suivre le compagnon actuel", "Choisir dans le Pokédex…",
+             "Définir comme représentatif"),
+            (.pt, "Pokémon representativo", "Seguir o companheiro atual", "Escolher na Pokédex…",
+             "Definir como representante"),
         ]
 
         XCTAssertEqual(expected.map(\.0), AppLanguage.allCases)

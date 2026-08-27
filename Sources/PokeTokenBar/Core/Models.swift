@@ -382,6 +382,106 @@ struct CodexRateLimitStatus: Decodable, Sendable {
     }
 }
 
+// MARK: - Antigravity Quota Summary (CloudCode PredictionService)
+
+public struct AntigravityQuotaBucket: Decodable, Sendable {
+    public var bucketId: String
+    public var displayName: String
+    public var window: String? // "5h", "weekly"
+    public var resetTime: String?
+    public var description: String?
+    public var remainingFraction: Double
+
+    public var resetDate: Date? {
+        guard let resetTime else { return nil }
+        return ISO8601Parser.date(from: resetTime)
+    }
+
+    /// 사용률 (0.0 ~ 100.0%) — remainingFraction(0.0~1.0)을 역산
+    public var usedPercent: Double {
+        max(0.0, min(100.0, (1.0 - remainingFraction) * 100.0))
+    }
+
+    public var is5HourWindow: Bool {
+        window == "5h" || bucketId.contains("5h")
+    }
+
+    public var isWeeklyWindow: Bool {
+        window == "weekly" || bucketId.contains("weekly")
+    }
+
+    public init(
+        bucketId: String,
+        displayName: String,
+        window: String? = nil,
+        resetTime: String? = nil,
+        description: String? = nil,
+        remainingFraction: Double
+    ) {
+        self.bucketId = bucketId
+        self.displayName = displayName
+        self.window = window
+        self.resetTime = resetTime
+        self.description = description
+        self.remainingFraction = remainingFraction
+    }
+}
+
+public struct AntigravityQuotaGroup: Decodable, Sendable {
+    public var displayName: String
+    public var description: String?
+    public var buckets: [AntigravityQuotaBucket]
+
+    public var fiveHourBucket: AntigravityQuotaBucket? {
+        buckets.first(where: { $0.is5HourWindow })
+    }
+
+    public var weeklyBucket: AntigravityQuotaBucket? {
+        buckets.first(where: { $0.isWeeklyWindow })
+    }
+
+    public init(
+        displayName: String,
+        description: String? = nil,
+        buckets: [AntigravityQuotaBucket] = []
+    ) {
+        self.displayName = displayName
+        self.description = description
+        self.buckets = buckets
+    }
+}
+
+public struct AntigravityRateLimitStatus: Decodable, Sendable {
+    public var groups: [AntigravityQuotaGroup]
+    public var description: String?
+
+    public var hasVisibleLimit: Bool {
+        !groups.isEmpty && groups.contains(where: { !$0.buckets.isEmpty })
+    }
+
+    /// 메뉴바 표기·경고 판정용 — 전체 그룹 중 최대 5h 사용률
+    public var maxPrimaryUsedPercent: Double? {
+        groups.compactMap { $0.fiveHourBucket?.usedPercent }.max()
+    }
+
+    public var geminiGroup: AntigravityQuotaGroup? {
+        groups.first(where: { $0.displayName.localizedCaseInsensitiveContains("gemini") })
+    }
+
+    public var thirdPartyGroup: AntigravityQuotaGroup? {
+        groups.first(where: {
+            $0.displayName.localizedCaseInsensitiveContains("claude")
+            || $0.displayName.localizedCaseInsensitiveContains("gpt")
+            || $0.displayName.localizedCaseInsensitiveContains("3p")
+        })
+    }
+
+    public init(groups: [AntigravityQuotaGroup] = [], description: String? = nil) {
+        self.groups = groups
+        self.description = description
+    }
+}
+
 // MARK: - Provider snapshot
 
 struct ProviderSnapshot: Sendable, Identifiable {
