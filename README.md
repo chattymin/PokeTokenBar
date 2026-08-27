@@ -144,7 +144,7 @@ The <b>National Dex</b> is a species checklist from #1 to #1025 — silhouettes 
 <td width="45%" align="center"><img src="assets/screenshot-dex-forms.png" width="300" alt="Vivillon's form list in the Dex — Forms 3/18, with Icy Snow, Tundra and Garden in colour and the rest as named silhouettes"></td>
 <td width="55%" valign="middle">
 <h3>Forms count separately</h3>
-A species with more than one look — a regional form, or a pattern it's born with — opens into its own list when you tap its Dex cell. Vivillon has eighteen patterns; Unown has twenty-six. Forms you've hatched show in colour, the rest stay silhouetted <b>but keep their names</b>, so you can see what's still out there rather than guessing. The species counter is unchanged: one of any form still fills the cell.
+A species with more than one look — a regional form, or a pattern it's born with — opens into its own list from the <b>See forms</b> button on its Dex entry. Vivillon has eighteen patterns; Unown has twenty-six. Forms you've hatched show in colour, the rest stay silhouetted <b>but keep their names</b>, so you can see what's still out there rather than guessing. The species counter is unchanged: one of any form still fills the cell.
 </td>
 </tr>
 <tr>
@@ -174,6 +174,20 @@ Star a Pokémon on its detail screen and it can't be sent to the Professor — t
 Filling the Dex now carries missions, shaped after the games: rewards at registration milestones (10 up to 1000 species), a reward for completing each generation's slice — Mega Stones for the Mega Evolution generations, Max Mushrooms for Kanto and Galar, Shiny Candy for the rest, always on top of a <b>Legendary Egg Ticket</b> — and, for the full 1025, the <b>Rainbow Charm</b>: the Shiny Charm perfected, 1/32 shiny odds, granted even if you never bought the base charm. Tickets are the missions' egg currency: claimed into your Bag, they stand under the Shop's Draw button as a free draw with the grade guaranteed.
 </td>
 <td width="45%" align="center"><img src="assets/screenshot-dex-missions.png" width="300" alt="The Dex tab's missions list — progress bars toward species milestones, three rows ready to claim"></td>
+</tr>
+<tr>
+<td width="45%" align="center"><img src="assets/screenshot-collections.png" width="300" alt="The Dex tab's collections section — themed sets with medal badges on completed rows, member silhouettes, and reward lines"></td>
+<td width="55%" valign="middle">
+<h3>🎖️ Collections tell the stories</h3>
+Twenty-one themed sets sit beside the missions: the Legendary Birds, the Clone Truth (Mew, Mewtwo, Ditto), Eevee Friends, every fossil ever revived, the paradox Pokémon of past and future. Members always show as inline silhouettes, so what's missing is visible at a glance. Completing a set lights a medal on its row and pays once — EXP Candies for most, a guaranteed Legendary Egg Ticket for the big ones. The Regi family is special: gather the five pillars and <b>Regigigas itself awakens</b>, joining your Box directly — it never hatches from an egg, and shiny odds apply as usual.
+</td>
+</tr>
+<tr>
+<td width="55%" valign="middle">
+<h3>📖 A Dex entry for every species</h3>
+Tapping a Dex cell now opens that species' entry: sprite, genus, types, height and weight, and its flavor text — <b>from every generation it appeared in</b>, switchable by chips, in your language wherever the games shipped one. Collections it belongs to are listed right there with the shared member strip and its own spot highlighted, and the forms list opens from the same screen.
+</td>
+<td width="45%" align="center"><img src="assets/screenshot-dex-entry.png" width="300" alt="A species' Dex entry — sprite, genus and types, height and weight, generation chips above flavor text, and a collections card with member silhouettes"></td>
 </tr>
 <tr>
 <td width="45%" align="center"><img src="assets/settings.png" width="300" alt="Settings"></td>
