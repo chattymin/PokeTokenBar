@@ -44,6 +44,8 @@ final class CompanionStore {
     private let dittoDisguiseRollingEnabled: Bool
     /// 세션 내 활성 개체 교체 감지용. await 뒤 이전 개체의 결과가 새 개체를 덮지 않게 한다.
     private var activeGeneration = 0
+    /// 도감에서 대표지정했을 때(nil 해제 제외) 호출. AppDelegate 가 플로팅 펫을 자동 on
+    var onRepresentativeSet: (() -> Void)?
 
     init(provider: any PokeProviding = PokeAPIClient.shared,
          clock: @escaping () -> Date = Date.init,
@@ -123,6 +125,7 @@ final class CompanionStore {
         if let id, !state.ownsSpecies(id) { return false }
         state.representativeSpeciesID = id
         save()
+        if id != nil { onRepresentativeSet?() }
         return true
     }
 

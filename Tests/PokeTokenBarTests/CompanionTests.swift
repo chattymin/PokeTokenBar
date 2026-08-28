@@ -407,6 +407,18 @@ final class CompanionStoreTests: XCTestCase {
                        CompanionStore.RepresentativeSubject(speciesID: 2, isShiny: true))
     }
 
+    /// 대표 포켓몬을 지정하면 플로팅 펫이 꺼져 있어도 자동으로 켜지도록
+    func testSettingRepresentativeFiresOnRepresentativeSetCallbackButClearingDoesNot() async {
+        let s = store(linear3)
+        await s.hatch(baseID: 1)
+        var fireCount = 0
+        s.onRepresentativeSet = { fireCount += 1 }
+        XCTAssertTrue(s.setRepresentativeSpeciesID(1))
+        XCTAssertEqual(fireCount, 1)
+        XCTAssertTrue(s.setRepresentativeSpeciesID(nil))
+        XCTAssertEqual(fireCount, 1, "해제는 자동 on 을 트리거하면 안 된다")
+    }
+
     /// 현재 개체에서 고른 종도 졸업 순간 같은 체인이 영구 dex 로 이동하므로 대표 선택이 끊기지 않는다.
     func testRepresentativeSelectionSurvivesGraduation() async {
         let s = store(linear3)
