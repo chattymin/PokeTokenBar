@@ -65,6 +65,15 @@ read_when:
   계약 테스트)를 열어 키·타입·의미를 확정 ② 그 계약으로 픽스처 작성 ③ 가능하면 실파일 1건 캡처. 특히
   **같은 스펠링이 표면마다 의미가 다를 수 있다**(Grok `inputTokens`=캐시 포함 durable wire vs `input_tokens`=캐시
   제외 헤드리스 투영) — 별칭으로 합치면 캐시분을 두 번 빼거나 두 번 더한다.
+- **스토리지 컷오버는 옛 파일명만 보면 커스텀 루트도 0이다.** 업스트림이 `data.sqlite3` 에 쓰기를
+  멈추고 `~/.kiro/sessions` JSONL 로 옮겼는데, 리더가 루트마다 sqlite 만 열면 Settings 의
+  `~/.kiro` 추가 폴더가 no-op 가 되고 최근 사용량이 0 으로 보인다(#236). 규칙: ① 기본 루트 목록에
+  *새* 레이아웃 경로를 넣는다 ② 커스텀 루트는 레이아웃으로 분류해 스캔한다(`data.sqlite3` 존재 여부로
+  폴더를 버리지 마라) ③ 옛 스토어는 폴백으로 남긴다 ④ 픽스처는 writer 계약(실파일에서 뽑은
+  envelope — tokscale/codeburn 의 Kiro 파서 테스트). 같은 파일에 크레딧 필드가 있어도 달러가 아니면
+  `reportsCost` 를 켜지 마라. 가드: `testExtraRootFindsJsonlSessionsWithoutSqlite`·
+  `testCliJsonlSessionIsReadFromWriterShapedEvents`·`testV3MessagesJsonlSessionIsRead` —
+  JSONL 스캔을 끄면 이 셋이 빨개져야 한다(헬퍼 복사본이 아니라 프로덕션 `kiroEntries`).
 - **Antigravity의 생성 시각은 `gen_metadata` 한 곳에 고정돼 있지 않다.** 구 포맷은
   `chat_start_metadata.created_at`에 시각을 넣지만, 현재 포맷은 그 필드를 비우고 `steps.metadata`에
   타임스탬프를 둔다(`8 finished_at`, 없으면 `1 created_at`). 토큰 필드는 유지되므로 `gen_metadata`만
@@ -132,6 +141,11 @@ read_when:
   (`shellEnvironmentValues`) — 이름마다 띄우면 프로바이더가 늘수록 기동이 그만큼 느려진다.
   프로세스 환경에 전부 있으면 셸을 아예 안 띄우는 분기도 함께 가드한다(`…SkipsShellLookup`).
   `export FOO=` 처럼 **빈 값은 미설정으로** 취급한다 — 값으로 받으면 없는 경로를 스캔하고 조용히 0 이 된다.
+  **`UsageEnvironment.value("X")` 만 있고 `names` 에 `X` 가 없으면 영원히 nil 이다.** Kiro 는
+  `environmentPaths("KIRO_CLI_HOME")` 로 읽고 있었는데 이름이 레지스트리에 없어, 셸에 export 해 둔
+  값이 GUI 앱은 물론 프로세스 환경에서도 안 보였다. 같은 스윕에서 `CURSOR_DATA_DIR` 도 같은 구멍.
+  가드: `testSourceLiteralEnvKeysAreAllRegistered` 가 Sources 의 `environmentPaths("X")` /
+  `UsageEnvironment.value("X")` 리터럴을 `names` 와 대조한다(#236).
 - **디렉터리 탐색은 깊이만 막으면 폭이 안 막히지만, 이름 기반 가지치기는 더 위험하다.** 깊이 가지치기는
   `> maxDepth` 가 아니라 `>= maxDepth` 에서 걸어야 한 단계 더 내려가지 않는다(전자는 상한+1 까지 방문).
   깊이 상한은 **실제 레이아웃 깊이를 테스트로 고정**하고 여유를 둔다 — 경계에 붙여 두면 상위 소스가 한 단계
