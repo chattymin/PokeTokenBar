@@ -614,7 +614,7 @@ final class KiroUsageTests: XCTestCase {
         XCTAssertEqual(entry.model, "claude-sonnet-4-5")
         XCTAssertEqual(entry.input, 100)
         XCTAssertEqual(entry.output, 50)
-        XCTAssertEqual(entry.id, "kiro|v3|sess_abc|1781949600000")
+        XCTAssertEqual(entry.id, "kiro|v3|sess_abc|0")
         XCTAssertNil(entry.explicitCost,
                      "usage_summary credits are not converted to USD (reportsCost stays false)")
     }
@@ -636,6 +636,48 @@ final class KiroUsageTests: XCTestCase {
         XCTAssertEqual(entries.count, 1)
         XCTAssertEqual(entries.first?.input, 100)
         XCTAssertEqual(entries.first?.output, 50)
+    }
+
+    /// Flat `{role,content}` lines often have no per-line timestamp (tokscale issue #813
+    /// sample). Keying the entry id on `createdAt` millis then collides and
+    /// `dedupKeepMax` drops the earlier turn.
+    func testV3FlatMultiTurnWithoutTimestampsKeepsEveryTurn() throws {
+        try seedV3FlatSession(
+            under: temporaryDirectory,
+            workspace: "ws",
+            sessionID: "sess_multi",
+            prompt: String(repeating: "u", count: 400),
+            assistant: String(repeating: "a", count: 200),
+            createdAt: "2026-06-30T12:57:10.991Z",
+            extraTurns: [
+                (prompt: String(repeating: "u", count: 40),
+                 assistant: String(repeating: "a", count: 40)),
+            ])
+
+        let entries = LocalAdditionalUsageReader.kiroEntries(
+            modifiedSince: try date("2026-01-01T00:00:00Z"), roots: [temporaryDirectory])
+        XCTAssertEqual(entries.count, 2, "two turns sharing createdAt must not collapse")
+        XCTAssertEqual(Set(entries.map(\.id)), ["kiro|v3|sess_multi|0", "kiro|v3|sess_multi|1"])
+    }
+
+    /// tokscale's v3 parser counts `payload.args` toward the turn's output. Ignoring
+    /// `tool_call` undercounts agentic sessions where the model mostly emits tools.
+    func testV3ToolCallArgsCountTowardOutput() throws {
+        let dir = temporaryDirectory.appendingPathComponent("sessions/ws/sess_tools")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        try """
+        {"schemaVersion":"1.0.0","id":"sess_tools","modelId":"claude-sonnet-4-5","createdAt":"2026-06-20T10:00:00Z"}
+        """.write(to: dir.appendingPathComponent("session.json"), atomically: true, encoding: .utf8)
+        try """
+        {"timestamp":"2026-06-20T10:00:00Z","payload":{"type":"user","content":"\(String(repeating: "u", count: 400))"}}
+        {"payload":{"type":"tool_call","args":"\(String(repeating: "t", count: 200))"}}
+        {"payload":{"type":"turn_end"},"timestamp":"2026-06-20T10:00:05Z"}
+        """.write(to: dir.appendingPathComponent("messages.jsonl"), atomically: true, encoding: .utf8)
+
+        let entry = try XCTUnwrap(LocalAdditionalUsageReader.kiroEntries(
+            modifiedSince: try date("2026-01-01T00:00:00Z"), roots: [temporaryDirectory]).first)
+        XCTAssertEqual(entry.input, 100)
+        XCTAssertEqual(entry.output, 50, "tool_call args are output bytes, same as assistant text")
     }
 
     /// Pre-2.20 SQLite and post-2.20 JSONL are disjoint stores during the cutover.
@@ -897,7 +939,8 @@ final class KiroUsageTests: XCTestCase {
         sessionID: String,
         prompt: String,
         assistant: String,
-        createdAt: String
+        createdAt: String,
+        extraTurns: [(prompt: String, assistant: String)] = []
     ) throws {
         let dir = root.appendingPathComponent("sessions/\(workspace)/\(sessionID)")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
@@ -905,10 +948,17 @@ final class KiroUsageTests: XCTestCase {
         {"schemaVersion":"1.0.0","id":"\(sessionID)","createdAt":"\(createdAt)","lastModifiedAt":"\(createdAt)"}
         """
         try sessionJSON.write(to: dir.appendingPathComponent("session.json"), atomically: true, encoding: .utf8)
-        let jsonl = """
+        var jsonl = """
         {"role":"user","content":"\(prompt)"}
         {"role":"assistant","content":"\(assistant)"}
         """
+        for turn in extraTurns {
+            jsonl += """
+
+            {"role":"user","content":"\(turn.prompt)"}
+            {"role":"assistant","content":"\(turn.assistant)"}
+            """
+        }
         try jsonl.write(to: dir.appendingPathComponent("messages.jsonl"), atomically: true, encoding: .utf8)
     }
 

@@ -1187,22 +1187,26 @@ enum LocalAdditionalUsageReader {
         var promptDate: Date?
         var assistantBytes = 0
         var started = false
+        var turnIndex = 0
 
         func flush() {
+            let hadContent = started && promptBytes + assistantBytes > 0
             defer {
                 historyBytes += promptBytes + assistantBytes
                 promptBytes = 0
                 promptDate = nil
                 assistantBytes = 0
+                // Advance even when the turn is outside the window so later in-window
+                // ids stay stable (timestamp-keyed ids would also be window-independent).
+                if hadContent { turnIndex += 1 }
             }
-            guard started, promptBytes + assistantBytes > 0 else { return }
+            guard hadContent else { return }
             let date = promptDate ?? fallbackDate
             guard let date, date >= modifiedSince else { return }
             let input = (historyBytes + promptBytes) / kiroBytesPerToken
             let output = assistantBytes / kiroBytesPerToken
-            let millis = kiroTimestampMillis(raw: nil, date: date)
             if let entry = makeEntry(
-                id: "kiro|v3|\(sessionID)|\(millis)",
+                id: "kiro|v3|\(sessionID)|\(turnIndex)",
                 date: date, model: model, input: input, output: output) {
                 entries.append(entry)
             }
@@ -1223,6 +1227,12 @@ enum LocalAdditionalUsageReader {
                     assistantBytes += kiroJSONLTextBytes(payload["content"])
                     if !started, assistantBytes > 0 { started = true }
                     if promptDate == nil { promptDate = eventDate }
+                case "tool_call":
+                    // Writer-shaped: tokscale counts payload.args toward the turn's output.
+                    if let args = payload["args"] {
+                        assistantBytes += (args as? String)?.utf8.count ?? kiroJSONValueByteLength(args)
+                    }
+                    if !started, assistantBytes > 0 { started = true }
                 case "tool_result":
                     promptBytes += kiroJSONLTextBytes(payload["content"])
                 case "turn_end":
@@ -1230,7 +1240,7 @@ enum LocalAdditionalUsageReader {
                     flush()
                     started = false
                 default:
-                    // usage_summary / session_metadata / tool_call: no token fields we trust.
+                    // usage_summary / session_metadata: credits are not API dollars.
                     break
                 }
             } else if let role = stringValue(object["role"]) {
