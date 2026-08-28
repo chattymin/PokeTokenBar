@@ -27,7 +27,8 @@ extension PlayerStore {
     /// 부화 감면은 여기 있으므로 어느 경로로 들어온 알이든 똑같이 받는다.
     @discardableResult
     func placeEgg(grade: Grade, speciesID: Int, shiny: Bool,
-                  growthRate: GrowthRate = .mediumFast) -> Egg? {
+                  growthRate: GrowthRate = .mediumFast,
+                  genderRate: Int = GenderBalance.defaultRate) -> Egg? {
         guard freeSlots > 0 else { return nil }
         let started = currentDate()
         // 알을 빨리 깨우는 아이를 이미 데리고 있으면 처음부터 절반으로 시작한다.
@@ -35,7 +36,7 @@ extension PlayerStore {
         let span = HatchSpeedup.present(in: state.box) ? full * HatchSpeedup.multiplier : full
         let egg = Egg(grade: grade, speciesID: speciesID, shiny: shiny,
                       startedAt: started, hatchesAt: started.addingTimeInterval(span),
-                      growthRate: growthRate)
+                      growthRate: growthRate, genderRate: genderRate)
         mutate { $0.eggs.append(egg) }
         return egg
     }
@@ -43,10 +44,11 @@ extension PlayerStore {
     /// 값을 치르고 알을 슬롯에 넣는다. 재화가 모자라거나 빈 슬롯이 없으면 아무것도 하지 않고 nil.
     @discardableResult
     func startEgg(grade: Grade, speciesID: Int, shiny: Bool,
-                  growthRate: GrowthRate = .mediumFast) -> Egg? {
+                  growthRate: GrowthRate = .mediumFast,
+                  genderRate: Int = GenderBalance.defaultRate) -> Egg? {
         guard canDraw else { return nil }
         guard let egg = placeEgg(grade: grade, speciesID: speciesID, shiny: shiny,
-                                 growthRate: growthRate) else { return nil }
+                                 growthRate: growthRate, genderRate: genderRate) else { return nil }
         mutate { $0.spentTokens += EggBalance.drawPrice }
         return egg
     }

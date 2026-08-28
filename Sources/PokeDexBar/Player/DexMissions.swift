@@ -23,7 +23,7 @@ enum DexMissionReward: Equatable, Sendable {
     /// (`EggBalance.rewardOnlySpecies`)의 유일한 입수처다 — 레지 패밀리를 다 모으면
     /// 레지기가스가 깨어나는 본가 전승 그대로. 등급·곡선을 값으로 들고 다니는 이유:
     /// 지급 자리(`PlayerStore.grant`)에는 네트워크 인덱스가 없다.
-    case pokemon(speciesID: Int, grade: Grade, growthRate: GrowthRate)
+    case pokemon(speciesID: Int, grade: Grade, growthRate: GrowthRate, gender: Gender)
 }
 
 extension DexMissionReward {

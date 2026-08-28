@@ -190,6 +190,13 @@ PokeDexBar는 당신이 이미 태우고 있는 AI 코딩 토큰(Claude Code · 
 <td width="45%" align="center"><img src="assets/screenshot-dex-entry.png" width="300" alt="종의 도감 상세 — 스프라이트·분류·타입, 키와 몸무게, 세대 칩이 달린 도감 설명, 구성원 실루엣이 있는 컬렉션 카드"></td>
 </tr>
 <tr>
+<td width="45%" align="center"><img src="assets/gender-banner.png" width="300" alt="같은 피카츄의 수컷과 암컷 — 이름 옆의 파란 ♂ 와 분홍 ♀, 그리고 암컷의 파인 꼬리"></td>
+<td width="55%" valign="middle">
+<h3>♀ ♂ 모든 포켓몬에 성별이 있어요</h3>
+성별은 알에서 깰 때 그 종의 실제 성비로 한 번 정해지고 평생 안 바뀌어요 — 지방 모습처럼 진화해도 이어집니다. 상세 화면 이름 옆에 보여요. <b>98종은 암컷 전용 그림이 있고</b>(피카츄의 파인 꼬리, 히포포타스의 색), 그중 본가가 별개 폼으로 세는 넷 — 냐오닉스·에써르·대쓰여너·퍼퓨돈 — 은 도감 칸도 따로 채워집니다. 성별로 갈리는 진화 여섯 갈래도 본가 그대로예요: 암컷 눈꼬마만 눈여아가 되고, 수컷 랄토스만 엘레이드가 됩니다.
+</td>
+</tr>
+<tr>
 <td width="45%" align="center"><img src="assets/settings-ko.png" width="300" alt="설정"></td>
 <td width="55%" valign="middle">
 <h3>설정에서 취향대로</h3>

@@ -74,6 +74,9 @@ struct EvoNode: Codable, Sendable {
     /// **이 종이 되기 위해** 필요한 것(부모에서 이 노드로 오는 갈래의 조건).
     /// 뿌리는 항상 `.none` — 아무것도 거치지 않고 존재한다.
     var requirementRaw: EvoRequirementRaw = .none
+    /// 이 종이 되려면 필요한 성별. **요구 조건과 AND 로 함께 걸린다** — 엘레이드는 새벽의돌
+    /// *그리고* 수컷이라, 하나의 enum 으로는 표현이 안 된다. 제한이 없으면 nil(대부분).
+    var requiredGender: Gender?
 
     var requirement: EvoRequirement {
         switch requirementRaw {
@@ -105,7 +108,8 @@ struct EvoNode: Codable, Sendable {
         // 조건 없이 열린다. `EvoLine.init` 이 항상 이 함수를 지나므로 여기서 새면 전부 샌다.
         return EvoNode(speciesID: speciesID,
                        children: children.compactMap { $0.keepingSupportedSpecies() },
-                       requirementRaw: requirementRaw)
+                       requirementRaw: requirementRaw,
+                       requiredGender: requiredGender)
     }
 }
 
@@ -141,15 +145,19 @@ struct EvoLine: Sendable {
     /// 기본값 `[:]` 인 이유는 이 라인을 손으로 구성하는 기존 테스트가 대부분이라서다 — 실제
     /// 라인은 `PokeAPIClient.line(baseSpeciesID:)` 이 매 종마다 채워 넣는다.
     let growthRates: [Int: GrowthRate]
+    /// speciesID → 성비. 성장 곡선과 같은 이유로 라인이 들고 다닌다 — 파트너가 물어 온 알
+    /// (`takeFoundEgg`)과 옛 세이브 보정(`backfillGenders`)에는 `BaseSpecies` 인덱스가 없다.
+    let genderRates: [Int: Int]
     var totalForms: Int { tree.depth }
 
     init(baseID: Int, tree: EvoNode, rarity: Rarity, names: [Int: [String: String]],
-         growthRates: [Int: GrowthRate] = [:]) {
+         growthRates: [Int: GrowthRate] = [:], genderRates: [Int: Int] = [:]) {
         self.baseID = baseID
         self.tree = tree.keepingSupportedSpecies() ?? EvoNode(speciesID: baseID, children: [])
         self.rarity = rarity
         self.names = names
         self.growthRates = growthRates
+        self.genderRates = genderRates
     }
 
     func localizedName(_ id: Int, _ lang: AppLanguage) -> String {
@@ -158,6 +166,9 @@ struct EvoLine: Sendable {
 
     /// `speciesID` 의 성장 곡선. 라인 fetch 가 안 됐거나 오래된 캐시라면 nil.
     func growthRate(of speciesID: Int) -> GrowthRate? { growthRates[speciesID] }
+
+    /// `speciesID` 의 성비. 라인 fetch 가 안 됐거나 오래된 캐시라면 nil.
+    func genderRate(of speciesID: Int) -> Int? { genderRates[speciesID] }
 }
 
 /// 성격 — 본가 25종. 부화 시 확정, 능력치 영향 없음(개체 아이덴티티 표시용).

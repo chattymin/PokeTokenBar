@@ -56,8 +56,12 @@ final class PlayerStore {
         // 스타터는 번들 카탈로그에서만 오고 여기엔 `BaseSpecies`(성장 타입 출처)가 없다 —
         // 네트워크 없이 고르는 화면이라 못 받아 온다. 기본값(`.mediumFast`)으로 태어나고,
         // 첫 진화(Task 7)가 실제 라인의 성장 타입으로 바로잡아 준다.
+        // **성별은 기본값에 못 맡긴다** — 성장 타입과 달리 진화가 바로잡아 주는 자리가 없다
+        // (성별은 진화해도 안 바뀐다). 스타터 27마리는 성비가 전부 같아서 상수 하나면 된다.
+        let gender = GenderBalance.roll(species: speciesID, rate: GenderBalance.starterRate,
+                                        roll: Double(rng.next() % 1_000_000) / 1_000_000)
         let individual = Individual(baseID: speciesID, speciesID: speciesID, pathIDs: [speciesID],
-                                    shiny: false, nature: nature, exp: 0,
+                                    shiny: false, gender: gender, nature: nature, exp: 0,
                                     obtainedAt: now(), grade: grade)
         let hadSpeedup = HatchSpeedup.present(in: state.box)
         state.box.append(individual)

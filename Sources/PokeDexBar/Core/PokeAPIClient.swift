@@ -14,6 +14,10 @@ struct BaseSpecies: Sendable, Codable {
     /// 키를 그대로 요구하므로, 이 필드가 없던 구 디스크 캐시(`base-index.json`)는 여전히 디코드가
     /// 실패해 자동 재구축된다(위 isLegendary/isMythical 과 같은 이유).
     var growthRate: GrowthRate = .mediumFast
+    /// 성비(PokéAPI `gender_rate`) — 8분의 몇이 암컷인가. `-1` 은 무성별.
+    /// 기본값이 있는 이유는 `growthRate` 와 같다(메모리 생성 편의) — 합성 Codable 은 여전히 키를
+    /// 요구하므로, 이 필드가 없는 옛 `base-index.json` 은 디코드에 실패해 자동으로 다시 만들어진다.
+    var genderRate: Int = GenderBalance.defaultRate
 }
 
 /// 메타몽 종 id — 위장·변신 등 별도 처리가 필요한 특수종이라 일반 부화 후보 풀에서 제외한다.
@@ -64,15 +68,17 @@ actor PokeAPIClient: PokeProviding {
         // 라인의 모든 종 이름(지원 언어만) + 성장 곡선
         var names: [Int: [String: String]] = [:]
         var growthRates: [Int: GrowthRate] = [:]
+        var genderRates: [Int: Int] = [:]
         for id in allIDs(tree) {
             let sp = try await species(id)
             var byLang: [String: String] = [:]
             for n in sp.names where langCodes.contains(n.language.name) { byLang[n.language.name] = n.name }
             names[id] = byLang
             growthRates[id] = GrowthRate.fromAPI(sp.growth_rate.name)
+            genderRates[id] = sp.gender_rate
         }
         let line = EvoLine(baseID: baseSpeciesID, tree: tree, rarity: rarity, names: names,
-                           growthRates: growthRates)
+                           growthRates: growthRates, genderRates: genderRates)
         lineCache[baseSpeciesID] = line
         return line
     }
@@ -125,6 +131,8 @@ actor PokeAPIClient: PokeProviding {
             let is_mythical: Bool
             /// PokéAPI GraphQL 은 REST 의 `growth_rate` 와 달리 밑줄 없는 관계명 `growthrate` 를 쓴다.
             let growthrate: NamedRef
+            /// 관계가 아니라 컬럼이라 REST 와 같은 밑줄 표기다(`growthrate` 와 대비된다).
+            let gender_rate: Int
         }
         let data: DataBox
     }
@@ -215,7 +223,7 @@ actor PokeAPIClient: PokeProviding {
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         // 메타몽(#132)은 별도 처리가 필요한 특수종이라 일반 부화 풀에서 제외(_neq).
         let maxID = PokemonAssets.speciesIDs.upperBound
-        let query = "{ pokemonspecies(where: {evolves_from_species_id: {_is_null: true}, id: {_lte: \(maxID), _neq: \(dittoSpeciesID)}}, order_by: {id: asc}) { id capture_rate is_legendary is_mythical growthrate { name } } }"
+        let query = "{ pokemonspecies(where: {evolves_from_species_id: {_is_null: true}, id: {_lte: \(maxID), _neq: \(dittoSpeciesID)}}, order_by: {id: asc}) { id capture_rate is_legendary is_mythical gender_rate growthrate { name } } }"
         req.httpBody = try JSONSerialization.data(withJSONObject: ["query": query])
         let (data, resp) = try await URLSession.shared.data(for: req)
         guard (resp as? HTTPURLResponse)?.statusCode == 200 else { throw URLError(.badServerResponse) }
@@ -223,7 +231,8 @@ actor PokeAPIClient: PokeProviding {
         let entries = decoded.data.pokemonspecies.map {
             BaseSpecies(id: $0.id, captureRate: $0.capture_rate,
                        isLegendary: $0.is_legendary, isMythical: $0.is_mythical,
-                       growthRate: GrowthRate.fromAPI($0.growthrate.name))
+                       growthRate: GrowthRate.fromAPI($0.growthrate.name),
+                       genderRate: $0.gender_rate)
         }
         guard !entries.isEmpty else { throw URLError(.cannotParseResponse) }
         return entries
@@ -244,7 +253,8 @@ actor PokeAPIClient: PokeProviding {
         guard dto.evolves_from_species == nil else { return nil }   // 진화 중간체는 부화 후보 아님
         return BaseSpecies(id: id, captureRate: dto.capture_rate,
                            isLegendary: dto.is_legendary, isMythical: dto.is_mythical,
-                           growthRate: GrowthRate.fromAPI(dto.growth_rate.name))
+                           growthRate: GrowthRate.fromAPI(dto.growth_rate.name),
+                           genderRate: dto.gender_rate)
     }
 
     private var profileCache: [Int: SpeciesProfile] = [:]
@@ -308,7 +318,8 @@ actor PokeAPIClient: PokeProviding {
         let myLevel = if case .level(let n) = raw { n } else { parentLevel }
         return EvoNode(speciesID: speciesID,
                        children: link.evolves_to.map { node(from: $0, parentLevel: myLevel) },
-                       requirementRaw: raw)
+                       requirementRaw: raw,
+                       requiredGender: Self.gender(from: link.evolution_details))
     }
 
     /// 조건 목록 → 이 앱이 쓰는 요구 조건. 여러 건이면 **재현 가능한 것 중 첫 번째**를 쓴다
@@ -343,6 +354,21 @@ actor PokeAPIClient: PokeProviding {
         // `.none` 으로 두면 조건 없이 즉시 진화해 버린다.
         return .level(max(parentLevel + EvoBalance.marginOverParent, EvoBalance.unstatedLevel))
     }
+    /// 성별 제한 — **요구 조건과 따로 싣는다.** 조건 enum 에 넣으면 "새벽의돌 **그리고** 수컷"
+    /// (엘레이드)처럼 둘을 동시에 요구하는 갈래를 표현할 수 없다. 여섯 갈래뿐이지만 그 여섯이
+    /// 전부 도구·레벨 조건과 겹친다.
+    static func gender(from details: [EvolutionDetail]?) -> Gender? {
+        guard let details else { return nil }
+        for d in details {
+            switch d.gender {
+            case 1: return .female
+            case 2: return .male
+            default: continue
+            }
+        }
+        return nil
+    }
+
     private func allIDs(_ n: EvoNode) -> [Int] { [n.speciesID] + n.children.flatMap(allIDs) }
 
     static func id(from speciesURL: String) -> Int {
@@ -369,6 +395,8 @@ struct SpeciesDTO: Decodable, Sendable {
     let evolution_chain: URLRef
     let evolves_from_species: NamedRef?   // nil = 진화라인 시작점(base)
     let growth_rate: NamedRef
+    /// 성비 — 8분의 몇이 암컷인가. `-1` 은 무성별.
+    let gender_rate: Int
     /// 도감설명 — (언어 × 게임 버전) 격자라 같은 언어가 여러 번 온다.
     let flavor_text_entries: [FlavorDTO]?
     /// 분류("쥐포켓몬") — 언어별.
@@ -408,4 +436,6 @@ struct EvolutionDetail: Decodable, Sendable {
     let min_happiness: Int?
     /// 본가 `min_level`. 명시가 없는 갈래(장소·기술 등)는 nil — `EvoBalance` 규칙으로 채운다.
     let min_level: Int?
+    /// 성별 제한(1=암컷, 2=수컷). 제한이 없으면 nil — 전 1025종에서 여섯 갈래만 값이 있다.
+    let gender: Int?
 }

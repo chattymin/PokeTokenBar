@@ -62,6 +62,10 @@ struct ProfessorOfferSection: View {
             guard !Task.isCancelled else { return }   // 팝오버가 닫혔으면 착지하지 않는다
             index = fetched
             store.refreshProfessorOffers(index: fetched)
+            // 성별 보정 — 여기는 **상점 탭**이라 이 화면만으로는 안 열어 본 사람을 못 덮는다.
+            // 실제 보장은 `PopoverView` 의 루트 `.task` 가 한다. 인덱스가 이미 손에 있으니
+            // 같이 부를 뿐이고, 멱등이라 두 번 돌아도 값이 안 바뀐다.
+            store.backfillGenders(from: fetched)
         }
     }
 

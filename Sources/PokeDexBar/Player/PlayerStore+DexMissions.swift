@@ -57,7 +57,7 @@ extension PlayerStore {
                 s.inventory[item.rawValue, default: 0] += n
             case .rainbowCharm:
                 s.ownsRainbowCharm = true
-            case .pokemon(let speciesID, let grade, let growthRate):
+            case .pokemon(let speciesID, let grade, let growthRate, let gender):
                 // 부화(`makeHatchling`)가 굴리는 것 중 성격·이로치만 굴린다 — 지방·무늬는
                 // 지금의 지급 종(레지기가스)에 없어서 안 굴린다(생기면 그때 얹는다).
                 // 이로치 분모는 부적 상태를 따른다 — 확정권 뽑기와 같은 규칙.
@@ -67,7 +67,8 @@ extension PlayerStore {
                     shinyCharm: s.ownsShinyCharm, rainbowCharm: s.ownsRainbowCharm)
                 let shiny = EggBalance.rollShiny(nextRandomUnit(), denominator: denominator)
                 let individual = Individual(baseID: speciesID, speciesID: speciesID,
-                                            pathIDs: [speciesID], shiny: shiny, nature: nature,
+                                            pathIDs: [speciesID], shiny: shiny, gender: gender,
+                                            nature: nature,
                                             obtainedAt: currentDate(), grade: grade,
                                             growthRate: growthRate)
                 s.box.append(individual)
@@ -84,11 +85,12 @@ extension PlayerStore {
     /// 그 반대가 생길 수 있다.
     @discardableResult
     func redeemEggTicket(grade: Grade, speciesID: Int,
-                         growthRate: GrowthRate = .mediumFast) -> Egg? {
+                         growthRate: GrowthRate = .mediumFast,
+                         genderRate: Int = GenderBalance.defaultRate) -> Egg? {
         guard let ticket = ShopItem.eggTicket(for: grade), count(of: ticket) > 0 else { return nil }
         let shiny = EggBalance.rollShiny(nextRandomUnit(), denominator: shinyDenominator)
         guard let egg = placeEgg(grade: grade, speciesID: speciesID, shiny: shiny,
-                                 growthRate: growthRate) else { return nil }
+                                 growthRate: growthRate, genderRate: genderRate) else { return nil }
         mutate { s in
             s.inventory[ticket.rawValue, default: 0] -= 1
             if s.inventory[ticket.rawValue] ?? 0 <= 0 { s.inventory[ticket.rawValue] = nil }

@@ -56,6 +56,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             onHide: { [weak self] in self?.store.floatingPetEnabled = false }
         )   // 데스크톱 플로팅 펫(옵트인)
         Task { await updater.check() }                    // 기동 시 1회 업데이트 확인
+        // **성별 보정은 기동 시에 돈다 — 화면과 무관하게.** 처음엔 상점 탭에, 다음엔 팝오버
+        // 루트에 뒀는데 둘 다 "그 화면을 열어야" 도는 자리였다. 데이터 마이그레이션을 뷰에
+        // 매달면 그 뷰를 안 지나는 사람에게는 영영 안 돈다 — 두 번 연속 그렇게 놓쳤다.
+        // 인덱스는 30일 디스크 캐시라 대개 네트워크를 안 타고, 이미 다 채워져 있으면
+        // `backfillGenders` 가 아무 일도 안 하고 돌아온다(멱등).
+        Task { @MainActor [weak self] in
+            guard let index = try? await PokeAPIClient.shared.baseSpeciesIndex(),
+                  !index.isEmpty, let self else { return }
+            self.player.backfillGenders(from: index)
+        }
 
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         if let button = statusItem.button {

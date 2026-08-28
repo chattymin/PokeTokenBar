@@ -43,8 +43,11 @@ extension PlayerStore {
         // 폼(예: 리자몽) 기준일 수 있어, 알이 될 baseID(파이리) 의 값과 다를 수 있다. 라인이
         // 아직 안 받아져 있으면(nil) 그 개체가 이미 들고 있는 값으로 물러난다.
         let growthRate = line.growthRate(of: individual.baseID) ?? individual.growthRate
+        // 성비도 같은 이유로 라인에서 baseID 기준으로 찾는다. 라인이 아직 없으면 기본값 —
+        // 이 알에서 나올 아이의 성별만 갈릴 뿐 다른 것은 안 바뀐다.
+        let genderRate = line.genderRate(of: individual.baseID) ?? GenderBalance.defaultRate
         guard let egg = placeEgg(grade: individual.grade, speciesID: individual.baseID, shiny: shiny,
-                                 growthRate: growthRate)
+                                 growthRate: growthRate, genderRate: genderRate)
         else { return nil }
         // 인덱스는 `placeEgg`(state 변형 + save) 가 끝난 **뒤에 다시 찾는다** — 미리 잡아 두면
         // 그 사이 바뀐 배열에 옛 인덱스로 깎는 꼴이 된다.

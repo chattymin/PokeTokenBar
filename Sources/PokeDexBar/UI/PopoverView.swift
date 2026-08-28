@@ -95,6 +95,15 @@ struct PopoverView: View {
             }
         }
         .frame(width: PopoverMetrics.width)
+        // **성별 보정은 팝오버가 열릴 때마다 여기서 돈다.** 처음엔 상점 탭의 박사 구역에
+        // 얹어 뒀는데, 그 탭을 한 번도 안 열면 영영 안 돌았다 — 박스로 바로 가는 사람은
+        // 성별이 계속 안 보였다(사용자 지적). 마이그레이션을 특정 탭의 화면에 매달면 안 된다.
+        // 인덱스는 디스크에 30일 캐시되므로 매번 열려도 네트워크를 안 탄다. 이미 다 채워져
+        // 있으면 `backfillGenders` 가 아무것도 안 하고 돌아온다(멱등).
+        .task {
+            guard let index = try? await provider.baseSpeciesIndex(), !index.isEmpty else { return }
+            player.backfillGenders(from: index)
+        }
     }
 
     @ViewBuilder
@@ -350,6 +359,7 @@ struct PopoverView: View {
                 // 라인이 아는 종은 여기서 성장 곡선을 바로잡는다 — 마이그레이션된 개체·스타터가
                 // 진화 없이도(이미 최종형이면 영영 진화가 안 온다) 맞는 곡선을 받게 하는 유일한 자리다.
                 player.backfillGrowthRates(from: line)
+                player.backfillGenders(from: line)
             }
         }
     }

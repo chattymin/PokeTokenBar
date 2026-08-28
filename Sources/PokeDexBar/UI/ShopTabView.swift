@@ -35,9 +35,10 @@ struct ShopTabView: View {
     /// 사용자는 눌렀는데 재화도 안 줄고 알도 안 생기는 침묵을 본다.
     /// 뷰 밖에서 잠글 수 있게 착지 지점만 떼어 둔다(`draw()` 는 네트워크 await 라 통째로는 못 잡는다).
     static func landDraw(_ store: PlayerStore, grade: Grade, speciesID: Int, shiny: Bool,
-                         growthRate: GrowthRate = .mediumFast) -> String? {
+                         growthRate: GrowthRate = .mediumFast,
+                         genderRate: Int = GenderBalance.defaultRate) -> String? {
         store.startEgg(grade: grade, speciesID: speciesID, shiny: shiny,
-                       growthRate: growthRate) == nil
+                       growthRate: growthRate, genderRate: genderRate) == nil
             ? store.l.shopDrawUnavailable : nil
     }
 
@@ -194,9 +195,11 @@ struct ShopTabView: View {
             // 고른 종의 성장 타입을 인덱스에서 찾아 그대로 싣는다. 메타몽은 인덱스 자체에서
             // 빠져 있어(`PokeAPIClient`) 못 찾으면 기본값(`.mediumFast`)으로 태어나는데,
             // 실제로도 메타몽의 성장 타입이 미디엄패스트라 값이 어긋나지 않는다.
-            let growthRate = index.first(where: { $0.id == chosen })?.growthRate ?? .mediumFast
+            let entry = index.first(where: { $0.id == chosen })
+            let growthRate = entry?.growthRate ?? .mediumFast
+            let genderRate = entry?.genderRate ?? GenderBalance.defaultRate
             lastError = Self.landDraw(store, grade: roll.grade, speciesID: chosen, shiny: roll.shiny,
-                                      growthRate: growthRate)
+                                      growthRate: growthRate, genderRate: genderRate)
             // 착지에 실패했으면(슬롯이 찼다 등) 축하할 것이 없다 — 문구만 남긴다.
             if lastError == nil { reveal = (roll.grade, roll.shiny) }
         }
@@ -220,9 +223,11 @@ struct ShopTabView: View {
             if DittoDisguise.hits(grade: grade, roll: store.nextRandomUnit()) {
                 chosen = DittoDisguise.speciesID
             }
-            let growthRate = index.first(where: { $0.id == chosen })?.growthRate ?? .mediumFast
+            let entry = index.first(where: { $0.id == chosen })
+            let growthRate = entry?.growthRate ?? .mediumFast
+            let genderRate = entry?.genderRate ?? GenderBalance.defaultRate
             guard let egg = store.redeemEggTicket(grade: grade, speciesID: chosen,
-                                                  growthRate: growthRate) else {
+                                                  growthRate: growthRate, genderRate: genderRate) else {
                 lastError = l.shopDrawUnavailable
                 return
             }

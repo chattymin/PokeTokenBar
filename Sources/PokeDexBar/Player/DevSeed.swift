@@ -23,10 +23,11 @@ import Foundation
 /// 적용 여부는 `~/Library/Logs/PokeDexBarDev.log` 에 남는다 — 조용히 아무것도 안 하면
 /// 변수를 못 받은 것인지 조건에 안 걸린 것인지 구분할 수가 없다.
 ///
-/// **앱이 세이브에 개체를 넣는 시드는 두지 않는다.** 메타몽 위장을 만들 때 잠깐 뒀다가 걷어냈다 —
-/// 켤 때마다 개체가 하나씩 쌓여 시험용 개체가 일곱 마리까지 늘었고, 봉인된 세이브라 밖에서 지울
-/// 수도 없어 앱에 임시 제거 경로를 넣어야 했다. 리본처럼 **이미 있는 개체의 값만 올리는** 시드로
-/// 족하다. 개체가 필요하면 테스트에서 `addForTesting` 을 쓴다.
+/// **개체를 넣는 시드는 켤 때마다 쌓인다는 것을 알고 써라.** 메타몽 위장을 만들 때 무심코 뒀다가
+/// 시험용 개체가 일곱 마리까지 늘었고, 봉인된 세이브라 밖에서 지울 수도 없어 앱에 임시 제거
+/// 경로를 넣어야 했다. 그래서 **값만 올리는 시드**(리본·알 계량기·확정권)가 기본이고, 개체를
+/// 넣는 둘(`PTB_SEED_SHINY`·`PTB_SEED_GENDER`)은 정상 경로로는 만들 수 없는 개체가 필요할 때만
+/// 쓴다 — 쓰고 나면 **환경변수를 빼고** 다시 켜야 한다. 안 그러면 켤 때마다 한 마리씩 는다.
 struct DevSeed: Equatable, Sendable {
     let ribbon: Ribbon
     /// 대상 종. 비우면 지금 파트너에게 적용한다.
@@ -81,6 +82,37 @@ extension PlayerStore {
                            level: environment["PTB_SEED_SHINY_LEVEL"].flatMap { Int($0) } ?? 1)
         }
         if environment["PTB_SEED_TICKETS"] != nil { applyTicketSeed() }
+        if let raw = environment["PTB_SEED_GENDER"], let species = Int(raw) {
+            // 기본이 암컷이다 — 볼 것이 있는 쪽이 암컷이라(♀ 기호 + 암컷 전용 그림) 기본값을
+            // 그쪽으로 둔다. 수컷은 비교용으로 명시해서 부른다.
+            let sex = environment["PTB_SEED_GENDER_SEX"]?.lowercased()
+            applyGenderSeed(speciesID: species,
+                            gender: sex == "male" ? .male : sex == "genderless" ? .genderless : .female)
+        }
+    }
+
+    /// 성별 시험용 — 특정 종의 개체를 **성별을 지정해서** 박스에 넣는다.
+    ///
+    /// ```
+    /// open --env PTB_SEED_GENDER=25 -a "PokeDexBar Dev"                           # 암컷 피카츄
+    /// open --env PTB_SEED_GENDER=25 --env PTB_SEED_GENDER_SEX=male -a "PokeDexBar Dev"
+    /// ```
+    ///
+    /// 정상 경로로는 성별이 부화 굴림으로만 정해져서, 암컷 전용 그림이 있는 98종 중 원하는
+    /// 하나를 암컷으로 얻으려면 운에 맡겨야 한다. 이로치 시드와 같은 규칙 — **종 번호를 인자로
+    /// 받는다**(특정 종을 하드코딩하면 다음 시험에 또 코드를 고쳐야 한다).
+    func applyGenderSeed(speciesID: Int, gender: Gender) {
+        let growth = GrowthRate.mediumFast
+        let made = Individual(baseID: speciesID, speciesID: speciesID, pathIDs: [speciesID],
+                              gender: gender, nature: .hardy,
+                              obtainedAt: currentDate(), grade: .common, growthRate: growth)
+        mutate { s in
+            s.box.append(made)
+            // 도감에도 넣는다 — 암수가 별개 폼인 넷(냐오닉스 등)은 도감이 갈리는지가 확인
+            // 대상이라, 박스에만 넣으면 정작 볼 것을 못 본다.
+            s.dexForms.insert(DexKey.key(for: made))
+        }
+        AppLog.write("GenderSeed: \(gender.rawValue) \(speciesID) 을 박스에 넣었다 (id \(made.id))")
     }
 
     /// 알 확정권 시험용 — 세 등급을 **한 장씩** 넣는다.

@@ -104,12 +104,16 @@ extension PlayerStore {
                              % natures.count]
         // 인덱스에 실린 그 종의 성장 타입을 그대로 싣는다 — 못 찾으면(이론상 도달 불가) 기본값.
         let growthRate = index.first(where: { $0.id == species })?.growthRate ?? .mediumFast
+        // 성비도 같은 인덱스에서 온다 — 제안은 무엇인지 보여 주고 고르는 자리라 성별도 미리 정해진다.
+        let genderRate = index.first(where: { $0.id == species })?.genderRate ?? GenderBalance.defaultRate
+        let gender = GenderBalance.roll(species: species, rate: genderRate,
+                                        roll: roll(ProfessorRoll.Salt.gender))
         var individual = Individual(
             baseID: species, speciesID: species, pathIDs: [species],
             // 박사의 제안은 부적을 안 받는다(결정적 굴림 — 부적 상태가 끼면 사람마다 같은
             // 날 다른 제안이 되어 되돌릴 수 없는 축이 하나 는다). 기본 분모 64 그대로.
             shiny: EggBalance.rollShiny(roll(ProfessorRoll.Salt.shiny), denominator: 64),
-            nature: nature, exp: 0, obtainedAt: now, grade: grade, growthRate: growthRate)
+            gender: gender, nature: nature, exp: 0, obtainedAt: now, grade: grade, growthRate: growthRate)
         let region = RegionBalance.rollRegion(speciesID: species,
                                               roll: roll(ProfessorRoll.Salt.region),
                                               pick: roll(ProfessorRoll.Salt.regionPick))

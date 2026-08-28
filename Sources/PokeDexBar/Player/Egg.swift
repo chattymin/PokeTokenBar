@@ -15,6 +15,10 @@ struct Egg: Identifiable, Codable, Sendable, Equatable {
     /// 이 알에서 나올 개체의 경험치 곡선. 부화 시점에는 `BaseSpecies` 가 없으므로
     /// 뽑을 때 적어 둔다 — `shiny`·`grade` 를 알이 들고 있는 것과 같은 이유다.
     var growthRate: GrowthRate = .mediumFast
+    /// 이 알에서 나올 개체의 **성비**(PokéAPI `gender_rate`). 성장 곡선과 같은 이유로 뽑을 때
+    /// 적어 둔다 — 부화 자리에는 `BaseSpecies` 가 없다. **성별 자체는 여기 안 적는다**: 적으면
+    /// 확인을 누르기 전에 세이브에 결과가 드러난다(성격·지방과 같은 규칙).
+    var genderRate: Int = GenderBalance.defaultRate
 
     /// **필드를 더할 때 알이 통째로 사라지지 않게 하는 장치.** Swift 합성 디코더는 기본값이 있어도
     /// 키가 없으면 던지고, `LossyEgg` 는 그 예외를 "이 알을 버린다"로 바꾼다 — `Individual` 에서
@@ -32,11 +36,13 @@ struct Egg: Identifiable, Codable, Sendable, Equatable {
         startedAt = value(.startedAt, hatchesAt)
         announced = value(.announced, false)
         growthRate = value(.growthRate, .mediumFast)
+        genderRate = value(.genderRate, GenderBalance.defaultRate)
     }
 
     init(id: UUID = UUID(), grade: Grade, speciesID: Int, shiny: Bool,
          startedAt: Date, hatchesAt: Date, announced: Bool = false,
-         growthRate: GrowthRate = .mediumFast) {
+         growthRate: GrowthRate = .mediumFast,
+         genderRate: Int = GenderBalance.defaultRate) {
         self.id = id
         self.grade = grade
         self.speciesID = speciesID
@@ -45,6 +51,7 @@ struct Egg: Identifiable, Codable, Sendable, Equatable {
         self.hatchesAt = hatchesAt
         self.announced = announced
         self.growthRate = growthRate
+        self.genderRate = genderRate
     }
 
     func isReady(at now: Date) -> Bool { now >= hatchesAt }
@@ -68,6 +75,8 @@ struct Egg: Identifiable, Codable, Sendable, Equatable {
         let longest = Grade.allCases.map(EggBalance.duration).max() ?? 0
         egg.hatchesAt = min(max(Self.clampDate(hatchesAt), egg.startedAt),
                             egg.startedAt.addingTimeInterval(longest))
+        // 성비도 굴림에 들어가는 수치라 같은 자리에서 자른다 — 범위 밖이면 기본값으로.
+        egg.genderRate = GenderBalance.sanitizedRate(genderRate)
         return egg
     }
 

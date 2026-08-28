@@ -20,6 +20,7 @@ final class SpeciesProfileTests: XCTestCase {
       "evolution_chain": {"url": "https://pokeapi.co/api/v2/evolution-chain/10/"},
       "evolves_from_species": null,
       "growth_rate": {"name": "medium", "url": null},
+      "gender_rate": 4,
       "genera": [
         {"genus": "쥐포켓몬", "language": {"name": "ko", "url": null}},
         {"genus": "Mouse Pokémon", "language": {"name": "en", "url": null}}

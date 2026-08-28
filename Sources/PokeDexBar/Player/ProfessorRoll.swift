@@ -19,6 +19,8 @@ enum ProfessorRoll {
         static let regionPick: UInt64 = 0x06
         static let birthForm: UInt64 = 0x07
         static let birthFormPick: UInt64 = 0x08
+        /// 성별 — **새 salt 다.** 기존 것을 재사용하면 성별이 그 축과 붙어 굴러(예: 암컷이면 항상 이로치) 결정적 굴림이 상관관계를 낳는다.
+        static let gender: UInt64 = 0x09
     }
 
     /// FNV-1a 64비트.

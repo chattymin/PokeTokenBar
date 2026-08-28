@@ -30,14 +30,102 @@ extension PlayerStore {
         }
     }
 
+    /// 성별이 없던 시절의 개체에 성별을 채운다 — `backfillGrowthRates` 와 같은 자리·같은 규율
+    /// (멱등, 라인이 모르는 종은 그대로).
+    ///
+    /// **이미 성별이 있으면 절대 다시 굴리지 않는다.** 다시 굴리면 앱을 켤 때마다 성별이 바뀌고,
+    /// 성별로 갈리는 진화가 그때그때 달라진다. 그래서 `nil` 인 것만 채운다 — 무성별은 `nil` 이
+    /// 아니라 `.genderless` 로 적히므로 여기 다시 걸리지 않는다.
+    ///
+    /// 굴림은 개체 id 에서 유도한다. 난수기를 쓰면 같은 개체가 기기마다 다른 성별이 되고,
+    /// 저장 실패 시 다음 기동에 또 달라진다 — id 는 그 개체에 붙어 있어 언제 어디서 굴려도 같다.
+    func backfillGenders(from line: EvoLine) {
+        // 라인은 **지금 종**의 성비를 안다 — 진화형이 성별 고정인 경우(비퀸은 암컷만)
+        // 그쪽이 더 정확하다. 다만 라인 하나는 한 계보만 알아서 박스 전체를 못 덮는다.
+        backfillGenders { line.genderRate(of: $0.speciesID) }
+    }
+
+    /// **박스 전체를 한 번에 채우는 경로.** 라인 기반 보정은 그때 열린 계보만 훑어서, 박스에
+    /// 서른 종이 있으면 서른 계보를 다 열어야 채워졌다 — 사실상 "다 적용"이 안 됐다(사용자 지적).
+    /// 종 인덱스는 base 종 전부를 들고 있으므로 `baseID` 로 찾으면 진화한 개체까지 한 번에 덮는다.
+    ///
+    /// `baseID` 로 찾는 게 맞는 이유: 성별은 **부화 시점에 base 종의 성비로** 정해지는 값이라,
+    /// 그때 굴렸을 값을 그대로 복원하는 것이다.
+    func backfillGenders(from index: [BaseSpecies]) {
+        guard !index.isEmpty else { return }
+        var rates: [Int: Int] = [:]
+        for entry in index { rates[entry.id] = entry.genderRate }
+        backfillGenders { individual in
+            // 메타몽은 인덱스에서 빠져 있다(일반 부화 풀 제외) — 무성별이라 여기서 채운다.
+            // 안 채우면 위장이 풀린 메타몽만 영영 성별이 안 정해진 채로 남는다.
+            if individual.speciesID == DittoDisguise.speciesID { return GenderBalance.genderless }
+            // `baseID` 가 먼저다 — 성별은 부화 시점에 base 종의 성비로 정해지므로 그 값이 맞다.
+            // 지금 종으로 물러나는 이유: 옛 세이브에는 `baseID` 가 base 종이 아닌 개체가 있다
+            // (실측: 피카츄가 `baseID: 25` 로 적힌 개체 — 피카츄는 피츄에서 진화하므로 인덱스에
+            // 없다). 둘 다 없으면 nil 로 두고, 그 개체를 열 때 라인 기반 보정이 받는다.
+            return rates[individual.baseID] ?? rates[individual.speciesID]
+        }
+    }
+
+    /// 성별이 없던 시절의 개체에 성별을 채운다 — `backfillGrowthRates` 와 같은 규율
+    /// (멱등, 성비를 모르는 종은 그대로).
+    ///
+    /// **이미 성별이 있으면 절대 다시 굴리지 않는다.** 다시 굴리면 앱을 켤 때마다 성별이 바뀌고,
+    /// 성별로 갈리는 진화가 그때그때 달라진다. 그래서 `nil` 인 것만 채운다 — 무성별은 `nil` 이
+    /// 아니라 `.genderless` 로 적히므로 여기 다시 걸리지 않는다.
+    ///
+    /// 굴림은 개체 id 에서 유도한다. 난수기를 쓰면 같은 개체가 기기마다 다른 성별이 되고,
+    /// 저장 실패 시 다음 기동에 또 달라진다 — id 는 그 개체에 붙어 있어 언제 어디서 굴려도 같다.
+    func backfillGenders(resolve: (Individual) -> Int?) {
+        // 먼저 읽기만 해서 바뀔 게 있는지 본다 — 없는데 `mutate` 를 부르면 매번 저장이 돈다.
+        let targets = state.box.indices.filter {
+            state.box[$0].gender == nil && resolve(state.box[$0]) != nil
+        }
+        guard !targets.isEmpty else { return }
+        mutate { s in
+            for index in targets {
+                guard let rate = resolve(s.box[index]) else { continue }
+                // **종을 넘긴다** — 성별 고정 종(엘레이드·염뉴트 등)은 base 성비로 굴리면
+                // 존재할 수 없는 조합이 나온다. 굴림 앞에 잠금 표가 선다.
+                s.box[index].gender = GenderBalance.roll(
+                    species: s.box[index].speciesID, rate: rate,
+                    roll: Self.stableUnit(from: s.box[index].id))
+            }
+        }
+    }
+
+    /// 개체 id → 0…1. 결정적이라 몇 번을 다시 불러도 같은 값이다.
+    nonisolated static func stableUnit(from id: UUID) -> Double {
+        var hash: UInt64 = 0xCBF2_9CE4_8422_2325   // FNV-1a 64
+        withUnsafeBytes(of: id.uuid) { bytes in
+            for byte in bytes {
+                hash ^= UInt64(byte)
+                hash = hash &* 0x0000_0100_0000_01B3
+            }
+        }
+        return Double(hash % 1_000_000) / 1_000_000
+    }
+
     /// 지금 형태에서 갈 수 있는 다음 종들. 최종형이면 빈 배열.
     func evolutionChoices(_ individual: Individual, line: EvoLine) -> [Int] {
         guard let node = line.tree.node(withID: individual.speciesID) else { return [] }
         // PokéAPI 체인은 지방 갈래를 한꺼번에 돌려준다(`meowth → persian | perrserker`) —
         // 개체의 지방으로 좁히지 않으면 관동 나옹도 나이킹이 된다.
-        return RegionBalance.allowedChoices(node.children.map(\.speciesID),
-                                            speciesID: individual.speciesID,
-                                            region: individual.region)
+        let byRegion = RegionBalance.allowedChoices(node.children.map(\.speciesID),
+                                                    speciesID: individual.speciesID,
+                                                    region: individual.region)
+        // **성별 갈래를 걸러낸다** — 여섯 종뿐이지만(도롱마담·나메일·비퀸·엘레이드·눈여아·염뉴트)
+        // 안 거르면 수컷 눈꼬마가 눈여아가 된다. 지방 게이트 바로 뒤에 두는 이유: 둘 다 "이 개체가
+        // 갈 수 있는 갈래인가" 를 정하는 같은 종류의 판정이고, 도구·레벨 조건보다 앞선다.
+        //
+        // **성별을 아직 모르는 개체(옛 세이브)는 제한 있는 갈래를 막는다.** 열어 두면 수컷일 수도
+        // 있는 아이가 암컷 전용으로 진화해 되돌릴 수 없다 — 보정(`backfillGenders`)이 라인과 같은
+        // 자리에서 돌므로 이 화면이 열릴 즈음엔 이미 채워져 있다.
+        return byRegion.filter { child in
+            guard let required = node.children.first(where: { $0.speciesID == child })?.requiredGender
+            else { return true }
+            return individual.gender == required
+        }
     }
 
     /// 이 갈래를 지나려면 무엇이 필요한가. 트리에 없는 종이면 조건 없음으로 본다.

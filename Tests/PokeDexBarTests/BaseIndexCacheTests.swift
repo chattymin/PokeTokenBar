@@ -25,7 +25,7 @@ final class BaseIndexCacheTests: XCTestCase {
     /// 범위 필드가 없던 구 형식은 0으로 읽혀 항상 재구축된다(entries 자체는 현재 스키마로 채워 둔다 —
     /// entries 스키마 자체가 구식인 경우는 아래 `testLegacyEntryWithoutLegendaryFlagsFailsToDecode`).
     func testLegacySnapshotWithoutRangeIsRejected() throws {
-        let json = #"{"fetchedAt":0,"entries":[{"id":1,"captureRate":45,"isLegendary":false,"isMythical":false,"growthRate":"mediumFast"}]}"#
+        let json = #"{"fetchedAt":0,"entries":[{"id":1,"captureRate":45,"isLegendary":false,"isMythical":false,"growthRate":"mediumFast","genderRate":4}]}"#
         let decoded = try JSONDecoder().decode(Snapshot.self, from: Data(json.utf8))
         XCTAssertEqual(decoded.maxSpeciesID, 0)
         XCTAssertFalse(decoded.matchesCurrentRange())
@@ -45,6 +45,16 @@ final class BaseIndexCacheTests: XCTestCase {
     /// Codable 합성 디코드는 그 기본값을 무시하고 키를 그대로 요구한다 — 이 필드가 없던 구
     /// `base-index.json` 항목은 여전히 디코드가 실패해, 모든 종이 mediumFast 로 조용히 굳는
     /// 대신 자동 재구축된다.
+    /// `genderRate` 도 같은 부류다 — 기본값이 있어도 합성 디코드는 키를 요구하므로, 성별이
+    /// 없던 캐시는 조용히 "절반이 암컷" 으로 굳는 대신 자동 재구축된다. 조용히 굳으면 성비가
+    /// 확정인 종(암컷만·수컷만·무성별)이 전부 절반으로 굴러 성별 진화가 통째로 틀어진다.
+    func testLegacyEntryWithoutGenderRateFailsToDecode() {
+        let json = #"{"fetchedAt":0,"entries":[{"id":1,"captureRate":45,"isLegendary":false,"isMythical":false,"growthRate":"mediumFast"}],"maxSpeciesID":1025}"#
+        XCTAssertThrowsError(try JSONDecoder().decode(Snapshot.self, from: Data(json.utf8))) { error in
+            XCTAssertTrue(error is DecodingError, "성비 없는 구 스키마는 재구축을 트리거해야 한다")
+        }
+    }
+
     func testLegacyEntryWithoutGrowthRateFailsToDecode() {
         let json = #"{"fetchedAt":0,"entries":[{"id":1,"captureRate":45,"isLegendary":false,"isMythical":false}],"maxSpeciesID":1025}"#
         XCTAssertThrowsError(try JSONDecoder().decode(Snapshot.self, from: Data(json.utf8))) { error in

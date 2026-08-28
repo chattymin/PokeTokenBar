@@ -188,6 +188,16 @@ struct IndividualDetailView: View {
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 5) {
                     Text(displayName).font(.system(size: 13, weight: .semibold))
+                    // 성별 — 이름 바로 옆, 본가와 같은 자리. **위장 중엔 감춘다**: 메타몽은
+                    // 무성별이라 기호가 뜨는 순간 뮤가 아니라는 게 새 버린다. 무성별은 아무것도
+                    // 안 낸다 — "—" 를 띄우면 빈칸처럼 보여 오히려 안 정해진 것으로 읽힌다.
+                    if individual.disguisedAs == nil,
+                       let gender = individual.gender, gender != .genderless {
+                        Text(gender.symbol)
+                            .font(.system(size: 12, weight: .bold))
+                            .foregroundStyle(gender == .female ? Color.pink : Color.blue)
+                            .accessibilityLabel(gender.label(store.language))
+                    }
                     if individual.showsShiny { Text("✨").font(.system(size: 11)) }
                     // **별표 — 누르면 바로 토글.** 포켓몬 GO 의 즐겨찾기 그대로, 보호를 겸한다:
                     // 별표한 개체는 박사에게 보낼 수 없다(아래 releaseSection 이 안내한다).

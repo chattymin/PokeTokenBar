@@ -316,7 +316,8 @@ final class ForageCatalogIntegrityTests: XCTestCase {
                 let byItem: EvoRequirementRaw = PokeAPIClient.requirement(from: [
                     EvolutionDetail(trigger: NamedRef(name: "use-item", url: nil),
                                     item: NamedRef(name: need.item.rawValue, url: nil),
-                                    held_item: nil, min_happiness: nil, min_level: nil),
+                                    held_item: nil, min_happiness: nil, min_level: nil,
+                                    gender: nil),
                 ], speciesID: from, parentLevel: 1)
                 XCTAssertEqual(byItem, .item(need.item.rawValue),
                                "#\(from) → #\(need.to): 게이트가 \(need.item) 을 못 알아본다")

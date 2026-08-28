@@ -190,6 +190,13 @@ Tapping a Dex cell now opens that species' entry: sprite, genus, types, height a
 <td width="45%" align="center"><img src="assets/screenshot-dex-entry.png" width="300" alt="A species' Dex entry — sprite, genus and types, height and weight, generation chips above flavor text, and a collections card with member silhouettes"></td>
 </tr>
 <tr>
+<td width="45%" align="center"><img src="assets/gender-banner.png" width="300" alt="The same Pikachu as male and female — a blue male sign and a pink female sign beside the name, and the female's notched tail"></td>
+<td width="55%" valign="middle">
+<h3>♀ ♂ Every Pokémon has a gender</h3>
+Gender is rolled once when an egg hatches, from that species' real ratio, and it never changes — evolution carries it, the way a regional form does. It shows beside the name on the detail screen. <b>98 species have a distinct female look</b> (Pikachu's notched tail, Hippopotas' colouring), and four the games treat as separate forms — Meowstic, Indeedee, Basculegion, Oinkologne — fill their own Dex entry. Gender also gates six evolutions exactly as the games do: only a female Snorunt becomes Froslass, only a male Ralts becomes Gallade.
+</td>
+</tr>
+<tr>
 <td width="45%" align="center"><img src="assets/settings.png" width="300" alt="Settings"></td>
 <td width="55%" valign="middle">
 <h3>Tune it your way</h3>

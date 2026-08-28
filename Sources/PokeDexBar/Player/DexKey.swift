@@ -38,6 +38,13 @@ enum DexKey {
                                                variant: individual.regionVariant) {
             return key(speciesID: id, slug: form.slug)
         }
+        // **암수가 별개 폼인 넷만** 도감을 나눈다(냐오닉스·에써르·대쓰여너·퍼퓨돈). 암컷 그림이
+        // 있는 종은 98종이나 되지만 나머지 94종의 차이는 꼬리·무늬 같은 겉모습이라, 나누면
+        // 하트 꼬리 하나 때문에 피카츄를 두 번 모으게 된다.
+        if individual.gender == .female, GenderSpriteCatalog.isFormSpecies(id),
+           let slug = GenderSpriteCatalog.femaleSlug(id) {
+            return key(speciesID: id, slug: slug)
+        }
         return String(id)
     }
 

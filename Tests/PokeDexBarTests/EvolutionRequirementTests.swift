@@ -80,7 +80,8 @@ final class EvolutionRequirementTests: XCTestCase {
         let json = #"""
         {"capture_rate":45,"is_legendary":false,"is_mythical":false,"names":[],
          "evolution_chain":{"url":"https://pokeapi.co/api/v2/evolution-chain/2/"},
-         "evolves_from_species":null,"growth_rate":{"name":"medium-slow","url":null}}
+         "evolves_from_species":null,"growth_rate":{"name":"medium-slow","url":null},
+         "gender_rate":4}
         """#
         let dto = try JSONDecoder().decode(SpeciesDTO.self, from: Data(json.utf8))
         XCTAssertEqual(GrowthRate.fromAPI(dto.growth_rate.name), .mediumSlow)

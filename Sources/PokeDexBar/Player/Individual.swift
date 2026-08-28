@@ -15,6 +15,10 @@ struct Individual: Identifiable, Codable, Sendable, Equatable {
     /// 없고(`releaseValue` 가 nil), 정렬에서 앞으로 온다. 실수로 보내는 것을 막는 장치라
     /// 세이브에 남는 진행이다.
     var starred = false
+    /// 성별. **부화할 때 종의 성비로 한 번 굴리고 평생 간다** — 진화해도 이어진다(꿀꿀꾸리의
+    /// 성별이 곧 퍼퓨돈의 모습이 된다). `nil` 은 무성별이 아니라 **아직 안 정해졌다**는 뜻이다
+    /// (성별이 없던 시절의 세이브) — 인덱스가 오면 `backfillGenders` 가 채운다.
+    var gender: Gender?
     var nature: PokemonNature
     /// 현재 단계에서 쌓은 경험치. 진화하면 0으로 돌아가고 초과분만 이월한다.
     var exp = 0
@@ -139,6 +143,12 @@ struct Individual: Identifiable, Codable, Sendable, Equatable {
            let known = BirthFormCatalog.form(speciesID: speciesID, variant: birthForm) {
             return known.slug
         }
+        // 암컷 전용 그림. **지방 모습이 있으면 그쪽이 이긴다** — 알로라 라이츄에는 암컷 그림이
+        // 없어서(`raichu-alola-f` 는 존재하지 않는다) 여기서 먼저 가로채면 그림이 통째로 빈다.
+        // 그래서 지방이 없을 때만 본다.
+        if region == nil, gender == .female, let slug = GenderSpriteCatalog.femaleSlug(speciesID) {
+            return slug
+        }
         guard let region else { return nil }
         return RegionalFormCatalog.form(speciesID: speciesID, region: region,
                                         variant: regionVariant)?.slug
@@ -191,7 +201,8 @@ struct Individual: Identifiable, Codable, Sendable, Equatable {
 
     /// 기본 이니셜라이저 — 아래 `init(from:)` 을 직접 쓰면서 합성 이니셜라이저가 사라지므로 명시한다.
     init(id: UUID = UUID(), baseID: Int, speciesID: Int, pathIDs: [Int], shiny: Bool = false,
-         starred: Bool = false, nature: PokemonNature, exp: Int = 0, partnerTokens: Int = 0, partnerSeconds: Int = 0,
+         starred: Bool = false, gender: Gender? = nil,
+         nature: PokemonNature, exp: Int = 0, partnerTokens: Int = 0, partnerSeconds: Int = 0,
          partnerSince: Date? = nil, candyProgress: Int = 0, obtainedAt: Date,
          grade: Grade, form: String? = nil, region: Region? = nil, regionVariant: String? = nil,
          growthRate: GrowthRate = .mediumFast, eggProgress: Int = 0, expRemainder: Int = 0) {
@@ -201,6 +212,7 @@ struct Individual: Identifiable, Codable, Sendable, Equatable {
         self.pathIDs = pathIDs
         self.shiny = shiny
         self.starred = starred
+        self.gender = gender
         self.nature = nature
         self.exp = exp
         self.partnerTokens = partnerTokens
@@ -238,6 +250,8 @@ struct Individual: Identifiable, Codable, Sendable, Equatable {
         shiny = value(.shiny, false)
         // 새 필드 — `value(_:_:)` 를 거쳐야 이 키가 없는 기존 세이브가 그대로 열린다.
         starred = value(.starred, false)
+        // nil 로 들어와도 정상이다 — 성별이 없던 세이브라는 뜻이고, 인덱스가 오면 채워진다.
+        gender = value(.gender, nil)
         exp = value(.exp, 0)
         partnerTokens = value(.partnerTokens, 0)
         partnerSeconds = value(.partnerSeconds, 0)
@@ -303,6 +317,16 @@ struct Individual: Identifiable, Codable, Sendable, Equatable {
            disguise != DittoDisguise.disguisedAs || speciesID != DittoDisguise.speciesID {
             fixed.disguisedAs = nil
             AppLog.write("Individual: dropped bogus disguise \(disguise) on species \(speciesID)")
+        }
+        // **존재할 수 없는 성별을 바로잡는다.** 암컷 엘레이드·수컷 염뉴트는 본가에 없다.
+        // 보정이 base 종 성비로 굴리는 구조라 실제로 만들어질 수 있었고(여섯 종 전부),
+        // 폼 슬러그·위장을 여기서 거르는 것과 같은 부류다 — 값이 들어오는 경계 한 곳에서 잡으면
+        // 이미 잘못 적힌 세이브도 다음에 열 때 조용히 나아진다.
+        if let locked = GenderBalance.lockedGender(fixed.speciesID), fixed.gender != locked {
+            if fixed.gender != nil {
+                AppLog.write("Individual: corrected impossible gender on species \(fixed.speciesID)")
+            }
+            fixed.gender = locked
         }
         // 관대 디코딩의 짝 — 산술에 쓰이는 수치는 경계 한 곳에서 자른다(CLAUDE.md).
         // 자르지 않으면 `Int.max` 가 그대로 저장돼 이후 덧셈이 오버플로 트랩으로 프로세스를 죽이고,

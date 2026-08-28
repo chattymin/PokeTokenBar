@@ -68,7 +68,8 @@ enum CollectionCatalog {
         // (`EggBalance.rewardOnlySpecies`) 이 보상이 유일한 입수처다 — 4세대 완성 미션도
         // 그래서 이 세트를 지나가게 된다.
         CollectionSet(id: "regi-family", speciesIDs: [377, 378, 379, 894, 895],
-                      rewards: [.pokemon(speciesID: 486, grade: .legendary, growthRate: .slow)]),
+                      rewards: [.pokemon(speciesID: 486, grade: .legendary, growthRate: .slow,
+                                         gender: .genderless)]),
         // 큰 세트 — 레전더리 열·열하나라 확정권이 걸맞다.
         CollectionSet(id: "ultra-beasts",
                       speciesIDs: [793, 794, 795, 796, 797, 798, 799, 803, 804, 805, 806],

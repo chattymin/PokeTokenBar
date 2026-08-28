@@ -164,7 +164,7 @@ struct NationalDexView: View {
                 "\(item.label(store.language)) ×\(n)"
             case .rainbowCharm:
                 ShopItem.rainbowCharm.label(store.language)
-            case .pokemon(let speciesID, _, _):
+            case .pokemon(let speciesID, _, _, _):
                 DexMissionReward.speciesName(speciesID, store.language)
             }
         }.joined(separator: " · ")
@@ -312,7 +312,6 @@ struct NationalDexView: View {
 
     private func cell(_ speciesID: Int, dexForms: Set<String>) -> some View {
         let state = Self.cellState(speciesID: speciesID, dexForms: dexForms)
-        let hasFormRows = DexKey.candidates(speciesID: speciesID).count > 1
         return VStack(spacing: 1) {
             // 못 잡은 종은 실루엣 — 모습은 보이되 정체는 가린다.
             SpriteView(speciesID: speciesID, form: state.slug, size: 32, silhouette: !state.caught)
