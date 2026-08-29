@@ -493,4 +493,46 @@ final class OAuthCredentialDataTests: XCTestCase {
 
         XCTAssertEqual(OAuthCredentialData.credential(from: data)?.accessToken, "token-1")
     }
+
+    func testExtractDataItemsHandlesSingleAndMultipleFormats() {
+        let data1 = "data1".data(using: .utf8)!
+        let data2 = "data2".data(using: .utf8)!
+
+        // 단일 Data
+        XCTAssertEqual(OAuthCredentialData.extractDataItems(from: data1), [data1])
+
+        // [Data] 배열
+        XCTAssertEqual(OAuthCredentialData.extractDataItems(from: [data1, data2]), [data1, data2])
+
+        // [[String: Any]] (kSecValueData 포함)
+        let dictArray: [[String: Any]] = [
+            [kSecValueData as String: data1],
+            [kSecValueData as String: data2],
+        ]
+        XCTAssertEqual(OAuthCredentialData.extractDataItems(from: dictArray), [data1, data2])
+
+        // nil / 빈 값
+        XCTAssertEqual(OAuthCredentialData.extractDataItems(from: nil), [])
+    }
+
+    func testMultipleKeychainItemsPicksValidAccountOAuthOverMCPOAuth() {
+        let mcpOnlyData = """
+        {"mcpOAuth":{"linear":{"accessToken":"linear-tok"}}}
+        """.data(using: .utf8)!
+
+        let accountData = """
+        {"claudeAiOauth":{"accessToken":"account-tok","subscriptionType":"max","rateLimitTier":"default_claude_max_20x"}}
+        """.data(using: .utf8)!
+
+        let items = OAuthCredentialData.extractDataItems(from: [mcpOnlyData, accountData])
+        XCTAssertEqual(items.count, 2)
+
+        // 첫 번째 항목(MCP 전용)은 credential nil이지만, 두 번째 항목에서 정상 파싱
+        let validCredential = items.compactMap { OAuthCredentialData.credential(from: $0) }.first
+        XCTAssertNotNil(validCredential)
+        XCTAssertEqual(validCredential?.accessToken, "account-tok")
+        XCTAssertEqual(validCredential?.subscriptionType, "max")
+        XCTAssertEqual(validCredential?.rateLimitTier, "default_claude_max_20x")
+    }
 }
+

@@ -24,6 +24,8 @@ enum UsageEnvironment {
         "CLOUD_CODE_URL",      // Google CloudCode Quota API 엔드포인트 override
         "PI_CODING_AGENT_DIR", // pi config/session base directory
         "PI_CODING_AGENT_SESSION_DIR", // pi session directory override
+        "CURSOR_SESSION_TOKEN", // Cursor dashboard API session override
+        "CURSOR_USAGE_API",    // Cursor dashboard API disable switch (`0` = off)
         "KIRO_CLI_HOME",       // pre-2.20 Kiro SQLite home (kiro-cli)
         "KIRO_HOME",           // ~/.kiro — JSONL sessions live under <this>/sessions
         "CURSOR_DATA_DIR",     // Cursor user-data dir override

@@ -427,10 +427,295 @@ final class CursorUsageTests: XCTestCase {
         XCTAssertFalse(provider.reportsCost, "Cursor is flat-rate — tokens only, no invented cost")
     }
 
+    func testWorkosSessionCookieBuildsSubDoubleColonJwt() {
+        let payload = Data("{\"sub\":\"user_01TEST\"}".utf8).base64EncodedString()
+            .replacingOccurrences(of: "+", with: "-")
+            .replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: "=", with: "")
+        let jwt = "hdr.\(payload).sig"
+        XCTAssertEqual(CursorUsageAPI.workosSessionCookie(from: jwt), "user_01TEST::hdr.\(payload).sig")
+    }
+
+    func testCursorCacheIdentifierUsesAccountSubject() {
+        let payload = Data("{\"sub\":\"user_01TEST\"}".utf8).base64EncodedString()
+            .replacingOccurrences(of: "+", with: "-")
+            .replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: "=", with: "")
+        let jwt = "hdr.\(payload).sig"
+
+        XCTAssertEqual(
+            CursorUsageAPI.cacheAccountIdentifier(from: jwt),
+            "subject:user_01TEST")
+        XCTAssertEqual(
+            CursorUsageAPI.cacheAccountIdentifier(from: "user_01TEST::\(jwt)"),
+            "subject:user_01TEST")
+        XCTAssertNotEqual(
+            CursorUsageAPI.cacheAccountIdentifier(from: "opaque-token-a"),
+            CursorUsageAPI.cacheAccountIdentifier(from: "opaque-token-b"))
+    }
+
+    func testCursorAuthAccessTokenReadsItemTable() throws {
+        let database = temporaryDirectory.appendingPathComponent("state.vscdb")
+        try execute(database, sql: """
+        CREATE TABLE ItemTable (key TEXT UNIQUE ON CONFLICT REPLACE, value BLOB);
+        INSERT INTO ItemTable VALUES ('cursorAuth/accessToken', 'test-session-token-abc');
+        """)
+        let token = LocalAdditionalUsageReader.cursorAuthAccessToken(roots: [temporaryDirectory])
+        XCTAssertEqual(token, "test-session-token-abc")
+    }
+
+    func testParseCursorUsageEventMapsTokenUsageFields() throws {
+        let event: [String: Any] = [
+            "timestamp": "1750979225854",
+            "model": "claude-opus-5-thinking-high",
+            "tokenUsage": [
+                "inputTokens": 126,
+                "outputTokens": 450,
+                "cacheWriteTokens": 6112,
+                "cacheReadTokens": 11964,
+            ] as [String: Any],
+        ]
+        let entry = try XCTUnwrap(CursorUsageAPI.parseUsageEvent(
+            event, rowIndex: 0, modifiedSince: try date("2025-01-01T00:00:00Z")))
+        XCTAssertEqual(entry.input, 126)
+        XCTAssertEqual(entry.output, 450)
+        XCTAssertEqual(entry.cacheWrite, 6112)
+        XCTAssertEqual(entry.cacheRead, 11964)
+    }
+
+    func testCursorUsageEventIDsUseGlobalRowIndex() throws {
+        let event: [String: Any] = [
+            "timestamp": "1750979225854",
+            "model": "gpt",
+            "tokenUsage": ["inputTokens": 1],
+        ]
+        let since = try date("2025-01-01T00:00:00Z")
+        let firstPage = try XCTUnwrap(CursorUsageAPI.parseUsageEvent(
+            event, rowIndex: 0, modifiedSince: since))
+        let secondPage = try XCTUnwrap(CursorUsageAPI.parseUsageEvent(
+            event, rowIndex: 100, modifiedSince: since))
+
+        XCTAssertNotEqual(firstPage.id, secondPage.id)
+    }
+
+    func testCursorDashboardEntriesDoNotMergeBubbleEstimates() throws {
+        let apiEntry = try XCTUnwrap(LocalAdditionalUsageReader.makeUsageEntry(
+            id: "cursor|api|2026-08-18T12:00:00.000Z|gpt|0",
+            date: try date("2026-08-18T12:00:00.000Z"),
+            model: "gpt",
+            input: 1000, output: 500))
+        let database = temporaryDirectory.appendingPathComponent("state.vscdb")
+        try execute(database, sql: """
+        CREATE TABLE cursorDiskKV (key TEXT UNIQUE ON CONFLICT REPLACE, value BLOB);
+        INSERT INTO cursorDiskKV VALUES (
+            'bubbleId:tab-1:live',
+            '{"tokenCount":{"inputTokens":999,"outputTokens":888},"createdAt":"2026-08-18T13:00:00.000Z","modelType":"gpt-4o"}'
+        );
+        """)
+        let result = LocalAdditionalUsageReader.cursorEntriesFromDashboard(
+            modifiedSince: try date("2026-08-18T00:00:00Z"),
+            dashboardEntries: [apiEntry],
+            roots: [temporaryDirectory])
+        XCTAssertEqual(result.entries.count, 1)
+        XCTAssertEqual(result.entries.first?.input, 1000)
+        XCTAssertFalse(result.entries.contains { $0.id.contains("bubbleId") })
+    }
+
+    func testEmptyCursorDashboardResultSuppressesBubbleFallback() throws {
+        let database = temporaryDirectory.appendingPathComponent("state.vscdb")
+        try execute(database, sql: """
+        CREATE TABLE cursorDiskKV (key TEXT UNIQUE ON CONFLICT REPLACE, value BLOB);
+        INSERT INTO cursorDiskKV VALUES (
+            'bubbleId:tab-1:live',
+            '{"tokenCount":{"inputTokens":999,"outputTokens":888},"createdAt":"2026-08-18T13:00:00.000Z","modelType":"gpt-4o"}'
+        );
+        """)
+
+        let result = LocalAdditionalUsageReader.cursorEntriesFromDashboard(
+            modifiedSince: try date("2026-08-18T00:00:00Z"),
+            dashboardEntries: [],
+            roots: [temporaryDirectory])
+
+        XCTAssertTrue(result.entries.isEmpty)
+        XCTAssertTrue(result.isAuthoritative)
+        XCTAssertTrue(result.highWaterByPath.isEmpty)
+    }
+
+    func testUsageEventDateAcceptsSecondsPrecisionEpoch() throws {
+        let event: [String: Any] = [
+            "timestamp": "1750979225",
+            "model": "gpt",
+            "tokenUsage": ["inputTokens": 10],
+        ]
+        let entry = try XCTUnwrap(CursorUsageAPI.parseUsageEvent(
+            event, rowIndex: 0, modifiedSince: try date("2025-01-01T00:00:00Z")))
+        XCTAssertEqual(entry.input, 10)
+    }
+
+    func testHasNextPageWithoutMetadataKeepsPaginatingWhileFull() {
+        XCTAssertTrue(CursorUsageAPI.hasNextPage(pagination: nil, page: 1, eventCount: 100))
+        XCTAssertFalse(CursorUsageAPI.hasNextPage(pagination: nil, page: 1, eventCount: 42))
+    }
+
+    func testHasNextPageUsesTotalUsageEventsCount() {
+        XCTAssertTrue(
+            CursorUsageAPI.hasNextPage(pagination: nil, totalCount: 239, page: 1, eventCount: 100))
+        XCTAssertTrue(
+            CursorUsageAPI.hasNextPage(pagination: nil, totalCount: 239, page: 2, eventCount: 100))
+        XCTAssertFalse(
+            CursorUsageAPI.hasNextPage(pagination: nil, totalCount: 239, page: 3, eventCount: 39))
+    }
+
+    /// The dashboard rejects ISO8601 range bounds with HTTP 500, so the request
+    /// must send epoch milliseconds as strings.
+    func testFilteredEventsRequestSendsEpochMillisecondRange() async throws {
+        let since = try date("2025-01-01T00:00:00Z")
+        final class BodyRecorder: @unchecked Sendable {
+            var body: [String: Any]?
+        }
+        let recorder = BodyRecorder()
+        let transport: CursorUsageAPI.Transport = { request in
+            if let data = request.httpBody {
+                recorder.body = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+            }
+            guard let payload = try? JSONSerialization.data(withJSONObject: [
+                "usageEventsDisplay": [] as [[String: Any]],
+                "totalUsageEventsCount": 0,
+            ]) else { return nil }
+            return (payload, 200)
+        }
+
+        _ = await CursorUsageAPI.fetchFilteredEventsForTesting(
+            token: "test-token", modifiedSince: since, transport: transport)
+
+        let start = try XCTUnwrap(recorder.body?["startDate"] as? String)
+        let end = try XCTUnwrap(recorder.body?["endDate"] as? String)
+        XCTAssertEqual(start, "1735689600000")
+        XCTAssertGreaterThan(try XCTUnwrap(Int64(end)), 1_700_000_000_000)
+    }
+
+    /// The live endpoint returns events under `usageEventsDisplay`.
+    func testFetchFilteredEventsReadsUsageEventsDisplayKey() async throws {
+        let since = try date("2025-01-01T00:00:00Z")
+        let transport: CursorUsageAPI.Transport = { _ in
+            guard let payload = try? JSONSerialization.data(withJSONObject: [
+                "usageEventsDisplay": [[
+                    "timestamp": "1750979225854",
+                    "model": "composer-2.5-fast",
+                    "tokenUsage": ["inputTokens": 12, "outputTokens": 34],
+                ]] as [[String: Any]],
+                "totalUsageEventsCount": 1,
+            ]) else { return nil }
+            return (payload, 200)
+        }
+
+        let result = await CursorUsageAPI.fetchFilteredEventsForTesting(
+            token: "test-token", modifiedSince: since, transport: transport)
+        XCTAssertNil(result.failureReason)
+        let entries = try XCTUnwrap(result.entries)
+        XCTAssertEqual(entries.count, 1)
+        XCTAssertEqual(entries.first?.model, "composer-2.5-fast")
+    }
+
+    func testFetchFilteredEventsPaginatesAcrossPages() async throws {
+        let since = try date("2025-01-01T00:00:00Z")
+        final class PageRecorder: @unchecked Sendable {
+            var pages: [Int] = []
+        }
+        let recorder = PageRecorder()
+        let transport: CursorUsageAPI.Transport = { request in
+            guard let body = request.httpBody,
+                  let json = try? JSONSerialization.jsonObject(with: body) as? [String: Any] else {
+                return nil
+            }
+            let page = json["page"] as? Int ?? 0
+            recorder.pages.append(page)
+            let events: [[String: Any]]
+            let pagination: [String: Any]
+            switch page {
+            case 1:
+                events = (0 ..< 100).map { index in
+                    [
+                        "timestamp": "1750979225854",
+                        "model": "gpt",
+                        "tokenUsage": ["inputTokens": index + 1],
+                    ] as [String: Any]
+                }
+                pagination = ["hasNextPage": true]
+            default:
+                events = [[
+                    "timestamp": "1750979225854",
+                    "model": "gpt",
+                    "tokenUsage": ["inputTokens": 999],
+                ]]
+                pagination = ["hasNextPage": false]
+            }
+            guard let payload = try? JSONSerialization.data(withJSONObject: [
+                "usageEvents": events,
+                "pagination": pagination,
+            ]) else { return nil }
+            return (payload, 200)
+        }
+
+        let result = await CursorUsageAPI.fetchFilteredEventsForTesting(
+            token: "test-token",
+            modifiedSince: since,
+            transport: transport)
+        XCTAssertNil(result.failureReason)
+        XCTAssertEqual(recorder.pages, [1, 2])
+        XCTAssertEqual(result.entries?.count, 101)
+    }
+
+    func testFetchFilteredEventsReturnsFailureReasonForHTTPError() async throws {
+        let since = try date("2025-01-01T00:00:00Z")
+        let transport: CursorUsageAPI.Transport = { _ in
+            (Data("rate limited".utf8), 429)
+        }
+        let result = await CursorUsageAPI.fetchFilteredEventsForTesting(
+            token: "test-token",
+            modifiedSince: since,
+            transport: transport)
+        XCTAssertNil(result.entries)
+        XCTAssertEqual(result.failureReason, "http 429 on page 1 (12 bytes) rate limited")
+    }
+
+    func testFetchFilteredEventsEmptyPageIsSuccess() async throws {
+        let since = try date("2025-01-01T00:00:00Z")
+        let transport: CursorUsageAPI.Transport = { _ in
+            let payload = try! JSONSerialization.data(withJSONObject: [
+                "usageEvents": [] as [[String: Any]],
+                "pagination": ["hasNextPage": false],
+            ])
+            return (payload, 200)
+        }
+        let result = await CursorUsageAPI.fetchFilteredEventsForTesting(
+            token: "test-token",
+            modifiedSince: since,
+            transport: transport)
+        XCTAssertNil(result.failureReason)
+        XCTAssertEqual(result.entries?.count, 0)
+    }
+
+    func testParseUsageEventPrefersStableEventID() throws {
+        let event: [String: Any] = [
+            "id": "evt-stable-123",
+            "timestamp": "1750979225854",
+            "model": "gpt",
+            "tokenUsage": ["inputTokens": 1],
+        ]
+        let entry = try XCTUnwrap(CursorUsageAPI.parseUsageEvent(
+            event, rowIndex: 0, modifiedSince: try date("2025-01-01T00:00:00Z")))
+        XCTAssertEqual(entry.id, "cursor|api|evt-stable-123")
+    }
+
     // MARK: - Helpers
 
     private func date(_ value: String) throws -> Date {
-        try XCTUnwrap(ISO8601DateFormatter().date(from: value))
+        let iso = ISO8601DateFormatter()
+        iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let parsed = iso.date(from: value) { return parsed }
+        iso.formatOptions = [.withInternetDateTime]
+        return try XCTUnwrap(iso.date(from: value))
     }
 
     private func seedBubbles(in database: URL, prefix: String, count: Int) throws {

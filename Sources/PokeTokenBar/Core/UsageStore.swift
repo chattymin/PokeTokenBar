@@ -72,6 +72,28 @@ final class UsageStore {
     var limitDisplayMode: LimitDisplayMode {
         didSet { defaults.set(limitDisplayMode.rawValue, forKey: "limitDisplayMode") }
     }
+    /// 상시 표시 애니메이션(메뉴바 스프라이트 + 플로팅 펫)의 부드러움 ↔ 배터리 절충.
+    ///
+    /// 값은 GIF 프레임 지속의 **하한**(초)으로, `GIFDecoder.capFrameRate` 가 프레임을 솎아내
+    /// 적용한다 — 재생 속도는 어느 프리셋에서도 원본과 같고 초당 프레임 수만 달라진다.
+    /// 왜 사용자 선택인가: 프레임당 비용이 상태바 재합성(FrontBoardServices IPC + 렌더 fence)이라
+    /// 기기·스프라이트에 따라 체감과 배터리 영향이 갈린다 — 하나의 값으로 모두를 만족시킬 수 없다.
+    enum AnimationQuality: String, CaseIterable {
+        case powerSaver, balanced, smooth
+
+        /// 프레임 지속 하한(초) = fps 상한. **0 인 케이스를 만들지 마라** — 네이티브 fps 는
+        /// idle wakeup 회귀다(근거는 defect-log '에너지' 절). 가드: `testNoAnimationQualityPresetDisablesTheCap`.
+        var frameFloor: TimeInterval {
+            switch self {
+            case .powerSaver: 0.4   // ≈2.5fps
+            case .balanced:   0.2   // ≈5fps
+            case .smooth:     0.1   // ≈10fps
+            }
+        }
+    }
+    var animationQuality: AnimationQuality {
+        didSet { defaults.set(animationQuality.rawValue, forKey: "animationQuality") }
+    }
     // 알림(독립 토글)
     var limitNotifications: Bool {
         didSet { defaults.set(limitNotifications, forKey: "limitNotifications") }
@@ -485,6 +507,9 @@ final class UsageStore {
         floatingPetEnabled = d.object(forKey: "floatingPetEnabled") as? Bool ?? false
         floatingPetSize = d.object(forKey: "floatingPetSize") as? Double ?? 96
         floatingPetBubbleAlerts = d.object(forKey: "floatingPetBubbleAlerts") as? Bool ?? true
+        // 기본 powerSaver — 이 설정이 생기기 전의 고정 캡(0.4s)과 같은 프레임 레이트라, 기존
+        // 사용자의 배터리 프로파일은 그대로다. 더 부드러운 쪽은 opt-in(실측 idle CPU 1.8%/5.1%).
+        animationQuality = AnimationQuality(rawValue: d.string(forKey: "animationQuality") ?? "") ?? .powerSaver
         disableKeychainAccess = d.object(forKey: "disableKeychainAccess") as? Bool ?? false
 
         reschedule()
