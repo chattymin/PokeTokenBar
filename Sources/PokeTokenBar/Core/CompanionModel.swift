@@ -561,7 +561,7 @@ struct CompanionState: Codable, Sendable {
     // 위치 & 여행 시스템 — 기본 시작 위치는 Pallet Town (관동)
     var currentLocationID: String = "pallet-town"
     var currentRegionID: Int = 1
-    var hasClaimedEggForLocation: Bool = false
+    var hasClaimedEggForLocation: Bool = true
     // 여행 여정 커밋먼트 (Progressive Travel Journey)
     var travelDestinationID: String? = nil
     var travelDestinationRegionID: Int? = nil
@@ -606,7 +606,7 @@ struct CompanionState: Codable, Sendable {
         activeRegionID     = c.lenientOptional(Int.self, forKey: .activeRegionID)
         currentLocationID  = c.lenient(String.self, forKey: .currentLocationID, default: "pallet-town")
         currentRegionID    = c.lenient(Int.self, forKey: .currentRegionID, default: 1)
-        hasClaimedEggForLocation  = c.lenient(Bool.self, forKey: .hasClaimedEggForLocation, default: false)
+        hasClaimedEggForLocation  = c.lenient(Bool.self, forKey: .hasClaimedEggForLocation, default: true)
         travelDestinationID       = c.lenientOptional(String.self, forKey: .travelDestinationID)
         travelDestinationRegionID = c.lenientOptional(Int.self, forKey: .travelDestinationRegionID)
         travelTargetTokens        = c.lenient(Int.self, forKey: .travelTargetTokens, default: 0)

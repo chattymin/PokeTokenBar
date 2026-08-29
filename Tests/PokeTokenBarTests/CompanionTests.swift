@@ -1558,6 +1558,7 @@ final class CompanionIdentityTests: XCTestCase {
         st.lastDate = "d1"
         st.eggUsage = PokemonBalance.eggHatchThreshold + 1
         st.collectedFinals = collected
+        st.hasClaimedEggForLocation = true
         return st
     }
 
@@ -1580,7 +1581,7 @@ final class CompanionIdentityTests: XCTestCase {
     /// capture_rate 가 곧 가중치 — cr 비율만큼 선택 구간이 좁아진다 (희귀種 낮은 확률).
     func testSamplerCaptureRateIsWeight() async {
         // [common 254, legendary 2] → roll 0..253 → common, 254..255 → legendary
-        let index = [BaseSpecies(id: 100, captureRate: 254), BaseSpecies(id: 200, captureRate: 2)]
+        let index = [BaseSpecies(id: 100, captureRate: 254, generationID: 1), BaseSpecies(id: 200, captureRate: 2, generationID: 1)]
         var legendarySeed: UInt64?, commonSeed: UInt64?
         for seed: UInt64 in 0..<3000 {
             var r = SeededRNG(seed: seed)
@@ -1761,7 +1762,9 @@ final class RegionTests: XCTestCase {
         let url = tempURL()
         var s = CompanionState()
         s.eggUsage = PokemonBalance.eggHatchThreshold
-        s.activeRegionID = 2 // Johto only!
+        s.currentRegionID = 2 // Johto only!
+        s.activeRegionID = 2
+        s.hasClaimedEggForLocation = true
         let data = try! JSONEncoder().encode(s)
         try! data.write(to: url)
 
@@ -1794,7 +1797,7 @@ final class LocationAndTravelTests: XCTestCase {
         let state = CompanionState()
         XCTAssertEqual(state.currentLocationID, "pallet-town")
         XCTAssertEqual(state.currentRegionID, 1)
-        XCTAssertFalse(state.hasClaimedEggForLocation)
+        XCTAssertTrue(state.hasClaimedEggForLocation)
     }
 
     @MainActor
@@ -1804,7 +1807,11 @@ final class LocationAndTravelTests: XCTestCase {
             BaseSpecies(id: 16, captureRate: 255, generationID: 1)   // Pidgey (common)
         ]
         let p = MultiRegionIndexProvider(speciesList: species)
-        let store = CompanionStore(provider: p, fileURL: tempURL())
+        let url = tempURL()
+        var initial = CompanionState()
+        initial.hasClaimedEggForLocation = false
+        if let data = try? JSONEncoder().encode(initial) { try? data.write(to: url) }
+        let store = CompanionStore(provider: p, fileURL: url)
         XCTAssertFalse(store.hasClaimedEggForLocation)
 
         await store.claimEggAtCurrentLocation()
