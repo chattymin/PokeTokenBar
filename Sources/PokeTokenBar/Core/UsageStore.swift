@@ -169,7 +169,7 @@ final class UsageStore {
     /// 설정 저장소 — 테스트는 suite 를 주입해 실제 사용자 설정을 오염시키지 않는다.
     private let defaults: UserDefaults
     private var timer: Timer?
-    private var pollingSuspended = false   // 디스플레이 꺼짐 동안 폴링 정지 (배터리)
+    private var displayAsleep = false      // 디스플레이 꺼짐 동안 폴링을 늦춘다 (배터리 — 정지가 아니다)
     private var emptyUsageRetryTask: Task<Void, Never>?
     /// 한도 알림 상태(엣지 트리거) — 창 이름 → 이미 알린 최고 tier(0=없음, 1=경고, 2=위험).
     /// utilization 이 경고선 아래로 내려가면 맵에서 제거해 재무장. resets_at 같은 매 fetch 변하는
@@ -549,16 +549,16 @@ final class UsageStore {
         ) { [weak self] _ in
             Task { @MainActor in await self?.refresh() }
         }
-        // 디스플레이 꺼짐 → 폴링(ccusage 서브프로세스 spawn) 일시정지, 켜짐 → 재개 + 즉시 갱신 (배터리)
+        // 디스플레이 꺼짐 → 폴링(ccusage 서브프로세스 spawn) 감속, 켜짐 → 원래 주기 복귀 + 즉시 갱신 (배터리)
         NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.screensDidSleepNotification, object: nil, queue: .main
         ) { [weak self] _ in
-            Task { @MainActor in self?.suspendPolling() }
+            Task { @MainActor in self?.slowPollingForDisplaySleep() }
         }
         NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.screensDidWakeNotification, object: nil, queue: .main
         ) { [weak self] _ in
-            Task { @MainActor in self?.resumePolling() }
+            Task { @MainActor in self?.restoreFullPolling() }
         }
 
         // 알림 권한은 기동 즉시 묻지 않는다 — 앱을 이해하기 전 콜드 프롬프트는 거부율이 높고
@@ -566,29 +566,50 @@ final class UsageStore {
         if autoRefresh { Task { await refresh() } }
     }
 
+    /// 디스플레이가 꺼져 있는 동안의 폴링 주기 **하한**.
+    ///
+    /// 화면이 꺼졌다고 폴링을 *멈추면* 안 된다. iCloud 페이로드는 refresh 완료 훅에서만 나가므로
+    /// (`AppDelegate.onStoreRefreshed` → `buildAndPublishPayload` → `CloudKitSync.save`) 폴링이 멈추면
+    /// **iPhone 앱이 그대로 굳는다** — Mac 이 깨어서 토큰을 쓰는 중이어도 화면만 꺼져 있으면 폰은 영영
+    /// 옛 숫자를 본다(실측 2026-08-29: 화면 꺼짐 4h24m·32m 동안 refresh 0건, 폰은 stale 표시).
+    /// 화면 뒤에 사람이 없다는 전제 자체는 여전히 맞으므로 *늦추되*, 폰의 stale 기준
+    /// (`DashboardView.isStale` 의 30분)보다 넉넉히 짧게 유지한다.
+    static let displayAsleepMinimumInterval: TimeInterval = 300
+
+    /// 실제 타이머 주기 — 화면 상태를 반영한 순수 함수(테스트 시임).
+    /// `base == 0`(수동 모드)은 화면 상태와 무관하게 0 이다 — 수동은 사용자가 고른 것이라 뒤집지 않는다.
+    static func effectiveRefreshInterval(base: TimeInterval, displayAsleep: Bool) -> TimeInterval {
+        guard base > 0 else { return 0 }
+        return displayAsleep ? max(base, displayAsleepMinimumInterval) : base
+    }
+
+    /// 현재 스케줄된 폴링 주기(타이머 없으면 nil) — 화면 슬립 회귀 가드가 "타이머가 살아 있는가"를 본다.
+    var scheduledPollingInterval: TimeInterval? { timer?.timeInterval }
+
     private func reschedule() {
         timer?.invalidate()
         timer = nil
-        guard !pollingSuspended, refreshInterval > 0 else { return }
-        let t = Timer(timeInterval: refreshInterval, repeats: true) { _ in
+        let interval = Self.effectiveRefreshInterval(base: refreshInterval, displayAsleep: displayAsleep)
+        guard interval > 0 else { return }
+        let t = Timer(timeInterval: interval, repeats: true) { _ in
             Task { @MainActor [weak self] in await self?.refresh() }
         }
-        t.tolerance = refreshInterval * 0.1
+        t.tolerance = interval * 0.1
         RunLoop.main.add(t, forMode: .common)
         timer = t
     }
 
-    /// 디스플레이 꺼짐 → 폴링 타이머 정지(예약된 ccusage 서브프로세스 spawn 중단).
-    private func suspendPolling() {
-        pollingSuspended = true
-        timer?.invalidate()
-        timer = nil
+    /// 디스플레이 꺼짐 → 폴링을 멈추지 않고 늦춘다(`displayAsleepMinimumInterval` 하한).
+    /// internal 인 이유는 회귀 가드가 이 정책 지점을 직접 부르기 때문 — 알림 배달은 별도 배선 테스트가 본다.
+    func slowPollingForDisplaySleep() {
+        displayAsleep = true
+        reschedule()
     }
 
-    /// 디스플레이 켜짐 → 폴링 재개 + 즉시 1회 갱신(켜졌을 때 메뉴 숫자 최신화).
-    private func resumePolling() {
-        guard pollingSuspended else { return }
-        pollingSuspended = false
+    /// 디스플레이 켜짐 → 원래 주기 복귀 + 즉시 1회 갱신(켜졌을 때 메뉴 숫자 최신화).
+    func restoreFullPolling() {
+        guard displayAsleep else { return }
+        displayAsleep = false
         reschedule()
         Task { await refresh() }
     }

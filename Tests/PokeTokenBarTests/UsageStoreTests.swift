@@ -1,4 +1,5 @@
 import XCTest
+import AppKit
 @testable import PokeTokenBar
 
 // UsageStore 의 refresh 파이프라인 + 파생 표시값을 주입 스텁으로 결정적 검증.
@@ -1159,5 +1160,104 @@ final class UsageStoreTests: XCTestCase {
         XCTAssertFalse(store.showsCost)
         XCTAssertEqual(store.menuLines, [TokenFormatter.compact(50_000)],
                        "Cursor-only must not render $0.00 / $0.0 in the menu bar")
+    }
+
+    // MARK: 디스플레이 슬립 폴링 (회귀)
+
+    /// [회귀] 화면이 꺼져도 폴링은 **멈추지 않고 늦춰질 뿐**이어야 한다.
+    ///
+    /// iCloud 페이로드는 refresh 완료 훅에서만 나가므로(`onStoreRefreshed` → `CloudKitSync.save`)
+    /// 화면 꺼짐에 타이머를 invalidate 하면 Mac 이 깨어서 토큰을 쓰는 중에도 iPhone 앱이 굳는다
+    /// (실측 2026-08-29: 화면 꺼짐 32분 동안 refresh 0건 → 폰 stale). 타이머 **생존**이 핵심 단언이다.
+    func testDisplaySleepSlowsPollingInsteadOfStoppingIt() {
+        let claude = FakeUsageProvider(id: "claude_code", displayName: "Claude Code", daily: todayDaily(1_000))
+        let store = makeStore(providers: [claude])
+        XCTAssertEqual(store.scheduledPollingInterval, 120, "기본 폴링 주기")
+
+        store.slowPollingForDisplaySleep()
+
+        XCTAssertNotNil(store.scheduledPollingInterval, "화면이 꺼져도 타이머는 살아 있어야 한다 — 폰이 굳는다")
+        XCTAssertEqual(store.scheduledPollingInterval, UsageStore.displayAsleepMinimumInterval)
+    }
+
+    /// [회귀] 화면이 켜지면 원래 주기로 돌아온다.
+    func testDisplayWakeRestoresTheConfiguredInterval() {
+        let claude = FakeUsageProvider(id: "claude_code", displayName: "Claude Code", daily: todayDaily(1_000))
+        let store = makeStore(providers: [claude])
+        store.slowPollingForDisplaySleep()
+        XCTAssertEqual(store.scheduledPollingInterval, UsageStore.displayAsleepMinimumInterval)
+
+        store.restoreFullPolling()
+
+        XCTAssertEqual(store.scheduledPollingInterval, 120)
+
+        // 슬립 없이 도착한 wake 는 no-op — 안 그러면 알림마다 refresh 가 한 번씩 더 나간다.
+        store.restoreFullPolling()
+        XCTAssertEqual(store.scheduledPollingInterval, 120)
+    }
+
+    /// 수동 모드(0)는 사용자가 고른 것이라 화면 상태가 뒤집지 않는다 — 꺼져도 켜져도 타이머 없음.
+    func testManualModeStaysManualWhileTheDisplaySleeps() {
+        let claude = FakeUsageProvider(id: "claude_code", displayName: "Claude Code", daily: todayDaily(1_000))
+        let store = makeStore(providers: [claude])
+        store.refreshInterval = 0
+        XCTAssertNil(store.scheduledPollingInterval)
+
+        store.slowPollingForDisplaySleep()
+        XCTAssertNil(store.scheduledPollingInterval, "수동 모드에 폴링을 새로 만들면 안 된다")
+
+        store.restoreFullPolling()
+        XCTAssertNil(store.scheduledPollingInterval)
+    }
+
+    /// 하한은 max 다 — 사용자가 5분보다 느리게 잡았으면 화면이 꺼졌다고 **빨라지면** 안 된다.
+    func testDisplaySleepNeverSpeedsUpASlowerConfiguredInterval() {
+        let claude = FakeUsageProvider(id: "claude_code", displayName: "Claude Code", daily: todayDaily(1_000))
+        let store = makeStore(providers: [claude])
+        store.refreshInterval = 600
+
+        store.slowPollingForDisplaySleep()
+
+        XCTAssertEqual(store.scheduledPollingInterval, 600, "하한이지 고정값이 아니다")
+    }
+
+    /// 정책 경계를 순수 함수로 고정 — 그리고 이 상수의 **존재 이유**(폰 stale 기준보다 짧게)를 기계로 건다.
+    /// `DashboardView.isStale` 이 30분이므로, 이 값을 그 위로 올리면 화면 꺼진 Mac 이 폰을 stale 로 만든다.
+    func testSlowPollWhileAsleepStaysAheadOfThePhoneStaleThreshold() {
+        let phoneStaleThreshold: TimeInterval = 30 * 60   // PokeTokenBariOS/Sources/DashboardView.swift
+        XCTAssertLessThan(UsageStore.displayAsleepMinimumInterval, phoneStaleThreshold,
+                          "화면 꺼진 동안의 폴링이 폰 stale 기준보다 느리면 폰이 stale 로 굳는다")
+
+        XCTAssertEqual(UsageStore.effectiveRefreshInterval(base: 120, displayAsleep: false), 120)
+        XCTAssertEqual(UsageStore.effectiveRefreshInterval(base: 120, displayAsleep: true), 300)
+        XCTAssertEqual(UsageStore.effectiveRefreshInterval(base: 0, displayAsleep: true), 0)
+        XCTAssertEqual(UsageStore.effectiveRefreshInterval(base: 600, displayAsleep: true), 600)
+    }
+
+    /// 배선 가드 — 정책 함수가 옳아도 알림에 안 걸려 있으면 아무 일도 안 일어난다.
+    /// 위 테스트들이 정책 지점을 직접 부르므로, 실제 `NSWorkspace` 알림이 거기 닿는지는 여기서만 확인된다.
+    func testScreensDidSleepNotificationReachesTheStore() async {
+        let claude = FakeUsageProvider(id: "claude_code", displayName: "Claude Code", daily: todayDaily(1_000))
+        let store = makeStore(providers: [claude])
+
+        NSWorkspace.shared.notificationCenter.post(
+            name: NSWorkspace.screensDidSleepNotification, object: nil)
+        await waitForPollingInterval(UsageStore.displayAsleepMinimumInterval, on: store)
+        XCTAssertEqual(store.scheduledPollingInterval, UsageStore.displayAsleepMinimumInterval,
+                       "screensDidSleep 가 폴링 정책에 안 닿는다")
+
+        NSWorkspace.shared.notificationCenter.post(
+            name: NSWorkspace.screensDidWakeNotification, object: nil)
+        await waitForPollingInterval(120, on: store)
+        XCTAssertEqual(store.scheduledPollingInterval, 120, "screensDidWake 가 원래 주기를 복구하지 않는다")
+    }
+
+    /// NSWorkspace 알림은 `OperationQueue.main` 배달 + `Task` 홉을 거친다 — 도착까지 유한 대기(최대 ~1s).
+    /// 도달하면 즉시 반환하므로 통과 경로에 고정 지연이 없고, 실패는 뒤따르는 단언이 잡는다.
+    private func waitForPollingInterval(_ expected: TimeInterval, on store: UsageStore) async {
+        for _ in 0..<200 {
+            if store.scheduledPollingInterval == expected { return }
+            try? await Task.sleep(nanoseconds: 5_000_000)
+        }
     }
 }

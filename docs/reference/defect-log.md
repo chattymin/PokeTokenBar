@@ -260,6 +260,26 @@ read_when:
   (자동 서명, entitlements 포함) 산출물로 대체한다 — 실행 절차는 `dev-deploy.md`. **릴리스 빚**:
   `release.sh`가 이 스크립트로 배포하므로 CloudKit 시대 릴리스가 나가면 전 사용자 크래시 루프가
   된다. 다음 릴리스 전에 entitlements 서명 추가 필수.
+- **에너지 절약 게이트는 화면 뒤의 사람만 고려한다 — 소비자가 기기 밖에 생기면 그 전제가 죽는다.**
+  `UsageStore` 는 `screensDidSleepNotification` 에 폴링 타이머를 invalidate 했다(ccusage 서브프로세스
+  spawn 절약). 화면이 유일한 소비자일 땐 옳았지만, iCloud 페이로드가 **refresh 완료 훅에서만** 나가면서
+  (`onStoreRefreshed` → `buildAndPublishPayload` → `CloudKitSync.save`) 폴링 정지가 곧 **동기화 정지**가
+  됐다 — Mac 이 깨어서 토큰을 쓰는 중에도 화면만 꺼져 있으면 iPhone 이 옛 숫자에 굳는다. 실측
+  2026-08-29: `pmset -g log` 의 display off/on 구간과 `~/Library/Logs/PokeTokenBar.log` 의 `refresh done`
+  공백이 초 단위로 일치(4h24m·32m, 그 사이 refresh 0건), 폰은 30분 기준으로 stale 표시.
+  **테스트가 못 걸른 이유**: 폴링 정책에 테스트가 아예 없었고, 있었더라도 "화면 꺼짐 → 타이머 없음"을
+  *스펙으로* 굳혔을 것이다 — 게이트를 넣은 PR 과 CloudKit 을 넣은 PR 이 달라 둘을 같이 보는 테스트가
+  생길 자리가 없었다. 규칙: **절전 게이트를 넣거나 새 소비자(폰·위젯·외부 동기화)를 붙일 때,
+  그 게이트가 멈추는 것이 화면 픽셀뿐인지 데이터 생산까지인지 확인한다.** 멈추면 안 되는 생산이면
+  정지가 아니라 **감속**(`UsageStore.displayAsleepMinimumInterval` = 300s, 폰 stale 기준 30분보다
+  넉넉히 짧게)이고, 감속 하한은 `max` 여야 한다(사용자가 더 느리게 잡았으면 빨라지면 안 된다).
+  회귀 가드: `testDisplaySleepSlowsPollingInsteadOfStoppingIt`(타이머 **생존**이 핵심 단언 — 결함 주입
+  확인 완료) · `testSlowPollWhileAsleepStaysAheadOfThePhoneStaleThreshold`(상수를 폰 기준에 기계로 건다) ·
+  `testScreensDidSleepNotificationReachesTheStore`(정책이 옳아도 배선이 끊기면 무의미) ·
+  `testManualModeStaysManualWhileTheDisplaySleeps`. **부류 스윕**: 같은 `screensDidSleep` 게이트가
+  `AppDelegate.setDisplayAwake`(메뉴바 애니메이션)와 `FloatingPetPanel`(펫 호스팅 트리)에도 있으나
+  둘 다 순수 표시라 그대로 둔다 — 기기 밖 소비자를 굶기는 건 `UsageStore` 하나뿐이었다.
+
 - **서브 패키지 테스트가 깨진 채 PR이 머지됐다.** `PokeTokenBarSharedTests`의 `PhoneLimitStatus`
   초기화가 위젯 PR(#3)에서 추가된 파라미터를 못 따라갔는데 아무도 서브 패키지의 `swift test`를
   돌리지 않아 컴파일 조차 안 되는 상태로 지나갔다. 루트 패키지 게이트만 돌리면 잡히지 않는다 —
