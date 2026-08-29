@@ -558,8 +558,8 @@ struct CompanionState: Codable, Sendable {
     var candyFeatureSeeded = false
     // 활성 알 선택 지역 ID (nil = 전체 지역)
     var activeRegionID: Int? = nil
-    // 위치 & 여행 시스템 — 기본 시작 위치는 Pallet Town (관동)
-    var currentLocationID: String = "pallet-town"
+    // 위치 & 여행 시스템 — 기본 시작 위치는 Region 1 Location 1
+    var currentLocationID: String = "region-1-location-1"
     var currentRegionID: Int = 1
     var hasClaimedEggForLocation: Bool = true
     // 여행 여정 커밋먼트 (Progressive Travel Journey)
@@ -604,7 +604,7 @@ struct CompanionState: Codable, Sendable {
         candyGrantTier     = c.lenient([String: Int].self, forKey: .candyGrantTier, default: [:])
         candyFeatureSeeded = c.lenient(Bool.self, forKey: .candyFeatureSeeded, default: false)
         activeRegionID     = c.lenientOptional(Int.self, forKey: .activeRegionID)
-        currentLocationID  = c.lenient(String.self, forKey: .currentLocationID, default: "pallet-town")
+        currentLocationID  = c.lenient(String.self, forKey: .currentLocationID, default: "region-1-location-1")
         currentRegionID    = c.lenient(Int.self, forKey: .currentRegionID, default: 1)
         hasClaimedEggForLocation  = c.lenient(Bool.self, forKey: .hasClaimedEggForLocation, default: true)
         travelDestinationID       = c.lenientOptional(String.self, forKey: .travelDestinationID)
@@ -650,7 +650,7 @@ struct RegionInfo: Sendable, Codable, Identifiable, Hashable {
     /// 다국어 이름 (언어 코드 -> 이름)
     let names: [String: String]
 
-    /// 이 지역이 속한 세대 (Kanto=1, Johto=2, Hoenn=3, Sinnoh=4, Unova=5)
+    /// 이 지역이 속한 세대 (Region 1=1, Region 2=2, Region 3=3, Region 4=4, Region 5=5)
     var generationID: Int { id }
 }
 
@@ -677,9 +677,9 @@ enum LocationCategory: String, Codable, Sendable, CaseIterable {
 
 /// 위치 정보 — PokéAPI /location/ 엔드포인트 응답 표현.
 struct LocationInfo: Sendable, Codable, Identifiable, Hashable {
-    let id: String         // e.g. "viridian-forest"
-    let regionID: Int      // 1=Kanto, 2=Johto, 3=Hoenn, 4=Sinnoh, 5=Unova
-    let name: String       // raw name e.g. "viridian-forest"
+    let id: String         // e.g. "location-1"
+    let regionID: Int      // 1=Region 1, 2=Region 2, 3=Region 3, 4=Region 4, 5=Region 5
+    let name: String       // raw name e.g. "location-1"
     let category: LocationCategory
     let names: [String: String]
     let encounterSpeciesIDs: Set<Int>?

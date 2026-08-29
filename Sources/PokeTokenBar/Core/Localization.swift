@@ -126,11 +126,11 @@ struct L {
     func regionEggBadge(_ regionName: String) -> String { "📍 \(regionName)" }
     func regionName(id: Int) -> String {
         switch id {
-        case 1: return t("관동", "Kanto", "カントー", "Kanto", "Kanto", "Kanto")
-        case 2: return t("성도", "Johto", "ジョウト", "Johto", "Johto", "Johto")
-        case 3: return t("호연", "Hoenn", "ホウエン", "Hoenn", "Hoenn", "Hoenn")
-        case 4: return t("신오", "Sinnoh", "シンオウ", "Sinnoh", "Sinnoh", "Sinnoh")
-        case 5: return t("하나", "Unova", "イッシュ", "Teselia", "Unys", "Unova")
+        case 1: return t("제1지역", "Region 1", "第1地方", "Región 1", "Région 1", "Região 1")
+        case 2: return t("제2지역", "Region 2", "第2地方", "Región 2", "Région 2", "Região 2")
+        case 3: return t("제3지역", "Region 3", "第3地方", "Región 3", "Région 3", "Região 3")
+        case 4: return t("제4지역", "Region 4", "第4地方", "Región 4", "Région 4", "Região 4")
+        case 5: return t("제5지역", "Region 5", "第5地方", "Región 5", "Région 5", "Região 5")
         default: return allRegions
         }
     }

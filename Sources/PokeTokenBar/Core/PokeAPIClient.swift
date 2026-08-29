@@ -4,7 +4,7 @@ import Foundation
 struct BaseSpecies: Sendable, Codable {
     let id: Int
     let captureRate: Int    // 3(뮤츠급)~255(캐터피급), 공식 희귀도 신호
-    let generationID: Int   // 1(관동)~5(하나)
+    let generationID: Int   // 1(Region 1)~5(Region 5)
 
     enum CodingKeys: String, CodingKey {
         case id

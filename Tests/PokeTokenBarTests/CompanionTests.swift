@@ -1747,7 +1747,7 @@ final class RegionTests: XCTestCase {
         store.setActiveRegionID(1)
         XCTAssertEqual(store.activeRegionID, 1)
 
-        // Switch to Johto (2)
+        // Switch to Region 2
         store.setActiveRegionID(2)
         XCTAssertEqual(store.activeRegionID, 2)
     }
@@ -1755,14 +1755,14 @@ final class RegionTests: XCTestCase {
     @MainActor
     func testRegionRestrictedHatch() async {
         let species = [
-            BaseSpecies(id: 1, captureRate: 45, generationID: 1),   // Kanto
-            BaseSpecies(id: 152, captureRate: 45, generationID: 2)  // Johto
+            BaseSpecies(id: 1, captureRate: 45, generationID: 1),   // Region 1
+            BaseSpecies(id: 152, captureRate: 45, generationID: 2)  // Region 2
         ]
         let p = MultiRegionIndexProvider(speciesList: species)
         let url = tempURL()
         var s = CompanionState()
         s.eggUsage = PokemonBalance.eggHatchThreshold
-        s.currentRegionID = 2 // Johto only!
+        s.currentRegionID = 2 // Region 2 only!
         s.activeRegionID = 2
         s.hasClaimedEggForLocation = true
         let data = try! JSONEncoder().encode(s)
@@ -1772,7 +1772,7 @@ final class RegionTests: XCTestCase {
         await store.hatchIfNeeded()
 
         XCTAssertNotNil(store.state.active)
-        XCTAssertEqual(store.state.active?.baseID, 152, "Must hatch Johto species (#152)")
+        XCTAssertEqual(store.state.active?.baseID, 152, "Must hatch Region 2 species (#152)")
     }
 }
 
@@ -1793,9 +1793,9 @@ fileprivate func testUse(_ s: CompanionStore, _ today: Int) {
 // MARK: 위치 & 여행 (Location & Travel) 테스트
 
 final class LocationAndTravelTests: XCTestCase {
-    func testDefaultStartLocationIsPalletTown() {
+    func testDefaultStartLocationIsRegion1Location1() {
         let state = CompanionState()
-        XCTAssertEqual(state.currentLocationID, "pallet-town")
+        XCTAssertEqual(state.currentLocationID, "region-1-location-1")
         XCTAssertEqual(state.currentRegionID, 1)
         XCTAssertTrue(state.hasClaimedEggForLocation)
     }
@@ -1804,7 +1804,7 @@ final class LocationAndTravelTests: XCTestCase {
     func testClaimEggAtCurrentLocationGrantsCommonEgg() async {
         let species = [
             BaseSpecies(id: 1, captureRate: 45, generationID: 1),    // rare/common threshold
-            BaseSpecies(id: 16, captureRate: 255, generationID: 1)   // Pidgey (common)
+            BaseSpecies(id: 16, captureRate: 255, generationID: 1)   // Common species (#16)
         ]
         let p = MultiRegionIndexProvider(speciesList: species)
         let url = tempURL()
@@ -1826,12 +1826,12 @@ final class LocationAndTravelTests: XCTestCase {
         let url = tempURL()
         let store = CompanionStore(provider: p, fileURL: url)
 
-        // Same region journey (Kanto -> Viridian City): 50M target
-        let viridian = LocationInfo(id: "viridian-city", regionID: 1, name: "viridian-city", names: [:])
-        let started = store.startTravelJourney(to: viridian)
+        // Same region journey (Location 1 -> Location 2): 50M target
+        let targetLocation = LocationInfo(id: "region-1-location-2", regionID: 1, name: "region-1-location-2", names: [:])
+        let started = store.startTravelJourney(to: targetLocation)
         XCTAssertTrue(started)
         XCTAssertTrue(store.isTraveling)
-        XCTAssertEqual(store.travelDestinationID, "viridian-city")
+        XCTAssertEqual(store.travelDestinationID, "region-1-location-2")
         XCTAssertEqual(store.travelTargetTokens, 50_000_000)
         XCTAssertEqual(store.travelTokensUsed, 0)
         XCTAssertEqual(store.travelProgress, 0.0)
@@ -1842,26 +1842,26 @@ final class LocationAndTravelTests: XCTestCase {
         XCTAssertTrue(store.isTraveling)
         XCTAssertEqual(store.travelTokensUsed, 25_000_000)
         XCTAssertEqual(store.travelProgress, 0.5)
-        XCTAssertEqual(store.currentLocationID, "pallet-town", "Location remains origin until arrival")
+        XCTAssertEqual(store.currentLocationID, "region-1-location-1", "Location remains origin until arrival")
 
         // Simulate another 25M token gain (reaching 50M 100%)
         testUse(store, 50_000_000)
 
         XCTAssertFalse(store.isTraveling, "Journey completes upon hitting 100%")
-        XCTAssertEqual(store.currentLocationID, "viridian-city", "Arrived at destination")
+        XCTAssertEqual(store.currentLocationID, "region-1-location-2", "Arrived at destination")
     }
 
     @MainActor
     func testCancelTravelJourney() {
         let p = MultiRegionIndexProvider(speciesList: [])
         let store = CompanionStore(provider: p, fileURL: tempURL())
-        let goldenrod = LocationInfo(id: "goldenrod-city", regionID: 2, name: "goldenrod-city", names: [:])
+        let destLocation = LocationInfo(id: "region-2-location-1", regionID: 2, name: "region-2-location-1", names: [:])
 
-        store.startTravelJourney(to: goldenrod)
+        store.startTravelJourney(to: destLocation)
         XCTAssertTrue(store.isTraveling)
 
         store.cancelTravelJourney()
         XCTAssertFalse(store.isTraveling)
-        XCTAssertEqual(store.currentLocationID, "pallet-town", "Remains at origin after cancellation")
+        XCTAssertEqual(store.currentLocationID, "region-1-location-1", "Remains at origin after cancellation")
     }
 }

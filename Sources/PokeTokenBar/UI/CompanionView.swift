@@ -1434,7 +1434,7 @@ struct TravelPickerView: View {
     let store: CompanionStore
     @Binding var isPresented: Bool
     @State private var selectedRegionID: Int = 1
-    @State private var selectedLocationID: String = "pallet-town"
+    @State private var selectedLocationID: String = "region-1-location-1"
     @State private var selectedCategoryFilter: LocationCategory? = nil
     @State private var loadedLocations: [LocationInfo] = []
     @State private var showingAbandonAlert = false
@@ -1636,7 +1636,7 @@ struct TravelPickerView: View {
             if !locs.isEmpty {
                 loadedLocations = locs
                 if !locs.contains(where: { $0.id == selectedLocationID }) {
-                    selectedLocationID = locs.first?.id ?? "pallet-town"
+                    selectedLocationID = locs.first?.id ?? "region-1-location-1"
                 }
             }
         }
