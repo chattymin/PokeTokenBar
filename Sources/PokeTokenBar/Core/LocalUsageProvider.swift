@@ -215,7 +215,7 @@ struct LocalPiProvider: UsageProvider {
 /// Data appears only when sessions exist under ~/.omp/agent/sessions/<cwd>/<ts>_<uuid>.jsonl (otherwise no snapshot → hidden in the UI).
 struct LocalOmpProvider: UsageProvider {
     let id = "omp"
-    let displayName = "OMP"
+    let displayName = "omp"
 
     func fetchDaily() async throws -> DailyUsage? {
         let now = Date()
