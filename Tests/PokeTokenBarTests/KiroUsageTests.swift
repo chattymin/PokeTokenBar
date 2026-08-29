@@ -510,9 +510,268 @@ final class KiroUsageTests: XCTestCase {
             .appendingPathComponent("Library/Application Support/kiro-cli")
         let roots = LocalAdditionalUsageReader.defaultKiroRoots
         if ProcessInfo.processInfo.environment["KIRO_CLI_HOME"] == nil {
-            XCTAssertEqual(roots, [expected])
+            XCTAssertTrue(roots.contains(expected), "legacy SQLite home must stay a default root")
         }
         XCTAssertFalse(roots.isEmpty)
+    }
+
+    /// Kiro CLI 2.20+ / `--v3` write JSONL under `~/.kiro/sessions`, not `data.sqlite3`.
+    /// Injected `home` is the only safe way to assert this — the real home may have
+    /// `KIRO_CLI_HOME` / `KIRO_HOME` set.
+    func testDefaultRootsIncludeJsonlSessionsDirectory() {
+        let home = URL(fileURLWithPath: "/Users/testhome")
+        let roots = LocalAdditionalUsageReader.kiroRoots(customRootsValue: nil, home: home).map(\.path)
+        XCTAssertTrue(roots.contains("/Users/testhome/Library/Application Support/kiro-cli"),
+                      "SQLite path for pre-2.20 installs")
+        XCTAssertTrue(roots.contains("/Users/testhome/.kiro/sessions"),
+                      "JSONL sessions for Kiro CLI 2.20+ / v3")
+    }
+
+    /// #236: adding `~/.kiro` as an extra scan folder used to no-op because the reader
+    /// only ever opened `data.sqlite3` under each root. The JSONL layouts live here.
+    func testExtraRootFindsJsonlSessionsWithoutSqlite() throws {
+        let kiroHome = temporaryDirectory.appendingPathComponent(".kiro")
+        try seedCliSession(
+            under: kiroHome,
+            id: "session-1",
+            prompt: String(repeating: "u", count: 400),
+            assistant: String(repeating: "a", count: 200))
+
+        let entries = LocalAdditionalUsageReader.kiroEntries(
+            modifiedSince: try date("2026-01-01T00:00:00Z"), roots: [kiroHome])
+        XCTAssertEqual(entries.count, 1, "a ~/.kiro extra folder with only JSONL must yield usage")
+        XCTAssertEqual(entries.first?.input, 100)
+        XCTAssertEqual(entries.first?.output, 50)
+        XCTAssertNil(entries.first?.explicitCost, "credits are not API dollars; tokens stay an estimate")
+    }
+
+    // MARK: - JSONL sessions (CLI 2.20 / v3)
+
+    /// Fixture keys copied from tokscale's `crates/tokscale-core/src/sessions/kiro.rs`
+    /// contract tests (`version`/`kind`/`data.content[].kind=text`) — that parser was
+    /// written against real `~/.kiro/sessions/cli/*.jsonl` files. Inventing a different
+    /// envelope would pass here and miss every live session (#133).
+    func testCliJsonlSessionIsReadFromWriterShapedEvents() throws {
+        try seedCliSession(
+            under: temporaryDirectory,
+            id: "session-1",
+            prompt: "hello world",
+            assistant: "response text",
+            model: "claude-sonnet-4-5",
+            promptTimestampSeconds: 1_770_983_426.420942)
+
+        let entries = LocalAdditionalUsageReader.kiroEntries(
+            modifiedSince: try date("2026-01-01T00:00:00Z"), roots: [temporaryDirectory])
+        let entry = try XCTUnwrap(entries.first)
+        XCTAssertEqual(entries.count, 1)
+        XCTAssertEqual(entry.model, "claude-sonnet-4-5")
+        XCTAssertEqual(entry.input, 11 / 4, "utf8 bytes/4, same estimator as the SQLite path")
+        XCTAssertEqual(entry.output, 13 / 4)
+        XCTAssertEqual(entry.id, "kiro|cli|session-1|1770983426420")
+        XCTAssertNil(entry.explicitCost)
+    }
+
+    /// Same "whole conversation is resent" rule as the SQLite path — a later CLI turn's
+    /// input is accumulated history, not just the newly typed prompt.
+    func testCliJsonlLaterTurnAccumulatesHistory() throws {
+        try seedCliSession(
+            under: temporaryDirectory,
+            id: "session-2",
+            turns: [
+                (prompt: String(repeating: "u", count: 400),
+                 assistant: String(repeating: "a", count: 800),
+                 timestampSeconds: 1_770_983_426.0),
+                (prompt: String(repeating: "u", count: 40),
+                 assistant: String(repeating: "a", count: 40),
+                 timestampSeconds: 1_770_983_526.0),
+            ])
+
+        let entries = LocalAdditionalUsageReader.kiroEntries(
+            modifiedSince: try date("2026-01-01T00:00:00Z"), roots: [temporaryDirectory])
+        let second = try XCTUnwrap(entries.first { $0.id.hasSuffix("|1770983526000") })
+        XCTAssertEqual(second.input, (400 + 800 + 40) / 4)
+        XCTAssertEqual(second.output, 40 / 4)
+    }
+
+    /// v3 / IDE layout from the issue: `sessions/<workspace>/<session>/messages.jsonl`
+    /// plus sibling `session.json`. Event shape from tokscale's structured-payload tests
+    /// (`payload.type` = user/assistant/usage_summary/turn_end).
+    func testV3MessagesJsonlSessionIsRead() throws {
+        try seedV3Session(
+            under: temporaryDirectory,
+            workspace: "my-project",
+            sessionID: "sess_abc",
+            model: "claude-sonnet-4-5",
+            prompt: String(repeating: "u", count: 400),
+            assistant: String(repeating: "a", count: 200),
+            timestamp: "2026-06-20T10:00:00Z",
+            credits: 2.5)
+
+        let entries = LocalAdditionalUsageReader.kiroEntries(
+            modifiedSince: try date("2026-01-01T00:00:00Z"), roots: [temporaryDirectory])
+        let entry = try XCTUnwrap(entries.first)
+        XCTAssertEqual(entries.count, 1)
+        XCTAssertEqual(entry.model, "claude-sonnet-4-5")
+        XCTAssertEqual(entry.input, 100)
+        XCTAssertEqual(entry.output, 50)
+        XCTAssertEqual(entry.id, "kiro|v3|sess_abc|0")
+        XCTAssertNil(entry.explicitCost,
+                     "usage_summary credits are not converted to USD (reportsCost stays false)")
+    }
+
+    /// A||B: the flat `{role,content}` messages.jsonl (no `payload` wrapper) is a
+    /// documented sibling of the structured v3 format. Structured-only coverage
+    /// would leave this branch untested.
+    func testV3FlatRoleMessagesJsonlIsRead() throws {
+        try seedV3FlatSession(
+            under: temporaryDirectory,
+            workspace: "ws",
+            sessionID: "sess_flat",
+            prompt: String(repeating: "u", count: 400),
+            assistant: String(repeating: "a", count: 200),
+            createdAt: "2026-06-30T12:57:10.991Z")
+
+        let entries = LocalAdditionalUsageReader.kiroEntries(
+            modifiedSince: try date("2026-01-01T00:00:00Z"), roots: [temporaryDirectory])
+        XCTAssertEqual(entries.count, 1)
+        XCTAssertEqual(entries.first?.input, 100)
+        XCTAssertEqual(entries.first?.output, 50)
+    }
+
+    /// Flat `{role,content}` lines often have no per-line timestamp (tokscale issue #813
+    /// sample). Keying the entry id on `createdAt` millis then collides and
+    /// `dedupKeepMax` drops the earlier turn.
+    func testV3FlatMultiTurnWithoutTimestampsKeepsEveryTurn() throws {
+        try seedV3FlatSession(
+            under: temporaryDirectory,
+            workspace: "ws",
+            sessionID: "sess_multi",
+            prompt: String(repeating: "u", count: 400),
+            assistant: String(repeating: "a", count: 200),
+            createdAt: "2026-06-30T12:57:10.991Z",
+            extraTurns: [
+                (prompt: String(repeating: "u", count: 40),
+                 assistant: String(repeating: "a", count: 40)),
+            ])
+
+        let entries = LocalAdditionalUsageReader.kiroEntries(
+            modifiedSince: try date("2026-01-01T00:00:00Z"), roots: [temporaryDirectory])
+        XCTAssertEqual(entries.count, 2, "two turns sharing createdAt must not collapse")
+        XCTAssertEqual(Set(entries.map(\.id)), ["kiro|v3|sess_multi|0", "kiro|v3|sess_multi|1"])
+    }
+
+    /// tokscale's v3 parser counts `payload.args` toward the turn's output. Ignoring
+    /// `tool_call` undercounts agentic sessions where the model mostly emits tools.
+    func testV3ToolCallArgsCountTowardOutput() throws {
+        let dir = temporaryDirectory.appendingPathComponent("sessions/ws/sess_tools")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        try """
+        {"schemaVersion":"1.0.0","id":"sess_tools","modelId":"claude-sonnet-4-5","createdAt":"2026-06-20T10:00:00Z"}
+        """.write(to: dir.appendingPathComponent("session.json"), atomically: true, encoding: .utf8)
+        try """
+        {"timestamp":"2026-06-20T10:00:00Z","payload":{"type":"user","content":"\(String(repeating: "u", count: 400))"}}
+        {"payload":{"type":"tool_call","args":"\(String(repeating: "t", count: 200))"}}
+        {"payload":{"type":"turn_end"},"timestamp":"2026-06-20T10:00:05Z"}
+        """.write(to: dir.appendingPathComponent("messages.jsonl"), atomically: true, encoding: .utf8)
+
+        let entry = try XCTUnwrap(LocalAdditionalUsageReader.kiroEntries(
+            modifiedSince: try date("2026-01-01T00:00:00Z"), roots: [temporaryDirectory]).first)
+        XCTAssertEqual(entry.input, 100)
+        XCTAssertEqual(entry.output, 50, "tool_call args are output bytes, same as assistant text")
+    }
+
+    /// Pre-2.20 SQLite and post-2.20 JSONL are disjoint stores during the cutover.
+    /// Both must count — JSONL is not a replacement that stops the SQLite scan.
+    func testSqliteAndJsonlSessionsAreBothCounted() throws {
+        try seedV2(conversations: [
+            (id: "conv-sqlite", turns: [
+                turn(timestampMs: 1_780_000_000_000, model: "claude-sonnet-4.5",
+                     userText: String(repeating: "u", count: 400), responseBytes: 200),
+            ]),
+        ])
+        try seedCliSession(
+            under: temporaryDirectory,
+            id: "session-jsonl",
+            prompt: String(repeating: "u", count: 400),
+            assistant: String(repeating: "a", count: 200))
+
+        let entries = LocalAdditionalUsageReader.kiroEntries(
+            modifiedSince: try date("2026-01-01T00:00:00Z"), roots: [temporaryDirectory])
+        XCTAssertEqual(Set(entries.map(\.id)).count, 2)
+        XCTAssertTrue(entries.contains { $0.id.hasPrefix("kiro|conv-sqlite|") })
+        XCTAssertTrue(entries.contains { $0.id.hasPrefix("kiro|cli|session-jsonl|") })
+    }
+
+    func testMalformedJsonlLinesAreSkipped() throws {
+        try seedCliSessionRaw(
+            under: temporaryDirectory,
+            id: "session-3",
+            jsonl: """
+            {"version":"v1","kind":"Prompt","data":{"message_id":"prompt-3","content":[{"kind":"text","data":"hello world"}],"meta":{"timestamp":1770983426.420942}}}
+            not valid json at all
+            {"version":"v1","kind":"AssistantMessage","data":{"message_id":"assistant-3","content":[{"kind":"text","data":"response text"}]}}
+            """)
+
+        let entries = LocalAdditionalUsageReader.kiroEntries(
+            modifiedSince: try date("2026-01-01T00:00:00Z"), roots: [temporaryDirectory])
+        XCTAssertEqual(entries.count, 1)
+        XCTAssertGreaterThan((entries.first?.input ?? 0) + (entries.first?.output ?? 0), 0)
+    }
+
+    /// Unrelated `*.jsonl` next to the known layouts must not be ingested — the
+    /// scanner is layout-shaped, not "every jsonl under the root".
+    func testUnrelatedJsonlFilesAreIgnored() throws {
+        let noise = temporaryDirectory.appendingPathComponent("notes.jsonl")
+        try "{\"role\":\"user\",\"content\":\"ignore me please\"}\n".write(to: noise, atomically: true, encoding: .utf8)
+
+        let entries = LocalAdditionalUsageReader.kiroEntries(
+            modifiedSince: try date("2026-01-01T00:00:00Z"), roots: [temporaryDirectory])
+        XCTAssertTrue(entries.isEmpty)
+    }
+
+    func testUnchangedJsonlSkipsTheRescan() throws {
+        try seedCliSession(
+            under: temporaryDirectory,
+            id: "session-skip",
+            prompt: String(repeating: "u", count: 40),
+            assistant: String(repeating: "a", count: 40))
+        let since = try date("2026-01-01T00:00:00Z")
+
+        let first = LocalAdditionalUsageReader.kiroEntries(
+            modifiedSince: since, knownSignatures: [:], roots: [temporaryDirectory])
+        XCTAssertEqual(first.entries.count, 1)
+
+        let second = LocalAdditionalUsageReader.kiroEntries(
+            modifiedSince: since, knownSignatures: first.signatures, roots: [temporaryDirectory])
+        XCTAssertTrue(second.entries.isEmpty, "unchanged JSONL must not be re-parsed")
+        XCTAssertEqual(LocalUsageReader.dedupKeepMax(first.entries + second.entries).count, 1)
+    }
+
+    func testAppendedJsonlLineForcesARescan() throws {
+        try seedCliSession(
+            under: temporaryDirectory,
+            id: "session-append",
+            prompt: String(repeating: "u", count: 40),
+            assistant: String(repeating: "a", count: 40))
+        let since = try date("2026-01-01T00:00:00Z")
+        let first = LocalAdditionalUsageReader.kiroEntries(
+            modifiedSince: since, knownSignatures: [:], roots: [temporaryDirectory])
+        XCTAssertEqual(first.entries.count, 1)
+
+        let jsonl = temporaryDirectory
+            .appendingPathComponent("sessions/cli/session-append.jsonl")
+        let handle = try FileHandle(forWritingTo: jsonl)
+        try handle.seekToEnd()
+        try handle.write(contentsOf: Data("""
+        {"version":"v1","kind":"Prompt","data":{"message_id":"prompt-2","content":[{"kind":"text","data":"next"}],"meta":{"timestamp":1770983526.0}}}
+        {"version":"v1","kind":"AssistantMessage","data":{"message_id":"assistant-2","content":[{"kind":"text","data":"more"}]}}
+
+        """.utf8))
+        try handle.close()
+
+        let second = LocalAdditionalUsageReader.kiroEntries(
+            modifiedSince: since, knownSignatures: first.signatures, roots: [temporaryDirectory])
+        XCTAssertGreaterThan(second.entries.count, 0, "a grown JSONL file must invalidate the skip")
     }
 
     // MARK: - Aggregation
@@ -594,6 +853,113 @@ final class KiroUsageTests: XCTestCase {
 
     private var databaseURL: URL {
         temporaryDirectory.appendingPathComponent("data.sqlite3")
+    }
+
+    /// CLI 2.20 layout: `sessions/cli/<id>.jsonl` + companion `<id>.json`.
+    /// Event envelope is tokscale's writer-shaped fixture (kind Prompt/AssistantMessage).
+    private func seedCliSession(
+        under root: URL,
+        id: String,
+        prompt: String,
+        assistant: String,
+        model: String = "claude-sonnet-4-5",
+        promptTimestampSeconds: Double = 1_770_983_426.420942
+    ) throws {
+        try seedCliSession(
+            under: root, id: id,
+            turns: [(prompt: prompt, assistant: assistant, timestampSeconds: promptTimestampSeconds)],
+            model: model)
+    }
+
+    private func seedCliSession(
+        under root: URL,
+        id: String,
+        turns: [(prompt: String, assistant: String, timestampSeconds: Double)],
+        model: String = "claude-sonnet-4-5"
+    ) throws {
+        var lines: [String] = []
+        var messageIDs: [String] = []
+        for (index, turn) in turns.enumerated() {
+            let promptID = "prompt-\(index + 1)"
+            let assistantID = "assistant-\(index + 1)"
+            messageIDs += [promptID, assistantID]
+            lines.append(
+                #"{"version":"v1","kind":"Prompt","data":{"message_id":"\#(promptID)","content":[{"kind":"text","data":"\#(turn.prompt)"}],"meta":{"timestamp":\#(turn.timestampSeconds)}}}"#)
+            lines.append(
+                #"{"version":"v1","kind":"AssistantMessage","data":{"message_id":"\#(assistantID)","content":[{"kind":"text","data":"\#(turn.assistant)"}]}}"#)
+        }
+        let lastEnd = turns.last.map { Int($0.timestampSeconds) + 1 } ?? 0
+        let idsJSON = messageIDs.map { "\"\($0)\"" }.joined(separator: ",")
+        let companion = """
+        {"session_id":"\(id)","cwd":"/tmp/project","created_at":"2026-02-13T12:00:00Z","updated_at":"2026-02-13T12:00:01Z","session_state":{"rts_model_state":{"model_info":{"model_id":"\(model)"}},"conversation_metadata":{"user_turn_metadatas":[{"input_token_count":0,"output_token_count":0,"end_timestamp":\(lastEnd),"total_request_count":\(turns.count),"message_ids":[\(idsJSON)]}]}}}
+        """
+        try seedCliSessionRaw(under: root, id: id, jsonl: lines.joined(separator: "\n") + "\n", companion: companion)
+    }
+
+    private func seedCliSessionRaw(
+        under root: URL, id: String, jsonl: String,
+        companion: String? = nil
+    ) throws {
+        let cli = root.appendingPathComponent("sessions/cli")
+        try FileManager.default.createDirectory(at: cli, withIntermediateDirectories: true)
+        try jsonl.write(to: cli.appendingPathComponent("\(id).jsonl"), atomically: true, encoding: .utf8)
+        let meta = companion ?? "{\"session_id\":\"\(id)\",\"cwd\":\"/tmp\",\"created_at\":\"2026-02-13T12:00:00Z\",\"updated_at\":\"2026-02-13T12:00:00Z\"}"
+        try meta.write(to: cli.appendingPathComponent("\(id).json"), atomically: true, encoding: .utf8)
+    }
+
+    /// v3 layout from issue #236: `sessions/<workspace>/<session>/{session.json,messages.jsonl}`.
+    private func seedV3Session(
+        under root: URL,
+        workspace: String,
+        sessionID: String,
+        model: String,
+        prompt: String,
+        assistant: String,
+        timestamp: String,
+        credits: Double
+    ) throws {
+        let dir = root.appendingPathComponent("sessions/\(workspace)/\(sessionID)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let sessionJSON = """
+        {"schemaVersion":"1.0.0","id":"\(sessionID)","modelId":"\(model)","createdAt":"\(timestamp)","lastModifiedAt":"\(timestamp)"}
+        """
+        try sessionJSON.write(to: dir.appendingPathComponent("session.json"), atomically: true, encoding: .utf8)
+        let jsonl = """
+        {"timestamp":"\(timestamp)","payload":{"type":"user","content":"\(prompt)"}}
+        {"timestamp":"\(timestamp)","payload":{"type":"assistant","content":"\(assistant)"}}
+        {"payload":{"type":"usage_summary","promptTurnSummaries":[{"usage":\(credits)}]}}
+        {"payload":{"type":"turn_end"},"timestamp":"\(timestamp)"}
+        """
+        try jsonl.write(to: dir.appendingPathComponent("messages.jsonl"), atomically: true, encoding: .utf8)
+    }
+
+    private func seedV3FlatSession(
+        under root: URL,
+        workspace: String,
+        sessionID: String,
+        prompt: String,
+        assistant: String,
+        createdAt: String,
+        extraTurns: [(prompt: String, assistant: String)] = []
+    ) throws {
+        let dir = root.appendingPathComponent("sessions/\(workspace)/\(sessionID)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let sessionJSON = """
+        {"schemaVersion":"1.0.0","id":"\(sessionID)","createdAt":"\(createdAt)","lastModifiedAt":"\(createdAt)"}
+        """
+        try sessionJSON.write(to: dir.appendingPathComponent("session.json"), atomically: true, encoding: .utf8)
+        var jsonl = """
+        {"role":"user","content":"\(prompt)"}
+        {"role":"assistant","content":"\(assistant)"}
+        """
+        for turn in extraTurns {
+            jsonl += """
+
+            {"role":"user","content":"\(turn.prompt)"}
+            {"role":"assistant","content":"\(turn.assistant)"}
+            """
+        }
+        try jsonl.write(to: dir.appendingPathComponent("messages.jsonl"), atomically: true, encoding: .utf8)
     }
 
     private func seedV2(conversations: [(id: String, turns: [[String: Any]])]) throws {
