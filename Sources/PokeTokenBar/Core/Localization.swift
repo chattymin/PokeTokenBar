@@ -539,6 +539,110 @@ struct L {
     var notifGraduateTitle: String { t("🎓 졸업!", "🎓 Graduated!", "🎓 卒業！", "🎓 ¡Graduado!", "🎓 Diplômé !", "🎓 Formatura!") }
     func notifGraduateBody(_ name: String) -> String { t("\(name) — 도감에 보존! 새 알이 도착했어요.", "\(name) — saved to your Pokédex! A new egg has arrived.", "\(name) — 図鑑に保存！新しいタマゴが届きました。", "\(name) — ¡guardado en tu Pokédex! Ha llegado un nuevo huevo.", "\(name) — conservé dans ton Pokédex ! Un nouvel œuf est arrivé.", "\(name) — guardado na sua Pokédex! Chegou um novo ovo.") }
 
+    // MARK: 위치 & 여행
+    var currentLocationLabel: String { t("현재 위치", "Current Location", "現在地", "Ubicación actual", "Emplacement actuel", "Localização atual") }
+    func availablePokemonCountLabel(_ count: Int) -> String {
+        t("\(count)마리 발견 가능", "\(count) species available", "\(count)匹 出現", "\(count) especies disponibles", "\(count) espèces disponibles", "\(count) espécies disponíveis")
+    }
+    var getCommonEggFree: String { t("흔한 알 받기 (무료)", "Get Common Egg (Free)", "ふつうのタマゴ (無料)", "Obtener huevo común (Gratis)", "Obtenir un œuf commun (Gratuit)", "Obter ovo comum (Grátis)") }
+    var noEggHeaderTitle: String { t("알을 획득하거나 여행을 시작하세요", "Ready for an Egg or Travel", "タマゴの獲得または移動の開始", "Consigue un Huevo o Empieza a Viajar", "Obtenez un œuf ou commencez un voyage", "Obtenha um ovo ou comece uma viagem") }
+    var noEggHeaderSubtitle: String { t("현재 위치에서 알을 획득하거나 다른 지역으로 여행해보세요.", "Get an egg at your current location or travel to explore new regions.", "現在地でタマゴを獲得するか、新しい地方へ移動しましょう。", "Consigue un huevo en tu ubicación o viaja a nuevas regiones.", "Obtenez un œuf à votre emplacement actuel ou voyagez pour explorer de nouvelles régions.", "Obtenha um ovo na sua localização atual ou viaje para explorar novas regiões.") }
+    var getEggMenuTitle: String { t("알 받기 / 구매", "Get / Buy Egg", "タマゴをもらう・購入", "Obtener / Comprar huevo", "Obtenir / Acheter un œuf", "Obter / Comprar ovo") }
+    var travelButton: String { t("여행하기", "Travel", "旅をする", "Viajar", "Voyager", "Viajar") }
+    var travelTitle: String { t("지역 & 위치 이동", "Travel to Location", "地方・場所への移動", "Viajar a una ubicación", "Voyager vers un lieu", "Viajar para uma localização") }
+    var travelDestinationLabel: String { t("목적지 선택", "Choose Destination", "目的地を選択", "Elegir destino", "Choisir la destination", "Escolher destino") }
+    func travelSameRegionCost(_ cost: String) -> String {
+        t("같은 지역 이동 목표: \(cost) 토큰", "Same region target: \(cost) tokens", "同じ地方への移動目標: \(cost)トークン", "Objetivo en misma región: \(cost) tokens", "Objectif même région: \(cost) tokens", "Meta na mesma região: \(cost) tokens")
+    }
+    func travelDifferentRegionCost(_ cost: String) -> String {
+        t("다른 지역 이동 목표: \(cost) 토큰", "Inter-region target: \(cost) tokens", "別の地方への移動目標: \(cost)トークン", "Objetivo a otra región: \(cost) tokens", "Objectif autre région: \(cost) tokens", "Meta para outra região: \(cost) tokens")
+    }
+    var cancelJourney: String { t("여정 취소", "Cancel Journey", "旅をキャンセル", "Cancelar viaje", "Annuler le voyage", "Cancelar viagem") }
+    var startJourneyButton: String { t("여정 시작", "Start Journey", "旅を始める", "Iniciar viaje", "Commencer le voyage", "Iniciar viagem") }
+    var abandonAlertTitle: String {
+        t("현재 포켓몬/알 포기 및 이동", "Abandon Current Pokémon/Egg & Travel", "現在のポケモン・タマゴを放棄して移動", "Abandonar Pokémon/Huevo actual y viajar", "Abandonner le Pokémon/œuf actuel et voyager", "Abandonar Pokémon/ovo atual e viajar")
+    }
+    var abandonAlertMessage: String {
+        t("새로운 여정을 시작하면 현재 육성 중인 포켓몬이나 알을 포기하게 됩니다. 계속하시겠습니까?",
+          "Starting travel will discard your current Pokémon or incubating egg. Are you sure you want to proceed?",
+          "新しい旅を始めると、現在のポケモンやタマゴ를 放棄します。よろしいですか？",
+          "Iniciar un nuevo viaje descartará tu Pokémon o huevo actual. ¿Deseas continuar?",
+          "Commencer un voyage abandonnera votre Pokémon ou œuf actuel. Voulez-vous continuer ?",
+          "Iniciar uma viagem descartará seu Pokémon ou ovo atual. Quer continuar?")
+    }
+    var abandonAndTravel: String {
+        t("포기하고 여정 시작", "Abandon & Travel", "放棄して旅を始める", "Abandonar y viajar", "Abandonner et voyager", "Abandonar e viajar")
+    }
+    func travelRemainingTokens(_ amount: String) -> String {
+        t("도착까지 \(amount) 토큰 남음", "\(amount) tokens left to arrive", "到着まであと \(amount) トークン", "Faltan \(amount) tokens para llegar", "\(amount) tokens restants pour arriver", "Faltam \(amount) tokens para chegar")
+    }
+    var locationPromptHint: String {
+        t("현재 위치에서 서식하는 포켓몬 알을 품거나, 다른 지역/위치로 여행할 수 있어요.",
+          "Hatch a common Pokémon egg from your current location, or travel to a new place.",
+          "現在地に生息するポケモンのタマゴを温めるか、別の場所へ旅をすることができます。",
+          "Eclosiona un huevo común de este lugar o viaja a una nueva ubicación.",
+          "Faites éclore un œuf commun depuis votre emplacement actuel ou voyagez vers un nouveau lieu.",
+          "Choque um ovo comum da sua localização atual ou viaje para um novo lugar.")
+    }
+    func categoryName(_ category: LocationCategory) -> String {
+        switch category {
+        case .town:     return t("도시·마을", "Cities & Towns", "街・町", "Ciudades y pueblos", "Villes et villages", "Cidades e vilas")
+        case .route:    return t("도로·길", "Routes & Paths", "道路・道", "Rutas y caminos", "Routes et chemins", "Rotas e caminhos")
+        case .forest:   return t("숲·산림", "Forests & Woods", "森・林", "Bosques y selvas", "Forêts et bois", "Florestas e matas")
+        case .cave:     return t("동굴·산", "Caves & Mountains", "洞窟・山", "Cuevas y montañas", "Grottes et montagnes", "Cavernas e montanhas")
+        case .water:    return t("호수·바다", "Lakes & Oceans", "湖・海", "Lagos y océanos", "Lacs et océans", "Lagos e oceanos")
+        case .landmark: return t("명소·타워", "Landmarks & Towers", "名所・タワー", "Monumentos y torres", "Monuments et tours", "Monumentos e torres")
+        }
+    }
+    var allCategories: String { t("전체", "All", "すべて", "Todos", "Tous", "Todos") }
+    var encounterPreviewTitle: String { t("서식 포켓몬 예시", "Encounterable Pokémon", "生息するポケモン例", "Pokémon del lugar", "Pokémon du lieu", "Pokémon do local") }
+
+    var travelJourneyTitle: String { t("이동 여정 진행 중", "Journey in Progress", "移動中", "Viaje en camino", "Voyage en cours", "Viagem em andamento") }
+    func travelStartedNotifTitle(_ name: String) -> String {
+        t("✈️ 여정 시작: \(name)", "✈️ Journey Started: \(name)", "✈️ 旅が始まりました: \(name)", "✈️ Viaje iniciado: \(name)", "✈️ Voyage commencé : \(name)", "✈️ Viagem iniciada: \(name)")
+    }
+    func travelStartedNotifBody(_ name: String, _ regName: String) -> String {
+        t("\(name) (\(regName))로의 여정이 시작되었습니다! AI 코딩을 통해 진행률을 채우세요.",
+          "Your journey to \(name) (\(regName)) has begun! Keep coding to reach your destination.",
+          "\(name)（\(regName)）への旅が始まりました！AIコーディングで到着を目指しましょう。",
+          "¡Tu viaje a \(name) (\(regName)) ha comenzado! Sigue programando para llegar.",
+          "Votre voyage vers \(name) (\(regName)) a commencé !",
+          "Sua viagem para \(name) (\(regName)) começou!")
+    }
+    func travelHalfwayNotifTitle(_ name: String) -> String {
+        t("✈️ 여정 절반 달성: \(name)", "✈️ Halfway to \(name)!", "✈️ \(name) まで中間地点!", "✈️ ¡A mitad de camino a \(name)!", "✈️ À mi-chemin de \(name) !", "✈️ A metade do caminho para \(name)!")
+    }
+    func travelHalfwayNotifBody(_ name: String) -> String {
+        t("\(name)까지 절반에 도착했습니다! 조금만 더 코딩하면 도착합니다.",
+          "You are halfway to \(name)! Just a bit more coding to arrive.",
+          "\(name) まであと半分！もう少しコーディングを続けましょう。",
+          "¡Estás a mitad de camino de \(name)! Falta poco para llegar.",
+          "Vous êtes à mi-chemin de \(name) !",
+          "Você está a metade do caminho para \(name)!")
+    }
+    func arrivedNotifTitle(_ name: String) -> String {
+        t("🎉 \(name) 도착 완료!", "🎉 Arrived at \(name)!", "🎉 \(name) に到着しました！", "🎉 ¡Has llegado a \(name)!", "🎉 Arrivé à \(name) !", "🎉 Chegou a \(name)!")
+    }
+    func arrivedNotifBody(_ name: String, _ regName: String) -> String {
+        t("\(name) (\(regName))에 무사히 도착했습니다! 이곳에서 알을 획득하거나 새로운 장소로 이동하세요.",
+          "You have arrived safely at \(name) (\(regName))! Get a new Pokémon egg here or explore further.",
+          "\(name)（\(regName)）に無事到着しました！ここで新しいタマゴを獲得しましょう。",
+          "¡Has llegado con éxito a \(name) (\(regName))! Consigue un nuevo huevo de Pokémon.",
+          "Vous êtes arrivé à \(name) (\(regName)) !",
+          "Você chegou a \(name) (\(regName))!")
+    }
+    var travelCancelledNotifTitle: String {
+        t("✈️ 여정이 취소되었습니다", "✈️ Journey Cancelled", "✈️ 旅のキャンセル", "✈️ Viaje cancelado", "✈️ Voyage annulé", "✈️ Viagem cancelada")
+    }
+    func travelCancelledNotifBody(_ name: String) -> String {
+        t("\(name)로의 여정을 취소했습니다.",
+          "Journey to \(name) has been cancelled.",
+          "\(name) への旅をキャンセルしました。",
+          "El viaje a \(name) ha sido cancelado.",
+          "Le voyage vers \(name) a été annulé.",
+          "A viagem para \(name) foi cancelada.")
+    }
+
     // MARK: Claude 한도 토큰 갱신 오류 (친절 안내)
     func limitRefreshHTTPError(_ status: Int) -> String {
         if status == 401 || status == 403 {
