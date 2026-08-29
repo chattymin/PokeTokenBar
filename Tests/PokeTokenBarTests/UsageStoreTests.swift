@@ -577,6 +577,15 @@ final class UsageStoreTests: XCTestCase {
         XCTAssertEqual(s2.limitDisplayMode, .remaining, "같은 defaults 재로드 → 유지")
     }
 
+    /// 설정 영속 — 기본은 powerSaver(이 설정 이전의 고정 캡과 동일), 선택은 재시작 후 유지.
+    func testAnimationQualityPersistsAcrossRestart() {
+        let s1 = makeStore(providers: [])
+        XCTAssertEqual(s1.animationQuality, .powerSaver, "기본값 = powerSaver(기존 동작 보존)")
+        s1.animationQuality = .smooth
+        let s2 = makeStore(providers: [])
+        XCTAssertEqual(s2.animationQuality, .smooth, "같은 defaults 재로드 → 유지")
+    }
+
     // MARK: 집계
 
     func testAggregatesTodayTokensAcrossProviders() async {

@@ -46,6 +46,34 @@ final class FloatingPetController: NSObject, NSWindowDelegate {
         var wouldTruncate: Bool
     }
 
+    /// AppKit 호버 콜아웃에 사용할 appearance 해석 완료 색상.
+    ///
+    /// 이 콜아웃은 SwiftUI가 아니라 `NSTextField`와 레이어 기반 `NSView`로 조립된다.
+    /// 텍스트 필드에 semantic `NSColor`를 그대로 지정하면 뷰의 effective appearance로
+    /// 해석되지만, `windowBackgroundColor.cgColor`는 현재 그리기 appearance에서 즉시
+    /// 색상이 굳어진다. 세 색상을 하나의 appearance에서 함께 해석해야 글자와 외곽선이
+    /// 같은 라이트/다크 모드를 유지한다.
+    struct HoverCalloutColors {
+        var text: NSColor
+        var background: NSColor
+        var border: NSColor
+    }
+
+    static func hoverCalloutColors(for appearance: NSAppearance) -> HoverCalloutColors {
+        HoverCalloutColors(
+            text: snapshot(NSColor.labelColor, for: appearance),
+            background: snapshot(NSColor.windowBackgroundColor, for: appearance),
+            border: snapshot(NSColor.separatorColor, for: appearance))
+    }
+
+    private static func snapshot(_ color: NSColor, for appearance: NSAppearance) -> NSColor {
+        var resolved = color
+        appearance.performAsCurrentDrawingAppearance {
+            resolved = NSColor(cgColor: color.cgColor) ?? color
+        }
+        return resolved
+    }
+
     private var onOpenPopover: (() -> Void)?
     private var onHide: (() -> Void)?
 
@@ -223,9 +251,11 @@ final class FloatingPetController: NSObject, NSWindowDelegate {
         // Don't cover an active limit bubble — the speech bubble is the priority surface.
         if store.currentBubbleAlert != nil { hideHoverCallout(); return }
         let text = currentHoverText()
+        let appearance = NSApp.effectiveAppearance
+        let colors = Self.hoverCalloutColors(for: appearance)
         let label = NSTextField(labelWithString: text)
         label.font = .systemFont(ofSize: 11)
-        label.textColor = .labelColor
+        label.textColor = colors.text
         label.backgroundColor = .clear
         label.drawsBackground = false
         label.sizeToFit()
@@ -234,16 +264,18 @@ final class FloatingPetController: NSObject, NSWindowDelegate {
         let size = NSSize(width: label.bounds.width + pad * 2,
                           height: label.bounds.height + pad * 2)
         let container = NSView(frame: NSRect(origin: .zero, size: size))
+        container.appearance = appearance
         container.wantsLayer = true
-        container.layer?.backgroundColor = NSColor.windowBackgroundColor.cgColor
+        container.layer?.backgroundColor = colors.background.cgColor
         container.layer?.cornerRadius = 8
         container.layer?.borderWidth = 0.5
-        container.layer?.borderColor = NSColor.separatorColor.cgColor
+        container.layer?.borderColor = colors.border.cgColor
         label.frame.origin = NSPoint(x: pad, y: pad)
         container.addSubview(label)
 
         let hp = hoverPanel ?? makeHoverPanel()
         hoverPanel = hp
+        hp.appearance = appearance
         hp.contentView = container
         hp.setContentSize(size)
         let petFrame = pet.frame
@@ -412,7 +444,6 @@ final class PetHostingView: NSHostingView<AnyView> {
 
 @MainActor
 struct FloatingPetView: View {
-    static let frameFloor: TimeInterval = 0.4
     var animated: Bool = true
     @Environment(UsageStore.self) private var store
     @Environment(CompanionStore.self) private var companion
@@ -428,7 +459,8 @@ struct FloatingPetView: View {
             }
 
             SpriteView(speciesID: subject.speciesID, size: size, animated: animated,
-                       shiny: subject.isShiny, minFrameDelay: Self.frameFloor)
+                       shiny: subject.isShiny,
+                       minFrameDelay: store.animationQuality.frameFloor)
                 .frame(width: size, height: size)
                 .zIndex(0)
         }

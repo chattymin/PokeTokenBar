@@ -41,7 +41,8 @@ struct LocalHermesProvider: UsageProvider {
     }
 }
 
-/// Cursor IDE usage from its local SQLite chat database (cursorDiskKV table).
+/// Cursor usage from the dashboard API when signed in, with local SQLite as fallback.
+/// `reportsCost` is false — included-plan usage is token-only in the dashboard.
 struct LocalCursorProvider: UsageProvider {
     let id = "cursor"
     let displayName = "Cursor"
@@ -208,7 +209,7 @@ private actor LocalAdditionalUsageCache {
         let existing = previous?.entries ?? []
         let knownKiro = previous?.kiroSignatures ?? [:]
         let task = Task.detached(priority: .utility) {
-            () -> ScanResult in
+            () async -> ScanResult in
             switch source {
             case .opencode:
                 let loaded = LocalAdditionalUsageReader.openCodeEntries(modifiedSince: since)
@@ -222,15 +223,24 @@ private actor LocalAdditionalUsageCache {
                     entries: LocalUsageReader.dedupKeepMax(existing + loaded.entries),
                     kiroSignatures: loaded.signatures)
             case .cursor:
-                let loaded = LocalAdditionalUsageReader.cursorEntries(
+                let loaded = await LocalAdditionalUsageReader.cursorEntriesAsync(
                     modifiedSince: since, afterRowIDByPath: afterRowIDByPath)
                 // DB rewrite / VACUUM can drop max(rowid) below the watermark — discard
                 // the stale in-memory set and take the full rescan result.
                 if loaded.didReset {
                     return ScanResult(entries: loaded.entries, highWaterByPath: loaded.highWaterByPath)
                 }
+                // A successful dashboard response is authoritative even when it is empty.
+                // Do not retain stale API rows or merge local bubble estimates.
+                if loaded.isAuthoritative {
+                    return ScanResult(
+                        entries: loaded.entries, highWaterByPath: loaded.highWaterByPath)
+                }
+                let localExisting = existing.filter {
+                    !LocalAdditionalUsageReader.isCursorDashboardEntry($0)
+                }
                 return ScanResult(
-                    entries: LocalUsageReader.dedupKeepMax(existing + loaded.entries),
+                    entries: LocalUsageReader.dedupKeepMax(localExisting + loaded.entries),
                     highWaterByPath: loaded.highWaterByPath)
             case .copilot:
                 let loaded = LocalAdditionalUsageReader.copilotEntries(
@@ -456,6 +466,8 @@ enum LocalAdditionalUsageReader {
         var highWaterByPath: [String: Int64]
         /// True when any DB was rescanned from scratch (watermark invalidated).
         var didReset: Bool
+        /// True when a remote source produced a complete result, including an empty one.
+        var isAuthoritative: Bool = false
 
         /// Convenience for single-database tests.
         var highWaterRowID: Int64 { highWaterByPath.values.max() ?? 0 }
@@ -620,14 +632,75 @@ enum LocalAdditionalUsageReader {
         return CustomScanRoots.union(defaults: curated, extraRaw: customRootsValue)
     }
 
+    /// Cursor roots including the user's extra scan folders. The usage scan and the
+    /// `cursorAuth/accessToken` lookup must agree, or a custom root would report usage
+    /// while the dashboard API silently falls back to the local bubble scan.
+    static var configuredCursorRoots: [URL] {
+        cursorRoots(customRootsValue: CustomScanRoots.storedValue(for: "cursor"))
+    }
+
     static func cursorEntries(
         modifiedSince: Date,
         afterRowID: Int64 = 0,
         afterRowIDByPath: [String: Int64]? = nil,
         roots: [URL]? = nil
     ) -> CursorLoadResult {
-        scanIncrementalStores(
-            roots: roots ?? cursorRoots(customRootsValue: CustomScanRoots.storedValue(for: "cursor")),
+        cursorEntriesSync(
+            modifiedSince: modifiedSince,
+            afterRowID: afterRowID,
+            afterRowIDByPath: afterRowIDByPath,
+            roots: roots,
+            apiEntries: [])
+    }
+
+    static func cursorEntriesAsync(
+        modifiedSince: Date,
+        afterRowID: Int64 = 0,
+        afterRowIDByPath: [String: Int64]? = nil,
+        roots: [URL]? = nil
+    ) async -> CursorLoadResult {
+        let api = await CursorUsageAPI.fetchEntries(modifiedSince: modifiedSince)
+        return cursorEntriesSync(
+            modifiedSince: modifiedSince,
+            afterRowID: afterRowID,
+            afterRowIDByPath: afterRowIDByPath,
+            roots: roots,
+            apiEntries: api.entries,
+            apiIsAuthoritative: api.isAuthoritative)
+    }
+
+    /// Test hook for the dashboard/API path without network I/O.
+    static func cursorEntriesFromDashboard(
+        modifiedSince: Date,
+        dashboardEntries: [LocalUsageReader.Entry],
+        roots: [URL]? = nil
+    ) -> CursorLoadResult {
+        cursorEntriesSync(
+            modifiedSince: modifiedSince,
+            afterRowID: 0,
+            afterRowIDByPath: nil,
+            roots: roots,
+            apiEntries: dashboardEntries,
+            apiIsAuthoritative: true)
+    }
+
+    private static func cursorEntriesSync(
+        modifiedSince: Date,
+        afterRowID: Int64,
+        afterRowIDByPath: [String: Int64]?,
+        roots: [URL]?,
+        apiEntries: [LocalUsageReader.Entry],
+        apiIsAuthoritative: Bool = false
+    ) -> CursorLoadResult {
+        if apiIsAuthoritative {
+            return IncrementalStoreLoadResult(
+                entries: LocalUsageReader.dedupKeepMax(apiEntries),
+                highWaterByPath: [:],
+                didReset: false,
+                isAuthoritative: true)
+        }
+        return scanIncrementalStores(
+            roots: roots ?? configuredCursorRoots,
             modifiedSince: modifiedSince,
             afterRowID: afterRowID,
             afterRowIDByPath: afterRowIDByPath,
@@ -637,6 +710,74 @@ enum LocalAdditionalUsageReader {
             parse: { statement, _ in
                 parseCursorBubbleRow(statement, modifiedSince: modifiedSince)
             })
+    }
+
+    /// Cursor IDE login token stored in `state.vscdb` ItemTable.
+    static func cursorAuthAccessToken(roots: [URL]? = nil) -> String? {
+        for root in roots ?? configuredCursorRoots {
+            let database = root.appendingPathComponent("state.vscdb")
+            guard FileManager.default.fileExists(atPath: database.path) else { continue }
+            for attempt in 0 ..< 6 {
+                let rows = query(database, sql: """
+                    SELECT value FROM ItemTable WHERE key = 'cursorAuth/accessToken' LIMIT 1
+                    """) { statement -> String? in
+                    columnText(statement, 0)
+                }
+                if let token = rows?.first?.trimmingCharacters(in: .whitespacesAndNewlines), !token.isEmpty {
+                    return token
+                }
+                if rows != nil { break }
+                Thread.sleep(forTimeInterval: 0.05 * Double(attempt + 1))
+            }
+        }
+        return nil
+    }
+
+    /// Debug string for AppLog when session token lookup fails (no secret values).
+    static func cursorAuthDiagnostics(roots: [URL]? = nil) -> String {
+        var parts: [String] = []
+        for root in roots ?? configuredCursorRoots {
+            let database = root.appendingPathComponent("state.vscdb")
+            guard FileManager.default.fileExists(atPath: database.path) else {
+                parts.append("\(database.lastPathComponent): missing")
+                continue
+            }
+            let rows = query(database, sql: """
+                SELECT value FROM ItemTable WHERE key = 'cursorAuth/accessToken' LIMIT 1
+                """) { statement -> String? in
+                columnText(statement, 0)
+            }
+            switch rows {
+            case .none:
+                parts.append("\(root.lastPathComponent): sqlite busy/error")
+            case .some(let values) where values.isEmpty:
+                parts.append("\(root.lastPathComponent): key absent (not logged in?)")
+            case .some(let values):
+                parts.append("\(root.lastPathComponent): ok (\(values[0].count) chars)")
+            }
+        }
+        return parts.isEmpty ? "no cursor data dirs" : parts.joined(separator: "; ")
+    }
+
+    /// Usage from Cursor's dashboard API (`cursor|api|` entry ids).
+    static func isCursorDashboardEntry(_ entry: LocalUsageReader.Entry) -> Bool {
+        entry.id.hasPrefix("cursor|api|")
+    }
+
+    static func makeUsageEntry(
+        id: String,
+        date: Date,
+        model: String,
+        input: Int = 0,
+        output: Int = 0,
+        cacheWrite: Int = 0,
+        cacheRead: Int = 0,
+        cost: Double? = nil
+    ) -> LocalUsageReader.Entry? {
+        makeEntry(
+            id: id, date: date, model: model,
+            input: input, output: output, cacheWrite: cacheWrite, cacheRead: cacheRead,
+            cost: cost)
     }
 
     /// cursorDiskKV: key TEXT UNIQUE, value BLOB. No time column — filter by

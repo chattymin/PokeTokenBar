@@ -24,6 +24,8 @@ enum UsageEnvironment {
         "CLOUD_CODE_URL",      // Google CloudCode Quota API 엔드포인트 override
         "PI_CODING_AGENT_DIR", // pi config/session base directory
         "PI_CODING_AGENT_SESSION_DIR", // pi session directory override
+        "CURSOR_SESSION_TOKEN", // Cursor dashboard API session override
+        "CURSOR_USAGE_API",    // Cursor dashboard API disable switch (`0` = off)
         "OMP_CODING_AGENT_DIR", // omp (oh-my-pi) config/session base directory
     ]
 

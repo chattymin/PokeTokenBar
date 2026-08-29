@@ -130,6 +130,7 @@ final class UsageEnvironmentTests: XCTestCase {
             "UsageEnvironment.swift",
             "BinaryLocator.swift",
             "CompanionStore.swift",
+            "AppStatePaths.swift",
             "OAuthLimitsProvider.swift",
         ]
         let sources = URL(fileURLWithPath: #filePath)
@@ -161,6 +162,7 @@ final class UsageEnvironmentTests: XCTestCase {
         for name in [
             "CLAUDE_CONFIG_DIR", "OPENCODE_DATA_DIR", "HERMES_HOME", "COPILOT_HOME", "GROK_HOME",
             "CLOUD_CODE_URL", "PI_CODING_AGENT_DIR", "PI_CODING_AGENT_SESSION_DIR",
+            "CURSOR_SESSION_TOKEN", "CURSOR_USAGE_API",
             "OMP_CODING_AGENT_DIR",
         ] {
             XCTAssertTrue(UsageEnvironment.names.contains(name), "\(name) 이 조회 대상에서 빠졌다")
