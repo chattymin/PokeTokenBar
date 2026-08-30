@@ -68,6 +68,18 @@ private final class FailAfterFirstClaudeLimits: ClaudeLimitsProviding, @unchecke
     }
 }
 
+/// 호출 횟수를 세는 스텁 — 폴 간격 게이트가 실제로 호출을 *막는지* 세어서 확인한다.
+/// 상태만 보면 "값이 그대로다"와 "다시 조회했는데 같은 값이다"를 구분할 수 없다.
+private final class CountingClaudeLimits: ClaudeLimitsProviding, @unchecked Sendable {
+    private let status: LimitStatus
+    nonisolated(unsafe) private(set) var calls = 0
+    init(status: LimitStatus) { self.status = status }
+    func fetch(allowKeychainPrompt: Bool) async throws -> LimitStatus {
+        calls += 1
+        return status
+    }
+}
+
 private struct FakeClaudeLimits: ClaudeLimitsProviding {
     var status: LimitStatus?
     func fetch(allowKeychainPrompt: Bool) async throws -> LimitStatus {
@@ -243,6 +255,45 @@ final class UsageStoreTests: XCTestCase {
 
         XCTAssertEqual(history.samples(providerID: "claude_code", window: "five_hour")
             .map(\.utilization), [37])
+    }
+
+    /// 사용량 스캔 주기(로컬 파일 읽기)와 원격 한도 조회를 분리한다. 2분 주기에서 429 가 반복된 것이
+    /// 근거다 — 사용자는 "사용량을 자주 갱신"을 고른 것이지 "비공식 endpoint 를 자주 두드림"을 고른 게 아니다.
+    func testConsecutiveRefreshesDoNotRefetchRemoteLimits() async {
+        let limitsProvider = CountingClaudeLimits(status: claudeLimits(fiveHourUtil: 12))
+        let claude = FakeUsageProvider(id: "claude_code", displayName: "Claude Code",
+                                       daily: todayDaily(1_000))
+        let store = UsageStore(providers: [claude],
+                               claudeLimitsProvider: limitsProvider,
+                               codexLimitsProvider: FakeCodexLimits(status: nil),
+                               opencodeGoLimitsProvider: FakeOpenCodeGoLimits(status: nil),
+                               antigravityLimitsProvider: FakeAntigravityLimits(status: nil),
+                               autoRefresh: false, defaults: testDefaults)
+
+        await store.refresh()
+        await store.refresh()
+
+        XCTAssertEqual(limitsProvider.calls, 1,
+                       "간격 안의 두 번째 폴이 원격 endpoint 를 다시 두드렸다")
+        XCTAssertNotNil(store.limits, "첫 조회는 막히면 안 된다 — 기동 직후 한도가 비어 보인다")
+    }
+
+    /// 사용자가 누른 갱신은 간격을 무시한다 — 눌렀는데 아무 일도 안 일어나면 고장으로 보인다.
+    func testManualRefreshBypassesThePollInterval() async {
+        let limitsProvider = CountingClaudeLimits(status: claudeLimits(fiveHourUtil: 12))
+        let claude = FakeUsageProvider(id: "claude_code", displayName: "Claude Code",
+                                       daily: todayDaily(1_000))
+        let store = UsageStore(providers: [claude],
+                               claudeLimitsProvider: limitsProvider,
+                               codexLimitsProvider: FakeCodexLimits(status: nil),
+                               opencodeGoLimitsProvider: FakeOpenCodeGoLimits(status: nil),
+                               antigravityLimitsProvider: FakeAntigravityLimits(status: nil),
+                               autoRefresh: false, defaults: testDefaults)
+
+        await store.refresh()
+        await store.refreshLimitTokenFromKeychain()
+
+        XCTAssertEqual(limitsProvider.calls, 2, "사용자 갱신이 간격에 막혔다")
     }
 
     /// 한도 조회가 실패해도 `store.limits` 에는 **직전 성공값이 그대로 남는다**. 기록을 실패 경로에도
@@ -1092,10 +1143,13 @@ final class UsageStoreTests: XCTestCase {
         let claude = FakeUsageProvider(id: "claude_code", displayName: "Claude Code", daily: todayDaily(10_000_000))
         let seq = SequenceClaudeLimits(errors: [LimitsError.httpStatus(401)],
                                        success: claudeLimits(fiveHourUtil: 12, resetsAt: "2099-01-01T00:00:00Z"))
+        // 이 테스트의 관심사는 401 설정/해제이지 폴 간격이 아니다 — 간격을 꺼서 두 번째 refresh 가
+        // 실제로 조회하게 한다(간격 자체는 LimitsPollCadenceTests 가 검증).
         let store = UsageStore(providers: [claude], claudeLimitsProvider: seq,
                                codexLimitsProvider: FakeCodexLimits(status: nil),
                                opencodeGoLimitsProvider: FakeOpenCodeGoLimits(status: nil),
-                               autoRefresh: false, defaults: testDefaults)
+                               autoRefresh: false, remoteLimitsPollInterval: 0,
+                               defaults: testDefaults)
         await store.refresh(scheduleEmptyRetry: false)
         XCTAssertTrue(store.limitsAuthExpired, "401 → 세션 만료 안내 상태")
         await store.refresh(scheduleEmptyRetry: false)   // 이번엔 성공

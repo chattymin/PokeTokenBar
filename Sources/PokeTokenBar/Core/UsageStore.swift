@@ -21,7 +21,6 @@ final class UsageStore {
     private(set) var opencodeGoLimits: OpenCodeGoLimitStatus?
     private(set) var opencodeGoLimitsUpdatedAt: Date?
     /// OpenCode Go 폴링 예의용 마지막 시도 시각(성공·실패 무관) — 5분 최소 간격 스로틀.
-    private var opencodeGoLimitsCheckedAt: Date?
     private(set) var antigravityLimits: AntigravityRateLimitStatus?
     private(set) var antigravityLimitsUpdatedAt: Date?
     private(set) var antigravityLimitsAuthExpired = false
@@ -523,7 +522,9 @@ final class UsageStore {
          statusProvider: any ProviderStatusProviding = StatuspageStatusProvider(),
          limitHistory: LimitHistoryStore = .shared,
          autoRefresh: Bool = true,
+         remoteLimitsPollInterval: TimeInterval = LimitsPollCadence.minimumInterval,
          defaults: UserDefaults = .standard) {
+        self.remoteLimitsPollInterval = remoteLimitsPollInterval
         self.providers = providers
         self.limitsProvider = claudeLimitsProvider
         self.codexLimitsProvider = codexLimitsProvider
@@ -790,8 +791,12 @@ final class UsageStore {
         } else if let until = claudeLimitsBackoffUntil, Date() < until {
             // 429 백오프 중 — 폴링을 쉬어 rate limit 악화 방지 (버그 리포트 실측: 매분 429 재시도)
             AppLog.write("claude limits backoff: skipping (\(Int(until.timeIntervalSinceNow))s left)")
+        } else if !LimitsPollCadence.shouldFetch(lastAttemptAt: lastRemoteLimitsAttempt["claude_code"],
+                                                        minimumInterval: remoteLimitsPollInterval) {
+            // 사용량 스캔 주기와 분리 — 자세한 이유는 LimitsPollCadence.
         } else {
             do {
+                lastRemoteLimitsAttempt["claude_code"] = Date()
                 limits = try await limitsProvider.fetch(allowKeychainPrompt: false)
                 limitsAvailable = true
                 limitsUpdatedAt = Date()
@@ -851,7 +856,9 @@ final class UsageStore {
         defer { isRefreshingLimitToken = false }
 
         do {
-            // 명시적 사용자 액션은 백오프를 우회해 1회 시도 — 성공하면 백오프 해제
+            // 명시적 사용자 액션은 백오프를 우회해 1회 시도 — 성공하면 백오프 해제.
+            // 간격 게이트도 우회하지만 시도 시각은 남긴다(직후 자동 폴의 중복 호출 방지).
+            lastRemoteLimitsAttempt["claude_code"] = Date()
             limits = try await limitsProvider.fetch(allowKeychainPrompt: true)
             limitsAvailable = true
             limitsUpdatedAt = Date()
@@ -880,6 +887,14 @@ final class UsageStore {
             antigravityLimitsAuthExpired = false
             return
         }
+        // 사용자가 갱신을 누른 경로(allowKeychainPrompt)는 간격을 무시한다 — 누른 즉시 답이 나와야 한다.
+        // 그래도 시도 시각은 기록해, 직후의 자동 폴이 같은 endpoint 를 곧바로 다시 두드리지 않게 한다.
+        if !allowKeychainPrompt,
+           !LimitsPollCadence.shouldFetch(lastAttemptAt: lastRemoteLimitsAttempt["antigravity"],
+                                          minimumInterval: remoteLimitsPollInterval) {
+            return
+        }
+        lastRemoteLimitsAttempt["antigravity"] = Date()
         do {
             let status = try await antigravityLimitsProvider.fetch(allowKeychainPrompt: allowKeychainPrompt)
             antigravityLimits = status
@@ -904,6 +919,17 @@ final class UsageStore {
             limitsAuthExpired = true
         }
     }
+
+    // MARK: 원격 한도 조회 간격
+
+    /// 프로바이더별 마지막 **시도** 시각. 사용량 스캔 틱마다 외부 endpoint 를 두드리지 않기 위한
+    /// 게이트의 상태다(`LimitsPollCadence`). 로컬 자식 프로세스로 답하는 Codex 는 대상이 아니다 —
+    /// rate limit 이 걸릴 원격 endpoint 가 없다.
+    private var lastRemoteLimitsAttempt: [String: Date] = [:]
+
+    /// 주입 가능 — 0 을 넘기면 게이트가 사실상 꺼진다. 간격과 무관한 동작(401 해제 등)을 검증하는
+    /// 테스트가 "두 번째 refresh 가 실제로 조회한다"를 전제할 수 있어야 한다.
+    private let remoteLimitsPollInterval: TimeInterval
 
     // MARK: Claude 한도 429 백오프
 
@@ -964,15 +990,12 @@ final class UsageStore {
         }
     }
 
-    /// OpenCode Go 한도 폴링 최소 간격 — 기본 refresh 주기(2분)보다 넉넉히. 엔드포인트는 3-table join
-    /// 이고 공식 캐시 헤더/폴링 가이드가 없다(anomalyco/opencode#16513 리뷰 지적). 시도(성공·실패
-    /// 무관)마다 스로틀을 걸어 실패 사용자도 최대 12 req/h 로 묶는다.
-    private static let opencodeGoPollInterval: TimeInterval = 300
-
     private func refreshOpenCodeGoLimits() async {
-        if let checked = opencodeGoLimitsCheckedAt,
-           Date().timeIntervalSince(checked) < Self.opencodeGoPollInterval { return }
-        opencodeGoLimitsCheckedAt = Date()
+        // 이 프로바이더가 먼저 쓰던 전용 스로틀(`opencodeGoPollInterval`)을 공용 게이트로 합쳤다 —
+        // 같은 판정이 두 벌 있으면 한쪽만 고쳐지고 다른 쪽이 남는다(defect-log 동일 항목).
+        guard LimitsPollCadence.shouldFetch(lastAttemptAt: lastRemoteLimitsAttempt["opencode_go"],
+                                            minimumInterval: remoteLimitsPollInterval) else { return }
+        lastRemoteLimitsAttempt["opencode_go"] = Date()
         do {
             if let status = try await opencodeGoLimitsProvider.fetch() {
                 opencodeGoLimits = status
