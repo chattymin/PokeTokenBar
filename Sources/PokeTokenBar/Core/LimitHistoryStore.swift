@@ -71,23 +71,16 @@ final class LimitHistoryStore {
 
     private let fileURL: URL
     private let now: () -> Date
-    /// Whether this instance is allowed to touch disk at all — see `persistsToDisk`.
-    private let persists: Bool
+    /// Whether this instance may touch disk — `AppEnv.persistsToUserLocation`.
+    /// Internal rather than private so tests can assert the gate without doing IO.
+    let persists: Bool
 
     init(fileURL: URL? = nil, now: @escaping () -> Date = Date.init) {
         self.fileURL = fileURL ?? Self.defaultFileURL
         self.now = now
-        self.persists = Self.persistsToDisk(injectedFileURL: fileURL,
-                                            isBundledApp: AppEnv.isBundledApp)
-    }
-
-    /// Disk access is a real-app-only side effect (`AppEnv.isBundledApp`, same gate as Keychain
-    /// reads and production logging). It matters here because `UsageStore` defaults its history to
-    /// `.shared`: without this, every `swift test` run that constructs a store would read and
-    /// rewrite the user's actual `limit-history.json` in Application Support. An explicitly
-    /// injected path is always live — that is how the tests exercise persistence.
-    static func persistsToDisk(injectedFileURL: URL?, isBundledApp: Bool) -> Bool {
-        injectedFileURL != nil || isBundledApp
+        // Without this gate, every `swift test` run that constructs a `UsageStore` would read and
+        // rewrite the user's actual `limit-history.json`, since `UsageStore` defaults to `.shared`.
+        self.persists = AppEnv.persistsToUserLocation(injectedFileURL: fileURL)
     }
 
     private static let defaultFileURL: URL = {

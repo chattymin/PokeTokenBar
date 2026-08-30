@@ -102,6 +102,9 @@ actor LocalUsageCache {
     private let grokRoots: [URL]?
     private let piRoots: [URL]?
     private let fileURL: URL
+    /// 기본(사용자) 경로에 실제로 읽고 쓸 것인가 — `AppEnv.persistsToUserLocation`.
+    /// private 이 아닌 이유는 테스트가 IO 없이 게이트 자체를 확인할 수 있게 하려는 것.
+    nonisolated let persistsToDisk: Bool
     private let now: @Sendable () -> Date
     /// throwing probe 를 쓴다 — 읽기 실패(throw)와 "metadata 없음"(`nil`)은 인덱스에 남길지가 다르다.
     private let codexProbe: @Sendable (URL) throws -> String?
@@ -134,6 +137,10 @@ actor LocalUsageCache {
         self.fileURL = fileURL ?? Self.defaultFileURL
         self.now = now
         self.codexProbe = codexProbe
+        // 기본 경로로 떨어졌고 실앱이 아니면 디스크를 아예 만지지 않는다. `LocalUsageProvider` 가
+        // `.shared` 를 쓰므로, 이 게이트가 없으면 테스트 중 일어난 단 한 번의 `refresh()` 가
+        // 사용자의 실제 `usage-cache.json` 을 읽고 덮어쓴다(실측: 전체 스위트 1회 = 1회 쓰기).
+        self.persistsToDisk = AppEnv.persistsToUserLocation(injectedFileURL: fileURL)
     }
 
     private static let defaultFileURL: URL = {
@@ -361,10 +368,20 @@ actor LocalUsageCache {
 
     // MARK: 영속화
 
+    /// 로드된 blob 총수 — 읽기 게이트의 관측점. 기본(사용자) 경로 캐시가 실제 파일을 읽어버리면
+    /// 픽스처 한 개만 있어야 할 자리에 사용자의 수백 개 blob 이 섞여 이 수가 튄다.
+    var cachedBlobCount: Int {
+        ensureLoaded()
+        return claudeCache.count + codexCache.count + geminiCache.count
+            + grokCache.count + piCache.count
+    }
+
     private func ensureLoaded() {
         guard !loaded else { return }
         loaded = true
-        guard let raw = try? Data(contentsOf: fileURL) else { return }
+        // 읽기도 막는다 — 쓰기만 막으면 테스트가 사용자의 실제 캐시(수십만 엔트리)를 읽어
+        // 픽스처와 섞인 결과로 단언하게 된다. 격리는 양방향이라야 성립한다.
+        guard persistsToDisk, let raw = try? Data(contentsOf: fileURL) else { return }
         // zlib 압축 스냅샷(현행) → 실패 시 평문 JSON(구버전 캐시) 폴백
         let data = (try? (raw as NSData).decompressed(using: .zlib) as Data) ?? raw
         guard let snap = try? JSONDecoder().decode(Snapshot.self, from: data) else { return }
@@ -408,6 +425,7 @@ actor LocalUsageCache {
     /// 변경이 있으면 디스크에 저장(최소 60초 간격으로 throttle — 잦은 쓰기 방지).
     private func saveIfNeeded() {
         guard dirty else { return }
+        guard persistsToDisk else { dirty = false; return }
         if let last = lastSave, now().timeIntervalSince(last) < 60 { return }
         prune()
         let snap = Snapshot(

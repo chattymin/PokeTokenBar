@@ -127,6 +127,57 @@ final class LocalUsageCacheTests: XCTestCase {
         return url
     }
 
+    // MARK: 사용자 파일 격리 (회귀)
+
+    /// [회귀] 기본 경로로 떨어진 캐시는 사용자의 실제 `usage-cache.json` 을 읽지도 쓰지도 않는다.
+    ///
+    /// 이 결함이 스위트에서 실제로 발화한 경로는 두 갈래였고 둘 다 개별 테스트의 잘못이 아니다:
+    /// (a) `testScreensDidSleepNotificationReachesTheStore` 가 `NSWorkspace` 알림을 **브로드캐스트**
+    /// 하면 그 시점에 살아 있는 *모든* `UsageStore` 가 받는다 — 실 프로바이더로 만들어진 스토어
+    /// (`UsageStore(autoRefresh:defaults:)` 는 providers 기본값이 실물이다)까지 `restoreFullPolling()`
+    /// → `Task { refresh() }` 로 진짜 스캔을 돈다. (b) `setCustomScanRoots` 가 띄우는 detached Task 는
+    /// 테스트보다 오래 살아서, 클래스 단독 실행에선 프로세스가 먼저 끝나 안 보이고 전체 실행에서만 터진다.
+    /// 그래서 방어는 "테스트가 경로를 주입한다"가 아니라 스토어 자신의 게이트여야 한다.
+    func testDefaultPathCacheNeitherReadsNorWritesUserFile() async throws {
+        try writeFile("a.jsonl", lines: [claudeLine(id: "1", output: 42)])
+        let cache = LocalUsageCache(claudeRoot: root)   // fileURL 주입 없음 = 기본(사용자) 경로
+
+        XCTAssertFalse(cache.persistsToDisk,
+                       "swift test 는 번들 실행이 아니므로 기본 경로 캐시는 비활성이어야 한다")
+
+        // mtime 은 **첫** 스캔 전에 찍어야 한다. 두 번째 호출은 dirty 가 false 라 throttle 이전에
+        // 조기 반환하므로, 첫 호출 뒤에 찍으면 게이트를 없애도 창 안에서 쓰기가 안 일어나
+        // 통과해 버린다(주입 검증으로 실제 확인).
+        let userFile = FileManager.default.urls(for: .applicationSupportDirectory,
+                                                in: .userDomainMask)[0]
+            .appendingPathComponent("PokeTokenBar/usage-cache.json")
+        func userFileMtime() -> Date? {
+            (try? FileManager.default.attributesOfItem(atPath: userFile.path))?[.modificationDate] as? Date
+        }
+        let before = userFileMtime()
+
+        // 게이트는 IO 만 막는다 — 파싱·집계는 그대로 동작해야 한다.
+        let entries = await cache.claudeEntries(modifiedSince: Date(timeIntervalSince1970: 0))
+        XCTAssertEqual(entries.count, 1)
+        XCTAssertEqual(entries.first?.output, 42,
+                       "픽스처 루트만 반영돼야 한다 — 사용자의 실제 캐시가 섞이면 안 된다")
+
+        let blobs = await cache.cachedBlobCount
+        XCTAssertEqual(blobs, 1,
+                       "읽기 게이트가 열리면 사용자의 실제 blob 수백 개가 여기 섞인다")
+        XCTAssertEqual(before, userFileMtime(), "사용자 캐시 파일의 mtime 이 변했다")
+    }
+
+    /// 게이트가 주입 경로까지 막아버리면 지속성 테스트가 통째로 무의미해진다 — 반대 방향 가드.
+    func testInjectedPathCacheStillPersists() async throws {
+        try writeFile("a.jsonl", lines: [claudeLine(id: "1", output: 7)])
+        let cache = LocalUsageCache(claudeRoot: root, fileURL: cacheFile)
+        XCTAssertTrue(cache.persistsToDisk)
+        _ = await cache.claudeEntries(modifiedSince: Date(timeIntervalSince1970: 0))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: cacheFile.path),
+                      "주입 경로는 살아 있어야 한다")
+    }
+
     private func makeCache(now: @escaping @Sendable () -> Date = Date.init,
                            probes: ProbeCounter? = nil,
                            probe: (@Sendable (URL) throws -> String?)? = nil,

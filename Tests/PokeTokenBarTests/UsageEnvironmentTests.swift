@@ -172,3 +172,23 @@ final class UsageEnvironmentTests: XCTestCase {
         }
     }
 }
+
+/// 사용자 상태 파일 접근 게이트 — 스토어마다 복사되던 판정을 한 곳으로 모은 뒤의 단일 진실.
+final class UserLocationGateTests: XCTestCase {
+    func testInjectedPathIsAlwaysLive() {
+        let tmp = URL(fileURLWithPath: "/tmp/whatever.json")
+        XCTAssertTrue(AppEnv.persistsToUserLocation(injectedFileURL: tmp, isBundledApp: false))
+        XCTAssertTrue(AppEnv.persistsToUserLocation(injectedFileURL: tmp, isBundledApp: true))
+    }
+
+    /// 이 한 줄이 스위트가 사용자 파일을 건드리지 않게 하는 전부다.
+    func testDefaultPathIsInertUnlessBundled() {
+        XCTAssertFalse(AppEnv.persistsToUserLocation(injectedFileURL: nil, isBundledApp: false))
+        XCTAssertTrue(AppEnv.persistsToUserLocation(injectedFileURL: nil, isBundledApp: true))
+    }
+
+    /// `swift test` 는 번들 실행이 아니다 — 이 전제가 깨지면 위 게이트가 통째로 무의미해진다.
+    func testTestBinaryIsNotABundledApp() {
+        XCTAssertFalse(AppEnv.isBundledApp)
+    }
+}

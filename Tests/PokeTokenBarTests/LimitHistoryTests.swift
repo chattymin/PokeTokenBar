@@ -310,12 +310,11 @@ final class LimitHistoryTests: XCTestCase {
     /// without injecting one. Under `swift test` that instance must stay purely in memory, or the
     /// suite silently reads and rewrites the developer's real Application Support history.
     func testDefaultLocationIsInertOutsideTheBundledApp() {
-        XCTAssertFalse(LimitHistoryStore.persistsToDisk(injectedFileURL: nil, isBundledApp: false),
+        // The store no longer owns this rule — it is `AppEnv.persistsToUserLocation`, shared with
+        // LocalUsageCache so the two cannot drift apart.
+        XCTAssertFalse(LimitHistoryStore(now: { self.epoch }).persists,
                        "a raw test binary must not touch the user's history file")
-        XCTAssertTrue(LimitHistoryStore.persistsToDisk(injectedFileURL: nil, isBundledApp: true),
-                      "the shipped .app is the whole point of the feature")
-        XCTAssertTrue(LimitHistoryStore.persistsToDisk(injectedFileURL: URL(fileURLWithPath: "/tmp/x"),
-                                                       isBundledApp: false),
+        XCTAssertTrue(LimitHistoryStore(fileURL: file(), now: { self.epoch }).persists,
                       "an injected path is always live — the persistence tests rely on it")
     }
 

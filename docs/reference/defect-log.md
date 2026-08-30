@@ -577,10 +577,30 @@ read_when:
   하나라도 있으면 그 경로로 실파일이 열리고 **쓰인다**. 실측(2026-08-30): `LimitHistoryStore` 를
   게이트 없이 넣었더니 전체 스위트 1회 실행이 `~/Library/Application Support/PokeTokenBar/
   limit-history.json` 에 사용자의 실제 한도(97·100%)를 기록했다 — 테스트가 실 endpoint 를 때린
-  것이다. 같은 부류가 `LocalUsageCache`(`usage-cache.json`)에 **아직 남아 있다**: 스위트를 돌리면
-  mtime 이 갱신된다.
+  것이다. 같은 부류가 `LocalUsageCache`(`usage-cache.json`)에도 있었고 아래에서 함께 닫혔다.
   방어는 "테스트가 주입하기"가 아니라 **스토어 자신이 실앱에서만 디스크를 만지는 것**이다 —
-  `AppEnv.isBundledApp`(키체인 읽기·프로덕션 로그와 같은 게이트) 또는 주입된 경로일 때만 read/write.
-  판정은 순수 함수로 빼서(`LimitHistoryStore.persistsToDisk(injectedFileURL:isBundledApp:)`) IO 없이
-  테스트한다. 확인 방법은 스위트 전후로 대상 파일 mtime 을 비교하는 것 — 커버리지로는 안 보인다
-  (기본 경로 초기화가 1회라도 실행되면 라인은 covered 로 잡힌다).
+  판정은 `AppEnv.persistsToUserLocation(injectedFileURL:isBundledApp:)` 한 곳에만 두고
+  (`LimitHistoryStore`·`LocalUsageCache` 가 공유) 주입 경로면 항상 live, 아니면 `isBundledApp` 에만 live.
+  **읽기도 함께 막는다** — 쓰기만 막으면 테스트가 사용자의 실제 캐시를 읽어 픽스처와 섞인 상태로
+  단언하게 된다(격리는 양방향이라야 성립).
+
+  - **`LocalUsageCache` 도 같은 결함이었고 2026-08-30 에 닫혔다.** 발화 경로가 두 갈래였는데 **둘 다
+    개별 테스트의 잘못이 아니다**: (a) `testScreensDidSleepNotificationReachesTheStore` 가 `NSWorkspace`
+    알림을 **브로드캐스트**하면 그 순간 살아 있는 *모든* `UsageStore` 가 받는다 — `UsageStore(autoRefresh:
+    defaults:)` 는 `providers` 기본값이 **실물 프로바이더**라, 레지스트리만 확인하려고 만든 스토어까지
+    `restoreFullPolling()` → `Task { refresh() }` 로 진짜 스캔을 돈다. (b) `setCustomScanRoots` 가 띄우는
+    detached `Task` 는 테스트보다 오래 살아서, **클래스 단독 실행에선 프로세스가 먼저 끝나 안 보이고
+    전체 실행에서만** 발화한다. → 클래스 단위 bisect 로 "재현 안 됨" 이 나와도 무결을 뜻하지 않는다.
+  - **왜 기존 테스트가 못 걸렀나.** `LocalUsageCache` 를 쓰는 테스트는 **전부** `fileURL` 을 주입한다.
+    주입은 *그 테스트*를 덮을 뿐 **프로세스**를 덮지 못하고, 기본 경로 분기는 그래서 구조적으로
+    안 보인다. 커버리지도 무력하다 — 기본 경로 초기화가 1회만 실행돼도 라인은 covered 다.
+  - **확인 방법(측정이 곧 증거).** `HOME` 을 바꿔 격리하려는 시도는 **무효다** — macOS 의
+    `FileManager.urls(for: .applicationSupportDirectory)` 는 `$HOME` 이 아니라 사용자 DB 로 홈을 정한다
+    (실측: `HOME=/tmp/x` 로 실행해도 `/Users/<me>/Library/...` 를 그대로 쓴다 → 거짓 음성).
+    앱이 떠 있으면 mtime 비교도 오염된다(앱 자신이 같은 파일을 쓴다). 확실한 방법은 **쓰기·읽기 지점에
+    임시 probe 를 심고 스위트를 돌리는 것**이다.
+  - **회귀 가드의 함정 두 가지**(둘 다 결함 주입으로 실제로 드러났다):
+    ① mtime 은 **첫 스캔 전에** 찍어야 한다 — 두 번째 호출은 `dirty == false` 라 throttle 이전에 조기
+    반환하므로, 첫 호출 뒤에 찍으면 게이트를 없애도 창 안에 쓰기가 없어 통과한다.
+    ② 읽기 게이트는 엔트리 수로 검증되지 않는다 — 사용자 blob 은 픽스처 루트 밖 절대경로 키라 결과에
+    안 섞인다. 로드된 blob 수(`cachedBlobCount`) 같은 **직접 관측점**이 필요하다.
