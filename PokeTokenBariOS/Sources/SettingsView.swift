@@ -4,6 +4,7 @@ import PokeTokenBarShared
 struct SettingsView: View {
     @Environment(PhonePayloadStore.self) private var store
     @State private var hostInput: String = ""
+    @State private var pairingInput: String = ""
     @State private var connectionCheckResult: String?
     @State private var isChecking = false
     @State private var iCloudAvailable = false
@@ -45,6 +46,20 @@ struct SettingsView: View {
                         .onSubmit { saveHost() }
                 }
 
+                HStack {
+                    Label("Pairing Code", systemImage: "key.fill")
+                    TextField("ABCD2345", text: $pairingInput)
+                        .textFieldStyle(.plain)
+                        .autocapitalization(.allCharacters)
+                        .autocorrectionDisabled()
+                        .multilineTextAlignment(.trailing)
+                        .onSubmit { savePairingCode() }
+                }
+
+                Text("Shown in PokeTokenBar Settings on your Mac, under iPhone Connection.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
                 if isChecking {
                     HStack {
                         ProgressView().controlSize(.small)
@@ -63,8 +78,8 @@ struct SettingsView: View {
                 }
 
                 Button("Test Connection") {
-                    hostInput = hostInput.trimmingCharacters(in: .whitespaces)
-                    store.host = hostInput
+                    saveHost()
+                    savePairingCode()
                     isChecking = true
                     connectionCheckResult = nil
                     Task {
@@ -105,12 +120,22 @@ struct SettingsView: View {
             }
         }
         .navigationTitle("Settings")
-        .onAppear { hostInput = store.host }
+        .onAppear {
+            hostInput = store.host
+            pairingInput = store.pairingCode
+        }
         .task { iCloudAvailable = await CloudKitSync.isAvailable() }
     }
 
     private func saveHost() {
         hostInput = hostInput.trimmingCharacters(in: .whitespaces)
         store.host = hostInput
+    }
+
+    /// The Mac generates the code from an uppercase alphabet, so normalise rather than
+    /// making the user fight autocapitalisation.
+    private func savePairingCode() {
+        pairingInput = pairingInput.trimmingCharacters(in: .whitespaces).uppercased()
+        store.pairingCode = pairingInput
     }
 }

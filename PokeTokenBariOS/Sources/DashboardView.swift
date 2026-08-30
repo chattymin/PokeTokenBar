@@ -640,6 +640,7 @@ struct LaunchView: View {
 struct SetupView: View {
     @Environment(PhonePayloadStore.self) private var store
     @State private var hostInput = ""
+    @State private var pairingInput = ""
 
     var body: some View {
         VStack(spacing: 24) {
@@ -663,15 +664,24 @@ struct SetupView: View {
                 .keyboardType(.numbersAndPunctuation)
                 .padding(.horizontal, 32)
 
+            TextField("Pairing Code (e.g. ABCD2345)", text: $pairingInput)
+                .textFieldStyle(.roundedBorder)
+                .autocapitalization(.allCharacters)
+                .autocorrectionDisabled()
+                .padding(.horizontal, 32)
+
             Button("Connect") {
                 hostInput = hostInput.trimmingCharacters(in: .whitespaces)
                 store.host = hostInput
+                pairingInput = pairingInput.trimmingCharacters(in: .whitespaces).uppercased()
+                store.pairingCode = pairingInput
                 Task { await store.fetch() }
             }
             .buttonStyle(.borderedProminent)
-            .disabled(hostInput.trimmingCharacters(in: .whitespaces).isEmpty)
+            .disabled(hostInput.trimmingCharacters(in: .whitespaces).isEmpty
+                      || pairingInput.trimmingCharacters(in: .whitespaces).isEmpty)
 
-            Text("Find your Mac's IP in System Settings → Network, or enable the iPhone companion server in PokeTokenBar settings.")
+            Text("Find your Mac's IP in System Settings → Network. The pairing code is in PokeTokenBar Settings on your Mac, under iPhone Connection.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)

@@ -29,6 +29,13 @@ final class PhonePayloadStore {
         didSet { defaults.set(host, forKey: "phoneHost") }
     }
 
+    /// Pairing code shown in the Mac app's Settings. The Mac server serves `/stats` to the
+    /// whole LAN and advertises itself over Bonjour, so this is what distinguishes this phone
+    /// from anyone else on the network. Stored uppercased — the code alphabet is uppercase.
+    var pairingCode: String {
+        didSet { defaults.set(pairingCode, forKey: "phonePairingCode") }
+    }
+
     /// Auto-refresh interval in seconds (0 = manual only).
     var refreshInterval: TimeInterval {
         didSet { defaults.set(refreshInterval, forKey: "phoneRefreshInterval") }
@@ -43,6 +50,7 @@ final class PhonePayloadStore {
 
     init() {
         self.host = defaults.string(forKey: "phoneHost") ?? ""
+        self.pairingCode = defaults.string(forKey: "phonePairingCode") ?? ""
         self.refreshInterval = defaults.object(forKey: "phoneRefreshInterval") as? TimeInterval ?? 120
         self.appearance = AppAppearance(rawValue: defaults.string(forKey: "phoneAppearance") ?? "") ?? .system
         reschedule()
@@ -77,7 +85,7 @@ final class PhonePayloadStore {
             return
         }
         do {
-            let newPayload = try await client.fetch(host: host)
+            let newPayload = try await client.fetch(host: host, pairingCode: pairingCode)
             payload = newPayload
             source = .localNetwork
             isConnected = true

@@ -8,6 +8,8 @@ import PokeTokenBarShared
 final class PhonePayloadServer {
     private var listener: NWListener?
     private var payload: Data?
+    /// 비어 있으면 `/stats` 는 아무 요청도 통과시키지 않는다(`PhoneRequestRouter.isAuthorized`).
+    private var pairingCode = ""
     private var connections: [NWConnection] = []
     private var netService: NetService?
 
@@ -19,9 +21,10 @@ final class PhonePayloadServer {
     /// advertised port for UI display.
     var displayPort: String { isRunning ? "\(port)" : "—" }
 
-    func start(port: UInt16 = 7845) {
+    func start(port: UInt16 = 7845, pairingCode: String) {
         guard !isRunning else { return }
         self.port = port
+        self.pairingCode = pairingCode
         do {
             let params = NWParameters.tcp
             params.allowLocalEndpointReuse = true
@@ -82,6 +85,12 @@ final class PhonePayloadServer {
         payload = data
     }
 
+    /// 실행 중인 서버의 페어링 코드를 갱신한다. 서버는 기동 시에만 start() 되므로, 재발급이
+    /// 앱 재시작 전까지 반영되지 않는 것을 막으려고 페이로드 발행 경로에서 함께 동기화한다.
+    func updatePairingCode(_ code: String) {
+        pairingCode = code
+    }
+
     // MARK: - Bonjour
 
     private func startBonjour() {
@@ -127,24 +136,31 @@ final class PhonePayloadServer {
             return
         }
 
-        let method = parts[0]
-        let path = parts[1]
+        let outcome = PhoneRequestRouter.route(
+            requestLine: firstLine,
+            authorization: PhoneRequestRouter.authorizationHeader(in: request),
+            pairingCode: pairingCode,
+            hasPayload: payload != nil)
 
-        switch (method, path) {
-        case ("GET", "/stats"):
-            if let payload {
-                sendResponse(connection: connection, status: 200, body: payload,
-                             contentType: "application/json")
-            } else {
-                let body = Data("{\"error\":\"no data\"}".utf8)
-                sendResponse(connection: connection, status: 503, body: body,
-                             contentType: "application/json")
-            }
-        case ("GET", "/health"):
+        switch outcome {
+        case .payload:
+            sendResponse(connection: connection, status: 200, body: payload ?? Data(),
+                         contentType: "application/json")
+        case .noPayloadYet:
+            let body = Data("{\"error\":\"no data\"}".utf8)
+            sendResponse(connection: connection, status: 503, body: body,
+                         contentType: "application/json")
+        case .health:
             let health = Data("{\"status\":\"ok\",\"port\":\(port)}".utf8)
             sendResponse(connection: connection, status: 200, body: health,
                          contentType: "application/json")
-        default:
+        case .unauthorized:
+            let body = Data("{\"error\":\"pairing required\"}".utf8)
+            sendResponse(connection: connection, status: 401, body: body,
+                         contentType: "application/json")
+        case .badRequest:
+            sendResponse(connection: connection, status: 400, body: Data("Bad Request".utf8))
+        case .notFound:
             let body = Data("{\"error\":\"not found\"}".utf8)
             sendResponse(connection: connection, status: 404, body: body,
                          contentType: "application/json")
@@ -156,7 +172,9 @@ final class PhonePayloadServer {
         var header = "HTTP/1.1 \(status) \(statusText(status))\r\n"
         header += "Content-Type: \(contentType)\r\n"
         header += "Content-Length: \(body.count)\r\n"
-        header += "Access-Control-Allow-Origin: *\r\n"
+        // `Access-Control-Allow-Origin: *` 를 두지 않는다 — 브라우저가 임의 웹페이지의 스크립트에게
+        // 이 응답을 읽도록 허용해버려, 위협이 "같은 LAN 의 기기"에서 "사용자가 방문하는 아무 웹사이트"로
+        // 넓어진다. 폰 클라이언트는 브라우저가 아니라 CORS 가 필요 없다.
         header += "Connection: close\r\n"
         header += "\r\n"
         guard let headerData = header.data(using: .utf8) else { return }
@@ -174,6 +192,7 @@ final class PhonePayloadServer {
         switch code {
         case 200: return "OK"
         case 400: return "Bad Request"
+        case 401: return "Unauthorized"
         case 404: return "Not Found"
         case 503: return "Service Unavailable"
         default: return "Unknown"

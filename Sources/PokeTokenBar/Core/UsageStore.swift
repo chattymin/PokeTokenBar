@@ -126,6 +126,16 @@ final class UsageStore {
             }
         }
     }
+    /// 폰이 `/stats` 를 가져올 때 제시하는 페어링 코드 — 서버는 `*:7845` 로 LAN 전체에 열리고
+    /// Bonjour 로 광고까지 하므로 이 코드가 인증의 유일한 근거다. 최초 1회 생성해 보관한다.
+    private(set) var phoneServerPairingCode: String {
+        didSet { defaults.set(phoneServerPairingCode, forKey: "phoneServerPairingCode") }
+    }
+
+    /// 코드가 노출됐을 때(스크린샷·화면공유) 재발급. 폰은 새 코드를 다시 입력해야 한다.
+    func regeneratePhoneServerPairingCode() {
+        phoneServerPairingCode = PhonePairingCode.generate()
+    }
 
     static let intervalPresets: [(label: String, value: TimeInterval)] = [
         ("수동", 0), ("1분", 60), ("2분", 120), ("5분", 300), ("15분", 900),
@@ -539,6 +549,16 @@ final class UsageStore {
         floatingPetBubbleAlerts = d.object(forKey: "floatingPetBubbleAlerts") as? Bool ?? true
         disableKeychainAccess = d.object(forKey: "disableKeychainAccess") as? Bool ?? false
         phoneServerEnabled = d.object(forKey: "phoneServerEnabled") as? Bool ?? false
+        // 저장된 코드가 없으면(최초 실행·기존 사용자 업그레이드) 지금 발급한다. didSet 은 init 에서
+        // 돌지 않으므로 영속화를 여기서 명시적으로 한다 — 안 하면 매 기동마다 코드가 바뀌어
+        // 폰이 계속 페어링을 다시 요구받는다.
+        let storedPairingCode = d.string(forKey: "phoneServerPairingCode") ?? ""
+        phoneServerPairingCode = storedPairingCode.isEmpty
+            ? PhonePairingCode.generate()
+            : storedPairingCode
+        if storedPairingCode.isEmpty {
+            d.set(phoneServerPairingCode, forKey: "phoneServerPairingCode")
+        }
 
         reschedule()
 

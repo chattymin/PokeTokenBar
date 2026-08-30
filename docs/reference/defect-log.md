@@ -338,6 +338,22 @@ read_when:
   스캔은 **주석 줄을 제외**한다 — 주석 처리된 guard 를 통과시키면 그 스캔은 아무것도 지키지 않는다
   (결함 주입 검증에서 실제로 통과시켰다).
 
+## 네트워크 서비스 노출
+
+- **LAN 에 여는 서비스는 "로컬 바인딩"이 아니라 인증으로 막는다.** `PhonePayloadServer` 는
+  `NWListener(using: .tcp)` 라 **모든 인터페이스**(`*:7845`)에 바인딩되고 Bonjour(`_poketokenbar._tcp.`)로
+  광고까지 해, 같은 네트워크(카페·호텔·컨퍼런스)의 누구나 발견해서 사용량·한도·플랜·도감을 읽을 수 있었다.
+  루프백 바인딩은 해법이 아니다 — 폰이 LAN 에서 붙는 것이 이 기능의 존재 이유다. → 페어링 코드
+  (`PhonePairingCode`, 32^8) + `Authorization: Bearer`. 판정은 `PhoneRequestRouter` 로 **순수 함수 분리**:
+  `NWConnection` 에 묶인 `handleRequest` 안에 두면 인증 분기를 테스트할 방법이 없다.
+- **빈 비밀은 모든 요청을 통과시킨다.** 코드가 아직 생성되지 않았거나 저장소에서 빈 문자열로 읽히면
+  `"" == ""` 로 인증이 열린다. `isAuthorized` 는 `pairingCode.isEmpty` 를 **먼저** 거절한다.
+  회귀 가드: `testEmptyPairingCodeRejectsEverything`.
+- **비밀은 init 에서 생성했으면 그 자리에서 영속화한다.** Swift 의 `didSet` 은 init 대입에 안 돈다 —
+  `UsageStore.init` 에서 생성만 하고 `defaults.set` 을 빼면 매 기동마다 코드가 바뀌어 폰이 영구히 401 이 된다.
+- **`Access-Control-Allow-Origin: *` 를 습관적으로 붙이지 마라.** 붙이는 순간 위협이 "같은 LAN 의 기기"에서
+  "사용자가 방문하는 아무 웹사이트의 스크립트"로 넓어진다. 폰 클라이언트는 브라우저가 아니라 CORS 가 필요 없다.
+
 ## 동시성
 
 - **비동기 완료가 "그 사이 교체된 대상"에 착지하지 않게 하라 — 상태를 통째로 바꾸는 경로를 새로 만들면

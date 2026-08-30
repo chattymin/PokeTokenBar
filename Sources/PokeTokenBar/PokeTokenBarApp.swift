@@ -77,7 +77,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         )   // 데스크톱 플로팅 펫(옵트인)
         phoneServer = PhonePayloadServer()
         if store.phoneServerEnabled {
-            phoneServer.start()
+            phoneServer.start(pairingCode: store.phoneServerPairingCode)
         }
         Task { await buildAndPublishPayload() }
         Task { await updater.check() }                    // 기동 시 1회 업데이트 확인
@@ -285,6 +285,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             burn: Self.phoneBurnForecast(forecast: store.fiveHourForecast,
                                          tokensPerMinute: store.combinedBurnPerMinuteForPhone))
         if phoneServer.isRunning, let data = try? JSONEncoder().encode(payload) {
+            phoneServer.updatePairingCode(store.phoneServerPairingCode)
             phoneServer.updatePayload(data)
         }
         Task { @MainActor in

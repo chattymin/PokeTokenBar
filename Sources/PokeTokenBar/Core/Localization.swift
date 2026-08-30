@@ -168,6 +168,25 @@ struct L {
     }
     var representativeBadge: String { t("대표", "Representative", "代表", "Representante", "Représentatif", "Representante") }
     // MARK: 플로팅 펫
+    var phoneServerSectionTitle: String { t("iPhone 연결", "iPhone Connection", "iPhone 接続", "Conexión con iPhone", "Connexion iPhone", "Conexão com iPhone") }
+    var phonePairingCodeLabel: String { t("페어링 코드", "Pairing code", "ペアリングコード", "Código de vinculación", "Code d'association", "Código de pareamento") }
+    var phonePairingCodeHint: String {
+        t("아이폰 앱 설정에 이 코드를 입력하세요. 같은 네트워크의 다른 기기가 사용량을 읽지 못하게 막아줍니다.",
+          "Enter this code in the iPhone app's settings. It stops other devices on your network from reading your usage.",
+          "iPhone アプリの設定にこのコードを入力してください。同じネットワーク上の他の端末が使用量を読み取るのを防ぎます。",
+          "Introduce este código en los ajustes de la app de iPhone. Impide que otros dispositivos de tu red lean tu uso.",
+          "Saisis ce code dans les réglages de l'app iPhone. Il empêche les autres appareils du réseau de lire ton utilisation.",
+          "Digite este código nas configurações do app do iPhone. Impede que outros aparelhos na sua rede leiam seu uso.")
+    }
+    var phonePairingRegenerate: String { t("재발급", "Regenerate", "再発行", "Regenerar", "Régénérer", "Gerar novo") }
+    var phonePairingRegenerateHint: String {
+        t("코드가 노출됐을 때 새로 발급해요 — 아이폰에 새 코드를 다시 입력해야 합니다.",
+          "Issue a new code if the current one leaked — you'll need to re-enter it on your iPhone.",
+          "コードが漏れた場合は再発行します — iPhone に新しいコードを入力し直す必要があります。",
+          "Genera un código nuevo si el actual se filtró — tendrás que volver a introducirlo en el iPhone.",
+          "Génère un nouveau code si l'actuel a fuité — tu devras le saisir à nouveau sur ton iPhone.",
+          "Gere um código novo se o atual vazou — você precisará digitá-lo de novo no iPhone.")
+    }
     var floatingPetSectionTitle: String { t("플로팅 펫", "Floating Pet", "フローティングペット", "Mascota flotante", "Compagnon flottant", "Mascote flutuante") }
     var floatingPetEnableLabel: String { t("플로팅 펫 표시", "Show floating pet", "フローティングペットを表示", "Mostrar mascota flotante", "Afficher le compagnon flottant", "Mostrar mascote flutuante") }
     var floatingPetHint: String {

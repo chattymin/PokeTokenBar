@@ -60,6 +60,7 @@ struct SettingsView: View {
                     generalGroup(store)
                     menuBarGroup(store)
                     floatingPetGroup(store)
+                    phoneServerGroup(store)
                     notificationsGroup(store)
                     updateGroup(store)
                     transferGroup(store)
@@ -212,6 +213,32 @@ struct SettingsView: View {
                 toggleRow(l.limitPercent, $store.showLimitInMenu)
             }
             Text(l.allOffHint).font(.caption2).foregroundStyle(.tertiary).padding(.leading, 4)
+        }
+    }
+
+    /// 페어링 코드 표시 — 서버가 켜져 있을 때만. 코드를 읽을 방법이 없으면 폰은 영구히 401 이다.
+    @ViewBuilder
+    private func phoneServerGroup(_ store: UsageStore) -> some View {
+        if store.phoneServerEnabled {
+            settingsSection(l.phoneServerSectionTitle) {
+                groupRow {
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(l.phonePairingCodeLabel)
+                        Text(l.phonePairingCodeHint).font(.caption2).foregroundStyle(.tertiary)
+                    }
+                    Spacer()
+                    // 손으로 옮겨 적거나 복사할 수 있어야 한다.
+                    Text(store.phoneServerPairingCode)
+                        .font(.system(.body, design: .monospaced)).textSelection(.enabled)
+                }
+                Divider()
+                groupRow {
+                    Text(l.phonePairingRegenerateHint).font(.caption2).foregroundStyle(.tertiary)
+                    Spacer()
+                    Button(l.phonePairingRegenerate) { store.regeneratePhoneServerPairingCode() }
+                        .controlSize(.small)
+                }
+            }
         }
     }
 
