@@ -135,4 +135,84 @@ final class PhoneLimitStatusBuilderTests: XCTestCase {
         XCTAssertTrue(full?.beforeReset ?? false)
         XCTAssertNil(full?.tokensPerMinute)
     }
+    // MARK: 한도 이력 → 폰
+
+    private func historyStore(_ samples: [(window: String, utilization: Double)],
+                              spacing: TimeInterval = 1800) -> LimitHistoryStore {
+        var clock = Date(timeIntervalSince1970: 1_700_000_000)
+        let file = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ptb-phone-history-\(UUID().uuidString).json")
+        let store = LimitHistoryStore(fileURL: file, now: { clock })
+        for sample in samples {
+            store.record(providerID: "claude_code", windows: [(sample.window, sample.utilization)])
+            clock = clock.addingTimeInterval(spacing)
+        }
+        return store
+    }
+
+    /// 파생된 창·요약이 그대로 폰 시리즈가 된다. 폰은 창 분할 규칙을 재구현하지 않는다.
+    func testPhoneHistoryCarriesDerivedWindowsAndSummary() {
+        let store = historyStore([
+            ("five_hour", 10), ("five_hour", 55), ("five_hour", 92),   // 창 1 (peak 92)
+            ("five_hour", 1), ("five_hour", 40),                       // 리셋 → 창 2 (peak 40)
+        ])
+        let series = AppDelegate.phoneLimitHistory(store, warnThreshold: 80, l: L(.en))
+
+        XCTAssertEqual(series.count, 1, "seven_day 는 기록이 없어 시리즈를 만들지 않는다")
+        XCTAssertEqual(series[0].label, "Claude 5h")
+        XCTAssertEqual(series[0].windows.map(\.peak), [92, 40], "오래된 창이 먼저")
+        XCTAssertEqual(series[0].peak, 92)
+        XCTAssertEqual(series[0].atOrAbove, 1, "warnThreshold 80 이상은 92 하나")
+        XCTAssertFalse(series[0].hasTruncated)
+    }
+
+    /// `atOrAbove` 는 Mac 이 페이로드에 싣는 warnThreshold 로 세야 한다 — 폰이 다시 세면 어긋난다.
+    func testPhoneHistoryCountsAgainstTheGivenThreshold() {
+        let store = historyStore([
+            ("five_hour", 10), ("five_hour", 55),
+            ("five_hour", 1), ("five_hour", 40),
+        ])
+        XCTAssertEqual(AppDelegate.phoneLimitHistory(store, warnThreshold: 50, l: L(.en))[0].atOrAbove, 1)
+        XCTAssertEqual(AppDelegate.phoneLimitHistory(store, warnThreshold: 30, l: L(.en))[0].atOrAbove, 2)
+    }
+
+    /// 두 창 종류가 모두 있으면 라이브 행과 같은 순서·라벨로 나간다.
+    func testPhoneHistoryLabelsMatchTheLiveRows() {
+        var clock = Date(timeIntervalSince1970: 1_700_000_000)
+        let file = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ptb-phone-history-\(UUID().uuidString).json")
+        let store = LimitHistoryStore(fileURL: file, now: { clock })
+        for pair in [(10.0, 60.0), (55.0, 61.0), (1.0, 62.0)] {
+            store.record(providerID: "claude_code",
+                         windows: [("five_hour", pair.0), ("seven_day", pair.1)])
+            clock = clock.addingTimeInterval(1800)
+        }
+        let series = AppDelegate.phoneLimitHistory(store, warnThreshold: 80, l: L(.en))
+        XCTAssertEqual(series.map(\.label), ["Claude 5h", "Claude Weekly"])
+        // 주간은 rolling 상승만 있었으므로 리셋 없이 한 창이어야 한다.
+        XCTAssertEqual(series[1].windows.count, 1)
+    }
+
+    /// 완료된 창이 없으면 시리즈를 만들지 않고, 상태의 history 는 nil 이어야 한다 —
+    /// 빈 배열을 보내면 폰이 "이력 있음" 카드를 띄우고 빈 차트를 그린다.
+    func testEmptyHistoryIsOmittedFromTheStatus() {
+        let empty = historyStore([])
+        XCTAssertTrue(AppDelegate.phoneLimitHistory(empty, warnThreshold: 80, l: L(.en)).isEmpty)
+
+        let status = AppDelegate.phoneLimitStatus(
+            limits: nil, codex: nil, opencodeGo: nil,
+            history: AppDelegate.phoneLimitHistory(empty, warnThreshold: 80, l: L(.en)),
+            l: L(.en))
+        XCTAssertNil(status.history, "빈 배열은 nil 로 정규화된다")
+    }
+
+    /// 관측 공백(앱 미실행)이 섞인 창은 그 사실을 폰까지 들고 가야 한다 — 최고치가 하한이라는 뜻이다.
+    func testTruncatedWindowsSurviveToThePhone() {
+        // 6시간 초과 간격 = 관측 공백 → 양쪽 창이 truncated 로 표시된다.
+        let store = historyStore([("five_hour", 20), ("five_hour", 70)], spacing: 12 * 3600)
+        let series = AppDelegate.phoneLimitHistory(store, warnThreshold: 80, l: L(.en))
+        XCTAssertTrue(series[0].hasTruncated)
+        XCTAssertEqual(series[0].windows.filter(\.truncated).count, series[0].windows.count)
+    }
+
 }

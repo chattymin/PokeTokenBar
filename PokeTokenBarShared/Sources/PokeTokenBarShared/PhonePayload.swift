@@ -100,6 +100,10 @@ public struct PhoneLimitStatus: Codable, Sendable, Equatable {
     /// way. nil → use `PhoneLimitStatus.defaultWarnThreshold` / `defaultCritThreshold`.
     public let warnThreshold: Double?
     public let critThreshold: Double?
+    /// Per-window utilization history the Mac recorded locally (no API reports it — see the Mac's
+    /// `LimitHistoryStore`). nil from Macs that predate the field; empty is a real answer meaning
+    /// "recording, but no window has completed yet".
+    public let history: [PhoneLimitHistorySeries]?
 
     public static let defaultWarnThreshold: Double = 80
     public static let defaultCritThreshold: Double = 95
@@ -115,7 +119,8 @@ public struct PhoneLimitStatus: Codable, Sendable, Equatable {
                 opencodeGoMonthly: PhoneLimitWindow? = nil,
                 antigravity: [PhoneLimitWindow]? = nil,
                 planDisplay: String?,
-                warnThreshold: Double? = nil, critThreshold: Double? = nil) {
+                warnThreshold: Double? = nil, critThreshold: Double? = nil,
+                history: [PhoneLimitHistorySeries]? = nil) {
         self.claude5h = claude5h
         self.claudeWeekly = claudeWeekly
         self.claudeOpusWeekly = claudeOpusWeekly
@@ -130,6 +135,7 @@ public struct PhoneLimitStatus: Codable, Sendable, Equatable {
         self.planDisplay = planDisplay
         self.warnThreshold = warnThreshold
         self.critThreshold = critThreshold
+        self.history = history
     }
 
     /// 표시 순서대로 존재하는 모든 한도 창(nil 제외) — 폰 카드·위젯이 공유하는 단일 순서 소스.
@@ -196,6 +202,53 @@ public struct PhoneLimitWindow: Codable, Sendable, Equatable {
         self.utilization = utilization
         self.resetsAt = resetsAt
     }
+}
+
+// MARK: - Limit History
+
+/// One completed limit window, reduced to what a phone chart needs.
+///
+/// The Mac ships *derived* windows rather than the raw sample log behind them: the log is thousands
+/// of rows over the 90-day retention, and every consumer here only ever draws the per-window peak.
+public struct PhoneLimitHistoryWindow: Codable, Sendable, Equatable {
+    /// Highest utilization observed during the window. A lower bound when `truncated`.
+    public let peak: Double
+    public let end: Date
+    /// The Mac was not running for part of this window, so `peak` understates it.
+    public let truncated: Bool
+
+    public init(peak: Double, end: Date, truncated: Bool) {
+        self.peak = peak
+        self.end = end
+        self.truncated = truncated
+    }
+}
+
+/// History for one limit window kind (5-hour session, weekly, …), oldest window first.
+///
+/// `atOrAbove` is counted on the Mac against the same `PhoneLimitStatus.effectiveWarnThreshold`
+/// that ships in this payload, so the phone can render the count and the threshold together
+/// without recomputing either — recomputing is how the two drift apart.
+public struct PhoneLimitHistorySeries: Codable, Sendable, Equatable {
+    /// Mac-localized, matching the live limit row above it (same convention as `PhoneLimitWindow`).
+    public let label: String
+    public let windows: [PhoneLimitHistoryWindow]
+    public let peak: Double
+    public let median: Double
+    public let atOrAbove: Int
+
+    public init(label: String, windows: [PhoneLimitHistoryWindow],
+                peak: Double, median: Double, atOrAbove: Int) {
+        self.label = label
+        self.windows = windows
+        self.peak = peak
+        self.median = median
+        self.atOrAbove = atOrAbove
+    }
+
+    /// Any window whose peak is only a lower bound — the phone says so rather than presenting a
+    /// hole as a fact.
+    public var hasTruncated: Bool { windows.contains(where: \.truncated) }
 }
 
 // MARK: - Companion State

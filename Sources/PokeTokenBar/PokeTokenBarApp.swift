@@ -215,6 +215,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             limits: store.limits, codex: store.codexLimits,
             opencodeGo: store.opencodeGoLimits, antigravity: store.antigravityLimits,
             warnThreshold: store.warnThreshold, critThreshold: store.critThreshold,
+            history: Self.phoneLimitHistory(store.limitHistory,
+                                            warnThreshold: store.warnThreshold, l: companion.l),
             l: companion.l)
         let companionState = PhoneCompanionState(
             name: companion.displayName,
@@ -301,6 +303,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         antigravity: AntigravityRateLimitStatus? = nil,
         warnThreshold: Double? = nil,
         critThreshold: Double? = nil,
+        history: [PhoneLimitHistorySeries]? = nil,
         l: L
     ) -> PhoneLimitStatus {
         // Codex 리셋 시각: 최대 사용률을 가진 창(메뉴바/폰이 표시하는 값)의 resetDate 를 짝지어 보낸다.
@@ -361,7 +364,39 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             antigravity: agy.isEmpty ? nil : agy,
             planDisplay: limits?.planDisplay,
             warnThreshold: warnThreshold,
-            critThreshold: critThreshold)
+            critThreshold: critThreshold,
+            history: (history?.isEmpty ?? true) ? nil : history)
+    }
+
+    /// 로컬에 기록한 한도 이력 → 폰. 한도 endpoint 는 현재 스냅샷만 주므로 이력은 Mac 이
+    /// 폴링하며 쌓은 것이 유일한 출처다(`LimitHistoryStore`). 폰은 기록 주체가 아니라 표시만 한다.
+    ///
+    /// 원시 샘플 로그가 아니라 **파생된 창**을 보낸다 — 로그는 90일 보관 기준 수천 행이고
+    /// 폰이 그리는 건 창별 최고치뿐이라, 원시를 보내면 페이로드만 키우고 폰이 Mac 의 창 분할
+    /// 규칙(rolling 감소 vs 리셋)을 재구현하게 된다. 규칙은 Mac 한 곳에만 있어야 한다.
+    ///
+    /// `atOrAbove` 는 페이로드에 함께 실리는 warnThreshold 로 여기서 센다 — 폰이 다시 세면
+    /// 두 값이 어긋날 여지가 생긴다.
+    static func phoneLimitHistory(
+        _ history: LimitHistoryStore, warnThreshold: Double, limit: Int = 14, l: L
+    ) -> [PhoneLimitHistorySeries] {
+        let labels = [
+            LimitHistoryStore.ClaudeWindow.fiveHour: l.phoneClaude5h,
+            LimitHistoryStore.ClaudeWindow.sevenDay: l.phoneClaudeWeekly,
+        ]
+        return LimitHistoryStore.ClaudeWindow.displayed.compactMap { window in
+            let summary = history.summary(providerID: "claude_code", window: window,
+                                          threshold: warnThreshold, limit: limit)
+            // 완료된 창이 없으면 시리즈 자체를 만들지 않는다 — 빈 시리즈를 보내면 폰이 "이력 있음"
+            // 카드를 띄우고 빈 차트를 그린다.
+            guard !summary.isEmpty else { return nil }
+            return PhoneLimitHistorySeries(
+                label: labels[window] ?? window,
+                windows: summary.windows.map {
+                    PhoneLimitHistoryWindow(peak: $0.peak, end: $0.end, truncated: $0.truncated)
+                },
+                peak: summary.peak, median: summary.median, atOrAbove: summary.atOrAbove)
+        }
     }
 
     /// Claude 5h 소진 예측 → 폰. 예측이 없어도 burn 이 있으면 tokens/min 만 보낸다.

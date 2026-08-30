@@ -49,6 +49,9 @@ struct DashboardView: View {
 
                 if let limits = payload.limits {
                     LimitsCard(limits: limits)
+                    if let history = limits.history, !history.isEmpty {
+                        LimitHistoryCard(series: history, limits: limits)
+                    }
                 }
 
                 if !payload.providers.isEmpty {
@@ -404,6 +407,86 @@ struct LimitsCard: View {
         let trimmed = String(label.dropFirst(group.count + 1))
         return trimmed.isEmpty ? label : trimmed
     }
+}
+
+/// Per-window peak history for the Claude limits.
+///
+/// Everything here is recorded by the Mac — no API reports past limit usage, so a phone that has
+/// never been paired with a running Mac has no history to show and this card simply does not
+/// appear. The phone renders; it never derives. Window boundaries (a reset versus a rolling
+/// window's natural decay) are decided once on the Mac.
+struct LimitHistoryCard: View {
+    let series: [PhoneLimitHistorySeries]
+    let limits: PhoneLimitStatus
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text("Limit History")
+                    .font(.headline)
+                Spacer()
+                Text("recorded on Mac")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+            ForEach(Array(series.enumerated()), id: \.offset) { index, entry in
+                if index > 0 { Divider() }
+                seriesRow(entry)
+            }
+        }
+        .padding()
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.ultraThinMaterial)
+        .clipShape(RoundedRectangle(cornerRadius: 16))
+    }
+
+    @ViewBuilder
+    private func seriesRow(_ entry: PhoneLimitHistorySeries) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .firstTextBaseline) {
+                Text(entry.label)
+                    .font(.subheadline)
+                Text("last \(entry.windows.count)")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+                Spacer()
+                Text("peak \(TokenFormatter.percent(entry.peak))")
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(LimitColor.color(for: entry.peak, limits: limits))
+                Text("· median \(TokenFormatter.percent(entry.median))")
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+            }
+            bars(entry)
+            // The line that answers "is my plan the right tier".
+            Text("\(entry.atOrAbove) of \(entry.windows.count) reached \(TokenFormatter.percent(limits.effectiveWarnThreshold))")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+            if entry.hasTruncated {
+                Text("Dimmed windows were partly unobserved — the Mac was not running.")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+            }
+        }
+    }
+
+    /// Oldest window on the left. A 0% window still gets a sliver so its slot reads as "this window
+    /// happened and was quiet" rather than as missing data.
+    private func bars(_ entry: PhoneLimitHistorySeries) -> some View {
+        HStack(alignment: .bottom, spacing: 3) {
+            ForEach(Array(entry.windows.enumerated()), id: \.offset) { _, window in
+                RoundedRectangle(cornerRadius: 2)
+                    .fill(LimitColor.color(for: window.peak, limits: limits))
+                    .opacity(window.truncated ? 0.35 : 1)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: max(3, Self.barHeight * min(max(window.peak, 0), 100) / 100))
+                    .accessibilityLabel(Text("\(window.end, style: .date): \(TokenFormatter.percent(window.peak))"))
+            }
+        }
+        .frame(height: Self.barHeight, alignment: .bottom)
+    }
+
+    private static let barHeight: CGFloat = 32
 }
 
 struct LimitRow: View {

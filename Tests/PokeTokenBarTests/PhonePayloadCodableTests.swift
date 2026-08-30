@@ -38,6 +38,51 @@ final class PhonePayloadCodableTests: XCTestCase {
                        ["Claude 5h", "Claude Weekly", "Claude Weekly Fable", "Codex 5h", "Go 5h"])
     }
 
+    // MARK: 한도 이력
+
+    /// 이력 필드가 없는 구 Mac 페이로드는 nil 로 떨어져야 한다 — 폰이 카드를 안 그리면 그만이고,
+    /// 디코드 전체가 깨지면 구 Mac 과 페어링된 폰이 사용량까지 통째로 잃는다.
+    func testLimitStatusDecodesPayloadWithoutHistory() throws {
+        let legacy = Data("""
+        {"claude5h":{"label":"5h Session","utilization":42,"resetsAt":null},
+         "planDisplay":null}
+        """.utf8)
+        XCTAssertNil(try JSONDecoder().decode(PhoneLimitStatus.self, from: legacy).history)
+    }
+
+    func testLimitHistoryRoundTrips() throws {
+        let end = Date(timeIntervalSince1970: 1_700_000_000)
+        let status = PhoneLimitStatus(
+            claude5h: nil, claudeWeekly: nil, claudeOpusWeekly: nil, claudeSonnetWeekly: nil,
+            codexPrimary: nil, codexSecondary: nil, planDisplay: nil,
+            warnThreshold: 80, critThreshold: 95,
+            history: [PhoneLimitHistorySeries(
+                label: "Claude 5h",
+                windows: [
+                    PhoneLimitHistoryWindow(peak: 40, end: end, truncated: false),
+                    PhoneLimitHistoryWindow(peak: 97, end: end.addingTimeInterval(3600), truncated: true),
+                ],
+                peak: 97, median: 68.5, atOrAbove: 1)])
+
+        let decoded = try JSONDecoder().decode(
+            PhoneLimitStatus.self, from: JSONEncoder().encode(status))
+        let series = try XCTUnwrap(decoded.history?.first)
+        XCTAssertEqual(series.label, "Claude 5h")
+        XCTAssertEqual(series.windows.map(\.peak), [40, 97])
+        XCTAssertEqual(series.median, 68.5)
+        XCTAssertEqual(series.atOrAbove, 1)
+        XCTAssertTrue(series.hasTruncated, "관측 공백이 섞인 시리즈는 폰이 그렇게 표시해야 한다")
+    }
+
+    /// 창이 전부 완전 관측이면 "일부 미관측" 안내를 띄우면 안 된다 — 반대 방향 가드.
+    func testFullyObservedSeriesIsNotFlaggedTruncated() {
+        let series = PhoneLimitHistorySeries(
+            label: "Claude Weekly",
+            windows: [PhoneLimitHistoryWindow(peak: 12, end: .distantPast, truncated: false)],
+            peak: 12, median: 12, atOrAbove: 0)
+        XCTAssertFalse(series.hasTruncated)
+    }
+
     /// 프로바이더 그룹(위젯 파이+퍼센트 행용) — 제목·순서·빈 그룹 제외를 고정한다.
     func testLimitGroupsByProviderOmitEmpty() {
         let status = PhoneLimitStatus(
