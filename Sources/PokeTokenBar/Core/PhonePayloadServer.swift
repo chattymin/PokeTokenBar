@@ -78,6 +78,8 @@ final class PhonePayloadServer {
         isRunning = false
         port = 0
         payload = nil
+        // fail closed — 다음 start() 가 코드를 반드시 다시 넘기게 한다. 빈 코드는 모든 요청을 401 로 막는다.
+        pairingCode = ""
         AppLog.write("phone server stopped")
     }
 

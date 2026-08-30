@@ -169,6 +169,15 @@ struct L {
     var representativeBadge: String { t("대표", "Representative", "代表", "Representante", "Représentatif", "Representante") }
     // MARK: 플로팅 펫
     var phoneServerSectionTitle: String { t("iPhone 연결", "iPhone Connection", "iPhone 接続", "Conexión con iPhone", "Connexion iPhone", "Conexão com iPhone") }
+    var phoneServerEnableLabel: String { t("아이폰 연결 허용", "Allow iPhone to connect", "iPhone の接続を許可", "Permitir conexión del iPhone", "Autoriser la connexion de l'iPhone", "Permitir conexão do iPhone") }
+    var phoneServerHint: String {
+        t("같은 네트워크의 아이폰 앱이 사용량을 가져갈 수 있게 포트 7845 를 엽니다. 페어링 코드를 아는 기기만 읽을 수 있어요.",
+          "Opens port 7845 so the iPhone app on your network can fetch your usage. Only devices with the pairing code can read it.",
+          "同じネットワーク上の iPhone アプリが使用量を取得できるようポート 7845 を開きます。ペアリングコードを知る端末だけが読めます。",
+          "Abre el puerto 7845 para que la app de iPhone en tu red obtenga tu uso. Solo los dispositivos con el código pueden leerlo.",
+          "Ouvre le port 7845 pour que l'app iPhone de ton réseau récupère ton utilisation. Seuls les appareils avec le code peuvent la lire.",
+          "Abre a porta 7845 para o app do iPhone na sua rede buscar seu uso. Só aparelhos com o código conseguem ler.")
+    }
     var phonePairingCodeLabel: String { t("페어링 코드", "Pairing code", "ペアリングコード", "Código de vinculación", "Code d'association", "Código de pareamento") }
     var phonePairingCodeHint: String {
         t("아이폰 앱 설정에 이 코드를 입력하세요. 같은 네트워크의 다른 기기가 사용량을 읽지 못하게 막아줍니다.",

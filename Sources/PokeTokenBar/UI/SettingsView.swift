@@ -216,11 +216,23 @@ struct SettingsView: View {
         }
     }
 
-    /// 페어링 코드 표시 — 서버가 켜져 있을 때만. 코드를 읽을 방법이 없으면 폰은 영구히 401 이다.
+    /// 서버 on/off + 페어링 코드. 코드는 서버가 켜져 있을 때만 — 꺼져 있으면 의미가 없고,
+    /// 코드를 읽을 방법이 없으면 폰은 영구히 401 이다.
     @ViewBuilder
     private func phoneServerGroup(_ store: UsageStore) -> some View {
-        if store.phoneServerEnabled {
-            settingsSection(l.phoneServerSectionTitle) {
+        @Bindable var store = store
+        settingsSection(l.phoneServerSectionTitle) {
+            groupRow {
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(l.phoneServerEnableLabel)
+                    Text(l.phoneServerHint).font(.caption2).foregroundStyle(.tertiary)
+                }
+                Spacer()
+                Toggle("", isOn: $store.phoneServerEnabled)
+                    .labelsHidden().toggleStyle(.switch).controlSize(.small)
+            }
+            if store.phoneServerEnabled {
+                Divider()
                 groupRow {
                     VStack(alignment: .leading, spacing: 1) {
                         Text(l.phonePairingCodeLabel)
@@ -241,6 +253,7 @@ struct SettingsView: View {
             }
         }
     }
+
 
     @ViewBuilder
     private func floatingPetGroup(_ store: UsageStore) -> some View {

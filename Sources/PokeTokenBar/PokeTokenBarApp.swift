@@ -76,9 +76,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             onHide: { [weak self] in self?.store.floatingPetEnabled = false }
         )   // 데스크톱 플로팅 펫(옵트인)
         phoneServer = PhonePayloadServer()
-        if store.phoneServerEnabled {
-            phoneServer.start(pairingCode: store.phoneServerPairingCode)
-        }
+        syncPhoneServer()
+        observePhoneServer()
         Task { await buildAndPublishPayload() }
         Task { await updater.check() }                    // 기동 시 1회 업데이트 확인
 
@@ -100,6 +99,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         observeDisplaySleep()
         applyState()
         updateAppIcon()
+    }
+
+    /// 설정 토글을 리스너에 즉시 반영한다. 관찰이 없으면 "껐는데 다음 실행까지 계속 서빙"이 되는데,
+    /// 보안 토글에서 그건 토글이 없느니만 못하다(사용자는 꺼졌다고 믿는다).
+    /// 레포의 다른 런타임 반영 지점(observeStore·FloatingPetPanel.observeSettings)과 같은 형태.
+    private func observePhoneServer() {
+        withObservationTracking {
+            _ = store.phoneServerEnabled
+        } onChange: { [weak self] in
+            Task { @MainActor in
+                guard let self else { return }
+                self.syncPhoneServer()
+                self.observePhoneServer()
+            }
+        }
+    }
+
+    private func syncPhoneServer() {
+        switch PhoneServerReconciler.action(enabled: store.phoneServerEnabled,
+                                            isRunning: phoneServer.isRunning) {
+        case .start:
+            phoneServer.start(pairingCode: store.phoneServerPairingCode)
+        case .stop:
+            phoneServer.stop()
+        case .leaveAsIs:
+            break
+        }
     }
 
     /// Observation 기반 상태 반영 — store 의 menuTitle(=menuLines) 변경 시 재호출.
