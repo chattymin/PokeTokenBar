@@ -33,6 +33,8 @@ public struct AntigravityRateLimitsProvider: AntigravityLimitsProviding, Sendabl
     }
 
     private func fetchStatus(accessToken: String) async throws -> AntigravityRateLimitStatus {
+        // OAuthLimitsProvider.fetchStatus 와 동일 규약 — 네트워크 경계에서만 막는다(자격증명 읽기는 통과).
+        guard AppEnv.isBundledApp || AppEnv.isParityRun else { throw LimitsError.liveFetchNotPermitted }
         var endpoints: [URL] = []
         if let envURLString = UsageEnvironment.value("CLOUD_CODE_URL"),
            let envURL = URL(string: envURLString + "/v1internal:retrieveUserQuotaSummary") {
@@ -138,6 +140,9 @@ private actor AntigravityTokenCache {
     }
 
     private static func refreshGoogleToken(refreshToken: String) async throws -> AntigravityOAuthCredential? {
+        // fetchStatus 와 별개의 네트워크 경계다 — 여기를 빼면 스위트가 사용자 refresh_token 을 실제로
+        // 소비해 새 토큰을 발급받는다(조회보다 부작용이 크다).
+        guard AppEnv.isBundledApp || AppEnv.isParityRun else { throw LimitsError.liveFetchNotPermitted }
         var request = URLRequest(url: AntigravityRateLimitsProvider.googleTokenURL, timeoutInterval: 10)
         request.httpMethod = "POST"
         request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")

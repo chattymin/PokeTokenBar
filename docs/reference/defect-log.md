@@ -317,6 +317,26 @@ read_when:
   파싱 실패를 형식 오류로 뭉뚱그리면 "재로그인하면 된다"를 안내 못 해 한도 섹션이 원인 불명으로 사라진다.
   → `LimitsError.credentialMissingAccountOAuth` 로 구분해 재로그인 안내를 띄운다
   (`OAuthCredentialData.isAccountOAuthMissing`).
+- **한도 프로바이더의 라이브 조회는 실행환경 게이트로 막는다 — 테스트의 스텁 주입에 기대지 마라.**
+  `UsageStore.init` 의 프로바이더 기본값이 *실물*이라, 스텁을 주입하지 않은 테스트 구성은 진짜
+  프로바이더를 쓴다(`AntigravityRateLimitsProviderTests` 는 antigravity 만 주입하고 claude 는 기본값).
+  무프롬프트 경로가 키체인을 안 읽어 무해해 보이지만 그건 자격증명이 *파일*로 없을 때 얘기다 —
+  `~/.claude/.credentials.json` 이 있는 기기(리눅스 Claude Code, 키체인을 파일로 미러링한 맥)에선
+  그 경로가 성공해 **스위트가 사용자 실계정 토큰으로 usage·profile endpoint 를 친다**. 파일 없는
+  기기에선 조용히 실패해 오래 안 보였다(스위트는 계속 초록 — 전형적 false confidence).
+  → 게이트는 **네트워크 경계**에 둔다(`fetchStatus`, 그리고 Antigravity 의 `refreshGoogleToken` —
+  토큰 재발급도 별개의 외부 호출이다): `guard AppEnv.isBundledApp || AppEnv.isParityRun`.
+  `OpenCodeGoLimitsProvider` 에만 있던 게이트를 claude·antigravity 로 확장한 것이고, 새 한도
+  프로바이더도 같은 규약을 따른다.
+  **`fetch` 진입부(토큰 취득 앞)에 두면 안 된다** — 처음에 그렇게 넣었다가
+  `KeychainAutoPathTests.testManualPathDoesQueryTheKeychain` 이 깨졌다. 사용자 경로의 키체인 조회가
+  0 이 되면 짝인 자동경로 단언이 "아무도 키체인을 안 읽는다"로도 만족돼 #210 가드가 공허해진다.
+  즉 **막을 것은 자격증명 읽기가 아니라 나가는 호출**이다. 두 계약이 충돌하는 것처럼 보이면
+  경계를 옮겨서 둘 다 만족시킨다.
+  회귀 가드: `LiveCredentialCallGateTests` — 프로바이더별 2건 + 소스 스캔
+  (`testEveryNetworkingLimitsProviderIsGated`)으로 *다음* 프로바이더의 누락까지 막는다.
+  스캔은 **주석 줄을 제외**한다 — 주석 처리된 guard 를 통과시키면 그 스캔은 아무것도 지키지 않는다
+  (결함 주입 검증에서 실제로 통과시켰다).
 
 ## 동시성
 

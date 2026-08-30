@@ -3,6 +3,11 @@ import Security
 
 enum LimitsError: Error {
     case keychainAccessDisabled
+    /// 번들 앱도 파리티 런도 아닌 프로세스(= `swift test`·로우 바이너리)에서의 라이브 조회 차단.
+    /// 자격증명이 파일(`~/.claude/.credentials.json`)로 존재하면 무프롬프트 경로가 그대로 성공하므로,
+    /// 스텁을 주입하지 않은 테스트가 사용자 실계정 토큰으로 endpoint 를 친다 — `OpenCodeGoLimitsProvider`
+    /// 가 이미 막아둔 것과 같은 부류다.
+    case liveFetchNotPermitted
     case keychainUnavailable(OSStatus)
     case keychainInteractionNotAllowed
     case credentialFormat
@@ -57,6 +62,11 @@ struct OAuthLimitsProvider: ClaudeLimitsProviding, Sendable {
     }
 
     private func fetchStatus(accessToken: String) async throws -> LimitStatus {
+        // 게이트는 *네트워크 경계*에 둔다 — 토큰 취득 앞에 두면 `KeychainAutoPathTests` 의
+        // 사용자 경로 단언(키체인을 읽어야 한다)이 0 이 되어, 짝인 자동경로 단언이 "아무도 안 읽는다"로도
+        // 만족되는 공허한 가드가 된다(#210 이 막으려던 바로 그 상태). 자격증명 읽기는 그대로 두고
+        // 나가는 호출만 막는다. profile 조회는 이 함수가 성공해야 도달하므로 여기서 함께 차단된다.
+        guard AppEnv.isBundledApp || AppEnv.isParityRun else { throw LimitsError.liveFetchNotPermitted }
         var request = URLRequest(url: Self.usageURL, timeoutInterval: 15)
         request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
         request.setValue("oauth-2025-04-20", forHTTPHeaderField: "anthropic-beta")
