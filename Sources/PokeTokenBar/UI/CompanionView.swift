@@ -1122,6 +1122,15 @@ private struct DexEntryRow: View {
                         .background(Color.accentColor.opacity(0.14))
                         .foregroundStyle(Color.accentColor)
                         .clipShape(Capsule())
+                } else if entry.isReleased {
+                    // 놓아준 개체 — 종은 도감에 남지만 이 개체는 끝까지 키우지 않았다.
+                    // 중립색(secondary)으로 둔다: 실패가 아니라 다른 종류의 기록이라 경고색은 과하다.
+                    Text(store.l.dexReleased.uppercased())
+                        .font(.system(size: 8, weight: .bold))
+                        .padding(.horizontal, 5).padding(.vertical, 1)
+                        .background(Color.secondary.opacity(0.14))
+                        .foregroundStyle(Color.secondary)
+                        .clipShape(Capsule())
                 }
                 if entry.isShiny {
                     // 이모지는 스크린리더가 일관되게 읽지 못해 명사 라벨을 붙인다(도감 칸과 동일 규칙).

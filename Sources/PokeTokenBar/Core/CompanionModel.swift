@@ -459,11 +459,19 @@ struct DexEntry: Codable, Sendable, Identifiable {
     /// 도감의 단계별 스프라이트 밑 이름 표시가 네트워크 없이 즉시 + 언어 전환 대응. 구버전 저장분엔
     /// 없어(nil) 뷰가 line fetch 로 조회 후 백필한다.
     var names: [Int: [String: String]]?
+    /// 놓아준 시각 — 알을 새로 사서 육성을 포기한 기록. nil = 졸업분(구버전 저장분 포함).
+    ///
+    /// 두 기록을 한 배열에 두는 이유: 도감(`dexSpecies`)은 종이 어떻게 확보됐는지와 무관하게
+    /// **보유 종**을 접는다. 놓아준 개체를 여기 넣지 않으면 그 종이 도감에서 사라진다 —
+    /// 수집 화면이 "쌓이기만 한다"는 약속을 깨는 유일한 경로였다.
+    var releasedAt: Date?
+    /// 졸업이 아니라 놓아준 기록인가 — 포획 로그가 뱃지를 가르는 판정.
+    var isReleased: Bool { releasedAt != nil }
 
     init(id: String = UUID().uuidString,
          baseID: Int, finalID: Int, chainOrder: [Int], rarity: Rarity,
          caughtAt: Date?, isShiny: Bool = false, nature: PokemonNature? = nil,
-         names: [Int: [String: String]]? = nil) {
+         names: [Int: [String: String]]? = nil, releasedAt: Date? = nil) {
         self.id = id
         self.baseID = baseID
         self.finalID = finalID
@@ -473,6 +481,7 @@ struct DexEntry: Codable, Sendable, Identifiable {
         self.isShiny = isShiny
         self.nature = nature
         self.names = names
+        self.releasedAt = releasedAt
     }
 
     // 하위호환 디코딩 (MonState 와 동일 이유).
@@ -489,6 +498,8 @@ struct DexEntry: Codable, Sendable, Identifiable {
         // try? — 구버전(최종체 단일 [String:String]) 형식이 남아 있어도 종별 맵 디코딩 실패 시 nil 로
         // 강등(항목 전체 로드는 유지). 뷰가 line 조회로 백필한다.
         names = (try? c.decodeIfPresent([Int: [String: String]].self, forKey: .names)) ?? nil
+        // 이 필드 이전에 저장된 항목은 전부 졸업분이다 — nil 이 곧 "졸업"이라 마이그레이션이 필요 없다.
+        releasedAt = try c.decodeIfPresent(Date.self, forKey: .releasedAt)
     }
 }
 

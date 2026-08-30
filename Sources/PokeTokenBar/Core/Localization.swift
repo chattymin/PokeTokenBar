@@ -475,6 +475,8 @@ struct L {
     var dexPagePrev: String { t("이전 페이지", "Previous page", "前のページ", "Página anterior", "Page précédente", "Página anterior") }
     var dexPageNext: String { t("다음 페이지", "Next page", "次のページ", "Página siguiente", "Page suivante", "Próxima página") }
     var dexRaising: String { t("키우는 중", "Raising", "育成中", "Criando", "En élevage", "Treinando") }
+    /// 포획 로그에서 졸업분과 놓아준 개체를 가르는 표식. 종은 도감에 남고 개체 기록만 이 뱃지를 단다.
+    var dexReleased: String { t("놓아줌", "Released", "逃がした", "Liberado", "Relâché", "Solto") }
     var rarityCommon: String { t("일반", "Common", "ノーマル", "Común", "Commun", "Comum") }
     var rarityUncommon: String { t("고급", "Uncommon", "アンコモン", "Poco común", "Peu commun", "Incomum") }
     var rarityRare: String { t("희귀", "Rare", "レア", "Raro", "Rare", "Raro") }
