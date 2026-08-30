@@ -259,41 +259,55 @@ actor OAuthAccessTokenCache {
         if KeychainAccessGate.isDisabled {
             throw LimitsError.keychainAccessDisabled
         }
-        var query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: OAuthCredentialData.claudeKeychainService,
-            kSecReturnData as String: true,
-            kSecMatchLimit as String: kSecMatchLimitAll,
-        ]
-        if !allowKeychainPrompt {
-            KeychainNoUIQuery.apply(to: &query)
-        }
-
-        var item: CFTypeRef?
-        let status = KeychainReader.copyMatching(query, &item)
-        if status == errSecInteractionNotAllowed {
-            throw LimitsError.keychainInteractionNotAllowed
-        }
-        guard status == errSecSuccess, let item else {
-            throw LimitsError.keychainUnavailable(status)
-        }
-
-        let dataItems = OAuthCredentialData.extractDataItems(from: item)
-        guard !dataItems.isEmpty else {
-            throw LimitsError.keychainUnavailable(status)
-        }
-
-        // 여러 키체인 항목(예: acct="unknown" MCP 전용 + acct="<user>" 계정 토큰) 중
-        // 유효한 claudeAiOauth 계정 토큰이 있는 자격증명을 먼저 찾는다.
-        for data in dataItems {
-            if let credential = OAuthCredentialData.credential(from: data) {
-                return credential
+        // 두 단계로 나눈다: ① 계정 목록을 **속성만** 받아 열거 ② 계정별로 데이터를 하나씩 읽기.
+        // 한 번에 `kSecMatchLimitAll` + `kSecReturnData` 로 받을 수 없다 — macOS 는 그 조합을
+        // errSecParam(-50) 으로 거절하며, 항목 존재 여부·ACL 승인과 무관하게 실패한다(실측).
+        // 그래서 이 조합은 "여러 항목 중 고르기"를 아예 불가능하게 만들었다.
+        var accounts: [String] = []
+        var enumerateStatus = errSecSuccess
+        do {
+            var item: CFTypeRef?
+            let query = OAuthCredentialData.claudeKeychainAccountsQuery(
+                allowKeychainPrompt: allowKeychainPrompt)
+            enumerateStatus = KeychainReader.copyMatching(query, &item)
+            if enumerateStatus == errSecInteractionNotAllowed {
+                throw LimitsError.keychainInteractionNotAllowed
+            }
+            if enumerateStatus == errSecSuccess {
+                accounts = OAuthCredentialData.accountNames(from: item)
             }
         }
 
-        // 모든 항목에 유효한 계정 토큰이 없는 경우:
+        // 계정 속성을 못 얻으면(구 키체인·속성 미반환) 스코프 없는 단건 읽기로 폴백한다 —
+        // 항목이 하나뿐인 흔한 경우는 이 경로로 그대로 동작한다.
+        let candidates: [String?] = accounts.isEmpty ? [nil] : accounts.map { $0 }
+
+        var sawAccountOAuthMissing = false
+        var lastStatus = enumerateStatus
+        for account in candidates {
+            var item: CFTypeRef?
+            let query = OAuthCredentialData.claudeKeychainDataQuery(
+                account: account, allowKeychainPrompt: allowKeychainPrompt)
+            let status = KeychainReader.copyMatching(query, &item)
+            if status == errSecInteractionNotAllowed {
+                throw LimitsError.keychainInteractionNotAllowed
+            }
+            lastStatus = status
+            guard status == errSecSuccess, let data = item as? Data else { continue }
+            // 여러 항목(예: acct="unknown" MCP 전용 + acct="<user>" 계정 토큰) 중
+            // 유효한 claudeAiOauth 계정 토큰이 있는 자격증명을 먼저 찾는다.
+            if let credential = OAuthCredentialData.credential(from: data) {
+                return credential
+            }
+            if OAuthCredentialData.isAccountOAuthMissing(data) { sawAccountOAuthMissing = true }
+        }
+
+        // 읽어낸 데이터가 하나도 없으면 자격증명 문제가 아니라 키체인 접근 문제다.
+        guard lastStatus == errSecSuccess || sawAccountOAuthMissing else {
+            throw LimitsError.keychainUnavailable(lastStatus)
+        }
         // 항목은 있는데 계정 OAuth 만 없는 상태(MCP OAuth 전용)는 재로그인 안내 대상이라 구분한다.
-        throw dataItems.contains(where: { OAuthCredentialData.isAccountOAuthMissing($0) })
+        throw sawAccountOAuthMissing
             ? LimitsError.credentialMissingAccountOAuth
             : LimitsError.credentialFormat
     }
@@ -302,28 +316,49 @@ actor OAuthAccessTokenCache {
 enum OAuthCredentialData {
     static let claudeKeychainService = "Claude Code-credentials"
 
-    /// SecItemCopyMatching 결과(단일 Data 또는 [Data] 등)에서 [Data] 목록을 추출한다.
-    static func extractDataItems(from item: Any?) -> [Data] {
-        guard let item else { return [] }
-        if let data = item as? Data {
-            return [data]
-        }
-        if let array = item as? [Data] {
-            return array
-        }
-        if let array = item as? [Any] {
-            var result: [Data] = []
-            for element in array {
-                if let data = element as? Data {
-                    result.append(data)
-                } else if let dict = element as? [String: Any], let data = dict[kSecValueData as String] as? Data {
-                    result.append(data)
-                }
-            }
-            return result
-        }
-        return []
+    /// 계정 열거용 쿼리 — **데이터를 요청하지 않는다.**
+    ///
+    /// `kSecMatchLimitAll` 은 `kSecReturnData` 와 함께 쓸 수 없다. macOS 는 그 조합을
+    /// errSecParam(-50) 으로 거절하는데, 이건 항목이 없어서가 아니라 파라미터가 무효라서라
+    /// ACL 승인이나 항목 존재 여부로는 우회되지 않는다. 속성만 받아 계정 이름을 얻고,
+    /// 데이터는 `claudeKeychainDataQuery` 로 계정별 단건 조회한다.
+    /// 가드: `testAllItemsQueryNeverAsksForDataAndIsAcceptedBySecurityFramework`.
+    static func claudeKeychainAccountsQuery(allowKeychainPrompt: Bool) -> [String: Any] {
+        var query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: claudeKeychainService,
+            kSecReturnAttributes as String: true,
+            kSecMatchLimit as String: kSecMatchLimitAll,
+        ]
+        if !allowKeychainPrompt { KeychainNoUIQuery.apply(to: &query) }
+        return query
     }
+
+    /// 자격증명 데이터 단건 조회 — `kSecMatchLimitOne` 고정.
+    /// `account` 가 nil 이면 서비스 전체에서 한 건(계정 속성을 못 얻은 폴백 경로).
+    static func claudeKeychainDataQuery(account: String?, allowKeychainPrompt: Bool) -> [String: Any] {
+        var query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: claudeKeychainService,
+            kSecReturnData as String: true,
+            kSecMatchLimit as String: kSecMatchLimitOne,
+        ]
+        if let account { query[kSecAttrAccount as String] = account }
+        if !allowKeychainPrompt { KeychainNoUIQuery.apply(to: &query) }
+        return query
+    }
+
+    /// 속성 조회 결과에서 `acct` 목록을 뽑는다(순서 유지, 중복 제거).
+    static func accountNames(from item: Any?) -> [String] {
+        let rows: [[String: Any]]
+        if let array = item as? [[String: Any]] { rows = array }
+        else if let one = item as? [String: Any] { rows = [one] }
+        else { return [] }
+        var seen = Set<String>()
+        return rows.compactMap { $0[kSecAttrAccount as String] as? String }
+            .filter { !$0.isEmpty && seen.insert($0).inserted }
+    }
+
 
     struct Credential {
         let accessToken: String
