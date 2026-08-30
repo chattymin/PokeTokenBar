@@ -180,9 +180,12 @@ final class PremiumEggTests: XCTestCase {
         XCTAssertEqual(s.state.eggTier, .rare, "보증이 상태에 기록됨")
         XCTAssertEqual(s.eggGuarantee, .rare)
         XCTAssertEqual(s.state.spentTokens, FreshEgg.price(guaranteeing: .rare))
-        XCTAssertNil(s.state.active, "현재 포켓몬 폐기")
+        XCTAssertNil(s.state.active, "현재 포켓몬은 더 이상 활성이 아니다")
         XCTAssertEqual(s.state.eggUsage, 0, "새 알은 처음부터 인큐베이션")
-        XCTAssertTrue(s.state.dex.isEmpty, "폐기는 졸업이 아니다 — 도감 불변")
+        // 등급 알도 새 알과 같은 놓아줌 경로를 쓴다 — 종은 남기되 졸업으로 세지는 않는다.
+        XCTAssertEqual(s.state.dex.count, 1, "놓아준 개체가 기록으로 남는다")
+        XCTAssertTrue(s.state.dex.first?.isReleased ?? false, "졸업이 아니라 놓아줌")
+        XCTAssertTrue(s.state.collectedFinals.isEmpty, "최종체 완성으로 세지 않는다")
     }
 
     /// 알 상태에선 등급 알도 못 산다 — 기존 새 알과 게이트 통일.

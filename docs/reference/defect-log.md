@@ -378,6 +378,19 @@ read_when:
   이전 형태의 휘발성을 안내해야 한다면 `키우는 중`을 재사용하지 말고 별도 개념으로 설계한다. 회귀는
   2단계 도달 상태의 `[false, true]`, 졸업한 라인을 다시 키우는 상태의 `[false, true, false]`, 현재 개체가
   없는 졸업 기록의 전부 `false`를 함께 고정한다.
+- **뱃지로 설명하려던 휘발성은 애초에 없애는 게 답이었다.** 위 항목이 남긴 숙제 — "이전 형태의 휘발성을
+  안내해야 한다면 별도 개념으로" — 의 결론은 새 뱃지가 아니라 **휘발 자체를 제거**하는 것이다. `buyEgg` 가
+  `active` 만 버리고 `dex` 를 안 건드린 탓에, 현재 개체에서만 오던 종이 통째로 도감에서 빠져 종 수가 줄었다.
+  수집 화면이 "쌓이기만 한다"는 약속을 주는데 이게 그 약속을 깨는 유일한 경로였다. 이제 놓아준 개체를
+  `releasedAt` 을 단 `DexEntry` 로 `state.dex` 에 남긴다 — 도감(`dexSpecies`)이 `state.dex` 를 접으므로 종
+  보존은 자동으로 따라오고, 포획 로그만 `놓아줌` 뱃지로 졸업분과 구분한다. 규칙 셋: ① **도달분만 기록**
+  (`pathIDs.prefix(stageIndex + 1)` — `plannedPathIDs` 를 쓰면 알을 사서 포기하는 게 도감을 채우는 지름길이
+  된다) ② 이로치는 `currentIsShiny`(위장 메타몽은 리빌 전까지 숨김 — 놓아주기가 리빌 수단이 되면 안 된다)
+  ③ `collectedFinals` 는 그대로 — 끝까지 키운 게 아니므로 최종체 완성·분기 가중에 넣지 않는다.
+  `releasedAt == nil` 이 곧 "졸업분"이라 구버전 저장분에 마이그레이션이 필요 없다. 부수 효과로, 놓아준 종을
+  가리키던 **대표 선택이 이제 유지된다**(예전엔 종이 사라져 `reconcileRepresentativeSelection` 이 해제했다).
+  가드: `testReleasedSpeciesStaysInTheDex`·`testReleasingMidChainCreditsOnlyReachedForms`·
+  `testReleasingDisguisedDittoKeepsShinyHidden` — 기록을 빼거나 `plannedPathIDs` 로 바꾸면 실패한다(주입 확인).
 
 - **컴팩트 표시는 오늘 사용한 프로바이더만.** 메뉴바(`menuLines`) 등 좁은 표시에서 한도·상태를 보일 땐
   `snapshots` 의 오늘 토큰>0 으로 게이트한다 — 설치만 되고 오늘 안 쓴 프로바이더(Codex 등)를 노출하지

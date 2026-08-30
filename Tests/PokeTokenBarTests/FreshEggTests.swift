@@ -29,8 +29,10 @@ final class FreshEggTests: XCTestCase {
 
     func testPriceIsOneBillion() { XCTAssertEqual(FreshEgg.price, 1_000_000_000) }
 
-    /// [핵심] 리롤 = 폐기: active 사라지고 새 알(eggUsage 0). **도감·확률(collectedFinals) 불변** = "뽑은 적 없던 것처럼".
-    func testBuyFreshEggDiscardsWithoutDexOrProbabilityImpact() {
+    /// [핵심] 리롤 = 놓아줌: active 사라지고 새 알(eggUsage 0).
+    /// 도감에는 **놓아줌 기록으로 남고**, 확률 가중(collectedFinals)은 여전히 불변이다 —
+    /// 끝까지 키운 게 아니므로 최종체 완성으로 세지 않는다.
+    func testBuyFreshEggReleasesIntoDexWithoutProbabilityImpact() {
         let s = store(used: 5_000_000_000, spent: 0)
         let persistedDexBefore = s.state.dex
         let collectedBefore = s.state.collectedFinals
@@ -38,17 +40,38 @@ final class FreshEggTests: XCTestCase {
                        "현재 포켓몬은 졸업 전에도 도감 화면에 표시")
         XCTAssertTrue(s.hasActive)
         XCTAssertTrue(s.buyFreshEgg())
-        XCTAssertNil(s.state.active, "현재 포켓몬 폐기")
+        XCTAssertNil(s.state.active, "현재 포켓몬은 더 이상 활성이 아니다")
         XCTAssertTrue(s.isEgg)
         XCTAssertEqual(s.state.eggUsage, 0, "새 알은 처음부터 인큐베이션")
         XCTAssertNil(s.state.pendingHatchID)
-        XCTAssertEqual(s.state.dex.map(\.id), persistedDexBefore.map(\.id),
-                       "영구 도감 불변 — 졸업이 아니라 폐기")
-        XCTAssertEqual(s.dexEntries.count, persistedDexBefore.count,
-                       "폐기한 현재 포켓몬의 화면용 엔트리는 제거")
+
+        XCTAssertEqual(s.state.dex.count, persistedDexBefore.count + 1,
+                       "놓아준 개체가 영구 기록으로 추가된다")
+        let released = try? XCTUnwrap(s.state.dex.last)
+        XCTAssertEqual(released?.baseID, 10)
+        XCTAssertTrue(released?.isReleased ?? false, "졸업분과 구분되는 놓아줌 기록")
+        XCTAssertEqual(released?.chainOrder, [10], "도달한 형태만 — stageIndex 0 이라 1형태")
+        XCTAssertEqual(s.dexEntries.count, persistedDexBefore.count + 1,
+                       "합성 엔트리는 사라지고 영구 기록이 그 자리를 대신한다")
+
         XCTAssertEqual(s.state.collectedFinals, collectedBefore, "확률 가중(collectedFinals) 불변")
         XCTAssertEqual(s.state.spentTokens, FreshEgg.price, "지갑에서 1B 차감")
         XCTAssertEqual(s.availableTokens, 5_000_000_000 - FreshEgg.price)
+    }
+
+    /// [회귀] 놓아준 종은 도감에서 사라지지 않는다.
+    ///
+    /// 이게 이 기능의 존재 이유다. 도감은 "쌓이기만 한다"는 약속을 주는데, 알 구매가 유일하게
+    /// 그 약속을 깨는 경로였다 — 현재 개체에서만 오던 종이 통째로 빠져 종 수가 줄었다.
+    /// `state.dex` 에 남기는 대신 `state.active = nil` 만 하면 이 테스트가 실패한다(주입 확인함).
+    func testReleasedSpeciesStaysInTheDex() {
+        let s = store()
+        XCTAssertTrue(s.dexSpecies.contains { $0.id == 10 }, "육성 중엔 도감에 보인다")
+        XCTAssertTrue(s.buyFreshEgg())
+        XCTAssertTrue(s.dexSpecies.contains { $0.id == 10 },
+                      "놓아준 뒤에도 남는다 — 도감 종 수는 줄지 않는다")
+        XCTAssertFalse(s.dexSpecies.first { $0.id == 10 }?.isRaising ?? true,
+                       "더 이상 키우는 중이 아니므로 Raising 뱃지는 없다")
     }
 
     /// 폐기한 개체(baseID 10)의 종은 collectedFinals 에 들어가지 않는다(이후 부화 확률에 영향 없음).
