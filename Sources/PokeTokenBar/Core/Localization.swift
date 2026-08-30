@@ -44,6 +44,26 @@ struct L {
     var refresh: String { t("갱신", "Refresh", "更新", "Actualizar", "Actualiser", "Atualizar") }
     var limitsTapToLoad: String { t("공식 한도 불러오기", "Load official limits", "公式上限を読み込む", "Cargar límites oficiales", "Charger les limites officielles", "Carregar limites oficiais") }
 
+    // MARK: 한도 이력 (로컬 기록)
+    var limitHistory: String { t("한도 이력", "Limit history", "上限履歴", "Historial de límites", "Historique des limites", "Histórico de limites") }
+    /// 아직 완료된 창이 없을 때. 이력은 서버가 주는 게 아니라 앱이 폴링하며 쌓는 것이라,
+    /// "왜 비어 있나"를 설명해 주지 않으면 고장으로 읽힌다.
+    var limitHistoryCollecting: String { t("기록 중 — 첫 한도 창이 리셋되면 표시된다", "Recording — appears once the first window resets", "記録中 — 最初の上限枠がリセットされると表示されます", "Registrando: aparecerá cuando se reinicie la primera ventana", "Enregistrement — s'affiche après la première réinitialisation", "Gravando — aparece quando a primeira janela reiniciar") }
+    /// 관측 공백(앱 미실행)으로 잘린 창이 섞였을 때. 최고치는 하한이라는 뜻이라 반드시 알린다.
+    var limitHistoryPartial: String { t("일부 구간은 앱이 꺼져 있어 관측되지 않음", "Some spans were not observed (app not running)", "一部の区間はアプリ未起動のため未観測", "Algunos tramos no se observaron (app cerrada)", "Certaines périodes non observées (app fermée)", "Alguns trechos não observados (app fechado)") }
+    func limitHistoryRecent(_ n: Int) -> String { t("최근 \(n)회", "Last \(n)", "直近 \(n) 回", "Últimas \(n)", "\(n) dernières", "Últimas \(n)") }
+    func limitHistoryPeak(_ p: String) -> String { t("최고 \(p)", "Peak \(p)", "最高 \(p)", "Máx. \(p)", "Max \(p)", "Máx. \(p)") }
+    func limitHistoryMedian(_ p: String) -> String { t("중앙값 \(p)", "Median \(p)", "中央値 \(p)", "Mediana \(p)", "Médiane \(p)", "Mediana \(p)") }
+    /// "12회 중 3회가 경고선(80%) 이상" — 요금제가 맞는지 판단하는 핵심 한 줄.
+    func limitHistoryAtOrAbove(count: Int, total: Int, threshold: String) -> String {
+        t("\(total)회 중 \(count)회가 \(threshold) 이상",
+          "\(count) of \(total) reached \(threshold)",
+          "\(total) 回中 \(count) 回が \(threshold) 以上",
+          "\(count) de \(total) alcanzaron \(threshold)",
+          "\(count) sur \(total) ont atteint \(threshold)",
+          "\(count) de \(total) atingiram \(threshold)")
+    }
+
     /// 프로바이더 상태 페이지 인시던트 지표 → 현지화 라벨(표시 전용).
     func providerStatusLabel(_ indicator: ProviderStatusIndicator) -> String {
         switch indicator {

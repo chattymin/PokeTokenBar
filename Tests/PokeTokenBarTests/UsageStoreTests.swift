@@ -55,6 +55,19 @@ private actor GatedUsageProvider: UsageProvider {
     func release() { released = true; let c = gate; gate = nil; c?.resume() }
 }
 
+/// 첫 호출만 성공하고 이후는 실패 — "성공으로 채워진 `limits` 를 든 채 조회가 실패하는" 상태를
+/// 만든다. 이력이 그 낡은 값을 관측으로 오해하는지 보는 데 쓴다.
+private final class FailAfterFirstClaudeLimits: ClaudeLimitsProviding, @unchecked Sendable {
+    private let status: LimitStatus
+    nonisolated(unsafe) private var calls = 0
+    init(status: LimitStatus) { self.status = status }
+    func fetch(allowKeychainPrompt: Bool) async throws -> LimitStatus {
+        calls += 1
+        if calls == 1 { return status }
+        throw StubError.boom
+    }
+}
+
 private struct FakeClaudeLimits: ClaudeLimitsProviding {
     var status: LimitStatus?
     func fetch(allowKeychainPrompt: Bool) async throws -> LimitStatus {
@@ -209,6 +222,84 @@ final class UsageStoreTests: XCTestCase {
                           antigravityLimitsProvider: FakeAntigravityLimits(status: nil),
                           statusProvider: stub,
                           autoRefresh: false, defaults: testDefaults)
+    }
+
+    // MARK: 한도 이력 배선
+
+    /// 이력 파생 로직이 아무리 옳아도(LimitHistoryTests) refresh 가 기록을 안 부르면 이력은 영원히
+    /// 비어 있다 — 그 배선을 프로덕션 경로(refresh)로 직접 밟는다.
+    func testRefreshRecordsLimitHistory() async {
+        let history = LimitHistoryStore(fileURL: historyFile())
+        let claude = FakeUsageProvider(id: "claude_code", displayName: "Claude Code",
+                                       daily: todayDaily(1_000))
+        let store = UsageStore(providers: [claude],
+                               claudeLimitsProvider: FakeClaudeLimits(
+                                   status: claudeLimits(fiveHourUtil: 37)),
+                               codexLimitsProvider: FakeCodexLimits(status: nil),
+                               opencodeGoLimitsProvider: FakeOpenCodeGoLimits(status: nil),
+                               antigravityLimitsProvider: FakeAntigravityLimits(status: nil),
+                               limitHistory: history, autoRefresh: false, defaults: testDefaults)
+        await store.refresh()
+
+        XCTAssertEqual(history.samples(providerID: "claude_code", window: "five_hour")
+            .map(\.utilization), [37])
+    }
+
+    /// 한도 조회가 실패해도 `store.limits` 에는 **직전 성공값이 그대로 남는다**. 기록을 실패 경로에도
+    /// 걸면 endpoint 가 죽어 있는 내내 그 낡은 값이 heartbeat 마다 쌓여 "그 구간 내내 한도가
+    /// 평평했다"는 거짓 이력이 된다. 실제로는 아무것도 관측 못 한 구간이라 gap 으로 남아야 맞다.
+    ///
+    /// 검증은 **성공 뒤 실패** 순서라야 의미가 있다. 처음부터 실패시키면 `limits` 가 nil 이라
+    /// 기록 함수가 어차피 조기 반환해, 실패 경로에 기록을 잘못 걸어 놔도 테스트는 통과한다
+    /// (실제로 그 defect 를 주입했더니 순서를 뒤집기 전 버전은 잡지 못했다). 시계도 직접 쥔다 —
+    /// 두 refresh 가 같은 순간에 일어나면 다운샘플링이 중복 샘플을 걸러 결함을 가린다.
+    func testFailedLimitFetchDoesNotAppendStaleHistory() async {
+        var clock = Date(timeIntervalSince1970: 1_700_000_000)
+        let history = LimitHistoryStore(fileURL: historyFile(), now: { clock })
+        let claude = FakeUsageProvider(id: "claude_code", displayName: "Claude Code",
+                                       daily: todayDaily(1_000))
+        let limits = FailAfterFirstClaudeLimits(status: claudeLimits(fiveHourUtil: 51))
+        let store = UsageStore(providers: [claude], claudeLimitsProvider: limits,
+                               codexLimitsProvider: FakeCodexLimits(status: nil),
+                               opencodeGoLimitsProvider: FakeOpenCodeGoLimits(status: nil),
+                               antigravityLimitsProvider: FakeAntigravityLimits(status: nil),
+                               limitHistory: history, autoRefresh: false, defaults: testDefaults)
+
+        await store.refresh()   // 1회차: 성공 → 관측 1건
+        XCTAssertEqual(history.samples(providerID: "claude_code", window: "five_hour")
+            .map(\.utilization), [51])
+
+        // heartbeat 를 넘겨 "값이 그대로여도 기록될" 조건을 만든 뒤 실패시킨다.
+        clock = clock.addingTimeInterval(LimitHistoryStore.heartbeat + 60)
+        await store.refresh()   // 2회차: 실패 — limits 는 51 로 남아 있다
+        XCTAssertNotNil(store.limits, "실패해도 직전 한도는 화면에 남는다 (이 테스트의 전제)")
+        XCTAssertEqual(history.samples(providerID: "claude_code", window: "five_hour")
+            .map(\.utilization), [51],
+            "관측하지 못한 구간을 낡은 값으로 메우면 안 된다")
+    }
+
+    /// 키체인 접근을 끈 사용자는 한도 조회 자체를 하지 않는다(`limits = nil`). 이 경로가 기록까지
+    /// 타면 nil 을 0% 로 흘려 "한도를 전혀 안 썼다"는 막대가 그려진다.
+    func testKeychainDisabledRecordsNoHistory() async {
+        let history = LimitHistoryStore(fileURL: historyFile())
+        let claude = FakeUsageProvider(id: "claude_code", displayName: "Claude Code",
+                                       daily: todayDaily(1_000))
+        let store = UsageStore(providers: [claude],
+                               claudeLimitsProvider: FakeClaudeLimits(
+                                   status: claudeLimits(fiveHourUtil: 44)),
+                               codexLimitsProvider: FakeCodexLimits(status: nil),
+                               opencodeGoLimitsProvider: FakeOpenCodeGoLimits(status: nil),
+                               antigravityLimitsProvider: FakeAntigravityLimits(status: nil),
+                               limitHistory: history, autoRefresh: false, defaults: testDefaults)
+        store.disableKeychainAccess = true
+        await store.refresh()
+
+        XCTAssertTrue(history.samples(providerID: "claude_code", window: "five_hour").isEmpty)
+    }
+
+    private func historyFile() -> URL {
+        FileManager.default.temporaryDirectory
+            .appendingPathComponent("ptb-history-\(UUID().uuidString).json")
     }
 
     // MARK: refresh 코얼레싱 (회귀)

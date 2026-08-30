@@ -570,3 +570,17 @@ read_when:
   UTC라 통과하고 로컬만 실패한다). 시간대가 스레드에 관여하는 순간 단언값도 시간대를 고정해야 한다:
   테스트에서 locale/TimeZone을 주입하거나, 파서가 UTC로 정규화하는지를 검증하는 형태로 바꾼다.
   이 판별법을 매번 반복하지 않도록 `dev-deploy.md` §기지의 선례에 목록으로 유지한다.
+
+- **Application Support 기본 경로를 쓰는 싱글턴 스토어는 `swift test` 에서 실사용자 파일을 건드린다.**
+  테스트가 `fileURL` 을 주입하면 안전하다고 착각하기 쉬운데, 주입은 *그 테스트*만 덮는다. 스토어를
+  기본값으로 소유하는 상위 객체(`UsageStore` 의 `limitHistory: .shared`)를 만드는 다른 테스트가
+  하나라도 있으면 그 경로로 실파일이 열리고 **쓰인다**. 실측(2026-08-30): `LimitHistoryStore` 를
+  게이트 없이 넣었더니 전체 스위트 1회 실행이 `~/Library/Application Support/PokeTokenBar/
+  limit-history.json` 에 사용자의 실제 한도(97·100%)를 기록했다 — 테스트가 실 endpoint 를 때린
+  것이다. 같은 부류가 `LocalUsageCache`(`usage-cache.json`)에 **아직 남아 있다**: 스위트를 돌리면
+  mtime 이 갱신된다.
+  방어는 "테스트가 주입하기"가 아니라 **스토어 자신이 실앱에서만 디스크를 만지는 것**이다 —
+  `AppEnv.isBundledApp`(키체인 읽기·프로덕션 로그와 같은 게이트) 또는 주입된 경로일 때만 read/write.
+  판정은 순수 함수로 빼서(`LimitHistoryStore.persistsToDisk(injectedFileURL:isBundledApp:)`) IO 없이
+  테스트한다. 확인 방법은 스위트 전후로 대상 파일 mtime 을 비교하는 것 — 커버리지로는 안 보인다
+  (기본 경로 초기화가 1회라도 실행되면 라인은 covered 로 잡힌다).

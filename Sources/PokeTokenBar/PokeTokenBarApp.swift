@@ -36,6 +36,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private var menuLoadGen = 0     // async 로드 경합 방지
     private var displayAwake = true     // 디스플레이 켜짐 여부 (꺼지면 메뉴 애니메이션 정지 — 배터리)
 
+    /// Persist the tail of the limit-history series. `LimitHistoryStore` throttles its writes to
+    /// once a minute, so without this every quit drops up to a minute of samples — and a launch/quit
+    /// cycle shorter than the throttle would record nothing at all.
+    func applicationWillTerminate(_ notification: Notification) {
+        store?.limitHistory.flush()
+    }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         // 로그인 에이전트 등록(plist 의 RunAtLoad)이 이미 떠 있는 앱을 한 번 더 실행한다 — 나중에 뜬
         // 쪽이 물러난다. 메뉴바 항목을 만들기 전에 판정해 아이콘이 떴다 사라지는 깜빡임을 없애고,

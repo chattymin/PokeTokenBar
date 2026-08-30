@@ -121,6 +121,10 @@ struct PopoverView: View {
                     limitsSection
                     Divider()
                 }
+                if selectedSnapshot?.providerID == "claude_code", store.limits != nil {
+                    limitHistorySection
+                    Divider()
+                }
             }
             footer
         }
@@ -511,6 +515,102 @@ struct PopoverView: View {
 
     /// 한도 % 표시 문자열 — remaining 모드면 남은 %에 자기설명 접미사("남음/left/残り").
     /// 게이지 채움·경고색은 사용률 원값 기준 유지 — 숫자 텍스트만 모드를 따른다.
+    // MARK: 한도 이력 — 로컬 시계열 (서버는 현재 스냅샷만 준다)
+
+    /// 완료된 한도 창들의 최고 사용률 이력. 한도 endpoint 는 "지금 몇 %"만 알려주고 창이 리셋되면
+    /// 그 값은 어디에도 안 남으므로(LimitHistoryStore 참고), 이 섹션이 보여주는 건 전적으로
+    /// 앱이 폴링하며 직접 쌓은 기록이다 — 설치 이전 구간은 존재하지 않는다.
+    @ViewBuilder
+    private var limitHistorySection: some View {
+        let summaries = LimitHistoryStore.ClaudeWindow.displayed.map { window in
+            (window: window,
+             summary: store.limitHistory.summary(
+                providerID: "claude_code", window: window,
+                threshold: store.warnThreshold, limit: Self.historyWindowCount))
+        }
+        VStack(alignment: .leading, spacing: 8) {
+            Text(l.limitHistory)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            if summaries.allSatisfy(\.summary.isEmpty) {
+                Text(l.limitHistoryCollecting)
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+            } else {
+                ForEach(summaries, id: \.window) { entry in
+                    if !entry.summary.isEmpty {
+                        historyRow(name: historyWindowName(entry.window), summary: entry.summary)
+                    }
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// 팝오버 폭(332pt)에 막대가 뭉개지지 않고 들어가는 개수. 5시간 창 기준 약 3일치다.
+    private static let historyWindowCount = 14
+
+    private func historyWindowName(_ window: String) -> String {
+        window == LimitHistoryStore.ClaudeWindow.sevenDay ? l.weekly : l.fiveHourSession
+    }
+
+    @ViewBuilder
+    private func historyRow(name: String, summary: LimitHistoryStore.Summary) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            HStack(spacing: 4) {
+                Text(name)
+                    .font(.callout)
+                Text("· \(l.limitHistoryRecent(summary.windows.count))")
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+                Spacer()
+                Text(l.limitHistoryPeak(TokenFormatter.percent(summary.peak)))
+                    .font(.caption)
+                    .monospacedDigit()
+                    .foregroundStyle(limitColor(summary.peak))
+                Text("· \(l.limitHistoryMedian(TokenFormatter.percent(summary.median)))")
+                    .font(.caption)
+                    .monospacedDigit()
+                    .foregroundStyle(.tertiary)
+            }
+            historyBars(summary.windows)
+            // 이력 화면의 결론 한 줄 — 사용자가 "요금제가 맞나"를 판단하는 지점.
+            // 임계값은 사용자가 이미 고른 경고선(warnThreshold)을 그대로 재사용한다.
+            Text(l.limitHistoryAtOrAbove(
+                count: summary.atOrAbove, total: summary.windows.count,
+                threshold: TokenFormatter.percent(store.warnThreshold)))
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+            if summary.hasTruncated {
+                Text(l.limitHistoryPartial)
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+            }
+        }
+    }
+
+    /// 창별 최고 사용률 막대. 오래된 것이 왼쪽(시간순) — 배열이 이미 오래된 순이라 그대로 그린다.
+    /// 관측이 잘린 창은 흐리게: 그 막대의 높이는 실제 최고치가 아니라 하한이다.
+    private func historyBars(_ windows: [LimitHistoryStore.Window]) -> some View {
+        HStack(alignment: .bottom, spacing: 3) {
+            ForEach(Array(windows.enumerated()), id: \.offset) { _, window in
+                let fraction = min(max(window.peak, 0), 100) / 100
+                VStack(spacing: 0) {
+                    Spacer(minLength: 0)
+                    RoundedRectangle(cornerRadius: 1.5)
+                        // 0% 창도 자리를 차지해야 "그 창이 있었다"가 보인다 — 최소 높이 2pt.
+                        .frame(height: max(2, Self.historyBarHeight * fraction))
+                        .foregroundStyle(limitColor(window.peak))
+                        .opacity(window.truncated ? 0.35 : 1)
+                }
+                .frame(maxWidth: .infinity)
+            }
+        }
+        .frame(height: Self.historyBarHeight)
+    }
+
+    private static let historyBarHeight: CGFloat = 26
+
     private func limitPercentText(_ utilization: Double) -> String {
         let text = TokenFormatter.percent(store.limitDisplayPercent(utilization))
         return store.limitDisplayMode == .remaining ? l.percentRemaining(text) : text

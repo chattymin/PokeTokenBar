@@ -166,6 +166,9 @@ final class UsageStore {
     private let opencodeGoLimitsProvider: any OpenCodeGoLimitsProviding
     private let antigravityLimitsProvider: any AntigravityLimitsProviding
     private let statusProvider: any ProviderStatusProviding
+    /// Local limit-utilization time series. Injected so tests get a temp file instead of the
+    /// user's real Application Support history.
+    let limitHistory: LimitHistoryStore
     /// 설정 저장소 — 테스트는 suite 를 주입해 실제 사용자 설정을 오염시키지 않는다.
     private let defaults: UserDefaults
     private var timer: Timer?
@@ -508,6 +511,7 @@ final class UsageStore {
          opencodeGoLimitsProvider: any OpenCodeGoLimitsProviding = OpenCodeGoLimitsProvider(),
          antigravityLimitsProvider: any AntigravityLimitsProviding = AntigravityRateLimitsProvider(),
          statusProvider: any ProviderStatusProviding = StatuspageStatusProvider(),
+         limitHistory: LimitHistoryStore = .shared,
          autoRefresh: Bool = true,
          defaults: UserDefaults = .standard) {
         self.providers = providers
@@ -516,6 +520,7 @@ final class UsageStore {
         self.opencodeGoLimitsProvider = opencodeGoLimitsProvider
         self.antigravityLimitsProvider = antigravityLimitsProvider
         self.statusProvider = statusProvider
+        self.limitHistory = limitHistory
         self.defaults = defaults
         let d = defaults
         refreshInterval = d.object(forKey: "refreshInterval") as? TimeInterval ?? 120
@@ -772,6 +777,7 @@ final class UsageStore {
                 limitsUpdatedAt = Date()
                 limitsAuthExpired = false
                 resetLimitsBackoff()
+                recordLimitHistory()
                 AppLog.write("limits refreshed fiveHour=\(limits?.fiveHour?.utilization?.description ?? "nil") sevenDay=\(limits?.sevenDay?.utilization?.description ?? "nil")")
             } catch {
                 // 비공식 endpoint 실패 → 섹션 숨김, 토큰 표시는 무영향
@@ -808,6 +814,17 @@ final class UsageStore {
         }
     }
 
+    /// Append the freshly fetched limit windows to the local history series.
+    ///
+    /// Both fetch paths call this rather than only the timer one: the automatic poll never touches
+    /// the Keychain, so on machines where the token only ever arrives via the manual refresh button
+    /// the timer path succeeds zero times and history would stay permanently empty.
+    private func recordLimitHistory() {
+        guard let limits else { return }
+        limitHistory.record(providerID: "claude_code",
+                            windows: LimitHistoryStore.claudeWindows(from: limits))
+    }
+
     func refreshLimitTokenFromKeychain() async {
         guard !isRefreshingLimitToken else { return }
         isRefreshingLimitToken = true
@@ -821,6 +838,7 @@ final class UsageStore {
             limitsAuthExpired = false
             limitTokenRefreshError = nil
             resetLimitsBackoff()
+            recordLimitHistory()
             AppLog.write("limits refreshed by user action fiveHour=\(limits?.fiveHour?.utilization?.description ?? "nil") sevenDay=\(limits?.sevenDay?.utilization?.description ?? "nil")")
             AppLog.write("limits refreshed from keychain by user action")
         } catch {
