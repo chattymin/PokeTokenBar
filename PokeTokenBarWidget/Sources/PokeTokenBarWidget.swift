@@ -13,7 +13,12 @@ struct PokeTokenBarWidget: Widget {
         }
         .configurationDisplayName("PokeTokenBar")
         .description("Your AI token usage at a glance.")
-        .supportedFamilies([.systemMedium])
+        .supportedFamilies([
+            .systemMedium,
+            .accessoryRectangular,
+            .accessoryCircular,
+            .accessoryInline
+        ])
     }
 }
 
@@ -64,17 +69,29 @@ struct WidgetEntry: TimelineEntry {
 
 // MARK: - Widget Views
 
-/// Medium-only widget. Left: companion sprite + name + stage progress + sync age.
-/// Right: headline usage row (Today / Cost / Week) and one bar per limit window,
-/// switching to two columns when there are more than four windows so nothing is dropped.
+/// Multi-family widget:
+/// - Medium (home screen): Companion sprite + headline usage row + rate limit bars
+/// - Accessory Rectangular (lock screen): Companion sprite + EXP/hatch progress bar + today tokens
+/// - Accessory Circular (lock screen): Progress gauge around companion sprite/egg with today tokens
+/// - Accessory Inline (lock screen): Glanceable text line with companion, tokens, and progress %
 struct PokeTokenBarWidgetEntryView: View {
+    @Environment(\.widgetFamily) private var family
     let entry: WidgetEntry
 
     var body: some View {
-        if let payload = entry.payload {
-            mediumView(payload)
-        } else {
-            emptyView
+        switch family {
+        case .accessoryRectangular:
+            accessoryRectangularView(entry.payload)
+        case .accessoryCircular:
+            accessoryCircularView(entry.payload)
+        case .accessoryInline:
+            accessoryInlineView(entry.payload)
+        default:
+            if let payload = entry.payload {
+                mediumView(payload)
+            } else {
+                emptyView
+            }
         }
     }
 
@@ -89,6 +106,122 @@ struct PokeTokenBarWidgetEntryView: View {
                 .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    // MARK: - Lock Screen Accessories
+
+    @ViewBuilder
+    private func accessoryRectangularView(_ payload: PhonePayload?) -> some View {
+        if let payload, let companion = payload.companion {
+            let progress = companion.isEgg ? companion.eggProgress : companion.progress
+            let isShiny = companion.representativeSpeciesID != nil
+                ? (companion.representativeIsShiny ?? false) : companion.isShiny
+
+            HStack(alignment: .center, spacing: 6) {
+                spriteImage(companion: companion, eggFontSize: 26)
+                    .frame(width: 32, height: 32)
+
+                VStack(alignment: .leading, spacing: 1) {
+                    HStack(alignment: .firstTextBaseline, spacing: 2) {
+                        Text(companion.isEgg ? String(localized: "Egg") : companion.name)
+                            .font(.system(size: 13, weight: .bold))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.7)
+                        if isShiny && !companion.isEgg {
+                            Image(systemName: "sparkles")
+                                .font(.system(size: 8))
+                        }
+                        Spacer(minLength: 2)
+                        Text(TokenFormatter.compact(payload.todayTokens))
+                            .font(.system(size: 13, weight: .bold).monospacedDigit())
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.75)
+                    }
+
+                    ProgressView(value: min(1, max(0, progress)))
+                        .scaleEffect(x: 1, y: 0.7, anchor: .center)
+                        .padding(.vertical, 0.5)
+
+                    HStack(spacing: 4) {
+                        if companion.isEgg {
+                            Text("\(Int(progress * 100))% hatched")
+                                .font(.system(size: 9.5))
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                        } else if !companion.stageText.isEmpty {
+                            Text(companion.stageText)
+                                .font(.system(size: 9.5))
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                        }
+                        Spacer(minLength: 2)
+                        if payload.todayCost > 0 {
+                            Text(TokenFormatter.costCompact(payload.todayCost))
+                                .font(.system(size: 9.5).monospacedDigit())
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                        } else {
+                            Text("\(Int(progress * 100))%")
+                                .font(.system(size: 9.5).monospacedDigit())
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                        }
+                    }
+                }
+            }
+        } else {
+            HStack(spacing: 6) {
+                Image(systemName: "gamecontroller")
+                    .font(.title2)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("PokeTokenBar")
+                        .font(.system(size: 13, weight: .bold))
+                    Text("Open app to sync")
+                        .font(.system(size: 9.5))
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func accessoryCircularView(_ payload: PhonePayload?) -> some View {
+        if let payload, let companion = payload.companion {
+            let progress = companion.isEgg ? companion.eggProgress : companion.progress
+            Gauge(value: min(1, max(0, progress))) {
+                Text(TokenFormatter.compact(payload.todayTokens))
+                    .font(.system(size: 9, weight: .bold).monospacedDigit())
+            } currentValueLabel: {
+                if companion.isEgg {
+                    Text("🥚")
+                        .font(.system(size: 14))
+                } else if let id = companion.representativeSpeciesID ?? companion.speciesID,
+                          let img = SpriteCache.shared.cachedImage(key: PokeSpriteURL.speciesKey(id: id, shiny: companion.isShiny)) {
+                    Image(uiImage: img)
+                        .resizable()
+                        .interpolation(.none)
+                        .frame(width: 22, height: 22)
+                } else {
+                    Text(companion.isEgg ? "🥚" : "👾")
+                        .font(.system(size: 14))
+                }
+            }
+            .gaugeStyle(.accessoryCircular)
+        } else {
+            Image(systemName: "gamecontroller")
+                .font(.title3)
+        }
+    }
+
+    @ViewBuilder
+    private func accessoryInlineView(_ payload: PhonePayload?) -> some View {
+        if let payload, let companion = payload.companion {
+            let progress = Int((companion.isEgg ? companion.eggProgress : companion.progress) * 100)
+            let icon = companion.isEgg ? "🥚" : "👾"
+            Text("\(icon) \(companion.name) · \(TokenFormatter.compact(payload.todayTokens)) (\(progress)%)")
+        } else {
+            Text("PokeTokenBar")
+        }
     }
 
     // MARK: - Medium Widget
@@ -299,7 +432,7 @@ struct PokeTokenBarWidgetEntryView: View {
 
     /// Mirrors the Mac menu bar: the pinned representative species when set, else the current mon.
     @ViewBuilder
-    private func spriteImage(companion: PhoneCompanionState) -> some View {
+    private func spriteImage(companion: PhoneCompanionState, eggFontSize: CGFloat = 40) -> some View {
         let id = companion.representativeSpeciesID ?? companion.speciesID
         let shiny = companion.representativeSpeciesID != nil
             ? (companion.representativeIsShiny ?? false) : companion.isShiny
@@ -308,7 +441,7 @@ struct PokeTokenBarWidgetEntryView: View {
                 .resizable()
                 .interpolation(.none)
         } else if companion.isEgg {
-            Text("🥚").font(.system(size: 40))
+            Text("🥚").font(.system(size: eggFontSize))
         } else if let id {
             // Not cached yet (app hasn't run since this mon appeared) — the widget may not get
             // network, so fall back to the Mac-side name over a placeholder rather than spinning.
@@ -356,6 +489,45 @@ struct PokeTokenBarWidgetEntryView: View {
         ]))
 }
 
+#Preview("Lock Screen Rectangular", as: .accessoryRectangular) {
+    PokeTokenBarWidget()
+} timeline: {
+    WidgetEntry(date: Date(), payload: PhonePayload(
+        todayTokens: 1_500_000, todayCost: 12.34, weekTokens: 10_000_000,
+        monthTokens: 40_000_000, lastUpdated: Date(), serverVersion: "1.0",
+        limits: nil,
+        companion: PhoneCompanionState(name: "Pikachu", speciesID: 25, isShiny: true, isEgg: false,
+                                        progress: 0.42, stageText: "Stage 1/3", rarity: "rare",
+                                        dexCount: 12, eggProgress: 0, displayState: "working"),
+        providers: []))
+}
+
+#Preview("Lock Screen Egg", as: .accessoryRectangular) {
+    PokeTokenBarWidget()
+} timeline: {
+    WidgetEntry(date: Date(), payload: PhonePayload(
+        todayTokens: 250_000, todayCost: 2.10, weekTokens: 1_000_000,
+        monthTokens: 5_000_000, lastUpdated: Date(), serverVersion: "1.0",
+        limits: nil,
+        companion: PhoneCompanionState(name: "Egg", speciesID: nil, isShiny: false, isEgg: true,
+                                        progress: 0, stageText: "", rarity: nil,
+                                        dexCount: 12, eggProgress: 0.75, displayState: "egg"),
+        providers: []))
+}
+
+#Preview("Lock Screen Circular", as: .accessoryCircular) {
+    PokeTokenBarWidget()
+} timeline: {
+    WidgetEntry(date: Date(), payload: PhonePayload(
+        todayTokens: 1_500_000, todayCost: 12.34, weekTokens: 10_000_000,
+        monthTokens: 40_000_000, lastUpdated: Date(), serverVersion: "1.0",
+        limits: nil,
+        companion: PhoneCompanionState(name: "Pikachu", speciesID: 25, isShiny: true, isEgg: false,
+                                        progress: 0.42, stageText: "Stage 1/3", rarity: "rare",
+                                        dexCount: 12, eggProgress: 0, displayState: "working"),
+        providers: []))
+}
+
 #Preview("Many windows", as: .systemMedium) {
     PokeTokenBarWidget()
 } timeline: {
@@ -387,3 +559,4 @@ private struct LimitBarRow {
     let title: String
     let window: PhoneLimitWindow
 }
+

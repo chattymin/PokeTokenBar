@@ -54,7 +54,17 @@ fi
 
 echo
 echo "▶ 로직 코어 커버리지 (임계값 ${THRESHOLD}%)"
-REPORT=$("$LLVM_COV" report "$BIN" -instr-profile="$PROF" "${LOGIC_CORE[@]}" 2>/dev/null)
+LOGIC_CORE_TARGETS=()
+for f in "${LOGIC_CORE[@]}"; do
+  MATCHED=$("$LLVM_COV" show "$BIN" -instr-profile="$PROF" | grep -m 1 -E "/$f:" | sed 's/:$//' || true)
+  if [[ -n "$MATCHED" ]]; then
+    LOGIC_CORE_TARGETS+=("$MATCHED")
+  else
+    LOGIC_CORE_TARGETS+=("$f")
+  fi
+done
+
+REPORT=$("$LLVM_COV" report "$BIN" -instr-profile="$PROF" "${LOGIC_CORE_TARGETS[@]}" 2>/dev/null)
 echo "$REPORT"
 
 # TOTAL 행의 라인 커버리지(%) 추출 — 컬럼: ... Lines MissedLines Cover(=$10)
