@@ -219,6 +219,42 @@ final class FloatingPetEnergyTests: XCTestCase {
         XCTAssertGreaterThan(q.balanced.frameFloor, q.smooth.frameFloor)
     }
 
+    /// 저전력 모드의 유효 하한 — 파생값이라 "복귀"는 lowPower=false 계산 그 자체다.
+    /// 저전력이면 어떤 프리셋도 powerSaver 보다 빠르게 돌 수 없고(캡), 아니면 선택값 그대로.
+    /// 프리셋이 늘어도 자동으로 걸리도록 개별 상수 대신 전 케이스를 돈다.
+    func testLowPowerCapsEffectiveFloorAtPowerSaverAndDerivationRestoresChoice() {
+        let saver = UsageStore.AnimationQuality.powerSaver.frameFloor
+        for q in UsageStore.AnimationQuality.allCases {
+            XCTAssertGreaterThanOrEqual(q.effectiveFrameFloor(lowPower: true), saver,
+                                        "\(q.rawValue): 저전력에서 powerSaver 보다 빠르면 절전 실패")
+            XCTAssertGreaterThanOrEqual(q.effectiveFrameFloor(lowPower: true), q.frameFloor,
+                                        "\(q.rawValue): 저전력이 애니메이션을 더 빠르게 만들 수는 없다")
+            XCTAssertEqual(q.effectiveFrameFloor(lowPower: false), q.frameFloor,
+                           "\(q.rawValue): 저전력이 아니면 사용자 선택 그대로(자동 복귀)")
+        }
+    }
+
+    /// [회귀] 저전력 토글이 메뉴바 재구성으로 이어지는 기계 — 유효 하한이 `menuSpriteKey` 에
+    /// 들어가므로 smooth 사용자의 저전력 진입/해제는 키를 바꾼다. 키가 안 바뀌면 관측자가
+    /// 재호출해도 `ensureMenuAnimation` 이 조기 반환해 옛 fps 로 계속 돈다(설계 시 확인된 함정과
+    /// 같은 부류 — `testIdentityKeysIncludeTheFrameFloor`).
+    func testLowPowerToggleChangesMenuSpriteKeyForFasterPresets() {
+        let smooth = UsageStore.AnimationQuality.smooth
+        XCTAssertNotEqual(
+            AppDelegate.menuSpriteKey(id: 41, shiny: false,
+                                      floor: smooth.effectiveFrameFloor(lowPower: true)),
+            AppDelegate.menuSpriteKey(id: 41, shiny: false,
+                                      floor: smooth.effectiveFrameFloor(lowPower: false)),
+            "smooth: 저전력 토글이 키를 못 바꾸면 재구성이 일어나지 않는다")
+        // powerSaver 선택자는 저전력 전후 키가 같아야 한다 — 이미 그 프레임률이라 재구성 자체가 낭비.
+        let saver = UsageStore.AnimationQuality.powerSaver
+        XCTAssertEqual(
+            AppDelegate.menuSpriteKey(id: 41, shiny: false,
+                                      floor: saver.effectiveFrameFloor(lowPower: true)),
+            AppDelegate.menuSpriteKey(id: 41, shiny: false,
+                                      floor: saver.effectiveFrameFloor(lowPower: false)))
+    }
+
     /// [회귀] 설정을 바꾸면 **즉시** 반영돼야 한다. 두 표면 모두 "정체성이 바뀌면 재로딩" 기계로
     /// 프레임을 갱신하는데, 그 정체성 키에 하한이 빠져 있으면 종이 바뀔 때까지 옛 fps 로 계속 돈다
     /// (`menuSpriteKey` = "id-shiny", `SpriteView.task(id:)` = "id-shiny" 였다 — 설계 시 확인된 함정).

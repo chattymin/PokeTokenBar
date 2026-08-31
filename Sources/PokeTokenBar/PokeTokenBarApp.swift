@@ -33,6 +33,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private var menuTimer: Timer?
     private var menuLoadGen = 0     // async 로드 경합 방지
     private var displayAwake = true     // 디스플레이 켜짐 여부 (꺼지면 메뉴 애니메이션 정지 — 배터리)
+    private var powerObserver: NSObjectProtocol?   // 저전력 토글 → 유효 fps 하한 재평가
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // 로그인 에이전트 등록(plist 의 RunAtLoad)이 이미 떠 있는 앱을 한 번 더 실행한다 — 나중에 뜬
@@ -84,6 +85,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         observeStore()
         observeCompanionSprite()
         observeDisplaySleep()
+        observePowerState()
         applyState()
     }
 
@@ -120,6 +122,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
                 self.ensureMenuAnimation()
                 self.syncMenuAnimation()
                 self.observeCompanionSprite()
+            }
+        }
+    }
+
+    /// 저전력 모드 토글을 즉시 반영 — 유효 하한(`menuFrameFloor`)이 바뀌면 `menuSpriteKey` 가
+    /// 달라져 `ensureMenuAnimation()` 이 재구성한다(선택이 powerSaver 면 하한 불변 → 재구성 없음,
+    /// 이미 그 프레임률이라 옳다). 플로팅 펫은 자체 관측(`FloatingPetController`)으로 따로 처리.
+    private func observePowerState() {
+        powerObserver = NotificationCenter.default.addObserver(
+            forName: NSNotification.Name.NSProcessInfoPowerStateDidChange, object: nil, queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in
+                guard let self else { return }
+                self.ensureMenuAnimation()
+                self.syncMenuAnimation()
             }
         }
     }
@@ -204,7 +221,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     /// 솎아내 적용한다. 하한 자체는 없어질 수 없다 — 근거는 그 enum 과 defect-log '에너지' 절.
     /// 히스토리: 0.4s 고정 → 프리셋(0.4/0.2/0.1) 중 사용자 선택. 기기·스프라이트마다 체감과
     /// 배터리 영향이 갈려 하나의 값으로 수렴하지 못했다 — 기본값은 고정 캡과 같은 0.4s 다.
-    private var menuFrameFloor: TimeInterval { store.animationQuality.frameFloor }
+    /// 저전력 모드에선 powerSaver 하한으로 캡된다(`effectiveFrameFloor` — 저장 설정 무변경 파생,
+    /// 해제 시 자동 복귀). 이 값이 `menuSpriteKey` 에 들어가므로 저전력 토글 → 키 변화 → 재구성.
+    private var menuFrameFloor: TimeInterval {
+        store.animationQuality.effectiveFrameFloor(
+            lowPower: ProcessInfo.processInfo.isLowPowerModeEnabled)
+    }
 
     /// `Timer.tolerance` 배수 — wakeup 코얼레싱(다른 wakeup 과 합쳐 배터리 절약)의 강도.
     ///
@@ -217,7 +239,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     /// 대표 포켓몬에 맞춰 메뉴바 프레임을 준비. 종이 바뀐 경우에만 재로딩.
     /// 정적 스프라이트로 먼저 보여주고, animated GIF 가 받아지면 교체한다(메뉴바도 GIF로 움직임).
     /// 에너지 통제는 ① delay 하한 `menuFrameFloor` ② 안 보이면 정지(menuShouldAnimate) ③ 저전력 모드
-    /// 에선 GIF 생략(가벼운 bob)로 처리한다 — 통제된 저프레임 + 비가시 시 정지로 저전력.
+    /// 에선 하한을 powerSaver 로 강제 캡(`effectiveFrameFloor`)한다 — GIF 를 생략(bob)하는 대신
+    /// 프레임률만 낮춰, 애니메이션을 유지한 채 절전한다(bob 2회/s ↔ powerSaver ≤2.5회/s 로 근접).
     private func ensureMenuAnimation() {
         let subject = companion.representativeSubject
         let id = subject.speciesID
@@ -245,8 +268,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             }
         }
 
-        // 풀 GIF 애니메이션(저전력 모드에서는 생략하고 bob 유지). delay 하한 `menuFrameFloor` 로 redraw 통제.
-        guard !ProcessInfo.processInfo.isLowPowerModeEnabled else { return }
+        // 풀 GIF 애니메이션. delay 하한 `menuFrameFloor` 로 redraw 통제 — 저전력 모드에선 이 하한이
+        // powerSaver 로 캡되므로(GIF 생략 대신) 실제 애니메이션을 유지한 채 절전한다.
         Task { @MainActor [weak self] in
             guard let self, gen == self.menuLoadGen else { return }
             // shiny GIF 미제공 종이면 일반 GIF 폴백

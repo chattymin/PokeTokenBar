@@ -96,6 +96,14 @@ final class UsageStore {
             case .smooth:     0.1   // ≈10fps
             }
         }
+
+        /// macOS 저전력 모드를 반영한 유효 하한 — **저장된 선택은 건드리지 않는 파생값**이다.
+        /// 저전력이면 powerSaver 하한까지 늦추고(이미 더 느린 선택은 그대로), 해제되면 선택값으로
+        /// 돌아온다. "복원"이 계산 자체라 이전 값을 저장·복구할 상태가 없다 — 저전력 중 앱이
+        /// 종료되거나 사용자가 설정을 바꿔도 충돌할 복원 로직이 존재하지 않는다.
+        func effectiveFrameFloor(lowPower: Bool) -> TimeInterval {
+            lowPower ? max(frameFloor, Self.powerSaver.frameFloor) : frameFloor
+        }
     }
     var animationQuality: AnimationQuality {
         didSet { defaults.set(animationQuality.rawValue, forKey: "animationQuality") }
