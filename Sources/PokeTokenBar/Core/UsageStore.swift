@@ -36,6 +36,7 @@ final class UsageStore {
     private(set) var isRefreshing = false
     private var refreshPending = false          // 진행 중 refresh 에 겹친 요청을 1회 코얼레싱(드롭 방지)
     private(set) var isRefreshingLimitToken = false
+    private(set) var isRefreshingAntigravityLimits = false
     private(set) var lastErrorDescription: String?
     private(set) var limitTokenRefreshError: String?
 
@@ -889,6 +890,9 @@ final class UsageStore {
     }
 
     func refreshAntigravityLimitsFromKeychain() async {
+        guard !isRefreshingAntigravityLimits else { return }
+        isRefreshingAntigravityLimits = true
+        defer { isRefreshingAntigravityLimits = false }
         await refreshAntigravityLimits(allowKeychainPrompt: true)
     }
 

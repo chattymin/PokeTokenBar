@@ -395,9 +395,6 @@ struct PopoverView: View {
             antigravityRefreshRow
         }
         if let status = store.antigravityLimits, status.hasVisibleLimit {
-            if store.antigravityLimitsStale {
-                staleBadge(updatedAt: store.antigravityLimitsUpdatedAt)
-            }
             VStack(alignment: .leading, spacing: 10) {
                 ForEach(Array(status.groups.enumerated()), id: \.offset) { _, group in
                     VStack(alignment: .leading, spacing: 4) {
@@ -445,23 +442,27 @@ struct PopoverView: View {
 
     @ViewBuilder
     private var antigravityRefreshRow: some View {
-        Button {
-            Task { await store.refreshAntigravityLimitsFromKeychain() }
-        } label: {
-            HStack(spacing: 6) {
-                Image(systemName: "key.fill")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+        HStack(spacing: 6) {
+            if store.antigravityLimits == nil {
                 Text(l.limitsTapToLoad)
-                    .font(.caption)
-                Spacer()
-                Text(l.refresh)
-                    .font(.caption)
-                    .foregroundStyle(Color.accentColor)
+                    .font(.caption).foregroundStyle(.secondary)
+            } else {
+                (Text(l.staleLimits) + Text(" · ") + Text(store.antigravityLimitsUpdatedAt ?? Date(), style: .relative))
+                    .font(.caption).foregroundStyle(.orange)
             }
-            .padding(.vertical, 4)
+            Spacer()
+            Button {
+                Task { await store.refreshAntigravityLimitsFromKeychain() }
+            } label: {
+                if store.isRefreshingAntigravityLimits {
+                    ProgressView().controlSize(.small)
+                } else {
+                    Text(l.refresh)
+                }
+            }
+            .controlSize(.small)
+            .disabled(store.isRefreshingAntigravityLimits)
         }
-        .buttonStyle(.plain)
     }
 
     @ViewBuilder
