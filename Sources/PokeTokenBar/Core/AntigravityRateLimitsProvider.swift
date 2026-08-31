@@ -86,24 +86,39 @@ public struct AntigravityRateLimitsProvider: AntigravityLimitsProviding, Sendabl
     }
 }
 
-private actor AntigravityTokenCache {
+actor AntigravityTokenCache {
     static let shared = AntigravityTokenCache()
     private var cachedCredential: AntigravityOAuthCredential?
+    private let tokenFileURLs: [URL]
+
+    init(tokenFileURLs: [URL]? = nil) {
+        self.tokenFileURLs = tokenFileURLs ?? Self.defaultTokenFileURLs
+    }
+
+    static var defaultTokenFileURLs: [URL] {
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        return [
+            home.appendingPathComponent(".gemini/jetski-standalone-oauth-token"),
+            home.appendingPathComponent(".gemini/antigravity/jetski-standalone-oauth-token"),
+        ]
+    }
 
     func accessToken(allowKeychainPrompt: Bool, bypassCache: Bool = false) async throws -> String {
-        if !bypassCache, let cachedCredential, !cachedCredential.isExpired {
-            return cachedCredential.accessToken
-        }
-
         // 1. 파일 크리덴셜(~/.gemini/jetski-standalone-oauth-token) — 키체인 무관, 프롬프트 없음.
         //    파일로 답할 수 있으면 여기서 끝낸다. 이 return 이 없으면 유효한 파일 토큰이 있어도
         //    매 호출이 키체인까지 내려간다(프롬프트를 피할 수 있는 경로를 두고 쓰지 않는 셈).
-        if let fileToken = Self.readTokenFile() {
+        //    캐시 히트보다 앞: 파일 로드는 expiresAt=nil 이라 캐시가 만료로 풀리지 않고,
+        //    계정 전환으로 파일이 바뀌어도 옛 토큰을 계속 쓴다(#227 과 같은 부류).
+        if let fileToken = Self.readTokenFile(urls: tokenFileURLs) {
             if cachedCredential?.accessToken != fileToken {
                 cachedCredential = AntigravityOAuthCredential(
                     accessToken: fileToken, refreshToken: nil, expiresAt: nil)
             }
             return fileToken
+        }
+
+        if !bypassCache, let cachedCredential, !cachedCredential.isExpired {
+            return cachedCredential.accessToken
         }
 
         // 2. 자동(타이머) 경로는 Keychain 을 일절 읽지 않는다. no-UI 쿼리(kSecUseAuthenticationUIFail
@@ -178,13 +193,8 @@ private actor AntigravityTokenCache {
             expiresAt: Date().addingTimeInterval(expiresIn))
     }
 
-    private nonisolated static func readTokenFile() -> String? {
-        let home = FileManager.default.homeDirectoryForCurrentUser
-        let paths = [
-            home.appendingPathComponent(".gemini/jetski-standalone-oauth-token"),
-            home.appendingPathComponent(".gemini/antigravity/jetski-standalone-oauth-token"),
-        ]
-        for url in paths {
+    private nonisolated static func readTokenFile(urls: [URL]) -> String? {
+        for url in urls {
             guard let data = try? Data(contentsOf: url),
                   let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                   let token = json["token"] as? String, !token.isEmpty else {

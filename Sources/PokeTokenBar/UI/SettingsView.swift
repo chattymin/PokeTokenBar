@@ -10,10 +10,17 @@ struct SettingsView: View {
     var onClose: () -> Void
     /// 기존 컬렉션의 도감으로 돌아가 대표 포켓몬을 고르게 한다.
     var onChooseRepresentative: () -> Void
+    /// 고급 섹션을 펼친 채로 열지. 세션 키 만료 안내에서 들어온 경우에만 true —
+    /// 접힌 채로 열면 고칠 입력란이 안 보여 안내가 막다른 길이 된다.
+    var startExpanded = false
     @State private var launchAtLogin = LoginItem.isEnabled
     @State private var launchAtLoginError: String?
     @State private var reportError: String?
     @State private var advancedExpanded = false
+    /// startExpanded 를 @State 초기값으로 못 쓴다 — 뷰가 재사용되면 초기화가 다시 안 돌아
+    /// 두 번째 진입부터 접힌 채로 열린다. onAppear 에서 1회 반영한다.
+    @State private var didApplyStartExpanded = false
+    @State private var sessionKeyInput = ""
     @State private var isCheckingUpdate = false
     @State private var didCheckUpdate = false
     @State private var selectedScanProviderID = "claude_code"
@@ -74,6 +81,11 @@ struct SettingsView: View {
             footer
         }
         .frame(height: 460)
+        .onAppear {
+            guard !didApplyStartExpanded else { return }
+            didApplyStartExpanded = true
+            if startExpanded { advancedExpanded = true }
+        }
     }
 
     private var header: some View {
@@ -160,6 +172,21 @@ struct SettingsView: View {
                 Spacer()
                 Picker("", selection: $store.refreshInterval) {
                     ForEach(UsageStore.intervalPresets, id: \.value) { Text(l.intervalLabel($0.value)).tag($0.value) }
+                }
+                .labelsHidden().pickerStyle(.menu).fixedSize()
+            }
+            Divider()
+            groupRow {
+                // 메뉴바 스프라이트와 플로팅 펫 **둘 다**에 적용되므로 펫 섹션이 아니라 일반 섹션에 둔다.
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(l.animationQualityLabel)
+                    Text(l.animationQualityHint).font(.caption2).foregroundStyle(.tertiary)
+                }
+                Spacer()
+                Picker("", selection: $store.animationQuality) {
+                    Text(l.animationPowerSaver).tag(UsageStore.AnimationQuality.powerSaver)
+                    Text(l.animationBalanced).tag(UsageStore.AnimationQuality.balanced)
+                    Text(l.animationSmooth).tag(UsageStore.AnimationQuality.smooth)
                 }
                 .labelsHidden().pickerStyle(.menu).fixedSize()
             }
@@ -386,6 +413,91 @@ struct SettingsView: View {
         }
     }
 
+    /// claude.ai 세션 키 — Keychain 을 안 읽는 한도 조회 경로. 붙여넣고 저장하면 즉시 검증한다.
+    @ViewBuilder
+    private func sessionKeyRows(_ store: UsageStore) -> some View {
+        groupRow {
+            VStack(alignment: .leading, spacing: 1) {
+                HStack(spacing: 6) {
+                    Text(l.sessionKeyLabel)
+                    if store.sessionKeyExpired {
+                        // 키는 아직 저장돼 있지만 서버가 거부한 상태 — 여기서 '설정됨' 을 그대로
+                        // 두면 만료 안내를 보고 들어온 사용자가 할 일을 못 찾는다.
+                        Text(l.sessionKeyExpiredBadge)
+                            .font(.caption2).foregroundStyle(.orange)
+                    } else if store.sessionKeyConfigured {
+                        Text(l.sessionKeySaved)
+                            .font(.caption2).foregroundStyle(.green)
+                    }
+                }
+                Text(l.sessionKeyHint).font(.caption2).foregroundStyle(.tertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer()
+        }
+        groupRow {
+            // 값은 되돌려 보여주지 않는다 — 저장돼 있으면 빈 칸에 자리표시만 둔다.
+            SecureField(store.sessionKeyConfigured ? "••••••••" : "sk-ant-sid…", text: $sessionKeyInput)
+                .textFieldStyle(.roundedBorder)
+                .frame(maxWidth: 220)
+                .onSubmit { submitSessionKey(store) }
+            Button {
+                submitSessionKey(store)
+            } label: {
+                if store.isValidatingSessionKey {
+                    ProgressView().controlSize(.small)
+                } else {
+                    Text(l.save)
+                }
+            }
+            .disabled(sessionKeyInput.isEmpty || store.isValidatingSessionKey)
+            if store.sessionKeyConfigured {
+                Button(l.delete) {
+                    sessionKeyInput = ""
+                    store.clearSessionKey()
+                }
+            }
+            Spacer()
+        }
+        // 조직이 여럿일 때만 노출 — 자동 선택이 개인/회사 계정을 잘못 고를 수 있다.
+        if store.sessionKeyOrganizations.count > 1 {
+            groupRow {
+                Text(l.sessionKeyOrganizationLabel)
+                Spacer()
+                Picker("", selection: Binding(
+                    get: { store.sessionKeySelectedOrgID ?? "" },
+                    set: { id in Task { await store.selectSessionOrganization(id) } })
+                ) {
+                    ForEach(store.sessionKeyOrganizations) { org in
+                        Text(org.name).tag(org.id)
+                    }
+                }
+                .labelsHidden().frame(maxWidth: 220)
+            }
+        }
+        if let sessionKeyError = store.sessionKeyError {
+            Text(sessionKeyError)
+                .font(.caption2).foregroundStyle(.orange)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.horizontal, 12).padding(.bottom, 6)
+        } else if store.sessionKeyConfigured {
+            Text(l.sessionKeyStorageNote)
+                .font(.caption2).foregroundStyle(.tertiary)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.horizontal, 12).padding(.bottom, 6)
+        }
+    }
+
+    private func submitSessionKey(_ store: UsageStore) {
+        let pasted = sessionKeyInput
+        guard !pasted.isEmpty else { return }
+        Task {
+            await store.saveSessionKey(pasted)
+            // 저장에 성공했으면 입력칸을 비운다(키가 화면에 남아있지 않게). 실패면 고쳐 넣을 수 있게 남긴다.
+            if store.sessionKeyError == nil { sessionKeyInput = "" }
+        }
+    }
+
     @ViewBuilder
     private func advancedGroup(_ store: UsageStore) -> some View {
         @Bindable var store = store
@@ -412,6 +524,10 @@ struct SettingsView: View {
             }
 
             if advancedExpanded {
+                Divider()
+                sessionKeyRows(store)
+                    // 재시작 후엔 후보 목록이 비어 있어 조직을 바꿀 수 없다 — 열 때 한 번 채운다.
+                    .task { await store.refreshSessionOrganizations() }
                 Divider()
                 groupRow {
                     VStack(alignment: .leading, spacing: 1) {

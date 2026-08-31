@@ -9,7 +9,7 @@ import XCTest
 /// Here each interpolated member is fed a sentinel that cannot occur in natural
 /// copy, and every language's output must still contain it. Never a literal list
 /// of languages: only `allCases` keeps coverage from silently stopping when a
-/// sixth language lands.
+/// new language lands.
 /// (The French PR #185 proposes an equivalent guard. Whichever merges first, the
 /// other copy can simply be dropped — the guard is not specific to a language.)
 ///

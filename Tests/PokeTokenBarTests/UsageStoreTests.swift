@@ -150,6 +150,32 @@ private final class RecordingClaudeLimits: ClaudeLimitsProviding, @unchecked Sen
     }
 }
 
+/// 세션 키 저장소 스텁 — 실제 파일을 건드리지 않는다.
+private final class StubSessionKeys: SessionKeyManaging, @unchecked Sendable {
+    nonisolated(unsafe) var stored: SessionKeyCredential?
+    nonisolated(unsafe) var discovered: [SessionKeyOrganization]
+    nonisolated(unsafe) var cleared = false
+    nonisolated(unsafe) var saves: [SessionKeyCredential] = []
+
+    init(credential: SessionKeyCredential?, organizations: [SessionKeyOrganization] = []) {
+        stored = credential
+        discovered = organizations
+    }
+    func credential() -> SessionKeyCredential? { stored }
+    func organizations(sessionKey: String) async throws -> [SessionKeyOrganization] { discovered }
+    func save(key: String, organizationID: String?) throws {
+        let credential = SessionKeyCredential(key: key, organizationID: organizationID)
+        stored = credential
+        saves.append(credential)
+    }
+    func clear() { stored = nil; cleared = true }
+}
+
+private func sessionOrg(_ id: String, hasUsage: Bool) -> SessionKeyOrganization {
+    SessionKeyOrganization(id: id, name: id.uppercased(), hasUsageData: hasUsage,
+                           limits: claudeLimits(fiveHourUtil: hasUsage ? 7 : 0))
+}
+
 private final class FakeStatusProvider: ProviderStatusProviding, @unchecked Sendable {
     nonisolated(unsafe) var result: [String: ProviderStatus]
     init(_ result: [String: ProviderStatus] = [:]) { self.result = result }
@@ -758,6 +784,15 @@ final class UsageStoreTests: XCTestCase {
         XCTAssertEqual(s2.limitDisplayMode, .remaining, "같은 defaults 재로드 → 유지")
     }
 
+    /// 설정 영속 — 기본은 powerSaver(이 설정 이전의 고정 캡과 동일), 선택은 재시작 후 유지.
+    func testAnimationQualityPersistsAcrossRestart() {
+        let s1 = makeStore(providers: [])
+        XCTAssertEqual(s1.animationQuality, .powerSaver, "기본값 = powerSaver(기존 동작 보존)")
+        s1.animationQuality = .smooth
+        let s2 = makeStore(providers: [])
+        XCTAssertEqual(s2.animationQuality, .smooth, "같은 defaults 재로드 → 유지")
+    }
+
     // MARK: 집계
 
     func testAggregatesTodayTokensAcrossProviders() async {
@@ -1145,6 +1180,165 @@ final class UsageStoreTests: XCTestCase {
 
     // MARK: 세션 만료(401) UX
 
+    /// 키를 넣은 사용자가 한도를 영영 못 본다.
+    func testKeychainDisabledStillFetchesLimitsWhenSessionKeyIsConfigured() async {
+        let claude = FakeUsageProvider(id: "claude_code", displayName: "Claude Code", daily: todayDaily(1_000))
+        let limits = RecordingClaudeLimits(status: claudeLimits(fiveHourUtil: 10))
+        testDefaults.set(true, forKey: "disableKeychainAccess")
+        let store = UsageStore(providers: [claude],
+                               claudeLimitsProvider: limits,
+                               codexLimitsProvider: FakeCodexLimits(status: nil),
+                               sessionKeys: StubSessionKeys(credential: .init(key: "sk", organizationID: "org")),
+                               autoRefresh: false,
+                               defaults: testDefaults)
+
+        XCTAssertTrue(store.sessionKeyConfigured, "저장된 키는 기동 시 인식돼야 한다")
+        await store.refresh(scheduleEmptyRetry: false)
+
+        XCTAssertTrue(store.limitsAvailable, "세션 키가 있으면 Keychain 토글과 무관하게 한도가 떠야 한다")
+        XCTAssertEqual(limits.promptFlags, [false], "그래도 프롬프트 경로는 쓰지 않는다")
+    }
+
+    /// 키가 없으면 기존 동작 그대로 — 토글이 켜져 있으면 조회 자체를 하지 않는다(팝업 원천 차단).
+    func testKeychainDisabledSkipsLimitsWithoutSessionKey() async {
+        let claude = FakeUsageProvider(id: "claude_code", displayName: "Claude Code", daily: todayDaily(1_000))
+        let limits = RecordingClaudeLimits(status: claudeLimits(fiveHourUtil: 10))
+        testDefaults.set(true, forKey: "disableKeychainAccess")
+        let store = UsageStore(providers: [claude],
+                               claudeLimitsProvider: limits,
+                               codexLimitsProvider: FakeCodexLimits(status: nil),
+                               sessionKeys: StubSessionKeys(credential: nil),
+                               autoRefresh: false,
+                               defaults: testDefaults)
+
+        await store.refresh(scheduleEmptyRetry: false)
+
+        XCTAssertTrue(limits.promptFlags.isEmpty, "키가 없고 토글이 켜져 있으면 한도 조회를 아예 하지 않는다")
+        XCTAssertFalse(store.limitsAvailable)
+    }
+
+    /// 붙여넣기 → 검증 → 저장. 사용 중인 조직을 자동으로 골라야 한다(목록의 첫 번째가 아니라).
+    func testSaveSessionKeyValidatesAndPicksOrgWithUsage() async {
+        let claude = FakeUsageProvider(id: "claude_code", displayName: "Claude Code", daily: todayDaily(1_000))
+        let keys = StubSessionKeys(credential: nil,
+                                   organizations: [sessionOrg("org-idle", hasUsage: false),
+                                                   sessionOrg("org-active", hasUsage: true)])
+        let store = UsageStore(providers: [claude],
+                              claudeLimitsProvider: FakeClaudeLimits(status: claudeLimits(fiveHourUtil: 7)),
+                              codexLimitsProvider: FakeCodexLimits(status: nil),
+                              sessionKeys: keys, autoRefresh: false, defaults: testDefaults)
+
+        await store.saveSessionKey("  sk-ant-sid02-\(String(repeating: "a", count: 60))\n")
+
+        XCTAssertNil(store.sessionKeyError)
+        XCTAssertTrue(store.sessionKeyConfigured)
+        XCTAssertEqual(store.sessionKeySelectedOrgID, "org-active", "값이 있는 조직을 골라야 한다")
+        XCTAssertEqual(keys.saves.last?.key.hasSuffix("aaa"), true, "공백·줄바꿈은 잘라서 저장한다")
+        XCTAssertEqual(store.sessionKeyOrganizations.count, 2, "드롭다운용 후보는 남겨둔다")
+    }
+
+    /// 형식이 틀리면 저장하지 않고 안내만 띄운다 — 잘못된 키로 폴링을 시작하면 매번 401 을 맞는다.
+    func testSaveSessionKeyRejectsMalformedInputWithoutStoring() async {
+        let claude = FakeUsageProvider(id: "claude_code", displayName: "Claude Code", daily: todayDaily(1_000))
+        let keys = StubSessionKeys(credential: nil, organizations: [sessionOrg("org", hasUsage: true)])
+        let store = UsageStore(providers: [claude],
+                              claudeLimitsProvider: FakeClaudeLimits(status: nil),
+                              codexLimitsProvider: FakeCodexLimits(status: nil),
+                              sessionKeys: keys, autoRefresh: false, defaults: testDefaults)
+
+        store.localizationLanguage = .ko   // 스토어가 만든 문구를 비교하므로 언어를 고정한다
+        await store.saveSessionKey("not-a-session-key")
+
+        XCTAssertFalse(store.sessionKeyConfigured)
+        XCTAssertTrue(keys.saves.isEmpty, "형식 검증을 통과하지 못한 값은 저장하지 않는다")
+        XCTAssertEqual(store.sessionKeyError, L(.ko).sessionKeyMalformedError)
+    }
+
+    /// 키에 보이는 조직이 없으면(전부 403) 저장하지 않는다 — 저장해도 한도를 못 본다.
+    func testSaveSessionKeyRejectsKeyWithNoVisibleOrganization() async {
+        let claude = FakeUsageProvider(id: "claude_code", displayName: "Claude Code", daily: todayDaily(1_000))
+        let keys = StubSessionKeys(credential: nil, organizations: [])
+        let store = UsageStore(providers: [claude],
+                              claudeLimitsProvider: FakeClaudeLimits(status: nil),
+                              codexLimitsProvider: FakeCodexLimits(status: nil),
+                              sessionKeys: keys, autoRefresh: false, defaults: testDefaults)
+
+        store.localizationLanguage = .ko   // 스토어가 만든 문구를 비교하므로 언어를 고정한다
+        await store.saveSessionKey("sk-ant-sid02-\(String(repeating: "a", count: 60))")
+
+        XCTAssertFalse(store.sessionKeyConfigured)
+        XCTAssertTrue(keys.saves.isEmpty)
+        XCTAssertEqual(store.sessionKeyError, L(.ko).sessionKeyNoOrgError)
+    }
+
+    func testClearSessionKeyResetsStateAndStorage() async {
+        let claude = FakeUsageProvider(id: "claude_code", displayName: "Claude Code", daily: todayDaily(1_000))
+        let keys = StubSessionKeys(credential: .init(key: "sk", organizationID: "org-active"),
+                                   organizations: [sessionOrg("org-active", hasUsage: true)])
+        let store = UsageStore(providers: [claude],
+                              claudeLimitsProvider: FakeClaudeLimits(status: claudeLimits(fiveHourUtil: 7)),
+                              codexLimitsProvider: FakeCodexLimits(status: nil),
+                              sessionKeys: keys, autoRefresh: false, defaults: testDefaults)
+        XCTAssertTrue(store.sessionKeyConfigured)
+
+        store.clearSessionKey()
+
+        XCTAssertTrue(keys.cleared)
+        XCTAssertFalse(store.sessionKeyConfigured)
+        XCTAssertNil(store.sessionKeySelectedOrgID)
+        XCTAssertTrue(store.sessionKeyOrganizations.isEmpty)
+    }
+
+    /// 자동 선택이 틀렸을 때 사용자가 조직을 바꾼다 — 같은 키로 조직만 갈아끼워 저장해야 한다.
+    func testSelectSessionOrganizationSwitchesOrgKeepingTheKey() async {
+        let claude = FakeUsageProvider(id: "claude_code", displayName: "Claude Code", daily: todayDaily(1_000))
+        let keys = StubSessionKeys(credential: .init(key: "sk-ant-sid02-abc", organizationID: "org-a"))
+        let store = UsageStore(providers: [claude],
+                              claudeLimitsProvider: FakeClaudeLimits(status: claudeLimits(fiveHourUtil: 7)),
+                              codexLimitsProvider: FakeCodexLimits(status: nil),
+                              sessionKeys: keys, autoRefresh: false, defaults: testDefaults)
+
+        await store.selectSessionOrganization("org-b")
+
+        XCTAssertEqual(keys.saves.last?.organizationID, "org-b")
+        XCTAssertEqual(keys.saves.last?.key, "sk-ant-sid02-abc", "키는 그대로 유지돼야 한다")
+        XCTAssertEqual(store.sessionKeySelectedOrgID, "org-b")
+    }
+
+    /// 재시작 후에는 후보 목록이 비어 있다 — 설정을 열 때 다시 채워야 조직을 바꿀 수 있다.
+    func testRefreshSessionOrganizationsRepopulatesAfterRestart() async {
+        let claude = FakeUsageProvider(id: "claude_code", displayName: "Claude Code", daily: todayDaily(1_000))
+        let keys = StubSessionKeys(credential: .init(key: "sk-ant-sid02-abc", organizationID: "org-b"),
+                                   organizations: [sessionOrg("org-a", hasUsage: false),
+                                                   sessionOrg("org-b", hasUsage: true)])
+        let store = UsageStore(providers: [claude],
+                              claudeLimitsProvider: FakeClaudeLimits(status: claudeLimits(fiveHourUtil: 7)),
+                              codexLimitsProvider: FakeCodexLimits(status: nil),
+                              sessionKeys: keys, autoRefresh: false, defaults: testDefaults)
+        XCTAssertTrue(store.sessionKeyOrganizations.isEmpty, "기동 직후에는 후보를 모른다(네트워크 미조회)")
+
+        await store.refreshSessionOrganizations()
+
+        XCTAssertEqual(store.sessionKeyOrganizations.map(\.id), ["org-a", "org-b"])
+        XCTAssertEqual(store.sessionKeySelectedOrgID, "org-b", "저장된 선택을 그대로 반영해야 한다")
+    }
+
+    /// 키가 없으면 네트워크를 치지 않는다 — 설정을 여는 것만으로 조회가 나가면 안 된다.
+    func testRefreshSessionOrganizationsDoesNothingWithoutKey() async {
+        let claude = FakeUsageProvider(id: "claude_code", displayName: "Claude Code", daily: todayDaily(1_000))
+        let keys = StubSessionKeys(credential: nil, organizations: [sessionOrg("org-a", hasUsage: true)])
+        let store = UsageStore(providers: [claude],
+                              claudeLimitsProvider: FakeClaudeLimits(status: nil),
+                              codexLimitsProvider: FakeCodexLimits(status: nil),
+                              sessionKeys: keys, autoRefresh: false, defaults: testDefaults)
+
+        await store.refreshSessionOrganizations()
+
+        XCTAssertTrue(store.sessionKeyOrganizations.isEmpty)
+    }
+
+    // MARK: 플로팅 펫 설정 (기본값 + 영속)
+
     func testLimitsAuthExpiredSetOn401AndClearedOnSuccess() async {
         let claude = FakeUsageProvider(id: "claude_code", displayName: "Claude Code", daily: todayDaily(10_000_000))
         let seq = SequenceClaudeLimits(errors: [LimitsError.httpStatus(401)],
@@ -1160,6 +1354,74 @@ final class UsageStoreTests: XCTestCase {
         XCTAssertTrue(store.limitsAuthExpired, "401 → 세션 만료 안내 상태")
         await store.refresh(scheduleEmptyRetry: false)   // 이번엔 성공
         XCTAssertFalse(store.limitsAuthExpired, "성공 시 해제")
+    }
+
+    /// 그 팝업을 띄운다. 그래서 만료의 **출처**를 남긴다.
+    func testSessionKeyExpiryIsDistinguishedFromOAuthExpiry() async {
+        let claude = FakeUsageProvider(id: "claude_code", displayName: "Claude Code", daily: todayDaily(10_000_000))
+        let store = UsageStore(providers: [claude],
+                               claudeLimitsProvider: SequenceClaudeLimits(errors: [LimitsError.sessionKeyInvalid]),
+                               codexLimitsProvider: FakeCodexLimits(status: nil),
+                               autoRefresh: false, defaults: testDefaults)
+        await store.refresh(scheduleEmptyRetry: false)
+        XCTAssertEqual(store.limitsAuthExpiry, .sessionKey, "세션 키 401 → 세션 키 만료로 식별돼야 한다")
+        XCTAssertTrue(store.limitsAuthExpired, "기존 불리언 계약은 그대로 유지")
+    }
+
+    /// OAuth 401 은 세션 키 만료로 오인되면 안 된다 — 반대 방향 오분류 가드.
+    func testOAuthExpiryIsNotReportedAsSessionKeyExpiry() async {
+        let claude = FakeUsageProvider(id: "claude_code", displayName: "Claude Code", daily: todayDaily(10_000_000))
+        let store = UsageStore(providers: [claude],
+                               claudeLimitsProvider: SequenceClaudeLimits(errors: [LimitsError.httpStatus(401)]),
+                               codexLimitsProvider: FakeCodexLimits(status: nil),
+                               autoRefresh: false, defaults: testDefaults)
+        await store.refresh(scheduleEmptyRetry: false)
+        XCTAssertEqual(store.limitsAuthExpiry, .oauth, "OAuth 401 → OAuth 만료")
+    }
+
+    /// 만료 출처는 성공하면 사라져야 한다 — 남으면 한도가 정상인데 만료 배너가 계속 뜬다.
+    func testSessionKeyExpiryClearsOnSuccess() async {
+        let claude = FakeUsageProvider(id: "claude_code", displayName: "Claude Code", daily: todayDaily(10_000_000))
+        let seq = SequenceClaudeLimits(errors: [LimitsError.sessionKeyInvalid],
+                                       success: claudeLimits(fiveHourUtil: 12, resetsAt: "2099-01-01T00:00:00Z"))
+        // 이 테스트의 관심사는 만료 해제이지 폴 간격이 아니다 — 간격을 꺼서 두 번째 refresh 가
+        // 실제로 조회하게 한다(간격 자체는 LimitsPollCadenceTests 가 검증).
+        let store = UsageStore(providers: [claude], claudeLimitsProvider: seq,
+                               codexLimitsProvider: FakeCodexLimits(status: nil),
+                               autoRefresh: false, remoteLimitsPollInterval: 0,
+                               defaults: testDefaults)
+        await store.refresh(scheduleEmptyRetry: false)
+        XCTAssertEqual(store.limitsAuthExpiry, .sessionKey)
+        await store.refresh(scheduleEmptyRetry: false)
+        XCTAssertNil(store.limitsAuthExpiry, "성공 시 해제")
+    }
+
+    /// [회귀] 설정 화면의 세션 키 배지는 `sessionKeyConfigured` 만 보고 그려졌다 — 그 값은 키가
+    /// 만료돼도 true 라, 팝오버에서 "만료"를 보고 설정에 들어가면 여전히 "설정됨"이라 적혀 있었다.
+    /// 사용자가 "뭘 해야 하지"에서 막히던 지점이라 만료를 배지가 읽을 수 있는 상태로 노출한다.
+    func testSessionKeyExpiredIsVisibleWhileKeyIsStillStored() async {
+        let claude = FakeUsageProvider(id: "claude_code", displayName: "Claude Code", daily: todayDaily(10_000_000))
+        let store = UsageStore(providers: [claude],
+                               claudeLimitsProvider: SequenceClaudeLimits(errors: [LimitsError.sessionKeyInvalid]),
+                               codexLimitsProvider: FakeCodexLimits(status: nil),
+                               sessionKeys: StubSessionKeys(credential: .init(key: "sk", organizationID: "org")),
+                               autoRefresh: false, defaults: testDefaults)
+        XCTAssertFalse(store.sessionKeyExpired, "만료 전에는 평상시 배지")
+        await store.refresh(scheduleEmptyRetry: false)
+        XCTAssertTrue(store.sessionKeyConfigured, "키는 여전히 저장돼 있다 — 지우는 건 사용자 몫")
+        XCTAssertTrue(store.sessionKeyExpired, "그래도 배지는 '만료됨' 이어야 한다")
+    }
+
+    /// 키를 넣은 적 없는 사용자의 OAuth 만료가 세션 키 배지를 건드리면 안 된다.
+    func testOAuthExpiryDoesNotMarkSessionKeyExpired() async {
+        let claude = FakeUsageProvider(id: "claude_code", displayName: "Claude Code", daily: todayDaily(10_000_000))
+        let store = UsageStore(providers: [claude],
+                               claudeLimitsProvider: SequenceClaudeLimits(errors: [LimitsError.httpStatus(401)]),
+                               codexLimitsProvider: FakeCodexLimits(status: nil),
+                               sessionKeys: StubSessionKeys(credential: nil),
+                               autoRefresh: false, defaults: testDefaults)
+        await store.refresh(scheduleEmptyRetry: false)
+        XCTAssertFalse(store.sessionKeyExpired)
     }
 
     func testLimitsAuthExpiredNotSetOnNon401() async {

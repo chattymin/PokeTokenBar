@@ -1400,6 +1400,125 @@ enum LocalUsageReader {
         return nil
     }
 
+    // MARK: omp (oh-my-pi)
+
+    static let defaultOmpSessionsPath = ".omp/agent/sessions"
+
+    /// Scanner/cache share this one root list (same multi-root shape as `piSessionRoots`).
+    static var ompSessionRoots: [URL] {
+        computeOmpSessionRoots()
+    }
+
+    /// Default root + `$OMP_CODING_AGENT_DIR/sessions`. omp (a pi fork) reads
+    /// `OMP_CODING_AGENT_DIR` for its agent home; unlike pi there is no separate
+    /// session-dir env var (checked against the omp binary's string table — only
+    /// `OMP_CODING_AGENT_DIR` exists; `*_SESSION_DIR` is pi-only).
+    static func computeOmpSessionRoots(
+        agentDirValue: String? = UsageEnvironment.value("OMP_CODING_AGENT_DIR"),
+        home: URL = FileManager.default.homeDirectoryForCurrentUser
+    ) -> [URL] {
+        var roots = [home.appendingPathComponent(defaultOmpSessionsPath)]
+        if let agentDirValue, !agentDirValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            roots.append(URL(fileURLWithPath: NSString(string: agentDirValue).expandingTildeInPath)
+                .appendingPathComponent("sessions"))
+        }
+        return normalizedRoots(roots)
+    }
+
+    /// Parses an omp (pi-format) session file. nil = unreadable (a failed file is not cached,
+    /// so the next refresh retries) — contract shared with `parsePiFile`.
+    ///
+    /// Every `type:"message"` + `message.role:"assistant"` line's `message.usage` is summed —
+    /// one line is one API response, so no dedup or branch filter is needed (rewound branches
+    /// were already billed; same rule as pi-session-manager). Mirroring `parsePiFile`,
+    /// `compaction`/`branch_summary` envelope usage counts too and aborted/error messages are
+    /// skipped; `usage.input` is already the non-cached input. Subagent sessions
+    /// (`<id>/__advisor.jsonl` etc.) are not folded into the parent's usage; they live in their
+    /// own files, so the recursive scan intentionally includes them (Grok's fold-in exclusion
+    /// would double-count here).
+    static func parseOmpFile(_ url: URL, fmt: DateFormatter) -> [Entry]? {
+        guard let text = try? String(contentsOf: url, encoding: .utf8) else { return nil }
+        let file = url.lastPathComponent
+        var out: [Entry] = []
+        for line in text.split(separator: "\n", omittingEmptySubsequences: true) {
+            // user/toolResult/custom lines carry no usage → filter by string before JSON parsing.
+            guard line.contains("\"usage\"") else { continue }
+            autoreleasepool {   // drain JSONSerialization's autoreleased objects per line
+                if let e = parseOmpLine(String(line), file: file, fmt: fmt) { out.append(e) }
+            }
+        }
+        return dedupKeepMax(out)
+    }
+
+    /// Whether this file counts — anything under `bridge/` is a conversion copy that
+    /// pi-session-manager made from another session source (Claude, Codex, even omp itself),
+    /// so the original usage is already aggregated by that provider or root session file.
+    /// Counting it too would double the same tokens (observed: bridge/2026-08-19T03-19-25.604_00000000.jsonl
+    /// mirrors the same-named file under -Projects/). Path-component test, so evaluating it
+    /// ahead of the blob cache never bakes in a stale verdict.
+    static func isOmpUsageFile(_ url: URL) -> Bool {
+        !url.pathComponents.contains("bridge")
+    }
+
+    static func ompEntries(modifiedSince: Date, roots: [URL] = ompSessionRoots) -> [Entry] {
+        let fmt = localDayFormatter()
+        var all: [Entry] = []
+        for root in normalizedRoots(roots) {
+            for file in jsonlFiles(in: root, modifiedSince: modifiedSince) where isOmpUsageFile(file) {
+                all.append(contentsOf: parseOmpFile(file, fmt: fmt) ?? [])
+            }
+        }
+        return dedupKeepMax(all)
+    }
+
+    private static func parseOmpLine(_ line: String, file: String, fmt: DateFormatter) -> Entry? {
+        guard let data = line.data(using: .utf8),
+              let envelope = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let type = envelope["type"] as? String else { return nil }
+        let usage: [String: Any]
+        let date: Date?
+        var model = "omp"
+        switch type {
+        case "message":
+            guard let message = envelope["message"] as? [String: Any],
+                  (message["role"] as? String) == "assistant",
+                  message["stopReason"] as? String != "aborted",
+                  message["stopReason"] as? String != "error",
+                  let messageUsage = message["usage"] as? [String: Any] else { return nil }
+            usage = messageUsage
+            model = (message["model"] as? String) ?? "omp"
+            date = piMessageDate(message, envelope: envelope)
+        case "compaction", "branch_summary":
+            usage = envelope["usage"] as? [String: Any] ?? [:]
+            date = piEnvelopeDate(envelope)
+        default:
+            return nil
+        }
+        guard let date, !usage.isEmpty else { return nil }
+        // Message ids are 8-hex, unique only within a session → scope by file name.
+        let id = "omp|" + file + "|" + ((envelope["id"] as? String) ?? UUID().uuidString)
+        // `usage.cost.total` is the real charge pi computed from model pricing — trust only
+        // when > 0 (free/unknown models are written as 0, which falls back to the price table).
+        let cost = (usage["cost"] as? [String: Any]).flatMap { doubleOrNil($0["total"]) }
+            .flatMap { $0 > 0 ? $0 : nil }
+
+        let names = ["input", "output", "cacheWrite", "cacheRead"]
+        let hasGranularUsage = names.contains { intOrNil(usage[$0]) != nil }
+        if hasGranularUsage {
+            return Entry(
+                id: id, date: date, localDay: fmt.string(from: date), model: model,
+                input: intOrNil(usage["input"]) ?? 0,
+                output: intOrNil(usage["output"]) ?? 0,
+                cacheWrite: intOrNil(usage["cacheWrite"]) ?? 0,
+                cacheRead: intOrNil(usage["cacheRead"]) ?? 0,
+                explicitCost: cost)
+        }
+        // Malformed total-only usage has no recoverable bucket split; preserve its aggregate total.
+        guard let total = intOrNil(usage["totalTokens"]) else { return nil }
+        return Entry(id: id, date: date, localDay: fmt.string(from: date), model: model,
+                     input: total, output: 0, cacheWrite: 0, cacheRead: 0, explicitCost: cost)
+    }
+
     private static func codexModel(_ line: Data) -> String? {
         guard let obj = try? JSONSerialization.jsonObject(with: line) as? [String: Any],
               let payload = obj["payload"] as? [String: Any] else { return nil }

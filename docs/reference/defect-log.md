@@ -67,6 +67,15 @@ read_when:
   계약 테스트)를 열어 키·타입·의미를 확정 ② 그 계약으로 픽스처 작성 ③ 가능하면 실파일 1건 캡처. 특히
   **같은 스펠링이 표면마다 의미가 다를 수 있다**(Grok `inputTokens`=캐시 포함 durable wire vs `input_tokens`=캐시
   제외 헤드리스 투영) — 별칭으로 합치면 캐시분을 두 번 빼거나 두 번 더한다.
+- **스토리지 컷오버는 옛 파일명만 보면 커스텀 루트도 0이다.** 업스트림이 `data.sqlite3` 에 쓰기를
+  멈추고 `~/.kiro/sessions` JSONL 로 옮겼는데, 리더가 루트마다 sqlite 만 열면 Settings 의
+  `~/.kiro` 추가 폴더가 no-op 가 되고 최근 사용량이 0 으로 보인다(#236). 규칙: ① 기본 루트 목록에
+  *새* 레이아웃 경로를 넣는다 ② 커스텀 루트는 레이아웃으로 분류해 스캔한다(`data.sqlite3` 존재 여부로
+  폴더를 버리지 마라) ③ 옛 스토어는 폴백으로 남긴다 ④ 픽스처는 writer 계약(실파일에서 뽑은
+  envelope — tokscale/codeburn 의 Kiro 파서 테스트). 같은 파일에 크레딧 필드가 있어도 달러가 아니면
+  `reportsCost` 를 켜지 마라. 가드: `testExtraRootFindsJsonlSessionsWithoutSqlite`·
+  `testCliJsonlSessionIsReadFromWriterShapedEvents`·`testV3MessagesJsonlSessionIsRead` —
+  JSONL 스캔을 끄면 이 셋이 빨개져야 한다(헬퍼 복사본이 아니라 프로덕션 `kiroEntries`).
 - **Antigravity의 생성 시각은 `gen_metadata` 한 곳에 고정돼 있지 않다.** 구 포맷은
   `chat_start_metadata.created_at`에 시각을 넣지만, 현재 포맷은 그 필드를 비우고 `steps.metadata`에
   타임스탬프를 둔다(`8 finished_at`, 없으면 `1 created_at`). 토큰 필드는 유지되므로 `gen_metadata`만
@@ -134,6 +143,11 @@ read_when:
   (`shellEnvironmentValues`) — 이름마다 띄우면 프로바이더가 늘수록 기동이 그만큼 느려진다.
   프로세스 환경에 전부 있으면 셸을 아예 안 띄우는 분기도 함께 가드한다(`…SkipsShellLookup`).
   `export FOO=` 처럼 **빈 값은 미설정으로** 취급한다 — 값으로 받으면 없는 경로를 스캔하고 조용히 0 이 된다.
+  **`UsageEnvironment.value("X")` 만 있고 `names` 에 `X` 가 없으면 영원히 nil 이다.** Kiro 는
+  `environmentPaths("KIRO_CLI_HOME")` 로 읽고 있었는데 이름이 레지스트리에 없어, 셸에 export 해 둔
+  값이 GUI 앱은 물론 프로세스 환경에서도 안 보였다. 같은 스윕에서 `CURSOR_DATA_DIR` 도 같은 구멍.
+  가드: `testSourceLiteralEnvKeysAreAllRegistered` 가 Sources 의 `environmentPaths("X")` /
+  `UsageEnvironment.value("X")` 리터럴을 `names` 와 대조한다(#236).
 - **디렉터리 탐색은 깊이만 막으면 폭이 안 막히지만, 이름 기반 가지치기는 더 위험하다.** 깊이 가지치기는
   `> maxDepth` 가 아니라 `>= maxDepth` 에서 걸어야 한 단계 더 내려가지 않는다(전자는 상한+1 까지 방문).
   깊이 상한은 **실제 레이아웃 깊이를 테스트로 고정**하고 여유를 둔다 — 경계에 붙여 두면 상위 소스가 한 단계
@@ -308,10 +322,55 @@ read_when:
   팝업(토큰 만료 시점마다 하루 몇 회, 아침 등). self-signed 앱은 '항상 허용' 승인도 불안정. → 타이머 경로
   `fetch(allowKeychainPrompt: false)` 는 캐시+파일만 쓰고 키체인은 건드리지 않는다(`OAuthLimitsProvider`
   의 `guard allowKeychainPrompt` 가 키체인 읽기 앞에 위치). 키체인 읽기는 명시적 사용자 버튼
-  (설정 갱신·팝오버 `claudeLimitsRefreshRow`, `refreshLimitTokenFromKeychain`)에서만. 캐시 토큰이 살아있는
-  동안은 자동 폴이 그 토큰으로 한도를 계속 갱신하고, 만료되면 stale 표시 후 사용자가 갱신한다. 회귀 가드:
-  `testAutoRefreshUsesNoPromptPathManualUsesPromptPath`. (완전 근절은 Developer ID notarization 으로
-  '항상 허용' 승인을 안정화하는 것뿐 — 신뢰된 서명 신원이라야 ACL 승인이 지속된다. 미도입.)
+  (설정 갱신·팝오버 `claudeLimitsRefreshRow`, `refreshLimitTokenFromKeychain`)에서만. 파일이 유효
+  토큰을 들고 있으면 매 자동 폴이 그걸 다시 읽고, 파일이 없을 때만 캐시가 버티다가 만료 후 stale.
+  회귀 가드: `testAutoRefreshUsesNoPromptPathManualUsesPromptPath`. (완전 근절은 Developer ID
+  notarization 으로 '항상 허용' 승인을 안정화하는 것뿐 — 신뢰된 서명 신원이라야 ACL 승인이 지속된다.
+  미도입.)
+- **Claude 의 `refreshToken` 은 보이지만 우리가 쓰면 안 된다 — 갱신 시 회전되어 Claude Code 를 깨뜨린다.**
+  키체인 항목(`claudeAiOauth`)에는 `accessToken`(수명 ~5h) 옆에 `refreshToken`·`refreshTokenExpiresAt`
+  (~15일)이 함께 들어 있다. "그걸로 갱신하면 키체인 접근이 5시간마다 → 15일마다로 줄겠다"는 발상이
+  자연스럽게 나오는데, **하면 안 된다.** Claude Code 바이너리 확인: 갱신은
+  `POST {baseURL}/v1/oauth/token`(`grant_type=refresh_token`, `client_id`)이고 응답 처리 함수가
+  `ltu(e,t) → { refreshToken: t.refreshToken, … }` 로 **저장된 refreshToken 을 응답의 새 값으로 교체**한다.
+  즉 회전한다. 외부 앱이 대신 갱신하면 Claude Code 의 키체인 사본이 죽은 토큰이 되어 **재로그인**을 요구한다.
+  피하려면 남의 자격증명 저장소에 write 해야 하는데 그건 위 '앱 소유 keychain 항목 금지' 가 막는 영역이다.
+  **Antigravity 와 다른 이유가 여기 있다** — Google 은 회전하지 않아서 `AntigravityTokenCache` 가
+  `refreshToken: refreshToken` 으로 기존 값을 그대로 재사용한다(`refreshGoogleToken`). 두 프로바이더의
+  토큰 규약이 다른 것이지 Claude 쪽 구현 누락이 아니다.
+  **확실도:** 회전은 "Claude Code 가 응답의 토큰으로 교체 저장한다"에서 추론한 것이고 실제로 갱신을
+  걸어 확인하지는 않았다 — 틀렸을 때의 대가가 사용자의 주 도구 로그인 파손이라 시험 자체를 하지 않았다.
+  판단 근거는 확률이 아니라 비대칭이다: **잘 돼야 #241 세션 키가 이미 더 완전하게 주는 것(간격 축소 vs
+  프롬프트 제거)의 열화판이고, 잘못되면 Claude Code 가 깨진다.**
+  같은 맥락에서 기각된 것: **사용자 경로에 무프롬프트 선시도를 덧대는 것**(Antigravity 방식). ACL 이
+  승인돼 있으면 프롬프트 쿼리도 조용히 통과하고, 미승인이면 무프롬프트는 실패해 결국 프롬프트를 띄운다 —
+  두 경로의 결과가 같아 얻는 게 없다. 패턴이 다른 프로바이더에 있다는 것만으로 이식하지 마라.
+- **인메모리 토큰 캐시는 만료만 보면 안 된다 — 원본 파일이 다른 유효 토큰으로 바뀌었는지도 본다.**
+  `/login` 으로 계정을 갈아타면 `~/.claude/.credentials.json` 이 새 토큰으로 덮이지만, 캐시가 옛
+  토큰의 `expiresAt` 까지 그걸 무시하면 공식 5h/주 바가 이전 계정에 붙고 컴패니언 EXP 만 로컬
+  jsonl 로 계속 오른다(#227). 자동 폴은 키체인을 안 읽으므로 **파일 peek 를 캐시 히트보다 앞에**
+  둔다. 파일이 없거나 `"claudeAiOauth": null` 이면 캐시를 유지(로그아웃·`CLAUDE_CONFIG_DIR` 잔여
+  파일 — 기존 `credentialsFileIsAccountOAuthMissing` 과 같은 이유). 같은 부류: Antigravity
+  `jetski-standalone-oauth-token` 은 파일 로드 시 `expiresAt=nil` 이라 캐시가 만료로 풀리지 않는다.
+  회귀: `testClaudeAutoPollPicksUpInPlaceAccountSwitch`·`testAntigravityAutoPollPicksUpTokenFileSwitch`.
+  캐시-우선 early return 을 되돌리면 이 두 테스트가 실패해야 한다.
+- **`kSecMatchLimitAll` 과 `kSecReturnData` 는 같이 못 쓴다 — macOS 가 errSecParam(-50) 으로 거절한다.**
+  "서비스에 항목이 여럿일 수 있으니 전부 받아서 유효한 걸 고르자"는 발상 자체는 옳지만(#229), 한 번의
+  `SecItemCopyMatching` 으로 *모든 항목의 데이터*를 받는 쿼리는 **파라미터 단계에서** 거절된다. 항목이
+  없어서가 아니라 조합이 무효라서라, ACL 승인·항목 존재·재로그인 어느 것으로도 우회되지 않는다.
+  결과는 조용한 전면 실패였다 — Keychain 에만 자격증명이 있는 사용자(파일 `~/.claude/.credentials.json`
+  없음)는 수동 갱신을 눌러도 `keychainUnavailable(-50)` 만 나고 공식 한도가 **영구히** 안 떴다.
+  → 두 단계로 나눈다: ① `kSecMatchLimitAll` + `kSecReturnAttributes` 로 `acct` 목록만 열거
+  ② 계정마다 `kSecMatchLimitOne` + `kSecReturnData` 로 단건 조회. 계정 속성을 못 얻으면 스코프 없는
+  단건 읽기로 폴백한다(항목이 하나뿐인 흔한 경우).
+  **5-whys(왜 못 걸렀나):** 테스트가 `extractDataItems(from:)` 라는 순수 파서만 합성 배열로 검증했다.
+  결함은 그 함수가 아니라 **그 함수에 값을 넘겨주는 쿼리**에 있었고, `SecItemCopyMatching` 은 테스트
+  경로에 아예 없었다 — 결함 트리거와 다른 경로로 통과하는 전형이다. 딕셔너리 모양만 단정하는 테스트도
+  같은 이유로 부족하다: 어떤 키 조합이 무효인지는 **Security 프레임워크만 안다.**
+  가드: `testKeychainQueriesAreAcceptedBySecurityFramework` — 존재하지 않는 서비스명(매칭 0건이라
+  ACL·프롬프트에 안 닿음)으로 프로덕션 쿼리를 실제 API 에 던져 `errSecParam` 이 아님을 단정한다.
+  기대값이 "성공"이 아니라 **"파라미터가 유효하다"(`errSecItemNotFound`)** 인 게 요점이다.
+  `kSecMatchLimitAll` 을 데이터 쿼리에 되돌리면 이 테스트가 빨개진다(주입 확인 완료).
 - **앱 소유 keychain 항목 — 대안 4가지가 모두 막혀 있다(2026-08-30 스파이크). 다시 제안하기 전에 여기부터 읽을 것.**
   위 #58 항목의 근거는 "cdhash 가 바뀌어서"인데, **그 전제 자체는 틀렸다**: 인증서로 서명된 빌드의
   지정요구(DR)는 `identifier … and certificate leaf[subject.CN] = …` 라 cdhash 를 포함하지 않는다
@@ -534,13 +593,27 @@ read_when:
   저장하면 이름이 영구히 번호로 굳는다(`testBackfillRetriesAfterAnOfflineAttempt`).
   부류 스윕 확인분: 저장분을 읽는 소비자는 `DexEntryRow`(자체 백필 보유)와 격자뿐이고,
   `activeDexEntry`·`graduate()` 의 `line.names` 는 소비가 아니라 생성 지점이라 무관.
-- **영구 기록과 임시 상태를 한 목록에 섞을 땐 임시 쪽에 표식이 필요하다.** 도감·수집 화면은 "쌓이기만
-  한다"는 약속을 주는데, 현재 키우는 개체에서 파생된 항목은 알을 새로 사면(`buyEgg` 는 `active` 만 버리고
-  `dex` 는 안 건드린다) 또는 메타몽이 리빌하면(`pathIDs` 가 통째로 교체) 사라진다 — 총계가 줄어 결함처럼
-  보인다. 포획 로그는 행에 `키우는 중` 뱃지가 있어 괜찮았지만 종 격자는 표식 없이 같은 모양이었다.
-  판정 기준은 "현재 개체에 속하는가"가 아니라 **"졸업 기록이 있는가"** 다(`DexSpecies.isRaising` =
-  `!isGraduated`) — 같은 라인을 다시 키우는 중이면 이미 확정분이라 표식 대상이 아니고, 이 분기가
-  두 규칙이 갈리는 유일한 지점이라 회귀 테스트도 그 상태(졸업분 + 같은 라인 육성 중)로 쓴다.
+- **상태 뱃지의 문구와 판정은 같은 의미여야 한다.** 현재 개체에서 파생된 도감 칸은 알을 새로 사거나
+  (`buyEgg` 는 `active` 만 버리고 `dex` 는 안 건드린다) 메타몽이 리빌하면(`pathIDs` 가 통째로 교체)
+  사라질 수 있다. 이를 설명하려고 졸업 기록이 없는 모든 도달 단계에 `키우는 중`을 달면, 진화 뒤 이전
+  형태까지 동시에 키우는 포켓몬처럼 읽힌다. `키우는 중`은 저장 안정성이 아니라 현재 상태를 뜻하므로
+  `id == active.currentID` 인 현재 형태 한 칸에만 표시하고, 지나온 형태에는 아무 뱃지도 표시하지 않는다.
+  이전 형태의 휘발성을 안내해야 한다면 `키우는 중`을 재사용하지 말고 별도 개념으로 설계한다. 회귀는
+  2단계 도달 상태의 `[false, true]`, 졸업한 라인을 다시 키우는 상태의 `[false, true, false]`, 현재 개체가
+  없는 졸업 기록의 전부 `false`를 함께 고정한다.
+- **뱃지로 설명하려던 휘발성은 애초에 없애는 게 답이었다.** 위 항목이 남긴 숙제 — "이전 형태의 휘발성을
+  안내해야 한다면 별도 개념으로" — 의 결론은 새 뱃지가 아니라 **휘발 자체를 제거**하는 것이다. `buyEgg` 가
+  `active` 만 버리고 `dex` 를 안 건드린 탓에, 현재 개체에서만 오던 종이 통째로 도감에서 빠져 종 수가 줄었다.
+  수집 화면이 "쌓이기만 한다"는 약속을 주는데 이게 그 약속을 깨는 유일한 경로였다. 이제 놓아준 개체를
+  `releasedAt` 을 단 `DexEntry` 로 `state.dex` 에 남긴다 — 도감(`dexSpecies`)이 `state.dex` 를 접으므로 종
+  보존은 자동으로 따라오고, 포획 로그만 `놓아줌` 뱃지로 졸업분과 구분한다. 규칙 셋: ① **도달분만 기록**
+  (`pathIDs.prefix(stageIndex + 1)` — `plannedPathIDs` 를 쓰면 알을 사서 포기하는 게 도감을 채우는 지름길이
+  된다) ② 이로치는 `currentIsShiny`(위장 메타몽은 리빌 전까지 숨김 — 놓아주기가 리빌 수단이 되면 안 된다)
+  ③ `collectedFinals` 는 그대로 — 끝까지 키운 게 아니므로 최종체 완성·분기 가중에 넣지 않는다.
+  `releasedAt == nil` 이 곧 "졸업분"이라 구버전 저장분에 마이그레이션이 필요 없다. 부수 효과로, 놓아준 종을
+  가리키던 **대표 선택이 이제 유지된다**(예전엔 종이 사라져 `reconcileRepresentativeSelection` 이 해제했다).
+  가드: `testReleasedSpeciesStaysInTheDex`·`testReleasingMidChainCreditsOnlyReachedForms`·
+  `testReleasingDisguisedDittoKeepsShinyHidden` — 기록을 빼거나 `plannedPathIDs` 로 바꾸면 실패한다(주입 확인).
 
 - **컴팩트 표시는 오늘 사용한 프로바이더만.** 메뉴바(`menuLines`) 등 좁은 표시에서 한도·상태를 보일 땐
   `snapshots` 의 오늘 토큰>0 으로 게이트한다 — 설치만 되고 오늘 안 쓴 프로바이더(Codex 등)를 노출하지
@@ -608,16 +681,52 @@ read_when:
   검증 함정: bare/`open -n` 보조 인스턴스는 애니메이션이 안 돌아 14%를 **재현 못 함** → 실측은 설치된
   primary 앱 교체로만. **배터리(idle wakeup) 차원:** CPU% 낮아도 button.image 대입마다 레이어 dirty →
   CA 커밋 → WindowServer 디스플레이 사이클 왕복이 wakeup을 증폭한다(실측 ~47 wakeup/s). `setStatusImage`
-  diff-gate(동일 프레임 객체 재대입 스킵 — 애니 프레임은 서로 다른 객체라 정상 통과) + GIF fps 하한 0.4s(≈2.5fps)
-  + `Timer.tolerance` 0.5(코얼레싱)로 ~5 wakeup/s(−89%), 애니메이션 유지. 배터리-vs-AC/thermal 적응·CADisplayLink
+  diff-gate(동일 프레임 객체 재대입 스킵 — 애니 프레임은 서로 다른 객체라 정상 통과) + GIF fps 하한
+  (`AppDelegate.menuFrameFloor`, 당시 0.4s≈2.5fps) + `Timer.tolerance` 0.5(코얼레싱)로 ~5 wakeup/s(−89%),
+  애니메이션 유지. **캡 값 자체는 튜닝 가능하고 0 만 금지**다 — 세 대책 중 CPU 14%의 주범은 CA 전환·팝오버
+  상주였고 fps 캡의 몫은 wakeup 을 프레임 수에 비례해 줄이는 것뿐이다(22px 에서도 2.5fps 는 느리다는
+  지적이 있어 값을 사용자 선택으로 열었다 — `UsageStore.AnimationQuality` 의 0.4/0.2/0.1. CA 전환이
+  제거된 뒤라 14% 당시와 같은 조건이 아니다. 단 **fps 를 올리면 CPU 는 실제로 오른다**: 실측 idle
+  0.2s/tol 0.5 = 1.8% → 0.1s/tol 0.1 = 5.1%(2.8배). "CA 전환이 주범이었으니 fps 는 공짜"가 아니라,
+  주범이 사라진 만큼의 여유가 생긴 것뿐이다. 그래서 **기본값은 이 설정 이전과 같은 0.4s(powerSaver)**
+  이고, 더 부드러운 쪽은 opt-in 이다).
+  배터리-vs-AC/thermal 적응·CADisplayLink
   전환은 1인 로컬 노트북 기준 수확체감으로 판정, 미도입(필요 시 Agent Team 계획 참조). (Agent Team 조사 + 실측, 2026-07-22.)
+- **fps 캡은 hold 가 아니라 decimate 다 — `max(floor, delay)` 는 애니메이션을 슬로모션으로 만든다.**
+  프레임 delay 에 하한을 걸면(`max(floor, delay)`) 프레임 *수* 는 그대로라 각 프레임이 늘어나고, 결과적으로
+  **루프 전체가 느려진다.** Gen-V 스프라이트는 55프레임×0.05s(=2.75s, 20fps)라 floor 0.4s 에서 22s 루프
+  = **1/8 속도**가 됐다(메뉴바·플로팅 펫 둘 다). 올바른 적용은 누적 delay 가 floor 를 넘을 때만 프레임을
+  내보내 **루프 길이를 보존**하는 것(`GIFDecoder.capFrameRate`) — 같은 wakeup 예산에서 속도가 원본이 되고,
+  floor 0.4s 면 합성할 프레임이 55→6개로 줄어 오히려 가볍다.
+  **5-whys(왜 안 걸렸나):** ① 원 근거가 "22px 에선 2.5fps 와 5fps 가 구분 안 된다"였는데 이는 *프레임
+  레이트* 에만 맞는 말이고 *재생 속도* 8배 지연은 시야에 없었다. ② 테스트(`frameDelay(base:floor:)`)가
+  **프레임 1개 단위**로만 검증해 — `max(0.1,0.4)==0.4` — 프레임이 55개 쌓였을 때 루프가 8배가 되는 걸
+  구조적으로 볼 수 없었다(결함 트리거와 다른 경로로 통과하는 전형). ③ 2프레임 bob 은 늘리기와 솎아내기가
+  같은 결과라 이 결함이 드러나지 않았고, bob 과 GIF 를 같은 하한으로 다룬 게 착시를 굳혔다.
+  **영구 캡처:** 단일 프레임이 아니라 **루프 총 길이**를 단정한다(`testCapPreservesPlaybackSpeed` —
+  옛 hold 방식 주입 시 11.0s/22.0s 를 잡고 실패 확인). 오용된 API `SpriteView.frameDelay` 는 제거했다.
+  (사용자 리포트 "툴바 포켓몬이 팝오버보다 느리다", 2026-08-20.)
+- **`Timer.tolerance`(및 `Task.sleep(tolerance:)`)는 곧 재생 지연의 상한이다.** tolerance 는 **늦게만**
+  발화시킨다(Apple: "fire the timer later than the scheduled time, up to the tolerance"). 배수 0.5 는
+  코얼레싱 강도가 아니라 "루프가 최대 1.5배까지 늘어져도 좋다"는 선언이었다 — 2.75s 루프가 최대 4.13s 가
+  되어, `tolerance: .zero` 로 정확히 도는 팝오버와 나란히 보면 메뉴바만 느려 보였다(같은 리포트의 두 번째
+  원인). 상시 애니메이션 표면에서 이 배수를 정할 땐 **wakeup 절약과 재생 지연을 같이 적어라** — 현재 0.1
+  (지연 ≤10%). 가드: `testToleranceDoesNotVisiblyStretchPlayback`(>0 로 코얼레싱 유지 + 최악 지연 ≤15%).
 - **항상 뜬 애니메이션 표면은 메뉴바와 같은 idle 규율을 공유한다.** 플로팅 펫(`FloatingPetPanel`)처럼 상시
-  표시되는 두 번째 GIF 표면을 더할 땐 메뉴바 규율을 그대로 상속해야 회귀(#102 후속)를 안 만든다: ① GIF fps
-  하한(`SpriteView(minFrameDelay:)` — 펫은 `FloatingPetView.frameFloor` 0.4s≈2.5fps, 팝오버 등 *일시적* 표시는
-  0=네이티브) + `Task.sleep(for:tolerance:)` 코얼레싱, ② 저전력 모드 정적화(`FloatingPetController.shouldAnimate(lowPower:)`
+  표시되는 두 번째 GIF 표면을 더할 땐 메뉴바 규율을 그대로 상속해야 회귀(#102 후속)를 안 만든다. **규율 =
+  "캡이 존재한다(>0)"이며 값의 일치가 아니다** — 표면이 크면 같은 fps 에서도 끊김이 더 보여 값은 갈릴 수
+  있다(현재는 두 표면이 사용자 설정 `UsageStore.AnimationQuality` 하나를 공유한다 — 표면별로 값을
+  갈라야 할 근거가 생기면 그때 프리셋에서 표면별 값을 뽑아라): ① GIF fps 하한
+  (`SpriteView(minFrameDelay:)` — 펫은 `store.animationQuality.frameFloor`, 메뉴바는
+  `AppDelegate.menuFrameFloor`, 팝오버 등 *일시적* 표시는 0=네이티브) + `Task.sleep(for:tolerance:)` 코얼레싱, ② 저전력 모드 정적화(`FloatingPetController.shouldAnimate(lowPower:)`
   — `NSProcessInfoPowerStateDidChange` 관찰 후 콘텐츠 재구성), ③ 숨김/슬립 시 `contentView=nil` 로 프레임 루프 정지
   (팝오버 `popoverDidClose` 패턴). 회귀 가드: `FloatingPetEnergyTests`(fps 하한 clamp·`frameFloor>0`·팝오버 불변·
-  low-power 정적화 순수 판정 — SwiftUI `.task` 타이밍 자체는 호스트 없이 xctest 불가라 순수 경로만 잠금). occlusion 게이팅은
+  low-power 정적화 순수 판정 — SwiftUI `.task` 타이밍 자체는 호스트 없이 xctest 불가라 순수 경로만 잠금).
+  **가드 비대칭 주의:** 펫 캡만 상수로 잠겨 있었고 메뉴바 캡은 인라인 리터럴 `max(0.4, delay)` 여서
+  *캡이 통째로 사라져도 테스트가 못 잡았다*. 지금은 두 표면이 같은 프리셋 값을 읽어 비대칭 자체가
+  구조적으로 불가능하고, 가드는 프리셋 계약에 걸린다(`testNoAnimationQualityPresetDisablesTheCap`,
+  `testTransientSurfaceIsTheOnlyUncappedOne` — 캡=0 주입으로 실패 확인). 상시 표시 표면을 더할 땐
+  캡을 반드시 **이름 있는 값**으로 두고 `>0` 를 단정한다. occlusion 게이팅은
   all-spaces/`.floating` 펫이 실제로 거의 안 가려져 메뉴바와 동일 수확체감으로 미도입. (#102 리뷰 지적 반영, 2026-07-22.)
 
 ## 알림

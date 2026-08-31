@@ -24,10 +24,20 @@ final class PopoverNavigation {
     var showingCollectionLog = false
     /// 프로바이더 탭 선택 — reset() 대상이 아님(팝오버를 다시 열어도 보던 서비스 유지).
     var providerID: String?
+    /// 설정을 열 때 고급 섹션을 펼친 채로 시작할지. 세션 키 행이 접힌 disclosure 안에 살아서,
+    /// 그냥 설정만 열면 "만료됐다"를 보고 들어온 사용자가 고칠 입력란을 못 찾는다.
+    var expandAdvancedOnOpen = false
 
     func reset() {
         showSettings = false
+        expandAdvancedOnOpen = false
         tab = .home
+    }
+
+    /// 세션 키 만료 안내 → 그 키를 고칠 수 있는 유일한 화면으로 바로 보낸다.
+    func openSessionKeySettings() {
+        showSettings = true
+        expandAdvancedOnOpen = true
     }
 
     /// 설정의 대표 포켓몬 행에서 기존 도감으로 이동한다. 별도 선택 화면을 만들지 않고
@@ -56,7 +66,8 @@ struct PopoverView: View {
             if nav.showSettings {
                 SettingsView(
                     onClose: { nav.showSettings = false },
-                    onChooseRepresentative: { nav.openRepresentativeDex() }
+                    onChooseRepresentative: { nav.openRepresentativeDex() },
+                    startExpanded: nav.expandAdvancedOnOpen
                 )
                     .environment(store)
                     .environment(companion)
@@ -301,7 +312,9 @@ struct PopoverView: View {
             Text(l.limitsOfficial)
                 .font(.caption)
                 .foregroundStyle(.secondary)
-            if selectedSnapshot?.providerID == "claude_code", store.limitsAuthExpired {
+            if selectedSnapshot?.providerID == "claude_code", store.limitsAuthExpiry == .sessionKey {
+                sessionKeyExpiredNotice
+            } else if selectedSnapshot?.providerID == "claude_code", store.limitsAuthExpired {
                 claudeAuthExpiredNotice
             } else if selectedSnapshot?.providerID == "claude_code",
                       !store.disableKeychainAccess,
@@ -682,6 +695,27 @@ struct PopoverView: View {
     /// Claude 세션 만료(401) 안내 — 자동 폴링은 만료 토큰을 스스로 못 고치므로,
     /// "왜 어제 값에 멈췄는지 + 원탭 재시도 + Claude Code 실행 시 자동 갱신" 을 눈에 띄게 노출.
     @ViewBuilder
+    /// 세션 키 만료 — OAuth 안내와 달리 재시도가 의미 없다(죽은 쿠키는 재조회로 안 살아난다).
+    /// 그래서 버튼이 Keychain 을 읽지 않고, 키를 다시 넣을 수 있는 화면으로 보낸다.
+    private var sessionKeyExpiredNotice: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 6) {
+                Image(systemName: "key.slash.fill")
+                    .foregroundStyle(.orange)
+                Text(l.sessionKeyExpiredTitle)
+                    .font(.caption).fontWeight(.semibold)
+                Spacer()
+                Button(l.settings) { nav.openSessionKeySettings() }
+                    .controlSize(.small)
+            }
+            Text(l.sessionKeyExpiredNoticeHint)
+                .font(.caption2).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(8)
+        .background(Color.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
+    }
+
     private var claudeAuthExpiredNotice: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 6) {

@@ -452,9 +452,11 @@ final class CompanionStoreTests: XCTestCase {
         XCTAssertEqual(s.representativeSubject.speciesID, 20)
     }
 
-    /// Fresh Egg 는 미졸업 개체를 도감에 남기지 않는다. 그 개체만 근거였던 대표 종도 함께 해제돼
-    /// 존재하지 않는 종을 계속 그리지 않고 기본값(현재 개체/알 추적)으로 돌아간다.
-    func testFreshEggClearsRaisingOnlyRepresentativeSelection() throws {
+    /// Fresh Egg 로 놓아준 개체도 이제 도감에 남으므로, 그 종을 가리키던 대표 선택은 **유지된다**.
+    ///
+    /// 예전에는 여기서 선택이 해제됐다 — 놓아주면 종이 도감에서 사라져 존재하지 않는 종을 가리키게
+    /// 됐기 때문이다. 종이 남는 지금 해제하면 오히려 사용자가 고른 대표가 이유 없이 풀린다.
+    func testFreshEggKeepsRepresentativeSelectionOfReleasedSpecies() throws {
         let active = MonState(baseID: 1, pathIDs: [1], stageIndex: 0, usedAtStage: 0,
                               rarity: .common, totalForms: 3)
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("poke-\(UUID().uuidString).json")
@@ -466,8 +468,8 @@ final class CompanionStoreTests: XCTestCase {
                                fileURL: url, rng: SeededRNG(seed: 7))
         XCTAssertEqual(s.representativeSpeciesID, 1)
         XCTAssertTrue(s.buyFreshEgg())
-        XCTAssertNil(s.representativeSpeciesID)
-        XCTAssertNil(s.representativeSubject.speciesID, "자동 추적 + active 없음 = 알")
+        XCTAssertEqual(s.representativeSpeciesID, 1, "놓아준 종도 보유분이라 선택이 유지된다")
+        XCTAssertEqual(s.representativeSubject.speciesID, 1, "메뉴바도 그 종을 계속 그린다")
     }
 
     /// 외부에서 손편집했거나 다른 상태와 잘못 합쳐진 선택은 로드 경계에서 제거한다.
@@ -566,11 +568,11 @@ final class CompanionStoreTests: XCTestCase {
         XCTAssertEqual(online.dexSpecies.map(\.name), ["포1", "포2", "포3"])
     }
 
-    // MARK: 도감 "키우는 중" 표식 (아직 확정이 아닌 칸)
+    // MARK: 도감 "키우는 중" 표식 (현재 형태 한 칸)
 
-    /// 졸업 기록이 없는 종은 현재 개체가 사라지면 함께 사라진다 — **도달 단계 전부**에 표식이 선다.
-    /// (진화 3단까지 왔으면 3칸 모두. 알을 새로 사면 실제로 3칸이 다 빠진다.)
-    func testDexSpeciesMarksEveryUnsecuredStageAsRaising() async {
+    /// 진화 뒤에도 Raising 은 현재 형태에만 선다. 지나온 형태를 함께 표시하면 두 포켓몬을 동시에
+    /// 키우는 것처럼 읽히므로, 도감 포함 여부와 현재 상태 표식은 서로 다른 규칙이다.
+    func testDexSpeciesMarksOnlyCurrentEvolutionStageAsRaising() async {
         let s = store(linear3)
         s.setLanguage(.ko)
         await s.hatch(baseID: 1)
@@ -579,12 +581,12 @@ final class CompanionStoreTests: XCTestCase {
 
         let sp = s.dexSpecies
         XCTAssertEqual(sp.map(\.id), [1, 2])
-        XCTAssertEqual(sp.map(\.isRaising), [true, true], "졸업 기록이 없으니 둘 다 미확정")
+        XCTAssertEqual(sp.map(\.isRaising), [false, true])
     }
 
-    /// 트리거 브랜치 — 같은 라인을 졸업한 뒤 **다시 키우는 중**. 종은 이미 영구 보존분이라 사라지지 않으므로
-    /// 표식이 서면 안 된다. "현재 개체에 속하면 표식"으로 판정하면 여기서 깨진다.
-    func testAlreadyGraduatedSpeciesIsNotMarkedWhileRaisedAgain() throws {
+    /// 같은 라인을 이미 졸업했어도 현재 다시 키우는 형태에는 Raising 이 선다. 이 뱃지는 기록의
+    /// 영구 보존 여부가 아니라 지금 키우는 포켓몬을 뜻한다.
+    func testAlreadyGraduatedLineStillMarksOnlyCurrentStageAsRaising() throws {
         let graduated = DexEntry(baseID: 1, finalID: 3, chainOrder: [1, 2, 3], rarity: .common, caughtAt: fixedNow,
                                  names: [1: ["ko": "포1"], 2: ["ko": "포2"], 3: ["ko": "포3"]])
         let active = MonState(baseID: 1, pathIDs: [1, 2, 3], stageIndex: 1,
@@ -596,15 +598,65 @@ final class CompanionStoreTests: XCTestCase {
 
         let s = CompanionStore(provider: StubProvider(value: linear3), clock: { fixedNow },
                                fileURL: url, rng: SeededRNG(seed: 7))
-        XCTAssertEqual(s.dexSpecies.map(\.isRaising), [false, false, false],
-                       "졸업분이 있는 종은 현재 키우는 중이어도 확정분")
+        XCTAssertEqual(s.dexSpecies.map(\.isRaising), [false, true, false])
+    }
+
+    // MARK: 놓아줌 (알 구매로 포기한 개체의 영구 기록)
+
+    /// [회귀·트리거] 3단 라인을 2단까지 키우다 놓아주면 **도달한 두 형태만** 남는다.
+    ///
+    /// 트리거 분기: `pathIDs` 는 실현 경로, `plannedPathIDs` 는 전체 계획이다. 놓아줌 기록에
+    /// 계획을 쓰면 한 번도 본 적 없는 최종 진화형이 보유로 잡힌다 — 알을 사서 포기하는 것이
+    /// 도감을 채우는 지름길이 된다. `dexSpecies` 가 육성 중 쓰는 prefix 규칙과 같아야 한다.
+    func testReleasingMidChainCreditsOnlyReachedForms() throws {
+        let active = MonState(baseID: 1, pathIDs: [1, 2], plannedPathIDs: [1, 2, 3], stageIndex: 1,
+                              usedAtStage: 0, rarity: .common, totalForms: 3)
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("poke-\(UUID().uuidString).json")
+        let activeJSON = String(decoding: try JSONEncoder().encode(active), as: UTF8.self)
+        try Data(#"{"active":\#(activeJSON),"usedSinceInstall":5000000000}"#.utf8).write(to: url)
+
+        let s = CompanionStore(provider: StubProvider(value: linear3), clock: { fixedNow },
+                               fileURL: url, rng: SeededRNG(seed: 7))
+        XCTAssertEqual(s.dexSpecies.map(\.id), [1, 2], "육성 중 도달분")
+        XCTAssertTrue(s.buyFreshEgg())
+
+        XCTAssertEqual(s.dexSpecies.map(\.id), [1, 2], "놓아준 뒤에도 같은 두 종")
+        let released = try XCTUnwrap(s.state.dex.last)
+        XCTAssertEqual(released.chainOrder, [1, 2])
+        XCTAssertEqual(released.finalID, 2, "도달한 마지막 형태")
+        XCTAssertFalse(s.dexSpecies.contains { $0.id == 3 }, "미도달 진화형은 보유가 아니다")
+    }
+
+    /// 위장 중인 메타몽을 놓아주면 이로치는 계속 숨겨진다 — `currentIsShiny` 단일 판정을 따른다.
+    /// 기록에 `a.isShiny` 를 그대로 쓰면 놓아주는 것이 리빌 수단이 된다.
+    func testReleasingDisguisedDittoKeepsShinyHidden() throws {
+        let active = MonState(baseID: 1, pathIDs: [1], stageIndex: 0, usedAtStage: 0,
+                              rarity: .common, totalForms: 3, isShiny: true,
+                              dittoDisguise: 1, dittoRevealed: false)
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("poke-\(UUID().uuidString).json")
+        let activeJSON = String(decoding: try JSONEncoder().encode(active), as: UTF8.self)
+        try Data(#"{"active":\#(activeJSON),"usedSinceInstall":5000000000}"#.utf8).write(to: url)
+
+        let s = CompanionStore(provider: StubProvider(value: linear3), clock: { fixedNow },
+                               fileURL: url, rng: SeededRNG(seed: 7))
+        XCTAssertTrue(s.buyFreshEgg())
+        let released = try XCTUnwrap(s.state.dex.last)
+        XCTAssertFalse(released.isShiny, "위장 중이면 리빌 전까지 숨김")
+    }
+
+    /// 이 필드 이전에 저장된 항목은 전부 졸업분으로 읽힌다 — 별도 마이그레이션 없이 nil = 졸업.
+    func testLegacyDexEntriesDecodeAsGraduated() throws {
+        let json = #"{"baseID":1,"finalID":3,"chainOrder":[1,2,3],"rarity":"common"}"#
+        let entry = try JSONDecoder().decode(DexEntry.self, from: Data(json.utf8))
+        XCTAssertNil(entry.releasedAt)
+        XCTAssertFalse(entry.isReleased, "구버전 저장분은 졸업분")
     }
 
     /// 졸업분만 있고 현재 개체가 없으면 표식은 하나도 없다(모두 영구 기록).
     func testGraduatedOnlyDexHasNoRaisingMark() throws {
         let s = try storeWithNamelessEntry()
         XCTAssertNil(s.state.active)
-        XCTAssertEqual(s.dexSpecies.map(\.isRaising), [false, false, false])
+        XCTAssertTrue(s.dexSpecies.allSatisfy { !$0.isRaising })
     }
 
     /// 이름 없는 구버전 졸업분 1건(체인 1→2→3)만 담긴 store — 백필/표식 테스트 공용.
@@ -1243,6 +1295,31 @@ final class CompanionStoreTests: XCTestCase {
 
 // MARK: 표시 로케일 (자동 생성 문장)
 
+final class AppLanguageTests: XCTestCase {
+    func testGermanLanguageMetadata() {
+        XCTAssertEqual(AppLanguage.de.rawValue, "de")
+        XCTAssertEqual(AppLanguage.de.apiCodes, ["de"])
+        XCTAssertEqual(AppLanguage.de.label, "Deutsch")
+    }
+
+    func testGermanLanguagePersistsInCompanionState() throws {
+        var state = CompanionState()
+        state.language = .de
+
+        let data = try JSONEncoder().encode(state)
+        XCTAssertTrue(String(decoding: data, as: UTF8.self).contains(#""language":"de""#))
+        XCTAssertEqual(try JSONDecoder().decode(CompanionState.self, from: data).language, .de)
+    }
+
+    func testGermanPreferredLanguagesMapToGerman() {
+        for identifier in ["de", "de-DE", "de-AT", "DE-de"] {
+            XCTAssertEqual(AppLanguage.systemDefault(for: identifier), .de, identifier)
+        }
+        XCTAssertEqual(AppLanguage.systemDefault(for: "it-IT"), .en)
+        XCTAssertEqual(AppLanguage.systemDefault(for: nil), .en)
+    }
+}
+
 /// 앱 언어와 시스템 로케일이 다를 때 `Text(_, style: .relative)` 같은 자동 문장이 시스템을 따라가면
 /// 한 화면에 두 언어가 섞인다(한국어 Mac + 영어 앱 → "Catch log" 옆에 "3시간 46분").
 /// 팝오버 루트가 `\.locale` 로 앱 언어를 내려주므로, 그 매핑이 실제로 해당 언어의 상대 시각을
@@ -1252,6 +1329,7 @@ final class DisplayLocaleTests: XCTestCase {
         XCTAssertEqual(AppLanguage.ko.displayLocale.identifier, "ko")
         XCTAssertEqual(AppLanguage.en.displayLocale.identifier, "en")
         XCTAssertEqual(AppLanguage.ja.displayLocale.identifier, "ja")
+        XCTAssertEqual(AppLanguage.de.displayLocale.identifier, "de")
     }
 
     func testRelativeTimeFollowsAppLanguageNotSystem() {
@@ -1267,8 +1345,9 @@ final class DisplayLocaleTests: XCTestCase {
         XCTAssertTrue(relative(.en).contains("hour"), "영어: \(relative(.en))")
         XCTAssertTrue(relative(.ko).contains("시간"), "한국어: \(relative(.ko))")
         XCTAssertTrue(relative(.ja).contains("時間"), "일본어: \(relative(.ja))")
-        // 세 언어가 서로 달라야 한다 — 하나로 고정돼 있으면 매핑이 죽은 것이다.
-        XCTAssertEqual(Set([relative(.en), relative(.ko), relative(.ja)]).count, 3)
+        XCTAssertTrue(relative(.de).lowercased().contains("stund"), "독일어: \(relative(.de))")
+        // 네 언어가 서로 달라야 한다 — 하나로 고정돼 있으면 매핑이 죽은 것이다.
+        XCTAssertEqual(Set([relative(.en), relative(.ko), relative(.ja), relative(.de)]).count, 4)
     }
 }
 
@@ -1676,7 +1755,25 @@ final class CompanionIdentityTests: XCTestCase {
         XCTAssertEqual(SpriteStore.cacheKey(speciesID: 25, animated: false, shiny: true), "25-shs")
     }
 
-    /// 성격 25종 — 3개 언어 명칭이 전부 비어있지 않고 중복 없는지.
+    func testGermanNatureNamesMatchOfficialMainlineNames() {
+        let expected = [
+            "Robust", "Solo", "Mutig", "Hart", "Frech",
+            "Kühn", "Sanft", "Locker", "Pfiffig", "Lasch",
+            "Scheu", "Hastig", "Ernst", "Froh", "Naiv",
+            "Mäßig", "Mild", "Ruhig", "Zaghaft", "Hitzig",
+            "Still", "Zart", "Forsch", "Sacht", "Kauzig",
+        ]
+
+        XCTAssertEqual(PokemonNature.allCases.map { $0.name(.de) }, expected)
+    }
+
+    func testGermanItemNamesUseOfficialMainlineTerms() {
+        let l = L(.de)
+        XCTAssertEqual(l.itemName(.rareCandy), "Sonderbonbon")
+        XCTAssertEqual(l.itemName(.shinyCharm), "Schillerpin")
+    }
+
+    /// 성격 25종 — 모든 지원 언어 명칭이 전부 비어있지 않고 중복 없는지.
     func testNatureNamesComplete() {
         XCTAssertEqual(PokemonNature.allCases.count, 25)
         for lang in AppLanguage.allCases {

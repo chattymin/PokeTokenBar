@@ -574,4 +574,76 @@ final class OAuthCredentialDataTests: XCTestCase {
 
         XCTAssertEqual(OAuthCredentialData.credential(from: data)?.accessToken, "token-1")
     }
+
+    /// [회귀] **Security 프레임워크가 실제로 받아들이는 쿼리인가.** `kSecMatchLimitAll` 을
+    /// `kSecReturnData` 와 같이 넣으면 macOS 는 errSecParam(-50) 을 낸다 — 항목이 없어서가
+    /// 아니라 파라미터가 무효라서라, ACL 승인·항목 존재로는 절대 우회되지 않는다. 그렇게
+    /// 출고되면 Keychain 에만 자격증명이 있는 사용자는 공식 한도가 **영구히** 안 뜬다.
+    ///
+    /// 존재하지 않는 서비스명으로 던지므로 매칭이 0건이고, ACL·프롬프트 경로에 닿지 않는다.
+    /// 기대값은 "성공"이 아니라 "파라미터는 유효하다"(errSecItemNotFound)다.
+    /// 딕셔너리 모양만 단정하는 테스트로는 이 부류를 못 잡는다 — 실제 API 가 판정해야 한다.
+    func testKeychainQueriesAreAcceptedBySecurityFramework() throws {
+        #if os(macOS)
+        for allowPrompt in [false, true] {
+            for (label, q) in [
+                ("accounts", OAuthCredentialData.claudeKeychainAccountsQuery(allowKeychainPrompt: allowPrompt)),
+                ("data(nil)", OAuthCredentialData.claudeKeychainDataQuery(account: nil, allowKeychainPrompt: allowPrompt)),
+                ("data(acct)", OAuthCredentialData.claudeKeychainDataQuery(account: "someone", allowKeychainPrompt: allowPrompt)),
+            ] {
+                var probe = q
+                probe[kSecAttrService as String] = "PTB-NoSuchService-\(UUID().uuidString)"
+                var item: CFTypeRef?
+                let status = SecItemCopyMatching(probe as CFDictionary, &item)
+                XCTAssertNotEqual(status, errSecParam,
+                                  "\(label)/prompt=\(allowPrompt): 무효한 파라미터 조합 (-50)")
+                XCTAssertEqual(status, errSecItemNotFound,
+                               "\(label)/prompt=\(allowPrompt): 매칭 0건이어야 한다 (status=\(status))")
+            }
+        }
+        #endif
+    }
+
+    /// 데이터 조회는 반드시 단건이다 — 위 조합 금지의 다른 한쪽 면.
+    func testDataQueryAsksForOneItemAndAccountsQueryAsksForNoData() {
+        let data = OAuthCredentialData.claudeKeychainDataQuery(account: "u", allowKeychainPrompt: true)
+        XCTAssertEqual(data[kSecMatchLimit as String] as? String, kSecMatchLimitOne as String)
+        XCTAssertEqual(data[kSecReturnData as String] as? Bool, true)
+        XCTAssertEqual(data[kSecAttrAccount as String] as? String, "u")
+
+        let accounts = OAuthCredentialData.claudeKeychainAccountsQuery(allowKeychainPrompt: true)
+        XCTAssertEqual(accounts[kSecMatchLimit as String] as? String, kSecMatchLimitAll as String)
+        XCTAssertNil(accounts[kSecReturnData as String], "전체 조회는 데이터를 요청하면 안 된다")
+        XCTAssertEqual(accounts[kSecReturnAttributes as String] as? Bool, true)
+    }
+
+    /// 계정 열거 — 배열/단건 응답 모두 받고, 빈 값·중복은 버린다(순서 유지).
+    func testAccountNamesHandlesArrayAndSingleAndDedupes() {
+        let acct = kSecAttrAccount as String
+        XCTAssertEqual(
+            OAuthCredentialData.accountNames(from: [[acct: "a"], [acct: "b"], [acct: "a"], [acct: ""]]),
+            ["a", "b"])
+        XCTAssertEqual(OAuthCredentialData.accountNames(from: [acct: "solo"]), ["solo"])
+        XCTAssertEqual(OAuthCredentialData.accountNames(from: nil), [])
+    }
+
+    /// #229 가 고치려던 것 — MCP 전용 항목과 계정 항목이 함께 있을 때 유효한 쪽을 고른다.
+    /// 이제 항목별 단건 조회로 순회하므로, 선택 규칙은 파싱 결과로만 판정된다.
+    func testValidAccountOAuthIsPreferredOverMCPOnlyEntry() {
+        let mcpOnly = Data("""
+        {"mcpOAuth":{"linear":{"accessToken":"linear-tok"}}}
+        """.utf8)
+        let account = Data("""
+        {"claudeAiOauth":{"accessToken":"account-tok","subscriptionType":"max","rateLimitTier":"default_claude_max_20x"}}
+        """.utf8)
+
+        XCTAssertNil(OAuthCredentialData.credential(from: mcpOnly))
+        XCTAssertTrue(OAuthCredentialData.isAccountOAuthMissing(mcpOnly))
+
+        let picked = [mcpOnly, account].compactMap { OAuthCredentialData.credential(from: $0) }.first
+        XCTAssertEqual(picked?.accessToken, "account-tok")
+        XCTAssertEqual(picked?.subscriptionType, "max")
+        XCTAssertEqual(picked?.rateLimitTier, "default_claude_max_20x")
+    }
 }
+

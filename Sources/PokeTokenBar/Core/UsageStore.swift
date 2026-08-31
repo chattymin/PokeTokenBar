@@ -26,9 +26,14 @@ final class UsageStore {
     private(set) var antigravityLimitsAuthExpired = false
     private(set) var limitsUpdatedAt: Date?
     private(set) var limitsAvailable = true
-    /// Claude 한도 조회가 401/403(세션 만료)로 실패한 상태 — UI 에서 명확한 안내+재시도 노출용.
+    /// Claude 한도 인증이 만료된 **출처**. nil = 만료 아님. 성공 시 해제.
+    /// 출처를 남기는 이유는 처방이 다르기 때문이다 — 자세한 근거는 `updateAuthExpired` 주석.
+    enum LimitsAuthExpiry: Equatable { case oauth, sessionKey }
+    private(set) var limitsAuthExpiry: LimitsAuthExpiry?
+    /// Claude 한도 조회가 만료로 실패한 상태 — UI 에서 명확한 안내+재시도 노출용.
     /// 성공 시 해제. 자동 폴링은 무프롬프트라 만료 토큰을 스스로 못 고치므로 사용자 액션 유도가 필요.
-    private(set) var limitsAuthExpired = false
+    /// **출처와 따로 저장하지 않는다** — 두 필드를 각자 갱신하면 한쪽만 지워져 배너가 남는다.
+    var limitsAuthExpired: Bool { limitsAuthExpiry != nil }
     /// providerID → 프로바이더 상태 페이지 인시던트 지표(표시 전용). 조회 실패 시 이전 값 유지.
     private(set) var statuses: [String: ProviderStatus] = [:]
     private(set) var lastUpdated: Date?
@@ -80,6 +85,28 @@ final class UsageStore {
     var limitDisplayMode: LimitDisplayMode {
         didSet { defaults.set(limitDisplayMode.rawValue, forKey: "limitDisplayMode") }
     }
+    /// 상시 표시 애니메이션(메뉴바 스프라이트 + 플로팅 펫)의 부드러움 ↔ 배터리 절충.
+    ///
+    /// 값은 GIF 프레임 지속의 **하한**(초)으로, `GIFDecoder.capFrameRate` 가 프레임을 솎아내
+    /// 적용한다 — 재생 속도는 어느 프리셋에서도 원본과 같고 초당 프레임 수만 달라진다.
+    /// 왜 사용자 선택인가: 프레임당 비용이 상태바 재합성(FrontBoardServices IPC + 렌더 fence)이라
+    /// 기기·스프라이트에 따라 체감과 배터리 영향이 갈린다 — 하나의 값으로 모두를 만족시킬 수 없다.
+    enum AnimationQuality: String, CaseIterable {
+        case powerSaver, balanced, smooth
+
+        /// 프레임 지속 하한(초) = fps 상한. **0 인 케이스를 만들지 마라** — 네이티브 fps 는
+        /// idle wakeup 회귀다(근거는 defect-log '에너지' 절). 가드: `testNoAnimationQualityPresetDisablesTheCap`.
+        var frameFloor: TimeInterval {
+            switch self {
+            case .powerSaver: 0.4   // ≈2.5fps
+            case .balanced:   0.2   // ≈5fps
+            case .smooth:     0.1   // ≈10fps
+            }
+        }
+    }
+    var animationQuality: AnimationQuality {
+        didSet { defaults.set(animationQuality.rawValue, forKey: "animationQuality") }
+    }
     // 알림(독립 토글)
     var limitNotifications: Bool {
         didSet { defaults.set(limitNotifications, forKey: "limitNotifications") }
@@ -111,7 +138,8 @@ final class UsageStore {
         didSet {
             defaults.set(disableKeychainAccess, forKey: "disableKeychainAccess")   // 저장 누락이던 기존 버그 — 재시작 후 풀렸음
             KeychainAccessGate.isDisabled = disableKeychainAccess
-            if disableKeychainAccess {
+            // 세션 키가 있으면 Keychain 없이도 한도를 조회할 수 있으므로 섹션을 지우지 않는다.
+            if disableKeychainAccess && !sessionKeyConfigured {
                 limits = nil
                 limitsAvailable = false
             } else {
@@ -175,6 +203,8 @@ final class UsageStore {
         }
     }
     private let limitsProvider: any ClaudeLimitsProviding
+    /// 세션 키 저장·조직 조회. 조회 체인과 같은 인스턴스를 공유한다(기본값은 `.shared`).
+    private let sessionKeys: any SessionKeyManaging
     private let codexLimitsProvider: any CodexLimitsProviding
     private let opencodeGoLimitsProvider: any OpenCodeGoLimitsProviding
     private let antigravityLimitsProvider: any AntigravityLimitsProviding
@@ -518,19 +548,25 @@ final class UsageStore {
         LocalAntigravityProvider(), LocalOpenCodeProvider(), LocalHermesProvider(),
         LocalCursorProvider(), LocalGrokProvider(), LocalCopilotProvider(), LocalKiroProvider(),
         LocalPiProvider(),
+        LocalOmpProvider(),
     ],
-         claudeLimitsProvider: any ClaudeLimitsProviding = OAuthLimitsProvider(),
+         // 세션 키 우선, 없거나 죽었으면 기존 Keychain/파일 OAuth 경로. 두 인자는 같은
+         // SessionKeyLimitsProvider 인스턴스를 봐야 한다 — 설정 화면이 고른 조직을 조회 경로가 써야 하므로.
+         claudeLimitsProvider: any ClaudeLimitsProviding = ChainedLimitsProvider(
+            primary: SessionKeyLimitsProvider.shared, fallback: OAuthLimitsProvider()),
          codexLimitsProvider: any CodexLimitsProviding = CodexRateLimitsProvider(),
          opencodeGoLimitsProvider: any OpenCodeGoLimitsProviding = OpenCodeGoLimitsProvider(),
          antigravityLimitsProvider: any AntigravityLimitsProviding = AntigravityRateLimitsProvider(),
          statusProvider: any ProviderStatusProviding = StatuspageStatusProvider(),
          limitHistory: LimitHistoryStore = .shared,
+         sessionKeys: any SessionKeyManaging = SessionKeyLimitsProvider.shared,
          autoRefresh: Bool = true,
          remoteLimitsPollInterval: TimeInterval = LimitsPollCadence.minimumInterval,
          defaults: UserDefaults = .standard) {
         self.remoteLimitsPollInterval = remoteLimitsPollInterval
         self.providers = providers
         self.limitsProvider = claudeLimitsProvider
+        self.sessionKeys = sessionKeys
         self.codexLimitsProvider = codexLimitsProvider
         self.opencodeGoLimitsProvider = opencodeGoLimitsProvider
         self.antigravityLimitsProvider = antigravityLimitsProvider
@@ -552,6 +588,9 @@ final class UsageStore {
         floatingPetEnabled = d.object(forKey: "floatingPetEnabled") as? Bool ?? false
         floatingPetSize = d.object(forKey: "floatingPetSize") as? Double ?? 96
         floatingPetBubbleAlerts = d.object(forKey: "floatingPetBubbleAlerts") as? Bool ?? true
+        // 기본 powerSaver — 이 설정이 생기기 전의 고정 캡(0.4s)과 같은 프레임 레이트라, 기존
+        // 사용자의 배터리 프로파일은 그대로다. 더 부드러운 쪽은 opt-in(실측 idle CPU 1.8%/5.1%).
+        animationQuality = AnimationQuality(rawValue: d.string(forKey: "animationQuality") ?? "") ?? .powerSaver
         disableKeychainAccess = d.object(forKey: "disableKeychainAccess") as? Bool ?? false
         phoneServerEnabled = d.object(forKey: "phoneServerEnabled") as? Bool ?? false
         // 저장된 코드가 없으면(최초 실행·기존 사용자 업그레이드) 지금 발급한다. didSet 은 init 에서
@@ -563,6 +602,11 @@ final class UsageStore {
             : storedPairingCode
         if storedPairingCode.isEmpty {
             d.set(phoneServerPairingCode, forKey: "phoneServerPairingCode")
+        }
+
+        if let credential = sessionKeys.credential() {
+            sessionKeyConfigured = true
+            sessionKeySelectedOrgID = credential.organizationID
         }
 
         reschedule()
@@ -788,11 +832,13 @@ final class UsageStore {
         }
 
         // ── 한도 조회 (Keychain 프롬프트로 블로킹될 수 있어 마지막)
-        if disableKeychainAccess {
+        // 세션 키 경로는 Keychain 을 안 읽으므로 이 토글과 무관하게 조회한다 — 토글을 켠 이유(팝업)가
+        // 세션 키에는 없는데도 같이 막으면, 키를 넣은 사용자가 한도를 영영 못 본다.
+        if disableKeychainAccess && !sessionKeyConfigured {
             limits = nil
             limitsAvailable = false
-            limitsAuthExpired = false   // 조회 자체를 안 하므로 "세션 만료" 안내는 무의미 → 해제
-            AppLog.writeIfChanged("claude-limits", "claude limits skipped: keychain access disabled")
+                limitsAuthExpiry = nil   // 조회 자체를 안 하므로 "세션 만료" 안내는 무의미 → 해제
+                AppLog.writeIfChanged("claude-limits", "claude limits skipped: keychain access disabled")
         } else if let until = claudeLimitsBackoffUntil, Date() < until {
             // 429 백오프 중 — 폴링을 쉬어 rate limit 악화 방지 (버그 리포트 실측: 매분 429 재시도)
             AppLog.write("claude limits backoff: skipping (\(Int(until.timeIntervalSinceNow))s left)")
@@ -805,7 +851,7 @@ final class UsageStore {
                 limits = try await limitsProvider.fetch(allowKeychainPrompt: false)
                 limitsAvailable = true
                 limitsUpdatedAt = Date()
-                limitsAuthExpired = false
+                limitsAuthExpiry = nil
                 resetLimitsBackoff()
                 recordLimitHistory()
                 AppLog.write("limits refreshed fiveHour=\(limits?.fiveHour?.utilization?.description ?? "nil") sevenDay=\(limits?.sevenDay?.utilization?.description ?? "nil")")
@@ -867,7 +913,7 @@ final class UsageStore {
             limits = try await limitsProvider.fetch(allowKeychainPrompt: true)
             limitsAvailable = true
             limitsUpdatedAt = Date()
-            limitsAuthExpired = false
+            limitsAuthExpiry = nil
             limitTokenRefreshError = nil
             resetLimitsBackoff()
             recordLimitHistory()
@@ -879,6 +925,86 @@ final class UsageStore {
             updateAuthExpired(from: error)
             applyLimitsBackoffIfRateLimited(error)
             AppLog.write("limits user refresh failed: \(error)")
+        }
+    }
+
+    // MARK: claude.ai 세션 키 (Keychain 프롬프트 없는 한도 경로)
+
+    /// 키가 저장돼 있는지. 저장 여부만 노출하고 값은 UI 로 되돌리지 않는다.
+    var sessionKeyConfigured = false
+    /// 저장된 키가 만료로 거부된 상태. `sessionKeyConfigured` 는 키가 죽어도 true 라(지우는 건
+    /// 사용자 몫) 그것만으로 배지를 그리면 만료 후에도 "설정됨"이 남는다 — 설정에 들어온 사용자가
+    /// 무엇을 해야 하는지 알 수 없던 지점이다.
+    var sessionKeyExpired: Bool { sessionKeyConfigured && limitsAuthExpiry == .sessionKey }
+    /// 마지막 검증에서 확인된 후보 조직 — 2개 이상일 때만 설정에 선택 UI 를 띄운다.
+    var sessionKeyOrganizations: [SessionKeyOrganization] = []
+    var sessionKeySelectedOrgID: String?
+    var sessionKeyError: String?
+    var isValidatingSessionKey = false
+
+    /// 붙여넣은 키를 검증하고 저장한다. 검증은 조직 목록 조회 — 성공하면 볼 수 있는 조직이 확정되므로,
+    /// 저장 직후 한도가 바로 뜬다(사용자가 "저장됐는데 왜 안 보이나"를 겪지 않게).
+    func saveSessionKey(_ raw: String) async {
+        guard !isValidatingSessionKey else { return }
+        isValidatingSessionKey = true
+        sessionKeyError = nil
+        defer { isValidatingSessionKey = false }
+
+        do {
+            let key = try SessionKeyStore.normalize(raw)
+            let organizations = try await sessionKeys.organizations(sessionKey: key)
+            guard let picked = organizations.first(where: \.hasUsageData) ?? organizations.first else {
+                throw LimitsError.sessionKeyNoOrganization
+            }
+            try sessionKeys.save(key: key, organizationID: picked.id)
+            sessionKeyOrganizations = organizations
+            sessionKeySelectedOrgID = picked.id
+            sessionKeyConfigured = true
+            AppLog.write("session key saved (orgs=\(organizations.count) picked=\(picked.id))")
+            await refresh()
+        } catch {
+            sessionKeyError = Self.friendlyLimitError(error, L(localizationLanguage))
+            AppLog.write("session key save failed: \(error)")
+        }
+    }
+
+    /// 저장된 키로 조직 후보를 다시 채운다. 후보 목록은 메모리에만 두므로 재시작하면 비어 있고,
+    /// 그러면 자동 선택이 틀렸을 때 바꿀 방법이 사라진다 — 설정을 열 때 한 번 채운다.
+    func refreshSessionOrganizations() async {
+        guard sessionKeyConfigured, sessionKeyOrganizations.isEmpty, !isValidatingSessionKey,
+              let credential = sessionKeys.credential()
+        else { return }
+        isValidatingSessionKey = true
+        defer { isValidatingSessionKey = false }
+        do {
+            sessionKeyOrganizations = try await sessionKeys.organizations(sessionKey: credential.key)
+            sessionKeySelectedOrgID = credential.organizationID
+        } catch {
+            // 조회 실패는 안내하지 않는다 — 사용자가 요청한 동작이 아니고, 한도 자체는 별도로 갱신된다.
+            AppLog.write("session key org list refresh failed: \(error)")
+        }
+    }
+
+    func clearSessionKey() {
+        sessionKeys.clear()
+        sessionKeyConfigured = false
+        sessionKeyOrganizations = []
+        sessionKeySelectedOrgID = nil
+        sessionKeyError = nil
+        AppLog.write("session key cleared")
+        Task { await refresh() }   // OAuth 경로로 되돌아간다(또는 한도 섹션을 숨긴다)
+    }
+
+    /// 조직 수동 교체 — 자동 선택이 회사/개인 계정을 잘못 고른 경우.
+    func selectSessionOrganization(_ id: String) async {
+        guard let credential = sessionKeys.credential(), credential.organizationID != id else { return }
+        do {
+            try sessionKeys.save(key: credential.key, organizationID: id)
+            sessionKeySelectedOrgID = id
+            AppLog.write("session key org switched to \(id)")
+            await refresh()
+        } catch {
+            sessionKeyError = Self.friendlyLimitError(error, L(localizationLanguage))
         }
     }
 
@@ -928,12 +1054,20 @@ final class UsageStore {
     /// 401/403(세션 만료)면 auth-expired 플래그를 세운다. 다른 오류(네트워크·키체인 잠금 등)는
     /// 만료가 아니므로 건드리지 않는다 — 오탐으로 "세션 만료" 안내를 띄우지 않기 위함.
     private func updateAuthExpired(from error: any Error) {
-        // **401 만** 세션 만료다. 403 은 "인증은 됐고 이 메서드를 쓸 권한이 없다"는 뜻이라 재로그인으로
-        // 풀리지 않는다. 같은 안내를 띄우면 사용자는 고쳐지지 않는 조치를 반복하게 된다 — 실측
-        // (2026-08-31): antigravity CLI 자격증명이 retrieveUserQuotaSummary 에서 403 을 받자
-        // "세션 만료, 재로그인" 안내가 영구 표시됐고, 그 안내는 재시도 버튼까지 가린다.
-        if case LimitsError.httpStatus(let status) = error, status == 401 {
-            limitsAuthExpired = true
+            // 세션 키 만료를 먼저 본다. 둘 다 "다시 인증하라" 지만 **처방이 반대**다 — 세션 키는
+            // 브라우저에서 쿠키를 다시 복사해 설정에 붙여넣어야 하고, OAuth 는 Keychain 재조회면 된다.
+            // 하나로 합쳐 두면 세션 키 사용자에게 "Claude Code 를 실행하세요"라는 듣지 않는 안내가 뜨고,
+            // 재시도 버튼이 Keychain 을 읽어 — 세션 키로 피하려던 그 팝업을 도로 띄운다.
+            //
+            // ChainedLimitsProvider 는 키를 넣어둔 사용자에게 fallback 오류가 아니라 **세션 키 오류를**
+            // 다시 던지므로(그쪽 주석 참조) 여기까지 출처가 보존된 채 온다.
+            if case LimitsError.sessionKeyInvalid = error { limitsAuthExpiry = .sessionKey; return }
+            // **401 만** 세션 만료다(#32). 403 은 "인증은 됐고 이 메서드를 쓸 권한이 없다"는 뜻이라
+            // 재로그인으로 풀리지 않는다 — 실측(2026-08-31): antigravity CLI 자격증명이
+            // retrieveUserQuotaSummary 에서 403 을 받자 "세션 만료" 안내가 영구 표시됐고 재시도
+            // 버튼까지 가렸다. 업스트림은 아직 401||403 을 묶어 두지만 여기서는 분리를 유지한다.
+            if case LimitsError.httpStatus(let status) = error, status == 401 {
+                limitsAuthExpiry = .oauth
         }
     }
 
@@ -990,6 +1124,14 @@ final class UsageStore {
         // liveFetchNotPermitted 는 실앱에선 발생하지 않는다(번들 게이트가 열려 있다) — 문구는 generic.
         case .keychainInteractionNotAllowed, .keychainAccessDisabled, .liveFetchNotPermitted:
             return l.limitRefreshGeneric
+        case .sessionKeyMissing:
+            return l.limitRefreshNoCredential
+        case .sessionKeyMalformed:
+            return l.sessionKeyMalformedError
+        case .sessionKeyInvalid:
+            return l.sessionKeyExpiredError
+        case .sessionKeyNoOrganization:
+            return l.sessionKeyNoOrgError
         }
     }
 

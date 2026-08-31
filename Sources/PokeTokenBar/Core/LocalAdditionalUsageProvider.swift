@@ -41,7 +41,8 @@ struct LocalHermesProvider: UsageProvider {
     }
 }
 
-/// Cursor IDE usage from its local SQLite chat database (cursorDiskKV table).
+/// Cursor usage from the dashboard API when signed in, with local SQLite as fallback.
+/// `reportsCost` is false — included-plan usage is token-only in the dashboard.
 struct LocalCursorProvider: UsageProvider {
     let id = "cursor"
     let displayName = "Cursor"
@@ -76,19 +77,20 @@ struct LocalCopilotProvider: UsageProvider {
     }
 }
 
-/// Kiro CLI usage estimated from its local conversation-history database.
+/// Kiro CLI usage estimated from local conversation history.
 ///
-/// Kiro's `RequestMetadata` (verified against `aws/amazon-q-developer-cli`, the upstream
-/// kiro-cli forks) never persists a token count. Tokens here are a bytes/4 estimate built
-/// from the stored conversation text — see `kiroTurnEntries` for why the ready-made
-/// `user_prompt_length` field can't be used as-is. There is no real dollar figure to
-/// report on top of an estimate (`reportsCost = false`, same reasoning as Copilot).
+/// Two on-disk generations coexist. Pre-2.20 writes
+/// `~/Library/Application Support/kiro-cli/data.sqlite3`. 2.20+ / `kiro-cli --v3`
+/// write JSONL under `~/.kiro/sessions` (`cli/*.jsonl`, or
+/// `<workspace>/<session>/messages.jsonl`). Neither store persists a real token
+/// count — tokens here are a bytes/4 estimate of resent conversation text.
+/// `usage_summary` credits are not API dollars, so `reportsCost` stays false.
 ///
-/// Kiro also *deletes* turns from its database on `/clear` or compaction (unlike every other
-/// local source here, whose on-disk logs only grow), so this provider merges each scan with
-/// previously-seen entries — see the `.kiro` case in `LocalAdditionalUsageCache`. A cleared
-/// conversation's already-counted tokens stay counted for the rest of the app's process
-/// lifetime, but are lost like any other in-memory cache on the next app restart.
+/// Kiro also *deletes* turns from its SQLite store on `/clear` or compaction (unlike every
+/// other local source here, whose on-disk logs only grow), so this provider merges each
+/// scan with previously-seen entries — see the `.kiro` case in `LocalAdditionalUsageCache`.
+/// A cleared conversation's already-counted tokens stay counted for the rest of the app's
+/// process lifetime, but are lost like any other in-memory cache on the next app restart.
 struct LocalKiroProvider: UsageProvider {
     let id = "kiro"
     let displayName = "Kiro"
@@ -208,7 +210,7 @@ private actor LocalAdditionalUsageCache {
         let existing = previous?.entries ?? []
         let knownKiro = previous?.kiroSignatures ?? [:]
         let task = Task.detached(priority: .utility) {
-            () -> ScanResult in
+            () async -> ScanResult in
             switch source {
             case .opencode:
                 let loaded = LocalAdditionalUsageReader.openCodeEntries(modifiedSince: since)
@@ -222,15 +224,24 @@ private actor LocalAdditionalUsageCache {
                     entries: LocalUsageReader.dedupKeepMax(existing + loaded.entries),
                     kiroSignatures: loaded.signatures)
             case .cursor:
-                let loaded = LocalAdditionalUsageReader.cursorEntries(
+                let loaded = await LocalAdditionalUsageReader.cursorEntriesAsync(
                     modifiedSince: since, afterRowIDByPath: afterRowIDByPath)
                 // DB rewrite / VACUUM can drop max(rowid) below the watermark — discard
                 // the stale in-memory set and take the full rescan result.
                 if loaded.didReset {
                     return ScanResult(entries: loaded.entries, highWaterByPath: loaded.highWaterByPath)
                 }
+                // A successful dashboard response is authoritative even when it is empty.
+                // Do not retain stale API rows or merge local bubble estimates.
+                if loaded.isAuthoritative {
+                    return ScanResult(
+                        entries: loaded.entries, highWaterByPath: loaded.highWaterByPath)
+                }
+                let localExisting = existing.filter {
+                    !LocalAdditionalUsageReader.isCursorDashboardEntry($0)
+                }
                 return ScanResult(
-                    entries: LocalUsageReader.dedupKeepMax(existing + loaded.entries),
+                    entries: LocalUsageReader.dedupKeepMax(localExisting + loaded.entries),
                     highWaterByPath: loaded.highWaterByPath)
             case .copilot:
                 let loaded = LocalAdditionalUsageReader.copilotEntries(
@@ -456,6 +467,8 @@ enum LocalAdditionalUsageReader {
         var highWaterByPath: [String: Int64]
         /// True when any DB was rescanned from scratch (watermark invalidated).
         var didReset: Bool
+        /// True when a remote source produced a complete result, including an empty one.
+        var isAuthoritative: Bool = false
 
         /// Convenience for single-database tests.
         var highWaterRowID: Int64 { highWaterByPath.values.max() ?? 0 }
@@ -620,14 +633,75 @@ enum LocalAdditionalUsageReader {
         return CustomScanRoots.union(defaults: curated, extraRaw: customRootsValue)
     }
 
+    /// Cursor roots including the user's extra scan folders. The usage scan and the
+    /// `cursorAuth/accessToken` lookup must agree, or a custom root would report usage
+    /// while the dashboard API silently falls back to the local bubble scan.
+    static var configuredCursorRoots: [URL] {
+        cursorRoots(customRootsValue: CustomScanRoots.storedValue(for: "cursor"))
+    }
+
     static func cursorEntries(
         modifiedSince: Date,
         afterRowID: Int64 = 0,
         afterRowIDByPath: [String: Int64]? = nil,
         roots: [URL]? = nil
     ) -> CursorLoadResult {
-        scanIncrementalStores(
-            roots: roots ?? cursorRoots(customRootsValue: CustomScanRoots.storedValue(for: "cursor")),
+        cursorEntriesSync(
+            modifiedSince: modifiedSince,
+            afterRowID: afterRowID,
+            afterRowIDByPath: afterRowIDByPath,
+            roots: roots,
+            apiEntries: [])
+    }
+
+    static func cursorEntriesAsync(
+        modifiedSince: Date,
+        afterRowID: Int64 = 0,
+        afterRowIDByPath: [String: Int64]? = nil,
+        roots: [URL]? = nil
+    ) async -> CursorLoadResult {
+        let api = await CursorUsageAPI.fetchEntries(modifiedSince: modifiedSince)
+        return cursorEntriesSync(
+            modifiedSince: modifiedSince,
+            afterRowID: afterRowID,
+            afterRowIDByPath: afterRowIDByPath,
+            roots: roots,
+            apiEntries: api.entries,
+            apiIsAuthoritative: api.isAuthoritative)
+    }
+
+    /// Test hook for the dashboard/API path without network I/O.
+    static func cursorEntriesFromDashboard(
+        modifiedSince: Date,
+        dashboardEntries: [LocalUsageReader.Entry],
+        roots: [URL]? = nil
+    ) -> CursorLoadResult {
+        cursorEntriesSync(
+            modifiedSince: modifiedSince,
+            afterRowID: 0,
+            afterRowIDByPath: nil,
+            roots: roots,
+            apiEntries: dashboardEntries,
+            apiIsAuthoritative: true)
+    }
+
+    private static func cursorEntriesSync(
+        modifiedSince: Date,
+        afterRowID: Int64,
+        afterRowIDByPath: [String: Int64]?,
+        roots: [URL]?,
+        apiEntries: [LocalUsageReader.Entry],
+        apiIsAuthoritative: Bool = false
+    ) -> CursorLoadResult {
+        if apiIsAuthoritative {
+            return IncrementalStoreLoadResult(
+                entries: LocalUsageReader.dedupKeepMax(apiEntries),
+                highWaterByPath: [:],
+                didReset: false,
+                isAuthoritative: true)
+        }
+        return scanIncrementalStores(
+            roots: roots ?? configuredCursorRoots,
             modifiedSince: modifiedSince,
             afterRowID: afterRowID,
             afterRowIDByPath: afterRowIDByPath,
@@ -637,6 +711,74 @@ enum LocalAdditionalUsageReader {
             parse: { statement, _ in
                 parseCursorBubbleRow(statement, modifiedSince: modifiedSince)
             })
+    }
+
+    /// Cursor IDE login token stored in `state.vscdb` ItemTable.
+    static func cursorAuthAccessToken(roots: [URL]? = nil) -> String? {
+        for root in roots ?? configuredCursorRoots {
+            let database = root.appendingPathComponent("state.vscdb")
+            guard FileManager.default.fileExists(atPath: database.path) else { continue }
+            for attempt in 0 ..< 6 {
+                let rows = query(database, sql: """
+                    SELECT value FROM ItemTable WHERE key = 'cursorAuth/accessToken' LIMIT 1
+                    """) { statement -> String? in
+                    columnText(statement, 0)
+                }
+                if let token = rows?.first?.trimmingCharacters(in: .whitespacesAndNewlines), !token.isEmpty {
+                    return token
+                }
+                if rows != nil { break }
+                Thread.sleep(forTimeInterval: 0.05 * Double(attempt + 1))
+            }
+        }
+        return nil
+    }
+
+    /// Debug string for AppLog when session token lookup fails (no secret values).
+    static func cursorAuthDiagnostics(roots: [URL]? = nil) -> String {
+        var parts: [String] = []
+        for root in roots ?? configuredCursorRoots {
+            let database = root.appendingPathComponent("state.vscdb")
+            guard FileManager.default.fileExists(atPath: database.path) else {
+                parts.append("\(database.lastPathComponent): missing")
+                continue
+            }
+            let rows = query(database, sql: """
+                SELECT value FROM ItemTable WHERE key = 'cursorAuth/accessToken' LIMIT 1
+                """) { statement -> String? in
+                columnText(statement, 0)
+            }
+            switch rows {
+            case .none:
+                parts.append("\(root.lastPathComponent): sqlite busy/error")
+            case .some(let values) where values.isEmpty:
+                parts.append("\(root.lastPathComponent): key absent (not logged in?)")
+            case .some(let values):
+                parts.append("\(root.lastPathComponent): ok (\(values[0].count) chars)")
+            }
+        }
+        return parts.isEmpty ? "no cursor data dirs" : parts.joined(separator: "; ")
+    }
+
+    /// Usage from Cursor's dashboard API (`cursor|api|` entry ids).
+    static func isCursorDashboardEntry(_ entry: LocalUsageReader.Entry) -> Bool {
+        entry.id.hasPrefix("cursor|api|")
+    }
+
+    static func makeUsageEntry(
+        id: String,
+        date: Date,
+        model: String,
+        input: Int = 0,
+        output: Int = 0,
+        cacheWrite: Int = 0,
+        cacheRead: Int = 0,
+        cost: Double? = nil
+    ) -> LocalUsageReader.Entry? {
+        makeEntry(
+            id: id, date: date, model: model,
+            input: input, output: output, cacheWrite: cacheWrite, cacheRead: cacheRead,
+            cost: cost)
     }
 
     /// cursorDiskKV: key TEXT UNIQUE, value BLOB. No time column — filter by
@@ -856,41 +998,42 @@ enum LocalAdditionalUsageReader {
         return parseISO8601(text)
     }
 
-    // MARK: Kiro CLI database
+    // MARK: Kiro CLI database + JSONL sessions
 
     static var defaultKiroRoots: [URL] {
-        environmentPaths("KIRO_CLI_HOME")
-            ?? [FileManager.default.homeDirectoryForCurrentUser
-                .appendingPathComponent("Library/Application Support/kiro-cli")]
+        kiroRoots(customRootsValue: nil)
     }
 
     static func kiroRoots(
         customRootsValue: String? = nil,
         home: URL = FileManager.default.homeDirectoryForCurrentUser
     ) -> [URL] {
-        let curated = environmentPaths("KIRO_CLI_HOME")
+        let sqlite = environmentPaths("KIRO_CLI_HOME")
             ?? [home.appendingPathComponent("Library/Application Support/kiro-cli")]
-        return CustomScanRoots.union(defaults: curated, extraRaw: customRootsValue)
+        let kiroHomes = environmentPaths("KIRO_HOME")
+            ?? [home.appendingPathComponent(".kiro")]
+        let sessions = kiroHomes.map { $0.appendingPathComponent("sessions") }
+        return CustomScanRoots.union(defaults: sqlite + sessions, extraRaw: customRootsValue)
     }
 
     /// Read Kiro CLI usage turns newer than `modifiedSince`.
     ///
-    /// Kiro persists a conversation as one row whose `value` column holds the *entire*
-    /// history as JSON, rewritten in place on every turn — there is no per-row token count
-    /// (see the type doc on `LocalKiroProvider`) and no append-only id to watermark, so this
-    /// cannot advance a row id. Two schema generations coexist:
-    /// `conversations_v2` (kiro-cli < 2.0.1, dedicated `conversation_id`/`key`/timestamp
-    /// columns) and `conversations` (2.0.1+, keyed by working directory; the JSON itself
-    /// carries `conversation_id`). Both wrap the same turn shape, so they share a parser.
+    /// Pre-2.20 Kiro persists a conversation as one SQLite row whose `value` column holds
+    /// the *entire* history as JSON, rewritten in place on every turn — there is no per-row
+    /// token count (see the type doc on `LocalKiroProvider`) and no append-only id to
+    /// watermark. Two schema generations coexist: `conversations_v2` (kiro-cli < 2.0.1) and
+    /// `conversations` (2.0.1+). 2.20+ / `--v3` stopped writing that database and append
+    /// JSONL under `~/.kiro/sessions` instead (#236). Both stores are scanned; overlapping
+    /// extra folders are folded by file path so a custom `~/.kiro` does not double-count
+    /// the default `~/.kiro/sessions` files.
     ///
-    /// `modifiedSince` is applied *after* the JSON parse (`kiroTurnEntries`), so it
-    /// bounds the output, not the work (#178). The cheap gate is the database
-    /// file's own signature — reused from `LocalAntigravityUsageReader.signature`
-    /// (`.sqlite3` + `-wal`, never `-shm`). An unchanged file returns `[]`; the
-    /// `.kiro` cache merges `existing + loaded`, so that keeps previously-seen
-    /// entries. Signatures are supplied by that cache (`knownSignatures`) and
-    /// die with it on a month-key drop, so a skip cannot fire against empty
-    /// `existing` (#179). The first scan of a process passes `[:]`.
+    /// `modifiedSince` is applied *after* the parse, so it bounds the output, not the work
+    /// (#178). The cheap gate is the file's own signature — reused from
+    /// `LocalAntigravityUsageReader.signature` (for SQLite: `.sqlite3` + `-wal`, never
+    /// `-shm`). An unchanged file returns `[]`; the `.kiro` cache merges
+    /// `existing + loaded`, so that keeps previously-seen entries. Signatures are supplied
+    /// by that cache (`knownSignatures`) and die with it on a month-key drop (#179).
+    /// The first scan of a process passes `[:]`.
     static func kiroEntries(
         modifiedSince: Date,
         roots: [URL]? = nil
@@ -907,13 +1050,24 @@ enum LocalAdditionalUsageReader {
             customRootsValue: CustomScanRoots.storedValue(for: "kiro"))
         var entries: [LocalUsageReader.Entry] = []
         var signatures: [String: (mtime: Date, size: Int)] = [:]
+        var seenFiles = Set<String>()
         for root in sourceRoots {
             let database = kiroDatabaseURL(from: root)
-            let scanned = kiroDatabaseEntries(
-                database, modifiedSince: modifiedSince, known: knownSignatures)
-            entries += scanned.entries
-            if let signature = scanned.signature {
-                signatures[database.path] = signature
+            if seenFiles.insert(database.path).inserted {
+                let scanned = kiroDatabaseEntries(
+                    database, modifiedSince: modifiedSince, known: knownSignatures)
+                entries += scanned.entries
+                if let signature = scanned.signature {
+                    signatures[database.path] = signature
+                }
+            }
+            for file in kiroJSONLSessionFiles(in: root) where seenFiles.insert(file.path).inserted {
+                let scanned = kiroJSONLFileEntries(
+                    file, modifiedSince: modifiedSince, known: knownSignatures)
+                entries += scanned.entries
+                if let signature = scanned.signature {
+                    signatures[file.path] = signature
+                }
             }
         }
         return (LocalUsageReader.dedupKeepMax(entries), signatures)
@@ -1042,6 +1196,234 @@ enum LocalAdditionalUsageReader {
         if let array = value as? [Any] { return array.reduce(0) { $0 + kiroJSONValueByteLength($1) } }
         if let dict = value as? Object { return dict.values.reduce(0) { $0 + kiroJSONValueByteLength($1) } }
         return 0
+    }
+
+    // MARK: Kiro JSONL sessions (CLI 2.20 / v3)
+
+    /// Layout-shaped, not "every jsonl under the root". CLI 2.20 writes
+    /// `sessions/cli/<id>.jsonl`; v3 / IDE writes `messages.jsonl` next to `session.json`.
+    /// Event envelopes were pinned against tokscale/codeburn parsers that were written
+    /// from real on-disk files — do not invent a third shape.
+    private static func kiroJSONLSessionFiles(in root: URL) -> [URL] {
+        if kiroIsJSONLSessionFile(root) { return [root] }
+        guard let enumerator = FileManager.default.enumerator(
+            at: root,
+            includingPropertiesForKeys: [.isRegularFileKey],
+            options: [.skipsHiddenFiles, .skipsPackageDescendants]) else { return [] }
+        var out: [URL] = []
+        for case let url as URL in enumerator where kiroIsJSONLSessionFile(url) {
+            out.append(url)
+        }
+        return out
+    }
+
+    private static func kiroIsJSONLSessionFile(_ url: URL) -> Bool {
+        let name = url.lastPathComponent
+        if name == "messages.jsonl" { return true }
+        return url.pathExtension == "jsonl"
+            && url.deletingLastPathComponent().lastPathComponent == "cli"
+    }
+
+    private static func kiroJSONLFileEntries(
+        _ url: URL,
+        modifiedSince: Date,
+        known: [String: (mtime: Date, size: Int)]
+    ) -> (entries: [LocalUsageReader.Entry], signature: (mtime: Date, size: Int)?) {
+        let signature = LocalAntigravityUsageReader.signature(of: url)
+        if let signature,
+           let remembered = known[url.path],
+           remembered.mtime == signature.mtime,
+           remembered.size == signature.size {
+            return ([], signature)
+        }
+        guard FileManager.default.fileExists(atPath: url.path) else { return ([], nil) }
+        let entries = url.lastPathComponent == "messages.jsonl"
+            ? kiroV3JSONLEntries(url, modifiedSince: modifiedSince)
+            : kiroCLIJSONLEntries(url, modifiedSince: modifiedSince)
+        return (entries, signature)
+    }
+
+    /// CLI JSONL: `{version, kind: Prompt|AssistantMessage|ToolResults|Clear, data}`.
+    /// Companion `<id>.json` carries `session_id` and `session_state...model_id`.
+    private static func kiroCLIJSONLEntries(_ url: URL, modifiedSince: Date) -> [LocalUsageReader.Entry] {
+        let companion = jsonObject(at: url.deletingPathExtension().appendingPathExtension("json"))
+        let sessionID = stringValue(companion?["session_id"])
+            ?? url.deletingPathExtension().lastPathComponent
+        let modelInfo = ((companion?["session_state"] as? Object)?["rts_model_state"] as? Object)?["model_info"] as? Object
+        let model = stringValue(modelInfo?["model_id"]) ?? "unknown"
+
+        guard let text = try? String(contentsOf: url, encoding: .utf8) else { return [] }
+        var entries: [LocalUsageReader.Entry] = []
+        var historyBytes = 0
+        var promptBytes = 0
+        var promptRawTimestamp: Any?
+        var promptDate: Date?
+        var assistantBytes = 0
+        var toolBytes = 0
+        var started = false
+
+        func flush() {
+            defer {
+                historyBytes += promptBytes + assistantBytes + toolBytes
+                promptBytes = 0
+                promptRawTimestamp = nil
+                promptDate = nil
+                assistantBytes = 0
+                toolBytes = 0
+            }
+            // Missing timestamp: skip the entry but keep the text in history, same as SQLite.
+            guard started, let date = promptDate, date >= modifiedSince else { return }
+            let input = (historyBytes + promptBytes + toolBytes) / kiroBytesPerToken
+            let output = assistantBytes / kiroBytesPerToken
+            let millis = kiroTimestampMillis(raw: promptRawTimestamp, date: date)
+            if let entry = makeEntry(
+                id: "kiro|cli|\(sessionID)|\(millis)",
+                date: date, model: model, input: input, output: output) {
+                entries.append(entry)
+            }
+        }
+
+        for line in text.split(separator: "\n", omittingEmptySubsequences: true) {
+            guard let object = jsonObject(data: Data(line.utf8)) else { continue }
+            let kind = stringValue(object["kind"]) ?? ""
+            let data = object["data"] as? Object
+            if kind == "Prompt" {
+                if started { flush() }
+                started = true
+                promptBytes = kiroJSONLTextBytes(data?["content"])
+                promptRawTimestamp = (data?["meta"] as? Object)?["timestamp"]
+                promptDate = flexibleDateValue(promptRawTimestamp)
+                assistantBytes = 0
+                toolBytes = 0
+            } else if kind == "AssistantMessage" {
+                assistantBytes += kiroJSONLTextBytes(data?["content"])
+            } else if kind == "ToolResults" {
+                toolBytes += kiroJSONLTextBytes(data?["content"])
+            } else if kind == "Clear" {
+                flush()
+                started = false
+                historyBytes = 0
+            }
+        }
+        flush()
+        return entries
+    }
+
+    /// v3 / IDE: `messages.jsonl` + sibling `session.json`. Two envelopes coexist:
+    /// structured `{payload:{type}}` (usage_summary lives here) and flat `{role,content}`.
+    /// Credits on `usage_summary` are ignored — they are not API dollars.
+    private static func kiroV3JSONLEntries(_ url: URL, modifiedSince: Date) -> [LocalUsageReader.Entry] {
+        let sessionURL = url.deletingLastPathComponent().appendingPathComponent("session.json")
+        let session = jsonObject(at: sessionURL)
+        let sessionID = stringValue(session?["id"])
+            ?? url.deletingLastPathComponent().lastPathComponent
+        let model = stringValue(session?["modelId"]) ?? "unknown"
+        let fallbackDate = flexibleDateValue(session?["createdAt"])
+            ?? flexibleDateValue(session?["lastModifiedAt"])
+
+        guard let text = try? String(contentsOf: url, encoding: .utf8) else { return [] }
+        var entries: [LocalUsageReader.Entry] = []
+        var historyBytes = 0
+        var promptBytes = 0
+        var promptDate: Date?
+        var assistantBytes = 0
+        var started = false
+        var turnIndex = 0
+
+        func flush() {
+            let hadContent = started && promptBytes + assistantBytes > 0
+            defer {
+                historyBytes += promptBytes + assistantBytes
+                promptBytes = 0
+                promptDate = nil
+                assistantBytes = 0
+                // Advance even when the turn is outside the window so later in-window
+                // ids stay stable (timestamp-keyed ids would also be window-independent).
+                if hadContent { turnIndex += 1 }
+            }
+            guard hadContent else { return }
+            let date = promptDate ?? fallbackDate
+            guard let date, date >= modifiedSince else { return }
+            let input = (historyBytes + promptBytes) / kiroBytesPerToken
+            let output = assistantBytes / kiroBytesPerToken
+            if let entry = makeEntry(
+                id: "kiro|v3|\(sessionID)|\(turnIndex)",
+                date: date, model: model, input: input, output: output) {
+                entries.append(entry)
+            }
+        }
+
+        for line in text.split(separator: "\n", omittingEmptySubsequences: true) {
+            guard let object = jsonObject(data: Data(line.utf8)) else { continue }
+            if let payload = object["payload"] as? Object, let type = stringValue(payload["type"]) {
+                let eventDate = flexibleDateValue(object["timestamp"])
+                switch type {
+                case "user":
+                    if started { flush() }
+                    started = true
+                    promptBytes = kiroJSONLTextBytes(payload["content"])
+                    promptDate = eventDate
+                    assistantBytes = 0
+                case "assistant":
+                    assistantBytes += kiroJSONLTextBytes(payload["content"])
+                    if !started, assistantBytes > 0 { started = true }
+                    if promptDate == nil { promptDate = eventDate }
+                case "tool_call":
+                    // Writer-shaped: tokscale counts payload.args toward the turn's output.
+                    if let args = payload["args"] {
+                        assistantBytes += (args as? String)?.utf8.count ?? kiroJSONValueByteLength(args)
+                    }
+                    if !started, assistantBytes > 0 { started = true }
+                case "tool_result":
+                    promptBytes += kiroJSONLTextBytes(payload["content"])
+                case "turn_end":
+                    if promptDate == nil { promptDate = eventDate }
+                    flush()
+                    started = false
+                default:
+                    // usage_summary / session_metadata: credits are not API dollars.
+                    break
+                }
+            } else if let role = stringValue(object["role"]) {
+                let eventDate = flexibleDateValue(object["timestamp"])
+                if role == "user" || role == "human" || role == "prompt" {
+                    if started { flush() }
+                    started = true
+                    promptBytes = kiroJSONLTextBytes(object["content"])
+                    promptDate = eventDate
+                    assistantBytes = 0
+                } else if role == "assistant" || role == "bot" {
+                    assistantBytes += kiroJSONLTextBytes(object["content"])
+                    if !started, assistantBytes > 0 { started = true }
+                    if promptDate == nil { promptDate = eventDate }
+                }
+            }
+        }
+        flush()
+        return entries
+    }
+
+    private static func kiroJSONLTextBytes(_ value: Any?) -> Int {
+        if let string = value as? String { return string.utf8.count }
+        if let array = value as? [Any] {
+            return array.reduce(0) { $0 + kiroJSONLTextBytes($1) }
+        }
+        guard let object = value as? Object else { return 0 }
+        if let kind = object["kind"] as? String {
+            return kind == "text" ? kiroJSONLTextBytes(object["data"]) : 0
+        }
+        for key in ["content", "text", "data"] where object[key] != nil {
+            return kiroJSONLTextBytes(object[key])
+        }
+        return 0
+    }
+
+    private static func kiroTimestampMillis(raw: Any?, date: Date) -> Int64 {
+        if let value = doubleValue(raw), value.isFinite, value > 0 {
+            let ms = value < 1_000_000_000_000 ? value * 1000 : value
+            return Int64(ms.rounded(.towardZero))
+        }
+        return Int64((date.timeIntervalSince1970 * 1000).rounded(.towardZero))
     }
 
     // MARK: Shared utilities

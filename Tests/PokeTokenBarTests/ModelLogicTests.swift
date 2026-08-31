@@ -34,6 +34,28 @@ final class EvoLineNameTests: XCTestCase {
                            names: [1: ["ja": "ピカチュウ", "en": "Pika"]])
         XCTAssertEqual(line.localizedName(1, .ja), "ピカチュウ")   // ja-Hrkt 없음 → ja
     }
+
+    func testGermanNameUsesGermanThenFallsBackToEnglish() {
+        let line = EvoLine(
+            baseID: 1, tree: evoNode(1), rarity: .common,
+            names: [
+                1: ["de": "Bisasam", "en": "Bulbasaur"],
+                2: ["en": "Ivysaur"],
+            ])
+
+        XCTAssertEqual(line.localizedName(1, .de), "Bisasam")
+        XCTAssertEqual(line.localizedName(2, .de), "Ivysaur")
+    }
+}
+
+final class PokeAPILanguageTests: XCTestCase {
+    func testFetchedLanguageCodesMatchAppLanguageAPICodesWithoutDuplicates() {
+        let expected = AppLanguage.allCases.flatMap(\.apiCodes)
+
+        XCTAssertEqual(PokeAPIClient.langCodes, expected)
+        XCTAssertEqual(Set(PokeAPIClient.langCodes).count, PokeAPIClient.langCodes.count)
+        XCTAssertTrue(PokeAPIClient.langCodes.contains("de"))
+    }
 }
 
 // MARK: EvoLine 에셋 지원 범위

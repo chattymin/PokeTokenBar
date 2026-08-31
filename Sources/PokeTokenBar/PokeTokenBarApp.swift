@@ -29,7 +29,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
 
     // 메뉴바 캐릭터 애니메이션 — 단일 타이머로 프레임 순환.
     // 프레임 = 이미 22px 로 합성된 이미지 + delay. egg/static 은 2프레임 bob, animated 는 GIF 실제 프레임.
-    private var menuSpriteKey: String?   // "id-shiny" — 같은 종이라도 shiny 여부가 바뀌면 재로딩
+    private var menuSpriteKey: String?   // menuSpriteKey(id:shiny:floor:) 결과 — 바뀌면 재로딩
     private var menuFrames: [(image: NSImage, delay: TimeInterval)] = []
     private var menuIndex = 0
     private var menuTimer: Timer?
@@ -142,13 +142,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         }
     }
 
-    /// 대표 스프라이트 정체성(종/shiny) 관찰 — 대표 선택·해제뿐 아니라 사탕 진화·졸업(BagView),
-    /// 세이브 가져오기, 부화·메타몽 리빌 async 완료처럼 store 갱신 틱 없이 companion 만 바뀌는
-    /// 경로에서도 메뉴바를 즉시 갱신한다. observeStore(menuTitle)만으론 다음 사용량 폴링(기본 120s)까지
+    /// 대표 스프라이트 정체성(종/shiny/fps 하한) 관찰 — 대표 선택·해제와 애니메이션 품질 변경뿐 아니라
+    /// 사탕 진화·졸업(BagView), 세이브 가져오기, 부화·메타몽 리빌 async 완료처럼 store 갱신 틱 없이
+    /// companion 만 바뀌는 경로에서도 메뉴바를 즉시 갱신한다. observeStore(menuTitle)만으론 다음 사용량 폴링(기본 120s)까지
     /// 이전 포켓몬이 남는다(사탕 졸업 후 메뉴바 잔상 리포트 — UsageStore.onRefresh 주석과 같은 부류).
+    ///
+    /// **fps 설정도 여기서 관찰한다**: 프레임은 하한에 맞춰 솎아낸 결과물이라 하한이 곧 정체성의
+    /// 일부다(`menuSpriteKey`). `observeStore` 는 `menuTitle` 만 추적하므로, 이걸 빼면 설정을
+    /// 바꿔도 다음 사용량 폴링(기본 120s)까지 옛 fps 로 돈다 — 위 '메뉴바 잔상'과 같은 부류.
+    /// (플로팅 펫은 `body` 에서 직접 읽어 SwiftUI 관찰이 처리한다.)
     private func observeCompanionSprite() {
         withObservationTracking {
             _ = companion.representativeSubject
+            _ = store.animationQuality
         } onChange: { [weak self] in
             Task { @MainActor in
                 guard let self else { return }
@@ -476,15 +482,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
 
     // MARK: 메뉴바 애니메이션
 
+    /// 메뉴바 GIF 프레임 지속의 하한(초) = fps 상한. 사용자 설정
+    /// (`UsageStore.AnimationQuality`)이 값을 정하고, `GIFDecoder.capFrameRate` 가 프레임을
+    /// 솎아내 적용한다. 하한 자체는 없어질 수 없다 — 근거는 그 enum 과 defect-log '에너지' 절.
+    /// 히스토리: 0.4s 고정 → 프리셋(0.4/0.2/0.1) 중 사용자 선택. 기기·스프라이트마다 체감과
+    /// 배터리 영향이 갈려 하나의 값으로 수렴하지 못했다 — 기본값은 고정 캡과 같은 0.4s 다.
+    private var menuFrameFloor: TimeInterval { store.animationQuality.frameFloor }
+
+    /// `Timer.tolerance` 배수 — wakeup 코얼레싱(다른 wakeup 과 합쳐 배터리 절약)의 강도.
+    ///
+    /// **늦게만 발화시킨다**(Apple: "fire the timer later than the scheduled time, up to the
+    /// tolerance"). 따라서 이 배수는 곧 애니메이션이 느려질 수 있는 상한이다 — 0.5 였을 때
+    /// 2.75s 루프가 최대 4.13s(1.5배)까지 늘어, 정확한 타이밍으로 도는 팝오버(`tolerance: .zero`)와
+    /// 나란히 보면 메뉴바만 느려 보였다(2026-08-20). 코얼레싱은 남기고 늘어짐만 눌러 0.1 로 낮춤.
+    static let menuFrameTolerance = 0.1
+
     /// 대표 포켓몬에 맞춰 메뉴바 프레임을 준비. 종이 바뀐 경우에만 재로딩.
     /// 정적 스프라이트로 먼저 보여주고, animated GIF 가 받아지면 교체한다(메뉴바도 GIF로 움직임).
-    /// 에너지 통제는 ① delay 하한 0.2s(≈5fps) ② 안 보이면 정지(menuShouldAnimate) ③ 저전력 모드
+    /// 에너지 통제는 ① delay 하한 `menuFrameFloor` ② 안 보이면 정지(menuShouldAnimate) ③ 저전력 모드
     /// 에선 GIF 생략(가벼운 bob)로 처리한다 — 통제된 저프레임 + 비가시 시 정지로 저전력.
     private func ensureMenuAnimation() {
         let subject = companion.representativeSubject
         let id = subject.speciesID
         let shiny = subject.isShiny
-        let key = id.map { "\($0)-\(shiny)" }
+        let key = id.map { Self.menuSpriteKey(id: $0, shiny: shiny, floor: menuFrameFloor) }
         if key == menuSpriteKey, !menuFrames.isEmpty { return }   // 이미 이 개체로 애니메이션 중
         menuSpriteKey = key
         menuLoadGen += 1
@@ -507,7 +528,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             }
         }
 
-        // 풀 GIF 애니메이션(저전력 모드에서는 생략하고 bob 유지). delay 하한 0.1s(≤10fps)로 redraw 통제.
+        // 풀 GIF 애니메이션(저전력 모드에서는 생략하고 bob 유지). delay 하한 `menuFrameFloor` 로 redraw 통제.
         guard !ProcessInfo.processInfo.isLowPowerModeEnabled else { return }
         Task { @MainActor [weak self] in
             guard let self, gen == self.menuLoadGen else { return }
@@ -519,9 +540,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             guard let data else { return }
             let raw = GIFDecoder.frames(from: data)
             guard raw.count > 1, gen == self.menuLoadGen else { return }
-            // 메뉴바 GIF delay 하한 0.4s(≈2.5fps)로 캡 — 22px 스프라이트엔 5fps와 구분 안 되고, 프레임당
-            // 상태바 재합성(CA 커밋 → 디스플레이 사이클 wakeup)을 절반으로 줄여 배터리 절약. bob(0.5s/2fps)과 유사.
-            self.setMenuFrames(raw.map { (Self.menuBarImage(from: $0.image, up: false), max(0.4, $0.delay)) })
+            // fps 캡 = `menuFrameFloor`. 프레임마다 상태바 재합성(CA 커밋 → 디스플레이 사이클
+            // wakeup)이 붙으므로 네이티브 fps 로는 절대 돌리지 않는다(근거는 상수 주석).
+            // 솎아낸 **뒤** 22px 로 합성한다 — 버려질 프레임까지 합성하지 않게.
+            let capped = GIFDecoder.capFrameRate(raw, floor: self.menuFrameFloor)
+            self.setMenuFrames(capped.map { (Self.menuBarImage(from: $0.image, up: false), $0.delay) })
         }
     }
 
@@ -564,7 +587,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
                 self.advanceMenu()
             }
         }
-        timer.tolerance = frame.delay * 0.5   // 웨이크업 코얼레싱 (배터리) — 넓힐수록 다른 wakeup 과 합쳐짐
+        // 웨이크업 코얼레싱 (배터리). 넓힐수록 다른 wakeup 과 합쳐지지만 그만큼 애니메이션이
+        // 늘어질 수 있다 — 배수 근거는 `menuFrameTolerance` 주석.
+        timer.tolerance = frame.delay * Self.menuFrameTolerance
         RunLoop.main.add(timer, forMode: .common)
         menuTimer = timer
     }
@@ -576,6 +601,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         // displayAwake 슬립 게이팅이 실질 방어 — occlusion 체크는 유지하되 보조적.)
         displayAwake && !popover.isShown
             && (statusItem.button?.window?.occlusionState.contains(.visible) ?? true)
+    }
+
+    /// 메뉴바 프레임 캐시의 정체성 — 이 값이 바뀌면 프레임을 다시 만든다.
+    ///
+    /// **하한(fps 설정)이 반드시 들어가야 한다.** 프레임은 하한에 맞춰 솎아낸 결과물이라, 키가
+    /// 종·이로치만 담으면 설정을 바꿔도 다음 진화까지 옛 fps 로 계속 돈다(설계 시 확인된 함정).
+    /// 순수·테스트용: `testIdentityKeysIncludeTheFrameFloor`.
+    static func menuSpriteKey(id: Int, shiny: Bool, floor: TimeInterval) -> String {
+        "\(id)-\(shiny)-\(floor)"
     }
 
     // MARK: 프레임 합성 (22px)

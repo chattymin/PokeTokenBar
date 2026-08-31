@@ -127,17 +127,25 @@ final class StoreTerminationTests: XCTestCase {
 /// 같은 규율(fps 하한 + 저전력 정적화)을 공유한다. 여기선 그 순수 판정만 고정한다.
 @MainActor
 final class FloatingPetEnergyTests: XCTestCase {
-    /// [회귀] 플로팅 펫 GIF 는 fps 하한(0.4s≈2.5fps)으로 캡 — 네이티브 fps 로 돌면 프레임마다
-    /// 재합성(CA 커밋→디스플레이 사이클 wakeup)이 늘어 메뉴바 회귀를 그대로 반복한다.
-    func testPetFrameDelayHonorsFloor() {
-        XCTAssertEqual(SpriteView.frameDelay(base: 0.1, floor: 0.4), 0.4, accuracy: 1e-9)   // 빠른 프레임 → 캡
-        XCTAssertEqual(SpriteView.frameDelay(base: 0.6, floor: 0.4), 0.6, accuracy: 1e-9)   // 이미 느리면 원본 유지
+    /// [회귀] 상시 표시 표면의 GIF 는 **어떤 프리셋에서도** fps 하한으로 캡 — 네이티브 fps 로 돌면
+    /// 프레임마다 재합성(CA 커밋→디스플레이 사이클 wakeup)이 늘어 메뉴바 회귀를 그대로 반복한다.
+    func testEveryPresetCapsFramesWithoutChangingSpeed() {
+        for q in UsageStore.AnimationQuality.allCases {
+            let capped = GIFDecoder.capFrameRate(Self.uniformFrames(count: 20, delay: 0.1),
+                                                floor: q.frameFloor)
+            XCTAssertTrue(capped.allSatisfy { $0.delay >= q.frameFloor - 1e-9 },
+                          "\(q.rawValue): 빠른 프레임은 캡 이상으로 묶여야 한다")
+            XCTAssertEqual(capped.reduce(0) { $0 + $1.delay }, 2.0, accuracy: 1e-6,
+                           "\(q.rawValue): 속도는 원본 유지")
+        }
     }
 
-    /// 팝오버 등 일시적 표시(floor=0)는 네이티브 delay 그대로 — 캡은 항상 뜬 펫에만 적용.
+    /// 팝오버 등 일시적 표시(floor=0)는 네이티브 delay 그대로 — 캡은 항상 뜬 표면에만 적용.
     func testTransientSpriteKeepsNativeDelay() {
-        XCTAssertEqual(SpriteView.frameDelay(base: 0.1, floor: 0), 0.1, accuracy: 1e-9)
-        XCTAssertEqual(SpriteView.frameDelay(base: 0.03, floor: 0), 0.03, accuracy: 1e-9)
+        let native = Self.uniformFrames(count: 10, delay: 0.03)
+        let untouched = GIFDecoder.capFrameRate(native, floor: 0)
+        XCTAssertEqual(untouched.count, 10)
+        XCTAssertTrue(untouched.allSatisfy { abs($0.delay - 0.03) < 1e-9 })
     }
 
     /// 저전력 모드면 펫 애니메이션을 정지(정적)해 배터리를 아낀다. 정상 모드면 애니메이션.
@@ -146,11 +154,97 @@ final class FloatingPetEnergyTests: XCTestCase {
         XCTAssertTrue(FloatingPetController.shouldAnimate(lowPower: false))
     }
 
-    /// [회귀] 펫은 반드시 fps 캡이 걸려야 한다 — frameFloor 가 0 으로 돌아가면(네이티브 fps) 메뉴바에서
-    /// 고친 wakeup 회귀가 재발한다. 뷰가 실제로 넘기는 상수를 그대로 가드한다(리터럴 유실 방지).
-    func testPetFrameFloorIsCapped() {
-        XCTAssertGreaterThan(FloatingPetView.frameFloor, 0, "펫 fps 캡이 해제되면 idle wakeup 회귀")
-        XCTAssertEqual(FloatingPetView.frameFloor, 0.4, accuracy: 1e-9, "메뉴바와 동일한 0.4s≈2.5fps 캡")
+    /// [회귀] fps 캡은 **재생 속도를 보존**해야 한다 — `max(floor, delay)` 로 프레임을 늘려 붙이면
+    /// 프레임 수가 그대로라 애니메이션 전체가 느려진다(55프레임×0.05s=2.75s 스프라이트가 floor 0.4s
+    /// 에서 22s = 1/8 속도). 22px 에서 "끊김이 안 보인다"는 판단은 프레임 레이트에만 맞는 얘기였고
+    /// 재생 속도가 8배 늘어나는 건 놓쳤다(사용자 지적, 2026-08-20). 캡은 hold 가 아니라 decimate 다.
+    func testCapPreservesPlaybackSpeed() {
+        let native = Self.uniformFrames(count: 55, delay: 0.05)   // 2.75s, 20fps — Gen-V 실제 스프라이트
+        for floor in [0.2, 0.4] {
+            let capped = GIFDecoder.capFrameRate(native, floor: floor)
+            let total = capped.reduce(0) { $0 + $1.delay }
+            XCTAssertEqual(total, 2.75, accuracy: 1e-6,
+                           "floor=\(floor): 캡을 걸어도 루프 한 바퀴 길이(재생 속도)는 원본과 같아야 한다")
+            XCTAssertLessThan(Double(capped.count) / total, 1 / floor + 1e-6,
+                              "floor=\(floor): 유효 fps 가 캡을 넘으면 wakeup 회귀")
+            XCTAssertGreaterThan(capped.count, 1, "floor=\(floor): 애니메이션이 정적으로 붕괴하면 안 된다")
+        }
+    }
+
+    /// 이미 느린 GIF(프레임 delay ≥ floor)는 솎아낼 게 없으니 그대로 — 불필요한 변형 금지.
+    func testCapLeavesAlreadySlowFramesAlone() {
+        let slow = Self.uniformFrames(count: 4, delay: 0.6)
+        let capped = GIFDecoder.capFrameRate(slow, floor: 0.4)
+        XCTAssertEqual(capped.count, 4)
+        XCTAssertEqual(capped.reduce(0) { $0 + $1.delay }, 2.4, accuracy: 1e-6)
+    }
+
+    /// floor=0(팝오버 등 일시적 표시)은 네이티브 그대로 — 손대지 않는다.
+    func testCapIsIdentityAtZeroFloor() {
+        let native = Self.uniformFrames(count: 55, delay: 0.05)
+        XCTAssertEqual(GIFDecoder.capFrameRate(native, floor: 0).count, 55)
+    }
+
+    private static func uniformFrames(count: Int, delay: TimeInterval)
+        -> [(image: NSImage, delay: TimeInterval)] {
+        let img = NSImage(size: NSSize(width: 1, height: 1))
+        return (0..<count).map { _ in (img, delay) }
+    }
+
+    /// [회귀] 코얼레싱 tolerance 는 **늦게만** 발화시키므로 곧 재생 지연의 상한이다. 0.5 였을 때
+    /// 2.75s 루프가 최대 4.13s 로 늘어 팝오버(tolerance 0)와 나란히 보면 메뉴바만 느렸다.
+    /// 코얼레싱을 없애지 않으면서(>0) 늘어짐은 눈에 안 띄는 범위(≤15%)로 묶는다.
+    func testToleranceDoesNotVisiblyStretchPlayback() {
+        XCTAssertGreaterThan(AppDelegate.menuFrameTolerance, 0, "코얼레싱이 사라지면 wakeup 회귀")
+        let loop = 2.75                       // 41-a.gif 실측 루프 길이
+        let worstCase = loop * (1 + AppDelegate.menuFrameTolerance)
+        XCTAssertLessThanOrEqual(worstCase, loop * 1.15,
+                                 "최악의 경우 재생이 15% 이상 늘어지면 팝오버와 속도가 어긋나 보인다")
+    }
+
+    /// [회귀] **어떤 프리셋도 캡을 해제하지 못한다.** 사용자에게 fps 선택권을 주면서 0(네이티브)이
+    /// 새는 게 가장 위험한 회귀 — 프리셋을 추가해도 이 가드가 자동으로 걸린다(개별 상수 단정과 달리).
+    func testNoAnimationQualityPresetDisablesTheCap() {
+        XCTAssertFalse(UsageStore.AnimationQuality.allCases.isEmpty)
+        for q in UsageStore.AnimationQuality.allCases {
+            XCTAssertGreaterThan(q.frameFloor, 0, "\(q.rawValue): 캡이 해제되면 idle wakeup 회귀")
+        }
+    }
+
+    /// 프리셋 순서 계약 — powerSaver 가 가장 느리고(하한 큼) smooth 가 가장 부드럽다. 라벨과 실제
+    /// 동작이 어긋나면 사용자가 정반대를 고르게 된다.
+    func testAnimationQualityPresetsAreOrdered() {
+        let q = UsageStore.AnimationQuality.self
+        XCTAssertGreaterThan(q.powerSaver.frameFloor, q.balanced.frameFloor)
+        XCTAssertGreaterThan(q.balanced.frameFloor, q.smooth.frameFloor)
+    }
+
+    /// [회귀] 설정을 바꾸면 **즉시** 반영돼야 한다. 두 표면 모두 "정체성이 바뀌면 재로딩" 기계로
+    /// 프레임을 갱신하는데, 그 정체성 키에 하한이 빠져 있으면 종이 바뀔 때까지 옛 fps 로 계속 돈다
+    /// (`menuSpriteKey` = "id-shiny", `SpriteView.task(id:)` = "id-shiny" 였다 — 설계 시 확인된 함정).
+    func testIdentityKeysIncludeTheFrameFloor() {
+        XCTAssertNotEqual(AppDelegate.menuSpriteKey(id: 41, shiny: false, floor: 0.4),
+                          AppDelegate.menuSpriteKey(id: 41, shiny: false, floor: 0.1),
+                          "메뉴바: 하한이 키에 없으면 설정 변경이 안 먹는다")
+        XCTAssertNotEqual(SpriteView.frameTaskID(speciesID: 41, shiny: false, floor: 0.4),
+                          SpriteView.frameTaskID(speciesID: 41, shiny: false, floor: 0.1),
+                          "펫: 하한이 task id 에 없으면 설정 변경이 안 먹는다")
+        // 종·이로치 구분은 그대로 유지(하한 추가가 기존 판정을 덮어쓰지 않는다).
+        XCTAssertNotEqual(AppDelegate.menuSpriteKey(id: 41, shiny: false, floor: 0.2),
+                          AppDelegate.menuSpriteKey(id: 41, shiny: true, floor: 0.2))
+        XCTAssertNotEqual(SpriteView.frameTaskID(speciesID: 41, shiny: true, floor: 0.2),
+                          SpriteView.frameTaskID(speciesID: 42, shiny: true, floor: 0.2))
+    }
+
+    /// 두 상시 표시 표면(메뉴바·펫)은 이제 **같은 설정값**을 읽는다(`animationQuality.frameFloor`)
+    /// — 한쪽만 캡이 풀리는 비대칭이 구조적으로 불가능해졌다. 남은 위험은 호출부가 0 을 직접
+    /// 넘기는 것뿐인데, 두 호출부 모두 SwiftUI/AppKit 뷰라 헤드리스로 잡을 수 없어 여기선
+    /// 프리셋 자체의 계약만 잠근다(`testNoAnimationQualityPresetDisablesTheCap`).
+    /// 일시적 표시(팝오버)는 의도적으로 floor 0 = 네이티브 fps 다.
+    func testTransientSurfaceIsTheOnlyUncappedOne() {
+        XCTAssertEqual(GIFDecoder.capFrameRate(Self.uniformFrames(count: 10, delay: 0.03),
+                                               floor: 0).count, 10, "팝오버는 네이티브 유지")
+        XCTAssertTrue(UsageStore.AnimationQuality.allCases.allSatisfy { $0.frameFloor > 0 })
     }
 
     /// Bubble needs headroom + width beyond the square pet size — otherwise content is clipped.
@@ -195,6 +289,32 @@ final class FloatingPetEnergyTests: XCTestCase {
             FloatingPetView.hoverTooltip(todayTokens: 12_345, limitUtilization: 42, mode: .remaining, l: l),
             l.floatingPetHoverWithLimit(TokenFormatter.grouped(12_345),
                                         l.percentRemaining(TokenFormatter.percent(58))))
+    }
+
+    /// [회귀] 호버 콜아웃의 글자와 외곽선은 같은 appearance에서 해석되어야 한다.
+    /// 기존 경로는 텍스트 필드에 동적 `.labelColor`를 지정하면서 뷰를 만드는 동안
+    /// `windowBackgroundColor.cgColor`를 굳혔다. 그 결과 다크 모드에서 밝은 말풍선에
+    /// 흰 글자가 놓일 수 있었다.
+    func testHoverCalloutColorsFollowLightAndDarkAppearance() throws {
+        let light = try XCTUnwrap(NSAppearance(named: .aqua))
+        let dark = try XCTUnwrap(NSAppearance(named: .darkAqua))
+        let lightColors = FloatingPetController.hoverCalloutColors(for: light)
+        let darkColors = FloatingPetController.hoverCalloutColors(for: dark)
+
+        XCTAssertTrue(lightColors.text.isEqual(Self.snapshot(NSColor.labelColor, for: light)))
+        XCTAssertTrue(lightColors.background.isEqual(Self.snapshot(NSColor.windowBackgroundColor, for: light)))
+        XCTAssertTrue(lightColors.border.isEqual(Self.snapshot(NSColor.separatorColor, for: light)))
+        XCTAssertTrue(darkColors.text.isEqual(Self.snapshot(NSColor.labelColor, for: dark)))
+        XCTAssertTrue(darkColors.background.isEqual(Self.snapshot(NSColor.windowBackgroundColor, for: dark)))
+        XCTAssertTrue(darkColors.border.isEqual(Self.snapshot(NSColor.separatorColor, for: dark)))
+
+        XCTAssertFalse(lightColors.text.isEqual(darkColors.text), "text color must change with appearance")
+        XCTAssertFalse(lightColors.background.isEqual(darkColors.background),
+                      "bubble background must change with appearance")
+        XCTAssertFalse(lightColors.text.isEqual(lightColors.background),
+                       "라이트 모드 콜아웃 글자는 배경과 달라야 함")
+        XCTAssertFalse(darkColors.text.isEqual(darkColors.background),
+                       "다크 모드 콜아웃 글자는 배경과 달라야 함")
     }
 
     /// Alert copy in *every* language must fit the default bubble panel — width-capped wrap,
@@ -311,6 +431,14 @@ final class FloatingPetEnergyTests: XCTestCase {
             l.opencodeGoWeekly,
             l.opencodeGoMonthly,
         ]
+    }
+
+    private static func snapshot(_ color: NSColor, for appearance: NSAppearance) -> NSColor {
+        var resolved = color
+        appearance.performAsCurrentDrawingAppearance {
+            resolved = NSColor(cgColor: color.cgColor) ?? color
+        }
+        return resolved
     }
 
     /// Grow a wrapping body until unconstrained `measureSpeechBubble` height has jumped

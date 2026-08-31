@@ -7,7 +7,7 @@ enum CompanionStateKind: String, Sendable {
 
 /// 앱 언어. 포켓몬 이름은 PokéAPI 다국어 names 에서 가져온다.
 enum AppLanguage: String, Codable, Sendable, CaseIterable {
-    case ko, en, ja, es, fr, pt
+    case ko, en, ja, es, fr, pt, de
     /// PokéAPI language.name 후보(첫 매칭 사용)
     var apiCodes: [String] {
         switch self {
@@ -25,10 +25,11 @@ enum AppLanguage: String, Codable, Sendable, CaseIterable {
         // 본가 시리즈가 포르투갈어로 나온 적이 없어 브라질에서도 종 이름은 영어를 쓰므로 폴백이 곧 기대값이다.
         // 그래도 코드를 적어두는 건 PokéAPI 가 pt 를 추가하는 순간 분기 수정 없이 반영되게 하기 위해서다.
         case .pt: return ["pt"]
+        case .de: return ["de"]
         }
     }
     var label: String {
-        switch self { case .ko: return "한국어"; case .en: return "English"; case .ja: return "日本語"; case .es: return "Español"; case .fr: return "Français"; case .pt: return "Português" }
+        switch self { case .ko: return "한국어"; case .en: return "English"; case .ja: return "日本語"; case .es: return "Español"; case .fr: return "Français"; case .pt: return "Português"; case .de: return "Deutsch" }
     }
 
     var displayLocale: Locale { Locale(identifier: rawValue) }
@@ -40,14 +41,20 @@ enum AppLanguage: String, Codable, Sendable, CaseIterable {
     }
 
     /// 신규 설치 기본 언어 — 시스템 선호 언어에서 유추(글로벌 출시: 한국어 강제 금지).
-    /// ko/ja/es/fr/pt 만 매칭, 그 외 전부 영어(fallback-of-fallback). 기존 사용자는 저장된 언어를 그대로 쓴다.
+    /// ko/ja/es/fr/pt/de 만 매칭, 그 외 전부 영어(fallback-of-fallback). 기존 사용자는 저장된 언어를 그대로 쓴다.
     static var systemDefault: AppLanguage {
-        switch Locale.preferredLanguages.first?.prefix(2).lowercased() {
+        systemDefault(for: Locale.preferredLanguages.first)
+    }
+
+    /// 시스템 언어 매핑의 순수 판정 — 실제 환경을 바꾸지 않고 locale 분기를 검증할 수 있게 분리한다.
+    static func systemDefault(for preferredLanguage: String?) -> AppLanguage {
+        switch preferredLanguage?.prefix(2).lowercased() {
         case "ko": return .ko
         case "ja": return .ja
         case "es": return .es
         case "fr": return .fr
         case "pt": return .pt
+        case "de": return .de
         default:   return .en
         }
     }
@@ -336,39 +343,39 @@ enum PokemonNature: String, Codable, Sendable, CaseIterable {
     case modest, mild, quiet, bashful, rash
     case calm, gentle, sassy, careful, quirky
 
-    /// 본가 공식 번역 명칭 (ko/en/ja/es/fr).
+    /// 본가 공식 번역 명칭 (ko/en/ja/es/fr/de).
     /// pt 만 예외 — 본가에 포르투갈어판이 없어 공식 명칭이 없다. "natureza"(여성 명사)에
     /// 맞춘 자체 번역이며 25종이 겹치지 않게 골랐다(`testNatureNamesComplete` 가 중복·공백을 막는다).
     func name(_ lang: AppLanguage) -> String {
-        let names: (String, String, String, String, String, String)
+        let names: (String, String, String, String, String, String, String)
         switch self {
-        case .hardy:   names = ("노력", "Hardy", "がんばりや", "Fuerte", "Hardi", "Esforçada")
-        case .lonely:  names = ("외로움", "Lonely", "さみしがり", "Huraña", "Solo", "Carente")
-        case .brave:   names = ("용감", "Brave", "ゆうかん", "Audaz", "Brave", "Corajosa")
-        case .adamant: names = ("고집", "Adamant", "いじっぱり", "Firme", "Rigide", "Teimosa")
-        case .naughty: names = ("개구쟁이", "Naughty", "やんちゃ", "Pícara", "Mauvais", "Levada")
-        case .bold:    names = ("대담", "Bold", "ずぶとい", "Osada", "Assuré", "Ousada")
-        case .docile:  names = ("온순", "Docile", "すなお", "Dócil", "Docile", "Dócil")
-        case .relaxed: names = ("무사태평", "Relaxed", "のんき", "Plácida", "Relax", "Descontraída")
-        case .impish:  names = ("장난꾸러기", "Impish", "わんぱく", "Agitada", "Malin", "Travessa")
-        case .lax:     names = ("촐랑", "Lax", "のうてんき", "Floja", "Lâche", "Despreocupada")
-        case .timid:   names = ("겁쟁이", "Timid", "おくびょう", "Miedosa", "Timide", "Medrosa")
-        case .hasty:   names = ("성급", "Hasty", "せっかち", "Activa", "Pressé", "Apressada")
-        case .serious: names = ("성실", "Serious", "まじめ", "Seria", "Sérieux", "Séria")
-        case .jolly:   names = ("명랑", "Jolly", "ようき", "Alegre", "Jovial", "Alegre")
-        case .naive:   names = ("천진난만", "Naive", "むじゃき", "Ingenua", "Naïf", "Ingênua")
-        case .modest:  names = ("조심", "Modest", "ひかえめ", "Modesta", "Modeste", "Modesta")
-        case .mild:    names = ("의젓", "Mild", "おっとり", "Afable", "Doux", "Meiga")
-        case .quiet:   names = ("냉정", "Quiet", "れいせい", "Mansa", "Discret", "Discreta")
-        case .bashful: names = ("수줍음", "Bashful", "てれや", "Tímida", "Pudique", "Tímida")
-        case .rash:    names = ("덜렁", "Rash", "うっかりや", "Alocada", "Foufou", "Impulsiva")
-        case .calm:    names = ("차분", "Calm", "おだやか", "Serena", "Calme", "Calma")
-        case .gentle:  names = ("얌전", "Gentle", "おとなしい", "Amable", "Gentil", "Gentil")
-        case .sassy:   names = ("건방", "Sassy", "なまいき", "Grosera", "Malpoli", "Atrevida")
-        case .careful: names = ("신중", "Careful", "しんちょう", "Cauta", "Prudent", "Cautelosa")
-        case .quirky:  names = ("변덕", "Quirky", "きまぐれ", "Rara", "Bizarre", "Excêntrica")
+        case .hardy:   names = ("노력", "Hardy", "がんばりや", "Fuerte", "Hardi", "Esforçada", "Robust")
+        case .lonely:  names = ("외로움", "Lonely", "さみしがり", "Huraña", "Solo", "Carente", "Solo")
+        case .brave:   names = ("용감", "Brave", "ゆうかん", "Audaz", "Brave", "Corajosa", "Mutig")
+        case .adamant: names = ("고집", "Adamant", "いじっぱり", "Firme", "Rigide", "Teimosa", "Hart")
+        case .naughty: names = ("개구쟁이", "Naughty", "やんちゃ", "Pícara", "Mauvais", "Levada", "Frech")
+        case .bold:    names = ("대담", "Bold", "ずぶとい", "Osada", "Assuré", "Ousada", "Kühn")
+        case .docile:  names = ("온순", "Docile", "すなお", "Dócil", "Docile", "Dócil", "Sanft")
+        case .relaxed: names = ("무사태평", "Relaxed", "のんき", "Plácida", "Relax", "Descontraída", "Locker")
+        case .impish:  names = ("장난꾸러기", "Impish", "わんぱく", "Agitada", "Malin", "Travessa", "Pfiffig")
+        case .lax:     names = ("촐랑", "Lax", "のうてんき", "Floja", "Lâche", "Despreocupada", "Lasch")
+        case .timid:   names = ("겁쟁이", "Timid", "おくびょう", "Miedosa", "Timide", "Medrosa", "Scheu")
+        case .hasty:   names = ("성급", "Hasty", "せっかち", "Activa", "Pressé", "Apressada", "Hastig")
+        case .serious: names = ("성실", "Serious", "まじめ", "Seria", "Sérieux", "Séria", "Ernst")
+        case .jolly:   names = ("명랑", "Jolly", "ようき", "Alegre", "Jovial", "Alegre", "Froh")
+        case .naive:   names = ("천진난만", "Naive", "むじゃき", "Ingenua", "Naïf", "Ingênua", "Naiv")
+        case .modest:  names = ("조심", "Modest", "ひかえめ", "Modesta", "Modeste", "Modesta", "Mäßig")
+        case .mild:    names = ("의젓", "Mild", "おっとり", "Afable", "Doux", "Meiga", "Mild")
+        case .quiet:   names = ("냉정", "Quiet", "れいせい", "Mansa", "Discret", "Discreta", "Ruhig")
+        case .bashful: names = ("수줍음", "Bashful", "てれや", "Tímida", "Pudique", "Tímida", "Zaghaft")
+        case .rash:    names = ("덜렁", "Rash", "うっかりや", "Alocada", "Foufou", "Impulsiva", "Hitzig")
+        case .calm:    names = ("차분", "Calm", "おだやか", "Serena", "Calme", "Calma", "Still")
+        case .gentle:  names = ("얌전", "Gentle", "おとなしい", "Amable", "Gentil", "Gentil", "Zart")
+        case .sassy:   names = ("건방", "Sassy", "なまいき", "Grosera", "Malpoli", "Atrevida", "Forsch")
+        case .careful: names = ("신중", "Careful", "しんちょう", "Cauta", "Prudent", "Cautelosa", "Sacht")
+        case .quirky:  names = ("변덕", "Quirky", "きまぐれ", "Rara", "Bizarre", "Excêntrica", "Kauzig")
         }
-        switch lang { case .ko: return names.0; case .en: return names.1; case .ja: return names.2; case .es: return names.3; case .fr: return names.4; case .pt: return names.5 }
+        switch lang { case .ko: return names.0; case .en: return names.1; case .ja: return names.2; case .es: return names.3; case .fr: return names.4; case .pt: return names.5; case .de: return names.6 }
     }
 }
 
@@ -459,11 +466,19 @@ struct DexEntry: Codable, Sendable, Identifiable {
     /// 도감의 단계별 스프라이트 밑 이름 표시가 네트워크 없이 즉시 + 언어 전환 대응. 구버전 저장분엔
     /// 없어(nil) 뷰가 line fetch 로 조회 후 백필한다.
     var names: [Int: [String: String]]?
+    /// 놓아준 시각 — 알을 새로 사서 육성을 포기한 기록. nil = 졸업분(구버전 저장분 포함).
+    ///
+    /// 두 기록을 한 배열에 두는 이유: 도감(`dexSpecies`)은 종이 어떻게 확보됐는지와 무관하게
+    /// **보유 종**을 접는다. 놓아준 개체를 여기 넣지 않으면 그 종이 도감에서 사라진다 —
+    /// 수집 화면이 "쌓이기만 한다"는 약속을 깨는 유일한 경로였다.
+    var releasedAt: Date?
+    /// 졸업이 아니라 놓아준 기록인가 — 포획 로그가 뱃지를 가르는 판정.
+    var isReleased: Bool { releasedAt != nil }
 
     init(id: String = UUID().uuidString,
          baseID: Int, finalID: Int, chainOrder: [Int], rarity: Rarity,
          caughtAt: Date?, isShiny: Bool = false, nature: PokemonNature? = nil,
-         names: [Int: [String: String]]? = nil) {
+         names: [Int: [String: String]]? = nil, releasedAt: Date? = nil) {
         self.id = id
         self.baseID = baseID
         self.finalID = finalID
@@ -473,6 +488,7 @@ struct DexEntry: Codable, Sendable, Identifiable {
         self.isShiny = isShiny
         self.nature = nature
         self.names = names
+        self.releasedAt = releasedAt
     }
 
     // 하위호환 디코딩 (MonState 와 동일 이유).
@@ -489,6 +505,8 @@ struct DexEntry: Codable, Sendable, Identifiable {
         // try? — 구버전(최종체 단일 [String:String]) 형식이 남아 있어도 종별 맵 디코딩 실패 시 nil 로
         // 강등(항목 전체 로드는 유지). 뷰가 line 조회로 백필한다.
         names = (try? c.decodeIfPresent([Int: [String: String]].self, forKey: .names)) ?? nil
+        // 이 필드 이전에 저장된 항목은 전부 졸업분이다 — nil 이 곧 "졸업"이라 마이그레이션이 필요 없다.
+        releasedAt = try c.decodeIfPresent(Date.self, forKey: .releasedAt)
     }
 }
 
