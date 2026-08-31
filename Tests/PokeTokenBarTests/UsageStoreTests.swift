@@ -1209,6 +1209,44 @@ final class UsageStoreTests: XCTestCase {
                        "403 에 만료 안내를 띄우면 CLI 사용자에게 영구히 지워지지 않는다")
     }
 
+    /// 403 을 "HTTP 403" 으로만 보여주면 사용자는 재로그인을 시도한다 — 그 조치로는 안 풀린다.
+    func testForbiddenGetsItsOwnMessageNotAGenericHTTPError() {
+        let l = L(.en)
+        XCTAssertEqual(UsageStore.friendlyLimitError(LimitsError.httpStatus(403), l), l.limitRefreshForbidden)
+        XCTAssertEqual(UsageStore.friendlyLimitError(LimitsError.httpStatus(500), l), l.limitRefreshHTTPError(500))
+    }
+
+    /// 사용자가 누른 갱신이 실패하면 화면에 사유가 남아야 한다. 로그에만 남으면 버튼이 고장 난 것처럼
+    /// 보인다(실사용자 리포트 2026-08-31: "antigravity 갱신을 눌러도 아무 일도 안 일어난다").
+    func testAntigravityUserRefreshSurfacesTheFailure() async {
+        let claude = FakeUsageProvider(id: "claude_code", displayName: "Claude Code", daily: todayDaily(10_000_000))
+        let store = UsageStore(providers: [claude],
+                               claudeLimitsProvider: FakeClaudeLimits(status: nil),
+                               codexLimitsProvider: FakeCodexLimits(status: nil),
+                               opencodeGoLimitsProvider: FakeOpenCodeGoLimits(status: nil),
+                               antigravityLimitsProvider: ThrowingAntigravityLimits(error: .httpStatus(403)),
+                               autoRefresh: false, defaults: testDefaults)
+
+        await store.refreshAntigravityLimitsFromKeychain()
+        XCTAssertEqual(store.antigravityLimitRefreshError,
+                       L(.en).limitRefreshForbidden,
+                       "사용자 동작 실패가 화면에 남지 않았다")
+    }
+
+    /// 자동 폴 실패까지 문구를 띄우면 미구독 사용자에게 오류가 상주한다 — 사용자 동작만 표시한다.
+    func testAntigravityAutomaticFailureStaysSilent() async {
+        let claude = FakeUsageProvider(id: "claude_code", displayName: "Claude Code", daily: todayDaily(10_000_000))
+        let store = UsageStore(providers: [claude],
+                               claudeLimitsProvider: FakeClaudeLimits(status: nil),
+                               codexLimitsProvider: FakeCodexLimits(status: nil),
+                               opencodeGoLimitsProvider: FakeOpenCodeGoLimits(status: nil),
+                               antigravityLimitsProvider: ThrowingAntigravityLimits(error: .httpStatus(403)),
+                               autoRefresh: false, defaults: testDefaults)
+
+        await store.refresh(scheduleEmptyRetry: false)
+        XCTAssertNil(store.antigravityLimitRefreshError, "자동 폴 실패가 화면에 문구를 남겼다")
+    }
+
     func testIsStaleBeforeFirstRefreshThenFreshAfter() async {
         let claude = FakeUsageProvider(id: "claude_code", displayName: "Claude Code", daily: todayDaily(10_000_000))
         let store = makeStore(providers: [claude])

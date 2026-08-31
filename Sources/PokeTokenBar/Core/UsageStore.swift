@@ -37,6 +37,10 @@ final class UsageStore {
     private(set) var isRefreshingLimitToken = false
     private(set) var lastErrorDescription: String?
     private(set) var limitTokenRefreshError: String?
+    /// Antigravity 갱신 실패 문구. 없으면 사용자가 버튼을 눌러도 **아무 일도 안 일어난 것처럼 보인다**
+    /// (실사용자 리포트 2026-08-31) — 로그에만 남고 화면에는 흔적이 없었다. Claude 쪽과 같은 계약:
+    /// 사용자 동작 경로에서만 세우고, 성공하면 지운다(자동 폴 실패로 문구를 띄우면 상시 노이즈가 된다).
+    private(set) var antigravityLimitRefreshError: String?
 
     // MARK: Bubble Alert State
     /// Transient speech-bubble payload for the floating pet. Cleared after the TTL.
@@ -879,6 +883,7 @@ final class UsageStore {
     }
 
     func refreshAntigravityLimitsFromKeychain() async {
+        antigravityLimitRefreshError = nil
         await refreshAntigravityLimits(allowKeychainPrompt: true)
     }
 
@@ -901,6 +906,7 @@ final class UsageStore {
             antigravityLimits = status
             antigravityLimitsUpdatedAt = Date()
             antigravityLimitsAuthExpired = false
+            antigravityLimitRefreshError = nil
             let groupsDesc = status.groups.map { group in
                 "\(group.displayName): " + group.buckets.map { "\($0.bucketId)=\(String(format: "%.1f", $0.usedPercent))%" }.joined(separator: ", ")
             }.joined(separator: " | ")
@@ -909,6 +915,11 @@ final class UsageStore {
             // 401 만 세션 만료 — 근거는 updateAuthExpired 주석 참조.
             if case LimitsError.httpStatus(let code) = error, code == 401 {
                 antigravityLimitsAuthExpired = true
+            }
+            // 사용자가 누른 경우에만 화면에 사유를 남긴다. 자동 폴 실패까지 띄우면 미설치·미구독
+            // 사용자에게 지워지지 않는 오류 문구가 상주한다.
+            if allowKeychainPrompt {
+                antigravityLimitRefreshError = Self.friendlyLimitError(error, L(localizationLanguage))
             }
             AppLog.writeIfChanged("antigravity-limits", "antigravity limits unavailable: \(error)")
         }
@@ -967,6 +978,9 @@ final class UsageStore {
         switch limitsError {
         case .rateLimited:
             return l.limitRefreshRateLimited
+        case .httpStatus(403):
+            // 재로그인 안내로 흘려보내지 않는다 — 403 은 권한 문제라 그 조치로 안 풀린다.
+            return l.limitRefreshForbidden
         case .httpStatus(let status):
             return l.limitRefreshHTTPError(status)
         case .keychainUnavailable, .credentialFormat:

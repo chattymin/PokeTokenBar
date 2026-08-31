@@ -310,6 +310,13 @@ struct PopoverView: View {
                 // 사용자가 직접 갱신한다. 프롬프트가 뜨더라도 사용자 행동에 의한 것이라 예상 가능하다.
                 claudeLimitsRefreshRow
             }
+            // antigravity 와 같은 이유 — 버튼은 팝오버에 있는데 사유가 설정 화면에만 있으면 무반응으로 보인다.
+            if selectedSnapshot?.providerID == "claude_code",
+               let refreshError = store.limitTokenRefreshError {
+                Text(refreshError)
+                    .font(.caption2).foregroundStyle(.orange).lineLimit(3)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
             if selectedSnapshot?.providerID == "claude_code", let limits = store.limits {
                 // 플랜(계정 속성) — Codex codexMetaRow 와 동일 스타일. 구독 정보 있을 때만 노출.
                 if let plan = limits.planDisplay {
@@ -417,6 +424,12 @@ struct PopoverView: View {
             antigravityAuthExpiredNotice
         } else if !store.disableKeychainAccess && (store.antigravityLimits == nil || store.antigravityLimitsStale) {
             antigravityRefreshRow
+        }
+        // 갱신 버튼이 여기 있는데 사유는 설정 화면에만 있으면, 누른 사람은 "아무 일도 안 일어났다"고 본다.
+        if let refreshError = store.antigravityLimitRefreshError {
+            Text(refreshError)
+                .font(.caption2).foregroundStyle(.orange).lineLimit(3)
+                .fixedSize(horizontal: false, vertical: true)
         }
         if let status = store.antigravityLimits, status.hasVisibleLimit {
             if store.antigravityLimitsStale {

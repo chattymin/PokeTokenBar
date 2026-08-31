@@ -594,6 +594,16 @@ struct L {
           "Ton identifiant Claude n'a pas de connexion de compte. Lance `/login` dans Claude Code pour te reconnecter et les limites apparaîtront.",
           "A credencial do Claude não está associada a nenhuma conta. Rode `/login` no Claude Code para fazer login de novo — aí os limites aparecem.")
     }
+    /// 403 = 인증은 됐고 권한이 없다. "다시 로그인"을 암시하면 안 된다 — 실측(2026-08-31)에서 서버는
+    /// "유효한 라이선스가 없다"고 답했고, 재로그인으로는 절대 풀리지 않는다.
+    var limitRefreshForbidden: String {
+        t("이 계정은 한도 조회 권한이 없어요 (403). 다시 로그인해도 해결되지 않습니다 — 로그에 서버 응답이 남아요.",
+          "This account isn't allowed to read limits (403). Signing in again won't help — the server's reason is in the log.",
+          "このアカウントには上限を取得する権限がありません (403)。再ログインしても解決しません — サーバーの理由はログにあります。",
+          "Esta cuenta no tiene permiso para leer los límites (403). Volver a iniciar sesión no ayudará — el motivo del servidor está en el registro.",
+          "Ce compte n'est pas autorisé à lire les limites (403). Se reconnecter n'y changera rien — la raison du serveur est dans le journal.",
+          "Esta conta não tem permissão para ler os limites (403). Entrar de novo não vai ajudar — o motivo do servidor está no log.")
+    }
     var limitRefreshGeneric: String {
         t("Claude 한도 조회에 실패했어요. 잠시 후 다시 시도하세요.",
           "Couldn't fetch Claude limits. Please try again shortly.",
