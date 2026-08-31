@@ -21,6 +21,13 @@ public struct AntigravityRateLimitsProvider: AntigravityLimitsProviding, Sendabl
         do {
             return try await fetchStatus(accessToken: token)
         } catch let error as LimitsError {
+            // 진단(한시적): 소비자 계정은 retrieveUserQuotaSummary 가 403("no valid license of this
+            // product")이고, antigravity CLI 의 quota_manager 는 같은 호스트의 loadCodeAssist 를 부른다
+            // (CLI 로그 실측 2026-08-31). 파서를 쓰려면 그 응답의 필드 이름을 알아야 해서 **키 구조만**
+            // 한 번 남긴다. 사용자가 누른 경로에서만 — 자동 폴이 몰래 추가 호출을 하면 안 된다.
+            if allowKeychainPrompt, case .httpStatus(403) = error {
+                await Self.probeLoadCodeAssistShape(accessToken: token)
+            }
             guard case .httpStatus(let httpStatus) = error, httpStatus == 401 || httpStatus == 403 else {
                 throw error
             }
@@ -30,6 +37,35 @@ public struct AntigravityRateLimitsProvider: AntigravityLimitsProviding, Sendabl
             guard refreshed != token else { throw error }
             return try await fetchStatus(accessToken: refreshed)
         }
+    }
+
+    /// loadCodeAssist 응답의 **키 구조만** 로그에 남기는 1회성 진단.
+    /// 값은 담지 않는다 — 계정·프로젝트 식별자가 섞여 있을 수 있다(JSONKeyShape).
+    /// 파서가 생기면 이 함수는 제거된다.
+    static func probeLoadCodeAssistShape(accessToken: String) async {
+        guard AppEnv.isBundledApp || AppEnv.isParityRun else { return }
+        let url = URL(string: "https://daily-cloudcode-pa.googleapis.com/v1internal:loadCodeAssist")!
+        var request = URLRequest(url: url, timeoutInterval: 15)
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("antigravity/2.9.1", forHTTPHeaderField: "User-Agent")
+        request.httpBody = Data("{}".utf8)
+
+        guard let (data, response) = try? await URLSession.shared.data(for: request),
+              let http = response as? HTTPURLResponse else {
+            AppLog.write("antigravity probe loadCodeAssist: 응답 없음")
+            return
+        }
+        guard http.statusCode == 200 else {
+            // 오류 본문에는 자격증명이 없다(#32 와 같은 근거) — 사유는 그대로 남긴다.
+            let reason = String(data: data.prefix(200), encoding: .utf8)?
+                .replacingOccurrences(of: "\n", with: " ")
+                .trimmingCharacters(in: .whitespaces) ?? "<본문 해석 불가>"
+            AppLog.write("antigravity probe loadCodeAssist \(http.statusCode): \(reason)")
+            return
+        }
+        AppLog.write("antigravity probe loadCodeAssist 200 shape=\(JSONKeyShape.describe(data))")
     }
 
     private func fetchStatus(accessToken: String) async throws -> AntigravityRateLimitStatus {
