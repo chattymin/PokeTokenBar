@@ -271,6 +271,24 @@ read_when:
   회귀 가드: `testAutoRefreshUsesNoPromptPathManualUsesPromptPath`. (완전 근절은 Developer ID
   notarization 으로 '항상 허용' 승인을 안정화하는 것뿐 — 신뢰된 서명 신원이라야 ACL 승인이 지속된다.
   미도입.)
+- **Claude 의 `refreshToken` 은 보이지만 우리가 쓰면 안 된다 — 갱신 시 회전되어 Claude Code 를 깨뜨린다.**
+  키체인 항목(`claudeAiOauth`)에는 `accessToken`(수명 ~5h) 옆에 `refreshToken`·`refreshTokenExpiresAt`
+  (~15일)이 함께 들어 있다. "그걸로 갱신하면 키체인 접근이 5시간마다 → 15일마다로 줄겠다"는 발상이
+  자연스럽게 나오는데, **하면 안 된다.** Claude Code 바이너리 확인: 갱신은
+  `POST {baseURL}/v1/oauth/token`(`grant_type=refresh_token`, `client_id`)이고 응답 처리 함수가
+  `ltu(e,t) → { refreshToken: t.refreshToken, … }` 로 **저장된 refreshToken 을 응답의 새 값으로 교체**한다.
+  즉 회전한다. 외부 앱이 대신 갱신하면 Claude Code 의 키체인 사본이 죽은 토큰이 되어 **재로그인**을 요구한다.
+  피하려면 남의 자격증명 저장소에 write 해야 하는데 그건 위 '앱 소유 keychain 항목 금지' 가 막는 영역이다.
+  **Antigravity 와 다른 이유가 여기 있다** — Google 은 회전하지 않아서 `AntigravityTokenCache` 가
+  `refreshToken: refreshToken` 으로 기존 값을 그대로 재사용한다(`refreshGoogleToken`). 두 프로바이더의
+  토큰 규약이 다른 것이지 Claude 쪽 구현 누락이 아니다.
+  **확실도:** 회전은 "Claude Code 가 응답의 토큰으로 교체 저장한다"에서 추론한 것이고 실제로 갱신을
+  걸어 확인하지는 않았다 — 틀렸을 때의 대가가 사용자의 주 도구 로그인 파손이라 시험 자체를 하지 않았다.
+  판단 근거는 확률이 아니라 비대칭이다: **잘 돼야 #241 세션 키가 이미 더 완전하게 주는 것(간격 축소 vs
+  프롬프트 제거)의 열화판이고, 잘못되면 Claude Code 가 깨진다.**
+  같은 맥락에서 기각된 것: **사용자 경로에 무프롬프트 선시도를 덧대는 것**(Antigravity 방식). ACL 이
+  승인돼 있으면 프롬프트 쿼리도 조용히 통과하고, 미승인이면 무프롬프트는 실패해 결국 프롬프트를 띄운다 —
+  두 경로의 결과가 같아 얻는 게 없다. 패턴이 다른 프로바이더에 있다는 것만으로 이식하지 마라.
 - **인메모리 토큰 캐시는 만료만 보면 안 된다 — 원본 파일이 다른 유효 토큰으로 바뀌었는지도 본다.**
   `/login` 으로 계정을 갈아타면 `~/.claude/.credentials.json` 이 새 토큰으로 덮이지만, 캐시가 옛
   토큰의 `expiresAt` 까지 그걸 무시하면 공식 5h/주 바가 이전 계정에 붙고 컴패니언 EXP 만 로컬
