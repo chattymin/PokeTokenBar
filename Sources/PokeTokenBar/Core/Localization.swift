@@ -124,6 +124,28 @@ struct L {
     var menuBarItems: String { t("메뉴바 표시 항목 (복수 선택)", "Menu bar items (multi-select)", "メニューバー表示項目（複数選択）", "Elementos de la barra de menús (selección múltiple)", "Éléments de la barre des menus (sélection multiple)", "Itens da barra de menus (seleção múltipla)", "Elemente der Menüleiste (Mehrfachauswahl)") }
     var todayTokensShort: String { t("오늘 토큰", "Today's tokens", "本日のトークン", "Tokens de hoy", "Tokens du jour", "Tokens de hoje", "Heutige Tokens") }
     var todayCost: String { t("오늘 비용 ($)", "Today's cost ($)", "本日のコスト ($)", "Coste de hoy ($)", "Coût du jour ($)", "Custo de hoje ($)", "Heutige Kosten ($)") }
+    var monthlyPlanPriceLabel: String {
+        t("월 구독료 ($)", "Monthly plan price ($)", "月額プラン ($)", "Precio del plan mensual ($)", "Prix du forfait mensuel ($)", "Preço do plano mensal ($)", "Monatlicher Planpreis ($)")
+    }
+    var monthlyPlanPriceHint: String {
+        t("선택. Max/Pro/Team 레버리지 행에만 씁니다. 0 이면 행을 숨깁니다.",
+          "Optional. Used for the Max/Pro/Team leverage row. Set to 0 to hide it.",
+          "任意。Max/Pro/Team のレバレッジ行にだけ使います。0 なら行を隠します。",
+          "Opcional. Solo para la fila de apalancamiento Max/Pro/Team. 0 la oculta.",
+          "Facultatif. Sert à la ligne de levier Max/Pro/Team. 0 = ligne masquée.",
+          "Opcional. Só na linha de alavancagem Max/Pro/Team. 0 esconde a linha.",
+          "Optional. Nur für die Max/Pro/Team-Hebelzeile. 0 blendet sie aus.")
+    }
+    /// #200 payoff line. `plan` and `apiEquivalent` already include `$`; `multiplier` already includes `×`.
+    func subscriptionLeverage(plan: String, apiEquivalent: String, multiplier: String) -> String {
+        t("플랜 \(plan)/월 · API 환산 \(apiEquivalent) · \(multiplier)",
+          "plan \(plan)/mo · API-equiv \(apiEquivalent) · \(multiplier)",
+          "プラン \(plan)/月 · API換算 \(apiEquivalent) · \(multiplier)",
+          "plan \(plan)/mes · equiv. API \(apiEquivalent) · \(multiplier)",
+          "forfait \(plan)/mois · éq. API \(apiEquivalent) · \(multiplier)",
+          "plano \(plan)/mês · equiv. API \(apiEquivalent) · \(multiplier)",
+          "Plan \(plan)/Monat · API-äquiv. \(apiEquivalent) · \(multiplier)")
+    }
     var limitPercent: String { t("한도 %", "Limit %", "上限 %", "Límite %", "Limite %", "Limite %", "Limit %") }
     var animationQualityLabel: String { t("애니메이션", "Animation", "アニメーション", "Animación", "Animation", "Animação", "Animation") }
     var animationQualityHint: String {

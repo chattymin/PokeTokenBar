@@ -191,6 +191,21 @@ struct SettingsView: View {
             }
             Divider()
             groupRow {
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(l.monthlyPlanPriceLabel)
+                    Text(l.monthlyPlanPriceHint)
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer()
+                TextField("0", value: $store.monthlyPlanPrice, format: .number.precision(.fractionLength(0...2)))
+                    .multilineTextAlignment(.trailing)
+                    .textFieldStyle(.roundedBorder)
+                    .frame(width: 72)
+            }
+            Divider()
+            groupRow {
                 Text(l.limitDisplayModeLabel)
                 Spacer()
                 Picker("", selection: $store.limitDisplayMode) {

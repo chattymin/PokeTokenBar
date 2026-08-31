@@ -34,6 +34,11 @@ enum TokenFormatter {
         String(format: "$%.2f", usd)
     }
 
+    /// Subscription leverage multiplier: 6.1 → "6.1×", 6.0 → "6×".
+    static func multiplier(_ value: Double) -> String {
+        trim(value, decimals: 1) + "×"
+    }
+
     /// 메뉴바용 짧은 비용 표기: $9.5 / $311 / $1.2K
     static func costCompact(_ usd: Double) -> String {
         if usd < 100 { return String(format: "$%.1f", usd) }

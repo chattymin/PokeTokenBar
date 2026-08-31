@@ -8,6 +8,13 @@ protocol UsageProvider: Sendable {
     /// Flat-rate subscriptions (e.g. Cursor) report tokens only.
     var reportsCost: Bool { get }
 
+    /// Whether a reported `$` is ModelPricing × tokens (an estimate) rather than
+    /// a server-persisted charge. Only meaningful when `reportsCost` is true.
+    /// Default is estimate so a new table-priced source does not inherit a bill
+    /// flag — Grok/OpenCode/Hermes opt out explicitly. Do not infer this from
+    /// Claude's subscription plan (#224: a global Max flag labeled Grok).
+    var costIsEstimate: Bool { get }
+
     /// 오늘 합계 (critical path) — 메뉴바 숫자와 stale 판정의 기준.
     /// 데이터 소스 자체가 없거나 오늘 사용량이 없으면 nil.
     func fetchDaily() async throws -> DailyUsage?
@@ -18,6 +25,7 @@ protocol UsageProvider: Sendable {
 
 extension UsageProvider {
     var reportsCost: Bool { true }
+    var costIsEstimate: Bool { true }
 }
 
 /// 부가 정보 수집 결과. *OK 플래그가 false 면 수집 실패 → 이전 값 유지.

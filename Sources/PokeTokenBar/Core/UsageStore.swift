@@ -140,6 +140,19 @@ final class UsageStore {
         }
     }
 
+    /// Optional user-entered monthly subscription price (USD). 0 / empty = off.
+    /// No hardcoded plan table — prices change by seat and region (#200).
+    var monthlyPlanPrice: Double {
+        didSet {
+            let clamped = max(0, monthlyPlanPrice)
+            if clamped != monthlyPlanPrice {
+                monthlyPlanPrice = clamped
+                return
+            }
+            defaults.set(monthlyPlanPrice, forKey: "monthlyPlanPrice")
+        }
+    }
+
     static let intervalPresets: [(label: String, value: TimeInterval)] = [
         ("수동", 0), ("1분", 60), ("2분", 120), ("5분", 300), ("15분", 900),
     ]
@@ -298,6 +311,24 @@ final class UsageStore {
     var weekCostTotal: Double { costingSnapshots.reduce(0) { $0 + ($1.weekTotal?.totalCost ?? 0) } }
     var monthTotalTokens: Int { snapshots.reduce(0) { $0 + ($1.monthTotal?.totalTokens ?? 0) } }
     var monthCostTotal: Double { costingSnapshots.reduce(0) { $0 + ($1.monthTotal?.totalCost ?? 0) } }
+
+    /// Calendar-month `$` from table-priced sources only. Grok/OpenCode/Hermes
+    /// bills stay in `monthCostTotal` but not here — that was the #224 lie.
+    var monthAPIEquivalentCost: Double {
+        costingSnapshots.filter(\.costIsEstimate)
+            .reduce(0) { $0 + ($1.monthTotal?.totalCost ?? 0) }
+    }
+
+    /// Max/Pro/Team + a user-entered plan price + a non-zero estimate `$Y`.
+    /// Ratio is `$Y / plan`, matching #200's "6.1×" example.
+    var subscriptionLeverage: Double? {
+        guard limits?.isFlatRateSubscription == true,
+              monthlyPlanPrice > 0,
+              monthAPIEquivalentCost > 0 else { return nil }
+        return monthAPIEquivalentCost / monthlyPlanPrice
+    }
+
+    var showsLeverage: Bool { subscriptionLeverage != nil }
 
     /// Claude 의 활성 5h 블록 — 5h forecast·"현재 블록" 행은 Claude 공식 한도와 짝이므로
     /// providerID 로 명시 조회한다 (전 프로바이더가 블록을 갖게 된 후 first-with-block 은 오매칭).
@@ -525,6 +556,7 @@ final class UsageStore {
         // 사용자의 배터리 프로파일은 그대로다. 더 부드러운 쪽은 opt-in(실측 idle CPU 1.8%/5.1%).
         animationQuality = AnimationQuality(rawValue: d.string(forKey: "animationQuality") ?? "") ?? .powerSaver
         disableKeychainAccess = d.object(forKey: "disableKeychainAccess") as? Bool ?? false
+        monthlyPlanPrice = d.object(forKey: "monthlyPlanPrice") as? Double ?? 0
 
         if let credential = sessionKeys.credential() {
             sessionKeyConfigured = true
@@ -683,7 +715,8 @@ final class UsageStore {
                     weekTotal: prevWeek,
                     monthTotal: prevMonth,
                     fetchedAt: Date(),
-                    reportsCost: provider.reportsCost))
+                    reportsCost: provider.reportsCost,
+                    costIsEstimate: provider.costIsEstimate))
             }
         }
         snapshots = newSnapshots
@@ -719,7 +752,8 @@ final class UsageStore {
                             weekTotal: enrichment.periodsOK ? enrichment.weekTotal : nil,
                             monthTotal: enrichment.periodsOK ? enrichment.monthTotal : nil,
                             fetchedAt: Date(),
-                            reportsCost: provider.reportsCost))
+                            reportsCost: provider.reportsCost,
+                            costIsEstimate: provider.costIsEstimate))
                     }
                     continue
                 }

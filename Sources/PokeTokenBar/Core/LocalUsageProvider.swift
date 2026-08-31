@@ -106,6 +106,9 @@ struct LocalAntigravityProvider: UsageProvider {
 struct LocalGrokProvider: UsageProvider {
     let id = "grok"
     let displayName = "Grok"
+    /// Session logs persist xAI's charge (`explicitCost`). That `$` is a bill,
+    /// not ModelPricing — do not fold it into subscription leverage (#224).
+    let costIsEstimate = false
 
     func fetchDaily() async throws -> DailyUsage? {
         let now = Date()

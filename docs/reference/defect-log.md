@@ -377,6 +377,13 @@ read_when:
   초록인데 #174 가 다시 산다. (#174)
 
 ## 표시·UI
+- **구독 플래그를 모든 프로바이더 `$` 에 덮어쓰지 마라.** Claude Max/Pro/Team 은 ModelPricing
+  달러가 청구서가 아니지만, Grok/OpenCode/Hermes 는 서버가 남긴 실제 요금이다. 전역
+  `labelsCostAsAPIEquivalent` 를 합계 헤더와 모든 행에 찍으면 Grok 행이 "API 환산"이 되어
+  사실이 뒤집힌다(#224). 판정은 프로바이더 필드 `costIsEstimate`(기본 true, 청구 소스는
+  명시적 false). 레버리지 `$Y` 는 estimate 만 합산하고, 캡션은 레버리지 행에만 둔다.
+  회귀: `testMonthAPIEquivalentCostExcludesBilledProviders`,
+  `testPopoverLeverageDoesNotRelabelEveryCostRow`. (#200)
 - **앱 언어와 시스템 로케일은 다른 축이다 — SwiftUI 가 스스로 만드는 문장은 로케일을 따른다.**
   `L` 문구는 `AppLanguage` 를 따르는데 `Text(_, style: .relative)` 는 `Locale.current` 를 따라, 한국어
   Mac 에서 앱을 영어로 쓰면 "Catch log" 옆에 "3시간 46분" 이 붙는 한 화면 두 언어가 된다. 팝오버 루트
