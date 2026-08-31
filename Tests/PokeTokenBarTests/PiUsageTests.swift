@@ -233,10 +233,54 @@ extension PiUsageTests {
         XCTAssertEqual(entries.first { $0.id == "pi-1" }?.model, "model-name")
 
         let day = "2026-08-17"
-        let daily = try XCTUnwrap(LocalUsageReader.daily(entries: entries, localDay: day))
+        let daily = try XCTUnwrap(
+            LocalUsageReader.daily(entries: entries, localDay: day, includeModels: true))
         XCTAssertEqual(daily.totalTokens, 330)
         let models = try XCTUnwrap(daily.models)
         XCTAssertEqual(models["openrouter/stealth/ox-alpha"], 300)
         XCTAssertEqual(models["model-name"], 30)
+
+        XCTAssertNil(
+            LocalUsageReader.daily(entries: entries, localDay: day)?.models,
+            "daily() gates the per-model breakdown behind includeModels so only Pi opts in")
     }
+
+    /// The defect lives one layer up from `daily`: `LocalPiProvider` repackages the result and
+    /// must carry the per-model breakdown through (while still zeroing the flat-rate cost). A
+    /// fixture routed through `fetchDaily()` covers that repackaging step, not just aggregation.
+    func testLocalPiProviderFetchDailyForwardsBreakdownAndZeroesCost() async throws {
+        let now = Date()
+        let ms = now.timeIntervalSince1970 * 1_000
+        let iso = Self.isoUTC.string(from: now)
+        // OMP-style: model at envelope level, date from the envelope timestamp.
+        let omp = [
+            "type": "message", "id": "omp-1", "timestamp": iso,
+            "model": "openrouter/stealth/ox-alpha",
+            "message": ["role": "assistant", "content": [],
+                        "usage": usage(input: 100, output: 200)],
+        ] as [String: Any]
+        // Vanilla Pi style: model nested in the message, date from the message timestamp.
+        let pi = message(id: "pi-1", envelopeTimestamp: iso, messageTimestamp: ms,
+                         usage: usage(input: 10, output: 20))
+        try write([omp, pi])
+
+        let cacheFile = base.appendingPathComponent("cache.json")
+        let provider = LocalPiProvider(cache: LocalUsageCache(piRoots: [rootA], fileURL: cacheFile))
+        let fetched = try await provider.fetchDaily()
+        let daily = try XCTUnwrap(fetched)
+
+        XCTAssertEqual(daily.totalTokens, 330)
+        XCTAssertEqual(daily.totalCost, 0, "Pi is flat-rate even though real model ids now price")
+        let models = try XCTUnwrap(daily.models, "the breakdown must survive provider repackaging")
+        XCTAssertEqual(models["openrouter/stealth/ox-alpha"], 300)
+        XCTAssertEqual(models["model-name"], 30)
+    }
+
+    private static let isoUTC: DateFormatter = {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.timeZone = TimeZone(identifier: "UTC")
+        f.dateFormat = "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'"
+        return f
+    }()
 }

@@ -1415,12 +1415,14 @@ enum LocalUsageReader {
     // MARK: 집계
 
     /// 특정 로컬 날짜의 합계 → DailyUsage. 해당 날짜 데이터 없으면 nil.
-    static func daily(entries: [Entry], localDay: String) -> DailyUsage? {
+    /// `includeModels` 를 켠 프로바이더만 per-model 내역을 채운다 — 끄면 `models` 는 nil 이라
+    /// 팝오버의 per-model 행이 그 프로바이더에서는 뜨지 않는다(현재는 Pi 만 opt-in).
+    static func daily(entries: [Entry], localDay: String, includeModels: Bool = false) -> DailyUsage? {
         var b = Bucket()
-        var models: [String: Int] = [:]
+        var models: [String: Int]? = includeModels ? [:] : nil
         for e in entries where e.localDay == localDay {
             b.add(e)
-            models[e.model, default: 0] += e.total
+            if includeModels { models?[e.model, default: 0] += e.total }
         }
         guard b.total > 0 else { return nil }
         return DailyUsage(date: localDay, inputTokens: b.input, outputTokens: b.output,
