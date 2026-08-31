@@ -57,10 +57,14 @@ struct PokemonForm: Sendable, Equatable, Hashable {
     /// **합체 폼** — 박스에 이 종이 함께 있어야 바꿀 수 있다(큐레무 블랙은 제크로무가 필요).
     /// 상대는 사라지지 않는다. 폼은 되돌릴 수 있는데 상대를 먹어 버리면 되돌릴 수가 없다.
     let fusionPartner: Int?
+    /// 이 성별에게만 열리는 폼. 냐오닉스는 메가가 암수 각각이라, 안 가르면 수컷이
+    /// 암컷 메가가 된다. 제한이 없으면 nil(대부분).
+    let requiredGender: Gender?
 
     /// 메가·거다이맥스는 갈래만으로 출처가 정해지므로 기존 목록을 그대로 둔다.
     init(speciesID: Int, slug: String, kind: FormKind, variant: String?,
-         label: FormLabel? = nil, source: FormSource? = nil, fusionPartner: Int? = nil) {
+         label: FormLabel? = nil, source: FormSource? = nil, fusionPartner: Int? = nil,
+         requiredGender: Gender? = nil) {
         self.speciesID = speciesID
         self.slug = slug
         self.kind = kind
@@ -68,6 +72,7 @@ struct PokemonForm: Sendable, Equatable, Hashable {
         self.label = label
         self.source = source ?? (kind == .gmax ? .shop(.dynamaxMushroom) : .shop(.megaStone))
         self.fusionPartner = fusionPartner
+        self.requiredGender = requiredGender
     }
 
     /// 표시 이름 — `메가 리자몽 X` / `기라티나 오리진` / `アルセウス ほのお`.
@@ -85,6 +90,36 @@ struct PokemonForm: Sendable, Equatable, Hashable {
 /// (`urshifu-rapidstrike-gmax`)은 뺐다. 폼을 줬는데 그림이 안 나오면 아이템만 날린 셈이 된다.
 enum FormCatalog {
     static let all: [PokemonForm] = [
+        // MARK: Legends Z-A 의 새 메가 — 기존 메가스톤으로 그대로 열린다.
+        // **Showdown 에 정적 스프라이트가 있는 것만 담았다**(실측: 신규 메가 49개 중 24개).
+        // 나머지는 애니메이션만 있거나 아예 없어서, 넣으면 그 폼만 빈 칸이 된다 —
+        // 카탈로그 전체가 지키는 규칙 그대로다. 그림이 생기면 그때 더한다.
+        .init(speciesID: 36, slug: "clefable-mega", kind: .mega, variant: nil),
+        .init(speciesID: 71, slug: "victreebel-mega", kind: .mega, variant: nil),
+        .init(speciesID: 121, slug: "starmie-mega", kind: .mega, variant: nil),
+        .init(speciesID: 149, slug: "dragonite-mega", kind: .mega, variant: nil),
+        .init(speciesID: 154, slug: "meganium-mega", kind: .mega, variant: nil),
+        .init(speciesID: 160, slug: "feraligatr-mega", kind: .mega, variant: nil),
+        .init(speciesID: 227, slug: "skarmory-mega", kind: .mega, variant: nil),
+        .init(speciesID: 358, slug: "chimecho-mega", kind: .mega, variant: nil),
+        .init(speciesID: 478, slug: "froslass-mega", kind: .mega, variant: nil),
+        .init(speciesID: 500, slug: "emboar-mega", kind: .mega, variant: nil),
+        .init(speciesID: 530, slug: "excadrill-mega", kind: .mega, variant: nil),
+        .init(speciesID: 609, slug: "chandelure-mega", kind: .mega, variant: nil),
+        .init(speciesID: 623, slug: "golurk-mega", kind: .mega, variant: nil),
+        .init(speciesID: 652, slug: "chesnaught-mega", kind: .mega, variant: nil),
+        .init(speciesID: 655, slug: "delphox-mega", kind: .mega, variant: nil),
+        .init(speciesID: 658, slug: "greninja-mega", kind: .mega, variant: nil),
+        .init(speciesID: 670, slug: "floette-mega", kind: .mega, variant: nil),
+        .init(speciesID: 678, slug: "meowstic-fmega", kind: .mega, variant: "♀",
+              requiredGender: .female),
+        .init(speciesID: 678, slug: "meowstic-mmega", kind: .mega, variant: "♂",
+              requiredGender: .male),
+        .init(speciesID: 701, slug: "hawlucha-mega", kind: .mega, variant: nil),
+        .init(speciesID: 740, slug: "crabominable-mega", kind: .mega, variant: nil),
+        .init(speciesID: 780, slug: "drampa-mega", kind: .mega, variant: nil),
+        .init(speciesID: 952, slug: "scovillain-mega", kind: .mega, variant: nil),
+        .init(speciesID: 970, slug: "glimmora-mega", kind: .mega, variant: nil),
         .init(speciesID: 3, slug: "venusaur-gmax", kind: .gmax, variant: nil),
         .init(speciesID: 3, slug: "venusaur-mega", kind: .mega, variant: nil),
         .init(speciesID: 6, slug: "charizard-gmax", kind: .gmax, variant: nil),

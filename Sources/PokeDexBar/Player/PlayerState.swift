@@ -52,6 +52,9 @@ struct PlayerState: Codable, Sendable {
     /// 있고 이 목록은 **알림용**이다 — 확인이 늦어도 잃는 게 없다.
     var discoveries: [Discovery] = []
     var ownsShinyCharm = false
+    /// 마지막으로 토큰이 들어온 시각. 모르페코의 배고픔이 여기서 나온다 — "언제 마지막으로
+    /// 먹었나"는 개체가 아니라 사용자에게 붙는 사실이라 여기 둔다.
+    var lastTokenAt: Date?
     /// 경험치 부적 — 토큰·사탕으로 얻는 경험치가 2배가 된다. 보유형이라 개수를 세지 않는다.
     var ownsExpCharm = false
     /// 행운의 부적 — 재화 획득이 1.5배가 된다. 경험치와 재화는 별개 트랙이라 서로 안 겹친다.
@@ -151,6 +154,7 @@ struct PlayerState: Codable, Sendable {
             AppLog.write("PlayerState: dropped \(wrappedOffers.count - professorOffers.count) malformed professor offer(s) on decode")
         }
         ownsShinyCharm = value(.ownsShinyCharm, false)
+        lastTokenAt = value(.lastTokenAt, nil)
         language = value(.language, .systemDefault)
     }
 }

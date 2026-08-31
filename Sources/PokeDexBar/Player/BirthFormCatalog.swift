@@ -96,7 +96,100 @@ enum BirthFormCatalog {
         }
 
     /// 전체 목록.
-    static let all: [BirthForm] = unown + vivillon + flabebeLine + shellosLine
+
+    // MARK: 크기·무늬·마디 — 태어날 때 갈리는 나머지 종들
+
+    /// 호바귀·펌킨인 — 네 크기. 보통(`average`)이 종 기본 그림이라 항목이 없다.
+    private static let sizeVariants: [(variant: String, label: FormLabel)] = [
+        ("small", .init("작은 사이즈", "Small Size", "ちいさいサイズ")),
+        ("large", .init("큰 사이즈", "Large Size", "おおきいサイズ")),
+        ("super", .init("특대 사이즈", "Super Size", "とくだいサイズ")),
+    ]
+    private static let pumpkabooLine: [BirthForm] = [710, 711].flatMap { species in
+        sizeVariants.map { v in
+            BirthForm(speciesID: species, variant: v.variant,
+                      slug: "\(SpeciesSlug.slug(species) ?? "")-\(v.variant)", label: v.label)
+        }
+    }
+
+    /// 도롱충이·도롱마담 — 세 도롱. 초목(`plant`)이 기본이라 항목이 없다.
+    /// **나메일(414)에는 없다** — 수컷은 도롱을 안 두른다.
+    private static let burmyCloaks: [(variant: String, label: FormLabel)] = [
+        ("sandy", .init("모래땅도롱", "Sandy Cloak", "すなちのミノ")),
+        ("trash", .init("슈레도롱", "Trash Cloak", "ゴミのミノ")),
+    ]
+    private static let burmyLine: [BirthForm] = [412, 413].flatMap { species in
+        burmyCloaks.map { v in
+            BirthForm(speciesID: species, variant: v.variant,
+                      slug: "\(SpeciesSlug.slug(species) ?? "")-\(v.variant)", label: v.label)
+        }
+    }
+
+    /// 배쓰나이 — 청색근. 적색근이 기본이다.
+    /// **백색근은 뺐다** — 그건 대쓰여너로 진화하는 별개 갈래라, 태생 무늬로 섞으면 진화가 갈린다.
+    private static let basculin: [BirthForm] = [
+        BirthForm(speciesID: 550, variant: "bluestriped", slug: "basculin-bluestriped",
+                  label: .init("청색근의 모습", "Blue-Striped Form", "あおすじのすがた")),
+    ]
+
+    /// 시비꼬 — 네 깃털색. 초록이 기본이다.
+    private static let squawkabilly: [BirthForm] = [
+        ("blue", FormLabel("파랑 깃털", "Blue Plumage", "アオいろのすがた")),
+        ("yellow", FormLabel("노랑 깃털", "Yellow Plumage", "キいろのすがた")),
+        ("white", FormLabel("하양 깃털", "White Plumage", "シロいろのすがた")),
+    ].map { BirthForm(speciesID: 931, variant: $0.0, slug: "squawkabilly-\($0.0)", label: $0.1) }
+
+    /// 싸리용 — 세 모습. 휜 모습(`curly`)이 기본이다.
+    private static let tatsugiri: [BirthForm] = [
+        ("droopy", FormLabel("처진 모습", "Droopy Form", "たれたすがた")),
+        ("stretchy", FormLabel("늘어진 모습", "Stretchy Form", "のびたすがた")),
+    ].map { BirthForm(speciesID: 978, variant: $0.0, slug: "tatsugiri-\($0.0)", label: $0.1) }
+
+    /// 데인차·포트데스 — 진작. 위작이 기본이다.
+    /// **한국어 이름은 PokéAPI 에 없어서**(en/ja 만 있다) 일본어 원문에서 옮겼다(진작/위작).
+    private static let sinisteaLine: [BirthForm] = [854, 855].map { species in
+        BirthForm(speciesID: species, variant: "antique",
+                  slug: "\(SpeciesSlug.slug(species) ?? "")-antique",
+                  label: .init("진작의 모습", "Antique Form", "しんさくフォルム"))
+    }
+
+    /// 차데스·그우린차 — 알짜배기/걸작. 이름이 단계마다 달라서 따로 적는다.
+    private static let poltchageistLine: [BirthForm] = [
+        BirthForm(speciesID: 1012, variant: "artisan", slug: "poltchageist-artisan",
+                  label: .init("알짜배기의 모습", "Artisan Form", "タカイモノのすがた")),
+        BirthForm(speciesID: 1013, variant: "artisan", slug: "sinistcha-masterpiece",
+                  label: .init("걸작의 모습", "Masterpiece Form", "ケッサクのすがた")),
+    ]
+
+    /// 파밀리쥐 — 가족 수. **두리쥐(924)에는 항목이 없다** — 가족 수는 진화해야 드러난다
+    /// (분이벌레와 같은 구조: 태어날 때 정해 두고 진화가 사건이 된다).
+    ///
+    /// **여기만 기본 그림이 희귀한 쪽이다.** Showdown 의 `maushold` 는 3마리 가족이고
+    /// (`pokedex.json` 의 `baseForme: "Three"`), 흔한 4마리가 `maushold-four` 다 — 원작과
+    /// 반대라 흔한 쪽에 슬러그를 달아야 한다. 그래서 **둘 다** 항목으로 둔다: 3마리는 종
+    /// 기본 슬러그를 그대로 써서 도감에서 bare 키로 접히고, 4마리가 별도 칸이 된다.
+    private static let maushold: [BirthForm] = [
+        BirthForm(speciesID: 925, variant: "fourfamily", slug: "maushold-four",
+                  label: .init("4마리 가족", "Family of Four", "４ひきかぞく")),
+        BirthForm(speciesID: 925, variant: "threefamily", slug: "maushold",
+                  label: .init("3마리 가족", "Family of Three", "３びきかぞく")),
+    ]
+
+    /// 노고고치 — 세 마디. 노고치(206)에는 항목이 없다(위와 같은 구조).
+    private static let dudunsparce: [BirthForm] = [
+        BirthForm(speciesID: 982, variant: "threesegment", slug: "dudunsparce-threesegment",
+                  label: .init("세 마디 폼", "Three-Segment Form", "みつふしフォルム")),
+    ]
+
+    /// **본가에서 아주 드문 변종.** 균등하게 굴리면 절반이 되어 희귀함이 사라진다 —
+    /// 원작은 1/100 이지만 그대로 두면 사실상 못 보므로 이 앱은 완화한 값을 쓴다
+    /// (`BirthFormBalance.rarePermille`).
+    static let rareVariants: Set<String> = ["antique", "artisan", "threefamily", "threesegment"]
+
+    static func isRare(_ variant: String) -> Bool { rareVariants.contains(variant) }
+
+    static let all: [BirthForm] = unown + vivillon + flabebeLine + shellosLine + pumpkabooLine + burmyLine
+        + basculin + squawkabilly + tatsugiri + sinisteaLine + poltchageistLine + maushold + dudunsparce
 
     private static let bySpecies: [Int: [BirthForm]] = Dictionary(grouping: all, by: \.speciesID)
 
@@ -117,6 +210,15 @@ enum BirthFormCatalog {
         case 664: vivillon.map(\.variant)              // 분이벌레 → 비비용
         case 669: flowerColors.map(\.variant)          // 플라베베 라인
         case 422: ["west", "east"]                     // 베가베가 라인
+        case 710: sizeVariants.map(\.variant)          // 호바귀 → 펌킨인
+        case 412: burmyCloaks.map(\.variant)           // 도롱충이 → 도롱마담
+        case 550: ["bluestriped"]
+        case 931: squawkabilly.map(\.variant)
+        case 978: tatsugiri.map(\.variant)
+        case 854: ["antique"]                          // 데인차 → 포트데스
+        case 1012: ["artisan"]                         // 차데스 → 그우린차
+        case 924: ["fourfamily", "threefamily"]        // 두리쥐 → 파밀리쥐(진화가 사건)
+        case 206: ["threesegment"]                     // 노고치 → 노고고치(진화가 사건)
         default: []
         }
     }

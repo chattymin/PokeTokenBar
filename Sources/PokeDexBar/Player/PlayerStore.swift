@@ -134,8 +134,25 @@ final class PlayerStore {
                 state.box[index].partnerTokens += delta
                 produceRibbonCandy(at: index, delta: delta, in: &state)
             }
+            // 토큰이 들어왔다 = 방금 일했다. 모르페코의 배고픔과 킬가르도의 블레이드가 여기서 나온다.
+            state.lastTokenAt = now()
         }
+        // **델타가 없는 틱에도 돈다** — "쉬는 중"은 안 들어온 시간이라, 들어올 때만 갱신하면
+        // 일하는 상태에서 영영 안 바뀐다(정확히 반대로 동작한다).
+        refreshActivity()
         save()
+    }
+
+    /// 곁에 둔 아이가 토큰 흐름을 보는 종이면 "지금 일하는 중인가"를 다시 판정한다.
+    ///
+    /// **파트너에게만 건다.** 박스에 있는 아이는 사용자와 함께 일하고 있지 않으니 마지막
+    /// 상태를 그대로 둔다 — 깨진 모습(`formBroken`)이 파트너 조작으로만 바뀌는 것과 같다.
+    private func refreshActivity() {
+        guard let index = state.box.firstIndex(where: { $0.id == state.partnerID }),
+              BattleStateForm.followsTokenFlow(speciesID: state.box[index].speciesID) else { return }
+        let active = BattleStateForm.activity(lastTokenAt: state.lastTokenAt, now: now())
+        guard state.box[index].recentlyActive != active else { return }   // 멱등 — 바뀔 때만 쓴다
+        state.box[index].recentlyActive = active
     }
 
     /// 경험치 부적을 반영한 실제 경험치 증가분. 순수 함수라 테스트로 잠근다.

@@ -29,8 +29,24 @@ enum BirthFormBalance {
     ///
     /// **확률 게이트가 없다는 점이 지방 모습과 다르다.** 지방은 "20% 확률로 변종, 아니면 원종"이지만
     /// 여기엔 원종이 없다 — 모든 안농은 어떤 글자이고 모든 비비용은 어떤 무늬다.
+    /// 희귀 변종이 나올 확률(천분율). 원작은 1/100 이지만 이 앱은 알을 훨씬 적게 까므로
+    /// 그대로 쓰면 평생 한 번도 못 본다 — 볼 만하되 흔하지는 않은 값으로 완화했다.
+    static let rarePermille = 80
+
     static func candidateVariants(baseID: Int, roll: Double, homeRegion: String?) -> [String] {
         let all = BirthFormCatalog.variants(forLineStartingAt: baseID)
+        // **희귀 변종은 균등에서 빼낸다.** 진작·알짜배기·3마리 가족·세 마디는 원작에서 1/100 이라,
+        // 후보에 그냥 섞으면 절반이 그 모습이 되어 희귀함이 사라진다. 1/100 을 그대로 쓰면
+        // 사실상 못 보므로 완화한 값(`rarePermille`)을 쓴다.
+        let rare = all.filter(BirthFormCatalog.isRare)
+        if !rare.isEmpty {
+            // **흔한 쪽이 비어 있으면 빈 목록을 그대로 돌려준다** — 그게 "변종 없음 = 종 기본
+            // 모습"이라는 뜻이다(데인차의 위작, 차데스의 가짜배기). 빈 목록을 방어한답시고
+            // 희귀를 돌려주면 100% 진작이 된다(테스트가 잡았다).
+            return Int(roll * 1000) < rarePermille
+                ? rare
+                : all.filter { !BirthFormCatalog.isRare($0) }
+        }
         guard baseID == 664, !all.isEmpty else { return all }
         // 해외에서 흘러온 것 — 전체에서 고른다.
         if Int(roll * 1000) < foreignPermille { return all }

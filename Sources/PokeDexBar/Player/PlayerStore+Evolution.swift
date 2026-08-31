@@ -129,8 +129,11 @@ extension PlayerStore {
     }
 
     /// 이 갈래를 지나려면 무엇이 필요한가. 트리에 없는 종이면 조건 없음으로 본다.
-    func requirement(for speciesID: Int, line: EvoLine) -> EvoRequirement {
-        line.tree.node(withID: speciesID)?.requirement ?? .none
+    /// **지방을 함께 받는다.** 원종과 지방 모습의 조건이 다른 갈래가 있어서다(4종) — 안 받으면
+    /// 한쪽 조건이 다른 쪽에도 걸려, 관동 모래두지가 얼음의돌로 레벨 1에 진화한다.
+    func requirement(for speciesID: Int, line: EvoLine, region: Region?) -> EvoRequirement {
+        guard let node = line.tree.node(withID: speciesID) else { return .none }
+        return region == nil ? node.requirement : node.regionalRequirement
     }
 
     /// 그 조건을 지금 만족하는가. 도구는 **갖고 있으면** 되고(쓰는 건 진화 실행 때),
@@ -152,7 +155,8 @@ extension PlayerStore {
     /// 조건 자체가 게이트다(레벨 진화면 레벨이, 도구 진화면 도구가).
     func canEvolve(_ individual: Individual, to speciesID: Int, line: EvoLine) -> Bool {
         evolutionChoices(individual, line: line).contains(speciesID)
-            && meetsRequirement(requirement(for: speciesID, line: line), for: individual)
+            && meetsRequirement(requirement(for: speciesID, line: line, region: individual.region),
+                                for: individual)
     }
 
     /// "진화 가능" 배지 판정 — 박스 칸(`BoxTabView.readyToEvolve`)과 홈(`PopoverView.

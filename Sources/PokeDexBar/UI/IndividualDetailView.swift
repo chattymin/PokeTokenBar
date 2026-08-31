@@ -486,7 +486,7 @@ struct IndividualDetailView: View {
     /// 못 가는 곳을 아예 숨기지는 않는다: 글레이시아가 이 게임에 있다는 걸 알 수 없게 된다.
     @ViewBuilder
     private func evolutionSection(_ line: EvoLine) -> some View {
-        let open = choices.filter { store.meetsRequirement(store.requirement(for: $0, line: line),
+        let open = choices.filter { store.meetsRequirement(store.requirement(for: $0, line: line, region: individual.region),
                                                            for: individual) }
         let blocked = choices.filter { !open.contains($0) }
         ForEach(open, id: \.self) { target in
@@ -510,7 +510,7 @@ struct IndividualDetailView: View {
                     .font(.system(size: 9, weight: .bold))
                 Text(l.evolutionLocked(blocked.count)).font(.system(size: 10, weight: .medium))
                 if !blockedEvolutionsExpanded {
-                    Text(Self.blockedSummary(blocked, line: line, store: store))
+                    Text(Self.blockedSummary(blocked, line: line, store: store, region: individual.region))
                         .font(.system(size: 9)).foregroundStyle(.tertiary).lineLimit(1)
                 }
                 Spacer()
@@ -523,7 +523,7 @@ struct IndividualDetailView: View {
                     Text(line.localizedName(target, store.language))
                         .font(.system(size: 10))
                     Spacer()
-                    Text(Self.shortNeed(store.requirement(for: target, line: line), line: line, l: l))
+                    Text(Self.shortNeed(store.requirement(for: target, line: line, region: individual.region), line: line, l: l))
                         .font(.system(size: 9)).foregroundStyle(.tertiary)
                 }
                 .padding(.leading, 17)
@@ -538,11 +538,13 @@ struct IndividualDetailView: View {
     }
 
     /// 접힌 줄에 쓸 요약 — 필요한 것들을 중복 없이 나열한다.
+    /// `region` 을 받는 이유는 조건이 지방마다 다를 수 있어서다(모래사원 계열 4종).
     @MainActor static func blockedSummary(_ blocked: [Int], line: EvoLine,
-                                          store: PlayerStore) -> String {
+                                          store: PlayerStore, region: Region? = nil) -> String {
         var names: [String] = []
         for target in blocked {
-            let name = shortNeed(store.requirement(for: target, line: line), line: line, l: store.l)
+            let name = shortNeed(store.requirement(for: target, line: line, region: region),
+                                 line: line, l: store.l)
             if !names.contains(name) { names.append(name) }
         }
         return names.joined(separator: " · ")
@@ -558,7 +560,7 @@ struct IndividualDetailView: View {
     /// 여럿이어도 남은 시간은 하나뿐이다.
     @MainActor static func blockedHints(_ blocked: [Int], line: EvoLine,
                                         individual: Individual, store: PlayerStore) -> [String] {
-        let needs = blocked.map { store.requirement(for: $0, line: line) }
+        let needs = blocked.map { store.requirement(for: $0, line: line, region: individual.region) }
         var hints: [String] = []
         if needs.contains(where: { if case .item = $0 { return true } else { return false } }) {
             hints.append(store.l.evolutionLockedHint)

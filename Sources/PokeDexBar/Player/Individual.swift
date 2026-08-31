@@ -52,6 +52,14 @@ struct Individual: Identifiable, Codable, Sendable, Equatable {
     /// 달라진다. `partnerSeconds > 0` 으로 파생시키지 않는 이유도 같다 — 1초 미만으로 교체하면
     /// 그 값이 0이라, 대체로 맞을 뿐 사실 자체가 아니다.
     var partnerStintsEnded = 0
+    /// 지금 일하는 중인가 — 최근에 토큰이 들어왔나. **저장한다**: 깨진 모습(`formBroken`)과 같은
+    /// 부류로, 바깥 사건이 정하는 상태라 개체 값만 봐서는 알 수 없다. 갱신은 `PlayerStore.update`
+    /// 가 곁에 둔 아이에게만 한다.
+    ///
+    /// **3상태인 이유**: 두 종이 이 신호를 반대 방향으로 쓴다 — 모르페코는 쉬면 배고픈 모습,
+    /// 킬가르도는 일하면 블레이드. `nil`(기록 없음)이 없으면 새 세이브에서 둘 중 하나가
+    /// 켜자마자 특수 모습이 되어 그게 기본값처럼 보인다.
+    var recentlyActive: Bool?
     /// 이 개체의 경험치 곡선. **개체가 들고 다니는** 이유는 `GrowthRate` 주석에 있다 —
     /// 레벨 계산 자리에 네트워크가 없기 때문이다. 진화하면 새 종의 것으로 갱신한다.
     var growthRate: GrowthRate = .mediumFast
@@ -133,8 +141,16 @@ struct Individual: Identifiable, Codable, Sendable, Equatable {
         // 내렸다 할 때마다 번갈아 바뀌게 뒀다. 사용자가 직접 오가게 만드는 조작이라 변신을
         // 눈으로 보게 된다.
         if speciesID == 964, partnerStintsEnded.isMultiple(of: 2) == false { return "palafin-hero" }
-        // 깨진 모습이 가장 먼저다 — 깨져 있으면 그게 지금 이 아이의 모습이다.
-        if formBroken, let broken = BrokenForm.slugs[speciesID] { return broken }
+        // 두드림 반응 — **안 두드렸을 때의 모습도 여기서 나온다**(메테노의 유성 껍질).
+        if let reacted = BrokenForm.slug(speciesID: speciesID, broken: formBroken) { return reacted }
+        // 윽우지 — 곁에 두는 동안 먹이를 물고 있을 수 있다. 저장된 값이 아니라 개체와
+        // 파트너 횟수에서 나온다(`BattleStateForm` 주석 참고).
+        if let prey = BattleStateForm.cramorantSlug(individual: self) { return prey }
+        // 체리꼬 — 곁에 두면 확률로 꽃이 핀다(윽우지와 같은 축).
+        if let bloom = BattleStateForm.cherrimSlug(individual: self) { return bloom }
+        // 토큰 흐름을 보는 둘 — 모르페코는 쉴 때, 킬가르도는 일할 때 모습이 바뀐다.
+        if let hangry = BattleStateForm.morpekoSlug(individual: self) { return hangry }
+        if let blade = BattleStateForm.aegislashSlug(individual: self) { return blade }
         // 스트린더는 저장된 값이 없다 — 성격에서 나온다.
         if speciesID == 849 { return BirthFormBalance.toxtricitySlug(nature: nature) }
         // 태어날 때 정해진 겉모습. **그 단계에 해당 그림이 없으면 그냥 넘어간다** —
@@ -265,6 +281,7 @@ struct Individual: Identifiable, Codable, Sendable, Equatable {
         birthForm = value(.birthForm, nil)
         formBroken = value(.formBroken, false)
         partnerStintsEnded = value(.partnerStintsEnded, 0)
+        recentlyActive = value(.recentlyActive, nil)
         growthRate = value(.growthRate, .mediumFast)
         // 새 필드라 반드시 `value(_:_:)` 를 거친다 — 합성 디코더로 그냥 `decode` 하면 이 키가
         // 없는 기존 세이브의 개체 전부가 `LossyIndividual` 에서 조용히 버려진다(주석 참고).
@@ -299,7 +316,7 @@ struct Individual: Identifiable, Codable, Sendable, Equatable {
             fixed.regionVariant = nil
         }
         // 깨질 수 없는 종에 깨졌다고 적혀 있으면 버린다 — 그대로 두면 없는 슬러그를 요청한다.
-        if fixed.formBroken, BrokenForm.slugs[speciesID] == nil {
+        if fixed.formBroken, !BrokenForm.breaks(speciesID: speciesID) {
             fixed.formBroken = false
             AppLog.write("Individual: dropped formBroken on species \(speciesID)")
         }

@@ -21,6 +21,10 @@ extension PlayerStore {
         guard hasForms(individual, kind: kind) else { return [] }
         return FormCatalog.forms(speciesID: individual.speciesID, kind: kind)
             .filter { $0.slug != individual.form }
+            // **성별 제한** — 냐오닉스의 메가는 암수 각각이라 그 성별에게만 연다.
+            // 성별을 아직 모르는 개체(옛 세이브)는 제한 있는 폼을 안 보여준다: 열어 두면
+            // 수컷이 암컷 메가가 되고, 폼은 되돌릴 수 있어도 그림이 거짓말을 한다.
+            .filter { $0.requiredGender == nil || $0.requiredGender == individual.gender }
     }
 
     /// 그 폼을 여는 도구를 갖고 있나.

@@ -53,7 +53,12 @@ final class FormCatalogTests: XCTestCase {
             XCTAssertEqual(form.slug, form.slug.lowercased(), "\(form.slug) 에 대문자가 있다")
             guard form.kind == .mega || form.kind == .gmax else { continue }
             let suffix = String(parts.last!)
-            let expected = form.kind == .gmax ? ["gmax"] : ["mega", "megax", "megay"]
+            // `fmega`·`mmega` 는 **성별로 갈리는 메가**의 접미다(냐오닉스). Showdown 이
+            // 실제로 쓰는 이름이고 스프라이트도 있다(gen5·이로치 둘 다 확인). 리자몽의
+            // X/Y 와 같은 부류라 여기 함께 둔다.
+            let expected = form.kind == .gmax
+                ? ["gmax"]
+                : ["mega", "megax", "megay", "fmega", "mmega"]
             XCTAssertTrue(expected.contains(suffix), "\(form.slug) 의 접미가 규칙에서 벗어난다")
         }
     }

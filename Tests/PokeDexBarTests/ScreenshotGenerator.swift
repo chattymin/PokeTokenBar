@@ -997,6 +997,7 @@ final class ScreenshotGeneratorTests: XCTestCase {
         // §릴리스 1 하드 게이트가 요구하는 신규 에셋이 이것이다.
         try write(png(boxTidyBanner()), "box-tidy.png")
         try write(png(genderBanner()), "gender-banner.png")
+        try write(png(formChangesBanner()), "form-changes.png")
 
         // 문제 제보 — 크래시 배너(홈)와 설정의 제보 줄을 위아래로. **픽스처에 크래시 기록을
         // 심어야 배너가 찍힌다** — 안 심으면 아무리 다시 생성해도 빈 자리만 나온다(설정
@@ -1340,6 +1341,67 @@ final class ScreenshotGeneratorTests: XCTestCase {
             card(.female, "Female — notched tail")
         }
         .padding(12)
+        .background(Color(nsColor: .windowBackgroundColor))
+    }
+
+    /// 이번 판에 늘어난 폼들 — **바뀌기 전후를 나란히** 놓는다. 폼은 "무엇으로 바뀌나"가
+    /// 요점이라 한쪽만 찍으면 그냥 다른 포켓몬처럼 보인다.
+    private func formChangesBanner() -> some View {
+        let now = ScreenshotFixture.now
+        func one(_ speciesID: Int, _ setup: (inout Individual) -> Void) -> Individual {
+            var i = Individual(baseID: speciesID, speciesID: speciesID, pathIDs: [speciesID],
+                               nature: .hardy, obtainedAt: now, grade: .rare)
+            setup(&i)
+            return i
+        }
+        // 체리꼬는 같은 개체로 피는/안 피는 구간을 찾는다 — 개체가 다르면 굴림도 달라진다.
+        var plain = one(421) { $0.partnerSince = now }
+        var bloom = plain
+        var gotBloom = false, gotPlain = false
+        for stint in 0..<400 {
+            var probe = plain
+            probe.partnerStintsEnded = stint
+            if probe.spriteForm != nil, !gotBloom { bloom = probe; gotBloom = true }
+            if probe.spriteForm == nil, !gotPlain { plain = probe; gotPlain = true }
+            if gotBloom, gotPlain { break }
+        }
+        let pairs: [(String, Individual, Individual)] = [
+            ("Aegislash", one(681) { $0.recentlyActive = false }, one(681) { $0.recentlyActive = true }),
+            ("Minior", one(774) { _ in }, one(774) { $0.formBroken = true }),
+            ("Wishiwashi", one(746) { _ in }, one(746) { $0.formBroken = true }),
+            ("Cherrim", plain, bloom),
+        ]
+        func cell(_ i: Individual) -> some View {
+            SpriteView(speciesID: i.speciesID, form: i.spriteForm, size: 44)
+                .frame(width: 44, height: 44)
+        }
+        let megas = [149, 160, 609, 970, 652, 227]
+        return VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 18) {
+                ForEach(pairs, id: \.0) { name, before, after in
+                    VStack(spacing: 2) {
+                        HStack(spacing: 2) {
+                            cell(before)
+                            Image(systemName: "arrow.right")
+                                .font(.system(size: 8, weight: .bold)).foregroundStyle(.tertiary)
+                            cell(after)
+                        }
+                        Text(name).font(.system(size: 8)).foregroundStyle(.secondary)
+                    }
+                }
+            }
+            Text("New Mega Evolutions")
+                .font(.system(size: 9, weight: .semibold)).foregroundStyle(.secondary)
+            HStack(spacing: 14) {
+                ForEach(megas, id: \.self) { sid in
+                    if let form = FormCatalog.forms(speciesID: sid, kind: .mega).first {
+                        SpriteView(speciesID: sid, form: form.slug, size: 44)
+                            .frame(width: 44, height: 44)
+                    }
+                }
+            }
+        }
+        .padding(14)
         .background(Color(nsColor: .windowBackgroundColor))
     }
 

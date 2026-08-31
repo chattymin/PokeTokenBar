@@ -319,6 +319,7 @@ actor PokeAPIClient: PokeProviding {
         return EvoNode(speciesID: speciesID,
                        children: link.evolves_to.map { node(from: $0, parentLevel: myLevel) },
                        requirementRaw: raw,
+                       regionalRequirementRaw: Self.regionalRequirement(from: link.evolution_details),
                        requiredGender: Self.gender(from: link.evolution_details))
     }
 
@@ -330,8 +331,18 @@ actor PokeAPIClient: PokeProviding {
     /// 이 갈래 바로 앞 단계가 도달한 레벨(뿌리는 1) — 레벨이 안 적힌 갈래의 하한 계산(`EvoBalance`)에 쓴다.
     static func requirement(from details: [EvolutionDetail]?, speciesID: Int, parentLevel: Int) -> EvoRequirementRaw {
         guard let details, !details.isEmpty else { return .none }
-        for d in details {
-            if let item = d.item?.name, EvolutionItem.named(item) != nil { return .item(item) }
+        for (index, d) in details.enumerated() {
+            // **레벨이 *다른* 조건줄에 있으면 이 도구는 지방 모습의 것이다**(모래사원·야도란·
+            // 붐볼·불카모스 4종 — 전수 확인). 여기서 도구를 집으면 원종의 레벨 조건이 통째로
+            // 사라져, 관동 모래두지가 얼음의돌만 있으면 **레벨 1에** 진화한다(사용자 제보).
+            //
+            // **같은 줄 안의 레벨은 다르다** — 그건 이 조건의 일부라 도구가 이긴다(기존 규칙
+            // `testAnItemStillWinsOverALevel`). 실제 응답에 그런 줄은 0건이지만, 두 경우를
+            // 뭉뚱그리면 그 규칙이 조용히 뒤집힌다.
+            if Self.levelLivesInAnotherDetail(details, itemIndex: index) { continue }
+            if let item = d.item?.name, EvolutionItem.named(item) != nil {
+                return .item(item)
+            }
             if d.trigger?.name == "trade" {
                 // 물건을 들고 교환하는 15종은 그 물건이 조건이다 — 연결의 끈으로 뭉뚱그리면
                 // 에레키부스터·금속코트 같은 것이 게임에서 사라진다.
@@ -354,6 +365,25 @@ actor PokeAPIClient: PokeProviding {
         // `.none` 으로 두면 조건 없이 즉시 진화해 버린다.
         return .level(max(parentLevel + EvoBalance.marginOverParent, EvoBalance.unstatedLevel))
     }
+    /// 지방 모습에만 걸리는 도구 조건. 원종이 레벨로 진화하는데 도구 조건이 함께 온 갈래에서만
+    /// 값이 나온다(4종). 그 외에는 nil 이라 지방 모습도 원종과 같은 조건을 쓴다.
+    static func regionalRequirement(from details: [EvolutionDetail]?) -> EvoRequirementRaw? {
+        guard let details else { return nil }
+        for (index, d) in details.enumerated()
+        where Self.levelLivesInAnotherDetail(details, itemIndex: index) {
+            if let item = d.item?.name, EvolutionItem.named(item) != nil { return .item(item) }
+        }
+        return nil
+    }
+
+    /// `itemIndex` 줄의 도구가 **지방 모습의 것인가** — 레벨 조건이 다른 줄에 따로 있으면 그렇다.
+    /// 같은 줄에 있으면 한 조건의 두 부분이므로 아니다.
+    static func levelLivesInAnotherDetail(_ details: [EvolutionDetail], itemIndex: Int) -> Bool {
+        details.enumerated().contains { other, d in
+            other != itemIndex && (d.min_level ?? 0) > 0
+        }
+    }
+
     /// 성별 제한 — **요구 조건과 따로 싣는다.** 조건 enum 에 넣으면 "새벽의돌 **그리고** 수컷"
     /// (엘레이드)처럼 둘을 동시에 요구하는 갈래를 표현할 수 없다. 여섯 갈래뿐이지만 그 여섯이
     /// 전부 도구·레벨 조건과 겹친다.

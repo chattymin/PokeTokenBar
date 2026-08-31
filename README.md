@@ -197,6 +197,13 @@ Gender is rolled once when an egg hatches, from that species' real ratio, and it
 </td>
 </tr>
 <tr>
+<td width="45%" align="center"><img src="assets/form-changes.png" width="300" alt="Aegislash, Minior, Wishiwashi and Cherrim each shown before and after changing form, above a row of new Mega Evolutions"></td>
+<td width="55%" valign="middle">
+<h3>🔄 More Pokémon change shape</h3>
+Forms that only happen mid-battle in the games are carried onto things this app actually has. <b>Aegislash</b> draws its blade while you're burning tokens and raises its shield when you stop; <b>Morpeko</b> reads the same signal the other way and gets Hangry. <b>Cramorant</b> may come back holding a catch each time you make it your partner, and <b>Cherrim</b> blooms on a 20% roll. <b>Minior</b> and <b>Wishiwashi</b> join Mimikyu and Eiscue in reacting to three taps on the desktop pet. Eleven more species are born different — Pumpkaboo's size, Burmy's cloak, Squawkabilly's plumage, and rare finds like an Antique Sinistea. And <b>24 new Mega Evolutions</b> from Legends Z-A open with the Mega Stone you already have.
+</td>
+</tr>
+<tr>
 <td width="45%" align="center"><img src="assets/settings.png" width="300" alt="Settings"></td>
 <td width="55%" valign="middle">
 <h3>Tune it your way</h3>

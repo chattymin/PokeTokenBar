@@ -74,12 +74,26 @@ struct EvoNode: Codable, Sendable {
     /// **이 종이 되기 위해** 필요한 것(부모에서 이 노드로 오는 갈래의 조건).
     /// 뿌리는 항상 `.none` — 아무것도 거치지 않고 존재한다.
     var requirementRaw: EvoRequirementRaw = .none
+    /// **지방 모습일 때의** 조건 — 원종과 다를 때만 채워진다(4종: 모래사원·야도란·붐볼·불카모스).
+    ///
+    /// PokéAPI 는 이 넷을 한 갈래에 조건 두 개로 준다(레벨 22 **그리고** 얼음의돌). 어느 쪽이
+    /// 누구 것인지는 응답에 안 적혀 있는데, 넷 다 같은 모양이다 — **원종은 레벨, 지방 모습은
+    /// 도구**. 하나로 접으면 한쪽이 통째로 사라진다(실측: 관동 모래두지가 레벨 1에 얼음의돌로
+    /// 진화했고, 레벨 22 경로는 아예 없었다).
+    var regionalRequirementRaw: EvoRequirementRaw?
     /// 이 종이 되려면 필요한 성별. **요구 조건과 AND 로 함께 걸린다** — 엘레이드는 새벽의돌
     /// *그리고* 수컷이라, 하나의 enum 으로는 표현이 안 된다. 제한이 없으면 nil(대부분).
     var requiredGender: Gender?
 
-    var requirement: EvoRequirement {
-        switch requirementRaw {
+    /// 지방 모습의 조건. 따로 없으면 원종과 같다.
+    var regionalRequirement: EvoRequirement {
+        Self.resolve(regionalRequirementRaw ?? requirementRaw)
+    }
+
+    var requirement: EvoRequirement { Self.resolve(requirementRaw) }
+
+    private static func resolve(_ raw: EvoRequirementRaw) -> EvoRequirement {
+        switch raw {
         case .none: .none
         case .friendship: .friendship
         case .item(let name): EvolutionItem.named(name).map(EvoRequirement.item) ?? .none
@@ -109,6 +123,7 @@ struct EvoNode: Codable, Sendable {
         return EvoNode(speciesID: speciesID,
                        children: children.compactMap { $0.keepingSupportedSpecies() },
                        requirementRaw: requirementRaw,
+                       regionalRequirementRaw: regionalRequirementRaw,
                        requiredGender: requiredGender)
     }
 }
