@@ -376,22 +376,24 @@ read_when:
 
 ## 외부 API 가정
 
-- **Antigravity 소비자 계정에는 한도 조회 API 가 없다(2026-08-31 실측, 결론: 지원 불가).**
-  다시 시도하기 전에 이 항목을 읽을 것 — 같은 조사를 세 단계나 반복했다.
-  - `v1internal:retrieveUserQuotaSummary` 는 **엔터프라이즈 전용**으로 보인다. 소비자 계정은 403 이고
-    본문은 "You do not have a valid license of this product". 이 문구를 *계정에 라이선스가 없다*로
-    읽으면 안 된다 — **그 엔드포인트가 라이선스 제품**이라는 뜻이다(두 번 오독했다).
-  - antigravity CLI 는 그 메서드를 **한 번도 호출하지 않는다**. CLI 로그 실측:
-    `streamGenerateContent`(46) · `loadCodeAssist`(5) · `fetchAvailableModels`(2) ·
-    `retrieveUserQuotaSummary`(0). `quota_manager.doRefreshQuota` 는 `loadCodeAssist` 를 부른다.
-  - 그런데 `loadCodeAssist` 응답에는 **한도 값이 없다**(깊이 3까지 확인):
-    `currentTier`·`paidTier`·`allowedTiers`·`privacyNotice{noticeText,showNotice}`·
-    `cloudaicompanionProject`·`gcpManaged` 뿐이고, quota/usage/limit/reset 필드가 없다.
-    티어 설명은 마케팅 문구다(`paidTier.name = "Antigravity Starter Quota"` 인데 수치는 없음).
-  - 남는 설명: CLI 의 `/usage` 패널은 **자기가 이미 보내는 `streamGenerateContent` 응답**에서 수치를
-    얻는 것으로 보인다. 사용량을 재려고 생성 호출을 하면 그 사용량을 **소비**하므로, 수동 모니터인
-    이 앱은 구조적으로 복제할 수 없다.
-  - → 소비자 계정 한도 바는 지원 대상이 아니다. **사용량 집계는 로컬 로그로 이미 동작한다**(무관).
+- **Antigravity 공식 한도는 "Antigravity 2.0 / IDE" 전용이다 — CLI(`agy`) 자격증명으로는 안 된다
+  (2026-08-31 실측). 다시 파기 전에 이 항목을 읽을 것 — 같은 조사를 네 번 반복했다.**
+  - 이 기능은 애초에 그렇게 만들어졌다: #210 "official rate limits tracking for **Antigravity 2.0 and
+    IDE**", README 도 "Antigravity 2.0 and the IDE report real quota"라고 적고 있고 동작 스크린샷도 있다.
+    **즉 결함이 아니라 제품 불일치다.**
+  - CLI 자격증명으로 `v1internal:retrieveUserQuotaSummary` 를 부르면 403,
+    본문은 "You do not have a valid license of this product". 이 문구를 *이 계정에 라이선스가 없다*로
+    읽지 말 것 — **그 엔드포인트(IDE 쪽 제품)의 라이선스가 없다**는 뜻이다. 두 번 오독했다.
+  - CLI 는 그 메서드를 **한 번도 호출하지 않는다**. 실측: `streamGenerateContent`(46) ·
+    `loadCodeAssist`(5) · `fetchAvailableModels`(2) · `retrieveUserQuotaSummary`(0).
+  - **CLI 쪽에 대체 소스도 없다.** `quota_manager.doRefreshQuota` 가 부르는 `loadCodeAssist` 응답에는
+    깊이 3까지 봐도 quota/usage/limit/reset 필드가 없다(`currentTier`·`paidTier`·`allowedTiers`·
+    `privacyNotice`·`cloudaicompanionProject`·`gcpManaged` 뿐, 티어 설명은 수치 없는 마케팅 문구).
+    남는 설명은 CLI 의 `/usage` 가 자기가 이미 보내는 `streamGenerateContent` 응답에서 수치를 얻는다는
+    것 — 수동 모니터가 그걸 흉내내려면 재려는 사용량을 **소비**해야 하므로 복제 불가.
+  - → **CLI 만 설치한 사용자**: 사용량 집계는 로컬 로그로 정상 동작, 한도 바만 안 나온다. 한도가 필요하면
+    Antigravity IDE/2.0 을 쓰면 된다. 앱에 고칠 것은 없다.
+
 - **모르는 응답의 스키마는 값이 아니라 키만 로그로 확인한다.** 이 조사의 두 단계 모두 진단 로그로
   풀렸다(403 본문 → 라이선스 문구, 키 구조 → quota 필드 부재). 값을 통째로 남기면 계정·프로젝트
   식별자가 함께 남으므로, 포함 필드는 **화이트리스트**로 고정한다(제외 목록은 새 필드가 생기면 샌다).
