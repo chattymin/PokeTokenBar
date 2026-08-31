@@ -491,6 +491,22 @@ struct SettingsView: View {
                 Divider()
                 groupRow {
                     VStack(alignment: .leading, spacing: 1) {
+                        Text(l.growthCostLabel)
+                        Text(l.growthCostHint).font(.caption2).foregroundStyle(.tertiary)
+                    }
+                    Spacer()
+                    Picker("", selection: Binding(
+                        get: { companion.growthMultiplier },
+                        set: { companion.growthMultiplier = $0 })) {
+                        ForEach(CompanionStore.growthMultiplierPresets, id: \.self) { value in
+                            Text(TokenFormatter.percent(value * 100)).tag(value)
+                        }
+                    }
+                    .labelsHidden().pickerStyle(.menu).fixedSize()
+                }
+                Divider()
+                groupRow {
+                    VStack(alignment: .leading, spacing: 1) {
                         Text(l.disableKeychain)
                         Text(l.disableKeychainHint).font(.caption2).foregroundStyle(.tertiary)
                     }
