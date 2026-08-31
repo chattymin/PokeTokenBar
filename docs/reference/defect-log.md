@@ -435,23 +435,20 @@ read_when:
 
 ## 외부 API 가정
 
-- **Antigravity 공식 한도는 "Antigravity 2.0 / IDE" 전용이다 — CLI(`agy`) 자격증명으로는 안 된다
-  (2026-08-31 실측). 다시 파기 전에 이 항목을 읽을 것 — 같은 조사를 네 번 반복했다.**
-  - 이 기능은 애초에 그렇게 만들어졌다: #210 "official rate limits tracking for **Antigravity 2.0 and
-    IDE**", README 도 "Antigravity 2.0 and the IDE report real quota"라고 적고 있고 동작 스크린샷도 있다.
-    **즉 결함이 아니라 제품 불일치다.**
-  - CLI 자격증명으로 `v1internal:retrieveUserQuotaSummary` 를 부르면 403,
-    본문은 "You do not have a valid license of this product". 이 문구를 *이 계정에 라이선스가 없다*로
-    읽지 말 것 — **그 엔드포인트(IDE 쪽 제품)의 라이선스가 없다**는 뜻이다. 두 번 오독했다.
-  - CLI 는 그 메서드를 **한 번도 호출하지 않는다**. 실측: `streamGenerateContent`(46) ·
-    `loadCodeAssist`(5) · `fetchAvailableModels`(2) · `retrieveUserQuotaSummary`(0).
-  - **CLI 쪽에 대체 소스도 없다.** `quota_manager.doRefreshQuota` 가 부르는 `loadCodeAssist` 응답에는
-    깊이 3까지 봐도 quota/usage/limit/reset 필드가 없다(`currentTier`·`paidTier`·`allowedTiers`·
-    `privacyNotice`·`cloudaicompanionProject`·`gcpManaged` 뿐, 티어 설명은 수치 없는 마케팅 문구).
-    남는 설명은 CLI 의 `/usage` 가 자기가 이미 보내는 `streamGenerateContent` 응답에서 수치를 얻는다는
-    것 — 수동 모니터가 그걸 흉내내려면 재려는 사용량을 **소비**해야 하므로 복제 불가.
-  - → **CLI 만 설치한 사용자**: 사용량 집계는 로컬 로그로 정상 동작, 한도 바만 안 나온다. 한도가 필요하면
-    Antigravity IDE/2.0 을 쓰면 된다. 앱에 고칠 것은 없다.
+- **Antigravity 공식 한도 403 은 "계정 요금제" 문제다 — 무료 tier 면 안 나오고, AI Pro 로 올리면 나온다
+  (2026-08-31 실측). 이 항목은 세 번 틀린 끝에 확정된 것이라, 다시 파기 전에 끝까지 읽을 것.**
+  - `v1internal:retrieveUserQuotaSummary` 가 403 + "You do not have a valid license of this product"
+    를 돌려주면 **말 그대로 그 계정에 라이선스(유료 tier)가 없다는 뜻**이다. 사용자가 free tier 에서
+    **AI Pro 로 업그레이드하자 즉시 정상 동작**했다:
+    `antigravity limits refreshed [Gemini Models: gemini-weekly=0.0%, gemini-5h=0.0% | Claude and GPT models: …]`.
+  - **틀렸던 해석들**(같은 길로 다시 가지 말 것): ① "CLI 자격증명이라 안 된다" — CLI 가
+    `retrieveUserQuotaSummary` 를 호출하지 않는 건 사실이지만 **권한과는 무관**했다. ② "IDE 를 깔면
+    된다" — IDE 설치만으로는 안 됐다. ③ "소비자 계정용 quota API 가 없다" — 있다. 요금제 문제였다.
+  - **가장 뼈아픈 지점: 답은 이미 수집한 진단 출력 안에 있었다.** 프로브가
+    `currentTier(id=free-tier …)` 와 `allowedTiers …(id=standard-tier, description=Unlimited …)` 를
+    그대로 찍어 줬는데, "quota 수치가 없다"만 보고 티어 필드를 '마케팅 문구'로 치부했다.
+    → **프로브가 "찾던 값이 없다"고 나오면, 같은 응답의 *식별자* 필드가 질문 자체를 다시 정의하는지
+    본다.** 없는 것만 보고 있는 것을 지나치기 쉽다.
 
 - **모르는 응답의 스키마는 값이 아니라 키만 로그로 확인한다.** 이 조사의 두 단계 모두 진단 로그로
   풀렸다(403 본문 → 라이선스 문구, 키 구조 → quota 필드 부재). 값을 통째로 남기면 계정·프로젝트
