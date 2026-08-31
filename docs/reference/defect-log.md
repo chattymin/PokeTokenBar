@@ -338,6 +338,22 @@ read_when:
   스캔은 **주석 줄을 제외**한다 — 주석 처리된 guard 를 통과시키면 그 스캔은 아무것도 지키지 않는다
   (결함 주입 검증에서 실제로 통과시켰다).
 
+## 로그 잡음
+
+- **폴마다 반복되는 상태 줄은 회전으로 진단 이력을 밀어낸다.** 실측 2026-08-30: 로그 9,093줄 중
+  미설치 프로바이더의 `phase1 recv id=<id> today=nil err=none`·`codex limits skipped`·
+  `antigravity limits unavailable` 류가 507회씩 반복돼 약 60%를 차지했다. `AppLog` 는 2MB 에서
+  1세대 회전이라(`maxBytes`), 이 잡음이 정작 필요한 "장애 직전 컨텍스트"를 밀어낸다 — 회전이 잦아
+  이력이 사라지던 것은 이미 알려진 문제였는데 원인의 다수가 이 반복 줄이었다.
+  → `AppLog.writeIfChanged(key:_:repeatAfter:)`. 판정은 `LogRepeatSuppressor`(순수)에 두고
+  `AppLog` 는 잠금만 책임진다 — `AppLog.write` 는 `swift test` 에서 no-op 이라 파일로 검증할 수 없다.
+- **억제는 상태 *전이* 를 절대 삼키면 안 된다.** 메시지가 달라지면 즉시 기록한다. 같은 상태가
+  길게 이어져도 `repeatAfter`(기본 1시간)마다 한 번은 남긴다 — 그게 없으면 로그가 조용한 건지
+  앱이 멈춘 건지 구분할 수 없다. 회귀 가드: `LogRepeatSuppressorTests`.
+- **키는 프로바이더별로 나눈다.** 한 키로 묶으면 한 프로바이더의 변화가 다른 프로바이더의 억제를
+  풀어 잡음이 그대로 돌아온다(`testKeysAreIndependent`).
+- **값이 매 틱 변하는 줄에는 쓰지 마라**(토큰 수·합계). 억제가 걸리지 않아 이득 없이 잠금만 든다.
+
 ## 폴링 주기
 
 - **사용자 설정 주기로 외부 endpoint 를 두드리지 마라.** `refreshInterval`(1~15분)은 *로컬 파일 스캔*

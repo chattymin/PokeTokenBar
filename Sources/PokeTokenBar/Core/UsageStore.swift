@@ -688,7 +688,8 @@ final class UsageStore {
                 }
             }
             for await outcome in group {
-                AppLog.write("phase1 recv id=\(outcome.id) today=\(outcome.today?.totalTokens.description ?? "nil") err=\(outcome.errorDescription ?? "none")")
+                AppLog.writeIfChanged("phase1-recv-\(outcome.id)",
+                                      "phase1 recv id=\(outcome.id) today=\(outcome.today?.totalTokens.description ?? "nil") err=\(outcome.errorDescription ?? "none")")
                 if let today = outcome.today { dailyByID[outcome.id] = today }
                 if let err = outcome.errorDescription {
                     failedIDs.insert(outcome.id)
@@ -787,7 +788,7 @@ final class UsageStore {
             limits = nil
             limitsAvailable = false
             limitsAuthExpired = false   // 조회 자체를 안 하므로 "세션 만료" 안내는 무의미 → 해제
-            AppLog.write("claude limits skipped: keychain access disabled")
+            AppLog.writeIfChanged("claude-limits", "claude limits skipped: keychain access disabled")
         } else if let until = claudeLimitsBackoffUntil, Date() < until {
             // 429 백오프 중 — 폴링을 쉬어 rate limit 악화 방지 (버그 리포트 실측: 매분 429 재시도)
             AppLog.write("claude limits backoff: skipping (\(Int(until.timeIntervalSinceNow))s left)")
@@ -809,7 +810,7 @@ final class UsageStore {
                 if limits == nil { limitsAvailable = false }
                 updateAuthExpired(from: error)
                 applyLimitsBackoffIfRateLimited(error)
-                AppLog.write("limits unavailable: \(error)")
+                AppLog.writeIfChanged("claude-limits", "limits unavailable: \(error)")
             }
         }
         await refreshCodexLimits()
@@ -908,7 +909,7 @@ final class UsageStore {
             if case LimitsError.httpStatus(let code) = error, code == 401 || code == 403 {
                 antigravityLimitsAuthExpired = true
             }
-            AppLog.write("antigravity limits unavailable: \(error)")
+            AppLog.writeIfChanged("antigravity-limits", "antigravity limits unavailable: \(error)")
         }
     }
 
@@ -983,7 +984,7 @@ final class UsageStore {
                 }.joined(separator: " | ")
                 AppLog.write("codex limits refreshed [\(buckets)] plan=\(status.rateLimits.planType ?? "nil")")
             } else {
-                AppLog.write("codex limits skipped: codex binary not found")
+                AppLog.writeIfChanged("codex-limits", "codex limits skipped: codex binary not found")
             }
         } catch {
             AppLog.write("codex limits unavailable: \(error)")
@@ -1003,14 +1004,15 @@ final class UsageStore {
                 func pct(_ window: OpenCodeGoLimitWindow?) -> String {
                     window.flatMap { $0.percent.map(String.init) } ?? "nil"
                 }
-                AppLog.write("opencode go limits refreshed rolling=\(pct(status.rolling)) weekly=\(pct(status.weekly)) monthly=\(pct(status.monthly))")
+                AppLog.writeIfChanged("opencode-go-limits",
+                                      "opencode go limits refreshed rolling=\(pct(status.rolling)) weekly=\(pct(status.weekly)) monthly=\(pct(status.monthly))")
             } else {
-                AppLog.write("opencode go limits skipped: no opencode-go key in auth.json")
+                AppLog.writeIfChanged("opencode-go-limits", "opencode go limits skipped: no opencode-go key in auth.json")
             }
         } catch {
             // 401/403(미구독·불명 키)·네트워크 실패 → 이전 값 유지(codex 와 동일). 섹션은 표시값이
             // 있으면 그대로 두고, 갱신이 15분+ 이어지지 않으면 stale 배지로 노출된다.
-            AppLog.write("opencode go limits unavailable: \(error)")
+            AppLog.writeIfChanged("opencode-go-limits", "opencode go limits unavailable: \(error)")
         }
     }
 
@@ -1034,7 +1036,7 @@ final class UsageStore {
         let fresh = await statusProvider.fetch()
         for (id, status) in fresh { statuses[id] = status }
         if !fresh.isEmpty {
-            AppLog.write("provider status: "
+            AppLog.writeIfChanged("provider-status", "provider status: "
                 + fresh.map { "\($0.key)=\($0.value.indicator.rawValue)" }.sorted().joined(separator: " "))
         }
     }
