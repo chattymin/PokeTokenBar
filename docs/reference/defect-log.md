@@ -312,6 +312,26 @@ read_when:
   동안은 자동 폴이 그 토큰으로 한도를 계속 갱신하고, 만료되면 stale 표시 후 사용자가 갱신한다. 회귀 가드:
   `testAutoRefreshUsesNoPromptPathManualUsesPromptPath`. (완전 근절은 Developer ID notarization 으로
   '항상 허용' 승인을 안정화하는 것뿐 — 신뢰된 서명 신원이라야 ACL 승인이 지속된다. 미도입.)
+- **앱 소유 keychain 항목 — 대안 4가지가 모두 막혀 있다(2026-08-30 스파이크). 다시 제안하기 전에 여기부터 읽을 것.**
+  위 #58 항목의 근거는 "cdhash 가 바뀌어서"인데, **그 전제 자체는 틀렸다**: 인증서로 서명된 빌드의
+  지정요구(DR)는 `identifier … and certificate leaf[subject.CN] = …` 라 cdhash 를 포함하지 않는다
+  (Apple Development·자체서명 `PokeTokenBar Local` 둘 다 실측 확인). 그런데도 **결론은 그대로 유지된다** —
+  이유가 다를 뿐이다. 넷 다 확인했다:
+  1. **데이터보호 키체인(프롬프트 자체가 없는 경로)은 릴리스 빌드가 못 쓴다.** `build-app.sh` 의
+     codesign 에 `--entitlements` 가 없어(의도된 것 — `dev-deploy.md` 의 CloudKit 크래시 항목) 릴리스
+     번들에는 자격증명이 전혀 없다. application-identifier 없이 `kSecUseDataProtectionKeychain` 는
+     `errSecMissingEntitlement`.
+  2. **외부 도구가 만든 레거시 항목을 앱이 조용히 읽을 수 없다.** 실측: 앱과 같은 신원으로 서명한
+     바이너리를 `-T` 로 지정해
+     `security add-generic-password -s … -T <서명된 바이너리>` 로 항목을 만든 뒤 그 바이너리가
+     no-UI 로 조회하자 **120초+ 블록하며 SecurityAgent 다이얼로그**가 떴다
+     (`kSecUseAuthenticationUI=fail` + `LAContext.interactionNotAllowed` 를 다 걸고도). 즉 `-T` 로 추가한
+     항목은 사용자가 직접 누른 '항상 허용' 과 **동등하지 않다**. 자동 폴 경로에서 이 블록은 허용 불가다.
+  3. **앱이 자기 항목에 토큰을 복사해 둬도 문제가 안 풀린다.** 복사본도 16시간 뒤 만료되고, 새 토큰은
+     Claude 항목에서만 오는데 그 읽기는 사용자 동작 전용이다 — 만료 트레드밀이 옮겨갈 뿐이다.
+  4. 그래서 **파일 미러가 현재로선 최선의 절충**이다(0600 · Time Machine 제외 · refreshToken 미포함).
+     파일 미러가 동작하는 이유는 `/usr/bin/security` 가 **사용자가 '항상 허용' 을 누른** 신뢰 항목으로
+     Claude 자격증명을 조용히 읽기 때문이다 — (2)의 `-T` 항목과 결정적으로 다른 지점.
 - **자격증명 "없음"과 "계정 로그인 없음"은 다른 안내다.** Claude Code 2.1.x 의 `Claude Code-credentials`
   항목이 MCP 서버 OAuth(`mcpOAuth`) 상태만 담고 계정 토큰(`claudeAiOauth`)은 안 담는 경우가 있다. 이때
   파싱 실패를 형식 오류로 뭉뚱그리면 "재로그인하면 된다"를 안내 못 해 한도 섹션이 원인 불명으로 사라진다.
