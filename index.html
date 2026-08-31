@@ -405,7 +405,7 @@
       <div class="feat reveal">
         <div class="ic">📊</div>
         <h3 data-i18n="f1.t">Live token usage</h3>
-        <p data-i18n="f1.d">Today's Claude Code + Codex + Gemini + Antigravity + OpenCode + Hermes + Cursor + Grok + Copilot + Kiro + Pi tokens (compact, e.g. 253.4M) — combined total in the menu bar, per-service tabs in the popover.</p>
+        <p data-i18n="f1.d">Today's Claude Code + Codex + Gemini + Antigravity + OpenCode + Hermes + Cursor + Grok + Copilot + Kiro + Pi + omp tokens (compact, e.g. 253.4M) — combined total in the menu bar, per-service tabs in the popover.</p>
       </div>
       <div class="feat reveal">
         <div class="ic">🛑</div>
@@ -425,7 +425,7 @@
       <div class="feat reveal">
         <div class="ic">🌐</div>
         <h3 data-i18n="f5.t">Localized</h3>
-        <p data-i18n="f5.d">Full Korean / English / Japanese / Spanish / French / Portuguese UI — and Pokémon names in your language, straight from PokéAPI.</p>
+        <p data-i18n="f5.d">Full Korean / English / Japanese / Spanish / French / Portuguese / German UI — and Pokémon names in your language, straight from PokéAPI.</p>
       </div>
       <div class="feat reveal">
         <div class="ic">🔔</div>
@@ -451,6 +451,16 @@
         <div class="ic">📁</div>
         <h3 data-i18n="f10.t">Additional scan folders</h3>
         <p data-i18n="f10.d">Logs outside the built-in paths? Add extra scan roots per provider — comma or newline separated, * wildcards, with a live count of what currently matches. Each provider keeps its own list, and custom roots are added to the defaults rather than replacing them.</p>
+      </div>
+      <div class="feat reveal">
+        <div class="ic">🔑</div>
+        <h3 data-i18n="f11.t">Official limits without the Keychain</h3>
+        <p data-i18n="f11.d">Cached limit token expired? Paste a claude.ai session key under Settings → Advanced and official Claude limits come straight from claude.ai — no Keychain access, no password pop-up, and auto-polling keeps them fresh.</p>
+      </div>
+      <div class="feat reveal">
+        <div class="ic">🧮</div>
+        <h3 data-i18n="f12.t">Per-model breakdown</h3>
+        <p data-i18n="f12.d">Pi forks like omp can route several models through one session log — usage is attributed to the real model id, and today's tokens break down per model in the popover.</p>
       </div>
     </div>
   </div>
@@ -644,16 +654,18 @@
       "strip.label": "Works with", "copy": "Copy",
       "feat.h2": "Everything you need, in the menu bar",
       "feat.sub": "A glanceable usage tracker for AI coding — no dashboard, no browser tab — with a reason to actually open it.",
-      "f1.t": "Live token usage", "f1.d": "Today's Claude Code + Codex + Gemini + Antigravity + OpenCode + Hermes + Cursor + Grok + Copilot + Kiro + Pi tokens (compact, e.g. 253.4M) — combined total in the menu bar, per-service tabs in the popover.",
+      "f1.t": "Live token usage", "f1.d": "Today's Claude Code + Codex + Gemini + Antigravity + OpenCode + Hermes + Cursor + Grok + Copilot + Kiro + Pi + omp tokens (compact, e.g. 253.4M) — combined total in the menu bar, per-service tabs in the popover.",
       "f2.t": "Official limits", "f2.d": "Claude, Codex & Antigravity 5-hour / weekly utilization with live reset countdowns, color-coded as you approach the cap.",
       "f3.t": "Burn-rate forecast", "f3.d": "Projects when your current 5-hour window will hit 100% at the current spend rate — so a wall never surprises you.",
       "f4.t": "Growth companion + Pokédex", "f4.d": "Your usage raises a Pokémon that hatches — sometimes, by a rare stroke of luck, Shiny ✨ — evolves through its real line with natures and little celebrations, and fills a Pokédex.",
-      "f5.t": "Localized", "f5.d": "Full Korean / English / Japanese / Spanish / French / Portuguese UI — and Pokémon names in your language, straight from PokéAPI.",
+      "f5.t": "Localized", "f5.d": "Full Korean / English / Japanese / Spanish / French / Portuguese / German UI — and Pokémon names in your language, straight from PokéAPI.",
       "f6.t": "Notifications", "f6.d": "Alerts when a limit crosses your warning / critical thresholds — and when your companion hatches, evolves, or graduates.",
       "f8.t": "Floating desktop pet", "f8.d": "Let your companion live on the desktop instead of the menu bar — hover for today's usage, click to open the popover, right-click for a menu, drag to place it. Notifications can appear as a speech bubble above it.",
       "f7.t": "Token Shop", "f7.d": "The tokens you've already used become spendable currency — buy Rare Candy to grow your Pokémon, a Mint to re-roll its nature, a Shiny Charm that permanently raises your shiny odds, or an egg to send off your companion and start fresh — plain, Uncommon-guaranteed, or Rare-guaranteed.",
       "f9.t": "Representative Pokémon", "f9.d": "Pin any species you already own to the menu bar and floating pet, independently of the one you're raising — while pinned, the menu bar stops following egg, hatch, and evolution changes, and raising progress stays on Home.",
       "f10.t": "Additional scan folders", "f10.d": "Logs outside the built-in paths? Add extra scan roots per provider — comma or newline separated, * wildcards, with a live count of what currently matches. Each provider keeps its own list, and custom roots are added to the defaults rather than replacing them.",
+      "f11.t": "Official limits without the Keychain", "f11.d": "Cached limit token expired? Paste a claude.ai session key under Settings → Advanced and official Claude limits come straight from claude.ai — no Keychain access, no password pop-up, and auto-polling keeps them fresh.",
+      "f12.t": "Per-model breakdown", "f12.d": "Pi forks like omp can route several models through one session log — usage is attributed to the real model id, and today's tokens break down per model in the popover.",
       "comp.eyebrow": "The companion", "comp.h2": "Code more, raise a Pokémon",
       "comp.sub": "Tokens spent since install grow a Pokémon through its real evolution tree — fetched live from PokéAPI, animated with Gen-V sprites.",
       "s1.t": "Hatch", "s1.d": "Spend ~5M tokens and your egg hatches into a rarity-weighted Pokémon — one of 25 natures, and once in a rare while, Shiny ✨.",
@@ -713,16 +725,18 @@
       "strip.label": "연동", "copy": "복사",
       "feat.h2": "필요한 건 메뉴바에 다 있어요",
       "feat.sub": "대시보드도 브라우저 탭도 필요 없어요. 사용량을 한눈에 — 매일 열어보고 싶어지는 재미는 덤이고요.",
-      "f1.t": "실시간 토큰 사용량", "f1.d": "오늘 쓴 Claude Code·Codex·Gemini·Antigravity·OpenCode·Hermes·Cursor·Grok·Copilot·Kiro·Pi 토큰 합계를 메뉴바에 간결하게(예: 253.4M). 팝오버에선 서비스별 탭으로 상세를 넘나들어요.",
+      "f1.t": "실시간 토큰 사용량", "f1.d": "오늘 쓴 Claude Code·Codex·Gemini·Antigravity·OpenCode·Hermes·Cursor·Grok·Copilot·Kiro·Pi·omp 토큰 합계를 메뉴바에 간결하게(예: 253.4M). 팝오버에선 서비스별 탭으로 상세를 넘나들어요.",
       "f2.t": "공식 사용 한도", "f2.d": "Claude·Codex·Antigravity의 5시간·주간 사용률을 리셋 카운트다운과 함께. 한도에 가까워지면 색으로 알려줘요.",
       "f3.t": "한도 소진 예측", "f3.d": "지금 속도라면 5시간 한도에 언제 닿을지 미리 알려줘요. 갑자기 막혀서 당황할 일이 없죠.",
       "f4.t": "키우는 재미 + 도감", "f4.d": "사용량으로 포켓몬이 부화하고(아주 특별한 우연으론 ✨ 이로치!), 성격과 작은 연출과 함께 진화해 도감을 채워가요.",
-      "f5.t": "다국어 지원", "f5.d": "한국어·영어·일본어·스페인어·프랑스어·포르투갈어 UI는 물론, 포켓몬 이름까지 PokéAPI에서 내 언어로 보여줘요.",
+      "f5.t": "다국어 지원", "f5.d": "한국어·영어·일본어·스페인어·프랑스어·포르투갈어·독일어 UI는 물론, 포켓몬 이름까지 PokéAPI에서 내 언어로 보여줘요.",
       "f6.t": "알림", "f6.d": "한도가 경고·임박 기준을 넘거나, 파트너가 부화·진화·졸업할 때 알려줘요.",
       "f8.t": "데스크톱 플로팅 펫", "f8.d": "파트너를 메뉴바 대신 바탕화면 위에 둘 수 있어요 — 호버하면 오늘 사용량, 클릭하면 팝오버, 우클릭하면 메뉴, 드래그로 위치를 옮겨요. 알림은 펫 위 말풍선으로도 뜹니다.",
       "f7.t": "토큰 상점", "f7.d": "사용한 토큰이 곧 재화가 돼요 — 이상한 사탕으로 포켓몬을 키우거나, 민트로 성격을 다시 굴리거나, 이로치 부적으로 이로치 확률을 영구히 올리거나, 알로 지금 포켓몬을 놓아주고 새로 시작하세요 — 보증 없는 알·고급 이상 확정·희귀 이상 확정 세 종류예요.",
       "f9.t": "대표 포켓몬", "f9.d": "도감에서 이미 가진 종을 골라 메뉴바와 플로팅 펫에 고정할 수 있어요 — 키우는 포켓몬과 별개예요. 고정 중엔 메뉴바가 알·부화·진화를 따라가지 않고, 육성 진행은 홈에서 그대로 봅니다.",
       "f10.t": "추가 스캔 폴더", "f10.d": "로그가 기본 경로 밖에 있나요? 프로바이더별로 스캔 루트를 더 넣을 수 있어요 — 콤마·줄바꿈 구분, * 와일드카드, 지금 몇 개가 걸리는지 실시간 표시. 목록은 프로바이더마다 따로고, 추가한 경로는 기본 경로를 대체하지 않고 더해집니다.",
+      "f11.t": "Keychain 없는 공식 한도", "f11.d": "한도 토큰이 만료됐나요? 설정 → 고급에 claude.ai 세션 키를 붙여넣으면 공식 Claude 한도를 claude.ai에서 바로 읽어요 — Keychain 접근도, 암호 팝업도 없이 자동 폴링으로 최신을 유지합니다.",
+      "f12.t": "모델별 내역", "f12.d": "omp 같은 Pi 포크는 모델 여러 개를 세션 로그 하나로 흘려요 — 사용량이 실제 모델 id로 귀속되고, 팝오버에서 오늘 토큰이 모델별로 나뉘어 보입니다.",
       "comp.eyebrow": "파트너", "comp.h2": "코딩할수록 포켓몬이 자랍니다",
       "comp.sub": "설치 후 쌓인 토큰이 실제 진화 트리를 따라 포켓몬을 키워요. PokéAPI에서 실시간으로 불러온 Gen-V 스프라이트가 살아 움직이죠.",
       "s1.t": "부화", "s1.d": "약 5M 토큰을 쓰면 알이 부화해요. 25종 성격 중 하나를 갖고 태어나고 — 아주 특별한 우연이 닿으면 ✨ 이로치가 태어나요.",
@@ -782,16 +796,18 @@
       "strip.label": "連携", "copy": "コピー",
       "feat.h2": "必要なものは、メニューバーに",
       "feat.sub": "ダッシュボードもブラウザタブも不要。使用量はひと目で——しかも毎日開きたくなる楽しさつき。",
-      "f1.t": "リアルタイムの使用量", "f1.d": "今日の Claude Code・Codex・Gemini・Antigravity・OpenCode・Hermes・Cursor・Grok・Copilot・Kiro・Pi トークン合計をメニューバーにコンパクト表示（例：253.4M）。ポップオーバーではサービス別タブで詳細を切替。",
+      "f1.t": "リアルタイムの使用量", "f1.d": "今日の Claude Code・Codex・Gemini・Antigravity・OpenCode・Hermes・Cursor・Grok・Copilot・Kiro・Pi・omp トークン合計をメニューバーにコンパクト表示（例：253.4M）。ポップオーバーではサービス別タブで詳細を切替。",
       "f2.t": "公式の使用上限", "f2.d": "Claude・Codex・Antigravity の5時間・週間の使用率を、リセットのカウントダウンとともに。上限が近づくと色でお知らせ。",
       "f3.t": "上限到達の予測", "f3.d": "今のペースなら5時間の上限にいつ達するかを事前に予測。急に止まって困ることがありません。",
       "f4.t": "育てる楽しさ + 図鑑", "f4.d": "使用量でポケモンが孵化し（ごくまれな偶然で ✨ 色違いも）、せいかくや小さな演出とともに進化して図鑑を埋めていきます。",
-      "f5.t": "多言語対応", "f5.d": "韓国語・英語・日本語・スペイン語・フランス語・ポルトガル語の UI はもちろん、ポケモンの名前も PokéAPI からあなたの言語で。",
+      "f5.t": "多言語対応", "f5.d": "韓国語・英語・日本語・スペイン語・フランス語・ポルトガル語・ドイツ語の UI はもちろん、ポケモンの名前も PokéAPI からあなたの言語で。",
       "f6.t": "通知", "f6.d": "上限が警告・危険のラインを超えたとき、そしてパートナーが孵化・進化・卒業したときにお知らせします。",
       "f8.t": "デスクトップのフローティングペット", "f8.d": "パートナーをメニューバーではなくデスクトップに置けます — ホバーで今日の使用量、クリックでポップオーバー、右クリックでメニュー、ドラッグで移動。通知はペットの上に吹き出しでも表示されます。",
       "f7.t": "トークンショップ", "f7.d": "使ったトークンがそのまま通貨に — ふしぎなアメで育てたり、ミントでせいかくを引き直したり、光るお守りで色違い確率を永続的に上げたり、タマゴで今のパートナーを手放してやり直したりできます — 保証なし・アンコモン以上確定・レア以上確定の3種類。",
       "f9.t": "代表ポケモン", "f9.d": "図鑑で所有している種を選び、育成中のポケモンとは別にメニューバーとフローティングペットへ固定できます — 固定中はメニューバーがタマゴ・孵化・進化を追わなくなり、育成の進行は Home で確認できます。",
       "f10.t": "追加スキャンフォルダ", "f10.d": "ログが既定のパスの外にありますか？プロバイダーごとにスキャンルートを追加できます — カンマ・改行区切り、* ワイルドカード、いま何個一致しているかをその場で表示。リストはプロバイダーごとに分かれ、追加したパスは既定を置き換えずに加算されます。",
+      "f11.t": "Keychain なしの公式上限", "f11.d": "上限トークンが切れたら、設定 → 詳細に claude.ai セッションキーを貼り付けるだけ。公式の Claude 上限を claude.ai から直接読むので、Keychain アクセスもパスワードポップアップもなく、自動ポーリングで最新を保ちます。",
+      "f12.t": "モデル別の内訳", "f12.d": "omp のような Pi フォークは複数のモデルを一つのセッションログに流します — 使用量は実際のモデル id に帰属し、ポップオーバーで本日のトークンがモデル別に表示されます。",
       "comp.eyebrow": "パートナー", "comp.h2": "コードするほど、ポケモンが育つ",
       "comp.sub": "インストール後に積み上がったトークンが、実際の進化ツリーに沿ってポケモンを育てます。PokéAPI からリアルタイムに取得した Gen-V スプライトが生き生きと動きます。",
       "s1.t": "孵化", "s1.d": "約5Mトークンでタマゴが孵化。25種類のせいかくを持って生まれ — ごくまれな偶然で ✨ 色違いが生まれることも。",
