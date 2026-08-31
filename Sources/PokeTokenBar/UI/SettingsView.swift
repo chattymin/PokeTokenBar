@@ -65,6 +65,7 @@ struct SettingsView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
                     generalGroup(store)
+                    providersGroup(store)
                     menuBarGroup(store)
                     floatingPetGroup(store)
                     phoneServerGroup(store)
@@ -224,6 +225,20 @@ struct SettingsView: View {
                             launchAtLogin = LoginItem.isEnabled
                         }
                     }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func providersGroup(_ store: UsageStore) -> some View {
+        @Bindable var store = store
+        settingsSection(l.providersSectionTitle) {
+            ForEach(Array(store.registeredProviders.enumerated()), id: \.element.id) { index, provider in
+                if index > 0 { Divider() }
+                toggleRow(provider.displayName, Binding(
+                    get: { store.isProviderVisible(provider.id) },
+                    set: { store.setProvider(provider.id, visible: $0) }
+                ))
             }
         }
     }

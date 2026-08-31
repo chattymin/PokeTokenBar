@@ -508,7 +508,29 @@ public struct AntigravityQuotaGroup: Decodable, Sendable {
     ) {
         self.displayName = displayName
         self.description = description
-        self.buckets = buckets
+        self.buckets = Self.sortBuckets(buckets)
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        displayName = try container.decode(String.self, forKey: .displayName)
+        description = try container.decodeIfPresent(String.self, forKey: .description)
+        let rawBuckets = try container.decodeIfPresent([AntigravityQuotaBucket].self, forKey: .buckets) ?? []
+        buckets = Self.sortBuckets(rawBuckets)
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case displayName, description, buckets
+    }
+
+    public static func sortBuckets(_ buckets: [AntigravityQuotaBucket]) -> [AntigravityQuotaBucket] {
+        buckets.sorted { a, b in
+            if a.is5HourWindow && !b.is5HourWindow { return true }
+            if !a.is5HourWindow && b.is5HourWindow { return false }
+            if a.isWeeklyWindow && !b.isWeeklyWindow { return true }
+            if !a.isWeeklyWindow && b.isWeeklyWindow { return false }
+            return a.bucketId < b.bucketId
+        }
     }
 }
 
@@ -538,8 +560,29 @@ public struct AntigravityRateLimitStatus: Decodable, Sendable {
     }
 
     public init(groups: [AntigravityQuotaGroup] = [], description: String? = nil) {
-        self.groups = groups
+        self.groups = Self.sortGroups(groups)
         self.description = description
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let rawGroups = try container.decodeIfPresent([AntigravityQuotaGroup].self, forKey: .groups) ?? []
+        groups = Self.sortGroups(rawGroups)
+        description = try container.decodeIfPresent(String.self, forKey: .description)
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case groups, description
+    }
+
+    public static func sortGroups(_ groups: [AntigravityQuotaGroup]) -> [AntigravityQuotaGroup] {
+        groups.sorted { a, b in
+            let aIsGemini = a.displayName.localizedCaseInsensitiveContains("gemini")
+            let bIsGemini = b.displayName.localizedCaseInsensitiveContains("gemini")
+            if aIsGemini && !bIsGemini { return true }
+            if !aIsGemini && bIsGemini { return false }
+            return a.displayName < b.displayName
+        }
     }
 }
 

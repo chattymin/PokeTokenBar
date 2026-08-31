@@ -147,4 +147,63 @@ struct PhonePayloadTests {
         #expect(operation.recordsToSave?.count == 1)
         #expect(operation.recordIDsToDelete?.isEmpty == true)
     }
+
+    // MARK: - ProviderMetadata & Filtered Limits
+
+    @Test func providerMetadataAllKnownHasUniqueIDs() {
+        let known = ProviderMetadata.allKnown
+        #expect(!known.isEmpty)
+        let ids = known.map(\.id)
+        #expect(Set(ids).count == ids.count)
+        #expect(ids.contains("opencode"))
+        #expect(ids.contains("claude_code"))
+        #expect(ids.contains("codex"))
+    }
+
+    @Test func filteredLimitGroupsHonorsProviderVisibility() {
+        let limits = PhoneLimitStatus(
+            claude5h: PhoneLimitWindow(label: "Claude 5h", utilization: 50.0, resetsAt: nil),
+            claudeWeekly: PhoneLimitWindow(label: "Claude Weekly", utilization: 30.0, resetsAt: nil),
+            claudeOpusWeekly: nil,
+            claudeSonnetWeekly: nil,
+            codexPrimary: PhoneLimitWindow(label: "Codex 5h", utilization: 20.0, resetsAt: nil),
+            codexSecondary: nil,
+            opencodeGo5h: PhoneLimitWindow(label: "Go 5h", utilization: 10.0, resetsAt: nil),
+            opencodeGoWeekly: nil,
+            opencodeGoMonthly: nil,
+            antigravity: [PhoneLimitWindow(label: "Antigravity Gemini", utilization: 40.0, resetsAt: nil)],
+            planDisplay: "Pro")
+
+        // All visible
+        let allGroups = limits.filteredLimitGroups(isProviderVisible: { _ in true })
+        #expect(allGroups.map(\.title) == ["Claude", "Codex", "Go", "Antigravity"])
+
+        // Hide OpenCode
+        let noGo = limits.filteredLimitGroups(isProviderVisible: { $0 != "opencode" })
+        #expect(noGo.map(\.title) == ["Claude", "Codex", "Antigravity"])
+
+        // Hide Claude
+        let noClaude = limits.filteredLimitGroups(isProviderVisible: { $0 != "claude_code" })
+        #expect(noClaude.map(\.title) == ["Codex", "Go", "Antigravity"])
+
+        // Hide All
+        let none = limits.filteredLimitGroups(isProviderVisible: { _ in false })
+        #expect(none.isEmpty)
+    }
+
+    @Test func antigravityWindowsSorted5hBeforeWeeklyAndGeminiFirst() {
+        let windows = [
+            PhoneLimitWindow(label: "Antigravity Claude & GPT Weekly", utilization: 0.0, resetsAt: nil),
+            PhoneLimitWindow(label: "Antigravity Claude & GPT 5h", utilization: 0.0, resetsAt: nil),
+            PhoneLimitWindow(label: "Antigravity Gemini Weekly", utilization: 10.0, resetsAt: nil),
+            PhoneLimitWindow(label: "Antigravity Gemini 5h", utilization: 20.0, resetsAt: nil),
+        ]
+        let sorted = PhoneLimitStatus.sortAntigravityWindows(windows)
+        #expect(sorted.map(\.label) == [
+            "Antigravity Gemini 5h",
+            "Antigravity Gemini Weekly",
+            "Antigravity Claude & GPT 5h",
+            "Antigravity Claude & GPT Weekly",
+        ])
+    }
 }

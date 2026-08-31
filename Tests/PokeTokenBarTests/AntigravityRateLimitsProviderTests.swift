@@ -63,6 +63,8 @@ final class AntigravityRateLimitsProviderTests: XCTestCase {
         let gemini = try XCTUnwrap(status.geminiGroup)
         XCTAssertEqual(gemini.displayName, "Gemini Models")
         XCTAssertEqual(gemini.buckets.count, 2)
+        XCTAssertEqual(gemini.buckets.map(\.bucketId), ["gemini-5h", "gemini-weekly"],
+                       "5-hour limit bucket must always be ordered before weekly")
 
         let gemini5h = try XCTUnwrap(gemini.fiveHourBucket)
         XCTAssertEqual(gemini5h.bucketId, "gemini-5h")
@@ -75,6 +77,8 @@ final class AntigravityRateLimitsProviderTests: XCTestCase {
 
         let tp = try XCTUnwrap(status.thirdPartyGroup)
         XCTAssertEqual(tp.displayName, "Claude and GPT models")
+        XCTAssertEqual(tp.buckets.map(\.bucketId), ["3p-5h", "3p-weekly"],
+                       "5-hour limit bucket must always be ordered before weekly")
         let tp5h = try XCTUnwrap(tp.fiveHourBucket)
         XCTAssertEqual(tp5h.usedPercent, 50.0, accuracy: 0.001)
 

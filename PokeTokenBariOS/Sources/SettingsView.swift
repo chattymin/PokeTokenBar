@@ -20,6 +20,16 @@ struct SettingsView: View {
                 }
             }
 
+            Section("Providers") {
+                @Bindable var store = store
+                ForEach(store.configurableProviders) { provider in
+                    Toggle(provider.displayName, isOn: Binding(
+                        get: { store.isProviderVisible(provider.id) },
+                        set: { store.setProvider(provider.id, visible: $0) }
+                    ))
+                }
+            }
+
             Section("iCloud Sync") {
                 HStack {
                     Label("iCloud", systemImage: "icloud")

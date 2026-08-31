@@ -78,4 +78,21 @@ final class RepresentativeLocalizationTests: XCTestCase {
             XCTAssertFalse(l.representativeBadge.isEmpty)
         }
     }
+
+    func testProvidersSectionTitleIsLocalizedInEverySupportedLanguage() {
+        let expected: [(AppLanguage, String)] = [
+            (.ko, "프로바이더"),
+            (.en, "Providers"),
+            (.ja, "プロバイダー"),
+            (.es, "Proveedores"),
+            (.fr, "Fournisseurs"),
+            (.pt, "Provedores"),
+            (.de, "Anbieter"),
+        ]
+
+        XCTAssertEqual(expected.map(\.0), AppLanguage.allCases)
+        for (lang, string) in expected {
+            XCTAssertEqual(L(lang).providersSectionTitle, string)
+        }
+    }
 }

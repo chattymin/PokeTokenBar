@@ -148,25 +148,58 @@ public struct PhoneLimitStatus: Codable, Sendable, Equatable {
     /// 프로바이더별로 묶은 한도 창 — 위젯의 파이+퍼센트 그룹 행용. 빈 그룹은 만들지 않는다.
     /// 창 순서는 orderedWindows 와 동일하다.
     public var limitGroups: [PhoneLimitGroup] {
+        filteredLimitGroups(isProviderVisible: { _ in true })
+    }
+
+    /// 프로바이더 표시 여부 필터를 적용한 한도 창 묶음.
+    public func filteredLimitGroups(isProviderVisible: (String) -> Bool) -> [PhoneLimitGroup] {
         var out: [PhoneLimitGroup] = []
-        var claude: [PhoneLimitWindow] = []
-        if let w = claude5h { claude.append(w) }
-        if let w = claudeWeekly { claude.append(w) }
-        if let w = claudeOpusWeekly { claude.append(w) }
-        if let w = claudeSonnetWeekly { claude.append(w) }
-        claude.append(contentsOf: claudeScoped ?? [])
-        if !claude.isEmpty { out.append(PhoneLimitGroup(title: "Claude", windows: claude)) }
-        var codex: [PhoneLimitWindow] = []
-        if let w = codexPrimary { codex.append(w) }
-        if let w = codexSecondary { codex.append(w) }
-        if !codex.isEmpty { out.append(PhoneLimitGroup(title: "Codex", windows: codex)) }
-        var go: [PhoneLimitWindow] = []
-        if let w = opencodeGo5h { go.append(w) }
-        if let w = opencodeGoWeekly { go.append(w) }
-        if let w = opencodeGoMonthly { go.append(w) }
-        if !go.isEmpty { out.append(PhoneLimitGroup(title: "Go", windows: go)) }
-        if let agy = antigravity, !agy.isEmpty { out.append(PhoneLimitGroup(title: "Antigravity", windows: agy)) }
+        if isProviderVisible("claude_code") {
+            var claude: [PhoneLimitWindow] = []
+            if let w = claude5h { claude.append(w) }
+            if let w = claudeWeekly { claude.append(w) }
+            if let w = claudeOpusWeekly { claude.append(w) }
+            if let w = claudeSonnetWeekly { claude.append(w) }
+            claude.append(contentsOf: claudeScoped ?? [])
+            if !claude.isEmpty { out.append(PhoneLimitGroup(title: "Claude", windows: claude)) }
+        }
+        if isProviderVisible("codex") {
+            var codex: [PhoneLimitWindow] = []
+            if let w = codexPrimary { codex.append(w) }
+            if let w = codexSecondary { codex.append(w) }
+            if !codex.isEmpty { out.append(PhoneLimitGroup(title: "Codex", windows: codex)) }
+        }
+        if isProviderVisible("opencode") {
+            var go: [PhoneLimitWindow] = []
+            if let w = opencodeGo5h { go.append(w) }
+            if let w = opencodeGoWeekly { go.append(w) }
+            if let w = opencodeGoMonthly { go.append(w) }
+            if !go.isEmpty { out.append(PhoneLimitGroup(title: "Go", windows: go)) }
+        }
+        if isProviderVisible("antigravity") {
+            if let agy = antigravity, !agy.isEmpty {
+                let sortedAgy = Self.sortAntigravityWindows(agy)
+                out.append(PhoneLimitGroup(title: "Antigravity", windows: sortedAgy))
+            }
+        }
         return out
+    }
+
+    /// Antigravity 창 정렬: Gemini 그룹 먼저, 각 그룹 내에서는 5시간 한도가 주간 한도보다 항상 앞에 오도록 정렬한다.
+    public static func sortAntigravityWindows(_ windows: [PhoneLimitWindow]) -> [PhoneLimitWindow] {
+        windows.sorted { a, b in
+            let aIsGemini = a.label.localizedCaseInsensitiveContains("gemini")
+            let bIsGemini = b.label.localizedCaseInsensitiveContains("gemini")
+            if aIsGemini && !bIsGemini { return true }
+            if !aIsGemini && bIsGemini { return false }
+
+            let aIs5h = a.label.contains("5h") || a.label.contains("5시간") || a.label.contains("5時間") || a.label.contains("5 h")
+            let bIs5h = b.label.contains("5h") || b.label.contains("5시간") || b.label.contains("5時間") || b.label.contains("5 h")
+            if aIs5h && !bIs5h { return true }
+            if !aIs5h && bIs5h { return false }
+
+            return a.label < b.label
+        }
     }
 
     /// Colour tier for a utilization value using the Mac's thresholds.

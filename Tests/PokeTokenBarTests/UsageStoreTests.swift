@@ -1176,6 +1176,77 @@ final class UsageStoreTests: XCTestCase {
         XCTAssertEqual(Set(ids).count, ids.count, "프로바이더 id 중복")
     }
 
+    // MARK: 프로바이더 표시/숨김 설정
+
+    func testProviderVisibilityTogglePersistsAndFiltersUsageAndLimits() async {
+        let claude = FakeUsageProvider(id: "claude_code", displayName: "Claude Code", daily: todayDaily(1_000))
+        let codex = FakeUsageProvider(id: "codex", displayName: "Codex", daily: todayDaily(2_000))
+        let opencode = FakeUsageProvider(id: "opencode", displayName: "OpenCode", daily: todayDaily(3_000))
+        let claudeLim = RecordingClaudeLimits(status: claudeLimits(fiveHourUtil: 50))
+        let codexLim = FakeCodexLimits(status: codexLimits(primaryUsed: 20))
+        let goLim = FakeOpenCodeGoLimits(status: opencodeGoLimits(rolling: 30))
+
+        let store = UsageStore(
+            providers: [claude, codex, opencode],
+            claudeLimitsProvider: claudeLim,
+            codexLimitsProvider: codexLim,
+            opencodeGoLimitsProvider: goLim,
+            autoRefresh: false,
+            remoteLimitsPollInterval: 0,
+            defaults: testDefaults)
+
+        await store.refresh(scheduleEmptyRetry: false)
+
+        XCTAssertTrue(store.isProviderVisible("claude_code"))
+        XCTAssertTrue(store.isProviderVisible("codex"))
+        XCTAssertTrue(store.isProviderVisible("opencode"))
+        XCTAssertEqual(store.todayTotalTokens, 6_000)
+        XCTAssertEqual(store.snapshots.count, 3)
+        XCTAssertNotNil(store.limits)
+        XCTAssertNotNil(store.codexLimits)
+        XCTAssertNotNil(store.opencodeGoLimits)
+
+        // Hide OpenCode
+        store.setProvider("opencode", visible: false)
+        XCTAssertFalse(store.isProviderVisible("opencode"))
+        XCTAssertEqual(testDefaults.stringArray(forKey: "hiddenProviders"), ["opencode"])
+
+        await store.refresh(scheduleEmptyRetry: false)
+        XCTAssertEqual(store.todayTotalTokens, 3_000)
+        XCTAssertEqual(store.snapshots.map { $0.providerID }, ["claude_code", "codex"])
+        XCTAssertNil(store.opencodeGoLimits)
+        XCTAssertNotNil(store.limits)
+        XCTAssertNotNil(store.codexLimits)
+
+        // Hide Claude
+        store.setProvider("claude_code", visible: false)
+        XCTAssertFalse(store.isProviderVisible("claude_code"))
+
+        await store.refresh(scheduleEmptyRetry: false)
+        XCTAssertEqual(store.todayTotalTokens, 2_000)
+        XCTAssertEqual(store.snapshots.map { $0.providerID }, ["codex"])
+        XCTAssertNil(store.limits)
+        XCTAssertFalse(store.limitsAvailable)
+        XCTAssertNotNil(store.codexLimits)
+
+        // Unhide OpenCode
+        store.setProvider("opencode", visible: true)
+        XCTAssertTrue(store.isProviderVisible("opencode"))
+
+        await store.refresh(scheduleEmptyRetry: false)
+        XCTAssertEqual(store.todayTotalTokens, 5_000)
+        XCTAssertEqual(store.snapshots.map { $0.providerID }, ["codex", "opencode"])
+        XCTAssertNotNil(store.opencodeGoLimits)
+    }
+
+    func testProviderVisibilityInitializesFromUserDefaults() {
+        testDefaults.set(["codex", "opencode"], forKey: "hiddenProviders")
+        let store = UsageStore(autoRefresh: false, defaults: testDefaults)
+        XCTAssertFalse(store.isProviderVisible("codex"))
+        XCTAssertFalse(store.isProviderVisible("opencode"))
+        XCTAssertTrue(store.isProviderVisible("claude_code"))
+    }
+
     // MARK: stale
 
     // MARK: 세션 만료(401) UX

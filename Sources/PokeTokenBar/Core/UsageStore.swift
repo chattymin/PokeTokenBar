@@ -163,6 +163,26 @@ final class UsageStore {
         didSet { defaults.set(phoneServerPairingCode, forKey: "phoneServerPairingCode") }
     }
 
+    // MARK: 프로바이더 표시/숨김 설정 (UserDefaults)
+    var hiddenProviderIDs: Set<String> {
+        didSet {
+            defaults.set(Array(hiddenProviderIDs), forKey: "hiddenProviders")
+            Task { await refresh() }
+        }
+    }
+
+    func isProviderVisible(_ id: String) -> Bool {
+        !hiddenProviderIDs.contains(id)
+    }
+
+    func setProvider(_ id: String, visible: Bool) {
+        if visible {
+            hiddenProviderIDs.remove(id)
+        } else {
+            hiddenProviderIDs.insert(id)
+        }
+    }
+
     /// 코드가 노출됐을 때(스크린샷·화면공유) 재발급. 폰은 새 코드를 다시 입력해야 한다.
     func regeneratePhoneServerPairingCode() {
         phoneServerPairingCode = PhonePairingCode.generate()
@@ -593,6 +613,7 @@ final class UsageStore {
         animationQuality = AnimationQuality(rawValue: d.string(forKey: "animationQuality") ?? "") ?? .powerSaver
         disableKeychainAccess = d.object(forKey: "disableKeychainAccess") as? Bool ?? false
         phoneServerEnabled = d.object(forKey: "phoneServerEnabled") as? Bool ?? false
+        hiddenProviderIDs = Set(d.stringArray(forKey: "hiddenProviders") ?? [])
         // 저장된 코드가 없으면(최초 실행·기존 사용자 업그레이드) 지금 발급한다. didSet 은 init 에서
         // 돌지 않으므로 영속화를 여기서 명시적으로 한다 — 안 하면 매 기동마다 코드가 바뀌어
         // 폰이 계속 페어링을 다시 요구받는다.
@@ -710,6 +731,7 @@ final class UsageStore {
         }
 
         let todayKey = LocalUsageReader.todayKey()
+        let activeProviders = providers.filter { isProviderVisible($0.id) }
 
         // ── Phase 1: daily (critical) — 메뉴바 숫자와 stale 판정은 여기서 확정.
         // 블록/주월 상세가 느리거나 멈춰도 메뉴바 숫자는 영향받지 않는다.
@@ -725,7 +747,7 @@ final class UsageStore {
             let errorDescription: String?
         }
         await withTaskGroup(of: DailyOutcome.self) { group in
-            for provider in providers {
+            for provider in activeProviders {
                 group.addTask {
                     do {
                         let today = try await provider.fetchDaily()
@@ -747,7 +769,7 @@ final class UsageStore {
         }
 
         var newSnapshots: [ProviderSnapshot] = []
-        for provider in providers {
+        for provider in activeProviders {
             // 날짜 가드: 이전 스냅샷의 어제 데이터는 유지하지 않는다 (자정 동결 방지)
             var prevToday: DailyUsage?
             var prevBlock: BlockUsage?
@@ -801,7 +823,7 @@ final class UsageStore {
 
         // ── Phase 2: 블록/주월 누적 상세 (best effort) — 실패 시 이전 값 유지
         await withTaskGroup(of: (String, ProviderEnrichment).self) { group in
-            for provider in providers {
+            for provider in activeProviders {
                 group.addTask { (provider.id, await provider.fetchEnrichment()) }
             }
             for await (id, enrichment) in group {
@@ -812,7 +834,7 @@ final class UsageStore {
                     // 미사용 프로바이더까지 탭이 떠서 "안 썼는데 왜 뜨지" 회귀가 난다. 블록이 있을 때만
                     // 그 시점의 주/월도 함께 보존한다.
                     let hasActiveBlock = enrichment.blocksOK && enrichment.activeBlock != nil
-                    if hasActiveBlock, let provider = providers.first(where: { $0.id == id }) {
+                    if hasActiveBlock, let provider = activeProviders.first(where: { $0.id == id }) {
                         snapshots.append(ProviderSnapshot(
                             providerID: id, displayName: provider.displayName, today: nil,
                             activeBlock: enrichment.activeBlock,
@@ -834,11 +856,15 @@ final class UsageStore {
         // ── 한도 조회 (Keychain 프롬프트로 블로킹될 수 있어 마지막)
         // 세션 키 경로는 Keychain 을 안 읽으므로 이 토글과 무관하게 조회한다 — 토글을 켠 이유(팝업)가
         // 세션 키에는 없는데도 같이 막으면, 키를 넣은 사용자가 한도를 영영 못 본다.
-        if disableKeychainAccess && !sessionKeyConfigured {
+        if !isProviderVisible("claude_code") {
             limits = nil
             limitsAvailable = false
-                limitsAuthExpiry = nil   // 조회 자체를 안 하므로 "세션 만료" 안내는 무의미 → 해제
-                AppLog.writeIfChanged("claude-limits", "claude limits skipped: keychain access disabled")
+            limitsAuthExpiry = nil
+        } else if disableKeychainAccess && !sessionKeyConfigured {
+            limits = nil
+            limitsAvailable = false
+            limitsAuthExpiry = nil   // 조회 자체를 안 하므로 "세션 만료" 안내는 무의미 → 해제
+            AppLog.writeIfChanged("claude-limits", "claude limits skipped: keychain access disabled")
         } else if let until = claudeLimitsBackoffUntil, Date() < until {
             // 429 백오프 중 — 폴링을 쉬어 rate limit 악화 방지 (버그 리포트 실측: 매분 429 재시도)
             AppLog.write("claude limits backoff: skipping (\(Int(until.timeIntervalSinceNow))s left)")
@@ -863,9 +889,22 @@ final class UsageStore {
                 AppLog.writeIfChanged("claude-limits", "limits unavailable: \(error)")
             }
         }
-        await refreshCodexLimits()
-        await refreshOpenCodeGoLimits()
-        await refreshAntigravityLimits(allowKeychainPrompt: false)
+        if !isProviderVisible("codex") {
+            codexLimits = nil
+        } else {
+            await refreshCodexLimits()
+        }
+        if !isProviderVisible("opencode") {
+            opencodeGoLimits = nil
+        } else {
+            await refreshOpenCodeGoLimits()
+        }
+        if !isProviderVisible("antigravity") {
+            antigravityLimits = nil
+            antigravityLimitsAuthExpired = false
+        } else {
+            await refreshAntigravityLimits(allowKeychainPrompt: false)
+        }
         await refreshProviderStatuses()
 
         checkLimitAlerts()

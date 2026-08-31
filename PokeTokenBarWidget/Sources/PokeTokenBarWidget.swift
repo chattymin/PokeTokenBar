@@ -93,6 +93,12 @@ struct PokeTokenBarWidgetEntryView: View {
 
     // MARK: - Medium Widget
 
+    private static var hiddenProviders: Set<String> {
+        let array = UserDefaults(suiteName: "group.io.github.chattymin.poketokenbar")?
+            .stringArray(forKey: "phoneHiddenProviders") ?? []
+        return Set(array)
+    }
+
     private func mediumView(_ payload: PhonePayload) -> some View {
         HStack(alignment: .top, spacing: 12) {
             companionColumn(payload)
@@ -101,9 +107,12 @@ struct PokeTokenBarWidgetEntryView: View {
             VStack(alignment: .leading, spacing: 6) {
                 headlineRow(payload)
 
-                if let limits = payload.limits, !limits.orderedWindows.isEmpty {
+                let hidden = Self.hiddenProviders
+                let groups = payload.limits?.filteredLimitGroups(isProviderVisible: { !hidden.contains($0) }) ?? []
+
+                if let limits = payload.limits, !groups.isEmpty {
                     Divider()
-                    limitBars(limits)
+                    limitBars(limits, groups: groups)
                 } else {
                     Spacer(minLength: 0)
                     Text("No rate limits active")
@@ -188,8 +197,8 @@ struct PokeTokenBarWidgetEntryView: View {
     /// One bar per window in orderedWindows order. ≤4 windows: single column with reset countdown.
     /// >4: two columns (countdown dropped for room) so every provider stays visible.
     @ViewBuilder
-    private func limitBars(_ limits: PhoneLimitStatus) -> some View {
-        let rows = limits.limitGroups.flatMap { group in
+    private func limitBars(_ limits: PhoneLimitStatus, groups: [PhoneLimitGroup]) -> some View {
+        let rows = groups.flatMap { group in
             group.windows.map { LimitBarRow(title: shortLabel($0.label, group: group.title), window: $0) }
         }
         if rows.count <= 4 {
@@ -223,12 +232,33 @@ struct PokeTokenBarWidgetEntryView: View {
         }
     }
 
-    /// "Claude Weekly" → "Claude · Weekly": keeps the brand prefix the Mac already localised
-    /// but visually separates it from the window so the eye can scan the column.
+    /// Formats window labels compactly for the widget (e.g. "Claude · 5h", "AGY · Gemini 5h", "AGY · Claude 5h").
+    /// Shortens provider prefix "Antigravity" → "AGY" and verbose group names like "Claude & GPT" → "Claude"
+    /// so the vital limit window text (5h vs weekly) is never cut off.
     private func shortLabel(_ label: String, group: String) -> String {
-        let trimmed = label.hasPrefix(group + " ")
-            ? String(label.dropFirst(group.count + 1)) : label
-        return trimmed.isEmpty ? group : "\(group) · \(trimmed)"
+        var text = label
+        if text.hasPrefix("Antigravity ") {
+            text = "AGY " + text.dropFirst("Antigravity ".count)
+        }
+        text = text.replacingOccurrences(of: "Claude & GPT", with: "Claude")
+            .replacingOccurrences(of: "Claude y GPT", with: "Claude")
+            .replacingOccurrences(of: "Claude et GPT", with: "Claude")
+            .replacingOccurrences(of: "Claude e GPT", with: "Claude")
+            .replacingOccurrences(of: "Claude- & GPT-Modelle", with: "Claude")
+            .replacingOccurrences(of: "Claude & GPT 모델군", with: "Claude")
+            .replacingOccurrences(of: "Claude & GPT モデル群", with: "Claude")
+
+        let effectiveGroup = (group == "Antigravity") ? "AGY" : group
+
+        if text.hasPrefix(effectiveGroup + " ") {
+            let rest = String(text.dropFirst(effectiveGroup.count + 1))
+            return "\(effectiveGroup) · \(rest)"
+        } else if let spaceIdx = text.firstIndex(of: " ") {
+            let first = String(text[..<spaceIdx])
+            let rest = String(text[text.index(after: spaceIdx)...])
+            return "\(first) · \(rest)"
+        }
+        return text
     }
 
     private static let maxDenseRows = 10
@@ -238,10 +268,10 @@ struct PokeTokenBarWidgetEntryView: View {
         return VStack(alignment: .leading, spacing: 2) {
             HStack(spacing: 4) {
                 Text(row.title)
-                    .font(.system(size: 10))
+                    .font(.system(size: dense ? 9.5 : 10))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
-                    .minimumScaleFactor(0.75)
+                    .minimumScaleFactor(0.7)
                 Spacer(minLength: 2)
                 if showsReset, let resetsAt = row.window.resetsAt, resetsAt > entry.date {
                     Text(resetsAt, style: .timer)
@@ -250,7 +280,7 @@ struct PokeTokenBarWidgetEntryView: View {
                         .lineLimit(1)
                 }
                 Text(TokenFormatter.percent(row.window.utilization))
-                    .font(.system(size: 10, weight: .bold).monospacedDigit())
+                    .font(.system(size: dense ? 9.5 : 10, weight: .bold).monospacedDigit())
                     .foregroundStyle(color)
             }
             GeometryReader { geo in

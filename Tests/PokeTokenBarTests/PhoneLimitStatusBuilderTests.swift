@@ -111,6 +111,33 @@ final class PhoneLimitStatusBuilderTests: XCTestCase {
         XCTAssertNil(status.antigravity)
     }
 
+    /// Antigravity 버킷이 weekly 가 먼저 오거나 3P 그룹이 먼저 주어져도 5시간 한도가 주간보다 항상 앞에 오고 Gemini 가 먼저 온다.
+    func testAntigravitySorts5hBeforeWeeklyAndGeminiFirst() {
+        let agy = AntigravityRateLimitStatus(groups: [
+            AntigravityQuotaGroup(displayName: "Claude and GPT models", buckets: [
+                AntigravityQuotaBucket(bucketId: "3p-weekly", displayName: "Weekly", window: "weekly", remainingFraction: 0.9),
+                AntigravityQuotaBucket(bucketId: "3p-5h", displayName: "5h", window: "5h", remainingFraction: 0.5),
+            ]),
+            AntigravityQuotaGroup(displayName: "Gemini models", buckets: [
+                AntigravityQuotaBucket(bucketId: "gemini-weekly", displayName: "Weekly", window: "weekly", remainingFraction: 0.8),
+                AntigravityQuotaBucket(bucketId: "gemini-5h", displayName: "5h", window: "5h", remainingFraction: 0.2),
+            ]),
+        ])
+        let status = AppDelegate.phoneLimitStatus(limits: nil, codex: nil, opencodeGo: nil, antigravity: agy, l: L(.en))
+        XCTAssertEqual(status.antigravity?.map(\.label), [
+            "Antigravity Gemini 5h",
+            "Antigravity Gemini Weekly",
+            "Antigravity Claude & GPT 5h",
+            "Antigravity Claude & GPT Weekly",
+        ])
+        XCTAssertEqual(status.orderedWindows.map(\.label), [
+            "Antigravity Gemini 5h",
+            "Antigravity Gemini Weekly",
+            "Antigravity Claude & GPT 5h",
+            "Antigravity Claude & GPT Weekly",
+        ])
+    }
+
     /// Mac 임계값이 그대로 실려 폰·위젯 색 규칙이 Mac 과 일치한다.
     func testThresholdsForwarded() {
         let status = AppDelegate.phoneLimitStatus(limits: nil, codex: nil, opencodeGo: nil,

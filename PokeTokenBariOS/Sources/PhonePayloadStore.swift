@@ -46,6 +46,45 @@ final class PhonePayloadStore {
         didSet { defaults.set(appearance.rawValue, forKey: "phoneAppearance") }
     }
 
+    /// Hidden provider IDs preference.
+    var hiddenProviderIDs: Set<String> {
+        didSet {
+            defaults.set(Array(hiddenProviderIDs), forKey: "phoneHiddenProviders")
+            if let payload {
+                saveToSharedContainer(payload)
+            }
+        }
+    }
+
+    func isProviderVisible(_ id: String) -> Bool {
+        !hiddenProviderIDs.contains(id)
+    }
+
+    func setProvider(_ id: String, visible: Bool) {
+        if visible {
+            hiddenProviderIDs.remove(id)
+        } else {
+            hiddenProviderIDs.insert(id)
+        }
+    }
+
+    var visibleProviders: [PhoneProviderSnapshot] {
+        guard let providers = payload?.providers else { return [] }
+        return providers.filter { isProviderVisible($0.id) }
+    }
+
+    var configurableProviders: [ProviderMetadata] {
+        var result = ProviderMetadata.allKnown
+        if let payloadProviders = payload?.providers {
+            for p in payloadProviders {
+                if !result.contains(where: { $0.id == p.id }) {
+                    result.append(ProviderMetadata(id: p.id, displayName: p.displayName))
+                }
+            }
+        }
+        return result
+    }
+
     private var timer: Timer?
 
     init() {
@@ -53,6 +92,7 @@ final class PhonePayloadStore {
         self.pairingCode = defaults.string(forKey: "phonePairingCode") ?? ""
         self.refreshInterval = defaults.object(forKey: "phoneRefreshInterval") as? TimeInterval ?? 120
         self.appearance = AppAppearance(rawValue: defaults.string(forKey: "phoneAppearance") ?? "") ?? .system
+        self.hiddenProviderIDs = Set(defaults.stringArray(forKey: "phoneHiddenProviders") ?? [])
         reschedule()
     }
 
@@ -111,6 +151,7 @@ final class PhonePayloadStore {
         let suite = UserDefaults(suiteName: "group.io.github.chattymin.poketokenbar")
         suite?.set(data, forKey: "latestPayload")
         suite?.set(Date(), forKey: "lastFetchTime")
+        suite?.set(Array(hiddenProviderIDs), forKey: "phoneHiddenProviders")
         saveSpriteToSharedContainer(companion: payload.companion)
         WidgetCenter.shared.reloadAllTimelines()
     }

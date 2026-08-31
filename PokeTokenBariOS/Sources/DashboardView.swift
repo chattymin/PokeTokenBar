@@ -48,14 +48,15 @@ struct DashboardView: View {
                 UsageCard(payload: payload)
 
                 if let limits = payload.limits {
-                    LimitsCard(limits: limits)
-                    if let history = limits.history, !history.isEmpty {
+                    LimitsCard(limits: limits, isProviderVisible: { store.isProviderVisible($0) })
+                    if store.isProviderVisible("claude_code"), let history = limits.history, !history.isEmpty {
                         LimitHistoryCard(series: history, limits: limits)
                     }
                 }
 
-                if !payload.providers.isEmpty {
-                    ForEach(payload.providers, id: \.id) { provider in
+                let providers = store.visibleProviders
+                if !providers.isEmpty {
+                    ForEach(providers, id: \.id) { provider in
                         ProviderDetailCard(provider: provider)
                     }
                 }
@@ -357,6 +358,7 @@ struct UsageCard: View {
 /// window the Mac adds to the payload shows up here without another hand-written `if let`.
 struct LimitsCard: View {
     let limits: PhoneLimitStatus
+    var isProviderVisible: (String) -> Bool = { _ in true }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -375,7 +377,7 @@ struct LimitsCard: View {
                 }
             }
 
-            let groups = limits.limitGroups
+            let groups = limits.filteredLimitGroups(isProviderVisible: isProviderVisible)
             if groups.isEmpty {
                 Text("No rate limits active")
                     .font(.caption)
@@ -390,7 +392,7 @@ struct LimitsCard: View {
                             .foregroundStyle(.secondary)
                     }
                     ForEach(Array(group.windows.enumerated()), id: \.offset) { _, w in
-                        LimitRow(window: w, label: shortLabel(w.label, group: group.title), limits: limits)
+                        LimitRow(window: w, label: shortLabel(w.label, group: group.title, groupCount: groups.count), limits: limits)
                     }
                 }
             }
@@ -402,8 +404,8 @@ struct LimitsCard: View {
     }
 
     /// With a group header above, drop the repeated brand prefix ("Claude Weekly" → "Weekly").
-    private func shortLabel(_ label: String, group: String) -> String {
-        guard limits.limitGroups.count > 1, label.hasPrefix(group + " ") else { return label }
+    private func shortLabel(_ label: String, group: String, groupCount: Int) -> String {
+        guard groupCount > 1, label.hasPrefix(group + " ") else { return label }
         let trimmed = String(label.dropFirst(group.count + 1))
         return trimmed.isEmpty ? label : trimmed
     }

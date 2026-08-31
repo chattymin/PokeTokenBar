@@ -1185,6 +1185,28 @@
         }
       }
     },
+    "Providers": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Proveedores"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プロバイダー"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "프로바이더"
+          }
+        }
+      }
+    },
     "Rare": {
       "localizations": {
         "ko": {
