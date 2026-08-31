@@ -80,6 +80,12 @@ private final class CountingClaudeLimits: ClaudeLimitsProviding, @unchecked Send
     }
 }
 
+/// 지정한 오류만 던지는 antigravity 스텁 — 401/403 분기 검증용.
+private struct ThrowingAntigravityLimits: AntigravityLimitsProviding {
+    let error: LimitsError
+    func fetch(allowKeychainPrompt: Bool) async throws -> AntigravityRateLimitStatus { throw error }
+}
+
 private struct FakeClaudeLimits: ClaudeLimitsProviding {
     var status: LimitStatus?
     func fetch(allowKeychainPrompt: Bool) async throws -> LimitStatus {
@@ -1165,6 +1171,42 @@ final class UsageStoreTests: XCTestCase {
                                autoRefresh: false, defaults: testDefaults)
         await store.refresh(scheduleEmptyRetry: false)
         XCTAssertFalse(store.limitsAuthExpired, "500 은 세션 만료 아님 — 오탐 방지")
+    }
+
+    /// 403 은 "인증은 됐고 권한이 없다"라 재로그인으로 풀리지 않는다. 세션 만료로 표시하면
+    /// 사용자는 고쳐지지 않는 조치를 반복하고, 그 안내가 재시도 행까지 가려 막다른 길이 된다
+    /// (실측 2026-08-31: antigravity CLI 자격증명 → retrieveUserQuotaSummary 403).
+    func testLimitsAuthExpiredNotSetOn403() async {
+        let claude = FakeUsageProvider(id: "claude_code", displayName: "Claude Code", daily: todayDaily(10_000_000))
+        let store = UsageStore(providers: [claude],
+                               claudeLimitsProvider: SequenceClaudeLimits(errors: [LimitsError.httpStatus(403)]),
+                               codexLimitsProvider: FakeCodexLimits(status: nil),
+                               opencodeGoLimitsProvider: FakeOpenCodeGoLimits(status: nil),
+                               autoRefresh: false, defaults: testDefaults)
+        await store.refresh(scheduleEmptyRetry: false)
+        XCTAssertFalse(store.limitsAuthExpired,
+                       "403 을 세션 만료로 표시하면 재로그인해도 사라지지 않는 안내가 남는다")
+    }
+
+    func testAntigravityAuthExpiredSetOn401ButNotOn403() async {
+        let claude = FakeUsageProvider(id: "claude_code", displayName: "Claude Code", daily: todayDaily(10_000_000))
+        func store(throwing error: LimitsError) -> UsageStore {
+            UsageStore(providers: [claude],
+                       claudeLimitsProvider: FakeClaudeLimits(status: nil),
+                       codexLimitsProvider: FakeCodexLimits(status: nil),
+                       opencodeGoLimitsProvider: FakeOpenCodeGoLimits(status: nil),
+                       antigravityLimitsProvider: ThrowingAntigravityLimits(error: error),
+                       autoRefresh: false, defaults: testDefaults)
+        }
+
+        let unauthenticated = store(throwing: .httpStatus(401))
+        await unauthenticated.refresh(scheduleEmptyRetry: false)
+        XCTAssertTrue(unauthenticated.antigravityLimitsAuthExpired, "401 은 재로그인이 답이다")
+
+        let forbidden = store(throwing: .httpStatus(403))
+        await forbidden.refresh(scheduleEmptyRetry: false)
+        XCTAssertFalse(forbidden.antigravityLimitsAuthExpired,
+                       "403 에 만료 안내를 띄우면 CLI 사용자에게 영구히 지워지지 않는다")
     }
 
     func testIsStaleBeforeFirstRefreshThenFreshAfter() async {

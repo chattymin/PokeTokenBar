@@ -374,6 +374,24 @@ read_when:
   풀어 잡음이 그대로 돌아온다(`testKeysAreIndependent`).
 - **값이 매 틱 변하는 줄에는 쓰지 마라**(토큰 수·합계). 억제가 걸리지 않아 이득 없이 잠금만 든다.
 
+## HTTP 상태 해석
+
+- **401 과 403 을 같이 묶지 마라 — 안내가 달라진다.** 401 은 "인증 안 됨"(재로그인이 답), 403 은
+  "인증은 됐고 이 메서드를 쓸 권한이 없음"(재로그인으로 안 풀림)이다. 둘을 `authExpired` 하나로
+  묶으면 고쳐지지 않는 조치를 사용자가 반복한다. 실측 2026-08-31: Antigravity **CLI** 자격증명으로
+  `v1internal:retrieveUserQuotaSummary` 를 부르면 403 이고(CLI 는 이 메서드를 아예 호출하지 않는다 —
+  IDE 전용), 그 결과 "세션 만료, 재로그인" 안내가 영구 표시됐다.
+  → `updateAuthExpired`·antigravity catch 모두 **401 에서만** 만료로 판정.
+  회귀 가드: `testLimitsAuthExpiredNotSetOn403`, `testAntigravityAuthExpiredSetOn401ButNotOn403`.
+- **만료 안내가 재시도 수단을 가리면 막다른 길이 된다.** `PopoverView` 는 `authExpired` 일 때
+  갱신 행 **대신** 안내를 그린다. 플래그는 성공해야만 풀리는데 CLI 사용자는 성공할 수 없어,
+  사용자가 스스로 빠져나올 방법이 없었다. 상태 플래그를 세울 땐 "이 상태에서 사용자가 할 수 있는
+  행동이 남아 있나"를 함께 본다.
+- **실패 원인은 상태코드가 아니라 본문에 있다.** 401/403 본문을 잘라서라도 남긴다
+  (`antigravity limits http 403: …`). 안 남기면 원인 추적이 남의 로그 고고학이 된다 — 이 건도
+  `~/.gemini/antigravity-cli/log` 를 뒤져 "CLI 는 그 메서드를 호출하지 않는다"를 알아냈다.
+  자격증명은 요청 헤더에 있지 응답 본문에 없으므로 본문 기록은 안전하다.
+
 ## 폴링 주기
 
 - **사용자 설정 주기로 외부 endpoint 를 두드리지 마라.** `refreshInterval`(1~15분)은 *로컬 파일 스캔*

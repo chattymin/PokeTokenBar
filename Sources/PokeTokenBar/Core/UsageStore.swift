@@ -906,7 +906,8 @@ final class UsageStore {
             }.joined(separator: " | ")
             AppLog.write("antigravity limits refreshed [\(groupsDesc)]")
         } catch {
-            if case LimitsError.httpStatus(let code) = error, code == 401 || code == 403 {
+            // 401 만 세션 만료 — 근거는 updateAuthExpired 주석 참조.
+            if case LimitsError.httpStatus(let code) = error, code == 401 {
                 antigravityLimitsAuthExpired = true
             }
             AppLog.writeIfChanged("antigravity-limits", "antigravity limits unavailable: \(error)")
@@ -916,7 +917,11 @@ final class UsageStore {
     /// 401/403(세션 만료)면 auth-expired 플래그를 세운다. 다른 오류(네트워크·키체인 잠금 등)는
     /// 만료가 아니므로 건드리지 않는다 — 오탐으로 "세션 만료" 안내를 띄우지 않기 위함.
     private func updateAuthExpired(from error: any Error) {
-        if case LimitsError.httpStatus(let status) = error, status == 401 || status == 403 {
+        // **401 만** 세션 만료다. 403 은 "인증은 됐고 이 메서드를 쓸 권한이 없다"는 뜻이라 재로그인으로
+        // 풀리지 않는다. 같은 안내를 띄우면 사용자는 고쳐지지 않는 조치를 반복하게 된다 — 실측
+        // (2026-08-31): antigravity CLI 자격증명이 retrieveUserQuotaSummary 에서 403 을 받자
+        // "세션 만료, 재로그인" 안내가 영구 표시됐고, 그 안내는 재시도 버튼까지 가린다.
+        if case LimitsError.httpStatus(let status) = error, status == 401 {
             limitsAuthExpired = true
         }
     }

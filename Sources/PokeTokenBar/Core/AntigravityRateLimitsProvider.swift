@@ -62,6 +62,15 @@ public struct AntigravityRateLimitsProvider: AntigravityLimitsProviding, Sendabl
                         throw LimitsError.rateLimited(retryAfter: OAuthLimitsProvider.retryAfterSeconds(http))
                     }
                     if http.statusCode == 401 || http.statusCode == 403 {
+                        // 이유는 상태코드가 아니라 본문에 있다. 남기지 않으면 원인 추적이 남의 로그
+                        // 고고학이 된다 — 실측 403 의 원인(antigravity-cli 는 이 메서드를 아예 호출하지
+                        // 않는다)을 알아내는 데 CLI 로그를 뒤져야 했다. 자격증명은 요청 헤더에만 있고
+                        // 응답 본문에는 없다. 길이는 잘라서 로그 회전 예산을 지킨다.
+                        let reason = String(data: data.prefix(200), encoding: .utf8)?
+                            .replacingOccurrences(of: "\n", with: " ")
+                            .trimmingCharacters(in: .whitespaces) ?? "<본문 해석 불가>"
+                        AppLog.writeIfChanged("antigravity-http-\(http.statusCode)",
+                                              "antigravity limits http \(http.statusCode): \(reason)")
                         throw LimitsError.httpStatus(http.statusCode)
                     }
                     lastError = LimitsError.httpStatus(http.statusCode)
