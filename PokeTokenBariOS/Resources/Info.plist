@@ -22,6 +22,13 @@
     <string>1</string>
     <key>LSRequiresIPhoneOS</key>
     <true/>
+    <!-- iOS gates every connection to a LAN address behind this permission, so fetching the
+         payload from the Mac triggers the prompt. Without this key the prompt appears with no
+         stated reason, which is exactly the kind of unexplained request people should refuse.
+         The app declares no NSBonjourServices and cannot browse the network — it only connects
+         to the address the user typed. -->
+    <key>NSLocalNetworkUsageDescription</key>
+    <string>PokeTokenBar connects to the PokeTokenBar app on your Mac, at the address you enter, to show your token usage on this phone.</string>
     <key>UIApplicationSceneManifest</key>
     <dict>
         <key>UIApplicationSupportsMultipleScenes</key>
