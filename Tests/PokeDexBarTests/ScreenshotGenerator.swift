@@ -998,6 +998,7 @@ final class ScreenshotGeneratorTests: XCTestCase {
         try write(png(boxTidyBanner()), "box-tidy.png")
         try write(png(genderBanner()), "gender-banner.png")
         try write(png(formChangesBanner()), "form-changes.png")
+        try write(png(gradeBadgeBanner()), "grade-badge.png")
 
         // 문제 제보 — 크래시 배너(홈)와 설정의 제보 줄을 위아래로. **픽스처에 크래시 기록을
         // 심어야 배너가 찍힌다** — 안 심으면 아무리 다시 생성해도 빈 자리만 나온다(설정
@@ -1402,6 +1403,44 @@ final class ScreenshotGeneratorTests: XCTestCase {
             }
         }
         .padding(14)
+        .background(Color(nsColor: .windowBackgroundColor))
+    }
+
+    /// 등급 배지 — **네 등급을 한 줄에 나란히.** 색 하나만 찍으면 그게 등급인지 알 수 없다.
+    /// 알 뽑기 연출이 쓰는 색 사다리 그대로라, 옆에 알을 같이 놓아 어디서 온 색인지 보인다.
+    private func gradeBadgeBanner() -> some View {
+        let now = ScreenshotFixture.now
+        let roster: [(species: Int, grade: Grade, level: Int)] = [
+            (10, .common, 5), (133, .rare, 22), (94, .epic, 41), (149, .legendary, 100),
+        ]
+        let store = PlayerStore(fileURL: FileManager.default.temporaryDirectory
+                                    .appendingPathComponent("grade-\(UUID().uuidString).json"),
+                                rng: SeededRNG(seed: 11), now: { now },
+                                defaults: UserDefaults(suiteName: "ptb-grade-\(UUID().uuidString)")!)
+        store.setLanguage(.en)
+        store.seedForTesting(wallet: 0, slots: 1, eggs: 0, at: now)
+        store.mutate { state in
+            state.box = roster.enumerated().map { index, entry in
+                Individual(baseID: entry.species, speciesID: entry.species,
+                           pathIDs: [entry.species], nature: .hardy,
+                           exp: GrowthRate.mediumFast.totalExp(at: entry.level),
+                           obtainedAt: now.addingTimeInterval(Double(index)),
+                           grade: entry.grade, growthRate: .mediumFast)
+            }
+        }
+        return HStack(spacing: 20) {
+            ForEach(Array(zip(roster, store.state.box)), id: \.1.id) { entry, individual in
+                VStack(spacing: 5) {
+                    BoxCell(individual: individual, isPartner: false, canEvolve: false,
+                            partnerBadge: "", levelLabel: store.l.levelLabel(individual.level),
+                            onTap: {})
+                    EggIcon(grade: entry.grade, size: 22)
+                    Text(entry.grade.label(.en))
+                        .font(.system(size: 9)).foregroundStyle(.secondary)
+                }
+            }
+        }
+        .padding(16)
         .background(Color(nsColor: .windowBackgroundColor))
     }
 

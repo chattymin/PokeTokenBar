@@ -204,6 +204,13 @@ Forms that only happen mid-battle in the games are carried onto things this app 
 </td>
 </tr>
 <tr>
+<td width="45%" align="center"><img src="assets/grade-badge.png" width="300" alt="Four Box cells side by side — the level label behind each carries its grade colour, with the matching egg below and the grade named"></td>
+<td width="55%" valign="middle">
+<h3>Grades you can read at a glance</h3>
+A Pokémon's grade used to mean opening it. Now the level label under each Box cell carries its colour — the same ladder the draw reveal and the hatching slots already use, so the shell you saw it come out of is the one on its cell. Common stays neutral; Rare, Epic and Legendary tint. Nothing else moves: the corners still belong to ribbons, evolution, stars and selection, and the border to shinies and your partner.
+</td>
+</tr>
+<tr>
 <td width="45%" align="center"><img src="assets/settings.png" width="300" alt="Settings"></td>
 <td width="55%" valign="middle">
 <h3>Tune it your way</h3>

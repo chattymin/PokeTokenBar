@@ -204,6 +204,13 @@ PokeDexBar는 당신이 이미 태우고 있는 AI 코딩 토큰(Claude Code · 
 </td>
 </tr>
 <tr>
+<td width="45%" align="center"><img src="assets/grade-badge.png" width="300" alt="박스 칸 넷이 나란히 — 각 레벨 라벨 뒤에 등급색이 깔려 있고, 아래에 같은 색 알과 등급 이름"></td>
+<td width="55%" valign="middle">
+<h3>등급이 한눈에 보여요</h3>
+등급을 알려면 개체를 열어봐야 했는데, 이제 박스 칸의 레벨 라벨이 그 색을 답니다 — 알 뽑기 연출과 부화 슬롯이 쓰는 색 그대로라, 그 아이가 나온 알 껍질이 곧 칸에 붙어 있는 셈이에요. 커먼은 무채색으로 두고 레어·에픽·레전더리만 색이 돕니다. 다른 건 그대로예요: 네 귀퉁이는 여전히 리본·진화·별표·담김이고, 테두리는 이로치와 파트너입니다.
+</td>
+</tr>
+<tr>
 <td width="45%" align="center"><img src="assets/settings-ko.png" width="300" alt="설정"></td>
 <td width="55%" valign="middle">
 <h3>설정에서 취향대로</h3>

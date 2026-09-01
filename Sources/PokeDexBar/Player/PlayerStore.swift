@@ -7,6 +7,11 @@ import Observation
 final class PlayerStore {
     private(set) var state = PlayerState()
 
+    /// 쓰다듬은 순간의 박자 — 화면이 하트를 한 번 띄우는 신호다. **세이브에 안 들어간다**:
+    /// 지금 무엇을 보여줄지일 뿐 진행이 아니라서, `state` 가 아니라 여기 산다
+    /// (상세 화면의 이로치 반짝임 `sparkleBeat` 와 같은 부류).
+    var pettedBeat = 0
+
     @ObservationIgnored private let fileURL: URL
     @ObservationIgnored private var rng: any RandomNumberGenerator
     @ObservationIgnored private let now: () -> Date
@@ -281,6 +286,23 @@ final class PlayerStore {
               BrokenForm.breaks(speciesID: state.box[index].speciesID),
               !state.box[index].formBroken else { return }
         mutate { $0.box[index].formBroken = true }
+    }
+
+    /// 쓰다듬기 — 곁에 둔 아이와 **함께한 시간**을 그만큼 더한다(`Petting`).
+    ///
+    /// `partnerSeconds` 에 더하는 이유: 리본도 "함께한 시간" 표시도 전부
+    /// `partnerDuration(at:)` 에서 파생되므로, 여기 한 곳만 늘리면 둘 다 따라온다.
+    /// 진행 중인 구간(`partnerSince`)과는 서로 더해질 뿐 안 부딪힌다.
+    ///
+    /// 더해진 값을 돌려준다 — 화면이 "쓰다듬었다"를 보여줄지 이걸로 판단한다(0 이면 클릭이다).
+    @discardableResult
+    func petPartner(heldFor held: TimeInterval) -> Int {
+        let gained = Petting.earnedSeconds(held: held)
+        guard gained > 0, let id = state.partnerID,
+              let index = state.box.firstIndex(where: { $0.id == id }) else { return 0 }
+        mutate { $0.box[index].partnerSeconds += gained }
+        pettedBeat += 1
+        return gained
     }
 
     /// 지금 파트너의 진행 중인 구간을 닫아 누적에 더한다. 파트너를 바꾸기 직전에 부른다 —

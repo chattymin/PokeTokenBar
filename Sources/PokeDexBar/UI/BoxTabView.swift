@@ -538,10 +538,21 @@ struct BoxCell: View {
                 }
                 // 본가 PC 는 칸에 이름도 게이지도 안 적는다 — 스프라이트가 곧 식별자다. 지금
                 // 손댈 수 있는 것(진화 가능)과, 이 게임의 진짜 진행 지표인 레벨만 작게 덧붙인다.
+                //
+                // **등급은 레벨 라벨의 배경색으로 말한다.** 네 귀퉁이(리본·진화·별표·담김)와
+                // 테두리(이로치·파트너)는 이미 차 있어서 자리가 없고, 등급은 100% 의 개체에
+                // 붙는 정보라 가끔만 붙는 표시들과 자리를 다투면 안 된다. 색은 알 뽑기 연출·
+                // 부화 슬롯이 쓰는 등급색 그대로라(`BoxCellGrade`) **새로 배울 것이 없다**.
+                //
+                // 글자 자체를 물들이지 않는 이유: 커먼이 흰색이라 지금의 회색보다 오히려 밝아져
+                // 가장 흔한 등급이 가장 눈에 띈다. 배경으로 빼면 글자는 읽기 좋은 색을 유지한다.
                 Text(levelLabel)
                     .font(.system(size: 7, weight: .bold))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
+                    .padding(.horizontal, 4)
+                    .padding(.vertical, 1)
+                    .background(BoxCellGrade.tint(individual.grade), in: Capsule())
                     .padding(.top, 1)
             }
             .frame(width: 48, height: 50)

@@ -40,6 +40,11 @@ struct PopoverView: View {
     /// 박스가 진화 후보를 보여주려면 라인이 필요하다. 개체 baseID → 라인, 로드되면 채운다.
     @State private var evoLines: [Int: EvoLine] = [:]
     /// 지금 fetch 중인 baseID — 같은 종 개체가 여럿(박스의 핵심 시나리오) 화면에 뜨면 각 행의
+    /// 쓰다듬기 — 누르기 시작한 시각과 하트 표시. 저장하지 않는 화면 상태다.
+    @State private var pettingSince: Date?
+    @State private var showHeart = false
+    @State private var heartRise: CGFloat = 0
+    @State private var heartOpacity: Double = 0
     /// `.task` 가 동시에 `loadLine` 을 부르므로, 완료 전 상태(로딩 중)도 별도로 추적해야 한다.
     /// `evoLines` 만으로는 진행 중인 fetch 를 못 봐서(아직 키가 없으니) 중복 fetch 가 생긴다.
     @State private var loadingLines: Set<Int> = []
@@ -267,6 +272,41 @@ struct PopoverView: View {
                     .frame(width: 64, height: 64)
                     .background(Color.secondary.opacity(0.06))
                     .clipShape(RoundedRectangle(cornerRadius: 12))
+                    // 쓰다듬은 표시 — **아주 작게 한 번**(사용자 결정). 크게 내면 숨은 조작이
+                    // 아니게 되고, 아무것도 안 내면 발견해도 되는지 알 수 없다.
+                    .overlay(alignment: .top) {
+                        if showHeart {
+                            Text("♥")
+                                .font(.system(size: 13))
+                                .foregroundStyle(Color.pink)
+                                .offset(y: heartRise)
+                                .opacity(heartOpacity)
+                        }
+                    }
+                    // **쓰다듬기(숨은 조작).** 이 초상은 지금까지 아무 제스처도 없었으므로
+                    // 길게 누르기가 통째로 비어 있다 — 기존 조작을 하나도 안 뺏는다.
+                    // 플로팅 펫이 아니라 여기 둔 이유: 펫은 옵트인이라 안 켠 사람은 발견할
+                    // 길이 자체가 없다(사용자 지적).
+                    .gesture(
+                        DragGesture(minimumDistance: 0)
+                            .onChanged { _ in if pettingSince == nil { pettingSince = Date() } }
+                            .onEnded { _ in
+                                defer { pettingSince = nil }
+                                guard let start = pettingSince else { return }
+                                guard player.petPartner(heldFor: Date().timeIntervalSince(start)) > 0
+                                else { return }
+                                heartRise = 0
+                                heartOpacity = 1
+                                showHeart = true
+                                withAnimation(.easeOut(duration: 0.9)) {
+                                    heartRise = -30
+                                    heartOpacity = 0
+                                }
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.95) {
+                                    showHeart = false
+                                }
+                            }
+                    )
                 VStack(alignment: .leading, spacing: 4) {
                     HStack(spacing: 6) {
                         Text(partnerName(partner)).font(.callout.weight(.semibold))
