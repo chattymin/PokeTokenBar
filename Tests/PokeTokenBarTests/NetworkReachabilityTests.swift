@@ -27,6 +27,40 @@ final class NetworkReachabilityTests: XCTestCase {
         XCTAssertTrue(NetworkReachabilityMonitor.shouldTriggerReconnect(from: .requiresConnection, to: .satisfied))
     }
 
+    func testFlappingCooldownSuppression() {
+        let baseDate = Date(timeIntervalSince1970: 1000)
+        let cooldown: TimeInterval = 5.0
+
+        // 첫 번째 재연결 성공 (lastTriggeredAt = nil) -> 트리거
+        XCTAssertTrue(NetworkReachabilityMonitor.shouldTriggerReconnect(
+            from: .unsatisfied,
+            to: .satisfied,
+            lastTriggeredAt: nil,
+            now: baseDate,
+            cooldown: cooldown
+        ))
+
+        // 2초 뒤 flapping으로 다시 unsatisfied -> satisfied 전환 발생 시 쿨다운에 의해 억제
+        let flappingDate = baseDate.addingTimeInterval(2.0)
+        XCTAssertFalse(NetworkReachabilityMonitor.shouldTriggerReconnect(
+            from: .unsatisfied,
+            to: .satisfied,
+            lastTriggeredAt: baseDate,
+            now: flappingDate,
+            cooldown: cooldown
+        ))
+
+        // 6초 뒤 정상 재연결 -> 쿨다운 경과로 정상 트리거
+        let recoveredDate = baseDate.addingTimeInterval(6.0)
+        XCTAssertTrue(NetworkReachabilityMonitor.shouldTriggerReconnect(
+            from: .unsatisfied,
+            to: .satisfied,
+            lastTriggeredAt: baseDate,
+            now: recoveredDate,
+            cooldown: cooldown
+        ))
+    }
+
     func testMonitorLifecycleAndCallback() {
         final class Box: @unchecked Sendable {
             var value = false
@@ -46,5 +80,17 @@ final class NetworkReachabilityTests: XCTestCase {
         monitor.start() // 중복 start 방어
         monitor.stop()
         monitor.stop() // 중복 stop 방어
+    }
+
+    func testConcurrentStartAndStop() {
+        let monitor = NetworkReachabilityMonitor()
+        DispatchQueue.concurrentPerform(iterations: 50) { i in
+            if i % 2 == 0 {
+                monitor.start()
+            } else {
+                monitor.stop()
+            }
+        }
+        monitor.stop()
     }
 }
