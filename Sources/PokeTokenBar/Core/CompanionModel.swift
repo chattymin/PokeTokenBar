@@ -111,6 +111,7 @@ enum Rarity: String, Codable, Sendable {
 enum PokemonBalance {
     /// 알 부화 임계 — 이만큼 토큰을 써야 알이 깨진다(즉시 부화 대신 기대감). 초과분은 부화체 성장에 이월.
     static let eggHatchThreshold = 5_000_000
+    static let repeatGrowthMultiplier = 2
 
     static func graduationTotal(_ rarity: Rarity) -> Int {
         switch rarity {
@@ -121,12 +122,14 @@ enum PokemonBalance {
         }
     }
     /// stageIndex(0-based)에서 다음 단계/졸업까지 필요한 토큰.
-    static func phaseThreshold(rarity: Rarity, totalForms k: Int, stageIndex: Int) -> Int {
+    static func phaseThreshold(rarity: Rarity, totalForms k: Int, stageIndex: Int,
+                               growthMultiplier: Int = 1) -> Int {
         let kk = max(1, k)
         let i = stageIndex + 1                         // 1-based
         let total = Double(graduationTotal(rarity))
         let denom = Double(kk * (kk + 1)) / 2.0
-        return Int((total * Double(i) / denom).rounded())
+        let standardThreshold = Int((total * Double(i) / denom).rounded())
+        return max(1, Int((Double(standardThreshold) / Double(max(1, growthMultiplier))).rounded()))
     }
 }
 
@@ -171,8 +174,8 @@ enum ItemKind: String, Codable, Sendable, CaseIterable {
 
 /// 이상한 사탕 밸런스 상수.
 enum RareCandy {
-    /// 사용 시 현재 포켓몬에 주입하는 XP(토큰 환산). 최소 진화 임계(커먼 1형태 125M)보다 작아
-    /// 사탕 1개는 최대 1단계만 올린다(연쇄·졸업 폭주 없음). applyUsage 로 주입 → 이월/진화/졸업 자동.
+    /// 사용 시 현재 포켓몬에 주입하는 XP(토큰 환산). 2× 성장의 최소 임계는 62.5M 이지만,
+    /// 초과 이월(<100M)은 다음 임계(125M)보다 작아 사탕 1개는 최대 1단계만 올린다.
     static let xp = 100_000_000
     /// 주간 한도 100% 도달 시 지급 개수(세션급은 1개).
     static let weeklyGrant = 5
@@ -400,15 +403,23 @@ struct MonState: Codable, Sendable {
     var totalForms: Int
     var isShiny = false             // 부화 시 확정, 진화해도 유지
     var nature: PokemonNature?      // 부화 시 확정 (구버전 저장은 nil)
+    var hasGrowthBoost = false
     // 메타몽 위장 — nil=일반. 값=정체 메타몽, 이 종으로 위장 중(위장 구간엔 baseID 와 동일, 리빌 후에도 원 위장체 보존).
     var dittoDisguise: Int?
     var dittoRevealed = false       // 위장 → 리빌(정체 공개) 전환 여부
     // pathIDs 가 비면(손상된 상태 파일) baseID 로 폴백 — 렌더마다 읽히므로 out-of-bounds 크래시 방지.
     var currentID: Int { pathIDs.isEmpty ? baseID : pathIDs[min(stageIndex, pathIDs.count - 1)] }
+    var phaseThreshold: Int {
+        PokemonBalance.phaseThreshold(
+            rarity: rarity,
+            totalForms: totalForms,
+            stageIndex: stageIndex,
+            growthMultiplier: hasGrowthBoost ? PokemonBalance.repeatGrowthMultiplier : 1)
+    }
 
     init(baseID: Int, pathIDs: [Int], plannedPathIDs: [Int]? = nil, stageIndex: Int, usedAtStage: Int,
          rarity: Rarity, totalForms: Int, isShiny: Bool = false, nature: PokemonNature? = nil,
-         dittoDisguise: Int? = nil, dittoRevealed: Bool = false) {
+         hasGrowthBoost: Bool = false, dittoDisguise: Int? = nil, dittoRevealed: Bool = false) {
         self.baseID = baseID
         self.pathIDs = pathIDs
         if let plannedPathIDs, !plannedPathIDs.isEmpty {
@@ -422,11 +433,12 @@ struct MonState: Codable, Sendable {
         self.totalForms = totalForms
         self.isShiny = isShiny
         self.nature = nature
+        self.hasGrowthBoost = hasGrowthBoost
         self.dittoDisguise = dittoDisguise
         self.dittoRevealed = dittoRevealed
     }
 
-    // 하위호환 디코딩: shiny/nature 는 구버전 저장에 없음 → 기본값.
+    // 하위호환 디코딩: 구버전 저장에 없는 부화 속성은 기본값.
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         baseID = try c.decode(Int.self, forKey: .baseID)
@@ -447,6 +459,7 @@ struct MonState: Codable, Sendable {
         totalForms = try c.decode(Int.self, forKey: .totalForms)
         isShiny = try c.decodeIfPresent(Bool.self, forKey: .isShiny) ?? false
         nature = try c.decodeIfPresent(PokemonNature.self, forKey: .nature)
+        hasGrowthBoost = try c.decodeIfPresent(Bool.self, forKey: .hasGrowthBoost) ?? false
         dittoDisguise = try c.decodeIfPresent(Int.self, forKey: .dittoDisguise)
         dittoRevealed = try c.decodeIfPresent(Bool.self, forKey: .dittoRevealed) ?? false
     }
@@ -613,6 +626,10 @@ struct CompanionState: Codable, Sendable {
         if dex.contains(where: { $0.chainOrder.contains(speciesID) }) { return true }
         guard let active else { return false }
         return active.pathIDs.prefix(active.stageIndex + 1).contains(speciesID)
+    }
+
+    func hasCollectedFinal(forBaseID baseID: Int) -> Bool {
+        collectedFinals.contains { $0.hasPrefix("\(baseID):") }
     }
 
     /// 보유한 특정 종의 이로치 여부. 졸업 기록과 현재 도달 단계만 훑으며 이름·정렬·희귀도 등

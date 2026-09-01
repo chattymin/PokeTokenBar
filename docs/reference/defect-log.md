@@ -33,6 +33,15 @@ read_when:
   손으로 지우기 전까지 앱 사용 불가). 방어는 다운스트림 산술 지점마다가 아니라 **값이 들어오는 경계 한
   곳**에서(`SaveTransfer.sanitized`). 자르는 대상은 산술에 쓰이는 수치뿐 — 도감·인벤토리 *항목*은 잘라내면
   데이터 손실이다. (딥리뷰 2026-08-03: SIGTRAP 재현.)
+- **부화 시 확정되는 개체별 성장 보정은 활성 개체에 영속하고 임계값 소비 경로를 하나로 모은다.** 반복 base의
+  가중치는 `chooseBase` 에서만 낮췄고 성장 비용은 희귀도·형태·단계만 읽어서, 이미 졸업한 선형 라인을 다시
+  부화해도 새 라인과 같은 총비용을 냈다(#253). 기존 테스트도 전역 밸런스 합계와 첫 부화만 검증해
+  `졸업 → 같은 base 재부화` 트리거를 밟지 않았다. 할인 자격은 planned final이 아니라
+  `collectedFinals` 의 **base predicate**로 hatch 순간 결정한다 — final 기준이면 아직 공개하지 않은 분기 선택이
+  남은 토큰으로 샌다. 결과는 `MonState.hasGrowthBoost` 에 저장하고 Home 표시·일반 성장·메타몽 리빌이 모두
+  `MonState.phaseThreshold` 를 읽는다. 가드: `testRepeatGrowthIsDecidedFromTheCollectedBaseNotThePlannedFinal`·
+  `testRepeatGrowthPersistsAcrossRestartWhileLegacyActiveDefaultsToStandardGrowth`·
+  `testRoundTripPreservesActiveRepeatGrowthBoost`·`testBoostedDisguiseRevealsAtTheHalvedThresholdAndKeepsTheBoost`.
 - **같은 규칙이 세이브 파일이 아니라 *외부에서 오는 모든 수치*에 적용된다 — 파싱 경계도 포함.** 위 규칙을
   "세이브 파일"로 좁게 읽은 탓에 사용량 로그 파서(`LocalUsageReader`)의 `intValue` 가 무방비로 남았고,
   같은 SIGTRAP 이 Codex·Claude·Gemini 세 경로에서 재현됐다(딥리뷰 2026-08-04). 사용량 로그도 앱이 쓴 게

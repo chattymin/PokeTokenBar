@@ -87,10 +87,11 @@ final class DittoDisguiseRollTests: XCTestCase {
 @MainActor
 final class DittoRevealTests: XCTestCase {
     /// 활성 = 커먼 3형태 위장 메타몽(정체). currentLine 은 nil(재시작류) → update 로 로드해 리빌 트리거.
-    private func seedDisguise(usedAtStage: Int = 0, shiny: Bool = false, revealed: Bool = false) -> CompanionStore {
+    private func seedDisguise(usedAtStage: Int = 0, shiny: Bool = false, revealed: Bool = false,
+                              boosted: Bool = false) -> CompanionStore {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("ditto-\(UUID().uuidString).json")
         let active = "{\"baseID\":1,\"pathIDs\":[1],\"stageIndex\":0,\"usedAtStage\":\(usedAtStage),"
-            + "\"rarity\":\"common\",\"totalForms\":3,\"isShiny\":\(shiny),"
+            + "\"rarity\":\"common\",\"totalForms\":3,\"isShiny\":\(shiny),\"hasGrowthBoost\":\(boosted),"
             + "\"dittoDisguise\":1,\"dittoRevealed\":\(revealed)}"
         let json = "{\"installBaselineSet\":true,\"usedSinceInstall\":1000000000,\"spentTokens\":0,"
             + "\"lastDate\":\"d1\",\"active\":\(active),\"dex\":[],\"collectedFinals\":[]}"
@@ -131,6 +132,19 @@ final class DittoRevealTests: XCTestCase {
         XCTAssertEqual(s.state.active?.usedAtStage, 300_000_000 - 125_000_000, "첫 진화 초과분 이월")
         XCTAssertNotNil(s.state.active?.dittoDisguise, "위장 마커 보존")
         XCTAssertEqual(s.celebration, .dittoReveal(shiny: false), "리빌 연출 발화")
+    }
+
+    func testBoostedDisguiseRevealsAtTheHalvedThresholdAndKeepsTheBoost() async throws {
+        let s = seedDisguise(boosted: true)
+        s.applyUsage(62_500_000)
+
+        await drainReveal(s)
+
+        let revealed = try XCTUnwrap(s.state.active)
+        XCTAssertTrue(revealed.dittoRevealed)
+        XCTAssertTrue(revealed.hasGrowthBoost)
+        XCTAssertEqual(revealed.usedAtStage, 0)
+        XCTAssertEqual(revealed.phaseThreshold, 1_500_000_000)
     }
 
     /// [회귀] 위장 종만 근거로 고정한 대표 선택은 리빌과 함께 무효가 된다. 공개 뒤에는 유령 위장 종을
