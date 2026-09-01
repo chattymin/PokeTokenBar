@@ -554,7 +554,7 @@ final class UsageStore {
         ) { [weak self] _ in
             Task { @MainActor in await self?.refresh() }
         }
-        // 디스플레이 꺼짐 → 폴링(ccusage 서브프로세스 spawn) 일시정지, 켜짐 → 재개 + 즉시 갱신 (배터리)
+        // 디스플레이 꺼짐 → 폴링(로그 파싱 + 한도 조회 + codex 서브프로세스) 일시정지, 켜짐 → 재개 + 즉시 갱신 (배터리)
         NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.screensDidSleepNotification, object: nil, queue: .main
         ) { [weak self] _ in
@@ -583,7 +583,7 @@ final class UsageStore {
         timer = t
     }
 
-    /// 디스플레이 꺼짐 → 폴링 타이머 정지(예약된 ccusage 서브프로세스 spawn 중단).
+    /// 디스플레이 꺼짐 → 폴링 타이머 정지(예약된 로그 파싱·한도 조회 중단).
     private func suspendPolling() {
         pollingSuspended = true
         timer?.invalidate()
@@ -606,7 +606,7 @@ final class UsageStore {
         // Claude 한도가 다음 수동 액션까지 빈 채로 남던 회귀 방지.
         if isRefreshing { refreshPending = true; return }
         isRefreshing = true
-        // App Nap 방지 — 백그라운드 스로틀로 ccusage 가 타임아웃되는 것을 막는다 (시스템 슬립은 허용)
+        // App Nap 방지 — 백그라운드 스로틀로 로그 파싱·codex 조회가 타임아웃되는 것을 막는다 (시스템 슬립은 허용)
         let activity = ProcessInfo.processInfo.beginActivity(
             options: .userInitiatedAllowingIdleSystemSleep, reason: "PokeTokenBar usage refresh")
         defer {

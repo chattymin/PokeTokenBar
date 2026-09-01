@@ -1,6 +1,6 @@
 import Foundation
 
-/// CLI 바이너리(ccusage, codex 등) 절대경로 탐색.
+/// CLI 바이너리(codex, brew 등) 절대경로 탐색.
 /// GUI 앱(launchd 실행)은 사용자 셸 PATH 를 상속하지 않아, Homebrew 외 버전매니저
 /// (mise/nvm/fnm/asdf/volta/bun)로 설치한 도구를 하드코딩 경로만으로는 못 찾는다.
 /// 전략: 수동 지정(UserDefaults "<binary>Path") → 정적 경로(빠름) → 로그인+인터랙티브 셸 PATH 해석.
