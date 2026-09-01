@@ -120,7 +120,10 @@ final class LocalAdditionalUsageTests: XCTestCase {
             modifiedSince: try date("2026-01-01T00:00:00Z"), roots: [database])
 
         XCTAssertEqual(entries.count, 1)
-        XCTAssertEqual(entries.first?.localDay, "2026-01-02")
+        // The value lands exactly on midnight UTC, so a hardcoded day breaks in timezones west of UTC.
+        XCTAssertEqual(entries.first?.localDay,
+                       LocalUsageReader.localDayFormatter()
+                           .string(from: Date(timeIntervalSince1970: 1_767_312_000)))
         XCTAssertEqual(entries.first?.total, 15)
     }
 
@@ -134,7 +137,7 @@ final class LocalAdditionalUsageTests: XCTestCase {
         XCTAssertEqual(
             Set(store.registeredProviderIDs),
             Set(["claude_code", "codex", "gemini", "antigravity",
-                 "opencode", "hermes", "cursor", "grok", "copilot", "kiro", "pi"]))
+                 "opencode", "hermes", "cursor", "grok", "copilot", "kiro", "pi", "omp"]))
     }
 
     func testPrintRealOpenCodeAggregate() throws {

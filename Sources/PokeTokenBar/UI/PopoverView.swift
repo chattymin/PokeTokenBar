@@ -24,10 +24,20 @@ final class PopoverNavigation {
     var showingCollectionLog = false
     /// 프로바이더 탭 선택 — reset() 대상이 아님(팝오버를 다시 열어도 보던 서비스 유지).
     var providerID: String?
+    /// 설정을 열 때 고급 섹션을 펼친 채로 시작할지. 세션 키 행이 접힌 disclosure 안에 살아서,
+    /// 그냥 설정만 열면 "만료됐다"를 보고 들어온 사용자가 고칠 입력란을 못 찾는다.
+    var expandAdvancedOnOpen = false
 
     func reset() {
         showSettings = false
+        expandAdvancedOnOpen = false
         tab = .home
+    }
+
+    /// 세션 키 만료 안내 → 그 키를 고칠 수 있는 유일한 화면으로 바로 보낸다.
+    func openSessionKeySettings() {
+        showSettings = true
+        expandAdvancedOnOpen = true
     }
 
     /// 설정의 대표 포켓몬 행에서 기존 도감으로 이동한다. 별도 선택 화면을 만들지 않고
@@ -56,7 +66,8 @@ struct PopoverView: View {
             if nav.showSettings {
                 SettingsView(
                     onClose: { nav.showSettings = false },
-                    onChooseRepresentative: { nav.openRepresentativeDex() }
+                    onChooseRepresentative: { nav.openRepresentativeDex() },
+                    startExpanded: nav.expandAdvancedOnOpen
                 )
                     .environment(store)
                     .environment(companion)
@@ -225,6 +236,22 @@ struct PopoverView: View {
                 tokenTypeLabel("cache w", today.cacheCreationTokens)
                 tokenTypeLabel("cache r", today.cacheReadTokens)
             }
+            if let models = today.models, models.count > 1 {
+                ForEach(models.sorted(by: { $0.value > $1.value }), id: \.key) { model, tokens in
+                    HStack(spacing: 6) {
+                        Text(model.split(separator: "/").last.map(String.init) ?? model)
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                        Spacer()
+                        Text(TokenFormatter.compact(tokens))
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
+                            .monospacedDigit()
+                    }
+                }
+            }
         }
         .padding(.top, 2)
     }
@@ -294,7 +321,9 @@ struct PopoverView: View {
             Text(l.limitsOfficial)
                 .font(.caption)
                 .foregroundStyle(.secondary)
-            if selectedSnapshot?.providerID == "claude_code", store.limitsAuthExpired {
+            if selectedSnapshot?.providerID == "claude_code", store.limitsAuthExpiry == .sessionKey {
+                sessionKeyExpiredNotice
+            } else if selectedSnapshot?.providerID == "claude_code", store.limitsAuthExpired {
                 claudeAuthExpiredNotice
             } else if selectedSnapshot?.providerID == "claude_code",
                       !store.disableKeychainAccess,
@@ -382,9 +411,6 @@ struct PopoverView: View {
             antigravityRefreshRow
         }
         if let status = store.antigravityLimits, status.hasVisibleLimit {
-            if store.antigravityLimitsStale {
-                staleBadge(updatedAt: store.antigravityLimitsUpdatedAt)
-            }
             VStack(alignment: .leading, spacing: 10) {
                 ForEach(Array(status.groups.enumerated()), id: \.offset) { _, group in
                     VStack(alignment: .leading, spacing: 4) {
@@ -432,23 +458,27 @@ struct PopoverView: View {
 
     @ViewBuilder
     private var antigravityRefreshRow: some View {
-        Button {
-            Task { await store.refreshAntigravityLimitsFromKeychain() }
-        } label: {
-            HStack(spacing: 6) {
-                Image(systemName: "key.fill")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+        HStack(spacing: 6) {
+            if store.antigravityLimits == nil {
                 Text(l.limitsTapToLoad)
-                    .font(.caption)
-                Spacer()
-                Text(l.refresh)
-                    .font(.caption)
-                    .foregroundStyle(Color.accentColor)
+                    .font(.caption).foregroundStyle(.secondary)
+            } else {
+                (Text(l.staleLimits) + Text(" · ") + Text(store.antigravityLimitsUpdatedAt ?? Date(), style: .relative))
+                    .font(.caption).foregroundStyle(.orange)
             }
-            .padding(.vertical, 4)
+            Spacer()
+            Button {
+                Task { await store.refreshAntigravityLimitsFromKeychain() }
+            } label: {
+                if store.isRefreshingAntigravityLimits {
+                    ProgressView().controlSize(.small)
+                } else {
+                    Text(l.refresh)
+                }
+            }
+            .controlSize(.small)
+            .disabled(store.isRefreshingAntigravityLimits)
         }
-        .buttonStyle(.plain)
     }
 
     @ViewBuilder
@@ -536,6 +566,27 @@ struct PopoverView: View {
     /// Claude 세션 만료(401) 안내 — 자동 폴링은 만료 토큰을 스스로 못 고치므로,
     /// "왜 어제 값에 멈췄는지 + 원탭 재시도 + Claude Code 실행 시 자동 갱신" 을 눈에 띄게 노출.
     @ViewBuilder
+    /// 세션 키 만료 — OAuth 안내와 달리 재시도가 의미 없다(죽은 쿠키는 재조회로 안 살아난다).
+    /// 그래서 버튼이 Keychain 을 읽지 않고, 키를 다시 넣을 수 있는 화면으로 보낸다.
+    private var sessionKeyExpiredNotice: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 6) {
+                Image(systemName: "key.slash.fill")
+                    .foregroundStyle(.orange)
+                Text(l.sessionKeyExpiredTitle)
+                    .font(.caption).fontWeight(.semibold)
+                Spacer()
+                Button(l.settings) { nav.openSessionKeySettings() }
+                    .controlSize(.small)
+            }
+            Text(l.sessionKeyExpiredNoticeHint)
+                .font(.caption2).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(8)
+        .background(Color.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
+    }
+
     private var claudeAuthExpiredNotice: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 6) {

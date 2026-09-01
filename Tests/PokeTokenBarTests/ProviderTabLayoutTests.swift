@@ -22,7 +22,7 @@ final class ProviderTabLayoutTests: XCTestCase {
         [("claude_code", "Claude Code"), ("codex", "Codex"), ("gemini", "Gemini"),
          ("antigravity", "Antigravity"), ("opencode", "OpenCode"), ("hermes", "Hermes Agent"),
          ("cursor", "Cursor"), ("grok", "Grok"), ("copilot", "Copilot"), ("kiro", "Kiro"),
-         ("pi", "Pi")]
+         ("pi", "Pi"), ("omp", "omp")]
             .map { snapshot($0.0, $0.1) }
     }
 

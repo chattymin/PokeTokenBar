@@ -142,10 +142,10 @@ struct LocalCodexProvider: UsageProvider {
     func fetchDaily() async throws -> DailyUsage? {
         let now = Date()
         let entries = await LocalUsageCache.shared.codexEntries(modifiedSince: Calendar.current.startOfDay(for: now))
-        guard let d = LocalUsageReader.daily(entries: entries, localDay: LocalUsageReader.todayKey()) else { return nil }
-        return DailyUsage(date: d.date, inputTokens: d.inputTokens, outputTokens: d.outputTokens,
-                          cacheCreationTokens: d.cacheCreationTokens, cacheReadTokens: d.cacheReadTokens,
-                          totalTokens: d.totalTokens, totalCost: 0)
+        // 구독제라 비용은 0. 재조립 대신 mutate — 새 필드가 조용히 유실되지 않게(per-model 은 미opt-in).
+        guard var d = LocalUsageReader.daily(entries: entries, localDay: LocalUsageReader.todayKey()) else { return nil }
+        d.totalCost = 0
+        return d
     }
 
     func fetchEnrichment() async -> ProviderEnrichment {
@@ -175,23 +175,30 @@ struct LocalPiProvider: UsageProvider {
     let id = "pi"
     let displayName = "Pi"
     let reportsCost = false
+    /// 캐시 시임 — 기본은 공용 캐시(실 로그), 테스트만 픽스처 루트를 주입한다.
+    let cache: LocalUsageCache
+
+    init(cache: LocalUsageCache = .shared) { self.cache = cache }
 
     func fetchDaily() async throws -> DailyUsage? {
         let now = Date()
-        let entries = await LocalUsageCache.shared.piEntries(
+        let entries = await cache.piEntries(
             modifiedSince: Calendar.current.startOfDay(for: now))
-        guard let d = LocalUsageReader.daily(entries: entries, localDay: LocalUsageReader.todayKey()) else {
+        // Pi 는 forks(OMP 등)가 여러 모델을 한 세션 로그로 흘리므로 per-model 내역을 켠다.
+        guard var d = LocalUsageReader.daily(
+            entries: entries, localDay: LocalUsageReader.todayKey(), includeModels: true) else {
             return nil
         }
-        return DailyUsage(date: d.date, inputTokens: d.inputTokens, outputTokens: d.outputTokens,
-                          cacheCreationTokens: d.cacheCreationTokens, cacheReadTokens: d.cacheReadTokens,
-                          totalTokens: d.totalTokens, totalCost: 0)
+        // 플랫요금 취급 — 실 모델 id 는 이제 단가표에 걸리므로 여기서 비용을 0 으로 눌러야 한다
+        // (`reportsCost = false` 로 UI 에도 안 뜬다). 필드 재조립 대신 mutate 해 새 필드 유실을 막는다.
+        d.totalCost = 0
+        return d
     }
 
     func fetchEnrichment() async -> ProviderEnrichment {
         let now = Date()
         let monthStart = LocalUsageReader.startOfMonth(now)
-        let entries = await LocalUsageCache.shared.piEntries(
+        let entries = await cache.piEntries(
             modifiedSince: LocalUsageReader.enrichmentScanStart(now: now))
         let fmt = LocalUsageReader.localDayFormatter()
         var result = ProviderEnrichment()
@@ -208,5 +215,37 @@ struct LocalPiProvider: UsageProvider {
         result.monthTotal = PeriodUsage(period: month.period, totalTokens: month.totalTokens, totalCost: 0)
         result.periodsOK = true
         return result
+    }
+}
+
+/// Local-log parsing based omp (oh-my-pi) provider.
+/// Data appears only when sessions exist under ~/.omp/agent/sessions/<cwd>/<ts>_<uuid>.jsonl (otherwise no snapshot → hidden in the UI).
+struct LocalOmpProvider: UsageProvider {
+    let id = "omp"
+    let displayName = "omp"
+
+    func fetchDaily() async throws -> DailyUsage? {
+        let now = Date()
+        let entries = await LocalUsageCache.shared.ompEntries(modifiedSince: Calendar.current.startOfDay(for: now))
+        return LocalUsageReader.daily(entries: entries, localDay: LocalUsageReader.todayKey())
+    }
+
+    func fetchEnrichment() async -> ProviderEnrichment {
+        let now = Date()
+        let monthStart = LocalUsageReader.startOfMonth(now)
+        let entries = await LocalUsageCache.shared.ompEntries(
+            modifiedSince: LocalUsageReader.enrichmentScanStart(now: now))
+        let fmt = LocalUsageReader.localDayFormatter()
+        var r = ProviderEnrichment()
+        // Block (burn rate) computation is provider-generic — the companion rhythm follows all providers.
+        r.activeBlock = LocalUsageReader.activeBlock(entries: entries, now: now)
+        r.blocksOK = true
+        let weekStart = LocalUsageReader.startOfWeek(now)
+        r.weekTotal = LocalUsageReader.period(entries: entries, periodKey: fmt.string(from: weekStart),
+                                              fromDay: fmt.string(from: weekStart), toDay: fmt.string(from: now))
+        r.monthTotal = LocalUsageReader.period(entries: entries, periodKey: LocalUsageReader.monthKey(now),
+                                               fromDay: fmt.string(from: monthStart), toDay: fmt.string(from: now))
+        r.periodsOK = true
+        return r
     }
 }

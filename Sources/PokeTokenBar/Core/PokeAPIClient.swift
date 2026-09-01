@@ -48,7 +48,7 @@ actor PokeAPIClient: PokeProviding {
     // AppLanguage.apiCodes 의 합집합과 lockstep. "pt" 는 아직 PokéAPI 에 없어 수집되지 않지만,
     // 추가되는 즉시 잡히도록 함께 둔다(없으면 EvoLine.names 에 안 담겨 영어 폴백이 고정된다).
     // `ja-hrkt` 는 소문자 — PokéAPI 가 내보내는 실제 값이라 대문자면 아무것도 매칭되지 않는다.
-    private let langCodes = ["ko", "en", "ja", "ja-hrkt", "es", "fr", "pt"]
+    static let langCodes = ["ko", "en", "ja", "ja-hrkt", "es", "fr", "pt", "de"]
     private var speciesCache: [Int: SpeciesDTO] = [:]
     private var lineCache: [Int: EvoLine] = [:]   // 프리패칭 → 부화 순간 네트워크 0
 
@@ -69,7 +69,7 @@ actor PokeAPIClient: PokeProviding {
         for id in allIDs(tree) {
             let sp = try await species(id)
             var byLang: [String: String] = [:]
-            for n in sp.names where langCodes.contains(n.language.name) { byLang[n.language.name] = n.name }
+            for n in sp.names where Self.langCodes.contains(n.language.name) { byLang[n.language.name] = n.name }
             names[id] = byLang
         }
         let line = EvoLine(baseID: baseSpeciesID, tree: tree, rarity: rarity, names: names)
