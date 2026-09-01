@@ -290,9 +290,9 @@ final class PlayerStore {
 
     /// 쓰다듬기 — 곁에 둔 아이와 **함께한 시간**을 그만큼 더한다(`Petting`).
     ///
-    /// `partnerSeconds` 에 더하는 이유: 리본도 "함께한 시간" 표시도 전부
-    /// `partnerDuration(at:)` 에서 파생되므로, 여기 한 곳만 늘리면 둘 다 따라온다.
-    /// 진행 중인 구간(`partnerSince`)과는 서로 더해질 뿐 안 부딪힌다.
+    /// **`pettedSeconds` 에 따로 담는다.** 처음엔 `partnerSeconds` 에 더했는데, 그러면
+    /// 화면의 "함께한 시간"까지 같이 늘어 실제로 곁에 있던 시간을 거짓으로 말하게 된다
+    /// (사용자 지적). 리본·진화 같은 문턱만 `bondDuration` 으로 둘을 합쳐 본다.
     ///
     /// 더해진 값을 돌려준다 — 화면이 "쓰다듬었다"를 보여줄지 이걸로 판단한다(0 이면 클릭이다).
     @discardableResult
@@ -300,7 +300,7 @@ final class PlayerStore {
         let gained = Petting.earnedSeconds(held: held)
         guard gained > 0, let id = state.partnerID,
               let index = state.box.firstIndex(where: { $0.id == id }) else { return 0 }
-        mutate { $0.box[index].partnerSeconds += gained }
+        mutate { $0.box[index].pettedSeconds += gained }
         pettedBeat += 1
         return gained
     }

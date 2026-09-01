@@ -26,7 +26,12 @@ struct Individual: Identifiable, Codable, Sendable, Equatable {
     /// 2배가 되지도 않는다 — "이 아이와 얼마나 함께 일했나"의 기록이라 실제 쓴 토큰만 센다.
     var partnerTokens = 0
     /// 파트너로 지낸 시간의 누적(초). 파트너를 바꿀 때 그 구간을 여기 더한다.
+    /// **실제로 곁에 둔 시간만** 들어간다 — 쓰다듬기는 여기 안 섞는다(`pettedSeconds`).
     var partnerSeconds = 0
+    /// 쓰다듬어서 쌓은 애정(초). **함께한 시간과 따로 담는다**: 화면의 "함께한 시간"은
+    /// 실제로 곁에 둔 시간이어야 하고(안 그러면 그 숫자가 거짓말이 된다), 리본·진화 같은
+    /// 문턱만 이걸 함께 센다(`bondDuration`). 사용자 결정이다.
+    var pettedSeconds = 0
     /// 다음 사탕까지 쌓인 토큰. 리본 단계가 오르면 필요량이 줄어드는데, 진행분은 그대로 이어진다.
     var candyProgress = 0
     /// 지금 파트너라면 언제부터인가. 파트너가 아니면 nil — 지금 구간은 아직 안 닫혀서
@@ -178,7 +183,7 @@ struct Individual: Identifiable, Codable, Sendable, Equatable {
 
     /// 지금 달고 있는 리본. 파트너로 지낸 누적 시간에서 파생되므로 따로 저장하지 않는다 —
     /// 저장하면 시간과 리본이 어긋날 수 있고, 어느 쪽이 진실인지 애매해진다.
-    func ribbon(at now: Date) -> Ribbon? { Ribbon.earned(partnerSeconds: partnerDuration(at: now)) }
+    func ribbon(at now: Date) -> Ribbon? { Ribbon.earned(partnerSeconds: bondDuration(at: now)) }
 
     /// 함께한 시간 표기 — 가장 큰 단위 둘까지. 순수 함수라 테스트로 잠근다.
     static func togetherText(seconds: Int, _ l: L) -> String {
@@ -214,6 +219,13 @@ struct Individual: Identifiable, Codable, Sendable, Equatable {
         guard let partnerSince else { return partnerSeconds }
         return partnerSeconds + max(0, Int(now.timeIntervalSince(partnerSince)))
     }
+
+    /// 문턱이 보는 시간 — 실제로 함께한 시간 **+ 쓰다듬어 쌓은 애정**.
+    ///
+    /// 리본·친밀도 진화·걸음 진화·메타몽 위장 해제가 이걸 본다. 화면의 "함께한 시간"은
+    /// 그대로 `partnerDuration` 을 쓴다 — 쓰다듬는다고 실제로 함께 있던 시간이 느는 건
+    /// 아니라서, 그 숫자까지 올리면 사실이 아닌 값을 보여주게 된다(사용자 지적).
+    func bondDuration(at now: Date) -> Int { partnerDuration(at: now) + pettedSeconds }
 
     /// 기본 이니셜라이저 — 아래 `init(from:)` 을 직접 쓰면서 합성 이니셜라이저가 사라지므로 명시한다.
     init(id: UUID = UUID(), baseID: Int, speciesID: Int, pathIDs: [Int], shiny: Bool = false,
@@ -271,6 +283,7 @@ struct Individual: Identifiable, Codable, Sendable, Equatable {
         exp = value(.exp, 0)
         partnerTokens = value(.partnerTokens, 0)
         partnerSeconds = value(.partnerSeconds, 0)
+        pettedSeconds = value(.pettedSeconds, 0)
         partnerSince = value(.partnerSince, nil)
         candyProgress = value(.candyProgress, 0)
         obtainedAt = value(.obtainedAt, Date(timeIntervalSince1970: 0))

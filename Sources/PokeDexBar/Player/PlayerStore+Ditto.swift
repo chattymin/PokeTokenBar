@@ -13,7 +13,7 @@ extension PlayerStore {
     @discardableResult
     func revealDisguises(at now: Date) -> [Individual] {
         let ready = state.box.filter {
-            $0.disguisedAs != nil && DittoDisguise.isReady(partnerSeconds: $0.partnerDuration(at: now))
+            $0.disguisedAs != nil && DittoDisguise.isReady(partnerSeconds: $0.bondDuration(at: now))
         }
         guard !ready.isEmpty else { return [] }
         let ids = Set(ready.map(\.id))

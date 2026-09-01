@@ -254,7 +254,8 @@ struct IndividualDetailView: View {
     /// 리본 — 지금 단계와, 다음 단계까지 얼마나 남았는지.
     @ViewBuilder
     private var ribbonSection: some View {
-        let seconds = individual.partnerDuration(at: store.currentDate())
+        // 리본 진행도는 문턱을 보는 자리라 쓰다듬은 몫까지 센다.
+        let seconds = individual.bondDuration(at: store.currentDate())
         VStack(alignment: .leading, spacing: 2) {
             if let ribbon = individual.ribbon(at: store.currentDate()) {
                 HStack(spacing: 5) {
@@ -567,7 +568,7 @@ struct IndividualDetailView: View {
         }
         if needs.contains(.friendship) {
             let remaining = max(0, EvoRequirement.friendshipSeconds
-                                - individual.partnerDuration(at: store.currentDate()))
+                                - individual.bondDuration(at: store.currentDate()))
             hints.append(store.l.evolveNeedsTime(
                 Individual.togetherText(seconds: remaining, store.l)))
         }
@@ -576,7 +577,7 @@ struct IndividualDetailView: View {
         // 사실 자체를 알 길이 없다.
         if needs.contains(.walked) {
             let remaining = max(0, EvoRequirement.walkSeconds
-                                - individual.partnerDuration(at: store.currentDate()))
+                                - individual.bondDuration(at: store.currentDate()))
             hints.append(store.l.evolveNeedsTime(
                 Individual.togetherText(seconds: remaining, store.l)))
         }

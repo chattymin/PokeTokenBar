@@ -143,11 +143,11 @@ extension PlayerStore {
         case .none: true
         case .item(let item): count(of: item) > 0
         case .friendship:
-            individual.partnerDuration(at: currentDate()) >= EvoRequirement.friendshipSeconds
+            individual.bondDuration(at: currentDate()) >= EvoRequirement.friendshipSeconds
         case .level(let n): individual.level >= n
         case .owns(let speciesID): state.box.contains { $0.speciesID == speciesID }
         case .walked:
-            individual.partnerDuration(at: currentDate()) >= EvoRequirement.walkSeconds
+            individual.bondDuration(at: currentDate()) >= EvoRequirement.walkSeconds
         }
     }
 
