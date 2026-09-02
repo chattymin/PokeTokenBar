@@ -381,7 +381,8 @@ read_when:
   달러가 청구서가 아니지만, Grok/OpenCode/Hermes 는 서버가 남긴 실제 요금이다. 전역
   `labelsCostAsAPIEquivalent` 를 합계 헤더와 모든 행에 찍으면 Grok 행이 "API 환산"이 되어
   사실이 뒤집힌다(#224). 판정은 프로바이더 필드 `costIsEstimate`(기본 true, 청구 소스는
-  명시적 false). 레버리지 `$Y` 는 estimate 만 합산하고, 캡션은 레버리지 행에만 둔다.
+  명시적 false). 레버리지 `$Y` 는 Claude 월 estimate 만 합산하고(게이트가 Claude
+  플랜·구독료라 Gemini/Codex 를 섞으면 배수가 부푼다, #249), 캡션은 레버리지 행에만 둔다.
   회귀: `testMonthAPIEquivalentCostExcludesBilledProviders`,
   `testPopoverLeverageDoesNotRelabelEveryCostRow`. (#200)
 - **앱 언어와 시스템 로케일은 다른 축이다 — SwiftUI 가 스스로 만드는 문장은 로케일을 따른다.**

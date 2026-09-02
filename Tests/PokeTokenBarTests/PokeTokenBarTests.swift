@@ -331,6 +331,14 @@ final class ModelDecodingTests: XCTestCase {
         let settings = try String(contentsOf: root.appendingPathComponent("Sources/PokeTokenBar/UI/SettingsView.swift"), encoding: .utf8)
         XCTAssertTrue(settings.contains("monthlyPlanPrice"),
                       "Settings must expose the optional plan price (#200 item 2)")
+        XCTAssertFalse(settings.contains("$store.monthlyPlanPrice"),
+                       "direct TextField binding to the store writes UserDefaults on every keystroke (#187)")
+        XCTAssertTrue(settings.contains("monthlyPlanPriceDraft"),
+                      "plan price must draft locally and commit on submit/blur")
+        XCTAssertTrue(settings.contains("commitMonthlyPlanPrice"),
+                      "submit, blur, and leaving Settings must share one commit")
+        XCTAssertTrue(settings.contains("onDisappear"),
+                      "Back without blur must still persist the typed price")
         let formatter = try String(contentsOf: root.appendingPathComponent("Sources/PokeTokenBar/Core/TokenFormatter.swift"), encoding: .utf8)
         XCTAssertFalse(formatter.contains("labeled"),
                        "cost() must stay unlabeled — captions belong on the leverage row")

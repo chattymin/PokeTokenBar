@@ -312,10 +312,14 @@ final class UsageStore {
     var monthTotalTokens: Int { snapshots.reduce(0) { $0 + ($1.monthTotal?.totalTokens ?? 0) } }
     var monthCostTotal: Double { costingSnapshots.reduce(0) { $0 + ($1.monthTotal?.totalCost ?? 0) } }
 
-    /// Calendar-month `$` from table-priced sources only. Grok/OpenCode/Hermes
-    /// bills stay in `monthCostTotal` but not here — that was the #224 lie.
+    /// Claude calendar-month ModelPricing `$`. The leverage gate reads the
+    /// Claude plan, so the numerator is Claude only — Gemini/Codex estimates
+    /// ride other subscriptions and would inflate Max/Pro/Team × (#249).
+    /// Grok/OpenCode/Hermes bills stay in `monthCostTotal` (#224). This is
+    /// not a generic cost total; `monthCostTotal` still sums every snapshot.
     var monthAPIEquivalentCost: Double {
-        costingSnapshots.filter(\.costIsEstimate)
+        costingSnapshots
+            .filter { $0.costIsEstimate && $0.providerID == "claude_code" }
             .reduce(0) { $0 + ($1.monthTotal?.totalCost ?? 0) }
     }
 

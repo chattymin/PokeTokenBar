@@ -883,9 +883,9 @@ final class UsageStoreTests: XCTestCase {
                        "탭에 노출 안 됨")
     }
 
-    /// `$Y` must not be `== "claude_code"`. A billed-exclude test with only Claude
-    /// as the estimate still passes if leverage sums Claude and drops everyone else.
-    func testMonthAPIEquivalentCostIncludesUnknownEstimateProvider() async {
+    /// Leverage `$Y` divides by the Claude plan price, so a future estimate
+    /// source must not inflate the Max/Pro/Team multiple (#249 review).
+    func testUnknownEstimateProviderDoesNotInflateClaudeLeverage() async {
         let future = FakeUsageProvider(
             id: "future_tool_xyz", displayName: "Future Tool",
             daily: todayDaily(1_000, cost: 1), costIsEstimate: true)
@@ -895,9 +895,12 @@ final class UsageStoreTests: XCTestCase {
         let store = makeStore(providers: [future], claude: maxPlan)
         await store.refresh(scheduleEmptyRetry: false)
         store.monthlyPlanPrice = 10
-        XCTAssertEqual(store.monthAPIEquivalentCost, 40, accuracy: 0.000_001,
-                       "$Y filtered by providerID would drop an unknown estimate source")
-        XCTAssertEqual(store.subscriptionLeverage ?? -1, 4, accuracy: 0.000_001)
+        XCTAssertEqual(store.monthCostTotal, 40, accuracy: 0.000_001,
+                       "header month $ still sums every costing snapshot")
+        XCTAssertEqual(store.monthAPIEquivalentCost, 0, accuracy: 0.000_001,
+                       "leverage $Y is the Claude plan numerator, not every estimate")
+        XCTAssertNil(store.subscriptionLeverage,
+                     "no Claude month $ → no 4× from an unrelated tool")
     }
 
     /// 기본 등록 프로바이더 레지스트리 무결성 — 비어 있지 않고 id 가 유일.
@@ -1303,7 +1306,8 @@ final class UsageStoreTests: XCTestCase {
     // MARK: subscription leverage (#200 / #224 close)
 
     /// Owner #224: a Claude Max plan must not treat Grok's server charge as API-equivalent.
-    /// Combined month `$` still sums every costing snapshot; `$Y` in the ratio is estimates only.
+    /// #249: Gemini (and Codex) estimates ride other subscriptions — they must not
+    /// inflate the Max multiple. Combined month `$` still sums every costing snapshot.
     func testMonthAPIEquivalentCostExcludesBilledProviders() async {
         let claude = FakeUsageProvider(
             id: "claude_code", displayName: "Claude Code",
@@ -1317,21 +1321,26 @@ final class UsageStoreTests: XCTestCase {
             id: "future_bill_xyz", displayName: "Future Bill",
             daily: todayDaily(1_000, cost: 1), costIsEstimate: false)
         billedUnknown.enrichment = monthEnrichment(tokens: 10_000, cost: 40)
+        let gemini = FakeUsageProvider(
+            id: "gemini", displayName: "Gemini",
+            daily: todayDaily(30_000, cost: 8), costIsEstimate: true)
+        gemini.enrichment = monthEnrichment(tokens: 200_000, cost: 200)
         var maxPlan = claudeLimits(fiveHourUtil: 10)
         maxPlan.subscriptionType = "max"
-        let store = makeStore(providers: [claude, grok, billedUnknown], claude: maxPlan)
+        let store = makeStore(providers: [claude, grok, billedUnknown, gemini], claude: maxPlan)
         await store.refresh(scheduleEmptyRetry: false)
         store.monthlyPlanPrice = 100
 
-        XCTAssertEqual(store.monthCostTotal, 700, accuracy: 0.000_001,
-                       "header month $ still includes every billed snapshot")
+        XCTAssertEqual(store.monthCostTotal, 900, accuracy: 0.000_001,
+                       "header month $ still includes bills and other estimates")
         XCTAssertEqual(store.monthAPIEquivalentCost, 610, accuracy: 0.000_001,
-                       "leverage $Y is ModelPricing estimates only — bills stay out")
+                       "leverage $Y is Claude's estimate — Gemini/Grok must not mix into the Max multiple")
         XCTAssertEqual(store.subscriptionLeverage ?? -1, 6.1, accuracy: 0.000_001,
-                       "owner example is 610/100 = 6.1×, not 700/100 = 7×")
+                       "owner example is 610/100 = 6.1×, not 810/100 or 900/100")
         XCTAssertEqual(store.snapshot(preferring: "grok")?.costIsEstimate, false)
         XCTAssertEqual(store.snapshot(preferring: "future_bill_xyz")?.costIsEstimate, false)
         XCTAssertEqual(store.snapshot(preferring: "claude_code")?.costIsEstimate, true)
+        XCTAssertEqual(store.snapshot(preferring: "gemini")?.costIsEstimate, true)
     }
 
     /// Leverage is the #200 payoff: plan $100 /mo against $610 API-equiv → 6.1×.

@@ -128,13 +128,13 @@ struct L {
         t("월 구독료 ($)", "Monthly plan price ($)", "月額プラン ($)", "Precio del plan mensual ($)", "Prix du forfait mensuel ($)", "Preço do plano mensal ($)", "Monatlicher Planpreis ($)")
     }
     var monthlyPlanPriceHint: String {
-        t("선택. Max/Pro/Team 레버리지 행에만 씁니다. 0 이면 행을 숨깁니다.",
-          "Optional. Used for the Max/Pro/Team leverage row. Set to 0 to hide it.",
-          "任意。Max/Pro/Team のレバレッジ行にだけ使います。0 なら行を隠します。",
-          "Opcional. Solo para la fila de apalancamiento Max/Pro/Team. 0 la oculta.",
-          "Facultatif. Sert à la ligne de levier Max/Pro/Team. 0 = ligne masquée.",
-          "Opcional. Só na linha de alavancagem Max/Pro/Team. 0 esconde a linha.",
-          "Optional. Nur für die Max/Pro/Team-Hebelzeile. 0 blendet sie aus.")
+        t("선택. Claude Max/Pro/Team 레버리지 행에만 씁니다. 0 이면 행을 숨깁니다.",
+          "Optional. Claude Max/Pro/Team leverage row only. Set to 0 to hide it.",
+          "任意。Claude Max/Pro/Team のレバレッジ行にだけ使います。0 なら行を隠します。",
+          "Opcional. Solo para la fila Max/Pro/Team de Claude. 0 la oculta.",
+          "Facultatif. Uniquement la ligne Claude Max/Pro/Team. 0 = ligne masquée.",
+          "Opcional. Só na linha Claude Max/Pro/Team. 0 esconde a linha.",
+          "Optional. Nur für die Claude Max/Pro/Team-Hebelzeile. 0 blendet sie aus.")
     }
     /// #200 payoff line. `plan` and `apiEquivalent` already include `$`; `multiplier` already includes `×`.
     func subscriptionLeverage(plan: String, apiEquivalent: String, multiplier: String) -> String {
