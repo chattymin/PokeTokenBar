@@ -121,6 +121,39 @@ final class SpriteAspectRatioTests: XCTestCase {
         XCTAssertEqual(composed.size.height, expected.height, accuracy: 0.001)
     }
 
+    /// Menu bar frames are handed to `spriteLayer.contents`, which is what keeps a frame swap off the
+    /// view drawing path (measured 2.00ms -> 0.27ms per frame). If the conversion ever returns nil,
+    /// `setStatusImage` falls back to `button.image` and that saving disappears **silently** — the
+    /// animation still looks correct, so nothing but this test would catch it.
+    @MainActor
+    func testMenuBarFramesConvertToLayerBitmaps() {
+        for source in [Self.spoinkGIF, Self.pikachuGIF, Self.staticPNG] {
+            for up in [false, true] {
+                let composed = AppDelegate.menuBarImage(from: Self.solidImage(size: source), up: up)
+                guard let bitmap = AppDelegate.cgFrame(from: composed) else {
+                    XCTFail("cgFrame nil for \(source) up=\(up) — the layer path would fall back")
+                    continue
+                }
+                XCTAssertGreaterThanOrEqual(CGFloat(bitmap.width), composed.size.width - 0.001,
+                                           "bitmap must hold at least 1 pixel per point (source=\(source))")
+            }
+        }
+        // Fault injection: the assertion above is only meaningful if the conversion *can* fail.
+        // An empty image has no representation to rasterize, so nil is reachable.
+        XCTAssertNil(AppDelegate.cgFrame(from: NSImage(size: .zero)),
+                     "if this ever converts, the guard above stopped being able to fail")
+    }
+
+    /// `contentsScale` must follow the bitmap's own pixel/point density, not the current screen.
+    /// Frames are baked by `lockFocus` at the backing scale in effect when they were composed, so
+    /// reading the scale off the screen would double the sprite after a move to a 1x display.
+    func testSpriteContentsScaleFollowsTheBitmapNotTheScreen() {
+        XCTAssertEqual(AppDelegate.spriteContentsScale(pixelWidth: 44, pointWidth: 22), 2, accuracy: 0.001)
+        XCTAssertEqual(AppDelegate.spriteContentsScale(pixelWidth: 22, pointWidth: 22), 1, accuracy: 0.001)
+        // A zero-width canvas must not yield 0 (a 0 scale makes the layer vanish) or divide by zero.
+        XCTAssertEqual(AppDelegate.spriteContentsScale(pixelWidth: 0, pointWidth: 0), 1, accuracy: 0.001)
+    }
+
     /// `SpriteView` sizes its image through the same helper, so the popover header, evolution line
     /// and dex thumbnails cannot drift from the menu bar.
     @MainActor

@@ -110,6 +110,20 @@ Antigravity 2.0 과 IDE 가 추정치가 아닌 실제 할당량을 보고합니
 어떤 도구가 세션을 기본 경로 밖에 둔다면 <b>설정 → 고급</b>에서 직접 루트를 추가하세요 — 콤마·줄바꿈 구분, <code>*</code> 와일드카드, 지금 몇 개 폴더가 걸리는지 실시간 표시. 프로바이더마다 목록이 따로라 한 도구의 폴더가 다른 도구의 파서로 넘어가지 않고, 추가한 경로는 기본 경로를 대체하는 게 아니라 더해집니다.
 </td>
 </tr>
+<tr>
+<td width="55%" valign="middle">
+<h3>🔑 Keychain 없이 공식 한도</h3>
+캐시된 한도 토큰이 만료되면 공식 Claude 한도가 갱신을 누를 때까지 멈추고, 그 갱신이 Keychain 암호 팝업을 띄울 수 있었습니다. 대신 <b>설정 → 고급</b>에 <b>claude.ai 세션 키</b>를 붙여넣으세요 — 한도를 claude.ai 에서 바로 읽어 Keychain 을 아예 건드리지 않고, 자동 폴링이 최신 상태를 유지하며, 저장하는 순간 키를 검증합니다.
+</td>
+<td width="45%" align="center"><img src="assets/screenshot-session-key-ko.png" width="300" alt="설정 → 고급의 claude.ai 세션 키"></td>
+</tr>
+<tr>
+<td width="45%" align="center"><img src="assets/screenshot-model-breakdown-ko.png" width="300" alt="Pi 의 모델별 토큰 내역"></td>
+<td width="55%" valign="middle">
+<h3>🧮 세션 로그 하나, 모델 여럿</h3>
+Pi 와 그 포크(omp 등)는 모델 여러 개를 세션 로그 하나로 흘려보낼 수 있습니다. 이제 사용량이 일률적인 "pi" 가 아니라 <b>실제 모델 id</b> 로 귀속되고, 하루에 여러 모델을 썼다면 팝오버가 오늘 토큰을 모델별로 큰 순서대로 풀어 보여줍니다.
+</td>
+</tr>
 </table>
 
 ## 이 밖에도

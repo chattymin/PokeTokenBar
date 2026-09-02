@@ -700,6 +700,29 @@ read_when:
   이고, 더 부드러운 쪽은 opt-in 이다).
   배터리-vs-AC/thermal 적응·CADisplayLink
   전환은 1인 로컬 노트북 기준 수확체감으로 판정, 미도입(필요 시 Agent Team 계획 참조). (Agent Team 조사 + 실측, 2026-07-22.)
+- **프레임 교체는 `button.image` 대입이 아니라 `spriteLayer.contents` 로 한다 — 전환 억제와 다른 축이다.**
+  `setDisableActions` 는 NSStatusItemScene *전환 애니메이션* 을 없앨 뿐, 대입 자체가 유발하는 **버튼
+  재드로잉**(`NSViewBackingLayer display` → `_NSViewDrawRect`)은 그대로 남는다. 그 재드로잉에는 스프라이트
+  22px 뿐 아니라 **2줄 attributedTitle 텍스트 렌더**가 통째로 포함돼, 5fps 루프에서 상시로 깔린다.
+  프레임 픽셀을 전용 서브레이어(`AppDelegate.spriteLayer`)의 `contents` 로 넣으면 이미 업로드된 비트맵을
+  바꿔 끼우는 것뿐이라 드로잉 경로를 아예 타지 않는다. `button.image` 는 폭 확보용 **투명 자리표시자**만
+  두고(크기가 바뀔 때만 재대입) `imagePosition`·텍스트 배치·상태아이템 폭 계산은 AppKit 에 그대로 맡긴다.
+  **실측** — ① A/B 프로브(같은 타이머·5fps·2줄 타이틀·60초×2라운드, `/tmp/ptb-probe.swift` 형태):
+  `button.image`+CATransaction 2.00ms/프레임 · CATransaction 없이 3.51ms · **`layer.contents` 0.27ms**.
+  ② 라이브 앱 `sample` 전후(메인스레드 샘플 비중): 타이머 경로 235/17212(1.37%) → 33/16581(0.20%),
+  `CA::Transaction::commit` 163 → 14, `_NSViewDrawRect` 105 → **0**. 타이틀을 끄고 재면 2.00 → 1.43ms 라
+  텍스트 렌더는 기여분의 일부일 뿐이고 나머지는 뷰 드로잉 왕복 자체다(= 텍스트만 손봐선 안 없어진다).
+  `contentsScale` 은 화면이 아니라 **비트맵 자신의 픽셀/포인트 비율**을 따라야 한다 — 프레임은 `lockFocus`
+  합성 시점의 백킹 스케일로 픽셀이 굳으므로, 화면에서 읽으면 1x 외부 모니터에서 스프라이트가 2배가 된다.
+  **5-whys(왜 여태 안 보였나):** ① 14%→2% 를 만든 주범(CA 전환·팝오버 상주)이 워낙 커서, 남은 2% 는
+  "프레임 수에 비례하는 어쩔 수 없는 비용"으로 읽혔다 — 실제로는 성격이 다른 축이 하나 더 있었다.
+  ② 판정을 CPU% 로만 해서 "2% 면 충분히 낮다"에서 멈췄다. 콜스택을 뜨자 그 2% 안에서 드로잉 경로가
+  단일 최대 항목으로 드러났다(추정이 아니라 `sample` 로 봐야 보이는 층). ③ fps·tolerance 처럼 *얼마나
+  자주* 축만 튜닝 대상으로 보고, *한 번에 얼마나 비싼가* 축은 손댈 수 없는 상수로 취급했다.
+  **회귀 방지:** 변환이 실패하면 `setStatusImage` 가 조용히 `button.image` 폴백으로 떨어져 애니메이션은
+  멀쩡해 보이는 채로 절감만 사라진다(무성 실패) → `testMenuBarFramesConvertToLayerBitmaps` 가 전 스프라이트
+  형태·bob 위상에서 변환을 못 박고, 빈 이미지로 **nil 이 실제 도달 가능함**까지 함께 단언한다(주입 검증).
+  스케일은 `testSpriteContentsScaleFollowsTheBitmapNotTheScreen`. (실측 2026-09-01.)
 - **fps 캡은 hold 가 아니라 decimate 다 — `max(floor, delay)` 는 애니메이션을 슬로모션으로 만든다.**
   프레임 delay 에 하한을 걸면(`max(floor, delay)`) 프레임 *수* 는 그대로라 각 프레임이 늘어나고, 결과적으로
   **루프 전체가 느려진다.** Gen-V 스프라이트는 55프레임×0.05s(=2.75s, 20fps)라 floor 0.4s 에서 22s 루프

@@ -10,6 +10,8 @@ struct DailyUsage: Decodable, Sendable {
     var cacheReadTokens: Int
     var totalTokens: Int
     var totalCost: Double
+    /// totalTokens per source model when the provider reports it (nil otherwise).
+    var models: [String: Int]?
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -26,10 +28,12 @@ struct DailyUsage: Decodable, Sendable {
             ?? (inputTokens + outputTokens + cacheCreationTokens + cacheReadTokens)
         totalCost = try c.decodeIfPresent(Double.self, forKey: .totalCost)
             ?? c.decodeIfPresent(Double.self, forKey: .costUSD) ?? 0
+        models = try c.decodeIfPresent([String: Int].self, forKey: .models)
     }
 
     init(date: String, inputTokens: Int, outputTokens: Int,
-         cacheCreationTokens: Int, cacheReadTokens: Int, totalTokens: Int, totalCost: Double) {
+         cacheCreationTokens: Int, cacheReadTokens: Int, totalTokens: Int, totalCost: Double,
+         models: [String: Int]? = nil) {
         self.date = date
         self.inputTokens = inputTokens
         self.outputTokens = outputTokens
@@ -37,11 +41,12 @@ struct DailyUsage: Decodable, Sendable {
         self.cacheReadTokens = cacheReadTokens
         self.totalTokens = totalTokens
         self.totalCost = totalCost
+        self.models = models
     }
 
     private enum CodingKeys: String, CodingKey {
         case date, period, inputTokens, outputTokens, cacheCreationTokens, cacheReadTokens
-        case cachedInputTokens, totalTokens, totalCost, costUSD
+        case cachedInputTokens, totalTokens, totalCost, costUSD, models
     }
 }
 

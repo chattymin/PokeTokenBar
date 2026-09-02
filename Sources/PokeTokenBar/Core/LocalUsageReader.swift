@@ -416,6 +416,8 @@ enum LocalUsageReader {
 
                 let usage: [String: Any]?
                 let date: Date?
+                // OMP/Pi forks write the model at envelope level; vanilla Pi nests it in the message.
+                var model = "pi"
                 switch type {
                 case "message":
                     guard let message = envelope["message"] as? [String: Any],
@@ -424,6 +426,8 @@ enum LocalUsageReader {
                           let messageUsage = message["usage"] as? [String: Any] else { return }
                     usage = messageUsage
                     date = piMessageDate(message, envelope: envelope)
+                    model = (envelope["model"] as? String)
+                        ?? (message["model"] as? String) ?? "pi"
                 case "compaction", "branch_summary":
                     usage = envelope["usage"] as? [String: Any]
                     date = piEnvelopeDate(envelope)
@@ -431,7 +435,7 @@ enum LocalUsageReader {
                     return
                 }
                 guard let usage, let date,
-                      let entry = piEntry(id: id, date: date, usage: usage, fmt: fmt) else { return }
+                      let entry = piEntry(id: id, date: date, usage: usage, model: model, fmt: fmt) else { return }
                 out.append(entry)
             }
         }
@@ -450,7 +454,7 @@ enum LocalUsageReader {
     }
 
     private static func piEntry(
-        id: String, date: Date, usage: [String: Any], fmt: DateFormatter
+        id: String, date: Date, usage: [String: Any], model: String, fmt: DateFormatter
     ) -> Entry? {
         let names = ["input", "output", "cacheWrite", "cacheRead"]
         let hasGranularUsage = names.contains { intOrNil(usage[$0]) != nil }
@@ -473,7 +477,7 @@ enum LocalUsageReader {
             return nil
         }
         return Entry(
-            id: id, date: date, localDay: fmt.string(from: date), model: "pi",
+            id: id, date: date, localDay: fmt.string(from: date), model: model,
             input: input, output: output, cacheWrite: cacheWrite, cacheRead: cacheRead)
     }
 
@@ -1530,13 +1534,19 @@ enum LocalUsageReader {
     // MARK: 집계
 
     /// 특정 로컬 날짜의 합계 → DailyUsage. 해당 날짜 데이터 없으면 nil.
-    static func daily(entries: [Entry], localDay: String) -> DailyUsage? {
+    /// `includeModels` 를 켠 프로바이더만 per-model 내역을 채운다 — 끄면 `models` 는 nil 이라
+    /// 팝오버의 per-model 행이 그 프로바이더에서는 뜨지 않는다(현재는 Pi 만 opt-in).
+    static func daily(entries: [Entry], localDay: String, includeModels: Bool = false) -> DailyUsage? {
         var b = Bucket()
-        for e in entries where e.localDay == localDay { b.add(e) }
+        var models: [String: Int]? = includeModels ? [:] : nil
+        for e in entries where e.localDay == localDay {
+            b.add(e)
+            if includeModels { models?[e.model, default: 0] += e.total }
+        }
         guard b.total > 0 else { return nil }
         return DailyUsage(date: localDay, inputTokens: b.input, outputTokens: b.output,
                           cacheCreationTokens: b.cacheWrite, cacheReadTokens: b.cacheRead,
-                          totalTokens: b.total, totalCost: b.cost)
+                          totalTokens: b.total, totalCost: b.cost, models: models)
     }
 
     /// 로컬 날짜 [start, end] (포함) 범위 합계 → PeriodUsage.

@@ -130,6 +130,44 @@ final class AntigravityRateLimitsProviderTests: XCTestCase {
         XCTAssertNotNil(geminiWeekly)
         XCTAssertEqual(try XCTUnwrap(geminiWeekly?.utilization), 6.0, accuracy: 0.01)
     }
+
+    @MainActor
+    func testAntigravityLimitsStalenessThreshold() async throws {
+        let data = Data(sampleJSON.utf8)
+        let status = try JSONDecoder().decode(AntigravityRateLimitStatus.self, from: data)
+
+        let fakeProvider = FakeAntigravityUsageProvider(id: "antigravity", displayName: "Antigravity", todayTokens: 10_000)
+        let fakeLimits = FakeAntigravityLimits(status: status)
+
+        let store = UsageStore(
+            providers: [fakeProvider],
+            antigravityLimitsProvider: fakeLimits,
+            autoRefresh: false
+        )
+
+        XCTAssertFalse(store.antigravityLimitsStale)
+
+        await store.refresh()
+        XCTAssertFalse(store.antigravityLimitsStale)
+    }
+
+    @MainActor
+    func testAntigravityManualRefreshUpdatesState() async throws {
+        let data = Data(sampleJSON.utf8)
+        let status = try JSONDecoder().decode(AntigravityRateLimitStatus.self, from: data)
+
+        let fakeLimits = FakeAntigravityLimits(status: status)
+        let store = UsageStore(
+            providers: [],
+            antigravityLimitsProvider: fakeLimits,
+            autoRefresh: false
+        )
+
+        XCTAssertNil(store.antigravityLimits)
+        await store.refreshAntigravityLimitsFromKeychain()
+        XCTAssertNotNil(store.antigravityLimits)
+        XCTAssertFalse(store.isRefreshingAntigravityLimits)
+    }
 }
 
 private struct FakeAntigravityLimits: AntigravityLimitsProviding {

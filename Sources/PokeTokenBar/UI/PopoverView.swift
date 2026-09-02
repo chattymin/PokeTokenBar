@@ -240,6 +240,22 @@ struct PopoverView: View {
                 tokenTypeLabel("cache w", today.cacheCreationTokens)
                 tokenTypeLabel("cache r", today.cacheReadTokens)
             }
+            if let models = today.models, models.count > 1 {
+                ForEach(models.sorted(by: { $0.value > $1.value }), id: \.key) { model, tokens in
+                    HStack(spacing: 6) {
+                        Text(model.split(separator: "/").last.map(String.init) ?? model)
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                        Spacer()
+                        Text(TokenFormatter.compact(tokens))
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
+                            .monospacedDigit()
+                    }
+                }
+            }
         }
         .padding(.top, 2)
     }
@@ -445,9 +461,6 @@ struct PopoverView: View {
                 .fixedSize(horizontal: false, vertical: true)
         }
         if let status = store.antigravityLimits, status.hasVisibleLimit {
-            if store.antigravityLimitsStale {
-                staleBadge(updatedAt: store.antigravityLimitsUpdatedAt)
-            }
             VStack(alignment: .leading, spacing: 10) {
                 ForEach(Array(status.groups.enumerated()), id: \.offset) { _, group in
                     VStack(alignment: .leading, spacing: 4) {
@@ -495,23 +508,27 @@ struct PopoverView: View {
 
     @ViewBuilder
     private var antigravityRefreshRow: some View {
-        Button {
-            Task { await store.refreshAntigravityLimitsFromKeychain() }
-        } label: {
-            HStack(spacing: 6) {
-                Image(systemName: "key.fill")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+        HStack(spacing: 6) {
+            if store.antigravityLimits == nil {
                 Text(l.limitsTapToLoad)
-                    .font(.caption)
-                Spacer()
-                Text(l.refresh)
-                    .font(.caption)
-                    .foregroundStyle(Color.accentColor)
+                    .font(.caption).foregroundStyle(.secondary)
+            } else {
+                (Text(l.staleLimits) + Text(" · ") + Text(store.antigravityLimitsUpdatedAt ?? Date(), style: .relative))
+                    .font(.caption).foregroundStyle(.orange)
             }
-            .padding(.vertical, 4)
+            Spacer()
+            Button {
+                Task { await store.refreshAntigravityLimitsFromKeychain() }
+            } label: {
+                if store.isRefreshingAntigravityLimits {
+                    ProgressView().controlSize(.small)
+                } else {
+                    Text(l.refresh)
+                }
+            }
+            .controlSize(.small)
+            .disabled(store.isRefreshingAntigravityLimits)
         }
-        .buttonStyle(.plain)
     }
 
     @ViewBuilder

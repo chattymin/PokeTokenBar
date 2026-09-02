@@ -115,6 +115,20 @@ Antigravity 2.0 and the IDE report real quota, not an estimate. Gemini models an
 If a tool keeps its sessions outside the built-in paths, add your own roots under <b>Settings → Advanced</b> — comma or newline separated, <code>*</code> wildcards, with a live count of how many extra folders currently match. Every provider keeps its own list, so one tool's folders are never handed to another tool's parser, and your custom roots are added to the built-in ones rather than replacing them.
 </td>
 </tr>
+<tr>
+<td width="55%" valign="middle">
+<h3>🔑 Official limits without the Keychain</h3>
+If the cached limit token expires, official Claude limits used to freeze until a refresh — and that press could raise a Keychain password prompt. Paste a <b>claude.ai session key</b> under <b>Settings → Advanced</b> instead: limits then come straight from claude.ai with no Keychain access at all, auto-polling keeps them fresh, and the key is validated the moment you save it.
+</td>
+<td width="45%" align="center"><img src="assets/screenshot-session-key.png" width="300" alt="claude.ai session key in Settings → Advanced"></td>
+</tr>
+<tr>
+<td width="45%" align="center"><img src="assets/screenshot-model-breakdown.png" width="300" alt="Per-model token breakdown for Pi"></td>
+<td width="55%" valign="middle">
+<h3>🧮 One session log, several models</h3>
+Pi and its forks (like omp) can route more than one model through a single session log. Usage is now attributed to the <b>real model id</b> instead of a flat "pi", and when a day spans several models the popover breaks today's tokens down per model, biggest first.
+</td>
+</tr>
 </table>
 
 ## Also in the box
