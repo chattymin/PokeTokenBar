@@ -289,6 +289,75 @@ final class ModelDecodingTests: XCTestCase {
         XCTAssertNil(status.planDisplay)
     }
 
+    /// Max/Pro/Team are flat-rate — the gate for the leverage row, not a caption
+    /// stamped on every `$`. Free / missing plan stay billed-like-API.
+    /// A=false (free/nil) alone would leave the subscription branch untested.
+    func testIsFlatRateSubscription() throws {
+        var status = try JSONDecoder().decode(LimitStatus.self, from: Data("{}".utf8))
+        for plan in ["max", "pro", "team", "MAX", "Pro"] {
+            status.subscriptionType = plan
+            XCTAssertTrue(status.isFlatRateSubscription, "\(plan) is a flat-rate subscription")
+        }
+        for plan in ["free", "api", "", nil] as [String?] {
+            status.subscriptionType = plan
+            XCTAssertFalse(status.isFlatRateSubscription,
+                           "\(plan ?? "nil") is billed like API (or unknown)")
+        }
+    }
+
+    func testMultiplierFormat() {
+        XCTAssertEqual(TokenFormatter.multiplier(6.1), "6.1×")
+        XCTAssertEqual(TokenFormatter.multiplier(6.0), "6×")
+        XCTAssertEqual(TokenFormatter.multiplier(12.26), "12.3×")
+    }
+
+    /// #224 closed because a global Claude-plan flag labeled Grok. The popover
+    /// must not stamp `(API-equiv.)` on every cost row; the qualifier lives on
+    /// the leverage line. Menu-bar costCompact stays a bare `$`.
+    func testPopoverLeverageDoesNotRelabelEveryCostRow() throws {
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let popover = try String(contentsOf: root.appendingPathComponent("Sources/PokeTokenBar/UI/PopoverView.swift"), encoding: .utf8)
+        XCTAssertTrue(popover.contains("showsLeverage"),
+                      "popover must render the leverage row, not a global caption")
+        XCTAssertTrue(popover.contains("subscriptionLeverage"),
+                      "leverage copy goes through L so 7 languages stay in lockstep")
+        XCTAssertFalse(popover.contains("apiEquivalentCaption"),
+                       "per-row (API-equiv.) caption is the #224 shape the owner rejected")
+        XCTAssertFalse(popover.contains("(API-equiv.)"),
+                       "inline English caption on a cost row is the same #224 lie")
+        let settings = try String(contentsOf: root.appendingPathComponent("Sources/PokeTokenBar/UI/SettingsView.swift"), encoding: .utf8)
+        XCTAssertTrue(settings.contains("monthlyPlanPrice"),
+                      "Settings must expose the optional plan price (#200 item 2)")
+        XCTAssertFalse(settings.contains("$store.monthlyPlanPrice"),
+                       "direct TextField binding to the store writes UserDefaults on every keystroke (#187)")
+        XCTAssertTrue(settings.contains("monthlyPlanPriceDraft"),
+                      "plan price must draft locally and commit on submit/blur")
+        XCTAssertTrue(settings.contains("commitMonthlyPlanPrice"),
+                      "submit, blur, and leaving Settings must share one commit")
+        XCTAssertTrue(settings.contains("onDisappear"),
+                      "Back without blur must still persist the typed price")
+        let formatter = try String(contentsOf: root.appendingPathComponent("Sources/PokeTokenBar/Core/TokenFormatter.swift"), encoding: .utf8)
+        XCTAssertFalse(formatter.contains("labeled"),
+                       "cost() must stay unlabeled — captions belong on the leverage row")
+    }
+
+    /// Table-priced sources are estimates; sources that persist a server charge are bills.
+    /// Default (protocol) is estimate so a new provider does not inherit Grok's bill flag.
+    func testCostIsEstimateIsPerProviderNotAClaudeFlag() {
+        XCTAssertTrue(LocalClaudeProvider().costIsEstimate)
+        XCTAssertTrue(LocalGeminiProvider().costIsEstimate)
+        XCTAssertTrue(LocalCodexProvider().costIsEstimate)
+        XCTAssertFalse(LocalGrokProvider().costIsEstimate)
+        XCTAssertFalse(LocalOpenCodeProvider().costIsEstimate)
+        XCTAssertFalse(LocalHermesProvider().costIsEstimate)
+        XCTAssertTrue(LocalCursorProvider().costIsEstimate,
+                      "unused when reportsCost is false; default stays estimate")
+        XCTAssertFalse(LocalCursorProvider().reportsCost)
+    }
+
     /// 자격증명 파싱이 subscriptionType/rateLimitTier 를 추출하는지 — 실 keychain JSON 형태 기반.
     func testCredentialParsesPlanFields() throws {
         let json = Data("""

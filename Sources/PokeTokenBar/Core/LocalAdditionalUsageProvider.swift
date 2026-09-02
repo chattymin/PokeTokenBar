@@ -13,6 +13,9 @@ private enum LocalAdditionalSource: String, Sendable {
 struct LocalOpenCodeProvider: UsageProvider {
     let id = "opencode"
     let displayName = "OpenCode"
+    /// OpenCode stores a per-message `cost` from the provider. That is a bill,
+    /// not our ModelPricing table (#224 / #200).
+    let costIsEstimate = false
 
     func fetchDaily() async throws -> DailyUsage? {
         let entries = await LocalAdditionalUsageCache.shared.entries(for: .opencode)
@@ -29,6 +32,9 @@ struct LocalOpenCodeProvider: UsageProvider {
 struct LocalHermesProvider: UsageProvider {
     let id = "hermes"
     let displayName = "Hermes Agent"
+    /// Prefers `actual_cost_usd`, else Hermes's own `estimated_cost_usd` — both
+    /// are the agent's figure, not ModelPricing (#224 / #200).
+    let costIsEstimate = false
 
     func fetchDaily() async throws -> DailyUsage? {
         let entries = await LocalAdditionalUsageCache.shared.entries(for: .hermes)

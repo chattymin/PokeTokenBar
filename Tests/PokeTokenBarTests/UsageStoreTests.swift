@@ -13,14 +13,17 @@ private final class FakeUsageProvider: UsageProvider, @unchecked Sendable {
     let id: String
     let displayName: String
     let reportsCost: Bool
+    let costIsEstimate: Bool
     nonisolated(unsafe) var daily: DailyUsage?
     nonisolated(unsafe) var enrichment = ProviderEnrichment()
     nonisolated(unsafe) var failDaily = false
 
-    init(id: String, displayName: String, daily: DailyUsage? = nil, reportsCost: Bool = true) {
+    init(id: String, displayName: String, daily: DailyUsage? = nil,
+         reportsCost: Bool = true, costIsEstimate: Bool = true) {
         self.id = id
         self.displayName = displayName
         self.reportsCost = reportsCost
+        self.costIsEstimate = costIsEstimate
         self.daily = daily
     }
     func fetchDaily() async throws -> DailyUsage? {
@@ -880,6 +883,26 @@ final class UsageStoreTests: XCTestCase {
                        "탭에 노출 안 됨")
     }
 
+    /// Leverage `$Y` divides by the Claude plan price, so a future estimate
+    /// source must not inflate the Max/Pro/Team multiple (#249 review).
+    func testUnknownEstimateProviderDoesNotInflateClaudeLeverage() async {
+        let future = FakeUsageProvider(
+            id: "future_tool_xyz", displayName: "Future Tool",
+            daily: todayDaily(1_000, cost: 1), costIsEstimate: true)
+        future.enrichment = monthEnrichment(tokens: 10_000, cost: 40)
+        var maxPlan = claudeLimits(fiveHourUtil: 10)
+        maxPlan.subscriptionType = "max"
+        let store = makeStore(providers: [future], claude: maxPlan)
+        await store.refresh(scheduleEmptyRetry: false)
+        store.monthlyPlanPrice = 10
+        XCTAssertEqual(store.monthCostTotal, 40, accuracy: 0.000_001,
+                       "header month $ still sums every costing snapshot")
+        XCTAssertEqual(store.monthAPIEquivalentCost, 0, accuracy: 0.000_001,
+                       "leverage $Y is the Claude plan numerator, not every estimate")
+        XCTAssertNil(store.subscriptionLeverage,
+                     "no Claude month $ → no 4× from an unrelated tool")
+    }
+
     /// 기본 등록 프로바이더 레지스트리 무결성 — 비어 있지 않고 id 가 유일.
     /// (새 프로바이더를 배열에 등록하는 단일 지점이 살아있는지 최소 보증.)
     func testDefaultProviderRegistryHasUniqueIds() {
@@ -1279,4 +1302,142 @@ final class UsageStoreTests: XCTestCase {
         XCTAssertEqual(store.menuLines, [TokenFormatter.compact(50_000)],
                        "Cursor-only must not render $0.00 / $0.0 in the menu bar")
     }
+
+    // MARK: subscription leverage (#200 / #224 close)
+
+    /// Owner #224: a Claude Max plan must not treat Grok's server charge as API-equivalent.
+    /// #249: Gemini (and Codex) estimates ride other subscriptions — they must not
+    /// inflate the Max multiple. Combined month `$` still sums every costing snapshot.
+    func testMonthAPIEquivalentCostExcludesBilledProviders() async {
+        let claude = FakeUsageProvider(
+            id: "claude_code", displayName: "Claude Code",
+            daily: todayDaily(100_000, cost: 10), costIsEstimate: true)
+        claude.enrichment = monthEnrichment(tokens: 1_000_000, cost: 610)
+        let grok = FakeUsageProvider(
+            id: "grok", displayName: "Grok",
+            daily: todayDaily(20_000, cost: 5), costIsEstimate: false)
+        grok.enrichment = monthEnrichment(tokens: 50_000, cost: 50)
+        let billedUnknown = FakeUsageProvider(
+            id: "future_bill_xyz", displayName: "Future Bill",
+            daily: todayDaily(1_000, cost: 1), costIsEstimate: false)
+        billedUnknown.enrichment = monthEnrichment(tokens: 10_000, cost: 40)
+        let gemini = FakeUsageProvider(
+            id: "gemini", displayName: "Gemini",
+            daily: todayDaily(30_000, cost: 8), costIsEstimate: true)
+        gemini.enrichment = monthEnrichment(tokens: 200_000, cost: 200)
+        var maxPlan = claudeLimits(fiveHourUtil: 10)
+        maxPlan.subscriptionType = "max"
+        let store = makeStore(providers: [claude, grok, billedUnknown, gemini], claude: maxPlan)
+        await store.refresh(scheduleEmptyRetry: false)
+        store.monthlyPlanPrice = 100
+
+        XCTAssertEqual(store.monthCostTotal, 900, accuracy: 0.000_001,
+                       "header month $ still includes bills and other estimates")
+        XCTAssertEqual(store.monthAPIEquivalentCost, 610, accuracy: 0.000_001,
+                       "leverage $Y is Claude's estimate — Gemini/Grok must not mix into the Max multiple")
+        XCTAssertEqual(store.subscriptionLeverage ?? -1, 6.1, accuracy: 0.000_001,
+                       "owner example is 610/100 = 6.1×, not 810/100 or 900/100")
+        XCTAssertEqual(store.snapshot(preferring: "grok")?.costIsEstimate, false)
+        XCTAssertEqual(store.snapshot(preferring: "future_bill_xyz")?.costIsEstimate, false)
+        XCTAssertEqual(store.snapshot(preferring: "claude_code")?.costIsEstimate, true)
+        XCTAssertEqual(store.snapshot(preferring: "gemini")?.costIsEstimate, true)
+    }
+
+    /// Leverage is the #200 payoff: plan $100 /mo against $610 API-equiv → 6.1×.
+    /// A=false branches (no plan / Free / price 0 / $Y 0) must each fail closed.
+    func testSubscriptionLeverageGates() async {
+        let claude = FakeUsageProvider(
+            id: "claude_code", displayName: "Claude Code",
+            daily: todayDaily(100_000, cost: 10), costIsEstimate: true)
+        claude.enrichment = monthEnrichment(tokens: 1_000_000, cost: 610)
+
+        var maxPlan = claudeLimits(fiveHourUtil: 10)
+        maxPlan.subscriptionType = "max"
+        let maxStore = makeStore(providers: [claude], claude: maxPlan)
+        await maxStore.refresh(scheduleEmptyRetry: false)
+        XCTAssertNil(maxStore.subscriptionLeverage, "price unset → no row")
+        maxStore.monthlyPlanPrice = 100
+        XCTAssertEqual(maxStore.subscriptionLeverage ?? -1, 6.1, accuracy: 0.000_001)
+        XCTAssertTrue(maxStore.showsLeverage)
+
+        maxStore.monthlyPlanPrice = 0
+        XCTAssertNil(maxStore.subscriptionLeverage, "price 0 is Settings-off")
+
+        var freePlan = claudeLimits(fiveHourUtil: 10)
+        freePlan.subscriptionType = "free"
+        let freeStore = makeStore(providers: [claude], claude: freePlan)
+        await freeStore.refresh(scheduleEmptyRetry: false)
+        freeStore.monthlyPlanPrice = 100
+        XCTAssertNil(freeStore.subscriptionLeverage, "Free is billed like API — no leverage")
+
+        let apiKeyStore = makeStore(providers: [claude], claude: nil)
+        await apiKeyStore.refresh(scheduleEmptyRetry: false)
+        apiKeyStore.monthlyPlanPrice = 100
+        XCTAssertNil(apiKeyStore.subscriptionLeverage, "no credential plan → no leverage")
+
+        let empty = FakeUsageProvider(
+            id: "claude_code", displayName: "Claude Code",
+            daily: todayDaily(1, cost: 0), costIsEstimate: true)
+        empty.enrichment = monthEnrichment(tokens: 1, cost: 0)
+        let zeroY = makeStore(providers: [empty], claude: maxPlan)
+        await zeroY.refresh(scheduleEmptyRetry: false)
+        zeroY.monthlyPlanPrice = 100
+        XCTAssertNil(zeroY.subscriptionLeverage, "Y=0 → no 0× row")
+    }
+
+    /// Team/Pro (B=true without Max) must also open the row — Max-only tests hide that branch.
+    func testLeverageOpensForProAndTeam() async {
+        let claude = FakeUsageProvider(
+            id: "claude_code", displayName: "Claude Code",
+            daily: todayDaily(10_000, cost: 1), costIsEstimate: true)
+        claude.enrichment = monthEnrichment(tokens: 100_000, cost: 200)
+        for plan in ["pro", "team", "PRO"] {
+            var status = claudeLimits(fiveHourUtil: 10)
+            status.subscriptionType = plan
+            let store = makeStore(providers: [claude], claude: status)
+            await store.refresh(scheduleEmptyRetry: false)
+            store.monthlyPlanPrice = 20
+            XCTAssertEqual(store.subscriptionLeverage ?? -1, 10, accuracy: 0.000_001, "\(plan)")
+        }
+    }
+
+    func testMonthlyPlanPricePersistsInDefaults() {
+        let claude = FakeUsageProvider(id: "claude_code", displayName: "Claude Code", daily: todayDaily(1_000))
+        let store = makeStore(providers: [claude])
+        XCTAssertEqual(store.monthlyPlanPrice, 0)
+        store.monthlyPlanPrice = 100
+        XCTAssertEqual(testDefaults.double(forKey: "monthlyPlanPrice"), 100)
+        let again = makeStore(providers: [claude])
+        XCTAssertEqual(again.monthlyPlanPrice, 100)
+        store.monthlyPlanPrice = -5
+        XCTAssertEqual(store.monthlyPlanPrice, 0, "negative plan price clamps to off")
+    }
+
+    /// Menu bar stays unlabeled — #200 design question, confirmed by #224 close
+    /// ("bare number is the convention") and by not paying caption width on the 1-line surface.
+    func testLeverageDoesNotAppearInMenuBar() async {
+        let claude = FakeUsageProvider(
+            id: "claude_code", displayName: "Claude Code",
+            daily: todayDaily(100_000, cost: 10), costIsEstimate: true)
+        claude.enrichment = monthEnrichment(tokens: 1_000_000, cost: 610)
+        var maxPlan = claudeLimits(fiveHourUtil: 10)
+        maxPlan.subscriptionType = "max"
+        let store = makeStore(providers: [claude], claude: maxPlan)
+        store.showTokensInMenu = true
+        store.showCostInMenu = true
+        store.showLimitInMenu = false
+        store.monthlyPlanPrice = 100
+        await store.refresh(scheduleEmptyRetry: false)
+        let joined = store.menuLines.joined(separator: " ")
+        XCTAssertFalse(joined.contains("API"), "menu bar must not grow an API-equiv caption")
+        XCTAssertFalse(joined.contains("×"), "leverage lives in the popover, not the menu")
+        XCTAssertTrue(joined.contains(TokenFormatter.costCompact(10)))
+    }
+}
+
+private func monthEnrichment(tokens: Int, cost: Double) -> ProviderEnrichment {
+    var e = ProviderEnrichment()
+    e.monthTotal = PeriodUsage(period: "month", totalTokens: tokens, totalCost: cost)
+    e.periodsOK = true
+    return e
 }
