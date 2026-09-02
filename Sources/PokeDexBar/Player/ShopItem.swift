@@ -127,22 +127,24 @@ enum ShopItem: String, CaseIterable, Sendable {
             texts = ("거다이맥스할 수 있는 포켓몬의 모습을 바꿉니다",
                      "Gigantamaxes a Pokémon that has a G-Max Form",
                      "キョダイマックスできるポケモンのすがたを変えます")
+        // 사다리 부적 셋은 **배수를 문장에 적지 않는다** — 단계마다 값이 달라서, 적는 순간
+        // 어느 단계에서는 거짓말이 된다. 지금 값은 상점이 단계와 함께 계산해 보여 준다.
         case .shinyCharm:
-            texts = ("이후 부화의 이로치 확률이 올라갑니다",
-                     "Raises the shiny odds for future hatches",
-                     "以降のふ化のひかる確率が上がります")
+            texts = ("이후 부화의 이로치 확률이 올라갑니다. 단계를 올릴수록 더",
+                     "Raises the shiny odds for future hatches — more with every tier",
+                     "以降のふ化のひかる確率が上がります。だんかいを上げるほど")
         case .expCharm:
-            texts = ("토큰과 사탕으로 얻는 경험치가 2배가 됩니다",
-                     "Doubles the experience from tokens and candy",
-                     "トークンとアメで得られる経験値が2倍になります")
+            texts = ("토큰과 사탕으로 얻는 경험치가 늘어납니다. 단계를 올릴수록 더",
+                     "Earns more experience from tokens and candy — more with every tier",
+                     "トークンとアメで得られる経験値が増えます。だんかいを上げるほど")
         case .fortuneCharm:
-            texts = ("재화 획득량이 1.5배가 됩니다",
-                     "Earns 1.5x the currency",
-                     "所持金の獲得量が1.5倍になります")
+            texts = ("재화 획득량이 늘어납니다. 단계를 올릴수록 더",
+                     "Earns more currency — more with every tier",
+                     "所持金の獲得量が増えます。だんかいを上げるほど")
         case .rainbowCharm:
-            texts = ("이로치 부적의 업그레이드 — 이로치 확률이 1/32이 됩니다. 전국도감 완성의 증표",
-                     "The Shiny Charm perfected — shiny odds become 1/32. Proof of a complete Dex",
-                     "ひかるおまもりの上位版 — ひかる確率が1/32に。全国図鑑完成のあかし")
+            texts = ("이로치 확률이 어느 단계에서든 한 번 더 좋아집니다. 전국도감 완성의 증표",
+                     "Shiny odds improve again, at any tier. Proof of a complete Dex",
+                     "ひかる確率がどのだんかいでもさらに良くなります。全国図鑑完成のあかし")
         case .rareEggTicket, .epicEggTicket, .legendaryEggTicket:
             texts = ("그 등급이 확정인 무료 알 뽑기 한 번 — 상점의 알 뽑기에서 씁니다",
                      "One free egg draw with the grade guaranteed — used at the Shop's egg draw",

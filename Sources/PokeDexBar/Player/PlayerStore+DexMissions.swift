@@ -57,14 +57,20 @@ extension PlayerStore {
                 s.inventory[item.rawValue, default: 0] += n
             case .rainbowCharm:
                 s.ownsRainbowCharm = true
+                // 옛 무지개 부적은 분모를 1/32 로 고정했다 — 지금의 −8 만 주면 전국도감을
+                // 채운 보상이 1/56 로 약해진다. 같은 값이 나오는 이로치 단계를 함께 얹는다
+                // (`rainbowShinyTier` 참고). 이미 더 높이 올려 뒀으면 건드리지 않는다.
+                s.charmTiers[ShopItem.shinyCharm.rawValue] =
+                    max(s.charmTiers[ShopItem.shinyCharm.rawValue] ?? 0, CharmLadder.rainbowShinyTier)
             case .pokemon(let speciesID, let grade, let growthRate, let gender):
                 // 부화(`makeHatchling`)가 굴리는 것 중 성격·이로치만 굴린다 — 지방·무늬는
                 // 지금의 지급 종(레지기가스)에 없어서 안 굴린다(생기면 그때 얹는다).
                 // 이로치 분모는 부적 상태를 따른다 — 확정권 뽑기와 같은 규칙.
                 let natures = PokemonNature.allCases
                 let nature = natures[Int(nextRandomUnit() * Double(natures.count)) % natures.count]
-                let denominator = EggBalance.shinyDenominator(
-                    shinyCharm: s.ownsShinyCharm, rainbowCharm: s.ownsRainbowCharm)
+                let denominator = ShinyOdds.denominator(
+                    shinyTier: s.charmTiers[ShopItem.shinyCharm.rawValue] ?? 0,
+                    rainbowCharm: s.ownsRainbowCharm)
                 let shiny = EggBalance.rollShiny(nextRandomUnit(), denominator: denominator)
                 let individual = Individual(baseID: speciesID, speciesID: speciesID,
                                             pathIDs: [speciesID], shiny: shiny, gender: gender,

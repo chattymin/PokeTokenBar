@@ -121,7 +121,7 @@ final class PartnerTokenLedgerTests: XCTestCase {
         let id = partnered(store)
         store.seedForTesting(wallet: ShopItem.expCharm.price, slots: 3, eggs: 0,
                              at: Date(timeIntervalSince1970: 0))
-        XCTAssertTrue(store.buy(.expCharm))
+        store.mutate { $0.charmTiers[ShopItem.expCharm.rawValue] = CharmLadder.legacyTier }
         let walletAfterPurchase = store.state.wallet
         let spent = ExpBalance.tokensPerExp * 2
         store.update(todayTokens: spent, todayDate: "2026-01-01", hasUsageData: true)
@@ -149,17 +149,20 @@ final class ExpCharmTests: XCTestCase {
     }
 
     func testExpGainIsPureAndDoubles() {
-        XCTAssertEqual(PlayerStore.expGain(50, charm: false), 50)
-        XCTAssertEqual(PlayerStore.expGain(50, charm: true), 100)
-        XCTAssertEqual(PlayerStore.expGain(0, charm: true), 0)
+        XCTAssertEqual(PlayerStore.expGain(50, multiplier: CharmLadder.multiplier(.expCharm, tier: 0)), 50)
+        XCTAssertEqual(PlayerStore.expGain(50, multiplier: CharmLadder.multiplier(.expCharm, tier: 4)), 100)
+        XCTAssertEqual(PlayerStore.expGain(0, multiplier: CharmLadder.multiplier(.expCharm, tier: 4)), 0)
     }
 
-    /// 부적은 보유형 — 한 번만 산다.
-    func testCharmIsBoughtOnlyOnce() {
+    /// 부적은 이제 사다리다 — **다시 사면 한 단계 오른다**. 예전엔 여기가 "두 번 못 산다"
+    /// 였다. 값이 매번 두 배라, 같은 지갑으로 무한히 오르지는 않는다.
+    func testBuyingAgainClimbsOneTier() {
         let (store, _) = makeStore(wallet: ShopItem.expCharm.price * 3)
         XCTAssertTrue(store.buy(.expCharm))
         XCTAssertTrue(store.owns(.expCharm))
-        XCTAssertFalse(store.buy(.expCharm), "보유형을 두 번 샀다")
+        XCTAssertEqual(store.charmTier(.expCharm), 1)
+        XCTAssertTrue(store.buy(.expCharm), "사다리는 계속 오를 수 있어야 한다")
+        XCTAssertEqual(store.charmTier(.expCharm), 2)
     }
 
     /// 두 부적은 서로 독립이다 — 하나를 샀다고 다른 하나가 딸려오면 안 된다.
@@ -171,17 +174,18 @@ final class ExpCharmTests: XCTestCase {
         XCTAssertTrue(store.owns(.expCharm), "이로치 부적을 사면서 경험치 부적이 사라졌다")
     }
 
-    func testExpCandyIsDoubledByTheCharm() {
-        let (store, id) = makeStore(wallet: ShopItem.expCharm.price + ShopItem.expCandy.price * 2)
+    /// 사탕도 부적 배율을 받는다 — 옛 효과와 같은 4단계에서 2배.
+    func testExpCandyIsMultipliedByTheCharm() {
+        let (store, id) = makeStore(wallet: ShopItem.expCandy.price * 2)
         XCTAssertTrue(store.buy(.expCandy))
         XCTAssertTrue(store.useExpCandy(on: id))
         XCTAssertEqual(store.state.box.first { $0.id == id }?.exp, ExpBalance.candyExp)
 
-        XCTAssertTrue(store.buy(.expCharm))
+        store.mutate { $0.charmTiers[ShopItem.expCharm.rawValue] = CharmLadder.legacyTier }
         XCTAssertTrue(store.buy(.expCandy))
         XCTAssertTrue(store.useExpCandy(on: id))
         XCTAssertEqual(store.state.box.first { $0.id == id }?.exp,
-                       ExpBalance.candyExp * 3, "부적을 산 뒤의 사탕이 2배가 아니다")
+                       ExpBalance.candyExp * 3, "4단계 부적을 낀 사탕이 2배가 아니다")
     }
 
     /// 부적은 재고를 세지 않는다 — 상점 표시가 개수형과 갈린다.

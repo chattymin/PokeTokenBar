@@ -114,7 +114,7 @@ final class PlayerStore {
         if todayTokens > state.claimedTodayTokens {
             let delta = todayTokens - state.claimedTodayTokens
             state.claimedTodayTokens = todayTokens
-            state.earnedTokens += Self.currencyGain(delta, charm: state.ownsFortuneCharm)
+            state.earnedTokens += Self.currencyGain(delta, multiplier: charmMultiplier(.fortuneCharm))
             if let index = state.box.firstIndex(where: { $0.id == state.partnerID }) {
                 // 경험치와 알은 **같은 토큰 흐름에서 나란히** 찬다. 서로를 깎지 않는다.
                 // 예전에는 `exp` 하나가 둘을 겸해서, 진화가 알 진행분을 먹었다.
@@ -124,7 +124,7 @@ final class PlayerStore {
                 // 없으면 exp 가 영원히 0에 머문다. 지난 나머지와 이번 몫을 합쳐 나누고,
                 // 못 나눈 자투리만 다시 남긴다(사탕의 `candyYield` 와 같은 몫·나머지 패턴).
                 let pool = state.box[index].expRemainder
-                    + Self.expGain(delta, charm: state.ownsExpCharm)
+                    + Self.expGain(delta, multiplier: charmMultiplier(.expCharm))
                 let gained = pool / ExpBalance.tokensPerExp
                 state.box[index].expRemainder = pool % ExpBalance.tokensPerExp
                 state.box[index].exp = min(expCap, state.box[index].exp + gained)
@@ -160,13 +160,26 @@ final class PlayerStore {
         state.box[index].recentlyActive = active
     }
 
+    /// 이 부적의 지금 단계. 없으면 0(미보유).
+    func charmTier(_ item: ShopItem) -> Int { state.charmTiers[item.rawValue] ?? 0 }
+
+    /// 이 부적의 지금 배율. 효과를 읽는 자리는 **전부 이걸 지난다** — 단계를 직접 꺼내
+    /// 계산하는 자리가 생기면 사다리를 고칠 때 한쪽만 고쳐진다.
+    func charmMultiplier(_ item: ShopItem) -> Double {
+        CharmLadder.multiplier(item, tier: charmTier(item))
+    }
+
     /// 경험치 부적을 반영한 실제 경험치 증가분. 순수 함수라 테스트로 잠근다.
-    nonisolated static func expGain(_ base: Int, charm: Bool) -> Int { charm ? base * 2 : base }
+    /// 배율을 그대로 받는다 — 부적이 사다리가 되면서 "있다/없다" 로는 표현이 안 된다.
+    /// 정수 나눗셈으로 내림한다(소수 경험치는 없다).
+    nonisolated static func expGain(_ base: Int, multiplier: Double) -> Int {
+        Int((Double(base) * max(1, multiplier)).rounded(.down))
+    }
 
     /// 행운의 부적을 반영한 재화 증가분. 정수 나눗셈이라 1.5배가 내림으로 떨어진다 —
     /// 소수 재화는 없으므로 그게 맞다.
-    nonisolated static func currencyGain(_ base: Int, charm: Bool) -> Int {
-        charm ? base + base / 2 : base
+    nonisolated static func currencyGain(_ base: Int, multiplier: Double) -> Int {
+        Int((Double(base) * max(1, multiplier)).rounded(.down))
     }
 
     /// 리본을 단 파트너가 토큰을 쓴 만큼 사탕을 만든다. 진행분(`candyProgress`)을 남겨 두므로

@@ -148,9 +148,12 @@ struct ShopTabView: View {
     }
 
     private func itemRow(_ item: ShopItem) -> some View {
+        // 사다리 부적은 "산다/샀다" 가 아니라 **지금 몇 단계인가**로 말한다 — 다음 단계 값과
+        // 지금 배율을 같이 보여야 "한 번 더 올릴까" 를 판단할 수 있다.
+        if CharmLadder.isTiered(item) { return AnyView(charmRow(item)) }
         let owned = item.isCharm ? (store.owns(item) ? 1 : 0) : store.count(of: item)
         let soldOut = item.isCharm && store.owns(item)
-        return HStack(alignment: .top) {
+        return AnyView(HStack(alignment: .top) {
             VStack(alignment: .leading, spacing: 1) {
                 HStack(spacing: 5) {
                     Text(item.label(store.language)).font(.system(size: 11, weight: .medium))
@@ -165,7 +168,47 @@ struct ShopTabView: View {
             Button(soldOut ? l.shopItemOwnedButton : TokenFormatter.compact(item.price)) { _ = store.buy(item) }
                 .buttonStyle(.bordered).controlSize(.small)
                 .disabled(soldOut || store.state.wallet < item.price)
+        })
+    }
+
+    /// 단계가 있는 부적 한 줄 — 지금 단계·지금 효과, 그리고 다음 단계 값.
+    private func charmRow(_ item: ShopItem) -> some View {
+        let tier = store.charmTier(item)
+        let next = store.nextCharmPrice(item)
+        return HStack(alignment: .top) {
+            VStack(alignment: .leading, spacing: 1) {
+                HStack(spacing: 5) {
+                    Text(item.label(store.language)).font(.system(size: 11, weight: .medium))
+                    if tier > 0 {
+                        Text(l.charmTierBadge(tier))
+                            .font(.system(size: 8, weight: .bold))
+                            .padding(.horizontal, 5).padding(.vertical, 1)
+                            .background(Color.accentColor.opacity(0.22), in: Capsule())
+                    }
+                }
+                Text(Self.charmEffectLine(item, tier: tier, l: l))
+                    .font(.system(size: 9)).foregroundStyle(.tertiary)
+            }
+            Spacer()
+            Button(next.map(TokenFormatter.compact) ?? l.shopItemOwnedButton) {
+                _ = store.upgradeCharm(item)
+            }
+            .buttonStyle(.bordered).controlSize(.small)
+            .disabled(!store.canUpgradeCharm(item))
         }
+    }
+
+    /// 지금 효과 → 다음 단계 효과. **이로치만 분모로 말한다** — 배율로 적으면 "1.08배" 가
+    /// 무엇을 뜻하는지 알 수 없고, 사용자가 아는 표기는 1/64 쪽이다.
+    nonisolated static func charmEffectLine(_ item: ShopItem, tier: Int, l: L) -> String {
+        func text(_ t: Int) -> String {
+            if item == .shinyCharm {
+                return "1/\(ShinyOdds.denominator(shinyTier: t, rainbowCharm: false))"
+            }
+            return String(format: "%.2f×", CharmLadder.multiplier(item, tier: t))
+        }
+        guard CharmLadder.price(tier: tier + 1) != nil else { return text(tier) }
+        return "\(text(tier)) → \(text(tier + 1))"
     }
 
     /// 등급·이로치를 굴리고, 그 등급 안에서 베이스 종을 포획률 가중으로 고른다(`EggBalance.pickSpecies`).

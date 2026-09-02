@@ -226,16 +226,16 @@ final class FortuneCharmTests: XCTestCase {
     }
 
     func testCurrencyGainIsPureAndRoundsDown() {
-        XCTAssertEqual(PlayerStore.currencyGain(100, charm: false), 100)
-        XCTAssertEqual(PlayerStore.currencyGain(100, charm: true), 150)
-        XCTAssertEqual(PlayerStore.currencyGain(1, charm: true), 1, "소수 재화는 없다 — 내림")
-        XCTAssertEqual(PlayerStore.currencyGain(0, charm: true), 0)
+        XCTAssertEqual(PlayerStore.currencyGain(100, multiplier: CharmLadder.multiplier(.fortuneCharm, tier: 0)), 100)
+        XCTAssertEqual(PlayerStore.currencyGain(100, multiplier: CharmLadder.multiplier(.fortuneCharm, tier: 4)), 150)
+        XCTAssertEqual(PlayerStore.currencyGain(1, multiplier: CharmLadder.multiplier(.fortuneCharm, tier: 4)), 1, "소수 재화는 없다 — 내림")
+        XCTAssertEqual(PlayerStore.currencyGain(0, multiplier: CharmLadder.multiplier(.fortuneCharm, tier: 4)), 0)
     }
 
     /// 재화만 1.5배가 되고 경험치·기록은 그대로여야 한다.
     func testCharmRaisesCurrencyOnly() {
         let (store, id) = makeStore(wallet: ShopItem.fortuneCharm.price)
-        XCTAssertTrue(store.buy(.fortuneCharm))
+        store.mutate { $0.charmTiers[ShopItem.fortuneCharm.rawValue] = CharmLadder.legacyTier }
         let after = store.state.wallet
         let spent = ExpBalance.tokensPerExp * 2
         store.update(todayTokens: spent, todayDate: "2026-01-01", hasUsageData: true)
@@ -246,10 +246,13 @@ final class FortuneCharmTests: XCTestCase {
         XCTAssertEqual(individual.partnerTokens, spent, "기록은 실제 쓴 토큰만 센다")
     }
 
-    func testCharmIsBoughtOnlyOnceAndIsIndependent() {
+    /// 사다리를 올려도 부적끼리는 독립이다 — 하나를 사면서 다른 하나가 딸려오거나
+    /// 사라지면 안 된다.
+    func testCharmsClimbIndependently() {
         let (store, _) = makeStore(wallet: ShopItem.fortuneCharm.price + ShopItem.expCharm.price)
         XCTAssertTrue(store.buy(.fortuneCharm))
-        XCTAssertFalse(store.buy(.fortuneCharm), "보유형을 두 번 샀다")
+        XCTAssertTrue(store.buy(.fortuneCharm))
+        XCTAssertEqual(store.charmTier(.fortuneCharm), 2)
         XCTAssertFalse(store.owns(.expCharm))
         XCTAssertTrue(store.buy(.expCharm))
         XCTAssertTrue(store.owns(.fortuneCharm), "경험치 부적을 사면서 행운의 부적이 사라졌다")

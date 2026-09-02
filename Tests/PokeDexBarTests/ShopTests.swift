@@ -62,13 +62,17 @@ final class ShopTests: XCTestCase {
         XCTAssertEqual(store.state.wallet, 0)
     }
 
-    /// 이로치 부적은 보유형 — 한 번 사면 끝이고 두 번 살 수 없다.
-    func testShinyCharmIsBoughtOnce() {
+    /// 이로치 부적은 사다리를 탄다 — 값은 `item.price` 가 아니라 단계 값이고, 다시 사면
+    /// 한 단계 오른다. 옛 불리언(`ownsShinyCharm`)은 되돌아갈 사람을 위해 남겨 뒀을 뿐
+    /// **더는 안 쓴다** — 보유 판정은 단계가 한다.
+    func testShinyCharmClimbsTheLadder() {
         let store = makeStore(wallet: ShopItem.shinyCharm.price * 2)
+        let before = store.state.wallet
         XCTAssertTrue(store.buy(.shinyCharm))
-        XCTAssertTrue(store.state.ownsShinyCharm)
-        XCTAssertFalse(store.buy(.shinyCharm))
-        XCTAssertEqual(store.state.wallet, ShopItem.shinyCharm.price)
+        XCTAssertTrue(store.owns(.shinyCharm))
+        XCTAssertEqual(store.state.wallet, before - CharmLadder.price(tier: 1)!)
+        XCTAssertTrue(store.buy(.shinyCharm))
+        XCTAssertEqual(store.charmTier(.shinyCharm), 2)
     }
 
     func testCannotBuyWithoutFunds() {

@@ -51,6 +51,9 @@ struct PlayerState: Codable, Sendable {
     /// 파트너가 물어 왔는데 아직 확인 안 한 것(`Discovery`). 도구는 이미 `inventory` 에 들어가
     /// 있고 이 목록은 **알림용**이다 — 확인이 늦어도 잃는 게 없다.
     var discoveries: [Discovery] = []
+    /// **옛 형식** — 부적이 한 번 사면 끝이던 시절의 보유 여부. `charmTiers` 로 옮겨 갔지만
+    /// **지우지 않는다**: 관대 디코딩 규율대로 옛 키를 계속 읽어야 세이브가 안 깨지고,
+    /// 이 값이 남아 있어야 옛 버전으로 되돌아가도 산 것이 살아 있다.
     var ownsShinyCharm = false
     /// 마지막으로 토큰이 들어온 시각. 모르페코의 배고픔이 여기서 나온다 — "언제 마지막으로
     /// 먹었나"는 개체가 아니라 사용자에게 붙는 사실이라 여기 둔다.
@@ -59,6 +62,8 @@ struct PlayerState: Codable, Sendable {
     var ownsExpCharm = false
     /// 행운의 부적 — 재화 획득이 1.5배가 된다. 경험치와 재화는 별개 트랙이라 서로 안 겹친다.
     var ownsFortuneCharm = false
+    /// 부적 단계 — `ShopItem.rawValue` → 단계(없거나 0 이면 미보유). 사다리는 `CharmLadder`.
+    var charmTiers: [String: Int] = [:]
     /// 세이브를 손으로 고친 적이 있나. 한 번 켜지면 절대 안 꺼진다 — 지우려고 파일을 또 고치면
     /// 봉인이 다시 깨져 그대로 켜진다. 게임 진행에는 영향이 없고 스프라이트만 좌우로 뒤집힌다.
     var tampered = false
@@ -92,8 +97,31 @@ struct PlayerState: Codable, Sendable {
         lastDate = value(.lastDate, "")
         installBaselineSet = value(.installBaselineSet, false)
         tampered = value(.tampered, false)
+        // 옛 부적 불리언 넷은 **아래 이전 블록보다 먼저** 읽어야 한다. 흩어져 있던 것을 여기로
+        // 모은 이유가 그것이다 — 이전이 읽는 값이 아직 디코드 안 된 자리에 있으면 언제나
+        // 기본값(false)이라, 이전이 조용히 아무 일도 안 한다.
         ownsExpCharm = value(.ownsExpCharm, false)
         ownsFortuneCharm = value(.ownsFortuneCharm, false)
+        ownsShinyCharm = value(.ownsShinyCharm, false)
+        ownsRainbowCharm = value(.ownsRainbowCharm, false)
+        charmTiers = value(.charmTiers, [:])
+        // **옛 세이브 이전 — 디코드 자리에서 한 번.** 새 키가 비어 있을 때만 옛 불리언을 읽어
+        // 같은 효과의 단계로 옮긴다. 기동 경로가 아니라 여기 두는 이유: 부적은 화면을 안 열어도
+        // 곧바로 계산에 쓰이므로(경험치·재화 적립), 보정이 늦으면 그 사이 적립이 손해가 된다.
+        if charmTiers.isEmpty {
+            if ownsShinyCharm { charmTiers[ShopItem.shinyCharm.rawValue] = CharmLadder.legacyTier }
+            if ownsExpCharm { charmTiers[ShopItem.expCharm.rawValue] = CharmLadder.legacyTier }
+            if ownsFortuneCharm { charmTiers[ShopItem.fortuneCharm.rawValue] = CharmLadder.legacyTier }
+            // 무지개 부적은 분모를 고정하던 물건이라 −8 만으로는 옛 효과에 못 미친다.
+            // 이로치 부적과 겹치면 높은 쪽을 쓴다 — 옛 규칙도 "겹쳐도 32" 였다.
+            if ownsRainbowCharm {
+                charmTiers[ShopItem.shinyCharm.rawValue] =
+                    max(charmTiers[ShopItem.shinyCharm.rawValue] ?? 0, CharmLadder.rainbowShinyTier)
+            }
+        }
+        // 값 범위 검증 — 관대 디코딩의 짝. 가격이 2배씩 뛰므로 큰 단계가 그대로 들어오면
+        // 이후 곱셈이 오버플로 트랩으로 프로세스를 죽인다.
+        charmTiers = charmTiers.mapValues { min(max(0, $0), CharmLadder.maxSafeTier) }
         partnerID = try? c.decode(UUID.self, forKey: .partnerID)
         // 박스는 원소 단위로 관대 디코딩한다. 위의 `value(.box, [])` 방식(배열 전체를 한 번에 디코드)을
         // 쓰면 개체 하나가 깨져도(2b 에서 필드가 느는 시점 등) 배열 디코드 자체가 던져 박스 전체가 빈
@@ -139,7 +167,6 @@ struct PlayerState: Codable, Sendable {
         inventory = value(.inventory, [:])
         // 관대 디코딩의 짝 — 값 범위 검증. 산술에 쓰이는 수치이므로 자른다.
         researchPoints = min(ReleaseBalance.maxPoints, max(0, value(.researchPoints, 0)))
-        ownsRainbowCharm = value(.ownsRainbowCharm, false)
         claimedDexMissions = value(.claimedDexMissions, [])
         claimedCollections = value(.claimedCollections, [])
         // 값 범위를 안 자른다 — 해시 입력일 뿐이라 어떤 값이 와도 산술이 넘치지 않는다
@@ -153,7 +180,6 @@ struct PlayerState: Codable, Sendable {
         if professorOffers.count != wrappedOffers.count {
             AppLog.write("PlayerState: dropped \(wrappedOffers.count - professorOffers.count) malformed professor offer(s) on decode")
         }
-        ownsShinyCharm = value(.ownsShinyCharm, false)
         lastTokenAt = value(.lastTokenAt, nil)
         language = value(.language, .systemDefault)
     }

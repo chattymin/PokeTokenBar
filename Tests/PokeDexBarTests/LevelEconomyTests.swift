@@ -91,7 +91,7 @@ final class LevelEconomyTests: XCTestCase {
     func testTheExpCharmDoublesExperienceButNotTheEgg() {
         let store = makeStore()
         let id = partnered(store)
-        store.mutate { $0.ownsExpCharm = true }
+        store.mutate { $0.charmTiers[ShopItem.expCharm.rawValue] = CharmLadder.legacyTier }
         store.update(todayTokens: 0, todayDate: "2026-08-12", hasUsageData: true)   // 기준선
         let spent = ExpBalance.tokensPerExp * 1_000
         store.update(todayTokens: spent, todayDate: "2026-08-12", hasUsageData: true)

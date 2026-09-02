@@ -45,15 +45,8 @@ final class EggBalanceTests: XCTestCase {
         XCTAssertNil(EggBalance.slotPrice(forSlotNumber: 3), "기본 3슬롯은 사는 게 아니다")
     }
 
-    /// 이로치 분모 — 부적 없음 64, 이로치 부적 48, 무지개 부적 32(겹쳐도 32).
-    /// 경계 바로 안팎을 잠근다.
+    /// 이로치 판정의 경계 바로 안팎. 분모를 만드는 쪽은 `ShinyOdds`(→ `CharmLadderTests`).
     func testShinyOdds() {
-        XCTAssertEqual(EggBalance.shinyDenominator(shinyCharm: false, rainbowCharm: false), 64)
-        XCTAssertEqual(EggBalance.shinyDenominator(shinyCharm: true, rainbowCharm: false), 48)
-        // 무지개 부적은 이로치 부적의 업그레이드 — 없이도 32, 겹쳐도 32.
-        XCTAssertEqual(EggBalance.shinyDenominator(shinyCharm: false, rainbowCharm: true), 32)
-        XCTAssertEqual(EggBalance.shinyDenominator(shinyCharm: true, rainbowCharm: true), 32)
-
         XCTAssertTrue(EggBalance.rollShiny(1.0 / 64 - 0.0001, denominator: 64))
         XCTAssertFalse(EggBalance.rollShiny(1.0 / 64 + 0.0001, denominator: 64))
         XCTAssertTrue(EggBalance.rollShiny(1.0 / 48 - 0.0001, denominator: 48))

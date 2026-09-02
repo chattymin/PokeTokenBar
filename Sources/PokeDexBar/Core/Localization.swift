@@ -58,6 +58,10 @@ struct L {
         t("모습 \(n)종 보기", "See \(n) forms", "すがた \(n)しゅを みる")
     }
     var collectionCompleteBadge: String { t("완성", "Complete", "かんせい") }
+    /// 부적 단계 배지 — 상점에서 "지금 몇 단계인가".
+    func charmTierBadge(_ tier: Int) -> String {
+        t("\(tier)단계", "Tier \(tier)", "\(tier)だんかい")
+    }
     var missionClaimedToBag: String {
         t("가방에 담았어요", "Added to your Bag", "バッグに いれました")
     }
