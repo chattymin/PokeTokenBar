@@ -171,32 +171,7 @@ struct ShopTabView: View {
         })
     }
 
-    /// 단계가 있는 부적 한 줄 — 지금 단계·지금 효과, 그리고 다음 단계 값.
-    private func charmRow(_ item: ShopItem) -> some View {
-        let tier = store.charmTier(item)
-        let next = store.nextCharmPrice(item)
-        return HStack(alignment: .top) {
-            VStack(alignment: .leading, spacing: 1) {
-                HStack(spacing: 5) {
-                    Text(item.label(store.language)).font(.system(size: 11, weight: .medium))
-                    if tier > 0 {
-                        Text(l.charmTierBadge(tier))
-                            .font(.system(size: 8, weight: .bold))
-                            .padding(.horizontal, 5).padding(.vertical, 1)
-                            .background(Color.accentColor.opacity(0.22), in: Capsule())
-                    }
-                }
-                Text(l.charmShopEffect(item, tier: tier))
-                    .font(.system(size: 9)).foregroundStyle(.tertiary)
-            }
-            Spacer()
-            Button(next.map(TokenFormatter.compact) ?? l.charmMaxTier) {
-                _ = store.upgradeCharm(item)
-            }
-            .buttonStyle(.bordered).controlSize(.small)
-            .disabled(!store.canUpgradeCharm(item))
-        }
-    }
+    private func charmRow(_ item: ShopItem) -> some View { CharmShopRow(store: store, item: item) }
 
     /// 등급·이로치를 굴리고, 그 등급 안에서 베이스 종을 포획률 가중으로 고른다(`EggBalance.pickSpecies`).
     /// 후보는 네트워크(베이스 인덱스)라 여기서 받아 스토어에 넘긴다.
@@ -262,6 +237,43 @@ struct ShopTabView: View {
                 return
             }
             reveal = (egg.grade, egg.shiny)
+        }
+    }
+}
+
+/// 단계가 있는 부적 한 줄 — 지금 단계·지금 효과, 그리고 다음 단계 값.
+///
+/// 상점 뷰에서 떼어 둔 이유: 이 줄 하나가 사다리의 전부라, 릴리스 그림도 **이 줄을 그대로**
+/// 써야 한다(손으로 그린 목업이 앱과 어긋나 README 에 몇 달 남았던 전례 — CLAUDE.md §릴리스).
+struct CharmShopRow: View {
+    let store: PlayerStore
+    let item: ShopItem
+
+    private var l: L { store.l }
+
+    var body: some View {
+        let tier = store.charmTier(item)
+        let next = store.nextCharmPrice(item)
+        HStack(alignment: .top) {
+            VStack(alignment: .leading, spacing: 1) {
+                HStack(spacing: 5) {
+                    Text(item.label(store.language)).font(.system(size: 11, weight: .medium))
+                    if tier > 0 {
+                        Text(l.charmTierBadge(tier))
+                            .font(.system(size: 8, weight: .bold))
+                            .padding(.horizontal, 5).padding(.vertical, 1)
+                            .background(Color.accentColor.opacity(0.22), in: Capsule())
+                    }
+                }
+                Text(l.charmShopEffect(item, tier: tier))
+                    .font(.system(size: 9)).foregroundStyle(.tertiary)
+            }
+            Spacer()
+            Button(next.map(TokenFormatter.compact) ?? l.charmMaxTier) {
+                _ = store.upgradeCharm(item)
+            }
+            .buttonStyle(.bordered).controlSize(.small)
+            .disabled(!store.canUpgradeCharm(item))
         }
     }
 }

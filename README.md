@@ -171,7 +171,7 @@ Star a Pokémon on its detail screen and it can't be sent to the Professor — t
 <tr>
 <td width="55%" valign="middle">
 <h3>🎯 The Dex pays you back</h3>
-Filling the Dex now carries missions, shaped after the games: rewards at registration milestones (10 up to 1000 species), a reward for completing each generation's slice — Mega Stones for the Mega Evolution generations, Max Mushrooms for Kanto and Galar, Shiny Candy for the rest, always on top of a <b>Legendary Egg Ticket</b> — and, for the full 1025, the <b>Rainbow Charm</b>: the Shiny Charm perfected, 1/32 shiny odds, granted even if you never bought the base charm. Tickets are the missions' egg currency: claimed into your Bag, they stand under the Shop's Draw button as a free draw with the grade guaranteed.
+Filling the Dex now carries missions, shaped after the games: rewards at registration milestones (10 up to 1000 species), a reward for completing each generation's slice — Mega Stones for the Mega Evolution generations, Max Mushrooms for Kanto and Galar, Shiny Candy for the rest, always on top of a <b>Legendary Egg Ticket</b> — and, for the full 1025, the <b>Rainbow Charm</b>: 1/32 shiny odds on its own, granted even if you never bought the base charm, and it keeps improving your odds at every tier of the Shiny Charm after that. Tickets are the missions' egg currency: claimed into your Bag, they stand under the Shop's Draw button as a free draw with the grade guaranteed.
 </td>
 <td width="45%" align="center"><img src="assets/screenshot-dex-missions.png" width="300" alt="The Dex tab's missions list — progress bars toward species milestones, three rows ready to claim"></td>
 </tr>
@@ -228,8 +228,15 @@ Draw up to 3 eggs at once (6 with a slot upgrade) — each grade gets its own sh
 <td width="45%" align="center"><img src="assets/screenshot-shop.png" width="300" alt="Shop — egg draws, slot upgrades, EXP Candy, Shiny Candy, Shiny Charm"></td>
 <td width="55%" valign="middle">
 <h3>🛒 A shop built for the economy</h3>
-Every token you've already used is spendable currency. Draw eggs for 10M tokens with the odds shown right on the button, expand your incubator from 3 slots up to 6, buy <b>EXP Candy</b> to grow a Pokémon or <b>Shiny Candy</b> to make one shiny outright, or pick up a permanent <b>Shiny Charm</b> that raises your hatch odds from 1/64 to 1/48, an <b>EXP Charm</b> that doubles the experience earned from both tokens and EXP Candy, or a <b>Fortune Charm</b> that earns 1.5x the currency from every token you spend. A <b>Mega Stone</b> or <b>Max Mushroom</b>, applied from a Pokémon's own detail screen, reshapes it into one of 80 catalogued forms. Evolution and form items are the shop's deliberate omission — those come from your partner.
+Every token you've already used is spendable currency. Draw eggs for 10M tokens with the odds shown right on the button, expand your incubator from 3 slots up to 6, buy <b>EXP Candy</b> to grow a Pokémon or <b>Shiny Candy</b> to make one shiny outright, or start climbing one of the three charms — the <b>Shiny Charm</b> for better hatch odds, the <b>EXP Charm</b> for experience from tokens and candy, the <b>Fortune Charm</b> for currency — each of which now has tiers rather than a single purchase. A <b>Mega Stone</b> or <b>Max Mushroom</b>, applied from a Pokémon's own detail screen, reshapes it into one of 80 catalogued forms. Evolution and form items are the shop's deliberate omission — those come from your partner.
 </td>
+</tr>
+<tr>
+<td width="55%" valign="middle">
+<h3>🪜 Charms are a ladder, not a purchase</h3>
+Each charm has tiers you keep climbing. A tier costs double the one below it while the effect grows by a fixed step, so every step you take costs twice as much per unit of benefit — there is no cap, because the price is the cap. Each row says what it raises, what it does now, and what the next tier would do. Anyone who already owned a charm keeps exactly the effect they paid for: the old one-shot charms land on tier 4, which is 2.00× experience, 1.50× currency, and 1/48 shiny — the same numbers as before.
+</td>
+<td width="45%" align="center"><img src="assets/charm-ladder.png" width="300" alt="The same EXP Charm at three tiers: untiered at 250M, Tier 4 at 4B showing 2.00x, and Tier 8 at 64B showing 3.00x"></td>
 </tr>
 <tr>
 <td width="55%" valign="middle">
@@ -242,7 +249,7 @@ Keep the same Pokémon as your partner long enough and it earns a Ribbon — Bon
 <td width="45%" align="center"><img src="assets/screenshot-bag.png" width="300" alt="Bag tab — consumables with counts, then evolution items 5/41 and form items 3/64 listed as collections"></td>
 <td width="55%" valign="middle">
 <h3>🎒 A bag for what you've gathered</h3>
-The shop sells seven things. The other 105 items only ever arrive in a partner's mouth, so the <b>Bag</b> is where you see what you hold: consumables with counts, permanent charms, and two collections that show how far along you are — <b>41 evolution items</b> and <b>64 form items</b>. Nothing is used from here; every item belongs to a specific Pokémon, so you spend it on that Pokémon's own screen.
+The shop sells seven things. The other 105 items only ever arrive in a partner's mouth, so the <b>Bag</b> is where you see what you hold: consumables with counts, charms with the tier they stand at, and two collections that show how far along you are — <b>41 evolution items</b> and <b>64 form items</b>. Nothing is used from here; every item belongs to a specific Pokémon, so you spend it on that Pokémon's own screen.
 </td>
 </tr>
 </table>

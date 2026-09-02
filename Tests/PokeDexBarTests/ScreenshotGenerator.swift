@@ -1000,6 +1000,11 @@ final class ScreenshotGeneratorTests: XCTestCase {
         try write(png(formChangesBanner()), "form-changes.png")
         try write(png(gradeBadgeBanner()), "grade-badge.png")
 
+        // 부적 사다리 — 한 화면에는 **한 단계밖에** 안 담긴다(상점은 지금 단계만 보여 준다).
+        // 같은 부적을 세 단계로 세로로 놓아야 "값은 두 배씩, 효과는 한 칸씩" 이 읽힌다.
+        // §릴리스 1 하드 게이트가 요구하는 신규 에셋이 이것이다.
+        try write(png(charmLadderBanner()), "charm-ladder.png")
+
         // 문제 제보 — 크래시 배너(홈)와 설정의 제보 줄을 위아래로. **픽스처에 크래시 기록을
         // 심어야 배너가 찍힌다** — 안 심으면 아무리 다시 생성해도 빈 자리만 나온다(설정
         // 스크린샷에 플로팅 펫이 꺼져 있어 새 토글이 영영 안 찍히던 함정과 같은 부류).
@@ -1440,6 +1445,32 @@ final class ScreenshotGeneratorTests: XCTestCase {
                 }
             }
         }
+        .padding(16)
+        .background(Color(nsColor: .windowBackgroundColor))
+    }
+
+    /// 같은 부적의 세 단계를 세로로. 상점의 그 줄(`CharmShopRow`)을 그대로 쓴다 — 값·배율·
+    /// 다음 단계 표기가 앱과 어긋날 수 없다.
+    private func charmLadderBanner() -> some View {
+        let now = ScreenshotFixture.now
+        func store(tier: Int) -> PlayerStore {
+            let store = PlayerStore(fileURL: FileManager.default.temporaryDirectory
+                                        .appendingPathComponent("charm-\(UUID().uuidString).json"),
+                                    rng: SeededRNG(seed: 7), now: { now },
+                                    defaults: UserDefaults(suiteName: "ptb-charm-\(UUID().uuidString)")!)
+            store.setLanguage(.en)
+            // 지갑은 다음 단계를 살 수 있을 만큼 — 값이 모자라면 버튼이 회색이라 값이 안 읽힌다.
+            store.seedForTesting(wallet: CharmLadder.cumulative(through: tier + 1),
+                                 slots: 1, eggs: 0, at: now)
+            store.mutate { $0.charmTiers[ShopItem.expCharm.rawValue] = tier }
+            return store
+        }
+        return VStack(alignment: .leading, spacing: 12) {
+            ForEach([0, 4, 8], id: \.self) { tier in
+                CharmShopRow(store: store(tier: tier), item: .expCharm)
+            }
+        }
+        .frame(width: PopoverMetrics.width - PopoverMetrics.padding * 2)
         .padding(16)
         .background(Color(nsColor: .windowBackgroundColor))
     }
