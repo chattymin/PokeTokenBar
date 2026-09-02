@@ -186,29 +186,16 @@ struct ShopTabView: View {
                             .background(Color.accentColor.opacity(0.22), in: Capsule())
                     }
                 }
-                Text(Self.charmEffectLine(item, tier: tier, l: l))
+                Text(l.charmShopEffect(item, tier: tier))
                     .font(.system(size: 9)).foregroundStyle(.tertiary)
             }
             Spacer()
-            Button(next.map(TokenFormatter.compact) ?? l.shopItemOwnedButton) {
+            Button(next.map(TokenFormatter.compact) ?? l.charmMaxTier) {
                 _ = store.upgradeCharm(item)
             }
             .buttonStyle(.bordered).controlSize(.small)
             .disabled(!store.canUpgradeCharm(item))
         }
-    }
-
-    /// 지금 효과 → 다음 단계 효과. **이로치만 분모로 말한다** — 배율로 적으면 "1.08배" 가
-    /// 무엇을 뜻하는지 알 수 없고, 사용자가 아는 표기는 1/64 쪽이다.
-    nonisolated static func charmEffectLine(_ item: ShopItem, tier: Int, l: L) -> String {
-        func text(_ t: Int) -> String {
-            if item == .shinyCharm {
-                return "1/\(ShinyOdds.denominator(shinyTier: t, rainbowCharm: false))"
-            }
-            return String(format: "%.2f×", CharmLadder.multiplier(item, tier: t))
-        }
-        guard CharmLadder.price(tier: tier + 1) != nil else { return text(tier) }
-        return "\(text(tier)) → \(text(tier + 1))"
     }
 
     /// 등급·이로치를 굴리고, 그 등급 안에서 베이스 종을 포획률 가중으로 고른다(`EggBalance.pickSpecies`).

@@ -62,6 +62,38 @@ struct L {
     func charmTierBadge(_ tier: Int) -> String {
         t("\(tier)단계", "Tier \(tier)", "\(tier)だんかい")
     }
+    /// 더 올릴 데가 없을 때의 버튼 — "보유" 로는 최고 단계인지 1단계인지 구분이 안 된다.
+    var charmMaxTier: String { t("최고 단계", "Max tier", "さいこうだんかい") }
+    /// **부적이 무엇을 올리나.** 값만 "2.00배" 라고 적으면 무엇의 배율인지 알 수가 없다
+    /// (사용자 지적) — 값 앞에 항상 이 이름이 붙는다.
+    func charmEffectName(_ item: ShopItem) -> String {
+        switch item {
+        case .expCharm: t("경험치", "EXP", "けいけんち")
+        case .fortuneCharm: t("재화", "Currency", "所持金")
+        case .shinyCharm: t("이로치", "Shiny", "ひかる")
+        default: item.label(lang)
+        }
+    }
+    /// 그 단계의 값. **이로치만 분모로 말한다** — 사용자가 아는 표기가 1/64 쪽이고,
+    /// "1.08배" 로는 확률이 얼마인지 알 수 없다.
+    func charmEffectValue(_ item: ShopItem, tier: Int) -> String {
+        if item == .shinyCharm {
+            return "1/\(ShinyOdds.denominator(shinyTier: tier, rainbowCharm: false))"
+        }
+        let value = String(format: "%.2f", CharmLadder.multiplier(item, tier: tier))
+        return t("\(value)배", "\(value)×", "\(value)倍")
+    }
+    /// 상점 한 줄 — 지금 값과, 다음 단계의 값. 다음이 몇 단계인지 같이 적어야 버튼의
+    /// 값이 무엇을 사는 값인지 이어진다.
+    func charmShopEffect(_ item: ShopItem, tier: Int) -> String {
+        let now = "\(charmEffectName(item)) \(charmEffectValue(item, tier: tier))"
+        guard CharmLadder.price(tier: tier + 1) != nil else { return now }
+        return "\(now) → \(charmTierBadge(tier + 1)) \(charmEffectValue(item, tier: tier + 1))"
+    }
+    /// 가방 한 줄 — 가진 것을 보는 화면이라 지금 단계와 지금 효과만 말한다.
+    func charmBagEffect(_ item: ShopItem, tier: Int) -> String {
+        "\(charmTierBadge(tier)) · \(charmEffectName(item)) \(charmEffectValue(item, tier: tier))"
+    }
     var missionClaimedToBag: String {
         t("가방에 담았어요", "Added to your Bag", "バッグに いれました")
     }

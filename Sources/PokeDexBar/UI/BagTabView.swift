@@ -59,7 +59,7 @@ struct BagTabView: View {
                     Text(row.name).font(.system(size: 11, weight: .medium))
                     Spacer()
                     // 안 없어지는 물건에 "×1" 을 붙이면 소모품으로 읽힌다.
-                    Text(row.count > 0 ? "×\(row.count)" : l.shopItemOwned)
+                    Text(row.effect ?? (row.count > 0 ? "×\(row.count)" : l.shopItemOwned))
                         .font(.system(size: 9)).foregroundStyle(.secondary).monospacedDigit()
                 }
             }
@@ -70,6 +70,8 @@ struct BagTabView: View {
         let name: String
         /// 소모품이면 남은 개수, 영구 보유형이면 0(개수 대신 "보유 중"을 보여준다).
         let count: Int
+        /// 단계가 있는 부적의 지금 효과. 개수도 "보유 중"도 이 물건을 설명하지 못한다.
+        var effect: String?
     }
 
     struct Section: Sendable, Equatable {
@@ -89,9 +91,16 @@ struct BagTabView: View {
         let consumables = ShopItem.allCases
             .filter { !$0.isCharm && store.count(of: $0) > 0 }
             .map { Row(name: $0.label(store.language), count: store.count(of: $0)) }
+        // 부적은 이제 단계가 있다 — 가방이 이름만 말하면 "가진 건 알겠는데 지금 얼마나
+        // 좋은가"를 상점에 다시 가서 봐야 한다. 상점과 **같은 말**을 쓴다(`L.charmEffectName`).
         let charms = ShopItem.allCases
             .filter { $0.isCharm && store.owns($0) }
-            .map { Row(name: $0.label(store.language), count: 0) }
+            .map { item in
+                Row(name: item.label(store.language), count: 0,
+                    effect: CharmLadder.isTiered(item)
+                        ? store.l.charmBagEffect(item, tier: store.charmTier(item))
+                        : nil)
+            }
         let evolution = EvolutionItem.allCases
             .filter { store.count(of: $0) > 0 }
             .map { Row(name: $0.label(store.language), count: 0) }

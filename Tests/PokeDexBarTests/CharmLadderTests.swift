@@ -237,13 +237,46 @@ final class CharmLadderTests: XCTestCase {
 
     // MARK: 표시
 
-    /// 상점 줄이 **지금 값과 다음 값**을 함께 말한다 — 이로치만 분모로.
-    func testTheShopLineNamesBothTheCurrentAndTheNextStep() {
-        let l = L(.en)
-        XCTAssertEqual(ShopTabView.charmEffectLine(.expCharm, tier: 4, l: l), "2.00× → 2.25×")
-        XCTAssertEqual(ShopTabView.charmEffectLine(.shinyCharm, tier: 0, l: l), "1/64 → 1/59")
-        let top = String(format: "%.2f×", CharmLadder.multiplier(.expCharm, tier: CharmLadder.maxSafeTier))
-        XCTAssertEqual(ShopTabView.charmEffectLine(.expCharm, tier: CharmLadder.maxSafeTier, l: l),
-                       top, "더 올릴 데가 없으면 화살표가 없다")
+    /// 상점 줄이 **무엇이 · 지금 얼마고 · 다음 단계에 얼마인지**를 다 말한다. 값만 적으면
+    /// 무엇의 배율인지 알 수가 없다(사용자 지적).
+    func testTheShopLineNamesTheEffectTheValueAndTheNextTier() {
+        let l = L(.ko)
+        XCTAssertEqual(l.charmShopEffect(.expCharm, tier: 4), "경험치 2.00배 → 5단계 2.25배")
+        // 1.125 는 짝수 반올림으로 1.12 로 적힌다 — 두 자리로 자르는 이상 어디선가는
+        // 자투리가 생기고, 표시가 실제보다 커 보이는 쪽보다 작아 보이는 쪽이 낫다.
+        XCTAssertEqual(l.charmShopEffect(.fortuneCharm, tier: 0), "재화 1.00배 → 1단계 1.12배")
+        // 이로치만 분모로 — "1.08배" 로는 확률이 얼마인지 알 수 없다.
+        XCTAssertEqual(l.charmShopEffect(.shinyCharm, tier: 0), "이로치 1/64 → 1단계 1/59")
+        XCTAssertEqual(l.charmShopEffect(.expCharm, tier: CharmLadder.maxSafeTier),
+                       "경험치 \(String(format: "%.2f", CharmLadder.multiplier(.expCharm, tier: CharmLadder.maxSafeTier)))배",
+                       "더 올릴 데가 없으면 화살표가 없다")
+    }
+
+    /// 세 언어 모두 이름과 값이 다 들어간다 — 한 언어만 배선하고 나머지가 비면 그 언어에서만
+    /// 다시 "무엇의 배율인지 모르는" 화면이 된다.
+    func testEveryLanguageNamesTheEffect() {
+        for lang in AppLanguage.allCases {
+            let l = L(lang)
+            for item in [ShopItem.expCharm, .fortuneCharm, .shinyCharm] {
+                let line = l.charmShopEffect(item, tier: 3)
+                XCTAssertTrue(line.hasPrefix(l.charmEffectName(item)),
+                              "\(lang)/\(item): 값 앞에 이름이 없다 — \(line)")
+                XCTAssertTrue(line.contains(l.charmTierBadge(4)),
+                              "\(lang)/\(item): 다음이 몇 단계인지 안 적혀 있다 — \(line)")
+                XCTAssertFalse(l.charmEffectName(item).isEmpty)
+            }
+        }
+    }
+
+    /// 가방도 상점과 **같은 말**을 쓴다 — 가진 부적이 지금 얼마나 좋은지 보려고 상점에
+    /// 다시 갈 필요가 없어야 한다.
+    func testTheBagShowsTheTierAndTheCurrentEffect() {
+        let store = makeStore(wallet: 0)
+        store.mutate { $0.charmTiers[ShopItem.expCharm.rawValue] = 4 }
+        let charms = BagTabView.sections(store)
+            .first { $0.rows.contains { $0.name == ShopItem.expCharm.label(store.language) } }
+        let row = charms?.rows.first { $0.name == ShopItem.expCharm.label(store.language) }
+        XCTAssertEqual(row?.effect, store.l.charmBagEffect(.expCharm, tier: 4))
+        XCTAssertEqual(store.l.charmBagEffect(.expCharm, tier: 4), "4단계 · 경험치 2.00배")
     }
 }
