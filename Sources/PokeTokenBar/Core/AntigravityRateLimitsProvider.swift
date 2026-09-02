@@ -12,22 +12,30 @@ public struct AntigravityRateLimitsProvider: AntigravityLimitsProviding, Sendabl
     public static let googleTokenURL = URL(string: "https://oauth2.googleapis.com/token")!
     public static let googleClientID = "1071006060591-tmhssin2h21lcre235vtolojh4g403ep.apps.googleusercontent.com"
 
-    private let tokenCache = AntigravityTokenCache.shared
+    private let tokenCache: AntigravityTokenCache
 
-    public init() {}
+    public init() {
+        self.tokenCache = .shared
+    }
+
+    init(tokenCache: AntigravityTokenCache) {
+        self.tokenCache = tokenCache
+    }
 
     public func fetch(allowKeychainPrompt: Bool = false) async throws -> AntigravityRateLimitStatus {
         let token = try await tokenCache.accessToken(allowKeychainPrompt: allowKeychainPrompt)
         do {
             return try await fetchStatus(accessToken: token)
         } catch let error as LimitsError {
-            guard case .httpStatus(let httpStatus) = error, httpStatus == 401 || httpStatus == 403 else {
+            guard case .httpStatus(let httpStatus) = error, httpStatus == 401 else {
                 throw error
             }
-            await tokenCache.invalidate()
             let refreshed = try await tokenCache.accessToken(
                 allowKeychainPrompt: allowKeychainPrompt, bypassCache: true)
-            guard refreshed != token else { throw error }
+            guard refreshed != token else {
+                await tokenCache.invalidate()
+                throw error
+            }
             return try await fetchStatus(accessToken: refreshed)
         }
     }
@@ -86,13 +94,30 @@ public struct AntigravityRateLimitsProvider: AntigravityLimitsProviding, Sendabl
     }
 }
 
+public typealias AntigravityTokenRefresher = @Sendable (String) async throws -> AntigravityOAuthCredential?
+
 actor AntigravityTokenCache {
     static let shared = AntigravityTokenCache()
     private var cachedCredential: AntigravityOAuthCredential?
     private let tokenFileURLs: [URL]
+    private let persistentStoreURL: URL?
+    private let tokenRefresher: AntigravityTokenRefresher
 
-    init(tokenFileURLs: [URL]? = nil) {
+    init(
+        tokenFileURLs: [URL]? = nil,
+        persistentStoreURL: URL? = nil,
+        tokenRefresher: AntigravityTokenRefresher? = nil
+    ) {
         self.tokenFileURLs = tokenFileURLs ?? Self.defaultTokenFileURLs
+        if let persistentStoreURL {
+            self.persistentStoreURL = persistentStoreURL
+        } else if tokenFileURLs == nil {
+            self.persistentStoreURL = Self.defaultPersistentStoreURL
+        } else {
+            // 테스트 등에서 tokenFileURLs 를 명시적으로 주입한 경우 실제 앱 상태 디렉토리를 오염시키지 않음
+            self.persistentStoreURL = nil
+        }
+        self.tokenRefresher = tokenRefresher ?? { try await Self.refreshGoogleToken(refreshToken: $0) }
     }
 
     static var defaultTokenFileURLs: [URL] {
@@ -103,38 +128,63 @@ actor AntigravityTokenCache {
         ]
     }
 
+    static var defaultPersistentStoreURL: URL {
+        AppStatePaths.directory().appendingPathComponent("antigravity-credential.json")
+    }
+
     func accessToken(allowKeychainPrompt: Bool, bypassCache: Bool = false) async throws -> String {
         // 1. 파일 크리덴셜(~/.gemini/jetski-standalone-oauth-token) — 키체인 무관, 프롬프트 없음.
-        //    파일로 답할 수 있으면 여기서 끝낸다. 이 return 이 없으면 유효한 파일 토큰이 있어도
-        //    매 호출이 키체인까지 내려간다(프롬프트를 피할 수 있는 경로를 두고 쓰지 않는 셈).
-        //    캐시 히트보다 앞: 파일 로드는 expiresAt=nil 이라 캐시가 만료로 풀리지 않고,
-        //    계정 전환으로 파일이 바뀌어도 옛 토큰을 계속 쓴다(#227 과 같은 부류).
-        if let fileToken = Self.readTokenFile(urls: tokenFileURLs) {
-            if cachedCredential?.accessToken != fileToken {
-                cachedCredential = AntigravityOAuthCredential(
-                    accessToken: fileToken, refreshToken: nil, expiresAt: nil)
+        //    파일로 답할 수 있으면 여기서 끝낸다. 캐시 히트보다 앞: 파일 로드는 expiresAt=nil 이라
+        //    캐시가 만료로 풀리지 않고, 계정 전환으로 파일이 바뀌어도 옛 토큰을 계속 쓰는 결함을 방지(#227).
+        if let fileCred = Self.readTokenFile(urls: tokenFileURLs) {
+            if cachedCredential?.accessToken != fileCred.accessToken {
+                cachedCredential = fileCred
+                persistCredential(fileCred)
             }
-            return fileToken
+            if !bypassCache && !fileCred.isExpired {
+                return fileCred.accessToken
+            }
+            if let refreshToken = fileCred.refreshToken {
+                if let refreshed = try? await tokenRefresher(refreshToken) {
+                    cachedCredential = refreshed
+                    persistCredential(refreshed)
+                    return refreshed.accessToken
+                }
+            }
+            if !fileCred.isExpired {
+                return fileCred.accessToken
+            }
         }
 
-        if !bypassCache, let cachedCredential, !cachedCredential.isExpired {
-            return cachedCredential.accessToken
-        }
-
-        // 2. 자동(타이머) 경로는 Keychain 을 일절 읽지 않는다. no-UI 쿼리(kSecUseAuthenticationUIFail
-        //    /LAContext)로도 잠긴·미승인 login 키체인의 '암호 입력' 다이얼로그는 억제되지 않는다 —
-        //    OAuthLimitsProvider 가 같은 이유로 자동 경로에서 키체인을 열지 않는다(실측: 캐시 만료 폴
-        //    도중 SecItemCopyMatching 이 13초간 블록하며 팝업). 캐시가 살아있으면 그 토큰으로 계속
-        //    갱신하고, 없으면 한도를 stale 로 두고 사용자가 갱신을 누를 때 재취득한다.
+        // 2. 자동(타이머) 경로: Keychain 을 일절 읽지 않고 캐시/영속저장소/refreshToken 으로만 답한다.
         guard allowKeychainPrompt else {
-            if let cachedCredential, !cachedCredential.isExpired {
+            if cachedCredential == nil {
+                cachedCredential = loadPersistedCredential()
+            }
+
+            if !bypassCache, let cachedCredential, !cachedCredential.isExpired {
                 return cachedCredential.accessToken
             }
+
+            // 토큰이 만료되었거나 bypassCache 요청 시: refreshToken이 있으면 네트워크(HTTPS)로 갱신.
+            // Google OAuth refresh_token은 키체인을 전혀 건드리지 않고 HTTPS 호출만 수행하므로
+            // 자동 폴링(allowKeychainPrompt=false)에서도 100% 안전하게 동작한다.
+            // Google refresh token은 회전하지 않고 장기간 유효하므로(defect-log §자격증명),
+            // 이 경로를 통해 사용자가 매시간 또는 앱 재시작마다 수동 갱신할 필요 없이 자격증명이 영속된다.
+            if let cachedCredential, let refreshToken = cachedCredential.refreshToken {
+                if let refreshed = try? await tokenRefresher(refreshToken) {
+                    self.cachedCredential = refreshed
+                    persistCredential(refreshed)
+                    return refreshed.accessToken
+                }
+            }
+
             throw LimitsError.keychainInteractionNotAllowed
         }
 
-        // 3. 사용자 동작 경로: 무프롬프트로 먼저 시도(과거 '항상 허용'했다면 조용히 성공), 안 되면
-        //    프롬프트를 동반해 읽어 최초 1회 '항상 허용'을 유도한다.
+        // 3. 사용자 동작 경로(allowKeychainPrompt=true):
+        // 사용자가 명시적으로 갱신을 요청했으므로 캐시를 우회하여 Keychain 에서 최신 자격증명을 읽는다.
+        // 무프롬프트로 먼저 시도(과거 '항상 허용'했다면 조용히 성공), 안 되면 프롬프트를 동반해 읽는다.
         if let cred = Self.readKeychainSilently() {
             return try await resolveValidToken(from: cred)
         }
@@ -145,25 +195,61 @@ actor AntigravityTokenCache {
     private func resolveValidToken(from cred: AntigravityOAuthCredential) async throws -> String {
         if !cred.isExpired {
             cachedCredential = cred
+            persistCredential(cred)
             return cred.accessToken
         }
         // 만료되었고 refresh_token이 있다면 갱신 시도
         if let refreshToken = cred.refreshToken {
-            if let refreshed = try? await Self.refreshGoogleToken(refreshToken: refreshToken) {
+            if let refreshed = try? await tokenRefresher(refreshToken) {
                 cachedCredential = refreshed
+                persistCredential(refreshed)
                 return refreshed.accessToken
             }
         }
-        // 갱신 실패했더라도 기존 accessToken 반환 (API에서 401 나면 다시 처리)
+        // 갱신 실패했더라도 기존 accessToken 저장 및 반환 (API에서 401 나면 다시 처리)
         cachedCredential = cred
+        persistCredential(cred)
         return cred.accessToken
     }
 
     func invalidate() {
         cachedCredential = nil
+        clearPersistedCredential()
     }
 
-    private static func refreshGoogleToken(refreshToken: String) async throws -> AntigravityOAuthCredential? {
+    private func persistCredential(_ credential: AntigravityOAuthCredential) {
+        guard let url = persistentStoreURL else { return }
+        do {
+            let data = try JSONEncoder().encode(credential)
+            try FileManager.default.createDirectory(
+                at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try? FileManager.default.removeItem(at: url)
+            FileManager.default.createFile(
+                atPath: url.path, contents: nil,
+                attributes: [.posixPermissions: NSNumber(value: Int16(0o600))])
+            try data.write(to: url, options: .atomic)
+            try? FileManager.default.setAttributes(
+                [.posixPermissions: NSNumber(value: Int16(0o600))], ofItemAtPath: url.path)
+        } catch {
+            AppLog.write("failed to persist antigravity credential: \(error)")
+        }
+    }
+
+    private func loadPersistedCredential() -> AntigravityOAuthCredential? {
+        guard let url = persistentStoreURL,
+              let data = try? Data(contentsOf: url),
+              let credential = try? JSONDecoder().decode(AntigravityOAuthCredential.self, from: data),
+              !credential.accessToken.isEmpty
+        else { return nil }
+        return credential
+    }
+
+    private func clearPersistedCredential() {
+        guard let url = persistentStoreURL else { return }
+        try? FileManager.default.removeItem(at: url)
+    }
+
+    static func refreshGoogleToken(refreshToken: String) async throws -> AntigravityOAuthCredential? {
         // fetchStatus 와 별개의 네트워크 경계다 — 여기를 빼면 스위트가 사용자 refresh_token 을 실제로
         // 소비해 새 토큰을 발급받는다(조회보다 부작용이 크다).
         guard AppEnv.isBundledApp || AppEnv.isParityRun else { throw LimitsError.liveFetchNotPermitted }
@@ -193,14 +279,17 @@ actor AntigravityTokenCache {
             expiresAt: Date().addingTimeInterval(expiresIn))
     }
 
-    private nonisolated static func readTokenFile(urls: [URL]) -> String? {
+    private nonisolated static func readTokenFile(urls: [URL]) -> AntigravityOAuthCredential? {
         for url in urls {
-            guard let data = try? Data(contentsOf: url),
-                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+            guard let data = try? Data(contentsOf: url) else { continue }
+            if let cred = parseCredential(data: data) {
+                return cred
+            }
+            guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                   let token = json["token"] as? String, !token.isEmpty else {
                 continue
             }
-            return token
+            return AntigravityOAuthCredential(accessToken: token, refreshToken: nil, expiresAt: nil)
         }
         return nil
     }
@@ -219,29 +308,33 @@ actor AntigravityTokenCache {
         if KeychainAccessGate.isDisabled {
             throw LimitsError.keychainAccessDisabled
         }
-        var query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: "gemini",
-            kSecAttrAccount as String: "antigravity",
-            kSecReturnData as String: true,
-            kSecMatchLimit as String: kSecMatchLimitOne,
-        ]
-        if !allowKeychainPrompt {
-            KeychainNoUIQuery.apply(to: &query)
-        }
+        let services = ["gemini", "antigravity"]
+        var lastStatus: OSStatus = errSecItemNotFound
 
-        var item: CFTypeRef?
-        let status = KeychainReader.copyMatching(query, &item)
-        if status == errSecInteractionNotAllowed {
-            throw LimitsError.keychainInteractionNotAllowed
+        for service in services {
+            var query: [String: Any] = [
+                kSecClass as String: kSecClassGenericPassword,
+                kSecAttrService as String: service,
+                kSecAttrAccount as String: "antigravity",
+                kSecReturnData as String: true,
+                kSecMatchLimit as String: kSecMatchLimitOne,
+            ]
+            if !allowKeychainPrompt {
+                KeychainNoUIQuery.apply(to: &query)
+            }
+
+            var item: CFTypeRef?
+            let status = KeychainReader.copyMatching(query, &item)
+            if status == errSecInteractionNotAllowed {
+                throw LimitsError.keychainInteractionNotAllowed
+            }
+            lastStatus = status
+            if status == errSecSuccess, let data = item as? Data,
+               let credential = parseCredential(data: data) {
+                return credential
+            }
         }
-        guard status == errSecSuccess, let data = item as? Data else {
-            throw LimitsError.keychainUnavailable(status)
-        }
-        guard let credential = parseCredential(data: data) else {
-            throw LimitsError.credentialFormat
-        }
-        return credential
+        throw LimitsError.keychainUnavailable(lastStatus)
     }
 
     private nonisolated static func parseCredential(data: Data) -> AntigravityOAuthCredential? {
@@ -268,6 +361,28 @@ actor AntigravityTokenCache {
             let expiresAt: Date?
             if let expiryStr = tokenObj["expiry"] as? String {
                 expiresAt = ISO8601Parser.date(from: expiryStr)
+            } else if let expiresAtNum = tokenObj["expires_at"] as? TimeInterval {
+                expiresAt = Date(timeIntervalSince1970: expiresAtNum)
+            } else if let expiresIn = tokenObj["expires_in"] as? TimeInterval {
+                expiresAt = Date().addingTimeInterval(expiresIn)
+            } else {
+                expiresAt = nil
+            }
+            return AntigravityOAuthCredential(
+                accessToken: accessToken,
+                refreshToken: refreshToken,
+                expiresAt: expiresAt)
+        }
+
+        if let accessToken = json["access_token"] as? String, !accessToken.isEmpty {
+            let refreshToken = json["refresh_token"] as? String
+            let expiresAt: Date?
+            if let expiryStr = json["expiry"] as? String {
+                expiresAt = ISO8601Parser.date(from: expiryStr)
+            } else if let expiresAtNum = json["expires_at"] as? TimeInterval {
+                expiresAt = Date(timeIntervalSince1970: expiresAtNum)
+            } else if let expiresIn = json["expires_in"] as? TimeInterval {
+                expiresAt = Date().addingTimeInterval(expiresIn)
             } else {
                 expiresAt = nil
             }
@@ -288,7 +403,7 @@ actor AntigravityTokenCache {
     }
 }
 
-public struct AntigravityOAuthCredential: Sendable {
+public struct AntigravityOAuthCredential: Sendable, Codable, Equatable {
     public let accessToken: String
     public let refreshToken: String?
     public let expiresAt: Date?

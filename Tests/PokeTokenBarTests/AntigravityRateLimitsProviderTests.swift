@@ -168,6 +168,121 @@ final class AntigravityRateLimitsProviderTests: XCTestCase {
         XCTAssertNotNil(store.antigravityLimits)
         XCTAssertFalse(store.isRefreshingAntigravityLimits)
     }
+
+    func testAntigravityAutoPollRenewsExpiredTokenUsingRefreshTokenWithoutKeychain() async throws {
+        let savedGate = KeychainAccessGate.isDisabled
+        KeychainAccessGate.isDisabled = false
+        defer { KeychainAccessGate.isDisabled = savedGate }
+
+        KeychainReader.resetQueryCountForTesting()
+
+        let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let storeURL = tempDir.appendingPathComponent("antigravity-credential.json")
+
+        // Seed an expired credential carrying a refresh token
+        let initialCred = AntigravityOAuthCredential(
+            accessToken: "expired-access-token",
+            refreshToken: "valid-google-refresh-token",
+            expiresAt: Date().addingTimeInterval(-300) // 5 minutes ago
+        )
+        let initialData = try JSONEncoder().encode(initialCred)
+        try initialData.write(to: storeURL, options: .atomic)
+
+        final class Counter: @unchecked Sendable {
+            var count = 0
+        }
+        let counter = Counter()
+        let mockRefresher: AntigravityTokenRefresher = { token in
+            counter.count += 1
+            return AntigravityOAuthCredential(
+                accessToken: "newly-minted-access-token",
+                refreshToken: token,
+                expiresAt: Date().addingTimeInterval(3600)
+            )
+        }
+
+        let cache = AntigravityTokenCache(
+            tokenFileURLs: [],
+            persistentStoreURL: storeURL,
+            tokenRefresher: mockRefresher
+        )
+
+        // Auto-poll path: allowKeychainPrompt is FALSE
+        let token = try await cache.accessToken(allowKeychainPrompt: false)
+        XCTAssertEqual(token, "newly-minted-access-token", "Expired token should be refreshed using refresh token")
+        XCTAssertEqual(counter.count, 1, "Token refresher should be called exactly once")
+        XCTAssertEqual(KeychainReader.queryCount, 0, "Automatic renewal must never query the Keychain")
+
+        // Assert persistent file was updated
+        let reloadedData = try Data(contentsOf: storeURL)
+        let reloadedCred = try JSONDecoder().decode(AntigravityOAuthCredential.self, from: reloadedData)
+        XCTAssertEqual(reloadedCred.accessToken, "newly-minted-access-token")
+        XCTAssertFalse(reloadedCred.isExpired)
+    }
+
+    func testAntigravityRestoresPersistedCredentialOnLaunch() async throws {
+        let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let storeURL = tempDir.appendingPathComponent("antigravity-credential.json")
+        let cred = AntigravityOAuthCredential(
+            accessToken: "persisted-live-token",
+            refreshToken: "some-refresh-token",
+            expiresAt: Date().addingTimeInterval(3600)
+        )
+        let data = try JSONEncoder().encode(cred)
+        try data.write(to: storeURL, options: .atomic)
+
+        let cache = AntigravityTokenCache(tokenFileURLs: [], persistentStoreURL: storeURL)
+        let token = try await cache.accessToken(allowKeychainPrompt: false)
+        XCTAssertEqual(token, "persisted-live-token", "Persisted live token should be returned without Keychain query")
+        XCTAssertEqual(KeychainReader.queryCount, 0)
+    }
+
+    func testAntigravityExpiredTokenWithoutRefreshTokenFailsSilentlyOnAutoPoll() async throws {
+        let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let storeURL = tempDir.appendingPathComponent("antigravity-credential.json")
+        let cred = AntigravityOAuthCredential(
+            accessToken: "expired-no-refresh",
+            refreshToken: nil,
+            expiresAt: Date().addingTimeInterval(-60)
+        )
+        let data = try JSONEncoder().encode(cred)
+        try data.write(to: storeURL, options: .atomic)
+
+        let cache = AntigravityTokenCache(tokenFileURLs: [], persistentStoreURL: storeURL)
+        do {
+            _ = try await cache.accessToken(allowKeychainPrompt: false)
+            XCTFail("Should throw keychainInteractionNotAllowed when token is expired and cannot refresh")
+        } catch LimitsError.keychainInteractionNotAllowed {
+            // Expected
+        }
+        XCTAssertEqual(KeychainReader.queryCount, 0, "Must not query Keychain on auto-poll even when expired")
+    }
+
+    func testAntigravityInvalidateClearsPersistentStore() async throws {
+        let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let storeURL = tempDir.appendingPathComponent("antigravity-credential.json")
+        let cred = AntigravityOAuthCredential(accessToken: "valid-token")
+        let data = try JSONEncoder().encode(cred)
+        try data.write(to: storeURL, options: .atomic)
+
+        let cache = AntigravityTokenCache(tokenFileURLs: [], persistentStoreURL: storeURL)
+        _ = try await cache.accessToken(allowKeychainPrompt: false)
+        await cache.invalidate()
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: storeURL.path), "Invalidate must remove persistent credential file")
+    }
 }
 
 private struct FakeAntigravityLimits: AntigravityLimitsProviding {

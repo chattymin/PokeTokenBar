@@ -345,6 +345,30 @@ read_when:
   같은 맥락에서 기각된 것: **사용자 경로에 무프롬프트 선시도를 덧대는 것**(Antigravity 방식). ACL 이
   승인돼 있으면 프롬프트 쿼리도 조용히 통과하고, 미승인이면 무프롬프트는 실패해 결국 프롬프트를 띄운다 —
   두 경로의 결과가 같아 얻는 게 없다. 패턴이 다른 프로바이더에 있다는 것만으로 이식하지 마라.
+- **Antigravity 자격증명이 지속되지 않던 결함 — 영속 저장과 `refreshToken` 자동 갱신으로 해결.**
+  Antigravity 공식 한도는 최초 갱신 후 1시간이 지나면 stale 로 떨어지고, 앱을 재시작하면 한도가 사라져
+  매번 수동 갱신을 눌러야 했다("creds do not stick").
+  **원인 (4가지 누적):**
+  1. `AntigravityTokenCache` 가 인메모리에만 토큰을 보관해 앱 재시작마다 자격증명이 증발.
+  2. Google OAuth 액세스 토큰은 약 1시간 후 만료되는데, 자동 폴(`allowKeychainPrompt: false`)이
+     `refreshToken` 이 메모리에 있어도 사용하지 않고 `keychainInteractionNotAllowed` 를 던짐.
+     Google `refresh_token` 은 키체인을 전혀 건드리지 않고 `https://oauth2.googleapis.com/token` HTTPS
+     호출만 수행하므로 자동 폴에서도 안전하며, 회전하지 않는 장기 토큰이다.
+  3. `fetch()` 에러 처리에서 403까지 `invalidate()` 로 보내 캐시와 `refreshToken` 을 통째로 지움
+     (403 은 자격증명 만료가 아니라 계정 티어 문제임에도 파기).
+  4. `readTokenFile` 이 토큰 객체 포맷을 파싱하지 못함.
+  → **해결:**
+  1. `SessionKeyStore` 와 동일하게 `AppStatePaths.directory().appendingPathComponent("antigravity-credential.json")`
+     에 0600(소유자 전용) 평문 JSON 으로 자격증명(`accessToken`, `refreshToken`, `expiresAt`)을 영속.
+  2. 자동 폴(`allowKeychainPrompt: false`)에서 토큰 만료 시 `refreshToken` 이 있으면 네트워크로
+     자동 갱신하여 키체인 접근 없이(`KeychainReader.queryCount == 0`) 최신 상태를 유지.
+  3. 사용자 동작 경로(`allowKeychainPrompt: true`)에서는 키체인을 읽어 새 자격증명을 캐시 및 파일에 갱신.
+  4. 401 에서만 토큰 갱신을 시도하고 403 은 자격증명을 파기하지 않음.
+  가드: `testAntigravityAutoPollRenewsExpiredTokenUsingRefreshTokenWithoutKeychain`,
+  `testAntigravityRestoresPersistedCredentialOnLaunch`,
+  `testAntigravityExpiredTokenWithoutRefreshTokenFailsSilentlyOnAutoPoll`,
+  `testAntigravityInvalidateClearsPersistentStore`,
+  `testAutomaticPathNeverQueriesTheKeychain`, `testManualPathDoesQueryTheKeychain`.
 - **인메모리 토큰 캐시는 만료만 보면 안 된다 — 원본 파일이 다른 유효 토큰으로 바뀌었는지도 본다.**
   `/login` 으로 계정을 갈아타면 `~/.claude/.credentials.json` 이 새 토큰으로 덮이지만, 캐시가 옛
   토큰의 `expiresAt` 까지 그걸 무시하면 공식 5h/주 바가 이전 계정에 붙고 컴패니언 EXP 만 로컬
