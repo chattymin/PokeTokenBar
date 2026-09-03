@@ -327,6 +327,46 @@ read_when:
   회귀 가드: `testAutoRefreshUsesNoPromptPathManualUsesPromptPath`. (완전 근절은 Developer ID
   notarization 으로 '항상 허용' 승인을 안정화하는 것뿐 — 신뢰된 서명 신원이라야 ACL 승인이 지속된다.
   미도입.)
+- **OAuth 갱신은 "성공했다"가 아니라 "우리 요청이 규격에 맞다"로 검증해야 한다 — 스텁은 그걸 못 본다.**
+  #44 가 넣은 antigravity 자동 갱신은 **단 한 번도 성공한 적이 없다.** Antigravity 의 Google 클라이언트는
+  confidential client 라 refresh_token 그랜트에 `client_secret` 이 필수인데 그게 빠져 있었고, Google 은
+  매번 `400 {"error":"invalid_request","error_description":"client_secret is missing."}` 로 답했다.
+  `refreshGoogleToken` 은 non-200 을 전부 `nil` 로 접었고 호출부는 `try?` 로 삼켜서, 증상은 **매시간
+  (= 액세스 토큰 수명 3600s) Keychain 프롬프트** 로만 드러났다. 실측 로그의 실패 간격이 정확히
+  00:19 → 01:25 → 02:26 → 03:31 이었다.
+  *테스트가 왜 못 걸렀나*: `testAntigravityAutoPollRenewsExpiredTokenUsingRefreshTokenWithoutKeychain`
+  이 `tokenRefresher` 스텁을 주입해 **성공을 흉내냈다.** 프로덕션이 실제로 조립하는 요청 바디는
+  단언 대상이 아니었다 — 스텁 테스트는 "갱신 결과를 우리가 잘 다루는가"만 답하지 "우리가 보내는 요청이
+  통하는가"에는 답하지 않는다. 외부 API 호출은 **바디 조립을 순수 함수로 떼어 단언하고**
+  (`makeRefreshRequest` + `testRefreshRequestCarriesClientSecret`), 실계정 parity 테스트로 한 번은
+  진짜로 통과시켜 본다(`AntigravityRefreshParityTests`, `PTB_PARITY=1` 에서만).
+- **갱신 실패를 한 종류로 뭉치면 네트워크 블립이 Keychain 프롬프트로 승격된다.** `Credential?` 하나로는
+  "refresh token 이 죽었다(`invalid_grant`)" 와 "지금 5xx/타임아웃이다" 가 구분되지 않아, 후자에서도
+  캐시를 버리고 사용자를 프롬프트 경로로 몰았다. → `AntigravityRefreshOutcome` 으로
+  `credentialRejected`(재취득 필요) / `clientRejected`(secret 이 틀림 — 다음 후보) / `transient`
+  (캐시 유지, 다음 폴 재시도) 를 나눈다. 회귀 가드:
+  `testTransientFailureKeepsCredentialForNextPoll` (결함 주입 확인 완료).
+- **프롬프트를 없애려고 만든 갱신 버튼이 매 탭마다 프롬프트를 내면 안 된다.** antigravity 사용자 동작
+  경로는 유효한 refresh token 이 디스크에 있어도 곧장 Keychain 을 읽었다. 순서를 **무프롬프트 Keychain
+  읽기 → 보관된 refresh token 으로 갱신 → (마지막) 프롬프트 동반 읽기** 로 둔다. 무프롬프트 읽기를
+  맨 앞에 남기는 이유는 계정 전환 반영이다(#227 부류 — CLI 가 항목을 새 계정으로 덮어쓴다).
+  회귀 가드: `testUserTapRefreshesBeforeReachingTheKeychain`.
+- **vendor client_secret 은 저장소에 넣지 않는다 — 평문 자격증명 파일의 가치를 낮게 유지한다.**
+  `antigravity-credential.json`(0600)의 refresh token 은 **회전하지 않고** 스코프에
+  `https://www.googleapis.com/auth/cloud-platform` 이 들어 있다(실측). secret 이 없는 동안 그 파일은
+  단독으로는 아무것도 못 하지만, 공개 레포에 secret 을 올리면 **파일 유출 = 갱신 가능한 GCP 액세스**
+  가 된다. → secret 은 이미 설치된 Antigravity 바이너리에서 런타임에 읽는다
+  (`AntigravityClientSecret`). 로컬 공격자에게는 보안 경계가 아니며(같은 바이너리를 읽으면 된다)
+  **유출된 파일 하나의 가치**만 낮추는 조치다 — 그 이상을 주장하지 않는다.
+  바이너리 안에서 secret 두 개가 **구분자 없이 맞닿아** 있어 탐욕적 매칭은 둘을 한 덩어리로 삼킨다 →
+  접두사마다 고정 28바이트로 끊는다(`testExtractsBothAdjacentSecrets`, 결함 주입 확인 완료).
+  어느 쪽이 우리 client_id 의 짝인지는 **Google 의 `invalid_client` 응답으로 고른다** — 바이너리 내
+  인접 문자열로 추정하면 다음 릴리스에서 조용히 깨진다.
+- **평문 자격증명은 백업·디렉터리 권한까지가 노출면이다.** 앱 소유 Keychain 항목 금지(위 항목) 때문에
+  자격증명은 Application Support 평문 0600 으로 산다. 그 결정은 유지하되 `~/Library/Application
+  Support` 가 **TCC 게이트가 없고 Time Machine 기본 대상**이라는 점은 따로 막는다 —
+  자격증명 파일만 `isExcludedFromBackup`, 상태 디렉터리는 0700(`CredentialFileProtection`).
+  디렉터리를 통째로 백업 제외하면 안 된다 — companion 상태·한도 히스토리는 복원돼야 할 사용자 데이터다.
 - **Claude 의 `refreshToken` 은 보이지만 우리가 쓰면 안 된다 — 갱신 시 회전되어 Claude Code 를 깨뜨린다.**
   키체인 항목(`claudeAiOauth`)에는 `accessToken`(수명 ~5h) 옆에 `refreshToken`·`refreshTokenExpiresAt`
   (~15일)이 함께 들어 있다. "그걸로 갱신하면 키체인 접근이 5시간마다 → 15일마다로 줄겠다"는 발상이

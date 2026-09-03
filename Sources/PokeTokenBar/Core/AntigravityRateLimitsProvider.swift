@@ -94,7 +94,20 @@ public struct AntigravityRateLimitsProvider: AntigravityLimitsProviding, Sendabl
     }
 }
 
-public typealias AntigravityTokenRefresher = @Sendable (String) async throws -> AntigravityOAuthCredential?
+/// refresh 시도의 결말. `Credential?` 하나로 뭉뚱그리면 **"자격증명이 죽었다"와 "지금 네트워크가
+/// 안 된다"가 같은 처리**를 받는다 — 후자까지 Keychain 프롬프트로 승격돼 일시 장애가 팝업이 된다.
+public enum AntigravityRefreshOutcome: Sendable, Equatable {
+    case success(AntigravityOAuthCredential)
+    /// `invalid_grant` — refresh token 자체가 죽었다. 재시도로 풀리지 않고 Keychain 재취득이 답.
+    case credentialRejected
+    /// `invalid_client` / secret 누락 — 이 client_secret 이 틀렸다. 다음 후보로 넘어간다.
+    case clientRejected
+    /// 네트워크·5xx·파싱 실패 — 캐시를 버리지 않고 다음 폴에서 다시 시도한다.
+    case transient
+}
+
+public typealias AntigravityTokenRefresher =
+    @Sendable (_ refreshToken: String, _ clientSecret: String?) async -> AntigravityRefreshOutcome
 
 actor AntigravityTokenCache {
     static let shared = AntigravityTokenCache()
@@ -102,12 +115,21 @@ actor AntigravityTokenCache {
     private let tokenFileURLs: [URL]
     private let persistentStoreURL: URL?
     private let tokenRefresher: AntigravityTokenRefresher
+    private let clientSecretSource: @Sendable () -> [String]
+
+    /// 확정된 client_secret — **메모리에만** 둔다. 평문 자격증명 파일 옆에 같이 저장하면 그 파일
+    /// 하나로 갱신 가능한 액세스가 완성돼, secret 을 커밋하지 않기로 한 이유가 그대로 무효가 된다.
+    private var resolvedClientSecret: String?
+    /// 바이너리 스캔 결과 캐시 — 프로세스당 1회면 충분하다(수십 ms × 설치 바이너리 수).
+    private var discoveredCandidates: [String]?
 
     init(
         tokenFileURLs: [URL]? = nil,
         persistentStoreURL: URL? = nil,
-        tokenRefresher: AntigravityTokenRefresher? = nil
+        tokenRefresher: AntigravityTokenRefresher? = nil,
+        clientSecretSource: (@Sendable () -> [String])? = nil
     ) {
+        self.clientSecretSource = clientSecretSource ?? { AntigravityClientSecret.candidates() }
         self.tokenFileURLs = tokenFileURLs ?? Self.defaultTokenFileURLs
         if let persistentStoreURL {
             self.persistentStoreURL = persistentStoreURL
@@ -117,7 +139,64 @@ actor AntigravityTokenCache {
             // 테스트 등에서 tokenFileURLs 를 명시적으로 주입한 경우 실제 앱 상태 디렉토리를 오염시키지 않음
             self.persistentStoreURL = nil
         }
-        self.tokenRefresher = tokenRefresher ?? { try await Self.refreshGoogleToken(refreshToken: $0) }
+        self.tokenRefresher = tokenRefresher ?? {
+            await Self.refreshGoogleToken(refreshToken: $0, clientSecret: $1)
+        }
+    }
+
+    /// client_secret 후보를 하나씩 대보며 refresh 를 시도한다.
+    ///
+    /// 후보를 *시도해서* 고르는 이유: 바이너리에는 secret 이 둘 이상 들어 있고(관측: 2개) 어느 쪽이
+    /// 우리 client_id 의 짝인지 바이너리만 봐서는 알 수 없다 — 인접 문자열로 추정하는 건 다음 릴리스에
+    /// 배치가 바뀌면 조용히 깨진다. Google 이 틀린 짝에 `invalid_client` 로 답하므로 그걸 신호로 쓴다.
+    /// 확정된 secret 은 프로세스 수명 동안 재사용하고, 나중에 회전돼 거절되면 다시 훑는다.
+    private func refreshCredential(refreshToken: String) async -> AntigravityRefreshOutcome {
+        if let secret = resolvedClientSecret {
+            let outcome = await tokenRefresher(refreshToken, secret)
+            if outcome != .clientRejected { return outcome }
+            // secret 회전 — 후보를 다시 훑는다.
+            resolvedClientSecret = nil
+            discoveredCandidates = nil
+        }
+
+        let candidates: [String]
+        if let discoveredCandidates {
+            candidates = discoveredCandidates
+        } else {
+            candidates = clientSecretSource()
+            discoveredCandidates = candidates
+        }
+        if candidates.isEmpty {
+            AppLog.writeIfChanged(
+                "antigravity-client-secret",
+                "antigravity client secret not found — is Antigravity installed?")
+            return .clientRejected
+        }
+
+        var sawTransient = false
+        for secret in candidates {
+            switch await tokenRefresher(refreshToken, secret) {
+            case .success(let credential):
+                resolvedClientSecret = secret
+                return .success(credential)
+            case .credentialRejected:
+                // secret 은 맞았고 자격증명이 죽었다 — 남은 후보를 대볼 이유가 없다.
+                return .credentialRejected
+            case .clientRejected:
+                continue
+            case .transient:
+                sawTransient = true
+            }
+        }
+        return sawTransient ? .transient : .clientRejected
+    }
+
+    /// refresh 결과를 캐시·영속저장소에 반영하고 액세스 토큰을 돌려준다.
+    private func applyRefresh(_ outcome: AntigravityRefreshOutcome) -> String? {
+        guard case .success(let credential) = outcome else { return nil }
+        cachedCredential = credential
+        persistCredential(credential)
+        return credential.accessToken
     }
 
     static var defaultTokenFileURLs: [URL] {
@@ -144,12 +223,9 @@ actor AntigravityTokenCache {
             if !bypassCache && !fileCred.isExpired {
                 return fileCred.accessToken
             }
-            if let refreshToken = fileCred.refreshToken {
-                if let refreshed = try? await tokenRefresher(refreshToken) {
-                    cachedCredential = refreshed
-                    persistCredential(refreshed)
-                    return refreshed.accessToken
-                }
+            if let refreshToken = fileCred.refreshToken,
+               let token = applyRefresh(await refreshCredential(refreshToken: refreshToken)) {
+                return token
             }
             if !fileCred.isExpired {
                 return fileCred.accessToken
@@ -172,21 +248,31 @@ actor AntigravityTokenCache {
             // Google refresh token은 회전하지 않고 장기간 유효하므로(defect-log §자격증명),
             // 이 경로를 통해 사용자가 매시간 또는 앱 재시작마다 수동 갱신할 필요 없이 자격증명이 영속된다.
             if let cachedCredential, let refreshToken = cachedCredential.refreshToken {
-                if let refreshed = try? await tokenRefresher(refreshToken) {
-                    self.cachedCredential = refreshed
-                    persistCredential(refreshed)
-                    return refreshed.accessToken
-                }
+                let outcome = await refreshCredential(refreshToken: refreshToken)
+                if let token = applyRefresh(outcome) { return token }
+                // 일시 실패는 캐시를 지우지 않는다 — 다음 폴이 같은 refresh token 으로 다시 시도한다.
+                // (죽은 자격증명과 같은 취급을 하면 네트워크 블립이 Keychain 프롬프트로 승격된다.)
+                AppLog.writeIfChanged(
+                    "antigravity-refresh", "antigravity token refresh failed: \(outcome)")
             }
 
             throw LimitsError.keychainInteractionNotAllowed
         }
 
-        // 3. 사용자 동작 경로(allowKeychainPrompt=true):
-        // 사용자가 명시적으로 갱신을 요청했으므로 캐시를 우회하여 Keychain 에서 최신 자격증명을 읽는다.
-        // 무프롬프트로 먼저 시도(과거 '항상 허용'했다면 조용히 성공), 안 되면 프롬프트를 동반해 읽는다.
+        // 3. 사용자 동작 경로(allowKeychainPrompt=true) — 프롬프트를 내는 읽기는 **마지막 수단**이다.
+        //
+        //   3a. 무프롬프트 Keychain 읽기. 성공하면 이게 가장 정확하다 — Antigravity CLI 가 계정을
+        //       바꾸면 항목이 새 계정으로 덮이므로, 여기서 읽어야 계정 전환이 반영된다(#227 부류).
+        //   3b. 실패하면 보관 중인 refresh token 으로 갱신. 유효한 refresh token 이 디스크에 있는데도
+        //       곧장 프롬프트를 띄우면, 프롬프트를 없애려고 만든 갱신 버튼이 매 탭마다 프롬프트를 낸다.
+        //   3c. 그것도 안 되면 그때 프롬프트를 동반해 읽는다.
         if let cred = Self.readKeychainSilently() {
             return try await resolveValidToken(from: cred)
+        }
+        if cachedCredential == nil { cachedCredential = loadPersistedCredential() }
+        if let refreshToken = cachedCredential?.refreshToken,
+           let token = applyRefresh(await refreshCredential(refreshToken: refreshToken)) {
+            return token
         }
         let cred = try Self.readKeychain(allowKeychainPrompt: true)
         return try await resolveValidToken(from: cred)
@@ -199,12 +285,9 @@ actor AntigravityTokenCache {
             return cred.accessToken
         }
         // 만료되었고 refresh_token이 있다면 갱신 시도
-        if let refreshToken = cred.refreshToken {
-            if let refreshed = try? await tokenRefresher(refreshToken) {
-                cachedCredential = refreshed
-                persistCredential(refreshed)
-                return refreshed.accessToken
-            }
+        if let refreshToken = cred.refreshToken,
+           let token = applyRefresh(await refreshCredential(refreshToken: refreshToken)) {
+            return token
         }
         // 갱신 실패했더라도 기존 accessToken 저장 및 반환 (API에서 401 나면 다시 처리)
         cachedCredential = cred
@@ -230,6 +313,7 @@ actor AntigravityTokenCache {
             try data.write(to: url, options: .atomic)
             try? FileManager.default.setAttributes(
                 [.posixPermissions: NSNumber(value: Int16(0o600))], ofItemAtPath: url.path)
+            CredentialFileProtection.excludeFromBackup(url)
         } catch {
             AppLog.write("failed to persist antigravity credential: \(error)")
         }
@@ -249,34 +333,75 @@ actor AntigravityTokenCache {
         try? FileManager.default.removeItem(at: url)
     }
 
-    static func refreshGoogleToken(refreshToken: String) async throws -> AntigravityOAuthCredential? {
-        // fetchStatus 와 별개의 네트워크 경계다 — 여기를 빼면 스위트가 사용자 refresh_token 을 실제로
-        // 소비해 새 토큰을 발급받는다(조회보다 부작용이 크다).
-        guard AppEnv.isBundledApp || AppEnv.isParityRun else { throw LimitsError.liveFetchNotPermitted }
+    /// 갱신 요청 조립 — **순수 함수로 떼어 둔다.**
+    ///
+    /// #44 의 갱신은 단 한 번도 성공하지 못했는데도 스위트는 초록이었다. 테스트가 `tokenRefresher`
+    /// 스텁을 주입해 *성공을 흉내냈고*, 프로덕션이 실제로 보내는 요청 바디는 아무도 보지 않았기
+    /// 때문이다(빠져 있던 건 `client_secret` 하나였다). 바디를 검사 가능한 지점으로 꺼내 둬야
+    /// "갱신이 된다"가 아니라 "우리가 보내는 요청이 Google 규격에 맞다"를 검증할 수 있다.
+    static func makeRefreshRequest(refreshToken: String, clientSecret: String) -> URLRequest {
         var request = URLRequest(url: AntigravityRateLimitsProvider.googleTokenURL, timeoutInterval: 10)
         request.httpMethod = "POST"
         request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
 
         let params = [
             "client_id": AntigravityRateLimitsProvider.googleClientID,
+            "client_secret": clientSecret,
             "grant_type": "refresh_token",
             "refresh_token": refreshToken,
         ]
         let bodyString = params.map { "\($0.key)=\($0.value.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? $0.value)" }
             .joined(separator: "&")
         request.httpBody = Data(bodyString.utf8)
+        return request
+    }
 
-        let (data, response) = try await URLSession.shared.data(for: request)
-        guard let http = response as? HTTPURLResponse, http.statusCode == 200,
-              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let newAccessToken = json["access_token"] as? String else {
-            return nil
+    static func refreshGoogleToken(
+        refreshToken: String,
+        clientSecret: String?
+    ) async -> AntigravityRefreshOutcome {
+        // secret 없이 보내면 Google 이 항상 400 이다 — 네트워크를 칠 이유가 없으므로 게이트보다 앞에 둔다.
+        guard let clientSecret, !clientSecret.isEmpty else { return .clientRejected }
+        // fetchStatus 와 별개의 네트워크 경계다 — 여기를 빼면 스위트가 사용자 refresh_token 을 실제로
+        // 소비해 새 토큰을 발급받는다(조회보다 부작용이 크다).
+        guard AppEnv.isBundledApp || AppEnv.isParityRun else { return .transient }
+
+        let request = makeRefreshRequest(refreshToken: refreshToken, clientSecret: clientSecret)
+
+        guard let (data, response) = try? await URLSession.shared.data(for: request),
+              let http = response as? HTTPURLResponse else {
+            return .transient   // 네트워크 도달 실패 — 자격증명 판정 근거가 없다.
         }
-        let expiresIn = json["expires_in"] as? Double ?? 3600
-        return AntigravityOAuthCredential(
-            accessToken: newAccessToken,
-            refreshToken: refreshToken,
-            expiresAt: Date().addingTimeInterval(expiresIn))
+
+        if http.statusCode == 200 {
+            guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let newAccessToken = json["access_token"] as? String, !newAccessToken.isEmpty else {
+                return .transient
+            }
+            let expiresIn = json["expires_in"] as? Double ?? 3600
+            // Google 은 이 그랜트에 새 refresh_token 을 주지 않는다(회전 없음) — 기존 것을 그대로 잇는다.
+            return .success(AntigravityOAuthCredential(
+                accessToken: newAccessToken,
+                refreshToken: refreshToken,
+                expiresAt: Date().addingTimeInterval(expiresIn)))
+        }
+
+        // 4xx 는 본문의 `error` 코드가 처방을 가른다. **본문의 error 코드만** 남긴다 —
+        // 요청 바디에는 refresh token 과 client_secret 이 둘 다 들어 있으므로 절대 로그로 내보내지 않는다.
+        let errorCode = (try? JSONSerialization.jsonObject(with: data) as? [String: Any])
+            .flatMap { $0?["error"] as? String } ?? "unknown"
+        if http.statusCode >= 500 { return .transient }
+        AppLog.writeIfChanged(
+            "antigravity-token-\(http.statusCode)",
+            "antigravity token refresh rejected: http \(http.statusCode) \(errorCode)")
+        switch errorCode {
+        case "invalid_grant":
+            return .credentialRejected
+        case "invalid_client", "invalid_request", "unauthorized_client":
+            return .clientRejected
+        default:
+            return http.statusCode == 400 || http.statusCode == 401 ? .clientRejected : .transient
+        }
     }
 
     private nonisolated static func readTokenFile(urls: [URL]) -> AntigravityOAuthCredential? {

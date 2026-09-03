@@ -108,6 +108,7 @@ struct SessionKeyStore: Sendable {
         // 자격증명 파일을 걸 만한 근거가 못 된다 → 쓴 뒤 한 번 더 못박는다.
         try? FileManager.default.setAttributes(
             [.posixPermissions: NSNumber(value: Int16(0o600))], ofItemAtPath: fileURL.path)
+        CredentialFileProtection.excludeFromBackup(fileURL)
     }
 
     func clear() {

@@ -195,13 +195,13 @@ final class AntigravityRateLimitsProviderTests: XCTestCase {
             var count = 0
         }
         let counter = Counter()
-        let mockRefresher: AntigravityTokenRefresher = { token in
+        let mockRefresher: AntigravityTokenRefresher = { token, _ in
             counter.count += 1
-            return AntigravityOAuthCredential(
+            return .success(AntigravityOAuthCredential(
                 accessToken: "newly-minted-access-token",
                 refreshToken: token,
                 expiresAt: Date().addingTimeInterval(3600)
-            )
+            ))
         }
 
         let cache = AntigravityTokenCache(
