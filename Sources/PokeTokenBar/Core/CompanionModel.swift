@@ -537,13 +537,6 @@ private extension KeyedDecodingContainer {
     }
 }
 
-/// A purchased egg parked while the active Pokémon keeps growing. Wrapping it in an optional
-/// (`queuedEgg: QueuedEgg?`) distinguishes "no egg waiting" (nil) from "an egg with no rarity
-/// guarantee waiting" (.some(tier: nil)) — a plain `Rarity?` could not tell those apart.
-struct QueuedEgg: Codable, Sendable {
-    var tier: Rarity?
-}
-
 /// 영속 상태(Application Support JSON). 포켓몬 전환 — 이전 커스텀 캐릭터 상태는 폐기(새로 시작).
 struct CompanionState: Codable, Sendable {
     // 토큰: 설치 이후만 측정
@@ -578,8 +571,6 @@ struct CompanionState: Codable, Sendable {
     // Box/bank: stored individuals — still-growing parked mons and completed buddies.
     // Each keeps its full MonState, so token status (stageIndex, usedAtStage) survives verbatim.
     var box: [MonState] = []
-    // A purchased egg waiting to become active on the next graduation. nil = none waiting.
-    var queuedEgg: QueuedEgg? = nil
     // 도감
     var dex: [DexEntry] = []
     // 소유한 (base,final) 쌍 — 분기 다양성용
@@ -621,7 +612,6 @@ struct CompanionState: Codable, Sendable {
         representativeSpeciesID = c.lenientOptional(Int.self, forKey: .representativeSpeciesID)
         // Box is per-item isolated (Lossy wrapper) like dex — one corrupt entry won't drop the array.
         box                = c.lenient([Lossy<MonState>].self, forKey: .box, default: []).compactMap(\.value)
-        queuedEgg          = c.lenientOptional(QueuedEgg.self, forKey: .queuedEgg)
         // 도감은 항목별 격리 — 손상 항목 하나가 도감 전체를 날리지 않게.
         dex                = c.lenient([Lossy<DexEntry>].self, forKey: .dex, default: []).compactMap(\.value)
         collectedFinals    = c.lenient(Set<String>.self, forKey: .collectedFinals, default: [])

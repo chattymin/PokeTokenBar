@@ -594,12 +594,7 @@ final class CompanionStore {
         activeGeneration += 1
         currentLine = nil
         state.eggUsage = 0   // 새 알은 처음부터 인큐베이션
-        // A purchased egg that was waiting behind this companion now moves into the freshly emptied
-        // egg slot (its guarantee, if any). With no queued egg the next egg is a plain, unguaranteed
-        // one (eggTier = nil) — reaching here means there was an active companion, so any prior
-        // guarantee was already consumed at its own hatch.
-        state.eggTier = state.queuedEgg?.tier
-        state.queuedEgg = nil
+        state.eggTier = nil  // graduation always starts a plain, unguaranteed egg
         // "알을 받는 순간" 즉시 프리패칭 시작 — 다음 부화의 종·라인·스프라이트 예열.
         Task { await self.ensureEggPrefetch() }
     }
@@ -786,29 +781,36 @@ final class CompanionStore {
     /// The shop still lists the entry during egg incubation; this gate only blocks the purchase.
     func canBuyEgg(_ tier: Rarity?) -> Bool {
         guard FreshEgg.shopTiers.contains(tier) else { return false }
-        return hasActive && state.queuedEgg == nil
-            && availableTokens >= FreshEgg.price(guaranteeing: tier)
+        return hasActive && availableTokens >= FreshEgg.price(guaranteeing: tier)
     }
 
-    /// Buy an egg — the current companion is NOT released or discarded. It keeps growing; the egg
-    /// waits (`queuedEgg`) and becomes active at the next graduation (see `graduate()`). The wallet
-    /// is charged now and the rarity guarantee (if any) is stored on the queued egg; the species is
+    /// Buy an egg — the current companion is NOT released; it is parked in the box (its growth
+    /// preserved) and a fresh egg starts incubating immediately in the active slot. The wallet is
+    /// charged now and the rarity guarantee (if any) is stored on the egg (`eggTier`); the species is
     /// rolled later at hatch, so an offline purchase never loses tokens to a failed roll.
     @discardableResult
     func buyEgg(_ tier: Rarity?) -> Bool {
         guard canBuyEgg(tier) else { return false }
         state.spentTokens += FreshEgg.price(guaranteeing: tier)
-        state.queuedEgg = QueuedEgg(tier: tier)
-        AppLog.write("egg queued: tier=\(tier?.rawValue ?? "none")")
+        // The current companion is kept — parked in the box (NOT released, its growth preserved) —
+        // and a fresh egg starts incubating immediately in the now-empty active slot.
+        if let a = state.active {
+            state.box.append(a)
+        }
+        state.active = nil
+        state.reconcileRepresentativeSelection()
+        activeGeneration += 1
+        currentLine = nil
+        state.eggUsage = 0            // fresh egg incubates from scratch
+        state.eggTier = tier          // rarity guarantee (nil = none)
+        state.pendingHatchID = nil
+        prefetchedLineID = nil
+        justGraduated = nil; justEvolvedTo = nil; eventUntil = nil
+        AppLog.write("egg purchased: parked active in box, tier=\(tier?.rawValue ?? "none")")
+        Task { await self.ensureEggPrefetch() }   // pre-warm the next hatch
         save()
         return true
     }
-
-    /// A purchased egg waiting behind the active companion. Surfaced to the UI so the box can show a
-    /// "waiting egg" card and the shop can reflect that another can't be queued yet. `queuedEggTier`
-    /// is only meaningful when `hasQueuedEgg` is true (nil there means "no rarity guarantee").
-    var hasQueuedEgg: Bool { state.queuedEgg != nil }
-    var queuedEggTier: Rarity? { state.queuedEgg?.tier }
 
     // 보증 없는 기본 알 래퍼 — 기존 호출부/테스트 호환.
     var canBuyFreshEgg: Bool { canBuyEgg(nil) }

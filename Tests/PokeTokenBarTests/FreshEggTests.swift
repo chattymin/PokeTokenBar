@@ -1,7 +1,7 @@
 import XCTest
 @testable import PokeTokenBar
 
-// MARK: Fresh egg (queued — the active companion keeps growing; the egg waits for graduation)
+// MARK: Fresh egg (swap — the active companion is parked in the box, not released; a new egg hatches)
 
 private struct FreshEggNoProvider: PokeProviding {
     func line(baseSpeciesID: Int) async throws -> EvoLine { throw URLError(.notConnectedToInternet) }
@@ -18,7 +18,7 @@ final class FreshEggTests: XCTestCase {
     private func store(active: Bool = true, shiny: Bool = false, used: Int = 5_000_000_000,
                        spent: Int = 0) -> CompanionStore {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("egg-\(UUID().uuidString).json")
-        let mon = "{\"baseID\":10,\"pathIDs\":[10],\"stageIndex\":0,\"usedAtStage\":200000000,"
+        let mon = "{\"id\":\"m10\",\"baseID\":10,\"pathIDs\":[10],\"stageIndex\":0,\"usedAtStage\":200000000,"
             + "\"rarity\":\"common\",\"totalForms\":3,\"isShiny\":\(shiny)}"
         let dex = "{\"baseID\":1,\"finalID\":3,\"chainOrder\":[1,2,3],\"rarity\":\"common\"}"
         let json = "{\"installBaselineSet\":true,\"usedSinceInstall\":\(used),\"spentTokens\":\(spent),"
@@ -29,52 +29,52 @@ final class FreshEggTests: XCTestCase {
 
     func testPriceIsOneBillion() { XCTAssertEqual(FreshEgg.price, 1_000_000_000) }
 
-    /// [core] Buying an egg does NOT release the active — it keeps growing. The egg is queued and the
-    /// wallet is charged; the dex and probability weighting (collectedFinals) are untouched.
-    func testBuyFreshEggQueuesWithoutReleasingActive() {
+    /// [core] Buying an egg parks the active in the box (NOT released) with its growth preserved and
+    /// starts a fresh egg immediately. The dex and probability weighting are untouched.
+    func testBuyFreshEggParksActiveInBoxAndIncubates() {
         let s = store(used: 5_000_000_000, spent: 0)
         let dexCountBefore = s.state.dex.count
-        let collectedBefore = s.state.collectedFinals
         XCTAssertTrue(s.hasActive)
 
         XCTAssertTrue(s.buyFreshEgg())
 
-        XCTAssertNotNil(s.state.active, "the active companion keeps growing — it is not released")
-        XCTAssertEqual(s.state.active?.baseID, 10)
-        XCTAssertFalse(s.isEgg, "still raising the active, not incubating")
-        XCTAssertTrue(s.hasQueuedEgg, "the purchased egg is now waiting")
-        XCTAssertNil(s.queuedEggTier, "a plain fresh egg has no rarity guarantee")
+        XCTAssertNil(s.state.active, "active slot is now the fresh egg")
+        XCTAssertTrue(s.isEgg)
+        XCTAssertEqual(s.state.box.count, 1, "the previous companion is parked in the box")
+        XCTAssertEqual(s.state.box.last?.baseID, 10)
+        XCTAssertEqual(s.state.box.last?.usedAtStage, 200_000_000, "its growth is preserved")
+        XCTAssertFalse(s.state.box.last?.isComplete ?? true, "parked, not graduated")
+        XCTAssertEqual(s.state.eggUsage, 0, "fresh egg from scratch")
         XCTAssertEqual(s.state.dex.count, dexCountBefore, "nothing is released into the dex")
-        XCTAssertEqual(s.state.collectedFinals, collectedBefore, "probability weighting unchanged")
         XCTAssertEqual(s.state.spentTokens, FreshEgg.price, "wallet charged 1B")
         XCTAssertEqual(s.availableTokens, 5_000_000_000 - FreshEgg.price)
     }
 
-    /// A guaranteed (premium) egg stores its rarity floor on the queued egg.
-    func testGuaranteedEggStoresTierOnQueue() {
+    /// A guaranteed (premium) egg sets the rarity floor on the freshly incubating egg.
+    func testGuaranteedEggSetsTierOnFreshEgg() {
         let s = store(used: 10_000_000_000)
         XCTAssertTrue(s.buyEgg(.uncommon))
-        XCTAssertTrue(s.hasQueuedEgg)
-        XCTAssertEqual(s.queuedEggTier, .uncommon)
+        XCTAssertNil(s.state.active)
+        XCTAssertEqual(s.state.eggTier, .uncommon)
         XCTAssertEqual(s.state.spentTokens, FreshEgg.price(guaranteeing: .uncommon))
     }
 
-    /// Only one egg can wait at a time — a second purchase is a no-op.
-    func testCannotQueueTwoEggs() {
+    /// After buying, the active slot is an egg — you can't buy again until it hatches.
+    func testCannotBuyAgainWhileIncubating() {
         let s = store(used: 10_000_000_000)
         XCTAssertTrue(s.buyFreshEgg())
-        XCTAssertFalse(s.canBuyFreshEgg, "one already queued")
+        XCTAssertFalse(s.hasActive)
+        XCTAssertFalse(s.canBuyFreshEgg, "no active to park behind the next egg")
         XCTAssertFalse(s.buyFreshEgg())
         XCTAssertEqual(s.state.spentTokens, FreshEgg.price, "charged only once")
     }
 
-    /// The species stays in the Pokédex — buying an egg no longer removes it (the active is untouched).
-    func testActiveSpeciesStaysInDexAfterBuying() {
+    /// The parked species stays in the Pokédex (the box counts toward it) — nothing is lost.
+    func testParkedSpeciesStaysInDex() {
         let s = store()
-        XCTAssertTrue(s.dexSpecies.contains { $0.id == 10 }, "raising → shown in the Pokédex")
+        XCTAssertTrue(s.dexSpecies.contains { $0.id == 10 }, "raising → shown")
         XCTAssertTrue(s.buyFreshEgg())
-        XCTAssertTrue(s.dexSpecies.contains { $0.id == 10 }, "still shown — nothing was released")
-        XCTAssertTrue(s.dexSpecies.first { $0.id == 10 }?.isRaising ?? false, "still the active buddy")
+        XCTAssertTrue(s.dexSpecies.contains { $0.id == 10 }, "still shown — parked in the box, not released")
     }
 
     /// Buying an egg does not touch collectedFinals (probability weighting).
@@ -82,10 +82,10 @@ final class FreshEggTests: XCTestCase {
         let s = store()
         XCTAssertTrue(s.buyFreshEgg())
         XCTAssertFalse(s.state.collectedFinals.contains { $0.hasPrefix("10:") },
-                       "the active's species is not added to the collected set")
+                       "the parked species is not added to the collected set")
     }
 
-    /// In the egg state (no active) there is nothing to grow behind, so buying is blocked.
+    /// In the egg state (no active) there is nothing to park, so buying is blocked.
     func testCannotBuyWhenEgg() {
         let s = store(active: false, used: 5_000_000_000)
         XCTAssertFalse(s.hasActive)
@@ -103,12 +103,12 @@ final class FreshEggTests: XCTestCase {
         XCTAssertEqual(s.state.spentTokens, 0)
     }
 
-    /// A shiny active is NOT released by buying an egg — it keeps growing (no discard, no warning).
-    func testBuyingEggKeepsShinyActive() {
+    /// A shiny active is NOT released — it is parked in the box (kept), and a new egg starts.
+    func testBuyingEggParksShinyInBox() {
         let s = store(shiny: true)
         XCTAssertTrue(s.currentIsShiny)
         XCTAssertTrue(s.buyFreshEgg())
-        XCTAssertNotNil(s.state.active, "the shiny keeps growing")
-        XCTAssertTrue(s.currentIsShiny, "still shiny and active")
+        XCTAssertNil(s.state.active, "the shiny is parked, not active")
+        XCTAssertEqual(s.state.box.last?.isShiny, true, "the shiny is kept in the box")
     }
 }

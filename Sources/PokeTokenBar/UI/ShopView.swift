@@ -185,10 +185,6 @@ private struct EggCard: View {
                         // 알 상태 — 뒤에서 자랄 개체가 없어 구매만 막는다. 항목은 남기고 사유는 아래 한 줄로.
                         Button(l.buy) {}
                             .buttonStyle(.bordered).controlSize(.small).disabled(true)
-                    } else if store.hasQueuedEgg {
-                        // 이미 알 하나가 예약돼 있다 — 한 번에 하나만 대기.
-                        Button(l.buy) {}
-                            .buttonStyle(.bordered).controlSize(.small).disabled(true)
                     } else if store.canBuyEgg(tier) {
                         Button(l.buy) { stage = .confirm }
                             .buttonStyle(.bordered).controlSize(.small)
@@ -200,15 +196,11 @@ private struct EggCard: View {
                     Text(l.eggShopLockedHint)
                         .font(.caption2).foregroundStyle(.tertiary)
                         .fixedSize(horizontal: false, vertical: true)
-                } else if store.hasQueuedEgg {
-                    Text(l.eggQueuedHint)
-                        .font(.caption2).foregroundStyle(.tertiary)
-                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
         case .confirm:
             HStack(spacing: 8) {
-                Text(l.eggQueueConfirm(l.eggName(tier)))
+                Text(l.eggConfirm(store.displayName, l.eggName(tier)))
                     .font(.caption2).foregroundStyle(.secondary).lineLimit(2)
                 Spacer()
                 Button(l.buy) { commit() }
@@ -219,12 +211,9 @@ private struct EggCard: View {
         }
     }
 
-    /// 예약 실행 → 대기 중인 알을 볼 수 있게 박스로 전환.
+    /// 구매 실행 → 새로 품는 알을 볼 수 있게 Home 으로 전환(현재 개체는 박스에 보관됨).
     private func commit() {
         stage = .idle
-        if store.buyEgg(tier) {
-            nav.tab = .collection
-            nav.collectionSection = .box
-        }
+        if store.buyEgg(tier) { nav.tab = .home }
     }
 }

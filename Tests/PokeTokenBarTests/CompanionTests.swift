@@ -256,6 +256,26 @@ final class CompanionStoreTests: XCTestCase {
         XCTAssertEqual(s.state.box.count, 1, "no re-graduation into the box")
     }
 
+    /// [Box] Reaching the final form is NOT the same as graduating: a final-form mon below the
+    /// graduation threshold stays active and growing (isComplete stays false) until it truly graduates.
+    func testFinalFormIsNotCompleteUntilGraduation() async {
+        let s = store(noEvo)
+        base(s)
+        use(s, PokemonBalance.eggHatchThreshold)
+        await s.hatchIfNeeded()
+        XCTAssertNotNil(s.state.active, "hatched a final-form (single-form) mon")
+        XCTAssertEqual(s.state.active?.isComplete, false, "final form, but not graduated")
+
+        s.applyUsage(PokemonBalance.graduationTotal(.common) - 1)   // one short of graduating
+        XCTAssertNotNil(s.state.active, "still active — not yet graduated")
+        XCTAssertEqual(s.state.active?.isComplete, false, "still not complete at the final form")
+        XCTAssertTrue(s.state.box.isEmpty, "nothing boxed yet")
+
+        s.applyUsage(1)   // cross the threshold → graduate
+        XCTAssertNil(s.state.active, "now graduated → egg")
+        XCTAssertEqual(s.state.box.first?.isComplete, true, "only now is it complete")
+    }
+
     /// [Box] Boxed Pokémon (incl. reached pre-evolutions) appear in the Pokédex, and switching the
     /// active companion does not remove species from it.
     func testBoxSpeciesAppearInPokedexAndSurviveSwitch() throws {
@@ -693,13 +713,13 @@ final class CompanionStoreTests: XCTestCase {
         XCTAssertEqual(s.dexSpecies.map(\.isRaising), [false, true, false])
     }
 
-    // MARK: Fresh egg (queued — active keeps growing, egg waits for graduation)
+    // MARK: Fresh egg (swap — active is parked in the box, not released; a new egg hatches)
 
-    /// [Phase E] Buying an egg mid-chain does NOT release the active: it keeps its reached forms and
-    /// growth, nothing is written to the dex, and the egg is only queued.
-    func testBuyEggMidChainKeepsActiveAndQueues() throws {
+    /// [Phase E] Buying an egg mid-chain parks the active in the box (NOT released, growth preserved)
+    /// and starts a fresh egg immediately — nothing is written to the dex.
+    func testBuyEggMidChainParksActiveInBox() throws {
         let active = MonState(baseID: 1, pathIDs: [1, 2], plannedPathIDs: [1, 2, 3], stageIndex: 1,
-                              usedAtStage: 0, rarity: .common, totalForms: 3)
+                              usedAtStage: 123, rarity: .common, totalForms: 3)
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("poke-\(UUID().uuidString).json")
         let activeJSON = String(decoding: try JSONEncoder().encode(active), as: UTF8.self)
         try Data(#"{"active":\#(activeJSON),"usedSinceInstall":5000000000}"#.utf8).write(to: url)
@@ -707,32 +727,13 @@ final class CompanionStoreTests: XCTestCase {
         let s = CompanionStore(provider: StubProvider(value: linear3), clock: { fixedNow },
                                fileURL: url, rng: SeededRNG(seed: 7))
         XCTAssertTrue(s.buyFreshEgg())
-        XCTAssertEqual(s.state.active?.pathIDs, [1, 2], "active is untouched — nothing is released")
-        XCTAssertTrue(s.state.dex.isEmpty, "no released dex entry is created anymore")
-        XCTAssertTrue(s.hasQueuedEgg, "the purchased egg is queued")
+        XCTAssertNil(s.state.active, "active slot is now the fresh egg")
+        XCTAssertEqual(s.state.box.count, 1, "the companion is parked, not released")
+        XCTAssertEqual(s.state.box.last?.pathIDs, [1, 2], "its reached forms are preserved")
+        XCTAssertEqual(s.state.box.last?.usedAtStage, 123, "its growth is preserved")
+        XCTAssertFalse(s.state.box.last?.isComplete ?? true, "parked, not graduated")
+        XCTAssertTrue(s.state.dex.isEmpty, "no released dex entry")
         XCTAssertEqual(s.state.collectedFinals, [], "probability weighting unchanged")
-    }
-
-    /// [Phase E] The queued egg (with its guarantee) becomes the active egg when the active graduates.
-    func testQueuedEggActivatesOnGraduation() async {
-        let url = FileManager.default.temporaryDirectory.appendingPathComponent("poke-\(UUID().uuidString).json")
-        // Seed a large wallet so we can afford an egg without over-growing the active via `use`.
-        try? Data(#"{"installBaselineSet":true,"usedSinceInstall":10000000000,"active":null,"dex":[],"collectedFinals":[]}"#.utf8)
-            .write(to: url)
-        let s = CompanionStore(provider: StubProvider(value: noEvo), clock: { fixedNow },
-                               fileURL: url, rng: SeededRNG(seed: 7))
-        base(s)
-        use(s, PokemonBalance.eggHatchThreshold)   // hatch the first egg
-        await s.hatchIfNeeded()
-        XCTAssertNotNil(s.state.active)
-        XCTAssertTrue(s.buyEgg(.uncommon), "10B wallet affords the uncommon egg")
-        XCTAssertEqual(s.queuedEggTier, .uncommon)
-
-        s.applyUsage(PokemonBalance.graduationTotal(.common))   // graduate the common active
-
-        XCTAssertNil(s.state.active, "graduated → egg incubating")
-        XCTAssertFalse(s.hasQueuedEgg, "queued egg consumed")
-        XCTAssertEqual(s.state.eggTier, .uncommon, "the guarantee carried into the active egg")
     }
 
     /// 이 필드 이전에 저장된 항목은 전부 졸업분으로 읽힌다 — 별도 마이그레이션 없이 nil = 졸업.
@@ -1589,7 +1590,6 @@ final class CompanionIdentityTests: XCTestCase {
         """
         let s = try JSONDecoder().decode(CompanionState.self, from: Data(old.utf8))
         XCTAssertTrue(s.box.isEmpty, "legacy save has no box → empty array")
-        XCTAssertNil(s.queuedEgg, "legacy save has no queued egg")
         XCTAssertFalse(s.active?.id.isEmpty ?? true, "active mon gets a fresh non-empty id")
         XCTAssertEqual(s.active?.isComplete, false, "isComplete defaults to false")
     }
@@ -1605,7 +1605,6 @@ final class CompanionIdentityTests: XCTestCase {
                                 rarity: .common, totalForms: 1)
         finished.isComplete = true
         state.box = [parked, finished]
-        state.queuedEgg = QueuedEgg(tier: .uncommon)
 
         let round = try JSONDecoder().decode(CompanionState.self, from: JSONEncoder().encode(state))
         XCTAssertEqual(round.box.count, 2)
@@ -1616,7 +1615,6 @@ final class CompanionIdentityTests: XCTestCase {
         XCTAssertEqual(round.box[0].nature, .adamant)
         XCTAssertEqual(round.box[0].isComplete, false)
         XCTAssertEqual(round.box[1].isComplete, true, "completed buddy flag persists")
-        XCTAssertEqual(round.queuedEgg?.tier, .uncommon)
     }
 
     /// [Box] Ownership includes boxed individuals — reached stages count, unreached ones don't,
