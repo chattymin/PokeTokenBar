@@ -592,6 +592,8 @@ struct L {
     var boxSetActive: String { t("활성 포켓몬으로", "Make active", "アクティブにする", "Hacer activo", "Rendre actif", "Tornar ativo", "Als aktives Pokémon") }
     var boxSwitchConfirm: String { t("교체", "Switch", "交代", "Cambiar", "Échanger", "Trocar", "Übernehmen") }
     var boxSwitchDisabledHint: String { t("지금은 알을 품는 중이라 교체할 수 없어요.", "Can't switch while an egg is incubating.", "タマゴを育てている間は交代できません。", "No puedes cambiar mientras incuba un huevo.", "Impossible d'échanger pendant l'incubation d'un œuf.", "Não dá para trocar enquanto um ovo choca.", "Während ein Ei ausgebrütet wird, ist kein Wechsel möglich.") }
+    var boxWaitingEgg: String { t("대기 중인 알", "Waiting egg", "待機中のタマゴ", "Huevo en espera", "Œuf en attente", "Ovo à espera", "Wartendes Ei") }
+    var boxWaitingEggHint: String { t("지금 포켓몬이 졸업하면 부화를 시작해요.", "Starts hatching after your active Pokémon graduates.", "今のポケモンが卒業すると孵り始めます。", "Empieza a eclosionar cuando tu Pokémon activo se gradúa.", "Éclot après la remise de diplôme de ton Pokémon actif.", "Começa a chocar quando seu Pokémon ativo se forma.", "Beginnt zu schlüpfen, sobald dein aktives Pokémon seinen Abschluss macht.") }
     var dexRaising: String { t("키우는 중", "Raising", "育成中", "Criando", "En élevage", "Treinando", "In Aufzucht") }
     /// 포획 로그에서 졸업분과 놓아준 개체를 가르는 표식. 종은 도감에 남고 개체 기록만 이 뱃지를 단다.
     var dexReleased: String { t("놓아줌", "Released", "逃がした", "Liberado", "Relâché", "Solto", "Freigelassen") }
@@ -844,22 +846,22 @@ struct L {
     }
     func eggDescription(_ tier: Rarity?) -> String {
         guard let tier, tier != .common else {
-            return t("지금 포켓몬을 놓아주고 새 알로 다시 시작해요.",
-                     "Send off your current Pokémon and start fresh with a new egg.",
-                     "いまのポケモンを手放して新しいタマゴからやり直します。",
-                     "Suelta a tu Pokémon actual y empieza de nuevo con un huevo nuevo.",
-                     "Laisse partir ton Pokémon actuel et repars de zéro avec un nouvel œuf.",
-                     "Solte seu Pokémon atual e recomece com um ovo novo.",
-                     "Verabschiede dein aktuelles Pokémon und starte mit einem neuen Ei.")
+            return t("네 포켓몬은 그대로 크고, 이 알은 졸업 뒤에 부화를 시작해요.",
+                     "Your Pokémon keeps growing; this egg starts hatching after it graduates.",
+                     "今のポケモンはそのまま育ち、このタマゴは卒業後に孵り始めます。",
+                     "Tu Pokémon sigue creciendo; este huevo empieza a eclosionar tras su graduación.",
+                     "Ton Pokémon continue de grandir ; cet œuf éclot après sa remise de diplôme.",
+                     "Seu Pokémon continua crescendo; este ovo começa a chocar após a formatura.",
+                     "Dein Pokémon wächst weiter; dieses Ei beginnt nach dessen Abschluss zu schlüpfen.")
         }
         let r = rarityLabel(tier)
-        return t("지금 포켓몬을 놓아주고 \(r) 이상이 확정으로 나오는 알을 받아요.",
-                 "Send off your current Pokémon for an egg guaranteed to hatch \(r) or better.",
-                 "いまのポケモンを手放して \(r) 以上が確定で孵るタマゴをもらいます。",
-                 "Suelta a tu Pokémon actual y consigue un huevo garantizado de \(r) o superior.",
-                 "Laisse partir ton Pokémon actuel pour un œuf garanti \(r) ou mieux.",
-                 "Solte seu Pokémon atual e ganhe um ovo que garante \(r) ou melhor.",
-                 "Verabschiede dein aktuelles Pokémon und erhalte ein Ei, aus dem garantiert ein Pokémon der Seltenheitsstufe \(r) oder höher schlüpft.")
+        return t("네 포켓몬은 그대로 크고, 졸업 뒤에 \(r) 이상 확정 알이 부화를 시작해요.",
+                 "Your Pokémon keeps growing; after it graduates, an egg guaranteed \(r) or better starts hatching.",
+                 "今のポケモンはそのまま育ち、卒業後に \(r) 以上確定のタマゴが孵り始めます。",
+                 "Tu Pokémon sigue creciendo; tras su graduación eclosiona un huevo garantizado de \(r) o superior.",
+                 "Ton Pokémon continue de grandir ; après sa remise de diplôme éclot un œuf garanti \(r) ou mieux.",
+                 "Seu Pokémon continua crescendo; após a formatura começa a chocar um ovo garantido de \(r) ou melhor.",
+                 "Dein Pokémon wächst weiter; nach dessen Abschluss beginnt ein Ei mit Garantie \(r) oder besser zu schlüpfen.")
     }
     /// 알 상태의 상점 알 카드 비활성 사유 — 항목은 보이되 구매 버튼 아래에 한 줄로 붙는다(EggCard).
     var eggShopLockedHint: String {
@@ -884,6 +886,26 @@ struct L {
           "Laisser partir \(monName) pour le \(eggName) ?",
           "Soltar \(monName) e trocar pelo \(eggName)?",
           "\(monName) verabschieden und gegen \(eggName) tauschen?")
+    }
+    /// EggCard 구매 확인 — 놓아주는 게 아니라 "예약해 두고 졸업 때 부화"하는 새 의미.
+    func eggQueueConfirm(_ eggName: String) -> String {
+        t("\(eggName)을(를) 예약할까요? 지금 포켓몬이 졸업하면 부화를 시작해요.",
+          "Queue the \(eggName)? It starts hatching after your current Pokémon graduates.",
+          "\(eggName) を予約しますか？今のポケモンが卒業すると孵り始めます。",
+          "¿Reservar el \(eggName)? Empezará a eclosionar cuando tu Pokémon actual se gradúe.",
+          "Réserver le \(eggName) ? Il éclora après la remise de diplôme de ton Pokémon actuel.",
+          "Reservar o \(eggName)? Ele começa a chocar quando seu Pokémon atual se formar.",
+          "Das \(eggName) vormerken? Es schlüpft, sobald dein aktuelles Pokémon seinen Abschluss macht.")
+    }
+    /// 이미 예약된 알이 있을 때 상점 카드 하단 안내 — 한 번에 하나만 대기한다.
+    var eggQueuedHint: String {
+        t("이미 알 하나가 대기 중이에요.",
+          "An egg is already waiting.",
+          "すでにタマゴが1つ待機中です。",
+          "Ya hay un huevo esperando.",
+          "Un œuf attend déjà.",
+          "Um ovo já está esperando.",
+          "Ein Ei wartet bereits.")
     }
     var freshEggShinyWarning: String { t("⚠️ 이로치 포켓몬이에요! 정말 놓아줄까요?", "⚠️ This one is shiny! Really send it off?", "⚠️ 色違いです！本当に手放しますか？", "⚠️ ¡Este es variocolor! ¿Seguro que quieres soltarlo?", "⚠️ Celui-ci est chromatique ! Vraiment le laisser partir ?", "⚠️ Esse é shiny! Quer mesmo soltar?", "⚠️ Dieses Pokémon ist schillernd! Wirklich verabschieden?") }
     var freshEggDiscardShiny: String { t("이로치 놓아주기", "Send shiny off", "手放す", "Soltar variocolor", "Laisser partir le chromatique", "Soltar o shiny", "Schillerndes Pokémon verabschieden") }

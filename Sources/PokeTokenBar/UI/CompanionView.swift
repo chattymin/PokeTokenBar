@@ -839,6 +839,8 @@ private struct BoxGridView: View {
     @State private var selectedID: String?
     @State private var page = 0
     @State private var confirming = false
+    /// 개체별 현재 형태 이름(mon.id → 이름). 라인 조회가 필요해 비동기로 채운다(라인은 base 단위 캐시).
+    @State private var names: [String: String] = [:]
 
     private static let columns = 4
     private static let rows = 6
@@ -847,17 +849,35 @@ private struct BoxGridView: View {
 
     var body: some View {
         let mons = store.boxedPokemon
-        if mons.isEmpty {
+        if mons.isEmpty && !store.hasQueuedEgg {
             emptyState
         } else {
             let pageCount = max(1, (mons.count + Self.pageSize - 1) / Self.pageSize)
             let current = min(page, pageCount - 1)
             let slice = Array(mons.dropFirst(current * Self.pageSize).prefix(Self.pageSize))
             VStack(alignment: .leading, spacing: 8) {
+                if store.hasQueuedEgg { waitingEggCard }
                 grid(slice)
                 footer(current: current, pageCount: pageCount)
             }
+            .task(id: mons.map(\.id)) { names = await store.boxDisplayNames() }
         }
+    }
+
+    /// 예약해 둔(구매한) 알 — 지금 포켓몬이 졸업하면 활성 슬롯으로 들어온다. 보증 등급이 있으면 표시.
+    private var waitingEggCard: some View {
+        HStack(spacing: 10) {
+            SpriteView(speciesID: nil, size: 26).frame(width: 30, height: 30)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(store.l.boxWaitingEgg).font(.system(size: 11, weight: .semibold))
+                Text(store.queuedEggTier.map { store.l.eggGuaranteeHint($0) } ?? store.l.boxWaitingEggHint)
+                    .font(.system(size: 10)).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer()
+        }
+        .padding(8)
+        .background(RoundedRectangle(cornerRadius: 10).fill(Color.secondary.opacity(0.08)))
     }
 
     private var emptyState: some View {
@@ -880,7 +900,7 @@ private struct BoxGridView: View {
                         let i = row * Self.columns + col
                         if i < slice.count {
                             let mon = slice[i]
-                            BoxMonCell(mon: mon, isSelected: selectedID == mon.id) {
+                            BoxMonCell(mon: mon, name: names[mon.id], isSelected: selectedID == mon.id) {
                                 selectedID = (selectedID == mon.id) ? nil : mon.id
                                 confirming = false
                             }
@@ -954,6 +974,7 @@ private struct BoxGridView: View {
 @MainActor
 private struct BoxMonCell: View {
     let mon: MonState
+    let name: String?
     let isSelected: Bool
     let onTap: () -> Void
 
@@ -968,9 +989,9 @@ private struct BoxMonCell: View {
         Button(action: onTap) {
             VStack(spacing: 3) {
                 SpriteView(speciesID: mon.currentID, size: 40, shiny: mon.isShiny)
-                Text("#\(mon.currentID)")
-                    .font(.system(size: 10, weight: .semibold)).monospacedDigit()
-                    .lineLimit(1)
+                Text(name ?? "#\(mon.currentID)")
+                    .font(.system(size: 10, weight: .semibold))
+                    .lineLimit(1).minimumScaleFactor(0.8)
                 if mon.isComplete {
                     Image(systemName: "checkmark.seal.fill")
                         .font(.system(size: 9)).foregroundStyle(.green)

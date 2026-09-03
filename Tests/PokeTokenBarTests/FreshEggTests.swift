@@ -1,7 +1,7 @@
 import XCTest
 @testable import PokeTokenBar
 
-// MARK: 새 알 (리롤 — 현재 포켓몬 폐기, 도감·확률 무영향)
+// MARK: Fresh egg (queued — the active companion keeps growing; the egg waits for graduation)
 
 private struct FreshEggNoProvider: PokeProviding {
     func line(baseSpeciesID: Int) async throws -> EvoLine { throw URLError(.notConnectedToInternet) }
@@ -13,8 +13,8 @@ private struct FreshEggNoProvider: PokeProviding {
 final class FreshEggTests: XCTestCase {
     private let now = Date(timeIntervalSince1970: 1_700_000_000)
 
-    /// 활성 포켓몬(baseID 10, common 3형태, 성장 200M) + 도감 1개 + 수집기록 1개(1:3) + 지갑.
-    /// active=false 면 알(활성 없음) 상태.
+    /// Active Pokémon (baseID 10, common 3-form, 200M grown) + 1 dex entry + 1 collected pair + wallet.
+    /// active=false means the egg (no active) state.
     private func store(active: Bool = true, shiny: Bool = false, used: Int = 5_000_000_000,
                        spent: Int = 0) -> CompanionStore {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("egg-\(UUID().uuidString).json")
@@ -29,61 +29,64 @@ final class FreshEggTests: XCTestCase {
 
     func testPriceIsOneBillion() { XCTAssertEqual(FreshEgg.price, 1_000_000_000) }
 
-    /// [핵심] 리롤 = 놓아줌: active 사라지고 새 알(eggUsage 0).
-    /// 도감에는 **놓아줌 기록으로 남고**, 확률 가중(collectedFinals)은 여전히 불변이다 —
-    /// 끝까지 키운 게 아니므로 최종체 완성으로 세지 않는다.
-    func testBuyFreshEggReleasesIntoDexWithoutProbabilityImpact() {
+    /// [core] Buying an egg does NOT release the active — it keeps growing. The egg is queued and the
+    /// wallet is charged; the dex and probability weighting (collectedFinals) are untouched.
+    func testBuyFreshEggQueuesWithoutReleasingActive() {
         let s = store(used: 5_000_000_000, spent: 0)
-        let persistedDexBefore = s.state.dex
+        let dexCountBefore = s.state.dex.count
         let collectedBefore = s.state.collectedFinals
-        XCTAssertEqual(s.dexEntries.count, persistedDexBefore.count + 1,
-                       "현재 포켓몬은 졸업 전에도 도감 화면에 표시")
         XCTAssertTrue(s.hasActive)
+
         XCTAssertTrue(s.buyFreshEgg())
-        XCTAssertNil(s.state.active, "현재 포켓몬은 더 이상 활성이 아니다")
-        XCTAssertTrue(s.isEgg)
-        XCTAssertEqual(s.state.eggUsage, 0, "새 알은 처음부터 인큐베이션")
-        XCTAssertNil(s.state.pendingHatchID)
 
-        XCTAssertEqual(s.state.dex.count, persistedDexBefore.count + 1,
-                       "놓아준 개체가 영구 기록으로 추가된다")
-        let released = try? XCTUnwrap(s.state.dex.last)
-        XCTAssertEqual(released?.baseID, 10)
-        XCTAssertTrue(released?.isReleased ?? false, "졸업분과 구분되는 놓아줌 기록")
-        XCTAssertEqual(released?.chainOrder, [10], "도달한 형태만 — stageIndex 0 이라 1형태")
-        XCTAssertEqual(s.dexEntries.count, persistedDexBefore.count + 1,
-                       "합성 엔트리는 사라지고 영구 기록이 그 자리를 대신한다")
-
-        XCTAssertEqual(s.state.collectedFinals, collectedBefore, "확률 가중(collectedFinals) 불변")
-        XCTAssertEqual(s.state.spentTokens, FreshEgg.price, "지갑에서 1B 차감")
+        XCTAssertNotNil(s.state.active, "the active companion keeps growing — it is not released")
+        XCTAssertEqual(s.state.active?.baseID, 10)
+        XCTAssertFalse(s.isEgg, "still raising the active, not incubating")
+        XCTAssertTrue(s.hasQueuedEgg, "the purchased egg is now waiting")
+        XCTAssertNil(s.queuedEggTier, "a plain fresh egg has no rarity guarantee")
+        XCTAssertEqual(s.state.dex.count, dexCountBefore, "nothing is released into the dex")
+        XCTAssertEqual(s.state.collectedFinals, collectedBefore, "probability weighting unchanged")
+        XCTAssertEqual(s.state.spentTokens, FreshEgg.price, "wallet charged 1B")
         XCTAssertEqual(s.availableTokens, 5_000_000_000 - FreshEgg.price)
     }
 
-    /// [회귀] 놓아준 종은 도감에서 사라지지 않는다.
-    ///
-    /// 이게 이 기능의 존재 이유다. 도감은 "쌓이기만 한다"는 약속을 주는데, 알 구매가 유일하게
-    /// 그 약속을 깨는 경로였다 — 현재 개체에서만 오던 종이 통째로 빠져 종 수가 줄었다.
-    /// `state.dex` 에 남기는 대신 `state.active = nil` 만 하면 이 테스트가 실패한다(주입 확인함).
-    func testReleasedSpeciesStaysInTheDex() {
-        let s = store()
-        XCTAssertTrue(s.dexSpecies.contains { $0.id == 10 }, "육성 중엔 도감에 보인다")
-        XCTAssertTrue(s.buyFreshEgg())
-        XCTAssertTrue(s.dexSpecies.contains { $0.id == 10 },
-                      "놓아준 뒤에도 남는다 — 도감 종 수는 줄지 않는다")
-        XCTAssertFalse(s.dexSpecies.first { $0.id == 10 }?.isRaising ?? true,
-                       "더 이상 키우는 중이 아니므로 Raising 뱃지는 없다")
+    /// A guaranteed (premium) egg stores its rarity floor on the queued egg.
+    func testGuaranteedEggStoresTierOnQueue() {
+        let s = store(used: 10_000_000_000)
+        XCTAssertTrue(s.buyEgg(.uncommon))
+        XCTAssertTrue(s.hasQueuedEgg)
+        XCTAssertEqual(s.queuedEggTier, .uncommon)
+        XCTAssertEqual(s.state.spentTokens, FreshEgg.price(guaranteeing: .uncommon))
     }
 
-    /// 폐기한 개체(baseID 10)의 종은 collectedFinals 에 들어가지 않는다(이후 부화 확률에 영향 없음).
-    func testDiscardedSpeciesNotCollected() {
+    /// Only one egg can wait at a time — a second purchase is a no-op.
+    func testCannotQueueTwoEggs() {
+        let s = store(used: 10_000_000_000)
+        XCTAssertTrue(s.buyFreshEgg())
+        XCTAssertFalse(s.canBuyFreshEgg, "one already queued")
+        XCTAssertFalse(s.buyFreshEgg())
+        XCTAssertEqual(s.state.spentTokens, FreshEgg.price, "charged only once")
+    }
+
+    /// The species stays in the Pokédex — buying an egg no longer removes it (the active is untouched).
+    func testActiveSpeciesStaysInDexAfterBuying() {
+        let s = store()
+        XCTAssertTrue(s.dexSpecies.contains { $0.id == 10 }, "raising → shown in the Pokédex")
+        XCTAssertTrue(s.buyFreshEgg())
+        XCTAssertTrue(s.dexSpecies.contains { $0.id == 10 }, "still shown — nothing was released")
+        XCTAssertTrue(s.dexSpecies.first { $0.id == 10 }?.isRaising ?? false, "still the active buddy")
+    }
+
+    /// Buying an egg does not touch collectedFinals (probability weighting).
+    func testBuyingEggDoesNotCollect() {
         let s = store()
         XCTAssertTrue(s.buyFreshEgg())
         XCTAssertFalse(s.state.collectedFinals.contains { $0.hasPrefix("10:") },
-                       "폐기 개체 종은 수집 기록에 없어야 함")
+                       "the active's species is not added to the collected set")
     }
 
-    /// 알 상태(활성 없음)에선 리롤할 게 없어 불가.
-    func testCannotRerollWhenEgg() {
+    /// In the egg state (no active) there is nothing to grow behind, so buying is blocked.
+    func testCannotBuyWhenEgg() {
         let s = store(active: false, used: 5_000_000_000)
         XCTAssertFalse(s.hasActive)
         XCTAssertFalse(s.canBuyFreshEgg)
@@ -91,21 +94,21 @@ final class FreshEggTests: XCTestCase {
         XCTAssertEqual(s.state.spentTokens, 0, "no-op")
     }
 
-    /// 잔액이 가격 미만이면 불가 — 활성 유지.
-    func testCannotRerollWithoutFunds() {
-        let s = store(used: 500_000_000)   // 1B 미만
+    /// Insufficient funds → blocked; the active stays.
+    func testCannotBuyWithoutFunds() {
+        let s = store(used: 500_000_000)   // below 1B
         XCTAssertFalse(s.canBuyFreshEgg)
         XCTAssertFalse(s.buyFreshEgg())
-        XCTAssertNotNil(s.state.active, "활성 유지")
+        XCTAssertNotNil(s.state.active, "active retained")
         XCTAssertEqual(s.state.spentTokens, 0)
     }
 
-    /// 이로치도 폐기 가능(추가 경고는 UI 단계, 로직은 동일) — 리롤 후 흔적 없음.
-    func testShinyCanBeRerolled() {
+    /// A shiny active is NOT released by buying an egg — it keeps growing (no discard, no warning).
+    func testBuyingEggKeepsShinyActive() {
         let s = store(shiny: true)
         XCTAssertTrue(s.currentIsShiny)
         XCTAssertTrue(s.buyFreshEgg())
-        XCTAssertNil(s.state.active)
-        XCTAssertFalse(s.currentIsShiny)
+        XCTAssertNotNil(s.state.active, "the shiny keeps growing")
+        XCTAssertTrue(s.currentIsShiny, "still shiny and active")
     }
 }

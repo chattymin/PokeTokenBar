@@ -194,34 +194,6 @@ final class CompanionStore {
         )
     }
 
-    /// 놓아준 개체의 영구 기록 — 알을 새로 사서 육성을 포기하는 순간 만든다.
-    ///
-    /// **도달한 형태만 담는다**(`pathIDs.prefix(stageIndex + 1)`). 도감이 육성 중 보여주던 범위와
-    /// 같아야 놓아준 뒤에도 칸 구성이 그대로 유지된다 — `plannedPathIDs` 나 `pathIDs` 전체를 쓰면
-    /// 도달한 적 없는 진화형까지 보유로 잡힌다(`dexSpecies` 가 같은 prefix 규칙을 쓴다).
-    ///
-    /// 이로치는 `currentIsShiny` — 위장 중인 메타몽은 리빌 전까지 숨긴다(`activeDexEntry` 와 단일 판정).
-    /// `caughtAt` 은 놓아준 시각이다: 포획 로그가 그 값으로 정렬하므로 기록이 남은 시점과 일치해야 한다.
-    private func releasedDexEntry(from a: MonState) -> DexEntry {
-        // stageIndex 가 음수·범위 밖이어도 최소 한 형태는 남긴다(손상 상태 파일 방어 — MonState.currentID 와 같은 태도).
-        let reached = Array(a.pathIDs.prefix(max(1, a.stageIndex + 1)))
-        let chain = reached.isEmpty ? [a.baseID] : reached
-        let now = clock()
-        return DexEntry(
-            baseID: a.baseID,
-            finalID: chain.last ?? a.baseID,
-            chainOrder: chain,
-            rarity: a.rarity,
-            caughtAt: now,
-            isShiny: currentIsShiny,
-            nature: a.nature,
-            names: currentLine.map { line in
-                Dictionary(uniqueKeysWithValues:
-                    chain.compactMap { id in line.names[id].map { (id, $0) } })
-            },
-            releasedAt: now)
-    }
-
     var dexEntries: [DexEntry] {
         guard let activeDexEntry else { return state.dex }
         return state.dex + [activeDexEntry]
@@ -294,6 +266,15 @@ final class CompanionStore {
                 var a = acc[id] ?? DexAccumulator(rarity: active.rarity)
                 if let n = currentLine?.names[id] { a.names = n }
                 if currentIsShiny { a.isShiny = true }   // 위장 중 숨김 규칙 재사용
+                acc[id] = a
+            }
+        }
+        // Boxed individuals count as owned too — their reached stages (incl. pre-evolutions) stay in
+        // the Pokédex, so switching the active companion never removes species from the collection.
+        for mon in state.box {
+            for id in mon.pathIDs.prefix(mon.stageIndex + 1) {
+                var a = acc[id] ?? DexAccumulator(rarity: mon.rarity)
+                if mon.isShiny { a.isShiny = true }
                 acc[id] = a
             }
         }
@@ -613,8 +594,12 @@ final class CompanionStore {
         activeGeneration += 1
         currentLine = nil
         state.eggUsage = 0   // 새 알은 처음부터 인큐베이션
-        // eggTier 는 손대지 않는다 — 여기 도달했다는 건 활성 포켓몬이 있었다는 뜻이라 보증은 이미 nil 이다
-        // (부화가 소비, 디스크/불러오기는 sanitized 가 정규화). 소비 지점은 hatchCore 한 곳으로 유지한다.
+        // A purchased egg that was waiting behind this companion now moves into the freshly emptied
+        // egg slot (its guarantee, if any). With no queued egg the next egg is a plain, unguaranteed
+        // one (eggTier = nil) — reaching here means there was an active companion, so any prior
+        // guarantee was already consumed at its own hatch.
+        state.eggTier = state.queuedEgg?.tier
+        state.queuedEgg = nil
         // "알을 받는 순간" 즉시 프리패칭 시작 — 다음 부화의 종·라인·스프라이트 예열.
         Task { await self.ensureEggPrefetch() }
     }
@@ -643,6 +628,19 @@ final class CompanionStore {
         save()
         Task { await loadCurrentLine() }  // reload line, normalize against current assets, re-eval usage
         return true
+    }
+
+    /// Localized current-form names for boxed Pokémon (mon.id → name). Lines are cached per base by
+    /// PokeAPIClient, so this is usually network-free after the first look; offline/missing lines are
+    /// omitted and the cell falls back to the Pokédex number.
+    func boxDisplayNames() async -> [String: String] {
+        var out: [String: String] = [:]
+        for mon in state.box {
+            if let line = try? await provider.line(baseSpeciesID: mon.baseID) {
+                out[mon.id] = line.localizedName(mon.currentID, state.language)
+            }
+        }
+        return out
     }
 
     // MARK: 인벤토리 / 이상한 사탕
@@ -782,50 +780,35 @@ final class CompanionStore {
     /// 현재 알이 보증하는 등급 하한(UI 표시용). 활성 포켓몬이 있으면 알이 없으므로 nil.
     var eggGuarantee: Rarity? { state.active == nil ? state.eggTier : nil }
 
-    /// 알 구매 가능 — 폐기할 활성 포켓몬이 있고 지갑이 그 티어 가격 이상일 때만.
-    /// 알 상태에서도 살 수 있게 하는 안은 채택하지 않았다(기존 새 알과 게이트 통일) — 알끼리 교체하는
-    /// 동작을 새로 만들지 않고, 상점의 알은 언제나 "지금 개체를 놓아주고 다시 뽑는다"는 한 가지 의미만 갖는다.
-    /// 항목 자체는 알 상태에서도 상점에 남는다(shopEntries) — 이 게이트는 구매만 막는다.
+    /// Buyable only when a living companion is growing (the purchased egg waits behind it) and no
+    /// egg is already queued — one waiting egg at a time. The sellable-tier guard stays: an
+    /// unsatisfiable guarantee (legendary) would take tokens for an egg that can never hatch.
+    /// The shop still lists the entry during egg incubation; this gate only blocks the purchase.
     func canBuyEgg(_ tier: Rarity?) -> Bool {
-        // 파는 티어인지 먼저 확인한다 — 만족 불가능한 보증(전설: capture_rate 로 표현 불가)을 사면
-        // 두 롤 경로 모두 후보가 0개라 알이 영영 안 깨지고, 부화가 없으니 보증도 안 풀리며,
-        // 새 알 구매는 `hasActive` 에 막혀 되돌릴 수단이 없다. 가격만 계산되면 값이 빠져나가므로
-        // 판매 목록을 여기서 강제한다(호출부 하나가 실수하면 토큰이 통째로 사라진다).
         guard FreshEgg.shopTiers.contains(tier) else { return false }
-        return hasActive && availableTokens >= FreshEgg.price(guaranteeing: tier)
+        return hasActive && state.queuedEgg == nil
+            && availableTokens >= FreshEgg.price(guaranteeing: tier)
     }
 
-    /// 알 구매 — 현재 포켓몬을 놓아주고 처음부터 인큐베이션하는 새 알로. 지갑에서 가격 차감.
-    /// graduate() 의 알-리셋을 미러링하되, 놓아준 개체는 **도감에 남긴다**(`releasedDexEntry`).
-    /// 도감은 "쌓이기만 한다"는 약속을 주는데, 여기가 종이 사라질 수 있던 유일한 경로였다.
-    /// `collectedFinals`(최종체 완성·분기 가중)는 여전히 손대지 않는다 — 끝까지 키운 게 아니다.
-    /// 성장(usedAtStage)은 소멸(추가 비용).
-    ///
-    /// 여기서 종을 롤하지 않는다 — 롤에는 네트워크가 필요해서 오프라인이면 토큰만 사라진다. 보증만
-    /// 상태(`eggTier`)에 적고, 실제 롤은 프리패치/부화 경로가 그 보증을 읽어 수행한다.
+    /// Buy an egg — the current companion is NOT released or discarded. It keeps growing; the egg
+    /// waits (`queuedEgg`) and becomes active at the next graduation (see `graduate()`). The wallet
+    /// is charged now and the rarity guarantee (if any) is stored on the queued egg; the species is
+    /// rolled later at hatch, so an offline purchase never loses tokens to a failed roll.
     @discardableResult
     func buyEgg(_ tier: Rarity?) -> Bool {
         guard canBuyEgg(tier) else { return false }
         state.spentTokens += FreshEgg.price(guaranteeing: tier)
-        if let a = state.active {
-            state.dex.append(releasedDexEntry(from: a))   // 놓아줌 기록 — 도감에서 종이 사라지지 않게
-        }
-        state.active = nil            // 놓아줌 (졸업 아님 — collectedFinals 는 미변경)
-        // 놓아준 종도 이제 dex 에 있으므로 대표 선택은 유지된다. 손상 상태 파일 등으로 정말 보유가
-        // 끊긴 경우만 자동 추적으로 복귀한다.
-        state.reconcileRepresentativeSelection()
-        activeGeneration += 1
-        currentLine = nil
-        state.eggUsage = 0            // 새 알은 처음부터 인큐베이션(재부화에 5M 필요)
-        state.eggTier = tier          // 등급 보증(nil = 보증 없음)
-        state.pendingHatchID = nil    // 새 보증으로 처음부터 롤(활성 포켓몬이 있는 동안엔 원래 비어 있다)
-        prefetchedLineID = nil
-        justGraduated = nil; justEvolvedTo = nil; eventUntil = nil
-        AppLog.write("egg purchased: discarded active, tier=\(tier?.rawValue ?? "none")")
-        Task { await self.ensureEggPrefetch() }   // 다음 부화 예열
+        state.queuedEgg = QueuedEgg(tier: tier)
+        AppLog.write("egg queued: tier=\(tier?.rawValue ?? "none")")
         save()
         return true
     }
+
+    /// A purchased egg waiting behind the active companion. Surfaced to the UI so the box can show a
+    /// "waiting egg" card and the shop can reflect that another can't be queued yet. `queuedEggTier`
+    /// is only meaningful when `hasQueuedEgg` is true (nil there means "no rarity guarantee").
+    var hasQueuedEgg: Bool { state.queuedEgg != nil }
+    var queuedEggTier: Rarity? { state.queuedEgg?.tier }
 
     // 보증 없는 기본 알 래퍼 — 기존 호출부/테스트 호환.
     var canBuyFreshEgg: Bool { canBuyEgg(nil) }

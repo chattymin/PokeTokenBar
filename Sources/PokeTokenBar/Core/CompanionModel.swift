@@ -635,6 +635,8 @@ struct CompanionState: Codable, Sendable {
     /// 도감 전체 표시 모델을 만들지 않고 대표 종 하나만 확인하는 경량 경로다.
     func ownsSpecies(_ speciesID: Int) -> Bool {
         if dex.contains(where: { $0.chainOrder.contains(speciesID) }) { return true }
+        // Boxed individuals count as owned — their reached stages stay in the collection.
+        if box.contains(where: { $0.pathIDs.prefix($0.stageIndex + 1).contains(speciesID) }) { return true }
         guard let active else { return false }
         return active.pathIDs.prefix(active.stageIndex + 1).contains(speciesID)
     }
@@ -643,6 +645,8 @@ struct CompanionState: Codable, Sendable {
     /// 도감 표시 모델은 계산하지 않는다. 위장 중인 메타몽의 이로치는 리빌 전까지 숨긴다.
     func ownsShinySpecies(_ speciesID: Int) -> Bool {
         if dex.contains(where: { $0.isShiny && $0.chainOrder.contains(speciesID) }) { return true }
+        // A boxed shiny counts (no active-only ditto-disguise hiding applies to stored individuals).
+        if box.contains(where: { $0.isShiny && $0.pathIDs.prefix($0.stageIndex + 1).contains(speciesID) }) { return true }
         guard let active,
               active.pathIDs.prefix(active.stageIndex + 1).contains(speciesID),
               active.isShiny else { return false }

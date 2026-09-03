@@ -256,6 +256,25 @@ final class CompanionStoreTests: XCTestCase {
         XCTAssertEqual(s.state.box.count, 1, "no re-graduation into the box")
     }
 
+    /// [Box] Boxed Pokémon (incl. reached pre-evolutions) appear in the Pokédex, and switching the
+    /// active companion does not remove species from it.
+    func testBoxSpeciesAppearInPokedexAndSurviveSwitch() throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("poke-boxdex-\(UUID().uuidString).json")
+        let json = """
+        {"active":{"id":"A","baseID":1,"pathIDs":[1],"stageIndex":0,"usedAtStage":0,"rarity":"common","totalForms":3},
+         "box":[{"id":"B","baseID":4,"pathIDs":[4,5],"stageIndex":1,"usedAtStage":0,"rarity":"uncommon","totalForms":3}]}
+        """
+        try Data(json.utf8).write(to: url)
+        let s = CompanionStore(provider: StubProvider(value: linear3), clock: { fixedNow },
+                               fileURL: url, rng: SeededRNG(seed: 7))
+        XCTAssertTrue(Set(s.dexSpecies.map(\.id)).isSuperset(of: [1, 4, 5]),
+                      "active (1) and box reached stages (4,5) all show")
+
+        XCTAssertTrue(s.setActiveFromBox(id: "B"))
+        XCTAssertTrue(Set(s.dexSpecies.map(\.id)).isSuperset(of: [1, 4, 5]),
+                      "same species after switching — the Pokédex doesn't lose entries")
+    }
+
     // MARK: 상태 파일 decode 복원력 (회귀)
 
     /// [회귀] 도감 항목 하나가 손상돼도(구버전/필드 누락) 나머지 도감·companion·인벤토리를 지킨다 —
@@ -674,14 +693,11 @@ final class CompanionStoreTests: XCTestCase {
         XCTAssertEqual(s.dexSpecies.map(\.isRaising), [false, true, false])
     }
 
-    // MARK: 놓아줌 (알 구매로 포기한 개체의 영구 기록)
+    // MARK: Fresh egg (queued — active keeps growing, egg waits for graduation)
 
-    /// [회귀·트리거] 3단 라인을 2단까지 키우다 놓아주면 **도달한 두 형태만** 남는다.
-    ///
-    /// 트리거 분기: `pathIDs` 는 실현 경로, `plannedPathIDs` 는 전체 계획이다. 놓아줌 기록에
-    /// 계획을 쓰면 한 번도 본 적 없는 최종 진화형이 보유로 잡힌다 — 알을 사서 포기하는 것이
-    /// 도감을 채우는 지름길이 된다. `dexSpecies` 가 육성 중 쓰는 prefix 규칙과 같아야 한다.
-    func testReleasingMidChainCreditsOnlyReachedForms() throws {
+    /// [Phase E] Buying an egg mid-chain does NOT release the active: it keeps its reached forms and
+    /// growth, nothing is written to the dex, and the egg is only queued.
+    func testBuyEggMidChainKeepsActiveAndQueues() throws {
         let active = MonState(baseID: 1, pathIDs: [1, 2], plannedPathIDs: [1, 2, 3], stageIndex: 1,
                               usedAtStage: 0, rarity: .common, totalForms: 3)
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("poke-\(UUID().uuidString).json")
@@ -690,31 +706,33 @@ final class CompanionStoreTests: XCTestCase {
 
         let s = CompanionStore(provider: StubProvider(value: linear3), clock: { fixedNow },
                                fileURL: url, rng: SeededRNG(seed: 7))
-        XCTAssertEqual(s.dexSpecies.map(\.id), [1, 2], "육성 중 도달분")
         XCTAssertTrue(s.buyFreshEgg())
-
-        XCTAssertEqual(s.dexSpecies.map(\.id), [1, 2], "놓아준 뒤에도 같은 두 종")
-        let released = try XCTUnwrap(s.state.dex.last)
-        XCTAssertEqual(released.chainOrder, [1, 2])
-        XCTAssertEqual(released.finalID, 2, "도달한 마지막 형태")
-        XCTAssertFalse(s.dexSpecies.contains { $0.id == 3 }, "미도달 진화형은 보유가 아니다")
+        XCTAssertEqual(s.state.active?.pathIDs, [1, 2], "active is untouched — nothing is released")
+        XCTAssertTrue(s.state.dex.isEmpty, "no released dex entry is created anymore")
+        XCTAssertTrue(s.hasQueuedEgg, "the purchased egg is queued")
+        XCTAssertEqual(s.state.collectedFinals, [], "probability weighting unchanged")
     }
 
-    /// 위장 중인 메타몽을 놓아주면 이로치는 계속 숨겨진다 — `currentIsShiny` 단일 판정을 따른다.
-    /// 기록에 `a.isShiny` 를 그대로 쓰면 놓아주는 것이 리빌 수단이 된다.
-    func testReleasingDisguisedDittoKeepsShinyHidden() throws {
-        let active = MonState(baseID: 1, pathIDs: [1], stageIndex: 0, usedAtStage: 0,
-                              rarity: .common, totalForms: 3, isShiny: true,
-                              dittoDisguise: 1, dittoRevealed: false)
+    /// [Phase E] The queued egg (with its guarantee) becomes the active egg when the active graduates.
+    func testQueuedEggActivatesOnGraduation() async {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("poke-\(UUID().uuidString).json")
-        let activeJSON = String(decoding: try JSONEncoder().encode(active), as: UTF8.self)
-        try Data(#"{"active":\#(activeJSON),"usedSinceInstall":5000000000}"#.utf8).write(to: url)
-
-        let s = CompanionStore(provider: StubProvider(value: linear3), clock: { fixedNow },
+        // Seed a large wallet so we can afford an egg without over-growing the active via `use`.
+        try? Data(#"{"installBaselineSet":true,"usedSinceInstall":10000000000,"active":null,"dex":[],"collectedFinals":[]}"#.utf8)
+            .write(to: url)
+        let s = CompanionStore(provider: StubProvider(value: noEvo), clock: { fixedNow },
                                fileURL: url, rng: SeededRNG(seed: 7))
-        XCTAssertTrue(s.buyFreshEgg())
-        let released = try XCTUnwrap(s.state.dex.last)
-        XCTAssertFalse(released.isShiny, "위장 중이면 리빌 전까지 숨김")
+        base(s)
+        use(s, PokemonBalance.eggHatchThreshold)   // hatch the first egg
+        await s.hatchIfNeeded()
+        XCTAssertNotNil(s.state.active)
+        XCTAssertTrue(s.buyEgg(.uncommon), "10B wallet affords the uncommon egg")
+        XCTAssertEqual(s.queuedEggTier, .uncommon)
+
+        s.applyUsage(PokemonBalance.graduationTotal(.common))   // graduate the common active
+
+        XCTAssertNil(s.state.active, "graduated → egg incubating")
+        XCTAssertFalse(s.hasQueuedEgg, "queued egg consumed")
+        XCTAssertEqual(s.state.eggTier, .uncommon, "the guarantee carried into the active egg")
     }
 
     /// 이 필드 이전에 저장된 항목은 전부 졸업분으로 읽힌다 — 별도 마이그레이션 없이 nil = 졸업.
@@ -1599,6 +1617,18 @@ final class CompanionIdentityTests: XCTestCase {
         XCTAssertEqual(round.box[0].isComplete, false)
         XCTAssertEqual(round.box[1].isComplete, true, "completed buddy flag persists")
         XCTAssertEqual(round.queuedEgg?.tier, .uncommon)
+    }
+
+    /// [Box] Ownership includes boxed individuals — reached stages count, unreached ones don't,
+    /// and a boxed shiny is recognized.
+    func testOwnsSpeciesIncludesBox() {
+        var s = CompanionState()
+        s.box = [MonState(baseID: 4, pathIDs: [4, 5], stageIndex: 1, usedAtStage: 0,
+                          rarity: .uncommon, totalForms: 3, isShiny: true)]
+        XCTAssertTrue(s.ownsSpecies(4), "reached pre-evolution counts")
+        XCTAssertTrue(s.ownsSpecies(5), "current form counts")
+        XCTAssertFalse(s.ownsSpecies(6), "unreached stage does not")
+        XCTAssertTrue(s.ownsShinySpecies(5), "a boxed shiny is recognized")
     }
 
     /// [출시 안전] 손상된 상태 파일: active.pathIDs 가 비면 그 active 만 nil(알)로 폴백하되 나머지 상태는

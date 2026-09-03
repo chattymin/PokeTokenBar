@@ -136,7 +136,7 @@ private struct EggCard: View {
     let nav: PopoverNavigation
     let tier: Rarity?
     @State private var stage: Stage = .idle
-    private enum Stage { case idle, confirm, shinyConfirm }
+    private enum Stage { case idle, confirm }
 
     private var price: Int { FreshEgg.price(guaranteeing: tier) }
 
@@ -182,8 +182,11 @@ private struct EggCard: View {
                         .font(.caption2).foregroundStyle(.tertiary).monospacedDigit()
                     Spacer()
                     if !store.hasActive {
-                        // 알 상태 — 리롤 대상이 없어 구매만 막는다(canBuyEgg 게이트). 항목을 숨기는 대신
-                        // 비활성 버튼으로 "상점에 있긴 하다"를 보이고, 사유는 아래 한 줄로.
+                        // 알 상태 — 뒤에서 자랄 개체가 없어 구매만 막는다. 항목은 남기고 사유는 아래 한 줄로.
+                        Button(l.buy) {}
+                            .buttonStyle(.bordered).controlSize(.small).disabled(true)
+                    } else if store.hasQueuedEgg {
+                        // 이미 알 하나가 예약돼 있다 — 한 번에 하나만 대기.
                         Button(l.buy) {}
                             .buttonStyle(.bordered).controlSize(.small).disabled(true)
                     } else if store.canBuyEgg(tier) {
@@ -197,37 +200,31 @@ private struct EggCard: View {
                     Text(l.eggShopLockedHint)
                         .font(.caption2).foregroundStyle(.tertiary)
                         .fixedSize(horizontal: false, vertical: true)
+                } else if store.hasQueuedEgg {
+                    Text(l.eggQueuedHint)
+                        .font(.caption2).foregroundStyle(.tertiary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
         case .confirm:
             HStack(spacing: 8) {
-                Text(l.eggConfirm(store.displayName, l.eggName(tier)))
+                Text(l.eggQueueConfirm(l.eggName(tier)))
                     .font(.caption2).foregroundStyle(.secondary).lineLimit(2)
                 Spacer()
-                // 이로치면 한 번 더 경고, 아니면 즉시 실행.
-                Button(l.buy) {
-                    if store.currentIsShiny { stage = .shinyConfirm } else { commit() }
-                }
-                .buttonStyle(.borderedProminent).controlSize(.small)
-                Button(l.cancel) { stage = .idle }
-                    .buttonStyle(.borderless).controlSize(.small)
-            }
-        case .shinyConfirm:
-            HStack(spacing: 8) {
-                Text(l.freshEggShinyWarning)
-                    .font(.caption2.weight(.semibold)).foregroundStyle(.orange).lineLimit(2)
-                Spacer()
-                Button(l.freshEggDiscardShiny) { commit() }
-                    .buttonStyle(.borderedProminent).controlSize(.small).tint(.orange)
+                Button(l.buy) { commit() }
+                    .buttonStyle(.borderedProminent).controlSize(.small)
                 Button(l.cancel) { stage = .idle }
                     .buttonStyle(.borderless).controlSize(.small)
             }
         }
     }
 
-    /// 리롤 실행 → 새 알을 볼 수 있게 Home 으로 전환(가방 사용과 동일 패턴).
+    /// 예약 실행 → 대기 중인 알을 볼 수 있게 박스로 전환.
     private func commit() {
         stage = .idle
-        if store.buyEgg(tier) { nav.tab = .home }
+        if store.buyEgg(tier) {
+            nav.tab = .collection
+            nav.collectionSection = .box
+        }
     }
 }
