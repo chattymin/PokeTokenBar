@@ -49,7 +49,8 @@ struct DashboardView: View {
 
                 if let limits = payload.limits {
                     LimitsCard(limits: limits, isProviderVisible: { store.isProviderVisible($0) })
-                    if store.isProviderVisible("claude_code"), let history = limits.history, !history.isEmpty {
+                    let history = filteredHistory(limits.history ?? [])
+                    if !history.isEmpty {
                         LimitHistoryCard(series: history, limits: limits)
                     }
                 }
@@ -66,6 +67,20 @@ struct DashboardView: View {
                     .foregroundStyle(.tertiary)
             }
             .padding()
+        }
+    }
+
+    private func filteredHistory(_ series: [PhoneLimitHistorySeries]) -> [PhoneLimitHistorySeries] {
+        let showClaude = store.isProviderVisible("claude_code")
+        let showAgy = store.isProviderVisible("antigravity")
+        return series.filter { s in
+            let isAgy = s.label.localizedCaseInsensitiveContains("gemini")
+                || s.label.localizedCaseInsensitiveContains("antigravity")
+                || (s.label.localizedCaseInsensitiveContains("claude") && s.label.localizedCaseInsensitiveContains("gpt"))
+            if isAgy { return showAgy }
+            let isClaude = s.label.localizedCaseInsensitiveContains("claude")
+            if isClaude { return showClaude }
+            return true
         }
     }
 

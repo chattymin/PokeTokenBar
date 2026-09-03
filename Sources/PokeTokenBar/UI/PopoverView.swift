@@ -132,7 +132,7 @@ struct PopoverView: View {
                     limitsSection
                     Divider()
                 }
-                if selectedSnapshot?.providerID == "claude_code", store.limits != nil {
+                if shouldShowLimitHistory {
                     limitHistorySection
                     Divider()
                 }
@@ -563,14 +563,51 @@ struct PopoverView: View {
     /// 완료된 한도 창들의 최고 사용률 이력. 한도 endpoint 는 "지금 몇 %"만 알려주고 창이 리셋되면
     /// 그 값은 어디에도 안 남으므로(LimitHistoryStore 참고), 이 섹션이 보여주는 건 전적으로
     /// 앱이 폴링하며 직접 쌓은 기록이다 — 설치 이전 구간은 존재하지 않는다.
+    private var shouldShowLimitHistory: Bool {
+        if selectedSnapshot?.providerID == "claude_code", store.limits != nil {
+            return true
+        }
+        if selectedSnapshot?.providerID == "antigravity", store.antigravityLimits != nil {
+            return true
+        }
+        return false
+    }
+
+    private struct HistoryEntry {
+        let window: String
+        let name: String
+        let summary: LimitHistoryStore.Summary
+    }
+
+    private var currentLimitHistoryEntries: [HistoryEntry] {
+        let providerID = selectedSnapshot?.providerID ?? ""
+        if providerID == "claude_code" {
+            return LimitHistoryStore.ClaudeWindow.displayed.map { window in
+                HistoryEntry(
+                    window: window,
+                    name: historyWindowName(window),
+                    summary: store.limitHistory.summary(
+                        providerID: "claude_code", window: window,
+                        threshold: store.warnThreshold, limit: Self.historyWindowCount)
+                )
+            }
+        } else if providerID == "antigravity" {
+            return LimitHistoryStore.AntigravityWindow.displayed.map { window in
+                HistoryEntry(
+                    window: window,
+                    name: antigravityHistoryWindowName(window),
+                    summary: store.limitHistory.summary(
+                        providerID: "antigravity", window: window,
+                        threshold: store.warnThreshold, limit: Self.historyWindowCount)
+                )
+            }
+        }
+        return []
+    }
+
     @ViewBuilder
     private var limitHistorySection: some View {
-        let summaries = LimitHistoryStore.ClaudeWindow.displayed.map { window in
-            (window: window,
-             summary: store.limitHistory.summary(
-                providerID: "claude_code", window: window,
-                threshold: store.warnThreshold, limit: Self.historyWindowCount))
-        }
+        let summaries = currentLimitHistoryEntries
         VStack(alignment: .leading, spacing: 8) {
             Text(l.limitHistory)
                 .font(.caption)
@@ -582,7 +619,7 @@ struct PopoverView: View {
             } else {
                 ForEach(summaries, id: \.window) { entry in
                     if !entry.summary.isEmpty {
-                        historyRow(name: historyWindowName(entry.window), summary: entry.summary)
+                        historyRow(name: entry.name, summary: entry.summary)
                     }
                 }
             }
@@ -595,6 +632,21 @@ struct PopoverView: View {
 
     private func historyWindowName(_ window: String) -> String {
         window == LimitHistoryStore.ClaudeWindow.sevenDay ? l.weekly : l.fiveHourSession
+    }
+
+    private func antigravityHistoryWindowName(_ window: String) -> String {
+        switch window {
+        case LimitHistoryStore.AntigravityWindow.geminiFiveHour:
+            return "\(l.phoneAntigravityGeminiGroup) \(l.fiveHourSession)"
+        case LimitHistoryStore.AntigravityWindow.geminiWeekly:
+            return "\(l.phoneAntigravityGeminiGroup) \(l.weekly)"
+        case LimitHistoryStore.AntigravityWindow.thirdPartyFiveHour:
+            return "\(l.phoneAntigravityThirdPartyGroup) \(l.fiveHourSession)"
+        case LimitHistoryStore.AntigravityWindow.thirdPartyWeekly:
+            return "\(l.phoneAntigravityThirdPartyGroup) \(l.weekly)"
+        default:
+            return window
+        }
     }
 
     @ViewBuilder

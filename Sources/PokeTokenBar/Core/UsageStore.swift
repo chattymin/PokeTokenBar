@@ -956,6 +956,12 @@ final class UsageStore {
                             windows: LimitHistoryStore.claudeWindows(from: limits))
     }
 
+    private func recordAntigravityLimitHistory() {
+        guard let antigravityLimits else { return }
+        limitHistory.record(providerID: "antigravity",
+                            windows: LimitHistoryStore.antigravityWindows(from: antigravityLimits))
+    }
+
     func refreshLimitTokenFromKeychain() async {
         guard !isRefreshingLimitToken else { return }
         isRefreshingLimitToken = true
@@ -1121,6 +1127,7 @@ final class UsageStore {
             antigravityLimitsUpdatedAt = Date()
             antigravityLimitsAuthExpired = false
             antigravityLimitRefreshError = nil
+            recordAntigravityLimitHistory()
             let groupsDesc = status.groups.map { group in
                 "\(group.displayName): " + group.buckets.map { "\($0.bucketId)=\(String(format: "%.1f", $0.usedPercent))%" }.joined(separator: ", ")
             }.joined(separator: " | ")

@@ -289,6 +289,30 @@ final class UsageStoreTests: XCTestCase {
             .map(\.utilization), [37])
     }
 
+    func testRefreshRecordsAntigravityLimitHistory() async throws {
+        let history = LimitHistoryStore(fileURL: historyFile())
+        let agyProvider = FakeUsageProvider(id: "antigravity", displayName: "Antigravity",
+                                            daily: todayDaily(5_000))
+        let gemini5h = AntigravityQuotaBucket(bucketId: "gemini-5h", displayName: "5h", window: "5h", remainingFraction: 0.8) // 20%
+        let geminiWeekly = AntigravityQuotaBucket(bucketId: "gemini-weekly", displayName: "Weekly", window: "weekly", remainingFraction: 0.95) // 5%
+        let agyStatus = AntigravityRateLimitStatus(groups: [
+            AntigravityQuotaGroup(displayName: "Gemini Models", buckets: [gemini5h, geminiWeekly])
+        ])
+
+        let store = UsageStore(providers: [agyProvider],
+                               claudeLimitsProvider: FakeClaudeLimits(status: nil),
+                               codexLimitsProvider: FakeCodexLimits(status: nil),
+                               opencodeGoLimitsProvider: FakeOpenCodeGoLimits(status: nil),
+                               antigravityLimitsProvider: FakeAntigravityLimits(status: agyStatus),
+                               limitHistory: history, autoRefresh: false, defaults: testDefaults)
+        await store.refresh()
+
+        let sample5h = try XCTUnwrap(history.samples(providerID: "antigravity", window: "gemini_5h").first)
+        XCTAssertEqual(sample5h.utilization, 20.0, accuracy: 0.001)
+        let sampleWeekly = try XCTUnwrap(history.samples(providerID: "antigravity", window: "gemini_weekly").first)
+        XCTAssertEqual(sampleWeekly.utilization, 5.0, accuracy: 0.001)
+    }
+
     /// 사용량 스캔 주기(로컬 파일 읽기)와 원격 한도 조회를 분리한다. 2분 주기에서 429 가 반복된 것이
     /// 근거다 — 사용자는 "사용량을 자주 갱신"을 고른 것이지 "비공식 endpoint 를 자주 두드림"을 고른 게 아니다.
     func testConsecutiveRefreshesDoNotRefetchRemoteLimits() async {

@@ -242,4 +242,19 @@ final class PhoneLimitStatusBuilderTests: XCTestCase {
         XCTAssertEqual(series[0].windows.filter(\.truncated).count, series[0].windows.count)
     }
 
+    func testPhoneHistoryCarriesAntigravitySeries() {
+        var clock = Date(timeIntervalSince1970: 1_700_000_000)
+        let file = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ptb-phone-history-\(UUID().uuidString).json")
+        let store = LimitHistoryStore(fileURL: file, now: { clock })
+        for val in [20.0, 60.0, 1.0, 45.0] {
+            store.record(providerID: "antigravity",
+                         windows: [("gemini_5h", val)])
+            clock = clock.addingTimeInterval(1800)
+        }
+        let series = AppDelegate.phoneLimitHistory(store, warnThreshold: 80, l: L(.en))
+        XCTAssertEqual(series.count, 1)
+        XCTAssertEqual(series[0].label, "Antigravity Gemini 5h")
+        XCTAssertEqual(series[0].windows.map(\.peak), [60, 45])
+    }
 }

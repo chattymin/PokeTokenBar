@@ -287,3 +287,46 @@ extension LimitHistoryStore {
         return result
     }
 }
+
+// MARK: - Antigravity adapter
+
+extension LimitHistoryStore {
+    /// Window keys for the Antigravity limit response. Stable identifiers — they are persisted, so
+    /// renaming one orphans that history.
+    enum AntigravityWindow {
+        static let geminiFiveHour = "gemini_5h"
+        static let geminiWeekly = "gemini_weekly"
+        static let thirdPartyFiveHour = "third_party_5h"
+        static let thirdPartyWeekly = "third_party_weekly"
+
+        /// Display order for the history section, matching the live limit rows above it.
+        static let displayed = [
+            geminiFiveHour,
+            geminiWeekly,
+            thirdPartyFiveHour,
+            thirdPartyWeekly,
+        ]
+    }
+
+    /// Flatten an `AntigravityRateLimitStatus` into recordable windows.
+    static func antigravityWindows(from status: AntigravityRateLimitStatus) -> [(window: String, utilization: Double)] {
+        var result: [(window: String, utilization: Double)] = []
+        if let gemini = status.geminiGroup {
+            if let fiveHour = gemini.fiveHourBucket {
+                result.append((AntigravityWindow.geminiFiveHour, fiveHour.usedPercent))
+            }
+            if let weekly = gemini.weeklyBucket {
+                result.append((AntigravityWindow.geminiWeekly, weekly.usedPercent))
+            }
+        }
+        if let tp = status.thirdPartyGroup {
+            if let fiveHour = tp.fiveHourBucket {
+                result.append((AntigravityWindow.thirdPartyFiveHour, fiveHour.usedPercent))
+            }
+            if let weekly = tp.weeklyBucket {
+                result.append((AntigravityWindow.thirdPartyWeekly, weekly.usedPercent))
+            }
+        }
+        return result
+    }
+}

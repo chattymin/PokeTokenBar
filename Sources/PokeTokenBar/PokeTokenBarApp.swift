@@ -468,23 +468,48 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     static func phoneLimitHistory(
         _ history: LimitHistoryStore, warnThreshold: Double, limit: Int = 14, l: L
     ) -> [PhoneLimitHistorySeries] {
-        let labels = [
+        let claudeLabels = [
             LimitHistoryStore.ClaudeWindow.fiveHour: l.phoneClaude5h,
             LimitHistoryStore.ClaudeWindow.sevenDay: l.phoneClaudeWeekly,
         ]
-        return LimitHistoryStore.ClaudeWindow.displayed.compactMap { window in
+        var series: [PhoneLimitHistorySeries] = []
+        for window in LimitHistoryStore.ClaudeWindow.displayed {
             let summary = history.summary(providerID: "claude_code", window: window,
                                           threshold: warnThreshold, limit: limit)
             // 완료된 창이 없으면 시리즈 자체를 만들지 않는다 — 빈 시리즈를 보내면 폰이 "이력 있음"
             // 카드를 띄우고 빈 차트를 그린다.
-            guard !summary.isEmpty else { return nil }
-            return PhoneLimitHistorySeries(
-                label: labels[window] ?? window,
+            guard !summary.isEmpty else { continue }
+            series.append(PhoneLimitHistorySeries(
+                label: claudeLabels[window] ?? window,
                 windows: summary.windows.map {
                     PhoneLimitHistoryWindow(peak: $0.peak, end: $0.end, truncated: $0.truncated)
                 },
-                peak: summary.peak, median: summary.median, atOrAbove: summary.atOrAbove)
+                peak: summary.peak, median: summary.median, atOrAbove: summary.atOrAbove))
         }
+
+        let agyLabels = [
+            LimitHistoryStore.AntigravityWindow.geminiFiveHour: l.phoneAntigravity(
+                group: l.phoneAntigravityGeminiGroup, window: "5h", bucketId: "5h"),
+            LimitHistoryStore.AntigravityWindow.geminiWeekly: l.phoneAntigravity(
+                group: l.phoneAntigravityGeminiGroup, window: "weekly", bucketId: "weekly"),
+            LimitHistoryStore.AntigravityWindow.thirdPartyFiveHour: l.phoneAntigravity(
+                group: l.phoneAntigravityThirdPartyGroup, window: "5h", bucketId: "5h"),
+            LimitHistoryStore.AntigravityWindow.thirdPartyWeekly: l.phoneAntigravity(
+                group: l.phoneAntigravityThirdPartyGroup, window: "weekly", bucketId: "weekly"),
+        ]
+        for window in LimitHistoryStore.AntigravityWindow.displayed {
+            let summary = history.summary(providerID: "antigravity", window: window,
+                                          threshold: warnThreshold, limit: limit)
+            guard !summary.isEmpty else { continue }
+            series.append(PhoneLimitHistorySeries(
+                label: agyLabels[window] ?? window,
+                windows: summary.windows.map {
+                    PhoneLimitHistoryWindow(peak: $0.peak, end: $0.end, truncated: $0.truncated)
+                },
+                peak: summary.peak, median: summary.median, atOrAbove: summary.atOrAbove))
+        }
+
+        return series
     }
 
     /// Claude 5h 소진 예측 → 폰. 예측이 없어도 burn 이 있으면 tokens/min 만 보낸다.

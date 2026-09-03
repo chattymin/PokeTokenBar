@@ -361,4 +361,48 @@ final class LimitHistoryTests: XCTestCase {
                      windows: LimitHistoryStore.claudeWindows(from: status))
         XCTAssertTrue(store.samples(providerID: "claude_code", window: "five_hour").isEmpty)
     }
+
+    // MARK: - Antigravity adapter
+
+    func testAntigravityWindowsFlattensAllBuckets() {
+        let gemini5h = AntigravityQuotaBucket(bucketId: "gemini-5h", displayName: "5h", window: "5h", remainingFraction: 0.7) // 30% used
+        let geminiWeekly = AntigravityQuotaBucket(bucketId: "gemini-weekly", displayName: "Weekly", window: "weekly", remainingFraction: 0.9) // 10% used
+        let geminiGroup = AntigravityQuotaGroup(displayName: "Gemini Models", buckets: [gemini5h, geminiWeekly])
+
+        let tp5h = AntigravityQuotaBucket(bucketId: "3p-5h", displayName: "5h", window: "5h", remainingFraction: 0.5) // 50% used
+        let tpWeekly = AntigravityQuotaBucket(bucketId: "3p-weekly", displayName: "Weekly", window: "weekly", remainingFraction: 0.8) // 20% used
+        let tpGroup = AntigravityQuotaGroup(displayName: "Claude and GPT models", buckets: [tp5h, tpWeekly])
+
+        let status = AntigravityRateLimitStatus(groups: [geminiGroup, tpGroup])
+        let windows = LimitHistoryStore.antigravityWindows(from: status)
+
+        XCTAssertEqual(windows.map(\.window), [
+            "gemini_5h", "gemini_weekly",
+            "third_party_5h", "third_party_weekly"
+        ])
+        let expected = [30.0, 10.0, 50.0, 20.0]
+        for (actual, exp) in zip(windows.map(\.utilization), expected) {
+            XCTAssertEqual(actual, exp, accuracy: 0.001)
+        }
+    }
+
+    func testAntigravityWindowsSkipsMissingBuckets() {
+        let gemini5h = AntigravityQuotaBucket(bucketId: "gemini-5h", displayName: "5h", window: "5h", remainingFraction: 0.75) // 25% used
+        let geminiGroup = AntigravityQuotaGroup(displayName: "Gemini Models", buckets: [gemini5h])
+        let status = AntigravityRateLimitStatus(groups: [geminiGroup])
+
+        let windows = LimitHistoryStore.antigravityWindows(from: status)
+        XCTAssertEqual(windows.map(\.window), ["gemini_5h"])
+        XCTAssertEqual(windows.map(\.utilization), [25])
+    }
+
+    func testAntigravityWindowsEmptyStatusRecordsNothing() {
+        let status = AntigravityRateLimitStatus(groups: [])
+        XCTAssertTrue(LimitHistoryStore.antigravityWindows(from: status).isEmpty)
+
+        let store = LimitHistoryStore(fileURL: file(), now: { self.epoch })
+        store.record(providerID: "antigravity",
+                     windows: LimitHistoryStore.antigravityWindows(from: status))
+        XCTAssertTrue(store.samples(providerID: "antigravity", window: "gemini_5h").isEmpty)
+    }
 }
