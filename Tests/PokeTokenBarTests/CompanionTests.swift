@@ -236,24 +236,35 @@ final class CompanionStoreTests: XCTestCase {
         XCTAssertEqual(s.state.dex.count, dexBefore + 1, "permanent dex record still added")
     }
 
-    /// [Box] A completed buddy re-activated from the box does not grow or re-graduate.
-    func testCompletedBuddyDoesNotRegrow() throws {
+    /// [Box] A graduated (completed) Pokémon is a trophy — it cannot be set active from the box.
+    func testCannotActivateGraduatedMon() throws {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("poke-buddy-\(UUID().uuidString).json")
         let json = """
         {"active":{"id":"A","baseID":1,"pathIDs":[1],"stageIndex":0,"usedAtStage":0,"rarity":"common","totalForms":1},
-         "box":[{"id":"DONE","baseID":25,"pathIDs":[25],"stageIndex":0,"usedAtStage":0,"rarity":"common","totalForms":1,"isComplete":true}]}
+         "box":[{"id":"DONE","baseID":25,"pathIDs":[25,26],"stageIndex":1,"usedAtStage":0,"rarity":"common","totalForms":2,"isComplete":true}]}
         """
         try Data(json.utf8).write(to: url)
         let s = CompanionStore(provider: StubProvider(value: linear3), clock: { fixedNow },
                                fileURL: url, rng: SeededRNG(seed: 7))
-        XCTAssertTrue(s.setActiveFromBox(id: "DONE"))
-        XCTAssertEqual(s.state.active?.id, "DONE")
+        XCTAssertFalse(s.setActiveFromBox(id: "DONE"), "graduated trophies can't be activated")
+        XCTAssertEqual(s.state.active?.id, "A", "active is unchanged")
+        XCTAssertEqual(s.state.box.map(\.id), ["DONE"], "the trophy stays in the box")
+    }
 
+    /// [Box] Defensive: even if a graduated mon is somehow the active one (e.g. a hand-edited save),
+    /// applyUsage does not grow or re-graduate it.
+    func testActiveGraduatedMonDoesNotGrow() throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("poke-buddy-\(UUID().uuidString).json")
+        let json = """
+        {"active":{"id":"DONE","baseID":25,"pathIDs":[25,26],"stageIndex":1,"usedAtStage":0,"rarity":"common","totalForms":2,"isComplete":true}}
+        """
+        try Data(json.utf8).write(to: url)
+        let s = CompanionStore(provider: StubProvider(value: linear3), clock: { fixedNow },
+                               fileURL: url, rng: SeededRNG(seed: 7))
         s.applyUsage(PokemonBalance.graduationTotal(.common) * 2)   // would graduate a normal mon
-
-        XCTAssertEqual(s.state.active?.id, "DONE", "completed buddy stays active")
+        XCTAssertEqual(s.state.active?.id, "DONE", "still active")
         XCTAssertEqual(s.state.active?.usedAtStage, 0, "no growth accrued")
-        XCTAssertEqual(s.state.box.count, 1, "no re-graduation into the box")
+        XCTAssertTrue(s.state.box.isEmpty, "no re-graduation into the box")
     }
 
     /// [Box] Reaching the final form is NOT the same as graduating: a final-form mon below the

@@ -592,6 +592,7 @@ struct L {
     var boxSetActive: String { t("활성 포켓몬으로", "Make active", "アクティブにする", "Hacer activo", "Rendre actif", "Tornar ativo", "Als aktives Pokémon") }
     var boxSwitchConfirm: String { t("교체", "Switch", "交代", "Cambiar", "Échanger", "Trocar", "Übernehmen") }
     var boxSwitchDisabledHint: String { t("지금은 알을 품는 중이라 교체할 수 없어요.", "Can't switch while an egg is incubating.", "タマゴを育てている間は交代できません。", "No puedes cambiar mientras incuba un huevo.", "Impossible d'échanger pendant l'incubation d'un œuf.", "Não dá para trocar enquanto um ovo choca.", "Während ein Ei ausgebrütet wird, ist kein Wechsel möglich.") }
+    var boxGraduatedHint: String { t("졸업한 포켓몬이라 트로피예요 — 활성으로 세울 수 없어요.", "A graduated Pokémon is a trophy — it can't be set active.", "卒業したポケモンはトロフィーです — アクティブにできません。", "Un Pokémon graduado es un trofeo: no puede activarse.", "Un Pokémon diplômé est un trophée — impossible de l'activer.", "Um Pokémon formado é um troféu — não pode ficar ativo.", "Ein graduiertes Pokémon ist eine Trophäe — kann nicht aktiv gesetzt werden.") }
     var dexRaising: String { t("키우는 중", "Raising", "育成中", "Criando", "En élevage", "Treinando", "In Aufzucht") }
     /// 포획 로그에서 졸업분과 놓아준 개체를 가르는 표식. 종은 도감에 남고 개체 기록만 이 뱃지를 단다.
     var dexReleased: String { t("놓아줌", "Released", "逃がした", "Liberado", "Relâché", "Solto", "Freigelassen") }

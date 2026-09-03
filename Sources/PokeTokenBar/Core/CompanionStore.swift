@@ -610,10 +610,13 @@ final class CompanionStore {
     /// Make a boxed Pokémon the active one; the current active moves into the box (a swap).
     /// Growth status (stageIndex/usedAtStage) is preserved because the whole MonState is moved.
     /// Not allowed while the active slot is an egg (nil) — avoids parking egg incubation state.
+    /// A graduated (completed) Pokémon is a trophy and cannot be set active — it can't be raised
+    /// further, and activating it would let asset normalization reset its stored evolution line.
     @discardableResult
     func setActiveFromBox(id: String) -> Bool {
         guard let active = state.active else { return false }
         guard let idx = state.box.firstIndex(where: { $0.id == id }) else { return false }
+        guard !state.box[idx].isComplete else { return false }
         let picked = state.box.remove(at: idx)
         state.box.append(active)          // the swap — previous active goes to the box
         state.active = picked

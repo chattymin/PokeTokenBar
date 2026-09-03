@@ -924,11 +924,14 @@ private struct BoxGridView: View {
         .frame(height: 22)
     }
 
-    /// 선택한 개체를 활성으로 만드는 인라인 액션. 알 품는 중엔 버튼 대신 이유를 띄운다.
+    /// 선택한 개체를 활성으로 만드는 인라인 액션. 졸업 트로피는 활성 불가, 알 품는 중엔 버튼 대신 이유를 띄운다.
     @ViewBuilder
     private var action: some View {
         if let id = selectedID {
-            if !store.canSwitchActive {
+            if store.boxedPokemon.first(where: { $0.id == id })?.isComplete == true {
+                Text(store.l.boxGraduatedHint)
+                    .font(.system(size: 9)).foregroundStyle(.secondary).lineLimit(2)
+            } else if !store.canSwitchActive {
                 Text(store.l.boxSwitchDisabledHint)
                     .font(.system(size: 9)).foregroundStyle(.secondary).lineLimit(2)
             } else if confirming {
@@ -971,13 +974,18 @@ private struct BoxMonCell: View {
     var body: some View {
         Button(action: onTap) {
             VStack(spacing: 3) {
+                // 졸업 트로피는 스프라이트 우상단에 🏆 뱃지 — 한눈에 구분된다.
                 SpriteView(speciesID: mon.currentID, size: 40, shiny: mon.isShiny)
+                    .overlay(alignment: .topTrailing) {
+                        if mon.isComplete {
+                            Text("🏆").font(.system(size: 13)).offset(x: 3, y: -3)
+                        }
+                    }
                 Text(name ?? "#\(mon.currentID)")
                     .font(.system(size: 10, weight: .semibold))
                     .lineLimit(1).minimumScaleFactor(0.8)
                 if mon.isComplete {
-                    Image(systemName: "checkmark.seal.fill")
-                        .font(.system(size: 9)).foregroundStyle(.green)
+                    Color.clear.frame(height: 3)   // 진행 바 자리를 비워 칸 높이를 맞춘다(트로피는 스프라이트에 표시).
                 } else {
                     ProgressView(value: progress)
                         .progressViewStyle(.linear)
