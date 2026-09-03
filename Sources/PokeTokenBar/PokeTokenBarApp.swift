@@ -11,13 +11,20 @@ struct PokeTokenBarApp: App {
     var body: some Scene {
         // 메뉴바는 AppDelegate 의 NSStatusItem 이 담당.
         // MenuBarExtra 라벨은 고빈도 갱신 시 재렌더링 폭주로 CPU/메모리 문제가 있어 사용하지 않는다.
-        Settings { EmptyView() }
+        //
+        // 이 씬은 `App` 이 Scene 을 최소 하나 요구해서 존재한다 — 설정 화면 자체는 팝오버 안에 있다.
+        // 내용이 `EmptyView` 이던 동안 ⌘, 는 **빈 창** 을 띄웠다. 평소엔 메뉴 항목을 우리 액션으로
+        // 돌려(SettingsMenuItem.retarget) 이 씬이 아예 열리지 않지만, 그 셀렉터는 문서화된 API 가
+        // 아니라 못 찾을 수 있다 — 그때 빈 창으로 되돌아가지 않도록 브리지를 폴백으로 둔다.
+        Settings { SettingsSceneBridge() }
     }
 }
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private var statusItem: NSStatusItem!
+    /// ⌘, 메뉴 항목 리타깃 완료 여부 — 활성화마다 다시 훑지 않게.
+    private var settingsMenuRetargeted = false
     private let popover = NSPopover()
     private var outsideClickMonitor = OutsideClickMonitor()
     private var store: UsageStore!
@@ -63,6 +70,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     /// cycle shorter than the throttle would record nothing at all.
     func applicationWillTerminate(_ notification: Notification) {
         store?.limitHistory.flush()
+    }
+
+    /// 메인 메뉴는 첫 활성화 때 만들어진다 — ⌘, 리타깃은 여기서 확정된다.
+    func applicationDidBecomeActive(_ notification: Notification) {
+        retargetSettingsMenuItem()
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -808,6 +820,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     /// 팝오버 콘텐츠(SwiftUI 호스팅) 생성. .transient 팝오버는 contentViewController 를 평생 보유해 닫혀도
     /// NSHostingView 트리가 상주하며 매 디스플레이 사이클 재레이아웃된다(측정: idle CPU 최대 비용 — 닫힌
     /// 팝오버의 relative-time Text self-invalidation × 메뉴 애니메이션 CA 커밋). 그래서 열 때 만들고 닫힐 때 해제.
+    /// ⌘, · 앱 메뉴 "Settings…" → 팝오버의 설정 화면. 별도 창을 띄우지 않는다.
+    @objc func openSettingsFromMenu(_ sender: Any?) {
+        if popover.isShown {
+            navigation.showSettings = true
+        } else {
+            presentPopover(openingSettings: true)
+        }
+    }
+
+    /// **활성화 시점에 돌려야 한다.** `.accessory` 앱의 메인 메뉴는 앱이 처음 활성화될 때 만들어져,
+    /// `applicationDidFinishLaunching` 이나 그 다음 런루프에는 아직 없다(실측: 그 시점 시도는 실패해
+    /// 폴백 브리지가 대신 받았다 — 빈 창이 잠깐 떴다 닫히는 그 경로다). 활성화마다 부르고,
+    /// 성공하면 그 뒤로는 건너뛴다.
+    private func retargetSettingsMenuItem() {
+        guard !settingsMenuRetargeted, let menu = NSApp.mainMenu else { return }
+        settingsMenuRetargeted = SettingsMenuItem.retarget(
+            in: menu, to: self, action: #selector(openSettingsFromMenu(_:)))
+        if !settingsMenuRetargeted {
+            // 메뉴는 있는데 항목을 못 찾은 경우 — 셀렉터 이름이 바뀌었을 수 있다.
+            AppLog.writeIfChanged(
+                "settings-menu", "settings menu item not found — ⌘, falls back to the scene bridge")
+        }
+    }
+
     func openPopover() {
         // Pet click is an outside click for a .transient popover — if already shown it is
         // already dismissing; the old "activate/makeKey" branch never applied.
@@ -822,11 +858,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     }
 
     @objc private func togglePopover() {
+        presentPopover(openingSettings: false)
+    }
+
+    /// `openingSettings` 는 **콘텐츠 생성 전** 에 반영한다 — show 이후에 켜면 홈 화면이 한 프레임
+    /// 그려졌다가 설정으로 바뀌어 깜빡인다.
+    private func presentPopover(openingSettings: Bool) {
         guard let button = statusItem.button else { return }
         if popover.isShown {
             popover.performClose(nil)   // 해제·메뉴 애니메이션 재개는 popoverDidClose 에서
         } else {
             navigation.reset()   // 닫혔다 열리면 항상 Home 으로 (설정 화면 잔류 방지)
+            if openingSettings { navigation.showSettings = true }
             buildPopoverContent()   // 열 때 호스팅 트리 생성(닫힐 때 해제)
             // LSUIElement 앱이 비활성이면 팝오버 내부 버튼 클릭이 무시됨 — show 전에 활성화 보장
             NSApp.activate(ignoringOtherApps: true)
