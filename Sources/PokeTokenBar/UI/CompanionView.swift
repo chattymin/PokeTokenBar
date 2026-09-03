@@ -553,8 +553,15 @@ struct CompanionHeader: View {
                             }
                         }
                         ProgressView(value: store.eggProgress).controlSize(.small).tint(.orange)
-                        Text(store.l.eggToHatch(TokenFormatter.compact(store.eggTokensToHatch)))
-                            .font(.caption2).foregroundStyle(.tertiary)
+                        if store.isEgg, store.isHatchWaitingForNetwork {
+                            Text(store.l.eggWaitingForNetwork)
+                                .font(.caption2)
+                                .foregroundStyle(.orange)
+                                .fixedSize(horizontal: false, vertical: true)
+                        } else {
+                            Text(store.l.eggToHatch(TokenFormatter.compact(store.eggTokensToHatch)))
+                                .font(.caption2).foregroundStyle(.tertiary)
+                        }
                         // 첫 실행(적립 0) — 정적 알 앞에서 "고장났나" 오해 방지용 한 줄 안내
                         if !store.eggStarted {
                             Text(store.l.eggFirstRunHint)

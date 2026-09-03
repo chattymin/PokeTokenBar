@@ -120,6 +120,8 @@ final class CompanionStore {
     var eggStarted: Bool { state.eggUsage > 0 }
     var eggProgress: Double { min(1, max(0, Double(state.eggUsage) / Double(PokemonBalance.eggHatchThreshold))) }
     var eggTokensToHatch: Int { max(0, PokemonBalance.eggHatchThreshold - state.eggUsage) }
+    /// 알이 부화 준비(100%)가 되었으나 PokéAPI 통신 실패 등으로 지연되는 상태
+    private(set) var isHatchWaitingForNetwork = false
 
     var displayName: String {
         guard let a = state.active, let line = currentLine else { return "Token Egg" }
@@ -606,6 +608,7 @@ final class CompanionStore {
         activeGeneration += 1
         currentLine = nil
         state.eggUsage = 0   // 새 알은 처음부터 인큐베이션
+        isHatchWaitingForNetwork = false
         // eggTier 는 손대지 않는다 — 여기 도달했다는 건 활성 포켓몬이 있었다는 뜻이라 보증은 이미 nil 이다
         // (부화가 소비, 디스크/불러오기는 sanitized 가 정규화). 소비 지점은 hatchCore 한 곳으로 유지한다.
         // "알을 받는 순간" 즉시 프리패칭 시작 — 다음 부화의 종·라인·스프라이트 예열.
@@ -784,6 +787,7 @@ final class CompanionStore {
         activeGeneration += 1
         currentLine = nil
         state.eggUsage = 0            // 새 알은 처음부터 인큐베이션(재부화에 5M 필요)
+        isHatchWaitingForNetwork = false
         state.eggTier = tier          // 등급 보증(nil = 보증 없음)
         state.pendingHatchID = nil    // 새 보증으로 처음부터 롤(활성 포켓몬이 있는 동안엔 원래 비어 있다)
         prefetchedLineID = nil
@@ -881,7 +885,10 @@ final class CompanionStore {
         } else {
             base = await chooseBase()
         }
-        guard let base else { return }   // 네트워크 불안정 → 알 유지, 다음 update 틱에 재시도
+        guard let base else {
+            isHatchWaitingForNetwork = true
+            return
+        }   // 네트워크 불안정 → 알 유지, 다음 update 틱에 재시도
         // 세대 검사는 **여기서** 해야 한다. `chooseBase()` 대기 창에서 상태가 통째로 교체되면
         // (세이브 불러오기) 그 뒤에 진입하는 hatchCore 는 *교체 이후*의 세대를 캡처해 자기 가드가
         // 무조건 통과한다 — 옛 롤 결과가 불러온 개체를 덮어쓰고 save() 로 디스크에 박힌다.
@@ -960,6 +967,7 @@ final class CompanionStore {
     private func hatchCore(baseID: Int) async {
         let generation = activeGeneration
         guard let line = try? await provider.line(baseSpeciesID: baseID) else {
+            isHatchWaitingForNetwork = true
             AppLog.write("hatch: line fetch failed for base \(baseID) — egg kept, retry next tick")
             return
         }
@@ -982,6 +990,7 @@ final class CompanionStore {
             return
         }
         currentLine = line
+        isHatchWaitingForNetwork = false
         // 부화 임계 초과분은 부화체 성장에 이월(낭비 없음).
         let overflow = max(0, state.eggUsage - PokemonBalance.eggHatchThreshold)
         state.eggUsage = 0

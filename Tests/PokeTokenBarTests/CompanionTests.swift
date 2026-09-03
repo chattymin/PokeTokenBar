@@ -1782,6 +1782,54 @@ final class CompanionIdentityTests: XCTestCase {
             XCTAssertFalse(names.contains(where: \.isEmpty))
         }
     }
+
+    func testLocalizationIncludesEggWaitingForNetwork() {
+        for lang in AppLanguage.allCases {
+            let l = L(lang)
+            XCTAssertFalse(l.eggWaitingForNetwork.isEmpty, "\(lang) eggWaitingForNetwork is empty")
+            XCTAssertTrue(l.eggWaitingForNetwork.contains("🌐"), "\(lang) eggWaitingForNetwork should include icon")
+        }
+    }
+
+    @MainActor
+    func testOfflineHatchWaitingForNetworkState() async {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("test-offline-\(UUID().uuidString).json")
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        var state = CompanionState()
+        state.installBaselineSet = true
+        state.eggUsage = PokemonBalance.eggHatchThreshold
+        if let data = try? JSONEncoder().encode(state) {
+            try? data.write(to: url)
+        }
+
+        let provider = FailingPokeProvider()
+        let store = CompanionStore(
+            provider: provider,
+            clock: { Date() },
+            fileURL: url,
+            rng: SeededRNG(seed: 42),
+            dittoDisguiseRollingEnabled: false
+        )
+
+        XCTAssertTrue(store.isEgg)
+        XCTAssertEqual(store.eggProgress, 1.0)
+        XCTAssertFalse(store.isHatchWaitingForNetwork)
+
+        // 부화 시도 — 네트워크 실패로 인해 isHatchWaitingForNetwork = true 설정
+        await store.hatchIfNeeded()
+        XCTAssertTrue(store.isEgg)
+        XCTAssertTrue(store.isHatchWaitingForNetwork)
+    }
+}
+
+private struct FailingPokeProvider: PokeProviding {
+    func line(baseSpeciesID: Int) async throws -> EvoLine {
+        throw URLError(.notConnectedToInternet)
+    }
+    func baseSpeciesIndex() async throws -> [BaseSpecies] {
+        throw URLError(.notConnectedToInternet)
+    }
 }
 
 // MARK: PokéAPI SSRF 가드 (evolution_chain URL 검증 — 응답 변조 시 임의 호스트 fetch 방지)
