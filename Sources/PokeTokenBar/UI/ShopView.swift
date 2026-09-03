@@ -15,7 +15,8 @@ struct ShopView: View {
             VStack(alignment: .leading, spacing: 10) {
                 walletHeader(l)
                 // shopEntries = 판매 아이템 + 알 3종(보증 없음·고급 이상·희귀 이상)을 가격 오름차순으로
-                // 병합한 단일 목록. 알은 활성 포켓몬이 있을 때만 포함된다(즉시 액션이라 ItemKind 가 아님).
+                // 병합한 단일 목록. 알은 항상 포함되고(즉시 액션이라 ItemKind 가 아님), 알 상태에선
+                // EggCard 가 구매만 비활성으로 보여준다.
                 ForEach(store.shopEntries, id: \.self) { entry in
                     switch entry {
                     case .item(let kind):
@@ -125,6 +126,7 @@ private struct ShopItemCard: View {
 
 /// 알 카드 — 구매 = 즉시 현재 포켓몬 폐기 후 새 알로. `tier` 는 보증 등급 하한(nil = 보증 없는 기본 알).
 /// 인라인 2단계 확인: 일반은 1회, 이로치면 한 번 더(사고 폐기 방지). 성공하면 Home 으로 전환해 새 알을 보여준다.
+/// 알 상태(활성 없음)에서도 카드는 노출하되 구매 버튼만 비활성 + 사유 한 줄(eggShopLockedHint).
 ///
 /// 등급 알의 시각 구분은 **카드의 등급 배지**로만 한다 — 알 스프라이트는 한 장뿐이고, 메뉴바·플로팅 펫은
 /// 기존 알 그대로 둔다(새 에셋 없이 구분이 서는 최소 범위).
@@ -174,15 +176,27 @@ private struct EggCard: View {
     private func controls(_ l: L) -> some View {
         switch stage {
         case .idle:
-            HStack {
-                Text("\(l.shopPriceLabel) \(TokenFormatter.compact(price))")
-                    .font(.caption2).foregroundStyle(.tertiary).monospacedDigit()
-                Spacer()
-                if store.canBuyEgg(tier) {
-                    Button(l.buy) { stage = .confirm }
-                        .buttonStyle(.bordered).controlSize(.small)
-                } else {
-                    Text(l.notEnoughTokens).font(.caption2).foregroundStyle(.tertiary)
+            VStack(alignment: .leading, spacing: 4) {
+                HStack {
+                    Text("\(l.shopPriceLabel) \(TokenFormatter.compact(price))")
+                        .font(.caption2).foregroundStyle(.tertiary).monospacedDigit()
+                    Spacer()
+                    if !store.hasActive {
+                        // 알 상태 — 리롤 대상이 없어 구매만 막는다(canBuyEgg 게이트). 항목을 숨기는 대신
+                        // 비활성 버튼으로 "상점에 있긴 하다"를 보이고, 사유는 아래 한 줄로.
+                        Button(l.buy) {}
+                            .buttonStyle(.bordered).controlSize(.small).disabled(true)
+                    } else if store.canBuyEgg(tier) {
+                        Button(l.buy) { stage = .confirm }
+                            .buttonStyle(.bordered).controlSize(.small)
+                    } else {
+                        Text(l.notEnoughTokens).font(.caption2).foregroundStyle(.tertiary)
+                    }
+                }
+                if !store.hasActive {
+                    Text(l.eggShopLockedHint)
+                        .font(.caption2).foregroundStyle(.tertiary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
         case .confirm:

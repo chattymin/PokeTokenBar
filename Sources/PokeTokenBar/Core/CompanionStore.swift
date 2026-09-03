@@ -727,9 +727,13 @@ final class CompanionStore {
             }
     }
 
-    /// 상점 표시 순서 — 판매 아이템 + (활성 포켓몬 있을 때) 알 3종을 하나의 가격 오름차순 목록으로 병합.
+    /// 상점 표시 순서 — 판매 아이템 + 알 3종을 하나의 가격 오름차순 목록으로 병합.
     /// 정렬 규칙은 purchasableItems 와 동일: 구매 완료한 보유형은 맨 아래, 나머지는 가격 저렴한 순.
     /// 알은 즉시 액션이라 '보유' 개념이 없어 가격 순서에만 참여한다.
+    ///
+    /// 알은 활성 포켓몬이 없어도(알 상태) 목록에 남는다 — 구매는 `canBuyEgg` 의 `hasActive` 게이트가
+    /// 막고, EggCard 가 비활성 버튼 + 사유 한 줄로 보여준다. 목록에서 통째로 빼면 "상점에 알이 원래
+    /// 없다"로 읽혀서, 게이트는 유지하되 존재는 계속 보이게 한다.
     ///
     /// 등급 알끼리 붙여 '티어 사다리'로 묶어 보이게 하는 안도 검토했으나 채택하지 않았다 — 지금의 순수
     /// 가격 오름차순은 "알이 무조건 맨 아래로 append 돼 더 비싼 부적보다 아래에 놓이던" 표시 회귀를
@@ -737,7 +741,7 @@ final class CompanionStore {
     /// 카드의 등급 배지로 읽히게 한다.
     var shopEntries: [ShopEntry] {
         var entries: [ShopEntry] = purchasableItems.map { ShopEntry.item($0) }
-        if hasActive { entries += FreshEgg.shopTiers.map { ShopEntry.egg($0) } }
+        entries += FreshEgg.shopTiers.map { ShopEntry.egg($0) }
         return entries.sorted { a, b in
             let aDone = isPurchasedPassive(a)
             let bDone = isPurchasedPassive(b)
@@ -784,6 +788,7 @@ final class CompanionStore {
     /// 알 구매 가능 — 폐기할 활성 포켓몬이 있고 지갑이 그 티어 가격 이상일 때만.
     /// 알 상태에서도 살 수 있게 하는 안은 채택하지 않았다(기존 새 알과 게이트 통일) — 알끼리 교체하는
     /// 동작을 새로 만들지 않고, 상점의 알은 언제나 "지금 개체를 놓아주고 다시 뽑는다"는 한 가지 의미만 갖는다.
+    /// 항목 자체는 알 상태에서도 상점에 남는다(shopEntries) — 이 게이트는 구매만 막는다.
     func canBuyEgg(_ tier: Rarity?) -> Bool {
         // 파는 티어인지 먼저 확인한다 — 만족 불가능한 보증(전설: capture_rate 로 표현 불가)을 사면
         // 두 롤 경로 모두 후보가 0개라 알이 영영 안 깨지고, 부화가 없으니 보증도 안 풀리며,

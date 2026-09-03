@@ -144,6 +144,19 @@ final class PhonePayloadCodableTests: XCTestCase {
         XCTAssertNil(payload.companion?.lineNodes)
     }
 
+    /// `lockedReason` 없는 구 Mac 의 상점 엔트리도 nil 로 디코드된다 — 새 폰이 구 Mac 과 붙었을 때
+    /// 상점 전체가 빈 목록으로 떨어지지 않게 (PhonePayload 의 shop 은 실패 시 통째로 [] 가 된다).
+    func testShopEntryDecodesLegacyPayloadWithoutLockedReason() throws {
+        let legacy = Data("""
+        {"id":"egg:plain","isEgg":true,"name":"Fresh Egg","itemDescription":"Reroll",
+         "price":100,"ownedCount":0,"isPassive":false,"isOwned":false,"canAfford":true,
+         "fallbackEmoji":"🥚"}
+        """.utf8)
+        let entry = try JSONDecoder().decode(PhoneShopEntry.self, from: legacy)
+        XCTAssertNil(entry.lockedReason)
+        XCTAssertTrue(entry.canAfford)
+    }
+
     /// 확장 필드 왕복 + Antigravity 그룹이 orderedWindows 의 마지막에 온다.
     func testExtendedFieldsRoundTrip() throws {
         let limits = PhoneLimitStatus(

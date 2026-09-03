@@ -169,15 +169,25 @@ final class ShopTests: XCTestCase {
         XCTAssertEqual(prices, prices.sorted(), "가격 상수가 바뀌어도 오름차순 불변식 유지")
     }
 
-    /// 활성 포켓몬이 없으면(알 상태) 리롤 대상이 없어 알은 **등급 알까지 전부** 목록에서 빠진다.
-    /// 프리미엄 알만 알 상태에서 살 수 있게 하는 안은 채택하지 않았다 — 기존 새 알과 게이트를 통일한다.
-    func testShopEntriesOmitsFreshEggWhenNoActive() {
-        let s = store(used: 5_000_000_000)   // active 없음
+    /// 활성 포켓몬이 없어도(알 상태) 알 3종은 목록에 **남는다** — 숨기면 "상점에 알이 원래 없다"로
+    /// 읽힌다. 대신 구매는 `canBuyEgg` 의 `hasActive` 게이트가 전부 막는다(EggCard 는 비활성 버튼 +
+    /// 사유 한 줄). 잔액이 충분한 상태로 검증해 게이트가 잔액이 아니라 hasActive 에서 걸림을 확인한다.
+    func testShopEntriesKeepsEggsVisibleButUnbuyableWhenNoActive() {
+        let s = store(used: 5_000_000_000)   // active 없음, 잔액은 전 티어 가격 이상
         XCTAssertFalse(s.hasActive)
-        XCTAssertEqual(s.shopEntries, [.item(.mint), .item(.rareCandy), .item(.shinyCharm)])
+        XCTAssertEqual(s.shopEntries,
+                       [.item(.mint),        // 100M
+                        .item(.rareCandy),   // 500M
+                        .egg(nil),           // 1B
+                        .egg(.uncommon),     // 2.5B
+                        .item(.shinyCharm),  // 3B
+                        .egg(.rare)])        // 4B
         for tier in FreshEgg.shopTiers {
-            XCTAssertFalse(s.shopEntries.contains(.egg(tier)), "알 상태에선 \(tier?.rawValue ?? "기본") 알도 미노출")
+            XCTAssertTrue(s.shopEntries.contains(.egg(tier)), "알 상태에서도 \(tier?.rawValue ?? "기본") 알은 노출 유지")
+            XCTAssertFalse(s.canBuyEgg(tier), "노출은 되지만 \(tier?.rawValue ?? "기본") 알 구매는 hasActive 게이트로 차단")
+            XCTAssertFalse(s.buyEgg(tier), "buyEgg 도 no-op — 토큰이 빠져나가면 안 된다")
         }
+        XCTAssertEqual(s.availableTokens, 5_000_000_000, "차단된 구매 시도로 잔액이 줄지 않는다")
     }
 
     // MARK: 폰 페이로드 매핑 (읽기 전용 상점 — AppDelegate.phoneShopEntries)
@@ -231,10 +241,33 @@ final class ShopTests: XCTestCase {
         XCTAssertEqual(entries.last?.isPassive, true)
     }
 
-    /// 알 상태(활성 포켓몬 없음)에선 폰 목록에서도 알이 전부 빠진다 — shopEntries 게이트의 폰 미러.
-    func testPhoneShopEntriesOmitEggsWhenNoActive() {
-        let entries = AppDelegate.phoneShopEntries(store(used: 5_000_000_000))
-        XCTAssertFalse(entries.contains(where: \.isEgg))
-        XCTAssertEqual(entries.map(\.id), ["item:mint", "item:rareCandy", "item:shinyCharm"])
+    /// 알 상태(활성 포켓몬 없음)에서도 폰 목록에 알 3종이 남는다 — Mac 의 새 규약(#261) 미러.
+    /// 잔액이 충분해도 못 사는 상태라, 폰은 `canAfford`(지갑)와 `lockedReason`(상태)을 분리해 받는다.
+    func testPhoneShopEntriesKeepEggsLockedWhenNoActive() {
+        let companion = store(used: 5_000_000_000)
+        let entries = AppDelegate.phoneShopEntries(companion)
+        XCTAssertEqual(entries.map(\.id),
+                       ["item:mint", "item:rareCandy", "egg:plain",
+                        "egg:uncommon", "item:shinyCharm", "egg:rare"],
+                       "알 상태에서도 목록·정렬은 활성일 때와 같다")
+        let eggs = entries.filter(\.isEgg)
+        XCTAssertEqual(eggs.count, 3)
+        for egg in eggs {
+            XCTAssertTrue(egg.canAfford, "\(egg.id): 지갑은 가격을 덮는다 — 막는 건 상태뿐")
+            XCTAssertEqual(egg.lockedReason, companion.l.eggShopLockedHint,
+                           "\(egg.id): 못 사는 사유를 현지화해 보낸다")
+        }
+        XCTAssertTrue(entries.filter { !$0.isEgg }.allSatisfy { $0.lockedReason == nil },
+                      "아이템은 상태 게이트가 없다 — 잔액만으로 판단")
+    }
+
+    /// 활성 포켓몬이 있으면 알에 상태 게이트가 없고, 잔액 부족은 canAfford 로만 표현된다.
+    func testPhoneShopEggsUnlockedWithActiveAndPriceGatedByWallet() {
+        let entries = AppDelegate.phoneShopEntries(storeWithMon(used: FreshEgg.price))
+        let eggs = Dictionary(uniqueKeysWithValues: entries.filter(\.isEgg).map { ($0.id, $0) })
+        XCTAssertEqual(eggs.count, 3)
+        XCTAssertTrue(eggs.values.allSatisfy { $0.lockedReason == nil })
+        XCTAssertTrue(eggs["egg:plain"]!.canAfford, "잔액 = 기본 알 가격 정확히 → 구매 가능")
+        XCTAssertFalse(eggs["egg:rare"]!.canAfford, "더 비싼 등급 알은 잔액 부족")
     }
 }

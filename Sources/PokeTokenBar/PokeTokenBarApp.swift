@@ -486,6 +486,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     /// 상점 목록(판매 아이템 + 알 3종) → 폰 읽기 전용 엔트리 매핑. 순서·가격·구매가능 판정은
     /// CompanionStore.shopEntries/canBuy 를 그대로 따른다(폰은 재현하지 않고 표시만).
     /// 표시 문자열은 bag/dex 와 같은 규약으로 여기서 미리 현지화해 보낸다.
+    ///
+    /// 알은 알 상태(활성 없음)에서도 목록에 남는다 — Mac 의 EggCard 와 같은 규약이다. 그래서 잔액과
+    /// 상태 게이트를 분리해 보낸다: `canAfford` 는 지갑만 보고, 못 사는 사유는 `lockedReason` 한 줄로.
+    /// 합쳐서 `canBuyEgg` 하나로 보내면 폰이 잔액이 충분한데도 "토큰 부족"으로 그린다.
     static func phoneShopEntries(_ companion: CompanionStore) -> [PhoneShopEntry] {
         let l = companion.l
         return companion.shopEntries.map { entry in
@@ -516,9 +520,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
                     ownedCount: 0,
                     isPassive: false,
                     isOwned: false,
-                    canAfford: companion.canBuyEgg(tier),
+                    canAfford: companion.availableTokens >= entry.price,
                     iconName: nil,
-                    fallbackEmoji: "🥚")
+                    fallbackEmoji: "🥚",
+                    lockedReason: companion.hasActive ? nil : l.eggShopLockedHint)
             }
         }
     }

@@ -954,6 +954,16 @@ struct L {
                  "Solte seu Pokémon atual e ganhe um ovo que garante \(r) ou melhor.",
                  "Verabschiede dein aktuelles Pokémon und erhalte ein Ei, aus dem garantiert ein Pokémon der Seltenheitsstufe \(r) oder höher schlüpft.")
     }
+    /// 알 상태의 상점 알 카드 비활성 사유 — 항목은 보이되 구매 버튼 아래에 한 줄로 붙는다(EggCard).
+    var eggShopLockedHint: String {
+        t("지금 품고 있는 알이 부화하면 살 수 있어요.",
+          "Available once your current egg hatches.",
+          "いま抱えているタマゴが孵ると購入できます。",
+          "Disponible cuando eclosione tu huevo actual.",
+          "Disponible une fois ton œuf actuel éclos.",
+          "Disponível quando seu ovo atual chocar.",
+          "Verfügbar, sobald dein aktuelles Ei geschlüpft ist.")
+    }
     /// 인큐베이션 중 표시하는 보증 배지 — 어떤 알을 품고 있는지 한 줄로.
     func eggGuaranteeHint(_ tier: Rarity) -> String {
         let r = rarityLabel(tier)

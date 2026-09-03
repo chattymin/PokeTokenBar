@@ -152,20 +152,35 @@ private struct ShopItemCard: View {
                 Spacer()
             }
         } else {
-            HStack {
-                Text("Price \(TokenFormatter.compact(entry.price))")
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
-                    .monospacedDigit()
-                Spacer()
-                if entry.canAfford {
-                    Label("Buy on Mac", systemImage: "desktopcomputer")
-                        .font(.caption2.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                } else {
-                    Text("Not enough tokens")
+            VStack(alignment: .leading, spacing: 4) {
+                HStack {
+                    Text("Price \(TokenFormatter.compact(entry.price))")
                         .font(.caption2)
                         .foregroundStyle(.tertiary)
+                        .monospacedDigit()
+                    Spacer()
+                    // A state block (egg stage) outranks the balance: the Mac sends the
+                    // localized reason, so showing "Not enough tokens" over it would be a
+                    // lie whenever the wallet is fine. Same priority as the Mac's EggCard.
+                    if entry.lockedReason != nil {
+                        Label("Buy on Mac", systemImage: "desktopcomputer")
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(.tertiary)
+                    } else if entry.canAfford {
+                        Label("Buy on Mac", systemImage: "desktopcomputer")
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                    } else {
+                        Text("Not enough tokens")
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
+                    }
+                }
+                if let reason = entry.lockedReason {
+                    Text(reason)
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
         }

@@ -476,16 +476,23 @@ public struct PhoneShopEntry: Codable, Sendable, Equatable, Identifiable {
     public let isPassive: Bool
     /// A passive item already purchased — renders as "Owned" instead of a price CTA.
     public let isOwned: Bool
-    /// Spendable tokens currently cover the price.
+    /// Spendable tokens currently cover the price. Affordability only — a listing can be
+    /// affordable and still unbuyable (see `lockedReason`).
     public let canAfford: Bool
     /// PokéAPI item sprite filename (…/sprites/items/{name}.png). nil = emoji fallback.
     public let iconName: String?
     /// Emoji fallback when the sprite is unavailable (eggs always use this).
     public let fallbackEmoji: String
+    /// Pre-localized one-line reason this listing cannot be bought right now for a reason
+    /// other than the balance (today: shop eggs during the egg stage — nothing to reroll).
+    /// nil = no state block. Takes priority over the insufficient-balance label, mirroring
+    /// the Mac's EggCard. Older Macs omit the key; it decodes as nil.
+    public let lockedReason: String?
 
     public init(id: String, isEgg: Bool, name: String, itemDescription: String,
                 price: Int, rarity: String?, ownedCount: Int, isPassive: Bool,
-                isOwned: Bool, canAfford: Bool, iconName: String?, fallbackEmoji: String) {
+                isOwned: Bool, canAfford: Bool, iconName: String?, fallbackEmoji: String,
+                lockedReason: String? = nil) {
         self.id = id
         self.isEgg = isEgg
         self.name = name
@@ -498,5 +505,6 @@ public struct PhoneShopEntry: Codable, Sendable, Equatable, Identifiable {
         self.canAfford = canAfford
         self.iconName = iconName
         self.fallbackEmoji = fallbackEmoji
+        self.lockedReason = lockedReason
     }
 }
