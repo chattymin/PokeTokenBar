@@ -764,6 +764,15 @@ struct PopoverView: View {
                 }
             }
             Spacer()
+            // 데스크톱 펫 표시 토글 — 설정창의 스위치와 **같은 값**(store.floatingPetEnabled)을 읽고 쓴다.
+            // @Observable 이라 어느 쪽에서 바꾸든 다른 쪽이 즉시 따라온다(별도 동기화 없음).
+            Button {
+                store.floatingPetEnabled.toggle()
+            } label: {
+                Image(systemName: FloatingPetView.visibilitySymbol(visible: store.floatingPetEnabled))
+            }
+            .buttonStyle(.borderless)
+            .help(store.floatingPetEnabled ? l.floatingPetHideLabel : l.floatingPetEnableLabel)
             Button {
                 nav.showSettings = true
             } label: {

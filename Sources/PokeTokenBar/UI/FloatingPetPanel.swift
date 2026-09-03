@@ -444,6 +444,8 @@ final class PetHostingView: NSHostingView<AnyView> {
 
 @MainActor
 struct FloatingPetView: View {
+    /// 푸터 토글의 SF Symbol — 지금 상태를 그린다(보이는 중 = 뜬 눈). 순수 판정이라 뒤집힘을 테스트로 잠근다.
+    static func visibilitySymbol(visible: Bool) -> String { visible ? "eye" : "eye.slash" }
     var animated: Bool = true
     @Environment(UsageStore.self) private var store
     @Environment(CompanionStore.self) private var companion
