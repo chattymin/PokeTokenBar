@@ -183,6 +183,129 @@ final class CompanionStoreTests: XCTestCase {
         return CompanionStore(provider: StubProvider(value: line), clock: { fixedNow }, fileURL: url, rng: SeededRNG(seed: seed))
     }
 
+    // MARK: Box (bank swap)
+
+    /// [Box] Switching to a boxed Pokémon swaps it with the current active; both keep their exact
+    /// token status. The displaced active lands in the box.
+    func testSetActiveFromBoxSwapsAndPreservesTokenStatus() throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("poke-box-\(UUID().uuidString).json")
+        let json = """
+        {"active":{"id":"A","baseID":1,"pathIDs":[1,2],"stageIndex":1,"usedAtStage":40,"rarity":"common","totalForms":3},
+         "box":[{"id":"B","baseID":4,"pathIDs":[4,5],"stageIndex":1,"usedAtStage":250,"rarity":"rare","totalForms":3,"isShiny":true}]}
+        """
+        try Data(json.utf8).write(to: url)
+        let s = CompanionStore(provider: StubProvider(value: linear3), clock: { fixedNow },
+                               fileURL: url, rng: SeededRNG(seed: 7))
+
+        XCTAssertEqual(s.state.active?.id, "A")
+        XCTAssertEqual(s.boxedPokemon.map(\.id), ["B"])
+
+        XCTAssertTrue(s.setActiveFromBox(id: "B"))
+
+        // B is now active with its exact status; A moved to the box unchanged.
+        XCTAssertEqual(s.state.active?.id, "B")
+        XCTAssertEqual(s.state.active?.stageIndex, 1)
+        XCTAssertEqual(s.state.active?.usedAtStage, 250)
+        XCTAssertEqual(s.state.active?.isShiny, true)
+        XCTAssertEqual(s.boxedPokemon.map(\.id), ["A"])
+        XCTAssertEqual(s.boxedPokemon.first?.usedAtStage, 40, "displaced active keeps its token status")
+    }
+
+    /// [Box] Rejected when there is no living active (egg phase) or the id is unknown.
+    func testSetActiveFromBoxGuards() {
+        let s = store(linear3)             // fresh install → active == nil (egg)
+        XCTAssertFalse(s.canSwitchActive)
+        XCTAssertFalse(s.setActiveFromBox(id: "nope"), "no living active → reject")
+    }
+
+    /// [Box] Graduation keeps the completed individual in the box (isComplete) while still adding
+    /// the permanent dex record.
+    func testGraduationBoxesCompletedIndividual() async {
+        let s = store(noEvo)
+        base(s)
+        use(s, PokemonBalance.eggHatchThreshold)
+        await s.hatchIfNeeded()
+        XCTAssertNotNil(s.state.active)
+        let dexBefore = s.state.dex.count
+
+        s.applyUsage(PokemonBalance.graduationTotal(.common))   // single-form graduation
+
+        XCTAssertNil(s.state.active, "graduated → back to egg")
+        XCTAssertEqual(s.state.box.count, 1, "completed individual kept in the box")
+        XCTAssertEqual(s.state.box.first?.isComplete, true)
+        XCTAssertEqual(s.state.dex.count, dexBefore + 1, "permanent dex record still added")
+    }
+
+    /// [Box] A graduated (completed) Pokémon is a trophy — it cannot be set active from the box.
+    func testCannotActivateGraduatedMon() throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("poke-buddy-\(UUID().uuidString).json")
+        let json = """
+        {"active":{"id":"A","baseID":1,"pathIDs":[1],"stageIndex":0,"usedAtStage":0,"rarity":"common","totalForms":1},
+         "box":[{"id":"DONE","baseID":25,"pathIDs":[25,26],"stageIndex":1,"usedAtStage":0,"rarity":"common","totalForms":2,"isComplete":true}]}
+        """
+        try Data(json.utf8).write(to: url)
+        let s = CompanionStore(provider: StubProvider(value: linear3), clock: { fixedNow },
+                               fileURL: url, rng: SeededRNG(seed: 7))
+        XCTAssertFalse(s.setActiveFromBox(id: "DONE"), "graduated trophies can't be activated")
+        XCTAssertEqual(s.state.active?.id, "A", "active is unchanged")
+        XCTAssertEqual(s.state.box.map(\.id), ["DONE"], "the trophy stays in the box")
+    }
+
+    /// [Box] Defensive: even if a graduated mon is somehow the active one (e.g. a hand-edited save),
+    /// applyUsage does not grow or re-graduate it.
+    func testActiveGraduatedMonDoesNotGrow() throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("poke-buddy-\(UUID().uuidString).json")
+        let json = """
+        {"active":{"id":"DONE","baseID":25,"pathIDs":[25,26],"stageIndex":1,"usedAtStage":0,"rarity":"common","totalForms":2,"isComplete":true}}
+        """
+        try Data(json.utf8).write(to: url)
+        let s = CompanionStore(provider: StubProvider(value: linear3), clock: { fixedNow },
+                               fileURL: url, rng: SeededRNG(seed: 7))
+        s.applyUsage(PokemonBalance.graduationTotal(.common) * 2)   // would graduate a normal mon
+        XCTAssertEqual(s.state.active?.id, "DONE", "still active")
+        XCTAssertEqual(s.state.active?.usedAtStage, 0, "no growth accrued")
+        XCTAssertTrue(s.state.box.isEmpty, "no re-graduation into the box")
+    }
+
+    /// [Box] Reaching the final form is NOT the same as graduating: a final-form mon below the
+    /// graduation threshold stays active and growing (isComplete stays false) until it truly graduates.
+    func testFinalFormIsNotCompleteUntilGraduation() async {
+        let s = store(noEvo)
+        base(s)
+        use(s, PokemonBalance.eggHatchThreshold)
+        await s.hatchIfNeeded()
+        XCTAssertNotNil(s.state.active, "hatched a final-form (single-form) mon")
+        XCTAssertEqual(s.state.active?.isComplete, false, "final form, but not graduated")
+
+        s.applyUsage(PokemonBalance.graduationTotal(.common) - 1)   // one short of graduating
+        XCTAssertNotNil(s.state.active, "still active — not yet graduated")
+        XCTAssertEqual(s.state.active?.isComplete, false, "still not complete at the final form")
+        XCTAssertTrue(s.state.box.isEmpty, "nothing boxed yet")
+
+        s.applyUsage(1)   // cross the threshold → graduate
+        XCTAssertNil(s.state.active, "now graduated → egg")
+        XCTAssertEqual(s.state.box.first?.isComplete, true, "only now is it complete")
+    }
+
+    /// [Box] Boxed Pokémon (incl. reached pre-evolutions) appear in the Pokédex, and switching the
+    /// active companion does not remove species from it.
+    func testBoxSpeciesAppearInPokedexAndSurviveSwitch() throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("poke-boxdex-\(UUID().uuidString).json")
+        let json = """
+        {"active":{"id":"A","baseID":1,"pathIDs":[1],"stageIndex":0,"usedAtStage":0,"rarity":"common","totalForms":3},
+         "box":[{"id":"B","baseID":4,"pathIDs":[4,5],"stageIndex":1,"usedAtStage":0,"rarity":"uncommon","totalForms":3}]}
+        """
+        try Data(json.utf8).write(to: url)
+        let s = CompanionStore(provider: StubProvider(value: linear3), clock: { fixedNow },
+                               fileURL: url, rng: SeededRNG(seed: 7))
+        XCTAssertTrue(Set(s.dexSpecies.map(\.id)).isSuperset(of: [1, 4, 5]),
+                      "active (1) and box reached stages (4,5) all show")
+
+        XCTAssertTrue(s.setActiveFromBox(id: "B"))
+        XCTAssertTrue(Set(s.dexSpecies.map(\.id)).isSuperset(of: [1, 4, 5]),
+                      "same species after switching — the Pokédex doesn't lose entries")
+    }
+
     // MARK: 상태 파일 decode 복원력 (회귀)
 
     /// [회귀] 도감 항목 하나가 손상돼도(구버전/필드 누락) 나머지 도감·companion·인벤토리를 지킨다 —
@@ -601,38 +724,13 @@ final class CompanionStoreTests: XCTestCase {
         XCTAssertEqual(s.dexSpecies.map(\.isRaising), [false, true, false])
     }
 
-    // MARK: 놓아줌 (알 구매로 포기한 개체의 영구 기록)
+    // MARK: Fresh egg (swap — active is parked in the box, not released; a new egg hatches)
 
-    /// [회귀·트리거] 3단 라인을 2단까지 키우다 놓아주면 **도달한 두 형태만** 남는다.
-    ///
-    /// 트리거 분기: `pathIDs` 는 실현 경로, `plannedPathIDs` 는 전체 계획이다. 놓아줌 기록에
-    /// 계획을 쓰면 한 번도 본 적 없는 최종 진화형이 보유로 잡힌다 — 알을 사서 포기하는 것이
-    /// 도감을 채우는 지름길이 된다. `dexSpecies` 가 육성 중 쓰는 prefix 규칙과 같아야 한다.
-    func testReleasingMidChainCreditsOnlyReachedForms() throws {
+    /// [Phase E] Buying an egg mid-chain parks the active in the box (NOT released, growth preserved)
+    /// and starts a fresh egg immediately — nothing is written to the dex.
+    func testBuyEggMidChainParksActiveInBox() throws {
         let active = MonState(baseID: 1, pathIDs: [1, 2], plannedPathIDs: [1, 2, 3], stageIndex: 1,
-                              usedAtStage: 0, rarity: .common, totalForms: 3)
-        let url = FileManager.default.temporaryDirectory.appendingPathComponent("poke-\(UUID().uuidString).json")
-        let activeJSON = String(decoding: try JSONEncoder().encode(active), as: UTF8.self)
-        try Data(#"{"active":\#(activeJSON),"usedSinceInstall":5000000000}"#.utf8).write(to: url)
-
-        let s = CompanionStore(provider: StubProvider(value: linear3), clock: { fixedNow },
-                               fileURL: url, rng: SeededRNG(seed: 7))
-        XCTAssertEqual(s.dexSpecies.map(\.id), [1, 2], "육성 중 도달분")
-        XCTAssertTrue(s.buyFreshEgg())
-
-        XCTAssertEqual(s.dexSpecies.map(\.id), [1, 2], "놓아준 뒤에도 같은 두 종")
-        let released = try XCTUnwrap(s.state.dex.last)
-        XCTAssertEqual(released.chainOrder, [1, 2])
-        XCTAssertEqual(released.finalID, 2, "도달한 마지막 형태")
-        XCTAssertFalse(s.dexSpecies.contains { $0.id == 3 }, "미도달 진화형은 보유가 아니다")
-    }
-
-    /// 위장 중인 메타몽을 놓아주면 이로치는 계속 숨겨진다 — `currentIsShiny` 단일 판정을 따른다.
-    /// 기록에 `a.isShiny` 를 그대로 쓰면 놓아주는 것이 리빌 수단이 된다.
-    func testReleasingDisguisedDittoKeepsShinyHidden() throws {
-        let active = MonState(baseID: 1, pathIDs: [1], stageIndex: 0, usedAtStage: 0,
-                              rarity: .common, totalForms: 3, isShiny: true,
-                              dittoDisguise: 1, dittoRevealed: false)
+                              usedAtStage: 123, rarity: .common, totalForms: 3)
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("poke-\(UUID().uuidString).json")
         let activeJSON = String(decoding: try JSONEncoder().encode(active), as: UTF8.self)
         try Data(#"{"active":\#(activeJSON),"usedSinceInstall":5000000000}"#.utf8).write(to: url)
@@ -640,8 +738,13 @@ final class CompanionStoreTests: XCTestCase {
         let s = CompanionStore(provider: StubProvider(value: linear3), clock: { fixedNow },
                                fileURL: url, rng: SeededRNG(seed: 7))
         XCTAssertTrue(s.buyFreshEgg())
-        let released = try XCTUnwrap(s.state.dex.last)
-        XCTAssertFalse(released.isShiny, "위장 중이면 리빌 전까지 숨김")
+        XCTAssertNil(s.state.active, "active slot is now the fresh egg")
+        XCTAssertEqual(s.state.box.count, 1, "the companion is parked, not released")
+        XCTAssertEqual(s.state.box.last?.pathIDs, [1, 2], "its reached forms are preserved")
+        XCTAssertEqual(s.state.box.last?.usedAtStage, 123, "its growth is preserved")
+        XCTAssertFalse(s.state.box.last?.isComplete ?? true, "parked, not graduated")
+        XCTAssertTrue(s.state.dex.isEmpty, "no released dex entry")
+        XCTAssertEqual(s.state.collectedFinals, [], "probability weighting unchanged")
     }
 
     /// 이 필드 이전에 저장된 항목은 전부 졸업분으로 읽힌다 — 별도 마이그레이션 없이 nil = 졸업.
@@ -1486,6 +1589,55 @@ final class CompanionIdentityTests: XCTestCase {
         // 재인코딩 후 재디코딩도 안정적(라운드트립)
         let round = try JSONDecoder().decode(CompanionState.self, from: JSONEncoder().encode(s))
         XCTAssertEqual(round.active?.isShiny, false)
+    }
+
+    /// [Box] A save predating the box decodes cleanly: empty box, no queued egg, and the active
+    /// mon gets a fresh id with isComplete=false (new fields default via lenient decode).
+    func testBoxFieldsBackwardCompatibleDecode() throws {
+        let old = """
+        {"installBaselineSet":true,"usedSinceInstall":100,"eggUsage":0,"lastDate":"d1",
+         "active":{"baseID":1,"pathIDs":[1],"stageIndex":0,"usedAtStage":5,"rarity":"common","totalForms":3},
+         "dex":[],"collectedFinals":[],"language":"ko"}
+        """
+        let s = try JSONDecoder().decode(CompanionState.self, from: Data(old.utf8))
+        XCTAssertTrue(s.box.isEmpty, "legacy save has no box → empty array")
+        XCTAssertFalse(s.active?.id.isEmpty ?? true, "active mon gets a fresh non-empty id")
+        XCTAssertEqual(s.active?.isComplete, false, "isComplete defaults to false")
+    }
+
+    /// [Box] A stored box round-trips verbatim: id, isComplete and the exact token status
+    /// (stageIndex, usedAtStage) survive, so a parked Pokémon resumes unchanged.
+    func testBoxRoundTripPreservesTokenStatus() throws {
+        var state = CompanionState()
+        let parked = MonState(baseID: 4, pathIDs: [4, 5], plannedPathIDs: [4, 5, 6],
+                              stageIndex: 1, usedAtStage: 777, rarity: .rare, totalForms: 3,
+                              isShiny: true, nature: .adamant)
+        var finished = MonState(baseID: 25, pathIDs: [25], stageIndex: 0, usedAtStage: 0,
+                                rarity: .common, totalForms: 1)
+        finished.isComplete = true
+        state.box = [parked, finished]
+
+        let round = try JSONDecoder().decode(CompanionState.self, from: JSONEncoder().encode(state))
+        XCTAssertEqual(round.box.count, 2)
+        XCTAssertEqual(round.box[0].id, parked.id, "id survives the round trip")
+        XCTAssertEqual(round.box[0].stageIndex, 1)
+        XCTAssertEqual(round.box[0].usedAtStage, 777, "exact token status preserved")
+        XCTAssertEqual(round.box[0].isShiny, true)
+        XCTAssertEqual(round.box[0].nature, .adamant)
+        XCTAssertEqual(round.box[0].isComplete, false)
+        XCTAssertEqual(round.box[1].isComplete, true, "completed buddy flag persists")
+    }
+
+    /// [Box] Ownership includes boxed individuals — reached stages count, unreached ones don't,
+    /// and a boxed shiny is recognized.
+    func testOwnsSpeciesIncludesBox() {
+        var s = CompanionState()
+        s.box = [MonState(baseID: 4, pathIDs: [4, 5], stageIndex: 1, usedAtStage: 0,
+                          rarity: .uncommon, totalForms: 3, isShiny: true)]
+        XCTAssertTrue(s.ownsSpecies(4), "reached pre-evolution counts")
+        XCTAssertTrue(s.ownsSpecies(5), "current form counts")
+        XCTAssertFalse(s.ownsSpecies(6), "unreached stage does not")
+        XCTAssertTrue(s.ownsShinySpecies(5), "a boxed shiny is recognized")
     }
 
     /// [출시 안전] 손상된 상태 파일: active.pathIDs 가 비면 그 active 만 nil(알)로 폴백하되 나머지 상태는

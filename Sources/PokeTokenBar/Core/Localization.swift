@@ -585,6 +585,14 @@ struct L {
     }
     var dexPagePrev: String { t("이전 페이지", "Previous page", "前のページ", "Página anterior", "Page précédente", "Página anterior", "Vorherige Seite") }
     var dexPageNext: String { t("다음 페이지", "Next page", "次のページ", "Página siguiente", "Page suivante", "Próxima página", "Nächste Seite") }
+    // MARK: Box (bank)
+    var boxTitle: String { t("박스", "Box", "ボックス", "Caja", "Boîte", "Caixa", "Box") }
+    var boxEmptyTitle: String { t("박스가 비어 있어요", "Your box is empty", "ボックスは空です", "Tu caja está vacía", "Ta boîte est vide", "Sua caixa está vazia", "Deine Box ist leer") }
+    var boxEmptyHint: String { t("졸업했거나 보관해 둔 포켓몬이 여기 모여요.", "Completed and parked Pokémon collect here.", "卒業した・預けたポケモンがここに集まります。", "Aquí se reúnen los Pokémon completados y guardados.", "Les Pokémon terminés et mis de côté s'accumulent ici.", "Pokémon concluídos e guardados se reúnem aqui.", "Fertige und geparkte Pokémon sammeln sich hier.") }
+    var boxSetActive: String { t("활성 포켓몬으로", "Make active", "アクティブにする", "Hacer activo", "Rendre actif", "Tornar ativo", "Als aktives Pokémon") }
+    var boxSwitchConfirm: String { t("교체", "Switch", "交代", "Cambiar", "Échanger", "Trocar", "Übernehmen") }
+    var boxSwitchDisabledHint: String { t("지금은 알을 품는 중이라 교체할 수 없어요.", "Can't switch while an egg is incubating.", "タマゴを育てている間は交代できません。", "No puedes cambiar mientras incuba un huevo.", "Impossible d'échanger pendant l'incubation d'un œuf.", "Não dá para trocar enquanto um ovo choca.", "Während ein Ei ausgebrütet wird, ist kein Wechsel möglich.") }
+    var boxGraduatedHint: String { t("졸업한 포켓몬이라 트로피예요 — 활성으로 세울 수 없어요.", "A graduated Pokémon is a trophy — it can't be set active.", "卒業したポケモンはトロフィーです — アクティブにできません。", "Un Pokémon graduado es un trofeo: no puede activarse.", "Un Pokémon diplômé est un trophée — impossible de l'activer.", "Um Pokémon formado é um troféu — não pode ficar ativo.", "Ein graduiertes Pokémon ist eine Trophäe — kann nicht aktiv gesetzt werden.") }
     var dexRaising: String { t("키우는 중", "Raising", "育成中", "Criando", "En élevage", "Treinando", "In Aufzucht") }
     /// 포획 로그에서 졸업분과 놓아준 개체를 가르는 표식. 종은 도감에 남고 개체 기록만 이 뱃지를 단다.
     var dexReleased: String { t("놓아줌", "Released", "逃がした", "Liberado", "Relâché", "Solto", "Freigelassen") }
@@ -837,22 +845,22 @@ struct L {
     }
     func eggDescription(_ tier: Rarity?) -> String {
         guard let tier, tier != .common else {
-            return t("지금 포켓몬을 놓아주고 새 알로 다시 시작해요.",
-                     "Send off your current Pokémon and start fresh with a new egg.",
-                     "いまのポケモンを手放して新しいタマゴからやり直します。",
-                     "Suelta a tu Pokémon actual y empieza de nuevo con un huevo nuevo.",
-                     "Laisse partir ton Pokémon actuel et repars de zéro avec un nouvel œuf.",
-                     "Solte seu Pokémon atual e recomece com um ovo novo.",
-                     "Verabschiede dein aktuelles Pokémon und starte mit einem neuen Ei.")
+            return t("지금 포켓몬을 박스에 보관하고 새 알을 바로 품기 시작해요.",
+                     "Parks your current Pokémon in the box and starts hatching a new egg right away.",
+                     "今のポケモンをボックスに預けて、新しいタマゴをすぐ育て始めます。",
+                     "Guarda a tu Pokémon actual en la caja y empieza a incubar un huevo nuevo enseguida.",
+                     "Range ton Pokémon actuel dans la boîte et fait éclore un nouvel œuf tout de suite.",
+                     "Guarda seu Pokémon atual na caixa e começa a chocar um ovo novo na hora.",
+                     "Legt dein aktuelles Pokémon in die Box und beginnt sofort, ein neues Ei auszubrüten.")
         }
         let r = rarityLabel(tier)
-        return t("지금 포켓몬을 놓아주고 \(r) 이상이 확정으로 나오는 알을 받아요.",
-                 "Send off your current Pokémon for an egg guaranteed to hatch \(r) or better.",
-                 "いまのポケモンを手放して \(r) 以上が確定で孵るタマゴをもらいます。",
-                 "Suelta a tu Pokémon actual y consigue un huevo garantizado de \(r) o superior.",
-                 "Laisse partir ton Pokémon actuel pour un œuf garanti \(r) ou mieux.",
-                 "Solte seu Pokémon atual e ganhe um ovo que garante \(r) ou melhor.",
-                 "Verabschiede dein aktuelles Pokémon und erhalte ein Ei, aus dem garantiert ein Pokémon der Seltenheitsstufe \(r) oder höher schlüpft.")
+        return t("지금 포켓몬을 박스에 보관하고 \(r) 이상 확정 알을 바로 품기 시작해요.",
+                 "Parks your current Pokémon in the box and starts hatching an egg guaranteed \(r) or better.",
+                 "今のポケモンをボックスに預けて、\(r) 以上確定のタマゴをすぐ育て始めます。",
+                 "Guarda a tu Pokémon actual en la caja e incuba un huevo garantizado de \(r) o superior.",
+                 "Range ton Pokémon actuel dans la boîte et fait éclore un œuf garanti \(r) ou mieux.",
+                 "Guarda seu Pokémon atual na caixa e choca um ovo garantido de \(r) ou melhor.",
+                 "Legt dein aktuelles Pokémon in die Box und brütet sofort ein Ei mit Garantie \(r) oder besser aus.")
     }
     /// 알 상태의 상점 알 카드 비활성 사유 — 항목은 보이되 구매 버튼 아래에 한 줄로 붙는다(EggCard).
     var eggShopLockedHint: String {
@@ -870,13 +878,13 @@ struct L {
         return t("\(r) 이상 확정", "\(r) or better", "\(r) 以上確定", "\(r) o superior garantizado", "\(r) ou mieux garanti", "\(r) ou melhor garantido", "Garantiert \(r) oder besser")
     }
     func eggConfirm(_ monName: String, _ eggName: String) -> String {
-        t("\(monName)을(를) 놓아주고 \(eggName)(으)로 바꿀까요?",
-          "Send off \(monName) for the \(eggName)?",
-          "\(monName) を手放して \(eggName) にしますか？",
-          "¿Soltar a \(monName) y cambiarlo por \(eggName)?",
-          "Laisser partir \(monName) pour le \(eggName) ?",
-          "Soltar \(monName) e trocar pelo \(eggName)?",
-          "\(monName) verabschieden und gegen \(eggName) tauschen?")
+        t("\(monName)을(를) 박스에 보관하고 \(eggName)을(를) 품을까요?",
+          "Keep \(monName) in the box and hatch the \(eggName)?",
+          "\(monName) をボックスに預けて \(eggName) を育てますか？",
+          "¿Guardar a \(monName) en la caja e incubar el \(eggName)?",
+          "Ranger \(monName) dans la boîte et faire éclore le \(eggName) ?",
+          "Guardar \(monName) na caixa e chocar o \(eggName)?",
+          "\(monName) in der Box behalten und das \(eggName) ausbrüten?")
     }
     var freshEggShinyWarning: String { t("⚠️ 이로치 포켓몬이에요! 정말 놓아줄까요?", "⚠️ This one is shiny! Really send it off?", "⚠️ 色違いです！本当に手放しますか？", "⚠️ ¡Este es variocolor! ¿Seguro que quieres soltarlo?", "⚠️ Celui-ci est chromatique ! Vraiment le laisser partir ?", "⚠️ Esse é shiny! Quer mesmo soltar?", "⚠️ Dieses Pokémon ist schillernd! Wirklich verabschieden?") }
     var freshEggDiscardShiny: String { t("이로치 놓아주기", "Send shiny off", "手放す", "Soltar variocolor", "Laisser partir le chromatique", "Soltar o shiny", "Schillerndes Pokémon verabschieden") }
