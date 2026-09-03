@@ -7,6 +7,7 @@ private enum LocalAdditionalSource: String, Sendable {
     case cursor
     case copilot
     case kiro
+    case kun
 }
 
 /// OpenCode usage from its local SQLite database and legacy message files.
@@ -107,6 +108,22 @@ struct LocalKiroProvider: UsageProvider {
     }
 }
 
+/// Kun usage from local SQLite database index.sqlite3.
+struct LocalKunProvider: UsageProvider {
+    let id = "kun"
+    let displayName = "Kun"
+
+    func fetchDaily() async throws -> DailyUsage? {
+        let entries = await LocalAdditionalUsageCache.shared.entries(for: .kun)
+        return LocalUsageReader.daily(entries: entries, localDay: LocalUsageReader.todayKey())
+    }
+
+    func fetchEnrichment() async -> ProviderEnrichment {
+        let entries = await LocalAdditionalUsageCache.shared.entries(for: .kun)
+        return enrichment(entries: entries)
+    }
+}
+
 private func enrichment(entries: [LocalUsageReader.Entry]) -> ProviderEnrichment {
     let now = Date()
     let monthStart = LocalUsageReader.startOfMonth(now)
@@ -193,7 +210,7 @@ private actor LocalAdditionalUsageCache {
             // only the rows written since the last scan.
             since = periodStart
             afterRowIDByPath = previous?.highWaterByPath ?? [:]
-        case .hermes:
+        case .hermes, .kun:
             since = periodStart
             afterRowIDByPath = [:]
         case .kiro:
@@ -217,6 +234,8 @@ private actor LocalAdditionalUsageCache {
                 return ScanResult(entries: LocalUsageReader.dedupKeepMax(existing + loaded))
             case .hermes:
                 return ScanResult(entries: LocalAdditionalUsageReader.hermesEntries(modifiedSince: since))
+            case .kun:
+                return ScanResult(entries: LocalAdditionalUsageReader.kunEntries(modifiedSince: since))
             case .kiro:
                 let loaded = LocalAdditionalUsageReader.kiroEntries(
                     modifiedSince: since, knownSignatures: knownKiro)
@@ -309,6 +328,20 @@ enum LocalAdditionalUsageReader {
         return CustomScanRoots.union(defaults: curated, extraRaw: customRootsValue)
     }
 
+    static var defaultKunRoots: [URL] {
+        environmentPaths("KUN_DATA_DIR")
+            ?? [FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".kun/data/index.sqlite3")]
+    }
+
+    static func kunRoots(
+        customRootsValue: String? = nil,
+        home: URL = FileManager.default.homeDirectoryForCurrentUser
+    ) -> [URL] {
+        let curated = environmentPaths("KUN_DATA_DIR")
+            ?? [home.appendingPathComponent(".kun/data/index.sqlite3")]
+        return CustomScanRoots.union(defaults: curated, extraRaw: customRootsValue)
+    }
+
     static func openCodeEntries(
         modifiedSince: Date,
         roots: [URL]? = nil
@@ -342,6 +375,26 @@ enum LocalAdditionalUsageReader {
         for root in sourceRoots {
             let database = root.pathExtension == "db" ? root : root.appendingPathComponent("state.db")
             for entry in hermesDatabaseEntries(database, modifiedSince: modifiedSince)
+            where entry.date >= modifiedSince {
+                if seen.insert(entry.id).inserted { entries.append(entry) }
+            }
+        }
+        return entries
+    }
+
+    static func kunEntries(
+        modifiedSince: Date,
+        roots: [URL]? = nil
+    ) -> [LocalUsageReader.Entry] {
+        let sourceRoots = roots ?? kunRoots(
+            customRootsValue: CustomScanRoots.storedValue(for: "kun"))
+        var seen = Set<String>()
+        var entries: [LocalUsageReader.Entry] = []
+        for root in sourceRoots {
+            let database = (root.pathExtension == "sqlite3" || root.pathExtension == "db")
+                ? root
+                : root.appendingPathComponent("index.sqlite3")
+            for entry in kunDatabaseEntries(database, modifiedSince: modifiedSince)
             where entry.date >= modifiedSince {
                 if seen.insert(entry.id).inserted { entries.append(entry) }
             }
@@ -443,6 +496,94 @@ enum LocalAdditionalUsageReader {
                 cacheRead: columnInt(statement, 7),
                 cost: actualCost > 0 ? actualCost : estimatedCost)
         } ?? []
+    }
+
+    // MARK: Kun database
+
+    private static func kunDatabaseEntries(
+        _ database: URL,
+        modifiedSince: Date
+    ) -> [LocalUsageReader.Entry] {
+        guard FileManager.default.fileExists(atPath: database.path) else { return [] }
+        var db: OpaquePointer?
+        guard sqlite3_open_v2(database.path, &db, SQLITE_OPEN_READONLY | SQLITE_OPEN_NOMUTEX, nil) == SQLITE_OK,
+              let db else {
+            return []
+        }
+        defer { sqlite3_close(db) }
+
+        var statement: OpaquePointer?
+        let sql = """
+        SELECT thread_id, seq, timestamp, model, usage_json
+        FROM usage_events
+        ORDER BY thread_id ASC, seq ASC
+        """
+        guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK, let statement else {
+            return []
+        }
+        defer { sqlite3_finalize(statement) }
+
+        struct ThreadCumulativeStats {
+            var promptTokens: Int = 0
+            var completionTokens: Int = 0
+            var cachedTokens: Int = 0
+            var totalTokens: Int = 0
+            var costUsd: Double = 0.0
+        }
+
+        var prevByThread: [String: ThreadCumulativeStats] = [:]
+        var result: [LocalUsageReader.Entry] = []
+
+        while sqlite3_step(statement) == SQLITE_ROW {
+            autoreleasepool {
+                guard let threadID = columnText(statement, 0)?.trimmingCharacters(in: .whitespacesAndNewlines),
+                      !threadID.isEmpty,
+                      let timestampStr = columnText(statement, 2),
+                      let date = parseISO8601(timestampStr),
+                      let usageJSON = columnText(statement, 4),
+                      let object = jsonObject(data: Data(usageJSON.utf8)) else { return }
+                let seq = sqlite3_column_int64(statement, 1)
+                let model = columnText(statement, 3)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "unknown"
+
+                let curPrompt = intValue(object["promptTokens"])
+                let curComp = intValue(object["completionTokens"])
+                let curCached = intValue(object["cachedTokens"]) != 0 ? intValue(object["cachedTokens"]) : intValue(object["cacheHitTokens"])
+                let curTotal = intValue(object["totalTokens"])
+                let curCost = doubleValue(object["costUsd"]) ?? 0.0
+
+                let prev = prevByThread[threadID] ?? ThreadCumulativeStats()
+                let deltaPrompt = max(0, curPrompt - prev.promptTokens)
+                let deltaComp = max(0, curComp - prev.completionTokens)
+                let deltaCached = max(0, curCached - prev.cachedTokens)
+                let deltaTotal = max(0, curTotal - prev.totalTokens)
+                let deltaCost = max(0.0, curCost - prev.costUsd)
+
+                prevByThread[threadID] = ThreadCumulativeStats(
+                    promptTokens: curPrompt,
+                    completionTokens: curComp,
+                    cachedTokens: curCached,
+                    totalTokens: curTotal,
+                    costUsd: curCost
+                )
+
+                guard date >= modifiedSince else { return }
+
+                let netInput = max(0, deltaPrompt - deltaCached)
+                if let entry = makeEntry(
+                    id: "kun|\(threadID)|\(seq)",
+                    date: date,
+                    model: "kun/\(model)",
+                    input: netInput,
+                    output: deltaComp,
+                    cacheWrite: 0,
+                    cacheRead: deltaCached,
+                    total: deltaTotal,
+                    cost: deltaCost > 0 ? deltaCost : nil) {
+                    result.append(entry)
+                }
+            }
+        }
+        return result
     }
 
     // MARK: Incremental SQLite stores

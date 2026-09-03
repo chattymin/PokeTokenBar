@@ -30,6 +30,7 @@ enum UsageEnvironment {
         "KIRO_HOME",           // ~/.kiro — JSONL sessions live under <this>/sessions
         "CURSOR_DATA_DIR",     // Cursor user-data dir override
         "OMP_CODING_AGENT_DIR", // omp (oh-my-pi) config/session base directory
+        "KUN_DATA_DIR",        // Kun CLI data directory override
     ]
 
     /// `name` 의 값. 프로세스 환경이 우선이고, 없으면 로그인 셸에서 읽은 값을 쓴다.
