@@ -974,18 +974,12 @@ private struct BoxMonCell: View {
     var body: some View {
         Button(action: onTap) {
             VStack(spacing: 3) {
-                // 졸업 트로피는 스프라이트 우상단에 🏆 뱃지 — 한눈에 구분된다.
                 SpriteView(speciesID: mon.currentID, size: 40, shiny: mon.isShiny)
-                    .overlay(alignment: .topTrailing) {
-                        if mon.isComplete {
-                            Text("🏆").font(.system(size: 13)).offset(x: 3, y: -3)
-                        }
-                    }
                 Text(name ?? "#\(mon.currentID)")
                     .font(.system(size: 10, weight: .semibold))
                     .lineLimit(1).minimumScaleFactor(0.8)
                 if mon.isComplete {
-                    Color.clear.frame(height: 3)   // 진행 바 자리를 비워 칸 높이를 맞춘다(트로피는 스프라이트에 표시).
+                    Text("🏆").font(.system(size: 11))   // 졸업 트로피 — 진행 바 자리에 표시.
                 } else {
                     ProgressView(value: progress)
                         .progressViewStyle(.linear)
