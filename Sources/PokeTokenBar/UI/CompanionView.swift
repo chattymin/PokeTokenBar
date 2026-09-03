@@ -853,6 +853,7 @@ private struct DexGridView: View {
 
     /// 선택한 칸 — 하단 줄에 희귀도를 띄우고, 이로치를 잡은 종이면 스프라이트를 그 색으로 바꾼다.
     @State private var selectedID: Int?
+    @State private var detailSpeciesID: Int?
 
     private static let columns = 4
     private static let rows = 6
@@ -866,10 +867,16 @@ private struct DexGridView: View {
         let pageCount = max(1, (visible.count + Self.pageSize - 1) / Self.pageSize)
         let current = min(page, pageCount - 1)   // 보유 종이 줄어든 경우(필터 등) 범위 방어
         let slice = Array(visible.dropFirst(current * Self.pageSize).prefix(Self.pageSize))
-        VStack(alignment: .leading, spacing: 8) {
-            header(all)
-            grid(slice)
-            footer(slice, current: current, pageCount: pageCount)
+        Group {
+            if let id = detailSpeciesID, let species = all.first(where: { $0.id == id }) {
+                PokemonDetailView(store: store, species: species) { detailSpeciesID = nil }
+            } else {
+                VStack(alignment: .leading, spacing: 8) {
+                    header(all)
+                    grid(slice)
+                    footer(slice, current: current, pageCount: pageCount)
+                }
+            }
         }
         // 이름이 저장돼 있지 않은 구버전 졸업분을 채운다 — 격자는 저장분만 읽으므로 이게 없으면
         // 칸이 `#41` 로 남는다. 저장된 항목은 조회하지 않으므로 채워진 뒤로는 아무 일도 하지 않는다.
@@ -922,7 +929,8 @@ private struct DexGridView: View {
                             DexSpeciesCell(store: store, species: sp,
                                            isSelected: selectedID == sp.id,
                                            isRepresentative: store.representativeSpeciesID == sp.id) {
-                                selectedID = (selectedID == sp.id) ? nil : sp.id
+                                selectedID = sp.id
+                                detailSpeciesID = sp.id
                             }
                             .frame(maxWidth: .infinity)
                         } else {
@@ -972,6 +980,225 @@ private struct DexGridView: View {
         }
         .font(.system(size: 11, weight: .semibold))
         .frame(height: 18)
+    }
+}
+
+/// Scrollable species + individual page. A Pokédex species may aggregate several catches, so the
+/// picker selects the exact persisted profile while the immutable PokéAPI section stays shared.
+@MainActor
+private struct PokemonDetailView: View {
+    let store: CompanionStore
+    let species: CompanionStore.DexSpecies
+    let onBack: () -> Void
+    @State private var selectedInstanceID = ""
+
+    private var individuals: [DexEntry] { store.pokemonIndividuals(speciesID: species.id) }
+    private var individual: DexEntry? {
+        individuals.first { $0.id == selectedInstanceID } ?? individuals.first
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Button(action: onBack) {
+                    Label(store.l.back, systemImage: "chevron.left")
+                }
+                .buttonStyle(.borderless)
+                Spacer()
+                Text("#\(species.id)").font(.caption).foregroundStyle(.secondary)
+            }
+            ScrollView {
+                VStack(alignment: .leading, spacing: 12) {
+                    identityHeader
+                    if individuals.count > 1 { individualPicker }
+                    if let details = store.pokemonDetailsByID[species.id] {
+                        if let individual, let profile = individual.profile {
+                            individualSection(entry: individual, profile: profile, details: details)
+                        } else {
+                            baseStatsSection(details)
+                        }
+                        speciesSection(details)
+                        movesSection(details)
+                    } else if store.failedPokemonDetailIDs.contains(species.id) {
+                        VStack(spacing: 8) {
+                            Text(store.l.pokemonDetailsUnavailable).foregroundStyle(.secondary)
+                            Button(store.l.retry) { Task { await store.loadPokemonDetails(speciesID: species.id) } }
+                        }
+                        .frame(maxWidth: .infinity).padding(.vertical, 24)
+                    } else {
+                        HStack { Spacer(); ProgressView(); Text(store.l.loadingPokemonDetails); Spacer() }
+                            .foregroundStyle(.secondary).padding(.vertical, 30)
+                    }
+                }
+                .padding(.bottom, 8)
+            }
+        }
+        .task {
+            if selectedInstanceID.isEmpty { selectedInstanceID = individuals.first?.id ?? "" }
+            await store.loadPokemonDetails(speciesID: species.id)
+        }
+    }
+
+    private var identityHeader: some View {
+        HStack(spacing: 14) {
+            SpriteView(speciesID: species.id, size: 82, animated: true,
+                       shiny: individual?.isShiny ?? species.isShiny)
+                .frame(width: 82, height: 82)
+            VStack(alignment: .leading, spacing: 5) {
+                Text(species.name).font(.title3.weight(.bold))
+                Text(store.l.rarityLabel(species.rarity))
+                    .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                if species.isShiny { Text("✨ \(store.l.dexShinyLabel)").font(.caption2) }
+                if species.isRaising { Text(store.l.dexRaising).font(.caption2).foregroundStyle(Color.accentColor) }
+                let isRepresentative = store.representativeSpeciesID == species.id
+                RepresentativeFooterButton(localization: store.l,
+                                           isRepresentative: isRepresentative) {
+                    _ = store.setRepresentativeSpeciesID(isRepresentative ? nil : species.id)
+                }
+            }
+        }
+    }
+
+    private var individualPicker: some View {
+        Picker(store.l.pokemonIndividual, selection: $selectedInstanceID) {
+            ForEach(Array(individuals.enumerated()), id: \.element.id) { index, entry in
+                Text("#\(index + 1) · Lv. \(entry.profile?.level ?? 5)").tag(entry.id)
+            }
+        }
+        .pickerStyle(.menu)
+    }
+
+    private func individualSection(entry: DexEntry, profile: PokemonProfile,
+                                   details: PokemonDetails) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            detailTitle(store.l.pokemonIndividual)
+            HStack(spacing: 12) {
+                valuePair(store.l.level, "\(profile.level)")
+                valuePair(store.l.gender, store.l.genderLabel(profile.gender))
+                valuePair(store.l.nature, entry.nature?.name(store.language) ?? "—")
+            }
+            valuePair(store.l.ability,
+                      profile.abilityName.map(displayIdentifier) ?? "—",
+                      suffix: profile.abilityIsHidden ? store.l.hiddenAbility : nil)
+            statsSection(PokemonStatCalculator.stats(details: details, profile: profile, nature: entry.nature))
+            detailTitle(store.l.activeMoves)
+            if profile.moves.isEmpty {
+                Text(store.l.noLevelMoves).font(.caption).foregroundStyle(.secondary)
+            } else {
+                ForEach(profile.moves) { move in
+                    HStack {
+                        Text(displayIdentifier(move.name))
+                        Spacer()
+                        Text("Lv. \(move.learnedAtLevel)").foregroundStyle(.secondary)
+                    }
+                    .font(.caption)
+                }
+            }
+        }
+        .detailCard()
+    }
+
+    private func baseStatsSection(_ details: PokemonDetails) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            detailTitle(store.l.baseStats)
+            ForEach(PokemonStatCalculator.order, id: \.self) { stat in
+                if let value = details.baseStats[stat] {
+                    statRow(name: stat, value: value, iv: nil, scaleMaximum: 300)
+                }
+            }
+        }
+        .detailCard()
+    }
+
+    private func statsSection(_ stats: [PokemonComputedStat]) -> some View {
+        let scaleMaximum = PokemonStatCalculator.displayScaleMaximum(for: stats.map(\.value))
+        return VStack(alignment: .leading, spacing: 5) {
+            detailTitle(store.l.actualStats)
+            ForEach(stats) { stat in
+                statRow(name: stat.name, value: stat.value, iv: stat.iv, scaleMaximum: scaleMaximum)
+            }
+        }
+    }
+
+    private func statRow(name: String, value: Int, iv: Int?, scaleMaximum: Int) -> some View {
+        HStack(spacing: 6) {
+            Text(store.l.statLabel(name)).frame(width: 62, alignment: .leading)
+            ProgressView(value: Double(value), total: Double(scaleMaximum)).tint(Color.accentColor)
+            Text("\(value)").monospacedDigit().frame(width: 28, alignment: .trailing)
+            if let iv { Text("IV \(iv)").foregroundStyle(.secondary).frame(width: 34, alignment: .trailing) }
+        }
+        .font(.system(size: 10))
+    }
+
+    private func speciesSection(_ details: PokemonDetails) -> some View {
+        VStack(alignment: .leading, spacing: 7) {
+            detailTitle(store.l.speciesData)
+            HStack(spacing: 5) {
+                ForEach(details.types, id: \.self) { type in
+                    Text(displayIdentifier(type).uppercased())
+                        .font(.system(size: 9, weight: .bold))
+                        .padding(.horizontal, 6).padding(.vertical, 3)
+                        .background(Color.accentColor.opacity(0.16), in: Capsule())
+                }
+            }
+            HStack(spacing: 14) {
+                valuePair(store.l.height, String(format: "%.1f m", Double(details.height) / 10))
+                valuePair(store.l.weight, String(format: "%.1f kg", Double(details.weight) / 10))
+                valuePair(store.l.baseStatTotal, "\(details.baseStatTotal)")
+            }
+            detailTitle(store.l.possibleAbilities)
+            Text(details.abilities.map { option in
+                displayIdentifier(option.name) + (option.isHidden ? " (\(store.l.hidden))" : "")
+            }.joined(separator: " · "))
+            .font(.caption).foregroundStyle(.secondary)
+        }
+        .detailCard()
+    }
+
+    private func movesSection(_ details: PokemonDetails) -> some View {
+        LazyVStack(alignment: .leading, spacing: 6) {
+            detailTitle(store.l.completeMoveList(details.moves.count))
+            ForEach(details.moves) { move in
+                HStack(alignment: .firstTextBaseline) {
+                    Text(displayIdentifier(move.name))
+                    Spacer()
+                    Text(move.learnMethods.map(store.l.moveMethod).uniqued().joined(separator: " · "))
+                        .foregroundStyle(.secondary).multilineTextAlignment(.trailing)
+                }
+                .font(.caption)
+                Divider()
+            }
+        }
+        .detailCard()
+    }
+
+    private func detailTitle(_ text: String) -> some View {
+        Text(text).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+    }
+
+    private func valuePair(_ label: String, _ value: String, suffix: String? = nil) -> some View {
+        VStack(alignment: .leading, spacing: 1) {
+            Text(label).font(.system(size: 9)).foregroundStyle(.secondary)
+            Text(value + (suffix.map { " · \($0)" } ?? "")).font(.caption.weight(.semibold))
+        }
+    }
+
+    private func displayIdentifier(_ raw: String) -> String {
+        raw.split(separator: "-").map { $0.prefix(1).uppercased() + $0.dropFirst() }.joined(separator: " ")
+    }
+}
+
+private extension View {
+    func detailCard() -> some View {
+        self.padding(9)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color.secondary.opacity(0.07), in: RoundedRectangle(cornerRadius: 9))
+    }
+}
+
+private extension Array where Element == String {
+    func uniqued() -> [String] {
+        reduce(into: []) { result, value in if !result.contains(value) { result.append(value) } }
     }
 }
 
