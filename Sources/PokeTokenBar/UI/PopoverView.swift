@@ -518,10 +518,17 @@ struct PopoverView: View {
     /// 마지막 몇 시간 전까지는 상대 표시만 남는다(리셋이 며칠 뒤면 "HH:mm" 만으론 오해를 부르므로).
     /// 프로바이더 리터럴 분기 없이 리셋 근접도만 본다 — 확장 규약(플랫폼 종속 분기 금지) 준수.
     private static let resetClockWindow: TimeInterval = 6 * 3600
-    /// 리셋이 임박하면(≤ 6h) " (HH:mm)" 벽시계 접미사, 아니면 빈 Text. 카운트다운 뒤에 이어붙인다.
+
+    /// 카운트다운 뒤에 붙는 절대 리셋 시각 " (…)". 오늘 안이거나 ≤ 6h 면 시:분만,
+    /// 며칠 뒤(주간 한도 등)면 요일·일자까지 — "in 2 days, 9 hr" 만으론 언제 풀리는지 감이 안 와서다.
+    /// 요일명은 팝오버 로케일(companion.language)로 현지화하고, 시각은 항상 24시간 표기.
     private func resetClockSuffix(_ reset: Date) -> Text {
-        guard reset.timeIntervalSinceNow <= Self.resetClockWindow else { return Text("") }
-        return Text(" (\(Self.timeFormatter.string(from: reset)))")
+        let f = DateFormatter()
+        f.locale = companion.language.displayLocale
+        let nearby = Calendar.current.isDateInToday(reset)
+            || reset.timeIntervalSinceNow <= Self.resetClockWindow
+        f.setLocalizedDateFormatFromTemplate(nearby ? "HHmm" : "EEEEdHHmm")
+        return Text(" (\(f.string(from: reset)))")
     }
     private func resetLabel(_ reset: Date) -> Text {
         Text("· \(reset, style: .relative)") + resetClockSuffix(reset)
