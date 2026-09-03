@@ -106,6 +106,22 @@ public enum AntigravityRefreshOutcome: Sendable, Equatable {
     case transient
 }
 
+/// 사용자가 설정에서 "연결 해제" 를 눌렀을 때의 결말.
+public enum AntigravityRevokeResult: Sendable, Equatable {
+    case revoked
+    /// 보관 중인 자격증명이 없다 — 이미 정리된 상태다(오류가 아니다).
+    case nothingStored
+    /// 서버가 거절했거나 네트워크가 안 됐다. **로컬 파일은 지우지 않는다** — 지워버리면 사용자는
+    /// 재시도 수단을 잃고, 서버의 토큰은 살아 있는 채로 "해제됐다"고 오해하게 된다.
+    case failed(String)
+}
+
+/// 폐기 호출의 주입 지점 — `AntigravityTokenRefresher` 와 같은 이유로 존재한다. 게이트 뒤의
+/// 네트워크 코드는 스위트에서 한 줄도 실행되지 않으므로, 주입 없이는 "200 이면 지우고 실패하면
+/// 남긴다" 는 계약을 검증할 방법이 없다. (`.nothingStored` 는 호출 전에 판정되므로 반환하지 않는다.)
+public typealias AntigravityCredentialRevoker =
+    @Sendable (_ refreshToken: String) async -> AntigravityRevokeResult
+
 public typealias AntigravityTokenRefresher =
     @Sendable (_ refreshToken: String, _ clientSecret: String?) async -> AntigravityRefreshOutcome
 
@@ -116,6 +132,7 @@ actor AntigravityTokenCache {
     private let persistentStoreURL: URL?
     private let tokenRefresher: AntigravityTokenRefresher
     private let clientSecretSource: @Sendable () -> [String]
+    private let credentialRevoker: AntigravityCredentialRevoker
 
     /// 확정된 client_secret — **메모리에만** 둔다. 평문 자격증명 파일 옆에 같이 저장하면 그 파일
     /// 하나로 갱신 가능한 액세스가 완성돼, secret 을 커밋하지 않기로 한 이유가 그대로 무효가 된다.
@@ -127,8 +144,10 @@ actor AntigravityTokenCache {
         tokenFileURLs: [URL]? = nil,
         persistentStoreURL: URL? = nil,
         tokenRefresher: AntigravityTokenRefresher? = nil,
-        clientSecretSource: (@Sendable () -> [String])? = nil
+        clientSecretSource: (@Sendable () -> [String])? = nil,
+        credentialRevoker: AntigravityCredentialRevoker? = nil
     ) {
+        self.credentialRevoker = credentialRevoker ?? { await Self.revokeAtGoogle(refreshToken: $0) }
         self.clientSecretSource = clientSecretSource ?? { AntigravityClientSecret.candidates() }
         self.tokenFileURLs = tokenFileURLs ?? Self.defaultTokenFileURLs
         if let persistentStoreURL {
@@ -194,9 +213,89 @@ actor AntigravityTokenCache {
     /// refresh 결과를 캐시·영속저장소에 반영하고 액세스 토큰을 돌려준다.
     private func applyRefresh(_ outcome: AntigravityRefreshOutcome) -> String? {
         guard case .success(let credential) = outcome else { return nil }
-        cachedCredential = credential
-        persistCredential(credential)
-        return credential.accessToken
+        return adopt(credential).accessToken
+    }
+
+    /// 자격증명을 캐시·영속저장소에 들인다 — **저장은 전부 여기를 지난다.**
+    ///
+    /// `obtainedAt` 승계가 여기 있는 이유: 액세스 토큰 갱신은 새 grant 가 아니라 같은 refresh token 의
+    /// 연장이다. 갱신마다 도장을 새로 찍으면 설정 화면의 "보관 기간" 이 매시간 0 으로 리셋돼,
+    /// 정확히 그 숫자를 보고 판단하려던 사용자에게 거짓말을 한다. refresh token 이 **바뀔 때만**
+    /// 새로 찍는다(재로그인·계정 전환).
+    @discardableResult
+    private func adopt(_ credential: AntigravityOAuthCredential) -> AntigravityOAuthCredential {
+        let previous = cachedCredential ?? loadPersistedCredential()
+        let carriedOver: Date?
+        if let previous, previous.refreshToken != nil,
+           previous.refreshToken == credential.refreshToken {
+            // nil 은 nil 로 둔다 — 이 필드가 생기기 전부터 있던 자격증명의 진짜 나이는 **모른다.**
+            // 여기서 오늘 날짜를 찍으면 몇 달 된 토큰이 "0일째" 로 보여, 폐기를 미루게 만드는
+            // 방향으로 틀린다. 모르는 건 모른다고 표시하고, 첫 재로그인 때 정확해진다.
+            carriedOver = previous.obtainedAt
+        } else {
+            carriedOver = Date()
+        }
+        let stamped = credential.stamped(obtainedAt: carriedOver)
+        cachedCredential = stamped
+        persistCredential(stamped)
+        return stamped
+    }
+
+    /// 설정 화면용 요약 — 토큰 값은 절대 내보내지 않는다.
+    func storedCredentialSummary() -> AntigravityCredentialSummary {
+        let credential = cachedCredential ?? loadPersistedCredential()
+        guard let credential else { return AntigravityCredentialSummary(exists: false, obtainedAt: nil) }
+        return AntigravityCredentialSummary(
+            exists: credential.refreshToken != nil, obtainedAt: credential.obtainedAt)
+    }
+
+    /// Google 에서 refresh token 을 폐기하고 로컬 보관본을 지운다.
+    ///
+    /// 이 토큰은 **우리 것이 아니다** — Antigravity 가 Keychain 에 보관한 것을 읽어 쓴다. 그래서
+    /// 폐기하면 Antigravity 자신의 로그인도 함께 끊긴다. UI 는 그 사실을 반드시 먼저 알린다.
+    func revokeStoredCredential() async -> AntigravityRevokeResult {
+        if cachedCredential == nil { cachedCredential = loadPersistedCredential() }
+        guard let refreshToken = cachedCredential?.refreshToken else {
+            invalidate()
+            return .nothingStored
+        }
+        let result = await credentialRevoker(refreshToken)
+        // **성공했을 때만** 로컬을 지운다. 순서가 반대면(먼저 지우고 호출) 실패 시 사용자는
+        // 재시도 수단을 잃고, 서버의 토큰은 살아 있는 채로 "정리됐다" 고 오해하게 된다.
+        if result == .revoked {
+            invalidate()
+            AppLog.write("antigravity credential revoked and removed locally")
+        }
+        return result
+    }
+
+    static let googleRevokeURL = URL(string: "https://oauth2.googleapis.com/revoke")!
+
+    /// 폐기 요청 조립 — 갱신 요청과 같은 이유로 순수 함수다(게이트 뒤 코드는 스위트가 실행하지 않는다).
+    /// Google 의 revoke endpoint 는 form-encoded `token` 하나만 받는다.
+    static func makeRevokeRequest(refreshToken: String) -> URLRequest {
+        var request = URLRequest(url: googleRevokeURL, timeoutInterval: 10)
+        request.httpMethod = "POST"
+        request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+        request.httpBody = Data("token=\(FormURLEncoding.value(refreshToken))".utf8)
+        return request
+    }
+
+    static func revokeAtGoogle(refreshToken: String) async -> AntigravityRevokeResult {
+        // 다른 나가는 호출과 같은 경계 — 스위트가 사용자 토큰을 실제로 폐기하면 되돌릴 수 없다.
+        guard AppEnv.isBundledApp || AppEnv.isParityRun else {
+            return .failed("live call not permitted")
+        }
+        guard let (_, response) = try? await URLSession.shared.data(
+                for: makeRevokeRequest(refreshToken: refreshToken)),
+              let http = response as? HTTPURLResponse else {
+            return .failed("network")
+        }
+        guard http.statusCode == 200 else {
+            AppLog.write("antigravity credential revoke rejected: http \(http.statusCode)")
+            return .failed("http \(http.statusCode)")
+        }
+        return .revoked
     }
 
     static var defaultTokenFileURLs: [URL] {
@@ -217,8 +316,7 @@ actor AntigravityTokenCache {
         //    캐시가 만료로 풀리지 않고, 계정 전환으로 파일이 바뀌어도 옛 토큰을 계속 쓰는 결함을 방지(#227).
         if let fileCred = Self.readTokenFile(urls: tokenFileURLs) {
             if cachedCredential?.accessToken != fileCred.accessToken {
-                cachedCredential = fileCred
-                persistCredential(fileCred)
+                adopt(fileCred)
             }
             if !bypassCache && !fileCred.isExpired {
                 return fileCred.accessToken
@@ -280,9 +378,7 @@ actor AntigravityTokenCache {
 
     private func resolveValidToken(from cred: AntigravityOAuthCredential) async throws -> String {
         if !cred.isExpired {
-            cachedCredential = cred
-            persistCredential(cred)
-            return cred.accessToken
+            return adopt(cred).accessToken
         }
         // 만료되었고 refresh_token이 있다면 갱신 시도
         if let refreshToken = cred.refreshToken,
@@ -290,9 +386,7 @@ actor AntigravityTokenCache {
             return token
         }
         // 갱신 실패했더라도 기존 accessToken 저장 및 반환 (API에서 401 나면 다시 처리)
-        cachedCredential = cred
-        persistCredential(cred)
-        return cred.accessToken
+        return adopt(cred).accessToken
     }
 
     func invalidate() {
@@ -350,7 +444,7 @@ actor AntigravityTokenCache {
             "grant_type": "refresh_token",
             "refresh_token": refreshToken,
         ]
-        let bodyString = params.map { "\($0.key)=\($0.value.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? $0.value)" }
+        let bodyString = params.map { "\($0.key)=\(FormURLEncoding.value($0.value))" }
             .joined(separator: "&")
         request.httpBody = Data(bodyString.utf8)
         return request
@@ -532,15 +626,57 @@ public struct AntigravityOAuthCredential: Sendable, Codable, Equatable {
     public let accessToken: String
     public let refreshToken: String?
     public let expiresAt: Date?
+    /// 이 **refresh token** 을 언제부터 보관 중인가. 액세스 토큰 갱신은 새 grant 가 아니므로
+    /// 갱신을 건너뛰고 유지된다 — 설정 화면이 "얼마나 오래된 자격증명인가"를 보여주는 근거다.
+    /// Optional 이라 이 필드가 없던 기존 파일도 그대로 디코드된다(마이그레이션 불필요).
+    public let obtainedAt: Date?
 
     public var isExpired: Bool {
         guard let expiresAt else { return false }
         return expiresAt <= Date().addingTimeInterval(60)
     }
 
-    public init(accessToken: String, refreshToken: String? = nil, expiresAt: Date? = nil) {
+    public init(
+        accessToken: String,
+        refreshToken: String? = nil,
+        expiresAt: Date? = nil,
+        obtainedAt: Date? = nil
+    ) {
         self.accessToken = accessToken
         self.refreshToken = refreshToken
         self.expiresAt = expiresAt
+        self.obtainedAt = obtainedAt
     }
+
+    func stamped(obtainedAt: Date?) -> AntigravityOAuthCredential {
+        AntigravityOAuthCredential(
+            accessToken: accessToken, refreshToken: refreshToken,
+            expiresAt: expiresAt, obtainedAt: obtainedAt)
+    }
+}
+
+
+/// `application/x-www-form-urlencoded` 값 인코딩.
+///
+/// `.urlQueryAllowed` 를 쓰면 안 된다 — 그 집합은 `+`·`=`·`&`·`/` 를 **통과시킨다.** 쿼리 문자열
+/// 안에서는 합법이지만 form 바디에서는 `+` 가 공백으로 디코드되고 `=`·`&` 는 구분자다. 즉 그런
+/// 문자가 든 토큰은 조용히 다른 값으로 전달된다. 지금 Google 의 refresh token·client_secret 은
+/// base64url 계열이라 실제로 깨지진 않지만, 값의 문자 집합에 기대는 인코딩은 계약이 아니라 우연이다.
+/// unreserved(RFC 3986) 만 남기고 전부 이스케이프한다.
+enum FormURLEncoding {
+    private static let unreserved: CharacterSet = {
+        var set = CharacterSet.alphanumerics
+        set.insert(charactersIn: "-._~")
+        return set
+    }()
+
+    static func value(_ raw: String) -> String {
+        raw.addingPercentEncoding(withAllowedCharacters: unreserved) ?? raw
+    }
+}
+
+/// 설정 화면이 보여줄 최소 정보 — 토큰 값은 담지 않는다.
+public struct AntigravityCredentialSummary: Sendable, Equatable {
+    public let exists: Bool
+    public let obtainedAt: Date?
 }

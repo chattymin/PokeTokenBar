@@ -255,6 +255,49 @@ struct L {
     var launchAtLogin: String { t("로그인 시 자동 시작", "Launch at login", "ログイン時に自動起動", "Iniciar al arrancar sesión", "Lancer à l'ouverture de session", "Abrir ao iniciar sessão", "Bei der Anmeldung starten") }
     var bundledOnly: String { t(".app 번들로 설치된 경우에만 사용 가능 (scripts/build-app.sh)", "Available only when installed as an .app bundle (scripts/build-app.sh)", ".appバンドルでインストールした場合のみ利用可能 (scripts/build-app.sh)", "Disponible solo si se instaló como paquete .app (scripts/build-app.sh)", "Disponible uniquement si installé comme paquet .app (scripts/build-app.sh)", "Disponível apenas quando instalado como pacote .app (scripts/build-app.sh)", "Nur verfügbar, wenn die App als .app-Bundle installiert ist (scripts/build-app.sh)") }
     var notificationsSection: String { t("알림", "Notifications", "通知", "Notificaciones", "Notifications", "Notificações", "Benachrichtigungen") }
+    // MARK: Antigravity 자격증명 보관·폐기 (설정 → 고급)
+
+    var antigravityCredentialTitle: String { t("Antigravity 연결", "Antigravity connection", "Antigravity 接続", "Conexión con Antigravity", "Connexion Antigravity", "Conexão com o Antigravity", "Antigravity-Verbindung") }
+    /// 무엇이 보관돼 있고 무엇을 허용하는지 — 스코프를 이름으로 밝힌다. 이 파일은 회전하지 않는
+    /// 자격증명이라, 사용자가 폐기 주기를 정하려면 "무엇을 들고 있는지" 를 알아야 한다.
+    var antigravityCredentialHint: String {
+        t("Antigravity 자격증명을 이 Mac에 평문으로 보관합니다(소유자 전용, 백업 제외). 이 토큰은 만료·교체되지 않으며 Google 계정의 cloud-platform 권한을 포함합니다.",
+          "Antigravity credentials are stored on this Mac in plain text (owner-only, excluded from backups). This token never expires or rotates and carries your Google account's cloud-platform scope.",
+          "Antigravity の認証情報をこの Mac に平文で保存します(所有者のみ・バックアップ対象外)。このトークンは失効も更新もされず、Google アカウントの cloud-platform 権限を含みます。",
+          "Las credenciales de Antigravity se guardan en este Mac en texto plano (solo el propietario, excluidas de las copias de seguridad). Este token no caduca ni rota, e incluye el permiso cloud-platform de tu cuenta de Google.",
+          "Les identifiants Antigravity sont stockés en clair sur ce Mac (propriétaire uniquement, exclus des sauvegardes). Ce jeton n'expire ni ne tourne, et porte la permission cloud-platform de votre compte Google.",
+          "As credenciais do Antigravity ficam guardadas neste Mac em texto simples (somente o proprietário, fora dos backups). Esse token não expira nem é rotacionado e carrega o escopo cloud-platform da sua conta Google.",
+          "Antigravity-Anmeldedaten werden auf diesem Mac im Klartext gespeichert (nur Eigentümer, von Backups ausgenommen). Dieses Token läuft nie ab, wird nicht rotiert und umfasst die cloud-platform-Berechtigung deines Google-Kontos.")
+    }
+    func antigravityCredentialAge(days: Int) -> String {
+        t("\(days)일째 보관 중", "Stored for \(days) days", "\(days)日間保存中", "Guardado desde hace \(days) días", "Stocké depuis \(days) jours", "Guardado há \(days) dias", "Seit \(days) Tagen gespeichert")
+    }
+    var antigravityCredentialNone: String { t("보관 중인 자격증명 없음", "No stored credential", "保存された認証情報はありません", "No hay credenciales guardadas", "Aucun identifiant stocké", "Nenhuma credencial guardada", "Keine gespeicherten Anmeldedaten") }
+    var antigravityCredentialNoneAgeUnknown: String { t("보관 중 (시작일 미기록)", "Stored (start date not recorded)", "保存中(開始日は未記録)", "Guardado (fecha de inicio no registrada)", "Stocké (date de début non enregistrée)", "Guardado (data de início não registrada)", "Gespeichert (Startdatum nicht erfasst)") }
+    var antigravityRevoke: String { t("연결 해제", "Disconnect", "接続を解除", "Desconectar", "Déconnecter", "Desconectar", "Trennen") }
+    /// 확인 문구는 **Antigravity 도 함께 끊긴다** 는 사실을 반드시 말한다 — 우리가 보관한 토큰은
+    /// 우리 것이 아니라 Antigravity 의 것이고, 폐기하면 그쪽 로그인도 죽는다.
+    var antigravityRevokeConfirm: String {
+        t("Google에서 이 토큰을 폐기하고 로컬 보관본을 삭제합니다. 같은 자격증명을 쓰는 Antigravity도 로그아웃되어 다시 로그인해야 합니다. 되돌릴 수 없습니다.",
+          "This revokes the token at Google and deletes the local copy. Antigravity uses the same credential, so it will be signed out and need to sign in again. This cannot be undone.",
+          "Google 側でこのトークンを失効させ、ローカルの保存分を削除します。同じ認証情報を使う Antigravity もサインアウトされ、再ログインが必要になります。取り消せません。",
+          "Esto revoca el token en Google y borra la copia local. Antigravity usa la misma credencial, así que se cerrará la sesión y tendrás que volver a iniciarla. No se puede deshacer.",
+          "Cette action révoque le jeton chez Google et supprime la copie locale. Antigravity utilise le même identifiant : il sera déconnecté et devra se reconnecter. Action irréversible.",
+          "Isso revoga o token no Google e apaga a cópia local. O Antigravity usa a mesma credencial, então ele será desconectado e precisará entrar novamente. Não dá para desfazer.",
+          "Damit wird das Token bei Google widerrufen und die lokale Kopie gelöscht. Antigravity nutzt dieselben Anmeldedaten und wird abgemeldet – eine erneute Anmeldung ist nötig. Nicht rückgängig zu machen.")
+    }
+    var antigravityRevokeDone: String { t("폐기 완료 — Google에서 토큰이 무효화되고 로컬 보관본을 지웠습니다.", "Revoked — the token is invalid at Google and the local copy is deleted.", "失効しました — Google 側でトークンが無効になり、ローカルの保存分も削除しました。", "Revocado: el token ya no es válido en Google y se borró la copia local.", "Révoqué — le jeton est invalide chez Google et la copie locale est supprimée.", "Revogado — o token é inválido no Google e a cópia local foi apagada.", "Widerrufen – das Token ist bei Google ungültig und die lokale Kopie wurde gelöscht.") }
+    var antigravityRevokeNothing: String { t("보관 중인 자격증명이 없습니다.", "There was no stored credential.", "保存された認証情報はありませんでした。", "No había credenciales guardadas.", "Aucun identifiant n'était stocké.", "Não havia credencial guardada.", "Es waren keine Anmeldedaten gespeichert.") }
+    func antigravityRevokeFailed(_ reason: String) -> String {
+        t("폐기하지 못했습니다(\(reason)) — 토큰은 아직 유효합니다. 로컬 보관본은 지우지 않았습니다.",
+          "Could not revoke (\(reason)) — the token is still valid. The local copy was kept.",
+          "失効できませんでした(\(reason)) — トークンは有効なままです。ローカルの保存分は残しています。",
+          "No se pudo revocar (\(reason)): el token sigue siendo válido. Se conservó la copia local.",
+          "Échec de la révocation (\(reason)) — le jeton reste valide. La copie locale a été conservée.",
+          "Não foi possível revogar (\(reason)) — o token continua válido. A cópia local foi mantida.",
+          "Widerruf fehlgeschlagen (\(reason)) – das Token ist weiterhin gültig. Die lokale Kopie wurde behalten.")
+    }
+
     // MARK: claude.ai 세션 키 (Keychain 프롬프트 없는 한도 경로)
     var sessionKeyLabel: String { t("claude.ai 세션 키", "claude.ai session key", "claude.ai セッションキー", "Clave de sesión de claude.ai", "Clé de session claude.ai", "Chave de sessão do claude.ai", "claude.ai-Sitzungsschlüssel") }
     var sessionKeyHint: String {

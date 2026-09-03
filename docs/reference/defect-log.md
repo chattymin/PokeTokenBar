@@ -362,6 +362,23 @@ read_when:
   접두사마다 고정 28바이트로 끊는다(`testExtractsBothAdjacentSecrets`, 결함 주입 확인 완료).
   어느 쪽이 우리 client_id 의 짝인지는 **Google 의 `invalid_client` 응답으로 고른다** — 바이너리 내
   인접 문자열로 추정하면 다음 릴리스에서 조용히 깨진다.
+- **form 바디 값에 `.urlQueryAllowed` 를 쓰면 안 된다 — 구분자를 통과시킨다.** 그 집합은
+  `+`·`=`·`&`·`/` 를 이스케이프하지 않는다. 쿼리 문자열에서는 합법이지만
+  `application/x-www-form-urlencoded` 바디에서는 `+` 가 공백으로 디코드되고 `=`·`&` 는 필드
+  구분자다 — 그런 문자가 든 값은 **조용히 다른 값으로** 전달된다. Google 의 refresh token·
+  client_secret 이 base64url 계열이라 지금은 실제로 안 깨지지만, 값의 문자 집합에 기대는 인코딩은
+  계약이 아니라 우연이다. → `FormURLEncoding.value` 하나로 모으고 unreserved(RFC 3986)만 남긴다.
+  발견 경로가 시사적이다: 폐기 요청의 *요청 조립* 을 순수 함수로 떼어 단언을 쓰다가 드러났다.
+  게이트 뒤 네트워크 코드는 스위트가 한 줄도 실행하지 않으므로, 조립을 꺼내지 않았으면 갱신 경로에
+  1년을 더 있었을 결함이다. 회귀 가드: `testRefreshBodyEscapesFormDelimiters`·
+  `testRevokeRequestMatchesGoogleRevokeSpec`(둘 다 결함 주입 확인 완료).
+- **폐기는 서버가 확인한 뒤에만 로컬을 지운다.** 순서를 뒤집으면(먼저 지우고 호출) 실패 시 사용자는
+  재시도 수단을 잃고, 서버의 토큰은 살아 있는 채로 "정리됐다" 고 오해한다 — 보안 기능이 정확히
+  반대 결과를 만든다. 회귀 가드: `testServerRejectedRevokeKeepsLocalCredential`.
+- **모르는 나이를 지어내지 않는다.** `obtainedAt` 이 없던 기존 자격증명에 갱신 시점의 날짜를 찍으면
+  몇 달 된 토큰이 "0일째" 로 보인다 — 그 숫자를 보고 폐기 주기를 정하려던 사용자에게 **폐기를
+  미루는 방향** 으로 틀린 정보다. nil 은 nil 로 두고 "시작일 미기록" 으로 표시하며, 첫 재로그인
+  때 정확해진다. 회귀 가드: `testLegacyCredentialAgeStaysUnknownRatherThanFabricated`.
 - **평문 자격증명은 백업·디렉터리 권한까지가 노출면이다.** 앱 소유 Keychain 항목 금지(위 항목) 때문에
   자격증명은 Application Support 평문 0600 으로 산다. 그 결정은 유지하되 `~/Library/Application
   Support` 가 **TCC 게이트가 없고 Time Machine 기본 대상**이라는 점은 따로 막는다 —

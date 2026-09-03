@@ -41,6 +41,13 @@ final class UsageStore {
     private var refreshPending = false          // 진행 중 refresh 에 겹친 요청을 1회 코얼레싱(드롭 방지)
     private(set) var isRefreshingLimitToken = false
     private(set) var isRefreshingAntigravityLimits = false
+
+    // MARK: Antigravity 자격증명 보관 상태 (설정 화면)
+    /// 보관 중인 refresh token 의 나이. 설정 화면이 "언제부터 이 자격증명을 들고 있나" 를 보여준다 —
+    /// 폐기 주기를 스스로 판단할 근거이자, 회전하지 않는 토큰의 유일한 관측 가능한 신호다.
+    private(set) var antigravityCredentialSummary = AntigravityCredentialSummary(exists: false, obtainedAt: nil)
+    private(set) var isRevokingAntigravityCredential = false
+    private(set) var antigravityRevokeMessage: String?
     private(set) var lastErrorDescription: String?
     private(set) var limitTokenRefreshError: String?
     /// Antigravity 갱신 실패 문구. 없으면 사용자가 버튼을 눌러도 **아무 일도 안 일어난 것처럼 보인다**
@@ -1054,6 +1061,36 @@ final class UsageStore {
         } catch {
             sessionKeyError = Self.friendlyLimitError(error, L(localizationLanguage))
         }
+    }
+
+    /// 보관 상태를 다시 읽는다(설정 화면 진입·폐기 직후).
+    func refreshAntigravityCredentialSummary() async {
+        antigravityCredentialSummary = await AntigravityTokenCache.shared.storedCredentialSummary()
+    }
+
+    /// Google 에서 refresh token 을 폐기하고 로컬 보관본을 지운다.
+    ///
+    /// 되돌릴 수 없고 Antigravity 자신의 로그인까지 끊는다 — 호출 전 확인은 UI 의 책임이다.
+    func revokeAntigravityCredential() async {
+        guard !isRevokingAntigravityCredential else { return }
+        isRevokingAntigravityCredential = true
+        defer { isRevokingAntigravityCredential = false }
+        antigravityRevokeMessage = nil
+
+        let l = L(localizationLanguage)
+        switch await AntigravityTokenCache.shared.revokeStoredCredential() {
+        case .revoked:
+            antigravityRevokeMessage = l.antigravityRevokeDone
+            antigravityLimits = nil
+            antigravityLimitsUpdatedAt = nil
+            antigravityLimitsAuthExpired = false
+        case .nothingStored:
+            antigravityRevokeMessage = l.antigravityRevokeNothing
+        case .failed(let reason):
+            // 실패 사유를 삼키면 사용자는 "폐기됐다" 고 오해한 채 살아 있는 토큰을 남긴다.
+            antigravityRevokeMessage = l.antigravityRevokeFailed(reason)
+        }
+        await refreshAntigravityCredentialSummary()
     }
 
     func refreshAntigravityLimitsFromKeychain() async {

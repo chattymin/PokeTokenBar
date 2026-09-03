@@ -17,6 +17,7 @@ struct SettingsView: View {
     @State private var launchAtLoginError: String?
     @State private var reportError: String?
     @State private var advancedExpanded = false
+    @State private var antigravityRevokeConfirmShown = false
     /// startExpanded 를 @State 초기값으로 못 쓴다 — 뷰가 재사용되면 초기화가 다시 안 돌아
     /// 두 번째 진입부터 접힌 채로 열린다. onAppear 에서 1회 반영한다.
     @State private var didApplyStartExpanded = false
@@ -429,6 +430,67 @@ struct SettingsView: View {
     }
 
     /// claude.ai 세션 키 — Keychain 을 안 읽는 한도 조회 경로. 붙여넣고 저장하면 즉시 검증한다.
+    /// Antigravity 자격증명 보관 상태 + 폐기.
+    ///
+    /// 이 토큰은 만료도 교체도 되지 않아, 유출돼도 사용자가 알 방법이 없고 시간이 지나도 저절로
+    /// 무해해지지 않는다. 노출 창을 닫는 유일한 수단이 **주기적 폐기** 라서, 그 동작을 커맨드라인이
+    /// 아니라 여기 둔다 — 보관 기간을 함께 보여줘야 "슬슬 할 때가 됐다" 는 판단이 가능하다.
+    @ViewBuilder
+    private func antigravityCredentialRows(_ store: UsageStore) -> some View {
+        groupRow {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(l.antigravityCredentialTitle)
+                Text(l.antigravityCredentialHint)
+                    .font(.caption2).foregroundStyle(.tertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+                if store.antigravityCredentialSummary.exists {
+                    Text(storedAgeLabel(store.antigravityCredentialSummary.obtainedAt))
+                        .font(.caption2).foregroundStyle(.secondary)
+                } else {
+                    Text(l.antigravityCredentialNone)
+                        .font(.caption2).foregroundStyle(.secondary)
+                }
+            }
+            Spacer()
+            Button(role: .destructive) {
+                antigravityRevokeConfirmShown = true
+            } label: {
+                if store.isRevokingAntigravityCredential {
+                    ProgressView().controlSize(.small)
+                } else {
+                    Text(l.antigravityRevoke)
+                }
+            }
+            .disabled(!store.antigravityCredentialSummary.exists || store.isRevokingAntigravityCredential)
+            .confirmationDialog(
+                l.antigravityRevoke,
+                isPresented: $antigravityRevokeConfirmShown,
+                titleVisibility: .visible
+            ) {
+                Button(l.antigravityRevoke, role: .destructive) {
+                    Task { await store.revokeAntigravityCredential() }
+                }
+                Button(l.cancel, role: .cancel) {}
+            } message: {
+                Text(l.antigravityRevokeConfirm)
+            }
+        }
+        if let message = store.antigravityRevokeMessage {
+            Text(message)
+                .font(.caption2).foregroundStyle(.orange)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.horizontal, 12).padding(.bottom, 6)
+        }
+    }
+
+    /// 보관 기간 문구. `obtainedAt` 이 없는 건 이 필드가 생기기 전에 저장된 파일이다 — 날짜를
+    /// 지어내지 않고 "있음" 만 말한다.
+    private func storedAgeLabel(_ obtainedAt: Date?) -> String {
+        guard let obtainedAt else { return l.antigravityCredentialNoneAgeUnknown }
+        let days = max(0, Calendar.current.dateComponents([.day], from: obtainedAt, to: Date()).day ?? 0)
+        return l.antigravityCredentialAge(days: days)
+    }
+
     @ViewBuilder
     private func sessionKeyRows(_ store: UsageStore) -> some View {
         groupRow {
@@ -576,6 +638,9 @@ struct SettingsView: View {
                         .font(.caption2).foregroundStyle(.orange).lineLimit(2)
                         .padding(.horizontal, 12).padding(.bottom, 6)
                 }
+                Divider()
+                antigravityCredentialRows(store)
+                    .task { await store.refreshAntigravityCredentialSummary() }
                 Divider()
                 groupRow {
                     VStack(alignment: .leading, spacing: 6) {

@@ -26,6 +26,20 @@ final class AntigravityTokenRefreshTests: XCTestCase {
         XCTAssertEqual(request.httpMethod, "POST")
     }
 
+    /// form 바디의 값은 unreserved 만 남기고 전부 이스케이프해야 한다. `.urlQueryAllowed` 는
+    /// `+`·`=`·`&`·`/` 를 통과시켜 — `+` 는 공백으로 디코드되고 `=`·`&` 는 구분자라 — 그런 문자가
+    /// 든 토큰이 조용히 다른 값으로 전달된다.
+    func testRefreshBodyEscapesFormDelimiters() throws {
+        let request = AntigravityTokenCache.makeRefreshRequest(
+            refreshToken: "a+b=c&d/e", clientSecret: "s+x")
+        let body = try XCTUnwrap(request.httpBody.flatMap { String(data: $0, encoding: .utf8) })
+
+        XCTAssertTrue(body.contains("refresh_token=a%2Bb%3Dc%26d%2Fe"), "구분자가 그대로 새면 안 된다: \(body)")
+        XCTAssertTrue(body.contains("client_secret=s%2Bx"))
+        // 필드가 4개면 & 는 정확히 3개 — 값 안의 & 가 필드를 쪼개지 않았다는 뜻이다.
+        XCTAssertEqual(body.filter { $0 == "&" }.count, 3)
+    }
+
     func testRefreshWithoutDiscoveredSecretSkipsTheNetwork() async {
         // 후보를 못 찾았으면 보내봐야 400 이다 — 네트워크를 치지 않고 즉시 clientRejected.
         let outcome = await AntigravityTokenCache.refreshGoogleToken(
