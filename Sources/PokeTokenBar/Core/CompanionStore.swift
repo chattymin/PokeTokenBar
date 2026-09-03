@@ -307,6 +307,12 @@ final class CompanionStore {
         }
     }
 
+    /// 도감 상세 — 종의 버전별 도감 설명(현재 앱 언어). 실패를 `[]` 로 접지 않고 그대로 던짐 —
+    /// 뷰가 "설명 없음"과 "못 불러옴 + 다시 시도"를 구분해 그려야 하기 때문.
+    func dexFlavorTexts(speciesID: Int) async throws -> DexEntries {
+        try await provider.flavorTexts(speciesID: speciesID, language: state.language)
+    }
+
     /// 이름이 없는 구버전 졸업 항목의 체인 이름을 채운다(도감 격자 진입 시 1회).
     ///
     /// 격자는 저장된 이름만 읽으므로 백필이 없으면 칸이 종 번호(`#41`)로 남는다. 포획 로그는 행이

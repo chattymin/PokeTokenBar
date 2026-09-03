@@ -104,9 +104,8 @@ final class ShinyCharmTests: XCTestCase {
 
 // MARK: 이로치 스프라이트 갱신 (도감 이로치 토글)
 
-/// 도감은 이로치를 잡은 종을 기본 일반색으로 그리고, 탭하면 같은 종을 이로치색으로 바꾼다 —
-/// 즉 speciesID 는 그대로고 shiny 만 뒤집힌다. 갱신 판정이 종만 비교하면 .task 가 다시 돌아도
-/// "이미 그 종을 로드했다"로 빠져나가 색이 바뀌지 않는다(플래시 방지 가드가 토글을 삼킨다).
+/// 도감은 기본 일반색이고, 이로치 스위치를 켜면 speciesID 는 그대로인 채 shiny 만 뒤집힘.
+/// 갱신 판정이 종만 비교하면 플래시 방지 가드가 토글을 삼켜 색이 안 바뀜.
 @MainActor
 final class SpriteShinyReloadTests: XCTestCase {
     func testShinyFlipReloadsSpriteForSameSpecies() {
@@ -127,5 +126,32 @@ final class SpriteShinyReloadTests: XCTestCase {
         XCTAssertTrue(SpriteView.needsReload(loadedID: 1, loadedShiny: false, id: 2, shiny: false))
         XCTAssertTrue(SpriteView.needsReload(loadedID: nil, loadedShiny: false, id: 1, shiny: false),
                       "미로드(캐시 미스) 상태에서는 항상 불러온다")
+    }
+
+    /// [회귀] 토글이 켜진 상태에서 **새로 만들어지는 뷰**(토글 ON 뒤 상세 진입, 필터로 칸이 사라졌다
+    /// 다시 생김)가 이로치를 영영 안 불러오던 결함 — init 이 폴백 이미지를 받고도 요청값을 그대로
+    /// `loadedShiny` 에 적어 `needsReload` 가 거짓이 됐음. 위 테스트들은 그 값을 입력으로 주는 터라
+    /// 어떻게 정해지는지는 안 봄.
+    func testShinySeedIsFalseWhenOnlyNonShinyCacheExists() {
+        // 트리거 조건 — 이로치를 요청했는데 캐시가 없어 일반 폴백을 받는 경우.
+        XCTAssertFalse(SpriteView.seededShiny(requestedShiny: true, shinyCacheHit: false),
+                       "일반 폴백을 받고 이로치라고 기록하면 재로드가 영영 안 돎")
+        // 그래서 첫 판정이 반드시 '불러와라' — 결함이 실제로 막히는 지점.
+        XCTAssertTrue(SpriteView.needsReload(
+            loadedID: 25,
+            loadedShiny: SpriteView.seededShiny(requestedShiny: true, shinyCacheHit: false),
+            id: 25, shiny: true))
+    }
+
+    func testShinySeedIsTrueOnlyWhenShinyCacheActuallyHit() {
+        // 진짜 이로치 캐시가 있으면 참 — 시드의 존재 이유(재요청·플래시 방지)는 유지.
+        XCTAssertTrue(SpriteView.seededShiny(requestedShiny: true, shinyCacheHit: true))
+        XCTAssertFalse(SpriteView.needsReload(
+            loadedID: 25,
+            loadedShiny: SpriteView.seededShiny(requestedShiny: true, shinyCacheHit: true),
+            id: 25, shiny: true), "이로치 캐시 적중이면 재요청 없음")
+        // 일반색으로 그리는 뷰는 이로치 캐시 유무와 무관하게 항상 거짓.
+        XCTAssertFalse(SpriteView.seededShiny(requestedShiny: false, shinyCacheHit: true))
+        XCTAssertFalse(SpriteView.seededShiny(requestedShiny: false, shinyCacheHit: false))
     }
 }

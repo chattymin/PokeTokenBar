@@ -12,12 +12,12 @@ final class EvoLineNameTests: XCTestCase {
         let line = EvoLine(
             baseID: 1, tree: evoNode(1), rarity: .common,
             names: [
-                1: ["ja-Hrkt": "ピカ", "ja": "ピカチュウ", "en": "Pika", "ko": "피카"],
+                1: ["ja-hrkt": "ピカ", "ja": "ピカチュウ", "en": "Pika", "ko": "피카"],
                 2: ["en": "Eevee"],   // ja/ko 없음 → en 폴백
                 3: [:],               // 비어 있음 → #id
             ])
-        // ja 는 ja-Hrkt 를 ja 보다 먼저 시도
-        XCTAssertEqual(line.localizedName(1, .ja), "ピカ")
+        // ja 는 한자 혼용(ja)을 가나 전용(ja-hrkt)보다 우선
+        XCTAssertEqual(line.localizedName(1, .ja), "ピカチュウ")
         XCTAssertEqual(line.localizedName(1, .ko), "피카")
         XCTAssertEqual(line.localizedName(1, .en), "Pika")
         // 해당 언어 없으면 en 폴백
@@ -29,10 +29,21 @@ final class EvoLineNameTests: XCTestCase {
         XCTAssertEqual(line.localizedName(99, .en), "#99")
     }
 
-    func testJaFallsBackFromHrktToPlainJa() {
+    /// 폴백 **단독 분기** — `ja` 없이 `ja-hrkt` 만 있는 경우(PokéAPI `/version` 의 실제 모양).
+    /// 앞 테스트는 두 코드가 다 있어 이 분기를 안 밟음 — 폴백이 죽어도 `ja` 만으로 통과.
+    func testJaFallsBackToHrktWhenPlainJaMissing() {
         let line = EvoLine(baseID: 1, tree: evoNode(1), rarity: .common,
-                           names: [1: ["ja": "ピカチュウ", "en": "Pika"]])
-        XCTAssertEqual(line.localizedName(1, .ja), "ピカチュウ")   // ja-Hrkt 없음 → ja
+                           names: [1: ["ja-hrkt": "ソード", "en": "Sword"]])
+        XCTAssertEqual(line.localizedName(1, .ja), "ソード")   // ja 없음 → ja-hrkt (en 으로 새지 않음)
+    }
+
+    /// PokéAPI 의 `language.name` 은 전부 소문자. 대소문자가 어긋난 후보는 조용히 죽고 뒤 후보가
+    /// 받아주면 증상 없이 남으므로 기계로 차단.
+    func testAPICodesAreLowercased() {
+        for lang in AppLanguage.allCases {
+            XCTAssertEqual(lang.apiCodes, lang.apiCodes.map { $0.lowercased() },
+                           "\(lang) 의 apiCodes 에 대문자 혼입 — PokéAPI language.name 과 매칭 불가")
+        }
     }
 
     func testGermanNameUsesGermanThenFallsBackToEnglish() {
