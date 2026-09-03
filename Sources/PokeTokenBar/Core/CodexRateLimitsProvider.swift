@@ -21,6 +21,10 @@ struct CodexRateLimitsProvider: CodexLimitsProviding {
             "\(home)/.codex/bin/codex",
             "/opt/homebrew/bin/codex",
             "/usr/local/bin/codex",
+            // ChatGPT.app bundles the codex CLI; users on the desktop app often have
+            // no standalone install, so this is the only resolvable path for them.
+            // Listed last so dedicated installs win over the bundled copy.
+            "/Applications/ChatGPT.app/Contents/Resources/codex",
         ]
     }
 
