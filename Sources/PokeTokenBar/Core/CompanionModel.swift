@@ -400,6 +400,8 @@ struct MonState: Codable, Sendable {
     var totalForms: Int
     var isShiny = false             // 부화 시 확정, 진화해도 유지
     var nature: PokemonNature?      // 부화 시 확정 (구버전 저장은 nil)
+    /// 개체 고유 전투 프로필. 구버전 저장은 nil이며 `CompanionStore`가 한 번만 마이그레이션한다.
+    var profile: PokemonProfile?
     // 메타몽 위장 — nil=일반. 값=정체 메타몽, 이 종으로 위장 중(위장 구간엔 baseID 와 동일, 리빌 후에도 원 위장체 보존).
     var dittoDisguise: Int?
     var dittoRevealed = false       // 위장 → 리빌(정체 공개) 전환 여부
@@ -408,7 +410,7 @@ struct MonState: Codable, Sendable {
 
     init(baseID: Int, pathIDs: [Int], plannedPathIDs: [Int]? = nil, stageIndex: Int, usedAtStage: Int,
          rarity: Rarity, totalForms: Int, isShiny: Bool = false, nature: PokemonNature? = nil,
-         dittoDisguise: Int? = nil, dittoRevealed: Bool = false) {
+         profile: PokemonProfile? = nil, dittoDisguise: Int? = nil, dittoRevealed: Bool = false) {
         self.baseID = baseID
         self.pathIDs = pathIDs
         if let plannedPathIDs, !plannedPathIDs.isEmpty {
@@ -422,6 +424,7 @@ struct MonState: Codable, Sendable {
         self.totalForms = totalForms
         self.isShiny = isShiny
         self.nature = nature
+        self.profile = profile
         self.dittoDisguise = dittoDisguise
         self.dittoRevealed = dittoRevealed
     }
@@ -447,6 +450,8 @@ struct MonState: Codable, Sendable {
         totalForms = try c.decode(Int.self, forKey: .totalForms)
         isShiny = try c.decodeIfPresent(Bool.self, forKey: .isShiny) ?? false
         nature = try c.decodeIfPresent(PokemonNature.self, forKey: .nature)
+        // 손상된 신규 프로필 하나 때문에 기존 성장 상태 전체를 잃지 않는다. nil이면 스토어가 재마이그레이션한다.
+        profile = (try? c.decodeIfPresent(PokemonProfile.self, forKey: .profile)) ?? nil
         dittoDisguise = try c.decodeIfPresent(Int.self, forKey: .dittoDisguise)
         dittoRevealed = try c.decodeIfPresent(Bool.self, forKey: .dittoRevealed) ?? false
     }
@@ -462,6 +467,8 @@ struct DexEntry: Codable, Sendable, Identifiable {
     var caughtAt: Date?
     var isShiny = false
     var nature: PokemonNature?
+    /// The individual profile at graduation/release. Nil only for pre-profile saves until migration.
+    var profile: PokemonProfile?
     /// 진화 체인 각 종의 다국어 이름(speciesID → langCode → name). 졸업 시 로드된 라인에서 저장 →
     /// 도감의 단계별 스프라이트 밑 이름 표시가 네트워크 없이 즉시 + 언어 전환 대응. 구버전 저장분엔
     /// 없어(nil) 뷰가 line fetch 로 조회 후 백필한다.
@@ -478,7 +485,7 @@ struct DexEntry: Codable, Sendable, Identifiable {
     init(id: String = UUID().uuidString,
          baseID: Int, finalID: Int, chainOrder: [Int], rarity: Rarity,
          caughtAt: Date?, isShiny: Bool = false, nature: PokemonNature? = nil,
-         names: [Int: [String: String]]? = nil, releasedAt: Date? = nil) {
+         profile: PokemonProfile? = nil, names: [Int: [String: String]]? = nil, releasedAt: Date? = nil) {
         self.id = id
         self.baseID = baseID
         self.finalID = finalID
@@ -487,6 +494,7 @@ struct DexEntry: Codable, Sendable, Identifiable {
         self.caughtAt = caughtAt
         self.isShiny = isShiny
         self.nature = nature
+        self.profile = profile
         self.names = names
         self.releasedAt = releasedAt
     }
@@ -502,6 +510,8 @@ struct DexEntry: Codable, Sendable, Identifiable {
         caughtAt = try c.decodeIfPresent(Date.self, forKey: .caughtAt)
         isShiny = try c.decodeIfPresent(Bool.self, forKey: .isShiny) ?? false
         nature = try c.decodeIfPresent(PokemonNature.self, forKey: .nature)
+        // 프로필만 손상되면 개체 기록은 보존하고 프로필을 다시 생성한다.
+        profile = (try? c.decodeIfPresent(PokemonProfile.self, forKey: .profile)) ?? nil
         // try? — 구버전(최종체 단일 [String:String]) 형식이 남아 있어도 종별 맵 디코딩 실패 시 nil 로
         // 강등(항목 전체 로드는 유지). 뷰가 line 조회로 백필한다.
         names = (try? c.decodeIfPresent([Int: [String: String]].self, forKey: .names)) ?? nil

@@ -16,9 +16,14 @@ protocol PokeProviding: Sendable {
     func baseSpecies(id: Int) async throws -> BaseSpecies?
 }
 
+/// Separate from `PokeProviding` so existing evolution-only test doubles stay small.
+protocol PokemonDetailProviding: Sendable {
+    func pokemonDetails(speciesID: Int) async throws -> PokemonDetails
+}
+
 /// PokéAPI 클라이언트 — 종/진화체인을 런타임 fetch + 파싱. 포켓몬 데이터는 레포에 번들하지 않는다.
 /// species 응답은 actor 캐시(다국어 이름 재사용).
-actor PokeAPIClient: PokeProviding {
+actor PokeAPIClient: PokeProviding, PokemonDetailProviding {
     static let shared = PokeAPIClient()
     private let base = URL(string: "https://pokeapi.co/api/v2")!
     // Lockstep with the union of AppLanguage.apiCodes. "pt" collects nothing today
@@ -29,6 +34,71 @@ actor PokeAPIClient: PokeProviding {
     static let langCodes = ["ko", "en", "ja-Hrkt", "ja", "es", "fr", "pt", "de"]
     private var speciesCache: [Int: SpeciesDTO] = [:]
     private var lineCache: [Int: EvoLine] = [:]   // 프리패칭 → 부화 순간 네트워크 0
+    private var detailsCache: [Int: PokemonDetails] = [:]
+
+    private static let detailsDirectory: URL = {
+        let dir = AppStatePaths.directory().appendingPathComponent("pokemon-details-v1", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir
+    }()
+    private struct DetailSnapshot: Codable {
+        let fetchedAt: Date
+        let details: PokemonDetails
+    }
+
+    /// Default-form battle metadata. Memory → 30-day disk cache → REST, with stale disk fallback offline.
+    func pokemonDetails(speciesID: Int) async throws -> PokemonDetails {
+        if let cached = detailsCache[speciesID] { return cached }
+        let file = Self.detailsDirectory.appendingPathComponent("\(speciesID).json")
+        let disk = (try? Data(contentsOf: file))
+            .flatMap { try? JSONDecoder().decode(DetailSnapshot.self, from: $0) }
+        if let disk, Date().timeIntervalSince(disk.fetchedAt) < 30 * 86400 {
+            detailsCache[speciesID] = disk.details
+            return disk.details
+        }
+        do {
+            let dto: PokemonDTO = try await get(base.appendingPathComponent("pokemon/\(speciesID)"))
+            let speciesDTO = try await species(speciesID)
+            let details = PokemonDetails(
+                speciesID: speciesID,
+                name: dto.name,
+                height: dto.height,
+                weight: dto.weight,
+                baseExperience: dto.base_experience,
+                genderRate: speciesDTO.gender_rate ?? -1,
+                types: dto.types.sorted { $0.slot < $1.slot }.map { $0.type.name },
+                baseStats: Dictionary(uniqueKeysWithValues: dto.stats.map { ($0.stat.name, $0.base_stat) }),
+                abilities: dto.abilities.map {
+                    PokemonAbilityOption(name: $0.ability.name, slot: $0.slot, isHidden: $0.is_hidden)
+                }.sorted { $0.slot < $1.slot },
+                moves: Self.normalizedMoves(dto.moves))
+            detailsCache[speciesID] = details
+            if let data = try? JSONEncoder().encode(DetailSnapshot(fetchedAt: Date(), details: details)) {
+                try? data.write(to: file, options: .atomic)
+            }
+            return details
+        } catch {
+            if let disk {
+                detailsCache[speciesID] = disk.details
+                return disk.details
+            }
+            throw error
+        }
+    }
+
+    /// Reduce PokéAPI's cross-generation move history at the trust boundary, before it reaches
+    /// either memory or disk. Moves absent from the supported version group are omitted entirely.
+    static func normalizedMoves(_ moves: [PokemonMoveDTO]) -> [PokemonMoveOption] {
+        moves.compactMap { move in
+            let methods = move.version_group_details.compactMap { row -> PokemonMoveLearnMethod? in
+                guard row.version_group.name == PokemonDetails.preferredVersionGroup else { return nil }
+                return PokemonMoveLearnMethod(method: row.move_learn_method.name,
+                                              level: row.level_learned_at)
+            }
+            guard !methods.isEmpty else { return nil }
+            return PokemonMoveOption(name: move.move.name, learnMethods: methods)
+        }.sorted { $0.name < $1.name }
+    }
 
     func line(baseSpeciesID: Int) async throws -> EvoLine {
         if let cached = lineCache[baseSpeciesID] { return cached }
@@ -215,6 +285,7 @@ struct SpeciesDTO: Decodable, Sendable {
     let names: [NameDTO]
     let evolution_chain: URLRef
     let evolves_from_species: NamedRef?   // nil = 진화라인 시작점(base)
+    let gender_rate: Int?
 }
 struct NameDTO: Decodable, Sendable { let name: String; let language: NamedRef }
 struct NamedRef: Decodable, Sendable { let name: String; let url: String? }
@@ -223,4 +294,31 @@ struct ChainDTO: Decodable, Sendable { let chain: ChainLink }
 struct ChainLink: Decodable, Sendable {
     let species: NamedRef
     let evolves_to: [ChainLink]
+}
+
+struct PokemonDTO: Decodable, Sendable {
+    let name: String
+    let height: Int
+    let weight: Int
+    let base_experience: Int?
+    let types: [PokemonTypeDTO]
+    let abilities: [PokemonAbilityDTO]
+    let stats: [PokemonStatDTO]
+    let moves: [PokemonMoveDTO]
+}
+struct PokemonTypeDTO: Decodable, Sendable { let slot: Int; let type: NamedRef }
+struct PokemonAbilityDTO: Decodable, Sendable {
+    let is_hidden: Bool
+    let slot: Int
+    let ability: NamedRef
+}
+struct PokemonStatDTO: Decodable, Sendable { let base_stat: Int; let stat: NamedRef }
+struct PokemonMoveDTO: Decodable, Sendable {
+    let move: NamedRef
+    let version_group_details: [PokemonMoveVersionDTO]
+}
+struct PokemonMoveVersionDTO: Decodable, Sendable {
+    let level_learned_at: Int
+    let move_learn_method: NamedRef
+    let version_group: NamedRef
 }
