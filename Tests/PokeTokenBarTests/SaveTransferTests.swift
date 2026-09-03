@@ -458,6 +458,9 @@ final class SaveTransferTests: XCTestCase {
         evil.active = MonState(baseID: 1, pathIDs: [1], plannedPathIDs: [1],
                                stageIndex: Int.max, usedAtStage: Int.max, rarity: .common,
                                totalForms: Int.max)
+        evil.box = [MonState(baseID: 4, pathIDs: [4, 5], plannedPathIDs: [4, 5],
+                             stageIndex: Int.max, usedAtStage: Int.max, rarity: .common,
+                             totalForms: Int.max)]
 
         let data = try SaveTransfer.encode(state: evil, appVersion: "2.5.0",
                                            deviceName: "Corrupt", now: transferNow)
@@ -471,6 +474,10 @@ final class SaveTransferTests: XCTestCase {
         XCTAssertEqual(s.active?.usedAtStage, SaveTransfer.maxTokenValue)
         XCTAssertEqual(s.active?.totalForms, 12)
         XCTAssertEqual(s.active?.stageIndex, 0, "pathIDs 범위를 넘지 않아야 한다")
+        // Box entries cross the same trust boundary and are clamped identically.
+        XCTAssertEqual(s.box.first?.usedAtStage, SaveTransfer.maxTokenValue, "box entry clamped too")
+        XCTAssertEqual(s.box.first?.totalForms, 12)
+        XCTAssertEqual(s.box.first?.stageIndex, 1, "clamped into the [4,5] pathIDs range")
 
         // 정규화된 값으로 실제 산술 경로를 태워 트랩이 안 나는지 확인한다.
         let url = tempURL("clamped")

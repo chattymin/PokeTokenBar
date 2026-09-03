@@ -141,6 +141,16 @@ enum SaveTransfer {
     /// 정규화한다. 대상은 실제로 산술에 쓰이는 필드뿐이다 — 도감·인벤토리 항목은 잘라내지 않는다(데이터 손실).
     static func sanitized(_ state: CompanionState) -> CompanionState {
         func clampToken(_ v: Int) -> Int { min(max(0, v), maxTokenValue) }
+        // Clamp a stored Pokémon's numeric fields — used for the active companion and every box
+        // entry, which all cross the same import trust boundary.
+        func clampMon(_ input: MonState) -> MonState {
+            var m = input
+            m.usedAtStage = clampToken(m.usedAtStage)
+            // totalForms feeds `kk * (kk + 1)` in PokemonBalance.phaseThreshold — a large value is a trap.
+            m.totalForms = min(max(1, m.totalForms), 12)
+            m.stageIndex = min(max(0, m.stageIndex), max(0, m.pathIDs.count - 1))
+            return m
+        }
         var s = state
         s.usedSinceInstall = clampToken(s.usedSinceInstall)
         s.spentTokens = clampToken(s.spentTokens)
@@ -159,13 +169,10 @@ enum SaveTransfer {
         // load() 의 .corrupt 복구도 안 걸려 파일을 손으로 지우기 전엔 앱을 못 쓴다.
         // 관대 디코딩은 모르는 rawValue 만 걸러낼 뿐 **아는데 만족 불가능한 값**은 그대로 통과시킨다.
         if s.eggTier?.captureRateCeiling == nil { s.eggTier = nil }
-        if var active = s.active {
-            active.usedAtStage = clampToken(active.usedAtStage)
-            // totalForms 는 `kk * (kk + 1)` 형태로 쓰여(PokemonBalance.phaseThreshold) 큰 값이 그 자체로 트랩이다.
-            active.totalForms = min(max(1, active.totalForms), 12)
-            active.stageIndex = min(max(0, active.stageIndex), max(0, active.pathIDs.count - 1))
-            s.active = active
-        }
+        if let active = s.active { s.active = clampMon(active) }
+        // Box entries come from the same trust boundary — clamp them like the active mon so a
+        // hand-edited import can't smuggle an out-of-range totalForms/stageIndex into storage.
+        s.box = s.box.map(clampMon)
         s.reconcileRepresentativeSelection()
         return s
     }
