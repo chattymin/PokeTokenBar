@@ -42,19 +42,48 @@ final class CompanionStore {
     private let fileURL: URL
     private var rng: any RandomNumberGenerator
     private let dittoDisguiseRollingEnabled: Bool
+    private let defaults: UserDefaults
     /// 세션 내 활성 개체 교체 감지용. await 뒤 이전 개체의 결과가 새 개체를 덮지 않게 한다.
     private var activeGeneration = 0
+
+    // MARK: 성장 비용 배율 (UserDefaults)
+
+    /// 부화·진화·졸업 임계 전부에 곱해지는 비율. 0.1 이면 커먼 1단계 진화가 125M → 12.5M.
+    static let growthMultiplierPresets: [Double] = [1.0, 0.5, 0.25, 0.1, 0.05, 0.01]
+    static let growthMultiplierRange: ClosedRange<Double> = 0.01...1.0
+    static let growthMultiplierDefaultsKey = "growthMultiplier"
+
+    static func clampedGrowthMultiplier(_ v: Double) -> Double {
+        v <= 0 ? 1.0 : min(growthMultiplierRange.upperBound, max(growthMultiplierRange.lowerBound, v))
+    }
+
+    var growthMultiplier: Double {
+        didSet {
+            let clamped = Self.clampedGrowthMultiplier(growthMultiplier)
+            if clamped != growthMultiplier { growthMultiplier = clamped }
+            defaults.set(clamped, forKey: Self.growthMultiplierDefaultsKey)
+        }
+    }
+    private func scaledCost(_ base: Int) -> Int { max(1, Int((Double(base) * growthMultiplier).rounded())) }
+    private var eggHatchThreshold: Int { scaledCost(PokemonBalance.eggHatchThreshold) }
+    private func phaseThreshold(rarity: Rarity, totalForms k: Int, stageIndex: Int) -> Int {
+        scaledCost(PokemonBalance.phaseThreshold(rarity: rarity, totalForms: k, stageIndex: stageIndex))
+    }
 
     init(provider: any PokeProviding = PokeAPIClient.shared,
          clock: @escaping () -> Date = Date.init,
          fileURL: URL? = nil,
          rng: any RandomNumberGenerator = SystemRandomNumberGenerator(),
-         dittoDisguiseRollingEnabled: Bool = AppEnv.isBundledApp) {
+         dittoDisguiseRollingEnabled: Bool = AppEnv.isBundledApp,
+         defaults: UserDefaults = .standard) {
         self.provider = provider
         self.clock = clock
         self.fileURL = fileURL ?? Self.defaultURL()
         self.rng = rng
         self.dittoDisguiseRollingEnabled = dittoDisguiseRollingEnabled
+        self.defaults = defaults
+        self.growthMultiplier = Self.clampedGrowthMultiplier(
+            defaults.double(forKey: Self.growthMultiplierDefaultsKey))
         load()
         refreshRepresentativeSubject()
         if state.active != nil { displayState = .idle }
@@ -118,8 +147,8 @@ final class CompanionStore {
     // 알 인큐베이션 (active 없을 때)
     var isEgg: Bool { state.active == nil }
     var eggStarted: Bool { state.eggUsage > 0 }
-    var eggProgress: Double { min(1, max(0, Double(state.eggUsage) / Double(PokemonBalance.eggHatchThreshold))) }
-    var eggTokensToHatch: Int { max(0, PokemonBalance.eggHatchThreshold - state.eggUsage) }
+    var eggProgress: Double { min(1, max(0, Double(state.eggUsage) / Double(eggHatchThreshold))) }
+    var eggTokensToHatch: Int { max(0, eggHatchThreshold - state.eggUsage) }
 
     var displayName: String {
         guard let a = state.active, let line = currentLine else { return "Token Egg" }
@@ -136,7 +165,7 @@ final class CompanionStore {
     }
     var threshold: Int {
         guard let a = state.active else { return 1 }
-        return PokemonBalance.phaseThreshold(rarity: a.rarity, totalForms: a.totalForms, stageIndex: a.stageIndex)
+        return phaseThreshold(rarity: a.rarity, totalForms: a.totalForms, stageIndex: a.stageIndex)
     }
     var progress: Double {
         guard let a = state.active, threshold > 0 else { return 0 }
@@ -454,7 +483,7 @@ final class CompanionStore {
             Task { await ensureEggPrefetch() }
         }
         // 알이 부화 임계에 도달하면 부화
-        if state.active == nil, state.eggUsage >= PokemonBalance.eggHatchThreshold, !isHatching {
+        if state.active == nil, state.eggUsage >= eggHatchThreshold, !isHatching {
             Task { await hatchIfNeeded() }
         }
         // active 인데 라인 미로딩(앱 재시작) → 로드
@@ -464,7 +493,7 @@ final class CompanionStore {
         // 위장 메타몽이 첫 진화 임계 도달 → 리빌(재시작 등 applyUsage 킥을 못 탄 경우 백업 트리거)
         if let a = state.active, a.dittoDisguise != nil, !a.dittoRevealed, currentLine != nil,
            !isHatching, !isRevealingDitto,
-           a.usedAtStage >= PokemonBalance.phaseThreshold(rarity: a.rarity, totalForms: a.totalForms, stageIndex: 0) {
+           a.usedAtStage >= phaseThreshold(rarity: a.rarity, totalForms: a.totalForms, stageIndex: 0) {
             Task { await revealDitto() }
         }
         displayState = computeState(burnTier: burnTier, limitWarning: limitWarning,
@@ -483,7 +512,7 @@ final class CompanionStore {
         while state.active != nil, guardCount < 50 {
             guardCount += 1
             let a = state.active!
-            let thr = PokemonBalance.phaseThreshold(rarity: a.rarity, totalForms: a.totalForms, stageIndex: a.stageIndex)
+            let thr = phaseThreshold(rarity: a.rarity, totalForms: a.totalForms, stageIndex: a.stageIndex)
             guard a.usedAtStage >= thr else { break }
             guard let node = line.tree.node(withID: a.currentID) else { break }
             // 위장체는 부화 때는 다형태지만, 에셋 정규화/마이그레이션 뒤 leaf가 될 수 있다.
@@ -863,7 +892,7 @@ final class CompanionStore {
     // MARK: 부화
 
     func hatchIfNeeded() async {
-        guard state.active == nil, !isHatching, state.eggUsage >= PokemonBalance.eggHatchThreshold else { return }
+        guard state.active == nil, !isHatching, state.eggUsage >= eggHatchThreshold else { return }
         // 프리패치가 "종 롤 중"(pending 미확정)일 때만 대기 — 이중 rng 소비 방지.
         // pending 확정 후의 예열(라인/스프라이트)과는 동시 진행해도 안전하다.
         guard state.pendingHatchID != nil || !prefetchInFlight else { return }
@@ -983,7 +1012,7 @@ final class CompanionStore {
         }
         currentLine = line
         // 부화 임계 초과분은 부화체 성장에 이월(낭비 없음).
-        let overflow = max(0, state.eggUsage - PokemonBalance.eggHatchThreshold)
+        let overflow = max(0, state.eggUsage - eggHatchThreshold)
         state.eggUsage = 0
         state.eggTier = nil   // 보증은 이 부화로 소비된다(다음 알은 다시 무보증)
         // 개체 롤 — shiny(1/64)·성격(25종)은 부화 순간 확정, 진화해도 유지.
@@ -1022,7 +1051,7 @@ final class CompanionStore {
     private func revealDitto() async {
         guard let a = state.active, a.dittoDisguise != nil, !a.dittoRevealed, !isRevealingDitto else { return }
         let generation = activeGeneration
-        let firstEvoThr = PokemonBalance.phaseThreshold(rarity: a.rarity, totalForms: a.totalForms, stageIndex: 0)
+        let firstEvoThr = phaseThreshold(rarity: a.rarity, totalForms: a.totalForms, stageIndex: 0)
         guard a.usedAtStage >= firstEvoThr else { return }   // 임계 미달 방어
         isRevealingDitto = true
         defer { isRevealingDitto = false }
@@ -1031,7 +1060,7 @@ final class CompanionStore {
         }
         guard activeGeneration == generation,
               var m = state.active, m.dittoDisguise != nil, !m.dittoRevealed else { return }
-        let latestFirstEvoThr = PokemonBalance.phaseThreshold(rarity: m.rarity, totalForms: m.totalForms, stageIndex: 0)
+        let latestFirstEvoThr = phaseThreshold(rarity: m.rarity, totalForms: m.totalForms, stageIndex: 0)
         guard m.usedAtStage >= latestFirstEvoThr else { return }
         let disguiseName = currentLine?.localizedName(m.baseID, state.language) ?? "#\(m.baseID)"
         let carryOver = max(0, m.usedAtStage - latestFirstEvoThr)   // 위장체 첫 진화 초과분 → 메타몽 성장 이월
