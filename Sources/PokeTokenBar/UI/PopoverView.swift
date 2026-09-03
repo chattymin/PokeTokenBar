@@ -370,7 +370,7 @@ struct PopoverView: View {
                                 .font(.caption)
                                 .monospacedDigit()
                             Spacer()
-                            (Text("\(l.reset) ") + Text(end, style: .relative))
+                            (Text("\(l.reset) ") + Text(end, style: .relative) + resetClockSuffix(end))
                                 .font(.caption)
                                 .foregroundStyle(.tertiary)
                         }
@@ -445,7 +445,7 @@ struct PopoverView: View {
                     .monospacedDigit()
                     .foregroundStyle(limitColor(utilization))
                 if let reset = bucket.resetDate {
-                    Text("· \(reset, style: .relative)")
+                    resetLabel(reset)
                         .font(.caption)
                         .foregroundStyle(.tertiary)
                 }
@@ -513,6 +513,20 @@ struct PopoverView: View {
         return store.limitDisplayMode == .remaining ? l.percentRemaining(text) : text
     }
 
+    /// 리셋 표시 — 상대 카운트다운 뒤에, 리셋이 임박한(≤ 6h) 윈도우면 벽시계 시각도 괄호로 덧붙인다.
+    /// 5시간 세션류(Claude·Codex·Antigravity)의 리셋은 항상 이 창 안이라 자동으로 켜지고, 주간 윈도우는
+    /// 마지막 몇 시간 전까지는 상대 표시만 남는다(리셋이 며칠 뒤면 "HH:mm" 만으론 오해를 부르므로).
+    /// 프로바이더 리터럴 분기 없이 리셋 근접도만 본다 — 확장 규약(플랫폼 종속 분기 금지) 준수.
+    private static let resetClockWindow: TimeInterval = 6 * 3600
+    /// 리셋이 임박하면(≤ 6h) " (HH:mm)" 벽시계 접미사, 아니면 빈 Text. 카운트다운 뒤에 이어붙인다.
+    private func resetClockSuffix(_ reset: Date) -> Text {
+        guard reset.timeIntervalSinceNow <= Self.resetClockWindow else { return Text("") }
+        return Text(" (\(Self.timeFormatter.string(from: reset)))")
+    }
+    private func resetLabel(_ reset: Date) -> Text {
+        Text("· \(reset, style: .relative)") + resetClockSuffix(reset)
+    }
+
     @ViewBuilder
     private func limitRow(name: String, window: LimitWindow?) -> some View {
         if let window, let utilization = window.utilization {
@@ -526,7 +540,7 @@ struct PopoverView: View {
                         .monospacedDigit()
                         .foregroundStyle(limitColor(utilization))
                     if let reset = window.resetDate {
-                        Text("· \(reset, style: .relative)")
+                        resetLabel(reset)
                             .font(.caption)
                             .foregroundStyle(.tertiary)
                     }
@@ -665,7 +679,7 @@ struct PopoverView: View {
                         .monospacedDigit()
                         .foregroundStyle(limitColor(utilization))
                     if let reset = window.resetDate {
-                        Text("· \(reset, style: .relative)")
+                        resetLabel(reset)
                             .font(.caption)
                             .foregroundStyle(.tertiary)
                     }
@@ -694,7 +708,7 @@ struct PopoverView: View {
                         .font(.callout)
                         .monospacedDigit()
                         .foregroundStyle(limitColor(utilization))
-                    Text("· \(limit.resetDate, style: .relative)")
+                    resetLabel(limit.resetDate)
                         .font(.caption)
                         .foregroundStyle(.tertiary)
                 }
