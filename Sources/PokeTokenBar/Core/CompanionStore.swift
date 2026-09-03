@@ -477,6 +477,8 @@ final class CompanionStore {
     /// 프로바이더별 ledger 는 이미 전진해 델타가 영구 유실된다. 진화 판정만 라인 로드 후로 미룬다.
     func applyUsage(_ delta: Int) {
         guard state.active != nil else { return }
+        // A completed buddy brought back from the box does not grow or re-graduate.
+        guard state.active?.isComplete != true else { return }
         state.active!.usedAtStage += delta
         guard let line = currentLine else { save(); return }
         var guardCount = 0
@@ -601,6 +603,11 @@ final class CompanionStore {
         justGraduated = name
         notifyCompanionEvent(l.notifGraduateTitle, l.notifGraduateBody(name))
         eventUntil = clock().addingTimeInterval(6)
+        // Keep the completed individual in the box (with shiny/nature/full path) so it can be
+        // brought back as a buddy later. The permanent dex record above is unchanged.
+        var finished = a
+        finished.isComplete = true
+        state.box.append(finished)
         state.active = nil
         state.reconcileRepresentativeSelection()   // 졸업 체인이 dex 로 옮겨져 선택은 정상적으로 유지된다
         activeGeneration += 1
@@ -610,6 +617,32 @@ final class CompanionStore {
         // (부화가 소비, 디스크/불러오기는 sanitized 가 정규화). 소비 지점은 hatchCore 한 곳으로 유지한다.
         // "알을 받는 순간" 즉시 프리패칭 시작 — 다음 부화의 종·라인·스프라이트 예열.
         Task { await self.ensureEggPrefetch() }
+    }
+
+    // MARK: Box (bank — store individuals & swap the active one)
+
+    /// Stored individuals, for the box UI.
+    var boxedPokemon: [MonState] { state.box }
+
+    /// A box↔active swap needs a living active — switching is disabled during egg incubation.
+    var canSwitchActive: Bool { state.active != nil }
+
+    /// Make a boxed Pokémon the active one; the current active moves into the box (a swap).
+    /// Growth status (stageIndex/usedAtStage) is preserved because the whole MonState is moved.
+    /// Not allowed while the active slot is an egg (nil) — avoids parking egg incubation state.
+    @discardableResult
+    func setActiveFromBox(id: String) -> Bool {
+        guard let active = state.active else { return false }
+        guard let idx = state.box.firstIndex(where: { $0.id == id }) else { return false }
+        let picked = state.box.remove(at: idx)
+        state.box.append(active)          // the swap — previous active goes to the box
+        state.active = picked
+        currentLine = nil                 // loadCurrentLine reloads + normalizes the new active
+        activeGeneration += 1
+        state.reconcileRepresentativeSelection()
+        save()
+        Task { await loadCurrentLine() }  // reload line, normalize against current assets, re-eval usage
+        return true
     }
 
     // MARK: 인벤토리 / 이상한 사탕

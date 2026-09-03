@@ -183,6 +183,79 @@ final class CompanionStoreTests: XCTestCase {
         return CompanionStore(provider: StubProvider(value: line), clock: { fixedNow }, fileURL: url, rng: SeededRNG(seed: seed))
     }
 
+    // MARK: Box (bank swap)
+
+    /// [Box] Switching to a boxed Pokémon swaps it with the current active; both keep their exact
+    /// token status. The displaced active lands in the box.
+    func testSetActiveFromBoxSwapsAndPreservesTokenStatus() throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("poke-box-\(UUID().uuidString).json")
+        let json = """
+        {"active":{"id":"A","baseID":1,"pathIDs":[1,2],"stageIndex":1,"usedAtStage":40,"rarity":"common","totalForms":3},
+         "box":[{"id":"B","baseID":4,"pathIDs":[4,5],"stageIndex":1,"usedAtStage":250,"rarity":"rare","totalForms":3,"isShiny":true}]}
+        """
+        try Data(json.utf8).write(to: url)
+        let s = CompanionStore(provider: StubProvider(value: linear3), clock: { fixedNow },
+                               fileURL: url, rng: SeededRNG(seed: 7))
+
+        XCTAssertEqual(s.state.active?.id, "A")
+        XCTAssertEqual(s.boxedPokemon.map(\.id), ["B"])
+
+        XCTAssertTrue(s.setActiveFromBox(id: "B"))
+
+        // B is now active with its exact status; A moved to the box unchanged.
+        XCTAssertEqual(s.state.active?.id, "B")
+        XCTAssertEqual(s.state.active?.stageIndex, 1)
+        XCTAssertEqual(s.state.active?.usedAtStage, 250)
+        XCTAssertEqual(s.state.active?.isShiny, true)
+        XCTAssertEqual(s.boxedPokemon.map(\.id), ["A"])
+        XCTAssertEqual(s.boxedPokemon.first?.usedAtStage, 40, "displaced active keeps its token status")
+    }
+
+    /// [Box] Rejected when there is no living active (egg phase) or the id is unknown.
+    func testSetActiveFromBoxGuards() {
+        let s = store(linear3)             // fresh install → active == nil (egg)
+        XCTAssertFalse(s.canSwitchActive)
+        XCTAssertFalse(s.setActiveFromBox(id: "nope"), "no living active → reject")
+    }
+
+    /// [Box] Graduation keeps the completed individual in the box (isComplete) while still adding
+    /// the permanent dex record.
+    func testGraduationBoxesCompletedIndividual() async {
+        let s = store(noEvo)
+        base(s)
+        use(s, PokemonBalance.eggHatchThreshold)
+        await s.hatchIfNeeded()
+        XCTAssertNotNil(s.state.active)
+        let dexBefore = s.state.dex.count
+
+        s.applyUsage(PokemonBalance.graduationTotal(.common))   // single-form graduation
+
+        XCTAssertNil(s.state.active, "graduated → back to egg")
+        XCTAssertEqual(s.state.box.count, 1, "completed individual kept in the box")
+        XCTAssertEqual(s.state.box.first?.isComplete, true)
+        XCTAssertEqual(s.state.dex.count, dexBefore + 1, "permanent dex record still added")
+    }
+
+    /// [Box] A completed buddy re-activated from the box does not grow or re-graduate.
+    func testCompletedBuddyDoesNotRegrow() throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("poke-buddy-\(UUID().uuidString).json")
+        let json = """
+        {"active":{"id":"A","baseID":1,"pathIDs":[1],"stageIndex":0,"usedAtStage":0,"rarity":"common","totalForms":1},
+         "box":[{"id":"DONE","baseID":25,"pathIDs":[25],"stageIndex":0,"usedAtStage":0,"rarity":"common","totalForms":1,"isComplete":true}]}
+        """
+        try Data(json.utf8).write(to: url)
+        let s = CompanionStore(provider: StubProvider(value: linear3), clock: { fixedNow },
+                               fileURL: url, rng: SeededRNG(seed: 7))
+        XCTAssertTrue(s.setActiveFromBox(id: "DONE"))
+        XCTAssertEqual(s.state.active?.id, "DONE")
+
+        s.applyUsage(PokemonBalance.graduationTotal(.common) * 2)   // would graduate a normal mon
+
+        XCTAssertEqual(s.state.active?.id, "DONE", "completed buddy stays active")
+        XCTAssertEqual(s.state.active?.usedAtStage, 0, "no growth accrued")
+        XCTAssertEqual(s.state.box.count, 1, "no re-graduation into the box")
+    }
+
     // MARK: 상태 파일 decode 복원력 (회귀)
 
     /// [회귀] 도감 항목 하나가 손상돼도(구버전/필드 누락) 나머지 도감·companion·인벤토리를 지킨다 —
