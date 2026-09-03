@@ -1488,6 +1488,46 @@ final class CompanionIdentityTests: XCTestCase {
         XCTAssertEqual(round.active?.isShiny, false)
     }
 
+    /// [Box] A save predating the box decodes cleanly: empty box, no queued egg, and the active
+    /// mon gets a fresh id with isComplete=false (new fields default via lenient decode).
+    func testBoxFieldsBackwardCompatibleDecode() throws {
+        let old = """
+        {"installBaselineSet":true,"usedSinceInstall":100,"eggUsage":0,"lastDate":"d1",
+         "active":{"baseID":1,"pathIDs":[1],"stageIndex":0,"usedAtStage":5,"rarity":"common","totalForms":3},
+         "dex":[],"collectedFinals":[],"language":"ko"}
+        """
+        let s = try JSONDecoder().decode(CompanionState.self, from: Data(old.utf8))
+        XCTAssertTrue(s.box.isEmpty, "legacy save has no box → empty array")
+        XCTAssertNil(s.queuedEgg, "legacy save has no queued egg")
+        XCTAssertFalse(s.active?.id.isEmpty ?? true, "active mon gets a fresh non-empty id")
+        XCTAssertEqual(s.active?.isComplete, false, "isComplete defaults to false")
+    }
+
+    /// [Box] A stored box round-trips verbatim: id, isComplete and the exact token status
+    /// (stageIndex, usedAtStage) survive, so a parked Pokémon resumes unchanged.
+    func testBoxRoundTripPreservesTokenStatus() throws {
+        var state = CompanionState()
+        let parked = MonState(baseID: 4, pathIDs: [4, 5], plannedPathIDs: [4, 5, 6],
+                              stageIndex: 1, usedAtStage: 777, rarity: .rare, totalForms: 3,
+                              isShiny: true, nature: .adamant)
+        var finished = MonState(baseID: 25, pathIDs: [25], stageIndex: 0, usedAtStage: 0,
+                                rarity: .common, totalForms: 1)
+        finished.isComplete = true
+        state.box = [parked, finished]
+        state.queuedEgg = QueuedEgg(tier: .uncommon)
+
+        let round = try JSONDecoder().decode(CompanionState.self, from: JSONEncoder().encode(state))
+        XCTAssertEqual(round.box.count, 2)
+        XCTAssertEqual(round.box[0].id, parked.id, "id survives the round trip")
+        XCTAssertEqual(round.box[0].stageIndex, 1)
+        XCTAssertEqual(round.box[0].usedAtStage, 777, "exact token status preserved")
+        XCTAssertEqual(round.box[0].isShiny, true)
+        XCTAssertEqual(round.box[0].nature, .adamant)
+        XCTAssertEqual(round.box[0].isComplete, false)
+        XCTAssertEqual(round.box[1].isComplete, true, "completed buddy flag persists")
+        XCTAssertEqual(round.queuedEgg?.tier, .uncommon)
+    }
+
     /// [출시 안전] 손상된 상태 파일: active.pathIDs 가 비면 그 active 만 nil(알)로 폴백하되 나머지 상태는
     /// 보존한다(필드별 관대화). 깨진 active 를 살려두면 currentID out-of-bounds 위험이므로 nil 이어야 한다
     /// (예전엔 전체 디코드를 throw 시켜 상태 전면 초기화 → 도감·인벤토리까지 유실됐다).

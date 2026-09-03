@@ -391,6 +391,9 @@ enum PokemonOdds {
 
 /// 현재 키우는 포켓몬.
 struct MonState: Codable, Sendable {
+    // Stable per-individual id so the box can address/swap a specific Pokémon.
+    // Legacy saves have no id → the decoder assigns a fresh one.
+    var id: String = UUID().uuidString
     var baseID: Int
     var pathIDs: [Int]      // 실제 진화 경로(분기 선택 반영)
     var plannedPathIDs: [Int] // 사전에 선택한 전체 진화 경로
@@ -403,6 +406,9 @@ struct MonState: Codable, Sendable {
     // 메타몽 위장 — nil=일반. 값=정체 메타몽, 이 종으로 위장 중(위장 구간엔 baseID 와 동일, 리빌 후에도 원 위장체 보존).
     var dittoDisguise: Int?
     var dittoRevealed = false       // 위장 → 리빌(정체 공개) 전환 여부
+    // Marks a fully-raised (graduated) individual kept in the box. Guards applyUsage from
+    // re-growing / re-graduating it when it is brought back as the active buddy.
+    var isComplete = false
     // pathIDs 가 비면(손상된 상태 파일) baseID 로 폴백 — 렌더마다 읽히므로 out-of-bounds 크래시 방지.
     var currentID: Int { pathIDs.isEmpty ? baseID : pathIDs[min(stageIndex, pathIDs.count - 1)] }
 
@@ -429,6 +435,9 @@ struct MonState: Codable, Sendable {
     // 하위호환 디코딩: shiny/nature 는 구버전 저장에 없음 → 기본값.
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
+        // Legacy saves predate the box → no id/isComplete. Assign a fresh id, default false.
+        id = try c.decodeIfPresent(String.self, forKey: .id) ?? UUID().uuidString
+        isComplete = try c.decodeIfPresent(Bool.self, forKey: .isComplete) ?? false
         baseID = try c.decode(Int.self, forKey: .baseID)
         pathIDs = try c.decode([Int].self, forKey: .pathIDs)
         // 빈 pathIDs 는 손상 상태 → 디코드 실패시켜 전체 CompanionState 가 기본(알)로 폴백되게 한다.
@@ -528,6 +537,13 @@ private extension KeyedDecodingContainer {
     }
 }
 
+/// A purchased egg parked while the active Pokémon keeps growing. Wrapping it in an optional
+/// (`queuedEgg: QueuedEgg?`) distinguishes "no egg waiting" (nil) from "an egg with no rarity
+/// guarantee waiting" (.some(tier: nil)) — a plain `Rarity?` could not tell those apart.
+struct QueuedEgg: Codable, Sendable {
+    var tier: Rarity?
+}
+
 /// 영속 상태(Application Support JSON). 포켓몬 전환 — 이전 커스텀 캐릭터 상태는 폐기(새로 시작).
 struct CompanionState: Codable, Sendable {
     // 토큰: 설치 이후만 측정
@@ -559,6 +575,11 @@ struct CompanionState: Codable, Sendable {
     // 종 단위 선택이라 성격 같은 개체 정보는 들고 있지 않는다. 선택 가능한 범위는 도감과 동일하게
     // 졸업분 + 현재 개체의 도달 단계이며, 그 범위에서 빠지면 reconcileRepresentativeSelection 이 nil 로 복구한다.
     var representativeSpeciesID: Int? = nil
+    // Box/bank: stored individuals — still-growing parked mons and completed buddies.
+    // Each keeps its full MonState, so token status (stageIndex, usedAtStage) survives verbatim.
+    var box: [MonState] = []
+    // A purchased egg waiting to become active on the next graduation. nil = none waiting.
+    var queuedEgg: QueuedEgg? = nil
     // 도감
     var dex: [DexEntry] = []
     // 소유한 (base,final) 쌍 — 분기 다양성용
@@ -598,6 +619,9 @@ struct CompanionState: Codable, Sendable {
         // active 손상(빈 pathIDs 등) → 알로 폴백하되 도감·인벤토리는 보존.
         active             = c.lenientOptional(MonState.self, forKey: .active)
         representativeSpeciesID = c.lenientOptional(Int.self, forKey: .representativeSpeciesID)
+        // Box is per-item isolated (Lossy wrapper) like dex — one corrupt entry won't drop the array.
+        box                = c.lenient([Lossy<MonState>].self, forKey: .box, default: []).compactMap(\.value)
+        queuedEgg          = c.lenientOptional(QueuedEgg.self, forKey: .queuedEgg)
         // 도감은 항목별 격리 — 손상 항목 하나가 도감 전체를 날리지 않게.
         dex                = c.lenient([Lossy<DexEntry>].self, forKey: .dex, default: []).compactMap(\.value)
         collectedFinals    = c.lenient(Set<String>.self, forKey: .collectedFinals, default: [])
