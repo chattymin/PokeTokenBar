@@ -585,6 +585,13 @@ struct L {
     }
     var dexPagePrev: String { t("이전 페이지", "Previous page", "前のページ", "Página anterior", "Page précédente", "Página anterior", "Vorherige Seite") }
     var dexPageNext: String { t("다음 페이지", "Next page", "次のページ", "Página siguiente", "Page suivante", "Próxima página", "Nächste Seite") }
+    // MARK: Box (bank)
+    var boxTitle: String { t("박스", "Box", "ボックス", "Caja", "Boîte", "Caixa", "Box") }
+    var boxEmptyTitle: String { t("박스가 비어 있어요", "Your box is empty", "ボックスは空です", "Tu caja está vacía", "Ta boîte est vide", "Sua caixa está vazia", "Deine Box ist leer") }
+    var boxEmptyHint: String { t("졸업했거나 보관해 둔 포켓몬이 여기 모여요.", "Completed and parked Pokémon collect here.", "卒業した・預けたポケモンがここに集まります。", "Aquí se reúnen los Pokémon completados y guardados.", "Les Pokémon terminés et mis de côté s'accumulent ici.", "Pokémon concluídos e guardados se reúnem aqui.", "Fertige und geparkte Pokémon sammeln sich hier.") }
+    var boxSetActive: String { t("활성 포켓몬으로", "Make active", "アクティブにする", "Hacer activo", "Rendre actif", "Tornar ativo", "Als aktives Pokémon") }
+    var boxSwitchConfirm: String { t("교체", "Switch", "交代", "Cambiar", "Échanger", "Trocar", "Übernehmen") }
+    var boxSwitchDisabledHint: String { t("지금은 알을 품는 중이라 교체할 수 없어요.", "Can't switch while an egg is incubating.", "タマゴを育てている間は交代できません。", "No puedes cambiar mientras incuba un huevo.", "Impossible d'échanger pendant l'incubation d'un œuf.", "Não dá para trocar enquanto um ovo choca.", "Während ein Ei ausgebrütet wird, ist kein Wechsel möglich.") }
     var dexRaising: String { t("키우는 중", "Raising", "育成中", "Criando", "En élevage", "Treinando", "In Aufzucht") }
     /// 포획 로그에서 졸업분과 놓아준 개체를 가르는 표식. 종은 도감에 남고 개체 기록만 이 뱃지를 단다.
     var dexReleased: String { t("놓아줌", "Released", "逃がした", "Liberado", "Relâché", "Solto", "Freigelassen") }

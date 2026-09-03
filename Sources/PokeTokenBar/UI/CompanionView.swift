@@ -755,17 +755,33 @@ struct CollectionView: View {
 
     var body: some View {
         @Bindable var nav = navigation
-        if store.dexEntries.isEmpty {
-            emptyState   // 둘 다 비어 있으니 세그먼트를 그리지 않는다
+        if store.dexEntries.isEmpty && store.boxedPokemon.isEmpty {
+            emptyState   // 셋 다 비어 있으니 세그먼트를 그리지 않는다
         } else {
             VStack(alignment: .leading, spacing: 8) {
-                Picker("", selection: $nav.showingCollectionLog) {
-                    Text(store.l.dexTitle).tag(false)
-                    Text(store.l.catchLogTitle).tag(true)
+                HStack(spacing: 8) {
+                    // 도감·박스는 "보유물 둘러보기"라 왼쪽에 묶는다.
+                    Picker("", selection: $nav.collectionSection) {
+                        Text(store.l.dexTitle).tag(CollectionSection.dex)
+                        Text(store.l.boxTitle).tag(CollectionSection.box)
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                    .fixedSize()
+                    Spacer(minLength: 6)
+                    // 포획 로그는 성격이 달라 오른쪽으로 떼어 놓는다(별도 토글).
+                    Button { nav.collectionSection = .log } label: {
+                        Text(store.l.catchLogTitle)
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .tint(nav.collectionSection == .log ? Color.accentColor : nil)
                 }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-                if nav.showingCollectionLog { catchLog } else { DexGridView(store: store) }
+                switch nav.collectionSection {
+                case .dex: DexGridView(store: store)
+                case .box: BoxGridView(store: store)
+                case .log: catchLog
+                }
             }
             .frame(height: Self.contentHeight)
         }
@@ -811,6 +827,167 @@ struct CollectionView: View {
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 28)
+    }
+}
+
+/// 박스 격자 — 보관 중인 개체(성장 중·완료)를 도감과 같은 4열 페이지 격자로 보여준다.
+/// 개체 단위라 종이 아닌 MonState.id 로 고르고, 선택 후 인라인 확인(버튼 모프)으로 활성과 교체한다
+/// (시트 없음 — 프로젝트 규칙). 알을 품는 중(active == nil)엔 교체를 막고 이유를 안내한다.
+@MainActor
+private struct BoxGridView: View {
+    let store: CompanionStore
+    @State private var selectedID: String?
+    @State private var page = 0
+    @State private var confirming = false
+
+    private static let columns = 4
+    private static let rows = 6
+    private static let pageSize = columns * rows      // 24
+    private static let spacing: CGFloat = 4
+
+    var body: some View {
+        let mons = store.boxedPokemon
+        if mons.isEmpty {
+            emptyState
+        } else {
+            let pageCount = max(1, (mons.count + Self.pageSize - 1) / Self.pageSize)
+            let current = min(page, pageCount - 1)
+            let slice = Array(mons.dropFirst(current * Self.pageSize).prefix(Self.pageSize))
+            VStack(alignment: .leading, spacing: 8) {
+                grid(slice)
+                footer(current: current, pageCount: pageCount)
+            }
+        }
+    }
+
+    private var emptyState: some View {
+        VStack(spacing: 10) {
+            SpriteView(speciesID: 143, size: 96, animated: true)   // 잠자는 마스코트(가방과 같은 톤)
+            Text(store.l.boxEmptyTitle).font(.callout.weight(.semibold))
+            Text(store.l.boxEmptyHint)
+                .font(.caption).foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(.vertical, 28)
+    }
+
+    private func grid(_ slice: [MonState]) -> some View {
+        VStack(spacing: Self.spacing) {
+            ForEach(0..<Self.rows, id: \.self) { row in
+                HStack(spacing: Self.spacing) {
+                    ForEach(0..<Self.columns, id: \.self) { col in
+                        let i = row * Self.columns + col
+                        if i < slice.count {
+                            let mon = slice[i]
+                            BoxMonCell(mon: mon, isSelected: selectedID == mon.id) {
+                                selectedID = (selectedID == mon.id) ? nil : mon.id
+                                confirming = false
+                            }
+                            .frame(maxWidth: .infinity)
+                        } else {
+                            Color.clear.frame(maxWidth: .infinity)
+                        }
+                    }
+                }
+                .frame(maxHeight: .infinity)
+            }
+        }
+        .frame(maxHeight: .infinity)
+    }
+
+    private func footer(current: Int, pageCount: Int) -> some View {
+        HStack(spacing: 8) {
+            action
+            Spacer(minLength: 4)
+            if pageCount > 1 {
+                Button { page = max(0, current - 1); reset() } label: {
+                    Image(systemName: "chevron.left")
+                }
+                .buttonStyle(.plain).disabled(current == 0)
+                .accessibilityLabel(store.l.dexPagePrev)
+                Text("\(current + 1) / \(pageCount)")
+                    .font(.system(size: 10, weight: .semibold)).monospacedDigit()
+                    .foregroundStyle(.secondary)
+                    .accessibilityLabel(store.l.dexPageLabel(current + 1, pageCount))
+                Button { page = min(pageCount - 1, current + 1); reset() } label: {
+                    Image(systemName: "chevron.right")
+                }
+                .buttonStyle(.plain).disabled(current == pageCount - 1)
+                .accessibilityLabel(store.l.dexPageNext)
+            }
+        }
+        .font(.system(size: 11, weight: .semibold))
+        .frame(height: 22)
+    }
+
+    /// 선택한 개체를 활성으로 만드는 인라인 액션. 알 품는 중엔 버튼 대신 이유를 띄운다.
+    @ViewBuilder
+    private var action: some View {
+        if let id = selectedID {
+            if !store.canSwitchActive {
+                Text(store.l.boxSwitchDisabledHint)
+                    .font(.system(size: 9)).foregroundStyle(.secondary).lineLimit(2)
+            } else if confirming {
+                Button(store.l.cancel) { confirming = false }
+                    .buttonStyle(.bordered).controlSize(.mini)
+                Button(store.l.boxSwitchConfirm) {
+                    _ = store.setActiveFromBox(id: id)
+                    reset()
+                }
+                .buttonStyle(.borderedProminent).controlSize(.mini)
+            } else {
+                Button(store.l.boxSetActive) { confirming = true }
+                    .buttonStyle(.bordered).controlSize(.mini)
+            }
+        }
+    }
+
+    private func reset() {
+        selectedID = nil
+        confirming = false
+    }
+}
+
+/// 박스 한 칸 — 스프라이트 + 도감 번호 + (완료 뱃지 또는 현재 형태 진행 바). 종 이름은 개체마다
+/// 라인 조회가 필요해 여기서는 번호만 쓴다(도감 칸이 이름 없을 때 #번호로 두는 태도와 동일).
+@MainActor
+private struct BoxMonCell: View {
+    let mon: MonState
+    let isSelected: Bool
+    let onTap: () -> Void
+
+    private var progress: Double {
+        let thr = PokemonBalance.phaseThreshold(rarity: mon.rarity, totalForms: mon.totalForms,
+                                                stageIndex: mon.stageIndex)
+        guard thr > 0 else { return 0 }
+        return min(1, Double(mon.usedAtStage) / Double(thr))
+    }
+
+    var body: some View {
+        Button(action: onTap) {
+            VStack(spacing: 3) {
+                SpriteView(speciesID: mon.currentID, size: 40, shiny: mon.isShiny)
+                Text("#\(mon.currentID)")
+                    .font(.system(size: 10, weight: .semibold)).monospacedDigit()
+                    .lineLimit(1)
+                if mon.isComplete {
+                    Image(systemName: "checkmark.seal.fill")
+                        .font(.system(size: 9)).foregroundStyle(.green)
+                } else {
+                    ProgressView(value: progress)
+                        .progressViewStyle(.linear)
+                        .frame(height: 3).padding(.horizontal, 3)
+                }
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 6).padding(.horizontal, 3)
+            .background(RoundedRectangle(cornerRadius: 9)
+                .fill(Color.primary.opacity(isSelected ? 0.10 : 0.04)))
+            .overlay(RoundedRectangle(cornerRadius: 9)
+                .strokeBorder(isSelected ? Color.accentColor : Color.clear, lineWidth: 1.5))
+        }
+        .buttonStyle(.plain)
     }
 }
 
