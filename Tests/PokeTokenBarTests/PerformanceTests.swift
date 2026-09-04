@@ -293,6 +293,14 @@ final class FloatingPetEnergyTests: XCTestCase {
         XCTAssertGreaterThan(shown.height, pet, "must reserve vertical headroom for the bubble")
         XCTAssertGreaterThanOrEqual(shown.width, pet)
 
+        // The other branch of `max(petSize, bubbleMinWidth)`: past 180pt the pet drives the
+        // panel width, not the bubble column. Only 184/192 reached it before the slider max
+        // went to 384, so it was an untested 2-step edge; now it is most of the range.
+        let large: CGFloat = 384
+        let largeShown = FloatingPetController.panelSize(petSize: large, showingBubble: true)
+        XCTAssertEqual(largeShown.width, large, "panel must widen with the pet past bubbleMinWidth")
+        XCTAssertEqual(largeShown.height, large + FloatingPetController.bubbleHeadroom)
+
         let petOrigin = NSPoint(x: 400, y: 200)
         let panelOrigin = FloatingPetController.panelOrigin(
             petOrigin: petOrigin, petSize: pet, panelSize: shown)
