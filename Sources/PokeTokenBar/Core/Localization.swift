@@ -324,6 +324,47 @@ struct L {
           "Wähle eine auf einem anderen Mac exportierte Datei aus und mach hier weiter")
     }
     var importSaveButton: String { t("불러오기…", "Import…", "読み込む…", "Importar…", "Importer…", "Importar…", "Importieren…") }
+    var iCloudSyncLabel: String { t("iCloud 백업", "iCloud backup", "iCloudバックアップ", "Copia en iCloud", "Sauvegarde iCloud", "Backup no iCloud", "iCloud-Sicherung") }
+    var iCloudSyncHint: String {
+        t("이 Mac의 진행을 iCloud Drive에 자동으로 백업해요. 다른 Mac에서는 아래에서 골라 불러옵니다",
+          "Backs this Mac's progress up to iCloud Drive automatically. On another Mac, restore it below",
+          "このMacの進行をiCloud Driveに自動でバックアップします。他のMacでは下から選んで復元します",
+          "Copia el progreso de este Mac en iCloud Drive automáticamente. En otro Mac, restáuralo abajo",
+          "Sauvegarde automatiquement la progression de ce Mac sur iCloud Drive. Sur un autre Mac, restaure-la ci-dessous",
+          "Faz backup automático do progresso deste Mac no iCloud Drive. Em outro Mac, restaure abaixo",
+          "Sichert den Fortschritt dieses Macs automatisch in iCloud Drive. Auf einem anderen Mac unten wiederherstellen")
+    }
+    var iCloudUnavailableHint: String {
+        t("iCloud Drive가 꺼져 있어요. 시스템 설정 → Apple 계정 → iCloud Drive를 켜면 사용할 수 있어요",
+          "iCloud Drive is off. Turn it on in System Settings → Apple Account → iCloud Drive to use this",
+          "iCloud Driveがオフです。システム設定 → Appleアカウント → iCloud Driveをオンにすると使えます",
+          "iCloud Drive está desactivado. Actívalo en Ajustes del Sistema → Cuenta de Apple → iCloud Drive",
+          "iCloud Drive est désactivé. Active-le dans Réglages Système → Compte Apple → iCloud Drive",
+          "O iCloud Drive está desligado. Ative em Ajustes do Sistema → Conta Apple → iCloud Drive",
+          "iCloud Drive ist aus. Aktiviere es unter Systemeinstellungen → Apple-Account → iCloud Drive")
+    }
+    var iCloudRestoreLabel: String { t("iCloud에서 불러오기", "Restore from iCloud", "iCloudから復元", "Restaurar desde iCloud", "Restaurer depuis iCloud", "Restaurar do iCloud", "Aus iCloud wiederherstellen") }
+    var iCloudNoRemoteSaves: String {
+        t("다른 Mac의 백업이 아직 없어요",
+          "No backups from another Mac yet",
+          "他のMacのバックアップはまだありません",
+          "Aún no hay copias de otro Mac",
+          "Aucune sauvegarde d’un autre Mac pour l’instant",
+          "Ainda não há backups de outro Mac",
+          "Noch keine Sicherungen von einem anderen Mac")
+    }
+    var iCloudRestoreButton: String { t("불러오기", "Restore", "復元", "Restaurar", "Restaurer", "Restaurar", "Wiederherstellen") }
+    /// 원격 백업 한 줄의 부제 — 어느 Mac 것이고 언제 것인지, 도감·누적이 얼마인지.
+    func iCloudRemoteSaveDetail(exportedAt: String, dex: Int, tokens: String) -> String {
+        t("\(exportedAt) · 도감 \(dex)마리 · 누적 \(tokens)",
+          "\(exportedAt) · \(dex) in Pokédex · \(tokens) lifetime",
+          "\(exportedAt) · 図鑑\(dex)匹 · 累計\(tokens)",
+          "\(exportedAt) · \(dex) en la Pokédex · \(tokens) acumulados",
+          "\(exportedAt) · \(dex) dans le Pokédex · \(tokens) cumulés",
+          "\(exportedAt) · \(dex) na Pokédex · \(tokens) acumulados",
+          "\(exportedAt) · \(dex) im Pokédex · \(tokens) gesamt")
+    }
+
     var importConfirmTitle: String {
         t("이 Mac의 진행을 대체할까요?", "Replace this Mac's progress?", "このMacの進行を置き換えますか？", "¿Reemplazar el progreso de este Mac?", "Remplacer la progression de ce Mac ?", "Substituir o progresso deste Mac?", "Fortschritt auf diesem Mac ersetzen?")
     }

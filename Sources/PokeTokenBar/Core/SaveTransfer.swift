@@ -72,6 +72,17 @@ enum SaveTransfer {
     /// 이 값끼리 더하고 빼도 Int64 범위 안에 머문다.
     static let maxTokenValue = 1_000_000_000_000_000
 
+    /// 세이브 봉투에 남길 출처 표기 — 어느 Mac 에서 나온 파일인지 나중에 알아보기 위한 것.
+    /// 표시용이라 이름이 바뀌어도 무방하다(파일명은 `ICloudSaveMirror.deviceID` 가 따로 고정한다).
+    static var deviceName: String {
+        Host.current().localizedName ?? ProcessInfo.processInfo.hostName
+    }
+
+    /// 현재 앱 버전 — 봉투에 기록하고 설정창 하단에도 표기한다.
+    static var appVersion: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "—"
+    }
+
     /// 내보내기 파일명 — 날짜가 들어가야 여러 번 내보내도 덮어쓰지 않는다.
     static func suggestedFileName(date: Date) -> String {
         "PokeTokenBar-Save-\(dayStamp(date)).json"
