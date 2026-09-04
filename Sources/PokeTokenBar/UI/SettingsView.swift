@@ -259,7 +259,7 @@ struct SettingsView: View {
                 Divider()
                 groupRow {
                     Text(l.floatingPetSizeLabel).font(.callout)
-                    Slider(value: $store.floatingPetSize, in: 48...192, step: 8)
+                    Slider(value: $store.floatingPetSize, in: 48...384, step: 8)
                     Text("\(Int(store.floatingPetSize))px")
                         .font(.caption).monospacedDigit().frame(width: 44, alignment: .trailing)
                 }
