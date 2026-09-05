@@ -496,6 +496,9 @@ struct ProviderSnapshot: Sendable, Identifiable {
     var activeBlock: BlockUsage?
     var weekTotal: PeriodUsage?
     var monthTotal: PeriodUsage?
+    /// This month's day-by-day totals (month start → today, empty days as zeros), or `nil` when
+    /// the provider cannot produce a series. Defaulted so existing call sites stay unchanged.
+    var monthDaily: [DailyUsage]? = nil
     var fetchedAt: Date
     /// Mirrors `UsageProvider.reportsCost`. Default keeps existing call sites unchanged.
     var reportsCost: Bool = true
