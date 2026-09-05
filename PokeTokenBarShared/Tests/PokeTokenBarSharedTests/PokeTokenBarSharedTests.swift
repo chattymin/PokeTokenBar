@@ -206,4 +206,68 @@ struct PhonePayloadTests {
             "Antigravity Claude & GPT Weekly",
         ])
     }
+
+    // MARK: - PayloadCache Tests
+
+    @Test func payloadCacheRoundTripWithCustomSuite() throws {
+        let suiteName = "test.poketokenbar.cache.\(UUID().uuidString)"
+        let suite = try #require(UserDefaults(suiteName: suiteName))
+        defer {
+            suite.removePersistentDomain(forName: suiteName)
+        }
+
+        let payload = minimalPayload(todayTokens: 777_000)
+        let saveDate = Date(timeIntervalSince1970: 1_700_100_000)
+
+        // Initial state should be empty
+        #expect(PayloadCache.loadPayload(suite: suite) == nil)
+        #expect(PayloadCache.loadLastFetchTime(suite: suite) == nil)
+        #expect(PayloadCache.loadLastSource(suite: suite) == nil)
+
+        // Save
+        PayloadCache.save(payload: payload, source: "iCloud", suite: suite, date: saveDate)
+
+        // Load & verify
+        let loaded = PayloadCache.loadPayload(suite: suite)
+        #expect(loaded == payload)
+        #expect(PayloadCache.loadLastFetchTime(suite: suite) == saveDate)
+        #expect(PayloadCache.loadLastSource(suite: suite) == "iCloud")
+
+        // Hidden providers
+        #expect(PayloadCache.loadHiddenProviders(suite: suite).isEmpty)
+        PayloadCache.saveHiddenProviders(["claude_code", "codex"], suite: suite)
+        #expect(PayloadCache.loadHiddenProviders(suite: suite) == ["claude_code", "codex"])
+
+        // Clear
+        PayloadCache.clear(suite: suite)
+        #expect(PayloadCache.loadPayload(suite: suite) == nil)
+        #expect(PayloadCache.loadLastFetchTime(suite: suite) == nil)
+        #expect(PayloadCache.loadLastSource(suite: suite) == nil)
+    }
+
+    @Test func payloadCacheFallbackToStandardDefaults() throws {
+        let suiteName = "test.poketokenbar.emptySuite.\(UUID().uuidString)"
+        let emptySuite = try #require(UserDefaults(suiteName: suiteName))
+        defer {
+            emptySuite.removePersistentDomain(forName: suiteName)
+            UserDefaults.standard.removeObject(forKey: PayloadCache.payloadKey)
+            UserDefaults.standard.removeObject(forKey: PayloadCache.lastFetchTimeKey)
+            UserDefaults.standard.removeObject(forKey: PayloadCache.lastSourceKey)
+        }
+
+        let payload = minimalPayload(todayTokens: 999_999)
+        let saveDate = Date(timeIntervalSince1970: 1_700_200_000)
+
+        // Save into standard defaults directly
+        let data = try JSONEncoder().encode(payload)
+        UserDefaults.standard.set(data, forKey: PayloadCache.payloadKey)
+        UserDefaults.standard.set(saveDate, forKey: PayloadCache.lastFetchTimeKey)
+        UserDefaults.standard.set("localNetwork", forKey: PayloadCache.lastSourceKey)
+
+        // When App Group suite is nil (e.g. unavailable container), falls back to standard defaults
+        let loaded = PayloadCache.loadPayload(suite: nil)
+        #expect(loaded == payload)
+        #expect(PayloadCache.loadLastFetchTime(suite: nil) == saveDate)
+        #expect(PayloadCache.loadLastSource(suite: nil) == "localNetwork")
+    }
 }

@@ -3,6 +3,7 @@ import PokeTokenBarShared
 
 @main
 struct PokeTokenBarIOSApp: App {
+    @Environment(\.scenePhase) private var scenePhase
     @State private var store = PhonePayloadStore()
 
     var body: some Scene {
@@ -19,6 +20,11 @@ struct PokeTokenBarIOSApp: App {
             }
             .environment(store)
             .preferredColorScheme(store.appearance.colorScheme)
+            .onChange(of: scenePhase) { _, newPhase in
+                if newPhase == .active {
+                    store.handleAppForeground()
+                }
+            }
         }
     }
 }

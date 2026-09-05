@@ -32,6 +32,7 @@ struct DashboardView: View {
                 }
             }
             .refreshable { await store.fetch() }
+            .task { await store.fetch() }
         }
     }
 

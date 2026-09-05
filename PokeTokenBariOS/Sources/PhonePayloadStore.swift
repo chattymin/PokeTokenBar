@@ -15,7 +15,7 @@ final class PhonePayloadStore {
     var lastError: String?
     var isConnected = false
 
-    enum Source { case iCloud, localNetwork }
+    enum Source: String { case iCloud, localNetwork }
     /// Which channel delivered the current payload (nil before the first successful fetch).
     var source: Source?
 
@@ -49,7 +49,7 @@ final class PhonePayloadStore {
     /// Hidden provider IDs preference.
     var hiddenProviderIDs: Set<String> {
         didSet {
-            defaults.set(Array(hiddenProviderIDs), forKey: "phoneHiddenProviders")
+            PayloadCache.saveHiddenProviders(hiddenProviderIDs)
             if let payload {
                 saveToSharedContainer(payload)
             }
@@ -92,7 +92,17 @@ final class PhonePayloadStore {
         self.pairingCode = defaults.string(forKey: "phonePairingCode") ?? ""
         self.refreshInterval = defaults.object(forKey: "phoneRefreshInterval") as? TimeInterval ?? 120
         self.appearance = AppAppearance(rawValue: defaults.string(forKey: "phoneAppearance") ?? "") ?? .system
-        self.hiddenProviderIDs = Set(defaults.stringArray(forKey: "phoneHiddenProviders") ?? [])
+        self.hiddenProviderIDs = PayloadCache.loadHiddenProviders()
+
+        // Hydrate from cache immediately for 0ms cold-start
+        if let cached = PayloadCache.loadPayload() {
+            self.payload = cached
+            self.hasCompletedInitialFetch = true
+            if let savedSource = PayloadCache.loadLastSource(), let s = Source(rawValue: savedSource) {
+                self.source = s
+            }
+        }
+
         reschedule()
     }
 
@@ -120,7 +130,9 @@ final class PhonePayloadStore {
 
         // Local HTTP fallback
         guard !host.isEmpty else {
-            lastError = String(localized: "No data source available")
+            if payload == nil {
+                lastError = String(localized: "No data source available")
+            }
             isConnected = false
             return
         }
@@ -131,7 +143,9 @@ final class PhonePayloadStore {
             isConnected = true
             saveToSharedContainer(newPayload)
         } catch {
-            lastError = error.localizedDescription
+            if payload == nil {
+                lastError = error.localizedDescription
+            }
             isConnected = false
         }
     }
@@ -144,29 +158,59 @@ final class PhonePayloadStore {
         isConnected = (try? await client.checkHealth(host: host)) ?? false
     }
 
+    /// Called when the app resumes into foreground.
+    /// Hydrates from the shared cache immediately if the widget or background fetch updated it,
+    /// and triggers a background refresh.
+    func handleAppForeground() {
+        if let cached = PayloadCache.loadPayload() {
+            let cachedDate = cached.lastUpdated
+            let currentDate = payload?.lastUpdated ?? .distantPast
+            if cachedDate > currentDate {
+                payload = cached
+                if let savedSource = PayloadCache.loadLastSource(), let s = Source(rawValue: savedSource) {
+                    source = s
+                }
+            }
+        }
+        Task { await fetch() }
+    }
+
     // MARK: - App Group Sharing (for Widget)
 
     private func saveToSharedContainer(_ payload: PhonePayload) {
-        guard let data = try? JSONEncoder().encode(payload) else { return }
-        let suite = UserDefaults(suiteName: "group.io.github.chattymin.poketokenbar")
-        suite?.set(data, forKey: "latestPayload")
-        suite?.set(Date(), forKey: "lastFetchTime")
-        suite?.set(Array(hiddenProviderIDs), forKey: "phoneHiddenProviders")
-        saveSpriteToSharedContainer(companion: payload.companion)
-        WidgetCenter.shared.reloadAllTimelines()
+        PayloadCache.save(payload: payload, source: source?.rawValue)
+        PayloadCache.saveHiddenProviders(hiddenProviderIDs)
+        prefetchAssets(for: payload)
     }
 
-    /// Warm the shared sprite cache so the widget (which never hits the network) can render the
-    /// current and representative mon right away.
-    private func saveSpriteToSharedContainer(companion: PhoneCompanionState?) {
-        guard let companion else { return }
+    /// Warm the shared sprite cache for companion, dex, and shop/bag item sprites
+    /// so the widget and offline tabs can render right away.
+    private func prefetchAssets(for payload: PhonePayload) {
         var pairs: [(id: Int, shiny: Bool)] = []
-        if let id = companion.speciesID { pairs.append((id, companion.isShiny)) }
-        if let rep = companion.representativeSpeciesID {
-            pairs.append((rep, companion.representativeIsShiny ?? false))
+        if let companion = payload.companion {
+            if let id = companion.speciesID { pairs.append((id, companion.isShiny)) }
+            if let rep = companion.representativeSpeciesID {
+                pairs.append((rep, companion.representativeIsShiny ?? false))
+            }
         }
+        // Prefetch collection species so dex works offline
+        for sp in payload.dex {
+            pairs.append((sp.id, sp.isShiny))
+        }
+
+        var itemNames: Set<String> = []
+        for item in payload.bag {
+            if let icon = item.iconName, !icon.isEmpty { itemNames.insert(icon) }
+        }
+        for entry in payload.shop {
+            if let icon = entry.iconName, !icon.isEmpty { itemNames.insert(icon) }
+        }
+
         Task.detached(priority: .utility) {
             await SpriteCache.shared.prefetchSpecies(pairs)
+            if !itemNames.isEmpty {
+                await SpriteCache.shared.prefetchItems(Array(itemNames))
+            }
             WidgetCenter.shared.reloadAllTimelines()
         }
     }

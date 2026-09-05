@@ -47,16 +47,11 @@ struct WidgetTimelineProvider: TimelineProvider {
     }
 
     private func loadPayload() -> PhonePayload? {
-        guard let data = UserDefaults(suiteName: "group.io.github.chattymin.poketokenbar")?
-            .data(forKey: "latestPayload") else { return nil }
-        return try? JSONDecoder().decode(PhonePayload.self, from: data)
+        PayloadCache.loadPayload()
     }
 
     static func persistPayload(_ payload: PhonePayload) {
-        guard let data = try? JSONEncoder().encode(payload) else { return }
-        let suite = UserDefaults(suiteName: "group.io.github.chattymin.poketokenbar")
-        suite?.set(data, forKey: "latestPayload")
-        suite?.set(Date(), forKey: "lastFetchTime")
+        PayloadCache.save(payload: payload, source: "iCloud")
     }
 }
 
@@ -227,9 +222,7 @@ struct PokeTokenBarWidgetEntryView: View {
     // MARK: - Medium Widget
 
     private static var hiddenProviders: Set<String> {
-        let array = UserDefaults(suiteName: "group.io.github.chattymin.poketokenbar")?
-            .stringArray(forKey: "phoneHiddenProviders") ?? []
-        return Set(array)
+        PayloadCache.loadHiddenProviders()
     }
 
     private func mediumView(_ payload: PhonePayload) -> some View {

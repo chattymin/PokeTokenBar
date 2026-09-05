@@ -91,5 +91,13 @@ public final class SpriteCache: @unchecked Sendable {
                             key: PokeSpriteURL.speciesKey(id: pair.id, shiny: pair.shiny))
         }
     }
+
+    /// Warm the disk layer for items in the bag and shop.
+    public func prefetchItems(_ itemNames: [String]) async {
+        for name in itemNames {
+            _ = await image(for: PokeSpriteURL.item(name: name),
+                            key: PokeSpriteURL.itemKey(name: name))
+        }
+    }
 }
 #endif
