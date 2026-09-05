@@ -42,6 +42,8 @@ final class CompanionStore {
     private let fileURL: URL
     private var rng: any RandomNumberGenerator
     private let dittoDisguiseRollingEnabled: Bool
+    /// iCloud Drive 자동 백업. 게이트(켜짐·간격·내용 변경)는 전부 이 객체 안에 있다.
+    let iCloudMirror: ICloudSaveMirror
     /// 세션 내 활성 개체 교체 감지용. await 뒤 이전 개체의 결과가 새 개체를 덮지 않게 한다.
     private var activeGeneration = 0
 
@@ -49,12 +51,14 @@ final class CompanionStore {
          clock: @escaping () -> Date = Date.init,
          fileURL: URL? = nil,
          rng: any RandomNumberGenerator = SystemRandomNumberGenerator(),
-         dittoDisguiseRollingEnabled: Bool = AppEnv.isBundledApp) {
+         dittoDisguiseRollingEnabled: Bool = AppEnv.isBundledApp,
+         iCloudMirror: ICloudSaveMirror = ICloudSaveMirror()) {
         self.provider = provider
         self.clock = clock
         self.fileURL = fileURL ?? Self.defaultURL()
         self.rng = rng
         self.dittoDisguiseRollingEnabled = dittoDisguiseRollingEnabled
+        self.iCloudMirror = iCloudMirror
         load()
         refreshRepresentativeSubject()
         if state.active != nil { displayState = .idle }
@@ -1242,5 +1246,10 @@ final class CompanionStore {
         refreshRepresentativeSubject()
         guard let data = try? JSONEncoder().encode(state) else { return }
         try? data.write(to: fileURL, options: .atomic)   // 부분 쓰기 손상 방지(펫 상태)
+        // iCloud 백업은 로컬 저장 **뒤**에 온다 — 로컬 파일이 원본이고, 백업 실패가 저장을 막으면 안 된다.
+        // 여기 `data` 를 넘기지 않는 이유는 ICloudSaveMirror.canonicalStateEncoding 주석 참조
+        // (기본 JSONEncoder 는 키 순서를 보장하지 않아 변경 판정에 못 쓴다).
+        iCloudMirror.mirror(state: state, appVersion: SaveTransfer.appVersion,
+                            deviceName: SaveTransfer.deviceName, now: clock())
     }
 }
