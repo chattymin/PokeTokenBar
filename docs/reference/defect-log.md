@@ -249,6 +249,21 @@ read_when:
   동기 클로저를 nonisolated 로 검사해, `@MainActor` `@Observable` store 접근이 수십 개의 오류로 연쇄된다.
   개별 프로퍼티에 `MainActor.assumeIsolated` 를 흩뿌리지 말고 UI 타입 선언 한 곳에 격리를 둔다.
   `SwiftUIIsolationTests.testEverySwiftUIViewAndAppIsMainActorIsolated` 가 새 View/App 선언 누락을 소스 스캔으로 막는다.
+- **로컬 Swift 가 CI 보다 새로우면 "로컬 초록"은 CI 초록의 증거가 아니다 — 같은 진단이 경고와 에러로
+  갈린다.** `@MainActor` XCTestCase 의 **동기** `setUp`/`tearDown` 은 릴리스 Swift 에서 nonisolated 로
+  취급돼 main-actor 저장 프로퍼티 접근이 막힌다. 실측: 로컬(6.3/6.5-dev)은 이걸 **warning** 으로 내고
+  `swift test` 가 통과하는데, CI(6.1.2)는 같은 줄을 **error** 로 내 컴파일이 죽는다. 즉 로컬에서는
+  빌드 로그에 묻힌 경고 한 줄이 유일한 신호였다.
+  규칙은 이미 있었다 — `UsageStoreTests` 에 `nonisolated(unsafe)` 와 그 이유가 주석으로 달려 있었다.
+  그런데도 다음에 추가된 `ICloudSaveMirrorTests` 가 그대로 어겼다. **산문 규칙은 그 파일을 여는
+  사람에게만 작동한다**(§외부 로그의 `UsageEnvironment` 건과 같은 부류 — 문서로 적어둔 규칙이
+  다음 파일에서 그대로 깨졌고, 해결은 구현이 아니라 강제 수단이었다).
+  → 가드는 소스 스캔이다: `SwiftUIIsolationTests.testMainActorTestClassesKeepMutableFixturesNonisolated`
+  가 `Tests/` 를 훑어 `@MainActor` + `: XCTestCase` + 동기 `setUp`/`tearDown` 조합에서
+  `nonisolated(unsafe)` 없는 가변 저장 프로퍼티를 실패시킨다. 주입 확인: 두 파일 각각에서
+  `nonisolated(unsafe)` 를 떼면 빨개진다(한 파일에만 반응하는 스캔이 아님을 확인).
+  일반화: **경고를 에러로 승격하는 축이 툴체인 버전이면, 로컬 경고 무시는 CI 실패와 같은 말이다.**
+  새 테스트 파일에 액터 격리가 얽히면 빌드 경고를 먼저 읽어라.
 - **coverage profile producer와 consumer는 같은 LLVM toolchain이어야 한다.** Homebrew Swift 6.3 이 만든
   `default.profdata` 를 구형 Xcode의 `xcrun llvm-cov` 로 읽으면 `unsupported instrumentation profile format
   version` 으로 테스트 성공 뒤 게이트만 실패한다. `test-gate.sh` 는 현재 `swift` 실경로 옆의 `llvm-cov` 를

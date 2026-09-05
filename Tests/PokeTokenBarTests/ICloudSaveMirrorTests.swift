@@ -15,9 +15,12 @@ private struct MirrorOfflineProvider: PokeProviding {
 @MainActor
 final class ICloudSaveMirrorTests: XCTestCase {
 
-    private var dir: URL!
-    private var defaults: UserDefaults!
-    private var suiteName: String!
+    /// nonisolated(unsafe): @MainActor 클래스의 sync setUp/tearDown 은 릴리스 Swift 에서 nonisolated 로
+    /// 취급돼 main-actor 프로퍼티 접근이 컴파일 에러가 된다(CI 6.1.2 는 실패, 로컬 6.3+ 는 통과).
+    /// XCTest 는 인스턴스별로 직렬 실행하므로 안전 — `UsageStoreTests` 와 같은 규약.
+    nonisolated(unsafe) private var dir: URL!
+    nonisolated(unsafe) private var defaults: UserDefaults!
+    nonisolated(unsafe) private var suiteName: String!
 
     override func setUp() {
         super.setUp()
@@ -133,7 +136,7 @@ final class ICloudSaveMirrorTests: XCTestCase {
 
     /// 토글은 재시작을 건너 살아남아야 한다(같은 defaults 로 새 인스턴스).
     func testEnabledFlagPersistsAcrossInstances() {
-        makeMirror(enabled: true)
+        _ = makeMirror(enabled: true)
         XCTAssertTrue(ICloudSaveMirror(directory: dir, defaults: defaults).isEnabled)
     }
 
