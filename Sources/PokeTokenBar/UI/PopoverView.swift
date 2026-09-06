@@ -622,6 +622,11 @@ struct PopoverView: View {
                         historyRow(name: entry.name, summary: entry.summary)
                     }
                 }
+                if summaries.contains(where: { !$0.summary.isEmpty && $0.summary.hasTruncated }) {
+                    Text(l.limitHistoryPartial)
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                }
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -676,11 +681,6 @@ struct PopoverView: View {
                 threshold: TokenFormatter.percent(store.warnThreshold)))
                 .font(.caption2)
                 .foregroundStyle(.secondary)
-            if summary.hasTruncated {
-                Text(l.limitHistoryPartial)
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
-            }
         }
     }
 

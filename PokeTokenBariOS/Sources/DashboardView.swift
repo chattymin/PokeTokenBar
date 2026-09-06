@@ -437,6 +437,10 @@ struct LimitHistoryCard: View {
     let series: [PhoneLimitHistorySeries]
     let limits: PhoneLimitStatus
 
+    private var hasAnyTruncated: Bool {
+        series.contains(where: \.hasTruncated)
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
@@ -450,6 +454,12 @@ struct LimitHistoryCard: View {
             ForEach(Array(series.enumerated()), id: \.offset) { index, entry in
                 if index > 0 { Divider() }
                 seriesRow(entry)
+            }
+            if hasAnyTruncated {
+                Divider()
+                Text("Dimmed windows were partly unobserved — the Mac was not running.")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
             }
         }
         .padding()
@@ -480,11 +490,6 @@ struct LimitHistoryCard: View {
             Text("\(entry.atOrAbove) of \(entry.windows.count) reached \(TokenFormatter.percent(limits.effectiveWarnThreshold))")
                 .font(.caption2)
                 .foregroundStyle(.secondary)
-            if entry.hasTruncated {
-                Text("Dimmed windows were partly unobserved — the Mac was not running.")
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
-            }
         }
     }
 
