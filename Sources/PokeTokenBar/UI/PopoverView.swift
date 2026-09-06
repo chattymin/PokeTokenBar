@@ -279,6 +279,7 @@ struct PopoverView: View {
         case "claude_code": return !store.disableKeychainAccess || store.limits != nil || store.limitsAuthExpired
         case "codex": return store.codexLimits?.hasVisibleLimit == true
         case "antigravity": return !store.disableKeychainAccess || store.antigravityLimits?.hasVisibleLimit == true || store.antigravityLimitsAuthExpired
+        case "cursor": return store.cursorLimits?.hasVisibleLimit == true || store.cursorLimitsAuthExpired
         default: return false
         }
     }
@@ -400,7 +401,85 @@ struct PopoverView: View {
             if selectedSnapshot?.providerID == "antigravity" {
                 antigravityLimitsContent
             }
+            if selectedSnapshot?.providerID == "cursor" {
+                cursorLimitsContent
+            }
         }
+    }
+
+    @ViewBuilder
+    private var cursorLimitsContent: some View {
+        if store.cursorLimitsAuthExpired {
+            cursorAuthExpiredNotice
+        }
+        if let status = store.cursorLimits, status.hasVisibleLimit {
+            if store.cursorLimitsStale {
+                staleBadge(updatedAt: store.cursorLimitsUpdatedAt)
+            }
+            if let message = status.displayMessage, !message.isEmpty {
+                Text(message)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            VStack(alignment: .leading, spacing: 8) {
+                if let usage = status.planUsage, let used = usage.usedPercent {
+                    cursorLimitRow(name: l.cursorMonthlyIncluded, utilization: used, reset: status.billingCycleEndDate)
+                    if let remaining = usage.remainingDollars {
+                        Text(l.cursorRemainingSpend(TokenFormatter.cost(remaining)))
+                            .font(.caption)
+                            .foregroundStyle(.tertiary)
+                    }
+                }
+                if let auto = status.planUsage?.autoPercentUsed {
+                    cursorLimitRow(name: l.cursorAutoUsage, utilization: auto, reset: nil)
+                }
+                if let api = status.planUsage?.apiPercentUsed {
+                    cursorLimitRow(name: l.cursorApiUsage, utilization: api, reset: nil)
+                }
+            }
+            .opacity(store.cursorLimitsAuthExpired ? 0.5 : 1)
+        }
+    }
+
+    @ViewBuilder
+    private func cursorLimitRow(name: String, utilization: Double, reset: Date?) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            HStack {
+                Text(name)
+                    .font(.callout)
+                Spacer()
+                Text(limitPercentText(utilization))
+                    .font(.callout)
+                    .monospacedDigit()
+                    .foregroundStyle(limitColor(utilization))
+                if let reset {
+                    Text("· \(reset, style: .relative)")
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                }
+            }
+            ProgressView(value: min(utilization, 100), total: 100)
+                .tint(limitColor(utilization))
+                .controlSize(.small)
+        }
+    }
+
+    @ViewBuilder
+    private var cursorAuthExpiredNotice: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 6) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .foregroundStyle(.orange)
+                Text(l.cursorAuthExpiredTitle)
+                    .font(.caption).fontWeight(.medium)
+            }
+            Text(l.cursorAuthExpiredHint)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+        }
+        .padding(8)
+        .background(Color.orange.opacity(0.1))
+        .clipShape(RoundedRectangle(cornerRadius: 6))
     }
 
     @ViewBuilder
