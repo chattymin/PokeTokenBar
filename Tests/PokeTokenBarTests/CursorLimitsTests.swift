@@ -8,7 +8,7 @@ final class CursorLimitsTests: XCTestCase {
     }
 
     func testCursorPlanUsageUsedPercentPrefersTotalPercentUsed() {
-        let usage = CursorPlanUsage(totalPercentUsed: 42.5, limit: 40_000, includedSpend: 10_000)
+        let usage = CursorPlanUsage(includedSpend: 10_000, limit: 40_000, totalPercentUsed: 42.5)
         XCTAssertEqual(usage.usedPercent, 42.5)
     }
 
