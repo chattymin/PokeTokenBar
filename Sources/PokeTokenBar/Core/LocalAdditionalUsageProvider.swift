@@ -713,25 +713,30 @@ enum LocalAdditionalUsageReader {
             })
     }
 
-    /// Cursor IDE login token stored in `state.vscdb` ItemTable.
-    static func cursorAuthAccessToken(roots: [URL]? = nil) -> String? {
+    /// Cursor IDE auth values stored in `state.vscdb` ItemTable.
+    static func cursorAuthValue(_ key: String, roots: [URL]? = nil) -> String? {
         for root in roots ?? configuredCursorRoots {
             let database = root.appendingPathComponent("state.vscdb")
             guard FileManager.default.fileExists(atPath: database.path) else { continue }
             for attempt in 0 ..< 6 {
                 let rows = query(database, sql: """
-                    SELECT value FROM ItemTable WHERE key = 'cursorAuth/accessToken' LIMIT 1
+                    SELECT value FROM ItemTable WHERE key = '\(key)' LIMIT 1
                     """) { statement -> String? in
                     columnText(statement, 0)
                 }
-                if let token = rows?.first?.trimmingCharacters(in: .whitespacesAndNewlines), !token.isEmpty {
-                    return token
+                if let value = rows?.first?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty {
+                    return value
                 }
                 if rows != nil { break }
                 Thread.sleep(forTimeInterval: 0.05 * Double(attempt + 1))
             }
         }
         return nil
+    }
+
+    /// Cursor IDE login token stored in `state.vscdb` ItemTable.
+    static func cursorAuthAccessToken(roots: [URL]? = nil) -> String? {
+        cursorAuthValue("cursorAuth/accessToken", roots: roots)
     }
 
     /// Debug string for AppLog when session token lookup fails (no secret values).

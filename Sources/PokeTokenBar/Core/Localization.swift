@@ -731,6 +731,38 @@ struct L {
           "Das Authentifizierungs-Token ist abgelaufen. Versuch es erneut oder starte Antigravity IDE einmal, um es automatisch zu aktualisieren.")
     }
 
+    // MARK: Cursor 공식 한도(월간 포함 allowance)
+    var cursorMonthlyIncluded: String {
+        t("월간 포함 allowance", "Monthly included", "月間 included", "Incluido mensual", "Inclus mensuel", "Incluso mensal", "Monatlich inklusive")
+    }
+    var cursorAutoUsage: String {
+        t("Auto 사용", "Auto usage", "Auto 使用", "Uso Auto", "Usage Auto", "Uso Auto", "Auto-Nutzung")
+    }
+    var cursorApiUsage: String {
+        t("API 사용", "API usage", "API 使用", "Uso API", "Usage API", "Uso API", "API-Nutzung")
+    }
+    func cursorRemainingSpend(_ amount: String) -> String {
+        t("\(amount) 남음", "\(amount) left", "残り \(amount)", "Quedan \(amount)", "Reste \(amount)", "Restam \(amount)", "\(amount) übrig")
+    }
+    var cursorAuthExpiredTitle: String {
+        t("Cursor 세션 만료 — 한도가 갱신 안 돼요",
+          "Cursor session expired — limits can't refresh",
+          "Cursor セッション期限切れ — 上限を更新できません",
+          "Sesión de Cursor expirada — los límites no se pueden actualizar",
+          "Session Cursor expirée — les limites ne s'actualisent pas",
+          "Sessão do Cursor expirada — não dá para atualizar os limites",
+          "Cursor-Sitzung abgelaufen – Limits können nicht aktualisiert werden")
+    }
+    var cursorAuthExpiredHint: String {
+        t("Cursor IDE 에 다시 로그인하거나, 다시 시도해 주세요.",
+          "Sign in to Cursor IDE again, or retry.",
+          "Cursor IDE に再度サインインするか、再試行してください。",
+          "Vuelve a iniciar sesión en Cursor IDE o reinténtalo.",
+          "Reconnecte-toi à Cursor IDE ou réessaie.",
+          "Entre de novo no Cursor IDE ou tente de novo.",
+          "Melde dich erneut in Cursor IDE an oder versuch es noch einmal.")
+    }
+
     // MARK: 업데이트 알림
     func updateAvailable(_ version: String, current: String) -> String {
         t("🆕 v\(version) 사용 가능 (현재 \(current))",

@@ -20,6 +20,9 @@ final class UsageStore {
     private(set) var antigravityLimits: AntigravityRateLimitStatus?
     private(set) var antigravityLimitsUpdatedAt: Date?
     private(set) var antigravityLimitsAuthExpired = false
+    private(set) var cursorLimits: CursorRateLimitStatus?
+    private(set) var cursorLimitsUpdatedAt: Date?
+    private(set) var cursorLimitsAuthExpired = false
     private(set) var limitsUpdatedAt: Date?
     private(set) var limitsAvailable = true
     /// Claude 한도 인증이 만료된 **출처**. nil = 만료 아님. 성공 시 해제.
@@ -188,6 +191,7 @@ final class UsageStore {
     private let sessionKeys: any SessionKeyManaging
     private let codexLimitsProvider: any CodexLimitsProviding
     private let antigravityLimitsProvider: any AntigravityLimitsProviding
+    private let cursorLimitsProvider: any CursorLimitsProviding
     private let statusProvider: any ProviderStatusProviding
     /// 설정 저장소 — 테스트는 suite 를 주입해 실제 사용자 설정을 오염시키지 않는다.
     private let defaults: UserDefaults
@@ -269,6 +273,9 @@ final class UsageStore {
         }
         if usedToday.contains("antigravity"), let usedPercent = antigravityLimits?.maxPrimaryUsedPercent {
             parts.append("AGY \(TokenFormatter.percent(limitDisplayPercent(usedPercent)))")
+        }
+        if usedToday.contains("cursor"), let usedPercent = cursorLimits?.planUsage?.usedPercent {
+            parts.append("Cursor \(TokenFormatter.percent(limitDisplayPercent(usedPercent)))")
         }
         return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
@@ -471,7 +478,9 @@ final class UsageStore {
     }
 
     /// 한도 데이터가 최소 1개 프로바이더 로드됐는가 — 사탕 첫 실행 시드 게이트(미로딩 중 시드 방지).
-    var limitsReady: Bool { limits != nil || codexLimits != nil || antigravityLimits != nil }
+    var limitsReady: Bool {
+        limits != nil || codexLimits != nil || antigravityLimits != nil || cursorLimits != nil
+    }
 
     /// burn rate 티어 — companion 표시 상태(idle/working/focus) 판정에 사용.
     /// 전 프로바이더 합산 — Codex/Gemini 전용 사용자도 코딩 리듬이 반영된다.
@@ -504,6 +513,7 @@ final class UsageStore {
             primary: SessionKeyLimitsProvider.shared, fallback: OAuthLimitsProvider()),
          codexLimitsProvider: any CodexLimitsProviding = CodexRateLimitsProvider(),
          antigravityLimitsProvider: any AntigravityLimitsProviding = AntigravityRateLimitsProvider(),
+         cursorLimitsProvider: any CursorLimitsProviding = CursorRateLimitsProvider(),
          statusProvider: any ProviderStatusProviding = StatuspageStatusProvider(),
          sessionKeys: any SessionKeyManaging = SessionKeyLimitsProvider.shared,
          autoRefresh: Bool = true,
@@ -513,6 +523,7 @@ final class UsageStore {
         self.sessionKeys = sessionKeys
         self.codexLimitsProvider = codexLimitsProvider
         self.antigravityLimitsProvider = antigravityLimitsProvider
+        self.cursorLimitsProvider = cursorLimitsProvider
         self.statusProvider = statusProvider
         self.defaults = defaults
         let d = defaults
@@ -769,6 +780,7 @@ final class UsageStore {
         }
         await refreshCodexLimits()
         await refreshAntigravityLimits(allowKeychainPrompt: false)
+        await refreshCursorLimits()
         await refreshProviderStatuses()
 
         checkLimitAlerts()
@@ -902,6 +914,30 @@ final class UsageStore {
         isRefreshingAntigravityLimits = true
         defer { isRefreshingAntigravityLimits = false }
         await refreshAntigravityLimits(allowKeychainPrompt: true)
+    }
+
+    private func refreshCursorLimits() async {
+        do {
+            cursorLimits = try await cursorLimitsProvider.fetch()
+            if let status = cursorLimits {
+                cursorLimitsUpdatedAt = Date()
+                cursorLimitsAuthExpired = false
+                let used = status.planUsage?.usedPercent.map { String(format: "%.1f", $0) } ?? "nil"
+                let remaining = status.planUsage?.remainingDollars.map { TokenFormatter.cost($0) } ?? "nil"
+                AppLog.write("cursor limits refreshed used=\(used)% remaining=\(remaining)")
+            }
+        } catch {
+            if case LimitsError.httpStatus(let code) = error, code == 401 || code == 403 {
+                cursorLimitsAuthExpired = true
+            }
+            AppLog.write("cursor limits unavailable: \(error)")
+        }
+    }
+
+    /// Cursor 한도 staleness — 15분 경과 시 stale
+    var cursorLimitsStale: Bool {
+        guard cursorLimits != nil, let cursorLimitsUpdatedAt else { return false }
+        return Date().timeIntervalSince(cursorLimitsUpdatedAt) > 15 * 60
     }
 
     private func refreshAntigravityLimits(allowKeychainPrompt: Bool) async {

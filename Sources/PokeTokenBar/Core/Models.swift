@@ -487,6 +487,92 @@ public struct AntigravityRateLimitStatus: Decodable, Sendable {
     }
 }
 
+// MARK: - Cursor dashboard limits (api2.cursor.sh Connect RPC)
+
+public struct CursorPlanUsage: Decodable, Sendable {
+    public var totalSpend: Int?
+    public var includedSpend: Int?
+    public var bonusSpend: Int?
+    public var remaining: Int?
+    public var limit: Int?
+    public var autoPercentUsed: Double?
+    public var apiPercentUsed: Double?
+    public var totalPercentUsed: Double?
+
+    public var usedPercent: Double? {
+        if let totalPercentUsed { return totalPercentUsed }
+        guard let limit, limit > 0, let includedSpend else { return nil }
+        return Double(includedSpend) / Double(limit) * 100
+    }
+
+    public var remainingDollars: Double? {
+        guard let remaining else { return nil }
+        return Double(remaining) / 100
+    }
+
+    public var limitDollars: Double? {
+        guard let limit else { return nil }
+        return Double(limit) / 100
+    }
+
+    public init(
+        totalSpend: Int? = nil,
+        includedSpend: Int? = nil,
+        bonusSpend: Int? = nil,
+        remaining: Int? = nil,
+        limit: Int? = nil,
+        autoPercentUsed: Double? = nil,
+        apiPercentUsed: Double? = nil,
+        totalPercentUsed: Double? = nil
+    ) {
+        self.totalSpend = totalSpend
+        self.includedSpend = includedSpend
+        self.bonusSpend = bonusSpend
+        self.remaining = remaining
+        self.limit = limit
+        self.autoPercentUsed = autoPercentUsed
+        self.apiPercentUsed = apiPercentUsed
+        self.totalPercentUsed = totalPercentUsed
+    }
+}
+
+public struct CursorRateLimitStatus: Decodable, Sendable {
+    public var billingCycleStart: String?
+    public var billingCycleEnd: String?
+    public var planUsage: CursorPlanUsage?
+    public var displayMessage: String?
+
+    public var hasVisibleLimit: Bool {
+        guard let usage = planUsage else { return false }
+        if let limit = usage.limit, limit > 0 { return true }
+        return usage.totalPercentUsed != nil
+    }
+
+    public var billingCycleEndDate: Date? {
+        guard let billingCycleEnd else { return nil }
+        return Self.epochDate(billingCycleEnd)
+    }
+
+    public init(
+        billingCycleStart: String? = nil,
+        billingCycleEnd: String? = nil,
+        planUsage: CursorPlanUsage? = nil,
+        displayMessage: String? = nil
+    ) {
+        self.billingCycleStart = billingCycleStart
+        self.billingCycleEnd = billingCycleEnd
+        self.planUsage = planUsage
+        self.displayMessage = displayMessage
+    }
+
+    static func epochDate(_ raw: String) -> Date? {
+        guard let epoch = Double(raw) else { return nil }
+        if epoch > 1e12 { return Date(timeIntervalSince1970: epoch / 1000) }
+        if epoch > 1e9 { return Date(timeIntervalSince1970: epoch) }
+        return nil
+    }
+}
+
 // MARK: - Provider snapshot
 
 struct ProviderSnapshot: Sendable, Identifiable {
