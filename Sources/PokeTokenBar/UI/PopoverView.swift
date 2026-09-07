@@ -66,7 +66,10 @@ struct PopoverView: View {
         Group {
             if nav.showSettings {
                 SettingsView(
-                    onClose: { nav.showSettings = false },
+                    onClose: {
+                        nav.showSettings = false
+                        nav.expandAdvancedOnOpen = false
+                    },
                     onChooseRepresentative: { nav.openRepresentativeDex() },
                     startExpanded: nav.expandAdvancedOnOpen
                 )

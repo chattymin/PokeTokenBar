@@ -33,6 +33,7 @@ struct SettingsView: View {
     @State private var customScanMatchTask: Task<Void, Never>?
     @State private var customScanMatchGeneration = 0
     @FocusState private var customScanFocused: Bool
+    @FocusState private var sessionKeyFocused: Bool
     private var l: L { companion.l }
 
     private var isBundledApp: Bool { AppEnv.isBundledApp }
@@ -62,29 +63,41 @@ struct SettingsView: View {
         VStack(spacing: 0) {
             header
             Divider()
-            ScrollView {
-                VStack(alignment: .leading, spacing: 18) {
-                    generalGroup(store)
-                    menuBarGroup(store)
-                    floatingPetGroup(store)
-                    notificationsGroup(store)
-                    updateGroup(store)
-                    transferGroup(store)
-                    advancedGroup(store)
-                    aboutSupportGroup
+            ScrollViewReader { proxy in
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 18) {
+                        generalGroup(store)
+                        menuBarGroup(store)
+                        floatingPetGroup(store)
+                        notificationsGroup(store)
+                        updateGroup(store)
+                        transferGroup(store)
+                        advancedGroup(store)
+                            .id("advancedSettingsSection")
+                        aboutSupportGroup
+                    }
+                    .padding(16)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                .padding(16)
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .onAppear {
+                    guard !didApplyStartExpanded else { return }
+                    didApplyStartExpanded = true
+                    if startExpanded {
+                        advancedExpanded = true
+                        Task { @MainActor in
+                            try? await Task.sleep(nanoseconds: 80_000_000)
+                            withAnimation(.easeInOut(duration: 0.25)) {
+                                proxy.scrollTo("advancedSettingsSection", anchor: .top)
+                            }
+                            sessionKeyFocused = true
+                        }
+                    }
+                }
             }
             Divider()
             footer
         }
         .frame(height: 460)
-        .onAppear {
-            guard !didApplyStartExpanded else { return }
-            didApplyStartExpanded = true
-            if startExpanded { advancedExpanded = true }
-        }
     }
 
     private var header: some View {
@@ -400,6 +413,7 @@ struct SettingsView: View {
             SecureField(store.sessionKeyConfigured ? "••••••••" : "sk-ant-sid…", text: $sessionKeyInput)
                 .textFieldStyle(.roundedBorder)
                 .frame(maxWidth: 220)
+                .focused($sessionKeyFocused)
                 .onSubmit { submitSessionKey(store) }
             Button {
                 submitSessionKey(store)
