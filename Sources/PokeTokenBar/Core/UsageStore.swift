@@ -806,6 +806,9 @@ final class UsageStore {
             limitsAuthExpiry = nil
             limitTokenRefreshError = nil
             resetLimitsBackoff()
+            if !sessionKeyConfigured && !hasDismissedClaudeKeychainNotice {
+                showClaudeKeychainNotice = true
+            }
             AppLog.write("limits refreshed by user action fiveHour=\(limits?.fiveHour?.utilization?.description ?? "nil") sevenDay=\(limits?.sevenDay?.utilization?.description ?? "nil")")
             AppLog.write("limits refreshed from keychain by user action")
         } catch {
@@ -814,6 +817,21 @@ final class UsageStore {
             updateAuthExpired(from: error)
             applyLimitsBackoffIfRateLimited(error)
             AppLog.write("limits user refresh failed: \(error)")
+        }
+    }
+
+    // MARK: Claude Keychain 한계 안내 (사후 배너)
+
+    var showClaudeKeychainNotice = false
+    var hasDismissedClaudeKeychainNotice: Bool {
+        get { defaults.bool(forKey: "hasDismissedClaudeKeychainNotice") }
+        set { defaults.set(newValue, forKey: "hasDismissedClaudeKeychainNotice") }
+    }
+
+    func dismissClaudeKeychainNotice(persist: Bool = true) {
+        showClaudeKeychainNotice = false
+        if persist {
+            hasDismissedClaudeKeychainNotice = true
         }
     }
 
@@ -849,6 +867,7 @@ final class UsageStore {
             sessionKeyOrganizations = organizations
             sessionKeySelectedOrgID = picked.id
             sessionKeyConfigured = true
+            showClaudeKeychainNotice = false
             AppLog.write("session key saved (orgs=\(organizations.count) picked=\(picked.id))")
             await refresh()
         } catch {
