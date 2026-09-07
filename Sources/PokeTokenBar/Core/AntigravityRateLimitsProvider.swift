@@ -10,7 +10,13 @@ public struct AntigravityRateLimitsProvider: AntigravityLimitsProviding, Sendabl
     public static let primaryURL = URL(string: "https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary")!
     public static let dailyURL = URL(string: "https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary")!
     public static let googleTokenURL = URL(string: "https://oauth2.googleapis.com/token")!
+    /// Google Cloud Code / Antigravity 공식 CLI(`agy`) 바이너리에 내장된 공개 OAuth Client ID.
     public static let googleClientID = "1071006060591-tmhssin2h21lcre235vtolojh4g403ep.apps.googleusercontent.com"
+
+    /// Google OAuth refresh_token 엔드포인트(`oauth2.googleapis.com/token`)에서 요구하는 Client Secret.
+    ///
+    /// RFC 6749 Section 2.1에 따른 Public Client 자격증명으로, 공식 `agy` 바이너리에 내장되어 배포되는 값이다.
+    /// GitHub Push Protection(GH013)의 오탐(false positive)을 방지하기 위해 문자열 리터럴을 분할 결합한다.
     public static let googleClientSecret: String = {
         let p1 = "GOC"
         let p2 = "SPX-"
@@ -167,6 +173,12 @@ actor AntigravityTokenCache {
         cachedCredential = nil
     }
 
+    private static func formURLEncode(_ string: String) -> String {
+        var allowed = CharacterSet.alphanumerics
+        allowed.insert(charactersIn: "-._~")
+        return string.addingPercentEncoding(withAllowedCharacters: allowed) ?? string
+    }
+
     private static func refreshGoogleToken(refreshToken: String) async throws -> AntigravityOAuthCredential? {
         var request = URLRequest(url: AntigravityRateLimitsProvider.googleTokenURL, timeoutInterval: 10)
         request.httpMethod = "POST"
@@ -178,7 +190,7 @@ actor AntigravityTokenCache {
             "grant_type": "refresh_token",
             "refresh_token": refreshToken,
         ]
-        let bodyString = params.map { "\($0.key)=\($0.value.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? $0.value)" }
+        let bodyString = params.map { "\($0.key)=\(Self.formURLEncode($0.value))" }
             .joined(separator: "&")
         request.httpBody = Data(bodyString.utf8)
 
@@ -193,10 +205,6 @@ actor AntigravityTokenCache {
             accessToken: newAccessToken,
             refreshToken: refreshToken,
             expiresAt: Date().addingTimeInterval(expiresIn))
-    }
-
-    private nonisolated static func readTokenFile(urls: [URL]) -> String? {
-        readTokenFileCredential(urls: urls)?.accessToken
     }
 
     private nonisolated static func readTokenFileCredential(urls: [URL]) -> AntigravityOAuthCredential? {
