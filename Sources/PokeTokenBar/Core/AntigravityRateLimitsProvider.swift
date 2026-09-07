@@ -12,9 +12,15 @@ public struct AntigravityRateLimitsProvider: AntigravityLimitsProviding, Sendabl
     public static let googleTokenURL = URL(string: "https://oauth2.googleapis.com/token")!
     public static let googleClientID = "1071006060591-tmhssin2h21lcre235vtolojh4g403ep.apps.googleusercontent.com"
 
-    private let tokenCache = AntigravityTokenCache.shared
+    private let tokenCache: AntigravityTokenCache
 
-    public init() {}
+    public init() {
+        self.init(tokenCache: .shared)
+    }
+
+    init(tokenCache: AntigravityTokenCache) {
+        self.tokenCache = tokenCache
+    }
 
     public func fetch(allowKeychainPrompt: Bool = false) async throws -> AntigravityRateLimitStatus {
         let token = try await tokenCache.accessToken(allowKeychainPrompt: allowKeychainPrompt)
@@ -96,14 +102,12 @@ actor AntigravityTokenCache {
         // 1. 파일 크리덴셜(~/.gemini/jetski-standalone-oauth-token) — 키체인 무관, 프롬프트 없음.
         //    파일로 답할 수 있으면 여기서 끝낸다. 이 return 이 없으면 유효한 파일 토큰이 있어도
         //    매 호출이 키체인까지 내려간다(프롬프트를 피할 수 있는 경로를 두고 쓰지 않는 셈).
-        //    캐시 히트보다 앞: 파일 로드는 expiresAt=nil 이라 캐시가 만료로 풀리지 않고,
-        //    계정 전환으로 파일이 바뀌어도 옛 토큰을 계속 쓴다(#227 과 같은 부류).
-        if let fileToken = Self.readTokenFile(urls: tokenFileURLs) {
-            if cachedCredential?.accessToken != fileToken {
-                cachedCredential = AntigravityOAuthCredential(
-                    accessToken: fileToken, refreshToken: nil, expiresAt: nil)
+        //    캐시 히트보다 앞: 계정 전환으로 파일이 바뀌어도 옛 토큰을 계속 쓰는 문제 방지(#227 과 같은 부류).
+        if let fileCred = Self.readTokenFileCredential(urls: tokenFileURLs) {
+            if cachedCredential?.accessToken != fileCred.accessToken {
+                cachedCredential = fileCred
             }
-            return fileToken
+            return try await resolveValidToken(from: fileCred, bypassCache: bypassCache)
         }
 
         if !bypassCache, let cachedCredential, !cachedCredential.isExpired {
@@ -125,18 +129,18 @@ actor AntigravityTokenCache {
         // 3. 사용자 동작 경로: 무프롬프트로 먼저 시도(과거 '항상 허용'했다면 조용히 성공), 안 되면
         //    프롬프트를 동반해 읽어 최초 1회 '항상 허용'을 유도한다.
         if let cred = Self.readKeychainSilently() {
-            return try await resolveValidToken(from: cred)
+            return try await resolveValidToken(from: cred, bypassCache: bypassCache)
         }
         let cred = try Self.readKeychain(allowKeychainPrompt: true)
-        return try await resolveValidToken(from: cred)
+        return try await resolveValidToken(from: cred, bypassCache: bypassCache)
     }
 
-    private func resolveValidToken(from cred: AntigravityOAuthCredential) async throws -> String {
-        if !cred.isExpired {
+    private func resolveValidToken(from cred: AntigravityOAuthCredential, bypassCache: Bool = false) async throws -> String {
+        if !bypassCache && !cred.isExpired {
             cachedCredential = cred
             return cred.accessToken
         }
-        // 만료되었고 refresh_token이 있다면 갱신 시도
+        // 만료되었거나 bypassCache인 경우 refresh_token이 있다면 갱신 시도
         if let refreshToken = cred.refreshToken {
             if let refreshed = try? await Self.refreshGoogleToken(refreshToken: refreshToken) {
                 cachedCredential = refreshed
@@ -180,13 +184,16 @@ actor AntigravityTokenCache {
     }
 
     private nonisolated static func readTokenFile(urls: [URL]) -> String? {
+        readTokenFileCredential(urls: urls)?.accessToken
+    }
+
+    private nonisolated static func readTokenFileCredential(urls: [URL]) -> AntigravityOAuthCredential? {
         for url in urls {
             guard let data = try? Data(contentsOf: url),
-                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                  let token = json["token"] as? String, !token.isEmpty else {
+                  let cred = parseCredential(data: data) else {
                 continue
             }
-            return token
+            return cred
         }
         return nil
     }
