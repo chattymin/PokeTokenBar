@@ -42,7 +42,8 @@ final class KeychainAutoPathTests: XCTestCase {
         defer { KeychainAccessGate.isDisabled = savedGate }
 
         KeychainReader.resetQueryCountForTesting()
-        _ = try? await AntigravityRateLimitsProvider().fetch(allowKeychainPrompt: true)
+        let emptyFileCache = AntigravityTokenCache(tokenFileURLs: [])
+        _ = try? await AntigravityRateLimitsProvider(tokenCache: emptyFileCache).fetch(allowKeychainPrompt: true)
         XCTAssertGreaterThan(
             KeychainReader.queryCount, 0,
             "사용자 갱신 경로는 키체인을 읽어야 한다 — 0 이면 위 자동경로 단언이 공허해진다")
