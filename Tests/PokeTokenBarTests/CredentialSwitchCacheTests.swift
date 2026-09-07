@@ -109,6 +109,41 @@ final class CredentialSwitchCacheTests: XCTestCase {
         XCTAssertEqual(KeychainReader.queryCount, 0)
     }
 
+    func testAntigravityAutoPollReadsNestedTokenObject() async throws {
+        let file = tempDir.appendingPathComponent("jetski-standalone-oauth-token")
+        try writeAntigravityNestedToken(
+            to: file,
+            accessToken: "ya29.nested-token-value",
+            refreshToken: "1//sample-refresh-token",
+            expiry: "2099-01-01T00:00:00Z"
+        )
+        let cache = AntigravityTokenCache(tokenFileURLs: [file])
+
+        let token = try await cache.accessToken(allowKeychainPrompt: false)
+        XCTAssertEqual(token, "ya29.nested-token-value")
+        XCTAssertEqual(KeychainReader.queryCount, 0)
+    }
+
+    func testAntigravityAutoPollPicksUpNestedTokenSwitch() async throws {
+        let file = tempDir.appendingPathComponent("jetski-standalone-oauth-token")
+        try writeAntigravityNestedToken(to: file, accessToken: "ya29.nested-a")
+        let cache = AntigravityTokenCache(tokenFileURLs: [file])
+
+        let first = try await cache.accessToken(allowKeychainPrompt: false)
+        XCTAssertEqual(first, "ya29.nested-a")
+
+        try writeAntigravityNestedToken(to: file, accessToken: "ya29.nested-b")
+        let second = try await cache.accessToken(allowKeychainPrompt: false)
+        XCTAssertEqual(second, "ya29.nested-b")
+        XCTAssertEqual(KeychainReader.queryCount, 0)
+    }
+
+    func testAntigravityGoogleClientIDAndSecretAreConfigured() {
+        XCTAssertFalse(AntigravityRateLimitsProvider.googleClientID.isEmpty)
+        XCTAssertFalse(AntigravityRateLimitsProvider.googleClientSecret.isEmpty)
+        XCTAssertEqual(AntigravityRateLimitsProvider.googleClientSecret.count, 35)
+    }
+
     // MARK: fixtures
 
     private func writeClaudeCredentials(
@@ -124,5 +159,25 @@ final class CredentialSwitchCacheTests: XCTestCase {
     private func writeAntigravityToken(to url: URL, token: String) throws {
         let json = "{\"token\":\"\(token)\"}"
         try Data(json.utf8).write(to: url, options: .atomic)
+    }
+
+    private func writeAntigravityNestedToken(
+        to url: URL,
+        accessToken: String,
+        refreshToken: String? = nil,
+        expiry: String? = nil
+    ) throws {
+        var tokenDict: [String: Any] = [
+            "access_token": accessToken,
+            "token_type": "Bearer"
+        ]
+        if let refreshToken { tokenDict["refresh_token"] = refreshToken }
+        if let expiry { tokenDict["expiry"] = expiry }
+        let root: [String: Any] = [
+            "auth_method": "oauth",
+            "token": tokenDict
+        ]
+        let data = try JSONSerialization.data(withJSONObject: root, options: [.prettyPrinted])
+        try data.write(to: url, options: .atomic)
     }
 }
