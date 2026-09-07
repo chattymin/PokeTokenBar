@@ -276,25 +276,7 @@ struct L {
         t("만료됨", "Expired", "期限切れ", "Caducada", "Expirée", "Expirada", "Abgelaufen")
     }
 
-    // MARK: Claude Keychain 항상 허용 초기화 안내 및 도움말
-    var claudeKeychainNoticeTitle: String {
-        t("Claude '항상 허용' 안내",
-          "Claude 'Always Allow' Notice",
-          "Claude「常に許可」について",
-          "Aviso de 'Permitir siempre' de Claude",
-          "Notice 'Toujours autoriser' de Claude",
-          "Aviso 'Permitir Sempre' do Claude",
-          "Claude 'Immer erlauben' Hinweis")
-    }
-    var claudeKeychainNoticeBody: String {
-        t("macOS 보안 정책상 Claude CLI가 토큰을 갱신하면 '항상 허용' 권한이 초기화됩니다. 암호 팝업 없는 자동 갱신을 원하시면 세션 키를 등록해 보세요.",
-          "Due to macOS security policy, 'Always Allow' is reset whenever Claude CLI refreshes its token. To enable automatic refresh without password prompts, register a session key.",
-          "macOS のセキュリティポリシーにより、Claude CLI がトークンを更新すると「常に許可」が初期化されます。パスワードのポップアップなしで自動更新するにはセッションキーを登録してください。",
-          "Debido a la política de seguridad de macOS, 'Permitir siempre' se restablece cuando Claude CLI renueva el token. Para actualizar automáticamente sin avisos de contraseña, registra una clave de sesión.",
-          "En raison des règles de sécurité de macOS, 'Toujours autoriser' est réinitialisé à chaque renouvellement de jeton par Claude CLI. Pour une actualisation automatique sans mot de passe, enregistrez une clé de session.",
-          "Devido à política de segurança do macOS, 'Permitir Sempre' é redefinido quando o Claude CLI renova o token. Para atualização automática sem solicitar senha, cadastre uma chave de sessão.",
-          "Aufgrund der macOS-Sicherheitsrichtlinie wird 'Immer erlauben' zurückgesetzt, wenn Claude CLI das Token erneuert. Um automatische Aktualisierungen ohne Passwortabfrage zu nutzen, registriere einen Sitzungsschlüssel.")
-    }
+    // MARK: Claude Keychain 항상 허용 초기화 도움말 (상시 안내)
     var claudeKeychainHelpTitle: String {
         t("왜 주기적으로 암호를 묻나요?",
           "Why does it ask for password periodically?",

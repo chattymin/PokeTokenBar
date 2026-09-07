@@ -322,9 +322,14 @@ struct PopoverView: View {
     @ViewBuilder
     private var limitsSection: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text(l.limitsOfficial)
-                .font(.caption)
-                .foregroundStyle(.secondary)
+            HStack(spacing: 4) {
+                Text(l.limitsOfficial)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                if selectedSnapshot?.providerID == "claude_code", !store.sessionKeyConfigured {
+                    claudeKeychainHelpButton
+                }
+            }
             if selectedSnapshot?.providerID == "claude_code", store.limitsAuthExpiry == .sessionKey {
                 sessionKeyExpiredNotice
             } else if selectedSnapshot?.providerID == "claude_code", store.limitsAuthExpired {
@@ -335,9 +340,6 @@ struct PopoverView: View {
                 // 자동 폴링은 Keychain 을 안 읽으므로(팝업 방지), 최초/만료 후 공식 한도는 이 원탭으로
                 // 사용자가 직접 갱신한다. 프롬프트가 뜨더라도 사용자 행동에 의한 것이라 예상 가능하다.
                 claudeLimitsRefreshRow
-            }
-            if selectedSnapshot?.providerID == "claude_code", store.showClaudeKeychainNotice {
-                claudeKeychainNoticeBanner
             }
             if selectedSnapshot?.providerID == "claude_code", let limits = store.limits {
                 // 플랜(계정 속성) — Codex codexMetaRow 와 동일 스타일. 구독 정보 있을 때만 노출.
@@ -623,6 +625,38 @@ struct PopoverView: View {
 
     /// Claude 공식 한도 — 최초 로드/만료(stale) 시 사용자가 원탭으로 Keychain 을 읽어 갱신.
     /// 자동 폴링이 Keychain 을 안 읽는 대신 여기서 명시적 사용자 동작으로만 재취득한다.
+    private var claudeKeychainHelpButton: some View {
+        Button {
+            showingClaudeKeychainHelp.toggle()
+        } label: {
+            Image(systemName: "questionmark.circle")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .buttonStyle(.plain)
+        .help(l.claudeKeychainHelpTooltip)
+        .popover(isPresented: $showingClaudeKeychainHelp) {
+            VStack(alignment: .leading, spacing: 8) {
+                Text(l.claudeKeychainHelpTitle)
+                    .font(.caption).fontWeight(.semibold)
+                Text(l.claudeKeychainHelpBody)
+                    .font(.caption2).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                HStack {
+                    Spacer()
+                    Button(l.registerSessionKey) {
+                        showingClaudeKeychainHelp = false
+                        nav.openSessionKeySettings()
+                    }
+                    .controlSize(.small)
+                }
+            }
+            .padding(12)
+            .frame(width: 250)
+        }
+    }
+
+    /// 자동 폴링이 Keychain 을 안 읽는 대신 여기서 명시적 사용자 동작으로만 재취득한다.
     @ViewBuilder
     private var claudeLimitsRefreshRow: some View {
         HStack(spacing: 6) {
@@ -635,34 +669,6 @@ struct PopoverView: View {
             }
             Spacer()
             Button {
-                showingClaudeKeychainHelp.toggle()
-            } label: {
-                Image(systemName: "questionmark.circle")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-            }
-            .buttonStyle(.plain)
-            .help(l.claudeKeychainHelpTooltip)
-            .popover(isPresented: $showingClaudeKeychainHelp) {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text(l.claudeKeychainHelpTitle)
-                        .font(.caption).fontWeight(.semibold)
-                    Text(l.claudeKeychainHelpBody)
-                        .font(.caption2).foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                    HStack {
-                        Spacer()
-                        Button(l.registerSessionKey) {
-                            showingClaudeKeychainHelp = false
-                            nav.openSessionKeySettings()
-                        }
-                        .controlSize(.small)
-                    }
-                }
-                .padding(12)
-                .frame(width: 250)
-            }
-            Button {
                 Task { await store.refreshLimitTokenFromKeychain() }
             } label: {
                 if store.isRefreshingLimitToken {
@@ -674,41 +680,6 @@ struct PopoverView: View {
             .controlSize(.small)
             .disabled(store.isRefreshingLimitToken)
         }
-    }
-
-    private var claudeKeychainNoticeBanner: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(alignment: .top, spacing: 6) {
-                Image(systemName: "info.circle.fill")
-                    .foregroundStyle(.blue)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(l.claudeKeychainNoticeTitle)
-                        .font(.caption).fontWeight(.semibold)
-                    Text(l.claudeKeychainNoticeBody)
-                        .font(.caption2).foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                Spacer(minLength: 4)
-                Button {
-                    store.dismissClaudeKeychainNotice()
-                } label: {
-                    Image(systemName: "xmark")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                }
-                .buttonStyle(.plain)
-            }
-            HStack {
-                Spacer()
-                Button(l.registerSessionKey) {
-                    store.dismissClaudeKeychainNotice()
-                    nav.openSessionKeySettings()
-                }
-                .controlSize(.small)
-            }
-        }
-        .padding(8)
-        .background(Color.blue.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
     }
 
     /// 한도 스냅샷 갱신 지연 배지 — Claude/Codex 공용 (마지막 성공 시각 상대 표시).
