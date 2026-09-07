@@ -257,6 +257,60 @@ final class UsageStoreTests: XCTestCase {
                        "수동 갱신(사용자 버튼)만 프롬프트 허용 경로를 쓴다")
     }
 
+    // MARK: Claude Keychain 한계 안내 배너
+
+    /// 세션 키가 미등록된 상태에서 키체인 수동 갱신이 성공하면 안내 배너가 표시된다.
+    func testRefreshLimitTokenFromKeychainShowsNoticeWhenSessionKeyNotConfigured() async {
+        let claude = FakeUsageProvider(id: "claude_code", displayName: "Claude Code", daily: todayDaily(1_000))
+        let limits = RecordingClaudeLimits(status: claudeLimits(fiveHourUtil: 10))
+        let store = UsageStore(providers: [claude],
+                               claudeLimitsProvider: limits,
+                               codexLimitsProvider: FakeCodexLimits(status: nil),
+                               autoRefresh: false,
+                               defaults: testDefaults)
+
+        XCTAssertFalse(store.showClaudeKeychainNotice)
+        await store.refreshLimitTokenFromKeychain()
+        XCTAssertTrue(store.showClaudeKeychainNotice, "세션 키 미등록 시 키체인 갱신 후 안내 배너가 떠야 한다")
+    }
+
+    /// 배너를 닫으면 사라지고 UserDefaults 에 영속되어 다음 갱신 시 다시 뜨지 않는다.
+    func testDismissClaudeKeychainNoticePersists() async {
+        let claude = FakeUsageProvider(id: "claude_code", displayName: "Claude Code", daily: todayDaily(1_000))
+        let limits = RecordingClaudeLimits(status: claudeLimits(fiveHourUtil: 10))
+        let store = UsageStore(providers: [claude],
+                               claudeLimitsProvider: limits,
+                               codexLimitsProvider: FakeCodexLimits(status: nil),
+                               autoRefresh: false,
+                               defaults: testDefaults)
+
+        await store.refreshLimitTokenFromKeychain()
+        XCTAssertTrue(store.showClaudeKeychainNotice)
+
+        store.dismissClaudeKeychainNotice()
+        XCTAssertFalse(store.showClaudeKeychainNotice)
+        XCTAssertTrue(store.hasDismissedClaudeKeychainNotice)
+
+        // 다음 번 갱신 시에는 이미 닫았으므로 뜨지 않는다
+        await store.refreshLimitTokenFromKeychain()
+        XCTAssertFalse(store.showClaudeKeychainNotice)
+    }
+
+    /// 세션 키가 등록된 상태에서는 키체인 안내 배너가 뜨지 않는다.
+    func testSessionKeyConfiguredSuppressesNotice() async {
+        let claude = FakeUsageProvider(id: "claude_code", displayName: "Claude Code", daily: todayDaily(1_000))
+        let limits = RecordingClaudeLimits(status: claudeLimits(fiveHourUtil: 10))
+        let store = UsageStore(providers: [claude],
+                               claudeLimitsProvider: limits,
+                               codexLimitsProvider: FakeCodexLimits(status: nil),
+                               autoRefresh: false,
+                               defaults: testDefaults)
+
+        store.sessionKeyConfigured = true
+        await store.refreshLimitTokenFromKeychain()
+        XCTAssertFalse(store.showClaudeKeychainNotice, "세션 키가 이미 있으면 안내 배너를 띄우지 않는다")
+    }
+
     // MARK: 플로팅 펫 설정 (기본값 + 영속)
 
     /// 플로팅 펫은 기본 꺼짐(96px). 토글·크기 변경은 defaults 에 영속돼 재시작 후 유지된다.

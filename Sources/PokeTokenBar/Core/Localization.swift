@@ -276,6 +276,62 @@ struct L {
         t("만료됨", "Expired", "期限切れ", "Caducada", "Expirée", "Expirada", "Abgelaufen")
     }
 
+    // MARK: Claude Keychain 항상 허용 초기화 안내 및 도움말
+    var claudeKeychainNoticeTitle: String {
+        t("Claude '항상 허용' 안내",
+          "Claude 'Always Allow' Notice",
+          "Claude「常に許可」について",
+          "Aviso de 'Permitir siempre' de Claude",
+          "Notice 'Toujours autoriser' de Claude",
+          "Aviso 'Permitir Sempre' do Claude",
+          "Claude 'Immer erlauben' Hinweis")
+    }
+    var claudeKeychainNoticeBody: String {
+        t("macOS 보안 정책상 Claude CLI가 토큰을 갱신하면 '항상 허용' 권한이 초기화됩니다. 암호 팝업 없는 자동 갱신을 원하시면 세션 키를 등록해 보세요.",
+          "Due to macOS security policy, 'Always Allow' is reset whenever Claude CLI refreshes its token. To enable automatic refresh without password prompts, register a session key.",
+          "macOS のセキュリティポリシーにより、Claude CLI がトークンを更新すると「常に許可」が初期化されます。パスワードのポップアップなしで自動更新するにはセッションキーを登録してください。",
+          "Debido a la política de seguridad de macOS, 'Permitir siempre' se restablece cuando Claude CLI renueva el token. Para actualizar automáticamente sin avisos de contraseña, registra una clave de sesión.",
+          "En raison des règles de sécurité de macOS, 'Toujours autoriser' est réinitialisé à chaque renouvellement de jeton par Claude CLI. Pour une actualisation automatique sans mot de passe, enregistrez une clé de session.",
+          "Devido à política de segurança do macOS, 'Permitir Sempre' é redefinido quando o Claude CLI renova o token. Para atualização automática sem solicitar senha, cadastre uma chave de sessão.",
+          "Aufgrund der macOS-Sicherheitsrichtlinie wird 'Immer erlauben' zurückgesetzt, wenn Claude CLI das Token erneuert. Um automatische Aktualisierungen ohne Passwortabfrage zu nutzen, registriere einen Sitzungsschlüssel.")
+    }
+    var claudeKeychainHelpTitle: String {
+        t("왜 주기적으로 암호를 묻나요?",
+          "Why does it ask for password periodically?",
+          "なぜ定期的にパスワードを求められるのですか？",
+          "¿Por qué pide la contraseña periódicamente?",
+          "Pourquoi le mot de passe est-il demandé périodiquement ?",
+          "Por que pede a senha periodicamente?",
+          "Warum wird regelmäßig nach dem Passwort gefragt?")
+    }
+    var claudeKeychainHelpBody: String {
+        t("Claude CLI가 백그라운드에서 토큰을 교체할 때 macOS 키체인의 '항상 허용' 권한이 초기화됩니다. 세션 키를 등록하면 암호 입력 없이 백그라운드 자동 갱신이 유지됩니다.",
+          "When Claude CLI rotates tokens in the background, macOS resets the Keychain 'Always Allow' permission. Registering a session key keeps background limits refreshed without any password prompt.",
+          "Claude CLI がバックグラウンドでトークンをローテーションすると、macOS Keychain の「常に許可」権限がリセットされます。セッションキーを登録すると、パスワード入力なしで自動更新が維持されます。",
+          "Cuando Claude CLI rota tokens en segundo plano, macOS restablece el permiso 'Permitir siempre' del Llavero. Registrar una clave de sesión mantiene los límites actualizados sin pedir contraseña.",
+          "Lorsque Claude CLI renouvelle les jetons en arrière-plan, macOS réinitialise l'autorisation 'Toujours autoriser'. L'enregistrement d'une clé de session permet de maintenir les limites à jour sans mot de passe.",
+          "Quando o Claude CLI renova tokens em segundo plano, o macOS redefine a permissão 'Permitir Sempre'. Cadastrar uma chave de sessão mantém a atualização automática sem solicitar senha.",
+          "Wenn Claude CLI Tokens im Hintergrund erneuert, setzt macOS die Berechtigung 'Immer erlauben' zurück. Ein registrierter Sitzungsschlüssel hält Limits ohne Passwortabfrage aktuell.")
+    }
+    var registerSessionKey: String {
+        t("세션 키 등록",
+          "Register Session Key",
+          "セッションキーを登録",
+          "Registrar clave de sesión",
+          "Enregistrer la clé de session",
+          "Cadastrar chave de sessão",
+          "Sitzungsschlüssel registrieren")
+    }
+    var claudeKeychainHelpTooltip: String {
+        t("Claude 키체인 인증 안내",
+          "Claude Keychain authentication info",
+          "Claude Keychain 認証について",
+          "Información de autenticación de Keychain de Claude",
+          "Info sur l'authentification Keychain Claude",
+          "Informações de autenticação do Keychain do Claude",
+          "Claude Keychain-Authentifizierungsinformation")
+    }
+
     var limitNotificationsLabel: String { t("한도 알림", "Limit alerts", "上限通知", "Alertas de límite", "Alertes de limite", "Alertas de limite", "Limit-Warnungen") }
     var companionNotificationsLabel: String { t("Companion 이벤트 (부화·진화·졸업)", "Companion events (hatch / evolve / graduate)", "コンパニオンイベント（孵化・進化・卒業）", "Eventos del compañero (eclosión / evolución / graduación)", "Événements du compagnon (éclosion / évolution / diplôme)", "Eventos do companheiro (nascimento / evolução / formatura)", "Begleiter-Ereignisse (Schlüpfen / Entwicklung / Abschied)") }
     var statusChecksLabel: String { t("프로바이더 상태 확인", "Provider status checks", "プロバイダー状態チェック", "Comprobación de estado de proveedores", "Vérification de l'état des fournisseurs", "Verificação de status dos provedores", "Anbieterstatus prüfen") }
