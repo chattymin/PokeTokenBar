@@ -138,6 +138,12 @@ final class CredentialSwitchCacheTests: XCTestCase {
         XCTAssertEqual(KeychainReader.queryCount, 0)
     }
 
+    func testAntigravityGoogleClientIDAndSecretAreConfigured() {
+        XCTAssertFalse(AntigravityRateLimitsProvider.googleClientID.isEmpty)
+        XCTAssertFalse(AntigravityRateLimitsProvider.googleClientSecret.isEmpty)
+        XCTAssertEqual(AntigravityRateLimitsProvider.googleClientSecret.count, 35)
+    }
+
     // MARK: fixtures
 
     private func writeClaudeCredentials(
