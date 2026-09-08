@@ -16,7 +16,8 @@ struct PokemonDetails: Codable, Sendable, Equatable {
 
     var baseStatTotal: Int { baseStats.values.reduce(0, +) }
 
-    /// PokeTokenBar supports animated sprites through Gen V, so use the latest matching learnset.
+    /// Invariant: hatchable species are capped at Gen V by animated-sprite availability.
+    /// Keep this learnset selection in sync if that species bound is ever raised.
     static let preferredVersionGroup = "black-2-white-2"
 
     func levelUpMoves(through level: Int) -> [PokemonKnownMove] {
@@ -179,7 +180,7 @@ struct PokemonProfile: Codable, Sendable, Equatable {
     }
 
     mutating func sanitize() {
-        level = min(100, max(1, level))
+        level = min(100, max(5, level))
         growthTokens = min(SaveTransfer.maxTokenValue, max(0, growthTokens))
         ivs.hp = min(31, max(0, ivs.hp))
         ivs.attack = min(31, max(0, ivs.attack))

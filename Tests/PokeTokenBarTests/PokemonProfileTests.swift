@@ -210,8 +210,8 @@ final class PokemonDetailNormalizationTests: XCTestCase {
 
 /// 이식 세이브는 다른 기기에서 온 파일이고 `PokemonProfile` 은 합성 디코더라 파일이 말하는 값을 그대로
 /// 받는다. 즉 `SaveTransfer.sanitized` 가 손편집된 세이브와 상세 화면 사이의 유일한 관문이다.
-/// `moves` 클램프는 특히 tragend — 배운 기술 목록은 lazy 가 아닌 `VStack` 에 그려지므로 무제한 배열은
-/// 전부 즉시 생성된다. active/dex 두 호출부를 각각 검증한다(한쪽만 통과하는 걸 구별하기 위해).
+/// `moves` 도 저장·메모리·UI 경계에서 무제한 배열을 신뢰하지 않도록 클램프한다.
+/// active/dex 두 호출부를 각각 검증한다(한쪽만 통과하는 걸 구별하기 위해).
 final class PokemonProfileSanitizationTests: XCTestCase {
     private func hostileProfile() -> PokemonProfile {
         var profile = PokemonProfile.generate(seed: 5, instanceID: "hostile")
@@ -234,7 +234,7 @@ final class PokemonProfileSanitizationTests: XCTestCase {
         XCTAssertEqual([p.ivs.hp, p.ivs.attack, p.ivs.defense,
                         p.ivs.specialAttack, p.ivs.specialDefense, p.ivs.speed],
                        [31, 0, 31, 31, 0, 31], "\(label): IVs")
-        XCTAssertEqual(p.moves.count, 4, "\(label): unbounded move lists render eagerly")
+        XCTAssertEqual(p.moves.count, 4, "\(label): unbounded imported move list")
         XCTAssertTrue(p.moves.allSatisfy { $0.name.count <= 80 }, "\(label): move name length")
         XCTAssertTrue(p.moves.allSatisfy { (0...100).contains($0.learnedAtLevel) },
                       "\(label): move level")
@@ -255,6 +255,17 @@ final class PokemonProfileSanitizationTests: XCTestCase {
                               rarity: .common, caughtAt: Date(), profile: hostileProfile())]
 
         try assertClamped(SaveTransfer.sanitized(state).dex.first?.profile, "dex")
+    }
+
+    func testImportRaisesProfileLevelToHatchMinimum() throws {
+        var profile = PokemonProfile.generate(seed: 5, instanceID: "below-hatch-level")
+        profile.level = -99
+        var state = CompanionState()
+        state.active = MonState(baseID: 79, pathIDs: [79], stageIndex: 0, usedAtStage: 0,
+                                rarity: .common, totalForms: 1, profile: profile)
+
+        let sanitized = try XCTUnwrap(SaveTransfer.sanitized(state).active?.profile)
+        XCTAssertEqual(sanitized.level, 5)
     }
 }
 
