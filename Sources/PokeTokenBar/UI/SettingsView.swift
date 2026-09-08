@@ -33,6 +33,10 @@ struct SettingsView: View {
     @State private var customScanMatchTask: Task<Void, Never>?
     @State private var customScanMatchGeneration = 0
     @FocusState private var customScanFocused: Bool
+    /// 다른 Mac 의 iCloud 백업 목록. 비동기로 채운다 — evicted 파일은 읽는 순간 다운로드가 걸려
+    /// 메인 스레드를 네트워크만큼 잡는다.
+    @State private var remoteSaves: [ICloudSaveMirror.RemoteSave] = []
+    @State private var isLoadingRemoteSaves = false
     private var l: L { companion.l }
 
     private var isBundledApp: Bool { AppEnv.isBundledApp }
@@ -45,15 +49,10 @@ struct SettingsView: View {
         return "#\(species.id) \(species.name)\(species.isShiny ? " ✨" : "")"
     }
 
-    /// 세이브 봉투에 남길 출처 표기 — 어느 Mac에서 내보낸 파일인지 나중에 알아보기 위한 것.
-    private static var deviceName: String {
-        Host.current().localizedName ?? ProcessInfo.processInfo.hostName
-    }
-
-    /// 현재 앱 버전 — 업데이트 적용 여부 확인용으로 설정창 하단에 표기.
-    private static var appVersion: String {
-        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "—"
-    }
+    /// 봉투의 출처 표기와 앱 버전. `ICloudSaveMirror` 도 같은 값을 봉투에 쓰므로 한 곳에 둔다 —
+    /// 수동 내보내기와 자동 백업이 서로 다른 기기 이름을 적으면 복원 목록에서 같은 Mac 이 둘로 보인다.
+    private static var deviceName: String { SaveTransfer.deviceName }
+    private static var appVersion: String { SaveTransfer.appVersion }
 
     // MARK: 레이아웃 — 헤더 고정 / 본문 스크롤 / 푸터 고정
 
@@ -70,6 +69,7 @@ struct SettingsView: View {
                     notificationsGroup(store)
                     updateGroup(store)
                     transferGroup(store)
+                        .task(id: companion.iCloudMirror.isEnabled) { await reloadRemoteSaves() }
                     advancedGroup(store)
                     aboutSupportGroup
                 }
@@ -370,7 +370,70 @@ struct SettingsView: View {
                 Spacer()
                 Button(l.importSaveButton) { importSave(store) }
             }
+            Divider()
+            iCloudRows(store)
         }
+    }
+
+    /// iCloud Drive 백업 — 켜면 이 Mac 의 진행이 자동으로 올라가고, 다른 Mac 의 백업은 아래 목록에서
+    /// **사용자가 골라** 복원한다. 자동 적용이 아닌 이유는 `ICloudSaveMirror` 주석 참조(병합 불가 필드).
+    @ViewBuilder
+    private func iCloudRows(_ store: UsageStore) -> some View {
+        @Bindable var mirror = companion.iCloudMirror
+        groupRow {
+            VStack(alignment: .leading, spacing: 1) {
+                Text(l.iCloudSyncLabel)
+                Text(mirror.isAvailable ? l.iCloudSyncHint : l.iCloudUnavailableHint)
+                    .font(.caption2).foregroundStyle(.tertiary)
+            }
+            Spacer()
+            Toggle("", isOn: $mirror.isEnabled).labelsHidden().toggleStyle(.switch)
+                .controlSize(.small).disabled(!mirror.isAvailable)
+        }
+        if mirror.isAvailable && mirror.isEnabled {
+            Divider()
+            groupRow {
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(l.iCloudRestoreLabel)
+                    if remoteSaves.isEmpty && !isLoadingRemoteSaves {
+                        Text(l.iCloudNoRemoteSaves).font(.caption2).foregroundStyle(.tertiary)
+                    }
+                }
+                Spacer()
+                if isLoadingRemoteSaves { ProgressView().controlSize(.small) }
+            }
+            ForEach(remoteSaves) { remote in
+                Divider()
+                groupRow {
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(remote.deviceName)
+                        Text(l.iCloudRemoteSaveDetail(
+                            exportedAt: Self.exportedAtText(remote.exportedAt),
+                            dex: remote.summary.dexCount,
+                            tokens: TokenFormatter.compact(remote.summary.lifetimeTokens)))
+                            .font(.caption2).foregroundStyle(.tertiary)
+                    }
+                    Spacer()
+                    Button(l.iCloudRestoreButton) { restoreFromICloud(remote, store) }
+                }
+            }
+        }
+    }
+
+    /// 목록 새로고침. `Task.detached` 로 빼는 이유는 파일 읽기가 iCloud 다운로드를 유발할 수 있어서다.
+    private func reloadRemoteSaves() async {
+        let mirror = companion.iCloudMirror
+        guard mirror.isAvailable, mirror.isEnabled else {
+            remoteSaves = []
+            return
+        }
+        isLoadingRemoteSaves = true
+        defer { isLoadingRemoteSaves = false }
+        let directory = mirror.ownFileURL?.deletingLastPathComponent()
+        let ownID = mirror.deviceID
+        remoteSaves = await Task.detached {
+            ICloudSaveMirror.remoteSaves(in: directory, excludingDeviceID: ownID)
+        }.value
     }
 
     /// claude.ai 세션 키 — Keychain 을 안 읽는 한도 조회 경로. 붙여넣고 저장하면 즉시 검증한다.
@@ -733,6 +796,18 @@ struct SettingsView: View {
             presentAlert(title: l.importSaveLabel, message: l.importErrorMessage(error), style: .warning)
             return
         }
+        confirmAndApply(envelope, title: l.importSaveLabel, store: store)
+    }
+
+    /// iCloud 백업 하나를 이 Mac 에 복원. 파일 선택창만 없을 뿐 그 뒤는 수동 불러오기와 **같은 경로**다 —
+    /// 확인창·백업·기기 기준 재정렬을 우회하는 두 번째 적용 경로를 만들지 않기 위해 함수를 공유한다.
+    /// 봉투는 목록을 만들 때 이미 읽고 검증했으므로 여기서 파일을 다시 열지 않는다.
+    private func restoreFromICloud(_ remote: ICloudSaveMirror.RemoteSave, _ store: UsageStore) {
+        confirmAndApply(remote.envelope, title: l.iCloudRestoreLabel, store: store)
+    }
+
+    /// 검증된 봉투를 적용하기 전 마지막 관문. 파일에서 왔든 iCloud 에서 왔든 여기를 지난다.
+    private func confirmAndApply(_ envelope: SaveEnvelope, title: String, store: UsageStore) {
         let incoming = SaveSummary(state: envelope.state)
 
         // 고른 즉시 덮어쓰지 않는다 — 무엇이 대체되는지 수치로 보여주고 한 번 더 확인받는다.
@@ -763,10 +838,10 @@ struct SettingsView: View {
                                     todayDate: LocalUsageReader.todayKey(),
                                     hasUsageData: store.hasUsageData)
         } catch {
-            presentAlert(title: l.importSaveLabel, message: l.importErrorMessage(error), style: .warning)
+            presentAlert(title: title, message: l.importErrorMessage(error), style: .warning)
             return
         }
-        presentAlert(title: l.importSaveLabel,
+        presentAlert(title: title,
                      message: l.importSaveDone(dex: incoming.dexCount,
                                                tokens: TokenFormatter.compact(incoming.lifetimeTokens)),
                      style: .informational)

@@ -249,6 +249,21 @@ read_when:
   동기 클로저를 nonisolated 로 검사해, `@MainActor` `@Observable` store 접근이 수십 개의 오류로 연쇄된다.
   개별 프로퍼티에 `MainActor.assumeIsolated` 를 흩뿌리지 말고 UI 타입 선언 한 곳에 격리를 둔다.
   `SwiftUIIsolationTests.testEverySwiftUIViewAndAppIsMainActorIsolated` 가 새 View/App 선언 누락을 소스 스캔으로 막는다.
+- **로컬 Swift 가 CI 보다 새로우면 "로컬 초록"은 CI 초록의 증거가 아니다 — 같은 진단이 경고와 에러로
+  갈린다.** `@MainActor` XCTestCase 의 **동기** `setUp`/`tearDown` 은 릴리스 Swift 에서 nonisolated 로
+  취급돼 main-actor 저장 프로퍼티 접근이 막힌다. 실측: 로컬(6.3/6.5-dev)은 이걸 **warning** 으로 내고
+  `swift test` 가 통과하는데, CI(6.1.2)는 같은 줄을 **error** 로 내 컴파일이 죽는다. 즉 로컬에서는
+  빌드 로그에 묻힌 경고 한 줄이 유일한 신호였다.
+  규칙은 이미 있었다 — `UsageStoreTests` 에 `nonisolated(unsafe)` 와 그 이유가 주석으로 달려 있었다.
+  그런데도 다음에 추가된 `ICloudSaveMirrorTests` 가 그대로 어겼다. **산문 규칙은 그 파일을 여는
+  사람에게만 작동한다**(§외부 로그의 `UsageEnvironment` 건과 같은 부류 — 문서로 적어둔 규칙이
+  다음 파일에서 그대로 깨졌고, 해결은 구현이 아니라 강제 수단이었다).
+  → 가드는 소스 스캔이다: `SwiftUIIsolationTests.testMainActorTestClassesKeepMutableFixturesNonisolated`
+  가 `Tests/` 를 훑어 `@MainActor` + `: XCTestCase` + 동기 `setUp`/`tearDown` 조합에서
+  `nonisolated(unsafe)` 없는 가변 저장 프로퍼티를 실패시킨다. 주입 확인: 두 파일 각각에서
+  `nonisolated(unsafe)` 를 떼면 빨개진다(한 파일에만 반응하는 스캔이 아님을 확인).
+  일반화: **경고를 에러로 승격하는 축이 툴체인 버전이면, 로컬 경고 무시는 CI 실패와 같은 말이다.**
+  새 테스트 파일에 액터 격리가 얽히면 빌드 경고를 먼저 읽어라.
 - **coverage profile producer와 consumer는 같은 LLVM toolchain이어야 한다.** Homebrew Swift 6.3 이 만든
   `default.profdata` 를 구형 Xcode의 `xcrun llvm-cov` 로 읽으면 `unsupported instrumentation profile format
   version` 으로 테스트 성공 뒤 게이트만 실패한다. `test-gate.sh` 는 현재 `swift` 실경로 옆의 `llvm-cov` 를
@@ -575,6 +590,33 @@ read_when:
   넣어 보고, 로컬 장부만 새 기기 기준으로 다시 잡는다(`SaveTransfer.rebasedForThisDevice`). 회귀 가드:
   `testTransferDayTokensStillCountAfterRebase` — 재정렬 없는 대조군을 같이 돌려 결함 조건이 살아 있는지도
   함께 확인한다(테스트가 트리거 브랜치를 실제로 밟는지 보증).
+
+- **iCloud 는 이 앱에서 "엔타이틀먼트 없는 파일 경로"만 쓸 수 있다 — CloudKit·KVS 는 조용한 no-op 다.**
+  `CloudKit`·`NSUbiquitousKeyValueStore`·`FileManager.url(forUbiquityContainerIdentifier:)` 는 모두
+  `com.apple.developer.icloud-*` 엔타이틀먼트를 요구하고, macOS 는 그걸 **유료 개발자 팀의 프로비저닝
+  프로파일**로 검증한다. 이 앱의 서명은 `scripts/create-signing-cert.sh` 가 만드는 자체서명 인증서라
+  (팀 ID 없음, `.entitlements` 파일 자체가 없음) 그 API 들은 에러가 아니라 **조용히 아무 일도 안 하고**
+  `nil` 을 돌려준다 — 빌드도 되고 실행도 되므로 리뷰로는 안 잡힌다. 대신 이 앱은 샌드박스가 아니라서
+  `~/Library/Mobile Documents/com~apple~CloudDocs/` 에 그냥 쓸 수 있고 iCloud Drive 데몬이 동기화한다
+  (`ICloudSaveMirror`). 서명 방식을 바꾸기 전까지 다른 경로를 시도하지 마라.
+- **여러 기기가 같은 iCloud 파일에 쓰면 그건 동기화가 아니라 기기 간 last-writer-wins 다.**
+  §프로세스·인스턴스의 중복 인스턴스 결함과 같은 부류이고, 그쪽엔 `SingleInstance` 라도 있지만 기기
+  사이엔 그마저 없다. `CompanionState` 에는 병합 불가 필드가 있다 — `active`·`eggTier`·`pendingHatchID`
+  는 단일값, `inventory`·`spentTokens` 는 개수라 델타 추적 없이 합치면 이중지출이다. 그래서
+  `ICloudSaveMirror` 는 **기기마다 다른 파일**(`save-<deviceID>.json`)에 쓰고 — 같은 이름을 쓰면 iCloud
+  가 충돌 사본을 만든다 — 적용은 항상 사용자가 고르는 복원이며 기존 `applySave` 경로(확인창·백업·
+  `rebasedForThisDevice`)를 그대로 지난다. 두 번째 적용 경로를 만들지 마라.
+- **`save()` 에 부수효과를 붙일 땐 그 호출 빈도를 먼저 보라.** `CompanionStore.save()` 는 dirty 체크
+  없이 120초 새로고침마다 호출된다. 백업 업로드를 그대로 따라 걸면 하루 최대 720회 × 수백 KB 다.
+  게이트는 둘이고 **순서가 중요하다** — 간격을 먼저 보고(창 안이면 인코딩 비용도 안 치른다) 그다음
+  내용을 본다. 내용 비교에 `save()` 가 만든 바이트를 재사용하면 안 된다: 기본 `JSONEncoder` 는 키
+  순서를 보장하지 않아 `inventory`·`candyGrantTier`·`collectedFinals` 가 같은 상태로도 다른 바이트를
+  내놓고(실측: `.sortedKeys` 를 빼면 `testCanonicalEncodingIsStableForEqualState` 가 빨개진다), 봉투를
+  비교하면 `exportedAt` 때문에 **항상** 다르다. 그리고 쓰기 실패는 기록하지 마라 — 기록하면 다음 틱이
+  성공한 줄 알고 건너뛰어 그 변경이 영영 안 올라간다. 가드:
+  `testChangedStateInsideTheIntervalIsHeld`(간격의 트리거 브랜치 — 내용 게이트만 있으면 통과해 버린다)·
+  `testUnchangedStateIsNotRewrittenEvenAfterTheInterval`·
+  `testWriteFailureIsNotRecordedSoTheNextTickRetries`.
 
 ## 렌더 기하 (스프라이트·이미지)
 
