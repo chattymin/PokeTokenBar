@@ -595,6 +595,55 @@ struct L {
     var dexFilterHint: String { t("탭하면 이 희귀도만 보기 · 다시 탭하면 전체", "Tap to show only this rarity · tap again to clear", "タップでこの希少度のみ表示・再タップで全体", "Toca para ver solo esta rareza · toca de nuevo para ver todo", "Touche pour n'afficher que cette rareté · touche à nouveau pour tout afficher", "Toque para ver só esta raridade · toque de novo para ver tudo", "Tippe, um nur diese Seltenheit zu sehen · tippe erneut für alle") }
     /// 도감 칸의 ✨ 를 읽어주는 명사 — 이모지는 스크린리더가 일관되게 읽지 못한다.
     var dexShinyLabel: String { t("이로치", "Shiny", "色違い", "Variocolor", "Chromatique", "Shiny", "Schillernd") }
+
+    // MARK: 도감 상세 (버전별 도감 설명)
+    /// 칸을 눌러 상세로 갈 수 있다는 안내 — 칸 툴팁·접근성 라벨 끝에 덧붙임.
+    var dexOpenDetailHint: String {
+        t("탭하면 도감 설명", "Tap for Pokédex entries", "タップで図鑑説明",
+          "Toca para ver las descripciones", "Touchez pour voir les descriptions",
+          "Toque para ver as descrições", "Für Pokédex-Einträge tippen")
+    }
+    var dexBack: String {
+        t("도감으로 돌아가기", "Back to Pokédex", "図鑑に戻る",
+          "Volver a la Pokédex", "Retour au Pokédex", "Voltar à Pokédex", "Zurück zum Pokédex")
+    }
+    /// 이로치 보기 스위치 — 격자와 상세가 같은 상태를 공유하므로 문구도 하나만 유지.
+    var dexShinyToggleHint: String {
+        t("이로치로 잡은 종을 이로치 색으로 보기", "Show species you caught shiny in their shiny colors",
+          "色違いで捕まえた種を色違いの姿で表示", "Muestra en variocolor las especies que capturaste así",
+          "Afficher en chromatique les espèces capturées ainsi",
+          "Mostrar em shiny as espécies que você capturou assim",
+          "Schillernd gefangene Arten in ihren schillernden Farben anzeigen")
+    }
+    var dexFlavorLoading: String {
+        t("도감 설명 불러오는 중…", "Loading Pokédex entries…", "図鑑説明を読み込み中…",
+          "Cargando descripciones de la Pokédex…", "Chargement des descriptions du Pokédex…",
+          "Carregando descrições da Pokédex…", "Pokédex-Einträge werden geladen…")
+    }
+    var dexFlavorFailed: String {
+        t("도감 설명을 불러오지 못했어요", "Couldn't load Pokédex entries", "図鑑説明を読み込めませんでした",
+          "No se pudieron cargar las descripciones de la Pokédex",
+          "Impossible de charger les descriptions du Pokédex",
+          "Não foi possível carregar as descrições da Pokédex",
+          "Pokédex-Einträge konnten nicht geladen werden")
+    }
+    /// 요청 언어 설명이 한 줄도 없어 영어로 채웠을 때의 안내 — PokéAPI 에 그 언어 도감 설명이
+    /// 아예 없는 경우(예: `pt`). 종 이름도 같은 조건에서 영어로 폴백하므로 화면이 어긋나지 않는다.
+    var dexFlavorEnglishFallback: String {
+        t("이 언어로 제공되는 설명이 없어 영어로 표시합니다",
+          "No entries in this language — showing English",
+          "この言語の説明がないため英語で表示します",
+          "No hay descripciones en este idioma — se muestra en inglés",
+          "Aucune description dans cette langue — affichage en anglais",
+          "Sem descrições neste idioma — exibindo em inglês",
+          "Keine Einträge in dieser Sprache — Anzeige auf Englisch")
+    }
+    /// 영어에도 한 줄이 없을 때(방어) — 앱 도감 범위(1~649)에서는 실측상 발생하지 않는다.
+    var dexFlavorEmpty: String {
+        t("도감 설명이 없어요", "No Pokédex entries", "図鑑説明がありません",
+          "No hay descripciones de la Pokédex", "Aucune description du Pokédex",
+          "Sem descrições da Pokédex", "Keine Pokédex-Einträge")
+    }
     func rarityLabel(_ r: Rarity) -> String {
         switch r {
         case .common:    return rarityCommon

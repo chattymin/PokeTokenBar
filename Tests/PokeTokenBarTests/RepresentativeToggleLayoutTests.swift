@@ -2,12 +2,12 @@ import XCTest
 import SwiftUI
 @testable import PokeTokenBar
 
-/// 도감 하단은 332pt 한 줄에서 종 이름·희귀도·대표 액션을 함께 보여준다. 대표 액션의 번역문을
-/// 버튼 본문에 그리면 en/es 에서 그 앞의 종 정보가 잘리므로, 실제 버튼 폭이 로케일과 무관한지 렌더한다.
+/// 대표 액션은 도감 상세 머리글에서 뒤로가기·스프라이트·이름·희귀도·이로치 토글과 한 줄을 나눠 쓴다.
+/// 번역문을 버튼 본문에 그리면 긴 로케일에서 옆 정보가 밀리므로, 실제 버튼 폭이 로케일과 무관한지 렌더한다.
 @MainActor
-final class RepresentativeFooterLayoutTests: XCTestCase {
+final class RepresentativeToggleLayoutTests: XCTestCase {
     private func renderedWidth(language: AppLanguage, isRepresentative: Bool) -> CGFloat {
-        let view = RepresentativeFooterButton(localization: L(language),
+        let view = RepresentativeToggleButton(localization: L(language),
                                               isRepresentative: isRepresentative,
                                               action: {})
         return NSHostingController(rootView: view)
