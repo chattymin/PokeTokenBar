@@ -170,6 +170,15 @@ struct PopoverView: View {
                 }
                 .padding(.top, 2)
             }
+            if store.showsLeverage, let ratio = store.subscriptionLeverage {
+                Text(l.subscriptionLeverage(
+                    plan: TokenFormatter.cost(store.monthlyPlanPrice),
+                    apiEquivalent: TokenFormatter.cost(store.monthAPIEquivalentCost),
+                    multiplier: TokenFormatter.multiplier(ratio)))
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+                    .padding(.top, 2)
+            }
 
             // 연결된 서비스가 2개 이상이면 작은 탭으로 서비스별 상세를 넘나든다
             // (합계는 위에 유지 — 상세·한도만 탭 스코프).

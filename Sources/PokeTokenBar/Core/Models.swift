@@ -243,6 +243,18 @@ struct LimitStatus: Decodable, Sendable {
         return "\(accountEmail) · \(org)"
     }
 
+    /// Max/Pro/Team are billed as a flat monthly plan, so ModelPricing `$` is
+    /// API-equivalent — the gate for the leverage row (#200), not a caption to
+    /// stamp on every provider. Free / missing plan stay billed-like-API.
+    /// Credential JSON may mix case. Kept on this type so generic totals never
+    /// branch on `providerID` (provider-extension rule).
+    var isFlatRateSubscription: Bool {
+        switch subscriptionType?.lowercased() {
+        case "max", "pro", "team": return true
+        default: return false
+        }
+    }
+
     /// rateLimitTier 끝의 배수 토큰("20x"/"5x") 추출 — "_" 로 나눠 숫자+x 형태를 찾는다.
     /// 배수가 없는 등급("default_claude_pro")은 nil → 등급명만 표시.
     private static func tierMultiplier(from tier: String) -> String? {
@@ -499,6 +511,8 @@ struct ProviderSnapshot: Sendable, Identifiable {
     var fetchedAt: Date
     /// Mirrors `UsageProvider.reportsCost`. Default keeps existing call sites unchanged.
     var reportsCost: Bool = true
+    /// Mirrors `UsageProvider.costIsEstimate`. Default is table-priced (estimate).
+    var costIsEstimate: Bool = true
 
     var id: String { providerID }
     var todayTotalTokens: Int { today?.totalTokens ?? 0 }

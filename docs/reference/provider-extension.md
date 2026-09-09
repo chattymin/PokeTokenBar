@@ -17,6 +17,14 @@ read_when:
   합산이어야 한다(`snapshots` reduce). 한 프로바이더에만 계산을 붙이지 마라(과거 회귀: burn 이 Claude
   블록만 관측 → Codex/Gemini 전용 사용자 companion 이 항상 idle). 패리티 테스트가 이를 강제한다
   (`UsageStoreTests` 의 "unknown provider" 계열).
+- **`$` 가 견적인지 청구인지는 프로바이더가 말한다.** `reportsCost` 는 달러를 그릴지,
+  `costIsEstimate` 는 그 달러가 ModelPricing 환산인지 서버 요금인지. 기본은 estimate
+  (표 가격 소스). Grok/OpenCode/Hermes 처럼 로그에 요금이 있으면 `costIsEstimate = false`.
+  Claude Max 플랜을 전역 플래그로 모든 행에 씌우지 마라(#224). 범용 합계 경로에
+  `== "claude_code"` 로 이 판정을 넣지 않는다. 레버리지 `$Y` 는 Claude 월 견적만
+  합산한다 — 게이트가 Claude Max/Pro/Team 이고 사용자가 넣는 건 Claude 구독료라서
+  Gemini/Codex 견적을 섞으면 배수가 부풀어 오른다(#249). `monthCostTotal` 헤더는
+  그대로 전 프로바이더 합산.
 - **프로바이더 고유 동작만 `providerID` 로 명시 분기**: 공식 한도(Claude=HTTP·Codex=프로세스),
   5h forecast·"현재 블록" 행처럼 *특정 프로바이더에만 존재하는* 기능만 id 로 조건 분기한다.
   범용 경로에 `== "claude_code"` 류 리터럴 분기를 추가하는 건 금지.
