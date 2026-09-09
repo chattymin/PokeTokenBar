@@ -164,7 +164,7 @@ final class UsageEnvironmentTests: XCTestCase {
             "CLOUD_CODE_URL", "PI_CODING_AGENT_DIR", "PI_CODING_AGENT_SESSION_DIR",
             "CURSOR_SESSION_TOKEN", "CURSOR_USAGE_API",
             "KIRO_CLI_HOME", "KIRO_HOME", "CURSOR_DATA_DIR",
-            "OMP_CODING_AGENT_DIR",
+            "OMP_CODING_AGENT_DIR", "KUN_DATA_DIR",
         ] {
             XCTAssertTrue(UsageEnvironment.names.contains(name), "\(name) 이 조회 대상에서 빠졌다")
         }
