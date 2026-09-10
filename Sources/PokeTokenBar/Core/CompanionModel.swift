@@ -131,6 +131,60 @@ enum PokemonBalance {
         let standardThreshold = Int((total * Double(i) / denom).rounded())
         return max(1, Int((Double(standardThreshold) / Double(max(1, growthMultiplier))).rounded()))
     }
+
+    // MARK: 난이도 배율 (설정 슬라이더)
+
+    /// 사용자 조절 배율의 허용 범위. 1 미만이면 기본보다 빠르고·싸며, 1 초과면 느리고·비싸다.
+    static let difficultyRange: ClosedRange<Double> = 0.0001...20.0
+    /// 기본값 — 이 값에서 모든 밸런스가 위 상수표 그대로다(기존 동작과 동일).
+    static let defaultDifficulty: Double = 1.0
+
+    /// 저장값을 허용 범위로 조인다. UserDefaults 는 `defaults write` 로 외부에서 쓸 수 있어
+    /// 0·음수·NaN 이 실제로 들어올 수 있고, 배율 0 은 임계 0(진행률 0 나눗셈·퇴화한 진화 루프)이 된다.
+    static func clampDifficulty(_ value: Double) -> Double {
+        guard value.isFinite else { return defaultDifficulty }
+        return min(max(value, difficultyRange.lowerBound), difficultyRange.upperBound)
+    }
+
+    /// 기본값 × 난이도 — 임계·가격 공통. **상수표 자체는 스케일하지 않는다**: 등급 알 가격이
+    /// `graduationTotal` 의 *비율*로 파생되므로(FreshEgg.price), 표를 건드리면 성장 배율이 상점
+    /// 가격까지 끌고 간다. 소비 지점에서만 곱해 두 배율을 서로 독립으로 유지한다.
+    static func scaled(_ base: Int, by difficulty: Double) -> Int {
+        Int((Double(base) * clampDifficulty(difficulty)).rounded())
+    }
+
+    // MARK: 슬라이더 위치 ↔ 배율 (로그 매핑)
+    //
+    // 범위가 다섯 자릿수를 넘어 선형 슬라이더로는 못 쓴다 — 1.0(기본)이 트랙의 5% 지점에 몰려
+    // 실사용 구간을 손으로 집을 수 없고, 0.1 미만은 전부 한 틱에 뭉갠다. 위치를 로그로 매핑해
+    // "배율 10배당 이동거리"를 일정하게 만든다.
+
+    /// 기본값(100%)이 트랙에서 차지하는 폭. 로그축이라 1.0 근처 1px 이 배율 7% 에 해당해서,
+    /// 값 기준으로 스냅하면 창이 1px 보다 좁아져 드래그가 100% 를 그냥 지나친다 —
+    /// 되돌릴 수단이 없어지므로 창을 **위치 기준**으로 잡는다(트랙의 ±1%).
+    private static let defaultSnapWidth = 0.01
+
+    /// 슬라이더 위치(0…1) → 배율.
+    static func difficulty(atPosition position: Double) -> Double {
+        let lo = difficultyRange.lowerBound, hi = difficultyRange.upperBound
+        let p = min(max(position, 0), 1)
+        if abs(p - difficultyPosition(defaultDifficulty)) < defaultSnapWidth { return defaultDifficulty }
+        return snapDifficulty(lo * pow(hi / lo, p))
+    }
+
+    /// 배율 → 슬라이더 위치(0…1).
+    static func difficultyPosition(_ value: Double) -> Double {
+        let lo = difficultyRange.lowerBound, hi = difficultyRange.upperBound
+        return log(clampDifficulty(value) / lo) / log(hi / lo)
+    }
+
+    /// 로그 슬라이더에서 나온 값을 유효숫자 2자리로 정리한다 — 없으면 1.0473 같은 값이 그대로 표시된다.
+    /// 기본값 되돌리기는 여기가 아니라 `difficulty(atPosition:)` 의 위치 스냅이 담당한다.
+    static func snapDifficulty(_ value: Double) -> Double {
+        guard value > 0 else { return difficultyRange.lowerBound }
+        let magnitude = pow(10, (log10(value)).rounded(.down) - 1)
+        return ((value / magnitude).rounded() * magnitude)
+    }
 }
 
 /// 인벤토리 아이템 종류 — 확장 대비 enum(현재 이상한 사탕 1종). rawValue 로 CompanionState.inventory 에 저장.
@@ -175,7 +229,8 @@ enum ItemKind: String, Codable, Sendable, CaseIterable {
 /// 이상한 사탕 밸런스 상수.
 enum RareCandy {
     /// 사용 시 현재 포켓몬에 주입하는 XP(토큰 환산). 2× 성장의 최소 임계는 62.5M 이지만,
-    /// 초과 이월(<100M)은 다음 임계(125M)보다 작아 사탕 1개는 최대 1단계만 올린다.
+    /// 기본 난이도·첫 부화에서는 초과 이월(<100M)이 다음 임계(125M)보다 작아 최대 1단계만 올린다.
+    /// 낮은 난이도나 반복 부화 보너스에서는 여러 단계를 진행할 수 있다.
     static let xp = 100_000_000
     /// 주간 한도 100% 도달 시 지급 개수(세션급은 1개).
     static let weeklyGrant = 5

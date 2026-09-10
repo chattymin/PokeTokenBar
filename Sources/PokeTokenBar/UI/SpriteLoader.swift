@@ -7,16 +7,17 @@ actor SpriteStore {
     private let itemBase = "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items"
     private var mem: [String: Data] = [:]
     private var memOrder: [String] = []   // LRU 순서(최근 접근이 뒤). 상한 초과 시 앞(오래된 것)부터 evict
-    // in-memory 스프라이트 캐시 상한 — 세션 중 종 변경 누적 무한증가 방지(#H1).
-    // 도감 한 페이지가 24칸이라 상한 24 는 LRU 가 매 페이지 전환마다 완전 회전했다(돌아올 때 디스크
-    // 동기 재읽기 24회). 정적 PNG 는 종당 0.5~1KB 라 64 로 올려도 메모리 비용이 무의미하다.
+    // 원본 PNG/GIF 바이트의 LRU 상한 — 도감 한 페이지(24칸)보다 넉넉히 유지하되,
+    // 세션 중 종 변경으로 무한 누적되지 않게 한다. NSImage 캐시는 SpriteLoader 가 별도로 관리한다.
     private let memLimit = 64
-    private let dir: URL = {
-        let d = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+    nonisolated let directory: URL
+
+    init(directory: URL? = nil) {
+        let d = directory ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("PokeTokenBar/sprites")
+        self.directory = d
         try? FileManager.default.createDirectory(at: d, withIntermediateDirectories: true)
-        return d
-    }()
+    }
 
     /// 캐시 파일명 키 — 기존 "\(id)-a"/"\(id)-s" 유지, shiny 는 "sh" 접두(구캐시 그대로 유효).
     static func cacheKey(speciesID: Int, animated: Bool, shiny: Bool) -> String {
@@ -28,7 +29,7 @@ actor SpriteStore {
         let key = Self.cacheKey(speciesID: speciesID, animated: animated, shiny: shiny)
         if let d = mem[key] { touch(key); return d }
         let ext = animated ? "gif" : "png"
-        let file = dir.appendingPathComponent("\(key).\(ext)")
+        let file = directory.appendingPathComponent("\(key).\(ext)")
         if let d = try? Data(contentsOf: file) { remember(key, d); return d }
         let urlStr: String
         switch (animated, shiny) {
@@ -50,7 +51,7 @@ actor SpriteStore {
     func data(itemName: String) async -> Data? {
         let key = "item-\(itemName)"
         if let d = mem[key] { touch(key); return d }
-        let file = dir.appendingPathComponent("\(key).png")
+        let file = directory.appendingPathComponent("\(key).png")
         if let d = try? Data(contentsOf: file) { remember(key, d); return d }
         guard let url = URL(string: "\(itemBase)/\(itemName).png"),
               let (d, resp) = try? await URLSession.shared.data(from: url),
@@ -64,7 +65,7 @@ actor SpriteStore {
     func eggData() async -> Data? {
         let key = "egg"
         if let d = mem[key] { touch(key); return d }
-        let file = dir.appendingPathComponent("egg.png")
+        let file = directory.appendingPathComponent("egg.png")
         if let d = try? Data(contentsOf: file) { remember(key, d); return d }
         guard let url = URL(string: "\(base)/egg.png"),
               let (d, resp) = try? await URLSession.shared.data(from: url),
@@ -97,43 +98,73 @@ enum SpriteLoader {
             .appendingPathComponent("PokeTokenBar/sprites")
     }()
 
-    /// 디스크 캐시에 이미 있으면 동기 반환(네트워크 없음). 없으면 nil.
+    /// 동기 시드와 async 로드가 NSImage 를 공유해 파일 읽기와 이미지 객체 생성을 반복하지 않는다.
+    /// 키는 디렉터리를 포함한 파일 경로다. countLimit 은 퇴출 기준이며 엄격한 메모리 상한은 아니다.
+    static let imageCache: NSCache<NSString, NSImage> = {
+        let cache = NSCache<NSString, NSImage>()
+        cache.countLimit = 64
+        return cache
+    }()
+
+    /// 메모리·디스크 캐시에 이미 있으면 동기 반환(네트워크 없음). 없으면 nil.
     /// shiny 캐시 미스는 일반 캐시로 폴백 — 오프라인에서 live mon 이 알 글리프로 보이는 것 방지.
-    static func cachedImage(speciesID: Int, animated: Bool = false, shiny: Bool = false) -> NSImage? {
+    static func cachedImage(speciesID: Int, animated: Bool = false, shiny: Bool = false,
+                            directory: URL = cacheDir) -> NSImage? {
         let ext = animated ? "gif" : "png"
         let key = SpriteStore.cacheKey(speciesID: speciesID, animated: animated, shiny: shiny)
-        let f = cacheDir.appendingPathComponent("\(key).\(ext)")
-        if let d = try? Data(contentsOf: f), let img = NSImage(data: d) { return img }
+        let f = directory.appendingPathComponent("\(key).\(ext)")
+        let imageKey = f.path as NSString
+        if let img = imageCache.object(forKey: imageKey) { return img }
+        if let d = try? Data(contentsOf: f), let img = NSImage(data: d) {
+            imageCache.setObject(img, forKey: imageKey)
+            return img
+        }
         guard shiny else { return nil }
-        return cachedImage(speciesID: speciesID, animated: animated, shiny: false)
+        // 폴백은 일반색 키에만 저장한다 — 나중에 받은 이로치 이미지를 가리지 않게.
+        return cachedImage(speciesID: speciesID, animated: animated, shiny: false, directory: directory)
     }
 
     /// 정적 스프라이트. animated=true 면 Gen-V 움직이는 스프라이트(없으면 정적으로 폴백).
     /// shiny=true 는 색이 다른 스프라이트 — 미제공 종이면 일반으로 폴백.
-    static func image(speciesID: Int, animated: Bool = false, shiny: Bool = false) async -> NSImage? {
-        if animated, let d = await SpriteStore.shared.data(speciesID: speciesID, animated: true, shiny: shiny),
-           let img = NSImage(data: d) {
-            return img
-        }
-        if let d = await SpriteStore.shared.data(speciesID: speciesID, animated: false, shiny: shiny),
-           let img = NSImage(data: d) {
+    static func image(speciesID: Int, animated: Bool = false, shiny: Bool = false,
+                      store: SpriteStore = .shared) async -> NSImage? {
+        for moving in animated ? [true, false] : [false] {
+            let key = SpriteStore.cacheKey(speciesID: speciesID, animated: moving, shiny: shiny)
+            let ext = moving ? "gif" : "png"
+            let imageKey = store.directory.appendingPathComponent("\(key).\(ext)").path as NSString
+            if let img = imageCache.object(forKey: imageKey) { return img }
+            guard let d = await store.data(speciesID: speciesID, animated: moving, shiny: shiny) else { continue }
+            // await 중 같은 종의 다른 행이 로드를 끝냈으면 그 객체를 재사용한다.
+            if let img = imageCache.object(forKey: imageKey) { return img }
+            guard let img = NSImage(data: d) else { continue }
+            imageCache.setObject(img, forKey: imageKey)
             return img
         }
         // shiny 미제공 → 일반 폴백
         guard shiny else { return nil }
-        return await image(speciesID: speciesID, animated: animated, shiny: false)
+        return await image(speciesID: speciesID, animated: animated, shiny: false, store: store)
     }
 
-    /// 아이템 스프라이트 — 디스크 캐시 동기 조회(없으면 nil). 아이콘 즉시 표시용(재렌더 플래시 방지).
-    static func cachedItemImage(name: String) -> NSImage? {
-        let f = cacheDir.appendingPathComponent("item-\(name).png")
-        if let d = try? Data(contentsOf: f), let img = NSImage(data: d) { return img }
+    /// 아이템 스프라이트 — 메모리·디스크 캐시 동기 조회(없으면 nil). 아이콘 즉시 표시용.
+    static func cachedItemImage(name: String, directory: URL = cacheDir) -> NSImage? {
+        let f = directory.appendingPathComponent("item-\(name).png")
+        let imageKey = f.path as NSString
+        if let img = imageCache.object(forKey: imageKey) { return img }
+        if let d = try? Data(contentsOf: f), let img = NSImage(data: d) {
+            imageCache.setObject(img, forKey: imageKey)
+            return img
+        }
         return nil
     }
 
     /// 아이템 스프라이트 — 런타임 로드(+캐시). 미제공/실패면 nil(뷰가 이모지로 폴백).
-    static func itemImage(name: String) async -> NSImage? {
-        guard let d = await SpriteStore.shared.data(itemName: name), let img = NSImage(data: d) else { return nil }
+    static func itemImage(name: String, store: SpriteStore = .shared) async -> NSImage? {
+        let imageKey = store.directory.appendingPathComponent("item-\(name).png").path as NSString
+        if let img = imageCache.object(forKey: imageKey) { return img }
+        guard let d = await store.data(itemName: name) else { return nil }
+        if let img = imageCache.object(forKey: imageKey) { return img }
+        guard let img = NSImage(data: d) else { return nil }
+        imageCache.setObject(img, forKey: imageKey)
         return img
     }
 

@@ -283,6 +283,14 @@ final class FloatingPetEnergyTests: XCTestCase {
         XCTAssertTrue(UsageStore.AnimationQuality.allCases.allSatisfy { $0.frameFloor > 0 })
     }
 
+    /// 푸터 눈 아이콘은 **현재 상태**를 그린다 — 뒤집히면 "숨김"인데 켜진 것처럼 보인다.
+    /// 아이콘/툴팁이 설정창 스위치와 같은 값에서 파생되는지는 두 곳 모두 store.floatingPetEnabled 를
+    /// 읽는 것으로 보장되고(별도 상태 없음), 여기선 그 값 → 심볼 매핑만 잠근다.
+    func testFooterEyeSymbolFollowsVisibility() {
+        XCTAssertEqual(FloatingPetView.visibilitySymbol(visible: true), "eye")
+        XCTAssertEqual(FloatingPetView.visibilitySymbol(visible: false), "eye.slash")
+    }
+
     /// Bubble needs headroom + width beyond the square pet size — otherwise content is clipped.
     func testPanelGrowsForBubbleWithoutChangingPetOrigin() {
         let pet: CGFloat = 96
@@ -292,6 +300,14 @@ final class FloatingPetEnergyTests: XCTestCase {
         let shown = FloatingPetController.panelSize(petSize: pet, showingBubble: true)
         XCTAssertGreaterThan(shown.height, pet, "must reserve vertical headroom for the bubble")
         XCTAssertGreaterThanOrEqual(shown.width, pet)
+
+        // The other branch of `max(petSize, bubbleMinWidth)`: past 180pt the pet drives the
+        // panel width, not the bubble column. Only 184/192 reached it before the slider max
+        // went to 384, so it was an untested 2-step edge; now it is most of the range.
+        let large: CGFloat = 384
+        let largeShown = FloatingPetController.panelSize(petSize: large, showingBubble: true)
+        XCTAssertEqual(largeShown.width, large, "panel must widen with the pet past bubbleMinWidth")
+        XCTAssertEqual(largeShown.height, large + FloatingPetController.bubbleHeadroom)
 
         let petOrigin = NSPoint(x: 400, y: 200)
         let panelOrigin = FloatingPetController.panelOrigin(

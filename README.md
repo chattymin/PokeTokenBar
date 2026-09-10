@@ -50,7 +50,7 @@ PokeTokenBar turns the AI coding tokens you're already burning — Claude Code, 
 <td width="45%" align="center"><img src="assets/floating-pet.gif" width="340" alt="Floating desktop pet with a hover callout and right-click menu"></td>
 <td width="55%" valign="middle">
 <h3>🐾 Let it live on your desktop</h3>
-Move your companion out of the menu bar and onto the desktop, at any size from 48 to 192px. Hover it for today's usage, click to open the popover, right-click for a menu, drag it wherever you like — and limit alerts can appear as a speech bubble above it.
+Move your companion out of the menu bar and onto the desktop, at any size from 48 to 384px. Hover it for today's usage, click to open the popover, right-click for a menu, drag it wherever you like — and limit alerts can appear as a speech bubble above it.
 </td>
 </tr>
 <tr>

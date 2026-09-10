@@ -169,14 +169,24 @@ final class ShopTests: XCTestCase {
         XCTAssertEqual(prices, prices.sorted(), "가격 상수가 바뀌어도 오름차순 불변식 유지")
     }
 
-    /// 활성 포켓몬이 없으면(알 상태) 리롤 대상이 없어 알은 **등급 알까지 전부** 목록에서 빠진다.
-    /// 프리미엄 알만 알 상태에서 살 수 있게 하는 안은 채택하지 않았다 — 기존 새 알과 게이트를 통일한다.
-    func testShopEntriesOmitsFreshEggWhenNoActive() {
-        let s = store(used: 5_000_000_000)   // active 없음
+    /// 활성 포켓몬이 없어도(알 상태) 알 3종은 목록에 **남는다** — 숨기면 "상점에 알이 원래 없다"로
+    /// 읽힌다. 대신 구매는 `canBuyEgg` 의 `hasActive` 게이트가 전부 막는다(EggCard 는 비활성 버튼 +
+    /// 사유 한 줄). 잔액이 충분한 상태로 검증해 게이트가 잔액이 아니라 hasActive 에서 걸림을 확인한다.
+    func testShopEntriesKeepsEggsVisibleButUnbuyableWhenNoActive() {
+        let s = store(used: 5_000_000_000)   // active 없음, 잔액은 전 티어 가격 이상
         XCTAssertFalse(s.hasActive)
-        XCTAssertEqual(s.shopEntries, [.item(.mint), .item(.rareCandy), .item(.shinyCharm)])
+        XCTAssertEqual(s.shopEntries,
+                       [.item(.mint),        // 100M
+                        .item(.rareCandy),   // 500M
+                        .egg(nil),           // 1B
+                        .egg(.uncommon),     // 2.5B
+                        .item(.shinyCharm),  // 3B
+                        .egg(.rare)])        // 4B
         for tier in FreshEgg.shopTiers {
-            XCTAssertFalse(s.shopEntries.contains(.egg(tier)), "알 상태에선 \(tier?.rawValue ?? "기본") 알도 미노출")
+            XCTAssertTrue(s.shopEntries.contains(.egg(tier)), "알 상태에서도 \(tier?.rawValue ?? "기본") 알은 노출 유지")
+            XCTAssertFalse(s.canBuyEgg(tier), "노출은 되지만 \(tier?.rawValue ?? "기본") 알 구매는 hasActive 게이트로 차단")
+            XCTAssertFalse(s.buyEgg(tier), "buyEgg 도 no-op — 토큰이 빠져나가면 안 된다")
         }
+        XCTAssertEqual(s.availableTokens, 5_000_000_000, "차단된 구매 시도로 잔액이 줄지 않는다")
     }
 }

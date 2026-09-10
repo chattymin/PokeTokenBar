@@ -39,7 +39,11 @@ read_when:
   `졸업 → 같은 base 재부화` 트리거를 밟지 않았다. 할인 자격은 planned final이 아니라
   `collectedFinals` 의 **base predicate**로 hatch 순간 결정한다 — final 기준이면 아직 공개하지 않은 분기 선택이
   남은 토큰으로 샌다. 결과는 `MonState.hasGrowthBoost` 에 저장하고 Home 표시·일반 성장·메타몽 리빌이 모두
-  `MonState.phaseThreshold` 를 읽는다. 가드: `testRepeatGrowthIsDecidedFromTheCollectedBaseNotThePlannedFinal`·
+  `stageThreshold(for:)` 에서 `MonState.phaseThreshold` 에 난이도를 곱한 값을 읽는다.
+  #244/#254 통합 시 한쪽 임계값만 선택하면 다른 배율이 사라진다. 기존 테스트는 두 기능을 따로 검증했다.
+  `testRepeatBoostComposesWithDifficultyAndLiveChanges` 는 실제 졸업·재부화 후 두 배율을 합성하고,
+  표시 임계 직전/도달·설정 즉시 변경·최종 졸업까지 검증한다.
+  가드: `testRepeatGrowthIsDecidedFromTheCollectedBaseNotThePlannedFinal`·
   `testRepeatGrowthPersistsAcrossRestartWhileLegacyActiveDefaultsToStandardGrowth`·
   `testRoundTripPreservesActiveRepeatGrowthBoost`·`testBoostedDisguiseRevealsAtTheHalvedThresholdAndKeepsTheBoost`.
 - **같은 규칙이 세이브 파일이 아니라 *외부에서 오는 모든 수치*에 적용된다 — 파싱 경계도 포함.** 위 규칙을
@@ -57,6 +61,28 @@ read_when:
   같은 `didReset` / `highWater == 0` 규칙을 두 벌로 들고 있으면 한쪽만 고친 수정이 다른 쪽에 남는다
   (#157). 루프는 `scanIncrementalStores` 한 곳, 포맷만 콜백. 회귀는 공유 헬퍼 테스트 **그리고**
   Copilot-only / Cursor-only 각 경로(A\|\|B 의 B 단독)를 모두 밟아야 한다.
+- **리뷰 라운드가 끝나지 않는 건 리뷰어 탓이 아니라 형제 인프라를 우회한 탓이다.** Aside 프로바이더는
+  `LocalAdditionalUsageCache` 를 안 타고 리더를 직접 완결해서 독립 리뷰가 3라운드 이어졌다(2026-09-10):
+  1라운드 파서·루트 스냅샷, 2라운드 0토큰 턴·실패를 `[]` 로 접기, 3라운드 세션 삭제 감소·영구 실패
+  throw. 뒤의 두 라운드 지적은 앞 라운드 *수정*이 만든 것이고(아래 항목), 캐시를 탔으면 부류 자체가
+  없었다. 규칙: 새 소스는 캐시 위에서 시작(`provider-extension.md`), 리뷰가 두 번째 라운드에서도
+  medium 을 내면 개별 fix 를 멈추고 "형제와 다른 경로가 어디냐"를 먼저 묻는다.
+- **실패 처리를 고칠 때는 소비자(`UsageStore.refresh`)의 세 가지 결과 처리를 먼저 읽는다.** throw →
+  `failedIDs`/`lastErrorDescription` + `lastUpdated` 정지(앱 전체), nil → 스냅샷 제거("안 썼음"),
+  enrichment OK=false → 이전 값 유지. Aside 에서 스킵을 `[]` 로 접어 BUSY 한 번에 탭이 사라지고
+  주/월이 0 으로 덮였고(2라운드), "전부 실패면 throw" 로 고치자 `no such table` 같은 영구 조건이
+  매 리프레시 throw 해서 다른 프로바이더 숫자는 갱신되는데 "Updated 5 hours ago" 가 굳었다(3라운드).
+  최종 결정: 캐시 위의 로컬 소스 리더는 **throw 하지 않는다** — 못 여는/못 읽는 DB 는 스킵하고,
+  전부 실패면 `[]` 를 돌려 `dedupKeepMax(existing + loaded)` 가 이전 값을 유지한다(캐시가 무효화될
+  때까지 — Settings 저장·월 경계·재시작). 회귀 테스트는 **소스 텍스트가 아니라 캐시를 실제로
+  통과**시킨다: `LocalAdditionalUsageCache(asideRootsOverride:clock:)` + `LocalAsideProvider(cache:)` 로
+  30초 엔트리를 clock 으로 넘겨 두 번째 스캔이 정말 `existing` 과 병합하는지 본다(`AsideUsageTests`).
+  소스 텍스트 검사로 병합을 "고정"했던 첫 버전은 리뷰에서 걸렸고, 행동 테스트로 바꾸자마자
+  세션 삭제를 "DB 재생성"으로 오판하는 `MAX(id)` 리셋 감지 버그를 첫 실행에서 잡았다(2026-09-10).
+- **이전 코드의 opt-in 플래그를 옮길 때 형제가 왜 안 켰는지 먼저 본다.** Aside 를 캐시로 옮기며
+  원본의 `includeModels: true` 를 그대로 가져갔는데, `sessions.model` 은 세션의 *현재* 모델이라
+  캐시가 다시 채워질 때마다(무효화·월 경계·재시작) 이전 턴 전부가 새 모델로 재분류된다. 이 옵션은
+  per-turn 모델이 기록되는 Pi 만 켠다. 회귀: provider 경유 `fetchDaily()?.models == nil`.
 - **파싱 뒤에 걸린 필터는 출력을 줄이지 일을 줄이지 않는다.** `modifiedSince` 가 호출부에선
   스캔 창처럼 보이지만, 행 watermark 가 있는 리더에서만 창이다. 통문서 저장(Kiro 가 대화 JSON 을
   제자리 재기록)은 창을 파싱 *뒤에* 적용해서 읽기·`jsonObject` 비용이 그대로다(실측 30×80턴:
@@ -254,6 +280,14 @@ read_when:
 
 ## 빌드·도구체인
 
+- **새 SDK에서 통과해도 CI의 AppKit Sendable 선언을 가정하지 마라.** 동시 캐시 로드 테스트가
+  `Task { await SpriteLoader.image(...) }` 로 `NSImage?` 를 반환해 로컬 Swift 6.3.3에서는 통과했지만,
+  CI의 Xcode 16.4/Swift 6.1.2에서는 `NSImage: Sendable` 이 unavailable이라 테스트 컴파일이 실패했다.
+  **왜 못 걸렀나:** 로컬 최신 도구체인으로 전체 테스트와 경고 검증을 해도 CI SDK 호환성을 검증한 것은 아니다.
+  → 포켓몬·아이템 두 동시 로드 테스트 모두 `Task<Void, Never>` 를 사용하고 이미지 결과는 `@MainActor`
+  안에 보관한다. 객체 동일성 검증과 동시 요청은 유지하며, Sendable 우회 선언을 추가하지 않는다.
+  회귀 가드: `SpriteImageCacheTests` 의 두 동시 로드 테스트와 `macos-15` CI의 테스트 컴파일.
+  (CI 실패: 2026-09-10.)
 - **SwiftUI `View`/`App` 경계는 `@MainActor` 를 명시한다.** Swift 6.3 은 `body` 밖의 `@ViewBuilder` helper·
   동기 클로저를 nonisolated 로 검사해, `@MainActor` `@Observable` store 접근이 수십 개의 오류로 연쇄된다.
   개별 프로퍼티에 `MainActor.assumeIsolated` 를 흩뿌리지 말고 UI 타입 선언 한 곳에 격리를 둔다.
@@ -329,6 +363,13 @@ read_when:
   파싱 실패를 형식 오류로 뭉뚱그리면 "재로그인하면 된다"를 안내 못 해 한도 섹션이 원인 불명으로 사라진다.
   → `LimitsError.credentialMissingAccountOAuth` 로 구분해 재로그인 안내를 띄운다
   (`OAuthCredentialData.isAccountOAuthMissing`).
+- **다중 Keychain 항목 순회 시 사용자 계정을 최우선으로 정렬하라 — 안 그러면 항목마다 시스템 암호 프롬프트가 연쇄된다.**
+  #243 에서 `errSecParam(-50)` 회피를 위해 속성 열거 후 단건 데이터 조회 루프로 바꿨는데,
+  Claude Code 가 MCP OAuth 를 쓰면 `acct="unknown"` 항목이 생겨 서비스 내 항목이 2개 이상이 된다.
+  macOS 의 ACL 승인은 항목(Item) 단위라 `unknown` 에 암호를 입력해도 `justinjeong` 에서 또 암호를 묻는다.
+  속성 목록에서 `NSUserName()` 을 1순위, 이메일(`@`)을 2순위, 일반 계정을 3순위, `unknown` 을 최하위로 정렬해
+  진짜 계정을 먼저 찌르면, 첫 조회에서 바로 유효 토큰(`claudeAiOauth`)을 찾아 루프를 끝내므로 2회차 암호 창이 원천 소멸한다.
+  가드: `testPrioritizedAccountNamesPlacesCurrentUserNameFirstAndUnknownLast`·`testPrioritizedAccountNamesFullHierarchy`.
 
 ## 동시성
 
@@ -386,6 +427,27 @@ read_when:
   초록인데 #174 가 다시 산다. (#174)
 
 ## 표시·UI
+
+- **계속 쌓이는 로그는 정렬이 아니라 실제 화면 생성 비용을 검증하라.** 포획 로그의
+  `ScrollView` + `VStack` 이 화면 밖까지 모든 행을 만들고, 각 `SpriteView.init` 이 동기
+  `cachedImage` 를 호출했다. 268개 기록(진화 단계 이미지 579개)으로 초기 레이아웃을 재면
+  이미지 조회 1,160회, 783~953ms였다. 디스크 캐시가 있어도 파일 읽기와 `NSImage` 생성은
+  메인 스레드에서 반복됐다. **왜 못 걸렀나:** `testLargeDexSortPerformanceAndCorrectness` 는
+  1,000개 기록의 정렬만 측정했다. 실제 데이터의 정렬·집계는 약 0.18ms라 결함 경로와 달랐다.
+  → 로그만 `LazyVStack` 으로 바꾸고, `SpriteLoader` 의 동기·async 경로가 `NSImage` 객체 캐시를
+  공유한다(`NSCache`, `countLimit = 64`). 키는 파일 경로로 종·일반/이로치·PNG/GIF·디렉터리를
+  구분한다. 이미지 생성 실패는 이 캐시에 넣지 않고, 일반색 폴백은 일반색 키에만 둬 이로치를 가리지 않는다.
+  `countLimit` 은 엄격한 메모리 상한이 아니며, 실제 프로세스 메모리 사용량은 별도로 측정해야 한다.
+  **부류 스윕:** 같은 동기 로딩을 하는 아이템 아이콘에도 공유 캐시를 적용했다. 도감은 24칸 페이지,
+  상점·가방은 고정된 아이템 종류별 행이라 같은 무한 증가 조건이 없고, 알 이미지는 이미 메모이즈한다.
+  **회귀 가드:** `CatchLogRenderingTests` 는 실제 `CollectionView` 를 300개 기록으로 세 번 생성하고
+  스프라이트 레이아웃 작업 수와 고정 높이를 검사한다. `VStack` 재주입 시 매번 1,200회로 실패했다.
+  `SpriteImageCacheTests` 는 임시 파일의 생성 이미지로 객체 재사용·동시 로드·폴백·재시도를 검증하며,
+  동기 캐시 히트를 제거하면 포켓몬과 아이템 테스트가 모두 실패한다. 외부 이미지나 실제 세이브는
+  테스트에 포함하지 않는다. SwiftUI 워밍업 후 같은 268개 데이터/520pt 높이의 release 프로브는 초기 4행,
+  22~25ms, 재진입 디스크 읽기 0회였다(클릭부터 화면 표시까지의 전체 시간과는 별도 측정).
+  끝까지 스크롤 → 희귀도 필터 → 필터 해제 → 도감 전환·로그 재진입도 격리된 앱에서 확인했다.
+  (사용자 리포트: 200개 이상 포획 로그 진입 지연, 2026-09-10.)
 - **앱 언어와 시스템 로케일은 다른 축이다 — SwiftUI 가 스스로 만드는 문장은 로케일을 따른다.**
   `L` 문구는 `AppLanguage` 를 따르는데 `Text(_, style: .relative)` 는 `Locale.current` 를 따라, 한국어
   Mac 에서 앱을 영어로 쓰면 "Catch log" 옆에 "3시간 46분" 이 붙는 한 화면 두 언어가 된다. 팝오버 루트
@@ -503,6 +565,29 @@ read_when:
   이고, 더 부드러운 쪽은 opt-in 이다).
   배터리-vs-AC/thermal 적응·CADisplayLink
   전환은 1인 로컬 노트북 기준 수확체감으로 판정, 미도입(필요 시 Agent Team 계획 참조). (Agent Team 조사 + 실측, 2026-07-22.)
+- **프레임 교체는 `button.image` 대입이 아니라 `spriteLayer.contents` 로 한다 — 전환 억제와 다른 축이다.**
+  `setDisableActions` 는 NSStatusItemScene *전환 애니메이션* 을 없앨 뿐, 대입 자체가 유발하는 **버튼
+  재드로잉**(`NSViewBackingLayer display` → `_NSViewDrawRect`)은 그대로 남는다. 그 재드로잉에는 스프라이트
+  22px 뿐 아니라 **2줄 attributedTitle 텍스트 렌더**가 통째로 포함돼, 5fps 루프에서 상시로 깔린다.
+  프레임 픽셀을 전용 서브레이어(`AppDelegate.spriteLayer`)의 `contents` 로 넣으면 이미 업로드된 비트맵을
+  바꿔 끼우는 것뿐이라 드로잉 경로를 아예 타지 않는다. `button.image` 는 폭 확보용 **투명 자리표시자**만
+  두고(크기가 바뀔 때만 재대입) `imagePosition`·텍스트 배치·상태아이템 폭 계산은 AppKit 에 그대로 맡긴다.
+  **실측** — ① A/B 프로브(같은 타이머·5fps·2줄 타이틀·60초×2라운드, `/tmp/ptb-probe.swift` 형태):
+  `button.image`+CATransaction 2.00ms/프레임 · CATransaction 없이 3.51ms · **`layer.contents` 0.27ms**.
+  ② 라이브 앱 `sample` 전후(메인스레드 샘플 비중): 타이머 경로 235/17212(1.37%) → 33/16581(0.20%),
+  `CA::Transaction::commit` 163 → 14, `_NSViewDrawRect` 105 → **0**. 타이틀을 끄고 재면 2.00 → 1.43ms 라
+  텍스트 렌더는 기여분의 일부일 뿐이고 나머지는 뷰 드로잉 왕복 자체다(= 텍스트만 손봐선 안 없어진다).
+  `contentsScale` 은 화면이 아니라 **비트맵 자신의 픽셀/포인트 비율**을 따라야 한다 — 프레임은 `lockFocus`
+  합성 시점의 백킹 스케일로 픽셀이 굳으므로, 화면에서 읽으면 1x 외부 모니터에서 스프라이트가 2배가 된다.
+  **5-whys(왜 여태 안 보였나):** ① 14%→2% 를 만든 주범(CA 전환·팝오버 상주)이 워낙 커서, 남은 2% 는
+  "프레임 수에 비례하는 어쩔 수 없는 비용"으로 읽혔다 — 실제로는 성격이 다른 축이 하나 더 있었다.
+  ② 판정을 CPU% 로만 해서 "2% 면 충분히 낮다"에서 멈췄다. 콜스택을 뜨자 그 2% 안에서 드로잉 경로가
+  단일 최대 항목으로 드러났다(추정이 아니라 `sample` 로 봐야 보이는 층). ③ fps·tolerance 처럼 *얼마나
+  자주* 축만 튜닝 대상으로 보고, *한 번에 얼마나 비싼가* 축은 손댈 수 없는 상수로 취급했다.
+  **회귀 방지:** 변환이 실패하면 `setStatusImage` 가 조용히 `button.image` 폴백으로 떨어져 애니메이션은
+  멀쩡해 보이는 채로 절감만 사라진다(무성 실패) → `testMenuBarFramesConvertToLayerBitmaps` 가 전 스프라이트
+  형태·bob 위상에서 변환을 못 박고, 빈 이미지로 **nil 이 실제 도달 가능함**까지 함께 단언한다(주입 검증).
+  스케일은 `testSpriteContentsScaleFollowsTheBitmapNotTheScreen`. (실측 2026-09-01.)
 - **fps 캡은 hold 가 아니라 decimate 다 — `max(floor, delay)` 는 애니메이션을 슬로모션으로 만든다.**
   프레임 delay 에 하한을 걸면(`max(floor, delay)`) 프레임 *수* 는 그대로라 각 프레임이 늘어나고, 결과적으로
   **루프 전체가 느려진다.** Gen-V 스프라이트는 55프레임×0.05s(=2.75s, 20fps)라 floor 0.4s 에서 22s 루프
