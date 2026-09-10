@@ -22,7 +22,7 @@ struct LocalOpenCodeProvider: UsageProvider {
 
     func fetchEnrichment() async -> ProviderEnrichment {
         let entries = await LocalAdditionalUsageCache.shared.entries(for: .opencode)
-        return enrichment(entries: entries)
+        return .local(entries: entries)
     }
 }
 
@@ -38,7 +38,7 @@ struct LocalHermesProvider: UsageProvider {
 
     func fetchEnrichment() async -> ProviderEnrichment {
         let entries = await LocalAdditionalUsageCache.shared.entries(for: .hermes)
-        return enrichment(entries: entries)
+        return .local(entries: entries)
     }
 }
 
@@ -56,7 +56,7 @@ struct LocalCursorProvider: UsageProvider {
 
     func fetchEnrichment() async -> ProviderEnrichment {
         let entries = await LocalAdditionalUsageCache.shared.entries(for: .cursor)
-        return enrichment(entries: entries)
+        return .local(entries: entries)
     }
 }
 
@@ -74,7 +74,7 @@ struct LocalCopilotProvider: UsageProvider {
 
     func fetchEnrichment() async -> ProviderEnrichment {
         let entries = await LocalAdditionalUsageCache.shared.entries(for: .copilot)
-        return enrichment(entries: entries)
+        return .local(entries: entries)
     }
 }
 
@@ -104,7 +104,7 @@ struct LocalKiroProvider: UsageProvider {
 
     func fetchEnrichment() async -> ProviderEnrichment {
         let entries = await LocalAdditionalUsageCache.shared.entries(for: .kiro)
-        return enrichment(entries: entries)
+        return .local(entries: entries)
     }
 }
 
@@ -127,26 +127,8 @@ struct LocalAsideProvider: UsageProvider {
 
     func fetchEnrichment() async -> ProviderEnrichment {
         let entries = await cache.entries(for: .aside)
-        return enrichment(entries: entries)
+        return .local(entries: entries)
     }
-}
-
-private func enrichment(entries: [LocalUsageReader.Entry]) -> ProviderEnrichment {
-    let now = Date()
-    let monthStart = LocalUsageReader.startOfMonth(now)
-    let weekStart = LocalUsageReader.startOfWeek(now)
-    let formatter = LocalUsageReader.localDayFormatter()
-    var result = ProviderEnrichment()
-    result.activeBlock = LocalUsageReader.activeBlock(entries: entries, now: now)
-    result.blocksOK = true
-    result.weekTotal = LocalUsageReader.period(
-        entries: entries, periodKey: formatter.string(from: weekStart),
-        fromDay: formatter.string(from: weekStart), toDay: formatter.string(from: now))
-    result.monthTotal = LocalUsageReader.period(
-        entries: entries, periodKey: LocalUsageReader.monthKey(now),
-        fromDay: formatter.string(from: monthStart), toDay: formatter.string(from: now))
-    result.periodsOK = true
-    return result
 }
 
 /// Shares a single native read between a provider's daily and enrichment calls.
