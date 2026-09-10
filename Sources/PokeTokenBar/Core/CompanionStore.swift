@@ -123,10 +123,8 @@ final class CompanionStore {
 
     /// 난이도를 반영한 단계 임계. **`PokemonBalance.phaseThreshold` 를 직접 부르지 않는다** —
     /// 배율을 빠뜨린 호출부가 생기면 그 경로만 조용히 기본 난이도로 돌아간다.
-    private func stageThreshold(rarity: Rarity, totalForms: Int, stageIndex: Int) -> Int {
-        PokemonBalance.scaled(
-            PokemonBalance.phaseThreshold(rarity: rarity, totalForms: totalForms, stageIndex: stageIndex),
-            by: growthDifficulty)
+    private func stageThreshold(for mon: MonState) -> Int {
+        PokemonBalance.scaled(mon.phaseThreshold, by: growthDifficulty)
     }
 
     /// 상점 표시·결제에 쓰는 실제 가격 — 기본가 × 상점 난이도. 미판매면 nil.
@@ -149,6 +147,9 @@ final class CompanionStore {
         return a.isShiny
     }
     var currentNature: PokemonNature? { state.active?.nature }
+    var growthMultiplier: Int? {
+        state.active?.hasGrowthBoost == true ? PokemonBalance.repeatGrowthMultiplier : nil
+    }
 
     /// 메뉴바와 플로팅 펫이 그릴 대표 종과 색. nil 선택은 기존 동작(현재 개체/알)을 보존한다.
     /// 저장된 값이라 상시 렌더링 경로가 도감 전체를 다시 접거나 불필요한 상태를 관찰하지 않는다.
@@ -203,7 +204,7 @@ final class CompanionStore {
     }
     var threshold: Int {
         guard let a = state.active else { return 1 }
-        return stageThreshold(rarity: a.rarity, totalForms: a.totalForms, stageIndex: a.stageIndex)
+        return stageThreshold(for: a)
     }
     var progress: Double {
         guard let a = state.active, threshold > 0 else { return 0 }
@@ -531,7 +532,7 @@ final class CompanionStore {
         // 위장 메타몽이 첫 진화 임계 도달 → 리빌(재시작 등 applyUsage 킥을 못 탄 경우 백업 트리거)
         if let a = state.active, a.dittoDisguise != nil, !a.dittoRevealed, currentLine != nil,
            !isHatching, !isRevealingDitto,
-           a.usedAtStage >= stageThreshold(rarity: a.rarity, totalForms: a.totalForms, stageIndex: 0) {
+           a.usedAtStage >= stageThreshold(for: a) {
             Task { await revealDitto() }
         }
         displayState = computeState(burnTier: burnTier, limitWarning: limitWarning,
@@ -550,7 +551,7 @@ final class CompanionStore {
         while state.active != nil, guardCount < 50 {
             guardCount += 1
             let a = state.active!
-            let thr = stageThreshold(rarity: a.rarity, totalForms: a.totalForms, stageIndex: a.stageIndex)
+            let thr = stageThreshold(for: a)
             guard a.usedAtStage >= thr else { break }
             guard let node = line.tree.node(withID: a.currentID) else { break }
             // 위장체는 부화 때는 다형태지만, 에셋 정규화/마이그레이션 뒤 leaf가 될 수 있다.
@@ -1064,13 +1065,15 @@ final class CompanionStore {
             dittoDisguise = line.baseID
         }
         let evolutionPlan = makeEvolutionPlan(from: line.tree, baseID: line.baseID)
+        let hasGrowthBoost = state.hasCollectedFinal(forBaseID: line.baseID)
         // 위장 중엔 이로치를 숨긴다 — 부화 알림·연출도 일반체로(정체는 리빌 때 공개).
         let showShiny = isShiny && dittoDisguise == nil
         activeGeneration += 1
         state.active = MonState(baseID: line.baseID, pathIDs: [line.baseID], plannedPathIDs: evolutionPlan,
                                 stageIndex: 0, usedAtStage: 0, rarity: line.rarity, totalForms: evolutionPlan.count,
-                                isShiny: isShiny, nature: nature, dittoDisguise: dittoDisguise)
-        AppLog.write("hatch: base=\(line.baseID) rarity=\(line.rarity) shiny=\(isShiny) forms=\(evolutionPlan.count) ditto=\(dittoDisguise != nil)")
+                                isShiny: isShiny, nature: nature, hasGrowthBoost: hasGrowthBoost,
+                                dittoDisguise: dittoDisguise)
+        AppLog.write("hatch: base=\(line.baseID) rarity=\(line.rarity) shiny=\(isShiny) forms=\(evolutionPlan.count) boost=\(hasGrowthBoost) ditto=\(dittoDisguise != nil)")
         let name = line.localizedName(line.baseID, state.language)
         notifyCompanionEvent(showShiny ? l.notifShinyHatchTitle : l.notifHatchTitle,
                              showShiny ? l.notifShinyHatchBody(name) : l.notifHatchBody(name))
@@ -1089,7 +1092,7 @@ final class CompanionStore {
     private func revealDitto() async {
         guard let a = state.active, a.dittoDisguise != nil, !a.dittoRevealed, !isRevealingDitto else { return }
         let generation = activeGeneration
-        let firstEvoThr = stageThreshold(rarity: a.rarity, totalForms: a.totalForms, stageIndex: 0)
+        let firstEvoThr = stageThreshold(for: a)
         guard a.usedAtStage >= firstEvoThr else { return }   // 임계 미달 방어
         isRevealingDitto = true
         defer { isRevealingDitto = false }
@@ -1098,7 +1101,7 @@ final class CompanionStore {
         }
         guard activeGeneration == generation,
               var m = state.active, m.dittoDisguise != nil, !m.dittoRevealed else { return }
-        let latestFirstEvoThr = stageThreshold(rarity: m.rarity, totalForms: m.totalForms, stageIndex: 0)
+        let latestFirstEvoThr = stageThreshold(for: m)
         guard m.usedAtStage >= latestFirstEvoThr else { return }
         let disguiseName = currentLine?.localizedName(m.baseID, state.language) ?? "#\(m.baseID)"
         let carryOver = max(0, m.usedAtStage - latestFirstEvoThr)   // 위장체 첫 진화 초과분 → 메타몽 성장 이월
@@ -1162,7 +1165,7 @@ final class CompanionStore {
                 return nil
             }
             let weights = index.map { e in
-                state.collectedFinals.contains(where: { $0.hasPrefix("\(e.id):") })
+                state.hasCollectedFinal(forBaseID: e.id)
                     ? max(1, e.captureRate / 2) : max(1, e.captureRate)
             }
             let total = weights.reduce(0, +)

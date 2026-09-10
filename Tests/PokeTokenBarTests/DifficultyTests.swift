@@ -36,6 +36,30 @@ final class DifficultyTests: XCTestCase {
         return s
     }
 
+    func testRepeatBoostComposesWithDifficultyAndLiveChanges() async {
+        let s = await hatched(growth: 0.5)
+        s.applyUsage(PokemonBalance.graduationTotal(.common) / 2)
+        XCTAssertNil(s.state.active)
+        await s.hatch(baseID: 1)
+        XCTAssertEqual(s.state.active?.hasGrowthBoost, true)
+        let base = PokemonBalance.phaseThreshold(rarity: .common, totalForms: 3, stageIndex: 0)
+        XCTAssertEqual(s.threshold, base / 4)
+        s.applyUsage(base / 4 - 1)
+        XCTAssertEqual(s.state.active?.stageIndex, 0)
+        XCTAssertEqual(s.tokensToNext, 1)
+        s.applyUsage(1)
+        XCTAssertEqual(s.state.active?.stageIndex, 1)
+        XCTAssertEqual(s.state.active?.usedAtStage, 0)
+        let stageOne = s.threshold
+        s.applyUsage(stageOne / 2)
+        s.setGrowthDifficulty(0.25)
+        XCTAssertEqual(s.state.active?.stageIndex, 2)
+        XCTAssertEqual(s.state.active?.usedAtStage, 0)
+        s.applyUsage(s.tokensToNext)
+        XCTAssertNil(s.state.active)
+        XCTAssertEqual(s.state.dex.last?.finalID, 3)
+    }
+
     // MARK: 1. 진화 — 같은 토큰, 다른 결과 (표시가 아니라 상태 전이)
 
     func testSameTokensEvolveOnlyWhenDifficultyLowered() async {

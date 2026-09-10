@@ -530,7 +530,17 @@ struct CompanionHeader: View {
                     if store.hasActive {
                         // 단계 + 성격(부화 시 확정된 개체 아이덴티티)
                         let nature = store.currentNature.map { " · \($0.name(store.language))" } ?? ""
-                        Text(store.stageText + nature).font(.caption2).foregroundStyle(.secondary)
+                        HStack(spacing: 5) {
+                            Text(store.stageText + nature).font(.caption2).foregroundStyle(.secondary)
+                            if let multiplier = store.growthMultiplier {
+                                Text(store.l.growthBoost(multiplier))
+                                    .font(.system(size: 8, weight: .bold))
+                                    .padding(.horizontal, 5).padding(.vertical, 1)
+                                    .background(.orange.opacity(0.15)).foregroundStyle(.orange)
+                                    .clipShape(Capsule())
+                                    .fixedSize()
+                            }
+                        }
                         ProgressView(value: store.progress).controlSize(.small).tint(.orange)
                         if store.tokensToNext > 0 {
                             let amount = TokenFormatter.compact(store.tokensToNext)
