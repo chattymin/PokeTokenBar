@@ -16,11 +16,23 @@ private let dittoLine = dLine(base: 132, tree: dNode(132), rarity: .rare)       
 private let dNow = Date(timeIntervalSince1970: 1_700_000_000)
 
 /// base 1=위장체 라인, 132=메타몽 라인 반환(리빌 시 필요). StubProvider 는 단일 라인이라 부적합.
-private struct DittoTestProvider: PokeProviding {
+private struct DittoTestProvider: PokeProviding, PokemonDetailProviding {
     func line(baseSpeciesID: Int) async throws -> EvoLine {
         baseSpeciesID == PokemonOdds.dittoSpeciesID ? dittoLine : disguiseLine
     }
     func baseSpeciesIndex() async throws -> [BaseSpecies] { [BaseSpecies(id: 1, captureRate: 255)] }
+    func pokemonDetails(speciesID: Int) async throws -> PokemonDetails {
+        let isDitto = speciesID == PokemonOdds.dittoSpeciesID
+        return PokemonDetails(
+            speciesID: speciesID, name: isDitto ? "ditto" : "bulbasaur",
+            height: isDitto ? 3 : 7, weight: isDitto ? 40 : 69, baseExperience: 64,
+            genderRate: isDitto ? -1 : 1, types: [isDitto ? "normal" : "grass"],
+            baseStats: ["hp": isDitto ? 48 : 45],
+            abilities: [PokemonAbilityOption(name: isDitto ? "limber" : "overgrow",
+                                             slot: 1, isHidden: false)],
+            moves: [PokemonMoveOption(name: isDitto ? "transform" : "tackle",
+                                      learnMethods: [PokemonMoveLearnMethod(method: "level-up", level: 1)])])
+    }
 }
 
 /// #982는 애니메이션 에셋이 없어 EvoLine 초기화 때 제거되고, #206만 leaf로 남는다.
@@ -88,7 +100,7 @@ final class DittoDisguiseRollTests: XCTestCase {
 final class DittoRevealTests: XCTestCase {
     /// 활성 = 커먼 3형태 위장 메타몽(정체). currentLine 은 nil(재시작류) → update 로 로드해 리빌 트리거.
     private func seedDisguise(usedAtStage: Int = 0, shiny: Bool = false, revealed: Bool = false,
-                              boosted: Bool = false) -> CompanionStore {
+                              boosted: Bool = false, defaults: UserDefaults = .standard) -> CompanionStore {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("ditto-\(UUID().uuidString).json")
         let active = "{\"baseID\":1,\"pathIDs\":[1],\"stageIndex\":0,\"usedAtStage\":\(usedAtStage),"
             + "\"rarity\":\"common\",\"totalForms\":3,\"isShiny\":\(shiny),\"hasGrowthBoost\":\(boosted),"
@@ -96,7 +108,7 @@ final class DittoRevealTests: XCTestCase {
         let json = "{\"installBaselineSet\":true,\"usedSinceInstall\":1000000000,\"spentTokens\":0,"
             + "\"lastDate\":\"d1\",\"active\":\(active),\"dex\":[],\"collectedFinals\":[]}"
         try? json.data(using: .utf8)!.write(to: url)
-        return CompanionStore(provider: DittoTestProvider(), clock: { dNow }, fileURL: url, rng: SeededRNG(seed: 7))
+        return CompanionStore(provider: DittoTestProvider(), clock: { dNow }, fileURL: url, rng: SeededRNG(seed: 7), defaults: defaults)
     }
 
     /// update → loadCurrentLine → applyUsage(0) → (임계 초과 시) revealDitto 비동기 체인을 드레인.
@@ -132,6 +144,56 @@ final class DittoRevealTests: XCTestCase {
         XCTAssertEqual(s.state.active?.usedAtStage, 300_000_000 - 125_000_000, "첫 진화 초과분 이월")
         XCTAssertNotNil(s.state.active?.dittoDisguise, "위장 마커 보존")
         XCTAssertEqual(s.celebration, .dittoReveal(shiny: false), "리빌 연출 발화")
+    }
+
+    func testRevealRebasesDisguiseProfileAndLoadsDittoDetails() async {
+        let s = seedDisguise()
+        await s.loadPokemonDetails(speciesID: 1)
+        XCTAssertNotEqual(s.state.active?.profile?.gender, .genderless)
+        XCTAssertEqual(s.state.active?.profile?.abilityName, "overgrow")
+        XCTAssertEqual(s.state.active?.profile?.moves.map(\.name), ["tackle"])
+
+        s.applyUsage(300_000_000)
+        await drainReveal(s)
+        for _ in 0..<200 {
+            if s.state.active?.profile?.gender == .genderless { break }
+            await Task.yield()
+        }
+
+        let profile = s.state.active?.profile
+        XCTAssertEqual(profile?.gender, .genderless)
+        XCTAssertEqual(profile?.abilityName, "limber")
+        XCTAssertEqual(profile?.moves.map(\.name), ["transform"])
+        XCTAssertEqual(profile?.growthTokens, 500_000_000)
+        XCTAssertEqual(profile?.level, 20, "revealing Ditto preserves earned phase progress")
+    }
+
+    func testBoostedEasyDittoRetainsLevelAndIdentityAcrossReveal() async throws {
+        let suite = "ditto-profile-\(UUID())"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let s = seedDisguise(boosted: true, defaults: defaults)
+        s.setGrowthDifficulty(0.1)
+        await s.loadPokemonDetails(speciesID: 1)
+        let initial = try XCTUnwrap(s.state.active?.profile)
+        s.applyUsage(7_250_000) // 6.25M reveal threshold plus 1M raw carryover.
+        let earnedLevel = s.state.active?.profile?.level
+        await drainReveal(s)
+        await s.loadPokemonDetails(speciesID: PokemonOdds.dittoSpeciesID)
+        for _ in 0..<200 {
+            if s.state.active?.profile?.gender == .genderless { break }
+            await Task.yield()
+        }
+        let revealed = try XCTUnwrap(s.state.active)
+        XCTAssertEqual(revealed.usedAtStage, 1_000_000)
+        XCTAssertTrue(revealed.hasGrowthBoost)
+        XCTAssertEqual(revealed.profile?.instanceID, initial.instanceID)
+        XCTAssertEqual(revealed.profile?.ivs, initial.ivs)
+        XCTAssertEqual(revealed.profile?.level, earnedLevel)
+        XCTAssertEqual(revealed.profile?.gender, .genderless)
+        XCTAssertEqual(revealed.profile?.moves.map(\.name), ["transform"])
+        s.applyUsage(s.tokensToNext)
+        XCTAssertEqual(s.state.dex.last?.profile?.level, 100)
     }
 
     func testBoostedDisguiseRevealsAtTheHalvedThresholdAndKeepsTheBoost() async throws {

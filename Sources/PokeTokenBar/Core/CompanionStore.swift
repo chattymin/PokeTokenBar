@@ -38,10 +38,14 @@ final class CompanionStore {
     func consumeMintFeedback() { mintFeedbackNature = nil }
 
     private let provider: any PokeProviding
+    private let detailProvider: (any PokemonDetailProviding)?
     private let clock: () -> Date
     private let fileURL: URL
     private var rng: any RandomNumberGenerator
     private let dittoDisguiseRollingEnabled: Bool
+    private(set) var pokemonDetailsByID: [Int: PokemonDetails] = [:]
+    private(set) var loadingPokemonDetailIDs: Set<Int> = []
+    private(set) var failedPokemonDetailIDs: Set<Int> = []
     private let defaults: UserDefaults
     /// 세션 내 활성 개체 교체 감지용. await 뒤 이전 개체의 결과가 새 개체를 덮지 않게 한다.
     private var activeGeneration = 0
@@ -59,12 +63,14 @@ final class CompanionStore {
     private(set) var shopDifficulty: Double
 
     init(provider: any PokeProviding = PokeAPIClient.shared,
+         detailProvider: (any PokemonDetailProviding)? = nil,
          clock: @escaping () -> Date = Date.init,
          fileURL: URL? = nil,
          rng: any RandomNumberGenerator = SystemRandomNumberGenerator(),
          dittoDisguiseRollingEnabled: Bool = AppEnv.isBundledApp,
          defaults: UserDefaults = .standard) {
         self.provider = provider
+        self.detailProvider = detailProvider ?? (provider as? any PokemonDetailProviding)
         self.clock = clock
         self.fileURL = fileURL ?? Self.defaultURL()
         self.rng = rng
@@ -75,6 +81,7 @@ final class CompanionStore {
         shopDifficulty = PokemonBalance.clampDifficulty(
             defaults.object(forKey: "shopDifficulty") as? Double ?? PokemonBalance.defaultDifficulty)
         load()
+        migratePokemonProfilesIfNeeded()
         refreshRepresentativeSubject()
         if state.active != nil { displayState = .idle }
     }
@@ -255,6 +262,7 @@ final class CompanionStore {
             caughtAt: nil,
             isShiny: currentIsShiny,   // 위장 메타몽은 리빌 전까지 이로치를 숨긴다(판정 단일 소스)
             nature: active.nature,
+            profile: active.profile,
             names: currentLine.map { line in
                 Dictionary(uniqueKeysWithValues:
                     active.pathIDs.compactMap { id in line.names[id].map { (id, $0) } })
@@ -276,6 +284,7 @@ final class CompanionStore {
         let chain = reached.isEmpty ? [a.baseID] : reached
         let now = clock()
         return DexEntry(
+            id: a.profile?.instanceID ?? UUID().uuidString,
             baseID: a.baseID,
             finalID: chain.last ?? a.baseID,
             chainOrder: chain,
@@ -283,6 +292,7 @@ final class CompanionStore {
             caughtAt: now,
             isShiny: currentIsShiny,
             nature: a.nature,
+            profile: a.profile,
             names: currentLine.map { line in
                 Dictionary(uniqueKeysWithValues:
                     chain.compactMap { id in line.names[id].map { (id, $0) } })
@@ -546,6 +556,7 @@ final class CompanionStore {
     func applyUsage(_ delta: Int) {
         guard state.active != nil else { return }
         state.active!.usedAtStage += delta
+        reconcileActiveProfileGrowth()
         guard let line = currentLine else { save(); return }
         var guardCount = 0
         while state.active != nil, guardCount < 50 {
@@ -580,6 +591,11 @@ final class CompanionStore {
                 state.active!.pathIDs = Array(a.pathIDs.prefix(a.stageIndex + 1)) + [next.speciesID]
                 state.active!.stageIndex += 1
                 state.active!.usedAtStage = a.usedAtStage - thr   // 초과분 이월
+                if let details = pokemonDetailsByID[next.speciesID] {
+                    state.active!.profile?.enrich(with: details)
+                } else if detailProvider != nil {
+                    Task { await self.loadPokemonDetails(speciesID: next.speciesID) }
+                }
                 let newName = line.localizedName(next.speciesID, state.language)
                 justEvolvedTo = newName
                 fireCelebration(.evolve)
@@ -589,6 +605,7 @@ final class CompanionStore {
                 notifyCompanionEvent(l.notifEvolveTitle, l.notifEvolveBody(newName))
             }
         }
+        reconcileActiveProfileGrowth()
         save()
     }
 
@@ -655,12 +672,16 @@ final class CompanionStore {
     }
 
     private func graduate() {
-        guard let a = state.active else { return }
+        guard var a = state.active else { return }
+        a.profile?.advanceGrowth(to: PokemonBalance.graduationTotal(a.rarity), rarity: a.rarity)
+        if let details = pokemonDetailsByID[a.currentID] { a.profile?.enrich(with: details) }
         let finalID = a.currentID
         state.collectedFinals.insert("\(a.baseID):\(finalID)")
-        state.dex.append(DexEntry(baseID: a.baseID, finalID: finalID,
+        state.dex.append(DexEntry(id: a.profile?.instanceID ?? UUID().uuidString,
+                                  baseID: a.baseID, finalID: finalID,
                                   chainOrder: a.pathIDs, rarity: a.rarity, caughtAt: clock(),
                                   isShiny: a.isShiny, nature: a.nature,
+                                  profile: a.profile,
                                   names: currentLine.map { line in   // 체인 각 종의 다국어 이름 저장(표시 즉시)
                                       Dictionary(uniqueKeysWithValues:
                                           a.pathIDs.compactMap { id in line.names[id].map { (id, $0) } })
@@ -1065,13 +1086,15 @@ final class CompanionStore {
             dittoDisguise = line.baseID
         }
         let evolutionPlan = makeEvolutionPlan(from: line.tree, baseID: line.baseID)
+        var profile = PokemonProfile.generate(seed: rng.next())
+        if let details = pokemonDetailsByID[line.baseID] { profile.enrich(with: details) }
         let hasGrowthBoost = state.hasCollectedFinal(forBaseID: line.baseID)
         // 위장 중엔 이로치를 숨긴다 — 부화 알림·연출도 일반체로(정체는 리빌 때 공개).
         let showShiny = isShiny && dittoDisguise == nil
         activeGeneration += 1
         state.active = MonState(baseID: line.baseID, pathIDs: [line.baseID], plannedPathIDs: evolutionPlan,
                                 stageIndex: 0, usedAtStage: 0, rarity: line.rarity, totalForms: evolutionPlan.count,
-                                isShiny: isShiny, nature: nature, hasGrowthBoost: hasGrowthBoost,
+                                isShiny: isShiny, nature: nature, profile: profile, hasGrowthBoost: hasGrowthBoost,
                                 dittoDisguise: dittoDisguise)
         AppLog.write("hatch: base=\(line.baseID) rarity=\(line.rarity) shiny=\(isShiny) forms=\(evolutionPlan.count) boost=\(hasGrowthBoost) ditto=\(dittoDisguise != nil)")
         let name = line.localizedName(line.baseID, state.language)
@@ -1085,6 +1108,7 @@ final class CompanionStore {
         // 마지막 이벤트를 hatch 로 유지한다. 이월로 즉시 졸업한 극단 케이스면 생략(이미 도감행).
         if state.active != nil { fireCelebration(.hatch(shiny: showShiny)) }
         save()
+        if detailProvider != nil { Task { await self.loadPokemonDetails(speciesID: line.baseID) } }
     }
 
     /// 위장 → 리빌: 진화 못 하는 메타몽이 "첫 진화 임계"에서 진화 대신 정체를 드러내는 순간.
@@ -1106,6 +1130,7 @@ final class CompanionStore {
         let disguiseName = currentLine?.localizedName(m.baseID, state.language) ?? "#\(m.baseID)"
         let carryOver = max(0, m.usedAtStage - latestFirstEvoThr)   // 위장체 첫 진화 초과분 → 메타몽 성장 이월
         // 메타몽으로 전환 — rarity/forms 는 로드한 라인에서, isShiny/nature/dittoDisguise 는 유지.
+        let previousRarity = m.rarity
         m.baseID = dittoLine.baseID
         let evolutionPlan = makeEvolutionPlan(from: dittoLine.tree, baseID: dittoLine.baseID)
         m.pathIDs = [dittoLine.baseID]
@@ -1115,6 +1140,10 @@ final class CompanionStore {
         m.totalForms = evolutionPlan.count
         m.usedAtStage = carryOver
         m.dittoRevealed = true
+        m.profile?.rebaseForSpeciesIdentity(from: previousRarity, to: dittoLine.rarity)
+        if let details = pokemonDetailsByID[dittoLine.baseID] {
+            m.profile?.enrich(with: details)
+        }
         let shiny = m.isShiny
         state.active = m
         state.reconcileRepresentativeSelection()   // 위장 종만 근거였던 선택은 리빌과 함께 제거
@@ -1127,6 +1156,10 @@ final class CompanionStore {
                              shiny ? l.notifShinyDittoRevealBody(disguiseName) : l.notifDittoRevealBody(disguiseName))
         save()
         applyUsage(0)   // 이월분으로 메타몽 졸업 재평가(rare 3B라 보통 즉시 졸업 아님)
+        isRevealingDitto = false   // Details are enrichment, not part of the reveal transaction.
+        if detailProvider != nil {
+            await loadPokemonDetails(speciesID: PokemonOdds.dittoSpeciesID)
+        }
     }
 
     private func loadCurrentLine() async {
@@ -1144,6 +1177,11 @@ final class CompanionStore {
             currentLine = line
             save()   // 마이그레이션 선택을 사용량 재평가 전에 영속화해 재시작마다 다시 롤리지 않는다.
             applyUsage(0)   // 라인 미로딩 동안 적립된 사용량이 임계를 넘었으면 지금 진화 판정
+            // Path normalization can change currentID without entering the regular evolution branch.
+            isHatching = false   // Do not hold the line-load lock across detail HTTP requests.
+            if let speciesID = state.active?.currentID, detailProvider != nil {
+                await loadPokemonDetails(speciesID: speciesID)
+            }
         }
     }
 
@@ -1258,8 +1296,10 @@ final class CompanionStore {
         candyFeedbackAmount = 0
         mintFeedbackNature = nil
         displayState = state.active != nil ? .idle : .egg
+        migratePokemonProfilesIfNeeded()
         save()
         if state.active != nil { Task { await loadCurrentLine() } }
+        if detailProvider != nil { Task { await preparePokemonProfiles() } }
         AppLog.write("save imported from \(envelope.sourceDevice): dex=\(state.dex.count) lifetime=\(state.usedSinceInstall)")
     }
 
@@ -1289,6 +1329,141 @@ final class CompanionStore {
         for stale in backups.dropLast(SaveTransfer.backupsToKeep) {
             try? FileManager.default.removeItem(at: dir.appendingPathComponent(stale))
         }
+    }
+
+    // MARK: Pokémon combat profiles / details
+
+    /// Exact current/final individuals for a Pokédex species. Earlier evolution stages remain
+    /// species reference pages; the same evolved individual is not duplicated as a second creature.
+    func pokemonIndividuals(speciesID: Int) -> [DexEntry] {
+        dexEntriesSorted.filter { $0.finalID == speciesID && $0.profile != nil }
+    }
+
+    /// Loads immutable PokéAPI metadata and persists any deferred profile fields exactly once.
+    func loadPokemonDetails(speciesID: Int) async {
+        if let details = pokemonDetailsByID[speciesID] {
+            enrichProfiles(for: speciesID, with: details)
+            return
+        }
+        guard let detailProvider, !loadingPokemonDetailIDs.contains(speciesID) else { return }
+        loadingPokemonDetailIDs.insert(speciesID)
+        failedPokemonDetailIDs.remove(speciesID)
+        defer { loadingPokemonDetailIDs.remove(speciesID) }
+        do {
+            let details = try await detailProvider.pokemonDetails(speciesID: speciesID)
+            pokemonDetailsByID[speciesID] = details
+            enrichProfiles(for: speciesID, with: details)
+        } catch {
+            failedPokemonDetailIDs.insert(speciesID)
+            AppLog.write("pokemon details fetch failed id=\(speciesID): \(error)")
+        }
+    }
+
+    /// Startup/background warmup for the only profile needed before a detail page is opened.
+    func preparePokemonProfiles() async {
+        guard let speciesID = state.active?.currentID else { return }
+        await loadPokemonDetails(speciesID: speciesID)
+    }
+
+    private func enrichProfiles(for speciesID: Int, with details: PokemonDetails) {
+        var changed = false
+        if var active = state.active, active.currentID == speciesID, var profile = active.profile {
+            let before = profile
+            profile.enrich(with: details)
+            if profile != before {
+                active.profile = profile
+                state.active = active
+                changed = true
+            }
+        }
+        for index in state.dex.indices where state.dex[index].finalID == speciesID {
+            guard var profile = state.dex[index].profile else { continue }
+            let before = profile
+            profile.enrich(with: details)
+            if profile != before {
+                state.dex[index].profile = profile
+                changed = true
+            }
+        }
+        if changed { save() }
+    }
+
+    /// Additive migration for pre-profile saves. It never needs network and therefore cannot block launch.
+    /// Deferred fields (gender/ability/moves) are filled after the cached/detail fetch succeeds.
+    private func migratePokemonProfilesIfNeeded() {
+        var changed = false
+        if var active = state.active, active.profile == nil {
+            let key = "active:\(active.baseID):\(active.pathIDs.map(String.init).joined(separator: ",")):\(state.lastDate)"
+            active.profile = PokemonProfile.generate(seed: PokemonProfileMigration.seed(key))
+            state.active = active
+            changed = true
+        }
+        for index in state.dex.indices {
+            let entry = state.dex[index]
+            if entry.profile == nil {
+                let graduated = !entry.isReleased
+                // Released entries only persisted their reached `chainOrder`, not the originally
+                // planned form count. Treating that count as `totalForms` is the best recoverable
+                // estimate, but it is an upper bound when release happened before the planned final.
+                let growth = graduated
+                    ? PokemonBalance.graduationTotal(entry.rarity)
+                    : Self.reconstructedGrowthTokens(
+                        rarity: entry.rarity, totalForms: max(1, entry.chainOrder.count),
+                        completedStages: max(0, entry.chainOrder.count - 1), currentStageUsage: 0)
+                var profile = PokemonProfile.generate(
+                    seed: PokemonProfileMigration.seed("dex:\(entry.id):\(entry.finalID)"),
+                    growthTokens: growth,
+                    instanceID: entry.id)
+                profile.applyGrowth(0, rarity: entry.rarity)
+                state.dex[index].profile = profile
+                changed = true
+            }
+        }
+        let before = state.active?.profile
+        reconcileActiveProfileGrowth()
+        if !changed {
+            if before != state.active?.profile { save() }
+            return
+        }
+
+        // One recoverable snapshot before the first format expansion. Never overwrite it.
+        let backup = fileURL.deletingLastPathComponent()
+            .appendingPathComponent("companion-state.pre-profiles-v1.json")
+        if FileManager.default.fileExists(atPath: fileURL.path),
+           !FileManager.default.fileExists(atPath: backup.path) {
+            try? FileManager.default.copyItem(at: fileURL, to: backup)
+        }
+        save()
+        AppLog.write("pokemon profile migration complete — previous state kept as \(backup.lastPathComponent)")
+    }
+
+    /// Completed phases retain their earned credit. Only the current raw phase is repriced
+    /// by difficulty/repeat boost; its profile high-water mark prevents level loss.
+    private func reconcileActiveProfileGrowth() {
+        guard var active = state.active, var profile = active.profile else { return }
+        let completed = Self.reconstructedGrowthTokens(
+            rarity: active.rarity, totalForms: active.totalForms,
+            completedStages: active.stageIndex, currentStageUsage: 0)
+        let standardPhase = PokemonBalance.phaseThreshold(
+            rarity: active.rarity, totalForms: active.totalForms, stageIndex: active.stageIndex)
+        let fraction = min(1, max(0, Double(active.usedAtStage) / Double(max(1, stageThreshold(for: active)))))
+        let candidate = min(PokemonBalance.graduationTotal(active.rarity),
+                            completed + Int((Double(standardPhase) * fraction).rounded(.down)))
+        profile.advanceGrowth(to: candidate, rarity: active.rarity)
+        if let details = pokemonDetailsByID[active.currentID] { profile.enrich(with: details) }
+        active.profile = profile
+        state.active = active
+    }
+
+    static func reconstructedGrowthTokens(rarity: Rarity, totalForms: Int,
+                                          completedStages: Int, currentStageUsage: Int) -> Int {
+        let forms = max(1, totalForms)
+        let completed = min(max(0, completedStages), forms)
+        let completedGrowth = (0..<completed).reduce(0) { total, stage in
+            total + PokemonBalance.phaseThreshold(rarity: rarity, totalForms: forms, stageIndex: stage)
+        }
+        return min(SaveTransfer.maxTokenValue,
+                   completedGrowth + min(SaveTransfer.maxTokenValue, max(0, currentStageUsage)))
     }
 
     // MARK: 영속
