@@ -73,18 +73,21 @@ final class AsideUsageTests: XCTestCase, @unchecked Sendable {
         catch { XCTFail("threw \(error) — \(message)", file: file, line: line) }
     }
     private func today(_ provider: LocalAsideProvider) async throws -> Int? { try await provider.fetchDaily()?.totalTokens }
-    private func makeProvider() -> (LocalAsideProvider, Clock) {
+    private func makeProvider() throws -> (LocalAsideProvider, Clock) {
         let clock = Clock()
-        let cache = LocalAdditionalUsageCache(rootsOverride: [.aside: roots], clock: { clock.now })
+        // Stepping the clock 31 s must not cross a month boundary — the cache drops `existing` on a new month key.
+        let monthEnd = Calendar.current.dateInterval(of: .month, for: clock.now)!.end
+        try XCTSkipIf(monthEnd.timeIntervalSince(clock.now) < 60, "within a minute of the month boundary")
+        let cache = LocalAdditionalUsageCache(asideRootsOverride: roots, clock: { clock.now })
         return (LocalAsideProvider(cache: cache), clock)
     }
 
     /// One shared scan feeds daily and enrichment; no per-model rows because `sessions.model`
     /// is the session's current model, not a per-turn record (it would relabel earlier turns).
-    func testProviderSharesOneScanAndReportsNoPerModelBreakdown() async throws {
+    func testProviderReportsDailyAndEnrichmentWithoutPerModelBreakdown() async throws {
         _ = try fixture()
         _ = try fixture(user: "1")
-        let (provider, _) = makeProvider()
+        let (provider, _) = try makeProvider()
         let daily = try await provider.fetchDaily()
         XCTAssertEqual(daily?.totalTokens, 1573318)
         XCTAssertNil(daily?.models, "per-model rows would be relabelled whenever the session switches model")
@@ -101,7 +104,7 @@ final class AsideUsageTests: XCTestCase, @unchecked Sendable {
     func testDeletedSessionStaysCountedUntilCacheInvalidation() async throws {
         let db = try fixture()
         _ = try fixture(user: "1")
-        let (provider, clock) = makeProvider()
+        let (provider, clock) = try makeProvider()
         await XCTAssertEqualAsync(try await today(provider), 1573318)
         try sql("PRAGMA foreign_keys = ON; DELETE FROM sessions WHERE id = 'synthetic-session'", at: db)
         XCTAssertEqual(scan().count, 1, "cascade must have removed the turn — otherwise this test guards nothing")
@@ -114,7 +117,7 @@ final class AsideUsageTests: XCTestCase, @unchecked Sendable {
     /// Turns run for a long time and `token_usage` grows in place; the merge keeps the larger value.
     func testGrowingTurnReplacesTheCachedValue() async throws {
         let db = try fixture()
-        let (provider, clock) = makeProvider()
+        let (provider, clock) = try makeProvider()
         await XCTAssertEqualAsync(try await today(provider), 786659)
         try sql("UPDATE session_turns SET token_usage = '{\"input\":22744,\"output\":9999,\"cacheRead\":758400}' WHERE id = 1", at: db)
         await XCTAssertEqualAsync(try await today(provider), 786659, "inside the 30 s entry the cache answers")
@@ -129,7 +132,7 @@ final class AsideUsageTests: XCTestCase, @unchecked Sendable {
     /// as a deleted session).
     func testRecreatedDatabaseGetsFreshEntryIDs() async throws {
         let db = try fixture()
-        let (provider, clock) = makeProvider()
+        let (provider, clock) = try makeProvider()
         await XCTAssertEqualAsync(try await today(provider), 786659)
         try FileManager.default.removeItem(at: db)
         _ = try fixture(usage: "{\"input\":10,\"output\":20}")   // new file, id 1 again, far smaller
@@ -143,7 +146,7 @@ final class AsideUsageTests: XCTestCase, @unchecked Sendable {
     /// `fetchDaily` lands in `failedIDs` and freezes `lastUpdated` app-wide (`UsageStore.refresh`).
     func testUnreadableDatabaseKeepsPreviousValuesWithoutThrowing() async throws {
         let db = try fixture()
-        let (provider, clock) = makeProvider()
+        let (provider, clock) = try makeProvider()
         await XCTAssertEqualAsync(try await today(provider), 786659)
         try Data("not a database".utf8).write(to: db)
         clock.now += 31

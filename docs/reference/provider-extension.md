@@ -46,9 +46,10 @@ read_when:
   오늘 합계가 줄어드는 문제, 리프레시당 스캔 2회, 실패 처리 관례 불일치는 모두 "형제와 같은 경로를
   안 탔다"에서 나온 부류다(2026-09-10). 새 소스는 `LocalAdditionalSource` 케이스 하나 + 리더
   함수로 시작하고, 캐시를 우회할 이유가 있으면 doc comment 에 그 이유를 적는다. 테스트는 provider 에
-  `cache:` 를 주입해 캐시를 실제로 통과시킨다 — `LocalAdditionalUsageCache(rootsOverride: [.x: roots],
+  `cache:` 를 주입해 캐시를 실제로 통과시킨다 — `LocalAdditionalUsageCache(asideRootsOverride: roots,
   clock:)` 로 루트를 고정하고 clock 을 31초 넘겨 병합 경로(두 번째 스캔)를 밟는다(`AsideUsageTests`).
-  ID 가 파일 안에서만 유일한 소스(SQLite rowid)는 파일 재생성 충돌을 막기 위해 id 에 inode 를 넣는다.
+  ID 가 파일 안에서만 유일한 소스(SQLite rowid)는 파일 재생성 충돌을 막아야 한다 — 가변 행이면 id 에
+  inode 를 넣고(Aside), append-only 면 `MAX(id)` 가 watermark 아래로 떨어질 때 `didReset` 으로 재스캔(Copilot).
 - **리더의 실패 의미(throw / nil / `[]`)를 바꾸면 소비자 `UsageStore.refresh` 까지 추적한다.**
   provider 파일 안에서만 보면 셋이 비슷해 보이지만 스토어는 다르게 처리한다: `fetchDaily` 가 throw
   → `failedIDs`·`lastErrorDescription`(팝오버 경고 아이콘)에 기록되고 **`lastUpdated` 가 앱 전체로

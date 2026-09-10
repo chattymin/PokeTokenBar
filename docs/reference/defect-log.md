@@ -62,7 +62,7 @@ read_when:
   최종 결정: 캐시 위의 로컬 소스 리더는 **throw 하지 않는다** — 못 여는/못 읽는 DB 는 스킵하고,
   전부 실패면 `[]` 를 돌려 `dedupKeepMax(existing + loaded)` 가 이전 값을 유지한다(캐시가 무효화될
   때까지 — Settings 저장·월 경계·재시작). 회귀 테스트는 **소스 텍스트가 아니라 캐시를 실제로
-  통과**시킨다: `LocalAdditionalUsageCache(rootsOverride:clock:)` + `LocalAsideProvider(cache:)` 로
+  통과**시킨다: `LocalAdditionalUsageCache(asideRootsOverride:clock:)` + `LocalAsideProvider(cache:)` 로
   30초 엔트리를 clock 으로 넘겨 두 번째 스캔이 정말 `existing` 과 병합하는지 본다(`AsideUsageTests`).
   소스 텍스트 검사로 병합을 "고정"했던 첫 버전은 리뷰에서 걸렸고, 행동 테스트로 바꾸자마자
   세션 삭제를 "DB 재생성"으로 오판하는 `MAX(id)` 리셋 감지 버그를 첫 실행에서 잡았다(2026-09-10).

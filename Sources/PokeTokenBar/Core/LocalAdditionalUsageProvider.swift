@@ -117,7 +117,7 @@ struct LocalKiroProvider: UsageProvider {
 struct LocalAsideProvider: UsageProvider {
     let id = "aside"
     let displayName = "Aside"
-    /// Injected by tests (`LocalAdditionalUsageCache(rootsOverride:clock:)`); production uses the shared cache.
+    /// Injected by tests (`LocalAdditionalUsageCache(asideRootsOverride:clock:)`); production uses the shared cache.
     var cache: LocalAdditionalUsageCache = .shared
 
     func fetchDaily() async throws -> DailyUsage? {
@@ -153,13 +153,14 @@ private func enrichment(entries: [LocalUsageReader.Entry]) -> ProviderEnrichment
 actor LocalAdditionalUsageCache {
     static let shared = LocalAdditionalUsageCache()
 
-    /// Test seams: fixed scan roots per source (production reads Settings / env inside the
-    /// readers) and a clock so a test can step past the 30 s entry without sleeping.
-    private let rootsOverride: [LocalAdditionalSource: [URL]]
+    /// Test seams: fixed Aside scan roots (production reads Settings inside the reader; the
+    /// other sources still read their own roots) and a clock so a test can step past the
+    /// 30 s entry without sleeping.
+    private let asideRootsOverride: [URL]?
     private let clock: @Sendable () -> Date
 
-    init(rootsOverride: [LocalAdditionalSource: [URL]] = [:], clock: @escaping @Sendable () -> Date = Date.init) {
-        self.rootsOverride = rootsOverride
+    init(asideRootsOverride: [URL]? = nil, clock: @escaping @Sendable () -> Date = Date.init) {
+        self.asideRootsOverride = asideRootsOverride
         self.clock = clock
     }
 
@@ -250,7 +251,7 @@ actor LocalAdditionalUsageCache {
         }
         let existing = previous?.entries ?? []
         let knownKiro = previous?.kiroSignatures ?? [:]
-        let asideRoots = rootsOverride[.aside]
+        let asideRoots = asideRootsOverride
         let task = Task.detached(priority: .utility) {
             () async -> ScanResult in
             switch source {

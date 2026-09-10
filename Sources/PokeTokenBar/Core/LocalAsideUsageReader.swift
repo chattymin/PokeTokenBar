@@ -54,7 +54,7 @@ enum LocalAsideUsageReader {
             // Entry ids carry the file's inode: a recreated state.db (profile removed and
             // re-created) restarts AUTOINCREMENT at 1, and without the inode its new rows would
             // share ids with the cached pre-reset turns and hide behind them in the keep-max merge.
-            let store = "\(url.path)#\(inode(of: url.path))"
+            let store = "aside|\(url.path)#\(inode(of: url.path))"
             var statement: OpaquePointer?
             // Turns run for a long time and `token_usage` grows while they run, so a turn is
             // anchored on its last activity rather than `started_at`; tokens then land in the
@@ -77,8 +77,9 @@ enum LocalAsideUsageReader {
                    let usage = try? JSONSerialization.jsonObject(with: Data(String(cString: text).utf8)) as? [String: Any] {
                     let date = Date(timeIntervalSince1970: sqlite3_column_double(statement, 2))
                     // The schema has no per-turn model: `sessions.model` is the session's *current*
-                    // setting, so switching a session's model relabels its earlier turns in the
-                    // per-model breakdown. Approximate by design.
+                    // setting. It only feeds the `ModelPricing` fallback for rows without
+                    // `cost.total` (per-model rows are off for this provider), so the
+                    // approximation is acceptable.
                     var model = "aside"
                     if let text = sqlite3_column_text(statement, 3),
                        let metadata = try? JSONSerialization.jsonObject(with: Data(String(cString: text).utf8)) as? [String: Any],
