@@ -464,9 +464,7 @@ struct PopoverView: View {
                         .foregroundStyle(.tertiary)
                 }
             }
-            ProgressView(value: min(utilization, 100), total: 100)
-                .tint(limitColor(utilization))
-                .controlSize(.small)
+            LimitProgressBar(usedPercent: utilization, tint: limitColor(utilization))
         }
     }
 
@@ -521,7 +519,7 @@ struct PopoverView: View {
 
 
     /// 한도 % 표시 문자열 — remaining 모드면 남은 %에 자기설명 접미사("남음/left/残り").
-    /// 게이지 채움·경고색은 사용률 원값 기준 유지 — 숫자 텍스트만 모드를 따른다.
+    /// 게이지 채움도 같은 표시 모드를 따르며, 경고색은 실제 사용률로 판단한다.
     private func limitPercentText(_ utilization: Double) -> String {
         let text = TokenFormatter.percent(store.limitDisplayPercent(utilization))
         return store.limitDisplayMode == .remaining ? l.percentRemaining(text) : text
@@ -566,9 +564,7 @@ struct PopoverView: View {
                             .foregroundStyle(.tertiary)
                     }
                 }
-                ProgressView(value: min(utilization, 100), total: 100)
-                    .tint(limitColor(utilization))
-                    .controlSize(.small)
+                LimitProgressBar(usedPercent: utilization, tint: limitColor(utilization))
             }
         }
     }
@@ -737,9 +733,7 @@ struct PopoverView: View {
                             .foregroundStyle(.tertiary)
                     }
                 }
-                ProgressView(value: min(utilization, 100), total: 100)
-                    .tint(limitColor(utilization))
-                    .controlSize(.small)
+                LimitProgressBar(usedPercent: utilization, tint: limitColor(utilization))
             }
         }
     }
@@ -765,9 +759,7 @@ struct PopoverView: View {
                         .font(.caption)
                         .foregroundStyle(.tertiary)
                 }
-                ProgressView(value: min(utilization, 100), total: 100)
-                    .tint(limitColor(utilization))
-                    .controlSize(.small)
+                LimitProgressBar(usedPercent: utilization, tint: limitColor(utilization))
             }
         }
     }
@@ -1079,5 +1071,19 @@ struct ProviderTabBar: View {
         }
         // 탭이 적으면(대부분의 사용자) 스크롤·바운스가 생기지 않아 기존과 동일하게 보인다.
         .scrollBounceBehavior(.basedOnSize, axes: .horizontal)
+    }
+}
+
+/// Text and fill describe the same quantity; warning colors still represent actual usage.
+@MainActor
+struct LimitProgressBar: View {
+    let usedPercent: Double
+    let tint: Color
+    @Environment(UsageStore.self) private var store
+
+    var body: some View {
+        ProgressView(value: min(100, max(0, store.limitDisplayPercent(usedPercent))), total: 100)
+            .tint(tint)
+            .controlSize(.small)
     }
 }
