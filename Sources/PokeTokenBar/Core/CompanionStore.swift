@@ -76,11 +76,20 @@ final class CompanionStore {
         self.rng = rng
         self.dittoDisguiseRollingEnabled = dittoDisguiseRollingEnabled
         self.defaults = defaults
-        growthDifficulty = PokemonBalance.clampDifficulty(
-            defaults.object(forKey: "growthDifficulty") as? Double ?? PokemonBalance.defaultDifficulty)
+        let storedGrowth = defaults.object(forKey: "growthDifficulty") as? Double ?? PokemonBalance.defaultDifficulty
+        // Previous releases accepted 0.01%–2000%. Reprice their banked progress before
+        // persisting the narrower range, otherwise an upgrade silently changes completion.
+        let previousGrowth = storedGrowth.isFinite ? min(20, max(0.0001, storedGrowth)) : 1
+        growthDifficulty = PokemonBalance.clampDifficulty(storedGrowth)
         shopDifficulty = PokemonBalance.clampDifficulty(
             defaults.object(forKey: "shopDifficulty") as? Double ?? PokemonBalance.defaultDifficulty)
         load()
+        if previousGrowth != growthDifficulty {
+            rescaleBankedGrowth(from: previousGrowth, to: growthDifficulty)
+            save()
+        }
+        defaults.set(growthDifficulty, forKey: "growthDifficulty")
+        defaults.set(shopDifficulty, forKey: "shopDifficulty")
         migratePokemonProfilesIfNeeded()
         refreshRepresentativeSubject()
         if state.active != nil { displayState = .idle }
@@ -98,20 +107,35 @@ final class CompanionStore {
     var language: AppLanguage { state.language }
     func setLanguage(_ lang: AppLanguage) { state.language = lang; save() }
 
-    // MARK: 난이도 — 설정에서 조절, 즉시 반영(재시작 불필요)
+    // MARK: 난이도 — 저장할 때만 적용
 
-    /// 성장 배율 변경. 배율을 내리면 이미 쌓인 진행도가 그 자리에서 임계를 넘을 수 있으므로,
-    /// 다음 사용량 폴링(기본 120s)까지 기다리지 않고 여기서 진화·부화 판정을 다시 돌린다.
-    /// `applyUsage(0)` 은 메타몽 리빌·라인 로드 뒤 재평가에 쓰는 기존 킥과 같은 형태이며,
-    /// 내부에서 save() 까지 수행한다(활성 개체가 없으면 no-op).
+    /// Keep the earned fraction of this egg/stage. These are progression credits,
+    /// not actual usage: lifetime tokens, provider ledgers and wallet never change here.
     func setGrowthDifficulty(_ value: Double) {
         let clamped = PokemonBalance.clampDifficulty(value)
         guard clamped != growthDifficulty else { return }
+        rescaleBankedGrowth(from: growthDifficulty, to: clamped)
         growthDifficulty = clamped
         defaults.set(clamped, forKey: "growthDifficulty")
-        applyUsage(0)
-        if state.active == nil, state.eggUsage >= eggHatchThreshold, !isHatching {
-            Task { await hatchIfNeeded() }
+        // Do not evolve, graduate or hatch just because Settings changed.
+        save()
+    }
+
+    private func rescaleBankedGrowth(from old: Double, to new: Double) {
+        func rescaled(_ credits: Int, base: Int) -> Int {
+            // Calculate the old threshold without the new range clamp during migration.
+            let oldThreshold = max(1, Int((Double(base) * old).rounded()))
+            let newThreshold = max(1, Int((Double(base) * new).rounded()))
+            let value = Double(credits) / Double(oldThreshold) * Double(newThreshold)
+            let rounded = Int(min(Double(SaveTransfer.maxTokenValue), max(0, value.rounded(.down))))
+            // Rounding must never turn an incomplete stage into a completed one.
+            return credits < oldThreshold ? min(newThreshold - 1, rounded) : rounded
+        }
+        if var active = state.active {
+            active.usedAtStage = rescaled(active.usedAtStage, base: active.phaseThreshold)
+            state.active = active
+        } else {
+            state.eggUsage = rescaled(state.eggUsage, base: PokemonBalance.eggHatchThreshold)
         }
     }
 

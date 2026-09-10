@@ -46,7 +46,7 @@ final class ProfileGrowthIntegrationTests: XCTestCase {
     }
 
     func testEveryDifficultyAndRepeatHatchGraduatesAtLevel100() async throws {
-        for difficulty in [0.0001, 1, 20] {
+        for difficulty in [0.1, 1, 2] {
             for forms in 1...3 {
                 let (s, _, _) = try fixture(difficulty: difficulty, forms: forms)
                 for repeated in [false, true] {
@@ -72,25 +72,28 @@ final class ProfileGrowthIntegrationTests: XCTestCase {
         s.applyUsage(93_750_000)
         let profile = try XCTUnwrap(s.state.active?.profile)
         XCTAssertEqual(profile.level, 52)
-        s.setGrowthDifficulty(20)
+        s.setGrowthDifficulty(2)
         XCTAssertEqual(s.state.active?.profile?.level, 52)
         let reloaded = CompanionStore(provider: GrowthProfileProvider(forms: 1), fileURL: file, defaults: defaults)
         XCTAssertEqual(reloaded.state.active?.profile?.instanceID, profile.instanceID)
         XCTAssertEqual(reloaded.state.active?.profile?.ivs, profile.ivs)
         XCTAssertEqual(reloaded.state.active?.profile?.level, 52)
-        s.setGrowthDifficulty(0.0001)
+        s.setGrowthDifficulty(0.1)
+        XCTAssertEqual(s.progress, 0.5, accuracy: 0.000001)
+        XCTAssertEqual(s.state.active?.profile?.level, 52)
+        s.applyUsage(s.tokensToNext)
         XCTAssertNil(s.state.active)
         XCTAssertEqual(s.state.dex.last?.profile?.level, 100)
     }
 
     func testSmallUsageChunksMatchSingleDeltaAtHardDifficulty() async throws {
-        let (small, _, _) = try fixture(difficulty: 20)
-        let (large, _, _) = try fixture(difficulty: 20)
+        let (small, _, _) = try fixture(difficulty: 2)
+        let (large, _, _) = try fixture(difficulty: 2)
         await small.hatch(baseID: 1)
         await large.hatch(baseID: 1)
         for _ in 0..<20 { small.applyUsage(1) }
         large.applyUsage(20)
-        XCTAssertEqual(small.state.active?.profile?.growthTokens, 1)
+        XCTAssertEqual(small.state.active?.profile?.growthTokens, 10)
         XCTAssertEqual(small.state.active?.profile?.growthTokens, large.state.active?.profile?.growthTokens)
         XCTAssertEqual(small.state.active?.profile?.level, large.state.active?.profile?.level)
     }
@@ -109,9 +112,9 @@ final class ProfileGrowthIntegrationTests: XCTestCase {
         var seed = CompanionState()
         seed.active = MonState(baseID: 1, pathIDs: [1], plannedPathIDs: [1, 2, 3],
                                stageIndex: 0, usedAtStage: 0, rarity: .common, totalForms: 3)
-        let (s, _, _) = try fixture(seed, difficulty: 0.0001)
-        s.applyUsage(75_000)
-        XCTAssertEqual(s.state.active?.usedAtStage, 75_000)
+        let (s, _, _) = try fixture(seed, difficulty: 0.1)
+        s.applyUsage(75_000_000)
+        XCTAssertEqual(s.state.active?.usedAtStage, 75_000_000)
         s.update(todayTokensByProvider: [:], todayDate: "day", monthTotal: 0,
                  burnTier: .idle, limitWarning: false, hasUsageData: false)
         for _ in 0..<200 {
@@ -130,7 +133,7 @@ final class ProfileGrowthIntegrationTests: XCTestCase {
         XCTAssertEqual(original.level, 52)
         let data = try SaveTransfer.encode(state: source.state, appVersion: "test",
                                            deviceName: "source", now: Date())
-        let (destination, _, _) = try fixture(difficulty: 20, forms: 1)
+        let (destination, _, _) = try fixture(difficulty: 2, forms: 1)
         try destination.applySave(SaveTransfer.decode(data), todayTokensByProvider: [:],
                                   todayDate: "day", hasUsageData: false)
         XCTAssertEqual(destination.state.active?.profile?.instanceID, original.instanceID)
@@ -147,7 +150,7 @@ final class ProfileGrowthIntegrationTests: XCTestCase {
     func testRareCandyFinalizesGraduationProfile() async throws {
         var seed = CompanionState()
         seed.inventory[ItemKind.rareCandy.rawValue] = 1
-        let (s, _, _) = try fixture(seed, difficulty: 0.0001)
+        let (s, _, _) = try fixture(seed, difficulty: 0.1)
         await s.hatch(baseID: 1)
         await s.loadPokemonDetails(speciesID: 3)
         _ = s.useRareCandy()
