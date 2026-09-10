@@ -3,6 +3,12 @@ import SwiftUI
 import XCTest
 @testable import PokeTokenBar
 
+/// The production popover is key-capable. A plain borderless NSWindow is not,
+/// so orderFront alone can render controls without allowing SwiftUI focus on CI.
+private final class SessionKeyTestWindow: NSWindow {
+    override var canBecomeKey: Bool { true }
+}
+
 @MainActor
 final class SessionKeySettingsRenderingTests: XCTestCase {
     func testSessionKeyEntryOpensInsideViewportAndPreservesDifficultyControls() async throws {
@@ -19,11 +25,15 @@ final class SessionKeySettingsRenderingTests: XCTestCase {
             onClose: {}, onChooseRepresentative: {}, startExpanded: navigation.expandAdvancedOnOpen)
             .environment(usage).environment(companion).environment(UpdateChecker())
             .frame(width: PopoverMetrics.width))
-        let window = NSWindow(contentRect: NSRect(x: -10000, y: -10000, width: PopoverMetrics.width, height: 460),
+        let previousKeyWindow = NSApp.keyWindow
+        let window = SessionKeyTestWindow(contentRect: NSRect(x: -10000, y: -10000, width: PopoverMetrics.width, height: 460),
                               styleMask: [.borderless], backing: .buffered, defer: false)
         window.contentViewController = host
-        window.orderFront(nil)
-        defer { window.orderOut(nil) }
+        window.makeKeyAndOrderFront(nil)
+        defer {
+            window.orderOut(nil)
+            previousKeyWindow?.makeKey()
+        }
         host.view.layoutSubtreeIfNeeded()
         try await Task.sleep(for: .milliseconds(500))
         host.view.layoutSubtreeIfNeeded()
