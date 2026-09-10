@@ -13,23 +13,10 @@ struct LocalClaudeProvider: UsageProvider {
 
     func fetchEnrichment() async -> ProviderEnrichment {
         let now = Date()
-        let monthStart = LocalUsageReader.startOfMonth(now)
-        // 한 번 스캔으로 블록·주·월을 모두 도출 — 하한은 세 윈도우 중 가장 이른 시작(월초 경계 흡수).
+        // 한 번 스캔으로 블록·주·월·일별을 모두 도출 — 하한은 세 윈도우 중 가장 이른 시작(월초 경계 흡수).
         let entries = await LocalUsageCache.shared.claudeEntries(
             modifiedSince: LocalUsageReader.enrichmentScanStart(now: now))
-        let fmt = LocalUsageReader.localDayFormatter()
-        var r = ProviderEnrichment()
-        r.activeBlock = LocalUsageReader.activeBlock(entries: entries, now: now)
-        r.blocksOK = true
-        let weekStart = LocalUsageReader.startOfWeek(now)
-        r.weekTotal = LocalUsageReader.period(
-            entries: entries, periodKey: fmt.string(from: weekStart),
-            fromDay: fmt.string(from: weekStart), toDay: fmt.string(from: now))
-        r.monthTotal = LocalUsageReader.period(
-            entries: entries, periodKey: LocalUsageReader.monthKey(now),
-            fromDay: fmt.string(from: monthStart), toDay: fmt.string(from: now))
-        r.periodsOK = true
-        return r
+        return .local(entries: entries, now: now)
     }
 }
 
@@ -48,21 +35,9 @@ struct LocalGeminiProvider: UsageProvider {
 
     func fetchEnrichment() async -> ProviderEnrichment {
         let now = Date()
-        let monthStart = LocalUsageReader.startOfMonth(now)
         let entries = await LocalUsageCache.shared.geminiEntries(
             modifiedSince: LocalUsageReader.enrichmentScanStart(now: now))
-        let fmt = LocalUsageReader.localDayFormatter()
-        var r = ProviderEnrichment()
-        // 블록(burn rate) 계산은 프로바이더 공통 — companion 리듬이 전 프로바이더를 따르게.
-        r.activeBlock = LocalUsageReader.activeBlock(entries: entries, now: now)
-        r.blocksOK = true
-        let weekStart = LocalUsageReader.startOfWeek(now)
-        r.weekTotal = LocalUsageReader.period(entries: entries, periodKey: fmt.string(from: weekStart),
-                                              fromDay: fmt.string(from: weekStart), toDay: fmt.string(from: now))
-        r.monthTotal = LocalUsageReader.period(entries: entries, periodKey: LocalUsageReader.monthKey(now),
-                                               fromDay: fmt.string(from: monthStart), toDay: fmt.string(from: now))
-        r.periodsOK = true
-        return r
+        return .local(entries: entries, now: now)
     }
 }
 
@@ -84,20 +59,8 @@ struct LocalAntigravityProvider: UsageProvider {
 
     func fetchEnrichment() async -> ProviderEnrichment {
         let now = Date()
-        let monthStart = LocalUsageReader.startOfMonth(now)
         let entries = await LocalAntigravityUsageCache.shared.entries()
-        let fmt = LocalUsageReader.localDayFormatter()
-        var r = ProviderEnrichment()
-        // 블록(burn rate) 계산은 프로바이더 공통 — companion 리듬이 전 프로바이더를 따르게.
-        r.activeBlock = LocalUsageReader.activeBlock(entries: entries, now: now)
-        r.blocksOK = true
-        let weekStart = LocalUsageReader.startOfWeek(now)
-        r.weekTotal = LocalUsageReader.period(entries: entries, periodKey: fmt.string(from: weekStart),
-                                              fromDay: fmt.string(from: weekStart), toDay: fmt.string(from: now))
-        r.monthTotal = LocalUsageReader.period(entries: entries, periodKey: LocalUsageReader.monthKey(now),
-                                               fromDay: fmt.string(from: monthStart), toDay: fmt.string(from: now))
-        r.periodsOK = true
-        return r
+        return .local(entries: entries, now: now)
     }
 }
 
@@ -115,21 +78,9 @@ struct LocalGrokProvider: UsageProvider {
 
     func fetchEnrichment() async -> ProviderEnrichment {
         let now = Date()
-        let monthStart = LocalUsageReader.startOfMonth(now)
         let entries = await LocalUsageCache.shared.grokEntries(
             modifiedSince: LocalUsageReader.enrichmentScanStart(now: now))
-        let fmt = LocalUsageReader.localDayFormatter()
-        var r = ProviderEnrichment()
-        // 블록(burn rate) 계산은 프로바이더 공통 — companion 리듬이 전 프로바이더를 따르게.
-        r.activeBlock = LocalUsageReader.activeBlock(entries: entries, now: now)
-        r.blocksOK = true
-        let weekStart = LocalUsageReader.startOfWeek(now)
-        r.weekTotal = LocalUsageReader.period(entries: entries, periodKey: fmt.string(from: weekStart),
-                                              fromDay: fmt.string(from: weekStart), toDay: fmt.string(from: now))
-        r.monthTotal = LocalUsageReader.period(entries: entries, periodKey: LocalUsageReader.monthKey(now),
-                                               fromDay: fmt.string(from: monthStart), toDay: fmt.string(from: now))
-        r.periodsOK = true
-        return r
+        return .local(entries: entries, now: now)
     }
 }
 
@@ -150,23 +101,9 @@ struct LocalCodexProvider: UsageProvider {
 
     func fetchEnrichment() async -> ProviderEnrichment {
         let now = Date()
-        let monthStart = LocalUsageReader.startOfMonth(now)
         let entries = await LocalUsageCache.shared.codexEntries(
             modifiedSince: LocalUsageReader.enrichmentScanStart(now: now))
-        let fmt = LocalUsageReader.localDayFormatter()
-        var r = ProviderEnrichment()
-        // 블록(burn rate) 계산은 프로바이더 공통 — companion 리듬이 전 프로바이더를 따르게.
-        r.activeBlock = LocalUsageReader.activeBlock(entries: entries, now: now)
-        r.blocksOK = true
-        let weekStart = LocalUsageReader.startOfWeek(now)
-        let week = LocalUsageReader.period(entries: entries, periodKey: fmt.string(from: weekStart),
-                                           fromDay: fmt.string(from: weekStart), toDay: fmt.string(from: now))
-        let month = LocalUsageReader.period(entries: entries, periodKey: LocalUsageReader.monthKey(now),
-                                            fromDay: fmt.string(from: monthStart), toDay: fmt.string(from: now))
-        r.weekTotal = PeriodUsage(period: week.period, totalTokens: week.totalTokens, totalCost: 0)
-        r.monthTotal = PeriodUsage(period: month.period, totalTokens: month.totalTokens, totalCost: 0)
-        r.periodsOK = true
-        return r
+        return .local(entries: entries, now: now, zeroCost: true)
     }
 }
 
@@ -197,24 +134,9 @@ struct LocalPiProvider: UsageProvider {
 
     func fetchEnrichment() async -> ProviderEnrichment {
         let now = Date()
-        let monthStart = LocalUsageReader.startOfMonth(now)
         let entries = await cache.piEntries(
             modifiedSince: LocalUsageReader.enrichmentScanStart(now: now))
-        let fmt = LocalUsageReader.localDayFormatter()
-        var result = ProviderEnrichment()
-        result.activeBlock = LocalUsageReader.activeBlock(entries: entries, now: now)
-        result.blocksOK = true
-        let weekStart = LocalUsageReader.startOfWeek(now)
-        let week = LocalUsageReader.period(
-            entries: entries, periodKey: fmt.string(from: weekStart),
-            fromDay: fmt.string(from: weekStart), toDay: fmt.string(from: now))
-        let month = LocalUsageReader.period(
-            entries: entries, periodKey: LocalUsageReader.monthKey(now),
-            fromDay: fmt.string(from: monthStart), toDay: fmt.string(from: now))
-        result.weekTotal = PeriodUsage(period: week.period, totalTokens: week.totalTokens, totalCost: 0)
-        result.monthTotal = PeriodUsage(period: month.period, totalTokens: month.totalTokens, totalCost: 0)
-        result.periodsOK = true
-        return result
+        return .local(entries: entries, now: now, zeroCost: true)
     }
 }
 
@@ -232,20 +154,8 @@ struct LocalOmpProvider: UsageProvider {
 
     func fetchEnrichment() async -> ProviderEnrichment {
         let now = Date()
-        let monthStart = LocalUsageReader.startOfMonth(now)
         let entries = await LocalUsageCache.shared.ompEntries(
             modifiedSince: LocalUsageReader.enrichmentScanStart(now: now))
-        let fmt = LocalUsageReader.localDayFormatter()
-        var r = ProviderEnrichment()
-        // Block (burn rate) computation is provider-generic — the companion rhythm follows all providers.
-        r.activeBlock = LocalUsageReader.activeBlock(entries: entries, now: now)
-        r.blocksOK = true
-        let weekStart = LocalUsageReader.startOfWeek(now)
-        r.weekTotal = LocalUsageReader.period(entries: entries, periodKey: fmt.string(from: weekStart),
-                                              fromDay: fmt.string(from: weekStart), toDay: fmt.string(from: now))
-        r.monthTotal = LocalUsageReader.period(entries: entries, periodKey: LocalUsageReader.monthKey(now),
-                                               fromDay: fmt.string(from: monthStart), toDay: fmt.string(from: now))
-        r.periodsOK = true
-        return r
+        return .local(entries: entries, now: now)
     }
 }

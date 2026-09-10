@@ -95,6 +95,7 @@ final class AsideUsageTests: XCTestCase, @unchecked Sendable {
         XCTAssertTrue(enrichment.periodsOK && enrichment.blocksOK)
         XCTAssertEqual(enrichment.weekTotal?.totalTokens, 1573318)
         XCTAssertEqual(enrichment.monthTotal?.totalTokens, 1573318)
+        XCTAssertEqual(enrichment.monthDaily?.reduce(0) { $0 + $1.totalTokens }, 1573318)
         XCTAssertEqual(enrichment.activeBlock?.totalTokens, 1573318)
     }
 
