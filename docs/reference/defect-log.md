@@ -48,6 +48,20 @@ read_when:
   같은 `didReset` / `highWater == 0` 규칙을 두 벌로 들고 있으면 한쪽만 고친 수정이 다른 쪽에 남는다
   (#157). 루프는 `scanIncrementalStores` 한 곳, 포맷만 콜백. 회귀는 공유 헬퍼 테스트 **그리고**
   Copilot-only / Cursor-only 각 경로(A\|\|B 의 B 단독)를 모두 밟아야 한다.
+- **리뷰 라운드가 끝나지 않는 건 리뷰어 탓이 아니라 형제 인프라를 우회한 탓이다.** Aside 프로바이더는
+  `LocalAdditionalUsageCache` 를 안 타고 리더를 직접 완결해서 독립 리뷰가 3라운드 이어졌다(2026-09-10):
+  1라운드 파서·루트 스냅샷, 2라운드 0토큰 턴·실패를 `[]` 로 접기, 3라운드 세션 삭제 감소·영구 실패
+  throw. 뒤의 두 라운드 지적은 앞 라운드 *수정*이 만든 것이고(아래 항목), 캐시를 탔으면 부류 자체가
+  없었다. 규칙: 새 소스는 캐시 위에서 시작(`provider-extension.md`), 리뷰가 두 번째 라운드에서도
+  medium 을 내면 개별 fix 를 멈추고 "형제와 다른 경로가 어디냐"를 먼저 묻는다.
+- **실패 처리를 고칠 때는 소비자(`UsageStore.refresh`)의 세 가지 결과 처리를 먼저 읽는다.** throw →
+  `failedIDs`/`lastErrorDescription` + `lastUpdated` 정지(앱 전체), nil → 스냅샷 제거("안 썼음"),
+  enrichment OK=false → 이전 값 유지. Aside 에서 스킵을 `[]` 로 접어 BUSY 한 번에 탭이 사라지고
+  주/월이 0 으로 덮였고(2라운드), "전부 실패면 throw" 로 고치자 `no such table` 같은 영구 조건이
+  매 리프레시 throw 해서 다른 프로바이더 숫자는 갱신되는데 "Updated 5 hours ago" 가 굳었다(3라운드).
+  일시적 코드(`CANTOPEN`/`BUSY`/`LOCKED`/`IOERR*`/`CORRUPT`)만 throw 후보, prepare 단계의
+  `SQLITE_ERROR`/`NOTADB` 는 "이 소스의 DB 가 아님"으로 스킵. 회귀 테스트는 리더 단위가 아니라
+  provider 를 통해 `fetchDaily` throw 여부와 `fetchEnrichment` OK 플래그를 함께 본다.
 - **파싱 뒤에 걸린 필터는 출력을 줄이지 일을 줄이지 않는다.** `modifiedSince` 가 호출부에선
   스캔 창처럼 보이지만, 행 watermark 가 있는 리더에서만 창이다. 통문서 저장(Kiro 가 대화 JSON 을
   제자리 재기록)은 창을 파싱 *뒤에* 적용해서 읽기·`jsonObject` 비용이 그대로다(실측 30×80턴:

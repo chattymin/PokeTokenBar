@@ -39,6 +39,20 @@ read_when:
   `CustomScanRoots.curatedRoots(for:)` 에도 그 기본 루트 목록을 넣는다 — Settings 매치 카운트가
   이 두 번째 레지스트리를 본다. 빼먹으면 `default: []` 로 카운트만 0 이 되고 스캔은 리더 쪽
   기본값으로 돌아간다.
+- **로컬 파일을 읽는 새 사용량 소스는 `LocalAdditionalUsageCache` 위에 얹는다 — 리더를 손으로
+  완결하지 마라.** OpenCode/Hermes/Kiro/Cursor/Copilot 이 전부 이 캐시(30초 공유 엔트리, `existing +
+  loaded` keep-max 병합, `invalidateScanCache` 훅)를 타는데 Aside 만 `fetchDaily`/`fetchEnrichment` 가
+  각자 전체 스캔을 하도록 직접 짰다. 그 결과가 독립 리뷰 3라운드였다 — 세션 삭제(`ON DELETE CASCADE`)로
+  오늘 합계가 줄어드는 문제, 리프레시당 스캔 2회, 실패 처리 관례 불일치는 모두 "형제와 같은 경로를
+  안 탔다"에서 나온 부류다(2026-09-10). 새 소스는 `LocalAdditionalUsageCache.Source` 케이스 하나 +
+  리더 함수로 시작하고, 캐시를 우회할 이유가 있으면 doc comment 에 그 이유를 적는다.
+- **리더의 실패 의미(throw / nil / `[]`)를 바꾸면 소비자 `UsageStore.refresh` 까지 추적한다.**
+  provider 파일 안에서만 보면 셋이 비슷해 보이지만 스토어는 다르게 처리한다: `fetchDaily` 가 throw
+  → `failedIDs`·`lastErrorDescription`(팝오버 경고 아이콘)에 기록되고 **`lastUpdated` 가 앱 전체로
+  멎는다**; nil → "성공인데 사용량 없음"으로 스냅샷이 사라진다; `fetchEnrichment` 의 OK 플래그 false
+  → 이전 주/월/블록 값을 유지. Aside 리뷰에서 "나쁜 DB 스킵"을 `[]` 로 접어 실패가 0 사용량으로
+  보였고, 그걸 "전부 실패면 throw"로 고치자 영구 스키마 불일치가 `lastUpdated` 를 얼렸다 — 두 번
+  연달아 소비자를 안 읽고 고친 결과다. PR 에 "throw 는 X 일 때만, nil 은 Y" 매핑을 한 줄로 적는다.
 - **append-only SQLite 사용량 스토어** (Cursor `cursorDiskKV`, Copilot `assistant_usage_events`,
   앞으로 같은 형태의 세 번째 소스) = `LocalAdditionalUsageReader.scanIncrementalStores`. URL 매핑·
   `MAX` SQL·row query·parse 만 넘긴다. watermark 루프를 프로바이더마다 복사하지 마라 (#157).
