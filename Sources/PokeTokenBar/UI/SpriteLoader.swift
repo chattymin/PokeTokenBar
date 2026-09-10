@@ -124,6 +124,60 @@ enum SpriteLoader {
         return cachedImage(speciesID: speciesID, animated: animated, shiny: false, directory: directory)
     }
 
+    private final class AnimationFrames {
+        let frames: [(image: NSImage, delay: TimeInterval)]
+        init(_ frames: [(image: NSImage, delay: TimeInterval)]) { self.frames = frames }
+    }
+    // Decoded animations are larger than PNGs; keep recent detail visits without retaining the dex.
+    private static let animationCache: NSCache<NSString, AnimationFrames> = {
+        let cache = NSCache<NSString, AnimationFrames>()
+        cache.countLimit = 16
+        return cache
+    }()
+
+    /// First render and playback share the exact GIF pixels, including its canvas and delays.
+    static func cachedFrames(speciesID: Int, shiny: Bool, directory: URL = cacheDir)
+        -> [(image: NSImage, delay: TimeInterval)] {
+        let key = SpriteStore.cacheKey(speciesID: speciesID, animated: true, shiny: shiny)
+        let file = directory.appendingPathComponent("\(key).gif")
+        if let cached = animationCache.object(forKey: file.path as NSString) { return cached.frames }
+        guard let data = try? Data(contentsOf: file) else { return [] }
+        return rememberFrames(data, file: file)
+    }
+
+    private static func rememberFrames(_ data: Data, file: URL) -> [(image: NSImage, delay: TimeInterval)] {
+        let frames = GIFDecoder.frames(from: data)
+        if !frames.isEmpty { animationCache.setObject(AnimationFrames(frames), forKey: file.path as NSString) }
+        return frames
+    }
+
+    static func animationFrames(speciesID: Int, shiny: Bool, store: SpriteStore = .shared) async
+        -> [(image: NSImage, delay: TimeInterval)] {
+        for variant in shiny ? [true, false] : [false] {
+            let cached = cachedFrames(speciesID: speciesID, shiny: variant, directory: store.directory)
+            if !cached.isEmpty { return cached }
+            guard let data = await store.data(speciesID: speciesID, animated: true, shiny: variant) else { continue }
+            let key = SpriteStore.cacheKey(speciesID: speciesID, animated: true, shiny: variant)
+            let frames = rememberFrames(data, file: store.directory.appendingPathComponent("\(key).gif"))
+            if !frames.isEmpty { return frames }
+        }
+        return []
+    }
+
+    /// The static PNG has a 96px padded canvas; animated GIFs are tightly framed.
+    /// Normalize only the animated view's placeholder, leaving static dex thumbnails unchanged.
+    private static let placeholderCache: NSCache<NSImage, NSImage> = {
+        let cache = NSCache<NSImage, NSImage>()
+        cache.countLimit = 64
+        return cache
+    }()
+    static func animationPlaceholder(_ image: NSImage) -> NSImage {
+        if let cached = placeholderCache.object(forKey: image) { return cached }
+        let cropped = cropToContent(image)
+        placeholderCache.setObject(cropped, forKey: image)
+        return cropped
+    }
+
     /// 정적 스프라이트. animated=true 면 Gen-V 움직이는 스프라이트(없으면 정적으로 폴백).
     /// shiny=true 는 색이 다른 스프라이트 — 미제공 종이면 일반으로 폴백.
     static func image(speciesID: Int, animated: Bool = false, shiny: Bool = false,
