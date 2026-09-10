@@ -178,8 +178,7 @@ struct L {
           "Porcentagens do balanceamento padrão — reduzir faz crescer mais rápido e custar menos; aumentar faz o contrário",
           "Prozentwerte der Standardbalance — niedriger wächst schneller und kostet weniger, höher bewirkt das Gegenteil")
     }
-    /// 슬라이더 옆 현재 배율 — 퍼센트 표기(1.0 = 100%). 범위가 0.01%~2000% 라 작은 쪽은 자릿수를
-    /// 더 보여준다(고정 소수점이면 0.01% 와 0.05% 가 똑같이 "0%" 로 뭉갠다).
+    /// 슬라이더 옆 현재 배율 — 10%~200%, 1.0 = 100%.
     func difficultyValue(_ value: Double) -> String {
         let percent = value * 100
         if percent >= 10 { return String(format: "%.0f%%", percent) }

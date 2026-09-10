@@ -53,8 +53,10 @@ final class DifficultyTests: XCTestCase {
         let stageOne = s.threshold
         s.applyUsage(stageOne / 2)
         s.setGrowthDifficulty(0.25)
+        XCTAssertEqual(s.state.active?.stageIndex, 1)
+        XCTAssertEqual(s.progress, 0.5, accuracy: 0.000001)
+        s.applyUsage(s.tokensToNext)
         XCTAssertEqual(s.state.active?.stageIndex, 2)
-        XCTAssertEqual(s.state.active?.usedAtStage, 0)
         s.applyUsage(s.tokensToNext)
         XCTAssertNil(s.state.active)
         XCTAssertEqual(s.state.dex.last?.finalID, 3)
@@ -171,14 +173,19 @@ final class DifficultyTests: XCTestCase {
 
     // MARK: 5. 라이브 반영 — 재시작 없이 그 자리에서
 
-    func testLoweringDifficultyLiveTriggersEvolutionImmediately() async {
+    func testLoweringDifficultyPreservesIncompleteStage() async {
         let s = await hatched(growth: 1.0)
         let baseThreshold = PokemonBalance.phaseThreshold(rarity: .common, totalForms: 3, stageIndex: 0)
         s.applyUsage(baseThreshold - 1)
         XCTAssertEqual(s.state.active?.stageIndex, 0, "아직 진화 전")
 
-        s.setGrowthDifficulty(0.5)   // 슬라이더를 내리는 순간
-        XCTAssertEqual(s.state.active?.stageIndex, 1, "폴링을 기다리지 않고 즉시 진화")
+        s.setGrowthDifficulty(0.5)
+        XCTAssertEqual(s.state.active?.stageIndex, 0)
+        XCTAssertEqual(s.tokensToNext, 1)
+        s.applyUsage(0)
+        XCTAssertEqual(s.state.active?.stageIndex, 0)
+        s.applyUsage(1)
+        XCTAssertEqual(s.state.active?.stageIndex, 1)
     }
 
     func testShopPriceChangesLiveWithoutRestart() async {
@@ -239,7 +246,7 @@ final class DifficultyTests: XCTestCase {
     // MARK: 7. 슬라이더 위치 매핑 (로그) + 퍼센트 표기
 
     func testPositionRoundTripsThroughDifficulty() {
-        for value in [0.001, 0.01, 0.1, 0.5, 1.0, 2.0, 5.0, 20.0] {
+        for value in [0.1, 0.25, 0.5, 1.0, 1.5, 2.0] {
             let back = PokemonBalance.difficulty(atPosition: PokemonBalance.difficultyPosition(value))
             XCTAssertEqual(back, value, accuracy: value * 0.02, "value=\(value)")
         }
