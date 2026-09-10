@@ -96,11 +96,18 @@ final class SpriteImageCacheTests: XCTestCase {
         ] {
             let file = dir.appendingPathComponent(filename)
             try XCTUnwrap(bitmap.representation(using: animated ? .gif : .png, properties: [:])).write(to: file)
-            let firstLoad = Task { await SpriteLoader.image(speciesID: 25, animated: animated, shiny: shiny, store: store) }
-            let secondLoad = Task { await SpriteLoader.image(speciesID: 25, animated: animated, shiny: shiny, store: store) }
-            let result = await firstLoad.value
+            // Xcode 16's NSImage is not Sendable; keep results on MainActor and await only completion.
+            var result: NSImage?
+            var second: NSImage?
+            let firstLoad = Task<Void, Never> { @MainActor in
+                result = await SpriteLoader.image(speciesID: 25, animated: animated, shiny: shiny, store: store)
+            }
+            let secondLoad = Task<Void, Never> { @MainActor in
+                second = await SpriteLoader.image(speciesID: 25, animated: animated, shiny: shiny, store: store)
+            }
+            await firstLoad.value
+            await secondLoad.value
             let first = try XCTUnwrap(result)
-            let second = await secondLoad.value
             XCTAssertTrue(second === first, "concurrent loads must converge on one image object")
             try FileManager.default.removeItem(at: file)
             XCTAssertTrue(SpriteLoader.cachedImage(
@@ -126,12 +133,17 @@ final class SpriteImageCacheTests: XCTestCase {
             let file = dir.appendingPathComponent("item-\(name).png")
             XCTAssertNil(SpriteLoader.cachedItemImage(name: name, directory: dir))
             try png.write(to: file)
-            let result: NSImage?
+            var result: NSImage?
             if asyncFirst {
-                let firstLoad = Task { await SpriteLoader.itemImage(name: name, store: store) }
-                let secondLoad = Task { await SpriteLoader.itemImage(name: name, store: store) }
-                result = await firstLoad.value
-                let second = await secondLoad.value
+                var second: NSImage?
+                let firstLoad = Task<Void, Never> { @MainActor in
+                    result = await SpriteLoader.itemImage(name: name, store: store)
+                }
+                let secondLoad = Task<Void, Never> { @MainActor in
+                    second = await SpriteLoader.itemImage(name: name, store: store)
+                }
+                await firstLoad.value
+                await secondLoad.value
                 XCTAssertTrue(second === result, "concurrent item loads must also share their image object")
             } else {
                 result = SpriteLoader.cachedItemImage(name: name, directory: dir)
