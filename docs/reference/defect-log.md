@@ -60,9 +60,16 @@ read_when:
   주/월이 0 으로 덮였고(2라운드), "전부 실패면 throw" 로 고치자 `no such table` 같은 영구 조건이
   매 리프레시 throw 해서 다른 프로바이더 숫자는 갱신되는데 "Updated 5 hours ago" 가 굳었다(3라운드).
   최종 결정: 캐시 위의 로컬 소스 리더는 **throw 하지 않는다** — 못 여는/못 읽는 DB 는 스킵하고,
-  전부 실패면 `[]` 를 돌려 `dedupKeepMax(existing + loaded)` 가 이전 값을 유지한다(Aside 를
-  `LocalAdditionalUsageCache` 로 옮기며 적용). 회귀 테스트는 리더 파일에 `throw` 가 없는지와 캐시
-  케이스가 `existing +` 로 병합하는지를 소스 텍스트로 고정한다(`AsideUsageTests`).
+  전부 실패면 `[]` 를 돌려 `dedupKeepMax(existing + loaded)` 가 이전 값을 유지한다(캐시가 무효화될
+  때까지 — Settings 저장·월 경계·재시작). 회귀 테스트는 **소스 텍스트가 아니라 캐시를 실제로
+  통과**시킨다: `LocalAdditionalUsageCache(rootsOverride:clock:)` + `LocalAsideProvider(cache:)` 로
+  30초 엔트리를 clock 으로 넘겨 두 번째 스캔이 정말 `existing` 과 병합하는지 본다(`AsideUsageTests`).
+  소스 텍스트 검사로 병합을 "고정"했던 첫 버전은 리뷰에서 걸렸고, 행동 테스트로 바꾸자마자
+  세션 삭제를 "DB 재생성"으로 오판하는 `MAX(id)` 리셋 감지 버그를 첫 실행에서 잡았다(2026-09-10).
+- **이전 코드의 opt-in 플래그를 옮길 때 형제가 왜 안 켰는지 먼저 본다.** Aside 를 캐시로 옮기며
+  원본의 `includeModels: true` 를 그대로 가져갔는데, `sessions.model` 은 세션의 *현재* 모델이라
+  캐시가 다시 채워질 때마다(무효화·월 경계·재시작) 이전 턴 전부가 새 모델로 재분류된다. 이 옵션은
+  per-turn 모델이 기록되는 Pi 만 켠다. 회귀: provider 경유 `fetchDaily()?.models == nil`.
 - **파싱 뒤에 걸린 필터는 출력을 줄이지 일을 줄이지 않는다.** `modifiedSince` 가 호출부에선
   스캔 창처럼 보이지만, 행 watermark 가 있는 리더에서만 창이다. 통문서 저장(Kiro 가 대화 JSON 을
   제자리 재기록)은 창을 파싱 *뒤에* 적용해서 읽기·`jsonObject` 비용이 그대로다(실측 30×80턴:

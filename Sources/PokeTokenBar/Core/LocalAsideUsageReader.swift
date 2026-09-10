@@ -4,7 +4,9 @@ import SQLite3
 /// Aside persists mutable turn aggregates, not append-only usage events, and `ON DELETE
 /// CASCADE` removes a session's turns outright when the user deletes the session. The
 /// `.aside` case in `LocalAdditionalUsageCache` therefore merges each scan with the
-/// previously-seen entries (`dedupKeepMax(existing + loaded)`), exactly like Kiro.
+/// previously-seen entries (`dedupKeepMax(existing + loaded)`), exactly like Kiro: a
+/// deleted session stays counted until the scan cache is dropped (Settings save, month
+/// rollover, relaunch), after which the rescan is the truth.
 /// Only usage metadata is selected; conversation bodies and credentials are never read.
 ///
 /// Failure mapping (see `provider-extension.md`): this reader never throws. A database
@@ -49,6 +51,10 @@ enum LocalAsideUsageReader {
             }
             defer { sqlite3_close(db) }
             sqlite3_busy_timeout(db, 1000)
+            // Entry ids carry the file's inode: a recreated state.db (profile removed and
+            // re-created) restarts AUTOINCREMENT at 1, and without the inode its new rows would
+            // share ids with the cached pre-reset turns and hide behind them in the keep-max merge.
+            let store = "\(url.path)#\(inode(of: url.path))"
             var statement: OpaquePointer?
             // Turns run for a long time and `token_usage` grows while they run, so a turn is
             // anchored on its last activity rather than `started_at`; tokens then land in the
@@ -87,7 +93,7 @@ enum LocalAsideUsageReader {
                     // would surface an empty active block and an Aside tab with nothing in it.
                     if input + output + cacheWrite + cacheRead > 0 {
                         rows.append(.init(
-                            id: "\(url.path):\(sqlite3_column_int64(statement, 0))",
+                            id: "\(store):\(sqlite3_column_int64(statement, 0))",
                             date: date, localDay: fmt.string(from: date), model: model,
                             input: input, output: output, cacheWrite: cacheWrite, cacheRead: cacheRead,
                             explicitCost: cost))
@@ -105,6 +111,11 @@ enum LocalAsideUsageReader {
             AppLog.write("aside: skipped unreadable state.db: \(skipped.joined(separator: ", "))")
         }
         return result
+    }
+
+    private static func inode(of path: String) -> UInt64 {
+        var info = stat()
+        return stat(path, &info) == 0 ? UInt64(info.st_ino) : 0
     }
 
     private static func tokens(_ value: Any?) -> Int {
