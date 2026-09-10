@@ -321,6 +321,11 @@ read_when:
   회귀 가드: `testAutoRefreshUsesNoPromptPathManualUsesPromptPath`. (완전 근절은 Developer ID
   notarization 으로 '항상 허용' 승인을 안정화하는 것뿐 — 신뢰된 서명 신원이라야 ACL 승인이 지속된다.
   미도입.)
+- **Claude Keychain '항상 허용'은 ACL 리셋으로 유지되지 않는다 — 비간섭 상시 `(?)` 도움말로 세션 키 등록을 유도.**
+  macOS 의 `security add-generic-password -U` 동작상 Claude CLI 가 토큰을 갱신할 때마다 기존 항목의 ACL(항상 허용)이
+  날아간다. 사용자가 시스템 창에서 '항상 허용'을 눌렀음에도 다음 번에 또 암호를 묻는 것은 앱 버그가 아닌 macOS+CLI 한계이므로,
+  시끄러운 팝업 배너 대신 `한도 (공식)` 헤더 옆의 은은한 `(?)` 팝오버 및 설정 세션 키 입력란으로의 원클릭 바운스(#275)를 통해
+  키체인 사용자에게는 0% 노이즈를 유지하면서도 세션 키 우회로를 친절히 안내한다.
 - **Claude 의 `refreshToken` 은 보이지만 우리가 쓰면 안 된다 — 갱신 시 회전되어 Claude Code 를 깨뜨린다.**
   키체인 항목(`claudeAiOauth`)에는 `accessToken`(수명 ~5h) 옆에 `refreshToken`·`refreshTokenExpiresAt`
   (~15일)이 함께 들어 있다. "그걸로 갱신하면 키체인 접근이 5시간마다 → 15일마다로 줄겠다"는 발상이

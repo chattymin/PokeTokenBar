@@ -57,6 +57,7 @@ struct PopoverView: View {
     @Environment(PopoverNavigation.self) private var nav
 
     private var l: L { companion.l }
+    @State private var showingClaudeKeychainHelp = false
 
     var body: some View {
         // NOTE: 설정을 .sheet 로 띄우면 transient 팝오버가 닫힐 때 시트가 고아로 남아
@@ -65,7 +66,10 @@ struct PopoverView: View {
         Group {
             if nav.showSettings {
                 SettingsView(
-                    onClose: { nav.showSettings = false },
+                    onClose: {
+                        nav.showSettings = false
+                        nav.expandAdvancedOnOpen = false
+                    },
                     onChooseRepresentative: { nav.openRepresentativeDex() },
                     startExpanded: nav.expandAdvancedOnOpen
                 )
@@ -323,9 +327,14 @@ struct PopoverView: View {
     @ViewBuilder
     private var limitsSection: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text(l.limitsOfficial)
-                .font(.caption)
-                .foregroundStyle(.secondary)
+            HStack(spacing: 4) {
+                Text(l.limitsOfficial)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                if selectedSnapshot?.providerID == "claude_code", !store.sessionKeyConfigured {
+                    claudeKeychainHelpButton
+                }
+            }
             if selectedSnapshot?.providerID == "claude_code", store.limitsAuthExpiry == .sessionKey {
                 sessionKeyExpiredNotice
             } else if selectedSnapshot?.providerID == "claude_code", store.limitsAuthExpired {
@@ -641,6 +650,38 @@ struct PopoverView: View {
     }
 
     /// Claude 공식 한도 — 최초 로드/만료(stale) 시 사용자가 원탭으로 Keychain 을 읽어 갱신.
+    /// 자동 폴링이 Keychain 을 안 읽는 대신 여기서 명시적 사용자 동작으로만 재취득한다.
+    private var claudeKeychainHelpButton: some View {
+        Button {
+            showingClaudeKeychainHelp.toggle()
+        } label: {
+            Image(systemName: "questionmark.circle")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .buttonStyle(.plain)
+        .help(l.claudeKeychainHelpTooltip)
+        .popover(isPresented: $showingClaudeKeychainHelp) {
+            VStack(alignment: .leading, spacing: 8) {
+                Text(l.claudeKeychainHelpTitle)
+                    .font(.caption).fontWeight(.semibold)
+                Text(l.claudeKeychainHelpBody)
+                    .font(.caption2).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                HStack {
+                    Spacer()
+                    Button(l.registerSessionKey) {
+                        showingClaudeKeychainHelp = false
+                        nav.openSessionKeySettings()
+                    }
+                    .controlSize(.small)
+                }
+            }
+            .padding(12)
+            .frame(width: 250)
+        }
+    }
+
     /// 자동 폴링이 Keychain 을 안 읽는 대신 여기서 명시적 사용자 동작으로만 재취득한다.
     @ViewBuilder
     private var claudeLimitsRefreshRow: some View {
