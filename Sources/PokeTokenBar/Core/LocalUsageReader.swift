@@ -518,6 +518,11 @@ enum LocalUsageReader {
             "\(input),\(cachedInput),\(cacheWriteInput),\(output),\(reasoningOutput),\(total)"
         }
 
+        /// Billable component sum used for Entry construction (mirrors parseCodexLine mapping).
+        var billableComponents: Int {
+            max(0, input - cachedInput) + cachedInput + output
+        }
+
         func isLower(than previous: Self) -> Bool {
             input < previous.input
                 || cachedInput < previous.cachedInput
@@ -578,6 +583,8 @@ enum LocalUsageReader {
     /// Codex 사용 엔트리. token_count 이벤트의 last_token_usage(턴 델타)를 4종 토큰으로 매핑.
     /// - input(비캐시) = input_tokens − cached_input_tokens, cacheRead = cached_input_tokens
     /// - output = output_tokens (reasoning 은 output 에 이미 포함), cacheWrite = 0
+    /// - components 가 모두 0 이고 total_tokens 만 있으면(#278): 세션이 total-only 이거나
+    ///   last.total == cumulative.total 일 때만 input 에 넣고, fork zero-context 턴은 0 유지.
     /// Codex 파일 하나를 파싱(세션 단위 — token_count 이벤트의 턴 델타). 캐시가 파일 단위로 호출.
     static func parseCodexFile(_ url: URL, fmt: DateFormatter) -> [Entry] {
         let rollout = parseCodexRollout(url, fmt: fmt)
@@ -1086,8 +1093,9 @@ enum LocalUsageReader {
                 previousCumulative = nil
                 previousOwner = owner
             }
+            let priorCumulative = previousCumulative
             if let cumulative = event.usageState?.cumulative {
-                if let previousCumulative, cumulative.isLower(than: previousCumulative) {
+                if let priorCumulative, cumulative.isLower(than: priorCumulative) {
                     epoch += 1
                 }
                 previousCumulative = cumulative
@@ -1097,8 +1105,11 @@ enum LocalUsageReader {
 
             let entry: Entry
             if let owner, let state = event.usageState {
+                let filled = Self.codexEntryTrustingTotalOnlyLast(
+                    event.entry, state: state, previousCumulative: priorCumulative
+                )
                 entry = replacingID(
-                    of: event.entry,
+                    of: filled,
                     with: "codex|\(owner)|\(epoch)|\(state.fingerprint)"
                 )
             } else {
@@ -1109,6 +1120,31 @@ enum LocalUsageReader {
             history.append(CodexResolvedEvent(entry: entry, usageState: event.usageState))
         }
         return CodexResolvedRollout(history: history, ownedEntries: ownedEntries)
+    }
+
+    /// Mid-session #278 turns: last components are 0 but cumulative.total grew since the
+    /// previous kept event. parseCodexLine cannot see the previous vector, so fill Entry here.
+    private static func codexEntryTrustingTotalOnlyLast(
+        _ entry: Entry,
+        state: CodexUsageState,
+        previousCumulative: CodexUsageVector?
+    ) -> Entry {
+        guard entry.total == 0,
+              state.last.billableComponents == 0,
+              state.last.total > 0,
+              let previous = previousCumulative,
+              state.cumulative.total > previous.total else { return entry }
+        return Entry(
+            id: entry.id,
+            date: entry.date,
+            localDay: entry.localDay,
+            model: entry.model,
+            input: state.last.total,
+            output: 0,
+            cacheWrite: 0,
+            cacheRead: 0,
+            explicitCost: entry.explicitCost
+        )
     }
 
     private static func replacingID(of entry: Entry, with id: String) -> Entry {
@@ -1139,14 +1175,49 @@ enum LocalUsageReader {
         let cached = intValue(last["cached_input_tokens"])
         let output = intValue(last["output_tokens"])
         let nonCachedInput = max(0, inputTotal - cached)
+        let lastTotal = intValue(last["total_tokens"])
+        // #278: some Codex turns leave every last_* component at 0 while total_tokens is set.
+        // Trust that total only when the event itself says the session is total-only, or when
+        // last.total equals the whole cumulative total (sole/first turn). Do NOT trust the
+        // post-replay "zero-context" shape in Fixtures/CodexFork/child.jsonl — cumulative
+        // already has a full component breakdown and last.total is not part of cum growth.
+        let input: Int
+        let out: Int
+        let cacheRead: Int
+        if nonCachedInput + cached + output == 0, lastTotal > 0,
+           Self.shouldTrustCodexTotalOnlyLast(
+               lastTotal: lastTotal,
+               cumulative: (info["total_token_usage"] as? [String: Any]).map(CodexUsageVector.init)
+           ) {
+            input = lastTotal
+            out = 0
+            cacheRead = 0
+        } else {
+            input = nonCachedInput
+            out = output
+            cacheRead = cached
+        }
         let entry = Entry(
             id: "codex|\(file)|\(turn)",
             date: date, localDay: fmt.string(from: date), model: model,
-            input: nonCachedInput, output: output, cacheWrite: 0, cacheRead: cached)
+            input: input, output: out, cacheWrite: 0, cacheRead: cacheRead)
         let usageState = (info["total_token_usage"] as? [String: Any]).map {
             CodexUsageState(cumulative: CodexUsageVector($0), last: CodexUsageVector(last))
         }
         return ParsedCodexToken(entry: entry, usageState: usageState)
+    }
+
+    /// Whether a zero-component `last_token_usage` should contribute `total_tokens` to Entry.
+    /// - No cumulative field: total is the only signal → trust.
+    /// - Cumulative also component-empty with a positive total → trust.
+    /// - `last.total == cumulative.total` → this turn accounts for the whole session → trust.
+    /// - Otherwise (fork post-replay zero-context turn): keep Entry at 0.
+    private static func shouldTrustCodexTotalOnlyLast(
+        lastTotal: Int, cumulative: CodexUsageVector?
+    ) -> Bool {
+        guard let cumulative else { return true }
+        if cumulative.billableComponents == 0, cumulative.total > 0 { return true }
+        return cumulative.total == lastTotal
     }
 
     // MARK: Gemini 파싱

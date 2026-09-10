@@ -78,7 +78,8 @@ actor LocalUsageCache {
     }
 
     /// fork replay 및 동일 상태 재기록 처리 변경 시 Codex blob만 재파싱한다.
-    private static let codexParserVersion = 4
+    /// v5: trust last.total_tokens when components are empty (#278).
+    private static let codexParserVersion = 5
     /// **세션 id 추출 규칙**(`session_meta` 의 id/session_id 해석·probe 종료 조건)이 바뀔 때만 올린다.
     /// resolver 변경으로 오르는 `codexParserVersion` 과 분리 — 같이 묶으면 replay 로직을 고칠 때마다
     /// 인덱스가 통째로 날아가 다음 고아 조회에서 전수 probe 가 되살아난다.

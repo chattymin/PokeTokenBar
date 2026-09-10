@@ -138,6 +138,22 @@ read_when:
   방식으로 더하면 실사용량이 두 번 집계된다. 반대로 provider가 `thoughts`를 아직 output에 접지 않았다면
   빼면 안 된다. 회귀 픽스처는 `input + output + cacheRead + cacheWrite == totalTokens` 같은 **writer의
   불변식**을 함께 고정하고, 매핑을 고치면 해당 provider cache parser version을 올려 기존 blob도 재파싱한다.
+- **breakdown 이 비고 `total` 만 남은 이벤트는 "무조건 total 신뢰"도 "무조건 0"도 틀리다.** Codex
+  `last_token_usage` 가 성분 전부 0 이면서 `total_tokens` 만 채운 턴이 있다(#278, ~2.5%). 그 total 이
+  세션 전체와 같거나 cumulative 도 total-only 이거나(또는 직전 대비 cumulative.total 이 증가)하면
+  실사용이라 Entry 에 넣어야 하고, fork post-replay 의 zero-context 턴
+  (`Fixtures/CodexFork/child.jsonl` L11: cumulative 성분은 채워져 있고 last.total 만 고아)은
+  cumulative 성장에 안 들어가므로 0 으로 남겨야 한다. 가드:
+  `testCodexTotalOnlyLastUsageCountsWhenItMatchesSessionTotal`·
+  `…WhenCumulativeIsAbsent`·`…WhenCumulativeGrew`·
+  `testCodexUnchangedCumulativeWithDifferentLastVectorIsPreserved`·
+  `testCodexManualForkFixtureKeepsOnlyPostReplayUsage`. 매핑 변경 시 `codexParserVersion` 을 올린다.
+- **패밀리 단가 폴백은 "같은 패밀리 = 같은 네 단가"가 깨지는 순간 틀린다.** Fable 5.1 은
+  input/output/cache-write 는 Fable 5 와 같고 cache-read 만 $1.00 → $0.25 로 바뀌었는데,
+  `contains("fable")` 폴백이 Fable 5 단가를 적용해 캐시 위주 세션 비용을 4× 로 부풀렸다(#277).
+  패치·마이너가 단가 한 칸만 바꿀 수 있으면 **정확 매칭 행을 표에 추가**하고, 폴백이 우연히 맞는
+  모델(예: `claude-opus-5` → opus 폴백)은 건드리지 않는다. 가드: `testPricingExactAndFallbackAndZero`
+  의 `claude-fable-5-1` cache-read $0.25 단언.
 - **새 provider를 추가할 때 reader/cache만 연결하면 Settings의 custom-root contract가 조용히 빠진다.** `CustomScanRoots`는
   provider별 `curatedRoots(for:)`와 실제 reader의 `CustomScanRoots.storedValue(for:)` 조회를 모두 registry로
   취급한다. Pi 추가 때 reader/cache/provider는 등록했지만 이 두 지점을 빠뜨려 CI의

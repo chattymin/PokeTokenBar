@@ -62,9 +62,17 @@ final class LocalUsageReaderTests: XCTestCase {
         XCTAssertEqual(ModelPricing.cost(model: "claude-opus-4-8", input: 0, output: 1_000_000, cacheWrite: 0, cacheRead: 0), 25.0, accuracy: 1e-6)
         XCTAssertEqual(ModelPricing.cost(model: "claude-haiku-4-5-20251001", input: 1_000_000, output: 0, cacheWrite: 0, cacheRead: 0), 1.0, accuracy: 1e-6)
         XCTAssertEqual(ModelPricing.cost(model: "claude-fable-5", input: 1_000_000, output: 1_000_000, cacheWrite: 1_000_000, cacheRead: 1_000_000), 73.5, accuracy: 1e-6)
+        // Fable 5.1 keeps Fable 5 base rates but cuts cache reads to $0.25/MTok (#277).
+        XCTAssertEqual(ModelPricing.rate(for: "claude-fable-5-1"), .perMillion(10, 50, 12.5, 0.25))
+        XCTAssertEqual(
+            ModelPricing.cost(model: "claude-fable-5-1", input: 0, output: 0, cacheWrite: 0, cacheRead: 1_000_000),
+            0.25, accuracy: 1e-6
+        )
         // 미지 모델 → 패밀리 폴백
         XCTAssertEqual(ModelPricing.cost(model: "claude-opus-4-99", input: 1_000_000, output: 0, cacheWrite: 0, cacheRead: 0), 5.0, accuracy: 1e-6)
         XCTAssertEqual(ModelPricing.cost(model: "claude-fable-6", input: 1_000_000, output: 0, cacheWrite: 0, cacheRead: 0), 10.0, accuracy: 1e-6)
+        // Opus 5 is absent from the table on purpose — the opus family fallback matches.
+        XCTAssertEqual(ModelPricing.rate(for: "claude-opus-5"), .perMillion(5, 25, 6.25, 0.5))
         XCTAssertEqual(ModelPricing.cost(model: "totally-unknown", input: 1_000_000, output: 0, cacheWrite: 0, cacheRead: 0), 0, accuracy: 1e-9)
     }
 
@@ -444,8 +452,10 @@ final class LocalUsageReaderTests: XCTestCase {
                 ts: "2026-07-29T01:00:01.000Z",
                 cumulativeInput: 100, cumulativeOutput: 10,
                 lastInput: 100, lastOutput: 10),
-            // 실제 fork fixture의 post-replay 이벤트와 같은 모양: cumulative는 그대로지만
-            // last.total_tokens만 비영(앱 회계 필드는 모두 0)인 상태는 동일 snapshot이 아니다.
+            // Real fork post-replay shape (Fixtures/CodexFork/child.jsonl L11): cumulative
+            // unchanged, last components all 0, only last.total_tokens set. Keep the event for
+            // fingerprint uniqueness, but do NOT count those tokens — they are not in Codex's
+            // cumulative growth (#278 must not inflate this into 6_742).
             codexStateLine(
                 ts: "2026-07-29T01:00:02.000Z",
                 cumulativeInput: 100, cumulativeOutput: 10,
@@ -455,6 +465,55 @@ final class LocalUsageReaderTests: XCTestCase {
         let entries = LocalUsageReader.codexEntries(modifiedSince: .distantPast, root: dir)
 
         XCTAssertEqual(entries.map(\.total), [110, 0])
+    }
+
+    /// #278: some Codex turns leave every last_* component at 0 while `total_tokens` is set.
+    /// When that total is the whole session total, it is real usage and must not silently vanish.
+    func testCodexTotalOnlyLastUsageCountsWhenItMatchesSessionTotal() {
+        let dir = tempDir()
+        // cumulative.total == last.total with every component field at 0 (reporter #278 shape).
+        let line = #"{"type":"event_msg","timestamp":"2026-09-04T01:29:58.417Z","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":0,"cached_input_tokens":0,"output_tokens":0,"reasoning_output_tokens":0,"total_tokens":51293},"last_token_usage":{"input_tokens":0,"cached_input_tokens":0,"cache_write_input_tokens":0,"output_tokens":0,"reasoning_output_tokens":0,"total_tokens":51293}}}}"#
+        write([
+            codexSessionMeta(id: "solo", ts: "2026-09-04T01:29:58.000Z"),
+            line,
+        ], to: dir)
+
+        let entries = LocalUsageReader.codexEntries(modifiedSince: .distantPast, root: dir)
+
+        XCTAssertEqual(entries.map(\.total), [51_293])
+        XCTAssertEqual(entries.first?.input, 51_293)
+        XCTAssertEqual(entries.first?.output, 0)
+        XCTAssertEqual(entries.first?.cacheRead, 0)
+    }
+
+    /// #278: events that omit `total_token_usage` entirely still expose `last.total_tokens`.
+    func testCodexTotalOnlyLastUsageCountsWhenCumulativeIsAbsent() {
+        let dir = tempDir()
+        let line = #"{"type":"event_msg","timestamp":"2026-09-04T01:29:58.417Z","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":0,"cached_input_tokens":0,"cache_write_input_tokens":0,"output_tokens":0,"reasoning_output_tokens":0,"total_tokens":51293}}}}"#
+        write([
+            codexSessionMeta(id: "solo", ts: "2026-09-04T01:29:58.000Z"),
+            line,
+        ], to: dir)
+
+        let entries = LocalUsageReader.codexEntries(modifiedSince: .distantPast, root: dir)
+
+        XCTAssertEqual(entries.map(\.total), [51_293])
+    }
+
+    /// #278: mid-session turn whose last breakdown is empty but cumulative.total advanced.
+    func testCodexTotalOnlyLastUsageCountsWhenCumulativeGrew() {
+        let dir = tempDir()
+        let first = #"{"type":"event_msg","timestamp":"2026-09-04T01:00:00.000Z","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":1000,"cached_input_tokens":0,"output_tokens":100,"reasoning_output_tokens":0,"total_tokens":1100},"last_token_usage":{"input_tokens":1000,"cached_input_tokens":0,"output_tokens":100,"reasoning_output_tokens":0,"total_tokens":1100}}}}"#
+        let second = #"{"type":"event_msg","timestamp":"2026-09-04T01:01:00.000Z","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":1000,"cached_input_tokens":0,"output_tokens":100,"reasoning_output_tokens":0,"total_tokens":6100},"last_token_usage":{"input_tokens":0,"cached_input_tokens":0,"output_tokens":0,"reasoning_output_tokens":0,"total_tokens":5000}}}}"#
+        write([
+            codexSessionMeta(id: "grow", ts: "2026-09-04T00:59:00.000Z"),
+            first,
+            second,
+        ], to: dir)
+
+        let entries = LocalUsageReader.codexEntries(modifiedSince: .distantPast, root: dir)
+
+        XCTAssertEqual(entries.map(\.total), [1_100, 5_000])
     }
 
     func testCodexSessionChangeResetsSameStateComparison() {

@@ -25,6 +25,9 @@ enum ModelPricing {
         "claude-sonnet-4-6":          .perMillion(3, 15, 3.75, 0.3),
         "claude-haiku-4-5-20251001":  .perMillion(1, 5, 1.25, 0.1),
         "claude-fable-5":             .perMillion(10, 50, 12.5, 1.0), // LiteLLM 스냅샷 가격 등재됨(2026-08) — 기존 미가격 $0 플레이스홀더 대체
+        // Fable 5.1: same base rates as Fable 5, cache read cut to $0.25/MTok (0.025× input).
+        // Without this row the `fable` family fallback applies Fable 5's $1.00 and overstates cost 4× (#277).
+        "claude-fable-5-1":           .perMillion(10, 50, 12.5, 0.25),
         "gpt-5.5":                    .perMillion(5, 30, 0, 0.5),
         // Gemini — 공식 API 단가(기본 티어, ≤200K 프롬프트). 캐시는 read 단가만(스토리지 시간요금 제외).
         "gemini-2.5-pro":             .perMillion(1.25, 10, 0, 0.3125),
