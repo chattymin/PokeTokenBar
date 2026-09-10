@@ -28,8 +28,7 @@ struct ProviderEnrichment: Sendable {
     var monthTotal: PeriodUsage?
     /// Day-by-day totals for the current month (month start → today, empty days as zeros).
     /// Comes out of the same scan as `monthTotal` and is gated by the same `periodsOK`.
-    /// `nil` means this provider cannot produce a series — the UI drops the trend row and
-    /// keeps the scalars, rather than drawing a chart that silently omits a provider.
+    /// `nil` means this provider cannot produce a series; aggregation uses available providers.
     var monthDaily: [DailyUsage]?
     var periodsOK = false
 }

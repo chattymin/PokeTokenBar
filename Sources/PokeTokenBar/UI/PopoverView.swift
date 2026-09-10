@@ -375,7 +375,7 @@ struct PopoverView: View {
                                 .font(.caption)
                                 .monospacedDigit()
                             Spacer()
-                            (Text("\(l.reset) ") + Text(end, style: .relative))
+                            (Text("\(l.reset) ") + Text(end, style: .relative) + resetClockSuffix(end))
                                 .font(.caption)
                                 .foregroundStyle(.tertiary)
                         }
@@ -450,7 +450,7 @@ struct PopoverView: View {
                     .monospacedDigit()
                     .foregroundStyle(limitColor(utilization))
                 if let reset = bucket.resetDate {
-                    Text("· \(reset, style: .relative)")
+                    resetLabel(reset)
                         .font(.caption)
                         .foregroundStyle(.tertiary)
                 }
@@ -518,6 +518,27 @@ struct PopoverView: View {
         return store.limitDisplayMode == .remaining ? l.percentRemaining(text) : text
     }
 
+    /// 리셋이 이 창 안(≤ 6h)이거나 오늘이면 벽시계 접미사를 "HH:mm" 만으로 짧게 낸다.
+    /// 그 밖(주간 한도 등 며칠 뒤)이면 요일·일자를 붙여 "HH:mm" 만으로 생기는 오해를 막는다.
+    /// 어느 쪽이든 접미사는 항상 붙는다 — 프로바이더 리터럴 분기 없이 리셋 근접도만 본다
+    /// (확장 규약: 플랫폼 종속 분기 금지).
+    private static let resetClockWindow: TimeInterval = 6 * 3600
+
+    /// 카운트다운 뒤에 붙는 절대 리셋 시각 " (…)". 오늘 안이거나 ≤ 6h 면 시:분만,
+    /// 며칠 뒤(주간 한도 등)면 요일·일자까지 — "in 2 days, 9 hr" 만으론 언제 풀리는지 감이 안 와서다.
+    /// 요일명은 팝오버 로케일(companion.language)로 현지화하고, 시각은 항상 24시간 표기.
+    private func resetClockSuffix(_ reset: Date) -> Text {
+        let f = DateFormatter()
+        f.locale = companion.language.displayLocale
+        let nearby = Calendar.current.isDateInToday(reset)
+            || reset.timeIntervalSinceNow <= Self.resetClockWindow
+        f.setLocalizedDateFormatFromTemplate(nearby ? "HHmm" : "EEEEdHHmm")
+        return Text(" (\(f.string(from: reset)))")
+    }
+    private func resetLabel(_ reset: Date) -> Text {
+        Text("· \(reset, style: .relative)") + resetClockSuffix(reset)
+    }
+
     @ViewBuilder
     private func limitRow(name: String, window: LimitWindow?) -> some View {
         if let window, let utilization = window.utilization {
@@ -531,7 +552,7 @@ struct PopoverView: View {
                         .monospacedDigit()
                         .foregroundStyle(limitColor(utilization))
                     if let reset = window.resetDate {
-                        Text("· \(reset, style: .relative)")
+                        resetLabel(reset)
                             .font(.caption)
                             .foregroundStyle(.tertiary)
                     }
@@ -670,7 +691,7 @@ struct PopoverView: View {
                         .monospacedDigit()
                         .foregroundStyle(limitColor(utilization))
                     if let reset = window.resetDate {
-                        Text("· \(reset, style: .relative)")
+                        resetLabel(reset)
                             .font(.caption)
                             .foregroundStyle(.tertiary)
                     }
@@ -699,7 +720,7 @@ struct PopoverView: View {
                         .font(.callout)
                         .monospacedDigit()
                         .foregroundStyle(limitColor(utilization))
-                    Text("· \(limit.resetDate, style: .relative)")
+                    resetLabel(limit.resetDate)
                         .font(.caption)
                         .foregroundStyle(.tertiary)
                 }
@@ -769,6 +790,15 @@ struct PopoverView: View {
                 }
             }
             Spacer()
+            // 데스크톱 펫 표시 토글 — 설정창의 스위치와 **같은 값**(store.floatingPetEnabled)을 읽고 쓴다.
+            // @Observable 이라 어느 쪽에서 바꾸든 다른 쪽이 즉시 따라온다(별도 동기화 없음).
+            Button {
+                store.floatingPetEnabled.toggle()
+            } label: {
+                Image(systemName: FloatingPetView.visibilitySymbol(visible: store.floatingPetEnabled))
+            }
+            .buttonStyle(.borderless)
+            .help(store.floatingPetEnabled ? l.floatingPetHideLabel : l.floatingPetEnableLabel)
             Button {
                 nav.showSettings = true
             } label: {
