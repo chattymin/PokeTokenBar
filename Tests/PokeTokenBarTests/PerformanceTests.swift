@@ -283,6 +283,14 @@ final class FloatingPetEnergyTests: XCTestCase {
         XCTAssertTrue(UsageStore.AnimationQuality.allCases.allSatisfy { $0.frameFloor > 0 })
     }
 
+    /// 푸터 눈 아이콘은 **현재 상태**를 그린다 — 뒤집히면 "숨김"인데 켜진 것처럼 보인다.
+    /// 아이콘/툴팁이 설정창 스위치와 같은 값에서 파생되는지는 두 곳 모두 store.floatingPetEnabled 를
+    /// 읽는 것으로 보장되고(별도 상태 없음), 여기선 그 값 → 심볼 매핑만 잠근다.
+    func testFooterEyeSymbolFollowsVisibility() {
+        XCTAssertEqual(FloatingPetView.visibilitySymbol(visible: true), "eye")
+        XCTAssertEqual(FloatingPetView.visibilitySymbol(visible: false), "eye.slash")
+    }
+
     /// Bubble needs headroom + width beyond the square pet size — otherwise content is clipped.
     func testPanelGrowsForBubbleWithoutChangingPetOrigin() {
         let pet: CGFloat = 96
