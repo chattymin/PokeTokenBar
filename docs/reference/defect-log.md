@@ -245,6 +245,14 @@ read_when:
 
 ## 빌드·도구체인
 
+- **새 SDK에서 통과해도 CI의 AppKit Sendable 선언을 가정하지 마라.** 동시 캐시 로드 테스트가
+  `Task { await SpriteLoader.image(...) }` 로 `NSImage?` 를 반환해 로컬 Swift 6.3.3에서는 통과했지만,
+  CI의 Xcode 16.4/Swift 6.1.2에서는 `NSImage: Sendable` 이 unavailable이라 테스트 컴파일이 실패했다.
+  **왜 못 걸렀나:** 로컬 최신 도구체인으로 전체 테스트와 경고 검증을 해도 CI SDK 호환성을 검증한 것은 아니다.
+  → 포켓몬·아이템 두 동시 로드 테스트 모두 `Task<Void, Never>` 를 사용하고 이미지 결과는 `@MainActor`
+  안에 보관한다. 객체 동일성 검증과 동시 요청은 유지하며, Sendable 우회 선언을 추가하지 않는다.
+  회귀 가드: `SpriteImageCacheTests` 의 두 동시 로드 테스트와 `macos-15` CI의 테스트 컴파일.
+  (CI 실패: 2026-09-10.)
 - **SwiftUI `View`/`App` 경계는 `@MainActor` 를 명시한다.** Swift 6.3 은 `body` 밖의 `@ViewBuilder` helper·
   동기 클로저를 nonisolated 로 검사해, `@MainActor` `@Observable` store 접근이 수십 개의 오류로 연쇄된다.
   개별 프로퍼티에 `MainActor.assumeIsolated` 를 흩뿌리지 말고 UI 타입 선언 한 곳에 격리를 둔다.
@@ -377,6 +385,27 @@ read_when:
   초록인데 #174 가 다시 산다. (#174)
 
 ## 표시·UI
+
+- **계속 쌓이는 로그는 정렬이 아니라 실제 화면 생성 비용을 검증하라.** 포획 로그의
+  `ScrollView` + `VStack` 이 화면 밖까지 모든 행을 만들고, 각 `SpriteView.init` 이 동기
+  `cachedImage` 를 호출했다. 268개 기록(진화 단계 이미지 579개)으로 초기 레이아웃을 재면
+  이미지 조회 1,160회, 783~953ms였다. 디스크 캐시가 있어도 파일 읽기와 `NSImage` 생성은
+  메인 스레드에서 반복됐다. **왜 못 걸렀나:** `testLargeDexSortPerformanceAndCorrectness` 는
+  1,000개 기록의 정렬만 측정했다. 실제 데이터의 정렬·집계는 약 0.18ms라 결함 경로와 달랐다.
+  → 로그만 `LazyVStack` 으로 바꾸고, `SpriteLoader` 의 동기·async 경로가 `NSImage` 객체 캐시를
+  공유한다(`NSCache`, `countLimit = 64`). 키는 파일 경로로 종·일반/이로치·PNG/GIF·디렉터리를
+  구분한다. 이미지 생성 실패는 이 캐시에 넣지 않고, 일반색 폴백은 일반색 키에만 둬 이로치를 가리지 않는다.
+  `countLimit` 은 엄격한 메모리 상한이 아니며, 실제 프로세스 메모리 사용량은 별도로 측정해야 한다.
+  **부류 스윕:** 같은 동기 로딩을 하는 아이템 아이콘에도 공유 캐시를 적용했다. 도감은 24칸 페이지,
+  상점·가방은 고정된 아이템 종류별 행이라 같은 무한 증가 조건이 없고, 알 이미지는 이미 메모이즈한다.
+  **회귀 가드:** `CatchLogRenderingTests` 는 실제 `CollectionView` 를 300개 기록으로 세 번 생성하고
+  스프라이트 레이아웃 작업 수와 고정 높이를 검사한다. `VStack` 재주입 시 매번 1,200회로 실패했다.
+  `SpriteImageCacheTests` 는 임시 파일의 생성 이미지로 객체 재사용·동시 로드·폴백·재시도를 검증하며,
+  동기 캐시 히트를 제거하면 포켓몬과 아이템 테스트가 모두 실패한다. 외부 이미지나 실제 세이브는
+  테스트에 포함하지 않는다. SwiftUI 워밍업 후 같은 268개 데이터/520pt 높이의 release 프로브는 초기 4행,
+  22~25ms, 재진입 디스크 읽기 0회였다(클릭부터 화면 표시까지의 전체 시간과는 별도 측정).
+  끝까지 스크롤 → 희귀도 필터 → 필터 해제 → 도감 전환·로그 재진입도 격리된 앱에서 확인했다.
+  (사용자 리포트: 200개 이상 포획 로그 진입 지연, 2026-09-10.)
 - **앱 언어와 시스템 로케일은 다른 축이다 — SwiftUI 가 스스로 만드는 문장은 로케일을 따른다.**
   `L` 문구는 `AppLanguage` 를 따르는데 `Text(_, style: .relative)` 는 `Locale.current` 를 따라, 한국어
   Mac 에서 앱을 영어로 쓰면 "Catch log" 옆에 "3시간 46분" 이 붙는 한 화면 두 언어가 된다. 팝오버 루트
