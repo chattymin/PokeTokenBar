@@ -192,6 +192,7 @@ final class UsageStore {
     /// 설정 저장소 — 테스트는 suite 를 주입해 실제 사용자 설정을 오염시키지 않는다.
     private let defaults: UserDefaults
     private var timer: Timer?
+    private var networkMonitor: NetworkReachabilityMonitor?
     private var pollingSuspended = false   // 디스플레이 꺼짐 동안 폴링 정지 (배터리)
     private var emptyUsageRetryTask: Task<Void, Never>?
     /// 한도 알림 상태(엣지 트리거) — 창 이름 → 이미 알린 최고 tier(0=없음, 1=경고, 2=위험).
@@ -307,6 +308,38 @@ final class UsageStore {
     var weekCostTotal: Double { costingSnapshots.reduce(0) { $0 + ($1.weekTotal?.totalCost ?? 0) } }
     var monthTotalTokens: Int { snapshots.reduce(0) { $0 + ($1.monthTotal?.totalTokens ?? 0) } }
     var monthCostTotal: Double { costingSnapshots.reduce(0) { $0 + ($1.monthTotal?.totalCost ?? 0) } }
+
+    /// This month's day-by-day totals summed across providers, in date order.
+    ///
+    /// A provider that reports no series is simply absent from the sum — the remaining providers
+    /// still add up, which is how a `nil` degrades. Cost follows `monthCostTotal`: tokens from
+    /// every provider, money only from the ones that report real spend, so a flat-rate provider
+    /// cannot push an invented charge into the chart.
+    ///
+    /// The date axis is the union of the providers' own axes. In practice they agree (all built
+    /// from the same `startOfMonth(now)`), but taking the union rather than one provider's array
+    /// means a provider whose scan straddled midnight cannot truncate everyone else's last day.
+    var monthDailyTotals: [DailyUsage] {
+        var byDay: [String: DailyUsage] = [:]
+        for snapshot in snapshots {
+            guard let series = snapshot.monthDaily else { continue }
+            let countsCost = snapshot.reportsCost
+            for day in series {
+                var merged = byDay[day.date] ?? DailyUsage(
+                    date: day.date, inputTokens: 0, outputTokens: 0,
+                    cacheCreationTokens: 0, cacheReadTokens: 0, totalTokens: 0, totalCost: 0)
+                merged.inputTokens += day.inputTokens
+                merged.outputTokens += day.outputTokens
+                merged.cacheCreationTokens += day.cacheCreationTokens
+                merged.cacheReadTokens += day.cacheReadTokens
+                merged.totalTokens += day.totalTokens
+                if countsCost { merged.totalCost += day.totalCost }
+                byDay[day.date] = merged
+            }
+        }
+        // "yyyy-MM-dd" sorts lexicographically the same way it sorts chronologically.
+        return byDay.values.sorted { $0.date < $1.date }
+    }
 
     /// Claude 의 활성 5h 블록 — 5h forecast·"현재 블록" 행은 Claude 공식 한도와 짝이므로
     /// providerID 로 명시 조회한다 (전 프로바이더가 블록을 갖게 된 후 first-with-block 은 오매칭).
@@ -496,7 +529,7 @@ final class UsageStore {
         LocalAntigravityProvider(), LocalOpenCodeProvider(), LocalHermesProvider(),
         LocalCursorProvider(), LocalGrokProvider(), LocalCopilotProvider(), LocalKiroProvider(),
         LocalPiProvider(),
-        LocalOmpProvider(),
+        LocalOmpProvider(), LocalAsideProvider(),
     ],
          // 세션 키 우선, 없거나 죽었으면 기존 Keychain/파일 OAuth 경로. 두 인자는 같은
          // SessionKeyLimitsProvider 인스턴스를 봐야 한다 — 설정 화면이 고른 조직을 조회 경로가 써야 하므로.
@@ -564,6 +597,18 @@ final class UsageStore {
             forName: NSWorkspace.screensDidWakeNotification, object: nil, queue: .main
         ) { [weak self] _ in
             Task { @MainActor in self?.resumePolling() }
+        }
+
+        // 네트워크 재연결 시 즉시 갱신 (오프라인/슬립 복귀/와이파이 전환 후 주기 타이머 대기 없이 한도·부화 갱신)
+        if AppEnv.isBundledApp {
+            let net = NetworkReachabilityMonitor()
+            net.onReconnected = { [weak self] in
+                Task { @MainActor [weak self] in
+                    await self?.refresh()
+                }
+            }
+            net.start()
+            self.networkMonitor = net
         }
 
         // 알림 권한은 기동 즉시 묻지 않는다 — 앱을 이해하기 전 콜드 프롬프트는 거부율이 높고
@@ -662,6 +707,7 @@ final class UsageStore {
             var prevBlock: BlockUsage?
             var prevWeek: PeriodUsage?
             var prevMonth: PeriodUsage?
+            var prevMonthDaily: [DailyUsage]?
             if let previous = snapshots.first(where: { $0.providerID == provider.id }) {
                 if previous.today?.date == todayKey { prevToday = previous.today }
                 prevBlock = previous.activeBlock
@@ -669,6 +715,7 @@ final class UsageStore {
                 // 팝오버의 "이번 주/이번 달" 행이 사라졌다 나타나 깜빡인다.
                 prevWeek = previous.weekTotal
                 prevMonth = previous.monthTotal
+                prevMonthDaily = previous.monthDaily
             }
 
             let today: DailyUsage?
@@ -691,6 +738,7 @@ final class UsageStore {
                     activeBlock: prevBlock,
                     weekTotal: prevWeek,
                     monthTotal: prevMonth,
+                    monthDaily: prevMonthDaily,
                     fetchedAt: Date(),
                     reportsCost: provider.reportsCost))
             }
@@ -727,6 +775,7 @@ final class UsageStore {
                             activeBlock: enrichment.activeBlock,
                             weekTotal: enrichment.periodsOK ? enrichment.weekTotal : nil,
                             monthTotal: enrichment.periodsOK ? enrichment.monthTotal : nil,
+                            monthDaily: enrichment.periodsOK ? enrichment.monthDaily : nil,
                             fetchedAt: Date(),
                             reportsCost: provider.reportsCost))
                     }
@@ -736,6 +785,7 @@ final class UsageStore {
                 if enrichment.periodsOK {
                     snapshots[index].weekTotal = enrichment.weekTotal
                     snapshots[index].monthTotal = enrichment.monthTotal
+                    snapshots[index].monthDaily = enrichment.monthDaily
                 }
             }
         }

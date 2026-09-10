@@ -112,6 +112,21 @@ final class SaveTransferTests: XCTestCase {
         XCTAssertEqual(envelope.state.representativeSpeciesID, 2, "대표 포켓몬 선택도 세이브와 함께 이동")
     }
 
+    func testRoundTripPreservesActiveRepeatGrowthBoost() throws {
+        var original = CompanionState()
+        original.active = MonState(
+            baseID: 1, pathIDs: [1], plannedPathIDs: [1, 2, 3], stageIndex: 0,
+            usedAtStage: 12_000_000, rarity: .common, totalForms: 3, hasGrowthBoost: true)
+
+        let data = try SaveTransfer.encode(state: original, appVersion: "2.5.0",
+                                           deviceName: "Old Mac", now: transferNow)
+        let envelope = try SaveTransfer.decode(data)
+
+        XCTAssertTrue(envelope.state.active?.hasGrowthBoost == true)
+        XCTAssertEqual(envelope.state.active?.usedAtStage, 12_000_000)
+        XCTAssertEqual(envelope.state.active?.phaseThreshold, 62_500_000)
+    }
+
     /// [핵심] 봉투가 없으면 `CompanionState` 의 관대 디코딩이 아무 JSON 이나 빈 상태로 흡수해
     /// "불러오기 성공 → 도감이 사라짐"이 된다. 포맷 id 로 먼저 거른다.
     func testForeignJSONIsRejectedRatherThanImportedAsEmptyState() throws {

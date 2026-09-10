@@ -9,7 +9,8 @@ import Foundation
 /// 봉투의 `format`/`schema` 는 관대 디코딩 대상이 아니라(기본값 없음) 이 오인을 먼저 차단한다.
 struct SaveEnvelope: Codable, Sendable {
     static let formatID = "poketokenbar.save"
-    static let schemaVersion = 1
+    /// v2 adds persistent generated Pokémon profiles (IVs, gender, ability, level and moves).
+    static let schemaVersion = 2
 
     var format: String
     var schema: Int
@@ -149,6 +150,7 @@ enum SaveTransfer {
             // totalForms feeds `kk * (kk + 1)` in PokemonBalance.phaseThreshold — a large value is a trap.
             m.totalForms = min(max(1, m.totalForms), 12)
             m.stageIndex = min(max(0, m.stageIndex), max(0, m.pathIDs.count - 1))
+            m.profile?.sanitize()
             return m
         }
         var s = state
@@ -172,7 +174,9 @@ enum SaveTransfer {
         if let active = s.active { s.active = clampMon(active) }
         // Box entries come from the same trust boundary — clamp them like the active mon so a
         // hand-edited import can't smuggle an out-of-range totalForms/stageIndex into storage.
+        // (clampMon also sanitizes each entry's profile.)
         s.box = s.box.map(clampMon)
+        for index in s.dex.indices { s.dex[index].profile?.sanitize() }
         s.reconcileRepresentativeSelection()
         return s
     }

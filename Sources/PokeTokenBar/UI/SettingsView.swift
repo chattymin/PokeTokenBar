@@ -33,6 +33,7 @@ struct SettingsView: View {
     @State private var customScanMatchTask: Task<Void, Never>?
     @State private var customScanMatchGeneration = 0
     @FocusState private var customScanFocused: Bool
+    @FocusState private var sessionKeyFocused: Bool
     private var l: L { companion.l }
 
     private var isBundledApp: Bool { AppEnv.isBundledApp }
@@ -62,29 +63,42 @@ struct SettingsView: View {
         VStack(spacing: 0) {
             header
             Divider()
-            ScrollView {
-                VStack(alignment: .leading, spacing: 18) {
-                    generalGroup(store)
-                    menuBarGroup(store)
-                    floatingPetGroup(store)
-                    notificationsGroup(store)
-                    updateGroup(store)
-                    transferGroup(store)
-                    advancedGroup(store)
-                    aboutSupportGroup
+            ScrollViewReader { proxy in
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 18) {
+                        generalGroup(store)
+                        difficultyGroup
+                        menuBarGroup(store)
+                        floatingPetGroup(store)
+                        notificationsGroup(store)
+                        updateGroup(store)
+                        transferGroup(store)
+                        advancedGroup(store)
+                            .id("advancedSettingsSection")
+                        aboutSupportGroup
+                    }
+                    .padding(16)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                .padding(16)
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .onAppear {
+                    guard !didApplyStartExpanded else { return }
+                    didApplyStartExpanded = true
+                    if startExpanded {
+                        advancedExpanded = true
+                        Task { @MainActor in
+                            try? await Task.sleep(nanoseconds: 80_000_000)
+                            withAnimation(.easeInOut(duration: 0.25)) {
+                                proxy.scrollTo("advancedSettingsSection", anchor: .top)
+                            }
+                            sessionKeyFocused = true
+                        }
+                    }
+                }
             }
             Divider()
             footer
         }
         .frame(height: 460)
-        .onAppear {
-            guard !didApplyStartExpanded else { return }
-            didApplyStartExpanded = true
-            if startExpanded { advancedExpanded = true }
-        }
     }
 
     private var header: some View {
@@ -227,6 +241,37 @@ struct SettingsView: View {
         }
     }
 
+    /// 난이도 — 성장(부화·진화·졸업 임계)과 상점 가격에 각각 곱하는 배율. 즉시 반영된다.
+    private var difficultyGroup: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            settingsSection(l.difficultySectionTitle) {
+                difficultyRow(l.difficultyGrowthLabel, value: companion.growthDifficulty,
+                              position: Binding(
+                                get: { PokemonBalance.difficultyPosition(companion.growthDifficulty) },
+                                set: { companion.setGrowthDifficulty(PokemonBalance.difficulty(atPosition: $0)) }))
+                Divider()
+                difficultyRow(l.difficultyShopLabel, value: companion.shopDifficulty,
+                              position: Binding(
+                                get: { PokemonBalance.difficultyPosition(companion.shopDifficulty) },
+                                set: { companion.setShopDifficulty(PokemonBalance.difficulty(atPosition: $0)) }))
+            }
+            Text(l.difficultyHint).font(.caption2).foregroundStyle(.tertiary).padding(.leading, 4)
+        }
+    }
+
+    /// 배율 슬라이더 한 줄 — 플로팅 펫 크기 행과 같은 형태(라벨 / 슬라이더 / 우측 고정폭 수치).
+    /// 슬라이더가 움직이는 건 배율이 아니라 **로그 위치(0…1)** 다(PokemonBalance 주석 참조).
+    /// step 을 두지 않는다 — 눈금 간격이 배율 단위로 일정하지 않고, 스냅은 값 쪽에서 한다.
+    private func difficultyRow(_ label: String, value: Double,
+                               position: Binding<Double>) -> some View {
+        groupRow {
+            Text(label).font(.callout).frame(width: 76, alignment: .leading)
+            Slider(value: position, in: 0...1)
+            Text(l.difficultyValue(value))
+                .font(.caption).monospacedDigit().frame(width: 52, alignment: .trailing)
+        }
+    }
+
     @ViewBuilder
     private func menuBarGroup(_ store: UsageStore) -> some View {
         @Bindable var store = store
@@ -259,7 +304,7 @@ struct SettingsView: View {
                 Divider()
                 groupRow {
                     Text(l.floatingPetSizeLabel).font(.callout)
-                    Slider(value: $store.floatingPetSize, in: 48...192, step: 8)
+                    Slider(value: $store.floatingPetSize, in: 48...384, step: 8)
                     Text("\(Int(store.floatingPetSize))px")
                         .font(.caption).monospacedDigit().frame(width: 44, alignment: .trailing)
                 }
@@ -400,6 +445,7 @@ struct SettingsView: View {
             SecureField(store.sessionKeyConfigured ? "••••••••" : "sk-ant-sid…", text: $sessionKeyInput)
                 .textFieldStyle(.roundedBorder)
                 .frame(maxWidth: 220)
+                .focused($sessionKeyFocused)
                 .onSubmit { submitSessionKey(store) }
             Button {
                 submitSessionKey(store)

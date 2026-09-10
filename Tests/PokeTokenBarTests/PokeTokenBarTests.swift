@@ -564,5 +564,88 @@ final class OAuthCredentialDataTests: XCTestCase {
         XCTAssertEqual(picked?.subscriptionType, "max")
         XCTAssertEqual(picked?.rateLimitTier, "default_claude_max_20x")
     }
+
+    /// 계정 우선순위 정렬 — MCP 전용(unknown)보다 현재 Mac 유저명(계정 OAuth)을 항상 먼저 조회해
+    /// 키체인 암호 다이얼로그를 2회에서 1회로 줄인다(#280).
+    func testPrioritizedAccountNamesPlacesCurrentUserNameFirstAndUnknownLast() {
+        let acct = kSecAttrAccount as String
+        let raw = [[acct: "unknown"], [acct: "justinjeong"]]
+        let sorted = OAuthCredentialData.prioritizedAccountNames(from: raw, currentUserName: "justinjeong")
+        XCTAssertEqual(sorted, ["justinjeong", "unknown"])
+    }
+
+    /// 대소문자 차이나 공백이 있어도 현재 사용자명을 1순위로 올바르게 식별하며, 공백은 트림된다.
+    func testPrioritizedAccountNamesCaseInsensitiveUserMatching() {
+        let acct = kSecAttrAccount as String
+        let raw = [[acct: "UNKNOWN"], [acct: "JustinJeong  "]]
+        let sorted = OAuthCredentialData.prioritizedAccountNames(from: raw, currentUserName: "justinjeong")
+        XCTAssertEqual(sorted, ["JustinJeong", "UNKNOWN"])
+    }
+
+    /// 우선순위 계층: 유저명(1순위) > 이메일(2순위) > 일반 계정(3순위) > unknown(최하위)
+    func testPrioritizedAccountNamesFullHierarchy() {
+        let acct = kSecAttrAccount as String
+        let raw = [
+            [acct: "unknown"],
+            [acct: "other_guest"],
+            [acct: "dev@company.com"],
+            [acct: "macuser"],
+        ]
+        let sorted = OAuthCredentialData.prioritizedAccountNames(from: raw, currentUserName: "macuser")
+        XCTAssertEqual(sorted, ["macuser", "dev@company.com", "other_guest", "unknown"])
+    }
+
+    /// 동일 우선순위 내에서는 기존 키체인 열거 순서(stable)를 보존한다.
+    func testPrioritizedAccountNamesPreservesStableOrderForSamePriority() {
+        let acct = kSecAttrAccount as String
+        let raw = [
+            [acct: "team_beta"],
+            [acct: "team_alpha"],
+            [acct: "unknown"],
+        ]
+        let sorted = OAuthCredentialData.prioritizedAccountNames(from: raw, currentUserName: "not_in_list")
+        XCTAssertEqual(sorted, ["team_beta", "team_alpha", "unknown"])
+    }
+
+    /// 단건, 빈 목록, nil 입력에 대해 크래시 없이 안전하게 동작한다.
+    func testPrioritizedAccountNamesHandlesEmptyAndEdgeInputs() {
+        let acct = kSecAttrAccount as String
+        XCTAssertEqual(OAuthCredentialData.prioritizedAccountNames(from: nil, currentUserName: "u"), [])
+        XCTAssertEqual(OAuthCredentialData.prioritizedAccountNames(from: [], currentUserName: "u"), [])
+        XCTAssertEqual(
+            OAuthCredentialData.prioritizedAccountNames(from: [[acct: "solo"]], currentUserName: "u"),
+            ["solo"])
+        // 공백만 있는 계정은 무시/필터링
+        XCTAssertEqual(
+            OAuthCredentialData.prioritizedAccountNames(from: [[acct: "   "]], currentUserName: "u"),
+            [])
+    }
+
+    /// [Red-Team Breaker 가드] 현재 Mac 시스템 유저명이 'unknown'인 경우에도 MCP 플레이스홀더가 최우선으로 올라오지 않는다.
+    func testPrioritizedAccountNamesWhenCurrentUserIsUnknownKeepsUnknownLast() {
+        let acct = kSecAttrAccount as String
+        let raw = [
+            [acct: "unknown"],
+            [acct: "team@company.com"],
+            [acct: "developer"],
+        ]
+        let sorted = OAuthCredentialData.prioritizedAccountNames(from: raw, currentUserName: "unknown")
+        // team@company.com(이메일: 1순위) > developer(일반: 2순위) > unknown(플레이스홀더: 최하위)
+        XCTAssertEqual(sorted, ["team@company.com", "developer", "unknown"])
+    }
+
+    /// [Red-Team Breaker 가드] '@'만 있거나 비정상적인 이메일 문자열은 이메일 우선순위(1)로 승격되지 않는다.
+    func testPrioritizedAccountNamesMalformedEmailsDoNotGainEmailPriority() {
+        let acct = kSecAttrAccount as String
+        let raw = [
+            [acct: "unknown"],
+            [acct: "@bot"],
+            [acct: "real@work.com"],
+            [acct: "service@"],
+        ]
+        let sorted = OAuthCredentialData.prioritizedAccountNames(from: raw, currentUserName: "nobody")
+        // real@work.com(1순위) > @bot, service@(일반: 2순위 stable) > unknown(3순위)
+        XCTAssertEqual(sorted, ["real@work.com", "@bot", "service@", "unknown"])
+    }
 }
 

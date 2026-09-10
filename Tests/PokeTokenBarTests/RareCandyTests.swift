@@ -256,6 +256,26 @@ final class RareCandyStoreTests: XCTestCase {
         XCTAssertEqual(s.state.active?.stageIndex, 1, "최대 1단계")
     }
 
+    func testSingleCandyAdvancesAtMostOneBoostedStage() async {
+        let s = store(rcLinear3)
+        await s.hatch(baseID: 1)
+        for stage in 0..<3 {
+            s.applyUsage(PokemonBalance.phaseThreshold(
+                rarity: .common, totalForms: 3, stageIndex: stage))
+        }
+        await s.hatch(baseID: 1)
+        XCTAssertTrue(s.state.active?.hasGrowthBoost == true)
+
+        let firstThreshold = s.threshold
+        s.applyUsage(firstThreshold - 1)
+        giveCandies(s, 1)
+
+        XCTAssertEqual(s.useRareCandy(), .evolved)
+        XCTAssertEqual(s.state.active?.stageIndex, 1)
+        XCTAssertEqual(s.state.active?.usedAtStage, RareCandy.xp - 1)
+        XCTAssertLessThan(s.state.active?.usedAtStage ?? Int.max, s.threshold)
+    }
+
     /// 최종단계에서 잔여가 사탕XP 이하면 졸업 → 도감 + 새 알.
     func testUseGraduatesFinalStage() async {
         let s = store(rcNoEvo)
