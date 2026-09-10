@@ -275,7 +275,7 @@ final class UsageStore {
     }
 
     /// 표시용 한도 % 변환 — remaining 모드면 100−사용률(0 하한: 사용률이 100 을 넘어도 음수 금지).
-    /// 순수 판정을 분리해 테스트한다. 숫자 *표시* 전용 — 색·게이지·알림 판정에는 쓰지 않는다.
+    /// 숫자와 게이지 채움에 함께 사용한다. 경고색·알림 판정은 원래 사용률을 유지한다.
     nonisolated static func displayPercent(_ utilization: Double, mode: LimitDisplayMode) -> Double {
         mode == .remaining ? max(0, 100 - utilization) : utilization
     }
