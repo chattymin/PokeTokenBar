@@ -99,15 +99,16 @@ final class DittoDisguiseRollTests: XCTestCase {
 @MainActor
 final class DittoRevealTests: XCTestCase {
     /// 활성 = 커먼 3형태 위장 메타몽(정체). currentLine 은 nil(재시작류) → update 로 로드해 리빌 트리거.
-    private func seedDisguise(usedAtStage: Int = 0, shiny: Bool = false, revealed: Bool = false) -> CompanionStore {
+    private func seedDisguise(usedAtStage: Int = 0, shiny: Bool = false, revealed: Bool = false,
+                              boosted: Bool = false, defaults: UserDefaults = .standard) -> CompanionStore {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("ditto-\(UUID().uuidString).json")
         let active = "{\"baseID\":1,\"pathIDs\":[1],\"stageIndex\":0,\"usedAtStage\":\(usedAtStage),"
-            + "\"rarity\":\"common\",\"totalForms\":3,\"isShiny\":\(shiny),"
+            + "\"rarity\":\"common\",\"totalForms\":3,\"isShiny\":\(shiny),\"hasGrowthBoost\":\(boosted),"
             + "\"dittoDisguise\":1,\"dittoRevealed\":\(revealed)}"
         let json = "{\"installBaselineSet\":true,\"usedSinceInstall\":1000000000,\"spentTokens\":0,"
             + "\"lastDate\":\"d1\",\"active\":\(active),\"dex\":[],\"collectedFinals\":[]}"
         try? json.data(using: .utf8)!.write(to: url)
-        return CompanionStore(provider: DittoTestProvider(), clock: { dNow }, fileURL: url, rng: SeededRNG(seed: 7))
+        return CompanionStore(provider: DittoTestProvider(), clock: { dNow }, fileURL: url, rng: SeededRNG(seed: 7), defaults: defaults)
     }
 
     /// update → loadCurrentLine → applyUsage(0) → (임계 초과 시) revealDitto 비동기 체인을 드레인.
@@ -163,8 +164,49 @@ final class DittoRevealTests: XCTestCase {
         XCTAssertEqual(profile?.gender, .genderless)
         XCTAssertEqual(profile?.abilityName, "limber")
         XCTAssertEqual(profile?.moves.map(\.name), ["transform"])
-        XCTAssertEqual(profile?.growthTokens, 175_000_000)
-        XCTAssertEqual(profile?.level, 10, "level must be recalculated against Ditto's rare growth total")
+        XCTAssertEqual(profile?.growthTokens, 500_000_000)
+        XCTAssertEqual(profile?.level, 20, "revealing Ditto preserves earned phase progress")
+    }
+
+    func testBoostedEasyDittoRetainsLevelAndIdentityAcrossReveal() async throws {
+        let suite = "ditto-profile-\(UUID())"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let s = seedDisguise(boosted: true, defaults: defaults)
+        s.setGrowthDifficulty(0.1)
+        await s.loadPokemonDetails(speciesID: 1)
+        let initial = try XCTUnwrap(s.state.active?.profile)
+        s.applyUsage(7_250_000) // 6.25M reveal threshold plus 1M raw carryover.
+        let earnedLevel = s.state.active?.profile?.level
+        await drainReveal(s)
+        await s.loadPokemonDetails(speciesID: PokemonOdds.dittoSpeciesID)
+        for _ in 0..<200 {
+            if s.state.active?.profile?.gender == .genderless { break }
+            await Task.yield()
+        }
+        let revealed = try XCTUnwrap(s.state.active)
+        XCTAssertEqual(revealed.usedAtStage, 1_000_000)
+        XCTAssertTrue(revealed.hasGrowthBoost)
+        XCTAssertEqual(revealed.profile?.instanceID, initial.instanceID)
+        XCTAssertEqual(revealed.profile?.ivs, initial.ivs)
+        XCTAssertEqual(revealed.profile?.level, earnedLevel)
+        XCTAssertEqual(revealed.profile?.gender, .genderless)
+        XCTAssertEqual(revealed.profile?.moves.map(\.name), ["transform"])
+        s.applyUsage(s.tokensToNext)
+        XCTAssertEqual(s.state.dex.last?.profile?.level, 100)
+    }
+
+    func testBoostedDisguiseRevealsAtTheHalvedThresholdAndKeepsTheBoost() async throws {
+        let s = seedDisguise(boosted: true)
+        s.applyUsage(62_500_000)
+
+        await drainReveal(s)
+
+        let revealed = try XCTUnwrap(s.state.active)
+        XCTAssertTrue(revealed.dittoRevealed)
+        XCTAssertTrue(revealed.hasGrowthBoost)
+        XCTAssertEqual(revealed.usedAtStage, 0)
+        XCTAssertEqual(revealed.phaseThreshold, 1_500_000_000)
     }
 
     /// [회귀] 위장 종만 근거로 고정한 대표 선택은 리빌과 함께 무효가 된다. 공개 뒤에는 유령 위장 종을

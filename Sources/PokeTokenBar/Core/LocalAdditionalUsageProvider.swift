@@ -1,12 +1,13 @@
 import Foundation
 import SQLite3
 
-private enum LocalAdditionalSource: String, Sendable {
+enum LocalAdditionalSource: String, Sendable {
     case opencode
     case hermes
     case cursor
     case copilot
     case kiro
+    case aside
 }
 
 /// OpenCode usage from its local SQLite database and legacy message files.
@@ -107,6 +108,29 @@ struct LocalKiroProvider: UsageProvider {
     }
 }
 
+/// Aside usage from the per-user `state.db` under `~/.aside/u`. Turn aggregates are
+/// mutable and sessions can be deleted (`ON DELETE CASCADE` drops their turns), so this
+/// provider merges each scan with previously-seen entries — see the `.aside` case in
+/// `LocalAdditionalUsageCache` and the reader's failure mapping in `LocalAsideUsageReader`.
+/// `includeModels` stays off: `sessions.model` is the session's *current* model, not a
+/// per-turn record, so a per-model breakdown would relabel earlier turns on every refill.
+struct LocalAsideProvider: UsageProvider {
+    let id = "aside"
+    let displayName = "Aside"
+    /// Injected by tests (`LocalAdditionalUsageCache(asideRootsOverride:clock:)`); production uses the shared cache.
+    var cache: LocalAdditionalUsageCache = .shared
+
+    func fetchDaily() async throws -> DailyUsage? {
+        let entries = await cache.entries(for: .aside)
+        return LocalUsageReader.daily(entries: entries, localDay: LocalUsageReader.todayKey())
+    }
+
+    func fetchEnrichment() async -> ProviderEnrichment {
+        let entries = await cache.entries(for: .aside)
+        return enrichment(entries: entries)
+    }
+}
+
 private func enrichment(entries: [LocalUsageReader.Entry]) -> ProviderEnrichment {
     let now = Date()
     let monthStart = LocalUsageReader.startOfMonth(now)
@@ -126,8 +150,19 @@ private func enrichment(entries: [LocalUsageReader.Entry]) -> ProviderEnrichment
 }
 
 /// Shares a single native read between a provider's daily and enrichment calls.
-private actor LocalAdditionalUsageCache {
+actor LocalAdditionalUsageCache {
     static let shared = LocalAdditionalUsageCache()
+
+    /// Test seams: fixed Aside scan roots (production reads Settings inside the reader; the
+    /// other sources still read their own roots) and a clock so a test can step past the
+    /// 30 s entry without sleeping.
+    private let asideRootsOverride: [URL]?
+    private let clock: @Sendable () -> Date
+
+    init(asideRootsOverride: [URL]? = nil, clock: @escaping @Sendable () -> Date = Date.init) {
+        self.asideRootsOverride = asideRootsOverride
+        self.clock = clock
+    }
 
     private struct Cached: Sendable {
         let loadedAt: Date
@@ -160,7 +195,7 @@ private actor LocalAdditionalUsageCache {
     }
 
     func entries(for source: LocalAdditionalSource) async -> [LocalUsageReader.Entry] {
-        let now = Date()
+        let now = clock()
         let monthKey = LocalUsageReader.monthKey(now)
         let previous = cached[source].flatMap { $0.monthKey == monthKey ? $0 : nil }
         if let value = previous,
@@ -206,9 +241,17 @@ private actor LocalAdditionalUsageCache {
             // silently drop out of today's total.
             since = periodStart
             afterRowIDByPath = [:]
+        case .aside:
+            // Aside's `session_turns.token_usage` is rewritten in place while a turn runs
+            // and deleting a session cascades to its turns, so like Kiro every scan
+            // re-derives entries and merges with `existing` below. A recreated state.db is
+            // told apart by the inode inside the reader's entry ids, so no watermark is kept.
+            since = periodStart
+            afterRowIDByPath = [:]
         }
         let existing = previous?.entries ?? []
         let knownKiro = previous?.kiroSignatures ?? [:]
+        let asideRoots = asideRootsOverride
         let task = Task.detached(priority: .utility) {
             () async -> ScanResult in
             switch source {
@@ -223,6 +266,9 @@ private actor LocalAdditionalUsageCache {
                 return ScanResult(
                     entries: LocalUsageReader.dedupKeepMax(existing + loaded.entries),
                     kiroSignatures: loaded.signatures)
+            case .aside:
+                let loaded = LocalAsideUsageReader.entries(modifiedSince: since, roots: asideRoots)
+                return ScanResult(entries: LocalUsageReader.dedupKeepMax(existing + loaded))
             case .cursor:
                 let loaded = await LocalAdditionalUsageReader.cursorEntriesAsync(
                     modifiedSince: since, afterRowIDByPath: afterRowIDByPath)

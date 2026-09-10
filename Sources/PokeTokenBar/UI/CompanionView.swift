@@ -530,7 +530,17 @@ struct CompanionHeader: View {
                     if store.hasActive {
                         // 단계 + 성격(부화 시 확정된 개체 아이덴티티)
                         let nature = store.currentNature.map { " · \($0.name(store.language))" } ?? ""
-                        Text(store.stageText + nature).font(.caption2).foregroundStyle(.secondary)
+                        HStack(spacing: 5) {
+                            Text(store.stageText + nature).font(.caption2).foregroundStyle(.secondary)
+                            if let multiplier = store.growthMultiplier {
+                                Text(store.l.growthBoost(multiplier))
+                                    .font(.system(size: 8, weight: .bold))
+                                    .padding(.horizontal, 5).padding(.vertical, 1)
+                                    .background(.orange.opacity(0.15)).foregroundStyle(.orange)
+                                    .clipShape(Capsule())
+                                    .fixedSize()
+                            }
+                        }
                         ProgressView(value: store.progress).controlSize(.small).tint(.orange)
                         if store.tokensToNext > 0 {
                             let amount = TokenFormatter.compact(store.tokensToNext)
@@ -784,7 +794,9 @@ struct CollectionView: View {
             // 문제가 있어, 바깥 VStack 을 height 로 고정해 스크롤 영역이 나머지를 채우게 한다.
             ScrollViewReader { proxy in
                 ScrollView {
-                    VStack(alignment: .leading, spacing: 8) {
+                    // 로그는 계속 쌓인다. 화면 밖 행까지 생성하면 진화 라인의 스프라이트 로딩과
+                    // 레이아웃도 전부 진입 시 실행되므로, 보이는 행부터 생성한다.
+                    LazyVStack(alignment: .leading, spacing: 8) {
                         Color.clear.frame(height: 0).id("dexTop")   // 스크롤 최상단 앵커
                         ForEach(visibleEntries) { entry in
                             DexEntryRow(store: store, entry: entry)

@@ -98,6 +98,7 @@ struct PokemonProfile: Codable, Sendable, Equatable {
     var abilityName: String?
     var abilityIsHidden: Bool
     var level: Int
+    /// Earned growth in standard-balance units, independent of difficulty and repeat boosts.
     var growthTokens: Int
     var moves: [PokemonKnownMove]
 
@@ -126,14 +127,16 @@ struct PokemonProfile: Codable, Sendable, Equatable {
 
     /// Ditto's disguise is a different species identity, not an evolution. Keep the individual
     /// values, but reroll every species-dependent field once Ditto's own metadata is available.
-    mutating func rebaseForSpeciesIdentity(growthTokens: Int, rarity: Rarity) {
+    mutating func rebaseForSpeciesIdentity(from oldRarity: Rarity, to rarity: Rarity) {
+        let fraction = min(1, Double(max(0, growthTokens)) / Double(PokemonBalance.graduationTotal(oldRarity)))
+        let rebasedGrowth = Int((fraction * Double(PokemonBalance.graduationTotal(rarity))).rounded(.down))
         gender = nil
         abilitySlot = nil
         abilityName = nil
         abilityIsHidden = false
         moves = []
-        self.growthTokens = min(SaveTransfer.maxTokenValue, max(0, growthTokens))
-        applyGrowth(0, rarity: rarity)
+        self.growthTokens = rebasedGrowth
+        advanceGrowth(to: rebasedGrowth, rarity: rarity)
     }
 
     mutating func enrich(with details: PokemonDetails) {
@@ -173,10 +176,15 @@ struct PokemonProfile: Codable, Sendable, Equatable {
     }
 
     mutating func applyGrowth(_ delta: Int, rarity: Rarity) {
-        growthTokens = min(SaveTransfer.maxTokenValue, max(0, growthTokens + max(0, delta)))
+        advanceGrowth(to: growthTokens + max(0, delta), rarity: rarity)
+    }
+
+    /// Difficulty changes and imports cannot undo an already-earned level.
+    mutating func advanceGrowth(to candidate: Int, rarity: Rarity) {
+        growthTokens = min(SaveTransfer.maxTokenValue, max(growthTokens, max(0, candidate)))
         let total = max(1, PokemonBalance.graduationTotal(rarity))
         let progress = min(1, Double(growthTokens) / Double(total))
-        level = min(100, max(5, 5 + Int((progress * 95).rounded(.down))))
+        level = min(100, max(level, max(5, 5 + Int((progress * 95).rounded(.down)))))
     }
 
     mutating func sanitize() {
