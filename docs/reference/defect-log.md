@@ -59,9 +59,10 @@ read_when:
   enrichment OK=false → 이전 값 유지. Aside 에서 스킵을 `[]` 로 접어 BUSY 한 번에 탭이 사라지고
   주/월이 0 으로 덮였고(2라운드), "전부 실패면 throw" 로 고치자 `no such table` 같은 영구 조건이
   매 리프레시 throw 해서 다른 프로바이더 숫자는 갱신되는데 "Updated 5 hours ago" 가 굳었다(3라운드).
-  일시적 코드(`CANTOPEN`/`BUSY`/`LOCKED`/`IOERR*`/`CORRUPT`)만 throw 후보, prepare 단계의
-  `SQLITE_ERROR`/`NOTADB` 는 "이 소스의 DB 가 아님"으로 스킵. 회귀 테스트는 리더 단위가 아니라
-  provider 를 통해 `fetchDaily` throw 여부와 `fetchEnrichment` OK 플래그를 함께 본다.
+  최종 결정: 캐시 위의 로컬 소스 리더는 **throw 하지 않는다** — 못 여는/못 읽는 DB 는 스킵하고,
+  전부 실패면 `[]` 를 돌려 `dedupKeepMax(existing + loaded)` 가 이전 값을 유지한다(Aside 를
+  `LocalAdditionalUsageCache` 로 옮기며 적용). 회귀 테스트는 리더 파일에 `throw` 가 없는지와 캐시
+  케이스가 `existing +` 로 병합하는지를 소스 텍스트로 고정한다(`AsideUsageTests`).
 - **파싱 뒤에 걸린 필터는 출력을 줄이지 일을 줄이지 않는다.** `modifiedSince` 가 호출부에선
   스캔 창처럼 보이지만, 행 watermark 가 있는 리더에서만 창이다. 통문서 저장(Kiro 가 대화 JSON 을
   제자리 재기록)은 창을 파싱 *뒤에* 적용해서 읽기·`jsonObject` 비용이 그대로다(실측 30×80턴:

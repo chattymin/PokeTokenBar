@@ -7,6 +7,7 @@ private enum LocalAdditionalSource: String, Sendable {
     case cursor
     case copilot
     case kiro
+    case aside
 }
 
 /// OpenCode usage from its local SQLite database and legacy message files.
@@ -103,6 +104,25 @@ struct LocalKiroProvider: UsageProvider {
 
     func fetchEnrichment() async -> ProviderEnrichment {
         let entries = await LocalAdditionalUsageCache.shared.entries(for: .kiro)
+        return enrichment(entries: entries)
+    }
+}
+
+/// Aside usage from the per-user `state.db` under `~/.aside/u`. Turn aggregates are
+/// mutable and sessions can be deleted (`ON DELETE CASCADE` drops their turns), so this
+/// provider merges each scan with previously-seen entries — see the `.aside` case in
+/// `LocalAdditionalUsageCache` and the reader's failure mapping in `LocalAsideUsageReader`.
+struct LocalAsideProvider: UsageProvider {
+    let id = "aside"
+    let displayName = "Aside"
+
+    func fetchDaily() async throws -> DailyUsage? {
+        let entries = await LocalAdditionalUsageCache.shared.entries(for: .aside)
+        return LocalUsageReader.daily(entries: entries, localDay: LocalUsageReader.todayKey(), includeModels: true)
+    }
+
+    func fetchEnrichment() async -> ProviderEnrichment {
+        let entries = await LocalAdditionalUsageCache.shared.entries(for: .aside)
         return enrichment(entries: entries)
     }
 }
@@ -206,6 +226,12 @@ private actor LocalAdditionalUsageCache {
             // silently drop out of today's total.
             since = periodStart
             afterRowIDByPath = [:]
+        case .aside:
+            // Aside's `session_turns.token_usage` is rewritten in place while a turn runs
+            // and deleting a session cascades to its turns, so like Kiro every scan
+            // re-derives entries and merges with `existing` below.
+            since = periodStart
+            afterRowIDByPath = [:]
         }
         let existing = previous?.entries ?? []
         let knownKiro = previous?.kiroSignatures ?? [:]
@@ -223,6 +249,9 @@ private actor LocalAdditionalUsageCache {
                 return ScanResult(
                     entries: LocalUsageReader.dedupKeepMax(existing + loaded.entries),
                     kiroSignatures: loaded.signatures)
+            case .aside:
+                let loaded = LocalAsideUsageReader.entries(modifiedSince: since)
+                return ScanResult(entries: LocalUsageReader.dedupKeepMax(existing + loaded))
             case .cursor:
                 let loaded = await LocalAdditionalUsageReader.cursorEntriesAsync(
                     modifiedSince: since, afterRowIDByPath: afterRowIDByPath)

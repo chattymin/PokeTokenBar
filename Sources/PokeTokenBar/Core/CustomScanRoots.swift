@@ -91,7 +91,7 @@ enum CustomScanRoots {
         case "opencode":
             return LocalAdditionalUsageReader.openCodeRoots(customRootsValue: nil)
         case "aside":
-            return LocalAsideUsageReader.roots()
+            return LocalAsideUsageReader.roots(customRootsValue: nil)
         case "hermes":
             return LocalAdditionalUsageReader.hermesRoots(customRootsValue: nil)
         case "cursor":

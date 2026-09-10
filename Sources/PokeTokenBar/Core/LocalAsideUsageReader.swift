@@ -1,59 +1,27 @@
 import Foundation
 import SQLite3
 
-struct LocalAsideProvider: UsageProvider {
-    let id = "aside"
-    let displayName = "Aside"
-    let home: URL
-    let customRoots: @Sendable () -> String?
-
-    init(home: URL = FileManager.default.homeDirectoryForCurrentUser,
-         customRoots: @escaping @Sendable () -> String? = { CustomScanRoots.storedValue(for: "aside") }) {
-        self.home = home
-        self.customRoots = customRoots
-    }
-
-    func fetchDaily() async throws -> DailyUsage? {
-        let now = Date()
-        let entries = try LocalAsideUsageReader.entries(
-            databases: LocalAsideUsageReader.databases(home: home, customRootsValue: customRoots()),
-            since: Calendar.current.startOfDay(for: now))
-        return LocalUsageReader.daily(entries: entries, localDay: LocalUsageReader.todayKey(), includeModels: true)
-    }
-
-    func fetchEnrichment() async -> ProviderEnrichment {
-        let now = Date()
-        guard let entries = try? LocalAsideUsageReader.entries(
-            databases: LocalAsideUsageReader.databases(home: home, customRootsValue: customRoots()),
-            since: LocalUsageReader.enrichmentScanStart(now: now)) else { return ProviderEnrichment() }
-        let fmt = LocalUsageReader.localDayFormatter()
-        let week = fmt.string(from: LocalUsageReader.startOfWeek(now))
-        let month = fmt.string(from: LocalUsageReader.startOfMonth(now))
-        var result = ProviderEnrichment()
-        result.activeBlock = LocalUsageReader.activeBlock(entries: entries, now: now)
-        result.blocksOK = true
-        result.weekTotal = LocalUsageReader.period(entries: entries, periodKey: week, fromDay: week, toDay: fmt.string(from: now))
-        result.monthTotal = LocalUsageReader.period(entries: entries, periodKey: LocalUsageReader.monthKey(now), fromDay: month, toDay: fmt.string(from: now))
-        result.periodsOK = true
-        return result
-    }
-}
-
-/// Aside persists mutable turn aggregates, not append-only usage events.
+/// Aside persists mutable turn aggregates, not append-only usage events, and `ON DELETE
+/// CASCADE` removes a session's turns outright when the user deletes the session. The
+/// `.aside` case in `LocalAdditionalUsageCache` therefore merges each scan with the
+/// previously-seen entries (`dedupKeepMax(existing + loaded)`), exactly like Kiro.
 /// Only usage metadata is selected; conversation bodies and credentials are never read.
+///
+/// Failure mapping (see `provider-extension.md`): this reader never throws. A database
+/// that cannot be opened or queried is skipped, so the scan returns whatever the healthy
+/// ones held — and after the first successful scan, an all-failed rescan returns `[]`,
+/// which the keep-max merge treats as "nothing new" rather than "zero usage".
 enum LocalAsideUsageReader {
-    enum ReadError: Error { case databaseUnavailable }
-
-    static func roots(home: URL = FileManager.default.homeDirectoryForCurrentUser,
-                      customRootsValue: String? = nil) -> [URL] {
+    static func roots(customRootsValue: String? = nil,
+                      home: URL = FileManager.default.homeDirectoryForCurrentUser) -> [URL] {
         CustomScanRoots.union(defaults: [home.appendingPathComponent(".aside/u")], extraRaw: customRootsValue)
     }
 
     /// Root folders may be `.aside/u` or individual user folders containing state.db.
-    static func databases(home: URL, customRootsValue: String?) -> [URL] {
+    static func databases(roots: [URL]) -> [URL] {
         let fm = FileManager.default
         var found = Set<URL>()
-        for root in roots(home: home, customRootsValue: customRootsValue) {
+        for root in roots {
             let children = (try? fm.contentsOfDirectory(at: root, includingPropertiesForKeys: nil)) ?? []
             for directory in [root] + children {
                 let db = directory.appendingPathComponent("state.db").resolvingSymlinksInPath().standardizedFileURL
@@ -64,10 +32,11 @@ enum LocalAsideUsageReader {
     }
 
     /// A database that cannot be opened or queried (an unmigrated second profile, a foreign
-    /// state.db under a custom root) is skipped so it never blanks out the healthy ones.
-    /// When *every* database fails the scan throws instead of reporting zero usage, so a
-    /// transient failure (busy WAL recovery, permissions) keeps the previous values.
-    static func entries(databases: [URL], since: Date) throws -> [LocalUsageReader.Entry] {
+    /// state.db under a custom root, a busy WAL recovery) is skipped so it never blanks out
+    /// the healthy ones. A scan that fails after yielding rows discards that database's
+    /// partial rows.
+    static func entries(modifiedSince since: Date, roots: [URL]? = nil) -> [LocalUsageReader.Entry] {
+        let databases = databases(roots: roots ?? self.roots(customRootsValue: CustomScanRoots.storedValue(for: "aside")))
         var result: [LocalUsageReader.Entry] = []
         var skipped: [String] = []
         let fmt = LocalUsageReader.localDayFormatter()
@@ -135,7 +104,6 @@ enum LocalAsideUsageReader {
         if !skipped.isEmpty {
             AppLog.write("aside: skipped unreadable state.db: \(skipped.joined(separator: ", "))")
         }
-        if !databases.isEmpty, skipped.count == databases.count { throw ReadError.databaseUnavailable }
         return result
     }
 
