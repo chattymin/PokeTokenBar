@@ -273,8 +273,11 @@ actor OAuthAccessTokenCache {
             if enumerateStatus == errSecInteractionNotAllowed {
                 throw LimitsError.keychainInteractionNotAllowed
             }
+            if enumerateStatus == errSecItemNotFound {
+                throw LimitsError.keychainUnavailable(enumerateStatus)
+            }
             if enumerateStatus == errSecSuccess {
-                accounts = OAuthCredentialData.accountNames(from: item)
+                accounts = OAuthCredentialData.prioritizedAccountNames(from: item)
             }
         }
 
@@ -291,6 +294,11 @@ actor OAuthAccessTokenCache {
             let status = KeychainReader.copyMatching(query, &item)
             if status == errSecInteractionNotAllowed {
                 throw LimitsError.keychainInteractionNotAllowed
+            }
+            // 사용자가 시스템 다이얼로그에서 '취소'를 눌렀거나 인증에 실패한 경우,
+            // 다음 계정으로 계속 넘어가며 프롬프트 폭탄(Prompt Bombing)을 띄우지 않고 즉시 중단한다(#280).
+            if status == errSecUserCanceled || status == errSecAuthFailed {
+                throw LimitsError.keychainUnavailable(status)
             }
             lastStatus = status
             guard status == errSecSuccess, let data = item as? Data else { continue }
@@ -348,15 +356,70 @@ enum OAuthCredentialData {
         return query
     }
 
-    /// 속성 조회 결과에서 `acct` 목록을 뽑는다(순서 유지, 중복 제거).
+    /// 속성 조회 결과에서 `acct` 목록을 뽑는다(순서 유지, 중복 제거, 공백 트림).
     static func accountNames(from item: Any?) -> [String] {
         let rows: [[String: Any]]
         if let array = item as? [[String: Any]] { rows = array }
         else if let one = item as? [String: Any] { rows = [one] }
         else { return [] }
         var seen = Set<String>()
-        return rows.compactMap { $0[kSecAttrAccount as String] as? String }
-            .filter { !$0.isEmpty && seen.insert($0).inserted }
+        return rows.compactMap {
+            ($0[kSecAttrAccount as String] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+        }.filter { !$0.isEmpty && seen.insert($0).inserted }
+    }
+
+    /// 속성 조회 결과에서 `acct` 목록을 뽑고, 사용자 계정 토큰을 담고 있을 확률이 높은 순서로 정렬한다.
+    ///
+    /// 왜 필요한가: Claude Code 는 사용자 계정 OAuth 를 주로 현재 Mac 로그인 사용자명(`NSUserName()`)으로 저장하고,
+    /// MCP OAuth 등은 `acct="unknown"` 등으로 별도 저장한다. 키체인이 반환한 순서 그대로 조회하면
+    /// MCP 전용 항목(`unknown`)을 먼저 열람하느라 불필요한 시스템 암호 프롬프트가 발생하고,
+    /// 이어서 실제 계정 항목을 열람할 때 두 번째 암호 프롬프트를 또 띄우게 된다(#280).
+    ///
+    /// 우선순위:
+    /// 1. 현재 Mac 로그인 사용자명과 일치하는 계정 (대소문자 무시, 단 'unknown' 제외)
+    /// 2. 유효한 이메일 주소 형식(`user@domain.tld`) 계정
+    /// 3. "unknown"이 아닌 일반 계정
+    /// 4. "unknown", "none" 등 MCP/플레이스홀더 계정
+    /// 같은 우선순위 내에서는 기존 열거 순서를 보존(stable)한다.
+    static func prioritizedAccountNames(
+        from item: Any?,
+        currentUserName: String = NSUserName()
+    ) -> [String] {
+        let names = accountNames(from: item)
+        guard names.count > 1 else { return names }
+        let trimmedUser = currentUserName.trimmingCharacters(in: .whitespacesAndNewlines)
+        return names.enumerated().sorted { first, second in
+            let p1 = priority(for: first.element, currentUser: trimmedUser)
+            let p2 = priority(for: second.element, currentUser: trimmedUser)
+            if p1 != p2 {
+                return p1 < p2
+            }
+            return first.offset < second.offset
+        }.map(\.element)
+    }
+
+    private static func priority(for account: String, currentUser: String) -> Int {
+        let trimmed = account.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return 4 }
+        let lower = trimmed.lowercased()
+
+        // 1. unknown, none 등 명백한 플레이스홀더는 시스템 유저명이 'unknown'이어도 항상 최하위 고정
+        if lower == "unknown" || lower == "none" {
+            return 3
+        }
+
+        // 2. Mac 현재 로그인 유저명 (단, 유저명이 unknown인 환경은 예외)
+        let lowerUser = currentUser.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if !lowerUser.isEmpty && lowerUser != "unknown" && lower == lowerUser {
+            return 0
+        }
+
+        // 3. 실제 이메일 형식 (도메인 온점 포함, 선/후행 @ 제외)
+        if lower.contains("@") && lower.contains(".") && !lower.hasPrefix("@") && !lower.hasSuffix("@") {
+            return 1
+        }
+
+        return 2
     }
 
 

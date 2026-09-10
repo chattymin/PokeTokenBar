@@ -350,6 +350,13 @@ read_when:
   파싱 실패를 형식 오류로 뭉뚱그리면 "재로그인하면 된다"를 안내 못 해 한도 섹션이 원인 불명으로 사라진다.
   → `LimitsError.credentialMissingAccountOAuth` 로 구분해 재로그인 안내를 띄운다
   (`OAuthCredentialData.isAccountOAuthMissing`).
+- **다중 Keychain 항목 순회 시 사용자 계정을 최우선으로 정렬하라 — 안 그러면 항목마다 시스템 암호 프롬프트가 연쇄된다.**
+  #243 에서 `errSecParam(-50)` 회피를 위해 속성 열거 후 단건 데이터 조회 루프로 바꿨는데,
+  Claude Code 가 MCP OAuth 를 쓰면 `acct="unknown"` 항목이 생겨 서비스 내 항목이 2개 이상이 된다.
+  macOS 의 ACL 승인은 항목(Item) 단위라 `unknown` 에 암호를 입력해도 `justinjeong` 에서 또 암호를 묻는다.
+  속성 목록에서 `NSUserName()` 을 1순위, 이메일(`@`)을 2순위, 일반 계정을 3순위, `unknown` 을 최하위로 정렬해
+  진짜 계정을 먼저 찌르면, 첫 조회에서 바로 유효 토큰(`claudeAiOauth`)을 찾아 루프를 끝내므로 2회차 암호 창이 원천 소멸한다.
+  가드: `testPrioritizedAccountNamesPlacesCurrentUserNameFirstAndUnknownLast`·`testPrioritizedAccountNamesFullHierarchy`.
 
 ## 동시성
 
