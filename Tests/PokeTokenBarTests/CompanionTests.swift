@@ -1885,6 +1885,47 @@ final class CompanionIdentityTests: XCTestCase {
         XCTAssertTrue(store.isEgg)
         XCTAssertTrue(store.isHatchWaitingForNetwork)
     }
+
+    @MainActor
+    func testApplySaveResetsIsHatchWaitingForNetwork() async throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("test-save-import-\(UUID().uuidString).json")
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        var state = CompanionState()
+        state.installBaselineSet = true
+        state.eggUsage = PokemonBalance.eggHatchThreshold
+        if let data = try? JSONEncoder().encode(state) {
+            try? data.write(to: url)
+        }
+
+        let store = CompanionStore(
+            provider: FailingPokeProvider(),
+            clock: { Date() },
+            fileURL: url,
+            rng: SeededRNG(seed: 42),
+            dittoDisguiseRollingEnabled: false
+        )
+
+        // 오프라인 부화 실패로 플래그 true 설정
+        await store.hatchIfNeeded()
+        XCTAssertTrue(store.isHatchWaitingForNetwork)
+
+        // 새 세이브(0% 알) 임포트
+        var importedState = CompanionState()
+        importedState.installBaselineSet = true
+        importedState.eggUsage = 0
+        let envelope = SaveEnvelope(
+            format: SaveEnvelope.formatID,
+            schema: SaveEnvelope.schemaVersion,
+            appVersion: "2.5.3",
+            exportedAt: Date(),
+            sourceDevice: "Mac",
+            state: importedState
+        )
+
+        try store.applySave(envelope, todayTokensByProvider: [:], todayDate: "2026-09-11", hasUsageData: false)
+        XCTAssertFalse(store.isHatchWaitingForNetwork, "세이브 임포트 시 이전 대기 플래그가 클리어되어야 함")
+    }
 }
 
 private struct FailingPokeProvider: PokeProviding {
