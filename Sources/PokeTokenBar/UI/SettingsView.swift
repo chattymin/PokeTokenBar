@@ -233,6 +233,7 @@ struct SettingsView: View {
                             try LoginItem.setEnabled(newValue)   // KeepAlive 에이전트(로그인 실행+크래시 재실행)
                             launchAtLoginError = nil
                         } catch {
+                            AppLog.write("login item update failed: \(error)")
                             launchAtLoginError = error
                             launchAtLogin = LoginItem.isEnabled
                         }
@@ -735,6 +736,7 @@ struct SettingsView: View {
             try data.write(to: url, options: .atomic)
             NSWorkspace.shared.activateFileViewerSelecting([url])
         } catch {
+            AppLog.write("save export failed: \(error)")
             presentAlert(title: l.exportSaveLabel, message: l.userFacingError(error), style: .warning)
         }
     }
@@ -752,6 +754,7 @@ struct SettingsView: View {
         do {
             envelope = try SaveTransfer.decode(try Data(contentsOf: url))
         } catch {
+            AppLog.write("save import read failed: \(error)")
             presentAlert(title: l.importSaveLabel, message: l.importErrorMessage(error), style: .warning)
             return
         }
@@ -785,6 +788,7 @@ struct SettingsView: View {
                                     todayDate: LocalUsageReader.todayKey(),
                                     hasUsageData: store.hasUsageData)
         } catch {
+            AppLog.write("save import apply failed: \(error)")
             presentAlert(title: l.importSaveLabel, message: l.importErrorMessage(error), style: .warning)
             return
         }

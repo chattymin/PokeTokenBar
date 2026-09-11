@@ -15,6 +15,7 @@ private actor MigratingNameProvider: PokeProviding {
     }
     func line(baseSpeciesID: Int) async throws -> EvoLine {
         calls += 1
+        try await Task.sleep(nanoseconds: 20_000_000)
         if offline { throw URLError(.notConnectedToInternet) }
         return value
     }
@@ -97,6 +98,23 @@ final class DexNameMigrationTests: XCTestCase {
         await store.backfillMissingDexNames()
         XCTAssertEqual(store.dexStoredChainNames(store.state.dex[0])?[2], "이상해풀")
         XCTAssertFalse(store.state.dex[0].needsNamesRefresh)
+    }
+
+    func testSimultaneouslyMountedCatchRowsShareOneRequest() async throws {
+        let url = try fixture([entry(), entry("second-catch")])
+        defer { try? FileManager.default.removeItem(at: url) }
+        let provider = MigratingNameProvider(allNames)
+        let store = CompanionStore(provider: provider, fileURL: url)
+        let first = store.state.dex[0]
+        let second = store.state.dex[1]
+        async let a = store.dexResolveChainNames(first)
+        async let b = store.dexResolveChainNames(second)
+        let names = await (a, b)
+        XCTAssertEqual(names.0, names.1)
+        XCTAssertEqual(names.0[1], "이상해씨")
+        let calls = await provider.calls
+        XCTAssertEqual(calls, 1)
+        XCTAssertTrue(store.state.dex.allSatisfy { !$0.needsNamesRefresh })
     }
 
     func testPartialResponsePreservesOldNamesWithoutMarkingMigrationComplete() async throws {

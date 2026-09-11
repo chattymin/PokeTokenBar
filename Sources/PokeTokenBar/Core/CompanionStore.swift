@@ -38,6 +38,7 @@ final class CompanionStore {
     func consumeMintFeedback() { mintFeedbackNature = nil }
 
     private let provider: any PokeProviding
+    private var dexNameRequests: [Int: Task<EvoLine, Error>] = [:]
     private let detailProvider: (any PokemonDetailProviding)?
     private let clock: () -> Date
     private let fileURL: URL
@@ -431,12 +432,21 @@ final class CompanionStore {
     /// Refresh missing/legacy multilingual names; current versions require no lookup.
     /// Offline, keep saved names and use species numbers only where no name is available.
     /// 반환은 chainOrder 전 종을 채운 [speciesID: 현재 언어 이름].
+    private func dexNameLine(baseID: Int) async throws -> EvoLine {
+        if let request = dexNameRequests[baseID] { return try await request.value }
+        let provider = self.provider
+        let request = Task { try await provider.line(baseSpeciesID: baseID) }
+        dexNameRequests[baseID] = request
+        defer { dexNameRequests[baseID] = nil }
+        return try await request.value
+    }
+
     func dexResolveChainNames(_ entry: DexEntry) async -> [Int: String] {
         // Another row of this evolution line may already have refreshed the stored entry.
         let entry = state.dex.first { $0.id == entry.id } ?? entry
         if !entry.needsNamesRefresh, let stored = dexStoredChainNames(entry) { return stored }
         let oldNames = dexStoredChainNames(entry) ?? [:]
-        guard let line = try? await provider.line(baseSpeciesID: entry.baseID) else {
+        guard let line = try? await dexNameLine(baseID: entry.baseID) else {
             return Dictionary(uniqueKeysWithValues: entry.chainOrder.map { ($0, oldNames[$0] ?? "#\($0)") })
         }
         // Preserve usable older names if a response is partial. Only a complete chain gets
