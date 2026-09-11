@@ -241,7 +241,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         guard store.linearIntegrationEnabled else { return }
         Task { @MainActor in
             let issues = await store.fetchLinearCompletionsForCompanion()
-            _ = companion.creditLinearCompletions(issues)
+            let outcome = companion.creditLinearCompletions(issues)
+            store.announceLinearCompletions(outcome.newlyCredited)
         }
     }
 

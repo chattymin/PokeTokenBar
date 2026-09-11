@@ -105,7 +105,7 @@ final class FloatingPetController: NSObject, NSWindowDelegate {
         withObservationTracking {
             _ = store.floatingPetEnabled
             _ = store.floatingPetSize
-            _ = store.currentBubbleAlert
+            _ = store.currentSpeechBubble
             _ = store.todayTotalTokens
             _ = store.highestLimitUtilization
             _ = store.limitDisplayMode   // hover 툴팁 %가 파생되는 값 — 수동 관찰 표면은 파생 원천을 직접 추적(defect-log §표시·UI)
@@ -224,7 +224,7 @@ final class FloatingPetController: NSObject, NSWindowDelegate {
             hosting.toolTip = currentHoverText()
         }
         let petSize = CGFloat(store.floatingPetSize)
-        p.setFrame(targetFrame(petSize: petSize, showingBubble: store.currentBubbleAlert != nil),
+        p.setFrame(targetFrame(petSize: petSize, showingBubble: store.currentSpeechBubble != nil),
                    display: true)
         p.orderFrontRegardless()
         if hoverPanel?.isVisible == true { showHoverCallout() }
@@ -249,7 +249,7 @@ final class FloatingPetController: NSObject, NSWindowDelegate {
     private func showHoverCallout() {
         guard let pet = panel, pet.isVisible else { return }
         // Don't cover an active limit bubble — the speech bubble is the priority surface.
-        if store.currentBubbleAlert != nil { hideHoverCallout(); return }
+        if store.currentSpeechBubble != nil { hideHoverCallout(); return }
         let text = currentHoverText()
         let appearance = NSApp.effectiveAppearance
         let colors = Self.hoverCalloutColors(for: appearance)
@@ -349,7 +349,7 @@ final class FloatingPetController: NSObject, NSWindowDelegate {
     func windowDidMove(_ notification: Notification) {
         guard let p = panel, p.isVisible else { return }
         let petSize = CGFloat(store.floatingPetSize)
-        let size = Self.panelSize(petSize: petSize, showingBubble: store.currentBubbleAlert != nil)
+        let size = Self.panelSize(petSize: petSize, showingBubble: store.currentSpeechBubble != nil)
         let pet = Self.petOrigin(panelOrigin: p.frame.origin, petSize: petSize, panelSize: size)
         defaults.set(Double(pet.x), forKey: Self.originXKey)
         defaults.set(Double(pet.y), forKey: Self.originYKey)
@@ -452,8 +452,8 @@ struct FloatingPetView: View {
         let size = CGFloat(store.floatingPetSize)
         let subject = companion.representativeSubject
         VStack(spacing: 8) {
-            if let alert = store.currentBubbleAlert {
-                SpeechBubbleView(alert: alert, l: L(companion.language))
+            if let bubble = store.currentSpeechBubble {
+                SpeechBubbleView(bubble: bubble)
                     .transition(.scale(scale: 0.8, anchor: .bottom).combined(with: .opacity))
                     .zIndex(1)
             }
@@ -466,7 +466,7 @@ struct FloatingPetView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
         .animation(animated ? .spring(response: 0.3, dampingFraction: 0.7) : nil,
-                   value: store.currentBubbleAlert)
+                   value: store.currentSpeechBubble)
     }
 
     static func hoverTooltip(todayTokens: Int, limitUtilization: Double?,
@@ -480,18 +480,17 @@ struct FloatingPetView: View {
     }
 }
 
-/// Transient limit-alert bubble. Width is capped so copy wraps instead of clipping the panel.
+/// Transient speech bubble. Width is capped so copy wraps instead of clipping the panel.
 @MainActor
 private struct SpeechBubbleView: View {
-    let alert: UsageStore.LimitAlert
-    let l: L
+    let bubble: UsageStore.SpeechBubble
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
-            Text(alert.isCritical ? l.notifCritical : l.notifWarning)
+            Text(bubble.title)
                 .font(.system(size: 11, weight: .bold))
-                .foregroundColor(alert.isCritical ? .red : .primary)
-            Text(l.notifBody(alert.window, TokenFormatter.percent(alert.utilization)))
+                .foregroundColor(bubble.isCritical ? .red : .primary)
+            Text(bubble.body)
                 .font(.system(size: 10))
                 .foregroundColor(.secondary)
                 .lineLimit(FloatingPetController.bubbleBodyLineLimit)

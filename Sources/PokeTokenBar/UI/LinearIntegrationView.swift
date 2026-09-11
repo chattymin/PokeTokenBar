@@ -2,14 +2,14 @@ import SwiftUI
 
 @MainActor
 private enum LinearIssuesTab: Hashable {
-    case completedToday
     case inProgress
+    case completedToday
 }
 
 @MainActor
 struct LinearIntegrationView: View {
     let store: UsageStore
-    @State private var selectedTab: LinearIssuesTab = .completedToday
+    @State private var selectedTab: LinearIssuesTab = .inProgress
 
     private var l: L { L(store.localizationLanguage) }
 
@@ -47,10 +47,10 @@ struct LinearIntegrationView: View {
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             } else {
-                Picker("", selection: $selectedTab) {
-                    Text(l.linearCompletedTodayTab).tag(LinearIssuesTab.completedToday)
-                    Text(l.linearInProgressTab).tag(LinearIssuesTab.inProgress)
-                }
+                    Picker("", selection: $selectedTab) {
+                        Text(l.linearInProgressTab).tag(LinearIssuesTab.inProgress)
+                        Text(l.linearCompletedTodayTab).tag(LinearIssuesTab.completedToday)
+                    }
                 .pickerStyle(.segmented)
                 .labelsHidden()
 

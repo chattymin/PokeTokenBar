@@ -306,14 +306,43 @@ struct L {
     var linearAPIKeyMalformed: String { t("키 형식이 아닙니다 (lin_api_ 로 시작).", "That isn’t an API key (should start with lin_api_).", "キー形式ではありません（lin_api_ で開始）。", "Eso no es una clave API (debe empezar por lin_api_).", "Ce n’est pas une clé API (doit commencer par lin_api_).", "Isso não é uma chave de API (deve começar com lin_api_).", "Das ist kein API-Schlüssel (sollte mit lin_api_ beginnen).") }
     var linearAPIKeyInvalid: String { t("Linear가 키를 거부했습니다. 권한을 확인하세요.", "Linear rejected that key. Check its permissions.", "Linearがキーを拒否しました。権限を確認してください。", "Linear rechazó esa clave. Revisa sus permisos.", "Linear a rejeté cette clé. Vérifie ses permissions.", "O Linear rejeitou essa chave. Verifique as permissões.", "Linear hat diesen Schlüssel abgelehnt. Berechtigungen prüfen.") }
     var linearIssuesTitle: String { t("Linear 이슈", "Linear issues", "Linear課題", "Issues de Linear", "Issues Linear", "Issues do Linear", "Linear-Issues") }
-    var linearCompletedTodayTab: String { t("오늘 완료", "Completed today", "今日完了", "Completadas hoy", "Terminées aujourd'hui", "Concluídas hoje", "Heute abgeschlossen") }
     var linearInProgressTab: String { t("진행 중", "In progress", "進行中", "En curso", "En cours", "Em andamento", "In Arbeit") }
+    var linearCompletedTodayTab: String { t("오늘 완료", "Completed today", "今日完了", "Completadas hoy", "Terminées aujourd'hui", "Concluídas hoje", "Heute abgeschlossen") }
     var linearIssuesNeedsSetup: String { t("설정에서 Linear API 키를 저장하고 통합을 켜면 표시됩니다.", "Save your Linear API key and enable Linear integration in Settings to view issues.", "設定でLinear APIキーを保存して連携を有効にすると表示されます。", "Guarda tu clave API de Linear y activa la integración en Ajustes para ver issues.", "Enregistre ta clé API Linear et active l’intégration dans Réglages pour afficher les issues.", "Salve sua chave API do Linear e ative a integração em Ajustes para ver issues.", "Speichere deinen Linear-API-Schlüssel und aktiviere die Integration in den Einstellungen, um Issues zu sehen.") }
     var linearIssuesEmptyCompleted: String { t("오늘 완료된 이슈가 없습니다.", "No issues completed today.", "本日完了した課題はありません。", "No hay issues completadas hoy.", "Aucune issue terminée aujourd'hui.", "Nenhuma issue concluída hoje.", "Heute keine abgeschlossenen Issues.") }
     var linearIssuesEmptyInProgress: String { t("현재 진행 중인 이슈가 없습니다.", "No issues currently in progress.", "現在進行中の課題はありません。", "No hay issues en curso.", "Aucune issue en cours actuellement.", "Nenhuma issue em andamento agora.", "Aktuell keine Issues in Arbeit.") }
     var linearIssuesSyncFailed: String { t("Linear 동기화에 실패했습니다. 잠시 후 다시 시도하세요.", "Failed to sync with Linear. Try again shortly.", "Linearとの同期に失敗しました。しばらくして再試行してください。", "No se pudo sincronizar con Linear. Inténtalo de nuevo en breve.", "La synchronisation Linear a échoué. Réessaie dans un instant.", "Falha ao sincronizar com o Linear. Tente novamente em instantes.", "Synchronisierung mit Linear fehlgeschlagen. Bitte gleich erneut versuchen.") }
     var linearOpenIssue: String { t("Linear에서 열기", "Open in Linear", "Linearで開く", "Abrir en Linear", "Ouvrir dans Linear", "Abrir no Linear", "In Linear öffnen") }
     var linearLastSynced: String { t("마지막 동기화", "Last synced", "最終同期", "Última sincronización", "Dernière synchronisation", "Última sincronização", "Zuletzt synchronisiert") }
+    var linearCompletedBubbleTitle: String { t("이슈 완료!", "Issue complete!", "課題完了！", "¡Issue completada!", "Issue terminée !", "Issue concluída!", "Issue erledigt!") }
+    func linearCompletedBubbleTitleCount(_ count: Int) -> String {
+        t("이슈 \(count)건 완료!",
+          "\(count) issues complete!",
+          "課題\(count)件完了！",
+          "¡\(count) issues completadas!",
+          "\(count) issues terminées !",
+          "\(count) issues concluídas!",
+          "\(count) Issues erledigt!")
+    }
+    func linearCompletedBubbleBody(_ identifier: String, _ title: String) -> String {
+        t("\(identifier) · \(title)",
+          "\(identifier) · \(title)",
+          "\(identifier) · \(title)",
+          "\(identifier) · \(title)",
+          "\(identifier) · \(title)",
+          "\(identifier) · \(title)",
+          "\(identifier) · \(title)")
+    }
+    var linearCompletedFlashTitle: String { t("완료", "Done", "完了", "Hecho", "Terminé", "Concluído", "Fertig") }
+    func linearCompletedFlashTitleCount(_ count: Int) -> String {
+        t("\(count)건 완료",
+          "\(count) done",
+          "\(count)件完了",
+          "\(count) hechas",
+          "\(count) terminées",
+          "\(count) concluídas",
+          "\(count) erledigt")
+    }
     func linearPriority(_ value: Int?) -> String {
         guard let value else { return t("우선순위 없음", "No priority", "優先度なし", "Sin prioridad", "Sans priorité", "Sem prioridade", "Keine Priorität") }
         switch value {

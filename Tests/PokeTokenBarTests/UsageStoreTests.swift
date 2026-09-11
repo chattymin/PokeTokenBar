@@ -299,6 +299,68 @@ final class UsageStoreTests: XCTestCase {
         XCTAssertFalse(UsageStore.shouldDismissBubble(shownAt: shown, now: shown.addingTimeInterval(3), ttl: 6))
     }
 
+    func testLinearCompletionFeedbackIsNilForEmptyIssues() {
+        XCTAssertNil(UsageStore.linearCompletionFeedback(issues: [], l: L(.en)))
+    }
+
+    func testLinearCompletionFeedbackSingleIssueUsesIdentifier() {
+        let issue = LinearCompletedIssue(
+            id: "a", identifier: "ENG-42", title: "Ship login",
+            completedAt: Date(timeIntervalSince1970: 1_700_000_000))
+        let l = L(.en)
+        let feedback = try! XCTUnwrap(UsageStore.linearCompletionFeedback(issues: [issue], l: l))
+        XCTAssertEqual(feedback.bubble.title, l.linearCompletedBubbleTitle)
+        XCTAssertEqual(feedback.bubble.body, l.linearCompletedBubbleBody("ENG-42", "Ship login"))
+        XCTAssertEqual(feedback.menuLines, [l.linearCompletedFlashTitle, "ENG-42"])
+    }
+
+    func testLinearCompletionFeedbackMultipleIssuesUsesCount() {
+        let a = LinearCompletedIssue(
+            id: "a", identifier: "ENG-1", title: "First",
+            completedAt: Date(timeIntervalSince1970: 1_700_000_000))
+        let b = LinearCompletedIssue(
+            id: "b", identifier: "ENG-2", title: "Second",
+            completedAt: Date(timeIntervalSince1970: 1_700_000_100))
+        let l = L(.en)
+        let feedback = try! XCTUnwrap(UsageStore.linearCompletionFeedback(issues: [a, b], l: l))
+        XCTAssertEqual(feedback.bubble.title, l.linearCompletedBubbleTitleCount(2))
+        XCTAssertTrue(feedback.bubble.body.contains("ENG-1"))
+        XCTAssertEqual(feedback.menuLines, [l.linearCompletedFlashTitleCount(2), "ENG-1"])
+    }
+
+    func testAnnounceLinearCompletionsOverridesMenuLinesAndSetsBubble() async {
+        let claude = FakeUsageProvider(id: "claude_code", displayName: "Claude Code",
+                                       daily: todayDaily(1_200_000))
+        let store = makeStore(providers: [claude])
+        store.showTokensInMenu = true
+        store.showCostInMenu = false
+        store.showLimitInMenu = false
+        await store.refresh(scheduleEmptyRetry: false)
+        XCTAssertFalse(store.menuLines.isEmpty)
+        XCTAssertNotEqual(store.menuLines.first, L(store.localizationLanguage).linearCompletedFlashTitle)
+
+        store.announceLinearCompletions([
+            LinearCompletedIssue(id: "a", identifier: "ENG-42", title: "Ship login",
+                                 completedAt: Date(timeIntervalSince1970: 1_700_000_000))
+        ])
+        let l = L(store.localizationLanguage)
+        XCTAssertEqual(store.menuLines, [l.linearCompletedFlashTitle, "ENG-42"])
+        XCTAssertEqual(store.currentSpeechBubble?.title, l.linearCompletedBubbleTitle)
+        XCTAssertEqual(store.currentSpeechBubble?.body, l.linearCompletedBubbleBody("ENG-42", "Ship login"))
+    }
+
+    func testAnnounceLinearCompletionsNoopsOnEmpty() async {
+        let claude = FakeUsageProvider(id: "claude_code", displayName: "Claude Code",
+                                       daily: todayDaily(1_200_000))
+        let store = makeStore(providers: [claude])
+        store.showTokensInMenu = true
+        await store.refresh(scheduleEmptyRetry: false)
+        let before = store.menuLines
+        store.announceLinearCompletions([])
+        XCTAssertEqual(store.menuLines, before)
+        XCTAssertNil(store.currentSpeechBubble)
+    }
+
     /// 회귀(#56 표시 버전): compact hover tooltip must not surface a provider unused today.
     /// Claude limits exist after auth even with 0 tokens today — gate like `menuLimitLine`.
     func testHighestLimitUtilizationIgnoresProviderUnusedToday() async {

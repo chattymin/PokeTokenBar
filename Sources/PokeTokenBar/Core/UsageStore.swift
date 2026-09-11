@@ -41,9 +41,11 @@ final class UsageStore {
     private(set) var limitTokenRefreshError: String?
 
     // MARK: Bubble Alert State
-    /// Transient speech-bubble payload for the floating pet. Cleared after the TTL.
-    private(set) var currentBubbleAlert: LimitAlert?
+    /// Transient speech bubble on the floating pet (limit warnings and Linear completions).
+    private(set) var currentSpeechBubble: SpeechBubble?
     private var currentBubbleDate: Date = .distantPast
+    /// Temporary menubar override (Linear completion flash). Empty = normal usage lines.
+    private(set) var menuFlashLines: [String] = []
 
     // MARK: 설정 (UserDefaults)
 
@@ -248,6 +250,7 @@ final class UsageStore {
     /// - **3개(토큰+비용+한도) 모두 활성 → 토큰·비용을 한 줄로, 한도를 아랫줄로**(= 총 2줄).
     /// 한도 줄은 오늘 사용한 프로바이더만(`menuLimitLine`). 빈 배열이면 아이콘만.
     var menuLines: [String] {
+        if !menuFlashLines.isEmpty { return menuFlashLines }
         guard lastUpdated != nil else { return ["—"] }
         var usage: [String] = []
         if showTokensInMenu { usage.append(TokenFormatter.compact(todayTotalTokens)) }
@@ -1206,6 +1209,18 @@ final class UsageStore {
         let utilization: Double
     }
 
+    /// Floating-pet speech bubble copy. Limit alerts and Linear completions share this surface.
+    struct SpeechBubble: Equatable {
+        var title: String
+        var body: String
+        var isCritical: Bool = false
+    }
+
+    struct LinearCompletionFeedback: Equatable {
+        var bubble: SpeechBubble
+        var menuLines: [String]
+    }
+
     /// 알림 판정(순수·엣지 트리거) — 창별 utilization·임계값·직전 tier 상태로부터
     /// *임계값을 새로 넘어선 순간에만* 발화할 알림을 계산하고 tier 상태를 갱신한다.
     /// - 경고선 통과 1회 + 위험선 통과 1회만. 같은 tier 유지 중엔 재알림 없음(80·81·84… 억제).
@@ -1246,6 +1261,31 @@ final class UsageStore {
     /// Whether a bubble shown at `shownAt` should clear by `now` (default TTL 6s). Pure time check.
     static func shouldDismissBubble(shownAt: Date, now: Date, ttl: TimeInterval = 6) -> Bool {
         now.timeIntervalSince(shownAt) >= ttl
+    }
+
+    /// Pet bubble + short menubar flash for newly credited Linear issues. Nil when empty
+    /// (seed polls must not celebrate already-done work).
+    static func linearCompletionFeedback(issues: [LinearCompletedIssue], l: L) -> LinearCompletionFeedback? {
+        guard let first = issues.first else { return nil }
+        if issues.count == 1 {
+            return LinearCompletionFeedback(
+                bubble: SpeechBubble(
+                    title: l.linearCompletedBubbleTitle,
+                    body: l.linearCompletedBubbleBody(first.identifier, first.title)),
+                menuLines: [l.linearCompletedFlashTitle, first.identifier])
+        }
+        return LinearCompletionFeedback(
+            bubble: SpeechBubble(
+                title: l.linearCompletedBubbleTitleCount(issues.count),
+                body: l.linearCompletedBubbleBody(first.identifier, first.title)),
+            menuLines: [l.linearCompletedFlashTitleCount(issues.count), first.identifier])
+    }
+
+    /// Show completion feedback on the menubar and floating pet. No-op for empty/seed results.
+    func announceLinearCompletions(_ issues: [LinearCompletedIssue]) {
+        guard let feedback = Self.linearCompletionFeedback(issues: issues, l: L(localizationLanguage))
+        else { return }
+        presentTransientFeedback(bubble: feedback.bubble, menuLines: feedback.menuLines)
     }
 
     /// Shared limit-alert pipeline: evaluate once, advance tiers once, then fan out to
@@ -1336,13 +1376,24 @@ final class UsageStore {
 
     private func showBubble(_ alert: LimitAlert?) {
         guard let alert else { return }
+        let l = L(localizationLanguage)
+        presentTransientFeedback(
+            bubble: SpeechBubble(
+                title: alert.isCritical ? l.notifCritical : l.notifWarning,
+                body: l.notifBody(alert.window, TokenFormatter.percent(alert.utilization)),
+                isCritical: alert.isCritical))
+    }
+
+    private func presentTransientFeedback(bubble: SpeechBubble? = nil, menuLines: [String]? = nil) {
         let now = Date()
-        currentBubbleAlert = alert
+        if let bubble { currentSpeechBubble = bubble }
+        if let menuLines { menuFlashLines = menuLines }
         currentBubbleDate = now
         Task {
             try? await Task.sleep(nanoseconds: UInt64(6 * 1_000_000_000))
             if Self.shouldDismissBubble(shownAt: now, now: Date()), self.currentBubbleDate == now {
-                self.currentBubbleAlert = nil
+                self.currentSpeechBubble = nil
+                self.menuFlashLines = []
             }
         }
     }
