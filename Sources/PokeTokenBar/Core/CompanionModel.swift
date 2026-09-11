@@ -512,6 +512,8 @@ struct MonState: Codable, Sendable {
 
 /// 도감 항목 — 라인 전체(초기→최종) 순서 보존.
 struct DexEntry: Codable, Sendable, Identifiable {
+    /// Version 1 preserves every API language; earlier saves retained only app-supported names.
+    static let currentNamesVersion = 1
     var id = UUID().uuidString
     var baseID: Int
     var finalID: Int
@@ -526,6 +528,11 @@ struct DexEntry: Codable, Sendable, Identifiable {
     /// 도감의 단계별 스프라이트 밑 이름 표시가 네트워크 없이 즉시 + 언어 전환 대응. 구버전 저장분엔
     /// 없어(nil) 뷰가 line fetch 로 조회 후 백필한다.
     var names: [Int: [String: String]]?
+    var namesVersion: Int?
+    var needsNamesRefresh: Bool {
+        namesVersion != Self.currentNamesVersion
+            || chainOrder.contains { names?[$0]?.isEmpty != false }
+    }
     /// 놓아준 시각 — 알을 새로 사서 육성을 포기한 기록. nil = 졸업분(구버전 저장분 포함).
     ///
     /// 두 기록을 한 배열에 두는 이유: 도감(`dexSpecies`)은 종이 어떻게 확보됐는지와 무관하게
@@ -549,6 +556,8 @@ struct DexEntry: Codable, Sendable, Identifiable {
         self.nature = nature
         self.profile = profile
         self.names = names
+        self.namesVersion = chainOrder.allSatisfy { names?[$0]?.isEmpty == false }
+            ? Self.currentNamesVersion : nil
         self.releasedAt = releasedAt
     }
 
@@ -568,6 +577,7 @@ struct DexEntry: Codable, Sendable, Identifiable {
         // try? — 구버전(최종체 단일 [String:String]) 형식이 남아 있어도 종별 맵 디코딩 실패 시 nil 로
         // 강등(항목 전체 로드는 유지). 뷰가 line 조회로 백필한다.
         names = (try? c.decodeIfPresent([Int: [String: String]].self, forKey: .names)) ?? nil
+        namesVersion = try? c.decodeIfPresent(Int.self, forKey: .namesVersion)
         // 이 필드 이전에 저장된 항목은 전부 졸업분이다 — nil 이 곧 "졸업"이라 마이그레이션이 필요 없다.
         releasedAt = try c.decodeIfPresent(Date.self, forKey: .releasedAt)
     }

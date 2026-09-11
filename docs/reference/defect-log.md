@@ -34,6 +34,10 @@ read_when:
   Fetch names from mounted detail rows rather than profile preparation. `PokemonNameLocalizationTests`
   covers locale selection, missing translations, future languages, native text rendering, request
   reuse, disk restoration, and offline retry without changing profile identifiers.
+  Existing saves need a name-cache version as well: nonempty dictionaries from the old allowlist
+  are not complete multilingual responses. `DexNameMigrationTests` covers legacy JSON, duplicate
+  catches, offline/partial recovery, progress preservation, and an unavailable language that must
+  not trigger repeated fetches. Restoring the old nil-only backfill filter makes the regression fail.
 
 - **Cost availability is not a numeric zero.** Codex providers overwrote priced totals with zero
   while leaving cost UI enabled; earlier tests asserted that subscription policy instead of

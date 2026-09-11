@@ -409,14 +409,14 @@ final class CompanionStore {
         }
     }
 
-    /// 이름이 없는 구버전 졸업 항목의 체인 이름을 채운다(도감 격자 진입 시 1회).
+    /// Refresh legacy names once, including saves that retained only app-supported languages.
     ///
     /// 격자는 저장된 이름만 읽으므로 백필이 없으면 칸이 종 번호(`#41`)로 남는다. 포획 로그는 행이
     /// 뜰 때 행 단위로 같은 일을 해 왔지만, 로그를 한 번도 안 열면 격자는 계속 번호다.
     /// 라인 조회는 `PokeAPIClient` 가 base 단위로 캐시하므로 같은 라인이 여러 항목이어도 네트워크는 1회.
     /// 오프라인이면 `dexResolveChainNames` 가 저장 없이 폴백만 돌려주므로 다음 진입에서 다시 시도한다.
     func backfillMissingDexNames() async {
-        for entry in state.dex where entry.names == nil {
+        for entry in state.dex where entry.needsNamesRefresh {
             _ = await dexResolveChainNames(entry)   // 성공분만 내부에서 state.dex 에 저장
         }
     }
@@ -428,20 +428,40 @@ final class CompanionStore {
         return names.compactMapValues { state.language.resolveName($0) }
     }
 
-    /// 이름 미저장(구버전) 항목용 — line 을 1회 조회해 체인 전 종의 다국어 이름을 얻고 항목에 백필한다
-    /// (다음부터 네트워크 0). 저장돼 있으면 그대로(fetch 없음). 오프라인이면 종 번호(#id)로 폴백.
+    /// Refresh missing/legacy multilingual names; current versions require no lookup.
+    /// Offline, keep saved names and use species numbers only where no name is available.
     /// 반환은 chainOrder 전 종을 채운 [speciesID: 현재 언어 이름].
     func dexResolveChainNames(_ entry: DexEntry) async -> [Int: String] {
-        if let stored = dexStoredChainNames(entry) { return stored }
+        // Another row of this evolution line may already have refreshed the stored entry.
+        let entry = state.dex.first { $0.id == entry.id } ?? entry
+        if !entry.needsNamesRefresh, let stored = dexStoredChainNames(entry) { return stored }
+        let oldNames = dexStoredChainNames(entry) ?? [:]
         guard let line = try? await provider.line(baseSpeciesID: entry.baseID) else {
-            return Dictionary(uniqueKeysWithValues: entry.chainOrder.map { ($0, "#\($0)") })
+            return Dictionary(uniqueKeysWithValues: entry.chainOrder.map { ($0, oldNames[$0] ?? "#\($0)") })
         }
-        let chainNames = Dictionary(uniqueKeysWithValues:
-            entry.chainOrder.compactMap { id in line.names[id].map { (id, $0) } })
-        if !chainNames.isEmpty, let idx = state.dex.firstIndex(where: { $0.id == entry.id }) {
-            state.dex[idx].names = chainNames   // 백필 저장
-            save()
+        // Preserve usable older names if a response is partial. Only a complete chain gets
+        // the new version, so partial/offline responses remain eligible for retry.
+        func refreshed(_ original: DexEntry) -> DexEntry {
+            var result = original
+            var merged = original.names ?? [:]
+            for id in original.chainOrder {
+                if let incoming = line.names[id], !incoming.isEmpty {
+                    merged[id] = (merged[id] ?? [:]).merging(incoming) { _, new in new }
+                }
+            }
+            result.names = merged.isEmpty ? nil : merged
+            if original.chainOrder.allSatisfy({ line.names[$0]?.isEmpty == false }) {
+                result.namesVersion = DexEntry.currentNamesVersion
+            }
+            return result
         }
+        // One successful lookup also refreshes duplicate catches of the same evolution line.
+        for index in state.dex.indices where state.dex[index].baseID == entry.baseID
+            && state.dex[index].needsNamesRefresh {
+            state.dex[index] = refreshed(state.dex[index])
+        }
+        save()
+        let chainNames = refreshed(entry).names ?? [:]
         return Dictionary(uniqueKeysWithValues: entry.chainOrder.map { id in
             (id, chainNames[id].flatMap { state.language.resolveName($0) } ?? "#\(id)")
         })
