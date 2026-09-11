@@ -1084,6 +1084,7 @@ final class CompanionStore {
             AppLog.write("hatch: line fetch failed for base \(baseID) — egg kept, retry next tick")
             return
         }
+        isHatchWaitingForNetwork = false
         // 라인 fetch 창(네트워크) 동안 활성 개체가 교체됐으면 이 부화 결과를 폐기한다. 세이브 불러오기가
         // 그 창에 들어오면, 여기서 멈추지 않는 한 갓 부화한 개체가 방금 불러온 개체를 덮어쓴다.
         // (loadCurrentLine·revealDitto 와 같은 세대 가드 — isHatching 락은 같은 앱 내 중복 부화만 막는다.)
@@ -1324,6 +1325,7 @@ final class CompanionStore {
         justGraduated = nil
         eventUntil = nil
         celebration = nil
+        isHatchWaitingForNetwork = false
         // 이전 개체 기준의 1회성 피드백(사탕 +XP·민트 성격)도 비운다 — 안 비우면 불러온 직후 남의
         // 개체에 대한 "+XP" 가 새 개체 위에 떠오른다.
         candyFeedbackAmount = 0
