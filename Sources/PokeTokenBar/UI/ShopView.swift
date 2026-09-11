@@ -162,6 +162,15 @@ private struct EggCard: View {
                     Text(l.eggDescription(tier))
                         .font(.caption).foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
+                    // "놓아준다" 바로 아래 — 무엇을 잃는지 읽은 자리에서 무엇이 남는지 이어 읽게 한다.
+                    // 가격 줄이 아니라 여기인 이유: 이건 가격·구매 가능 여부와 무관한 상품 설명이고,
+                    // 아래쪽은 버튼과 `eggShopLockedHint`(왜 못 사는지) 가 쓰는 자리다.
+                    // 놓아줄 대상이 있을 때만 — 알 상태에선 할 말이 아니다.
+                    if store.hasActive {
+                        Text(l.eggReleaseNote)
+                            .font(.caption2).foregroundStyle(.tertiary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
                 }
                 Spacer()
             }

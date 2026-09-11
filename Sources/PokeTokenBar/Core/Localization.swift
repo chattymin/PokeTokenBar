@@ -991,6 +991,24 @@ struct L {
           "Disponível quando seu ovo atual chocar.",
           "Verfügbar, sobald dein aktuelles Ei geschlüpft ist.")
     }
+    /// 놓아주면 무엇이 남는지 — `eggDescription` 바로 아래 줄(EggCard).
+    ///
+    /// 경고가 아니라 **안심**이 목적이다. `eggDescription` 이 "놓아준다"까지만 말해서 도감까지 잃는다고
+    /// 읽히지만, `buyEgg` 는 `releasedDexEntry` 로 도감에 남긴다.
+    ///
+    /// "같은 확률"은 비유가 아니라 실제 수치다. `chooseBase` 의 가중치는 이미 수집한 base 를 ½ 로
+    /// 깎는데(미수집 부스트), 그 판정인 `collectedFinals` 는 졸업에서만 채워지고 놓아줌에선 그대로다
+    /// → 놓아준 종의 부화 가중치는 100% 를 유지한다. 재인큐베이션은 말하지 않는다(`eggDescription`
+    /// 의 "새 알로 다시 시작해요" 와 중복).
+    var eggReleaseNote: String {
+        t("놓아준 포켓몬도 도감에 남고, 같은 확률로 다시 만날 수 있어요. 키운 진행도만 사라져요.",
+          "A released Pokémon stays in your Pokédex and can hatch again at the same odds — only the growth progress is lost.",
+          "手放したポケモンも図鑑に残り、同じ確率でまた出会えます。失われるのは育てた進み具合だけです。",
+          "El Pokémon liberado permanece en la Pokédex y puede volver a salir con la misma probabilidad; solo se pierde el progreso de crianza.",
+          "Un Pokémon relâché reste dans le Pokédex et peut réapparaître avec la même probabilité ; seule la progression est perdue.",
+          "O Pokémon solto continua na Pokédex e pode voltar a aparecer com a mesma chance; só o progresso de criação se perde.",
+          "Ein freigelassenes Pokémon bleibt im Pokédex und kann mit gleicher Wahrscheinlichkeit wieder schlüpfen; nur der Aufzuchtfortschritt geht verloren.")
+    }
     /// 인큐베이션 중 표시하는 보증 배지 — 어떤 알을 품고 있는지 한 줄로.
     func eggGuaranteeHint(_ tier: Rarity) -> String {
         let r = rarityLabel(tier)
