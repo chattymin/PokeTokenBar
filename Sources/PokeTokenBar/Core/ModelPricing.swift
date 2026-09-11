@@ -1,7 +1,6 @@
 import Foundation
 
-/// 모델별 토큰 단가(USD/토큰). ccusage(--offline, LiteLLM 스냅샷)의 단가를 실측 역산해 동일하게 번들.
-/// 검증: 여러 날 ccusage --breakdown 의 (토큰타입 4종, cost)로 선형 역산 → 적합오차 0.000%.
+/// Standard token rates in USD. These estimate API-equivalent usage, not subscription bills.
 struct ModelRate: Equatable {
     let input: Double        // USD per token
     let output: Double
@@ -18,55 +17,89 @@ struct ModelRate: Equatable {
 }
 
 enum ModelPricing {
-    /// 정확 매칭 테이블 (USD/Mtok). ccusage 와 일치(역산 0% 오차).
+    /// Standard API prices, checked 2026-09-11: https://developers.openai.com/api/docs/pricing
+    /// Historical GPT rates: https://developers.openai.com/api/docs/models/<model-id>
+    /// The table is a current-price estimate, not a historical invoice ledger.
     static let table: [String: ModelRate] = [
+        "claude-opus-4-20250514":     .perMillion(15, 75, 18.75, 1.5),
+        "claude-sonnet-4-20250514":   .perMillion(3, 15, 3.75, 0.3),
+        "claude-sonnet-4-5-20250929": .perMillion(3, 15, 3.75, 0.3),
         "claude-opus-4-8":            .perMillion(5, 25, 6.25, 0.5),
         "claude-opus-4-7":            .perMillion(5, 25, 6.25, 0.5),
         "claude-sonnet-4-6":          .perMillion(3, 15, 3.75, 0.3),
         "claude-haiku-4-5-20251001":  .perMillion(1, 5, 1.25, 0.1),
         "claude-fable-5":             .perMillion(10, 50, 12.5, 1.0), // LiteLLM 스냅샷 가격 등재됨(2026-08) — 기존 미가격 $0 플레이스홀더 대체
         // Fable 5.1: same base rates as Fable 5, cache read cut to $0.25/MTok (0.025× input).
-        // Without this row the `fable` family fallback applies Fable 5's $1.00 and overstates cost 4× (#277).
         "claude-fable-5-1":           .perMillion(10, 50, 12.5, 0.25),
+        "gpt-6-astra":                .perMillion(10, 50, 12.5, 1),
+        "gpt-5.6-sol":                .perMillion(4, 20, 5, 0.4),
+        "gpt-5.6-terra":              .perMillion(2, 12, 2.5, 0.2),
+        "gpt-5.6-luna":               .perMillion(0.2, 1.2, 0.25, 0.02),
+        "gpt-5":                      .perMillion(1.25, 10, 0, 0.125),
+        "gpt-5-codex":                .perMillion(1.25, 10, 0, 0.125),
+        "gpt-5.1":                    .perMillion(1.25, 10, 0, 0.125),
+        "gpt-5.1-codex":              .perMillion(1.25, 10, 0, 0.125),
+        "gpt-5.2":                    .perMillion(1.75, 14, 0, 0.175),
+        "gpt-5.2-codex":              .perMillion(1.75, 14, 0, 0.175),
+        "gpt-5.3-codex":              .perMillion(1.75, 14, 0, 0.175),
+        "gpt-5.4":                    .perMillion(2.5, 15, 0, 0.25),
         "gpt-5.5":                    .perMillion(5, 30, 0, 0.5),
-        // Gemini — 공식 API 단가(기본 티어, ≤200K 프롬프트). 캐시는 read 단가만(스토리지 시간요금 제외).
-        "gemini-2.5-pro":             .perMillion(1.25, 10, 0, 0.3125),
-        "gemini-2.5-flash":           .perMillion(0.30, 2.5, 0, 0.075),
+        // Text token rates: https://ai.google.dev/gemini-api/docs/pricing
+        // Cache storage duration and audio rates cannot be recovered from these logs.
+        "gemini-2.5-pro":             .perMillion(1.25, 10, 0, 0.125),
+        "gemini-2.5-flash":           .perMillion(0.30, 2.5, 0, 0.03),
         "gemini-2.0-flash":           .perMillion(0.10, 0.4, 0, 0.025),
     ]
 
-    /// 모델명 → 단가. 정확 매칭 우선, 없으면 패밀리(fable/opus/sonnet/haiku/gpt) 폴백(버전 드리프트 대비),
-    /// 그래도 없으면 0(ccusage 가 미가격 모델을 0 으로 처리하는 것과 동일).
-    static func rate(for model: String) -> ModelRate {
-        if let r = table[model] { return r }
-        let m = model.lowercased()
-        // Grok 은 서버가 보고한 비용(costUsdTicks)만 쓴다 — 단가표가 없으므로 0. 아래 패밀리 폴백보다
-        // 먼저 끊어야 `grok-codex-*`·`grok-4o-*` 류 이름이 GPT 단가로 잡혀 가짜 금액을 표시하지 않는다.
-        if m.hasPrefix("grok") { return .zero }
-        // Antigravity 는 구독제라 토큰당 청구가 없고 소스가 금액을 보고하지도 않는다. 모델명에
-        // 붙는 `antigravity/` 접두사가 정확매칭 표를 비껴가게 하고(이 CLI 는 `claude-sonnet-4-6`
-        // 도 부른다 — 접두사가 없으면 표에 그대로 걸린다), 이 줄이 패밀리 폴백까지 막는다.
-        if m.hasPrefix("antigravity/") { return .zero }
-        if m.contains("fable")  { return .perMillion(10, 50, 12.5, 1.0) }
-        if m.contains("opus")   { return .perMillion(5, 25, 6.25, 0.5) }
-        if m.contains("sonnet") { return .perMillion(3, 15, 3.75, 0.3) }
-        if m.contains("haiku")  { return .perMillion(1, 5, 1.25, 0.1) }
-        if m.contains("gpt") || m.contains("codex") || m.contains("o4") || m.contains("o3") {
-            return .perMillion(5, 30, 0, 0.5)
+    // Only documented model identities and simple provider namespaces are normalized.
+    // A model containing "gpt"/"opus" is not evidence that it shares another model's price.
+    private static let aliases: [String: String] = [
+        "claude-sonnet-4": "claude-sonnet-4-20250514",
+        "claude-opus-4": "claude-opus-4-20250514",
+        "claude-sonnet-4-5": "claude-sonnet-4-5-20250929",
+        "claude-haiku-4-5": "claude-haiku-4-5-20251001",
+        "gpt-5-2025-08-07": "gpt-5",
+        "gpt-5.1-2025-11-13": "gpt-5.1",
+        "gpt-5.2-2025-12-11": "gpt-5.2",
+        "gpt-5.4-2026-03-05": "gpt-5.4",
+        "gpt-5.5-2026-04-23": "gpt-5.5",
+    ]
+
+    private static func modelKey(_ model: String) -> String {
+        var key = model.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        for prefix in ["openai/", "anthropic/", "google/", "models/"] where key.hasPrefix(prefix) {
+            key = String(key.dropFirst(prefix.count))
+            break
         }
-        // Gemini 패밀리 폴백 — pro/flash 만(버전 드리프트 대비). 그 외 gemini 변형은 0(오표시 방지).
-        if m.hasPrefix("gemini") {
-            if m.contains("pro")   { return .perMillion(1.25, 10, 0, 0.3125) }
-            if m.contains("flash") { return .perMillion(0.30, 2.5, 0, 0.075) }
-        }
-        return .zero
+        return aliases[key] ?? key
+    }
+
+    /// Compatibility for callers that only need a numeric rate. New aggregation uses
+    /// estimatedCost so an unknown model remains distinguishable from a genuine zero.
+    static func rate(for model: String) -> ModelRate { table[modelKey(model)] ?? .zero }
+
+    /// One request's disjoint token buckets. Never pass daily/session aggregates here:
+    /// request size controls long-context pricing. Total-only logs cannot reconstruct
+    /// the bucket split; callers must mark those estimates as unavailable.
+    /// Excludes Fast/Batch/Flex, regional uplift, tools, storage and subscription terms.
+    /// In particular Codex's Astra allowance differs from this API-equivalent estimate.
+    static func estimatedCost(model: String, input: Int, output: Int,
+                              cacheWrite: Int, cacheRead: Int) -> Double? {
+        let key = modelKey(model)
+        guard let r = table[key], input >= 0, output >= 0, cacheWrite >= 0, cacheRead >= 0 else { return nil }
+        let prompt = Double(input) + Double(cacheRead) + Double(cacheWrite)
+        let longContext = ["gpt-6-astra", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna",
+                           "gpt-5.5", "gpt-5.4"].contains(key) && prompt > 272_000
+            || key == "gemini-2.5-pro" && prompt > 200_000
+        let inputMultiplier = longContext ? 2.0 : 1.0
+        let outputMultiplier = longContext ? 1.5 : 1.0
+        return (Double(input) * r.input + Double(cacheWrite) * r.cacheWrite
+                + Double(cacheRead) * r.cacheRead) * inputMultiplier
+            + Double(output) * r.output * outputMultiplier
     }
 
     static func cost(model: String, input: Int, output: Int, cacheWrite: Int, cacheRead: Int) -> Double {
-        let r = rate(for: model)
-        return Double(input) * r.input
-            + Double(output) * r.output
-            + Double(cacheWrite) * r.cacheWrite
-            + Double(cacheRead) * r.cacheRead
+        estimatedCost(model: model, input: input, output: output,
+                      cacheWrite: cacheWrite, cacheRead: cacheRead) ?? 0
     }
 }
