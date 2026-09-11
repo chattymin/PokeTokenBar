@@ -249,6 +249,7 @@ struct SpriteView: View {
 struct EvoLineView: View {
     let nodes: [EvoLineItem]
     let mysteryLabel: String
+    var language: AppLanguage = .systemDefault
     var thumb: CGFloat = 40
     var shiny: Bool = false     // 개체가 shiny 면 라인 전체를 shiny 스프라이트로
     var names: [Int: String]? = nil   // 제공되면 각 스프라이트 밑에 작은 이름 라벨(도감 단계별 이름)
@@ -380,6 +381,7 @@ struct EvoLineView: View {
                     .overlay(Circle().strokeBorder(Color.primary.opacity(0.12)))
             }
             .buttonStyle(.plain)
+            .accessibilityLabel(forward ? L(language).evolutionScrollNext : L(language).evolutionScrollPrevious)
             .padding(forward ? .trailing : .leading, 1)
             .padding(.top, max(0, thumb / 2 - 8))   // 16pt 버튼의 중심을 스프라이트 중심에
             .transition(.opacity)
@@ -574,7 +576,7 @@ struct CompanionHeader: View {
             }
             if store.hasActive, !store.lineNodes.isEmpty {
                 // 폭을 안 주면 분기 라인(이브이)이 넘쳐 팝오버 콘텐츠 전체가 좌우로 잘린다.
-                EvoLineView(nodes: store.lineNodes, mysteryLabel: store.l.unknownNextEvolution, shiny: store.currentIsShiny,
+                EvoLineView(nodes: store.lineNodes, mysteryLabel: store.l.unknownNextEvolution, language: store.language, shiny: store.currentIsShiny,
                             maxWidth: PopoverMetrics.contentWidth)
             }
             if let g = store.justGraduated {
@@ -1347,7 +1349,7 @@ private struct DexEntryRow: View {
 
     var body: some View {
         // 저장분 우선(즉시·언어대응), 없으면 async 로 채운 resolved 사용.
-        let names = resolved.isEmpty ? store.dexStoredChainNames(entry) : resolved
+        let names = store.dexStoredChainNames(entry) ?? (resolved.isEmpty ? nil : resolved)
         VStack(alignment: .leading, spacing: 3) {
             HStack {
                 Text(store.l.rarityLabel(entry.rarity).uppercased())
@@ -1384,7 +1386,7 @@ private struct DexEntryRow: View {
                 }
             }
             EvoLineView(nodes: entry.chainOrder.map { EvoLineItem(.species($0), .done) },
-                        mysteryLabel: store.l.unknownNextEvolution, thumb: 56,
+                        mysteryLabel: store.l.unknownNextEvolution, language: store.language, thumb: 56,
                         shiny: entry.isShiny, names: names,
                         maxWidth: PopoverMetrics.contentWidth - Self.cardPadding * 2)
             if let caughtAt = entry.caughtAt {
@@ -1395,9 +1397,7 @@ private struct DexEntryRow: View {
         .background(Color.secondary.opacity(0.06))
         .clipShape(RoundedRectangle(cornerRadius: 10))
         .task(id: "\(entry.id)-\(store.language.rawValue)") {
-            if store.dexStoredChainNames(entry) == nil {   // 저장분 없으면(구버전) 조회
-                resolved = await store.dexResolveChainNames(entry)
-            }
+            resolved = await store.dexResolveChainNames(entry)
         }
     }
 }

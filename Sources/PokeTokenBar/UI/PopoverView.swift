@@ -242,11 +242,15 @@ struct PopoverView: View {
                         .foregroundStyle(.secondary)
                 }
             }
-            HStack(spacing: 10) {
-                tokenTypeLabel("in", today.inputTokens)
-                tokenTypeLabel("out", today.outputTokens)
-                tokenTypeLabel("cache w", today.cacheCreationTokens)
-                tokenTypeLabel("cache r", today.cacheReadTokens)
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: 10) {
+                    tokenTypeLabel(l.tokenInput, today.inputTokens)
+                    tokenTypeLabel(l.tokenOutput, today.outputTokens)
+                }
+                HStack(spacing: 10) {
+                    tokenTypeLabel(l.tokenCacheWrite, today.cacheCreationTokens)
+                    tokenTypeLabel(l.tokenCacheRead, today.cacheReadTokens)
+                }
             }
             if let models = today.models, models.count > 1 {
                 ForEach(models.sorted(by: { $0.value > $1.value }), id: \.key) { model, tokens in
@@ -822,7 +826,7 @@ struct PopoverView: View {
                 if store.lastErrorDescription != nil {
                     Image(systemName: "exclamationmark.triangle")
                         .foregroundStyle(.orange)
-                        .help(store.lastErrorDescription ?? "")
+                        .help(store.lastErrorMessage(l) ?? "")
                 }
             }
             Spacer()
