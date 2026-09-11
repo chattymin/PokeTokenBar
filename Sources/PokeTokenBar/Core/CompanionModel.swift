@@ -217,6 +217,43 @@ enum ItemKind: String, Codable, Sendable, CaseIterable {
         case .shinyCharm: return true
         }
     }
+
+    /// v1 gifts are deliberately limited to consumables with additive inventory semantics.
+    /// Eggs are immediate actions (not ItemKind), and a second Shiny Charm has no meaning.
+    var isGiftable: Bool {
+        switch self {
+        case .rareCandy, .mint: return true
+        case .shinyCharm: return false
+        }
+    }
+}
+
+/// A sender-side reservation. Creating one does not spend tokens; it only prevents the
+/// same balance being spent while a nearby receiver is completing the transfer.
+struct PendingGift: Codable, Equatable, Sendable {
+    let id: UUID
+    let code: String
+    let kind: ItemKind
+    let price: Int
+    let expiresAt: Date
+}
+
+enum GiftReceiveResult: Equatable, Sendable {
+    case received
+    case alreadyReceived
+    case invalid
+}
+
+enum GiftCountdown {
+    /// Round up so a newly created 60-second offer starts at 01:00 instead of 00:59.
+    static func remainingSeconds(until expiresAt: Date, now: Date) -> Int {
+        max(0, Int(ceil(expiresAt.timeIntervalSince(now))))
+    }
+
+    static func text(until expiresAt: Date, now: Date) -> String {
+        let seconds = remainingSeconds(until: expiresAt, now: now)
+        return String(format: "%02d:%02d", seconds / 60, seconds % 60)
+    }
 }
 
 /// 이상한 사탕 밸런스 상수.
@@ -638,6 +675,11 @@ struct CompanionState: Codable, Sendable {
     var language: AppLanguage = .systemDefault   // 신규 설치 = 시스템 로케일
     // 인벤토리 (ItemKind.rawValue → 개수)
     var inventory: [String: Int] = [:]
+    // Gift receipt and debit are each persisted atomically with their idempotency key.
+    // The two Macs cannot share a disk transaction; the wire protocol retries around these ledgers.
+    var pendingGift: PendingGift?
+    var redeemedGiftIDs: Set<UUID> = []
+    var completedGiftIDs: Set<UUID> = []
     // 사탕 지급 엣지 상태(창 key → 지급한 tier). ★영속 — notifiedTier(인메모리)와 달리 재시작 무한지급 방지.
     var candyGrantTier: [String: Int] = [:]
     // 사탕 지급 첫 실행 시드 완료 — 업데이트 직후 이미 100%였던 창의 소급 지급 차단.
@@ -675,6 +717,9 @@ struct CompanionState: Codable, Sendable {
         collectedFinals    = c.lenient(Set<String>.self, forKey: .collectedFinals, default: [])
         language           = c.lenient(AppLanguage.self, forKey: .language, default: .systemDefault)
         inventory          = c.lenient([String: Int].self, forKey: .inventory, default: [:])
+        pendingGift        = c.lenientOptional(PendingGift.self, forKey: .pendingGift)
+        redeemedGiftIDs    = c.lenient(Set<UUID>.self, forKey: .redeemedGiftIDs, default: [])
+        completedGiftIDs   = c.lenient(Set<UUID>.self, forKey: .completedGiftIDs, default: [])
         candyGrantTier     = c.lenient([String: Int].self, forKey: .candyGrantTier, default: [:])
         candyFeatureSeeded = c.lenient(Bool.self, forKey: .candyFeatureSeeded, default: false)
     }

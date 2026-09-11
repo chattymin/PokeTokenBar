@@ -951,6 +951,30 @@ struct L {
     var shopPriceLabel: String { t("가격", "Price", "価格", "Precio", "Prix", "Preço", "Preis") }
     var ownedAlready: String { t("보유 중", "Owned", "所持済み", "En posesión", "Possédé", "Já tem", "Im Beutel") }
     var shinyCharmEffectHint: String { t("이로치 확률 ↑ · 적용 중", "Shiny rate ↑ · active", "色違い率↑ · 適用中", "Prob. variocolor ↑ · activo", "Taux chromatique ↑ · actif", "Chance shiny ↑ · ativo", "Schillerchance ↑ · aktiv") }
+    // MARK: Nearby gifts
+    var gift: String { t("선물", "Gift", "ギフト", "Regalar", "Offrir", "Presentear", "Schenken") }
+    var giftNearbyTitle: String { t("근처 사용자에게 선물", "Nearby gifts", "近くのユーザーにギフト", "Regalos cercanos", "Cadeaux à proximité", "Presentes próximos", "Geschenke in der Nähe") }
+    var giftReceiveHint: String { t("상대방에게 받은 6자리 코드를 입력하세요.", "Enter the 6-character code from the sender.", "送信者から受け取った6文字のコードを入力してください。", "Introduce el código de 6 caracteres del remitente.", "Saisis le code à 6 caractères de l'expéditeur.", "Digite o código de 6 caracteres do remetente.", "Gib den 6-stelligen Code des Absenders ein.") }
+    var giftCodePlaceholder: String { t("선물 코드", "Gift code", "ギフトコード", "Código de regalo", "Code cadeau", "Código do presente", "Geschenkcode") }
+    var receiveGift: String { t("받기", "Receive", "受け取る", "Recibir", "Recevoir", "Receber", "Empfangen") }
+    func giftCodeHint(_ item: String) -> String {
+        t("상대방에게 이 코드를 알려주세요 — \(item), 1분간 유효",
+          "Share this code with the receiver — \(item), valid for 1 minute",
+          "相手にこのコードを伝えてください — \(item)、1分間有効",
+          "Comparte este código — \(item), válido durante 1 minuto",
+          "Partage ce code — \(item), valable 1 minute",
+          "Compartilhe este código — \(item), válido por 1 minuto",
+          "Teile diesen Code — \(item), 1 Minute gültig")
+    }
+    func giftExpiresIn(_ time: String) -> String {
+        t("\(time) 후 만료", "Expires in \(time)", "あと \(time) で期限切れ",
+          "Caduca en \(time)", "Expire dans \(time)", "Expira em \(time)",
+          "Läuft in \(time) ab")
+    }
+    var giftSearching: String { t("같은 네트워크에서 찾는 중…", "Looking on your local network…", "ローカルネットワークで検索中…", "Buscando en tu red local…", "Recherche sur le réseau local…", "Procurando na rede local…", "Im lokalen Netzwerk wird gesucht…") }
+    func giftSent(_ item: String) -> String { t("\(item) 선물을 보냈어요.", "Sent \(item).", "\(item) を送りました。", "Has enviado \(item).", "\(item) envoyé.", "\(item) enviado.", "\(item) wurde gesendet.") }
+    func giftReceived(_ item: String) -> String { t("\(item)을(를) 받았어요.", "Received \(item).", "\(item) を受け取りました。", "Has recibido \(item).", "\(item) reçu.", "\(item) recebido.", "\(item) wurde empfangen.") }
+    var giftFailed: String { t("선물을 찾거나 전달하지 못했어요. 코드와 네트워크를 확인하세요.", "Couldn't find or transfer the gift. Check the code and network.", "ギフトを見つけるか転送できませんでした。コードとネットワークを確認してください。", "No se pudo encontrar o transferir el regalo. Comprueba el código y la red.", "Impossible de trouver ou transférer le cadeau. Vérifie le code et le réseau.", "Não foi possível encontrar ou transferir o presente. Verifique o código e a rede.", "Das Geschenk konnte nicht gefunden oder übertragen werden. Prüfe Code und Netzwerk.") }
     // 알 (리롤) — tier = 보증 등급 하한(nil = 보증 없는 기본 알).
     // 이름은 `rarityLabel(r) + " 알"` 식 조합으로 만들지 않는다: 한국어·영어는 맞아떨어져도 일본어에서
     // 조사가 어긋난다(レアのタマゴ vs 자연스러운 レアなタマゴ). 세 언어를 명시 트리플로 적는다.

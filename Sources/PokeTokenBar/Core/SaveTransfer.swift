@@ -97,12 +97,16 @@ enum SaveTransfer {
     private static func secondStamp(_ date: Date) -> String { stamp(date, "yyyy-MM-dd-HHmmss") }
 
     static func encode(state: CompanionState, appVersion: String, deviceName: String, now: Date) throws -> Data {
+        var portableState = state
+        // A live offer contains its short-lived capability code and belongs to a listener on this
+        // Mac. It is neither useful nor appropriate in a user-exported save file.
+        portableState.pendingGift = nil
         let envelope = SaveEnvelope(format: SaveEnvelope.formatID,
                                     schema: SaveEnvelope.schemaVersion,
                                     appVersion: appVersion,
                                     exportedAt: now,
                                     sourceDevice: deviceName,
-                                    state: state)
+                                    state: portableState)
         let encoder = JSONEncoder()
         // 사람이 열어봤을 때 읽히도록(무엇이 옮겨가는지 확인 가능) — 4KB 라 크기는 무의미.
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
@@ -146,6 +150,10 @@ enum SaveTransfer {
         s.usedSinceInstall = clampToken(s.usedSinceInstall)
         s.spentTokens = clampToken(s.spentTokens)
         s.eggUsage = clampToken(s.eggUsage)
+        if let gift = s.pendingGift,
+           !gift.kind.isGiftable || gift.price != gift.kind.shopPrice || gift.price < 0 {
+            s.pendingGift = nil
+        }
         s.claimedTodayTokensByProvider = s.claimedTodayTokensByProvider?.reduce(into: [:]) { result, entry in
             result[entry.key] = clampToken(entry.value)
         }
@@ -198,6 +206,12 @@ enum SaveTransfer {
         state.language = current.language
         state.candyGrantTier = mergedGrantTier(imported.candyGrantTier, current.candyGrantTier)
         state.candyFeatureSeeded = imported.candyFeatureSeeded || current.candyFeatureSeeded
+        // Both ledgers are monotonic anti-replay state. Importing an older save must not erase
+        // receipts or completed debits that this Mac already knows about.
+        state.redeemedGiftIDs.formUnion(current.redeemedGiftIDs)
+        state.completedGiftIDs.formUnion(current.completedGiftIDs)
+        // An offer is tied to a listener on its source Mac; never transplant it onto this device.
+        state.pendingGift = current.pendingGift
         let hasCurrentProviderData = hasUsageData && !todayTokensByProvider.isEmpty
         if hasCurrentProviderData {
             // 신규 설치와 같은 규칙: 불러온 시점 이전의 이 기기 사용량은 소급 적립하지 않는다.

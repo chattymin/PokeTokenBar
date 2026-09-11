@@ -332,6 +332,11 @@ read_when:
   안에 보관한다. 객체 동일성 검증과 동시 요청은 유지하며, Sendable 우회 선언을 추가하지 않는다.
   회귀 가드: `SpriteImageCacheTests` 의 두 동시 로드 테스트와 `macos-15` CI의 테스트 컴파일.
   (CI 실패: 2026-09-10.)
+- **비동기 네트워크 `send` 직후 연결을 닫지 마라.** `NWConnection.send` 는 큐잉만 하고 즉시 반환한다.
+  최종 응답을 보낸 다음 줄에서 listener/connection 전체를 취소하면, 상대는 앞 단계의 로컬 저장까지
+  마쳤는데 마지막 확인만 못 받아 실패 UI를 보인다(선물은 가방에 있지만 “전달하지 못했다” 표시).
+  연결 정리는 `contentProcessed` 완료 콜백 뒤에 두고, 수신자가 이미 원자적으로 저장한 결과는 최종 ACK
+  유실로 실패 상태로 되돌리지 않는다. 가드: `testFinalConnectionCleanupWaitsForSendCompletion`.
 - **SwiftUI `View`/`App` 경계는 `@MainActor` 를 명시한다.** Swift 6.3 은 `body` 밖의 `@ViewBuilder` helper·
   동기 클로저를 nonisolated 로 검사해, `@MainActor` `@Observable` store 접근이 수십 개의 오류로 연쇄된다.
   개별 프로퍼티에 `MainActor.assumeIsolated` 를 흩뿌리지 말고 UI 타입 선언 한 곳에 격리를 둔다.

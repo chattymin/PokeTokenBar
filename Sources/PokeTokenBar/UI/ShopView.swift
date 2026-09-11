@@ -5,6 +5,7 @@ import SwiftUI
 /// 고아 시트가 이후 클릭을 먹통내는 결함 회피).
 @MainActor
 struct ShopView: View {
+    @Environment(GiftTransferService.self) private var gifting
     let store: CompanionStore
     let nav: PopoverNavigation
 
@@ -14,6 +15,7 @@ struct ShopView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 10) {
                 walletHeader(l)
+                GiftTransferCard(store: store, gifting: gifting)
                 // shopEntries = 판매 아이템 + 알 3종(보증 없음·고급 이상·희귀 이상)을 가격 오름차순으로
                 // 병합한 단일 목록. 알은 항상 포함되고(즉시 액션이라 ItemKind 가 아님), 알 상태에선
                 // EggCard 가 구매만 비활성으로 보여준다.
@@ -50,6 +52,7 @@ struct ShopView: View {
 /// kind 별 store.canBuy(kind)/buy(kind) 로 일반화 — 판매 목록은 store.purchasableItems.
 @MainActor
 private struct ShopItemCard: View {
+    @Environment(GiftTransferService.self) private var gifting
     let store: CompanionStore
     let kind: ItemKind
     @State private var confirming = false
@@ -114,6 +117,10 @@ private struct ShopItemCard: View {
                     Text(l.notEnoughTokens)
                         .font(.caption2).foregroundStyle(.tertiary)
                 }
+                if store.canBeginGift(kind) {
+                    Button(l.gift) { _ = gifting.startOffering(kind) }
+                        .buttonStyle(.bordered).controlSize(.small)
+                }
             }
         }
     }
@@ -121,6 +128,79 @@ private struct ShopItemCard: View {
     private func buyNow() {
         confirming = false
         _ = store.buy(kind)
+    }
+}
+
+/// One compact rendezvous panel for both sides. The item cards only start an offer; keeping the
+/// code and receiver entry in one place avoids a sheet attached to the transient menu-bar popover.
+@MainActor
+private struct GiftTransferCard: View {
+    let store: CompanionStore
+    let gifting: GiftTransferService
+    @State private var code = ""
+
+    var body: some View {
+        let l = store.l
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Image(systemName: "gift.fill").foregroundStyle(.pink)
+                Text(l.giftNearbyTitle).font(.callout.weight(.semibold))
+                Spacer()
+            }
+            if let offer = gifting.activeOffer {
+                Text(l.giftCodeHint(l.itemName(offer.kind)))
+                    .font(.caption).foregroundStyle(.secondary)
+                HStack {
+                    Text(offer.code)
+                        .font(.system(.title3, design: .monospaced).weight(.bold))
+                        .textSelection(.enabled)
+                    Spacer()
+                    TimelineView(.periodic(from: .now, by: 1)) { context in
+                        Text(l.giftExpiresIn(GiftCountdown.text(until: offer.expiresAt, now: context.date)))
+                            .font(.caption2.monospacedDigit())
+                            .foregroundStyle(.orange)
+                    }
+                    Button(l.cancel) { gifting.cancelOffer() }
+                        .buttonStyle(.borderless).controlSize(.small)
+                }
+            } else {
+                Text(l.giftReceiveHint).font(.caption).foregroundStyle(.secondary)
+                HStack(spacing: 8) {
+                    TextField(l.giftCodePlaceholder, text: $code)
+                        .textFieldStyle(.roundedBorder)
+                        .font(.system(.body, design: .monospaced))
+                        .onChange(of: code) { _, value in
+                            code = String(value.uppercased().filter { $0.isLetter || $0.isNumber }.prefix(6))
+                        }
+                    Button(l.receiveGift) { gifting.receive(code: code) }
+                        .buttonStyle(.bordered).controlSize(.small)
+                        .disabled(code.count != 6 || gifting.status == .searching)
+                }
+            }
+            statusLine(l)
+        }
+        .padding(10)
+        .background(Color.pink.opacity(0.07))
+        .clipShape(RoundedRectangle(cornerRadius: 10))
+    }
+
+    @ViewBuilder
+    private func statusLine(_ l: L) -> some View {
+        switch gifting.status {
+        case .searching:
+            HStack(spacing: 6) {
+                ProgressView().controlSize(.small)
+                Text(l.giftSearching).font(.caption2).foregroundStyle(.secondary)
+            }
+        case .sent(let kind):
+            Text(l.giftSent(l.itemName(kind))).font(.caption2.weight(.semibold)).foregroundStyle(.green)
+        case .received(let kind):
+            Text(l.giftReceived(l.itemName(kind))).font(.caption2.weight(.semibold)).foregroundStyle(.green)
+        case .failed:
+            Text(l.giftFailed).font(.caption2).foregroundStyle(.red)
+        case .idle, .offering:
+            EmptyView()
+        }
     }
 }
 

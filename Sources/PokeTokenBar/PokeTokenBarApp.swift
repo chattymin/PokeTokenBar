@@ -21,6 +21,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private var outsideClickMonitor = OutsideClickMonitor()
     private var store: UsageStore!
     private var companion: CompanionStore!
+    private var gifting: GiftTransferService!
     private var updater: UpdateChecker!
     private var floatingPet: FloatingPetController!
     private let navigation = PopoverNavigation()
@@ -81,6 +82,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         store = UsageStore()
         companion = CompanionStore()
         Task { await companion.preparePokemonProfiles() }
+        gifting = GiftTransferService(store: companion)
         updater = UpdateChecker()
         store.localizationLanguage = companion.language   // 알림 현지화용 미러 시드
         store.onRefresh = { [weak self] in self?.onStoreRefreshed() }   // 한도 로드 후 companion·사탕 지급
@@ -531,7 +533,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private func buildPopoverContent() {
         popover.contentViewController = NSHostingController(
             rootView: PopoverView()
-                .environment(store).environment(companion).environment(updater).environment(navigation))
+                .environment(store).environment(companion).environment(updater).environment(gifting)
+                .environment(navigation))
     }
 
     @objc private func togglePopover() {
