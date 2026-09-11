@@ -10,6 +10,8 @@ struct DailyUsage: Decodable, Sendable {
     var cacheReadTokens: Int
     var totalTokens: Int
     var totalCost: Double
+    var costCoverage: CostCoverage = .source
+    var usageCost: UsageCost { UsageCost(amount: totalCost, coverage: costCoverage) }
     /// totalTokens per source model when the provider reports it (nil otherwise).
     var models: [String: Int]?
 
@@ -28,12 +30,14 @@ struct DailyUsage: Decodable, Sendable {
             ?? (inputTokens + outputTokens + cacheCreationTokens + cacheReadTokens)
         totalCost = try c.decodeIfPresent(Double.self, forKey: .totalCost)
             ?? c.decodeIfPresent(Double.self, forKey: .costUSD) ?? 0
+        costCoverage = try c.decodeIfPresent(CostCoverage.self, forKey: .costCoverage)
+            ?? (totalTokens == 0 ? .empty : (totalCost > 0 ? .estimate : .unavailable))
         models = try c.decodeIfPresent([String: Int].self, forKey: .models)
     }
 
     init(date: String, inputTokens: Int, outputTokens: Int,
          cacheCreationTokens: Int, cacheReadTokens: Int, totalTokens: Int, totalCost: Double,
-         models: [String: Int]? = nil) {
+         models: [String: Int]? = nil, costCoverage: CostCoverage = .source) {
         self.date = date
         self.inputTokens = inputTokens
         self.outputTokens = outputTokens
@@ -41,10 +45,12 @@ struct DailyUsage: Decodable, Sendable {
         self.cacheReadTokens = cacheReadTokens
         self.totalTokens = totalTokens
         self.totalCost = totalCost
+        self.costCoverage = costCoverage
         self.models = models
     }
 
     private enum CodingKeys: String, CodingKey {
+        case costCoverage
         case date, period, inputTokens, outputTokens, cacheCreationTokens, cacheReadTokens
         case cachedInputTokens, totalTokens, totalCost, costUSD, models
     }
@@ -70,19 +76,22 @@ struct BlockUsage: Decodable, Sendable {
     var isActive: Bool
     var totalTokens: Int
     var costUSD: Double
+    var costCoverage: CostCoverage = .source
+    var usageCost: UsageCost { UsageCost(amount: costUSD, coverage: costCoverage) }
     /// ccusage blocks 의 burnRate.tokensPerMinute — 한도 소진 예측과 companion 표시 상태에 사용
     var tokensPerMinute: Double?
 
     var endDate: Date? { ISO8601Parser.date(from: endTime) }
 
     init(id: String, startTime: String, endTime: String, isActive: Bool,
-         totalTokens: Int, costUSD: Double, tokensPerMinute: Double?) {
+         totalTokens: Int, costUSD: Double, tokensPerMinute: Double?, costCoverage: CostCoverage = .source) {
         self.id = id
         self.startTime = startTime
         self.endTime = endTime
         self.isActive = isActive
         self.totalTokens = totalTokens
         self.costUSD = costUSD
+        self.costCoverage = costCoverage
         self.tokensPerMinute = tokensPerMinute
     }
 
@@ -94,6 +103,8 @@ struct BlockUsage: Decodable, Sendable {
         isActive = try c.decodeIfPresent(Bool.self, forKey: .isActive) ?? false
         totalTokens = try c.decodeIfPresent(Int.self, forKey: .totalTokens) ?? 0
         costUSD = try c.decodeIfPresent(Double.self, forKey: .costUSD) ?? 0
+        costCoverage = try c.decodeIfPresent(CostCoverage.self, forKey: .costCoverage)
+            ?? (totalTokens == 0 ? .empty : (costUSD > 0 ? .estimate : .unavailable))
         if let burn = try? c.decodeIfPresent(BurnRate.self, forKey: .burnRate) {
             tokensPerMinute = burn.tokensPerMinute
         }
@@ -104,6 +115,7 @@ struct BlockUsage: Decodable, Sendable {
     }
 
     private enum CodingKeys: String, CodingKey {
+        case costCoverage
         case id, startTime, endTime, isActive, totalTokens, costUSD, burnRate
     }
 }
@@ -126,6 +138,8 @@ struct PeriodUsage: Decodable, Sendable {
     var period: String
     var totalTokens: Int
     var totalCost: Double
+    var costCoverage: CostCoverage = .source
+    var usageCost: UsageCost { UsageCost(amount: totalCost, coverage: costCoverage) }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -141,21 +155,26 @@ struct PeriodUsage: Decodable, Sendable {
             ?? (input + output + cacheW + cacheR)
         totalCost = try c.decodeIfPresent(Double.self, forKey: .totalCost)
             ?? c.decodeIfPresent(Double.self, forKey: .costUSD) ?? 0
+        costCoverage = try c.decodeIfPresent(CostCoverage.self, forKey: .costCoverage)
+            ?? (totalTokens == 0 ? .empty : (totalCost > 0 ? .estimate : .unavailable))
     }
 
-    init(period: String, totalTokens: Int, totalCost: Double) {
+    init(period: String, totalTokens: Int, totalCost: Double, costCoverage: CostCoverage = .source) {
         self.period = period
         self.totalTokens = totalTokens
         self.totalCost = totalCost
+        self.costCoverage = costCoverage
     }
 
     init(period: String, daily: [DailyUsage]) {
         self.period = period
         totalTokens = daily.reduce(0) { $0 + $1.totalTokens }
         totalCost = daily.reduce(0) { $0 + $1.totalCost }
+        costCoverage = daily.reduce(into: .empty) { $0.merge($1.costCoverage) }
     }
 
     private enum CodingKeys: String, CodingKey {
+        case costCoverage
         case week, month, period, inputTokens, outputTokens, cacheCreationTokens, cacheReadTokens
         case cachedInputTokens, totalTokens, totalCost, costUSD
     }

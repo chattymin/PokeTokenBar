@@ -44,6 +44,14 @@ final class ModelPricingTests: XCTestCase {
         XCTAssertEqual(over, 0.2900025, accuracy: 1e-12)
     }
 
+    func testUnsupportedCacheWriteRateIsUnavailableInsteadOfFree() throws {
+        for model in ["gpt-5.5", "gpt-5.3-codex", "gemini-2.5-pro"] {
+            XCTAssertNil(ModelPricing.estimatedCost(model: model, input: 0, output: 0, cacheWrite: 100_000, cacheRead: 0))
+        }
+        XCTAssertEqual(try XCTUnwrap(ModelPricing.estimatedCost(model: "gpt-6-astra", input: 0, output: 0,
+                                                               cacheWrite: 100_000, cacheRead: 0)), 1.25, accuracy: 1e-12)
+    }
+
     func testCacheWriteAndInvalidBuckets() throws {
         XCTAssertEqual(try XCTUnwrap(ModelPricing.estimatedCost(model: "gpt-5.6-luna", input: 100_000, output: 1_000, cacheWrite: 10_000, cacheRead: 100_000)), 0.0257, accuracy: 1e-12)
         XCTAssertNil(ModelPricing.estimatedCost(model: "gpt-5.5", input: -1, output: 0, cacheWrite: 0, cacheRead: 0))

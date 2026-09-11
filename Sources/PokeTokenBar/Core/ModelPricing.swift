@@ -54,6 +54,7 @@ enum ModelPricing {
     // Only documented model identities and simple provider namespaces are normalized.
     // A model containing "gpt"/"opus" is not evidence that it shares another model's price.
     private static let aliases: [String: String] = [
+        "gpt-5.6": "gpt-5.6-sol",
         "claude-sonnet-4": "claude-sonnet-4-20250514",
         "claude-opus-4": "claude-opus-4-20250514",
         "claude-sonnet-4-5": "claude-sonnet-4-5-20250929",
@@ -87,6 +88,8 @@ enum ModelPricing {
                               cacheWrite: Int, cacheRead: Int) -> Double? {
         let key = modelKey(model)
         guard let r = table[key], input >= 0, output >= 0, cacheWrite >= 0, cacheRead >= 0 else { return nil }
+        // Zero in this column means no supported separate write rate, not free write tokens.
+        guard cacheWrite == 0 || r.cacheWrite > 0 else { return nil }
         let prompt = Double(input) + Double(cacheRead) + Double(cacheWrite)
         let longContext = ["gpt-6-astra", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna",
                            "gpt-5.5", "gpt-5.4"].contains(key) && prompt > 272_000

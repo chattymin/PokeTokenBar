@@ -243,8 +243,8 @@ final class GrokUsageTests: XCTestCase {
         }
         XCTAssertEqual(ModelPricing.cost(model: "grok-codex-next", input: 1_000_000, output: 1_000_000,
                                          cacheWrite: 0, cacheRead: 0), 0)
-        // 다른 프로바이더의 폴백은 그대로 살아 있어야 한다(과잉 차단 방지).
-        XCTAssertEqual(ModelPricing.rate(for: "gpt-5.6-codex"), .perMillion(5, 30, 0, 0.5))
+        // An undocumented Codex variant must not borrow another model's price.
+        XCTAssertEqual(ModelPricing.rate(for: "gpt-5.6-codex"), .zero)
     }
 
     /// 프로바이더가 쓰는 것과 같은 집계 경로(블록·주·월)를 실제 파일로 검증한다.

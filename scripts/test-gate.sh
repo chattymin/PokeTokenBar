@@ -24,6 +24,7 @@ LOGIC_CORE=(
   "Sources/PokeTokenBar/Core/PokemonProfile.swift"
   "Sources/PokeTokenBar/Core/UsageStore.swift"
   "Sources/PokeTokenBar/Core/Models.swift"
+  "Sources/PokeTokenBar/Core/UsageCost.swift"
   "Sources/PokeTokenBar/Core/TokenFormatter.swift"
   "Sources/PokeTokenBar/Core/UsageProvider.swift"
   "Sources/PokeTokenBar/Core/LocalUsageReader.swift"
