@@ -187,9 +187,11 @@ final class CompanionStore {
     struct RepresentativeSubject: Equatable, Sendable {
         let speciesID: Int?
         let isShiny: Bool
+        var unownForm: UnownForm? = nil
     }
 
     var representativeSpeciesID: Int? { state.representativeSpeciesID }
+    var representativeUnownForm: UnownForm? { state.representativeUnownForm }
 
     /// 관련 상태가 바뀌어 저장되는 경계에서만 갱신한다. 고정 종 하나의 이로치 여부만 조회하므로
     /// 이름 해석·정렬을 포함한 `dexSpecies` 계산을 메뉴바/플로팅 펫 렌더마다 반복하지 않는다.
@@ -197,9 +199,11 @@ final class CompanionStore {
         let next: RepresentativeSubject
         if let selected = state.representativeSpeciesID {
             next = RepresentativeSubject(speciesID: selected,
-                                         isShiny: state.ownsShinySpecies(selected))
+                isShiny: state.ownsShinySpecies(selected, unownForm: state.representativeUnownForm),
+                unownForm: UnownForm.resolved(speciesID: selected, form: state.representativeUnownForm))
         } else {
-            next = RepresentativeSubject(speciesID: currentSpeciesID, isShiny: currentIsShiny)
+            next = RepresentativeSubject(speciesID: currentSpeciesID, isShiny: currentIsShiny,
+                                         unownForm: currentUnownForm)
         }
         if representativeSubject != next { representativeSubject = next }
     }
@@ -207,11 +211,18 @@ final class CompanionStore {
     /// nil 은 자동 추적. 도감에 없는 id 는 저장하지 않는다 — UI 밖 호출이나 손상된 입력도 같은
     /// 불변식을 지키며, 실패한 요청이 기존 선택을 조용히 해제하지 않도록 false 만 반환한다.
     @discardableResult
-    func setRepresentativeSpeciesID(_ id: Int?) -> Bool {
-        if let id, !state.ownsSpecies(id) { return false }
+    func setRepresentativeSpeciesID(_ id: Int?, unownForm: UnownForm? = nil) -> Bool {
+        if let id, !state.ownsSpecies(id, unownForm: unownForm) { return false }
         state.representativeSpeciesID = id
+        state.representativeUnownForm = UnownForm.resolved(speciesID: id ?? 0, form: unownForm)
         save()
         return true
+    }
+
+    func isRepresentative(_ species: DexSpecies) -> Bool {
+        state.representativeSpeciesID == species.id
+            && UnownForm.resolved(speciesID: species.id, form: state.representativeUnownForm)
+                == UnownForm.resolved(speciesID: species.id, form: species.unownForm)
     }
 
     // 알 인큐베이션 (active 없을 때)
@@ -222,9 +233,13 @@ final class CompanionStore {
 
     var displayName: String {
         guard let a = state.active, let line = currentLine else { return "Token Egg" }
-        return line.localizedName(a.currentID, state.language)
+        return UnownForm.displayName(line.localizedName(a.currentID, state.language),
+                                     speciesID: a.currentID, form: currentUnownForm)
     }
     var currentSpeciesID: Int? { state.active?.currentID }
+    var currentUnownForm: UnownForm? {
+        UnownForm.resolved(speciesID: currentSpeciesID ?? 0, form: state.active?.unownForm)
+    }
     var isFinalStage: Bool {
         guard let a = state.active, let line = currentLine else { return false }
         return line.tree.node(withID: a.currentID)?.children.isEmpty ?? true
@@ -290,7 +305,8 @@ final class CompanionStore {
             names: currentLine.map { line in
                 Dictionary(uniqueKeysWithValues:
                     active.pathIDs.compactMap { id in line.names[id].map { (id, $0) } })
-            }
+            },
+            unownForm: active.unownForm
         )
     }
 
@@ -321,7 +337,7 @@ final class CompanionStore {
                 Dictionary(uniqueKeysWithValues:
                     chain.compactMap { id in line.names[id].map { (id, $0) } })
             },
-            releasedAt: now)
+            releasedAt: now, unownForm: a.unownForm)
     }
 
     var dexEntries: [DexEntry] {
@@ -352,15 +368,32 @@ final class CompanionStore {
     /// 희귀도별 포획 로그 개수(요약 헤더용) — 개체 수 기준. 도감(종 단위)은 dexSpecies 를 쓴다.
     func dexCount(_ rarity: Rarity) -> Int { dexEntries.lazy.filter { $0.rarity == rarity }.count }
 
-    /// 도감 한 칸 — 종 1개로 접힌 수집 기록. 같은 라인을 여러 번 키워도 종은 한 칸이다.
+    /// 도감 한 칸 — 같은 종·안농 폼의 중복 기록을 합친다.
     /// **종 정보만 담는다** — 성격·획득 횟수처럼 개체에 딸린 것은 포획 로그가 개체 단위로 보여준다.
-    struct DexSpecies: Identifiable, Sendable {
+    struct DexSpecies: Sendable {
         let id: Int                     // speciesID = 도감 번호(정렬 키)
         let name: String
         let rarity: Rarity
         let isShiny: Bool               // 이 종을 이로치로 보유한 적이 있는가
         /// 이 종이 현재 키우는 개체의 **현재 형태**인가. 지나온 진화 단계에는 서지 않는다.
         let isRaising: Bool
+        var unownForm: UnownForm? = nil
+
+        /// Species IDs remain Pokédex numbers; selection also includes the Unown letter.
+        var collectionID: String {
+            guard let form = UnownForm.resolved(speciesID: id, form: unownForm) else { return String(id) }
+            return "\(id)-\(form.rawValue)"
+        }
+    }
+
+    private struct DexKey: Hashable {
+        let speciesID: Int
+        let unownForm: UnownForm?
+
+        init(_ speciesID: Int, unownForm: UnownForm?) {
+            self.speciesID = speciesID
+            self.unownForm = UnownForm.resolved(speciesID: speciesID, form: unownForm)
+        }
     }
 
     /// 종 하나가 모으는 것 — 누적 전용. 병렬 딕셔너리를 여러 개 두면 키 집합이 서로 어긋날 수 있고
@@ -380,32 +413,39 @@ final class CompanionStore {
     /// 아직 진화하지 않은 종이 보유로 잡힌다.
     var dexSpecies: [DexSpecies] {
         // 종별 누적을 한 번에 훑는다(뷰가 body 에서 1회 소비 — 메모이즈 없이 충분).
-        var acc: [Int: DexAccumulator] = [:]
+        var acc: [DexKey: DexAccumulator] = [:]
         for entry in state.dex {
             for id in entry.chainOrder {
-                var a = acc[id] ?? DexAccumulator(rarity: entry.rarity)
+                let key = DexKey(id, unownForm: entry.unownForm)
+                var a = acc[key] ?? DexAccumulator(rarity: entry.rarity)
                 if let n = entry.names?[id] { a.names = n }   // 이름 없는 구버전 항목이 덮어쓰지 않게
                 if entry.isShiny { a.isShiny = true }
-                acc[id] = a
+                acc[key] = a
             }
         }
         if let active = state.active {
             // 도달분만 — stageIndex 가 pathIDs 범위 안임은 두 입구가 보장한다:
             // MonState.init(from:) 의 clamp, 그리고 SaveTransfer 의 가져오기 정규화.
             for id in active.pathIDs.prefix(active.stageIndex + 1) {
-                var a = acc[id] ?? DexAccumulator(rarity: active.rarity)
+                let key = DexKey(id, unownForm: active.unownForm)
+                var a = acc[key] ?? DexAccumulator(rarity: active.rarity)
                 if let n = currentLine?.names[id] { a.names = n }
                 if currentIsShiny { a.isShiny = true }   // 위장 중 숨김 규칙 재사용
-                acc[id] = a
+                acc[key] = a
             }
         }
-        return acc.sorted { $0.key < $1.key }.map { id, a in
-            DexSpecies(
-                id: id,
-                name: a.names.flatMap { state.language.resolveName($0) } ?? "#\(id)",
+        return acc.sorted {
+            ($0.key.speciesID, $0.key.unownForm?.sortOrder ?? 0)
+                < ($1.key.speciesID, $1.key.unownForm?.sortOrder ?? 0)
+        }.map { key, a in
+            let name = a.names.flatMap { state.language.resolveName($0) } ?? "#\(key.speciesID)"
+            return DexSpecies(
+                id: key.speciesID,
+                name: UnownForm.displayName(name, speciesID: key.speciesID, form: key.unownForm),
                 rarity: a.rarity,
                 isShiny: a.isShiny,
-                isRaising: id == state.active?.currentID)
+                isRaising: key.speciesID == state.active?.currentID && key.unownForm == currentUnownForm,
+                unownForm: key.unownForm)
         }
     }
 
@@ -709,8 +749,9 @@ final class CompanionStore {
                                   names: currentLine.map { line in   // 체인 각 종의 다국어 이름 저장(표시 즉시)
                                       Dictionary(uniqueKeysWithValues:
                                           a.pathIDs.compactMap { id in line.names[id].map { (id, $0) } })
-                                  }))
-        let name = currentLine?.localizedName(finalID, state.language) ?? ""
+                                  }, unownForm: a.unownForm))
+        let name = UnownForm.displayName(currentLine?.localizedName(finalID, state.language) ?? "",
+                                         speciesID: finalID, form: a.unownForm)
         justGraduated = name
         notifyCompanionEvent(l.notifGraduateTitle, l.notifGraduateBody(name))
         eventUntil = clock().addingTimeInterval(6)
@@ -899,6 +940,7 @@ final class CompanionStore {
         state.eggUsage = 0            // 새 알은 처음부터 인큐베이션(재부화에 5M 필요)
         state.eggTier = tier          // 등급 보증(nil = 보증 없음)
         state.pendingHatchID = nil    // 새 보증으로 처음부터 롤(활성 포켓몬이 있는 동안엔 원래 비어 있다)
+        state.pendingUnownForm = nil
         prefetchedLineID = nil
         justGraduated = nil; justEvolvedTo = nil; eventUntil = nil
         AppLog.write("egg purchased: discarded active, tier=\(tier?.rawValue ?? "none")")
@@ -1003,8 +1045,8 @@ final class CompanionStore {
             kickLineLoadIfNeeded()
             return
         }
-        state.pendingHatchID = nil
-        await hatchCore(baseID: base)
+        let pendingForm = state.pendingHatchID == base ? state.pendingUnownForm : nil
+        await hatchCore(baseID: base, unownForm: pendingForm)
     }
 
     /// 부화가 폐기된 뒤 남은 개체(대개 방금 불러온 개체)의 진화 라인을 다시 로드한다.
@@ -1036,17 +1078,24 @@ final class CompanionStore {
             // 이 롤을 버린다 — 안 그러면 불러온 알의 pre-roll 을 남의 롤로 덮어쓴다.
             guard state.active == nil, activeGeneration == generation else { return }
             state.pendingHatchID = id
+            state.pendingUnownForm = id == UnownForm.speciesID ? .roll(rng.next()) : nil
             save()
         }
         guard let id = state.pendingHatchID, prefetchedLineID != id else { return }
+        let form = state.pendingUnownForm
         guard let line = try? await provider.line(baseSpeciesID: id) else { return }   // 라인 예열
+        guard state.active == nil, activeGeneration == generation, state.pendingHatchID == id else { return }
         // 스프라이트 예열 — 부화 직후 보일 것들: base 정적+애니메이션, shiny 롤(1/64) 대비 shiny 애니메이션.
         // .app 번들에서만(단위 테스트가 실네트워크에 닿지 않도록 — 알림과 동일한 게이트).
         if AppEnv.isBundledApp {
-            _ = await SpriteStore.shared.data(speciesID: line.baseID, animated: false, shiny: false)
-            _ = await SpriteStore.shared.data(speciesID: line.baseID, animated: true, shiny: false)
-            _ = await SpriteStore.shared.data(speciesID: line.baseID, animated: true, shiny: true)
+            _ = await SpriteStore.shared.data(speciesID: line.baseID, animated: false, shiny: false, unownForm: form)
+            _ = await SpriteStore.shared.data(speciesID: line.baseID, animated: true, shiny: false, unownForm: form)
+            _ = await SpriteStore.shared.data(speciesID: line.baseID, animated: true, shiny: true, unownForm: form)
+            if line.baseID == UnownForm.speciesID {
+                _ = await SpriteStore.shared.data(speciesID: line.baseID, animated: false, shiny: true, unownForm: form)
+            }
         }
+        guard state.active == nil, activeGeneration == generation, state.pendingHatchID == id else { return }
         prefetchedLineID = id
     }
 
@@ -1070,7 +1119,7 @@ final class CompanionStore {
     }
 
     /// 실제 부화 로직 — isHatching 락은 호출자(hatch / hatchIfNeeded)가 소유·해제한다.
-    private func hatchCore(baseID: Int) async {
+    private func hatchCore(baseID: Int, unownForm pendingForm: UnownForm? = nil) async {
         let generation = activeGeneration
         guard let line = try? await provider.line(baseSpeciesID: baseID) else {
             AppLog.write("hatch: line fetch failed for base \(baseID) — egg kept, retry next tick")
@@ -1090,10 +1139,15 @@ final class CompanionStore {
         if let tier = state.eggTier, line.rarity.sortRank < tier.sortRank {
             AppLog.write("hatch: rolled \(line.rarity) below guaranteed \(tier) — discarded, re-roll next tick")
             state.pendingHatchID = nil
+            state.pendingUnownForm = nil
             prefetchedLineID = nil
             save()
             return
         }
+        state.pendingHatchID = nil
+        state.pendingUnownForm = nil
+        // A later egg can roll the same species with another letter and must warm its own sprite.
+        prefetchedLineID = nil
         currentLine = line
         // 부화 임계 초과분은 부화체 성장에 이월(낭비 없음).
         let overflow = max(0, state.eggUsage - eggHatchThreshold)
@@ -1113,15 +1167,17 @@ final class CompanionStore {
         var profile = PokemonProfile.generate(seed: rng.next())
         if let details = pokemonDetailsByID[line.baseID] { profile.enrich(with: details) }
         let hasGrowthBoost = state.hasCollectedFinal(forBaseID: line.baseID)
+        let unownForm: UnownForm? = line.baseID == UnownForm.speciesID ? (pendingForm ?? .roll(rng.next())) : nil
         // 위장 중엔 이로치를 숨긴다 — 부화 알림·연출도 일반체로(정체는 리빌 때 공개).
         let showShiny = isShiny && dittoDisguise == nil
         activeGeneration += 1
         state.active = MonState(baseID: line.baseID, pathIDs: [line.baseID], plannedPathIDs: evolutionPlan,
                                 stageIndex: 0, usedAtStage: 0, rarity: line.rarity, totalForms: evolutionPlan.count,
                                 isShiny: isShiny, nature: nature, profile: profile, hasGrowthBoost: hasGrowthBoost,
-                                dittoDisguise: dittoDisguise)
+                                dittoDisguise: dittoDisguise, unownForm: unownForm)
         AppLog.write("hatch: base=\(line.baseID) rarity=\(line.rarity) shiny=\(isShiny) forms=\(evolutionPlan.count) boost=\(hasGrowthBoost) ditto=\(dittoDisguise != nil)")
-        let name = line.localizedName(line.baseID, state.language)
+        let name = UnownForm.displayName(line.localizedName(line.baseID, state.language),
+                                         speciesID: line.baseID, form: unownForm)
         notifyCompanionEvent(showShiny ? l.notifShinyHatchTitle : l.notifHatchTitle,
                              showShiny ? l.notifShinyHatchBody(name) : l.notifHatchBody(name))
         justEvolvedTo = nil        // 새 부화는 "성장" 문구(진화 아님) — 직전 진화명이 남아 표시되지 않게
@@ -1359,8 +1415,12 @@ final class CompanionStore {
 
     /// Exact current/final individuals for a Pokédex species. Earlier evolution stages remain
     /// species reference pages; the same evolved individual is not duplicated as a second creature.
-    func pokemonIndividuals(speciesID: Int) -> [DexEntry] {
-        dexEntriesSorted.filter { $0.finalID == speciesID && $0.profile != nil }
+    func pokemonIndividuals(speciesID: Int, unownForm: UnownForm? = nil) -> [DexEntry] {
+        let form = UnownForm.resolved(speciesID: speciesID, form: unownForm)
+        return dexEntriesSorted.filter {
+            $0.finalID == speciesID && $0.profile != nil
+                && UnownForm.resolved(speciesID: speciesID, form: $0.unownForm) == form
+        }
     }
 
     /// Loads immutable PokéAPI metadata and persists any deferred profile fields exactly once.
