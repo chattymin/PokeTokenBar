@@ -138,6 +138,17 @@ final class CredentialSwitchCacheTests: XCTestCase {
         XCTAssertEqual(KeychainReader.queryCount, 0)
     }
 
+    func testAntigravityAutoPollReadsTopLevelAccessToken() async throws {
+        let file = tempDir.appendingPathComponent("jetski-standalone-oauth-token")
+        let json = "{\"access_token\":\"ya29.top-level-token\",\"refresh_token\":\"1//sample\",\"expiry\":\"2099-01-01T00:00:00Z\"}"
+        try Data(json.utf8).write(to: file, options: .atomic)
+        let cache = AntigravityTokenCache(tokenFileURLs: [file])
+
+        let token = try await cache.accessToken(allowKeychainPrompt: false)
+        XCTAssertEqual(token, "ya29.top-level-token")
+        XCTAssertEqual(KeychainReader.queryCount, 0)
+    }
+
     func testAntigravityGoogleClientIDAndSecretAreConfigured() {
         XCTAssertFalse(AntigravityRateLimitsProvider.googleClientID.isEmpty)
         XCTAssertFalse(AntigravityRateLimitsProvider.googleClientSecret.isEmpty)

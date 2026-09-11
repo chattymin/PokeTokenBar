@@ -297,6 +297,15 @@ actor AntigravityTokenCache {
                 expiresAt: nil)
         }
 
+        if let directAccessToken = json["access_token"] as? String, !directAccessToken.isEmpty {
+            let refreshToken = json["refresh_token"] as? String
+            let expiresAt = (json["expiry"] as? String).flatMap { ISO8601Parser.date(from: $0) }
+            return AntigravityOAuthCredential(
+                accessToken: directAccessToken,
+                refreshToken: refreshToken,
+                expiresAt: expiresAt)
+        }
+
         return nil
     }
 }
