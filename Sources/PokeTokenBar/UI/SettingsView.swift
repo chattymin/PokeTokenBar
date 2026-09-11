@@ -39,8 +39,7 @@ struct SettingsView: View {
     private var isBundledApp: Bool { AppEnv.isBundledApp }
 
     private var representativeSelectionText: String {
-        guard let selected = companion.representativeSpeciesID,
-              let species = companion.dexSpecies.first(where: { $0.id == selected }) else {
+        guard let species = companion.dexSpecies.first(where: { companion.isRepresentative($0) }) else {
             return l.representativeFollowCurrent
         }
         return "#\(species.id) \(species.name)\(species.isShiny ? " ✨" : "")"
