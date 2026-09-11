@@ -27,21 +27,35 @@ enum LocalUsageReader {
         let localDay: String
         let model: String
         let input, output, cacheWrite, cacheRead: Int
-        /// Some agents persist the exact charge alongside token usage. Prefer it over
-        /// model-table pricing when present so local reports match the source of truth.
+        /// Prefer a valid source-recorded amount (including zero) to model-table estimates.
+        /// The source may itself estimate this amount; it is not necessarily a charge.
         var explicitCost: Double? = nil
+        var costIsEstimate: Bool? = nil
+        /// The source cannot reconstruct model/request token buckets for a price-table estimate.
+        var costUnavailable: Bool? = nil
         var total: Int { input + output + cacheWrite + cacheRead }
     }
 
     struct Bucket {
         var input = 0, output = 0, cacheWrite = 0, cacheRead = 0
         var cost = 0.0
+        var costCoverage: CostCoverage = .empty
         var total: Int { input + output + cacheWrite + cacheRead }
         mutating func add(_ e: Entry) {
             input += e.input; output += e.output; cacheWrite += e.cacheWrite; cacheRead += e.cacheRead
-            cost += e.explicitCost.flatMap { $0 > 0 ? $0 : nil }
-                ?? ModelPricing.cost(model: e.model, input: e.input, output: e.output,
-                                     cacheWrite: e.cacheWrite, cacheRead: e.cacheRead)
+            // Zero-usage/replay records must not make an unknown-only total look partially priced.
+            guard e.total > 0 else { return }
+            if let reported = e.explicitCost, reported.isFinite, reported >= 0 {
+                cost += reported
+                costCoverage.merge(e.costIsEstimate == true ? .estimate : .source)
+            } else if e.costUnavailable != true,
+                      let estimate = ModelPricing.estimatedCost(model: e.model, input: e.input, output: e.output,
+                                                                cacheWrite: e.cacheWrite, cacheRead: e.cacheRead) {
+                cost += estimate
+                costCoverage.merge(.estimate)
+            } else if e.total > 0 {
+                costCoverage.merge(.unavailable)
+            }
         }
     }
 
@@ -478,7 +492,9 @@ enum LocalUsageReader {
         }
         return Entry(
             id: id, date: date, localDay: fmt.string(from: date), model: model,
-            input: input, output: output, cacheWrite: cacheWrite, cacheRead: cacheRead)
+            input: input, output: output, cacheWrite: cacheWrite, cacheRead: cacheRead,
+            explicitCost: (usage["cost"] as? [String: Any]).flatMap { doubleOrNil($0["total"]) },
+            costIsEstimate: true, costUnavailable: !hasGranularUsage)
     }
 
     private static func piMessageDate(_ message: [String: Any], envelope: [String: Any]) -> Date? {
@@ -612,8 +628,7 @@ enum LocalUsageReader {
         var isSubagent = false
         var currentSessionID: String?
         var previousUsageState: (sessionID: String, state: CodexUsageState)?
-        // 실모델은 아래 codexModel 이 로그에서 동적 추출(신모델 자동 대응). 이 값은 세션에 model 라인이
-        // 아예 없을 때만 쓰는 버전무관 폴백 — Codex 비용은 항상 0이라 표시 숫자엔 영향 없다(업데이트 불필요).
+        // A missing model keeps tokens, but remains unpriced until a turn_context identifies it.
         var model = "codex"
         do {
             try forEachCodexLine(in: url) { line in
@@ -1143,7 +1158,9 @@ enum LocalUsageReader {
             output: 0,
             cacheWrite: 0,
             cacheRead: 0,
-            explicitCost: entry.explicitCost
+            explicitCost: entry.explicitCost,
+            costIsEstimate: entry.costIsEstimate,
+            costUnavailable: true
         )
     }
 
@@ -1157,7 +1174,9 @@ enum LocalUsageReader {
             output: entry.output,
             cacheWrite: entry.cacheWrite,
             cacheRead: entry.cacheRead,
-            explicitCost: entry.explicitCost
+            explicitCost: entry.explicitCost,
+            costIsEstimate: entry.costIsEstimate,
+            costUnavailable: entry.costUnavailable
         )
     }
 
@@ -1200,7 +1219,8 @@ enum LocalUsageReader {
         let entry = Entry(
             id: "codex|\(file)|\(turn)",
             date: date, localDay: fmt.string(from: date), model: model,
-            input: input, output: out, cacheWrite: 0, cacheRead: cacheRead)
+            input: input, output: out, cacheWrite: 0, cacheRead: cacheRead,
+            costUnavailable: nonCachedInput + cached + output == 0 && lastTotal > 0)
         let usageState = (info["total_token_usage"] as? [String: Any]).map {
             CodexUsageState(cumulative: CodexUsageVector($0), last: CodexUsageVector(last))
         }
@@ -1457,8 +1477,9 @@ enum LocalUsageReader {
     private static func grokCost(_ usage: [String: Any]) -> Double? {
         if boolValue(usage["usageIsIncomplete"]) || boolValue(usage["usage_is_incomplete"]) { return nil }
         if boolValue(usage["costIsPartial"]) || boolValue(usage["cost_is_partial"]) { return nil }
-        let ticks = doubleOrNil(usage["costUsdTicks"]) ?? doubleOrNil(usage["cost_usd_ticks"]) ?? 0
-        return ticks > 0 ? ticks / 1e10 : nil
+        guard let ticks = doubleOrNil(usage["costUsdTicks"]) ?? doubleOrNil(usage["cost_usd_ticks"]),
+              ticks.isFinite, ticks >= 0 else { return nil }
+        return ticks / 1e10
     }
 
     /// 턴 시각은 `_meta.agentTimestampMs`(에이전트가 그 턴에 찍은 시각)를 **우선**한다.
@@ -1572,10 +1593,9 @@ enum LocalUsageReader {
         guard let date, !usage.isEmpty else { return nil }
         // Message ids are 8-hex, unique only within a session → scope by file name.
         let id = "omp|" + file + "|" + ((envelope["id"] as? String) ?? UUID().uuidString)
-        // `usage.cost.total` is the real charge pi computed from model pricing — trust only
-        // when > 0 (free/unknown models are written as 0, which falls back to the price table).
+        // OMP records its own model-price estimate. Preserve an explicit zero as well as positives.
         let cost = (usage["cost"] as? [String: Any]).flatMap { doubleOrNil($0["total"]) }
-            .flatMap { $0 > 0 ? $0 : nil }
+            .flatMap { $0.isFinite && $0 >= 0 ? $0 : nil }
 
         let names = ["input", "output", "cacheWrite", "cacheRead"]
         let hasGranularUsage = names.contains { intOrNil(usage[$0]) != nil }
@@ -1586,12 +1606,13 @@ enum LocalUsageReader {
                 output: intOrNil(usage["output"]) ?? 0,
                 cacheWrite: intOrNil(usage["cacheWrite"]) ?? 0,
                 cacheRead: intOrNil(usage["cacheRead"]) ?? 0,
-                explicitCost: cost)
+                explicitCost: cost, costIsEstimate: true)
         }
         // Malformed total-only usage has no recoverable bucket split; preserve its aggregate total.
         guard let total = intOrNil(usage["totalTokens"]) else { return nil }
         return Entry(id: id, date: date, localDay: fmt.string(from: date), model: model,
-                     input: total, output: 0, cacheWrite: 0, cacheRead: 0, explicitCost: cost)
+                     input: total, output: 0, cacheWrite: 0, cacheRead: 0, explicitCost: cost,
+                     costIsEstimate: true, costUnavailable: true)
     }
 
     private static func codexModel(_ line: Data) -> String? {
@@ -1617,14 +1638,14 @@ enum LocalUsageReader {
         guard b.total > 0 else { return nil }
         return DailyUsage(date: localDay, inputTokens: b.input, outputTokens: b.output,
                           cacheCreationTokens: b.cacheWrite, cacheReadTokens: b.cacheRead,
-                          totalTokens: b.total, totalCost: b.cost, models: models)
+                          totalTokens: b.total, totalCost: b.cost, models: models, costCoverage: b.costCoverage)
     }
 
     /// 로컬 날짜 [start, end] (포함) 범위 합계 → PeriodUsage.
     static func period(entries: [Entry], periodKey: String, fromDay: String, toDay: String) -> PeriodUsage {
         var b = Bucket()
         for e in entries where e.localDay >= fromDay && e.localDay <= toDay { b.add(e) }
-        return PeriodUsage(period: periodKey, totalTokens: b.total, totalCost: b.cost)
+        return PeriodUsage(period: periodKey, totalTokens: b.total, totalCost: b.cost, costCoverage: b.costCoverage)
     }
 
     /// Day-by-day totals for the **current month**, month start through `now`, in date order.
@@ -1686,7 +1707,7 @@ enum LocalUsageReader {
             let b = buckets[day] ?? Bucket()
             return DailyUsage(date: day, inputTokens: b.input, outputTokens: b.output,
                               cacheCreationTokens: b.cacheWrite, cacheReadTokens: b.cacheRead,
-                              totalTokens: b.total, totalCost: b.cost)
+                              totalTokens: b.total, totalCost: b.cost, costCoverage: b.costCoverage)
         }
     }
 
@@ -1704,7 +1725,7 @@ enum LocalUsageReader {
             id: "block-\(Int(first.date.timeIntervalSince1970))",
             startTime: iso.string(from: first.date),
             endTime: iso.string(from: first.date.addingTimeInterval(blockWindow)),
-            isActive: true, totalTokens: b.total, costUSD: b.cost, tokensPerMinute: tpm)
+            isActive: true, totalTokens: b.total, costUSD: b.cost, tokensPerMinute: tpm, costCoverage: b.costCoverage)
     }
 
     // MARK: 유틸

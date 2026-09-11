@@ -101,6 +101,34 @@ final class LocalAdditionalUsageTests: XCTestCase {
         XCTAssertEqual(entry.explicitCost, 0.34)
     }
 
+    func testHermesPreservesActualZeroAndDistinguishesMissingSessionCost() throws {
+        let database = temporaryDirectory.appendingPathComponent("state.db")
+        try execute(database, sql: """
+        CREATE TABLE sessions (
+            id TEXT PRIMARY KEY, model TEXT, billing_provider TEXT, started_at REAL NOT NULL,
+            message_count INTEGER, input_tokens INTEGER, output_tokens INTEGER,
+            cache_read_tokens INTEGER, cache_write_tokens INTEGER, reasoning_tokens INTEGER,
+            estimated_cost_usd REAL, actual_cost_usd REAL
+        );
+        INSERT INTO sessions VALUES ('zero', 'gpt-5.5', 'openai', 1767312000, 1, 1000000, 100, 0, 0, 0, 8, 0);
+        INSERT INTO sessions VALUES ('estimate', 'gpt-5.5', 'openai', 1767312000, 1, 1000000, 100, 0, 0, 0, 8, NULL);
+        INSERT INTO sessions VALUES ('missing', 'gpt-5.5', 'openai', 1767312000, 1, 1000000, 100, 0, 0, 0, NULL, NULL);
+        """)
+        let entries = LocalAdditionalUsageReader.hermesEntries(
+            modifiedSince: try date("2026-01-01T00:00:00Z"), roots: [database])
+        XCTAssertEqual(entries.count, 3)
+        let zero = try XCTUnwrap(entries.first { $0.id == "hermes|zero" })
+        XCTAssertEqual(zero.explicitCost, 0)
+        XCTAssertEqual(LocalUsageReader.daily(entries: [zero], localDay: zero.localDay)?.costCoverage, .source)
+        let estimate = try XCTUnwrap(entries.first { $0.id == "hermes|estimate" })
+        XCTAssertEqual(estimate.explicitCost, 8)
+        XCTAssertEqual(LocalUsageReader.daily(entries: [estimate], localDay: estimate.localDay)?.costCoverage, .estimate)
+        let missing = try XCTUnwrap(entries.first { $0.id == "hermes|missing" })
+        XCTAssertNil(missing.explicitCost)
+        XCTAssertEqual(LocalUsageReader.daily(entries: [missing], localDay: missing.localDay)?.costCoverage, .unavailable,
+                       "Session totals cannot be priced as one long-context request")
+    }
+
     func testHermesAcceptsMillisecondStartedAt() throws {
         let database = temporaryDirectory.appendingPathComponent("state.db")
         try execute(database, sql: """

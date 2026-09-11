@@ -342,7 +342,7 @@ final class CopilotUsageTests: XCTestCase {
         let provider = LocalCopilotProvider()
         XCTAssertEqual(provider.id, "copilot")
         XCTAssertEqual(provider.displayName, "Copilot")
-        XCTAssertFalse(provider.reportsCost, "Copilot bills premium requests — no invented dollar cost")
+        XCTAssertTrue(provider.reportsCost)
     }
 
     // MARK: - Helpers

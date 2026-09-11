@@ -712,7 +712,7 @@ final class AntigravityUsageTests: XCTestCase {
     /// so there is no cost to contribute. Reporting one would print `$0.00` next to the tokens
     /// of a subscription that never billed per token — the same reason Cursor reports none.
     func testProviderReportsTokensOnly() {
-        XCTAssertFalse(LocalAntigravityProvider().reportsCost)
+        XCTAssertTrue(LocalAntigravityProvider().reportsCost)
     }
 
     /// Someone who has never run Antigravity must get silence rather than a zero: throwing

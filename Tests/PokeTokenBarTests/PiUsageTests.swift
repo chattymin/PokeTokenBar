@@ -205,7 +205,7 @@ final class PiUsageTests: XCTestCase {
         let provider = LocalPiProvider()
         XCTAssertEqual(provider.id, "pi")
         XCTAssertEqual(provider.displayName, "Pi")
-        XCTAssertFalse(provider.reportsCost)
+        XCTAssertTrue(provider.reportsCost)
     }
 }
 
@@ -246,9 +246,9 @@ extension PiUsageTests {
     }
 
     /// The defect lives one layer up from `daily`: `LocalPiProvider` repackages the result and
-    /// must carry the per-model breakdown through (while still zeroing the flat-rate cost). A
+    /// must carry the per-model breakdown and unknown-cost state through. A
     /// fixture routed through `fetchDaily()` covers that repackaging step, not just aggregation.
-    func testLocalPiProviderFetchDailyForwardsBreakdownAndZeroesCost() async throws {
+    func testLocalPiProviderFetchDailyForwardsBreakdownAndUnavailableCost() async throws {
         let now = Date()
         let ms = now.timeIntervalSince1970 * 1_000
         let iso = Self.isoUTC.string(from: now)
@@ -270,7 +270,7 @@ extension PiUsageTests {
         let daily = try XCTUnwrap(fetched)
 
         XCTAssertEqual(daily.totalTokens, 330)
-        XCTAssertEqual(daily.totalCost, 0, "Pi is flat-rate even though real model ids now price")
+        XCTAssertEqual(daily.costCoverage, .unavailable, "Unknown model names must not appear as free usage")
         let models = try XCTUnwrap(daily.models, "the breakdown must survive provider repackaging")
         XCTAssertEqual(models["openrouter/stealth/ox-alpha"], 300)
         XCTAssertEqual(models["model-name"], 30)

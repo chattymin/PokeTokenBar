@@ -25,6 +25,18 @@ read_when:
 
 ## 판정·데이터
 
+- **Cost availability is not a numeric zero.** Codex providers overwrote priced totals with zero
+  while leaving cost UI enabled; earlier tests asserted that subscription policy instead of
+  comparing the public provider result with priced log entries. Preserve explicit source zero,
+  unknown model/token breakdown, and source/estimate provenance separately through daily, period,
+  block, and merged chart totals. An unknown portion must mark a total partial, never complete.
+  `UsageCostTests` exercises Codex JSONL through cold/warm cache and the provider, source-zero vs
+  missing, mixed totals, menu/chart projections, legacy decoding, and native localized rendering.
+  The Codex regression must fail if its provider again overwrites the returned cost with zero.
+  Session/turn aggregates (Hermes/Aside), Cursor bubbles without cache buckets, and Kiro text
+  estimates cannot be passed to request-size-dependent pricing as if they were single requests.
+  Parser semantic changes require the corresponding disk-cache version bump.
+
 - **프로필 레벨은 난이도와 반복 부화 보정을 반영한 단계 진행에서 계산한다.** #244/#254의 임계값을
   낮춰도 #264가 원시 토큰을 기본 졸업 비용으로 나누면 졸업한 개체가 레벨 5 또는 52에 남는다.
   완료 단계의 기본 비용과 현재 단계의 실제 임계 대비 진행률을 합산해 표준 성장량을 영속한다.

@@ -159,17 +159,24 @@ struct PopoverView: View {
                     .monospacedDigit()
                 Spacer()
                 if store.showsCost {
-                    Text(TokenFormatter.cost(todayCost))
+                    UsageCostText(cost: store.todayUsageCost, l: l)
                         .font(.callout)
                         .foregroundStyle(.secondary)
                 }
             }
 
+            if store.showsCost {
+                Text(l.costLegend)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
             // 주간/월간 누적 (전 서비스 합산 — 오늘 합계와 함께 통합 통계)
             if store.weekTotalTokens > 0 || store.monthTotalTokens > 0 {
                 HStack(spacing: 14) {
-                    periodLabel(l.thisWeek, tokens: store.weekTotalTokens, cost: store.showsCost ? store.weekCostTotal : nil)
-                    periodLabel(l.thisMonth, tokens: store.monthTotalTokens, cost: store.showsCost ? store.monthCostTotal : nil)
+                    periodLabel(l.thisWeek, tokens: store.weekTotalTokens, cost: store.showsCost ? store.weekUsageCost : nil)
+                    periodLabel(l.thisMonth, tokens: store.monthTotalTokens, cost: store.showsCost ? store.monthUsageCost : nil)
                     Spacer()
                 }
                 .padding(.top, 2)
@@ -204,7 +211,7 @@ struct PopoverView: View {
             onSelect: { nav.providerID = $0 })
     }
 
-    private func periodLabel(_ name: String, tokens: Int, cost: Double?) -> some View {
+    private func periodLabel(_ name: String, tokens: Int, cost: UsageCost?) -> some View {
         HStack(spacing: 4) {
             Text(name)
                 .font(.caption)
@@ -213,15 +220,11 @@ struct PopoverView: View {
                 .font(.caption.weight(.semibold))
                 .monospacedDigit()
             if let cost {
-                Text(TokenFormatter.cost(cost))
+                UsageCostText(cost: cost, l: l)
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
         }
-    }
-
-    private var todayCost: Double {
-        store.costingSnapshots.reduce(0) { $0 + ($1.today?.totalCost ?? 0) }
     }
 
     private func providerRow(snapshot: ProviderSnapshot, today: DailyUsage) -> some View {
@@ -234,7 +237,7 @@ struct PopoverView: View {
                     .font(.callout)
                     .monospacedDigit()
                 if snapshot.reportsCost {
-                    Text(TokenFormatter.cost(today.totalCost))
+                    UsageCostText(cost: today.usageCost, l: l)
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -961,8 +964,8 @@ struct MonthDailyTrend: View {
         guard let day = series.first(where: { $0.date == target }) else { return "" }
         let stamp = DailyTrendMetrics.dayStamp(day.date, language: l.lang)
         let tokens = TokenFormatter.compact(day.totalTokens)
-        guard showsCost, day.totalCost > 0 else { return "\(stamp) \(tokens)" }
-        return "\(stamp) \(tokens) \(TokenFormatter.cost(day.totalCost))"
+        guard showsCost else { return "\(stamp) \(tokens)" }
+        return "\(stamp) \(tokens) \(day.usageCost.text(l))"
     }
 }
 
