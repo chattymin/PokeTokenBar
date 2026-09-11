@@ -470,8 +470,6 @@ struct SettingsView: View {
     }
 
     @ViewBuilder
-    
-    @ViewBuilder
     private func linearIntegrationRows(_ store: UsageStore) -> some View {
         @Bindable var store = store
         groupRow {
@@ -535,7 +533,8 @@ struct SettingsView: View {
         }
     }
 
-private func advancedGroup(_ store: UsageStore) -> some View {
+    @ViewBuilder
+    private func advancedGroup(_ store: UsageStore) -> some View {
         @Bindable var store = store
         settingsSection(l.advancedSectionTitle) {
             Button {

@@ -4,8 +4,8 @@ import Foundation
 /// `PTB_STATE_DIR` overrides the default for development/QA isolation.
 enum AppStatePaths {
     /// Finder/menu-bar name and on-disk folder. Bundled apps use `CFBundleName` so a side-by-side
-    /// build (e.g. `PokeTokenBar v2.0`) does not share saves with the installed copy. Tests and
-    /// `swift run` stay on `PokeTokenBar`.
+    /// build (e.g. `PokeTokenBar v2.0` / `PokeTokenBar v3`) does not share saves with the installed
+    /// copy. Tests and `swift run` stay on `PokeTokenBar`.
     static var productFolderName: String {
         if AppEnv.isBundledApp,
            let name = Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String {
