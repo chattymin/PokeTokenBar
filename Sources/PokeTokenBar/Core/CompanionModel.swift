@@ -13,18 +13,10 @@ enum AppLanguage: String, Codable, Sendable, CaseIterable {
         switch self {
         case .ko: return ["ko"]
         case .en: return ["en"]
-        case .ja: return ["ja-Hrkt", "ja"]
+        case .ja: return ["ja-hrkt", "ja"]
         case .es: return ["es"]
         case .fr: return ["fr"]
-        // PokéAPI has no `pt` in its language list, so this falls through to
-        // resolveName's English fallback. That fallback IS the expected result:
-        // the core series was never localised into Portuguese, so Brazilian
-        // players use the English species names anyway. The code is listed
-        // regardless, so the day PokéAPI adds it, it works with no edit here.
-        // PokéAPI 의 language 목록에 pt 는 없다 → resolveName 의 영어 폴백으로 내려간다.
-        // 본가 시리즈가 포르투갈어로 나온 적이 없어 브라질에서도 종 이름은 영어를 쓰므로 폴백이 곧 기대값이다.
-        // 그래도 코드를 적어두는 건 PokéAPI 가 pt 를 추가하는 순간 분기 수정 없이 반영되게 하기 위해서다.
-        case .pt: return ["pt"]
+        case .pt: return ["pt-br", "pt"]
         case .de: return ["de"]
         }
     }
@@ -36,8 +28,7 @@ enum AppLanguage: String, Codable, Sendable, CaseIterable {
 
     /// byLang(langCode→name) 에서 이 언어의 이름을 고른다(apiCodes 첫 매칭 → 영어 폴백).
     func resolveName(_ byLang: [String: String]) -> String? {
-        for code in apiCodes { if let n = byLang[code] { return n } }
-        return byLang["en"]
+        PokemonNameLocalization.resolve(byLang, preferredCodes: apiCodes)
     }
 
     /// 신규 설치 기본 언어 — 시스템 선호 언어에서 유추(글로벌 출시: 한국어 강제 금지).

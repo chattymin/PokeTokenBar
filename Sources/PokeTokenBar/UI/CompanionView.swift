@@ -1085,9 +1085,16 @@ private struct PokemonDetailView: View {
                 valuePair(store.l.gender, store.l.genderLabel(profile.gender))
                 valuePair(store.l.nature, entry.nature?.name(store.language) ?? "—")
             }
-            valuePair(store.l.ability,
-                      profile.abilityName.map(displayIdentifier) ?? "—",
-                      suffix: profile.abilityIsHidden ? store.l.hiddenAbility : nil)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(store.l.ability).font(.system(size: 9)).foregroundStyle(.secondary)
+                if let name = profile.abilityName {
+                    PokemonNameLabel(.ability, name, language: store.language,
+                                     suffix: profile.abilityIsHidden ? " · " + store.l.hiddenAbility : "")
+                        .font(.caption.weight(.semibold))
+                } else {
+                    Text("—").font(.caption.weight(.semibold))
+                }
+            }
             statsSection(PokemonStatCalculator.stats(details: details, profile: profile, nature: entry.nature))
             detailTitle(store.l.activeMoves)
             if profile.moves.isEmpty {
@@ -1095,7 +1102,7 @@ private struct PokemonDetailView: View {
             } else {
                 ForEach(profile.moves) { move in
                     HStack {
-                        Text(displayIdentifier(move.name))
+                        PokemonNameLabel(.move, move.name, language: store.language)
                         Spacer()
                         Text("Lv. \(move.learnedAtLevel)").foregroundStyle(.secondary)
                     }
@@ -1143,7 +1150,7 @@ private struct PokemonDetailView: View {
             detailTitle(store.l.speciesData)
             HStack(spacing: 5) {
                 ForEach(details.types, id: \.self) { type in
-                    Text(displayIdentifier(type).uppercased())
+                    PokemonNameLabel(.type, type, language: store.language).textCase(.uppercase)
                         .font(.system(size: 9, weight: .bold))
                         .padding(.horizontal, 6).padding(.vertical, 3)
                         .background(Color.accentColor.opacity(0.16), in: Capsule())
@@ -1155,9 +1162,10 @@ private struct PokemonDetailView: View {
                 valuePair(store.l.baseStatTotal, "\(details.baseStatTotal)")
             }
             detailTitle(store.l.possibleAbilities)
-            Text(details.abilities.map { option in
-                displayIdentifier(option.name) + (option.isHidden ? " (\(store.l.hidden))" : "")
-            }.joined(separator: " · "))
+            PokemonNameLabel(items: details.abilities.map { option in
+                PokemonNameItem(resource: .init(kind: .ability, name: option.name),
+                                suffix: option.isHidden ? " (\(store.l.hidden))" : "")
+            }, language: store.language)
             .font(.caption).foregroundStyle(.secondary)
         }
         .detailCard()
@@ -1168,7 +1176,7 @@ private struct PokemonDetailView: View {
             detailTitle(store.l.completeMoveList(details.moves.count))
             ForEach(details.moves) { move in
                 HStack(alignment: .firstTextBaseline) {
-                    Text(displayIdentifier(move.name))
+                    PokemonNameLabel(.move, move.name, language: store.language)
                     Spacer()
                     Text(move.learnMethods.map(store.l.moveMethod).uniqued().joined(separator: " · "))
                         .foregroundStyle(.secondary).multilineTextAlignment(.trailing)
@@ -1191,9 +1199,6 @@ private struct PokemonDetailView: View {
         }
     }
 
-    private func displayIdentifier(_ raw: String) -> String {
-        raw.split(separator: "-").map { $0.prefix(1).uppercased() + $0.dropFirst() }.joined(separator: " ")
-    }
 }
 
 private extension View {

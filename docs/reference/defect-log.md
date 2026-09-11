@@ -25,6 +25,16 @@ read_when:
 
 ## 판정·데이터
 
+- **Localized metadata names must not replace persistent API identifiers.** The dex rendered
+  ability, move, and type slugs directly, while existing tests covered species names and profile
+  metadata rather than these visible labels. All five detail-view name sites now use a shared
+  selected-language → English resolver, with a formatted identifier only before names are available.
+  Preserve every API language in the cache, normalize legacy language-code casing, and derive
+  supported API codes from `AppLanguage` so future languages need no second allowlist.
+  Fetch names from mounted detail rows rather than profile preparation. `PokemonNameLocalizationTests`
+  covers locale selection, missing translations, future languages, native text rendering, request
+  reuse, disk restoration, and offline retry without changing profile identifiers.
+
 - **Cost availability is not a numeric zero.** Codex providers overwrote priced totals with zero
   while leaving cost UI enabled; earlier tests asserted that subscription policy instead of
   comparing the public provider result with priced log entries. Preserve explicit source zero,
