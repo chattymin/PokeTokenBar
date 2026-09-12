@@ -173,19 +173,18 @@ final class PremiumEggTests: XCTestCase {
 
     // MARK: 구매 — 게이트·차감·보증 기록
 
-    func testBuyPremiumEggRecordsGuaranteeAndDebitsTierPrice() {
+    func testBuyPremiumEggParksActiveAndSetsTier() {
         let s = activeStore()
         XCTAssertTrue(s.canBuyEgg(.rare))
         XCTAssertTrue(s.buyEgg(.rare))
-        XCTAssertEqual(s.state.eggTier, .rare, "보증이 상태에 기록됨")
+        XCTAssertNil(s.state.active, "active slot is now the fresh egg")
+        XCTAssertEqual(s.state.eggTier, .rare, "the guarantee is on the freshly incubating egg")
         XCTAssertEqual(s.eggGuarantee, .rare)
         XCTAssertEqual(s.state.spentTokens, FreshEgg.price(guaranteeing: .rare))
-        XCTAssertNil(s.state.active, "현재 포켓몬은 더 이상 활성이 아니다")
-        XCTAssertEqual(s.state.eggUsage, 0, "새 알은 처음부터 인큐베이션")
-        // 등급 알도 새 알과 같은 놓아줌 경로를 쓴다 — 종은 남기되 졸업으로 세지는 않는다.
-        XCTAssertEqual(s.state.dex.count, 1, "놓아준 개체가 기록으로 남는다")
-        XCTAssertTrue(s.state.dex.first?.isReleased ?? false, "졸업이 아니라 놓아줌")
-        XCTAssertTrue(s.state.collectedFinals.isEmpty, "최종체 완성으로 세지 않는다")
+        XCTAssertEqual(s.state.box.count, 1, "the previous companion is parked in the box")
+        XCTAssertFalse(s.state.box.last?.isComplete ?? true, "parked, not graduated")
+        XCTAssertTrue(s.state.dex.isEmpty, "nothing is released into the dex")
+        XCTAssertTrue(s.state.collectedFinals.isEmpty)
     }
 
     /// 알 상태에선 등급 알도 못 산다 — 기존 새 알과 게이트 통일.
@@ -216,13 +215,14 @@ final class PremiumEggTests: XCTestCase {
     /// (활성 포켓몬과 pre-roll 은 애초에 공존하지 않는다: 프리패치는 알 상태에서만 돌고 `hatchIfNeeded`
     /// 가 부화 직전 비운다. 그 불변식이 밖에서 들어온 파일에도 유지되는지는
     /// `testSanitizedDropsGuaranteeAndItsPreRollWhenActiveExists` 가 지킨다.)
-    func testPurchaseStartsFromCleanRollState() {
+    func testPurchaseParksActiveAndStartsGuaranteedEgg() {
         let s = activeStore()
         XCTAssertNil(s.state.pendingHatchID, "활성 포켓몬이 있는 동안엔 pre-roll 이 없다")
         XCTAssertTrue(s.buyEgg(.rare))
-        XCTAssertEqual(s.state.eggTier, .rare)
-        XCTAssertNil(s.state.pendingHatchID, "새 보증으로 다시 롤한다")
+        XCTAssertEqual(s.state.eggTier, .rare, "the fresh egg carries the guarantee")
+        XCTAssertNil(s.state.pendingHatchID, "fresh egg rolls from the new guarantee")
         XCTAssertEqual(s.state.eggUsage, 0)
+        XCTAssertEqual(s.state.box.count, 1, "the previous companion is parked")
     }
 
     /// 보증은 재시작을 건너 살아남아야 한다 — 구매 시점엔 종을 못 정하기 때문(롤에 네트워크 필요).
@@ -231,7 +231,7 @@ final class PremiumEggTests: XCTestCase {
         let s1 = activeStore(at: f)
         XCTAssertTrue(s1.buyEgg(.uncommon))
         let s2 = CompanionStore(provider: TieredProvider(), clock: { self.now }, fileURL: f, rng: SeededRNG(seed: 7))
-        XCTAssertEqual(s2.state.eggTier, .uncommon, "재시작 후에도 산 보증 유지")
+        XCTAssertEqual(s2.state.eggTier, .uncommon, "the purchased guarantee survives a restart")
         XCTAssertEqual(s2.eggGuarantee, .uncommon)
     }
 

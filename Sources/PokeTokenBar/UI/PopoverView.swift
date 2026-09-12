@@ -3,6 +3,10 @@ import SwiftUI
 
 enum PopoverTab { case home, shop, bag, collection }
 
+/// Collection 내부 세그먼트 — 도감(보유 종)·박스(보관 개체)·포획 로그(개체 기록).
+/// 도감과 박스는 "보유물 둘러보기"라 왼쪽에 묶고, 성격이 다른 포획 로그는 오른쪽으로 떼어 놓는다.
+enum CollectionSection { case dex, box, log }
+
 /// 팝오버 치수의 단일 소스. 자식이 쓸 수 있는 폭을 알아야 할 때 이 값을 쓴다 — 넘치는 자식이
 /// 부모 폭을 부풀리므로 GeometryReader 로 재면 순환한다.
 enum PopoverMetrics {
@@ -21,7 +25,7 @@ final class PopoverNavigation {
     var showSettings = false
     var tab: PopoverTab = .home
     /// 일반적인 컬렉션 재진입에는 마지막 세그먼트를 유지하되, 대표 포켓몬 선택 진입점은 도감으로 강제한다.
-    var showingCollectionLog = false
+    var collectionSection: CollectionSection = .dex
     /// 프로바이더 탭 선택 — reset() 대상이 아님(팝오버를 다시 열어도 보던 서비스 유지).
     var providerID: String?
     /// 설정을 열 때 고급 섹션을 펼친 채로 시작할지. 세션 키 행이 접힌 disclosure 안에 살아서,
@@ -44,7 +48,7 @@ final class PopoverNavigation {
     /// 컬렉션 세그먼트를 도감으로 명시해, 직전에 포획 로그를 봤어도 선택 액션이 있는 화면을 연다.
     func openRepresentativeDex() {
         showSettings = false
-        showingCollectionLog = false
+        collectionSection = .dex
         tab = .collection
     }
 }
