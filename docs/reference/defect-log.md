@@ -76,11 +76,16 @@ read_when:
 - **토큰 파일 파서는 외부 도구의 실제 직렬화 구조체(중첩 객체)를 반영해야 한다.** `jetski-standalone-oauth-token`
   파일에서 `json["token"]`은 단순 문자열이 아니라 `{"access_token": "...", "refresh_token": "...", "expiry": "..."}`
   형태의 중첩 객체다. 기존 `readTokenFile`이 `json["token"] as? String`만 처리하여 유효한 토큰 파일이 있어도
-  항상 파싱에 실패하고 키체인 fallback으로 빠졌다. macOS 키체인은 Antigravity/Claude CLI가 새 토큰을 쓸 때
-  `security add-generic-password -U`로 ACL을 초기화하므로, 매일 "항상 허용"이 지워져 사용자에게 반복적인 암호
-  입력을 유발했다. 해결: `readTokenFileCredential`에서 `parseCredential`을 재활용하여 중첩 객체(`access_token`),
-  문자열 토큰(`token`), 최상위 `access_token`을 모두 수용하고 `refresh_token`을 통한 갱신도 키체인 없이 처리한다.
-  가드: `testAntigravityAutoPollReadsNestedTokenObject`·`testAntigravityAutoPollPicksUpNestedTokenSwitch`.
+  항상 파싱에 실패했다. 백그라운드 자동 폴은 키체인 상호작용을 차단(`allowKeychainPrompt: false`)하므로
+  파일 파싱이 실패하면 갱신이 중단되었고, 수동 갱신 시에는 키체인 암호 프롬프트가 발생했다(macOS 키체인은
+  Antigravity CLI가 새 토큰을 쓸 때 `security add-generic-password -U`로 ACL을 초기화해 "항상 허용"이 지워짐).
+  해결: `readTokenFileCredential`에서 `parseCredential`을 재활용하여 중첩 객체(`access_token`),
+  문자열 토큰(`token`), 최상위 `access_token`을 모두 수용하고 `refresh_token`을 통한 자동 갱신을 지원한다.
+  Google의 네이티브 앱 OAuth 가이드에서는 `client_secret`이 선택 사항으로 기술되어 있으나, Antigravity
+  클라이언트는 갱신 시 `client_secret`을 요구하는 클라이언트 고유 제약(`client-specific requirement`)이 있어
+  함께 전송한다. 또한 만료 직전(near-expiry) 계정 전환 시 이전 계정 캐시로 잘못 폴백하지 않도록 동일 출처
+  검증(`isSameSourceCredential`)을 통해 같은 계정의 갱신 캐시만 디스크의 만료 토큰보다 우선 유지한다.
+  가드: `testAntigravityAutoPollReadsNestedTokenObject`·`testAntigravityAutoPollPicksUpNestedTokenSwitch`·`testNearExpiryAccountSwitchDoesNotFallBackToPreviousCachedAccount`·`testExpiredFileRefreshesAndSubsequentPollRetainsRefreshedToken`.
 
 - **append-only SQLite watermark 루프를 프로바이더마다 복사하지 마라.** Cursor 와 Copilot 이
   같은 `didReset` / `highWater == 0` 규칙을 두 벌로 들고 있으면 한쪽만 고친 수정이 다른 쪽에 남는다

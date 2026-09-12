@@ -98,9 +98,11 @@ actor AntigravityTokenCache {
     static let shared = AntigravityTokenCache()
     private var cachedCredential: AntigravityOAuthCredential?
     private let tokenFileURLs: [URL]
+    private let urlSession: URLSession
 
-    init(tokenFileURLs: [URL]? = nil) {
+    init(tokenFileURLs: [URL]? = nil, urlSession: URLSession = .shared) {
         self.tokenFileURLs = tokenFileURLs ?? Self.defaultTokenFileURLs
+        self.urlSession = urlSession
     }
 
     static var defaultTokenFileURLs: [URL] {
@@ -117,8 +119,13 @@ actor AntigravityTokenCache {
         //    매 호출이 키체인까지 내려간다(프롬프트를 피할 수 있는 경로를 두고 쓰지 않는 셈).
         //    캐시 히트보다 앞: 계정 전환으로 파일이 바뀌어도 옛 토큰을 계속 쓰는 문제 방지(#227 과 같은 부류).
         if let fileCred = Self.readTokenFileCredential(urls: tokenFileURLs) {
-            // 캐시가 이미 refresh_token으로 새 토큰을 발급받아 유효한 상태라면, 디스크의 만료 토큰으로 덮어쓰지 않는다.
-            if !bypassCache, let cached = cachedCredential, !cached.isExpired, fileCred.isExpired {
+            // 캐시가 이미 refresh_token으로 새 토큰을 발급받아 유효한 상태이고 파일과 동일 출처(동일 계정)인 경우에만
+            // 디스크의 만료 토큰으로 덮어쓰지 않는다 (만료 직전/만료된 새 계정 파일로 교체 시 이전 계정 캐시 반환 방지).
+            if !bypassCache,
+               let cached = cachedCredential,
+               !cached.isExpired,
+               fileCred.isExpired,
+               Self.isSameSourceCredential(cached: cached, file: fileCred) {
                 return cached.accessToken
             }
             if cachedCredential?.accessToken != fileCred.accessToken {
@@ -159,7 +166,7 @@ actor AntigravityTokenCache {
         }
         // 만료되었거나 bypassCache인 경우 refresh_token이 있다면 갱신 시도
         if let refreshToken = cred.refreshToken {
-            if let refreshed = try? await Self.refreshGoogleToken(refreshToken: refreshToken) {
+            if let refreshed = try? await refreshGoogleToken(refreshToken: refreshToken) {
                 cachedCredential = refreshed
                 return refreshed.accessToken
             }
@@ -173,13 +180,28 @@ actor AntigravityTokenCache {
         cachedCredential = nil
     }
 
+    private static func isSameSourceCredential(
+        cached: AntigravityOAuthCredential,
+        file: AntigravityOAuthCredential
+    ) -> Bool {
+        if cached.accessToken == file.accessToken {
+            return true
+        }
+        if let cachedRefresh = cached.refreshToken, !cachedRefresh.isEmpty,
+           let fileRefresh = file.refreshToken, !fileRefresh.isEmpty,
+           cachedRefresh == fileRefresh {
+            return true
+        }
+        return false
+    }
+
     private static func formURLEncode(_ string: String) -> String {
         var allowed = CharacterSet.alphanumerics
         allowed.insert(charactersIn: "-._~")
         return string.addingPercentEncoding(withAllowedCharacters: allowed) ?? string
     }
 
-    private static func refreshGoogleToken(refreshToken: String) async throws -> AntigravityOAuthCredential? {
+    private func refreshGoogleToken(refreshToken: String) async throws -> AntigravityOAuthCredential? {
         var request = URLRequest(url: AntigravityRateLimitsProvider.googleTokenURL, timeoutInterval: 10)
         request.httpMethod = "POST"
         request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
@@ -194,10 +216,10 @@ actor AntigravityTokenCache {
             .joined(separator: "&")
         request.httpBody = Data(bodyString.utf8)
 
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await urlSession.data(for: request)
         guard let http = response as? HTTPURLResponse, http.statusCode == 200,
               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let newAccessToken = json["access_token"] as? String else {
+              let newAccessToken = json["access_token"] as? String, !newAccessToken.isEmpty else {
             return nil
         }
         let expiresIn = json["expires_in"] as? Double ?? 3600
