@@ -28,7 +28,11 @@ read_when:
 - **Localized metadata names must not replace persistent API identifiers.** The dex rendered
   ability, move, and type slugs directly, while existing tests covered species names and profile
   metadata rather than these visible labels. All five detail-view name sites now use a shared
-  selected-language → English resolver, with a formatted identifier only before names are available.
+  selected-language → English resolver, with a formatted identifier only after a completed response or failed request.
+  Pending metadata must show a neutral placeholder, not an English identifier that flashes before
+  translation. Keep a synchronous presentation snapshot for the first frame on detail reentry;
+  the API client remains responsible for freshness. Test pending, loaded, partial, and failed
+  states separately—the old test incorrectly asserted English during loading.
   Preserve every API language in the cache, normalize legacy language-code casing, and derive
   supported API codes from `AppLanguage` so future languages need no second allowlist.
   Fetch names from mounted detail rows rather than profile preparation. `PokemonNameLocalizationTests`
