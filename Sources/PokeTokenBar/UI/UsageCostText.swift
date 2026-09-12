@@ -7,7 +7,5 @@ struct UsageCostText: View {
 
     var body: some View {
         Text(cost.text(l))
-            .help(cost.explanation(l))
-            .accessibilityLabel(cost.text(l) + ". " + cost.explanation(l))
     }
 }
