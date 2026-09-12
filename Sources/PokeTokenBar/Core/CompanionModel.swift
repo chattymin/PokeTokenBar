@@ -580,6 +580,8 @@ struct CompanionState: Codable, Sendable {
     var linearCreditedIssueIDs: [String] = []
     /// First successful Linear poll seeds IDs without XP (no backfill dump).
     var linearIntegrationSeeded = false
+    /// Per-issue Linear Done XP for completed cards. Seeded IDs are not stored here.
+    var linearIssueXP: [LinearIssueXPRecord] = []
 
     init() {}
 
@@ -620,6 +622,7 @@ struct CompanionState: Codable, Sendable {
         timeOpenAwardedToday = c.lenient(Int.self, forKey: .timeOpenAwardedToday, default: 0)
         linearCreditedIssueIDs = c.lenient([String].self, forKey: .linearCreditedIssueIDs, default: [])
         linearIntegrationSeeded = c.lenient(Bool.self, forKey: .linearIntegrationSeeded, default: false)
+        linearIssueXP = c.lenient([LinearIssueXPRecord].self, forKey: .linearIssueXP, default: [])
     }
 
     /// 졸업 기록 또는 현재 개체가 실제로 도달한 단계에 이 종이 포함되는가.

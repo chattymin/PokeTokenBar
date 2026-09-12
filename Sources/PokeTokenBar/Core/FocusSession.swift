@@ -396,6 +396,17 @@ enum FocusTick {
         return body
     }
 
+    /// Context note posted from the overlay/desk without a check-in answer.
+    static func sessionCommentBody(
+        identifier: String,
+        elapsedSeconds: TimeInterval,
+        note: String
+    ) -> String {
+        let minutes = max(0, Int(elapsedSeconds / 60))
+        let trimmed = note.trimmingCharacters(in: .whitespacesAndNewlines)
+        return "Note · \(identifier) · \(minutes)m\n\(trimmed)"
+    }
+
     private static func freeze(_ session: FocusSession, now: Date) -> FocusSession {
         var s = session
         if let start = s.segmentStartedAt, s.isAccruing {
@@ -444,8 +455,9 @@ struct FocusLogEntry: Codable, Equatable, Identifiable {
     var overtimeSeconds: TimeInterval?
     var checkInAnswer: CheckInAnswer?
     var notePosted: Bool
+    var noteText: String? = nil
 
-    enum Kind: String, Codable { case session, checkIn }
+    enum Kind: String, Codable { case session, checkIn, note }
 
     static func session(
         day: String,
@@ -485,12 +497,126 @@ struct FocusLogEntry: Codable, Equatable, Identifiable {
             checkInAnswer: answer,
             notePosted: notePosted)
     }
+
+    static func note(
+        day: String,
+        issue: FocusPinnedIssue,
+        text: String
+    ) -> FocusLogEntry {
+        FocusLogEntry(
+            id: UUID(),
+            day: day,
+            kind: .note,
+            issueIdentifier: issue.identifier,
+            issueTitle: issue.title,
+            startedAt: nil,
+            durationSeconds: nil,
+            overtimeSeconds: nil,
+            checkInAnswer: nil,
+            notePosted: true,
+            noteText: FocusCheckInSummary.truncatedNote(text))
+    }
 }
 
-struct FocusPersistedState: Codable, Equatable {
+/// How a focus session ended. Continue is not a finish — overtime then Done is `doneOvertime`.
+enum FocusFinishKind: String, Codable, Equatable {
+    case doneOnTime
+    case doneOvertime
+    case leftInProgress
+}
+
+struct FocusCheckInSummary: Codable, Equatable {
+    var answer: CheckInAnswer
+    var notePosted: Bool
+    var note: String?
+
+    static let maxNoteChars = 280
+
+    static func truncatedNote(_ raw: String) -> String? {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        if trimmed.count <= maxNoteChars { return trimmed }
+        return String(trimmed.prefix(maxNoteChars))
+    }
+}
+
+/// Compact per-issue timer summary for completed Linear cards. Survives session clear and day rollover.
+struct FocusIssueHistory: Codable, Equatable, Identifiable {
+    static let maxStored = 200
+
+    var id: String
+    var identifier: String
+    var plannedSeconds: TimeInterval
+    var durationSeconds: TimeInterval
+    var overtimeSeconds: TimeInterval
+    var sessionXP: Int
+    var finish: FocusFinishKind
+    var checkIns: [FocusCheckInSummary]
+    var notes: [String]? = nil
+    var finishedAt: Date
+}
+
+struct FocusPersistedState: Equatable, Codable {
     var plannedMinutes: Int
     var checkInMinutes: Int
     var session: FocusSession?
     var log: [FocusLogEntry]
     var logDay: String
+    var sessionGrantedXP: Int
+    var sessionCheckIns: [FocusCheckInSummary]
+    var sessionNotes: [String]
+    var issueHistory: [FocusIssueHistory]
+
+    enum CodingKeys: String, CodingKey {
+        case plannedMinutes, checkInMinutes, session, log, logDay
+        case sessionGrantedXP, sessionCheckIns, sessionNotes, issueHistory
+    }
+
+    init(
+        plannedMinutes: Int,
+        checkInMinutes: Int,
+        session: FocusSession?,
+        log: [FocusLogEntry],
+        logDay: String,
+        sessionGrantedXP: Int = 0,
+        sessionCheckIns: [FocusCheckInSummary] = [],
+        sessionNotes: [String] = [],
+        issueHistory: [FocusIssueHistory] = []
+    ) {
+        self.plannedMinutes = plannedMinutes
+        self.checkInMinutes = checkInMinutes
+        self.session = session
+        self.log = log
+        self.logDay = logDay
+        self.sessionGrantedXP = sessionGrantedXP
+        self.sessionCheckIns = sessionCheckIns
+        self.sessionNotes = sessionNotes
+        self.issueHistory = issueHistory
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        plannedMinutes = try c.decode(Int.self, forKey: .plannedMinutes)
+        checkInMinutes = try c.decode(Int.self, forKey: .checkInMinutes)
+        session = try c.decodeIfPresent(FocusSession.self, forKey: .session)
+        log = try c.decodeIfPresent([FocusLogEntry].self, forKey: .log) ?? []
+        logDay = try c.decodeIfPresent(String.self, forKey: .logDay) ?? ""
+        sessionGrantedXP = try c.decodeIfPresent(Int.self, forKey: .sessionGrantedXP) ?? 0
+        sessionCheckIns = try c.decodeIfPresent([FocusCheckInSummary].self, forKey: .sessionCheckIns) ?? []
+        sessionNotes = try c.decodeIfPresent([String].self, forKey: .sessionNotes) ?? []
+        issueHistory = try c.decodeIfPresent([FocusIssueHistory].self, forKey: .issueHistory) ?? []
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(plannedMinutes, forKey: .plannedMinutes)
+        try c.encode(checkInMinutes, forKey: .checkInMinutes)
+        try c.encodeIfPresent(session, forKey: .session)
+        try c.encode(log, forKey: .log)
+        try c.encode(logDay, forKey: .logDay)
+        try c.encode(sessionGrantedXP, forKey: .sessionGrantedXP)
+        try c.encode(sessionCheckIns, forKey: .sessionCheckIns)
+        try c.encode(sessionNotes, forKey: .sessionNotes)
+        try c.encode(issueHistory, forKey: .issueHistory)
+    }
 }

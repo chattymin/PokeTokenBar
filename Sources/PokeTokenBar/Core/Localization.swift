@@ -481,6 +481,92 @@ struct L {
                  "\(identifier) · \(answer) · \(note)")
     }
 
+    func linearCompletionXPAmount(_ compact: String) -> String {
+        t("완료 XP \(compact)",
+          "Done XP \(compact)",
+          "完了XP \(compact)",
+          "XP al completar \(compact)",
+          "XP de complétion \(compact)",
+          "XP de conclusão \(compact)",
+          "Abschluss-XP \(compact)")
+    }
+    func sessionXPAmount(_ compact: String) -> String {
+        t("세션 XP \(compact)",
+          "Session XP \(compact)",
+          "セッションXP \(compact)",
+          "XP de sesión \(compact)",
+          "XP de session \(compact)",
+          "XP da sessão \(compact)",
+          "Sitzungs-XP \(compact)")
+    }
+    func plannedDurationLine(_ text: String) -> String {
+        t("계획 \(text)",
+          "Planned \(text)",
+          "予定 \(text)",
+          "Planificado \(text)",
+          "Prévu \(text)",
+          "Planejado \(text)",
+          "Geplant \(text)")
+    }
+    func overtimeDurationLine(_ text: String) -> String {
+        t("초과 \(text)",
+          "OT \(text)",
+          "超過 \(text)",
+          "Extra \(text)",
+          "HS \(text)",
+          "HE \(text)",
+          "ÜZ \(text)")
+    }
+    var focusFinishedOnTime: String {
+        t("정시 완료", "Done on time", "定時完了", "Hecha a tiempo", "Terminée à l’heure", "Concluída no prazo", "Pünktlich erledigt")
+    }
+    var focusFinishedOvertime: String {
+        t("초과 후 완료", "Done after overtime", "超過後に完了", "Hecha en extra", "Terminée en heures sup.", "Concluída na hora extra", "Nach Überzeit erledigt")
+    }
+    var focusFinishedLeftInProgress: String {
+        t("진행 중으로 둠", "Left in progress", "進行中のまま", "Dejada en curso", "Laissée en cours", "Deixada em andamento", "In Arbeit gelassen")
+    }
+    func focusCheckInLine(answer: String, notePosted: Bool) -> String {
+        let note = notePosted
+            ? t("메모 게시됨", "note posted", "メモ投稿済み", "nota publicada", "note publiée", "nota publicada", "Notiz gepostet")
+            : t("메모 없음", "no note", "メモなし", "sin nota", "sans note", "sem nota", "keine Notiz")
+        return t("체크인 · \(answer) · \(note)",
+                 "Check-in · \(answer) · \(note)",
+                 "チェックイン · \(answer) · \(note)",
+                 "Check-in · \(answer) · \(note)",
+                 "Check-in · \(answer) · \(note)",
+                 "Check-in · \(answer) · \(note)",
+                 "Check-in · \(answer) · \(note)")
+    }
+    var sessionNoteHelp: String {
+        t("Linear 댓글 추가",
+          "Add Linear comment",
+          "Linearコメントを追加",
+          "Añadir comentario de Linear",
+          "Ajouter un commentaire Linear",
+          "Adicionar comentário do Linear",
+          "Linear-Kommentar hinzufügen")
+    }
+    var postNote: String { t("게시", "Post", "投稿", "Publicar", "Publier", "Publicar", "Posten") }
+    var linearCommentFailed: String {
+        t("댓글을 올리지 못했습니다. 다시 시도하세요.",
+          "Couldn't post the comment. Try again.",
+          "コメントを投稿できませんでした。再試行してください。",
+          "No se pudo publicar el comentario. Inténtalo de nuevo.",
+          "Impossible de publier le commentaire. Réessaie.",
+          "Não foi possível publicar o comentário. Tente de novo.",
+          "Kommentar konnte nicht gepostet werden. Bitte erneut versuchen.")
+    }
+    func sessionNoteLogLine(identifier: String, note: String) -> String {
+        t("\(identifier) · 메모: \(note)",
+          "\(identifier) · note: \(note)",
+          "\(identifier) · メモ: \(note)",
+          "\(identifier) · nota: \(note)",
+          "\(identifier) · note : \(note)",
+          "\(identifier) · nota: \(note)",
+          "\(identifier) · Notiz: \(note)")
+    }
+
     var statusChecksLabel: String { t("프로바이더 상태 확인", "Provider status checks", "プロバイダー状態チェック", "Comprobación de estado de proveedores", "Vérification de l'état des fournisseurs", "Verificação de status dos provedores", "Anbieterstatus prüfen") }
     var statusChecksHint: String { t("Claude·OpenAI 장애를 팝오버에 표시 (알림 아님)", "Show Claude / OpenAI incidents in the popover (not a notification)", "Claude・OpenAIの障害をポップオーバーに表示（通知ではない）", "Muestra incidentes de Claude/OpenAI en el popover (no es una notificación)", "Affiche les incidents Claude / OpenAI dans le popover (pas une notification)", "Mostra incidentes do Claude/OpenAI no painel (não é uma notificação)", "Störungen bei Claude / OpenAI im Popover anzeigen (keine Benachrichtigung)") }
     var warning: String { t("경고", "Warning", "警告", "Aviso", "Avertissement", "Aviso", "Warnung") }

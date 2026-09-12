@@ -84,6 +84,107 @@ struct LinearIssueIDButton: View {
     }
 }
 
+/// Rewards and timer summary on a completed Linear issue card. Omits anything we did not persist.
+@MainActor
+struct LinearIssueCompletionStats: View {
+    let issue: LinearIssueSummary
+
+    @Environment(CompanionStore.self) private var companion
+    @Environment(FocusSessionStore.self) private var session
+
+    private var l: L { companion.l }
+    private var isCompleted: Bool {
+        issue.completedAt != nil || (issue.stateType ?? "").lowercased() == "completed"
+    }
+
+    var body: some View {
+        let xp = isCompleted ? companion.linearIssueXP(id: issue.id) : nil
+        let history = isCompleted ? session.history(forIssueID: issue.id) : nil
+        if isCompleted, xp != nil || history != nil {
+            VStack(alignment: .leading, spacing: 2) {
+                xpRow(xp, history: history)
+                if let history {
+                        timerRow(history)
+                        finishRow(history.finish)
+                        checkInRows(history.checkIns)
+                        noteRows(history.notes ?? [])
+                }
+            }
+            .font(.caption2)
+            .foregroundStyle(.secondary)
+        }
+    }
+
+    @ViewBuilder
+    private func xpRow(_ xp: LinearIssueXPRecord?, history: FocusIssueHistory?) -> some View {
+        HStack(spacing: 8) {
+            if let xp, xp.xp > 0 {
+                Text(l.linearCompletionXPAmount(TokenFormatter.compact(xp.xp)))
+            }
+            if let history, history.sessionXP > 0 {
+                Text(l.sessionXPAmount(TokenFormatter.compact(history.sessionXP)))
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func timerRow(_ history: FocusIssueHistory) -> some View {
+        let plannedMinutes = max(0, Int((history.plannedSeconds / 60).rounded(.down)))
+        HStack(spacing: 8) {
+            Text(l.plannedDurationLine(l.minutesValue(plannedMinutes)))
+            Text(FocusClock.format(history.durationSeconds))
+                .monospacedDigit()
+            if history.overtimeSeconds > 0 {
+                Text(l.overtimeDurationLine(FocusClock.format(history.overtimeSeconds)))
+                    .monospacedDigit()
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func finishRow(_ finish: FocusFinishKind) -> some View {
+        switch finish {
+        case .doneOnTime:
+            Text(l.focusFinishedOnTime)
+        case .doneOvertime:
+            Text(l.focusFinishedOvertime)
+        case .leftInProgress:
+            Text(l.focusFinishedLeftInProgress)
+        }
+    }
+
+    @ViewBuilder
+    private func checkInRows(_ checkIns: [FocusCheckInSummary]) -> some View {
+        ForEach(Array(checkIns.enumerated()), id: \.offset) { _, checkIn in
+            VStack(alignment: .leading, spacing: 1) {
+                Text(l.focusCheckInLine(answer: checkInAnswerLabel(checkIn.answer), notePosted: checkIn.notePosted))
+                if let note = checkIn.note, !note.isEmpty {
+                    Text(note)
+                        .lineLimit(2)
+                        .foregroundStyle(.tertiary)
+                }
+            }
+        }
+    }
+
+    private func checkInAnswerLabel(_ answer: CheckInAnswer) -> String {
+        switch answer {
+        case .yes: return l.checkInYes
+        case .no: return l.checkInNo
+        case .skip: return l.checkInSkip
+        }
+    }
+
+    @ViewBuilder
+    private func noteRows(_ notes: [String]) -> some View {
+        ForEach(Array(notes.enumerated()), id: \.offset) { _, note in
+            Text(note)
+                .lineLimit(2)
+                .foregroundStyle(.tertiary)
+        }
+    }
+}
+
 @MainActor
 struct LinearFocusButton: View {
     let issue: LinearIssueSummary

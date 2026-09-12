@@ -24,6 +24,8 @@ struct SessionIslandView: View {
                             .font(.caption)
                             .lineLimit(1)
                             .truncationMode(.tail)
+                        Spacer(minLength: 0)
+                        SessionNoteButton()
                     }
                     HStack(spacing: 6) {
                         Text(clock.text)
@@ -49,6 +51,9 @@ struct SessionIslandView: View {
                         .help(current.userPaused || current.phase == .paused ? l.resumeTimer : l.pauseTimer)
                         LinearIssueStatusPicker(issue: issue)
                     }
+                    if session.isComposingNote {
+                        SessionNoteComposer()
+                    }
                 }
                 .padding(8)
                 .frame(width: FloatingPetController.islandWidth, alignment: .leading)
@@ -56,5 +61,75 @@ struct SessionIslandView: View {
                 .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
             }
         }
+    }
+}
+
+/// Bubble button that expands the compact Linear comment field.
+@MainActor
+struct SessionNoteButton: View {
+    var compact: Bool = true
+
+    @Environment(FocusSessionStore.self) private var session
+    @Environment(CompanionStore.self) private var companion
+
+    private var l: L { companion.l }
+
+    var body: some View {
+        Group {
+            if compact {
+                Button {
+                    session.toggleNoteComposer()
+                } label: {
+                    Image(systemName: session.isComposingNote ? "text.bubble.fill" : "text.bubble")
+                }
+                .buttonStyle(.borderless)
+                .controlSize(.mini)
+            } else {
+                Button {
+                    session.toggleNoteComposer()
+                } label: {
+                    Label(l.checkInAddNote, systemImage: session.isComposingNote ? "text.bubble.fill" : "text.bubble")
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+            }
+        }
+        .help(l.sessionNoteHelp)
+    }
+}
+
+/// Compact field + Post. Shared by the overlay island and Today desk.
+@MainActor
+struct SessionNoteComposer: View {
+    var compact: Bool = true
+
+    @Environment(FocusSessionStore.self) private var session
+    @Environment(CompanionStore.self) private var companion
+
+    private var l: L { companion.l }
+    private var trimmedEmpty: Bool {
+        session.noteDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    var body: some View {
+        @Bindable var session = session
+        VStack(alignment: .leading, spacing: compact ? 4 : 6) {
+            HStack(spacing: 6) {
+                TextField(l.checkInNotePlaceholder, text: $session.noteDraft)
+                    .textFieldStyle(.roundedBorder)
+                    .onSubmit { Task { await session.postSessionNote() } }
+                Button(l.postNote) {
+                    Task { await session.postSessionNote() }
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(session.isPostingNote || trimmedEmpty)
+            }
+            if session.notePostFailed {
+                Text(l.linearCommentFailed)
+                    .font(.caption2)
+                    .foregroundStyle(.orange)
+            }
+        }
+        .controlSize(compact ? .mini : .small)
     }
 }

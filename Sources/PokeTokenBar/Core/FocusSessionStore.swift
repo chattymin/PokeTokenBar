@@ -11,11 +11,20 @@ final class FocusSessionStore {
     private let clock: () -> Date
     private let fileURL: URL
     private let ticksOnTimer: Bool
+    private let postComment: ((String, String) async -> Bool)?
     private var timer: Timer?
 
     private(set) var session: FocusSession?
     private(set) var log: [FocusLogEntry] = []
     private(set) var logDay = ""
+    private(set) var issueHistory: [FocusIssueHistory] = []
+    private var sessionGrantedXP = 0
+    private var sessionCheckIns: [FocusCheckInSummary] = []
+    private var sessionNotes: [String] = []
+    private(set) var isPostingNote = false
+    private(set) var notePostFailed = false
+    var isComposingNote = false
+    var noteDraft = ""
     var plannedMinutes: Int {
         didSet {
             let clamped = SessionXP.clampMinutes(plannedMinutes)
@@ -39,13 +48,15 @@ final class FocusSessionStore {
         companion: CompanionStore,
         clock: @escaping () -> Date = Date.init,
         fileURL: URL? = nil,
-        ticksOnTimer: Bool = true
+        ticksOnTimer: Bool = true,
+        postComment: ((String, String) async -> Bool)? = nil
     ) {
         self.usage = usage
         self.companion = companion
         self.clock = clock
         self.fileURL = fileURL ?? AppStatePaths.directory().appendingPathComponent("focus-session.json")
         self.ticksOnTimer = ticksOnTimer
+        self.postComment = postComment
         plannedMinutes = SessionXP.defaultPlannedMinutes
         checkInMinutes = SessionXP.defaultCheckInMinutes
         load()
@@ -120,11 +131,16 @@ final class FocusSessionStore {
         syncTimer()
     }
 
+    func history(forIssueID id: String) -> FocusIssueHistory? {
+        issueHistory.first { $0.id == id }
+    }
+
     func finishLeavingInProgress(resumeTimeOpen: Bool = true) {
         guard let session else { return }
         let xp = FocusTick.settleLeaveInProgress(session)
-        appendSessionLog(session)
         grantSessionXP(xp)
+        appendSessionLog(session)
+        recordHistory(session, finish: .leftInProgress)
         clearSession(resumeTimeOpen: resumeTimeOpen)
     }
 
@@ -145,14 +161,18 @@ final class FocusSessionStore {
 
     func handleLinearCompletion(_ completed: LinearCompletedIssue) {
         guard let session, session.issue.id == completed.id else { return }
+        let finish: FocusFinishKind
         let xp: Int
         if session.fiveXOpen, !session.enteredOvertime {
+            finish = .doneOnTime
             xp = FocusTick.settleOnTimeDone(session)
         } else {
+            finish = .doneOvertime
             xp = FocusTick.settleOvertimeDone(session)
         }
-        appendSessionLog(session)
         grantSessionXP(xp)
+        appendSessionLog(session)
+        recordHistory(session, finish: finish)
         clearSession(resumeTimeOpen: true)
     }
 
@@ -167,15 +187,18 @@ final class FocusSessionStore {
                 identifier: session.issue.identifier,
                 elapsedSeconds: session.displayedSeconds(at: clock()),
                 note: trimmed)
-            notePosted = await usage.createLinearComment(issueID: session.issue.id, body: body)
+            notePosted = await postLinearComment(issueID: session.issue.id, body: body)
             if notePosted {
-                let marked = FocusTick.markNotePosted(session)
-                session = marked.session
-                grantSessionXP(marked.topUpXP)
+                applySuccessfulNoteFlag()
+                session = self.session ?? session
             }
         }
         if answer != .skip {
             appendCheckInLog(session.issue, answer: answer, notePosted: notePosted)
+            sessionCheckIns.append(FocusCheckInSummary(
+                answer: answer,
+                notePosted: notePosted,
+                note: FocusCheckInSummary.truncatedNote(trimmed)))
         }
         session = FocusTick.answerCheckIn(session, now: clock())
         self.session = session
@@ -195,11 +218,66 @@ final class FocusSessionStore {
         syncTimer()
     }
 
+    func toggleNoteComposer() {
+        guard session != nil else { return }
+        isComposingNote.toggle()
+        if !isComposingNote { notePostFailed = false }
+    }
+
+    func postSessionNote() async {
+        guard let current = session, !isPostingNote else { return }
+        let trimmed = noteDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+
+        isPostingNote = true
+        defer { isPostingNote = false }
+
+        let body = FocusTick.sessionCommentBody(
+            identifier: current.issue.identifier,
+            elapsedSeconds: current.displayedSeconds(at: clock()),
+            note: trimmed)
+        let posted = await postLinearComment(issueID: current.issue.id, body: body)
+        guard posted else {
+            notePostFailed = true
+            return
+        }
+        guard session != nil else { return }
+        applySuccessfulNoteFlag()
+        if let stored = FocusCheckInSummary.truncatedNote(trimmed) {
+            sessionNotes.append(stored)
+        }
+        appendNoteLog(current.issue, text: trimmed)
+        noteDraft = ""
+        isComposingNote = false
+        notePostFailed = false
+        persist()
+    }
+
     // MARK: - Internals
+
+    private func postLinearComment(issueID: String, body: String) async -> Bool {
+        if let postComment {
+            return await postComment(issueID, body)
+        }
+        return await usage.createLinearComment(issueID: issueID, body: body)
+    }
+
+    private func applySuccessfulNoteFlag() {
+        guard let session else { return }
+        let marked = FocusTick.markNotePosted(session)
+        self.session = marked.session
+        grantSessionXP(marked.topUpXP)
+    }
 
     private func start(_ issue: LinearIssueSummary) {
         let now = clock()
         companion.setTimeOpenXPSuspended(true)
+        sessionGrantedXP = 0
+        sessionCheckIns = []
+        sessionNotes = []
+        noteDraft = ""
+        isComposingNote = false
+        notePostFailed = false
         session = FocusSession.start(
             issue: FocusPinnedIssue(issue),
             plannedMinutes: plannedMinutes,
@@ -212,6 +290,12 @@ final class FocusSessionStore {
     private func clearSession(resumeTimeOpen: Bool) {
         session = nil
         checkInDraft = ""
+        noteDraft = ""
+        isComposingNote = false
+        notePostFailed = false
+        sessionGrantedXP = 0
+        sessionCheckIns = []
+        sessionNotes = []
         if resumeTimeOpen {
             companion.setTimeOpenXPSuspended(false, resumeFromNow: true)
         }
@@ -221,7 +305,30 @@ final class FocusSessionStore {
 
     private func grantSessionXP(_ delta: Int) {
         guard delta > 0, usage.timeOpenXPEnabled else { return }
-        _ = companion.applyCappedProgressXP(delta, today: todayKey())
+        let granted = companion.applyCappedProgressXP(delta, today: todayKey())
+        if granted > 0 { sessionGrantedXP += granted }
+    }
+
+    private func recordHistory(_ session: FocusSession, finish: FocusFinishKind) {
+        let overtime = session.enteredOvertime
+            ? max(0, session.accumulatedSeconds - session.plannedSeconds)
+            : 0
+        let entry = FocusIssueHistory(
+            id: session.issue.id,
+            identifier: session.issue.identifier,
+            plannedSeconds: session.plannedSeconds,
+            durationSeconds: session.accumulatedSeconds,
+            overtimeSeconds: overtime,
+            sessionXP: sessionGrantedXP,
+            finish: finish,
+            checkIns: sessionCheckIns,
+            notes: sessionNotes.isEmpty ? nil : sessionNotes,
+            finishedAt: clock())
+        issueHistory.removeAll { $0.id == entry.id }
+        issueHistory.insert(entry, at: 0)
+        if issueHistory.count > FocusIssueHistory.maxStored {
+            issueHistory = Array(issueHistory.prefix(FocusIssueHistory.maxStored))
+        }
     }
 
     private func appendSessionLog(_ session: FocusSession) {
@@ -244,6 +351,11 @@ final class FocusSessionStore {
         log.insert(
             FocusLogEntry.checkIn(day: todayKey(), issue: issue, answer: answer, notePosted: notePosted),
             at: 0)
+    }
+
+    private func appendNoteLog(_ issue: FocusPinnedIssue, text: String) {
+        rolloverLogIfNeeded()
+        log.insert(FocusLogEntry.note(day: todayKey(), issue: issue, text: text), at: 0)
     }
 
     private func todayKey() -> String { LocalUsageReader.todayKey(clock()) }
@@ -290,11 +402,19 @@ final class FocusSessionStore {
         checkInMinutes = SessionXP.clampMinutes(saved.checkInMinutes)
         log = saved.log
         logDay = saved.logDay
+        issueHistory = Array(saved.issueHistory.prefix(FocusIssueHistory.maxStored))
+        sessionGrantedXP = max(0, saved.sessionGrantedXP)
+        sessionCheckIns = saved.sessionCheckIns
+        sessionNotes = saved.sessionNotes
         rolloverLogIfNeeded()
         if var restored = saved.session {
             restored = FocusTick.restoreAsPaused(restored)
             session = restored
             companion.setTimeOpenXPSuspended(true)
+        } else {
+            sessionGrantedXP = 0
+            sessionCheckIns = []
+            sessionNotes = []
         }
     }
 
@@ -305,7 +425,11 @@ final class FocusSessionStore {
             checkInMinutes: checkInMinutes,
             session: session,
             log: Array(log.prefix(200)),
-            logDay: logDay.isEmpty ? todayKey() : logDay)
+            logDay: logDay.isEmpty ? todayKey() : logDay,
+            sessionGrantedXP: sessionGrantedXP,
+            sessionCheckIns: sessionCheckIns,
+            sessionNotes: sessionNotes,
+            issueHistory: Array(issueHistory.prefix(FocusIssueHistory.maxStored)))
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
         encoder.dateEncodingStrategy = .iso8601

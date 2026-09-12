@@ -1034,7 +1034,7 @@ final class UsageStore {
         return nil
     }
 
-    /// Posts a check-in note. Returns false without throwing when Linear is unavailable.
+    /// Posts a comment on a Linear issue. Returns false without throwing when Linear is unavailable.
     func createLinearComment(issueID: String, body: String) async -> Bool {
         guard linearIntegrationEnabled, let key = linearAPIKeys.load()?.key else { return false }
         do {

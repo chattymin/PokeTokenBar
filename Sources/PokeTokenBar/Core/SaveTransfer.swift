@@ -146,6 +146,11 @@ enum SaveTransfer {
         s.spentTokens = clampToken(s.spentTokens)
         s.eggUsage = clampToken(s.eggUsage)
         s.timeOpenAwardedToday = clampToken(s.timeOpenAwardedToday)
+        s.linearIssueXP = s.linearIssueXP.map { record in
+            var copy = record
+            copy.xp = clampToken(copy.xp)
+            return copy
+        }
         s.claimedTodayTokensByProvider = s.claimedTodayTokensByProvider?.reduce(into: [:]) { result, entry in
             result[entry.key] = clampToken(entry.value)
         }
@@ -199,6 +204,8 @@ enum SaveTransfer {
         state.linearCreditedIssueIDs = LinearRewards.mergedCreditedIDs(
             imported.linearCreditedIssueIDs, current.linearCreditedIssueIDs)
         state.linearIntegrationSeeded = imported.linearIntegrationSeeded || current.linearIntegrationSeeded
+        state.linearIssueXP = LinearRewards.mergingXPRecords(
+            imported.linearIssueXP, current.linearIssueXP)
         // Time-open XP is a per-device clock ledger — never import another Mac's baseline
         // or you silently skip hours (or dump a gap) on the first tick after import.
         state.lastTimeOpenAwardAt = nil

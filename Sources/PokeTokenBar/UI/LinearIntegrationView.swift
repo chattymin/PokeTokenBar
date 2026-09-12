@@ -288,6 +288,7 @@ struct LinearIntegrationView: View {
             }
 
             metadataRow(issue)
+            LinearIssueCompletionStats(issue: issue)
         }
         .padding(8)
         .background(Color.secondary.opacity(0.06))

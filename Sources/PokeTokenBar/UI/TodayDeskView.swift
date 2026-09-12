@@ -74,6 +74,10 @@ struct TodayDeskView: View {
             hero
             Divider()
             pinList
+            if !store.linearCompletedTodayIssues.isEmpty {
+                Divider()
+                completedToday
+            }
             Divider()
             todayLog
         }
@@ -170,6 +174,7 @@ struct TodayDeskView: View {
                             .clipShape(Capsule())
                     }
                     Spacer()
+                    SessionNoteButton(compact: false)
                     LinearIssueStatusPicker(issue: issue, compact: false)
                     Button(l.markDone) {
                         Task { await session.markIssueDone() }
@@ -177,6 +182,13 @@ struct TodayDeskView: View {
                     .buttonStyle(.bordered)
                     .controlSize(.small)
                     .disabled(issue.completedStateId == nil && !issue.teamStates.contains { $0.type.lowercased() == "completed" })
+                }
+                if session.isComposingNote {
+                    SessionNoteComposer(compact: false)
+                } else if session.notePostFailed {
+                    Text(l.linearCommentFailed)
+                        .font(.caption2)
+                        .foregroundStyle(.orange)
                 }
                 SessionPromptCard()
             }
@@ -223,6 +235,33 @@ struct TodayDeskView: View {
         }
     }
 
+    private var completedToday: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(l.linearCompletedTodayTab).font(.headline)
+            ScrollView {
+                VStack(alignment: .leading, spacing: 6) {
+                    ForEach(store.linearCompletedTodayIssues) { issue in
+                        VStack(alignment: .leading, spacing: 4) {
+                            HStack(spacing: 8) {
+                                LinearIssueIDButton(identifier: issue.identifier, url: issue.issueURL)
+                                Text(issue.title)
+                                    .lineLimit(1)
+                                    .font(.callout)
+                                Spacer()
+                                LinearIssueStatusPicker(issue: issue)
+                            }
+                            LinearIssueCompletionStats(issue: issue)
+                        }
+                        .padding(6)
+                        .background(Color.secondary.opacity(0.05))
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                    }
+                }
+            }
+            .frame(minHeight: 60, maxHeight: 160)
+        }
+    }
+
     private var todayLog: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
@@ -251,11 +290,12 @@ struct TodayDeskView: View {
 
     private func logRow(_ entry: FocusLogEntry) -> some View {
         Group {
-            if entry.kind == .session {
+            switch entry.kind {
+            case .session:
                 let duration = FocusClock.format(entry.durationSeconds ?? 0)
                 let ot = (entry.overtimeSeconds ?? 0) > 0 ? FocusClock.format(entry.overtimeSeconds ?? 0) : ""
                 Text(l.sessionLogLine(identifier: entry.issueIdentifier, duration: duration, overtime: ot))
-            } else {
+            case .checkIn:
                 let answer: String = {
                     switch entry.checkInAnswer {
                     case .yes: return l.checkInYes
@@ -268,6 +308,10 @@ struct TodayDeskView: View {
                     identifier: entry.issueIdentifier,
                     answer: answer,
                     notePosted: entry.notePosted))
+            case .note:
+                Text(l.sessionNoteLogLine(
+                    identifier: entry.issueIdentifier,
+                    note: entry.noteText ?? ""))
             }
         }
         .font(.caption)

@@ -83,6 +83,61 @@ final class LinearRewardsTests: XCTestCase {
         XCTAssertTrue(Set(merged).isSubset(of: Set(a + b)))
     }
 
+    func testAppendingXPRecordsStoresFirstCompleteOnly() {
+        let first = issue("a")
+        let once = LinearRewards.appendingXPRecords(existing: [], newlyCredited: [first])
+        XCTAssertEqual(once.map(\.id), ["a"])
+        XCTAssertEqual(once.first?.xp, LinearRewards.xpPerIssue)
+        XCTAssertEqual(once.first?.identifier, "ENG-a")
+
+        let twice = LinearRewards.appendingXPRecords(
+            existing: once,
+            newlyCredited: [issue("a", at: 99), issue("b")])
+        XCTAssertEqual(twice.map(\.id), ["a", "b"])
+        XCTAssertEqual(twice.first?.xp, LinearRewards.xpPerIssue)
+        XCTAssertEqual(twice.first?.awardedAt, first.completedAt)
+    }
+
+    func testSeedOutcomeDoesNotCreateXPRecords() {
+        let outcome = LinearRewards.evaluate(
+            issues: [issue("a"), issue("b")],
+            alreadyCredited: [],
+            seeded: false)
+        let records = LinearRewards.appendingXPRecords(
+            existing: [], newlyCredited: outcome.newlyCredited)
+        XCTAssertTrue(records.isEmpty)
+        XCTAssertNil(LinearRewards.xpRecord(in: records, id: "a"))
+    }
+
+    func testXpRecordLookupIgnoresZeroAndMissing() {
+        let records = [
+            LinearIssueXPRecord(
+                id: "zero", identifier: "ENG-0", xp: 0,
+                awardedAt: Date(timeIntervalSince1970: 1)),
+            LinearIssueXPRecord(
+                id: "paid", identifier: "ENG-1", xp: LinearRewards.xpPerIssue,
+                awardedAt: Date(timeIntervalSince1970: 2)),
+        ]
+        XCTAssertNil(LinearRewards.xpRecord(in: records, id: "zero"))
+        XCTAssertNil(LinearRewards.xpRecord(in: records, id: "missing"))
+        XCTAssertEqual(LinearRewards.xpRecord(in: records, id: "paid")?.xp, LinearRewards.xpPerIssue)
+    }
+
+    func testMergingXPRecordsFirstIdWins() {
+        let older = LinearIssueXPRecord(
+            id: "a", identifier: "ENG-A", xp: LinearRewards.xpPerIssue,
+            awardedAt: Date(timeIntervalSince1970: 1))
+        let newer = LinearIssueXPRecord(
+            id: "a", identifier: "ENG-A", xp: 99,
+            awardedAt: Date(timeIntervalSince1970: 2))
+        let extra = LinearIssueXPRecord(
+            id: "b", identifier: "ENG-B", xp: LinearRewards.xpPerIssue,
+            awardedAt: Date(timeIntervalSince1970: 3))
+        let merged = LinearRewards.mergingXPRecords([older], [newer, extra])
+        XCTAssertEqual(merged.map(\.id), ["a", "b"])
+        XCTAssertEqual(merged.first?.xp, LinearRewards.xpPerIssue)
+    }
+
     func testParseCompletedIssuesFromGraphQLFixture() throws {
         let json = """
         {"data":{"issues":{"nodes":[

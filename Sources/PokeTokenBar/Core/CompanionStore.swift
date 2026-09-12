@@ -906,11 +906,19 @@ final class CompanionStore {
             seeded: state.linearIntegrationSeeded)
         state.linearCreditedIssueIDs = outcome.creditedIDs
         state.linearIntegrationSeeded = outcome.seeded
+        state.linearIssueXP = LinearRewards.appendingXPRecords(
+            existing: state.linearIssueXP,
+            newlyCredited: outcome.newlyCredited)
         if outcome.xp > 0 {
             applyProgressXP(outcome.xp)
         }
         save()
         return outcome
+    }
+
+    /// Stored Linear Done XP for a completed card. Nil when this issue was never awarded (seed / unknown).
+    func linearIssueXP(id: String) -> LinearIssueXPRecord? {
+        LinearRewards.xpRecord(in: state.linearIssueXP, id: id)
     }
 
     func grantCandies(from windows: [CandyWindow], limitsReady: Bool) {

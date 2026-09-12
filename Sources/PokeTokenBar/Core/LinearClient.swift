@@ -8,6 +8,14 @@ struct LinearCompletedIssue: Equatable, Sendable, Identifiable {
     var completedAt: Date
 }
 
+/// Per-issue Linear Done XP. First completion only — re-completing does not rewrite this.
+struct LinearIssueXPRecord: Codable, Equatable, Sendable, Identifiable {
+    var id: String
+    var identifier: String
+    var xp: Int
+    var awardedAt: Date
+}
+
 /// One workflow state on a Linear team (Todo, In Progress, Done, …).
 struct LinearWorkflowState: Equatable, Codable, Sendable, Identifiable {
     var id: String
@@ -1063,5 +1071,39 @@ enum LinearRewards {
             if seen.insert(id).inserted { out.append(id) }
         }
         return Array(out.suffix(maxCreditedIDs))
+    }
+
+    /// Persist XP only for issues that actually received it (`newlyCredited`). First id wins.
+    static func appendingXPRecords(
+        existing: [LinearIssueXPRecord],
+        newlyCredited: [LinearCompletedIssue]
+    ) -> [LinearIssueXPRecord] {
+        var seen = Set(existing.map(\.id))
+        var out = existing
+        for issue in newlyCredited {
+            guard seen.insert(issue.id).inserted else { continue }
+            out.append(LinearIssueXPRecord(
+                id: issue.id,
+                identifier: issue.identifier,
+                xp: xpPerIssue,
+                awardedAt: issue.completedAt))
+        }
+        return Array(out.suffix(maxCreditedIDs))
+    }
+
+    static func mergingXPRecords(
+        _ a: [LinearIssueXPRecord],
+        _ b: [LinearIssueXPRecord]
+    ) -> [LinearIssueXPRecord] {
+        var seen = Set<String>()
+        var out: [LinearIssueXPRecord] = []
+        for record in a + b {
+            if seen.insert(record.id).inserted { out.append(record) }
+        }
+        return Array(out.suffix(maxCreditedIDs))
+    }
+
+    static func xpRecord(in records: [LinearIssueXPRecord], id: String) -> LinearIssueXPRecord? {
+        records.first { $0.id == id && $0.xp > 0 }
     }
 }

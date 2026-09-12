@@ -41,6 +41,7 @@ final class FloatingPetController: NSObject, NSWindowDelegate {
     static let islandGap: CGFloat = 8
     static let promptHeightZeroTime: CGFloat = 152
     static let promptHeightCheckIn: CGFloat = 176
+    static let noteComposerHeight: CGFloat = 68
 
     /// Chrome size plus the signals the view actually fails on: wrap count vs
     /// `bubbleBodyLineLimit`, and single-line width vs the content column.
@@ -123,6 +124,7 @@ final class FloatingPetController: NSObject, NSWindowDelegate {
             _ = companion.language
             _ = session.isActive
             _ = session.prompt
+            _ = session.isComposingNote
         } onChange: { [weak self] in
             Task { @MainActor in
                 guard let self else { return }
@@ -148,7 +150,7 @@ final class FloatingPetController: NSObject, NSWindowDelegate {
     }
 
     static func panelSize(petSize: CGFloat, showingBubble: Bool,
-                          hasIsland: Bool, prompt: FocusPrompt) -> NSSize {
+                          hasIsland: Bool, prompt: FocusPrompt, composingNote: Bool = false) -> NSSize {
         if !hasIsland, prompt == .none {
             if showingBubble {
                 return NSSize(width: max(petSize, bubbleMinWidth),
@@ -163,7 +165,8 @@ final class FloatingPetController: NSObject, NSWindowDelegate {
         case .zeroTime: promptH = promptHeightZeroTime + 8
         case .checkIn: promptH = promptHeightCheckIn + 8
         }
-        let column = (hasIsland ? islandHeight : 0) + promptH
+        let composerH = (hasIsland && composingNote) ? noteComposerHeight : 0
+        let column = (hasIsland ? islandHeight : 0) + composerH + promptH
         let width = max(petSize + islandW, showingBubble ? bubbleMinWidth : petSize + islandW)
         let height = (showingBubble ? bubbleHeadroom : 0) + max(petSize, column)
         return NSSize(width: width, height: height)
@@ -361,7 +364,8 @@ final class FloatingPetController: NSObject, NSWindowDelegate {
     private func targetFrame(petSize: CGFloat, showingBubble: Bool) -> NSRect {
         let hasIsland = session.isActive
         let size = Self.panelSize(petSize: petSize, showingBubble: showingBubble,
-                                  hasIsland: hasIsland, prompt: session.prompt)
+                                  hasIsland: hasIsland, prompt: session.prompt,
+                                  composingNote: session.isComposingNote)
         let petOrigin: NSPoint
         if let x = defaults.object(forKey: Self.originXKey) as? Double,
            let y = defaults.object(forKey: Self.originYKey) as? Double {
@@ -409,7 +413,8 @@ final class FloatingPetController: NSObject, NSWindowDelegate {
         let petSize = CGFloat(store.floatingPetSize)
         let hasIsland = session.isActive
         let size = Self.panelSize(petSize: petSize, showingBubble: store.currentSpeechBubble != nil,
-                                  hasIsland: hasIsland, prompt: session.prompt)
+                                  hasIsland: hasIsland, prompt: session.prompt,
+                                  composingNote: session.isComposingNote)
         let pet = Self.petOrigin(panelOrigin: p.frame.origin, petSize: petSize,
                                  panelSize: size, hasIsland: hasIsland)
         defaults.set(Double(pet.x), forKey: Self.originXKey)

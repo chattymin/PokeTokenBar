@@ -291,6 +291,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             let issues = await store.fetchLinearCompletionsForCompanion()
             let outcome = companion.creditLinearCompletions(issues)
             store.announceLinearCompletions(outcome.newlyCredited)
+            for completed in outcome.newlyCredited {
+                sessionStore.handleLinearCompletion(completed)
+            }
         }
     }
 

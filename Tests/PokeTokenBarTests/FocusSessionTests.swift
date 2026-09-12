@@ -237,10 +237,330 @@ final class FocusSessionTests: XCTestCase {
         focus.finishLeavingInProgress()
         XCTAssertEqual(companion.state.eggUsage, 0)
     }
+
+    func testFirstCompletePersistsXPAndRecompleteKeepsStoredAmount() {
+        let stores = makeStores()
+        _ = stores.companion.creditLinearCompletions([])
+        let completed = LinearCompletedIssue(
+            id: "issue-1", identifier: "ENG-142", title: "Ship login", completedAt: t0)
+
+        let first = stores.companion.creditLinearCompletions([completed])
+        XCTAssertEqual(first.xp, LinearRewards.xpPerIssue)
+        XCTAssertEqual(stores.companion.linearIssueXP(id: "issue-1")?.xp, LinearRewards.xpPerIssue)
+        let eggAfterAward = stores.companion.state.eggUsage
+
+        let second = stores.companion.creditLinearCompletions([completed])
+        XCTAssertEqual(second.xp, 0)
+        XCTAssertEqual(stores.companion.linearIssueXP(id: "issue-1")?.xp, LinearRewards.xpPerIssue)
+        XCTAssertEqual(stores.companion.state.eggUsage, eggAfterAward)
+        XCTAssertNil(stores.focus.history(forIssueID: "issue-1"))
+    }
+
+    func testCompletedIssueWithoutSessionShowsLinearXPOnly() {
+        let stores = makeStores()
+        _ = stores.companion.creditLinearCompletions([])
+        let completed = LinearCompletedIssue(
+            id: "issue-1", identifier: "ENG-142", title: "Ship login", completedAt: t0)
+        _ = stores.companion.creditLinearCompletions([completed])
+
+        XCTAssertEqual(stores.companion.linearIssueXP(id: "issue-1")?.xp, LinearRewards.xpPerIssue)
+        XCTAssertNil(stores.focus.history(forIssueID: "issue-1"))
+        XCTAssertNil(stores.focus.history(forIssueID: "missing"))
+        XCTAssertNil(stores.companion.linearIssueXP(id: "missing"))
+    }
+
+    func testCompletedIssueAfterFocusSessionStoresTimerSummary() throws {
+        let clock = TimeOpenCompanionTestsClock(t0)
+        let stores = makeStores(clock: clock)
+        stores.focus.pin(issue(), openDesk: false)
+        stores.focus.tick(now: t0.addingTimeInterval(50 * 60))
+        let completed = LinearCompletedIssue(
+            id: "issue-1", identifier: "ENG-142", title: "Ship login", completedAt: t0)
+        _ = stores.companion.creditLinearCompletions([])
+        _ = stores.companion.creditLinearCompletions([completed])
+        stores.focus.handleLinearCompletion(completed)
+
+        XCTAssertEqual(stores.companion.linearIssueXP(id: "issue-1")?.xp, LinearRewards.xpPerIssue)
+        let history = try XCTUnwrap(stores.focus.history(forIssueID: "issue-1"))
+        XCTAssertEqual(history.finish, .doneOnTime)
+        XCTAssertEqual(history.plannedSeconds, 50 * 60)
+        XCTAssertEqual(history.durationSeconds, 50 * 60, accuracy: 0.01)
+        XCTAssertEqual(history.overtimeSeconds, 0)
+        XCTAssertEqual(history.sessionXP, 25_000_000)
+        XCTAssertTrue(history.checkIns.isEmpty)
+        XCTAssertNil(stores.focus.session)
+    }
+
+    func testOvertimeDoneHistoryRecordsContinuePath() throws {
+        let clock = TimeOpenCompanionTestsClock(t0)
+        let stores = makeStores(clock: clock)
+        stores.focus.pin(issue(), openDesk: false)
+        stores.focus.tick(now: t0.addingTimeInterval(50 * 60))
+        clock.now = t0.addingTimeInterval(50 * 60 + 1)
+        stores.focus.continueOvertime()
+        clock.now = t0.addingTimeInterval(50 * 60 + 1 + 10 * 60)
+        stores.focus.tick(now: clock.now)
+        let completed = LinearCompletedIssue(
+            id: "issue-1", identifier: "ENG-142", title: "Ship login", completedAt: clock.now)
+        stores.focus.handleLinearCompletion(completed)
+
+        let history = try XCTUnwrap(stores.focus.history(forIssueID: "issue-1"))
+        XCTAssertEqual(history.finish, .doneOvertime)
+        XCTAssertGreaterThan(history.overtimeSeconds, 0)
+        XCTAssertEqual(history.sessionXP, 6_000_000)
+    }
+
+    func testLeaveInProgressHistoryThenCompleteWithoutSessionKeepsTimer() throws {
+        let clock = TimeOpenCompanionTestsClock(t0)
+        let stores = makeStores(clock: clock)
+        stores.focus.pin(issue(), openDesk: false)
+        stores.focus.tick(now: t0.addingTimeInterval(20 * 60))
+        stores.focus.finishLeavingInProgress()
+
+        let history = try XCTUnwrap(stores.focus.history(forIssueID: "issue-1"))
+        XCTAssertEqual(history.finish, .leftInProgress)
+        XCTAssertEqual(history.durationSeconds, 20 * 60, accuracy: 0.01)
+        XCTAssertEqual(history.sessionXP, 2_000_000)
+
+        _ = stores.companion.creditLinearCompletions([])
+        _ = stores.companion.creditLinearCompletions([
+            LinearCompletedIssue(
+                id: "issue-1", identifier: "ENG-142", title: "Ship login", completedAt: t0)
+        ])
+        XCTAssertEqual(stores.companion.linearIssueXP(id: "issue-1")?.xp, LinearRewards.xpPerIssue)
+        XCTAssertEqual(stores.focus.history(forIssueID: "issue-1")?.finish, .leftInProgress)
+    }
+
+    func testCheckInNoteLandsOnCompletedHistory() async throws {
+        let clock = TimeOpenCompanionTestsClock(t0)
+        let stores = makeStores(clock: clock)
+        stores.focus.checkInMinutes = 30
+        stores.focus.pin(issue(), openDesk: false)
+        stores.focus.tick(now: t0.addingTimeInterval(30 * 60))
+        XCTAssertEqual(stores.focus.prompt, .checkIn)
+        stores.focus.checkInDraft = "  still debugging  "
+        await stores.focus.answerCheckIn(.no)
+        stores.focus.tick(now: t0.addingTimeInterval(50 * 60))
+        stores.focus.handleLinearCompletion(LinearCompletedIssue(
+            id: "issue-1", identifier: "ENG-142", title: "Ship login", completedAt: t0))
+
+        let history = try XCTUnwrap(stores.focus.history(forIssueID: "issue-1"))
+        XCTAssertEqual(history.checkIns.count, 1)
+        XCTAssertEqual(history.checkIns.first?.answer, .no)
+        XCTAssertEqual(history.checkIns.first?.note, "still debugging")
+        XCTAssertFalse(history.checkIns.first?.notePosted ?? true)
+    }
+
+    func testIssueHistorySurvivesReloadAndOldJSONDoesNotCrash() throws {
+        let clock = TimeOpenCompanionTestsClock(t0)
+        let stores = makeStores(clock: clock)
+        stores.focus.pin(issue(), openDesk: false)
+        stores.focus.tick(now: t0.addingTimeInterval(50 * 60))
+        stores.focus.handleLinearCompletion(LinearCompletedIssue(
+            id: "issue-1", identifier: "ENG-142", title: "Ship login", completedAt: t0))
+
+        let reloaded = FocusSessionStore(
+            usage: stores.usage,
+            companion: stores.companion,
+            clock: { clock.now },
+            fileURL: stores.focusURL,
+            ticksOnTimer: false)
+        XCTAssertEqual(reloaded.history(forIssueID: "issue-1")?.finish, .doneOnTime)
+        XCTAssertEqual(reloaded.history(forIssueID: "issue-1")?.sessionXP, 25_000_000)
+
+        let legacyURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("focus-legacy-\(UUID().uuidString).json")
+        let legacy = """
+        {"checkInMinutes":30,"log":[],"logDay":"2026-09-06","plannedMinutes":50}
+        """
+        try Data(legacy.utf8).write(to: legacyURL)
+        let legacyStore = FocusSessionStore(
+            usage: stores.usage,
+            companion: stores.companion,
+            clock: { self.t0 },
+            fileURL: legacyURL,
+            ticksOnTimer: false)
+        XCTAssertTrue(legacyStore.issueHistory.isEmpty)
+        XCTAssertEqual(legacyStore.plannedMinutes, 50)
+        XCTAssertNil(legacyStore.history(forIssueID: "issue-1"))
+    }
+
+    func testTruncatedCheckInNoteCapsLength() throws {
+        let long = String(repeating: "n", count: FocusCheckInSummary.maxNoteChars + 40)
+        let note = try XCTUnwrap(FocusCheckInSummary.truncatedNote("  \(long)  "))
+        XCTAssertEqual(note.count, FocusCheckInSummary.maxNoteChars)
+        XCTAssertNil(FocusCheckInSummary.truncatedNote("   "))
+    }
+
+    func testSessionCommentBodyDoesNotLookLikeACheckIn() {
+        let body = FocusTick.sessionCommentBody(
+            identifier: "ENG-142",
+            elapsedSeconds: 12 * 60,
+            note: "  still blocked  ")
+        XCTAssertEqual(body, "Note · ENG-142 · 12m\nstill blocked")
+        XCTAssertFalse(body.contains("Check-in"))
+        XCTAssertFalse(body.contains("lin_api_"))
+    }
+
+    func testSessionNoteCanBePostedBeforeFirstCheckIn() async {
+        let capture = CommentCapture()
+        let stores = makeStores(postComment: capture.post)
+        stores.focus.pin(issue(), openDesk: false)
+        XCTAssertEqual(stores.focus.session?.pendingCheckIn, false)
+        XCTAssertEqual(stores.focus.prompt, .none)
+
+        stores.focus.noteDraft = "context before check-in"
+        await stores.focus.postSessionNote()
+
+        XCTAssertEqual(capture.posts.count, 1)
+        XCTAssertEqual(capture.posts.first?.issueID, "issue-1")
+        XCTAssertTrue(capture.posts.first?.body.contains("Note · ENG-142") == true)
+        XCTAssertTrue(capture.posts.first?.body.contains("context before check-in") == true)
+        XCTAssertTrue(stores.focus.session?.checkInNotePosted == true)
+        XCTAssertEqual(stores.focus.todayLog.filter { $0.kind == .note }.compactMap(\.noteText), ["context before check-in"])
+        XCTAssertFalse(stores.focus.notePostFailed)
+        XCTAssertTrue(stores.focus.noteDraft.isEmpty)
+    }
+
+    func testSessionNotePostsLinearCommentAndEmptyIsNoOp() async {
+        let capture = CommentCapture()
+        let stores = makeStores(postComment: capture.post)
+        stores.focus.pin(issue(), openDesk: false)
+
+        stores.focus.noteDraft = "   "
+        await stores.focus.postSessionNote()
+        XCTAssertTrue(capture.posts.isEmpty)
+        XCTAssertFalse(stores.focus.session?.checkInNotePosted ?? true)
+
+        stores.focus.noteDraft = ""
+        await stores.focus.postSessionNote()
+        XCTAssertTrue(capture.posts.isEmpty)
+
+        stores.focus.noteDraft = "ship it"
+        await stores.focus.postSessionNote()
+        XCTAssertEqual(capture.posts.map(\.body), ["Note · ENG-142 · 0m\nship it"])
+        XCTAssertFalse(capture.posts.contains { $0.body.contains("lin_api_") })
+    }
+
+    func testSessionNoteInOvertimeSetsOTFlag() async {
+        let clock = TimeOpenCompanionTestsClock(t0)
+        let capture = CommentCapture()
+        let stores = makeStores(clock: clock, postComment: capture.post)
+        stores.focus.pin(issue(), openDesk: false)
+        stores.focus.tick(now: t0.addingTimeInterval(50 * 60))
+        clock.now = t0.addingTimeInterval(50 * 60 + 1)
+        stores.focus.continueOvertime()
+        clock.now = t0.addingTimeInterval(50 * 60 + 1 + 10 * 60)
+        stores.focus.tick(now: clock.now)
+        XCTAssertEqual(stores.focus.session?.overtimePaidMultiplier, 1)
+        XCTAssertEqual(stores.focus.session?.checkInNotePosted, false)
+
+        stores.focus.noteDraft = "still going"
+        await stores.focus.postSessionNote()
+
+        XCTAssertEqual(capture.posts.count, 1)
+        XCTAssertEqual(stores.focus.session?.checkInNotePosted, true)
+        XCTAssertEqual(stores.focus.session?.overtimePaidMultiplier, 2)
+    }
+
+    func testSessionNotePersistsForTodayDeskAndCompletedHistory() async throws {
+        let clock = TimeOpenCompanionTestsClock(t0)
+        let capture = CommentCapture()
+        let stores = makeStores(clock: clock, postComment: capture.post)
+        stores.focus.pin(issue(), openDesk: false)
+        stores.focus.noteDraft = "desk context"
+        await stores.focus.postSessionNote()
+        stores.focus.tick(now: t0.addingTimeInterval(50 * 60))
+        stores.focus.handleLinearCompletion(LinearCompletedIssue(
+            id: "issue-1", identifier: "ENG-142", title: "Ship login", completedAt: t0))
+
+        XCTAssertEqual(stores.focus.history(forIssueID: "issue-1")?.notes, ["desk context"])
+        XCTAssertEqual(stores.focus.todayLog.filter { $0.kind == .note }.compactMap(\.noteText), ["desk context"])
+
+        let reloaded = FocusSessionStore(
+            usage: stores.usage,
+            companion: stores.companion,
+            clock: { clock.now },
+            fileURL: stores.focusURL,
+            ticksOnTimer: false)
+        XCTAssertEqual(reloaded.history(forIssueID: "issue-1")?.notes, ["desk context"])
+        XCTAssertEqual(reloaded.todayLog.filter { $0.kind == .note }.compactMap(\.noteText), ["desk context"])
+    }
+
+    func testFailedSessionNoteSurfacesErrorAndDoesNotPersist() async {
+        let capture = CommentCapture()
+        capture.result = false
+        let stores = makeStores(postComment: capture.post)
+        stores.focus.pin(issue(), openDesk: false)
+        stores.focus.noteDraft = "nope"
+        await stores.focus.postSessionNote()
+
+        XCTAssertEqual(capture.posts.count, 1)
+        XCTAssertTrue(stores.focus.notePostFailed)
+        XCTAssertEqual(stores.focus.noteDraft, "nope")
+        XCTAssertFalse(stores.focus.session?.checkInNotePosted ?? true)
+        XCTAssertTrue(stores.focus.todayLog.filter { $0.kind == .note }.isEmpty)
+    }
+
+    func testIslandPanelGrowsWhenComposingNote() {
+        let pet: CGFloat = 48
+        let closed = FloatingPetController.panelSize(
+            petSize: pet, showingBubble: false, hasIsland: true, prompt: .none, composingNote: false)
+        let open = FloatingPetController.panelSize(
+            petSize: pet, showingBubble: false, hasIsland: true, prompt: .none, composingNote: true)
+        XCTAssertGreaterThan(open.height, closed.height)
+        XCTAssertEqual(open.height - closed.height, FloatingPetController.noteComposerHeight)
+        XCTAssertEqual(closed.height, FloatingPetController.islandHeight)
+    }
+
+    private func makeStores(
+        clock: TimeOpenCompanionTestsClock? = nil,
+        postComment: ((String, String) async -> Bool)? = nil
+    ) -> (usage: UsageStore, companion: CompanionStore, focus: FocusSessionStore, focusURL: URL) {
+        let now: () -> Date = {
+            if let clock { return clock.now }
+            return self.t0
+        }
+        let companion = CompanionStore(
+            provider: StubProvider(value: EvoLine(
+                baseID: 1,
+                tree: EvoNode(speciesID: 1, children: []),
+                rarity: .common,
+                names: [:])),
+            clock: now,
+            fileURL: FileManager.default.temporaryDirectory
+                .appendingPathComponent("focus-xp-card-\(UUID().uuidString).json"),
+            rng: SeededRNG(seed: 1))
+        let usage = UsageStore(
+            providers: [],
+            autoRefresh: false,
+            defaults: UserDefaults(suiteName: "focus-history-\(UUID().uuidString)")!)
+        let focusURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("focus-state-card-\(UUID().uuidString).json")
+        let focus = FocusSessionStore(
+            usage: usage,
+            companion: companion,
+            clock: now,
+            fileURL: focusURL,
+            ticksOnTimer: false,
+            postComment: postComment)
+        return (usage, companion, focus, focusURL)
+    }
 }
 
 /// Clock box local to this file so FocusSessionTests does not depend on TimeOpenCompanionTests internals.
 private final class TimeOpenCompanionTestsClock: @unchecked Sendable {
     nonisolated(unsafe) var now: Date
     init(_ d: Date) { now = d }
+}
+
+private final class CommentCapture: @unchecked Sendable {
+    var posts: [(issueID: String, body: String)] = []
+    var result = true
+
+    @MainActor
+    func post(issueID: String, body: String) async -> Bool {
+        posts.append((issueID, body))
+        return result
+    }
 }
