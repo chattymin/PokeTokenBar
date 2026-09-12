@@ -272,7 +272,7 @@ struct LinearClient: Sendable {
         }
     }
 
-    private func postGraphQL(apiKey: String, query: String, variables: [String: Any]) async throws -> Data {
+    func postGraphQL(apiKey: String, query: String, variables: [String: Any]) async throws -> Data {
         var payload: [String: Any] = ["query": query]
         if !variables.isEmpty { payload["variables"] = variables }
         let body = try JSONSerialization.data(withJSONObject: payload)
@@ -287,7 +287,7 @@ struct LinearClient: Sendable {
         return data
     }
 
-    private static let issueNodeFields = """
+    static let issueNodeFields = """
     id identifier title url description priority estimate \
     state { id name type } assignee { name email } project { name } \
     team { id name key states { nodes { id name type position } } } \
@@ -904,7 +904,7 @@ struct LinearClient: Sendable {
         return (nil, nil)
     }
 
-    private static func parseIssueSummary(_ node: [String: Any]) throws -> LinearIssueSummary {
+    static func parseIssueSummary(_ node: [String: Any]) throws -> LinearIssueSummary {
         guard let id = node["id"] as? String, !id.isEmpty,
               let identifier = node["identifier"] as? String, !identifier.isEmpty,
               let title = node["title"] as? String, !title.isEmpty
@@ -974,7 +974,7 @@ struct LinearClient: Sendable {
         return dayOnly.date(from: raw)
     }
 
-    private static func containsUnauthorizedGraphQLError(_ errors: [[String: Any]]) -> Bool {
+    static func containsUnauthorizedGraphQLError(_ errors: [[String: Any]]) -> Bool {
         for error in errors {
             if let extensions = error["extensions"] as? [String: Any],
                let code = extensions["code"] as? String {

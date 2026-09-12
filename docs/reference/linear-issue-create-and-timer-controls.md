@@ -81,10 +81,23 @@ Elapsed back to 0:00, **planned length unchanged**, still focused, phase `runnin
 
 Presets **+5 / +10 / +15 / +30** minutes. Clamp planned length to 5–180 minutes.
 
-Adds **N minutes of remaining countdown**, not “original planned + N then subtract elapsed”:
+Adds **N minutes onto remaining countdown** as exact seconds (`+5` → `+300s`). Does **not** replace remaining with N.
 
-`plannedSeconds = min(maxMinutes, currentElapsedMinutes + N) * 60`  
-If elapsed is already at the 180-minute cap, Add time is a no-op. Phase becomes `running`. Exit `awaitingChoice` and `overtime`. `fiveXOpen` stays false if the on-time window already ended.
+While counting down (remaining > 0):
+
+`newPlannedSeconds = min(maxMinutes * 60, currentPlannedSeconds + N * 60)`
+
+which is the same as:
+
+`newPlannedSeconds = min(maxMinutes * 60, elapsedSeconds + remainingSeconds + N * 60)`
+
+Overtime / `awaitingChoice` (remaining ≤ 0): remaining becomes N minutes from now:
+
+`newPlannedSeconds = min(maxMinutes * 60, elapsedSeconds + N * 60)`
+
+Exit `awaitingChoice` and `overtime` into `running`. `fiveXOpen` stays false if the on-time window already ended. No XP clawback.
+
+If planned is already 180 and still counting (elapsed + remaining at cap), Add time is a no-op. If elapsed is already at/past the 180-minute cap, Add time is a no-op. Overtime before the cap can still extend remaining from now: `planned = min(180*60, elapsed + N*60)`.
 
 ### Unfocus (forfeit)
 
@@ -135,6 +148,8 @@ Composer failures: orange caption, same style as session notes. Network/GraphQL 
 - Forfeit grants 0 XP; history kind `forfeited`; warning amounts match leave-in-progress and Done package
 - Later Mark Done on a forfeited issue still awards first-complete Linear XP
 - Reset with elapsed 0 is no-op; reset with elapsed > 0 needs confirm and returns to full planned countdown
-- Add time from running / awaitingChoice / overtime restores a remaining countdown of N minutes
-- Planned clamp 180
+- Add time from running adds N onto remaining (25 planned / 10 elapsed / +5 → remaining 20, not 5)
+- Add time from awaitingChoice / overtime restores a remaining countdown of N minutes from now
+- Add time uses exact seconds (not floored minutes)
+- Planned clamp 180; no-op when already at cap while counting; overtime can still extend from now up to cap
 - Missing Linear key: composer trigger disabled

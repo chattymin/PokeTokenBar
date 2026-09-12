@@ -41,7 +41,19 @@ final class FocusSessionStore {
     }
     var checkInDraft = ""
     var onOpenDesk: (() -> Void)?
+    var onOpenComposer: (() -> Void)?
     private var isLoading = false
+    private(set) var forfeitPrompt: FocusForfeitWarning?
+    private(set) var resetPrompt = false
+    private var pendingAfterForfeit: PendingAfterForfeit = .none
+    private let createIssue: ((LinearIssueDraft) async -> LinearIssueSummary?)?
+
+    private enum PendingAfterForfeit: Equatable {
+        case none
+        case idle
+        case pin(LinearIssueSummary, openDesk: Bool)
+        case createAndFocus(LinearIssueDraft)
+    }
 
     init(
         usage: UsageStore,
@@ -49,7 +61,8 @@ final class FocusSessionStore {
         clock: @escaping () -> Date = Date.init,
         fileURL: URL? = nil,
         ticksOnTimer: Bool = true,
-        postComment: ((String, String) async -> Bool)? = nil
+        postComment: ((String, String) async -> Bool)? = nil,
+        createIssue: ((LinearIssueDraft) async -> LinearIssueSummary?)? = nil
     ) {
         self.usage = usage
         self.companion = companion
@@ -57,6 +70,7 @@ final class FocusSessionStore {
         self.fileURL = fileURL ?? AppStatePaths.directory().appendingPathComponent("focus-session.json")
         self.ticksOnTimer = ticksOnTimer
         self.postComment = postComment
+        self.createIssue = createIssue
         plannedMinutes = SessionXP.defaultPlannedMinutes
         checkInMinutes = SessionXP.defaultCheckInMinutes
         load()
@@ -87,16 +101,105 @@ final class FocusSessionStore {
 
     func openDesk() { onOpenDesk?() }
 
+    func openComposer() { onOpenComposer?() }
+
+    var canResetClock: Bool {
+        guard let session else { return false }
+        return FocusTick.elapsedSeconds(session, now: clock()) > 0
+    }
+
+    var canAddRemainingTime: Bool {
+        guard let session else { return false }
+        return FocusTick.addRemaining(session, minutes: 5, now: clock()) != nil
+    }
+
     func pin(_ issue: LinearIssueSummary, openDesk: Bool = true) {
         if let current = session, current.issue.id == issue.id {
             if openDesk { self.openDesk() }
             return
         }
         if session != nil {
-            finishLeavingInProgress(resumeTimeOpen: false)
+            presentForfeit(pending: .pin(issue, openDesk: openDesk))
+            return
         }
         start(issue)
         if openDesk { self.openDesk() }
+    }
+
+    func requestUnfocus() {
+        guard session != nil else { return }
+        presentForfeit(pending: .idle)
+    }
+
+    func cancelForfeit() {
+        pendingAfterForfeit = .none
+        forfeitPrompt = nil
+    }
+
+    func confirmForfeit() async {
+        guard session != nil, forfeitPrompt != nil else { return }
+        let pending = pendingAfterForfeit
+        let resumeTimeOpen: Bool
+        switch pending {
+        case .pin, .createAndFocus: resumeTimeOpen = false
+        case .none, .idle: resumeTimeOpen = true
+        }
+        applyForfeit(resumeTimeOpen: resumeTimeOpen)
+        pendingAfterForfeit = .none
+        switch pending {
+        case .none, .idle:
+            break
+        case .pin(let issue, let openDesk):
+            start(issue)
+            if openDesk { self.openDesk() }
+        case .createAndFocus(let draft):
+            if let created = await performCreate(draft) {
+                start(created)
+                openDesk()
+            }
+        }
+    }
+
+    func createIssue(_ draft: LinearIssueDraft) async -> LinearIssueSummary? {
+        await performCreate(draft)
+    }
+
+    func createAndFocus(_ draft: LinearIssueDraft) async {
+        if session != nil {
+            presentForfeit(pending: .createAndFocus(draft))
+            return
+        }
+        guard let created = await performCreate(draft) else { return }
+        start(created)
+        openDesk()
+    }
+
+    func requestReset() {
+        guard canResetClock else { return }
+        resetPrompt = true
+        forfeitPrompt = nil
+        pendingAfterForfeit = .none
+    }
+
+    func cancelReset() {
+        resetPrompt = false
+    }
+
+    func confirmReset() {
+        guard let session else { return }
+        resetPrompt = false
+        guard let reset = FocusTick.resetClock(session, now: clock()) else { return }
+        self.session = reset
+        persist()
+        syncTimer()
+    }
+
+    func addRemainingMinutes(_ minutes: Int) {
+        guard let session else { return }
+        guard let next = FocusTick.addRemaining(session, minutes: minutes, now: clock()) else { return }
+        self.session = next
+        persist()
+        syncTimer()
     }
 
     func togglePause() {
@@ -255,6 +358,33 @@ final class FocusSessionStore {
 
     // MARK: - Internals
 
+    private func presentForfeit(pending: PendingAfterForfeit) {
+        guard let session else { return }
+        resetPrompt = false
+        pendingAfterForfeit = pending
+        forfeitPrompt = FocusTick.forfeitWarning(for: session)
+    }
+
+    private func applyForfeit(resumeTimeOpen: Bool) {
+        guard let session else { return }
+        let result = FocusTick.unfocusForfeit(session)
+        usage.announceForfeit(
+            identifier: session.issue.identifier,
+            leaveInProgressXP: result.warning.leaveInProgressXP)
+        appendForfeitLog(session, leaveInProgressXP: result.warning.leaveInProgressXP)
+        recordHistory(session, finish: .forfeited)
+        forfeitPrompt = nil
+        resetPrompt = false
+        clearSession(resumeTimeOpen: resumeTimeOpen)
+    }
+
+    private func performCreate(_ draft: LinearIssueDraft) async -> LinearIssueSummary? {
+        if let createIssue {
+            return await createIssue(draft)
+        }
+        return await usage.createLinearIssue(draft)
+    }
+
     private func postLinearComment(issueID: String, body: String) async -> Bool {
         if let postComment {
             return await postComment(issueID, body)
@@ -296,6 +426,9 @@ final class FocusSessionStore {
         sessionGrantedXP = 0
         sessionCheckIns = []
         sessionNotes = []
+        forfeitPrompt = nil
+        resetPrompt = false
+        pendingAfterForfeit = .none
         if resumeTimeOpen {
             companion.setTimeOpenXPSuspended(false, resumeFromNow: true)
         }
@@ -356,6 +489,16 @@ final class FocusSessionStore {
     private func appendNoteLog(_ issue: FocusPinnedIssue, text: String) {
         rolloverLogIfNeeded()
         log.insert(FocusLogEntry.note(day: todayKey(), issue: issue, text: text), at: 0)
+    }
+
+    private func appendForfeitLog(_ session: FocusSession, leaveInProgressXP: Int) {
+        rolloverLogIfNeeded()
+        log.insert(
+            FocusLogEntry.forfeit(
+                day: todayKey(),
+                issue: session.issue,
+                leaveInProgressXP: leaveInProgressXP),
+            at: 0)
     }
 
     private func todayKey() -> String { LocalUsageReader.todayKey(clock()) }

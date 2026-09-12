@@ -36,6 +36,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private var companion: CompanionStore!
     private var sessionStore: FocusSessionStore!
     private var todayDesk: TodayDeskController!
+    private var issueComposer: LinearIssueComposerController!
     private var updater: UpdateChecker!
     private var floatingPet: FloatingPetController!
     private let navigation = PopoverNavigation()
@@ -111,6 +112,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         }
         sessionStore = FocusSessionStore(usage: store, companion: companion)
         todayDesk = TodayDeskController(usage: store, companion: companion, session: sessionStore)
+        issueComposer = LinearIssueComposerController(usage: store, companion: companion, session: sessionStore)
         updater = UpdateChecker()
         store.localizationLanguage = companion.language   // 알림 현지화용 미러 시드
         store.onRefresh = { [weak self] in self?.onStoreRefreshed() }   // 한도 로드 후 companion·사탕 지급
@@ -118,7 +120,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             store: store, companion: companion, session: sessionStore,
             onOpenPopover: { [weak self] in self?.openPopover() },
             onHide: { [weak self] in self?.store.floatingPetEnabled = false },
-            onOpenToday: { [weak self] in self?.todayDesk.open() }
+            onOpenToday: { [weak self] in self?.todayDesk.open() },
+            onNewIssue: { [weak self] in self?.issueComposer.open() }
         )   // 데스크톱 플로팅 펫(옵트인)
         Task { await updater.check() }                    // 기동 시 1회 업데이트 확인
 

@@ -567,6 +567,126 @@ struct L {
           "\(identifier) · Notiz: \(note)")
     }
 
+    var newLinearIssue: String { t("새 이슈", "New issue", "新しい課題", "Nueva issue", "Nouvelle issue", "Nova issue", "Neues Issue") }
+    var createLinearIssue: String { t("만들기", "Create", "作成", "Crear", "Créer", "Criar", "Erstellen") }
+    var createAndFocusLinearIssue: String { t("만들고 집중", "Create & Focus", "作成して集中", "Crear y enfocar", "Créer et focus", "Criar e focar", "Erstellen & Fokus") }
+    var linearIssueTitle: String { t("제목", "Title", "タイトル", "Título", "Titre", "Título", "Titel") }
+    var linearIssueDescription: String { t("설명", "Description", "説明", "Descripción", "Description", "Descrição", "Beschreibung") }
+    var linearIssueTeam: String { t("팀", "Team", "チーム", "Equipo", "Équipe", "Time", "Team") }
+    var linearIssueProject: String { t("프로젝트", "Project", "プロジェクト", "Proyecto", "Projet", "Projeto", "Projekt") }
+    var linearIssueAssignee: String { t("담당자", "Assignee", "担当者", "Asignado", "Assigné", "Responsável", "Zuständig") }
+    var linearIssueLabels: String { t("레이블", "Labels", "ラベル", "Etiquetas", "Étiquettes", "Rótulos", "Labels") }
+    var linearIssueNoLabels: String { t("레이블 없음", "No labels", "ラベルなし", "Sin etiquetas", "Aucune étiquette", "Sem rótulos", "Keine Labels") }
+    func linearIssueLabelsCount(_ n: Int) -> String {
+        t("레이블 \(n)개", "\(n) labels", "ラベル \(n)件", "\(n) etiquetas", "\(n) étiquettes", "\(n) rótulos", "\(n) Labels")
+    }
+    var linearIssueStatus: String { t("상태", "Status", "ステータス", "Estado", "Statut", "Status", "Status") }
+    var linearIssueUnassigned: String { t("담당자 없음", "Unassigned", "未割り当て", "Sin asignar", "Non assigné", "Não atribuído", "Nicht zugewiesen") }
+    var linearIssueNoProject: String { t("프로젝트 없음", "No project", "プロジェクトなし", "Sin proyecto", "Aucun projet", "Sem projeto", "Kein Projekt") }
+    var linearIssueAssigneeMe: String { t("나", "Me", "自分", "Yo", "Moi", "Eu", "Ich") }
+    var linearCreateFailed: String {
+        t("이슈를 만들지 못했습니다. 다시 시도하세요.",
+          "Couldn't create the issue. Try again.",
+          "課題を作成できませんでした。再試行してください。",
+          "No se pudo crear la issue. Inténtalo de nuevo.",
+          "Impossible de créer l’issue. Réessaie.",
+          "Não foi possível criar a issue. Tente de novo.",
+          "Issue konnte nicht erstellt werden. Bitte erneut versuchen.")
+    }
+    var resetTimer: String { t("타이머 리셋", "Reset", "タイマーリセット", "Reiniciar", "Réinitialiser", "Redefinir", "Zurücksetzen") }
+    var resetTimerConfirmTitle: String {
+        t("타이머를 0:00으로 되돌릴까요?",
+          "Reset the timer to 0:00?",
+          "タイマーを0:00に戻しますか？",
+          "¿Reiniciar el temporizador a 0:00?",
+          "Réinitialiser le minuteur à 0:00 ?",
+          "Redefinir o timer para 0:00?",
+          "Timer auf 0:00 zurücksetzen?")
+    }
+    func resetTimerConfirmBody(_ planned: String) -> String {
+        t("계획 시간 \(planned)은 그대로입니다.",
+          "Planned length stays \(planned).",
+          "予定時間 \(planned) はそのままです。",
+          "La duración planificada sigue en \(planned).",
+          "La durée prévue reste \(planned).",
+          "A duração planejada continua \(planned).",
+          "Die geplante Länge bleibt \(planned).")
+    }
+    var addTime: String { t("시간 추가", "Add time", "時間を追加", "Añadir tiempo", "Ajouter du temps", "Adicionar tempo", "Zeit hinzufügen") }
+    func addTimeMinutes(_ n: Int) -> String {
+        t("+\(n)분", "+\(n) min", "+\(n)分", "+\(n) min", "+\(n) min", "+\(n) min", "+\(n) Min.")
+    }
+    var unfocusAction: String { t("집중 해제", "Unfocus", "集中解除", "Quitar enfoque", "Retirer le focus", "Desfocar", "Fokus lösen") }
+    var collapseTimer: String { t("타이머 접기", "Collapse timer", "タイマーを折りたたむ", "Contraer temporizador", "Replier le minuteur", "Recolher o timer", "Timer einklappen") }
+    var expandTimer: String { t("타이머 펼치기", "Expand timer", "タイマーを展開", "Expandir temporizador", "Déplier le minuteur", "Expandir o timer", "Timer ausklappen") }
+    var forfeitConfirmTitle: String {
+        t("집중을 포기할까요?",
+          "Unfocus and forfeit XP?",
+          "集中を放棄しますか？",
+          "¿Quitar el enfoque y perder el XP?",
+          "Retirer le focus et perdre l’XP ?",
+          "Desfocar e perder o XP?",
+          "Fokus lösen und XP verfallen?")
+    }
+    var forfeitConfirmBody: String {
+        t("지금 포기하면 아래 XP를 받지 않습니다.",
+          "Walking away gives up these XP amounts:",
+          "やめると次のXPは得られません。",
+          "Si te vas, pierdes estas cantidades de XP:",
+          "Si tu pars, tu renonces à ces montants d’XP :",
+          "Se sair agora, você abre mão destes XP:",
+          "Wenn du gehst, entfallen diese XP-Beträge:")
+    }
+    func forfeitLeaveInProgressLine(_ xp: String) -> String {
+        t("진행 중으로 두기 \(xp)",
+          "Leave in progress \(xp)",
+          "進行中のまま \(xp)",
+          "Dejar en curso \(xp)",
+          "Laisser en cours \(xp)",
+          "Deixar em andamento \(xp)",
+          "In Arbeit lassen \(xp)")
+    }
+    func forfeitDonePackageLine(_ xp: String) -> String {
+        t("정시 완료 패키지 \(xp)",
+          "On-time Done package \(xp)",
+          "定時完了パッケージ \(xp)",
+          "Paquete de hecha a tiempo \(xp)",
+          "Pack terminé à l’heure \(xp)",
+          "Pacote concluído no prazo \(xp)",
+          "Pünktlich-erledigt-Paket \(xp)")
+    }
+    var forfeitConfirmAction: String { t("포기", "Forfeit", "放棄", "Abandonar", "Abandonner", "Desistir", "Aufgeben") }
+    func forfeitBubbleTitle(_ identifier: String) -> String {
+        t("포기 · \(identifier)",
+          "Forfeit · \(identifier)",
+          "放棄 · \(identifier)",
+          "Abandono · \(identifier)",
+          "Abandon · \(identifier)",
+          "Desistência · \(identifier)",
+          "Aufgegeben · \(identifier)")
+    }
+    func forfeitBubbleBody(_ xp: String) -> String {
+        t("세션 XP 없음 · 놓친 \(xp)",
+          "No session XP · missed \(xp)",
+          "セッションXPなし · 逃した \(xp)",
+          "Sin XP de sesión · perdido \(xp)",
+          "Pas d’XP de session · \(xp) manqués",
+          "Sem XP da sessão · perdeu \(xp)",
+          "Keine Sitzungs-XP · \(xp) entgangen")
+    }
+    func forfeitLogLine(identifier: String, xp: String) -> String {
+        t("포기 · \(identifier) · −\(xp)",
+          "Forfeit · \(identifier) · −\(xp)",
+          "放棄 · \(identifier) · −\(xp)",
+          "Abandono · \(identifier) · −\(xp)",
+          "Abandon · \(identifier) · −\(xp)",
+          "Desistência · \(identifier) · −\(xp)",
+          "Aufgegeben · \(identifier) · −\(xp)")
+    }
+    var focusFinishedForfeited: String {
+        t("포기함", "Forfeited", "放棄した", "Abandonada", "Abandonnée", "Desistida", "Aufgegeben")
+    }
+
     var statusChecksLabel: String { t("프로바이더 상태 확인", "Provider status checks", "プロバイダー状態チェック", "Comprobación de estado de proveedores", "Vérification de l'état des fournisseurs", "Verificação de status dos provedores", "Anbieterstatus prüfen") }
     var statusChecksHint: String { t("Claude·OpenAI 장애를 팝오버에 표시 (알림 아님)", "Show Claude / OpenAI incidents in the popover (not a notification)", "Claude・OpenAIの障害をポップオーバーに表示（通知ではない）", "Muestra incidentes de Claude/OpenAI en el popover (no es una notificación)", "Affiche les incidents Claude / OpenAI dans le popover (pas une notification)", "Mostra incidentes do Claude/OpenAI no painel (não é uma notificação)", "Störungen bei Claude / OpenAI im Popover anzeigen (keine Benachrichtigung)") }
     var warning: String { t("경고", "Warning", "警告", "Aviso", "Avertissement", "Aviso", "Warnung") }

@@ -14,51 +14,69 @@ struct SessionIslandView: View {
             let issue = store.linearIssue(id: current.issue.id) ?? current.issue.summary
             let clock = session.clockDisplay()
             VStack(alignment: .leading, spacing: 6) {
-                SessionPromptCard()
-                    .frame(width: FloatingPetController.islandWidth)
-
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack(spacing: 6) {
-                        LinearIssueIDButton(identifier: current.issue.identifier, url: current.issue.url)
-                        Text(current.issue.title)
-                            .font(.caption)
-                            .lineLimit(1)
-                            .truncationMode(.tail)
-                        Spacer(minLength: 0)
-                        SessionNoteButton()
-                    }
-                    HStack(spacing: 6) {
-                        Text(clock.text)
-                            .font(.system(size: 16, weight: .semibold, design: .rounded).monospacedDigit())
-                        if clock.overtime {
-                            Text(l.overtimeAbbrev)
-                                .font(.system(size: 9, weight: .bold))
-                                .padding(.horizontal, 4)
-                                .padding(.vertical, 1)
-                                .background(Color.orange.opacity(0.2))
-                                .foregroundStyle(.orange)
-                                .clipShape(Capsule())
-                        }
-                        Spacer(minLength: 0)
-                        Button {
-                            session.togglePause()
-                        } label: {
-                            Image(systemName: current.userPaused || current.phase == .paused
-                                  ? "play.fill" : "pause.fill")
-                        }
-                        .buttonStyle(.borderless)
-                        .disabled(current.phase == .awaitingChoice)
-                        .help(current.userPaused || current.phase == .paused ? l.resumeTimer : l.pauseTimer)
-                        LinearIssueStatusPicker(issue: issue)
-                    }
-                    if session.isComposingNote {
-                        SessionNoteComposer()
-                    }
+                if let warning = session.forfeitPrompt {
+                    FocusForfeitWarningCard(warning: warning)
+                        .frame(width: FloatingPetController.islandWidth)
+                } else if session.resetPrompt {
+                    FocusResetConfirmCard()
+                        .frame(width: FloatingPetController.islandWidth)
+                } else {
+                    SessionPromptCard()
+                        .frame(width: FloatingPetController.islandWidth)
                 }
-                .padding(8)
-                .frame(width: FloatingPetController.islandWidth, alignment: .leading)
-                .background(Color(nsColor: .windowBackgroundColor).opacity(0.95))
-                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+
+                if !store.floatingPetIslandFolded {
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack(spacing: 6) {
+                            LinearIssueIDButton(identifier: current.issue.identifier, url: current.issue.url)
+                            Text(current.issue.title)
+                                .font(.caption)
+                                .lineLimit(1)
+                                .truncationMode(.tail)
+                            Spacer(minLength: 0)
+                            NewLinearIssueButton()
+                            SessionNoteButton()
+                        }
+                        HStack(spacing: 6) {
+                            Text(clock.text)
+                                .font(.system(size: 16, weight: .semibold, design: .rounded).monospacedDigit())
+                            if clock.overtime {
+                                Text(l.overtimeAbbrev)
+                                    .font(.system(size: 9, weight: .bold))
+                                    .padding(.horizontal, 4)
+                                    .padding(.vertical, 1)
+                                    .background(Color.orange.opacity(0.2))
+                                    .foregroundStyle(.orange)
+                                    .clipShape(Capsule())
+                            }
+                            Spacer(minLength: 0)
+                            Button {
+                                session.togglePause()
+                            } label: {
+                                Image(systemName: current.userPaused || current.phase == .paused
+                                      ? "play.fill" : "pause.fill")
+                            }
+                            .buttonStyle(.borderless)
+                            .disabled(current.phase == .awaitingChoice)
+                            .help(current.userPaused || current.phase == .paused ? l.resumeTimer : l.pauseTimer)
+                            LinearIssueStatusPicker(issue: issue)
+                        }
+                        FocusTimerControls()
+                        if session.isComposingNote {
+                            SessionNoteComposer()
+                        }
+                    }
+                    .padding(8)
+                    .frame(width: FloatingPetController.islandWidth, alignment: .leading)
+                    .background(Color(nsColor: .windowBackgroundColor).opacity(0.95))
+                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                } else if session.isComposingNote {
+                    SessionNoteComposer()
+                        .padding(8)
+                        .frame(width: FloatingPetController.islandWidth, alignment: .leading)
+                        .background(Color(nsColor: .windowBackgroundColor).opacity(0.95))
+                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                }
             }
         }
     }
@@ -107,6 +125,7 @@ struct SessionNoteComposer: View {
     @Environment(CompanionStore.self) private var companion
 
     private var l: L { companion.l }
+    @FocusState private var noteFieldFocused: Bool
     private var trimmedEmpty: Bool {
         session.noteDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
@@ -117,6 +136,7 @@ struct SessionNoteComposer: View {
             HStack(spacing: 6) {
                 TextField(l.checkInNotePlaceholder, text: $session.noteDraft)
                     .textFieldStyle(.roundedBorder)
+                    .focused($noteFieldFocused)
                     .onSubmit { Task { await session.postSessionNote() } }
                 Button(l.postNote) {
                     Task { await session.postSessionNote() }
@@ -131,5 +151,6 @@ struct SessionNoteComposer: View {
             }
         }
         .controlSize(compact ? .mini : .small)
+        .onAppear { noteFieldFocused = true }
     }
 }

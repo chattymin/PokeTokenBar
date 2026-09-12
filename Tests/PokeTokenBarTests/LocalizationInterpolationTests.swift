@@ -113,6 +113,14 @@ final class LocalizationInterpolationTests: XCTestCase {
             expect(lang, "overtimeDurationLine", l.overtimeDurationLine(a), a)
             expect(lang, "focusCheckInLine", l.focusCheckInLine(answer: a, notePosted: true), a)
             expect(lang, "sessionNoteLogLine", l.sessionNoteLogLine(identifier: a, note: b), a, b)
+            expect(lang, "linearIssueLabelsCount", l.linearIssueLabelsCount(4242), "4242")
+            expect(lang, "resetTimerConfirmBody", l.resetTimerConfirmBody(a), a)
+            expect(lang, "addTimeMinutes", l.addTimeMinutes(4242), "4242")
+            expect(lang, "forfeitLeaveInProgressLine", l.forfeitLeaveInProgressLine(a), a)
+            expect(lang, "forfeitDonePackageLine", l.forfeitDonePackageLine(a), a)
+            expect(lang, "forfeitBubbleTitle", l.forfeitBubbleTitle(a), a)
+            expect(lang, "forfeitBubbleBody", l.forfeitBubbleBody(a), a)
+            expect(lang, "forfeitLogLine", l.forfeitLogLine(identifier: a, xp: b), a, b)
 
             // Updates / 업데이트
             expect(lang, "updateAvailable", l.updateAvailable(a, current: b), a, b)

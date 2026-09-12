@@ -801,4 +801,185 @@ final class LinearRewardsTests: XCTestCase {
         let payload = try XCTUnwrap(try JSONSerialization.jsonObject(with: body) as? [String: Any])
         return try XCTUnwrap(payload["query"] as? String)
     }
+
+    func testIssueCreateVariablesRequireTeamAndTitleAndOmitEmptyOptionals() throws {
+        let empty = LinearClient.issueCreateVariables(
+            LinearIssueDraft(title: "Ship it", description: "  ", teamId: "team-1"))
+        let input = try XCTUnwrap(empty["input"] as? [String: Any])
+        XCTAssertEqual(input["teamId"] as? String, "team-1")
+        XCTAssertEqual(input["title"] as? String, "Ship it")
+        XCTAssertNil(input["description"])
+        XCTAssertNil(input["assigneeId"])
+        XCTAssertNil(input["stateId"])
+        XCTAssertNil(input["projectId"])
+        XCTAssertNil(input["labelIds"])
+
+        let full = LinearClient.issueCreateVariables(
+            LinearIssueDraft(
+                title: "Ship it",
+                description: "body",
+                teamId: "team-1",
+                projectId: "proj-1",
+                assigneeId: "user-1",
+                stateId: "state-1",
+                labelIds: ["lab-1"]))
+        let filled = try XCTUnwrap(full["input"] as? [String: Any])
+        XCTAssertEqual(filled["description"] as? String, "body")
+        XCTAssertEqual(filled["projectId"] as? String, "proj-1")
+        XCTAssertEqual(filled["assigneeId"] as? String, "user-1")
+        XCTAssertEqual(filled["stateId"] as? String, "state-1")
+        XCTAssertEqual(filled["labelIds"] as? [String], ["lab-1"])
+    }
+
+    func testIssueCreatePostsTeamIdAndTitle() async throws {
+        let fixture = """
+        {"data":{"issueCreate":{"success":true,"issue":{
+          "id":"new-1","identifier":"ENG-99","title":"Ship it",
+          "team":{"id":"team-1","name":"Eng","key":"ENG"}
+        }}}}
+        """.data(using: .utf8)!
+        let http = StubLinearHTTPClient(status: 200, data: fixture)
+        let client = LinearClient(http: http)
+        let issue = try await client.createIssue(
+            apiKey: "lin_api_" + String(repeating: "x", count: 40),
+            draft: LinearIssueDraft(title: "Ship it", teamId: "team-1"))
+        XCTAssertEqual(issue.id, "new-1")
+        XCTAssertEqual(issue.identifier, "ENG-99")
+
+        let sent = try XCTUnwrap(http.lastBody)
+        let bodyText = try XCTUnwrap(String(data: sent, encoding: .utf8))
+        XCTAssertTrue(bodyText.contains("issueCreate"))
+        XCTAssertTrue(bodyText.contains("IssueCreateInput"))
+        XCTAssertTrue(bodyText.contains("team-1"))
+        XCTAssertTrue(bodyText.contains("Ship it"))
+        let payload = try XCTUnwrap(try JSONSerialization.jsonObject(with: sent) as? [String: Any])
+        let variables = try XCTUnwrap(payload["variables"] as? [String: Any])
+        let input = try XCTUnwrap(variables["input"] as? [String: Any])
+        XCTAssertEqual(input["teamId"] as? String, "team-1")
+        XCTAssertNil(input["description"])
+        XCTAssertNil(input["labelIds"])
+    }
+
+    func testCreateCatalogQueriesStayUnderComplexityExpectations() async throws {
+        let teams = """
+        {"data":{"viewer":{"id":"me","name":"Ada","email":"ada@ex.com"},
+          "teams":{"nodes":[
+            {"id":"team-1","name":"Eng","key":"ENG",
+             "defaultIssueState":{"id":"todo","name":"Todo","type":"unstarted","position":1},
+             "states":{"nodes":[
+               {"id":"todo","name":"Todo","type":"unstarted","position":1},
+               {"id":"start","name":"In Progress","type":"started","position":2}
+             ]}}
+          ]}}}
+        """.data(using: .utf8)!
+        let users = #"{"data":{"users":{"nodes":[{"id":"me","name":"Ada"}]}}}"#.data(using: .utf8)!
+        let labels = #"{"data":{"issueLabels":{"nodes":[{"id":"lab-1","name":"bug","team":{"id":"team-1"}}]}}}"#.data(using: .utf8)!
+        let projects = """
+        {"data":{"projects":{"nodes":[
+          {"id":"p-1","name":"Ship","teams":{"nodes":[{"id":"team-1"}]}}
+        ]}}}
+        """.data(using: .utf8)!
+        let http = SequenceLinearHTTPClient(responses: [
+            (200, teams), (200, users), (200, labels), (200, projects),
+        ])
+        let client = LinearClient(http: http)
+        let catalog = try await client.fetchCreateCatalog(
+            apiKey: "lin_api_" + String(repeating: "x", count: 40))
+        XCTAssertEqual(catalog.viewer?.id, "me")
+        XCTAssertEqual(catalog.teams.first?.id, "team-1")
+        XCTAssertEqual(LinearClient.defaultCreateState(for: catalog.teams[0])?.id, "todo")
+        XCTAssertEqual(http.bodies.count, 4)
+        let teamsQuery = try graphqlQuery(http.bodies[0])
+        let projectsQuery = try graphqlQuery(http.bodies[3])
+        XCTAssertTrue(teamsQuery.contains("defaultIssueState"))
+        XCTAssertTrue(teamsQuery.contains("states { nodes"))
+        XCTAssertFalse(teamsQuery.contains("projects("))
+        XCTAssertTrue(projectsQuery.contains("teams { nodes { id } }"))
+        XCTAssertFalse(projectsQuery.contains("states {"))
+        XCTAssertFalse(projectsQuery.contains("issues("))
+        XCTAssertFalse(projectsQuery.contains("team.states"))
+    }
+
+    @MainActor
+    func testComposerTriggerDisabledWithoutLinearKey() {
+        let defaults = UserDefaults(suiteName: "linear-compose-\(UUID().uuidString)")!
+        let usage = UsageStore(providers: [], autoRefresh: false, defaults: defaults)
+        usage.linearIntegrationEnabled = true
+        XCTAssertFalse(usage.canComposeLinearIssue)
+
+        let keyURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("linear-key-\(UUID().uuidString).json")
+        let keys = LinearAPIKeyStore(fileURL: keyURL)
+        try? keys.save(.init(key: "lin_api_" + String(repeating: "x", count: 40)))
+        let ready = UsageStore(
+            providers: [], autoRefresh: false, defaults: defaults, linearAPIKeys: keys)
+        ready.linearIntegrationEnabled = true
+        XCTAssertTrue(ready.canComposeLinearIssue)
+        ready.linearIntegrationEnabled = false
+        XCTAssertFalse(ready.canComposeLinearIssue)
+    }
+
+    @MainActor
+    func testCreateLinearIssuePersistsLastTeamAndRefreshes() async throws {
+        let createFixture = """
+        {"data":{"issueCreate":{"success":true,"issue":{
+          "id":"new-1","identifier":"ENG-99","title":"Ship it",
+          "team":{"id":"team-1","name":"Eng","key":"ENG"}
+        }}}}
+        """.data(using: .utf8)!
+        let http = SequenceLinearHTTPClient(responses: [
+            (200, createFixture),
+            (200, issuesDashboardFixture()),
+            (200, liveContainersFixture()),
+        ])
+        let keyURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("linear-key-\(UUID().uuidString).json")
+        let keys = LinearAPIKeyStore(fileURL: keyURL)
+        try keys.save(.init(key: "lin_api_" + String(repeating: "x", count: 40)))
+        let defaults = UserDefaults(suiteName: "linear-create-\(UUID().uuidString)")!
+        let usage = UsageStore(
+            providers: [],
+            autoRefresh: false,
+            defaults: defaults,
+            linearClient: LinearClient(http: http),
+            linearAPIKeys: keys)
+        usage.linearIntegrationEnabled = true
+        let issue = await usage.createLinearIssue(LinearIssueDraft(title: "Ship it", teamId: "team-1"))
+        XCTAssertEqual(issue?.id, "new-1")
+        XCTAssertEqual(usage.lastLinearTeamID, "team-1")
+        XCTAssertEqual(defaults.string(forKey: LinearClient.lastCreatedTeamDefaultsKey), "team-1")
+        XCTAssertEqual(usage.linearInProgressIssues.first?.id, "issue-2")
+    }
+
+    func testLabelMenuTitleShowsPlaceholderThenNamesThenCount() {
+        let labels = [
+            LinearLabelSummary(id: "a", name: "Bug", teamID: "t"),
+            LinearLabelSummary(id: "b", name: "Feature", teamID: "t"),
+            LinearLabelSummary(id: "c", name: "Urgent", teamID: "t"),
+        ]
+        XCTAssertEqual(
+            LinearIssueLabelMenuTitle.text(
+                selectedIDs: [], labels: labels, placeholder: "Labels", counted: { "\($0) labels" }),
+            "Labels")
+        XCTAssertEqual(
+            LinearIssueLabelMenuTitle.text(
+                selectedIDs: ["a"], labels: labels, placeholder: "Labels", counted: { "\($0) labels" }),
+            "Bug")
+        XCTAssertEqual(
+            LinearIssueLabelMenuTitle.text(
+                selectedIDs: ["b", "a"], labels: labels, placeholder: "Labels", counted: { "\($0) labels" }),
+            "Bug, Feature")
+        XCTAssertEqual(
+            LinearIssueLabelMenuTitle.text(
+                selectedIDs: ["c", "a", "b"], labels: labels, placeholder: "Labels", counted: { "\($0) labels" }),
+            "3 labels")
+        XCTAssertEqual(
+            LinearIssueLabelMenuTitle.text(
+                selectedIDs: ["missing"], labels: labels, placeholder: "Labels", counted: { "\($0) labels" }),
+            "Labels")
+        XCTAssertEqual(
+            LinearIssueLabelMenuTitle.text(
+                selectedIDs: ["a"], labels: [], placeholder: "Labels", counted: { "\($0) labels" }),
+            "Labels")
+    }
 }

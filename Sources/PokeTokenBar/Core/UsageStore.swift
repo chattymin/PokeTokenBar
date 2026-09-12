@@ -149,6 +149,10 @@ final class UsageStore {
     var floatingPetBubbleAlerts: Bool {
         didSet { defaults.set(floatingPetBubbleAlerts, forKey: "floatingPetBubbleAlerts") }
     }
+    /// Overlay timer island folded into the pet. Default expanded. Survives relaunch.
+    var floatingPetIslandFolded: Bool {
+        didSet { defaults.set(floatingPetIslandFolded, forKey: "floatingPetIslandFolded") }
+    }
     var disableKeychainAccess: Bool {
         didSet {
             defaults.set(disableKeychainAccess, forKey: "disableKeychainAccess")   // 저장 누락이던 기존 버그 — 재시작 후 풀렸음
@@ -522,7 +526,9 @@ final class UsageStore {
          statusProvider: any ProviderStatusProviding = StatuspageStatusProvider(),
          sessionKeys: any SessionKeyManaging = SessionKeyLimitsProvider.shared,
          autoRefresh: Bool = true,
-         defaults: UserDefaults = .standard) {
+         defaults: UserDefaults = .standard,
+         linearClient: LinearClient = LinearClient(),
+         linearAPIKeys: LinearAPIKeyStore = LinearAPIKeyStore()) {
         self.providers = providers
         self.limitsProvider = claudeLimitsProvider
         self.sessionKeys = sessionKeys
@@ -530,6 +536,8 @@ final class UsageStore {
         self.antigravityLimitsProvider = antigravityLimitsProvider
         self.statusProvider = statusProvider
         self.defaults = defaults
+        self.linearClient = linearClient
+        self.linearAPIKeys = linearAPIKeys
         let d = defaults
         refreshInterval = d.object(forKey: "refreshInterval") as? TimeInterval ?? 120
         warnThreshold = d.object(forKey: "warnThreshold") as? Double ?? 80
@@ -543,11 +551,13 @@ final class UsageStore {
         timeOpenXPEnabled = d.object(forKey: "timeOpenXPEnabled") as? Bool ?? true
         linearIntegrationEnabled = d.object(forKey: "linearIntegrationEnabled") as? Bool ?? false
         linearAPIKeyConfigured = linearAPIKeys.load() != nil
+        lastLinearTeamID = d.string(forKey: LinearClient.lastCreatedTeamDefaultsKey) ?? ""
         updateNotificationsEnabled = d.object(forKey: "updateNotificationsEnabled") as? Bool ?? true
         statusChecksEnabled = d.object(forKey: "statusChecksEnabled") as? Bool ?? true
         floatingPetEnabled = d.object(forKey: "floatingPetEnabled") as? Bool ?? false
         floatingPetSize = d.object(forKey: "floatingPetSize") as? Double ?? 96
         floatingPetBubbleAlerts = d.object(forKey: "floatingPetBubbleAlerts") as? Bool ?? true
+        floatingPetIslandFolded = d.object(forKey: "floatingPetIslandFolded") as? Bool ?? false
         // 기본 powerSaver — 이 설정이 생기기 전의 고정 캡(0.4s)과 같은 프레임 레이트라, 기존
         // 사용자의 배터리 프로파일은 그대로다. 더 부드러운 쪽은 opt-in(실측 idle CPU 1.8%/5.1%).
         animationQuality = AnimationQuality(rawValue: d.string(forKey: "animationQuality") ?? "") ?? .powerSaver
@@ -850,9 +860,13 @@ final class UsageStore {
     private(set) var linearInitiatives: [LinearInitiativeSummary] = []
     private(set) var linearIssuesUpdatedAt: Date?
     private(set) var linearIssuesError: String?
+    private(set) var isCreatingLinearIssue = false
+    private(set) var linearCreateError: String?
+    private(set) var lastLinearTeamID = ""
+    private(set) var linearCreateCatalog: LinearCreateCatalog?
     private var linearRecentCompletedIssues: [LinearCompletedIssue] = []
-    private let linearAPIKeys = LinearAPIKeyStore()
-    private var linearClient = LinearClient()
+    private let linearAPIKeys: LinearAPIKeyStore
+    private var linearClient: LinearClient
 
     /// 저장된 키가 만료로 거부된 상태. `sessionKeyConfigured` 는 키가 죽어도 true 라(지우는 건
     /// 사용자 몫) 그것만으로 배지를 그리면 만료 후에도 "설정됨"이 남는다 — 설정에 들어온 사용자가
@@ -1046,6 +1060,51 @@ final class UsageStore {
         }
     }
 
+    var canComposeLinearIssue: Bool {
+        linearIntegrationEnabled && linearAPIKeyConfigured
+    }
+
+    func fetchLinearCreateCatalog() async -> LinearCreateCatalog? {
+        guard canComposeLinearIssue, let key = linearAPIKeys.load()?.key else { return nil }
+        do {
+            let catalog = try await linearClient.fetchCreateCatalog(apiKey: key)
+            linearCreateCatalog = catalog
+            return catalog
+        } catch {
+            linearCreateError = "create_failed"
+            return nil
+        }
+    }
+
+    /// Creates a Linear issue, persists last team, refreshes the dashboard. Does not pin.
+    func createLinearIssue(_ draft: LinearIssueDraft) async -> LinearIssueSummary? {
+        guard canComposeLinearIssue, let key = linearAPIKeys.load()?.key else { return nil }
+        let title = draft.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !title.isEmpty, !draft.teamId.isEmpty else { return nil }
+        guard !isCreatingLinearIssue else { return nil }
+
+        isCreatingLinearIssue = true
+        linearCreateError = nil
+        defer { isCreatingLinearIssue = false }
+
+        var payload = draft
+        payload.title = title
+        do {
+            let issue = try await linearClient.createIssue(apiKey: key, draft: payload)
+            lastLinearTeamID = payload.teamId
+            defaults.set(payload.teamId, forKey: LinearClient.lastCreatedTeamDefaultsKey)
+            _ = await refreshLinearIssues()
+            return issue
+        } catch {
+            linearCreateError = "create_failed"
+            return nil
+        }
+    }
+
+    func clearLinearCreateError() {
+        linearCreateError = nil
+    }
+
     private func applyLinearDashboard(_ dashboard: LinearIssueDashboard, now: Date) {
         linearRecentCompletedIssues = dashboard.completedRecent.compactMap { issue in
             guard let completedAt = issue.completedAt else { return nil }
@@ -1139,6 +1198,8 @@ final class UsageStore {
         linearIssuesUpdatedAt = nil
         linearIssuesError = nil
         updatingLinearIssueID = nil
+        linearCreateError = nil
+        linearCreateCatalog = nil
     }
 
 
@@ -1426,6 +1487,15 @@ final class UsageStore {
         let l = L(localizationLanguage)
         presentTransientFeedback(
             bubble: SpeechBubble(title: l.timesUpBubbleTitle(identifier), body: l.timesUpBubbleBody))
+    }
+
+    func announceForfeit(identifier: String, leaveInProgressXP: Int) {
+        let l = L(localizationLanguage)
+        presentTransientFeedback(
+            bubble: SpeechBubble(
+                title: l.forfeitBubbleTitle(identifier),
+                body: l.forfeitBubbleBody(TokenFormatter.compact(leaveInProgressXP)),
+                isCritical: true))
     }
 
     /// Evolve / graduate copy on the floating pet. No-op when the pet or bubble alerts are off.

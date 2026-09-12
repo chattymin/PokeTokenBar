@@ -99,6 +99,7 @@ struct TodayDeskView: View {
                     .foregroundStyle(.secondary)
             }
             Spacer()
+            NewLinearIssueButton(compact: false)
             durationPickers
         }
     }
@@ -183,6 +184,7 @@ struct TodayDeskView: View {
                     .controlSize(.small)
                     .disabled(issue.completedStateId == nil && !issue.teamStates.contains { $0.type.lowercased() == "completed" })
                 }
+                FocusTimerControls(compact: false)
                 if session.isComposingNote {
                     SessionNoteComposer(compact: false)
                 } else if session.notePostFailed {
@@ -190,7 +192,13 @@ struct TodayDeskView: View {
                         .font(.caption2)
                         .foregroundStyle(.orange)
                 }
-                SessionPromptCard()
+                if let warning = session.forfeitPrompt {
+                    FocusForfeitWarningCard(warning: warning)
+                } else if session.resetPrompt {
+                    FocusResetConfirmCard()
+                } else {
+                    SessionPromptCard()
+                }
             }
             .padding(12)
             .background(Color.secondary.opacity(0.08))
@@ -312,10 +320,15 @@ struct TodayDeskView: View {
                 Text(l.sessionNoteLogLine(
                     identifier: entry.issueIdentifier,
                     note: entry.noteText ?? ""))
+            case .forfeit:
+                Text(l.forfeitLogLine(
+                    identifier: entry.issueIdentifier,
+                    xp: TokenFormatter.compact(entry.xpDelta ?? 0)))
+                    .foregroundStyle(.red)
             }
         }
         .font(.caption)
-        .foregroundStyle(.secondary)
+        .foregroundStyle(entry.kind == .forfeit ? Color.red : Color.secondary)
     }
 }
 
@@ -325,6 +338,7 @@ struct SessionPromptCard: View {
     @Environment(CompanionStore.self) private var companion
 
     private var l: L { companion.l }
+    @FocusState private var checkInFieldFocused: Bool
 
     var body: some View {
         switch session.prompt {
@@ -362,6 +376,7 @@ struct SessionPromptCard: View {
                 .font(.callout.weight(.semibold))
             TextField(l.checkInNotePlaceholder, text: $session.checkInDraft)
                 .textFieldStyle(.roundedBorder)
+                .focused($checkInFieldFocused)
             HStack {
                 Button(l.checkInYes) { Task { await session.answerCheckIn(.yes) } }
                     .buttonStyle(.borderedProminent)
@@ -378,6 +393,7 @@ struct SessionPromptCard: View {
         .padding(10)
         .background(Color.windowBackgroundColor)
         .clipShape(RoundedRectangle(cornerRadius: 10))
+        .onAppear { checkInFieldFocused = true }
     }
 }
 

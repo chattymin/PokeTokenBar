@@ -86,6 +86,9 @@ struct LinearIntegrationView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
+            if let warning = session.forfeitPrompt {
+                FocusForfeitWarningCard(warning: warning)
+            }
             HStack {
                 Image(systemName: selectedRoot.symbol)
                     .font(.body)
@@ -100,6 +103,7 @@ struct LinearIntegrationView: View {
                 .pickerStyle(.segmented)
                 .labelsHidden()
                 Spacer()
+                NewLinearIssueButton()
                 Button {
                     session.openDesk()
                 } label: {

@@ -25,4 +25,10 @@ final class LaunchWindowPolicyTests: XCTestCase {
             identifier: LaunchWindowPolicy.todayDeskIdentifier,
             autosaveName: LaunchWindowPolicy.todayDeskAutosaveName))
     }
+
+    func testNewLinearIssueIdentifierIsNotASettingsPlaceholder() {
+        XCTAssertFalse(LaunchWindowPolicy.isSwiftUISettingsPlaceholder(
+            identifier: LaunchWindowPolicy.newLinearIssueIdentifier,
+            autosaveName: LaunchWindowPolicy.newLinearIssueAutosaveName))
+    }
 }

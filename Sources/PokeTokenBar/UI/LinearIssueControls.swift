@@ -150,6 +150,9 @@ struct LinearIssueCompletionStats: View {
             Text(l.focusFinishedOvertime)
         case .leftInProgress:
             Text(l.focusFinishedLeftInProgress)
+        case .forfeited:
+            Text(l.focusFinishedForfeited)
+                .foregroundStyle(.red)
         }
     }
 
@@ -205,5 +208,127 @@ struct LinearFocusButton: View {
         .buttonStyle(.bordered)
         .controlSize(compact ? .mini : .small)
         .tint(isPinned ? .accentColor : .secondary)
+    }
+}
+
+@MainActor
+struct NewLinearIssueButton: View {
+    var compact: Bool = true
+
+    @Environment(UsageStore.self) private var store
+    @Environment(FocusSessionStore.self) private var session
+    @Environment(CompanionStore.self) private var companion
+
+    private var l: L { companion.l }
+
+    var body: some View {
+        Button {
+            session.openComposer()
+        } label: {
+            Image(systemName: "plus")
+        }
+        .buttonStyle(.borderless)
+        .controlSize(compact ? .mini : .small)
+        .disabled(!store.canComposeLinearIssue)
+        .help(store.canComposeLinearIssue ? l.newLinearIssue : l.linearIssuesNeedsSetup)
+        .accessibilityLabel(l.newLinearIssue)
+    }
+}
+
+@MainActor
+struct FocusForfeitWarningCard: View {
+    let warning: FocusForfeitWarning
+
+    @Environment(FocusSessionStore.self) private var session
+    @Environment(CompanionStore.self) private var companion
+
+    private var l: L { companion.l }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(l.forfeitConfirmTitle)
+                .font(.callout.weight(.semibold))
+            Text(l.forfeitConfirmBody)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Text(l.forfeitLeaveInProgressLine(TokenFormatter.compact(warning.leaveInProgressXP)))
+                .font(.caption)
+            Text(l.forfeitDonePackageLine(TokenFormatter.compact(warning.donePackageXP)))
+                .font(.caption)
+            HStack {
+                Button(l.cancel) { session.cancelForfeit() }
+                Button(l.forfeitConfirmAction) {
+                    Task { await session.confirmForfeit() }
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(.red)
+            }
+        }
+        .controlSize(.small)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(10)
+        .background(Color(nsColor: .windowBackgroundColor))
+        .clipShape(RoundedRectangle(cornerRadius: 10))
+    }
+}
+
+@MainActor
+struct FocusResetConfirmCard: View {
+    @Environment(FocusSessionStore.self) private var session
+    @Environment(CompanionStore.self) private var companion
+
+    private var l: L { companion.l }
+
+    var body: some View {
+        let planned = l.minutesValue(session.plannedMinutes)
+        return VStack(alignment: .leading, spacing: 8) {
+            Text(l.resetTimerConfirmTitle)
+                .font(.callout.weight(.semibold))
+            Text(l.resetTimerConfirmBody(planned))
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            HStack {
+                Button(l.cancel) { session.cancelReset() }
+                Button(l.resetTimer) { session.confirmReset() }
+                    .buttonStyle(.borderedProminent)
+            }
+        }
+        .controlSize(.small)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(10)
+        .background(Color(nsColor: .windowBackgroundColor))
+        .clipShape(RoundedRectangle(cornerRadius: 10))
+    }
+}
+
+@MainActor
+struct FocusTimerControls: View {
+    var compact: Bool = true
+
+    @Environment(FocusSessionStore.self) private var session
+    @Environment(CompanionStore.self) private var companion
+
+    private var l: L { companion.l }
+    private let presets = [5, 10, 15, 30]
+
+    var body: some View {
+        HStack(spacing: compact ? 4 : 8) {
+            Button(l.resetTimer) { session.requestReset() }
+                .disabled(!session.canResetClock)
+            Menu {
+                ForEach(presets, id: \.self) { minutes in
+                    Button(l.addTimeMinutes(minutes)) {
+                        session.addRemainingMinutes(minutes)
+                    }
+                }
+            } label: {
+                Text(l.addTime)
+            }
+            .disabled(!session.canAddRemainingTime)
+            Button(l.unfocusAction) { session.requestUnfocus() }
+                .foregroundStyle(.red)
+        }
+        .buttonStyle(.bordered)
+        .controlSize(compact ? .mini : .small)
     }
 }

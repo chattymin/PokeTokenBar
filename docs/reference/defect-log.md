@@ -553,6 +553,7 @@ read_when:
   `testTransientSurfaceIsTheOnlyUncappedOne` — 캡=0 주입으로 실패 확인). 상시 표시 표면을 더할 땐
   캡을 반드시 **이름 있는 값**으로 두고 `>0` 를 단정한다. occlusion 게이팅은
   all-spaces/`.floating` 펫이 실제로 거의 안 가려져 메뉴바와 동일 수확체감으로 미도입. (#102 리뷰 지적 반영, 2026-07-22.)
+- **`.nonactivatingPanel` 은 키 윈도우가 될 수 없다.** 플로팅 펫은 클릭이 다른 앱을 안 뺏게 `.nonactivatingPanel` 이고, 앱은 LSUIElement(`.accessory`)다. 그 조합에서 SwiftUI `TextField`(세션 메모·체크인)를 올려도 패널이 `canBecomeKey == false` 라 키 입력이 앞 앱으로 새어 나간다. 높이만 커지는 레이아웃 테스트는 통과한다. 가드: 펫 패널 서브클래스가 `canBecomeKey` 이고 스톡 nonactivating 은 거짓(`testFloatingPetPanelCanBecomeKeyUnlikeStockNonactivatingPanel`) + 텍스트 필드가 있을 때만 키 윈도우를 연다(`overlayNeedsKeyWindow` — 메모 작성·체크인; 0:00 프롬프트는 버튼만). 텍스트가 열릴 때 `activate(ignoringOtherApps:)` + `makeKeyAndOrderFront`(팝오버와 동일 함정, SettingsView 주석). 토큰/버블 `sync` 마다 재활성화하면 타이핑 중 포커스가 튕기므로 rising-edge 만.
 
 ## 알림
 

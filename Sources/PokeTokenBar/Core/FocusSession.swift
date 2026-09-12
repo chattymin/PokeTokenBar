@@ -202,6 +202,16 @@ struct FocusTickResult: Equatable {
     var checkInBecameDue: Bool
 }
 
+struct FocusForfeitWarning: Equatable, Sendable {
+    var leaveInProgressXP: Int
+    var donePackageXP: Int
+}
+
+struct FocusForfeitResult: Equatable, Sendable {
+    var xp: Int
+    var warning: FocusForfeitWarning
+}
+
 enum FocusTick {
     static func apply(_ session: FocusSession, now: Date) -> FocusTickResult {
         var s = session
@@ -380,6 +390,65 @@ enum FocusTick {
         return s
     }
 
+    static func elapsedSeconds(_ session: FocusSession, now: Date) -> TimeInterval {
+        freeze(session, now: now).accumulatedSeconds
+    }
+
+    /// Elapsed back to 0:00, planned length unchanged, phase running, not overtime.
+    /// Nil when elapsed is already 0 (no-op). Does not claw back granted XP.
+    static func resetClock(_ session: FocusSession, now: Date) -> FocusSession? {
+        var s = freeze(session, now: now)
+        guard s.accumulatedSeconds > 0 else { return nil }
+        s.accumulatedSeconds = 0
+        s.checkInAccumulatedSeconds = 0
+        s.pendingCheckIn = false
+        s.checkInDeferred = false
+        s.phase = .running
+        s.enteredOvertime = false
+        s.awaitingChoiceSince = nil
+        s.userPaused = false
+        s.overtimeIntervalsPaid = 0
+        s.overtimePaidMultiplier = 1
+        s.segmentStartedAt = s.sleepHeld ? nil : now
+        return s
+    }
+
+    /// Adds `minutes` onto remaining countdown as exact seconds (`+5` → `+300s`).
+    /// While counting: `planned = min(cap, planned + N*60)`. Overtime / awaitingChoice
+    /// (remaining ≤ 0): `planned = min(cap, elapsed + N*60)` so remaining becomes N from now.
+    /// Nil when remaining cannot increase (already at the 180-minute planned cap while
+    /// counting, or elapsed already at/past the cap). Exits awaitingChoice / overtime
+    /// into running. Does not claw back XP or reopen `fiveXOpen`.
+    static func addRemaining(_ session: FocusSession, minutes: Int, now: Date) -> FocusSession? {
+        let add = max(0, minutes)
+        guard add > 0 else { return nil }
+        var s = freeze(session, now: now)
+        let cap = TimeInterval(SessionXP.maxMinutes * 60)
+        let elapsed = max(0, s.accumulatedSeconds)
+        let remaining = max(0, s.plannedSeconds - elapsed)
+        let newPlanned = min(cap, elapsed + remaining + TimeInterval(add * 60))
+        let newRemaining = newPlanned - elapsed
+        guard newRemaining > remaining else { return nil }
+        s.plannedSeconds = newPlanned
+        s.phase = .running
+        s.enteredOvertime = false
+        s.awaitingChoiceSince = nil
+        s.userPaused = false
+        s.segmentStartedAt = s.sleepHeld ? nil : now
+        return s
+    }
+
+    /// Forfeit pays 0 XP. Warning amounts are computed, not granted.
+    static func unfocusForfeit(_ session: FocusSession) -> FocusForfeitResult {
+        FocusForfeitResult(xp: 0, warning: forfeitWarning(for: session))
+    }
+
+    static func forfeitWarning(for session: FocusSession) -> FocusForfeitWarning {
+        FocusForfeitWarning(
+            leaveInProgressXP: settleLeaveInProgress(session),
+            donePackageXP: settleOnTimeDone(session) + LinearRewards.xpPerIssue)
+    }
+
     static func checkInCommentBody(
         answer: CheckInAnswer,
         identifier: String,
@@ -456,8 +525,9 @@ struct FocusLogEntry: Codable, Equatable, Identifiable {
     var checkInAnswer: CheckInAnswer?
     var notePosted: Bool
     var noteText: String? = nil
+    var xpDelta: Int? = nil
 
-    enum Kind: String, Codable { case session, checkIn, note }
+    enum Kind: String, Codable { case session, checkIn, note, forfeit }
 
     static func session(
         day: String,
@@ -516,6 +586,25 @@ struct FocusLogEntry: Codable, Equatable, Identifiable {
             notePosted: true,
             noteText: FocusCheckInSummary.truncatedNote(text))
     }
+
+    static func forfeit(
+        day: String,
+        issue: FocusPinnedIssue,
+        leaveInProgressXP: Int
+    ) -> FocusLogEntry {
+        FocusLogEntry(
+            id: UUID(),
+            day: day,
+            kind: .forfeit,
+            issueIdentifier: issue.identifier,
+            issueTitle: issue.title,
+            startedAt: nil,
+            durationSeconds: nil,
+            overtimeSeconds: nil,
+            checkInAnswer: nil,
+            notePosted: false,
+            xpDelta: leaveInProgressXP)
+    }
 }
 
 /// How a focus session ended. Continue is not a finish — overtime then Done is `doneOvertime`.
@@ -523,6 +612,7 @@ enum FocusFinishKind: String, Codable, Equatable {
     case doneOnTime
     case doneOvertime
     case leftInProgress
+    case forfeited
 }
 
 struct FocusCheckInSummary: Codable, Equatable {
