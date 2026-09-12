@@ -13,18 +13,10 @@ enum AppLanguage: String, Codable, Sendable, CaseIterable {
         switch self {
         case .ko: return ["ko"]
         case .en: return ["en"]
-        case .ja: return ["ja-Hrkt", "ja"]
+        case .ja: return ["ja-hrkt", "ja"]
         case .es: return ["es"]
         case .fr: return ["fr"]
-        // PokéAPI has no `pt` in its language list, so this falls through to
-        // resolveName's English fallback. That fallback IS the expected result:
-        // the core series was never localised into Portuguese, so Brazilian
-        // players use the English species names anyway. The code is listed
-        // regardless, so the day PokéAPI adds it, it works with no edit here.
-        // PokéAPI 의 language 목록에 pt 는 없다 → resolveName 의 영어 폴백으로 내려간다.
-        // 본가 시리즈가 포르투갈어로 나온 적이 없어 브라질에서도 종 이름은 영어를 쓰므로 폴백이 곧 기대값이다.
-        // 그래도 코드를 적어두는 건 PokéAPI 가 pt 를 추가하는 순간 분기 수정 없이 반영되게 하기 위해서다.
-        case .pt: return ["pt"]
+        case .pt: return ["pt-br", "pt"]
         case .de: return ["de"]
         }
     }
@@ -36,8 +28,7 @@ enum AppLanguage: String, Codable, Sendable, CaseIterable {
 
     /// byLang(langCode→name) 에서 이 언어의 이름을 고른다(apiCodes 첫 매칭 → 영어 폴백).
     func resolveName(_ byLang: [String: String]) -> String? {
-        for code in apiCodes { if let n = byLang[code] { return n } }
-        return byLang["en"]
+        PokemonNameLocalization.resolve(byLang, preferredCodes: apiCodes)
     }
 
     /// 신규 설치 기본 언어 — 시스템 선호 언어에서 유추(글로벌 출시: 한국어 강제 금지).
@@ -521,6 +512,8 @@ struct MonState: Codable, Sendable {
 
 /// 도감 항목 — 라인 전체(초기→최종) 순서 보존.
 struct DexEntry: Codable, Sendable, Identifiable {
+    /// Version 1 preserves every API language; earlier saves retained only app-supported names.
+    static let currentNamesVersion = 1
     var id = UUID().uuidString
     var baseID: Int
     var finalID: Int
@@ -535,6 +528,11 @@ struct DexEntry: Codable, Sendable, Identifiable {
     /// 도감의 단계별 스프라이트 밑 이름 표시가 네트워크 없이 즉시 + 언어 전환 대응. 구버전 저장분엔
     /// 없어(nil) 뷰가 line fetch 로 조회 후 백필한다.
     var names: [Int: [String: String]]?
+    var namesVersion: Int?
+    var needsNamesRefresh: Bool {
+        namesVersion != Self.currentNamesVersion
+            || chainOrder.contains { names?[$0]?.isEmpty != false }
+    }
     /// 놓아준 시각 — 알을 새로 사서 육성을 포기한 기록. nil = 졸업분(구버전 저장분 포함).
     ///
     /// 두 기록을 한 배열에 두는 이유: 도감(`dexSpecies`)은 종이 어떻게 확보됐는지와 무관하게
@@ -558,6 +556,8 @@ struct DexEntry: Codable, Sendable, Identifiable {
         self.nature = nature
         self.profile = profile
         self.names = names
+        self.namesVersion = chainOrder.allSatisfy { names?[$0]?.isEmpty == false }
+            ? Self.currentNamesVersion : nil
         self.releasedAt = releasedAt
     }
 
@@ -577,6 +577,7 @@ struct DexEntry: Codable, Sendable, Identifiable {
         // try? — 구버전(최종체 단일 [String:String]) 형식이 남아 있어도 종별 맵 디코딩 실패 시 nil 로
         // 강등(항목 전체 로드는 유지). 뷰가 line 조회로 백필한다.
         names = (try? c.decodeIfPresent([Int: [String: String]].self, forKey: .names)) ?? nil
+        namesVersion = try? c.decodeIfPresent(Int.self, forKey: .namesVersion)
         // 이 필드 이전에 저장된 항목은 전부 졸업분이다 — nil 이 곧 "졸업"이라 마이그레이션이 필요 없다.
         releasedAt = try c.decodeIfPresent(Date.self, forKey: .releasedAt)
     }

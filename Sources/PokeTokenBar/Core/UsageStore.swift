@@ -38,7 +38,14 @@ final class UsageStore {
     private(set) var isRefreshingLimitToken = false
     private(set) var isRefreshingAntigravityLimits = false
     private(set) var lastErrorDescription: String?
-    private(set) var limitTokenRefreshError: String?
+    private var limitTokenRefreshFailure: (any Error)?
+    var limitTokenRefreshError: String? {
+        limitTokenRefreshFailure.map { Self.friendlyLimitError($0, L(localizationLanguage)) }
+    }
+
+    func lastErrorMessage(_ l: L) -> String? {
+        lastErrorDescription.map { l.usageRefreshError + "\n" + $0 }
+    }
 
     // MARK: Bubble Alert State
     /// Transient speech-bubble payload for the floating pet. Cleared after the TTL.
@@ -869,12 +876,12 @@ final class UsageStore {
             limitsAvailable = true
             limitsUpdatedAt = Date()
             limitsAuthExpiry = nil
-            limitTokenRefreshError = nil
+            limitTokenRefreshFailure = nil
             resetLimitsBackoff()
             AppLog.write("limits refreshed by user action fiveHour=\(limits?.fiveHour?.utilization?.description ?? "nil") sevenDay=\(limits?.sevenDay?.utilization?.description ?? "nil")")
             AppLog.write("limits refreshed from keychain by user action")
         } catch {
-            limitTokenRefreshError = Self.friendlyLimitError(error, L(localizationLanguage))
+            limitTokenRefreshFailure = error
             if limits == nil { limitsAvailable = false }
             updateAuthExpired(from: error)
             applyLimitsBackoffIfRateLimited(error)
@@ -893,7 +900,10 @@ final class UsageStore {
     /// 마지막 검증에서 확인된 후보 조직 — 2개 이상일 때만 설정에 선택 UI 를 띄운다.
     var sessionKeyOrganizations: [SessionKeyOrganization] = []
     var sessionKeySelectedOrgID: String?
-    var sessionKeyError: String?
+    private var sessionKeyFailure: (any Error)?
+    var sessionKeyError: String? {
+        sessionKeyFailure.map { Self.friendlyLimitError($0, L(localizationLanguage)) }
+    }
     var isValidatingSessionKey = false
 
     /// 붙여넣은 키를 검증하고 저장한다. 검증은 조직 목록 조회 — 성공하면 볼 수 있는 조직이 확정되므로,
@@ -901,7 +911,7 @@ final class UsageStore {
     func saveSessionKey(_ raw: String) async {
         guard !isValidatingSessionKey else { return }
         isValidatingSessionKey = true
-        sessionKeyError = nil
+        sessionKeyFailure = nil
         defer { isValidatingSessionKey = false }
 
         do {
@@ -917,7 +927,7 @@ final class UsageStore {
             AppLog.write("session key saved (orgs=\(organizations.count) picked=\(picked.id))")
             await refresh()
         } catch {
-            sessionKeyError = Self.friendlyLimitError(error, L(localizationLanguage))
+            sessionKeyFailure = error
             AppLog.write("session key save failed: \(error)")
         }
     }
@@ -944,7 +954,7 @@ final class UsageStore {
         sessionKeyConfigured = false
         sessionKeyOrganizations = []
         sessionKeySelectedOrgID = nil
-        sessionKeyError = nil
+        sessionKeyFailure = nil
         AppLog.write("session key cleared")
         Task { await refresh() }   // OAuth 경로로 되돌아간다(또는 한도 섹션을 숨긴다)
     }
@@ -958,7 +968,7 @@ final class UsageStore {
             AppLog.write("session key org switched to \(id)")
             await refresh()
         } catch {
-            sessionKeyError = Self.friendlyLimitError(error, L(localizationLanguage))
+            sessionKeyFailure = error
         }
     }
 

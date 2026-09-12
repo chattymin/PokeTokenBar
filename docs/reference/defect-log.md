@@ -25,6 +25,30 @@ read_when:
 
 ## 판정·데이터
 
+- **Localized metadata names must not replace persistent API identifiers.** The dex rendered
+  ability, move, and type slugs directly, while existing tests covered species names and profile
+  metadata rather than these visible labels. All five detail-view name sites now use a shared
+  selected-language → English resolver, with a formatted identifier only before names are available.
+  Preserve every API language in the cache, normalize legacy language-code casing, and derive
+  supported API codes from `AppLanguage` so future languages need no second allowlist.
+  Fetch names from mounted detail rows rather than profile preparation. `PokemonNameLocalizationTests`
+  covers locale selection, missing translations, future languages, native text rendering, request
+  reuse, disk restoration, and offline retry without changing profile identifiers.
+  Existing saves need a name-cache version as well: nonempty dictionaries from the old allowlist
+  are not complete multilingual responses. `DexNameMigrationTests` covers legacy JSON, duplicate
+  catches, offline/partial recovery, progress preservation, and an unavailable language that must
+  not trigger repeated fetches. Restoring the old nil-only backfill filter makes the regression fail.
+  Catch-log rows must resolve legacy entries even when old names exist, and prefer persisted
+  multilingual names over previously rendered strings after a language change.
+
+- **Translate at display time, including errors and accessibility labels.** Storing translated
+  error strings left session-key and quota-refresh failures in the previous language. Store the
+  failure and resolve it through the shared language selector. `LocalizationErrorsTests` switches
+  languages while a real store error remains visible and checks diagnostic preservation.
+  English UI literals bypassed the Hangul-only source guard; `LanguageSurfaceRegressionTests`
+  now covers usage labels, hidden control labels, selected-language backup dates, and Gen-V
+  `light-ball-egg`/`form-change` methods alongside native rendering in all supported languages.
+
 - **Cost availability is not a numeric zero.** Codex providers overwrote priced totals with zero
   while leaving cost UI enabled; earlier tests asserted that subscription policy instead of
   comparing the public provider result with priced log entries. Preserve explicit source zero,

@@ -22,6 +22,8 @@ LOGIC_CORE=(
   "Sources/PokeTokenBar/Core/CompanionModel.swift"
   "Sources/PokeTokenBar/Core/CompanionStore.swift"
   "Sources/PokeTokenBar/Core/PokemonProfile.swift"
+  "Sources/PokeTokenBar/Core/PokemonNameLocalization.swift"
+  "Sources/PokeTokenBar/Core/LocalizationErrors.swift"
   "Sources/PokeTokenBar/Core/UsageStore.swift"
   "Sources/PokeTokenBar/Core/Models.swift"
   "Sources/PokeTokenBar/Core/UsageCost.swift"

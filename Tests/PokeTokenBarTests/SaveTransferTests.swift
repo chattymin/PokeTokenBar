@@ -721,9 +721,9 @@ final class SaveTransferTests: XCTestCase {
                 XCTAssertFalse(message.contains("couldn't be completed"), "원문 노출: \(message)")
             }
         }
-        // 그 외 오류는 시스템 문구로 폴백(파일 읽기 실패 등).
+        // File errors also use the selected app language.
         let other = NSError(domain: NSCocoaErrorDomain, code: NSFileReadNoSuchFileError)
-        XCTAssertEqual(L(.en).importErrorMessage(other), other.localizedDescription)
+        XCTAssertEqual(L(.en).importErrorMessage(other), L(.en).userFacingError(other))
     }
 
     func testSuggestedFileNameCarriesDate() {
