@@ -144,7 +144,8 @@ final class UsageStore {
     var floatingPetSize: Double {
         didSet { defaults.set(floatingPetSize, forKey: "floatingPetSize") }
     }
-    /// Show limit alerts as speech bubbles on the floating pet. Default on; independent of Notification Center.
+    /// Show limit / companion / Linear alerts as speech bubbles on the floating pet.
+    /// Default on; independent of Notification Center.
     var floatingPetBubbleAlerts: Bool {
         didSet { defaults.set(floatingPetBubbleAlerts, forKey: "floatingPetBubbleAlerts") }
     }
@@ -842,8 +843,11 @@ final class UsageStore {
     var linearAPIKeyError: String?
     var isValidatingLinearAPIKey = false
     private(set) var isRefreshingLinearIssues = false
+    private(set) var updatingLinearIssueID: String?
     private(set) var linearCompletedTodayIssues: [LinearIssueSummary] = []
     private(set) var linearInProgressIssues: [LinearIssueSummary] = []
+    private(set) var linearProjects: [LinearProjectSummary] = []
+    private(set) var linearInitiatives: [LinearInitiativeSummary] = []
     private(set) var linearIssuesUpdatedAt: Date?
     private(set) var linearIssuesError: String?
     private var linearRecentCompletedIssues: [LinearCompletedIssue] = []
@@ -971,26 +975,45 @@ final class UsageStore {
             byAdding: .day, value: -LinearRewards.lookbackDays, to: now) ?? now
         do {
             let dashboard = try await linearClient.fetchIssueDashboard(apiKey: key, completedSince: since)
-            linearRecentCompletedIssues = dashboard.completedRecent.compactMap { issue in
-                guard let completedAt = issue.completedAt else { return nil }
-                return LinearCompletedIssue(
-                    id: issue.id,
-                    identifier: issue.identifier,
-                    title: issue.title,
-                    completedAt: completedAt)
-            }
-            let calendar = Calendar.current
-            linearCompletedTodayIssues = dashboard.completedRecent.filter { issue in
-                guard let completedAt = issue.completedAt else { return false }
-                return calendar.isDate(completedAt, inSameDayAs: now)
-            }
-            linearInProgressIssues = dashboard.inProgress
-            linearIssuesUpdatedAt = Date()
-            linearIssuesError = nil
+            applyLinearDashboard(dashboard, now: now)
             return linearRecentCompletedIssues
         } catch {
             linearIssuesError = "fetch_failed"
             return []
+        }
+    }
+
+    /// Moves an issue to `stateID` in Linear, then refreshes the local snapshot.
+    /// Returns a completion payload only when the issue *enters* a completed state.
+    func updateLinearIssueState(_ issue: LinearIssueSummary, stateID: String) async -> LinearCompletedIssue? {
+        guard linearIntegrationEnabled,
+              updatingLinearIssueID == nil,
+              !stateID.isEmpty,
+              let key = linearAPIKeys.load()?.key
+        else { return nil }
+
+        let wasCompleted = issue.stateType?.lowercased() == "completed"
+        updatingLinearIssueID = issue.id
+        defer { updatingLinearIssueID = nil }
+
+        do {
+            var update = try await linearClient.updateIssueState(
+                apiKey: key, issueID: issue.id, stateID: stateID)
+            if update.stateType == nil {
+                update.stateType = issue.teamStates.first(where: { $0.id == stateID })?.type
+            }
+            applyOptimisticLinearStateChange(issueID: issue.id, update: update)
+            let since = Calendar.current.date(
+                byAdding: .day, value: -LinearRewards.lookbackDays, to: Date()) ?? Date()
+            if let dashboard = try? await linearClient.fetchIssueDashboard(
+                apiKey: key, completedSince: since)
+            {
+                applyLinearDashboard(dashboard, now: Date())
+            }
+            return LinearClient.creditedCompletion(wasCompleted: wasCompleted, update: update)
+        } catch {
+            linearIssuesError = "fetch_failed"
+            return nil
         }
     }
 
@@ -999,12 +1022,123 @@ final class UsageStore {
         await refreshLinearIssues()
     }
 
+    func linearIssue(id: String) -> LinearIssueSummary? {
+        if let issue = linearInProgressIssues.first(where: { $0.id == id }) { return issue }
+        if let issue = linearCompletedTodayIssues.first(where: { $0.id == id }) { return issue }
+        for project in linearProjects {
+            if let issue = project.issues.first(where: { $0.id == id }) { return issue }
+        }
+        for initiative in linearInitiatives {
+            if let issue = initiative.issues.first(where: { $0.id == id }) { return issue }
+        }
+        return nil
+    }
+
+    /// Posts a check-in note. Returns false without throwing when Linear is unavailable.
+    func createLinearComment(issueID: String, body: String) async -> Bool {
+        guard linearIntegrationEnabled, let key = linearAPIKeys.load()?.key else { return false }
+        do {
+            try await linearClient.createComment(apiKey: key, issueID: issueID, body: body)
+            return true
+        } catch {
+            linearIssuesError = "fetch_failed"
+            return false
+        }
+    }
+
+    private func applyLinearDashboard(_ dashboard: LinearIssueDashboard, now: Date) {
+        linearRecentCompletedIssues = dashboard.completedRecent.compactMap { issue in
+            guard let completedAt = issue.completedAt else { return nil }
+            return LinearCompletedIssue(
+                id: issue.id,
+                identifier: issue.identifier,
+                title: issue.title,
+                completedAt: completedAt)
+        }
+        let calendar = Calendar.current
+        linearCompletedTodayIssues = dashboard.completedRecent.filter { issue in
+            guard let completedAt = issue.completedAt else { return false }
+            return calendar.isDate(completedAt, inSameDayAs: now)
+        }
+        linearInProgressIssues = dashboard.inProgress
+        linearProjects = dashboard.projects
+        linearInitiatives = dashboard.initiatives
+        linearIssuesUpdatedAt = Date()
+        linearIssuesError = nil
+    }
+
+    private func applyOptimisticLinearStateChange(
+        issueID: String, update: LinearIssueStateUpdate, now: Date = Date()
+    ) {
+        var snapshot: LinearIssueSummary?
+
+        func rewrite(_ issue: LinearIssueSummary) -> LinearIssueSummary {
+            guard issue.id == issueID else { return issue }
+            var copy = issue
+            copy.stateId = update.stateId ?? copy.stateId
+            copy.stateName = update.stateName ?? copy.stateName
+            copy.stateType = update.stateType ?? copy.stateType
+            if (copy.stateType ?? "").lowercased() == "completed" {
+                copy.completedAt = update.completedAt ?? copy.completedAt ?? now
+            } else {
+                copy.completedAt = update.completedAt
+            }
+            snapshot = copy
+            return copy
+        }
+
+        linearInProgressIssues = linearInProgressIssues.map(rewrite)
+        linearCompletedTodayIssues = linearCompletedTodayIssues.map(rewrite)
+        linearProjects = linearProjects.map { project in
+            var copy = project
+            copy.issues = project.issues.map(rewrite)
+            return copy
+        }
+        linearInitiatives = linearInitiatives.map { initiative in
+            var copy = initiative
+            copy.issues = initiative.issues.map(rewrite)
+            return copy
+        }
+
+        guard let issue = snapshot else { return }
+        let type = issue.stateType?.lowercased()
+        let isClosed = type == "completed" || type == "canceled"
+
+        linearInProgressIssues.removeAll { $0.id == issueID }
+        linearCompletedTodayIssues.removeAll { $0.id == issueID }
+        linearProjects = linearProjects.map { project in
+            var copy = project
+            copy.issues = project.issues.filter { $0.id != issueID || !isClosed }
+            return copy
+        }
+        linearInitiatives = linearInitiatives.map { initiative in
+            var copy = initiative
+            copy.issues = initiative.issues.filter { $0.id != issueID || !isClosed }
+            return copy
+        }
+
+        if type == "started" {
+            linearInProgressIssues.append(issue)
+            linearInProgressIssues = LinearClient.sortedByPriority(linearInProgressIssues)
+        }
+        if type == "completed",
+           let completedAt = issue.completedAt,
+           Calendar.current.isDate(completedAt, inSameDayAs: now)
+        {
+            linearCompletedTodayIssues.append(issue)
+            linearCompletedTodayIssues = LinearClient.sortedByPriority(linearCompletedTodayIssues)
+        }
+    }
+
     private func clearLinearIssueSnapshot() {
         linearRecentCompletedIssues = []
         linearCompletedTodayIssues = []
         linearInProgressIssues = []
+        linearProjects = []
+        linearInitiatives = []
         linearIssuesUpdatedAt = nil
         linearIssuesError = nil
+        updatingLinearIssueID = nil
     }
 
 
@@ -1286,6 +1420,18 @@ final class UsageStore {
         guard let feedback = Self.linearCompletionFeedback(issues: issues, l: L(localizationLanguage))
         else { return }
         presentTransientFeedback(bubble: feedback.bubble, menuLines: feedback.menuLines)
+    }
+
+    func announceTimesUp(_ identifier: String) {
+        let l = L(localizationLanguage)
+        presentTransientFeedback(
+            bubble: SpeechBubble(title: l.timesUpBubbleTitle(identifier), body: l.timesUpBubbleBody))
+    }
+
+    /// Evolve / graduate copy on the floating pet. No-op when the pet or bubble alerts are off.
+    func announceCompanionBubble(title: String, body: String) {
+        guard floatingPetEnabled, floatingPetBubbleAlerts else { return }
+        presentTransientFeedback(bubble: SpeechBubble(title: title, body: body))
     }
 
     /// Shared limit-alert pipeline: evaluate once, advance tiers once, then fan out to

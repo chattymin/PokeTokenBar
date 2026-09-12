@@ -10,7 +10,20 @@ struct PokeTokenBarApp: App {
     var body: some Scene {
         // 메뉴바는 AppDelegate 의 NSStatusItem 이 담당.
         // MenuBarExtra 라벨은 고빈도 갱신 시 재렌더링 폭주로 CPU/메모리 문제가 있어 사용하지 않는다.
-        Settings { EmptyView() }
+        // SwiftUI 는 Scene 이 하나라도 필요해서, 창을 여는 Settings 대신 숨은 MenuBarExtra 를 둔다.
+        // Settings { EmptyView() } 는 기동마다 빈 창을 띄웠다.
+        MenuBarExtra(isInserted: .constant(false)) {
+            EmptyView()
+        } label: {
+            EmptyView()
+        }
+    }
+}
+
+/// SwiftUI 가 메뉴바 앱에 띄우는 빈 Settings 플레이스홀더 창 식별 — 순수, 테스트 가능.
+enum LaunchWindowPolicy {
+    static func isSwiftUISettingsPlaceholder(identifier: String?, autosaveName: String) -> Bool {
+        [identifier ?? "", autosaveName].contains { $0.hasPrefix("com_apple_SwiftUI_Settings") }
     }
 }
 
@@ -21,6 +34,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private var outsideClickMonitor = OutsideClickMonitor()
     private var store: UsageStore!
     private var companion: CompanionStore!
+    private var sessionStore: FocusSessionStore!
+    private var todayDesk: TodayDeskController!
     private var updater: UpdateChecker!
     private var floatingPet: FloatingPetController!
     private let navigation = PopoverNavigation()
@@ -56,6 +71,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     /// 버튼 폭(=텍스트 길이)이나 스프라이트 크기가 변하면 레이어를 이미지 자리에 다시 맞춰야 한다.
     private var needsSpriteLayout = true
 
+    func applicationWillFinishLaunching(_ notification: Notification) {
+        NSApp.setActivationPolicy(.accessory)
+        closeSwiftUISettingsPlaceholders()
+    }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         // 로그인 에이전트 등록(plist 의 RunAtLoad)이 이미 떠 있는 앱을 한 번 더 실행한다 — 나중에 뜬
         // 쪽이 물러난다. 메뉴바 항목을 만들기 전에 판정해 아이콘이 떴다 사라지는 깜빡임을 없애고,
@@ -76,17 +96,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         CrashReporter.install(
             version: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "?")
         NSApp.setActivationPolicy(.accessory)
+        closeSwiftUISettingsPlaceholders()
+        NotificationCenter.default.addObserver(
+            forName: NSWindow.didBecomeKeyNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in self?.closeSwiftUISettingsPlaceholders() }
+        }
         Self.migrateLegacyStorageIfNeeded()   // TokenMac → PokeTokenBar 리네임: 기존 companion/캐시 보존
         LoginItem.migrateFromLegacyLoginItemIfNeeded()   // 로그인아이템 → KeepAlive 에이전트(크래시 자동 재실행)
         store = UsageStore()
         companion = CompanionStore()
+        companion.onPetBubble = { [weak self] title, body in
+            self?.store.announceCompanionBubble(title: title, body: body)
+        }
+        sessionStore = FocusSessionStore(usage: store, companion: companion)
+        todayDesk = TodayDeskController(usage: store, companion: companion, session: sessionStore)
         updater = UpdateChecker()
         store.localizationLanguage = companion.language   // 알림 현지화용 미러 시드
         store.onRefresh = { [weak self] in self?.onStoreRefreshed() }   // 한도 로드 후 companion·사탕 지급
         floatingPet = FloatingPetController(
-            store: store, companion: companion,
+            store: store, companion: companion, session: sessionStore,
             onOpenPopover: { [weak self] in self?.openPopover() },
-            onHide: { [weak self] in self?.store.floatingPetEnabled = false }
+            onHide: { [weak self] in self?.store.floatingPetEnabled = false },
+            onOpenToday: { [weak self] in self?.todayDesk.open() }
         )   // 데스크톱 플로팅 펫(옵트인)
         Task { await updater.check() }                    // 기동 시 1회 업데이트 확인
 
@@ -110,6 +142,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         observeDisplaySleep()
         observePowerState()
         applyState()
+    }
+
+    func applicationShouldOpenUntitledFile(_ sender: NSApplication) -> Bool { false }
+
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        false
+    }
+
+    private func closeSwiftUISettingsPlaceholders() {
+        for window in NSApp.windows where LaunchWindowPolicy.isSwiftUISettingsPlaceholder(
+            identifier: window.identifier?.rawValue,
+            autosaveName: window.frameAutosaveName)
+        {
+            window.orderOut(nil)
+            window.close()
+        }
     }
 
     /// Observation 기반 상태 반영 — store 의 menuTitle(=menuLines) 변경 시 재호출.
@@ -536,7 +584,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private func buildPopoverContent() {
         popover.contentViewController = NSHostingController(
             rootView: PopoverView()
-                .environment(store).environment(companion).environment(updater).environment(navigation))
+                .environment(store).environment(companion).environment(updater)
+                .environment(navigation).environment(sessionStore))
     }
 
     @objc private func togglePopover() {
@@ -607,6 +656,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         displayAwake = awake
         syncMenuAnimation()
         floatingPet.setDisplayAwake(awake)   // 슬립 중엔 펫 호스팅 트리 해제(GIF 루프 정지)
+        sessionStore.setDisplayAwake(awake)
     }
 
     /// menuShouldAnimate 상태에 맞춰 애니메이션을 재개/정지한다(멱등 — 중복 호출 안전).

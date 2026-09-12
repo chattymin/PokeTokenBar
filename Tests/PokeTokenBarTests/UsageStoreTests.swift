@@ -361,6 +361,37 @@ final class UsageStoreTests: XCTestCase {
         XCTAssertNil(store.currentSpeechBubble)
     }
 
+    func testAnnounceCompanionBubbleSetsSpeechBubbleWhenPetEnabled() {
+        let store = makeStore(providers: [
+            FakeUsageProvider(id: "claude_code", displayName: "Claude Code", daily: todayDaily(1))
+        ])
+        store.floatingPetEnabled = true
+        store.floatingPetBubbleAlerts = true
+        store.announceCompanionBubble(title: "✨ Evolved!", body: "Evolved into P2!")
+        XCTAssertEqual(store.currentSpeechBubble?.title, "✨ Evolved!")
+        XCTAssertEqual(store.currentSpeechBubble?.body, "Evolved into P2!")
+    }
+
+    func testAnnounceCompanionBubbleNoopsWhenBubbleAlertsOff() {
+        let store = makeStore(providers: [
+            FakeUsageProvider(id: "claude_code", displayName: "Claude Code", daily: todayDaily(1))
+        ])
+        store.floatingPetEnabled = true
+        store.floatingPetBubbleAlerts = false
+        store.announceCompanionBubble(title: "✨ Evolved!", body: "Evolved into P2!")
+        XCTAssertNil(store.currentSpeechBubble)
+    }
+
+    func testAnnounceCompanionBubbleNoopsWhenPetDisabled() {
+        let store = makeStore(providers: [
+            FakeUsageProvider(id: "claude_code", displayName: "Claude Code", daily: todayDaily(1))
+        ])
+        store.floatingPetEnabled = false
+        store.floatingPetBubbleAlerts = true
+        store.announceCompanionBubble(title: "🎓 Graduated!", body: "saved")
+        XCTAssertNil(store.currentSpeechBubble)
+    }
+
     /// 회귀(#56 표시 버전): compact hover tooltip must not surface a provider unused today.
     /// Claude limits exist after auth even with 0 tokens today — gate like `menuLimitLine`.
     func testHighestLimitUtilizationIgnoresProviderUnusedToday() async {

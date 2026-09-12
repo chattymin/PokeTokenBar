@@ -172,7 +172,7 @@ struct L {
           "Dein Pokémon schwebt über dem Bildschirm – zieh es an die gewünschte Stelle")
     }
     var floatingPetSizeLabel: String { t("크기", "Size", "サイズ", "Tamaño", "Taille", "Tamanho", "Größe") }
-    /// 지금은 한도 알림만 말풍선으로 뜨지만, 알림 종류가 늘어도 이 라벨은 그대로 쓴다.
+    /// 한도·Linear 완료·진화/졸업 말풍선을 묶는 토글. 종류가 늘어도 이 라벨은 그대로 쓴다.
     var floatingPetBubbleAlertsLabel: String {
         t("말풍선으로 알림 받기", "Show notifications as bubbles", "通知を吹き出しで表示", "Mostrar notificaciones como globos", "Afficher les notifications en bulles", "Mostrar notificações em balões", "Benachrichtigungen als Sprechblasen anzeigen")
     }
@@ -305,14 +305,29 @@ struct L {
     var linearAPIKeySaved: String { t("설정됨", "Saved", "設定済み", "Guardada", "Enregistrée", "Salva", "Gespeichert") }
     var linearAPIKeyMalformed: String { t("키 형식이 아닙니다 (lin_api_ 로 시작).", "That isn’t an API key (should start with lin_api_).", "キー形式ではありません（lin_api_ で開始）。", "Eso no es una clave API (debe empezar por lin_api_).", "Ce n’est pas une clé API (doit commencer par lin_api_).", "Isso não é uma chave de API (deve começar com lin_api_).", "Das ist kein API-Schlüssel (sollte mit lin_api_ beginnen).") }
     var linearAPIKeyInvalid: String { t("Linear가 키를 거부했습니다. 권한을 확인하세요.", "Linear rejected that key. Check its permissions.", "Linearがキーを拒否しました。権限を確認してください。", "Linear rechazó esa clave. Revisa sus permisos.", "Linear a rejeté cette clé. Vérifie ses permissions.", "O Linear rejeitou essa chave. Verifique as permissões.", "Linear hat diesen Schlüssel abgelehnt. Berechtigungen prüfen.") }
-    var linearIssuesTitle: String { t("Linear 이슈", "Linear issues", "Linear課題", "Issues de Linear", "Issues Linear", "Issues do Linear", "Linear-Issues") }
+    var linearIssuesTab: String { t("이슈", "Issues", "課題", "Issues", "Issues", "Issues", "Issues") }
+    var linearProjectsTab: String { t("프로젝트", "Projects", "プロジェクト", "Proyectos", "Projets", "Projetos", "Projekte") }
+    var linearInitiativesTab: String { t("이니셔티브", "Initiatives", "イニシアチブ", "Iniciativas", "Initiatives", "Iniciativas", "Initiativen") }
     var linearInProgressTab: String { t("진행 중", "In progress", "進行中", "En curso", "En cours", "Em andamento", "In Arbeit") }
+    var linearProductionTab: String { t("프로덕션", "Production", "本番", "Producción", "Production", "Produção", "Produktion") }
+    var linearActiveTab: String { t("활성", "Active", "アクティブ", "Activas", "Actives", "Ativas", "Aktiv") }
+    var linearPlannedTab: String { t("예정", "Planned", "予定", "Planificadas", "Planifiées", "Planejadas", "Geplant") }
     var linearCompletedTodayTab: String { t("오늘 완료", "Completed today", "今日完了", "Completadas hoy", "Terminées aujourd'hui", "Concluídas hoje", "Heute abgeschlossen") }
     var linearIssuesNeedsSetup: String { t("설정에서 Linear API 키를 저장하고 통합을 켜면 표시됩니다.", "Save your Linear API key and enable Linear integration in Settings to view issues.", "設定でLinear APIキーを保存して連携を有効にすると表示されます。", "Guarda tu clave API de Linear y activa la integración en Ajustes para ver issues.", "Enregistre ta clé API Linear et active l’intégration dans Réglages pour afficher les issues.", "Salve sua chave API do Linear e ative a integração em Ajustes para ver issues.", "Speichere deinen Linear-API-Schlüssel und aktiviere die Integration in den Einstellungen, um Issues zu sehen.") }
     var linearIssuesEmptyCompleted: String { t("오늘 완료된 이슈가 없습니다.", "No issues completed today.", "本日完了した課題はありません。", "No hay issues completadas hoy.", "Aucune issue terminée aujourd'hui.", "Nenhuma issue concluída hoje.", "Heute keine abgeschlossenen Issues.") }
     var linearIssuesEmptyInProgress: String { t("현재 진행 중인 이슈가 없습니다.", "No issues currently in progress.", "現在進行中の課題はありません。", "No hay issues en curso.", "Aucune issue en cours actuellement.", "Nenhuma issue em andamento agora.", "Aktuell keine Issues in Arbeit.") }
+    var linearProjectsEmpty: String { t("진행 중인 프로젝트가 없습니다.", "No in-progress projects.", "進行中のプロジェクトはありません。", "No hay proyectos en curso.", "Aucun projet en cours.", "Nenhum projeto em andamento.", "Keine Projekte in Arbeit.") }
+    var linearProjectsEmptyProduction: String { t("프로덕션 프로젝트가 없습니다.", "No production projects.", "本番プロジェクトはありません。", "No hay proyectos en producción.", "Aucun projet en production.", "Nenhum projeto em produção.", "Keine Projekte in Produktion.") }
+    var linearInitiativesEmpty: String { t("활성 이니셔티브가 없습니다.", "No active initiatives.", "アクティブなイニシアチブはありません。", "No hay iniciativas activas.", "Aucune initiative active.", "Nenhuma iniciativa ativa.", "Keine aktiven Initiativen.") }
+    var linearInitiativesEmptyPlanned: String { t("예정된 이니셔티브가 없습니다.", "No planned initiatives.", "予定のイニシアチブはありません。", "No hay iniciativas planificadas.", "Aucune initiative planifiée.", "Nenhuma iniciativa planejada.", "Keine geplanten Initiativen.") }
+    var linearContainerEmptyIssues: String { t("열린 이슈가 없습니다.", "No open issues.", "未完了の課題はありません。", "No hay issues abiertas.", "Aucune issue ouverte.", "Nenhuma issue aberta.", "Keine offenen Issues.") }
     var linearIssuesSyncFailed: String { t("Linear 동기화에 실패했습니다. 잠시 후 다시 시도하세요.", "Failed to sync with Linear. Try again shortly.", "Linearとの同期に失敗しました。しばらくして再試行してください。", "No se pudo sincronizar con Linear. Inténtalo de nuevo en breve.", "La synchronisation Linear a échoué. Réessaie dans un instant.", "Falha ao sincronizar com o Linear. Tente novamente em instantes.", "Synchronisierung mit Linear fehlgeschlagen. Bitte gleich erneut versuchen.") }
     var linearOpenIssue: String { t("Linear에서 열기", "Open in Linear", "Linearで開く", "Abrir en Linear", "Ouvrir dans Linear", "Abrir no Linear", "In Linear öffnen") }
+    var linearOpenProject: String { t("Linear에서 프로젝트 열기", "Open project in Linear", "Linearでプロジェクトを開く", "Abrir proyecto en Linear", "Ouvrir le projet dans Linear", "Abrir projeto no Linear", "Projekt in Linear öffnen") }
+    var linearOpenInitiative: String { t("Linear에서 이니셔티브 열기", "Open initiative in Linear", "Linearでイニシアチブを開く", "Abrir iniciativa en Linear", "Ouvrir l’initiative dans Linear", "Abrir iniciativa no Linear", "Initiative in Linear öffnen") }
+    var linearStatusHelp: String { t("Linear에서 상태 변경", "Change status in Linear", "Linearでステータスを変更", "Cambiar estado en Linear", "Changer le statut dans Linear", "Alterar status no Linear", "Status in Linear ändern") }
+    var linearStatusUnavailable: String { t("이 팀에 워크플로 상태가 없습니다.", "This team has no workflow states.", "このチームにワークフローステータスがありません。", "Este equipo no tiene estados de flujo de trabajo.", "Cette équipe n’a pas d’états de workflow.", "Este time não tem estados de fluxo de trabalho.", "Dieses Team hat keine Workflow-Status.") }
+    var linearStatusUnknown: String { t("상태", "Status", "ステータス", "Estado", "Statut", "Status", "Status") }
     var linearLastSynced: String { t("마지막 동기화", "Last synced", "最終同期", "Última sincronización", "Dernière synchronisation", "Última sincronização", "Zuletzt synchronisiert") }
     var linearCompletedBubbleTitle: String { t("이슈 완료!", "Issue complete!", "課題完了！", "¡Issue completada!", "Issue terminée !", "Issue concluída!", "Issue erledigt!") }
     func linearCompletedBubbleTitleCount(_ count: Int) -> String {
@@ -360,6 +375,111 @@ struct L {
     var timeXPNextAward: String { t("다음 지급", "Next award", "次の付与", "Próxima recompensa", "Prochaine récompense", "Próxima recompensa", "Nächste Belohnung") }
     var timeXPPaused: String { t("꺼짐", "Off", "オフ", "Desactivado", "Désactivé", "Desligado", "Aus") }
     var timeXPWaiting: String { t("기준 시간 수집 중", "Waiting for first tick", "初回ティック待機中", "Esperando primer tick", "En attente du premier tick", "Aguardando primeiro tick", "Warte auf ersten Tick") }
+
+    var todayDeskWindowTitle: String { t("오늘", "Today", "今日", "Hoy", "Aujourd’hui", "Hoje", "Heute") }
+    var todayDeskMenuOpen: String { t("오늘 열기", "Open Today", "今日を開く", "Abrir Hoy", "Ouvrir Aujourd’hui", "Abrir Hoje", "Heute öffnen") }
+    var todayDeskEmpty: String { t("집중할 Linear 이슈를 선택하세요.", "Select a Linear issue to focus on.", "集中するLinear課題を選んでください。", "Selecciona una issue de Linear para centrarte.", "Choisis une issue Linear sur laquelle te concentrer.", "Selecione uma issue do Linear para focar.", "Wähle ein Linear-Issue zum Fokussieren.") }
+    var todayDeskPinList: String { t("진행 중", "In progress", "進行中", "En curso", "En cours", "Em andamento", "In Arbeit") }
+    var todayDeskLogTitle: String { t("오늘 기록", "Today’s log", "今日の記録", "Registro de hoy", "Journal du jour", "Registro de hoje", "Heutiges Protokoll") }
+    var todayDeskLogEmpty: String { t("아직 세션이 없습니다.", "No sessions yet.", "まだセッションはありません。", "Aún no hay sesiones.", "Pas encore de sessions.", "Ainda não há sessões.", "Noch keine Sitzungen.") }
+    var focusAction: String { t("집중", "Focus", "集中", "Enfoque", "Focus", "Foco", "Fokus") }
+    var focusingNow: String { t("집중 중", "Focusing", "集中中", "Enfocando", "En cours", "Focado", "Aktiv") }
+    var pauseTimer: String { t("일시정지", "Pause", "一時停止", "Pausa", "Pause", "Pausar", "Pause") }
+    var resumeTimer: String { t("재개", "Resume", "再開", "Reanudar", "Reprendre", "Retomar", "Fortsetzen") }
+    var overtimeAbbrev: String { t("초과", "OT", "超過", "Extra", "HS", "HE", "ÜZ") }
+    var markDone: String { t("완료로 표시", "Mark done", "完了にする", "Marcar hecha", "Marquer terminée", "Marcar concluída", "Als erledigt") }
+    var plannedLengthLabel: String { t("계획 시간", "Planned", "予定時間", "Planificado", "Prévu", "Planejado", "Geplant") }
+    var checkInIntervalLabel: String { t("체크인 간격", "Check-in", "チェックイン間隔", "Check-in", "Check-in", "Check-in", "Check-in") }
+    var customMinutes: String { t("직접 입력", "Custom", "カスタム", "Personalizado", "Personnalisé", "Personalizado", "Benutzerdefiniert") }
+    func minutesValue(_ n: Int) -> String {
+        t("\(n)분", "\(n) min", "\(n)分", "\(n) min", "\(n) min", "\(n) min", "\(n) Min.")
+    }
+    func timesUpBubbleTitle(_ identifier: String) -> String {
+        t("시간 종료 · \(identifier)",
+          "Time’s up · \(identifier)",
+          "時間切れ · \(identifier)",
+          "Se acabó el tiempo · \(identifier)",
+          "Temps écoulé · \(identifier)",
+          "Tempo esgotado · \(identifier)",
+          "Zeit ist um · \(identifier)")
+    }
+    var timesUpBubbleBody: String {
+        t("이어서, 종료, 또는 완료를 고르세요.",
+          "Choose continue, finish, or done.",
+          "続行・終了・完了から選んでください。",
+          "Elige continuar, terminar o completar.",
+          "Choisis continuer, terminer ou marquer terminée.",
+          "Escolha continuar, encerrar ou concluir.",
+          "Weiter, beenden oder erledigen.")
+    }
+    func timesUpPopupTitle(_ identifier: String) -> String {
+        t("\(identifier) 시간이 끝났습니다.",
+          "Time is up on \(identifier).",
+          "\(identifier) の時間が終了しました。",
+          "Se acabó el tiempo de \(identifier).",
+          "Le temps est écoulé pour \(identifier).",
+          "O tempo de \(identifier) acabou.",
+          "Die Zeit für \(identifier) ist um.")
+    }
+    var timesUpContinue: String { t("이어서", "Continue", "続行", "Continuar", "Continuer", "Continuar", "Weiter") }
+    var timesUpFinishLeave: String {
+        t("타이머만 끝내고 진행 중으로 두기",
+          "Finish timer, leave in progress",
+          "タイマーだけ終了して進行中のまま",
+          "Terminar el temporizador y dejar en curso",
+          "Terminer le minuteur, laisser en cours",
+          "Encerrar o timer e deixar em andamento",
+          "Timer beenden, in Arbeit lassen")
+    }
+    var timesUpMarkDone: String {
+        t("이슈를 완료하고 타이머 끝내기",
+          "Mark issue as done and finish timer",
+          "課題を完了してタイマー終了",
+          "Marcar la issue como hecha y terminar",
+          "Marquer l’issue terminée et finir le minuteur",
+          "Marcar a issue como concluída e encerrar o timer",
+          "Issue erledigen und Timer beenden")
+    }
+    func stillOnIssue(_ identifier: String) -> String {
+        t("아직 \(identifier)에 있나요?",
+          "Still on \(identifier)?",
+          "まだ \(identifier) ですか？",
+          "¿Sigues en \(identifier)?",
+          "Toujours sur \(identifier) ?",
+          "Ainda em \(identifier)?",
+          "Immer noch bei \(identifier)?")
+    }
+    var checkInYes: String { t("예", "Yes", "はい", "Sí", "Oui", "Sim", "Ja") }
+    var checkInNo: String { t("아니요", "No", "いいえ", "No", "Non", "Não", "Nein") }
+    var checkInSkip: String { t("건너뛰기", "Skip", "スキップ", "Omitir", "Passer", "Pular", "Überspringen") }
+    var checkInAddNote: String { t("메모 추가", "Add note", "メモを追加", "Añadir nota", "Ajouter une note", "Adicionar nota", "Notiz hinzufügen") }
+    var checkInNotePlaceholder: String { t("Linear에 남길 메모", "Note to post on Linear", "Linearに残すメモ", "Nota para publicar en Linear", "Note à publier sur Linear", "Nota para publicar no Linear", "Notiz für Linear") }
+    func driftCountLabel(_ n: Int) -> String {
+        t("이탈 \(n)회", "Drift \(n)", "離脱 \(n)回", "Desvíos \(n)", "Dérives \(n)", "Desvios \(n)", "Abweichungen \(n)")
+    }
+    func sessionLogLine(identifier: String, duration: String, overtime: String) -> String {
+        overtime.isEmpty
+            ? t("\(identifier) · \(duration)", "\(identifier) · \(duration)", "\(identifier) · \(duration)", "\(identifier) · \(duration)", "\(identifier) · \(duration)", "\(identifier) · \(duration)", "\(identifier) · \(duration)")
+            : t("\(identifier) · \(duration) (초과 \(overtime))",
+                "\(identifier) · \(duration) (OT \(overtime))",
+                "\(identifier) · \(duration)（超過 \(overtime)）",
+                "\(identifier) · \(duration) (extra \(overtime))",
+                "\(identifier) · \(duration) (HS \(overtime))",
+                "\(identifier) · \(duration) (HE \(overtime))",
+                "\(identifier) · \(duration) (ÜZ \(overtime))")
+    }
+    func checkInLogLine(identifier: String, answer: String, notePosted: Bool) -> String {
+        let note = notePosted
+            ? t("메모 게시됨", "note posted", "メモ投稿済み", "nota publicada", "note publiée", "nota publicada", "Notiz gepostet")
+            : t("메모 없음", "no note", "メモなし", "sin nota", "sans note", "sem nota", "keine Notiz")
+        return t("\(identifier) · \(answer) · \(note)",
+                 "\(identifier) · \(answer) · \(note)",
+                 "\(identifier) · \(answer) · \(note)",
+                 "\(identifier) · \(answer) · \(note)",
+                 "\(identifier) · \(answer) · \(note)",
+                 "\(identifier) · \(answer) · \(note)",
+                 "\(identifier) · \(answer) · \(note)")
+    }
 
     var statusChecksLabel: String { t("프로바이더 상태 확인", "Provider status checks", "プロバイダー状態チェック", "Comprobación de estado de proveedores", "Vérification de l'état des fournisseurs", "Verificação de status dos provedores", "Anbieterstatus prüfen") }
     var statusChecksHint: String { t("Claude·OpenAI 장애를 팝오버에 표시 (알림 아님)", "Show Claude / OpenAI incidents in the popover (not a notification)", "Claude・OpenAIの障害をポップオーバーに表示（通知ではない）", "Muestra incidentes de Claude/OpenAI en el popover (no es una notificación)", "Affiche les incidents Claude / OpenAI dans le popover (pas une notification)", "Mostra incidentes do Claude/OpenAI no painel (não é uma notificação)", "Störungen bei Claude / OpenAI im Popover anzeigen (keine Benachrichtigung)") }
@@ -663,11 +783,6 @@ struct L {
     var catchLogTitle: String { t("포획 로그", "Catch log", "捕獲ログ", "Registro de capturas", "Journal de captures", "Registro de capturas", "Fangprotokoll") }
     /// 도감 총계는 개체가 아니라 종 수 — 로그의 dexTotal("총 N마리")과 단위가 다르다.
     func dexSpeciesTotal(_ n: Int) -> String { t("\(n)종", "\(n) species", "\(n)種", "\(n) especies", "\(n) espèces", "\(n) espécies", "\(n) Spezies") }
-    func dexPageLabel(_ page: Int, _ total: Int) -> String {
-        t("\(total)페이지 중 \(page)페이지", "Page \(page) of \(total)", "\(total)ページ中 \(page)ページ", "Página \(page) de \(total)", "Page \(page) sur \(total)", "Página \(page) de \(total)", "Seite \(page) von \(total)")
-    }
-    var dexPagePrev: String { t("이전 페이지", "Previous page", "前のページ", "Página anterior", "Page précédente", "Página anterior", "Vorherige Seite") }
-    var dexPageNext: String { t("다음 페이지", "Next page", "次のページ", "Página siguiente", "Page suivante", "Próxima página", "Nächste Seite") }
     var dexRaising: String { t("키우는 중", "Raising", "育成中", "Criando", "En élevage", "Treinando", "In Aufzucht") }
     /// 포획 로그에서 졸업분과 놓아준 개체를 가르는 표식. 종은 도감에 남고 개체 기록만 이 뱃지를 단다.
     var dexReleased: String { t("놓아줌", "Released", "逃がした", "Liberado", "Relâché", "Solto", "Freigelassen") }

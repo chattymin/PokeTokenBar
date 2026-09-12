@@ -593,6 +593,22 @@ read_when:
   회귀 가드(`SpriteAspectRatioTests`)는 실제 PokeAPI 캔버스 치수를 넣고, **"비정사각이 정사각으로 나오지
   않는다"는 트리거 명제를 따로 둔다** — 이게 없으면 원본이 애초에 정사각인 케이스로도 전부 통과한다.
 
+## 외부 GraphQL
+
+- **한 쿼리에 컬렉션을 얹다가 복잡도 상한에 걸리면, 폴백이 형제 컬렉션을 침묵 삭제하면 안 된다.**
+  Linear rejects a single request over 10,000 complexity points. Nesting `team.states`
+  (default page 50) under `projects { issues }` and `initiatives { projects { issues } }`
+  on the issues dashboard blows that cap → HTTP 400 → the old issues-only fallback left
+  Issues working and Projects/Initiatives empty even when live data existed
+  (type `started` / name In Progress + Production; initiative status `Active`/`Planned`).
+  The same class: GraphQL 200 + field error with `projects: null` while `try? parse`
+  succeeds on issues. Rule: ① keep the heavy issue fragment off the container query
+  ② if a container query 400s or nulls a collection, try a thinner query and merge
+  ③ issues-only is the last resort after those attempts, not the silent success path.
+  Guards: `testFetchIssueDashboardSalvagesContainersWhenFilteredQueryRejected`,
+  `testFetchIssueDashboardSalvagesContainersWhenGraphQLFieldErrorNullsProjects`,
+  `testFetchIssueDashboardBareQueryStillLoadsContainers`.
+
 ## 프로세스 제어·업데이트
 
 - **`pgrep -x <name>` 은 실행 파일의 정체성 검사이지, 기다리는 특정 프로세스에 대한 검사가 아니다.**

@@ -84,7 +84,6 @@ final class LocalizationInterpolationTests: XCTestCase {
             // Pokédex / 도감
             expect(lang, "dexTotal", l.dexTotal(4242), "4242")
             expect(lang, "dexSpeciesTotal", l.dexSpeciesTotal(4242), "4242")
-            expect(lang, "dexPageLabel", l.dexPageLabel(4242, 1717), "4242", "1717")
 
             // System notifications / 시스템 알림
             expect(lang, "notifHatchBody", l.notifHatchBody(a), a)
@@ -99,6 +98,15 @@ final class LocalizationInterpolationTests: XCTestCase {
             expect(lang, "linearCompletedBubbleTitleCount", l.linearCompletedBubbleTitleCount(4242), "4242")
             expect(lang, "linearCompletedBubbleBody", l.linearCompletedBubbleBody(a, b), a, b)
             expect(lang, "linearCompletedFlashTitleCount", l.linearCompletedFlashTitleCount(4242), "4242")
+
+            expect(lang, "minutesValue", l.minutesValue(4242), "4242")
+            expect(lang, "timesUpBubbleTitle", l.timesUpBubbleTitle(a), a)
+            expect(lang, "timesUpPopupTitle", l.timesUpPopupTitle(a), a)
+            expect(lang, "stillOnIssue", l.stillOnIssue(a), a)
+            expect(lang, "driftCountLabel", l.driftCountLabel(4242), "4242")
+            expect(lang, "sessionLogLine", l.sessionLogLine(identifier: a, duration: b, overtime: ""), a, b)
+            expect(lang, "sessionLogLine.ot", l.sessionLogLine(identifier: a, duration: b, overtime: "ZQXOT"), a, b, "ZQXOT")
+            expect(lang, "checkInLogLine", l.checkInLogLine(identifier: a, answer: b, notePosted: true), a, b)
 
             // Updates / 업데이트
             expect(lang, "updateAvailable", l.updateAvailable(a, current: b), a, b)

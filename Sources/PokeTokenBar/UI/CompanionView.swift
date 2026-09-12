@@ -741,10 +741,7 @@ struct CollectionView: View {
     @State private var selectedRarity: Rarity?
 
     /// 도감·로그 공통 높이 — 상점·가방과 같은 520. 세그먼트를 전환할 때도, 탭을 넘나들 때도
-    /// 팝오버가 리사이즈되지 않는다.
-    ///
-    /// 예산: 520 − 세그먼트 24 − 헤더 39 − 하단 줄 18 − 간격 24 = 격자 415. 6행 spacing 4 면
-    /// 행이 65.8 이고, 칸 여백 6 과 이름 12 를 빼면 스프라이트에 47.8 이 남는다(현재 44).
+    /// 팝오버가 리사이즈되지 않는다. 격자·로그는 이 높이 안에서 스크롤한다.
     private static let contentHeight: CGFloat = 520
 
     /// 선택된 희귀도만 노출(없으면 전체). 상단 캡슐 토글로 설정.
@@ -839,37 +836,33 @@ struct RepresentativeFooterButton: View {
     }
 }
 
-/// 도감 — 보유 종만 도감 번호순으로, 한 페이지 24칸(4열×6행) 고정 격자.
+/// 도감 — 보유 종만 도감 번호순으로, 4열 연속 스크롤 격자.
 ///
-/// 페이지식이라 ScrollView 를 쓰지 않는다 — 팝오버 재오픈 시 fitting size 가 줄어드는 기존 결함을
-/// 우회(고정 높이 + maxHeight)가 아니라 회피로 피한다. 페이지 크기가 고정이라 모든 칸이 항상
-/// 렌더되므로 지연 격자(LazyVGrid)도 필요 없다 — 평범한 VStack/HStack 으로 동기 렌더한다.
-/// 미보유 종은 아예 그리지 않는다(물음표·실루엣 칸 없음).
+/// 헤더(필터)와 하단 선택 줄은 고정, 격자만 스크롤한다. 바깥 CollectionView 가 높이 520 으로
+/// 고정돼 있어 팝오버 재오픈 시 ScrollView fitting size 가 줄어드는 기존 결함은 격자가 나머지를
+/// 채우는 것으로 우회한다(포획 로그와 같은 패턴). 미보유 종은 아예 그리지 않는다
+/// (물음표·실루엣 칸 없음).
 @MainActor
 private struct DexGridView: View {
     let store: CompanionStore
     @State private var selectedRarity: Rarity?
-    @State private var page = 0
 
     /// 선택한 칸 — 하단 줄에 희귀도를 띄우고, 이로치를 잡은 종이면 스프라이트를 그 색으로 바꾼다.
     @State private var selectedID: Int?
 
     private static let columns = 4
-    private static let rows = 6
-    private static let pageSize = columns * rows      // 24
     private static let spacing: CGFloat = 4
+    private static let gridColumns = Array(
+        repeating: GridItem(.flexible(), spacing: spacing), count: columns)
 
     var body: some View {
         // 종별 집계는 한 번만 훑고 하위로 넘긴다 — 칸마다 재집계하면 도감이 O(칸×도감) 이 된다.
         let all = store.dexSpecies
         let visible = selectedRarity.map { r in all.filter { $0.rarity == r } } ?? all
-        let pageCount = max(1, (visible.count + Self.pageSize - 1) / Self.pageSize)
-        let current = min(page, pageCount - 1)   // 보유 종이 줄어든 경우(필터 등) 범위 방어
-        let slice = Array(visible.dropFirst(current * Self.pageSize).prefix(Self.pageSize))
         VStack(alignment: .leading, spacing: 8) {
             header(all)
-            grid(slice)
-            footer(slice, current: current, pageCount: pageCount)
+            grid(visible)
+            footer(visible)
         }
         // 이름이 저장돼 있지 않은 구버전 졸업분을 채운다 — 격자는 저장분만 읽으므로 이게 없으면
         // 칸이 `#41` 로 남는다. 저장된 항목은 조회하지 않으므로 채워진 뒤로는 아무 일도 하지 않는다.
@@ -893,7 +886,6 @@ private struct DexGridView: View {
                     Button {
                         withAnimation(.easeInOut(duration: 0.15)) {
                             selectedRarity = (selectedRarity == r) ? nil : r
-                            page = 0        // 필터가 바뀌면 페이지 범위도 바뀐다 — 항상 첫 페이지부터
                             selectedID = nil // 선택한 칸이 필터 밖으로 나가면 하단 줄이 유령 정보를 남긴다
                         }
                     } label: {
@@ -908,41 +900,34 @@ private struct DexGridView: View {
         }
     }
 
-    /// 고정 격자 — 남는 칸은 투명(테두리·물음표 없이 정렬만 유지).
-    /// 모든 행에 maxHeight 를 걸어 6행이 높이를 균등 분할하게 한다 — 빈 칸의 Color 는 유연 크기라,
-    /// 행마다 안 걸면 빈 행이 늘어나 채워진 행을 짓누른다(보유 종이 적을 때 첫 줄이 찌그러짐).
-    private func grid(_ slice: [CompanionStore.DexSpecies]) -> some View {
-        VStack(spacing: Self.spacing) {
-            ForEach(0..<Self.rows, id: \.self) { row in
-                HStack(spacing: Self.spacing) {
-                    ForEach(0..<Self.columns, id: \.self) { col in
-                        let i = row * Self.columns + col
-                        if i < slice.count {
-                            let sp = slice[i]
-                            DexSpeciesCell(store: store, species: sp,
-                                           isSelected: selectedID == sp.id,
-                                           isRepresentative: store.representativeSpeciesID == sp.id) {
-                                selectedID = (selectedID == sp.id) ? nil : sp.id
-                            }
-                            .frame(maxWidth: .infinity)
-                        } else {
-                            Color.clear.frame(maxWidth: .infinity)
+    /// 4열 연속 격자 — 보이는 종을 모두 나열하고, 헤더·하단 줄 사이의 남은 높이에서 스크롤한다.
+    private func grid(_ visible: [CompanionStore.DexSpecies]) -> some View {
+        ScrollViewReader { proxy in
+            ScrollView {
+                LazyVGrid(columns: Self.gridColumns, spacing: Self.spacing) {
+                    ForEach(visible) { sp in
+                        DexSpeciesCell(store: store, species: sp,
+                                       isSelected: selectedID == sp.id,
+                                       isRepresentative: store.representativeSpeciesID == sp.id) {
+                            selectedID = (selectedID == sp.id) ? nil : sp.id
                         }
                     }
                 }
-                .frame(maxHeight: .infinity)
+                .id("dexGridTop")
+            }
+            .frame(maxHeight: .infinity)
+            // 필터 토글 시 격자 최상단으로 — 이전 스크롤 위치가 새 필터 결과 밖이어도 처음부터 보이게.
+            .onChange(of: selectedRarity) {
+                withAnimation(.easeInOut(duration: 0.2)) { proxy.scrollTo("dexGridTop", anchor: .top) }
             }
         }
-        .frame(maxHeight: .infinity)
     }
 
-    /// 하단 한 줄 — 왼쪽은 선택한 칸의 희귀도, 오른쪽은 페이저.
-    /// 페이저가 1페이지라 안 보일 때도 이 줄을 **항상** 예약한다 — 페이지 수나 선택 여부에 따라
-    /// 격자 높이가 흔들리지 않게.
-    private func footer(_ slice: [CompanionStore.DexSpecies],
-                        current: Int, pageCount: Int) -> some View {
+    /// 하단 한 줄 — 선택한 칸의 희귀도·대표 설정. 선택이 없어도 이 줄을 **항상** 예약한다
+    /// (선택 여부에 따라 격자 높이가 흔들리지 않게).
+    private func footer(_ visible: [CompanionStore.DexSpecies]) -> some View {
         HStack(spacing: 8) {
-            if let sel = slice.first(where: { $0.id == selectedID }) {
+            if let sel = visible.first(where: { $0.id == selectedID }) {
                 // 칸은 번호·스프라이트·이름만 보여주므로 희귀도가 선택으로 얻는 정보다.
                 Text("#\(sel.id) \(sel.name) · \(store.l.rarityLabel(sel.rarity))")
                     .font(.system(size: 9)).foregroundStyle(.secondary).lineLimit(1)
@@ -953,22 +938,6 @@ private struct DexGridView: View {
                 }
             }
             Spacer(minLength: 4)
-            if pageCount > 1 {
-                Button { page = max(0, current - 1); selectedID = nil } label: {
-                    Image(systemName: "chevron.left")
-                }
-                .buttonStyle(.plain).disabled(current == 0)
-                .accessibilityLabel(store.l.dexPagePrev)
-                Text("\(current + 1) / \(pageCount)")
-                    .font(.system(size: 10, weight: .semibold)).monospacedDigit()
-                    .foregroundStyle(.secondary)
-                    .accessibilityLabel(store.l.dexPageLabel(current + 1, pageCount))
-                Button { page = min(pageCount - 1, current + 1); selectedID = nil } label: {
-                    Image(systemName: "chevron.right")
-                }
-                .buttonStyle(.plain).disabled(current == pageCount - 1)
-                .accessibilityLabel(store.l.dexPageNext)
-            }
         }
         .font(.system(size: 11, weight: .semibold))
         .frame(height: 18)
@@ -976,7 +945,7 @@ private struct DexGridView: View {
 }
 
 /// 도감 한 칸 — 도감 번호 + 스프라이트 + 종 이름. 종 정보만 담는다(성격·획득 횟수는 로그의 몫).
-/// 정적 스프라이트만 쓴다(animated 생략) — 한 페이지 24칸을 GIF 로 동시 재생하면 CPU 가 안 된다.
+/// 정적 스프라이트만 쓴다(animated 생략) — 연속 격자에서 여러 칸을 GIF 로 동시 재생하면 CPU 가 안 된다.
 @MainActor
 private struct DexSpeciesCell: View {
     let store: CompanionStore
@@ -985,7 +954,7 @@ private struct DexSpeciesCell: View {
     let isRepresentative: Bool
     let onTap: () -> Void
 
-    /// 로그(56)보다 작다 — 24칸 격자에 이름까지 담아야 한다. 원본 96×96 픽셀아트를
+    /// 로그(56)보다 작다 — 4열 격자에 이름까지 담아야 한다. 원본 96×96 픽셀아트를
     /// interpolation(.none) 으로 축소하므로 이 크기에서도 식별에 문제없다.
     private static let thumb: CGFloat = 44
 

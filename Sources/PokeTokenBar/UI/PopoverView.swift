@@ -55,6 +55,7 @@ struct PopoverView: View {
     @Environment(CompanionStore.self) private var companion
     @Environment(UpdateChecker.self) private var updater
     @Environment(PopoverNavigation.self) private var nav
+    @Environment(FocusSessionStore.self) private var session
 
     private var l: L { companion.l }
 
@@ -770,6 +771,13 @@ struct PopoverView: View {
                 }
             }
             Spacer()
+            Button {
+                session.openDesk()
+            } label: {
+                Image(systemName: "calendar")
+            }
+            .buttonStyle(.borderless)
+            .help(l.todayDeskMenuOpen)
             Button {
                 nav.showSettings = true
             } label: {
