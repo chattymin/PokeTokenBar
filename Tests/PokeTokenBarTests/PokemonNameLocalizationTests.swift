@@ -17,6 +17,23 @@ private actor NameServer {
     }
 }
 
+private actor DelayedNameProvider: PokemonNameProviding {
+    private var continuation: CheckedContinuation<[String: String], Never>?
+    private var result: [String: String]?
+    private(set) var started = false
+    func names(for resource: PokemonNameResource) async throws -> [String: String] {
+        started = true
+        if let result { return result }
+        return await withCheckedContinuation { continuation = $0 }
+    }
+    func finish() {
+        let names = ["en": "Tackle", "ko": "몸통박치기"]
+        result = names
+        continuation?.resume(returning: names)
+        continuation = nil
+    }
+}
+
 final class PokemonNameLocalizationTests: XCTestCase {
     private let resource = PokemonNameResource(kind: .move, name: "tackle")
     private func response(_ values: [String: String]) throws -> Data {
@@ -131,6 +148,108 @@ final class PokemonNameLocalizationTests: XCTestCase {
     }
 
     @MainActor
+    func testMountedLabelLoadsTranslationsAndReopensWithoutEnglishFrame() async throws {
+        let provider = DelayedNameProvider()
+        let store = PokemonNameDisplayStore()
+        var label = PokemonNameLabel(.move, "tackle", language: .ko)
+        label.provider = provider
+        label.displayStore = store
+        let root = label.frame(width: 320, height: 80).foregroundStyle(.black).background(Color.white)
+        let host = NSHostingView(rootView: root)
+        host.frame = NSRect(x: 0, y: 0, width: 320, height: 80)
+        let window = NSWindow(contentRect: NSRect(x: -10000, y: -10000, width: 320, height: 80),
+                              styleMask: .borderless, backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = host
+        window.orderFront(nil)
+        defer { window.close() }
+        func snapshot(_ view: NSView) throws -> Data {
+            view.layoutSubtreeIfNeeded()
+            let bitmap = try XCTUnwrap(view.bitmapImageRepForCachingDisplay(in: view.bounds))
+            view.cacheDisplay(in: view.bounds, to: bitmap)
+            return try XCTUnwrap(bitmap.representation(using: .png, properties: [:]))
+        }
+        for _ in 0..<200 {
+            if await provider.started { break }
+            try await Task.sleep(for: .milliseconds(5))
+        }
+        let started = await provider.started
+        XCTAssertTrue(started, "The mounted label must execute its own task")
+        let pending = try snapshot(host)
+        XCTAssertTrue(store.names.isEmpty)
+        await provider.finish()
+        var translated = pending
+        for _ in 0..<200 {
+            try await Task.sleep(for: .milliseconds(5))
+            translated = try snapshot(host)
+            if translated != pending { break }
+        }
+        XCTAssertEqual(store.names[resource]?["ko"], "몸통박치기")
+        XCTAssertNotEqual(translated, pending, "Observable snapshot must update the mounted label")
+        let reopened = NSHostingView(rootView: root)
+        reopened.frame = host.frame
+        window.contentView = reopened
+        // Snapshot synchronously, before the new view's task can load anything.
+        XCTAssertEqual(try snapshot(reopened), translated)
+        if let path = ProcessInfo.processInfo.environment["PTB_NAMES_PREVIEW"] {
+            try pending.write(to: URL(fileURLWithPath: path + ".pending.png"))
+            try translated.write(to: URL(fileURLWithPath: path + ".loaded.png"))
+        }
+    }
+
+    @MainActor
+    func testCancelledLoadDoesNotPublishSnapshot() async throws {
+        let provider = DelayedNameProvider()
+        let store = PokemonNameDisplayStore()
+        let resource = self.resource
+        let task = Task { await store.load(resource, provider: provider) }
+        for _ in 0..<200 {
+            if await provider.started { break }
+            try await Task.sleep(for: .milliseconds(5))
+        }
+        task.cancel()
+        await provider.finish()
+        let loaded = await task.value
+        XCTAssertFalse(loaded)
+        XCTAssertTrue(store.names.isEmpty)
+    }
+
+    @MainActor
+    func testLoadingNamesNeverShowsEnglishAndReopeningUsesSnapshot() async throws {
+        let server = NameServer(try response(["en": "Tackle", "ko": "몸통박치기"]))
+        let client = PokemonNameClient(directory: nil, fetch: { try await server.fetch($0) })
+        let store = PokemonNameDisplayStore()
+        let items = [PokemonNameItem(resource: resource)]
+        let pending = PokemonNameText(items: items, language: .ko, names: store.names)
+        XCTAssertEqual(pending.text, "…")
+        let loaded = await store.load(resource, provider: client)
+        XCTAssertTrue(loaded)
+        // A newly created view can resolve the snapshot synchronously, before its .task runs.
+        XCTAssertEqual(PokemonNameText(items: items, language: .ko, names: store.names).text, "몸통박치기")
+        XCTAssertEqual(PokemonNameText(items: items, language: .en, names: store.names).text, "Tackle")
+        XCTAssertEqual(PokemonNameText(items: items, language: .pt, names: store.names).text, "Tackle")
+        let joined = items + [PokemonNameItem(resource: .init(kind: .type, name: "grass"))]
+        XCTAssertEqual(PokemonNameText(items: joined, language: .ko, names: store.names).text, "몸통박치기 · …")
+    }
+
+    @MainActor
+    func testFailedNameLoadFallsBackAndRetryRestoresTranslation() async throws {
+        let server = NameServer(try response(["en": "Tackle", "ko": "몸통박치기"]))
+        await server.setFailure(true)
+        let client = PokemonNameClient(directory: nil, fetch: { try await server.fetch($0) })
+        let store = PokemonNameDisplayStore()
+        let items = [PokemonNameItem(resource: resource)]
+        let loaded = await store.load(resource, provider: client)
+        XCTAssertFalse(loaded)
+        XCTAssertNil(store.names[resource], "A failed request must not poison the shared snapshot")
+        XCTAssertEqual(PokemonNameText(items: items, language: .ko, names: store.names, failed: [resource]).text, "Tackle")
+        await server.setFailure(false)
+        let retried = await store.load(resource, provider: client)
+        XCTAssertTrue(retried)
+        XCTAssertEqual(PokemonNameText(items: items, language: .ko, names: store.names, failed: [resource]).text, "몸통박치기")
+    }
+
+    @MainActor
     func testRenderedNamesResolveLanguageAndEnglishFallbackWithoutChangingKeys() throws {
         let ability = PokemonNameResource(kind: .ability, name: "overgrow")
         let type = PokemonNameResource(kind: .type, name: "grass")
@@ -140,7 +259,7 @@ final class PokemonNameLocalizationTests: XCTestCase {
         let korean = PokemonNameText(items: items, language: .ko, names: maps)
         XCTAssertEqual(korean.text, "심록 · 몸통박치기 · 풀")
         XCTAssertEqual(PokemonNameText(items: items, language: .pt, names: maps).text, "Overgrow · Tackle · Grass")
-        XCTAssertEqual(PokemonNameText(items: items, language: .ko, names: [:]).text, "Overgrow · Tackle · Grass")
+        XCTAssertEqual(PokemonNameText(items: items, language: .ko, names: [:]).text, "… · … · …")
         let hidden = PokemonNameText(items: [.init(resource: ability, suffix: " (숨겨진 특성)")], language: .ko, names: maps)
         XCTAssertEqual(hidden.text, "심록 (숨겨진 특성)")
         XCTAssertEqual(items[0].resource.name, "overgrow", "Translated labels never replace persistent identifiers")
