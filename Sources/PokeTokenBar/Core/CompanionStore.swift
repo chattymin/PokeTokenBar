@@ -25,6 +25,9 @@ final class CompanionStore {
     /// 연출 재생 후 UI 가 호출(1회성 보장).
     func consumeCelebration() { celebration = nil }
 
+    /// Floating-pet speech bubble (evolve / graduate). Wired from AppDelegate to UsageStore.
+    var onPetBubble: ((String, String) -> Void)?
+
     /// 사탕 사용 시 "+XP" 순간 표시 — 진화 없이 부분 진행일 때도 피드백. seq 증가로 CompanionHeader 감지.
     private(set) var candyFeedbackSeq = 0
     private(set) var candyFeedbackAmount = 0
@@ -521,6 +524,7 @@ final class CompanionStore {
                 // 이게 없으면 computeState 가 .levelUp 을 안 내 statusEvolved 가 도달 불가(dead code)였다.
                 eventUntil = clock().addingTimeInterval(4)
                 notifyCompanionEvent(l.notifEvolveTitle, l.notifEvolveBody(newName))
+                onPetBubble?(l.notifEvolveTitle, l.notifEvolveBody(newName))
             }
         }
         save()
@@ -602,6 +606,7 @@ final class CompanionStore {
         let name = currentLine?.localizedName(finalID, state.language) ?? ""
         justGraduated = name
         notifyCompanionEvent(l.notifGraduateTitle, l.notifGraduateBody(name))
+        onPetBubble?(l.notifGraduateTitle, l.notifGraduateBody(name))
         eventUntil = clock().addingTimeInterval(6)
         state.active = nil
         state.reconcileRepresentativeSelection()   // 졸업 체인이 dex 로 옮겨져 선택은 정상적으로 유지된다
@@ -824,9 +829,38 @@ final class CompanionStore {
     /// - 첫 실행: 현재 100% 창을 지급 없이 tier 시드만 → 이후 "새로 넘어서는" 순간부터 지급(소급 차단).
     /// - limitsReady=false(한도 미로딩)면 시드/지급 모두 대기(다음 refresh 에 재시도).
     
+    /// Set while a focus session owns the wall clock so time-open XP is not paid twice.
+    private(set) var timeOpenXPSuspended = false
+
+    func setTimeOpenXPSuspended(_ suspended: Bool, resumeFromNow: Bool = false) {
+        timeOpenXPSuspended = suspended
+        if resumeFromNow {
+            state.lastTimeOpenAwardAt = clock()
+            save()
+        }
+    }
+
+    /// Session XP on the time-open daily cap. Returns the granted amount after the cap.
+    @discardableResult
+    func applyCappedProgressXP(_ delta: Int, today: String) -> Int {
+        guard delta > 0 else { return 0 }
+        if state.timeOpenAwardDay != today {
+            state.timeOpenAwardedToday = 0
+            state.timeOpenAwardDay = today
+        }
+        let room = max(0, TimeOpenXP.dailyCap - state.timeOpenAwardedToday)
+        let grant = min(delta, room)
+        guard grant > 0 else { return 0 }
+        state.timeOpenAwardedToday += grant
+        applyProgressXP(grant)
+        save()
+        return grant
+    }
+
     /// Passive open-time XP. Toggle lives in UserDefaults (`timeOpenXPEnabled`).
     /// Does not bump `usedSinceInstall` (shop/real-usage stats stay usage-only).
     func awardTimeOpenXP(today: String, enabled: Bool? = nil) {
+        guard !timeOpenXPSuspended else { return }
         let on = enabled ?? (UserDefaults.standard.object(forKey: "timeOpenXPEnabled") as? Bool ?? true)
         guard on else {
             if state.lastTimeOpenAwardAt != nil {

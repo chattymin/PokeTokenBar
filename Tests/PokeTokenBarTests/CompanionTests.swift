@@ -289,6 +289,37 @@ final class CompanionStoreTests: XCTestCase {
         XCTAssertEqual(s.state.dex.first.map { s.dexStoredChainNames($0) }, [1: "포1", 2: "포2", 3: "포3"])
     }
 
+    /// 진화 순간 플로팅 펫 말풍선 콜백 — Notification Center 와 별개. 부화는 발화하지 않는다.
+    func testEvolutionPresentsPetBubble() async {
+        let s = store(linear3)
+        s.setLanguage(.en)
+        var bubbles: [(String, String)] = []
+        s.onPetBubble = { title, body in bubbles.append((title, body)) }
+        await s.hatch(baseID: 1)
+        XCTAssertTrue(bubbles.isEmpty, "hatch is not evolve/graduate")
+        s.applyUsage(PokemonBalance.phaseThreshold(rarity: .common, totalForms: 3, stageIndex: 0))
+        let l = L(.en)
+        XCTAssertEqual(bubbles.count, 1)
+        XCTAssertEqual(bubbles[0].0, l.notifEvolveTitle)
+        XCTAssertEqual(bubbles[0].1, l.notifEvolveBody("P2"))
+    }
+
+    /// 졸업 말풍선 — 최종 단계 임계를 넘으면 evolve 가 아니라 graduate 카피가 나간다.
+    func testGraduationPresentsPetBubble() async {
+        let s = store(linear3)
+        s.setLanguage(.en)
+        var bubbles: [(String, String)] = []
+        s.onPetBubble = { title, body in bubbles.append((title, body)) }
+        await s.hatch(baseID: 1)
+        s.applyUsage(PokemonBalance.phaseThreshold(rarity: .common, totalForms: 3, stageIndex: 0))
+        s.applyUsage(PokemonBalance.phaseThreshold(rarity: .common, totalForms: 3, stageIndex: 1))
+        s.applyUsage(PokemonBalance.phaseThreshold(rarity: .common, totalForms: 3, stageIndex: 2))
+        let l = L(.en)
+        XCTAssertEqual(bubbles.last?.0, l.notifGraduateTitle)
+        XCTAssertEqual(bubbles.last?.1, l.notifGraduateBody("P3"))
+        XCTAssertGreaterThanOrEqual(bubbles.count, 3) // two evolves + graduate
+    }
+
     /// 백필(트리거 브랜치): 이름 미저장(구버전) 항목을 조회하면 line 에서 체인 이름을 얻어 **항목에 저장**
     /// 한다. 구버전 저장 JSON(“names” 키 없음)을 로드해 실제 마이그레이션 경로를 재현한다.
     func testDexResolveChainNamesBackfillsLegacyEntry() async {

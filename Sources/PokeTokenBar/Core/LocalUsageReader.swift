@@ -1603,7 +1603,7 @@ enum LocalUsageReader {
         return f.string(from: date)
     }
 
-    static func todayKey() -> String { localDayFormatter().string(from: Date()) }
+    static func todayKey(_ date: Date = Date()) -> String { localDayFormatter().string(from: date) }
 
     static func localDayFormatter() -> DateFormatter {
         let f = DateFormatter()

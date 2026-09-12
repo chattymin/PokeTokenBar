@@ -10,6 +10,7 @@ import SwiftUI
 final class FloatingPetController: NSObject, NSWindowDelegate {
     private let store: UsageStore
     private let companion: CompanionStore
+    private let session: FocusSessionStore
     private let defaults: UserDefaults
     private var panel: NSPanel?
     private var hoverPanel: NSPanel?
@@ -35,6 +36,11 @@ final class FloatingPetController: NSObject, NSWindowDelegate {
     /// `SpeechBubbleView` body `.lineLimit`. Measure and view must share this — a
     /// headroom-only guard stays green for 3-line copy that still fits 70pt (#167).
     static let bubbleBodyLineLimit = 2
+    static let islandWidth: CGFloat = 228
+    static let islandHeight: CGFloat = 80
+    static let islandGap: CGFloat = 8
+    static let promptHeightZeroTime: CGFloat = 152
+    static let promptHeightCheckIn: CGFloat = 176
 
     /// Chrome size plus the signals the view actually fails on: wrap count vs
     /// `bubbleBodyLineLimit`, and single-line width vs the content column.
@@ -76,14 +82,19 @@ final class FloatingPetController: NSObject, NSWindowDelegate {
 
     private var onOpenPopover: (() -> Void)?
     private var onHide: (() -> Void)?
+    private var onOpenToday: (() -> Void)?
 
-    init(store: UsageStore, companion: CompanionStore, defaults: UserDefaults = .standard,
-         onOpenPopover: (() -> Void)? = nil, onHide: (() -> Void)? = nil) {
+    init(store: UsageStore, companion: CompanionStore, session: FocusSessionStore,
+         defaults: UserDefaults = .standard,
+         onOpenPopover: (() -> Void)? = nil, onHide: (() -> Void)? = nil,
+         onOpenToday: (() -> Void)? = nil) {
         self.store = store
         self.companion = companion
+        self.session = session
         self.defaults = defaults
         self.onOpenPopover = onOpenPopover
         self.onHide = onHide
+        self.onOpenToday = onOpenToday
         super.init()
         observeSettings()
         observePowerState()
@@ -105,11 +116,13 @@ final class FloatingPetController: NSObject, NSWindowDelegate {
         withObservationTracking {
             _ = store.floatingPetEnabled
             _ = store.floatingPetSize
-            _ = store.currentBubbleAlert
+            _ = store.currentSpeechBubble
             _ = store.todayTotalTokens
             _ = store.highestLimitUtilization
             _ = store.limitDisplayMode   // hover 툴팁 %가 파생되는 값 — 수동 관찰 표면은 파생 원천을 직접 추적(defect-log §표시·UI)
             _ = companion.language
+            _ = session.isActive
+            _ = session.prompt
         } onChange: { [weak self] in
             Task { @MainActor in
                 guard let self else { return }
@@ -131,19 +144,53 @@ final class FloatingPetController: NSObject, NSWindowDelegate {
 
     /// Panel size for a given pet size and bubble visibility. Pure — tested without AppKit layout.
     static func panelSize(petSize: CGFloat, showingBubble: Bool) -> NSSize {
-        if showingBubble {
-            return NSSize(width: max(petSize, bubbleMinWidth),
-                          height: petSize + bubbleHeadroom)
+        panelSize(petSize: petSize, showingBubble: showingBubble, hasIsland: false, prompt: .none)
+    }
+
+    static func panelSize(petSize: CGFloat, showingBubble: Bool,
+                          hasIsland: Bool, prompt: FocusPrompt) -> NSSize {
+        if !hasIsland, prompt == .none {
+            if showingBubble {
+                return NSSize(width: max(petSize, bubbleMinWidth),
+                              height: petSize + bubbleHeadroom)
+            }
+            return NSSize(width: petSize, height: petSize)
         }
-        return NSSize(width: petSize, height: petSize)
+        let islandW = hasIsland ? islandWidth + islandGap : 0
+        var promptH: CGFloat = 0
+        switch prompt {
+        case .none: break
+        case .zeroTime: promptH = promptHeightZeroTime + 8
+        case .checkIn: promptH = promptHeightCheckIn + 8
+        }
+        let column = (hasIsland ? islandHeight : 0) + promptH
+        let width = max(petSize + islandW, showingBubble ? bubbleMinWidth : petSize + islandW)
+        let height = (showingBubble ? bubbleHeadroom : 0) + max(petSize, column)
+        return NSSize(width: width, height: height)
     }
 
     static func panelOrigin(petOrigin: NSPoint, petSize: CGFloat, panelSize: NSSize) -> NSPoint {
+        panelOrigin(petOrigin: petOrigin, petSize: petSize, panelSize: panelSize, hasIsland: false)
+    }
+
+    static func panelOrigin(petOrigin: NSPoint, petSize: CGFloat, panelSize: NSSize,
+                            hasIsland: Bool) -> NSPoint {
+        if hasIsland {
+            return NSPoint(x: petOrigin.x + petSize - panelSize.width, y: petOrigin.y)
+        }
         let xInset = max(0, (panelSize.width - petSize) / 2)
         return NSPoint(x: petOrigin.x - xInset, y: petOrigin.y)
     }
 
     static func petOrigin(panelOrigin: NSPoint, petSize: CGFloat, panelSize: NSSize) -> NSPoint {
+        petOrigin(panelOrigin: panelOrigin, petSize: petSize, panelSize: panelSize, hasIsland: false)
+    }
+
+    static func petOrigin(panelOrigin: NSPoint, petSize: CGFloat, panelSize: NSSize,
+                          hasIsland: Bool) -> NSPoint {
+        if hasIsland {
+            return NSPoint(x: panelOrigin.x + panelSize.width - petSize, y: panelOrigin.y)
+        }
         let xInset = max(0, (panelSize.width - petSize) / 2)
         return NSPoint(x: panelOrigin.x + xInset, y: panelOrigin.y)
     }
@@ -210,10 +257,14 @@ final class FloatingPetController: NSObject, NSWindowDelegate {
         let wantAnimated = Self.shouldAnimate(lowPower: ProcessInfo.processInfo.isLowPowerModeEnabled)
         if p.contentView == nil || builtAnimated != wantAnimated {
             let hosting = PetHostingView(rootView: AnyView(
-                FloatingPetView(animated: wantAnimated).environment(store).environment(companion)))
+                FloatingPetView(animated: wantAnimated)
+                    .environment(store).environment(companion).environment(session)))
             hosting.onOpenPopover = onOpenPopover
             hosting.onHide = onHide
+            hosting.onOpenToday = onOpenToday
             hosting.languageProvider = { [weak self] in self?.companion.language ?? .systemDefault }
+            hosting.petSize = CGFloat(store.floatingPetSize)
+            hosting.hasIsland = session.isActive
             hosting.onHoverChange = { [weak self] hovering in
                 if hovering { self?.showHoverCallout() } else { self?.hideHoverCallout() }
             }
@@ -222,9 +273,12 @@ final class FloatingPetController: NSObject, NSWindowDelegate {
         }
         if let hosting = p.contentView as? PetHostingView {
             hosting.toolTip = currentHoverText()
+            hosting.petSize = CGFloat(store.floatingPetSize)
+            hosting.hasIsland = session.isActive
+            hosting.onOpenToday = onOpenToday
         }
         let petSize = CGFloat(store.floatingPetSize)
-        p.setFrame(targetFrame(petSize: petSize, showingBubble: store.currentBubbleAlert != nil),
+        p.setFrame(targetFrame(petSize: petSize, showingBubble: store.currentSpeechBubble != nil),
                    display: true)
         p.orderFrontRegardless()
         if hoverPanel?.isVisible == true { showHoverCallout() }
@@ -249,7 +303,7 @@ final class FloatingPetController: NSObject, NSWindowDelegate {
     private func showHoverCallout() {
         guard let pet = panel, pet.isVisible else { return }
         // Don't cover an active limit bubble — the speech bubble is the priority surface.
-        if store.currentBubbleAlert != nil { hideHoverCallout(); return }
+        if store.currentSpeechBubble != nil || session.prompt != .none { hideHoverCallout(); return }
         let text = currentHoverText()
         let appearance = NSApp.effectiveAppearance
         let colors = Self.hoverCalloutColors(for: appearance)
@@ -305,7 +359,9 @@ final class FloatingPetController: NSObject, NSWindowDelegate {
     }
 
     private func targetFrame(petSize: CGFloat, showingBubble: Bool) -> NSRect {
-        let size = Self.panelSize(petSize: petSize, showingBubble: showingBubble)
+        let hasIsland = session.isActive
+        let size = Self.panelSize(petSize: petSize, showingBubble: showingBubble,
+                                  hasIsland: hasIsland, prompt: session.prompt)
         let petOrigin: NSPoint
         if let x = defaults.object(forKey: Self.originXKey) as? Double,
            let y = defaults.object(forKey: Self.originYKey) as? Double {
@@ -313,11 +369,13 @@ final class FloatingPetController: NSObject, NSWindowDelegate {
         } else {
             petOrigin = Self.defaultPetOrigin(petSize: petSize)
         }
-        var frame = NSRect(origin: Self.panelOrigin(petOrigin: petOrigin, petSize: petSize, panelSize: size),
+        var frame = NSRect(origin: Self.panelOrigin(petOrigin: petOrigin, petSize: petSize,
+                                                    panelSize: size, hasIsland: hasIsland),
                            size: size)
         if !NSScreen.screens.contains(where: { $0.visibleFrame.intersects(frame) }) {
             let fallbackPet = Self.defaultPetOrigin(petSize: petSize)
-            frame.origin = Self.panelOrigin(petOrigin: fallbackPet, petSize: petSize, panelSize: size)
+            frame.origin = Self.panelOrigin(petOrigin: fallbackPet, petSize: petSize,
+                                            panelSize: size, hasIsland: hasIsland)
         }
         return frame
     }
@@ -349,8 +407,11 @@ final class FloatingPetController: NSObject, NSWindowDelegate {
     func windowDidMove(_ notification: Notification) {
         guard let p = panel, p.isVisible else { return }
         let petSize = CGFloat(store.floatingPetSize)
-        let size = Self.panelSize(petSize: petSize, showingBubble: store.currentBubbleAlert != nil)
-        let pet = Self.petOrigin(panelOrigin: p.frame.origin, petSize: petSize, panelSize: size)
+        let hasIsland = session.isActive
+        let size = Self.panelSize(petSize: petSize, showingBubble: store.currentSpeechBubble != nil,
+                                  hasIsland: hasIsland, prompt: session.prompt)
+        let pet = Self.petOrigin(panelOrigin: p.frame.origin, petSize: petSize,
+                                 panelSize: size, hasIsland: hasIsland)
         defaults.set(Double(pet.x), forKey: Self.originXKey)
         defaults.set(Double(pet.y), forKey: Self.originYKey)
         if hoverPanel?.isVisible == true { showHoverCallout() }
@@ -360,12 +421,16 @@ final class FloatingPetController: NSObject, NSWindowDelegate {
 final class PetHostingView: NSHostingView<AnyView> {
     var onOpenPopover: (() -> Void)?
     var onHide: (() -> Void)?
+    var onOpenToday: (() -> Void)?
     var onHoverChange: ((Bool) -> Void)?
     var languageProvider: () -> AppLanguage = { .systemDefault }
+    var hasIsland = false
+    var petSize: CGFloat = 96
 
     private var mouseDownScreen: NSPoint?
     private var originAtDown: NSPoint?
     private var didDrag = false
+    private var forwardingToSwiftUI = false
 
     override var mouseDownCanMoveWindow: Bool { false }
 
@@ -387,17 +452,36 @@ final class PetHostingView: NSHostingView<AnyView> {
     override func mouseEntered(with event: NSEvent) { onHoverChange?(true) }
     override func mouseExited(with event: NSEvent) { onHoverChange?(false) }
 
+    private var spriteRect: NSRect {
+        NSRect(x: bounds.width - petSize, y: 0, width: petSize, height: petSize)
+    }
+
+    private func isInteractiveIsland(_ point: NSPoint) -> Bool {
+        hasIsland && point.x < bounds.width - petSize
+    }
+
     override func mouseDown(with event: NSEvent) {
         if event.modifierFlags.contains(.control) {
             showContextMenu(event)
             return
         }
+        let local = convert(event.locationInWindow, from: nil)
+        if isInteractiveIsland(local) {
+            forwardingToSwiftUI = true
+            super.mouseDown(with: event)
+            return
+        }
+        forwardingToSwiftUI = false
         mouseDownScreen = NSEvent.mouseLocation
         originAtDown = window?.frame.origin
         didDrag = false
     }
 
     override func mouseDragged(with event: NSEvent) {
+        if forwardingToSwiftUI {
+            super.mouseDragged(with: event)
+            return
+        }
         guard let window, let start = mouseDownScreen, let origin = originAtDown else { return }
         let now = NSEvent.mouseLocation
         if !Self.isClick(from: start, to: now) { didDrag = true }
@@ -406,6 +490,11 @@ final class PetHostingView: NSHostingView<AnyView> {
     }
 
     override func mouseUp(with event: NSEvent) {
+        if forwardingToSwiftUI {
+            forwardingToSwiftUI = false
+            super.mouseUp(with: event)
+            return
+        }
         defer {
             mouseDownScreen = nil
             originAtDown = nil
@@ -431,6 +520,10 @@ final class PetHostingView: NSHostingView<AnyView> {
                                 action: #selector(handleOpen(_:)), keyEquivalent: "")
         open.target = self
         open.isEnabled = true
+        let today = menu.addItem(withTitle: l.todayDeskMenuOpen,
+                                 action: #selector(handleOpenToday(_:)), keyEquivalent: "")
+        today.target = self
+        today.isEnabled = true
         let hide = menu.addItem(withTitle: l.floatingPetMenuHide,
                                 action: #selector(handleHide(_:)), keyEquivalent: "")
         hide.target = self
@@ -439,6 +532,7 @@ final class PetHostingView: NSHostingView<AnyView> {
     }
 
     @objc func handleOpen(_ sender: Any?) { onOpenPopover?() }
+    @objc func handleOpenToday(_ sender: Any?) { onOpenToday?() }
     @objc func handleHide(_ sender: Any?) { onHide?() }
 }
 
@@ -447,26 +541,32 @@ struct FloatingPetView: View {
     var animated: Bool = true
     @Environment(UsageStore.self) private var store
     @Environment(CompanionStore.self) private var companion
+    @Environment(FocusSessionStore.self) private var session
 
     var body: some View {
         let size = CGFloat(store.floatingPetSize)
         let subject = companion.representativeSubject
         VStack(spacing: 8) {
-            if let alert = store.currentBubbleAlert {
-                SpeechBubbleView(alert: alert, l: L(companion.language))
+            if let bubble = store.currentSpeechBubble {
+                SpeechBubbleView(bubble: bubble)
                     .transition(.scale(scale: 0.8, anchor: .bottom).combined(with: .opacity))
                     .zIndex(1)
             }
 
-            SpriteView(speciesID: subject.speciesID, size: size, animated: animated,
-                       shiny: subject.isShiny,
-                       minFrameDelay: store.animationQuality.frameFloor)
-                .frame(width: size, height: size)
-                .zIndex(0)
+            HStack(alignment: .bottom, spacing: FloatingPetController.islandGap) {
+                if session.isActive {
+                    SessionIslandView()
+                }
+                SpriteView(speciesID: subject.speciesID, size: size, animated: animated,
+                           shiny: subject.isShiny,
+                           minFrameDelay: store.animationQuality.frameFloor)
+                    .frame(width: size, height: size)
+                    .zIndex(0)
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
         .animation(animated ? .spring(response: 0.3, dampingFraction: 0.7) : nil,
-                   value: store.currentBubbleAlert)
+                   value: store.currentSpeechBubble)
     }
 
     static func hoverTooltip(todayTokens: Int, limitUtilization: Double?,
@@ -480,18 +580,17 @@ struct FloatingPetView: View {
     }
 }
 
-/// Transient limit-alert bubble. Width is capped so copy wraps instead of clipping the panel.
+/// Transient speech bubble. Width is capped so copy wraps instead of clipping the panel.
 @MainActor
 private struct SpeechBubbleView: View {
-    let alert: UsageStore.LimitAlert
-    let l: L
+    let bubble: UsageStore.SpeechBubble
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
-            Text(alert.isCritical ? l.notifCritical : l.notifWarning)
+            Text(bubble.title)
                 .font(.system(size: 11, weight: .bold))
-                .foregroundColor(alert.isCritical ? .red : .primary)
-            Text(l.notifBody(alert.window, TokenFormatter.percent(alert.utilization)))
+                .foregroundColor(bubble.isCritical ? .red : .primary)
+            Text(bubble.body)
                 .font(.system(size: 10))
                 .foregroundColor(.secondary)
                 .lineLimit(FloatingPetController.bubbleBodyLineLimit)
