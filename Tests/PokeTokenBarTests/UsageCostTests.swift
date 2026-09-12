@@ -22,6 +22,18 @@ final class UsageCostTests: XCTestCase {
                      explicitCost: cost, costIsEstimate: estimated, costUnavailable: unavailable)
     }
 
+    func testPlainDollarFormattingAcrossCoverageAndLanguages() {
+        for language in AppLanguage.allCases {
+            for coverage in [CostCoverage.source, .estimate,
+                             CostCoverage(reported: true, unknown: true),
+                             CostCoverage(estimated: true, unknown: true)] {
+                let cost = UsageCost(amount: 12.5, coverage: coverage)
+                XCTAssertEqual(cost.text(L(language)), "$12.50")
+                XCTAssertEqual(cost.text(L(language), compact: true), TokenFormatter.costCompact(12.5))
+            }
+        }
+    }
+
     func testExplicitZeroIsNotMissingAndNeverFallsBackToModelRate() throws {
         let zero = try XCTUnwrap(LocalUsageReader.daily(entries: [entry(cost: 0)], localDay: LocalUsageReader.todayKey()))
         XCTAssertEqual(zero.totalCost, 0)
@@ -30,7 +42,7 @@ final class UsageCostTests: XCTestCase {
         let missing = try XCTUnwrap(LocalUsageReader.daily(entries: [entry()], localDay: LocalUsageReader.todayKey()))
         XCTAssertEqual(missing.totalCost, 0.00825, accuracy: 1e-12)
         XCTAssertEqual(missing.costCoverage, .estimate)
-        XCTAssertEqual(missing.usageCost.text(L(.en)), "≈$0.01")
+        XCTAssertEqual(missing.usageCost.text(L(.en)), "$0.01")
     }
 
     func testUnavailableAndPartialCostsSurviveEveryAggregation() throws {
@@ -52,7 +64,7 @@ final class UsageCostTests: XCTestCase {
         XCTAssertEqual(enrichment.monthDaily?.last?.costCoverage, expected)
         XCTAssertEqual(PeriodUsage(period: "test", daily: [daily]).costCoverage, expected)
         XCTAssertEqual(daily.totalTokens, entries.reduce(0) { $0 + $1.total })
-        XCTAssertTrue(daily.usageCost.text(L(.en)).hasSuffix("+"))
+        XCTAssertEqual(daily.usageCost.text(L(.en)), "$0.01")
         XCTAssertTrue(daily.usageCost.explanation(L(.en)).contains("Some usage"))
     }
 
@@ -166,8 +178,9 @@ final class UsageCostTests: XCTestCase {
         XCTAssertEqual(store.weekUsageCost.coverage, expected)
         XCTAssertEqual(store.monthUsageCost.coverage, expected)
         XCTAssertEqual(store.monthDailyTotals.last?.costCoverage, expected)
-        XCTAssertTrue(store.menuTitle.contains("≈"))
-        XCTAssertTrue(store.menuTitle.contains("+"))
+        XCTAssertFalse(store.menuTitle.contains("≈"))
+        XCTAssertFalse(store.menuTitle.contains("+"))
+        XCTAssertTrue(store.menuTitle.contains("$"))
         XCTAssertEqual(store.todayTotalTokens, 3_200)
     }
 
@@ -203,13 +216,12 @@ final class UsageCostTests: XCTestCase {
                 XCTAssertFalse(cost.explanation(l).isEmpty)
             }
             let view = VStack(alignment: .leading, spacing: 8) {
-                Text(l.costLegend)
                 ForEach(examples.indices, id: \.self) { i in UsageCostText(cost: examples[i], l: l) }
             }.padding(16).frame(width: 320).background(Color.white).foregroundStyle(.black)
             let renderer = ImageRenderer(content: view)
             renderer.scale = 2
             let image = try XCTUnwrap(renderer.cgImage)
-            XCTAssertGreaterThan(image.height, 160)
+            XCTAssertGreaterThan(image.height, 100)
             XCTAssertEqual(image.width, 640)
             if let output = ProcessInfo.processInfo.environment["PTB_COST_PREVIEW"], language == .ko {
                 let bitmap = NSBitmapImageRep(cgImage: image)
