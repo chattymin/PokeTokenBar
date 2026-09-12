@@ -4,14 +4,14 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>PokeTokenBar — Your AI coding tokens, hatched into Pokémon</title>
-<meta name="description" content="A macOS menu-bar app that shows today's Claude Code, Codex, Gemini CLI, Antigravity, OpenCode, Hermes, Cursor, Grok, Copilot, Kiro & Pi Agent token usage and turns it into a growing Pokémon companion. Hatch an egg, evolve it, graduate it into your Pokédex.">
+<meta name="description" content="A macOS menu-bar app that shows today's Claude Code, Codex, Gemini CLI, Antigravity, OpenCode, Hermes, Cursor, Grok, Copilot, Kiro, Pi Agent, omp & Aside token usage and turns it into a growing Pokémon companion. Hatch an egg, evolve it, graduate it into your Pokédex.">
 <link rel="icon" type="image/png" href="assets/icon.png">
 <link rel="apple-touch-icon" href="assets/icon.png">
 
 <!-- Open Graph / Twitter -->
 <meta property="og:type" content="website">
 <meta property="og:title" content="PokeTokenBar — AI coding tokens, hatched into Pokémon">
-<meta property="og:description" content="Track today's Claude Code, Codex, Gemini CLI, Antigravity, OpenCode, Hermes, Cursor, Grok, Copilot, Kiro & Pi Agent tokens in your macOS menu bar — and raise a Pokémon companion that evolves as you code.">
+<meta property="og:description" content="Track today's Claude Code, Codex, Gemini CLI, Antigravity, OpenCode, Hermes, Cursor, Grok, Copilot, Kiro, Pi Agent, omp & Aside tokens in your macOS menu bar — and raise a Pokémon companion that evolves as you code.">
 <meta property="og:image" content="https://chattymin.github.io/PokeTokenBar/assets/screenshot-home.png">
 <meta property="og:url" content="https://chattymin.github.io/PokeTokenBar/">
 <meta name="twitter:card" content="summary_large_image">
@@ -369,7 +369,7 @@
       <img class="menubar" src="assets/menubar.gif" alt="Menu bar showing an animated companion and today's total tokens">
       <div class="window">
         <div class="titlebar"><i class="dot-r"></i><i class="dot-y"></i><i class="dot-g"></i></div>
-        <img src="assets/screenshot-home.gif" alt="PokeTokenBar popover: animated Lapras companion, provider tabs (Claude Code / Codex / Gemini / OpenCode / Hermes / Cursor), today's combined tokens and official limit bars">
+        <img src="assets/screenshot-home.png" alt="PokeTokenBar popover with companion, daily usage trend, provider tabs and aligned remaining-limit percentages">
       </div>
     </div>
   </div>
@@ -390,6 +390,8 @@
     <span class="chip"><span class="d" style="background:var(--slate)"></span>Copilot CLI</span>
     <span class="chip"><span class="d" style="background:var(--slate)"></span>Kiro CLI</span>
     <span class="chip"><span class="d" style="background:var(--purple)"></span>Pi Agent</span>
+    <span class="chip"><span class="d" style="background:var(--purple)"></span>omp</span>
+    <span class="chip"><span class="d" style="background:var(--cyan)"></span>Aside</span>
     <span class="chip"><span class="d" style="background:var(--red)"></span>PokéAPI</span>
   </div>
 </div>
@@ -405,12 +407,12 @@
       <div class="feat reveal">
         <div class="ic">📊</div>
         <h3 data-i18n="f1.t">Live token usage</h3>
-        <p data-i18n="f1.d">Today's Claude Code + Codex + Gemini + Antigravity + OpenCode + Hermes + Cursor + Grok + Copilot + Kiro + Pi + omp tokens (compact, e.g. 253.4M) — combined total in the menu bar, per-service tabs in the popover.</p>
+        <p data-i18n="f1.d">Today's Claude Code + Codex + Gemini + Antigravity + OpenCode + Hermes + Cursor + Grok + Copilot + Kiro + Pi + omp + Aside tokens (compact, e.g. 253.4M) — combined total in the menu bar, per-service tabs in the popover.</p>
       </div>
       <div class="feat reveal">
         <div class="ic">🛑</div>
         <h3 data-i18n="f2.t">Official limits</h3>
-        <p data-i18n="f2.d">Claude, Codex &amp; Antigravity 5-hour / weekly utilization with live reset countdowns, color-coded as you approach the cap.</p>
+        <p data-i18n="f2.d">Claude, Codex and Antigravity limits with reset countdowns and clock times. Choose used or remaining; percentages stay aligned with matching progress bars.</p>
       </div>
       <div class="feat reveal">
         <div class="ic">📈</div>
@@ -425,7 +427,7 @@
       <div class="feat reveal">
         <div class="ic">🌐</div>
         <h3 data-i18n="f5.t">Localized</h3>
-        <p data-i18n="f5.d">Full Korean / English / Japanese / Spanish / French / Portuguese / German UI — and Pokémon names in your language, straight from PokéAPI.</p>
+        <p data-i18n="f5.d">Seven UI languages. Pokémon, type, ability and move names follow your selected language, with English when a translation is unavailable.</p>
       </div>
       <div class="feat reveal">
         <div class="ic">🔔</div>
@@ -460,7 +462,22 @@
       <div class="feat reveal">
         <div class="ic">🧮</div>
         <h3 data-i18n="f12.t">Per-model breakdown</h3>
-        <p data-i18n="f12.d">Pi forks like omp can route several models through one session log — usage is attributed to the real model id, and today's tokens break down per model in the popover.</p>
+        <p data-i18n="f12.d">Pi usage follows the model recorded for each turn. The popover breaks today&#x27;s Pi tokens down by model, biggest first.</p>
+      </div>
+      <div class="feat reveal">
+        <div class="ic">📊</div>
+        <h3 data-i18n="f13.t">This month, day by day</h3>
+        <p data-i18n="f13.d">See this month’s daily token totals across all tools in the popover. Hover a bar for that day’s usage.</p>
+      </div>
+      <div class="feat reveal">
+        <div class="ic">🥚</div>
+        <h3 data-i18n="f14.t">Growth at your pace</h3>
+        <p data-i18n="f14.d">Set difficulty from 10% to 200% and apply it with Save. Your earned progress is preserved. Hatches from a previously graduated base species grow twice as fast.</p>
+      </div>
+      <div class="feat reveal">
+        <div class="ic">📖</div>
+        <h3 data-i18n="f15.t">Individual Pokémon profiles</h3>
+        <p data-i18n="f15.d">Explore persistent individual values, abilities and moves in Pokémon details. Localized names appear without a brief English flash.</p>
       </div>
     </div>
   </div>
@@ -500,6 +517,22 @@
         <img src="assets/floating-pet.gif" alt="The floating desktop pet with a hover callout showing today's tokens and a right-click menu">
         <figcaption data-i18n="cap4">Move the pet onto your desktop — hover for today's usage, right-click for a menu, drag it anywhere.</figcaption>
       </figure>
+      <figure class="reveal">
+        <img src="assets/screenshot-daily-trend.png" alt="This month’s daily usage, with every date kept in place." loading="lazy">
+        <figcaption data-i18n="cap5">This month’s daily usage, with every date kept in place.</figcaption>
+      </figure>
+      <figure class="reveal">
+        <img src="assets/screenshot-difficulty.png" alt="Save difficulty changes while keeping earned progress." loading="lazy">
+        <figcaption data-i18n="cap6">Save difficulty changes while keeping earned progress.</figcaption>
+      </figure>
+      <figure class="reveal">
+        <img src="assets/screenshot-pokemon-profile.png" alt="Inspect each Pokémon’s individual values, ability and moves." loading="lazy">
+        <figcaption data-i18n="cap7">Inspect each Pokémon’s individual values, ability and moves.</figcaption>
+      </figure>
+      <figure class="reveal">
+        <img src="assets/screenshot-quota-alignment.png" alt="Reset timing stays beside percentages aligned at the right edge." loading="lazy">
+        <figcaption data-i18n="cap8">Reset timing stays beside percentages aligned at the right edge.</figcaption>
+      </figure>
     </div>
 
     <div class="rarity-row reveal">
@@ -530,7 +563,7 @@
     <div class="tabpanel active" id="gtab-growth">
       <div class="panel">
         <h3 data-i18n="g.costH">Tokens per evolution</h3>
-        <p class="muted" style="margin:6px 0 0;font-size:0.95rem" data-i18n="g.costSub">The rarer the Pokémon, the longer it stays with you. Later stages cost more (3-stage line shown).</p>
+        <p class="muted" style="margin:6px 0 0;font-size:0.95rem" data-i18n="g.costSub">The rarer the Pokémon, the longer it stays with you. These are base costs at 100% difficulty; repeat hatches receive 2× growth.</p>
         <table class="gtable">
           <tr><th data-i18n="g.thRarity">Rarity</th><th class="num" data-i18n="g.thS1">Stage 1</th><th class="num" data-i18n="g.thS2">Stage 2</th><th class="num" data-i18n="g.thS3">Stage 3 (graduate)</th><th class="num" data-i18n="g.thTotal">Total</th></tr>
           <tr><td><span class="pill" style="color:var(--muted)">Common</span></td><td class="num">125M</td><td class="num">250M</td><td class="num">375M</td><td class="num">750M</td></tr>
@@ -615,10 +648,10 @@
         <h3 data-i18n="req.head">Requirements</h3>
         <ul class="req-list" style="margin-top:14px">
           <li><span class="k">macOS</span><span data-i18n="req.macos">14+ (Apple Silicon or Intel)</span></li>
-          <li><span class="k" data-i18n="req.providersK">Claude / Codex / Gemini / Antigravity / OpenCode / Hermes / Cursor / Grok / Copilot / Kiro / Pi</span><span data-i18n="req.providers">at least one, for usage to show</span></li>
+          <li><span class="k" data-i18n="req.providersK">Claude / Codex / Gemini / Antigravity / OpenCode / Hermes / Cursor / Grok / Copilot / Kiro / Pi / omp / Aside</span><span data-i18n="req.providers">at least one, for usage to show</span></li>
           <li><span class="k">Keychain</span><span data-i18n="req.keychain">optional — only for official limit %</span></li>
         </ul>
-        <p class="note" data-i18n="req.note">Your usage stays on your Mac. The app reads your local Claude Code / Codex / Gemini CLI / Antigravity / OpenCode / Hermes / Cursor / Grok CLI / Copilot CLI / Kiro CLI / Pi Agent logs, never uploads them, and never runs claude/codex model turns. It does use the network — for Pokémon data &amp; sprites (PokéAPI, cached locally), official limits, service status, and update checks — and none of those requests carry your usage. No Pokémon assets are bundled in the app.</p>
+        <p class="note" data-i18n="req.note">Your usage stays on your Mac. The app reads your local Claude Code / Codex / Gemini CLI / Antigravity / OpenCode / Hermes / Cursor / Grok CLI / Copilot CLI / Kiro CLI / Pi Agent / omp / Aside logs, never uploads them, and never runs claude/codex model turns. It does use the network — for Pokémon data &amp; sprites (PokéAPI, cached locally), official limits, service status, and update checks — and none of those requests carry your usage. No Pokémon assets are bundled in the app.</p>
       </div>
     </div>
   </div>
@@ -646,6 +679,16 @@
 <script>
   var I18N = {
     en: {
+      "cap5": "This month’s daily usage, with every date kept in place.",
+      "cap6": "Save difficulty changes while keeping earned progress.",
+      "cap7": "Inspect each Pokémon’s individual values, ability and moves.",
+      "cap8": "Reset timing stays beside percentages aligned at the right edge.",
+      "f13.t": "This month, day by day",
+      "f13.d": "See this month’s daily token totals across all tools in the popover. Hover a bar for that day’s usage.",
+      "f14.t": "Growth at your pace",
+      "f14.d": "Set difficulty from 10% to 200% and apply it with Save. Your earned progress is preserved. Hatches from a previously graduated base species grow twice as fast.",
+      "f15.t": "Individual Pokémon profiles",
+      "f15.d": "Explore persistent individual values, abilities and moves in Pokémon details. Localized names appear without a brief English flash.",
       "nav.features": "Features", "nav.companion": "Companion", "nav.install": "Install",
       "hero.eyebrow": "macOS menu bar · free & open source",
       "hero.h1a": "Your AI coding tokens,", "hero.h1b": "hatched into Pokémon.",
@@ -654,18 +697,18 @@
       "strip.label": "Works with", "copy": "Copy",
       "feat.h2": "Everything you need, in the menu bar",
       "feat.sub": "A glanceable usage tracker for AI coding — no dashboard, no browser tab — with a reason to actually open it.",
-      "f1.t": "Live token usage", "f1.d": "Today's Claude Code + Codex + Gemini + Antigravity + OpenCode + Hermes + Cursor + Grok + Copilot + Kiro + Pi + omp tokens (compact, e.g. 253.4M) — combined total in the menu bar, per-service tabs in the popover.",
-      "f2.t": "Official limits", "f2.d": "Claude, Codex & Antigravity 5-hour / weekly utilization with live reset countdowns, color-coded as you approach the cap.",
+      "f1.t": "Live token usage", "f1.d": "Today's Claude Code + Codex + Gemini + Antigravity + OpenCode + Hermes + Cursor + Grok + Copilot + Kiro + Pi + omp + Aside tokens (compact, e.g. 253.4M) — combined total in the menu bar, per-service tabs in the popover.",
+      "f2.t": "Official limits", "f2.d": "Claude, Codex and Antigravity limits with reset countdowns and clock times. Choose used or remaining; percentages stay aligned with matching progress bars.",
       "f3.t": "Burn-rate forecast", "f3.d": "Projects when your current 5-hour window will hit 100% at the current spend rate — so a wall never surprises you.",
       "f4.t": "Growth companion + Pokédex", "f4.d": "Your usage raises a Pokémon that hatches — sometimes, by a rare stroke of luck, Shiny ✨ — evolves through its real line with natures and little celebrations, and fills a Pokédex.",
-      "f5.t": "Localized", "f5.d": "Full Korean / English / Japanese / Spanish / French / Portuguese / German UI — and Pokémon names in your language, straight from PokéAPI.",
+      "f5.t": "Localized", "f5.d": "Seven UI languages. Pokémon, type, ability and move names follow your selected language, with English when a translation is unavailable.",
       "f6.t": "Notifications", "f6.d": "Alerts when a limit crosses your warning / critical thresholds — and when your companion hatches, evolves, or graduates.",
       "f8.t": "Floating desktop pet", "f8.d": "Let your companion live on the desktop instead of the menu bar — hover for today's usage, click to open the popover, right-click for a menu, drag to place it. Notifications can appear as a speech bubble above it.",
       "f7.t": "Token Shop", "f7.d": "The tokens you've already used become spendable currency — buy Rare Candy to grow your Pokémon, a Mint to re-roll its nature, a Shiny Charm that permanently raises your shiny odds, or an egg to send off your companion and start fresh — plain, Uncommon-guaranteed, or Rare-guaranteed.",
       "f9.t": "Representative Pokémon", "f9.d": "Pin any species you already own to the menu bar and floating pet, independently of the one you're raising — while pinned, the menu bar stops following egg, hatch, and evolution changes, and raising progress stays on Home.",
       "f10.t": "Additional scan folders", "f10.d": "Logs outside the built-in paths? Add extra scan roots per provider — comma or newline separated, * wildcards, with a live count of what currently matches. Each provider keeps its own list, and custom roots are added to the defaults rather than replacing them.",
       "f11.t": "Official limits without the Keychain", "f11.d": "Cached limit token expired? Paste a claude.ai session key under Settings → Advanced and official Claude limits come straight from claude.ai — no Keychain access, no password pop-up, and auto-polling keeps them fresh.",
-      "f12.t": "Per-model breakdown", "f12.d": "Pi forks like omp can route several models through one session log — usage is attributed to the real model id, and today's tokens break down per model in the popover.",
+      "f12.t": "Per-model breakdown", "f12.d": "Pi usage follows the model recorded for each turn. The popover breaks today's Pi tokens down by model, biggest first.",
       "comp.eyebrow": "The companion", "comp.h2": "Code more, raise a Pokémon",
       "comp.sub": "Tokens spent since install grow a Pokémon through its real evolution tree — fetched live from PokéAPI, animated with Gen-V sprites.",
       "s1.t": "Hatch", "s1.d": "Spend ~5M tokens and your egg hatches into a rarity-weighted Pokémon — one of 25 natures, and once in a rare while, Shiny ✨.",
@@ -684,14 +727,14 @@
       "inst.note": "Prefer building yourself? <code>swift build</code> · <code>swift test</code> · <code>./scripts/build-app.sh</code> → <code>/Applications</code>. See the <a href=\"https://github.com/chattymin/PokeTokenBar#install\" target=\"_blank\" rel=\"noopener\" style=\"color:var(--blue)\">README</a>.",
       "inst.gatekeeper": "Downloading directly instead? It's ad-hoc/self-signed, so on first launch right-click <code>PokeTokenBar.app</code> → <strong>Open</strong>, or run <code>xattr -dr com.apple.quarantine /Applications/PokeTokenBar.app</code>. (Homebrew does this for you.)",
       "req.head": "Requirements", "req.macos": "14+ (Apple Silicon or Intel)",
-      "req.providersK": "Claude / Codex / Gemini / Antigravity / OpenCode / Hermes / Cursor / Grok / Copilot / Kiro / Pi", "req.providers": "at least one, for usage to show", "req.keychain": "optional — only for official limit %",
-      "req.note": "Your usage stays on your Mac. The app reads your local Claude Code / Codex / Gemini CLI / Antigravity / OpenCode / Hermes / Cursor / Grok CLI / Copilot CLI / Kiro CLI / Pi Agent logs, never uploads them, and never runs claude/codex model turns. It does use the network — for Pokémon data & sprites (PokéAPI, cached locally), official limits, service status, and update checks — and none of those requests carry your usage. No Pokémon assets are bundled in the app.",
+      "req.providersK": "Claude / Codex / Gemini / Antigravity / OpenCode / Hermes / Cursor / Grok / Copilot / Kiro / Pi / omp / Aside", "req.providers": "at least one, for usage to show", "req.keychain": "optional — only for official limit %",
+      "req.note": "Your usage stays on your Mac. The app reads your local Claude Code / Codex / Gemini CLI / Antigravity / OpenCode / Hermes / Cursor / Grok CLI / Copilot CLI / Kiro CLI / Pi Agent / omp / Aside logs, never uploads them, and never runs claude/codex model turns. It does use the network — for Pokémon data & sprites (PokéAPI, cached locally), official limits, service status, and update checks — and none of those requests carry your usage. No Pokémon assets are bundled in the app.",
       "nav.guide": "Guide",
       "g.eyebrow": "Field guide", "g.h2": "How it grows — all the numbers",
       "g.sub": "How long it takes, what you'll see along the way, and what there is to collect — before you install.",
       "g.t1": "🐣 Growth & costs", "g.t2": "🎭 A day together", "g.t3": "📕 Collection",
       "g.costH": "Tokens per evolution",
-      "g.costSub": "The rarer the Pokémon, the longer it stays with you. Later stages cost more (3-stage line shown).",
+      "g.costSub": "The rarer the Pokémon, the longer it stays with you. These are base costs at 100% difficulty; repeat hatches receive 2× growth.",
       "g.thRarity": "Rarity", "g.thS1": "Stage 1", "g.thS2": "Stage 2", "g.thS3": "Stage 3 (graduate)", "g.thTotal": "Total",
       "g.calcH": "How long on my pace?",
       "g.calcQ": "How many AI-coding tokens do you burn per day? (total, including cache reads)",
@@ -717,6 +760,16 @@
       "foot.disclaimer": "Pokémon data & sprites by PokéAPI. This is an unofficial, non-commercial fan project. It is not affiliated with, endorsed, sponsored, or approved by Nintendo, Game Freak, or The Pokémon Company. Pokémon and Pokémon character names are trademarks of Nintendo; names, data, and sprites are © Nintendo / Game Freak / The Pokémon Company, used at runtime for identification only. The MIT license covers this project's source code only."
     },
     ko: {
+      "cap5": "날짜를 빠뜨리지 않고 보여주는 이번 달의 일별 사용량.",
+      "cap6": "이미 쌓은 진행률을 유지하면서 난이도 변경을 저장하세요.",
+      "cap7": "포켓몬마다 유지되는 개체값·특성·기술을 확인하세요.",
+      "cap8": "리셋 시간 옆의 퍼센트가 오른쪽 끝에 정렬됩니다.",
+      "f13.t": "이번 달의 일별 사용량",
+      "f13.d": "팝오버에서 모든 도구를 합산한 이번 달의 일별 토큰 사용량을 확인하세요. 막대에 마우스를 올리면 해당 날짜의 수치가 표시됩니다.",
+      "f14.t": "내 속도에 맞는 성장",
+      "f14.d": "난이도를 10%~200%로 조절하고 저장을 눌러 적용하세요. 이미 쌓은 성장 진행률은 유지됩니다. 졸업한 기본 종이 다시 부화하면 2배로 성장합니다.",
+      "f15.t": "포켓몬 개체별 상세",
+      "f15.d": "유지되는 개체값과 특성·기술을 상세 화면에서 확인하세요. 번역을 불러올 때 영어가 잠깐 나타나는 현상도 없앴습니다.",
       "nav.features": "기능", "nav.companion": "파트너", "nav.install": "설치",
       "hero.eyebrow": "macOS 메뉴바 · 무료 오픈소스",
       "hero.h1a": "AI 코딩 토큰이,", "hero.h1b": "포켓몬으로 부화합니다.",
@@ -725,18 +778,18 @@
       "strip.label": "연동", "copy": "복사",
       "feat.h2": "필요한 건 메뉴바에 다 있어요",
       "feat.sub": "대시보드도 브라우저 탭도 필요 없어요. 사용량을 한눈에 — 매일 열어보고 싶어지는 재미는 덤이고요.",
-      "f1.t": "실시간 토큰 사용량", "f1.d": "오늘 쓴 Claude Code·Codex·Gemini·Antigravity·OpenCode·Hermes·Cursor·Grok·Copilot·Kiro·Pi·omp 토큰 합계를 메뉴바에 간결하게(예: 253.4M). 팝오버에선 서비스별 탭으로 상세를 넘나들어요.",
-      "f2.t": "공식 사용 한도", "f2.d": "Claude·Codex·Antigravity의 5시간·주간 사용률을 리셋 카운트다운과 함께. 한도에 가까워지면 색으로 알려줘요.",
+      "f1.t": "실시간 토큰 사용량", "f1.d": "오늘 쓴 Claude Code·Codex·Gemini·Antigravity·OpenCode·Hermes·Cursor·Grok·Copilot·Kiro·Pi·omp·Aside 토큰 합계를 메뉴바에 간결하게(예: 253.4M). 팝오버에선 서비스별 탭으로 상세를 넘나들어요.",
+      "f2.t": "공식 사용 한도", "f2.d": "Claude·Codex·Antigravity 한도와 리셋까지 남은 시간·시각을 확인하세요. 사용량과 남은량을 선택하면 그래프도 맞춰 바뀌고 퍼센트는 오른쪽에 정렬됩니다.",
       "f3.t": "한도 소진 예측", "f3.d": "지금 속도라면 5시간 한도에 언제 닿을지 미리 알려줘요. 갑자기 막혀서 당황할 일이 없죠.",
       "f4.t": "키우는 재미 + 도감", "f4.d": "사용량으로 포켓몬이 부화하고(아주 특별한 우연으론 ✨ 이로치!), 성격과 작은 연출과 함께 진화해 도감을 채워가요.",
-      "f5.t": "다국어 지원", "f5.d": "한국어·영어·일본어·스페인어·프랑스어·포르투갈어·독일어 UI는 물론, 포켓몬 이름까지 PokéAPI에서 내 언어로 보여줘요.",
+      "f5.t": "다국어 지원", "f5.d": "7개 언어 UI를 지원합니다. 포켓몬·타입·특성·기술 이름은 선택한 언어로 표시하고 번역이 없으면 영어를 사용합니다.",
       "f6.t": "알림", "f6.d": "한도가 경고·임박 기준을 넘거나, 파트너가 부화·진화·졸업할 때 알려줘요.",
       "f8.t": "데스크톱 플로팅 펫", "f8.d": "파트너를 메뉴바 대신 바탕화면 위에 둘 수 있어요 — 호버하면 오늘 사용량, 클릭하면 팝오버, 우클릭하면 메뉴, 드래그로 위치를 옮겨요. 알림은 펫 위 말풍선으로도 뜹니다.",
       "f7.t": "토큰 상점", "f7.d": "사용한 토큰이 곧 재화가 돼요 — 이상한 사탕으로 포켓몬을 키우거나, 민트로 성격을 다시 굴리거나, 이로치 부적으로 이로치 확률을 영구히 올리거나, 알로 지금 포켓몬을 놓아주고 새로 시작하세요 — 보증 없는 알·고급 이상 확정·희귀 이상 확정 세 종류예요.",
       "f9.t": "대표 포켓몬", "f9.d": "도감에서 이미 가진 종을 골라 메뉴바와 플로팅 펫에 고정할 수 있어요 — 키우는 포켓몬과 별개예요. 고정 중엔 메뉴바가 알·부화·진화를 따라가지 않고, 육성 진행은 홈에서 그대로 봅니다.",
       "f10.t": "추가 스캔 폴더", "f10.d": "로그가 기본 경로 밖에 있나요? 프로바이더별로 스캔 루트를 더 넣을 수 있어요 — 콤마·줄바꿈 구분, * 와일드카드, 지금 몇 개가 걸리는지 실시간 표시. 목록은 프로바이더마다 따로고, 추가한 경로는 기본 경로를 대체하지 않고 더해집니다.",
       "f11.t": "Keychain 없는 공식 한도", "f11.d": "한도 토큰이 만료됐나요? 설정 → 고급에 claude.ai 세션 키를 붙여넣으면 공식 Claude 한도를 claude.ai에서 바로 읽어요 — Keychain 접근도, 암호 팝업도 없이 자동 폴링으로 최신을 유지합니다.",
-      "f12.t": "모델별 내역", "f12.d": "omp 같은 Pi 포크는 모델 여러 개를 세션 로그 하나로 흘려요 — 사용량이 실제 모델 id로 귀속되고, 팝오버에서 오늘 토큰이 모델별로 나뉘어 보입니다.",
+      "f12.t": "모델별 내역", "f12.d": "Pi 사용량을 각 턴에 기록된 실제 모델로 집계합니다. 팝오버에서 오늘의 Pi 토큰을 모델별로 사용량이 큰 순서대로 확인하세요.",
       "comp.eyebrow": "파트너", "comp.h2": "코딩할수록 포켓몬이 자랍니다",
       "comp.sub": "설치 후 쌓인 토큰이 실제 진화 트리를 따라 포켓몬을 키워요. PokéAPI에서 실시간으로 불러온 Gen-V 스프라이트가 살아 움직이죠.",
       "s1.t": "부화", "s1.d": "약 5M 토큰을 쓰면 알이 부화해요. 25종 성격 중 하나를 갖고 태어나고 — 아주 특별한 우연이 닿으면 ✨ 이로치가 태어나요.",
@@ -755,14 +808,14 @@
       "inst.note": "직접 빌드하고 싶다면 <code>swift build</code> · <code>swift test</code> · <code>./scripts/build-app.sh</code> → <code>/Applications</code>. 자세한 내용은 <a href=\"https://github.com/chattymin/PokeTokenBar#install\" target=\"_blank\" rel=\"noopener\" style=\"color:var(--blue)\">README</a>를 참고하세요.",
       "inst.gatekeeper": "직접 내려받아 실행하나요? ad-hoc·자체 서명 앱이라 첫 실행 때 <code>PokeTokenBar.app</code>을 우클릭 → <strong>열기</strong>, 또는 <code>xattr -dr com.apple.quarantine /Applications/PokeTokenBar.app</code>을 실행하세요. (Homebrew는 자동 처리.)",
       "req.head": "필요 환경", "req.macos": "14 이상 (Apple Silicon·Intel)",
-      "req.providersK": "Claude·Codex·Gemini·Antigravity·OpenCode·Hermes·Cursor·Grok·Copilot·Kiro·Pi", "req.providers": "하나만 있어도 사용량이 표시돼요", "req.keychain": "선택 — 공식 한도(%)를 볼 때만",
+      "req.providersK": "Claude·Codex·Gemini·Antigravity·OpenCode·Hermes·Cursor·Grok·Copilot·Kiro·Pi·omp·Aside", "req.providers": "하나만 있어도 사용량이 표시돼요", "req.keychain": "선택 — 공식 한도(%)를 볼 때만",
       "req.note": "사용량은 이 맥 안에 머물러요. 앱은 로컬 Claude Code/Codex/Gemini CLI/Antigravity/OpenCode/Hermes/Cursor/Grok CLI/Copilot CLI/Kiro CLI/Pi Agent 로그를 직접 읽을 뿐 업로드하지 않고, claude·codex 모델도 돌리지 않아요. 다만 네트워크는 사용합니다 — 포켓몬 데이터·스프라이트(PokéAPI, 로컬 캐시), 공식 한도, 서비스 상태, 업데이트 확인. 어느 요청에도 사용량은 담기지 않아요. 앱에는 포켓몬 에셋을 번들하지 않습니다.",
       "nav.guide": "가이드",
       "g.eyebrow": "필드 가이드", "g.h2": "어떻게 자라나요 — 숫자 전부 공개",
       "g.sub": "얼마나 걸리는지, 어떤 모습을 보게 되는지, 뭘 모으게 되는지 — 설치 전에 미리 보여드려요.",
       "g.t1": "🐣 성장 & 진화 비용", "g.t2": "🎭 파트너의 하루", "g.t3": "📕 수집",
       "g.costH": "진화에 필요한 토큰",
-      "g.costSub": "희귀할수록 오래 함께해요. 단계가 올라갈수록 더 많은 토큰이 들죠 (3단계 진화 라인 기준).",
+      "g.costSub": "희귀한 포켓몬일수록 오래 함께합니다. 아래는 난이도 100%의 기본 비용이며, 졸업한 기본 종이 다시 부화하면 2배 성장합니다.",
       "g.thRarity": "희귀도", "g.thS1": "1단계", "g.thS2": "2단계", "g.thS3": "3단계 (졸업)", "g.thTotal": "총량",
       "g.calcH": "내 페이스로는 얼마나 걸릴까?",
       "g.calcQ": "하루에 AI 코딩 토큰을 얼마나 쓰시나요? (캐시 읽기 포함 총량)",
@@ -788,6 +841,16 @@
       "foot.disclaimer": "포켓몬 데이터·스프라이트는 PokéAPI를 사용합니다. 본 프로젝트는 비공식·비상업 팬 프로젝트로, Nintendo·Game Freak·The Pokémon Company와 제휴하거나 보증·후원·승인을 받지 않았습니다. ‘Pokémon’과 포켓몬 캐릭터 이름은 Nintendo의 상표이며, 이름·데이터·스프라이트의 저작권은 © Nintendo / Game Freak / The Pokémon Company에 있고 식별 목적으로만 런타임에 사용됩니다. MIT 라이선스는 본 프로젝트의 소스 코드에만 적용됩니다."
     },
     ja: {
+      "cap5": "日付を飛ばさず表示する今月の日別使用量。",
+      "cap6": "獲得済みの進捗を保って難易度変更を保存。",
+      "cap7": "各ポケモンの個体値・特性・技を確認。",
+      "cap8": "リセット時間の隣で割合を右端に揃えて表示。",
+      "f13.t": "今月の日別使用量",
+      "f13.d": "ポップオーバーで全ツールを合算した今月の日別トークン使用量を確認。バーにポインタを重ねると、その日の数値を表示します。",
+      "f14.t": "自分のペースで育成",
+      "f14.d": "難易度を10%〜200%で調整し、保存して適用。獲得済みの育成進捗は維持されます。卒業済みの基本種が再び孵化すると2倍で成長します。",
+      "f15.t": "ポケモンごとの詳細",
+      "f15.d": "保存される個体値や特性・技を詳細画面で確認。翻訳の読み込み中に英語が一瞬表示される現象も解消しました。",
       "nav.features": "機能", "nav.companion": "パートナー", "nav.install": "インストール",
       "hero.eyebrow": "macOS メニューバー · 無料 & オープンソース",
       "hero.h1a": "あなたのAIコーディングトークンが、", "hero.h1b": "ポケモンに孵化する。",
@@ -796,18 +859,18 @@
       "strip.label": "連携", "copy": "コピー",
       "feat.h2": "必要なものは、メニューバーに",
       "feat.sub": "ダッシュボードもブラウザタブも不要。使用量はひと目で——しかも毎日開きたくなる楽しさつき。",
-      "f1.t": "リアルタイムの使用量", "f1.d": "今日の Claude Code・Codex・Gemini・Antigravity・OpenCode・Hermes・Cursor・Grok・Copilot・Kiro・Pi・omp トークン合計をメニューバーにコンパクト表示（例：253.4M）。ポップオーバーではサービス別タブで詳細を切替。",
-      "f2.t": "公式の使用上限", "f2.d": "Claude・Codex・Antigravity の5時間・週間の使用率を、リセットのカウントダウンとともに。上限が近づくと色でお知らせ。",
+      "f1.t": "リアルタイムの使用量", "f1.d": "今日の Claude Code・Codex・Gemini・Antigravity・OpenCode・Hermes・Cursor・Grok・Copilot・Kiro・Pi・omp・Aside トークン合計をメニューバーにコンパクト表示（例：253.4M）。ポップオーバーではサービス別タブで詳細を切替。",
+      "f2.t": "公式の使用上限", "f2.d": "Claude・Codex・Antigravity の上限とリセットまでの時間・時刻を表示。使用量と残量の選択にグラフも連動し、割合は右端に揃います。",
       "f3.t": "上限到達の予測", "f3.d": "今のペースなら5時間の上限にいつ達するかを事前に予測。急に止まって困ることがありません。",
       "f4.t": "育てる楽しさ + 図鑑", "f4.d": "使用量でポケモンが孵化し（ごくまれな偶然で ✨ 色違いも）、せいかくや小さな演出とともに進化して図鑑を埋めていきます。",
-      "f5.t": "多言語対応", "f5.d": "韓国語・英語・日本語・スペイン語・フランス語・ポルトガル語・ドイツ語の UI はもちろん、ポケモンの名前も PokéAPI からあなたの言語で。",
+      "f5.t": "多言語対応", "f5.d": "7言語の UI に対応。ポケモン・タイプ・特性・技の名前は選択した言語を優先し、翻訳がなければ英語を使います。",
       "f6.t": "通知", "f6.d": "上限が警告・危険のラインを超えたとき、そしてパートナーが孵化・進化・卒業したときにお知らせします。",
       "f8.t": "デスクトップのフローティングペット", "f8.d": "パートナーをメニューバーではなくデスクトップに置けます — ホバーで今日の使用量、クリックでポップオーバー、右クリックでメニュー、ドラッグで移動。通知はペットの上に吹き出しでも表示されます。",
       "f7.t": "トークンショップ", "f7.d": "使ったトークンがそのまま通貨に — ふしぎなアメで育てたり、ミントでせいかくを引き直したり、光るお守りで色違い確率を永続的に上げたり、タマゴで今のパートナーを手放してやり直したりできます — 保証なし・アンコモン以上確定・レア以上確定の3種類。",
       "f9.t": "代表ポケモン", "f9.d": "図鑑で所有している種を選び、育成中のポケモンとは別にメニューバーとフローティングペットへ固定できます — 固定中はメニューバーがタマゴ・孵化・進化を追わなくなり、育成の進行は Home で確認できます。",
       "f10.t": "追加スキャンフォルダ", "f10.d": "ログが既定のパスの外にありますか？プロバイダーごとにスキャンルートを追加できます — カンマ・改行区切り、* ワイルドカード、いま何個一致しているかをその場で表示。リストはプロバイダーごとに分かれ、追加したパスは既定を置き換えずに加算されます。",
       "f11.t": "Keychain なしの公式上限", "f11.d": "上限トークンが切れたら、設定 → 詳細に claude.ai セッションキーを貼り付けるだけ。公式の Claude 上限を claude.ai から直接読むので、Keychain アクセスもパスワードポップアップもなく、自動ポーリングで最新を保ちます。",
-      "f12.t": "モデル別の内訳", "f12.d": "omp のような Pi フォークは複数のモデルを一つのセッションログに流します — 使用量は実際のモデル id に帰属し、ポップオーバーで本日のトークンがモデル別に表示されます。",
+      "f12.t": "モデル別の内訳", "f12.d": "Pi の使用量を各ターンに記録されたモデルで集計。ポップオーバーで今日の Pi トークンをモデル別に使用量順で確認できます。",
       "comp.eyebrow": "パートナー", "comp.h2": "コードするほど、ポケモンが育つ",
       "comp.sub": "インストール後に積み上がったトークンが、実際の進化ツリーに沿ってポケモンを育てます。PokéAPI からリアルタイムに取得した Gen-V スプライトが生き生きと動きます。",
       "s1.t": "孵化", "s1.d": "約5Mトークンでタマゴが孵化。25種類のせいかくを持って生まれ — ごくまれな偶然で ✨ 色違いが生まれることも。",
@@ -826,14 +889,14 @@
       "inst.note": "自分でビルドする場合は <code>swift build</code> · <code>swift test</code> · <code>./scripts/build-app.sh</code> → <code>/Applications</code>。詳しくは <a href=\"https://github.com/chattymin/PokeTokenBar#install\" target=\"_blank\" rel=\"noopener\" style=\"color:var(--blue)\">README</a> をご覧ください。",
       "inst.gatekeeper": "直接ダウンロードして起動する場合は？ ad-hoc・自己署名アプリのため、初回起動時に <code>PokeTokenBar.app</code> を右クリック → <strong>開く</strong>、または <code>xattr -dr com.apple.quarantine /Applications/PokeTokenBar.app</code> を実行してください。（Homebrew なら自動。）",
       "req.head": "動作環境", "req.macos": "14 以降（Apple Silicon・Intel）",
-      "req.providersK": "Claude・Codex・Gemini・Antigravity・OpenCode・Hermes・Cursor・Grok・Copilot・Kiro・Pi", "req.providers": "ひとつだけでも使用量を表示", "req.keychain": "任意 — 公式の上限(%)を見るときだけ",
-      "req.note": "使用量はこの Mac の中に留まります。アプリはローカルの Claude Code / Codex / Gemini CLI / Antigravity / OpenCode / Hermes / Cursor / Grok CLI / Copilot CLI / Kiro CLI / Pi Agent ログを読み取るだけでアップロードせず、claude・codex のモデルも実行しません。ただしネットワークは使用します — ポケモンのデータ・スプライト（PokéAPI、ローカルにキャッシュ）、公式の上限、サービス状態、アップデート確認。いずれのリクエストにも使用量は含まれません。アプリにポケモンのアセットはバンドルしません。",
+      "req.providersK": "Claude・Codex・Gemini・Antigravity・OpenCode・Hermes・Cursor・Grok・Copilot・Kiro・Pi・omp・Aside", "req.providers": "ひとつだけでも使用量を表示", "req.keychain": "任意 — 公式の上限(%)を見るときだけ",
+      "req.note": "使用量はこの Mac の中に留まります。アプリはローカルの Claude Code / Codex / Gemini CLI / Antigravity / OpenCode / Hermes / Cursor / Grok CLI / Copilot CLI / Kiro CLI / Pi Agent / omp / Aside ログを読み取るだけでアップロードせず、claude・codex のモデルも実行しません。ただしネットワークは使用します — ポケモンのデータ・スプライト（PokéAPI、ローカルにキャッシュ）、公式の上限、サービス状態、アップデート確認。いずれのリクエストにも使用量は含まれません。アプリにポケモンのアセットはバンドルしません。",
       "nav.guide": "ガイド",
       "g.eyebrow": "フィールドガイド", "g.h2": "どう育つ？ — 数字をぜんぶ公開",
       "g.sub": "どれくらいかかるのか、どんな姿が見られるのか、何を集められるのか — インストール前にお見せします。",
       "g.t1": "🐣 成長 & 進化コスト", "g.t2": "🎭 パートナーの一日", "g.t3": "📕 コレクション",
       "g.costH": "進化に必要なトークン",
-      "g.costSub": "レアなほど長く一緒にいられます。後の段階ほどコストが増えます（3段階の進化ライン基準）。",
+      "g.costSub": "希少なポケモンほど長く一緒に過ごします。以下は難易度100%の基本コストで、卒業済みの基本種が再び孵化すると2倍で成長します。",
       "g.thRarity": "レア度", "g.thS1": "段階 1", "g.thS2": "段階 2", "g.thS3": "段階 3（卒業）", "g.thTotal": "合計",
       "g.calcH": "自分のペースだとどれくらい？",
       "g.calcQ": "1日にAIコーディングトークンをどれくらい使いますか？（キャッシュ読み込み込みの総量）",
