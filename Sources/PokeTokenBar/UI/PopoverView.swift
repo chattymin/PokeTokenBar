@@ -781,6 +781,16 @@ struct PopoverView: View {
                 }
             }
             Spacer()
+            // 끄기는 펫 우클릭. 켜기는 여기 — 숨기면 우클릭할 대상이 없다(#301).
+            // Settings 체크박스와 같은 `floatingPetEnabled`. 홈 탭에만 두면 도감에서 못 켠다.
+            Button {
+                store.floatingPetEnabled.toggle()
+            } label: {
+                Image(systemName: store.floatingPetEnabled ? "eye" : "eye.slash")
+            }
+            .buttonStyle(.borderless)
+            .help(store.floatingPetEnabled ? l.floatingPetHideLabel : l.floatingPetEnableLabel)
+            .accessibilityLabel(store.floatingPetEnabled ? l.floatingPetHideLabel : l.floatingPetEnableLabel)
             Button {
                 nav.showSettings = true
             } label: {

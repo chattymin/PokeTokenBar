@@ -36,7 +36,10 @@ public struct AntigravityRateLimitsProvider: AntigravityLimitsProviding, Sendabl
     }
 
     public func fetch(allowKeychainPrompt: Bool = false) async throws -> AntigravityRateLimitStatus {
-        let token = try await tokenCache.accessToken(allowKeychainPrompt: allowKeychainPrompt)
+        // Claude 와 같은 부류(#300): 사용자 갱신은 아직 유효한 메모리 토큰을 믿지 않는다.
+        let token = try await tokenCache.accessToken(
+            allowKeychainPrompt: allowKeychainPrompt,
+            bypassCache: allowKeychainPrompt)
         do {
             return try await fetchStatus(accessToken: token)
         } catch let error as LimitsError {

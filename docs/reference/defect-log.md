@@ -432,6 +432,14 @@ read_when:
   `jetski-standalone-oauth-token` 은 파일 로드 시 `expiresAt=nil` 이라 캐시가 만료로 풀리지 않는다.
   회귀: `testClaudeAutoPollPicksUpInPlaceAccountSwitch`·`testAntigravityAutoPollPicksUpTokenFileSwitch`.
   캐시-우선 early return 을 되돌리면 이 두 테스트가 실패해야 한다.
+- **파일이 없는 Keychain-only 설치는 사용자 갱신도 만료만 보면 이전 계정에 붙는다.** #227 은
+  파일이 새 유효 토큰으로 덮이는 경우를 고쳤다. 파일이 없으면 같은 메모리 캐시가 남고, 같은 Team 의
+  다른 메일은 401 을 안 주므로 invalidate 경로에 안 들어간다. Refresh 를 눌러도 Keychain 을 안 읽고
+  로그는 "keychain"이라고 남긴다(#300). 사용자 동작(`allowKeychainPrompt: true`)만
+  `bypassCache: true`. 자동 폴은 그대로 캐시 — 키체인 다이얼로그를 되살리면 #210 이 돌아온다.
+  같은 한 줄: `AntigravityRateLimitsProvider.fetch`. 회귀:
+  `testManualRefreshRereadsKeychainWhenCachedTokenIsStillValid`. `bypassCache` 를 빼면
+  Authorization 이 `token-account-a` 로 남고 Keychain 조회가 0 이다.
 - **`kSecMatchLimitAll` 과 `kSecReturnData` 는 같이 못 쓴다 — macOS 가 errSecParam(-50) 으로 거절한다.**
   "서비스에 항목이 여럿일 수 있으니 전부 받아서 유효한 걸 고르자"는 발상 자체는 옳지만(#229), 한 번의
   `SecItemCopyMatching` 으로 *모든 항목의 데이터*를 받는 쿼리는 **파라미터 단계에서** 거절된다. 항목이
