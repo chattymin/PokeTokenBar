@@ -217,6 +217,21 @@ read_when:
   패치·마이너가 단가 한 칸만 바꿀 수 있으면 **정확 매칭 행을 표에 추가**하고, 폴백이 우연히 맞는
   모델(예: `claude-opus-5` → opus 폴백)은 건드리지 않는다. 가드: `testPricingExactAndFallbackAndZero`
   의 `claude-fable-5-1` cache-read $0.25 단언.
+- **폴백을 제거하는 것은 그 폴백이 덮던 *모든 입력*에 대한 동작 변경이다 — 지우기 전에 그 입력을 열거하라.**
+  #289 가 `contains("opus")` 류 패밀리 폴백을 없앨 때(그 자체는 #277 때문에 옳다) 폴백으로만
+  가격이 매겨지던 `claude-opus-5`·`claude-sonnet-5` 의 정확 매칭 행을 넣지 않아, 현행 세대 Claude
+  사용량 전체가 `estimatedCost == nil` → `CostCoverage.unavailable` → 비용란이 "계산 불가" 로
+  비었다(#303, v2.5.4 로 출시됨). 바로 위 항목이 "폴백이 우연히 맞는 모델은 건드리지 말라" 고
+  경고해 뒀는데도 폴백만 지워졌다. 규칙: 폴백 삭제 PR 은 **삭제 전 그 폴백에 걸리던 모델 식별자를
+  실제 로그에서 grep 해 열거하고**, 각각에 정확 매칭 행을 같은 커밋에 추가한다.
+- **"미지 입력 → nil" 을 단언하는 테스트는 신규 현행 모델이 미지로 떨어지는 순간 결함을 *정답으로
+  고정한다*.** #289 는 `XCTAssertEqual(ModelPricing.rate(for: "claude-opus-5"), .zero)` 를 남겼고
+  (`testPricingExactAndFallbackAndZero`), 그래서 스위트는 #303 을 잡기는커녕 초록으로 보증했다.
+  line coverage 도 무력하다 — `.unavailable` 분기는 기존 테스트가 이미 실행하므로 게이트를 통과한다.
+  대칭 가드가 필요하다: 미지 이름이 값을 빌리지 않는지(`testUnknownNamesNeverBorrowFamilyPrices`)
+  **와** 실제로 로그에서 읽히는 현행 식별자가 전부 가격을 갖는지
+  (`testModelsReadFromProviderLogsAreAllPriced`) 를 둘 다 단언한다. 미지로 남겨 두는 단언에는
+  **아직 출시되지 않은** 이름만 쓴다(`claude-opus-6`), 현행 세대 이름은 절대 쓰지 않는다.
 - **새 provider를 추가할 때 reader/cache만 연결하면 Settings의 custom-root contract가 조용히 빠진다.** `CustomScanRoots`는
   provider별 `curatedRoots(for:)`와 실제 reader의 `CustomScanRoots.storedValue(for:)` 조회를 모두 registry로
   취급한다. Pi 추가 때 reader/cache/provider는 등록했지만 이 두 지점을 빠뜨려 CI의
