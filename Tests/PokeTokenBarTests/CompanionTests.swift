@@ -151,7 +151,7 @@ private actor SuspendedFailingIndexProvider: PokeProviding {
             failNextRequest = false
             throw URLError(.notConnectedToInternet)
         }
-        try await withCheckedThrowingContinuation { continuation in
+        return try await withCheckedThrowingContinuation { continuation in
             precondition(self.continuation == nil, "only one index request may be suspended")
             self.continuation = continuation
         }
@@ -179,7 +179,7 @@ private actor SuspendedFailingLineProvider: PokeProviding {
             failNextRequest = false
             throw URLError(.notConnectedToInternet)
         }
-        try await withCheckedThrowingContinuation { continuation in
+        return try await withCheckedThrowingContinuation { continuation in
             precondition(self.continuation == nil, "only one line request may be suspended")
             self.continuation = continuation
         }
