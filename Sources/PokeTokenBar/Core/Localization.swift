@@ -52,6 +52,17 @@ struct L {
     var weeklySonnet: String { t("주간 Sonnet", "Weekly Sonnet", "週間 Sonnet", "Sonnet semanal", "Sonnet hebdo", "Sonnet semanal", "Sonnet – wöchentlich") }
     var claudeCurrentBlock: String { t("Claude 현재 5h 블록", "Claude current 5h block", "Claude 現在の5hブロック", "Bloque actual de 5h de Claude", "Bloc 5 h actuel de Claude", "Bloco atual de 5h do Claude", "Aktueller 5-Stunden-Block von Claude") }
     var reset: String { t("리셋", "Reset", "リセット", "Reinicio", "Réinit.", "Renovação", "Zurücksetzen") }
+    /// 페이스 눈금 툴팁. "적정 사용량"으로 부르지 않는다 — 덜 쓰라는 권고가 아니라 "이 속도면 리셋
+    /// 전에 소진된다"는 기준선이고, 창을 다 채워 쓸 이유가 없는 날에 규범으로 읽히면 안 된다.
+    func paceHint(_ percent: String) -> String {
+        t("페이스 — 창 시간만큼 균등하게 썼다면 지금 \(percent)입니다.",
+          "Pace — an even burn across this window would sit at \(percent) now.",
+          "ペース — この枠を均等に使っていれば今は \(percent) です。",
+          "Ritmo: un consumo uniforme en esta ventana estaría en \(percent) ahora.",
+          "Rythme — une consommation régulière sur cette fenêtre serait à \(percent).",
+          "Ritmo — um consumo uniforme nesta janela estaria em \(percent) agora.",
+          "Tempo – bei gleichmäßigem Verbrauch in diesem Fenster wären es jetzt \(percent).")
+    }
     var limitReached: String { t("한도 도달", "Limit reached", "上限到達", "Límite alcanzado", "Limite atteinte", "Limite atingido", "Limit erreicht") }
     var personalSpendLimit: String { t("개인 사용 한도", "Personal spend limit", "個人利用上限", "Límite de gasto personal", "Limite de dépense personnelle", "Limite de gasto pessoal", "Persönliches Ausgabenlimit") }
     var staleLimits: String { t("갱신 지연", "Stale", "更新遅延", "Desactualizado", "Périmé", "Desatualizado", "Nicht aktuell") }

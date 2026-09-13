@@ -291,6 +291,18 @@ final class UsageStore {
         Self.displayPercent(utilization, mode: limitDisplayMode)
     }
 
+    /// 페이스(균등 소진) 기준선 — 창이 얼마나 지났는지(0…1). 시간 기반이라 burn 데이터가 없어도,
+    /// 어느 프로바이더든 리셋 시각과 창 길이만 있으면 나온다(`fiveHourForecast` 의 burn 외삽과 보완 관계).
+    /// 0…1 밖이면 **clamp 하지 않고 nil** — 5시간 창은 첫 요청 때 시작하므로 유휴 상태에 낡은
+    /// resets_at 이 남을 수 있고, 그걸 양 끝으로 붙여 그리면 "막 시작/끝났다"는 거짓말이 된다.
+    /// 잘못된 위치의 선은 선이 없는 것보다 나쁘다.
+    nonisolated static func paceFraction(resetsAt: Date, span: TimeInterval, now: Date) -> Double? {
+        guard span > 0 else { return nil }
+        let fraction = (span - resetsAt.timeIntervalSince(now)) / span
+        guard fraction.isFinite, (0...1).contains(fraction) else { return nil }
+        return fraction
+    }
+
     /// 단일 줄 표현 — 관찰(observeStore)·접근성·1줄 렌더 폴백용. 세로 렌더는 menuLines 사용.
     var menuTitle: String { menuLines.joined(separator: " · ") }
 
