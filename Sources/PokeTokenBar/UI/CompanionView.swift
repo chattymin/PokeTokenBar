@@ -561,8 +561,8 @@ struct CompanionHeader: View {
                             }
                         }
                         ProgressView(value: store.eggProgress).controlSize(.small).tint(.orange)
-                        if store.isEgg, store.isHatchWaitingForNetwork {
-                            Text(store.l.eggWaitingForNetwork)
+                        if store.isEgg, store.isHatchRetryDelayed {
+                            Text(store.l.eggHatchDelayed)
                                 .font(.caption2)
                                 .foregroundStyle(.orange)
                                 .fixedSize(horizontal: false, vertical: true)

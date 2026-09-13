@@ -220,8 +220,8 @@ final class CompanionStore {
     var eggStarted: Bool { state.eggUsage > 0 }
     var eggProgress: Double { min(1, max(0, Double(state.eggUsage) / Double(eggHatchThreshold))) }
     var eggTokensToHatch: Int { max(0, eggHatchThreshold - state.eggUsage) }
-    /// 알이 부화 준비(100%)가 되었으나 PokéAPI 통신 실패 등으로 지연되는 상태
-    private(set) var isHatchWaitingForNetwork = false
+    /// 알이 부화 준비(100%)가 되었으나 PokéAPI 요청/후보 선택 실패로 다음 갱신을 기다리는 상태.
+    private(set) var isHatchRetryDelayed = false
 
     var displayName: String {
         guard let a = state.active, let line = currentLine else { return "Token Egg" }
@@ -582,14 +582,15 @@ final class CompanionStore {
         if let until = eventUntil, clock() > until {
             justGraduated = nil; justEvolvedTo = nil; eventUntil = nil
         }
-        // 알 상태 프리패칭 — 종 pre-roll + 라인/스프라이트 예열(부화 순간 딜레이 제거).
-        // 성공할 때까지 매 update 틱마다 재시도(성공 후엔 no-op).
         if state.active == nil, state.installBaselineSet, !isHatching {
-            Task { await ensureEggPrefetch() }
-        }
-        // 알이 부화 임계에 도달하면 부화
-        if state.active == nil, state.eggUsage >= eggHatchThreshold, !isHatching {
-            Task { await hatchIfNeeded() }
+            if state.eggUsage >= eggHatchThreshold {
+                // ready egg 는 부화를 우선한다. 같은 틱에 프리패치와 별도 Task 로 경쟁시키면
+                // 프리패치 락을 본 부화가 반환하고 실패 상태도 놓칠 수 있다.
+                Task { await hatchIfNeeded() }
+            } else {
+                // 임계 전에는 종 pre-roll + 라인/스프라이트 예열(부화 순간 딜레이 제거).
+                Task { await ensureEggPrefetch() }
+            }
         }
         // active 인데 라인 미로딩(앱 재시작) → 로드
         if state.active != nil, currentLine == nil, !isHatching {
@@ -751,7 +752,7 @@ final class CompanionStore {
         activeGeneration += 1
         currentLine = nil
         state.eggUsage = 0   // 새 알은 처음부터 인큐베이션
-        isHatchWaitingForNetwork = false
+        isHatchRetryDelayed = false
         // eggTier 는 손대지 않는다 — 여기 도달했다는 건 활성 포켓몬이 있었다는 뜻이라 보증은 이미 nil 이다
         // (부화가 소비, 디스크/불러오기는 sanitized 가 정규화). 소비 지점은 hatchCore 한 곳으로 유지한다.
         // "알을 받는 순간" 즉시 프리패칭 시작 — 다음 부화의 종·라인·스프라이트 예열.
@@ -930,7 +931,7 @@ final class CompanionStore {
         activeGeneration += 1
         currentLine = nil
         state.eggUsage = 0            // 새 알은 처음부터 인큐베이션(재부화에 5M 필요)
-        isHatchWaitingForNetwork = false
+        isHatchRetryDelayed = false
         state.eggTier = tier          // 등급 보증(nil = 보증 없음)
         state.pendingHatchID = nil    // 새 보증으로 처음부터 롤(활성 포켓몬이 있는 동안엔 원래 비어 있다)
         prefetchedLineID = nil
@@ -1028,20 +1029,17 @@ final class CompanionStore {
         } else {
             base = await chooseBase()
         }
-        guard let base else {
-            isHatchWaitingForNetwork = true
-            return
-        }   // 네트워크 불안정 → 알 유지, 다음 update 틱에 재시도
-        // 세대 검사는 **여기서** 해야 한다. `chooseBase()` 대기 창에서 상태가 통째로 교체되면
-        // (세이브 불러오기) 그 뒤에 진입하는 hatchCore 는 *교체 이후*의 세대를 캡처해 자기 가드가
-        // 무조건 통과한다 — 옛 롤 결과가 불러온 개체를 덮어쓰고 save() 로 디스크에 박힌다.
-        guard activeGeneration == generation, state.active == nil else {
-            AppLog.write("hatch: discarded before core — subject replaced during species roll")
+        guard isCurrentReadyEgg(generation: generation) else {
+            AppLog.write("hatch: discarded before result handling — subject replaced during species roll")
             kickLineLoadIfNeeded()
             return
         }
+        guard let base else {
+            isHatchRetryDelayed = true
+            return
+        }
         state.pendingHatchID = nil
-        await hatchCore(baseID: base)
+        await hatchCore(baseID: base, generation: generation)
     }
 
     /// 부화가 폐기된 뒤 남은 개체(대개 방금 불러온 개체)의 진화 라인을 다시 로드한다.
@@ -1058,25 +1056,61 @@ final class CompanionStore {
     private var prefetchInFlight = false
     private var prefetchedLineID: Int?   // 라인·스프라이트 예열 완료한 종(세션 메모리)
 
+    private func isCurrentEgg(generation: Int) -> Bool {
+        activeGeneration == generation && state.active == nil
+    }
+
+    private func isCurrentReadyEgg(generation: Int) -> Bool {
+        isCurrentEgg(generation: generation) && state.eggUsage >= eggHatchThreshold
+    }
+
+    private func markHatchRetryDelayedIfReady(generation: Int) {
+        guard isCurrentReadyEgg(generation: generation) else { return }
+        isHatchRetryDelayed = true
+    }
+
+    private func finishEggPrefetch(generation: Int, shouldHatch: Bool) {
+        prefetchInFlight = false
+        guard shouldHatch, isCurrentReadyEgg(generation: generation) else { return }
+        Task { await self.hatchIfNeeded() }
+    }
+
     /// 알 상태에서 부화를 미리 준비 — ① 종 pre-roll(pendingHatchID, 영속) ② 진화 라인
     /// fetch(provider 캐시 적재) ③ 스프라이트 예열(정적+애니메이션+shiny 애니메이션).
     /// 전부 성공하면 부화 순간 네트워크 0. 실패 지점부터 다음 update 틱에 이어서 재시도.
     private func ensureEggPrefetch() async {
         guard state.active == nil, !isHatching, !prefetchInFlight else { return }
         let generation = activeGeneration
+        var shouldHatch = false
         prefetchInFlight = true
-        defer { prefetchInFlight = false }
+        defer { finishEggPrefetch(generation: generation, shouldHatch: shouldHatch) }
 
         if state.pendingHatchID == nil {
-            guard let id = await chooseBase() else { return }   // 오프라인 → 다음 틱 재시도
+            let selected = await chooseBase()
             // await 사이에 부화가 끝났거나(active != nil) 상태가 통째로 교체됐으면(세이브 불러오기)
             // 이 롤을 버린다 — 안 그러면 불러온 알의 pre-roll 을 남의 롤로 덮어쓴다.
-            guard state.active == nil, activeGeneration == generation else { return }
+            guard isCurrentEgg(generation: generation) else { return }
+            guard let id = selected else {
+                markHatchRetryDelayedIfReady(generation: generation)
+                return
+            }
             state.pendingHatchID = id
             save()
         }
-        guard let id = state.pendingHatchID, prefetchedLineID != id else { return }
-        guard let line = try? await provider.line(baseSpeciesID: id) else { return }   // 라인 예열
+        guard let id = state.pendingHatchID else { return }
+        if prefetchedLineID == id {
+            isHatchRetryDelayed = false
+            shouldHatch = true
+            return
+        }
+        let line: EvoLine
+        do {
+            line = try await provider.line(baseSpeciesID: id)
+        } catch {
+            markHatchRetryDelayedIfReady(generation: generation)
+            return
+        }
+        guard isCurrentEgg(generation: generation), state.pendingHatchID == id else { return }
         // 스프라이트 예열 — 부화 직후 보일 것들: base 정적+애니메이션, shiny 롤(1/64) 대비 shiny 애니메이션.
         // .app 번들에서만(단위 테스트가 실네트워크에 닿지 않도록 — 알림과 동일한 게이트).
         if AppEnv.isBundledApp {
@@ -1084,14 +1118,18 @@ final class CompanionStore {
             _ = await SpriteStore.shared.data(speciesID: line.baseID, animated: true, shiny: false)
             _ = await SpriteStore.shared.data(speciesID: line.baseID, animated: true, shiny: true)
         }
+        guard isCurrentEgg(generation: generation), state.pendingHatchID == id else { return }
         prefetchedLineID = id
+        isHatchRetryDelayed = false
+        shouldHatch = true
     }
 
     func hatch(baseID: Int) async {
         guard !isHatching else { return }
+        let generation = activeGeneration
         isHatching = true
         defer { isHatching = false }
-        await hatchCore(baseID: baseID)
+        await hatchCore(baseID: baseID, generation: generation)
     }
 
     // MARK: 메타몽 위장/리빌
@@ -1107,14 +1145,15 @@ final class CompanionStore {
     }
 
     /// 실제 부화 로직 — isHatching 락은 호출자(hatch / hatchIfNeeded)가 소유·해제한다.
-    private func hatchCore(baseID: Int) async {
-        let generation = activeGeneration
-        guard let line = try? await provider.line(baseSpeciesID: baseID) else {
-            isHatchWaitingForNetwork = true
+    private func hatchCore(baseID: Int, generation: Int) async {
+        let line: EvoLine
+        do {
+            line = try await provider.line(baseSpeciesID: baseID)
+        } catch {
+            markHatchRetryDelayedIfReady(generation: generation)
             AppLog.write("hatch: line fetch failed for base \(baseID) — egg kept, retry next tick")
             return
         }
-        isHatchWaitingForNetwork = false
         // 라인 fetch 창(네트워크) 동안 활성 개체가 교체됐으면 이 부화 결과를 폐기한다. 세이브 불러오기가
         // 그 창에 들어오면, 여기서 멈추지 않는 한 갓 부화한 개체가 방금 불러온 개체를 덮어쓴다.
         // (loadCurrentLine·revealDitto 와 같은 세대 가드 — isHatching 락은 같은 앱 내 중복 부화만 막는다.)
@@ -1130,11 +1169,12 @@ final class CompanionStore {
             AppLog.write("hatch: rolled \(line.rarity) below guaranteed \(tier) — discarded, re-roll next tick")
             state.pendingHatchID = nil
             prefetchedLineID = nil
+            markHatchRetryDelayedIfReady(generation: generation)
             save()
             return
         }
         currentLine = line
-        isHatchWaitingForNetwork = false
+        isHatchRetryDelayed = false
         // 부화 임계 초과분은 부화체 성장에 이월(낭비 없음).
         let overflow = max(0, state.eggUsage - eggHatchThreshold)
         state.eggUsage = 0
@@ -1355,7 +1395,7 @@ final class CompanionStore {
         justGraduated = nil
         eventUntil = nil
         celebration = nil
-        isHatchWaitingForNetwork = false
+        isHatchRetryDelayed = false
         // 이전 개체 기준의 1회성 피드백(사탕 +XP·민트 성격)도 비운다 — 안 비우면 불러온 직후 남의
         // 개체에 대한 "+XP" 가 새 개체 위에 떠오른다.
         candyFeedbackAmount = 0
