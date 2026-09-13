@@ -1,12 +1,13 @@
 import Foundation
 import SQLite3
 
-private enum LocalAdditionalSource: String, Sendable {
+enum LocalAdditionalSource: String, Sendable {
     case opencode
     case hermes
     case cursor
     case copilot
     case kiro
+    case aside
 }
 
 /// OpenCode usage from its local SQLite database and legacy message files.
@@ -21,7 +22,7 @@ struct LocalOpenCodeProvider: UsageProvider {
 
     func fetchEnrichment() async -> ProviderEnrichment {
         let entries = await LocalAdditionalUsageCache.shared.entries(for: .opencode)
-        return enrichment(entries: entries)
+        return .local(entries: entries)
     }
 }
 
@@ -37,16 +38,15 @@ struct LocalHermesProvider: UsageProvider {
 
     func fetchEnrichment() async -> ProviderEnrichment {
         let entries = await LocalAdditionalUsageCache.shared.entries(for: .hermes)
-        return enrichment(entries: entries)
+        return .local(entries: entries)
     }
 }
 
 /// Cursor usage from the dashboard API when signed in, with local SQLite as fallback.
-/// `reportsCost` is false — included-plan usage is token-only in the dashboard.
+/// Missing model prices remain unavailable, independently of subscription terms.
 struct LocalCursorProvider: UsageProvider {
     let id = "cursor"
     let displayName = "Cursor"
-    let reportsCost = false
 
     func fetchDaily() async throws -> DailyUsage? {
         let entries = await LocalAdditionalUsageCache.shared.entries(for: .cursor)
@@ -55,7 +55,7 @@ struct LocalCursorProvider: UsageProvider {
 
     func fetchEnrichment() async -> ProviderEnrichment {
         let entries = await LocalAdditionalUsageCache.shared.entries(for: .cursor)
-        return enrichment(entries: entries)
+        return .local(entries: entries)
     }
 }
 
@@ -63,8 +63,7 @@ struct LocalCursorProvider: UsageProvider {
 struct LocalCopilotProvider: UsageProvider {
     let id = "copilot"
     let displayName = "Copilot"
-    /// Copilot bills subscription premium requests, not per-token dollars — tokens only.
-    let reportsCost = false
+    // Request credits are not dollars; only recoverable model usage can be estimated.
 
     func fetchDaily() async throws -> DailyUsage? {
         let entries = await LocalAdditionalUsageCache.shared.entries(for: .copilot)
@@ -73,7 +72,7 @@ struct LocalCopilotProvider: UsageProvider {
 
     func fetchEnrichment() async -> ProviderEnrichment {
         let entries = await LocalAdditionalUsageCache.shared.entries(for: .copilot)
-        return enrichment(entries: entries)
+        return .local(entries: entries)
     }
 }
 
@@ -84,7 +83,7 @@ struct LocalCopilotProvider: UsageProvider {
 /// write JSONL under `~/.kiro/sessions` (`cli/*.jsonl`, or
 /// `<workspace>/<session>/messages.jsonl`). Neither store persists a real token
 /// count — tokens here are a bytes/4 estimate of resent conversation text.
-/// `usage_summary` credits are not API dollars, so `reportsCost` stays false.
+/// `usage_summary` credits are not dollars; cost remains unavailable.
 ///
 /// Kiro also *deletes* turns from its SQLite store on `/clear` or compaction (unlike every
 /// other local source here, whose on-disk logs only grow), so this provider merges each
@@ -94,7 +93,6 @@ struct LocalCopilotProvider: UsageProvider {
 struct LocalKiroProvider: UsageProvider {
     let id = "kiro"
     let displayName = "Kiro"
-    let reportsCost = false
 
     func fetchDaily() async throws -> DailyUsage? {
         let entries = await LocalAdditionalUsageCache.shared.entries(for: .kiro)
@@ -103,31 +101,47 @@ struct LocalKiroProvider: UsageProvider {
 
     func fetchEnrichment() async -> ProviderEnrichment {
         let entries = await LocalAdditionalUsageCache.shared.entries(for: .kiro)
-        return enrichment(entries: entries)
+        return .local(entries: entries)
     }
 }
 
-private func enrichment(entries: [LocalUsageReader.Entry]) -> ProviderEnrichment {
-    let now = Date()
-    let monthStart = LocalUsageReader.startOfMonth(now)
-    let weekStart = LocalUsageReader.startOfWeek(now)
-    let formatter = LocalUsageReader.localDayFormatter()
-    var result = ProviderEnrichment()
-    result.activeBlock = LocalUsageReader.activeBlock(entries: entries, now: now)
-    result.blocksOK = true
-    result.weekTotal = LocalUsageReader.period(
-        entries: entries, periodKey: formatter.string(from: weekStart),
-        fromDay: formatter.string(from: weekStart), toDay: formatter.string(from: now))
-    result.monthTotal = LocalUsageReader.period(
-        entries: entries, periodKey: LocalUsageReader.monthKey(now),
-        fromDay: formatter.string(from: monthStart), toDay: formatter.string(from: now))
-    result.periodsOK = true
-    return result
+/// Aside usage from the per-user `state.db` under `~/.aside/u`. Turn aggregates are
+/// mutable and sessions can be deleted (`ON DELETE CASCADE` drops their turns), so this
+/// provider merges each scan with previously-seen entries — see the `.aside` case in
+/// `LocalAdditionalUsageCache` and the reader's failure mapping in `LocalAsideUsageReader`.
+/// `includeModels` stays off: `sessions.model` is the session's *current* model, not a
+/// per-turn record, so a per-model breakdown would relabel earlier turns on every refill.
+struct LocalAsideProvider: UsageProvider {
+    let id = "aside"
+    let displayName = "Aside"
+    /// Injected by tests (`LocalAdditionalUsageCache(asideRootsOverride:clock:)`); production uses the shared cache.
+    var cache: LocalAdditionalUsageCache = .shared
+
+    func fetchDaily() async throws -> DailyUsage? {
+        let entries = await cache.entries(for: .aside)
+        return LocalUsageReader.daily(entries: entries, localDay: LocalUsageReader.todayKey())
+    }
+
+    func fetchEnrichment() async -> ProviderEnrichment {
+        let entries = await cache.entries(for: .aside)
+        return .local(entries: entries)
+    }
 }
 
 /// Shares a single native read between a provider's daily and enrichment calls.
-private actor LocalAdditionalUsageCache {
+actor LocalAdditionalUsageCache {
     static let shared = LocalAdditionalUsageCache()
+
+    /// Test seams: fixed Aside scan roots (production reads Settings inside the reader; the
+    /// other sources still read their own roots) and a clock so a test can step past the
+    /// 30 s entry without sleeping.
+    private let asideRootsOverride: [URL]?
+    private let clock: @Sendable () -> Date
+
+    init(asideRootsOverride: [URL]? = nil, clock: @escaping @Sendable () -> Date = Date.init) {
+        self.asideRootsOverride = asideRootsOverride
+        self.clock = clock
+    }
 
     private struct Cached: Sendable {
         let loadedAt: Date
@@ -160,7 +174,7 @@ private actor LocalAdditionalUsageCache {
     }
 
     func entries(for source: LocalAdditionalSource) async -> [LocalUsageReader.Entry] {
-        let now = Date()
+        let now = clock()
         let monthKey = LocalUsageReader.monthKey(now)
         let previous = cached[source].flatMap { $0.monthKey == monthKey ? $0 : nil }
         if let value = previous,
@@ -206,9 +220,17 @@ private actor LocalAdditionalUsageCache {
             // silently drop out of today's total.
             since = periodStart
             afterRowIDByPath = [:]
+        case .aside:
+            // Aside's `session_turns.token_usage` is rewritten in place while a turn runs
+            // and deleting a session cascades to its turns, so like Kiro every scan
+            // re-derives entries and merges with `existing` below. A recreated state.db is
+            // told apart by the inode inside the reader's entry ids, so no watermark is kept.
+            since = periodStart
+            afterRowIDByPath = [:]
         }
         let existing = previous?.entries ?? []
         let knownKiro = previous?.kiroSignatures ?? [:]
+        let asideRoots = asideRootsOverride
         let task = Task.detached(priority: .utility) {
             () async -> ScanResult in
             switch source {
@@ -223,6 +245,9 @@ private actor LocalAdditionalUsageCache {
                 return ScanResult(
                     entries: LocalUsageReader.dedupKeepMax(existing + loaded.entries),
                     kiroSignatures: loaded.signatures)
+            case .aside:
+                let loaded = LocalAsideUsageReader.entries(modifiedSince: since, roots: asideRoots)
+                return ScanResult(entries: LocalUsageReader.dedupKeepMax(existing + loaded))
             case .cursor:
                 let loaded = await LocalAdditionalUsageReader.cursorEntriesAsync(
                     modifiedSince: since, afterRowIDByPath: afterRowIDByPath)
@@ -431,9 +456,9 @@ enum LocalAdditionalUsageReader {
                   let model = columnText(statement, 1)?.trimmingCharacters(in: .whitespacesAndNewlines),
                   !model.isEmpty,
                   let date = dateValue(sqlite3_column_double(statement, 3)) else { return nil }
-            let estimatedCost = sqlite3_column_double(statement, 10)
-            let actualCost = sqlite3_column_double(statement, 11)
-            return makeEntry(
+            let estimatedCost = sqlite3_column_type(statement, 10) == SQLITE_NULL ? nil : sqlite3_column_double(statement, 10)
+            let actualCost = sqlite3_column_type(statement, 11) == SQLITE_NULL ? nil : sqlite3_column_double(statement, 11)
+            var entry = makeEntry(
                 id: "hermes|\(id)",
                 date: date,
                 model: model,
@@ -441,7 +466,10 @@ enum LocalAdditionalUsageReader {
                 output: columnInt(statement, 6) + columnInt(statement, 9),
                 cacheWrite: columnInt(statement, 8),
                 cacheRead: columnInt(statement, 7),
-                cost: actualCost > 0 ? actualCost : estimatedCost)
+                cost: actualCost ?? estimatedCost)
+            entry?.costIsEstimate = actualCost == nil
+            entry?.costUnavailable = true // Session totals cannot reconstruct per-request pricing.
+            return entry
         } ?? []
     }
 
@@ -847,7 +875,7 @@ enum LocalAdditionalUsageReader {
             date: date,
             model: model,
             input: input,
-            output: output)
+            output: output, costUnavailable: true)
     }
 
     private static let iso8601Lock = NSLock()
@@ -1176,7 +1204,8 @@ enum LocalAdditionalUsageReader {
                 date: date,
                 model: stringValue(meta["model_id"]) ?? "unknown",
                 input: promptBytes / kiroBytesPerToken,
-                output: intValue(meta["response_size"]) / kiroBytesPerToken) else { continue }
+                output: intValue(meta["response_size"]) / kiroBytesPerToken,
+                costUnavailable: true) else { continue }
             entries.append(entry)
         }
         return entries
@@ -1283,7 +1312,7 @@ enum LocalAdditionalUsageReader {
             let millis = kiroTimestampMillis(raw: promptRawTimestamp, date: date)
             if let entry = makeEntry(
                 id: "kiro|cli|\(sessionID)|\(millis)",
-                date: date, model: model, input: input, output: output) {
+                date: date, model: model, input: input, output: output, costUnavailable: true) {
                 entries.append(entry)
             }
         }
@@ -1353,7 +1382,7 @@ enum LocalAdditionalUsageReader {
             let output = assistantBytes / kiroBytesPerToken
             if let entry = makeEntry(
                 id: "kiro|v3|\(sessionID)|\(turnIndex)",
-                date: date, model: model, input: input, output: output) {
+                date: date, model: model, input: input, output: output, costUnavailable: true) {
                 entries.append(entry)
             }
         }
@@ -1442,7 +1471,7 @@ enum LocalAdditionalUsageReader {
         cacheWrite: Int = 0,
         cacheRead: Int = 0,
         total: Int = 0,
-        cost: Double? = nil
+        cost: Double? = nil, costUnavailable: Bool = false
     ) -> LocalUsageReader.Entry? {
         let safeInput = max(0, input)
         let safeCacheWrite = max(0, cacheWrite)
@@ -1460,7 +1489,7 @@ enum LocalAdditionalUsageReader {
             output: safeOutput,
             cacheWrite: safeCacheWrite,
             cacheRead: safeCacheRead,
-            explicitCost: cost)
+            explicitCost: cost, costUnavailable: costUnavailable || total > parts)
     }
 
     /// GUI 앱은 셸 환경을 상속하지 않으므로 `UsageEnvironment` 를 통해 읽는다 — 프로세스 환경만

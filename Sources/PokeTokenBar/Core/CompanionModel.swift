@@ -13,18 +13,10 @@ enum AppLanguage: String, Codable, Sendable, CaseIterable {
         switch self {
         case .ko: return ["ko"]
         case .en: return ["en"]
-        case .ja: return ["ja-Hrkt", "ja"]
+        case .ja: return ["ja-hrkt", "ja"]
         case .es: return ["es"]
         case .fr: return ["fr"]
-        // PokéAPI has no `pt` in its language list, so this falls through to
-        // resolveName's English fallback. That fallback IS the expected result:
-        // the core series was never localised into Portuguese, so Brazilian
-        // players use the English species names anyway. The code is listed
-        // regardless, so the day PokéAPI adds it, it works with no edit here.
-        // PokéAPI 의 language 목록에 pt 는 없다 → resolveName 의 영어 폴백으로 내려간다.
-        // 본가 시리즈가 포르투갈어로 나온 적이 없어 브라질에서도 종 이름은 영어를 쓰므로 폴백이 곧 기대값이다.
-        // 그래도 코드를 적어두는 건 PokéAPI 가 pt 를 추가하는 순간 분기 수정 없이 반영되게 하기 위해서다.
-        case .pt: return ["pt"]
+        case .pt: return ["pt-br", "pt"]
         case .de: return ["de"]
         }
     }
@@ -36,8 +28,7 @@ enum AppLanguage: String, Codable, Sendable, CaseIterable {
 
     /// byLang(langCode→name) 에서 이 언어의 이름을 고른다(apiCodes 첫 매칭 → 영어 폴백).
     func resolveName(_ byLang: [String: String]) -> String? {
-        for code in apiCodes { if let n = byLang[code] { return n } }
-        return byLang["en"]
+        PokemonNameLocalization.resolve(byLang, preferredCodes: apiCodes)
     }
 
     /// 신규 설치 기본 언어 — 시스템 선호 언어에서 유추(글로벌 출시: 한국어 강제 금지).
@@ -111,6 +102,7 @@ enum Rarity: String, Codable, Sendable {
 enum PokemonBalance {
     /// 알 부화 임계 — 이만큼 토큰을 써야 알이 깨진다(즉시 부화 대신 기대감). 초과분은 부화체 성장에 이월.
     static let eggHatchThreshold = 5_000_000
+    static let repeatGrowthMultiplier = 2
 
     static func graduationTotal(_ rarity: Rarity) -> Int {
         switch rarity {
@@ -121,12 +113,61 @@ enum PokemonBalance {
         }
     }
     /// stageIndex(0-based)에서 다음 단계/졸업까지 필요한 토큰.
-    static func phaseThreshold(rarity: Rarity, totalForms k: Int, stageIndex: Int) -> Int {
+    static func phaseThreshold(rarity: Rarity, totalForms k: Int, stageIndex: Int,
+                               growthMultiplier: Int = 1) -> Int {
         let kk = max(1, k)
         let i = stageIndex + 1                         // 1-based
         let total = Double(graduationTotal(rarity))
         let denom = Double(kk * (kk + 1)) / 2.0
-        return Int((total * Double(i) / denom).rounded())
+        let standardThreshold = Int((total * Double(i) / denom).rounded())
+        return max(1, Int((Double(standardThreshold) / Double(max(1, growthMultiplier))).rounded()))
+    }
+
+    // MARK: 난이도 배율 (설정 슬라이더)
+
+    /// 사용자 조절 배율의 허용 범위. 1 미만이면 기본보다 빠르고·싸며, 1 초과면 느리고·비싸다.
+    static let difficultyRange: ClosedRange<Double> = 0.1...2.0
+    /// 기본값 — 이 값에서 모든 밸런스가 위 상수표 그대로다(기존 동작과 동일).
+    static let defaultDifficulty: Double = 1.0
+
+    /// 저장값을 허용 범위로 조인다. UserDefaults 는 `defaults write` 로 외부에서 쓸 수 있어
+    /// 0·음수·NaN 이 실제로 들어올 수 있고, 배율 0 은 임계 0(진행률 0 나눗셈·퇴화한 진화 루프)이 된다.
+    static func clampDifficulty(_ value: Double) -> Double {
+        guard value.isFinite else { return defaultDifficulty }
+        return min(max(value, difficultyRange.lowerBound), difficultyRange.upperBound)
+    }
+
+    /// 기본값 × 난이도 — 임계·가격 공통. **상수표 자체는 스케일하지 않는다**: 등급 알 가격이
+    /// `graduationTotal` 의 *비율*로 파생되므로(FreshEgg.price), 표를 건드리면 성장 배율이 상점
+    /// 가격까지 끌고 간다. 소비 지점에서만 곱해 두 배율을 서로 독립으로 유지한다.
+    static func scaled(_ base: Int, by difficulty: Double) -> Int {
+        Int((Double(base) * clampDifficulty(difficulty)).rounded())
+    }
+
+    // MARK: 슬라이더 위치 ↔ 배율 (로그 매핑)
+    // 같은 비율의 변화가 같은 거리를 차지한다. 기본값은 트랙의 ±1%에서 스냅한다.
+    private static let defaultSnapWidth = 0.01
+
+    /// 슬라이더 위치(0…1) → 배율.
+    static func difficulty(atPosition position: Double) -> Double {
+        let lo = difficultyRange.lowerBound, hi = difficultyRange.upperBound
+        let p = min(max(position, 0), 1)
+        if abs(p - difficultyPosition(defaultDifficulty)) < defaultSnapWidth { return defaultDifficulty }
+        return snapDifficulty(lo * pow(hi / lo, p))
+    }
+
+    /// 배율 → 슬라이더 위치(0…1).
+    static func difficultyPosition(_ value: Double) -> Double {
+        let lo = difficultyRange.lowerBound, hi = difficultyRange.upperBound
+        return log(clampDifficulty(value) / lo) / log(hi / lo)
+    }
+
+    /// 로그 슬라이더에서 나온 값을 유효숫자 2자리로 정리한다 — 없으면 1.0473 같은 값이 그대로 표시된다.
+    /// 기본값 되돌리기는 여기가 아니라 `difficulty(atPosition:)` 의 위치 스냅이 담당한다.
+    static func snapDifficulty(_ value: Double) -> Double {
+        guard value > 0 else { return difficultyRange.lowerBound }
+        let magnitude = pow(10, (log10(value)).rounded(.down) - 1)
+        return ((value / magnitude).rounded() * magnitude)
     }
 }
 
@@ -171,8 +212,9 @@ enum ItemKind: String, Codable, Sendable, CaseIterable {
 
 /// 이상한 사탕 밸런스 상수.
 enum RareCandy {
-    /// 사용 시 현재 포켓몬에 주입하는 XP(토큰 환산). 최소 진화 임계(커먼 1형태 125M)보다 작아
-    /// 사탕 1개는 최대 1단계만 올린다(연쇄·졸업 폭주 없음). applyUsage 로 주입 → 이월/진화/졸업 자동.
+    /// 사용 시 현재 포켓몬에 주입하는 XP(토큰 환산). 2× 성장의 최소 임계는 62.5M 이지만,
+    /// 기본 난이도·첫 부화에서는 초과 이월(<100M)이 다음 임계(125M)보다 작아 최대 1단계만 올린다.
+    /// 낮은 난이도나 반복 부화 보너스에서는 여러 단계를 진행할 수 있다.
     static let xp = 100_000_000
     /// 주간 한도 100% 도달 시 지급 개수(세션급은 1개).
     static let weeklyGrant = 5
@@ -400,14 +442,25 @@ struct MonState: Codable, Sendable {
     var totalForms: Int
     var isShiny = false             // 부화 시 확정, 진화해도 유지
     var nature: PokemonNature?      // 부화 시 확정 (구버전 저장은 nil)
+    /// 개체 고유 전투 프로필. 구버전 저장은 nil이며 `CompanionStore`가 한 번만 마이그레이션한다.
+    var profile: PokemonProfile?
+    var hasGrowthBoost = false
     // 메타몽 위장 — nil=일반. 값=정체 메타몽, 이 종으로 위장 중(위장 구간엔 baseID 와 동일, 리빌 후에도 원 위장체 보존).
     var dittoDisguise: Int?
     var dittoRevealed = false       // 위장 → 리빌(정체 공개) 전환 여부
     // pathIDs 가 비면(손상된 상태 파일) baseID 로 폴백 — 렌더마다 읽히므로 out-of-bounds 크래시 방지.
     var currentID: Int { pathIDs.isEmpty ? baseID : pathIDs[min(stageIndex, pathIDs.count - 1)] }
+    var phaseThreshold: Int {
+        PokemonBalance.phaseThreshold(
+            rarity: rarity,
+            totalForms: totalForms,
+            stageIndex: stageIndex,
+            growthMultiplier: hasGrowthBoost ? PokemonBalance.repeatGrowthMultiplier : 1)
+    }
 
     init(baseID: Int, pathIDs: [Int], plannedPathIDs: [Int]? = nil, stageIndex: Int, usedAtStage: Int,
          rarity: Rarity, totalForms: Int, isShiny: Bool = false, nature: PokemonNature? = nil,
+         profile: PokemonProfile? = nil, hasGrowthBoost: Bool = false,
          dittoDisguise: Int? = nil, dittoRevealed: Bool = false) {
         self.baseID = baseID
         self.pathIDs = pathIDs
@@ -422,11 +475,13 @@ struct MonState: Codable, Sendable {
         self.totalForms = totalForms
         self.isShiny = isShiny
         self.nature = nature
+        self.profile = profile
+        self.hasGrowthBoost = hasGrowthBoost
         self.dittoDisguise = dittoDisguise
         self.dittoRevealed = dittoRevealed
     }
 
-    // 하위호환 디코딩: shiny/nature 는 구버전 저장에 없음 → 기본값.
+    // 하위호환 디코딩: 구버전 저장에 없는 부화 속성은 기본값.
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         baseID = try c.decode(Int.self, forKey: .baseID)
@@ -447,6 +502,9 @@ struct MonState: Codable, Sendable {
         totalForms = try c.decode(Int.self, forKey: .totalForms)
         isShiny = try c.decodeIfPresent(Bool.self, forKey: .isShiny) ?? false
         nature = try c.decodeIfPresent(PokemonNature.self, forKey: .nature)
+        // 손상된 신규 프로필 하나 때문에 기존 성장 상태 전체를 잃지 않는다. nil이면 스토어가 재마이그레이션한다.
+        profile = (try? c.decodeIfPresent(PokemonProfile.self, forKey: .profile)) ?? nil
+        hasGrowthBoost = try c.decodeIfPresent(Bool.self, forKey: .hasGrowthBoost) ?? false
         dittoDisguise = try c.decodeIfPresent(Int.self, forKey: .dittoDisguise)
         dittoRevealed = try c.decodeIfPresent(Bool.self, forKey: .dittoRevealed) ?? false
     }
@@ -454,6 +512,8 @@ struct MonState: Codable, Sendable {
 
 /// 도감 항목 — 라인 전체(초기→최종) 순서 보존.
 struct DexEntry: Codable, Sendable, Identifiable {
+    /// Version 1 preserves every API language; earlier saves retained only app-supported names.
+    static let currentNamesVersion = 1
     var id = UUID().uuidString
     var baseID: Int
     var finalID: Int
@@ -462,10 +522,17 @@ struct DexEntry: Codable, Sendable, Identifiable {
     var caughtAt: Date?
     var isShiny = false
     var nature: PokemonNature?
+    /// The individual profile at graduation/release. Nil only for pre-profile saves until migration.
+    var profile: PokemonProfile?
     /// 진화 체인 각 종의 다국어 이름(speciesID → langCode → name). 졸업 시 로드된 라인에서 저장 →
     /// 도감의 단계별 스프라이트 밑 이름 표시가 네트워크 없이 즉시 + 언어 전환 대응. 구버전 저장분엔
     /// 없어(nil) 뷰가 line fetch 로 조회 후 백필한다.
     var names: [Int: [String: String]]?
+    var namesVersion: Int?
+    var needsNamesRefresh: Bool {
+        namesVersion != Self.currentNamesVersion
+            || chainOrder.contains { names?[$0]?.isEmpty != false }
+    }
     /// 놓아준 시각 — 알을 새로 사서 육성을 포기한 기록. nil = 졸업분(구버전 저장분 포함).
     ///
     /// 두 기록을 한 배열에 두는 이유: 도감(`dexSpecies`)은 종이 어떻게 확보됐는지와 무관하게
@@ -478,7 +545,7 @@ struct DexEntry: Codable, Sendable, Identifiable {
     init(id: String = UUID().uuidString,
          baseID: Int, finalID: Int, chainOrder: [Int], rarity: Rarity,
          caughtAt: Date?, isShiny: Bool = false, nature: PokemonNature? = nil,
-         names: [Int: [String: String]]? = nil, releasedAt: Date? = nil) {
+         profile: PokemonProfile? = nil, names: [Int: [String: String]]? = nil, releasedAt: Date? = nil) {
         self.id = id
         self.baseID = baseID
         self.finalID = finalID
@@ -487,7 +554,10 @@ struct DexEntry: Codable, Sendable, Identifiable {
         self.caughtAt = caughtAt
         self.isShiny = isShiny
         self.nature = nature
+        self.profile = profile
         self.names = names
+        self.namesVersion = chainOrder.allSatisfy { names?[$0]?.isEmpty == false }
+            ? Self.currentNamesVersion : nil
         self.releasedAt = releasedAt
     }
 
@@ -502,9 +572,12 @@ struct DexEntry: Codable, Sendable, Identifiable {
         caughtAt = try c.decodeIfPresent(Date.self, forKey: .caughtAt)
         isShiny = try c.decodeIfPresent(Bool.self, forKey: .isShiny) ?? false
         nature = try c.decodeIfPresent(PokemonNature.self, forKey: .nature)
+        // 프로필만 손상되면 개체 기록은 보존하고 프로필을 다시 생성한다.
+        profile = (try? c.decodeIfPresent(PokemonProfile.self, forKey: .profile)) ?? nil
         // try? — 구버전(최종체 단일 [String:String]) 형식이 남아 있어도 종별 맵 디코딩 실패 시 nil 로
         // 강등(항목 전체 로드는 유지). 뷰가 line 조회로 백필한다.
         names = (try? c.decodeIfPresent([Int: [String: String]].self, forKey: .names)) ?? nil
+        namesVersion = try? c.decodeIfPresent(Int.self, forKey: .namesVersion)
         // 이 필드 이전에 저장된 항목은 전부 졸업분이다 — nil 이 곧 "졸업"이라 마이그레이션이 필요 없다.
         releasedAt = try c.decodeIfPresent(Date.self, forKey: .releasedAt)
     }
@@ -613,6 +686,10 @@ struct CompanionState: Codable, Sendable {
         if dex.contains(where: { $0.chainOrder.contains(speciesID) }) { return true }
         guard let active else { return false }
         return active.pathIDs.prefix(active.stageIndex + 1).contains(speciesID)
+    }
+
+    func hasCollectedFinal(forBaseID baseID: Int) -> Bool {
+        collectedFinals.contains { $0.hasPrefix("\(baseID):") }
     }
 
     /// 보유한 특정 종의 이로치 여부. 졸업 기록과 현재 도달 단계만 훑으며 이름·정렬·희귀도 등

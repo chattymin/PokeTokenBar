@@ -27,21 +27,35 @@ enum LocalUsageReader {
         let localDay: String
         let model: String
         let input, output, cacheWrite, cacheRead: Int
-        /// Some agents persist the exact charge alongside token usage. Prefer it over
-        /// model-table pricing when present so local reports match the source of truth.
+        /// Prefer a valid source-recorded amount (including zero) to model-table estimates.
+        /// The source may itself estimate this amount; it is not necessarily a charge.
         var explicitCost: Double? = nil
+        var costIsEstimate: Bool? = nil
+        /// The source cannot reconstruct model/request token buckets for a price-table estimate.
+        var costUnavailable: Bool? = nil
         var total: Int { input + output + cacheWrite + cacheRead }
     }
 
     struct Bucket {
         var input = 0, output = 0, cacheWrite = 0, cacheRead = 0
         var cost = 0.0
+        var costCoverage: CostCoverage = .empty
         var total: Int { input + output + cacheWrite + cacheRead }
         mutating func add(_ e: Entry) {
             input += e.input; output += e.output; cacheWrite += e.cacheWrite; cacheRead += e.cacheRead
-            cost += e.explicitCost.flatMap { $0 > 0 ? $0 : nil }
-                ?? ModelPricing.cost(model: e.model, input: e.input, output: e.output,
-                                     cacheWrite: e.cacheWrite, cacheRead: e.cacheRead)
+            // Zero-usage/replay records must not make an unknown-only total look partially priced.
+            guard e.total > 0 else { return }
+            if let reported = e.explicitCost, reported.isFinite, reported >= 0 {
+                cost += reported
+                costCoverage.merge(e.costIsEstimate == true ? .estimate : .source)
+            } else if e.costUnavailable != true,
+                      let estimate = ModelPricing.estimatedCost(model: e.model, input: e.input, output: e.output,
+                                                                cacheWrite: e.cacheWrite, cacheRead: e.cacheRead) {
+                cost += estimate
+                costCoverage.merge(.estimate)
+            } else if e.total > 0 {
+                costCoverage.merge(.unavailable)
+            }
         }
     }
 
@@ -478,7 +492,9 @@ enum LocalUsageReader {
         }
         return Entry(
             id: id, date: date, localDay: fmt.string(from: date), model: model,
-            input: input, output: output, cacheWrite: cacheWrite, cacheRead: cacheRead)
+            input: input, output: output, cacheWrite: cacheWrite, cacheRead: cacheRead,
+            explicitCost: (usage["cost"] as? [String: Any]).flatMap { doubleOrNil($0["total"]) },
+            costIsEstimate: true, costUnavailable: !hasGranularUsage)
     }
 
     private static func piMessageDate(_ message: [String: Any], envelope: [String: Any]) -> Date? {
@@ -516,6 +532,11 @@ enum LocalUsageReader {
 
         var fingerprint: String {
             "\(input),\(cachedInput),\(cacheWriteInput),\(output),\(reasoningOutput),\(total)"
+        }
+
+        /// Billable component sum used for Entry construction (mirrors parseCodexLine mapping).
+        var billableComponents: Int {
+            max(0, input - cachedInput) + cachedInput + output
         }
 
         func isLower(than previous: Self) -> Bool {
@@ -578,6 +599,8 @@ enum LocalUsageReader {
     /// Codex 사용 엔트리. token_count 이벤트의 last_token_usage(턴 델타)를 4종 토큰으로 매핑.
     /// - input(비캐시) = input_tokens − cached_input_tokens, cacheRead = cached_input_tokens
     /// - output = output_tokens (reasoning 은 output 에 이미 포함), cacheWrite = 0
+    /// - components 가 모두 0 이고 total_tokens 만 있으면(#278): 세션이 total-only 이거나
+    ///   last.total == cumulative.total 일 때만 input 에 넣고, fork zero-context 턴은 0 유지.
     /// Codex 파일 하나를 파싱(세션 단위 — token_count 이벤트의 턴 델타). 캐시가 파일 단위로 호출.
     static func parseCodexFile(_ url: URL, fmt: DateFormatter) -> [Entry] {
         let rollout = parseCodexRollout(url, fmt: fmt)
@@ -605,8 +628,7 @@ enum LocalUsageReader {
         var isSubagent = false
         var currentSessionID: String?
         var previousUsageState: (sessionID: String, state: CodexUsageState)?
-        // 실모델은 아래 codexModel 이 로그에서 동적 추출(신모델 자동 대응). 이 값은 세션에 model 라인이
-        // 아예 없을 때만 쓰는 버전무관 폴백 — Codex 비용은 항상 0이라 표시 숫자엔 영향 없다(업데이트 불필요).
+        // A missing model keeps tokens, but remains unpriced until a turn_context identifies it.
         var model = "codex"
         do {
             try forEachCodexLine(in: url) { line in
@@ -1086,8 +1108,9 @@ enum LocalUsageReader {
                 previousCumulative = nil
                 previousOwner = owner
             }
+            let priorCumulative = previousCumulative
             if let cumulative = event.usageState?.cumulative {
-                if let previousCumulative, cumulative.isLower(than: previousCumulative) {
+                if let priorCumulative, cumulative.isLower(than: priorCumulative) {
                     epoch += 1
                 }
                 previousCumulative = cumulative
@@ -1097,8 +1120,11 @@ enum LocalUsageReader {
 
             let entry: Entry
             if let owner, let state = event.usageState {
+                let filled = Self.codexEntryTrustingTotalOnlyLast(
+                    event.entry, state: state, previousCumulative: priorCumulative
+                )
                 entry = replacingID(
-                    of: event.entry,
+                    of: filled,
                     with: "codex|\(owner)|\(epoch)|\(state.fingerprint)"
                 )
             } else {
@@ -1111,6 +1137,33 @@ enum LocalUsageReader {
         return CodexResolvedRollout(history: history, ownedEntries: ownedEntries)
     }
 
+    /// Mid-session #278 turns: last components are 0 but cumulative.total grew since the
+    /// previous kept event. parseCodexLine cannot see the previous vector, so fill Entry here.
+    private static func codexEntryTrustingTotalOnlyLast(
+        _ entry: Entry,
+        state: CodexUsageState,
+        previousCumulative: CodexUsageVector?
+    ) -> Entry {
+        guard entry.total == 0,
+              state.last.billableComponents == 0,
+              state.last.total > 0,
+              let previous = previousCumulative,
+              state.cumulative.total > previous.total else { return entry }
+        return Entry(
+            id: entry.id,
+            date: entry.date,
+            localDay: entry.localDay,
+            model: entry.model,
+            input: state.last.total,
+            output: 0,
+            cacheWrite: 0,
+            cacheRead: 0,
+            explicitCost: entry.explicitCost,
+            costIsEstimate: entry.costIsEstimate,
+            costUnavailable: true
+        )
+    }
+
     private static func replacingID(of entry: Entry, with id: String) -> Entry {
         Entry(
             id: id,
@@ -1121,7 +1174,9 @@ enum LocalUsageReader {
             output: entry.output,
             cacheWrite: entry.cacheWrite,
             cacheRead: entry.cacheRead,
-            explicitCost: entry.explicitCost
+            explicitCost: entry.explicitCost,
+            costIsEstimate: entry.costIsEstimate,
+            costUnavailable: entry.costUnavailable
         )
     }
 
@@ -1139,14 +1194,50 @@ enum LocalUsageReader {
         let cached = intValue(last["cached_input_tokens"])
         let output = intValue(last["output_tokens"])
         let nonCachedInput = max(0, inputTotal - cached)
+        let lastTotal = intValue(last["total_tokens"])
+        // #278: some Codex turns leave every last_* component at 0 while total_tokens is set.
+        // Trust that total only when the event itself says the session is total-only, or when
+        // last.total equals the whole cumulative total (sole/first turn). Do NOT trust the
+        // post-replay "zero-context" shape in Fixtures/CodexFork/child.jsonl — cumulative
+        // already has a full component breakdown and last.total is not part of cum growth.
+        let input: Int
+        let out: Int
+        let cacheRead: Int
+        if nonCachedInput + cached + output == 0, lastTotal > 0,
+           Self.shouldTrustCodexTotalOnlyLast(
+               lastTotal: lastTotal,
+               cumulative: (info["total_token_usage"] as? [String: Any]).map(CodexUsageVector.init)
+           ) {
+            input = lastTotal
+            out = 0
+            cacheRead = 0
+        } else {
+            input = nonCachedInput
+            out = output
+            cacheRead = cached
+        }
         let entry = Entry(
             id: "codex|\(file)|\(turn)",
             date: date, localDay: fmt.string(from: date), model: model,
-            input: nonCachedInput, output: output, cacheWrite: 0, cacheRead: cached)
+            input: input, output: out, cacheWrite: 0, cacheRead: cacheRead,
+            costUnavailable: nonCachedInput + cached + output == 0 && lastTotal > 0)
         let usageState = (info["total_token_usage"] as? [String: Any]).map {
             CodexUsageState(cumulative: CodexUsageVector($0), last: CodexUsageVector(last))
         }
         return ParsedCodexToken(entry: entry, usageState: usageState)
+    }
+
+    /// Whether a zero-component `last_token_usage` should contribute `total_tokens` to Entry.
+    /// - No cumulative field: total is the only signal → trust.
+    /// - Cumulative also component-empty with a positive total → trust.
+    /// - `last.total == cumulative.total` → this turn accounts for the whole session → trust.
+    /// - Otherwise (fork post-replay zero-context turn): keep Entry at 0.
+    private static func shouldTrustCodexTotalOnlyLast(
+        lastTotal: Int, cumulative: CodexUsageVector?
+    ) -> Bool {
+        guard let cumulative else { return true }
+        if cumulative.billableComponents == 0, cumulative.total > 0 { return true }
+        return cumulative.total == lastTotal
     }
 
     // MARK: Gemini 파싱
@@ -1386,8 +1477,9 @@ enum LocalUsageReader {
     private static func grokCost(_ usage: [String: Any]) -> Double? {
         if boolValue(usage["usageIsIncomplete"]) || boolValue(usage["usage_is_incomplete"]) { return nil }
         if boolValue(usage["costIsPartial"]) || boolValue(usage["cost_is_partial"]) { return nil }
-        let ticks = doubleOrNil(usage["costUsdTicks"]) ?? doubleOrNil(usage["cost_usd_ticks"]) ?? 0
-        return ticks > 0 ? ticks / 1e10 : nil
+        guard let ticks = doubleOrNil(usage["costUsdTicks"]) ?? doubleOrNil(usage["cost_usd_ticks"]),
+              ticks.isFinite, ticks >= 0 else { return nil }
+        return ticks / 1e10
     }
 
     /// 턴 시각은 `_meta.agentTimestampMs`(에이전트가 그 턴에 찍은 시각)를 **우선**한다.
@@ -1501,10 +1593,9 @@ enum LocalUsageReader {
         guard let date, !usage.isEmpty else { return nil }
         // Message ids are 8-hex, unique only within a session → scope by file name.
         let id = "omp|" + file + "|" + ((envelope["id"] as? String) ?? UUID().uuidString)
-        // `usage.cost.total` is the real charge pi computed from model pricing — trust only
-        // when > 0 (free/unknown models are written as 0, which falls back to the price table).
+        // OMP records its own model-price estimate. Preserve an explicit zero as well as positives.
         let cost = (usage["cost"] as? [String: Any]).flatMap { doubleOrNil($0["total"]) }
-            .flatMap { $0 > 0 ? $0 : nil }
+            .flatMap { $0.isFinite && $0 >= 0 ? $0 : nil }
 
         let names = ["input", "output", "cacheWrite", "cacheRead"]
         let hasGranularUsage = names.contains { intOrNil(usage[$0]) != nil }
@@ -1515,12 +1606,13 @@ enum LocalUsageReader {
                 output: intOrNil(usage["output"]) ?? 0,
                 cacheWrite: intOrNil(usage["cacheWrite"]) ?? 0,
                 cacheRead: intOrNil(usage["cacheRead"]) ?? 0,
-                explicitCost: cost)
+                explicitCost: cost, costIsEstimate: true)
         }
         // Malformed total-only usage has no recoverable bucket split; preserve its aggregate total.
         guard let total = intOrNil(usage["totalTokens"]) else { return nil }
         return Entry(id: id, date: date, localDay: fmt.string(from: date), model: model,
-                     input: total, output: 0, cacheWrite: 0, cacheRead: 0, explicitCost: cost)
+                     input: total, output: 0, cacheWrite: 0, cacheRead: 0, explicitCost: cost,
+                     costIsEstimate: true, costUnavailable: true)
     }
 
     private static func codexModel(_ line: Data) -> String? {
@@ -1546,14 +1638,77 @@ enum LocalUsageReader {
         guard b.total > 0 else { return nil }
         return DailyUsage(date: localDay, inputTokens: b.input, outputTokens: b.output,
                           cacheCreationTokens: b.cacheWrite, cacheReadTokens: b.cacheRead,
-                          totalTokens: b.total, totalCost: b.cost, models: models)
+                          totalTokens: b.total, totalCost: b.cost, models: models, costCoverage: b.costCoverage)
     }
 
     /// 로컬 날짜 [start, end] (포함) 범위 합계 → PeriodUsage.
     static func period(entries: [Entry], periodKey: String, fromDay: String, toDay: String) -> PeriodUsage {
         var b = Bucket()
         for e in entries where e.localDay >= fromDay && e.localDay <= toDay { b.add(e) }
-        return PeriodUsage(period: periodKey, totalTokens: b.total, totalCost: b.cost)
+        return PeriodUsage(period: periodKey, totalTokens: b.total, totalCost: b.cost, costCoverage: b.costCoverage)
+    }
+
+    /// Day-by-day totals for the **current month**, month start through `now`, in date order.
+    ///
+    /// This is a group-by over entries the enrichment scan has already loaded — the same set
+    /// `period()` folds into a single scalar. No extra read, no new parsing, no `Entry` field.
+    ///
+    /// Two things are deliberate here.
+    ///
+    /// 1. **Cross-month sessions are truncated.** The scan window is an mtime filter, so a
+    ///    session that started last month and continued into this one is read in full and drags
+    ///    last month's entries along with it. Grouping the entries by `localDay` and emitting
+    ///    whatever comes out would paint a partially-filled, jagged previous month — a picture
+    ///    that is not true, because the *other* files from last month were never scanned. So the
+    ///    date axis is built **from the month range** and totals are folded onto it: an entry
+    ///    outside the range has no slot to land in. The `localDay` window matches `period()`'s
+    ///    exactly, which makes `sum(monthDailySeries) == monthTotal.totalTokens` an invariant
+    ///    (`testEnrichmentSeriesAndMonthTotalStayInAgreement` holds the two together).
+    /// 2. **Days with no usage are explicit zeros, not omissions.** Bar position *is* the date in
+    ///    the popover; dropping empty days would slide every later bar onto the wrong day.
+    ///
+    /// Scope is baked in rather than parameterised — a caller cannot widen this to a rolling
+    /// window or last month, which is where this area has had month-boundary regressions before
+    /// (see `enrichmentScanStart`).
+    /// - Parameter timeZone: 테스트 주입 구멍. 기본값은 `Entry.localDay` 를 만든 것과 같은 현지 시간대다
+    ///   — 다른 값을 주면 축의 날짜 문자열이 엔트리의 `localDay` 와 어긋나므로 프로덕션에선 기본값만 쓴다.
+    ///   DST 가 없는 시간대(예: Asia/Seoul)에서만 테스트하면 하루 전진 결함이 통과하기 때문에 뚫었다.
+    static func monthDailySeries(entries: [Entry], now: Date,
+                                 timeZone: TimeZone = .current) -> [DailyUsage]
+    {
+        var calendar = Calendar.current
+        calendar.timeZone = timeZone
+        let fmt = localDayFormatter(timeZone: timeZone)
+
+        var days: [String] = []
+        var cursor = calendar.startOfDay(for: startOfMonth(now, calendar: calendar))
+        let lastDay = calendar.startOfDay(for: now)
+        while cursor <= lastDay {
+            days.append(fmt.string(from: cursor))
+            // `date(byAdding:)` rather than +86400 — a DST day is 23 or 25 hours long and a fixed
+            // stride would drift the axis off the calendar for the rest of the month
+            // (`testAxisLengthMatchesTheDayOfMonthInEveryMonthAndAcrossDSTTimeZones`).
+            // The `else` is an API-forced unwrap with no reachable trigger on a Gregorian date,
+            // like the `?? date` in `startOfMonth`/`startOfWeek` — not a guard worth a test.
+            guard let next = calendar.date(byAdding: .day, value: 1, to: cursor) else { break }
+            cursor = next
+        }
+
+        // `days` 는 여기서 항상 비어 있지 않다 — `startOfMonth(now) <= now` 라 위 루프가 최소 한 번
+        // 돈다. 그래서 empty 가드를 두지 않는다(도달 불가한 분기는 커버리지에 ^0 으로 남고, 읽는 사람
+        // 에게 "빌 수 있다"는 잘못된 신호를 준다). 아래 `Set`·`map` 은 빈 배열에서도 안전하다.
+        let inMonth = Set(days)
+        var buckets: [String: Bucket] = [:]
+        for e in entries where inMonth.contains(e.localDay) {
+            buckets[e.localDay, default: Bucket()].add(e)
+        }
+
+        return days.map { day in
+            let b = buckets[day] ?? Bucket()
+            return DailyUsage(date: day, inputTokens: b.input, outputTokens: b.output,
+                              cacheCreationTokens: b.cacheWrite, cacheReadTokens: b.cacheRead,
+                              totalTokens: b.total, totalCost: b.cost, costCoverage: b.costCoverage)
+        }
     }
 
     /// 최근 5시간 롤링 윈도우 기반 활성 블록(번 레이트 추정용).
@@ -1570,14 +1725,14 @@ enum LocalUsageReader {
             id: "block-\(Int(first.date.timeIntervalSince1970))",
             startTime: iso.string(from: first.date),
             endTime: iso.string(from: first.date.addingTimeInterval(blockWindow)),
-            isActive: true, totalTokens: b.total, costUSD: b.cost, tokensPerMinute: tpm)
+            isActive: true, totalTokens: b.total, costUSD: b.cost, tokensPerMinute: tpm, costCoverage: b.costCoverage)
     }
 
     // MARK: 유틸
 
-    static func startOfMonth(_ date: Date) -> Date {
-        let c = Calendar.current
-        return c.date(from: c.dateComponents([.year, .month], from: date)) ?? date
+    /// `calendar` 는 테스트가 시간대를 주입하기 위한 구멍이다 — 기본값은 프로덕션과 동일한 현지 달력.
+    static func startOfMonth(_ date: Date, calendar: Calendar = .current) -> Date {
+        calendar.date(from: calendar.dateComponents([.year, .month], from: date)) ?? date
     }
 
     static func startOfWeek(_ date: Date) -> Date {
@@ -1605,10 +1760,10 @@ enum LocalUsageReader {
 
     static func todayKey() -> String { localDayFormatter().string(from: Date()) }
 
-    static func localDayFormatter() -> DateFormatter {
+    static func localDayFormatter(timeZone: TimeZone = .current) -> DateFormatter {
         let f = DateFormatter()
         f.dateFormat = "yyyy-MM-dd"
-        f.timeZone = .current
+        f.timeZone = timeZone
         f.locale = Locale(identifier: "en_US_POSIX")
         return f
     }

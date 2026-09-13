@@ -15,6 +15,25 @@ final class PokemonBalanceTests: XCTestCase {
             }
         }
     }
+    func testRepeatGrowthHalvesEveryPhaseThreshold() {
+        for rarity in [Rarity.common, .uncommon, .rare, .legendary] {
+            for forms in 1...3 {
+                for stage in 0..<forms {
+                    let standard = PokemonBalance.phaseThreshold(
+                        rarity: rarity, totalForms: forms, stageIndex: stage)
+                    let boosted = PokemonBalance.phaseThreshold(
+                        rarity: rarity, totalForms: forms, stageIndex: stage,
+                        growthMultiplier: PokemonBalance.repeatGrowthMultiplier)
+                    XCTAssertEqual(boosted, Int((Double(standard) / 2).rounded()))
+                }
+            }
+        }
+        XCTAssertEqual(
+            PokemonBalance.phaseThreshold(
+                rarity: .common, totalForms: 3, stageIndex: 0,
+                growthMultiplier: PokemonBalance.repeatGrowthMultiplier),
+            62_500_000)
+    }
     func testHigherStageCostsMore() {
         for k in 2...3 {
             for i in 0..<(k - 1) {
@@ -1087,6 +1106,27 @@ final class CompanionStoreTests: XCTestCase {
         XCTAssertEqual(Set(finals), [11, 12, 13])
     }
 
+    func testRepeatGrowthIsDecidedFromTheCollectedBaseNotThePlannedFinal() async throws {
+        let s = store(branch3)
+        let evolution = PokemonBalance.phaseThreshold(rarity: .common, totalForms: 2, stageIndex: 0)
+        let graduation = PokemonBalance.phaseThreshold(rarity: .common, totalForms: 2, stageIndex: 1)
+
+        await s.hatch(baseID: 10)
+        XCTAssertNil(s.growthMultiplier)
+        let firstFinal = try XCTUnwrap(s.state.active?.plannedPathIDs.last)
+        s.applyUsage(evolution)
+        s.applyUsage(graduation)
+
+        await s.hatch(baseID: 10)
+        let repeatMon = try XCTUnwrap(s.state.active)
+        let repeatFinal = try XCTUnwrap(repeatMon.plannedPathIDs.last)
+        XCTAssertNotEqual(repeatFinal, firstFinal)
+        XCTAssertTrue(repeatMon.hasGrowthBoost)
+        XCTAssertEqual(s.growthMultiplier, PokemonBalance.repeatGrowthMultiplier)
+        XCTAssertEqual(s.threshold, evolution / PokemonBalance.repeatGrowthMultiplier)
+        XCTAssertEqual(s.tokensToNext, evolution / PokemonBalance.repeatGrowthMultiplier)
+    }
+
     func testHatchPreselectsWurmpleRouteAndEvolutionDoesNotConsumeRNG() async {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("poke-\(UUID().uuidString).json")
         let rng = CountingRNG(seed: 7)
@@ -1120,6 +1160,30 @@ final class CompanionStoreTests: XCTestCase {
         XCTAssertEqual(s2.state.active?.currentID, 2)
         XCTAssertEqual(s2.state.active?.stageIndex, 1)
         XCTAssertEqual(s2.language, .ja)
+    }
+
+    func testRepeatGrowthPersistsAcrossRestartWhileLegacyActiveDefaultsToStandardGrowth() async throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("poke-repeat-persist-\(UUID().uuidString).json")
+        let s1 = CompanionStore(provider: StubProvider(value: linear3), clock: { fixedNow },
+                                fileURL: url, rng: SeededRNG(seed: 1))
+        await s1.hatch(baseID: 1)
+        for stage in 0..<3 {
+            s1.applyUsage(PokemonBalance.phaseThreshold(
+                rarity: .common, totalForms: 3, stageIndex: stage))
+        }
+        await s1.hatch(baseID: 1)
+        XCTAssertTrue(s1.state.active?.hasGrowthBoost == true)
+
+        let s2 = CompanionStore(provider: StubProvider(value: linear3), clock: { fixedNow },
+                                fileURL: url, rng: SeededRNG(seed: 1))
+        XCTAssertTrue(s2.state.active?.hasGrowthBoost == true)
+        XCTAssertEqual(s2.tokensToNext, 62_500_000)
+
+        let legacy = #"{"baseID":1,"pathIDs":[1],"stageIndex":0,"usedAtStage":0,"rarity":"common","totalForms":3}"#
+        let decoded = try JSONDecoder().decode(MonState.self, from: Data(legacy.utf8))
+        XCTAssertFalse(decoded.hasGrowthBoost)
+        XCTAssertEqual(decoded.phaseThreshold, 125_000_000)
     }
 
     func testReloadPreservesCompleteShortPlannedRouteLength() async {

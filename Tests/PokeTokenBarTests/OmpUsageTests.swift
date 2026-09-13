@@ -49,7 +49,7 @@ final class OmpUsageTests: XCTestCase {
         let ee = try XCTUnwrap(byMsg["ee01"])
         XCTAssertEqual(ee.model, "modal/nvidia/GLM-5.2")
         XCTAssertEqual(ee.total, 15)
-        XCTAssertNil(ee.explicitCost, "a free/unknown model's 0 cost is not trusted (falls back to the price table)")
+        XCTAssertEqual(ee.explicitCost, 0, "An explicit zero is preserved")
     }
 
     /// Lines mentioning usage that are not billable events, broken JSON, compaction with null

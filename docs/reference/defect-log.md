@@ -14,7 +14,63 @@ read_when:
 `CLAUDE.md` §결함 대응 프로토콜의 4단계(근본원인 → 부류 스윕 → 회귀 테스트 → 영구 캡처)를 거쳐
 남은 규칙들이다. 각 항목은 실제로 겪은 회귀에 묶여 있다.
 
+## 스프라이트 전환
+
+- **움직이는 상세 화면은 첫 렌더부터 캐시된 GIF 프레임을 사용한다.** 정적 PNG는 96px 투명
+  캔버스이고 GIF는 본체에 맞춘 작은 캔버스라, PNG를 먼저 보여준 뒤 같은 슬롯에 GIF를 맞추면
+  정지한 작은 포켓몬이 뒤늦게 커진다. 디코드 프레임을 캐시해 시드와 재생에서 공유하고 GIF 요청을
+  정적 PNG 다운로드 뒤에 직렬화하지 않는다. 미캐시 정적 폴백만 콘텐츠 크롭하고 원본 PNG 상태는
+  보존해 정적 보기로 전환할 때 복원한다. `SpriteAnimationPreviewTests`는 실제 SwiftUI 첫 렌더의
+  GIF 픽셀·크기, 캐시 재사용, 프레임 지연, 정적 원본 보존을 검사한다.
+
 ## 판정·데이터
+
+- **Localized metadata names must not replace persistent API identifiers.** The dex rendered
+  ability, move, and type slugs directly, while existing tests covered species names and profile
+  metadata rather than these visible labels. All five detail-view name sites now use a shared
+  selected-language → English resolver, with a formatted identifier only after a completed response or failed request.
+  Pending metadata must show a neutral placeholder, not an English identifier that flashes before
+  translation. Keep a synchronous presentation snapshot for the first frame on detail reentry;
+  the API client remains responsible for freshness. Test pending, loaded, partial, and failed
+  states separately—the old test incorrectly asserted English during loading.
+  Preserve every API language in the cache, normalize legacy language-code casing, and derive
+  supported API codes from `AppLanguage` so future languages need no second allowlist.
+  Fetch names from mounted detail rows rather than profile preparation. `PokemonNameLocalizationTests`
+  covers locale selection, missing translations, future languages, native text rendering, request
+  reuse, disk restoration, and offline retry without changing profile identifiers.
+  Existing saves need a name-cache version as well: nonempty dictionaries from the old allowlist
+  are not complete multilingual responses. `DexNameMigrationTests` covers legacy JSON, duplicate
+  catches, offline/partial recovery, progress preservation, and an unavailable language that must
+  not trigger repeated fetches. Restoring the old nil-only backfill filter makes the regression fail.
+  Catch-log rows must resolve legacy entries even when old names exist, and prefer persisted
+  multilingual names over previously rendered strings after a language change.
+
+- **Translate at display time, including errors and accessibility labels.** Storing translated
+  error strings left session-key and quota-refresh failures in the previous language. Store the
+  failure and resolve it through the shared language selector. `LocalizationErrorsTests` switches
+  languages while a real store error remains visible and checks diagnostic preservation.
+  English UI literals bypassed the Hangul-only source guard; `LanguageSurfaceRegressionTests`
+  now covers usage labels, hidden control labels, selected-language backup dates, and Gen-V
+  `light-ball-egg`/`form-change` methods alongside native rendering in all supported languages.
+
+- **Cost availability is not a numeric zero.** Codex providers overwrote priced totals with zero
+  while leaving cost UI enabled; earlier tests asserted that subscription policy instead of
+  comparing the public provider result with priced log entries. Preserve explicit source zero,
+  unknown model/token breakdown, and source/estimate provenance separately through daily, period,
+  block, and merged chart totals. An unknown portion must mark a total partial, never complete.
+  `UsageCostTests` exercises Codex JSONL through cold/warm cache and the provider, source-zero vs
+  missing, mixed totals, menu/chart projections, legacy decoding, and native localized rendering.
+  The Codex regression must fail if its provider again overwrites the returned cost with zero.
+  Session/turn aggregates (Hermes/Aside), Cursor bubbles without cache buckets, and Kiro text
+  estimates cannot be passed to request-size-dependent pricing as if they were single requests.
+  Parser semantic changes require the corresponding disk-cache version bump.
+
+- **프로필 레벨은 난이도와 반복 부화 보정을 반영한 단계 진행에서 계산한다.** #244/#254의 임계값을
+  낮춰도 #264가 원시 토큰을 기본 졸업 비용으로 나누면 졸업한 개체가 레벨 5 또는 52에 남는다.
+  완료 단계의 기본 비용과 현재 단계의 실제 임계 대비 진행률을 합산해 표준 성장량을 영속한다.
+  난이도 증가·가져오기는 이미 얻은 성장량과 레벨을 낮추지 않으며, 졸업 기록을 만들기 전에 100을
+  확정한다. 메타몽 공개는 희귀도 간 성장 단위를 환산하고 개체 정보만 재설정한다.
+  `ProfileGrowthIntegrationTests`는 난이도 양 끝·반복 부화·설정 변경·재시작·가져오기·사탕·오프라인을 검증한다.
 
 - **옵셔널 tautology.** 옵셔널 필드라도 *생산자가 항상 채우면* `x != nil` 은 항상 참이다. "값이 있나"는
   의미값으로 검사한다(예: `totalTokens > 0`, 또는 진짜 nil 가능한 필드 `activeBlock`). — weekTotal 회귀(#56).
@@ -33,6 +89,19 @@ read_when:
   손으로 지우기 전까지 앱 사용 불가). 방어는 다운스트림 산술 지점마다가 아니라 **값이 들어오는 경계 한
   곳**에서(`SaveTransfer.sanitized`). 자르는 대상은 산술에 쓰이는 수치뿐 — 도감·인벤토리 *항목*은 잘라내면
   데이터 손실이다. (딥리뷰 2026-08-03: SIGTRAP 재현.)
+- **부화 시 확정되는 개체별 성장 보정은 활성 개체에 영속하고 임계값 소비 경로를 하나로 모은다.** 반복 base의
+  가중치는 `chooseBase` 에서만 낮췄고 성장 비용은 희귀도·형태·단계만 읽어서, 이미 졸업한 선형 라인을 다시
+  부화해도 새 라인과 같은 총비용을 냈다(#253). 기존 테스트도 전역 밸런스 합계와 첫 부화만 검증해
+  `졸업 → 같은 base 재부화` 트리거를 밟지 않았다. 할인 자격은 planned final이 아니라
+  `collectedFinals` 의 **base predicate**로 hatch 순간 결정한다 — final 기준이면 아직 공개하지 않은 분기 선택이
+  남은 토큰으로 샌다. 결과는 `MonState.hasGrowthBoost` 에 저장하고 Home 표시·일반 성장·메타몽 리빌이 모두
+  `stageThreshold(for:)` 에서 `MonState.phaseThreshold` 에 난이도를 곱한 값을 읽는다.
+  #244/#254 통합 시 한쪽 임계값만 선택하면 다른 배율이 사라진다. 기존 테스트는 두 기능을 따로 검증했다.
+  `testRepeatBoostComposesWithDifficultyAndLiveChanges` 는 실제 졸업·재부화 후 두 배율을 합성하고,
+  표시 임계 직전/도달·설정 즉시 변경·최종 졸업까지 검증한다.
+  가드: `testRepeatGrowthIsDecidedFromTheCollectedBaseNotThePlannedFinal`·
+  `testRepeatGrowthPersistsAcrossRestartWhileLegacyActiveDefaultsToStandardGrowth`·
+  `testRoundTripPreservesActiveRepeatGrowthBoost`·`testBoostedDisguiseRevealsAtTheHalvedThresholdAndKeepsTheBoost`.
 - **같은 규칙이 세이브 파일이 아니라 *외부에서 오는 모든 수치*에 적용된다 — 파싱 경계도 포함.** 위 규칙을
   "세이브 파일"로 좁게 읽은 탓에 사용량 로그 파서(`LocalUsageReader`)의 `intValue` 가 무방비로 남았고,
   같은 SIGTRAP 이 Codex·Claude·Gemini 세 경로에서 재현됐다(딥리뷰 2026-08-04). 사용량 로그도 앱이 쓴 게
@@ -44,10 +113,46 @@ read_when:
 
 ## 외부 로그·사용량 소스
 
+- **토큰 파일 파서는 외부 도구의 실제 직렬화 구조체(중첩 객체)를 반영해야 한다.** `jetski-standalone-oauth-token`
+  파일에서 `json["token"]`은 단순 문자열이 아니라 `{"access_token": "...", "refresh_token": "...", "expiry": "..."}`
+  형태의 중첩 객체다. 기존 `readTokenFile`이 `json["token"] as? String`만 처리하여 유효한 토큰 파일이 있어도
+  항상 파싱에 실패했다. 백그라운드 자동 폴은 키체인 상호작용을 차단(`allowKeychainPrompt: false`)하므로
+  파일 파싱이 실패하면 갱신이 중단되었고, 수동 갱신 시에는 키체인 암호 프롬프트가 발생했다(macOS 키체인은
+  Antigravity CLI가 새 토큰을 쓸 때 `security add-generic-password -U`로 ACL을 초기화해 "항상 허용"이 지워짐).
+  해결: `readTokenFileCredential`에서 `parseCredential`을 재활용하여 중첩 객체(`access_token`),
+  문자열 토큰(`token`), 최상위 `access_token`을 모두 수용하고 `refresh_token`을 통한 자동 갱신을 지원한다.
+  Google의 네이티브 앱 OAuth 가이드에서는 `client_secret`이 선택 사항으로 기술되어 있으나, Antigravity
+  클라이언트는 갱신 시 `client_secret`을 요구하는 클라이언트 고유 제약(`client-specific requirement`)이 있어
+  함께 전송한다. 또한 만료 직전(near-expiry) 계정 전환 시 이전 계정 캐시로 잘못 폴백하지 않도록 동일 출처
+  검증(`isSameSourceCredential`)을 통해 같은 계정의 갱신 캐시만 디스크의 만료 토큰보다 우선 유지한다.
+  가드: `testAntigravityAutoPollReadsNestedTokenObject`·`testAntigravityAutoPollPicksUpNestedTokenSwitch`·`testNearExpiryAccountSwitchDoesNotFallBackToPreviousCachedAccount`·`testExpiredFileRefreshesAndSubsequentPollRetainsRefreshedToken`.
+
 - **append-only SQLite watermark 루프를 프로바이더마다 복사하지 마라.** Cursor 와 Copilot 이
   같은 `didReset` / `highWater == 0` 규칙을 두 벌로 들고 있으면 한쪽만 고친 수정이 다른 쪽에 남는다
   (#157). 루프는 `scanIncrementalStores` 한 곳, 포맷만 콜백. 회귀는 공유 헬퍼 테스트 **그리고**
   Copilot-only / Cursor-only 각 경로(A\|\|B 의 B 단독)를 모두 밟아야 한다.
+- **리뷰 라운드가 끝나지 않는 건 리뷰어 탓이 아니라 형제 인프라를 우회한 탓이다.** Aside 프로바이더는
+  `LocalAdditionalUsageCache` 를 안 타고 리더를 직접 완결해서 독립 리뷰가 3라운드 이어졌다(2026-09-10):
+  1라운드 파서·루트 스냅샷, 2라운드 0토큰 턴·실패를 `[]` 로 접기, 3라운드 세션 삭제 감소·영구 실패
+  throw. 뒤의 두 라운드 지적은 앞 라운드 *수정*이 만든 것이고(아래 항목), 캐시를 탔으면 부류 자체가
+  없었다. 규칙: 새 소스는 캐시 위에서 시작(`provider-extension.md`), 리뷰가 두 번째 라운드에서도
+  medium 을 내면 개별 fix 를 멈추고 "형제와 다른 경로가 어디냐"를 먼저 묻는다.
+- **실패 처리를 고칠 때는 소비자(`UsageStore.refresh`)의 세 가지 결과 처리를 먼저 읽는다.** throw →
+  `failedIDs`/`lastErrorDescription` + `lastUpdated` 정지(앱 전체), nil → 스냅샷 제거("안 썼음"),
+  enrichment OK=false → 이전 값 유지. Aside 에서 스킵을 `[]` 로 접어 BUSY 한 번에 탭이 사라지고
+  주/월이 0 으로 덮였고(2라운드), "전부 실패면 throw" 로 고치자 `no such table` 같은 영구 조건이
+  매 리프레시 throw 해서 다른 프로바이더 숫자는 갱신되는데 "Updated 5 hours ago" 가 굳었다(3라운드).
+  최종 결정: 캐시 위의 로컬 소스 리더는 **throw 하지 않는다** — 못 여는/못 읽는 DB 는 스킵하고,
+  전부 실패면 `[]` 를 돌려 `dedupKeepMax(existing + loaded)` 가 이전 값을 유지한다(캐시가 무효화될
+  때까지 — Settings 저장·월 경계·재시작). 회귀 테스트는 **소스 텍스트가 아니라 캐시를 실제로
+  통과**시킨다: `LocalAdditionalUsageCache(asideRootsOverride:clock:)` + `LocalAsideProvider(cache:)` 로
+  30초 엔트리를 clock 으로 넘겨 두 번째 스캔이 정말 `existing` 과 병합하는지 본다(`AsideUsageTests`).
+  소스 텍스트 검사로 병합을 "고정"했던 첫 버전은 리뷰에서 걸렸고, 행동 테스트로 바꾸자마자
+  세션 삭제를 "DB 재생성"으로 오판하는 `MAX(id)` 리셋 감지 버그를 첫 실행에서 잡았다(2026-09-10).
+- **이전 코드의 opt-in 플래그를 옮길 때 형제가 왜 안 켰는지 먼저 본다.** Aside 를 캐시로 옮기며
+  원본의 `includeModels: true` 를 그대로 가져갔는데, `sessions.model` 은 세션의 *현재* 모델이라
+  캐시가 다시 채워질 때마다(무효화·월 경계·재시작) 이전 턴 전부가 새 모델로 재분류된다. 이 옵션은
+  per-turn 모델이 기록되는 Pi 만 켠다. 회귀: provider 경유 `fetchDaily()?.models == nil`.
 - **파싱 뒤에 걸린 필터는 출력을 줄이지 일을 줄이지 않는다.** `modifiedSince` 가 호출부에선
   스캔 창처럼 보이지만, 행 watermark 가 있는 리더에서만 창이다. 통문서 저장(Kiro 가 대화 JSON 을
   제자리 재기록)은 창을 파싱 *뒤에* 적용해서 읽기·`jsonObject` 비용이 그대로다(실측 30×80턴:
@@ -96,6 +201,22 @@ read_when:
   방식으로 더하면 실사용량이 두 번 집계된다. 반대로 provider가 `thoughts`를 아직 output에 접지 않았다면
   빼면 안 된다. 회귀 픽스처는 `input + output + cacheRead + cacheWrite == totalTokens` 같은 **writer의
   불변식**을 함께 고정하고, 매핑을 고치면 해당 provider cache parser version을 올려 기존 blob도 재파싱한다.
+- **breakdown 이 비고 `total` 만 남은 이벤트는 "무조건 total 신뢰"도 "무조건 0"도 틀리다.** Codex
+  `last_token_usage` 가 성분 전부 0 이면서 `total_tokens` 만 채운 턴이 있다(#278, ~2.5%). 그 total 이
+  세션 전체와 같거나 cumulative 도 total-only 이거나(또는 직전 대비 cumulative.total 이 증가)하면
+  실사용이라 Entry 에 넣어야 하고, fork post-replay 의 zero-context 턴
+  (`Fixtures/CodexFork/child.jsonl` L11: cumulative 성분은 채워져 있고 last.total 만 고아)은
+  cumulative 성장에 안 들어가므로 0 으로 남겨야 한다. 가드:
+  `testCodexTotalOnlyLastUsageCountsWhenItMatchesSessionTotal`·
+  `…WhenCumulativeIsAbsent`·`…WhenCumulativeGrew`·
+  `testCodexUnchangedCumulativeWithDifferentLastVectorIsPreserved`·
+  `testCodexManualForkFixtureKeepsOnlyPostReplayUsage`. 매핑 변경 시 `codexParserVersion` 을 올린다.
+- **패밀리 단가 폴백은 "같은 패밀리 = 같은 네 단가"가 깨지는 순간 틀린다.** Fable 5.1 은
+  input/output/cache-write 는 Fable 5 와 같고 cache-read 만 $1.00 → $0.25 로 바뀌었는데,
+  `contains("fable")` 폴백이 Fable 5 단가를 적용해 캐시 위주 세션 비용을 4× 로 부풀렸다(#277).
+  패치·마이너가 단가 한 칸만 바꿀 수 있으면 **정확 매칭 행을 표에 추가**하고, 폴백이 우연히 맞는
+  모델(예: `claude-opus-5` → opus 폴백)은 건드리지 않는다. 가드: `testPricingExactAndFallbackAndZero`
+  의 `claude-fable-5-1` cache-read $0.25 단언.
 - **새 provider를 추가할 때 reader/cache만 연결하면 Settings의 custom-root contract가 조용히 빠진다.** `CustomScanRoots`는
   provider별 `curatedRoots(for:)`와 실제 reader의 `CustomScanRoots.storedValue(for:)` 조회를 모두 registry로
   취급한다. Pi 추가 때 reader/cache/provider는 등록했지만 이 두 지점을 빠뜨려 CI의
@@ -245,6 +366,14 @@ read_when:
 
 ## 빌드·도구체인
 
+- **새 SDK에서 통과해도 CI의 AppKit Sendable 선언을 가정하지 마라.** 동시 캐시 로드 테스트가
+  `Task { await SpriteLoader.image(...) }` 로 `NSImage?` 를 반환해 로컬 Swift 6.3.3에서는 통과했지만,
+  CI의 Xcode 16.4/Swift 6.1.2에서는 `NSImage: Sendable` 이 unavailable이라 테스트 컴파일이 실패했다.
+  **왜 못 걸렀나:** 로컬 최신 도구체인으로 전체 테스트와 경고 검증을 해도 CI SDK 호환성을 검증한 것은 아니다.
+  → 포켓몬·아이템 두 동시 로드 테스트 모두 `Task<Void, Never>` 를 사용하고 이미지 결과는 `@MainActor`
+  안에 보관한다. 객체 동일성 검증과 동시 요청은 유지하며, Sendable 우회 선언을 추가하지 않는다.
+  회귀 가드: `SpriteImageCacheTests` 의 두 동시 로드 테스트와 `macos-15` CI의 테스트 컴파일.
+  (CI 실패: 2026-09-10.)
 - **SwiftUI `View`/`App` 경계는 `@MainActor` 를 명시한다.** Swift 6.3 은 `body` 밖의 `@ViewBuilder` helper·
   동기 클로저를 nonisolated 로 검사해, `@MainActor` `@Observable` store 접근이 수십 개의 오류로 연쇄된다.
   개별 프로퍼티에 `MainActor.assumeIsolated` 를 흩뿌리지 말고 UI 타입 선언 한 곳에 격리를 둔다.
@@ -271,6 +400,11 @@ read_when:
   회귀 가드: `testAutoRefreshUsesNoPromptPathManualUsesPromptPath`. (완전 근절은 Developer ID
   notarization 으로 '항상 허용' 승인을 안정화하는 것뿐 — 신뢰된 서명 신원이라야 ACL 승인이 지속된다.
   미도입.)
+- **Claude Keychain '항상 허용'은 ACL 리셋으로 유지되지 않는다 — 비간섭 상시 `(?)` 도움말로 세션 키 등록을 유도.**
+  macOS 의 `security add-generic-password -U` 동작상 Claude CLI 가 토큰을 갱신할 때마다 기존 항목의 ACL(항상 허용)이
+  날아간다. 사용자가 시스템 창에서 '항상 허용'을 눌렀음에도 다음 번에 또 암호를 묻는 것은 앱 버그가 아닌 macOS+CLI 한계이므로,
+  시끄러운 팝업 배너 대신 `한도 (공식)` 헤더 옆의 은은한 `(?)` 팝오버 및 설정 세션 키 입력란으로의 원클릭 바운스(#275)를 통해
+  키체인 사용자에게는 0% 노이즈를 유지하면서도 세션 키 우회로를 친절히 안내한다.
 - **Claude 의 `refreshToken` 은 보이지만 우리가 쓰면 안 된다 — 갱신 시 회전되어 Claude Code 를 깨뜨린다.**
   키체인 항목(`claudeAiOauth`)에는 `accessToken`(수명 ~5h) 옆에 `refreshToken`·`refreshTokenExpiresAt`
   (~15일)이 함께 들어 있다. "그걸로 갱신하면 키체인 접근이 5시간마다 → 15일마다로 줄겠다"는 발상이
@@ -320,6 +454,13 @@ read_when:
   파싱 실패를 형식 오류로 뭉뚱그리면 "재로그인하면 된다"를 안내 못 해 한도 섹션이 원인 불명으로 사라진다.
   → `LimitsError.credentialMissingAccountOAuth` 로 구분해 재로그인 안내를 띄운다
   (`OAuthCredentialData.isAccountOAuthMissing`).
+- **다중 Keychain 항목 순회 시 사용자 계정을 최우선으로 정렬하라 — 안 그러면 항목마다 시스템 암호 프롬프트가 연쇄된다.**
+  #243 에서 `errSecParam(-50)` 회피를 위해 속성 열거 후 단건 데이터 조회 루프로 바꿨는데,
+  Claude Code 가 MCP OAuth 를 쓰면 `acct="unknown"` 항목이 생겨 서비스 내 항목이 2개 이상이 된다.
+  macOS 의 ACL 승인은 항목(Item) 단위라 `unknown` 에 암호를 입력해도 `justinjeong` 에서 또 암호를 묻는다.
+  속성 목록에서 `NSUserName()` 을 1순위, 이메일(`@`)을 2순위, 일반 계정을 3순위, `unknown` 을 최하위로 정렬해
+  진짜 계정을 먼저 찌르면, 첫 조회에서 바로 유효 토큰(`claudeAiOauth`)을 찾아 루프를 끝내므로 2회차 암호 창이 원천 소멸한다.
+  가드: `testPrioritizedAccountNamesPlacesCurrentUserNameFirstAndUnknownLast`·`testPrioritizedAccountNamesFullHierarchy`.
 
 ## 동시성
 
@@ -377,6 +518,27 @@ read_when:
   초록인데 #174 가 다시 산다. (#174)
 
 ## 표시·UI
+
+- **계속 쌓이는 로그는 정렬이 아니라 실제 화면 생성 비용을 검증하라.** 포획 로그의
+  `ScrollView` + `VStack` 이 화면 밖까지 모든 행을 만들고, 각 `SpriteView.init` 이 동기
+  `cachedImage` 를 호출했다. 268개 기록(진화 단계 이미지 579개)으로 초기 레이아웃을 재면
+  이미지 조회 1,160회, 783~953ms였다. 디스크 캐시가 있어도 파일 읽기와 `NSImage` 생성은
+  메인 스레드에서 반복됐다. **왜 못 걸렀나:** `testLargeDexSortPerformanceAndCorrectness` 는
+  1,000개 기록의 정렬만 측정했다. 실제 데이터의 정렬·집계는 약 0.18ms라 결함 경로와 달랐다.
+  → 로그만 `LazyVStack` 으로 바꾸고, `SpriteLoader` 의 동기·async 경로가 `NSImage` 객체 캐시를
+  공유한다(`NSCache`, `countLimit = 64`). 키는 파일 경로로 종·일반/이로치·PNG/GIF·디렉터리를
+  구분한다. 이미지 생성 실패는 이 캐시에 넣지 않고, 일반색 폴백은 일반색 키에만 둬 이로치를 가리지 않는다.
+  `countLimit` 은 엄격한 메모리 상한이 아니며, 실제 프로세스 메모리 사용량은 별도로 측정해야 한다.
+  **부류 스윕:** 같은 동기 로딩을 하는 아이템 아이콘에도 공유 캐시를 적용했다. 도감은 24칸 페이지,
+  상점·가방은 고정된 아이템 종류별 행이라 같은 무한 증가 조건이 없고, 알 이미지는 이미 메모이즈한다.
+  **회귀 가드:** `CatchLogRenderingTests` 는 실제 `CollectionView` 를 300개 기록으로 세 번 생성하고
+  스프라이트 레이아웃 작업 수와 고정 높이를 검사한다. `VStack` 재주입 시 매번 1,200회로 실패했다.
+  `SpriteImageCacheTests` 는 임시 파일의 생성 이미지로 객체 재사용·동시 로드·폴백·재시도를 검증하며,
+  동기 캐시 히트를 제거하면 포켓몬과 아이템 테스트가 모두 실패한다. 외부 이미지나 실제 세이브는
+  테스트에 포함하지 않는다. SwiftUI 워밍업 후 같은 268개 데이터/520pt 높이의 release 프로브는 초기 4행,
+  22~25ms, 재진입 디스크 읽기 0회였다(클릭부터 화면 표시까지의 전체 시간과는 별도 측정).
+  끝까지 스크롤 → 희귀도 필터 → 필터 해제 → 도감 전환·로그 재진입도 격리된 앱에서 확인했다.
+  (사용자 리포트: 200개 이상 포획 로그 진입 지연, 2026-09-10.)
 - **앱 언어와 시스템 로케일은 다른 축이다 — SwiftUI 가 스스로 만드는 문장은 로케일을 따른다.**
   `L` 문구는 `AppLanguage` 를 따르는데 `Text(_, style: .relative)` 는 `Locale.current` 를 따라, 한국어
   Mac 에서 앱을 영어로 쓰면 "Catch log" 옆에 "3시간 46분" 이 붙는 한 화면 두 언어가 된다. 팝오버 루트

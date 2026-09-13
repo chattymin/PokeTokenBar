@@ -799,7 +799,7 @@ final class KiroUsageTests: XCTestCase {
         let provider = LocalKiroProvider()
         XCTAssertEqual(provider.id, "kiro")
         XCTAssertEqual(provider.displayName, "Kiro")
-        XCTAssertFalse(provider.reportsCost, "tokens are a bytes/4 estimate — no real dollar cost to report")
+        XCTAssertTrue(provider.reportsCost)
     }
 
     // MARK: - Fixture construction

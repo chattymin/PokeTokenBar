@@ -90,6 +90,8 @@ enum CustomScanRoots {
             return LocalAntigravityUsageReader.resolvedRoots(customRootsValue: nil)
         case "opencode":
             return LocalAdditionalUsageReader.openCodeRoots(customRootsValue: nil)
+        case "aside":
+            return LocalAsideUsageReader.roots(customRootsValue: nil)
         case "hermes":
             return LocalAdditionalUsageReader.hermesRoots(customRootsValue: nil)
         case "cursor":

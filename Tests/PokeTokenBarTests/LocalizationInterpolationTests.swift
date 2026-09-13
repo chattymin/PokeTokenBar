@@ -78,6 +78,7 @@ final class LocalizationInterpolationTests: XCTestCase {
             expect(lang, "eggToHatch", l.eggToHatch(a), a)
             expect(lang, "toNextEvolution", l.toNextEvolution(a), a)
             expect(lang, "toGraduation", l.toGraduation(a), a)
+            expect(lang, "growthBoost", l.growthBoost(4242), "4242")
             expect(lang, "graduated", l.graduated(a), a)
             expect(lang, "statusEvolved", l.statusEvolved(a), a)
 

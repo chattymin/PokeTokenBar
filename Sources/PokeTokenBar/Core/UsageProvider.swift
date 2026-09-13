@@ -5,7 +5,7 @@ protocol UsageProvider: Sendable {
     var id: String { get }
     var displayName: String { get }
     /// Whether this provider contributes to cost aggregates / per-row cost UI.
-    /// Flat-rate subscriptions (e.g. Cursor) report tokens only.
+    /// Cost provenance distinguishes source records, estimates, and unpriced usage.
     var reportsCost: Bool { get }
 
     /// 오늘 합계 (critical path) — 메뉴바 숫자와 stale 판정의 기준.
@@ -26,5 +26,44 @@ struct ProviderEnrichment: Sendable {
     var blocksOK = false
     var weekTotal: PeriodUsage?
     var monthTotal: PeriodUsage?
+    /// Day-by-day totals for the current month (month start → today, empty days as zeros).
+    /// Comes out of the same scan as `monthTotal` and is gated by the same `periodsOK`.
+    /// `nil` means this provider cannot produce a series; aggregation uses available providers.
+    var monthDaily: [DailyUsage]?
     var periodsOK = false
+}
+
+extension ProviderEnrichment {
+    /// Assembles the whole enrichment — active block, this week, this month, this month's daily
+    /// series — from one already-loaded set of entries.
+    ///
+    /// Every local provider shares this one site. The assembly used to be copied per provider
+    /// (twelve near-identical bodies), which is the shape the defect log warns about for the
+    /// append-only watermark loop (#157): a field added later gets filled in some copies and not
+    /// others, and the gap is invisible in a dev environment that does not use that provider.
+    ///
+    static func local(entries: [LocalUsageReader.Entry], now: Date = Date()) -> ProviderEnrichment {
+        let fmt = LocalUsageReader.localDayFormatter()
+        let weekStart = LocalUsageReader.startOfWeek(now)
+        let monthStart = LocalUsageReader.startOfMonth(now)
+
+        var result = ProviderEnrichment()
+        // Block (burn rate) computation is provider-generic — the companion rhythm follows all providers.
+        result.activeBlock = LocalUsageReader.activeBlock(entries: entries, now: now)
+        result.blocksOK = true
+
+        let week = LocalUsageReader.period(
+            entries: entries, periodKey: fmt.string(from: weekStart),
+            fromDay: fmt.string(from: weekStart), toDay: fmt.string(from: now))
+        let month = LocalUsageReader.period(
+            entries: entries, periodKey: LocalUsageReader.monthKey(now),
+            fromDay: fmt.string(from: monthStart), toDay: fmt.string(from: now))
+        let series = LocalUsageReader.monthDailySeries(entries: entries, now: now)
+
+        result.weekTotal = week
+        result.monthTotal = month
+        result.monthDaily = series
+        result.periodsOK = true
+        return result
+    }
 }
