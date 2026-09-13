@@ -131,16 +131,23 @@ struct LocalPiProvider: UsageProvider {
 struct LocalOmpProvider: UsageProvider {
     let id = "omp"
     let displayName = "omp"
+    /// 캐시 시임 — 기본은 공용 캐시(실 로그), 테스트만 픽스처 루트를 주입한다.
+    let cache: LocalUsageCache
+
+    init(cache: LocalUsageCache = .shared) { self.cache = cache }
 
     func fetchDaily() async throws -> DailyUsage? {
         let now = Date()
-        let entries = await LocalUsageCache.shared.ompEntries(modifiedSince: Calendar.current.startOfDay(for: now))
-        return LocalUsageReader.daily(entries: entries, localDay: LocalUsageReader.todayKey())
+        let entries = await cache.ompEntries(modifiedSince: Calendar.current.startOfDay(for: now))
+        // omp routes several models (e.g. OpenRouter) through one session log → opt into the
+        // per-model breakdown, matching Pi. Cost stays the parser's source-recorded amount.
+        return LocalUsageReader.daily(
+            entries: entries, localDay: LocalUsageReader.todayKey(), includeModels: true)
     }
 
     func fetchEnrichment() async -> ProviderEnrichment {
         let now = Date()
-        let entries = await LocalUsageCache.shared.ompEntries(
+        let entries = await cache.ompEntries(
             modifiedSince: LocalUsageReader.enrichmentScanStart(now: now))
         return .local(entries: entries, now: now)
     }
