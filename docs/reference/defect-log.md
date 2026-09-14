@@ -110,6 +110,13 @@ read_when:
   클램프 자체는 통과해도 `output + thoughts` 처럼 파싱 직후 더하는 곳에서 다시 트랩난다. 합산 여유가 있는
   상한(`maxParsedTokenValue`)을 쓴다. 회귀 가드는 프로바이더별로 **테스트를 쪼개라** — 트랩은 프로세스를
   끝내므로 한 테스트에 몰면 뒤 케이스가 아예 실행되지 않는다.
+  **추출기가 `LocalUsageReader` 밖에 있으면 같은 함정이 그대로 남는다.** OpenCode·Cursor의
+  `LocalAdditionalUsageProvider.intValue` 와 Hermes의 `columnInt` 는 `Int.max` 로 포화시킨 뒤
+  `input + output` 에서 다시 SIGTRAP 했다(`testCursorHugeTokenCountsDoNotTrapOnTheAdd`·
+  `testHermesHugeSessionTokensDoNotTrapOnTheReasoningAdd`). 대시보드 JSON 을 읽는
+  `CursorUsageAPI.intValue` 도 같은 포화 후 `makeEntry` 합에서 트랩한다
+  (`testParseCursorUsageEventClampsHugeTokenCounts`). Kiro 타임스탬프의 `Int64(Double)` 도
+  `Int64.max` 를 넘는 유한값에서 트랩한다. 상한은 더하는 추출기마다 같이 건다.
 
 ## 외부 로그·사용량 소스
 

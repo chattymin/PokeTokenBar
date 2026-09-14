@@ -1195,7 +1195,7 @@ enum LocalAdditionalUsageReader {
                   date >= modifiedSince else { continue }
             let promptBytes = cumulativeHistoryBytes + userBytes
             guard let entry = makeEntry(
-                id: "kiro|\(conversationID)|\(Int64(rawTimestamp))",
+                id: "kiro|\(conversationID)|\(int64Millis(rawTimestamp))",
                 date: date,
                 model: stringValue(meta["model_id"]) ?? "unknown",
                 input: promptBytes / kiroBytesPerToken,
@@ -1450,9 +1450,20 @@ enum LocalAdditionalUsageReader {
     private static func kiroTimestampMillis(raw: Any?, date: Date) -> Int64 {
         if let value = doubleValue(raw), value.isFinite, value > 0 {
             let ms = value < 1_000_000_000_000 ? value * 1000 : value
-            return Int64(ms.rounded(.towardZero))
+            return int64Millis(ms)
         }
-        return Int64((date.timeIntervalSince1970 * 1000).rounded(.towardZero))
+        return int64Millis(date.timeIntervalSince1970 * 1000)
+    }
+
+    /// `Int64.init(Double)` traps once the value rounds past `Int64.max`. External timestamps
+    /// can be that large; a corrupt clock must not kill the refresh.
+    private static func int64Millis(_ value: Double) -> Int64 {
+        guard value.isFinite, value > 0 else { return 0 }
+        let rounded = value.rounded(.towardZero)
+        // Int64.max is not exactly a Double. The next representable value is 2^63, and
+        // Int64.init traps on that and anything larger.
+        if rounded >= 9.223372036854776e18 { return .max }
+        return Int64(rounded)
     }
 
     // MARK: Shared utilities
@@ -1526,12 +1537,22 @@ enum LocalAdditionalUsageReader {
         return trimmed.isEmpty ? nil : trimmed
     }
 
+    /// Same ceiling as `LocalUsageReader.intValue`. `NSNumber.intValue` saturates at `Int.max`,
+    /// and the next `input + output` then traps. External logs can carry `1e30`.
     private static func intValue(_ value: Any?) -> Int {
-        if let number = value as? NSNumber { return max(0, number.intValue) }
+        if let number = value as? NSNumber, !(value is NSNull) {
+            return clampedTokenCount(number.doubleValue)
+        }
         if let string = value as? String, let number = Int(string.trimmingCharacters(in: .whitespaces)) {
-            return max(0, number)
+            return min(LocalUsageReader.maxParsedTokenValue, max(0, number))
         }
         return 0
+    }
+
+    private static func clampedTokenCount(_ value: Double) -> Int {
+        guard value.isFinite, value > 0 else { return 0 }
+        let cap = LocalUsageReader.maxParsedTokenValue
+        return value >= Double(cap) ? cap : Int(value)
     }
 
     private static func doubleValue(_ value: Any?) -> Double? {
@@ -1613,6 +1634,9 @@ enum LocalAdditionalUsageReader {
     }
 
     private static func columnInt(_ statement: OpaquePointer, _ index: Int32) -> Int {
-        max(0, Int(sqlite3_column_int64(statement, index)))
+        let raw = sqlite3_column_int64(statement, index)
+        if raw <= 0 { return 0 }
+        let cap = Int64(LocalUsageReader.maxParsedTokenValue)
+        return Int(min(raw, cap))
     }
 }

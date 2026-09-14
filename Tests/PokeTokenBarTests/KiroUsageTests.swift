@@ -430,6 +430,24 @@ final class KiroUsageTests: XCTestCase {
         XCTAssertTrue(entries.isEmpty)
     }
 
+    /// `Int64(Double)` traps above `Int64.max`. A corrupt timestamp must skip the trap
+    /// and still record the turn.
+    func testHugeRequestTimestampDoesNotTrap() throws {
+        let json = """
+        {"conversation_id":"conv-huge","history":[{"user":{"content":"hi"},\
+        "request_metadata":{"request_start_timestamp_ms":1e30,"model_id":"claude-sonnet-4.5",\
+        "response_size":1e30}}]}
+        """
+        try seedV2Raw(rows: [(id: "conv-huge", value: json)])
+
+        let entries = LocalAdditionalUsageReader.kiroEntries(
+            modifiedSince: try date("2026-01-01T00:00:00Z"), roots: [temporaryDirectory])
+
+        let entry = try XCTUnwrap(entries.first)
+        XCTAssertEqual(entry.id, "kiro|conv-huge|\(Int64.max)")
+        XCTAssertEqual(entry.output, LocalUsageReader.maxParsedTokenValue / 4)
+    }
+
     /// A conversation JSON without a `history` array (unexpected shape, not just an empty one)
     /// must not crash — it simply contributes no turns.
     func testConversationWithoutHistoryArrayIsSkipped() throws {
