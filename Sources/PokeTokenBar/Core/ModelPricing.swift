@@ -28,6 +28,9 @@ enum ModelPricing {
         "claude-opus-4-7":            .perMillion(5, 25, 6.25, 0.5),
         "claude-sonnet-4-6":          .perMillion(3, 15, 3.75, 0.3),
         "claude-haiku-4-5-20251001":  .perMillion(1, 5, 1.25, 0.1),
+        // Anthropic published rates, checked 2026-09-14: https://claude.com/pricing
+        "claude-opus-5":              .perMillion(5, 25, 6.25, 0.5),
+        "claude-sonnet-5":            .perMillion(2, 10, 2.5, 0.2),
         "claude-fable-5":             .perMillion(10, 50, 12.5, 1.0), // LiteLLM 스냅샷 가격 등재됨(2026-08) — 기존 미가격 $0 플레이스홀더 대체
         // Fable 5.1: same base rates as Fable 5, cache read cut to $0.25/MTok (0.025× input).
         "claude-fable-5-1":           .perMillion(10, 50, 12.5, 0.25),

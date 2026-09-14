@@ -12,6 +12,14 @@ final class ModelPricingTests: XCTestCase {
         XCTAssertEqual(ModelPricing.rate(for: "gpt-5.1-codex"), .perMillion(1.25, 10, 0, 0.125))
     }
 
+    func testCurrentAnthropicClaude5Rates() throws {
+        XCTAssertEqual(ModelPricing.rate(for: "claude-opus-5"), .perMillion(5, 25, 6.25, 0.5))
+        XCTAssertEqual(ModelPricing.rate(for: "claude-sonnet-5"), .perMillion(2, 10, 2.5, 0.2))
+        // An unpriced model makes estimatedCost nil, which drops the usage from the day's total.
+        XCTAssertEqual(try XCTUnwrap(ModelPricing.estimatedCost(model: "claude-sonnet-5", input: 1_000_000, output: 1_000_000,
+                                                               cacheWrite: 1_000_000, cacheRead: 1_000_000)), 14.7, accuracy: 1e-12)
+    }
+
     func testUnknownNamesNeverBorrowFamilyPrices() {
         for model in ["gpt-5.3-codex-spark", "gpt-99", "codex", "o3", "o4", "grok-codex-next",
                       "claude-opus-4-99", "claude-fable-6", "gemini-99-pro", "custom/claude-opus-4-8",

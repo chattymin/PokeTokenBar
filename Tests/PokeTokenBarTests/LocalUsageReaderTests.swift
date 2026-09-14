@@ -71,8 +71,9 @@ final class LocalUsageReaderTests: XCTestCase {
         // Unknown model names must not borrow family prices.
         XCTAssertEqual(ModelPricing.cost(model: "claude-opus-4-99", input: 1_000_000, output: 0, cacheWrite: 0, cacheRead: 0), 0, accuracy: 1e-6)
         XCTAssertEqual(ModelPricing.cost(model: "claude-fable-6", input: 1_000_000, output: 0, cacheWrite: 0, cacheRead: 0), 0, accuracy: 1e-6)
-        // An unverified future model remains unpriced.
-        XCTAssertEqual(ModelPricing.rate(for: "claude-opus-5"), .zero)
+        // A model absent from the table remains unpriced. Use an impossible version: a real
+        // release claiming this name would silently turn the assertion into a false failure.
+        XCTAssertEqual(ModelPricing.rate(for: "claude-opus-5-99"), .zero)
         XCTAssertEqual(ModelPricing.cost(model: "totally-unknown", input: 1_000_000, output: 0, cacheWrite: 0, cacheRead: 0), 0, accuracy: 1e-9)
     }
 
