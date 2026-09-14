@@ -36,6 +36,25 @@ final class ModelPricingTests: XCTestCase {
         XCTAssertEqual(try XCTUnwrap(ModelPricing.estimatedCost(model: "gpt-5.3-codex", input: 300_000, output: 0, cacheWrite: 0, cacheRead: 0)), 0.525, accuracy: 1e-12)
     }
 
+    /// Official standard text rates. Flash-Lite is a different SKU from Flash;
+    /// leaving it out of the table makes its cost Unavailable.
+    func testGemini25FlashLiteUsesOfficialTextRates() throws {
+        XCTAssertEqual(ModelPricing.rate(for: "gemini-2.5-flash-lite"), .perMillion(0.10, 0.40, 0, 0.01))
+        XCTAssertEqual(ModelPricing.rate(for: "models/gemini-2.5-flash-lite"), .perMillion(0.10, 0.40, 0, 0.01))
+        XCTAssertEqual(try XCTUnwrap(ModelPricing.estimatedCost(
+            model: "gemini-2.5-flash-lite", input: 1_000_000, output: 0, cacheWrite: 0, cacheRead: 0)), 0.10, accuracy: 1e-12)
+        XCTAssertEqual(try XCTUnwrap(ModelPricing.estimatedCost(
+            model: "gemini-2.5-flash-lite", input: 0, output: 1_000_000, cacheWrite: 0, cacheRead: 0)), 0.40, accuracy: 1e-12)
+        XCTAssertEqual(try XCTUnwrap(ModelPricing.estimatedCost(
+            model: "gemini-2.5-flash-lite", input: 0, output: 0, cacheWrite: 0, cacheRead: 1_000_000)), 0.01, accuracy: 1e-12)
+        XCTAssertNil(ModelPricing.estimatedCost(
+            model: "gemini-2.5-flash-lite", input: 0, output: 0, cacheWrite: 1, cacheRead: 0),
+                     "audio and cache-write rates are not in these logs")
+        XCTAssertNil(ModelPricing.estimatedCost(
+            model: "gemini-3-flash-lite", input: 1_000_000, output: 0, cacheWrite: 0, cacheRead: 0),
+                     "an unknown lite id must not inherit Flash or Flash-Lite rates")
+    }
+
     func testGeminiTextCacheAndLongContext() throws {
         XCTAssertEqual(ModelPricing.rate(for: "gemini-2.5-flash"), .perMillion(0.3, 2.5, 0, 0.03))
         let at = try XCTUnwrap(ModelPricing.estimatedCost(model: "gemini-2.5-pro", input: 100_000, output: 1_000, cacheWrite: 0, cacheRead: 100_000))

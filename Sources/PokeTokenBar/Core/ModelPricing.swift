@@ -48,6 +48,8 @@ enum ModelPricing {
         // Cache storage duration and audio rates cannot be recovered from these logs.
         "gemini-2.5-pro":             .perMillion(1.25, 10, 0, 0.125),
         "gemini-2.5-flash":           .perMillion(0.30, 2.5, 0, 0.03),
+        // Distinct SKU. A "flash" substring match would bill this at Flash rates.
+        "gemini-2.5-flash-lite":      .perMillion(0.10, 0.40, 0, 0.01),
         "gemini-2.0-flash":           .perMillion(0.10, 0.4, 0, 0.025),
     ]
 
