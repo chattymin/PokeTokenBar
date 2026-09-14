@@ -757,6 +757,13 @@ read_when:
 
 ## 프로세스 제어·업데이트
 
+- **"나중에"는 이 버전을 다시 안 보여 주는 스킵이지, 다음에 또 물어보기가 아니다.** `skipCurrent()` 가
+  `skippedUpdateVersion` 에 한 번 쓰면 `check()` 는 그 태그를 `available` 에서 빼고, Settings 의
+  `else` 는 `available == nil` 을 "최신"으로 읽는다. 배너를 숨기는 것과 최신임을 선언하는 것은 다른
+  상태다. 스킵한 릴리스는 `skipped` 로 남기고 Settings 는 "건너뜀" + 업데이트/다시 알리기를 보여 준다.
+  더 새 태그는 배너로 돌아온다. 회귀: `testSkippedReleaseStaysVisibleAndANewerOneReturnsToTheBanner`,
+  `testShowAgainRestoresTheBannerAndUpdateUsesTheSkippedRelease`.
+
 - **`pgrep -x <name>` 은 실행 파일의 정체성 검사이지, 기다리는 특정 프로세스에 대한 검사가 아니다.**
   중복 인스턴스가 떠 있는 동안 실행될 수 있는 모든 wait-for-exit 루프는 PID를 받아야 한다. `UpdateChecker`가
   자동 업데이트 시 앱 종료를 기다릴 때 `pgrep -x PokeTokenBar`를 쓰면, 중복 인스턴스가 살아있는 동안 루프를

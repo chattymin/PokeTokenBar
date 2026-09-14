@@ -879,7 +879,17 @@ struct L {
           "🆕 v\(version) verfügbar (installiert: \(current))")
     }
     var updateButton: String { t("업데이트", "Update", "更新", "Actualizar", "Mettre à jour", "Instalar", "Aktualisieren") }
-    var updateLater: String { t("나중에", "Later", "後で", "Más tarde", "Plus tard", "Depois", "Später") }
+    var skipThisVersion: String { t("이 버전 건너뛰기", "Skip this version", "このバージョンをスキップ", "Omitir esta versión", "Ignorer cette version", "Ignorar esta versão", "Diese Version überspringen") }
+    func skippedVersion(_ version: String) -> String {
+        t("v\(version)을 건너뛰었어요",
+          "You skipped v\(version)",
+          "v\(version) をスキップしました",
+          "Omitiste la v\(version)",
+          "Tu as ignoré la v\(version)",
+          "Você ignorou a v\(version)",
+          "Du hast v\(version) übersprungen")
+    }
+    var showSkippedAgain: String { t("다시 알리기", "Show again", "もう一度表示", "Mostrar de nuevo", "Afficher à nouveau", "Mostrar de novo", "Wieder anzeigen") }
     var updating: String { t("업데이트 중…", "Updating…", "更新中…", "Actualizando…", "Mise à jour…", "Atualizando…", "Wird aktualisiert…") }
     var updateSectionTitle: String { t("업데이트", "Updates", "アップデート", "Actualizaciones", "Mises à jour", "Atualizações", "Aktualisierungen") }
     var updateNotificationsLabel: String { t("업데이트 알림", "Update notifications", "アップデート通知", "Notificaciones de actualización", "Notifications de mise à jour", "Notificações de atualização", "Hinweise auf Aktualisierungen") }

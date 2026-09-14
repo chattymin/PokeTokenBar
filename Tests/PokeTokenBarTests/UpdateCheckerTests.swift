@@ -39,6 +39,58 @@ final class UpdateCheckerTests: XCTestCase {
         )
     }
 
+    /// "Skip this version" hides the banner, but a later check must still know
+    /// the release exists. Settings must not treat that as "already latest".
+    @MainActor
+    func testSkippedReleaseStaysVisibleAndANewerOneReturnsToTheBanner() {
+        let suite = "UpdateCheckerTests.skip.\(UUID().uuidString)"
+        let box = UserDefaults(suiteName: suite)!
+        defer { box.removePersistentDomain(forName: suite) }
+        let checker = UpdateChecker(currentVersion: "2.5.3", defaults: box)
+
+        checker.consider(latest: "2.5.4", url: "https://github.com/chattymin/PokeTokenBar/releases/tag/v2.5.4")
+        XCTAssertEqual(checker.available?.version, "2.5.4")
+        XCTAssertNil(checker.skipped)
+        XCTAssertEqual(checker.settingsNotice, .offer("2.5.4"))
+
+        checker.skipCurrent()
+        XCTAssertNil(checker.available, "the popover banner stays hidden")
+        XCTAssertEqual(checker.skipped?.version, "2.5.4")
+        XCTAssertEqual(checker.settingsNotice, .skipped("2.5.4"))
+        XCTAssertEqual(box.string(forKey: "skippedUpdateVersion"), "2.5.4")
+
+        checker.consider(latest: "v2.5.4", url: "https://github.com/chattymin/PokeTokenBar/releases/tag/v2.5.4")
+        XCTAssertNil(checker.available)
+        XCTAssertEqual(checker.settingsNotice, .skipped("2.5.4"), "a skipped version is not the latest installed")
+
+        checker.consider(latest: "2.5.5", url: "https://github.com/chattymin/PokeTokenBar/releases/tag/v2.5.5")
+        XCTAssertEqual(checker.available?.version, "2.5.5")
+        XCTAssertNil(checker.skipped)
+        XCTAssertEqual(checker.settingsNotice, .offer("2.5.5"))
+
+        checker.consider(latest: "2.5.3", url: "https://github.com/chattymin/PokeTokenBar/releases/tag/v2.5.3")
+        XCTAssertEqual(checker.settingsNotice, .current, "the installed release is the latest")
+    }
+
+    @MainActor
+    func testShowAgainRestoresTheBannerAndUpdateUsesTheSkippedRelease() {
+        let suite = "UpdateCheckerTests.restore.\(UUID().uuidString)"
+        let box = UserDefaults(suiteName: suite)!
+        defer { box.removePersistentDomain(forName: suite) }
+        let checker = UpdateChecker(currentVersion: "2.5.3", defaults: box)
+        let url = "https://github.com/chattymin/PokeTokenBar/releases/tag/v2.5.4"
+        checker.consider(latest: "2.5.4", url: url)
+        checker.skipCurrent()
+
+        XCTAssertEqual(checker.updateTarget?.url, url, "Settings can still install a skipped release")
+
+        checker.showSkippedAgain()
+        XCTAssertEqual(checker.available?.version, "2.5.4")
+        XCTAssertNil(checker.skipped)
+        XCTAssertNil(box.string(forKey: "skippedUpdateVersion"))
+        XCTAssertEqual(checker.settingsNotice, .offer("2.5.4"))
+    }
+
     func testDetachedUpgradeScriptUsesPositionalParameters() {
         let script = UpdateChecker.detachedUpgradeScript
         XCTAssertTrue(script.contains("\"$1\" update"), "must execute brew via $1 positional arg")

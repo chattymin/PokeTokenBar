@@ -356,10 +356,21 @@ struct SettingsView: View {
             if didCheckUpdate, !isCheckingUpdate {
                 Divider()
                 groupRow {
-                    if let version = updater.available?.version {
+                    if case .offer(let version) = updater.settingsNotice {
                         Text(l.updateFound(version)).font(.caption).foregroundStyle(.orange)
                         Spacer()
                         Button(l.updateButton) { updater.applyUpdate() }.controlSize(.small)
+                    } else if case .skipped(let version) = updater.settingsNotice {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text(l.skippedVersion(version))
+                                .font(.caption)
+                                .foregroundStyle(.orange)
+                                .fixedSize(horizontal: false, vertical: true)
+                            HStack(spacing: 8) {
+                                Button(l.showSkippedAgain) { updater.showSkippedAgain() }.controlSize(.small)
+                                Button(l.updateButton) { updater.applyUpdate() }.controlSize(.small)
+                            }
+                        }
                     } else {
                         Text(l.upToDate(Self.appVersion)).font(.caption).foregroundStyle(.secondary)
                         Spacer()

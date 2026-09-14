@@ -102,6 +102,7 @@ final class LocalizationInterpolationTests: XCTestCase {
             expect(lang, "updateAvailable", l.updateAvailable(a, current: b), a, b)
             expect(lang, "updateFound", l.updateFound(a), a)
             expect(lang, "upToDate", l.upToDate(a), a)
+            expect(lang, "skippedVersion", l.skippedVersion(a), a)
 
             // Bag, shop, eggs / 가방 · 상점 · 알
             expect(lang, "useOnCurrent", l.useOnCurrent(a), a)
