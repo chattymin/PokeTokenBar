@@ -220,24 +220,14 @@ final class MonthDailyTrendTests: XCTestCase {
         }
     }
 
-    // MARK: 비용 — 구독제 소스는 0 을 유지
-
-    /// `zeroCost` 는 스칼라와 시리즈에 **함께** 걸려야 한다. 한쪽만 0 이면 팝오버에서 월 비용은
-    /// $0 인데 막대 툴팁엔 금액이 뜬다(구독제 소스가 내지 않은 돈).
-    func testSubscriptionSourcesReportZeroCostInTheSeriesToo() {
+    func testEstimatedCostAndCoverageAgreeAcrossSeriesAndPeriods() throws {
         let now = day(2026, 7, 10)
         let entries = [entry("t", at: day(2026, 7, 5), output: 5_000)]
-
         let priced = ProviderEnrichment.local(entries: entries, now: now)
-        XCTAssertGreaterThan(priced.monthDaily?.reduce(0.0) { $0 + $1.totalCost } ?? 0, 0,
-                             "전제: 단가표가 붙는 소스는 비용이 0 이 아니다 — 0 이면 아래 대조가 무의미하다")
-
-        let flat = ProviderEnrichment.local(entries: entries, now: now, zeroCost: true)
-        XCTAssertEqual(flat.monthTotal?.totalCost, 0)
-        XCTAssertTrue(flat.monthDaily?.allSatisfy { $0.totalCost == 0 } ?? false)
-        // 토큰은 그대로 — 비용만 눕힌다.
-        XCTAssertEqual(flat.monthDaily?.reduce(0) { $0 + $1.totalTokens },
-                       priced.monthDaily?.reduce(0) { $0 + $1.totalTokens })
+        let series = try XCTUnwrap(priced.monthDaily)
+        XCTAssertEqual(series.reduce(0.0) { $0 + $1.totalCost }, priced.monthTotal?.totalCost)
+        XCTAssertEqual(priced.monthTotal?.costCoverage, .estimate)
+        XCTAssertEqual(series.filter { $0.totalTokens > 0 }.first?.costCoverage, .estimate)
     }
 
     // MARK: 프로바이더 무관 — 시리즈를 못 주는 프로바이더가 섞여도

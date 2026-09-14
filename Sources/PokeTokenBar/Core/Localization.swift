@@ -7,7 +7,7 @@ struct L {
     let lang: AppLanguage
     init(_ lang: AppLanguage) { self.lang = lang }
 
-    private func t(_ ko: String, _ en: String, _ ja: String, _ es: String, _ fr: String, _ pt: String, _ de: String) -> String {
+    func t(_ ko: String, _ en: String, _ ja: String, _ es: String, _ fr: String, _ pt: String, _ de: String) -> String {
         switch lang {
         case .ko: return ko
         case .en: return en
@@ -24,6 +24,12 @@ struct L {
     /// 상위 탭 이름 — 안에서 도감/포획 로그를 세그먼트로 전환하므로 둘을 아우르는 말이어야 한다.
     /// (ko 가 "도감"이면 탭과 세그먼트가 같은 이름이 돼 en/ja 의 Collection/コレクション 과도 어긋난다.)
     var collection: String { t("컬렉션", "Collection", "コレクション", "Colección", "Collection", "Coleção", "Sammlung") }
+
+    var costUnavailable: String { t("계산 불가", "Unavailable", "計算不可", "No disponible", "Indisponible", "Indisponível", "Nicht verfügbar") }
+    var costEstimateHint: String { t("모델 단가로 환산한 추정 비용입니다. 구독료나 실제 청구액이 아닙니다.", "Estimated from model token rates; not a subscription fee or invoice. Service-tier and other unlogged charges are excluded.", "モデル単価による推定です。購読料や実際の請求額ではありません。", "Estimación por tarifas del modelo; no es la cuota ni la factura real.", "Estimation selon les tarifs du modèle, pas un abonnement ni une facture.", "Estimativa pelas tarifas do modelo; não é assinatura nem fatura.", "Schätzung anhand der Modellpreise, keine Abogebühr oder Rechnung.") }
+    var costReportedHint: String { t("도구가 기록한 비용입니다. 실제 청구액과 다를 수 있습니다.", "Cost recorded by the tool; it may differ from the actual bill.", "ツールが記録したコストです。実際の請求額とは異なる場合があります。", "Coste registrado por la herramienta; puede diferir de la factura.", "Coût enregistré par l’outil, pouvant différer de la facture.", "Custo registrado pela ferramenta; pode diferir da fatura.", "Vom Tool gemeldete Kosten; die Rechnung kann abweichen.") }
+    var costUnavailableHint: String { t("비용 기록이나 확인된 단가·토큰 구분이 없어 계산할 수 없습니다.", "No usable cost record or verified model rate and token breakdown is available.", "コスト記録、確認済み単価、またはトークン内訳がないため計算できません。", "Faltan el coste, la tarifa verificada o el desglose de tokens.", "Coût, tarif vérifié ou détail des tokens indisponible.", "Faltam custo, tarifa verificada ou detalhamento de tokens.", "Kostenangabe, bestätigter Preis oder Token-Aufteilung fehlen.") }
+    var costPartialHint: String { t("일부 사용량은 계산할 수 없어 제외했습니다. 표시 금액은 계산 가능한 부분의 합계이며 청구액이 아닙니다.", "Some usage could not be priced and is excluded. This is the known portion of usage cost, not an invoice.", "計算できない使用量を除いた部分合計です。請求額ではありません。", "Total parcial: excluye uso sin precio; no es una factura.", "Total partiel hors usage non chiffrable, pas une facture.", "Total parcial sem o uso não calculável; não é uma fatura.", "Teilsumme ohne nicht berechenbare Nutzung, keine Rechnung.") }
 
     // MARK: 헤더 (오늘/주/월)
     var todayTokens: String { t("오늘 사용한 토큰", "Today's tokens", "本日のトークン", "Tokens de hoy", "Tokens du jour", "Tokens de hoje", "Heute verbrauchte Tokens") }
@@ -118,6 +124,15 @@ struct L {
     var refreshNow: String { t("지금 새로고침", "Refresh now", "今すぐ更新", "Actualizar ahora", "Actualiser maintenant", "Atualizar agora", "Jetzt aktualisieren") }
     var updated: String { t("갱신", "Updated", "更新", "Actualizado", "Mis à jour", "Atualizado", "Aktualisiert") }
     var settings: String { t("설정", "Settings", "設定", "Ajustes", "Réglages", "Ajustes", "Einstellungen") }
+    var tokenInput: String { t("입력", "Input", "入力", "Entrada", "Entrée", "Entrada", "Eingabe") }
+    var tokenOutput: String { t("출력", "Output", "出力", "Salida", "Sortie", "Saída", "Ausgabe") }
+    var tokenCacheWrite: String { t("캐시 쓰기", "Cache write", "キャッシュ書込", "Escritura caché", "Écriture cache", "Gravação cache", "Cache schreiben") }
+    var tokenCacheRead: String { t("캐시 읽기", "Cache read", "キャッシュ読込", "Lectura caché", "Lecture cache", "Leitura cache", "Cache lesen") }
+    var website: String { t("웹사이트", "Website", "ウェブサイト", "Sitio web", "Site web", "Site", "Website") }
+    var sponsor: String { t("후원", "Sponsor", "支援", "Apoyar", "Soutenir", "Apoiar", "Unterstützen") }
+    var evolutionScrollPrevious: String { t("이전 진화 보기", "Show previous evolutions", "前の進化を見る", "Ver evoluciones anteriores", "Voir les évolutions précédentes", "Ver evoluções anteriores", "Vorherige Entwicklungen anzeigen") }
+    var evolutionScrollNext: String { t("다음 진화 보기", "Show next evolutions", "次の進化を見る", "Ver evoluciones siguientes", "Voir les évolutions suivantes", "Ver próximas evoluções", "Nächste Entwicklungen anzeigen") }
+
     var back: String { t("뒤로", "Back", "戻る", "Atrás", "Retour", "Voltar", "Zurück") }
     var generalSectionTitle: String { t("일반", "General", "一般", "General", "Général", "Geral", "Allgemein") }
     var menuBarSectionTitle: String { t("메뉴바에 표시", "Show in menu bar", "メニューバーに表示", "Mostrar en la barra de menús", "Afficher dans la barre des menus", "Mostrar na barra de menus", "In der Menüleiste anzeigen") }
@@ -491,7 +506,7 @@ struct L {
         case SaveTransferError.newerSchema:   return importErrorNewerSchema
         case SaveTransferError.fileTooLarge:  return importErrorTooLarge
         case SaveTransferError.backupFailed:  return importErrorBackupFailed
-        default: return error.localizedDescription
+        default: return userFacingError(error)
         }
     }
     var importErrorTooLarge: String {
@@ -657,6 +672,12 @@ struct L {
           "Formas Unown \(count)/28", "Formes Zarbi \(count)/28", "Formas Unown \(count)/28",
           "Icognito-Formen \(count)/28")
     }
+    var unownChooseForm: String {
+        t("글자 선택", "Choose form", "フォルムを選択", "Elegir forma", "Choisir une forme", "Escolher forma", "Form auswählen")
+    }
+    var unownNotCollected: String {
+        t("미수집", "Not collected", "未収集", "Sin conseguir", "Non collectionnée", "Não coletada", "Noch nicht gesammelt")
+    }
     func dexPageLabel(_ page: Int, _ total: Int) -> String {
         t("\(total)페이지 중 \(page)페이지", "Page \(page) of \(total)", "\(total)ページ中 \(page)ページ", "Página \(page) de \(total)", "Page \(page) sur \(total)", "Página \(page) de \(total)", "Seite \(page) von \(total)")
     }
@@ -716,6 +737,8 @@ struct L {
         case "level-up": return detail.level > 0 ? "Lv. \(detail.level)" : t("시작", "Start", "基本", "Inicio", "Départ", "Inicial", "Start")
         case "machine": return "TM"
         case "egg": return t("교배", "Egg", "タマゴ", "Huevo", "Œuf", "Ovo", "Ei")
+        case "light-ball-egg": return t("전기구 교배", "Light Ball breeding", "でんきだま遺伝", "Crianza con Bola Luminosa", "Reproduction avec Balle Lumière", "Cruzamento com Bola de Luz", "Zucht mit Kugelblitz")
+        case "form-change": return t("폼 체인지", "Form change", "フォルムチェンジ", "Cambio de forma", "Changement de forme", "Mudança de forma", "Formwechsel")
         case "tutor": return t("가르침", "Tutor", "教え", "Tutor", "Maître", "Tutor", "Tutor")
         default: return detail.method.replacingOccurrences(of: "-", with: " ")
         }

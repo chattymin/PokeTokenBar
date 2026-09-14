@@ -21,9 +21,9 @@
 
 </div>
 
-PokeTokenBar는 당신이 이미 태우고 있는 AI 코딩 토큰(Claude Code · Codex · Gemini CLI · Antigravity · OpenCode · Hermes Agent · Cursor · Grok CLI · Copilot CLI · Kiro CLI · Pi Agent · omp)을 macOS 메뉴바 속 자라나는 **포켓몬 companion**으로 바꿔줍니다. 토큰을 쓰면 알이 부화하고, 실제 진화 라인을 따라 진화하며, 최종 진화 후 도감에 졸업하고, 다시 새 알이 시작됩니다. companion 아래에는 정확한 사용량 트래커가 있습니다 — 오늘의 사용량·비용, 공식 5시간/주간 한도를 로컬 로그에서 직접 읽습니다.
+PokeTokenBar는 당신이 이미 태우고 있는 AI 코딩 토큰(Claude Code · Codex · Gemini CLI · Antigravity · OpenCode · Hermes Agent · Cursor · Grok CLI · Copilot CLI · Kiro CLI · Pi Agent · omp · Aside)을 macOS 메뉴바 속 자라나는 **포켓몬 companion**으로 바꿔줍니다. 토큰을 쓰면 알이 부화하고, 실제 진화 라인을 따라 진화하며, 최종 진화 후 도감에 졸업하고, 다시 새 알이 시작됩니다. companion 아래에는 정확한 사용량 트래커가 있습니다 — 오늘의 사용량·비용, 공식 5시간/주간 한도를 로컬 로그에서 직접 읽습니다.
 
-> 토큰 사용량은 로컬 Claude Code·Codex·Gemini CLI·Antigravity·OpenCode·Hermes Agent·Cursor·Grok CLI·Copilot CLI·Kiro CLI·Pi Agent·omp 데이터에서 직접 읽습니다(`totalTokens` = input + output + cache, 로컬 날짜) — 외부 CLI 불필요. 비공식·비상업 포켓몬 팬 프로젝트 — [라이선스 & 면책](#라이선스--면책) 참고.
+> 토큰 사용량은 로컬 Claude Code·Codex·Gemini CLI·Antigravity·OpenCode·Hermes Agent·Cursor·Grok CLI·Copilot CLI·Kiro CLI·Pi Agent·omp·Aside 데이터에서 직접 읽습니다(`totalTokens` = input + output + cache, 로컬 날짜) — 외부 CLI 불필요. 비공식·비상업 포켓몬 팬 프로젝트 — [라이선스 & 면책](#라이선스--면책) 참고.
 
 ## 왜
 
@@ -32,12 +32,12 @@ PokeTokenBar는 당신이 이미 태우고 있는 AI 코딩 토큰(Claude Code �
 - 공식 **5시간 / 주간** 한도를 리셋 카운트다운과 함께 추적하고, 현재 burn rate로 언제 도달할지 예측합니다.
 
 <div align="center">
-<img src="assets/screenshot-home.gif" width="420" alt="팝오버 홈 — companion, 오늘 토큰, 공식 한도">
+<img src="assets/screenshot-home.png" width="420" alt="팝오버 홈 — companion, 오늘 토큰, 공식 한도">
 </div>
 
 ## 어떻게 자라나요
 
-1. 🥚 **평소처럼 코딩하세요.** Claude Code·Codex·Gemini CLI·Antigravity·OpenCode·Hermes Agent·Cursor·Grok CLI·Copilot CLI·Kiro CLI·Pi Agent·omp에서 태우는 토큰이 알을 품습니다 — 따로 돌릴 건 없어요.
+1. 🥚 **평소처럼 코딩하세요.** Claude Code·Codex·Gemini CLI·Antigravity·OpenCode·Hermes Agent·Cursor·Grok CLI·Copilot CLI·Kiro CLI·Pi Agent·omp·Aside에서 태우는 토큰이 알을 품습니다 — 따로 돌릴 건 없어요.
 2. 🐣 **부화.** [PokéAPI](https://pokeapi.co/)의 **1~5세대 모든 진화 계보(시작점 329종)**에서 공식 capture rate 가중으로 태어납니다 — 흔한 포켓몬은 자주, 전설은 부화 129번에 1번. 부화한 포켓몬은 키우는 동안에도 **도감**에 바로 나타납니다. 부화마다 25종 성격 중 하나가 정해지고 — **아주 특별한 우연으론 ✨ 이로치가 태어납니다**.
 3. ⚡ **진화.** 계속 코딩하면 실제 진화 트리(1/2/3단, 분기)를 따라 자라고, 단계마다 작은 연출이 반겨줍니다.
 4. 🎓 **졸업 & 수집.** 최종 진화 + 임계 도달 시 **도감**에 영구 보존됩니다 — 희귀할수록 오래 걸리고(헤비 유저 기준 common ≈3일 → legendary ≈24일) — 새 알이 도착합니다.
@@ -79,7 +79,7 @@ PokeTokenBar는 당신이 이미 태우고 있는 AI 코딩 토큰(Claude Code �
 <td width="45%" align="center"><img src="assets/settings-ko.png" width="300" alt="설정"></td>
 <td width="55%" valign="middle">
 <h3>설정에서 취향대로</h3>
-메뉴바 표시 항목, 새로고침 간격(1–15분/수동), 로그인 시 자동 시작, 한도 섹션만 숨기는 Keychain 끄기, 경고/임박 임계값 한도 알림, companion 이벤트 알림. <b>한국어/영어/일본어/스페인어/프랑스어/포르투갈어</b> UI·포켓몬 이름 완비.
+메뉴바 표시 항목, 새로고침 간격(1–15분/수동), 로그인 시 자동 시작, 한도 섹션만 숨기는 Keychain 끄기, 경고/임박 임계값 한도 알림, companion 이벤트 알림. <b>한국어/영어/일본어/스페인어/프랑스어/포르투갈어/독일어</b> UI·포켓몬 이름 완비.
 </td>
 </tr>
 <tr>
@@ -99,7 +99,7 @@ PokeTokenBar는 당신이 이미 태우고 있는 AI 코딩 토큰(Claude Code �
 <tr>
 <td width="55%" valign="middle">
 <h3>📊 공식 한도, 이제 Antigravity 도</h3>
-Antigravity 2.0 과 IDE 가 추정치가 아닌 실제 할당량을 보고합니다. Gemini 모델군과 Claude &amp; GPT 모델군이 각각 <b>5시간</b>·<b>주간</b> 버킷과 리셋 카운트다운을 갖고, Claude Code·Codex 와 나란히 표시됩니다. 백그라운드에서 조용히 읽어와서 Keychain 팝업이 뜨지 않고, 세션도 알아서 갱신됩니다.
+Antigravity 2.0 과 IDE 가 추정치가 아닌 실제 할당량을 보고합니다. Gemini 모델군과 Claude &amp; GPT 모델군이 각각 <b>5시간</b>·<b>주간</b> 버킷과 리셋 카운트다운을 갖고, Claude Code·Codex 와 나란히 표시됩니다. 백그라운드에서는 토큰 파일을 읽고 OAuth 자격증명을 자동 갱신할 수 있습니다. 수동 갱신은 Keychain에 접근할 수 있습니다.
 </td>
 <td width="45%" align="center"><img src="assets/screenshot-antigravity-limits-ko.png" width="300" alt="Antigravity 공식 한도 — 모델군별 5시간·주간 버킷"></td>
 </tr>
@@ -121,17 +121,47 @@ Antigravity 2.0 과 IDE 가 추정치가 아닌 실제 할당량을 보고합니
 <td width="45%" align="center"><img src="assets/screenshot-model-breakdown-ko.png" width="300" alt="Pi 의 모델별 토큰 내역"></td>
 <td width="55%" valign="middle">
 <h3>🧮 세션 로그 하나, 모델 여럿</h3>
-Pi 와 그 포크(omp 등)는 모델 여러 개를 세션 로그 하나로 흘려보낼 수 있습니다. 이제 사용량이 일률적인 "pi" 가 아니라 <b>실제 모델 id</b> 로 귀속되고, 하루에 여러 모델을 썼다면 팝오버가 오늘 토큰을 모델별로 큰 순서대로 풀어 보여줍니다.
+Pi는 모델 여러 개를 세션 로그 하나로 흘려보낼 수 있습니다. 이제 사용량이 일률적인 "pi" 가 아니라 <b>실제 모델 id</b> 로 귀속되고, 하루에 여러 모델을 썼다면 팝오버가 오늘 토큰을 모델별로 큰 순서대로 풀어 보여줍니다.
+</td>
+</tr>
+<tr>
+<td width="45%" align="center"><img src="assets/screenshot-pokemon-profile-ko.png" width="300" alt="포켓몬마다 고유한 프로필"></td>
+<td width="55%" valign="middle">
+<h3>포켓몬마다 고유한 프로필</h3>
+<b>도감</b>에서 종을 열면 개체별 레벨·성별·성격·특성·개체값·계산된 능력치·배운 기술을 확인할 수 있습니다. 종 설명과 특성·기술은 선택 언어로 표시하고, PokéAPI에 번역이 없으면 영어를 사용합니다.
+</td>
+</tr>
+<tr>
+<td width="45%" align="center"><img src="assets/screenshot-difficulty-ko.png" width="300" alt="내 페이스에 맞춰 키우기"></td>
+<td width="55%" valign="middle">
+<h3>내 페이스에 맞춰 키우기</h3>
+성장 임계값과 상점 가격을 각각 <b>10%~200%</b>로 조절합니다. 슬라이더는 임시 변경이며 <b>저장</b>을 눌러야 적용됩니다. 성장 난이도를 바꿔도 현재 단계의 진행률을 유지해 즉시 진화하지 않습니다. 이미 졸업시킨 진화 계보에서 다시 부화하면 <b>2배 빠르게</b> 자랍니다.
+</td>
+</tr>
+<tr>
+<td width="45%" align="center"><img src="assets/screenshot-daily-trend-ko.png" width="300" alt="이번 달 사용량을 하루씩"></td>
+<td width="55%" valign="middle">
+<h3>이번 달 사용량을 하루씩</h3>
+주간·월간 합계 아래의 작은 그래프로 이번 달 시작부터 오늘까지 확인합니다. 그래프는 모든 도구의 합계입니다. 막대에 마우스를 올려 해당 날짜의 토큰 수와, 비용 표시를 켠 경우 비용을 확인하세요.
+</td>
+</tr>
+<tr>
+<td width="45%" align="center"><img src="assets/screenshot-quota-alignment-ko.png" width="300" alt="한눈에 읽는 한도"></td>
+<td width="55%" valign="middle">
+<h3>한눈에 읽는 한도</h3>
+리셋 카운트다운에 실제 시각을 함께 표시하고, 모든 한도 행의 강조색 퍼센트를 오른쪽 끝에 정렬합니다. 설정에서 사용량·남은량을 고르면 숫자와 그래프가 모두 같은 기준으로 바뀝니다.
 </td>
 </tr>
 </table>
 
 ## 이 밖에도
 
+- **저전력 모드** — 메뉴바 애니메이션을 배터리 절약 품질로 계속 표시합니다.
+- **재연결 시 새로고침** — 네트워크가 복구되면 사용량과 한도를 새로고침합니다.
 - **대표 포켓몬** — 도감에서 보유한 종을 골라 현재 키우는 포켓몬과 별개로 메뉴바와 선택적 플로팅 펫에 고정. 고정 중에는 메뉴바가 알·부화·진화를 따라가지 않지만, 육성 과정은 Home에서 계속 확인할 수 있습니다.
 - **애니메이션 품질** — 메뉴바 스프라이트와 플로팅 펫이 얼마나 부드럽게 움직일지 고릅니다(배터리 절약 / 기본 / 부드럽게). 상시 표시되는 두 표면이 같은 설정을 씁니다. 기본값 "배터리 절약"은 이 설정이 생기기 전과 같은 프레임 레이트이고, "기본"·"부드럽게"는 배터리를 더 씁니다(실측 유휴 CPU 약 1.8% / 약 5.1%).
 - **인터랙티브 플로팅 펫** — 호버로 오늘 사용량, 클릭으로 메인 창, 우클릭 메뉴, 한도 알림은 말풍선으로 표시.
-- **서비스별 탭** — Claude Code·Codex·Gemini CLI·Antigravity·OpenCode·Hermes Agent·Cursor·Grok CLI·Copilot CLI·Kiro CLI·Pi Agent·omp 중 2개 이상 감지되면 작은 탭으로 상세를 서비스별 전환(오늘 합계는 통합 유지).
+- **서비스별 탭** — Claude Code·Codex·Gemini CLI·Antigravity·OpenCode·Hermes Agent·Cursor·Grok CLI·Copilot CLI·Kiro CLI·Pi Agent·omp·Aside 중 2개 이상 감지되면 작은 탭으로 상세를 서비스별 전환(오늘 합계는 통합 유지).
 - **공식 한도** — Claude·Codex·Antigravity 5시간/주간 사용률 + 리셋 카운트다운을 오늘 숫자 바로 아래에.
 - **추가 스캔 폴더** — 기본 경로 밖에 있는 로그를 위해 프로바이더별로 스캔 루트를 더 지정 (설정 → 고급).
 - **소진 예측** — 현재 5시간 창이 100%에 도달할 시각 예측.
@@ -153,14 +183,15 @@ Pi 와 그 포크(omp 등)는 모델 여러 개를 세션 로그 하나로 흘�
 | **Kiro CLI** | 오늘 · 5시간 블록 · 주 · 월 | — (추정치) |
 | **Pi Agent** | 오늘 · 5시간 블록 · 주 · 월 | — |
 | **omp** (oh-my-pi) | 오늘 · 5시간 블록 · 주 · 월 | — |
+| **Aside** | 오늘 · 5시간 블록 · 주 · 월 | — |
 
-모두 로컬에서 읽습니다 — 외부 사용량 CLI 불필요. 도구 추가는 프로바이더 파일 하나면 됩니다([CONTRIBUTING.ko.md](CONTRIBUTING.ko.md) 참고).
+모두 로컬에서 읽습니다 — 외부 사용량 CLI 불필요. 도구는 프로바이더 구현과 등록으로 추가합니다([CONTRIBUTING.ko.md](CONTRIBUTING.ko.md) 참고).
 
 ## 설치
 
 ### 요구사항
 
-macOS 14+ (Apple Silicon 또는 Intel). 끝입니다 — 토큰 사용량은 로컬 Claude Code·Codex·Gemini CLI·Antigravity·OpenCode·Hermes Agent·Cursor·Grok CLI·Copilot CLI·Kiro CLI·Pi Agent·omp 데이터에서 직접 읽으며 외부 사용량 CLI가 필요 없습니다.
+macOS 14+ (Apple Silicon 또는 Intel). 끝입니다 — 토큰 사용량은 로컬 Claude Code·Codex·Gemini CLI·Antigravity·OpenCode·Hermes Agent·Cursor·Grok CLI·Copilot CLI·Kiro CLI·Pi Agent·omp·Aside 데이터에서 직접 읽으며 외부 사용량 CLI가 필요 없습니다.
 
 ### Homebrew
 
@@ -204,8 +235,9 @@ swift test                   # 단위 테스트
 | `~/.grok/sessions/**/updates.jsonl` | Grok CLI daily/blocks/weekly/monthly | `turn_completed` 레코드(턴 단위 `usage`, 서버 보고 비용); `$GROK_HOME` 설정 시 그 경로; 서브에이전트 세션은 토큰이 부모 턴에 이미 포함돼 제외 |
 | `~/.copilot/session-store.db` | Copilot CLI daily/blocks/weekly/monthly | SQLite 읽기 전용; `assistant_usage_events` 1행 = API 호출 1건; `$COPILOT_HOME` 설정 시 그 경로; `input_tokens` 에 캐시 프롬프트가 이미 포함돼 캐시 read/write 를 빼고 집계; premium request 과금이라 비용은 추정하지 않음 |
 | `~/Library/Application Support/kiro-cli/data.sqlite3`<br>`~/.kiro/sessions/cli/*.jsonl`<br>`~/.kiro/sessions/<ws>/<session>/messages.jsonl` | Kiro CLI daily/blocks/weekly/monthly | 2.20 이전 SQLite + 2.20+/`--v3` JSONL; 어느 쪽도 실제 토큰 수를 저장하지 않아 input 은 매 턴 재전송되는 누적 대화 텍스트를 바이트÷4 로 **추정**; `usage_summary` 크레딧은 USD 로 바꾸지 않음; `/clear`·압축으로 지워진 SQLite 대화의 이미 집계된 토큰은 앱을 재시작하기 전까지 계속 집계; `$KIRO_CLI_HOME`·`$KIRO_HOME` 지원 |
-| `~/.pi/agent/sessions/**/*.jsonl` | Pi Agent daily/blocks/weekly/monthly | 모든 프로젝트의 저장된 usage를 직접 집계; `$PI_CODING_AGENT_DIR`·`$PI_CODING_AGENT_SESSION_DIR` override 지원; output에는 reasoning이 이미 포함되어 별도 합산하지 않음; fork 복사본은 entry ID로 중복 제거; 비용은 표시하지 않음 |
+| `~/.pi/agent/sessions/**/*.jsonl` | Pi Agent daily/blocks/weekly/monthly | 모든 프로젝트의 저장된 usage를 직접 집계; `$PI_CODING_AGENT_DIR`·`$PI_CODING_AGENT_SESSION_DIR` override 지원; output에는 reasoning이 이미 포함되어 별도 합산하지 않음; fork 복사본은 entry ID로 중복 제거; 기록된 비용 사용 |
 | `~/.omp/agent/sessions/**/*.jsonl` | omp (oh-my-pi) daily/blocks/weekly/monthly | pi 포맷 세션 JSONL; 모든 assistant `usage` 이벤트를 합산(되돌린 분기도 이미 청구된 토큰)하고 서브에이전트 세션 파일도 부모에 합산되지 않으므로 함께 집계; `$OMP_CODING_AGENT_DIR` 지원; 이벤트별 `cost` 가 기록돼 있으면 그대로 신뢰; `bridge/` 아래 변환 사본은 원본이 이미 집계되므로 제외 |
+| `~/.aside/u/*/state.db` | Aside daily/blocks/weekly/monthly | SQLite 턴 합계 읽기 전용; 삭제된 턴은 스캔 캐시 초기화까지 집계 유지; 기록된 비용만 사용 |
 | Keychain / `~/.claude/.credentials.json` → `api.anthropic.com` | Claude 공식 5h/주간 % | 비공식 endpoint; Keychain 은 **갱신 버튼을 누를 때만** 읽음 — 자동 폴링은 읽지 않음 |
 | `codex app-server` | Codex 공식 5h/주간 % | 로컬 자식 프로세스; 계정 snapshot만, 모델 turn 없음 |
 | [PokéAPI](https://pokeapi.co/) — `pokeapi.co`, `graphql.pokeapi.co` | 포켓몬 종·능력치·특성·기술·진화 | 런타임 fetch; 로컬 캐시, 번들 안 함 |
@@ -217,7 +249,7 @@ swift test                   # 단위 테스트
 
 ## 프라이버시 & 권한
 
-- **온디바이스 우선.** 토큰 사용량은 로컬 Claude Code·Codex·Gemini CLI·Antigravity·OpenCode·Hermes Agent·Cursor·Grok CLI·Copilot CLI·Kiro CLI·Pi Agent·omp 데이터에서 직접 읽습니다. 사용량을 업로드하거나 모델 turn을 실행하지 않습니다.
+- **온디바이스 우선.** 토큰 사용량은 로컬 Claude Code·Codex·Gemini CLI·Antigravity·OpenCode·Hermes Agent·Cursor·Grok CLI·Copilot CLI·Kiro CLI·Pi Agent·omp·Aside 데이터에서 직접 읽습니다. 사용량을 업로드하거나 모델 turn을 실행하지 않습니다.
 - **외부 요청.** 앱은 완전 오프라인이 아닙니다. 12개 호스트에 접속합니다 — `pokeapi.co`·`graphql.pokeapi.co`(종·진화), `raw.githubusercontent.com`(스프라이트), `api.anthropic.com`(Claude 공식 한도), `claude.ai`(설정에서 claude.ai 세션 키를 저장한 경우의 Claude 공식 한도 — 그 키만, 프롬프트·프로젝트 경로 없음), `cursor.com`(로컬에서 Cursor 에 로그인한 경우 Cursor 사용량 요약 — 세션 자격증명만, 프롬프트·프로젝트 경로 없음), `cloudcode-pa.googleapis.com`·`daily-cloudcode-pa.googleapis.com`(Antigravity 공식 한도)와 `oauth2.googleapis.com`(토큰 갱신), `status.claude.com`·`status.openai.com`(장애 배너 — 설정에서 끌 수 있음), `api.github.com`(업데이트 확인). **어느 요청에도 사용량 로그·프롬프트·프로젝트 경로는 담기지 않습니다** — 요청 자체만 나갑니다(Cursor 는 웹 대시보드와 동일하게 본인 사용량 행을 가져오기 위해 세션 쿠키를 보냅니다).
 - **Keychain(선택).** Claude OAuth 자격증명은 **갱신 버튼을 누를 때만** 읽습니다(설정, 또는 팝오버의 한도 행). 자동 폴링은 Keychain 을 건드리지 않으므로 비밀번호 프롬프트가 뜨지 않고, `~/.claude/.credentials.json` 이 있으면 매 폴마다 다시 읽어 `/login` 으로 계정을 바꿔도 갱신 버튼 없이 따라갑니다. 토큰은 메모리에만 두며 **앱 자체 Keychain 항목은 만들지 않습니다.** 자격증명 파일이 없으면 캐시 토큰이 만료될 때까지(또는 갱신 버튼을 누를 때까지) 한도는 이전 값으로 남습니다. 설정에서 끄면 한도 섹션만 숨겨집니다.
 - **포켓몬 데이터와 에셋**은 런타임에 PokéAPI에서 받아오며 `~/Library/Application Support/PokeTokenBar/`에만 캐시됩니다. 생성된 개체값(IV·성별·특성·배운 기술 등)은 값이 변하지 않도록 로컬 파트너 세이브에 저장됩니다. 앱 바이너리와 릴리스 아티팩트에는 포켓몬 에셋이 포함되지 않습니다.

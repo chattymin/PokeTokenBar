@@ -78,19 +78,19 @@ actor LocalUsageCache {
     }
 
     /// fork replay 및 동일 상태 재기록 처리 변경 시 Codex blob만 재파싱한다.
-    /// v5: trust last.total_tokens when components are empty (#278).
-    private static let codexParserVersion = 5
+    /// v6: retain total-only pricing uncertainty; v5 added total-only token accounting (#278).
+    private static let codexParserVersion = 6
     /// **세션 id 추출 규칙**(`session_meta` 의 id/session_id 해석·probe 종료 조건)이 바뀔 때만 올린다.
     /// resolver 변경으로 오르는 `codexParserVersion` 과 분리 — 같이 묶으면 replay 로직을 고칠 때마다
     /// 인덱스가 통째로 날아가 다음 고아 조회에서 전수 probe 가 되살아난다.
     /// v2: 읽기 실패를 "세션 id 없음"으로 저장하던 v1 항목을 버린다(구분이 불가능해 신뢰할 수 없음).
     private static let codexSessionIndexVersion = 2
     /// Grok 토큰 매핑(캐시분 분리·비용 신뢰 조건) 변경 시 Grok blob만 재파싱한다.
-    private static let grokParserVersion = 1
+    private static let grokParserVersion = 2
     /// Pi usage mapping/dedup semantics. Bump when the direct usage paths or bucket mapping changes.
-    private static let piParserVersion = 2
+    private static let piParserVersion = 3
     /// Omp usage mapping/dedup semantics. Bump when the direct usage paths, bridge exclusion, or bucket mapping changes.
-    private static let ompParserVersion = 1
+    private static let ompParserVersion = 2
 
     private var claudeCache: [String: Blob] = [:]
     private var codexCache: [String: CodexBlob] = [:]

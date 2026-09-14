@@ -18,8 +18,15 @@ enum UnownForm: String, CaseIterable, Codable, Hashable, Sendable {
 
     var sortOrder: Int { Self.allCases.firstIndex(of: self)! }
 
-    static func roll(_ roll: UInt64) -> UnownForm {
-        allCases[Int(roll % UInt64(allCases.count))]
+    /// Select only after the species roll: uncollected forms weigh 2, collected forms weigh 1.
+    static func roll(_ roll: UInt64, collected: Set<UnownForm>) -> UnownForm {
+        let weights = allCases.map { CollectionWeight.adjusted(2, isCollected: collected.contains($0)) }
+        var remaining = Int(roll % UInt64(weights.reduce(0, +)))
+        for (form, weight) in zip(allCases.dropLast(), weights) {
+            remaining -= weight
+            if remaining < 0 { return form }
+        }
+        return allCases.last! // Any remaining roll belongs to the last form.
     }
 
     /// Older saves displayed the default A sprite. Preserve that appearance when no form exists.

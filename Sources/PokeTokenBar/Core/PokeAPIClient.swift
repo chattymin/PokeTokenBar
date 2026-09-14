@@ -26,12 +26,7 @@ protocol PokemonDetailProviding: Sendable {
 actor PokeAPIClient: PokeProviding, PokemonDetailProviding {
     static let shared = PokeAPIClient()
     private let base = URL(string: "https://pokeapi.co/api/v2")!
-    // Lockstep with the union of AppLanguage.apiCodes. "pt" collects nothing today
-    // (PokéAPI has no such language) but is listed so it is picked up the moment
-    // one appears — omit it and EvoLine.names never carries it, pinning English.
-    // AppLanguage.apiCodes 의 합집합과 lockstep. "pt" 는 아직 PokéAPI 에 없어 수집되지 않지만,
-    // 추가되는 즉시 잡히도록 함께 둔다(없으면 EvoLine.names 에 안 담겨 영어 폴백이 고정된다).
-    static let langCodes = ["ko", "en", "ja-Hrkt", "ja", "es", "fr", "pt", "de"]
+    static var langCodes: [String] { AppLanguage.allCases.flatMap(\.apiCodes) }
     private var speciesCache: [Int: SpeciesDTO] = [:]
     private var lineCache: [Int: EvoLine] = [:]   // 프리패칭 → 부화 순간 네트워크 0
     private var detailsCache: [Int: PokemonDetails] = [:]
@@ -112,13 +107,11 @@ actor PokeAPIClient: PokeProviding, PokemonDetailProviding {
         let rarity = Rarity.from(captureRate: baseSpecies.capture_rate,
                                  isLegendary: baseSpecies.is_legendary,
                                  isMythical: baseSpecies.is_mythical)
-        // 라인의 모든 종 이름(지원 언어만)
+        // Keep all API languages so later app-language additions can reuse persisted names.
         var names: [Int: [String: String]] = [:]
         for id in allIDs(tree) {
             let sp = try await species(id)
-            var byLang: [String: String] = [:]
-            for n in sp.names where Self.langCodes.contains(n.language.name) { byLang[n.language.name] = n.name }
-            names[id] = byLang
+            names[id] = PokemonNameLocalization.collect(sp.names)
         }
         let line = EvoLine(baseID: baseSpeciesID, tree: tree, rarity: rarity, names: names)
         lineCache[baseSpeciesID] = line

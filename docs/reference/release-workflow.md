@@ -28,7 +28,7 @@ read_when:
 ### 게이트의 함정
 
 - `release.sh` 문서검토는 *커밋된* 상태를 비교 → 스크린샷을 스테이징만 하면 경고 프롬프트가
-  여전히 뜬다. 미리 커밋하거나 프롬프트에 `y`(스테이징분이 release.sh line 93-94 에서 릴리스 커밋에 함께 담김).
+  여전히 뜬다. 갱신을 미리 커밋한다. 릴리스 커밋에는 이미 스테이징된 다른 변경도 함께 담기므로 대상도 확인한다.
 - **신규 기능 = 신규 에셋 (하드 게이트, 프롬프트로 못 넘김).** 직전 태그 이후 `Sources/**/UI/` 를 건드린
   `feat:` 커밋이 있는데 `assets/` 에 **새로 추가된** 파일이 없으면 `release.sh` 가 중단한다
   (**예외 없음** — 통과시키려면 에셋을 만들거나 커밋 타입을 바꿔야 한다). 기존 staleness 검사는 "에셋이 하나라도 바뀌었나"만
@@ -37,15 +37,27 @@ read_when:
 
 ## 2. 실행
 
-릴리스 노트를 작성한 뒤 반드시 `main` 브랜치에서:
+먼저 `RELEASE.md`의 릴리스 노트·기여자 절차에 따라 준비한다.
+
+- `release-notes-template.md`를 복사하고 v2.5.3처럼 영어 New / Fixed / Other / Contributors 및
+  Install / Upgrade를 작성한다. 필수 섹션을 지우거나 `Release vX.Y.Z` 한 줄로 대체하지 않는다.
+- 직전 공개 릴리스 태그부터 배포 대상까지의 PR·직접 커밋을 확인해 외부 기여자 목록을 만든다.
+  PR 작성자와 실제 공동기여자를 빠짐없이 확인하고 `PTB_CONTRIBUTORS_FILE`과 노트의 Contributors를 맞춘다.
+  기존 릴리스 목록 재사용이나 날짜만으로 범위를 정하는 방식은 쓰지 않는다.
+- 실제 공동작업이 확인된 릴리스 준비 커밋만 `PTB_COAUTHORS_FILE`에 참여자의 이름·이메일을 지정한다.
+  기본은 없음이며 Claude/Codex 등 특정 이름을 자동으로 붙이지 않는다.
+- 노트 원문과 기여자 목록 검사를 마친 뒤 적용 버전과 노트 요약을 사용자에게 보여준다.
+
+그 다음 반드시 `main` 브랜치에서:
 
 ```bash
 # 직전 릴리스 이후 변경을 요약해 노트 파일 작성
-PTB_NOTES_FILE=/tmp/ptb-notes.md ./scripts/release.sh <version>
+PTB_NOTES_FILE=/tmp/ptb-notes.md PTB_CONTRIBUTORS_FILE=/tmp/ptb-contributors.txt ./scripts/release.sh <version>
 ```
 
-스크립트가 test-gate → 문서검토 → 범프 → 빌드검증 → 커밋·push → GitHub Release → cask → Pages 를
-순서대로 수행한다.
+스크립트가 노트·Contributors 검증 → test-gate → 문서검토 → 범프 → 빌드검증 → 커밋·push →
+GitHub Release → cask → Pages를 순서대로 수행한다. 빌드 단계에서 기존 로컬 앱 종료·교체도 수행한다.
+노트나 기여자가 누락되면 앱 교체·push 전에 중단하며, 게시에는 검증한 노트 파일을 그대로 사용한다.
 
 ## 3. 검증
 

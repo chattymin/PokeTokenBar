@@ -38,6 +38,7 @@ final class CompanionStore {
     func consumeMintFeedback() { mintFeedbackNature = nil }
 
     private let provider: any PokeProviding
+    private var dexNameRequests: [Int: Task<EvoLine, Error>] = [:]
     private let detailProvider: (any PokemonDetailProviding)?
     private let clock: () -> Date
     private let fileURL: URL
@@ -221,8 +222,13 @@ final class CompanionStore {
 
     func isRepresentative(_ species: DexSpecies) -> Bool {
         state.representativeSpeciesID == species.id
-            && UnownForm.resolved(speciesID: species.id, form: state.representativeUnownForm)
-                == UnownForm.resolved(speciesID: species.id, form: species.unownForm)
+            && (species.unownForm == nil || state.representativeUnownForm == species.unownForm)
+    }
+
+    /// Settings describe the selected form, even though the main Pokédex aggregates the species.
+    var representativeDexSpecies: DexSpecies? {
+        let candidates = representativeSpeciesID == UnownForm.speciesID ? unownFormSpecies : dexSpecies
+        return candidates.first { isRepresentative($0) }
     }
 
     // 알 인큐베이션 (active 없을 때)
@@ -368,7 +374,7 @@ final class CompanionStore {
     /// 희귀도별 포획 로그 개수(요약 헤더용) — 개체 수 기준. 도감(종 단위)은 dexSpecies 를 쓴다.
     func dexCount(_ rarity: Rarity) -> Int { dexEntries.lazy.filter { $0.rarity == rarity }.count }
 
-    /// 도감 한 칸 — 같은 종·안농 폼의 중복 기록을 합친다.
+    /// 도감 한 칸 — 메인 목록은 종별, 안농 상세 목록은 폼별로 중복 기록을 합친다.
     /// **종 정보만 담는다** — 성격·획득 횟수처럼 개체에 딸린 것은 포획 로그가 개체 단위로 보여준다.
     struct DexSpecies: Sendable {
         let id: Int                     // speciesID = 도감 번호(정렬 키)
@@ -381,7 +387,7 @@ final class CompanionStore {
 
         /// Species IDs remain Pokédex numbers; selection also includes the Unown letter.
         var collectionID: String {
-            guard let form = UnownForm.resolved(speciesID: id, form: unownForm) else { return String(id) }
+            guard id == UnownForm.speciesID, let form = unownForm else { return String(id) }
             return "\(id)-\(form.rawValue)"
         }
     }
@@ -390,9 +396,9 @@ final class CompanionStore {
         let speciesID: Int
         let unownForm: UnownForm?
 
-        init(_ speciesID: Int, unownForm: UnownForm?) {
+        init(_ speciesID: Int, unownForm: UnownForm?, groupUnownForms: Bool) {
             self.speciesID = speciesID
-            self.unownForm = UnownForm.resolved(speciesID: speciesID, form: unownForm)
+            self.unownForm = groupUnownForms ? UnownForm.resolved(speciesID: speciesID, form: unownForm) : nil
         }
     }
 
@@ -412,11 +418,20 @@ final class CompanionStore {
     /// `plannedPathIDs`(사전 선택된 전체 경로)는 미도달 단계를 포함하므로 절대 쓰지 않는다 — 쓰면
     /// 아직 진화하지 않은 종이 보유로 잡힌다.
     var dexSpecies: [DexSpecies] {
+        collectedDexSpecies(groupUnownForms: false)
+    }
+
+    /// Collected form summaries for the detail picker; missing forms remain visible but disabled.
+    var unownFormSpecies: [DexSpecies] {
+        collectedDexSpecies(groupUnownForms: true).filter { $0.id == UnownForm.speciesID }
+    }
+
+    private func collectedDexSpecies(groupUnownForms: Bool) -> [DexSpecies] {
         // 종별 누적을 한 번에 훑는다(뷰가 body 에서 1회 소비 — 메모이즈 없이 충분).
         var acc: [DexKey: DexAccumulator] = [:]
         for entry in state.dex {
             for id in entry.chainOrder {
-                let key = DexKey(id, unownForm: entry.unownForm)
+                let key = DexKey(id, unownForm: entry.unownForm, groupUnownForms: groupUnownForms)
                 var a = acc[key] ?? DexAccumulator(rarity: entry.rarity)
                 if let n = entry.names?[id] { a.names = n }   // 이름 없는 구버전 항목이 덮어쓰지 않게
                 if entry.isShiny { a.isShiny = true }
@@ -427,7 +442,7 @@ final class CompanionStore {
             // 도달분만 — stageIndex 가 pathIDs 범위 안임은 두 입구가 보장한다:
             // MonState.init(from:) 의 clamp, 그리고 SaveTransfer 의 가져오기 정규화.
             for id in active.pathIDs.prefix(active.stageIndex + 1) {
-                let key = DexKey(id, unownForm: active.unownForm)
+                let key = DexKey(id, unownForm: active.unownForm, groupUnownForms: groupUnownForms)
                 var a = acc[key] ?? DexAccumulator(rarity: active.rarity)
                 if let n = currentLine?.names[id] { a.names = n }
                 if currentIsShiny { a.isShiny = true }   // 위장 중 숨김 규칙 재사용
@@ -441,22 +456,22 @@ final class CompanionStore {
             let name = a.names.flatMap { state.language.resolveName($0) } ?? "#\(key.speciesID)"
             return DexSpecies(
                 id: key.speciesID,
-                name: UnownForm.displayName(name, speciesID: key.speciesID, form: key.unownForm),
+                name: groupUnownForms ? UnownForm.displayName(name, speciesID: key.speciesID, form: key.unownForm) : name,
                 rarity: a.rarity,
                 isShiny: a.isShiny,
-                isRaising: key.speciesID == state.active?.currentID && key.unownForm == currentUnownForm,
+                isRaising: key.speciesID == state.active?.currentID && (!groupUnownForms || key.unownForm == currentUnownForm),
                 unownForm: key.unownForm)
         }
     }
 
-    /// 이름이 없는 구버전 졸업 항목의 체인 이름을 채운다(도감 격자 진입 시 1회).
+    /// Refresh legacy names once, including saves that retained only app-supported languages.
     ///
     /// 격자는 저장된 이름만 읽으므로 백필이 없으면 칸이 종 번호(`#41`)로 남는다. 포획 로그는 행이
     /// 뜰 때 행 단위로 같은 일을 해 왔지만, 로그를 한 번도 안 열면 격자는 계속 번호다.
     /// 라인 조회는 `PokeAPIClient` 가 base 단위로 캐시하므로 같은 라인이 여러 항목이어도 네트워크는 1회.
     /// 오프라인이면 `dexResolveChainNames` 가 저장 없이 폴백만 돌려주므로 다음 진입에서 다시 시도한다.
     func backfillMissingDexNames() async {
-        for entry in state.dex where entry.names == nil {
+        for entry in state.dex where entry.needsNamesRefresh {
             _ = await dexResolveChainNames(entry)   // 성공분만 내부에서 state.dex 에 저장
         }
     }
@@ -468,20 +483,49 @@ final class CompanionStore {
         return names.compactMapValues { state.language.resolveName($0) }
     }
 
-    /// 이름 미저장(구버전) 항목용 — line 을 1회 조회해 체인 전 종의 다국어 이름을 얻고 항목에 백필한다
-    /// (다음부터 네트워크 0). 저장돼 있으면 그대로(fetch 없음). 오프라인이면 종 번호(#id)로 폴백.
+    /// Refresh missing/legacy multilingual names; current versions require no lookup.
+    /// Offline, keep saved names and use species numbers only where no name is available.
     /// 반환은 chainOrder 전 종을 채운 [speciesID: 현재 언어 이름].
+    private func dexNameLine(baseID: Int) async throws -> EvoLine {
+        if let request = dexNameRequests[baseID] { return try await request.value }
+        let provider = self.provider
+        let request = Task { try await provider.line(baseSpeciesID: baseID) }
+        dexNameRequests[baseID] = request
+        defer { dexNameRequests[baseID] = nil }
+        return try await request.value
+    }
+
     func dexResolveChainNames(_ entry: DexEntry) async -> [Int: String] {
-        if let stored = dexStoredChainNames(entry) { return stored }
-        guard let line = try? await provider.line(baseSpeciesID: entry.baseID) else {
-            return Dictionary(uniqueKeysWithValues: entry.chainOrder.map { ($0, "#\($0)") })
+        // Another row of this evolution line may already have refreshed the stored entry.
+        let entry = state.dex.first { $0.id == entry.id } ?? entry
+        if !entry.needsNamesRefresh, let stored = dexStoredChainNames(entry) { return stored }
+        let oldNames = dexStoredChainNames(entry) ?? [:]
+        guard let line = try? await dexNameLine(baseID: entry.baseID) else {
+            return Dictionary(uniqueKeysWithValues: entry.chainOrder.map { ($0, oldNames[$0] ?? "#\($0)") })
         }
-        let chainNames = Dictionary(uniqueKeysWithValues:
-            entry.chainOrder.compactMap { id in line.names[id].map { (id, $0) } })
-        if !chainNames.isEmpty, let idx = state.dex.firstIndex(where: { $0.id == entry.id }) {
-            state.dex[idx].names = chainNames   // 백필 저장
-            save()
+        // Preserve usable older names if a response is partial. Only a complete chain gets
+        // the new version, so partial/offline responses remain eligible for retry.
+        func refreshed(_ original: DexEntry) -> DexEntry {
+            var result = original
+            var merged = original.names ?? [:]
+            for id in original.chainOrder {
+                if let incoming = line.names[id], !incoming.isEmpty {
+                    merged[id] = (merged[id] ?? [:]).merging(incoming) { _, new in new }
+                }
+            }
+            result.names = merged.isEmpty ? nil : merged
+            if original.chainOrder.allSatisfy({ line.names[$0]?.isEmpty == false }) {
+                result.namesVersion = DexEntry.currentNamesVersion
+            }
+            return result
         }
+        // One successful lookup also refreshes duplicate catches of the same evolution line.
+        for index in state.dex.indices where state.dex[index].baseID == entry.baseID
+            && state.dex[index].needsNamesRefresh {
+            state.dex[index] = refreshed(state.dex[index])
+        }
+        save()
+        let chainNames = refreshed(entry).names ?? [:]
         return Dictionary(uniqueKeysWithValues: entry.chainOrder.map { id in
             (id, chainNames[id].flatMap { state.language.resolveName($0) } ?? "#\(id)")
         })
@@ -1078,7 +1122,8 @@ final class CompanionStore {
             // 이 롤을 버린다 — 안 그러면 불러온 알의 pre-roll 을 남의 롤로 덮어쓴다.
             guard state.active == nil, activeGeneration == generation else { return }
             state.pendingHatchID = id
-            state.pendingUnownForm = id == UnownForm.speciesID ? .roll(rng.next()) : nil
+            state.pendingUnownForm = id == UnownForm.speciesID
+                ? .roll(rng.next(), collected: state.collectedUnownForms) : nil
             save()
         }
         guard let id = state.pendingHatchID, prefetchedLineID != id else { return }
@@ -1167,7 +1212,8 @@ final class CompanionStore {
         var profile = PokemonProfile.generate(seed: rng.next())
         if let details = pokemonDetailsByID[line.baseID] { profile.enrich(with: details) }
         let hasGrowthBoost = state.hasCollectedFinal(forBaseID: line.baseID)
-        let unownForm: UnownForm? = line.baseID == UnownForm.speciesID ? (pendingForm ?? .roll(rng.next())) : nil
+        let unownForm: UnownForm? = line.baseID == UnownForm.speciesID
+            ? (pendingForm ?? .roll(rng.next(), collected: state.collectedUnownForms)) : nil
         // 위장 중엔 이로치를 숨긴다 — 부화 알림·연출도 일반체로(정체는 리빌 때 공개).
         let showShiny = isShiny && dittoDisguise == nil
         activeGeneration += 1
@@ -1283,8 +1329,7 @@ final class CompanionStore {
                 return nil
             }
             let weights = index.map { e in
-                state.hasCollectedFinal(forBaseID: e.id)
-                    ? max(1, e.captureRate / 2) : max(1, e.captureRate)
+                CollectionWeight.adjusted(e.captureRate, isCollected: state.hasCollectedFinal(forBaseID: e.id))
             }
             let total = weights.reduce(0, +)
             var r = Int(rng.next() % UInt64(total))

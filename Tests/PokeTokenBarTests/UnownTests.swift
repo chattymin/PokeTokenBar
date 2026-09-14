@@ -15,6 +15,16 @@ private struct UnownTestProvider: PokeProviding {
     func baseSpecies(id: Int) async throws -> BaseSpecies? { throw UnownTestError.offline }
 }
 
+private struct UnownSelectionProvider: PokeProviding {
+    func line(baseSpeciesID: Int) async throws -> EvoLine {
+        try await UnownTestProvider().line(baseSpeciesID: baseSpeciesID)
+    }
+    func baseSpeciesIndex() async throws -> [BaseSpecies] {
+        [BaseSpecies(id: 25, captureRate: 255), BaseSpecies(id: 201, captureRate: 225)]
+    }
+    func baseSpecies(id: Int) async throws -> BaseSpecies? { throw UnownTestError.offline }
+}
+
 private actor UnownPrefetchSignal {
     private var fired = false
     private var waiters: [CheckedContinuation<Void, Never>] = []
@@ -103,9 +113,117 @@ final class UnownTests: XCTestCase {
     func testAllLettersAndPunctuationAreSelectable() {
         let symbols = Array("ABCDEFGHIJKLMNOPQRSTUVWXYZ").map(String.init) + ["!", "?"]
         XCTAssertEqual(UnownForm.allCases.map(\.symbol), symbols)
-        XCTAssertEqual((0..<28).map { UnownForm.roll(UInt64($0)).symbol }, symbols)
-        XCTAssertEqual(UnownForm.roll(28), .a)
-        XCTAssertTrue(UnownForm.allCases.contains(UnownForm.roll(UInt64.max)))
+        XCTAssertEqual((0..<56).map { UnownForm.roll(UInt64($0), collected: []).symbol },
+                       symbols.flatMap { [$0, $0] })
+        XCTAssertEqual(UnownForm.roll(56, collected: []), .a)
+        XCTAssertTrue(UnownForm.allCases.contains(UnownForm.roll(UInt64.max, collected: [])))
+    }
+
+    func testFormWeightsAreTwoForMissingAndOneForCollectedWithoutGuaranteeingNewForms() {
+        for collected in [Set<UnownForm>(), [.a, .b, .exclamation], Set(UnownForm.allCases)] {
+            let total = 56 - collected.count
+            let samples = (0..<total).map { UnownForm.roll(UInt64($0), collected: collected) }
+            for form in UnownForm.allCases {
+                XCTAssertEqual(samples.filter { $0 == form }.count, collected.contains(form) ? 1 : 2)
+            }
+            XCTAssertEqual(UnownForm.roll(UInt64(total), collected: collected), .a)
+        }
+        XCTAssertEqual((0..<28).map { UnownForm.roll(UInt64($0), collected: Set(UnownForm.allCases)) },
+                       UnownForm.allCases, "Completion returns selection to uniform weights")
+    }
+
+    func testSharedCollectedAdjustmentPreservesCaptureRateRoundingAndMinimum() {
+        for weight in 0...255 {
+            XCTAssertEqual(CollectionWeight.adjusted(weight, isCollected: false), max(1, weight))
+            XCTAssertEqual(CollectionWeight.adjusted(weight, isCollected: true), max(1, weight / 2))
+        }
+    }
+
+    func testCollectionIncludesLegacyActiveAndReleasedFormsButCountsShinyOnlyOnce() throws {
+        var original = CompanionState()
+        var legacy = entry(nil)
+        legacy.unownForm = nil
+        var released = entry(.exclamation, shiny: true)
+        released.releasedAt = now
+        original.dex = [legacy, entry(.b), entry(.b, shiny: true), released, entry(nil, speciesID: 25)]
+        original.active = mon(.question, shiny: true)
+        XCTAssertEqual(original.collectedUnownForms, [.a, .b, .exclamation, .question])
+        let s = try store(original)
+        XCTAssertEqual(s.dexSpecies.map(\.id), [25, 201])
+        XCTAssertEqual(s.unownFormSpecies.compactMap(\.unownForm), [.a, .b, .exclamation, .question])
+        XCTAssertEqual(s.unownFormSpecies.map(\.isShiny), [false, true, true, true])
+        XCTAssertEqual(s.unownFormSpecies.map(\.isRaising), [false, false, false, true])
+    }
+
+    func testMissingADoesNotCreateAnOwnedFormOrPermitAnUncollectedRepresentative() throws {
+        var original = CompanionState()
+        original.dex = [entry(.question, shiny: true)]
+        let s = try store(original)
+        XCTAssertEqual(s.dexSpecies.map(\.id), [201])
+        XCTAssertEqual(s.unownFormSpecies.compactMap(\.unownForm), [.question])
+        XCTAssertFalse(s.setRepresentativeSpeciesID(201, unownForm: .a))
+        XCTAssertTrue(s.setRepresentativeSpeciesID(201, unownForm: .question))
+        XCTAssertTrue(s.isRepresentative(try XCTUnwrap(s.dexSpecies.first)))
+    }
+
+    func testHatchUsesOwnedFormWeightsAfterUnchangedShinyNatureAndProfileRolls() async throws {
+        var original = CompanionState()
+        original.dex = UnownForm.allCases.dropLast().map { entry($0) }
+        let seed = try XCTUnwrap((UInt64(0)..<1_000).first { seed in
+            var rng = SeededRNG(seed: seed)
+            _ = rng.next(); _ = rng.next(); _ = rng.next()
+            let roll = rng.next()
+            return roll % 29 == 27 && roll % 56 / 2 != 27
+        })
+        let s = try store(original, seed: seed)
+        await s.hatch(baseID: 201)
+        XCTAssertEqual(s.currentUnownForm, .question, "The missing form occupies both final slots of the weighted pool")
+    }
+
+    func testPrefetchUsesOwnedFormWeights() async throws {
+        var original = CompanionState()
+        original.installBaselineSet = true
+        original.lastDate = "d1"
+        original.dex = UnownForm.allCases.dropLast().map { entry($0) }
+        let seed = try XCTUnwrap((UInt64(0)..<1_000).first { seed in
+            var rng = SeededRNG(seed: seed)
+            _ = rng.next() // Species selection precedes form selection.
+            let roll = rng.next()
+            return roll % 29 == 27 && roll % 56 / 2 != 27
+        })
+        let signal = UnownPrefetchSignal()
+        let s = try store(original, seed: seed, provider: UnownPrefetchProvider(lineRequested: signal))
+        s.update(todayTokensByProvider: ["test": 1_000], todayDate: "d1", monthTotal: 0,
+                 burnTier: .idle, limitWarning: false, hasUsageData: true)
+        await signal.wait()
+        XCTAssertEqual(s.state.pendingHatchID, 201)
+        XCTAssertEqual(s.state.pendingUnownForm, .question)
+    }
+
+    func testFormOwnershipDoesNotChangeSpeciesSelectionOrShinyRolls() async throws {
+        var selectedSpecies = Set<Int>()
+        for seed: UInt64 in [1, 7, 17, 42, 128, 999] {
+            for forms in [[], [UnownForm.b], UnownForm.allCases] {
+                var original = CompanionState()
+                original.eggUsage = PokemonBalance.eggHatchThreshold
+                original.collectedFinals = ["201:201"]
+                original.dex = forms.map { entry($0) }
+                let s = try store(original, seed: seed, provider: UnownSelectionProvider())
+                var rng = SeededRNG(seed: seed)
+                // Existing species weights: Pikachu 255, collected Unown floor(225 / 2) = 112.
+                let expectedSpecies = rng.next() % 367 < 255 ? 25 : 201
+                let expectedShiny = rng.next() % PokemonOdds.shinyDenominator == 0
+                let expectedNature = PokemonNature.allCases[Int(rng.next() % UInt64(PokemonNature.allCases.count))]
+                let expectedProfileSeed = rng.next()
+                await s.hatchIfNeeded()
+                XCTAssertEqual(s.currentSpeciesID, expectedSpecies)
+                XCTAssertEqual(s.currentIsShiny, expectedShiny)
+                XCTAssertEqual(s.currentNature, expectedNature)
+                XCTAssertEqual(s.state.active?.profile?.seed, expectedProfileSeed)
+                selectedSpecies.insert(try XCTUnwrap(s.currentSpeciesID))
+            }
+        }
+        XCTAssertEqual(selectedSpecies, [25, 201])
     }
 
     /// 형태 필드 하나가 없거나 잘못돼도 기존 개체·도감·재화가 유실되면 안 된다.
@@ -144,7 +262,7 @@ final class UnownTests: XCTestCase {
         }
     }
 
-    func testEveryFormRoundTripsAndKeepsItsOwnDexCell() throws {
+    func testEveryFormRoundTripsAndSharesOneSpeciesCell() throws {
         for form in UnownForm.allCases {
             let restored = try JSONDecoder().decode(MonState.self,
                 from: JSONEncoder().encode(mon(form, shiny: true)))
@@ -157,10 +275,15 @@ final class UnownTests: XCTestCase {
         original.dex = UnownForm.allCases.map { entry($0, shiny: true) }
         let s = try store(original)
         XCTAssertEqual(s.state.dex.compactMap(\.unownForm), UnownForm.allCases)
-        XCTAssertEqual(s.dexSpecies.compactMap(\.unownForm), UnownForm.allCases)
-        XCTAssertEqual(Set(s.dexSpecies.map(\.collectionID)).count, 28)
+        XCTAssertEqual(s.dexSpecies.count, 1)
+        XCTAssertEqual(s.dexSpecies.first?.name, "안농")
+        XCTAssertEqual(s.dexSpecies.first?.collectionID, "201")
+        XCTAssertNil(s.dexSpecies.first?.unownForm)
+        XCTAssertEqual(s.state.collectedUnownForms.count, 28)
+        XCTAssertEqual(s.unownFormSpecies.compactMap(\.unownForm), UnownForm.allCases)
+        XCTAssertEqual(Set(s.unownFormSpecies.map(\.collectionID)).count, 28)
         XCTAssertTrue(s.dexSpecies.allSatisfy { $0.id == 201 && $0.isShiny && !$0.isRaising })
-        XCTAssertEqual(s.dexSpecies.map(\.name), UnownForm.allCases.map { "안농 [\($0.symbol)]" })
+        XCTAssertEqual(s.unownFormSpecies.map(\.name), UnownForm.allCases.map { "안농 [\($0.symbol)]" })
     }
 
     func testFormIsOnlyAppliedToUnown() throws {
@@ -184,13 +307,13 @@ final class UnownTests: XCTestCase {
                 let matchesShiny = (rng.next() % PokemonOdds.shinyDenominator == 0) == shiny
                 _ = rng.next() // nature
                 _ = rng.next() // profile seed
-                return matchesShiny && rng.next() % 28 != 0
+                return matchesShiny && rng.next() % 56 / 2 != 0
             })
             var rng = SeededRNG(seed: seed)
             _ = rng.next()
             let nature = PokemonNature.allCases[Int(rng.next() % UInt64(PokemonNature.allCases.count))]
             let profileSeed = rng.next()
-            let form = UnownForm.allCases[Int(rng.next() % 28)]
+            let form = UnownForm.allCases[Int(rng.next() % 56 / 2)]
             let url = try stateURL()
             let s = try store(seed: seed, at: url)
 
@@ -248,9 +371,13 @@ final class UnownTests: XCTestCase {
         original.active = mon(.c)
         let s = try store(original)
         XCTAssertEqual(s.state.dex.count, 3, "같은 글자의 포획 기록은 각각 보존")
-        XCTAssertEqual(s.dexSpecies.compactMap(\.unownForm), [.a, .b, .c])
-        XCTAssertEqual(s.dexSpecies.map(\.isShiny), [false, true, false])
-        XCTAssertEqual(s.dexSpecies.map(\.isRaising), [false, false, true])
+        XCTAssertEqual(s.dexSpecies.count, 1)
+        XCTAssertEqual(s.dexSpecies.first?.isShiny, true)
+        XCTAssertEqual(s.dexSpecies.first?.isRaising, true)
+        XCTAssertEqual(s.state.collectedUnownForms, [.a, .b, .c])
+        XCTAssertEqual(s.unownFormSpecies.compactMap(\.unownForm), [.a, .b, .c])
+        XCTAssertEqual(s.unownFormSpecies.map(\.isShiny), [false, true, false])
+        XCTAssertEqual(s.unownFormSpecies.map(\.isRaising), [false, false, true])
         XCTAssertTrue(s.state.ownsSpecies(201, unownForm: .c))
         XCTAssertFalse(s.state.ownsSpecies(201, unownForm: .z))
         XCTAssertFalse(s.state.ownsShinySpecies(201, unownForm: .a))
@@ -260,16 +387,22 @@ final class UnownTests: XCTestCase {
 
     func testRepresentativeUsesExactLetterAndPersistsSelection() throws {
         var original = CompanionState()
+        original.language = .en
         original.dex = [entry(.a), entry(.b, shiny: true)]
         let url = try stateURL()
         let s = try store(original, at: url)
 
         XCTAssertTrue(s.setRepresentativeSpeciesID(201, unownForm: .a))
         XCTAssertFalse(s.representativeSubject.isShiny, "이로치 B가 일반 A의 색을 바꾸면 안 된다")
-        XCTAssertEqual(s.dexSpecies.map { s.isRepresentative($0) }, [true, false])
+        XCTAssertEqual(s.representativeDexSpecies?.name, "Unown [A]")
+        XCTAssertEqual(s.representativeDexSpecies?.isShiny, false)
+        XCTAssertEqual(s.unownFormSpecies.map { s.isRepresentative($0) }, [true, false])
         XCTAssertTrue(s.setRepresentativeSpeciesID(201, unownForm: .b))
         XCTAssertTrue(s.representativeSubject.isShiny)
-        XCTAssertEqual(s.dexSpecies.map { s.isRepresentative($0) }, [false, true])
+        XCTAssertEqual(s.representativeDexSpecies?.name, "Unown [B]")
+        XCTAssertEqual(s.representativeDexSpecies?.isShiny, true)
+        XCTAssertTrue(s.isRepresentative(try XCTUnwrap(s.dexSpecies.first)), "The single species cell marks any representative form")
+        XCTAssertEqual(s.unownFormSpecies.map { s.isRepresentative($0) }, [false, true])
         XCTAssertFalse(s.setRepresentativeSpeciesID(201, unownForm: .z))
         XCTAssertEqual(s.representativeUnownForm, .b, "미보유 글자 요청은 기존 선택을 보존")
 
@@ -279,6 +412,7 @@ final class UnownTests: XCTestCase {
         XCTAssertTrue(restored.representativeSubject.isShiny)
         XCTAssertTrue(restored.setRepresentativeSpeciesID(nil))
         XCTAssertNil(restored.representativeUnownForm)
+        XCTAssertNil(restored.representativeDexSpecies)
     }
 
     func testReleasingActiveLetterPreservesFormProfileAndRepresentative() throws {
@@ -297,7 +431,7 @@ final class UnownTests: XCTestCase {
         XCTAssertEqual(s.representativeUnownForm, .b)
         XCTAssertFalse(s.representativeSubject.isShiny)
         XCTAssertEqual(s.state.dex.count, 2)
-        XCTAssertEqual(s.dexSpecies.compactMap(\.unownForm), [.a, .b])
+        XCTAssertEqual(s.unownFormSpecies.compactMap(\.unownForm), [.a, .b])
         XCTAssertTrue(s.dexSpecies.allSatisfy { !$0.isRaising })
         XCTAssertTrue(s.state.ownsShinySpecies(201, unownForm: .a))
         XCTAssertTrue(s.state.ownsSpecies(201, unownForm: .b))
@@ -316,7 +450,7 @@ final class UnownTests: XCTestCase {
         original.active = mon(.b)
         let s = try store(original)
 
-        XCTAssertEqual(s.dexSpecies.map(\.isRaising), [false, true],
+        XCTAssertEqual(s.unownFormSpecies.map(\.isRaising), [false, true],
                        "이미 졸업한 글자여도 같은 글자를 키우고 있으면 육성 중으로 표시")
         XCTAssertEqual(s.pokemonIndividuals(speciesID: 201).count, 1)
         let bIndividuals = s.pokemonIndividuals(speciesID: 201, unownForm: .b)
@@ -387,11 +521,11 @@ final class UnownTests: XCTestCase {
         let seed = try XCTUnwrap((UInt64(0)..<1_000).first { seed in
             var rng = SeededRNG(seed: seed)
             _ = rng.next()
-            return rng.next() % 28 != 0
+            return rng.next() % 56 / 2 != 0
         })
         var prefetchRNG = SeededRNG(seed: seed)
         _ = prefetchRNG.next() // 종 선택
-        let expectedForm = UnownForm.allCases[Int(prefetchRNG.next() % 28)]
+        let expectedForm = UnownForm.allCases[Int(prefetchRNG.next() % 56 / 2)]
         let signal = UnownPrefetchSignal()
         let url = try stateURL()
         let s = try store(original, seed: seed, at: url,
@@ -412,7 +546,7 @@ final class UnownTests: XCTestCase {
             _ = rng.next() // shiny
             _ = rng.next() // nature
             _ = rng.next() // profile seed
-            return UnownForm.allCases[Int(rng.next() % 28)] != expectedForm
+            return UnownForm.allCases[Int(rng.next() % 56 / 2)] != expectedForm
         })
         persisted.eggUsage = PokemonBalance.eggHatchThreshold
         persisted.usedSinceInstall = FreshEgg.price

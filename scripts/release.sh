@@ -3,8 +3,7 @@
 # release.sh — 버전 배포 자동화 + 문서(README/웹페이지/cask) 일관성 검토.
 #
 # 사용:
-#   PTB_NOTES_FILE=/tmp/notes.md ./scripts/release.sh 2.1.1
-#   ./scripts/release.sh 2.1.1            # 노트 파일 없으면 최소 노트
+#   PTB_NOTES_FILE=/tmp/notes.md PTB_CONTRIBUTORS_FILE=/tmp/contributors.txt ./scripts/release.sh 2.1.1
 #   ./scripts/release.sh --check-only     # 문서 일관성 검토만(배포 안 함)
 #
 # 단계: 1)test-gate 2)문서 검토 3)VERSION 범프 4)build+zip 5)커밋·push
@@ -89,6 +88,11 @@ BRANCH=$(git rev-parse --abbrev-ref HEAD)
 [[ "$BRANCH" == "main" ]] || { echo "✗ main 브랜치에서 실행하세요 (현재: $BRANCH) — 커밋/push 대상 일치 보장"; exit 1; }
 echo "=== PokeTokenBar 릴리스 $PREV → $VERSION ==="
 
+# Fail before tests, version changes, local installation, or publication.
+NOTES_FILE="${PTB_NOTES_FILE:-}"
+python3 scripts/release-metadata.py check-notes "$NOTES_FILE" "${PTB_CONTRIBUTORS_FILE:-}"
+COMMIT_MESSAGE=$(python3 scripts/release-metadata.py commit-message "$VERSION" "${PTB_COAUTHORS_FILE:-}")
+
 echo "▶ 1/8 릴리스 전 테스트 게이트"
 ./scripts/test-gate.sh >/dev/null || { echo "✗ test-gate 실패 — 중단"; exit 1; }
 echo "  ✓ 통과"
@@ -138,20 +142,12 @@ BUILT=$(/usr/libexec/PlistBuddy -c "Print CFBundleShortVersionString" build/Poke
 
 echo "▶ 5/8 커밋 + push (빌드 성공 후)"
 git add scripts/build-app.sh
-git commit -q -m "release: bump version to $VERSION
-
-Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
+git commit -q -m "$COMMIT_MESSAGE"
 git push -q origin main
 
 echo "▶ 6/8 GitHub Release v$VERSION"
-NOTES_FILE="${PTB_NOTES_FILE:-}"
-if [[ -n "$NOTES_FILE" && -f "$NOTES_FILE" ]]; then
-  gh release create "v$VERSION" build/PokeTokenBar.zip --repo "$REPO" \
-    --title "PokeTokenBar v$VERSION" --target main --notes-file "$NOTES_FILE"
-else
-  gh release create "v$VERSION" build/PokeTokenBar.zip --repo "$REPO" \
-    --title "PokeTokenBar v$VERSION" --target main --notes "Release v$VERSION"
-fi
+gh release create "v$VERSION" build/PokeTokenBar.zip --repo "$REPO" \
+  --title "PokeTokenBar v$VERSION" --target main --notes-file "$NOTES_FILE"
 
 echo "▶ 7/8 Homebrew cask $VERSION"
 TMP_CASK=$(mktemp)

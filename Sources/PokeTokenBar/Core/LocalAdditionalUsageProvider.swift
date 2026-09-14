@@ -43,11 +43,10 @@ struct LocalHermesProvider: UsageProvider {
 }
 
 /// Cursor usage from the dashboard API when signed in, with local SQLite as fallback.
-/// `reportsCost` is false — included-plan usage is token-only in the dashboard.
+/// Missing model prices remain unavailable, independently of subscription terms.
 struct LocalCursorProvider: UsageProvider {
     let id = "cursor"
     let displayName = "Cursor"
-    let reportsCost = false
 
     func fetchDaily() async throws -> DailyUsage? {
         let entries = await LocalAdditionalUsageCache.shared.entries(for: .cursor)
@@ -64,8 +63,7 @@ struct LocalCursorProvider: UsageProvider {
 struct LocalCopilotProvider: UsageProvider {
     let id = "copilot"
     let displayName = "Copilot"
-    /// Copilot bills subscription premium requests, not per-token dollars — tokens only.
-    let reportsCost = false
+    // Request credits are not dollars; only recoverable model usage can be estimated.
 
     func fetchDaily() async throws -> DailyUsage? {
         let entries = await LocalAdditionalUsageCache.shared.entries(for: .copilot)
@@ -85,7 +83,7 @@ struct LocalCopilotProvider: UsageProvider {
 /// write JSONL under `~/.kiro/sessions` (`cli/*.jsonl`, or
 /// `<workspace>/<session>/messages.jsonl`). Neither store persists a real token
 /// count — tokens here are a bytes/4 estimate of resent conversation text.
-/// `usage_summary` credits are not API dollars, so `reportsCost` stays false.
+/// `usage_summary` credits are not dollars; cost remains unavailable.
 ///
 /// Kiro also *deletes* turns from its SQLite store on `/clear` or compaction (unlike every
 /// other local source here, whose on-disk logs only grow), so this provider merges each
@@ -95,7 +93,6 @@ struct LocalCopilotProvider: UsageProvider {
 struct LocalKiroProvider: UsageProvider {
     let id = "kiro"
     let displayName = "Kiro"
-    let reportsCost = false
 
     func fetchDaily() async throws -> DailyUsage? {
         let entries = await LocalAdditionalUsageCache.shared.entries(for: .kiro)
@@ -459,9 +456,9 @@ enum LocalAdditionalUsageReader {
                   let model = columnText(statement, 1)?.trimmingCharacters(in: .whitespacesAndNewlines),
                   !model.isEmpty,
                   let date = dateValue(sqlite3_column_double(statement, 3)) else { return nil }
-            let estimatedCost = sqlite3_column_double(statement, 10)
-            let actualCost = sqlite3_column_double(statement, 11)
-            return makeEntry(
+            let estimatedCost = sqlite3_column_type(statement, 10) == SQLITE_NULL ? nil : sqlite3_column_double(statement, 10)
+            let actualCost = sqlite3_column_type(statement, 11) == SQLITE_NULL ? nil : sqlite3_column_double(statement, 11)
+            var entry = makeEntry(
                 id: "hermes|\(id)",
                 date: date,
                 model: model,
@@ -469,7 +466,10 @@ enum LocalAdditionalUsageReader {
                 output: columnInt(statement, 6) + columnInt(statement, 9),
                 cacheWrite: columnInt(statement, 8),
                 cacheRead: columnInt(statement, 7),
-                cost: actualCost > 0 ? actualCost : estimatedCost)
+                cost: actualCost ?? estimatedCost)
+            entry?.costIsEstimate = actualCost == nil
+            entry?.costUnavailable = true // Session totals cannot reconstruct per-request pricing.
+            return entry
         } ?? []
     }
 
@@ -870,7 +870,7 @@ enum LocalAdditionalUsageReader {
             date: date,
             model: model,
             input: input,
-            output: output)
+            output: output, costUnavailable: true)
     }
 
     private static let iso8601Lock = NSLock()
@@ -1199,7 +1199,8 @@ enum LocalAdditionalUsageReader {
                 date: date,
                 model: stringValue(meta["model_id"]) ?? "unknown",
                 input: promptBytes / kiroBytesPerToken,
-                output: intValue(meta["response_size"]) / kiroBytesPerToken) else { continue }
+                output: intValue(meta["response_size"]) / kiroBytesPerToken,
+                costUnavailable: true) else { continue }
             entries.append(entry)
         }
         return entries
@@ -1306,7 +1307,7 @@ enum LocalAdditionalUsageReader {
             let millis = kiroTimestampMillis(raw: promptRawTimestamp, date: date)
             if let entry = makeEntry(
                 id: "kiro|cli|\(sessionID)|\(millis)",
-                date: date, model: model, input: input, output: output) {
+                date: date, model: model, input: input, output: output, costUnavailable: true) {
                 entries.append(entry)
             }
         }
@@ -1376,7 +1377,7 @@ enum LocalAdditionalUsageReader {
             let output = assistantBytes / kiroBytesPerToken
             if let entry = makeEntry(
                 id: "kiro|v3|\(sessionID)|\(turnIndex)",
-                date: date, model: model, input: input, output: output) {
+                date: date, model: model, input: input, output: output, costUnavailable: true) {
                 entries.append(entry)
             }
         }
@@ -1465,7 +1466,7 @@ enum LocalAdditionalUsageReader {
         cacheWrite: Int = 0,
         cacheRead: Int = 0,
         total: Int = 0,
-        cost: Double? = nil
+        cost: Double? = nil, costUnavailable: Bool = false
     ) -> LocalUsageReader.Entry? {
         let safeInput = max(0, input)
         let safeCacheWrite = max(0, cacheWrite)
@@ -1483,7 +1484,7 @@ enum LocalAdditionalUsageReader {
             output: safeOutput,
             cacheWrite: safeCacheWrite,
             cacheRead: safeCacheRead,
-            explicitCost: cost)
+            explicitCost: cost, costUnavailable: costUnavailable || total > parts)
     }
 
     /// GUI 앱은 셸 환경을 상속하지 않으므로 `UsageEnvironment` 를 통해 읽는다 — 프로세스 환경만

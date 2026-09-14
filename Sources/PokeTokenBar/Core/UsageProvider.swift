@@ -5,7 +5,7 @@ protocol UsageProvider: Sendable {
     var id: String { get }
     var displayName: String { get }
     /// Whether this provider contributes to cost aggregates / per-row cost UI.
-    /// Flat-rate subscriptions (e.g. Cursor) report tokens only.
+    /// Cost provenance distinguishes source records, estimates, and unpriced usage.
     var reportsCost: Bool { get }
 
     /// 오늘 합계 (critical path) — 메뉴바 숫자와 stale 판정의 기준.
@@ -42,11 +42,7 @@ extension ProviderEnrichment {
     /// append-only watermark loop (#157): a field added later gets filled in some copies and not
     /// others, and the gap is invisible in a dev environment that does not use that provider.
     ///
-    /// - Parameter zeroCost: subscription sources (Codex, Pi) do not report money at all, so the
-    ///   model price table would invent a charge the user never paid. Their totals stay at 0.
-    static func local(entries: [LocalUsageReader.Entry], now: Date = Date(),
-                      zeroCost: Bool = false) -> ProviderEnrichment
-    {
+    static func local(entries: [LocalUsageReader.Entry], now: Date = Date()) -> ProviderEnrichment {
         let fmt = LocalUsageReader.localDayFormatter()
         let weekStart = LocalUsageReader.startOfWeek(now)
         let monthStart = LocalUsageReader.startOfMonth(now)
@@ -64,19 +60,9 @@ extension ProviderEnrichment {
             fromDay: fmt.string(from: monthStart), toDay: fmt.string(from: now))
         let series = LocalUsageReader.monthDailySeries(entries: entries, now: now)
 
-        if zeroCost {
-            result.weekTotal = PeriodUsage(period: week.period, totalTokens: week.totalTokens, totalCost: 0)
-            result.monthTotal = PeriodUsage(period: month.period, totalTokens: month.totalTokens, totalCost: 0)
-            result.monthDaily = series.map {
-                DailyUsage(date: $0.date, inputTokens: $0.inputTokens, outputTokens: $0.outputTokens,
-                           cacheCreationTokens: $0.cacheCreationTokens, cacheReadTokens: $0.cacheReadTokens,
-                           totalTokens: $0.totalTokens, totalCost: 0)
-            }
-        } else {
-            result.weekTotal = week
-            result.monthTotal = month
-            result.monthDaily = series
-        }
+        result.weekTotal = week
+        result.monthTotal = month
+        result.monthDaily = series
         result.periodsOK = true
         return result
     }

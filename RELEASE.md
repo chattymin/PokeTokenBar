@@ -6,29 +6,59 @@
 ## 한 줄 배포
 
 ```bash
-# (선택) 릴리스 노트를 파일로 작성
-cat > /tmp/notes.md <<'EOF'
-## What's new
-- ...
-EOF
+# 템플릿을 복사한 뒤 실제 변경사항과 Contributors를 작성한다(필수).
+cp docs/reference/release-notes-template.md /tmp/notes.md
+# /tmp/contributors.txt: 포함된 PR에서 확인한 GitHub handle을 한 줄에 하나씩 작성한다.
+# 외부 기여자가 없는 릴리스만 빈 파일을 사용하며, 노트에도 없음을 명시한다.
 
-PTB_NOTES_FILE=/tmp/notes.md ./scripts/release.sh 2.1.1
+PTB_NOTES_FILE=/tmp/notes.md PTB_CONTRIBUTORS_FILE=/tmp/contributors.txt ./scripts/release.sh 2.1.1
 ```
 
 `scripts/release.sh <version>` 가 순서대로 수행:
 
+0. **노트·Contributors 검사** — 필수 섹션·설치 안내와 확인한 기여자 목록 대조. 누락 시 빌드·앱 교체·push 전에 중단.
 1. **test-gate** (`./scripts/test-gate.sh`) — 전체 테스트 + 로직 커버리지. 실패 시 중단.
 2. **문서 일관성 검토** — 정적 버전 배지·제거된 의존성(예: `ccusage`) 잔존을 자동 경고 + 아래 수동 체크리스트 출력. 경고 시 진행 여부를 묻는다.
 3. **VERSION 범프** (`scripts/build-app.sh`, 아직 미커밋).
 4. **빌드 + zip** (`build/PokeTokenBar.zip`) + 빌드 버전 일치 확인 — **push 전 검증**(실패해도 범프 미커밋이라 origin/main 무손상).
 5. **커밋 + push** (`git push origin main`, 빌드 성공 후).
-6. **GitHub Release** 생성 (노트는 `PTB_NOTES_FILE` 또는 최소 노트).
+6. **GitHub Release** 생성 (`PTB_NOTES_FILE` 원문 사용, 최소 노트 자동 대체 없음).
 7. **Homebrew cask** 버전 갱신 (`chattymin/homebrew-tap`).
 8. **GitHub Pages 재빌드** 요청 (랜딩 동적 배지 갱신 유도).
 
 > `main` 브랜치에서만 실행(스크립트가 가드). 비-main 에서 실행 시 즉시 중단.
 
 검토만 하려면: `./scripts/release.sh --check-only`
+
+노트만 검사하려면: `python3 scripts/release-metadata.py check-notes /tmp/notes.md /tmp/contributors.txt`
+
+## 릴리스 노트와 기여자
+
+- [v2.5.3](https://github.com/chattymin/PokeTokenBar/releases/tag/v2.5.3)을 기준으로 영어
+  `New / Fixed / Other / Contributors`와 `Install / Upgrade` 안내를 유지한다.
+- 기능은 사용자에게 달라지는 동작을 설명하고 PR 번호와 작성자 `@handle`을 연결한다.
+  변경 없는 분류는 `None.`으로 남긴다. 문서·스크린샷 변경은 `Other`에 정리한다.
+- **직전 공개 릴리스 태그부터 배포 대상 커밋까지** 포함된 PR을 전수 확인한다. 날짜 검색만으로
+  대체하지 않는다. PR 작성자와 확인 가능한 실제 공동기여자의 GitHub handle을 수집한다.
+  기본 Contributors는 v2.5.3처럼 저장소 소유자와 봇을 제외한 외부 기여자이며, 중복 제거·정렬한다.
+  직접 커밋된 외부 기여도 확인한다. 로그인 이름을 확인할 수 없으면 임의로 만들지 말고 해결 후 배포한다.
+- 확인한 목록을 `PTB_CONTRIBUTORS_FILE`에 한 줄 한 handle로 저장하고 노트 Contributors와 대조한다.
+  검사기는 이 목록 및 변경 설명에 등장한 외부 `@handle`의 누락을 차단한다. 목록 자체의 완전성은
+  위 PR·커밋 대조로 확인해야 한다. 이전 릴리스 목록을 복사하지 않는다.
+- 외부 기여자가 없을 때만 빈 목록 파일과 `No external contributors in this release.`를 사용한다.
+  기여자가 있으면 v2.5.3처럼 `@alice · @bob` 목록 아래 `Thank you all.`을 적는다.
+
+## 커밋 공동작성자
+
+릴리스 커밋에는 기본적으로 `Co-Authored-By`를 붙이지 않는다. 실제 해당 커밋에 공동작업한
+참여자가 확인될 때만 `PTB_COAUTHORS_FILE`에 한 줄당 `Name <email>`로 작성해 전달한다.
+특정 AI 이름은 고정하지 않으며, 현재 도구나 이전 커밋만 보고 추측하지 않는다.
+전체 릴리스의 Contributors와 릴리스 준비 커밋의 공동작성자는 별도로 판정한다.
+
+```bash
+PTB_NOTES_FILE=/tmp/notes.md PTB_CONTRIBUTORS_FILE=/tmp/contributors.txt \
+  PTB_COAUTHORS_FILE=/tmp/coauthors.txt ./scripts/release.sh 2.1.1
+```
 
 ## E2E 스모크 (선택 — GUI 세션 필요)
 

@@ -424,7 +424,7 @@ final class CursorUsageTests: XCTestCase {
         let provider = LocalCursorProvider()
         XCTAssertEqual(provider.id, "cursor")
         XCTAssertEqual(provider.displayName, "Cursor")
-        XCTAssertFalse(provider.reportsCost, "Cursor is flat-rate — tokens only, no invented cost")
+        XCTAssertTrue(provider.reportsCost)
     }
 
     func testWorkosSessionCookieBuildsSubDoubleColonJwt() {
