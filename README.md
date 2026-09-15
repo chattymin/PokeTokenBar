@@ -183,6 +183,7 @@ Reset countdowns include the clock time, and the colored percentage stays aligne
 | **Pi Agent** | today · 5h block · week · month | — |
 | **omp** (oh-my-pi) | today · 5h block · week · month | — |
 | **Aside** | today · 5h block · week · month | — |
+| **Amazon Quick** | today · 5h block · week · month | — |
 
 All read locally — no external usage CLI required. Adding a tool is a provider implementation and registration (see [CONTRIBUTING.md](CONTRIBUTING.md)).
 
@@ -237,6 +238,7 @@ swift test                   # unit tests
 | `~/.pi/agent/sessions/**/*.jsonl` | Pi Agent daily/blocks/weekly/monthly | Direct persisted usage from all projects; `$PI_CODING_AGENT_DIR` and `$PI_CODING_AGENT_SESSION_DIR` overrides supported; output already includes reasoning (not counted twice); forked history deduplicated by entry ID; source-recorded costs are retained |
 | `~/.omp/agent/sessions/**/*.jsonl` | omp (oh-my-pi) daily/blocks/weekly/monthly | pi-format session JSONL; every assistant `usage` event is summed (rewound branches are already billed) and subagent session files count too, since their tokens are not folded into the parent; honours `$OMP_CODING_AGENT_DIR`; per-event `cost` is trusted when reported; `bridge/` conversion copies are skipped because their originals are already counted at the source |
 | `~/.aside/u/*/state.db` | Aside daily/blocks/weekly/monthly | Read-only SQLite turn totals; deleted turns remain counted until the scan cache resets; only recorded costs are used |
+| `~/.quickwork/sessions/sessions.db`<br>`~/.quickwork/profiles/*/sessions/sessions.db` | Amazon Quick daily/blocks/weekly/monthly | Read-only SQLite; real per-turn `token_usage` (input/output/cache read/write) from `message_assistant_complete` events; one DB holds every session so multi-session totals are the natural sum; multiple profiles are all scanned; a deleted session stays counted until the scan cache resets; honours `$QUICKWORK_HOME`; the plan-mode label ("balanced", etc.) has no price table so cost is unavailable |
 | Keychain / `~/.claude/.credentials.json` → `api.anthropic.com` | Claude official 5h/weekly % | unofficial endpoint; the Keychain is read **only when you press refresh** — auto-polling never reads it |
 | `codex app-server` | Codex official 5h/weekly % | local child process; account snapshot only, no model turn |
 | [PokéAPI](https://pokeapi.co/) — `pokeapi.co`, `graphql.pokeapi.co` | Pokémon species, stats, abilities, moves &amp; evolution | runtime fetch; cached locally, never bundled |
