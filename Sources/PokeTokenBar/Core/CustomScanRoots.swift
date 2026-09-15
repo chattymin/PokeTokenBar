@@ -92,6 +92,8 @@ enum CustomScanRoots {
             return LocalAdditionalUsageReader.openCodeRoots(customRootsValue: nil)
         case "aside":
             return LocalAsideUsageReader.roots(customRootsValue: nil)
+        case "amazonquick":
+            return LocalAmazonQuickUsageReader.roots(customRootsValue: nil)
         case "hermes":
             return LocalAdditionalUsageReader.hermesRoots(customRootsValue: nil)
         case "cursor":

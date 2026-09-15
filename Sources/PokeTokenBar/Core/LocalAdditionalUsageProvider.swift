@@ -8,6 +8,7 @@ enum LocalAdditionalSource: String, Sendable {
     case copilot
     case kiro
     case aside
+    case amazonquick
 }
 
 /// OpenCode usage from its local SQLite database and legacy message files.
@@ -128,6 +129,26 @@ struct LocalAsideProvider: UsageProvider {
     }
 }
 
+/// Amazon Quick (Quick Suite) usage from its local `sessions.db`. A single database holds
+/// every session for a profile, so multi-session totals are the natural sum of all events;
+/// enterprise/team installs with multiple profiles are all scanned (see the reader).
+/// Token counts are source-recorded (real), unlike Kiro's byte estimate. The plan-mode
+/// label ("balanced", etc.) has no public price table, so cost is shown as unavailable.
+struct LocalAmazonQuickProvider: UsageProvider {
+    let id = "amazonquick"
+    let displayName = "Amazon Quick"
+
+    func fetchDaily() async throws -> DailyUsage? {
+        let entries = await LocalAdditionalUsageCache.shared.entries(for: .amazonquick)
+        return LocalUsageReader.daily(entries: entries, localDay: LocalUsageReader.todayKey())
+    }
+
+    func fetchEnrichment() async -> ProviderEnrichment {
+        let entries = await LocalAdditionalUsageCache.shared.entries(for: .amazonquick)
+        return .local(entries: entries)
+    }
+}
+
 /// Shares a single native read between a provider's daily and enrichment calls.
 actor LocalAdditionalUsageCache {
     static let shared = LocalAdditionalUsageCache()
@@ -227,6 +248,13 @@ actor LocalAdditionalUsageCache {
             // told apart by the inode inside the reader's entry ids, so no watermark is kept.
             since = periodStart
             afterRowIDByPath = [:]
+        case .amazonquick:
+            // Quick's `session_events` are append-only per turn, but deleting a session
+            // removes its events, so like Kiro/Aside every scan re-derives entries and merges
+            // with `existing` below (a deleted session stays counted until the cache resets).
+            // A recreated profile is told apart by the inode inside the reader's entry ids.
+            since = periodStart
+            afterRowIDByPath = [:]
         }
         let existing = previous?.entries ?? []
         let knownKiro = previous?.kiroSignatures ?? [:]
@@ -247,6 +275,9 @@ actor LocalAdditionalUsageCache {
                     kiroSignatures: loaded.signatures)
             case .aside:
                 let loaded = LocalAsideUsageReader.entries(modifiedSince: since, roots: asideRoots)
+                return ScanResult(entries: LocalUsageReader.dedupKeepMax(existing + loaded))
+            case .amazonquick:
+                let loaded = LocalAmazonQuickUsageReader.entries(modifiedSince: since)
                 return ScanResult(entries: LocalUsageReader.dedupKeepMax(existing + loaded))
             case .cursor:
                 let loaded = await LocalAdditionalUsageReader.cursorEntriesAsync(
