@@ -110,6 +110,13 @@ If a tool keeps its sessions outside the built-in paths, add your own roots unde
 </td>
 </tr>
 <tr>
+<td width="45%" align="center"><img src="assets/screenshot-scan-folders.png" width="300" alt="Remote Macs in Settings → Advanced"></td>
+<td width="55%" valign="middle">
+<h3>💻 Two Macs? Combine your tokens</h3>
+Add a remote Mac by SSH target under <b>Settings → Advanced</b> and its local agent logs (Pi, omp, Claude Code, Codex, …) are read over <code>rsync</code>/<code>ssh</code> and folded into your combined totals — one companion fed by every machine you code on. Pull-only: nothing is ever written to or deleted on the remote, imports run over your existing SSH credentials, and stale/outage data stays as last imported with a status line in Settings.
+</td>
+</tr>
+<tr>
 <td width="55%" valign="middle">
 <h3>🔑 Official limits without the Keychain</h3>
 If the cached limit token expires, official Claude limits used to freeze until a refresh — and that press could raise a Keychain password prompt. Paste a <b>claude.ai session key</b> under <b>Settings → Advanced</b> instead: limits then come straight from claude.ai with no Keychain access at all, auto-polling keeps them fresh, and the key is validated the moment you save it.
@@ -163,6 +170,7 @@ Reset countdowns include the clock time, and the colored percentage stays aligne
 - **Per-service tabs** — when two or more of Claude Code, Codex, Gemini CLI, Antigravity, OpenCode, Hermes Agent, Cursor, Grok CLI, Copilot CLI, Kiro CLI, Pi Agent, omp, and Aside are detected, compact tabs switch between them; today's total stays combined.
 - **Official limits** — Claude, Codex & Antigravity 5-hour / weekly utilization with reset countdowns, right under today's numbers.
 - **Additional scan folders** — per-provider extra scan roots for logs kept outside the built-in paths (Settings → Advanced).
+- **Remote Macs** — pull usage logs from another Mac over SSH and fold them into the combined totals; pull-only, never writes to the remote (Settings → Advanced).
 - **Burn-rate forecast** — projects when the current 5h window hits 100%.
 - **In-app updates** — one-click update check; current version shown in Settings.
 
@@ -245,6 +253,8 @@ swift test                   # unit tests
 | `api.github.com` | update check | latest release tag; on launch and when the popover opens |
 
 If a provider's logs live **outside** those built-in paths, add the folder in **Settings → Advanced → Additional scan folders**. Pick the provider first — each folder is parsed only by that provider, so pointing a Gemini field at Claude logs would mis-attribute tokens. Extra folders are added to the built-in locations; they never replace them.
+
+Usage from another Mac can be included too: **Settings → Advanced → Remote Macs** adds an SSH target, and the app mirrors only that machine's provider log roots locally (under Application Support, machine- and provider-scoped) before parsing them with the exact same readers. It is pull-only — rsync runs in read mode with no `--delete`, so remote files are never written, modified, or deleted; remote failures keep the last imported snapshot and show a status line. Imports reuse your existing SSH config and keys (batch mode, no password prompts).
 
 ## Privacy & permissions
 

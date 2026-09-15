@@ -107,7 +107,7 @@ enum LocalUsageReader {
         }
         // Custom roots are unioned *after* curated defaults so an ancestor extra cannot
         // evict `~/.claude/projects` (#162-B / #177).
-        return CustomScanRoots.union(defaults: roots, extraRaw: customRootsValue)
+        return CustomScanRoots.providerUnion(providerID: "claude_code", defaults: roots, extraRaw: customRootsValue)
     }
 
     /// Setting change must not wait for the 300s TTL — the next refresh should see the folder.
@@ -117,7 +117,8 @@ enum LocalUsageReader {
         customRootsValue: String? = nil,
         home: URL = FileManager.default.homeDirectoryForCurrentUser
     ) -> [URL] {
-        CustomScanRoots.union(
+        CustomScanRoots.providerUnion(
+            providerID: "codex",
             defaults: computeCodexScanRoots(home: home),
             extraRaw: customRootsValue)
     }
@@ -126,7 +127,8 @@ enum LocalUsageReader {
         customRootsValue: String? = nil,
         home: URL = FileManager.default.homeDirectoryForCurrentUser
     ) -> [URL] {
-        CustomScanRoots.union(
+        CustomScanRoots.providerUnion(
+            providerID: "gemini",
             defaults: [home.appendingPathComponent(".gemini/tmp")],
             extraRaw: customRootsValue)
     }
@@ -143,7 +145,7 @@ enum LocalUsageReader {
         } else {
             curated = home.appendingPathComponent(".grok/sessions")
         }
-        return CustomScanRoots.union(defaults: [curated], extraRaw: customRootsValue)
+        return CustomScanRoots.providerUnion(providerID: "grok", defaults: [curated], extraRaw: customRootsValue)
     }
 
     /// `CLAUDE_CONFIG_DIR` 값. Finder/launchd 로 뜬 `.app` 은 셸 환경을 상속하지 않으므로
@@ -308,9 +310,12 @@ enum LocalUsageReader {
     static let defaultPiSessionsPath = ".pi/agent/sessions"
 
     static var piSessionRoots: [URL] {
-        computePiSessionRoots(
-            agentDirValue: UsageEnvironment.value("PI_CODING_AGENT_DIR"),
-            sessionDirValue: UsageEnvironment.value("PI_CODING_AGENT_SESSION_DIR"))
+        CustomScanRoots.providerUnion(
+            providerID: "pi",
+            defaults: computePiSessionRoots(
+                agentDirValue: UsageEnvironment.value("PI_CODING_AGENT_DIR"),
+                sessionDirValue: UsageEnvironment.value("PI_CODING_AGENT_SESSION_DIR")),
+            extraRaw: nil)
     }
 
     static func computePiSessionRoots(
@@ -1502,7 +1507,7 @@ enum LocalUsageReader {
 
     /// Scanner/cache share this one root list (same multi-root shape as `piSessionRoots`).
     static var ompSessionRoots: [URL] {
-        computeOmpSessionRoots()
+        CustomScanRoots.providerUnion(providerID: "omp", defaults: computeOmpSessionRoots(), extraRaw: nil)
     }
 
     /// Default root + `$OMP_CODING_AGENT_DIR/sessions`. omp (a pi fork) reads

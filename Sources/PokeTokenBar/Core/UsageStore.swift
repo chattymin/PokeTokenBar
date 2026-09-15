@@ -38,6 +38,8 @@ final class UsageStore {
     private(set) var isRefreshingLimitToken = false
     private(set) var isRefreshingAntigravityLimits = false
     private(set) var lastErrorDescription: String?
+    private(set) var remoteMachines: [RemoteMachine] = []
+    private(set) var isImportingRemoteUsage = false
     private var limitTokenRefreshFailure: (any Error)?
     var limitTokenRefreshError: String? {
         limitTokenRefreshFailure.map { Self.friendlyLimitError($0, L(localizationLanguage)) }
@@ -184,11 +186,56 @@ final class UsageStore {
         let previous = defaults.string(forKey: key) ?? ""
         guard value != previous else { return }
         defaults.set(value, forKey: key)
-        LocalUsageReader.invalidateProjectRootsCache()
+        invalidateUsageRootCaches()
         Task {
             await LocalAdditionalUsageReader.invalidateScanCache()
             await refresh()
         }
+    }
+
+    func remoteMachineList() -> [RemoteMachine] { remoteMachines }
+
+    func addRemoteMachine(label: String, sshTarget: String, remoteHome: String = "~") {
+        let cleanTarget = sshTarget.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleanTarget.isEmpty else { return }
+        let cleanLabel = label.trimmingCharacters(in: .whitespacesAndNewlines)
+        remoteMachines.append(RemoteMachine(
+            label: cleanLabel.isEmpty ? cleanTarget : cleanLabel,
+            sshTarget: cleanTarget,
+            remoteHome: remoteHome.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "~" : remoteHome,
+            providerIDs: registeredProviderIDs))
+        persistRemoteMachinesAndRefresh(importNow: true)
+    }
+
+    func removeRemoteMachine(id: String) {
+        remoteMachines.removeAll { $0.id == id }
+        persistRemoteMachinesAndRefresh(importNow: false)
+    }
+
+    func setRemoteMachineEnabled(_ enabled: Bool, id: String) {
+        guard let index = remoteMachines.firstIndex(where: { $0.id == id }), remoteMachines[index].enabled != enabled else { return }
+        remoteMachines[index].enabled = enabled
+        persistRemoteMachinesAndRefresh(importNow: enabled)
+    }
+
+    func importRemoteUsageNow() async {
+        await importRemoteUsage(force: true)
+        invalidateUsageRootCaches()
+        await LocalAdditionalUsageReader.invalidateScanCache()
+    }
+
+    private func persistRemoteMachinesAndRefresh(importNow: Bool) {
+        RemoteUsage.save(remoteMachines, defaults: defaults)
+        invalidateUsageRootCaches()
+        Task {
+            await LocalAdditionalUsageReader.invalidateScanCache()
+            if importNow { await importRemoteUsage(force: true) }
+            await refresh()
+        }
+    }
+
+    private nonisolated func invalidateUsageRootCaches() {
+        LocalUsageReader.invalidateProjectRootsCache()
     }
     private let limitsProvider: any ClaudeLimitsProviding
     /// 세션 키 저장·조직 조회. 조회 체인과 같은 인스턴스를 공유한다(기본값은 `.shared`).
@@ -570,6 +617,7 @@ final class UsageStore {
         self.antigravityLimitsProvider = antigravityLimitsProvider
         self.statusProvider = statusProvider
         self.defaults = defaults
+        remoteMachines = RemoteUsage.load(defaults: defaults)
         let d = defaults
         refreshInterval = d.object(forKey: "refreshInterval") as? TimeInterval ?? 120
         warnThreshold = d.object(forKey: "warnThreshold") as? Double ?? 80
@@ -667,6 +715,33 @@ final class UsageStore {
 
     // MARK: 갱신
 
+    private func importRemoteUsage(force: Bool = false) async {
+        let minimumInterval: TimeInterval = 300
+        let now = Date()
+        let enabled = remoteMachines.filter { machine in
+            guard machine.enabled else { return false }
+            guard !force, let last = machine.lastImportAt else { return true }
+            return now.timeIntervalSince(last) >= minimumInterval
+        }
+        guard !enabled.isEmpty, !isImportingRemoteUsage else { return }
+        isImportingRemoteUsage = true
+        defer { isImportingRemoteUsage = false }
+
+        let importer = RemoteUsageImporter()
+        var changed = false
+        for machine in enabled {
+            let result = await importer.importUsage(from: machine)
+            guard let index = remoteMachines.firstIndex(where: { $0.id == machine.id }) else { continue }
+            remoteMachines[index].lastImportAt = result.importedProviderIDs.isEmpty ? remoteMachines[index].lastImportAt : now
+            remoteMachines[index].lastError = result.errorDescription
+            changed = true
+        }
+        if changed {
+            RemoteUsage.save(remoteMachines, defaults: defaults)
+            invalidateUsageRootCaches()
+        }
+    }
+
     func refresh(scheduleEmptyRetry: Bool = true) async {
         // 진행 중이면 드롭하지 말고 예약 — 완료 후 1회 재실행(코얼레싱). 수동모드(interval 0)에서 키체인
         // 재활성(disableKeychainAccess didSet)의 refresh 가 in-flight 폴에 묻혀, 자동폴이 없는 탓에
@@ -685,6 +760,8 @@ final class UsageStore {
                 Task { await self.refresh(scheduleEmptyRetry: scheduleEmptyRetry) }
             }
         }
+
+        await importRemoteUsage()
 
         let todayKey = LocalUsageReader.todayKey()
 

@@ -317,7 +317,7 @@ enum LocalAdditionalUsageReader {
     ) -> [URL] {
         let curated = environmentPaths("OPENCODE_DATA_DIR")
             ?? [home.appendingPathComponent(".local/share/opencode")]
-        return CustomScanRoots.union(defaults: curated, extraRaw: customRootsValue)
+        return CustomScanRoots.providerUnion(providerID: "opencode", defaults: curated, extraRaw: customRootsValue)
     }
 
     static var defaultHermesRoots: [URL] {
@@ -331,7 +331,7 @@ enum LocalAdditionalUsageReader {
     ) -> [URL] {
         let curated = environmentPaths("HERMES_HOME")
             ?? [home.appendingPathComponent(".hermes")]
-        return CustomScanRoots.union(defaults: curated, extraRaw: customRootsValue)
+        return CustomScanRoots.providerUnion(providerID: "hermes", defaults: curated, extraRaw: customRootsValue)
     }
 
     static func openCodeEntries(
@@ -658,7 +658,7 @@ enum LocalAdditionalUsageReader {
             home.appendingPathComponent("Library/Application Support/Cursor/User/globalStorage"),
             home.appendingPathComponent("Library/Application Support/Cursor Nightly/User/globalStorage"),
         ]
-        return CustomScanRoots.union(defaults: curated, extraRaw: customRootsValue)
+        return CustomScanRoots.providerUnion(providerID: "cursor", defaults: curated, extraRaw: customRootsValue)
     }
 
     /// Cursor roots including the user's extra scan folders. The usage scan and the
@@ -921,7 +921,7 @@ enum LocalAdditionalUsageReader {
     ) -> [URL] {
         let curated = environmentPaths("COPILOT_HOME")
             ?? [home.appendingPathComponent(".copilot")]
-        return CustomScanRoots.union(defaults: curated, extraRaw: customRootsValue)
+        return CustomScanRoots.providerUnion(providerID: "copilot", defaults: curated, extraRaw: customRootsValue)
     }
 
     /// Read Copilot CLI usage rows newer than `modifiedSince`.
@@ -1041,7 +1041,7 @@ enum LocalAdditionalUsageReader {
         let kiroHomes = environmentPaths("KIRO_HOME")
             ?? [home.appendingPathComponent(".kiro")]
         let sessions = kiroHomes.map { $0.appendingPathComponent("sessions") }
-        return CustomScanRoots.union(defaults: sqlite + sessions, extraRaw: customRootsValue)
+        return CustomScanRoots.providerUnion(providerID: "kiro", defaults: sqlite + sessions, extraRaw: customRootsValue)
     }
 
     /// Read Kiro CLI usage turns newer than `modifiedSince`.
