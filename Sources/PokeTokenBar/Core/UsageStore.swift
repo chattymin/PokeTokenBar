@@ -200,6 +200,7 @@ final class UsageStore {
     private let additionalClaudeLimitsProvider: @Sendable (URL) -> any ClaudeLimitsProviding
     private let discoverClaudeConfigDirs: @Sendable () -> [URL]
     private let readDefaultIdentity: @Sendable () -> AccountIdentity?
+    private let readLastPrompt: @Sendable (URL) -> Date?
     /// Rate limits apply per account: one folder's 429 pauses that folder only, never the default
     /// account (which keeps its own backoff) nor the other folders.
     private var additionalBackoff: [String: (until: Date, interval: TimeInterval)] = [:]
@@ -283,7 +284,7 @@ final class UsageStore {
         guard showLimitInMenu else { return nil }
         let usedToday = Set(snapshots.filter { $0.todayTotalTokens > 0 }.map(\.providerID))
         var parts: [String] = []
-        if usedToday.contains("claude_code"), let utilization = limits?.fiveHour?.utilization {
+        if usedToday.contains("claude_code"), let utilization = trackedClaudeAccount?.status.fiveHour?.utilization {
             parts.append("Claude \(TokenFormatter.percent(limitDisplayPercent(utilization)))")
         }
         if usedToday.contains("codex"), let usedPercent = codexLimits?.maxPrimaryUsedPercent {
@@ -396,7 +397,7 @@ final class UsageStore {
     }
 
     var fiveHourForecast: FiveHourForecast? {
-        guard let window = limits?.fiveHour, let utilization = window.utilization,
+        guard let window = trackedClaudeAccount?.status.fiveHour, let utilization = window.utilization,
               let reset = window.resetDate else { return nil }
         if utilization >= 100 { return FiveHourForecast(depletionDate: Date(), beforeReset: true) }
         guard let block = claudeActiveBlock, let burn = block.tokensPerMinute,
@@ -424,13 +425,7 @@ final class UsageStore {
     /// Claude 는 5h 만이 아니라 팝오버가 표시하는 모든 한도 창(주간·모델별 주간 포함)의 위험선을
     /// 검사한다 — 5h 는 여유롭지만 주간이 100% 인 경우에도 경고/‘지침’ 상태가 뜨도록(누락 수정).
     var isLimitWarning: Bool {
-        for u in [limits?.fiveHour?.utilization, limits?.sevenDay?.utilization,
-                  limits?.sevenDayOpus?.utilization, limits?.sevenDaySonnet?.utilization] {
-            if let u, u >= critThreshold { return true }
-        }
-        for entry in limits?.scopedLimitEntries ?? [] {
-            if let p = entry.percent, p >= critThreshold { return true }
-        }
+        for u in trackedClaudeAccount?.status.allUtilizations ?? [] where u >= critThreshold { return true }
         for bucket in codexLimits?.visibleSnapshots ?? [] {
             if let utilization = bucket.primary?.usedPercent,
                Double(utilization) >= critThreshold { return true }
@@ -455,13 +450,7 @@ final class UsageStore {
         let usedToday = Set(snapshots.filter { $0.todayTotalTokens > 0 }.map(\.providerID))
         var utils: [Double] = []
         if usedToday.contains("claude_code") {
-            for u in [limits?.fiveHour?.utilization, limits?.sevenDay?.utilization,
-                      limits?.sevenDayOpus?.utilization, limits?.sevenDaySonnet?.utilization] {
-                if let u { utils.append(u) }
-            }
-            for entry in limits?.scopedLimitEntries ?? [] {
-                if let p = entry.percent { utils.append(p) }
-            }
+            utils.append(contentsOf: trackedClaudeAccount?.status.allUtilizations ?? [])
         }
         if usedToday.contains("codex") {
             for bucket in codexLimits?.visibleSnapshots ?? [] {
@@ -581,6 +570,7 @@ final class UsageStore {
          },
          discoverClaudeConfigDirs: @escaping @Sendable () -> [URL] = { ClaudeAccountRoots.installedDiscovery() },
          readDefaultIdentity: @escaping @Sendable () -> AccountIdentity? = { ClaudeAccountRoots.installedDefaultIdentity() },
+         readLastPrompt: @escaping @Sendable (URL) -> Date? = { ClaudeAccountRoots.lastPromptDate(configDir: $0) },
          codexLimitsProvider: any CodexLimitsProviding = CodexRateLimitsProvider(),
          antigravityLimitsProvider: any AntigravityLimitsProviding = AntigravityRateLimitsProvider(),
          statusProvider: any ProviderStatusProviding = StatuspageStatusProvider(),
@@ -592,6 +582,7 @@ final class UsageStore {
         self.additionalClaudeLimitsProvider = additionalClaudeLimitsProvider
         self.discoverClaudeConfigDirs = discoverClaudeConfigDirs
         self.readDefaultIdentity = readDefaultIdentity
+        self.readLastPrompt = readLastPrompt
         self.sessionKeys = sessionKeys
         self.codexLimitsProvider = codexLimitsProvider
         self.antigravityLimitsProvider = antigravityLimitsProvider
@@ -617,6 +608,7 @@ final class UsageStore {
         animationQuality = AnimationQuality(rawValue: d.string(forKey: "animationQuality") ?? "") ?? .powerSaver
         disableKeychainAccess = d.object(forKey: "disableKeychainAccess") as? Bool ?? false
         additionalClaudeConfigDirs = d.string(forKey: ClaudeAccountRoots.defaultsKey) ?? ""
+        claudeTrackedAccountMode = ClaudeTrackedAccountMode(storedValue: d.string(forKey: ClaudeTrackedAccountMode.defaultsKey))
 
         if let credential = sessionKeys.credential() {
             sessionKeyConfigured = true
@@ -930,7 +922,7 @@ final class UsageStore {
     var claudeAccounts: [ClaudeAccountLimits] {
         let additional = additionalLimits.map(ClaudeAccountLimits.additional)
         if let limits {
-            return [.defaultAccount(limits, isExpired: limitsAuthExpired)] + additional
+            return [.defaultAccount(limits, isExpired: limitsAuthExpired, updatedAt: limitsUpdatedAt)] + additional
         }
         // Next to other accounts, the default login keeps its tab while its limits are not loaded,
         // so the tabs do not come and go and the refresh row has an obvious owner.
@@ -943,6 +935,58 @@ final class UsageStore {
 
     /// Login saved for the default folder, read at each refresh (see `claudeAccounts`).
     private(set) var defaultSavedIdentity: AccountIdentity?
+
+    /// Settings: which account the single-account surfaces follow (see `ClaudeTrackedAccountMode`).
+    var claudeTrackedAccountMode: ClaudeTrackedAccountMode {
+        didSet { defaults.set(claudeTrackedAccountMode.storedValue, forKey: ClaudeTrackedAccountMode.defaultsKey) }
+    }
+
+    /// Last prompt per account id, read at each refresh while several accounts are shown.
+    private(set) var claudeAccountActivity: [String: Date] = [:]
+
+    /// The account behind the menu bar percentage, warning state, companion mood, floating pet hover
+    /// and 5h forecast. With a single account this is that account, whatever the mode.
+    var trackedClaudeAccount: ClaudeAccountLimits? {
+        Self.trackedAccount(among: claudeAccounts, mode: claudeTrackedAccountMode, activity: claudeAccountActivity)
+    }
+
+    /// Only accounts with values can be followed. A pinned account that disappeared falls back to automatic.
+    nonisolated static func trackedAccount(
+        among accounts: [ClaudeAccountLimits], mode: ClaudeTrackedAccountMode, activity: [String: Date]
+    ) -> ClaudeAccountLimits? {
+        let loaded = accounts.filter(\.hasLimits)
+        switch mode {
+        case .defaultAccount:
+            return loaded.first(where: \.isDefault)
+        case .highest:
+            return firstBest(loaded) { $0.status.allUtilizations.max() ?? -1 }
+        case .account(let id):
+            return loaded.first { $0.id == id } ?? lastUsed(loaded, activity: activity)
+        case .automatic:
+            return lastUsed(loaded, activity: activity)
+        }
+    }
+
+    /// Latest prompt wins; an account without a known date never beats a dated one, and ties keep
+    /// the list order (default account first).
+    private nonisolated static func lastUsed(_ accounts: [ClaudeAccountLimits], activity: [String: Date]) -> ClaudeAccountLimits? {
+        firstBest(accounts) { activity[$0.id]?.timeIntervalSinceReferenceDate ?? -.infinity }
+    }
+
+    private nonisolated static func firstBest(_ accounts: [ClaudeAccountLimits],
+                                              score: (ClaudeAccountLimits) -> Double) -> ClaudeAccountLimits? {
+        var best: (account: ClaudeAccountLimits, score: Double)?
+        for account in accounts {
+            let value = score(account)
+            if best == nil || value > best!.score { best = (account, value) }
+        }
+        return best?.account
+    }
+
+    /// An additional account's values are older than 15 minutes (the default account has its own label).
+    var additionalLimitsStale: Bool {
+        claudeAccounts.contains { !$0.isDefault && $0.isStale() }
+    }
 
     /// Folders found automatically at the last refresh (Settings lists them).
     private(set) var detectedClaudeConfigDirs: [String] = []
@@ -977,8 +1021,17 @@ final class UsageStore {
         guard !roots.isEmpty else {
             additionalLimits = []
             additionalLimitsPending = false
+            claudeAccountActivity = [:]
             return
         }
+        let lastPrompt = readLastPrompt
+        let folders = [(ClaudeAccountLimits.defaultID, ClaudeAccountRoots.defaultConfigDir())]
+            + roots.map { (ClaudeAccountRoots.pathKey(for: $0), $0) }
+        claudeAccountActivity = await Task.detached(priority: .utility) {
+            var dates: [String: Date] = [:]
+            for (id, folder) in folders { dates[id] = lastPrompt(folder) }
+            return dates
+        }.value
 
         var promptAllowed = allowKeychainPrompt
         var seenEmails = Set([limits?.accountEmail ?? defaultIdentity?.email].compactMap { $0 })
@@ -996,7 +1049,7 @@ final class UsageStore {
                 additionalBackoff[root.path] = nil
                 if status.accountEmail == nil { ClaudeAccountRoots.applySavedIdentity(root, to: &status) }
                 if let email = status.accountEmail, !seenEmails.insert(email).inserted { continue }
-                refreshed.append(AdditionalClaudeLimits(rootPath: root.path, status: status))
+                refreshed.append(AdditionalClaudeLimits(rootPath: root.path, status: status, updatedAt: Date()))
             } catch {
                 if Self.isKeychainPromptDeclined(error) { promptAllowed = false }
                 if case LimitsError.rateLimited(let retryAfter) = error {
@@ -1009,7 +1062,8 @@ final class UsageStore {
                     var status = previous?.status ?? LimitStatus()
                     if status.accountEmail == nil { ClaudeAccountRoots.applySavedIdentity(root, to: &status) }
                     if let email = status.accountEmail, !seenEmails.insert(email).inserted { continue }
-                    refreshed.append(AdditionalClaudeLimits(rootPath: root.path, status: status, isExpired: true))
+                    refreshed.append(AdditionalClaudeLimits(rootPath: root.path, status: status, isExpired: true,
+                                                            updatedAt: previous?.updatedAt))
                 } else {
                     pending = true
                     // Keep the last known value, as the primary path does, instead of dropping the account.
