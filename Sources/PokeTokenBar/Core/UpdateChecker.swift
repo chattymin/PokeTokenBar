@@ -8,43 +8,74 @@ import Observation
 final class UpdateChecker {
     struct Available: Equatable { let version: String; let url: String }
 
+    /// Tag + release-page URL from the GitHub latest endpoint (or a test double).
+    struct LatestRelease: Equatable, Sendable {
+        let tag: String
+        let url: String
+    }
+
     private(set) var available: Available?
     private(set) var isUpdating = false
 
     let currentVersion: String
-    private let repo = "chattymin/PokeTokenBar"
     private let clock: () -> Date
+    /// Injected so tests can fail or succeed without hitting the network.
+    private let fetchLatest: () async -> LatestRelease?
     private var lastChecked: Date?
+    /// Overlapping popover opens must not stack concurrent GitHub calls once the early
+    /// cooldown stamp is gone (a failed check no longer blocks the next attempt).
+    private var checkInFlight = false
 
-    init(currentVersion: String? = nil, clock: @escaping () -> Date = Date.init) {
+    init(currentVersion: String? = nil,
+         clock: @escaping () -> Date = Date.init,
+         fetchLatest: (() async -> LatestRelease?)? = nil) {
         self.currentVersion = currentVersion
             ?? (Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String) ?? "0"
         self.clock = clock
+        self.fetchLatest = fetchLatest ?? { await Self.liveLatestRelease(repo: "chattymin/PokeTokenBar") }
     }
 
     /// 최신 릴리스 조회 → 새 버전이고 사용자가 그 버전을 'skip' 하지 않았으면 available 설정.
-    /// minInterval 보다 자주 호출되면 무시(레이트리밋 보호).
+    /// minInterval 은 **성공한** 조회 사이에만 적용한다. 실패(네트워크·비정상 응답·불안전 URL)는
+    /// 쿨다운을 시작하지 않아서, 팝오버를 다시 열면 곧장 재시도할 수 있다.
     func check(minInterval: TimeInterval = 1800) async {
+        if checkInFlight { return }
         if let last = lastChecked, clock().timeIntervalSince(last) < minInterval { return }
+        checkInFlight = true
+        defer { checkInFlight = false }
+
+        guard let release = await fetchLatest(),
+              Self.isTrustedReleaseURL(release.url) else { return }
         lastChecked = clock()
-        guard let url = URL(string: "https://api.github.com/repos/\(repo)/releases/latest") else { return }
+
+        let latest = release.tag.hasPrefix("v") ? String(release.tag.dropFirst()) : release.tag
+        let skipped = UserDefaults.standard.string(forKey: "skippedUpdateVersion")
+        if Self.isNewer(latest, than: currentVersion), latest != skipped {
+            available = Available(version: latest, url: release.url)
+        } else {
+            available = nil
+        }
+    }
+
+    /// NSWorkspace.open 으로 가는 릴리스 URL — https + github.com 만 허용(스킴 하이재킹 방지).
+    nonisolated static func isTrustedReleaseURL(_ string: String) -> Bool {
+        guard let url = URL(string: string),
+              url.scheme == "https",
+              url.host == "github.com" else { return false }
+        return true
+    }
+
+    /// Live GitHub latest-release fetch. Returns nil on any transport or payload failure.
+    private nonisolated static func liveLatestRelease(repo: String) async -> LatestRelease? {
+        guard let url = URL(string: "https://api.github.com/repos/\(repo)/releases/latest") else { return nil }
         var req = URLRequest(url: url, timeoutInterval: 15)
         req.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
         guard let (data, resp) = try? await URLSession.shared.data(for: req),
               (resp as? HTTPURLResponse)?.statusCode == 200,
               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let tag = json["tag_name"] as? String,
-              let html = json["html_url"] as? String,
-              // 응답 필드가 NSWorkspace.open 으로 가므로 https + github.com 만 허용(스킴 하이재킹 방지)
-              let htmlURL = URL(string: html), htmlURL.scheme == "https", htmlURL.host == "github.com"
-        else { return }
-        let latest = tag.hasPrefix("v") ? String(tag.dropFirst()) : tag
-        let skipped = UserDefaults.standard.string(forKey: "skippedUpdateVersion")
-        if Self.isNewer(latest, than: currentVersion), latest != skipped {
-            available = Available(version: latest, url: html)
-        } else {
-            available = nil
-        }
+              let html = json["html_url"] as? String else { return nil }
+        return LatestRelease(tag: tag, url: html)
     }
 
     /// 이 버전은 다시 알리지 않음.

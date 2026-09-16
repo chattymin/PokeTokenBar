@@ -757,6 +757,15 @@ read_when:
 
 ## 프로세스 제어·업데이트
 
+- **쿨다운 스탬프는 성공한 조회에만 찍는다.** `UpdateChecker.check` 가 GitHub 호출 *전에*
+  `lastChecked` 를 쓰면, 네트워크·파싱 실패도 30분 쿨다운을 시작한다. 팝오버를 다시 열어도
+  (`minInterval` 디바운스) 재시도가 막혀 배너가 조용히 안 뜬다. 실패·불안전 URL 은 스탬프하지
+  않고, 성공한 페이로드만 스탬프한다. 조기 스탬프가 없어지면 겹친 `check()` 가 동시에 나갈 수
+  있으므로 in-flight 가드도 둔다. 회귀:
+  `testFailedCheckDoesNotStartTheCooldown`,
+  `testSuccessfulCheckStartsTheCooldownAndAppliesTheRelease`,
+  `testRejectedReleaseUrlDoesNotStartTheCooldown`.
+
 - **`pgrep -x <name>` 은 실행 파일의 정체성 검사이지, 기다리는 특정 프로세스에 대한 검사가 아니다.**
   중복 인스턴스가 떠 있는 동안 실행될 수 있는 모든 wait-for-exit 루프는 PID를 받아야 한다. `UpdateChecker`가
   자동 업데이트 시 앱 종료를 기다릴 때 `pgrep -x PokeTokenBar`를 쓰면, 중복 인스턴스가 살아있는 동안 루프를
