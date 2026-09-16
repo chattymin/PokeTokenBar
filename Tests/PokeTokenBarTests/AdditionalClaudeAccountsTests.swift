@@ -1,0 +1,783 @@
+import Security
+import XCTest
+@testable import PokeTokenBar
+
+// Official limits for additional Claude config folders (`CLAUDE_CONFIG_DIR` logins):
+// folder parsing, Keychain naming, per-folder token cache, profile cache, and the store pipeline.
+
+// MARK: Stubs
+
+private final class NilDailyProvider: UsageProvider, @unchecked Sendable {
+    let id = "claude_code"
+    let displayName = "Claude Code"
+    let reportsCost = true
+    func fetchDaily() async throws -> DailyUsage? { nil }
+    func fetchEnrichment() async -> ProviderEnrichment { ProviderEnrichment() }
+}
+
+private struct NoStatuses: ProviderStatusProviding {
+    func fetch() async -> [String: ProviderStatus] { [:] }
+}
+
+private struct NoCodex: CodexLimitsProviding {
+    func fetch() async throws -> CodexRateLimitStatus? { nil }
+}
+
+private struct NoAntigravity: AntigravityLimitsProviding {
+    func fetch(allowKeychainPrompt: Bool) async throws -> AntigravityRateLimitStatus {
+        throw LimitsError.keychainInteractionNotAllowed
+    }
+}
+
+/// Scripted results, recording the prompt flag of every call. Single-threaded tests only.
+private final class ScriptedLimits: ClaudeLimitsProviding, @unchecked Sendable {
+    nonisolated(unsafe) var results: [Result<LimitStatus, LimitsError>]
+    nonisolated(unsafe) var promptFlags: [Bool] = []
+    /// Error thrown only when a prompt is allowed (a declined Keychain dialog).
+    nonisolated(unsafe) var promptError: LimitsError?
+
+    init(_ results: [Result<LimitStatus, LimitsError>]) { self.results = results }
+
+    func fetch(allowKeychainPrompt: Bool) async throws -> LimitStatus {
+        promptFlags.append(allowKeychainPrompt)
+        if allowKeychainPrompt, let promptError { throw promptError }
+        let result = results.count > 1 ? results.removeFirst() : results[0]
+        return try result.get()
+    }
+}
+
+private func limitStatus(fiveHour: Double, email: String?) -> LimitStatus {
+    let json = "{\"five_hour\":{\"utilization\":\(fiveHour),\"resets_at\":null}}"
+    var status = try! JSONDecoder().decode(LimitStatus.self, from: Data(json.utf8))
+    status.accountEmail = email
+    return status
+}
+
+private func fullStatus(fiveHour: Double, sevenDay: Double, fable: Double? = nil,
+                        email: String?, org: String? = nil) -> LimitStatus {
+    var parts = ["\"five_hour\":{\"utilization\":\(fiveHour)}", "\"seven_day\":{\"utilization\":\(sevenDay)}"]
+    if let fable {
+        parts.append("\"limits\":[{\"kind\":\"weekly_scoped\",\"percent\":\(fable),\"scope\":{\"model\":{\"display_name\":\"Fable\"}}}]")
+    }
+    var status = try! JSONDecoder().decode(LimitStatus.self, from: Data("{\(parts.joined(separator: ","))}".utf8))
+    status.accountEmail = email
+    status.accountOrganizationName = org
+    return status
+}
+
+// MARK: Account tab titles
+
+final class ClaudeAccountTitleTests: XCTestCase {
+    private func account(email: String?, org: String?) -> ClaudeAccountLimits {
+        .additional(AdditionalClaudeLimits(
+            rootPath: "/Users/example/.claude-work",
+            status: fullStatus(fiveHour: 1, sevenDay: 1, email: email, org: org)))
+    }
+
+    func testTeamPlanShowsTheOrganization() {
+        XCTAssertEqual(account(email: "me@corp.example", org: "Corp").title, "Corp")
+    }
+
+    func testPersonalPlanShowsTheEmailNotItsGeneratedOrganization() {
+        XCTAssertEqual(account(email: "me@example.com", org: "me@example.com's Organization").title, "me@example.com")
+        XCTAssertEqual(account(email: "me@example.com", org: "").title, "me@example.com")
+        XCTAssertEqual(account(email: "me@example.com", org: nil).title, "me@example.com")
+    }
+
+    func testUnknownAccountShowsTheFolder() {
+        XCTAssertEqual(account(email: nil, org: "Corp").title,
+                       ("/Users/example/.claude-work" as NSString).abbreviatingWithTildeInPath)
+        XCTAssertEqual(ClaudeAccountLimits.defaultAccount(fullStatus(fiveHour: 1, sevenDay: 1, email: "")).title,
+                       "~/.claude")
+    }
+
+    func testFolderKeyIsThePathHash() {
+        let limits = AdditionalClaudeLimits(rootPath: "/Users/example/.claude-work",
+                                            status: fullStatus(fiveHour: 1, sevenDay: 1, email: nil))
+        XCTAssertEqual(limits.key, "dd1118a7")
+    }
+}
+
+// MARK: Folder list and Keychain naming
+
+final class ClaudeAccountRootsTests: XCTestCase {
+    private var home: URL!
+
+    override func setUpWithError() throws {
+        home = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ptb-accounts-\(UUID().uuidString)", isDirectory: true)
+        for folder in [".claude", ".config/claude", ".claude-work", ".claude-personal"] {
+            try FileManager.default.createDirectory(
+                at: home.appendingPathComponent(folder), withIntermediateDirectories: true)
+        }
+    }
+
+    override func tearDownWithError() throws {
+        try? FileManager.default.removeItem(at: home)
+    }
+
+    func testKeychainServiceUsesTheFirstEightHexCharsOfTheFolderPathHash() {
+        // printf '%s' "/Users/example/.claude-work" | shasum -a 256 → dd1118a7…
+        let root = URL(fileURLWithPath: "/Users/example/.claude-work")
+        XCTAssertEqual(ClaudeAccountRoots.keychainService(for: root), "Claude Code-credentials-dd1118a7")
+    }
+
+    func testKeychainServiceIgnoresATrailingSlash() {
+        let plain = URL(fileURLWithPath: "/Users/example/.claude-work")
+        let slashed = URL(fileURLWithPath: "/Users/example/.claude-work/", isDirectory: true)
+        XCTAssertEqual(ClaudeAccountRoots.keychainService(for: slashed),
+                       ClaudeAccountRoots.keychainService(for: plain))
+    }
+
+    func testRootsKeepExistingFoldersInOrderAndDropDefaultsDuplicatesAndInvalidEntries() {
+        let raw = """
+        ~/.claude-work, ~/.claude-work/
+        ~/.claude
+        ~/.config/claude,~/missing, relative/path, ,
+        \(home.path)/.claude-personal
+        """
+        let roots = ClaudeAccountRoots.roots(from: raw, home: home)
+        XCTAssertEqual(roots.map(\.lastPathComponent), [".claude-work", ".claude-personal"])
+    }
+
+    func testRootsAreEmptyWithoutASetting() {
+        XCTAssertEqual(ClaudeAccountRoots.roots(from: nil, home: home), [])
+        XCTAssertEqual(ClaudeAccountRoots.roots(from: "  \n , ", home: home), [])
+    }
+
+    func testKeychainQueriesTargetTheRequestedServiceAndKeepTheDefault() {
+        let service = "Claude Code-credentials-dd1118a7"
+        let accounts = OAuthCredentialData.claudeKeychainAccountsQuery(service: service, allowKeychainPrompt: false)
+        let data = OAuthCredentialData.claudeKeychainDataQuery(account: "me", service: service, allowKeychainPrompt: true)
+        XCTAssertEqual(accounts[kSecAttrService as String] as? String, service)
+        XCTAssertEqual(data[kSecAttrService as String] as? String, service)
+
+        let defaultQuery = OAuthCredentialData.claudeKeychainDataQuery(account: nil, allowKeychainPrompt: false)
+        XCTAssertEqual(defaultQuery[kSecAttrService as String] as? String, "Claude Code-credentials")
+    }
+}
+
+// MARK: Folder detection
+
+final class ClaudeConfigDiscoveryTests: XCTestCase {
+    private var home: URL!
+    private let loggedIn = #"{"oauthAccount":{"emailAddress":"me@example.com"},"projects":{}}"#
+
+    override func setUpWithError() throws {
+        home = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ptb-discovery-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
+    }
+
+    override func tearDownWithError() throws {
+        try? FileManager.default.removeItem(at: home)
+    }
+
+    private func folder(_ name: String, claudeJSON: String?) throws {
+        let url = home.appendingPathComponent(name, isDirectory: true)
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        if let claudeJSON {
+            try Data(claudeJSON.utf8).write(to: url.appendingPathComponent(".claude.json"))
+        }
+    }
+
+    func testDetectsExportedFoldersThenLoggedInClaudeFolders() throws {
+        try folder(".claude-work", claudeJSON: loggedIn)
+        try folder(".claude_team", claudeJSON: loggedIn)
+        try folder("configs/claude", claudeJSON: nil)          // exported: trusted as is
+        try folder(".claude", claudeJSON: loggedIn)            // default root
+        try folder(".claude-old", claudeJSON: #"{"oauthAccount":null}"#)
+        try folder(".claude-broken", claudeJSON: "{not json")
+        try folder(".claude-empty", claudeJSON: nil)
+        try folder(".claudex", claudeJSON: loggedIn)           // not a CLAUDE_CONFIG_DIR naming
+
+        let found = ClaudeAccountRoots.discovered(
+            home: home, configDirValue: "\(home.path)/configs/claude, ~/.claude, ~/.claude-work")
+
+        XCTAssertEqual(found.map { $0.path.replacingOccurrences(of: home.path + "/", with: "") },
+                       ["configs/claude", ".claude-work", ".claude_team"])
+    }
+
+    func testNothingIsDetectedOutsideTheInstalledApp() throws {
+        try folder(".claude-work", claudeJSON: loggedIn)
+        var shellLookups = 0
+        let outside = ClaudeAccountRoots.installedDiscovery(
+            isBundledApp: false, home: home, configDirValue: { shellLookups += 1; return nil })
+        XCTAssertEqual(outside, [])
+        XCTAssertEqual(shellLookups, 0, "no login shell spawn when detection is off")
+
+        let inside = ClaudeAccountRoots.installedDiscovery(isBundledApp: true, home: home, configDirValue: { nil })
+        XCTAssertEqual(inside.map(\.lastPathComponent), [".claude-work"])
+    }
+
+    func testTheDefaultLoginIsReadFromHomeOnlyInsideTheApp() throws {
+        try Data(#"{"oauthAccount":{"emailAddress":"me@corp.example","organizationName":"Corp"}}"#.utf8)
+            .write(to: home.appendingPathComponent(".claude.json"))
+        XCTAssertNil(ClaudeAccountRoots.installedDefaultIdentity(isBundledApp: false, home: home))
+        XCTAssertEqual(ClaudeAccountRoots.installedDefaultIdentity(isBundledApp: true, home: home),
+                       AccountIdentity(email: "me@corp.example", organizationName: "Corp"))
+
+        try Data(#"{"oauthAccount":{"emailAddress":""}}"#.utf8).write(to: home.appendingPathComponent(".claude.json"))
+        XCTAssertNil(ClaudeAccountRoots.installedDefaultIdentity(isBundledApp: true, home: home))
+    }
+
+    func testMergedListPutsDetectedFoldersFirstWithoutDuplicates() throws {
+        try folder(".claude-work", claudeJSON: loggedIn)
+        try folder("elsewhere", claudeJSON: nil)
+        let detected = [home.appendingPathComponent(".claude-work", isDirectory: true).standardizedFileURL]
+        let merged = ClaudeAccountRoots.merged(
+            detected: detected, setting: "~/elsewhere, ~/.claude-work", home: home)
+        XCTAssertEqual(merged.map(\.lastPathComponent), [".claude-work", "elsewhere"])
+    }
+}
+
+// MARK: Per-folder token cache
+
+final class ConfigRootTokenCacheTests: XCTestCase {
+    private var root: URL!
+
+    override func setUpWithError() throws {
+        root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ptb-root-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        KeychainReader.resetQueryCountForTesting()
+    }
+
+    override func tearDownWithError() throws {
+        try? FileManager.default.removeItem(at: root)
+    }
+
+    func testFolderCacheReadsThatFoldersCredentialsFile() async throws {
+        let expiresAt = Int(Date().addingTimeInterval(3600).timeIntervalSince1970)
+        let json = "{\"claudeAiOauth\":{\"accessToken\":\"token-work\",\"expiresAt\":\(expiresAt),\"subscriptionType\":\"team\"}}"
+        try Data(json.utf8).write(to: root.appendingPathComponent(".credentials.json"))
+
+        let cache = OAuthAccessTokenCache.forConfigRoot(root)
+        let token = try await cache.accessToken(allowKeychainPrompt: false)
+        XCTAssertEqual(token, "token-work")
+        let plan = await cache.planInfo()
+        XCTAssertEqual(plan.subscriptionType, "team")
+        XCTAssertEqual(KeychainReader.queryCount, 0)
+    }
+
+    /// The folder's own file decides the re-login hint, whatever `CLAUDE_CONFIG_DIR` says.
+    func testFolderFileWithoutAccountOAuthAsksForReLogin() async throws {
+        try Data("{\"mcpOAuth\":{}}".utf8).write(to: root.appendingPathComponent(".credentials.json"))
+        do {
+            _ = try await OAuthAccessTokenCache.forConfigRoot(root).accessToken(allowKeychainPrompt: false)
+            XCTFail("expected credentialMissingAccountOAuth")
+        } catch let error as LimitsError {
+            XCTAssertEqual(error, .credentialMissingAccountOAuth)
+        }
+        XCTAssertEqual(KeychainReader.queryCount, 0)
+    }
+
+    func testFolderWithoutFileWaitsForAManualRefresh() async {
+        do {
+            _ = try await OAuthAccessTokenCache.forConfigRoot(root).accessToken(allowKeychainPrompt: false)
+            XCTFail("expected keychainInteractionNotAllowed")
+        } catch let error as LimitsError {
+            XCTAssertEqual(error, .keychainInteractionNotAllowed)
+        } catch {
+            XCTFail("unexpected \(error)")
+        }
+        XCTAssertEqual(KeychainReader.queryCount, 0, "the automatic path never reads the Keychain")
+    }
+}
+
+// MARK: Profile cache
+
+final class OAuthProfileCacheTests: XCTestCase {
+    private actor Counter {
+        var calls: [String] = []
+        func record(_ token: String) { calls.append(token) }
+    }
+
+    func testOneFetchPerTokenWhenAccountsAlternate() async {
+        let counter = Counter()
+        let cache = OAuthProfileCache { token in
+            await counter.record(token)
+            return AccountIdentity(email: "\(token)@example.com", organizationName: nil)
+        }
+        for token in ["a", "b", "a", "b"] {
+            let identity = await cache.identity(accessToken: token)
+            XCTAssertEqual(identity?.email, "\(token)@example.com")
+        }
+        let calls = await counter.calls
+        XCTAssertEqual(calls, ["a", "b"])
+    }
+
+    func testFailuresAreNotCached() async {
+        let counter = Counter()
+        let cache = OAuthProfileCache { token in
+            await counter.record(token)
+            let attempts = await counter.calls.count
+            return attempts == 1 ? nil : AccountIdentity(email: "late@example.com", organizationName: nil)
+        }
+        let first = await cache.identity(accessToken: "t")
+        let second = await cache.identity(accessToken: "t")
+        XCTAssertNil(first)
+        XCTAssertEqual(second?.email, "late@example.com")
+        let calls = await counter.calls
+        XCTAssertEqual(calls.count, 2)
+    }
+
+    func testCacheIsBounded() async {
+        let counter = Counter()
+        let cache = OAuthProfileCache { token in
+            await counter.record(token)
+            return AccountIdentity(email: token, organizationName: nil)
+        }
+        for i in 0...OAuthProfileCache.maxEntries {
+            _ = await cache.identity(accessToken: "t\(i)")
+        }
+        _ = await cache.identity(accessToken: "t0")
+        let calls = await counter.calls
+        XCTAssertEqual(calls.count, OAuthProfileCache.maxEntries + 2,
+                       "a full cache is cleared, so the first token is fetched again")
+    }
+}
+
+// MARK: Store pipeline
+
+@MainActor
+final class AdditionalClaudeAccountsStoreTests: XCTestCase {
+    nonisolated(unsafe) private var testDefaults: UserDefaults!
+    nonisolated(unsafe) private var suiteName: String!
+    nonisolated(unsafe) private var base: URL!
+
+    override func setUpWithError() throws {
+        suiteName = "ptb-accounts-\(UUID().uuidString)"
+        testDefaults = UserDefaults(suiteName: suiteName)
+        KeychainAccessGate.isDisabled = false
+        base = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ptb-accounts-store-\(UUID().uuidString)", isDirectory: true)
+        for folder in ["work", "personal"] {
+            try FileManager.default.createDirectory(
+                at: base.appendingPathComponent(folder), withIntermediateDirectories: true)
+        }
+    }
+
+    override func tearDownWithError() throws {
+        testDefaults.removePersistentDomain(forName: suiteName)
+        try? FileManager.default.removeItem(at: base)
+    }
+
+    private var work: String { base.appendingPathComponent("work").standardizedFileURL.path }
+    private var personal: String { base.appendingPathComponent("personal").standardizedFileURL.path }
+
+    private func makeStore(primary: ScriptedLimits,
+                           folders: [String: ScriptedLimits],
+                           defaultIdentity: AccountIdentity? = nil) -> UsageStore {
+        testDefaults.set(folders.keys.sorted(by: >).joined(separator: ","),
+                         forKey: ClaudeAccountRoots.defaultsKey)
+        return UsageStore(
+            providers: [NilDailyProvider()],
+            claudeLimitsProvider: primary,
+            additionalClaudeLimitsProvider: { root in folders[root.path]! },
+            readDefaultIdentity: { defaultIdentity },
+            codexLimitsProvider: NoCodex(),
+            antigravityLimitsProvider: NoAntigravity(),
+            statusProvider: NoStatuses(),
+            autoRefresh: false,
+            defaults: testDefaults)
+    }
+
+    func testAdditionalAccountsFollowTheSettingsOrder() async {
+        let primary = ScriptedLimits([.success(limitStatus(fiveHour: 10, email: "main@example.com"))])
+        let store = makeStore(primary: primary, folders: [
+            work: ScriptedLimits([.success(limitStatus(fiveHour: 20, email: "work@example.com"))]),
+            personal: ScriptedLimits([.success(limitStatus(fiveHour: 30, email: "personal@example.com"))]),
+        ])
+        await store.refresh(scheduleEmptyRetry: false)
+
+        // Setting is "work,personal" (sorted descending in makeStore).
+        XCTAssertEqual(store.additionalLimits.map(\.rootPath), [work, personal])
+        XCTAssertEqual(store.additionalLimits.map(\.status.fiveHour?.utilization), [20, 30])
+        XCTAssertFalse(store.additionalLimitsPending)
+        XCTAssertEqual(store.limits?.fiveHour?.utilization, 10, "the primary account is unchanged")
+    }
+
+    func testAnAccountAlreadyShownIsListedOnce() async {
+        let primary = ScriptedLimits([.success(limitStatus(fiveHour: 10, email: "main@example.com"))])
+        let store = makeStore(primary: primary, folders: [
+            work: ScriptedLimits([.success(limitStatus(fiveHour: 10, email: "main@example.com"))]),
+            personal: ScriptedLimits([.success(limitStatus(fiveHour: 30, email: nil))]),
+        ])
+        await store.refresh(scheduleEmptyRetry: false)
+
+        XCTAssertEqual(store.additionalLimits.map(\.rootPath), [personal],
+                       "same email as the primary is dropped; an unknown email is kept")
+    }
+
+    func testAutomaticRefreshNeverPromptsManualRefreshDoes() async {
+        let primary = ScriptedLimits([.success(limitStatus(fiveHour: 10, email: "main@example.com"))])
+        let folder = ScriptedLimits([.success(limitStatus(fiveHour: 20, email: "work@example.com"))])
+        let store = makeStore(primary: primary, folders: [work: folder])
+
+        await store.refresh(scheduleEmptyRetry: false)
+        XCTAssertEqual(folder.promptFlags, [false])
+
+        await store.refreshLimitTokenFromKeychain()
+        XCTAssertEqual(folder.promptFlags, [false, true])
+    }
+
+    func testADeclinedPromptStopsTheRemainingPrompts() async {
+        let primary = ScriptedLimits([.success(limitStatus(fiveHour: 10, email: "main@example.com"))])
+        let workLimits = ScriptedLimits([.failure(.keychainInteractionNotAllowed)])
+        workLimits.promptError = .keychainUnavailable(errSecUserCanceled)
+        let personalLimits = ScriptedLimits([.failure(.keychainInteractionNotAllowed)])
+        let store = makeStore(primary: primary, folders: [work: workLimits, personal: personalLimits])
+
+        await store.refreshLimitTokenFromKeychain()
+        XCTAssertEqual(workLimits.promptFlags, [true])
+        XCTAssertEqual(personalLimits.promptFlags, [false], "no second dialog after a cancel (#280)")
+    }
+
+    func testADeclinedPrimaryPromptStopsTheAdditionalPrompts() async {
+        let primary = ScriptedLimits([.failure(.keychainUnavailable(errSecAuthFailed))])
+        let folder = ScriptedLimits([.failure(.keychainInteractionNotAllowed)])
+        let store = makeStore(primary: primary, folders: [work: folder])
+
+        await store.refreshLimitTokenFromKeychain()
+        XCTAssertEqual(folder.promptFlags, [false])
+    }
+
+    func testAFailingAccountKeepsItsLastValueAndAsksForARefresh() async {
+        let primary = ScriptedLimits([.success(limitStatus(fiveHour: 10, email: "main@example.com"))])
+        let folder = ScriptedLimits([
+            .success(limitStatus(fiveHour: 20, email: "work@example.com")),
+            .failure(.keychainInteractionNotAllowed),
+            .success(limitStatus(fiveHour: 25, email: "work@example.com")),
+        ])
+        let store = makeStore(primary: primary, folders: [work: folder])
+
+        await store.refresh(scheduleEmptyRetry: false)
+        await store.refresh(scheduleEmptyRetry: false)
+        XCTAssertEqual(store.additionalLimits.map(\.status.fiveHour?.utilization), [20])
+        XCTAssertTrue(store.additionalLimitsPending)
+
+        await store.refresh(scheduleEmptyRetry: false)
+        XCTAssertEqual(store.additionalLimits.map(\.status.fiveHour?.utilization), [25])
+        XCTAssertFalse(store.additionalLimitsPending)
+    }
+
+    func testAFailingAccountWithoutHistoryIsNotShown() async {
+        let primary = ScriptedLimits([.success(limitStatus(fiveHour: 10, email: "main@example.com"))])
+        let folder = ScriptedLimits([.failure(.keychainInteractionNotAllowed)])
+        let store = makeStore(primary: primary, folders: [work: folder])
+
+        await store.refresh(scheduleEmptyRetry: false)
+        XCTAssertTrue(store.additionalLimits.isEmpty)
+        XCTAssertTrue(store.additionalLimitsPending)
+    }
+
+    /// Rate limits apply per account: the default account's 429 must not pause the other folders.
+    func testADefaultAccountRateLimitDoesNotPauseTheOtherAccounts() async {
+        let primary = ScriptedLimits([.failure(.rateLimited(retryAfter: 600))])
+        let folder = ScriptedLimits([.success(limitStatus(fiveHour: 20, email: "work@example.com"))])
+        let store = makeStore(primary: primary, folders: [work: folder])
+
+        await store.refresh(scheduleEmptyRetry: false)
+        await store.refresh(scheduleEmptyRetry: false)
+        XCTAssertEqual(primary.promptFlags, [false], "the default account is backing off")
+        XCTAssertEqual(folder.promptFlags, [false, false], "the other account keeps polling")
+    }
+
+    func testAFolderRateLimitPausesOnlyThatFolderAndKeepsItsValues() async {
+        let primary = ScriptedLimits([.success(limitStatus(fiveHour: 10, email: "main@example.com"))])
+        let workLimits = ScriptedLimits([
+            .success(limitStatus(fiveHour: 20, email: "work@example.com")),
+            .failure(.rateLimited(retryAfter: 600)),
+            .success(limitStatus(fiveHour: 21, email: "work@example.com")),
+        ])
+        let personalLimits = ScriptedLimits([.success(limitStatus(fiveHour: 30, email: "personal@example.com"))])
+        let store = makeStore(primary: primary, folders: [work: workLimits, personal: personalLimits])
+
+        await store.refresh(scheduleEmptyRetry: false)
+        await store.refresh(scheduleEmptyRetry: false)   // work: 429
+        await store.refresh(scheduleEmptyRetry: false)   // work: paused
+        XCTAssertEqual(workLimits.promptFlags, [false, false])
+        XCTAssertEqual(personalLimits.promptFlags, [false, false, false])
+        XCTAssertEqual(primary.promptFlags, [false, false, false])
+        XCTAssertEqual(store.additionalLimits.map(\.status.fiveHour?.utilization), [20, 30], "paused folder keeps its values")
+
+        await store.refreshLimitTokenFromKeychain()
+        XCTAssertEqual(workLimits.promptFlags, [false, false, true], "a manual refresh bypasses the pause")
+        XCTAssertEqual(store.additionalLimits.map(\.status.fiveHour?.utilization), [21, 30])
+
+        await store.refresh(scheduleEmptyRetry: false)
+        XCTAssertEqual(workLimits.promptFlags, [false, false, true, false], "a success lifts the pause")
+    }
+
+    func testRemovingTheFoldersClearsTheAccounts() async {
+        let primary = ScriptedLimits([.success(limitStatus(fiveHour: 10, email: "main@example.com"))])
+        let folder = ScriptedLimits([.failure(.keychainInteractionNotAllowed)])
+        let store = makeStore(primary: primary, folders: [work: folder])
+        await store.refresh(scheduleEmptyRetry: false)
+        XCTAssertTrue(store.additionalLimitsPending)
+
+        // The setter refreshes on its own. Wait for that refresh inside the test: left running,
+        // it outlives the test and breaks the timing of later UI tests.
+        store.additionalClaudeConfigDirs = ""
+        for _ in 0..<100 where store.additionalLimitsPending || store.isRefreshing {
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+        // The setter also starts a refresh; let it finish inside this test.
+        for _ in 0..<50 where store.isRefreshing { try? await Task.sleep(for: .milliseconds(20)) }
+        XCTAssertTrue(store.additionalLimits.isEmpty)
+        XCTAssertFalse(store.additionalLimitsPending)
+        XCTAssertEqual(testDefaults.string(forKey: ClaudeAccountRoots.defaultsKey), "")
+    }
+
+    private var workKey: String { ClaudeAccountRoots.pathKey(for: URL(fileURLWithPath: work)) }
+
+    func testAccountsListTheDefaultLoginFirstWithItsHistoricalKeys() async {
+        let primary = ScriptedLimits([.success(fullStatus(fiveHour: 2, sevenDay: 45, email: "me@corp.example", org: "Corp"))])
+        let store = makeStore(primary: primary, folders: [
+            work: ScriptedLimits([.success(fullStatus(fiveHour: 32, sevenDay: 4, email: "me@example.com"))]),
+        ])
+        await store.refresh(scheduleEmptyRetry: false)
+
+        XCTAssertEqual(store.claudeAccounts.map(\.id), [ClaudeAccountLimits.defaultID, workKey])
+        XCTAssertEqual(store.claudeAccounts.map(\.title), ["Corp", "me@example.com"])
+        XCTAssertEqual(store.claudeAccounts.map(\.windowKeyPrefix), ["claude", "claude.\(workKey)"])
+        XCTAssertEqual(store.claudeAccounts.map(\.isDefault), [true, false])
+    }
+
+    func testCandyWindowsCoverEveryAccountAndKeepTheDefaultKeys() async {
+        let primary = ScriptedLimits([.success(fullStatus(fiveHour: 100, sevenDay: 45, fable: 100, email: "me@corp.example", org: "Corp"))])
+        let store = makeStore(primary: primary, folders: [
+            work: ScriptedLimits([.success(fullStatus(fiveHour: 100, sevenDay: 100, email: "me@example.com"))]),
+        ])
+        await store.refresh(scheduleEmptyRetry: false)
+        let l = L(store.localizationLanguage)
+        let byKey = Dictionary(store.candyEligibleWindows.map { ($0.key, $0) }, uniquingKeysWith: { first, _ in first })
+
+        XCTAssertEqual(store.candyEligibleWindows.count, byKey.count, "candy tiers are keyed by window")
+        XCTAssertEqual(Set(byKey.keys), ["claude.fiveHour", "claude.sevenDay",
+                                         "claude.\(workKey).fiveHour", "claude.\(workKey).sevenDay"],
+                       "scoped weekly windows stay out of candy, as before")
+        XCTAssertEqual(byKey["claude.fiveHour"]?.name, l.claudeFiveHour)
+        XCTAssertEqual(byKey["claude.\(workKey).fiveHour"]?.name, "\(l.claudeFiveHour) · me@example.com")
+        XCTAssertEqual(byKey["claude.\(workKey).sevenDay"]?.kind, .weekly)
+    }
+
+    /// Candy is decided per window key: each account's full gauge pays once, and a folder removed
+    /// then added back at 100% does not pay again, because its key is the folder's path hash.
+    func testCandyIsGrantedPerAccountAndNotAgainAfterReAddingAFolder() async {
+        let primary = ScriptedLimits([.success(fullStatus(fiveHour: 100, sevenDay: 10, email: "me@corp.example"))])
+        let store = makeStore(primary: primary, folders: [
+            work: ScriptedLimits([.success(fullStatus(fiveHour: 100, sevenDay: 100, email: "me@example.com"))]),
+        ])
+        await store.refresh(scheduleEmptyRetry: false)
+        var tiers: [String: Int] = [:]
+
+        let grants = CompanionStore.evaluateCandyGrants(windows: store.candyEligibleWindows, grantTier: &tiers)
+        XCTAssertEqual(grants.map(\.count).reduce(0, +), 1 + 1 + RareCandy.weeklyGrant)
+
+        let defaultOnly = store.candyEligibleWindows.filter { !$0.key.contains(workKey) }
+        XCTAssertTrue(CompanionStore.evaluateCandyGrants(windows: defaultOnly, grantTier: &tiers).isEmpty)
+        XCTAssertTrue(CompanionStore.evaluateCandyGrants(windows: store.candyEligibleWindows, grantTier: &tiers).isEmpty)
+    }
+
+    func testAlertWindowsCoverEveryAccountAndKeepTheDefaultKeys() async {
+        let primary = ScriptedLimits([.success(fullStatus(fiveHour: 2, sevenDay: 45, fable: 77, email: "me@corp.example", org: "Corp"))])
+        let store = makeStore(primary: primary, folders: [
+            work: ScriptedLimits([.success(fullStatus(fiveHour: 32, sevenDay: 4, fable: 12, email: "me@example.com"))]),
+        ])
+        await store.refresh(scheduleEmptyRetry: false)
+        let l = L(store.localizationLanguage)
+        let windows = store.buildLimitWindows()
+        XCTAssertEqual(Set(windows.map(\.key)).count, windows.count,
+                       "alert tiers are keyed by window: two accounts must never share a key")
+        let byKey = Dictionary(windows.map { ($0.key, $0) }, uniquingKeysWith: { first, _ in first })
+
+        XCTAssertEqual(byKey["claude.fiveHour"]?.utilization, 2)
+        XCTAssertEqual(byKey["claude.scoped.weekly_scoped.Fable.0"]?.utilization, 77)
+        XCTAssertEqual(byKey["claude.\(workKey).fiveHour"]?.utilization, 32)
+        XCTAssertEqual(byKey["claude.\(workKey).sevenDay"]?.name, "\(l.claudeWeekly) · me@example.com")
+        XCTAssertEqual(byKey["claude.\(workKey).scoped.weekly_scoped.Fable.0"]?.utilization, 12)
+        XCTAssertEqual(windows.count, 6)
+    }
+
+    func testLimitsAreReadyWithOnlyAnAdditionalAccount() async {
+        let primary = ScriptedLimits([.failure(.keychainInteractionNotAllowed)])
+        let store = makeStore(primary: primary, folders: [
+            work: ScriptedLimits([.success(fullStatus(fiveHour: 32, sevenDay: 4, email: "me@example.com"))]),
+        ])
+        XCTAssertFalse(store.limitsReady)
+        await store.refresh(scheduleEmptyRetry: false)
+        XCTAssertNil(store.limits)
+        XCTAssertTrue(store.limitsReady, "candy seeding must not wait for a default login that never loads")
+        XCTAssertEqual(store.claudeAccounts.map(\.id), [ClaudeAccountLimits.defaultID, workKey])
+    }
+
+    func testDetectedFoldersAreShownWithoutAnySetting() async {
+        let primary = ScriptedLimits([.success(limitStatus(fiveHour: 10, email: "main@example.com"))])
+        let folder = ScriptedLimits([.success(limitStatus(fiveHour: 20, email: "work@example.com"))])
+        let workPath = work
+        let detectedWork = URL(fileURLWithPath: workPath)
+        let store = UsageStore(
+            providers: [NilDailyProvider()],
+            claudeLimitsProvider: primary,
+            additionalClaudeLimitsProvider: { root in root.path == workPath ? folder : ScriptedLimits([.failure(.httpStatus(500))]) },
+            discoverClaudeConfigDirs: { [detectedWork] },
+            codexLimitsProvider: NoCodex(),
+            antigravityLimitsProvider: NoAntigravity(),
+            statusProvider: NoStatuses(),
+            autoRefresh: false,
+            defaults: testDefaults)
+
+        await store.refresh(scheduleEmptyRetry: false)
+        XCTAssertEqual(store.additionalLimits.map(\.rootPath), [work])
+        XCTAssertEqual(store.detectedClaudeConfigDirs, [work])
+        XCTAssertNil(testDefaults.string(forKey: ClaudeAccountRoots.defaultsKey), "detection writes no setting")
+    }
+
+    func testSettingFoldersComeAfterTheDetectedOnes() async {
+        testDefaults.set("\(work),\(personal)", forKey: ClaudeAccountRoots.defaultsKey)
+        let detectedPersonal = URL(fileURLWithPath: personal)
+        let store = UsageStore(
+            providers: [NilDailyProvider()],
+            claudeLimitsProvider: ScriptedLimits([.success(limitStatus(fiveHour: 10, email: "main@example.com"))]),
+            additionalClaudeLimitsProvider: { root in
+                ScriptedLimits([.success(limitStatus(fiveHour: 20, email: root.lastPathComponent))])
+            },
+            discoverClaudeConfigDirs: { [detectedPersonal] },
+            codexLimitsProvider: NoCodex(),
+            antigravityLimitsProvider: NoAntigravity(),
+            statusProvider: NoStatuses(),
+            autoRefresh: false,
+            defaults: testDefaults)
+
+        await store.refresh(scheduleEmptyRetry: false)
+        XCTAssertEqual(store.additionalLimits.map(\.rootPath), [personal, work])
+    }
+
+    private func saveLogin(in folder: String, email: String, org: String? = nil) throws {
+        let orgField = org.map { ",\"organizationName\":\"\($0)\"" } ?? ""
+        let json = "{\"oauthAccount\":{\"emailAddress\":\"\(email)\"\(orgField)}}"
+        try Data(json.utf8).write(to: URL(fileURLWithPath: folder).appendingPathComponent(".claude.json"))
+    }
+
+    /// A rejected token cannot be fixed by a refresh: the account stays visible, dimmed, and does
+    /// not pin the refresh row. It stays expired through automatic failures, until a fetch succeeds.
+    func testARejectedTokenMarksTheAccountExpiredUntilAFetchSucceeds() async {
+        let primary = ScriptedLimits([.success(limitStatus(fiveHour: 10, email: "main@example.com"))])
+        let folder = ScriptedLimits([
+            .success(limitStatus(fiveHour: 20, email: "work@example.com")),
+            .failure(.httpStatus(401)),
+            .failure(.keychainInteractionNotAllowed),
+            .success(limitStatus(fiveHour: 25, email: "work@example.com")),
+        ])
+        let store = makeStore(primary: primary, folders: [work: folder])
+
+        await store.refresh(scheduleEmptyRetry: false)
+        await store.refreshLimitTokenFromKeychain()
+        XCTAssertEqual(store.additionalLimits.map(\.isExpired), [true])
+        XCTAssertEqual(store.additionalLimits.map(\.status.fiveHour?.utilization), [20], "last values kept")
+        XCTAssertFalse(store.additionalLimitsPending, "a refresh cannot renew this token")
+        XCTAssertEqual(store.claudeAccounts.map(\.isExpired), [false, true])
+
+        await store.refresh(scheduleEmptyRetry: false)
+        XCTAssertEqual(store.additionalLimits.map(\.isExpired), [true])
+        XCTAssertFalse(store.additionalLimitsPending)
+
+        await store.refresh(scheduleEmptyRetry: false)
+        XCTAssertEqual(store.additionalLimits.map(\.isExpired), [false])
+        XCTAssertEqual(store.additionalLimits.map(\.status.fiveHour?.utilization), [25])
+    }
+
+    func testAnExpiredAccountWithoutHistoryKeepsATabNamedFromItsSavedLogin() async throws {
+        try saveLogin(in: work, email: "work@example.com", org: "work@example.com's Organization")
+        let primary = ScriptedLimits([.success(limitStatus(fiveHour: 10, email: "main@example.com"))])
+        let store = makeStore(primary: primary, folders: [work: ScriptedLimits([.failure(.httpStatus(403))])])
+
+        await store.refresh(scheduleEmptyRetry: false)
+        let account = try XCTUnwrap(store.claudeAccounts.last)
+        XCTAssertTrue(account.isExpired)
+        XCTAssertEqual(account.title, "work@example.com")
+        XCTAssertNil(account.status.fiveHour, "no values to show yet")
+        XCTAssertFalse(store.additionalLimitsPending)
+    }
+
+    func testAnExpiredFolderOfTheDefaultLoginIsNotShown() async throws {
+        try saveLogin(in: work, email: "main@example.com")
+        let primary = ScriptedLimits([.success(limitStatus(fiveHour: 10, email: "main@example.com"))])
+        let store = makeStore(primary: primary, folders: [work: ScriptedLimits([.failure(.httpStatus(401))])])
+
+        await store.refresh(scheduleEmptyRetry: false)
+        XCTAssertTrue(store.additionalLimits.isEmpty)
+    }
+
+    func testTheSavedLoginNamesAnAccountWhenTheProfileIsUnknown() async throws {
+        try saveLogin(in: work, email: "work@example.com", org: "Work Corp")
+        let primary = ScriptedLimits([.success(limitStatus(fiveHour: 10, email: "main@example.com"))])
+        let store = makeStore(primary: primary, folders: [work: ScriptedLimits([.success(limitStatus(fiveHour: 20, email: nil))])])
+
+        await store.refresh(scheduleEmptyRetry: false)
+        XCTAssertEqual(store.additionalLimits.first?.status.accountEmail, "work@example.com")
+        XCTAssertEqual(store.claudeAccounts.last?.title, "Work Corp")
+    }
+
+    func testTheDefaultAccountTabFollowsTheDefaultExpiry() async {
+        let primary = ScriptedLimits([
+            .success(limitStatus(fiveHour: 10, email: "main@example.com")),
+            .failure(.httpStatus(401)),
+        ])
+        let store = makeStore(primary: primary, folders: [work: ScriptedLimits([.success(limitStatus(fiveHour: 20, email: "work@example.com"))])])
+
+        await store.refresh(scheduleEmptyRetry: false)
+        XCTAssertEqual(store.claudeAccounts.first?.isExpired, false)
+        await store.refreshLimitTokenFromKeychain()
+        XCTAssertEqual(store.claudeAccounts.first?.isExpired, true)
+    }
+
+    /// Next to another account, the default login keeps a tab (named from its saved login) while
+    /// its limits are not loaded; alone, nothing changes (no tab, refresh row only).
+    func testTheDefaultTabStaysWhileItsLimitsAreNotLoaded() async throws {
+        let identity = AccountIdentity(email: "main@example.com", organizationName: "Corp")
+        let store = makeStore(
+            primary: ScriptedLimits([.failure(.rateLimited(retryAfter: 60))]),
+            folders: [work: ScriptedLimits([.success(limitStatus(fiveHour: 20, email: "work@example.com"))])],
+            defaultIdentity: identity)
+
+        await store.refresh(scheduleEmptyRetry: false)
+        let first = try XCTUnwrap(store.claudeAccounts.first)
+        XCTAssertTrue(first.isDefault)
+        XCTAssertEqual(first.title, "Corp")
+        XCTAssertNil(first.status.fiveHour, "no values until the default limits load")
+        XCTAssertTrue(store.candyEligibleWindows.allSatisfy { !$0.key.hasPrefix("claude.fiveHour") })
+        XCTAssertEqual(store.defaultSavedIdentity, identity)
+
+        let alone = makeStore(primary: ScriptedLimits([.failure(.rateLimited(retryAfter: 60))]), folders: [:],
+                              defaultIdentity: identity)
+        await alone.refresh(scheduleEmptyRetry: false)
+        XCTAssertTrue(alone.claudeAccounts.isEmpty)
+    }
+
+    func testAFolderOfTheDefaultLoginIsHiddenEvenBeforeTheDefaultLimitsLoad() async {
+        let store = makeStore(
+            primary: ScriptedLimits([.failure(.keychainInteractionNotAllowed)]),
+            folders: [work: ScriptedLimits([.success(limitStatus(fiveHour: 20, email: "main@example.com"))])],
+            defaultIdentity: AccountIdentity(email: "main@example.com", organizationName: nil))
+
+        await store.refresh(scheduleEmptyRetry: false)
+        XCTAssertTrue(store.additionalLimits.isEmpty)
+    }
+
+    func testOnlyUnauthorizedOrForbiddenCountsAsARejectedToken() {
+        XCTAssertTrue(UsageStore.isAuthRejection(LimitsError.httpStatus(401)))
+        XCTAssertTrue(UsageStore.isAuthRejection(LimitsError.httpStatus(403)))
+        XCTAssertFalse(UsageStore.isAuthRejection(LimitsError.httpStatus(500)))
+        XCTAssertFalse(UsageStore.isAuthRejection(LimitsError.keychainInteractionNotAllowed))
+    }
+
+    func testOnlyACancelledOrFailedAuthenticationCountsAsDeclined() {
+        XCTAssertTrue(UsageStore.isKeychainPromptDeclined(LimitsError.keychainUnavailable(errSecUserCanceled)))
+        XCTAssertTrue(UsageStore.isKeychainPromptDeclined(LimitsError.keychainUnavailable(errSecAuthFailed)))
+        XCTAssertFalse(UsageStore.isKeychainPromptDeclined(LimitsError.keychainUnavailable(errSecItemNotFound)))
+        XCTAssertFalse(UsageStore.isKeychainPromptDeclined(LimitsError.httpStatus(401)))
+    }
+}

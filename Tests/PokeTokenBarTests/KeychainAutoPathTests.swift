@@ -58,6 +58,11 @@ final class KeychainAutoPathTests: XCTestCase {
         Probe(name: "claude_code") {
             _ = try? await OAuthLimitsProvider().fetch(allowKeychainPrompt: false)
         },
+        Probe(name: "claude_code (additional config folder)") {
+            let root = FileManager.default.temporaryDirectory
+                .appendingPathComponent("ptb-no-such-root-\(UUID().uuidString)", isDirectory: true)
+            _ = try? await OAuthLimitsProvider(accessTokenCache: .forConfigRoot(root)).fetch(allowKeychainPrompt: false)
+        },
         Probe(name: "antigravity") {
             _ = try? await AntigravityRateLimitsProvider().fetch(allowKeychainPrompt: false)
         },

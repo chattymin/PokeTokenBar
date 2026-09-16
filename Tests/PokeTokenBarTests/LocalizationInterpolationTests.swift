@@ -48,6 +48,9 @@ final class LocalizationInterpolationTests: XCTestCase {
             expect(lang, "claudeLimitEntry",
                    l.claudeLimitEntry(kind: "weekly_scoped", model: a), a)
             expect(lang, "limitsAccount", l.limitsAccount(a), a)
+            expect(lang, "additionalClaudeAccountsFound", l.additionalClaudeAccountsFound(73), "73")
+            expect(lang, "additionalClaudeAccountsDetected", l.additionalClaudeAccountsDetected(a), a)
+            expect(lang, "additionalAccountExpiredHint", l.additionalAccountExpiredHint(a), a)
             expect(lang, "codexWindow(h)", l.codexWindow(420), "7")     // 420 min → 7 h / 420분 → 7시간
             expect(lang, "codexWindow(m)", l.codexWindow(37), "37")
             expect(lang, "percentRemaining", l.percentRemaining(a), a)

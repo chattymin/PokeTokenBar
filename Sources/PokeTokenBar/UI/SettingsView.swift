@@ -33,6 +33,8 @@ struct SettingsView: View {
     @State private var customScanMatchTask: Task<Void, Never>?
     @State private var customScanMatchGeneration = 0
     @FocusState private var customScanFocused: Bool
+    @State private var additionalAccountsDraft = ""
+    @FocusState private var additionalAccountsFocused: Bool
     @FocusState private var sessionKeyFocused: Bool
     private var l: L { companion.l }
 
@@ -545,6 +547,8 @@ struct SettingsView: View {
                         .padding(.horizontal, 12).padding(.bottom, 6)
                 }
                 Divider()
+                additionalAccountsRow(store)
+                Divider()
                 groupRow {
                     VStack(alignment: .leading, spacing: 6) {
                         Text(l.customScanRootsLabel)
@@ -595,6 +599,36 @@ struct SettingsView: View {
                     .font(.caption2).foregroundStyle(.tertiary)
                     .padding(.horizontal, 12).padding(.vertical, 8)
             }
+        }
+    }
+
+    /// Detected and extra Claude config folders; each account gets its own tab in the popover's official limits.
+    /// Committed on submit / focus loss, like the custom scan folders: each commit triggers a refresh.
+    private func additionalAccountsRow(_ store: UsageStore) -> some View {
+        groupRow {
+            VStack(alignment: .leading, spacing: 6) {
+                Text(l.additionalClaudeAccountsLabel)
+                Text(l.additionalClaudeAccountsHint).font(.caption2).foregroundStyle(.tertiary)
+                if !store.detectedClaudeConfigDirs.isEmpty {
+                    Text(l.additionalClaudeAccountsDetected(store.detectedClaudeConfigDirs
+                        .map { ($0 as NSString).abbreviatingWithTildeInPath }
+                        .joined(separator: ", ")))
+                        .font(.caption2).foregroundStyle(.secondary)
+                }
+                TextField(l.additionalClaudeAccountsPlaceholder, text: $additionalAccountsDraft, axis: .vertical)
+                    .textFieldStyle(.roundedBorder).font(.caption)
+                    .focused($additionalAccountsFocused)
+                    .onSubmit { store.additionalClaudeConfigDirs = additionalAccountsDraft }
+                if !additionalAccountsDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    Text(l.additionalClaudeAccountsFound(ClaudeAccountRoots.roots(from: additionalAccountsDraft).count))
+                        .font(.caption2).foregroundStyle(.tertiary)
+                }
+            }
+        }
+        .onAppear { additionalAccountsDraft = store.additionalClaudeConfigDirs }
+        .onDisappear { store.additionalClaudeConfigDirs = additionalAccountsDraft }
+        .onChange(of: additionalAccountsFocused) { _, focused in
+            if !focused { store.additionalClaudeConfigDirs = additionalAccountsDraft }
         }
     }
 

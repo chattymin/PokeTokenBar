@@ -34,7 +34,13 @@ protocol ClaudeLimitsProviding: Sendable {
 /// 비공식 endpoint 이므로 실패해도 토큰 표시에는 영향 없음 (한도 섹션만 숨김).
 struct OAuthLimitsProvider: ClaudeLimitsProviding, Sendable {
     private static let usageURL = URL(string: "https://api.anthropic.com/api/oauth/usage")!
-    private let accessTokenCache = OAuthAccessTokenCache.shared
+    private let accessTokenCache: OAuthAccessTokenCache
+
+    /// `accessTokenCache` defaults to the `~/.claude` login; extra accounts pass
+    /// `OAuthAccessTokenCache.forConfigRoot(_:)`.
+    init(accessTokenCache: OAuthAccessTokenCache = .shared) {
+        self.accessTokenCache = accessTokenCache
+    }
 
     func fetch(allowKeychainPrompt: Bool = false) async throws -> LimitStatus {
         let token = try await accessTokenCache.accessToken(allowKeychainPrompt: allowKeychainPrompt)
@@ -103,20 +109,27 @@ struct AccountIdentity: Equatable, Sendable {
 /// 실패했을 때 이전 계정 라벨을 계속 보여주면 라벨링이 없느니만 못하다(잘못된 계정 표시).
 actor OAuthProfileCache {
     static let shared = OAuthProfileCache()
-    private var cachedToken: String?
-    private var cachedIdentity: AccountIdentity?
+    /// Keyed by token: with several accounts polled in turn (additional Claude config folders),
+    /// a single-entry cache would refetch every profile on every poll. Bounded because tokens rotate.
+    private var identities: [String: AccountIdentity] = [:]
+    static let maxEntries = 8
+    private let fetchIdentity: @Sendable (String) async -> AccountIdentity?
+
+    init(fetchIdentity: @escaping @Sendable (String) async -> AccountIdentity? = OAuthProfileCache.networkIdentity) {
+        self.fetchIdentity = fetchIdentity
+    }
 
     func identity(accessToken: String) async -> AccountIdentity? {
-        if cachedToken == accessToken { return cachedIdentity }
-        guard let identity = await Self.fetchIdentity(accessToken: accessToken) else { return nil }
-        cachedToken = accessToken
-        cachedIdentity = identity
+        if let cached = identities[accessToken] { return cached }
+        guard let identity = await fetchIdentity(accessToken) else { return nil }
+        if identities.count >= Self.maxEntries { identities.removeAll() }
+        identities[accessToken] = identity
         return identity
     }
 
     private static let profileURL = URL(string: "https://api.anthropic.com/api/oauth/profile")!
 
-    private static func fetchIdentity(accessToken: String) async -> AccountIdentity? {
+    static func networkIdentity(accessToken: String) async -> AccountIdentity? {
         var request = URLRequest(url: profileURL, timeoutInterval: 15)
         request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
         request.setValue("oauth-2025-04-20", forHTTPHeaderField: "anthropic-beta")
@@ -148,9 +161,23 @@ actor OAuthAccessTokenCache {
     static let shared = OAuthAccessTokenCache()
     private var cachedCredential: OAuthCredentialData.Credential?
     private let credentialsFileURL: URL
+    private let keychainService: String
+    /// The `~/.claude` login. Only it keeps the `CLAUDE_CONFIG_DIR` guard of
+    /// `credentialsFileIsAccountOAuthMissing`, which is about the hard-coded default file.
+    private let isDefaultRoot: Bool
 
-    init(credentialsFileURL: URL? = nil) {
+    init(credentialsFileURL: URL? = nil,
+         keychainService: String = OAuthCredentialData.claudeKeychainService) {
         self.credentialsFileURL = credentialsFileURL ?? Self.defaultCredentialsFileURL
+        self.keychainService = keychainService
+        self.isDefaultRoot = keychainService == OAuthCredentialData.claudeKeychainService
+    }
+
+    /// Token cache for an additional Claude config folder (a `CLAUDE_CONFIG_DIR` login).
+    static func forConfigRoot(_ root: URL) -> OAuthAccessTokenCache {
+        OAuthAccessTokenCache(
+            credentialsFileURL: ClaudeAccountRoots.credentialsFileURL(for: root),
+            keychainService: ClaudeAccountRoots.keychainService(for: root))
     }
 
     static var defaultCredentialsFileURL: URL {
@@ -181,18 +208,18 @@ actor OAuthAccessTokenCache {
         // 자동 경로는 여기서 끝난다(키체인 미열람). 파일이 있는데 계정 OAuth 만 없으면 재로그인이
         // 답이므로 그때만 안내를 바꾼다 — 판정은 이 분기 안에서 해야 사용자 경로가 파일을 두 번 읽지 않는다.
         guard allowKeychainPrompt else {
-            throw Self.credentialsFileIsAccountOAuthMissing()
+            throw Self.credentialsFileIsAccountOAuthMissing(extraRootFile: isDefaultRoot ? nil : credentialsFileURL)
                 ? LimitsError.credentialMissingAccountOAuth
                 : LimitsError.keychainInteractionNotAllowed
         }
 
         // 사용자 동작 경로: 무프롬프트로 먼저 시도(과거 '항상 허용'했다면 조용히 성공), 안 되면 프롬프트를
         // 동반해 읽어 최초 1회 '항상 허용'을 유도한다.
-        if let credential = Self.readClaudeKeychainSilently() {
+        if let credential = Self.readClaudeKeychainSilently(service: keychainService) {
             cachedCredential = credential
             return credential.accessToken
         }
-        let credential = try Self.readClaudeKeychain(allowKeychainPrompt: true)
+        let credential = try Self.readClaudeKeychain(service: keychainService, allowKeychainPrompt: true)
         cachedCredential = credential
         return credential.accessToken
     }
@@ -200,9 +227,9 @@ actor OAuthAccessTokenCache {
     /// 무프롬프트 Keychain 읽기 — no-UI 쿼리라 권한이 없으면 프롬프트 대신 errSecInteractionNotAllowed.
     /// '아직 항상 허용 전'(interactionNotAllowed)은 정상 흐름이라 조용히 nil. 그 외(형식 오류·접근 불가)는
     /// 진단을 위해 로그를 남기고 nil — 자동 경로가 왜 토큰을 못 구했는지 추적 가능하게.
-    private nonisolated static func readClaudeKeychainSilently() -> OAuthCredentialData.Credential? {
+    private nonisolated static func readClaudeKeychainSilently(service: String) -> OAuthCredentialData.Credential? {
         do {
-            return try readClaudeKeychain(allowKeychainPrompt: false)
+            return try readClaudeKeychain(service: service, allowKeychainPrompt: false)
         } catch LimitsError.keychainInteractionNotAllowed {
             return nil
         } catch {
@@ -234,13 +261,20 @@ actor OAuthAccessTokenCache {
     /// 옮긴 뒤 남은 옛 파일이 `mcpOAuth` 만 담고 있으면 실제로는 로그인된 사용자에게 매 폴링마다 재로그인
     /// 배너를 띄우게 된다. 옮긴 자격증명이 어디 있는지는 확인된 바 없으므로 추측하지 않고 판정을 접는다
     /// (한도는 키체인 경로로 계속 동작한다).
-    private nonisolated static func credentialsFileIsAccountOAuthMissing() -> Bool {
-        // 프로세스 환경만 본다 — 셸 조회(`shellAwareClaudeConfigDir`)를 부르면 이 자동 폴링 경로가
-        // 안내 문구 하나를 고르려고 로그인 셸 spawn(수백 ms~수 초)을 유발하고, 그 동안 토큰 캐시 actor 가
-        // 막힌다. 값이 필요한 쪽(사용량 스캔)이 이미 셸 조회를 하므로 여기서 감당할 이유가 없다.
-        guard ProcessInfo.processInfo.environment["CLAUDE_CONFIG_DIR"]?.isEmpty ?? true else { return false }
-        let url = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".claude/.credentials.json")
+    /// `extraRootFile` is set for an additional config folder: that file is the one Claude Code writes
+    /// for that login, so the environment guard below does not apply.
+    private nonisolated static func credentialsFileIsAccountOAuthMissing(extraRootFile: URL?) -> Bool {
+        let url: URL
+        if let extraRootFile {
+            url = extraRootFile
+        } else {
+            // 프로세스 환경만 본다 — 셸 조회(`shellAwareClaudeConfigDir`)를 부르면 이 자동 폴링 경로가
+            // 안내 문구 하나를 고르려고 로그인 셸 spawn(수백 ms~수 초)을 유발하고, 그 동안 토큰 캐시 actor 가
+            // 막힌다. 값이 필요한 쪽(사용량 스캔)이 이미 셸 조회를 하므로 여기서 감당할 이유가 없다.
+            guard ProcessInfo.processInfo.environment["CLAUDE_CONFIG_DIR"]?.isEmpty ?? true else { return false }
+            url = FileManager.default.homeDirectoryForCurrentUser
+                .appendingPathComponent(".claude/.credentials.json")
+        }
         guard let data = try? Data(contentsOf: url) else { return false }
         return OAuthCredentialData.isAccountOAuthMissing(data)
     }
@@ -254,7 +288,7 @@ actor OAuthAccessTokenCache {
     }
 
     private nonisolated static func readClaudeKeychain(
-        allowKeychainPrompt: Bool) throws -> OAuthCredentialData.Credential
+        service: String, allowKeychainPrompt: Bool) throws -> OAuthCredentialData.Credential
     {
         if KeychainAccessGate.isDisabled {
             throw LimitsError.keychainAccessDisabled
@@ -268,7 +302,7 @@ actor OAuthAccessTokenCache {
         do {
             var item: CFTypeRef?
             let query = OAuthCredentialData.claudeKeychainAccountsQuery(
-                allowKeychainPrompt: allowKeychainPrompt)
+                service: service, allowKeychainPrompt: allowKeychainPrompt)
             enumerateStatus = KeychainReader.copyMatching(query, &item)
             if enumerateStatus == errSecInteractionNotAllowed {
                 throw LimitsError.keychainInteractionNotAllowed
@@ -290,7 +324,7 @@ actor OAuthAccessTokenCache {
         for account in candidates {
             var item: CFTypeRef?
             let query = OAuthCredentialData.claudeKeychainDataQuery(
-                account: account, allowKeychainPrompt: allowKeychainPrompt)
+                account: account, service: service, allowKeychainPrompt: allowKeychainPrompt)
             let status = KeychainReader.copyMatching(query, &item)
             if status == errSecInteractionNotAllowed {
                 throw LimitsError.keychainInteractionNotAllowed
@@ -331,10 +365,12 @@ enum OAuthCredentialData {
     /// ACL 승인이나 항목 존재 여부로는 우회되지 않는다. 속성만 받아 계정 이름을 얻고,
     /// 데이터는 `claudeKeychainDataQuery` 로 계정별 단건 조회한다.
     /// 가드: `testAllItemsQueryNeverAsksForDataAndIsAcceptedBySecurityFramework`.
-    static func claudeKeychainAccountsQuery(allowKeychainPrompt: Bool) -> [String: Any] {
+    static func claudeKeychainAccountsQuery(
+        service: String = claudeKeychainService, allowKeychainPrompt: Bool) -> [String: Any]
+    {
         var query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: claudeKeychainService,
+            kSecAttrService as String: service,
             kSecReturnAttributes as String: true,
             kSecMatchLimit as String: kSecMatchLimitAll,
         ]
@@ -344,10 +380,12 @@ enum OAuthCredentialData {
 
     /// 자격증명 데이터 단건 조회 — `kSecMatchLimitOne` 고정.
     /// `account` 가 nil 이면 서비스 전체에서 한 건(계정 속성을 못 얻은 폴백 경로).
-    static func claudeKeychainDataQuery(account: String?, allowKeychainPrompt: Bool) -> [String: Any] {
+    static func claudeKeychainDataQuery(
+        account: String?, service: String = claudeKeychainService, allowKeychainPrompt: Bool) -> [String: Any]
+    {
         var query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: claudeKeychainService,
+            kSecAttrService as String: service,
             kSecReturnData as String: true,
             kSecMatchLimit as String: kSecMatchLimitOne,
         ]

@@ -1,0 +1,195 @@
+import CryptoKit
+import Foundation
+
+/// Extra Claude Code config folders (`CLAUDE_CONFIG_DIR` logins) whose official limits are shown
+/// next to the default account.
+///
+/// Folders are detected (`discovered`) and can be completed from Settings (`roots(from:)`), for
+/// logins stored outside the detected places. People often set `CLAUDE_CONFIG_DIR` only inside a
+/// shell alias, which the app never sees, hence the folder scan.
+enum ClaudeAccountRoots {
+    static let defaultsKey = "additionalClaudeConfigDirs"
+
+    /// Comma/newline separated, tilde expanded, standardized. Keeps existing directories only,
+    /// drops the default roots (they belong to the primary account) and folds duplicates.
+    static func roots(
+        from raw: String?,
+        home: URL = FileManager.default.homeDirectoryForCurrentUser) -> [URL]
+    {
+        guard let raw else { return [] }
+        let excluded = defaultRootPaths(home: home)
+        var seen = Set<String>()
+        var out: [URL] = []
+        for part in raw.split(whereSeparator: { $0 == "," || $0.isNewline }) {
+            let trimmed = part.trimmingCharacters(in: .whitespaces)
+            guard !trimmed.isEmpty else { continue }
+            let expanded = trimmed == "~" || trimmed.hasPrefix("~/")
+                ? home.path + trimmed.dropFirst()
+                : NSString(string: trimmed).expandingTildeInPath
+            guard expanded.hasPrefix("/") else { continue }
+            let url = URL(fileURLWithPath: expanded, isDirectory: true).standardizedFileURL
+            var isDirectory: ObjCBool = false
+            guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory),
+                  isDirectory.boolValue,
+                  !excluded.contains(url.path),
+                  seen.insert(url.path).inserted
+            else { continue }
+            out.append(url)
+        }
+        return out
+    }
+
+    /// Folders found without any setting: the `CLAUDE_CONFIG_DIR` entries the login shell exports,
+    /// then the `~/.claude-*` and `~/.claude_*` folders Claude Code is logged in to. Default roots
+    /// are never returned, they are the primary account.
+    static func discovered(home: URL, configDirValue: String?) -> [URL] {
+        let excluded = defaultRootPaths(home: home)
+        var seen = Set<String>()
+        var out = roots(from: configDirValue, home: home).filter { seen.insert($0.path).inserted }
+        let names = (try? FileManager.default.contentsOfDirectory(atPath: home.path)) ?? []
+        for name in names.sorted() where name.hasPrefix(".claude-") || name.hasPrefix(".claude_") {
+            let url = home.appendingPathComponent(name, isDirectory: true).standardizedFileURL
+            guard !excluded.contains(url.path), hasLogin(url), seen.insert(url.path).inserted else { continue }
+            out.append(url)
+        }
+        return out
+    }
+
+    /// The folder holds a `.claude.json` with an `oauthAccount` object, as every config folder
+    /// Claude Code is logged in to does. A logged-out or foreign folder is skipped.
+    static func hasLogin(_ root: URL) -> Bool {
+        savedAccount(root) != nil
+    }
+
+    /// Email and organization Claude Code saved for this folder's login. Used when the profile
+    /// endpoint gives nothing, typically because the token expired. Local read, no network.
+    static func applySavedIdentity(_ root: URL, to status: inout LimitStatus) {
+        guard let identity = savedIdentity(file: root.appendingPathComponent(".claude.json")) else { return }
+        status.accountEmail = identity.email
+        status.accountOrganizationName = identity.organizationName
+    }
+
+    /// Login saved for the default folder (`~/.claude.json`), to name its tab before its limits load.
+    /// App only, like `installedDiscovery`: tests must not read the developer's own login.
+    static func installedDefaultIdentity(
+        isBundledApp: Bool = AppEnv.isBundledApp,
+        home: URL = FileManager.default.homeDirectoryForCurrentUser) -> AccountIdentity?
+    {
+        guard isBundledApp else { return nil }
+        return savedIdentity(file: home.appendingPathComponent(".claude.json"))
+    }
+
+    static func savedIdentity(file: URL) -> AccountIdentity? {
+        guard let account = savedAccount(file: file),
+              let email = account["emailAddress"] as? String, !email.isEmpty else { return nil }
+        let org = (account["organizationName"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        return AccountIdentity(email: email, organizationName: org)
+    }
+
+    private static func savedAccount(_ root: URL) -> [String: Any]? {
+        savedAccount(file: root.appendingPathComponent(".claude.json"))
+    }
+
+    private static func savedAccount(file: URL) -> [String: Any]? {
+        guard let data = try? Data(contentsOf: file),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else { return nil }
+        return json["oauthAccount"] as? [String: Any]
+    }
+
+    /// Detection for the running app only. `swift test` and raw `swift build` binaries get nothing:
+    /// another login's folder can lead to a Keychain prompt on a manual refresh, which must never
+    /// happen inside the test suite (same rule as the other `AppEnv.isBundledApp` guards).
+    static func installedDiscovery(
+        isBundledApp: Bool = AppEnv.isBundledApp,
+        home: URL = FileManager.default.homeDirectoryForCurrentUser,
+        configDirValue: () -> String? = { LocalUsageReader.shellAwareClaudeConfigDir() }) -> [URL]
+    {
+        guard isBundledApp else { return [] }
+        return discovered(home: home, configDirValue: configDirValue())
+    }
+
+    /// Detected folders first, then the Settings extras, without duplicates.
+    static func merged(detected: [URL], setting: String?,
+                       home: URL = FileManager.default.homeDirectoryForCurrentUser) -> [URL] {
+        var seen = Set<String>()
+        return (detected + roots(from: setting, home: home)).filter { seen.insert($0.path).inserted }
+    }
+
+    private static func defaultRootPaths(home: URL) -> Set<String> {
+        [
+            home.appendingPathComponent(".claude").standardizedFileURL.path,
+            home.appendingPathComponent(".config/claude").standardizedFileURL.path,
+        ]
+    }
+
+    /// Keychain service Claude Code uses for a folder set through `CLAUDE_CONFIG_DIR`:
+    /// the default service name plus the first 8 hex characters of the SHA-256 of the folder path.
+    /// Checked against Claude Code 2.1.273 (`/Users/example/.claude-work` → `-dd1118a7`).
+    static func keychainService(for root: URL) -> String {
+        "\(OAuthCredentialData.claudeKeychainService)-\(pathKey(for: root))"
+    }
+
+    /// First 8 hex characters of the SHA-256 of the folder path. Also the folder's stable id for
+    /// tab selection and alert/candy keys, so no path ends up in the save file.
+    static func pathKey(for root: URL) -> String {
+        let digest = SHA256.hash(data: Data(root.standardizedFileURL.path.utf8))
+        return String(digest.map { String(format: "%02x", $0) }.joined().prefix(8))
+    }
+
+    static func credentialsFileURL(for root: URL) -> URL {
+        root.appendingPathComponent(".credentials.json")
+    }
+}
+
+/// Official limits of one additional Claude config folder.
+struct AdditionalClaudeLimits: Sendable {
+    let rootPath: String
+    let key: String
+    var status: LimitStatus
+    /// The folder's token was rejected. Only Claude Code running on that folder renews it, so a
+    /// refresh alone cannot help: the tab shows the last values dimmed, with what to do.
+    var isExpired: Bool
+
+    init(rootPath: String, status: LimitStatus, isExpired: Bool = false) {
+        self.rootPath = rootPath
+        self.key = ClaudeAccountRoots.pathKey(for: URL(fileURLWithPath: rootPath))
+        self.status = status
+        self.isExpired = isExpired
+    }
+}
+
+/// One Claude account with official limits, as the popover tabs, alerts and candy see it:
+/// the default login first, then the additional folders.
+struct ClaudeAccountLimits: Sendable, Identifiable {
+    static let defaultID = "default"
+
+    let id: String
+    /// Prefix of the alert and candy keys. The default login keeps its historical `claude.*`
+    /// keys, so existing saves and notification tiers carry over unchanged.
+    let windowKeyPrefix: String
+    /// Shown when the profile gave no email (the folder, abbreviated).
+    let fallbackTitle: String
+    let status: LimitStatus
+    let isDefault: Bool
+    let isExpired: Bool
+
+    static func defaultAccount(_ status: LimitStatus, isExpired: Bool = false) -> ClaudeAccountLimits {
+        ClaudeAccountLimits(id: defaultID, windowKeyPrefix: "claude", fallbackTitle: "~/.claude",
+                            status: status, isDefault: true, isExpired: isExpired)
+    }
+
+    static func additional(_ account: AdditionalClaudeLimits) -> ClaudeAccountLimits {
+        ClaudeAccountLimits(id: account.key, windowKeyPrefix: "claude.\(account.key)",
+                            fallbackTitle: (account.rootPath as NSString).abbreviatingWithTildeInPath,
+                            status: account.status, isDefault: false, isExpired: account.isExpired)
+    }
+
+    /// Short tab title: the organization for a team plan, the email for a personal plan
+    /// (its generated organization name repeats the email), the folder when both are unknown.
+    var title: String {
+        guard let email = status.accountEmail, !email.isEmpty else { return fallbackTitle }
+        if let org = status.accountOrganizationName, !org.isEmpty, !org.contains(email) { return org }
+        return email
+    }
+}
