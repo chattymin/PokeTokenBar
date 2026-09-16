@@ -781,3 +781,206 @@ final class AdditionalClaudeAccountsStoreTests: XCTestCase {
         XCTAssertFalse(UsageStore.isKeychainPromptDeclined(LimitsError.httpStatus(401)))
     }
 }
+
+// MARK: Tracked account
+
+private final class TodayUsage: UsageProvider, @unchecked Sendable {
+    let id = "claude_code"
+    let displayName = "Claude Code"
+    let reportsCost = true
+    func fetchDaily() async throws -> DailyUsage? {
+        DailyUsage(date: LocalUsageReader.todayKey(), inputTokens: 0, outputTokens: 0,
+                   cacheCreationTokens: 0, cacheReadTokens: 0, totalTokens: 1_000, totalCost: 0)
+    }
+    func fetchEnrichment() async -> ProviderEnrichment { ProviderEnrichment() }
+}
+
+final class ClaudeTrackedAccountModeTests: XCTestCase {
+    private func account(_ id: String, fiveHour: Double?, weekly: Double? = nil, isDefault: Bool = false) -> ClaudeAccountLimits {
+        var parts: [String] = []
+        if let fiveHour { parts.append("\"five_hour\":{\"utilization\":\(fiveHour)}") }
+        if let weekly { parts.append("\"seven_day\":{\"utilization\":\(weekly)}") }
+        let status = try! JSONDecoder().decode(LimitStatus.self, from: Data("{\(parts.joined(separator: ","))}".utf8))
+        return ClaudeAccountLimits(id: id, windowKeyPrefix: "claude.\(id)", fallbackTitle: id,
+                                   status: status, isDefault: isDefault, isExpired: false)
+    }
+
+    private func tracked(_ accounts: [ClaudeAccountLimits], _ mode: ClaudeTrackedAccountMode,
+                         _ activity: [String: Date] = [:]) -> String? {
+        UsageStore.trackedAccount(among: accounts, mode: mode, activity: activity)?.id
+    }
+
+    func testStoredValueRoundTripsAndUnknownValuesMeanAutomatic() {
+        for mode in [ClaudeTrackedAccountMode.automatic, .defaultAccount, .highest, .account("dd1118a7")] {
+            XCTAssertEqual(ClaudeTrackedAccountMode(storedValue: mode.storedValue), mode)
+        }
+        XCTAssertEqual(ClaudeTrackedAccountMode(storedValue: nil), .automatic)
+        XCTAssertEqual(ClaudeTrackedAccountMode(storedValue: "something-else"), .automatic)
+    }
+
+    func testAutomaticFollowsTheLatestPrompt() {
+        let accounts = [account("default", fiveHour: 90, isDefault: true), account("personal", fiveHour: 10)]
+        let now = Date()
+        XCTAssertEqual(tracked(accounts, .automatic, ["default": now.addingTimeInterval(-60), "personal": now]), "personal")
+        XCTAssertEqual(tracked(accounts, .automatic, ["default": now, "personal": now.addingTimeInterval(-60)]), "default")
+        XCTAssertEqual(tracked(accounts, .automatic, ["personal": now]), "personal", "a dated account beats an undated one")
+        XCTAssertEqual(tracked(accounts, .automatic), "default", "no activity: list order")
+    }
+
+    func testOnlyAccountsWithValuesCanBeTracked() {
+        let accounts = [account("default", fiveHour: nil, isDefault: true), account("personal", fiveHour: 10)]
+        XCTAssertEqual(tracked(accounts, .automatic, ["default": Date()]), "personal")
+        XCTAssertNil(tracked(accounts, .defaultAccount), "the default placeholder has nothing to show")
+        XCTAssertNil(tracked([], .automatic))
+    }
+
+    func testDefaultHighestAndPinnedModes() {
+        let accounts = [account("default", fiveHour: 20, isDefault: true),
+                        account("work", fiveHour: 10, weekly: 95),
+                        account("personal", fiveHour: 60)]
+        let recent = ["personal": Date()]
+        XCTAssertEqual(tracked(accounts, .defaultAccount, recent), "default")
+        XCTAssertEqual(tracked(accounts, .highest, recent), "work", "any official window counts")
+        XCTAssertEqual(tracked(accounts, .account("work"), recent), "work")
+        XCTAssertEqual(tracked(accounts, .account("gone"), recent), "personal", "a missing pin falls back to automatic")
+    }
+
+    func testLastPromptDateIsTheHistoryFileDate() throws {
+        let folder = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ptb-history-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        XCTAssertNil(ClaudeAccountRoots.lastPromptDate(configDir: folder))
+
+        let file = folder.appendingPathComponent("history.jsonl")
+        try Data("{}\n".utf8).write(to: file)
+        let stamp = Date(timeIntervalSince1970: 1_790_000_000)
+        try FileManager.default.setAttributes([.modificationDate: stamp], ofItemAtPath: file.path)
+        XCTAssertEqual(ClaudeAccountRoots.lastPromptDate(configDir: folder), stamp)
+    }
+
+    func testStaleMeansLoadedFreshOrNotOlderThanFifteenMinutes() {
+        let now = Date()
+        var loaded = account("personal", fiveHour: 10)
+        loaded.updatedAt = now.addingTimeInterval(-16 * 60)
+        XCTAssertTrue(loaded.isStale(now: now))
+        loaded.updatedAt = now.addingTimeInterval(-14 * 60)
+        XCTAssertFalse(loaded.isStale(now: now))
+        var empty = account("empty", fiveHour: nil)
+        empty.updatedAt = now.addingTimeInterval(-3600)
+        XCTAssertFalse(empty.isStale(now: now), "nothing shown, nothing stale")
+        let expired = ClaudeAccountLimits(id: "x", windowKeyPrefix: "claude.x", fallbackTitle: "x",
+                                          status: loaded.status, isDefault: false, isExpired: true,
+                                          updatedAt: now.addingTimeInterval(-3600))
+        XCTAssertFalse(expired.isStale(now: now), "the expired banner already says it")
+    }
+}
+
+@MainActor
+final class ClaudeTrackedAccountStoreTests: XCTestCase {
+    nonisolated(unsafe) private var testDefaults: UserDefaults!
+    nonisolated(unsafe) private var suiteName: String!
+    nonisolated(unsafe) private var base: URL!
+
+    override func setUpWithError() throws {
+        suiteName = "ptb-tracked-\(UUID().uuidString)"
+        testDefaults = UserDefaults(suiteName: suiteName)
+        KeychainAccessGate.isDisabled = false
+        base = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ptb-tracked-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: base.appendingPathComponent("personal"), withIntermediateDirectories: true)
+    }
+
+    override func tearDownWithError() throws {
+        testDefaults.removePersistentDomain(forName: suiteName)
+        try? FileManager.default.removeItem(at: base)
+    }
+
+    private var personal: String { base.appendingPathComponent("personal").standardizedFileURL.path }
+    private var personalKey: String { ClaudeAccountRoots.pathKey(for: URL(fileURLWithPath: personal)) }
+
+    private func makeStore(primary: LimitStatus, personal personalStatus: LimitStatus?,
+                           lastPrompt: [String: Date]) -> UsageStore {
+        if personalStatus != nil { testDefaults.set(personal, forKey: ClaudeAccountRoots.defaultsKey) }
+        let personalPath = personal
+        return UsageStore(
+            providers: [TodayUsage()],
+            claudeLimitsProvider: ScriptedLimits([.success(primary)]),
+            additionalClaudeLimitsProvider: { _ in
+                ScriptedLimits([personalStatus.map { .success($0) } ?? .failure(.keychainInteractionNotAllowed)])
+            },
+            readLastPrompt: { folder in
+                folder.standardizedFileURL.path == personalPath ? lastPrompt["personal"] : lastPrompt["default"]
+            },
+            codexLimitsProvider: NoCodex(),
+            antigravityLimitsProvider: NoAntigravity(),
+            statusProvider: NoStatuses(),
+            autoRefresh: false,
+            defaults: testDefaults)
+    }
+
+    func testAutomaticModeFollowsTheLastUsedAccountEverywhere() async throws {
+        let now = Date()
+        let store = makeStore(
+            primary: fullStatus(fiveHour: 100, sevenDay: 100, email: "me@corp.example", org: "Corp"),
+            personal: fullStatus(fiveHour: 61, sevenDay: 21, email: "me@example.com"),
+            lastPrompt: ["default": now.addingTimeInterval(-3600), "personal": now])
+        store.showLimitInMenu = true
+        store.showTokensInMenu = false
+        await store.refresh(scheduleEmptyRetry: false)
+
+        XCTAssertEqual(store.claudeAccountActivity[ClaudeAccountLimits.defaultID], now.addingTimeInterval(-3600))
+        XCTAssertEqual(store.trackedClaudeAccount?.id, personalKey)
+        XCTAssertEqual(store.menuLines, ["Claude 61%"])
+        XCTAssertFalse(store.isLimitWarning, "the exhausted default account is not the one in use")
+        XCTAssertEqual(try XCTUnwrap(store.highestLimitUtilization), 61, accuracy: 0.01)
+
+        store.claudeTrackedAccountMode = .defaultAccount
+        XCTAssertEqual(store.menuLines, ["Claude 100%"])
+        XCTAssertTrue(store.isLimitWarning)
+        XCTAssertEqual(store.fiveHourForecast?.beforeReset, nil, "no reset date, no forecast")
+        XCTAssertEqual(testDefaults.string(forKey: ClaudeTrackedAccountMode.defaultsKey), "default")
+    }
+
+    func testTheForecastUsesTheTrackedAccount() async {
+        let reset = ISO8601DateFormatter().string(from: Date().addingTimeInterval(3600))
+        func status(_ utilization: Double, _ email: String) -> LimitStatus {
+            var s = try! JSONDecoder().decode(LimitStatus.self, from: Data(
+                "{\"five_hour\":{\"utilization\":\(utilization),\"resets_at\":\"\(reset)\"}}".utf8))
+            s.accountEmail = email
+            return s
+        }
+        let store = makeStore(primary: status(40, "me@corp.example"), personal: status(100, "me@example.com"),
+                              lastPrompt: ["personal": Date()])
+        await store.refresh(scheduleEmptyRetry: false)
+        XCTAssertEqual(store.fiveHourForecast?.beforeReset, true, "the tracked personal account is at 100%")
+
+        store.claudeTrackedAccountMode = .defaultAccount
+        XCTAssertNil(store.fiveHourForecast, "40% without a local block: no forecast")
+    }
+
+    func testTheSavedModeIsReadBackAndSingleAccountsIgnoreIt() async {
+        testDefaults.set("account:\(personalKey)", forKey: ClaudeTrackedAccountMode.defaultsKey)
+        let store = makeStore(primary: fullStatus(fiveHour: 10, sevenDay: 1, email: "me@corp.example"),
+                              personal: nil, lastPrompt: [:])
+        XCTAssertEqual(store.claudeTrackedAccountMode, .account(personalKey))
+
+        await store.refresh(scheduleEmptyRetry: false)
+        XCTAssertEqual(store.trackedClaudeAccount?.id, ClaudeAccountLimits.defaultID, "single account: always that one")
+        XCTAssertTrue(store.claudeAccountActivity.isEmpty, "no history read without other accounts")
+    }
+
+    func testAdditionalValuesAreDatedAndFlaggedStale() async throws {
+        let store = makeStore(primary: fullStatus(fiveHour: 10, sevenDay: 1, email: "me@corp.example"),
+                              personal: fullStatus(fiveHour: 61, sevenDay: 21, email: "me@example.com"),
+                              lastPrompt: [:])
+        let before = Date()
+        await store.refresh(scheduleEmptyRetry: false)
+        let updatedAt = try XCTUnwrap(store.additionalLimits.first?.updatedAt)
+        XCTAssertGreaterThanOrEqual(updatedAt, before)
+        XCTAssertFalse(store.additionalLimitsStale)
+        let account = try XCTUnwrap(store.claudeAccounts.last)
+        XCTAssertTrue(account.isStale(now: updatedAt.addingTimeInterval(16 * 60)))
+        XCTAssertEqual(store.claudeAccounts.first?.updatedAt, store.limitsUpdatedAt)
+    }
+}

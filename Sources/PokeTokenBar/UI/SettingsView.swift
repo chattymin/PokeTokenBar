@@ -214,6 +214,10 @@ struct SettingsView: View {
                 }
                 .labelsHidden().pickerStyle(.segmented).fixedSize()
             }
+            if store.claudeAccounts.count > 1 {
+                Divider()
+                trackedAccountRow(store)
+            }
             Divider()
             groupRow {
                 VStack(alignment: .leading, spacing: 1) {
@@ -608,6 +612,32 @@ struct SettingsView: View {
                 Text(l.aggregationNote)
                     .font(.caption2).foregroundStyle(.tertiary)
                     .padding(.horizontal, 12).padding(.vertical, 8)
+            }
+        }
+    }
+
+    /// Only shown with several Claude accounts. The default account is listed under its own title.
+    private func trackedAccountRow(_ store: UsageStore) -> some View {
+        @Bindable var store = store
+        // Stacked: account emails make the picker too wide to sit next to the label.
+        return groupRow {
+            VStack(alignment: .leading, spacing: 6) {
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(l.trackedAccountLabel)
+                    Text(l.trackedAccountHint).font(.caption2).foregroundStyle(.tertiary)
+                }
+                HStack {
+                    Spacer()
+                    Picker(l.trackedAccountLabel, selection: $store.claudeTrackedAccountMode) {
+                        Text(l.trackedAccountAutomatic).tag(ClaudeTrackedAccountMode.automatic)
+                        Text(l.trackedAccountHighest).tag(ClaudeTrackedAccountMode.highest)
+                        ForEach(store.claudeAccounts) { account in
+                            Text(account.title)
+                                .tag(account.isDefault ? ClaudeTrackedAccountMode.defaultAccount : .account(account.id))
+                        }
+                    }
+                    .labelsHidden().pickerStyle(.menu).fixedSize()
+                }
             }
         }
     }

@@ -140,6 +140,57 @@ enum ClaudeAccountRoots {
     static func credentialsFileURL(for root: URL) -> URL {
         root.appendingPathComponent(".credentials.json")
     }
+
+    /// The default login's config folder (Claude Code without `CLAUDE_CONFIG_DIR`).
+    static func defaultConfigDir(home: URL = FileManager.default.homeDirectoryForCurrentUser) -> URL {
+        home.appendingPathComponent(".claude", isDirectory: true)
+    }
+
+    /// When this login last received a prompt: Claude Code appends one line per prompt to the
+    /// folder's own `history.jsonl`, which is never shared between logins. Metadata only.
+    static func lastPromptDate(configDir: URL) -> Date? {
+        let file = configDir.appendingPathComponent("history.jsonl")
+        return (try? FileManager.default.attributesOfItem(atPath: file.path))?[.modificationDate] as? Date
+    }
+}
+
+/// Which Claude account drives the single-account surfaces when several are shown:
+/// menu bar percentage, warning state (and the companion's tired mood), floating pet hover, 5h forecast.
+enum ClaudeTrackedAccountMode: Equatable, Sendable, Hashable {
+    /// The account that received the latest prompt.
+    case automatic
+    case defaultAccount
+    /// The account with the highest official window.
+    case highest
+    case account(String)
+
+    static let defaultsKey = "claudeTrackedAccount"
+
+    init(storedValue: String?) {
+        switch storedValue {
+        case "default": self = .defaultAccount
+        case "highest": self = .highest
+        case let value? where value.hasPrefix("account:"): self = .account(String(value.dropFirst("account:".count)))
+        default: self = .automatic
+        }
+    }
+
+    var storedValue: String {
+        switch self {
+        case .automatic: return "automatic"
+        case .defaultAccount: return "default"
+        case .highest: return "highest"
+        case .account(let id): return "account:\(id)"
+        }
+    }
+}
+
+extension LimitStatus {
+    /// Every official window this status carries: legacy fields, then the scoped entries.
+    var allUtilizations: [Double] {
+        [fiveHour?.utilization, sevenDay?.utilization, sevenDayOpus?.utilization, sevenDaySonnet?.utilization]
+            .compactMap { $0 } + scopedLimitEntries.compactMap(\.percent)
+    }
 }
 
 /// Official limits of one additional Claude config folder.
@@ -147,15 +198,18 @@ struct AdditionalClaudeLimits: Sendable {
     let rootPath: String
     let key: String
     var status: LimitStatus
+    /// Last successful fetch; nil for an expired folder shown without values.
+    var updatedAt: Date?
     /// The folder's token was rejected. Only Claude Code running on that folder renews it, so a
     /// refresh alone cannot help: the tab shows the last values dimmed, with what to do.
     var isExpired: Bool
 
-    init(rootPath: String, status: LimitStatus, isExpired: Bool = false) {
+    init(rootPath: String, status: LimitStatus, isExpired: Bool = false, updatedAt: Date? = nil) {
         self.rootPath = rootPath
         self.key = ClaudeAccountRoots.pathKey(for: URL(fileURLWithPath: rootPath))
         self.status = status
         self.isExpired = isExpired
+        self.updatedAt = updatedAt
     }
 }
 
@@ -173,16 +227,28 @@ struct ClaudeAccountLimits: Sendable, Identifiable {
     let status: LimitStatus
     let isDefault: Bool
     let isExpired: Bool
+    var updatedAt: Date? = nil
 
-    static func defaultAccount(_ status: LimitStatus, isExpired: Bool = false) -> ClaudeAccountLimits {
+    static func defaultAccount(_ status: LimitStatus, isExpired: Bool = false,
+                               updatedAt: Date? = nil) -> ClaudeAccountLimits {
         ClaudeAccountLimits(id: defaultID, windowKeyPrefix: "claude", fallbackTitle: "~/.claude",
-                            status: status, isDefault: true, isExpired: isExpired)
+                            status: status, isDefault: true, isExpired: isExpired, updatedAt: updatedAt)
     }
 
     static func additional(_ account: AdditionalClaudeLimits) -> ClaudeAccountLimits {
         ClaudeAccountLimits(id: account.key, windowKeyPrefix: "claude.\(account.key)",
                             fallbackTitle: (account.rootPath as NSString).abbreviatingWithTildeInPath,
-                            status: account.status, isDefault: false, isExpired: account.isExpired)
+                            status: account.status, isDefault: false, isExpired: account.isExpired,
+                            updatedAt: account.updatedAt)
+    }
+
+    /// The account has at least one official window to show (a placeholder tab has none).
+    var hasLimits: Bool { !status.allUtilizations.isEmpty }
+
+    /// Same 15-minute rule as the default account's stale label.
+    func isStale(now: Date = Date()) -> Bool {
+        guard hasLimits, !isExpired, let updatedAt else { return false }
+        return now.timeIntervalSince(updatedAt) > 15 * 60
     }
 
     /// Short tab title: the organization for a team plan, the email for a personal plan

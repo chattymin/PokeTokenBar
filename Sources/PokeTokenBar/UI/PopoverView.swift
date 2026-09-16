@@ -347,7 +347,8 @@ struct PopoverView: View {
                 claudeAuthExpiredNotice
             } else if selectedSnapshot?.providerID == "claude_code",
                       !store.disableKeychainAccess,
-                      store.limits == nil || store.claudeLimitsStale || store.additionalLimitsPending {
+                      store.limits == nil || store.claudeLimitsStale || store.additionalLimitsPending
+                        || store.additionalLimitsStale {
                 // 자동 폴링은 Keychain 을 안 읽으므로(팝업 방지), 최초/만료 후 공식 한도는 이 원탭으로
                 // 사용자가 직접 갱신한다. 프롬프트가 뜨더라도 사용자 행동에 의한 것이라 예상 가능하다.
                 claudeLimitsRefreshRow
@@ -664,9 +665,11 @@ struct PopoverView: View {
     private var claudeAccountsContent: some View {
         let accounts = store.claudeAccounts
         if accounts.count > 1 {
+            let trackedID = store.trackedClaudeAccount?.id
             CapsuleTabBar(
                 items: accounts.map {
-                    CapsuleTabBar.Item(id: $0.id, title: $0.title, help: $0.status.accountDisplay)
+                    CapsuleTabBar.Item(id: $0.id, title: $0.title, help: $0.status.accountDisplay,
+                                       marked: $0.id == trackedID)
                 },
                 selectedID: selectedClaudeAccount(in: accounts)?.id,
                 onSelect: { nav.claudeAccountID = $0 })
@@ -702,6 +705,9 @@ struct PopoverView: View {
         let limits = account.status
         if account.isExpired, !account.isDefault {
             authExpiredNotice(hint: l.additionalAccountExpiredHint(account.fallbackTitle))
+        } else if !account.isDefault, account.isStale() {
+            // The default account's stale label lives in the refresh row above the tabs.
+            staleBadge(updatedAt: account.updatedAt)
         }
         // 플랜(계정 속성) — Codex codexMetaRow 와 동일 스타일. 구독 정보 있을 때만 노출.
         if let plan = limits.planDisplay {
@@ -720,8 +726,8 @@ struct PopoverView: View {
         VStack(alignment: .leading, spacing: 8) {
             limitRow(name: l.fiveHourSession, window: limits.fiveHour,
                      span: LimitWindowSpan.fiveHour)
-            // The forecast combines this utilization with local usage, which is not split per account.
-            if account.isDefault { forecastRow }
+            // The forecast follows the tracked account (it combines that account's utilization with local usage).
+            if account.id == store.trackedClaudeAccount?.id { forecastRow }
             limitRow(name: l.weekly, window: limits.sevenDay,
                      span: LimitWindowSpan.sevenDay)
             limitRow(name: l.weeklyOpus, window: limits.sevenDayOpus,
@@ -1111,6 +1117,8 @@ struct CapsuleTabBar: View {
         let id: String
         let title: String
         var help: String? = nil
+        /// A small dot before the title (the Claude account the menu bar follows).
+        var marked = false
     }
 
     let items: [Item]
@@ -1123,15 +1131,20 @@ struct CapsuleTabBar: View {
                 ForEach(items) { item in
                     let isSelected = item.id == selectedID
                     Button { onSelect(item.id) } label: {
-                        Text(item.title)
-                            .lineLimit(1)
-                            .fixedSize(horizontal: true, vertical: false)
-                            .font(.caption.weight(isSelected ? .semibold : .regular))
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 4)
-                            .background(isSelected ? Color.accentColor.opacity(0.18) : Color.secondary.opacity(0.08))
-                            .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
-                            .clipShape(Capsule())
+                        HStack(spacing: 4) {
+                            if item.marked {
+                                Circle().frame(width: 5, height: 5)
+                            }
+                            Text(item.title)
+                                .lineLimit(1)
+                                .fixedSize(horizontal: true, vertical: false)
+                        }
+                        .font(.caption.weight(isSelected ? .semibold : .regular))
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 4)
+                        .background(isSelected ? Color.accentColor.opacity(0.18) : Color.secondary.opacity(0.08))
+                        .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
+                        .clipShape(Capsule())
                     }
                     .buttonStyle(.plain)
                     .help(item.help ?? "")
