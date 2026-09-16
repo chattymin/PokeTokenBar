@@ -25,6 +25,71 @@ final class UpdateCheckerTests: XCTestCase {
         XCTAssertFalse(UpdateChecker.isNewer("2.0", than: "2.0.0"))  // 동일
     }
 
+    // MARK: - Cooldown stamps only after a successful fetch
+
+    /// A failed GitHub lookup must not start the 30-minute cooldown: otherwise opening the
+    /// popover again stays silent until the timer expires, even though no release was seen.
+    @MainActor
+    func testFailedCheckDoesNotStartTheCooldown() async {
+        var now = Date(timeIntervalSince1970: 1_700_000_000)
+        var fetches = 0
+        let checker = UpdateChecker(currentVersion: "2.5.3", clock: { now }) {
+            fetches += 1
+            return nil
+        }
+
+        await checker.check(minInterval: 1_800)
+        XCTAssertEqual(fetches, 1)
+        XCTAssertNil(checker.available)
+
+        now = now.addingTimeInterval(5)
+        await checker.check(minInterval: 1_800)
+        XCTAssertEqual(fetches, 2, "a failed check must not suppress the next attempt")
+    }
+
+    @MainActor
+    func testSuccessfulCheckStartsTheCooldownAndAppliesTheRelease() async {
+        var now = Date(timeIntervalSince1970: 1_700_000_000)
+        var fetches = 0
+        let url = "https://github.com/chattymin/PokeTokenBar/releases/tag/v2.5.5"
+        let checker = UpdateChecker(currentVersion: "2.5.3", clock: { now }) {
+            fetches += 1
+            return UpdateChecker.LatestRelease(tag: "v2.5.5", url: url)
+        }
+
+        await checker.check(minInterval: 1_800)
+        XCTAssertEqual(fetches, 1)
+        XCTAssertEqual(checker.available?.version, "2.5.5")
+        XCTAssertEqual(checker.available?.url, url)
+
+        now = now.addingTimeInterval(60)
+        await checker.check(minInterval: 1_800)
+        XCTAssertEqual(fetches, 1, "a successful check must honour minInterval")
+
+        now = now.addingTimeInterval(1_800)
+        await checker.check(minInterval: 1_800)
+        XCTAssertEqual(fetches, 2, "after the cooldown the next check must fetch again")
+    }
+
+    @MainActor
+    func testRejectedReleaseUrlDoesNotStartTheCooldown() async {
+        var fetches = 0
+        let checker = UpdateChecker(
+            currentVersion: "2.5.3",
+            clock: { Date(timeIntervalSince1970: 1_700_000_000) }
+        ) {
+            fetches += 1
+            // Live fetch rejects non-https github.com URLs before applying. A poisoned
+            // payload must not count as a successful check either.
+            return UpdateChecker.LatestRelease(tag: "v2.5.5", url: "http://evil.example/x")
+        }
+
+        await checker.check(minInterval: 1_800)
+        XCTAssertNil(checker.available)
+        await checker.check(minInterval: 1_800)
+        XCTAssertEqual(fetches, 2, "an unsafe URL is a failed check, not a cooldown start")
+    }
+
     // MARK: - Detached upgrade script wait loop (#175)
 
     func testDetachedUpgradeScriptWaitsOnPidNotProcessName() {
