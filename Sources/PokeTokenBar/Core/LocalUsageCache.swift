@@ -32,6 +32,7 @@ actor LocalUsageCache {
         var grok: [String: Blob]
         var pi: [String: Blob]
         var omp: [String: Blob]
+        var claudeParserVersion: Int
         var codexParserVersion: Int
         var codexSessionIndexVersion: Int
         var grokParserVersion: Int
@@ -40,7 +41,8 @@ actor LocalUsageCache {
 
         init(claude: [String: Blob], codex: [String: CodexBlob],
              codexSessionIDs: [String: CodexSessionProbe], gemini: [String: Blob],
-             grok: [String: Blob], pi: [String: Blob], omp: [String: Blob], codexParserVersion: Int,
+             grok: [String: Blob], pi: [String: Blob], omp: [String: Blob], claudeParserVersion: Int,
+             codexParserVersion: Int,
              codexSessionIndexVersion: Int, grokParserVersion: Int, piParserVersion: Int,
              ompParserVersion: Int) {
             self.claude = claude
@@ -50,6 +52,7 @@ actor LocalUsageCache {
             self.grok = grok
             self.pi = pi
             self.omp = omp
+            self.claudeParserVersion = claudeParserVersion
             self.codexParserVersion = codexParserVersion
             self.codexSessionIndexVersion = codexSessionIndexVersion
             self.grokParserVersion = grokParserVersion
@@ -69,6 +72,7 @@ actor LocalUsageCache {
             grok = try c.decodeIfPresent([String: Blob].self, forKey: .grok) ?? [:]
             pi = try c.decodeIfPresent([String: Blob].self, forKey: .pi) ?? [:]
             omp = try c.decodeIfPresent([String: Blob].self, forKey: .omp) ?? [:]
+            claudeParserVersion = try c.decodeIfPresent(Int.self, forKey: .claudeParserVersion) ?? 0
             codexParserVersion = try c.decodeIfPresent(Int.self, forKey: .codexParserVersion) ?? 0
             codexSessionIndexVersion = try c.decodeIfPresent(Int.self, forKey: .codexSessionIndexVersion) ?? 0
             grokParserVersion = try c.decodeIfPresent(Int.self, forKey: .grokParserVersion) ?? 0
@@ -77,6 +81,10 @@ actor LocalUsageCache {
         }
     }
 
+    /// Claude entry→cost mapping. Bump when the assistant-line buckets or the `cost-state`
+    /// attribution change, so blobs parsed by the previous rule are not trusted.
+    /// v1: adopt the source-reported `cost-state` ledger over price-table estimates.
+    private static let claudeParserVersion = 1
     /// fork replay 및 동일 상태 재기록 처리 변경 시 Codex blob만 재파싱한다.
     /// v6: retain total-only pricing uncertainty; v5 added total-only token accounting (#278).
     private static let codexParserVersion = 6
@@ -406,6 +414,10 @@ actor LocalUsageCache {
         piCache = snap.pi
         ompCache = snap.omp
 
+        if snap.claudeParserVersion != Self.claudeParserVersion {
+            claudeCache = [:]
+            dirty = true
+        }
         if snap.codexParserVersion != Self.codexParserVersion {
             codexCache = [:]
             dirty = true
@@ -454,6 +466,7 @@ actor LocalUsageCache {
             grok: grokCache,
             pi: piCache,
             omp: ompCache,
+            claudeParserVersion: Self.claudeParserVersion,
             codexParserVersion: Self.codexParserVersion,
             codexSessionIndexVersion: Self.codexSessionIndexVersion,
             grokParserVersion: Self.grokParserVersion,
