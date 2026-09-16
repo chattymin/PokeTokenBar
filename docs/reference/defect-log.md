@@ -519,6 +519,12 @@ read_when:
 
 ## 표시·UI
 
+- **Antigravity 그룹 표시명은 한 헬퍼로.** API 의 `displayName`("Gemini Models" 등)을 알림·사탕·
+  펫 버블에 그대로 넣으면 앱 언어가 한국어여도 본문에 영어가 섞인다. 팝오버만 `L` 로 바꾸던
+  분기를 `L.antigravityGroupTitle` 로 끌어올려 candy / `buildLimitWindows` / 팝오버가 공유한다.
+  판정 축은 `gemini` · `claude|gpt|3p`(status 의 gemini/thirdParty 헬퍼와 동일). 회귀:
+  `AntigravityGroupLocalizationTests`.
+
 - **계속 쌓이는 로그는 정렬이 아니라 실제 화면 생성 비용을 검증하라.** 포획 로그의
   `ScrollView` + `VStack` 이 화면 밖까지 모든 행을 만들고, 각 `SpriteView.init` 이 동기
   `cachedImage` 를 호출했다. 268개 기록(진화 단계 이미지 579개)으로 초기 레이아웃을 재면

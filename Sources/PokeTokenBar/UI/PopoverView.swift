@@ -428,10 +428,7 @@ struct PopoverView: View {
             VStack(alignment: .leading, spacing: 10) {
                 ForEach(Array(status.groups.enumerated()), id: \.offset) { _, group in
                     VStack(alignment: .leading, spacing: 4) {
-                        let groupTitle = group.displayName.localizedCaseInsensitiveContains("gemini")
-                            ? l.antigravityGeminiGroup
-                            : (group.displayName.localizedCaseInsensitiveContains("claude") ? l.antigravityThirdPartyGroup : group.displayName)
-                        Text(groupTitle)
+                        Text(l.antigravityGroupTitle(group.displayName))
                             .font(.caption.weight(.semibold))
                             .foregroundStyle(.secondary)
 

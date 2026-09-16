@@ -110,6 +110,19 @@ struct L {
     /// Antigravity 한도 그룹 및 윈도우 이름
     var antigravityGeminiGroup: String { t("Gemini 모델군", "Gemini Models", "Gemini モデル群", "Modelos Gemini", "Modèles Gemini", "Modelos Gemini", "Gemini-Modelle") }
     var antigravityThirdPartyGroup: String { t("Claude & GPT 모델군", "Claude & GPT Models", "Claude & GPT モデル群", "Modelos Claude y GPT", "Modèles Claude et GPT", "Modelos Claude e GPT", "Claude- & GPT-Modelle") }
+    /// API `displayName` ("Gemini Models", "Claude and GPT models", …) → 앱 언어 라벨.
+    /// 팝오버·한도 알림·사탕 알림·펫 버블이 같은 매핑을 써야 한 화면 두 언어가 안 난다(#322).
+    /// 판정은 `AntigravityRateLimitStatus.geminiGroup` / `thirdPartyGroup` 과 같은 축(gemini /
+    /// claude|gpt|3p). 모르는 이름은 API 문자열을 그대로 둔다.
+    func antigravityGroupTitle(_ displayName: String) -> String {
+        if displayName.localizedCaseInsensitiveContains("gemini") { return antigravityGeminiGroup }
+        if displayName.localizedCaseInsensitiveContains("claude")
+            || displayName.localizedCaseInsensitiveContains("gpt")
+            || displayName.localizedCaseInsensitiveContains("3p") {
+            return antigravityThirdPartyGroup
+        }
+        return displayName
+    }
     func antigravityWindow(window: String?, bucketId: String) -> String {
         if window == "5h" || bucketId.contains("5h") {
             return fiveHourSession

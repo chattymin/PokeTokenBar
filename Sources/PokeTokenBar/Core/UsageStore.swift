@@ -501,17 +501,18 @@ final class UsageStore {
         }
         for group in antigravityLimits?.groups ?? [] {
             let groupKey = group.displayName.localizedCaseInsensitiveContains("gemini") ? "gemini" : "3p"
+            let groupTitle = l.antigravityGroupTitle(group.displayName)
             if let fiveHour = group.fiveHourBucket {
                 windows.append(CandyWindow(
                     key: "antigravity.\(groupKey).5h",
-                    name: "\(group.displayName) \(l.fiveHourSession)",
+                    name: "\(groupTitle) \(l.fiveHourSession)",
                     kind: .session,
                     utilization: fiveHour.usedPercent))
             }
             if let weekly = group.weeklyBucket {
                 windows.append(CandyWindow(
                     key: "antigravity.\(groupKey).weekly",
-                    name: "\(group.displayName) \(l.weekly)",
+                    name: "\(groupTitle) \(l.weekly)",
                     kind: .weekly,
                     utilization: weekly.usedPercent))
             }
@@ -1211,7 +1212,8 @@ final class UsageStore {
     }
 
     /// (unique key, display name, utilization) for every window the popover shows as a limit row.
-    private func buildLimitWindows() -> [(key: String, name: String, utilization: Double)] {
+    /// Internal so tests can assert alert copy matches the popover language (#322).
+    func buildLimitWindows() -> [(key: String, name: String, utilization: Double)] {
         let l = L(localizationLanguage)
         var windows: [(key: String, name: String, utilization: Double)] = []
         if let limits {
@@ -1256,10 +1258,11 @@ final class UsageStore {
         }
         for group in antigravityLimits?.groups ?? [] {
             let groupKey = group.displayName.localizedCaseInsensitiveContains("gemini") ? "gemini" : "3p"
+            let groupTitle = l.antigravityGroupTitle(group.displayName)
             for bucket in group.buckets {
                 let windowName = l.antigravityWindow(window: bucket.window, bucketId: bucket.bucketId)
                 windows.append(("antigravity.\(groupKey).\(bucket.bucketId)",
-                                "\(group.displayName) \(windowName)",
+                                "\(groupTitle) \(windowName)",
                                 bucket.usedPercent))
             }
         }
