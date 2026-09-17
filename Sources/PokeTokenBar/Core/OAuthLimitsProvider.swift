@@ -161,23 +161,23 @@ actor OAuthAccessTokenCache {
     static let shared = OAuthAccessTokenCache()
     private var cachedCredential: OAuthCredentialData.Credential?
     private let credentialsFileURL: URL
-    private let keychainService: String
+    private let keychainServices: [String]
     /// The `~/.claude` login. Only it keeps the `CLAUDE_CONFIG_DIR` guard of
     /// `credentialsFileIsAccountOAuthMissing`, which is about the hard-coded default file.
     private let isDefaultRoot: Bool
 
     init(credentialsFileURL: URL? = nil,
-         keychainService: String = OAuthCredentialData.claudeKeychainService) {
+         keychainServices: [String] = [OAuthCredentialData.claudeKeychainService]) {
         self.credentialsFileURL = credentialsFileURL ?? Self.defaultCredentialsFileURL
-        self.keychainService = keychainService
-        self.isDefaultRoot = keychainService == OAuthCredentialData.claudeKeychainService
+        self.keychainServices = keychainServices
+        self.isDefaultRoot = keychainServices == [OAuthCredentialData.claudeKeychainService]
     }
 
     /// Token cache for an additional Claude config folder (a `CLAUDE_CONFIG_DIR` login).
     static func forConfigRoot(_ root: URL) -> OAuthAccessTokenCache {
         OAuthAccessTokenCache(
             credentialsFileURL: ClaudeAccountRoots.credentialsFileURL(for: root),
-            keychainService: ClaudeAccountRoots.keychainService(for: root))
+            keychainServices: ClaudeAccountRoots.keychainServices(for: root))
     }
 
     static var defaultCredentialsFileURL: URL {
@@ -215,11 +215,13 @@ actor OAuthAccessTokenCache {
 
         // 사용자 동작 경로: 무프롬프트로 먼저 시도(과거 '항상 허용'했다면 조용히 성공), 안 되면 프롬프트를
         // 동반해 읽어 최초 1회 '항상 허용'을 유도한다.
-        if let credential = Self.readClaudeKeychainSilently(service: keychainService) {
+        if let credential = Self.readClaudeKeychainSilently(services: keychainServices) {
             cachedCredential = credential
             return credential.accessToken
         }
-        let credential = try Self.readClaudeKeychain(service: keychainService, allowKeychainPrompt: true)
+        let credential = try Self.firstUsableCredential(services: keychainServices) {
+            try Self.readClaudeKeychain(service: $0, allowKeychainPrompt: true)
+        }
         cachedCredential = credential
         return credential.accessToken
     }
@@ -227,15 +229,51 @@ actor OAuthAccessTokenCache {
     /// 무프롬프트 Keychain 읽기 — no-UI 쿼리라 권한이 없으면 프롬프트 대신 errSecInteractionNotAllowed.
     /// '아직 항상 허용 전'(interactionNotAllowed)은 정상 흐름이라 조용히 nil. 그 외(형식 오류·접근 불가)는
     /// 진단을 위해 로그를 남기고 nil — 자동 경로가 왜 토큰을 못 구했는지 추적 가능하게.
-    private nonisolated static func readClaudeKeychainSilently(service: String) -> OAuthCredentialData.Credential? {
+    /// An expired token also gives nil: another service name may hold the live one behind a prompt.
+    private nonisolated static func readClaudeKeychainSilently(services: [String]) -> OAuthCredentialData.Credential? {
         do {
-            return try readClaudeKeychain(service: service, allowKeychainPrompt: false)
+            let credential = try firstUsableCredential(services: services) {
+                try readClaudeKeychain(service: $0, allowKeychainPrompt: false)
+            }
+            return credential.isExpired ? nil : credential
         } catch LimitsError.keychainInteractionNotAllowed {
             return nil
         } catch {
             AppLog.write("silent claude keychain read failed: \(error)")
             return nil
         }
+    }
+
+    /// An additional folder's login can sit under several service names
+    /// (`ClaudeAccountRoots.keychainServices`). The first live credential wins, an expired one is the
+    /// fallback, and any other failure moves on to the next name. A cancelled or failed password
+    /// prompt stops right there, so it never opens the next one (#280).
+    nonisolated static func firstUsableCredential(
+        services: [String],
+        read: (String) throws -> OAuthCredentialData.Credential) throws -> OAuthCredentialData.Credential
+    {
+        var expired: OAuthCredentialData.Credential?
+        var failure: Error?
+        for service in services {
+            do {
+                let credential = try read(service)
+                if !credential.isExpired { return credential }
+                if expired == nil { expired = credential }
+            } catch LimitsError.keychainUnavailable(let status)
+                where status == errSecUserCanceled || status == errSecAuthFailed
+            {
+                throw LimitsError.keychainUnavailable(status)
+            } catch LimitsError.keychainAccessDisabled {
+                throw LimitsError.keychainAccessDisabled
+            } catch {
+                // A missing item is the least telling failure: keep any other one instead.
+                if failure == nil || failure as? LimitsError == .keychainUnavailable(errSecItemNotFound) {
+                    failure = error
+                }
+            }
+        }
+        if let expired { return expired }
+        throw failure ?? LimitsError.keychainUnavailable(errSecItemNotFound)
     }
 
     /// 마지막으로 사용한 자격증명의 플랜 정보. accessToken() 이 모든 경로에서 cachedCredential 을

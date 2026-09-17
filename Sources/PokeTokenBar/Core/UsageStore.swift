@@ -295,7 +295,7 @@ final class UsageStore {
         guard showLimitInMenu else { return nil }
         let usedToday = Set(snapshots.filter { $0.todayTotalTokens > 0 }.map(\.providerID))
         var parts: [String] = []
-        if usedToday.contains("claude_code"), let utilization = trackedClaudeAccount?.status.fiveHour?.utilization {
+        if let utilization = menuClaudeAccount?.status.fiveHour?.utilization {
             parts.append("Claude \(TokenFormatter.percent(limitDisplayPercent(utilization)))")
         }
         if usedToday.contains("codex"), let usedPercent = codexLimits?.maxPrimaryUsedPercent {
@@ -305,6 +305,21 @@ final class UsageStore {
             parts.append("AGY \(TokenFormatter.percent(limitDisplayPercent(usedPercent)))")
         }
         return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
+
+    /// The account whose 5h percentage the menu bar shows, nil when it shows none.
+    private var menuClaudeAccount: ClaudeAccountLimits? {
+        guard showLimitInMenu,
+              snapshots.contains(where: { $0.providerID == "claude_code" && $0.todayTotalTokens > 0 }),
+              let account = trackedClaudeAccount, account.status.fiveHour?.utilization != nil
+        else { return nil }
+        return account
+    }
+
+    /// With several accounts the menu bar percentage can switch account on its own: the tooltip names it.
+    var menuToolTip: String? {
+        guard claudeAccounts.count > 1, let account = menuClaudeAccount else { return nil }
+        return L(localizationLanguage).trackedAccountToolTip(account.title)
     }
 
     /// 표시용 한도 % 변환 — remaining 모드면 100−사용률(0 하한: 사용률이 100 을 넘어도 음수 금지).

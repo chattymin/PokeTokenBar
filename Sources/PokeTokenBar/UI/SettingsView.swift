@@ -547,9 +547,10 @@ struct SettingsView: View {
                     }
                     .disabled(store.disableKeychainAccess || store.isRefreshingLimitToken)
                 }
-                if let limitTokenRefreshError = store.limitTokenRefreshError {
-                    Text(limitTokenRefreshError)
-                        .font(.caption2).foregroundStyle(.orange).lineLimit(2)
+                if let message = store.limitTokenRefreshMessage {
+                    Text(message)
+                        .font(.caption2).foregroundStyle(.orange)
+                        .fixedSize(horizontal: false, vertical: true)
                         .padding(.horizontal, 12).padding(.bottom, 6)
                 }
                 Divider()

@@ -158,17 +158,24 @@ enum ClaudeAccountRoots {
         ]
     }
 
-    /// Keychain service Claude Code uses for a folder set through `CLAUDE_CONFIG_DIR`:
-    /// the default service name plus the first 8 hex characters of the SHA-256 of the folder path.
-    /// Checked against Claude Code 2.1.273 (`/Users/example/.claude-work` → `-dd1118a7`).
-    static func keychainService(for root: URL) -> String {
-        "\(OAuthCredentialData.claudeKeychainService)-\(pathKey(for: root))"
+    /// Keychain services Claude Code may use for a folder set through `CLAUDE_CONFIG_DIR`:
+    /// the default service name plus the first 8 hex characters of the SHA-256 of the variable's
+    /// raw value (`/Users/example/.claude-work` → `-dd1118a7`). Claude Code does not normalize that
+    /// value (checked with 2.1.274: the same folder with a trailing slash is logged out), so the
+    /// folder is also tried the way shell completion writes it, with a trailing slash.
+    static func keychainServices(for root: URL) -> [String] {
+        let path = root.standardizedFileURL.path
+        return [path, path + "/"].map { "\(OAuthCredentialData.claudeKeychainService)-\(hashPrefix($0))" }
     }
 
     /// First 8 hex characters of the SHA-256 of the folder path. Also the folder's stable id for
     /// tab selection and alert/candy keys, so no path ends up in the save file.
     static func pathKey(for root: URL) -> String {
-        let digest = SHA256.hash(data: Data(root.standardizedFileURL.path.utf8))
+        hashPrefix(root.standardizedFileURL.path)
+    }
+
+    private static func hashPrefix(_ value: String) -> String {
+        let digest = SHA256.hash(data: Data(value.utf8))
         return String(digest.map { String(format: "%02x", $0) }.joined().prefix(8))
     }
 

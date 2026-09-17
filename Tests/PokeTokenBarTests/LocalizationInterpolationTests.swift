@@ -52,6 +52,7 @@ final class LocalizationInterpolationTests: XCTestCase {
             expect(lang, "additionalClaudeAccountsDetected", l.additionalClaudeAccountsDetected(a), a)
             expect(lang, "additionalAccountExpiredHint", l.additionalAccountExpiredHint(a), a)
             expect(lang, "unattributedClaudeUsage", l.unattributedClaudeUsage(a), a)
+            expect(lang, "trackedAccountToolTip", l.trackedAccountToolTip(a), a)
             expect(lang, "codexWindow(h)", l.codexWindow(420), "7")     // 420 min → 7 h / 420분 → 7시간
             expect(lang, "codexWindow(m)", l.codexWindow(37), "37")
             expect(lang, "percentRemaining", l.percentRemaining(a), a)
