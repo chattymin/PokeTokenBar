@@ -1271,6 +1271,7 @@ final class ClaudeTrackedAccountStoreTests: XCTestCase {
     private var personalKey: String { ClaudeAccountRoots.pathKey(for: URL(fileURLWithPath: personal)) }
 
     private func makeStore(primary: LimitStatus, personal personalStatus: LimitStatus?,
+                           personalLimits: ScriptedLimits? = nil,
                            lastPrompt: [String: Date],
                            usage: [LocalUsageReader.Entry] = [],
                            prompts: [String: ClaudeAccountUsageAttribution.Prompts] = [:],
@@ -1281,7 +1282,8 @@ final class ClaudeTrackedAccountStoreTests: XCTestCase {
             providers: [TodayUsage(block: machineBlock, tokens: todayTokens)],
             claudeLimitsProvider: ScriptedLimits([.success(primary)]),
             additionalClaudeLimitsProvider: { _ in
-                ScriptedLimits([personalStatus.map { .success($0) } ?? .failure(.keychainInteractionNotAllowed)])
+                personalLimits
+                    ?? ScriptedLimits([personalStatus.map { .success($0) } ?? .failure(.keychainInteractionNotAllowed)])
             },
             readLastPrompt: { folder in
                 folder.standardizedFileURL.path == personalPath ? lastPrompt["personal"] : lastPrompt["default"]
@@ -1405,25 +1407,61 @@ final class ClaudeTrackedAccountStoreTests: XCTestCase {
         XCTAssertNil(store.fiveHourForecast, "the default login burned nothing: the personal burst is not its own")
     }
 
-    /// The machine-wide block ends at neither account's reset: each tab shows its own block.
+    /// The machine-wide block ends at neither account's reset: each tab shows its own block,
+    /// within that account's official window.
     func testEachTabShowsItsOwnFiveHourBlock() async throws {
         let now = Date()
-        let burst = entry("b", session: "home", at: now.addingTimeInterval(-600), tokens: 600_000,
-                          day: LocalUsageReader.todayKey())
+        let day = LocalUsageReader.todayKey()
+        let reset = now.addingTimeInterval(3600)
+        var personalStatus = try JSONDecoder().decode(LimitStatus.self, from: Data(
+            #"{"five_hour":{"utilization":52,"resets_at":"\#(ISO8601DateFormatter().string(from: reset))"}}"#.utf8))
+        personalStatus.accountEmail = "me@example.com"
+        let usage = [
+            entry("b", session: "home", at: now.addingTimeInterval(-600), tokens: 600_000, day: day),
+            // Before the personal window started, still inside the rolling 5 hours.
+            entry("old", session: "home", at: now.addingTimeInterval(-4.5 * 3600), tokens: 9_000, day: day),
+            entry("w", session: "work", at: now.addingTimeInterval(-1200), tokens: 50_000, day: day),
+        ]
         let machine = BlockUsage(id: "m", startTime: "", endTime: "", isActive: true, totalTokens: 900_000,
                                  costUSD: 0, tokensPerMinute: 60_000)
-        let store = makeStore(primary: fullStatus(fiveHour: 0, sevenDay: 48, email: "me@corp.example", org: "Corp"),
-                              personal: fullStatus(fiveHour: 52, sevenDay: 47, email: "me@example.com"),
-                              lastPrompt: ["personal": now], usage: [burst],
-                              prompts: ["personal": ["home": [now.addingTimeInterval(-700)]]],
+        let store = makeStore(primary: try JSONDecoder().decode(LimitStatus.self, from: Data(
+                                  #"{"five_hour":{"utilization":0.0,"resets_at":null}}"#.utf8)),
+                              personal: personalStatus,
+                              lastPrompt: ["personal": now], usage: usage,
+                              prompts: ["personal": ["home": [now.addingTimeInterval(-5 * 3600)]],
+                                        "default": ["work": [now.addingTimeInterval(-1300)]]],
                               machineBlock: machine)
         await store.refresh(scheduleEmptyRetry: false)
         let accounts = store.claudeAccounts
         XCTAssertEqual(accounts.map(\.id), [ClaudeAccountLimits.defaultID, personalKey])
-        XCTAssertNil(store.claudeCurrentBlock(for: accounts[0]), "no turn of its own in the last 5 hours")
+        XCTAssertEqual(store.claudeAccountUsage[ClaudeAccountLimits.defaultID]?.todayTokens, 50_000)
+        XCTAssertNil(store.claudeCurrentBlock(for: accounts[0]), "its 5-hour session has not started")
         let own = try XCTUnwrap(store.claudeCurrentBlock(for: accounts[1]))
-        XCTAssertEqual(own.totalTokens, 600_000)
+        XCTAssertEqual(own.totalTokens, 600_000, "only the turns of the running window")
+        XCTAssertEqual(try XCTUnwrap(own.endDate).timeIntervalSince(reset), 0, accuracy: 1, "ends at the official reset")
         XCTAssertNotEqual(own.id, machine.id)
+    }
+
+    /// An expired account's values are too old to place its window: its tab keeps the rolling block.
+    func testAnExpiredAccountKeepsTheRollingBlock() async throws {
+        let now = Date()
+        let passed = ISO8601DateFormatter().string(from: now.addingTimeInterval(-300))
+        var status = try JSONDecoder().decode(LimitStatus.self, from: Data(
+            #"{"five_hour":{"utilization":52,"resets_at":"\#(passed)"}}"#.utf8))
+        status.accountEmail = "me@example.com"
+        let burst = entry("b", session: "home", at: now.addingTimeInterval(-600), tokens: 600_000,
+                          day: LocalUsageReader.todayKey())
+        let store = makeStore(primary: fullStatus(fiveHour: 10, sevenDay: 1, email: "me@corp.example"),
+                              personal: status,
+                              personalLimits: ScriptedLimits([.success(status), .failure(.httpStatus(401))]),
+                              lastPrompt: ["personal": now], usage: [burst],
+                              prompts: ["personal": ["home": [now.addingTimeInterval(-700)]]])
+        await store.refresh(scheduleEmptyRetry: false)
+        XCTAssertNil(store.claudeCurrentBlock(for: store.claudeAccounts[1]), "the reported window is over")
+
+        await store.refresh(scheduleEmptyRetry: false)
+        XCTAssertEqual(store.claudeAccounts[1].isExpired, true)
+        XCTAssertEqual(store.claudeCurrentBlock(for: store.claudeAccounts[1])?.totalTokens, 600_000)
     }
 
     func testASingleAccountForecastUsesTheMachineBlock() async {
@@ -1690,6 +1728,36 @@ final class ClaudeAccountUsageAttributionTests: XCTestCase {
         let later = ClaudeAccountUsageAttribution.usage(
             entries: entries, accounts: accounts, now: at(600), todayKey: "2026-09-17", monthStartKey: "2026-09-01")
         XCTAssertTrue(later.activeBlocks.isEmpty)
+    }
+
+    /// With an official window, a tab's block counts that window's turns and ends at its reset.
+    func testABlockFollowsTheAccountsOfficialWindow() throws {
+        let entries = [
+            entry("1", session: "work", at: at(1), tokens: 100, day: "2026-09-17"),
+            entry("2", session: "work", at: at(-240), tokens: 40, day: "2026-08-31"),
+            entry("3", session: "resumed", at: at(25), tokens: 7, day: "2026-09-17"),
+        ]
+        // Window from at(-180) to at(120): the turn at -240 belongs to the previous one.
+        let reset = at(120)
+        let result = ClaudeAccountUsageAttribution.usage(
+            entries: entries, accounts: accounts, now: at(30), todayKey: "2026-09-17", monthStartKey: "2026-09-01",
+            fiveHourWindows: ["default": .running(reset: reset), "personal": .notStarted])
+        let block = try XCTUnwrap(result.activeBlocks["default"])
+        XCTAssertEqual(block.totalTokens, 100)
+        XCTAssertEqual(try XCTUnwrap(block.endDate).timeIntervalSince(reset), 0, accuracy: 1)
+        XCTAssertNil(result.activeBlocks["personal"], "no session runs: its turns belong to a finished window")
+        XCTAssertEqual(result.byAccount["personal"]?.todayTokens, 7, "the usage totals do not change")
+
+        let ended = ClaudeAccountUsageAttribution.usage(
+            entries: entries, accounts: accounts, now: at(30), todayKey: "2026-09-17", monthStartKey: "2026-09-01",
+            fiveHourWindows: ["default": .running(reset: at(30))])
+        XCTAssertNil(ended.activeBlocks["default"], "a reset already reached ends the window")
+        XCTAssertEqual(ended.activeBlocks["personal"]?.totalTokens, 7, "no official window: the rolling block")
+
+        let outside = ClaudeAccountUsageAttribution.usage(
+            entries: [entries[1]], accounts: accounts, now: at(30), todayKey: "2026-09-17", monthStartKey: "2026-09-01",
+            fiveHourWindows: ["default": .running(reset: reset)])
+        XCTAssertNil(outside.activeBlocks["default"], "no turn inside the official window")
     }
 
     func testTotalsAddUp() {

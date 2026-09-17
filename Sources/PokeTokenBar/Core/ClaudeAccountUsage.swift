@@ -33,6 +33,12 @@ enum ClaudeAccountUsageAttribution {
         let prompts: Prompts
     }
 
+    /// An account's official 5h window, as its limits report it.
+    enum FiveHourWindow: Sendable, Equatable {
+        case running(reset: Date)
+        case notStarted
+    }
+
     /// Accounts are checked in order; on equal times the first one wins.
     static func owner(session: String, at date: Date, accounts: [Account]) -> String? {
         var latest: (id: String, date: Date)?
@@ -50,10 +56,12 @@ enum ClaudeAccountUsageAttribution {
         return latest?.id ?? earliest?.id
     }
 
-    /// `activeBlocks` holds each account's own 5h block, for its forecast: the machine-wide block
-    /// would mix another account's burn into it.
+    /// `activeBlocks` holds each account's own 5h block, for its tab and forecast: the machine-wide block
+    /// would mix another account's burn into it. With an official window (`fiveHourWindows`), the block
+    /// counts that window's turns and ends at its reset; without one, it is the rolling local block.
     static func usage(
-        entries: [LocalUsageReader.Entry], accounts: [Account], now: Date, todayKey: String, monthStartKey: String
+        entries: [LocalUsageReader.Entry], accounts: [Account], now: Date, todayKey: String, monthStartKey: String,
+        fiveHourWindows: [String: FiveHourWindow] = [:]
     ) -> (byAccount: [String: ClaudeAccountUsage], unattributed: ClaudeAccountUsage,
           activeBlocks: [String: BlockUsage]) {
         // Account ids are never empty, so "" collects the unattributed turns.
@@ -84,7 +92,22 @@ enum ClaudeAccountUsageAttribution {
         }
         var byAccount: [String: ClaudeAccountUsage] = [:]
         for id in month.keys where id != unattributed { byAccount[id] = usage(id) }
-        let activeBlocks = recent.compactMapValues { LocalUsageReader.activeBlock(entries: $0, now: now) }
+        var activeBlocks: [String: BlockUsage] = [:]
+        for (id, turns) in recent {
+            switch fiveHourWindows[id] {
+            case .running(let reset) where reset > now:
+                let start = reset.addingTimeInterval(-LocalUsageReader.blockWindow)
+                guard var block = LocalUsageReader.activeBlock(entries: turns.filter { $0.date >= start }, now: now)
+                else { continue }
+                block.endTime = ISO8601DateFormatter().string(from: reset)
+                activeBlocks[id] = block
+            case .running, .notStarted:
+                // No session runs: these turns belong to a window that is over.
+                continue
+            case nil:
+                activeBlocks[id] = LocalUsageReader.activeBlock(entries: turns, now: now)
+            }
+        }
         return (byAccount, usage(unattributed), activeBlocks)
     }
 }
