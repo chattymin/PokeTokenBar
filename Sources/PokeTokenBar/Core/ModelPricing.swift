@@ -24,6 +24,9 @@ enum ModelPricing {
         "claude-opus-4-20250514":     .perMillion(15, 75, 18.75, 1.5),
         "claude-sonnet-4-20250514":   .perMillion(3, 15, 3.75, 0.3),
         "claude-sonnet-4-5-20250929": .perMillion(3, 15, 3.75, 0.3),
+        // Claude 5 rates (5-minute cache writes): https://platform.claude.com/docs/en/about-claude/pricing (checked 2026-09-17)
+        "claude-opus-5":              .perMillion(5, 25, 6.25, 0.5),
+        "claude-sonnet-5":            .perMillion(2, 10, 2.5, 0.2),
         "claude-opus-4-8":            .perMillion(5, 25, 6.25, 0.5),
         "claude-opus-4-7":            .perMillion(5, 25, 6.25, 0.5),
         "claude-sonnet-4-6":          .perMillion(3, 15, 3.75, 0.3),

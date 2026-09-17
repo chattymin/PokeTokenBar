@@ -150,6 +150,13 @@ final class FloatingPetController: NSObject, NSWindowDelegate {
 
     /// Measure speech-bubble chrome for a title/body at the fixed content width (wrapping).
     /// Pure AppKit typography — keeps the layout test free of SwiftUI hosting.
+    /// The alert text, with its Claude account only when it still fits: the percentage matters more.
+    static func bubbleBody(for alert: UsageStore.LimitAlert, title: String, l: L) -> String {
+        let full = alert.body(l)
+        guard alert.account != nil, measureSpeechBubbleLayout(title: title, body: full).wouldTruncate else { return full }
+        return alert.body(l, withAccount: false)
+    }
+
     static func measureSpeechBubble(title: String, body: String,
                                     contentWidth: CGFloat = bubbleContentWidth) -> NSSize {
         measureSpeechBubbleLayout(title: title, body: body, contentWidth: contentWidth).size
@@ -491,7 +498,7 @@ private struct SpeechBubbleView: View {
             Text(alert.isCritical ? l.notifCritical : l.notifWarning)
                 .font(.system(size: 11, weight: .bold))
                 .foregroundColor(alert.isCritical ? .red : .primary)
-            Text(l.notifBody(alert.window, TokenFormatter.percent(alert.utilization)))
+            Text(FloatingPetController.bubbleBody(for: alert, title: alert.isCritical ? l.notifCritical : l.notifWarning, l: l))
                 .font(.system(size: 10))
                 .foregroundColor(.secondary)
                 .lineLimit(FloatingPetController.bubbleBodyLineLimit)

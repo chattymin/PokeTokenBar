@@ -15,6 +15,12 @@ final class UsageStore {
 
     private(set) var snapshots: [ProviderSnapshot] = []
     private(set) var limits: LimitStatus?
+    /// Official limits of the additional Claude config folders (Settings → Advanced), one entry per
+    /// account, in Settings order. The default account stays in `limits`; `claudeAccounts` merges both.
+    private(set) var additionalLimits: [AdditionalClaudeLimits] = []
+    /// A folder has no fresh limits and a manual (Keychain) refresh can fix it: the popover offers it.
+    /// Expired folders do not count, a refresh cannot renew their token.
+    private(set) var additionalLimitsPending = false
     private(set) var codexLimits: CodexRateLimitStatus?
     private(set) var codexLimitsUpdatedAt: Date?
     private(set) var antigravityLimits: AntigravityRateLimitStatus?
@@ -41,6 +47,14 @@ final class UsageStore {
     private var limitTokenRefreshFailure: (any Error)?
     var limitTokenRefreshError: String? {
         limitTokenRefreshFailure.map { Self.friendlyLimitError($0, L(localizationLanguage)) }
+    }
+    /// The popover shows the failure above the account tabs, where it would read as everyone's:
+    /// next to other accounts it names the default one, the only account this error is about.
+    var limitTokenRefreshMessage: String? {
+        guard let error = limitTokenRefreshError else { return nil }
+        let accounts = claudeAccounts
+        guard accounts.count > 1, let account = accounts.first(where: \.isDefault) else { return error }
+        return "\(account.title) · \(error)"
     }
 
     func lastErrorMessage(_ l: L) -> String? {
@@ -146,6 +160,7 @@ final class UsageStore {
         didSet {
             defaults.set(disableKeychainAccess, forKey: "disableKeychainAccess")   // 저장 누락이던 기존 버그 — 재시작 후 풀렸음
             KeychainAccessGate.isDisabled = disableKeychainAccess
+            if disableKeychainAccess { clearAdditionalClaudeAccounts() }
             // 세션 키가 있으면 Keychain 없이도 한도를 조회할 수 있으므로 섹션을 지우지 않는다.
             if disableKeychainAccess && !sessionKeyConfigured {
                 limits = nil
@@ -191,6 +206,17 @@ final class UsageStore {
         }
     }
     private let limitsProvider: any ClaudeLimitsProviding
+    private let additionalClaudeLimitsProvider: @Sendable (URL) -> any ClaudeLimitsProviding
+    private let discoverClaudeConfigDirs: @Sendable () -> [URL]
+    private let readDefaultIdentity: @Sendable () -> AccountIdentity?
+    private let readLastPrompt: @Sendable (URL) -> Date?
+    private let claudeUsageEntries: @Sendable (Date) async -> [LocalUsageReader.Entry]
+    private let readPromptHistory: @Sendable (URL) -> ClaudeAccountUsageAttribution.Prompts
+    /// Rate limits apply per account: one folder's 429 pauses that folder only, never the default
+    /// account (which keeps its own backoff) nor the other folders.
+    private var additionalBackoff: [String: (until: Date, interval: TimeInterval)] = [:]
+    /// One provider per folder, kept across polls: each owns the in-memory token the automatic path relies on.
+    private var additionalProviders: [String: any ClaudeLimitsProviding] = [:]
     /// 세션 키 저장·조직 조회. 조회 체인과 같은 인스턴스를 공유한다(기본값은 `.shared`).
     private let sessionKeys: any SessionKeyManaging
     private let codexLimitsProvider: any CodexLimitsProviding
@@ -269,7 +295,7 @@ final class UsageStore {
         guard showLimitInMenu else { return nil }
         let usedToday = Set(snapshots.filter { $0.todayTotalTokens > 0 }.map(\.providerID))
         var parts: [String] = []
-        if usedToday.contains("claude_code"), let utilization = limits?.fiveHour?.utilization {
+        if let utilization = menuClaudeAccount?.status.fiveHour?.utilization {
             parts.append("Claude \(TokenFormatter.percent(limitDisplayPercent(utilization)))")
         }
         if usedToday.contains("codex"), let usedPercent = codexLimits?.maxPrimaryUsedPercent {
@@ -279,6 +305,21 @@ final class UsageStore {
             parts.append("AGY \(TokenFormatter.percent(limitDisplayPercent(usedPercent)))")
         }
         return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
+
+    /// The account whose 5h percentage the menu bar shows, nil when it shows none.
+    private var menuClaudeAccount: ClaudeAccountLimits? {
+        guard showLimitInMenu,
+              snapshots.contains(where: { $0.providerID == "claude_code" && $0.todayTotalTokens > 0 }),
+              let account = trackedClaudeAccount, account.status.fiveHour?.utilization != nil
+        else { return nil }
+        return account
+    }
+
+    /// With several accounts the menu bar percentage can switch account on its own: the tooltip names it.
+    var menuToolTip: String? {
+        guard claudeAccounts.count > 1, let account = menuClaudeAccount else { return nil }
+        return L(localizationLanguage).trackedAccountToolTip(account.title)
     }
 
     /// 표시용 한도 % 변환 — remaining 모드면 100−사용률(0 하한: 사용률이 100 을 넘어도 음수 금지).
@@ -382,15 +423,21 @@ final class UsageStore {
     }
 
     var fiveHourForecast: FiveHourForecast? {
-        guard let window = limits?.fiveHour, let utilization = window.utilization,
-              let reset = window.resetDate else { return nil }
+        guard let account = trackedClaudeAccount, let window = account.status.fiveHour,
+              let utilization = window.utilization, let reset = window.resetDate else { return nil }
         if utilization >= 100 { return FiveHourForecast(depletionDate: Date(), beforeReset: true) }
-        guard let block = claudeActiveBlock, let burn = block.tokensPerMinute,
+        guard let block = claudeCurrentBlock(for: account), let burn = block.tokensPerMinute,
               let depletion = Self.forecastDepletion(
                   blockTokens: block.totalTokens, tokensPerMinute: burn,
                   utilization: utilization, now: Date())
         else { return nil }
         return FiveHourForecast(depletionDate: depletion, beforeReset: depletion < reset)
+    }
+
+    /// The local 5h block behind an account's tab and forecast. With several accounts the
+    /// machine-wide block mixes their usage and ends at neither account's reset: use the account's own.
+    func claudeCurrentBlock(for account: ClaudeAccountLimits) -> BlockUsage? {
+        claudeAccounts.count > 1 ? claudeAccountBlocks[account.id] : claudeActiveBlock
     }
 
     /// 5h 한도의 토큰량을 (현재 블록 토큰 ÷ 공식 utilization%) 로 추정하고 100% 도달 시각을 외삽.
@@ -410,13 +457,7 @@ final class UsageStore {
     /// Claude 는 5h 만이 아니라 팝오버가 표시하는 모든 한도 창(주간·모델별 주간 포함)의 위험선을
     /// 검사한다 — 5h 는 여유롭지만 주간이 100% 인 경우에도 경고/‘지침’ 상태가 뜨도록(누락 수정).
     var isLimitWarning: Bool {
-        for u in [limits?.fiveHour?.utilization, limits?.sevenDay?.utilization,
-                  limits?.sevenDayOpus?.utilization, limits?.sevenDaySonnet?.utilization] {
-            if let u, u >= critThreshold { return true }
-        }
-        for entry in limits?.scopedLimitEntries ?? [] {
-            if let p = entry.percent, p >= critThreshold { return true }
-        }
+        for u in trackedClaudeAccount?.status.allUtilizations ?? [] where u >= critThreshold { return true }
         for bucket in codexLimits?.visibleSnapshots ?? [] {
             if let utilization = bucket.primary?.usedPercent,
                Double(utilization) >= critThreshold { return true }
@@ -441,13 +482,7 @@ final class UsageStore {
         let usedToday = Set(snapshots.filter { $0.todayTotalTokens > 0 }.map(\.providerID))
         var utils: [Double] = []
         if usedToday.contains("claude_code") {
-            for u in [limits?.fiveHour?.utilization, limits?.sevenDay?.utilization,
-                      limits?.sevenDayOpus?.utilization, limits?.sevenDaySonnet?.utilization] {
-                if let u { utils.append(u) }
-            }
-            for entry in limits?.scopedLimitEntries ?? [] {
-                if let p = entry.percent { utils.append(p) }
-            }
+            utils.append(contentsOf: trackedClaudeAccount?.status.allUtilizations ?? [])
         }
         if usedToday.contains("codex") {
             for bucket in codexLimits?.visibleSnapshots ?? [] {
@@ -473,13 +508,10 @@ final class UsageStore {
     var candyEligibleWindows: [CandyWindow] {
         let l = L(localizationLanguage)
         var windows: [CandyWindow] = []
-        if let u = limits?.fiveHour?.utilization {
-            windows.append(CandyWindow(key: "claude.fiveHour", name: l.claudeFiveHour,
-                                       kind: .session, utilization: u))
-        }
-        if let u = limits?.sevenDay?.utilization {
-            windows.append(CandyWindow(key: "claude.sevenDay", name: l.claudeWeekly,
-                                       kind: .weekly, utilization: u))
+        let accounts = claudeAccounts
+        for account in accounts {
+            windows += claudeCandyWindows(account, named: accounts.count > 1, l)
+                .filter { account.isDefault || armedCandyWindows.contains($0.key) }
         }
         for bucket in codexLimits?.visibleSnapshots ?? [] {
             let bucketKey = bucket.limitId ?? bucket.limitName ?? "codex"
@@ -519,6 +551,38 @@ final class UsageStore {
         return windows
     }
 
+    /// `named`: next to other accounts, the notification says whose limit it is.
+    private func claudeCandyWindows(_ account: ClaudeAccountLimits, named: Bool, _ l: L) -> [CandyWindow] {
+        let suffix = named ? " (\(account.title))" : ""
+        var windows: [CandyWindow] = []
+        if let u = account.status.fiveHour?.utilization {
+            windows.append(CandyWindow(key: "\(account.windowKeyPrefix).fiveHour",
+                                       name: l.claudeFiveHour + suffix, kind: .session, utilization: u))
+        }
+        if let u = account.status.sevenDay?.utilization {
+            windows.append(CandyWindow(key: "\(account.windowKeyPrefix).sevenDay",
+                                       name: l.claudeWeekly + suffix, kind: .weekly, utilization: u))
+        }
+        return windows
+    }
+
+    /// Candy keys of additional accounts once seen below 100%. The first-run seed only covers the
+    /// windows known at first launch: an account found later, already at its limit, would otherwise
+    /// earn candy for a limit reached before the app knew about it.
+    private var armedCandyWindows: Set<String>
+    static let armedCandyWindowsKey = "claudeAccountCandyArmed"
+
+    private func armCandyWindows() {
+        let l = L(localizationLanguage)
+        let before = armedCandyWindows
+        for account in claudeAccounts where !account.isDefault {
+            for window in claudeCandyWindows(account, named: false, l) where window.utilization < 100 {
+                armedCandyWindows.insert(window.key)
+            }
+        }
+        if armedCandyWindows != before { defaults.set(armedCandyWindows.sorted(), forKey: Self.armedCandyWindowsKey) }
+    }
+
     /// Codex 창 분류 — ≤24h(1440분)=세션, 초과=주간. 미상(nil)은 세션으로 간주(보수적).
     nonisolated static func windowClass(minutes: Int?) -> WindowClass {
         if let m = minutes, m > 1440 { return .weekly }
@@ -526,7 +590,9 @@ final class UsageStore {
     }
 
     /// 한도 데이터가 최소 1개 프로바이더 로드됐는가 — 사탕 첫 실행 시드 게이트(미로딩 중 시드 방지).
-    var limitsReady: Bool { limits != nil || codexLimits != nil || antigravityLimits != nil }
+    var limitsReady: Bool {
+        limits != nil || !additionalLimits.isEmpty || codexLimits != nil || antigravityLimits != nil
+    }
 
     /// burn rate 티어 — companion 표시 상태(idle/working/focus) 판정에 사용.
     /// 전 프로바이더 합산 — Codex/Gemini 전용 사용자도 코딩 리듬이 반영된다.
@@ -557,6 +623,18 @@ final class UsageStore {
          // SessionKeyLimitsProvider 인스턴스를 봐야 한다 — 설정 화면이 고른 조직을 조회 경로가 써야 하므로.
          claudeLimitsProvider: any ClaudeLimitsProviding = ChainedLimitsProvider(
             primary: SessionKeyLimitsProvider.shared, fallback: OAuthLimitsProvider()),
+         additionalClaudeLimitsProvider: @escaping @Sendable (URL) -> any ClaudeLimitsProviding = {
+            OAuthLimitsProvider(accessTokenCache: .forConfigRoot($0))
+         },
+         discoverClaudeConfigDirs: @escaping @Sendable () -> [URL] = { ClaudeAccountRoots.installedDiscovery() },
+         readDefaultIdentity: @escaping @Sendable () -> AccountIdentity? = { ClaudeAccountRoots.installedDefaultIdentity() },
+         readLastPrompt: @escaping @Sendable (URL) -> Date? = { ClaudeAccountRoots.installedLastPromptDate(configDir: $0) },
+         claudeUsageEntries: @escaping @Sendable (Date) async -> [LocalUsageReader.Entry] = {
+            await UsageStore.installedClaudeUsageEntries(modifiedSince: $0)
+         },
+         readPromptHistory: @escaping @Sendable (URL) -> ClaudeAccountUsageAttribution.Prompts = {
+            ClaudePromptHistory.installedPrompts(configDir: $0)
+         },
          codexLimitsProvider: any CodexLimitsProviding = CodexRateLimitsProvider(),
          antigravityLimitsProvider: any AntigravityLimitsProviding = AntigravityRateLimitsProvider(),
          statusProvider: any ProviderStatusProviding = StatuspageStatusProvider(),
@@ -565,6 +643,12 @@ final class UsageStore {
          defaults: UserDefaults = .standard) {
         self.providers = providers
         self.limitsProvider = claudeLimitsProvider
+        self.additionalClaudeLimitsProvider = additionalClaudeLimitsProvider
+        self.discoverClaudeConfigDirs = discoverClaudeConfigDirs
+        self.readDefaultIdentity = readDefaultIdentity
+        self.readLastPrompt = readLastPrompt
+        self.claudeUsageEntries = claudeUsageEntries
+        self.readPromptHistory = readPromptHistory
         self.sessionKeys = sessionKeys
         self.codexLimitsProvider = codexLimitsProvider
         self.antigravityLimitsProvider = antigravityLimitsProvider
@@ -589,6 +673,9 @@ final class UsageStore {
         // 사용자의 배터리 프로파일은 그대로다. 더 부드러운 쪽은 opt-in(실측 idle CPU 1.8%/5.1%).
         animationQuality = AnimationQuality(rawValue: d.string(forKey: "animationQuality") ?? "") ?? .powerSaver
         disableKeychainAccess = d.object(forKey: "disableKeychainAccess") as? Bool ?? false
+        additionalClaudeConfigDirs = d.string(forKey: ClaudeAccountRoots.defaultsKey) ?? ""
+        claudeTrackedAccountMode = ClaudeTrackedAccountMode(storedValue: d.string(forKey: ClaudeTrackedAccountMode.defaultsKey))
+        armedCandyWindows = Set(d.stringArray(forKey: Self.armedCandyWindowsKey) ?? [])
 
         if let credential = sessionKeys.credential() {
             sessionKeyConfigured = true
@@ -829,6 +916,7 @@ final class UsageStore {
                 limitsAvailable = true
                 limitsUpdatedAt = Date()
                 limitsAuthExpiry = nil
+                limitTokenRefreshFailure = nil   // the values loaded: a manual failure is no longer news
                 resetLimitsBackoff()
                 AppLog.write("limits refreshed fiveHour=\(limits?.fiveHour?.utilization?.description ?? "nil") sevenDay=\(limits?.sevenDay?.utilization?.description ?? "nil")")
             } catch {
@@ -839,6 +927,7 @@ final class UsageStore {
                 AppLog.write("limits unavailable: \(error)")
             }
         }
+        await refreshAdditionalClaudeLimits(allowKeychainPrompt: false)
         await refreshCodexLimits()
         await refreshAntigravityLimits(allowKeychainPrompt: false)
         await refreshProviderStatuses()
@@ -887,6 +976,322 @@ final class UsageStore {
             applyLimitsBackoffIfRateLimited(error)
             AppLog.write("limits user refresh failed: \(error)")
         }
+        // A declined prompt on the primary item stops the other prompts too (#280).
+        let declined = limitTokenRefreshFailure.map(Self.isKeychainPromptDeclined) ?? false
+        await refreshAdditionalClaudeLimits(allowKeychainPrompt: !declined)
+    }
+
+    // MARK: Additional Claude accounts
+
+    /// Every Claude account with official limits: the default login, then the additional folders.
+    /// Tabs, threshold alerts and candy iterate this list. Single-account surfaces (menu bar line,
+    /// warning state, highest utilization, 5h forecast) follow `trackedClaudeAccount`.
+    var claudeAccounts: [ClaudeAccountLimits] {
+        let additional = additionalLimits.map(ClaudeAccountLimits.additional)
+        if let limits {
+            return [.defaultAccount(limits, isExpired: limitsAuthExpired, updatedAt: limitsUpdatedAt)] + additional
+        }
+        // Next to other accounts, the default login keeps its tab while its limits are not loaded,
+        // so the tabs do not come and go and the refresh row has an obvious owner. Only when that
+        // login exists: someone using `CLAUDE_CONFIG_DIR` folders alone would get a tab that never fills.
+        guard !additional.isEmpty, let identity = defaultSavedIdentity else { return additional }
+        var placeholder = LimitStatus()
+        placeholder.accountEmail = identity.email
+        placeholder.accountOrganizationName = identity.organizationName
+        return [.defaultAccount(placeholder, isExpired: limitsAuthExpired)] + additional
+    }
+
+    /// Login saved for the default folder, read at each refresh (see `claudeAccounts`).
+    private(set) var defaultSavedIdentity: AccountIdentity?
+
+    /// Settings: which account the single-account surfaces follow (see `ClaudeTrackedAccountMode`).
+    var claudeTrackedAccountMode: ClaudeTrackedAccountMode {
+        didSet {
+            defaults.set(claudeTrackedAccountMode.storedValue, forKey: ClaudeTrackedAccountMode.defaultsKey)
+            onRefresh?()   // the companion mood follows the tracked account's warning state
+        }
+    }
+
+    /// Last prompt per account id, read at each refresh while several accounts are shown.
+    private(set) var claudeAccountActivity: [String: Date] = [:]
+
+    /// Local tokens and cost per account id, while several accounts are shown
+    /// (see `ClaudeAccountUsageAttribution`). The header totals stay machine-wide.
+    private(set) var claudeAccountUsage: [String: ClaudeAccountUsage] = [:]
+    /// Usage no login's history explains (print mode, SDK runs, sessions older than the history).
+    private(set) var unattributedClaudeUsage = ClaudeAccountUsage()
+    /// Each account's own active 5h block, for its tab and forecast.
+    private var claudeAccountBlocks: [String: BlockUsage] = [:]
+
+    /// The account behind the menu bar percentage, warning state, companion mood, floating pet hover
+    /// and 5h forecast. With a single account this is that account, whatever the mode.
+    var trackedClaudeAccount: ClaudeAccountLimits? {
+        Self.trackedAccount(among: claudeAccounts, mode: claudeTrackedAccountMode, activity: claudeAccountActivity)
+    }
+
+    /// Only accounts with values can be followed. A pinned account that disappeared falls back to automatic.
+    nonisolated static func trackedAccount(
+        among accounts: [ClaudeAccountLimits], mode: ClaudeTrackedAccountMode, activity: [String: Date]
+    ) -> ClaudeAccountLimits? {
+        let loaded = accounts.filter(\.hasLimits)
+        switch mode {
+        case .defaultAccount:
+            return loaded.first(where: \.isDefault) ?? lastUsed(loaded, activity: activity)
+        case .highest:
+            return firstBest(loaded) { $0.status.allUtilizations.max() ?? -1 }
+        case .account(let id):
+            return loaded.first { $0.id == id } ?? lastUsed(loaded, activity: activity)
+        case .automatic:
+            return lastUsed(loaded, activity: activity)
+        }
+    }
+
+    /// Latest prompt wins; an account without a known date never beats a dated one, and ties keep
+    /// the list order (default account first).
+    private nonisolated static func lastUsed(_ accounts: [ClaudeAccountLimits], activity: [String: Date]) -> ClaudeAccountLimits? {
+        firstBest(accounts) { activity[$0.id]?.timeIntervalSinceReferenceDate ?? -.infinity }
+    }
+
+    private nonisolated static func firstBest(_ accounts: [ClaudeAccountLimits],
+                                              score: (ClaudeAccountLimits) -> Double) -> ClaudeAccountLimits? {
+        var best: (account: ClaudeAccountLimits, score: Double)?
+        for account in accounts {
+            let value = score(account)
+            if best == nil || value > best!.score { best = (account, value) }
+        }
+        return best?.account
+    }
+
+    /// The default account has no limits although it should: not when other accounts are shown
+    /// without a default login (`CLAUDE_CONFIG_DIR` logins only), there is nothing to load then.
+    var claudeLimitsMissing: Bool {
+        limits == nil && (additionalLimits.isEmpty || defaultSavedIdentity != nil)
+    }
+
+    /// An additional account's values are older than 15 minutes (the default account has its own label).
+    var additionalLimitsStale: Bool {
+        claudeAccounts.contains { !$0.isDefault && $0.isStale() }
+    }
+
+    /// Folders found automatically at the last refresh (Settings lists them).
+    private(set) var detectedClaudeConfigDirs: [String] = []
+
+    /// Settings → Advanced: extra Claude config folders, comma or newline separated.
+    var additionalClaudeConfigDirs: String {
+        didSet {
+            guard additionalClaudeConfigDirs != oldValue else { return }
+            defaults.set(additionalClaudeConfigDirs, forKey: ClaudeAccountRoots.defaultsKey)
+            LocalUsageReader.invalidateProjectRootsCache()   // their `projects/` folders are scanned too
+            Task { await refresh() }
+        }
+    }
+
+    /// Refreshes run one at a time: a manual refresh can start while a poll still waits on the
+    /// network, and the later one would otherwise overwrite fresher values and backoff state.
+    private var additionalRefresh: Task<Void, Never>?
+
+    private func refreshAdditionalClaudeLimits(allowKeychainPrompt: Bool) async {
+        let previous = additionalRefresh
+        let task = Task {
+            await previous?.value
+            await runAdditionalClaudeLimitsRefresh(allowKeychainPrompt: allowKeychainPrompt)
+        }
+        additionalRefresh = task
+        await task.value
+    }
+
+    /// Same Keychain contract as the primary path: automatic polls never read the Keychain, a manual
+    /// refresh may prompt once per item, and a declined prompt stops the remaining ones (#280).
+    /// With a session key (chosen to avoid prompts), only the folders listed in Settings may prompt.
+    /// A 429 pauses the automatic polls of that folder only (`additionalBackoff`).
+    /// An account already shown (same email and organization, e.g. the default folder) is listed once.
+    /// A rejected token (401/403) marks the folder expired until a fetch succeeds again.
+    private func runAdditionalClaudeLimitsRefresh(allowKeychainPrompt: Bool) async {
+        // Detection and `.claude.json` reads stay off the main actor (detection may resolve the login shell once).
+        let discover = discoverClaudeConfigDirs
+        let readIdentity = readDefaultIdentity
+        let setting = additionalClaudeConfigDirs
+        let found = await Task.detached(priority: .utility) {
+            let detected = discover()
+            let roots = ClaudeAccountRoots.merged(detected: detected, setting: setting)
+            var saved: [String: AccountIdentity] = [:]
+            for root in roots { saved[root.path] = ClaudeAccountRoots.savedIdentity(in: root) }
+            let listed = Set(ClaudeAccountRoots.roots(from: setting).map(\.path))
+            return (detected: detected, roots: roots, listed: listed, saved: saved, defaultIdentity: readIdentity())
+        }.value
+        detectedClaudeConfigDirs = found.detected.map(\.path)
+        defaultSavedIdentity = found.defaultIdentity
+        let roots = found.roots
+        let paths = Set(roots.map(\.path))
+        additionalProviders = additionalProviders.filter { paths.contains($0.key) }
+        additionalBackoff = additionalBackoff.filter { paths.contains($0.key) }
+        // Same rule as the default account: with the Keychain off, no account reads a token.
+        guard !roots.isEmpty, !disableKeychainAccess else {
+            clearAdditionalClaudeAccounts()
+            return
+        }
+
+        // Team and personal plans can share an email, so the organization is part of the account.
+        func accountKey(_ status: LimitStatus) -> String? {
+            status.accountEmail.map { "\($0)\n\(status.accountOrganizationName ?? "")" }
+        }
+        var defaultStatus = limits ?? LimitStatus()
+        defaultStatus.fillIdentity(from: found.defaultIdentity)
+        var owners: [String: String] = [:]
+        if let key = accountKey(defaultStatus) { owners[key] = ClaudeAccountLimits.defaultID }
+        // Folder id → id of the tab already showing that account.
+        var aliases: [String: String] = [:]
+
+        var promptAllowed = allowKeychainPrompt
+        var refreshed: [AdditionalClaudeLimits] = []
+        var pending = false
+        for root in roots {
+            let id = ClaudeAccountRoots.pathKey(for: root)
+            let previous = additionalLimits.first { $0.rootPath == root.path }
+            let mayPrompt = !sessionKeyConfigured || found.listed.contains(root.path)
+            func keep(_ account: AdditionalClaudeLimits) {
+                if let key = accountKey(account.status) {
+                    if let owner = owners[key] {
+                        aliases[id] = owner
+                        return
+                    }
+                    owners[key] = id
+                }
+                refreshed.append(account)
+            }
+            // A manual refresh bypasses the backoff, as it does for the default account.
+            if !allowKeychainPrompt, let backoff = additionalBackoff[root.path], Date() < backoff.until {
+                if let previous { keep(previous) }
+                continue
+            }
+            do {
+                var status = try await additionalProvider(for: root)
+                    .fetch(allowKeychainPrompt: promptAllowed && mayPrompt)
+                additionalBackoff[root.path] = nil
+                AppLog.write("additional claude limits refreshed (\(root.lastPathComponent)) fiveHour=\(status.fiveHour?.utilization?.description ?? "nil") sevenDay=\(status.sevenDay?.utilization?.description ?? "nil")")
+                status.fillIdentity(from: found.saved[root.path])
+                keep(AdditionalClaudeLimits(rootPath: root.path, status: status, updatedAt: Date()))
+            } catch {
+                if Self.isKeychainPromptDeclined(error) { promptAllowed = false }
+                if case LimitsError.rateLimited(let retryAfter) = error {
+                    let interval = Self.nextLimitsBackoff(after: additionalBackoff[root.path]?.interval ?? 0)
+                    additionalBackoff[root.path] = (Date().addingTimeInterval(retryAfter ?? interval), interval)
+                }
+                AppLog.write("additional claude limits unavailable (\(root.lastPathComponent)): \(error)")
+                if Self.isAuthRejection(error) || previous?.isExpired == true {
+                    // Keep the tab, with the last values when there are some, so the account stays visible.
+                    var status = previous?.status ?? LimitStatus()
+                    status.fillIdentity(from: found.saved[root.path])
+                    keep(AdditionalClaudeLimits(rootPath: root.path, status: status, isExpired: true,
+                                                updatedAt: previous?.updatedAt))
+                } else {
+                    // Only a refresh allowed to prompt for this folder can fix it.
+                    if mayPrompt { pending = true }
+                    // Keep the last known value, as the primary path does, instead of dropping the account.
+                    if let previous { keep(previous) }
+                }
+            }
+        }
+        additionalLimits = refreshed
+        additionalLimitsPending = pending
+        armCandyWindows()
+
+        // A folder hidden as a duplicate adds its prompts to the tab showing its account.
+        let folders = [(ClaudeAccountLimits.defaultID, ClaudeAccountRoots.defaultConfigDir())]
+            + roots.map { root in
+                let id = ClaudeAccountRoots.pathKey(for: root)
+                return (aliases[id] ?? id, root)
+            }
+        let lastPrompt = readLastPrompt
+        claudeAccountActivity = await Task.detached(priority: .utility) {
+            var dates: [String: Date] = [:]
+            for (id, folder) in folders {
+                guard let date = lastPrompt(folder) else { continue }
+                dates[id] = max(dates[id] ?? date, date)
+            }
+            return dates
+        }.value
+        await refreshClaudeAccountUsage(folders: folders)
+    }
+
+    private func clearAdditionalClaudeAccounts() {
+        additionalLimits = []
+        additionalLimitsPending = false
+        claudeAccountActivity = [:]
+        claudeAccountUsage = [:]
+        claudeAccountBlocks = [:]
+        unattributedClaudeUsage = ClaudeAccountUsage()
+    }
+
+    /// Reuses the usage cache (no re-parse) and each login's prompt history, off the main actor.
+    /// Folders sharing an id (see `aliases`) count as one account.
+    private func refreshClaudeAccountUsage(folders: [(String, URL)]) async {
+        let now = Date()
+        let fmt = LocalUsageReader.localDayFormatter()
+        let todayKey = fmt.string(from: now)
+        let monthStart = LocalUsageReader.startOfMonth(now)
+        let monthStartKey = fmt.string(from: monthStart)
+        let entries = await claudeUsageEntries(Self.claudeUsageScanStart(now: now))
+        let readHistory = readPromptHistory
+        // Each tab's 5h block follows its account's official window. Expired values are too old for that.
+        var windows: [String: ClaudeAccountUsageAttribution.FiveHourWindow] = [:]
+        for account in claudeAccounts where !account.isExpired {
+            guard let window = account.status.fiveHour else { continue }
+            if let reset = window.resetDate {
+                windows[account.id] = .running(reset: reset)
+            } else if window.hasNotStarted {
+                windows[account.id] = .notStarted
+            }
+        }
+        let result = await Task.detached(priority: .utility) {
+            var ids: [String] = []
+            var prompts: [String: ClaudeAccountUsageAttribution.Prompts] = [:]
+            for (id, folder) in folders {
+                if prompts[id] == nil { ids.append(id) }
+                prompts[id, default: [:]].merge(readHistory(folder)) { ($0 + $1).sorted() }
+            }
+            let accounts = ids.map { ClaudeAccountUsageAttribution.Account(id: $0, prompts: prompts[$0] ?? [:]) }
+            return ClaudeAccountUsageAttribution.usage(
+                entries: entries, accounts: accounts, now: now, todayKey: todayKey, monthStartKey: monthStartKey,
+                fiveHourWindows: windows)
+        }.value
+        // An account without a tab (no login, limits not loaded yet) is not shown: its usage is unattributed.
+        let shown = Set(claudeAccounts.map(\.id))
+        var unattributed = result.unattributed
+        for (id, usage) in result.byAccount where !shown.contains(id) { unattributed.add(usage) }
+        claudeAccountUsage = result.byAccount.filter { shown.contains($0.key) }
+        claudeAccountBlocks = result.activeBlocks.filter { shown.contains($0.key) }
+        unattributedClaudeUsage = unattributed
+    }
+
+    /// The month, and the whole 5h block when it started last month.
+    nonisolated static func claudeUsageScanStart(now: Date) -> Date {
+        min(LocalUsageReader.startOfMonth(now), now.addingTimeInterval(-LocalUsageReader.blockWindow))
+    }
+
+    /// Local usage for the running app only, like `ClaudeAccountRoots.installedDiscovery`.
+    nonisolated static func installedClaudeUsageEntries(
+        modifiedSince since: Date, isBundledApp: Bool = AppEnv.isBundledApp) async -> [LocalUsageReader.Entry]
+    {
+        guard isBundledApp else { return [] }
+        return await LocalUsageCache.shared.claudeEntries(modifiedSince: since)
+    }
+
+    private func additionalProvider(for root: URL) -> any ClaudeLimitsProviding {
+        if let provider = additionalProviders[root.path] { return provider }
+        let provider = additionalClaudeLimitsProvider(root)
+        additionalProviders[root.path] = provider
+        return provider
+    }
+
+    nonisolated static func isAuthRejection(_ error: any Error) -> Bool {
+        guard case LimitsError.httpStatus(let status) = error else { return false }
+        return status == 401 || status == 403
+    }
+
+    nonisolated static func isKeychainPromptDeclined(_ error: any Error) -> Bool {
+        guard case LimitsError.keychainUnavailable(let status) = error else { return false }
+        return status == errSecUserCanceled || status == errSecAuthFailed
     }
 
     // MARK: claude.ai 세션 키 (Keychain 프롬프트 없는 한도 경로)
@@ -1150,6 +1555,15 @@ final class UsageStore {
         let window: String     // 표시용 이름(알림 본문에 노출, 창끼리 중복 가능)
         let isCritical: Bool
         let utilization: Double
+        /// Claude account title, next to other accounts.
+        var account: String? = nil
+
+        /// The account comes last: a bubble cut short loses it, not the percentage.
+        func body(_ l: L, withAccount: Bool = true) -> String {
+            let text = l.notifBody(window, TokenFormatter.percent(utilization))
+            guard withAccount, let account else { return text }
+            return "\(text) · \(account)"
+        }
     }
 
     /// 알림 판정(순수·엣지 트리거) — 창별 utilization·임계값·직전 tier 상태로부터
@@ -1162,6 +1576,7 @@ final class UsageStore {
     ///   서로의 tier 를 덮어써 억제/중복 발화하던 회귀(#61 계열) 차단.
     static func evaluateLimitAlerts(
         windows: [(key: String, name: String, utilization: Double)],
+        accounts: [String: String] = [:],
         warn: Double, crit: Double,
         tiers: inout [String: Int]
     ) -> [LimitAlert] {
@@ -1175,7 +1590,8 @@ final class UsageStore {
             let previous = tiers[key] ?? 0
             guard tier > previous else { continue }       // 같은/낮은 tier → 재알림 안 함
             tiers[key] = tier
-            alerts.append(LimitAlert(key: key, window: name, isCritical: tier == 2, utilization: utilization))
+            alerts.append(LimitAlert(key: key, window: name, isCritical: tier == 2, utilization: utilization,
+                                     account: accounts[key]))
         }
         return alerts
     }
@@ -1197,9 +1613,9 @@ final class UsageStore {
     /// Shared limit-alert pipeline: evaluate once, advance tiers once, then fan out to
     /// Notification Center and/or the floating-pet bubble under independent gates.
     private func checkLimitAlerts() {
-        let windows = buildLimitWindows()
+        let (windows, accounts) = buildLimitWindows()
         let alerts = Self.evaluateLimitAlerts(
-            windows: windows, warn: warnThreshold, crit: critThreshold, tiers: &notifiedTier)
+            windows: windows, accounts: accounts, warn: warnThreshold, crit: critThreshold, tiers: &notifiedTier)
         guard !alerts.isEmpty else { return }
 
         if limitNotifications, AppEnv.isBundledApp {
@@ -1211,29 +1627,39 @@ final class UsageStore {
     }
 
     /// (unique key, display name, utilization) for every window the popover shows as a limit row.
-    private func buildLimitWindows() -> [(key: String, name: String, utilization: Double)] {
+    /// Every Claude account's windows are listed; the default account keeps its historical keys.
+    /// `accounts`: next to other accounts, the title of the account behind each Claude window key.
+    func buildLimitWindows() -> (windows: [(key: String, name: String, utilization: Double)], accounts: [String: String]) {
         let l = L(localizationLanguage)
         var windows: [(key: String, name: String, utilization: Double)] = []
-        if let limits {
+        var titles: [String: String] = [:]
+        let accounts = claudeAccounts
+        for account in accounts {
+            let limits = account.status
+            let prefix = account.windowKeyPrefix
+            let first = windows.count
             if let u = limits.fiveHour?.utilization {
-                windows.append(("claude.fiveHour", l.claudeFiveHour, u))
+                windows.append(("\(prefix).fiveHour", l.claudeFiveHour, u))
             }
             if let u = limits.sevenDay?.utilization {
-                windows.append(("claude.sevenDay", l.claudeWeekly, u))
+                windows.append(("\(prefix).sevenDay", l.claudeWeekly, u))
             }
             if let u = limits.sevenDayOpus?.utilization {
-                windows.append(("claude.sevenDayOpus", "Claude \(l.weeklyOpus)", u))
+                windows.append(("\(prefix).sevenDayOpus", "Claude \(l.weeklyOpus)", u))
             }
             if let u = limits.sevenDaySonnet?.utilization {
-                windows.append(("claude.sevenDaySonnet", "Claude \(l.weeklySonnet)", u))
+                windows.append(("\(prefix).sevenDaySonnet", "Claude \(l.weeklySonnet)", u))
             }
             // 모델별 주간(weekly_scoped) 등 — 팝오버는 표시하나 알림엔 빠져 있던 창(누락 수정).
             // key 에 인덱스를 붙여 동일 kind/model 이 중복돼도 서로 안 덮어쓰게 한다.
             for (i, entry) in limits.scopedLimitEntries.enumerated() {
                 guard let u = entry.percent else { continue }
                 let model = entry.scope?.model?.displayName
-                windows.append(("claude.scoped.\(entry.kind ?? "?").\(model ?? "?").\(i)",
+                windows.append(("\(prefix).scoped.\(entry.kind ?? "?").\(model ?? "?").\(i)",
                                 "Claude \(l.claudeLimitEntry(kind: entry.kind, model: model))", u))
+            }
+            if accounts.count > 1 {
+                for window in windows[first...] { titles[window.key] = account.title }
             }
         }
         for bucket in codexLimits?.visibleSnapshots ?? [] {
@@ -1263,7 +1689,7 @@ final class UsageStore {
                                 bucket.usedPercent))
             }
         }
-        return windows
+        return (windows, titles)
     }
 
     private func postLimitNotifications(_ alerts: [LimitAlert]) {
@@ -1271,7 +1697,7 @@ final class UsageStore {
         for alert in alerts {
             let content = UNMutableNotificationContent()
             content.title = alert.isCritical ? l.notifCritical : l.notifWarning
-            content.body = l.notifBody(alert.window, TokenFormatter.percent(alert.utilization))
+            content.body = alert.body(l)
             content.sound = alert.isCritical ? .default : nil
             UNUserNotificationCenter.current().add(
                 UNNotificationRequest(

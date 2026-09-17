@@ -79,7 +79,8 @@ enum CustomScanRoots {
     static func curatedRoots(for providerID: String) -> [URL] {
         switch providerID {
         case "claude_code":
-            return LocalUsageReader.computeClaudeProjectRoots(customRootsValue: nil)
+            return LocalUsageReader.computeClaudeProjectRoots(
+                customRootsValue: nil, accountRoots: ClaudeAccountRoots.installedAccountRoots())
         case "codex":
             return LocalUsageReader.codexSessionRoots(customRootsValue: nil)
         case "gemini":

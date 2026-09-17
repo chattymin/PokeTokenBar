@@ -33,6 +33,12 @@ struct L {
 
     // MARK: 헤더 (오늘/주/월)
     var todayTokens: String { t("오늘 사용한 토큰", "Today's tokens", "本日のトークン", "Tokens de hoy", "Tokens du jour", "Tokens de hoje", "Heute verbrauchte Tokens") }
+    var today: String { t("오늘", "Today", "今日", "Hoy", "Aujourd'hui", "Hoje", "Heute") }
+    func unattributedClaudeUsage(_ tokens: String) -> String {
+        t("이번 달 계정 미확인: \(tokens)", "Not linked to an account this month: \(tokens)", "今月アカウント不明: \(tokens)",
+          "Sin cuenta asociada este mes: \(tokens)", "Non rattaché à un compte ce mois-ci : \(tokens)",
+          "Sem conta associada neste mês: \(tokens)", "Diesen Monat keinem Konto zugeordnet: \(tokens)")
+    }
     var thisWeek: String { t("이번 주", "This week", "今週", "Esta semana", "Cette semaine", "Esta semana", "Diese Woche") }
     var thisMonth: String { t("이번 달", "This month", "今月", "Este mes", "Ce mois-ci", "Este mês", "Dieser Monat") }
     /// 일별 추이 막대 행의 제목. 범위가 "이번 달"임을 문구에 담는다 — 롤링 30일로 읽히면 안 된다.
@@ -46,6 +52,7 @@ struct L {
 
     // MARK: 한도 섹션
     var limitsOfficial: String { t("한도 (공식)", "Limits (official)", "上限（公式）", "Límites (oficial)", "Limites (officiel)", "Limites (oficiais)", "Limits (offiziell)") }
+    var fiveHourNotStarted: String { t("다음 메시지부터 시작", "Starts with your next message", "次のメッセージから開始", "Empieza con tu próximo mensaje", "Démarre au prochain message", "Começa na próxima mensagem", "Beginnt mit der nächsten Nachricht") }
     var fiveHourSession: String { t("5시간 세션", "5-hour session", "5時間セッション", "Sesión de 5 horas", "Session de 5 h", "Sessão de 5 horas", "5-Stunden-Sitzung") }
     var weekly: String { t("주간", "Weekly", "週間", "Semanal", "Hebdo", "Semanal", "Wöchentlich") }
     var weeklyOpus: String { t("주간 Opus", "Weekly Opus", "週間 Opus", "Opus semanal", "Opus hebdo", "Opus semanal", "Opus – wöchentlich") }
@@ -257,6 +264,12 @@ struct L {
           "Busca os limites oficiais sem avisos do Keychain. Cole o valor de DevTools → Application → Cookies → claude.ai → sessionKey.",
           "Ruft offizielle Limits ohne Keychain-Pop-up ab. Füge den Wert aus DevTools → Application → Cookies → claude.ai → sessionKey ein.")
     }
+    var sessionKeyDefaultAccountOnly: String {
+        t("기본 Claude 계정(~/.claude)에만 적용됩니다.", "Applies to the default Claude account (~/.claude) only.",
+          "デフォルトの Claude アカウント（~/.claude）にのみ適用されます。", "Solo se aplica a la cuenta de Claude predeterminada (~/.claude).",
+          "Ne concerne que le compte Claude principal (~/.claude).", "Aplica-se apenas à conta padrão do Claude (~/.claude).",
+          "Gilt nur für das Standard-Claude-Konto (~/.claude).")
+    }
     /// 평문 보관을 숨기지 않는다 — 사용자가 무엇을 맡기는지, 어떻게 취소하는지 알아야 한다.
     var sessionKeyStorageNote: String {
         t("키는 이 Mac 의 앱 폴더에 본인만 읽을 수 있는 파일로 저장됩니다(암호화 아님). 브라우저에서 로그아웃하면 즉시 무효화됩니다.",
@@ -383,6 +396,41 @@ struct L {
     var customScanRootsPlaceholder: String { t("~/path/to/sessions", "~/path/to/sessions", "~/path/to/sessions", "~/path/to/sessions", "~/path/to/sessions", "~/path/to/sessions", "~/path/to/sessions") }
     func customScanRootsMatches(_ n: Int) -> String {
         t("지금 \(n)개 추가 폴더를 스캔함", "Scans \(n) extra folder(s) now", "現在\(n)個の追加フォルダをスキャン", "Escanea \(n) carpeta(s) extra ahora", "Analyse \(n) dossier(s) supplémentaire(s) maintenant", "Escaneando \(n) pasta(s) extra agora", "Zusätzlich gescannte Ordner: \(n)")
+    }
+    // MARK: Additional Claude accounts (Settings → Advanced)
+    var additionalClaudeAccountsLabel: String { t("추가 Claude 계정", "Additional Claude accounts", "追加のClaudeアカウント", "Cuentas de Claude adicionales", "Comptes Claude supplémentaires", "Contas extras do Claude", "Weitere Claude-Konten") }
+    var additionalClaudeAccountsHint: String {
+        t("다른 Claude Code 로그인(CLAUDE_CONFIG_DIR)은 ~/.claude-* 폴더와 export 된 CLAUDE_CONFIG_DIR 에서 자동으로 찾습니다. 다른 위치의 설정 폴더만 여기 추가하세요(콤마·줄바꿈 구분). 공식 한도에 계정마다 탭이 생기며, 수동 갱신 때 폴더마다 Keychain 접근을 물을 수 있습니다.",
+          "Other Claude Code logins (CLAUDE_CONFIG_DIR) are detected in ~/.claude-* folders and from an exported CLAUDE_CONFIG_DIR. Add config folders stored elsewhere here, comma/newline separated. Each account gets its own tab in the official limits; a manual refresh may ask for Keychain access for each folder.",
+          "他のClaude Codeログイン(CLAUDE_CONFIG_DIR)は ~/.claude-* フォルダと、エクスポートされた CLAUDE_CONFIG_DIR から自動検出されます。別の場所にある設定フォルダだけをここに追加してください(カンマ・改行区切り)。公式上限にアカウントごとのタブが追加され、手動更新時にフォルダごとにKeychainへのアクセスを確認することがあります。",
+          "Los otros inicios de sesión de Claude Code (CLAUDE_CONFIG_DIR) se detectan en las carpetas ~/.claude-* y en un CLAUDE_CONFIG_DIR exportado. Añade aquí las carpetas de configuración guardadas en otro lugar, separadas por coma o salto de línea. Cada cuenta tiene su pestaña en los límites oficiales; una actualización manual puede pedir acceso a Keychain para cada carpeta.",
+          "Les autres connexions Claude Code (CLAUDE_CONFIG_DIR) sont détectées dans les dossiers ~/.claude-* et depuis un CLAUDE_CONFIG_DIR exporté. Ajoute ici les dossiers de config rangés ailleurs, séparés par des virgules ou des retours à la ligne. Chaque compte a son onglet dans les limites officielles ; une actualisation manuelle peut demander l'accès au Keychain pour chaque dossier.",
+          "Os outros logins do Claude Code (CLAUDE_CONFIG_DIR) são detectados nas pastas ~/.claude-* e num CLAUDE_CONFIG_DIR exportado. Adicione aqui pastas de configuração guardadas em outro lugar, separadas por vírgula ou quebra de linha. Cada conta ganha sua aba nos limites oficiais; uma atualização manual pode pedir acesso ao Keychain para cada pasta.",
+          "Weitere Claude-Code-Anmeldungen (CLAUDE_CONFIG_DIR) werden in ~/.claude-*-Ordnern und über ein exportiertes CLAUDE_CONFIG_DIR erkannt. Füge hier Konfigurationsordner an anderen Orten hinzu, durch Kommas oder Zeilenumbrüche getrennt. Jedes Konto bekommt bei den offiziellen Limits einen eigenen Tab; eine manuelle Aktualisierung kann für jeden Ordner nach Keychain-Zugriff fragen.")
+    }
+    func additionalClaudeAccountsDetected(_ folders: String) -> String {
+        t("자동 감지: \(folders)", "Detected: \(folders)", "自動検出: \(folders)", "Detectadas: \(folders)", "Détectés : \(folders)", "Detectadas: \(folders)", "Erkannt: \(folders)")
+    }
+    var trackedAccountLabel: String { t("추적할 Claude 계정", "Tracked Claude account", "追跡する Claude アカウント", "Cuenta de Claude seguida", "Compte Claude suivi", "Conta do Claude acompanhada", "Verfolgtes Claude-Konto") }
+    func trackedAccountToolTip(_ title: String) -> String {
+        t("추적할 Claude 계정: \(title)", "Tracked Claude account: \(title)", "追跡する Claude アカウント: \(title)",
+          "Cuenta de Claude seguida: \(title)", "Compte Claude suivi : \(title)",
+          "Conta do Claude acompanhada: \(title)", "Verfolgtes Claude-Konto: \(title)")
+    }
+    var trackedAccountHint: String {
+        t("메뉴바 한도·경고 상태·컴패니언 기분·5시간 예측의 기준이에요.",
+          "Drives the menu bar limit, warning state, companion mood and 5h forecast.",
+          "メニューバーの上限・警告状態・コンパニオンの様子・5時間予測に使われます。",
+          "Define el límite de la barra de menús, el estado de alerta, el ánimo del compañero y la previsión de 5 h.",
+          "Pilote la limite de la barre des menus, l'état d'alerte, l'humeur du compagnon et la prévision 5 h.",
+          "Define o limite na barra de menus, o estado de alerta, o humor do companheiro e a previsão de 5 h.",
+          "Bestimmt das Limit in der Menüleiste, den Warnstatus, die Stimmung des Begleiters und die 5-Stunden-Prognose.")
+    }
+    var trackedAccountAutomatic: String { t("자동 (마지막 사용)", "Automatic (last used)", "自動（最後に使用）", "Automático (último usado)", "Automatique (dernier utilisé)", "Automático (último usado)", "Automatisch (zuletzt verwendet)") }
+    var trackedAccountHighest: String { t("사용률 최고", "Highest usage", "使用率が最大", "Mayor uso", "Le plus chargé", "Maior uso", "Höchste Auslastung") }
+    var additionalClaudeAccountsPlaceholder: String { t("~/.claude-work", "~/.claude-work", "~/.claude-work", "~/.claude-work", "~/.claude-work", "~/.claude-work", "~/.claude-work") }
+    func additionalClaudeAccountsFound(_ n: Int) -> String {
+        t("계정 폴더 \(n)개 찾음", "\(n) account folder(s) found", "アカウントフォルダが\(n)個見つかりました", "\(n) carpeta(s) de cuenta encontrada(s)", "\(n) dossier(s) de compte trouvé(s)", "\(n) pasta(s) de conta encontrada(s)", "Gefundene Kontoordner: \(n)")
     }
     var close: String { t("닫기", "Close", "閉じる", "Cerrar", "Fermer", "Fechar", "Schließen") }
 
@@ -845,6 +893,15 @@ struct L {
           "Les valeurs affichées datent d'avant l'expiration. Réessaie, ou lance Claude Code une fois pour actualiser automatiquement.",
           "Os valores exibidos são de antes da expiração. Tente de novo ou rode o Claude Code uma vez para atualizá-los automaticamente.",
           "Die angezeigten Werte stammen von vor dem Ablauf. Versuch es erneut oder starte Claude Code einmal, um sie automatisch zu aktualisieren.")
+    }
+    func additionalAccountExpiredHint(_ folder: String) -> String {
+        t("CLAUDE_CONFIG_DIR=\(folder) 로 Claude Code 를 한 번 실행한 뒤 다시 시도하세요.",
+          "Run Claude Code once with CLAUDE_CONFIG_DIR=\(folder), then retry.",
+          "CLAUDE_CONFIG_DIR=\(folder) で Claude Code を一度実行してから再試行してください。",
+          "Ejecuta Claude Code una vez con CLAUDE_CONFIG_DIR=\(folder) y reinténtalo.",
+          "Lance Claude Code une fois avec CLAUDE_CONFIG_DIR=\(folder), puis réessaie.",
+          "Rode o Claude Code uma vez com CLAUDE_CONFIG_DIR=\(folder) e tente de novo.",
+          "Starte Claude Code einmal mit CLAUDE_CONFIG_DIR=\(folder) und versuch es dann erneut.")
     }
     var retry: String { t("다시 시도", "Retry", "再試行", "Reintentar", "Réessayer", "Tentar de novo", "Erneut versuchen") }
 
