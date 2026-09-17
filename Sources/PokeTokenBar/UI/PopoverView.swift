@@ -19,6 +19,8 @@ enum PopoverMetrics {
 @Observable
 final class PopoverNavigation {
     var showSettings = false
+    var showTrainerCard = false
+    var trainerCardPreselectedSpeciesID: Int?
     var tab: PopoverTab = .home
     /// 일반적인 컬렉션 재진입에는 마지막 세그먼트를 유지하되, 대표 포켓몬 선택 진입점은 도감으로 강제한다.
     var showingCollectionLog = false
@@ -30,6 +32,8 @@ final class PopoverNavigation {
 
     func reset() {
         showSettings = false
+        showTrainerCard = false
+        trainerCardPreselectedSpeciesID = nil
         expandAdvancedOnOpen = false
         tab = .home
     }
@@ -46,6 +50,13 @@ final class PopoverNavigation {
         showSettings = false
         showingCollectionLog = false
         tab = .collection
+    }
+
+    /// 트레이너 카드 화면을 연다 (특정 종 지정 가능).
+    func openTrainerCard(speciesID: Int? = nil) {
+        showSettings = false
+        showTrainerCard = true
+        trainerCardPreselectedSpeciesID = speciesID
     }
 }
 
@@ -76,11 +87,25 @@ struct PopoverView: View {
                     .environment(store)
                     .environment(companion)
                     .environment(updater)
+            } else if nav.showTrainerCard {
+                TrainerCardModalView(
+                    store: companion,
+                    usageStore: store,
+                    nav: nav,
+                    initialSpeciesID: nav.trainerCardPreselectedSpeciesID,
+                    onClose: {
+                        nav.showTrainerCard = false
+                        nav.trainerCardPreselectedSpeciesID = nil
+                    }
+                )
             } else {
                 mainContent
             }
         }
         .frame(width: PopoverMetrics.width)
+        .background(companion.activeTheme.windowBackground)
+        .tint(companion.activeTheme.accentColor)
+        .accentColor(companion.activeTheme.accentColor)
         .environment(\.locale, companion.language.displayLocale)
     }
 
@@ -102,7 +127,7 @@ struct PopoverView: View {
                 }
             }
             .padding(8)
-            .background(Color.accentColor.opacity(0.12))
+            .background(companion.activeTheme.accentColor.opacity(0.12))
             .clipShape(RoundedRectangle(cornerRadius: 8))
         }
     }
@@ -178,7 +203,8 @@ struct PopoverView: View {
             MonthDailyTrend(series: store.monthDailyTotals,
                             showsCost: store.showsCost,
                             today: LocalUsageReader.todayKey(),
-                            l: l)
+                            l: l,
+                            accentColor: companion.activeTheme.accentColor)
 
             // 연결된 서비스가 2개 이상이면 작은 탭으로 서비스별 상세를 넘나든다
             // (합계는 위에 유지 — 상세·한도만 탭 스코프).
@@ -201,6 +227,7 @@ struct PopoverView: View {
         ProviderTabBar(
             snapshots: store.snapshots,
             selectedID: selectedSnapshot?.providerID,
+            accentColor: companion.activeTheme.accentColor,
             onSelect: { nav.providerID = $0 })
     }
 
@@ -815,6 +842,7 @@ struct MonthDailyTrend: View {
     /// 오늘의 `localDay` 키 — 강조할 막대를 뷰가 시계를 다시 읽어 고르지 않게 주입한다.
     let today: String
     let l: L
+    var accentColor: Color = .accentColor
 
     /// 마우스가 올라간 막대. 캡션의 리드아웃이 이걸 따라가고, 벗어나면 오늘로 돌아온다.
     /// 툴팁(`.help`)과 달리 **지연이 없고, 안 올려도 오늘 값이 항상 보인다** — 날짜를 알려면
@@ -864,7 +892,7 @@ struct MonthDailyTrend: View {
                 // 않는다 — 색을 한 단계 흐리게 해 "안 쓴 날"과 "조금 쓴 날"을 갈라준다.
                 let isEmptyDay = day.totalTokens == 0
                 RoundedRectangle(cornerRadius: 1, style: .continuous)
-                    .fill(isToday ? Color.accentColor
+                    .fill(isToday ? accentColor
                                   : Color.secondary.opacity(isEmptyDay ? 0.18 : 0.45))
                     .frame(height: DailyTrendMetrics.barHeight(tokens: day.totalTokens, peak: peak))
                     .frame(maxWidth: .infinity)
@@ -900,7 +928,7 @@ struct MonthDailyTrend: View {
                         Text(label)
                             .font(.caption2)
                             .monospacedDigit()
-                            .foregroundStyle(day.date == today ? Color.accentColor : Color.secondary)
+                            .foregroundStyle(day.date == today ? accentColor : Color.secondary)
                             .fixedSize(horizontal: true, vertical: false)
                     } else {
                         Color.clear.frame(height: 1)
@@ -1005,6 +1033,7 @@ enum DailyTrendMetrics {
 struct ProviderTabBar: View {
     let snapshots: [ProviderSnapshot]
     let selectedID: String?
+    var accentColor: Color = .accentColor
     let onSelect: (String) -> Void
 
     var body: some View {
@@ -1019,8 +1048,8 @@ struct ProviderTabBar: View {
                             .font(.caption.weight(isSelected ? .semibold : .regular))
                             .padding(.horizontal, 10)
                             .padding(.vertical, 4)
-                            .background(isSelected ? Color.accentColor.opacity(0.18) : Color.secondary.opacity(0.08))
-                            .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
+                            .background(isSelected ? accentColor.opacity(0.18) : Color.secondary.opacity(0.08))
+                            .foregroundStyle(isSelected ? accentColor : Color.secondary)
                             .clipShape(Capsule())
                     }
                     .buttonStyle(.plain)

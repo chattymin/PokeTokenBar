@@ -916,6 +916,7 @@ struct L {
         case .rareCandy: return t("이상한 사탕", "Rare Candy", "ふしぎなアメ", "Caramelo Raro", "Super Bonbon", "Doce Raro", "Sonderbonbon")
         case .mint:      return t("민트", "Mint", "ミント", "Menta", "Menthe", "Menta", "Minze")
         case .shinyCharm: return t("이로치 부적", "Shiny Charm", "ひかるおまもり", "Amuleto Iris", "Charme Chroma", "Amuleto Shiny", "Schillerpin")
+        case .starPrism: return t("별의 프리즘", "Star Prism", "スタープリズム", "Prisma Estelar", "Prisme Étoilé", "Prisma Estelar", "Sternenprisma")
         }
     }
     func itemDescription(_ kind: ItemKind) -> String {
@@ -945,10 +946,29 @@ struct L {
                      "Tant que tu le possèdes, augmente les chances qu'un Pokémon chromatique éclose.",
                      "Enquanto estiver na sua bolsa, aumenta a chance de nascer um Pokémon shiny.",
                      "Erhöht im Beutel die Chance, dass ein schillerndes Pokémon schlüpft.")
+        case .starPrism:
+            return t("현재 포켓몬과 그 진화 라인 전체를 영구히 이로치로 변환해요.",
+                     "Permanently transmutes your current Pokémon and its entire evolutionary line into shiny.",
+                     "現在のポケモンとその進化系統全体を永久に色違いに変化させます。",
+                     "Transforma permanentemente a tu Pokémon actual y toda su línea evolutiva en variocolor.",
+                     "Transforme définitivement ton Pokémon actuel et toute sa lignée d'évolution en chromatique.",
+                     "Transforma permanentemente seu Pokémon atual e toda a sua linha evolutiva em shiny.",
+                     "Verwandelt dein aktuelles Pokémon und seine gesamte Entwicklungslinie dauerhaft in Schillernd.")
         }
     }
     /// 가방 사용 컨트롤의 효과 힌트 — 민트("성격 랜덤 변경", 사탕의 "+XP" 자리).
     var mintEffectHint: String { t("성격 랜덤 변경", "Random nature", "せいかくランダム変更", "Naturaleza aleatoria", "Nature aléatoire", "Natureza aleatória", "Zufälliges Wesen") }
+    var starPrismEffectHint: String { t("이로치 변환", "Shiny Transmute", "色違い変化", "Transmutación Shiny", "Transmutation Shiny", "Transmutação Shiny", "Schillernde Verwandlung") }
+    var starPrismUsedTitle: String { t("별의 프리즘이 빛납니다!", "The Star Prism glows brightly!", "スタープリズムが輝きます！", "¡El Prisma Estelar brilla con fuerza!", "Le Prisme Étoilé rayonne d'éclat !", "O Prisma Estelar brilha intensamente!", "Das Sternenprisma erstrahlt im Glanz!") }
+    func starPrismUsedBody(name: String) -> String {
+        t("\(name)과(와) 그 진화 라인이 모두 이로치로 변했습니다!",
+          "\(name) and its evolutionary line are now shiny!",
+          "\(name)とその進化系統がすべて色違いになりました！",
+          "¡\(name) y toda su línea evolutiva ahora son variocolor!",
+          "\(name) et toute sa lignée sont devenus chromatiques !",
+          "\(name) e toda a sua linha evolutiva agora são shiny!",
+          "\(name) und die gesamte Entwicklungslinie sind jetzt Schillernd!")
+    }
 
     // MARK: 상점 (재화 = 사용한 토큰)
     var shop: String { t("상점", "Shop", "ショップ", "Tienda", "Boutique", "Loja", "Laden") }
@@ -1037,4 +1057,111 @@ struct L {
           "Você esgotou seu limite de tokens — \(window). Você merece um agrado: use no seu Pokémon para evoluir!",
           "Du hast das Token-Limit für \(window) ausgeschöpft. Eine Belohnung für deinen Einsatz – verwende sie, um dein Pokémon zu entwickeln!")
     }
+
+    // MARK: - 카지노 & 미니게임 (Casino)
+    var gameCorner: String { t("카지노", "Casino", "カジノ", "Casino", "Casino", "Cassino", "Casino") }
+    var miniGames: String { t("미니게임", "Mini-Games", "ミニゲーム", "Minijuegos", "Mini-Jeux", "Minijogos", "Minispiele") }
+    var payoutTable: String { t("배당표", "Payout Table", "配当表", "Tabla de Pagos", "Table des gains", "Tabela de Pagos", "Gewinntabelle") }
+    var rarePokemon: String { t("희귀 포켓몬", "Rare Pokémon", "レアポケモン", "Pokémon Raros", "Pokémon Rares", "Pokémon Raros", "Seltene Pokémon") }
+    var casinoCoins: String { t("동전", "Coins", "コイン", "Fichas", "Jetons", "Fichas", "Münzen") }
+    var buyCoins: String { t("동전 구매", "Buy Coins", "コイン購入", "Comprar Fichas", "Acheter des Jetons", "Comprar Fichas", "Münzen kaufen") }
+    var coinBalance: String { t("보유 동전", "Coin Balance", "所持コイン", "Saldo de Fichas", "Solde de Jetons", "Saldo de Fichas", "Münzguthaben") }
+    var slotMachine: String { t("슬롯머신", "Slot Machine", "スロットマシン", "Tragaperras", "Machine à sous", "Caça-Níquel", "Spielautomat") }
+    var voltorbFlip: String { t("찌리리공 뒤집기", "Voltorb Flip", "ビリリダマめくり", "Gira Voltorb", "Voltorb Flip", "Gira Voltorb", "Voltobal-Dreh") }
+    var prizeCorner: String { t("경품 교환소", "Prize Corner", "景品交換所", "Mostrador de Premios", "Comptoir des Prix", "Troca de Prêmios", "Wechselstube") }
+    var spinReels: String { t("돌리기", "Spin", "スピン", "Girar", "Lancer", "Girar", "Drehen") }
+    var betAmount: String { t("베팅", "Bet", "ベット", "Apuesta", "Mise", "Aposta", "Einsatz") }
+    var paylinesCount: String { t("라인", "Lines", "라인", "Líneas", "Lignes", "Linhas", "Linien") }
+    var multiplierLabel: String { t("배율", "Multiplier", "倍率", "Multiplicador", "Multiplicateur", "Multiplicador", "Multiplikator") }
+    var spinning: String { t("회전 중...", "Spinning...", "回転中...", "Girando...", "Lancement...", "Girando...", "Dreht...") }
+    var twoCherriesWinHint: String { t("체리 2개 : 7×", "2 Cherries : 7×", "チェリー2個 : 7×", "2 Cerezas : 7×", "2 Cerises : 7×", "2 Cerejas : 7×", "2 Kirschen : 7×") }
+    var payoutWin: String { t("획득", "Win", "獲得", "Premio", "Gain", "Ganho", "Gewinn") }
+    var jackpotWin: String { t("잭팟 777!", "JACKPOT 777!", "大当たり 777！", "¡BOTE 777!", "JACKPOT 777 !", "JACKPOT 777!", "JACKPOT 777!") }
+    var voltorbLevelTitle: String { t("레벨", "Level", "レベル", "Nivel", "Niveau", "Nível", "Stufe") }
+    var cashOutAction: String { t("정산하기", "Cash Out", "精算する", "Cobrar", "Encaisser", "Encerrar", "Auszahlen") }
+    var memoPencilMode: String { t("메모 모드", "Memo Mode", "メモモード", "Modo Notas", "Mode Mémo", "Modo Notas", "Notizen-Modus") }
+    var flipCardMode: String { t("뒤집기 모드", "Flip Mode", "めくるモード", "Modo Abrir", "Mode Carte", "Modo Abrir", "Aufdecken") }
+    var voltorbGameOver: String { t("폭발! 게임 오버", "Boom! Game Over", "ドカン！ゲームオーバー", "¡Boom! Fin de Partida", "Explosion !", "Boom! Fim de Jogo", "Boom! Vorbei") }
+    var voltorbLevelCleared: String { t("레벨 클리어!", "Level Cleared!", "レベルクリア！", "¡Nivel Superado!", "Niveau Réussi !", "Nível Concluído!", "Stufe Geschafft!") }
+    var playAgainAction: String { t("다시 플레이", "Play Again", "もう一度遊ぶ", "Jugar de Nuevo", "Rejouer", "Jogar Novamente", "Nochmal spielen") }
+    var casinoExclusiveBadge: String { t("카지노 한정", "Casino Exclusive", "カジノ限定", "Exclusivo Casino", "Exclusif Casino", "Exclusivo Cassino", "Exklusiv Spielhalle") }
+    var exclusivePokemonHint: String { t("알에서 부화하지 않는 전용 포켓몬", "Exclusive Pokémon unobtainable from eggs", "タマゴからは孵化しない限定ポケモン", "Pokémon exclusivo no obtenible de huevos", "Pokémon exclusif impossible à obtenir via les œufs", "Pokémon exclusivo não obtido por ovos", "Exklusives Pokémon, nicht aus Eiern erhältlich") }
+    func casinoPrizeSpeciesName(_ id: Int) -> String {
+        switch id {
+        case 137: return t("폴리곤", "Porygon", "ポリゴン", "Porygon", "Porygon", "Porygon", "Porygon")
+        case 63:  return t("케이시", "Abra", "ケーシィ", "Abra", "Abra", "Abra", "Abra")
+        case 173: return t("삐", "Cleffa", "ピィ", "Cleffa", "Mélo", "Cleffa", "Pii")
+        case 147: return t("미뇽", "Dratini", "ミニリュウ", "Dratini", "Minidraco", "Dratini", "Dratini")
+        case 123: return t("스라크", "Scyther", "ストライク", "Scyther", "Insécateur", "Scyther", "Sichlor")
+        default: return "#\(id)"
+        }
+    }
+    var appThemesSection: String { t("앱 테마", "App Themes", "アプリテーマ", "Temas de App", "Thèmes d'application", "Temas do App", "App-Designs") }
+    var themeApplied: String { t("적용 중", "Active", "適用中", "Activo", "Actif", "Ativo", "Aktiv") }
+    var themeApplyAction: String { t("적용하기", "Apply", "適用", "Aplicar", "Appliquer", "Aplicar", "Aktivieren") }
+    var exchangeAction: String { t("교환", "Exchange", "交換", "Canjear", "Échanger", "Trocar", "Eintauschen") }
+    func themeName(_ kind: AppThemeKind) -> String {
+        switch kind {
+        case .classic: return t("클래식", "Classic", "クラシック", "Clásico", "Classique", "Clássico", "Klassisch")
+        case .celadonNeon: return t("무지개 네온", "Celadon Neon", "タマムシネオン", "Azulona Neón", "Néon Céladopole", "Celadon Neon", "Prismania Neon")
+        case .teamRocket: return t("로켓단 다크", "Team Rocket Dark", "ロケット団ダーク", "Team Rocket Oscuro", "Team Rocket Noir", "Equipe Rocket Escuro", "Team Rocket Dunkel")
+        case .indigoPlateau: return t("석영고원 챔피언", "Indigo Plateau", "セキエイ高原", "Meseta Añil", "Plateau Indigo", "Planalto Índigo", "Indigo Plateau")
+        case .masterBall: return t("마스터볼", "Master Ball", "マスターボール", "Master Ball", "Master Ball", "Master Ball", "Meisterball")
+        case .gameBoy1989: return t("게임보이 1989", "Game Boy 1989", "ゲームボーイ 1989", "Game Boy 1989", "Game Boy 1989", "Game Boy 1989", "Game Boy 1989")
+        }
+    }
+    var newThemeUnlocked: String { t("새 테마 해금!", "New Theme Unlocked!", "新テーマ解放！", "¡Nuevo Tema Desbloqueado!", "Nouveau Thème Débloqué !", "Novo Tema Desbloqueado!", "Neues Design Freigeschaltet!") }
+    var activeThemeLabel: String { t("활성 테마", "Active Theme", "適用中のテーマ", "Tema Activo", "Thème Actif", "Tema Ativo", "Aktives Design") }
+    var unlockedThemesCount: String { t("해금됨", "unlocked", "解放済み", "desbloqueados", "débloqués", "desbloqueados", "freigeschaltet") }
+    var slotThemeRollHint: String { t("푸린 3마리를 맞추면 무작위 테마를 획득할 수 있습니다!", "Line up 3 Jigglypuffs to roll for a random theme!", "プリンを3体揃えるとランダムなテーマを獲得できます！", "¡Alinea 3 Jigglypuff para obtener un tema aleatorio!", "Alignez 3 Rondoudou pour remporter un thème aléatoire selon sa rareté !", "Alinhe 3 Jigglypuff para tentar a sorte em um tema aleatório!", "3 Pummeluff anordnen, um ein zufälliges Design zu gewinnen!") }
+    func themeRarityLabel(_ kind: AppThemeKind) -> String {
+        switch kind {
+        case .classic:
+            return t("기본", "Base", "基本", "Base", "Base", "Base", "Basis")
+        case .celadonNeon:
+            return t("일반", "Common", "コモン", "Común", "Commun", "Comum", "Gewöhnlich")
+        case .teamRocket:
+            return t("고급", "Uncommon", "アンコモン", "Poco Común", "Peu commun", "Incomum", "Ungewöhnlich")
+        case .indigoPlateau:
+            return t("희귀", "Rare", "レア", "Raro", "Rare", "Raro", "Selten")
+        case .masterBall:
+            return t("에픽", "Epic", "エピック", "Épico", "Épique", "Épico", "Episch")
+        case .gameBoy1989:
+            return t("전설", "Legendary", "レジェンド", "Legendario", "Légendaire", "Lendário", "Legendär")
+        }
+    }
+    func themeUnlockHint(_ kind: AppThemeKind) -> String {
+        switch kind {
+        case .classic:
+            return t("기본 해금", "Unlocked by default", "初期解放", "Desbloqueado por defecto", "Débloqué par défaut", "Desbloqueado por padrão", "Standardmäßig freigeschaltet")
+        default:
+            return t("슬롯머신에서 푸린 3마리 달성 시 무작위 추첨", "Random roll when lining up 3 Jigglypuffs on slots", "スロットでプリン3体時にランダム抽選", "Tirada aleatoria al alinear 3 Jigglypuff en la tragaperras", "Tirage aléatoire en alignant 3 Rondoudou à la machine", "Sorteio aleatório ao alinhar 3 Jigglypuff no caça-níquel", "Zufallsziehung bei 3 Pummeluff am Automaten")
+        }
+    }
+    func linesCountLabel(_ count: Int) -> String {
+        switch count {
+        case 1: return t("1라인", "1 Line", "1라인", "1 Línea", "1 Ligne", "1 Linha", "1 Linie")
+        case 3: return t("3라인", "3 Lines", "3ライン", "3 Líneas", "3 Lignes", "3 Linhas", "3 Linien")
+        default: return t("5라인", "5 Lines", "5ライン", "5 Líneas", "5 Lignes", "5 Linhas", "5 Linien")
+        }
+    }
+
+    // MARK: - Trainer Card
+    var trainerCard: String { t("트레이너 카드", "Trainer Card", "トレーナーカード", "Tarjeta de Entrenador", "Carte de Dresseur", "Cartão de Treinador", "Trainerkarte") }
+    var trainerCardTitle: String { t("트레이너 카드", "Trainer Card", "トレーナーカード", "Tarjeta de Entrenador", "Carte de Dresseur", "Cartão de Treinador", "Trainerkarte") }
+    var trainerCardCopyImage: String { t("이미지 복사", "Copy Image", "画像をコピー", "Copiar Imagen", "Copier l'image", "Copiar Imagem", "Bild kopieren") }
+    var trainerCardSaveImage: String { t("PNG 저장", "Save PNG", "PNGを保存", "Guardar PNG", "Enregistrer PNG", "Salvar PNG", "Als PNG speichern") }
+    var trainerCardCopied: String { t("클립보드에 복사됨!", "Copied to clipboard!", "クリップボードにコピーしました！", "¡Copiado al portapapeles!", "Copié dans le presse-papier !", "Copiado para a área de transferência!", "In Zwischenablage kopiert!") }
+    var trainerCardActiveMon: String { t("현재 파트너", "Current Companion", "現在のパートナー", "Compañero Actual", "Pokémon Actif", "Companheiro Atual", "Aktueller Begleiter") }
+    var trainerCardDexMon: String { t("도감에서 선택", "From Pokédex", "図鑑から選択", "De la Pokédex", "Depuis le Pokédex", "Da Pokédex", "Aus dem Pokédex") }
+    var trainerCardShiny: String { t("이로치", "Shiny", "色違い", "Variocolor", "Chromatique", "Brilhante", "Schillernd") }
+    var trainerCardPokemonSource: String { t("표시할 포켓몬", "Displayed Pokémon", "表示するポケモン", "Pokémon mostrado", "Pokémon affiché", "Pokémon exibido", "Angezeigtes Pokémon") }
+    var trainerCardCasinoHint: String { t("카지노에서 새 테마를 해금하여 전용 카드 디자인을 적용해 보세요!", "Unlock new themes at the Casino for exclusive Trainer Card styles!", "カジノで新しいテーマを解放して限定カードスタイルを使おう！", "¡Desbloquea nuevos temas en el Casino para estilos de tarjeta exclusivos!", "Débloquez de nouveaux thèmes au Casino pour obtenir des styles de carte exclusifs !", "Desbloqueie novos temas no Cassino para estilos de cartão exclusivos!", "Schalte neue Designs im Casino frei für exklusive Kartendesigns!") }
+    var trainerCardLifetimeTokens: String { t("누적 토큰", "Lifetime", "累計", "Total", "Cumul", "Total", "Gesamt") }
+    var trainerCardTodayTokens: String { t("오늘 토큰", "Today", "今日", "Hoy", "Aujourd'hui", "Hoje", "Heute") }
+    var trainerCardPokedexLabel: String { t("도감 등록", "Pokédex", "図鑑", "Pokédex", "Pokédex", "Pokédex", "Pokédex") }
+    var trainerCardGraduatedLabel: String { t("졸업 포켓몬", "Graduated", "殿堂入り", "Graduados", "Diplômés", "Graduados", "Absolventen") }
+    var trainerCardShiniesLabel: String { t("색이 다른", "Shinies", "色違い", "Variocolor", "Chromatiques", "Brilhantes", "Schillernd") }
+    var trainerCardCasinoCoinsLabel: String { t("카지노 코인", "Coins", "コイン", "Fichas", "Pièces", "Moedas", "Münzen") }
+    var trainerCardTrainerLabel: String { t("이름", "Name", "名前", "Nombre", "Nom", "Nome", "Name") }
 }

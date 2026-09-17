@@ -8,21 +8,44 @@ struct ShopView: View {
     let store: CompanionStore
     let nav: PopoverNavigation
 
+    enum Tab: Int, CaseIterable {
+        case shop
+        case casino
+    }
+
+    @State private var tab: Tab = .shop
+
     var body: some View {
         let l = store.l
-        // 고정 높이 — 컬렉션/가방과 동일(팝오버 재오픈 시 fitting size 축소 방지).
-        ScrollView {
-            VStack(alignment: .leading, spacing: 10) {
-                walletHeader(l)
-                // shopEntries = 판매 아이템 + 알 3종(보증 없음·고급 이상·희귀 이상)을 가격 오름차순으로
-                // 병합한 단일 목록. 알은 항상 포함되고(즉시 액션이라 ItemKind 가 아님), 알 상태에선
-                // EggCard 가 구매만 비활성으로 보여준다.
-                ForEach(store.shopEntries, id: \.self) { entry in
-                    switch entry {
-                    case .item(let kind):
-                        ShopItemCard(store: store, kind: kind)
-                    case .egg(let tier):
-                        EggCard(store: store, nav: nav, tier: tier)
+        VStack(spacing: 8) {
+            Picker("", selection: $tab) {
+                Text(l.shop).tag(Tab.shop)
+                Text(l.gameCorner).tag(Tab.casino)
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+
+            if tab == .casino {
+                ScrollView(showsIndicators: false) {
+                    CasinoView(store: store, nav: nav)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            } else {
+                // 고정 높이 — 컬렉션/가방과 동일(팝오버 재오픈 시 fitting size 축소 방지).
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 10) {
+                        walletHeader(l)
+                        // shopEntries = 판매 아이템 + 알 3종(보증 없음·고급 이상·희귀 이상)을 가격 오름차순으로
+                        // 병합한 단일 목록. 알은 항상 포함되고(즉시 액션이라 ItemKind 가 아님), 알 상태에선
+                        // EggCard 가 구매만 비활성으로 보여준다.
+                        ForEach(store.shopEntries, id: \.self) { entry in
+                            switch entry {
+                            case .item(let kind):
+                                ShopItemCard(store: store, kind: kind)
+                            case .egg(let tier):
+                                EggCard(store: store, nav: nav, tier: tier)
+                            }
+                        }
                     }
                 }
             }

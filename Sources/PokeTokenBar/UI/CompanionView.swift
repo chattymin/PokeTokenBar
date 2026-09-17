@@ -255,6 +255,7 @@ struct EvoLineView: View {
     var names: [Int: String]? = nil   // 제공되면 각 스프라이트 밑에 작은 이름 라벨(도감 단계별 이름)
     /// 한 줄이 쓸 수 있는 가로 폭. 기본 .infinity = 제한 없음(스크롤 없이 나열).
     var maxWidth: CGFloat = .infinity
+    var accentColor: Color = .accentColor
 
     private static let spacing: CGFloat = 2
     /// 화살표 칸 폭 = 썸네일 × 이 비율. 고정 frame 을 줘 SF Symbol 글리프 폭에 의존하지 않게 한다 —
@@ -431,7 +432,7 @@ struct EvoLineView: View {
                         .saturation(node.state == .future ? 0.4 : 1)
                         .overlay(alignment: .bottom) {
                             if node.state == .current {
-                                Circle().fill(Color.accentColor).frame(width: 4, height: 4).offset(y: 2)
+                                Circle().fill(accentColor).frame(width: 4, height: 4).offset(y: 2)
                             }
                         }
                     if let names, case .species(let id) = node.content {
@@ -451,6 +452,7 @@ struct EvoLineView: View {
 @MainActor
 struct CompanionHeader: View {
     let store: CompanionStore
+    @Environment(PopoverNavigation.self) private var nav
     // 연출 상태 — 부화/진화 순간 흰 플래시 + 스프링 스케일(본가 진화 신 오마주)
     @State private var flashOpacity: Double = 0
     @State private var celebScale: CGFloat = 1
@@ -524,6 +526,16 @@ struct CompanionHeader: View {
                                 .background(rarityColor(r)).foregroundStyle(.white)
                                 .clipShape(Capsule())
                         }
+                        Spacer()
+                        Button {
+                            nav.openTrainerCard()
+                        } label: {
+                            Image(systemName: "person.text.rectangle")
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundStyle(store.activeTheme.accentColor)
+                        }
+                        .buttonStyle(.plain)
+                        .help(store.l.trainerCardTitle)
                     }
                     if store.hasActive {
                         // 단계 + 성격(부화 시 확정된 개체 아이덴티티)
@@ -577,7 +589,8 @@ struct CompanionHeader: View {
             if store.hasActive, !store.lineNodes.isEmpty {
                 // 폭을 안 주면 분기 라인(이브이)이 넘쳐 팝오버 콘텐츠 전체가 좌우로 잘린다.
                 EvoLineView(nodes: store.lineNodes, mysteryLabel: store.l.unknownNextEvolution, language: store.language, shiny: store.currentIsShiny,
-                            maxWidth: PopoverMetrics.contentWidth)
+                            maxWidth: PopoverMetrics.contentWidth,
+                            accentColor: store.activeTheme.accentColor)
             }
             if let g = store.justGraduated {
                 Text(store.l.graduated(g))
@@ -767,12 +780,28 @@ struct CollectionView: View {
             emptyState   // 둘 다 비어 있으니 세그먼트를 그리지 않는다
         } else {
             VStack(alignment: .leading, spacing: 8) {
-                Picker("", selection: $nav.showingCollectionLog) {
-                    Text(store.l.dexTitle).tag(false)
-                    Text(store.l.catchLogTitle).tag(true)
+                HStack(spacing: 8) {
+                    Picker("", selection: $nav.showingCollectionLog) {
+                        Text(store.l.dexTitle).tag(false)
+                        Text(store.l.catchLogTitle).tag(true)
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+
+                    Button {
+                        nav.openTrainerCard()
+                    } label: {
+                        Image(systemName: "person.text.rectangle")
+                            .font(.system(size: 12, weight: .semibold))
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background(store.activeTheme.accentColor.opacity(0.14))
+                            .foregroundStyle(store.activeTheme.accentColor)
+                            .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+                    }
+                    .buttonStyle(.plain)
+                    .help(store.l.trainerCardTitle)
                 }
-                .pickerStyle(.segmented)
-                .labelsHidden()
                 if nav.showingCollectionLog { catchLog } else { DexGridView(store: store) }
             }
             .frame(height: Self.contentHeight)
@@ -1000,6 +1029,7 @@ private struct PokemonDetailView: View {
     let store: CompanionStore
     let species: CompanionStore.DexSpecies
     let onBack: () -> Void
+    @Environment(PopoverNavigation.self) private var nav
     @State private var selectedInstanceID = ""
 
     private var individuals: [DexEntry] { store.pokemonIndividuals(speciesID: species.id) }
@@ -1015,6 +1045,15 @@ private struct PokemonDetailView: View {
                 }
                 .buttonStyle(.borderless)
                 Spacer()
+                Button {
+                    nav.openTrainerCard(speciesID: species.id)
+                } label: {
+                    Label(store.l.trainerCardTitle, systemImage: "person.text.rectangle")
+                        .font(.caption.weight(.semibold))
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(store.activeTheme.accentColor)
+
                 Text("#\(species.id)").font(.caption).foregroundStyle(.secondary)
             }
             ScrollView {
@@ -1059,7 +1098,7 @@ private struct PokemonDetailView: View {
                 Text(store.l.rarityLabel(species.rarity))
                     .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
                 if species.isShiny { Text("✨ \(store.l.dexShinyLabel)").font(.caption2) }
-                if species.isRaising { Text(store.l.dexRaising).font(.caption2).foregroundStyle(Color.accentColor) }
+                if species.isRaising { Text(store.l.dexRaising).font(.caption2).foregroundStyle(store.activeTheme.accentColor) }
                 let isRepresentative = store.representativeSpeciesID == species.id
                 RepresentativeFooterButton(localization: store.l,
                                            isRepresentative: isRepresentative) {
@@ -1140,7 +1179,7 @@ private struct PokemonDetailView: View {
     private func statRow(name: String, value: Int, iv: Int?, scaleMaximum: Int) -> some View {
         HStack(spacing: 6) {
             Text(store.l.statLabel(name)).frame(width: 62, alignment: .leading)
-            ProgressView(value: Double(value), total: Double(scaleMaximum)).tint(Color.accentColor)
+            ProgressView(value: Double(value), total: Double(scaleMaximum)).tint(store.activeTheme.accentColor)
             Text("\(value)").monospacedDigit().frame(width: 28, alignment: .trailing)
             if let iv { Text("IV \(iv)").foregroundStyle(.secondary).frame(width: 34, alignment: .trailing) }
         }
@@ -1155,7 +1194,7 @@ private struct PokemonDetailView: View {
                     PokemonNameLabel(.type, type, language: store.language).textCase(.uppercase)
                         .font(.system(size: 9, weight: .bold))
                         .padding(.horizontal, 6).padding(.vertical, 3)
-                        .background(Color.accentColor.opacity(0.16), in: Capsule())
+                        .background(store.activeTheme.accentColor.opacity(0.16), in: Capsule())
                 }
             }
             HStack(spacing: 14) {
@@ -1269,13 +1308,13 @@ private struct DexSpeciesCell: View {
             .padding(3)
             // 대표 = 영속적인 accent 배경, 방금 클릭한 칸 = 기존 accent 테두리.
             // 서로 다른 카드여도 같은 강조 두 개가 선택된 것처럼 보이지 않는다.
-            .background(isRepresentative ? Color.accentColor.opacity(0.16)
+            .background(isRepresentative ? store.activeTheme.accentColor.opacity(0.16)
                                          : Color.secondary.opacity(isSelected ? 0.16 : 0.06))
             .clipShape(RoundedRectangle(cornerRadius: 8))
             .overlay {
                 if isSelected {
                     RoundedRectangle(cornerRadius: 8)
-                        .strokeBorder(Color.accentColor, lineWidth: 1.5)
+                        .strokeBorder(store.activeTheme.accentColor, lineWidth: 1.5)
                 }
             }
         }
@@ -1304,7 +1343,7 @@ private struct DexSpeciesCell: View {
             if isRepresentative {
                 Image(systemName: "star.fill")
                     .font(.system(size: 6, weight: .bold))
-                    .foregroundStyle(Color.accentColor)
+                    .foregroundStyle(store.activeTheme.accentColor)
                     .accessibilityHidden(true)
             }
         }
@@ -1320,8 +1359,8 @@ private struct DexSpeciesCell: View {
         Text(store.l.dexRaising.uppercased())
             .font(.system(size: 8, weight: .bold))
             .padding(.horizontal, 5).padding(.vertical, 1)
-            .foregroundStyle(Color.accentColor)
-            .background(Color.accentColor.opacity(0.14), in: Capsule())
+            .foregroundStyle(store.activeTheme.accentColor)
+            .background(store.activeTheme.accentColor.opacity(0.14), in: Capsule())
             .background(.regularMaterial, in: Capsule())
     }
 
@@ -1361,8 +1400,8 @@ private struct DexEntryRow: View {
                     Text(store.l.dexRaising.uppercased())
                         .font(.system(size: 8, weight: .bold))
                         .padding(.horizontal, 5).padding(.vertical, 1)
-                        .background(Color.accentColor.opacity(0.14))
-                        .foregroundStyle(Color.accentColor)
+                        .background(store.activeTheme.accentColor.opacity(0.14))
+                        .foregroundStyle(store.activeTheme.accentColor)
                         .clipShape(Capsule())
                 } else if entry.isReleased {
                     // 놓아준 개체 — 종은 도감에 남지만 이 개체는 끝까지 키우지 않았다.
@@ -1388,7 +1427,8 @@ private struct DexEntryRow: View {
             EvoLineView(nodes: entry.chainOrder.map { EvoLineItem(.species($0), .done) },
                         mysteryLabel: store.l.unknownNextEvolution, language: store.language, thumb: 56,
                         shiny: entry.isShiny, names: names,
-                        maxWidth: PopoverMetrics.contentWidth - Self.cardPadding * 2)
+                        maxWidth: PopoverMetrics.contentWidth - Self.cardPadding * 2,
+                        accentColor: store.activeTheme.accentColor)
             if let caughtAt = entry.caughtAt {
                 Text(caughtAt, style: .relative).font(.system(size: 9)).foregroundStyle(.tertiary)
             }

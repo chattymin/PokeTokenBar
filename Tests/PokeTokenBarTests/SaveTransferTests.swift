@@ -529,10 +529,10 @@ final class SaveTransferTests: XCTestCase {
         // eggTier(알 등급 보증) = 진행 — 산 물건이지 이 기기의 장부가 아니라 기기를 옮겨도 따라간다.
         let progress: Set<String> = ["usedSinceInstall", "spentTokens", "eggUsage", "eggTier",
                                      "pendingHatchID", "active", "representativeSpeciesID", "dex",
-                                     "collectedFinals", "inventory"]
+                                     "collectedFinals", "inventory", "casinoCoins", "unlockedThemes"]
         let deviceLedger: Set<String> = ["installBaselineSet", "claimedTodayTokensByProvider", "lastDate"]
         let accountLedger: Set<String> = ["candyGrantTier", "candyFeatureSeeded"]
-        let devicePreference: Set<String> = ["language"]
+        let devicePreference: Set<String> = ["language", "activeTheme"]
 
         let classified = progress.union(deviceLedger).union(accountLedger).union(devicePreference)
         let actual = Set(Mirror(reflecting: CompanionState()).children.compactMap(\.label))

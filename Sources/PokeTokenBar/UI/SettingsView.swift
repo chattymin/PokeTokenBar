@@ -67,6 +67,7 @@ struct SettingsView: View {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 18) {
                         generalGroup(store)
+                        themeGroup
                         difficultyGroup
                         menuBarGroup(store)
                         floatingPetGroup(store)
@@ -110,7 +111,7 @@ struct SettingsView: View {
                 }
             }
             .buttonStyle(.plain)
-            .foregroundStyle(Color.accentColor)
+            .foregroundStyle(companion.activeTheme.accentColor)
             .keyboardShortcut(.cancelAction)
             Spacer()
             Text(l.settings).font(.headline)
@@ -238,6 +239,38 @@ struct SettingsView: View {
                             launchAtLogin = LoginItem.isEnabled
                         }
                     }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var themeGroup: some View {
+        settingsSection(l.appThemesSection) {
+            groupRow {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(l.activeThemeLabel)
+                    Text("\(companion.unlockedThemes.count)/\(AppThemeKind.allCases.count) \(l.unlockedThemesCount)")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                HStack(spacing: 6) {
+                    Circle()
+                        .fill(companion.activeTheme.accentColor)
+                        .frame(width: 10, height: 10)
+                    Picker(l.activeThemeLabel, selection: Binding(
+                        get: { companion.activeTheme },
+                        set: { companion.setActiveTheme($0) }
+                    )) {
+                        ForEach(AppThemeKind.allCases.filter { companion.unlockedThemes.contains($0.rawValue) }, id: \.self) { theme in
+                            Text(l.themeName(theme)).tag(theme)
+                        }
+                    }
+                    .labelsHidden()
+                    .accessibilityLabel(l.activeThemeLabel)
+                    .pickerStyle(.menu)
+                    .fixedSize()
+                }
             }
         }
     }

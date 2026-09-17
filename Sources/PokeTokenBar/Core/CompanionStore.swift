@@ -815,6 +815,34 @@ final class CompanionStore {
         return new
     }
 
+    // MARK: 별의 프리즘 (이로치 영구 변환)
+
+    /// 별의 프리즘 사용 가능 — 활성 포켓몬 + 재고 > 0 + 아직 이로치가 아님.
+    var canUseStarPrism: Bool {
+        hasActive && itemCount(.starPrism) > 0 && !(state.active?.isShiny ?? false)
+    }
+
+    /// 별의 프리즘 1개 사용 — 현재 포켓몬 및 도감의 해당 진화 라인 전체를 영구히 이로치로 변환.
+    @discardableResult
+    func useStarPrism() -> Bool {
+        guard canUseStarPrism, var active = state.active else { return false }
+        state.inventory[ItemKind.starPrism.rawValue] = itemCount(.starPrism) - 1
+        active.isShiny = true
+        state.active = active
+
+        // 도감의 진화 라인 전체를 이로치로 갱신
+        for i in 0..<state.dex.count {
+            if state.dex[i].baseID == active.baseID || !Set(state.dex[i].chainOrder).isDisjoint(with: active.pathIDs) {
+                state.dex[i].isShiny = true
+            }
+        }
+
+        fireCelebration(.hatch(shiny: true))
+        notifyCompanionEvent(l.starPrismUsedTitle, l.starPrismUsedBody(name: displayName))
+        save()
+        return true
+    }
+
     // MARK: 상점 (재화 = 사용한 토큰)
 
     /// 상점에서 쓸 수 있는 토큰(재화) = 실사용 누적 − 상점 지출 누적. 성장 미터(usedSinceInstall)는
@@ -941,6 +969,87 @@ final class CompanionStore {
     var canBuyFreshEgg: Bool { canBuyEgg(nil) }
     @discardableResult
     func buyFreshEgg() -> Bool { buyEgg(nil) }
+
+    // MARK: - 카지노 (Casino)
+
+    var casinoCoins: Int { state.casinoCoins }
+    /// 임시로 사용자가 모든 테마를 확인하고 피드백할 수 있도록 전체 테마 해금
+    var unlockedThemes: Set<String> { Set(AppThemeKind.allCases.map(\.rawValue)) }
+    var activeTheme: AppThemeKind { AppThemeKind(rawValue: state.activeTheme) ?? .classic }
+
+    /// 동전 획득 (미니게임 승리 / 잭팟 등)
+    func addCasinoCoins(_ amount: Int) {
+        guard amount > 0 else { return }
+        state.casinoCoins = min(SaveTransfer.maxTokenValue, state.casinoCoins + amount)
+        save()
+    }
+
+    /// 동전 소비 (베팅, 경품 교환 등)
+    @discardableResult
+    func spendCasinoCoins(_ amount: Int) -> Bool {
+        guard amount > 0, state.casinoCoins >= amount else { return false }
+        state.casinoCoins -= amount
+        save()
+        return true
+    }
+
+    /// 동전 팩 구매 (사용한 토큰으로 지불)
+    @discardableResult
+    func buyCasinoCoins(package: CoinPackage) -> Bool {
+        guard availableTokens >= package.tokenCost else { return false }
+        state.spentTokens += package.tokenCost
+        state.casinoCoins = min(SaveTransfer.maxTokenValue, state.casinoCoins + package.coins)
+        save()
+        return true
+    }
+
+    /// 경품 포켓몬 교환 (아브라, 미니뇽, 스라크, 폴리곤 등)
+    @discardableResult
+    func buyCasinoPokemon(speciesID: Int, coinCost: Int) -> Bool {
+        guard spendCasinoCoins(coinCost) else { return false }
+        if let a = state.active {
+            state.dex.append(releasedDexEntry(from: a))
+        }
+        state.active = nil
+        state.reconcileRepresentativeSelection()
+        activeGeneration += 1
+        currentLine = nil
+        state.eggUsage = PokemonBalance.eggHatchThreshold
+        state.eggTier = nil
+        state.pendingHatchID = speciesID
+        prefetchedLineID = nil
+        justGraduated = nil; justEvolvedTo = nil; eventUntil = nil
+        save()
+        Task { await self.hatch(baseID: speciesID) }
+        return true
+    }
+
+    /// 테마 해금 (슬롯머신 달성 시 획득)
+    @discardableResult
+    func unlockCasinoTheme(_ theme: AppThemeKind) -> Bool {
+        guard !state.unlockedThemes.contains(theme.rawValue) else { return false }
+        state.unlockedThemes.insert(theme.rawValue)
+        save()
+        return true
+    }
+
+    /// 활성 테마 설정
+    func setActiveTheme(_ theme: AppThemeKind) {
+        guard unlockedThemes.contains(theme.rawValue) else { return }
+        state.unlockedThemes.insert(theme.rawValue)
+        state.activeTheme = theme.rawValue
+        save()
+    }
+
+    /// 별의 프리즘 경품 교환
+    @discardableResult
+    func buyStarPrism() -> Bool {
+        let cost = CasinoConstants.starPrismCost
+        guard spendCasinoCoins(cost) else { return false }
+        state.inventory[ItemKind.starPrism.rawValue, default: 0] += 1
+        save()
+        return true
+    }
 
     /// 지급 판정(순수·엣지 트리거) — 한도 창이 100% 를 새로 넘어선 순간에만 지급.
     /// - 100% 미만 → 맵에서 제거(재무장). resets_at 등 휘발 필드는 key 에 없다(안정 식별자만).
@@ -1248,10 +1357,12 @@ final class CompanionStore {
     private func chooseBase() async -> Int? {
         let tier = state.eggTier
         if let full = try? await provider.baseSpeciesIndex(), !full.isEmpty {
+            // 카지노 한정 종(폴리곤 등)은 일반 알 부화 풀에서 제외한다 (경품 교환소 전용)
+            let eligible = full.filter { !CasinoConstants.exclusiveSpeciesIDs.contains($0.id) }
             // 등급 보증 알은 후보를 먼저 좁힌다 — capture_rate 상한이 곧 등급 하한이므로
             // (Rarity.captureRateCeiling) 전설도 자연히 포함된다("희귀 이상"에 전설이 들어가는 게 정상).
             // 좁힌 결과가 비면 보증을 못 지키므로 전체 풀로 폴백하지 말고 알을 유지한다(다음 틱 재시도).
-            let index = tier.map { t in full.filter { t.includes(captureRate: $0.captureRate) } } ?? full
+            let index = tier.map { t in eligible.filter { t.includes(captureRate: $0.captureRate) } } ?? eligible
             guard !index.isEmpty else {
                 AppLog.write("hatch: no candidate for guaranteed \(tier?.rawValue ?? "none") — egg kept, retry next tick")
                 return nil
@@ -1281,8 +1392,10 @@ final class CompanionStore {
         for attempt in 1...16 {
             let ids = PokemonAssets.animatedSpeciesIDs
             let id = Int(rng.next() % UInt64(ids.count)) + ids.lowerBound
+            if CasinoConstants.exclusiveSpeciesIDs.contains(id) { continue }
             do {
                 if let bs = try await provider.baseSpecies(id: id) {
+                    if CasinoConstants.exclusiveSpeciesIDs.contains(bs.id) { continue }
                     // 등급 보증은 가중 경로와 **같은 기준**으로 여기서도 걸러야 한다 — 이 폴백만 빠지면
                     // GraphQL 인덱스 장애 때 보증이 조용히 깨진다. 못 찾으면 알 유지(구매 소멸 금지).
                     if let tier, !tier.includes(captureRate: bs.captureRate) { continue }

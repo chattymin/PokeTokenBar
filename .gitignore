@@ -28,6 +28,7 @@ docs/*
 
 # Agent worktrees / local state
 .claude/
+.idea/
 .worktrees/
 
 # Local-only review-gate opt-out (not published)

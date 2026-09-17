@@ -76,6 +76,7 @@ private struct ItemCard: View {
         switch kind {
         case .rareCandy: return store.canUseRareCandy
         case .mint:      return store.canUseMint
+        case .starPrism: return store.canUseStarPrism
         case .shinyCharm: return false   // 보유형 — 사용 개념 없음(상시 효과)
         }
     }
@@ -85,12 +86,14 @@ private struct ItemCard: View {
         case .rareCandy: return "+\(TokenFormatter.compact(RareCandy.xp)) XP"
         case .mint:      return l.mintEffectHint
         case .shinyCharm: return l.shinyCharmEffectHint
+        case .starPrism: return l.starPrismEffectHint
         }
     }
     private func performUse() {
         switch kind {
         case .rareCandy: _ = store.useRareCandy()
         case .mint:      _ = store.useMint()
+        case .starPrism: _ = store.useStarPrism()
         case .shinyCharm: break   // 보유형 — 사용 동작 없음
         }
     }
