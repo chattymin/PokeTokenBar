@@ -153,6 +153,77 @@ Reset countdowns include the clock time, and the colored percentage stays aligne
 </tr>
 </table>
 
+## Items & Legendary Artifacts
+
+### Shop Items & Consumables
+
+| Item | Sprite | Type | Description & Effect |
+| :--- | :---: | :---: | :--- |
+| **Rare Candy** | <img src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/rare-candy.png" width="28" height="28" alt="Rare Candy"> | Consumable | Grants +5M bonus EXP directly to your current Pokémon companion. Earned when hitting usage caps or purchased in the shop. |
+| **Mint** | <img src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/mental-herb.png" width="28" height="28" alt="Mint"> | Consumable | Randomly re-rolls your companion's nature (neutral, bonus growth, etc.). |
+| **Shiny Charm** | <img src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/shiny-charm.png" width="28" height="28" alt="Shiny Charm"> | Passive | Permanently quadruples (4×) the odds of an egg hatching shiny. |
+| **Pokémon Egg** | <img src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/egg.png" width="28" height="28" alt="Egg"> | Hatchable | Starts incubating a fresh egg with standard capture rate odds across all Gen 1–5 lines. |
+| **Uncommon Egg** | <img src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/egg.png" width="28" height="28" alt="Uncommon Egg"> | Hatchable | Guaranteed to hatch an Uncommon, Rare, or Legendary Pokémon. |
+| **Rare Egg** | <img src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/egg.png" width="28" height="28" alt="Rare Egg"> | Hatchable | Guaranteed to hatch a Rare or Legendary Pokémon. |
+
+### Legendary Passive Items (Achievement Unlocks)
+
+Collecting full canonical legendary groups in your Pokédex or graduating duplicate legendaries unlocks permanent passive artifacts:
+
+| Artifact | Sprite | Requirement | Effect |
+| :--- | :---: | :--- | :--- |
+| **Azure Flute** | <img src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/azure-flute.png" width="28" height="28" alt="Azure Flute"> | **Legendary Twin** (Graduate a duplicate legendary) | Quadruples (4×) the chance of hatching Legendary Pokémon from eggs. |
+| **Silver Wing** | <img src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/silver-wing.png" width="28" height="28" alt="Silver Wing"> | **Legendary Birds** (*Articuno, Zapdos, Moltres*) | Halves the token threshold needed to hatch eggs (50% faster incubation). |
+| **Old Sea Map** | <img src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/old-sea-map.png" width="28" height="28" alt="Old Sea Map"> | **Kanto Origin** (*Mewtwo, Mew*) | Increases Pokémon growth EXP gained from token usage (+20% bonus EXP). |
+| **Clear Bell** | <img src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/clear-bell.png" width="28" height="28" alt="Clear Bell"> | **Legendary Beasts** (*Raikou, Entei, Suicune*) | Doubles the appearance rate of Rare-tier Pokémon in eggs. |
+| **Rainbow Wing** | <img src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/rainbow-wing.png" width="28" height="28" alt="Rainbow Wing"> | **Tower Duo** (*Lugia, Ho-Oh*) | Grants a permanent 25% discount on all purchases in the Token Shop. |
+| **Magma Stone** | <img src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/magma-stone.png" width="28" height="28" alt="Magma Stone"> | **Legendary Titans** (*Regirock, Regice, Registeel*) | Reduces growth requirements by 25% when raising a previously registered species. |
+| **Soul Dew** | <img src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/soul-dew.png" width="28" height="28" alt="Soul Dew"> | **Eon Duo** (*Latios, Latias*) | Boosts Rare Candy EXP yield by +50% (7.5M EXP per candy). |
+| **Jade Orb** | <img src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/jade-orb.png" width="28" height="28" alt="Jade Orb"> | **Weather Trio** (*Kyogre, Groudon, Rayquaza*) | Grants an additional 20% discount on eggs in the Token Shop. |
+| **Gracidea** | <img src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/gracidea.png" width="28" height="28" alt="Gracidea"> | **Lake Guardians** (*Uxie, Mesprit, Azelf*) | Extends streak grace periods to allow up to a 2-day gap without losing your streak. |
+| **Griseous Orb** | <img src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/griseous-orb.png" width="28" height="28" alt="Griseous Orb"> | **Creation Trio** (*Dialga, Palkia, Giratina*) | Doubles all token rewards claimed from daily quests, weekly quests, and achievements. |
+| **Liberty Pass** | <img src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/liberty-pass.png" width="28" height="28" alt="Liberty Pass"> | **Swords of Justice** (*Cobalion, Terrakion, Virizion*) | Doubles progress applied toward the daily egg incubation quest. |
+| **Reveal Glass** | <img src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/reveal-glass.png" width="28" height="28" alt="Reveal Glass"> | **Forces of Nature** (*Tornadus, Thundurus, Landorus*) | Further multiplies shiny hatch odds (2× shiny chance, stacks with Shiny Charm for 8× total). |
+| **DNA Splicers** | <img src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/dna-splicers.png" width="28" height="28" alt="DNA Splicers"> | **Tao Duo** (*Reshiram, Zekrom*) | Dramatically accelerates companion growth with a massive +50% bonus EXP from tokens. |
+
+### Type Gym Badges (All 18 Types Pokédex Mastery)
+
+Catching and registering all species of any Pokémon type across Gen 1–5 in your Pokédex unlocks that type's Gym Badge as a permanent passive Bag item. Each owned badge grants a **+20% speed boost** (increased appearance rate and faster growth threshold) to all Pokémon types weak to it, stacking cumulatively when a species is weak to multiple owned badges:
+
+| Badge | Sprite | Type | Pokédex Requirement | Target Weaknesses Boosted (+20% Speed) |
+| :--- | :---: | :---: | :--- | :--- |
+| **Boulder Badge** | <img src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/badges/1.png" width="28" height="28" alt="Boulder Badge"> | Rock | 47 Rock-type Pokémon | Fire, Ice, Flying, Bug |
+| **Cascade Badge** | <img src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/badges/2.png" width="28" height="28" alt="Cascade Badge"> | Water | 109 Water-type Pokémon | Fire, Ground, Rock |
+| **Thunder Badge** | <img src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/badges/3.png" width="28" height="28" alt="Thunder Badge"> | Electric | 39 Electric-type Pokémon | Water, Flying |
+| **Rainbow Badge** | <img src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/badges/4.png" width="28" height="28" alt="Rainbow Badge"> | Grass | 75 Grass-type Pokémon | Water, Ground, Rock |
+| **Soul Badge** | <img src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/badges/5.png" width="28" height="28" alt="Soul Badge"> | Poison | 57 Poison-type Pokémon | Grass, Fairy |
+| **Marsh Badge** | <img src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/badges/6.png" width="28" height="28" alt="Marsh Badge"> | Psychic | 68 Psychic-type Pokémon | Fighting, Poison |
+| **Volcano Badge** | <img src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/badges/7.png" width="28" height="28" alt="Volcano Badge"> | Fire | 48 Fire-type Pokémon | Grass, Ice, Bug, Steel |
+| **Earth Badge** | <img src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/badges/8.png" width="28" height="28" alt="Earth Badge"> | Ground | 58 Ground-type Pokémon | Fire, Electric, Poison, Rock, Steel |
+| **Zephyr Badge** | <img src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/badges/9.png" width="28" height="28" alt="Zephyr Badge"> | Flying | 82 Flying-type Pokémon | Grass, Fighting, Bug |
+| **Hive Badge** | <img src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/badges/10.png" width="28" height="28" alt="Hive Badge"> | Bug | 63 Bug-type Pokémon | Grass, Psychic, Dark |
+| **Plain Badge** | <img src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/badges/11.png" width="28" height="28" alt="Plain Badge"> | Normal | 89 Normal-type Pokémon | Normal-type species |
+| **Fog Badge** | <img src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/badges/12.png" width="28" height="28" alt="Fog Badge"> | Ghost | 27 Ghost-type Pokémon | Psychic, Ghost |
+| **Storm Badge** | <img src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/badges/13.png" width="28" height="28" alt="Storm Badge"> | Fighting | 40 Fighting-type Pokémon | Normal, Ice, Rock, Dark, Steel |
+| **Mineral Badge** | <img src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/badges/14.png" width="28" height="28" alt="Mineral Badge"> | Steel | 37 Steel-type Pokémon | Ice, Rock, Fairy |
+| **Glacier Badge** | <img src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/badges/15.png" width="28" height="28" alt="Glacier Badge"> | Ice | 29 Ice-type Pokémon | Grass, Ground, Flying, Dragon |
+| **Rising Badge** | <img src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/badges/16.png" width="28" height="28" alt="Rising Badge"> | Dragon | 29 Dragon-type Pokémon | Dragon |
+| **Dark Badge** | <img src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/badges/59.png" width="28" height="28" alt="Dark Badge"> | Dark | 39 Dark-type Pokémon | Psychic, Ghost |
+| **Fairy Badge** | <img src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/badges/48.png" width="28" height="28" alt="Fairy Badge"> | Fairy | 22 Fairy-type Pokémon | Fighting, Dragon, Dark |
+
+### Fully Evolved Starter Trios & Master Achievement
+
+Registering all three fully evolved starter Pokémon for any generation (Gen 1–5) in your Pokédex awards Rare Candies and a substantial token grant. Completing all 15 fully evolved starters unlocks the Starter Master milestone:
+
+| Achievement | Generation / Requirement | Reward |
+| :--- | :--- | :--- |
+| **Kanto Starters** | Venusaur, Charizard, Blastoise | 3 Rare Candies + 50M tokens |
+| **Johto Starters** | Meganium, Typhlosion, Feraligatr | 3 Rare Candies + 50M tokens |
+| **Hoenn Starters** | Sceptile, Blaziken, Swampert | 3 Rare Candies + 50M tokens |
+| **Sinnoh Starters** | Torterra, Infernape, Empoleon | 3 Rare Candies + 50M tokens |
+| **Unova Starters** | Serperior, Emboar, Samurott | 3 Rare Candies + 50M tokens |
+| **Starter Master** | All 15 fully evolved starters across Gen 1–5 | 5 Rare Candies + 100M tokens |
+
 ## Also in the box
 
 - **Low Power Mode** — menu-bar animation continues at Power saver quality.

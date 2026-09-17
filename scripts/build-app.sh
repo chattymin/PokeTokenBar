@@ -88,4 +88,5 @@ pkill -x "$APP_NAME" 2>/dev/null || true
 rm -rf "/Applications/$APP_NAME.app"
 cp -R "$APP" /Applications/
 
-echo "완료: open /Applications/$APP_NAME.app"
+echo "완료: /Applications/$APP_NAME.app 실행"
+open "/Applications/$APP_NAME.app"

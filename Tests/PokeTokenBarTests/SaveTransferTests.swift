@@ -107,6 +107,7 @@ final class SaveTransferTests: XCTestCase {
         XCTAssertEqual(envelope.state.usedSinceInstall, original.usedSinceInstall)
         XCTAssertEqual(envelope.state.spentTokens, original.spentTokens)
         XCTAssertEqual(envelope.state.inventory, original.inventory)
+        XCTAssertEqual(envelope.state.questState, original.questState)
         XCTAssertEqual(envelope.state.dex.count, 1)
         XCTAssertEqual(envelope.state.collectedFinals, original.collectedFinals)
         XCTAssertEqual(envelope.state.representativeSpeciesID, 2, "대표 포켓몬 선택도 세이브와 함께 이동")
@@ -528,8 +529,9 @@ final class SaveTransferTests: XCTestCase {
     func testEveryCompanionStateFieldIsClassifiedForTransfer() {
         // eggTier(알 등급 보증) = 진행 — 산 물건이지 이 기기의 장부가 아니라 기기를 옮겨도 따라간다.
         let progress: Set<String> = ["usedSinceInstall", "spentTokens", "eggUsage", "eggTier",
-                                     "pendingHatchID", "active", "representativeSpeciesID", "dex",
-                                     "collectedFinals", "inventory"]
+                                     "eggTypeGuarantee", "pendingHatchID", "active",
+                                     "representativeSpeciesID", "dex", "collectedFinals",
+                                     "inventory", "questState"]
         let deviceLedger: Set<String> = ["installBaselineSet", "claimedTodayTokensByProvider", "lastDate"]
         let accountLedger: Set<String> = ["candyGrantTier", "candyFeatureSeeded"]
         let devicePreference: Set<String> = ["language"]

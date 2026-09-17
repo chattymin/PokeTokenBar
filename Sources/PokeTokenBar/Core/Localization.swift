@@ -21,6 +21,7 @@ struct L {
 
     // MARK: 탭
     var home: String { t("홈", "Home", "ホーム", "Inicio", "Accueil", "Início", "Startseite") }
+    var quests: String { t("퀘스트", "Quests", "クエスト", "Misiones", "Quêtes", "Missões", "Quests") }
     /// 상위 탭 이름 — 안에서 도감/포획 로그를 세그먼트로 전환하므로 둘을 아우르는 말이어야 한다.
     /// (ko 가 "도감"이면 탭과 세그먼트가 같은 이름이 돼 en/ja 의 Collection/コレクション 과도 어긋난다.)
     var collection: String { t("컬렉션", "Collection", "コレクション", "Colección", "Collection", "Coleção", "Sammlung") }
@@ -678,6 +679,7 @@ struct L {
     var rarityCommon: String { t("일반", "Common", "ノーマル", "Común", "Commun", "Comum", "Gewöhnlich") }
     var rarityUncommon: String { t("고급", "Uncommon", "アンコモン", "Poco común", "Peu commun", "Incomum", "Ungewöhnlich") }
     var rarityRare: String { t("희귀", "Rare", "レア", "Raro", "Rare", "Raro", "Selten") }
+    var rarityStarter: String { t("스타팅", "Starter", "御三家", "Inicial", "Starter", "Inicial", "Starter") }
     var rarityLegendary: String { t("전설", "Legendary", "伝説", "Legendario", "Légendaire", "Lendário", "Legendär") }
     var dexFilterHint: String { t("탭하면 이 희귀도만 보기 · 다시 탭하면 전체", "Tap to show only this rarity · tap again to clear", "タップでこの希少度のみ表示・再タップで全体", "Toca para ver solo esta rareza · toca de nuevo para ver todo", "Touche pour n'afficher que cette rareté · touche à nouveau pour tout afficher", "Toque para ver só esta raridade · toque de novo para ver tudo", "Tippe, um nur diese Seltenheit zu sehen · tippe erneut für alle") }
     /// 도감 칸의 ✨ 를 읽어주는 명사 — 이모지는 스크린리더가 일관되게 읽지 못한다.
@@ -737,6 +739,7 @@ struct L {
         case .common:    return rarityCommon
         case .uncommon:  return rarityUncommon
         case .rare:      return rarityRare
+        case .starter:   return rarityStarter
         case .legendary: return rarityLegendary
         }
     }
@@ -910,12 +913,77 @@ struct L {
     var useAfterHatch: String { t("부화 후 사용할 수 있어요", "Usable after hatching", "孵化後に使えます", "Se puede usar después de eclosionar", "Utilisable après l'éclosion", "Dá para usar depois que chocar", "Nach dem Schlüpfen verwendbar") }
     var useNeedsPokemon: String { t("사용할 포켓몬이 없어요", "No Pokémon to use it on", "使えるポケモンがいません", "No hay ningún Pokémon en quien usarlo", "Aucun Pokémon sur qui l'utiliser", "Nenhum Pokémon para usar o item", "Kein Pokémon, bei dem du es verwenden kannst") }
 
+    /// 포켓몬 타입 표시명.
+    func typeName(_ type: PokemonType) -> String {
+        switch type {
+        case .normal:   return t("노말", "Normal", "ノーマル", "Normal", "Normal", "Normal", "Normal")
+        case .fire:     return t("불꽃", "Fire", "ほのお", "Fuego", "Feu", "Fogo", "Feuer")
+        case .water:    return t("물", "Water", "みず", "Agua", "Eau", "Água", "Wasser")
+        case .grass:    return t("풀", "Grass", "くさ", "Planta", "Plante", "Planta", "Pflanze")
+        case .electric: return t("전기", "Electric", "でんき", "Eléctrico", "Électrik", "Elétrico", "Elektro")
+        case .ice:      return t("얼음", "Ice", "こおり", "Hielo", "Glace", "Gelo", "Eis")
+        case .fighting: return t("격투", "Fighting", "かくとう", "Lucha", "Combat", "Lutador", "Kampf")
+        case .poison:   return t("독", "Poison", "どく", "Veneno", "Poison", "Veneno", "Gift")
+        case .ground:   return t("땅", "Ground", "じめん", "Tierra", "Sol", "Terra", "Boden")
+        case .flying:   return t("비행", "Flying", "ひこう", "Volador", "Vol", "Voador", "Flug")
+        case .psychic:  return t("에스퍼", "Psychic", "エスパー", "Psíquico", "Psy", "Psíquico", "Psycho")
+        case .bug:      return t("벌레", "Bug", "むし", "Bicho", "Insecte", "Inseto", "Käfer")
+        case .rock:     return t("바위", "Rock", "いわ", "Roca", "Roche", "Rocha", "Gestein")
+        case .ghost:    return t("고스트", "Ghost", "ゴースト", "Fantasma", "Spectre", "Fantasma", "Geist")
+        case .dragon:   return t("드래곤", "Dragon", "ドラゴン", "Dragón", "Dragon", "Dragão", "Drache")
+        case .steel:    return t("강철", "Steel", "はがね", "Acero", "Acier", "Aço", "Stahl")
+        case .dark:     return t("악", "Dark", "あく", "Siniestro", "Ténèbres", "Sombrio", "Unlicht")
+        case .fairy:    return t("페어리", "Fairy", "フェアリー", "Hada", "Fée", "Fada", "Fee")
+        }
+    }
+
     /// 아이템 표시명 — species 처럼 공식 현지명.
     func itemName(_ kind: ItemKind) -> String {
         switch kind {
         case .rareCandy: return t("이상한 사탕", "Rare Candy", "ふしぎなアメ", "Caramelo Raro", "Super Bonbon", "Doce Raro", "Sonderbonbon")
         case .mint:      return t("민트", "Mint", "ミント", "Menta", "Menthe", "Menta", "Minze")
         case .shinyCharm: return t("이로치 부적", "Shiny Charm", "ひかるおまもり", "Amuleto Iris", "Charme Chroma", "Amuleto Shiny", "Schillerpin")
+        case .legendCharm: return t("천공의피리", "Azure Flute", "てんかいのふえ", "Flauta Azur", "Flûte Azur", "Flauta Celestial", "Azurflöte")
+        case .silverWing: return t("은빛날개", "Silver Wing", "ぎんいろのはね", "Ala Plateada", "Aile d'Argent", "Asa Prateada", "Silberflügel")
+        case .oldSeaMap: return t("오래된해도", "Old Sea Map", "ふるびたかいず", "Mapa Viejo", "Vieille Carte", "Mapa Velho", "Alte Karte")
+        case .clearBell: return t("투명한방울", "Clear Bell", "とうめいなスズ", "Campana Clara", "Clochette Claire", "Sino Transparente", "Klarglocke")
+        case .rainbowWing: return t("무지갯빛날개", "Rainbow Wing", "にじいろのはね", "Ala Arcoíris", "Aile Arc-en-Ciel", "Asa Arco-íris", "Buntflügel")
+        case .magmaStone: return t("화산의돌", "Magma Stone", "かざんのおきいし", "Piedra Magma", "Pierre Magma", "Pedra de Magma", "Magmastein")
+        case .soulDew: return t("마음의물방울", "Soul Dew", "こころのしずく", "Rocío Bondad", "Rosée Âme", "Orvalho da Alma", "Seelentau")
+        case .jadeOrb: return t("초록구슬", "Jade Orb", "もえぎいろのたま", "Esfera Verde", "Orbe Vert", "Esfera de Jade", "Grüne Kugel")
+        case .gracidea: return t("그라시데아꽃", "Gracidea", "グラシデアのはな", "Gracídea", "Gracidée", "Gracidea", "Gracidea")
+        case .griseousOrb: return t("백금옥", "Griseous Orb", "はっきんだま", "Griseosfera", "Orbe Platiné", "Esfera de Platina", "Platinum-Orb")
+        case .libertyPass: return t("리버티티켓", "Liberty Pass", "リバティチケット", "Pase Libertad", "Passe Liberté", "Passe da Liberdade", "Gartenpass")
+        case .revealGlass: return t("비추는거울", "Reveal Glass", "うつしかがみ", "Espejo Veraz", "Miroir Sacré", "Espelho Revelador", "Wahrspiegel")
+        case .dnaSplicers: return t("유전자쐐기", "DNA Splicers", "いでんしのくさび", "Punta ADN", "Pointeau ADN", "Fundidor de DNA", "DNS-Keil")
+        case .boulderBadge: return t("회색배지", "Boulder Badge", "グレーバッジ", "Medalla Roca", "Badge Roche", "Insígnia da Rocha", "Felsorden")
+        case .cascadeBadge: return t("블루배지", "Cascade Badge", "ブルーバッジ", "Medalla Cascada", "Badge Cascade", "Insígnia da Cascata", "Quellorden")
+        case .thunderBadge: return t("오렌지배지", "Thunder Badge", "オレンジバッジ", "Medalla Trueno", "Badge Foudre", "Insígnia do Trovão", "Donnerorden")
+        case .rainbowBadge: return t("무지개배지", "Rainbow Badge", "レインボーバッジ", "Medalla Arcoíris", "Badge Prisme", "Insígnia do Arco-Íris", "Farborden")
+        case .soulBadge:    return t("핑크배지", "Soul Badge", "ピンクバッジ", "Medalla Alma", "Badge Âme", "Insígnia da Alma", "Seelenorden")
+        case .marshBadge:   return t("골드배지", "Marsh Badge", "ゴールドバッジ", "Medalla Pantano", "Badge Marais", "Insígnia do Pântano", "Sumpforden")
+        case .volcanoBadge: return t("진홍배지", "Volcano Badge", "クリムゾンバッジ", "Medalla Volcán", "Badge Volcan", "Insígnia do Vulcão", "Vulkanorden")
+        case .earthBadge:   return t("그린배지", "Earth Badge", "グリーンバッジ", "Medalla Tierra", "Badge Terre", "Insígnia da Terra", "Erdorden")
+        case .zephyrBadge:  return t("윙배지", "Zephyr Badge", "ウイングバッジ", "Medalla Céfiro", "Badge Zéphyr", "Insígnia do Zéfiro", "Flügelorden")
+        case .hiveBadge:    return t("인섹트배지", "Hive Badge", "インセクトバッジ", "Medalla Colmena", "Badge Essaim", "Insígnia da Colmeia", "Insektorden")
+        case .plainBadge:   return t("레귤러배지", "Plain Badge", "レギュラーバッジ", "Medalla Planicie", "Badge Plaine", "Insígnia da Planície", "Basisorden")
+        case .fogBadge:     return t("팬텀배지", "Fog Badge", "ファントムバッジ", "Medalla Niebla", "Badge Brume", "Insígnia da Névoa", "Phantomorden")
+        case .stormBadge:   return t("쇼크배지", "Storm Badge", "ショックバッジ", "Medalla Tormenta", "Badge Choc", "Insígnia da Tempestade", "Faustorden")
+        case .mineralBadge: return t("스틸배지", "Mineral Badge", "스チールバッジ", "Medalla Mineral", "Badge Minéral", "Insígnia do Mineral", "Stahlorden")
+        case .glacierBadge: return t("아이스배지", "Glacier Badge", "アイスバッジ", "Medalla Glaciar", "Badge Glacier", "Insígnia da Geada", "Eisorden")
+        case .risingBadge:  return t("라이징배지", "Rising Badge", "ライジングバッジ", "Medalla Dragón", "Badge Lever", "Insígnia do Dragão", "Drachenorden")
+        case .darkBadge:    return t("악배지", "Dark Badge", "あくバッジ", "Medalla Siniestro", "Badge Ténèbres", "Insígnia Sombria", "Unlicht-Orden")
+        case .fairyBadge:   return t("페어리배지", "Fairy Badge", "フェアリーバッジ", "Medalla Hada", "Badge Fée", "Insígnia da Fada", "Feenorden")
+        case .leafStone:    return t("리프의돌", "Leaf Stone", "リーフのいし", "Piedra Hoja", "Pierre Plante", "Pedra da Folha", "Blattstein")
+        case .fireStone:    return t("불꽃의돌", "Fire Stone", "ほのおのいし", "Piedra Fuego", "Pierre Feu", "Pedra do Fogo", "Feuerstein")
+        case .waterStone:   return t("물의돌", "Water Stone", "みずのいし", "Piedra Agua", "Pierre Eau", "Pedra da Água", "Wasserstein")
+        case .thunderStone: return t("천둥의돌", "Thunder Stone", "かみなりのいし", "Piedra Trueno", "Pierre Foudre", "Pedra do Trovão", "Donnerstein")
+        case .sunStone:     return t("태양의돌", "Sun Stone", "たいようのいし", "Piedra Solar", "Pierre Soleil", "Pedra Solar", "Sonnenstein")
+        case .moonStone:    return t("달의돌", "Moon Stone", "つきのいし", "Piedra Lunar", "Pierre Lune", "Pedra da Lua", "Mondstein")
+        case .iceStone:     return t("얼음의돌", "Ice Stone", "こおりのいし", "Piedra Hielo", "Pierre Glace", "Pedra de Gelo", "Eisstein")
+        case .duskStone:    return t("어둠의돌", "Dusk Stone", "やみのいし", "Piedra Noche", "Pierre Nuit", "Pedra do Anoitecer", "Finsterstein")
+        case .dawnStone:    return t("각성의돌", "Dawn Stone", "めざめのいし", "Piedra Alba", "Pierre Aube", "Pedra da Alvorada", "Funkelstein")
+        case .shinyStone:   return t("빛의돌", "Shiny Stone", "ひかりのいし", "Piedra Día", "Pierre Éclat", "Pedra do Brilho", "Leuchtstein")
         }
     }
     func itemDescription(_ kind: ItemKind) -> String {
@@ -945,10 +1013,162 @@ struct L {
                      "Tant que tu le possèdes, augmente les chances qu'un Pokémon chromatique éclose.",
                      "Enquanto estiver na sua bolsa, aumenta a chance de nascer um Pokémon shiny.",
                      "Erhöht im Beutel die Chance, dass ein schillerndes Pokémon schlüpft.")
+        case .legendCharm:
+            return t("보유하면 전설의 포켓몬이 태어날 확률이 크게 올라가요.",
+                     "While owned, greatly increases the chance of hatching a legendary Pokémon.",
+                     "持っていると伝説のポケモンが生まれる確率が大きく上がります。",
+                     "Mientras lo tengas, aumenta considerablemente la probabilidad de eclosionar un Pokémon legendario.",
+                     "Tant que tu la possèdes, augmente grandement les chances de faire éclore un Pokémon légendaire.",
+                     "Enquanto estiver na bolsa, aumenta muito a chance de chocar um Pokémon lendário.",
+                     "Erhöht im Beutel die Chance auf ein legendäres Pokémon erheblich.")
+        case .silverWing:
+            return t("보유하면 알 부화에 필요한 토큰 소모량이 대폭 줄어듭니다.",
+                     "While owned, significantly reduces the token threshold needed to hatch eggs.",
+                     "持っているとタマゴの孵化に必要なトークン消費量が大幅に減少します。",
+                     "Mientras lo tengas, reduce significativamente los tokens necesarios para eclosionar huevos.",
+                     "Tant que tu la possèdes, réduit considérablement les tokens requis pour faire éclore un œuf.",
+                     "Enquanto estiver na bolsa, reduz significativamente os tokens necessários para chocar ovos.",
+                     "Verringert im Beutel die benötigten Tokens zum Ausbrüten von Eiern spürbar.")
+        case .oldSeaMap:
+            return t("보유하면 토큰 소모를 통한 포켓몬 성장 경험치가 추가로 증가합니다.",
+                     "While owned, grants bonus growth EXP from token usage.",
+                     "持っているとトークン消費によるポケモンの成長経験値が増加します。",
+                     "Mientras lo tengas, otorga EXP de crecimiento adicional por gasto de tokens.",
+                     "Tant que tu la possèdes, augmente l'EXP de croissance reçue via vos tokens.",
+                     "Enquanto estiver na bolsa, concede bônus de EXP de crescimento ao gastar tokens.",
+                     "Verleiht im Beutel zusätzliche Wachstums-EP durch Token-Verbrauch.")
+        case .clearBell:
+            return t("보유하면 알에서 희귀(Rare) 등급 이상의 포켓몬이 등장할 확률이 올라갑니다.",
+                     "While owned, increases the appearance rate of Rare Pokémon in eggs.",
+                     "持っているとタマゴからレアなポケモンが出現する確率が上がります。",
+                     "Mientras lo tengas, aumenta la probabilidad de obtener Pokémon raros en huevos.",
+                     "Tant que tu la possèdes, augmente le taux d'apparition des Pokémon Rares dans les œufs.",
+                     "Enquanto estiver na bolsa, aumenta a taxa de aparição de Pokémon Raros em ovos.",
+                     "Erhöht im Beutel die Chance auf seltene Pokémon aus Eiern.")
+        case .rainbowWing:
+            return t("보유하면 토큰 상점의 모든 아이템을 할인된 가격으로 구매할 수 있습니다.",
+                     "While owned, grants a discount on all shop purchases.",
+                     "持っているとショップの全商品を割引価格で購入できます。",
+                     "Mientras lo tengas, otorga un descuento en todos los artículos de la tienda.",
+                     "Tant que tu l'as, offre une réduction sur tous les articles de la boutique de tokens.",
+                     "Enquanto estiver na bolsa, concede desconto em todos os itens da loja.",
+                     "Gewährt im Beutel einen Rabatt auf alle Einkäufe im Token-Laden.")
+        case .magmaStone:
+            return t("보유하면 이미 졸업시킨 종을 다시 키울 때 성장 요구량이 감소합니다.",
+                     "While owned, reduces the growth required when raising duplicate species.",
+                     "持っていると図鑑登録済みの種を再育成する際の成長必要量が減少します。",
+                     "Mientras lo tengas, reduce el esfuerzo requerido al criar especies ya registradas.",
+                     "Tant que tu la possèdes, accélère la croissance des Pokémon d'une espèce déjà enregistrée.",
+                     "Enquanto estiver na bolsa, reduz a exigência de crescimento ao criar espécies já registradas.",
+                     "Verringert im Beutel den Wachstumsbedarf beim wiederholten Züchten registrierter Arten.")
+        case .soulDew:
+            return t("보유하면 이상한 사탕 사용 시 획득하는 경험치가 크게 증가합니다.",
+                     "While owned, Rare Candies grant significantly more EXP.",
+                     "持っているとふしぎなアメ使用時の獲得経験値が大きく増加します。",
+                     "Mientras lo tengas, los Caramelos Raros otorgan mucha más experiencia.",
+                     "Tant que tu la possèdes, augmente grandement l'EXP conférée par les Super Bonbons.",
+                     "Enquanto estiver na bolsa, os Doces Raros concedem muito mais experiência.",
+                     "Erhöht im Beutel die durch Sonderbonbons erhaltenen EP deutlich.")
+        case .jadeOrb:
+            return t("보유하면 상점에서 판매하는 포켓몬 알을 추가 할인된 가격에 구매합니다.",
+                     "While owned, gives an extra discount on eggs in the shop.",
+                     "持っているとショップのタマゴを特別割引価格で購入できます。",
+                     "Mientras lo tengas, otorga un descuento adicional en los huevos de la tienda.",
+                     "Tant que tu l'as, offre une réduction supplémentaire sur les œufs de la boutique.",
+                     "Enquanto estiver na bolsa, concede desconto adicional nos ovos da loja.",
+                     "Gibt im Beutel einen zusätzlichen Rabatt auf Eier im Laden.")
+        case .gracidea:
+            return t("보유하면 스트릭 유지를 위한 유예 기간이 늘어나 연속 기록이 더 안전하게 보호됩니다.",
+                     "While owned, extends streak protection grace periods to keep your streak safe.",
+                     "持っているとストリークの猶予期間が延び、連続記録が保護されます。",
+                     "Mientras la tengas, amplía el período de gracia para proteger tu racha.",
+                     "Tant que tu la possèdes, étend la période de grâce pour protéger votre série.",
+                     "Enquanto estiver na bolsa, estende a tolerância para manter sua sequência segura.",
+                     "Verlängert im Beutel den Schutzzeitraum, um deinen Streak abzusichern.")
+        case .griseousOrb:
+            return t("보유하면 퀘스트 및 업적 보상으로 받는 토큰이 증가합니다.",
+                     "While owned, boosts token rewards claimed from quests and achievements.",
+                     "持っているとクエストや実績で獲得できるトークン報酬が増加します。",
+                     "Mientras lo tengas, aumenta las recompensas de tokens de misiones y logros.",
+                     "Tant que tu l'as, augmente les tokens reçus en récompense de quêtes et succès.",
+                     "Enquanto estiver na bolsa, aumenta as recompensas de tokens em missões e conquistas.",
+                     "Erhöht im Beutel die Token-Belohnungen aus Quests und Erfolgen.")
+        case .libertyPass:
+            return t("보유하면 알 인큐베이션 일일 퀘스트의 진행 속도가 빨라집니다.",
+                     "While owned, accelerates progress on daily incubation quests.",
+                     "持っているとタマゴ孵化デイリークエストの進行が加速します。",
+                     "Mientras lo tengas, acelera el progreso en las misiones diarias de incubación.",
+                     "Tant que tu le possèdes, accélère la progression de la quête quotidienne d'incubation.",
+                     "Enquanto estiver na bolsa, acelera o progresso na missão diária de incubação.",
+                     "Beschleunigt im Beutel den Fortschritt bei täglichen Ausbrüt-Quests.")
+        case .revealGlass:
+            return t("보유하면 이로치 포켓몬이 태어날 확률이 더욱 증가합니다 (이로치 부적과 중첩).",
+                     "While owned, further boosts shiny hatch odds (stacks with Shiny Charm).",
+                     "持っていると色違いの出現率がさらに上昇します（ひかるおまもりと重複可）。",
+                     "Mientras lo tengas, mejora aún más las probabilidades de obtener variocolor (acumulable con Amuleto Iris).",
+                     "Tant que tu le possèdes, augmente encore davantage les chances d'obtenir un chromatique (cumulable avec Charme Chroma).",
+                     "Enquanto estiver na bolsa, aumenta ainda mais a chance de shiny (acumula com Amuleto Shiny).",
+                     "Erhöht im Beutel die Schiller-Chance noch weiter (stapelbar mit dem Schillerpin).")
+        case .dnaSplicers:
+            return t("보유하면 토큰 소모를 통한 포켓몬 성장 속도가 극적으로 빨라집니다.",
+                     "While owned, dramatically accelerates Pokémon growth from token usage.",
+                     "持っているとトークン消費によるポケモンの成長スピードが劇的に速くなります。",
+                     "Mientras lo tengas, acelera drásticamente el crecimiento del Pokémon por tokens.",
+                     "Tant que tu le possèdes, accélère considérablement la croissance de votre Pokémon via les tokens.",
+                     "Enquanto estiver na bolsa, acelera drasticamente o crescimento do Pokémon com tokens.",
+                     "Beschleunigt im Beutel das Wachstum deines Pokémon durch Token-Verbrauch drastisch.")
+        case .plainBadge:
+            return t("보유하면 노말타입 포켓몬의 출현률과 성장 속도가 20% 빨라져요 (누적 가능).",
+                     "While owned, Normal-type Pokémon appear and grow 20% faster (stacks cumulatively).",
+                     "持っていると、ノーマルタイプのポケモンの出現率と成長速度が20%早くなります（重複可能）。",
+                     "Mientras lo tengas, los Pokémon de tipo Normal aparecen y crecen un 20% más rápido (acumulable).",
+                     "Tant que tu le possèdes, les Pokémon de type Normal apparaissent et grandissent 20% plus vite (cumulable).",
+                     "Enquanto estiver na bolsa, Pokémon do tipo Normal aparecem e crescem 20% mais rápido (cumulativo).",
+                     "Erhöht im Beutel die Erscheinungs- und Wachstumsrate für Normal-Pokémon um 20% (stapelbar).")
+        case .boulderBadge, .cascadeBadge, .thunderBadge, .rainbowBadge,
+             .soulBadge, .marshBadge, .volcanoBadge, .earthBadge,
+             .zephyrBadge, .hiveBadge, .fogBadge, .stormBadge,
+             .mineralBadge, .glacierBadge, .risingBadge, .darkBadge, .fairyBadge:
+            return t("보유하면 이 배지에 약한 포켓몬의 출현률과 성장 속도가 20% 빨라져요 (누적 가능).",
+                     "While owned, Pokémon weak to this badge appear and grow 20% faster (stacks cumulatively).",
+                     "持っていると、このバッジに弱いポケモンの出現率と成長速度が20%早くなります（重複可能）。",
+                     "Mientras lo tengas, los Pokémon débiles a esta medalla aparecen y crecen un 20% más rápido (acumulable).",
+                     "Tant que tu le possèdes, les Pokémon faibles face à ce badge apparaissent et grandissent 20% plus vite (cumulable).",
+                     "Enquanto estiver na bolsa, Pokémon fracos a esta insígnia aparecem e crescem 20% mais rápido (cumulativo).",
+                     "Erhöht im Beutel die Erscheinungs- und Wachstumsrate für Pokémon mit Schwäche gegen diesen Orden um 20% (stapelbar).")
+        case .leafStone, .fireStone, .waterStone, .thunderStone, .sunStone,
+             .moonStone, .iceStone, .duskStone, .dawnStone, .shinyStone:
+            let tn = kind.stoneType.map { typeName($0) } ?? ""
+            return t("사용하면 현재 동료를 보내고 \(tn)타입 확정 알을 새로 품어요.",
+                     "Using this replaces your companion with an egg guaranteed to be \(tn)-type.",
+                     "使うと現在の相棒とお別れし、\(tn)タイプ確定のタマゴを新しく温めます。",
+                     "Usar esta piedra reemplaza a tu compañero por un huevo garantizado de tipo \(tn).",
+                     "Utiliser cette pierre remplace ton compagnon par un œuf garanti de type \(tn).",
+                     "Usar esta pedra substitui seu companheiro por um ovo garantido do tipo \(tn).",
+                     "Beim Benutzen wird dein Begleiter durch ein Ei vom Typ \(tn) ersetzt.")
         }
     }
     /// 가방 사용 컨트롤의 효과 힌트 — 민트("성격 랜덤 변경", 사탕의 "+XP" 자리).
     var mintEffectHint: String { t("성격 랜덤 변경", "Random nature", "せいかくランダム変更", "Naturaleza aleatoria", "Nature aléatoire", "Natureza aleatória", "Zufälliges Wesen") }
+    /// 가방 사용 컨트롤의 효과 힌트 — 진화의 돌.
+    func stoneEffectHint(_ typeName: String) -> String {
+        t("\(typeName)타입 알 교체", "Guaranteed \(typeName) Egg", "\(typeName)タイプ確定タマゴ", "Huevo de \(typeName)", "Œuf \(typeName) garanti", "Ovo \(typeName) garantido", "Garantiertes \(typeName)-Ei")
+    }
+    /// 진화의 돌 사용 시 현재 포켓몬 교체 확인 문구.
+    func stoneConfirm(_ monName: String, _ stoneName: String) -> String {
+        t("\(monName)을(를) 보내고 \(stoneName)을(를) 사용할까요?",
+          "Send off \(monName) and use \(stoneName)?",
+          "\(monName) を手放して \(stoneName) を使いますか？",
+          "¿Soltar a \(monName) y usar \(stoneName)?",
+          "Laisser partir \(monName) et utiliser \(stoneName) ?",
+          "Soltar \(monName) e usar \(stoneName)?",
+          "\(monName) verabschieden und \(stoneName) einsetzen?")
+    }
+    /// 인큐베이션 중 표시하는 타입 보증 배지 — 진화의 돌로 품은 알의 확정 타입.
+    func eggTypeGuaranteeHint(_ type: PokemonType) -> String {
+        let name = typeName(type)
+        return t("\(name)타입 확정", "Guaranteed \(name)", "\(name)タイプ確定", "\(name) garantizado", "\(name) garanti", "\(name) garantido", "Garantiert \(name)")
+    }
 
     // MARK: 상점 (재화 = 사용한 토큰)
     var shop: String { t("상점", "Shop", "ショップ", "Tienda", "Boutique", "Loja", "Laden") }
@@ -961,6 +1181,20 @@ struct L {
     var shopPriceLabel: String { t("가격", "Price", "価格", "Precio", "Prix", "Preço", "Preis") }
     var ownedAlready: String { t("보유 중", "Owned", "所持済み", "En posesión", "Possédé", "Já tem", "Im Beutel") }
     var shinyCharmEffectHint: String { t("이로치 확률 ↑ · 적용 중", "Shiny rate ↑ · active", "色違い率↑ · 適用中", "Prob. variocolor ↑ · activo", "Taux chromatique ↑ · actif", "Chance shiny ↑ · ativo", "Schillerchance ↑ · aktiv") }
+    var legendCharmEffectHint: String { t("전설 출현 4× · 적용 중", "Legendary rate 4× · active", "伝説出現 4× · 適用中", "Prob. legendario 4× · activo", "Taux légendaire 4× · actif", "Chance lendária 4× · ativo", "Legendäre Chance 4× · aktiv") }
+    var silverWingEffectHint: String { t("부화 임계치 ½ · 적용 중", "Egg threshold ½ · active", "タマゴ必要量½ · 適用中", "Umbral eclosión ½ · activo", "Seuil d'éclosion ½ · actif", "Meta de choque ½ · ativo", "Ei-Schwelle ½ · aktiv") }
+    var oldSeaMapEffectHint: String { t("성장 경험치 +20% · 적용 중", "Growth EXP +20% · active", "育成EXP +20% · 適用中", "EXP crecimiento +20% · activo", "EXP croissance +20% · actif", "EXP crescimento +20% · ativo", "Wachstums-EP +20% · aktiv") }
+    var clearBellEffectHint: String { t("희귀 출현 2× · 적용 중", "Rare rate 2× · active", "レア出現 2× · 適用中", "Prob. raro 2× · activo", "Taux Rare 2× · actif", "Chance raro 2× · ativo", "Seltene Chance 2× · aktiv") }
+    var rainbowWingEffectHint: String { t("상점 할인 25% · 적용 중", "Shop discount 25% · active", "ショップ25%引 · 適用中", "Descuento tienda 25% · activo", "Réduction boutique 25% · actif", "Desconto loja 25% · ativo", "Ladenrabatt 25% · aktiv") }
+    var magmaStoneEffectHint: String { t("중복 육성 25% 할인 · 적용 중", "Duplicate raising -25% · active", "重複育成25%減 · 適用中", "Crianza repetida -25% · activo", "Élevage doublon -25% · actif", "Criação repetida -25% · ativo", "Doppelte Zucht -25% · aktiv") }
+    var soulDewEffectHint: String { t("사탕 경험치 +50% · 적용 중", "Candy EXP +50% · active", "アメEXP +50% · 適用中", "EXP caramelo +50% · activo", "EXP bonbon +50% · actif", "EXP doce +50% · ativo", "Bonbon-EP +50% · aktiv") }
+    var jadeOrbEffectHint: String { t("알 추가할인 20% · 적용 중", "Egg discount 20% · active", "タマゴ20%引 · 適用中", "Descuento huevos 20% · activo", "Réduction œufs 20% · actif", "Desconto ovos 20% · ativo", "Ei-Rabatt 20% · aktiv") }
+    var gracideaEffectHint: String { t("스트릭 2일 유예 · 적용 중", "Streak 2-day grace · active", "連続日数2日猶予 · 適用中", "Margen racha 2 días · activo", "Tolérance série 2j · actif", "Tolerância sequência 2d · ativo", "Streak-Kulanz 2 Tage · aktiv") }
+    var griseousOrbEffectHint: String { t("퀘스트 토큰 2× · 적용 중", "Quest tokens 2× · active", "報酬トークン 2× · 適用中", "Tokens misión 2× · activo", "Tokens quêtes 2× · actif", "Tokens missão 2× · ativo", "Quest-Tokens 2× · aktiv") }
+    var libertyPassEffectHint: String { t("부화 퀘스트 2× · 적용 중", "Hatch quest 2× · active", "孵化デイリー 2× · 適用中", "Misión eclosión 2× · activo", "Quête éclosion 2× · actif", "Missão choque 2× · ativo", "Brut-Quest 2× · aktiv") }
+    var revealGlassEffectHint: String { t("이로치 분모 ½ · 적용 중", "Shiny denom ½ · active", "色違い分母½ · 適用中", "Denominador shiny ½ · activo", "Dénominateur shiny ½ · actif", "Denominador shiny ½ · ativo", "Schiller-Nenner ½ · aktiv") }
+    var dnaSplicersEffectHint: String { t("성장 경험치 +50% · 적용 중", "Growth EXP +50% · active", "育成EXP +50% · 適用中", "EXP crecimiento +50% · activo", "EXP croissance +50% · actif", "EXP crescimento +50% · ativo", "Wachstums-EP +50% · aktiv") }
+    var badgeEffectHint: String { t("약점 포획 속도 +20% · 적용 중", "Weakness speed +20% · active", "弱点捕獲速度 +20% · 適用中", "Vel. debilidad +20% · activo", "Vitesse faiblesse +20% · actif", "Vel. fraqueza +20% · ativo", "Schwäche-Tempo +20% · aktiv") }
     // 알 (리롤) — tier = 보증 등급 하한(nil = 보증 없는 기본 알).
     // 이름은 `rarityLabel(r) + " 알"` 식 조합으로 만들지 않는다: 한국어·영어는 맞아떨어져도 일본어에서
     // 조사가 어긋난다(レアのタマゴ vs 자연스러운 レアなタマゴ). 세 언어를 명시 트리플로 적는다.
@@ -969,6 +1203,7 @@ struct L {
         case nil, .common?: return t("포켓몬 알", "Pokémon Egg", "ポケモンのタマゴ", "Huevo Pokémon", "Œuf Pokémon", "Ovo Pokémon", "Pokémon-Ei")
         case .uncommon?:  return t("고급 알", "Uncommon Egg", "アンコモンのタマゴ", "Huevo poco común", "Œuf peu commun", "Ovo incomum", "Ungewöhnliches Ei")
         case .rare?:      return t("희귀 알", "Rare Egg", "レアのタマゴ", "Huevo raro", "Œuf rare", "Ovo raro", "Seltenes Ei")
+        case .starter?:   return t("스타팅 알", "Starter Egg", "御三家のタマゴ", "Huevo inicial", "Œuf de starter", "Ovo inicial", "Starter-Ei")
         case .legendary?: return t("전설 알", "Legendary Egg", "でんせつのタマゴ", "Huevo legendario", "Œuf légendaire", "Ovo lendário", "Legendäres Ei")   // 미판매(FreshEgg.shopTiers)
         }
     }
@@ -1036,5 +1271,388 @@ struct L {
           "Tu as atteint ta limite de tokens \(window). Une récompense pour l'effort — utilise-la pour faire évoluer ton Pokémon !",
           "Você esgotou seu limite de tokens — \(window). Você merece um agrado: use no seu Pokémon para evoluir!",
           "Du hast das Token-Limit für \(window) ausgeschöpft. Eine Belohnung für deinen Einsatz – verwende sie, um dein Pokémon zu entwickeln!")
+    }
+
+    // MARK: Quests & Streaks
+    var dailyQuests: String { t("일일 퀘스트", "Daily Quests", "デイリークエスト", "Misiones diarias", "Quêtes du jour", "Missões diárias", "Tägliche Quests") }
+    var weeklyQuests: String { t("주간 퀘스트", "Weekly Quests", "週間クエスト", "Misiones semanales", "Quêtes hebdomadaires", "Missões semanais", "Wöchentliche Quests") }
+    var achievements: String { t("업적", "Achievements", "実績", "Logros", "Succès", "Conquistas", "Erfolge") }
+    func streakTitle(days: Int) -> String {
+        t("\(days)일 연속 코딩!", "\(days)-Day Coding Streak!", "\(days)日連続コーディング！", "¡Racha de \(days) días!", "Série de \(days) jours !", "Sequência de \(days) dias!", "\(days) Tage Coding-Streak!")
+    }
+    func bestStreakTitle(days: Int) -> String {
+        t("최고 기록: \(days)일", "Best: \(days) days", "最高記録: \(days)日", "Récord: \(days) días", "Record : \(days) jours", "Recorde: \(days) dias", "Rekord: \(days) Tage")
+    }
+    var streakActiveToday: String {
+        t("오늘 코딩 완료", "Streak extended today", "今日コーディング完了", "¡Racha activa hoy!", "Série validée aujourd'hui", "Sequência ativa hoje", "Streak heute aktiv")
+    }
+    var streakInactiveToday: String {
+        t("오늘 토큰을 쓰면 연속 기록이 이어져요", "Burn tokens today to keep your streak alive", "今日トークンを使うと継続します", "Usa tokens hoy para mantener tu racha", "Consommez des tokens pour continuer la série", "Use tokens hoje para manter a sequência", "Verbrauche heute Tokens, um den Streak zu halten")
+    }
+    var claimReward: String { t("보상 받기", "Claim", "受け取る", "Reclamar", "Récupérer", "Resgatar", "Einlösen") }
+    var claimAll: String { t("모두 받기", "Claim All", "すべて受け取る", "Reclamar todo", "Tout réclamer", "Reivindicar tudo", "Alle abholen") }
+    var rewardClaimed: String { t("완료됨", "Claimed", "受取済み", "Reclamado", "Récupéré", "Resgatado", "Eingelöst") }
+    var questsCompletedToday: String { t("오늘의 퀘스트를 모두 완료했어요!", "All daily quests completed today!", "今日のクエストをすべて完了しました！", "¡Misiones de hoy completadas!", "Toutes les quêtes du jour sont terminées !", "Todas as missões de hoje concluídas!", "Alle täglichen Quests abgeschlossen!") }
+    var completedQuests: String { t("완료된 퀘스트", "Completed Quests", "完了したクエスト", "Misiones completadas", "Quêtes terminées", "Missões concluídas", "Abgeschlossene Quests") }
+    var completedAchievements: String { t("완료된 업적", "Completed Achievements", "完了した実績", "Logros completados", "Succès terminés", "Conquistas concluídas", "Abgeschlossene Erfolge") }
+    var allDailyQuestsCompleted: String { t("오늘의 모든 일일 퀘스트를 완료했습니다!", "All daily quests completed for today!", "今日のクエストをすべて完了しました！", "¡Misiones de hoy completadas!", "Toutes les quêtes quotidiennes sont terminées !", "Todas as missões de hoje concluídas!", "Alle täglichen Quests abgeschlossen!") }
+    var allWeeklyQuestsCompleted: String { t("이번 주의 모든 주간 퀘스트를 완료했습니다!", "All weekly quests completed for this week!", "今週のウィークリークエストをすべて完了しました！", "¡Todas las misiones semanales completadas!", "Toutes les quêtes hebdomadaires sont terminées !", "Todas as missões semanais foram concluídas!", "Alle wöchentlichen Quests abgeschlossen!") }
+    var allAchievementsCompleted: String { t("모든 업적을 달성했습니다!", "All achievements unlocked!", "すべての実績を達成しました！", "¡Todos los logros desbloqueados!", "Tous les succès sont débloqués !", "Todas as conquistas concluídas!", "Alle Erfolge abgeschlossen!") }
+    var allCategories: String { t("전체", "All", "すべて", "Todos", "Tous", "Todos", "Alle") }
+
+    func achievementCategoryTitle(_ category: AchievementCategory) -> String {
+        switch category {
+        case .adventure:
+            return t("모험 & 훈련", "Adventure & Training", "冒険と育成", "Aventura y Entrenamiento", "Aventure & Entraînement", "Aventura e Treinamento", "Abenteuer & Training")
+        case .starters:
+            return t("스타터 파트너", "Starter Partners", "最初のパートナー", "Compañeros Iniciales", "Partenaires de départ", "Iniciais Regionais", "Starter-Partner")
+        case .legendaries:
+            return t("전설 & 환상", "Legendary & Mythical", "伝説・幻のポケモン", "Legendarios y Míticos", "Légendaires & Fabuleux", "Lendários e Míticos", "Legendär & Mystisch")
+        case .gymBadges:
+            return t("체육관 관장 배지", "Gym Badges", "ジムバッジ", "Medallas de Gimnasio", "Badges d'Arène", "Insígnias de Ginásio", "Arena-Orden")
+        case .productivity:
+            return t("연속 기록 & 토큰", "Streaks & Tokens", "継続記録とトークン", "Rachas y Tokens", "Séries & Productivité", "Sequências e Tokens", "Streaks & Tokens")
+        }
+    }
+
+    func achievementCategorySubtitle(_ category: AchievementCategory) -> String {
+        switch category {
+        case .adventure:
+            return t("첫 발걸음, 진화, 도감 완성 및 반짝이", "First steps, evolutions, Pokédex milestones, and shinies", "最初の一歩、進化、図鑑登録、色違い", "Primeros pasos, evoluciones, Pokédex y variocolores", "Premiers pas, évolutions, Pokédex et chromatiques", "Primeiros passos, evoluções, Pokédex e brilhantes", "Erste Schritte, Entwicklungen, Pokédex und Shinys")
+        case .starters:
+            return t("각 지방의 스타터 삼총사 및 스타터 마스터", "Regional starter trios and Starter Master", "各地方の御三家とスターターマスター", "Tríos iniciales regionales y Maestro Inicial", "Trios de starters régionaux et Maître des Starters", "Tríos de iniciais de cada região e Mestre Inicial", "Regionale Starter-Trios und Starter-Meister")
+        case .legendaries:
+            return t("전설의 새, 야수, 거인, 신화 속 포켓몬들", "Legendary birds, beasts, titans, and mythical deities", "伝説の鳥、三獣、巨人、神話のポケモンたち", "Aves legendarias, bestias, titanes y deidades míticas", "Oiseaux légendaires, fauves, titans et mythes anciens", "Aves lendárias, feras, titãs e divindades antigas", "Legendäre Vögel, Bestien, Titanen und Urzeit-Mythen")
+        case .gymBadges:
+            return t("18가지 포켓몬 타입을 정복하고 모든 배지를 획득하세요", "Master all 18 elemental types and collect gym badges", "全18タイプを極めてジムバッジを集めよう", "Domina los 18 tipos elementales y reúne las medallas", "Maîtrisez les 18 types élémentaires et décrochez les badges", "Domine os 18 tipos elementares e conquiste as insígnias", "Meistere alle 18 Elementartypen und sammle alle Orden")
+        case .productivity:
+            return t("매일 이어가는 스트릭과 대규모 토큰 사용 마일스톤", "Daily coding streaks and massive token burn milestones", "毎日の継続ストリークと大量トークン消費マイルストーン", "Rachas diarias de programación e hitos de tokens", "Séries quotidiennes de code et grands paliers de tokens", "Sequências diárias de código e marcos de uso de tokens", "Tägliche Coding-Streaks und große Token-Meilensteine")
+        }
+    }
+
+    func weeklyQuestTitle(_ type: WeeklyQuestType) -> String {
+        switch type {
+        case .activeDays3: return t("주간 3일 출석", "Weekly Trio", "週間3日稼働", "Trío semanal", "Trio Hebdo", "Trio Semanal", "Wöchentliches Trio")
+        case .activeDays5: return t("완벽한 평일", "Workweek Warrior", "平日の戦士", "Guerrero laboral", "Semaine Complète", "Guerreiro da Semana", "Arbeitswochen-Krieger")
+        case .tokens100M: return t("주간 100M", "Weekly 100M", "週間100M", "100M semanal", "100M Hebdo", "100M Semanal", "Wöchentliche 100M")
+        case .tokens300M: return t("주간 스프린트", "Weekly Sprint", "週間スプリント", "Sprint semanal", "Sprint Hebdomadaire", "Sprint Semanal", "Wöchentlicher Sprint")
+        case .tokens1B: return t("주간 1B 마일스톤", "Weekly Billion", "週間1Bマイルストーン", "1B semanal", "1 Milliard Hebdo", "1B Semanal", "Wöchentliche Milliarde")
+        case .tokens2B: return t("주간 더블 빌리언", "Weekly Double Billion", "週間2Bマイルストーン", "2B semanal", "2 Milliards Hebdo", "2B Semanal", "Wöchentlicher Doppel-Milliardär")
+        case .tokens3_5B: return t("주간 레전드 타이탄", "Weekly Legend (3.5B)", "週間3.5Bレジェンド", "3.5B semanal", "Légende Hebdomadaire (3.5B)", "Lenda Semanal (3.5B)", "Wöchentliche Legende (3.5B)")
+        }
+    }
+
+    func weeklyQuestDescription(_ type: WeeklyQuestType) -> String {
+        switch type {
+        case .activeDays3: return t("이번 주 3일 이상 코딩하세요.", "Code on at least 3 days this week.", "今週3日以上コーディングする。", "Programa al menos 3 días esta semana.", "Codez au moins 3 jours cette semaine.", "Programe em pelo menos 3 dias esta semana.", "Code an mindestens 3 Tagen diese Woche.")
+        case .activeDays5: return t("이번 주 5일 이상 코딩하세요.", "Code on at least 5 days this week.", "今週5日以上コーディングする。", "Programa al menos 5 días esta semana.", "Codez au moins 5 jours cette semaine.", "Programe em pelo menos 5 dias esta semana.", "Code an mindestens 5 Tagen diese Woche.")
+        case .tokens100M: return t("이번 주 총 100M 토큰을 사용하세요.", "Burn 100M tokens this week.", "今週合計100Mトークンを使用する。", "Consume 100M de tokens esta semana.", "Consommez 100M de tokens cette semaine.", "Use 100M de tokens esta semana.", "Verbrauche diese Woche 100M Tokens.")
+        case .tokens300M: return t("이번 주 총 300M 토큰을 사용하세요.", "Burn 300M tokens this week.", "今週合計300Mトークンを使用する。", "Consume 300M de tokens esta semana.", "Consommez 300M de tokens cette semaine.", "Use 300M de tokens esta semana.", "Verbrauche diese Woche 300M Tokens.")
+        case .tokens1B: return t("이번 주 총 1B 토큰을 사용하세요.", "Burn 1 billion tokens this week.", "今週合計1Bトークンを使用する。", "Consume 1B de tokens esta semana.", "Consommez 1 milliard de tokens cette semaine.", "Use 1B de tokens esta semana.", "Verbrauche diese Woche 1B Tokens.")
+        case .tokens2B: return t("이번 주 총 2B 토큰을 사용하세요.", "Burn 2 billion tokens this week.", "今週合計2Bトークンを使用する。", "Consume 2B de tokens esta semana.", "Consommez 2 milliards de tokens cette semaine.", "Use 2B de tokens esta semana.", "Verbrauche diese Woche 2B Tokens.")
+        case .tokens3_5B: return t("이번 주 총 3.5B 토큰을 사용하세요.", "Burn 3.5 billion tokens this week.", "今週合計3.5Bトークンを使用する。", "Consume 3.5B de tokens esta semana.", "Consommez 3.5 milliards de tokens cette semaine.", "Use 3.5B de tokens esta semana.", "Verbrauche diese Woche 3.5B Tokens.")
+        }
+    }
+
+    func dailyQuestTitle(_ type: DailyQuestType) -> String {
+        switch type {
+        case .warmup: return t("워밍업", "Warm-Up", "ウォームアップ", "Calentamiento", "Échauffement", "Aquecimento", "Aufwärmen")
+        case .focus: return t("집중 모드", "Steady Focus", "集中モード", "Enfoque constante", "Concentration", "Foco constante", "Voller Fokus")
+        case .power: return t("파워 세션", "Power Session", "パワーセッション", "Sesión intensa", "Productivité Intense", "Sessão poderosa", "Power-Session")
+        case .deepWork: return t("딥워크 마스터", "Deep Work Mastery", "ディープワークの達人", "Maestría en trabajo profundo", "Maîtrise du Deep Work", "Mestria em trabalho profundo", "Deep-Work-Meister")
+        case .marathon: return t("일일 마라톤", "Daily Marathon", "デイリーマラソン", "Maratón diario", "Marathon Quotidien", "Maratona Diária", "Täglicher Marathon")
+        case .titan: return t("일일 타이탄", "Daily Titan", "デイリータイタン", "Titán diario", "Titan Quotidien (500M)", "Titã Diário", "Täglicher Titan")
+        case .streak: return t("매일의 불꽃", "Daily Flame", "毎日の炎", "Llama diaria", "Flamme Quotidienne", "Chama diária", "Tägliche Flamme")
+        case .incubator: return t("동행 돌보기", "Companion Care", "相棒のお世話", "Cuidado del compañero", "Soin du Compagnon", "Cuidado do companheiro", "Begleiter-Pflege")
+        }
+    }
+
+    func dailyQuestDescription(_ type: DailyQuestType) -> String {
+        switch type {
+        case .warmup: return t("오늘 10M 토큰을 사용하세요.", "Burn 10M tokens today.", "今日10Mトークンを使用する。", "Consume 10M de tokens hoy.", "Consommez 10M de tokens aujourd'hui.", "Use 10M de tokens hoje.", "Verbrauche heute 10M Tokens.")
+        case .focus: return t("오늘 50M 토큰을 사용하세요.", "Burn 50M tokens today.", "今日50Mトークンを使用する。", "Consume 50M de tokens hoy.", "Consommez 50M de tokens aujourd'hui.", "Use 50M de tokens hoje.", "Verbrauche heute 50M Tokens.")
+        case .power: return t("오늘 100M 토큰을 사용하세요.", "Burn 100M tokens today.", "今日100Mトークンを使用する。", "Consume 100M de tokens hoy.", "Consommez 100M de tokens aujourd'hui.", "Use 100M de tokens hoje.", "Verbrauche heute 100M Tokens.")
+        case .deepWork: return t("오늘 150M 토큰을 사용하세요.", "Burn 150M tokens today.", "今日150Mトークンを使用する。", "Consume 150M de tokens hoy.", "Consommez 150M de tokens aujourd'hui.", "Use 150M de tokens hoje.", "Verbrauche heute 150M Tokens.")
+        case .marathon: return t("오늘 300M 토큰을 사용하세요.", "Burn 300M tokens today.", "今日300Mトークンを使用する。", "Consume 300M de tokens hoy.", "Consommez 300M de tokens aujourd'hui.", "Use 300M de tokens hoje.", "Verbrauche heute 300M Tokens.")
+        case .titan: return t("오늘 500M 토큰을 사용하세요.", "Burn 500M tokens today.", "今日500Mトークンを使用する。", "Consume 500M de tokens hoy.", "Consommez 500M de tokens aujourd'hui.", "Use 500M de tokens hoje.", "Verbrauche heute 500M Tokens.")
+        case .streak: return t("오늘 코딩해서 연속 기록을 이어가세요.", "Code today to keep your streak active.", "今日コーディングして連続記録を維持する。", "Programa hoy para mantener tu racha activa.", "Codez aujourd'hui pour garder votre série active.", "Programe hoje para manter sua sequência ativa.", "Code heute, um deinen Streak aufrechtzuerhalten.")
+        case .incubator: return t("알 또는 포켓몬 성장에 10M 토큰을 반영하세요.", "Advance your egg or Pokémon by 10M tokens.", "タマゴまたはポケモンの成長を10M進める。", "Avanza tu huevo o Pokémon con 10M de tokens.", "Faites progresser votre œuf ou Pokémon de 10M de tokens.", "Avance seu ovo ou Pokémon em 10M de tokens.", "Bringe dein Ei oder Pokémon um 10M Tokens voran.")
+        }
+    }
+
+    func achievementTitle(_ type: AchievementType) -> String {
+        if let badgeType = type.badgeType {
+            return itemName(badgeType.badgeItem)
+        }
+        switch type {
+        case .firstHatch: return t("첫 만남", "First Step", "はじまりの一歩", "Primer paso", "Premier Pas", "Primeiro passo", "Erster Schritt")
+        case .firstEvolve: return t("눈부신 진화", "Evolution!", "かがやく進化", "¡Evolución!", "Évolution !", "Evolução!", "Entwicklung!")
+        case .firstGraduate: return t("명예로운 졸업", "Honor Graduate", "名誉ある卒業", "Graduado con honores", "Diplômé d'Honneur", "Graduado com honras", "Ehrenvoller Abschluss")
+        case .squad5: return t("포켓몬 스쿼드", "Star Squad", "スター分隊", "Equipo estrella", "Équipe Étoilée", "Esquadrão estrela", "Star-Team")
+        case .dex15: return t("도감 애호가", "Dex Connoisseur", "図鑑愛好家", "Conocedor de la Pokédex", "Collectionneur Averti", "Conhecedor da Pokédex", "Pokédex-Kenner")
+        case .dex30: return t("도감 마스터", "Pokédex Master", "図鑑マスター", "Maestro Pokédex", "Maître Pokédex", "Mestre da Pokédex", "Pokédex-Meister")
+        case .shinyHunter: return t("별빛 기적", "Shooting Star", "星の奇跡", "Estrella fugaz", "Étoile Filante", "Estrela cadente", "Sternschnuppe")
+        case .streak3: return t("습관의 시작", "Habit Builder", "習慣の始まり", "Constructor de hábitos", "Régularité", "Criador de hábitos", "Gewohnheitsbildner")
+        case .streak7: return t("일주일의 헌신", "Weekly Dedication", "1週間の献身", "Dedicación semanal", "Persévérance", "Dedicação semanal", "Wöchentliche Hingabe")
+        case .streak14: return t("철의 규율", "Fortnight Focus", "2週間の集中", "Disciplina de hierro", "Discipline de Fer", "Foco quinzenal", "Zwei Wochen Fokus")
+        case .streak30: return t("월간 레전드", "Monthly Legend", "月間レジェンド", "Leyenda mensual", "Légende du Code", "Lenda mensal", "Monats-Legende")
+        case .tokens100M: return t("토큰 센츄리온", "Token Centurion", "トークンセンチュリオン", "Centurión de tokens", "Premier Million", "Centurião de tokens", "Token-Zenturio")
+        case .tokens1B: return t("토큰 억만장자", "Token Billionaire", "トークンビリオネア", "Billonario de tokens", "Milliardaire", "Bilionário de tokens", "Token-Milliardär")
+        case .tokens5B: return t("토큰 타이탄", "Token Titan", "トークンタイタン", "Titán de tokens", "Titan du Token", "Titã de tokens", "Token-Titan")
+        case .tokens10B: return t("코스믹 개발자", "Cosmic Dev", "コズミック開発者", "Desarrollador cósmico", "Entité Cosmique", "Dev Cósmico", "Kosmischer Entwickler")
+        case .candyUser: return t("달콤한 맛", "Sweet Tooth", "甘いもの好き", "Goloso", "Gourmand", "Formiguinha", "Süßschnabel")
+        case .shopSpender: return t("VIP 단골손님", "VIP Customer", "VIPお得意様", "Cliente VIP", "Client Privilège", "Cliente VIP", "VIP-Kunde")
+        case .limitBreaker: return t("한계 돌파", "Limit Breaker", "限界突破", "Rompelímites", "Dépassement de Soi", "Quebrador de limites", "Grenzbrecher")
+        case .duplicateLegendary: return t("전설의 계승", "Legendary Twin", "伝説の継承", "Doble Legendario", "Doublon Légendaire", "Gêmeo Lendário", "Legendärer Zwilling")
+        case .legendaryBirds: return t("전설의 세 새", "Legendary Birds", "伝説の三鳥", "Aves Legendarias", "Trio des Oiseaux", "Pássaros Lendários", "Legendäre Vögel")
+        case .kantoDuo: return t("관동의 시원", "Kanto Origin", "カントーの始原", "Dúo de Kanto", "Duo de Kanto", "Dupla de Kanto", "Kanto-Ursprung")
+        case .legendaryBeasts: return t("전설의 세 야수", "Legendary Beasts", "伝説の三聖獣", "Bestias Legendarias", "Fauves Légendaires", "Feras Lendárias", "Legendäre Bestien")
+        case .towerDuo: return t("탑의 수호자", "Tower Duo", "塔の守護者", "Dúo Torre", "Duo de la Tour", "Guardiões da Torre", "Turm-Duo")
+        case .legendaryTitans: return t("전설의 거인들", "Legendary Titans", "伝説の巨人", "Titanes Legendarios", "Golems Légendaires", "Titãs Lendários", "Legendäre Titanen")
+        case .eonDuo: return t("무한의 듀오", "Eon Duo", "無限のデュオ", "Dúo Eón", "Duo Éon", "Dupla Eon", "Äon-Duo")
+        case .weatherTrio: return t("초고대 삼총사", "Weather Trio", "超古代トリオ", "Trío del Clima", "Trio Météo", "Trio do Clima", "Wetter-Legenden")
+        case .lakeGuardians: return t("호수의 수호신", "Lake Guardians", "湖の守護神", "Trío del Lago", "Gardiens des Lacs", "Guardiões do Lago", "See-Trio")
+        case .creationTrio: return t("신화의 삼총사", "Creation Trio", "神話の創世神", "Trío Dragón", "Trio de la Création", "Trio da Criação", "Dimensions-Trio")
+        case .swordsOfJustice: return t("성검사", "Swords of Justice", "聖剣士", "Espadachines Místicos", "Lames de la Justice", "Espadachins da Justiça", "Ritter der Redlichkeit")
+        case .forcesOfNature: return t("자연의 화신", "Forces of Nature", "コピペ三銃士", "Fuerzas de la Naturaleza", "Fauves du Vent", "Forças da Natureza", "Kräfte der Natur")
+        case .taoDuo: return t("흑백의 드래곤", "Tao Duo", "理想と真実", "Dúo Tao", "Dragons Idéal & Réalité", "Dupla Tao", "Tao-Duo")
+        case .kantoStarters: return t("관동의 삼총사", "Kanto Starters", "カントー御三家", "Iniciales de Kanto", "Starters de Kanto", "Iniciais de Kanto", "Kanto-Starter")
+        case .johtoStarters: return t("성도의 삼총사", "Johto Starters", "ジョウト御三家", "Iniciales de Johto", "Starters de Johto", "Iniciais de Johto", "Johto-Starter")
+        case .hoennStarters: return t("호연의 삼총사", "Hoenn Starters", "ホウエン御三家", "Iniciales de Hoenn", "Starters de Hoenn", "Iniciais de Hoenn", "Hoenn-Starter")
+        case .sinnohStarters: return t("신오의 삼총사", "Sinnoh Starters", "シンオウ御三家", "Iniciales de Sinnoh", "Starters de Sinnoh", "Iniciais de Sinnoh", "Sinnoh-Starter")
+        case .unovaStarters: return t("하나의 삼총사", "Unova Starters", "イッシュ御三家", "Iniciales de Teselia", "Starters d'Unys", "Iniciais de Unova", "Einall-Starter")
+        case .starterMaster: return t("스타팅 마스터", "Starter Master", "スターターマスター", "Maestro Inicial", "Maître des Starters", "Mestre Inicial", "Starter-Meister")
+        case .eeveeKantoTrio: return t("관동의 이브이 삼총사", "Kanto Eeveelutions", "カントーのブイズ", "Trío de Eevee de Kanto", "Trio Évoli de Kanto", "Trio Eevee de Kanto", "Kanto-Evolis")
+        case .eeveeJohtoDuo: return t("일월의 이브이", "Sun & Moon Eeveelutions", "太陽と月のブイズ", "Dúo Sol y Luna de Eevee", "Duo Évoli Soleil & Lune", "Dupla Sol e Lua de Eevee", "Sonne- & Mond-Evolis")
+        case .eeveeSinnohDuo: return t("신오의 이브이", "Sinnoh Eeveelutions", "シンオウのブイズ", "Dúo de Eevee de Sinnoh", "Duo Évoli de Sinnoh", "Dupla Eevee de Sinnoh", "Sinnoh-Evolis")
+        case .eeveeMaster: return t("이브이 마스터", "Eeveelution Master", "ブイズマスター", "Maestro Eevee", "Maître des Évolitions", "Mestre Eevee", "Evoli-Meister")
+        case .firstFossil: return t("첫 화석의 부활", "First Fossil", "化石の目覚め", "Primer fósil", "Premier Fossile", "Primeiro fóssil", "Erster Fossil-Fund")
+        case .fossilCollector: return t("고대의 수집가", "Ancient Era", "古代の探求者", "Era antigua", "Ère Antique", "Era antiga", "Uralte Ära")
+        case .fossilMaster: return t("화석 마스터", "Fossil Master", "化石マスター", "Maestro de Fósiles", "Maître des Fossiles", "Mestre dos Fósseis", "Fossil-Meister")
+        case .elementalStones: return t("원초의 돌", "Elemental Trio Stones", "三色の進化石", "Piedras elementales", "Pierres Originelles", "Pedras elementares", "Elementarsteine")
+        case .allStonesUsed: return t("연금술 마스터", "Master Alchemist", "錬金術マスター", "Maestro alquimista", "Alchimiste Suprême", "Mestre alquimista", "Meister-Alchemist")
+        case .bagCollector: return t("가방 수집가", "Adventurer's Bag", "冒険者のバッグ", "Mochila llena", "Sacoche d'Aventurier", "Mochila cheia", "Abenteurertasche")
+        case .shinyTrio: return t("샤이니 트리오", "Shiny Trio", "かがやくトリオ", "Trío variocolor", "Trio Chromatique", "Trio brilhante", "Schillerndes Trio")
+        case .shinySquad: return t("황금 스쿼드", "Golden Squad", "黄金のパーティ", "Equipo dorado", "Équipe Dorée", "Equipe dourada", "Goldenes Team")
+        case .shinyLegendOrStarter: return t("기적의 반짝임", "Legendary Sparkle", "奇跡のきらめき", "Brillo legendario", "Miracle Suprême", "Brilho lendário", "Legendärer Glanz")
+        case .streak60: return t("강철의 연속", "Iron Streak", "鋼の継続", "Racha de hierro", "Série d'Acier", "Sequência de ferro", "Eisen-Streak")
+        case .streak100: return t("백일의 기적", "Centurion Streak", "百日の奇跡", "El centurión", "Le Centenaire", "O centurião", "Hundert Tage")
+        case .tokens25B: return t("토큰 특이점", "Token Singularity", "トークン特異点", "Singularidad de tokens", "Milliardaire Ultime", "Singularidade de tokens", "Token-Singularität")
+        case .dailyMarathon: return t("토큰 마라톤", "Token Marathon", "トークンマラソン", "Maratón de tokens", "Marathonien du Code", "Maratona de tokens", "Token-Marathon")
+        case .nightOwl: return t("밤의 올빼미", "Night Owl", "夜のフクロウ", "Búho nocturno", "Oiseau de Nuit", "Coruja da noite", "Nachteule")
+        case .earlyBird: return t("새벽의 날개", "Early Bird", "早起きの鳥", "Madrugador", "Lève-Tôt", "Madrugador", "Frühaufsteher")
+        default: return ""
+        }
+    }
+
+    func achievementDescription(_ type: AchievementType) -> String {
+        if let badgeType = type.badgeType {
+            let count = PokemonTypeData.species(for: badgeType).count
+            switch badgeType {
+            case .normal:
+                return t("도감에 노말타입 포켓몬 \(count)종을 모두 등록하세요.",
+                         "Register all \(count) Normal-type Pokémon in your Pokédex.",
+                         "ノーマルタイプのポケモン\(count)種をすべて図鑑に登録する。",
+                         "Registra a los \(count) Pokémon de tipo Normal en tu Pokédex.",
+                         "Enregistrez les \(count) Pokémon de type Normal dans le Pokédex.",
+                         "Registre todos os \(count) Pokémon do tipo Normal na sua Pokédex.",
+                         "Registriere alle \(count) Normal-Pokémon im Pokédex.")
+            case .fire:
+                return t("도감에 불꽃타입 포켓몬 \(count)종을 모두 등록하세요.",
+                         "Register all \(count) Fire-type Pokémon in your Pokédex.",
+                         "ほのおタイプのポケモン\(count)種をすべて図鑑に登録する。",
+                         "Registra a los \(count) Pokémon de tipo Fuego en tu Pokédex.",
+                         "Enregistrez les \(count) Pokémon de type Feu dans le Pokédex.",
+                         "Registre todos os \(count) Pokémon do tipo Fogo na sua Pokédex.",
+                         "Registriere alle \(count) Feuer-Pokémon im Pokédex.")
+            case .water:
+                return t("도감에 물타입 포켓몬 \(count)종을 모두 등록하세요.",
+                         "Register all \(count) Water-type Pokémon in your Pokédex.",
+                         "みずタイプのポケモン\(count)種をすべて図鑑に登録する。",
+                         "Registra a los \(count) Pokémon de tipo Agua en tu Pokédex.",
+                         "Enregistrez les \(count) Pokémon de type Eau dans le Pokédex.",
+                         "Registre todos os \(count) Pokémon do tipo Água na sua Pokédex.",
+                         "Registriere alle \(count) Wasser-Pokémon im Pokédex.")
+            case .grass:
+                return t("도감에 풀타입 포켓몬 \(count)종을 모두 등록하세요.",
+                         "Register all \(count) Grass-type Pokémon in your Pokédex.",
+                         "くさタイプのポケモン\(count)種をすべて図鑑に登録する。",
+                         "Registra a los \(count) Pokémon de tipo Planta en tu Pokédex.",
+                         "Enregistrez les \(count) Pokémon de type Plante dans le Pokédex.",
+                         "Registre todos os \(count) Pokémon do tipo Planta na sua Pokédex.",
+                         "Registriere alle \(count) Pflanze-Pokémon im Pokédex.")
+            case .electric:
+                return t("도감에 전기타입 포켓몬 \(count)종을 모두 등록하세요.",
+                         "Register all \(count) Electric-type Pokémon in your Pokédex.",
+                         "でんきタイプのポケモン\(count)種をすべて図鑑に登録する。",
+                         "Registra a los \(count) Pokémon de tipo Eléctrico en tu Pokédex.",
+                         "Enregistrez les \(count) Pokémon de type Électrik dans le Pokédex.",
+                         "Registre todos os \(count) Pokémon do tipo Elétrico na sua Pokédex.",
+                         "Registriere alle \(count) Elektro-Pokémon im Pokédex.")
+            case .ice:
+                return t("도감에 얼음타입 포켓몬 \(count)종을 모두 등록하세요.",
+                         "Register all \(count) Ice-type Pokémon in your Pokédex.",
+                         "こおりタイプのポケモン\(count)種をすべて図鑑に登録する。",
+                         "Registra a los \(count) Pokémon de tipo Hielo en tu Pokédex.",
+                         "Enregistrez les \(count) Pokémon de type Glace dans le Pokédex.",
+                         "Registre todos os \(count) Pokémon do tipo Gelo na sua Pokédex.",
+                         "Registriere alle \(count) Eis-Pokémon im Pokédex.")
+            case .fighting:
+                return t("도감에 격투타입 포켓몬 \(count)종을 모두 등록하세요.",
+                         "Register all \(count) Fighting-type Pokémon in your Pokédex.",
+                         "かくとうタイプのポケモン\(count)種をすべて図鑑に登録する。",
+                         "Registra a los \(count) Pokémon de tipo Lucha en tu Pokédex.",
+                         "Enregistrez les \(count) Pokémon de type Combat dans le Pokédex.",
+                         "Registre todos os \(count) Pokémon do tipo Lutador na sua Pokédex.",
+                         "Registriere alle \(count) Kampf-Pokémon im Pokédex.")
+            case .poison:
+                return t("도감에 독타입 포켓몬 \(count)종을 모두 등록하세요.",
+                         "Register all \(count) Poison-type Pokémon in your Pokédex.",
+                         "どくタイプのポケモン\(count)種をすべて図鑑に登録する。",
+                         "Registra a los \(count) Pokémon de tipo Veneno en tu Pokédex.",
+                         "Enregistrez les \(count) Pokémon de type Poison dans le Pokédex.",
+                         "Registre todos os \(count) Pokémon do tipo Veneno na sua Pokédex.",
+                         "Registriere alle \(count) Gift-Pokémon im Pokédex.")
+            case .ground:
+                return t("도감에 땅타입 포켓몬 \(count)종을 모두 등록하세요.",
+                         "Register all \(count) Ground-type Pokémon in your Pokédex.",
+                         "じめんタイプのポケモン\(count)種をすべて図鑑に登録する。",
+                         "Registra a los \(count) Pokémon de tipo Tierra en tu Pokédex.",
+                         "Enregistrez les \(count) Pokémon de type Sol dans le Pokédex.",
+                         "Registre todos os \(count) Pokémon do tipo Terra na sua Pokédex.",
+                         "Registriere alle \(count) Boden-Pokémon im Pokédex.")
+            case .flying:
+                return t("도감에 비행타입 포켓몬 \(count)종을 모두 등록하세요.",
+                         "Register all \(count) Flying-type Pokémon in your Pokédex.",
+                         "ひこうタイプのポケモン\(count)種をすべて図鑑に登録する。",
+                         "Registra a los \(count) Pokémon de tipo Volador en tu Pokédex.",
+                         "Enregistrez les \(count) Pokémon de type Vol dans le Pokédex.",
+                         "Registre todos os \(count) Pokémon do tipo Voador na sua Pokédex.",
+                         "Registriere alle \(count) Flug-Pokémon im Pokédex.")
+            case .psychic:
+                return t("도감에 에스퍼타입 포켓몬 \(count)종을 모두 등록하세요.",
+                         "Register all \(count) Psychic-type Pokémon in your Pokédex.",
+                         "エスパータイプのポケモン\(count)種をすべて図鑑に登録する。",
+                         "Registra a los \(count) Pokémon de tipo Psíquico en tu Pokédex.",
+                         "Enregistrez les \(count) Pokémon de type Psy dans le Pokédex.",
+                         "Registre todos os \(count) Pokémon do tipo Psíquico na sua Pokédex.",
+                         "Registriere alle \(count) Psycho-Pokémon im Pokédex.")
+            case .bug:
+                return t("도감에 벌레타입 포켓몬 \(count)종을 모두 등록하세요.",
+                         "Register all \(count) Bug-type Pokémon in your Pokédex.",
+                         "むしタイプのポケモン\(count)種をすべて図鑑に登録する。",
+                         "Registra a los \(count) Pokémon de tipo Bicho en tu Pokédex.",
+                         "Enregistrez les \(count) Pokémon de type Insecte dans le Pokédex.",
+                         "Registre todos os \(count) Pokémon do tipo Inseto na sua Pokédex.",
+                         "Registriere alle \(count) Käfer-Pokémon im Pokédex.")
+            case .rock:
+                return t("도감에 바위타입 포켓몬 \(count)종을 모두 등록하세요.",
+                         "Register all \(count) Rock-type Pokémon in your Pokédex.",
+                         "いわタイプのポケモン\(count)種をすべて図鑑に登録する。",
+                         "Registra a los \(count) Pokémon de tipo Roca en tu Pokédex.",
+                         "Enregistrez les \(count) Pokémon de type Roche dans le Pokédex.",
+                         "Registre todos os \(count) Pokémon do tipo Rocha na sua Pokédex.",
+                         "Registriere alle \(count) Gestein-Pokémon im Pokédex.")
+            case .ghost:
+                return t("도감에 고스트타입 포켓몬 \(count)종을 모두 등록하세요.",
+                         "Register all \(count) Ghost-type Pokémon in your Pokédex.",
+                         "ゴーストタイプのポケモン\(count)種をすべて図鑑に登録する。",
+                         "Registra a los \(count) Pokémon de tipo Fantasma en tu Pokédex.",
+                         "Enregistrez les \(count) Pokémon de type Spectre dans le Pokédex.",
+                         "Registre todos os \(count) Pokémon do tipo Fantasma na sua Pokédex.",
+                         "Registriere alle \(count) Geist-Pokémon im Pokédex.")
+            case .dragon:
+                return t("도감에 드래곤타입 포켓몬 \(count)종을 모두 등록하세요.",
+                         "Register all \(count) Dragon-type Pokémon in your Pokédex.",
+                         "ドラゴンタイプのポケモン\(count)種をすべて図鑑に登録する。",
+                         "Registra a los \(count) Pokémon de tipo Dragón en tu Pokédex.",
+                         "Enregistrez les \(count) Pokémon de type Dragon dans le Pokédex.",
+                         "Registre todos os \(count) Pokémon do tipo Dragão na sua Pokédex.",
+                         "Registriere alle \(count) Drachen-Pokémon im Pokédex.")
+            case .steel:
+                return t("도감에 강철타입 포켓몬 \(count)종을 모두 등록하세요.",
+                         "Register all \(count) Steel-type Pokémon in your Pokédex.",
+                         "はがねタイプのポケモン\(count)種をすべて図鑑に登録する。",
+                         "Registra a los \(count) Pokémon de tipo Acero en tu Pokédex.",
+                         "Enregistrez les \(count) Pokémon de type Acier dans le Pokédex.",
+                         "Registre todos os \(count) Pokémon do tipo Aço na sua Pokédex.",
+                         "Registriere alle \(count) Stahl-Pokémon im Pokédex.")
+            case .dark:
+                return t("도감에 악타입 포켓몬 \(count)종을 모두 등록하세요.",
+                         "Register all \(count) Dark-type Pokémon in your Pokédex.",
+                         "あくタイプのポケモン\(count)種をすべて図鑑に登録する。",
+                         "Registra a los \(count) Pokémon de tipo Siniestro en tu Pokédex.",
+                         "Enregistrez les \(count) Pokémon de type Ténèbres dans le Pokédex.",
+                         "Registre todos os \(count) Pokémon do tipo Sombrio na sua Pokédex.",
+                         "Registriere alle \(count) Unlicht-Pokémon im Pokédex.")
+            case .fairy:
+                return t("도감에 페어리타입 포켓몬 \(count)종을 모두 등록하세요.",
+                         "Register all \(count) Fairy-type Pokémon in your Pokédex.",
+                         "フェアリータイプのポケモン\(count)種をすべて図鑑に登録する。",
+                         "Registra a los \(count) Pokémon de tipo Hada en tu Pokédex.",
+                         "Enregistrez les \(count) Pokémon de type Fée dans le Pokédex.",
+                         "Registre todos os \(count) Pokémon do tipo Fada na sua Pokédex.",
+                         "Registriere alle \(count) Feen-Pokémon im Pokédex.")
+            }
+        }
+        switch type {
+        case .firstHatch: return t("첫 포켓몬 알을 부화시키세요.", "Hatch your very first Pokémon egg.", "初めてのポケモンのタマゴを孵化させる。", "Eclosiona tu primer huevo Pokémon.", "Faites éclore votre premier œuf Pokémon.", "Choque seu primeiríssimo ovo Pokémon.", "Lasse dein allererstes Pokémon-Ei schlüpfen.")
+        case .firstEvolve: return t("포켓몬을 처음으로 진화시키세요.", "Evolve a Pokémon for the first time.", "初めてポケモンを進化させる。", "Evoluciona un Pokémon por primera vez.", "Faites évoluer un Pokémon pour la première fois.", "Evolua um Pokémon pela primeira vez.", "Entwickle zum ersten Mal ein Pokémon.")
+        case .firstGraduate: return t("포켓몬을 최종 진화시켜 도감으로 졸업시키세요.", "Complete an evolution line and graduate a Pokémon.", "進化ラインを完走して図鑑へ卒業させる。", "Completa una línea evolutiva y gradúa un Pokémon.", "Complétez une lignée évolutive et diplômez un Pokémon.", "Complete uma linha evolutiva e gradue um Pokémon.", "Schließe eine Entwicklungslinie ab und graduiere ein Pokémon.")
+        case .squad5: return t("서로 다른 포켓몬 5종을 졸업시키세요.", "Graduate 5 different Pokémon species.", "異なる5種のポケモンを卒業させる。", "Gradúa 5 especies de Pokémon diferentes.", "Diplômez 5 espèces de Pokémon différentes.", "Gradue 5 espécies diferentes de Pokémon.", "Graduiere 5 verschiedene Pokémon-Spezies.")
+        case .dex15: return t("도감에 15종 이상의 포켓몬을 등록하세요.", "Register 15 unique species in your Pokédex.", "図鑑に15種以上のポケモンを登録する。", "Registra 15 especies únicas en tu Pokédex.", "Enregistrez 15 espèces différentes dans le Pokédex.", "Registre 15 espécies únicas na sua Pokédex.", "Registriere 15 verschiedene Spezies im Pokédex.")
+        case .dex30: return t("도감에 30종 이상의 포켓몬을 등록하세요.", "Register 30 unique species in your Pokédex.", "図鑑に30種以上のポケモンを登録する。", "Registra 30 especies únicas en tu Pokédex.", "Enregistrez 30 espèces différentes dans le Pokédex.", "Registre 30 espécies únicas na sua Pokédex.", "Registriere 30 verschiedene Spezies im Pokédex.")
+        case .shinyHunter: return t("이로치(색이 다른) 포켓몬을 획득하세요.", "Obtain your first Shiny Pokémon.", "初めての色違いポケモンを獲得する。", "Consigue tu primer Pokémon variocolor.", "Obtenez votre premier Pokémon chromatique (Shiny).", "Obtenha seu primeiro Pokémon shiny.", "Erhalte dein erstes schillerndes Pokémon.")
+        case .streak3: return t("3일 연속으로 코딩하세요.", "Reach a 3-day coding streak.", "3日連続でコーディングする。", "Alcanza una racha de 3 días programando.", "Atteignez une série de 3 jours de code consécutifs.", "Alcance uma sequência de 3 dias de código.", "Erreiche einen 3-Tage-Coding-Streak.")
+        case .streak7: return t("7일 연속으로 코딩하세요.", "Reach a 7-day coding streak.", "7日連続でコーディングする。", "Alcanza una racha de 7 días programando.", "Atteignez une série de 7 jours de code consécutifs.", "Alcance uma sequência de 7 dias de código.", "Erreiche einen 7-Tage-Coding-Streak.")
+        case .streak14: return t("14일 연속으로 코딩하세요.", "Reach a 14-day coding streak.", "14日連続でコーディングする。", "Alcanza una racha de 14 días programando.", "Atteignez une série de 14 jours de code consécutifs.", "Alcance uma sequência de 14 dias de código.", "Erreiche einen 14-Tage-Coding-Streak.")
+        case .streak30: return t("30일 연속으로 코딩하세요.", "Reach a 30-day coding streak.", "30日連続でコーディングする。", "Alcanza una racha de 30 días programando.", "Atteignez une série de 30 jours de code consécutifs.", "Alcance uma sequência de 30 dias de código.", "Erreiche einen 30-Tage-Coding-Streak.")
+        case .tokens100M: return t("누적 100M 토큰을 사용하세요.", "Burn 100M total lifetime tokens.", "累計100Mトークンを使用する。", "Consume 100M de tokens en total.", "Consommez 100M de tokens au total.", "Use 100M de tokens no total.", "Verbrauche insgesamt 100M Tokens.")
+        case .tokens1B: return t("누적 1B 토큰을 사용하세요.", "Burn 1 billion total lifetime tokens.", "累計1Bトークンを使用する。", "Consume 1B de tokens en total.", "Consommez 1 milliard de tokens au total.", "Use 1B de tokens no total.", "Verbrauche insgesamt 1B Tokens.")
+        case .tokens5B: return t("누적 5B 토큰을 사용하세요.", "Burn 5 billion total lifetime tokens.", "累計5Bトークンを使用する。", "Consume 5B de tokens en total.", "Consommez 5 milliards de tokens au total.", "Use 5B de tokens no total.", "Verbrauche insgesamt 5B Tokens.")
+        case .tokens10B: return t("누적 10B 토큰을 사용하세요.", "Burn 10 billion total lifetime tokens.", "累計10Bトークンを使用する。", "Consume 10B de tokens en total.", "Consommez 10 milliards de tokens au total.", "Use 10B de tokens no total.", "Verbrauche insgesamt 10B Tokens.")
+        case .candyUser: return t("이상한 사탕을 5개 사용하세요.", "Use 5 Rare Candies on your Pokémon.", "ふしぎなアメ를5個使用する。", "Usa 5 Caramelos Raros en tu Pokémon.", "Utilisez 5 Super Bonbons sur vos Pokémon.", "Use 5 Doces Raros nos seus Pokémon.", "Verwende 5 Sonderbonbons bei deinem Pokémon.")
+        case .shopSpender: return t("상점에서 누적 1B 토큰을 지출하세요.", "Spend 1 billion tokens in the Shop.", "ショップで累計1Bトークンを使う。", "Gasta 1B de tokens en la Tienda.", "Dépensez 1 milliard de tokens dans la Boutique.", "Gaste 1B de tokens na Loja.", "Gib 1 Milliarde Tokens im Laden aus.")
+        case .limitBreaker: return t("공식 사용량 한도 100%에 도달하세요.", "Reach 100% of an official usage limit.", "公式利用上限の100%に到達する。", "Alcanza el 100% de un límite oficial de uso.", "Atteignez 100% d'une limite d'utilisation officielle.", "Alcance 100% de um limite oficial de uso.", "Erreiche 100% eines offiziellen Nutzungslimits.")
+        case .duplicateLegendary: return t("이미 졸업시킨 전설의 포켓몬과 같은 종을 한 번 더 졸업시키세요.", "Graduate a duplicate of a Legendary Pokémon you have already raised.", "すでに卒業させた伝説のポケモンと同じ種をもう一度卒業させる。", "Gradúa un duplicado de un Pokémon legendario que ya hayas criado.", "Complétez l'élevage d'un doublon d'un Pokémon légendaire que vous possédez déjà.", "Gradue uma duplicata de um Pokémon lendário que você já criou.", "Graduiere ein Duplikat eines bereits gezüchteten legendären Pokémon.")
+        case .legendaryBirds: return t("프리져, 썬더, 파이어를 모두 도감에 등록하세요.", "Register Articuno, Zapdos, and Moltres in your Pokédex.", "フリーザー、サンダー、ファイヤーをすべて図鑑に登録する。", "Registra a Articuno, Zapdos y Moltres en tu Pokédex.", "Enregistrez Artikodin, Électhor et Sulfura dans le Pokédex.", "Registre Articuno, Zapdos e Moltres na sua Pokédex.", "Registriere Arktos, Zapdos und Lavados im Pokédex.")
+        case .kantoDuo: return t("뮤츠와 뮤를 모두 도감에 등록하세요.", "Register Mewtwo and Mew in your Pokédex.", "ミュウツーとミュウを両方図鑑に登録する。", "Registra a Mewtwo y Mew en tu Pokédex.", "Enregistrez Mewtwo et Mew dans le Pokédex.", "Registre Mewtwo e Mew na sua Pokédex.", "Registriere Mewtu und Mew im Pokédex.")
+        case .legendaryBeasts: return t("라이코, 앤테이, 스이쿤을 모두 도감에 등록하세요.", "Register Raikou, Entei, and Suicune in your Pokédex.", "ライコウ、エンテイ、スイクンをすべて図鑑に登録する。", "Registra a Raikou, Entei y Suicune en tu Pokédex.", "Enregistrez Raikou, Entei et Suicune dans le Pokédex.", "Registre Raikou, Entei e Suicune na sua Pokédex.", "Registriere Raikou, Entei und Suicune im Pokédex.")
+        case .towerDuo: return t("루기아와 칠색조를 모두 도감에 등록하세요.", "Register Lugia and Ho-Oh in your Pokédex.", "ルギアとホウオウを両方図鑑に登録する。", "Registra a Lugia y Ho-Oh en tu Pokédex.", "Enregistrez Lugia et Ho-Oh dans le Pokédex.", "Registre Lugia e Ho-Oh na sua Pokédex.", "Registriere Lugia und Ho-Oh im Pokédex.")
+        case .legendaryTitans: return t("레지락, 레지아이스, 레지스틸을 모두 도감에 등록하세요.", "Register Regirock, Regice, and Registeel in your Pokédex.", "レジロック、レジアイス、レジスチルをすべて図鑑に登録する。", "Registra a Regirock, Regice y Registeel en tu Pokédex.", "Enregistrez Regirock, Regice et Registeel dans le Pokédex.", "Registre Regirock, Regice e Registeel na sua Pokédex.", "Registriere Regirock, Regice und Registeel im Pokédex.")
+        case .eonDuo: return t("라티아스와 라티오스를 모두 도감에 등록하세요.", "Register Latias and Latios in your Pokédex.", "ラティアスとラティオスを両方図鑑に登録する。", "Registra a Latias y Latios en tu Pokédex.", "Enregistrez Latias et Latios dans le Pokédex.", "Registre Latias e Latios na sua Pokédex.", "Registriere Latias und Latios im Pokédex.")
+        case .weatherTrio: return t("가이오가, 그란돈, 레쿠쟈를 모두 도감에 등록하세요.", "Register Kyogre, Groudon, and Rayquaza in your Pokédex.", "カイオーガ、グラードン、レックウザをすべて図鑑に登録する。", "Registra a Kyogre, Groudon y Rayquaza en tu Pokédex.", "Enregistrez Kyogre, Groudon et Rayquaza dans le Pokédex.", "Registre Kyogre, Groudon e Rayquaza na sua Pokédex.", "Registriere Kyogre, Groudon und Rayquaza im Pokédex.")
+        case .lakeGuardians: return t("유크시, 엠라이트, 아그놈을 모두 도감에 등록하세요.", "Register Uxie, Mesprit, and Azelf in your Pokédex.", "ユクシー、エムリット、アグノムをすべて図鑑に登録する。", "Registra a Uxie, Mesprit y Azelf en tu Pokédex.", "Enregistrez Créhelf, Créfollet et Créfadet dans le Pokédex.", "Registre Uxie, Mesprit e Azelf na sua Pokédex.", "Registriere Selfe, Vesprit und Tobutz im Pokédex.")
+        case .creationTrio: return t("디아루가, 펄기아, 기라티나를 모두 도감에 등록하세요.", "Register Dialga, Palkia, and Giratina in your Pokédex.", "ディアルガ、パルキア、ギラティナをすべて図鑑に登録する。", "Registra a Dialga, Palkia y Giratina en tu Pokédex.", "Enregistrez Dialga, Palkia et Giratina dans le Pokédex.", "Registre Dialga, Palkia e Giratina na sua Pokédex.", "Registriere Dialga, Palkia und Giratina im Pokédex.")
+        case .swordsOfJustice: return t("코바르온, 테라키온, 비리디온을 모두 도감에 등록하세요.", "Register Cobalion, Terrakion, and Virizion in your Pokédex.", "コバルオン、テラキオン、ビリジオンをすべて図鑑に登録する。", "Registra a Cobalion, Terrakion y Virizion en tu Pokédex.", "Enregistrez Cobaltium, Terrakium et Viridium dans le Pokédex.", "Registre Cobalion, Terrakion e Virizion na sua Pokédex.", "Registriere Kobalium, Terrakium und Viridium im Pokédex.")
+        case .forcesOfNature: return t("토네로스, 볼트로스, 랜드로스를 모두 도감에 등록하세요.", "Register Tornadus, Thundurus, and Landorus in your Pokédex.", "トルネロス、ボルトロス、ランドロスをすべて図鑑に登録する。", "Registra a Tornadus, Thundurus y Landorus en tu Pokédex.", "Enregistrez Boréas, Fulguris et Démétéros dans le Pokédex.", "Registre Tornadus, Thundurus e Landorus na sua Pokédex.", "Registriere Boreos, Voltolos und Demeteros im Pokédex.")
+        case .taoDuo: return t("레시라무와 제크로무를 모두 도감에 등록하세요.", "Register Reshiram and Zekrom in your Pokédex.", "レシラムとゼクロムを両方図鑑に登録する。", "Registra a Reshiram y Zekrom en tu Pokédex.", "Enregistrez Reshiram et Zekrom dans le Pokédex.", "Registre Reshiram e Zekrom na sua Pokédex.", "Registriere Reshiram und Zekrom im Pokédex.")
+        case .kantoStarters: return t("이상해꽃, 리자몽, 거북왕을 모두 도감에 등록하세요.", "Register Venusaur, Charizard, and Blastoise in your Pokédex.", "フシギバナ、リザードン、カメックスをすべて図鑑に登録する。", "Registra a Venusaur, Charizard y Blastoise en tu Pokédex.", "Enregistrez Florizarre, Dracaufeu et Tortank dans le Pokédex.", "Registre Venusaur, Charizard e Blastoise na sua Pokédex.", "Registriere Bisaflor, Glurak und Turtok im Pokédex.")
+        case .johtoStarters: return t("메가니움, 블레이범, 장크로다일을 모두 도감에 등록하세요.", "Register Meganium, Typhlosion, and Feraligatr in your Pokédex.", "メガニウム、バクフーン、オーダイルをすべて図鑑に登録する。", "Registra a Meganium, Typhlosion y Feraligatr en tu Pokédex.", "Enregistrez Méganium, Typhlosion et Aligatueur dans le Pokédex.", "Registre Meganium, Typhlosion e Feraligatr na sua Pokédex.", "Registriere Meganie, Tornupto und Impergator im Pokédex.")
+        case .hoennStarters: return t("나무킹, 번치코, 대짱이를 모두 도감에 등록하세요.", "Register Sceptile, Blaziken, and Swampert in your Pokédex.", "ジュカイン、バシャーモ、ラグラージをすべて図鑑に登録する。", "Registra a Sceptile, Blaziken y Swampert en tu Pokédex.", "Enregistrez Jungko, Braségali et Laggron dans le Pokédex.", "Registre Sceptile, Blaziken e Swampert na sua Pokédex.", "Registriere Gewaldro, Lohgock und Sumpex im Pokédex.")
+        case .sinnohStarters: return t("토대부기, 초염몽, 엠페르트를 모두 도감에 등록하세요.", "Register Torterra, Infernape, and Empoleon in your Pokédex.", "ドダイトス、ゴウカザル、エンペルトをすべて図鑑に登録する。", "Registra a Torterra, Infernape y Empoleon en tu Pokédex.", "Enregistrez Torterra, Simiabraz et Pingoléon dans le Pokédex.", "Registre Torterra, Infernape e Empoleon na sua Pokédex.", "Registriere Chelterrar, Panferno und Impoleon im Pokédex.")
+        case .unovaStarters: return t("샤로다, 염무왕, 대검귀를 모두 도감에 등록하세요.", "Register Serperior, Emboar, and Samurott in your Pokédex.", "ジャローダ、エンブオー、ダイケンキをすべて図鑑に登録する。", "Registra a Serperior, Emboar y Samurott en tu Pokédex.", "Enregistrez Majaspic, Roitiflam et Clamiral dans le Pokédex.", "Registre Serperior, Emboar e Samurott na sua Pokédex.", "Registriere Serpiroyal, Flambirex und Admurai im Pokédex.")
+        case .starterMaster: return t("도감에 1~5세대 최종 진화 스타팅 포켓몬 15종을 모두 등록하세요.", "Register all 15 fully evolved starter Pokémon in your Pokédex.", "第1〜5世代の最終進化スターターポケモン15種をすべて図鑑に登録する。", "Registra a los 15 Pokémon iniciales totalmente evolucionados en tu Pokédex.", "Enregistrez les 15 Pokémon de départ entièrement évolués dans le Pokédex.", "Registre todos os 15 Pokémon iniciais totalmente evoluídos na sua Pokédex.", "Registriere alle 15 voll entwickelten Starter-Pokémon im Pokédex.")
+        case .eeveeKantoTrio: return t("샤미드, 쥬피썬더, 부스터를 모두 도감에 등록하세요.", "Register Vaporeon, Jolteon, and Flareon in your Pokédex.", "シャワーズ、サンダース、ブースターをすべて図鑑に登録する。", "Registra a Vaporeon, Jolteon y Flareon en tu Pokédex.", "Enregistrez Aquali, Voltali et Pyroli dans le Pokédex.", "Registre Vaporeon, Jolteon e Flareon na sua Pokédex.", "Registriere Aquana, Blitza und Flamara im Pokédex.")
+        case .eeveeJohtoDuo: return t("에브이와 블래키를 모두 도감에 등록하세요.", "Register Espeon and Umbreon in your Pokédex.", "エーフィとブラッキーを両方図鑑に登録する。", "Registra a Espeon y Umbreon en tu Pokédex.", "Enregistrez Mentali et Noctali dans le Pokédex.", "Registre Espeon e Umbreon na sua Pokédex.", "Registriere Psiana und Nachtara im Pokédex.")
+        case .eeveeSinnohDuo: return t("리피아와 글레이시아를 모두 도감에 등록하세요.", "Register Leafeon and Glaceon in your Pokédex.", "リーフィアとグレイシアを両方図鑑に登録する。", "Registra a Leafeon y Glaceon en tu Pokédex.", "Enregistrez Phyllali et Givrali dans le Pokédex.", "Registre Leafeon e Glaceon na sua Pokédex.", "Registriere Folipurba und Glaziola im Pokédex.")
+        case .eeveeMaster: return t("1~4세대 이브이 진화형 7종을 모두 도감에 등록하세요.", "Register all 7 Eevee evolutions in your Pokédex.", "第1〜4世代のブイズ7種をすべて図鑑に登録する。", "Registra las 7 evoluciones de Eevee en tu Pokédex.", "Enregistrez les 7 évolutions d'Évoli dans le Pokédex.", "Registre todas as 7 evoluções de Eevee na sua Pokédex.", "Registriere alle 7 Evoli-Entwicklungen im Pokédex.")
+        case .firstFossil: return t("최종 진화 화석 포켓몬 1종을 도감에 등록하세요.", "Register at least 1 fully evolved fossil Pokémon in your Pokédex.", "最終進化の化石ポケモン1種を図鑑に登録する。", "Registra al menos 1 Pokémon fósil completamente evolucionado en tu Pokédex.", "Enregistrez au moins 1 Pokémon fossile final dans le Pokédex.", "Registre pelo menos 1 Pokémon fóssil totalmente evoluído na sua Pokédex.", "Registriere mindestens 1 voll entwickeltes Fossil-Pokémon im Pokédex.")
+        case .fossilCollector: return t("최종 진화 화석 포켓몬 4종을 도감에 등록하세요.", "Register 4 different fully evolved fossil Pokémon in your Pokédex.", "最終進化の化石ポケモン4種を図鑑に登録する。", "Registra 4 Pokémon fósiles totalmente evolucionados en tu Pokédex.", "Enregistrez 4 Pokémon fossiles finaux différents dans le Pokédex.", "Registre 4 Pokémon fósseis totalmente evoluídos na sua Pokédex.", "Registriere 4 voll entwickelte Fossil-Pokémon im Pokédex.")
+        case .fossilMaster: return t("1~5세대 최종 진화 화석 포켓몬 9종을 모두 도감에 등록하세요.", "Register all 9 fully evolved fossil Pokémon in your Pokédex.", "第1〜5世代の最終進化化石ポケモン9種をすべて図鑑に登録する。", "Registra los 9 Pokémon fósiles totalmente evolucionados en tu Pokédex.", "Enregistrez les 9 Pokémon fossiles entièrement évolués dans le Pokédex.", "Registre todos os 9 Pokémon fósseis totalmente evoluídos na sua Pokédex.", "Registriere alle 9 voll entwickelten Fossil-Pokémon im Pokédex.")
+        case .elementalStones: return t("불꽃의돌, 물의돌, 천둥의돌을 각각 1회 이상 사용하세요.", "Use a Fire Stone, Water Stone, and Thunder Stone at least once.", "ほのおのいし、みずのいし、かみなりのいしをそれぞれ1回以上使う。", "Usa una Piedra Fuego, Piedra Agua y Piedra Trueno al menos una vez.", "Utilisez au moins une fois les pierres Feu, Eau et Foudre.", "Use uma Pedra do Fogo, Pedra da Água e Pedra do Trovão pelo menos uma vez.", "Verwende mindestens einmal einen Feuer-, Wasser- und Donnerstein.")
+        case .allStonesUsed: return t("10종의 모든 진화의 돌을 각각 1회 이상 사용하세요.", "Use all 10 different evolution stones at least once.", "全10種の進化の石をそれぞれ1回以上使う。", "Usa las 10 piedras de evolución diferentes al menos una vez.", "Utilisez les 10 pierres d'évolution différentes au moins une fois.", "Use todas as 10 pedras de evolução diferentes pelo menos uma vez.", "Verwende alle 10 verschiedenen Entwicklungssteine mindestens einmal.")
+        case .bagCollector: return t("가방에 서로 다른 8종의 아이템을 동시에 보유하세요.", "Possess at least 8 different item kinds in your bag at once.", "バッグに異なる8種類のアイテムを同時に所持する。", "Ten al menos 8 tipos de objetos diferentes en tu mochila a la vez.", "Possédez au moins 8 types d'objets différents simultanément dans votre sac.", "Tenha pelo menos 8 tipos de itens diferentes na sua mochila ao mesmo tempo.", "Besitze mindestens 8 verschiedene Gegenstandsarten gleichzeitig in deiner Tasche.")
+        case .shinyTrio: return t("도감에 이로치 포켓몬 3종을 등록하세요.", "Register at least 3 shiny Pokémon in your Pokédex.", "図鑑に色違いポケモン3匹を登録する。", "Registra al menos 3 Pokémon variocolor en tu Pokédex.", "Enregistrez au moins 3 Pokémon chromatiques dans le Pokédex.", "Registre pelo menos 3 Pokémon brilhantes na sua Pokédex.", "Registriere mindestens 3 schillernde Pokémon im Pokédex.")
+        case .shinySquad: return t("도감에 이로치 포켓몬 6종을 등록하세요.", "Register at least 6 shiny Pokémon in your Pokédex.", "図鑑に色違いポケモン6匹を登録する。", "Registra al menos 6 Pokémon variocolor en tu Pokédex.", "Enregistrez au moins 6 Pokémon chromatiques dans le Pokédex.", "Registre pelo menos 6 Pokémon brilhantes na sua Pokédex.", "Registriere mindestens 6 schillernde Pokémon im Pokédex.")
+        case .shinyLegendOrStarter: return t("이로치 스타팅 또는 이로치 전설의 포켓몬을 획득하세요.", "Obtain a shiny starter or shiny legendary Pokémon.", "色違いのスターターまたは伝説のポケモンを獲得する。", "Consigue un Pokémon inicial o legendario variocolor.", "Obtenez un Pokémon de départ ou légendaire chromatique.", "Obtenha um Pokémon inicial ou lendário brilhante.", "Erhalte ein schillerndes Starter- oder legendäres Pokémon.")
+        case .streak60: return t("60일 연속으로 코딩하세요.", "Reach a 60-day coding streak.", "60日連続でコーディングする。", "Alcanza una racha de 60 días programando.", "Atteignez une série de 60 jours de code consécutifs.", "Alcance uma sequência de 60 dias de código.", "Erreiche einen 60-Tage-Coding-Streak.")
+        case .streak100: return t("100일 연속으로 코딩하세요.", "Reach a 100-day coding streak.", "100日連続でコーディングする。", "Alcanza una racha de 100 días programando.", "Atteignez une série de 100 jours de code consécutifs.", "Alcance uma sequência de 100 dias de código.", "Erreiche einen 100-Tage-Coding-Streak.")
+        case .tokens25B: return t("누적 25B 토큰을 사용하세요.", "Burn 25 billion total lifetime tokens.", "累計25Bトークンを使用する。", "Consume 25B de tokens en total.", "Consommez 25 milliards de tokens au total.", "Use 25B de tokens no total.", "Verbrauche insgesamt 25B Tokens.")
+        case .dailyMarathon: return t("하루 동안 100M 토큰 이상을 사용하세요.", "Burn 100M tokens or more in a single day.", "1日で100Mトークン以上を使用する。", "Consume 100M de tokens o más en un solo día.", "Consommez plus de 100M de tokens en une seule journée.", "Use 100M de tokens ou mais em um único dia.", "Verbrauche 100M Tokens oder mehr an einem Tag.")
+        case .nightOwl: return t("새벽 1시에서 5시 사이에 코딩하세요.", "Log token usage between 1 AM and 5 AM.", "午前1時から5時の間にコーディングする。", "Registra uso de tokens entre la 1:00 y las 5:00.", "Enregistrez une session de tokens entre 1h et 5h du matin.", "Registre uso de tokens entre 1h e 5h.", "Erfasse Token-Nutzung zwischen 1:00 und 5:00 Uhr morgens.")
+        case .earlyBird: return t("아침 7시 이전에 코딩하세요.", "Log token usage before 7 AM.", "午前7時前にコーディングする。", "Registra uso de tokens antes de las 7:00.", "Enregistrez une session de tokens avant 7h du matin.", "Registre uso de tokens antes das 7h.", "Erfasse Token-Nutzung vor 7:00 Uhr morgens.")
+        default: return ""
+        }
     }
 }

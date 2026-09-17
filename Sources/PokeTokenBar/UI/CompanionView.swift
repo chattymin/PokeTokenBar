@@ -4,8 +4,33 @@ func rarityColor(_ r: Rarity?) -> Color {
     switch r {
     case .uncommon: return .green
     case .rare: return .blue
+    case .starter: return .cyan
     case .legendary: return .orange
     default: return .gray
+    }
+}
+
+func typeColor(_ type: PokemonType?) -> Color {
+    guard let type else { return .gray }
+    switch type {
+    case .normal:   return Color(red: 0.66, green: 0.65, blue: 0.53)
+    case .fire:     return Color(red: 0.93, green: 0.51, blue: 0.19)
+    case .water:    return Color(red: 0.40, green: 0.56, blue: 0.94)
+    case .grass:    return Color(red: 0.48, green: 0.78, blue: 0.30)
+    case .electric: return Color(red: 0.97, green: 0.82, blue: 0.17)
+    case .ice:      return Color(red: 0.59, green: 0.85, blue: 0.84)
+    case .fighting: return Color(red: 0.76, green: 0.18, blue: 0.16)
+    case .poison:   return Color(red: 0.64, green: 0.24, blue: 0.63)
+    case .ground:   return Color(red: 0.89, green: 0.75, blue: 0.40)
+    case .flying:   return Color(red: 0.66, green: 0.56, blue: 0.95)
+    case .psychic:  return Color(red: 0.98, green: 0.33, blue: 0.53)
+    case .bug:      return Color(red: 0.65, green: 0.73, blue: 0.10)
+    case .rock:     return Color(red: 0.71, green: 0.63, blue: 0.21)
+    case .ghost:    return Color(red: 0.45, green: 0.34, blue: 0.59)
+    case .dragon:   return Color(red: 0.44, green: 0.22, blue: 0.98)
+    case .steel:    return Color(red: 0.72, green: 0.72, blue: 0.81)
+    case .dark:     return Color(red: 0.44, green: 0.34, blue: 0.27)
+    case .fairy:    return Color(red: 0.85, green: 0.52, blue: 0.76)
     }
 }
 
@@ -557,6 +582,12 @@ struct CompanionHeader: View {
                                 Text(store.l.eggGuaranteeHint(guarantee)).font(.system(size: 8, weight: .bold))
                                     .padding(.horizontal, 5).padding(.vertical, 1)
                                     .background(rarityColor(guarantee)).foregroundStyle(.white)
+                                    .clipShape(Capsule())
+                            }
+                            if let typeGuarantee = store.eggTypeGuarantee {
+                                Text(store.l.eggTypeGuaranteeHint(typeGuarantee)).font(.system(size: 8, weight: .bold))
+                                    .padding(.horizontal, 5).padding(.vertical, 1)
+                                    .background(typeColor(typeGuarantee)).foregroundStyle(.white)
                                     .clipShape(Capsule())
                             }
                         }
@@ -1273,10 +1304,11 @@ private struct DexSpeciesCell: View {
                                          : Color.secondary.opacity(isSelected ? 0.16 : 0.06))
             .clipShape(RoundedRectangle(cornerRadius: 8))
             .overlay {
-                if isSelected {
-                    RoundedRectangle(cornerRadius: 8)
-                        .strokeBorder(Color.accentColor, lineWidth: 1.5)
-                }
+                RoundedRectangle(cornerRadius: 8)
+                    .strokeBorder(
+                        isSelected ? Color.accentColor : rarityColor(species.rarity).opacity(0.5),
+                        lineWidth: isSelected ? 1.5 : 1
+                    )
             }
         }
         .buttonStyle(.plain)
@@ -1396,6 +1428,10 @@ private struct DexEntryRow: View {
         .padding(Self.cardPadding)
         .background(Color.secondary.opacity(0.06))
         .clipShape(RoundedRectangle(cornerRadius: 10))
+        .overlay {
+            RoundedRectangle(cornerRadius: 10)
+                .strokeBorder(rarityColor(entry.rarity).opacity(0.55), lineWidth: 1.5)
+        }
         .task(id: "\(entry.id)-\(store.language.rawValue)") {
             resolved = await store.dexResolveChainNames(entry)
         }
