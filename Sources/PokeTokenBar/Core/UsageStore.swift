@@ -521,8 +521,10 @@ final class UsageStore {
     var candyEligibleWindows: [CandyWindow] {
         let l = L(localizationLanguage)
         var windows: [CandyWindow] = []
-        for account in claudeAccounts {
-            windows += claudeCandyWindows(account, l).filter { account.isDefault || armedCandyWindows.contains($0.key) }
+        let accounts = claudeAccounts
+        for account in accounts {
+            windows += claudeCandyWindows(account, named: accounts.count > 1, l)
+                .filter { account.isDefault || armedCandyWindows.contains($0.key) }
         }
         for bucket in codexLimits?.visibleSnapshots ?? [] {
             let bucketKey = bucket.limitId ?? bucket.limitName ?? "codex"
@@ -563,8 +565,9 @@ final class UsageStore {
         return windows
     }
 
-    private func claudeCandyWindows(_ account: ClaudeAccountLimits, _ l: L) -> [CandyWindow] {
-        let suffix = account.isDefault ? "" : " · \(account.title)"
+    /// `named`: next to other accounts, the notification says whose limit it is.
+    private func claudeCandyWindows(_ account: ClaudeAccountLimits, named: Bool, _ l: L) -> [CandyWindow] {
+        let suffix = named ? " (\(account.title))" : ""
         var windows: [CandyWindow] = []
         if let u = account.status.fiveHour?.utilization {
             windows.append(CandyWindow(key: "\(account.windowKeyPrefix).fiveHour",
@@ -587,7 +590,7 @@ final class UsageStore {
         let l = L(localizationLanguage)
         let before = armedCandyWindows
         for account in claudeAccounts where !account.isDefault {
-            for window in claudeCandyWindows(account, l) where window.utilization < 100 {
+            for window in claudeCandyWindows(account, named: false, l) where window.utilization < 100 {
                 armedCandyWindows.insert(window.key)
             }
         }
@@ -1560,6 +1563,15 @@ final class UsageStore {
         let window: String     // 표시용 이름(알림 본문에 노출, 창끼리 중복 가능)
         let isCritical: Bool
         let utilization: Double
+        /// Claude account title, next to other accounts.
+        var account: String? = nil
+
+        /// The account comes last: a bubble cut short loses it, not the percentage.
+        func body(_ l: L, withAccount: Bool = true) -> String {
+            let text = l.notifBody(window, TokenFormatter.percent(utilization))
+            guard withAccount, let account else { return text }
+            return "\(text) · \(account)"
+        }
     }
 
     /// 알림 판정(순수·엣지 트리거) — 창별 utilization·임계값·직전 tier 상태로부터
@@ -1572,6 +1584,7 @@ final class UsageStore {
     ///   서로의 tier 를 덮어써 억제/중복 발화하던 회귀(#61 계열) 차단.
     static func evaluateLimitAlerts(
         windows: [(key: String, name: String, utilization: Double)],
+        accounts: [String: String] = [:],
         warn: Double, crit: Double,
         tiers: inout [String: Int]
     ) -> [LimitAlert] {
@@ -1585,7 +1598,8 @@ final class UsageStore {
             let previous = tiers[key] ?? 0
             guard tier > previous else { continue }       // 같은/낮은 tier → 재알림 안 함
             tiers[key] = tier
-            alerts.append(LimitAlert(key: key, window: name, isCritical: tier == 2, utilization: utilization))
+            alerts.append(LimitAlert(key: key, window: name, isCritical: tier == 2, utilization: utilization,
+                                     account: accounts[key]))
         }
         return alerts
     }
@@ -1607,9 +1621,9 @@ final class UsageStore {
     /// Shared limit-alert pipeline: evaluate once, advance tiers once, then fan out to
     /// Notification Center and/or the floating-pet bubble under independent gates.
     private func checkLimitAlerts() {
-        let windows = buildLimitWindows()
+        let (windows, accounts) = buildLimitWindows()
         let alerts = Self.evaluateLimitAlerts(
-            windows: windows, warn: warnThreshold, crit: critThreshold, tiers: &notifiedTier)
+            windows: windows, accounts: accounts, warn: warnThreshold, crit: critThreshold, tiers: &notifiedTier)
         guard !alerts.isEmpty else { return }
 
         if limitNotifications, AppEnv.isBundledApp {
@@ -1623,24 +1637,27 @@ final class UsageStore {
     /// (unique key, display name, utilization) for every window the popover shows as a limit row.
     /// Internal so tests can assert alert copy matches the popover language (#322).
     /// Every Claude account's windows are listed; the default account keeps its historical keys.
-    func buildLimitWindows() -> [(key: String, name: String, utilization: Double)] {
+    /// `accounts`: next to other accounts, the title of the account behind each Claude window key.
+    func buildLimitWindows() -> (windows: [(key: String, name: String, utilization: Double)], accounts: [String: String]) {
         let l = L(localizationLanguage)
         var windows: [(key: String, name: String, utilization: Double)] = []
-        for account in claudeAccounts {
+        var titles: [String: String] = [:]
+        let accounts = claudeAccounts
+        for account in accounts {
             let limits = account.status
             let prefix = account.windowKeyPrefix
-            let suffix = account.isDefault ? "" : " · \(account.title)"
+            let first = windows.count
             if let u = limits.fiveHour?.utilization {
-                windows.append(("\(prefix).fiveHour", l.claudeFiveHour + suffix, u))
+                windows.append(("\(prefix).fiveHour", l.claudeFiveHour, u))
             }
             if let u = limits.sevenDay?.utilization {
-                windows.append(("\(prefix).sevenDay", l.claudeWeekly + suffix, u))
+                windows.append(("\(prefix).sevenDay", l.claudeWeekly, u))
             }
             if let u = limits.sevenDayOpus?.utilization {
-                windows.append(("\(prefix).sevenDayOpus", "Claude \(l.weeklyOpus)" + suffix, u))
+                windows.append(("\(prefix).sevenDayOpus", "Claude \(l.weeklyOpus)", u))
             }
             if let u = limits.sevenDaySonnet?.utilization {
-                windows.append(("\(prefix).sevenDaySonnet", "Claude \(l.weeklySonnet)" + suffix, u))
+                windows.append(("\(prefix).sevenDaySonnet", "Claude \(l.weeklySonnet)", u))
             }
             // 모델별 주간(weekly_scoped) 등 — 팝오버는 표시하나 알림엔 빠져 있던 창(누락 수정).
             // key 에 인덱스를 붙여 동일 kind/model 이 중복돼도 서로 안 덮어쓰게 한다.
@@ -1648,7 +1665,10 @@ final class UsageStore {
                 guard let u = entry.percent else { continue }
                 let model = entry.scope?.model?.displayName
                 windows.append(("\(prefix).scoped.\(entry.kind ?? "?").\(model ?? "?").\(i)",
-                                "Claude \(l.claudeLimitEntry(kind: entry.kind, model: model))" + suffix, u))
+                                "Claude \(l.claudeLimitEntry(kind: entry.kind, model: model))", u))
+            }
+            if accounts.count > 1 {
+                for window in windows[first...] { titles[window.key] = account.title }
             }
         }
         for bucket in codexLimits?.visibleSnapshots ?? [] {
@@ -1679,7 +1699,7 @@ final class UsageStore {
                                 bucket.usedPercent))
             }
         }
-        return windows
+        return (windows, titles)
     }
 
     private func postLimitNotifications(_ alerts: [LimitAlert]) {
@@ -1687,7 +1707,7 @@ final class UsageStore {
         for alert in alerts {
             let content = UNMutableNotificationContent()
             content.title = alert.isCritical ? l.notifCritical : l.notifWarning
-            content.body = l.notifBody(alert.window, TokenFormatter.percent(alert.utilization))
+            content.body = alert.body(l)
             content.sound = alert.isCritical ? .default : nil
             UNUserNotificationCenter.current().add(
                 UNNotificationRequest(

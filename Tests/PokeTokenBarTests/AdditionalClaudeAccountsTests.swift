@@ -830,8 +830,8 @@ final class AdditionalClaudeAccountsStoreTests: XCTestCase {
         XCTAssertEqual(Set(byKey.keys), ["claude.fiveHour", "claude.sevenDay",
                                          "claude.\(workKey).fiveHour", "claude.\(workKey).sevenDay"],
                        "scoped weekly windows stay out of candy, as before")
-        XCTAssertEqual(byKey["claude.fiveHour"]?.name, l.claudeFiveHour)
-        XCTAssertEqual(byKey["claude.\(workKey).fiveHour"]?.name, "\(l.claudeFiveHour) · me@example.com")
+        XCTAssertEqual(byKey["claude.fiveHour"]?.name, "\(l.claudeFiveHour) (Corp)", "next to another account, each name says whose")
+        XCTAssertEqual(byKey["claude.\(workKey).fiveHour"]?.name, "\(l.claudeFiveHour) (me@example.com)")
         XCTAssertEqual(byKey["claude.\(workKey).sevenDay"]?.kind, .weekly)
     }
 
@@ -885,7 +885,7 @@ final class AdditionalClaudeAccountsStoreTests: XCTestCase {
         ])
         await store.refresh(scheduleEmptyRetry: false)
         let l = L(store.localizationLanguage)
-        let windows = store.buildLimitWindows()
+        let (windows, accounts) = store.buildLimitWindows()
         XCTAssertEqual(Set(windows.map(\.key)).count, windows.count,
                        "alert tiers are keyed by window: two accounts must never share a key")
         let byKey = Dictionary(windows.map { ($0.key, $0) }, uniquingKeysWith: { first, _ in first })
@@ -893,9 +893,54 @@ final class AdditionalClaudeAccountsStoreTests: XCTestCase {
         XCTAssertEqual(byKey["claude.fiveHour"]?.utilization, 2)
         XCTAssertEqual(byKey["claude.scoped.weekly_scoped.Fable.0"]?.utilization, 77)
         XCTAssertEqual(byKey["claude.\(workKey).fiveHour"]?.utilization, 32)
-        XCTAssertEqual(byKey["claude.\(workKey).sevenDay"]?.name, "\(l.claudeWeekly) · me@example.com")
+        XCTAssertEqual(byKey["claude.\(workKey).sevenDay"]?.name, l.claudeWeekly, "the account is not part of the name")
         XCTAssertEqual(byKey["claude.\(workKey).scoped.weekly_scoped.Fable.0"]?.utilization, 12)
         XCTAssertEqual(windows.count, 6)
+        XCTAssertEqual(accounts, [
+            "claude.fiveHour": "Corp", "claude.sevenDay": "Corp", "claude.scoped.weekly_scoped.Fable.0": "Corp",
+            "claude.\(workKey).fiveHour": "me@example.com", "claude.\(workKey).sevenDay": "me@example.com",
+            "claude.\(workKey).scoped.weekly_scoped.Fable.0": "me@example.com",
+        ])
+
+        let alone = makeStore(primary: ScriptedLimits([.success(fullStatus(fiveHour: 2, sevenDay: 45, email: "me@corp.example", org: "Corp"))]),
+                              folders: [:])
+        await alone.refresh(scheduleEmptyRetry: false)
+        XCTAssertEqual(alone.buildLimitWindows().accounts, [:], "a single account needs no name")
+        XCTAssertEqual(alone.candyEligibleWindows.first { $0.key == "claude.fiveHour" }?.name, l.claudeFiveHour)
+    }
+
+    /// Next to other accounts, an alert says whose limit it is, after the percentage.
+    func testAlertsNameTheirAccountAfterThePercentage() {
+        var tiers: [String: Int] = [:]
+        let alerts = UsageStore.evaluateLimitAlerts(
+            windows: [("claude.fiveHour", "Claude 5-hour session", 96), ("codex.x.primary", "Codex 5h", 85)],
+            accounts: ["claude.fiveHour": "Corp"], warn: 80, crit: 95, tiers: &tiers)
+        XCTAssertEqual(alerts.map(\.account), ["Corp", nil])
+        XCTAssertEqual(alerts.map { $0.body(L(.en)) }, ["Claude 5-hour session at 96% · Corp", "Codex 5h at 85%"])
+        XCTAssertEqual(alerts[0].body(L(.en), withAccount: false), "Claude 5-hour session at 96%")
+    }
+
+    /// The floating pet bubble cuts its text at two lines: a long account name must never cost the percentage.
+    @MainActor
+    func testTheBubbleDropsAnAccountThatDoesNotFit() {
+        for lang in AppLanguage.allCases {
+            let l = L(lang)
+            for window in [l.claudeFiveHour, l.claudeWeekly, "Claude \(l.claudeLimitEntry(kind: "weekly_scoped", model: "Opus"))"] {
+                for account in ["Corp", "firstname.lastname@corp.example"] {
+                    let alert = UsageStore.LimitAlert(key: "k", window: window, isCritical: true, utilization: 96, account: account)
+                    let body = FloatingPetController.bubbleBody(for: alert, title: l.notifCritical, l: l)
+                    XCTAssertFalse(FloatingPetController.measureSpeechBubbleLayout(title: l.notifCritical, body: body).wouldTruncate,
+                                   "\(lang.rawValue): \(body)")
+                    XCTAssertTrue(body.contains(TokenFormatter.percent(96)))
+                }
+            }
+        }
+        let l = L(.en)
+        let short = UsageStore.LimitAlert(key: "k", window: l.claudeWeekly, isCritical: false, utilization: 85, account: "Corp")
+        XCTAssertEqual(FloatingPetController.bubbleBody(for: short, title: l.notifWarning, l: l), "Claude weekly at 85% · Corp")
+        let long = UsageStore.LimitAlert(key: "k", window: l.claudeFiveHour, isCritical: true, utilization: 96,
+                                         account: "firstname.lastname@corp.example")
+        XCTAssertEqual(FloatingPetController.bubbleBody(for: long, title: l.notifCritical, l: l), "Claude 5-hour session at 96%")
     }
 
     func testLimitsAreReadyWithOnlyAnAdditionalAccount() async {
