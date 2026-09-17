@@ -206,6 +206,8 @@ final class UsageStore {
     private let discoverClaudeConfigDirs: @Sendable () -> [URL]
     private let readDefaultIdentity: @Sendable () -> AccountIdentity?
     private let readLastPrompt: @Sendable (URL) -> Date?
+    private let claudeUsageEntries: @Sendable (Date) async -> [LocalUsageReader.Entry]
+    private let readPromptHistory: @Sendable (URL) -> ClaudeAccountUsageAttribution.Prompts
     /// Rate limits apply per account: one folder's 429 pauses that folder only, never the default
     /// account (which keeps its own backoff) nor the other folders.
     private var additionalBackoff: [String: (until: Date, interval: TimeInterval)] = [:]
@@ -589,6 +591,12 @@ final class UsageStore {
          discoverClaudeConfigDirs: @escaping @Sendable () -> [URL] = { ClaudeAccountRoots.installedDiscovery() },
          readDefaultIdentity: @escaping @Sendable () -> AccountIdentity? = { ClaudeAccountRoots.installedDefaultIdentity() },
          readLastPrompt: @escaping @Sendable (URL) -> Date? = { ClaudeAccountRoots.lastPromptDate(configDir: $0) },
+         claudeUsageEntries: @escaping @Sendable (Date) async -> [LocalUsageReader.Entry] = {
+            await LocalUsageCache.shared.claudeEntries(modifiedSince: $0)
+         },
+         readPromptHistory: @escaping @Sendable (URL) -> ClaudeAccountUsageAttribution.Prompts = {
+            ClaudePromptHistory.prompts(configDir: $0)
+         },
          codexLimitsProvider: any CodexLimitsProviding = CodexRateLimitsProvider(),
          antigravityLimitsProvider: any AntigravityLimitsProviding = AntigravityRateLimitsProvider(),
          statusProvider: any ProviderStatusProviding = StatuspageStatusProvider(),
@@ -601,6 +609,8 @@ final class UsageStore {
         self.discoverClaudeConfigDirs = discoverClaudeConfigDirs
         self.readDefaultIdentity = readDefaultIdentity
         self.readLastPrompt = readLastPrompt
+        self.claudeUsageEntries = claudeUsageEntries
+        self.readPromptHistory = readPromptHistory
         self.sessionKeys = sessionKeys
         self.codexLimitsProvider = codexLimitsProvider
         self.antigravityLimitsProvider = antigravityLimitsProvider
@@ -944,11 +954,12 @@ final class UsageStore {
             return [.defaultAccount(limits, isExpired: limitsAuthExpired, updatedAt: limitsUpdatedAt)] + additional
         }
         // Next to other accounts, the default login keeps its tab while its limits are not loaded,
-        // so the tabs do not come and go and the refresh row has an obvious owner.
-        guard !additional.isEmpty else { return [] }
+        // so the tabs do not come and go and the refresh row has an obvious owner. Only when that
+        // login exists: someone using `CLAUDE_CONFIG_DIR` folders alone would get a tab that never fills.
+        guard !additional.isEmpty, let identity = defaultSavedIdentity else { return additional }
         var placeholder = LimitStatus()
-        placeholder.accountEmail = defaultSavedIdentity?.email
-        placeholder.accountOrganizationName = defaultSavedIdentity?.organizationName
+        placeholder.accountEmail = identity.email
+        placeholder.accountOrganizationName = identity.organizationName
         return [.defaultAccount(placeholder, isExpired: limitsAuthExpired)] + additional
     }
 
@@ -962,6 +973,12 @@ final class UsageStore {
 
     /// Last prompt per account id, read at each refresh while several accounts are shown.
     private(set) var claudeAccountActivity: [String: Date] = [:]
+
+    /// Local tokens and cost per account id, while several accounts are shown
+    /// (see `ClaudeAccountUsageAttribution`). The header totals stay machine-wide.
+    private(set) var claudeAccountUsage: [String: ClaudeAccountUsage] = [:]
+    /// Usage no login's history explains (print mode, SDK runs, sessions older than the history).
+    private(set) var unattributedClaudeUsage = ClaudeAccountUsage()
 
     /// The account behind the menu bar percentage, warning state, companion mood, floating pet hover
     /// and 5h forecast. With a single account this is that account, whatever the mode.
@@ -1041,6 +1058,8 @@ final class UsageStore {
             additionalLimits = []
             additionalLimitsPending = false
             claudeAccountActivity = [:]
+            claudeAccountUsage = [:]
+            unattributedClaudeUsage = ClaudeAccountUsage()
             return
         }
         let lastPrompt = readLastPrompt
@@ -1092,6 +1111,25 @@ final class UsageStore {
         }
         additionalLimits = refreshed
         additionalLimitsPending = pending
+        await refreshClaudeAccountUsage(folders: folders)
+    }
+
+    /// Reuses the usage cache (no re-parse) and each login's prompt history, off the main actor.
+    private func refreshClaudeAccountUsage(folders: [(String, URL)]) async {
+        let now = Date()
+        let fmt = LocalUsageReader.localDayFormatter()
+        let todayKey = fmt.string(from: now)
+        let monthStart = LocalUsageReader.startOfMonth(now)
+        let monthStartKey = fmt.string(from: monthStart)
+        let entries = await claudeUsageEntries(monthStart)
+        let readHistory = readPromptHistory
+        let result = await Task.detached(priority: .utility) {
+            let accounts = folders.map { ClaudeAccountUsageAttribution.Account(id: $0.0, prompts: readHistory($0.1)) }
+            return ClaudeAccountUsageAttribution.usage(
+                entries: entries, accounts: accounts, todayKey: todayKey, monthStartKey: monthStartKey)
+        }.value
+        claudeAccountUsage = result.byAccount
+        unattributedClaudeUsage = result.unattributed
     }
 
     private func additionalProvider(for root: URL) -> any ClaudeLimitsProviding {

@@ -675,7 +675,13 @@ struct PopoverView: View {
                 onSelect: { nav.claudeAccountID = $0 })
         }
         if let account = selectedClaudeAccount(in: accounts) {
-            claudeAccountLimits(account)
+            claudeAccountLimits(account, showsUsage: accounts.count > 1)
+        }
+        // Tab totals do not add up to the header when some sessions belong to no login's history.
+        if accounts.count > 1, store.unattributedClaudeUsage.monthTokens > 0 {
+            Text(l.unattributedClaudeUsage(TokenFormatter.compact(store.unattributedClaudeUsage.monthTokens)))
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
         }
         // 전 프로바이더가 블록을 갖게 됨 — "Claude 현재 5h 블록" 행은 명시 조회
         if !accounts.isEmpty,
@@ -701,7 +707,7 @@ struct PopoverView: View {
     }
 
     @ViewBuilder
-    private func claudeAccountLimits(_ account: ClaudeAccountLimits) -> some View {
+    private func claudeAccountLimits(_ account: ClaudeAccountLimits, showsUsage: Bool) -> some View {
         let limits = account.status
         if account.isExpired, !account.isDefault {
             authExpiredNotice(hint: l.additionalAccountExpiredHint(account.fallbackTitle))
@@ -721,6 +727,14 @@ struct PopoverView: View {
             Text(l.limitsAccount(accountLabel))
                 .font(.caption)
                 .foregroundStyle(.tertiary)
+        }
+        // This account's share of the local usage (the header keeps the machine-wide totals).
+        if showsUsage, let usage = store.claudeAccountUsage[account.id], !usage.isEmpty {
+            HStack(spacing: 14) {
+                periodLabel(l.today, tokens: usage.todayTokens, cost: store.showsCost ? usage.todayCost : nil)
+                periodLabel(l.thisMonth, tokens: usage.monthTokens, cost: store.showsCost ? usage.monthCost : nil)
+                Spacer()
+            }
         }
         // 세션 만료 시 표시값은 만료 전 기준 → 흐리게 처리해 "현재 값 아님"을 시각적으로 전달
         VStack(alignment: .leading, spacing: 8) {
