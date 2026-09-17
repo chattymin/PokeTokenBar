@@ -8,6 +8,13 @@ struct ClaudeAccountUsage: Sendable, Equatable {
     var monthCost = UsageCost()
 
     var isEmpty: Bool { monthTokens == 0 && todayTokens == 0 }
+
+    mutating func add(_ other: ClaudeAccountUsage) {
+        todayTokens += other.todayTokens
+        todayCost.add(other.todayCost)
+        monthTokens += other.monthTokens
+        monthCost.add(other.monthCost)
+    }
 }
 
 /// Splits local Claude usage between accounts.
@@ -43,15 +50,26 @@ enum ClaudeAccountUsageAttribution {
         return latest?.id ?? earliest?.id
     }
 
+    /// `activeBlocks` holds each account's own 5h block, for its forecast: the machine-wide block
+    /// would mix another account's burn into it.
     static func usage(
-        entries: [LocalUsageReader.Entry], accounts: [Account], todayKey: String, monthStartKey: String
-    ) -> (byAccount: [String: ClaudeAccountUsage], unattributed: ClaudeAccountUsage) {
+        entries: [LocalUsageReader.Entry], accounts: [Account], now: Date, todayKey: String, monthStartKey: String
+    ) -> (byAccount: [String: ClaudeAccountUsage], unattributed: ClaudeAccountUsage,
+          activeBlocks: [String: BlockUsage]) {
         // Account ids are never empty, so "" collects the unattributed turns.
         let unattributed = ""
+        let blockStart = now.addingTimeInterval(-LocalUsageReader.blockWindow)
         var today: [String: LocalUsageReader.Bucket] = [:]
         var month: [String: LocalUsageReader.Bucket] = [:]
-        for entry in entries where entry.localDay >= monthStartKey && entry.localDay <= todayKey {
+        var recent: [String: [LocalUsageReader.Entry]] = [:]
+        for entry in entries {
+            let inMonth = entry.localDay >= monthStartKey && entry.localDay <= todayKey
+            // A block started before the month began still counts.
+            let inBlock = entry.date >= blockStart
+            guard inMonth || inBlock else { continue }
             let key = entry.sessionID.flatMap { owner(session: $0, at: entry.date, accounts: accounts) } ?? unattributed
+            if inBlock, key != unattributed { recent[key, default: []].append(entry) }
+            guard inMonth else { continue }
             month[key, default: LocalUsageReader.Bucket()].add(entry)
             if entry.localDay == todayKey {
                 today[key, default: LocalUsageReader.Bucket()].add(entry)
@@ -66,15 +84,21 @@ enum ClaudeAccountUsageAttribution {
         }
         var byAccount: [String: ClaudeAccountUsage] = [:]
         for id in month.keys where id != unattributed { byAccount[id] = usage(id) }
-        return (byAccount, usage(unattributed))
+        let activeBlocks = recent.compactMapValues { LocalUsageReader.activeBlock(entries: $0, now: now) }
+        return (byAccount, usage(unattributed), activeBlocks)
     }
 }
 
-/// Reads `<config folder>/history.jsonl` (one prompt per line: `sessionId`, `timestamp` in ms),
-/// re-parsed only when the file changed. The prompt text itself is never kept.
+/// Reads `<config folder>/history.jsonl` (one prompt per line: `sessionId`, `timestamp` in ms).
+/// The prompt text itself is never kept.
 enum ClaudePromptHistory {
     static func prompts(configDir: URL) -> ClaudeAccountUsageAttribution.Prompts {
         cache.prompts(for: configDir.appendingPathComponent("history.jsonl"))
+    }
+
+    /// App only, like `ClaudeAccountRoots.installedDiscovery`.
+    static func installedPrompts(configDir: URL, isBundledApp: Bool = AppEnv.isBundledApp) -> ClaudeAccountUsageAttribution.Prompts {
+        isBundledApp ? prompts(configDir: configDir) : [:]
     }
 
     static func parse(_ text: String) -> ClaudeAccountUsageAttribution.Prompts {
@@ -102,10 +126,13 @@ enum ClaudePromptHistory {
 
     private static let cache = FileCache()
 
+    /// Claude Code only appends to the history: after the first read, only the new lines are parsed.
     final class FileCache: @unchecked Sendable {
         private struct Parsed {
             let mtime: Date
             let size: Int
+            /// Bytes parsed so far, always at a line end: a line still being written is read next time.
+            let offset: UInt64
             let prompts: ClaudeAccountUsageAttribution.Prompts
         }
 
@@ -117,15 +144,31 @@ enum ClaudePromptHistory {
                   let mtime = values.contentModificationDate else { return [:] }
             let size = values.fileSize ?? 0
             lock.lock()
-            if let hit = parsed[file.path], hit.mtime == mtime, hit.size == size {
-                lock.unlock()
-                return hit.prompts
-            }
+            let hit = parsed[file.path]
             lock.unlock()
-            guard let text = try? String(contentsOf: file, encoding: .utf8) else { return [:] }
-            let prompts = ClaudePromptHistory.parse(text)
+            if let hit, hit.mtime == mtime, hit.size == size { return hit.prompts }
+            guard let handle = try? FileHandle(forReadingFrom: file) else { return [:] }
+            defer { try? handle.close() }
+            // Resume only where the previous read ended on a line break; anything else is a rewrite.
+            var base = hit
+            if let previous = base {
+                let resumes = previous.offset > 0 && previous.offset <= UInt64(size)
+                    && (try? handle.seek(toOffset: previous.offset - 1)) != nil
+                    && (try? handle.read(upToCount: 1)) == Data([0x0A])
+                if !resumes { base = nil }
+            }
+            let start = base?.offset ?? 0
+            guard (try? handle.seek(toOffset: start)) != nil,
+                  let data = try? handle.readToEnd() ?? Data() else { return base?.prompts ?? [:] }
+            let complete = data.lastIndex(of: 0x0A).map { data[data.startIndex...$0] } ?? Data()
+            var prompts = base?.prompts ?? [:]
+            for (session, dates) in ClaudePromptHistory.parse(String(decoding: complete, as: UTF8.self)) {
+                prompts[session, default: []].append(contentsOf: dates)
+                prompts[session]?.sort()
+            }
             lock.lock()
-            parsed[file.path] = Parsed(mtime: mtime, size: size, prompts: prompts)
+            parsed[file.path] = Parsed(mtime: mtime, size: size, offset: start + UInt64(complete.count),
+                                       prompts: prompts)
             lock.unlock()
             return prompts
         }

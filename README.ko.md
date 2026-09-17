@@ -225,9 +225,9 @@ swift test                   # 단위 테스트
 
 | 소스 | 용도 | 비고 |
 |---|---|---|
-| `~/.claude/projects/**/*.jsonl` | Claude Code daily/blocks/weekly/monthly | 직접 읽음; 메시지 id 로 중복제거; 증분 캐시 |
+| `~/.claude/projects/**/*.jsonl`, `<설정 폴더>/projects/**/*.jsonl` | Claude Code daily/blocks/weekly/monthly | 직접 읽음; 메시지 id 로 중복제거; 증분 캐시 |
 | `~/.claude.json`, `~/.claude-*/.claude.json` | Claude 계정: 로그인된 설정 폴더와 계정 이름 | `oauthAccount` 블록만 사용; export 된 `CLAUDE_CONFIG_DIR` 과 설정 → 고급의 폴더도 포함 |
-| `~/.claude/history.jsonl`, `<설정 폴더>/history.jsonl` | 계정별 Claude 토큰; 마지막으로 사용한 계정 | 세션 id 와 프롬프트 시각만 읽고 프롬프트 내용은 읽지 않음; 파일이 바뀔 때만 다시 읽음 |
+| `~/.claude/history.jsonl`, `<설정 폴더>/history.jsonl` | 계정별 Claude 토큰; 마지막으로 사용한 계정 | 세션 id 와 프롬프트 시각만 읽고 프롬프트 내용은 읽지 않음; 새로 추가된 줄만 읽음 |
 | `~/.gemini/tmp/**/chats/*.json(l)` | Gemini CLI daily/monthly | 세션 레코드(메시지별 `tokens`); 주간 = daily 합산 |
 | `~/.gemini/antigravity/conversations/*.db`<br>`~/.gemini/antigravity-cli/conversations/*.db`<br>`~/.gemini/antigravity-ide/conversations/*.db` | Antigravity daily/blocks/weekly/monthly | SQLite 읽기 전용; Cascade protobuf blob 의 호출별 사용량; Antigravity 2.0/Core, CLI, IDE 모두 지원; Gemini 에 합산하지 않는 별도 프로바이더; 구독제라 비용은 추정하지 않음 |
 | `~/.codex/sessions/**/*.jsonl` | Codex daily/monthly | `token_count` 이벤트; 주간 = daily 합산 |

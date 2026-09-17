@@ -46,6 +46,28 @@ private final class ScriptedLimits: ClaudeLimitsProviding, @unchecked Sendable {
     }
 }
 
+/// Provider whose first call waits until the test releases it.
+private final class GatedLimits: ClaudeLimitsProviding, @unchecked Sendable {
+    nonisolated(unsafe) var calls = 0
+    nonisolated(unsafe) var release: CheckedContinuation<Void, Never>?
+
+    func fetch(allowKeychainPrompt: Bool) async throws -> LimitStatus {
+        calls += 1
+        guard calls == 1 else { return limitStatus(fiveHour: 25, email: "work@example.com") }
+        await withCheckedContinuation { release = $0 }
+        return limitStatus(fiveHour: 20, email: "work@example.com")
+    }
+}
+
+private final class SessionKeys: SessionKeyManaging, @unchecked Sendable {
+    let stored: SessionKeyCredential?
+    init(_ stored: SessionKeyCredential?) { self.stored = stored }
+    func credential() -> SessionKeyCredential? { stored }
+    func organizations(sessionKey: String) async throws -> [SessionKeyOrganization] { [] }
+    func save(key: String, organizationID: String?) throws {}
+    func clear() {}
+}
+
 private func limitStatus(fiveHour: Double, email: String?) -> LimitStatus {
     let json = "{\"five_hour\":{\"utilization\":\(fiveHour),\"resets_at\":null}}"
     var status = try! JSONDecoder().decode(LimitStatus.self, from: Data(json.utf8))
@@ -145,6 +167,37 @@ final class ClaudeAccountRootsTests: XCTestCase {
         XCTAssertEqual(ClaudeAccountRoots.roots(from: "  \n , ", home: home), [])
     }
 
+    func testAccountFoldersAddTheirOwnProjectsToTheUsageScan() throws {
+        let fm = FileManager.default
+        try fm.createDirectory(at: home.appendingPathComponent(".claude/projects"), withIntermediateDirectories: true)
+        try fm.createDirectory(at: home.appendingPathComponent(".claude-personal/projects"), withIntermediateDirectories: true)
+        // A shared `projects/` (a link to the default one) is scanned once.
+        try fm.createSymbolicLink(at: home.appendingPathComponent(".claude-work/projects"),
+                                  withDestinationURL: home.appendingPathComponent(".claude/projects"))
+        let accounts = ["~/.claude-personal", "~/.claude-work"].map {
+            home.appendingPathComponent(String($0.dropFirst(2)), isDirectory: true)
+        }
+
+        let roots = LocalUsageReader.computeClaudeProjectRoots(configDirValue: nil, accountRoots: accounts, home: home)
+        let resolved = { (path: String) in
+            self.home.appendingPathComponent(path).resolvingSymlinksInPath().standardizedFileURL.path
+        }
+        XCTAssertTrue(roots.map(\.path).contains(resolved(".claude-personal/projects")))
+        XCTAssertEqual(roots.filter { $0.path == resolved(".claude/projects") }.count, 1)
+        XCTAssertEqual(Set(roots.map(\.path)).count, roots.count)
+    }
+
+    func testInstalledAccountRootsReadTheSettingOutsideTheApp() throws {
+        let suite = "ptb-account-roots-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        XCTAssertEqual(ClaudeAccountRoots.installedAccountRoots(defaults: defaults), [])
+        let personal = home.appendingPathComponent(".claude-personal").path
+        defaults.set(personal, forKey: ClaudeAccountRoots.defaultsKey)
+        XCTAssertEqual(ClaudeAccountRoots.installedAccountRoots(defaults: defaults).map(\.path), [personal],
+                       "detection is off in tests, the listed folder stays")
+    }
+
     func testKeychainQueriesTargetTheRequestedServiceAndKeepTheDefault() {
         let service = "Claude Code-credentials-dd1118a7"
         let accounts = OAuthCredentialData.claudeKeychainAccountsQuery(service: service, allowKeychainPrompt: false)
@@ -224,6 +277,24 @@ final class ClaudeConfigDiscoveryTests: XCTestCase {
 
         try Data(#"{"oauthAccount":{"emailAddress":""}}"#.utf8).write(to: home.appendingPathComponent(".claude.json"))
         XCTAssertNil(ClaudeAccountRoots.installedDefaultIdentity(isBundledApp: true, home: home))
+    }
+
+    func testTheSavedLoginIsReadAgainOnlyWhenTheFileChanges() throws {
+        let file = home.appendingPathComponent(".claude.json")
+        let stamp = Date(timeIntervalSince1970: 1_790_000_000)
+        func save(_ email: String) throws {
+            try Data("{\"oauthAccount\":{\"emailAddress\":\"\(email)\"}}".utf8).write(to: file)
+            try FileManager.default.setAttributes([.modificationDate: stamp], ofItemAtPath: file.path)
+        }
+        try save("aa@example.com")
+        XCTAssertEqual(ClaudeAccountRoots.savedIdentity(in: home)?.email, "aa@example.com")
+        try save("bb@example.com")
+        XCTAssertEqual(ClaudeAccountRoots.savedIdentity(in: home)?.email, "aa@example.com", "same size and date: cached")
+        try save("ccc@example.com")
+        XCTAssertEqual(ClaudeAccountRoots.savedIdentity(in: home)?.email, "ccc@example.com")
+        XCTAssertTrue(ClaudeAccountRoots.hasLogin(home))
+        try FileManager.default.removeItem(at: file)
+        XCTAssertFalse(ClaudeAccountRoots.hasLogin(home))
     }
 
     func testMergedListPutsDetectedFoldersFirstWithoutDuplicates() throws {
@@ -384,6 +455,7 @@ final class AdditionalClaudeAccountsStoreTests: XCTestCase {
             codexLimitsProvider: NoCodex(),
             antigravityLimitsProvider: NoAntigravity(),
             statusProvider: NoStatuses(),
+            sessionKeys: SessionKeys(nil),
             autoRefresh: false,
             defaults: testDefaults)
     }
@@ -413,6 +485,125 @@ final class AdditionalClaudeAccountsStoreTests: XCTestCase {
 
         XCTAssertEqual(store.additionalLimits.map(\.rootPath), [personal],
                        "same email as the primary is dropped; an unknown email is kept")
+    }
+
+    /// A team seat and a personal plan can share an email: they are two accounts.
+    func testTheSameEmailInAnotherOrganizationIsAnotherAccount() async {
+        let primary = ScriptedLimits([.success(fullStatus(fiveHour: 10, sevenDay: 1, email: "me@example.com", org: "Corp"))])
+        let store = makeStore(primary: primary, folders: [
+            work: ScriptedLimits([.success(fullStatus(fiveHour: 20, sevenDay: 1, email: "me@example.com",
+                                                      org: "me@example.com's Organization"))]),
+            personal: ScriptedLimits([.success(fullStatus(fiveHour: 30, sevenDay: 1, email: "me@example.com", org: "Corp"))]),
+        ])
+        await store.refresh(scheduleEmptyRetry: false)
+        XCTAssertEqual(store.additionalLimits.map(\.rootPath), [work])
+    }
+
+    /// A manual refresh started during a poll waits for it: the poll's older values must not
+    /// overwrite the manual ones.
+    func testOverlappingRefreshesRunOneAfterTheOther() async throws {
+        testDefaults.set(work, forKey: ClaudeAccountRoots.defaultsKey)
+        let folder = GatedLimits()
+        let store = UsageStore(
+            providers: [NilDailyProvider()],
+            claudeLimitsProvider: ScriptedLimits([.success(limitStatus(fiveHour: 10, email: "main@example.com"))]),
+            additionalClaudeLimitsProvider: { _ in folder },
+            codexLimitsProvider: NoCodex(),
+            antigravityLimitsProvider: NoAntigravity(),
+            statusProvider: NoStatuses(),
+            sessionKeys: SessionKeys(nil),
+            autoRefresh: false,
+            defaults: testDefaults)
+
+        let poll = Task { await store.refresh(scheduleEmptyRetry: false) }
+        for _ in 0..<200 where folder.release == nil { try await Task.sleep(for: .milliseconds(5)) }
+        let manual = Task { await store.refreshLimitTokenFromKeychain() }
+        try await Task.sleep(for: .milliseconds(100))
+        XCTAssertEqual(folder.calls, 1, "the manual refresh waits for the running one")
+
+        folder.release?.resume()
+        await poll.value
+        await manual.value
+        XCTAssertEqual(folder.calls, 2)
+        XCTAssertEqual(store.additionalLimits.map(\.status.fiveHour?.utilization), [25])
+    }
+
+    func testTurningTheKeychainOffClearsAndSkipsTheOtherAccounts() async {
+        let primary = ScriptedLimits([.success(limitStatus(fiveHour: 10, email: "main@example.com"))])
+        let folder = ScriptedLimits([.success(limitStatus(fiveHour: 20, email: "work@example.com"))])
+        let store = makeStore(primary: primary, folders: [work: folder])
+        defer { KeychainAccessGate.isDisabled = false }
+        await store.refresh(scheduleEmptyRetry: false)
+        XCTAssertEqual(store.additionalLimits.count, 1)
+
+        store.disableKeychainAccess = true
+        XCTAssertTrue(store.additionalLimits.isEmpty, "cleared at once, like the default account")
+        await store.refreshLimitTokenFromKeychain()
+        await store.refresh(scheduleEmptyRetry: false)
+        XCTAssertEqual(folder.promptFlags, [false], "no token read while the Keychain is off")
+        XCTAssertTrue(store.additionalLimits.isEmpty)
+        XCTAssertFalse(store.additionalLimitsPending)
+    }
+
+    /// A session key is there to avoid Keychain dialogs: detected folders never prompt then,
+    /// and a detected folder that needs one does not pin the refresh row.
+    func testWithASessionKeyOnlyListedFoldersPrompt() async {
+        testDefaults.set(personal, forKey: ClaudeAccountRoots.defaultsKey)
+        let detected = ScriptedLimits([.failure(.keychainInteractionNotAllowed)])
+        let listed = ScriptedLimits([.success(limitStatus(fiveHour: 30, email: "personal@example.com"))])
+        let workPath = work
+        let store = UsageStore(
+            providers: [NilDailyProvider()],
+            claudeLimitsProvider: ScriptedLimits([.success(limitStatus(fiveHour: 10, email: "main@example.com"))]),
+            additionalClaudeLimitsProvider: { $0.path == workPath ? detected : listed },
+            discoverClaudeConfigDirs: { [URL(fileURLWithPath: workPath)] },
+            codexLimitsProvider: NoCodex(),
+            antigravityLimitsProvider: NoAntigravity(),
+            statusProvider: NoStatuses(),
+            sessionKeys: SessionKeys(SessionKeyCredential(key: "sk-ant-sid01-test", organizationID: "org")),
+            autoRefresh: false,
+            defaults: testDefaults)
+
+        await store.refreshLimitTokenFromKeychain()
+        XCTAssertEqual(detected.promptFlags, [false])
+        XCTAssertEqual(listed.promptFlags, [true])
+        XCTAssertFalse(store.additionalLimitsPending)
+    }
+
+    func testAnAutomaticSuccessClearsTheManualRefreshError() async {
+        let primary = ScriptedLimits([
+            .failure(.httpStatus(500)),
+            .success(limitStatus(fiveHour: 10, email: "main@example.com")),
+        ])
+        let store = makeStore(primary: primary, folders: [:])
+        await store.refreshLimitTokenFromKeychain()
+        XCTAssertNotNil(store.limitTokenRefreshError)
+        await store.refresh(scheduleEmptyRetry: false)
+        XCTAssertNil(store.limitTokenRefreshError, "the refresh row must not show an old failure")
+    }
+
+    /// The default account's refresh row: pointless for someone using `CLAUDE_CONFIG_DIR` logins only.
+    func testMissingDefaultLimitsNeedADefaultLoginNextToOtherAccounts() async {
+        let folders = { [self] in [work: ScriptedLimits([.success(limitStatus(fiveHour: 20, email: "work@example.com"))])] }
+        let failing = { ScriptedLimits([.failure(.keychainInteractionNotAllowed)]) }
+
+        let alone = makeStore(primary: failing(), folders: [:])
+        await alone.refresh(scheduleEmptyRetry: false)
+        XCTAssertTrue(alone.claudeLimitsMissing)
+
+        let configDirOnly = makeStore(primary: failing(), folders: folders())
+        await configDirOnly.refresh(scheduleEmptyRetry: false)
+        XCTAssertFalse(configDirOnly.claudeLimitsMissing)
+
+        let both = makeStore(primary: failing(), folders: folders(),
+                             defaultIdentity: AccountIdentity(email: "main@example.com", organizationName: nil))
+        await both.refresh(scheduleEmptyRetry: false)
+        XCTAssertTrue(both.claudeLimitsMissing)
+
+        let loaded = makeStore(primary: ScriptedLimits([.success(limitStatus(fiveHour: 10, email: "main@example.com"))]),
+                               folders: folders())
+        await loaded.refresh(scheduleEmptyRetry: false)
+        XCTAssertFalse(loaded.claudeLimitsMissing)
     }
 
     func testAutomaticRefreshNeverPromptsManualRefreshDoes() async {
@@ -553,8 +744,10 @@ final class AdditionalClaudeAccountsStoreTests: XCTestCase {
     func testCandyWindowsCoverEveryAccountAndKeepTheDefaultKeys() async {
         let primary = ScriptedLimits([.success(fullStatus(fiveHour: 100, sevenDay: 45, fable: 100, email: "me@corp.example", org: "Corp"))])
         let store = makeStore(primary: primary, folders: [
-            work: ScriptedLimits([.success(fullStatus(fiveHour: 100, sevenDay: 100, email: "me@example.com"))]),
+            work: ScriptedLimits([.success(fullStatus(fiveHour: 50, sevenDay: 50, email: "me@example.com")),
+                                  .success(fullStatus(fiveHour: 100, sevenDay: 100, email: "me@example.com"))]),
         ])
+        await store.refresh(scheduleEmptyRetry: false)
         await store.refresh(scheduleEmptyRetry: false)
         let l = L(store.localizationLanguage)
         let byKey = Dictionary(store.candyEligibleWindows.map { ($0.key, $0) }, uniquingKeysWith: { first, _ in first })
@@ -573,8 +766,10 @@ final class AdditionalClaudeAccountsStoreTests: XCTestCase {
     func testCandyIsGrantedPerAccountAndNotAgainAfterReAddingAFolder() async {
         let primary = ScriptedLimits([.success(fullStatus(fiveHour: 100, sevenDay: 10, email: "me@corp.example"))])
         let store = makeStore(primary: primary, folders: [
-            work: ScriptedLimits([.success(fullStatus(fiveHour: 100, sevenDay: 100, email: "me@example.com"))]),
+            work: ScriptedLimits([.success(fullStatus(fiveHour: 99, sevenDay: 99, email: "me@example.com")),
+                                  .success(fullStatus(fiveHour: 100, sevenDay: 100, email: "me@example.com"))]),
         ])
+        await store.refresh(scheduleEmptyRetry: false)
         await store.refresh(scheduleEmptyRetry: false)
         var tiers: [String: Int] = [:]
 
@@ -584,6 +779,29 @@ final class AdditionalClaudeAccountsStoreTests: XCTestCase {
         let defaultOnly = store.candyEligibleWindows.filter { !$0.key.contains(workKey) }
         XCTAssertTrue(CompanionStore.evaluateCandyGrants(windows: defaultOnly, grantTier: &tiers).isEmpty)
         XCTAssertTrue(CompanionStore.evaluateCandyGrants(windows: store.candyEligibleWindows, grantTier: &tiers).isEmpty)
+    }
+
+    /// The first-run seed only covers the windows known at first launch: an account found later
+    /// at its limit pays nothing until it has been seen below it, and that is remembered.
+    func testAnAccountFoundAtItsLimitEarnsNoCandyUntilSeenBelowIt() async {
+        let primary = ScriptedLimits([.success(fullStatus(fiveHour: 10, sevenDay: 10, email: "me@corp.example"))])
+        let store = makeStore(primary: primary, folders: [
+            work: ScriptedLimits([.success(fullStatus(fiveHour: 100, sevenDay: 40, email: "me@example.com")),
+                                  .success(fullStatus(fiveHour: 20, sevenDay: 100, email: "me@example.com")),
+                                  .success(fullStatus(fiveHour: 100, sevenDay: 100, email: "me@example.com"))]),
+        ])
+        let keys = { Set(store.candyEligibleWindows.map(\.key)) }
+        await store.refresh(scheduleEmptyRetry: false)
+        XCTAssertEqual(keys(), ["claude.fiveHour", "claude.sevenDay", "claude.\(workKey).sevenDay"])
+        await store.refresh(scheduleEmptyRetry: false)
+        XCTAssertEqual(keys(), ["claude.fiveHour", "claude.sevenDay",
+                                "claude.\(workKey).fiveHour", "claude.\(workKey).sevenDay"])
+
+        let restarted = makeStore(primary: primary, folders: [
+            work: ScriptedLimits([.success(fullStatus(fiveHour: 100, sevenDay: 100, email: "me@example.com"))]),
+        ])
+        await restarted.refresh(scheduleEmptyRetry: false)
+        XCTAssertEqual(Set(restarted.candyEligibleWindows.map(\.key)), keys(), "armed windows survive a restart")
     }
 
     func testAlertWindowsCoverEveryAccountAndKeepTheDefaultKeys() async {
@@ -726,6 +944,18 @@ final class AdditionalClaudeAccountsStoreTests: XCTestCase {
         XCTAssertEqual(store.claudeAccounts.last?.title, "Work Corp")
     }
 
+    func testTheProfileNameWinsOverTheSavedLogin() async throws {
+        try saveLogin(in: work, email: "old@example.com", org: "Old Corp")
+        let primary = ScriptedLimits([.success(limitStatus(fiveHour: 10, email: "main@example.com"))])
+        let store = makeStore(primary: primary, folders: [
+            work: ScriptedLimits([.success(fullStatus(fiveHour: 20, sevenDay: 1, email: "work@example.com", org: "Work Corp"))]),
+        ])
+
+        await store.refresh(scheduleEmptyRetry: false)
+        XCTAssertEqual(store.additionalLimits.first?.status.accountEmail, "work@example.com")
+        XCTAssertEqual(store.claudeAccounts.last?.title, "Work Corp")
+    }
+
     func testTheDefaultAccountTabFollowsTheDefaultExpiry() async {
         let primary = ScriptedLimits([
             .success(limitStatus(fiveHour: 10, email: "main@example.com")),
@@ -793,11 +1023,18 @@ private final class TodayUsage: UsageProvider, @unchecked Sendable {
     let id = "claude_code"
     let displayName = "Claude Code"
     let reportsCost = true
+    let block: BlockUsage?
+    init(block: BlockUsage? = nil) { self.block = block }
     func fetchDaily() async throws -> DailyUsage? {
         DailyUsage(date: LocalUsageReader.todayKey(), inputTokens: 0, outputTokens: 0,
                    cacheCreationTokens: 0, cacheReadTokens: 0, totalTokens: 1_000, totalCost: 0)
     }
-    func fetchEnrichment() async -> ProviderEnrichment { ProviderEnrichment() }
+    func fetchEnrichment() async -> ProviderEnrichment {
+        var enrichment = ProviderEnrichment()
+        enrichment.activeBlock = block
+        enrichment.blocksOK = true
+        return enrichment
+    }
 }
 
 final class ClaudeTrackedAccountModeTests: XCTestCase {
@@ -835,7 +1072,8 @@ final class ClaudeTrackedAccountModeTests: XCTestCase {
     func testOnlyAccountsWithValuesCanBeTracked() {
         let accounts = [account("default", fiveHour: nil, isDefault: true), account("personal", fiveHour: 10)]
         XCTAssertEqual(tracked(accounts, .automatic, ["default": Date()]), "personal")
-        XCTAssertNil(tracked(accounts, .defaultAccount), "the default placeholder has nothing to show")
+        XCTAssertEqual(tracked(accounts, .defaultAccount, ["personal": Date()]), "personal",
+                       "the default placeholder has nothing to show: the last used account instead")
         XCTAssertNil(tracked([], .automatic))
     }
 
@@ -913,17 +1151,24 @@ final class ClaudeTrackedAccountStoreTests: XCTestCase {
     private var personalKey: String { ClaudeAccountRoots.pathKey(for: URL(fileURLWithPath: personal)) }
 
     private func makeStore(primary: LimitStatus, personal personalStatus: LimitStatus?,
-                           lastPrompt: [String: Date]) -> UsageStore {
+                           lastPrompt: [String: Date],
+                           usage: [LocalUsageReader.Entry] = [],
+                           prompts: [String: ClaudeAccountUsageAttribution.Prompts] = [:],
+                           machineBlock: BlockUsage? = nil) -> UsageStore {
         if personalStatus != nil { testDefaults.set(personal, forKey: ClaudeAccountRoots.defaultsKey) }
         let personalPath = personal
         return UsageStore(
-            providers: [TodayUsage()],
+            providers: [TodayUsage(block: machineBlock)],
             claudeLimitsProvider: ScriptedLimits([.success(primary)]),
             additionalClaudeLimitsProvider: { _ in
                 ScriptedLimits([personalStatus.map { .success($0) } ?? .failure(.keychainInteractionNotAllowed)])
             },
             readLastPrompt: { folder in
                 folder.standardizedFileURL.path == personalPath ? lastPrompt["personal"] : lastPrompt["default"]
+            },
+            claudeUsageEntries: { _ in usage },
+            readPromptHistory: { folder in
+                prompts[folder.standardizedFileURL.path == personalPath ? "personal" : "default"] ?? [:]
             },
             codexLimitsProvider: NoCodex(),
             antigravityLimitsProvider: NoAntigravity(),
@@ -970,6 +1215,54 @@ final class ClaudeTrackedAccountStoreTests: XCTestCase {
 
         store.claudeTrackedAccountMode = .defaultAccount
         XCTAssertNil(store.fiveHourForecast, "40% without a local block: no forecast")
+    }
+
+    /// With several accounts the machine-wide block mixes their burn: each forecast uses its own.
+    func testTheForecastUsesTheTrackedAccountsOwnBurn() async {
+        let now = Date()
+        let reset = ISO8601DateFormatter().string(from: now.addingTimeInterval(3600))
+        func status(_ utilization: Double, _ email: String) -> LimitStatus {
+            var s = try! JSONDecoder().decode(LimitStatus.self, from: Data(
+                "{\"five_hour\":{\"utilization\":\(utilization),\"resets_at\":\"\(reset)\"}}".utf8))
+            s.accountEmail = email
+            return s
+        }
+        // 600k tokens in the last 10 minutes on the personal login: 15 minutes left at 40%.
+        let burst = entry("b", session: "home", at: now.addingTimeInterval(-600), tokens: 600_000,
+                          day: LocalUsageReader.todayKey())
+        let machine = BlockUsage(id: "m", startTime: "", endTime: "", isActive: true, totalTokens: 600_000,
+                                 costUSD: 0, tokensPerMinute: 60_000)
+        let store = makeStore(primary: status(40, "me@corp.example"), personal: status(40, "me@example.com"),
+                              lastPrompt: ["personal": now], usage: [burst],
+                              prompts: ["personal": ["home": [now.addingTimeInterval(-700)]]],
+                              machineBlock: machine)
+        await store.refresh(scheduleEmptyRetry: false)
+        XCTAssertEqual(store.trackedClaudeAccount?.id, personalKey)
+        XCTAssertEqual(store.fiveHourForecast?.beforeReset, true)
+
+        store.claudeTrackedAccountMode = .defaultAccount
+        XCTAssertNil(store.fiveHourForecast, "the default login burned nothing: the personal burst is not its own")
+    }
+
+    func testASingleAccountForecastUsesTheMachineBlock() async {
+        let reset = ISO8601DateFormatter().string(from: Date().addingTimeInterval(3600))
+        var status = try! JSONDecoder().decode(LimitStatus.self, from: Data(
+            "{\"five_hour\":{\"utilization\":40,\"resets_at\":\"\(reset)\"}}".utf8))
+        status.accountEmail = "me@corp.example"
+        let machine = BlockUsage(id: "m", startTime: "", endTime: "", isActive: true, totalTokens: 600_000,
+                                 costUSD: 0, tokensPerMinute: 60_000)
+        let store = makeStore(primary: status, personal: nil, lastPrompt: [:], machineBlock: machine)
+        await store.refresh(scheduleEmptyRetry: false)
+        XCTAssertEqual(store.fiveHourForecast?.beforeReset, true)
+    }
+
+    func testChangingTheTrackedAccountUpdatesTheCompanionAtOnce() {
+        let store = makeStore(primary: fullStatus(fiveHour: 10, sevenDay: 1, email: "me@corp.example"),
+                              personal: nil, lastPrompt: [:])
+        var updates = 0
+        store.onRefresh = { updates += 1 }
+        store.claudeTrackedAccountMode = .highest
+        XCTAssertEqual(updates, 1)
     }
 
     func testTheSavedModeIsReadBackAndSingleAccountsIgnoreIt() async {
@@ -1075,26 +1368,64 @@ final class ClaudePromptHistoryTests: XCTestCase {
         XCTAssertEqual(prompts["s2"]?.count, 1)
     }
 
-    func testTheHistoryIsReadAgainOnlyWhenItChanges() throws {
+    func testTheHistoryIsReadAgainOnlyForItsNewLines() throws {
         let folder = FileManager.default.temporaryDirectory
             .appendingPathComponent("ptb-prompts-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: folder) }
         let file = folder.appendingPathComponent("history.jsonl")
         let stamp = Date(timeIntervalSince1970: 1_790_000_000)
+        func line(_ session: String, _ seconds: Int = 1_790_000_000) -> String {
+            #"{"timestamp":"# + "\(seconds)000" + #","sessionId":""# + session + #""}"# + "\n"
+        }
         func write(_ text: String) throws {
             try Data(text.utf8).write(to: file)
             try FileManager.default.setAttributes([.modificationDate: stamp], ofItemAtPath: file.path)
         }
+        func sessions() -> [String] { ClaudePromptHistory.prompts(configDir: folder).keys.sorted() }
 
-        XCTAssertEqual(ClaudePromptHistory.prompts(configDir: folder), [:], "no history, no prompts")
-        try write(#"{"timestamp":1790000000000,"sessionId":"s1"}"#)
-        XCTAssertEqual(ClaudePromptHistory.prompts(configDir: folder).keys.sorted(), ["s1"])
+        XCTAssertEqual(sessions(), [], "no history, no prompts")
+        try write(line("s1"))
+        XCTAssertEqual(sessions(), ["s1"])
         // Same size and date: the cached result is served even though the content differs.
-        try write(#"{"timestamp":1790000000000,"sessionId":"s9"}"#)
-        XCTAssertEqual(ClaudePromptHistory.prompts(configDir: folder).keys.sorted(), ["s1"])
-        try write(#"{"timestamp":1790000000000,"sessionId":"s1"}"# + "\n" + #"{"timestamp":1790000000000,"sessionId":"s22"}"#)
-        XCTAssertEqual(ClaudePromptHistory.prompts(configDir: folder).keys.sorted(), ["s1", "s22"])
+        try write(line("s9"))
+        XCTAssertEqual(sessions(), ["s1"])
+        // Appended lines only: the first line is not parsed again (s9 stays unseen).
+        try write(line("s9") + line("s22") + line("s1", 1_789_999_000))
+        XCTAssertEqual(sessions(), ["s1", "s22"])
+        XCTAssertEqual(ClaudePromptHistory.prompts(configDir: folder)["s1"],
+                       [Date(timeIntervalSince1970: 1_789_999_000), stamp], "merged prompts stay sorted")
+        // A line still being written waits for its line break.
+        let complete = line("s9") + line("s22") + line("s1", 1_789_999_000)
+        let partial = line("s3")
+        try write(complete + partial.dropLast(5))
+        XCTAssertEqual(sessions(), ["s1", "s22"])
+        try write(complete + partial)
+        XCTAssertEqual(sessions(), ["s1", "s22", "s3"])
+        // A shorter file was rewritten: read it all again.
+        try write(line("s4"))
+        XCTAssertEqual(sessions(), ["s4"])
+        // So was a longer one that no longer breaks a line where the last read ended.
+        try write(#"{"display":"a longer first prompt","timestamp":1790000000000,"sessionId":"s5"}"# + "\n")
+        XCTAssertEqual(sessions(), ["s5"])
+    }
+
+    func testNoHistoryIsReadOutsideTheApp() throws {
+        let folder = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ptb-prompts-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        try Data(#"{"timestamp":1790000000000,"sessionId":"s1"}"#.utf8 + [0x0A])
+            .write(to: folder.appendingPathComponent("history.jsonl"))
+        XCTAssertEqual(ClaudePromptHistory.installedPrompts(configDir: folder, isBundledApp: false), [:])
+        XCTAssertEqual(ClaudePromptHistory.installedPrompts(configDir: folder, isBundledApp: true).keys.sorted(), ["s1"])
+        XCTAssertNil(ClaudeAccountRoots.installedLastPromptDate(configDir: folder, isBundledApp: false))
+        XCTAssertNotNil(ClaudeAccountRoots.installedLastPromptDate(configDir: folder, isBundledApp: true))
+    }
+
+    func testNoUsageIsScannedOutsideTheApp() async {
+        let entries = await UsageStore.installedClaudeUsageEntries(modifiedSince: .distantPast, isBundledApp: false)
+        XCTAssertTrue(entries.isEmpty)
     }
 }
 
@@ -1142,7 +1473,7 @@ final class ClaudeAccountUsageAttributionTests: XCTestCase {
             entry("6", session: "work", at: at(1), tokens: 1_000, day: "2026-08-31"),
         ]
         let result = ClaudeAccountUsageAttribution.usage(
-            entries: entries, accounts: accounts, todayKey: "2026-09-17", monthStartKey: "2026-09-01")
+            entries: entries, accounts: accounts, now: at(30), todayKey: "2026-09-17", monthStartKey: "2026-09-01")
 
         XCTAssertEqual(result.byAccount["default"]?.todayTokens, 100)
         XCTAssertEqual(result.byAccount["default"]?.monthTokens, 140, "last month's turns are left out")
@@ -1154,8 +1485,39 @@ final class ClaudeAccountUsageAttributionTests: XCTestCase {
         XCTAssertTrue(result.byAccount["default"]?.monthCost.coverage.estimated ?? false)
 
         let allKnown = ClaudeAccountUsageAttribution.usage(
-            entries: [entries[0]], accounts: accounts, todayKey: "2026-09-17", monthStartKey: "2026-09-01")
+            entries: [entries[0]], accounts: accounts, now: at(30), todayKey: "2026-09-17", monthStartKey: "2026-09-01")
         XCTAssertEqual(allKnown.unattributed, ClaudeAccountUsage(), "nothing unattributed: an empty total")
+    }
+
+    func testEachAccountGetsItsOwnActiveBlock() {
+        let entries = [
+            entry("1", session: "work", at: at(1), tokens: 100, day: "2026-09-17"),
+            entry("2", session: "work", at: at(-240), tokens: 40, day: "2026-08-31"),
+            entry("3", session: "resumed", at: at(25), tokens: 7, day: "2026-09-17"),
+            entry("4", session: "unknown", at: at(1), tokens: 5, day: "2026-09-17"),
+            entry("5", session: "work", at: at(-400), tokens: 1_000, day: "2026-09-17"),
+        ]
+        let result = ClaudeAccountUsageAttribution.usage(
+            entries: entries, accounts: accounts, now: at(30), todayKey: "2026-09-17", monthStartKey: "2026-09-01")
+        XCTAssertEqual(result.activeBlocks["default"]?.totalTokens, 140,
+                       "a block started last month still counts; older turns do not")
+        XCTAssertEqual(result.activeBlocks["personal"]?.totalTokens, 7)
+        XCTAssertEqual(Set(result.activeBlocks.keys), ["default", "personal"], "unattributed turns have no block")
+
+        let later = ClaudeAccountUsageAttribution.usage(
+            entries: entries, accounts: accounts, now: at(600), todayKey: "2026-09-17", monthStartKey: "2026-09-01")
+        XCTAssertTrue(later.activeBlocks.isEmpty)
+    }
+
+    func testTotalsAddUp() {
+        var total = ClaudeAccountUsage(todayTokens: 1, todayCost: UsageCost(amount: 0.5, coverage: .source),
+                                       monthTokens: 10, monthCost: UsageCost(amount: 2, coverage: .source))
+        total.add(ClaudeAccountUsage(todayTokens: 2, todayCost: UsageCost(amount: 0.25, coverage: .source),
+                                     monthTokens: 20, monthCost: UsageCost(amount: 1, coverage: .source)))
+        XCTAssertEqual(total.todayTokens, 3)
+        XCTAssertEqual(total.todayCost.amount, 0.75)
+        XCTAssertEqual(total.monthTokens, 30)
+        XCTAssertEqual(total.monthCost.amount, 3)
     }
 }
 
@@ -1211,8 +1573,10 @@ final class ClaudeAccountUsageStoreTests: XCTestCase {
         XCTAssertEqual(store.claudeAccountUsage[ClaudeAccountLimits.defaultID]?.todayTokens, 100)
         XCTAssertEqual(store.claudeAccountUsage[personalKey]?.todayTokens, 30)
         XCTAssertEqual(store.unattributedClaudeUsage.todayTokens, 4)
-        let scannedFrom = await asked.values.first
-        XCTAssertEqual(scannedFrom, LocalUsageReader.startOfMonth(now))
+        let recorded = await asked.values.first
+        let scannedFrom = try XCTUnwrap(recorded)
+        let expected = UsageStore.claudeUsageScanStart(now: now)
+        XCTAssertEqual(scannedFrom.timeIntervalSince1970, expected.timeIntervalSince1970, accuracy: 5)
 
         store.additionalClaudeConfigDirs = ""
         for _ in 0..<100 where !store.claudeAccountUsage.isEmpty || store.isRefreshing {
@@ -1220,6 +1584,71 @@ final class ClaudeAccountUsageStoreTests: XCTestCase {
         }
         XCTAssertTrue(store.claudeAccountUsage.isEmpty, "a single account needs no split")
         XCTAssertEqual(store.unattributedClaudeUsage, ClaudeAccountUsage())
+    }
+}
+
+extension ClaudeAccountUsageStoreTests {
+    /// A folder hidden as a duplicate still counts for its account, and an account without a tab
+    /// is not shown under another name.
+    func testDuplicateFoldersAddUpAndTablessAccountsAreUnattributed() async throws {
+        let fm = FileManager.default
+        let work = base.appendingPathComponent("work").standardizedFileURL.path
+        let team = base.appendingPathComponent("team").standardizedFileURL.path
+        try fm.createDirectory(atPath: work, withIntermediateDirectories: true)
+        try fm.createDirectory(atPath: team, withIntermediateDirectories: true)
+        let personal = base.appendingPathComponent("personal").standardizedFileURL.path
+        let personalKey = ClaudeAccountRoots.pathKey(for: URL(fileURLWithPath: personal))
+        testDefaults.set([work, personal, team].joined(separator: ","), forKey: ClaudeAccountRoots.defaultsKey)
+        let now = Date()
+        let today = LocalUsageReader.todayKey()
+        let byFolder: [String: (String, Date)] = [
+            work: ("w", now.addingTimeInterval(-30)), personal: ("p", now.addingTimeInterval(-50)),
+            team: ("t", now.addingTimeInterval(-10)),
+        ]
+        let store = UsageStore(
+            providers: [NilDailyProvider()],
+            claudeLimitsProvider: ScriptedLimits([.success(limitStatus(fiveHour: 10, email: "me@corp.example"))]),
+            additionalClaudeLimitsProvider: { root in
+                switch root.path {
+                case work: ScriptedLimits([.success(limitStatus(fiveHour: 10, email: "me@corp.example"))])
+                case personal: ScriptedLimits([.success(limitStatus(fiveHour: 20, email: "me@example.com"))])
+                default: ScriptedLimits([.failure(.keychainInteractionNotAllowed)])
+                }
+            },
+            readLastPrompt: { folder in
+                byFolder[folder.standardizedFileURL.path]?.1 ?? now.addingTimeInterval(-20)
+            },
+            claudeUsageEntries: { _ in
+                ["c", "w", "p", "t"].map { entry($0, session: $0, at: now, tokens: 10, day: today) }
+            },
+            readPromptHistory: { folder in
+                let (session, date) = byFolder[folder.standardizedFileURL.path] ?? ("c", now.addingTimeInterval(-20))
+                return [session: [date]]
+            },
+            codexLimitsProvider: NoCodex(),
+            antigravityLimitsProvider: NoAntigravity(),
+            statusProvider: NoStatuses(),
+            sessionKeys: SessionKeys(nil),
+            autoRefresh: false,
+            defaults: testDefaults)
+
+        await store.refresh(scheduleEmptyRetry: false)
+        XCTAssertEqual(store.claudeAccounts.map(\.id), [ClaudeAccountLimits.defaultID, personalKey])
+        XCTAssertEqual(store.claudeAccountUsage[ClaudeAccountLimits.defaultID]?.todayTokens, 20,
+                       "the default login's turns plus those of its second folder")
+        XCTAssertEqual(store.claudeAccountUsage[personalKey]?.todayTokens, 10)
+        XCTAssertEqual(Set(store.claudeAccountUsage.keys), [ClaudeAccountLimits.defaultID, personalKey])
+        XCTAssertEqual(store.unattributedClaudeUsage.todayTokens, 10, "the team folder has no tab yet")
+        XCTAssertEqual(store.claudeAccountActivity[ClaudeAccountLimits.defaultID], now.addingTimeInterval(-20),
+                       "the latest prompt of both folders, not the last folder's")
+    }
+
+    func testTheScanCoversTheMonthAndABlockStartedLastMonth() {
+        let monthStart = LocalUsageReader.startOfMonth(Date())
+        let early = monthStart.addingTimeInterval(2 * 3600)
+        XCTAssertEqual(UsageStore.claudeUsageScanStart(now: early), early.addingTimeInterval(-LocalUsageReader.blockWindow))
+        let later = monthStart.addingTimeInterval(10 * 86_400)
+        XCTAssertEqual(UsageStore.claudeUsageScanStart(now: later), monthStart)
     }
 }
 

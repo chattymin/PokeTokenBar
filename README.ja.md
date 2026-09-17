@@ -225,9 +225,9 @@ swift test                   # ユニットテスト
 
 | ソース | 用途 | 備考 |
 |---|---|---|
-| `~/.claude/projects/**/*.jsonl` | Claude Code daily/blocks/weekly/monthly | 直接読み取り；メッセージ id で重複排除；増分キャッシュ |
+| `~/.claude/projects/**/*.jsonl`、`<設定フォルダ>/projects/**/*.jsonl` | Claude Code daily/blocks/weekly/monthly | 直接読み取り；メッセージ id で重複排除；増分キャッシュ |
 | `~/.claude.json`、`~/.claude-*/.claude.json` | Claude アカウント：ログイン中の設定フォルダとアカウント名 | `oauthAccount` ブロックのみ使用；エクスポートされた `CLAUDE_CONFIG_DIR` と設定 → 詳細のフォルダも対象 |
-| `~/.claude/history.jsonl`、`<設定フォルダ>/history.jsonl` | アカウントごとの Claude トークン；最後に使ったアカウント | セッション id とプロンプト時刻のみ読み取り、プロンプト本文は読みません；ファイルが変わった時だけ再読み込み |
+| `~/.claude/history.jsonl`、`<設定フォルダ>/history.jsonl` | アカウントごとの Claude トークン；最後に使ったアカウント | セッション id とプロンプト時刻のみ読み取り、プロンプト本文は読みません；追加された行だけを読み取り |
 | `~/.gemini/tmp/**/chats/*.json(l)` | Gemini CLI daily/monthly | セッションレコード（メッセージ別 `tokens`）；週間 = daily 合算 |
 | `~/.gemini/antigravity/conversations/*.db`<br>`~/.gemini/antigravity-cli/conversations/*.db`<br>`~/.gemini/antigravity-ide/conversations/*.db` | Antigravity daily/blocks/weekly/monthly | SQLite 読み取り専用；Cascade protobuf blob の呼び出し単位の使用量；Antigravity 2.0/Core, CLI, IDE をサポート；Gemini には合算しない独立プロバイダ；サブスクのためコストは推定しない |
 | `~/.codex/sessions/**/*.jsonl` | Codex daily/monthly | `token_count` イベント；週間 = daily 合算 |
