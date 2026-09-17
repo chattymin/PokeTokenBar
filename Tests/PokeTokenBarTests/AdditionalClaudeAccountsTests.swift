@@ -138,17 +138,69 @@ final class ClaudeAccountRootsTests: XCTestCase {
         try? FileManager.default.removeItem(at: home)
     }
 
-    func testKeychainServiceUsesTheFirstEightHexCharsOfTheFolderPathHash() {
+    /// Claude Code hashes `CLAUDE_CONFIG_DIR` as given, so `…/.claude-work/` is another item.
+    func testKeychainServicesHashTheFolderPathWithAndWithoutATrailingSlash() {
         // printf '%s' "/Users/example/.claude-work" | shasum -a 256 → dd1118a7…
-        let root = URL(fileURLWithPath: "/Users/example/.claude-work")
-        XCTAssertEqual(ClaudeAccountRoots.keychainService(for: root), "Claude Code-credentials-dd1118a7")
-    }
-
-    func testKeychainServiceIgnoresATrailingSlash() {
+        // printf '%s' "/Users/example/.claude-work/" | shasum -a 256 → 16c171f6…
+        let expected = ["Claude Code-credentials-dd1118a7", "Claude Code-credentials-16c171f6"]
         let plain = URL(fileURLWithPath: "/Users/example/.claude-work")
         let slashed = URL(fileURLWithPath: "/Users/example/.claude-work/", isDirectory: true)
-        XCTAssertEqual(ClaudeAccountRoots.keychainService(for: slashed),
-                       ClaudeAccountRoots.keychainService(for: plain))
+        XCTAssertEqual(ClaudeAccountRoots.keychainServices(for: plain), expected)
+        XCTAssertEqual(ClaudeAccountRoots.keychainServices(for: slashed), expected)
+        XCTAssertEqual(ClaudeAccountRoots.pathKey(for: slashed), "dd1118a7", "the folder id ignores the slash")
+    }
+
+    private func credential(_ token: String, expired: Bool = false) -> OAuthCredentialData.Credential {
+        OAuthCredentialData.Credential(accessToken: token, expiresAt: Date().addingTimeInterval(expired ? -60 : 3600),
+                                       data: Data(), subscriptionType: nil, rateLimitTier: nil)
+    }
+
+    private func firstUsable(_ results: [String: Result<OAuthCredentialData.Credential, LimitsError>],
+                             order: [String] = ["a", "b"]) -> (Result<String, LimitsError>, [String]) {
+        var read: [String] = []
+        let result = Result<OAuthCredentialData.Credential, Error> {
+            try OAuthAccessTokenCache.firstUsableCredential(services: order) {
+                read.append($0)
+                return try results[$0]!.get()
+            }
+        }
+        return (result.map(\.accessToken).mapError { $0 as! LimitsError }, read)
+    }
+
+    func testTheFirstLiveCredentialWinsAndAMissingItemMovesOn() {
+        let notFound = LimitsError.keychainUnavailable(errSecItemNotFound)
+        XCTAssertEqual(firstUsable(["a": .success(credential("A")), "b": .success(credential("B"))]).1, ["a"],
+                       "a live credential stops the lookup")
+        XCTAssertEqual(firstUsable(["a": .failure(notFound), "b": .success(credential("B"))]).0, .success("B"))
+        XCTAssertEqual(firstUsable(["a": .success(credential("A", expired: true)), "b": .success(credential("B"))]).0,
+                       .success("B"), "an expired token gives way to a live one")
+        XCTAssertEqual(firstUsable(["a": .success(credential("A", expired: true)), "b": .failure(notFound)]).0,
+                       .success("A"), "an expired token beats nothing, so the tab can say it expired")
+        XCTAssertEqual(firstUsable(["a": .success(credential("A", expired: true)),
+                                    "b": .success(credential("B", expired: true))]).0,
+                       .success("A"), "between expired tokens, the usual name wins")
+        XCTAssertEqual(firstUsable(["a": .failure(notFound), "b": .failure(notFound)]).0, .failure(notFound))
+    }
+
+    func testAMissingItemNeverHidesAMoreTellingFailure() {
+        let notFound = LimitsError.keychainUnavailable(errSecItemNotFound)
+        XCTAssertEqual(firstUsable(["a": .failure(.keychainInteractionNotAllowed), "b": .failure(notFound)]).0,
+                       .failure(.keychainInteractionNotAllowed))
+        XCTAssertEqual(firstUsable(["a": .failure(notFound), "b": .failure(.credentialMissingAccountOAuth)]).0,
+                       .failure(.credentialMissingAccountOAuth))
+        XCTAssertEqual(firstUsable(["a": .failure(.credentialFormat), "b": .failure(.keychainInteractionNotAllowed)]).0,
+                       .failure(.credentialFormat), "the first telling failure is kept")
+        XCTAssertEqual(firstUsable([:], order: []).0, .failure(notFound))
+    }
+
+    /// #280: a cancelled or failed password prompt must not be followed by another one.
+    func testACancelledPromptOrADisabledKeychainStopsTheLookup() {
+        for error in [LimitsError.keychainUnavailable(errSecUserCanceled), .keychainUnavailable(errSecAuthFailed),
+                      .keychainAccessDisabled] {
+            let (result, read) = firstUsable(["a": .failure(error), "b": .success(credential("B"))])
+            XCTAssertEqual(result, .failure(error))
+            XCTAssertEqual(read, ["a"], "\(error)")
+        }
     }
 
     func testRootsKeepExistingFoldersInOrderAndDropDefaultsDuplicatesAndInvalidEntries() {
@@ -1046,10 +1098,11 @@ private final class TodayUsage: UsageProvider, @unchecked Sendable {
     let displayName = "Claude Code"
     let reportsCost = true
     let block: BlockUsage?
-    init(block: BlockUsage? = nil) { self.block = block }
+    let tokens: Int
+    init(block: BlockUsage? = nil, tokens: Int = 1_000) { self.block = block; self.tokens = tokens }
     func fetchDaily() async throws -> DailyUsage? {
         DailyUsage(date: LocalUsageReader.todayKey(), inputTokens: 0, outputTokens: 0,
-                   cacheCreationTokens: 0, cacheReadTokens: 0, totalTokens: 1_000, totalCost: 0)
+                   cacheCreationTokens: 0, cacheReadTokens: 0, totalTokens: tokens, totalCost: 0)
     }
     func fetchEnrichment() async -> ProviderEnrichment {
         var enrichment = ProviderEnrichment()
@@ -1176,11 +1229,11 @@ final class ClaudeTrackedAccountStoreTests: XCTestCase {
                            lastPrompt: [String: Date],
                            usage: [LocalUsageReader.Entry] = [],
                            prompts: [String: ClaudeAccountUsageAttribution.Prompts] = [:],
-                           machineBlock: BlockUsage? = nil) -> UsageStore {
+                           machineBlock: BlockUsage? = nil, todayTokens: Int = 1_000) -> UsageStore {
         if personalStatus != nil { testDefaults.set(personal, forKey: ClaudeAccountRoots.defaultsKey) }
         let personalPath = personal
         return UsageStore(
-            providers: [TodayUsage(block: machineBlock)],
+            providers: [TodayUsage(block: machineBlock, tokens: todayTokens)],
             claudeLimitsProvider: ScriptedLimits([.success(primary)]),
             additionalClaudeLimitsProvider: { _ in
                 ScriptedLimits([personalStatus.map { .success($0) } ?? .failure(.keychainInteractionNotAllowed)])
@@ -1207,19 +1260,60 @@ final class ClaudeTrackedAccountStoreTests: XCTestCase {
             lastPrompt: ["default": now.addingTimeInterval(-3600), "personal": now])
         store.showLimitInMenu = true
         store.showTokensInMenu = false
+        store.localizationLanguage = .en
         await store.refresh(scheduleEmptyRetry: false)
 
         XCTAssertEqual(store.claudeAccountActivity[ClaudeAccountLimits.defaultID], now.addingTimeInterval(-3600))
         XCTAssertEqual(store.trackedClaudeAccount?.id, personalKey)
         XCTAssertEqual(store.menuLines, ["Claude 61%"])
+        XCTAssertEqual(store.menuToolTip, "Tracked Claude account: me@example.com")
         XCTAssertFalse(store.isLimitWarning, "the exhausted default account is not the one in use")
         XCTAssertEqual(try XCTUnwrap(store.highestLimitUtilization), 61, accuracy: 0.01)
 
         store.claudeTrackedAccountMode = .defaultAccount
         XCTAssertEqual(store.menuLines, ["Claude 100%"])
+        XCTAssertEqual(store.menuToolTip, "Tracked Claude account: Corp")
         XCTAssertTrue(store.isLimitWarning)
         XCTAssertEqual(store.fiveHourForecast?.beforeReset, nil, "no reset date, no forecast")
         XCTAssertEqual(testDefaults.string(forKey: ClaudeTrackedAccountMode.defaultsKey), "default")
+    }
+
+    func testTheMenuToolTipOnlyNamesAnAccountBehindAShownPercentage() async throws {
+        let alone = makeStore(primary: fullStatus(fiveHour: 40, sevenDay: 10, email: "me@corp.example", org: "Corp"),
+                              personal: nil, lastPrompt: [:])
+        alone.showLimitInMenu = true
+        await alone.refresh(scheduleEmptyRetry: false)
+        XCTAssertEqual(alone.menuLines.last, "Claude 40%")
+        XCTAssertNil(alone.menuToolTip, "a single account needs no name")
+
+        let both = makeStore(primary: fullStatus(fiveHour: 40, sevenDay: 10, email: "me@corp.example", org: "Corp"),
+                             personal: fullStatus(fiveHour: 61, sevenDay: 21, email: "me@example.com"),
+                             lastPrompt: ["personal": Date()])
+        both.localizationLanguage = .fr
+        both.showLimitInMenu = false
+        await both.refresh(scheduleEmptyRetry: false)
+        XCTAssertNil(both.menuToolTip, "no percentage in the menu bar, nothing to name")
+        both.showLimitInMenu = true
+        XCTAssertEqual(both.menuToolTip, "Compte Claude suivi : me@example.com")
+
+        let idle = makeStore(primary: fullStatus(fiveHour: 40, sevenDay: 10, email: "me@corp.example", org: "Corp"),
+                             personal: fullStatus(fiveHour: 61, sevenDay: 21, email: "me@example.com"),
+                             lastPrompt: ["personal": Date()], todayTokens: 0)
+        idle.showLimitInMenu = true
+        await idle.refresh(scheduleEmptyRetry: false)
+        XCTAssertEqual(idle.trackedClaudeAccount?.id, personalKey)
+        XCTAssertEqual(idle.menuLines.filter { $0.hasPrefix("Claude") }, [], "Claude was not used today")
+        XCTAssertNil(idle.menuToolTip)
+
+        var weeklyOnly = try JSONDecoder().decode(LimitStatus.self, from: Data(#"{"seven_day":{"utilization":30}}"#.utf8))
+        weeklyOnly.accountEmail = "me@example.com"
+        let noFiveHour = makeStore(primary: fullStatus(fiveHour: 40, sevenDay: 10, email: "me@corp.example", org: "Corp"),
+                                   personal: weeklyOnly, lastPrompt: ["personal": Date()])
+        noFiveHour.showLimitInMenu = true
+        await noFiveHour.refresh(scheduleEmptyRetry: false)
+        XCTAssertEqual(noFiveHour.trackedClaudeAccount?.id, personalKey)
+        XCTAssertEqual(noFiveHour.menuLines.filter { $0.hasPrefix("Claude") }, [])
+        XCTAssertNil(noFiveHour.menuToolTip, "the tracked account shows no 5h percentage")
     }
 
     func testTheForecastUsesTheTrackedAccount() async {

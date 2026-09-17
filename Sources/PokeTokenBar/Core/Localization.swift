@@ -436,6 +436,11 @@ struct L {
         t("자동 감지: \(folders)", "Detected: \(folders)", "自動検出: \(folders)", "Detectadas: \(folders)", "Détectés : \(folders)", "Detectadas: \(folders)", "Erkannt: \(folders)")
     }
     var trackedAccountLabel: String { t("추적할 Claude 계정", "Tracked Claude account", "追跡する Claude アカウント", "Cuenta de Claude seguida", "Compte Claude suivi", "Conta do Claude acompanhada", "Verfolgtes Claude-Konto") }
+    func trackedAccountToolTip(_ title: String) -> String {
+        t("추적할 Claude 계정: \(title)", "Tracked Claude account: \(title)", "追跡する Claude アカウント: \(title)",
+          "Cuenta de Claude seguida: \(title)", "Compte Claude suivi : \(title)",
+          "Conta do Claude acompanhada: \(title)", "Verfolgtes Claude-Konto: \(title)")
+    }
     var trackedAccountHint: String {
         t("메뉴바 한도·경고 상태·컴패니언 기분·5시간 예측의 기준이에요.",
           "Drives the menu bar limit, warning state, companion mood and 5h forecast.",
