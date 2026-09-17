@@ -33,6 +33,9 @@ enum LocalUsageReader {
         var costIsEstimate: Bool? = nil
         /// The source cannot reconstruct model/request token buckets for a price-table estimate.
         var costUnavailable: Bool? = nil
+        /// Claude only: the session the turn belongs to, from the transcript path. Lets usage be split
+        /// between Claude accounts (`ClaudeAccountUsageAttribution`).
+        var sessionID: String? = nil
         var total: Int { input + output + cacheWrite + cacheRead }
     }
 
@@ -369,16 +372,30 @@ enum LocalUsageReader {
     /// Claude 파일 하나를 파싱(파일 내 dedup). 캐시가 파일 단위로 호출.
     static func parseClaudeFile(_ url: URL, fmt: DateFormatter) -> [Entry] {
         guard let text = try? String(contentsOf: url, encoding: .utf8) else { return [] }
+        let session = claudeSessionID(forTranscript: url)
         var out: [Entry] = []
         for line in text.split(separator: "\n", omittingEmptySubsequences: true) {
             guard line.contains("\"usage\""), line.contains("\"assistant\"") else { continue }
             // 라인마다 autoreleasepool — JSONSerialization 이 만드는 autoreleased NSDictionary/NSString 가
             // 수천 파일·수만 라인에 걸쳐 배출 없이 누적돼 콜드 파싱 피크를 키우던 것을 즉시 배출.
             autoreleasepool {
-                if let e = parseClaudeLine(String(line), fmt: fmt) { out.append(e) }
+                if var e = parseClaudeLine(String(line), fmt: fmt) {
+                    e.sessionID = session
+                    out.append(e)
+                }
             }
         }
         return dedupKeepMax(out)
+    }
+
+    /// Session of a Claude transcript: `<project>/<session>.jsonl`, or
+    /// `<project>/<session>/subagents/<agent>.jsonl` for a subagent (counted with its parent session).
+    static func claudeSessionID(forTranscript url: URL) -> String? {
+        let parent = url.deletingLastPathComponent()
+        let name = parent.lastPathComponent == "subagents"
+            ? parent.deletingLastPathComponent().lastPathComponent
+            : url.deletingPathExtension().lastPathComponent
+        return name.isEmpty ? nil : name
     }
 
     /// `modifiedSince` 이후 파일에서 Claude 사용 엔트리(전역 dedup) — 테스트/캐시 미사용 경로.

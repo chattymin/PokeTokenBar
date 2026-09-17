@@ -217,6 +217,11 @@ final class ClaudeConfigDiscoveryTests: XCTestCase {
         XCTAssertEqual(ClaudeAccountRoots.installedDefaultIdentity(isBundledApp: true, home: home),
                        AccountIdentity(email: "me@corp.example", organizationName: "Corp"))
 
+        try Data(#"{"oauthAccount":{"emailAddress":"me@example.com","organizationName":""}}"#.utf8)
+            .write(to: home.appendingPathComponent(".claude.json"))
+        XCTAssertEqual(ClaudeAccountRoots.installedDefaultIdentity(isBundledApp: true, home: home),
+                       AccountIdentity(email: "me@example.com", organizationName: nil), "an empty organization is no organization")
+
         try Data(#"{"oauthAccount":{"emailAddress":""}}"#.utf8).write(to: home.appendingPathComponent(".claude.json"))
         XCTAssertNil(ClaudeAccountRoots.installedDefaultIdentity(isBundledApp: true, home: home))
     }
@@ -610,7 +615,7 @@ final class AdditionalClaudeAccountsStoreTests: XCTestCase {
         await store.refresh(scheduleEmptyRetry: false)
         XCTAssertNil(store.limits)
         XCTAssertTrue(store.limitsReady, "candy seeding must not wait for a default login that never loads")
-        XCTAssertEqual(store.claudeAccounts.map(\.id), [ClaudeAccountLimits.defaultID, workKey])
+        XCTAssertEqual(store.claudeAccounts.map(\.id), [workKey], "no default login saved: no placeholder tab")
     }
 
     func testDetectedFoldersAreShownWithoutAnySetting() async {
@@ -845,6 +850,14 @@ final class ClaudeTrackedAccountModeTests: XCTestCase {
         XCTAssertEqual(tracked(accounts, .account("gone"), recent), "personal", "a missing pin falls back to automatic")
     }
 
+    func testHighestModeCountsPerModelWeeklyWindows() {
+        let scoped = fullStatus(fiveHour: 10, sevenDay: 20, fable: 97, email: "work@example.com")
+        let work = ClaudeAccountLimits(id: "work", windowKeyPrefix: "claude.work", fallbackTitle: "work",
+                                       status: scoped, isDefault: false, isExpired: false)
+        XCTAssertEqual(scoped.allUtilizations, [10, 20, 97])
+        XCTAssertEqual(tracked([account("default", fiveHour: 90, isDefault: true), work], .highest), "work")
+    }
+
     func testLastPromptDateIsTheHistoryFileDate() throws {
         let folder = FileManager.default.temporaryDirectory
             .appendingPathComponent("ptb-history-\(UUID().uuidString)", isDirectory: true)
@@ -983,4 +996,234 @@ final class ClaudeTrackedAccountStoreTests: XCTestCase {
         XCTAssertTrue(account.isStale(now: updatedAt.addingTimeInterval(16 * 60)))
         XCTAssertEqual(store.claudeAccounts.first?.updatedAt, store.limitsUpdatedAt)
     }
+}
+
+// MARK: Usage per account
+
+private func entry(_ id: String, session: String?, at date: Date, tokens: Int, day: String,
+                   model: String = "claude-sonnet-4-6") -> LocalUsageReader.Entry {
+    var e = LocalUsageReader.Entry(id: id, date: date, localDay: day, model: model,
+                                   input: tokens, output: 0, cacheWrite: 0, cacheRead: 0)
+    e.sessionID = session
+    return e
+}
+
+final class ClaudeSessionIDTests: XCTestCase {
+    func testSessionComesFromTheTranscriptPath() {
+        let project = URL(fileURLWithPath: "/Users/example/.claude/projects/-Users-example-app")
+        XCTAssertEqual(LocalUsageReader.claudeSessionID(forTranscript: project.appendingPathComponent("abc-123.jsonl")), "abc-123")
+        XCTAssertEqual(LocalUsageReader.claudeSessionID(
+            forTranscript: project.appendingPathComponent("abc-123/subagents/agent-9.jsonl")), "abc-123",
+                       "a subagent counts with its parent session")
+    }
+
+    func testParsedAndCachedEntriesCarryTheirSession() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ptb-session-\(UUID().uuidString)", isDirectory: true)
+        let project = root.appendingPathComponent("-Users-example-app", isDirectory: true)
+        try FileManager.default.createDirectory(at: project, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let line = #"{"type":"assistant","timestamp":"2026-09-16T10:00:00Z","requestId":"r1","message":{"id":"m1","model":"claude-sonnet-4-6","usage":{"input_tokens":10,"output_tokens":5}}}"#
+        let transcript = project.appendingPathComponent("sess-1.jsonl")
+        try Data(line.utf8).write(to: transcript)
+        // Whole seconds, so the signature survives the cache's Double round trip.
+        try FileManager.default.setAttributes([.modificationDate: Date(timeIntervalSince1970: 1_790_000_000)],
+                                              ofItemAtPath: transcript.path)
+
+        let parsed = LocalUsageReader.parseClaudeFile(transcript, fmt: LocalUsageReader.localDayFormatter())
+        XCTAssertEqual(parsed.map(\.sessionID), ["sess-1"])
+
+        // A blob cached before `sessionID` existed: same signature, entry without the field.
+        let values = try transcript.resourceValues(forKeys: [.contentModificationDateKey, .fileSizeKey])
+        // Different from the file on purpose: seeing 1_000 proves the entry was served from the cache.
+        var legacy = LocalUsageReader.Entry(id: parsed[0].id, date: parsed[0].date, localDay: parsed[0].localDay,
+                                            model: parsed[0].model, input: 1_000, output: 0, cacheWrite: 0, cacheRead: 0)
+        legacy.sessionID = nil
+        let entries = try JSONSerialization.jsonObject(with: JSONEncoder().encode([legacy]))
+        // The cache keys blobs by the enumerated path (/var resolves to /private/var): take it the same way.
+        let key = try XCTUnwrap(FileManager.default.enumerator(at: root, includingPropertiesForKeys: nil)?
+            .compactMap { $0 as? URL }.first { $0.lastPathComponent == "sess-1.jsonl" }).path
+        let snapshot: [String: Any] = ["claude": [key: [
+            "mtime": try XCTUnwrap(values.contentModificationDate).timeIntervalSinceReferenceDate,
+            "size": try XCTUnwrap(values.fileSize),
+            "entries": entries,
+        ]]]
+        let cacheFile = root.appendingPathComponent("usage-cache.json")
+        try JSONSerialization.data(withJSONObject: snapshot).write(to: cacheFile)
+        XCTAssertFalse(String(decoding: try Data(contentsOf: cacheFile), as: UTF8.self).contains("sessionID"))
+
+        let cached = await LocalUsageCache(claudeRoot: root, fileURL: cacheFile)
+            .claudeEntries(modifiedSince: .distantPast)
+        XCTAssertEqual(cached.map(\.sessionID), ["sess-1"], "legacy blobs get their session from the path")
+        XCTAssertEqual(cached.map(\.total), [1_000], "served from the legacy blob, not re-parsed")
+    }
+}
+
+final class ClaudePromptHistoryTests: XCTestCase {
+    func testPromptsAreGroupedBySessionAndSorted() {
+        let text = """
+        {"display":"b","timestamp":1790000060000,"sessionId":"s1","project":"/p"}
+        {"display":"a","timestamp":1790000000000,"sessionId":"s1","project":"/p"}
+        {"display":"c","timestamp":"2026-09-16T10:00:00Z","sessionId":"s2"}
+        {"display":"old line without a session","timestamp":1790000000000}
+        {"display":"bad timestamp","timestamp":0,"sessionId":"s3"}
+        not json
+        """
+        let prompts = ClaudePromptHistory.parse(text)
+        XCTAssertEqual(Set(prompts.keys), ["s1", "s2"])
+        XCTAssertEqual(prompts["s1"], [Date(timeIntervalSince1970: 1_790_000_000), Date(timeIntervalSince1970: 1_790_000_060)])
+        XCTAssertEqual(prompts["s2"]?.count, 1)
+    }
+
+    func testTheHistoryIsReadAgainOnlyWhenItChanges() throws {
+        let folder = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ptb-prompts-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let file = folder.appendingPathComponent("history.jsonl")
+        let stamp = Date(timeIntervalSince1970: 1_790_000_000)
+        func write(_ text: String) throws {
+            try Data(text.utf8).write(to: file)
+            try FileManager.default.setAttributes([.modificationDate: stamp], ofItemAtPath: file.path)
+        }
+
+        XCTAssertEqual(ClaudePromptHistory.prompts(configDir: folder), [:], "no history, no prompts")
+        try write(#"{"timestamp":1790000000000,"sessionId":"s1"}"#)
+        XCTAssertEqual(ClaudePromptHistory.prompts(configDir: folder).keys.sorted(), ["s1"])
+        // Same size and date: the cached result is served even though the content differs.
+        try write(#"{"timestamp":1790000000000,"sessionId":"s9"}"#)
+        XCTAssertEqual(ClaudePromptHistory.prompts(configDir: folder).keys.sorted(), ["s1"])
+        try write(#"{"timestamp":1790000000000,"sessionId":"s1"}"# + "\n" + #"{"timestamp":1790000000000,"sessionId":"s22"}"#)
+        XCTAssertEqual(ClaudePromptHistory.prompts(configDir: folder).keys.sorted(), ["s1", "s22"])
+    }
+}
+
+final class ClaudeAccountUsageAttributionTests: XCTestCase {
+    private let t0 = Date(timeIntervalSince1970: 1_790_000_000)
+    private func at(_ minutes: Double) -> Date { t0.addingTimeInterval(minutes * 60) }
+
+    private var accounts: [ClaudeAccountUsageAttribution.Account] {
+        [.init(id: "default", prompts: ["work": [at(0)], "resumed": [at(0), at(10)], "tie": [at(5)],
+                                        "pingpong": [at(0), at(40)]]),
+         .init(id: "personal", prompts: ["mine": [at(0)], "resumed": [at(20), at(30)], "tie": [at(5)],
+                                      "pingpong": [at(20)]])]
+    }
+
+    private func owner(_ session: String, _ minutes: Double) -> String? {
+        ClaudeAccountUsageAttribution.owner(session: session, at: at(minutes), accounts: accounts)
+    }
+
+    func testASessionBelongsToItsOnlyLogin() {
+        XCTAssertEqual(owner("work", 3), "default")
+        XCTAssertEqual(owner("mine", 3), "personal")
+        XCTAssertNil(owner("unknown", 3))
+    }
+
+    func testAResumedSessionChangesOwnerAtTheFirstPromptOfTheOtherLogin() {
+        XCTAssertEqual(owner("resumed", 15), "default")
+        XCTAssertEqual(owner("resumed", 20), "personal", "a prompt and its turn share the minute")
+        XCTAssertEqual(owner("resumed", 45), "personal")
+        XCTAssertEqual(owner("pingpong", 30), "personal")
+        XCTAssertEqual(owner("pingpong", 45), "default", "back on the first login: its latest prompt wins")
+    }
+
+    func testEdgeCasesStayDeterministic() {
+        XCTAssertEqual(owner("resumed", -1), "default", "before any prompt: the login that started the session")
+        XCTAssertEqual(owner("tie", 6), "default", "equal prompt times: the first account in order")
+    }
+
+    func testTotalsPerAccountTodayAndThisMonth() {
+        let entries = [
+            entry("1", session: "work", at: at(1), tokens: 100, day: "2026-09-17"),
+            entry("2", session: "work", at: at(1), tokens: 40, day: "2026-09-02"),
+            entry("3", session: "resumed", at: at(25), tokens: 7, day: "2026-09-17"),
+            entry("4", session: "unknown", at: at(1), tokens: 5, day: "2026-09-17"),
+            entry("5", session: nil, at: at(1), tokens: 3, day: "2026-09-10"),
+            entry("6", session: "work", at: at(1), tokens: 1_000, day: "2026-08-31"),
+        ]
+        let result = ClaudeAccountUsageAttribution.usage(
+            entries: entries, accounts: accounts, todayKey: "2026-09-17", monthStartKey: "2026-09-01")
+
+        XCTAssertEqual(result.byAccount["default"]?.todayTokens, 100)
+        XCTAssertEqual(result.byAccount["default"]?.monthTokens, 140, "last month's turns are left out")
+        XCTAssertEqual(result.byAccount["personal"]?.todayTokens, 7)
+        XCTAssertEqual(result.unattributed.todayTokens, 5)
+        XCTAssertEqual(result.unattributed.monthTokens, 8)
+        XCTAssertEqual(Set(result.byAccount.keys), ["default", "personal"])
+        XCTAssertGreaterThan(result.byAccount["default"]?.monthCost.amount ?? 0, 0, "priced like the header totals")
+        XCTAssertTrue(result.byAccount["default"]?.monthCost.coverage.estimated ?? false)
+
+        let allKnown = ClaudeAccountUsageAttribution.usage(
+            entries: [entries[0]], accounts: accounts, todayKey: "2026-09-17", monthStartKey: "2026-09-01")
+        XCTAssertEqual(allKnown.unattributed, ClaudeAccountUsage(), "nothing unattributed: an empty total")
+    }
+}
+
+@MainActor
+final class ClaudeAccountUsageStoreTests: XCTestCase {
+    nonisolated(unsafe) private var testDefaults: UserDefaults!
+    nonisolated(unsafe) private var suiteName: String!
+    nonisolated(unsafe) private var base: URL!
+
+    override func setUpWithError() throws {
+        suiteName = "ptb-account-usage-\(UUID().uuidString)"
+        testDefaults = UserDefaults(suiteName: suiteName)
+        KeychainAccessGate.isDisabled = false
+        base = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ptb-account-usage-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: base.appendingPathComponent("personal"), withIntermediateDirectories: true)
+    }
+
+    override func tearDownWithError() throws {
+        testDefaults.removePersistentDomain(forName: suiteName)
+        try? FileManager.default.removeItem(at: base)
+    }
+
+    func testUsageIsSplitBetweenTheListedAccounts() async throws {
+        let personal = base.appendingPathComponent("personal").standardizedFileURL.path
+        let personalKey = ClaudeAccountRoots.pathKey(for: URL(fileURLWithPath: personal))
+        testDefaults.set(personal, forKey: ClaudeAccountRoots.defaultsKey)
+        let now = Date()
+        let today = LocalUsageReader.todayKey()
+        let asked = ScanRecorder()
+        let store = UsageStore(
+            providers: [NilDailyProvider()],
+            claudeLimitsProvider: ScriptedLimits([.success(limitStatus(fiveHour: 10, email: "me@corp.example"))]),
+            additionalClaudeLimitsProvider: { _ in ScriptedLimits([.success(limitStatus(fiveHour: 20, email: "me@example.com"))]) },
+            readLastPrompt: { _ in nil },
+            claudeUsageEntries: { since in
+                await asked.record(since)
+                return [entry("1", session: "corp", at: now, tokens: 100, day: today),
+                        entry("2", session: "home", at: now, tokens: 30, day: today),
+                        entry("3", session: "cli-print", at: now, tokens: 4, day: today)]
+            },
+            readPromptHistory: { folder in
+                folder.standardizedFileURL.path == personal ? ["home": [now.addingTimeInterval(-60)]]
+                                                         : ["corp": [now.addingTimeInterval(-60)]]
+            },
+            codexLimitsProvider: NoCodex(),
+            antigravityLimitsProvider: NoAntigravity(),
+            statusProvider: NoStatuses(),
+            autoRefresh: false,
+            defaults: testDefaults)
+
+        await store.refresh(scheduleEmptyRetry: false)
+        XCTAssertEqual(store.claudeAccountUsage[ClaudeAccountLimits.defaultID]?.todayTokens, 100)
+        XCTAssertEqual(store.claudeAccountUsage[personalKey]?.todayTokens, 30)
+        XCTAssertEqual(store.unattributedClaudeUsage.todayTokens, 4)
+        let scannedFrom = await asked.values.first
+        XCTAssertEqual(scannedFrom, LocalUsageReader.startOfMonth(now))
+
+        store.additionalClaudeConfigDirs = ""
+        for _ in 0..<100 where !store.claudeAccountUsage.isEmpty || store.isRefreshing {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        XCTAssertTrue(store.claudeAccountUsage.isEmpty, "a single account needs no split")
+        XCTAssertEqual(store.unattributedClaudeUsage, ClaudeAccountUsage())
+    }
+}
+
+private actor ScanRecorder {
+    var values: [Date] = []
+    func record(_ date: Date) { values.append(date) }
 }
