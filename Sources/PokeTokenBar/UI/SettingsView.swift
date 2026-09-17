@@ -418,7 +418,9 @@ struct SettingsView: View {
                             .font(.caption2).foregroundStyle(.green)
                     }
                 }
-                Text(l.sessionKeyHint).font(.caption2).foregroundStyle(.tertiary)
+                // The key only replaces the default login's Keychain read; other accounts keep theirs.
+                Text(store.claudeAccounts.count > 1 ? l.sessionKeyHint + " " + l.sessionKeyDefaultAccountOnly : l.sessionKeyHint)
+                    .font(.caption2).foregroundStyle(.tertiary)
                     .fixedSize(horizontal: false, vertical: true)
             }
             Spacer()

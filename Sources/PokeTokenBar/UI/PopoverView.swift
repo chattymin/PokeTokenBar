@@ -639,7 +639,6 @@ struct PopoverView: View {
         }
     }
 
-    /// 자동 폴링이 Keychain 을 안 읽는 대신 여기서 명시적 사용자 동작으로만 재취득한다.
     /// Claude official limits, one tab per account when there are several (default login first).
     /// The current 5h block row sums local usage of every account, so it stays outside the tabs.
     @ViewBuilder
@@ -669,7 +668,7 @@ struct PopoverView: View {
            let block = store.snapshots.first(where: { $0.providerID == "claude_code" })?.activeBlock,
            let end = block.endDate {
             HStack {
-                Text(l.claudeCurrentBlock)
+                Text(accounts.count > 1 ? l.claudeCurrentBlockAllAccounts : l.claudeCurrentBlock)
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 Text(TokenFormatter.compact(block.totalTokens))
@@ -735,6 +734,7 @@ struct PopoverView: View {
         .opacity(account.isExpired ? 0.5 : 1)
     }
 
+    /// 자동 폴링이 Keychain 을 안 읽는 대신 여기서 명시적 사용자 동작으로만 재취득한다.
     @ViewBuilder
     private var claudeLimitsRefreshRow: some View {
         VStack(alignment: .leading, spacing: 2) {
@@ -763,7 +763,7 @@ struct PopoverView: View {
             }
             // Without this the button looks inert when the refresh fails (e.g. rate limited):
             // the reason was only shown in Settings.
-            if let error = store.limitTokenRefreshError, !store.isRefreshingLimitToken {
+            if let error = store.limitTokenRefreshMessage, !store.isRefreshingLimitToken {
                 Text(error)
                     .font(.caption2).foregroundStyle(.orange)
                     .fixedSize(horizontal: false, vertical: true)
