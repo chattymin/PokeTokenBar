@@ -1405,6 +1405,27 @@ final class ClaudeTrackedAccountStoreTests: XCTestCase {
         XCTAssertNil(store.fiveHourForecast, "the default login burned nothing: the personal burst is not its own")
     }
 
+    /// The machine-wide block ends at neither account's reset: each tab shows its own block.
+    func testEachTabShowsItsOwnFiveHourBlock() async throws {
+        let now = Date()
+        let burst = entry("b", session: "home", at: now.addingTimeInterval(-600), tokens: 600_000,
+                          day: LocalUsageReader.todayKey())
+        let machine = BlockUsage(id: "m", startTime: "", endTime: "", isActive: true, totalTokens: 900_000,
+                                 costUSD: 0, tokensPerMinute: 60_000)
+        let store = makeStore(primary: fullStatus(fiveHour: 0, sevenDay: 48, email: "me@corp.example", org: "Corp"),
+                              personal: fullStatus(fiveHour: 52, sevenDay: 47, email: "me@example.com"),
+                              lastPrompt: ["personal": now], usage: [burst],
+                              prompts: ["personal": ["home": [now.addingTimeInterval(-700)]]],
+                              machineBlock: machine)
+        await store.refresh(scheduleEmptyRetry: false)
+        let accounts = store.claudeAccounts
+        XCTAssertEqual(accounts.map(\.id), [ClaudeAccountLimits.defaultID, personalKey])
+        XCTAssertNil(store.claudeCurrentBlock(for: accounts[0]), "no turn of its own in the last 5 hours")
+        let own = try XCTUnwrap(store.claudeCurrentBlock(for: accounts[1]))
+        XCTAssertEqual(own.totalTokens, 600_000)
+        XCTAssertNotEqual(own.id, machine.id)
+    }
+
     func testASingleAccountForecastUsesTheMachineBlock() async {
         let reset = ISO8601DateFormatter().string(from: Date().addingTimeInterval(3600))
         var status = try! JSONDecoder().decode(LimitStatus.self, from: Data(
@@ -1415,6 +1436,7 @@ final class ClaudeTrackedAccountStoreTests: XCTestCase {
         let store = makeStore(primary: status, personal: nil, lastPrompt: [:], machineBlock: machine)
         await store.refresh(scheduleEmptyRetry: false)
         XCTAssertEqual(store.fiveHourForecast?.beforeReset, true)
+        XCTAssertEqual(store.claudeCurrentBlock(for: store.claudeAccounts[0])?.id, "m")
     }
 
     func testChangingTheTrackedAccountUpdatesTheCompanionAtOnce() {
@@ -1816,4 +1838,20 @@ extension ClaudeAccountUsageStoreTests {
 private actor ScanRecorder {
     var values: [Date] = []
     func record(_ date: Date) { values.append(date) }
+}
+
+final class FiveHourNotStartedTests: XCTestCase {
+    private func window(_ json: String) throws -> LimitWindow {
+        try JSONDecoder().decode(LimitWindow.self, from: Data(json.utf8))
+    }
+
+    /// An idle account: 0% and no reset until its next message starts a window.
+    func testOnlyAnIdleWindowHasNotStarted() throws {
+        XCTAssertTrue(try window(#"{"utilization":0.0,"resets_at":null}"#).hasNotStarted)
+        XCTAssertTrue(try window(#"{"utilization":0}"#).hasNotStarted)
+        XCTAssertFalse(try window(#"{"utilization":0,"resets_at":"2026-09-17T16:00:00Z"}"#).hasNotStarted,
+                       "a window at 0% that already runs has a reset")
+        XCTAssertFalse(try window(#"{"utilization":3,"resets_at":null}"#).hasNotStarted)
+        XCTAssertFalse(try window(#"{"resets_at":null}"#).hasNotStarted, "no value, no row")
+    }
 }
