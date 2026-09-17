@@ -910,6 +910,29 @@ struct L {
     var useAfterHatch: String { t("부화 후 사용할 수 있어요", "Usable after hatching", "孵化後に使えます", "Se puede usar después de eclosionar", "Utilisable après l'éclosion", "Dá para usar depois que chocar", "Nach dem Schlüpfen verwendbar") }
     var useNeedsPokemon: String { t("사용할 포켓몬이 없어요", "No Pokémon to use it on", "使えるポケモンがいません", "No hay ningún Pokémon en quien usarlo", "Aucun Pokémon sur qui l'utiliser", "Nenhum Pokémon para usar o item", "Kein Pokémon, bei dem du es verwenden kannst") }
 
+    /// Rare Candy batch preview, including carryover and graduation waste.
+    var candyGraduates: String {
+        t("이 포켓몬은 졸업할 것으로 예상돼요.", "Expected to graduate.", "卒業する見込みです。",
+          "Se espera que se gradúe.", "Devrait terminer sa croissance.",
+          "Deve se formar.", "Schließt voraussichtlich sein Training ab.")
+    }
+    func candyCarryoverXP(_ xp: String) -> String {
+        t("예상 진화 후 이월 경험치: \(xp) XP.",
+          "Expected after evolution: \(xp) XP carried over.",
+          "進化後の予想繰越経験値：\(xp) XP。",
+          "Tras evolucionar: \(xp) XP de remanente previsto.",
+          "Après évolution : \(xp) XP de report prévu.",
+          "Após evoluir: previsão de \(xp) XP restantes.",
+          "Nach der Entwicklung: voraussichtlich \(xp) EP übertragen.")
+    }
+    func candyDiscardedXP(_ xp: String) -> String {
+        t("졸업 시 남는 \(xp) XP는 사라져요.", "On graduation, \(xp) leftover XP will be discarded.",
+          "卒業時、余った\(xp) XPは失われます。", "Al graduarse, se perderán \(xp) XP sobrantes.",
+          "À la fin de la croissance, les \(xp) XP restants seront perdus.",
+          "Ao se formar, \(xp) XP restantes serão descartados.",
+          "Beim Trainingsabschluss verfallen \(xp) überschüssige EP.")
+    }
+
     /// 아이템 표시명 — species 처럼 공식 현지명.
     func itemName(_ kind: ItemKind) -> String {
         switch kind {

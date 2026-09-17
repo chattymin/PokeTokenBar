@@ -772,22 +772,79 @@ final class CompanionStore {
 
     /// 이상한 사탕 사용 가능 — 활성 포켓몬 + 라인 로딩 완료 + 재고>0.
     /// 라인 미로딩(재시작 직후·오프라인)이면 비활성 — 사탕이 진화 없이 적립만 되는 것 방지.
-    var canUseRareCandy: Bool { hasActive && currentLine != nil && rareCandyCount > 0 }
+    var canUseRareCandy: Bool { maxRareCandyUseCount > 0 }
+
+    /// Use the same rounded, difficulty-adjusted thresholds as actual growth.
+    /// Preview the apparent evolution path so hidden identities cannot change the picker.
+    private var rareCandyStageCosts: [Int] {
+        guard var mon = state.active, currentLine != nil else { return [] }
+        if mon.dittoDisguise != nil && !mon.dittoRevealed && mon.usedAtStage >= stageThreshold(for: mon) {
+            // The accepted batch is already saved. Wait for the reveal before accepting another.
+            return []
+        }
+        return (mon.stageIndex..<mon.totalForms).map { stage in
+            mon.stageIndex = stage
+            return stageThreshold(for: mon)
+        }
+    }
+
+    var maxRareCandyUseCount: Int {
+        let remaining = max(0, rareCandyStageCosts.reduce(0, +) - (state.active?.usedAtStage ?? 0))
+        let needed = remaining / RareCandy.xp + (remaining % RareCandy.xp == 0 ? 0 : 1)
+        return min(rareCandyCount, needed)
+    }
+
+    struct RareCandyUsePlan {
+        let count: Int
+        var xp: Int { count * RareCandy.xp }
+        let evolves: Bool
+        let graduates: Bool
+        let carryoverXP: Int
+        let discardedXP: Int
+    }
+
+    func planRareCandyUse(count requested: Int) -> RareCandyUsePlan? {
+        let count = min(max(0, requested), maxRareCandyUseCount)
+        guard count > 0, let mon = state.active else { return nil }
+        let costs = rareCandyStageCosts
+        var remaining = mon.usedAtStage + count * RareCandy.xp
+        var evolves = false
+        for (index, cost) in costs.enumerated() {
+            guard remaining >= cost else { break }
+            remaining -= cost
+            if index == costs.count - 1 {
+                return RareCandyUsePlan(count: count, evolves: evolves, graduates: true,
+                                       carryoverXP: 0, discardedXP: remaining)
+            }
+            evolves = true
+        }
+        return RareCandyUsePlan(count: count, evolves: evolves, graduates: false,
+                               carryoverXP: evolves ? remaining : 0, discardedXP: 0)
+    }
 
     /// 사탕 사용 결과 — UI 피드백 분기용.
     enum CandyUseResult: Equatable { case evolved, graduated, progressed, unavailable }
 
-    /// 이상한 사탕 1개 사용 — 현재 포켓몬에 +RareCandy.xp. applyUsage 재사용으로 이월·진화·졸업·연출 자동.
+    /// Spend only the candies needed by the current growth plan, preserving unused inventory.
     /// 사탕 XP 는 usedAtStage(진화 진행)에만 반영 — usedSinceInstall/오늘 토큰(실사용 통계)엔 안 잡힌다.
     @discardableResult
-    func useRareCandy() -> CandyUseResult {
-        guard canUseRareCandy else { return .unavailable }
-        state.inventory[ItemKind.rareCandy.rawValue] = rareCandyCount - 1
+    func useRareCandy(count: Int = 1) -> CandyUseResult {
+        guard let preview = planRareCandyUse(count: count) else { return .unavailable }
+        var consumed = preview.count
+        if let mon = state.active, mon.dittoDisguise != nil && !mon.dittoRevealed {
+            // Keep the picker indistinguishable from the apparent Pokémon, but preserve whole
+            // candies beyond the surprise reveal. Only the last consumed candy's XP carries over.
+            let remaining = max(0, stageThreshold(for: mon) - mon.usedAtStage)
+            let needed = remaining / RareCandy.xp + (remaining % RareCandy.xp == 0 ? 0 : 1)
+            consumed = min(consumed, needed)
+        }
+        let xp = consumed * RareCandy.xp
+        state.inventory[ItemKind.rareCandy.rawValue] = rareCandyCount - consumed
         let beforeStage = state.active?.stageIndex ?? 0
         // 진화 안 될 때(부분 진행)도 즉시 "+XP" 피드백 — CompanionHeader 가 연출과 별개로 표시.
-        candyFeedbackAmount = RareCandy.xp
+        candyFeedbackAmount = xp
         candyFeedbackSeq += 1
-        applyUsage(RareCandy.xp)   // 내부에서 save() 수행(인벤토리 감소 포함 영속)
+        applyUsage(xp)   // Saves inventory and growth together, with existing evolution effects.
         if state.active == nil { return .graduated }
         if state.active!.stageIndex > beforeStage { return .evolved }
         return .progressed
