@@ -1252,6 +1252,16 @@ final class UsageStore {
         let monthStartKey = fmt.string(from: monthStart)
         let entries = await claudeUsageEntries(Self.claudeUsageScanStart(now: now))
         let readHistory = readPromptHistory
+        // Each tab's 5h block follows its account's official window. Expired values are too old for that.
+        var windows: [String: ClaudeAccountUsageAttribution.FiveHourWindow] = [:]
+        for account in claudeAccounts where !account.isExpired {
+            guard let window = account.status.fiveHour else { continue }
+            if let reset = window.resetDate {
+                windows[account.id] = .running(reset: reset)
+            } else if window.hasNotStarted {
+                windows[account.id] = .notStarted
+            }
+        }
         let result = await Task.detached(priority: .utility) {
             var ids: [String] = []
             var prompts: [String: ClaudeAccountUsageAttribution.Prompts] = [:]
@@ -1261,7 +1271,8 @@ final class UsageStore {
             }
             let accounts = ids.map { ClaudeAccountUsageAttribution.Account(id: $0, prompts: prompts[$0] ?? [:]) }
             return ClaudeAccountUsageAttribution.usage(
-                entries: entries, accounts: accounts, now: now, todayKey: todayKey, monthStartKey: monthStartKey)
+                entries: entries, accounts: accounts, now: now, todayKey: todayKey, monthStartKey: monthStartKey,
+                fiveHourWindows: windows)
         }.value
         // An account without a tab (no login, limits not loaded yet) is not shown: its usage is unattributed.
         let shown = Set(claudeAccounts.map(\.id))
