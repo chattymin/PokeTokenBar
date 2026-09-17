@@ -21,6 +21,8 @@ enum ModelPricing {
     /// Historical GPT rates: https://developers.openai.com/api/docs/models/<model-id>
     /// The table is a current-price estimate, not a historical invoice ledger.
     static let table: [String: ModelRate] = [
+        // Claude rates, checked 2026-09-13: https://platform.claude.com/docs/en/about-claude/pricing
+        // (base input, output, 5m cache write, cache hit — the header URL above covers GPT only).
         // Claude 5 family. Exact rows are mandatory: the model-family fallback that used to
         // price these was removed in #289, which left them unpriced and the cost row blank (#303).
         "claude-opus-5":              .perMillion(5, 25, 6.25, 0.5),
