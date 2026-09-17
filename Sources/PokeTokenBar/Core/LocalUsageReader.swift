@@ -90,6 +90,7 @@ enum LocalUsageReader {
     static func computeClaudeProjectRoots(
         configDirValue: String? = shellAwareClaudeConfigDir(),
         customRootsValue: String? = nil,
+        accountRoots: [URL] = [],
         home: URL = FileManager.default.homeDirectoryForCurrentUser) -> [URL]
     {
         var roots: [URL] = []
@@ -101,6 +102,9 @@ enum LocalUsageReader {
                     .appendingPathComponent("projects"))
             }
         }
+        // Other Claude accounts (`ClaudeAccountRoots`) log to their own folder unless its
+        // `projects/` links to a shared one, which `normalizedRoots` folds.
+        roots.append(contentsOf: accountRoots.map { $0.appendingPathComponent("projects") })
         roots.append(home.appendingPathComponent(Self.configRelativeProjectsPath))
         roots.append(home.appendingPathComponent(Self.defaultRelativeProjectsPath))
 
@@ -179,7 +183,8 @@ enum LocalUsageReader {
             if let cached = hit.0, let at = hit.1, Date().timeIntervalSince(at) < ttl { return cached }
 
             let fresh = computeClaudeProjectRoots(
-                customRootsValue: CustomScanRoots.storedValue(for: "claude_code"))
+                customRootsValue: CustomScanRoots.storedValue(for: "claude_code"),
+                accountRoots: ClaudeAccountRoots.installedAccountRoots())
             lock.lock()
             cached = fresh
             computedAt = Date()

@@ -344,7 +344,7 @@ struct PopoverView: View {
                 claudeAuthExpiredNotice
             } else if selectedSnapshot?.providerID == "claude_code",
                       !store.disableKeychainAccess,
-                      store.limits == nil || store.claudeLimitsStale || store.additionalLimitsPending
+                      store.claudeLimitsMissing || store.claudeLimitsStale || store.additionalLimitsPending
                         || store.additionalLimitsStale {
                 // 자동 폴링은 Keychain 을 안 읽으므로(팝업 방지), 최초/만료 후 공식 한도는 이 원탭으로
                 // 사용자가 직접 갱신한다. 프롬프트가 뜨더라도 사용자 행동에 의한 것이라 예상 가능하다.

@@ -58,15 +58,13 @@ enum ClaudeAccountRoots {
     /// The folder holds a `.claude.json` with an `oauthAccount` object, as every config folder
     /// Claude Code is logged in to does. A logged-out or foreign folder is skipped.
     static func hasLogin(_ root: URL) -> Bool {
-        savedAccount(root) != nil
+        savedLogins.login(file: root.appendingPathComponent(".claude.json")) != nil
     }
 
     /// Email and organization Claude Code saved for this folder's login. Used when the profile
     /// endpoint gives nothing, typically because the token expired. Local read, no network.
-    static func applySavedIdentity(_ root: URL, to status: inout LimitStatus) {
-        guard let identity = savedIdentity(file: root.appendingPathComponent(".claude.json")) else { return }
-        status.accountEmail = identity.email
-        status.accountOrganizationName = identity.organizationName
+    static func savedIdentity(in root: URL) -> AccountIdentity? {
+        savedIdentity(file: root.appendingPathComponent(".claude.json"))
     }
 
     /// Login saved for the default folder (`~/.claude.json`), to name its tab before its limits load.
@@ -80,21 +78,53 @@ enum ClaudeAccountRoots {
     }
 
     static func savedIdentity(file: URL) -> AccountIdentity? {
-        guard let account = savedAccount(file: file),
-              let email = account["emailAddress"] as? String, !email.isEmpty else { return nil }
-        let org = (account["organizationName"] as? String).flatMap { $0.isEmpty ? nil : $0 }
-        return AccountIdentity(email: email, organizationName: org)
+        savedLogins.login(file: file)?.identity
     }
 
-    private static func savedAccount(_ root: URL) -> [String: Any]? {
-        savedAccount(file: root.appendingPathComponent(".claude.json"))
+    private struct SavedLogin {
+        let identity: AccountIdentity?
     }
 
-    private static func savedAccount(file: URL) -> [String: Any]? {
-        guard let data = try? Data(contentsOf: file),
-              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
-        else { return nil }
-        return json["oauthAccount"] as? [String: Any]
+    private static let savedLogins = SavedLoginCache()
+
+    /// `.claude.json` also keeps per-project state and grows with use, while only its `oauthAccount`
+    /// matters here: the file is parsed again only when it changed.
+    private final class SavedLoginCache: @unchecked Sendable {
+        private struct Hit {
+            let mtime: Date
+            let size: Int
+            let login: SavedLogin?
+        }
+
+        private let lock = NSLock()
+        private var hits: [String: Hit] = [:]
+
+        func login(file: URL) -> SavedLogin? {
+            guard let values = try? file.resourceValues(forKeys: [.contentModificationDateKey, .fileSizeKey]),
+                  let mtime = values.contentModificationDate else { return nil }
+            let size = values.fileSize ?? 0
+            lock.lock()
+            let hit = hits[file.path]
+            lock.unlock()
+            if let hit, hit.mtime == mtime, hit.size == size { return hit.login }
+            let login = Self.read(file)
+            lock.lock()
+            hits[file.path] = Hit(mtime: mtime, size: size, login: login)
+            lock.unlock()
+            return login
+        }
+
+        private static func read(_ file: URL) -> SavedLogin? {
+            guard let data = try? Data(contentsOf: file),
+                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let account = json["oauthAccount"] as? [String: Any]
+            else { return nil }
+            guard let email = account["emailAddress"] as? String, !email.isEmpty else {
+                return SavedLogin(identity: nil)
+            }
+            let org = (account["organizationName"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+            return SavedLogin(identity: AccountIdentity(email: email, organizationName: org))
+        }
     }
 
     /// Detection for the running app only. `swift test` and raw `swift build` binaries get nothing:
@@ -107,6 +137,11 @@ enum ClaudeAccountRoots {
     {
         guard isBundledApp else { return [] }
         return discovered(home: home, configDirValue: configDirValue())
+    }
+
+    /// Every additional folder the running app follows, for the usage scan (see `installedDiscovery`).
+    static func installedAccountRoots(defaults: UserDefaults = .standard) -> [URL] {
+        merged(detected: installedDiscovery(), setting: defaults.string(forKey: defaultsKey))
     }
 
     /// Detected folders first, then the Settings extras, without duplicates.
@@ -152,6 +187,11 @@ enum ClaudeAccountRoots {
         let file = configDir.appendingPathComponent("history.jsonl")
         return (try? FileManager.default.attributesOfItem(atPath: file.path))?[.modificationDate] as? Date
     }
+
+    /// App only, like `installedDiscovery`: tests must not read the developer's own history.
+    static func installedLastPromptDate(configDir: URL, isBundledApp: Bool = AppEnv.isBundledApp) -> Date? {
+        isBundledApp ? lastPromptDate(configDir: configDir) : nil
+    }
 }
 
 /// Which Claude account drives the single-account surfaces when several are shown:
@@ -186,6 +226,13 @@ enum ClaudeTrackedAccountMode: Equatable, Sendable, Hashable {
 }
 
 extension LimitStatus {
+    /// Names the account from its saved login when the profile endpoint gave nothing.
+    mutating func fillIdentity(from saved: AccountIdentity?) {
+        guard accountEmail == nil, let saved else { return }
+        accountEmail = saved.email
+        accountOrganizationName = saved.organizationName
+    }
+
     /// Every official window this status carries: legacy fields, then the scoped entries.
     var allUtilizations: [Double] {
         [fiveHour?.utilization, sevenDay?.utilization, sevenDayOpus?.utilization, sevenDaySonnet?.utilization]
