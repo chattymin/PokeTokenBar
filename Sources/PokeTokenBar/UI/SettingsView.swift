@@ -611,7 +611,16 @@ struct SettingsView: View {
 
     /// Only shown with several Claude accounts. The default account is listed under its own title.
     private func trackedAccountRow(_ store: UsageStore) -> some View {
-        @Bindable var store = store
+        let accountModes = store.claudeAccounts.map {
+            (account: $0, mode: $0.isDefault ? ClaudeTrackedAccountMode.defaultAccount : .account($0.id))
+        }
+        // A pinned account that is gone falls back to automatic (`UsageStore.trackedAccount`): show that.
+        let selection = Binding(
+            get: {
+                let mode = store.claudeTrackedAccountMode
+                return accountModes.contains { $0.mode == mode } || mode == .highest ? mode : .automatic
+            },
+            set: { store.claudeTrackedAccountMode = $0 })
         // Stacked: account emails make the picker too wide to sit next to the label.
         return groupRow {
             VStack(alignment: .leading, spacing: 6) {
@@ -621,12 +630,11 @@ struct SettingsView: View {
                 }
                 HStack {
                     Spacer()
-                    Picker(l.trackedAccountLabel, selection: $store.claudeTrackedAccountMode) {
+                    Picker(l.trackedAccountLabel, selection: selection) {
                         Text(l.trackedAccountAutomatic).tag(ClaudeTrackedAccountMode.automatic)
                         Text(l.trackedAccountHighest).tag(ClaudeTrackedAccountMode.highest)
-                        ForEach(store.claudeAccounts) { account in
-                            Text(account.title)
-                                .tag(account.isDefault ? ClaudeTrackedAccountMode.defaultAccount : .account(account.id))
+                        ForEach(accountModes, id: \.account.id) { item in
+                            Text(item.account.title).tag(item.mode)
                         }
                     }
                     .labelsHidden().pickerStyle(.menu).fixedSize()
