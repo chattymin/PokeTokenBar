@@ -234,6 +234,9 @@ struct LimitWindow: Decodable, Sendable {
         return ISO8601Parser.date(from: resetsAt)
     }
 
+    /// No running window: the API sends 0% without a reset date until the account's next message.
+    var hasNotStarted: Bool { utilization == 0 && resetDate == nil }
+
     private enum CodingKeys: String, CodingKey {
         case utilization
         case resetsAt = "resets_at"

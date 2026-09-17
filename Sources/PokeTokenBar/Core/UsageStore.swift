@@ -443,14 +443,18 @@ final class UsageStore {
         guard let account = trackedClaudeAccount, let window = account.status.fiveHour,
               let utilization = window.utilization, let reset = window.resetDate else { return nil }
         if utilization >= 100 { return FiveHourForecast(depletionDate: Date(), beforeReset: true) }
-        // With several accounts the machine-wide block mixes their burn: use the account's own.
-        let accountBlock = claudeAccounts.count > 1 ? claudeAccountBlocks[account.id] : claudeActiveBlock
-        guard let block = accountBlock, let burn = block.tokensPerMinute,
+        guard let block = claudeCurrentBlock(for: account), let burn = block.tokensPerMinute,
               let depletion = Self.forecastDepletion(
                   blockTokens: block.totalTokens, tokensPerMinute: burn,
                   utilization: utilization, now: Date())
         else { return nil }
         return FiveHourForecast(depletionDate: depletion, beforeReset: depletion < reset)
+    }
+
+    /// The local 5h block behind an account's tab and forecast. With several accounts the
+    /// machine-wide block mixes their usage and ends at neither account's reset: use the account's own.
+    func claudeCurrentBlock(for account: ClaudeAccountLimits) -> BlockUsage? {
+        claudeAccounts.count > 1 ? claudeAccountBlocks[account.id] : claudeActiveBlock
     }
 
     /// 5h 한도의 토큰량을 (현재 블록 토큰 ÷ 공식 utilization%) 로 추정하고 100% 도달 시각을 외삽.
@@ -1035,7 +1039,7 @@ final class UsageStore {
     private(set) var claudeAccountUsage: [String: ClaudeAccountUsage] = [:]
     /// Usage no login's history explains (print mode, SDK runs, sessions older than the history).
     private(set) var unattributedClaudeUsage = ClaudeAccountUsage()
-    /// Each account's own active 5h block, for its forecast.
+    /// Each account's own active 5h block, for its tab and forecast.
     private var claudeAccountBlocks: [String: BlockUsage] = [:]
 
     /// The account behind the menu bar percentage, warning state, companion mood, floating pet hover

@@ -505,9 +505,11 @@ struct PopoverView: View {
     }
 
     @ViewBuilder
-    private func limitRow(name: String, window: LimitWindow?, span: TimeInterval?) -> some View {
+    private func limitRow(name: String, window: LimitWindow?, span: TimeInterval?,
+                          notStartedHint: String? = nil) -> some View {
         if let window, let utilization = window.utilization {
-            quotaRow(name: name, utilization: utilization, reset: window.resetDate, span: span)
+            quotaRow(name: name, utilization: utilization, reset: window.resetDate, span: span,
+                     idleHint: window.hasNotStarted ? notStartedHint : nil)
         }
     }
 
@@ -515,7 +517,8 @@ struct PopoverView: View {
     /// `span` 은 창 길이 — 리셋 시각과 함께 주어질 때만 페이스 눈금을 그린다. 기본 nil 이라
     /// 창 길이를 모르는 행(Codex 개인 지출 한도)은 호출을 바꾸지 않아도 눈금 없이 남는다.
     private func quotaRow(name: String, utilization: Double, reset: Date?,
-                          span: TimeInterval? = nil, detail: String? = nil) -> some View {
+                          span: TimeInterval? = nil, detail: String? = nil,
+                          idleHint: String? = nil) -> some View {
         let pace = paceFraction(reset: reset, span: span)
         return VStack(alignment: .leading, spacing: 2) {
             HStack {
@@ -529,6 +532,10 @@ struct PopoverView: View {
                 }
                 if let reset {
                     resetLabel(reset)
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                } else if let idleHint {
+                    Text(idleHint)
                         .font(.caption)
                         .foregroundStyle(.tertiary)
                 }
@@ -659,7 +666,6 @@ struct PopoverView: View {
     }
 
     /// Claude official limits, one tab per account when there are several (default login first).
-    /// The current 5h block row sums local usage of every account, so it stays outside the tabs.
     @ViewBuilder
     private var claudeAccountsContent: some View {
         let accounts = store.claudeAccounts
@@ -681,23 +687,6 @@ struct PopoverView: View {
             Text(l.unattributedClaudeUsage(TokenFormatter.compact(store.unattributedClaudeUsage.monthTokens)))
                 .font(.caption2)
                 .foregroundStyle(.tertiary)
-        }
-        // 전 프로바이더가 블록을 갖게 됨 — "Claude 현재 5h 블록" 행은 명시 조회
-        if !accounts.isEmpty,
-           let block = store.snapshots.first(where: { $0.providerID == "claude_code" })?.activeBlock,
-           let end = block.endDate {
-            HStack {
-                Text(accounts.count > 1 ? l.claudeCurrentBlockAllAccounts : l.claudeCurrentBlock)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                Text(TokenFormatter.compact(block.totalTokens))
-                    .font(.caption)
-                    .monospacedDigit()
-                Spacer()
-                (Text("\(l.reset) ") + Text(end, style: .relative) + resetClockSuffix(end))
-                    .font(.caption)
-                    .foregroundStyle(.tertiary)
-            }
         }
     }
 
@@ -738,7 +727,7 @@ struct PopoverView: View {
         // 세션 만료 시 표시값은 만료 전 기준 → 흐리게 처리해 "현재 값 아님"을 시각적으로 전달
         VStack(alignment: .leading, spacing: 8) {
             limitRow(name: l.fiveHourSession, window: limits.fiveHour,
-                     span: LimitWindowSpan.fiveHour)
+                     span: LimitWindowSpan.fiveHour, notStartedHint: l.fiveHourNotStarted)
             // The forecast follows the tracked account (it combines that account's utilization with local usage).
             if account.id == store.trackedClaudeAccount?.id { forecastRow }
             limitRow(name: l.weekly, window: limits.sevenDay,
@@ -753,6 +742,21 @@ struct PopoverView: View {
                     name: l.claudeLimitEntry(kind: entry.kind, model: entry.scope?.model?.displayName),
                     window: LimitWindow(utilization: entry.percent, resetsAt: entry.resetsAt),
                     span: entry.windowSpan)
+            }
+            // 전 프로바이더가 블록을 갖게 됨 — "Claude 현재 5h 블록" 행은 명시 조회
+            if let block = store.claudeCurrentBlock(for: account), let end = block.endDate {
+                HStack {
+                    Text(l.claudeCurrentBlock)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Text(TokenFormatter.compact(block.totalTokens))
+                        .font(.caption)
+                        .monospacedDigit()
+                    Spacer()
+                    (Text("\(l.reset) ") + Text(end, style: .relative) + resetClockSuffix(end))
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                }
             }
         }
         .opacity(account.isExpired ? 0.5 : 1)
