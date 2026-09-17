@@ -57,6 +57,7 @@ struct L {
     var weeklyOpus: String { t("주간 Opus", "Weekly Opus", "週間 Opus", "Opus semanal", "Opus hebdo", "Opus semanal", "Opus – wöchentlich") }
     var weeklySonnet: String { t("주간 Sonnet", "Weekly Sonnet", "週間 Sonnet", "Sonnet semanal", "Sonnet hebdo", "Sonnet semanal", "Sonnet – wöchentlich") }
     var claudeCurrentBlock: String { t("Claude 현재 5h 블록", "Claude current 5h block", "Claude 現在の5hブロック", "Bloque actual de 5h de Claude", "Bloc 5 h actuel de Claude", "Bloco atual de 5h do Claude", "Aktueller 5-Stunden-Block von Claude") }
+    var claudeCurrentBlockAllAccounts: String { t("현재 5h 블록 (전체 계정)", "Current 5h block (all accounts)", "現在の5hブロック（全アカウント）", "Bloque 5h (todas las cuentas)", "Bloc 5 h actuel (tous comptes)", "Bloco 5h (todas as contas)", "5h-Block (alle Konten)") }
     var reset: String { t("리셋", "Reset", "リセット", "Reinicio", "Réinit.", "Renovação", "Zurücksetzen") }
     /// 페이스 눈금 툴팁. "적정 사용량"으로 부르지 않는다 — 덜 쓰라는 권고가 아니라 "이 속도면 리셋
     /// 전에 소진된다"는 기준선이고, 창을 다 채워 쓸 이유가 없는 날에 규범으로 읽히면 안 된다.
@@ -286,6 +287,12 @@ struct L {
           "Récupère les limites officielles sans pop-up Keychain. Colle la valeur depuis DevTools → Application → Cookies → claude.ai → sessionKey.",
           "Busca os limites oficiais sem avisos do Keychain. Cole o valor de DevTools → Application → Cookies → claude.ai → sessionKey.",
           "Ruft offizielle Limits ohne Keychain-Pop-up ab. Füge den Wert aus DevTools → Application → Cookies → claude.ai → sessionKey ein.")
+    }
+    var sessionKeyDefaultAccountOnly: String {
+        t("기본 Claude 계정(~/.claude)에만 적용됩니다.", "Applies to the default Claude account (~/.claude) only.",
+          "デフォルトの Claude アカウント（~/.claude）にのみ適用されます。", "Solo se aplica a la cuenta de Claude predeterminada (~/.claude).",
+          "Ne concerne que le compte Claude principal (~/.claude).", "Aplica-se apenas à conta padrão do Claude (~/.claude).",
+          "Gilt nur für das Standard-Claude-Konto (~/.claude).")
     }
     /// 평문 보관을 숨기지 않는다 — 사용자가 무엇을 맡기는지, 어떻게 취소하는지 알아야 한다.
     var sessionKeyStorageNote: String {

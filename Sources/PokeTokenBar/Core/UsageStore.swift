@@ -48,6 +48,14 @@ final class UsageStore {
     var limitTokenRefreshError: String? {
         limitTokenRefreshFailure.map { Self.friendlyLimitError($0, L(localizationLanguage)) }
     }
+    /// The popover shows the failure above the account tabs, where it would read as everyone's:
+    /// next to other accounts it names the default one, the only account this error is about.
+    var limitTokenRefreshMessage: String? {
+        guard let error = limitTokenRefreshError else { return nil }
+        let accounts = claudeAccounts
+        guard accounts.count > 1, let account = accounts.first(where: \.isDefault) else { return error }
+        return "\(account.title) · \(error)"
+    }
 
     func lastErrorMessage(_ l: L) -> String? {
         lastErrorDescription.map { l.usageRefreshError + "\n" + $0 }
@@ -1157,6 +1165,7 @@ final class UsageStore {
                 var status = try await additionalProvider(for: root)
                     .fetch(allowKeychainPrompt: promptAllowed && mayPrompt)
                 additionalBackoff[root.path] = nil
+                AppLog.write("additional claude limits refreshed (\(root.lastPathComponent)) fiveHour=\(status.fiveHour?.utilization?.description ?? "nil") sevenDay=\(status.sevenDay?.utilization?.description ?? "nil")")
                 status.fillIdentity(from: found.saved[root.path])
                 keep(AdditionalClaudeLimits(rootPath: root.path, status: status, updatedAt: Date()))
             } catch {

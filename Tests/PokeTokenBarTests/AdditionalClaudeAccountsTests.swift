@@ -582,6 +582,28 @@ final class AdditionalClaudeAccountsStoreTests: XCTestCase {
         XCTAssertNil(store.limitTokenRefreshError, "the refresh row must not show an old failure")
     }
 
+    /// The row sits above the tabs: next to another account, a 429 must say whose check failed.
+    func testTheManualRefreshErrorNamesTheDefaultAccountNextToOthers() async {
+        let alone = makeStore(primary: ScriptedLimits([
+            .success(limitStatus(fiveHour: 10, email: "main@example.com")),
+            .failure(.rateLimited(retryAfter: nil)),
+        ]), folders: [:])
+        await alone.refresh(scheduleEmptyRetry: false)
+        await alone.refreshLimitTokenFromKeychain()
+        XCTAssertEqual(alone.claudeAccounts.count, 1, "the loaded default account keeps its values")
+        let plain = alone.limitTokenRefreshError
+        XCTAssertNotNil(plain)
+        XCTAssertEqual(alone.limitTokenRefreshMessage, plain)
+
+        let both = makeStore(
+            primary: ScriptedLimits([.failure(.rateLimited(retryAfter: nil))]),
+            folders: [work: ScriptedLimits([.success(limitStatus(fiveHour: 20, email: "work@example.com"))])],
+            defaultIdentity: AccountIdentity(email: "main@example.com", organizationName: "Main Corp"))
+        await both.refreshLimitTokenFromKeychain()
+        XCTAssertEqual(both.claudeAccounts.map(\.title), ["Main Corp", "work@example.com"])
+        XCTAssertEqual(both.limitTokenRefreshMessage, "Main Corp · \(plain ?? "")")
+    }
+
     /// The default account's refresh row: pointless for someone using `CLAUDE_CONFIG_DIR` logins only.
     func testMissingDefaultLimitsNeedADefaultLoginNextToOtherAccounts() async {
         let folders = { [self] in [work: ScriptedLimits([.success(limitStatus(fiveHour: 20, email: "work@example.com"))])] }
