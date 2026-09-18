@@ -363,6 +363,24 @@ final class UsageStore {
         return byDay.values.sorted { $0.date < $1.date }
     }
 
+    /// Day-by-day history behind the usage recap. Providers only report the current month, so the
+    /// numbers are copied into a rolling ledger at every refresh — see `UsageLedger`.
+    private(set) var dailyLedger = UsageLedger()
+
+    private func recordDailyLedger() {
+        var ledger = dailyLedger
+        ledger.merge(monthDailyTotals)
+        // This year and the one before it: the year view compares against last year, and nothing
+        // reaches further back.
+        let calendar = RecapPeriod.calendar()
+        let lastYear = RecapPeriod(scope: .year, containing: Date(), calendar: calendar)
+            .shifted(by: -1, calendar: calendar)
+        ledger.prune(before: LocalUsageReader.localDayFormatter().string(from: lastYear.start))
+        guard ledger != dailyLedger else { return }
+        dailyLedger = ledger
+        ledger.save(to: defaults)
+    }
+
     /// Claude 의 활성 5h 블록 — 5h forecast·"현재 블록" 행은 Claude 공식 한도와 짝이므로
     /// providerID 로 명시 조회한다 (전 프로바이더가 블록을 갖게 된 후 first-with-block 은 오매칭).
     private var claudeActiveBlock: BlockUsage? {
@@ -589,6 +607,7 @@ final class UsageStore {
         // 사용자의 배터리 프로파일은 그대로다. 더 부드러운 쪽은 opt-in(실측 idle CPU 1.8%/5.1%).
         animationQuality = AnimationQuality(rawValue: d.string(forKey: "animationQuality") ?? "") ?? .powerSaver
         disableKeychainAccess = d.object(forKey: "disableKeychainAccess") as? Bool ?? false
+        dailyLedger = UsageLedger.load(from: d)
 
         if let credential = sessionKeys.credential() {
             sessionKeyConfigured = true
@@ -811,6 +830,9 @@ final class UsageStore {
                 }
             }
         }
+        // 일별 원장은 여기서 갱신한다 — monthDaily 는 phase 2 에서만 채워지므로, phase 1 직후에
+        // 기록하면 설치 후 첫 갱신에서 사용량 요약이 통째로 빈다.
+        recordDailyLedger()
 
         // ── 한도 조회 (Keychain 프롬프트로 블로킹될 수 있어 마지막)
         // 세션 키 경로는 Keychain 을 안 읽으므로 이 토글과 무관하게 조회한다 — 토글을 켠 이유(팝업)가

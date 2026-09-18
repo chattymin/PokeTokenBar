@@ -165,6 +165,7 @@ Reset countdowns include the clock time, and the colored percentage stays aligne
 - **Additional scan folders** — per-provider extra scan roots for logs kept outside the built-in paths (Settings → Advanced).
 - **Burn-rate forecast** — projects when the current 5h window hits 100%.
 - **In-app updates** — one-click update check; current version shown in Settings.
+- **Usage recap** — a Pokédex-style recap of any week, month or year you step back to (total, meters, comparison with the previous period, day for day while it is still running, best day, best streak, graduations), with copy and save as PNG. History is kept locally for this year and the last.
 
 ## Works with
 

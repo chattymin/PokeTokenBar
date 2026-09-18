@@ -111,6 +111,18 @@ read_when:
   상한(`maxParsedTokenValue`)을 쓴다. 회귀 가드는 프로바이더별로 **테스트를 쪼개라** — 트랩은 프로세스를
   끝내므로 한 테스트에 몰면 뒤 케이스가 아예 실행되지 않는다.
 
+- **기간 비교의 "데이터가 있는가"는 그 구간의 *가장 오래된* 날로 판정한다.** 사용량 요약이 지난주
+  대비를 낼지 말지를 지난 구간의 **첫 날(=가장 최근 날)** 로 판정했더니, 원장이 구간 중간부터 시작해도
+  비교가 성립했다 — 빠진 날들은 0 으로 합산돼 실측 delta 가 +200% 로 부풀었다(가드의 목적이던 "신규
+  설치가 없던 주 대비 급등을 주장하는" 바로 그 증상). 누락분을 0 으로 세는 합계 위에 커버리지 게이트를
+  올릴 땐, 게이트 기준점이 **합계의 모든 날을 덮는지** 확인한다(`testAHalfCoveredPreviousPeriodIsNotAComparison`).
+  같은 맥락에서 손편집 가능한 `UserDefaults` 를 원장으로 쓰면 키 검증도 **길이가 아니라 파싱**으로
+  한다 — `"0000-00-00"` 처럼 날짜가 아니면서 모든 실제 날짜보다 작게 정렬되는 키는 커버리지를 위조한다.
+  그리고 "0 인가, 모르는가"는 행의 유무로 추론하지 말고 **커버리지 시작일을 따로 저장**한다
+  (`UsageLedger.coveredSince`) — 행은 사용량이 있는 날에만 생기므로, 첫 행 날짜로 커버리지를 추정하면
+  조용했던 기간과 기록 이전 기간이 구별되지 않는다. 오래된 행을 잘라낼 땐 커버리지도 함께 올린다
+  (`testPruningForgetsTheCoverageItDrops`).
+
 ## 외부 로그·사용량 소스
 
 - **토큰 파일 파서는 외부 도구의 실제 직렬화 구조체(중첩 객체)를 반영해야 한다.** `jetski-standalone-oauth-token`
@@ -363,6 +375,14 @@ read_when:
   부류이긴 하다(실기기 Claude jsonl 863개, 최대 90MB). 회귀 가드: `CodexLargeRolloutPerformanceTests` —
   **opt-in(`POKETOKENBAR_RUN_LARGE_PERF=1` / `scripts/perf-codex-large-rollout.sh`)이라 CI 는 돌리지 않는다.**
   자동으로 막히지 않으므로 이 부류를 건드리면 직접 돌린다. (#184)
+
+- **2단계 갱신에서 파생 상태는 그 값을 *채우는* 단계 뒤에 기록한다.** 사용량 요약의 일별 원장을
+  `snapshots = newSnapshots`(phase 1) 직후에 저장했더니, `monthDaily` 는 `fetchEnrichment`(phase 2)
+  에서만 채워져 **설치 후 첫 갱신이 통째로 빈 요약**을 만들었다. 두 번째 갱신부터는 phase 1 이 이전
+  스냅샷의 `prevMonthDaily` 를 이어받아 우연히 채워지므로, 단위 테스트도 손으로 앱을 열어보는 확인도
+  통과한다 — 틀리는 건 첫 갱신 한 번뿐이라 눈에 띄지 않는다(개발 앱 defaults 에 키가 안 생긴 걸 보고
+  발견). refresh 파이프라인에 새 파생 상태를 붙일 땐 그 입력이 phase 1/2 중 어디서 채워지는지 먼저
+  확인하고, 회귀 가드는 **첫 refresh 한 번**으로 검증한다(`testTheFirstRefreshAlreadyFillsTheLedger`).
 
 ## 빌드·도구체인
 
