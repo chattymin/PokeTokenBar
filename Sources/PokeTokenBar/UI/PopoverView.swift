@@ -22,6 +22,8 @@ final class PopoverNavigation {
     var tab: PopoverTab = .home
     /// 일반적인 컬렉션 재진입에는 마지막 세그먼트를 유지하되, 대표 포켓몬 선택 진입점은 도감으로 강제한다.
     var showingCollectionLog = false
+    /// The usage recap takes over the popover like Settings does; closing the popover drops it.
+    var showingRecap = false
     /// 프로바이더 탭 선택 — reset() 대상이 아님(팝오버를 다시 열어도 보던 서비스 유지).
     var providerID: String?
     /// Claude account tab in the limits section. Kept across openings, like `providerID`.
@@ -33,6 +35,7 @@ final class PopoverNavigation {
     func reset() {
         showSettings = false
         expandAdvancedOnOpen = false
+        showingRecap = false
         tab = .home
     }
 
@@ -78,6 +81,8 @@ struct PopoverView: View {
                     .environment(store)
                     .environment(companion)
                     .environment(updater)
+            } else if nav.showingRecap {
+                RecapScreen(store: store, companion: companion) { nav.showingRecap = false }
             } else {
                 mainContent
             }
@@ -176,6 +181,12 @@ struct PopoverView: View {
                     periodLabel(l.thisWeek, tokens: store.weekTotalTokens, cost: store.showsCost ? store.weekUsageCost : nil)
                     periodLabel(l.thisMonth, tokens: store.monthTotalTokens, cost: store.showsCost ? store.monthUsageCost : nil)
                     Spacer()
+                    Button { nav.showingRecap = true } label: {
+                        Image(systemName: "chart.bar.xaxis")
+                    }
+                    .buttonStyle(.borderless)
+                    .help(l.recapOpen)
+                    .accessibilityLabel(l.recapOpen)
                 }
                 .padding(.top, 2)
             }
