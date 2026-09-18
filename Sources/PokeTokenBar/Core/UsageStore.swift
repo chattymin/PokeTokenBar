@@ -808,7 +808,8 @@ final class UsageStore {
                     // 누적만으로 만들면, weekTotal 이 옵셔널이 아니라(토큰 0이어도 non-nil) 오늘·최근
                     // 미사용 프로바이더까지 탭이 떠서 "안 썼는데 왜 뜨지" 회귀가 난다. 블록이 있을 때만
                     // 그 시점의 주/월도 함께 보존한다.
-                    let hasActiveBlock = enrichment.blocksOK && enrichment.activeBlock != nil
+                    let hasActiveBlock = enrichment.blocksOK
+                        && (enrichment.activeBlock?.totalTokens ?? 0) > 0
                     if hasActiveBlock, let provider = providers.first(where: { $0.id == id }) {
                         snapshots.append(ProviderSnapshot(
                             providerID: id, displayName: provider.displayName, today: nil,

@@ -1714,7 +1714,11 @@ enum LocalUsageReader {
     /// 최근 5시간 롤링 윈도우 기반 활성 블록(번 레이트 추정용).
     static func activeBlock(entries: [Entry], now: Date) -> BlockUsage? {
         let windowStart = now.addingTimeInterval(-blockWindow)
-        let recent = entries.filter { $0.date >= windowStart }.sorted { $0.date < $1.date }
+        // Claude Code can write `<synthetic>` assistant records whose usage fields are all zero
+        // even when no Claude request ran (for example, a local wrapper/session bootstrap). Those
+        // records are parser-valid metadata, not usage: exclude them from both existence and the
+        // block start time so they cannot create or stretch a carrier snapshot/tab.
+        let recent = entries.filter { $0.date >= windowStart && $0.total > 0 }.sorted { $0.date < $1.date }
         guard let first = recent.first else { return nil }
         var b = Bucket()
         for e in recent { b.add(e) }

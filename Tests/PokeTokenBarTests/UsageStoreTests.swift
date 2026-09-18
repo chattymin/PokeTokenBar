@@ -842,6 +842,27 @@ final class UsageStoreTests: XCTestCase {
                        "오늘·최근 미사용 프로바이더는 탭이 뜨면 안 됨")
     }
 
+    /// Provider enrichment must not turn a zero-token parser artifact into a visible tab.
+    /// LocalUsageReader normally rejects this at the source; the store keeps the UI boundary strict
+    /// for every current and future provider implementation.
+    func testNoCarrierForZeroTokenActiveBlock() async {
+        let claude = FakeUsageProvider(id: "claude_code", displayName: "Claude Code", daily: nil)
+        claude.enrichment = ProviderEnrichment(
+            activeBlock: BlockUsage(
+                id: "synthetic", startTime: "2026-09-18T15:54:00Z",
+                endTime: "2026-09-18T20:54:00Z", isActive: true,
+                totalTokens: 0, costUSD: 0, tokensPerMinute: 0),
+            blocksOK: true,
+            weekTotal: PeriodUsage(period: "w", totalTokens: 0, totalCost: 0),
+            monthTotal: PeriodUsage(period: "m", totalTokens: 0, totalCost: 0),
+            periodsOK: true)
+        let store = makeStore(providers: [claude])
+
+        await store.refresh(scheduleEmptyRetry: false)
+
+        XCTAssertFalse(store.snapshots.contains { $0.providerID == "claude_code" })
+    }
+
     /// 여러 프로바이더의 burn 은 합산된다 (60k + 60k = 120k → fast).
     func testBurnTierCombinesProviders() async {
         let claude = FakeUsageProvider(id: "claude_code", displayName: "Claude Code", daily: todayDaily(10_000_000))

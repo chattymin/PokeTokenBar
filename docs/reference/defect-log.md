@@ -74,6 +74,12 @@ read_when:
 
 - **옵셔널 tautology.** 옵셔널 필드라도 *생산자가 항상 채우면* `x != nil` 은 항상 참이다. "값이 있나"는
   의미값으로 검사한다(예: `totalTokens > 0`, 또는 진짜 nil 가능한 필드 `activeBlock`). — weekTotal 회귀(#56).
+- **사용량 엔트리의 존재는 실제 사용의 증거가 아니다.** Claude 는 로컬 세션 시작 과정에서 토큰 필드가
+  전부 0인 `<synthetic>` assistant 엔트리를 기록할 수 있다. `activeBlock` 이 최근 엔트리 존재만 검사하고,
+  store 가 non-nil 블록만 검사하면 오늘 사용량 0인 Claude Code 탭이 생긴다. 블록 집계와 캐리어 스냅샷
+  경계 모두 `totalTokens > 0`을 요구한다. 회귀는 비어 있는 배열이 아니라 **non-empty zero-token 입력**으로
+  `LocalUsageReaderTests.testActiveBlockIgnoresZeroTokenSyntheticEntries`와
+  `UsageStoreTests.testNoCarrierForZeroTokenActiveBlock`에서 고정한다.
 - **JSON `null` 은 "값 있음"이 아니다.** `obj["x"] != nil` 은 `NSNull` 에도 참이라 `intValue` 가 0 을 돌려주고,
   그 0 으로 캐시분을 빼면 토큰이 통째로 사라진다. 숫자 필드는 `NSNull`·문자열·부재를 모두 nil 로 만드는
   추출기(`intOrNil`/`doubleOrNil`)로 읽고, 대체 스펠링 폴백은 그 nil 로 판단한다.

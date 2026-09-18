@@ -1074,6 +1074,28 @@ final class LocalUsageReaderTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(p.totalTokens, 600_000)
     }
 
+    /// Claude writes parser-valid `<synthetic>` assistant rows with every usage field set to zero.
+    /// They are metadata, not evidence that the provider is active, so they must not create the
+    /// active-block carrier snapshot that makes a zero-usage Claude Code tab appear.
+    func testActiveBlockIgnoresZeroTokenSyntheticEntries() {
+        let now = Date()
+        let synthetic = LocalUsageReader.Entry(
+            id: "synthetic", date: now.addingTimeInterval(-120),
+            localDay: LocalUsageReader.localDayFormatter().string(from: now),
+            model: "<synthetic>", input: 0, output: 0, cacheWrite: 0, cacheRead: 0)
+
+        XCTAssertNil(LocalUsageReader.activeBlock(entries: [synthetic], now: now))
+
+        let actual = LocalUsageReader.Entry(
+            id: "actual", date: now.addingTimeInterval(-60),
+            localDay: LocalUsageReader.localDayFormatter().string(from: now),
+            model: "claude-opus", input: 10, output: 5, cacheWrite: 0, cacheRead: 0)
+        let block = LocalUsageReader.activeBlock(entries: [synthetic, actual], now: now)
+        XCTAssertEqual(block?.totalTokens, 15)
+        XCTAssertEqual(block?.id, "block-\(Int(actual.date.timeIntervalSince1970))",
+                       "zero-token metadata must not move the active block start earlier")
+    }
+
     // MARK: enrichment 스캔 하한 (월초 경계 흡수)
 
     /// 스캔 하한은 블록(now-5h)·이번 주(weekStart)·이번 달(monthStart) 세 윈도우 시작을 모두 덮어야
