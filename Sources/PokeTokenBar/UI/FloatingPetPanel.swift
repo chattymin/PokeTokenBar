@@ -13,6 +13,8 @@ final class FloatingPetController: NSObject, NSWindowDelegate {
     private let defaults: UserDefaults
     private var panel: NSPanel?
     private var hoverPanel: NSPanel?
+    private var isHovering = false
+    private var calloutFlash: Task<Void, Never>?
     private var displayAwake = true
     private var builtAnimated: Bool?
     private var powerObserver: NSObjectProtocol?
@@ -76,14 +78,17 @@ final class FloatingPetController: NSObject, NSWindowDelegate {
 
     private var onOpenPopover: (() -> Void)?
     private var onHide: (() -> Void)?
+    private var onCopyCard: (() -> Void)?
 
     init(store: UsageStore, companion: CompanionStore, defaults: UserDefaults = .standard,
-         onOpenPopover: (() -> Void)? = nil, onHide: (() -> Void)? = nil) {
+         onOpenPopover: (() -> Void)? = nil, onHide: (() -> Void)? = nil,
+         onCopyCard: (() -> Void)? = nil) {
         self.store = store
         self.companion = companion
         self.defaults = defaults
         self.onOpenPopover = onOpenPopover
         self.onHide = onHide
+        self.onCopyCard = onCopyCard
         super.init()
         observeSettings()
         observePowerState()
@@ -213,8 +218,10 @@ final class FloatingPetController: NSObject, NSWindowDelegate {
                 FloatingPetView(animated: wantAnimated).environment(store).environment(companion)))
             hosting.onOpenPopover = onOpenPopover
             hosting.onHide = onHide
+            hosting.onCopyCard = onCopyCard
             hosting.languageProvider = { [weak self] in self?.companion.language ?? .systemDefault }
             hosting.onHoverChange = { [weak self] hovering in
+                self?.isHovering = hovering
                 if hovering { self?.showHoverCallout() } else { self?.hideHoverCallout() }
             }
             p.contentView = hosting
@@ -246,11 +253,25 @@ final class FloatingPetController: NSObject, NSWindowDelegate {
             l: L(companion.language))
     }
 
-    private func showHoverCallout() {
+    /// Confirms an action the pet's menu triggered — the menu closes with nothing else to show.
+    /// Reuses the hover callout rather than the limit bubble: the bubble resizes the panel and is
+    /// reserved for quota alerts.
+    func flashCallout(_ text: String) {
+        guard panel?.isVisible == true else { return }
+        calloutFlash?.cancel()
+        showHoverCallout(text: text)
+        calloutFlash = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(1.5))
+            guard !Task.isCancelled, let self else { return }
+            if isHovering { showHoverCallout() } else { hideHoverCallout() }
+        }
+    }
+
+    private func showHoverCallout(text: String? = nil) {
         guard let pet = panel, pet.isVisible else { return }
         // Don't cover an active limit bubble — the speech bubble is the priority surface.
         if store.currentBubbleAlert != nil { hideHoverCallout(); return }
-        let text = currentHoverText()
+        let text = text ?? currentHoverText()
         let appearance = NSApp.effectiveAppearance
         let colors = Self.hoverCalloutColors(for: appearance)
         let label = NSTextField(labelWithString: text)
@@ -284,6 +305,7 @@ final class FloatingPetController: NSObject, NSWindowDelegate {
     }
 
     private func hideHoverCallout() {
+        calloutFlash?.cancel()
         hoverPanel?.orderOut(nil)
         hoverPanel?.contentView = nil
     }
@@ -360,6 +382,7 @@ final class FloatingPetController: NSObject, NSWindowDelegate {
 final class PetHostingView: NSHostingView<AnyView> {
     var onOpenPopover: (() -> Void)?
     var onHide: (() -> Void)?
+    var onCopyCard: (() -> Void)?
     var onHoverChange: ((Bool) -> Void)?
     var languageProvider: () -> AppLanguage = { .systemDefault }
 
@@ -435,11 +458,16 @@ final class PetHostingView: NSHostingView<AnyView> {
                                 action: #selector(handleHide(_:)), keyEquivalent: "")
         hide.target = self
         hide.isEnabled = true
+        let copyCard = menu.addItem(withTitle: l.trainerCardCopyMenu,
+                                    action: #selector(handleCopyCard(_:)), keyEquivalent: "")
+        copyCard.target = self
+        copyCard.isEnabled = onCopyCard != nil
         NSMenu.popUpContextMenu(menu, with: event, for: self)
     }
 
     @objc func handleOpen(_ sender: Any?) { onOpenPopover?() }
     @objc func handleHide(_ sender: Any?) { onHide?() }
+    @objc func handleCopyCard(_ sender: Any?) { onCopyCard?() }
 }
 
 @MainActor

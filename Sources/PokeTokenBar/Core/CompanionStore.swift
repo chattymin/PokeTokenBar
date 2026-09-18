@@ -93,6 +93,7 @@ final class CompanionStore {
         defaults.set(shopDifficulty, forKey: "shopDifficulty")
         migratePokemonProfilesIfNeeded()
         refreshRepresentativeSubject()
+        refreshTeamKeySet()
         if state.active != nil { displayState = .idle }
     }
 
@@ -746,6 +747,7 @@ final class CompanionStore {
         eventUntil = clock().addingTimeInterval(6)
         state.active = nil
         state.reconcileRepresentativeSelection()   // 졸업 체인이 dex 로 옮겨져 선택은 정상적으로 유지된다
+        state.reconcileTeamSelection()
         activeGeneration += 1
         currentLine = nil
         state.eggUsage = 0   // 새 알은 처음부터 인큐베이션
@@ -924,6 +926,7 @@ final class CompanionStore {
         // 놓아준 종도 이제 dex 에 있으므로 대표 선택은 유지된다. 손상 상태 파일 등으로 정말 보유가
         // 끊긴 경우만 자동 추적으로 복귀한다.
         state.reconcileRepresentativeSelection()
+        state.reconcileTeamSelection()   // a released Pokémon leaves the team
         activeGeneration += 1
         currentLine = nil
         state.eggUsage = 0            // 새 알은 처음부터 인큐베이션(재부화에 5M 필요)
@@ -1520,6 +1523,187 @@ final class CompanionStore {
                    completedGrowth + min(SaveTransfer.maxTokenValue, max(0, currentStageUsage)))
     }
 
+    // MARK: Trainer card
+
+    struct TrainerCardStats: Equatable, Sendable {
+        let lifetimeTokens: Int
+        let speciesCount: Int
+        let speciesTotal: Int
+        let shinyCount: Int
+        let graduatedCount: Int
+        /// Individuals from a line already in the log — what a second Pikachu adds to the collection.
+        let duplicateCount: Int
+        let firstCatch: Date?
+        let rarityCounts: [Rarity: Int]
+    }
+
+    /// Catch log counts, the raised Pokémon included, next to the Pokédex species count.
+    ///
+    /// Individuals you let go are out of every individual count: they are gone, so crediting the
+    /// card with a released shiny — or calling it a duplicate — would count what you no longer have.
+    /// The Pokédex line is the exception, and not the card's call: `dexSpecies` folds **owned
+    /// species** whatever became of the individual, so a released Pokémon keeps its cells there.
+    var trainerCardStats: TrainerCardStats {
+        let kept = dexEntries.filter { !$0.isReleased }
+        // Hatching only draws bases in the animated range, but a chain can evolve past it (Sylveon
+        // from Eevee). Those extras are kept out of the count so it never goes over the total.
+        let counted = PokemonAssets.animatedSpeciesIDs
+        return TrainerCardStats(
+            lifetimeTokens: state.usedSinceInstall,
+            speciesCount: dexSpecies.lazy.filter { counted.contains($0.id) }.count,
+            speciesTotal: counted.count,
+            shinyCount: kept.lazy.filter(\.isShiny).count,
+            graduatedCount: state.dex.lazy.filter { !$0.isReleased }.count,
+            duplicateCount: kept.count - Set(kept.map(\.baseID)).count,
+            firstCatch: kept.compactMap(\.caughtAt).min(),
+            rarityCounts: Dictionary(grouping: kept, by: \.rarity).mapValues(\.count))
+    }
+
+    /// Who the card puts in the frame: the pinned species, or the raised Pokémon when none is
+    /// pinned. Pinning is a species choice, so the stage and nature of an individual are dropped
+    /// for the rarity — the card would otherwise print the raised Pokémon's details under another
+    /// species' sprite.
+    struct TrainerCardSubject: Equatable, Sendable {
+        let speciesID: Int?
+        let isShiny: Bool
+        let name: String
+        let detail: String
+    }
+
+    var cardSubject: TrainerCardSubject {
+        let subject = representativeSubject
+        guard let pinned = state.representativeSpeciesID else {
+            let detail = ([stageText] + [currentNature?.name(state.language)].compactMap { $0 })
+                .filter { !$0.isEmpty }.joined(separator: " · ")
+            return TrainerCardSubject(speciesID: subject.speciesID, isShiny: subject.isShiny,
+                                      name: displayName, detail: detail)
+        }
+        let species = dexSpecies.first { $0.id == pinned }
+        return TrainerCardSubject(speciesID: pinned, isShiny: subject.isShiny,
+                                  name: species?.name ?? "#\(pinned)",
+                                  detail: species.map { l.rarityLabel($0.rarity) } ?? "")
+    }
+
+    var trainerID: Int? { state.trainerID }
+    var trainerName: String { state.trainerName }
+
+    /// Assigned on first use, so a save that never opens the card is left as it was.
+    func ensureTrainerID() {
+        guard state.trainerID == nil else { return }
+        state.trainerID = Int.random(in: TrainerCard.idRange)
+        save()
+    }
+
+    func setTrainerName(_ name: String) {
+        let trimmed = String(name.trimmingCharacters(in: .whitespacesAndNewlines).prefix(TrainerCard.nameLimit))
+        guard trimmed != state.trainerName else { return }
+        state.trainerName = trimmed
+        save()
+    }
+
+    /// A catch log row's team id. The raised Pokémon uses its profile id, which its graduated entry
+    /// keeps, so it stays in the team after graduating. Released individuals cannot join.
+    func teamKey(for entry: DexEntry) -> String? {
+        guard !entry.isReleased else { return nil }
+        return isActiveDexEntry(entry) ? state.active?.profile?.instanceID : entry.id
+    }
+
+    /// Everyone who may join, in catch log order.
+    var teamCandidates: [DexEntry] { dexEntriesSorted.filter { teamKey(for: $0) != nil } }
+
+    var isTeamPicked: Bool { !state.teamIsAutomatic }
+
+    /// Team membership for the catch log badges, folded once at the save boundary like
+    /// `representativeSubject`. Every row body asks whether it is in the team, and the automatic
+    /// team sorts the whole log to answer, so asking per row would sort it once per visible row.
+    private(set) var teamKeySet: Set<String> = []
+
+    private func refreshTeamKeySet() {
+        let next = Set(trainerTeamKeys)
+        if teamKeySet != next { teamKeySet = next }
+    }
+
+    /// The card's team in slot order. Until the user edits it, it is the rarest graduates with
+    /// shinies first, so the card needs no setup.
+    var trainerTeam: [DexEntry] {
+        let candidates = teamCandidates
+        guard !state.teamIsAutomatic else {
+            return Array(candidates.filter { !isActiveDexEntry($0) }
+                .sorted(by: Self.automaticTeamOrder).prefix(TrainerCard.teamSize))
+        }
+        let picked = state.teamEntryIDs ?? []
+        var byKey: [String: DexEntry] = [:]
+        for entry in candidates { if let key = teamKey(for: entry) { byKey[key] = entry } }
+        return picked.compactMap { byKey[$0] }
+    }
+
+    private static func automaticTeamOrder(_ a: DexEntry, _ b: DexEntry) -> Bool {
+        if a.isShiny != b.isShiny { return a.isShiny }
+        if a.rarity != b.rarity { return a.rarity.sortRank > b.rarity.sortRank }
+        return (a.caughtAt ?? .distantPast) > (b.caughtAt ?? .distantPast)
+    }
+
+    var trainerTeamKeys: [String] { trainerTeam.compactMap(teamKey(for:)) }
+
+    func isInTeam(_ entry: DexEntry) -> Bool {
+        guard let key = teamKey(for: entry) else { return false }
+        return teamKeySet.contains(key)
+    }
+
+    var isTeamFull: Bool { teamKeySet.count >= TrainerCard.teamSize }
+
+    /// Adds an individual, or puts it in `slot` in place of the member there. Every edit starts from
+    /// the team as shown, so the first one keeps the automatic picks where they were.
+    @discardableResult
+    func addToTeam(_ entry: DexEntry, slot: Int? = nil) -> Bool {
+        guard let key = teamKey(for: entry) else { return false }
+        var keys = trainerTeamKeys
+        guard !keys.contains(key) else { return false }
+        if let slot, keys.indices.contains(slot) {
+            keys[slot] = key
+        } else {
+            guard keys.count < TrainerCard.teamSize else { return false }
+            keys.append(key)
+        }
+        storeTeam(keys)
+        return true
+    }
+
+    func removeFromTeam(_ entry: DexEntry) {
+        guard let key = teamKey(for: entry) else { return }
+        var keys = trainerTeamKeys
+        guard let index = keys.firstIndex(of: key) else { return }
+        keys.remove(at: index)
+        storeTeam(keys)
+    }
+
+    func moveInTeam(_ entry: DexEntry, by offset: Int) {
+        var keys = trainerTeamKeys
+        guard let key = teamKey(for: entry), let from = keys.firstIndex(of: key),
+              keys.indices.contains(from + offset) else { return }
+        keys.swapAt(from, from + offset)
+        storeTeam(keys)
+    }
+
+    /// Switches the team between automatic and picked. Turning it off the first time keeps the
+    /// automatic line-up as a starting point; afterwards both directions come back to what was
+    /// last shown, so the switch is never destructive.
+    func setAutomaticTeam(_ automatic: Bool) {
+        guard automatic != state.teamIsAutomatic else { return }
+        let shown = trainerTeamKeys
+        state.teamIsAutomatic = automatic
+        if !automatic, state.teamEntryIDs == nil { state.teamEntryIDs = shown }
+        state.reconcileTeamSelection()
+        save()
+    }
+
+    private func storeTeam(_ keys: [String]) {
+        state.teamEntryIDs = keys
+        state.teamIsAutomatic = false   // any edit is a pick
+        state.reconcileTeamSelection()
+        save()
+    }
+
     // MARK: 영속
     private func load() {
         guard let data = try? Data(contentsOf: fileURL) else { return }   // 파일 없음 = 신규 설치
@@ -1539,6 +1723,7 @@ final class CompanionStore {
     }
     private func save() {
         refreshRepresentativeSubject()
+        refreshTeamKeySet()
         guard let data = try? JSONEncoder().encode(state) else { return }
         try? data.write(to: fileURL, options: .atomic)   // 부분 쓰기 손상 방지(펫 상태)
     }

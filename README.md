@@ -157,6 +157,7 @@ Reset countdowns include the clock time, and the colored percentage stays aligne
 
 - **Low Power Mode** — menu-bar animation continues at Power saver quality.
 - **Reconnect refresh** — usage and limits refresh when the network comes back.
+- **Trainer card** — a two-sided card in the Collection tab: your trainer name and number, lifetime tokens, Pokédex count, shinies, graduations, duplicates and first catch on the front, a team of six on the back. The team fills itself with your rarest and shiniest until you pick one, from the card or the catch log's right-click menu. Copy it as an image or save it as a PNG; a shiny companion gets a holo frame. Nothing leaves your Mac, and a toggle hides the token count.
 - **Representative Pokémon** — pin any owned Pokédex species to the menu bar and optional floating pet, independently of the companion you're raising. While pinned, the menu bar stops following egg, hatch, and evolution changes; raising progress remains visible on Home.
 - **Animation quality** — pick how smoothly the menu bar sprite and the floating pet animate (Power saver / Balanced / Smooth). Both always-visible surfaces share the setting. Power saver is the default and keeps the frame rate the app used before this setting existed; Balanced and Smooth trade battery for smoothness (measured idle CPU ~1.8% and ~5.1%).
 - **Interactive floating pet** — hover for today's usage, click to open the main window, right-click for a menu, and show limit alerts as speech bubbles.

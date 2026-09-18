@@ -765,14 +765,27 @@ struct CollectionView: View {
         @Bindable var nav = navigation
         if store.dexEntries.isEmpty {
             emptyState   // 둘 다 비어 있으니 세그먼트를 그리지 않는다
+        } else if nav.showingTrainerCard {
+            TrainerCardScreen(store: store) { nav.showingTrainerCard = false }
+                .frame(height: Self.contentHeight)
         } else {
             VStack(alignment: .leading, spacing: 8) {
-                Picker("", selection: $nav.showingCollectionLog) {
-                    Text(store.l.dexTitle).tag(false)
-                    Text(store.l.catchLogTitle).tag(true)
+                HStack(spacing: 6) {
+                    Picker("", selection: $nav.showingCollectionLog) {
+                        Text(store.l.dexTitle).tag(false)
+                        Text(store.l.catchLogTitle).tag(true)
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                    .frame(maxWidth: .infinity)
+                    // An icon keeps both segments wide enough for the longest catch log label.
+                    Button { nav.showingTrainerCard = true } label: {
+                        Image(systemName: "person.text.rectangle")
+                    }
+                    .buttonStyle(.bordered)
+                    .help(store.l.trainerCardTitle)
+                    .accessibilityLabel(store.l.trainerCardTitle)
                 }
-                .pickerStyle(.segmented)
-                .labelsHidden()
                 if nav.showingCollectionLog { catchLog } else { DexGridView(store: store) }
             }
             .frame(height: Self.contentHeight)
@@ -1347,6 +1360,8 @@ private struct DexEntryRow: View {
     /// 카드 안쪽 여백. 진화 라인이 쓸 수 있는 폭 계산과 단일 소스를 공유한다.
     private static let cardPadding: CGFloat = 8
 
+    private var isInTeam: Bool { store.isInTeam(entry) }
+
     var body: some View {
         // 저장분 우선(즉시·언어대응), 없으면 async 로 채운 resolved 사용.
         let names = store.dexStoredChainNames(entry) ?? (resolved.isEmpty ? nil : resolved)
@@ -1379,6 +1394,14 @@ private struct DexEntryRow: View {
                     Text("✨").font(.system(size: 10))
                         .accessibilityLabel(store.l.dexShinyLabel)
                 }
+                if isInTeam {
+                    Text(store.l.trainerTeamTitle.uppercased())
+                        .font(.system(size: 8, weight: .bold))
+                        .padding(.horizontal, 5).padding(.vertical, 1)
+                        .background(Color.accentColor.opacity(0.14))
+                        .foregroundStyle(Color.accentColor)
+                        .clipShape(Capsule())
+                }
                 Spacer()
                 if let nature = entry.nature {
                     Text(nature.name(store.language))
@@ -1396,6 +1419,18 @@ private struct DexEntryRow: View {
         .padding(Self.cardPadding)
         .background(Color.secondary.opacity(0.06))
         .clipShape(RoundedRectangle(cornerRadius: 10))
+        .contextMenu {
+            if store.teamKey(for: entry) != nil {
+                if isInTeam {
+                    Button(store.l.trainerTeamRemove) { store.removeFromTeam(entry) }
+                } else {
+                    Button(store.isTeamFull ? store.l.trainerTeamFull : store.l.trainerTeamAdd) {
+                        store.addToTeam(entry)
+                    }
+                    .disabled(store.isTeamFull)
+                }
+            }
+        }
         .task(id: "\(entry.id)-\(store.language.rawValue)") {
             resolved = await store.dexResolveChainNames(entry)
         }
