@@ -67,6 +67,13 @@ enum CustomScanRoots {
         return LocalUsageReader.normalizedRoots(protected + added)
     }
 
+    /// Provider-aware union used by real readers. Imported remote mirrors are treated as
+    /// curated roots for this provider, so Settings' free-form field remains an additive
+    /// escape hatch rather than the sync transport itself.
+    static func providerUnion(providerID: String, defaults: [URL], extraRaw: String?) -> [URL] {
+        union(defaults: defaults + RemoteUsage.importedRoots(for: providerID), extraRaw: extraRaw)
+    }
+
     /// Folded extras that are not one of the curated defaults — the number Settings shows.
     static func survivingExtraCount(defaults: [URL], extraRaw: String) -> Int {
         let protected = Set(LocalUsageReader.normalizedRoots(defaults).map(normalizedPath))

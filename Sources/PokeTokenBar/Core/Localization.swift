@@ -405,6 +405,27 @@ struct L {
           "Nur für Protokolle dieses Anbieters außerhalb der Standardpfade. Durch Kommas oder Zeilenumbrüche getrennt, * als Platzhalter. Wähle keinen Ordner eines anderen Anbieters.")
     }
     var customScanRootsPlaceholder: String { t("~/path/to/sessions", "~/path/to/sessions", "~/path/to/sessions", "~/path/to/sessions", "~/path/to/sessions", "~/path/to/sessions", "~/path/to/sessions") }
+    var remoteMachinesLabel: String { t("원격 Mac", "Remote Macs", "リモートMac", "Macs remotos", "Macs distants", "Macs remotos", "Entfernte Macs") }
+    var remoteMachinesHint: String {
+        t("SSH 로 다른 Mac의 로컬 사용량 로그를 읽어 합산합니다. 원격에는 쓰거나 삭제하지 않습니다.",
+          "Read local usage logs from another Mac over SSH and combine them here. Remote files are never written or deleted.",
+          "SSHで別のMacのローカル使用ログを読み取り、ここで合算します。リモートファイルは書き込みも削除もしません。",
+          "Lee registros locales de uso de otro Mac por SSH y los combina aquí. Nunca escribe ni borra archivos remotos.",
+          "Lit les journaux d'utilisation locaux d'un autre Mac via SSH et les additionne ici. Aucun fichier distant n'est écrit ni supprimé.",
+          "Lê logs locais de uso de outro Mac via SSH e combina tudo aqui. Arquivos remotos nunca são escritos nem apagados.",
+          "Liest lokale Nutzungsprotokolle von einem anderen Mac per SSH und addiert sie hier. Entfernte Dateien werden nie geschrieben oder gelöscht.")
+    }
+    var remoteMachineLabelPlaceholder: String { t("이름", "Name", "名前", "Nombre", "Nom", "Nome", "Name") }
+    var remoteMachineTargetPlaceholder: String { t("m1.local", "m1.local", "m1.local", "m1.local", "m1.local", "m1.local", "m1.local") }
+    var remoteMachineHomePlaceholder: String { t("~", "~", "~", "~", "~", "~", "~") }
+    var addRemoteMachineButton: String { t("추가", "Add", "追加", "Añadir", "Ajouter", "Adicionar", "Hinzufügen") }
+    var removeRemoteMachineButton: String { t("삭제", "Remove", "削除", "Eliminar", "Supprimer", "Remover", "Entfernen") }
+    var refreshRemoteMachineButton: String { t("가져오기", "Import", "取得", "Importar", "Importer", "Importar", "Importieren") }
+    var noRemoteMachines: String { t("아직 원격 Mac이 없습니다.", "No remote Macs yet.", "リモートMacはまだありません。", "Aún no hay Macs remotos.", "Aucun Mac distant pour l'instant.", "Ainda não há Macs remotos.", "Noch keine entfernten Macs.") }
+    var remoteMachineNeverImported: String { t("아직 가져온 적 없음", "Never imported", "未取得", "Nunca importado", "Jamais importé", "Nunca importado", "Noch nie importiert") }
+    func remoteMachineLastImport(_ value: String) -> String {
+        t("마지막 가져오기: \(value)", "Last import: \(value)", "最終取得: \(value)", "Última importación: \(value)", "Dernier import : \(value)", "Última importação: \(value)", "Letzter Import: \(value)")
+    }
     func customScanRootsMatches(_ n: Int) -> String {
         t("지금 \(n)개 추가 폴더를 스캔함", "Scans \(n) extra folder(s) now", "現在\(n)個の追加フォルダをスキャン", "Escanea \(n) carpeta(s) extra ahora", "Analyse \(n) dossier(s) supplémentaire(s) maintenant", "Escaneando \(n) pasta(s) extra agora", "Zusätzlich gescannte Ordner: \(n)")
     }

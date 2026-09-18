@@ -16,7 +16,10 @@ import SQLite3
 enum LocalAsideUsageReader {
     static func roots(customRootsValue: String? = nil,
                       home: URL = FileManager.default.homeDirectoryForCurrentUser) -> [URL] {
-        CustomScanRoots.union(defaults: [home.appendingPathComponent(".aside/u")], extraRaw: customRootsValue)
+        CustomScanRoots.providerUnion(
+            providerID: "aside",
+            defaults: [home.appendingPathComponent(".aside/u")],
+            extraRaw: customRootsValue)
     }
 
     /// Root folders may be `.aside/u` or individual user folders containing state.db.

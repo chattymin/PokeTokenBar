@@ -72,7 +72,8 @@ enum LocalAntigravityUsageReader {
         customRootsValue: String? = nil,
         home: URL = FileManager.default.homeDirectoryForCurrentUser
     ) -> [URL] {
-        CustomScanRoots.union(
+        CustomScanRoots.providerUnion(
+            providerID: "antigravity",
             defaults: defaultRoots(home: home),
             extraRaw: customRootsValue)
     }

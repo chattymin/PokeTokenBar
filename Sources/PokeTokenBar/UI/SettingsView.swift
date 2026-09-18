@@ -32,6 +32,9 @@ struct SettingsView: View {
     @State private var customScanMatchCount = 0
     @State private var customScanMatchTask: Task<Void, Never>?
     @State private var customScanMatchGeneration = 0
+    @State private var remoteLabelDraft = ""
+    @State private var remoteTargetDraft = ""
+    @State private var remoteHomeDraft = "~"
     @FocusState private var customScanFocused: Bool
     @FocusState private var sessionKeyFocused: Bool
     private var l: L { companion.l }
@@ -493,7 +496,7 @@ struct SettingsView: View {
 
     @ViewBuilder
     private func advancedGroup(_ store: UsageStore) -> some View {
-        @Bindable var store = store
+        @Bindable var bindableStore = store
         settingsSection(l.advancedSectionTitle) {
             Button {
                 withAnimation(.easeInOut(duration: 0.15)) { advancedExpanded.toggle() }
@@ -528,7 +531,7 @@ struct SettingsView: View {
                         Text(l.disableKeychainHint).font(.caption2).foregroundStyle(.tertiary)
                     }
                     Spacer()
-                    Toggle(l.disableKeychain, isOn: $store.disableKeychainAccess)
+                    Toggle(l.disableKeychain, isOn: $bindableStore.disableKeychainAccess)
                         .labelsHidden().toggleStyle(.switch).controlSize(.small)
                 }
                 Divider()
@@ -554,6 +557,8 @@ struct SettingsView: View {
                         .font(.caption2).foregroundStyle(.orange).lineLimit(2)
                         .padding(.horizontal, 12).padding(.bottom, 6)
                 }
+                Divider()
+                remoteMachinesRows(store)
                 Divider()
                 groupRow {
                     VStack(alignment: .leading, spacing: 6) {
@@ -678,6 +683,66 @@ struct SettingsView: View {
         }
         .buttonStyle(.plain)
         .help(urlString)
+    }
+
+    private func remoteMachinesRows(_ store: UsageStore) -> some View {
+        let machines = store.remoteMachineList()
+        return groupRow {
+            VStack(alignment: .leading, spacing: 6) {
+                Text(l.remoteMachinesLabel)
+                Text(l.remoteMachinesHint).font(.caption2).foregroundStyle(.tertiary)
+                HStack(spacing: 6) {
+                    TextField(l.remoteMachineLabelPlaceholder, text: $remoteLabelDraft)
+                        .textFieldStyle(.roundedBorder).font(.caption)
+                    TextField(l.remoteMachineTargetPlaceholder, text: $remoteTargetDraft)
+                        .textFieldStyle(.roundedBorder).font(.caption)
+                    TextField(l.remoteMachineHomePlaceholder, text: $remoteHomeDraft)
+                        .textFieldStyle(.roundedBorder).font(.caption)
+                        .frame(width: 70)
+                    Button(l.addRemoteMachineButton) {
+                        store.addRemoteMachine(label: remoteLabelDraft, sshTarget: remoteTargetDraft, remoteHome: remoteHomeDraft)
+                        remoteLabelDraft = ""
+                        remoteTargetDraft = ""
+                        remoteHomeDraft = "~"
+                    }
+                    .disabled(remoteTargetDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+                if machines.isEmpty {
+                    Text(l.noRemoteMachines).font(.caption2).foregroundStyle(.tertiary)
+                } else {
+                    VStack(spacing: 6) {
+                        ForEach(0..<machines.count, id: \.self) { index in
+                            remoteMachineRow(machines[index], store: store)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private func remoteMachineRow(_ machine: RemoteMachine, store: UsageStore) -> some View {
+        HStack(spacing: 8) {
+            Toggle(machine.displayName, isOn: Binding<Bool>(
+                get: { machine.enabled },
+                set: { store.setRemoteMachineEnabled($0, id: machine.id) }))
+                .toggleStyle(.switch).controlSize(.small)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(machine.sshTarget).font(.caption).foregroundStyle(.secondary)
+                Text(remoteMachineStatus(machine)).font(.caption2).foregroundStyle(machine.lastError == nil ? Color.secondary : Color.orange)
+            }
+            Spacer()
+            Button(l.refreshRemoteMachineButton) {
+                Task { await store.importRemoteUsageNow(); await store.refresh() }
+            }
+            .disabled(store.isImportingRemoteUsage)
+            Button(l.removeRemoteMachineButton) { store.removeRemoteMachine(id: machine.id) }
+        }
+    }
+
+    private func remoteMachineStatus(_ machine: RemoteMachine) -> String {
+        if let error = machine.lastError, !error.isEmpty { return error }
+        if let last = machine.lastImportAt { return l.remoteMachineLastImport(last.formatted(date: .abbreviated, time: .shortened)) }
+        return l.remoteMachineNeverImported
     }
 
     private func commitCustomScanDraft() {
