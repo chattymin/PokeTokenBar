@@ -134,6 +134,59 @@ struct L {
     var evolutionScrollNext: String { t("다음 진화 보기", "Show next evolutions", "次の進化を見る", "Ver evoluciones siguientes", "Voir les évolutions suivantes", "Ver próximas evoluções", "Nächste Entwicklungen anzeigen") }
 
     var back: String { t("뒤로", "Back", "戻る", "Atrás", "Retour", "Voltar", "Zurück") }
+
+    // MARK: Usage recap
+    var recapOpen: String { t("사용량 돌아보기", "Usage recap", "使用量のふりかえり", "Resumen de uso", "Récap d'utilisation", "Resumo de uso", "Nutzungsrückblick") }
+    var recapTokensUnit: String { t("토큰", "tokens", "トークン", "tokens", "tokens", "tokens", "Tokens") }
+    func recapScopeName(_ scope: RecapScope) -> String {
+        switch scope {
+        case .week: t("주간", "Week", "週", "Semana", "Semaine", "Semana", "Woche")
+        case .month: t("월간", "Month", "月", "Mes", "Mois", "Mês", "Monat")
+        case .year: t("연간", "Year", "年", "Año", "Année", "Ano", "Jahr")
+        }
+    }
+    /// Shown under a running period, whose chip compares the same number of days.
+    func recapCompareSoFar(_ scope: RecapScope) -> String {
+        switch scope {
+        case .week: t("지난주 같은 기간과 비교", "Compared with the same days last week", "先週の同じ期間と比較",
+                      "Comparado con los mismos días de la semana pasada", "Comparé aux mêmes jours de la semaine dernière",
+                      "Comparado com os mesmos dias da semana passada", "Verglichen mit denselben Tagen der Vorwoche")
+        case .month: t("지난달 같은 기간과 비교", "Compared with the same days last month", "先月の同じ期間と比較",
+                       "Comparado con los mismos días del mes pasado", "Comparé aux mêmes jours du mois dernier",
+                       "Comparado com os mesmos dias do mês passado", "Verglichen mit denselben Tagen des Vormonats")
+        case .year: t("작년 같은 기간과 비교", "Compared with the same days last year", "昨年の同じ期間と比較",
+                      "Comparado con los mismos días del año pasado", "Comparé aux mêmes jours de l'an dernier",
+                      "Comparado com os mesmos dias do ano passado", "Verglichen mit denselben Tagen des Vorjahres")
+        }
+    }
+    var recapPrevious: String { t("이전", "Previous", "前へ", "Anterior", "Précédent", "Anterior", "Vorherige") }
+    var recapNext: String { t("다음", "Next", "次へ", "Siguiente", "Suivant", "Próximo", "Nächste") }
+    var recapBestDay: String { t("최고의 날", "Best day", "最高の日", "Mejor día", "Meilleur jour", "Melhor dia", "Bester Tag") }
+    var recapActiveDays: String { t("활동한 날", "Active days", "稼働日", "Días activos", "Jours actifs", "Dias ativos", "Aktive Tage") }
+    var recapBestStreak: String { t("최장 연속", "Best streak", "最長連続", "Mejor racha", "Meilleure série", "Melhor sequência", "Beste Serie") }
+    var recapGraduates: String { t("졸업", "Graduated", "卒業", "Graduados", "Diplômés", "Formados", "Abschlüsse") }
+    var recapNoData: String { t("기록 없음", "no data", "記録なし", "sin datos", "pas de données", "sem dados", "keine Daten") }
+    func recapDays(_ count: Int) -> String {
+        t("\(count)일", "\(count)d", "\(count)日", "\(count) d", "\(count) j", "\(count) d", "\(count) T")
+    }
+    func recapBestDayLine(_ day: String, _ tokens: String) -> String {
+        t("최고의 날은 \(day) — \(tokens) 토큰.",
+          "Your best day was \(day) — \(tokens) tokens.",
+          "最高の日は \(day)、\(tokens) トークン。",
+          "Tu mejor día fue el \(day): \(tokens) tokens.",
+          "Ton meilleur jour, c'était \(day) : \(tokens) tokens.",
+          "Seu melhor dia foi \(day): \(tokens) tokens.",
+          "Dein bester Tag war \(day) — \(tokens) Tokens.")
+    }
+    var recapNoGraduates: String {
+        t("이 기간에 졸업한 포켓몬이 없어요.", "No graduation in this period.", "この期間の卒業はありません。",
+          "Ninguna graduación en este periodo.", "Aucun diplômé sur cette période.",
+          "Nenhuma formatura neste período.", "Kein Abschluss in diesem Zeitraum.")
+    }
+    var recapCopy: String { t("이미지 복사", "Copy image", "画像をコピー", "Copiar imagen", "Copier l'image", "Copiar imagem", "Bild kopieren") }
+    var recapCopied: String { t("복사됨", "Copied", "コピーしました", "Copiado", "Copié", "Copiado", "Kopiert") }
+    var recapSave: String { t("저장…", "Save…", "保存…", "Guardar…", "Enregistrer…", "Salvar…", "Speichern…") }
+
     var generalSectionTitle: String { t("일반", "General", "一般", "General", "Général", "Geral", "Allgemein") }
     var menuBarSectionTitle: String { t("메뉴바에 표시", "Show in menu bar", "メニューバーに表示", "Mostrar en la barra de menús", "Afficher dans la barre des menus", "Mostrar na barra de menus", "In der Menüleiste anzeigen") }
     var advancedSectionTitle: String { t("고급", "Advanced", "詳細", "Avanzado", "Avancé", "Avançado", "Erweitert") }
