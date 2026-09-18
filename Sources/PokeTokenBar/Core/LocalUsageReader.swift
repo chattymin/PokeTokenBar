@@ -366,11 +366,84 @@ enum LocalUsageReader {
         return Array(byID.values)
     }
 
+    /// Claude Code's own cost ledger (`type:"cost-state"`), appended cumulatively through a
+    /// session. The final record carries authoritative per-model totals — covering models and
+    /// context variants (`claude-opus-5[1m]`) that `ModelPricing` holds no rate for — so a
+    /// reported amount is preferred over a table estimate wherever the source published one.
+    struct ClaudeCostState: Sendable, Equatable {
+        /// Base model id (context-window suffix stripped) → reported USD for the whole session.
+        var costByModel: [String: Double] = [:]
+        /// Claude could not price part of the session itself; its totals understate that part.
+        var hasUnknownModelCost = false
+    }
+
+    /// `modelUsage` keys carry the context-window variant (`claude-opus-5[1m]`) while an
+    /// assistant line's `message.model` never does. Attribution has to match on the base id,
+    /// and pooling both variants under it is correct: they are one model's spend.
+    static func claudeCostModelKey(_ model: String) -> String {
+        guard let cut = model.firstIndex(of: "[") else { return model }
+        return String(model[..<cut])
+    }
+
+    static func parseClaudeCostStateLine(_ line: String) -> ClaudeCostState? {
+        guard let data = line.data(using: .utf8),
+              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              (obj["type"] as? String) == "cost-state",
+              let usage = obj["modelUsage"] as? [String: Any] else { return nil }
+        var state = ClaudeCostState()
+        state.hasUnknownModelCost = obj["hasUnknownModelCost"] as? Bool ?? false
+        for (model, raw) in usage {
+            guard let fields = raw as? [String: Any],
+                  let cost = (fields["costUSD"] as? NSNumber)?.doubleValue,
+                  cost.isFinite, cost >= 0 else { continue }
+            state.costByModel[claudeCostModelKey(model), default: 0] += cost
+        }
+        return state.costByModel.isEmpty ? nil : state
+    }
+
+    /// Spreads each model's reported session total across that model's entries in proportion to
+    /// tokens. The session sum stays exact; only the split *within* one session is inferred, so
+    /// the amount stays `.source` coverage — a redistributed report, not a price-table guess.
+    /// A model the source priced but that produced no parsed entry is skipped rather than
+    /// reassigned, so an unattributable amount never inflates another model's day.
+    static func applyReportedCost(_ entries: [Entry], _ state: ClaudeCostState) -> [Entry] {
+        guard !state.costByModel.isEmpty else { return entries }
+        var indicesByModel: [String: [Int]] = [:]
+        for (i, e) in entries.enumerated() where e.total > 0 {
+            indicesByModel[claudeCostModelKey(e.model), default: []].append(i)
+        }
+        var out = entries
+        for (model, cost) in state.costByModel {
+            guard let idx = indicesByModel[model], !idx.isEmpty else { continue }
+            let totalTokens = idx.reduce(0) { $0 + out[$1].total }
+            guard totalTokens > 0 else { continue }
+            var remaining = cost
+            for (n, i) in idx.enumerated() {
+                // The last entry absorbs the rounding remainder so the session total is exact.
+                let share = n == idx.count - 1
+                    ? remaining
+                    : cost * Double(out[i].total) / Double(totalTokens)
+                out[i].explicitCost = max(0, share)
+                out[i].costIsEstimate = false
+                remaining -= share
+            }
+        }
+        return out
+    }
+
     /// Claude 파일 하나를 파싱(파일 내 dedup). 캐시가 파일 단위로 호출.
     static func parseClaudeFile(_ url: URL, fmt: DateFormatter) -> [Entry] {
         guard let text = try? String(contentsOf: url, encoding: .utf8) else { return [] }
         var out: [Entry] = []
+        var costState: ClaudeCostState?
         for line in text.split(separator: "\n", omittingEmptySubsequences: true) {
+            // Cumulative ledger: the last record in the file wins.
+            if line.contains("\"cost-state\"") {
+                autoreleasepool {
+                    if let s = parseClaudeCostStateLine(String(line)) { costState = s }
+                }
+                continue
+            }
             guard line.contains("\"usage\""), line.contains("\"assistant\"") else { continue }
             // 라인마다 autoreleasepool — JSONSerialization 이 만드는 autoreleased NSDictionary/NSString 가
             // 수천 파일·수만 라인에 걸쳐 배출 없이 누적돼 콜드 파싱 피크를 키우던 것을 즉시 배출.
@@ -378,7 +451,9 @@ enum LocalUsageReader {
                 if let e = parseClaudeLine(String(line), fmt: fmt) { out.append(e) }
             }
         }
-        return dedupKeepMax(out)
+        let deduped = dedupKeepMax(out)
+        guard let costState else { return deduped }
+        return applyReportedCost(deduped, costState)
     }
 
     /// `modifiedSince` 이후 파일에서 Claude 사용 엔트리(전역 dedup) — 테스트/캐시 미사용 경로.
