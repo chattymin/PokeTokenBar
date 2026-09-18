@@ -81,6 +81,7 @@ struct SettingsView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 .onAppear {
+                    companion.refreshSnapshots()
                     guard !didApplyStartExpanded else { return }
                     didApplyStartExpanded = true
                     if startExpanded {
@@ -392,6 +393,61 @@ struct SettingsView: View {
                 Spacer()
                 Button(l.importSaveButton) { importSave(store) }
             }
+            Divider()
+            snapshotsSection(store)
+        }
+    }
+
+    @ViewBuilder
+    private func snapshotsSection(_ store: UsageStore) -> some View {
+        groupRow {
+            VStack(alignment: .leading, spacing: 1) {
+                Text(l.snapshotsSectionTitle)
+                Text(l.createSnapshotHint).font(.caption2).foregroundStyle(.tertiary)
+            }
+            Spacer()
+            Button(l.createSnapshotButton) { takeManualSnapshot() }
+        }
+        if companion.availableSnapshots.isEmpty {
+            groupRow {
+                Text(l.noSnapshotsYet).font(.caption2).foregroundStyle(.tertiary)
+                Spacer()
+            }
+        } else {
+            ForEach(companion.availableSnapshots) { snapshot in
+                Divider()
+                snapshotRow(snapshot, store: store)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func snapshotRow(_ snapshot: SaveSnapshot, store: UsageStore) -> some View {
+        groupRow {
+            HStack(spacing: 8) {
+                if let speciesID = snapshot.currentSpeciesID {
+                    SpriteView(speciesID: speciesID, size: 28, shiny: snapshot.currentIsShiny)
+                        .frame(width: 28, height: 28)
+                } else {
+                    SpriteView(speciesID: nil, size: 28)
+                        .frame(width: 28, height: 28)
+                }
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(Self.exportedAtText(snapshot.date, language: companion.language))
+                        .font(.caption)
+                    Text(l.snapshotDexAndTokens(
+                        dex: snapshot.dexCount,
+                        tokens: TokenFormatter.compact(snapshot.lifetimeTokens)
+                    ))
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                }
+            }
+            Spacer()
+            Button(l.restoreSnapshotButton) {
+                confirmAndRestoreSnapshot(snapshot, store: store)
+            }
+            .controlSize(.small)
         }
     }
 
@@ -796,6 +852,57 @@ struct SettingsView: View {
                      message: l.importSaveDone(dex: incoming.dexCount,
                                                tokens: TokenFormatter.compact(incoming.lifetimeTokens)),
                      style: .informational)
+    }
+
+    private func takeManualSnapshot() {
+        do {
+            try companion.createManualSnapshot()
+            presentAlert(title: l.createSnapshotButton, message: l.snapshotCreatedToast, style: .informational)
+        } catch {
+            AppLog.write("manual snapshot creation failed: \(error)")
+            presentAlert(title: l.createSnapshotButton, message: l.userFacingError(error), style: .warning)
+        }
+    }
+
+    private func confirmAndRestoreSnapshot(_ snapshot: SaveSnapshot, store: UsageStore) {
+        let current = companion.transferSummary
+        let confirm = NSAlert()
+        confirm.alertStyle = .warning
+        confirm.messageText = l.restoreConfirmTitle
+        confirm.informativeText = l.restoreConfirmBody(
+            snapshotDate: Self.exportedAtText(snapshot.date, language: companion.language),
+            snapshotDex: snapshot.dexCount,
+            snapshotTokens: TokenFormatter.compact(snapshot.lifetimeTokens),
+            currentDex: current.dexCount,
+            currentTokens: TokenFormatter.compact(current.lifetimeTokens)
+        )
+        confirm.addButton(withTitle: l.restoreSnapshotButton)
+        confirm.addButton(withTitle: l.cancel)
+        for (index, button) in confirm.buttons.enumerated() {
+            button.keyEquivalent = ImportConfirmPolicy.keyEquivalent(forButtonAt: index)
+        }
+        NSApp.activate(ignoringOtherApps: true)
+        guard confirm.runModal() == .alertFirstButtonReturn else { return }
+
+        do {
+            try companion.restoreSnapshot(
+                snapshot,
+                todayTokensByProvider: store.todayTokensByProvider,
+                todayDate: LocalUsageReader.todayKey(),
+                hasUsageData: store.hasUsageData
+            )
+            presentAlert(
+                title: l.restoreSnapshotButton,
+                message: l.restoreDoneMessage(
+                    dex: snapshot.dexCount,
+                    tokens: TokenFormatter.compact(snapshot.lifetimeTokens)
+                ),
+                style: .informational
+            )
+        } catch {
+            AppLog.write("snapshot restore failed: \(error)")
+            presentAlert(title: l.restoreSnapshotButton, message: l.importErrorMessage(error), style: .warning)
+        }
     }
 
     /// 확인창에 보일 내보낸 시각 — 사용자 로케일 기준 짧은 표기.

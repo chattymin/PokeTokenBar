@@ -479,6 +479,141 @@ struct L {
           "Importado — Pokédex \(dex) · \(tokens) acumulados",
           "Importiert – \(dex) im Pokédex · \(tokens) insgesamt")
     }
+
+    // MARK: 스냅샷 백업 (설정 → 자동 백업)
+    var snapshotsSectionTitle: String {
+        t("자동 백업 (스냅샷)",
+          "Automatic Backups (Snapshots)",
+          "自動バックアップ（スナップショット）",
+          "Copias automáticas (Instantáneas)",
+          "Sauvegardes automatiques (Instantanés)",
+          "Backups automáticos (Instantâneos)",
+          "Automatische Sicherungen (Snapshots)")
+    }
+    var createSnapshotButton: String {
+        t("스냅샷 만들기",
+          "Create snapshot",
+          "スナップショットを作成",
+          "Crear instantánea",
+          "Créer un instantané",
+          "Criar instantâneo",
+          "Snapshot erstellen")
+    }
+    var createSnapshotHint: String {
+        t("진행 상태의 로컬 복원 지점을 즉시 저장해요 (최근 10개 보존)",
+          "Saves an instant local restore point of your progress (keeps up to 10)",
+          "現在の進行状況の復元ポイントを即座に保存します（最新10件を保持）",
+          "Guarda un punto de restauración local de tu progreso (mantiene hasta 10)",
+          "Enregistre un point de restauration local de ta progression (jusqu'à 10 conservés)",
+          "Salva um ponto de restauração local do seu progresso (mantém até 10)",
+          "Speichert einen lokalen Wiederherstellungspunkt deines Fortschritts (behält bis zu 10)")
+    }
+    var snapshotCreatedToast: String {
+        t("스냅샷이 생성되었습니다",
+          "Snapshot created",
+          "スナップショットを作成しました",
+          "Instantánea creada",
+          "Instantané créé",
+          "Instantâneo criado",
+          "Snapshot erstellt")
+    }
+    var restoreSnapshotButton: String {
+        t("복원",
+          "Restore",
+          "復元",
+          "Restaurar",
+          "Restaurer",
+          "Restaurar",
+          "Wiederherstellen")
+    }
+    var restoreConfirmTitle: String {
+        t("이 스냅샷으로 복원할까요?",
+          "Restore this snapshot?",
+          "このスナップショットに復元しますか？",
+          "¿Restaurar esta instantánea?",
+          "Restaurer cet instantané ?",
+          "Restaurar este instantâneo?",
+          "Diesen Snapshot wiederherstellen?")
+    }
+    func restoreConfirmBody(snapshotDate: String, snapshotDex: Int, snapshotTokens: String,
+                            currentDex: Int, currentTokens: String) -> String {
+        t("""
+          복원할 스냅샷: 도감 \(snapshotDex)마리 · 누적 \(snapshotTokens)
+          저장 시각: \(snapshotDate)
+          현재 상태: 도감 \(currentDex)마리 · 누적 \(currentTokens)
+
+          현재 상태는 새 스냅샷으로 자동 백업된 뒤 복원됩니다.
+          """,
+          """
+          Target snapshot: \(snapshotDex) in Pokédex · \(snapshotTokens) lifetime
+          Created: \(snapshotDate)
+          Current state: \(currentDex) in Pokédex · \(currentTokens) lifetime
+
+          Your current state will be backed up as a new snapshot before restoring.
+          """,
+          """
+          復元するスナップショット: 図鑑 \(snapshotDex)匹 · 累計 \(snapshotTokens)
+          作成日時: \(snapshotDate)
+          現在の状態: 図鑑 \(currentDex)匹 · 累計 \(currentTokens)
+
+          現在の状態は復元前に新しいスナップショットとしてバックアップされます。
+          """,
+          """
+          Instantánea a restaurar: Pokédex \(snapshotDex) · \(snapshotTokens) acumulados
+          Creada: \(snapshotDate)
+          Estado actual: Pokédex \(currentDex) · \(currentTokens) acumulados
+
+          Tu estado actual se guardará como una nueva instantánea antes de restaurar.
+          """,
+          """
+          Instantané à restaurer : Pokédex \(snapshotDex) · \(snapshotTokens) cumulés
+          Créé le : \(snapshotDate)
+          État actuel : Pokédex \(currentDex) · \(currentTokens) cumulés
+
+          Ton état actuel sera sauvegardé dans un nouvel instantané avant la restauration.
+          """,
+          """
+          Instantâneo a restaurar: Pokédex \(snapshotDex) · \(snapshotTokens) acumulados
+          Criado: \(snapshotDate)
+          Estado atual: Pokédex \(currentDex) · \(currentTokens) acumulados
+
+          Seu estado atual será salvo como um novo instantâneo antes de restaurar.
+          """,
+          """
+          Wiederherzustellender Snapshot: \(snapshotDex) im Pokédex · \(snapshotTokens) insgesamt
+          Erstellt: \(snapshotDate)
+          Aktueller Stand: \(currentDex) im Pokédex · \(currentTokens) insgesamt
+
+          Dein aktueller Stand wird vor der Wiederherstellung als neuer Snapshot gesichert.
+          """)
+    }
+    func restoreDoneMessage(dex: Int, tokens: String) -> String {
+        t("복원되었습니다 — 도감 \(dex)마리 · 누적 \(tokens)",
+          "Restored — \(dex) in Pokédex · \(tokens) lifetime",
+          "復元しました — 図鑑 \(dex)匹 · 累計 \(tokens)",
+          "Restaurado — Pokédex \(dex) · \(tokens) acumulados",
+          "Restauré — Pokédex \(dex) · \(tokens) cumulés",
+          "Restaurado — Pokédex \(dex) · \(tokens) acumulados",
+          "Wiederhergestellt – \(dex) im Pokédex · \(tokens) insgesamt")
+    }
+    var noSnapshotsYet: String {
+        t("아직 저장된 스냅샷이 없습니다",
+          "No snapshots saved yet",
+          "保存されたスナップショットはまだありません",
+          "Aún no hay instantáneas guardadas",
+          "Aucun instantané enregistré pour l'instant",
+          "Nenhum instantâneo salvo ainda",
+          "Noch keine Snapshots gespeichert")
+    }
+    func snapshotDexAndTokens(dex: Int, tokens: String) -> String {
+        t("도감 \(dex)마리 · 누적 \(tokens)",
+          "Pokédex \(dex) · \(tokens) lifetime",
+          "図鑑 \(dex)匹 · 累計 \(tokens)",
+          "Pokédex \(dex) · \(tokens) acumulados",
+          "Pokédex \(dex) · \(tokens) cumulés",
+          "Pokédex \(dex) · \(tokens) acumulados",
+          "Pokédex \(dex) · \(tokens) insgesamt")
+    }
     var importErrorNotSaveFile: String {
         t("PokeTokenBar 세이브 파일이 아니에요.",
           "That isn't a PokeTokenBar save file.",

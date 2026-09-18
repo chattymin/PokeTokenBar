@@ -67,6 +67,12 @@ final class LocalizationInterpolationTests: XCTestCase {
                                        currentDex: 1717, currentTokens: b),
                    "4242", a, "ZQXEXPORTEDAT", "ZQXDEVICE", "1717", b)
             expect(lang, "importSaveDone", l.importSaveDone(dex: 4242, tokens: a), "4242", a)
+            expect(lang, "restoreConfirmBody",
+                   l.restoreConfirmBody(snapshotDate: "ZQXEXPORTEDAT", snapshotDex: 4242,
+                                        snapshotTokens: a, currentDex: 1717, currentTokens: b),
+                   "ZQXEXPORTEDAT", "4242", a, "1717", b)
+            expect(lang, "restoreDoneMessage", l.restoreDoneMessage(dex: 4242, tokens: a), "4242", a)
+            expect(lang, "snapshotDexAndTokens", l.snapshotDexAndTokens(dex: 4242, tokens: a), "4242", a)
 
             // Mail report / 메일 리포트
             expect(lang, "reportMailFallback", l.reportMailFallback(a), a)

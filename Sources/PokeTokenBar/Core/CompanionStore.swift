@@ -50,6 +50,8 @@ final class CompanionStore {
     private let defaults: UserDefaults
     /// 세션 내 활성 개체 교체 감지용. await 뒤 이전 개체의 결과가 새 개체를 덮지 않게 한다.
     private var activeGeneration = 0
+    private var lastAutoSnapshotDate: Date?
+    private(set) var availableSnapshots: [SaveSnapshot] = []
 
     // MARK: 난이도 배율 (설정 — UserDefaults)
     //
@@ -93,6 +95,7 @@ final class CompanionStore {
         defaults.set(shopDifficulty, forKey: "shopDifficulty")
         migratePokemonProfilesIfNeeded()
         refreshRepresentativeSubject()
+        refreshSnapshots()
         if state.active != nil { displayState = .idle }
     }
 
@@ -602,6 +605,7 @@ final class CompanionStore {
         displayState = computeState(burnTier: burnTier, limitWarning: limitWarning,
                                     hasUsageData: hasUsageData, today: todayTokens)
         save()
+        autoSnapshotIfNeeded()
     }
 
     /// 토큰 증분을 현재 포켓몬에 적용 — 임계 도달 시 진화/졸업.
@@ -1385,6 +1389,62 @@ final class CompanionStore {
         }
     }
 
+    // MARK: 스냅샷 (로컬 자동 백업 & 복원)
+
+    func refreshSnapshots() {
+        availableSnapshots = SaveSnapshotManager.listSnapshots(for: fileURL)
+    }
+
+    @discardableResult
+    func createManualSnapshot(now: Date? = nil) throws -> SaveSnapshot {
+        let timestamp = now ?? clock()
+        let snapshot = try SaveSnapshotManager.createSnapshot(
+            state: state,
+            for: fileURL,
+            date: timestamp,
+            appVersion: SaveSnapshotManager.defaultAppVersion,
+            deviceName: SaveSnapshotManager.defaultDeviceName
+        )
+        lastAutoSnapshotDate = timestamp
+        refreshSnapshots()
+        return snapshot
+    }
+
+    private var automaticSnapshotInterval: TimeInterval {
+        SaveSnapshotManager.minAutoSnapshotInterval
+    }
+
+    func autoSnapshotIfNeeded(now: Date? = nil) {
+        let timestamp = now ?? clock()
+        let newest = availableSnapshots.first
+
+        guard newest == nil ||
+              timestamp.timeIntervalSince(newest!.date) >= automaticSnapshotInterval
+        else {
+            return
+        }
+
+        guard state.usedSinceInstall > 0 || !state.dex.isEmpty || state.active != nil else { return }
+
+        _ = try? createManualSnapshot(now: timestamp)
+    }
+
+    func restoreSnapshot(
+        _ snapshot: SaveSnapshot,
+        todayTokensByProvider: [String: Int] = [:],
+        todayDate: String = "",
+        hasUsageData: Bool = false
+    ) throws {
+        _ = try? createManualSnapshot()
+        let envelope = try SaveSnapshotManager.loadEnvelope(from: snapshot.fileURL)
+        try applySave(envelope,
+                      todayTokensByProvider: todayTokensByProvider,
+                      todayDate: todayDate,
+                      hasUsageData: hasUsageData)
+        refreshSnapshots()
+        AppLog.write("snapshot restored: \(snapshot.id)")
+    }
+
     // MARK: Pokémon combat profiles / details
 
     /// Exact current/final individuals for a Pokédex species. Earlier evolution stages remain
@@ -1524,12 +1584,24 @@ final class CompanionStore {
     private func load() {
         guard let data = try? Data(contentsOf: fileURL) else { return }   // 파일 없음 = 신규 설치
         guard let s = try? JSONDecoder().decode(CompanionState.self, from: data) else {
-            // 디코드 실패(전면 손상/미래 스키마) → fresh 로 시작하되, 다음 save() 가 원본을 덮어써 영구
-            // 유실되기 전에 .corrupt 로 보존해 수동 복구 여지를 남긴다(도감 per-entry 격리로 못 살린 경우 대비).
+            // 디코드 실패(전면 손상/미래 스키마) → 원본을 .corrupt 로 백업 후 유효한 스냅샷으로 복구 시도.
             let backup = fileURL.appendingPathExtension("corrupt")
             try? FileManager.default.removeItem(at: backup)
-            try? FileManager.default.moveItem(at: fileURL, to: backup)
-            AppLog.write("companion state decode failed — original backed up to \(backup.lastPathComponent), starting fresh")
+            do {
+                try FileManager.default.moveItem(at: fileURL, to: backup)
+                AppLog.write("companion state decode failed — original backed up to \(backup.lastPathComponent)")
+            } catch {
+                AppLog.write("failed to move corrupt state file to \(backup.lastPathComponent): \(error)")
+            }
+
+            if let recovered = SaveSnapshotManager.loadLatestValidSnapshot(for: fileURL) {
+                state = SaveTransfer.sanitized(recovered)
+                AppLog.write("automatically recovered companion state from snapshot")
+                save()
+            } else {
+                state = CompanionState()
+                AppLog.write("no snapshot available, starting fresh")
+            }
             return
         }
         // 불러오기 경계와 같은 정규화를 디스크에서 읽을 때도 건다. 불러오기만 막으면 **이미 저장된**
