@@ -50,7 +50,7 @@ final class CatchLogRenderingTests: XCTestCase {
         for attempt in 1...3 {
             autoreleasepool {
                 let navigation = PopoverNavigation()
-                navigation.showingCollectionLog = true
+                navigation.collectionSection = .log
                 let before = image.sizeReadCount
                 let host = NSHostingController(rootView: CollectionView(store: store, navigation: navigation)
                     .frame(width: PopoverMetrics.contentWidth)
