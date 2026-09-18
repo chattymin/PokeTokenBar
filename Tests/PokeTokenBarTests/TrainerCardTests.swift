@@ -25,16 +25,13 @@ private func graduate(_ id: String, species: Int, rarity: Rarity = .common, shin
 
 @MainActor
 final class TrainerCardTests: XCTestCase {
-    private var url: URL!
+    // Immutable and set inline: `setUp`/`tearDown` are nonisolated, so a @MainActor test cannot
+    // touch a mutable property from them (Swift 6.0 rejects it, 6.2 lets it through).
+    private let url = FileManager.default.temporaryDirectory
+        .appendingPathComponent("card-\(UUID().uuidString).json")
 
-    override func setUp() {
-        super.setUp()
-        url = FileManager.default.temporaryDirectory.appendingPathComponent("card-\(UUID().uuidString).json")
-    }
-
-    override func tearDown() {
+    override func tearDownWithError() throws {
         try? FileManager.default.removeItem(at: url)
-        super.tearDown()
     }
 
     private func store(dex: [DexEntry], active: MonState? = nil, extra: String = "",
