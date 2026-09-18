@@ -25,11 +25,17 @@ enum KeychainAccessGate {
 /// 실제로 그 틈으로 자동 폴링이 키체인을 읽는 구현이 스위트 초록인 채 들어왔다(#210).
 enum KeychainReader {
     nonisolated(unsafe) private(set) static var queryCount = 0
+    /// 테스트가 Keychain 항목을 주입한다. 설정돼 있으면 `SecItemCopyMatching` 을 부르지 않는다.
+    /// tearDown 에서 반드시 nil 로 되돌린다 — 남으면 다른 테스트가 실제 키체인을 못 본다.
+    nonisolated(unsafe) static var copyMatchingForTesting: (([String: Any], inout CFTypeRef?) -> OSStatus)?
 
     static func resetQueryCountForTesting() { queryCount = 0 }
 
     static func copyMatching(_ query: [String: Any], _ result: inout CFTypeRef?) -> OSStatus {
         queryCount += 1
+        if let copyMatchingForTesting {
+            return copyMatchingForTesting(query, &result)
+        }
         return SecItemCopyMatching(query as CFDictionary, &result)
     }
 }

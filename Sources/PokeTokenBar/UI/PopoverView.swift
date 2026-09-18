@@ -87,18 +87,21 @@ struct PopoverView: View {
     @ViewBuilder
     private var updateBanner: some View {
         if let update = updater.available, store.updateNotificationsEnabled {
-            HStack(spacing: 8) {
+            VStack(alignment: .leading, spacing: 6) {
                 Text(l.updateAvailable(update.version, current: updater.currentVersion))
                     .font(.caption)
-                Spacer()
-                if updater.isUpdating {
-                    Text(l.updating).font(.caption2).foregroundStyle(.secondary)
-                    ProgressView().controlSize(.small)
-                } else {
-                    Button(l.updateButton) { updater.applyUpdate() }
-                        .buttonStyle(.borderedProminent).controlSize(.small)
-                    Button(l.updateLater) { updater.skipCurrent() }
-                        .buttonStyle(.borderless).controlSize(.small).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                HStack(spacing: 8) {
+                    Spacer()
+                    if updater.isUpdating {
+                        Text(l.updating).font(.caption2).foregroundStyle(.secondary)
+                        ProgressView().controlSize(.small)
+                    } else {
+                        Button(l.skipThisVersion) { updater.skipCurrent() }
+                            .buttonStyle(.borderless).controlSize(.small).foregroundStyle(.secondary)
+                        Button(l.updateButton) { updater.applyUpdate() }
+                            .buttonStyle(.borderedProminent).controlSize(.small)
+                    }
                 }
             }
             .padding(8)
@@ -287,7 +290,7 @@ struct PopoverView: View {
         // (자동 Keychain 읽기는 팝업 방지로 여전히 안 함 — 발견성만 살린다.)
         case "claude_code": return !store.disableKeychainAccess || store.limits != nil || store.limitsAuthExpired
         case "codex": return store.codexLimits?.hasVisibleLimit == true
-        case "antigravity": return !store.disableKeychainAccess || store.antigravityLimits?.hasVisibleLimit == true || store.antigravityLimitsAuthExpired
+        case "antigravity": return !store.disableKeychainAccess || store.antigravityHasTokenFile || store.antigravityLimits?.hasVisibleLimit == true || store.antigravityLimitsAuthExpired
         default: return false
         }
     }
@@ -362,16 +365,22 @@ struct PopoverView: View {
                 }
                 // 세션 만료 시 표시값은 만료 전 기준 → 흐리게 처리해 "현재 값 아님"을 시각적으로 전달
                 VStack(alignment: .leading, spacing: 8) {
-                    limitRow(name: l.fiveHourSession, window: limits.fiveHour)
+                    // 레거시 필드는 이름이 곧 창 길이다 — five_hour=5h, seven_day*=7d.
+                    limitRow(name: l.fiveHourSession, window: limits.fiveHour,
+                             span: LimitWindowSpan.fiveHour)
                     forecastRow
-                    limitRow(name: l.weekly, window: limits.sevenDay)
-                    limitRow(name: l.weeklyOpus, window: limits.sevenDayOpus)
-                    limitRow(name: l.weeklySonnet, window: limits.sevenDaySonnet)
+                    limitRow(name: l.weekly, window: limits.sevenDay,
+                             span: LimitWindowSpan.sevenDay)
+                    limitRow(name: l.weeklyOpus, window: limits.sevenDayOpus,
+                             span: LimitWindowSpan.sevenDay)
+                    limitRow(name: l.weeklySonnet, window: limits.sevenDaySonnet,
+                             span: LimitWindowSpan.sevenDay)
                     // 신형 limits[] — 모델별 주간(weekly_scoped) 등 레거시 필드 밖 윈도우
                     ForEach(Array(limits.scopedLimitEntries.enumerated()), id: \.offset) { _, entry in
                         limitRow(
                             name: l.claudeLimitEntry(kind: entry.kind, model: entry.scope?.model?.displayName),
-                            window: LimitWindow(utilization: entry.percent, resetsAt: entry.resetsAt))
+                            window: LimitWindow(utilization: entry.percent, resetsAt: entry.resetsAt),
+                            span: entry.windowSpan)
                     }
                     // 전 프로바이더가 블록을 갖게 됨 — "Claude 현재 5h 블록" 행은 명시 조회
                     if let block = store.snapshots.first(where: { $0.providerID == "claude_code" })?.activeBlock,
@@ -428,10 +437,7 @@ struct PopoverView: View {
             VStack(alignment: .leading, spacing: 10) {
                 ForEach(Array(status.groups.enumerated()), id: \.offset) { _, group in
                     VStack(alignment: .leading, spacing: 4) {
-                        let groupTitle = group.displayName.localizedCaseInsensitiveContains("gemini")
-                            ? l.antigravityGeminiGroup
-                            : (group.displayName.localizedCaseInsensitiveContains("claude") ? l.antigravityThirdPartyGroup : group.displayName)
-                        Text(groupTitle)
+                        Text(l.antigravityGroupTitle(group.displayName))
                             .font(.caption.weight(.semibold))
                             .foregroundStyle(.secondary)
 
@@ -447,7 +453,8 @@ struct PopoverView: View {
 
     private func antigravityBucketRow(_ bucket: AntigravityQuotaBucket) -> some View {
         quotaRow(name: l.antigravityWindow(window: bucket.window, bucketId: bucket.bucketId),
-                 utilization: bucket.usedPercent, reset: bucket.resetDate)
+                 utilization: bucket.usedPercent, reset: bucket.resetDate,
+                 span: bucket.windowSpan)
     }
 
     @ViewBuilder
@@ -528,17 +535,34 @@ struct PopoverView: View {
         Text("\(reset, style: .relative)") + resetClockSuffix(reset)
     }
 
+    /// 페이스 기준선 — 리셋 시각과 창 길이가 **둘 다** 있어야 그린다. 창 길이를 모르는 행
+    /// (Codex 개인 지출 한도)은 자연히 nil 이 되어 마커가 빠진다.
+    /// `Date()` 를 body 평가 시점에 읽으므로 갱신 주기·팝오버 재오픈마다 눈금이 이동한다.
+    private func paceFraction(reset: Date?, span: TimeInterval?) -> Double? {
+        guard let reset, let span else { return nil }
+        return UsageStore.paceFraction(resetsAt: reset, span: span, now: Date())
+    }
+
+    /// 툴팁 문구. 숫자도 `limitDisplayPercent` 를 거쳐 눈금 위치와 같은 방향을 말한다.
+    private func paceHelp(_ pace: Double?) -> String? {
+        guard let pace else { return nil }
+        return l.paceHint(TokenFormatter.percent(store.limitDisplayPercent(pace * 100)))
+    }
+
     @ViewBuilder
-    private func limitRow(name: String, window: LimitWindow?) -> some View {
+    private func limitRow(name: String, window: LimitWindow?, span: TimeInterval?) -> some View {
         if let window, let utilization = window.utilization {
-            quotaRow(name: name, utilization: utilization, reset: window.resetDate)
+            quotaRow(name: name, utilization: utilization, reset: window.resetDate, span: span)
         }
     }
 
     /// All quota types share the same trailing percentage alignment.
+    /// `span` 은 창 길이 — 리셋 시각과 함께 주어질 때만 페이스 눈금을 그린다. 기본 nil 이라
+    /// 창 길이를 모르는 행(Codex 개인 지출 한도)은 호출을 바꾸지 않아도 눈금 없이 남는다.
     private func quotaRow(name: String, utilization: Double, reset: Date?,
-                          detail: String? = nil) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
+                          span: TimeInterval? = nil, detail: String? = nil) -> some View {
+        let pace = paceFraction(reset: reset, span: span)
+        return VStack(alignment: .leading, spacing: 2) {
             HStack {
                 Text(name).font(.callout)
                 Spacer()
@@ -558,8 +582,9 @@ struct PopoverView: View {
                     .monospacedDigit()
                     .foregroundStyle(limitColor(utilization))
             }
-            LimitProgressBar(usedPercent: utilization, tint: limitColor(utilization))
+            LimitProgressBar(usedPercent: utilization, tint: limitColor(utilization), pace: pace)
         }
+        .helpIfPresent(paceHelp(pace))
     }
 
     @ViewBuilder
@@ -710,7 +735,8 @@ struct PopoverView: View {
     @ViewBuilder
     private func codexLimitRow(name: String, window: CodexRateLimitWindow?) -> some View {
         if let window {
-            quotaRow(name: name, utilization: Double(window.usedPercent), reset: window.resetDate)
+            quotaRow(name: name, utilization: Double(window.usedPercent), reset: window.resetDate,
+                     span: window.windowSpan)
         }
     }
 
@@ -781,6 +807,16 @@ struct PopoverView: View {
                 }
             }
             Spacer()
+            // 끄기는 펫 우클릭. 켜기는 여기 — 숨기면 우클릭할 대상이 없다(#301).
+            // Settings 체크박스와 같은 `floatingPetEnabled`. 홈 탭에만 두면 도감에서 못 켠다.
+            Button {
+                store.floatingPetEnabled.toggle()
+            } label: {
+                Image(systemName: store.floatingPetEnabled ? "eye" : "eye.slash")
+            }
+            .buttonStyle(.borderless)
+            .help(store.floatingPetEnabled ? l.floatingPetHideLabel : l.floatingPetEnableLabel)
+            .accessibilityLabel(store.floatingPetEnabled ? l.floatingPetHideLabel : l.floatingPetEnableLabel)
             Button {
                 nav.showSettings = true
             } label: {
@@ -1032,16 +1068,60 @@ struct ProviderTabBar: View {
     }
 }
 
+private extension View {
+    /// 문구가 있을 때만 툴팁을 단다 — `.help("")` 는 빈 툴팁 상자를 띄운다.
+    @ViewBuilder
+    func helpIfPresent(_ text: String?) -> some View {
+        if let text { help(text) } else { self }
+    }
+}
+
 /// Text and fill describe the same quantity; warning colors still represent actual usage.
 @MainActor
 struct LimitProgressBar: View {
     let usedPercent: Double
     let tint: Color
+    /// 창이 지난 비율(0…1) — 균등하게 썼다면 채움이 여기 있어야 한다. nil 이면 마커 없음.
+    var pace: Double?
     @Environment(UsageStore.self) private var store
+
+    /// 마커 가로 위치(0…1). 채움과 **같은 변환**(`displayPercent`)을 거치게 해서, 잔량 모드에서
+    /// 채움만 뒤집히고 마커는 그대로 남는 어긋남(#286 부류)이 구조적으로 생길 수 없게 한다.
+    nonisolated static func markerFraction(pace: Double?, mode: UsageStore.LimitDisplayMode) -> Double? {
+        guard let pace else { return nil }
+        return UsageStore.displayPercent(pace * 100, mode: mode) / 100
+    }
 
     var body: some View {
         ProgressView(value: min(100, max(0, store.limitDisplayPercent(usedPercent))), total: 100)
             .tint(tint)
             .controlSize(.small)
+            .overlay { paceMarker }
     }
+
+    /// 짧고 통통한 세로 눈금. 새 타이머를 두지 않는다 — 5시간 창에서 분당 0.33%p 라 갱신 주기
+    /// (refreshInterval, 기본 120초)와 팝오버 재오픈만으로 충분히 "시간 따라 이동"한다.
+    @ViewBuilder
+    private var paceMarker: some View {
+        if let fraction = Self.markerFraction(pace: pace, mode: store.limitDisplayMode) {
+            GeometryReader { geo in
+                RoundedRectangle(cornerRadius: Self.markerWidth / 2, style: .continuous)
+                    .fill(.primary.opacity(0.55))
+                    .frame(width: Self.markerWidth, height: Self.markerHeight)
+                    // 양 끝에서도 선이 막대 밖으로 반쯤 걸치지 않도록 폭을 빼고 배분한다.
+                    .offset(x: (geo.size.width - Self.markerWidth) * fraction,
+                            y: (geo.size.height - Self.markerHeight) / 2)
+            }
+            .allowsHitTesting(false)
+        }
+    }
+
+    /// 2.5pt = 2배 화면에서 딱 5px — 반픽셀에 걸려 흐려지지 않는 가장 얇은 "선 아닌 눈금" 굵기.
+    private static let markerWidth: CGFloat = 2.5
+    /// 눈금 길이는 `geo.size.height`(=12pt 레이아웃 칸)가 아니라 **실제로 칠해지는 트랙**(6pt)에
+    /// 맞춘다. 칸 기준으로 잡았더니 6pt 막대에 16pt 눈금이 붙어 막대보다 눈금이 커 보였다.
+    /// 위아래 2pt 씩만 물려 막대 위에 얹힌 눈금으로 읽히게 한다.
+    private static let trackHeight: CGFloat = 6
+    private static let markerOverhang: CGFloat = 2
+    private static let markerHeight: CGFloat = trackHeight + markerOverhang * 2
 }

@@ -110,6 +110,13 @@ read_when:
   클램프 자체는 통과해도 `output + thoughts` 처럼 파싱 직후 더하는 곳에서 다시 트랩난다. 합산 여유가 있는
   상한(`maxParsedTokenValue`)을 쓴다. 회귀 가드는 프로바이더별로 **테스트를 쪼개라** — 트랩은 프로세스를
   끝내므로 한 테스트에 몰면 뒤 케이스가 아예 실행되지 않는다.
+  **추출기가 `LocalUsageReader` 밖에 있으면 같은 함정이 그대로 남는다.** OpenCode·Cursor의
+  `LocalAdditionalUsageProvider.intValue` 와 Hermes의 `columnInt` 는 `Int.max` 로 포화시킨 뒤
+  `input + output` 에서 다시 SIGTRAP 했다(`testCursorHugeTokenCountsDoNotTrapOnTheAdd`·
+  `testHermesHugeSessionTokensDoNotTrapOnTheReasoningAdd`). 대시보드 JSON 을 읽는
+  `CursorUsageAPI.intValue` 도 같은 포화 후 `makeEntry` 합에서 트랩한다
+  (`testParseCursorUsageEventClampsHugeTokenCounts`). Kiro 타임스탬프의 `Int64(Double)` 도
+  `Int64.max` 를 넘는 유한값에서 트랩한다. 상한은 더하는 추출기마다 같이 건다.
 
 ## 외부 로그·사용량 소스
 
@@ -126,6 +133,18 @@ read_when:
   함께 전송한다. 또한 만료 직전(near-expiry) 계정 전환 시 이전 계정 캐시로 잘못 폴백하지 않도록 동일 출처
   검증(`isSameSourceCredential`)을 통해 같은 계정의 갱신 캐시만 디스크의 만료 토큰보다 우선 유지한다.
   가드: `testAntigravityAutoPollReadsNestedTokenObject`·`testAntigravityAutoPollPicksUpNestedTokenSwitch`·`testNearExpiryAccountSwitchDoesNotFallBackToPreviousCachedAccount`·`testExpiredFileRefreshesAndSubsequentPollRetainsRefreshedToken`.
+
+- **토큰 파일 검색 경로는 지원하는 외부 에디션의 실제 저장 위치를 전수 포함해야 한다.** `LocalAntigravityUsageReader`는
+  `antigravity`, `antigravity-cli`, `antigravity-ide` 세 경로를 모두 지원하지만, `AntigravityTokenCache.defaultTokenFileURLs`는
+  `jetski-standalone-oauth-token`과 `antigravity/` 하위 경로만 탐색하여 공식 CLI(`agy`)가 기본 저장하는
+  `~/.gemini/antigravity-cli/antigravity-oauth-token`을 누락했다. 유효한 토큰 파일이 디스크에 있어도 탐색되지 않아
+  백그라운드 자동 폴이 `keychainInteractionNotAllowed`로 매 분 실패했고, 한도가 stale 상태가 되어 사용자가
+  "Actualiser(갱신)"를 누를 때마다 macOS 키체인 암호 프롬프트가 강제되었다. 또한 `disableKeychainAccess` 토글 시
+  토큰 파일 존재 여부와 무관하게 한도 조회를 중단하던 문제가 있었다.
+  해결: `defaultTokenFileURLs`에 `antigravity-cli`, `antigravity-ide`, `antigravity-oauth-token`,
+  `ANTIGRAVITY_TOKEN_FILE` 환경변수 및 앱 상태 경로를 전수 등록하고, `hasTokenFile`을 제공하여 키체인이
+  비활성화된 상태에서도 토큰 파일 기반 무프롬프트 자동 갱신을 보장한다.
+  가드: `testDefaultTokenFileURLsIncludeCLIAndIDEPaths`·`testHasTokenFileReflectsDiskPresence`·`testRegisteredNamesCoverEveryProviderOverride`.
 
 - **append-only SQLite watermark 루프를 프로바이더마다 복사하지 마라.** Cursor 와 Copilot 이
   같은 `didReset` / `highWater == 0` 규칙을 두 벌로 들고 있으면 한쪽만 고친 수정이 다른 쪽에 남는다
@@ -217,6 +236,21 @@ read_when:
   패치·마이너가 단가 한 칸만 바꿀 수 있으면 **정확 매칭 행을 표에 추가**하고, 폴백이 우연히 맞는
   모델(예: `claude-opus-5` → opus 폴백)은 건드리지 않는다. 가드: `testPricingExactAndFallbackAndZero`
   의 `claude-fable-5-1` cache-read $0.25 단언.
+- **폴백을 제거하는 것은 그 폴백이 덮던 *모든 입력*에 대한 동작 변경이다 — 지우기 전에 그 입력을 열거하라.**
+  #289 가 `contains("opus")` 류 패밀리 폴백을 없앨 때(그 자체는 #277 때문에 옳다) 폴백으로만
+  가격이 매겨지던 `claude-opus-5`·`claude-sonnet-5` 의 정확 매칭 행을 넣지 않아, 현행 세대 Claude
+  사용량 전체가 `estimatedCost == nil` → `CostCoverage.unavailable` → 비용란이 "계산 불가" 로
+  비었다(#303, v2.5.4 로 출시됨). 바로 위 항목이 "폴백이 우연히 맞는 모델은 건드리지 말라" 고
+  경고해 뒀는데도 폴백만 지워졌다. 규칙: 폴백 삭제 PR 은 **삭제 전 그 폴백에 걸리던 모델 식별자를
+  실제 로그에서 grep 해 열거하고**, 각각에 정확 매칭 행을 같은 커밋에 추가한다.
+- **"미지 입력 → nil" 을 단언하는 테스트는 신규 현행 모델이 미지로 떨어지는 순간 결함을 *정답으로
+  고정한다*.** #289 는 `XCTAssertEqual(ModelPricing.rate(for: "claude-opus-5"), .zero)` 를 남겼고
+  (`testPricingExactAndFallbackAndZero`), 그래서 스위트는 #303 을 잡기는커녕 초록으로 보증했다.
+  line coverage 도 무력하다 — `.unavailable` 분기는 기존 테스트가 이미 실행하므로 게이트를 통과한다.
+  대칭 가드가 필요하다: 미지 이름이 값을 빌리지 않는지(`testUnknownNamesNeverBorrowFamilyPrices`)
+  **와** 실제로 로그에서 읽히는 현행 식별자가 전부 가격을 갖는지
+  (`testModelsReadFromProviderLogsAreAllPriced`) 를 둘 다 단언한다. 미지로 남겨 두는 단언에는
+  **아직 출시되지 않은** 이름만 쓴다(`claude-opus-6`), 현행 세대 이름은 절대 쓰지 않는다.
 - **새 provider를 추가할 때 reader/cache만 연결하면 Settings의 custom-root contract가 조용히 빠진다.** `CustomScanRoots`는
   provider별 `curatedRoots(for:)`와 실제 reader의 `CustomScanRoots.storedValue(for:)` 조회를 모두 registry로
   취급한다. Pi 추가 때 reader/cache/provider는 등록했지만 이 두 지점을 빠뜨려 CI의
@@ -432,6 +466,14 @@ read_when:
   `jetski-standalone-oauth-token` 은 파일 로드 시 `expiresAt=nil` 이라 캐시가 만료로 풀리지 않는다.
   회귀: `testClaudeAutoPollPicksUpInPlaceAccountSwitch`·`testAntigravityAutoPollPicksUpTokenFileSwitch`.
   캐시-우선 early return 을 되돌리면 이 두 테스트가 실패해야 한다.
+- **파일이 없는 Keychain-only 설치는 사용자 갱신도 만료만 보면 이전 계정에 붙는다.** #227 은
+  파일이 새 유효 토큰으로 덮이는 경우를 고쳤다. 파일이 없으면 같은 메모리 캐시가 남고, 같은 Team 의
+  다른 메일은 401 을 안 주므로 invalidate 경로에 안 들어간다. Refresh 를 눌러도 Keychain 을 안 읽고
+  로그는 "keychain"이라고 남긴다(#300). 사용자 동작(`allowKeychainPrompt: true`)만
+  `bypassCache: true`. 자동 폴은 그대로 캐시 — 키체인 다이얼로그를 되살리면 #210 이 돌아온다.
+  같은 한 줄: `AntigravityRateLimitsProvider.fetch`. 회귀:
+  `testManualRefreshRereadsKeychainWhenCachedTokenIsStillValid`. `bypassCache` 를 빼면
+  Authorization 이 `token-account-a` 로 남고 Keychain 조회가 0 이다.
 - **`kSecMatchLimitAll` 과 `kSecReturnData` 는 같이 못 쓴다 — macOS 가 errSecParam(-50) 으로 거절한다.**
   "서비스에 항목이 여럿일 수 있으니 전부 받아서 유효한 걸 고르자"는 발상 자체는 옳지만(#229), 한 번의
   `SecItemCopyMatching` 으로 *모든 항목의 데이터*를 받는 쿼리는 **파라미터 단계에서** 거절된다. 항목이
@@ -518,6 +560,12 @@ read_when:
   초록인데 #174 가 다시 산다. (#174)
 
 ## 표시·UI
+
+- **Antigravity 그룹 표시명은 한 헬퍼로.** API 의 `displayName`("Gemini Models" 등)을 알림·사탕·
+  펫 버블에 그대로 넣으면 앱 언어가 한국어여도 본문에 영어가 섞인다. 팝오버만 `L` 로 바꾸던
+  분기를 `L.antigravityGroupTitle` 로 끌어올려 candy / `buildLimitWindows` / 팝오버가 공유한다.
+  판정 축은 `gemini` · `claude|gpt|3p`(status 의 gemini/thirdParty 헬퍼와 동일). 회귀:
+  `AntigravityGroupLocalizationTests`.
 
 - **계속 쌓이는 로그는 정렬이 아니라 실제 화면 생성 비용을 검증하라.** 포획 로그의
   `ScrollView` + `VStack` 이 화면 밖까지 모든 행을 만들고, 각 `SpriteView.init` 이 동기
@@ -756,6 +804,13 @@ read_when:
   않는다"는 트리거 명제를 따로 둔다** — 이게 없으면 원본이 애초에 정사각인 케이스로도 전부 통과한다.
 
 ## 프로세스 제어·업데이트
+
+- **"나중에"는 이 버전을 다시 안 보여 주는 스킵이지, 다음에 또 물어보기가 아니다.** `skipCurrent()` 가
+  `skippedUpdateVersion` 에 한 번 쓰면 `check()` 는 그 태그를 `available` 에서 빼고, Settings 의
+  `else` 는 `available == nil` 을 "최신"으로 읽는다. 배너를 숨기는 것과 최신임을 선언하는 것은 다른
+  상태다. 스킵한 릴리스는 `skipped` 로 남기고 Settings 는 "건너뜀" + 업데이트/다시 알리기를 보여 준다.
+  더 새 태그는 배너로 돌아온다. 회귀: `testSkippedReleaseStaysVisibleAndANewerOneReturnsToTheBanner`,
+  `testShowAgainRestoresTheBannerAndUpdateUsesTheSkippedRelease`.
 
 - **`pgrep -x <name>` 은 실행 파일의 정체성 검사이지, 기다리는 특정 프로세스에 대한 검사가 아니다.**
   중복 인스턴스가 떠 있는 동안 실행될 수 있는 모든 wait-for-exit 루프는 PID를 받아야 한다. `UpdateChecker`가

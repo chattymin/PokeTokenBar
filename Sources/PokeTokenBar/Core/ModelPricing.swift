@@ -21,6 +21,12 @@ enum ModelPricing {
     /// Historical GPT rates: https://developers.openai.com/api/docs/models/<model-id>
     /// The table is a current-price estimate, not a historical invoice ledger.
     static let table: [String: ModelRate] = [
+        // Claude rates, checked 2026-09-13: https://platform.claude.com/docs/en/about-claude/pricing
+        // (base input, output, 5m cache write, cache hit — the header URL above covers GPT only).
+        // Claude 5 family. Exact rows are mandatory: the model-family fallback that used to
+        // price these was removed in #289, which left them unpriced and the cost row blank (#303).
+        "claude-opus-5":              .perMillion(5, 25, 6.25, 0.5),
+        "claude-sonnet-5":            .perMillion(2, 10, 2.5, 0.2),
         "claude-opus-4-20250514":     .perMillion(15, 75, 18.75, 1.5),
         "claude-sonnet-4-20250514":   .perMillion(3, 15, 3.75, 0.3),
         "claude-sonnet-4-5-20250929": .perMillion(3, 15, 3.75, 0.3),
@@ -48,6 +54,8 @@ enum ModelPricing {
         // Cache storage duration and audio rates cannot be recovered from these logs.
         "gemini-2.5-pro":             .perMillion(1.25, 10, 0, 0.125),
         "gemini-2.5-flash":           .perMillion(0.30, 2.5, 0, 0.03),
+        // Distinct SKU. A "flash" substring match would bill this at Flash rates.
+        "gemini-2.5-flash-lite":      .perMillion(0.10, 0.40, 0, 0.01),
         "gemini-2.0-flash":           .perMillion(0.10, 0.4, 0, 0.025),
     ]
 

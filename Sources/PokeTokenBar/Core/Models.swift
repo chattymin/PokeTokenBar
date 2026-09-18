@@ -198,6 +198,31 @@ struct MonthlyReport: Decodable, Sendable {
     private enum CodingKeys: String, CodingKey { case monthly }
 }
 
+// MARK: - 한도 창 길이
+
+/// 한도 창의 길이 — 페이스(균등 소진) 기준선을 그리려면 리셋 시각만으론 부족하고 창 길이가 있어야 한다.
+/// 프로바이더마다 길이를 알리는 방식이 다르므로(Codex=명시 분 수, Antigravity=창 이름, Claude=kind·필드명)
+/// 변환을 여기 한 곳에 모은다 — 프로바이더 분기가 UI 로 새지 않게 하는 확장 규약.
+enum LimitWindowSpan {
+    static let fiveHour: TimeInterval = 5 * 3600
+    static let sevenDay: TimeInterval = 7 * 24 * 3600
+
+    /// 분 단위 창 길이. 0 이하는 길이로 쓸 수 없어 nil.
+    static func fromMinutes(_ minutes: Int?) -> TimeInterval? {
+        guard let minutes, minutes > 0 else { return nil }
+        return TimeInterval(minutes) * 60
+    }
+
+    /// oauth `limits[]` 의 kind. weekly_scoped(모델별 주간)도 창 길이는 주간과 같다.
+    static func fromKind(_ kind: String?) -> TimeInterval? {
+        switch kind {
+        case "session": return fiveHour
+        case "weekly_all", "weekly_scoped": return sevenDay
+        default: return nil
+        }
+    }
+}
+
 // MARK: - OAuth limits (api.anthropic.com/api/oauth/usage)
 
 struct LimitWindow: Decodable, Sendable {
@@ -307,6 +332,8 @@ struct OAuthLimitEntry: Decodable, Sendable {
         return ISO8601Parser.date(from: resetsAt)
     }
 
+    var windowSpan: TimeInterval? { LimitWindowSpan.fromKind(kind) }
+
     private enum CodingKeys: String, CodingKey {
         case kind, group, percent, severity, scope
         case resetsAt = "resets_at"
@@ -325,6 +352,8 @@ struct CodexRateLimitWindow: Decodable, Sendable {
         guard let resetsAt else { return nil }
         return Date(timeIntervalSince1970: TimeInterval(resetsAt))
     }
+
+    var windowSpan: TimeInterval? { LimitWindowSpan.fromMinutes(windowDurationMins) }
 
     var displayName: String {
         switch windowDurationMins {
@@ -432,6 +461,13 @@ public struct AntigravityQuotaBucket: Decodable, Sendable {
 
     public var isWeeklyWindow: Bool {
         window == "weekly" || bucketId.contains("weekly")
+    }
+
+    /// 행 제목(`L.antigravityWindow`)과 같은 판정을 쓴다 — 이름과 마커가 다른 창을 가리키면 안 된다.
+    public var windowSpan: TimeInterval? {
+        if is5HourWindow { return LimitWindowSpan.fiveHour }
+        if isWeeklyWindow { return LimitWindowSpan.sevenDay }
+        return nil
     }
 
     public init(

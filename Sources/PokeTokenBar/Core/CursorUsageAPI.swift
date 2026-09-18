@@ -437,8 +437,14 @@ enum CursorUsageAPI {
 
     private static func intValue(_ value: Any?) -> Int {
         switch value {
-        case let number as NSNumber: return max(0, number.intValue)
-        case let string as String: return Int(string.replacingOccurrences(of: ",", with: "")) ?? 0
+        case let number as NSNumber where !(value is NSNull):
+            let raw = number.doubleValue
+            guard raw.isFinite, raw > 0 else { return 0 }
+            let cap = LocalUsageReader.maxParsedTokenValue
+            return raw >= Double(cap) ? cap : Int(raw)
+        case let string as String:
+            guard let number = Int(string.replacingOccurrences(of: ",", with: "")) else { return 0 }
+            return min(LocalUsageReader.maxParsedTokenValue, max(0, number))
         default: return 0
         }
     }

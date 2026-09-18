@@ -168,6 +168,73 @@ final class LocalAdditionalUsageTests: XCTestCase {
                  "opencode", "hermes", "cursor", "grok", "copilot", "kiro", "pi", "omp", "aside"]))
     }
 
+    /// Extra-provider logs are external files. A `1e30` token count must clamp, not trap
+    /// on the add that follows the extractor. Split from the OpenCode case: a trap kills
+    /// the process, so a later assertion in the same test never runs.
+    func testCursorHugeTokenCountsDoNotTrapOnTheAdd() throws {
+        let huge = NSNumber(value: 1e30)
+        let cursor = LocalAdditionalUsageReader.parseCursorBubble(
+            [
+                "tokenCount": ["inputTokens": huge, "outputTokens": huge],
+                "createdAt": "2026-01-02T00:00:00Z",
+                "modelType": "gpt-5",
+            ],
+            key: "bubble-huge",
+            modifiedSince: Date(timeIntervalSince1970: 0))
+        let cap = LocalUsageReader.maxParsedTokenValue
+        let cursorEntry = try XCTUnwrap(cursor)
+        XCTAssertEqual(cursorEntry.input, cap)
+        XCTAssertEqual(cursorEntry.output, cap)
+    }
+
+    func testOpenCodeHugeTokenCountsDoNotTrapOnTheBucketSum() throws {
+        let huge = NSNumber(value: 1e30)
+        let openCode = LocalAdditionalUsageReader.parseOpenCodeMessage(
+            [
+                "id": "msg-huge",
+                "modelID": "gpt-5",
+                "providerID": "openai",
+                "time": ["created": 1_767_312_000_000],
+                "tokens": [
+                    "input": huge, "output": huge,
+                    "cache": ["read": huge, "write": huge],
+                ],
+            ],
+            fallbackID: "huge")
+        let cap = LocalUsageReader.maxParsedTokenValue
+        let openCodeEntry = try XCTUnwrap(openCode)
+        XCTAssertEqual(openCodeEntry.input, cap)
+        XCTAssertEqual(openCodeEntry.output, cap)
+        XCTAssertEqual(openCodeEntry.cacheRead, cap)
+        XCTAssertEqual(openCodeEntry.cacheWrite, cap)
+    }
+
+    func testHermesHugeSessionTokensDoNotTrapOnTheReasoningAdd() throws {
+        let database = temporaryDirectory.appendingPathComponent("state.db")
+        let maxInt = "9223372036854775807"
+        try execute(database, sql: """
+        CREATE TABLE sessions (
+            id TEXT PRIMARY KEY, model TEXT, billing_provider TEXT, started_at REAL NOT NULL,
+            message_count INTEGER, input_tokens INTEGER, output_tokens INTEGER,
+            cache_read_tokens INTEGER, cache_write_tokens INTEGER, reasoning_tokens INTEGER,
+            estimated_cost_usd REAL, actual_cost_usd REAL
+        );
+        INSERT INTO sessions VALUES (
+            'huge', 'gpt-5', 'openai', 1767312000, 1,
+            \(maxInt), \(maxInt), 0, 0, \(maxInt), NULL, NULL
+        );
+        """)
+
+        let entries = LocalAdditionalUsageReader.hermesEntries(
+            modifiedSince: try date("2026-01-01T00:00:00Z"), roots: [database])
+
+        let entry = try XCTUnwrap(entries.first)
+        let cap = LocalUsageReader.maxParsedTokenValue
+        XCTAssertEqual(entry.input, cap)
+        // Each column is clamped, then output and reasoning are still added. The add must not trap.
+        XCTAssertEqual(entry.output, cap * 2)
+    }
+
     func testPrintRealOpenCodeAggregate() throws {
         guard ProcessInfo.processInfo.environment["PTB_PARITY"] == "1" else {
             throw XCTSkip("set PTB_PARITY=1 for the local OpenCode smoke test")

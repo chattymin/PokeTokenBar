@@ -51,6 +51,7 @@ final class LocalizationInterpolationTests: XCTestCase {
             expect(lang, "codexWindow(h)", l.codexWindow(420), "7")     // 420 min → 7 h / 420분 → 7시간
             expect(lang, "codexWindow(m)", l.codexWindow(37), "37")
             expect(lang, "percentRemaining", l.percentRemaining(a), a)
+            expect(lang, "paceHint", l.paceHint(a), a)
             expect(lang, "limitRefreshHTTPError(401)", l.limitRefreshHTTPError(401), "401")
             expect(lang, "limitRefreshHTTPError(404)", l.limitRefreshHTTPError(404), "404")
 
@@ -102,6 +103,7 @@ final class LocalizationInterpolationTests: XCTestCase {
             expect(lang, "updateAvailable", l.updateAvailable(a, current: b), a, b)
             expect(lang, "updateFound", l.updateFound(a), a)
             expect(lang, "upToDate", l.upToDate(a), a)
+            expect(lang, "skippedVersion", l.skippedVersion(a), a)
 
             // Bag, shop, eggs / 가방 · 상점 · 알
             expect(lang, "useOnCurrent", l.useOnCurrent(a), a)
