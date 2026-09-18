@@ -353,6 +353,28 @@ final class CompanionStore {
     /// 희귀도별 포획 로그 개수(요약 헤더용) — 개체 수 기준. 도감(종 단위)은 dexSpecies 를 쓴다.
     func dexCount(_ rarity: Rarity) -> Int { dexEntries.lazy.filter { $0.rarity == rarity }.count }
 
+    enum DexSortOption: String, CaseIterable, Identifiable, Sendable {
+        case numberAsc
+        case numberDesc
+        case nameAsc
+        case nameDesc
+        case rarityDesc
+
+        var id: String { rawValue }
+    }
+
+    enum CatchLogSortOption: String, CaseIterable, Identifiable, Sendable {
+        case recentFirst
+        case oldestFirst
+        case numberAsc
+        case numberDesc
+        case nameAsc
+        case nameDesc
+        case rarityDesc
+
+        var id: String { rawValue }
+    }
+
     /// 도감 한 칸 — 종 1개로 접힌 수집 기록. 같은 라인을 여러 번 키워도 종은 한 칸이다.
     /// **종 정보만 담는다** — 성격·획득 횟수처럼 개체에 딸린 것은 포획 로그가 개체 단위로 보여준다.
     struct DexSpecies: Identifiable, Sendable {
@@ -362,6 +384,7 @@ final class CompanionStore {
         let isShiny: Bool               // 이 종을 이로치로 보유한 적이 있는가
         /// 이 종이 현재 키우는 개체의 **현재 형태**인가. 지나온 진화 단계에는 서지 않는다.
         let isRaising: Bool
+        var names: [String: String]? = nil
     }
 
     /// 종 하나가 모으는 것 — 누적 전용. 병렬 딕셔너리를 여러 개 두면 키 집합이 서로 어긋날 수 있고
@@ -406,7 +429,231 @@ final class CompanionStore {
                 name: a.names.flatMap { state.language.resolveName($0) } ?? "#\(id)",
                 rarity: a.rarity,
                 isShiny: a.isShiny,
-                isRaising: id == state.active?.currentID)
+                isRaising: id == state.active?.currentID,
+                names: a.names)
+        }
+    }
+
+    /// Resolves the primary localized name of an individual final species for sorting and display.
+    func dexEntryName(_ entry: DexEntry) -> String {
+        let targetID = entry.finalID
+        if let stored = entry.names?[targetID], let localized = state.language.resolveName(stored) {
+            return localized
+        }
+        for id in entry.chainOrder.reversed() {
+            if let stored = entry.names?[id], let localized = state.language.resolveName(stored) {
+                return localized
+            }
+        }
+        return "#\(targetID)"
+    }
+
+    /// Checks whether a DexSpecies matches a search query by ID or localized name.
+    func dexSpeciesMatches(_ species: DexSpecies, query: String) -> Bool {
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return true }
+
+        let cleanQuery = trimmed.hasPrefix("#") ? String(trimmed.dropFirst()) : trimmed
+        if let num = Int(cleanQuery), species.id == num {
+            return true
+        }
+
+        if species.name.localizedCaseInsensitiveContains(trimmed) {
+            return true
+        }
+
+        if "#\(species.id)".localizedCaseInsensitiveContains(trimmed) {
+            return true
+        }
+
+        if let names = species.names {
+            for name in names.values {
+                if name.localizedCaseInsensitiveContains(trimmed) {
+                    return true
+                }
+            }
+        }
+
+        return false
+    }
+
+    /// Checks whether a DexEntry matches a search query by ID, chain species, or localized names.
+    func dexEntryMatches(_ entry: DexEntry, query: String) -> Bool {
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return true }
+
+        let cleanQuery = trimmed.hasPrefix("#") ? String(trimmed.dropFirst()) : trimmed
+        if let num = Int(cleanQuery) {
+            if entry.chainOrder.contains(num) || entry.finalID == num || entry.baseID == num {
+                return true
+            }
+        }
+
+        for id in entry.chainOrder {
+            if "#\(id)".localizedCaseInsensitiveContains(trimmed) || "\(id)".localizedCaseInsensitiveContains(trimmed) {
+                return true
+            }
+        }
+
+        if let namesDict = entry.names {
+            for (_, langNames) in namesDict {
+                for name in langNames.values {
+                    if name.localizedCaseInsensitiveContains(trimmed) {
+                        return true
+                    }
+                }
+            }
+        }
+
+        return false
+    }
+
+    /// Filters and sorts DexSpecies for the Pokédex grid.
+    func filteredDexSpecies(
+        query: String = "",
+        rarity: Rarity? = nil,
+        shinyOnly: Bool = false,
+        sort: DexSortOption = .numberAsc
+    ) -> [DexSpecies] {
+        var result = dexSpecies
+        if let rarity {
+            result = result.filter { $0.rarity == rarity }
+        }
+        if shinyOnly {
+            result = result.filter { $0.isShiny }
+        }
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmed.isEmpty {
+            result = result.filter { dexSpeciesMatches($0, query: trimmed) }
+        }
+        return sortDexSpecies(result, by: sort)
+    }
+
+    /// Sorts DexSpecies by the given option.
+    func sortDexSpecies(_ species: [DexSpecies], by sort: DexSortOption) -> [DexSpecies] {
+        switch sort {
+        case .numberAsc:
+            return species.sorted { $0.id < $1.id }
+        case .numberDesc:
+            return species.sorted { $0.id > $1.id }
+        case .nameAsc:
+            return species.sorted {
+                let cmp = $0.name.localizedCompare($1.name)
+                return cmp == .orderedAscending ? true : (cmp == .orderedSame ? $0.id < $1.id : false)
+            }
+        case .nameDesc:
+            return species.sorted {
+                let cmp = $0.name.localizedCompare($1.name)
+                return cmp == .orderedDescending ? true : (cmp == .orderedSame ? $0.id < $1.id : false)
+            }
+        case .rarityDesc:
+            return species.sorted {
+                if $0.rarity.sortRank != $1.rarity.sortRank {
+                    return $0.rarity.sortRank > $1.rarity.sortRank
+                }
+                return $0.id < $1.id
+            }
+        }
+    }
+
+    /// Filters and sorts DexEntry records for the Catch Log.
+    func filteredDexEntries(
+        query: String = "",
+        rarity: Rarity? = nil,
+        shinyOnly: Bool = false,
+        sort: CatchLogSortOption = .recentFirst
+    ) -> [DexEntry] {
+        var result = dexEntries
+        if let rarity {
+            result = result.filter { $0.rarity == rarity }
+        }
+        if shinyOnly {
+            result = result.filter { $0.isShiny }
+        }
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmed.isEmpty {
+            result = result.filter { dexEntryMatches($0, query: trimmed) }
+        }
+        return sortDexEntries(result, by: sort)
+    }
+
+    /// Sorts DexEntry records by the given option.
+    func sortDexEntries(_ entries: [DexEntry], by sort: CatchLogSortOption) -> [DexEntry] {
+        switch sort {
+        case .recentFirst:
+            let active = entries.first(where: { isActiveDexEntry($0) })
+            let graduated = entries.filter { !isActiveDexEntry($0) }.sorted {
+                let d0 = $0.caughtAt ?? .distantPast
+                let d1 = $1.caughtAt ?? .distantPast
+                if d0 != d1 { return d0 > d1 }
+                return $0.id < $1.id
+            }
+            return (active.map { [$0] } ?? []) + graduated
+        case .oldestFirst:
+            let active = entries.first(where: { isActiveDexEntry($0) })
+            let graduated = entries.filter { !isActiveDexEntry($0) }.sorted {
+                let d0 = $0.caughtAt ?? .distantPast
+                let d1 = $1.caughtAt ?? .distantPast
+                if d0 != d1 { return d0 < d1 }
+                return $0.id < $1.id
+            }
+            return graduated + (active.map { [$0] } ?? [])
+        case .numberAsc:
+            return entries.sorted {
+                if $0.finalID != $1.finalID {
+                    return $0.finalID < $1.finalID
+                }
+                let d0 = $0.caughtAt ?? .distantPast
+                let d1 = $1.caughtAt ?? .distantPast
+                if d0 != d1 { return d0 > d1 }
+                return $0.id < $1.id
+            }
+        case .numberDesc:
+            return entries.sorted {
+                if $0.finalID != $1.finalID {
+                    return $0.finalID > $1.finalID
+                }
+                let d0 = $0.caughtAt ?? .distantPast
+                let d1 = $1.caughtAt ?? .distantPast
+                if d0 != d1 { return d0 > d1 }
+                return $0.id < $1.id
+            }
+        case .nameAsc:
+            return entries.sorted {
+                let name1 = dexEntryName($0)
+                let name2 = dexEntryName($1)
+                let cmp = name1.localizedCompare(name2)
+                if cmp != .orderedSame {
+                    return cmp == .orderedAscending
+                }
+                let d0 = $0.caughtAt ?? .distantPast
+                let d1 = $1.caughtAt ?? .distantPast
+                if d0 != d1 { return d0 > d1 }
+                return $0.id < $1.id
+            }
+        case .nameDesc:
+            return entries.sorted {
+                let name1 = dexEntryName($0)
+                let name2 = dexEntryName($1)
+                let cmp = name1.localizedCompare(name2)
+                if cmp != .orderedSame {
+                    return cmp == .orderedDescending
+                }
+                let d0 = $0.caughtAt ?? .distantPast
+                let d1 = $1.caughtAt ?? .distantPast
+                if d0 != d1 { return d0 > d1 }
+                return $0.id < $1.id
+            }
+        case .rarityDesc:
+            return entries.sorted {
+                if $0.rarity.sortRank != $1.rarity.sortRank {
+                    return $0.rarity.sortRank > $1.rarity.sortRank
+                }
+                let d0 = $0.caughtAt ?? .distantPast
+                let d1 = $1.caughtAt ?? .distantPast
+                if d0 != d1 { return d0 > d1 }
+                return $0.id < $1.id
+            }
         }
     }
 
