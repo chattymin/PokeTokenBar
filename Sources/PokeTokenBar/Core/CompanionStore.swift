@@ -935,7 +935,80 @@ final class CompanionStore {
 
     /// 상점에서 쓸 수 있는 토큰(재화) = 실사용 누적 − 상점 지출 누적. 성장 미터(usedSinceInstall)는
     /// 여기선 읽기만 — 구매는 spentTokens 만 올려 잔액을 깎는다(진화 진행·오늘/주/월 통계 무영향).
-    var availableTokens: Int { max(0, state.usedSinceInstall - state.spentTokens) }
+    var availableTokens: Int {
+        let reservation = validPendingGift?.price ?? 0
+        return max(0, state.usedSinceInstall - state.spentTokens - reservation)
+    }
+
+    // MARK: Local-network gifts
+
+    private var validPendingGift: PendingGift? {
+        guard let gift = state.pendingGift, gift.expiresAt > clock(), gift.kind.isGiftable,
+              gift.price == gift.kind.shopPrice else { return nil }
+        return gift
+    }
+
+    var pendingGift: PendingGift? { validPendingGift }
+
+    func canBeginGift(_ kind: ItemKind) -> Bool {
+        guard kind.isGiftable, let price = kind.shopPrice else { return false }
+        if let pending = validPendingGift { return pending.kind == kind }
+        return availableTokens >= price
+    }
+
+    /// Reserve one gift without spending tokens. Only one outgoing offer is allowed at a time,
+    /// which keeps the no-backend transaction state small and makes cancellation unambiguous.
+    @discardableResult
+    func beginGift(_ kind: ItemKind, code: String, lifetime: TimeInterval = 60) -> PendingGift? {
+        discardExpiredGift()
+        guard state.pendingGift == nil, kind.isGiftable, let price = kind.shopPrice,
+              state.usedSinceInstall - state.spentTokens >= price else { return nil }
+        let gift = PendingGift(id: UUID(), code: code, kind: kind, price: price,
+                               expiresAt: clock().addingTimeInterval(lifetime))
+        state.pendingGift = gift
+        save()
+        return gift
+    }
+
+    func cancelGift(id: UUID) {
+        guard state.pendingGift?.id == id else { return }
+        state.pendingGift = nil
+        save()
+    }
+
+    func discardExpiredGift() {
+        guard let gift = state.pendingGift, gift.expiresAt <= clock() else { return }
+        state.pendingGift = nil
+        save()
+    }
+
+    /// Called after the receiver has atomically recorded the item and receipt id. Repeated receipts
+    /// are safe: a completed id never spends twice.
+    @discardableResult
+    func completeGift(id: UUID) -> Bool {
+        if state.completedGiftIDs.contains(id) { return true }
+        guard let gift = state.pendingGift, gift.id == id, gift.kind.isGiftable,
+              gift.price == gift.kind.shopPrice,
+              state.usedSinceInstall - state.spentTokens >= gift.price else { return false }
+        state.spentTokens += gift.price
+        state.completedGiftIDs.insert(id)
+        state.pendingGift = nil
+        save()
+        return true
+    }
+
+    /// Credit and the redeemed id share one atomic state-file write. A retry after a lost ACK
+    /// returns `alreadyReceived` without increasing inventory again.
+    @discardableResult
+    func receiveGift(_ gift: PendingGift) -> GiftReceiveResult {
+        if state.redeemedGiftIDs.contains(gift.id) { return .alreadyReceived }
+        guard gift.expiresAt > clock(), gift.kind.isGiftable,
+              gift.price == gift.kind.shopPrice else { return .invalid }
+        state.inventory[gift.kind.rawValue, default: 0] += 1
+        state.redeemedGiftIDs.insert(gift.id)
+        save()
+        return .received
+    }
 
     /// 상점 판매 아이템 — shopPrice 있는 것만. 가격 저렴한 순, 단 구매 완료한 보유형은 맨 아래로.
     var purchasableItems: [ItemKind] {
