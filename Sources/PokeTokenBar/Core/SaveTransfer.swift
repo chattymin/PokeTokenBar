@@ -170,6 +170,9 @@ enum SaveTransfer {
         }
         for index in s.dex.indices { s.dex[index].profile?.sanitize() }
         s.reconcileRepresentativeSelection()
+        s.reconcileTeamSelection()
+        if let id = s.trainerID, !TrainerCard.idRange.contains(id) { s.trainerID = nil }
+        s.trainerName = String(s.trainerName.prefix(TrainerCard.nameLimit))
         return s
     }
 

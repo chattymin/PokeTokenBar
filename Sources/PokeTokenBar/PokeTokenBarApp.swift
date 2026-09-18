@@ -87,7 +87,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         floatingPet = FloatingPetController(
             store: store, companion: companion,
             onOpenPopover: { [weak self] in self?.openPopover() },
-            onHide: { [weak self] in self?.store.floatingPetEnabled = false }
+            onHide: { [weak self] in self?.store.floatingPetEnabled = false },
+            onCopyCard: { [weak self] in
+                guard let companion = self?.companion else { return }
+                Task { [weak self] in
+                    // The menu closes on click, so the pet itself says the card is on the clipboard.
+                    guard await TrainerCardExport.copy(store: companion) else { return }
+                    self?.floatingPet?.flashCallout(companion.l.trainerCardCopied)
+                }
+            }
         )   // 데스크톱 플로팅 펫(옵트인)
         Task { await updater.check() }                    // 기동 시 1회 업데이트 확인
 

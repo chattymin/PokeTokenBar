@@ -682,6 +682,40 @@ struct L {
     var dexFilterHint: String { t("탭하면 이 희귀도만 보기 · 다시 탭하면 전체", "Tap to show only this rarity · tap again to clear", "タップでこの希少度のみ表示・再タップで全体", "Toca para ver solo esta rareza · toca de nuevo para ver todo", "Touche pour n'afficher que cette rareté · touche à nouveau pour tout afficher", "Toque para ver só esta raridade · toque de novo para ver tudo", "Tippe, um nur diese Seltenheit zu sehen · tippe erneut für alle") }
     /// 도감 칸의 ✨ 를 읽어주는 명사 — 이모지는 스크린리더가 일관되게 읽지 못한다.
     var dexShinyLabel: String { t("이로치", "Shiny", "色違い", "Variocolor", "Chromatique", "Shiny", "Schillernd") }
+    // MARK: Trainer card
+    var trainerCardTitle: String { t("트레이너 카드", "Trainer Card", "トレーナーカード", "Tarjeta de entrenador", "Carte de Dresseur", "Cartão de Treinador", "Trainerpass") }
+    func trainerIDLabel(_ id: String) -> String { t("ID No. \(id)", "ID No. \(id)", "IDNo. \(id)", "N.º ID \(id)", "N° ID \(id)", "N.º ID \(id)", "ID-Nr. \(id)") }
+    var trainerNameLabel: String { t("이름", "Name", "なまえ", "Nombre", "Nom", "Nome", "Name") }
+    var trainerNamePlaceholder: String { t("트레이너 이름 (선택)", "Trainer name (optional)", "トレーナー名(任意)", "Nombre de entrenador (opcional)", "Nom de dresseur (facultatif)", "Nome de treinador (opcional)", "Trainername (optional)") }
+    var trainerTokensLabel: String { t("토큰", "Tokens", "トークン", "Tokens", "Tokens", "Tokens", "Tokens") }
+    var trainerGraduatedLabel: String { t("졸업", "Graduated", "卒業", "Graduados", "Diplômés", "Formados", "Abgeschlossen") }
+    var trainerDuplicatesLabel: String { t("중복", "Duplicates", "重複", "Duplicados", "Doublons", "Duplicados", "Doppelte") }
+    var trainerFirstCatchLabel: String { t("첫 포획", "First catch", "初捕獲", "Primera captura", "Première capture", "Primeira captura", "Erster Fang") }
+    var trainerTeamTitle: String { t("팀", "Team", "チーム", "Equipo", "Équipe", "Equipe", "Team") }
+    var trainerTeamAuto: String { t("자동", "Auto", "自動", "Automático", "Auto", "Automático", "Automatisch") }
+    var trainerTeamPicked: String { t("직접 고름", "Picked by you", "自分で選択", "Elegido por ti", "Choisie par toi", "Escolhida por você", "Selbst gewählt") }
+    var trainerTeamLead: String { t("선두", "Lead", "先頭", "Líder", "En tête", "Líder", "Anführer") }
+    var trainerTeamAdd: String { t("팀에 추가", "Add to team", "チームに追加", "Añadir al equipo", "Ajouter à l'équipe", "Adicionar à equipe", "Zum Team hinzufügen") }
+    var trainerTeamRemove: String { t("팀에서 빼기", "Remove from team", "チームから外す", "Quitar del equipo", "Retirer de l'équipe", "Remover da equipe", "Aus dem Team entfernen") }
+    var trainerTeamReplace: String { t("교체…", "Replace…", "入れ替え…", "Reemplazar…", "Remplacer…", "Substituir…", "Ersetzen…") }
+    var trainerTeamMoveLeft: String { t("왼쪽으로 이동", "Move left", "左へ移動", "Mover a la izquierda", "Déplacer à gauche", "Mover para a esquerda", "Nach links") }
+    var trainerTeamMoveRight: String { t("오른쪽으로 이동", "Move right", "右へ移動", "Mover a la derecha", "Déplacer à droite", "Mover para a direita", "Nach rechts") }
+    var trainerTeamFull: String { t("팀이 가득 찼어요 (6마리)", "The team is full (6)", "チームは満員です(6匹)", "El equipo está completo (6)", "L'équipe est complète (6)", "A equipe está completa (6)", "Das Team ist voll (6)") }
+    var trainerTeamUseAuto: String { t("자동 팀", "Automatic team", "自動チーム", "Equipo automático", "Équipe automatique", "Equipe automática", "Automatisches Team") }
+    var trainerTeamAutoHelp: String { t("직접 고른 팀은 그대로 보관돼요 — 끄면 다시 나타나요.",
+                                        "Your picked team is kept and comes back when you turn this off.",
+                                        "自分で選んだチームは保存され、オフにすると戻ります。",
+                                        "Tu equipo elegido se guarda y vuelve al desactivar esto.",
+                                        "Ton équipe choisie est gardée, elle revient si tu décoches.",
+                                        "Sua equipe escolhida fica guardada e volta ao desmarcar.",
+                                        "Dein gewähltes Team bleibt gespeichert und kommt zurück.") }
+    var trainerTeamPickTitle: String { t("포켓몬 고르기", "Pick a Pokémon", "ポケモンを選ぶ", "Elige un Pokémon", "Choisis un Pokémon", "Escolha um Pokémon", "Wähle ein Pokémon") }
+    var trainerTeamNoCandidates: String { t("팀에 넣을 수 있는 포켓몬이 없어요.", "No Pokémon left to add.", "追加できるポケモンがいません。", "No quedan Pokémon por añadir.", "Plus aucun Pokémon à ajouter.", "Não há mais Pokémon para adicionar.", "Keine Pokémon mehr zum Hinzufügen.") }
+    var trainerCardShowTokens: String { t("토큰 표시", "Show tokens", "トークンを表示", "Mostrar tokens", "Afficher les tokens", "Mostrar tokens", "Tokens anzeigen") }
+    var trainerCardCopy: String { t("이미지 복사", "Copy image", "画像をコピー", "Copiar imagen", "Copier l'image", "Copiar imagem", "Bild kopieren") }
+    var trainerCardCopied: String { t("복사했어요", "Copied", "コピーしました", "Copiada", "Copiée", "Copiada", "Kopiert") }
+    var trainerCardSave: String { t("저장…", "Save…", "保存…", "Guardar…", "Enregistrer…", "Salvar…", "Sichern…") }
+    var trainerCardCopyMenu: String { t("트레이너 카드 복사", "Copy Trainer Card", "トレーナーカードをコピー", "Copiar tarjeta de entrenador", "Copier la carte de dresseur", "Copiar cartão de treinador", "Trainerpass kopieren") }
     // MARK: Pokémon 상세
     var loadingPokemonDetails: String { t("포켓몬 정보를 불러오는 중…", "Loading Pokémon details…", "ポケモン情報を読み込み中…", "Cargando detalles del Pokémon…", "Chargement des détails du Pokémon…", "Carregando detalhes do Pokémon…", "Pokémon-Details werden geladen…") }
     var pokemonDetailsUnavailable: String { t("포켓몬 정보를 불러오지 못했어요.", "Pokémon details could not be loaded.", "ポケモン情報を読み込めませんでした。", "No se pudieron cargar los detalles.", "Impossible de charger les détails.", "Não foi possível carregar os detalhes.", "Pokémon-Details konnten nicht geladen werden.") }

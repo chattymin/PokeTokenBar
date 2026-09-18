@@ -59,6 +59,7 @@ enum Rarity: String, Codable, Sendable {
     /// 유일한 소비자는 프리미엄 알의 보증 관문(`hatch` 의 `line.rarity.sortRank < tier.sortRank`) —
     /// 뽑힌 등급이 산 보증보다 낮은지 판정한다. 순서가 뒤집히면 고급/희귀 알이 조용히 낮은 등급을
     /// 통과시키므로 `testSortRankOrdersRarityAscendingByValue` 가 순서를 고정한다.
+    /// The trainer card's automatic team also ranks by it, rarest graduates first.
     var sortRank: Int {
         switch self {
         case .common:    return 0
@@ -643,6 +644,18 @@ struct CompanionState: Codable, Sendable {
     var candyGrantTier: [String: Int] = [:]
     // 사탕 지급 첫 실행 시드 완료 — 업데이트 직후 이미 100%였던 창의 소급 지급 차단.
     var candyFeatureSeeded = false
+    /// Trainer card team in slot order, as individual ids (`DexEntry.id`, or the raised Pokémon's
+    /// `profile.instanceID`, which its graduated entry keeps). nil = never picked one.
+    ///
+    /// Kept while `teamIsAutomatic` is on: going back to the automatic team must not throw away a
+    /// hand-picked line-up, or one stray click would wipe six deliberate choices with no undo.
+    var teamEntryIDs: [String]? = nil
+    /// true = the card picks the team itself and `teamEntryIDs` is only the stash to come back to.
+    var teamIsAutomatic = true
+    /// Random number printed on the trainer card, assigned the first time the card is opened.
+    var trainerID: Int? = nil
+    /// Optional name printed on the trainer card. Empty = no name row.
+    var trainerName = ""
 
     init() {}
 
@@ -678,6 +691,11 @@ struct CompanionState: Codable, Sendable {
         inventory          = c.lenient([String: Int].self, forKey: .inventory, default: [:])
         candyGrantTier     = c.lenient([String: Int].self, forKey: .candyGrantTier, default: [:])
         candyFeatureSeeded = c.lenient(Bool.self, forKey: .candyFeatureSeeded, default: false)
+        teamEntryIDs       = c.lenientOptional([String].self, forKey: .teamEntryIDs)
+        // Saves written before the stash existed only had the list: having one meant it was shown.
+        teamIsAutomatic    = c.lenientOptional(Bool.self, forKey: .teamIsAutomatic) ?? (teamEntryIDs == nil)
+        trainerID          = c.lenientOptional(Int.self, forKey: .trainerID)
+        trainerName        = c.lenient(String.self, forKey: .trainerName, default: "")
     }
 
     /// 졸업 기록 또는 현재 개체가 실제로 도달한 단계에 이 종이 포함되는가.
@@ -708,6 +726,23 @@ struct CompanionState: Codable, Sendable {
         guard let selected = representativeSpeciesID else { return }
         if !ownsSpecies(selected) { representativeSpeciesID = nil }
     }
+
+    /// The team only holds individuals the save still has: a released Pokémon leaves it, and so do
+    /// duplicates or ids a hand-edited save made up.
+    mutating func reconcileTeamSelection() {
+        guard let picked = teamEntryIDs else { return }
+        var owned = Set(dex.lazy.filter { !$0.isReleased }.map(\.id))
+        if let raised = active?.profile?.instanceID { owned.insert(raised) }
+        var seen = Set<String>()
+        teamEntryIDs = Array(picked.filter { owned.contains($0) && seen.insert($0).inserted }
+            .prefix(TrainerCard.teamSize))
+    }
+}
+
+enum TrainerCard {
+    static let teamSize = 6
+    static let nameLimit = 16
+    static let idRange = 10_000...99_999
 }
 
 // NOTE: 부화 후보는 더 이상 하드코딩하지 않는다 — CompanionStore.chooseBase() 가
