@@ -1061,14 +1061,25 @@ final class CompanionStore {
     func buyFreshEgg() -> Bool { buyEgg(nil) }
 
     /// 지급 판정(순수·엣지 트리거) — 한도 창이 100% 를 새로 넘어선 순간에만 지급.
-    /// - 100% 미만 → 맵에서 제거(재무장). resets_at 등 휘발 필드는 key 에 없다(안정 식별자만).
+    /// - 100% 미만 → 맵에서 제거(재무장).
+    /// - 같은 key 라도 epoch(`resets_at`)가 바뀌면 새 창으로 보고 재무장 — 슬립·종료로 &lt;100% 샘플을
+    ///   못 본 채 다시 100%만 관측해도 지급 누락이 없다(#326). key 자체엔 epoch 를 넣지 않는다
+    ///   (알림 dedup 과 같은 이유로 매 fetch 새 키 폭탄 방지).
     /// - 이미 지급한 창(tier≥1)은 재지급 안 함. session=1개·weekly=weeklyGrant.
     /// - 부수효과(인벤토리·알림)와 분리해 xctest 가능. (evaluateLimitAlerts 자매)
     static func evaluateCandyGrants(
-        windows: [CandyWindow], grantTier: inout [String: Int]
+        windows: [CandyWindow],
+        grantTier: inout [String: Int],
+        windowEpoch: inout [String: String]
     ) -> [CandyGrant] {
         var grants: [CandyGrant] = []
         for w in windows {
+            if let epoch = w.epoch {
+                if let previousEpoch = windowEpoch[w.key], previousEpoch != epoch {
+                    grantTier[w.key] = nil
+                }
+                windowEpoch[w.key] = epoch
+            }
             guard w.utilization >= 100 else { grantTier[w.key] = nil; continue }
             let previous = grantTier[w.key] ?? 0
             guard previous < 1 else { continue }
@@ -1089,22 +1100,37 @@ final class CompanionStore {
             // 이후 다른 프로바이더가 이미 100%인 채 로드되면 소급 지급될 수 있으나, 1회·소수 캔디라
             // 1인 로컬에서 무시(YAGNI). refresh() 는 전 프로바이더 fetch 를 await 후 onRefresh 하므로
             // 정상 경로(둘 다 성공)에선 원자적 시드다.
-            for w in windows where w.utilization >= 100 { state.candyGrantTier[w.key] = 1 }
+            for w in windows where w.utilization >= 100 {
+                state.candyGrantTier[w.key] = 1
+                if let epoch = w.epoch { state.candyWindowEpoch[w.key] = epoch }
+            }
             state.candyFeatureSeeded = true
             save()
             return
         }
-        let before = state.candyGrantTier
-        let grants = Self.evaluateCandyGrants(windows: windows, grantTier: &state.candyGrantTier)
+        let beforeTier = state.candyGrantTier
+        let beforeEpoch = state.candyWindowEpoch
+        var grantTier = state.candyGrantTier
+        var windowEpoch = state.candyWindowEpoch
+        let grants = Self.evaluateCandyGrants(
+            windows: windows,
+            grantTier: &grantTier,
+            windowEpoch: &windowEpoch)
+        state.candyGrantTier = grantTier
+        state.candyWindowEpoch = windowEpoch
         for g in grants {
             state.inventory[ItemKind.rareCandy.rawValue, default: 0] += g.count
             // 지급 자체는 알림 여부와 무관(상태 변경). 알림은 "왜 받는지"(그 창 한도를 다 채운 수고) 명시.
             notifyCompanionEvent(l.notifCandyTitle(item: l.itemName(.rareCandy), count: g.count),
                                  l.notifCandyBody(window: g.windowName))
         }
-        // 지급이 없어도 재무장(창이 100%→아래로 내려가며 grantTier 에서 제거)은 영속해야 한다 —
+        // 지급이 없어도 재무장(util dip / epoch 교체)은 영속해야 한다 —
         // 안 하면 재시작 시 stale tier=1 로 다음 100% 도달이 "이미 지급"으로 오판돼 지급 누락(회귀).
-        if !grants.isEmpty || state.candyGrantTier != before { save() }
+        if !grants.isEmpty
+            || state.candyGrantTier != beforeTier
+            || state.candyWindowEpoch != beforeEpoch {
+            save()
+        }
     }
 
     /// companion 이벤트 시스템 알림(.app + 토글 ON 일 때만). 한도 알림과 독립.
