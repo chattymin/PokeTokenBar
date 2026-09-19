@@ -490,13 +490,13 @@ final class UsageStore {
     var candyEligibleWindows: [CandyWindow] {
         let l = L(localizationLanguage)
         var windows: [CandyWindow] = []
-        if let u = limits?.fiveHour?.utilization {
+        if let fiveHour = limits?.fiveHour, let u = fiveHour.utilization {
             windows.append(CandyWindow(key: "claude.fiveHour", name: l.claudeFiveHour,
-                                       kind: .session, utilization: u))
+                                       kind: .session, utilization: u, epoch: fiveHour.resetsAt))
         }
-        if let u = limits?.sevenDay?.utilization {
+        if let sevenDay = limits?.sevenDay, let u = sevenDay.utilization {
             windows.append(CandyWindow(key: "claude.sevenDay", name: l.claudeWeekly,
-                                       kind: .weekly, utilization: u))
+                                       kind: .weekly, utilization: u, epoch: sevenDay.resetsAt))
         }
         for bucket in codexLimits?.visibleSnapshots ?? [] {
             let bucketKey = bucket.limitId ?? bucket.limitName ?? "codex"
@@ -506,14 +506,16 @@ final class UsageStore {
                     key: "codex.\(bucketKey).primary",
                     name: "\(bucketName) \(l.codexWindow(primary.windowDurationMins))",
                     kind: Self.windowClass(minutes: primary.windowDurationMins),
-                    utilization: Double(primary.usedPercent)))
+                    utilization: Double(primary.usedPercent),
+                    epoch: primary.resetsAt.map(String.init)))
             }
             if let secondary = bucket.secondary {
                 windows.append(CandyWindow(
                     key: "codex.\(bucketKey).secondary",
                     name: "\(bucketName) \(l.codexWindow(secondary.windowDurationMins))",
                     kind: Self.windowClass(minutes: secondary.windowDurationMins),
-                    utilization: Double(secondary.usedPercent)))
+                    utilization: Double(secondary.usedPercent),
+                    epoch: secondary.resetsAt.map(String.init)))
             }
         }
         for group in antigravityLimits?.groups ?? [] {
@@ -524,14 +526,16 @@ final class UsageStore {
                     key: "antigravity.\(groupKey).5h",
                     name: "\(groupTitle) \(l.fiveHourSession)",
                     kind: .session,
-                    utilization: fiveHour.usedPercent))
+                    utilization: fiveHour.usedPercent,
+                    epoch: fiveHour.resetTime))
             }
             if let weekly = group.weeklyBucket {
                 windows.append(CandyWindow(
                     key: "antigravity.\(groupKey).weekly",
                     name: "\(groupTitle) \(l.weekly)",
                     kind: .weekly,
-                    utilization: weekly.usedPercent))
+                    utilization: weekly.usedPercent,
+                    epoch: weekly.resetTime))
             }
         }
         return windows
