@@ -178,6 +178,14 @@ final class CompanionStore {
         if a.dittoDisguise != nil && !a.dittoRevealed { return false }   // 위장 중엔 이로치 숨김(리빌 때 공개)
         return a.isShiny
     }
+    /// 새 알(리롤) 구매 시 실수로 놓아주지 않도록 2단계 확인이 필요한 고가치 개체인지 판정.
+    /// 이로치(shiny)이거나 전설(legendary)인 경우에만 2단계 경고를 띄운다.
+    /// 희귀(rare)는 고급/희귀 알의 반복 리롤 피로도(alert fatigue)를 방지하기 위해 일반 확인만 거친다.
+    /// 위장 중인 메타몽은 `currentIsShiny`(=false)와 `rarity`(=.common)의 불변식을 그대로 따라
+    /// 리빌 전 정체를 누설하지 않는다.
+    var isHighValueCompanion: Bool {
+        currentIsShiny || rarity == .legendary
+    }
     var currentNature: PokemonNature? { state.active?.nature }
     var growthMultiplier: Int? {
         state.active?.hasGrowthBoost == true ? PokemonBalance.repeatGrowthMultiplier : nil
