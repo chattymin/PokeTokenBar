@@ -240,6 +240,86 @@ final class LocalUsageCacheTests: XCTestCase {
         XCTAssertEqual(second.map(\.output), [999])
     }
 
+    // MARK: Incremental (append-only) Claude parsing
+
+    private func writeRaw(_ name: String, _ text: String, mtime: Date) throws {
+        let url = root.appendingPathComponent(name)
+        try text.write(to: url, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.modificationDate: mtime], ofItemAtPath: url.path)
+    }
+
+    /// The active session log is appended to constantly and can be hundreds of MB. When a
+    /// cached file has only grown, just the new tail is parsed. Proven the same way as the
+    /// unchanged-file test: the already-parsed prefix is rewritten in place at the same length
+    /// and must NOT be picked up, while the appended line must be.
+    func testAppendedFileParsesOnlyTheNewTail() async throws {
+        let t0 = Date(timeIntervalSince1970: floor(Date().timeIntervalSince1970) - 3600)
+        try writeRaw("a.jsonl", claudeLine(id: "1", output: 111) + "\n", mtime: t0)
+        let cache = makeCache()
+        let first = await cache.claudeEntries(modifiedSince: since)
+        XCTAssertEqual(first.map(\.output), [111])
+
+        try writeRaw("a.jsonl",
+                     claudeLine(id: "1", output: 222) + "\n" + claudeLine(id: "2", output: 333) + "\n",
+                     mtime: t0.addingTimeInterval(10))
+        let second = await cache.claudeEntries(modifiedSince: since)
+        XCTAssertEqual(Set(second.map(\.output)), [111, 333],
+                       "prefix must come from the cache (111, not 222); only the tail is parsed")
+    }
+
+    /// A shrunk file is not append-only growth: it is re-read from the start.
+    func testTruncatedFileIsReparsedFromStart() async throws {
+        let t0 = Date(timeIntervalSince1970: floor(Date().timeIntervalSince1970) - 3600)
+        try writeRaw("a.jsonl",
+                     claudeLine(id: "1", output: 111) + "\n" + claudeLine(id: "2", output: 222) + "\n",
+                     mtime: t0)
+        let cache = makeCache()
+        _ = await cache.claudeEntries(modifiedSince: since)
+
+        try writeRaw("a.jsonl", claudeLine(id: "3", output: 333) + "\n", mtime: t0.addingTimeInterval(10))
+        let second = await cache.claudeEntries(modifiedSince: since)
+        XCTAssertEqual(second.map(\.output), [333])
+    }
+
+    /// A record still being written (no trailing newline) is parsed if complete, but the offset
+    /// stops before it so the next refresh re-reads it once it is finished.
+    func testHalfWrittenTrailingLineIsRetriedOnNextRefresh() async throws {
+        let t0 = Date(timeIntervalSince1970: floor(Date().timeIntervalSince1970) - 3600)
+        let full = claudeLine(id: "2", output: 222)
+        let partial = String(full.prefix(full.count / 2))
+        try writeRaw("a.jsonl", claudeLine(id: "1", output: 111) + "\n" + partial, mtime: t0)
+        let cache = makeCache()
+        let first = await cache.claudeEntries(modifiedSince: since)
+        XCTAssertEqual(first.map(\.output), [111], "a truncated JSON line is not an entry")
+
+        try writeRaw("a.jsonl", claudeLine(id: "1", output: 111) + "\n" + full + "\n",
+                     mtime: t0.addingTimeInterval(10))
+        let second = await cache.claudeEntries(modifiedSince: since)
+        XCTAssertEqual(Set(second.map(\.output)), [111, 222])
+    }
+
+    /// Cache files written before `offset` existed still load; those blobs fall back to a full
+    /// parse the first time their file changes.
+    func testBlobWithoutOffsetStillDecodes() async throws {
+        let t0 = Date(timeIntervalSince1970: floor(Date().timeIntervalSince1970) - 3600)
+        try writeRaw("a.jsonl", claudeLine(id: "1", output: 111) + "\n", mtime: t0)
+        let cache = makeCache()
+        _ = await cache.claudeEntries(modifiedSince: since)   // first save is never debounced
+
+        // Strip the offset from every Claude blob on disk, as an older release would have written.
+        let raw = try Data(contentsOf: cacheFile)
+        let decompressed = (try? (raw as NSData).decompressed(using: .zlib) as Data) ?? raw
+        var json = try XCTUnwrap(JSONSerialization.jsonObject(with: decompressed) as? [String: Any])
+        var claude = try XCTUnwrap(json["claude"] as? [String: [String: Any]])
+        for (k, var blob) in claude { blob.removeValue(forKey: "offset"); claude[k] = blob }
+        json["claude"] = claude
+        try JSONSerialization.data(withJSONObject: json).write(to: cacheFile, options: .atomic)
+
+        let reloaded = makeCache()
+        let entries = await reloaded.claudeEntries(modifiedSince: since)
+        XCTAssertEqual(entries.map(\.output), [111])
+    }
+
     func testCodexCacheDropsForkedReplayBurst() async throws {
         try writeFile("rollout-child.jsonl", lines: forkedCodexLines())
 
