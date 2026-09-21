@@ -366,4 +366,22 @@ final class UsageRecapRenderingTests: XCTestCase {
             }
         }
     }
+
+    func testTheGraduateStripCarriesTheUnownLetter() throws {
+        let unown = DexEntry(id: "unown-q", baseID: UnownForm.speciesID, finalID: UnownForm.speciesID,
+                             chainOrder: [UnownForm.speciesID], rarity: .rare, caughtAt: date(2026, 9, 17),
+                             names: [UnownForm.speciesID: ["en": "Unown"]], unownForm: .q)
+        let dexJSON = String(decoding: try JSONEncoder().encode([unown]), as: UTF8.self)
+        try Data(#"{"installBaselineSet":true,"usedSinceInstall":1000,"lastDate":"d","language":"en","dex":\#(dexJSON)}"#.utf8)
+            .write(to: url)
+        let defaults = UserDefaults(suiteName: "recap-unown-\(UUID().uuidString)")!
+        ledger(since: key(2026, 9, 1), [(key(2026, 9, 17), 5_000)]).save(to: defaults)
+        let content = RecapContent(store: UsageStore(providers: [], autoRefresh: false, defaults: defaults),
+                                   companion: CompanionStore(fileURL: url, defaults: defaults),
+                                   scope: .week, offset: 0, now: now, calendar: calendar())
+
+        let graduate = try XCTUnwrap(content.graduates.first)
+        XCTAssertEqual(graduate.entry.unownForm, .q, "the strip would otherwise draw the default A sprite")
+        XCTAssertEqual(graduate.name, "Unown [Q]")
+    }
 }

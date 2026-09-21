@@ -9,6 +9,7 @@ struct RecapContent {
     let recap: UsageRecap
     let companionSpeciesID: Int?
     let companionShiny: Bool
+    let companionUnownForm: UnownForm?
     let graduates: [(entry: DexEntry, name: String)]
     private let calendar: Calendar
     /// Built once per read: a `DateFormatter` is expensive and the card asks for a label per meter.
@@ -28,8 +29,10 @@ struct RecapContent {
         // usage that just happened, so it shows who lived it.
         companionSpeciesID = companion.currentSpeciesID
         companionShiny = companion.currentIsShiny
+        companionUnownForm = companion.currentUnownForm
         graduates = recap.graduated.prefix(4).map { entry in
-            (entry, companion.dexStoredChainNames(entry)?[entry.finalID] ?? "#\(entry.finalID)")
+            let name = companion.dexStoredChainNames(entry)?[entry.finalID] ?? "#\(entry.finalID)"
+            return (entry, UnownForm.displayName(name, speciesID: entry.finalID, form: entry.unownForm))
         }
         dayKeyFormatter = LocalUsageReader.localDayFormatter(timeZone: calendar.timeZone)
         dayNameFormatter = Self.formatter(language, calendar, template: "EEEE d MMM")
@@ -312,7 +315,7 @@ struct RecapCard: View {
     private var graduateStrip: some View {
         HStack(spacing: 5) {
             SpriteView(speciesID: content.companionSpeciesID, size: 18, animated: false,
-                       shiny: content.companionShiny)
+                       shiny: content.companionShiny, unownForm: content.companionUnownForm)
             Rectangle().fill(.white.opacity(0.35)).frame(width: 1, height: 14)
             if content.graduates.isEmpty {
                 Text(content.l.recapNoGraduates)
@@ -323,7 +326,8 @@ struct RecapCard: View {
                 ForEach(content.graduates, id: \.entry.id) { graduate in
                     HStack(spacing: 2) {
                         SpriteView(speciesID: graduate.entry.finalID, size: 18, animated: false,
-                                   shiny: graduate.entry.isShiny)
+                                   shiny: graduate.entry.isShiny,
+                                   unownForm: graduate.entry.unownForm)
                             // A badge on the sprite rather than after the name: four chips share
                             // the row, and a trailing sparkle cut "Charizard" to "Chariza…".
                             .overlay(alignment: .topTrailing) {
@@ -442,13 +446,14 @@ enum RecapExport {
     /// `ImageRenderer` renders in one pass and never runs `.task`, so every sprite has to be in
     /// the disk cache before the render or the card comes out with holes.
     private static func preload(_ content: RecapContent) async {
-        for (speciesID, shiny) in [(content.companionSpeciesID, content.companionShiny)]
-            + content.graduates.map({ (Optional($0.entry.finalID), $0.entry.isShiny) }) {
+        for (speciesID, shiny, form) in [(content.companionSpeciesID, content.companionShiny,
+                                          content.companionUnownForm)]
+            + content.graduates.map({ (Optional($0.entry.finalID), $0.entry.isShiny, $0.entry.unownForm) }) {
             guard let speciesID else {
                 _ = await SpriteLoader.eggImage()
                 continue
             }
-            _ = await SpriteLoader.image(speciesID: speciesID, shiny: shiny)
+            _ = await SpriteLoader.image(speciesID: speciesID, shiny: shiny, unownForm: form)
         }
     }
 
