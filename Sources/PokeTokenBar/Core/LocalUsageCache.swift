@@ -8,7 +8,25 @@ import Foundation
 actor LocalUsageCache {
     static let shared = LocalUsageCache()
 
-    private struct Blob: Codable { let mtime: Date; let size: Int; let entries: [LocalUsageReader.Entry] }
+    private struct Blob: Codable {
+        let mtime: Date
+        let size: Int
+        let entries: [LocalUsageReader.Entry]
+        /// Bytes already parsed, for append-only logs. Nil on blobs from older cache files.
+        let offset: Int?
+
+        init(mtime: Date, size: Int, entries: [LocalUsageReader.Entry], offset: Int? = nil) {
+            self.mtime = mtime; self.size = size; self.entries = entries; self.offset = offset
+        }
+
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            mtime = try c.decode(Date.self, forKey: .mtime)
+            size = try c.decode(Int.self, forKey: .size)
+            entries = try c.decode([LocalUsageReader.Entry].self, forKey: .entries)
+            offset = try c.decodeIfPresent(Int.self, forKey: .offset)
+        }
+    }
     private struct CodexBlob: Codable {
         let mtime: Date
         let size: Int
@@ -165,7 +183,10 @@ actor LocalUsageCache {
         let roots = claudeRoots ?? claudeRoot.map { [$0] } ?? LocalUsageReader.claudeProjectRoots
         var all: [LocalUsageReader.Entry] = []
         for root in roots {
-            all += collect(root: root, since: modifiedSince, cache: &claudeCache) {
+            all += collect(root: root, since: modifiedSince, cache: &claudeCache,
+                           incremental: { url, offset in
+                LocalUsageReader.parseClaudeFile(url, fromOffset: offset, fmt: fmt)
+            }) {
                 LocalUsageReader.parseClaudeFile($0, fmt: fmt)
             }
         }
@@ -266,8 +287,12 @@ actor LocalUsageCache {
 
     /// `include` 는 blob 캐시 조회 **전에** 평가된다 — 파일 밖 상태(옆 파일 등)에 의존하는 판정을
     /// 캐시에 굳히지 않기 위해서다.
+    /// `incremental` parses from a byte offset for append-only logs. When the cached blob has an
+    /// offset and the file grew, only the new tail is read and merged with the cached entries;
+    /// otherwise the file is parsed from the start and the resulting offset recorded.
     private func collect(root: URL, since: Date, cache: inout [String: Blob],
                          allowJSON: Bool = false, include: ((URL) -> Bool)? = nil,
+                         incremental: ((URL, Int) -> (entries: [LocalUsageReader.Entry], newOffset: Int)?)? = nil,
                          parse: (URL) -> [LocalUsageReader.Entry]?) -> [LocalUsageReader.Entry] {
         let fm = FileManager.default
         guard let en = fm.enumerator(
@@ -286,6 +311,21 @@ actor LocalUsageCache {
             let key = url.path
             if let blob = cache[key], blob.mtime == mtime, blob.size == size {
                 result.append(contentsOf: blob.entries)            // 변경 없음 → 재파싱 안 함
+            } else if let incremental {
+                let prior = cache[key]
+                // Tail-parse only when the file strictly grew; a same-size rewrite or a
+                // truncation is re-read from the start.
+                let from = prior.flatMap { p in size > p.size ? p.offset : nil } ?? 0
+                if let tail = incremental(url, from) {
+                    let entries = from > 0
+                        ? LocalUsageReader.dedupKeepMax((prior?.entries ?? []) + tail.entries)
+                        : tail.entries
+                    cache[key] = Blob(mtime: mtime, size: size, entries: entries, offset: tail.newOffset)
+                    dirty = true
+                    result.append(contentsOf: entries)
+                } else if let prior {
+                    result.append(contentsOf: prior.entries)
+                }
             } else if let entries = parse(url) {
                 cache[key] = Blob(mtime: mtime, size: size, entries: entries)
                 dirty = true

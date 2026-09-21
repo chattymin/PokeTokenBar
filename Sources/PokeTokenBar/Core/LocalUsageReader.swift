@@ -368,17 +368,55 @@ enum LocalUsageReader {
 
     /// Claude 파일 하나를 파싱(파일 내 dedup). 캐시가 파일 단위로 호출.
     static func parseClaudeFile(_ url: URL, fmt: DateFormatter) -> [Entry] {
-        guard let text = try? String(contentsOf: url, encoding: .utf8) else { return [] }
+        parseClaudeFile(url, fromOffset: 0, fmt: fmt)?.entries ?? []
+    }
+
+    /// Parses only the bytes after `fromOffset`. Session logs are append-only and the active
+    /// one can be hundreds of MB, so the cache re-reads just the new tail each refresh instead
+    /// of the whole file. `newOffset` stops at the last complete line so a half-written record
+    /// is retried next time. Nil means the file could not be read.
+    static func parseClaudeFile(_ url: URL, fromOffset: Int, fmt: DateFormatter)
+        -> (entries: [Entry], newOffset: Int)?
+    {
+        guard let handle = try? FileHandle(forReadingFrom: url) else { return nil }
+        defer { try? handle.close() }
+        guard (try? handle.seek(toOffset: UInt64(fromOffset))) != nil,
+              let data = try? handle.readToEnd() else { return nil }
+        let parsed = parseClaudeData(data, fmt: fmt)
+        return (parsed.entries, fromOffset + parsed.consumed)
+    }
+
+    private static let usageNeedle = Data("\"usage\"".utf8)
+    private static let assistantNeedle = Data("\"assistant\"".utf8)
+
+    /// Byte-level line scan: no whole-file String materialization or per-line Substring
+    /// allocation. `consumed` is the byte count up to and including the last newline.
+    static func parseClaudeData(_ data: Data, fmt: DateFormatter) -> (entries: [Entry], consumed: Int) {
         var out: [Entry] = []
-        for line in text.split(separator: "\n", omittingEmptySubsequences: true) {
-            guard line.contains("\"usage\""), line.contains("\"assistant\"") else { continue }
+        var consumed = 0
+        var lineStart = data.startIndex
+        func parse(_ line: Data.SubSequence) {
+            guard !line.isEmpty,
+                  line.range(of: usageNeedle) != nil,
+                  line.range(of: assistantNeedle) != nil,
+                  let text = String(data: line, encoding: .utf8) else { return }
             // 라인마다 autoreleasepool — JSONSerialization 이 만드는 autoreleased NSDictionary/NSString 가
             // 수천 파일·수만 라인에 걸쳐 배출 없이 누적돼 콜드 파싱 피크를 키우던 것을 즉시 배출.
             autoreleasepool {
-                if let e = parseClaudeLine(String(line), fmt: fmt) { out.append(e) }
+                if let e = parseClaudeLine(text, fmt: fmt) { out.append(e) }
             }
         }
-        return dedupKeepMax(out)
+        while lineStart < data.endIndex {
+            guard let nl = data[lineStart...].firstIndex(of: 0x0A) else { break }
+            parse(data[lineStart..<nl])
+            consumed = nl - data.startIndex + 1
+            lineStart = nl + 1
+        }
+        // A trailing line with no newline is either a finished file's last record or a record
+        // still being written. Parse it now but leave it out of `consumed` so an incremental
+        // re-read picks it up again; dedup by id makes the repeat harmless.
+        if lineStart < data.endIndex { parse(data[lineStart...]) }
+        return (dedupKeepMax(out), consumed)
     }
 
     /// `modifiedSince` 이후 파일에서 Claude 사용 엔트리(전역 dedup) — 테스트/캐시 미사용 경로.
