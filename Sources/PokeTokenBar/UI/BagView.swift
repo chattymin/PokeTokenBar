@@ -115,8 +115,17 @@ private struct ItemCard: View {
     }
     private func performUse() {
         switch kind {
-        case .rareCandy: _ = store.useRareCandy(count: selectedCandyCount)
-        case .mint:      _ = store.useMint()
+        case .rareCandy:
+            let result = store.useRareCandy(count: selectedCandyCount)
+            // 진화는 Home 탭 전환 후 CompanionView 의 celebration 연출 시점에 .evolve 가 재생된다.
+            // 진화가 아닐 때만 여기서 .levelUp(레벨업 징글)을 재생한다.
+            if result != .unavailable && result != .evolved {
+                PokemonAudioPlayer.shared.play(.levelUp)
+            }
+        case .mint:
+            if store.useMint() != nil {
+                PokemonAudioPlayer.shared.play(.shiny)
+            }
         case .shinyCharm: break   // 보유형 — 사용 동작 없음
         }
     }

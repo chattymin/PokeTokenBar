@@ -120,7 +120,9 @@ private struct ShopItemCard: View {
 
     private func buyNow() {
         confirming = false
-        _ = store.buy(kind)
+        if store.buy(kind) {
+            PokemonAudioPlayer.shared.play(.buy)
+        }
     }
 }
 
@@ -228,6 +230,9 @@ private struct EggCard: View {
     /// 리롤 실행 → 새 알을 볼 수 있게 Home 으로 전환(가방 사용과 동일 패턴).
     private func commit() {
         stage = .idle
-        if store.buyEgg(tier) { nav.tab = .home }
+        if store.buyEgg(tier) {
+            PokemonAudioPlayer.shared.play(.buy)
+            nav.tab = .home
+        }
     }
 }

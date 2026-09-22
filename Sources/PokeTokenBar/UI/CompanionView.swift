@@ -504,51 +504,59 @@ struct CompanionHeader: View {
     /// 부화 임박(90%+) — 알이 흔들리고 문구가 바뀐다.
     private var eggImminent: Bool { store.isEgg && store.eggProgress >= 0.9 }
 
+    private var companionSpriteBox: some View {
+        SpriteView(speciesID: store.currentSpeciesID, size: 76, bob: true, animated: true,
+                   shiny: store.currentIsShiny, unownForm: store.currentUnownForm)
+            .frame(width: 76, height: 76)
+            .background(Color.secondary.opacity(0.06))
+            .clipShape(RoundedRectangle(cornerRadius: 12))
+            .onTapGesture {
+                guard !store.isEgg else { return }
+                PokemonAudioPlayer.shared.play(.tap)
+            }
+            .rotationEffect(.degrees(eggImminent && eggWiggle ? 5 : (eggImminent ? -5 : 0)))
+            .scaleEffect(celebScale)
+            .overlay(RoundedRectangle(cornerRadius: 12).fill(.white).opacity(flashOpacity))
+            .overlay(alignment: .topTrailing) {
+                if shinyBurst {
+                    Text("✨").font(.system(size: 22))
+                        .transition(.scale.combined(with: .opacity))
+                        .offset(x: 6, y: -6)
+                }
+            }
+            .overlay(alignment: .top) {
+                if dittoBurst {
+                    Text("🎭").font(.system(size: 26))
+                        .transition(.scale.combined(with: .opacity))
+                        .offset(y: -12)
+                }
+            }
+            .overlay(alignment: .top) {
+                if candyXPShown {
+                    Text("+\(TokenFormatter.compact(candyXPAmount)) XP")
+                        .font(.caption.weight(.bold)).foregroundStyle(.orange)
+                        .padding(.horizontal, 6).padding(.vertical, 2)
+                        .background(.regularMaterial, in: Capsule())
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                        .offset(y: -16)
+                }
+            }
+            .overlay {
+                if mintSparkle {
+                    ZStack {
+                        Text("✨").font(.system(size: 22)).offset(x: -11, y: -9)
+                        Text("✨").font(.system(size: 15)).offset(x: 13, y: 5)
+                        Text("✨").font(.system(size: 12)).offset(x: 1, y: 13)
+                    }
+                    .transition(.scale.combined(with: .opacity))
+                }
+            }
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(alignment: .center, spacing: 12) {
-                SpriteView(speciesID: store.currentSpeciesID, size: 76, bob: true, animated: true,
-                           shiny: store.currentIsShiny, unownForm: store.currentUnownForm)
-                    .frame(width: 76, height: 76)
-                    .background(Color.secondary.opacity(0.06))
-                    .clipShape(RoundedRectangle(cornerRadius: 12))
-                    .rotationEffect(.degrees(eggImminent && eggWiggle ? 5 : (eggImminent ? -5 : 0)))
-                    .scaleEffect(celebScale)
-                    .overlay(RoundedRectangle(cornerRadius: 12).fill(.white).opacity(flashOpacity))
-                    .overlay(alignment: .topTrailing) {
-                        if shinyBurst {
-                            Text("✨").font(.system(size: 22))
-                                .transition(.scale.combined(with: .opacity))
-                                .offset(x: 6, y: -6)
-                        }
-                    }
-                    .overlay(alignment: .top) {
-                        if dittoBurst {
-                            Text("🎭").font(.system(size: 26))
-                                .transition(.scale.combined(with: .opacity))
-                                .offset(y: -12)
-                        }
-                    }
-                    .overlay(alignment: .top) {
-                        if candyXPShown {
-                            Text("+\(TokenFormatter.compact(candyXPAmount)) XP")
-                                .font(.caption.weight(.bold)).foregroundStyle(.orange)
-                                .padding(.horizontal, 6).padding(.vertical, 2)
-                                .background(.regularMaterial, in: Capsule())
-                                .transition(.move(edge: .bottom).combined(with: .opacity))
-                                .offset(y: -16)
-                        }
-                    }
-                    .overlay {
-                        if mintSparkle {
-                            ZStack {
-                                Text("✨").font(.system(size: 22)).offset(x: -11, y: -9)
-                                Text("✨").font(.system(size: 15)).offset(x: 13, y: 5)
-                                Text("✨").font(.system(size: 12)).offset(x: 1, y: 13)
-                            }
-                            .transition(.scale.combined(with: .opacity))
-                        }
-                    }
+                companionSpriteBox
                 VStack(alignment: .leading, spacing: 4) {
                     HStack(spacing: 6) {
                         Text(store.displayName).font(.callout.weight(.semibold))
@@ -648,15 +656,20 @@ struct CompanionHeader: View {
         celebScale = 0.6
         withAnimation(.easeOut(duration: 0.8)) { flashOpacity = 0 }
         withAnimation(.spring(response: 0.5, dampingFraction: 0.55)) { celebScale = 1 }
-        if case .hatch(shiny: true) = c {
-            withAnimation(.spring(response: 0.4, dampingFraction: 0.5).delay(0.3)) { shinyBurst = true }
-            Task { @MainActor in
-                try? await Task.sleep(nanoseconds: 2_600_000_000)
-                withAnimation(.easeOut(duration: 0.5)) { shinyBurst = false }
+        switch c {
+        case .hatch(let shiny):
+            PokemonAudioPlayer.shared.play(.hatch)
+            if shiny {
+                withAnimation(.spring(response: 0.4, dampingFraction: 0.5).delay(0.3)) { shinyBurst = true }
+                Task { @MainActor in
+                    try? await Task.sleep(nanoseconds: 2_600_000_000)
+                    withAnimation(.easeOut(duration: 0.5)) { shinyBurst = false }
+                }
             }
-        }
-        // 메타몽 리빌 — 위장체→메타몽 스프라이트 교체를 플래시가 덮고, 🎭 버스트(이로치면 ✨ 동반).
-        if case .dittoReveal(let shiny) = c {
+        case .evolve:
+            PokemonAudioPlayer.shared.play(.evolve)
+        case .dittoReveal(let shiny):
+            PokemonAudioPlayer.shared.play(.hatch)
             withAnimation(.spring(response: 0.4, dampingFraction: 0.5).delay(0.25)) { dittoBurst = true }
             if shiny {
                 withAnimation(.spring(response: 0.4, dampingFraction: 0.5).delay(0.45)) { shinyBurst = true }
