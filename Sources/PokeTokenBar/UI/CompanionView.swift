@@ -486,6 +486,7 @@ struct EvoLineView: View {
 @MainActor
 struct CompanionHeader: View {
     let store: CompanionStore
+    @Environment(PopoverNavigation.self) private var nav
     // 연출 상태 — 부화/진화 순간 흰 플래시 + 스프링 스케일(본가 진화 신 오마주)
     @State private var flashOpacity: Double = 0
     @State private var celebScale: CGFloat = 1
@@ -615,6 +616,17 @@ struct CompanionHeader: View {
                     Text(statusLine).font(.caption2).foregroundStyle(.secondary)
                 }
                 Spacer()
+                Button {
+                    nav.showTrainerCard = true
+                } label: {
+                    Image(systemName: "person.text.rectangle")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(.secondary)
+                        .padding(5)
+                        .background(Color.secondary.opacity(0.08), in: Circle())
+                }
+                .buttonStyle(.plain)
+                .help(store.l.trainerCardTitle)
             }
             if store.hasActive, !store.lineNodes.isEmpty {
                 // 폭을 안 주면 분기 라인(이브이)이 넘쳐 팝오버 콘텐츠 전체가 좌우로 잘린다.

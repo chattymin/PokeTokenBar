@@ -19,6 +19,7 @@ enum PopoverMetrics {
 @Observable
 final class PopoverNavigation {
     var showSettings = false
+    var showTrainerCard = false
     var tab: PopoverTab = .home
     /// 일반적인 컬렉션 재진입에는 마지막 세그먼트를 유지하되, 대표 포켓몬 선택 진입점은 도감으로 강제한다.
     var showingCollectionLog = false
@@ -30,6 +31,7 @@ final class PopoverNavigation {
 
     func reset() {
         showSettings = false
+        showTrainerCard = false
         expandAdvancedOnOpen = false
         tab = .home
     }
@@ -76,6 +78,12 @@ struct PopoverView: View {
                     .environment(store)
                     .environment(companion)
                     .environment(updater)
+            } else if nav.showTrainerCard {
+                TrainerCardView(
+                    onClose: { nav.showTrainerCard = false }
+                )
+                .environment(store)
+                .environment(companion)
             } else {
                 mainContent
             }

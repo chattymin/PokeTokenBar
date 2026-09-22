@@ -1115,4 +1115,32 @@ struct L {
           "Você esgotou seu limite de tokens — \(window). Você merece um agrado: use no seu Pokémon para evoluir!",
           "Du hast das Token-Limit für \(window) ausgeschöpft. Eine Belohnung für deinen Einsatz – verwende sie, um dein Pokémon zu entwickeln!")
     }
+
+    // MARK: 개발자 트레이너 카드 (Developer Trainer Card)
+    var trainerCardTitle: String { t("트레이너 카드", "Trainer Card", "トレーナーカード", "Tarjeta de Entrenador", "Carte de Dresseur", "Cartão de Treinador", "Trainer-Karte") }
+    var trainerCardShare: String { t("카드 공유", "Share Card", "カード共有", "Compartir tarjeta", "Partager la carte", "Compartilhar cartão", "Karte teilen") }
+    var trainerCardCopy: String { t("클립보드 복사", "Copy to Clipboard", "クリップボードにコピー", "Copiar al portapapeles", "Copier dans le presse-papiers", "Copiar para a área de transferência", "In Zwischenablage kopieren") }
+    var trainerCardCopied: String { t("클립보드에 복사됨!", "Copied to Clipboard!", "クリップボードにコピーしました！", "¡Copiado al portapapeles!", "Copié dans le presse-papiers !", "Copiado para a área de transferência!", "In die Zwischenablage kopiert!") }
+    var trainerCardSave: String { t("이미지 저장", "Save Image", "画像を保存", "Guardar imagen", "Enregistrer l'image", "Salvar imagem", "Bild speichern") }
+    var trainerCardTodayBurn: String { t("오늘 사용량", "Today's Tokens", "今日のトークン", "Tokens de hoy", "Tokens du jour", "Tokens de hoje", "Heutige Tokens") }
+    var trainerCardAllTimeBurn: String { t("누적 사용량", "Lifetime Tokens", "累計トークン", "Tokens acumulados", "Tokens cumulés", "Tokens acumulados", "Gesamte Tokens") }
+    var trainerCardPokedex: String { t("도감 등록", "Pokédex", "図鑑登録", "Pokédex", "Pokédex", "Pokédex", "Pokédex") }
+    var trainerCardHallOfFame: String { t("명예의 전당", "Hall of Fame", "殿堂入り", "Salón de la Fama", "Panthéon", "Hall da Fama", "Ruhmeshalle") }
+    var trainerCardIncubating: String { t("알 부화 중", "Incubating Egg", "タマゴ孵化中", "Incubando huevo", "Incubation d'œuf", "Chocando ovo", "Ei-Ausbrütung") }
+    var trainerCardCustomNamePlaceholder: String { t("트레이너 이름", "Trainer Name", "トレーナー名", "Nombre de entrenador", "Nom du dresseur", "Nome do treinador", "Trainer-Name") }
+    var trainerCardGraduatedSuffix: String { t("마리 졸업", "Graduated", "匹 殿堂入り", "graduados", "diplômés", "graduados", "absolviert") }
+    func trainerRankTitle(tokens: Int) -> (ball: String, title: String) {
+        if tokens >= 5_000_000_000 {
+            return ("👑", t("챔피언 개발자", "Champion Dev", "チャンピオン開発者", "Desarrollador Campeón", "Développeur Champion", "Desenvolvedor Campeão", "Champion-Entwickler"))
+        } else if tokens >= 1_000_000_000 {
+            return ("🟣", t("마스터볼 개발자", "Master Ball Dev", "マスターボール開発者", "Desarrollador Master Ball", "Développeur Master Ball", "Desenvolvedor Master Ball", "Meisterball-Entwickler"))
+        } else if tokens >= 250_000_000 {
+            return ("🟡", t("하이퍼볼 개발자", "Ultra Ball Dev", "ハイパーボール開発者", "Desarrollador Ultra Ball", "Développeur Hyper Ball", "Desenvolvedor Ultra Ball", "Hyperball-Entwickler"))
+        } else if tokens >= 50_000_000 {
+            return ("🔵", t("수퍼볼 개발자", "Great Ball Dev", "スーパーボール開発者", "Desarrollador Super Ball", "Développeur Super Ball", "Desenvolvedor Super Ball", "Superball-Entwickler"))
+        } else {
+            return ("🔴", t("몬스터볼 개발자", "Poké Ball Dev", "モンスターボール開発者", "Desarrollador Poké Ball", "Développeur Poké Ball", "Desenvolvedor Poké Ball", "Pokéball-Entwickler"))
+        }
+    }
 }
+
