@@ -46,8 +46,8 @@ final class SessionKeySettingsRenderingTests: XCTestCase {
             XCTAssertNotNil(secure.currentEditor(), "session key entry must receive keyboard focus")
             XCTAssertTrue(secure.currentEditor() === window.firstResponder)
         }
-        // Two difficulty sliders plus the existing size/opacity sliders.
-        XCTAssertEqual(views.compactMap { $0 as? NSSlider }.count, 4,
+        // Two difficulty sliders plus notifications threshold and sound volume sliders.
+        XCTAssertEqual(views.compactMap { $0 as? NSSlider }.count, 5,
                                     "growth and shop difficulty controls must survive the Settings merge")
         XCTAssertTrue(navigation.showSettings)
         navigation.reset()

@@ -69,6 +69,7 @@ struct SettingsView: View {
                         difficultyGroup
                         menuBarGroup(store)
                         floatingPetGroup(store)
+                        soundGroup(store)
                         notificationsGroup(store)
                         updateGroup(store)
                         transferGroup(store)
@@ -284,6 +285,33 @@ struct SettingsView: View {
                 }
                 Divider()
                 toggleRow(l.floatingPetBubbleAlertsLabel, $store.floatingPetBubbleAlerts)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func soundGroup(_ store: UsageStore) -> some View {
+        @Bindable var store = store
+        settingsSection(l.soundSection) {
+            toggleRow(l.soundEffectsLabel, $store.soundEffectsEnabled)
+            if store.soundEffectsEnabled {
+                Divider()
+                groupRow {
+                    Text(l.soundVolumeLabel).font(.callout)
+                    Slider(value: $store.soundVolume, in: 0...1, step: 0.05)
+                        .accessibilityLabel(l.soundVolumeLabel)
+                    Text("\(Int((store.soundVolume * 100).rounded()))%")
+                        .font(.caption).monospacedDigit().frame(width: 38, alignment: .trailing)
+                    Button {
+                        PokemonAudioPlayer.shared.play(.levelUp)
+                    } label: {
+                        Image(systemName: "speaker.wave.2.fill")
+                            .font(.caption)
+                    }
+                    .buttonStyle(.plain)
+                    .help(l.soundTestLabel)
+                    .accessibilityLabel(l.soundTestLabel)
+                }
             }
         }
     }
