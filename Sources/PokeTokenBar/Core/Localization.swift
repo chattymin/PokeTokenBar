@@ -1129,6 +1129,10 @@ struct L {
     var trainerCardIncubating: String { t("알 부화 중", "Incubating Egg", "タマゴ孵化中", "Incubando huevo", "Incubation d'œuf", "Chocando ovo", "Ei-Ausbrütung") }
     var trainerCardCustomNamePlaceholder: String { t("트레이너 이름", "Trainer Name", "トレーナー名", "Nombre de entrenador", "Nom du dresseur", "Nome do treinador", "Trainer-Name") }
     var trainerCardGraduatedSuffix: String { t("마리 졸업", "Graduated", "匹 殿堂入り", "graduados", "diplômés", "graduados", "absolviert") }
+    var trainerCardPeakBurn: String { t("일일 최고", "Peak Day", "1日最高", "Récord Diario", "Record Quotidien", "Recorde Diário", "Tagesrekord") }
+    var trainerCardStreak: String { t("연속 코딩", "Streak", "連続記録", "Racha", "Série", "Sequência", "Serie") }
+    var trainerCardDaysSuffix: String { t("일", "d", "日", "d", "j", "d", "T") }
+    var trainerCardEggStage: String { t("기본 알", "Basic Egg", "基本タマゴ", "Huevo Básico", "Œuf de Base", "Ovo Básico", "Basis-Ei") }
     func trainerRankTitle(tokens: Int) -> (ball: String, title: String) {
         if tokens >= 5_000_000_000 {
             return ("👑", t("챔피언 개발자", "Champion Dev", "チャンピオン開発者", "Desarrollador Campeón", "Développeur Champion", "Desenvolvedor Campeão", "Champion-Entwickler"))

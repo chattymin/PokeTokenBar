@@ -83,6 +83,8 @@ final class TrainerCardTests: XCTestCase {
             startDate: "2026.09",
             todayTokens: 42_800_000,
             allTimeTokens: 1_420_000_000,
+            peakDailyTokens: 85_000_000,
+            streakDays: 12,
             pokedexCount: 48,
             hallOfFameCount: 12,
             rankBall: "🟣",
@@ -137,6 +139,8 @@ final class TrainerCardTests: XCTestCase {
             startDate: "2026.09",
             todayTokens: 5_000_000,
             allTimeTokens: 5_000_000,
+            peakDailyTokens: 5_000_000,
+            streakDays: 3,
             pokedexCount: 0,
             hallOfFameCount: 0,
             rankBall: "🔴",
@@ -188,6 +192,10 @@ final class TrainerCardTests: XCTestCase {
             XCTAssertFalse(l.trainerCardIncubating.isEmpty, "trainerCardIncubating missing for \(lang)")
             XCTAssertFalse(l.trainerCardCustomNamePlaceholder.isEmpty, "trainerCardCustomNamePlaceholder missing for \(lang)")
             XCTAssertFalse(l.trainerCardGraduatedSuffix.isEmpty, "trainerCardGraduatedSuffix missing for \(lang)")
+            XCTAssertFalse(l.trainerCardPeakBurn.isEmpty, "trainerCardPeakBurn missing for \(lang)")
+            XCTAssertFalse(l.trainerCardStreak.isEmpty, "trainerCardStreak missing for \(lang)")
+            XCTAssertFalse(l.trainerCardDaysSuffix.isEmpty, "trainerCardDaysSuffix missing for \(lang)")
+            XCTAssertFalse(l.trainerCardEggStage.isEmpty, "trainerCardEggStage missing for \(lang)")
 
             let rank = l.trainerRankTitle(tokens: 1_000_000_000)
             XCTAssertFalse(rank.title.isEmpty, "trainerRankTitle missing for \(lang)")
@@ -213,6 +221,8 @@ final class TrainerCardTests: XCTestCase {
             startDate: "2026.09",
             todayTokens: 42_800_000,
             allTimeTokens: 1_420_000_000,
+            peakDailyTokens: 98_500_000,
+            streakDays: 14,
             pokedexCount: 48,
             hallOfFameCount: 12,
             rankBall: "🟣",
@@ -252,6 +262,8 @@ final class TrainerCardTests: XCTestCase {
             startDate: "2026.09",
             todayTokens: 15_200_000,
             allTimeTokens: 120_000_000,
+            peakDailyTokens: 35_000_000,
+            streakDays: 7,
             pokedexCount: 8,
             hallOfFameCount: 1,
             rankBall: "🔵",

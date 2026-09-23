@@ -81,6 +81,8 @@ struct TrainerCardData {
     let startDate: String
     let todayTokens: Int
     let allTimeTokens: Int
+    let peakDailyTokens: Int
+    let streakDays: Int
     let pokedexCount: Int
     let hallOfFameCount: Int
     let rankBall: String
@@ -268,7 +270,7 @@ struct TrainerCardCanvasView: View {
                 .padding(6)
             }
         }
-        .frame(height: 145)
+        .frame(height: 138)
         .clipShape(RoundedRectangle(cornerRadius: 6))
         .overlay(
             RoundedRectangle(cornerRadius: 6)
@@ -315,17 +317,17 @@ struct TrainerCardCanvasView: View {
         .shadow(color: .black.opacity(0.15), radius: 1)
     }
 
-    // MARK: - 4. Clear Token Metrics & Activity Section
+    // MARK: - 4. Clear Token Metrics & 2x2 Killer Specs Section
     private var movesSection: some View {
-        VStack(spacing: 6) {
+        VStack(spacing: 5) {
             // 1) Today's Tokens Row
             HStack(alignment: .center, spacing: 8) {
                 ZStack {
                     Circle()
                         .fill(Color(red: 0.98, green: 0.82, blue: 0.20))
-                        .frame(width: 22, height: 22)
+                        .frame(width: 20, height: 20)
                     Text("⚡")
-                        .font(.system(size: 11))
+                        .font(.system(size: 10))
                 }
 
                 VStack(alignment: .leading, spacing: 1) {
@@ -340,11 +342,11 @@ struct TrainerCardCanvasView: View {
                 Spacer()
 
                 Text(TokenFormatter.compact(data.todayTokens))
-                    .font(.system(size: 16, weight: .black, design: .monospaced))
+                    .font(.system(size: 15, weight: .black, design: .monospaced))
                     .foregroundStyle(Color(red: 1.0, green: 0.88, blue: 0.35))
             }
             .padding(.horizontal, 8)
-            .padding(.vertical, 5)
+            .padding(.vertical, 4.5)
             .background(Color.black.opacity(0.28))
             .clipShape(RoundedRectangle(cornerRadius: 6))
 
@@ -353,9 +355,9 @@ struct TrainerCardCanvasView: View {
                 ZStack {
                     Circle()
                         .fill(Color(red: 0.40, green: 0.70, blue: 0.95))
-                        .frame(width: 22, height: 22)
+                        .frame(width: 20, height: 20)
                     Text("🌟")
-                        .font(.system(size: 11))
+                        .font(.system(size: 10))
                 }
 
                 VStack(alignment: .leading, spacing: 1) {
@@ -370,71 +372,83 @@ struct TrainerCardCanvasView: View {
                 Spacer()
 
                 Text(TokenFormatter.compact(data.allTimeTokens))
-                    .font(.system(size: 16, weight: .black, design: .monospaced))
+                    .font(.system(size: 15, weight: .black, design: .monospaced))
                     .foregroundStyle(Color(red: 1.0, green: 0.88, blue: 0.35))
             }
             .padding(.horizontal, 8)
-            .padding(.vertical, 5)
+            .padding(.vertical, 4.5)
             .background(Color.black.opacity(0.28))
             .clipShape(RoundedRectangle(cornerRadius: 6))
 
-            // 3) Collection & Milestone Row
-            if data.isEgg {
-                HStack(spacing: 8) {
-                    Text("🥚")
-                        .font(.system(size: 13))
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text(data.eggProgressText ?? "부화 대기 중")
-                            .font(.system(size: 9, weight: .bold))
-                            .foregroundStyle(.white)
-                    }
-                    Spacer()
-                    Text("도감 \(data.pokedexCount)/151")
-                        .font(.system(size: 9, weight: .bold, design: .monospaced))
-                        .foregroundStyle(.white.opacity(0.85))
-                }
-                .padding(.horizontal, 8)
-                .padding(.vertical, 5)
-                .background(Color.black.opacity(0.22))
-                .clipShape(RoundedRectangle(cornerRadius: 6))
-            } else {
-                HStack(spacing: 8) {
-                    // Pokedex
-                    HStack(spacing: 4) {
-                        Text("📖").font(.system(size: 11))
-                        VStack(alignment: .leading, spacing: 1) {
-                            Text(data.l.trainerCardPokedex.uppercased())
-                                .font(.system(size: 7, weight: .bold, design: .monospaced))
-                                .foregroundStyle(.white.opacity(0.7))
-                            Text("\(data.pokedexCount) / 151")
-                                .font(.system(size: 10, weight: .black, design: .monospaced))
-                                .foregroundStyle(.white)
-                        }
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
+            // 3) 2x2 Developer Killer Specs Grid
+            HStack(spacing: 5) {
+                // Spec 1: Coding Streak
+                specCell(
+                    icon: "🔥",
+                    label: data.l.trainerCardStreak.uppercased(),
+                    value: "\(data.streakDays)\(data.l.trainerCardDaysSuffix)",
+                    highlightColor: Color(red: 1.0, green: 0.55, blue: 0.25)
+                )
 
-                    Divider().frame(height: 18).overlay(Color.white.opacity(0.2))
+                // Spec 2: Peak Daily Record
+                specCell(
+                    icon: "⚡",
+                    label: data.l.trainerCardPeakBurn.uppercased(),
+                    value: TokenFormatter.compact(data.peakDailyTokens),
+                    highlightColor: Color(red: 1.0, green: 0.85, blue: 0.30)
+                )
+            }
 
-                    // Hall of Fame
-                    HStack(spacing: 4) {
-                        Text("👑").font(.system(size: 11))
-                        VStack(alignment: .leading, spacing: 1) {
-                            Text(data.l.trainerCardHallOfFame.uppercased())
-                                .font(.system(size: 7, weight: .bold, design: .monospaced))
-                                .foregroundStyle(.white.opacity(0.7))
-                            Text("\(data.hallOfFameCount) \(data.l.trainerCardGraduatedSuffix)")
-                                .font(.system(size: 10, weight: .black, design: .monospaced))
-                                .foregroundStyle(.white)
-                        }
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
+            HStack(spacing: 5) {
+                // Spec 3: Pokédex Progress
+                specCell(
+                    icon: "📖",
+                    label: data.l.trainerCardPokedex.uppercased(),
+                    value: "\(data.pokedexCount)/151",
+                    highlightColor: .white
+                )
+
+                // Spec 4: Hall of Fame (or Egg Progress)
+                if data.isEgg {
+                    specCell(
+                        icon: "🥚",
+                        label: data.l.trainerCardEggStage.uppercased(),
+                        value: data.eggProgressText ?? "—",
+                        highlightColor: Color(red: 0.45, green: 0.85, blue: 0.95)
+                    )
+                } else {
+                    specCell(
+                        icon: "👑",
+                        label: data.l.trainerCardHallOfFame.uppercased(),
+                        value: "\(data.hallOfFameCount) \(data.l.trainerCardGraduatedSuffix)",
+                        highlightColor: Color(red: 0.95, green: 0.75, blue: 0.95)
+                    )
                 }
-                .padding(.horizontal, 8)
-                .padding(.vertical, 5)
-                .background(Color.black.opacity(0.22))
-                .clipShape(RoundedRectangle(cornerRadius: 6))
             }
         }
+    }
+
+    private func specCell(icon: String, label: String, value: String, highlightColor: Color) -> some View {
+        HStack(spacing: 5) {
+            Text(icon).font(.system(size: 11))
+            VStack(alignment: .leading, spacing: 1) {
+                Text(label)
+                    .font(.system(size: 6.5, weight: .black, design: .monospaced))
+                    .foregroundStyle(.white.opacity(0.70))
+                    .lineLimit(1)
+                Text(value)
+                    .font(.system(size: 10, weight: .black, design: .monospaced))
+                    .foregroundStyle(highlightColor)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.75)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 6)
+        .padding(.vertical, 4)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.black.opacity(0.22))
+        .clipShape(RoundedRectangle(cornerRadius: 5))
     }
 
     // MARK: - 5. Bottom Stats Grid (Replaced by clean metadata)
@@ -540,6 +554,47 @@ struct TrainerCardView: View {
             accentColor = .orange
         }
 
+        // 1. Peak Daily Burn Record
+        var peakDaily = today
+        for day in usage.monthDailyTotals {
+            if day.totalTokens > peakDaily {
+                peakDaily = day.totalTokens
+            }
+        }
+
+        // 2. Consecutive Active Coding Streak
+        var tokenMap: [String: Int] = [:]
+        for day in usage.monthDailyTotals {
+            tokenMap[day.date] = day.totalTokens
+        }
+        let todayKey = LocalUsageReader.todayKey()
+        tokenMap[todayKey] = max(tokenMap[todayKey] ?? 0, today)
+
+        let cal = Calendar.current
+        var streak = 0
+        var checkDate = Date()
+        let streakFormatter = DateFormatter()
+        streakFormatter.dateFormat = "yyyy-MM-dd"
+
+        let todayHasBurn = (tokenMap[todayKey] ?? 0) > 0
+        if !todayHasBurn {
+            checkDate = cal.date(byAdding: .day, value: -1, to: checkDate) ?? checkDate
+        }
+
+        while true {
+            let key = streakFormatter.string(from: checkDate)
+            if let tokens = tokenMap[key], tokens > 0 {
+                streak += 1
+                guard let prev = cal.date(byAdding: .day, value: -1, to: checkDate) else { break }
+                checkDate = prev
+            } else {
+                break
+            }
+        }
+        if streak == 0 && todayHasBurn {
+            streak = 1
+        }
+
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyy.MM"
         let startDate = formatter.string(from: Date())
@@ -554,6 +609,8 @@ struct TrainerCardView: View {
             startDate: startDate,
             todayTokens: today,
             allTimeTokens: allTime,
+            peakDailyTokens: max(peakDaily, today),
+            streakDays: streak,
             pokedexCount: store.state.dex.count,
             hallOfFameCount: store.state.collectedFinals.count,
             rankBall: rank.ball,
