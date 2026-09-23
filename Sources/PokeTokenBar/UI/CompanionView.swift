@@ -726,6 +726,7 @@ struct CompanionHeader: View {
                                 Badge(store.l.growthBoost(multiplier), tint: .orange, style: .tinted)
                                     .fixedSize()
                             }
+                            streakBadge
                         }
                         LabeledProgressBar(value: store.progress,
                                            label: Self.progressDetail(used: store.state.active?.usedAtStage ?? 0,
@@ -746,6 +747,7 @@ struct CompanionHeader: View {
                             if let guarantee = store.eggGuarantee {
                                 Badge(store.l.eggGuaranteeHint(guarantee), tint: .rarity(guarantee))
                             }
+                            streakBadge
                         }
                         LabeledProgressBar(value: store.eggProgress,
                                            label: Self.progressDetail(used: store.state.eggUsage,
@@ -797,6 +799,19 @@ struct CompanionHeader: View {
         .onChange(of: store.candyFeedbackSeq) { showCandyXPIfNeeded() }
         .onChange(of: store.mintFeedbackSeq) { showMintIfNeeded() }
         .onChange(of: eggImminent) { syncEggWiggle() }
+    }
+
+    @ViewBuilder
+    private var streakBadge: some View {
+        if store.streakDays > 0 {
+            Text(store.streakBadgeText)
+                .font(.system(size: 8, weight: .bold))
+                .padding(.horizontal, 5).padding(.vertical, 1)
+                .background(.red.opacity(0.12)).foregroundStyle(.red)
+                .clipShape(Capsule())
+                .fixedSize()
+                .help(store.streakTooltipText)
+        }
     }
 
     /// 부화/진화 연출 1회 재생 — 흰 플래시 페이드아웃 + 스프링 팝. shiny 부화는 ✨ 버스트 추가.
