@@ -148,15 +148,35 @@ final class CompanionStore {
         defaults.set(clamped, forKey: "shopDifficulty")
     }
 
-    /// 난이도를 반영한 알 부화 임계.
-    private var eggHatchThreshold: Int {
-        PokemonBalance.scaled(PokemonBalance.eggHatchThreshold, by: growthDifficulty)
+    /// 일일 스트릭 인정 최소 토큰 (기본 10M).
+    var dailyStreakThreshold: Int {
+        defaults.object(forKey: "dailyStreakThreshold") as? Int ?? PokemonBalance.defaultDailyStreakThreshold
     }
 
-    /// 난이도를 반영한 단계 임계. **`PokemonBalance.phaseThreshold` 를 직접 부르지 않는다** —
+    func setDailyStreakThreshold(_ value: Int) {
+        let clamped = max(1, min(value, 1_000_000_000))
+        defaults.set(clamped, forKey: "dailyStreakThreshold")
+    }
+
+    /// 현재 유효 연속 코딩 일수.
+    var streakDays: Int {
+        state.streak.effectiveDays(todayDate: LocalUsageReader.todayKey())
+    }
+
+    /// 연속 코딩 스트릭에 따른 성장 배율 (3일 1.1x, 7일 1.25x, 14일 1.35x, 30일 1.5x).
+    var streakMultiplier: Double {
+        PokemonBalance.streakMultiplier(for: streakDays)
+    }
+
+    /// 난이도 및 연속 스트릭 배율을 반영한 알 부화 임계.
+    private var eggHatchThreshold: Int {
+        PokemonBalance.scaled(PokemonBalance.eggHatchThreshold, by: growthDifficulty / streakMultiplier)
+    }
+
+    /// 난이도 및 연속 스트릭 배율을 반영한 단계 임계. **`PokemonBalance.phaseThreshold` 를 직접 부르지 않는다** —
     /// 배율을 빠뜨린 호출부가 생기면 그 경로만 조용히 기본 난이도로 돌아간다.
     private func stageThreshold(for mon: MonState) -> Int {
-        PokemonBalance.scaled(mon.phaseThreshold, by: growthDifficulty)
+        PokemonBalance.scaled(mon.phaseThreshold, by: growthDifficulty / streakMultiplier)
     }
 
     /// 상점 표시·결제에 쓰는 실제 가격 — 기본가 × 상점 난이도. 미판매면 nil.
@@ -181,6 +201,12 @@ final class CompanionStore {
     var currentNature: PokemonNature? { state.active?.nature }
     var growthMultiplier: Int? {
         state.active?.hasGrowthBoost == true ? PokemonBalance.repeatGrowthMultiplier : nil
+    }
+    var streakBadgeText: String {
+        l.streakBadge(days: streakDays, multiplier: streakMultiplier)
+    }
+    var streakTooltipText: String {
+        l.streakTooltip(days: streakDays, multiplier: streakMultiplier)
     }
 
     /// 메뉴바와 플로팅 펫이 그릴 대표 종과 색. nil 선택은 기존 동작(현재 개체/알)을 보존한다.
@@ -533,15 +559,69 @@ final class CompanionStore {
         })
     }
 
+    /// 구버전에서 업그레이드 시 이번 달 기록(monthDailyTotals)으로 스트릭을 초기 1회 시드.
+    func bootstrapStreakIfNeeded(from series: [DailyUsage], todayDate: String) {
+        guard state.streak.days == 0, state.streak.lastDay.isEmpty, !series.isEmpty else { return }
+        let threshold = dailyStreakThreshold
+        let activeDates = Set(series.filter { $0.totalTokens >= threshold }.map(\.date))
+        guard !activeDates.isEmpty else { return }
+
+        // 오늘 이미 달성했으면 오늘부터 카운트 시작, 아니면 어제부터
+        let checkDate: String
+        if activeDates.contains(todayDate) {
+            checkDate = todayDate
+        } else {
+            guard let yesterday = series.last(where: { $0.date < todayDate })?.date,
+                  let diff = LocalUsageReader.dayDifference(from: yesterday, to: todayDate), diff == 1,
+                  activeDates.contains(yesterday) else {
+                return
+            }
+            checkDate = yesterday
+        }
+
+        var count = 0
+        var cursor = checkDate
+        let lastAchievedDay = checkDate
+        let fmt = LocalUsageReader.localDayFormatter()
+        while activeDates.contains(cursor) {
+            count += 1
+            guard let currentDate = fmt.date(from: cursor),
+                  let prevDate = Calendar(identifier: .gregorian).date(byAdding: .day, value: -1, to: currentDate) else {
+                break
+            }
+            let prevString = fmt.string(from: prevDate)
+            if activeDates.contains(prevString) {
+                cursor = prevString
+            } else {
+                break
+            }
+        }
+
+        if count > 0 {
+            state.streak.days = count
+            state.streak.lastDay = lastAchievedDay
+            save()
+        }
+    }
+
     // MARK: 갱신 (AppDelegate 가 UsageStore 값으로 호출)
 
     func update(todayTokensByProvider: [String: Int], todayDate: String, monthTotal: Int,
-                burnTier: BurnTier, limitWarning: Bool, hasUsageData: Bool) {
+                burnTier: BurnTier, limitWarning: Bool, hasUsageData: Bool,
+                monthDailyTotals: [DailyUsage] = []) {
         let todayTokens = todayTokensByProvider.values.reduce(0, +)
         // `hasUsageData`는 표시용 snapshot 존재 여부이고, 이 map은 오늘 날짜가 확인된
         // provider 데이터만 담는다. stale snapshot이나 today == nil carrier만 있는 refresh는
         // ledger의 기준점을 움직일 수 있는 관측으로 취급하지 않는다.
         let hasCurrentProviderData = hasUsageData && !todayTokensByProvider.isEmpty
+        if hasCurrentProviderData {
+            if !monthDailyTotals.isEmpty {
+                bootstrapStreakIfNeeded(from: monthDailyTotals, todayDate: todayDate)
+            }
+            if todayTokens >= dailyStreakThreshold {
+                state.streak.recordActiveDay(todayDate)
+            }
+        }
         if !state.installBaselineSet {
             // 설치 기준선 — 실제 데이터가 도착한 시점의 today 를 baseline 으로(이전 사용량 미카운트).
             // 데이터 도착 전(기동 직후 빈 새로고침)에는 잡지 않는다.

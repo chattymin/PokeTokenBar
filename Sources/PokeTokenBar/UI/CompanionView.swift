@@ -573,6 +573,7 @@ struct CompanionHeader: View {
                                     .clipShape(Capsule())
                                     .fixedSize()
                             }
+                            streakBadge
                         }
                         ProgressView(value: store.progress).controlSize(.small).tint(.orange)
                         if store.tokensToNext > 0 {
@@ -594,6 +595,7 @@ struct CompanionHeader: View {
                                     .background(rarityColor(guarantee)).foregroundStyle(.white)
                                     .clipShape(Capsule())
                             }
+                            streakBadge
                         }
                         ProgressView(value: store.eggProgress).controlSize(.small).tint(.orange)
                         if store.isEgg, store.isHatchRetryDelayed {
@@ -637,6 +639,19 @@ struct CompanionHeader: View {
         .onChange(of: store.candyFeedbackSeq) { showCandyXPIfNeeded() }
         .onChange(of: store.mintFeedbackSeq) { showMintIfNeeded() }
         .onChange(of: eggImminent) { syncEggWiggle() }
+    }
+
+    @ViewBuilder
+    private var streakBadge: some View {
+        if store.streakDays > 0 {
+            Text(store.streakBadgeText)
+                .font(.system(size: 8, weight: .bold))
+                .padding(.horizontal, 5).padding(.vertical, 1)
+                .background(.red.opacity(0.12)).foregroundStyle(.red)
+                .clipShape(Capsule())
+                .fixedSize()
+                .help(store.streakTooltipText)
+        }
     }
 
     /// 부화/진화 연출 1회 재생 — 흰 플래시 페이드아웃 + 스프링 팝. shiny 부화는 ✨ 버스트 추가.

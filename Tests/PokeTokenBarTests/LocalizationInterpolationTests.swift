@@ -80,6 +80,10 @@ final class LocalizationInterpolationTests: XCTestCase {
             expect(lang, "toNextEvolution", l.toNextEvolution(a), a)
             expect(lang, "toGraduation", l.toGraduation(a), a)
             expect(lang, "growthBoost", l.growthBoost(4242), "4242")
+            expect(lang, "streakBadge", l.streakBadge(days: 4242, multiplier: 1.25), "4242", "1.25")
+            expect(lang, "streakBadgeActive", l.streakBadge(days: 4242, multiplier: 1.0), "4242")
+            expect(lang, "streakTooltip", l.streakTooltip(days: 4242, multiplier: 1.25), "4242", "1.25")
+            expect(lang, "streakTooltipInactive", l.streakTooltip(days: 4242, multiplier: 1.0), "4242")
             expect(lang, "graduated", l.graduated(a), a)
             expect(lang, "statusEvolved", l.statusEvolved(a), a)
 
