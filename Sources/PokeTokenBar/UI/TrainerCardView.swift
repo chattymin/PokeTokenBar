@@ -1,29 +1,73 @@
 import AppKit
 import SwiftUI
 
-// MARK: - Pokémon Type Colors
+// MARK: - Pokémon Type Colors & Energy Symbols
 
 enum PokemonTypeColor {
     static func color(for typeName: String) -> Color {
         switch typeName.lowercased() {
-        case "fire": return Color(red: 0.98, green: 0.50, blue: 0.20)
-        case "water": return Color(red: 0.28, green: 0.55, blue: 0.90)
-        case "grass": return Color(red: 0.40, green: 0.75, blue: 0.35)
-        case "electric": return Color(red: 0.98, green: 0.82, blue: 0.20)
-        case "ice": return Color(red: 0.42, green: 0.82, blue: 0.88)
-        case "fighting": return Color(red: 0.80, green: 0.30, blue: 0.22)
-        case "poison": return Color(red: 0.65, green: 0.38, blue: 0.72)
-        case "ground": return Color(red: 0.82, green: 0.68, blue: 0.38)
-        case "flying": return Color(red: 0.55, green: 0.68, blue: 0.95)
-        case "psychic": return Color(red: 0.95, green: 0.40, blue: 0.62)
-        case "bug": return Color(red: 0.58, green: 0.72, blue: 0.25)
-        case "rock": return Color(red: 0.72, green: 0.62, blue: 0.32)
-        case "ghost": return Color(red: 0.45, green: 0.38, blue: 0.68)
-        case "dragon": return Color(red: 0.42, green: 0.38, blue: 0.90)
-        case "dark": return Color(red: 0.42, green: 0.38, blue: 0.35)
-        case "steel": return Color(red: 0.65, green: 0.72, blue: 0.75)
-        case "fairy": return Color(red: 0.95, green: 0.65, blue: 0.82)
-        default: return Color(red: 0.62, green: 0.65, blue: 0.68)
+        case "fire": return Color(red: 0.94, green: 0.42, blue: 0.18)
+        case "water": return Color(red: 0.25, green: 0.52, blue: 0.88)
+        case "grass": return Color(red: 0.35, green: 0.70, blue: 0.30)
+        case "electric": return Color(red: 0.95, green: 0.78, blue: 0.15)
+        case "ice": return Color(red: 0.40, green: 0.80, blue: 0.86)
+        case "fighting": return Color(red: 0.78, green: 0.28, blue: 0.20)
+        case "poison": return Color(red: 0.62, green: 0.35, blue: 0.70)
+        case "ground": return Color(red: 0.80, green: 0.65, blue: 0.35)
+        case "flying": return Color(red: 0.52, green: 0.65, blue: 0.92)
+        case "psychic": return Color(red: 0.92, green: 0.38, blue: 0.60)
+        case "bug": return Color(red: 0.55, green: 0.70, blue: 0.22)
+        case "rock": return Color(red: 0.70, green: 0.60, blue: 0.30)
+        case "ghost": return Color(red: 0.42, green: 0.35, blue: 0.65)
+        case "dragon": return Color(red: 0.40, green: 0.35, blue: 0.88)
+        case "dark": return Color(red: 0.38, green: 0.35, blue: 0.32)
+        case "steel": return Color(red: 0.62, green: 0.70, blue: 0.72)
+        case "fairy": return Color(red: 0.92, green: 0.62, blue: 0.80)
+        default: return Color(red: 0.60, green: 0.62, blue: 0.65)
+        }
+    }
+
+    static func cardGradients(for typeName: String) -> [Color] {
+        switch typeName.lowercased() {
+        case "fire":
+            return [Color(red: 0.92, green: 0.38, blue: 0.20), Color(red: 0.70, green: 0.18, blue: 0.12)]
+        case "water":
+            return [Color(red: 0.28, green: 0.58, blue: 0.90), Color(red: 0.14, green: 0.32, blue: 0.70)]
+        case "grass":
+            return [Color(red: 0.40, green: 0.75, blue: 0.35), Color(red: 0.18, green: 0.48, blue: 0.22)]
+        case "electric":
+            return [Color(red: 0.98, green: 0.85, blue: 0.25), Color(red: 0.82, green: 0.62, blue: 0.12)]
+        case "dragon":
+            return [Color(red: 0.45, green: 0.38, blue: 0.85), Color(red: 0.22, green: 0.16, blue: 0.52)]
+        case "psychic":
+            return [Color(red: 0.90, green: 0.35, blue: 0.58), Color(red: 0.65, green: 0.18, blue: 0.42)]
+        default:
+            return [Color(red: 0.30, green: 0.33, blue: 0.40), Color(red: 0.15, green: 0.17, blue: 0.22)]
+        }
+    }
+}
+
+enum PokemonTypeEnergy {
+    static func symbol(for typeName: String) -> String {
+        switch typeName.lowercased() {
+        case "fire": return "🔥"
+        case "water": return "💧"
+        case "grass": return "🌿"
+        case "electric": return "⚡"
+        case "ice": return "❄️"
+        case "fighting": return "🥊"
+        case "poison": return "☠️"
+        case "ground": return "🏜️"
+        case "flying": return "🦅"
+        case "psychic": return "👁️"
+        case "bug": return "🐛"
+        case "rock": return "🪨"
+        case "ghost": return "👻"
+        case "dragon": return "🐉"
+        case "dark": return "🌑"
+        case "steel": return "⚙️"
+        case "fairy": return "✨"
+        default: return "⚪"
         }
     }
 }
@@ -72,334 +116,341 @@ struct TrainerCardData {
     }
 }
 
-// MARK: - Canvas View (Rendered by ImageRenderer & Preview)
+// MARK: - Pokémon TCG Card Canvas View (Rendered by ImageRenderer & Preview)
 
 @MainActor
 struct TrainerCardCanvasView: View {
     let data: TrainerCardData
 
-    static let cardWidth: CGFloat = 520
-    static let cardHeight: CGFloat = 320
+    // Classic Pokémon Trading Card Aspect Ratio (approx 63mm : 88mm)
+    static let cardWidth: CGFloat = 330
+    static let cardHeight: CGFloat = 465
+
+    private var primaryType: String {
+        data.types.first ?? (data.isEgg ? "normal" : "normal")
+    }
 
     var body: some View {
         ZStack {
-            cardBackground
-            VStack(spacing: 10) {
-                cardHeader
-                Divider().overlay(Color.white.opacity(0.12))
-                cardBody
-                Divider().overlay(Color.white.opacity(0.12))
-                cardFooter
+            // 1. Classic Yellow TCG Outer Border
+            RoundedRectangle(cornerRadius: 16)
+                .fill(Color(red: 0.98, green: 0.83, blue: 0.22))
+                .shadow(color: .black.opacity(0.35), radius: 6, x: 0, y: 3)
+
+            // 2. Inner Card Face
+            VStack(spacing: 6) {
+                topHeaderRow
+                illustrationWindow
+                speciesInfoStrip
+                movesSection
+                bottomStatsGrid
+                cardFooterStrip
             }
-            .padding(14)
+            .padding(10)
+            .background(
+                LinearGradient(
+                    colors: PokemonTypeColor.cardGradients(for: primaryType),
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+            )
+            .clipShape(RoundedRectangle(cornerRadius: 10))
+            .overlay(
+                RoundedRectangle(cornerRadius: 10)
+                    .strokeBorder(Color(red: 0.4, green: 0.35, blue: 0.15).opacity(0.4), lineWidth: 1.5)
+            )
+            .padding(8) // Yellow border width
         }
         .frame(width: Self.cardWidth, height: Self.cardHeight)
-        .clipShape(RoundedRectangle(cornerRadius: 16))
-        .overlay(
-            RoundedRectangle(cornerRadius: 16)
-                .strokeBorder(
+    }
+
+    // MARK: - 1. Top Header Row (Stage, Name, HP, Energy)
+    private var topHeaderRow: some View {
+        HStack(alignment: .center, spacing: 6) {
+            // Stage Badge
+            Text(data.isEgg ? "기본 알" : data.stageText)
+                .font(.system(size: 8, weight: .bold))
+                .foregroundStyle(.black.opacity(0.85))
+                .padding(.horizontal, 6)
+                .padding(.vertical, 2)
+                .background(Color(red: 0.95, green: 0.90, blue: 0.75), in: Capsule())
+                .shadow(color: .black.opacity(0.2), radius: 1)
+
+            // Pokémon Name
+            Text(data.speciesName)
+                .font(.system(size: 14, weight: .black, design: .rounded))
+                .foregroundStyle(.white)
+                .shadow(color: .black.opacity(0.4), radius: 1, x: 0, y: 1)
+                .lineLimit(1)
+
+            Spacer()
+
+            // HP / Today's Tokens
+            HStack(spacing: 3) {
+                Text("HP")
+                    .font(.system(size: 9, weight: .heavy, design: .rounded))
+                    .foregroundStyle(.white.opacity(0.85))
+                Text(TokenFormatter.compact(data.todayTokens))
+                    .font(.system(size: 14, weight: .black, design: .rounded))
+                    .foregroundStyle(.white)
+            }
+
+            // Energy Symbol Circle
+            ZStack {
+                Circle()
+                    .fill(PokemonTypeColor.color(for: primaryType))
+                    .frame(width: 20, height: 20)
+                    .shadow(color: .black.opacity(0.3), radius: 1)
+                Text(PokemonTypeEnergy.symbol(for: primaryType))
+                    .font(.system(size: 11))
+            }
+        }
+        .padding(.horizontal, 4)
+    }
+
+    // MARK: - 2. Illustration Window
+    private var illustrationWindow: some View {
+        ZStack(alignment: .topTrailing) {
+            // Metallic / Holographic background
+            ZStack {
+                Color(red: 0.08, green: 0.09, blue: 0.12)
+                RadialGradient(
+                    colors: [data.accentColor.opacity(0.45), Color.clear],
+                    center: .center,
+                    startRadius: 5,
+                    endRadius: 90
+                )
+                // Shimmer grid
+                GeometryReader { proxy in
+                    Path { path in
+                        let step: CGFloat = 16
+                        var x: CGFloat = 0
+                        while x < proxy.size.width {
+                            path.move(to: CGPoint(x: x, y: 0))
+                            path.addLine(to: CGPoint(x: x, y: proxy.size.height))
+                            x += step
+                        }
+                    }
+                    .stroke(Color.white.opacity(0.04), lineWidth: 1)
+                }
+            }
+
+            // Sprite Art
+            VStack {
+                Spacer()
+                if let img = data.spriteImage {
+                    let targetBox: CGFloat = data.isEgg ? 64 : 96
+                    let fit = SpriteFit.size(for: img.size, box: targetBox)
+                    Image(nsImage: img)
+                        .interpolation(.none)
+                        .resizable()
+                        .frame(width: fit.width, height: fit.height)
+                        .shadow(color: .black.opacity(0.5), radius: 4, x: 0, y: 2)
+                } else {
+                    Text(data.isEgg ? "🥚" : "❓")
+                        .font(.system(size: 54))
+                }
+                Spacer()
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+            // Shiny Stamp
+            if data.isShiny {
+                HStack(spacing: 2) {
+                    Text("✨")
+                    Text("SHINY")
+                        .font(.system(size: 7, weight: .black, design: .monospaced))
+                }
+                .padding(.horizontal, 6)
+                .padding(.vertical, 3)
+                .background(
                     LinearGradient(
-                        colors: [data.accentColor.opacity(0.9), data.accentColor.opacity(0.3)],
+                        colors: [Color.yellow, Color.orange],
                         startPoint: .topLeading,
                         endPoint: .bottomTrailing
                     ),
-                    lineWidth: 1.5
+                    in: Capsule()
+                )
+                .foregroundStyle(.black)
+                .padding(6)
+            }
+        }
+        .frame(height: 145)
+        .clipShape(RoundedRectangle(cornerRadius: 6))
+        .overlay(
+            RoundedRectangle(cornerRadius: 6)
+                .strokeBorder(
+                    LinearGradient(
+                        colors: [
+                            Color(red: 0.95, green: 0.85, blue: 0.40),
+                            Color(red: 0.70, green: 0.55, blue: 0.20),
+                            Color(red: 0.90, green: 0.80, blue: 0.35)
+                        ],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    ),
+                    lineWidth: 3
                 )
         )
     }
 
-    // MARK: Background
-    private var cardBackground: some View {
-        ZStack {
-            Color(red: 0.08, green: 0.09, blue: 0.12)
+    // MARK: - 3. Species / Pokédex Ribbon Strip
+    private var speciesInfoStrip: some View {
+        let metaItems: [String] = [
+            data.speciesID.map { String(format: "NO. %03d", $0) },
+            data.natureText,
+            data.types.isEmpty ? nil : data.types.map { $0.uppercased() }.joined(separator: "/"),
+            data.levelText.isEmpty ? nil : data.levelText
+        ].compactMap { $0 }
+
+        return HStack(spacing: 5) {
+            Text(metaItems.joined(separator: " · "))
+                .fontWeight(.bold)
+        }
+        .font(.system(size: 8, weight: .medium, design: .rounded))
+        .foregroundStyle(Color(red: 0.25, green: 0.20, blue: 0.10))
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 2.5)
+        .background(
             LinearGradient(
-                colors: [data.accentColor.opacity(0.22), Color.clear],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
+                colors: [Color(red: 0.95, green: 0.90, blue: 0.75), Color(red: 0.85, green: 0.80, blue: 0.65)],
+                startPoint: .top,
+                endPoint: .bottom
             )
-            // Subtle retro mesh grid overlay
-            GeometryReader { proxy in
-                Path { path in
-                    let step: CGFloat = 20
-                    var x: CGFloat = 0
-                    while x < proxy.size.width {
-                        path.move(to: CGPoint(x: x, y: 0))
-                        path.addLine(to: CGPoint(x: x, y: proxy.size.height))
-                        x += step
-                    }
-                    var y: CGFloat = 0
-                    while y < proxy.size.height {
-                        path.move(to: CGPoint(x: 0, y: y))
-                        path.addLine(to: CGPoint(x: proxy.size.width, y: y))
-                        y += step
-                    }
-                }
-                .stroke(Color.white.opacity(0.025), lineWidth: 1)
-            }
-        }
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 3))
+        .shadow(color: .black.opacity(0.15), radius: 1)
     }
 
-    // MARK: Header
-    private var cardHeader: some View {
-        HStack(alignment: .center) {
-            HStack(spacing: 7) {
-                // Mini Pokéball emblem
-                ZStack {
-                    Circle().fill(Color.white).frame(width: 14, height: 14)
-                    Circle().trim(from: 0.5, to: 1.0)
-                        .fill(Color.red).frame(width: 14, height: 14)
-                    Rectangle().fill(Color.black).frame(width: 14, height: 2)
-                    Circle().fill(Color.black).frame(width: 6, height: 6)
-                    Circle().fill(Color.white).frame(width: 3, height: 3)
-                }
-                Text("POKÉ TOKEN TRAINER CARD")
-                    .font(.system(size: 11, weight: .black, design: .monospaced))
-                    .foregroundStyle(.white)
-                    .tracking(1)
-            }
-
-            Spacer()
-
-            Text("IDNo. \(data.trainerID)")
-                .font(.system(size: 12, weight: .bold, design: .monospaced))
-                .foregroundStyle(data.accentColor)
-        }
-    }
-
-    // MARK: Body
-    private var cardBody: some View {
-        HStack(spacing: 12) {
-            companionHeroBox
-            statsBox
-        }
-    }
-
-    // Left Column: Companion Hero
-    private var companionHeroBox: some View {
-        VStack(spacing: 6) {
-            ZStack(alignment: .topTrailing) {
-                RoundedRectangle(cornerRadius: 12)
-                    .fill(Color.black.opacity(0.40))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 12)
-                            .stroke(data.accentColor.opacity(0.35), lineWidth: 1)
-                    )
-
-                VStack(spacing: 4) {
-                    if let img = data.spriteImage {
-                        let targetBox: CGFloat = data.isEgg ? 64 : 92
-                        let fit = SpriteFit.size(for: img.size, box: targetBox)
-                        Image(nsImage: img)
-                            .interpolation(.none)
-                            .resizable()
-                            .frame(width: fit.width, height: fit.height)
-                            .frame(width: 92, height: 92)
-                    } else {
-                        Text(data.isEgg ? "🥚" : "❓")
-                            .font(.system(size: 48))
-                            .frame(width: 92, height: 92)
+    // MARK: - 4. Moves / Coding Lore Section
+    private var movesSection: some View {
+        VStack(spacing: 8) {
+            // Move 1: Today's Burn
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(alignment: .center, spacing: 6) {
+                    HStack(spacing: 2) {
+                        Text(PokemonTypeEnergy.symbol(for: primaryType)).font(.system(size: 11))
+                        Text(PokemonTypeEnergy.symbol(for: primaryType)).font(.system(size: 11))
                     }
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-
-                if data.isShiny {
-                    Text("✨ SHINY")
-                        .font(.system(size: 7, weight: .heavy, design: .monospaced))
-                        .padding(.horizontal, 5)
-                        .padding(.vertical, 2)
-                        .background(Color.yellow.opacity(0.85), in: Capsule())
-                        .foregroundStyle(.black)
-                        .padding(5)
-                }
-            }
-            .frame(width: 165, height: 105)
-
-            // Companion identity
-            VStack(spacing: 2) {
-                HStack(spacing: 4) {
-                    if let id = data.speciesID {
-                        Text(String(format: "#%03d", id))
-                            .font(.system(size: 10, weight: .bold, design: .monospaced))
-                            .foregroundStyle(.white.opacity(0.65))
-                    }
-                    Text(data.speciesName)
-                        .font(.system(size: 12, weight: .bold))
+                    Text(data.isEgg ? "따뜻한 온기 (Warmth)" : "오늘의 코딩 (Daily Coding)")
+                        .font(.system(size: 11, weight: .bold, design: .rounded))
                         .foregroundStyle(.white)
-                        .lineLimit(1)
-                }
 
-                if data.isEgg {
-                    if let prog = data.eggProgressText {
-                        Text(prog)
-                            .font(.system(size: 9, weight: .medium))
-                            .foregroundStyle(.orange)
-                    }
-                } else {
-                    HStack(spacing: 4) {
-                        Text(data.levelText)
-                            .font(.system(size: 9, weight: .bold, design: .monospaced))
-                            .foregroundStyle(data.accentColor)
-                        Text("·")
-                            .font(.system(size: 9))
-                            .foregroundStyle(.secondary)
-                        Text(data.stageText)
-                            .font(.system(size: 9, weight: .medium))
-                            .foregroundStyle(.white.opacity(0.80))
-                    }
-
-                    if let nature = data.natureText {
-                        Text(nature)
-                            .font(.system(size: 8, weight: .medium))
-                            .foregroundStyle(.white.opacity(0.65))
-                    }
-                }
-
-                if !data.types.isEmpty {
-                    HStack(spacing: 4) {
-                        ForEach(data.types, id: \.self) { type in
-                            Text(type.uppercased())
-                                .font(.system(size: 7, weight: .heavy))
-                                .foregroundStyle(.white)
-                                .padding(.horizontal, 5)
-                                .padding(.vertical, 2)
-                                .background(PokemonTypeColor.color(for: type), in: Capsule())
-                        }
-                    }
-                    .padding(.top, 2)
-                }
-            }
-            .frame(width: 165)
-        }
-        .frame(width: 165, height: 210)
-    }
-
-    // Right Column: Stats & Milestones
-    private var statsBox: some View {
-        VStack(alignment: .leading, spacing: 7) {
-            // Sub-header: Trainer info
-            HStack {
-                HStack(spacing: 3) {
-                    Text("NAME:")
-                        .font(.system(size: 9, weight: .black, design: .monospaced))
-                        .foregroundStyle(.secondary)
-                    Text(data.trainerName)
-                        .font(.system(size: 11, weight: .bold))
-                        .foregroundStyle(.white)
-                }
-                Spacer()
-                HStack(spacing: 3) {
-                    Text("START:")
-                        .font(.system(size: 9, weight: .black, design: .monospaced))
-                        .foregroundStyle(.secondary)
-                    Text(data.startDate)
-                        .font(.system(size: 10, weight: .bold, design: .monospaced))
-                        .foregroundStyle(.secondary)
-                }
-            }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 5)
-            .background(Color.white.opacity(0.04))
-            .clipShape(RoundedRectangle(cornerRadius: 6))
-
-            // Stat Cards Grid
-            VStack(spacing: 6) {
-                statRow(
-                    icon: "🔥",
-                    label: data.l.trainerCardTodayBurn,
-                    value: TokenFormatter.compact(data.todayTokens),
-                    valueColor: .orange
-                )
-
-                statRow(
-                    icon: "⭐",
-                    label: data.l.trainerCardAllTimeBurn,
-                    value: TokenFormatter.compact(data.allTimeTokens),
-                    valueColor: .yellow
-                )
-
-                HStack(spacing: 6) {
-                    miniStatCell(
-                        icon: "📖",
-                        label: data.l.trainerCardPokedex,
-                        value: "\(data.pokedexCount) / 151"
-                    )
-                    miniStatCell(
-                        icon: "🏆",
-                        label: data.l.trainerCardHallOfFame,
-                        value: "\(data.hallOfFameCount) \(data.l.trainerCardGraduatedSuffix)"
-                    )
-                }
-
-                // Rank
-                HStack(spacing: 6) {
-                    Text(data.rankBall)
-                        .font(.system(size: 13))
-                    Text("RANK")
-                        .font(.system(size: 8, weight: .black, design: .monospaced))
-                        .foregroundStyle(.secondary)
                     Spacer()
-                    Text(data.rankTitle)
-                        .font(.system(size: 10, weight: .bold))
-                        .foregroundStyle(data.accentColor)
+
+                    Text(TokenFormatter.compact(data.todayTokens))
+                        .font(.system(size: 13, weight: .black, design: .monospaced))
+                        .foregroundStyle(Color(red: 1.0, green: 0.85, blue: 0.3))
                 }
-                .padding(.horizontal, 8)
-                .padding(.vertical, 5)
-                .background(Color.white.opacity(0.04))
-                .clipShape(RoundedRectangle(cornerRadius: 6))
-            }
-        }
-        .frame(maxWidth: .infinity, maxHeight: 210, alignment: .top)
-    }
 
-    private func statRow(icon: String, label: String, value: String, valueColor: Color) -> some View {
-        HStack(spacing: 6) {
-            Text(icon).font(.system(size: 12))
-            Text(label.uppercased())
-                .font(.system(size: 8, weight: .black, design: .monospaced))
-                .foregroundStyle(.white.opacity(0.70))
-            Spacer()
-            Text(value)
-                .font(.system(size: 13, weight: .bold, design: .monospaced))
-                .foregroundStyle(valueColor)
-        }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 5)
-        .background(Color.white.opacity(0.04))
-        .clipShape(RoundedRectangle(cornerRadius: 6))
-    }
-
-    private func miniStatCell(icon: String, label: String, value: String) -> some View {
-        HStack(spacing: 4) {
-            Text(icon).font(.system(size: 11))
-            VStack(alignment: .leading, spacing: 1) {
-                Text(label.uppercased())
-                    .font(.system(size: 7, weight: .bold, design: .monospaced))
-                    .foregroundStyle(.white.opacity(0.70))
-                    .lineLimit(1)
-                Text(value)
-                    .font(.system(size: 10, weight: .bold, design: .monospaced))
-                    .foregroundStyle(.white)
-                    .lineLimit(1)
+                Text(data.isEgg
+                     ? "오늘 적립된 \(TokenFormatter.compact(data.todayTokens)) 토큰으로 알을 정성스럽게 부화 인큐베이팅 중이다."
+                     : "오늘 하루 동안 AI 모델과 페어 프로그래밍하며 소비한 토큰 수치이다.")
+                    .font(.system(size: 8, weight: .regular))
+                    .foregroundStyle(.white.opacity(0.85))
+                    .lineLimit(2)
             }
-            Spacer()
+
+            Divider().overlay(Color.white.opacity(0.2))
+
+            // Move 2: Lifetime Rush
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(alignment: .center, spacing: 6) {
+                    HStack(spacing: 2) {
+                        Text("⭐").font(.system(size: 10))
+                        Text("⭐").font(.system(size: 10))
+                        Text("⭐").font(.system(size: 10))
+                    }
+                    Text(data.isEgg ? "부화 인큐베이션 (Hatch)" : "누적 토큰 러시 (Lifetime Rush)")
+                        .font(.system(size: 11, weight: .bold, design: .rounded))
+                        .foregroundStyle(.white)
+
+                    Spacer()
+
+                    Text(TokenFormatter.compact(data.allTimeTokens))
+                        .font(.system(size: 13, weight: .black, design: .monospaced))
+                        .foregroundStyle(Color(red: 1.0, green: 0.85, blue: 0.3))
+                }
+
+                Text(data.isEgg
+                     ? (data.eggProgressText ?? "새로운 포켓몬 부화까지 토큰을 모으는 중이다.")
+                     : "설치 후 누적 토큰. 도감 \(data.pokedexCount)종 등록 및 명예의 전당 \(data.hallOfFameCount)마리 졸업.")
+                    .font(.system(size: 8, weight: .regular))
+                    .foregroundStyle(.white.opacity(0.85))
+                    .lineLimit(2)
+            }
         }
         .padding(.horizontal, 6)
-        .padding(.vertical, 4)
-        .background(Color.white.opacity(0.04))
+        .padding(.vertical, 6)
+        .background(Color.black.opacity(0.22))
         .clipShape(RoundedRectangle(cornerRadius: 6))
     }
 
-    // MARK: Footer
-    private var cardFooter: some View {
-        HStack {
-            Text("⚡ PokeTokenBar · macOS AI Token Companion")
-                .font(.system(size: 8, weight: .bold, design: .monospaced))
-                .foregroundStyle(.white.opacity(0.55))
-            Spacer()
-            Text(data.exportDate)
-                .font(.system(size: 8, weight: .medium, design: .monospaced))
-                .foregroundStyle(.white.opacity(0.55))
+    // MARK: - 5. Bottom Stats Grid (Weakness, Resistance, Retreat)
+    private var bottomStatsGrid: some View {
+        HStack(spacing: 0) {
+            // Weakness
+            VStack(spacing: 1) {
+                Text("약점 (weakness)")
+                    .font(.system(size: 6, weight: .bold, design: .monospaced))
+                    .foregroundStyle(.white.opacity(0.7))
+                Text("⚡ 한도 ×2")
+                    .font(.system(size: 7, weight: .bold))
+                    .foregroundStyle(.white)
+            }
+            .frame(maxWidth: .infinity)
+
+            Divider().frame(height: 16).overlay(Color.white.opacity(0.2))
+
+            // Resistance
+            VStack(spacing: 1) {
+                Text("저항력 (resistance)")
+                    .font(.system(size: 6, weight: .bold, design: .monospaced))
+                    .foregroundStyle(.white.opacity(0.7))
+                Text("🛡️ 캐시 -30")
+                    .font(.system(size: 7, weight: .bold))
+                    .foregroundStyle(.white)
+            }
+            .frame(maxWidth: .infinity)
+
+            Divider().frame(height: 16).overlay(Color.white.opacity(0.2))
+
+            // Retreat
+            VStack(spacing: 1) {
+                Text("후퇴 (retreat)")
+                    .font(.system(size: 6, weight: .bold, design: .monospaced))
+                    .foregroundStyle(.white.opacity(0.7))
+                Text("🍬 ×1")
+                    .font(.system(size: 7, weight: .bold))
+                    .foregroundStyle(.white)
+            }
+            .frame(maxWidth: .infinity)
         }
+        .padding(.vertical, 3)
+        .background(Color.black.opacity(0.25))
+        .clipShape(RoundedRectangle(cornerRadius: 4))
+    }
+
+    // MARK: - 6. Card Footer Strip
+    private var cardFooterStrip: some View {
+        HStack {
+            Text("Illus. \(data.trainerName) · PokeTokenBar")
+                .font(.system(size: 7, weight: .bold, design: .monospaced))
+                .foregroundStyle(.white.opacity(0.75))
+
+            Spacer()
+
+            Text("© 2026 Dev TCG")
+                .font(.system(size: 6, weight: .regular))
+                .foregroundStyle(.white.opacity(0.5))
+
+            Spacer()
+
+            Text(String(format: "★ %03d/151 PROMO", data.pokedexCount))
+                .font(.system(size: 7, weight: .black, design: .monospaced))
+                .foregroundStyle(Color(red: 1.0, green: 0.85, blue: 0.25))
+        }
+        .padding(.horizontal, 2)
     }
 }
 
@@ -514,7 +565,7 @@ struct TrainerCardView: View {
     }
 
     var body: some View {
-        VStack(spacing: 12) {
+        VStack(spacing: 10) {
             // Header bar
             HStack {
                 Button {
@@ -535,23 +586,19 @@ struct TrainerCardView: View {
 
                 Spacer()
 
-                // Invisible spacer matching back button width for centering
                 Color.clear.frame(width: 50, height: 1)
             }
             .padding(.horizontal, PopoverMetrics.padding)
-            .padding(.top, 12)
+            .padding(.top, 10)
 
-            // Scaled Card Preview
-            let cardScale = (PopoverMetrics.contentWidth) / TrainerCardCanvasView.cardWidth
+            // Pokémon TCG Card Preview (Scaled to fit popover)
+            let cardScale = min(1.0, (PopoverMetrics.contentWidth) / TrainerCardCanvasView.cardWidth)
             TrainerCardCanvasView(data: cardData)
-                .frame(width: TrainerCardCanvasView.cardWidth, height: TrainerCardCanvasView.cardHeight)
                 .scaleEffect(cardScale)
                 .frame(
-                    width: PopoverMetrics.contentWidth,
+                    width: TrainerCardCanvasView.cardWidth * cardScale,
                     height: TrainerCardCanvasView.cardHeight * cardScale
                 )
-                .clipShape(RoundedRectangle(cornerRadius: 16 * cardScale))
-                .shadow(color: .black.opacity(0.35), radius: 8, x: 0, y: 4)
                 .padding(.horizontal, PopoverMetrics.padding)
 
             // Name Customization Field
@@ -592,7 +639,7 @@ struct TrainerCardView: View {
                 .buttonStyle(.bordered)
             }
             .padding(.horizontal, PopoverMetrics.padding)
-            .padding(.bottom, 12)
+            .padding(.bottom, 10)
         }
         .frame(width: PopoverMetrics.width)
     }
