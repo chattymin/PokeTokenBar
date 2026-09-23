@@ -231,6 +231,101 @@ final class StreakMultiplierTests: XCTestCase {
         let sanitizedNegative = SaveTransfer.sanitized(negative)
         XCTAssertEqual(sanitizedNegative.streak.days, 0)
     }
+
+    // MARK: - Extreme Difficulty Scaling (Defect Log Requirement)
+
+    func testMultiplierAtExtremeDifficulties() {
+        let today = LocalUsageReader.todayKey()
+        var state = CompanionState()
+        state.streak = StreakState(days: 7, lastDay: today) // 1.25x
+        state.active = MonState(baseID: 1, pathIDs: [1, 2, 3], stageIndex: 0,
+                                usedAtStage: 0, rarity: .common, totalForms: 3)
+
+        // At lowest difficulty (0.1): base 125M * 0.1 = 12.5M.
+        // With 1.25x streak: 12.5M / 1.25 = 10M.
+        // Verifies difficulty clamping does not swallow streak multiplier.
+        let lowStore = makeStore(state: state, growthDifficulty: 0.1)
+        XCTAssertEqual(lowStore.threshold, 10_000_000)
+
+        // At highest difficulty (2.0): base 125M * 2.0 = 250M.
+        // With 1.25x streak: 250M / 1.25 = 200M.
+        let highStore = makeStore(state: state, growthDifficulty: 2.0)
+        XCTAssertEqual(highStore.threshold, 200_000_000)
+    }
+
+    // MARK: - Timezone Travel
+
+    func testTimezoneTravelPreservesStreak() {
+        var streak = StreakState(days: 3, lastDay: "2026-09-23")
+
+        // User travels west to a timezone where local date is still yesterday (2026-09-22)
+        XCTAssertEqual(streak.effectiveDays(todayDate: "2026-09-22"), 3)
+
+        // Coding in that earlier timezone must not reset or regress streak
+        streak.recordActiveDay("2026-09-22")
+        XCTAssertEqual(streak.days, 3)
+        XCTAssertEqual(streak.lastDay, "2026-09-23")
+
+        // The following day (2026-09-24), streak is preserved and advances
+        XCTAssertEqual(streak.effectiveDays(todayDate: "2026-09-24"), 3)
+        streak.recordActiveDay("2026-09-24")
+        XCTAssertEqual(streak.days, 4)
+        XCTAssertEqual(streak.lastDay, "2026-09-24")
+    }
+
+    // MARK: - Multi-Provider Usage Accumulation in Update
+
+    func testMultiProviderUsageReachesStreakThresholdInUpdate() {
+        let store = makeStore()
+        XCTAssertEqual(store.state.streak.days, 0)
+
+        // Multi-provider tokens: Claude 6M + Codex 4.5M = 10.5M >= 10M threshold
+        store.update(
+            todayTokensByProvider: ["claude": 6_000_000, "codex": 4_500_000],
+            todayDate: "2026-09-23",
+            monthTotal: 10_500_000,
+            burnTier: .normal,
+            limitWarning: false,
+            hasUsageData: true
+        )
+
+        XCTAssertEqual(store.state.streak.days, 1)
+        XCTAssertEqual(store.state.streak.lastDay, "2026-09-23")
+        XCTAssertEqual(store.streakDays, 1)
+    }
+
+    // MARK: - Daily Streak Threshold Setting & Clamping
+
+    func testDailyStreakThresholdSettingAndClamping() {
+        let store = makeStore()
+        XCTAssertEqual(store.dailyStreakThreshold, 10_000_000)
+
+        store.setDailyStreakThreshold(5_000_000)
+        XCTAssertEqual(store.dailyStreakThreshold, 5_000_000)
+
+        store.setDailyStreakThreshold(-50)
+        XCTAssertEqual(store.dailyStreakThreshold, 1)
+
+        store.setDailyStreakThreshold(2_000_000_000)
+        XCTAssertEqual(store.dailyStreakThreshold, 1_000_000_000)
+    }
+
+    // MARK: - Multiplier Formatting
+
+    func testMultiplierFormattingInLocalization() {
+        let l = L(.en)
+        let badge3 = l.streakBadge(days: 3, multiplier: 1.10)
+        XCTAssertEqual(badge3, "🔥 3d (1.10×)")
+
+        let badge7 = l.streakBadge(days: 7, multiplier: 1.25)
+        XCTAssertEqual(badge7, "🔥 7d (1.25×)")
+
+        let badge30 = l.streakBadge(days: 30, multiplier: 1.50)
+        XCTAssertEqual(badge30, "🔥 30d (1.50×)")
+
+        let tooltip3 = l.streakTooltip(days: 3, multiplier: 1.10)
+        XCTAssertTrue(tooltip3.contains("1.10× growth boost active"))
+    }
 }
 
 // MARK: - Test Stubs
