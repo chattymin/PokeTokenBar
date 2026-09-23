@@ -170,13 +170,15 @@ final class CompanionStore {
 
     /// 난이도 및 연속 스트릭 배율을 반영한 알 부화 임계.
     private var eggHatchThreshold: Int {
-        PokemonBalance.scaled(PokemonBalance.eggHatchThreshold, by: growthDifficulty / streakMultiplier)
+        let base = PokemonBalance.scaled(PokemonBalance.eggHatchThreshold, by: growthDifficulty)
+        return max(1, Int((Double(base) / streakMultiplier).rounded()))
     }
 
     /// 난이도 및 연속 스트릭 배율을 반영한 단계 임계. **`PokemonBalance.phaseThreshold` 를 직접 부르지 않는다** —
     /// 배율을 빠뜨린 호출부가 생기면 그 경로만 조용히 기본 난이도로 돌아간다.
     private func stageThreshold(for mon: MonState) -> Int {
-        PokemonBalance.scaled(mon.phaseThreshold, by: growthDifficulty / streakMultiplier)
+        let base = PokemonBalance.scaled(mon.phaseThreshold, by: growthDifficulty)
+        return max(1, Int((Double(base) / streakMultiplier).rounded()))
     }
 
     /// 상점 표시·결제에 쓰는 실제 가격 — 기본가 × 상점 난이도. 미판매면 nil.
@@ -559,6 +561,11 @@ final class CompanionStore {
         })
     }
 
+    /// 구버전에서 업그레이드 시 이번 달 기록(monthDailyTotals)으로 스트릭을 초기 1회 시드해야 하는지 여부.
+    var needsStreakBootstrap: Bool {
+        state.streak.days == 0 && state.streak.lastDay.isEmpty
+    }
+
     /// 구버전에서 업그레이드 시 이번 달 기록(monthDailyTotals)으로 스트릭을 초기 1회 시드.
     func bootstrapStreakIfNeeded(from series: [DailyUsage], todayDate: String) {
         guard state.streak.days == 0, state.streak.lastDay.isEmpty, !series.isEmpty else { return }
@@ -619,7 +626,11 @@ final class CompanionStore {
                 bootstrapStreakIfNeeded(from: monthDailyTotals, todayDate: todayDate)
             }
             if todayTokens >= dailyStreakThreshold {
+                let prevLastDay = state.streak.lastDay
                 state.streak.recordActiveDay(todayDate)
+                if state.streak.lastDay != prevLastDay {
+                    save()
+                }
             }
         }
         if !state.installBaselineSet {

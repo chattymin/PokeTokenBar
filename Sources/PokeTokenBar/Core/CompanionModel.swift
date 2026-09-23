@@ -629,9 +629,10 @@ struct StreakState: Codable, Sendable, Equatable {
 
     /// 표시 및 배율 계산에 사용하는 유효 연속 일수.
     /// 어제 달성 후 오늘 아직 미달성이어도 당일 중에는 어제 스트릭을 유예(morning tolerance)하여 유지한다.
+    /// 시차 이동(동->서 등)으로 `todayDate <= lastDay`인 경우에도 확보한 스트릭을 보존한다.
     func effectiveDays(todayDate: String) -> Int {
         guard days > 0, !lastDay.isEmpty else { return 0 }
-        if lastDay == todayDate {
+        if todayDate <= lastDay {
             return days
         }
         if let diff = LocalUsageReader.dayDifference(from: lastDay, to: todayDate), diff == 1 {
@@ -642,8 +643,8 @@ struct StreakState: Codable, Sendable, Equatable {
 
     /// 당일 활성 토큰 임계 도달 시 호출.
     mutating func recordActiveDay(_ todayDate: String) {
-        if lastDay == todayDate { return }
-        if let diff = LocalUsageReader.dayDifference(from: lastDay, to: todayDate), diff == 1 {
+        if !lastDay.isEmpty && todayDate <= lastDay { return }
+        if !lastDay.isEmpty, let diff = LocalUsageReader.dayDifference(from: lastDay, to: todayDate), diff == 1 {
             days += 1
         } else {
             days = 1

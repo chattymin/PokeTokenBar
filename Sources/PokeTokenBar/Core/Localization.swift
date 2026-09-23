@@ -683,11 +683,7 @@ struct L {
     func toGraduation(_ amount: String) -> String { t("졸업까지 \(amount)", "\(amount) to graduation", "卒業まで \(amount)", "\(amount) para graduarse", "\(amount) avant le diplôme", "\(amount) para se formar", "\(amount) bis zum Abschied") }
     func growthBoost(_ multiplier: Int) -> String { t("\(multiplier)× 성장", "\(multiplier)× growth", "成長 \(multiplier)倍", "Crecimiento ×\(multiplier)", "Croissance ×\(multiplier)", "Crescimento ×\(multiplier)", "\(multiplier)× Wachstum") }
     private static func formatStreakMultiplier(_ multiplier: Double) -> String {
-        let s = String(format: "%.2f", multiplier)
-        if s.hasSuffix("0") && !s.hasSuffix(".00") {
-            return String(format: "%.1f", multiplier)
-        }
-        return s
+        String(format: "%.2f", multiplier)
     }
     func streakBadge(days: Int, multiplier: Double) -> String {
         let multStr = Self.formatStreakMultiplier(multiplier)
@@ -700,17 +696,17 @@ struct L {
     func streakTooltip(days: Int, multiplier: Double) -> String {
         let multStr = Self.formatStreakMultiplier(multiplier)
         if multiplier > 1.0 {
-            return t("\(days)일 연속 코딩! 성장 속도 \(multStr)배 부스트 적용 중",
+            return t("\(days)일 연속 코딩! 성장 속도 \(multStr)× 부스트 적용 중",
                      "\(days)-day coding streak! \(multStr)× growth boost active",
-                     "\(days)日連続コーディング！成長速度\(multStr)倍ブースト中",
+                     "\(days)日連続コーディング！成長速度\(multStr)倍ブースト適用中",
                      "¡Racha de \(days) días de código! Aumento de crecimiento de \(multStr)× activo",
                      "Série de \(days) jours de code ! Boost de croissance de \(multStr)× actif",
                      "Sequência de \(days) dias de código! Aumento de crescimento de \(multStr)× ativo",
-                     "\(days)-Tage-Programmierserie! \(multStr)× Wachstums-Boost aktiv")
+                     "\(days) Tage in Folge programmiert! \(multStr)× Wachstums-Boost aktiv")
         } else {
             return t("\(days)일 연속 코딩 달성! 3일 연속 달성 시 1.10× 성장 부스트를 받습니다",
                      "\(days)-day coding streak! Reach 3 days to unlock 1.10× growth boost",
-                     "\(days)日連続コーディング達成！3日連続で1.10倍の成長ブーストを獲得",
+                     "\(days)日連続コーディング達成！3日連続達成で1.10倍の成長ブーストを獲得できます",
                      "¡Racha de \(days) días alcanzada! Llega a 3 días para desbloquear el aumento de 1.10×",
                      "Série de \(days) jours atteinte ! Atteignez 3 jours pour débloquer le boost de 1.10×",
                      "Sequência de \(days) dias atingida! Alcance 3 dias para desbloquear o aumento de 1.10×",

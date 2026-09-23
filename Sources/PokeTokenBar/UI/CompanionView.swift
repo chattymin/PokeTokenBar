@@ -564,7 +564,11 @@ struct CompanionHeader: View {
                         // 단계 + 성격(부화 시 확정된 개체 아이덴티티)
                         let nature = store.currentNature.map { " · \($0.name(store.language))" } ?? ""
                         HStack(spacing: 5) {
-                            Text(store.stageText + nature).font(.caption2).foregroundStyle(.secondary)
+                            Text(store.stageText + nature)
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                                .truncationMode(.tail)
                             if let multiplier = store.growthMultiplier {
                                 Text(store.l.growthBoost(multiplier))
                                     .font(.system(size: 8, weight: .bold))

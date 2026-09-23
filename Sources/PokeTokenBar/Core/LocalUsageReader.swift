@@ -1774,6 +1774,7 @@ enum LocalUsageReader {
 
     /// 두 yyyy-MM-dd 날짜 사이의 달력 일수 차이 (to - from). 파싱 실패 시 nil.
     static func dayDifference(from previous: String, to current: String, timeZone: TimeZone = .current) -> Int? {
+        if previous == current { return 0 }
         let fmt = localDayFormatter(timeZone: timeZone)
         guard let d1 = fmt.date(from: previous), let d2 = fmt.date(from: current) else { return nil }
         var cal = Calendar(identifier: .gregorian)
