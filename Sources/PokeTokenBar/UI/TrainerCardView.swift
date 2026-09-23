@@ -164,7 +164,7 @@ struct TrainerCardCanvasView: View {
         .frame(width: Self.cardWidth, height: Self.cardHeight)
     }
 
-    // MARK: - 1. Top Header Row (Stage, Name, HP, Energy)
+    // MARK: - 1. Top Header Row (Stage, Name, Developer Rank)
     private var topHeaderRow: some View {
         HStack(alignment: .center, spacing: 6) {
             // Stage Badge
@@ -185,25 +185,18 @@ struct TrainerCardCanvasView: View {
 
             Spacer()
 
-            // HP / Today's Tokens
+            // Developer Rank Badge
             HStack(spacing: 3) {
-                Text("HP")
+                Text(data.rankBall)
+                    .font(.system(size: 10))
+                Text(data.rankTitle)
                     .font(.system(size: 9, weight: .heavy, design: .rounded))
-                    .foregroundStyle(.white.opacity(0.85))
-                Text(TokenFormatter.compact(data.todayTokens))
-                    .font(.system(size: 14, weight: .black, design: .rounded))
                     .foregroundStyle(.white)
             }
-
-            // Energy Symbol Circle
-            ZStack {
-                Circle()
-                    .fill(PokemonTypeColor.color(for: primaryType))
-                    .frame(width: 20, height: 20)
-                    .shadow(color: .black.opacity(0.3), radius: 1)
-                Text(PokemonTypeEnergy.symbol(for: primaryType))
-                    .font(.system(size: 11))
-            }
+            .padding(.horizontal, 7)
+            .padding(.vertical, 3)
+            .background(Color.black.opacity(0.35), in: Capsule())
+            .overlay(Capsule().strokeBorder(Color.white.opacity(0.25), lineWidth: 1))
         }
         .padding(.horizontal, 4)
     }
@@ -322,127 +315,145 @@ struct TrainerCardCanvasView: View {
         .shadow(color: .black.opacity(0.15), radius: 1)
     }
 
-    // MARK: - 4. Moves / Coding Lore Section
+    // MARK: - 4. Clear Token Metrics & Activity Section
     private var movesSection: some View {
-        VStack(spacing: 8) {
-            // Move 1: Today's Burn
-            VStack(alignment: .leading, spacing: 2) {
-                HStack(alignment: .center, spacing: 6) {
-                    HStack(spacing: 2) {
-                        Text(PokemonTypeEnergy.symbol(for: primaryType)).font(.system(size: 11))
-                        Text(PokemonTypeEnergy.symbol(for: primaryType)).font(.system(size: 11))
-                    }
-                    Text(data.isEgg ? "따뜻한 온기 (Warmth)" : "오늘의 코딩 (Daily Coding)")
-                        .font(.system(size: 11, weight: .bold, design: .rounded))
-                        .foregroundStyle(.white)
-
-                    Spacer()
-
-                    Text(TokenFormatter.compact(data.todayTokens))
-                        .font(.system(size: 13, weight: .black, design: .monospaced))
-                        .foregroundStyle(Color(red: 1.0, green: 0.85, blue: 0.3))
+        VStack(spacing: 6) {
+            // 1) Today's Tokens Row
+            HStack(alignment: .center, spacing: 8) {
+                ZStack {
+                    Circle()
+                        .fill(Color(red: 0.98, green: 0.82, blue: 0.20))
+                        .frame(width: 22, height: 22)
+                    Text("⚡")
+                        .font(.system(size: 11))
                 }
 
-                Text(data.isEgg
-                     ? "오늘 적립된 \(TokenFormatter.compact(data.todayTokens)) 토큰으로 알을 정성스럽게 부화 인큐베이팅 중이다."
-                     : "오늘 하루 동안 AI 모델과 페어 프로그래밍하며 소비한 토큰 수치이다.")
-                    .font(.system(size: 8, weight: .regular))
-                    .foregroundStyle(.white.opacity(0.85))
-                    .lineLimit(2)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(data.isEgg ? data.l.trainerCardIncubating.uppercased() : data.l.trainerCardTodayBurn.uppercased())
+                        .font(.system(size: 7, weight: .black, design: .monospaced))
+                        .foregroundStyle(.white.opacity(0.75))
+                    Text(TokenFormatter.grouped(data.todayTokens))
+                        .font(.system(size: 11, weight: .bold, design: .monospaced))
+                        .foregroundStyle(.white)
+                }
+
+                Spacer()
+
+                Text(TokenFormatter.compact(data.todayTokens))
+                    .font(.system(size: 16, weight: .black, design: .monospaced))
+                    .foregroundStyle(Color(red: 1.0, green: 0.88, blue: 0.35))
             }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 5)
+            .background(Color.black.opacity(0.28))
+            .clipShape(RoundedRectangle(cornerRadius: 6))
 
-            Divider().overlay(Color.white.opacity(0.2))
-
-            // Move 2: Lifetime Rush
-            VStack(alignment: .leading, spacing: 2) {
-                HStack(alignment: .center, spacing: 6) {
-                    HStack(spacing: 2) {
-                        Text("⭐").font(.system(size: 10))
-                        Text("⭐").font(.system(size: 10))
-                        Text("⭐").font(.system(size: 10))
-                    }
-                    Text(data.isEgg ? "부화 인큐베이션 (Hatch)" : "누적 토큰 러시 (Lifetime Rush)")
-                        .font(.system(size: 11, weight: .bold, design: .rounded))
-                        .foregroundStyle(.white)
-
-                    Spacer()
-
-                    Text(TokenFormatter.compact(data.allTimeTokens))
-                        .font(.system(size: 13, weight: .black, design: .monospaced))
-                        .foregroundStyle(Color(red: 1.0, green: 0.85, blue: 0.3))
+            // 2) Lifetime Tokens Row
+            HStack(alignment: .center, spacing: 8) {
+                ZStack {
+                    Circle()
+                        .fill(Color(red: 0.40, green: 0.70, blue: 0.95))
+                        .frame(width: 22, height: 22)
+                    Text("🌟")
+                        .font(.system(size: 11))
                 }
 
-                Text(data.isEgg
-                     ? (data.eggProgressText ?? "새로운 포켓몬 부화까지 토큰을 모으는 중이다.")
-                     : "설치 후 누적 토큰. 도감 \(data.pokedexCount)종 등록 및 명예의 전당 \(data.hallOfFameCount)마리 졸업.")
-                    .font(.system(size: 8, weight: .regular))
-                    .foregroundStyle(.white.opacity(0.85))
-                    .lineLimit(2)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(data.l.trainerCardAllTimeBurn.uppercased())
+                        .font(.system(size: 7, weight: .black, design: .monospaced))
+                        .foregroundStyle(.white.opacity(0.75))
+                    Text(TokenFormatter.grouped(data.allTimeTokens))
+                        .font(.system(size: 11, weight: .bold, design: .monospaced))
+                        .foregroundStyle(.white)
+                }
+
+                Spacer()
+
+                Text(TokenFormatter.compact(data.allTimeTokens))
+                    .font(.system(size: 16, weight: .black, design: .monospaced))
+                    .foregroundStyle(Color(red: 1.0, green: 0.88, blue: 0.35))
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 5)
+            .background(Color.black.opacity(0.28))
+            .clipShape(RoundedRectangle(cornerRadius: 6))
+
+            // 3) Collection & Milestone Row
+            if data.isEgg {
+                HStack(spacing: 8) {
+                    Text("🥚")
+                        .font(.system(size: 13))
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(data.eggProgressText ?? "부화 대기 중")
+                            .font(.system(size: 9, weight: .bold))
+                            .foregroundStyle(.white)
+                    }
+                    Spacer()
+                    Text("도감 \(data.pokedexCount)/151")
+                        .font(.system(size: 9, weight: .bold, design: .monospaced))
+                        .foregroundStyle(.white.opacity(0.85))
+                }
+                .padding(.horizontal, 8)
+                .padding(.vertical, 5)
+                .background(Color.black.opacity(0.22))
+                .clipShape(RoundedRectangle(cornerRadius: 6))
+            } else {
+                HStack(spacing: 8) {
+                    // Pokedex
+                    HStack(spacing: 4) {
+                        Text("📖").font(.system(size: 11))
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(data.l.trainerCardPokedex.uppercased())
+                                .font(.system(size: 7, weight: .bold, design: .monospaced))
+                                .foregroundStyle(.white.opacity(0.7))
+                            Text("\(data.pokedexCount) / 151")
+                                .font(.system(size: 10, weight: .black, design: .monospaced))
+                                .foregroundStyle(.white)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                    Divider().frame(height: 18).overlay(Color.white.opacity(0.2))
+
+                    // Hall of Fame
+                    HStack(spacing: 4) {
+                        Text("👑").font(.system(size: 11))
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(data.l.trainerCardHallOfFame.uppercased())
+                                .font(.system(size: 7, weight: .bold, design: .monospaced))
+                                .foregroundStyle(.white.opacity(0.7))
+                            Text("\(data.hallOfFameCount) \(data.l.trainerCardGraduatedSuffix)")
+                                .font(.system(size: 10, weight: .black, design: .monospaced))
+                                .foregroundStyle(.white)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .padding(.horizontal, 8)
+                .padding(.vertical, 5)
+                .background(Color.black.opacity(0.22))
+                .clipShape(RoundedRectangle(cornerRadius: 6))
             }
         }
-        .padding(.horizontal, 6)
-        .padding(.vertical, 6)
-        .background(Color.black.opacity(0.22))
-        .clipShape(RoundedRectangle(cornerRadius: 6))
     }
 
-    // MARK: - 5. Bottom Stats Grid (Weakness, Resistance, Retreat)
+    // MARK: - 5. Bottom Stats Grid (Replaced by clean metadata)
     private var bottomStatsGrid: some View {
-        HStack(spacing: 0) {
-            // Weakness
-            VStack(spacing: 1) {
-                Text("약점 (weakness)")
-                    .font(.system(size: 6, weight: .bold, design: .monospaced))
-                    .foregroundStyle(.white.opacity(0.7))
-                Text("⚡ 한도 ×2")
-                    .font(.system(size: 7, weight: .bold))
-                    .foregroundStyle(.white)
-            }
-            .frame(maxWidth: .infinity)
-
-            Divider().frame(height: 16).overlay(Color.white.opacity(0.2))
-
-            // Resistance
-            VStack(spacing: 1) {
-                Text("저항력 (resistance)")
-                    .font(.system(size: 6, weight: .bold, design: .monospaced))
-                    .foregroundStyle(.white.opacity(0.7))
-                Text("🛡️ 캐시 -30")
-                    .font(.system(size: 7, weight: .bold))
-                    .foregroundStyle(.white)
-            }
-            .frame(maxWidth: .infinity)
-
-            Divider().frame(height: 16).overlay(Color.white.opacity(0.2))
-
-            // Retreat
-            VStack(spacing: 1) {
-                Text("후퇴 (retreat)")
-                    .font(.system(size: 6, weight: .bold, design: .monospaced))
-                    .foregroundStyle(.white.opacity(0.7))
-                Text("🍬 ×1")
-                    .font(.system(size: 7, weight: .bold))
-                    .foregroundStyle(.white)
-            }
-            .frame(maxWidth: .infinity)
-        }
-        .padding(.vertical, 3)
-        .background(Color.black.opacity(0.25))
-        .clipShape(RoundedRectangle(cornerRadius: 4))
+        EmptyView()
     }
 
     // MARK: - 6. Card Footer Strip
     private var cardFooterStrip: some View {
         HStack {
-            Text("Illus. \(data.trainerName) · PokeTokenBar")
+            Text("TRAINER: \(data.trainerName) · ID: #\(data.trainerID)")
                 .font(.system(size: 7, weight: .bold, design: .monospaced))
-                .foregroundStyle(.white.opacity(0.75))
+                .foregroundStyle(.white.opacity(0.85))
 
             Spacer()
 
-            Text("© 2026 Dev TCG")
-                .font(.system(size: 6, weight: .regular))
-                .foregroundStyle(.white.opacity(0.5))
+            Text("SINCE \(data.startDate)")
+                .font(.system(size: 7, weight: .medium, design: .monospaced))
+                .foregroundStyle(.white.opacity(0.65))
 
             Spacer()
 
