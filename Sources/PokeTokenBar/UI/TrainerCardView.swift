@@ -187,16 +187,17 @@ struct TrainerCardCanvasView: View {
 
                 VStack(spacing: 4) {
                     if let img = data.spriteImage {
-                        let fit = SpriteFit.size(for: img.size, box: 80)
+                        let targetBox: CGFloat = data.isEgg ? 64 : 92
+                        let fit = SpriteFit.size(for: img.size, box: targetBox)
                         Image(nsImage: img)
                             .interpolation(.none)
                             .resizable()
                             .frame(width: fit.width, height: fit.height)
-                            .frame(width: 80, height: 80)
+                            .frame(width: 92, height: 92)
                     } else {
                         Text(data.isEgg ? "🥚" : "❓")
                             .font(.system(size: 48))
-                            .frame(width: 80, height: 80)
+                            .frame(width: 92, height: 92)
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -219,7 +220,7 @@ struct TrainerCardCanvasView: View {
                     if let id = data.speciesID {
                         Text(String(format: "#%03d", id))
                             .font(.system(size: 10, weight: .bold, design: .monospaced))
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(.white.opacity(0.65))
                     }
                     Text(data.speciesName)
                         .font(.system(size: 12, weight: .bold))
@@ -243,13 +244,13 @@ struct TrainerCardCanvasView: View {
                             .foregroundStyle(.secondary)
                         Text(data.stageText)
                             .font(.system(size: 9, weight: .medium))
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(.white.opacity(0.80))
                     }
 
                     if let nature = data.natureText {
                         Text(nature)
-                            .font(.system(size: 8, weight: .regular))
-                            .foregroundStyle(.tertiary)
+                            .font(.system(size: 8, weight: .medium))
+                            .foregroundStyle(.white.opacity(0.65))
                     }
                 }
 
@@ -355,7 +356,7 @@ struct TrainerCardCanvasView: View {
             Text(icon).font(.system(size: 12))
             Text(label.uppercased())
                 .font(.system(size: 8, weight: .black, design: .monospaced))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(.white.opacity(0.70))
             Spacer()
             Text(value)
                 .font(.system(size: 13, weight: .bold, design: .monospaced))
@@ -373,7 +374,7 @@ struct TrainerCardCanvasView: View {
             VStack(alignment: .leading, spacing: 1) {
                 Text(label.uppercased())
                     .font(.system(size: 7, weight: .bold, design: .monospaced))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(.white.opacity(0.70))
                     .lineLimit(1)
                 Text(value)
                     .font(.system(size: 10, weight: .bold, design: .monospaced))
@@ -393,11 +394,11 @@ struct TrainerCardCanvasView: View {
         HStack {
             Text("⚡ PokeTokenBar · macOS AI Token Companion")
                 .font(.system(size: 8, weight: .bold, design: .monospaced))
-                .foregroundStyle(.secondary.opacity(0.8))
+                .foregroundStyle(.white.opacity(0.55))
             Spacer()
             Text(data.exportDate)
                 .font(.system(size: 8, weight: .medium, design: .monospaced))
-                .foregroundStyle(.secondary.opacity(0.6))
+                .foregroundStyle(.white.opacity(0.55))
         }
     }
 }

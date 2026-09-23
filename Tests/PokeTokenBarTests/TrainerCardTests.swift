@@ -194,4 +194,92 @@ final class TrainerCardTests: XCTestCase {
             XCTAssertFalse(rank.ball.isEmpty, "trainerRankBall missing for \(lang)")
         }
     }
+
+    // MARK: - Visual Evidence Artifact Generator
+
+    @MainActor
+    func testGenerateSampleCardArtifacts() {
+        let outputDir = URL(fileURLWithPath: "/Users/justinjeong/.gemini/antigravity/brain/ac1196f3-8939-4c48-beca-437cd75923fa")
+        guard FileManager.default.fileExists(atPath: outputDir.path) else { return }
+
+        let l = L(.ko)
+        let spriteUrl = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("PokeTokenBar/sprites/149-s.png")
+        let dragoniteSprite = NSImage(contentsOf: spriteUrl)
+
+        let dragoniteData = TrainerCardData(
+            trainerName: "Justin",
+            trainerID: "08421",
+            startDate: "2026.09",
+            todayTokens: 42_800_000,
+            allTimeTokens: 1_420_000_000,
+            pokedexCount: 48,
+            hallOfFameCount: 12,
+            rankBall: "🟣",
+            rankTitle: "마스터볼 개발자",
+            isEgg: false,
+            speciesID: 149,
+            speciesName: "망나뇽",
+            isShiny: false,
+            stageText: "3단계",
+            levelText: "Lv. 55",
+            natureText: "고집스러운",
+            types: ["dragon", "flying"],
+            eggProgressText: nil,
+            spriteImage: dragoniteSprite,
+            accentColor: PokemonTypeColor.color(for: "dragon"),
+            exportDate: "2026.09.22",
+            language: .ko,
+            l: l
+        )
+
+        let renderer = ImageRenderer(content: TrainerCardCanvasView(data: dragoniteData))
+        renderer.scale = 2.0
+        renderer.proposedSize = ProposedViewSize(width: TrainerCardCanvasView.cardWidth, height: TrainerCardCanvasView.cardHeight)
+        if let img = renderer.nsImage,
+           let tiff = img.tiffRepresentation,
+           let rep = NSBitmapImageRep(data: tiff),
+           let png = rep.representation(using: .png, properties: [:]) {
+            try? png.write(to: outputDir.appendingPathComponent("trainer-card-dragonite.png"))
+        }
+
+        let eggUrl = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("PokeTokenBar/sprites/egg.png")
+        let eggSprite = NSImage(contentsOf: eggUrl)
+        let eggData = TrainerCardData(
+            trainerName: "Justin",
+            trainerID: "08421",
+            startDate: "2026.09",
+            todayTokens: 15_200_000,
+            allTimeTokens: 120_000_000,
+            pokedexCount: 8,
+            hallOfFameCount: 1,
+            rankBall: "🔵",
+            rankTitle: "수퍼볼 개발자",
+            isEgg: true,
+            speciesID: nil,
+            speciesName: "포켓몬 알",
+            isShiny: false,
+            stageText: "알",
+            levelText: "알",
+            natureText: nil,
+            types: [],
+            eggProgressText: "10.0M tokens to hatch",
+            spriteImage: eggSprite,
+            accentColor: .orange,
+            exportDate: "2026.09.22",
+            language: .ko,
+            l: l
+        )
+
+        let eggRenderer = ImageRenderer(content: TrainerCardCanvasView(data: eggData))
+        eggRenderer.scale = 2.0
+        eggRenderer.proposedSize = ProposedViewSize(width: TrainerCardCanvasView.cardWidth, height: TrainerCardCanvasView.cardHeight)
+        if let img = eggRenderer.nsImage,
+           let tiff = img.tiffRepresentation,
+           let rep = NSBitmapImageRep(data: tiff),
+           let png = rep.representation(using: .png, properties: [:]) {
+            try? png.write(to: outputDir.appendingPathComponent("trainer-card-egg.png"))
+        }
+    }
 }
