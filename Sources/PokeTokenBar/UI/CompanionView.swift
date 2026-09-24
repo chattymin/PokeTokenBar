@@ -1044,12 +1044,24 @@ private struct DexGridView: View {
 /// Scrollable species + individual page. A Pokédex species may aggregate several catches, so the
 /// picker selects the exact persisted profile while the immutable PokéAPI section stays shared.
 @MainActor
-private struct PokemonDetailView: View {
+struct PokemonDetailView: View {
     let store: CompanionStore
     let species: CompanionStore.DexSpecies
     let onBack: () -> Void
+    private let spriteStore: SpriteStore
     @State private var selectedInstanceID = ""
     @State private var selectedUnownForm: UnownForm?
+    @State private var selectedShiny: Bool?
+
+    init(store: CompanionStore, species: CompanionStore.DexSpecies,
+         onBack: @escaping () -> Void, selectedShiny: Bool? = nil,
+         spriteStore: SpriteStore = .shared) {
+        self.store = store
+        self.species = species
+        self.onBack = onBack
+        self.spriteStore = spriteStore
+        _selectedShiny = State(initialValue: selectedShiny)
+    }
 
     private var formSpecies: [CompanionStore.DexSpecies] {
         species.id == UnownForm.speciesID ? store.unownFormSpecies : []
@@ -1062,8 +1074,16 @@ private struct PokemonDetailView: View {
             ?? forms.first ?? species
     }
 
-    private var individuals: [DexEntry] {
+    private var allIndividuals: [DexEntry] {
         store.pokemonIndividuals(speciesID: species.id, unownForm: displayedSpecies.unownForm)
+    }
+    private var displayedShiny: Bool {
+        if let selectedShiny,
+           selectedShiny ? displayedSpecies.isShiny : displayedSpecies.hasNormal { return selectedShiny }
+        return allIndividuals.first?.isShiny ?? displayedSpecies.isShiny
+    }
+    private var individuals: [DexEntry] {
+        allIndividuals.filter { $0.isShiny == displayedShiny }
     }
     private var individual: DexEntry? {
         individuals.first { $0.id == selectedInstanceID } ?? individuals.first
@@ -1082,8 +1102,12 @@ private struct PokemonDetailView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
                     if species.id == UnownForm.speciesID { unownFormPicker }
+                    if displayedSpecies.hasNormal && displayedSpecies.isShiny { appearancePicker }
                     identityHeader
-                    if individuals.count > 1 { individualPicker }
+                    if !individuals.isEmpty { individualPicker }
+                    else {
+                        Text(store.l.dexAppearancePreview).font(.caption).foregroundStyle(.secondary)
+                    }
                     if let details = store.pokemonDetailsByID[species.id] {
                         if let individual, let profile = individual.profile {
                             individualSection(entry: individual, profile: profile, details: details)
@@ -1124,6 +1148,7 @@ private struct PokemonDetailView: View {
                     Button {
                         selectedUnownForm = form
                         selectedInstanceID = ""
+                        selectedShiny = nil
                     } label: {
                         VStack(spacing: 0) {
                             SpriteView(speciesID: UnownForm.speciesID, size: 28,
@@ -1161,14 +1186,14 @@ private struct PokemonDetailView: View {
         let species = displayedSpecies
         return HStack(spacing: 14) {
             SpriteView(speciesID: species.id, size: 82, animated: true,
-                       shiny: individual?.isShiny ?? species.isShiny, unownForm: species.unownForm)
+                       shiny: displayedShiny, spriteStore: spriteStore, unownForm: species.unownForm)
                 .frame(width: 82, height: 82)
             VStack(alignment: .leading, spacing: 5) {
                 Text(species.name).font(.title3.weight(.bold))
                 Text(store.l.rarityLabel(species.rarity))
                     .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
-                if species.isShiny { Text("✨ \(store.l.dexShinyLabel)").font(.caption2) }
-                if species.isRaising { Text(store.l.dexRaising).font(.caption2).foregroundStyle(Color.accentColor) }
+                if displayedShiny { Text("✨ \(store.l.dexShinyLabel)").font(.caption2) }
+                if let individual, store.isActiveDexEntry(individual) { Text(store.l.dexRaising).font(.caption2).foregroundStyle(Color.accentColor) }
                 let isRepresentative = store.isRepresentative(species)
                 RepresentativeFooterButton(localization: store.l,
                                            isRepresentative: isRepresentative) {
@@ -1179,14 +1204,32 @@ private struct PokemonDetailView: View {
         }
     }
 
+    private var appearancePicker: some View {
+        Picker(store.l.dexAppearance, selection: Binding(
+            get: { displayedShiny }, set: { selectedShiny = $0; selectedInstanceID = "" })) {
+            Text(store.l.dexNormalLabel).tag(false)
+            Text("✨ \(store.l.dexShinyLabel)").tag(true)
+        }
+        .pickerStyle(.segmented)
+    }
+
     private var individualPicker: some View {
         Picker(store.l.pokemonIndividual, selection: Binding(
             get: { individual?.id ?? "" }, set: { selectedInstanceID = $0 })) {
             ForEach(Array(individuals.enumerated()), id: \.element.id) { index, entry in
-                Text("#\(index + 1) · Lv. \(entry.profile?.level ?? 5)").tag(entry.id)
+                Text(individualLabel(entry, index: index)).tag(entry.id)
             }
         }
         .pickerStyle(.menu)
+    }
+
+    private func individualLabel(_ entry: DexEntry, index: Int) -> String {
+        let appearance = entry.isShiny ? "✨ \(store.l.dexShinyLabel)" : store.l.dexNormalLabel
+        let date = entry.caughtAt.map {
+            $0.formatted(Date.FormatStyle(date: .numeric, time: .omitted)
+                .locale(Locale(identifier: store.language.rawValue)))
+        } ?? (store.isActiveDexEntry(entry) ? store.l.dexRaising : "—")
+        return "#\(index + 1) · \(appearance) · Lv. \(entry.profile?.level ?? 5) · \(date)"
     }
 
     private func individualSection(entry: DexEntry, profile: PokemonProfile,

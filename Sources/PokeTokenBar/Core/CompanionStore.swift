@@ -386,6 +386,7 @@ final class CompanionStore {
         /// 이 종이 현재 키우는 개체의 **현재 형태**인가. 지나온 진화 단계에는 서지 않는다.
         let isRaising: Bool
         var unownForm: UnownForm? = nil
+        var hasNormal = false
 
         /// Species IDs remain Pokédex numbers; selection also includes the Unown letter.
         var collectionID: String {
@@ -412,6 +413,7 @@ final class CompanionStore {
         let rarity: Rarity
         var names: [String: String]?
         var isShiny = false
+        var hasNormal = false
     }
 
     /// 도감 목록 — 보유 종만, 도감 번호 오름차순.
@@ -436,7 +438,7 @@ final class CompanionStore {
                 let key = DexKey(id, unownForm: entry.unownForm, groupUnownForms: groupUnownForms)
                 var a = acc[key] ?? DexAccumulator(rarity: entry.rarity)
                 if let n = entry.names?[id] { a.names = n }   // 이름 없는 구버전 항목이 덮어쓰지 않게
-                if entry.isShiny { a.isShiny = true }
+                if entry.isShiny { a.isShiny = true } else { a.hasNormal = true }
                 acc[key] = a
             }
         }
@@ -447,7 +449,7 @@ final class CompanionStore {
                 let key = DexKey(id, unownForm: active.unownForm, groupUnownForms: groupUnownForms)
                 var a = acc[key] ?? DexAccumulator(rarity: active.rarity)
                 if let n = currentLine?.names[id] { a.names = n }
-                if currentIsShiny { a.isShiny = true }   // 위장 중 숨김 규칙 재사용
+                if currentIsShiny { a.isShiny = true } else { a.hasNormal = true }   // 위장 중 숨김 규칙 재사용
                 acc[key] = a
             }
         }
@@ -462,7 +464,7 @@ final class CompanionStore {
                 rarity: a.rarity,
                 isShiny: a.isShiny,
                 isRaising: key.speciesID == state.active?.currentID && (!groupUnownForms || key.unownForm == currentUnownForm),
-                unownForm: key.unownForm)
+                unownForm: key.unownForm, hasNormal: a.hasNormal)
         }
     }
 

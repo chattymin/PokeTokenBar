@@ -25,6 +25,16 @@ read_when:
 
 ## 판정·데이터
 
+- **Species ownership is not an individual's appearance.** A species-level shiny flag means
+  at least one shiny was collected; using it for the selected individual's badge mislabeled
+  normal catches, and earlier evolution pages offered no way to choose their normal appearance.
+  Track normal and shiny ownership separately, let detail pages select an owned appearance,
+  and keep the selected profile, sprite, and badge consistent. Catch-log rows must always use
+  their own persisted color. Existing tests checked aggregate ownership and reload predicates,
+  while the catch-log rendering fixture contained only normal individuals; they did not exercise
+  mixed-color records together. Cover both acquisition orders and native rendering with distinct
+  synthetic sprite colors, without modifying user saves or bundling third-party artwork.
+
 - **Localized metadata names must not replace persistent API identifiers.** The dex rendered
   ability, move, and type slugs directly, while existing tests covered species names and profile
   metadata rather than these visible labels. All five detail-view name sites now use a shared
