@@ -148,8 +148,8 @@ final class CompanionStore {
         defaults.set(clamped, forKey: "shopDifficulty")
     }
 
-    /// 난이도를 반영한 알 부화 임계.
-    private var eggHatchThreshold: Int {
+    /// 난이도를 반영한 알 부화 임계. 첫 실행 안내 문구도 이 값을 보여준다.
+    var eggHatchThreshold: Int {
         PokemonBalance.scaled(PokemonBalance.eggHatchThreshold, by: growthDifficulty)
     }
 

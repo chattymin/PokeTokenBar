@@ -607,7 +607,7 @@ struct CompanionHeader: View {
                         }
                         // 첫 실행(적립 0) — 정적 알 앞에서 "고장났나" 오해 방지용 한 줄 안내
                         if !store.eggStarted {
-                            Text(store.l.eggFirstRunHint)
+                            Text(store.l.eggFirstRunHint(TokenFormatter.compact(store.eggHatchThreshold)))
                                 .font(.caption2).foregroundStyle(.tertiary)
                                 .fixedSize(horizontal: false, vertical: true)
                         }

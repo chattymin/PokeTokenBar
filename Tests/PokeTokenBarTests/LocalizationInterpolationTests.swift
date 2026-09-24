@@ -82,6 +82,7 @@ final class LocalizationInterpolationTests: XCTestCase {
             // Companion progress & status / 컴패니언 진행 · 상태
             expect(lang, "stage", l.stage(4242, 1717), "4242", "1717")
             expect(lang, "eggToHatch", l.eggToHatch(a), a)
+            expect(lang, "eggFirstRunHint", l.eggFirstRunHint(a), a)
             expect(lang, "toNextEvolution", l.toNextEvolution(a), a)
             expect(lang, "toGraduation", l.toGraduation(a), a)
             expect(lang, "growthBoost", l.growthBoost(4242), "4242")
