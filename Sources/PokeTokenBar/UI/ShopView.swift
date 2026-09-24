@@ -27,6 +27,7 @@ struct ShopView: View {
                 }
             }
         }
+        .scrollIndicators(.never)
         .frame(height: 520)
     }
 

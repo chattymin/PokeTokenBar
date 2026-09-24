@@ -18,6 +18,7 @@ struct BagView: View {
                     }
                 }
             }
+            .scrollIndicators(.never)
             .frame(height: 520)
         }
     }
