@@ -655,6 +655,8 @@ struct CompanionState: Codable, Sendable {
     var candyGrantTier: [String: Int] = [:]
     // 사탕 지급 첫 실행 시드 완료 — 업데이트 직후 이미 100%였던 창의 소급 지급 차단.
     var candyFeatureSeeded = false
+    /// Battle team in slot order, as `PokemonProfile.instanceID`s. IDs survive graduation and release.
+    var battleTeam: [String] = []
 
     init() {}
 
@@ -694,6 +696,7 @@ struct CompanionState: Codable, Sendable {
         inventory          = c.lenient([String: Int].self, forKey: .inventory, default: [:])
         candyGrantTier     = c.lenient([String: Int].self, forKey: .candyGrantTier, default: [:])
         candyFeatureSeeded = c.lenient(Bool.self, forKey: .candyFeatureSeeded, default: false)
+        battleTeam         = c.lenient([String].self, forKey: .battleTeam, default: [])
     }
 
     /// 졸업 기록 또는 현재 개체가 실제로 도달한 단계에 이 종이 포함되는가.
@@ -743,6 +746,14 @@ struct CompanionState: Codable, Sendable {
 
     /// 대표 포켓몬은 사용자가 현재 보유한 종만 가리킨다. Fresh Egg·메타몽 리빌·손편집 세이브가
     /// 유령 종을 메뉴바와 플로팅 펫에 영구히 남기지 않게 한다.
+    /// Imports and hand edits can name individuals this save does not own, repeat one, or exceed six.
+    mutating func reconcileBattleTeam() {
+        let owned = Set(([active?.profile] + dex.map(\.profile)).compactMap { $0?.instanceID })
+        var seen = Set<String>()
+        battleTeam = Array(battleTeam.filter { owned.contains($0) && seen.insert($0).inserted }
+            .prefix(BattleTeam.maxSize))
+    }
+
     mutating func reconcileRepresentativeSelection() {
         guard let selected = representativeSpeciesID else {
             representativeUnownForm = nil

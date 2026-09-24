@@ -1508,3 +1508,25 @@ struct L {
           "Du hast das Token-Limit für \(window) ausgeschöpft. Eine Belohnung für deinen Einsatz – verwende sie, um dein Pokémon zu entwickeln!")
     }
 }
+
+// MARK: Battle
+extension L {
+    var battle: String { t("배틀", "Battle", "バトル", "Combate", "Combat", "Batalha", "Kampf") }
+    func battleTeamCount(_ count: Int) -> String {
+        t("팀 \(count)/6", "Team \(count)/6", "チーム \(count)/6", "Equipo \(count)/6", "Équipe \(count)/6", "Equipe \(count)/6", "Team \(count)/6")
+    }
+    var battleTeamEmpty: String { t("아래에서 포켓몬을 최대 6마리 골라 팀을 꾸리세요.", "Pick up to 6 Pokémon below to build your team.", "下からポケモンを最大6匹選んでチームを組もう。", "Elige hasta 6 Pokémon abajo para formar tu equipo.", "Choisis jusqu’à 6 Pokémon ci-dessous pour former ton équipe.", "Escolha até 6 Pokémon abaixo para montar sua equipe.", "Wähle unten bis zu 6 Pokémon für dein Team.") }
+    var battleYourPokemon: String { t("내 포켓몬", "Your Pokémon", "手持ちのポケモン", "Tus Pokémon", "Tes Pokémon", "Seus Pokémon", "Deine Pokémon") }
+    var battlePickHint: String { t("눌러서 추가하거나 빼세요. 팀원을 우클릭하면 선두로 지정할 수 있어요.", "Click to add or remove. Right-click a team member to make it the lead.", "クリックで追加・解除。メンバーを右クリックすると先頭にできます。", "Haz clic para añadir o quitar. Clic derecho en un miembro para ponerlo primero.", "Clique pour ajouter ou retirer. Clic droit sur un membre pour le mettre en tête.", "Clique para adicionar ou remover. Clique com o botão direito para colocar na frente.", "Klicke zum Hinzufügen oder Entfernen. Rechtsklick auf ein Mitglied macht es zum Starter.") }
+    var battleLead: String { t("선두", "Lead", "先頭", "Primero", "En tête", "Líder", "Starter") }
+    var battleMakeLead: String { t("선두로 지정", "Make lead", "先頭にする", "Poner primero", "Mettre en tête", "Colocar na frente", "Zum Starter machen") }
+    var battleRemove: String { t("팀에서 빼기", "Remove from team", "チームから外す", "Quitar del equipo", "Retirer de l’équipe", "Remover da equipe", "Aus dem Team entfernen") }
+    var battleAdd: String { t("팀에 추가", "Add to team", "チームに入れる", "Añadir al equipo", "Ajouter à l’équipe", "Adicionar à equipe", "Zum Team hinzufügen") }
+    var battleTeamFull: String { t("팀이 가득 찼어요 (6/6).", "Your team is full (6/6).", "チームがいっぱいです（6/6）。", "Tu equipo está completo (6/6).", "Ton équipe est complète (6/6).", "Sua equipe está completa (6/6).", "Dein Team ist voll (6/6).") }
+    var battlePreparing: String { t("배틀 데이터 준비 중…", "Preparing battle data…", "バトルデータを準備中…", "Preparando datos de combate…", "Préparation des données de combat…", "Preparando dados de batalha…", "Kampfdaten werden vorbereitet…") }
+    var battleReady: String { t("배틀 준비 완료", "Ready for battle", "バトル準備OK", "Listo para combatir", "Prêt au combat", "Pronto para batalhar", "Bereit zum Kampf") }
+    var battleDataFailed: String { t("배틀 데이터를 불러오지 못했어요. 연결을 확인하세요.", "Couldn’t load battle data. Check your connection.", "バトルデータを読み込めませんでした。接続を確認してください。", "No se pudieron cargar los datos de combate. Revisa tu conexión.", "Impossible de charger les données de combat. Vérifie ta connexion.", "Não foi possível carregar os dados de batalha. Verifique sua conexão.", "Kampfdaten konnten nicht geladen werden. Prüfe deine Verbindung.") }
+    var battleComingSoon: String { t("근처 트레이너와의 배틀이 곧 추가돼요.", "Battles with trainers nearby are coming soon.", "近くのトレーナーとのバトルはもうすぐ登場。", "Pronto podrás combatir con entrenadores cercanos.", "Les combats avec des dresseurs à proximité arrivent bientôt.", "Batalhas com treinadores por perto chegam em breve.", "Kämpfe gegen Trainer in der Nähe kommen bald.") }
+    var battleNoCandidates: String { t("먼저 알을 부화시키면 팀에 넣을 수 있어요.", "Hatch your egg first — then it can join your team.", "まずタマゴをかえすと、チームに入れられます。", "Primero haz eclosionar tu huevo para añadirlo al equipo.", "Fais d’abord éclore ton œuf pour l’ajouter à l’équipe.", "Choque seu ovo primeiro para colocá-lo na equipe.", "Brüte zuerst dein Ei aus, dann kann es ins Team.") }
+    func battleLevel(_ level: Int) -> String { "Lv. \(level)" }
+}

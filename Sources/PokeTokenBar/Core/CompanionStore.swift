@@ -236,6 +236,45 @@ final class CompanionStore {
             && (species.unownForm == nil || state.representativeUnownForm == species.unownForm)
     }
 
+    // MARK: Battle team
+
+    /// Every individual that can battle: the one being raised first, then the catch log.
+    var battleCandidates: [DexEntry] { dexEntriesSorted.filter { $0.profile != nil } }
+
+    var battleTeamEntries: [DexEntry] {
+        let byID = Dictionary(dexEntries.compactMap { entry in entry.profile.map { ($0.instanceID, entry) } },
+                              uniquingKeysWith: { first, _ in first })
+        return state.battleTeam.compactMap { byID[$0] }
+    }
+
+    func battleTeamSlot(_ entry: DexEntry) -> Int? {
+        guard let id = entry.profile?.instanceID else { return nil }
+        return state.battleTeam.firstIndex(of: id)
+    }
+
+    var isBattleTeamFull: Bool { state.battleTeam.count >= BattleTeam.maxSize }
+
+    /// Adds the individual, or removes it when already in the team. False when the team is full.
+    @discardableResult
+    func toggleBattleTeamMember(_ entry: DexEntry) -> Bool {
+        guard let id = entry.profile?.instanceID else { return false }
+        if let index = state.battleTeam.firstIndex(of: id) {
+            state.battleTeam.remove(at: index)
+        } else {
+            guard !isBattleTeamFull else { return false }
+            state.battleTeam.append(id)
+        }
+        save()
+        return true
+    }
+
+    func makeBattleLead(_ entry: DexEntry) {
+        guard let id = entry.profile?.instanceID, let index = state.battleTeam.firstIndex(of: id), index > 0 else { return }
+        state.battleTeam.remove(at: index)
+        state.battleTeam.insert(id, at: 0)
+        save()
+    }
+
     /// Settings describe the selected form, even though the main Pokédex aggregates the species.
     var representativeDexSpecies: DexSpecies? {
         let candidates = representativeSpeciesID == UnownForm.speciesID ? unownFormSpecies : dexSpecies
