@@ -1530,3 +1530,89 @@ extension L {
     var battleNoCandidates: String { t("먼저 알을 부화시키면 팀에 넣을 수 있어요.", "Hatch your egg first — then it can join your team.", "まずタマゴをかえすと、チームに入れられます。", "Primero haz eclosionar tu huevo para añadirlo al equipo.", "Fais d’abord éclore ton œuf pour l’ajouter à l’équipe.", "Choque seu ovo primeiro para colocá-lo na equipe.", "Brüte zuerst dein Ei aus, dann kann es ins Team.") }
     func battleLevel(_ level: Int) -> String { "Lv. \(level)" }
 }
+
+// MARK: Battle — match
+extension L {
+    var battlePractice: String { t("연습 배틀", "Practice battle", "練習バトル", "Combate de práctica", "Combat d’entraînement", "Batalha de treino", "Übungskampf") }
+    var battleFindingOpponent: String { t("상대를 찾는 중…", "Finding an opponent…", "相手を探しています…", "Buscando rival…", "Recherche d’un adversaire…", "Procurando adversário…", "Gegner wird gesucht…") }
+    var battleSwitch: String { t("교체", "Switch", "入れ替え", "Cambiar", "Changer", "Trocar", "Wechseln") }
+    var battleForfeit: String { t("기권", "Forfeit", "降参", "Rendirse", "Abandonner", "Desistir", "Aufgeben") }
+    var battleForfeitConfirm: String { t("정말 기권할까요?", "Forfeit this battle?", "本当に降参しますか？", "¿Rendirte en este combate?", "Abandonner ce combat ?", "Desistir desta batalha?", "Diesen Kampf aufgeben?") }
+    var battleBack: String { t("뒤로", "Back", "戻る", "Atrás", "Retour", "Voltar", "Zurück") }
+    var battleClose: String { t("닫기", "Close", "閉じる", "Cerrar", "Fermer", "Fechar", "Schließen") }
+    var battleRematch: String { t("다시 하기", "Rematch", "再戦", "Revancha", "Revanche", "Revanche", "Revanche") }
+    var battleChooseNext: String { t("다음 포켓몬을 고르세요.", "Choose your next Pokémon.", "次のポケモンを選んでください。", "Elige tu siguiente Pokémon.", "Choisis ton prochain Pokémon.", "Escolha seu próximo Pokémon.", "Wähle dein nächstes Pokémon.") }
+    var battleUnsupportedMove: String { t("아직 지원하지 않는 기술이에요.", "This move isn’t supported yet.", "この技はまだ使えません。", "Este movimiento aún no es compatible.", "Cette capacité n’est pas encore prise en charge.", "Este golpe ainda não é suportado.", "Diese Attacke wird noch nicht unterstützt.") }
+    var battleWon: String { t("승리했다!", "You won!", "勝った！", "¡Ganaste!", "Tu as gagné !", "Você venceu!", "Du hast gewonnen!") }
+    var battleLost: String { t("패배했다…", "You lost…", "負けてしまった…", "Perdiste…", "Tu as perdu…", "Você perdeu…", "Du hast verloren…") }
+    var battleDraw: String { t("무승부!", "It’s a draw!", "引き分け！", "¡Empate!", "Match nul !", "Empate!", "Unentschieden!") }
+    var battleSuperEffective: String { t("효과가 굉장했다!", "It’s super effective!", "こうかは ばつぐんだ！", "¡Es muy eficaz!", "C’est super efficace !", "É super efetivo!", "Das ist sehr effektiv!") }
+    var battleNotVeryEffective: String { t("효과가 별로인 듯하다…", "It’s not very effective…", "こうかは いまひとつの ようだ…", "No es muy eficaz…", "Ce n’est pas très efficace…", "Não é muito efetivo…", "Das ist nicht sehr effektiv…") }
+    var battleCritical: String { t("급소에 맞았다!", "A critical hit!", "きゅうしょに あたった！", "¡Un golpe crítico!", "Coup critique !", "Um acerto crítico!", "Ein Volltreffer!") }
+    var battleFailed: String { t("하지만 실패했다!", "But it failed!", "しかし うまく きまらなかった！", "¡Pero falló!", "Mais cela échoue !", "Mas falhou!", "Es schlägt fehl!") }
+    var battleYouForfeited: String { t("기권했다.", "You forfeited.", "降参した。", "Te rendiste.", "Tu as abandonné.", "Você desistiu.", "Du hast aufgegeben.") }
+    var battleOpponentForfeited: String { t("상대가 기권했다!", "The opponent forfeited!", "相手が降参した！", "¡El rival se rindió!", "L’adversaire abandonne !", "O adversário desistiu!", "Der Gegner gibt auf!") }
+
+    /// The opposing side's Pokémon, used as the subject of every other battle line.
+    func battleOpposing(_ name: String) -> String {
+        t("상대 \(name)", "the opposing \(name)", "あいての \(name)", "\(name) rival", "\(name) adverse", "\(name) adversário", "\(name) (Gegner)")
+    }
+    func battleWhatWillDo(_ name: String) -> String {
+        t("\(name)는 무엇을 할까?", "What will \(name) do?", "\(name)は どうする？", "¿Qué hará \(name)?", "Que doit faire \(name) ?", "O que \(name) vai fazer?", "Was soll \(name) tun?")
+    }
+    func battleGo(_ name: String) -> String {
+        t("가랏! \(name)!", "Go! \(name)!", "ゆけっ！ \(name)！", "¡Adelante, \(name)!", "\(name), go !", "Vai, \(name)!", "Los, \(name)!")
+    }
+    func battleOpponentSentOut(_ name: String) -> String {
+        t("상대는 \(name)을(를) 내보냈다!", "The opponent sent out \(name)!", "あいては \(name)を くりだした！", "¡El rival envió a \(name)!", "L’adversaire envoie \(name) !", "O adversário enviou \(name)!", "Der Gegner schickt \(name) in den Kampf!")
+    }
+    func battleUsed(_ subject: String, _ move: String) -> String {
+        t("\(subject)의 \(move)!", "\(subject) used \(move)!", "\(subject)の \(move)！", "¡\(subject) usó \(move)!", "\(subject) utilise \(move) !", "\(subject) usou \(move)!", "\(subject) setzt \(move) ein!")
+    }
+    func battleMissed(_ subject: String) -> String {
+        t("\(subject)의 공격은 빗나갔다!", "\(subject)’s attack missed!", "\(subject)の こうげきは はずれた！", "¡El ataque de \(subject) falló!", "L’attaque de \(subject) échoue !", "O ataque de \(subject) errou!", "Die Attacke von \(subject) ging daneben!")
+    }
+    func battleNoEffect(_ subject: String) -> String {
+        t("\(subject)에게는 효과가 없는 것 같다…", "It doesn’t affect \(subject)…", "\(subject)には こうかが ないようだ…", "No afecta a \(subject)…", "Ça n’affecte pas \(subject)…", "Não afeta \(subject)…", "Hat keine Wirkung auf \(subject)…")
+    }
+    func battleFainted(_ subject: String) -> String {
+        t("\(subject)는 쓰러졌다!", "\(subject) fainted!", "\(subject)は たおれた！", "¡\(subject) se debilitó!", "\(subject) est K.O. !", "\(subject) desmaiou!", "\(subject) wurde besiegt!")
+    }
+    func battleRecoil(_ subject: String) -> String {
+        t("\(subject)는 반동으로 데미지를 입었다!", "\(subject) is damaged by recoil!", "\(subject)は はんどうで ダメージを うけた！", "¡\(subject) se hirió por el retroceso!", "\(subject) est blessé par le contrecoup !", "\(subject) sofreu dano de recuo!", "\(subject) erleidet Rückstoßschaden!")
+    }
+    func battleHealed(_ subject: String) -> String {
+        t("\(subject)의 체력이 회복되었다!", "\(subject) regained health!", "\(subject)の たいりょくが かいふくした！", "¡\(subject) recuperó salud!", "\(subject) récupère des PV !", "\(subject) recuperou energia!", "\(subject) hat KP aufgefüllt!")
+    }
+    func battleNoMovesLeft(_ subject: String) -> String {
+        t("\(subject)는 쓸 수 있는 기술이 없다!", "\(subject) has no moves left!", "\(subject)は だせる わざが ない！", "¡\(subject) no tiene movimientos!", "\(subject) n’a plus de capacité !", "\(subject) não tem mais golpes!", "\(subject) hat keine Attacken mehr!")
+    }
+    /// `change` is the applied stage delta; 1 / 2 / 3+ pick the main-series wording.
+    func battleStatChanged(_ subject: String, _ stat: String, _ change: Int) -> String {
+        let size = min(3, abs(change))
+        if change > 0 {
+            switch size {
+            case 1: return t("\(subject)의 \(stat)이(가) 올라갔다!", "\(subject)’s \(stat) rose!", "\(subject)の \(stat)が あがった！", "¡\(stat) de \(subject) subió!", "\(stat) de \(subject) augmente !", "\(stat) de \(subject) aumentou!", "\(stat) von \(subject) steigt!")
+            case 2: return t("\(subject)의 \(stat)이(가) 크게 올라갔다!", "\(subject)’s \(stat) rose sharply!", "\(subject)の \(stat)が ぐーんと あがった！", "¡\(stat) de \(subject) subió mucho!", "\(stat) de \(subject) augmente beaucoup !", "\(stat) de \(subject) aumentou muito!", "\(stat) von \(subject) steigt stark!")
+            default: return t("\(subject)의 \(stat)이(가) 매우 크게 올라갔다!", "\(subject)’s \(stat) rose drastically!", "\(subject)の \(stat)が ぐぐーんと あがった！", "¡\(stat) de \(subject) subió muchísimo!", "\(stat) de \(subject) augmente énormément !", "\(stat) de \(subject) aumentou drasticamente!", "\(stat) von \(subject) steigt drastisch!")
+            }
+        }
+        switch size {
+        case 1: return t("\(subject)의 \(stat)이(가) 떨어졌다!", "\(subject)’s \(stat) fell!", "\(subject)の \(stat)が さがった！", "¡\(stat) de \(subject) bajó!", "\(stat) de \(subject) baisse !", "\(stat) de \(subject) diminuiu!", "\(stat) von \(subject) sinkt!")
+        case 2: return t("\(subject)의 \(stat)이(가) 크게 떨어졌다!", "\(subject)’s \(stat) harshly fell!", "\(subject)の \(stat)が がくっと さがった！", "¡\(stat) de \(subject) bajó mucho!", "\(stat) de \(subject) baisse beaucoup !", "\(stat) de \(subject) diminuiu muito!", "\(stat) von \(subject) sinkt stark!")
+        default: return t("\(subject)의 \(stat)이(가) 매우 크게 떨어졌다!", "\(subject)’s \(stat) severely fell!", "\(subject)の \(stat)が がくーんと さがった！", "¡\(stat) de \(subject) bajó muchísimo!", "\(stat) de \(subject) baisse énormément !", "\(stat) de \(subject) diminuiu drasticamente!", "\(stat) von \(subject) sinkt drastisch!")
+        }
+    }
+    func battleStatLimit(_ subject: String, _ stat: String, rising: Bool) -> String {
+        rising
+            ? t("\(subject)의 \(stat)은(는) 더 올라가지 않는다!", "\(subject)’s \(stat) won’t go any higher!", "\(subject)の \(stat)は もう あがらない！", "¡\(stat) de \(subject) no puede subir más!", "\(stat) de \(subject) ne peut plus augmenter !", "\(stat) de \(subject) não pode aumentar mais!", "\(stat) von \(subject) kann nicht weiter steigen!")
+            : t("\(subject)의 \(stat)은(는) 더 떨어지지 않는다!", "\(subject)’s \(stat) won’t go any lower!", "\(subject)の \(stat)は もう さがらない！", "¡\(stat) de \(subject) no puede bajar más!", "\(stat) de \(subject) ne peut plus baisser !", "\(stat) de \(subject) não pode diminuir mais!", "\(stat) von \(subject) kann nicht weiter sinken!")
+    }
+    func battleStatLabel(_ stat: String) -> String {
+        switch stat {
+        case "accuracy": return t("명중률", "accuracy", "めいちゅうりつ", "Precisión", "Précision", "Precisão", "Genauigkeit")
+        case "evasion": return t("회피율", "evasiveness", "かいひりつ", "Evasión", "Esquive", "Evasão", "Fluchtwert")
+        default: return statLabel(stat)
+        }
+    }
+}

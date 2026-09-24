@@ -39,6 +39,9 @@ LOGIC_CORE=(
   "Sources/PokeTokenBar/Core/UsageRecap.swift"
   "Sources/PokeTokenBar/Core/BattleMove.swift"
   "Sources/PokeTokenBar/Core/BattleSnapshot.swift"
+  "Sources/PokeTokenBar/Core/BattleEngine.swift"
+  "Sources/PokeTokenBar/Core/BattleCPU.swift"
+  "Sources/PokeTokenBar/Core/BattleSession.swift"
 )
 
 echo "▶ swift test (--enable-code-coverage)"
