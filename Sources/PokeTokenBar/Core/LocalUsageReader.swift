@@ -23,8 +23,8 @@ enum LocalUsageReader {
 
     struct Entry: Sendable, Codable {
         let id: String
-        let date: Date
-        let localDay: String
+        var date: Date
+        var localDay: String
         let model: String
         let input, output, cacheWrite, cacheRead: Int
         /// Prefer a valid source-recorded amount (including zero) to model-table estimates.
@@ -34,8 +34,15 @@ enum LocalUsageReader {
         /// The source cannot reconstruct model/request token buckets for a price-table estimate.
         var costUnavailable: Bool? = nil
         /// Claude only: the session the turn belongs to, from the transcript path. Lets usage be split
-        /// between Claude accounts (`ClaudeAccountUsageAttribution`).
+        /// between Claude accounts (`ClaudeAccountUsageAttribution`). Kept for old cache blobs.
         var sessionID: String? = nil
+        /// Claude only: every transcript session that contained this turn. A branch can replay the
+        /// same turn under a new session id, so global dedup must retain all provenance for account
+        /// attribution instead of whichever file happened to be scanned first.
+        var sessionIDs: [String]? = nil
+        var claudeSessionIDs: [String] {
+            Array(Set((sessionIDs ?? []) + (sessionID.map { [$0] } ?? []))).sorted()
+        }
         var total: Int { input + output + cacheWrite + cacheRead }
     }
 
@@ -364,12 +371,23 @@ enum LocalUsageReader {
 
     /// 같은 `(message.id, requestId)` 가 스트리밍/재개로 여러 번 로깅될 때 cacheRead/input 은 고정이나
     /// output 은 증가하므로, **id 별 total 이 가장 큰(=완성된) 항목**을 남긴다(전역 dedup).
+    /// 포크가 같은 턴을 더 늦은 시각으로 다시 기록할 수 있으므로, 턴 시각은 중복 중 가장 이른 값을 보존한다.
     /// (first-occurrence 를 남기면 부분 output 만 잡혀 비용이 크게 과소집계됨.)
     static func dedupKeepMax(_ entries: [Entry]) -> [Entry] {
         var byID: [String: Entry] = [:]
         for e in entries {
-            if let ex = byID[e.id] { if e.total > ex.total { byID[e.id] = e } }
-            else { byID[e.id] = e }
+            guard let existing = byID[e.id] else {
+                byID[e.id] = e
+                continue
+            }
+            var kept = e.total > existing.total ? e : existing
+            let earliest = e.date < existing.date ? e : existing
+            kept.date = earliest.date
+            kept.localDay = earliest.localDay
+            let sessions = Array(Set(existing.claudeSessionIDs + e.claudeSessionIDs)).sorted()
+            kept.sessionID = sessions.first
+            kept.sessionIDs = sessions.count > 1 ? sessions : nil
+            byID[e.id] = kept
         }
         return Array(byID.values)
     }
