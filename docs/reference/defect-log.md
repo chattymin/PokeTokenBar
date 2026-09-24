@@ -575,6 +575,16 @@ read_when:
   (출발할 때 봐야 할 시계를 도착해서 보는 격). 가드를 넣을 땐 그 함수 위의 await 까지 거슬러 확인하고,
   회귀 테스트도 **그 await 를 실제로 지나는 진입점**으로 써라 — `hatch(baseID:)` 경로 테스트는
   `chooseBase()` 를 안 지나 통과하면서 아무것도 지키지 않았다(`testImportDuringSpeciesRollDiscardsTheHatch`).
+- **Order-sensitive delivery goes through the main queue, not `Task { @MainActor }`.** Tasks carry no
+  FIFO guarantee, and battle lockstep breaks if a peer's hello, team or moves are handled out of order.
+  `MultipeerProxy.onMain` and `LoopbackTransport` use `DispatchQueue.main.async` + `assumeIsolated`.
+- **"The pending await will throw it" is not a reason to drop an event.** A battle ignored a peer's
+  forfeit while waiting for that peer's move, assuming the wait would fail — but the move had already
+  resumed the continuation, so the wait succeeded and the forfeit vanished (peer clicks Forfeit right
+  after choosing). Record interrupts whenever a turn is in flight and apply them after it; make the
+  apply step idempotent instead of guessing which path will see the event. The notification hop was a
+  `Task` too, so the test finished before it ran: deliver interrupts synchronously.
+  Guard: `testForfeitArrivingDuringPlaybackIsAppliedAfterwards`.
 
 ## 프로세스·인스턴스
 

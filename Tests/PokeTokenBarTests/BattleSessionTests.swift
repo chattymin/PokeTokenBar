@@ -19,12 +19,16 @@ private func mon(_ id: String, hp: Int = 100, speed: Int = 50, types: [String] =
 private final class SuspendingOpponent: BattleOpponent {
     private var continuation: CheckedContinuation<Void, Never>?
     private(set) var waiting = false
-    func action(in state: BattleState, side: BattleSide) async throws -> BattleAction {
+    var supportsRematch: Bool { true }
+    func exchange(_ mine: BattleAction, in state: BattleState, side: BattleSide) async throws -> BattleAction {
         waiting = true
         await withCheckedContinuation { continuation = $0 }
         return .move(0)
     }
+    func sendReplacement(_ index: Int, in state: BattleState) async throws {}
     func replacement(in state: BattleState, side: BattleSide) async throws -> Int { state.switchTargets(for: side)[0] }
+    func notifyForfeit() {}
+    func close() {}
     func release() { continuation?.resume(); continuation = nil }
 }
 
@@ -35,11 +39,15 @@ private final class ScriptedOpponent: BattleOpponent {
     var actions: [BattleAction]
     var fails = false
     init(_ actions: [BattleAction]) { self.actions = actions }
-    func action(in state: BattleState, side: BattleSide) async throws -> BattleAction {
-        if fails { throw URLError(.networkConnectionLost) }
+    var supportsRematch: Bool { true }
+    func exchange(_ mine: BattleAction, in state: BattleState, side: BattleSide) async throws -> BattleAction {
+        if fails { throw BattleLinkError.disconnected }
         return actions.isEmpty ? .move(0) : actions.removeFirst()
     }
+    func sendReplacement(_ index: Int, in state: BattleState) async throws {}
     func replacement(in state: BattleState, side: BattleSide) async throws -> Int { state.switchTargets(for: side)[0] }
+    func notifyForfeit() {}
+    func close() {}
 }
 
 final class BattleCPUTests: XCTestCase {
@@ -189,7 +197,7 @@ final class BattleSessionTests: XCTestCase {
         await t.start()
         await t.choose(.move(0))
         XCTAssertEqual(t.outcome, .won)
-        XCTAssertEqual(t.log.last, "The opponent forfeited!")
+        XCTAssertEqual(t.log.last, "The opponent left the battle. You win!")
     }
 
     func testRematchStartsFreshWithTheSameTeams() async throws {
@@ -235,10 +243,9 @@ final class BattleSessionTests: XCTestCase {
         XCTAssertTrue(s.isPlaying)
         XCTAssertFalse(s.canChoose)
         await s.choose(.switchTo(1))
-        await s.forfeit()
         await s.rematch()
-        XCTAssertNil(s.outcome, "forfeit is ignored while a turn plays")
-        XCTAssertEqual(s.log.count, 2, "rematch is ignored while a turn plays")
+        XCTAssertTrue(s.canForfeit, "forfeiting stays possible while waiting on the opponent")
+        XCTAssertEqual(s.log.count, 2, "a second choice and a rematch are ignored while a turn plays")
 
         s.abandon()
         opponent.release()

@@ -34,6 +34,8 @@ cat > "$APP/Contents/Info.plist" <<PLIST
     <key>CFBundleIconFile</key><string>AppIcon</string>
     <key>LSUIElement</key><true/>
     <key>NSHighResolutionCapable</key><true/>
+    <key>NSLocalNetworkUsageDescription</key><string>PokeTokenBar finds trainers nearby so you can challenge them to a Pokémon battle.</string>
+    <key>NSBonjourServices</key><array><string>_ptb-battle._tcp</string><string>_ptb-battle._udp</string></array>
 </dict>
 </plist>
 PLIST

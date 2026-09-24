@@ -39,6 +39,48 @@ struct BattleTeam: Codable, Sendable, Equatable {
         }
         self.members = members
     }
+
+    private enum CodingKeys: String, CodingKey { case members }
+
+    /// A team decoded from a peer is untrusted: the same invariants as the local init, plus value ranges
+    /// the engine relies on (a zero-HP or seven-member team would otherwise reach it).
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let members = try container.decode([BattlePokemon].self, forKey: .members)
+        guard members.allSatisfy(\.isPlausible) else {
+            throw DecodingError.dataCorruptedError(forKey: .members, in: container, debugDescription: "implausible member")
+        }
+        do {
+            try self.init(members: members)
+        } catch {
+            throw DecodingError.dataCorruptedError(forKey: .members, in: container, debugDescription: "\(error)")
+        }
+    }
+}
+
+extension BattlePokemon {
+    var isPlausible: Bool {
+        let statValues = [stats.hp, stats.attack, stats.defense, stats.specialAttack, stats.specialDefense, stats.speed]
+        guard (1...64).contains(instanceID.count), (1...100).contains(level) else { return false }
+        guard statValues.allSatisfy({ (1...9_999).contains($0) }) else { return false }
+        guard (1...2).contains(types.count), types.allSatisfy({ (1...20).contains($0.count) }) else { return false }
+        guard moves.count <= 4, moves.allSatisfy(\.isPlausible) else { return false }
+        return names.count <= 64 && names.allSatisfy { $0.key.count <= 16 && $0.value.count <= 64 }
+    }
+}
+
+extension BattleMove {
+    /// The ranges `init(dto:)` clamps to; anything outside them did not come from this app.
+    var isPlausible: Bool {
+        guard (1...80).contains(name.count), (1...20).contains(type.count) else { return false }
+        if let power, !(1...250).contains(power) { return false }
+        if let accuracy, !(1...100).contains(accuracy) { return false }
+        guard (1...64).contains(pp), (-7...5).contains(priority) else { return false }
+        guard statChanges.count <= 7, statChanges.allSatisfy({ (-6...6).contains($0.change) }) else { return false }
+        let chances: [Int] = [statChance, ailmentChance, flinchChance]
+        guard chances.allSatisfy({ (0...100).contains($0) }), (0...6).contains(critRate) else { return false }
+        return (-100...100).contains(drain) && (-100...100).contains(healing)
+    }
 }
 
 enum BattleSnapshotError: Error, Equatable, Sendable {

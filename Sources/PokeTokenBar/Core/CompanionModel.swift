@@ -610,6 +610,21 @@ private extension KeyedDecodingContainer {
     }
 }
 
+struct BattleRecord: Codable, Sendable, Equatable {
+    var wins = 0
+    var losses = 0
+    var draws = 0
+
+    mutating func add(_ outcome: BattleSession.Outcome) {
+        switch outcome {
+        case .won: wins += 1
+        case .lost: losses += 1
+        case .draw: draws += 1
+        case .aborted: break
+        }
+    }
+}
+
 /// 영속 상태(Application Support JSON). 포켓몬 전환 — 이전 커스텀 캐릭터 상태는 폐기(새로 시작).
 struct CompanionState: Codable, Sendable {
     // 토큰: 설치 이후만 측정
@@ -657,6 +672,8 @@ struct CompanionState: Codable, Sendable {
     var candyFeatureSeeded = false
     /// Battle team in slot order, as `PokemonProfile.instanceID`s. IDs survive graduation and release.
     var battleTeam: [String] = []
+    /// Results of battles with nearby trainers. Practice battles against the CPU are not counted.
+    var battleRecord = BattleRecord()
 
     init() {}
 
@@ -697,6 +714,7 @@ struct CompanionState: Codable, Sendable {
         candyGrantTier     = c.lenient([String: Int].self, forKey: .candyGrantTier, default: [:])
         candyFeatureSeeded = c.lenient(Bool.self, forKey: .candyFeatureSeeded, default: false)
         battleTeam         = c.lenient([String].self, forKey: .battleTeam, default: [])
+        battleRecord       = c.lenient(BattleRecord.self, forKey: .battleRecord, default: BattleRecord())
     }
 
     /// 졸업 기록 또는 현재 개체가 실제로 도달한 단계에 이 종이 포함되는가.

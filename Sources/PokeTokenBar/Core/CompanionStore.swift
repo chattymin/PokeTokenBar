@@ -275,6 +275,14 @@ final class CompanionStore {
         save()
     }
 
+    var battleRecord: BattleRecord { state.battleRecord }
+
+    func recordBattle(_ outcome: BattleSession.Outcome) {
+        guard outcome != .aborted else { return }
+        state.battleRecord.add(outcome)
+        save()
+    }
+
     /// Settings describe the selected form, even though the main Pokédex aggregates the species.
     var representativeDexSpecies: DexSpecies? {
         let candidates = representativeSpeciesID == UnownForm.speciesID ? unownFormSpecies : dexSpecies

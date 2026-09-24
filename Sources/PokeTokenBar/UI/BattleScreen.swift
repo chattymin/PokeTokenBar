@@ -7,10 +7,12 @@ final class BattleWindowController: NSObject, NSWindowDelegate {
     static let shared = BattleWindowController()
     private var window: NSWindow?
     private var session: BattleSession?
+    private var onClosed: (() -> Void)?
 
-    func present(_ session: BattleSession, title: String) {
+    func present(_ session: BattleSession, title: String, onClosed: (() -> Void)? = nil) {
         window?.close()
         self.session = session
+        self.onClosed = onClosed
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: BattleScreen.width, height: BattleScreen.height),
                               styleMask: [.titled, .closable, .miniaturizable], backing: .buffered, defer: false)
         window.title = title
@@ -28,6 +30,9 @@ final class BattleWindowController: NSObject, NSWindowDelegate {
         session?.abandon()
         session = nil
         window = nil
+        let closed = onClosed
+        onClosed = nil
+        closed?()
     }
 }
 
@@ -53,8 +58,8 @@ struct BattleScreen: View {
         }
         .frame(width: Self.width, height: Self.height)
         .background(Color(nsColor: .windowBackgroundColor))
-        .onChange(of: session.isPlaying) { _, playing in
-            if playing { showingSwitch = false; confirmingForfeit = false }
+        .onChange(of: session.isAnimating) { _, animating in
+            if animating { showingSwitch = false; confirmingForfeit = false }
         }
     }
 
@@ -66,15 +71,15 @@ struct BattleScreen: View {
                            startPoint: .top, endPoint: .bottom)
             VStack {
                 HStack(alignment: .top) {
-                    infoCard(.b)
+                    infoCard(session.theirSide)
                     Spacer()
-                    combatantSprite(.b, size: 116)
+                    combatantSprite(session.theirSide, size: 116)
                 }
                 Spacer(minLength: 0)
                 HStack(alignment: .bottom) {
-                    combatantSprite(.a, size: 132)
+                    combatantSprite(session.mySide, size: 132)
                     Spacer()
-                    infoCard(.a)
+                    infoCard(session.mySide)
                 }
             }
             .padding(16)
@@ -135,12 +140,26 @@ struct BattleScreen: View {
     }
 
     private var messageBox: some View {
-        Text(session.message)
-            .font(.callout)
-            .frame(maxWidth: .infinity, minHeight: 48, alignment: .leading)
-            .padding(.horizontal, 14)
-            .background(Color.secondary.opacity(0.1))
-            .animation(nil, value: session.message)
+        HStack(spacing: 8) {
+            Text(session.isWaitingForOpponent ? session.opponentName.map(l.battleWaitingFor) ?? session.message
+                                              : session.message)
+                .font(.callout)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            if session.isWaitingForOpponent {
+                ProgressView().controlSize(.small)
+            } else if let deadline = session.turnDeadline {
+                TimelineView(.periodic(from: .now, by: 1)) { context in
+                    let left = max(0, Int(deadline.timeIntervalSince(context.date).rounded(.up)))
+                    Text(l.battleSecondsLeft(left))
+                        .font(.callout.monospacedDigit().weight(.semibold))
+                        .foregroundStyle(left <= 10 ? Color.red : .secondary)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, minHeight: 48)
+        .padding(.horizontal, 14)
+        .background(Color.secondary.opacity(0.1))
+        .animation(nil, value: session.message)
     }
 
     // MARK: Controls
@@ -149,11 +168,14 @@ struct BattleScreen: View {
     private var controls: some View {
         if let outcome = session.outcome {
             VStack(spacing: 14) {
-                Text(outcome == .won ? l.battleWon : outcome == .lost ? l.battleLost : l.battleDraw)
+                Text(outcomeTitle(outcome))
                     .font(.title2.weight(.bold))
+                    .multilineTextAlignment(.center)
                 HStack {
-                    Button(l.battleRematch) { Task { await session.rematch() } }
-                        .buttonStyle(.borderedProminent)
+                    if session.canRematch {
+                        Button(l.battleRematch) { Task { await session.rematch() } }
+                            .buttonStyle(.borderedProminent)
+                    }
                     Button(l.battleClose, action: onClose)
                 }
             }
@@ -205,10 +227,19 @@ struct BattleScreen: View {
                     Button(l.cancel) { confirmingForfeit = false }
                 } else {
                     Button(l.battleForfeit) { confirmingForfeit = true }
-                        .disabled(session.isPlaying)
+                        .disabled(!session.canForfeit)
                 }
             }
             .controlSize(.small)
+        }
+    }
+
+    private func outcomeTitle(_ outcome: BattleSession.Outcome) -> String {
+        switch outcome {
+        case .won: return l.battleWon
+        case .lost: return l.battleLost
+        case .draw: return l.battleDraw
+        case .aborted: return l.battleConnectionProblem
         }
     }
 
@@ -307,5 +338,94 @@ enum BattleTypeColor {
     static func color(_ type: String) -> Color {
         guard let (r, g, b) = colors[type] else { return Color(white: 0.45) }
         return Color(red: r, green: g, blue: b)
+    }
+}
+
+/// An incoming challenge must reach the player even with the popover closed, so it gets its own small window.
+@MainActor
+final class ChallengePrompt: NSObject, NSWindowDelegate {
+    static let shared = ChallengePrompt()
+    private var panel: NSPanel?
+    private var expiry: Task<Void, Never>?
+
+    func show(_ challenge: IncomingChallenge, service: NearbyBattleService, l: L) {
+        dismiss()
+        let panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 320, height: 130),
+                            styleMask: [.titled, .closable, .nonactivatingPanel], backing: .buffered, defer: false)
+        panel.title = l.battle
+        panel.level = .floating
+        panel.isReleasedWhenClosed = false
+        panel.delegate = self
+        panel.contentView = NSHostingView(rootView: ChallengePromptView(challenge: challenge, l: l,
+            accept: { [weak self] in self?.dismiss(); service.accept() },
+            decline: { [weak self] in self?.dismiss(); service.declineIncoming() }))
+        panel.center()
+        panel.orderFrontRegardless()
+        self.panel = panel
+        // The challenger's invitation expires; afterwards accepting could not connect anyway.
+        expiry = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(NearbyBattle.invitationTimeout))
+            guard !Task.isCancelled else { return }
+            self?.dismiss()
+            service.declineIncoming()
+        }
+    }
+
+    func dismiss() {
+        expiry?.cancel()
+        expiry = nil
+        panel?.delegate = nil
+        panel?.close()
+        panel = nil
+    }
+
+    func windowWillClose(_ notification: Notification) {
+        expiry?.cancel()
+        panel = nil
+        NearbyBattleService.shared.declineIncoming()
+    }
+}
+
+@MainActor
+private struct ChallengePromptView: View {
+    let challenge: IncomingChallenge
+    let l: L
+    let accept: () -> Void
+    let decline: () -> Void
+
+    var body: some View {
+        VStack(spacing: 14) {
+            Label(l.battleChallengedBy(challenge.trainer), systemImage: "bolt.fill")
+                .font(.headline)
+                .multilineTextAlignment(.center)
+            HStack {
+                Button(l.battleDecline, action: decline)
+                Button(l.battleAccept, action: accept)
+                    .buttonStyle(.borderedProminent)
+                    .keyboardShortcut(.defaultAction)
+            }
+        }
+        .padding(18)
+        .frame(width: 320, height: 130)
+    }
+}
+
+/// Connects the nearby service to windows and the save; installed once at launch.
+@MainActor
+enum NearbyBattleUI {
+    static func install(_ service: NearbyBattleService = .shared, companion: CompanionStore) {
+        service.present = { [weak companion, weak service] session, opponent in
+            ChallengePrompt.shared.dismiss()
+            let title = companion?.l.battleAgainst(opponent) ?? opponent
+            BattleWindowController.shared.present(session, title: title) { service?.battleWindowClosed() }
+        }
+        service.announce = { [weak companion, weak service] challenge in
+            guard let companion, let service else { return }
+            ChallengePrompt.shared.show(challenge, service: service, l: companion.l)
+        }
+        service.onFinish = { [weak companion] outcome in companion?.recordBattle(outcome) }
+        if UserDefaults.standard.string(forKey: BattleTrainer.defaultsKey) == nil {
+            UserDefaults.standard.set(BattleTrainer.defaultName(), forKey: BattleTrainer.defaultsKey)
+        }
     }
 }

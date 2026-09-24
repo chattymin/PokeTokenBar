@@ -14,6 +14,9 @@ struct BattleView: View {
     @State private var retryCount = 0
     @State private var startingPractice = false
     @State private var practiceFailed = false
+    var nearby = NearbyBattleService.shared
+    @AppStorage(BattleTrainer.defaultsKey) private var trainerName = ""
+    @State private var editedName = ""
 
     private static let thumb: CGFloat = 40
     private static let columns = Array(repeating: GridItem(.flexible(), spacing: 6), count: 6)
@@ -34,18 +37,18 @@ struct BattleView: View {
                 VStack(alignment: .leading, spacing: 10) {
                     teamSection(l)
                     Divider()
+                    nearbySection(l)
+                    Divider()
                     Text(l.battleYourPokemon).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
                     LazyVGrid(columns: Self.columns, spacing: 6) {
                         ForEach(candidates) { entry in candidateCell(entry, l) }
                     }
-                    Text(l.battleComingSoon)
-                        .font(.caption2).foregroundStyle(.tertiary)
-                        .frame(maxWidth: .infinity)
-                        .padding(.top, 4)
                 }
             }
             .frame(height: 520)
             .task(id: "\(store.battleTeamEntries.map(\.id))-\(retryCount)") { await checkReadiness() }
+            .onChange(of: readiness) { _, _ in configureNearby() }
+            .onAppear { editedName = trainerName }
         }
     }
 
@@ -69,6 +72,122 @@ struct BattleView: View {
             Text(team.isEmpty ? l.battleTeamEmpty : store.isBattleTeamFull ? l.battleTeamFull : l.battlePickHint)
                 .font(.caption2).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    // MARK: Nearby
+
+    private var readyTeam: BattleTeam? {
+        if case .ready(let team) = readiness { return team }
+        return nil
+    }
+
+    private func configureNearby() {
+        nearby.configure(trainer: trainerName, team: readyTeam, language: store.language,
+                         names: { PokemonNameDisplayStore.shared.names[$0] })
+    }
+
+    private func nearbySection(_ l: L) -> some View {
+        let record = store.battleRecord
+        return VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text(l.battleNearbyTitle).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                Spacer()
+                Text(l.battleRecord(wins: record.wins, losses: record.losses, draws: record.draws))
+                    .font(.caption2.monospacedDigit()).foregroundStyle(.secondary)
+            }
+            Toggle(l.battleVisible, isOn: Binding(
+                get: { nearby.isVisible },
+                set: { visible in
+                    configureNearby()
+                    if visible { nearby.start() } else { nearby.stop() }
+                }))
+                .toggleStyle(.switch).controlSize(.small)
+                .disabled(readyTeam == nil && !nearby.isVisible)
+            if nearby.isVisible {
+                HStack(spacing: 6) {
+                    Text(l.battleTrainerName).font(.caption2).foregroundStyle(.secondary)
+                    TextField(l.battleTrainerName, text: $editedName)
+                        .textFieldStyle(.roundedBorder).controlSize(.small)
+                        .onSubmit {
+                            trainerName = BattleTrainer.sanitized(editedName).isEmpty
+                                ? trainerName : BattleTrainer.sanitized(editedName)
+                            editedName = trainerName
+                            configureNearby()
+                        }
+                }
+                Text(l.battleVisibleHint).font(.caption2).foregroundStyle(.tertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+                if let incoming = nearby.incoming {
+                    HStack(spacing: 6) {
+                        Label(l.battleChallengedBy(incoming.trainer), systemImage: "bolt.fill")
+                            .font(.caption.weight(.semibold))
+                        Spacer(minLength: 4)
+                        Button(l.battleDecline) { ChallengePrompt.shared.dismiss(); nearby.declineIncoming() }
+                        Button(l.battleAccept) { ChallengePrompt.shared.dismiss(); nearby.accept() }
+                            .buttonStyle(.borderedProminent)
+                    }
+                    .controlSize(.small)
+                    .padding(8)
+                    .background(Color.accentColor.opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
+                }
+                nearbyStatus(l)
+                if nearby.trainers.isEmpty {
+                    HStack(spacing: 6) {
+                        ProgressView().controlSize(.mini)
+                        Text(l.battleSearching).font(.caption2).foregroundStyle(.secondary)
+                    }
+                } else {
+                    ForEach(nearby.trainers) { trainer in
+                        HStack {
+                            Image(systemName: "person.crop.circle").foregroundStyle(.secondary)
+                            Text(trainer.name).font(.callout).lineLimit(1)
+                            Spacer()
+                            if trainer.isCompatible {
+                                Button(l.battleChallenge) { nearby.challenge(trainer) }
+                                    .controlSize(.small)
+                                    .disabled(nearby.isBusy || readyTeam == nil)
+                            } else {
+                                Text(l.battleNeedsUpdate).font(.caption2).foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func nearbyStatus(_ l: L) -> some View {
+        switch nearby.status {
+        case .challenging(let name):
+            HStack(spacing: 6) {
+                ProgressView().controlSize(.mini)
+                Text(l.battleChallenging(name)).font(.caption2).foregroundStyle(.secondary)
+            }
+        case .connecting:
+            HStack(spacing: 6) {
+                ProgressView().controlSize(.mini)
+                Text(l.battleConnecting).font(.caption2).foregroundStyle(.secondary)
+            }
+        case .failed(let failure):
+            HStack(spacing: 6) {
+                Text(failureText(failure, l)).font(.caption2).foregroundStyle(.orange)
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 4)
+                Button(l.battleClose) { nearby.dismissFailure() }.buttonStyle(.borderless).controlSize(.small)
+            }
+        case .idle:
+            EmptyView()
+        }
+    }
+
+    private func failureText(_ failure: NearbyBattleService.Failure, _ l: L) -> String {
+        switch failure {
+        case .declined: return l.battleDeclined
+        case .unavailable: return l.battleNetworkUnavailable
+        case .incompatible: return l.battleIncompatible
+        case .lost: return l.battleConnectionProblem
         }
     }
 

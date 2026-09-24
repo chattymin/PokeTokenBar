@@ -1526,7 +1526,6 @@ extension L {
     var battlePreparing: String { t("배틀 데이터 준비 중…", "Preparing battle data…", "バトルデータを準備中…", "Preparando datos de combate…", "Préparation des données de combat…", "Preparando dados de batalha…", "Kampfdaten werden vorbereitet…") }
     var battleReady: String { t("배틀 준비 완료", "Ready for battle", "バトル準備OK", "Listo para combatir", "Prêt au combat", "Pronto para batalhar", "Bereit zum Kampf") }
     var battleDataFailed: String { t("배틀 데이터를 불러오지 못했어요. 연결을 확인하세요.", "Couldn’t load battle data. Check your connection.", "バトルデータを読み込めませんでした。接続を確認してください。", "No se pudieron cargar los datos de combate. Revisa tu conexión.", "Impossible de charger les données de combat. Vérifie ta connexion.", "Não foi possível carregar os dados de batalha. Verifique sua conexão.", "Kampfdaten konnten nicht geladen werden. Prüfe deine Verbindung.") }
-    var battleComingSoon: String { t("근처 트레이너와의 배틀이 곧 추가돼요.", "Battles with trainers nearby are coming soon.", "近くのトレーナーとのバトルはもうすぐ登場。", "Pronto podrás combatir con entrenadores cercanos.", "Les combats avec des dresseurs à proximité arrivent bientôt.", "Batalhas com treinadores por perto chegam em breve.", "Kämpfe gegen Trainer in der Nähe kommen bald.") }
     var battleNoCandidates: String { t("먼저 알을 부화시키면 팀에 넣을 수 있어요.", "Hatch your egg first — then it can join your team.", "まずタマゴをかえすと、チームに入れられます。", "Primero haz eclosionar tu huevo para añadirlo al equipo.", "Fais d’abord éclore ton œuf pour l’ajouter à l’équipe.", "Choque seu ovo primeiro para colocá-lo na equipe.", "Brüte zuerst dein Ei aus, dann kann es ins Team.") }
     func battleLevel(_ level: Int) -> String { "Lv. \(level)" }
 }
@@ -1614,5 +1613,45 @@ extension L {
         case "evasion": return t("회피율", "evasiveness", "かいひりつ", "Evasión", "Esquive", "Evasão", "Fluchtwert")
         default: return statLabel(stat)
         }
+    }
+}
+
+// MARK: Battle — nearby
+extension L {
+    var battleOpponentLeft: String { t("상대가 배틀을 떠났다. 승리!", "The opponent left the battle. You win!", "相手がバトルから抜けた。あなたの勝ち！", "El rival abandonó el combate. ¡Ganas!", "L’adversaire a quitté le combat. Tu gagnes !", "O adversário saiu da batalha. Você venceu!", "Der Gegner hat den Kampf verlassen. Du gewinnst!") }
+    var battleConnectionProblem: String { t("연결 문제로 배틀이 끝났어요. 승패 없음.", "The battle ended because of a connection problem. No winner.", "接続の問題でバトルが終了しました。勝敗なし。", "El combate terminó por un problema de conexión. Sin ganador.", "Le combat s’est arrêté à cause d’un problème de connexion. Pas de vainqueur.", "A batalha terminou por um problema de conexão. Sem vencedor.", "Der Kampf endete wegen eines Verbindungsproblems. Kein Sieger.") }
+    var battleNearbyTitle: String { t("근처 트레이너", "Trainers nearby", "近くのトレーナー", "Entrenadores cercanos", "Dresseurs à proximité", "Treinadores por perto", "Trainer in der Nähe") }
+    var battleVisible: String { t("근처 트레이너에게 보이기", "Visible to trainers nearby", "近くのトレーナーに表示", "Visible para entrenadores cercanos", "Visible par les dresseurs à proximité", "Visível para treinadores por perto", "Für Trainer in der Nähe sichtbar") }
+    var battleVisibleHint: String { t("같은 Wi-Fi나 가까이 있는 Mac에서 PokeTokenBar를 쓰는 사람에게 트레이너 이름이 보여요.", "Your trainer name is shown to people nearby running PokeTokenBar on a Mac, on the same Wi-Fi or close by.", "同じWi-Fiや近くのMacでPokeTokenBarを使っている人にトレーナー名が表示されます。", "Tu nombre de entrenador se muestra a quien use PokeTokenBar en un Mac cercano o en la misma Wi-Fi.", "Ton nom de dresseur est visible par les personnes proches qui utilisent PokeTokenBar sur Mac, sur le même Wi-Fi ou à côté.", "Seu nome de treinador aparece para quem usa PokeTokenBar num Mac por perto ou na mesma Wi-Fi.", "Dein Trainername ist für Personen in der Nähe sichtbar, die PokeTokenBar auf einem Mac nutzen – im selben WLAN oder nebenan.") }
+    var battleTrainerName: String { t("트레이너 이름", "Trainer name", "トレーナー名", "Nombre de entrenador", "Nom de dresseur", "Nome de treinador", "Trainername") }
+    var battleSearching: String { t("근처 트레이너를 찾는 중…", "Looking for trainers nearby…", "近くのトレーナーを探しています…", "Buscando entrenadores cercanos…", "Recherche de dresseurs à proximité…", "Procurando treinadores por perto…", "Suche nach Trainern in der Nähe…") }
+    var battleChallenge: String { t("도전", "Challenge", "挑戦", "Desafiar", "Défier", "Desafiar", "Herausfordern") }
+    var battleNeedsUpdate: String { t("다른 버전", "Other version", "別のバージョン", "Otra versión", "Autre version", "Outra versão", "Andere Version") }
+    func battleChallenging(_ name: String) -> String {
+        t("\(name)에게 도전하는 중…", "Challenging \(name)…", "\(name)に挑戦中…", "Desafiando a \(name)…", "Défi envoyé à \(name)…", "Desafiando \(name)…", "Fordere \(name) heraus…")
+    }
+    func battleChallengedBy(_ name: String) -> String {
+        t("\(name)이(가) 배틀을 신청했다!", "\(name) wants to battle!", "\(name)が 勝負を しかけてきた！", "¡\(name) quiere combatir!", "\(name) veut se battre !", "\(name) quer batalhar!", "\(name) möchte kämpfen!")
+    }
+    var battleAccept: String { t("수락", "Accept", "受ける", "Aceptar", "Accepter", "Aceitar", "Annehmen") }
+    var battleDecline: String { t("거절", "Decline", "断る", "Rechazar", "Refuser", "Recusar", "Ablehnen") }
+    var battleDeclined: String { t("상대가 도전을 받지 않았어요.", "The challenge wasn’t accepted.", "挑戦は受けてもらえませんでした。", "El desafío no fue aceptado.", "Le défi n’a pas été accepté.", "O desafio não foi aceito.", "Die Herausforderung wurde nicht angenommen.") }
+    var battleConnecting: String { t("연결 중…", "Connecting…", "接続中…", "Conectando…", "Connexion…", "Conectando…", "Verbinden…") }
+    var battleNetworkUnavailable: String { t("근처 트레이너를 찾을 수 없어요. Wi-Fi와 로컬 네트워크 권한을 확인하세요.", "Can’t look for trainers nearby. Check Wi-Fi and the Local Network permission.", "近くのトレーナーを探せません。Wi-Fiとローカルネットワークの許可を確認してください。", "No se pueden buscar entrenadores. Revisa el Wi-Fi y el permiso de red local.", "Impossible de chercher des dresseurs. Vérifie le Wi-Fi et l’autorisation Réseau local.", "Não é possível procurar treinadores. Verifique o Wi-Fi e a permissão de rede local.", "Suche nicht möglich. Prüfe WLAN und die Berechtigung „Lokales Netzwerk“.") }
+    var battleIncompatible: String { t("상대의 앱 버전이 달라요. 둘 다 최신 버전으로 업데이트하세요.", "The other trainer runs a different app version. Both of you should update.", "相手のアプリのバージョンが違います。両方とも最新にしてください。", "El otro entrenador usa otra versión. Actualicen ambos.", "L’autre dresseur utilise une autre version. Mettez tous les deux à jour.", "O outro treinador usa outra versão. Atualizem os dois.", "Der andere Trainer nutzt eine andere Version. Aktualisiert beide.") }
+    func battleRecord(wins: Int, losses: Int, draws: Int) -> String {
+        t("전적 \(wins)승 \(losses)패 \(draws)무", "Record \(wins)W \(losses)L \(draws)D", "戦績 \(wins)勝 \(losses)敗 \(draws)分", "Récord \(wins)V \(losses)D \(draws)E", "Bilan \(wins)V \(losses)D \(draws)N", "Recorde \(wins)V \(losses)D \(draws)E", "Bilanz \(wins)S \(losses)N \(draws)U")
+    }
+    func battleSecondsLeft(_ seconds: Int) -> String {
+        t("\(seconds)초", "\(seconds)s", "\(seconds)秒", "\(seconds) s", "\(seconds) s", "\(seconds)s", "\(seconds) s")
+    }
+    func battleAgainst(_ name: String) -> String {
+        t("\(name)와(과)의 배틀", "Battle with \(name)", "\(name)とのバトル", "Combate con \(name)", "Combat contre \(name)", "Batalha com \(name)", "Kampf gegen \(name)")
+    }
+}
+
+extension L {
+    func battleWaitingFor(_ name: String) -> String {
+        t("\(name)의 선택을 기다리는 중…", "Waiting for \(name)…", "\(name)の 行動を 待っています…", "Esperando a \(name)…", "En attente de \(name)…", "Aguardando \(name)…", "Warte auf \(name)…")
     }
 }
