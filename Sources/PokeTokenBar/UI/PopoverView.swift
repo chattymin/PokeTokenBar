@@ -10,6 +10,20 @@ enum PopoverMetrics {
     static let padding: CGFloat = 14
     /// 이 폭을 넘는 자식은 팝오버 창에 좌우로 잘린다.
     static let contentWidth: CGFloat = width - padding * 2
+    /// 세로 스크롤 영역 오른쪽에 비워 두는 스크롤러 레인. 얇은 오버레이 스크롤러(휴지 ~6pt, 가장자리
+    /// 안쪽)가 우측 정렬 수치·버튼 위에 뜨지 않게 한다. 스크롤이 필요 없어도 항상 비워 탭 간 폭이 같다.
+    static let scrollerInset: CGFloat = 12
+    /// 세로 스크롤 영역 안의 자식이 쓸 수 있는 폭. 스크롤 안에서 폭을 고정하는 자식(진화 라인 등)은
+    /// `contentWidth` 대신 이 값을 써야 한다 — 제안 폭보다 넓은 자식 하나가 열 전체를 다시 넓혀 레인이 사라진다.
+    static let scrollContentWidth: CGFloat = contentWidth - scrollerInset
+}
+
+extension View {
+    /// 팝오버 세로 `ScrollView` 의 콘텐츠에 스크롤러 레인을 비운다. `.contentMargins` 는 쓰지 않는다 —
+    /// AppKit 이 오버레이 스크롤러를 콘텐츠 인셋만큼 안쪽으로 옮겨 레인이 생기지 않는다(실측).
+    func reservesScrollerLane() -> some View {
+        padding(.trailing, PopoverMetrics.scrollerInset)
+    }
 }
 
 /// 팝오버 내부 내비게이션 상태(현재 탭 / 컬렉션 세그먼트 / 설정 표시 여부).
@@ -132,15 +146,22 @@ struct PopoverView: View {
             } else if nav.tab == .shop {
                 ShopView(store: companion, nav: nav)
             } else {
-                CompanionHeader(store: companion)
-                Divider()
-                header
-                Divider()
-                providerStatusBanner   // 인시던트 있을 때만 — 한도 가용 여부와 무관(API 다운=한도 nil 케이스에도)
-                if selectedProviderHasLimits {
-                    limitsSection
-                    Divider()
+                // 고정 높이 — 상점/가방/컬렉션과 동일(팝오버가 화면을 넘어가는 것을 방지).
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 12) {
+                        CompanionHeader(store: companion)
+                        Divider()
+                        header
+                        Divider()
+                        providerStatusBanner   // 인시던트 있을 때만 — 한도 가용 여부와 무관(API 다운=한도 nil 케이스에도)
+                        if selectedProviderHasLimits {
+                            limitsSection
+                            Divider()
+                        }
+                    }
+                    .reservesScrollerLane()
                 }
+                .frame(height: 520)
             }
             footer
         }

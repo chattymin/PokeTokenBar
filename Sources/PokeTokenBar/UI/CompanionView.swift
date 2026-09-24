@@ -620,7 +620,7 @@ struct CompanionHeader: View {
                 // 폭을 안 주면 분기 라인(이브이)이 넘쳐 팝오버 콘텐츠 전체가 좌우로 잘린다.
                 EvoLineView(nodes: store.lineNodes, mysteryLabel: store.l.unknownNextEvolution,
                             language: store.language, shiny: store.currentIsShiny,
-                            maxWidth: PopoverMetrics.contentWidth, unownForm: store.currentUnownForm)
+                            maxWidth: PopoverMetrics.scrollContentWidth, unownForm: store.currentUnownForm)
             }
             if let g = store.justGraduated {
                 Text(store.l.graduated(g))
@@ -843,6 +843,7 @@ struct CollectionView: View {
                             DexEntryRow(store: store, entry: entry)
                         }
                     }
+                    .reservesScrollerLane()
                 }
                 .frame(maxHeight: .infinity)
                 // 필터 토글 시 목록 최상단으로 — 이전 스크롤 위치가 새 필터 결과 밖이어도 처음부터 보이게.
@@ -1104,6 +1105,7 @@ private struct PokemonDetailView: View {
                     }
                 }
                 .padding(.bottom, 8)
+                .reservesScrollerLane()
             }
         }
         .task {
@@ -1506,7 +1508,7 @@ private struct DexEntryRow: View {
             EvoLineView(nodes: entry.chainOrder.map { EvoLineItem(.species($0), .done) },
                         mysteryLabel: store.l.unknownNextEvolution, language: store.language, thumb: 56,
                         shiny: entry.isShiny, names: names,
-                        maxWidth: PopoverMetrics.contentWidth - Self.cardPadding * 2, unownForm: entry.unownForm)
+                        maxWidth: PopoverMetrics.scrollContentWidth - Self.cardPadding * 2, unownForm: entry.unownForm)
             if let caughtAt = entry.caughtAt {
                 Text(caughtAt, style: .relative).font(.system(size: 9)).foregroundStyle(.tertiary)
             }

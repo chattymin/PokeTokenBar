@@ -26,6 +26,7 @@ struct ShopView: View {
                     }
                 }
             }
+            .reservesScrollerLane()
         }
         .frame(height: 520)
     }
