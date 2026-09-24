@@ -26,6 +26,8 @@ enum ModelPricing {
         // Claude 5 family. Exact rows are mandatory: the model-family fallback that used to
         // price these was removed in #289, which left them unpriced and the cost row blank (#303).
         "claude-opus-5":              .perMillion(5, 25, 6.25, 0.5),
+        // Opus 5.5, checked 2026-09-25: cheaper than Opus 5, cache read cut to $0.20/MTok (0.05× input).
+        "claude-opus-5-5":            .perMillion(4, 20, 5, 0.2),
         "claude-sonnet-5":            .perMillion(2, 10, 2.5, 0.2),
         "claude-opus-4-20250514":     .perMillion(15, 75, 18.75, 1.5),
         "claude-sonnet-4-20250514":   .perMillion(3, 15, 3.75, 0.3),
