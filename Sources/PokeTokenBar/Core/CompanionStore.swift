@@ -1258,9 +1258,17 @@ final class CompanionStore {
         rarity == .common && totalForms >= 2 && roll % PokemonOdds.dittoDisguiseDenominator == 0
     }
 
-    /// 이로치 부화 판정(순수) — 미리 뽑은 roll 값 % 분모(부적 보유 48, 없으면 64)==0. (부수효과 없이 xctest)
+    /// 이로치 부화 분모 — 부적 보유 48, 없으면 64. 판정과 알림 문구가 같은 값을 쓰도록 여기가 단일 소스다.
+    nonisolated static func shinyDenominator(charmOwned: Bool) -> UInt64 {
+        charmOwned ? ShinyCharm.shinyDenominator : PokemonOdds.shinyDenominator
+    }
+
+    /// 지금 부화하면 적용될 이로치 분모.
+    var shinyDenominator: UInt64 { Self.shinyDenominator(charmOwned: ownsShinyCharm) }
+
+    /// 이로치 부화 판정(순수) — 미리 뽑은 roll 값 % 분모==0. (부수효과 없이 xctest)
     nonisolated static func rollsShiny(roll: UInt64, charmOwned: Bool) -> Bool {
-        roll % (charmOwned ? ShinyCharm.shinyDenominator : PokemonOdds.shinyDenominator) == 0
+        roll % shinyDenominator(charmOwned: charmOwned) == 0
     }
 
     /// 실제 부화 로직 — isHatching 락은 호출자(hatch / hatchIfNeeded)가 소유·해제한다.
@@ -1303,7 +1311,9 @@ final class CompanionStore {
         let overflow = max(0, state.eggUsage - eggHatchThreshold)
         state.eggUsage = 0
         state.eggTier = nil   // 보증은 이 부화로 소비된다(다음 알은 다시 무보증)
-        // 개체 롤 — shiny(1/64)·성격(25종)은 부화 순간 확정, 진화해도 유지.
+        // 개체 롤 — shiny(1/64, 부적 1/48)·성격(25종)은 부화 순간 확정, 진화해도 유지.
+        // 알림 문구는 이 판정과 같은 분모를 보여준다.
+        let shinyOdds = shinyDenominator
         let isShiny = Self.rollsShiny(roll: rng.next(), charmOwned: ownsShinyCharm)
         let nature = PokemonNature.allCases[Int(rng.next() % UInt64(PokemonNature.allCases.count))]
         // 메타몽 위장 롤 — common·≥2형태에 한해 1/128. .app 게이트(&& 단락 → 비앱에선 rng 미소비로
@@ -1330,7 +1340,7 @@ final class CompanionStore {
         let name = UnownForm.displayName(line.localizedName(line.baseID, state.language),
                                          speciesID: line.baseID, form: unownForm)
         notifyCompanionEvent(showShiny ? l.notifShinyHatchTitle : l.notifHatchTitle,
-                             showShiny ? l.notifShinyHatchBody(name) : l.notifHatchBody(name))
+                             showShiny ? l.notifShinyHatchBody(name, odds: shinyOdds) : l.notifHatchBody(name))
         justEvolvedTo = nil        // 새 부화는 "성장" 문구(진화 아님) — 직전 진화명이 남아 표시되지 않게
         displayState = .levelUp
         eventUntil = clock().addingTimeInterval(4)

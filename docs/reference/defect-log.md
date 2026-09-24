@@ -53,6 +53,18 @@ read_when:
   now covers usage labels, hidden control labels, selected-language backup dates, and Gen-V
   `light-ball-egg`/`form-change` methods alongside native rendering in all supported languages.
 
+- **Balance numbers in copy come from the runtime value, never a literal.** The shiny hatch
+  notification said "(1/64)" in every language after the Shiny Charm made the real odds 1/48, and
+  the first-run egg hint kept "~5M tokens" after the growth slider could move the hatch point
+  (fixed separately).
+  The copy was written before the modifiers existed, and `LocalizationInterpolationTests` only
+  checks that placeholders survive, so a number with no placeholder was never compared with the
+  value the game uses. Pass the value the logic uses (`CompanionStore.shinyDenominator`, the
+  difficulty-scaled threshold) into the string. When a message describes an earlier roll whose
+  inputs are not saved, such as a Ditto reveal after hatch, leave the number out rather than guess.
+  When adding a modifier (charm, difficulty, boost), grep `Localization.swift` for the constants
+  it changes. `ShinyCharmTests` checks the notification odds with and without the charm.
+
 - **Cost availability is not a numeric zero.** Codex providers overwrote priced totals with zero
   while leaving cost UI enabled; earlier tests asserted that subscription policy instead of
   comparing the public provider result with priced log entries. Preserve explicit source zero,
