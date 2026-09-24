@@ -358,7 +358,6 @@ final class UsageRecapRenderingTests: XCTestCase {
                 XCTAssertFalse(content.periodLabel().isEmpty, "\(language) \(scope)")
                 XCTAssertFalse(content.l.recapCompareSoFar(scope).isEmpty)
                 XCTAssertEqual(content.bucketLabels().count, content.recap.buckets.count)
-                XCTAssertTrue(content.exportFileName.hasPrefix("recap-\(scope.rawValue)-"))
                 let renderer = ImageRenderer(content: RecapCard(content: content))
                 renderer.scale = 1
                 let image = try XCTUnwrap(renderer.cgImage, "\(language) \(scope)")

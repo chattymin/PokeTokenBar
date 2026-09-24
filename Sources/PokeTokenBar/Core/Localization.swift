@@ -214,9 +214,6 @@ struct L {
           "Ninguna graduación en este periodo.", "Aucun diplômé sur cette période.",
           "Nenhuma formatura neste período.", "Kein Abschluss in diesem Zeitraum.")
     }
-    var recapCopy: String { t("이미지 복사", "Copy image", "画像をコピー", "Copiar imagen", "Copier l'image", "Copiar imagem", "Bild kopieren") }
-    var recapCopied: String { t("복사됨", "Copied", "コピーしました", "Copiado", "Copié", "Copiado", "Kopiert") }
-    var recapSave: String { t("저장…", "Save…", "保存…", "Guardar…", "Enregistrer…", "Salvar…", "Speichern…") }
 
     var generalSectionTitle: String { t("일반", "General", "一般", "General", "Général", "Geral", "Allgemein") }
     var menuBarSectionTitle: String { t("메뉴바에 표시", "Show in menu bar", "メニューバーに表示", "Mostrar en la barra de menús", "Afficher dans la barre des menus", "Mostrar na barra de menus", "In der Menüleiste anzeigen") }

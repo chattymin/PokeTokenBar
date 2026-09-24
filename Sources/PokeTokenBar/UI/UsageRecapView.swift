@@ -1,8 +1,6 @@
-import AppKit
 import SwiftUI
-import UniformTypeIdentifiers
 
-/// Everything the recap prints, read once so the live view and the exported image agree.
+/// Everything the recap prints, read once.
 @MainActor
 struct RecapContent {
     let language: AppLanguage
@@ -51,8 +49,7 @@ struct RecapContent {
     var l: L { L(language) }
     var scope: RecapScope { recap.period.scope }
 
-    /// "14–20 Sept 2026", "September 2026" or "2026", from the display locale. It titles the card:
-    /// the exported image has to say which stretch it covers on its own.
+    /// "14–20 Sept 2026", "September 2026" or "2026", from the display locale. It titles the card.
     func periodLabel() -> String {
         switch scope {
         case .week:
@@ -111,13 +108,10 @@ struct RecapContent {
         return "\(name), \(bucket.hasData ? TokenFormatter.grouped(bucket.tokens) : l.recapNoData)"
     }
 
-    var exportFileName: String {
-        "recap-\(scope.rawValue)-\(dayKeyFormatter.string(from: recap.period.start)).png"
-    }
 }
 
-/// The shareable panel — a Pokédex readout, not a second trainer card: red shell, dark LCD,
-/// monospaced digits and segmented meters. Colors are all explicit so the export never shifts
+/// The recap panel — a Pokédex readout, not a second trainer card: red shell, dark LCD,
+/// monospaced digits and segmented meters. Colors are all explicit so the card never shifts
 /// with the system appearance.
 @MainActor
 struct RecapCard: View {
@@ -359,7 +353,6 @@ struct RecapScreen: View {
     @State private var scope: RecapScope = .week
     /// 0 is the running period, -1 the one before it. Never positive: the future has no usage.
     @State private var offset = 0
-    @State private var copied = false
 
     var body: some View {
         let l = companion.l
@@ -409,73 +402,9 @@ struct RecapScreen: View {
                 }
             }
             .font(.caption).foregroundStyle(.secondary)
-            HStack(spacing: 6) {
-                Button(copied ? l.recapCopied : l.recapCopy) {
-                    Task {
-                        guard await RecapExport.copy(content) else { return }
-                        copied = true
-                        try? await Task.sleep(for: .seconds(1.5))
-                        copied = false
-                    }
-                }
-                Button(l.recapSave) {
-                    Task { await RecapExport.save(content) }
-                }
-                Spacer(minLength: 0)
-            }
-            .controlSize(.small)
             Spacer(minLength: 0)
         }
         .padding(PopoverMetrics.padding)
         .task { await companion.backfillMissingDexNames() }
-    }
-}
-
-@MainActor
-enum RecapExport {
-    static func pngData(_ content: RecapContent) async -> Data? {
-        await preload(content)
-        let renderer = ImageRenderer(content: RecapCard(content: content).padding(12)
-            .background(Color(white: 0.9))
-            .environment(\.locale, content.language.displayLocale))
-        renderer.scale = 4
-        guard let image = renderer.cgImage else { return nil }
-        return NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:])
-    }
-
-    /// `ImageRenderer` renders in one pass and never runs `.task`, so every sprite has to be in
-    /// the disk cache before the render or the card comes out with holes.
-    private static func preload(_ content: RecapContent) async {
-        for (speciesID, shiny, form) in [(content.companionSpeciesID, content.companionShiny,
-                                          content.companionUnownForm)]
-            + content.graduates.map({ (Optional($0.entry.finalID), $0.entry.isShiny, $0.entry.unownForm) }) {
-            guard let speciesID else {
-                _ = await SpriteLoader.eggImage()
-                continue
-            }
-            _ = await SpriteLoader.image(speciesID: speciesID, shiny: shiny, unownForm: form)
-        }
-    }
-
-    @discardableResult
-    static func copy(_ content: RecapContent) async -> Bool {
-        guard let data = await pngData(content) else { return false }
-        let pasteboard = NSPasteboard.general
-        pasteboard.clearContents()
-        pasteboard.setData(data, forType: .png)
-        return true
-    }
-
-    static func save(_ content: RecapContent) async {
-        guard let data = await pngData(content) else { return }
-        let panel = NSSavePanel()
-        panel.allowedContentTypes = [UTType.png]
-        panel.nameFieldStringValue = content.exportFileName
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-        do {
-            try data.write(to: url)
-        } catch {
-            AppLog.write("usage recap: save failed — \(error.localizedDescription)")
-        }
     }
 }
