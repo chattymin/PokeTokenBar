@@ -8,21 +8,43 @@ import Observation
 final class UpdateChecker {
     struct Available: Equatable { let version: String; let url: String }
 
+    /// What Settings should say after a check. A skipped release is not "up to date".
+    enum SettingsNotice: Equatable {
+        case offer(String)
+        case skipped(String)
+        case current
+    }
+
     private(set) var available: Available?
+    /// Newer release the user chose to skip. Hidden from the banner, still shown in Settings.
+    private(set) var skipped: Available?
     private(set) var isUpdating = false
 
     let currentVersion: String
     private let repo = "chattymin/PokeTokenBar"
     private let clock: () -> Date
+    private let defaults: UserDefaults
     private var lastChecked: Date?
 
-    init(currentVersion: String? = nil, clock: @escaping () -> Date = Date.init) {
+    static let skippedVersionKey = "skippedUpdateVersion"
+
+    init(currentVersion: String? = nil, clock: @escaping () -> Date = Date.init, defaults: UserDefaults = .standard) {
         self.currentVersion = currentVersion
             ?? (Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String) ?? "0"
         self.clock = clock
+        self.defaults = defaults
     }
 
-    /// 최신 릴리스 조회 → 새 버전이고 사용자가 그 버전을 'skip' 하지 않았으면 available 설정.
+    var settingsNotice: SettingsNotice {
+        if let available { return .offer(available.version) }
+        if let skipped { return .skipped(skipped.version) }
+        return .current
+    }
+
+    /// Release Settings can install. A skip hides the banner; it does not throw the URL away.
+    var updateTarget: Available? { available ?? skipped }
+
+    /// 최신 릴리스 조회. 스킵한 버전은 배너(`available`)에 안 올리고 Settings(`skipped`)에만 남긴다.
     /// minInterval 보다 자주 호출되면 무시(레이트리밋 보호).
     func check(minInterval: TimeInterval = 1800) async {
         if let last = lastChecked, clock().timeIntervalSince(last) < minInterval { return }
@@ -38,24 +60,48 @@ final class UpdateChecker {
               // 응답 필드가 NSWorkspace.open 으로 가므로 https + github.com 만 허용(스킴 하이재킹 방지)
               let htmlURL = URL(string: html), htmlURL.scheme == "https", htmlURL.host == "github.com"
         else { return }
+        consider(latest: tag, url: html)
+    }
+
+    /// Apply one fetched release. `latest` may be a tag (`v2.5.4`) or a bare version.
+    func consider(latest tag: String, url: String) {
         let latest = tag.hasPrefix("v") ? String(tag.dropFirst()) : tag
-        let skipped = UserDefaults.standard.string(forKey: "skippedUpdateVersion")
-        if Self.isNewer(latest, than: currentVersion), latest != skipped {
-            available = Available(version: latest, url: html)
-        } else {
+        let skippedVersion = defaults.string(forKey: Self.skippedVersionKey)
+        guard Self.isNewer(latest, than: currentVersion) else {
             available = nil
+            skipped = nil
+            return
+        }
+        let release = Available(version: latest, url: url)
+        if latest == skippedVersion {
+            available = nil
+            skipped = release
+        } else {
+            available = release
+            skipped = nil
         }
     }
 
-    /// 이 버전은 다시 알리지 않음.
+    /// Hide the banner for this version. Settings can still see it and install it.
     func skipCurrent() {
-        if let v = available?.version { UserDefaults.standard.set(v, forKey: "skippedUpdateVersion") }
+        guard let release = available else { return }
+        defaults.set(release.version, forKey: Self.skippedVersionKey)
+        skipped = release
         available = nil
+    }
+
+    /// Undo a skip so the banner can show the same release again.
+    func showSkippedAgain() {
+        defaults.removeObject(forKey: Self.skippedVersionKey)
+        if let release = skipped {
+            available = release
+            skipped = nil
+        }
     }
 
     /// 업데이트 적용: brew cask 설치본이면 `brew upgrade` 후 재시작, 아니면 릴리스 페이지.
     func applyUpdate() {
-        guard let update = available, !isUpdating else { return }
+        guard let update = updateTarget, !isUpdating else { return }
         isUpdating = true
         Task { @MainActor in
             // brew cask 설치본이면 분리(detached) 스크립트가 앱 종료 후 tap 갱신→업그레이드→재오픈.

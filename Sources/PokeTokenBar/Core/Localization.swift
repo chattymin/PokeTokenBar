@@ -33,6 +33,12 @@ struct L {
 
     // MARK: 헤더 (오늘/주/월)
     var todayTokens: String { t("오늘 사용한 토큰", "Today's tokens", "本日のトークン", "Tokens de hoy", "Tokens du jour", "Tokens de hoje", "Heute verbrauchte Tokens") }
+    var today: String { t("오늘", "Today", "今日", "Hoy", "Aujourd'hui", "Hoje", "Heute") }
+    func unattributedClaudeUsage(_ tokens: String) -> String {
+        t("이번 달 계정 미확인: \(tokens)", "Not linked to an account this month: \(tokens)", "今月アカウント不明: \(tokens)",
+          "Sin cuenta asociada este mes: \(tokens)", "Non rattaché à un compte ce mois-ci : \(tokens)",
+          "Sem conta associada neste mês: \(tokens)", "Diesen Monat keinem Konto zugeordnet: \(tokens)")
+    }
     var thisWeek: String { t("이번 주", "This week", "今週", "Esta semana", "Cette semaine", "Esta semana", "Diese Woche") }
     var thisMonth: String { t("이번 달", "This month", "今月", "Este mes", "Ce mois-ci", "Este mês", "Dieser Monat") }
     /// 일별 추이 막대 행의 제목. 범위가 "이번 달"임을 문구에 담는다 — 롤링 30일로 읽히면 안 된다.
@@ -46,12 +52,24 @@ struct L {
 
     // MARK: 한도 섹션
     var limitsOfficial: String { t("한도 (공식)", "Limits (official)", "上限（公式）", "Límites (oficial)", "Limites (officiel)", "Limites (oficiais)", "Limits (offiziell)") }
+    var fiveHourNotStarted: String { t("다음 메시지부터 시작", "Starts with your next message", "次のメッセージから開始", "Empieza con tu próximo mensaje", "Démarre au prochain message", "Começa na próxima mensagem", "Beginnt mit der nächsten Nachricht") }
     var fiveHourSession: String { t("5시간 세션", "5-hour session", "5時間セッション", "Sesión de 5 horas", "Session de 5 h", "Sessão de 5 horas", "5-Stunden-Sitzung") }
     var weekly: String { t("주간", "Weekly", "週間", "Semanal", "Hebdo", "Semanal", "Wöchentlich") }
     var weeklyOpus: String { t("주간 Opus", "Weekly Opus", "週間 Opus", "Opus semanal", "Opus hebdo", "Opus semanal", "Opus – wöchentlich") }
     var weeklySonnet: String { t("주간 Sonnet", "Weekly Sonnet", "週間 Sonnet", "Sonnet semanal", "Sonnet hebdo", "Sonnet semanal", "Sonnet – wöchentlich") }
     var claudeCurrentBlock: String { t("Claude 현재 5h 블록", "Claude current 5h block", "Claude 現在の5hブロック", "Bloque actual de 5h de Claude", "Bloc 5 h actuel de Claude", "Bloco atual de 5h do Claude", "Aktueller 5-Stunden-Block von Claude") }
     var reset: String { t("리셋", "Reset", "リセット", "Reinicio", "Réinit.", "Renovação", "Zurücksetzen") }
+    /// 페이스 눈금 툴팁. "적정 사용량"으로 부르지 않는다 — 덜 쓰라는 권고가 아니라 "이 속도면 리셋
+    /// 전에 소진된다"는 기준선이고, 창을 다 채워 쓸 이유가 없는 날에 규범으로 읽히면 안 된다.
+    func paceHint(_ percent: String) -> String {
+        t("페이스 — 창 시간만큼 균등하게 썼다면 지금 \(percent)입니다.",
+          "Pace — an even burn across this window would sit at \(percent) now.",
+          "ペース — この枠を均等に使っていれば今は \(percent) です。",
+          "Ritmo: un consumo uniforme en esta ventana estaría en \(percent) ahora.",
+          "Rythme — une consommation régulière sur cette fenêtre serait à \(percent).",
+          "Ritmo — um consumo uniforme nesta janela estaria em \(percent) agora.",
+          "Tempo – bei gleichmäßigem Verbrauch in diesem Fenster wären es jetzt \(percent).")
+    }
     var limitReached: String { t("한도 도달", "Limit reached", "上限到達", "Límite alcanzado", "Limite atteinte", "Limite atingido", "Limit erreicht") }
     var personalSpendLimit: String { t("개인 사용 한도", "Personal spend limit", "個人利用上限", "Límite de gasto personal", "Limite de dépense personnelle", "Limite de gasto pessoal", "Persönliches Ausgabenlimit") }
     var staleLimits: String { t("갱신 지연", "Stale", "更新遅延", "Desactualizado", "Périmé", "Desatualizado", "Nicht aktuell") }
@@ -110,6 +128,19 @@ struct L {
     /// Antigravity 한도 그룹 및 윈도우 이름
     var antigravityGeminiGroup: String { t("Gemini 모델군", "Gemini Models", "Gemini モデル群", "Modelos Gemini", "Modèles Gemini", "Modelos Gemini", "Gemini-Modelle") }
     var antigravityThirdPartyGroup: String { t("Claude & GPT 모델군", "Claude & GPT Models", "Claude & GPT モデル群", "Modelos Claude y GPT", "Modèles Claude et GPT", "Modelos Claude e GPT", "Claude- & GPT-Modelle") }
+    /// API `displayName` ("Gemini Models", "Claude and GPT models", …) → 앱 언어 라벨.
+    /// 팝오버·한도 알림·사탕 알림·펫 버블이 같은 매핑을 써야 한 화면 두 언어가 안 난다(#322).
+    /// 판정은 `AntigravityRateLimitStatus.geminiGroup` / `thirdPartyGroup` 과 같은 축(gemini /
+    /// claude|gpt|3p). 모르는 이름은 API 문자열을 그대로 둔다.
+    func antigravityGroupTitle(_ displayName: String) -> String {
+        if displayName.localizedCaseInsensitiveContains("gemini") { return antigravityGeminiGroup }
+        if displayName.localizedCaseInsensitiveContains("claude")
+            || displayName.localizedCaseInsensitiveContains("gpt")
+            || displayName.localizedCaseInsensitiveContains("3p") {
+            return antigravityThirdPartyGroup
+        }
+        return displayName
+    }
     func antigravityWindow(window: String?, bucketId: String) -> String {
         if window == "5h" || bucketId.contains("5h") {
             return fiveHourSession
@@ -257,6 +288,12 @@ struct L {
           "Busca os limites oficiais sem avisos do Keychain. Cole o valor de DevTools → Application → Cookies → claude.ai → sessionKey.",
           "Ruft offizielle Limits ohne Keychain-Pop-up ab. Füge den Wert aus DevTools → Application → Cookies → claude.ai → sessionKey ein.")
     }
+    var sessionKeyDefaultAccountOnly: String {
+        t("기본 Claude 계정(~/.claude)에만 적용됩니다.", "Applies to the default Claude account (~/.claude) only.",
+          "デフォルトの Claude アカウント（~/.claude）にのみ適用されます。", "Solo se aplica a la cuenta de Claude predeterminada (~/.claude).",
+          "Ne concerne que le compte Claude principal (~/.claude).", "Aplica-se apenas à conta padrão do Claude (~/.claude).",
+          "Gilt nur für das Standard-Claude-Konto (~/.claude).")
+    }
     /// 평문 보관을 숨기지 않는다 — 사용자가 무엇을 맡기는지, 어떻게 취소하는지 알아야 한다.
     var sessionKeyStorageNote: String {
         t("키는 이 Mac 의 앱 폴더에 본인만 읽을 수 있는 파일로 저장됩니다(암호화 아님). 브라우저에서 로그아웃하면 즉시 무효화됩니다.",
@@ -383,6 +420,41 @@ struct L {
     var customScanRootsPlaceholder: String { t("~/path/to/sessions", "~/path/to/sessions", "~/path/to/sessions", "~/path/to/sessions", "~/path/to/sessions", "~/path/to/sessions", "~/path/to/sessions") }
     func customScanRootsMatches(_ n: Int) -> String {
         t("지금 \(n)개 추가 폴더를 스캔함", "Scans \(n) extra folder(s) now", "現在\(n)個の追加フォルダをスキャン", "Escanea \(n) carpeta(s) extra ahora", "Analyse \(n) dossier(s) supplémentaire(s) maintenant", "Escaneando \(n) pasta(s) extra agora", "Zusätzlich gescannte Ordner: \(n)")
+    }
+    // MARK: Additional Claude accounts (Settings → Advanced)
+    var additionalClaudeAccountsLabel: String { t("추가 Claude 계정", "Additional Claude accounts", "追加のClaudeアカウント", "Cuentas de Claude adicionales", "Comptes Claude supplémentaires", "Contas extras do Claude", "Weitere Claude-Konten") }
+    var additionalClaudeAccountsHint: String {
+        t("다른 Claude Code 로그인(CLAUDE_CONFIG_DIR)은 ~/.claude-* 폴더와 export 된 CLAUDE_CONFIG_DIR 에서 자동으로 찾습니다. 다른 위치의 설정 폴더만 여기 추가하세요(콤마·줄바꿈 구분). 공식 한도에 계정마다 탭이 생기며, 수동 갱신 때 폴더마다 Keychain 접근을 물을 수 있습니다.",
+          "Other Claude Code logins (CLAUDE_CONFIG_DIR) are detected in ~/.claude-* folders and from an exported CLAUDE_CONFIG_DIR. Add config folders stored elsewhere here, comma/newline separated. Each account gets its own tab in the official limits; a manual refresh may ask for Keychain access for each folder.",
+          "他のClaude Codeログイン(CLAUDE_CONFIG_DIR)は ~/.claude-* フォルダと、エクスポートされた CLAUDE_CONFIG_DIR から自動検出されます。別の場所にある設定フォルダだけをここに追加してください(カンマ・改行区切り)。公式上限にアカウントごとのタブが追加され、手動更新時にフォルダごとにKeychainへのアクセスを確認することがあります。",
+          "Los otros inicios de sesión de Claude Code (CLAUDE_CONFIG_DIR) se detectan en las carpetas ~/.claude-* y en un CLAUDE_CONFIG_DIR exportado. Añade aquí las carpetas de configuración guardadas en otro lugar, separadas por coma o salto de línea. Cada cuenta tiene su pestaña en los límites oficiales; una actualización manual puede pedir acceso a Keychain para cada carpeta.",
+          "Les autres connexions Claude Code (CLAUDE_CONFIG_DIR) sont détectées dans les dossiers ~/.claude-* et depuis un CLAUDE_CONFIG_DIR exporté. Ajoute ici les dossiers de config rangés ailleurs, séparés par des virgules ou des retours à la ligne. Chaque compte a son onglet dans les limites officielles ; une actualisation manuelle peut demander l'accès au Keychain pour chaque dossier.",
+          "Os outros logins do Claude Code (CLAUDE_CONFIG_DIR) são detectados nas pastas ~/.claude-* e num CLAUDE_CONFIG_DIR exportado. Adicione aqui pastas de configuração guardadas em outro lugar, separadas por vírgula ou quebra de linha. Cada conta ganha sua aba nos limites oficiais; uma atualização manual pode pedir acesso ao Keychain para cada pasta.",
+          "Weitere Claude-Code-Anmeldungen (CLAUDE_CONFIG_DIR) werden in ~/.claude-*-Ordnern und über ein exportiertes CLAUDE_CONFIG_DIR erkannt. Füge hier Konfigurationsordner an anderen Orten hinzu, durch Kommas oder Zeilenumbrüche getrennt. Jedes Konto bekommt bei den offiziellen Limits einen eigenen Tab; eine manuelle Aktualisierung kann für jeden Ordner nach Keychain-Zugriff fragen.")
+    }
+    func additionalClaudeAccountsDetected(_ folders: String) -> String {
+        t("자동 감지: \(folders)", "Detected: \(folders)", "自動検出: \(folders)", "Detectadas: \(folders)", "Détectés : \(folders)", "Detectadas: \(folders)", "Erkannt: \(folders)")
+    }
+    var trackedAccountLabel: String { t("추적할 Claude 계정", "Tracked Claude account", "追跡する Claude アカウント", "Cuenta de Claude seguida", "Compte Claude suivi", "Conta do Claude acompanhada", "Verfolgtes Claude-Konto") }
+    func trackedAccountToolTip(_ title: String) -> String {
+        t("추적할 Claude 계정: \(title)", "Tracked Claude account: \(title)", "追跡する Claude アカウント: \(title)",
+          "Cuenta de Claude seguida: \(title)", "Compte Claude suivi : \(title)",
+          "Conta do Claude acompanhada: \(title)", "Verfolgtes Claude-Konto: \(title)")
+    }
+    var trackedAccountHint: String {
+        t("메뉴바 한도·경고 상태·컴패니언 기분·5시간 예측의 기준이에요.",
+          "Drives the menu bar limit, warning state, companion mood and 5h forecast.",
+          "メニューバーの上限・警告状態・コンパニオンの様子・5時間予測に使われます。",
+          "Define el límite de la barra de menús, el estado de alerta, el ánimo del compañero y la previsión de 5 h.",
+          "Pilote la limite de la barre des menus, l'état d'alerte, l'humeur du compagnon et la prévision 5 h.",
+          "Define o limite na barra de menus, o estado de alerta, o humor do companheiro e a previsão de 5 h.",
+          "Bestimmt das Limit in der Menüleiste, den Warnstatus, die Stimmung des Begleiters und die 5-Stunden-Prognose.")
+    }
+    var trackedAccountAutomatic: String { t("자동 (마지막 사용)", "Automatic (last used)", "自動（最後に使用）", "Automático (último usado)", "Automatique (dernier utilisé)", "Automático (último usado)", "Automatisch (zuletzt verwendet)") }
+    var trackedAccountHighest: String { t("사용률 최고", "Highest usage", "使用率が最大", "Mayor uso", "Le plus chargé", "Maior uso", "Höchste Auslastung") }
+    var additionalClaudeAccountsPlaceholder: String { t("~/.claude-work", "~/.claude-work", "~/.claude-work", "~/.claude-work", "~/.claude-work", "~/.claude-work", "~/.claude-work") }
+    func additionalClaudeAccountsFound(_ n: Int) -> String {
+        t("계정 폴더 \(n)개 찾음", "\(n) account folder(s) found", "アカウントフォルダが\(n)個見つかりました", "\(n) carpeta(s) de cuenta encontrada(s)", "\(n) dossier(s) de compte trouvé(s)", "\(n) pasta(s) de conta encontrada(s)", "Gefundene Kontoordner: \(n)")
     }
     var close: String { t("닫기", "Close", "閉じる", "Cerrar", "Fermer", "Fechar", "Schließen") }
 
@@ -642,10 +714,20 @@ struct L {
     // MARK: 컴패니언
     var finalForm: String { t("최종 진화체", "Final form", "最終進化", "Forma final", "Forme finale", "Forma final", "Letzte Entwicklungsstufe") }
     func stage(_ i: Int, _ k: Int) -> String { t("진화 단계 \(i) / \(k)", "Stage \(i) / \(k)", "進化段階 \(i) / \(k)", "Etapa \(i) / \(k)", "Stade \(i) / \(k)", "Estágio \(i) / \(k)", "Entwicklungsstufe \(i) / \(k)") }
-    var unknownNextEvolution: String { t("알 수 없는 다음 진화", "Unknown next evolution", "次の進化先は不明", "Próxima evolución desconocida", "Prochaine évolution inconnue", "Próxima evolução desconhecida", "Nächste Entwicklung unbekannt") }
+    var unknownNextEvolution: String { t("알 수 없는 다음 진화", "Unknown next evolution", "次の進化先は不明", "Próxima evolución desconocida", "Prochaine évolution inconnue", "Próxima evolución desconhecida", "Nächste Entwicklung unbekannt") }
     var eggIncubating: String { t("🥚 부화 준비 중", "🥚 Incubating", "🥚 孵化の準備中", "🥚 Incubando", "🥚 En incubation", "🥚 Incubando", "🥚 Wird ausgebrütet") }
     func eggToHatch(_ amount: String) -> String { t("부화까지 \(amount)", "\(amount) to hatch", "孵化まで \(amount)", "\(amount) para eclosionar", "\(amount) avant l'éclosion", "\(amount) para chocar", "\(amount) bis zum Schlüpfen") }
-    func toNextEvolution(_ amount: String) -> String { t("다음 진화까지 \(amount)", "\(amount) to next evolution", "次の進化まで \(amount)", "\(amount) para la siguiente evolución", "\(amount) avant la prochaine évolution", "\(amount) para a próxima evolução", "\(amount) bis zur nächsten Entwicklung") }
+    /// 알 부화 임계 도달 후 외부 데이터 요청이 실패한 동안의 다음 새로고침 안내.
+    var eggHatchDelayed: String {
+        t("⏳ 부화가 지연되고 있어요. 다음 새로고침에서 다시 시도해요",
+          "⏳ Hatching is delayed — retrying on the next refresh",
+          "⏳ 孵化が遅れています。次回の更新時に再試行します",
+          "⏳ La eclosión se retrasa; se reintentará en la próxima actualización",
+          "⏳ L’éclosion est retardée — nouvel essai au prochain rafraîchissement",
+          "⏳ A eclosão está atrasada — nova tentativa na próxima atualização",
+          "⏳ Das Schlüpfen verzögert sich — neuer Versuch bei der nächsten Aktualisierung")
+    }
+    func toNextEvolution(_ amount: String) -> String { t("다음 진화까지 \(amount)", "\(amount) to next evolution", "次の進化まで \(amount)", "\(amount) para la siguiente evolución", "\(amount) avant la prochaine évolution", "\(amount) para a próxima evolución", "\(amount) bis zur nächsten Entwicklung") }
     func toGraduation(_ amount: String) -> String { t("졸업까지 \(amount)", "\(amount) to graduation", "卒業まで \(amount)", "\(amount) para graduarse", "\(amount) avant le diplôme", "\(amount) para se formar", "\(amount) bis zum Abschied") }
     func growthBoost(_ multiplier: Int) -> String { t("\(multiplier)× 성장", "\(multiplier)× growth", "成長 \(multiplier)倍", "Crecimiento ×\(multiplier)", "Croissance ×\(multiplier)", "Crescimento ×\(multiplier)", "\(multiplier)× Wachstum") }
     func graduated(_ name: String) -> String {
@@ -667,6 +749,17 @@ struct L {
     var catchLogTitle: String { t("포획 로그", "Catch log", "捕獲ログ", "Registro de capturas", "Journal de captures", "Registro de capturas", "Fangprotokoll") }
     /// 도감 총계는 개체가 아니라 종 수 — 로그의 dexTotal("총 N마리")과 단위가 다르다.
     func dexSpeciesTotal(_ n: Int) -> String { t("\(n)종", "\(n) species", "\(n)種", "\(n) especies", "\(n) espèces", "\(n) espécies", "\(n) Spezies") }
+    func unownFormsCollected(_ count: Int) -> String {
+        t("안농 글자 \(count)/28", "Unown forms \(count)/28", "アンノーン \(count)/28文字",
+          "Formas Unown \(count)/28", "Formes Zarbi \(count)/28", "Formas Unown \(count)/28",
+          "Icognito-Formen \(count)/28")
+    }
+    var unownChooseForm: String {
+        t("글자 선택", "Choose form", "フォルムを選択", "Elegir forma", "Choisir une forme", "Escolher forma", "Form auswählen")
+    }
+    var unownNotCollected: String {
+        t("미수집", "Not collected", "未収集", "Sin conseguir", "Non collectionnée", "Não coletada", "Noch nicht gesammelt")
+    }
     func dexPageLabel(_ page: Int, _ total: Int) -> String {
         t("\(total)페이지 중 \(page)페이지", "Page \(page) of \(total)", "\(total)ページ中 \(page)ページ", "Página \(page) de \(total)", "Page \(page) sur \(total)", "Página \(page) de \(total)", "Seite \(page) von \(total)")
     }
@@ -846,6 +939,15 @@ struct L {
           "Os valores exibidos são de antes da expiração. Tente de novo ou rode o Claude Code uma vez para atualizá-los automaticamente.",
           "Die angezeigten Werte stammen von vor dem Ablauf. Versuch es erneut oder starte Claude Code einmal, um sie automatisch zu aktualisieren.")
     }
+    func additionalAccountExpiredHint(_ folder: String) -> String {
+        t("CLAUDE_CONFIG_DIR=\(folder) 로 Claude Code 를 한 번 실행한 뒤 다시 시도하세요.",
+          "Run Claude Code once with CLAUDE_CONFIG_DIR=\(folder), then retry.",
+          "CLAUDE_CONFIG_DIR=\(folder) で Claude Code を一度実行してから再試行してください。",
+          "Ejecuta Claude Code una vez con CLAUDE_CONFIG_DIR=\(folder) y reinténtalo.",
+          "Lance Claude Code une fois avec CLAUDE_CONFIG_DIR=\(folder), puis réessaie.",
+          "Rode o Claude Code uma vez com CLAUDE_CONFIG_DIR=\(folder) e tente de novo.",
+          "Starte Claude Code einmal mit CLAUDE_CONFIG_DIR=\(folder) und versuch es dann erneut.")
+    }
     var retry: String { t("다시 시도", "Retry", "再試行", "Reintentar", "Réessayer", "Tentar de novo", "Erneut versuchen") }
 
     // MARK: Antigravity 세션 만료(401) 안내 — Claude 쪽과 동일 문안 구조로 통일
@@ -911,7 +1013,17 @@ struct L {
           "🆕 v\(version) verfügbar (installiert: \(current))")
     }
     var updateButton: String { t("업데이트", "Update", "更新", "Actualizar", "Mettre à jour", "Instalar", "Aktualisieren") }
-    var updateLater: String { t("나중에", "Later", "後で", "Más tarde", "Plus tard", "Depois", "Später") }
+    var skipThisVersion: String { t("이 버전 건너뛰기", "Skip this version", "このバージョンをスキップ", "Omitir esta versión", "Ignorer cette version", "Ignorar esta versão", "Diese Version überspringen") }
+    func skippedVersion(_ version: String) -> String {
+        t("v\(version)을 건너뛰었어요",
+          "You skipped v\(version)",
+          "v\(version) をスキップしました",
+          "Omitiste la v\(version)",
+          "Tu as ignoré la v\(version)",
+          "Você ignorou a v\(version)",
+          "Du hast v\(version) übersprungen")
+    }
+    var showSkippedAgain: String { t("다시 알리기", "Show again", "もう一度表示", "Mostrar de nuevo", "Afficher à nouveau", "Mostrar de novo", "Wieder anzeigen") }
     var updating: String { t("업데이트 중…", "Updating…", "更新中…", "Actualizando…", "Mise à jour…", "Atualizando…", "Wird aktualisiert…") }
     var updateSectionTitle: String { t("업데이트", "Updates", "アップデート", "Actualizaciones", "Mises à jour", "Atualizações", "Aktualisierungen") }
     var updateNotificationsLabel: String { t("업데이트 알림", "Update notifications", "アップデート通知", "Notificaciones de actualización", "Notifications de mise à jour", "Notificações de atualização", "Hinweise auf Aktualisierungen") }
@@ -941,6 +1053,29 @@ struct L {
     }
     var useAfterHatch: String { t("부화 후 사용할 수 있어요", "Usable after hatching", "孵化後に使えます", "Se puede usar después de eclosionar", "Utilisable après l'éclosion", "Dá para usar depois que chocar", "Nach dem Schlüpfen verwendbar") }
     var useNeedsPokemon: String { t("사용할 포켓몬이 없어요", "No Pokémon to use it on", "使えるポケモンがいません", "No hay ningún Pokémon en quien usarlo", "Aucun Pokémon sur qui l'utiliser", "Nenhum Pokémon para usar o item", "Kein Pokémon, bei dem du es verwenden kannst") }
+
+    /// Rare Candy batch preview, including carryover and graduation waste.
+    var candyGraduates: String {
+        t("이 포켓몬은 졸업할 것으로 예상돼요.", "Expected to graduate.", "卒業する見込みです。",
+          "Se espera que se gradúe.", "Devrait terminer sa croissance.",
+          "Deve se formar.", "Schließt voraussichtlich sein Training ab.")
+    }
+    func candyCarryoverXP(_ xp: String) -> String {
+        t("예상 진화 후 이월 경험치: \(xp) XP.",
+          "Expected after evolution: \(xp) XP carried over.",
+          "進化後の予想繰越経験値：\(xp) XP。",
+          "Tras evolucionar: \(xp) XP de remanente previsto.",
+          "Après évolution : \(xp) XP de report prévu.",
+          "Após evoluir: previsão de \(xp) XP restantes.",
+          "Nach der Entwicklung: voraussichtlich \(xp) EP übertragen.")
+    }
+    func candyDiscardedXP(_ xp: String) -> String {
+        t("졸업 시 남는 \(xp) XP는 사라져요.", "On graduation, \(xp) leftover XP will be discarded.",
+          "卒業時、余った\(xp) XPは失われます。", "Al graduarse, se perderán \(xp) XP sobrantes.",
+          "À la fin de la croissance, les \(xp) XP restants seront perdus.",
+          "Ao se formar, \(xp) XP restantes serão descartados.",
+          "Beim Trainingsabschluss verfallen \(xp) überschüssige EP.")
+    }
 
     /// 아이템 표시명 — species 처럼 공식 현지명.
     func itemName(_ kind: ItemKind) -> String {
@@ -1032,6 +1167,24 @@ struct L {
           "Disponible une fois ton œuf actuel éclos.",
           "Disponível quando seu ovo atual chocar.",
           "Verfügbar, sobald dein aktuelles Ei geschlüpft ist.")
+    }
+    /// 놓아주면 무엇이 남는지 — `eggDescription` 바로 아래 줄(EggCard).
+    ///
+    /// 경고가 아니라 **안심**이 목적이다. `eggDescription` 이 "놓아준다"까지만 말해서 도감까지 잃는다고
+    /// 읽히지만, `buyEgg` 는 `releasedDexEntry` 로 도감에 남긴다.
+    ///
+    /// "같은 확률"은 비유가 아니라 실제 수치다. `chooseBase` 의 가중치는 이미 수집한 base 를 ½ 로
+    /// 깎는데(미수집 부스트), 그 판정인 `collectedFinals` 는 졸업에서만 채워지고 놓아줌에선 그대로다
+    /// → 놓아준 종의 부화 가중치는 100% 를 유지한다. 재인큐베이션은 말하지 않는다(`eggDescription`
+    /// 의 "새 알로 다시 시작해요" 와 중복).
+    var eggReleaseNote: String {
+        t("놓아준 포켓몬도 도감에 남고, 같은 확률로 다시 만날 수 있어요. 키운 진행도만 사라져요.",
+          "A released Pokémon stays in your Pokédex and can hatch again at the same odds — only the growth progress is lost.",
+          "手放したポケモンも図鑑に残り、同じ確率でまた出会えます。失われるのは育てた進み具合だけです。",
+          "El Pokémon liberado permanece en la Pokédex y puede volver a salir con la misma probabilidad; solo se pierde el progreso de crianza.",
+          "Un Pokémon relâché reste dans le Pokédex et peut réapparaître avec la même probabilité ; seule la progression est perdue.",
+          "O Pokémon solto continua na Pokédex e pode voltar a aparecer com a mesma chance; só o progresso de criação se perde.",
+          "Ein freigelassenes Pokémon bleibt im Pokédex und kann mit gleicher Wahrscheinlichkeit wieder schlüpfen; nur der Aufzuchtfortschritt geht verloren.")
     }
     /// 인큐베이션 중 표시하는 보증 배지 — 어떤 알을 품고 있는지 한 줄로.
     func eggGuaranteeHint(_ tier: Rarity) -> String {

@@ -164,6 +164,42 @@ final class AntigravityRateLimitsProviderTests: XCTestCase {
         XCTAssertNotNil(store.antigravityLimits)
         XCTAssertFalse(store.isRefreshingAntigravityLimits)
     }
+
+    func testDefaultTokenFileURLsIncludeCLIAndIDEPaths() {
+        let urls = AntigravityTokenCache.defaultTokenFileURLs.map(\.path)
+        XCTAssertTrue(urls.contains { $0.hasSuffix(".gemini/antigravity-cli/antigravity-oauth-token") })
+        XCTAssertTrue(urls.contains { $0.hasSuffix(".gemini/antigravity-ide/antigravity-oauth-token") })
+        XCTAssertTrue(urls.contains { $0.hasSuffix(".gemini/antigravity/antigravity-oauth-token") })
+        XCTAssertTrue(urls.contains { $0.hasSuffix("antigravity-token.json") })
+    }
+
+    func testHasTokenFileReflectsDiskPresence() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ptb-test-has-token-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let file = tempDir.appendingPathComponent("antigravity-oauth-token")
+        let cache = AntigravityTokenCache(tokenFileURLs: [file])
+        let provider = AntigravityRateLimitsProvider(tokenCache: cache)
+
+        XCTAssertFalse(cache.hasTokenFile)
+        XCTAssertFalse(provider.hasTokenFile)
+
+        let tokenJSON = """
+        {
+            "auth_method": "oauth",
+            "token": {
+                "access_token": "ya29.test",
+                "token_type": "Bearer"
+            }
+        }
+        """
+        try Data(tokenJSON.utf8).write(to: file, options: .atomic)
+
+        XCTAssertTrue(cache.hasTokenFile)
+        XCTAssertTrue(provider.hasTokenFile)
+    }
 }
 
 private struct FakeAntigravityLimits: AntigravityLimitsProviding {

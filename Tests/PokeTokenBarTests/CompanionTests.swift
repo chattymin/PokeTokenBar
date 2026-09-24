@@ -94,6 +94,16 @@ private func waitUntil(timeout: TimeInterval = 1, _ condition: @escaping () -> B
     return condition()
 }
 
+@MainActor
+private func waitUntilAsync(timeout: TimeInterval = 1, _ condition: @escaping () async -> Bool) async -> Bool {
+    let deadline = Date().addingTimeInterval(timeout)
+    while Date() < deadline {
+        if await condition() { return true }
+        try? await Task.sleep(nanoseconds: 1_000_000)
+    }
+    return await condition()
+}
+
 struct StubProvider: PokeProviding {
     let value: EvoLine
     func line(baseSpeciesID: Int) async throws -> EvoLine { value }
@@ -127,6 +137,64 @@ private actor SuspendedLineProvider: PokeProviding {
         continuation = nil
         suspended = false
         pending?.resume(returning: value)
+    }
+}
+
+private actor SuspendedFailingIndexProvider: PokeProviding {
+    private var continuation: CheckedContinuation<[BaseSpecies], Error>?
+    private var failNextRequest = false
+
+    func line(baseSpeciesID: Int) async throws -> EvoLine { throw URLError(.notConnectedToInternet) }
+
+    func baseSpeciesIndex() async throws -> [BaseSpecies] {
+        if failNextRequest {
+            failNextRequest = false
+            throw URLError(.notConnectedToInternet)
+        }
+        return try await withCheckedThrowingContinuation { continuation in
+            precondition(self.continuation == nil, "only one index request may be suspended")
+            self.continuation = continuation
+        }
+    }
+
+    func baseSpecies(id: Int) async throws -> BaseSpecies? { throw URLError(.notConnectedToInternet) }
+    func isSuspended() -> Bool { continuation != nil }
+
+    func resumeFailure() {
+        guard let pending = continuation else {
+            failNextRequest = true
+            return
+        }
+        continuation = nil
+        pending.resume(throwing: URLError(.notConnectedToInternet))
+    }
+}
+
+private actor SuspendedFailingLineProvider: PokeProviding {
+    private var continuation: CheckedContinuation<EvoLine, Error>?
+    private var failNextRequest = false
+
+    func line(baseSpeciesID: Int) async throws -> EvoLine {
+        if failNextRequest {
+            failNextRequest = false
+            throw URLError(.notConnectedToInternet)
+        }
+        return try await withCheckedThrowingContinuation { continuation in
+            precondition(self.continuation == nil, "only one line request may be suspended")
+            self.continuation = continuation
+        }
+    }
+
+    func baseSpeciesIndex() async throws -> [BaseSpecies] { [BaseSpecies(id: 25, captureRate: 255)] }
+    func isSuspended() -> Bool { continuation != nil }
+
+    func resumeFailure() {
+        guard let pending = continuation else {
+            failNextRequest = true
+            return
+        }
+        continuation = nil
+        pending.resume(throwing: URLError(.notConnectedToInternet))
     }
 }
 
@@ -1778,26 +1846,22 @@ final class CompanionIdentityTests: XCTestCase {
         XCTAssertNotNil(s.state.active?.nature)
     }
 
-    /// 프리패칭이 오프라인으로 실패해도 부화 시점 롤로 폴백 — 알이 막히지 않는다.
-    func testPrefetchOfflineFallsBackToHatchTimeRoll() async {
+    /// 요청 실패 뒤 provider 가 복구되면 다음 부화 시도가 성공하고 지연 안내가 사라진다.
+    func testFailedHatchRetriesAfterProviderRecovers() async {
         let p = IndexProvider()
         p.index = [BaseSpecies(id: 88, captureRate: 255)]
         p.failAll = true
         let s = samplerStore(p, seed: 9, preloadState: eggReadyState())
-        s.update(todayTokensByProvider: ["test": 0], todayDate: "d1", monthTotal: 0, burnTier: .idle, limitWarning: false, hasUsageData: true)
-        for _ in 0..<10 { await Task.yield() }        // 프리패치 시도 소진(실패)
-        XCTAssertNil(s.state.pendingHatchID)
-        await s.hatchIfNeeded()                        // 여전히 오프라인 → 알 유지
+
+        await s.hatchIfNeeded()
         XCTAssertNil(s.state.active)
-        p.failAll = false                              // 네트워크 복구
-        // 초기 update() 가 띄운 프리패치 Task 가 아직 in-flight 면 hatchIfNeeded 가 prefetchInFlight
-        // 가드로 조기 반환할 수 있다(고정 yield 횟수로는 CI 스케줄 지연에서 못 소진 — 플래키 원인).
-        // 부화할 때까지 재시도해 결정적으로 만든다(in-flight 는 몇 틱 내 실패로 해제됨).
-        for _ in 0..<50 where s.state.active == nil {
-            await s.hatchIfNeeded()                    // 부화 시점 롤 폴백
-            await Task.yield()
-        }
+        XCTAssertTrue(s.isHatchRetryDelayed)
+
+        p.failAll = false
+        await s.hatchIfNeeded()
+
         XCTAssertEqual(s.state.active?.baseID, 88)
+        XCTAssertFalse(s.isHatchRetryDelayed)
     }
 
     /// 오프라인(인덱스 취득 실패) — 알 진행 보존, isHatching 해제, 다음 틱 재시도 가능.
@@ -1845,6 +1909,177 @@ final class CompanionIdentityTests: XCTestCase {
             XCTAssertEqual(Set(names).count, 25, "\(lang) 중복/누락")
             XCTAssertFalse(names.contains(where: \.isEmpty))
         }
+    }
+
+    func testLocalizationIncludesDelayedHatchRetry() {
+        let expected = [
+            "⏳ 부화가 지연되고 있어요. 다음 새로고침에서 다시 시도해요",
+            "⏳ Hatching is delayed — retrying on the next refresh",
+            "⏳ 孵化が遅れています。次回の更新時に再試行します",
+            "⏳ La eclosión se retrasa; se reintentará en la próxima actualización",
+            "⏳ L’éclosion est retardée — nouvel essai au prochain rafraîchissement",
+            "⏳ A eclosão está atrasada — nova tentativa na próxima atualização",
+            "⏳ Das Schlüpfen verzögert sich — neuer Versuch bei der nächsten Aktualisierung",
+        ]
+        XCTAssertEqual(AppLanguage.allCases.count, expected.count)
+        for (lang, copy) in zip(AppLanguage.allCases, expected) {
+            XCTAssertEqual(L(lang).eggHatchDelayed, copy)
+        }
+    }
+
+    @MainActor
+    func testFailedHatchShowsDelayUntilNextRefresh() async {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("test-offline-\(UUID().uuidString).json")
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        var state = CompanionState()
+        state.installBaselineSet = true
+        state.eggUsage = PokemonBalance.eggHatchThreshold
+        if let data = try? JSONEncoder().encode(state) {
+            try? data.write(to: url)
+        }
+
+        let provider = FailingPokeProvider()
+        let store = CompanionStore(
+            provider: provider,
+            clock: { Date() },
+            fileURL: url,
+            rng: SeededRNG(seed: 42),
+            dittoDisguiseRollingEnabled: false
+        )
+
+        XCTAssertTrue(store.isEgg)
+        XCTAssertEqual(store.eggProgress, 1.0)
+        XCTAssertFalse(store.isHatchRetryDelayed)
+
+        // 부화 시도 실패 — 원인과 무관하게 다음 새로고침까지 지연 상태를 표시한다.
+        await store.hatchIfNeeded()
+        XCTAssertTrue(store.isEgg)
+        XCTAssertTrue(store.isHatchRetryDelayed)
+    }
+
+    @MainActor
+    func testApplySaveResetsHatchRetryDelay() async throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("test-save-import-\(UUID().uuidString).json")
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        var state = CompanionState()
+        state.installBaselineSet = true
+        state.eggUsage = PokemonBalance.eggHatchThreshold
+        if let data = try? JSONEncoder().encode(state) {
+            try? data.write(to: url)
+        }
+
+        let store = CompanionStore(
+            provider: FailingPokeProvider(),
+            clock: { Date() },
+            fileURL: url,
+            rng: SeededRNG(seed: 42),
+            dittoDisguiseRollingEnabled: false
+        )
+
+        // 오프라인 부화 실패로 플래그 true 설정
+        await store.hatchIfNeeded()
+        XCTAssertTrue(store.isHatchRetryDelayed)
+
+        // 새 세이브(0% 알) 임포트
+        var importedState = CompanionState()
+        importedState.installBaselineSet = true
+        importedState.eggUsage = 0
+        let envelope = SaveEnvelope(
+            format: SaveEnvelope.formatID,
+            schema: SaveEnvelope.schemaVersion,
+            appVersion: "2.5.3",
+            exportedAt: Date(),
+            sourceDevice: "Mac",
+            state: importedState
+        )
+
+        try store.applySave(envelope, todayTokensByProvider: [:], todayDate: "2026-09-11", hasUsageData: false)
+        XCTAssertFalse(store.isHatchRetryDelayed, "세이브 임포트 시 이전 대기 플래그가 클리어되어야 함")
+    }
+
+    @MainActor
+    func testPrefetchFailureMarksEggThatBecameReadyDuringRequest() async {
+        let provider = SuspendedFailingIndexProvider()
+        var state = CompanionState()
+        state.installBaselineSet = true
+        state.lastDate = "d1"
+        state.eggUsage = PokemonBalance.eggHatchThreshold - 1
+        state.claimedTodayTokensByProvider = ["test": 0]
+        let store = samplerStore(provider, seed: 42, preloadState: state)
+
+        store.update(todayTokensByProvider: ["test": 0], todayDate: "d1", monthTotal: 0,
+                     burnTier: .idle, limitWarning: false, hasUsageData: true)
+        let prefetchSuspended = await waitUntilAsync { await provider.isSuspended() }
+        XCTAssertTrue(prefetchSuspended)
+
+        store.update(todayTokensByProvider: ["test": 1], todayDate: "d1", monthTotal: 0,
+                     burnTier: .idle, limitWarning: false, hasUsageData: true)
+        await provider.resumeFailure()
+
+        let retryDelayed = await waitUntil { store.isHatchRetryDelayed }
+        XCTAssertTrue(retryDelayed)
+        XCTAssertTrue(store.isEgg)
+        XCTAssertEqual(store.eggProgress, 1)
+    }
+
+    @MainActor
+    func testStaleSpeciesSelectionFailureDoesNotMarkImportedEggDelayed() async throws {
+        let provider = SuspendedFailingIndexProvider()
+        let store = samplerStore(provider, seed: 42, preloadState: eggReadyState())
+        let hatch = Task { await store.hatchIfNeeded() }
+        let selectionSuspended = await waitUntilAsync { await provider.isSuspended() }
+        XCTAssertTrue(selectionSuspended)
+
+        try store.applySave(importedFreshEggEnvelope(), todayTokensByProvider: [:],
+                            todayDate: "2026-09-11", hasUsageData: false)
+        await provider.resumeFailure()
+        await hatch.value
+
+        XCTAssertFalse(store.isHatchRetryDelayed)
+        XCTAssertEqual(store.eggProgress, 0)
+    }
+
+    @MainActor
+    func testStaleLineFailureDoesNotMarkImportedEggDelayed() async throws {
+        let provider = SuspendedFailingLineProvider()
+        var state = eggReadyState()
+        state.pendingHatchID = 25
+        let store = samplerStore(provider, seed: 42, preloadState: state)
+        let hatch = Task { await store.hatchIfNeeded() }
+        let lineSuspended = await waitUntilAsync { await provider.isSuspended() }
+        XCTAssertTrue(lineSuspended)
+
+        try store.applySave(importedFreshEggEnvelope(), todayTokensByProvider: [:],
+                            todayDate: "2026-09-11", hasUsageData: false)
+        await provider.resumeFailure()
+        await hatch.value
+
+        XCTAssertFalse(store.isHatchRetryDelayed)
+        XCTAssertEqual(store.eggProgress, 0)
+    }
+
+    private func importedFreshEggEnvelope() -> SaveEnvelope {
+        var importedState = CompanionState()
+        importedState.installBaselineSet = true
+        return SaveEnvelope(
+            format: SaveEnvelope.formatID,
+            schema: SaveEnvelope.schemaVersion,
+            appVersion: "2.5.4",
+            exportedAt: Date(),
+            sourceDevice: "Mac",
+            state: importedState
+        )
+    }
+}
+
+private struct FailingPokeProvider: PokeProviding {
+    func line(baseSpeciesID: Int) async throws -> EvoLine {
+        throw URLError(.notConnectedToInternet)
+    }
+    func baseSpeciesIndex() async throws -> [BaseSpecies] {
+        throw URLError(.notConnectedToInternet)
     }
 }
 

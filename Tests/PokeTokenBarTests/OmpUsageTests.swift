@@ -208,6 +208,42 @@ final class OmpUsageTests: XCTestCase {
         XCTAssertEqual(daily.totalCost, 0.005, accuracy: 1e-12)
     }
 
+    /// The change lives one layer up from `daily`: `LocalOmpProvider.fetchDaily` opts into the
+    /// per-model breakdown and must carry it through provider repackaging (parity with Pi's #225
+    /// provider test). omp records its own model-price estimate in `usage.cost.total`; the parser
+    /// preserves that amount and `fetchDaily` leaves it untouched — surfaced as an estimate, not a
+    /// billed charge. A fixture routed through `fetchDaily()` covers the repackaging and the cost.
+    func testProviderFetchDailyForwardsBreakdownAndKeepsSourceCost() async throws {
+        let iso = Self.isoUTC.string(from: Date())
+        let jsonl = """
+        {"type":"message","id":"m1","timestamp":"\(iso)","message":{"role":"assistant","content":[],"model":"moonshotai/Kimi-K3","usage":{"input":100,"output":200,"cacheRead":0,"cacheWrite":0,"totalTokens":300,"cost":{"total":0.01}}}}
+        {"type":"message","id":"m2","timestamp":"\(iso)","message":{"role":"assistant","content":[],"model":"modal/nvidia/GLM-5.2","usage":{"input":10,"output":20,"cacheRead":0,"cacheWrite":0,"totalTokens":30,"cost":{"total":0.002}}}}
+        """
+        try jsonl.write(to: root.appendingPathComponent("-Users-x-Proj/today.jsonl"),
+                        atomically: true, encoding: .utf8)
+
+        let provider = LocalOmpProvider(cache: LocalUsageCache(ompRoots: [root], fileURL: cacheFile))
+        let fetched = try await provider.fetchDaily()
+        let daily = try XCTUnwrap(fetched)
+
+        XCTAssertEqual(daily.totalTokens, 330)
+        XCTAssertEqual(daily.totalCost, 0.012, accuracy: 1e-9,
+                       "the source-recorded amount passes through unchanged")
+        XCTAssertEqual(daily.costCoverage, .estimate,
+                       "omp's own model-price total is surfaced as an estimate, not a billed charge")
+        let models = try XCTUnwrap(daily.models, "the breakdown must survive provider repackaging")
+        XCTAssertEqual(models["moonshotai/Kimi-K3"], 300)
+        XCTAssertEqual(models["modal/nvidia/GLM-5.2"], 30)
+    }
+
+    private static let isoUTC: DateFormatter = {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.timeZone = TimeZone(identifier: "UTC")
+        f.dateFormat = "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'"
+        return f
+    }()
+
     func testPrintRealOmpAggregate() throws {
         guard ProcessInfo.processInfo.environment["PTB_PARITY"] == "1" else {
             throw XCTSkip("set PTB_PARITY=1 for the local omp smoke test")

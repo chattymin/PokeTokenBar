@@ -483,6 +483,27 @@ final class CursorUsageTests: XCTestCase {
         XCTAssertEqual(entry.cacheRead, 11964)
     }
 
+    func testParseCursorUsageEventClampsHugeTokenCounts() throws {
+        let huge = NSNumber(value: 1e30)
+        let event: [String: Any] = [
+            "timestamp": "1750979225854",
+            "model": "gpt-5",
+            "tokenUsage": [
+                "inputTokens": huge,
+                "outputTokens": huge,
+                "cacheWriteTokens": huge,
+                "cacheReadTokens": huge,
+            ] as [String: Any],
+        ]
+        let entry = try XCTUnwrap(CursorUsageAPI.parseUsageEvent(
+            event, rowIndex: 0, modifiedSince: try date("2025-01-01T00:00:00Z")))
+        let cap = LocalUsageReader.maxParsedTokenValue
+        XCTAssertEqual(entry.input, cap)
+        XCTAssertEqual(entry.output, cap)
+        XCTAssertEqual(entry.cacheWrite, cap)
+        XCTAssertEqual(entry.cacheRead, cap)
+    }
+
     func testCursorUsageEventIDsUseGlobalRowIndex() throws {
         let event: [String: Any] = [
             "timestamp": "1750979225854",

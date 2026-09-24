@@ -21,6 +21,9 @@ final class CredentialSwitchCacheTests: XCTestCase {
     }
 
     override func tearDownWithError() throws {
+        KeychainReader.copyMatchingForTesting = nil
+        URLProtocol.unregisterClass(ClaudeUsageURLProtocol.self)
+        ClaudeUsageURLProtocol.reset()
         try? FileManager.default.removeItem(at: tempDir)
         tempDir = nil
         MockOAuthURLProtocol.reset()
@@ -77,6 +80,62 @@ final class CredentialSwitchCacheTests: XCTestCase {
         let stillCached = try await cache.accessToken(allowKeychainPrompt: false)
         XCTAssertEqual(stillCached, "token-account-a")
         XCTAssertEqual(KeychainReader.queryCount, 0)
+    }
+
+    /// #300: Keychain-only install (no credentials file). The previous account's token is still
+    /// valid, so a 401 never arrives and the in-memory cache used to answer the Refresh button
+    /// forever. Restoring `bypassCache: false` on that path must fail this test.
+    func testManualRefreshRereadsKeychainWhenCachedTokenIsStillValid() async throws {
+        let file = tempDir.appendingPathComponent("credentials.json")
+        try writeClaudeCredentials(to: file, token: "token-account-a", subscription: "team")
+        let cache = OAuthAccessTokenCache(credentialsFileURL: file)
+        _ = try await cache.accessToken(allowKeychainPrompt: false)
+        try FileManager.default.removeItem(at: file)
+
+        let savedGate = KeychainAccessGate.isDisabled
+        KeychainAccessGate.isDisabled = false
+        defer { KeychainAccessGate.isDisabled = savedGate }
+
+        KeychainReader.resetQueryCountForTesting()
+        installKeychainToken("token-account-b", subscription: "team")
+        URLProtocol.registerClass(ClaudeUsageURLProtocol.self)
+        defer {
+            URLProtocol.unregisterClass(ClaudeUsageURLProtocol.self)
+            ClaudeUsageURLProtocol.reset()
+            KeychainReader.copyMatchingForTesting = nil
+        }
+
+        let provider = OAuthLimitsProvider(accessTokenCache: cache)
+        _ = try await provider.fetch(allowKeychainPrompt: true)
+
+        XCTAssertGreaterThan(KeychainReader.queryCount, 0, "Refresh must open Keychain, not the memory cache")
+        XCTAssertEqual(
+            ClaudeUsageURLProtocol.authorization,
+            "Bearer token-account-b",
+            "a still-valid cached token must not hide the account now in Keychain (#300)")
+
+        KeychainReader.resetQueryCountForTesting()
+        let auto = try await cache.accessToken(allowKeychainPrompt: false)
+        XCTAssertEqual(auto, "token-account-b", "user refresh should have replaced the cache")
+        XCTAssertEqual(KeychainReader.queryCount, 0, "auto-poll must still not touch Keychain")
+    }
+
+    /// Same class as #300 on the Antigravity user-refresh path. The Claude case above is the
+    /// live trigger; this keeps the one-line twin from being "fixed" back independently.
+    func testAntigravityUserRefreshAlsoBypassesStillValidCache() throws {
+        let source = try String(
+            contentsOf: URL(fileURLWithPath: #filePath)
+                .deletingLastPathComponent()
+                .deletingLastPathComponent()
+                .deletingLastPathComponent()
+                .appendingPathComponent("Sources/PokeTokenBar/Core/AntigravityRateLimitsProvider.swift"),
+            encoding: .utf8)
+        let fetch = source.range(of: "public func fetch(allowKeychainPrompt")
+        XCTAssertNotNil(fetch)
+        let body = String(source[(fetch?.lowerBound ?? source.startIndex)...].prefix(700))
+        XCTAssertTrue(
+            body.contains("bypassCache: allowKeychainPrompt"),
+            "Antigravity user refresh must skip a still-valid cached token, same as Claude #300")
     }
 
     // MARK: Antigravity (same class)
@@ -292,6 +351,27 @@ final class CredentialSwitchCacheTests: XCTestCase {
         try Data(json.utf8).write(to: url, options: .atomic)
     }
 
+    private func installKeychainToken(_ token: String, subscription: String) {
+        let expiresAt = Int(Date().addingTimeInterval(3600).timeIntervalSince1970)
+        let json = """
+        {"claudeAiOauth":{"accessToken":"\(token)","expiresAt":\(expiresAt),"subscriptionType":"\(subscription)"}}
+        """
+        let data = Data(json.utf8)
+        KeychainReader.copyMatchingForTesting = { query, result in
+            if (query[kSecReturnData as String] as? Bool) == true {
+                result = data as CFData
+                return errSecSuccess
+            }
+            // Accounts query must succeed. errSecItemNotFound there is "no credential",
+            // not the single-item fallback (#232).
+            if (query[kSecReturnAttributes as String] as? Bool) == true {
+                result = [[kSecAttrAccount as String: "hello@example.com"]] as CFArray
+                return errSecSuccess
+            }
+            return errSecItemNotFound
+        }
+    }
+
     private func writeAntigravityToken(to url: URL, token: String) throws {
         let json = "{\"token\":\"\(token)\"}"
         try Data(json.utf8).write(to: url, options: .atomic)
@@ -373,4 +453,36 @@ final class MockOAuthURLProtocol: URLProtocol {
         }
         return data
     }
+}
+
+/// Intercepts the usage call so the Refresh path can be asserted without a live token.
+private final class ClaudeUsageURLProtocol: URLProtocol, @unchecked Sendable {
+    nonisolated(unsafe) static var authorization: String?
+
+    static func reset() { authorization = nil }
+
+    override class func canInit(with request: URLRequest) -> Bool {
+        request.url?.host == "api.anthropic.com"
+    }
+
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+
+    override func startLoading() {
+        let url = request.url!
+        if url.path == "/api/oauth/usage" {
+            Self.authorization = request.value(forHTTPHeaderField: "Authorization")
+            let body = Data(#"{"five_hour":{"utilization":11},"seven_day":{"utilization":22}}"#.utf8)
+            let response = HTTPURLResponse(
+                url: url, statusCode: 200, httpVersion: "HTTP/1.1",
+                headerFields: ["Content-Type": "application/json"])!
+            client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+            client?.urlProtocol(self, didLoad: body)
+        } else {
+            let response = HTTPURLResponse(url: url, statusCode: 404, httpVersion: "HTTP/1.1", headerFields: nil)!
+            client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        }
+        client?.urlProtocolDidFinishLoading(self)
+    }
+
+    override func stopLoading() {}
 }

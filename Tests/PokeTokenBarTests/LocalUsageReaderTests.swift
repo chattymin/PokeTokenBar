@@ -71,8 +71,13 @@ final class LocalUsageReaderTests: XCTestCase {
         // Unknown model names must not borrow family prices.
         XCTAssertEqual(ModelPricing.cost(model: "claude-opus-4-99", input: 1_000_000, output: 0, cacheWrite: 0, cacheRead: 0), 0, accuracy: 1e-6)
         XCTAssertEqual(ModelPricing.cost(model: "claude-fable-6", input: 1_000_000, output: 0, cacheWrite: 0, cacheRead: 0), 0, accuracy: 1e-6)
+        // The Claude 5 family is the current generation and must carry exact rows: this
+        // assertion previously pinned `claude-opus-5` to `.zero`, which locked the blank cost
+        // row in as intended behaviour (#303).
+        XCTAssertEqual(ModelPricing.rate(for: "claude-opus-5"), .perMillion(5, 25, 6.25, 0.5))
+        XCTAssertEqual(ModelPricing.rate(for: "claude-sonnet-5"), .perMillion(2, 10, 2.5, 0.2))
         // An unverified future model remains unpriced.
-        XCTAssertEqual(ModelPricing.rate(for: "claude-opus-5"), .zero)
+        XCTAssertEqual(ModelPricing.rate(for: "claude-opus-6"), .zero)
         XCTAssertEqual(ModelPricing.cost(model: "totally-unknown", input: 1_000_000, output: 0, cacheWrite: 0, cacheRead: 0), 0, accuracy: 1e-9)
     }
 
@@ -1067,6 +1072,28 @@ final class LocalUsageReaderTests: XCTestCase {
         let p = LocalUsageReader.period(entries: entries, periodKey: "w", fromDay: today, toDay: today)
         // recent 는 오늘, old 도 (10h 전이라 같은 날일 수 있음) → 최소 recent 포함
         XCTAssertGreaterThanOrEqual(p.totalTokens, 600_000)
+    }
+
+    /// Claude writes parser-valid `<synthetic>` assistant rows with every usage field set to zero.
+    /// They are metadata, not evidence that the provider is active, so they must not create the
+    /// active-block carrier snapshot that makes a zero-usage Claude Code tab appear.
+    func testActiveBlockIgnoresZeroTokenSyntheticEntries() {
+        let now = Date()
+        let synthetic = LocalUsageReader.Entry(
+            id: "synthetic", date: now.addingTimeInterval(-120),
+            localDay: LocalUsageReader.localDayFormatter().string(from: now),
+            model: "<synthetic>", input: 0, output: 0, cacheWrite: 0, cacheRead: 0)
+
+        XCTAssertNil(LocalUsageReader.activeBlock(entries: [synthetic], now: now))
+
+        let actual = LocalUsageReader.Entry(
+            id: "actual", date: now.addingTimeInterval(-60),
+            localDay: LocalUsageReader.localDayFormatter().string(from: now),
+            model: "claude-opus", input: 10, output: 5, cacheWrite: 0, cacheRead: 0)
+        let block = LocalUsageReader.activeBlock(entries: [synthetic, actual], now: now)
+        XCTAssertEqual(block?.totalTokens, 15)
+        XCTAssertEqual(block?.id, "block-\(Int(actual.date.timeIntervalSince1970))",
+                       "zero-token metadata must not move the active block start earlier")
     }
 
     // MARK: enrichment 스캔 하한 (월초 경계 흡수)
