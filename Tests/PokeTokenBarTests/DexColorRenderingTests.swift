@@ -76,6 +76,30 @@ final class DexColorRenderingTests: XCTestCase {
         return rows
     }
 
+    /// The selector's header updates synchronously, but SpriteView changes its cached image in
+    /// .task(id:). Wait for those rendered pixels rather than assuming one 100ms sleep is enough.
+    /// The deadline only bounds a broken test; the full pixel and badge assertions remain below.
+    private func waitForDetailSprite(_ host: NSView, shiny: Bool) async throws -> NSBitmapImageRep {
+        let deadline = ContinuousClock.now + .seconds(5)
+        while true {
+            host.layoutSubtreeIfNeeded()
+            let bitmap = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+            host.cacheDisplay(in: host.bounds, to: bitmap)
+            let png = try XCTUnwrap(bitmap.representation(using: .png, properties: [:]))
+            let normalized = try XCTUnwrap(NSBitmapImageRep(data: png))
+            let scale = CGFloat(bitmap.pixelsWide) / host.bounds.width
+            // Center of the synthetic 82pt identity sprite, below the appearance picker.
+            let pixel = try XCTUnwrap(normalized.colorAt(x: Int(41 * scale), y: Int(101 * scale))?
+                .usingColorSpace(.deviceRGB))
+            let ready = pixel.greenComponent < 0.4
+                && (shiny ? pixel.blueComponent > 0.8 && pixel.redComponent < 0.3
+                           : pixel.redComponent > 0.8 && pixel.blueComponent < 0.3)
+            if ready || ContinuousClock.now >= deadline { return bitmap }
+            // Yield the main actor so the appearance's .task and following SwiftUI render can run.
+            try await Task.sleep(for: .milliseconds(20))
+        }
+    }
+
     func testDetailSelectorChangesMountedPixelsAndReturnsToNormal() async throws {
         let (store, file) = try fixture(shinyLast: true)
         defer { try? FileManager.default.removeItem(at: file) }
@@ -110,17 +134,16 @@ final class DexColorRenderingTests: XCTestCase {
         window.orderFront(nil)
         defer { window.close() }
         func descendants(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(descendants) }
-        for shiny in [false, true, false] {
+        for (step, shiny) in [false, true, false].enumerated() {
             host.layoutSubtreeIfNeeded()
             let segmented = try XCTUnwrap(descendants(host).compactMap { $0 as? NSSegmentedControl }.first)
             segmented.selectedSegment = shiny ? 1 : 0
             segmented.sendAction(segmented.action, to: segmented.target)
-            try await Task.sleep(for: .milliseconds(100))
-            host.layoutSubtreeIfNeeded()
-            let bitmap = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
-            host.cacheDisplay(in: host.bounds, to: bitmap)
-            XCTAssertGreaterThan(colorRows(bitmap, shiny: shiny).count, 40)
-            XCTAssertEqual(colorRows(bitmap, shiny: !shiny).count, 0)
+            let bitmap = try await waitForDetailSprite(host, shiny: shiny)
+            XCTAssertGreaterThan(colorRows(bitmap, shiny: shiny).count, 40,
+                                 "step \(step): selected \(shiny ? "shiny" : "normal") sprite must appear within 5 seconds")
+            XCTAssertEqual(colorRows(bitmap, shiny: !shiny).count, 0,
+                           "step \(step): selected \(shiny ? "shiny" : "normal") must not retain the previous appearance")
             let scale = CGFloat(bitmap.pixelsWide) / PopoverMetrics.contentWidth
             let header = try XCTUnwrap(bitmap.cgImage?.cropping(to:
                 CGRect(x: 90 * scale, y: 58 * scale, width: 220 * scale, height: 85 * scale)))

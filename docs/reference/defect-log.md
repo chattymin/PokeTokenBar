@@ -34,6 +34,11 @@ read_when:
   while the catch-log rendering fixture contained only normal individuals; they did not exercise
   mixed-color records together. Cover both acquisition orders and native rendering with distinct
   synthetic sprite colors, without modifying user saves or bundling third-party artwork.
+  Native appearance tests must wait for the expected rendered sprite with a bounded deadline,
+  then assert both expected pixels and absence of the previous color. A fixed 100ms sleep passed
+  locally but sampled the previous sprite in macOS 15 CI: the header had updated while the
+  sprite's independent SwiftUI `.task(id:)` had not finished rendering. Keep transition-index
+  diagnostics and prove a permanently stale sprite still fails after the readiness deadline.
 
 - **Localized metadata names must not replace persistent API identifiers.** The dex rendered
   ability, move, and type slugs directly, while existing tests covered species names and profile
