@@ -81,8 +81,14 @@ enum ClaudeAccountRoots {
         savedLogins.login(file: file)?.identity
     }
 
+    /// Organization of this folder's login, to pick the same one among a session key's organizations.
+    static func savedOrganizationID(in root: URL) -> String? {
+        savedLogins.login(file: root.appendingPathComponent(".claude.json"))?.organizationID
+    }
+
     private struct SavedLogin {
         let identity: AccountIdentity?
+        var organizationID: String? = nil
     }
 
     private static let savedLogins = SavedLoginCache()
@@ -123,7 +129,8 @@ enum ClaudeAccountRoots {
                 return SavedLogin(identity: nil)
             }
             let org = (account["organizationName"] as? String).flatMap { $0.isEmpty ? nil : $0 }
-            return SavedLogin(identity: AccountIdentity(email: email, organizationName: org))
+            let orgID = (account["organizationUuid"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+            return SavedLogin(identity: AccountIdentity(email: email, organizationName: org), organizationID: orgID)
         }
     }
 
@@ -257,12 +264,17 @@ struct AdditionalClaudeLimits: Sendable {
     /// The folder's token was rejected. Only Claude Code running on that folder renews it, so a
     /// refresh alone cannot help: the tab shows the last values dimmed, with what to do.
     var isExpired: Bool
+    /// The rejected credential is the folder's own session key: the fix is a fresh key in Settings,
+    /// not Claude Code, and a retry would only read the Keychain the key is there to avoid.
+    var sessionKeyExpired: Bool
 
-    init(rootPath: String, status: LimitStatus, isExpired: Bool = false, updatedAt: Date? = nil) {
+    init(rootPath: String, status: LimitStatus, isExpired: Bool = false, sessionKeyExpired: Bool = false,
+         updatedAt: Date? = nil) {
         self.rootPath = rootPath
         self.key = ClaudeAccountRoots.pathKey(for: URL(fileURLWithPath: rootPath))
         self.status = status
         self.isExpired = isExpired
+        self.sessionKeyExpired = sessionKeyExpired
         self.updatedAt = updatedAt
     }
 }
@@ -282,6 +294,8 @@ struct ClaudeAccountLimits: Sendable, Identifiable {
     let isDefault: Bool
     let isExpired: Bool
     var updatedAt: Date? = nil
+    /// See `AdditionalClaudeLimits.sessionKeyExpired`. The default account keeps `UsageStore.limitsAuthExpiry`.
+    var sessionKeyExpired = false
 
     static func defaultAccount(_ status: LimitStatus, isExpired: Bool = false,
                                updatedAt: Date? = nil) -> ClaudeAccountLimits {
@@ -293,7 +307,7 @@ struct ClaudeAccountLimits: Sendable, Identifiable {
         ClaudeAccountLimits(id: account.key, windowKeyPrefix: "claude.\(account.key)",
                             fallbackTitle: (account.rootPath as NSString).abbreviatingWithTildeInPath,
                             status: account.status, isDefault: false, isExpired: account.isExpired,
-                            updatedAt: account.updatedAt)
+                            updatedAt: account.updatedAt, sessionKeyExpired: account.sessionKeyExpired)
     }
 
     /// The account has at least one official window to show (a placeholder tab has none).

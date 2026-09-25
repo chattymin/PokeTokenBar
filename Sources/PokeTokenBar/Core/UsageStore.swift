@@ -163,7 +163,8 @@ final class UsageStore {
         didSet {
             defaults.set(disableKeychainAccess, forKey: "disableKeychainAccess")   // 저장 누락이던 기존 버그 — 재시작 후 풀렸음
             KeychainAccessGate.isDisabled = disableKeychainAccess
-            if disableKeychainAccess { clearAdditionalClaudeAccounts() }
+            // A folder's own session key needs no Keychain either, like the default key below.
+            if disableKeychainAccess { clearAdditionalClaudeAccounts(keeping: accountSessionKeyPaths) }
             // 세션 키/토큰 파일이 있으면 Keychain 없이도 한도를 조회할 수 있으므로 섹션을 지우지 않는다.
             if disableKeychainAccess && !sessionKeyConfigured {
                 limits = nil
@@ -173,7 +174,8 @@ final class UsageStore {
                 antigravityLimits = nil
                 antigravityLimitsAuthExpired = false
             }
-            if !disableKeychainAccess || sessionKeyConfigured || antigravityLimitsProvider.hasTokenFile {
+            if !disableKeychainAccess || sessionKeyConfigured || !accountSessionKeyPaths.isEmpty
+                || antigravityLimitsProvider.hasTokenFile {
                 Task { await refresh() }
             }
         }
@@ -227,6 +229,9 @@ final class UsageStore {
     private var additionalProviders: [String: any ClaudeLimitsProviding] = [:]
     /// 세션 키 저장·조직 조회. 조회 체인과 같은 인스턴스를 공유한다(기본값은 `.shared`).
     private let sessionKeys: any SessionKeyManaging
+    /// Each additional folder's own session key, for Settings. The limits chain of that folder reads
+    /// the same file (`ChainedLimitsProvider.forConfigRoot`).
+    private let accountSessionKeys: @Sendable (URL) -> any SessionKeyManaging
     private let codexLimitsProvider: any CodexLimitsProviding
     private let antigravityLimitsProvider: any AntigravityLimitsProviding
     private let cursorLimitsProvider: any CursorLimitsProviding
@@ -426,6 +431,24 @@ final class UsageStore {
         }
         // "yyyy-MM-dd" sorts lexicographically the same way it sorts chronologically.
         return byDay.values.sorted { $0.date < $1.date }
+    }
+
+    /// Day-by-day history behind the usage recap. Providers only report the current month, so the
+    /// numbers are copied into a rolling ledger at every refresh — see `UsageLedger`.
+    private(set) var dailyLedger = UsageLedger()
+
+    private func recordDailyLedger() {
+        var ledger = dailyLedger
+        ledger.merge(monthDailyTotals)
+        // This year and the one before it: the year view compares against last year, and nothing
+        // reaches further back.
+        let calendar = RecapPeriod.calendar()
+        let lastYear = RecapPeriod(scope: .year, containing: Date(), calendar: calendar)
+            .shifted(by: -1, calendar: calendar)
+        ledger.prune(before: LocalUsageReader.localDayFormatter().string(from: lastYear.start))
+        guard ledger != dailyLedger else { return }
+        dailyLedger = ledger
+        ledger.save(to: defaults)
     }
 
     /// Claude 의 활성 5h 블록 — 5h forecast·"현재 블록" 행은 Claude 공식 한도와 짝이므로
@@ -649,7 +672,7 @@ final class UsageStore {
          claudeLimitsProvider: any ClaudeLimitsProviding = ChainedLimitsProvider(
             primary: SessionKeyLimitsProvider.shared, fallback: OAuthLimitsProvider()),
          additionalClaudeLimitsProvider: @escaping @Sendable (URL) -> any ClaudeLimitsProviding = {
-            OAuthLimitsProvider(accessTokenCache: .forConfigRoot($0))
+            ChainedLimitsProvider.forConfigRoot($0)
          },
          discoverClaudeConfigDirs: @escaping @Sendable () -> [URL] = { ClaudeAccountRoots.installedDiscovery() },
          readDefaultIdentity: @escaping @Sendable () -> AccountIdentity? = { ClaudeAccountRoots.installedDefaultIdentity() },
@@ -665,6 +688,9 @@ final class UsageStore {
          cursorLimitsProvider: any CursorLimitsProviding = CursorRateLimitsProvider(),
          statusProvider: any ProviderStatusProviding = StatuspageStatusProvider(),
          sessionKeys: any SessionKeyManaging = SessionKeyLimitsProvider.shared,
+         accountSessionKeys: @escaping @Sendable (URL) -> any SessionKeyManaging = {
+            SessionKeyLimitsProvider(store: .forConfigRoot($0))
+         },
          autoRefresh: Bool = true,
          defaults: UserDefaults = .standard) {
         self.providers = providers
@@ -676,6 +702,7 @@ final class UsageStore {
         self.claudeUsageEntries = claudeUsageEntries
         self.readPromptHistory = readPromptHistory
         self.sessionKeys = sessionKeys
+        self.accountSessionKeys = accountSessionKeys
         self.codexLimitsProvider = codexLimitsProvider
         self.antigravityLimitsProvider = antigravityLimitsProvider
         self.cursorLimitsProvider = cursorLimitsProvider
@@ -703,6 +730,7 @@ final class UsageStore {
         additionalClaudeConfigDirs = d.string(forKey: ClaudeAccountRoots.defaultsKey) ?? ""
         claudeTrackedAccountMode = ClaudeTrackedAccountMode(storedValue: d.string(forKey: ClaudeTrackedAccountMode.defaultsKey))
         armedCandyWindows = Set(d.stringArray(forKey: Self.armedCandyWindowsKey) ?? [])
+        dailyLedger = UsageLedger.load(from: d)
 
         if let credential = sessionKeys.credential() {
             sessionKeyConfigured = true
@@ -926,6 +954,9 @@ final class UsageStore {
                 }
             }
         }
+        // 일별 원장은 여기서 갱신한다 — monthDaily 는 phase 2 에서만 채워지므로, phase 1 직후에
+        // 기록하면 설치 후 첫 갱신에서 사용량 요약이 통째로 빈다.
+        recordDailyLedger()
 
         // ── 한도 조회 (Keychain 프롬프트로 블로킹될 수 있어 마지막)
         // 세션 키 경로는 Keychain 을 안 읽으므로 이 토글과 무관하게 조회한다 — 토글을 켠 이유(팝업)가
@@ -1140,22 +1171,28 @@ final class UsageStore {
         let discover = discoverClaudeConfigDirs
         let readIdentity = readDefaultIdentity
         let setting = additionalClaudeConfigDirs
+        let sessionKeys = accountSessionKeys
         let found = await Task.detached(priority: .utility) {
             let detected = discover()
             let roots = ClaudeAccountRoots.merged(detected: detected, setting: setting)
             var saved: [String: AccountIdentity] = [:]
             for root in roots { saved[root.path] = ClaudeAccountRoots.savedIdentity(in: root) }
             let listed = Set(ClaudeAccountRoots.roots(from: setting).map(\.path))
-            return (detected: detected, roots: roots, listed: listed, saved: saved, defaultIdentity: readIdentity())
+            let keyed = Set(roots.filter { sessionKeys($0).credential() != nil }.map(\.path))
+            return (detected: detected, roots: roots, listed: listed, keyed: keyed, saved: saved,
+                    defaultIdentity: readIdentity())
         }.value
         detectedClaudeConfigDirs = found.detected.map(\.path)
         defaultSavedIdentity = found.defaultIdentity
-        let roots = found.roots
+        additionalClaudeConfigRoots = found.roots.map(\.path)
+        accountSessionKeyPaths = found.keyed
+        // Same rule as the default account: with the Keychain off, no account reads a token, and only
+        // a folder's own session key (no Keychain involved) still loads its limits.
+        let roots = disableKeychainAccess ? found.roots.filter { found.keyed.contains($0.path) } : found.roots
         let paths = Set(roots.map(\.path))
         additionalProviders = additionalProviders.filter { paths.contains($0.key) }
         additionalBackoff = additionalBackoff.filter { paths.contains($0.key) }
-        // Same rule as the default account: with the Keychain off, no account reads a token.
-        guard !roots.isEmpty, !disableKeychainAccess else {
+        guard !roots.isEmpty else {
             clearAdditionalClaudeAccounts()
             return
         }
@@ -1207,12 +1244,17 @@ final class UsageStore {
                     additionalBackoff[root.path] = (Date().addingTimeInterval(retryAfter ?? interval), interval)
                 }
                 AppLog.write("additional claude limits unavailable (\(root.lastPathComponent)): \(error)")
-                if Self.isAuthRejection(error) || previous?.isExpired == true {
+                // The chain rethrows the folder's session key error when it has one (`ChainedLimitsProvider`).
+                let keyRejected = (error as? LimitsError) == .sessionKeyInvalid
+                if Self.isAuthRejection(error) || keyRejected || previous?.isExpired == true {
                     // Keep the tab, with the last values when there are some, so the account stays visible.
                     var status = previous?.status ?? LimitStatus()
                     status.fillIdentity(from: found.saved[root.path])
+                    // Another failure keeps the known cause; a token rejection replaces it.
+                    let sessionKeyExpired = keyRejected
+                        || (!Self.isAuthRejection(error) && previous?.sessionKeyExpired == true)
                     keep(AdditionalClaudeLimits(rootPath: root.path, status: status, isExpired: true,
-                                                updatedAt: previous?.updatedAt))
+                                                sessionKeyExpired: sessionKeyExpired, updatedAt: previous?.updatedAt))
                 } else {
                     // Only a refresh allowed to prompt for this folder can fix it.
                     if mayPrompt { pending = true }
@@ -1243,9 +1285,11 @@ final class UsageStore {
         await refreshClaudeAccountUsage(folders: folders)
     }
 
-    private func clearAdditionalClaudeAccounts() {
-        additionalLimits = []
+    /// `kept`: folders with their own session key, which still load while the Keychain is off.
+    private func clearAdditionalClaudeAccounts(keeping kept: Set<String> = []) {
+        additionalLimits.removeAll { !kept.contains($0.rootPath) }
         additionalLimitsPending = false
+        guard additionalLimits.isEmpty else { return }   // the next refresh recomputes the rest
         claudeAccountActivity = [:]
         claudeAccountUsage = [:]
         claudeAccountBlocks = [:]
@@ -1321,6 +1365,72 @@ final class UsageStore {
     nonisolated static func isKeychainPromptDeclined(_ error: any Error) -> Bool {
         guard case LimitsError.keychainUnavailable(let status) = error else { return false }
         return status == errSecUserCanceled || status == errSecAuthFailed
+    }
+
+    // MARK: Additional account session keys
+
+    /// Additional folders at the last refresh (detected and listed), each with its own session key row
+    /// in Settings. Kept while the Keychain is off, so a key can still be entered then.
+    private(set) var additionalClaudeConfigRoots: [String] = []
+    /// Folders with a saved session key of their own, read from disk at each refresh.
+    private(set) var accountSessionKeyPaths: Set<String> = []
+    private var accountSessionKeyFailures: [String: any Error] = [:]
+    /// The folder whose pasted key is being checked.
+    private(set) var validatingAccountSessionKeyPath: String?
+
+    func accountSessionKeyError(for rootPath: String) -> String? {
+        accountSessionKeyFailures[rootPath].map { Self.friendlyLimitError($0, L(localizationLanguage)) }
+    }
+
+    /// Same check as the default key (listing the organizations proves the key works), then the refresh
+    /// shows the account's limits at once. Picks the organization the folder is logged in to when the
+    /// key sees several: Settings has no organization picker per account.
+    func saveAccountSessionKey(_ raw: String, for rootPath: String) async {
+        guard validatingAccountSessionKeyPath == nil else { return }
+        validatingAccountSessionKeyPath = rootPath
+        accountSessionKeyFailures[rootPath] = nil
+        defer { validatingAccountSessionKeyPath = nil }
+
+        let root = URL(fileURLWithPath: rootPath)
+        let keys = accountSessionKeys(root)
+        do {
+            let key = try SessionKeyStore.normalize(raw)
+            let organizations = try await keys.organizations(sessionKey: key)
+            guard let picked = Self.accountOrganization(
+                organizations, loggedIn: ClaudeAccountRoots.savedOrganizationID(in: root)) else {
+                throw LimitsError.sessionKeyNoOrganization
+            }
+            try keys.save(key: key, organizationID: picked.id)
+            accountSessionKeyPaths.insert(rootPath)
+            AppLog.write("account session key saved (\(root.lastPathComponent), orgs=\(organizations.count))")
+            await refresh()
+        } catch {
+            accountSessionKeyFailures[rootPath] = error
+            AppLog.write("account session key save failed (\(root.lastPathComponent)): \(error)")
+        }
+    }
+
+    func clearAccountSessionKey(for rootPath: String) {
+        let root = URL(fileURLWithPath: rootPath)
+        accountSessionKeys(root).clear()
+        accountSessionKeyPaths.remove(rootPath)
+        accountSessionKeyFailures[rootPath] = nil
+        // An expiry that was the key's goes with it: the folder's token decides again at the next refresh.
+        if let index = additionalLimits.firstIndex(where: { $0.rootPath == rootPath }),
+           additionalLimits[index].sessionKeyExpired {
+            additionalLimits[index].isExpired = false
+            additionalLimits[index].sessionKeyExpired = false
+        }
+        AppLog.write("account session key cleared (\(root.lastPathComponent))")
+        Task { await refresh() }
+    }
+
+    /// The folder's own organization first, then the rule of the default key (one with usage data).
+    nonisolated static func accountOrganization(
+        _ organizations: [SessionKeyOrganization], loggedIn organizationID: String?) -> SessionKeyOrganization?
+    {
+        organizations.first { $0.id == organizationID }
+            ?? organizations.first(where: \.hasUsageData) ?? organizations.first
     }
 
     // MARK: claude.ai 세션 키 (Keychain 프롬프트 없는 한도 경로)

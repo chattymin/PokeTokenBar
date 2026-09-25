@@ -34,7 +34,7 @@ final class KoreanParticleTests: XCTestCase {
     func testKoreanCopyUsesTheMatchingParticle() {
         let l = L(.ko)
         XCTAssertEqual(l.notifHatchBody("유니란"), "알에서 유니란이 나왔어요!")
-        XCTAssertTrue(l.notifShinyHatchBody("뚜벅쵸").hasPrefix("이로치 뚜벅쵸가 태어났어요!"))
+        XCTAssertEqual(l.notifShinyHatchBody("뚜벅쵸", odds: 48), "이로치 뚜벅쵸가 태어났어요! (1/48)")
         XCTAssertEqual(l.notifEvolveBody("듀란"), "듀란으로 진화했어요!")
         XCTAssertEqual(l.statusEvolved("란쿨루스"), "란쿨루스로 진화했어요!")
         XCTAssertEqual(l.eggConfirm("레트라", l.eggName(.rare)), "레트라를 놓아주고 희귀 알로 바꿀까요?")

@@ -26,6 +26,7 @@ struct ShopView: View {
                     }
                 }
             }
+            .reservesScrollerLane()
         }
         .frame(height: 520)
     }
@@ -136,7 +137,7 @@ private struct EggCard: View {
     let nav: PopoverNavigation
     let tier: Rarity?
     @State private var stage: Stage = .idle
-    private enum Stage { case idle, confirm, shinyConfirm }
+    private enum Stage { case idle, confirm, preciousConfirm }
 
     private var price: Int { store.price(of: .egg(tier)) }
 
@@ -213,20 +214,20 @@ private struct EggCard: View {
                 Text(l.eggConfirm(store.displayName, l.eggName(tier)))
                     .font(.caption2).foregroundStyle(.secondary).lineLimit(2)
                 Spacer()
-                // 이로치면 한 번 더 경고, 아니면 즉시 실행.
+                // 이로치나 전설 등 고가치 포켓몬이면 한 번 더 경고, 아니면 즉시 실행.
                 Button(l.buy) {
-                    if store.currentIsShiny { stage = .shinyConfirm } else { commit() }
+                    if store.isHighValueCompanion { stage = .preciousConfirm } else { commit() }
                 }
                 .buttonStyle(.borderedProminent).controlSize(.small)
                 Button(l.cancel) { stage = .idle }
                     .buttonStyle(.borderless).controlSize(.small)
             }
-        case .shinyConfirm:
+        case .preciousConfirm:
             HStack(spacing: 8) {
-                Text(l.freshEggShinyWarning)
+                Text(store.rarity == .legendary ? l.freshEggLegendaryWarning : l.freshEggShinyWarning)
                     .font(.caption2.weight(.semibold)).foregroundStyle(.orange).lineLimit(2)
                 Spacer()
-                Button(l.freshEggDiscardShiny) { commit() }
+                Button(store.currentIsShiny && store.rarity != .legendary ? l.freshEggDiscardShiny : l.freshEggDiscardValuable) { commit() }
                     .buttonStyle(.borderedProminent).controlSize(.small).tint(.orange)
                 Button(l.cancel) { stage = .idle }
                     .buttonStyle(.borderless).controlSize(.small)

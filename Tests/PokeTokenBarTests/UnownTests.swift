@@ -262,6 +262,17 @@ final class UnownTests: XCTestCase {
         }
     }
 
+    func testAppearanceOwnershipIsIndependentForEachUnownForm() throws {
+        var state = CompanionState()
+        state.dex = [entry(.a), entry(.a, shiny: true), entry(.b, shiny: true), entry(.c)]
+        let s = try store(state)
+        XCTAssertEqual(s.unownFormSpecies.map(\.unownForm), [.a, .b, .c])
+        XCTAssertEqual(s.unownFormSpecies.map(\.hasNormal), [true, false, true])
+        XCTAssertEqual(s.unownFormSpecies.map(\.isShiny), [true, true, false])
+        XCTAssertEqual(s.dexSpecies.first?.hasNormal, true)
+        XCTAssertEqual(s.dexSpecies.first?.isShiny, true)
+    }
+
     func testEveryFormRoundTripsAndSharesOneSpeciesCell() throws {
         for form in UnownForm.allCases {
             let restored = try JSONDecoder().decode(MonState.self,

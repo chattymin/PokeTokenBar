@@ -41,15 +41,23 @@ enum ClaudeAccountUsageAttribution {
 
     /// Accounts are checked in order; on equal times the first one wins.
     static func owner(session: String, at date: Date, accounts: [Account]) -> String? {
+        owner(sessions: [session], at: date, accounts: accounts)
+    }
+
+    /// A copied turn can appear in both its original and fork sessions. Prefer the latest prompt
+    /// at or before the turn across all candidates; a fork prompt created later cannot claim it.
+    static func owner(sessions: [String], at date: Date, accounts: [Account]) -> String? {
         var latest: (id: String, date: Date)?
         var earliest: (id: String, date: Date)?
         for account in accounts {
-            guard let times = account.prompts[session], let first = times.first else { continue }
-            if let before = times.last(where: { $0 <= date }), latest.map({ before > $0.date }) ?? true {
-                latest = (account.id, before)
-            }
-            if earliest.map({ first < $0.date }) ?? true {
-                earliest = (account.id, first)
+            for session in Set(sessions).sorted() {
+                guard let times = account.prompts[session], let first = times.first else { continue }
+                if let before = times.last(where: { $0 <= date }), latest.map({ before > $0.date }) ?? true {
+                    latest = (account.id, before)
+                }
+                if earliest.map({ first < $0.date }) ?? true {
+                    earliest = (account.id, first)
+                }
             }
         }
         // A turn logged before any prompt of its session (clock skew) goes to the login that started it.
@@ -75,7 +83,7 @@ enum ClaudeAccountUsageAttribution {
             // A block started before the month began still counts.
             let inBlock = entry.date >= blockStart
             guard inMonth || inBlock else { continue }
-            let key = entry.sessionID.flatMap { owner(session: $0, at: entry.date, accounts: accounts) } ?? unattributed
+            let key = owner(sessions: entry.claudeSessionIDs, at: entry.date, accounts: accounts) ?? unattributed
             if inBlock, key != unattributed { recent[key, default: []].append(entry) }
             guard inMonth else { continue }
             month[key, default: LocalUsageReader.Bucket()].add(entry)

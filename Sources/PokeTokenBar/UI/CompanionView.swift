@@ -607,7 +607,7 @@ struct CompanionHeader: View {
                         }
                         // 첫 실행(적립 0) — 정적 알 앞에서 "고장났나" 오해 방지용 한 줄 안내
                         if !store.eggStarted {
-                            Text(store.l.eggFirstRunHint)
+                            Text(store.l.eggFirstRunHint(TokenFormatter.compact(store.eggHatchThreshold)))
                                 .font(.caption2).foregroundStyle(.tertiary)
                                 .fixedSize(horizontal: false, vertical: true)
                         }
@@ -620,7 +620,7 @@ struct CompanionHeader: View {
                 // 폭을 안 주면 분기 라인(이브이)이 넘쳐 팝오버 콘텐츠 전체가 좌우로 잘린다.
                 EvoLineView(nodes: store.lineNodes, mysteryLabel: store.l.unknownNextEvolution,
                             language: store.language, shiny: store.currentIsShiny,
-                            maxWidth: PopoverMetrics.contentWidth, unownForm: store.currentUnownForm)
+                            maxWidth: PopoverMetrics.scrollContentWidth, unownForm: store.currentUnownForm)
             }
             if let g = store.justGraduated {
                 Text(store.l.graduated(g))
@@ -843,6 +843,7 @@ struct CollectionView: View {
                             DexEntryRow(store: store, entry: entry)
                         }
                     }
+                    .reservesScrollerLane()
                 }
                 .frame(maxHeight: .infinity)
                 // 필터 토글 시 목록 최상단으로 — 이전 스크롤 위치가 새 필터 결과 밖이어도 처음부터 보이게.
@@ -1044,12 +1045,24 @@ private struct DexGridView: View {
 /// Scrollable species + individual page. A Pokédex species may aggregate several catches, so the
 /// picker selects the exact persisted profile while the immutable PokéAPI section stays shared.
 @MainActor
-private struct PokemonDetailView: View {
+struct PokemonDetailView: View {
     let store: CompanionStore
     let species: CompanionStore.DexSpecies
     let onBack: () -> Void
+    private let spriteStore: SpriteStore
     @State private var selectedInstanceID = ""
     @State private var selectedUnownForm: UnownForm?
+    @State private var selectedShiny: Bool?
+
+    init(store: CompanionStore, species: CompanionStore.DexSpecies,
+         onBack: @escaping () -> Void, selectedShiny: Bool? = nil,
+         spriteStore: SpriteStore = .shared) {
+        self.store = store
+        self.species = species
+        self.onBack = onBack
+        self.spriteStore = spriteStore
+        _selectedShiny = State(initialValue: selectedShiny)
+    }
 
     private var formSpecies: [CompanionStore.DexSpecies] {
         species.id == UnownForm.speciesID ? store.unownFormSpecies : []
@@ -1062,8 +1075,16 @@ private struct PokemonDetailView: View {
             ?? forms.first ?? species
     }
 
-    private var individuals: [DexEntry] {
+    private var allIndividuals: [DexEntry] {
         store.pokemonIndividuals(speciesID: species.id, unownForm: displayedSpecies.unownForm)
+    }
+    private var displayedShiny: Bool {
+        if let selectedShiny,
+           selectedShiny ? displayedSpecies.isShiny : displayedSpecies.hasNormal { return selectedShiny }
+        return allIndividuals.first?.isShiny ?? displayedSpecies.isShiny
+    }
+    private var individuals: [DexEntry] {
+        allIndividuals.filter { $0.isShiny == displayedShiny }
     }
     private var individual: DexEntry? {
         individuals.first { $0.id == selectedInstanceID } ?? individuals.first
@@ -1082,8 +1103,12 @@ private struct PokemonDetailView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
                     if species.id == UnownForm.speciesID { unownFormPicker }
+                    if displayedSpecies.hasNormal && displayedSpecies.isShiny { appearancePicker }
                     identityHeader
-                    if individuals.count > 1 { individualPicker }
+                    if !individuals.isEmpty { individualPicker }
+                    else {
+                        Text(store.l.dexAppearancePreview).font(.caption).foregroundStyle(.secondary)
+                    }
                     if let details = store.pokemonDetailsByID[species.id] {
                         if let individual, let profile = individual.profile {
                             individualSection(entry: individual, profile: profile, details: details)
@@ -1104,6 +1129,7 @@ private struct PokemonDetailView: View {
                     }
                 }
                 .padding(.bottom, 8)
+                .reservesScrollerLane()
             }
         }
         .task {
@@ -1124,6 +1150,7 @@ private struct PokemonDetailView: View {
                     Button {
                         selectedUnownForm = form
                         selectedInstanceID = ""
+                        selectedShiny = nil
                     } label: {
                         VStack(spacing: 0) {
                             SpriteView(speciesID: UnownForm.speciesID, size: 28,
@@ -1161,14 +1188,14 @@ private struct PokemonDetailView: View {
         let species = displayedSpecies
         return HStack(spacing: 14) {
             SpriteView(speciesID: species.id, size: 82, animated: true,
-                       shiny: individual?.isShiny ?? species.isShiny, unownForm: species.unownForm)
+                       shiny: displayedShiny, spriteStore: spriteStore, unownForm: species.unownForm)
                 .frame(width: 82, height: 82)
             VStack(alignment: .leading, spacing: 5) {
                 Text(species.name).font(.title3.weight(.bold))
                 Text(store.l.rarityLabel(species.rarity))
                     .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
-                if species.isShiny { Text("✨ \(store.l.dexShinyLabel)").font(.caption2) }
-                if species.isRaising { Text(store.l.dexRaising).font(.caption2).foregroundStyle(Color.accentColor) }
+                if displayedShiny { Text("✨ \(store.l.dexShinyLabel)").font(.caption2) }
+                if let individual, store.isActiveDexEntry(individual) { Text(store.l.dexRaising).font(.caption2).foregroundStyle(Color.accentColor) }
                 let isRepresentative = store.isRepresentative(species)
                 RepresentativeFooterButton(localization: store.l,
                                            isRepresentative: isRepresentative) {
@@ -1179,14 +1206,32 @@ private struct PokemonDetailView: View {
         }
     }
 
+    private var appearancePicker: some View {
+        Picker(store.l.dexAppearance, selection: Binding(
+            get: { displayedShiny }, set: { selectedShiny = $0; selectedInstanceID = "" })) {
+            Text(store.l.dexNormalLabel).tag(false)
+            Text("✨ \(store.l.dexShinyLabel)").tag(true)
+        }
+        .pickerStyle(.segmented)
+    }
+
     private var individualPicker: some View {
         Picker(store.l.pokemonIndividual, selection: Binding(
             get: { individual?.id ?? "" }, set: { selectedInstanceID = $0 })) {
             ForEach(Array(individuals.enumerated()), id: \.element.id) { index, entry in
-                Text("#\(index + 1) · Lv. \(entry.profile?.level ?? 5)").tag(entry.id)
+                Text(individualLabel(entry, index: index)).tag(entry.id)
             }
         }
         .pickerStyle(.menu)
+    }
+
+    private func individualLabel(_ entry: DexEntry, index: Int) -> String {
+        let appearance = entry.isShiny ? "✨ \(store.l.dexShinyLabel)" : store.l.dexNormalLabel
+        let date = entry.caughtAt.map {
+            $0.formatted(Date.FormatStyle(date: .numeric, time: .omitted)
+                .locale(Locale(identifier: store.language.rawValue)))
+        } ?? (store.isActiveDexEntry(entry) ? store.l.dexRaising : "—")
+        return "#\(index + 1) · \(appearance) · Lv. \(entry.profile?.level ?? 5) · \(date)"
     }
 
     private func individualSection(entry: DexEntry, profile: PokemonProfile,
@@ -1338,6 +1383,7 @@ private struct DexSpeciesCell: View {
     let isRepresentative: Bool
     let unownFormCount: Int
     let onTap: () -> Void
+    @State private var isHovered = false
 
     /// 로그(56)보다 작다 — 24칸 격자에 이름까지 담아야 한다. 원본 96×96 픽셀아트를
     /// interpolation(.none) 으로 축소하므로 이 크기에서도 식별에 문제없다.
@@ -1391,8 +1437,20 @@ private struct DexSpeciesCell: View {
                         .strokeBorder(Color.accentColor, lineWidth: 1.5)
                 }
             }
+            // 호버 = 클릭 가능 피드백. 확대는 격자 간격 안에 머무는 폭으로만.
+            // 그림자는 카드 모양에만 — 칸 전체에 `.shadow` 를 걸면 번호·이름·스프라이트 글자마다 그림자가 진다.
+            .background {
+                if isHovered {
+                    RoundedRectangle(cornerRadius: 8)
+                        .fill(Color(nsColor: .windowBackgroundColor))
+                        .shadow(color: .black.opacity(0.25), radius: 4, y: 2)
+                }
+            }
+            .scaleEffect(isHovered ? 1.04 : 1)
+            .animation(.easeOut(duration: 0.12), value: isHovered)
         }
         .buttonStyle(.plain)
+        .onHover { isHovered = $0 }
         .help(tooltip)
         .accessibilityLabel(tooltip)
         .contextMenu {
@@ -1425,8 +1483,9 @@ private struct DexSpeciesCell: View {
                     .accessibilityHidden(true)
             }
         }
-            .font(.system(size: 8, weight: .medium))
-            .foregroundStyle(.secondary)
+            // 번호 색 = 희귀도 — "전체" 보기에서도 칸마다 희귀도가 보인다.
+            .font(.system(size: 8, weight: .semibold))
+            .foregroundStyle(rarityColor(species.rarity))
             .padding(.horizontal, 2)
             .background(.regularMaterial, in: Capsule())
     }
@@ -1506,7 +1565,7 @@ private struct DexEntryRow: View {
             EvoLineView(nodes: entry.chainOrder.map { EvoLineItem(.species($0), .done) },
                         mysteryLabel: store.l.unknownNextEvolution, language: store.language, thumb: 56,
                         shiny: entry.isShiny, names: names,
-                        maxWidth: PopoverMetrics.contentWidth - Self.cardPadding * 2, unownForm: entry.unownForm)
+                        maxWidth: PopoverMetrics.scrollContentWidth - Self.cardPadding * 2, unownForm: entry.unownForm)
             if let caughtAt = entry.caughtAt {
                 Text(caughtAt, style: .relative).font(.system(size: 9)).foregroundStyle(.tertiary)
             }

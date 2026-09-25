@@ -1682,6 +1682,32 @@ final class ClaudeAccountUsageAttributionTests: XCTestCase {
         XCTAssertEqual(owner("pingpong", 45), "default", "back on the first login: its latest prompt wins")
     }
 
+    func testForkedTurnStaysWithOriginalAccountRegardlessOfScanOrder() {
+        let forkAccounts = [
+            ClaudeAccountUsageAttribution.Account(id: "original", prompts: ["source-session": [at(0)]]),
+            ClaudeAccountUsageAttribution.Account(id: "fork", prompts: ["fork-session": [at(10)]]),
+        ]
+        let source = entry("same-turn", session: "source-session", at: at(5), tokens: 100,
+                           day: "2026-09-17")
+        let replay = entry("same-turn", session: "fork-session", at: at(15), tokens: 100,
+                           day: "2026-09-17")
+
+        for scanned in [[source, replay], [replay, source]] {
+            let deduped = LocalUsageReader.dedupKeepMax(scanned)
+            let result = ClaudeAccountUsageAttribution.usage(
+                entries: deduped, accounts: forkAccounts, now: at(20),
+                todayKey: "2026-09-17", monthStartKey: "2026-09-01")
+
+            XCTAssertEqual(deduped.count, 1, "the replayed turn is counted once")
+            XCTAssertEqual(deduped[0].date, at(5), "the original turn time survives a later replay envelope")
+            XCTAssertEqual(deduped[0].claudeSessionIDs, ["fork-session", "source-session"])
+            XCTAssertEqual(result.byAccount["original"]?.todayTokens, 100,
+                           "a future prompt in the fork cannot claim a historical turn")
+            XCTAssertNil(result.byAccount["fork"])
+            XCTAssertEqual(result.unattributed.todayTokens, 0)
+        }
+    }
+
     func testEdgeCasesStayDeterministic() {
         XCTAssertEqual(owner("resumed", -1), "default", "before any prompt: the login that started the session")
         XCTAssertEqual(owner("tie", 6), "default", "equal prompt times: the first account in order")

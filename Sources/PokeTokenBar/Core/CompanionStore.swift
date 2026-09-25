@@ -50,6 +50,8 @@ final class CompanionStore {
     private let defaults: UserDefaults
     /// 세션 내 활성 개체 교체 감지용. await 뒤 이전 개체의 결과가 새 개체를 덮지 않게 한다.
     private var activeGeneration = 0
+    private var lastAutoSnapshotDate: Date?
+    private(set) var availableSnapshots: [SaveSnapshot] = []
 
     // MARK: 난이도 배율 (설정 — UserDefaults)
     //
@@ -93,6 +95,7 @@ final class CompanionStore {
         defaults.set(shopDifficulty, forKey: "shopDifficulty")
         migratePokemonProfilesIfNeeded()
         refreshRepresentativeSubject()
+        refreshSnapshots()
         if state.active != nil { displayState = .idle }
     }
 
@@ -148,8 +151,8 @@ final class CompanionStore {
         defaults.set(clamped, forKey: "shopDifficulty")
     }
 
-    /// 난이도를 반영한 알 부화 임계.
-    private var eggHatchThreshold: Int {
+    /// 난이도를 반영한 알 부화 임계. 첫 실행 안내 문구도 이 값을 보여준다.
+    var eggHatchThreshold: Int {
         PokemonBalance.scaled(PokemonBalance.eggHatchThreshold, by: growthDifficulty)
     }
 
@@ -177,6 +180,14 @@ final class CompanionStore {
         guard let a = state.active else { return false }
         if a.dittoDisguise != nil && !a.dittoRevealed { return false }   // 위장 중엔 이로치 숨김(리빌 때 공개)
         return a.isShiny
+    }
+    /// 새 알(리롤) 구매 시 실수로 놓아주지 않도록 2단계 확인이 필요한 고가치 개체인지 판정.
+    /// 이로치(shiny)이거나 전설(legendary)인 경우에만 2단계 경고를 띄운다.
+    /// 희귀(rare)는 고급/희귀 알의 반복 리롤 피로도(alert fatigue)를 방지하기 위해 일반 확인만 거친다.
+    /// 위장 중인 메타몽은 `currentIsShiny`(=false)와 `rarity`(=.common)의 불변식을 그대로 따라
+    /// 리빌 전 정체를 누설하지 않는다.
+    var isHighValueCompanion: Bool {
+        currentIsShiny || rarity == .legendary
     }
     var currentNature: PokemonNature? { state.active?.nature }
     var growthMultiplier: Int? {
@@ -386,6 +397,7 @@ final class CompanionStore {
         /// 이 종이 현재 키우는 개체의 **현재 형태**인가. 지나온 진화 단계에는 서지 않는다.
         let isRaising: Bool
         var unownForm: UnownForm? = nil
+        var hasNormal = false
 
         /// Species IDs remain Pokédex numbers; selection also includes the Unown letter.
         var collectionID: String {
@@ -412,6 +424,7 @@ final class CompanionStore {
         let rarity: Rarity
         var names: [String: String]?
         var isShiny = false
+        var hasNormal = false
     }
 
     /// 도감 목록 — 보유 종만, 도감 번호 오름차순.
@@ -436,7 +449,7 @@ final class CompanionStore {
                 let key = DexKey(id, unownForm: entry.unownForm, groupUnownForms: groupUnownForms)
                 var a = acc[key] ?? DexAccumulator(rarity: entry.rarity)
                 if let n = entry.names?[id] { a.names = n }   // 이름 없는 구버전 항목이 덮어쓰지 않게
-                if entry.isShiny { a.isShiny = true }
+                if entry.isShiny { a.isShiny = true } else { a.hasNormal = true }
                 acc[key] = a
             }
         }
@@ -447,7 +460,7 @@ final class CompanionStore {
                 let key = DexKey(id, unownForm: active.unownForm, groupUnownForms: groupUnownForms)
                 var a = acc[key] ?? DexAccumulator(rarity: active.rarity)
                 if let n = currentLine?.names[id] { a.names = n }
-                if currentIsShiny { a.isShiny = true }   // 위장 중 숨김 규칙 재사용
+                if currentIsShiny { a.isShiny = true } else { a.hasNormal = true }   // 위장 중 숨김 규칙 재사용
                 acc[key] = a
             }
         }
@@ -462,7 +475,7 @@ final class CompanionStore {
                 rarity: a.rarity,
                 isShiny: a.isShiny,
                 isRaising: key.speciesID == state.active?.currentID && (!groupUnownForms || key.unownForm == currentUnownForm),
-                unownForm: key.unownForm)
+                unownForm: key.unownForm, hasNormal: a.hasNormal)
         }
     }
 
@@ -659,6 +672,7 @@ final class CompanionStore {
         displayState = computeState(burnTier: burnTier, limitWarning: limitWarning,
                                     hasUsageData: hasUsageData, today: todayTokens)
         save()
+        autoSnapshotIfNeeded()
     }
 
     /// 토큰 증분을 현재 포켓몬에 적용 — 임계 도달 시 진화/졸업.
@@ -1258,9 +1272,17 @@ final class CompanionStore {
         rarity == .common && totalForms >= 2 && roll % PokemonOdds.dittoDisguiseDenominator == 0
     }
 
-    /// 이로치 부화 판정(순수) — 미리 뽑은 roll 값 % 분모(부적 보유 48, 없으면 64)==0. (부수효과 없이 xctest)
+    /// 이로치 부화 분모 — 부적 보유 48, 없으면 64. 판정과 알림 문구가 같은 값을 쓰도록 여기가 단일 소스다.
+    nonisolated static func shinyDenominator(charmOwned: Bool) -> UInt64 {
+        charmOwned ? ShinyCharm.shinyDenominator : PokemonOdds.shinyDenominator
+    }
+
+    /// 지금 부화하면 적용될 이로치 분모.
+    var shinyDenominator: UInt64 { Self.shinyDenominator(charmOwned: ownsShinyCharm) }
+
+    /// 이로치 부화 판정(순수) — 미리 뽑은 roll 값 % 분모==0. (부수효과 없이 xctest)
     nonisolated static func rollsShiny(roll: UInt64, charmOwned: Bool) -> Bool {
-        roll % (charmOwned ? ShinyCharm.shinyDenominator : PokemonOdds.shinyDenominator) == 0
+        roll % shinyDenominator(charmOwned: charmOwned) == 0
     }
 
     /// 실제 부화 로직 — isHatching 락은 호출자(hatch / hatchIfNeeded)가 소유·해제한다.
@@ -1303,7 +1325,9 @@ final class CompanionStore {
         let overflow = max(0, state.eggUsage - eggHatchThreshold)
         state.eggUsage = 0
         state.eggTier = nil   // 보증은 이 부화로 소비된다(다음 알은 다시 무보증)
-        // 개체 롤 — shiny(1/64)·성격(25종)은 부화 순간 확정, 진화해도 유지.
+        // 개체 롤 — shiny(1/64, 부적 1/48)·성격(25종)은 부화 순간 확정, 진화해도 유지.
+        // 알림 문구는 이 판정과 같은 분모를 보여준다.
+        let shinyOdds = shinyDenominator
         let isShiny = Self.rollsShiny(roll: rng.next(), charmOwned: ownsShinyCharm)
         let nature = PokemonNature.allCases[Int(rng.next() % UInt64(PokemonNature.allCases.count))]
         // 메타몽 위장 롤 — common·≥2형태에 한해 1/128. .app 게이트(&& 단락 → 비앱에선 rng 미소비로
@@ -1330,7 +1354,7 @@ final class CompanionStore {
         let name = UnownForm.displayName(line.localizedName(line.baseID, state.language),
                                          speciesID: line.baseID, form: unownForm)
         notifyCompanionEvent(showShiny ? l.notifShinyHatchTitle : l.notifHatchTitle,
-                             showShiny ? l.notifShinyHatchBody(name) : l.notifHatchBody(name))
+                             showShiny ? l.notifShinyHatchBody(name, odds: shinyOdds) : l.notifHatchBody(name))
         justEvolvedTo = nil        // 새 부화는 "성장" 문구(진화 아님) — 직전 진화명이 남아 표시되지 않게
         displayState = .levelUp
         eventUntil = clock().addingTimeInterval(4)
@@ -1562,6 +1586,65 @@ final class CompanionStore {
         }
     }
 
+    // MARK: 스냅샷 (로컬 자동 백업 & 복원)
+
+    func refreshSnapshots() {
+        availableSnapshots = SaveSnapshotManager.listSnapshots(for: fileURL)
+    }
+
+    @discardableResult
+    func createManualSnapshot(now: Date? = nil) throws -> SaveSnapshot {
+        let timestamp = now ?? clock()
+        let snapshot = try SaveSnapshotManager.createSnapshot(
+            state: state,
+            for: fileURL,
+            date: timestamp,
+            appVersion: SaveSnapshotManager.defaultAppVersion,
+            deviceName: SaveSnapshotManager.defaultDeviceName
+        )
+        lastAutoSnapshotDate = timestamp
+        refreshSnapshots()
+        return snapshot
+    }
+
+    private var automaticSnapshotInterval: TimeInterval {
+        SaveSnapshotManager.minAutoSnapshotInterval
+    }
+
+    func autoSnapshotIfNeeded(now: Date? = nil) {
+        let timestamp = now ?? clock()
+        let newest = availableSnapshots.first
+
+        guard newest == nil ||
+              timestamp.timeIntervalSince(newest!.date) >= automaticSnapshotInterval
+        else {
+            return
+        }
+
+        guard state.usedSinceInstall > 0 || !state.dex.isEmpty || state.active != nil else { return }
+
+        _ = try? createManualSnapshot(now: timestamp)
+    }
+
+    func restoreSnapshot(
+        _ snapshot: SaveSnapshot,
+        todayTokensByProvider: [String: Int] = [:],
+        todayDate: String = "",
+        hasUsageData: Bool = false
+    ) throws {
+        // Read and validate the selected snapshot before taking the safety snapshot: at the retention
+        // limit, that extra file prunes the oldest one, which may be the snapshot being restored.
+        // A snapshot that no longer decodes also fails here, before anything is written or pruned.
+        let envelope = try SaveSnapshotManager.loadEnvelope(from: snapshot.fileURL)
+        _ = try? createManualSnapshot()
+        try applySave(envelope,
+                      todayTokensByProvider: todayTokensByProvider,
+                      todayDate: todayDate,
+                      hasUsageData: hasUsageData)
+        refreshSnapshots()
+        AppLog.write("snapshot restored: \(snapshot.id)")
+    }
+
     // MARK: Pokémon combat profiles / details
 
     /// Exact current/final individuals for a Pokédex species. Earlier evolution stages remain
@@ -1705,12 +1788,24 @@ final class CompanionStore {
     private func load() {
         guard let data = try? Data(contentsOf: fileURL) else { return }   // 파일 없음 = 신규 설치
         guard let s = try? JSONDecoder().decode(CompanionState.self, from: data) else {
-            // 디코드 실패(전면 손상/미래 스키마) → fresh 로 시작하되, 다음 save() 가 원본을 덮어써 영구
-            // 유실되기 전에 .corrupt 로 보존해 수동 복구 여지를 남긴다(도감 per-entry 격리로 못 살린 경우 대비).
+            // 디코드 실패(전면 손상/미래 스키마) → 원본을 .corrupt 로 백업 후 유효한 스냅샷으로 복구 시도.
             let backup = fileURL.appendingPathExtension("corrupt")
             try? FileManager.default.removeItem(at: backup)
-            try? FileManager.default.moveItem(at: fileURL, to: backup)
-            AppLog.write("companion state decode failed — original backed up to \(backup.lastPathComponent), starting fresh")
+            do {
+                try FileManager.default.moveItem(at: fileURL, to: backup)
+                AppLog.write("companion state decode failed — original backed up to \(backup.lastPathComponent)")
+            } catch {
+                AppLog.write("failed to move corrupt state file to \(backup.lastPathComponent): \(error)")
+            }
+
+            if let recovered = SaveSnapshotManager.loadLatestValidSnapshot(for: fileURL) {
+                state = SaveTransfer.sanitized(recovered)
+                AppLog.write("automatically recovered companion state from snapshot")
+                save()
+            } else {
+                state = CompanionState()
+                AppLog.write("no snapshot available, starting fresh")
+            }
             return
         }
         // 불러오기 경계와 같은 정규화를 디스크에서 읽을 때도 건다. 불러오기만 막으면 **이미 저장된**
