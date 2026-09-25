@@ -63,7 +63,8 @@ enum LocalUsageReader {
                                                                 cacheWrite: e.cacheWrite, cacheRead: e.cacheRead) {
                 cost += estimate
                 costCoverage.merge(.estimate)
-            } else if e.total > 0 {
+            } else {
+                if e.costUnavailable != true { ModelPricing.noteUnpriced(e.model) }
                 costCoverage.merge(.unavailable)
             }
         }
