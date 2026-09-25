@@ -1516,7 +1516,8 @@ final class UsageStore {
             return l.limitRefreshNoCredential
         case .credentialMissingAccountOAuth:
             return l.limitRefreshReauthNeeded
-        case .keychainInteractionNotAllowed, .keychainAccessDisabled:
+        // liveFetchNotPermitted never reaches the real app (the bundle opens the gate), so it gets the generic text.
+        case .keychainInteractionNotAllowed, .keychainAccessDisabled, .liveFetchNotPermitted:
             return l.limitRefreshGeneric
         case .sessionKeyMissing:
             return l.limitRefreshNoCredential

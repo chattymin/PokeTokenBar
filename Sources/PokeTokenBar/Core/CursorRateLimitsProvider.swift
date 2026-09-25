@@ -97,6 +97,8 @@ public struct CursorRateLimitsProvider: CursorLimitsProviding, Sendable {
     }
 
     private static func perform(_ request: URLRequest) async -> (Data, Int)? {
+        // The only real network boundary (usage and token refresh); tests inject `transportForTesting`.
+        guard AppEnv.allowsLiveLimitsFetch else { return nil }
         do {
             let (data, response) = try await session.data(for: request)
             let status = (response as? HTTPURLResponse)?.statusCode ?? 0

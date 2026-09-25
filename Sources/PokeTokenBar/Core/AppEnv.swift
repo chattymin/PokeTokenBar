@@ -8,4 +8,24 @@ enum AppEnv {
     static var isBundledApp: Bool {
         Bundle.main.bundleIdentifier != nil && Bundle.main.bundlePath.hasSuffix(".app")
     }
+
+    /// `PTB_PARITY=1` — a QA/parity run where live endpoints are allowed (the same flag the parity
+    /// smoke tests already use). Only ever opens a gate that `isBundledApp` keeps closed.
+    static var isParityRun: Bool {
+        ProcessInfo.processInfo.environment["PTB_PARITY"] == "1"
+    }
+
+    /// Lets a test drive a provider's real network code against a stubbed transport (URLProtocol, an
+    /// injected URLSession). Set it in the test and reset it in `defer`.
+    nonisolated(unsafe) static var allowLiveFetchForTesting = false
+
+    /// Whether a limits provider may send the user's credentials to a live endpoint. Closed under
+    /// `swift test` and for a raw `swift build` binary: a test that does not inject a stub would
+    /// otherwise call Anthropic, Google or Cursor with the real login found on the machine
+    /// (`~/.claude/.credentials.json`, the Antigravity token file, Cursor's `state.vscdb`).
+    /// Put the check at the network boundary, not before the credential read, so the Keychain path
+    /// tests keep observing real reads. `LiveCredentialCallGateTests` requires it in every provider.
+    static var allowsLiveLimitsFetch: Bool {
+        isBundledApp || isParityRun || allowLiveFetchForTesting
+    }
 }

@@ -35,6 +35,8 @@ struct URLSessionSessionKeyClient: SessionKeyHTTPClient {
         "(KHTML, like Gecko) Version/17.0 Safari/605.1.15"
 
     func get(_ url: URL, sessionKey: String) async throws -> SessionKeyHTTPResponse {
+        // Tests inject their own `SessionKeyHTTPClient`, so this only stops real calls.
+        guard AppEnv.allowsLiveLimitsFetch else { throw LimitsError.liveFetchNotPermitted }
         var request = URLRequest(url: url, timeoutInterval: 15)
         // 쿠키를 헤더로 직접 넣는다. 공유 저장소가 개입하면 이 헤더를 덮어써 인증이 뒤바뀔 수 있다.
         request.httpShouldHandleCookies = false

@@ -3,6 +3,8 @@ import Security
 
 enum LimitsError: Error, Equatable {
     case keychainAccessDisabled
+    /// A live limits call outside the app bundle (`swift test`, a raw binary). See `AppEnv.allowsLiveLimitsFetch`.
+    case liveFetchNotPermitted
     case keychainUnavailable(OSStatus)
     case keychainInteractionNotAllowed
     case credentialFormat
@@ -79,6 +81,7 @@ struct OAuthLimitsProvider: ClaudeLimitsProviding, Sendable {
     }
 
     private func fetchStatus(accessToken: String) async throws -> LimitStatus {
+        guard AppEnv.allowsLiveLimitsFetch else { throw LimitsError.liveFetchNotPermitted }
         var request = URLRequest(url: Self.usageURL, timeoutInterval: 15)
         request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
         request.setValue("oauth-2025-04-20", forHTTPHeaderField: "anthropic-beta")
@@ -135,6 +138,7 @@ actor OAuthProfileCache {
     private static let profileURL = URL(string: "https://api.anthropic.com/api/oauth/profile")!
 
     static func networkIdentity(accessToken: String) async -> AccountIdentity? {
+        guard AppEnv.allowsLiveLimitsFetch else { return nil }
         var request = URLRequest(url: profileURL, timeoutInterval: 15)
         request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
         request.setValue("oauth-2025-04-20", forHTTPHeaderField: "anthropic-beta")
