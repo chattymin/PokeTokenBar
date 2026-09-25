@@ -103,6 +103,18 @@ enum PokemonBalance {
     /// 알 부화 임계 — 이만큼 토큰을 써야 알이 깨진다(즉시 부화 대신 기대감). 초과분은 부화체 성장에 이월.
     static let eggHatchThreshold = 5_000_000
     static let repeatGrowthMultiplier = 2
+    /// 일일 스트릭 인정 최소 토큰 (기본 10M).
+    static let defaultDailyStreakThreshold = 10_000_000
+
+    /// 연속 코딩 일수에 따른 성장 속도 부스트 배율.
+    /// 3일: 1.10x, 7일: 1.25x, 14일: 1.35x, 30일: 1.50x.
+    static func streakMultiplier(for days: Int) -> Double {
+        if days >= 30 { return 1.50 }
+        if days >= 14 { return 1.35 }
+        if days >= 7  { return 1.25 }
+        if days >= 3  { return 1.10 }
+        return 1.0
+    }
 
     static func graduationTotal(_ rarity: Rarity) -> Int {
         switch rarity {
@@ -610,6 +622,37 @@ private extension KeyedDecodingContainer {
     }
 }
 
+/// 연속 코딩 스트릭 상태 (Application Support JSON 영속).
+struct StreakState: Codable, Sendable, Equatable {
+    var days: Int = 0
+    var lastDay: String = ""
+
+    /// 표시 및 배율 계산에 사용하는 유효 연속 일수.
+    /// 어제 달성 후 오늘 아직 미달성이어도 당일 중에는 어제 스트릭을 유예(morning tolerance)하여 유지한다.
+    /// 시차 이동(동->서 등)으로 `todayDate <= lastDay`인 경우에도 확보한 스트릭을 보존한다.
+    func effectiveDays(todayDate: String) -> Int {
+        guard days > 0, !lastDay.isEmpty else { return 0 }
+        if todayDate <= lastDay {
+            return days
+        }
+        if let diff = LocalUsageReader.dayDifference(from: lastDay, to: todayDate), diff == 1 {
+            return days
+        }
+        return 0
+    }
+
+    /// 당일 활성 토큰 임계 도달 시 호출.
+    mutating func recordActiveDay(_ todayDate: String) {
+        if !lastDay.isEmpty && todayDate <= lastDay { return }
+        if !lastDay.isEmpty, let diff = LocalUsageReader.dayDifference(from: lastDay, to: todayDate), diff == 1 {
+            days += 1
+        } else {
+            days = 1
+        }
+        lastDay = todayDate
+    }
+}
+
 /// 영속 상태(Application Support JSON). 포켓몬 전환 — 이전 커스텀 캐릭터 상태는 폐기(새로 시작).
 struct CompanionState: Codable, Sendable {
     // 토큰: 설치 이후만 측정
@@ -637,6 +680,8 @@ struct CompanionState: Codable, Sendable {
     /// 키는 `UsageProvider.id`를 그대로 사용한다.
     var claimedTodayTokensByProvider: [String: Int]? = nil
     var lastDate = ""
+    // 연속 코딩 스트릭 (일수 + 마지막 달성일)
+    var streak = StreakState()
     // 현재 포켓몬(없으면 알)
     var active: MonState?
     // 메뉴바와 플로팅 펫에 고정한 대표 종. nil = 현재 키우는 포켓몬(또는 알)을 그대로 따라간다.
@@ -682,6 +727,7 @@ struct CompanionState: Codable, Sendable {
             claimedTodayTokensByProvider = nil
         }
         lastDate           = c.lenient(String.self, forKey: .lastDate, default: "")
+        streak             = c.lenient(StreakState.self, forKey: .streak, default: StreakState())
         // active 손상(빈 pathIDs 등) → 알로 폴백하되 도감·인벤토리는 보존.
         active             = c.lenientOptional(MonState.self, forKey: .active)
         representativeSpeciesID = c.lenientOptional(Int.self, forKey: .representativeSpeciesID)

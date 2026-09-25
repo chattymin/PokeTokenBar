@@ -127,6 +127,18 @@ final class SaveTransferTests: XCTestCase {
         XCTAssertEqual(envelope.state.active?.phaseThreshold, 62_500_000)
     }
 
+    func testRoundTripPreservesDailyStreak() throws {
+        var original = CompanionState()
+        original.streak = StreakState(days: 7, lastDay: "2026-09-23")
+
+        let data = try SaveTransfer.encode(state: original, appVersion: "2.5.0",
+                                           deviceName: "Old Mac", now: transferNow)
+        let envelope = try SaveTransfer.decode(data)
+
+        XCTAssertEqual(envelope.state.streak.days, 7)
+        XCTAssertEqual(envelope.state.streak.lastDay, "2026-09-23")
+    }
+
     /// [핵심] 봉투가 없으면 `CompanionState` 의 관대 디코딩이 아무 JSON 이나 빈 상태로 흡수해
     /// "불러오기 성공 → 도감이 사라짐"이 된다. 포맷 id 로 먼저 거른다.
     func testForeignJSONIsRejectedRatherThanImportedAsEmptyState() throws {
@@ -528,7 +540,7 @@ final class SaveTransferTests: XCTestCase {
     func testEveryCompanionStateFieldIsClassifiedForTransfer() {
         // eggTier(알 등급 보증) = 진행 — 산 물건이지 이 기기의 장부가 아니라 기기를 옮겨도 따라간다.
         let progress: Set<String> = ["usedSinceInstall", "spentTokens", "eggUsage", "eggTier",
-                                     "pendingHatchID", "pendingUnownForm", "active",
+                                     "pendingHatchID", "pendingUnownForm", "streak", "active",
                                      "representativeSpeciesID", "representativeUnownForm", "dex",
                                      "collectedFinals", "inventory"]
         let deviceLedger: Set<String> = ["installBaselineSet", "claimedTodayTokensByProvider", "lastDate"]
