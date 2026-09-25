@@ -127,6 +127,49 @@ final class LocalUsageCacheTests: XCTestCase {
         return url
     }
 
+    // MARK: User file isolation (regression)
+
+    /// A cache on the default path must neither read nor write the user's real usage-cache.json.
+    ///
+    /// Every test that touches `LocalUsageCache` injects a `fileURL`, but that only covers that test:
+    /// `LocalUsageProvider` uses `.shared`, so any `refresh()` that runs the real providers during
+    /// `swift test` (a store built with default providers, a detached Task outliving its test) reaches
+    /// the default path. Measured: one full suite run rewrote the real file. So the guard is the store's
+    /// own gate, not "tests inject a path".
+    func testDefaultPathCacheNeitherReadsNorWritesUserFile() async throws {
+        _ = try writeFile("a.jsonl", lines: [claudeLine(id: "1", output: 42)])
+        let cache = LocalUsageCache(claudeRoot: root)   // no fileURL: the default (user) path
+
+        XCTAssertFalse(cache.persistsToDisk, "swift test is not an app bundle, so the default path stays inert")
+
+        // Sample the mtime before the *first* scan: a second call returns early (dirty == false) before
+        // the save throttle, so sampling after it would pass even with the write gate removed.
+        let userFile = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("PokeTokenBar/usage-cache.json")
+        func userFileMtime() -> Date? {
+            (try? FileManager.default.attributesOfItem(atPath: userFile.path))?[.modificationDate] as? Date
+        }
+        let before = userFileMtime()
+
+        // The gate only stops IO: parsing and totals still work.
+        let entries = await cache.claudeEntries(modifiedSince: Date(timeIntervalSince1970: 0))
+        XCTAssertEqual(entries.count, 1)
+        XCTAssertEqual(entries.first?.output, 42, "only the fixture root counts, not the user's real cache")
+
+        let blobs = await cache.cachedBlobCount
+        XCTAssertEqual(blobs, 1, "with the read gate open, the user's real blobs would show up here")
+        XCTAssertEqual(before, userFileMtime(), "the user's usage-cache.json was rewritten")
+    }
+
+    /// The opposite direction: an injected path must still persist, or every persistence test is void.
+    func testInjectedPathCacheStillPersists() async throws {
+        _ = try writeFile("a.jsonl", lines: [claudeLine(id: "1", output: 7)])
+        let cache = LocalUsageCache(claudeRoot: root, fileURL: cacheFile)
+        XCTAssertTrue(cache.persistsToDisk)
+        _ = await cache.claudeEntries(modifiedSince: Date(timeIntervalSince1970: 0))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: cacheFile.path), "the injected path stays live")
+    }
+
     private func makeCache(now: @escaping @Sendable () -> Date = Date.init,
                            probes: ProbeCounter? = nil,
                            probe: (@Sendable (URL) throws -> String?)? = nil,

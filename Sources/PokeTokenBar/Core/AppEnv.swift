@@ -28,4 +28,13 @@ enum AppEnv {
     static var allowsLiveLimitsFetch: Bool {
         isBundledApp || isParityRun || allowLiveFetchForTesting
     }
+
+    /// Whether a store may read and write its file. Always true for an injected path, which is how
+    /// tests check persistence against a temporary file. A store that fell back to its default
+    /// (user) path persists only in the app bundle, so `swift test` never reads or rewrites the
+    /// user's real files there. Keep this rule here instead of copying it into each store.
+    static func persistsToUserLocation(injectedFileURL: URL?,
+                                       isBundledApp: Bool = AppEnv.isBundledApp) -> Bool {
+        injectedFileURL != nil || isBundledApp
+    }
 }

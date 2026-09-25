@@ -202,3 +202,22 @@ final class UsageEnvironmentTests: XCTestCase {
         XCTAssertTrue(missing.isEmpty, "names 에 없는 조회: \(missing.joined(separator: ", "))")
     }
 }
+
+/// The single rule for whether a store may touch its default (user) file.
+final class UserLocationGateTests: XCTestCase {
+    func testInjectedPathIsAlwaysLive() {
+        let tmp = URL(fileURLWithPath: "/tmp/whatever.json")
+        XCTAssertTrue(AppEnv.persistsToUserLocation(injectedFileURL: tmp, isBundledApp: false))
+        XCTAssertTrue(AppEnv.persistsToUserLocation(injectedFileURL: tmp, isBundledApp: true))
+    }
+
+    func testDefaultPathIsInertUnlessBundled() {
+        XCTAssertFalse(AppEnv.persistsToUserLocation(injectedFileURL: nil, isBundledApp: false))
+        XCTAssertTrue(AppEnv.persistsToUserLocation(injectedFileURL: nil, isBundledApp: true))
+    }
+
+    /// `swift test` is not an app bundle; if that ever changes, the gate above protects nothing.
+    func testTestBinaryIsNotABundledApp() {
+        XCTAssertFalse(AppEnv.isBundledApp)
+    }
+}
