@@ -30,7 +30,7 @@ public struct CursorRateLimitsProvider: CursorLimitsProviding, Sendable {
     public func fetch() async throws -> CursorRateLimitStatus? {
         guard UsageEnvironment.value("CURSOR_USAGE_API") != "0" else { return nil }
         guard var token = CursorUsageAPI.sessionToken() else {
-            AppLog.write("cursor limits: no session token")
+            AppLog.writeIfChanged("cursor-limits-session", "cursor limits: no session token")
             return nil
         }
 
@@ -71,7 +71,7 @@ public struct CursorRateLimitsProvider: CursorLimitsProviding, Sendable {
     private static func refreshAccessToken() async throws -> String? {
         guard let refreshToken = LocalAdditionalUsageReader.cursorAuthValue("cursorAuth/refreshToken")?
             .trimmingCharacters(in: .whitespacesAndNewlines), !refreshToken.isEmpty else {
-            AppLog.write("cursor limits: no refresh token")
+            AppLog.writeIfChanged("cursor-limits-refresh", "cursor limits: no refresh token")
             return nil
         }
         var request = URLRequest(url: tokenURL, timeoutInterval: 10)
