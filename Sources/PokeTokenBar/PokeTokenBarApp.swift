@@ -105,6 +105,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
 
         popover.behavior = .transient
         popover.delegate = self   // didShow: outside-click monitor; didClose: 호스팅 해제 + 모니터 제거
+        // Keep the popover from closing on an outside click, but only while a trade holds a
+        // connection — closing tears the session down and loses the trade in progress
+        // (see the PopoverNavigation.tradeSessionActive comment).
+        navigation.onTradeSessionActiveChanged = { [weak self] active in
+            self?.popover.behavior = active ? .applicationDefined : .transient
+        }
 
         observeStore()
         observeCompanionSprite()
@@ -574,6 +580,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
                 Task { @MainActor in
                     guard let self, self.popover.isShown else { return }
+                    // This monitor closes the popover on outside clicks that .transient misses,
+                    // which would defeat the .applicationDefined behavior holding it open
+                    // during a trade.
+                    guard !self.navigation.tradeSessionActive else { return }
                     self.popover.performClose(nil)
                 }
             }

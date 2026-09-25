@@ -7,6 +7,7 @@ read_when:
   - 메뉴바·플로팅 펫 등 상시 표시 애니메이션의 성능을 손볼 때
   - 스프라이트·이미지를 고정 크기 프레임에 그릴 때(비율 왜곡 부류)
   - 세이브 이전/병합·외부 파일 입력 경로를 만들 때
+  - 뷰가 네트워크 연결·타이머·세션 같은 외부 자원을 @State 로 쥘 때
 ---
 
 # 결함 대응 축적 규칙
@@ -672,6 +673,17 @@ read_when:
   슬립/런치 직후 refresh 완료 전 몇 초간 메뉴바가 회색이 돼 '고장/비활성'으로 오인된다(사용자 반복 지적,
   `&& lastUpdated != nil` 로 런치만 막는 건 슬립-후 stale 을 못 막음). '오래됨' 신호는 팝오버에서만.
 - **UI 변경 → 스크린샷 stale** 은 `release.sh` 가 자동 경고(`CLAUDE.md` §릴리스) — 통과의례화 방지.
+- **`ScrollViewReader.scrollTo` 뒤에 거는 포커스는 한 번의 고정 지연에 걸어선 안 된다.** 세션 키 만료
+  안내로 들어온 Settings 는 `advancedExpanded = true` 로 숨은 행을 펼친 뒤 `proxy.scrollTo(anchor: .top)`
+  로 그 행을 뷰포트 위로 올리고 포커스를 준다 — 펼침이 실제로 레이아웃을 치기 전에 스크롤을 계산하면
+  옛(접힌) 기하로 앵커를 잡아 목표 필드가 뷰포트 밖에 남는다. 이전 코드는 이 순서를 "펼침 → 80ms 대기
+  → 애니메이션 스크롤" 한 번의 도박으로 처리했는데, 이 80ms는 같은 프레임에서 SwiftUI 가 처리해야 할
+  뷰 트리 크기에 반비례하는 여유일 뿐 보장이 아니다 — 무역 신원 섹션(`tradeIdentityGroup`) 하나가 Settings
+  본문에 추가되자 이 여유가 특정 환경(호스팅 CI)에서 소진돼 `SessionKeySettingsRenderingTests`가 깨졌다.
+  Settings 에 행 하나가 늘 때마다 이 지연이 다시 부족해질 수 있으므로, 고정 지연 한 번이 아니라
+  **여러 런루프 턴에 걸쳐 스크롤을 반복**한다 — 이른 시도가 옛 기하를 잡아도 늦은 시도가 정착된 기하로
+  덮어써 자기 교정된다. 새 Settings 섹션을 앵커보다 앞에 추가할 때 이 반복 스크롤을 다시 한 번짜리로
+  되돌리지 않는다.
 - **번역 가드는 "이미 표에 있는 문구"만 본다 — 표에 *못 들어간* 문구는 구조상 안 보인다.**
   `LocalizationInterpolationTests` 는 `L(lang)` 을 거친 문자열의 `\(...)` 보간이 언어마다 살아남는지
   검사한다. 그래서 `Text("Antigravity 세션 갱신 필요")` 처럼 애초에 `L` 을 안 거친 리터럴은 통과한다 —
@@ -826,3 +838,69 @@ read_when:
   자동 업데이트 시 앱 종료를 기다릴 때 `pgrep -x PokeTokenBar`를 쓰면, 중복 인스턴스가 살아있는 동안 루프를
   결코 빠져나오지 못하고 20초 타임아웃을 온전히 소모한다(#175). `ProcessInfo.processInfo.processIdentifier`로
   종료 대상 프로세스 PID를 전달하고 `kill -0 "$3"`로 특정 프로세스의 종료를 대기한다.
+
+## 뷰 수명과 외부 자원
+
+- **탭 전환은 뷰를 파괴하지만, 뷰가 심은 클로저는 그 뷰의 `@State` 상자를 계속 붙잡는다.** SwiftUI
+  뷰는 값 타입이라 "뷰가 사라지면 그 안의 것도 사라진다" 는 직관이 통하지 않는다 — 콜백이 뷰 구조체
+  복사본을 캡처하면 그 복사본이 `@State` 상자를 붙잡고, 상자가 세션과 트랜스포트를 붙잡아 화면 없이
+  살아남는다. `PopoverView` 의 `else if nav.tab == .trade { TradeView(store:) }` 는 탭을 옮기는 순간
+  `TradeView` 를 트리에서 걷어내는데, `TradeView` 에 `.onDisappear` 가 없어 고아가 된 `TradeSession` 이
+  상대의 `.accept` 를 계속 받아 `onReadyToCommit` → `CompanionStore.applyTradeCommit` 까지 실행했다.
+  **누수가 아니라 세이브 변경이 문제다** — 사용자가 다른 탭을 보는 사이 되돌릴 수 없는 변경이 일어나고,
+  그 백업 경로는 버려진 상자에 적혀 영영 화면에 안 뜬다. 게다가 탭으로 돌아오면 새 상자가 `.idle` 로
+  시작해, 아직 연결·광고 중인 고아 위에 두 번째 세션이 겹친다.
+  규율: **뷰가 네트워크 연결·타이머·`Task`·세션을 `@State` 로 쥐면 `.onDisappear` 에서 반드시 놓는다.**
+  해제는 참조를 버리기 전에 **콜백부터 nil 로** 끊어야 한다(`TradeView.releaseSession`) — 끊는 순서가
+  반대면 해제 도중 도착한 마지막 메시지가 여전히 커밋 경로를 탄다.
+  부류 스윕(2026-09-21): `Sources/PokeTokenBar/UI` 전수 — 외부 자원을 `@State` 로 쥔 뷰는
+  `SettingsView`(`customScanMatchTask`, `.onDisappear` 로 cancel 함)와 `TradeView` 둘뿐이었고,
+  `UI/` 밖에는 SwiftUI 뷰가 없다. `TradeView` 만 결함이었다.
+  **테스트가 못 걸렀던 이유**: 이 저장소는 SwiftUI 뷰를 단위 테스트하지 않는다(명세의 테스트 전략도
+  "UI 는 수동 확인" 으로 둔다). 그래서 `TradeSession` 커버리지가 아무리 높아도 **누가 세션을 놓는가**
+  라는 소유권 질문은 어느 테스트도 묻지 않는다. Core 계층에 남길 수 있는 가드는
+  `TradeSessionTests.testWeaklySelfCapturingCallbackDoesNotRetainTheSession` 처럼 "콜백이 세션을 붙잡지
+  않는가" 까지이고, "뷰가 사라질 때 놓는가" 는 수동 QA 항목으로만 남는다 — 그러니 이 부류는 테스트가
+  아니라 **코드 리뷰 체크 항목**으로 막는다: 새 뷰가 위 네 부류 중 하나를 `@State` 로 선언하면
+  `.onDisappear` 를 같은 diff 에서 확인한다.
+
+## 리뷰·프로세스
+
+- **"기존에 알던 flaky"는 주장이 아니라 2분짜리 검증이다.** `SessionKeySettingsRenderingTests` 가
+  p2p-trade 브랜치에서 깨지자 "브랜치 전체의 기존 flaky 테스트"로 핸드오프됐고, 그 판단만으로 다음
+  구현자들에게 그대로 넘어가 방치됐다. 실제로는 브랜치 시작 커밋(`a910767`)에서 3/3 통과, 브랜치
+  HEAD 에서 3/3 실패, `tradeIdentityGroup` 한 줄을 빼면 다시 3/3 통과 — 브랜치가 만든 회귀였다.
+  **단, 이 3/3 실패는 머신이 바쁠 때(백그라운드 작업 다수)만 재현된다** — 유휴 상태에서는 같은 커밋이
+  통과한다. 한가할 때 한 번 돌려 보고 "재현 안 되니 역시 flaky"로 결론내면 같은 함정에 두 번 빠진다.
+  고정 지연에 건 타이밍 결함은 여유가 줄었을 뿐 사라진 게 아니고, 부하가 남은 여유를 마저 먹을 뿐이다.
+  **왜 못 걸렀나:** "pre-existing" 판단에 필요한 검증 — 같은 테스트를 브랜치 시작점에 임시 워크트리로
+  체크아웃해 돌려 보는 것 — 이 실제로 실행되지 않았다. 실행에 2분이 안 걸리는 이 확인을 생략하고 이전
+  실패 이력이나 "SwiftUI 레이아웃 테스트는 원래 불안정하다"는 일반화에 근거해 결론을 내렸다. **영구
+  캡처:** 어떤 실패 테스트를 "이 브랜치와 무관한 pre-existing/flaky"로 분류하려면, 그 분류를 다음 사람에게
+  넘기기 전에 반드시 (1) 브랜치가 갈라진 지점에서 같은 테스트를 3회 이상 돌려 통과를 확인하고 (2) 그
+  결과(커밋 SHA·통과 횟수)를 핸드오프 메모에 남긴다. "이전에도 실패했다"는 기억이나 인상은 검증이
+  아니다 — 검증 없이 내려진 flaky 판정은 그 뒤로 이어지는 모든 세션에서 실제 회귀를 숨긴다.
+
+## 테스트 격리 (영구 저장소)
+
+- **주입 파라미터를 만들어 두는 것만으로는 격리되지 않는다 — 프로덕션 호출부가 기본 인자를 쓰면
+  테스트가 실제 사용자 도메인에 쓴다.** `TradeIdentity` 는 처음부터 `defaults: UserDefaults = .standard`
+  를 받았고 `TradeIdentityTests` 도 `UserDefaults(suiteName:)` 로 격리했다. 그런데 `TradeSession.sendHello()`
+  가 인자 없이 `TradeIdentity.code()` 를 불렀고, `TradeIdentity.code()` 는 **읽기가 아니라 쓰기다**
+  (없으면 8자리 코드를 생성해 저장한다). `TradeSessionTests` 는 `transportA.onConnected?()` 를 직접
+  호출해 hello 교환을 검증하므로, 테스트를 한 번 돌릴 때마다 실제 `.standard` 도메인에 `tradeCode` 가
+  생겨 디스크에 영구히 남았다. 규율: **기본 인자로 `.standard` 를 두는 API 라도, 테스트가 도달하는
+  프로덕션 경로에서는 저장소를 명시적으로 넘긴다.** `TradeSession.init(transport:defaults:)` 로 세션이
+  신원 저장소를 들고 있게 하고, 뷰(`TradeView`/`SettingsView`)는 앱 런타임 전용이라 `.standard` 기본값을
+  그대로 둔다 — 이 저장소는 SwiftUI 뷰를 단위 테스트하지 않으므로 뷰 호출부는 오염원이 아니다.
+  **테스트가 못 걸렀던 이유**: 격리 테스트가 `TradeIdentity` 자신에게만 있었다. 격리는 API 의 성질이
+  아니라 *호출부*의 성질인데, 단위 테스트는 자기가 넘긴 suite 만 보므로 "다른 테스트가 기본 인자로
+  부르고 있는가" 를 절대 묻지 못한다 — 통과가 곧 false confidence 였다.
+  부류 스윕(2026-09-21): `Sources` 전수에서 `UserDefaults.standard` 를 직접 쓰는 곳은
+  `KeychainAccess`(`disableKeychainAccess` 읽기), `BinaryLocator`(`<binary>Path` 읽기),
+  `CompanionStore.swift:1114`(`companionNotifications` 읽기) 뿐이고 **모두 읽기**라 오염이 없다.
+  주입 기본 인자를 생략해 부르는 프로덕션 호출부 중 *쓰기* 에 닿는 것은 `TradeSession` 하나였다.
+  회귀 가드: `TradeSessionTests.testHelloUsesTheInjectedDefaultsAndLeavesStandardUntouched` —
+  상대가 받은 코드가 **주입한 suite 의 코드와 같은지**를 본다(`.standard` 로 되돌리면 다른 코드가 와서
+  실패한다. 결함 주입으로 확인함). `.standard` 의 `tradeCode` 가 전후로 안 변하는지도 함께 본다 —
+  다만 이미 값이 있으면 이 단정만으로는 못 잡으므로, 실패를 책임지는 쪽은 앞의 등가 단정이다.

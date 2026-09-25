@@ -742,6 +742,76 @@ struct L {
     var dexEmptyTitle: String { t("아직 잡은 포켓몬이 없어요!", "No Pokémon caught yet!", "まだ捕まえたポケモンがいません！", "¡Todavía no has capturado ningún Pokémon!", "Aucun Pokémon capturé pour l'instant !", "Você ainda não capturou nenhum Pokémon!", "Du hast noch kein Pokémon gefangen!") }
     var dexEmptyHint: String { t("토큰을 써서 첫 포켓몬을 부화시켜 보세요.", "Spend tokens to hatch your first Pokémon.", "トークンを使って最初のポケモンを孵化させましょう。", "Usa tokens para eclosionar tu primer Pokémon.", "Dépense des tokens pour faire éclore ton premier Pokémon.", "Use tokens para chocar seu primeiro Pokémon.", "Verwende Tokens, damit dein erstes Pokémon schlüpft.") }
 
+    // MARK: P2P Trade
+    func tradeOverwriteWarning(name: String, percent: Int) -> String {
+        t("상대방이 육성중인 개체를 받으면 지금 키우는 \(name)(진행도 \(percent)%)가 사라집니다.",
+          "Receiving the other trainer's Pokémon in training will delete your current \(name) (progress \(percent)%).",
+          "相手が育成中のポケモンを受け取ると、今育てている\(name)（進捗\(percent)%）が消えます。",
+          "Si recibes el Pokémon en crianza del otro entrenador, se eliminará tu \(name) actual (progreso \(percent)%).",
+          "Si tu reçois le Pokémon en cours d'élevage de l'autre dresseur, ton \(name) actuel (progression \(percent)%) sera supprimé.",
+          "Se você receber o Pokémon em treinamento do outro treinador, seu \(name) atual (progresso \(percent)%) será apagado.",
+          "Wenn du das im Training befindliche Pokémon des anderen Trainers erhältst, wird dein aktuelles \(name) (Fortschritt \(percent)%) gelöscht.")
+    }
+    /// Warning shown when receiving an in-progress mon while nothing is being raised but a paid
+    /// egg guarantee or hatching progress would still be lost.
+    func tradeOverwriteEggProgressWarning(guaranteeTierLabel: String?) -> String {
+        if let guaranteeTierLabel {
+            return t("상대방이 육성중인 개체를 받으면 지금 가진 \(guaranteeTierLabel) 알 보증과 부화 진행이 사라집니다.",
+                     "Receiving the other trainer's Pokémon in training will delete your current \(guaranteeTierLabel) egg guarantee and hatching progress.",
+                     "相手が育成中のポケモンを受け取ると、今持っている\(guaranteeTierLabel)タマゴの保証と孵化の進捗が消えます。",
+                     "Si recibes el Pokémon en crianza del otro entrenador, se eliminará tu garantía de huevo \(guaranteeTierLabel) y el progreso de incubación.",
+                     "Si tu reçois le Pokémon en cours d'élevage de l'autre dresseur, ta garantie d'œuf \(guaranteeTierLabel) et ta progression d'incubation seront supprimées.",
+                     "Se você receber o Pokémon em treinamento do outro treinador, sua garantia de ovo \(guaranteeTierLabel) e o progresso de incubação serão apagados.",
+                     "Wenn du das im Training befindliche Pokémon des anderen Trainers erhältst, werden deine \(guaranteeTierLabel)-Ei-Garantie und dein Ausbrütfortschritt gelöscht.")
+        }
+        return t("상대방이 육성중인 개체를 받으면 지금까지 쌓은 알 부화 진행이 사라집니다.",
+                 "Receiving the other trainer's Pokémon in training will delete your current egg-hatching progress.",
+                 "相手が育成中のポケモンを受け取ると、今までのタマゴの孵化の進捗が消えます。",
+                 "Si recibes el Pokémon en crianza del otro entrenador, se eliminará tu progreso actual de incubación del huevo.",
+                 "Si tu reçois le Pokémon en cours d'élevage de l'autre dresseur, ta progression d'incubation actuelle sera supprimée.",
+                 "Se você receber o Pokémon em treinamento do outro treinador, seu progresso atual de incubação será apagado.",
+                 "Wenn du das im Training befindliche Pokémon des anderen Trainers erhältst, wird dein aktueller Ausbrütfortschritt gelöscht.")
+    }
+    var tradeProposalTitle: String { t("교환 제안", "Trade proposal", "交換の提案", "Propuesta de intercambio", "Proposition d'échange", "Proposta de troca", "Tauschvorschlag") }
+    var tradeGiving: String { t("내가 줄 것", "You're giving", "渡すもの", "Tú das", "Tu donnes", "Você dá", "Du gibst") }
+    var tradeReceiving: String { t("내가 받을 것", "You're receiving", "受け取るもの", "Tú recibes", "Tu reçois", "Você recebe", "Du bekommst") }
+    var tradeAccept: String { t("승인", "Accept", "承認", "Aceptar", "Accepter", "Aceitar", "Annehmen") }
+    var tradeReject: String { t("거절", "Reject", "拒否", "Rechazar", "Refuser", "Recusar", "Ablehnen") }
+    var trade: String { t("교환", "Trade", "交換", "Intercambio", "Échange", "Troca", "Tausch") }
+    var tradeNickname: String { t("내 교환 닉네임", "Your trade nickname", "自分の交換ニックネーム", "Tu apodo de intercambio", "Ton pseudo d'échange", "Seu apelido de troca", "Dein Tausch-Spitzname") }
+    var tradeMyCode: String { t("내 교환 코드", "Your trade code", "自分の交換コード", "Tu código de intercambio", "Ton code d'échange", "Seu código de troca", "Dein Tauschcode") }
+    var tradeFindPeers: String { t("상대 찾기", "Find a partner", "相手を探す", "Buscar compañero", "Trouver un partenaire", "Encontrar parceiro", "Partner suchen") }
+    var tradeSearching: String { t("탐색 중…", "Searching…", "検索中…", "Buscando…", "Recherche…", "Procurando…", "Suche…") }
+    var tradeConnectedTo: String { t("연결된 상대", "Connected to", "接続中の相手", "Conectado con", "Connecté à", "Conectado a", "Verbunden mit") }
+    var tradeAutoDiscoveryFailed: String { t("자동으로 못 찾았어요 — 수동으로 연결하기", "Couldn't find them automatically — connect manually", "自動で見つかりませんでした — 手動で接続", "No se encontró automáticamente — conectar manualmente", "Introuvable automatiquement — connexion manuelle", "Não encontrado automaticamente — conectar manualmente", "Automatisch nicht gefunden — manuell verbinden") }
+    var tradeConnectFailed: String { t("그 상대에게 연결하지 못했어요 — 목록에서 다시 고르거나 수동으로 연결하세요.", "Couldn't connect to them — pick again from the list, or connect manually.", "その相手に接続できませんでした — 一覧から選び直すか、手動で接続してください。", "No se pudo conectar: elige de nuevo en la lista o conecta manualmente.", "Connexion impossible — choisis à nouveau dans la liste ou connecte-toi manuellement.", "Não foi possível conectar — escolha de novo na lista ou conecte manualmente.", "Verbindung fehlgeschlagen — wähle erneut aus der Liste oder verbinde manuell.") }
+    var tradeSwitchToManual: String { t("수동으로 연결하기", "Connect manually", "手動で接続", "Conectar manualmente", "Connexion manuelle", "Conectar manualmente", "Manuell verbinden") }
+    var tradeManualMyCode: String { t("내 연결 코드", "Your connection code", "自分の接続コード", "Tu código de conexión", "Ton code de connexion", "Seu código de conexão", "Dein Verbindungscode") }
+    var tradeManualCodePreparing: String { t("연결 코드 준비 중…", "Preparing your connection code…", "接続コードを準備中…", "Preparando tu código de conexión…", "Préparation de ton code de connexion…", "Preparando seu código de conexão…", "Verbindungscode wird vorbereitet…") }
+    var tradeManualCodeUnavailable: String { t("연결 코드를 만들지 못했어요 — Wi-Fi나 이더넷 연결을 확인하세요.", "Couldn't create a connection code — check your Wi-Fi or Ethernet connection.", "接続コードを作成できませんでした — Wi-Fiまたはイーサネットの接続を確認してください。", "No se pudo crear un código de conexión: revisa tu conexión Wi-Fi o Ethernet.", "Impossible de créer un code de connexion — vérifie ta connexion Wi-Fi ou Ethernet.", "Não foi possível criar um código de conexão — verifique sua conexão Wi-Fi ou Ethernet.", "Verbindungscode konnte nicht erstellt werden — prüfe deine WLAN- oder Ethernet-Verbindung.") }
+    var tradeManualEnterCode: String { t("상대 코드 입력", "Enter their code", "相手のコードを入力", "Introduce su código", "Entrer leur code", "Digite o código recebido", "Code eingeben") }
+    var tradeManualCodeInvalid: String { t("코드 형식이 올바르지 않아요 — 상대 화면의 연결 코드를 그대로 입력하세요.", "That code isn't in the right format — copy the connection code from their screen exactly.", "コードの形式が正しくありません — 相手の画面の接続コードをそのまま入力してください。", "Ese código no tiene el formato correcto: copia exactamente el código de conexión de su pantalla.", "Ce code n'a pas le bon format — recopie exactement le code de connexion affiché sur son écran.", "Esse código não está no formato certo — copie exatamente o código de conexão mostrado na outra tela.", "Dieser Code hat nicht das richtige Format — übernimm den Verbindungscode von ihrem Bildschirm genau.") }
+    var tradeManualConnect: String { t("연결", "Connect", "接続", "Conectar", "Connecter", "Conectar", "Verbinden") }
+    var tradeManualConnecting: String { t("연결 중… 상대가 교환 탭을 열어둔 상태인지 확인하세요.", "Connecting… make sure they have the Trade tab open.", "接続中… 相手が交換タブを開いているか確認してください。", "Conectando… asegúrate de que tenga abierta la pestaña Intercambio.", "Connexion… vérifie que l'onglet Échange est bien ouvert en face.", "Conectando… confirme que a aba Troca está aberta do outro lado.", "Verbinde… stelle sicher, dass der Tausch-Tab dort geöffnet ist.") }
+    var tradeSelectOffer: String { t("교환할 대상 선택", "Choose what to trade", "交換する対象を選択", "Elige qué intercambiar", "Choisis quoi échanger", "Escolha o que trocar", "Wähle, was du tauschst") }
+    var tradeWaitingForPeerOffer: String { t("상대의 제안을 기다리는 중…", "Waiting for their offer…", "相手の提案を待っています…", "Esperando su oferta…", "En attente de leur offre…", "Aguardando a oferta…", "Warte auf ihr Angebot…") }
+    var tradeWaitingForPeerAccept: String { t("상대의 승인을 기다리는 중…", "Waiting for them to accept…", "相手の承認を待っています…", "Esperando que acepte…", "En attente de son acceptation…", "Aguardando a aprovação…", "Warte auf ihre Zustimmung…") }
+    var tradeWaitingForPeerConfirm: String { t("교환을 적용했어요 — 상대 확인을 기다리는 중…", "Trade applied — waiting for their confirmation…", "交換を適用しました — 相手の確認を待っています…", "Intercambio aplicado: esperando su confirmación…", "Échange appliqué — en attente de sa confirmation…", "Troca aplicada — aguardando a confirmação…", "Tausch angewendet — warte auf ihre Bestätigung…") }
+    var tradeCompleted: String { t("교환 완료", "Trade complete", "交換完了", "Intercambio completo", "Échange terminé", "Troca concluída", "Tausch abgeschlossen") }
+    var tradeRejectedByPeer: String { t("상대가 교환을 거절했어요", "They declined the trade", "相手が交換を拒否しました", "Rechazó el intercambio", "L'échange a été refusé", "A troca foi recusada", "Der Tausch wurde abgelehnt") }
+    var tradeUncertain: String { t("연결이 끊겨 상대방 적용 여부를 확인할 수 없어요", "Connection dropped — can't confirm whether they applied it", "接続が切れ、相手の適用状況を確認できません", "Se perdió la conexión — no se puede confirmar si se aplicó", "Connexion perdue — impossible de confirmer l'application", "Conexão perdida — não é possível confirmar a aplicação", "Verbindung getrennt — Anwendung nicht bestätigbar") }
+    var tradeCommitFailed: String { t("백업을 만들지 못해 교환을 적용하지 않았어요 — 내 포켓몬은 그대로입니다.", "Couldn't write a backup, so the trade wasn't applied — your Pokémon are unchanged.", "バックアップを作成できなかったため、交換は適用されませんでした — あなたのポケモンはそのままです。", "No se pudo crear la copia de seguridad, así que el intercambio no se aplicó: tus Pokémon no han cambiado.", "La sauvegarde n'a pas pu être créée, l'échange n'a donc pas été appliqué — tes Pokémon sont inchangés.", "Não foi possível criar o backup, então a troca não foi aplicada — seus Pokémon continuam iguais.", "Es konnte keine Sicherung erstellt werden, daher wurde der Tausch nicht angewendet — deine Pokémon bleiben unverändert.") }
+    func tradeBackupHint(fileName: String) -> String {
+        t("백업 파일: \(fileName). 되돌리려면 이 파일을 열어 진행 상황을 확인한 뒤, 필요하면 세이브 불러오기로 복원하세요.",
+          "Backup file: \(fileName). To undo, open this file to check your progress, then restore it via Save Import if needed.",
+          "バックアップファイル: \(fileName)。元に戻すにはこのファイルを開いて確認し、必要ならセーブの読み込みで復元してください。",
+          "Archivo de respaldo: \(fileName). Para deshacer, ábrelo para revisar tu progreso y restáuralo con Importar guardado si es necesario.",
+          "Fichier de sauvegarde : \(fileName). Pour annuler, ouvre-le pour vérifier ta progression, puis restaure-le via Importer une sauvegarde si besoin.",
+          "Arquivo de backup: \(fileName). Para desfazer, abra-o para conferir seu progresso e restaure via Importar salvamento se necessário.",
+          "Sicherungsdatei: \(fileName). Zum Rückgängigmachen diese Datei öffnen, Fortschritt prüfen und bei Bedarf über Speicherstand importieren wiederherstellen.")
+    }
+    var tradeOpenBackupFolder: String { t("Finder에서 열기", "Open in Finder", "Finderで開く", "Abrir en Finder", "Ouvrir dans le Finder", "Abrir no Finder", "Im Finder öffnen") }
+
     // MARK: 도감 요약 헤더
     var dexTitle: String { t("도감", "Pokédex", "図鑑", "Pokédex", "Pokédex", "Pokédex", "Pokédex") }
     func dexTotal(_ n: Int) -> String { t("총 \(n)마리", "\(n) total", "全\(n)匹", "\(n) en total", "\(n) au total", "\(n) no total", "\(n) insgesamt") }

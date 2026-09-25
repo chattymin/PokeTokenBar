@@ -1,7 +1,7 @@
 import AppKit
 import SwiftUI
 
-enum PopoverTab { case home, shop, bag, collection }
+enum PopoverTab { case home, shop, bag, collection, trade }
 
 /// 팝오버 치수의 단일 소스. 자식이 쓸 수 있는 폭을 알아야 할 때 이 값을 쓴다 — 넘치는 자식이
 /// 부모 폭을 부풀리므로 GeometryReader 로 재면 순환한다.
@@ -29,6 +29,22 @@ final class PopoverNavigation {
     /// 설정을 열 때 고급 섹션을 펼친 채로 시작할지. 세션 키 행이 접힌 disclosure 안에 살아서,
     /// 그냥 설정만 열면 "만료됐다"를 보고 들어온 사용자가 고칠 입력란을 못 찾는다.
     var expandAdvancedOnOpen = false
+    /// True while a trade holds a connection. The popover is `.transient`, so a single click
+    /// outside closes it, and closing runs `TradeView.onDisappear`, which tears the session down
+    /// and loses the trade in progress (observed: click another window while browsing for a
+    /// partner, and reopening lands on Home in the initial state). That teardown is what keeps a
+    /// commit from happening with no screen attached, so it can't be removed — instead
+    /// `AppDelegate` reads this value and keeps the popover open to outside clicks **only while
+    /// trading**.
+    var tradeSessionActive = false {
+        didSet {
+            guard oldValue != tradeSessionActive else { return }
+            onTradeSessionActiveChanged?(tradeSessionActive)
+        }
+    }
+    /// Hook for `AppDelegate` to change the popover's behavior — the seam that keeps the view
+    /// from knowing about AppKit directly.
+    var onTradeSessionActiveChanged: ((Bool) -> Void)?
 
     func reset() {
         showSettings = false
@@ -121,6 +137,7 @@ struct PopoverView: View {
                 Text(l.shop).tag(PopoverTab.shop)
                 Text(l.bag).tag(PopoverTab.bag)
                 Text(l.collection).tag(PopoverTab.collection)
+                Text(l.trade).tag(PopoverTab.trade)
             }
             .pickerStyle(.segmented)
             .labelsHidden()
@@ -131,6 +148,8 @@ struct PopoverView: View {
                 BagView(store: companion, nav: nav)
             } else if nav.tab == .shop {
                 ShopView(store: companion, nav: nav)
+            } else if nav.tab == .trade {
+                TradeView(store: companion)
             } else {
                 CompanionHeader(store: companion)
                 Divider()

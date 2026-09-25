@@ -23,6 +23,7 @@ struct SettingsView: View {
     @State private var sessionKeyInput = ""
     @State private var isCheckingUpdate = false
     @State private var didCheckUpdate = false
+    @State private var tradeNicknameDraft = TradeIdentity.nickname()
     @State private var selectedScanProviderID = "claude_code"
     /// Provider the draft currently describes. Picker change updates `selectedScanProviderID`
     /// before the TextField blurs; committing against the selection would write Claude paths
@@ -69,6 +70,7 @@ struct SettingsView: View {
                     VStack(alignment: .leading, spacing: 18) {
                         generalGroup(store)
                         difficultyGroup
+                        tradeIdentityGroup
                         menuBarGroup(store)
                         floatingPetGroup(store)
                         notificationsGroup(store)
@@ -87,8 +89,15 @@ struct SettingsView: View {
                     if startExpanded {
                         advancedExpanded = true
                         Task { @MainActor in
-                            try? await Task.sleep(nanoseconds: 80_000_000)
-                            withAnimation(.easeInOut(duration: 0.25)) {
+                            // Repeats instead of a single timed guess: advancedExpanded's newly revealed rows
+                            // need a real layout pass before the anchor's true position is known, and how long
+                            // that pass takes scales with how much the Settings body has to lay out overall —
+                            // a single settings section added anywhere in this screen can push it past a fixed
+                            // delay. Re-issuing scrollTo across several run-loop turns is self-correcting: an
+                            // early call that lands on stale geometry is simply overwritten by a later one that
+                            // sees the settled layout, at no cost when the first call was already right.
+                            for _ in 0..<6 {
+                                try? await Task.sleep(nanoseconds: 50_000_000)
                                 proxy.scrollTo("advancedSettingsSection", anchor: .top)
                             }
                             sessionKeyFocused = true
@@ -249,6 +258,33 @@ struct SettingsView: View {
 
     private var difficultyGroup: some View {
         DifficultySettingsSection(companion: companion)
+    }
+
+    /// Trade identity — a separate concept from the save-transfer device label (`deviceName`),
+    /// so it gets its own section. The code is generated once per device and never changes,
+    /// so it is display-only.
+    private var tradeIdentityGroup: some View {
+        settingsSection(l.trade) {
+            groupRow {
+                Text(l.tradeNickname).font(.callout)
+                Spacer()
+                TextField(l.tradeNickname, text: $tradeNicknameDraft)
+                    .textFieldStyle(.roundedBorder)
+                    .labelsHidden()
+                    .frame(width: 160)
+                    // Apply on every keystroke so a user who closes Settings without pressing Enter
+                    // doesn't lose the change.
+                    .onChange(of: tradeNicknameDraft) { _, draft in TradeIdentity.setNickname(draft) }
+            }
+            Divider()
+            groupRow {
+                Text(l.tradeMyCode).font(.callout)
+                Spacer()
+                Text(TradeIdentity.code())
+                    .font(.system(.callout, design: .monospaced))
+                    .textSelection(.enabled)
+            }
+        }
     }
 
     @ViewBuilder

@@ -1539,27 +1539,188 @@ final class CompanionStore {
     /// 상황에서 되돌릴 대상이 사라진다. 불러올 때마다 새 슬롯을 쓰고 오래된 것부터 정리한다.
     @discardableResult
     private func backupStateBeforeImport() throws -> URL {
+        try backupState(prefix: SaveTransfer.backupFilePrefix, fileName: SaveTransfer.backupFileName,
+                        failureLogReason: "save import aborted")
+    }
+
+    /// Shared routine for saving the state beside itself just before an overwrite or trade commit
+    /// — the caller only decides the prefix and filename rule. With a single slot, a second backup
+    /// would overwrite the **original**, so in exactly the situation the backup exists for ("this
+    /// went wrong, undo it") there would be nothing left to undo to. Write a new slot every time
+    /// and prune the oldest.
+    private func backupState(prefix: String, fileName: (Date) -> String, failureLogReason: String) throws -> URL {
         guard let data = try? JSONEncoder().encode(state) else { throw SaveTransferError.backupFailed }
-        let dir = fileURL.deletingLastPathComponent()
-        let backup = dir.appendingPathComponent(SaveTransfer.backupFileName(date: clock()))
+        let dir = stateDirectory
+        let backup = dir.appendingPathComponent(fileName(clock()))
         do {
             try data.write(to: backup, options: .atomic)
         } catch {
-            AppLog.write("save import aborted — backup write failed: \(error)")
+            AppLog.write("\(failureLogReason) — backup write failed: \(error)")
             throw SaveTransferError.backupFailed
         }
-        pruneImportBackups(in: dir)
+        pruneBackups(prefix: prefix, in: dir)
         return backup
     }
 
     /// 최근 N 개만 남기고 오래된 백업을 지운다. 파일명이 `yyyy-MM-dd-HHmmss` 라 사전순 = 시간순이다.
-    private func pruneImportBackups(in dir: URL) {
+    private func pruneBackups(prefix: String, in dir: URL) {
         guard let names = try? FileManager.default.contentsOfDirectory(atPath: dir.path) else { return }
-        let backups = names.filter { $0.hasPrefix(SaveTransfer.backupFilePrefix) }.sorted()
+        let backups = names.filter { $0.hasPrefix(prefix) }.sorted()
         guard backups.count > SaveTransfer.backupsToKeep else { return }
         for stale in backups.dropLast(SaveTransfer.backupsToKeep) {
             try? FileManager.default.removeItem(at: dir.appendingPathComponent(stale))
         }
+    }
+
+    // MARK: P2P Trade
+
+    /// Directory the backup files land in — used only by `backupState`. The UI's "Open in Finder"
+    /// does not use this value; it selects the file directly from the backup path
+    /// `applyTradeCommit` returns (`lastBackupURL`).
+    private var stateDirectory: URL { fileURL.deletingLastPathComponent() }
+
+    /// For the trade screen's first paint — the best name available right now without the network.
+    /// Our own in-progress mon resolves to an exact name immediately when the already-loaded
+    /// `currentLine` is the same line. Everything else (the partner's item, our own mon when the
+    /// line isn't loaded yet) starts as `TradeItem.displayName`'s `#id` and is filled in by
+    /// `resolveTradeItemName`.
+    func cachedTradeItemName(for item: TradeItem) -> String {
+        if case .activeMon(let mon) = item, let line = currentLine, line.baseID == mon.baseID {
+            return line.localizedName(mon.currentID, state.language)
+        }
+        return item.displayName(language: state.language)
+    }
+
+    /// The exact name of a trade item — for our own item and the partner's alike. The partner's
+    /// dex entry resolves without the network from the `names` carried in the payload; everything
+    /// else (every in-progress mon, and dex entries with no names) looks the species line up via
+    /// `dexNameLine` — even for the partner's species, the PokeAPI lookup is something we can do
+    /// on our side. Offline, or when the lookup fails, it falls back to `TradeItem.displayName`'s
+    /// `#id`.
+    func resolveTradeItemName(for item: TradeItem) async -> String {
+        if case .dexEntry(let entry) = item, let names = entry.names,
+           let resolved = state.language.resolveName(names[entry.finalID] ?? [:]) {
+            return resolved
+        }
+        guard let line = try? await dexNameLine(baseID: item.displayBaseID) else {
+            return item.displayName(language: state.language)
+        }
+        return line.localizedName(item.displaySpeciesID, state.language)
+    }
+
+    /// Dex entries that may be offered in a trade. Released entries stay in `state.dex` so the
+    /// species keeps its Pokédex page, but they record a mon we let go rather than one we hold —
+    /// there is nothing there to hand over.
+    var tradeOfferableDexEntries: [DexEntry] {
+        state.dex.filter { !$0.isReleased }
+    }
+
+    /// Warning that something we currently hold is about to be destroyed by receiving the
+    /// partner's in-progress mon — nil when no warning is needed (receiving a dex entry destroys
+    /// nothing). If a mon is being raised, that mon is what goes; if not, a paid egg guarantee
+    /// (eggTier) or hatching progress (eggUsage) goes instead — a guarantee can be a purchase
+    /// worth billions of tokens, so it must not disappear silently.
+    func tradeOverwriteWarning(forReceiving item: TradeItem) -> String? {
+        guard item.isActiveMon else { return nil }
+        if let active = state.active {
+            let percent = Int((Double(active.usedAtStage) / Double(max(1, stageThreshold(for: active)))) * 100)
+            let name = currentLine?.localizedName(active.currentID, state.language) ?? "#\(active.currentID)"
+            return l.tradeOverwriteWarning(name: name, percent: percent)
+        }
+        guard state.eggTier != nil || state.eggUsage > 0 else { return nil }
+        return l.tradeOverwriteEggProgressWarning(guaranteeTierLabel: state.eggTier.map { l.rarityLabel($0) })
+    }
+
+    /// Applies a trade commit — back up, remove what we gave, add what we received. If the backup
+    /// can't be written it throws **without applying** (same principle as SaveTransfer.applySave:
+    /// the confirmation screen promised a way back, and proceeding without keeping that promise
+    /// costs the user their progress with no way to undo).
+    /// Returns the backup file path actually used, so the caller (UI) can point at it exactly
+    /// instead of guessing the filename.
+    /// `sending:` must be this device's local offer, never a value the partner sent.
+    /// `removeTradedItem` uses it as-is to drive `dex.removeAll`/`active = nil`, so passing the
+    /// partner's echo here would open a path to deleting arbitrary items with no normalization.
+    /// Only `receiving:` is trust-boundary data, and it goes through `sanitized()`.
+    @discardableResult
+    func applyTradeCommit(sending sentItem: TradeItem, receiving receivedItem: TradeItem) throws -> URL {
+        let backupURL = try backupStateBeforeTrade()
+        let sanitizedReceived = receivedItem.sanitized()
+        removeTradedItem(sentItem)
+        addTradedItem(sanitizedReceived)
+        state.reconcileRepresentativeSelection()
+        if sentItem.isActiveMon || sanitizedReceived.isActiveMon {
+            invalidateActiveMonPresentation()
+        }
+        save()
+        if state.active != nil { Task { await loadCurrentLine() } }
+        // Log the backup filename too — leaving the Trade tab right after a commit takes the
+        // on-screen backup notice with it, and only the log remains.
+        AppLog.write("trade committed — sent=\(sentItem.rarity.rawValue) received=\(sanitizedReceived.rarity.rawValue) backup=\(backupURL.lastPathComponent)")
+        return backupURL
+    }
+
+    /// Needed for the same reason as the invalidation block at the top of `applySave` — when a
+    /// trade changes `active`, any line load or animation started for the previous mon must be
+    /// invalidated, or an in-flight load overwrites the new mon (receiving side) or the screen
+    /// keeps showing a mon that is already gone (giving side).
+    private func invalidateActiveMonPresentation() {
+        activeGeneration += 1
+        currentLine = nil
+        prefetchedLineID = nil
+        displayState = state.active != nil ? .idle : .egg
+    }
+
+    private func removeTradedItem(_ item: TradeItem) {
+        switch item {
+        case .dexEntry(let entry):
+            state.dex.removeAll { $0.id == entry.id }
+        case .activeMon:
+            // We gave our mon away, so a fresh egg is needed — leaving the guarantee (eggTier)
+            // behind would hand it to the next free egg (the same concern as in
+            // SaveTransfer.sanitized).
+            state.active = nil
+            state.eggTier = nil
+            state.pendingHatchID = nil
+            state.pendingUnownForm = nil
+            state.eggUsage = 0
+        }
+    }
+
+    private func addTradedItem(_ item: TradeItem) {
+        switch item {
+        case .dexEntry(var entry):
+            // The spec allows a one-sided commit (covered by the backup), so the same id can
+            // legitimately exist on both devices; trading that item back would put a duplicate id
+            // in our dex, and `removeTradedItem`'s `removeAll { $0.id == }` would then delete two
+            // mons in a single trade. The id is a local identifier with no display meaning, so
+            // reissuing it costs nothing.
+            // `profile.instanceID` is where a graduated entry's id comes from, so the two must stay
+            // equal — and two individuals must never share an instanceID. Reissuing only `id` would
+            // leave both invariants broken on the traded copy.
+            // The instanceID is checked too: a graduated entry's id comes from it, so a twin cloned
+            // from one of ours collides on both. Checking only the id leaves two individuals sharing
+            // an instanceID when the ids happen to differ.
+            let incomingInstanceID = entry.profile?.instanceID
+            let collides = state.dex.contains {
+                $0.id == entry.id || ($0.profile?.instanceID != nil && $0.profile?.instanceID == incomingInstanceID)
+            }
+            if collides {
+                entry.id = UUID().uuidString
+                entry.profile?.instanceID = entry.id
+            }
+            state.dex.append(entry)
+        case .activeMon(let mon):
+            state.active = mon
+            state.eggTier = nil
+            state.pendingHatchID = nil
+            state.pendingUnownForm = nil
+            state.eggUsage = 0
+        }
+    }
+
+    private func backupStateBeforeTrade() throws -> URL {
+        try backupState(prefix: SaveTransfer.tradeBackupFilePrefix, fileName: SaveTransfer.tradeBackupFileName,
+                        failureLogReason: "trade commit aborted")
     }
 
     // MARK: Pokémon combat profiles / details
