@@ -39,6 +39,34 @@ final class ModelPricingTests: XCTestCase {
         }
     }
 
+    /// An unpriced model is logged once per identity, not once per log entry — Bucket.add runs per request.
+    func testUnpricedModelIsReportedOnlyOnFirstSighting() {
+        let model = "claude-unpriced-\(UUID().uuidString.lowercased())"
+        XCTAssertTrue(ModelPricing.firstUnpricedSighting(model))
+        XCTAssertFalse(ModelPricing.firstUnpricedSighting(model))
+        XCTAssertFalse(ModelPricing.firstUnpricedSighting("ANTHROPIC/" + model.uppercased()), "normalized like the price lookup")
+    }
+
+    /// The wiring: `AppLog` is a no-op under `swift test`, so observe it through the dedupe instead.
+    /// Aggregating an unpriced model must consume its first sighting (it was reported); a row whose
+    /// source says no estimate is possible must not, since a missing table row is not the cause there.
+    func testAggregatingAnUnpricedModelReportsItButNotASourceUnavailableRow() {
+        func entry(_ model: String, costUnavailable: Bool? = nil) -> LocalUsageReader.Entry {
+            LocalUsageReader.Entry(id: UUID().uuidString, date: Date(), localDay: "2026-09-25", model: model,
+                                   input: 10, output: 5, cacheWrite: 0, cacheRead: 0,
+                                   costUnavailable: costUnavailable)
+        }
+        let unpriced = "claude-unpriced-\(UUID().uuidString.lowercased())"
+        let sourceUnavailable = "claude-unpriced-\(UUID().uuidString.lowercased())"
+        var bucket = LocalUsageReader.Bucket()
+        bucket.add(entry(unpriced))
+        bucket.add(entry(sourceUnavailable, costUnavailable: true))
+
+        XCTAssertFalse(ModelPricing.firstUnpricedSighting(unpriced), "an unpriced model was not reported")
+        XCTAssertTrue(ModelPricing.firstUnpricedSighting(sourceUnavailable),
+                      "a source-unavailable row was reported as a missing price")
+    }
+
     func testUnknownNamesNeverBorrowFamilyPrices() {
         for model in ["gpt-5.3-codex-spark", "gpt-99", "codex", "o3", "o4", "grok-codex-next",
                       "claude-opus-4-99", "claude-fable-6", "gemini-99-pro", "custom/claude-opus-4-8",

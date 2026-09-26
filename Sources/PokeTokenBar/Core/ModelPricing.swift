@@ -111,6 +111,24 @@ enum ModelPricing {
             + Double(output) * r.output * outputMultiplier
     }
 
+    /// A model the table cannot price renders as "Unavailable" with no other trace — Opus 5.5
+    /// went unnoticed until a screenshot. Log each unpriced identity once per process so a new
+    /// model shows up in the log the first time a provider reports it.
+    static func noteUnpriced(_ model: String) {
+        guard firstUnpricedSighting(model) else { return }
+        AppLog.write("Unpriced model: \(model) — its cost shows as Unavailable until ModelPricing.table has a row")
+    }
+
+    /// True only the first time `model` is seen (normalized) — the dedupe behind `noteUnpriced`.
+    static func firstUnpricedSighting(_ model: String) -> Bool {
+        let key = modelKey(model)
+        unpricedLock.lock(); defer { unpricedLock.unlock() }
+        return unpricedSeen.insert(key).inserted
+    }
+
+    nonisolated(unsafe) private static var unpricedSeen: Set<String> = []
+    private static let unpricedLock = NSLock()
+
     static func cost(model: String, input: Int, output: Int, cacheWrite: Int, cacheRead: Int) -> Double {
         estimatedCost(model: model, input: input, output: output,
                       cacheWrite: cacheWrite, cacheRead: cacheRead) ?? 0
