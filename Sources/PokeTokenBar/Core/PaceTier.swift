@@ -29,4 +29,17 @@ enum PaceTier: Int, CaseIterable {
     static func roundedDelta(utilization: Double, pace: Double) -> Int {
         Int((utilization - pace * 100).rounded())
     }
+
+    /// The tier a quota gauge is drawn in, with or without a pace. Rows without a pace (or still in the
+    /// early-window hold) map the absolute thresholds onto the same palette — green, orange from warn,
+    /// red from crit, the colors `limitColor` uses — so the popover gauge and the menu bar share one rule.
+    static func gauge(utilization: Double, pace: Double?, warnThreshold: Double, critThreshold: Double) -> PaceTier {
+        if let tier = tier(utilization: utilization, pace: pace, critThreshold: critThreshold) { return tier }
+        if utilization >= critThreshold { return .wayOver }
+        if utilization >= warnThreshold { return .over }
+        return .onPace
+    }
+
+    /// On pace or slower — nothing to act on yet.
+    var isCalm: Bool { rawValue <= PaceTier.onPace.rawValue }
 }

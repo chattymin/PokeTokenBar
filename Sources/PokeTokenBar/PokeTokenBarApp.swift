@@ -119,6 +119,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         withObservationTracking {
             _ = store.menuTitle
             _ = store.menuToolTip
+            // The mode and thresholds can change the colors while the text stays the same.
+            _ = store.menuLimitColorRuns()
         } onChange: { [weak self] in
             Task { @MainActor in
                 guard let self else { return }
@@ -168,7 +170,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
 
     private func applyState() {
         guard let button = statusItem.button else { return }
-        Self.applyMenuText(store.menuLines, to: button)
+        // Recomputed on every refresh, so a tier that moves with the clock redraws even when the text doesn't.
+        Self.applyMenuText(store.menuLines, to: button, colors: store.menuLimitColorRuns())
         button.toolTip = store.menuToolTip
         needsSpriteLayout = true   // 텍스트 길이가 바뀌면 버튼 폭이 변해 이미지 자리도 움직인다
         // stale 시각 dim 제거 — 슬립/런치 직후 refresh 완료 전 몇 초간 회색으로 보여 '고장/비활성'
@@ -184,9 +187,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     }
 
     /// 메뉴바 버튼 텍스트 반영 — 1줄이면 기본 title(13pt), 2줄 이상이면 세로 스택.
-    /// 줄 수에 맞춰 폰트를 자동 축소해 N줄이 메뉴바 높이에 클리핑 없이 들어오게 한다. 색을 지정하지
-    /// 않아 메뉴바 명암(라이트/다크)·비활성(appearsDisabled) 상태에 자동 적응한다.
-    private static func applyMenuText(_ lines: [String], to button: NSStatusBarButton) {
+    /// 줄 수에 맞춰 폰트를 자동 축소해 N줄이 메뉴바 높이에 클리핑 없이 들어오게 한다. 한도 항목 색
+    /// (`colors`) 외에는 색을 지정하지 않아 메뉴바 명암(라이트/다크)·비활성(appearsDisabled) 상태에 자동 적응한다.
+    private static func applyMenuText(_ lines: [String], to button: NSStatusBarButton,
+                                      colors: [UsageStore.MenuLimitColorRun]) {
         if lines.count >= 2 {
             // NSStatusBarButton 은 멀티라인 title 을 세로 중앙에 두지 않고 위로 치우쳐 그린다(측정:
             // titleRect.y 가 음수 → 상단 클리핑 + 하단 여백, 사용자 지적). 그래서 baselineOffset 을
@@ -203,9 +207,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
                 para.alignment = .center
                 para.minimumLineHeight = effLH
                 para.maximumLineHeight = effLH
-                return NSAttributedString(
+                let title = NSMutableAttributedString(
                     string: lines.joined(separator: "\n"),
                     attributes: [.font: font, .paragraphStyle: para, .baselineOffset: offset])
+                MenuLimitColoring.apply(colors, to: title)
+                return title
             }
             let bounds = button.bounds
             if bounds.height > 1 {
@@ -221,7 +227,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             // 1줄로 되돌릴 때 이전 attributedTitle 이 남지 않게 먼저 비운다.
             button.attributedTitle = NSAttributedString(string: "")
             let title = lines.first ?? ""
-            button.title = title.isEmpty ? "" : " " + title
+            if !colors.isEmpty, !title.isEmpty {
+                let colored = NSMutableAttributedString(
+                    string: " " + title,
+                    attributes: [.font: button.font ?? NSFont.menuBarFont(ofSize: 0)])
+                MenuLimitColoring.apply(colors, to: colored)
+                button.attributedTitle = colored
+            } else {
+                button.title = title.isEmpty ? "" : " " + title
+            }
         }
     }
 

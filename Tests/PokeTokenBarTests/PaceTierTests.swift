@@ -73,3 +73,36 @@ final class PaceTierTests: XCTestCase {
         }
     }
 }
+
+/// The gauge color shared by the popover row and the menu bar.
+final class PaceTierGaugeTests: XCTestCase {
+    private func gauge(_ utilization: Double, pace: Double?) -> PaceTier {
+        PaceTier.gauge(utilization: utilization, pace: pace, warnThreshold: 80, critThreshold: 95)
+    }
+
+    func testAKnownPaceUsesTheSixTiers() {
+        XCTAssertEqual(gauge(20, pace: 0.5), .wayUnder)
+        XCTAssertEqual(gauge(70, pace: 0.5), .over)
+    }
+
+    /// No pace, or the early-window hold: both sides of warn and crit.
+    func testWithoutAPaceTheThresholdsPickTheColor() {
+        for pace in [nil, 0.05] as [Double?] {
+            XCTAssertEqual(gauge(79, pace: pace), .onPace, "pace=\(String(describing: pace))")
+            XCTAssertEqual(gauge(80, pace: pace), .over)
+            XCTAssertEqual(gauge(94, pace: pace), .over)
+            XCTAssertEqual(gauge(95, pace: pace), .wayOver)
+        }
+    }
+
+    /// The fallback lands on the colors `limitColor` draws, so rows without a pace look as before.
+    func testTheFallbackTiersMatchTheThresholdColors() {
+        XCTAssertEqual(PaceTier.onPace.color, .green)
+        XCTAssertEqual(PaceTier.over.color, .orange)
+        XCTAssertEqual(PaceTier.wayOver.color, .red)
+    }
+
+    func testCalmMeansOnPaceOrSlower() {
+        XCTAssertEqual(PaceTier.allCases.filter(\.isCalm), [.wayUnder, .under, .onPace])
+    }
+}

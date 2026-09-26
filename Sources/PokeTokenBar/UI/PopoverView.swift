@@ -640,8 +640,11 @@ struct PopoverView: View {
         let pace = paceFraction(reset: reset, span: span)
         // 페이스가 있으면 페이스 대비 단계색, 없거나 창 초반 보류 중이면 기존 절대 임계색.
         let tier = PaceTier.tier(utilization: utilization, pace: pace, critThreshold: store.critThreshold)
-        let tint = tier?.color ?? limitColor(utilization)
-        let percentTint = tier?.percentColor ?? limitColor(utilization)
+        // Same rule as the menu bar items (`UsageStore.menuLimitColorRuns`).
+        let gauge = PaceTier.gauge(utilization: utilization, pace: pace,
+                                   warnThreshold: store.warnThreshold, critThreshold: store.critThreshold)
+        let tint = gauge.color
+        let percentTint = gauge.percentColor
         return VStack(alignment: .leading, spacing: 2) {
             HStack {
                 Text(name).font(.callout)

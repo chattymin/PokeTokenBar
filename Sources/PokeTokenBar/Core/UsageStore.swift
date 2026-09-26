@@ -306,22 +306,72 @@ final class UsageStore {
     /// %는 limitDisplayMode 를 따르되 접미사 없음 — 좁은 표면이고 방향은 사용자가 고른 설정이 말해 준다
     /// (배터리 메뉴바 % 관례). 자기설명 접미사("남음")는 팝오버 행에서만.
     private var menuLimitLine: String? {
-        guard showLimitInMenu else { return nil }
+        let parts = menuLimitParts()
+        return parts.isEmpty ? nil : parts.map(\.text).joined(separator: " · ")
+    }
+
+    /// One menu bar limit item: its text plus what its color is judged from.
+    struct MenuLimitPart: Equatable {
+        var text: String
+        var utilization: Double
+        /// Elapsed fraction of the window; nil when its reset time or length is unknown.
+        var pace: Double?
+    }
+
+    func menuLimitParts(now: Date = Date()) -> [MenuLimitPart] {
+        guard showLimitInMenu else { return [] }
         let usedToday = Set(snapshots.filter { $0.todayTotalTokens > 0 }.map(\.providerID))
-        var parts: [String] = []
-        if let utilization = menuClaudeAccount?.status.fiveHour?.utilization {
-            parts.append("Claude \(TokenFormatter.percent(limitDisplayPercent(utilization)))")
+        var parts: [MenuLimitPart] = []
+        func add(_ label: String, _ utilization: Double, reset: Date? = nil, span: TimeInterval? = nil) {
+            let pace = reset.flatMap { reset in span.flatMap { Self.paceFraction(resetsAt: reset, span: $0, now: now) } }
+            parts.append(MenuLimitPart(text: "\(label) \(TokenFormatter.percent(limitDisplayPercent(utilization)))",
+                                       utilization: utilization, pace: pace))
+        }
+        if let window = menuClaudeAccount?.status.fiveHour, let utilization = window.utilization {
+            add("Claude", utilization, reset: window.resetDate, span: LimitWindowSpan.fiveHour)
         }
         if usedToday.contains("codex"), let usedPercent = codexLimits?.maxPrimaryUsedPercent {
-            parts.append("Codex \(TokenFormatter.percent(limitDisplayPercent(Double(usedPercent))))")
+            // The window the percentage came from, so the pace belongs to the same bucket.
+            let window = codexLimits?.visibleSnapshots.compactMap(\.primary).first { $0.usedPercent == usedPercent }
+            add("Codex", Double(usedPercent), reset: window?.resetDate, span: window?.windowSpan)
         }
         if usedToday.contains("antigravity"), let usedPercent = antigravityLimits?.maxPrimaryUsedPercent {
-            parts.append("AGY \(TokenFormatter.percent(limitDisplayPercent(usedPercent)))")
+            add("AGY", usedPercent)
         }
         if usedToday.contains("cursor"), let usedPercent = cursorLimits?.planUsage?.usedPercent {
-            parts.append("Cursor \(TokenFormatter.percent(limitDisplayPercent(usedPercent)))")
+            add("Cursor", usedPercent)
         }
-        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+        return parts
+    }
+
+    /// Which menu bar limit items are drawn in their gauge color.
+    enum MenuLimitColorMode: String, CaseIterable {
+        /// Every item, in all six tiers (the default).
+        case gauge
+        /// Only items running faster than pace; calm items keep the system text color.
+        case attention
+        /// None — the system text color, as before.
+        case off
+    }
+    var menuLimitColorMode: MenuLimitColorMode {
+        didSet { defaults.set(menuLimitColorMode.rawValue, forKey: "menuLimitColorMode") }
+    }
+
+    /// A menu bar limit item and the tier its whole text is colored in.
+    struct MenuLimitColorRun: Equatable {
+        var text: String
+        var tier: PaceTier
+    }
+
+    /// The colored items, left to right. Separators and the token/cost line are never included.
+    func menuLimitColorRuns(now: Date = Date()) -> [MenuLimitColorRun] {
+        guard menuLimitColorMode != .off else { return [] }
+        return menuLimitParts(now: now).compactMap { part in
+            let tier = PaceTier.gauge(utilization: part.utilization, pace: part.pace,
+                                      warnThreshold: warnThreshold, critThreshold: critThreshold)
+            if menuLimitColorMode == .attention && tier.isCalm { return nil }
+            return MenuLimitColorRun(text: part.text, tier: tier)
+        }
     }
 
     /// The account whose 5h percentage the menu bar shows, nil when it shows none.
@@ -716,6 +766,7 @@ final class UsageStore {
         showCostInMenu = d.object(forKey: "showCostInMenu") as? Bool ?? false
         showLimitInMenu = d.object(forKey: "showLimitInMenu") as? Bool ?? false
         limitDisplayMode = LimitDisplayMode(rawValue: d.string(forKey: "limitDisplayMode") ?? "") ?? .used
+        menuLimitColorMode = MenuLimitColorMode(rawValue: d.string(forKey: "menuLimitColorMode") ?? "") ?? .gauge
         limitNotifications = d.object(forKey: "limitNotifications") as? Bool ?? true
         companionNotifications = d.object(forKey: "companionNotifications") as? Bool ?? true
         updateNotificationsEnabled = d.object(forKey: "updateNotificationsEnabled") as? Bool ?? true

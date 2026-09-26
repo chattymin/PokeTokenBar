@@ -258,6 +258,28 @@ struct L {
     var todayTokensShort: String { t("오늘 토큰", "Today's tokens", "本日のトークン", "Tokens de hoy", "Tokens du jour", "Tokens de hoje", "Heutige Tokens") }
     var todayCost: String { t("오늘 비용 ($)", "Today's cost ($)", "本日のコスト ($)", "Coste de hoy ($)", "Coût du jour ($)", "Custo de hoje ($)", "Heutige Kosten ($)") }
     var limitPercent: String { t("한도 %", "Limit %", "上限 %", "Límite %", "Limite %", "Limite %", "Limit %") }
+    var menuLimitColor: String {
+        t("퍼센트 색상", "Percent color", "パーセントの色", "Color del porcentaje", "Couleur du pourcentage",
+          "Cor da porcentagem", "Prozentfarbe")
+    }
+    var menuLimitColorHint: String {
+        t("팝오버 한도 게이지와 같은 색", "Same colors as the popover limit gauges",
+          "ポップオーバーの上限ゲージと同じ色", "Los mismos colores que los medidores de límite",
+          "Les mêmes couleurs que les jauges de limite", "As mesmas cores dos medidores de limite",
+          "Dieselben Farben wie die Limit-Balken")
+    }
+    func menuLimitColorMode(_ mode: UsageStore.MenuLimitColorMode) -> String {
+        switch mode {
+        case .gauge:
+            return t("게이지와 같게", "Match gauges", "ゲージと同じ", "Como los medidores",
+                     "Comme les jauges", "Como os medidores", "Wie die Balken")
+        case .attention:
+            return t("주의 단계만", "Only when fast", "速いときだけ", "Solo si va rápido",
+                     "Seulement si rapide", "Só quando rápido", "Nur wenn schnell")
+        case .off:
+            return t("끔", "Off", "オフ", "Desactivado", "Désactivé", "Desligado", "Aus")
+        }
+    }
     var animationQualityLabel: String { t("애니메이션", "Animation", "アニメーション", "Animación", "Animation", "Animação", "Animation") }
     var animationQualityHint: String {
         t("부드러울수록 배터리를 더 씁니다", "Smoother uses more battery",
