@@ -417,6 +417,19 @@ enum LocalAdditionalUsageReader {
         modifiedSince: Date
     ) -> [LocalUsageReader.Entry] {
         let cutoff = Int64(modifiedSince.timeIntervalSince1970 * 1000)
+        // OpenCode V2 writes assistant usage to the event-sourced session_message
+        // projection. Its global time index keeps this query bounded to the active
+        // usage window; the older message table remains useful for V1 history.
+        var entries = query(
+            database,
+            sql: """
+            SELECT id, time_created, data FROM session_message
+            WHERE type = 'assistant' AND time_created >= ?1
+            """,
+            bindInt64: cutoff) { statement in
+                parseOpenCodeSessionMessageRow(statement)
+            } ?? []
+
         let recentSQL = "SELECT id, session_id, data FROM message WHERE time_created >= ?1"
         var rows = query(database, sql: recentSQL, bindInt64: cutoff) { statement in
             parseOpenCodeDatabaseRow(statement)
@@ -427,7 +440,8 @@ enum LocalAdditionalUsageReader {
                 parseOpenCodeDatabaseRow(statement)
             }
         }
-        return rows ?? []
+        entries += rows ?? []
+        return LocalUsageReader.dedupKeepMax(entries)
     }
 
     private static func parseOpenCodeDatabaseRow(_ statement: OpaquePointer) -> LocalUsageReader.Entry? {
@@ -435,6 +449,40 @@ enum LocalAdditionalUsageReader {
               let payload = columnText(statement, 2),
               let object = jsonObject(data: Data(payload.utf8)) else { return nil }
         return parseOpenCodeMessage(object, fallbackID: id)
+    }
+
+    private static func parseOpenCodeSessionMessageRow(_ statement: OpaquePointer) -> LocalUsageReader.Entry? {
+        guard let id = columnText(statement, 0),
+              let payload = columnText(statement, 2),
+              let object = jsonObject(data: Data(payload.utf8)) else { return nil }
+        return parseOpenCodeSessionMessage(
+            object,
+            fallbackID: id,
+            createdAt: sqlite3_column_double(statement, 1))
+    }
+
+    /// OpenCode V2 stores assistant messages separately from the V1 `message` projection.
+    /// Its model reference is nested and its token breakdown has no `total` field.
+    static func parseOpenCodeSessionMessage(
+        _ object: Object,
+        fallbackID: String,
+        createdAt: Any?
+    ) -> LocalUsageReader.Entry? {
+        guard let tokens = object["tokens"] as? Object,
+              let model = object["model"] as? Object,
+              let date = dateValue(createdAt),
+              let modelID = stringValue(model["id"]),
+              stringValue(model["providerID"]) != nil else { return nil }
+        let cache = tokens["cache"] as? Object
+        return makeEntry(
+            id: "opencode|\(fallbackID)",
+            date: date,
+            model: modelID,
+            input: intValue(tokens["input"]),
+            output: intValue(tokens["output"]) + intValue(tokens["reasoning"]),
+            cacheWrite: intValue(cache?["write"]),
+            cacheRead: intValue(cache?["read"]),
+            cost: doubleValue(object["cost"]))
     }
 
     // MARK: Hermes database
