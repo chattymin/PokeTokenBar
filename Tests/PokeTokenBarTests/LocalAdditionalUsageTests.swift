@@ -65,6 +65,49 @@ final class LocalAdditionalUsageTests: XCTestCase {
         XCTAssertEqual(entries.first?.total, 13)
     }
 
+    func testOpenCodeReadsV2SessionMessagesAndMergesLegacyUsage() throws {
+        let database = temporaryDirectory.appendingPathComponent("opencode.db")
+        try execute(database, sql: """
+        CREATE TABLE message (
+            id TEXT PRIMARY KEY, session_id TEXT NOT NULL, time_created INTEGER NOT NULL, data TEXT NOT NULL
+        );
+        CREATE TABLE session_message (
+            id TEXT PRIMARY KEY, session_id TEXT NOT NULL, type TEXT NOT NULL, seq INTEGER NOT NULL,
+            time_created INTEGER NOT NULL, time_updated INTEGER NOT NULL, data TEXT NOT NULL
+        );
+        CREATE INDEX session_message_time_created_idx ON session_message (time_created);
+        INSERT INTO message VALUES (
+            'msg-v1', 'session-v1', 1767312000000,
+            '{"id":"msg-v1","sessionID":"session-v1","providerID":"anthropic","modelID":"claude-sonnet-4-20250514","time":{"created":1767312000000},"tokens":{"input":100,"output":50,"total":180,"cache":{"read":10,"write":20}},"cost":0.25}'
+        );
+        INSERT INTO session_message VALUES (
+            'msg-v2', 'session-v2', 'assistant', 1, 1767312000000, 1767312000000,
+            '{"model":{"id":"gpt-5","providerID":"openai"},"time":{"created":1767312000000},"tokens":{"input":100,"output":50,"reasoning":30,"cache":{"read":10,"write":20}},"cost":0.5}'
+        );
+        INSERT INTO session_message VALUES (
+            'msg-user', 'session-v2', 'user', 2, 1767312000000, 1767312000000,
+            '{"time":{"created":1767312000000},"text":"not usage"}'
+        );
+        """)
+
+        let entries = LocalAdditionalUsageReader.openCodeEntries(
+            modifiedSince: try date("2026-01-01T00:00:00Z"), roots: [temporaryDirectory])
+
+        XCTAssertEqual(entries.count, 2)
+        let v1 = try XCTUnwrap(entries.first { $0.id == "opencode|msg-v1" })
+        XCTAssertEqual(v1.total, 180)
+        XCTAssertEqual(v1.explicitCost, 0.25)
+
+        let v2 = try XCTUnwrap(entries.first { $0.id == "opencode|msg-v2" })
+        XCTAssertEqual(v2.model, "gpt-5")
+        XCTAssertEqual(v2.input, 100)
+        XCTAssertEqual(v2.output, 80, "V2 stores reasoning separately from output")
+        XCTAssertEqual(v2.cacheRead, 10)
+        XCTAssertEqual(v2.cacheWrite, 20)
+        XCTAssertEqual(v2.total, 210)
+        XCTAssertEqual(v2.explicitCost, 0.5)
+    }
+
     func testHermesReadsSessionTokensReasoningAndActualCost() throws {
         let database = temporaryDirectory.appendingPathComponent("state.db")
         try execute(database, sql: """
