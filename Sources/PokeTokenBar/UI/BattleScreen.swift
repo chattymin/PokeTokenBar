@@ -155,7 +155,8 @@ struct BattleScreen: View {
                 if pokemon.isShiny { Text("✨").font(.caption2).accessibilityLabel(l.dexShinyLabel) }
                 if let status = session.display.status[side.rawValue][index] {
                     Text(l.battleStatusBadge(status))
-                        .font(.system(size: 9, weight: .bold)).foregroundStyle(.white)
+                        .font(.system(size: 9, weight: .bold))
+                        .foregroundStyle(status == .badPoison ? Color(red: 0.93, green: 0.55, blue: 0.93) : .white)
                         .padding(.horizontal, 5).padding(.vertical, 1)
                         .background(BattleTypeColor.statusColor(status), in: Capsule())
                 }
@@ -394,7 +395,9 @@ enum BattleTypeColor {
         switch status {
         case .paralysis: return color("electric")
         case .burn: return color("fire")
-        case .poison, .badPoison: return color("poison")
+        case .poison: return color("poison")
+        // Gen V shows badly poisoned as the same label with dark purple instead of white.
+        case .badPoison: return Color(red: 0.36, green: 0.12, blue: 0.40)
         case .sleep: return color("normal")
         case .freeze: return color("ice")
         }

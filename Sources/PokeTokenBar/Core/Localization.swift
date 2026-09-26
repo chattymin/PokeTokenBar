@@ -1714,12 +1714,13 @@ extension L {
         t("\(subject)은(는) 잠들어 기운을 되찾았다!", "\(subject) slept and became healthy!", "\(subject)は ねむって 元気に なった！", "¡\(subject) se durmió y recuperó la salud!", "\(subject) dort et récupère !", "\(subject) dormiu e ficou saudável!", "\(subject) schläft und erholt sich!")
     }
     var battleNotYet: String { t("준비 중", "Not yet", "準備中", "Aún no", "Bientôt", "Em breve", "Noch nicht") }
+    /// The in-battle status labels of the Gen V games. Badly poisoned has no label of its own there — it shows
+    /// the poison label in darker colors (see `BattleTypeColor.statusColor`); "TOX" is a fan-tool convention.
     func battleStatusBadge(_ status: BattleStatus) -> String {
         switch status {
         case .paralysis: return t("마비", "PAR", "まひ", "PAR", "PAR", "PAR", "PAR")
         case .burn: return t("화상", "BRN", "やけど", "QUE", "BRL", "QUE", "BRT")
-        case .poison: return t("독", "PSN", "どく", "ENV", "PSN", "ENV", "GIF")
-        case .badPoison: return t("맹독", "TOX", "もうどく", "ENV", "PSN", "ENV", "GIF")
+        case .poison, .badPoison: return t("독", "PSN", "どく", "ENV", "PSN", "ENV", "GIF")
         case .sleep: return t("잠듦", "SLP", "ねむり", "DOR", "SOM", "DOR", "SLF")
         case .freeze: return t("얼음", "FRZ", "こおり", "CON", "GEL", "CON", "GFR")
         }

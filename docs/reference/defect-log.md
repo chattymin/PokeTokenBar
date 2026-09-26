@@ -608,6 +608,12 @@ read_when:
   with a desync. KO replacements never change the turn, which is why only the pivot path broke.
   Guard: `testUTurnAcrossTheNetworkKeepsBothMachinesInSync` (fails with the order reversed).
 
+- **Labels that mimic the games come from a game source, not from memory.** The badly-poisoned badge
+  said "TOX", a Pokémon Showdown convention; Gen V shows "PSN" in darker colors (Bulbapedia
+  `PoisonedBadIC_BW.png`, WikiDex `Gravemente_envenenado_NB.png` = "ENV", PokéWiki lists only "GIF").
+  Nothing compared the labels to the games. Guard: `testBadlyPoisonedUsesThePoisonLabelInEveryLanguage`.
+  Still unverified against a game source: the French, Japanese, Korean and Portuguese status labels.
+
 ## 프로세스·인스턴스
 
 - **로그인 실행을 LaunchAgent 로 등록하면 "등록하는 순간" 앱이 한 번 더 뜬다.** plist 의 `RunAtLoad` 는

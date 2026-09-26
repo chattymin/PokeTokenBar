@@ -304,6 +304,17 @@ final class BattleSessionTests: XCTestCase {
         XCTAssertEqual(s.message, "It’s a draw!")
     }
 
+    /// The games label badly poisoned exactly like poisoned (only the colors differ); a separate "TOX"
+    /// label came from fan tools and slipped in once.
+    func testBadlyPoisonedUsesThePoisonLabelInEveryLanguage() {
+        for language in AppLanguage.allCases {
+            let l = L(language)
+            XCTAssertEqual(l.battleStatusBadge(.badPoison), l.battleStatusBadge(.poison), language.rawValue)
+        }
+        XCTAssertEqual(L(.en).battleStatusBadge(.badPoison), "PSN")
+        XCTAssertEqual(BattleStatus.allCases.map { L(.en).battleStatusBadge($0) }, ["BRN", "PAR", "PSN", "PSN", "SLP", "FRZ"])
+    }
+
     func testStatusCopyKeepsThePokemonNameInEveryLanguage() {
         let a = "ZQXA"
         for language in AppLanguage.allCases {
