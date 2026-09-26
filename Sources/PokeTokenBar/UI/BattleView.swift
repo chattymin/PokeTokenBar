@@ -44,6 +44,7 @@ struct BattleView: View {
                         ForEach(candidates) { entry in candidateCell(entry, l) }
                     }
                 }
+                .reservesScrollerLane()
             }
             .frame(height: 520)
             .task(id: "\(store.battleTeamEntries.map(\.id))-\(retryCount)") { await checkReadiness() }
