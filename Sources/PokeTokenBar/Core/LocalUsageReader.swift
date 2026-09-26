@@ -253,7 +253,7 @@ enum LocalUsageReader {
         // 깊이로 잘렸으면 무엇을 찾았든 남긴다. `out.isEmpty` 를 조건에 넣으면 **부분 절단**
         // (세션 루트는 찾고 더 깊은 작업 디렉터리만 놓친 경우)이 조용히 지나가는데, 그게 가장 흔한 형태다.
         if prunedByDepth {
-            AppLog.write("claude desktop scan: depth \(maxDepth) reached under \(base.lastPathComponent), found \(out.count) root(s) — deeper roots may be missed")
+            AppLog.writeIfChanged("claude-desktop-scan-\(base.lastPathComponent)", "claude desktop scan: depth \(maxDepth) reached under \(base.lastPathComponent), found \(out.count) root(s) — deeper roots may be missed")
         }
         return out
     }

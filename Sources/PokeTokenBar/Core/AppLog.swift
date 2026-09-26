@@ -50,6 +50,24 @@ enum AppLog {
         backend.writeAndFlush(formatted(message))
     }
 
+    /// `write` for status lines repeated on every poll: an unchanged state is suppressed (reaffirmed
+    /// once per `repeatAfter`), a changed one is written at once. The decision lives in
+    /// `LogRepeatSuppressor`; this only adds the lock. Do not use it for lines whose values change
+    /// every tick (token counts, totals) or for events: nothing would be suppressed, or an event
+    /// would be lost.
+    static func writeIfChanged(_ key: String, _ message: String, repeatAfter: TimeInterval = 3600) {
+        guard AppEnv.isBundledApp else { return }
+        suppressorLock.lock()
+        let shouldWrite = suppressor.shouldWrite(key: key, message: message, repeatAfter: repeatAfter)
+        suppressorLock.unlock()
+        guard shouldWrite else { return }
+        backend.write(formatted(message))
+    }
+
+    /// A dictionary mutated from several threads (unlike a Bool flag), so it needs the lock.
+    nonisolated(unsafe) private static var suppressor = LogRepeatSuppressor()
+    private static let suppressorLock = NSLock()
+
     static func write(_ message: String) {
         // 실제 .app 실행에서만 기록 — swift test / 로우 바이너리 실행이 프로덕션 로그를 오염시키지
         // 않게(형제 write 경로 writeParitySnapshot·checkLimitNotifications 와 동일 가드). 테스트가

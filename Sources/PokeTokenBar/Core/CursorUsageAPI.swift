@@ -68,7 +68,7 @@ enum CursorUsageAPI {
             return UsageResult(entries: [], isAuthoritative: false)
         }
         guard let token = sessionToken() else {
-            AppLog.write("cursor api: no session token — \(LocalAdditionalUsageReader.cursorAuthDiagnostics())")
+            AppLog.writeIfChanged("cursor-api-session", "cursor api: no session token — \(LocalAdditionalUsageReader.cursorAuthDiagnostics())")
             return UsageResult(entries: [], isAuthoritative: false)
         }
         AppLog.write("cursor api: session token ready (\(token.count) chars)")
