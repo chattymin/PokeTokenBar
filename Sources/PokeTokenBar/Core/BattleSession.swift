@@ -236,7 +236,7 @@ final class BattleSession {
         finishOrPrompt()
     }
 
-    private func waitForOpponent<T>(_ body: () async throws -> T) async throws -> T {
+    private func waitForOpponent<T: Sendable>(_ body: () async throws -> T) async throws -> T {
         isWaitingForOpponent = true
         defer { isWaitingForOpponent = false }
         return try await body()
