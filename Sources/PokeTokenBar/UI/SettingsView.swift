@@ -21,6 +21,8 @@ struct SettingsView: View {
     /// 두 번째 진입부터 접힌 채로 열린다. onAppear 에서 1회 반영한다.
     @State private var didApplyStartExpanded = false
     @State private var sessionKeyInput = ""
+    /// Pasted keys of the additional accounts, by folder path. Emptied once saved, like the default one.
+    @State private var accountSessionKeyInputs: [String: String] = [:]
     @State private var isCheckingUpdate = false
     @State private var didCheckUpdate = false
     @State private var selectedScanProviderID = "claude_code"
@@ -33,6 +35,8 @@ struct SettingsView: View {
     @State private var customScanMatchTask: Task<Void, Never>?
     @State private var customScanMatchGeneration = 0
     @FocusState private var customScanFocused: Bool
+    @State private var additionalAccountsDraft = ""
+    @FocusState private var additionalAccountsFocused: Bool
     @FocusState private var sessionKeyFocused: Bool
     private var l: L { companion.l }
 
@@ -80,6 +84,7 @@ struct SettingsView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 .onAppear {
+                    companion.refreshSnapshots()
                     guard !didApplyStartExpanded else { return }
                     didApplyStartExpanded = true
                     if startExpanded {
@@ -212,6 +217,10 @@ struct SettingsView: View {
                 }
                 .labelsHidden().pickerStyle(.segmented).fixedSize()
             }
+            if store.claudeAccounts.count > 1 {
+                Divider()
+                trackedAccountRow(store)
+            }
             Divider()
             groupRow {
                 VStack(alignment: .leading, spacing: 1) {
@@ -255,6 +264,23 @@ struct SettingsView: View {
                 toggleRow(l.todayCost, $store.showCostInMenu)
                 Divider()
                 toggleRow(l.limitPercent, $store.showLimitInMenu)
+                if store.showLimitInMenu {
+                    Divider()
+                    groupRow {
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(l.menuLimitColor)
+                            Text(l.menuLimitColorHint).font(.caption2).foregroundStyle(.tertiary)
+                        }
+                        Spacer()
+                        Picker(l.menuLimitColor, selection: $store.menuLimitColorMode) {
+                            ForEach(UsageStore.MenuLimitColorMode.allCases, id: \.self) {
+                                Text(l.menuLimitColorMode($0)).tag($0)
+                            }
+                        }
+                        .labelsHidden()
+                        .fixedSize()
+                    }
+                }
             }
             Text(l.allOffHint).font(.caption2).foregroundStyle(.tertiary).padding(.leading, 4)
         }
@@ -402,6 +428,61 @@ struct SettingsView: View {
                 Spacer()
                 Button(l.importSaveButton) { importSave(store) }
             }
+            Divider()
+            snapshotsSection(store)
+        }
+    }
+
+    @ViewBuilder
+    private func snapshotsSection(_ store: UsageStore) -> some View {
+        groupRow {
+            VStack(alignment: .leading, spacing: 1) {
+                Text(l.snapshotsSectionTitle)
+                Text(l.createSnapshotHint).font(.caption2).foregroundStyle(.tertiary)
+            }
+            Spacer()
+            Button(l.createSnapshotButton) { takeManualSnapshot() }
+        }
+        if companion.availableSnapshots.isEmpty {
+            groupRow {
+                Text(l.noSnapshotsYet).font(.caption2).foregroundStyle(.tertiary)
+                Spacer()
+            }
+        } else {
+            ForEach(companion.availableSnapshots) { snapshot in
+                Divider()
+                snapshotRow(snapshot, store: store)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func snapshotRow(_ snapshot: SaveSnapshot, store: UsageStore) -> some View {
+        groupRow {
+            HStack(spacing: 8) {
+                if let speciesID = snapshot.currentSpeciesID {
+                    SpriteView(speciesID: speciesID, size: 28, shiny: snapshot.currentIsShiny)
+                        .frame(width: 28, height: 28)
+                } else {
+                    SpriteView(speciesID: nil, size: 28)
+                        .frame(width: 28, height: 28)
+                }
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(Self.exportedAtText(snapshot.date, language: companion.language))
+                        .font(.caption)
+                    Text(l.snapshotDexAndTokens(
+                        dex: snapshot.dexCount,
+                        tokens: TokenFormatter.compact(snapshot.lifetimeTokens)
+                    ))
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                }
+            }
+            Spacer()
+            Button(l.restoreSnapshotButton) {
+                confirmAndRestoreSnapshot(snapshot, store: store)
+            }
+            .controlSize(.small)
         }
     }
 
@@ -422,7 +503,9 @@ struct SettingsView: View {
                             .font(.caption2).foregroundStyle(.green)
                     }
                 }
-                Text(l.sessionKeyHint).font(.caption2).foregroundStyle(.tertiary)
+                // The key only replaces the default login's Keychain read; other accounts have their own below.
+                Text(store.additionalClaudeConfigRoots.isEmpty ? l.sessionKeyHint : l.sessionKeyHint + " " + l.sessionKeyPerAccountNote)
+                    .font(.caption2).foregroundStyle(.tertiary)
                     .fixedSize(horizontal: false, vertical: true)
             }
             Spacer()
@@ -481,6 +564,91 @@ struct SettingsView: View {
         }
     }
 
+    /// Each additional Claude folder can have its own key. Without one, its limits come from its
+    /// Keychain token, which automatic polls never read: they stop whenever that token expires.
+    @ViewBuilder
+    private func accountSessionKeyRows(_ store: UsageStore) -> some View {
+        ForEach(store.additionalClaudeConfigRoots, id: \.self) { rootPath in
+            Divider()
+            accountSessionKeyRow(store, rootPath: rootPath)
+        }
+        // The storage note is shown once, under the default key when that one is saved.
+        if !store.accountSessionKeyPaths.isEmpty, !store.sessionKeyConfigured || store.sessionKeyError != nil {
+            Text(l.sessionKeyStorageNote)
+                .font(.caption2).foregroundStyle(.tertiary)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.horizontal, 12).padding(.bottom, 6)
+        }
+    }
+
+    @ViewBuilder
+    private func accountSessionKeyRow(_ store: UsageStore, rootPath: String) -> some View {
+        let folder = (rootPath as NSString).abbreviatingWithTildeInPath
+        let account = store.claudeAccounts.first {
+            $0.id == ClaudeAccountRoots.pathKey(for: URL(fileURLWithPath: rootPath))
+        }
+        let title = account?.title ?? folder
+        let configured = store.accountSessionKeyPaths.contains(rootPath)
+        let input = Binding(get: { accountSessionKeyInputs[rootPath] ?? "" },
+                            set: { accountSessionKeyInputs[rootPath] = $0 })
+        groupRow {
+            VStack(alignment: .leading, spacing: 1) {
+                HStack(spacing: 6) {
+                    Text(l.accountSessionKeyLabel(title))
+                    if account?.sessionKeyExpired == true {
+                        Text(l.sessionKeyExpiredBadge)
+                            .font(.caption2).foregroundStyle(.orange)
+                    } else if configured {
+                        Text(l.sessionKeySaved)
+                            .font(.caption2).foregroundStyle(.green)
+                    }
+                }
+                // The email names the browser login to copy the key from; the folder tells two logins apart.
+                if title != folder {
+                    Text(folder).font(.caption2).foregroundStyle(.tertiary)
+                }
+            }
+            Spacer()
+        }
+        groupRow {
+            SecureField(configured ? "••••••••" : "sk-ant-sid…", text: input)
+                .textFieldStyle(.roundedBorder)
+                .frame(maxWidth: 220)
+                .onSubmit { submitAccountSessionKey(store, rootPath: rootPath) }
+            Button {
+                submitAccountSessionKey(store, rootPath: rootPath)
+            } label: {
+                if store.validatingAccountSessionKeyPath == rootPath {
+                    ProgressView().controlSize(.small)
+                } else {
+                    Text(l.save)
+                }
+            }
+            .disabled(input.wrappedValue.isEmpty || store.validatingAccountSessionKeyPath != nil)
+            if configured {
+                Button(l.delete) {
+                    accountSessionKeyInputs[rootPath] = nil
+                    store.clearAccountSessionKey(for: rootPath)
+                }
+            }
+            Spacer()
+        }
+        if let error = store.accountSessionKeyError(for: rootPath) {
+            Text(error)
+                .font(.caption2).foregroundStyle(.orange)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.horizontal, 12).padding(.bottom, 6)
+        }
+    }
+
+    private func submitAccountSessionKey(_ store: UsageStore, rootPath: String) {
+        guard let pasted = accountSessionKeyInputs[rootPath], !pasted.isEmpty else { return }
+        Task {
+            await store.saveAccountSessionKey(pasted, for: rootPath)
+            if store.accountSessionKeyError(for: rootPath) == nil { accountSessionKeyInputs[rootPath] = nil }
+        }
+    }
+
     private func submitSessionKey(_ store: UsageStore) {
         let pasted = sessionKeyInput
         guard !pasted.isEmpty else { return }
@@ -521,6 +689,7 @@ struct SettingsView: View {
                 sessionKeyRows(store)
                     // 재시작 후엔 후보 목록이 비어 있어 조직을 바꿀 수 없다 — 열 때 한 번 채운다.
                     .task { await store.refreshSessionOrganizations() }
+                accountSessionKeyRows(store)
                 Divider()
                 groupRow {
                     VStack(alignment: .leading, spacing: 1) {
@@ -549,11 +718,14 @@ struct SettingsView: View {
                     }
                     .disabled(store.disableKeychainAccess || store.isRefreshingLimitToken)
                 }
-                if let limitTokenRefreshError = store.limitTokenRefreshError {
-                    Text(limitTokenRefreshError)
-                        .font(.caption2).foregroundStyle(.orange).lineLimit(2)
+                if let message = store.limitTokenRefreshMessage {
+                    Text(message)
+                        .font(.caption2).foregroundStyle(.orange)
+                        .fixedSize(horizontal: false, vertical: true)
                         .padding(.horizontal, 12).padding(.bottom, 6)
                 }
+                Divider()
+                additionalAccountsRow(store)
                 Divider()
                 groupRow {
                     VStack(alignment: .leading, spacing: 6) {
@@ -605,6 +777,70 @@ struct SettingsView: View {
                     .font(.caption2).foregroundStyle(.tertiary)
                     .padding(.horizontal, 12).padding(.vertical, 8)
             }
+        }
+    }
+
+    /// Only shown with several Claude accounts. The default account is listed under its own title.
+    private func trackedAccountRow(_ store: UsageStore) -> some View {
+        let accountModes = store.claudeAccounts.map {
+            (account: $0, mode: $0.isDefault ? ClaudeTrackedAccountMode.defaultAccount : .account($0.id))
+        }
+        // A pinned account that is gone falls back to automatic (`UsageStore.trackedAccount`): show that.
+        let selection = Binding(
+            get: {
+                let mode = store.claudeTrackedAccountMode
+                return accountModes.contains { $0.mode == mode } || mode == .highest ? mode : .automatic
+            },
+            set: { store.claudeTrackedAccountMode = $0 })
+        // Stacked: account emails make the picker too wide to sit next to the label.
+        return groupRow {
+            VStack(alignment: .leading, spacing: 6) {
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(l.trackedAccountLabel)
+                    Text(l.trackedAccountHint).font(.caption2).foregroundStyle(.tertiary)
+                }
+                HStack {
+                    Spacer()
+                    Picker(l.trackedAccountLabel, selection: selection) {
+                        Text(l.trackedAccountAutomatic).tag(ClaudeTrackedAccountMode.automatic)
+                        Text(l.trackedAccountHighest).tag(ClaudeTrackedAccountMode.highest)
+                        ForEach(accountModes, id: \.account.id) { item in
+                            Text(item.account.title).tag(item.mode)
+                        }
+                    }
+                    .labelsHidden().pickerStyle(.menu).fixedSize()
+                }
+            }
+        }
+    }
+
+    /// Detected and extra Claude config folders; each account gets its own tab in the popover's official limits.
+    /// Committed on submit / focus loss, like the custom scan folders: each commit triggers a refresh.
+    private func additionalAccountsRow(_ store: UsageStore) -> some View {
+        groupRow {
+            VStack(alignment: .leading, spacing: 6) {
+                Text(l.additionalClaudeAccountsLabel)
+                Text(l.additionalClaudeAccountsHint).font(.caption2).foregroundStyle(.tertiary)
+                if !store.detectedClaudeConfigDirs.isEmpty {
+                    Text(l.additionalClaudeAccountsDetected(store.detectedClaudeConfigDirs
+                        .map { ($0 as NSString).abbreviatingWithTildeInPath }
+                        .joined(separator: ", ")))
+                        .font(.caption2).foregroundStyle(.secondary)
+                }
+                TextField(l.additionalClaudeAccountsPlaceholder, text: $additionalAccountsDraft, axis: .vertical)
+                    .textFieldStyle(.roundedBorder).font(.caption)
+                    .focused($additionalAccountsFocused)
+                    .onSubmit { store.additionalClaudeConfigDirs = additionalAccountsDraft }
+                if !additionalAccountsDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    Text(l.additionalClaudeAccountsFound(ClaudeAccountRoots.roots(from: additionalAccountsDraft).count))
+                        .font(.caption2).foregroundStyle(.tertiary)
+                }
+            }
+        }
+        .onAppear { additionalAccountsDraft = store.additionalClaudeConfigDirs }
+        .onDisappear { store.additionalClaudeConfigDirs = additionalAccountsDraft }
+        .onChange(of: additionalAccountsFocused) { _, focused in
+            if !focused { store.additionalClaudeConfigDirs = additionalAccountsDraft }
         }
     }
 
@@ -806,6 +1042,57 @@ struct SettingsView: View {
                      message: l.importSaveDone(dex: incoming.dexCount,
                                                tokens: TokenFormatter.compact(incoming.lifetimeTokens)),
                      style: .informational)
+    }
+
+    private func takeManualSnapshot() {
+        do {
+            try companion.createManualSnapshot()
+            presentAlert(title: l.createSnapshotButton, message: l.snapshotCreatedToast, style: .informational)
+        } catch {
+            AppLog.write("manual snapshot creation failed: \(error)")
+            presentAlert(title: l.createSnapshotButton, message: l.userFacingError(error), style: .warning)
+        }
+    }
+
+    private func confirmAndRestoreSnapshot(_ snapshot: SaveSnapshot, store: UsageStore) {
+        let current = companion.transferSummary
+        let confirm = NSAlert()
+        confirm.alertStyle = .warning
+        confirm.messageText = l.restoreConfirmTitle
+        confirm.informativeText = l.restoreConfirmBody(
+            snapshotDate: Self.exportedAtText(snapshot.date, language: companion.language),
+            snapshotDex: snapshot.dexCount,
+            snapshotTokens: TokenFormatter.compact(snapshot.lifetimeTokens),
+            currentDex: current.dexCount,
+            currentTokens: TokenFormatter.compact(current.lifetimeTokens)
+        )
+        confirm.addButton(withTitle: l.restoreSnapshotButton)
+        confirm.addButton(withTitle: l.cancel)
+        for (index, button) in confirm.buttons.enumerated() {
+            button.keyEquivalent = ImportConfirmPolicy.keyEquivalent(forButtonAt: index)
+        }
+        NSApp.activate(ignoringOtherApps: true)
+        guard confirm.runModal() == .alertFirstButtonReturn else { return }
+
+        do {
+            try companion.restoreSnapshot(
+                snapshot,
+                todayTokensByProvider: store.todayTokensByProvider,
+                todayDate: LocalUsageReader.todayKey(),
+                hasUsageData: store.hasUsageData
+            )
+            presentAlert(
+                title: l.restoreSnapshotButton,
+                message: l.restoreDoneMessage(
+                    dex: snapshot.dexCount,
+                    tokens: TokenFormatter.compact(snapshot.lifetimeTokens)
+                ),
+                style: .informational
+            )
+        } catch {
+            AppLog.write("snapshot restore failed: \(error)")
+            presentAlert(title: l.restoreSnapshotButton, message: l.importErrorMessage(error), style: .warning)
+        }
     }
 
     /// 확인창에 보일 내보낸 시각 — 사용자 로케일 기준 짧은 표기.

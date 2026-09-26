@@ -448,6 +448,50 @@ final class CompanionStoreTests: XCTestCase {
         let folded = s.dexSpecies
         XCTAssertEqual(folded.map(\.id), [1, 2], "이로치 개체가 지나온 체인 전 종")
         XCTAssertEqual(folded.map(\.isShiny), [true, true], "한 개체라도 이로치면 종에 플래그")
+        XCTAssertEqual(folded.map(\.hasNormal), [true, true])
+    }
+
+    func testDexAppearancesPreserveBothColorsRegardlessOfCatchOrder() throws {
+        let normal = DexEntry(baseID: 605, finalID: 606, chainOrder: [605, 606],
+                              rarity: .rare, caughtAt: fixedNow)
+        let shiny = DexEntry(baseID: 605, finalID: 606, chainOrder: [605, 606],
+                             rarity: .rare, caughtAt: fixedNow, isShiny: true)
+        for entries in [[normal, shiny], [shiny, normal], [normal], [shiny]] {
+            let url = FileManager.default.temporaryDirectory.appendingPathComponent("poke-\(UUID().uuidString).json")
+            defer { try? FileManager.default.removeItem(at: url) }
+            var state = CompanionState()
+            state.dex = entries
+            try JSONEncoder().encode(state).write(to: url)
+            let s = CompanionStore(provider: StubProvider(value: linear3), clock: { fixedNow },
+                                   fileURL: url, rng: SeededRNG(seed: 7))
+            XCTAssertEqual(s.dexSpecies.map(\.id), [605, 606])
+            XCTAssertTrue(s.dexSpecies.allSatisfy { $0.hasNormal == entries.contains { !$0.isShiny } })
+            XCTAssertTrue(s.dexSpecies.allSatisfy { $0.isShiny == entries.contains { $0.isShiny } })
+            XCTAssertEqual(s.dexEntries.map(\.isShiny), entries.map(\.isShiny))
+            XCTAssertTrue(s.pokemonIndividuals(speciesID: 605).isEmpty,
+                          "Earlier evolution previews must not manufacture another individual")
+        }
+    }
+
+    func testDexAppearancesCombineActiveAndArchivedWithoutFutureForms() throws {
+        for activeShiny in [false, true] {
+            var state = CompanionState()
+            state.dex = [DexEntry(baseID: 1, finalID: 1, chainOrder: [1], rarity: .common,
+                                  caughtAt: fixedNow, isShiny: !activeShiny)]
+            state.active = MonState(baseID: 1, pathIDs: [1, 2], plannedPathIDs: [1, 2, 3],
+                                    stageIndex: 1, usedAtStage: 0, rarity: .common,
+                                    totalForms: 3, isShiny: activeShiny)
+            let url = FileManager.default.temporaryDirectory.appendingPathComponent("poke-\(UUID().uuidString).json")
+            defer { try? FileManager.default.removeItem(at: url) }
+            try JSONEncoder().encode(state).write(to: url)
+            let s = CompanionStore(provider: StubProvider(value: linear3), clock: { fixedNow },
+                                   fileURL: url, rng: SeededRNG(seed: 7))
+            XCTAssertEqual(s.dexSpecies.map(\.id), [1, 2])
+            XCTAssertTrue(try XCTUnwrap(s.dexSpecies.first).hasNormal)
+            XCTAssertTrue(try XCTUnwrap(s.dexSpecies.first).isShiny)
+            XCTAssertEqual(s.dexSpecies.last?.hasNormal, !activeShiny)
+            XCTAssertEqual(s.dexSpecies.last?.isShiny, activeShiny)
+        }
     }
 
     // MARK: 대표 플로팅 펫 (육성 대상과 표시 대상 분리)
@@ -587,9 +631,11 @@ final class CompanionStoreTests: XCTestCase {
         let disguised = try store(revealed: false)
         XCTAssertTrue(disguised.state.active?.isShiny ?? false, "내부적으론 이로치")
         XCTAssertEqual(disguised.dexSpecies.first?.isShiny, false, "위장 중엔 도감에도 숨김")
+        XCTAssertEqual(disguised.dexSpecies.first?.hasNormal, true)
 
         let revealed = try store(revealed: true)
         XCTAssertEqual(revealed.dexSpecies.first?.isShiny, true, "리빌 후엔 도감에 공개")
+        XCTAssertEqual(revealed.dexSpecies.first?.hasNormal, false)
     }
 
     /// 지금 키우는 종의 이름은 **로드된 라인**에서 온다 — 졸업분이 아직 없어도 `#id` 로 떨어지지 않는다.

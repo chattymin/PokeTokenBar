@@ -15,6 +15,7 @@ final class ModelPricingTests: XCTestCase {
     func testCurrentClaudeStandardRates() {
         // https://platform.claude.com/docs/en/about-claude/pricing — base input, output, 5m cache write, cache read.
         XCTAssertEqual(ModelPricing.rate(for: "claude-opus-5"), .perMillion(5, 25, 6.25, 0.5))
+        XCTAssertEqual(ModelPricing.rate(for: "claude-opus-5-5"), .perMillion(4, 20, 5, 0.2))
         XCTAssertEqual(ModelPricing.rate(for: "claude-sonnet-5"), .perMillion(2, 10, 2.5, 0.2))
     }
 
@@ -28,7 +29,7 @@ final class ModelPricingTests: XCTestCase {
         // A real Claude Code bucket split: every request logs cache creation and cache reads,
         // so a row without a cache-write rate is unpriced in practice even when its input and
         // output columns are filled in.
-        for model in ["claude-opus-5", "claude-sonnet-5", "claude-opus-4-8", "claude-opus-4-7",
+        for model in ["claude-opus-5", "claude-opus-5-5", "claude-sonnet-5", "claude-opus-4-8", "claude-opus-4-7",
                       "claude-sonnet-4-6", "claude-haiku-4-5", "claude-fable-5", "claude-fable-5-1"] {
             let cost = try XCTUnwrap(
                 ModelPricing.estimatedCost(model: model, input: 2, output: 175,
@@ -36,6 +37,34 @@ final class ModelPricingTests: XCTestCase {
                 "\(model) resolves to no price — the usage cost row renders as unavailable")
             XCTAssertGreaterThan(cost, 0, model)
         }
+    }
+
+    /// An unpriced model is logged once per identity, not once per log entry — Bucket.add runs per request.
+    func testUnpricedModelIsReportedOnlyOnFirstSighting() {
+        let model = "claude-unpriced-\(UUID().uuidString.lowercased())"
+        XCTAssertTrue(ModelPricing.firstUnpricedSighting(model))
+        XCTAssertFalse(ModelPricing.firstUnpricedSighting(model))
+        XCTAssertFalse(ModelPricing.firstUnpricedSighting("ANTHROPIC/" + model.uppercased()), "normalized like the price lookup")
+    }
+
+    /// The wiring: `AppLog` is a no-op under `swift test`, so observe it through the dedupe instead.
+    /// Aggregating an unpriced model must consume its first sighting (it was reported); a row whose
+    /// source says no estimate is possible must not, since a missing table row is not the cause there.
+    func testAggregatingAnUnpricedModelReportsItButNotASourceUnavailableRow() {
+        func entry(_ model: String, costUnavailable: Bool? = nil) -> LocalUsageReader.Entry {
+            LocalUsageReader.Entry(id: UUID().uuidString, date: Date(), localDay: "2026-09-25", model: model,
+                                   input: 10, output: 5, cacheWrite: 0, cacheRead: 0,
+                                   costUnavailable: costUnavailable)
+        }
+        let unpriced = "claude-unpriced-\(UUID().uuidString.lowercased())"
+        let sourceUnavailable = "claude-unpriced-\(UUID().uuidString.lowercased())"
+        var bucket = LocalUsageReader.Bucket()
+        bucket.add(entry(unpriced))
+        bucket.add(entry(sourceUnavailable, costUnavailable: true))
+
+        XCTAssertFalse(ModelPricing.firstUnpricedSighting(unpriced), "an unpriced model was not reported")
+        XCTAssertTrue(ModelPricing.firstUnpricedSighting(sourceUnavailable),
+                      "a source-unavailable row was reported as a missing price")
     }
 
     func testUnknownNamesNeverBorrowFamilyPrices() {

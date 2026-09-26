@@ -22,6 +22,7 @@ LOGIC_CORE=(
   "Sources/PokeTokenBar/Core/CompanionModel.swift"
   "Sources/PokeTokenBar/Core/UnownForm.swift"
   "Sources/PokeTokenBar/Core/CollectionWeight.swift"
+  "Sources/PokeTokenBar/Core/KoreanParticle.swift"
   "Sources/PokeTokenBar/Core/CompanionStore.swift"
   "Sources/PokeTokenBar/Core/PokemonProfile.swift"
   "Sources/PokeTokenBar/Core/PokemonNameLocalization.swift"
@@ -35,6 +36,7 @@ LOGIC_CORE=(
   "Sources/PokeTokenBar/Core/LocalUsageCache.swift"
   "Sources/PokeTokenBar/Core/ModelPricing.swift"
   "Sources/PokeTokenBar/Core/CustomScanRoots.swift"
+  "Sources/PokeTokenBar/Core/UsageRecap.swift"
 )
 
 echo "▶ swift test (--enable-code-coverage)"

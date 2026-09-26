@@ -32,6 +32,7 @@ actor LocalUsageCache {
         var grok: [String: Blob]
         var pi: [String: Blob]
         var omp: [String: Blob]
+        var claudeParserVersion: Int
         var codexParserVersion: Int
         var codexSessionIndexVersion: Int
         var grokParserVersion: Int
@@ -40,7 +41,8 @@ actor LocalUsageCache {
 
         init(claude: [String: Blob], codex: [String: CodexBlob],
              codexSessionIDs: [String: CodexSessionProbe], gemini: [String: Blob],
-             grok: [String: Blob], pi: [String: Blob], omp: [String: Blob], codexParserVersion: Int,
+             grok: [String: Blob], pi: [String: Blob], omp: [String: Blob], claudeParserVersion: Int,
+             codexParserVersion: Int,
              codexSessionIndexVersion: Int, grokParserVersion: Int, piParserVersion: Int,
              ompParserVersion: Int) {
             self.claude = claude
@@ -50,6 +52,7 @@ actor LocalUsageCache {
             self.grok = grok
             self.pi = pi
             self.omp = omp
+            self.claudeParserVersion = claudeParserVersion
             self.codexParserVersion = codexParserVersion
             self.codexSessionIndexVersion = codexSessionIndexVersion
             self.grokParserVersion = grokParserVersion
@@ -69,6 +72,7 @@ actor LocalUsageCache {
             grok = try c.decodeIfPresent([String: Blob].self, forKey: .grok) ?? [:]
             pi = try c.decodeIfPresent([String: Blob].self, forKey: .pi) ?? [:]
             omp = try c.decodeIfPresent([String: Blob].self, forKey: .omp) ?? [:]
+            claudeParserVersion = try c.decodeIfPresent(Int.self, forKey: .claudeParserVersion) ?? 0
             codexParserVersion = try c.decodeIfPresent(Int.self, forKey: .codexParserVersion) ?? 0
             codexSessionIndexVersion = try c.decodeIfPresent(Int.self, forKey: .codexSessionIndexVersion) ?? 0
             grokParserVersion = try c.decodeIfPresent(Int.self, forKey: .grokParserVersion) ?? 0
@@ -77,6 +81,10 @@ actor LocalUsageCache {
         }
     }
 
+    /// Claude entry→cost mapping. Bump when the assistant-line buckets or the `cost-state`
+    /// attribution change, so blobs parsed by the previous rule are not trusted.
+    /// v1: adopt the source-reported `cost-state` ledger over price-table estimates.
+    private static let claudeParserVersion = 1
     /// fork replay 및 동일 상태 재기록 처리 변경 시 Codex blob만 재파싱한다.
     /// v6: retain total-only pricing uncertainty; v5 added total-only token accounting (#278).
     private static let codexParserVersion = 6
@@ -114,6 +122,9 @@ actor LocalUsageCache {
     private let piRoots: [URL]?
     private let ompRoots: [URL]?
     private let fileURL: URL
+    /// Whether this cache reads and writes `fileURL` (`AppEnv.persistsToUserLocation`). Not private so
+    /// tests can check the gate without doing any IO.
+    nonisolated let persistsToDisk: Bool
     private let now: @Sendable () -> Date
     /// throwing probe 를 쓴다 — 읽기 실패(throw)와 "metadata 없음"(`nil`)은 인덱스에 남길지가 다르다.
     private let codexProbe: @Sendable (URL) throws -> String?
@@ -145,6 +156,9 @@ actor LocalUsageCache {
         self.piRoots = piRoots
         self.ompRoots = ompRoots
         self.fileURL = fileURL ?? Self.defaultFileURL
+        // `LocalUsageProvider` uses `.shared`, so without this a single `refresh()` during `swift test`
+        // reads and rewrites the user's real usage-cache.json.
+        self.persistsToDisk = AppEnv.persistsToUserLocation(injectedFileURL: fileURL)
         self.now = now
         self.codexProbe = codexProbe
     }
@@ -165,7 +179,16 @@ actor LocalUsageCache {
         let roots = claudeRoots ?? claudeRoot.map { [$0] } ?? LocalUsageReader.claudeProjectRoots
         var all: [LocalUsageReader.Entry] = []
         for root in roots {
-            all += collect(root: root, since: modifiedSince, cache: &claudeCache) {
+            // Blobs cached before `Entry.sessionID` existed get it from their path, without a re-parse.
+            all += collect(root: root, since: modifiedSince, cache: &claudeCache, annotate: { url, entries in
+                guard entries.contains(where: { $0.sessionID == nil }) else { return entries }
+                let session = LocalUsageReader.claudeSessionID(forTranscript: url)
+                return entries.map { entry in
+                    var entry = entry
+                    if entry.sessionID == nil { entry.sessionID = session }
+                    return entry
+                }
+            }) {
                 LocalUsageReader.parseClaudeFile($0, fmt: fmt)
             }
         }
@@ -266,8 +289,10 @@ actor LocalUsageCache {
 
     /// `include` 는 blob 캐시 조회 **전에** 평가된다 — 파일 밖 상태(옆 파일 등)에 의존하는 판정을
     /// 캐시에 굳히지 않기 위해서다.
+    /// `annotate` adjusts what is returned for a file, never what is cached.
     private func collect(root: URL, since: Date, cache: inout [String: Blob],
                          allowJSON: Bool = false, include: ((URL) -> Bool)? = nil,
+                         annotate: ((URL, [LocalUsageReader.Entry]) -> [LocalUsageReader.Entry])? = nil,
                          parse: (URL) -> [LocalUsageReader.Entry]?) -> [LocalUsageReader.Entry] {
         let fm = FileManager.default
         guard let en = fm.enumerator(
@@ -284,17 +309,21 @@ actor LocalUsageCache {
                   let mtime = v.contentModificationDate, mtime >= since else { continue }
             let size = v.fileSize ?? 0
             let key = url.path
+            let fileEntries: [LocalUsageReader.Entry]
             if let blob = cache[key], blob.mtime == mtime, blob.size == size {
-                result.append(contentsOf: blob.entries)            // 변경 없음 → 재파싱 안 함
+                fileEntries = blob.entries            // 변경 없음 → 재파싱 안 함
             } else if let entries = parse(url) {
                 cache[key] = Blob(mtime: mtime, size: size, entries: entries)
                 dirty = true
-                result.append(contentsOf: entries)
+                fileEntries = entries
             } else if let blob = cache[key] {
                 // 일시적 읽기 실패는 현재 signature에 굳히지 않는다. 이전 blob을 쓰되,
                 // signature는 옛 상태로 남겨 다음 refresh에서 다시 읽게 한다.
-                result.append(contentsOf: blob.entries)
+                fileEntries = blob.entries
+            } else {
+                continue
             }
+            result.append(contentsOf: annotate?(url, fileEntries) ?? fileEntries)
         }
         return result
     }
@@ -391,10 +420,20 @@ actor LocalUsageCache {
 
     // MARK: 영속화
 
+    /// Number of loaded blobs, used to observe the read gate: if a default-path cache read the user's
+    /// real file, hundreds of their blobs would show up next to a single fixture.
+    var cachedBlobCount: Int {
+        ensureLoaded()
+        return claudeCache.count + codexCache.count + geminiCache.count
+            + grokCache.count + piCache.count + ompCache.count
+    }
+
     private func ensureLoaded() {
         guard !loaded else { return }
         loaded = true
-        guard let raw = try? Data(contentsOf: fileURL) else { return }
+        // Reads are gated too: a test that read the user's real cache would assert on fixtures mixed
+        // with live data.
+        guard persistsToDisk, let raw = try? Data(contentsOf: fileURL) else { return }
         // zlib 압축 스냅샷(현행) → 실패 시 평문 JSON(구버전 캐시) 폴백
         let data = (try? (raw as NSData).decompressed(using: .zlib) as Data) ?? raw
         guard let snap = try? JSONDecoder().decode(Snapshot.self, from: data) else { return }
@@ -406,6 +445,10 @@ actor LocalUsageCache {
         piCache = snap.pi
         ompCache = snap.omp
 
+        if snap.claudeParserVersion != Self.claudeParserVersion {
+            claudeCache = [:]
+            dirty = true
+        }
         if snap.codexParserVersion != Self.codexParserVersion {
             codexCache = [:]
             dirty = true
@@ -444,6 +487,7 @@ actor LocalUsageCache {
     /// 변경이 있으면 디스크에 저장(최소 60초 간격으로 throttle — 잦은 쓰기 방지).
     private func saveIfNeeded() {
         guard dirty else { return }
+        guard persistsToDisk else { dirty = false; return }
         if let last = lastSave, now().timeIntervalSince(last) < 60 { return }
         prune()
         let snap = Snapshot(
@@ -454,6 +498,7 @@ actor LocalUsageCache {
             grok: grokCache,
             pi: piCache,
             omp: ompCache,
+            claudeParserVersion: Self.claudeParserVersion,
             codexParserVersion: Self.codexParserVersion,
             codexSessionIndexVersion: Self.codexSessionIndexVersion,
             grokParserVersion: Self.grokParserVersion,

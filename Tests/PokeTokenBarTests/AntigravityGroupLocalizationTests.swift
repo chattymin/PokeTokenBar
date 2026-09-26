@@ -57,7 +57,7 @@ final class AntigravityGroupLocalizationTests: XCTestCase {
         XCTAssertFalse(candyNames.contains(where: { $0.contains("Gemini Models") }))
         XCTAssertFalse(candyNames.contains(where: { $0.contains("Claude and GPT") }))
 
-        let alertNames = store.buildLimitWindows().map(\.name)
+        let alertNames = store.buildLimitWindows().windows.map(\.name)
         XCTAssertEqual(
             Set(alertNames),
             [

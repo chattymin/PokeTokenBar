@@ -17,6 +17,7 @@ struct BagView: View {
                         ItemCard(store: store, nav: nav, kind: item.kind, count: item.count)
                     }
                 }
+                .reservesScrollerLane()
             }
             .frame(height: 520)
         }

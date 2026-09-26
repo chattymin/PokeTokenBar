@@ -125,6 +125,7 @@ final class UsageEnvironmentTests: XCTestCase {
     /// - `CompanionStore`: `PTB_STATE_DIR` 은 개발/QA 격리용
     /// - `OAuthLimitsProvider`: 의도적으로 프로세스 환경만 본다(자동 폴링 경로에서 셸 spawn 금지 —
     ///   해당 함수 주석 참조). 값이 필요한 사용량 스캔 쪽이 이미 셸 조회를 한다.
+    /// - `AppEnv`: the `PTB_PARITY` live-check flag — the same QA class as `PTB_STATE_DIR` above.
     func testNoProviderReadsUsageLocationEnvDirectly() throws {
         let allowed: Set<String> = [
             "UsageEnvironment.swift",
@@ -132,6 +133,7 @@ final class UsageEnvironmentTests: XCTestCase {
             "CompanionStore.swift",
             "AppStatePaths.swift",
             "OAuthLimitsProvider.swift",
+            "AppEnv.swift",
         ]
         let sources = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()    // PokeTokenBarTests
@@ -198,5 +200,24 @@ final class UsageEnvironmentTests: XCTestCase {
             }
         }
         XCTAssertTrue(missing.isEmpty, "names 에 없는 조회: \(missing.joined(separator: ", "))")
+    }
+}
+
+/// The single rule for whether a store may touch its default (user) file.
+final class UserLocationGateTests: XCTestCase {
+    func testInjectedPathIsAlwaysLive() {
+        let tmp = URL(fileURLWithPath: "/tmp/whatever.json")
+        XCTAssertTrue(AppEnv.persistsToUserLocation(injectedFileURL: tmp, isBundledApp: false))
+        XCTAssertTrue(AppEnv.persistsToUserLocation(injectedFileURL: tmp, isBundledApp: true))
+    }
+
+    func testDefaultPathIsInertUnlessBundled() {
+        XCTAssertFalse(AppEnv.persistsToUserLocation(injectedFileURL: nil, isBundledApp: false))
+        XCTAssertTrue(AppEnv.persistsToUserLocation(injectedFileURL: nil, isBundledApp: true))
+    }
+
+    /// `swift test` is not an app bundle; if that ever changes, the gate above protects nothing.
+    func testTestBinaryIsNotABundledApp() {
+        XCTAssertFalse(AppEnv.isBundledApp)
     }
 }

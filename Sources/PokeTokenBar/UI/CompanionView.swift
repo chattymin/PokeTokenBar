@@ -607,7 +607,7 @@ struct CompanionHeader: View {
                         }
                         // 첫 실행(적립 0) — 정적 알 앞에서 "고장났나" 오해 방지용 한 줄 안내
                         if !store.eggStarted {
-                            Text(store.l.eggFirstRunHint)
+                            Text(store.l.eggFirstRunHint(TokenFormatter.compact(store.eggHatchThreshold)))
                                 .font(.caption2).foregroundStyle(.tertiary)
                                 .fixedSize(horizontal: false, vertical: true)
                         }
@@ -620,7 +620,7 @@ struct CompanionHeader: View {
                 // 폭을 안 주면 분기 라인(이브이)이 넘쳐 팝오버 콘텐츠 전체가 좌우로 잘린다.
                 EvoLineView(nodes: store.lineNodes, mysteryLabel: store.l.unknownNextEvolution,
                             language: store.language, shiny: store.currentIsShiny,
-                            maxWidth: PopoverMetrics.contentWidth, unownForm: store.currentUnownForm)
+                            maxWidth: PopoverMetrics.scrollContentWidth, unownForm: store.currentUnownForm)
             }
             if let g = store.justGraduated {
                 Text(store.l.graduated(g))
@@ -788,75 +788,242 @@ struct DexSummaryHeader: View {
 struct CollectionView: View {
     let store: CompanionStore
     let navigation: PopoverNavigation
-    /// 로그 전용 희귀도 필터. 도감은 개수 단위가 종이라 자기 필터를 따로 갖는다(DexGridView).
     @State private var selectedRarity: Rarity?
+    @State private var searchText = ""
+    @State private var shinyOnly = false
+    @State private var dexSort: CompanionStore.DexSortOption = .numberAsc
+    @State private var logSort: CompanionStore.CatchLogSortOption = .recentFirst
+    @State private var detailCollectionID: String?
 
     /// 도감·로그 공통 높이 — 상점·가방과 같은 520. 세그먼트를 전환할 때도, 탭을 넘나들 때도
     /// 팝오버가 리사이즈되지 않는다.
-    ///
-    /// 예산: 520 − 세그먼트 24 − 헤더 39 − 하단 줄 18 − 간격 24 = 격자 415. 6행 spacing 4 면
-    /// 행이 65.8 이고, 칸 여백 6 과 이름 12 를 빼면 스프라이트에 47.8 이 남는다(현재 44).
     private static let contentHeight: CGFloat = 520
 
-    /// 선택된 희귀도만 노출(없으면 전체). 상단 캡슐 토글로 설정.
     private var visibleEntries: [DexEntry] {
-        guard let r = selectedRarity else { return store.dexEntriesSorted }
-        return store.dexEntriesSorted.filter { $0.rarity == r }
+        store.filteredDexEntries(
+            query: searchText,
+            rarity: selectedRarity,
+            shinyOnly: shinyOnly,
+            sort: logSort
+        )
+    }
+
+    private var isCustomSortActive: Bool {
+        navigation.showingCollectionLog ? logSort != .recentFirst : dexSort != .numberAsc
+    }
+
+    private func resetFilters() {
+        searchText = ""
+        shinyOnly = false
+        selectedRarity = nil
+        dexSort = .numberAsc
+        logSort = .recentFirst
     }
 
     var body: some View {
         @Bindable var nav = navigation
         if store.dexEntries.isEmpty {
-            emptyState   // 둘 다 비어 있으니 세그먼트를 그리지 않는다
+            emptyState
+        } else if let id = detailCollectionID, let species = store.dexSpecies.first(where: { $0.collectionID == id }) {
+            PokemonDetailView(store: store, species: species) { detailCollectionID = nil }
+                .id(species.collectionID)
+                .frame(height: Self.contentHeight)
         } else {
-            VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: 6) {
                 Picker("", selection: $nav.showingCollectionLog) {
                     Text(store.l.dexTitle).tag(false)
                     Text(store.l.catchLogTitle).tag(true)
                 }
                 .pickerStyle(.segmented)
                 .labelsHidden()
-                if nav.showingCollectionLog { catchLog } else { DexGridView(store: store) }
+
+                filterToolbar
+
+                if nav.showingCollectionLog {
+                    catchLog
+                } else {
+                    DexGridView(
+                        store: store,
+                        searchText: searchText,
+                        shinyOnly: shinyOnly,
+                        sortOption: dexSort,
+                        selectedRarity: $selectedRarity,
+                        onSelectSpecies: { sp in detailCollectionID = sp.collectionID },
+                        onResetFilters: resetFilters
+                    )
+                }
             }
             .frame(height: Self.contentHeight)
+            .onChange(of: nav.showingCollectionLog) {
+                detailCollectionID = nil
+            }
+        }
+    }
+
+    private var filterToolbar: some View {
+        HStack(spacing: 6) {
+            HStack(spacing: 4) {
+                Image(systemName: "magnifyingglass")
+                    .foregroundStyle(.secondary)
+                    .font(.system(size: 11))
+                TextField(store.l.dexSearchPlaceholder, text: $searchText)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 11))
+                if !searchText.isEmpty {
+                    Button {
+                        searchText = ""
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .foregroundStyle(.secondary)
+                            .font(.system(size: 11))
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(store.l.clearFilters)
+                }
+            }
+            .padding(.horizontal, 6)
+            .padding(.vertical, 4)
+            .background(Color(nsColor: .controlBackgroundColor))
+            .clipShape(RoundedRectangle(cornerRadius: 6))
+            .overlay(
+                RoundedRectangle(cornerRadius: 6)
+                    .strokeBorder(Color.secondary.opacity(0.2), lineWidth: 0.5)
+            )
+
+            Button {
+                withAnimation(.easeInOut(duration: 0.15)) {
+                    shinyOnly.toggle()
+                }
+            } label: {
+                Image(systemName: shinyOnly ? "sparkles" : "sparkle")
+                    .font(.system(size: 11, weight: shinyOnly ? .bold : .regular))
+                    .foregroundStyle(shinyOnly ? Color.yellow : Color.secondary)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 4)
+                    .background(shinyOnly ? Color.yellow.opacity(0.18) : Color(nsColor: .controlBackgroundColor))
+                    .clipShape(RoundedRectangle(cornerRadius: 6))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 6)
+                            .strokeBorder(shinyOnly ? Color.yellow.opacity(0.6) : Color.secondary.opacity(0.2), lineWidth: 0.5)
+                    )
+            }
+            .buttonStyle(.plain)
+            .help(store.l.filterShinyOnly)
+            .accessibilityLabel(store.l.filterShinyOnly)
+
+            Menu {
+                if navigation.showingCollectionLog {
+                    ForEach(CompanionStore.CatchLogSortOption.allCases) { option in
+                        Button {
+                            logSort = option
+                        } label: {
+                            HStack {
+                                Text(store.l.label(for: option))
+                                if logSort == option {
+                                    Image(systemName: "checkmark")
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    ForEach(CompanionStore.DexSortOption.allCases) { option in
+                        Button {
+                            dexSort = option
+                        } label: {
+                            HStack {
+                                Text(store.l.label(for: option))
+                                if dexSort == option {
+                                    Image(systemName: "checkmark")
+                                }
+                            }
+                        }
+                    }
+                }
+            } label: {
+                Image(systemName: "arrow.up.arrow.down")
+                    .font(.system(size: 11))
+                    .foregroundStyle(isCustomSortActive ? Color.accentColor : Color.secondary)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 4)
+                    .background(isCustomSortActive ? Color.accentColor.opacity(0.12) : Color(nsColor: .controlBackgroundColor))
+                    .clipShape(RoundedRectangle(cornerRadius: 6))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 6)
+                            .strokeBorder(isCustomSortActive ? Color.accentColor.opacity(0.5) : Color.secondary.opacity(0.2), lineWidth: 0.5)
+                    )
+            }
+            .menuStyle(.borderlessButton)
+            .fixedSize()
+            .help(store.l.sortTitle)
+            .accessibilityLabel(store.l.sortTitle)
         }
     }
 
     /// 포획 로그 — 개체 단위 기록. 필터(요약 헤더)는 고정, 목록만 스크롤한다
-    /// (아래로 내리는 중에도 희귀도 필터를 토글할 수 있다).
     private var catchLog: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 6) {
             DexSummaryHeader(store: store, selected: selectedRarity) { r in
                 withAnimation(.easeInOut(duration: 0.15)) {
                     selectedRarity = (selectedRarity == r) ? nil : r
                 }
             }
-            // maxHeight 는 팝오버 재오픈 시 ScrollView fitting size 가 작게 잡혀 크기가 줄어드는
-            // 문제가 있어, 바깥 VStack 을 height 로 고정해 스크롤 영역이 나머지를 채우게 한다.
-            ScrollViewReader { proxy in
-                ScrollView {
-                    // 로그는 계속 쌓인다. 화면 밖 행까지 생성하면 진화 라인의 스프라이트 로딩과
-                    // 레이아웃도 전부 진입 시 실행되므로, 보이는 행부터 생성한다.
-                    LazyVStack(alignment: .leading, spacing: 8) {
-                        Color.clear.frame(height: 0).id("dexTop")   // 스크롤 최상단 앵커
-                        ForEach(visibleEntries) { entry in
-                            DexEntryRow(store: store, entry: entry)
+            if visibleEntries.isEmpty {
+                emptySearchResults
+            } else {
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        LazyVStack(alignment: .leading, spacing: 8) {
+                            Color.clear.frame(height: 0).id("dexTop")
+                            ForEach(visibleEntries) { entry in
+                                DexEntryRow(store: store, entry: entry)
+                            }
                         }
+                        .reservesScrollerLane()
                     }
-                }
-                .frame(maxHeight: .infinity)
-                // 필터 토글 시 목록 최상단으로 — 이전 스크롤 위치가 새 필터 결과 밖이어도 처음부터 보이게.
-                .onChange(of: selectedRarity) {
-                    withAnimation(.easeInOut(duration: 0.2)) { proxy.scrollTo("dexTop", anchor: .top) }
+                    .frame(maxHeight: .infinity)
+                    // 필터·검색·정렬 변경 시 새 결과를 처음부터 보여준다.
+                    .onChange(of: selectedRarity) {
+                        withAnimation(.easeInOut(duration: 0.2)) { proxy.scrollTo("dexTop", anchor: .top) }
+                    }
+                    .onChange(of: searchText) {
+                        withAnimation(.easeInOut(duration: 0.2)) { proxy.scrollTo("dexTop", anchor: .top) }
+                    }
+                    .onChange(of: shinyOnly) {
+                        withAnimation(.easeInOut(duration: 0.2)) { proxy.scrollTo("dexTop", anchor: .top) }
+                    }
+                    .onChange(of: logSort) {
+                        withAnimation(.easeInOut(duration: 0.2)) { proxy.scrollTo("dexTop", anchor: .top) }
+                    }
                 }
             }
         }
     }
 
+    private var emptySearchResults: some View {
+        VStack(spacing: 8) {
+            Spacer()
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 24))
+                .foregroundStyle(.tertiary)
+            Text(store.l.noSearchResults)
+                .font(.callout.weight(.medium))
+                .foregroundStyle(.secondary)
+            Button(store.l.clearFilters) {
+                withAnimation(.easeInOut(duration: 0.15)) {
+                    resetFilters()
+                }
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+            Spacer()
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
     /// 빈 도감 — 안내 마스코트(피카츄, PokéAPI) + 포켓몬을 모으라는 문구.
     private var emptyState: some View {
         VStack(spacing: 10) {
-            SpriteView(speciesID: 25, size: 96, animated: true)   // 피카츄(움직임)
+            SpriteView(speciesID: 25, size: 96, animated: true)
             Text(store.l.dexEmptyTitle).font(.callout.weight(.semibold))
             Text(store.l.dexEmptyHint)
                 .font(.caption).foregroundStyle(.secondary)
@@ -893,20 +1060,19 @@ struct RepresentativeFooterButton: View {
 }
 
 /// 도감 — 보유 종만 도감 번호순으로, 한 페이지 24칸(4열×6행) 고정 격자.
-///
-/// 페이지식이라 ScrollView 를 쓰지 않는다 — 팝오버 재오픈 시 fitting size 가 줄어드는 기존 결함을
-/// 우회(고정 높이 + maxHeight)가 아니라 회피로 피한다. 페이지 크기가 고정이라 모든 칸이 항상
-/// 렌더되므로 지연 격자(LazyVGrid)도 필요 없다 — 평범한 VStack/HStack 으로 동기 렌더한다.
-/// 미보유 종은 아예 그리지 않는다(물음표·실루엣 칸 없음).
 @MainActor
 private struct DexGridView: View {
     let store: CompanionStore
-    @State private var selectedRarity: Rarity?
-    @State private var page = 0
+    let searchText: String
+    let shinyOnly: Bool
+    let sortOption: CompanionStore.DexSortOption
+    @Binding var selectedRarity: Rarity?
+    let onSelectSpecies: (CompanionStore.DexSpecies) -> Void
+    let onResetFilters: () -> Void
 
+    @State private var page = 0
     /// 선택한 칸 — 하단 줄에 희귀도를 띄우고, 이로치를 잡은 종이면 스프라이트를 그 색으로 바꾼다.
     @State private var selectedID: String?
-    @State private var detailCollectionID: String?
 
     private static let columns = 4
     private static let rows = 6
@@ -914,38 +1080,58 @@ private struct DexGridView: View {
     private static let spacing: CGFloat = 4
 
     var body: some View {
-        // 종별 집계는 한 번만 훑고 하위로 넘긴다 — 칸마다 재집계하면 도감이 O(칸×도감) 이 된다.
         let all = store.dexSpecies
-        let visible = selectedRarity.map { r in all.filter { $0.rarity == r } } ?? all
+        let visible = store.filteredDexSpecies(
+            query: searchText,
+            rarity: selectedRarity,
+            shinyOnly: shinyOnly,
+            sort: sortOption
+        )
         let pageCount = max(1, (visible.count + Self.pageSize - 1) / Self.pageSize)
-        let current = min(page, pageCount - 1)   // 보유 종이 줄어든 경우(필터 등) 범위 방어
+        let current = min(page, pageCount - 1)
         let slice = Array(visible.dropFirst(current * Self.pageSize).prefix(Self.pageSize))
-        Group {
-            if let id = detailCollectionID, let species = all.first(where: { $0.collectionID == id }) {
-                PokemonDetailView(store: store, species: species) { detailCollectionID = nil }
-                    .id(species.collectionID)
+
+        VStack(alignment: .leading, spacing: 6) {
+            header(all)
+            if visible.isEmpty {
+                emptySearchResults
             } else {
-                VStack(alignment: .leading, spacing: 8) {
-                    header(all)
-                    grid(slice)
-                    footer(slice, current: current, pageCount: pageCount)
-                }
+                grid(slice)
+                footer(slice, current: current, pageCount: pageCount)
             }
         }
-        // 이름이 저장돼 있지 않은 구버전 졸업분을 채운다 — 격자는 저장분만 읽으므로 이게 없으면
-        // 칸이 `#41` 로 남는다. 저장된 항목은 조회하지 않으므로 채워진 뒤로는 아무 일도 하지 않는다.
+        .onChange(of: searchText) { page = 0; selectedID = nil }
+        .onChange(of: shinyOnly) { page = 0; selectedID = nil }
+        .onChange(of: sortOption) { page = 0; selectedID = nil }
+        .onChange(of: selectedRarity) { page = 0; selectedID = nil }
         .task { await store.backfillMissingDexNames() }
     }
 
-    /// 희귀도 필터 — 로그와 같은 RarityTally 를 쓰되 개수는 **종 단위**다.
-    /// (DexSummaryHeader 는 개체 수 dexCount 를 내부에서 직접 부르므로 재사용하려면 시그니처를 바꿔
-    ///  로그 경로까지 건드려야 한다. 캡슐 4개짜리 헤더라 여기서는 인라인으로 둔다.)
+    private var emptySearchResults: some View {
+        VStack(spacing: 8) {
+            Spacer()
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 24))
+                .foregroundStyle(.tertiary)
+            Text(store.l.noSearchResults)
+                .font(.callout.weight(.medium))
+                .foregroundStyle(.secondary)
+            Button(store.l.clearFilters) {
+                withAnimation(.easeInOut(duration: 0.15)) {
+                    onResetFilters()
+                }
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+            Spacer()
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
     private func header(_ all: [CompanionStore.DexSpecies]) -> some View {
         VStack(alignment: .leading, spacing: 5) {
             HStack(spacing: 6) {
                 Text(store.l.dexTitle).font(.callout.weight(.semibold))
-                // 총계는 필터와 무관한 전체 종 수 — 로그 헤더(dexTotal)와 같은 규칙.
-                // 필터 중인 희귀도의 개수는 아래 캡슐이 이미 보여준다.
                 Text(store.l.dexSpeciesTotal(all.count)).font(.caption2).foregroundStyle(.secondary)
             }
             HStack(spacing: 4) {
@@ -954,24 +1140,21 @@ private struct DexGridView: View {
                     Button {
                         withAnimation(.easeInOut(duration: 0.15)) {
                             selectedRarity = (selectedRarity == r) ? nil : r
-                            page = 0        // 필터가 바뀌면 페이지 범위도 바뀐다 — 항상 첫 페이지부터
-                            selectedID = nil // 선택한 칸이 필터 밖으로 나가면 하단 줄이 유령 정보를 남긴다
+                            page = 0
+                            selectedID = nil
                         }
                     } label: {
                         RarityTally(label: store.l.rarityLabel(r), count: count,
                                     color: rarityColor(r), isSelected: selectedRarity == r)
                     }
                     .buttonStyle(.plain)
-                    .disabled(count == 0)          // 0종 희귀도는 필터 불가
+                    .disabled(count == 0)
                     .help(store.l.dexFilterHint)
                 }
             }
         }
     }
 
-    /// 고정 격자 — 남는 칸은 투명(테두리·물음표 없이 정렬만 유지).
-    /// 모든 행에 maxHeight 를 걸어 6행이 높이를 균등 분할하게 한다 — 빈 칸의 Color 는 유연 크기라,
-    /// 행마다 안 걸면 빈 행이 늘어나 채워진 행을 짓누른다(보유 종이 적을 때 첫 줄이 찌그러짐).
     private func grid(_ slice: [CompanionStore.DexSpecies]) -> some View {
         let unownFormCount = store.state.collectedUnownForms.count
         return VStack(spacing: Self.spacing) {
@@ -986,7 +1169,7 @@ private struct DexGridView: View {
                                            isRepresentative: store.isRepresentative(sp),
                                            unownFormCount: unownFormCount) {
                                 selectedID = sp.collectionID
-                                detailCollectionID = sp.collectionID
+                                onSelectSpecies(sp)
                             }
                             .frame(maxWidth: .infinity)
                         } else {
@@ -1000,9 +1183,6 @@ private struct DexGridView: View {
         .frame(maxHeight: .infinity)
     }
 
-    /// 하단 한 줄 — 왼쪽은 선택한 칸의 희귀도, 오른쪽은 페이저.
-    /// 페이저가 1페이지라 안 보일 때도 이 줄을 **항상** 예약한다 — 페이지 수나 선택 여부에 따라
-    /// 격자 높이가 흔들리지 않게.
     private func footer(_ slice: [CompanionStore.DexSpecies],
                         current: Int, pageCount: Int) -> some View {
         HStack(spacing: 8) {
@@ -1044,12 +1224,24 @@ private struct DexGridView: View {
 /// Scrollable species + individual page. A Pokédex species may aggregate several catches, so the
 /// picker selects the exact persisted profile while the immutable PokéAPI section stays shared.
 @MainActor
-private struct PokemonDetailView: View {
+struct PokemonDetailView: View {
     let store: CompanionStore
     let species: CompanionStore.DexSpecies
     let onBack: () -> Void
+    private let spriteStore: SpriteStore
     @State private var selectedInstanceID = ""
     @State private var selectedUnownForm: UnownForm?
+    @State private var selectedShiny: Bool?
+
+    init(store: CompanionStore, species: CompanionStore.DexSpecies,
+         onBack: @escaping () -> Void, selectedShiny: Bool? = nil,
+         spriteStore: SpriteStore = .shared) {
+        self.store = store
+        self.species = species
+        self.onBack = onBack
+        self.spriteStore = spriteStore
+        _selectedShiny = State(initialValue: selectedShiny)
+    }
 
     private var formSpecies: [CompanionStore.DexSpecies] {
         species.id == UnownForm.speciesID ? store.unownFormSpecies : []
@@ -1062,8 +1254,16 @@ private struct PokemonDetailView: View {
             ?? forms.first ?? species
     }
 
-    private var individuals: [DexEntry] {
+    private var allIndividuals: [DexEntry] {
         store.pokemonIndividuals(speciesID: species.id, unownForm: displayedSpecies.unownForm)
+    }
+    private var displayedShiny: Bool {
+        if let selectedShiny,
+           selectedShiny ? displayedSpecies.isShiny : displayedSpecies.hasNormal { return selectedShiny }
+        return allIndividuals.first?.isShiny ?? displayedSpecies.isShiny
+    }
+    private var individuals: [DexEntry] {
+        allIndividuals.filter { $0.isShiny == displayedShiny }
     }
     private var individual: DexEntry? {
         individuals.first { $0.id == selectedInstanceID } ?? individuals.first
@@ -1082,8 +1282,12 @@ private struct PokemonDetailView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
                     if species.id == UnownForm.speciesID { unownFormPicker }
+                    if displayedSpecies.hasNormal && displayedSpecies.isShiny { appearancePicker }
                     identityHeader
-                    if individuals.count > 1 { individualPicker }
+                    if !individuals.isEmpty { individualPicker }
+                    else {
+                        Text(store.l.dexAppearancePreview).font(.caption).foregroundStyle(.secondary)
+                    }
                     if let details = store.pokemonDetailsByID[species.id] {
                         if let individual, let profile = individual.profile {
                             individualSection(entry: individual, profile: profile, details: details)
@@ -1104,6 +1308,7 @@ private struct PokemonDetailView: View {
                     }
                 }
                 .padding(.bottom, 8)
+                .reservesScrollerLane()
             }
         }
         .task {
@@ -1124,6 +1329,7 @@ private struct PokemonDetailView: View {
                     Button {
                         selectedUnownForm = form
                         selectedInstanceID = ""
+                        selectedShiny = nil
                     } label: {
                         VStack(spacing: 0) {
                             SpriteView(speciesID: UnownForm.speciesID, size: 28,
@@ -1161,14 +1367,14 @@ private struct PokemonDetailView: View {
         let species = displayedSpecies
         return HStack(spacing: 14) {
             SpriteView(speciesID: species.id, size: 82, animated: true,
-                       shiny: individual?.isShiny ?? species.isShiny, unownForm: species.unownForm)
+                       shiny: displayedShiny, spriteStore: spriteStore, unownForm: species.unownForm)
                 .frame(width: 82, height: 82)
             VStack(alignment: .leading, spacing: 5) {
                 Text(species.name).font(.title3.weight(.bold))
                 Text(store.l.rarityLabel(species.rarity))
                     .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
-                if species.isShiny { Text("✨ \(store.l.dexShinyLabel)").font(.caption2) }
-                if species.isRaising { Text(store.l.dexRaising).font(.caption2).foregroundStyle(Color.accentColor) }
+                if displayedShiny { Text("✨ \(store.l.dexShinyLabel)").font(.caption2) }
+                if let individual, store.isActiveDexEntry(individual) { Text(store.l.dexRaising).font(.caption2).foregroundStyle(Color.accentColor) }
                 let isRepresentative = store.isRepresentative(species)
                 RepresentativeFooterButton(localization: store.l,
                                            isRepresentative: isRepresentative) {
@@ -1179,14 +1385,32 @@ private struct PokemonDetailView: View {
         }
     }
 
+    private var appearancePicker: some View {
+        Picker(store.l.dexAppearance, selection: Binding(
+            get: { displayedShiny }, set: { selectedShiny = $0; selectedInstanceID = "" })) {
+            Text(store.l.dexNormalLabel).tag(false)
+            Text("✨ \(store.l.dexShinyLabel)").tag(true)
+        }
+        .pickerStyle(.segmented)
+    }
+
     private var individualPicker: some View {
         Picker(store.l.pokemonIndividual, selection: Binding(
             get: { individual?.id ?? "" }, set: { selectedInstanceID = $0 })) {
             ForEach(Array(individuals.enumerated()), id: \.element.id) { index, entry in
-                Text("#\(index + 1) · Lv. \(entry.profile?.level ?? 5)").tag(entry.id)
+                Text(individualLabel(entry, index: index)).tag(entry.id)
             }
         }
         .pickerStyle(.menu)
+    }
+
+    private func individualLabel(_ entry: DexEntry, index: Int) -> String {
+        let appearance = entry.isShiny ? "✨ \(store.l.dexShinyLabel)" : store.l.dexNormalLabel
+        let date = entry.caughtAt.map {
+            $0.formatted(Date.FormatStyle(date: .numeric, time: .omitted)
+                .locale(Locale(identifier: store.language.rawValue)))
+        } ?? (store.isActiveDexEntry(entry) ? store.l.dexRaising : "—")
+        return "#\(index + 1) · \(appearance) · Lv. \(entry.profile?.level ?? 5) · \(date)"
     }
 
     private func individualSection(entry: DexEntry, profile: PokemonProfile,
@@ -1338,10 +1562,11 @@ private struct DexSpeciesCell: View {
     let isRepresentative: Bool
     let unownFormCount: Int
     let onTap: () -> Void
+    @State private var isHovered = false
 
     /// 로그(56)보다 작다 — 24칸 격자에 이름까지 담아야 한다. 원본 96×96 픽셀아트를
     /// interpolation(.none) 으로 축소하므로 이 크기에서도 식별에 문제없다.
-    private static let thumb: CGFloat = 44
+    private static let thumb: CGFloat = 40
 
     var body: some View {
         Button(action: onTap) {
@@ -1379,7 +1604,7 @@ private struct DexSpeciesCell: View {
                         .accessibilityLabel(store.l.dexShinyLabel)
                 }
             }
-            .padding(3)
+            .padding(2)
             // 대표 = 영속적인 accent 배경, 방금 클릭한 칸 = 기존 accent 테두리.
             // 서로 다른 카드여도 같은 강조 두 개가 선택된 것처럼 보이지 않는다.
             .background(isRepresentative ? Color.accentColor.opacity(0.16)
@@ -1391,8 +1616,20 @@ private struct DexSpeciesCell: View {
                         .strokeBorder(Color.accentColor, lineWidth: 1.5)
                 }
             }
+            // 호버 = 클릭 가능 피드백. 확대는 격자 간격 안에 머무는 폭으로만.
+            // 그림자는 카드 모양에만 — 칸 전체에 `.shadow` 를 걸면 번호·이름·스프라이트 글자마다 그림자가 진다.
+            .background {
+                if isHovered {
+                    RoundedRectangle(cornerRadius: 8)
+                        .fill(Color(nsColor: .windowBackgroundColor))
+                        .shadow(color: .black.opacity(0.25), radius: 4, y: 2)
+                }
+            }
+            .scaleEffect(isHovered ? 1.04 : 1)
+            .animation(.easeOut(duration: 0.12), value: isHovered)
         }
         .buttonStyle(.plain)
+        .onHover { isHovered = $0 }
         .help(tooltip)
         .accessibilityLabel(tooltip)
         .contextMenu {
@@ -1425,8 +1662,9 @@ private struct DexSpeciesCell: View {
                     .accessibilityHidden(true)
             }
         }
-            .font(.system(size: 8, weight: .medium))
-            .foregroundStyle(.secondary)
+            // 번호 색 = 희귀도 — "전체" 보기에서도 칸마다 희귀도가 보인다.
+            .font(.system(size: 8, weight: .semibold))
+            .foregroundStyle(rarityColor(species.rarity))
             .padding(.horizontal, 2)
             .background(.regularMaterial, in: Capsule())
     }
@@ -1506,7 +1744,7 @@ private struct DexEntryRow: View {
             EvoLineView(nodes: entry.chainOrder.map { EvoLineItem(.species($0), .done) },
                         mysteryLabel: store.l.unknownNextEvolution, language: store.language, thumb: 56,
                         shiny: entry.isShiny, names: names,
-                        maxWidth: PopoverMetrics.contentWidth - Self.cardPadding * 2, unownForm: entry.unownForm)
+                        maxWidth: PopoverMetrics.scrollContentWidth - Self.cardPadding * 2, unownForm: entry.unownForm)
             if let caughtAt = entry.caughtAt {
                 Text(caughtAt, style: .relative).font(.system(size: 9)).foregroundStyle(.tertiary)
             }

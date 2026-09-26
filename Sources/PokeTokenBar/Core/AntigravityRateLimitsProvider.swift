@@ -64,6 +64,7 @@ public struct AntigravityRateLimitsProvider: AntigravityLimitsProviding, Sendabl
     }
 
     private func fetchStatus(accessToken: String) async throws -> AntigravityRateLimitStatus {
+        guard AppEnv.allowsLiveLimitsFetch else { throw LimitsError.liveFetchNotPermitted }
         var endpoints: [URL] = []
         if let envURLString = UsageEnvironment.value("CLOUD_CODE_URL"),
            let envURL = URL(string: envURLString + "/v1internal:retrieveUserQuotaSummary") {
@@ -235,6 +236,8 @@ actor AntigravityTokenCache {
     }
 
     private func refreshGoogleToken(refreshToken: String) async throws -> AntigravityOAuthCredential? {
+        // A separate network boundary: without it the suite would spend the user's refresh token.
+        guard AppEnv.allowsLiveLimitsFetch else { throw LimitsError.liveFetchNotPermitted }
         var request = URLRequest(url: AntigravityRateLimitsProvider.googleTokenURL, timeoutInterval: 10)
         request.httpMethod = "POST"
         request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")

@@ -1301,3 +1301,86 @@ final class UsageStoreTests: XCTestCase {
                        "Cursor-only must not render $0.00 / $0.0 in the menu bar")
     }
 }
+
+// MARK: 메뉴바 한도 색
+
+private func claudeFiveHour(_ utilization: Double, resetsIn: TimeInterval?, now: Date) -> LimitStatus {
+    let reset = resetsIn.map { "\"\(ISO8601DateFormatter().string(from: now.addingTimeInterval($0)))\"" } ?? "null"
+    let json = "{\"five_hour\":{\"utilization\":\(utilization),\"resets_at\":\(reset)}}"
+    return try! JSONDecoder().decode(LimitStatus.self, from: Data(json.utf8))
+}
+
+private func codexPrimary(_ usedPercent: Int, resetsIn: TimeInterval, now: Date) -> CodexRateLimitStatus {
+    let reset = Int(now.addingTimeInterval(resetsIn).timeIntervalSince1970)
+    let json = "{\"rateLimits\":{\"primary\":{\"usedPercent\":\(usedPercent),\"windowDurationMins\":300,\"resetsAt\":\(reset)}}}"
+    return try! JSONDecoder().decode(CodexRateLimitStatus.self, from: Data(json.utf8))
+}
+
+extension UsageStoreTests {
+    /// Half of each 5-hour window has passed: Claude 40% is on pace (−10), Codex 70% is fast (+20).
+    private func halfwayStore(now: Date) async -> UsageStore {
+        let claude = FakeUsageProvider(id: "claude_code", displayName: "Claude Code", daily: todayDaily(1_000))
+        let codex = FakeUsageProvider(id: "codex", displayName: "Codex", daily: todayDaily(1_000))
+        let store = makeStore(providers: [claude, codex],
+                              claude: claudeFiveHour(40, resetsIn: 2.5 * 3600, now: now),
+                              codex: codexPrimary(70, resetsIn: 2.5 * 3600, now: now))
+        store.showTokensInMenu = false
+        store.showCostInMenu = false
+        store.showLimitInMenu = true
+        await store.refresh(scheduleEmptyRetry: false)
+        return store
+    }
+
+    func testMenuLimitPartsCarryThePaceOfTheirOwnWindow() async throws {
+        let now = Date()
+        let store = await halfwayStore(now: now)
+        let parts = store.menuLimitParts(now: now)
+        XCTAssertEqual(parts.map(\.text), ["Claude 40%", "Codex 70%"])
+        XCTAssertEqual(try XCTUnwrap(parts[0].pace), 0.5, accuracy: 0.01)
+        XCTAssertEqual(try XCTUnwrap(parts[1].pace), 0.5, accuracy: 0.01)
+        XCTAssertEqual(store.menuTitle, "Claude 40% · Codex 70%", "the text itself is unchanged")
+    }
+
+    func testMenuLimitColorRunsFollowTheMode() async {
+        let now = Date()
+        let store = await halfwayStore(now: now)
+        XCTAssertEqual(store.menuLimitColorMode, .gauge, "matching the gauges is the default")
+        XCTAssertEqual(store.menuLimitColorRuns(now: now),
+                       [.init(text: "Claude 40%", tier: .onPace), .init(text: "Codex 70%", tier: .over)])
+
+        store.menuLimitColorMode = .attention
+        XCTAssertEqual(store.menuLimitColorRuns(now: now), [.init(text: "Codex 70%", tier: .over)],
+                       "on pace keeps the system color")
+
+        store.menuLimitColorMode = .off
+        XCTAssertEqual(store.menuLimitColorRuns(now: now), [])
+    }
+
+    /// Without a reset time there is no pace, so the item takes the absolute threshold colors (warn 80, crit 95).
+    func testMenuLimitItemsWithoutAPaceUseTheThresholdColors() async {
+        let now = Date()
+        for (utilization, expected) in [(50.0, PaceTier.onPace), (85, .over), (96, .wayOver)] {
+            let claude = FakeUsageProvider(id: "claude_code", displayName: "Claude Code", daily: todayDaily(1_000))
+            let store = makeStore(providers: [claude], claude: claudeFiveHour(utilization, resetsIn: nil, now: now))
+            store.showLimitInMenu = true
+            await store.refresh(scheduleEmptyRetry: false)
+            XCTAssertNil(store.menuLimitParts(now: now).first?.pace)
+            XCTAssertEqual(store.menuLimitColorRuns(now: now).map(\.tier), [expected], "utilization=\(utilization)")
+        }
+    }
+
+    /// The number follows "remaining", the color follows actual usage — the same split as the popover row.
+    func testMenuLimitColorIsJudgedFromUsageInRemainingMode() async {
+        let now = Date()
+        let store = await halfwayStore(now: now)
+        store.limitDisplayMode = .remaining
+        XCTAssertEqual(store.menuLimitColorRuns(now: now),
+                       [.init(text: "Claude 60%", tier: .onPace), .init(text: "Codex 30%", tier: .over)])
+    }
+
+    func testMenuLimitColorModePersists() {
+        let store = makeStore(providers: [])
+        store.menuLimitColorMode = .attention
+        XCTAssertEqual(makeStore(providers: []).menuLimitColorMode, .attention)
+    }
+}

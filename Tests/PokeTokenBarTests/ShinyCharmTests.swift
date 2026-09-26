@@ -46,6 +46,28 @@ final class ShinyCharmTests: XCTestCase {
         XCTAssertFalse(CompanionStore.rollsShiny(roll: 1, charmOwned: false))
     }
 
+    /// 알림 문구가 판정과 같은 분모를 쓰는지 — 부화 알림이 부적 보유 중에도 "(1/64)"로 고정돼 있던 결함.
+    func testShinyNotificationShowsTheOddsTheHatchUsed() {
+        XCTAssertEqual(CompanionStore.shinyDenominator(charmOwned: false), PokemonOdds.shinyDenominator)
+        XCTAssertEqual(CompanionStore.shinyDenominator(charmOwned: true), ShinyCharm.shinyDenominator)
+        XCTAssertEqual(store(charm: false).shinyDenominator, 64)
+        XCTAssertEqual(store(charm: true).shinyDenominator, 48)
+        for language in AppLanguage.allCases {
+            let l = L(language)
+            let withCharm = l.notifShinyHatchBody("P", odds: 48)
+            XCTAssertTrue(withCharm.contains("48"), "\(language.rawValue): \(withCharm)")
+            XCTAssertFalse(withCharm.contains("64"), "\(language.rawValue): \(withCharm)")
+        }
+    }
+
+    /// 메타몽 리빌 시점엔 부화 때의 부적 보유 여부를 알 수 없다 — 틀릴 수 있는 확률을 적지 않는다.
+    func testShinyDittoRevealDoesNotClaimFixedOdds() {
+        for language in AppLanguage.allCases {
+            let body = L(language).notifShinyDittoRevealBody("P")
+            XCTAssertFalse(body.contains("64") || body.contains("48"), "\(language.rawValue): \(body)")
+        }
+    }
+
     func testConstantsAndPassiveFlag() {
         XCTAssertEqual(ShinyCharm.price, 3_000_000_000)
         XCTAssertEqual(ShinyCharm.shinyDenominator, 48)
