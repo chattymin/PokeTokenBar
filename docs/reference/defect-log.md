@@ -464,6 +464,17 @@ read_when:
   안에 보관한다. 객체 동일성 검증과 동시 요청은 유지하며, Sendable 우회 선언을 추가하지 않는다.
   회귀 가드: `SpriteImageCacheTests` 의 두 동시 로드 테스트와 `macos-15` CI의 테스트 컴파일.
   (CI 실패: 2026-09-10.)
+  **Second instance (2026-09-26, PR #362):** `BattleSession.waitForOpponent<T>(_ body: () async throws -> T)`
+  compiled on 6.3.3, but Swift 6.1.2 runs a nonisolated async closure off the main actor, so returning an
+  unconstrained `T` into the `@MainActor` session is a send: "non-sendable result type 'T' cannot be sent".
+  → Generic helpers that take an async closure and return its result on an actor constrain `T: Sendable`.
+  Sweep: every other isolation-crossing value in the battle code (`Task<Snapshot, Error>`, task groups of
+  `BattleMove`, `async let` of `BattleMatch`) is already a `Sendable` type. Guard: the `macos-15` CI build.
+  **Third instance (same PR):** a `@MainActor` `XCTestCase` read its `files` array in `override func
+  tearDown()`. 6.1.2 treats XCTest's `tearDown` as nonisolated, so the actor-isolated property was an error.
+  → Clean up per resource with `addTeardownBlock { … }` capturing only the `Sendable` value, instead of
+  overriding `setUp`/`tearDown` in a `@MainActor` test class. The first CI run hid this one: a build error
+  in `Sources/` stops before the test target compiles, so fix one CI failure and expect the next.
 - **SwiftUI `View`/`App` 경계는 `@MainActor` 를 명시한다.** Swift 6.3 은 `body` 밖의 `@ViewBuilder` helper·
   동기 클로저를 nonisolated 로 검사해, `@MainActor` `@Observable` store 접근이 수십 개의 오류로 연쇄된다.
   개별 프로퍼티에 `MainActor.assumeIsolated` 를 흩뿌리지 말고 UI 타입 선언 한 곳에 격리를 둔다.
@@ -575,6 +586,44 @@ read_when:
   (출발할 때 봐야 할 시계를 도착해서 보는 격). 가드를 넣을 땐 그 함수 위의 await 까지 거슬러 확인하고,
   회귀 테스트도 **그 await 를 실제로 지나는 진입점**으로 써라 — `hatch(baseID:)` 경로 테스트는
   `chooseBase()` 를 안 지나 통과하면서 아무것도 지키지 않았다(`testImportDuringSpeciesRollDiscardsTheHatch`).
+- **Order-sensitive delivery goes through the main queue, not `Task { @MainActor }`.** Tasks carry no
+  FIFO guarantee, and battle lockstep breaks if a peer's hello, team or moves are handled out of order.
+  `MultipeerProxy.onMain` and `LoopbackTransport` use `DispatchQueue.main.async` + `assumeIsolated`.
+- **"The pending await will throw it" is not a reason to drop an event.** A battle ignored a peer's
+  forfeit while waiting for that peer's move, assuming the wait would fail — but the move had already
+  resumed the continuation, so the wait succeeded and the forfeit vanished (peer clicks Forfeit right
+  after choosing). Record interrupts whenever a turn is in flight and apply them after it; make the
+  apply step idempotent instead of guessing which path will see the event. The notification hop was a
+  `Task` too, so the test finished before it ran: deliver interrupts synchronously.
+  Guard: `testForfeitArrivingDuringPlaybackIsAppliedAfterwards`.
+
+## Battle engine
+
+- **Every engine rule change bumps `BattleWireMessage.protocolVersion`.** Two Macs battle in lockstep,
+  each running its own engine; an old and a new app with different rules would compute different
+  battles and end in a desync with no winner. `BattleEngineVersionTests` pins the digest of a reference
+  battle together with the version, so a rule change fails until both are updated on purpose.
+  The reference pool avoids overkill moves: when every hit is a KO, damage rules cannot change the digest.
+- **Test a modifier against a bound, not against a second random battle.** The first burn test compared
+  a burned and an unburned battle that drew different random rolls; "less damage" held with the halving
+  removed. The random factor is 85–100%, so a halved hit must stay at or below half the unburned maximum —
+  that bound fails without the rule (`testBurnHalvesPhysicalDamageAndHurtsEachTurn`).
+
+- **Lockstep state encodes only String-keyed dictionaries.** `JSONEncoder` writes a dictionary with
+  enum or Int keys as an array in hash order, and Swift seeds hashing per process: two Macs holding the
+  same battle would compute different digests and abort each other with a false desync. No in-process
+  test can see this (both engines share one seed), so it is a review rule: side conditions store
+  `screens` keyed by `BattleBarrier.rawValue`, and `.sortedKeys` makes String keys deterministic.
+- **Send a mid-turn choice before applying it.** After U-turn or Baton Pass the replacement finishes the
+  turn locally, so a pick sent afterwards carried the next turn number and the waiting peer aborted
+  with a desync. KO replacements never change the turn, which is why only the pivot path broke.
+  Guard: `testUTurnAcrossTheNetworkKeepsBothMachinesInSync` (fails with the order reversed).
+
+- **Labels that mimic the games come from a game source, not from memory.** The badly-poisoned badge
+  said "TOX", a Pokémon Showdown convention; Gen V shows "PSN" in darker colors (Bulbapedia
+  `PoisonedBadIC_BW.png`, WikiDex `Gravemente_envenenado_NB.png` = "ENV", PokéWiki lists only "GIF").
+  Nothing compared the labels to the games. Guard: `testBadlyPoisonedUsesThePoisonLabelInEveryLanguage`.
+  Still unverified against a game source: the French, Japanese, Korean and Portuguese status labels.
 
 ## 프로세스·인스턴스
 

@@ -1298,7 +1298,7 @@ struct L {
     var updateButton: String { t("업데이트", "Update", "更新", "Actualizar", "Mettre à jour", "Instalar", "Aktualisieren") }
     var skipThisVersion: String { t("이 버전 건너뛰기", "Skip this version", "このバージョンをスキップ", "Omitir esta versión", "Ignorer cette version", "Ignorar esta versão", "Diese Version überspringen") }
     func skippedVersion(_ version: String) -> String {
-        t("v\(version)을 건너뛰었어요",
+        t("\(KoreanParticle.object.attach(to: "v\(version)")) 건너뛰었어요",
           "You skipped v\(version)",
           "v\(version) をスキップしました",
           "Omitiste la v\(version)",
@@ -1506,5 +1506,416 @@ struct L {
           "Tu as atteint ta limite de tokens \(window). Une récompense pour l'effort — utilise-la pour faire évoluer ton Pokémon !",
           "Você esgotou seu limite de tokens — \(window). Você merece um agrado: use no seu Pokémon para evoluir!",
           "Du hast das Token-Limit für \(window) ausgeschöpft. Eine Belohnung für deinen Einsatz – verwende sie, um dein Pokémon zu entwickeln!")
+    }
+}
+
+// MARK: Battle
+extension L {
+    var battle: String { t("배틀", "Battle", "バトル", "Combate", "Combat", "Batalha", "Kampf") }
+    func battleTeamCount(_ count: Int) -> String {
+        t("팀 \(count)/6", "Team \(count)/6", "チーム \(count)/6", "Equipo \(count)/6", "Équipe \(count)/6", "Equipe \(count)/6", "Team \(count)/6")
+    }
+    var battleTeamEmpty: String { t("아래에서 포켓몬을 최대 6마리 골라 팀을 꾸리세요.", "Pick up to 6 Pokémon below to build your team.", "下からポケモンを最大6匹選んでチームを組もう。", "Elige hasta 6 Pokémon abajo para formar tu equipo.", "Choisis jusqu’à 6 Pokémon ci-dessous pour former ton équipe.", "Escolha até 6 Pokémon abaixo para montar sua equipe.", "Wähle unten bis zu 6 Pokémon für dein Team.") }
+    var battleYourPokemon: String { t("내 포켓몬", "Your Pokémon", "手持ちのポケモン", "Tus Pokémon", "Tes Pokémon", "Seus Pokémon", "Deine Pokémon") }
+    var battlePickHint: String { t("눌러서 추가하거나 빼세요. 팀원을 우클릭하면 선두로 지정할 수 있어요.", "Click to add or remove. Right-click a team member to make it the lead.", "クリックで追加・解除。メンバーを右クリックすると先頭にできます。", "Haz clic para añadir o quitar. Clic derecho en un miembro para ponerlo primero.", "Clique pour ajouter ou retirer. Clic droit sur un membre pour le mettre en tête.", "Clique para adicionar ou remover. Clique com o botão direito para colocar na frente.", "Klicke zum Hinzufügen oder Entfernen. Rechtsklick auf ein Mitglied macht es zum Starter.") }
+    var battleLead: String { t("선두", "Lead", "先頭", "Primero", "En tête", "Líder", "Starter") }
+    var battleMakeLead: String { t("선두로 지정", "Make lead", "先頭にする", "Poner primero", "Mettre en tête", "Colocar na frente", "Zum Starter machen") }
+    var battleRemove: String { t("팀에서 빼기", "Remove from team", "チームから外す", "Quitar del equipo", "Retirer de l’équipe", "Remover da equipe", "Aus dem Team entfernen") }
+    var battleAdd: String { t("팀에 추가", "Add to team", "チームに入れる", "Añadir al equipo", "Ajouter à l’équipe", "Adicionar à equipe", "Zum Team hinzufügen") }
+    var battleTeamFull: String { t("팀이 가득 찼어요 (6/6).", "Your team is full (6/6).", "チームがいっぱいです（6/6）。", "Tu equipo está completo (6/6).", "Ton équipe est complète (6/6).", "Sua equipe está completa (6/6).", "Dein Team ist voll (6/6).") }
+    var battlePreparing: String { t("배틀 데이터 준비 중…", "Preparing battle data…", "バトルデータを準備中…", "Preparando datos de combate…", "Préparation des données de combat…", "Preparando dados de batalha…", "Kampfdaten werden vorbereitet…") }
+    var battleReady: String { t("배틀 준비 완료", "Ready for battle", "バトル準備OK", "Listo para combatir", "Prêt au combat", "Pronto para batalhar", "Bereit zum Kampf") }
+    var battleDataFailed: String { t("배틀 데이터를 불러오지 못했어요. 연결을 확인하세요.", "Couldn’t load battle data. Check your connection.", "バトルデータを読み込めませんでした。接続を確認してください。", "No se pudieron cargar los datos de combate. Revisa tu conexión.", "Impossible de charger les données de combat. Vérifie ta connexion.", "Não foi possível carregar os dados de batalha. Verifique sua conexão.", "Kampfdaten konnten nicht geladen werden. Prüfe deine Verbindung.") }
+    var battleNoCandidates: String { t("먼저 알을 부화시키면 팀에 넣을 수 있어요.", "Hatch your egg first — then it can join your team.", "まずタマゴをかえすと、チームに入れられます。", "Primero haz eclosionar tu huevo para añadirlo al equipo.", "Fais d’abord éclore ton œuf pour l’ajouter à l’équipe.", "Choque seu ovo primeiro para colocá-lo na equipe.", "Brüte zuerst dein Ei aus, dann kann es ins Team.") }
+    func battleLevel(_ level: Int) -> String { "Lv. \(level)" }
+}
+
+// MARK: Battle — match
+extension L {
+    var battlePractice: String { t("연습 배틀", "Practice battle", "練習バトル", "Combate de práctica", "Combat d’entraînement", "Batalha de treino", "Übungskampf") }
+    var battleFindingOpponent: String { t("상대를 찾는 중…", "Finding an opponent…", "相手を探しています…", "Buscando rival…", "Recherche d’un adversaire…", "Procurando adversário…", "Gegner wird gesucht…") }
+    var battleSwitch: String { t("교체", "Switch", "入れ替え", "Cambiar", "Changer", "Trocar", "Wechseln") }
+    var battleForfeit: String { t("기권", "Forfeit", "降参", "Rendirse", "Abandonner", "Desistir", "Aufgeben") }
+    var battleForfeitConfirm: String { t("정말 기권할까요?", "Forfeit this battle?", "本当に降参しますか？", "¿Rendirte en este combate?", "Abandonner ce combat ?", "Desistir desta batalha?", "Diesen Kampf aufgeben?") }
+    var battleBack: String { t("뒤로", "Back", "戻る", "Atrás", "Retour", "Voltar", "Zurück") }
+    var battleClose: String { t("닫기", "Close", "閉じる", "Cerrar", "Fermer", "Fechar", "Schließen") }
+    var battleRematch: String { t("다시 하기", "Rematch", "再戦", "Revancha", "Revanche", "Revanche", "Revanche") }
+    var battleChooseNext: String { t("다음 포켓몬을 고르세요.", "Choose your next Pokémon.", "次のポケモンを選んでください。", "Elige tu siguiente Pokémon.", "Choisis ton prochain Pokémon.", "Escolha seu próximo Pokémon.", "Wähle dein nächstes Pokémon.") }
+    var battleUnsupportedMove: String { t("아직 지원하지 않는 기술이에요.", "This move isn’t supported yet.", "この技はまだ使えません。", "Este movimiento aún no es compatible.", "Cette capacité n’est pas encore prise en charge.", "Este golpe ainda não é suportado.", "Diese Attacke wird noch nicht unterstützt.") }
+    var battleWon: String { t("승리했다!", "You won!", "勝った！", "¡Ganaste!", "Tu as gagné !", "Você venceu!", "Du hast gewonnen!") }
+    var battleLost: String { t("패배했다…", "You lost…", "負けてしまった…", "Perdiste…", "Tu as perdu…", "Você perdeu…", "Du hast verloren…") }
+    var battleDraw: String { t("무승부!", "It’s a draw!", "引き分け！", "¡Empate!", "Match nul !", "Empate!", "Unentschieden!") }
+    var battleSuperEffective: String { t("효과가 굉장했다!", "It’s super effective!", "こうかは ばつぐんだ！", "¡Es muy eficaz!", "C’est super efficace !", "É super efetivo!", "Das ist sehr effektiv!") }
+    var battleNotVeryEffective: String { t("효과가 별로인 듯하다…", "It’s not very effective…", "こうかは いまひとつの ようだ…", "No es muy eficaz…", "Ce n’est pas très efficace…", "Não é muito efetivo…", "Das ist nicht sehr effektiv…") }
+    var battleCritical: String { t("급소에 맞았다!", "A critical hit!", "きゅうしょに あたった！", "¡Un golpe crítico!", "Coup critique !", "Um acerto crítico!", "Ein Volltreffer!") }
+    var battleFailed: String { t("하지만 실패했다!", "But it failed!", "しかし うまく きまらなかった！", "¡Pero falló!", "Mais cela échoue !", "Mas falhou!", "Es schlägt fehl!") }
+    var battleYouForfeited: String { t("기권했다.", "You forfeited.", "降参した。", "Te rendiste.", "Tu as abandonné.", "Você desistiu.", "Du hast aufgegeben.") }
+    var battleOpponentForfeited: String { t("상대가 기권했다!", "The opponent forfeited!", "相手が降参した！", "¡El rival se rindió!", "L’adversaire abandonne !", "O adversário desistiu!", "Der Gegner gibt auf!") }
+
+    /// The opposing side's Pokémon, used as the subject of every other battle line.
+    func battleOpposing(_ name: String) -> String {
+        t("상대 \(name)", "the opposing \(name)", "あいての \(name)", "\(name) rival", "\(name) adverse", "\(name) adversário", "\(name) (Gegner)")
+    }
+    func battleWhatWillDo(_ name: String) -> String {
+        t("\(KoreanParticle.topic.attach(to: name)) 무엇을 할까?", "What will \(name) do?", "\(name)は どうする？", "¿Qué hará \(name)?", "Que doit faire \(name) ?", "O que \(name) vai fazer?", "Was soll \(name) tun?")
+    }
+    func battleGo(_ name: String) -> String {
+        t("가랏! \(name)!", "Go! \(name)!", "ゆけっ！ \(name)！", "¡Adelante, \(name)!", "\(name), go !", "Vai, \(name)!", "Los, \(name)!")
+    }
+    func battleOpponentSentOut(_ name: String) -> String {
+        t("상대는 \(KoreanParticle.object.attach(to: name)) 내보냈다!", "The opponent sent out \(name)!", "あいては \(name)を くりだした！", "¡El rival envió a \(name)!", "L’adversaire envoie \(name) !", "O adversário enviou \(name)!", "Der Gegner schickt \(name) in den Kampf!")
+    }
+    func battleUsed(_ subject: String, _ move: String) -> String {
+        t("\(subject)의 \(move)!", "\(subject) used \(move)!", "\(subject)の \(move)！", "¡\(subject) usó \(move)!", "\(subject) utilise \(move) !", "\(subject) usou \(move)!", "\(subject) setzt \(move) ein!")
+    }
+    func battleMissed(_ subject: String) -> String {
+        t("\(subject)의 공격은 빗나갔다!", "\(subject)’s attack missed!", "\(subject)の こうげきは はずれた！", "¡El ataque de \(subject) falló!", "L’attaque de \(subject) échoue !", "O ataque de \(subject) errou!", "Die Attacke von \(subject) ging daneben!")
+    }
+    func battleNoEffect(_ subject: String) -> String {
+        t("\(subject)에게는 효과가 없는 것 같다…", "It doesn’t affect \(subject)…", "\(subject)には こうかが ないようだ…", "No afecta a \(subject)…", "Ça n’affecte pas \(subject)…", "Não afeta \(subject)…", "Hat keine Wirkung auf \(subject)…")
+    }
+    func battleFainted(_ subject: String) -> String {
+        t("\(KoreanParticle.topic.attach(to: subject)) 쓰러졌다!", "\(subject) fainted!", "\(subject)は たおれた！", "¡\(subject) se debilitó!", "\(subject) est K.O. !", "\(subject) desmaiou!", "\(subject) wurde besiegt!")
+    }
+    func battleRecoil(_ subject: String) -> String {
+        t("\(KoreanParticle.topic.attach(to: subject)) 반동으로 데미지를 입었다!", "\(subject) is damaged by recoil!", "\(subject)は はんどうで ダメージを うけた！", "¡\(subject) se hirió por el retroceso!", "\(subject) est blessé par le contrecoup !", "\(subject) sofreu dano de recuo!", "\(subject) erleidet Rückstoßschaden!")
+    }
+    func battleHealed(_ subject: String) -> String {
+        t("\(subject)의 체력이 회복되었다!", "\(subject) regained health!", "\(subject)の たいりょくが かいふくした！", "¡\(subject) recuperó salud!", "\(subject) récupère des PV !", "\(subject) recuperou energia!", "\(subject) hat KP aufgefüllt!")
+    }
+    func battleNoMovesLeft(_ subject: String) -> String {
+        t("\(KoreanParticle.topic.attach(to: subject)) 쓸 수 있는 기술이 없다!", "\(subject) has no moves left!", "\(subject)は だせる わざが ない！", "¡\(subject) no tiene movimientos!", "\(subject) n’a plus de capacité !", "\(subject) não tem mais golpes!", "\(subject) hat keine Attacken mehr!")
+    }
+    /// `change` is the applied stage delta; 1 / 2 / 3+ pick the main-series wording.
+    func battleStatChanged(_ subject: String, _ stat: String, _ change: Int) -> String {
+        let size = min(3, abs(change))
+        if change > 0 {
+            switch size {
+            case 1: return t("\(subject)의 \(KoreanParticle.subject.attach(to: stat)) 올라갔다!", "\(subject)’s \(stat) rose!", "\(subject)の \(stat)が あがった！", "¡\(stat) de \(subject) subió!", "\(stat) de \(subject) augmente !", "\(stat) de \(subject) aumentou!", "\(stat) von \(subject) steigt!")
+            case 2: return t("\(subject)의 \(KoreanParticle.subject.attach(to: stat)) 크게 올라갔다!", "\(subject)’s \(stat) rose sharply!", "\(subject)の \(stat)が ぐーんと あがった！", "¡\(stat) de \(subject) subió mucho!", "\(stat) de \(subject) augmente beaucoup !", "\(stat) de \(subject) aumentou muito!", "\(stat) von \(subject) steigt stark!")
+            default: return t("\(subject)의 \(KoreanParticle.subject.attach(to: stat)) 매우 크게 올라갔다!", "\(subject)’s \(stat) rose drastically!", "\(subject)の \(stat)が ぐぐーんと あがった！", "¡\(stat) de \(subject) subió muchísimo!", "\(stat) de \(subject) augmente énormément !", "\(stat) de \(subject) aumentou drasticamente!", "\(stat) von \(subject) steigt drastisch!")
+            }
+        }
+        switch size {
+        case 1: return t("\(subject)의 \(KoreanParticle.subject.attach(to: stat)) 떨어졌다!", "\(subject)’s \(stat) fell!", "\(subject)の \(stat)が さがった！", "¡\(stat) de \(subject) bajó!", "\(stat) de \(subject) baisse !", "\(stat) de \(subject) diminuiu!", "\(stat) von \(subject) sinkt!")
+        case 2: return t("\(subject)의 \(KoreanParticle.subject.attach(to: stat)) 크게 떨어졌다!", "\(subject)’s \(stat) harshly fell!", "\(subject)の \(stat)が がくっと さがった！", "¡\(stat) de \(subject) bajó mucho!", "\(stat) de \(subject) baisse beaucoup !", "\(stat) de \(subject) diminuiu muito!", "\(stat) von \(subject) sinkt stark!")
+        default: return t("\(subject)의 \(KoreanParticle.subject.attach(to: stat)) 매우 크게 떨어졌다!", "\(subject)’s \(stat) severely fell!", "\(subject)の \(stat)が がくーんと さがった！", "¡\(stat) de \(subject) bajó muchísimo!", "\(stat) de \(subject) baisse énormément !", "\(stat) de \(subject) diminuiu drasticamente!", "\(stat) von \(subject) sinkt drastisch!")
+        }
+    }
+    func battleStatLimit(_ subject: String, _ stat: String, rising: Bool) -> String {
+        rising
+            ? t("\(subject)의 \(KoreanParticle.topic.attach(to: stat)) 더 올라가지 않는다!", "\(subject)’s \(stat) won’t go any higher!", "\(subject)の \(stat)は もう あがらない！", "¡\(stat) de \(subject) no puede subir más!", "\(stat) de \(subject) ne peut plus augmenter !", "\(stat) de \(subject) não pode aumentar mais!", "\(stat) von \(subject) kann nicht weiter steigen!")
+            : t("\(subject)의 \(KoreanParticle.topic.attach(to: stat)) 더 떨어지지 않는다!", "\(subject)’s \(stat) won’t go any lower!", "\(subject)の \(stat)は もう さがらない！", "¡\(stat) de \(subject) no puede bajar más!", "\(stat) de \(subject) ne peut plus baisser !", "\(stat) de \(subject) não pode diminuir mais!", "\(stat) von \(subject) kann nicht weiter sinken!")
+    }
+    func battleStatLabel(_ stat: String) -> String {
+        switch stat {
+        case "accuracy": return t("명중률", "accuracy", "めいちゅうりつ", "Precisión", "Précision", "Precisão", "Genauigkeit")
+        case "evasion": return t("회피율", "evasiveness", "かいひりつ", "Evasión", "Esquive", "Evasão", "Fluchtwert")
+        default: return statLabel(stat)
+        }
+    }
+}
+
+// MARK: Battle — nearby
+extension L {
+    var battleOpponentLeft: String { t("상대가 배틀을 떠났다. 승리!", "The opponent left the battle. You win!", "相手がバトルから抜けた。あなたの勝ち！", "El rival abandonó el combate. ¡Ganas!", "L’adversaire a quitté le combat. Tu gagnes !", "O adversário saiu da batalha. Você venceu!", "Der Gegner hat den Kampf verlassen. Du gewinnst!") }
+    var battleConnectionProblem: String { t("연결 문제로 배틀이 끝났어요. 승패 없음.", "The battle ended because of a connection problem. No winner.", "接続の問題でバトルが終了しました。勝敗なし。", "El combate terminó por un problema de conexión. Sin ganador.", "Le combat s’est arrêté à cause d’un problème de connexion. Pas de vainqueur.", "A batalha terminou por um problema de conexão. Sem vencedor.", "Der Kampf endete wegen eines Verbindungsproblems. Kein Sieger.") }
+    var battleNearbyTitle: String { t("근처 트레이너", "Trainers nearby", "近くのトレーナー", "Entrenadores cercanos", "Dresseurs à proximité", "Treinadores por perto", "Trainer in der Nähe") }
+    var battleVisible: String { t("근처 트레이너에게 보이기", "Visible to trainers nearby", "近くのトレーナーに表示", "Visible para entrenadores cercanos", "Visible par les dresseurs à proximité", "Visível para treinadores por perto", "Für Trainer in der Nähe sichtbar") }
+    var battleVisibleHint: String { t("같은 Wi-Fi나 가까이 있는 Mac에서 PokeTokenBar를 쓰는 사람에게 트레이너 이름이 보여요.", "Your trainer name is shown to people nearby running PokeTokenBar on a Mac, on the same Wi-Fi or close by.", "同じWi-Fiや近くのMacでPokeTokenBarを使っている人にトレーナー名が表示されます。", "Tu nombre de entrenador se muestra a quien use PokeTokenBar en un Mac cercano o en la misma Wi-Fi.", "Ton nom de dresseur est visible par les personnes proches qui utilisent PokeTokenBar sur Mac, sur le même Wi-Fi ou à côté.", "Seu nome de treinador aparece para quem usa PokeTokenBar num Mac por perto ou na mesma Wi-Fi.", "Dein Trainername ist für Personen in der Nähe sichtbar, die PokeTokenBar auf einem Mac nutzen – im selben WLAN oder nebenan.") }
+    var battleTrainerName: String { t("트레이너 이름", "Trainer name", "トレーナー名", "Nombre de entrenador", "Nom de dresseur", "Nome de treinador", "Trainername") }
+    var battleSearching: String { t("근처 트레이너를 찾는 중…", "Looking for trainers nearby…", "近くのトレーナーを探しています…", "Buscando entrenadores cercanos…", "Recherche de dresseurs à proximité…", "Procurando treinadores por perto…", "Suche nach Trainern in der Nähe…") }
+    var battleChallenge: String { t("도전", "Challenge", "挑戦", "Desafiar", "Défier", "Desafiar", "Herausfordern") }
+    var battleNeedsUpdate: String { t("다른 버전", "Other version", "別のバージョン", "Otra versión", "Autre version", "Outra versão", "Andere Version") }
+    func battleChallenging(_ name: String) -> String {
+        t("\(name)에게 도전하는 중…", "Challenging \(name)…", "\(name)に挑戦中…", "Desafiando a \(name)…", "Défi envoyé à \(name)…", "Desafiando \(name)…", "Fordere \(name) heraus…")
+    }
+    func battleChallengedBy(_ name: String) -> String {
+        t("\(KoreanParticle.subject.attach(to: name)) 배틀을 신청했다!", "\(name) wants to battle!", "\(name)が 勝負を しかけてきた！", "¡\(name) quiere combatir!", "\(name) veut se battre !", "\(name) quer batalhar!", "\(name) möchte kämpfen!")
+    }
+    var battleAccept: String { t("수락", "Accept", "受ける", "Aceptar", "Accepter", "Aceitar", "Annehmen") }
+    var battleDecline: String { t("거절", "Decline", "断る", "Rechazar", "Refuser", "Recusar", "Ablehnen") }
+    var battleDeclined: String { t("상대가 도전을 받지 않았어요.", "The challenge wasn’t accepted.", "挑戦は受けてもらえませんでした。", "El desafío no fue aceptado.", "Le défi n’a pas été accepté.", "O desafio não foi aceito.", "Die Herausforderung wurde nicht angenommen.") }
+    var battleConnecting: String { t("연결 중…", "Connecting…", "接続中…", "Conectando…", "Connexion…", "Conectando…", "Verbinden…") }
+    var battleNetworkUnavailable: String { t("근처 트레이너를 찾을 수 없어요. Wi-Fi와 로컬 네트워크 권한을 확인하세요.", "Can’t look for trainers nearby. Check Wi-Fi and the Local Network permission.", "近くのトレーナーを探せません。Wi-Fiとローカルネットワークの許可を確認してください。", "No se pueden buscar entrenadores. Revisa el Wi-Fi y el permiso de red local.", "Impossible de chercher des dresseurs. Vérifie le Wi-Fi et l’autorisation Réseau local.", "Não é possível procurar treinadores. Verifique o Wi-Fi e a permissão de rede local.", "Suche nicht möglich. Prüfe WLAN und die Berechtigung „Lokales Netzwerk“.") }
+    var battleIncompatible: String { t("상대의 앱 버전이 달라요. 둘 다 최신 버전으로 업데이트하세요.", "The other trainer runs a different app version. Both of you should update.", "相手のアプリのバージョンが違います。両方とも最新にしてください。", "El otro entrenador usa otra versión. Actualicen ambos.", "L’autre dresseur utilise une autre version. Mettez tous les deux à jour.", "O outro treinador usa outra versão. Atualizem os dois.", "Der andere Trainer nutzt eine andere Version. Aktualisiert beide.") }
+    func battleRecord(wins: Int, losses: Int, draws: Int) -> String {
+        t("전적 \(wins)승 \(losses)패 \(draws)무", "Record \(wins)W \(losses)L \(draws)D", "戦績 \(wins)勝 \(losses)敗 \(draws)分", "Récord \(wins)V \(losses)D \(draws)E", "Bilan \(wins)V \(losses)D \(draws)N", "Recorde \(wins)V \(losses)D \(draws)E", "Bilanz \(wins)S \(losses)N \(draws)U")
+    }
+    func battleSecondsLeft(_ seconds: Int) -> String {
+        t("\(seconds)초", "\(seconds)s", "\(seconds)秒", "\(seconds) s", "\(seconds) s", "\(seconds)s", "\(seconds) s")
+    }
+    func battleAgainst(_ name: String) -> String {
+        t("\(KoreanParticle.comitative.attach(to: name))의 배틀", "Battle with \(name)", "\(name)とのバトル", "Combate con \(name)", "Combat contre \(name)", "Batalha com \(name)", "Kampf gegen \(name)")
+    }
+}
+
+extension L {
+    func battleWaitingFor(_ name: String) -> String {
+        t("\(name)의 선택을 기다리는 중…", "Waiting for \(name)…", "\(name)の 行動を 待っています…", "Esperando a \(name)…", "En attente de \(name)…", "Aguardando \(name)…", "Warte auf \(name)…")
+    }
+}
+
+// MARK: Battle — status and protection
+extension L {
+    func battleStatusApplied(_ subject: String, _ status: BattleStatus) -> String {
+        switch status {
+        case .paralysis: return t("\(KoreanParticle.topic.attach(to: subject)) 마비되었다!", "\(subject) is paralyzed! It may be unable to move!", "\(subject)は まひして わざが でにくくなった！", "¡\(subject) está paralizado! Quizás no pueda moverse.", "\(subject) est paralysé ! Il aura du mal à attaquer !", "\(subject) está paralisado! Talvez não consiga se mover!", "\(subject) ist paralysiert! Es kann eventuell nicht angreifen!")
+        case .burn: return t("\(KoreanParticle.topic.attach(to: subject)) 화상을 입었다!", "\(subject) was burned!", "\(subject)は やけどを おった！", "¡\(subject) se ha quemado!", "\(subject) est brûlé !", "\(subject) foi queimado!", "\(subject) hat Verbrennungen erlitten!")
+        case .poison: return t("\(KoreanParticle.topic.attach(to: subject)) 독에 걸렸다!", "\(subject) was poisoned!", "\(subject)は どくを あびた！", "¡\(subject) ha sido envenenado!", "\(subject) est empoisonné !", "\(subject) foi envenenado!", "\(subject) wurde vergiftet!")
+        case .badPoison: return t("\(KoreanParticle.topic.attach(to: subject)) 맹독에 걸렸다!", "\(subject) was badly poisoned!", "\(subject)は もうどくを あびた！", "¡\(subject) ha sido gravemente envenenado!", "\(subject) est gravement empoisonné !", "\(subject) foi gravemente envenenado!", "\(subject) wurde schwer vergiftet!")
+        case .sleep: return t("\(KoreanParticle.topic.attach(to: subject)) 잠들어 버렸다!", "\(subject) fell asleep!", "\(subject)は ねむってしまった！", "¡\(subject) se ha dormido!", "\(subject) s’endort !", "\(subject) adormeceu!", "\(subject) ist eingeschlafen!")
+        case .freeze: return t("\(KoreanParticle.topic.attach(to: subject)) 얼어붙었다!", "\(subject) was frozen solid!", "\(subject)は こおりづけに なった！", "¡\(subject) ha sido congelado!", "\(subject) est gelé !", "\(subject) foi congelado!", "\(subject) wurde eingefroren!")
+        }
+    }
+    func battleCantMove(_ subject: String, _ reason: BattleCantMoveReason) -> String {
+        switch reason {
+        case .asleep: return t("\(KoreanParticle.topic.attach(to: subject)) 쿨쿨 잠들어 있다.", "\(subject) is fast asleep.", "\(subject)は ぐうぐう ねむっている。", "\(subject) está dormido como un tronco.", "\(subject) dort profondément.", "\(subject) está dormindo profundamente.", "\(subject) schläft tief und fest.")
+        case .frozen: return t("\(KoreanParticle.topic.attach(to: subject)) 얼어붙어서 움직일 수 없다!", "\(subject) is frozen solid!", "\(subject)は こおって しまって うごかない！", "¡\(subject) está congelado!", "\(subject) est gelé !", "\(subject) está congelado!", "\(subject) ist eingefroren!")
+        case .paralyzed: return t("\(KoreanParticle.topic.attach(to: subject)) 몸이 저려서 움직일 수 없다!", "\(subject) is paralyzed! It can’t move!", "\(subject)は からだが しびれて うごけない！", "¡\(subject) está paralizado! No se puede mover.", "\(subject) est paralysé ! Il ne peut pas attaquer !", "\(subject) está paralisado! Não consegue se mover!", "\(subject) ist paralysiert! Es kann nicht angreifen!")
+        case .flinched: return t("\(KoreanParticle.topic.attach(to: subject)) 풀이 죽어 움직일 수 없었다!", "\(subject) flinched and couldn’t move!", "\(subject)は ひるんで うごけなかった！", "¡\(subject) se amedrentó y no pudo moverse!", "\(subject) a la trouille ! Il ne peut pas attaquer !", "\(subject) recuou e não conseguiu se mover!", "\(subject) ist zurückgeschreckt und kann nicht angreifen!")
+        case .infatuated, .recharging, .lostFocus: return battleCantMoveMore(subject, reason) ?? ""
+        }
+    }
+    func battleWokeUp(_ subject: String) -> String {
+        t("\(KoreanParticle.topic.attach(to: subject)) 잠에서 깨어났다!", "\(subject) woke up!", "\(subject)は 目を さました！", "¡\(subject) se ha despertado!", "\(subject) se réveille !", "\(subject) acordou!", "\(subject) ist aufgewacht!")
+    }
+    func battleThawed(_ subject: String) -> String {
+        t("\(subject)의 얼음이 녹았다!", "\(subject) thawed out!", "\(subject)の こおりが とけた！", "¡\(subject) se ha descongelado!", "\(subject) dégèle !", "\(subject) descongelou!", "\(subject) ist wieder aufgetaut!")
+    }
+    func battleBecameConfused(_ subject: String) -> String {
+        t("\(KoreanParticle.topic.attach(to: subject)) 혼란에 빠졌다!", "\(subject) became confused!", "\(subject)は こんらんした！", "¡\(subject) está confuso!", "\(subject) devient confus !", "\(subject) ficou confuso!", "\(subject) wurde verwirrt!")
+    }
+    func battleIsConfused(_ subject: String) -> String {
+        t("\(KoreanParticle.topic.attach(to: subject)) 혼란에 빠져 있다!", "\(subject) is confused!", "\(subject)は こんらんしている！", "¡\(subject) está confuso!", "\(subject) est confus !", "\(subject) está confuso!", "\(subject) ist verwirrt!")
+    }
+    var battleHurtByConfusion: String { t("영문도 모른 채 자신을 공격했다!", "It hurt itself in its confusion!", "わけも わからず じぶんを こうげきした！", "¡Está tan confuso que se hirió a sí mismo!", "Il se blesse dans sa confusion !", "Ele se feriu na confusão!", "Es hat sich vor Verwirrung selbst verletzt!") }
+    func battleSnappedOut(_ subject: String) -> String {
+        t("\(subject)의 혼란이 풀렸다!", "\(subject) snapped out of its confusion!", "\(subject)の こんらんが とけた！", "¡\(subject) ya no está confuso!", "\(subject) n’est plus confus !", "\(subject) não está mais confuso!", "\(subject) ist nicht mehr verwirrt!")
+    }
+    func battleResidual(_ subject: String, _ status: BattleStatus) -> String {
+        status == .burn
+            ? t("\(KoreanParticle.topic.attach(to: subject)) 화상 데미지를 입었다!", "\(subject) is hurt by its burn!", "\(subject)は やけどの ダメージを うけている！", "¡\(subject) se resiente de las quemaduras!", "\(subject) souffre de sa brûlure !", "\(subject) sofre com a queimadura!", "\(subject) leidet unter seinen Verbrennungen!")
+            : t("\(KoreanParticle.topic.attach(to: subject)) 독에 의한 데미지를 입었다!", "\(subject) is hurt by poison!", "\(subject)は どくの ダメージを うけている！", "¡\(subject) sufre por el veneno!", "\(subject) souffre du poison !", "\(subject) sofre com o veneno!", "\(subject) leidet unter der Vergiftung!")
+    }
+    func battleProtecting(_ subject: String) -> String {
+        t("\(KoreanParticle.topic.attach(to: subject)) 방어 태세에 들어갔다!", "\(subject) protected itself!", "\(subject)は 守りの 体勢に 入った！", "¡\(subject) se está protegiendo!", "\(subject) se protège !", "\(subject) se protegeu!", "\(subject) schützt sich selbst!")
+    }
+    func battleBracing(_ subject: String) -> String {
+        t("\(KoreanParticle.topic.attach(to: subject)) 버티기 태세에 들어갔다!", "\(subject) braced itself!", "\(subject)は こらえる 体勢に 入った！", "¡\(subject) se prepara para resistir!", "\(subject) se prépare à encaisser !", "\(subject) se preparou para aguentar!", "\(subject) macht sich bereit, durchzuhalten!")
+    }
+    func battleBlocked(_ subject: String) -> String {
+        t("\(KoreanParticle.topic.attach(to: subject)) 공격으로부터 몸을 지켰다!", "\(subject) protected itself!", "\(subject)は 攻撃から 身を 守った！", "¡\(subject) se ha protegido!", "\(subject) s’est protégé !", "\(subject) se protegeu do ataque!", "\(subject) hat sich geschützt!")
+    }
+    func battleEndured(_ subject: String) -> String {
+        t("\(KoreanParticle.topic.attach(to: subject)) 공격을 버텼다!", "\(subject) endured the hit!", "\(subject)は 攻撃を こらえた！", "¡\(subject) aguantó el golpe!", "\(subject) encaisse le coup !", "\(subject) aguentou o golpe!", "\(subject) hält den Treffer aus!")
+    }
+    func battleRested(_ subject: String) -> String {
+        t("\(KoreanParticle.topic.attach(to: subject)) 잠들어 기운을 되찾았다!", "\(subject) slept and became healthy!", "\(subject)は ねむって 元気に なった！", "¡\(subject) se durmió y recuperó la salud!", "\(subject) dort et récupère !", "\(subject) dormiu e ficou saudável!", "\(subject) schläft und erholt sich!")
+    }
+    var battleNotYet: String { t("준비 중", "Not yet", "準備中", "Aún no", "Bientôt", "Em breve", "Noch nicht") }
+    /// The in-battle status labels of the Gen V games. Badly poisoned has no label of its own there — it shows
+    /// the poison label in darker colors (see `BattleTypeColor.statusColor`); "TOX" is a fan-tool convention.
+    func battleStatusBadge(_ status: BattleStatus) -> String {
+        switch status {
+        case .paralysis: return t("마비", "PAR", "まひ", "PAR", "PAR", "PAR", "PAR")
+        case .burn: return t("화상", "BRN", "やけど", "QUE", "BRL", "QUE", "BRT")
+        case .poison, .badPoison: return t("독", "PSN", "どく", "ENV", "PSN", "ENV", "GIF")
+        case .sleep: return t("잠듦", "SLP", "ねむり", "DOR", "SOM", "DOR", "SLF")
+        case .freeze: return t("얼음", "FRZ", "こおり", "CON", "GEL", "CON", "GFR")
+        }
+    }
+}
+
+// MARK: Battle — special moves and field effects
+extension L {
+    var battleYourTeam: String { t("우리 팀", "your team", "味方", "tu equipo", "ton équipe", "sua equipe", "dein Team") }
+    var battleOpposingTeam: String { t("상대 팀", "the opposing team", "相手", "el equipo rival", "l’équipe adverse", "a equipe adversária", "das gegnerische Team") }
+    func battleWithdrew(_ name: String, mine: Bool) -> String {
+        mine ? t("돌아와, \(name)!", "\(name), come back!", "もどれ！ \(name)！", "¡\(name), vuelve!", "\(name), reviens !", "\(name), volte!", "\(name), zurück!")
+             : t("상대는 \(KoreanParticle.object.attach(to: name)) 돌려보냈다!", "The opponent withdrew \(name)!", "あいては \(name)を ひっこめた！", "¡El rival retiró a \(name)!", "L’adversaire rappelle \(name) !", "O adversário recolheu \(name)!", "Der Gegner ruft \(name) zurück!")
+    }
+    func battleHitCount(_ count: Int) -> String {
+        t("\(count)번 맞았다!", count == 1 ? "Hit 1 time!" : "Hit \(count) times!", "\(count)かい あたった！", "¡Golpeó \(count) veces!", "Touché \(count) fois !", "Acertou \(count) vezes!", "\(count)-mal getroffen!")
+    }
+    var battleOneHitKO: String { t("일격필살!", "It’s a one-hit KO!", "いちげき ひっさつ！", "¡Fuera de combate de un golpe!", "K.O. en un coup !", "Nocaute com um golpe!", "Ein K.O.-Treffer!") }
+    func battleEffectDamage(_ subject: String, _ kind: BattleEffectDamage) -> String? {
+        switch kind {
+        case .leechSeed: return t("씨뿌리기가 \(subject)의 체력을 빼앗는다!", "\(subject)’s health is sapped by Leech Seed!", "やどりぎが \(subject)の たいりょくを うばう！", "¡Las drenadoras restan salud a \(subject)!", "Vampigraine draine l’énergie de \(subject) !", "A Semente Sanguessuga suga a energia de \(subject)!", "Egelsamen schwächt \(subject)!")
+        case .curse: return t("\(KoreanParticle.topic.attach(to: subject)) 저주를 받고 있다!", "\(subject) is afflicted by the curse!", "\(subject)は のろわれている！", "¡\(subject) es víctima de la maldición!", "\(subject) est touché par la malédiction !", "\(subject) sofre com a maldição!", "\(subject) leidet unter dem Fluch!")
+        case .nightmare: return t("\(KoreanParticle.topic.attach(to: subject)) 악몽에 시달리고 있다!", "\(subject) is locked in a nightmare!", "\(subject)は あくむに うなされている！", "¡\(subject) sufre una pesadilla!", "\(subject) est prisonnier d’un cauchemar !", "\(subject) está preso num pesadelo!", "\(subject) wird von einem Albtraum geplagt!")
+        case .sandstorm: return t("모래바람이 \(KoreanParticle.object.attach(to: subject)) 덮쳤다!", "\(subject) is buffeted by the sandstorm!", "すなあらしが \(subject)を おそう！", "¡La tormenta de arena zarandea a \(subject)!", "La tempête de sable frappe \(subject) !", "A tempestade de areia atinge \(subject)!", "\(subject) wird vom Sandsturm getroffen!")
+        case .hail: return t("싸라기눈이 \(KoreanParticle.object.attach(to: subject)) 덮쳤다!", "\(subject) is pelted by hail!", "あられが \(subject)を おそう！", "¡El granizo golpea a \(subject)!", "La grêle frappe \(subject) !", "O granizo atinge \(subject)!", "\(subject) wird vom Hagel getroffen!")
+        case .spikes: return t("\(KoreanParticle.topic.attach(to: subject)) 압정뿌리기의 데미지를 입었다!", "\(subject) is hurt by the spikes!", "\(subject)は まきびしの ダメージを うけた！", "¡Las púas hieren a \(subject)!", "\(subject) est blessé par les picots !", "\(subject) foi ferido pelos espinhos!", "\(subject) wird von den Stacheln verletzt!")
+        case .stealthRock: return t("뾰족한 바위가 \(KoreanParticle.object.attach(to: subject)) 찔렀다!", "Pointed stones dug into \(subject)!", "とがった いわが \(subject)に くいこんだ！", "¡Unas piedras puntiagudas dañan a \(subject)!", "Des pierres pointues blessent \(subject) !", "Pedras pontiagudas feriram \(subject)!", "Spitze Steine bohren sich in \(subject)!")
+        case .crash: return t("\(KoreanParticle.topic.attach(to: subject)) 기세가 넘쳐 땅에 부딪혔다!", "\(subject) kept going and crashed!", "\(subject)は いきおいあまって じめんに ぶつかった！", "¡\(subject) falló y se estrelló!", "\(subject) s’écrase au sol !", "\(subject) errou e caiu no chão!", "\(subject) hat daneben getroffen und ist gestürzt!")
+        case .curseCost: return t("\(KoreanParticle.topic.attach(to: subject)) 자신의 체력을 깎아 저주를 걸었다!", "\(subject) cut its own HP and laid a curse!", "\(subject)は じぶんの たいりょくを けずって のろいを かけた！", "¡\(subject) sacrificó salud para lanzar una maldición!", "\(subject) sacrifie des PV pour lancer une malédiction !", "\(subject) sacrificou energia e lançou uma maldição!", "\(subject) opfert KP und belegt das Ziel mit einem Fluch!")
+        case .bellyDrum: return nil
+        }
+    }
+    func battleEffectHeal(_ subject: String, _ kind: BattleEffectHeal) -> String? {
+        switch kind {
+        case .aquaRing: return t("물의 베일이 \(subject)의 체력을 회복시켰다!", "A veil of water restored \(subject)’s HP!", "みずのベールが \(subject)の たいりょくを かいふくした！", "¡Un velo de agua restauró los PS de \(subject)!", "Un voile d’eau restaure les PV de \(subject) !", "Um véu de água restaurou a energia de \(subject)!", "Ein Wasserschleier füllt die KP von \(subject) auf!")
+        case .ingrain: return t("\(KoreanParticle.topic.attach(to: subject)) 뿌리로 양분을 흡수했다!", "\(subject) absorbed nutrients with its roots!", "\(subject)は ねから ようぶんを すいとった！", "¡\(subject) absorbió nutrientes con sus raíces!", "\(subject) absorbe des nutriments avec ses racines !", "\(subject) absorveu nutrientes com as raízes!", "\(subject) nimmt über seine Wurzeln Nährstoffe auf!")
+        case .wish: return t("\(subject)의 소원이 이루어졌다!", "The wish came true for \(subject)!", "\(subject)の ねがいごとが かなった！", "¡El deseo de \(subject) se hizo realidad!", "Le vœu de \(subject) se réalise !", "O desejo de \(subject) se realizou!", "Der Wunsch von \(subject) geht in Erfüllung!")
+        case .leechSeed, .healingWish, .painSplit: return nil
+        }
+    }
+    func battleStagesReset(_ subject: String?) -> String {
+        guard let subject else { return t("모든 능력 변화가 원래대로 돌아왔다!", "All stat changes were eliminated!", "すべての ステータスが もとに もどった！", "¡Se anularon todos los cambios de características!", "Tous les changements de stats ont été annulés !", "Todas as mudanças de atributos foram anuladas!", "Alle Statuswertänderungen wurden aufgehoben!") }
+        return t("\(subject)의 능력 변화가 원래대로 돌아왔다!", "\(subject)’s stat changes were removed!", "\(subject)の のうりょくへんかが もとに もどった！", "¡Se anularon los cambios de características de \(subject)!", "Les changements de stats de \(subject) ont été annulés !", "As mudanças de atributos de \(subject) foram anuladas!", "Die Statuswertänderungen von \(subject) wurden aufgehoben!")
+    }
+    var battleNothingHappened: String { t("하지만 아무 일도 일어나지 않았다!", "But nothing happened!", "しかし なにも おこらない！", "¡Pero no pasó nada!", "Mais rien ne se passe !", "Mas nada aconteceu!", "Aber es passiert nichts!") }
+    func battleStatusCured(_ subject: String) -> String {
+        t("\(subject)의 상태가 원래대로 돌아왔다!", "\(subject)’s status returned to normal!", "\(subject)の じょうたいが もとに もどった！", "¡\(subject) se recuperó de su problema de estado!", "\(subject) n’a plus de problème de statut !", "\(subject) voltou ao normal!", "\(subject) ist wieder gesund!")
+    }
+    func battleTeamCured(_ team: String) -> String {
+        t("\(team)의 상태 이상이 모두 나았다!", "The status problems of \(team) were cured!", "\(team)の じょうたいいじょうが なおった！", "¡Se curaron los problemas de estado de \(team)!", "Les problèmes de statut de \(team) sont soignés !", "Os problemas de estado de \(team) foram curados!", "Die Statusprobleme von \(team) wurden geheilt!")
+    }
+    func battleCantMoveMore(_ subject: String, _ reason: BattleCantMoveReason) -> String? {
+        switch reason {
+        case .infatuated: return t("\(KoreanParticle.topic.attach(to: subject)) 헤롱헤롱해서 기술을 쓸 수 없었다!", "\(subject) is immobilized by love!", "\(subject)は メロメロで わざが だせなかった！", "¡\(subject) está enamorado y no puede atacar!", "\(subject) est amoureux et n’attaque pas !", "\(subject) está apaixonado e não conseguiu atacar!", "\(subject) ist verliebt und greift nicht an!")
+        case .recharging: return t("\(KoreanParticle.topic.attach(to: subject)) 공격의 반동으로 움직일 수 없다!", "\(subject) must recharge!", "\(subject)は こうげきの はんどうで うごけない！", "¡\(subject) necesita recuperarse!", "\(subject) doit se recharger !", "\(subject) precisa recarregar!", "\(subject) muss sich erholen!")
+        case .lostFocus: return t("\(KoreanParticle.topic.attach(to: subject)) 집중이 흐트러져 기술을 쓸 수 없었다!", "\(subject) lost its focus and couldn’t move!", "\(subject)は しゅうちゅうが とぎれて わざが だせない！", "¡\(subject) perdió la concentración y no pudo moverse!", "\(subject) perd sa concentration et n’attaque pas !", "\(subject) perdeu a concentração e não pôde atacar!", "\(subject) hat sich nicht konzentriert und kann nicht angreifen!")
+        default: return nil
+        }
+    }
+    func battleCharging(_ subject: String, _ kind: BattleChargeKind) -> String {
+        switch kind {
+        case .solarBeam: return t("\(KoreanParticle.topic.attach(to: subject)) 빛을 흡수했다!", "\(subject) absorbed light!", "\(subject)は ひかりを きゅうしゅうした！", "¡\(subject) absorbió luz solar!", "\(subject) absorbe la lumière !", "\(subject) absorveu luz!", "\(subject) absorbiert Licht!")
+        case .razorWind: return t("\(subject)의 주위에서 공기가 소용돌이친다!", "\(subject) whipped up a whirlwind!", "\(subject)の まわりで くうきが うずを まく！", "¡\(subject) provocó un remolino!", "\(subject) crée un tourbillon !", "\(subject) criou um redemoinho!", "\(subject) erzeugt einen Wirbelwind!")
+        case .skullBash: return t("\(KoreanParticle.topic.attach(to: subject)) 목을 움츠렸다!", "\(subject) tucked in its head!", "\(subject)は くびを ひっこめた！", "¡\(subject) bajó la cabeza!", "\(subject) baisse la tête !", "\(subject) recolheu a cabeça!", "\(subject) zieht den Kopf ein!")
+        case .skyAttack: return t("\(KoreanParticle.object.attach(to: subject)) 강렬한 빛이 감쌌다!", "\(subject) became cloaked in a harsh light!", "\(subject)を はげしい ひかりが つつむ！", "¡Una luz intensa envuelve a \(subject)!", "\(subject) est entouré d’une lumière intense !", "\(subject) foi envolvido por uma luz intensa!", "\(subject) wird von grellem Licht umhüllt!")
+        case .freezeShock, .iceBurn: return t("\(KoreanParticle.object.attach(to: subject)) 차가운 빛이 감쌌다!", "\(subject) became cloaked in a freezing light!", "\(subject)を つめたい ひかりが つつむ！", "¡Una luz gélida envuelve a \(subject)!", "\(subject) est entouré d’une lumière glaciale !", "\(subject) foi envolvido por uma luz gélida!", "\(subject) wird von eisigem Licht umhüllt!")
+        case .fly: return t("\(KoreanParticle.topic.attach(to: subject)) 하늘 높이 날아올랐다!", "\(subject) flew up high!", "\(subject)は そらたかく とびあがった！", "¡\(subject) voló muy alto!", "\(subject) s’envole !", "\(subject) voou alto!", "\(subject) fliegt hoch hinauf!")
+        case .dig: return t("\(KoreanParticle.topic.attach(to: subject)) 땅속으로 파고들었다!", "\(subject) burrowed its way under the ground!", "\(subject)は じめんに もぐった！", "¡\(subject) se escondió bajo tierra!", "\(subject) creuse le sol !", "\(subject) cavou para debaixo da terra!", "\(subject) gräbt sich ein!")
+        case .dive: return t("\(KoreanParticle.topic.attach(to: subject)) 물속으로 잠수했다!", "\(subject) hid underwater!", "\(subject)は すいちゅうに もぐった！", "¡\(subject) se sumergió!", "\(subject) plonge sous l’eau !", "\(subject) mergulhou!", "\(subject) taucht ab!")
+        case .bounce: return t("\(KoreanParticle.topic.attach(to: subject)) 높이 뛰어올랐다!", "\(subject) sprang up!", "\(subject)は たかく とびはねた！", "¡\(subject) dio un gran salto!", "\(subject) bondit !", "\(subject) saltou alto!", "\(subject) springt hoch!")
+        case .vanish: return t("\(subject)의 모습이 사라졌다!", "\(subject) vanished instantly!", "\(subject)の すがたが きえた！", "¡\(subject) desapareció!", "\(subject) disparaît !", "\(subject) desapareceu!", "\(subject) ist verschwunden!")
+        }
+    }
+    func battleStoringEnergy(_ subject: String) -> String { t("\(KoreanParticle.topic.attach(to: subject)) 참고 있다!", "\(subject) is storing energy!", "\(subject)は がまんを している！", "¡\(subject) está acumulando energía!", "\(subject) emmagasine de l’énergie !", "\(subject) está acumulando energia!", "\(subject) speichert Energie!") }
+    func battleUnleashedEnergy(_ subject: String) -> String { t("\(subject)의 참기가 풀렸다!", "\(subject) unleashed its energy!", "\(subject)の がまんが とかれた！", "¡\(subject) liberó su energía!", "\(subject) libère son énergie !", "\(subject) liberou sua energia!", "\(subject) entfesselt seine Energie!") }
+    func battleFellForFeint(_ subject: String) -> String { t("\(KoreanParticle.topic.attach(to: subject)) 페인트에 걸려들었다!", "\(subject) fell for the feint!", "\(subject)は フェイントに ひっかかった！", "¡\(subject) cayó en la finta!", "\(subject) tombe dans le piège !", "\(subject) caiu na finta!", "\(subject) fällt auf die Finte herein!") }
+    func battleForesaw(_ subject: String) -> String { t("\(KoreanParticle.topic.attach(to: subject)) 미래를 내다보았다!", "\(subject) foresaw an attack!", "\(subject)は みらいに こうげきを よちした！", "¡\(subject) previó un ataque!", "\(subject) prévoit une attaque !", "\(subject) previu um ataque!", "\(subject) sieht einen Angriff voraus!") }
+    func battleFutureHit(_ subject: String) -> String { t("\(KoreanParticle.topic.attach(to: subject)) 예지된 공격을 받았다!", "\(subject) took the foreseen attack!", "\(subject)は よちされた こうげきを うけた！", "¡\(subject) recibió el ataque previsto!", "\(subject) subit l’attaque prévue !", "\(subject) recebeu o ataque previsto!", "\(subject) wird vom vorhergesehenen Angriff getroffen!") }
+    func battleDraggedOut(_ subject: String) -> String { t("\(KoreanParticle.topic.attach(to: subject)) 날려가 버렸다!", "\(subject) was blown away!", "\(subject)は ふきとばされた！", "¡\(subject) salió despedido!", "\(subject) est expulsé !", "\(subject) foi expulso!", "\(subject) wurde weggeschleudert!") }
+    func battleHazardsCleared(_ team: String) -> String { t("\(team) 주변의 함정이 사라졌다!", "The traps around \(team) disappeared!", "\(team)の まわりの しかけが きえた！", "¡Desaparecieron las trampas alrededor de \(team)!", "Les pièges autour de \(team) ont disparu !", "As armadilhas ao redor de \(team) sumiram!", "Die Fallen um \(team) sind verschwunden!") }
+    func battleFellDown(_ subject: String) -> String { t("\(KoreanParticle.topic.attach(to: subject)) 땅으로 떨어졌다!", "\(subject) fell straight down!", "\(subject)は ちに おちた！", "¡\(subject) cayó al suelo!", "\(subject) tombe au sol !", "\(subject) caiu no chão!", "\(subject) stürzt zu Boden!") }
+    func battlePumped(_ subject: String) -> String { t("\(KoreanParticle.topic.attach(to: subject)) 의욕이 넘치고 있다!", "\(subject) is getting pumped!", "\(subject)は はりきっている！", "¡\(subject) se está preparando!", "\(subject) se gonfle à bloc !", "\(subject) está se animando!", "\(subject) ist hochmotiviert!") }
+    func battleBarrierStarted(_ team: String, _ barrier: BattleBarrier) -> String {
+        switch barrier {
+        case .reflect: return t("\(KoreanParticle.topic.attach(to: team)) 물리 공격에 강해졌다!", "Reflect made \(team) stronger against physical moves!", "\(team)は ぶつりこうげきに つよくなった！", "¡Reflejo hizo a \(team) más resistente a lo físico!", "Protection rend \(team) plus résistante aux attaques physiques !", "Refletir deixou \(team) mais resistente a golpes físicos!", "Reflektor stärkt \(team) gegen physische Attacken!")
+        case .lightScreen: return t("\(KoreanParticle.topic.attach(to: team)) 특수 공격에 강해졌다!", "Light Screen made \(team) stronger against special moves!", "\(team)は とくしゅこうげきに つよくなった！", "¡Pantalla de luz hizo a \(team) más resistente a lo especial!", "Mur Lumière rend \(team) plus résistante aux attaques spéciales !", "Tela de Luz deixou \(team) mais resistente a golpes especiais!", "Lichtschild stärkt \(team) gegen Spezial-Attacken!")
+        case .safeguard: return t("\(KoreanParticle.topic.attach(to: team)) 신비의 베일에 둘러싸였다!", "\(team) cloaked itself in a mystical veil!", "\(team)は しんぴの ベールに つつまれた！", "¡\(team) se cubrió con un velo místico!", "\(team) est protégée par un voile mystique !", "\(team) se cobriu com um véu místico!", "\(team) hüllt sich in einen mystischen Schleier!")
+        case .mist: return t("\(KoreanParticle.topic.attach(to: team)) 하얀 안개에 둘러싸였다!", "\(team) became shrouded in mist!", "\(team)は しろい きりに つつまれた！", "¡\(team) se cubrió de neblina!", "\(team) est enveloppée de brume !", "\(team) ficou envolta em névoa!", "\(team) ist in Nebel gehüllt!")
+        case .tailwind: return t("\(team)의 뒤에서 순풍이 불기 시작했다!", "The tailwind blew from behind \(team)!", "\(team)の うしろから おいかぜが ふきはじめた！", "¡Sopla viento a favor de \(team)!", "Le vent souffle derrière \(team) !", "O vento sopra a favor de \(team)!", "Rückenwind weht hinter \(team)!")
+        case .luckyChant: return t("\(KoreanParticle.topic.attach(to: team)) 급소에 맞지 않게 되었다!", "\(team) is shielded from critical hits!", "\(team)は きゅうしょに あたらなくなった！", "¡\(team) está a salvo de los golpes críticos!", "\(team) est protégée des coups critiques !", "\(team) está protegida de acertos críticos!", "\(team) ist vor Volltreffern geschützt!")
+        }
+    }
+    func battleBarrierEnded(_ team: String, _ move: String) -> String {
+        t("\(team)의 \(move) 효과가 사라졌다!", "The \(move) around \(team) wore off!", "\(team)の \(move)の こうかが きれた！", "¡El efecto de \(move) de \(team) terminó!", "L’effet de \(move) sur \(team) se dissipe !", "O efeito de \(move) em \(team) acabou!", "\(move) von \(team) lässt nach!")
+    }
+    func battleWeather(_ weather: BattleWeather, started: Bool) -> String {
+        switch (weather, started) {
+        case (.rain, true): return t("비가 내리기 시작했다!", "It started to rain!", "あめが ふりはじめた！", "¡Empezó a llover!", "Il commence à pleuvoir !", "Começou a chover!", "Es beginnt zu regnen!")
+        case (.rain, false): return t("비가 그쳤다.", "The rain stopped.", "あめが やんだ。", "Dejó de llover.", "La pluie s’arrête.", "A chuva parou.", "Der Regen hört auf.")
+        case (.sun, true): return t("햇살이 강해졌다!", "The sunlight turned harsh!", "ひざしが つよくなった！", "¡El sol pega fuerte!", "Le soleil brille fort !", "A luz do sol ficou intensa!", "Das Sonnenlicht wird grell!")
+        case (.sun, false): return t("햇살이 약해졌다.", "The harsh sunlight faded.", "ひざしが もとに もどった。", "El sol vuelve a brillar como siempre.", "Le soleil redevient normal.", "A luz do sol voltou ao normal.", "Das Sonnenlicht wird wieder normal.")
+        case (.sandstorm, true): return t("모래바람이 불기 시작했다!", "A sandstorm kicked up!", "すなあらしが ふきはじめた！", "¡Se levantó una tormenta de arena!", "Une tempête de sable se lève !", "Uma tempestade de areia começou!", "Ein Sandsturm kommt auf!")
+        case (.sandstorm, false): return t("모래바람이 가라앉았다.", "The sandstorm subsided.", "すなあらしが おさまった。", "La tormenta de arena amainó.", "La tempête de sable se calme.", "A tempestade de areia passou.", "Der Sandsturm legt sich.")
+        case (.hail, true): return t("싸라기눈이 내리기 시작했다!", "It started to hail!", "あられが ふりはじめた！", "¡Empezó a granizar!", "Il commence à grêler !", "Começou a cair granizo!", "Es beginnt zu hageln!")
+        case (.hail, false): return t("싸라기눈이 그쳤다.", "The hail stopped.", "あられが やんだ。", "Dejó de granizar.", "La grêle s’arrête.", "O granizo parou.", "Der Hagel hört auf.")
+        }
+    }
+    func battleSport(_ type: String) -> String {
+        type == "fire"
+            ? t("불꽃의 위력이 약해졌다!", "Fire’s power was weakened!", "ほのおの いりょくが よわまった！", "¡Se debilitó el poder del fuego!", "La puissance du feu est réduite !", "O poder do fogo foi enfraquecido!", "Die Kraft des Feuers wurde geschwächt!")
+            : t("전기의 위력이 약해졌다!", "Electricity’s power was weakened!", "でんきの いりょくが よわまった！", "¡Se debilitó el poder de la electricidad!", "La puissance électrique est réduite !", "O poder da eletricidade foi enfraquecido!", "Die Kraft der Elektrizität wurde geschwächt!")
+    }
+    func battleTrickRoom(started: Bool) -> String {
+        started ? t("시공이 뒤틀렸다!", "The dimensions were twisted!", "じくうが ゆがんだ！", "¡Se retorcieron las dimensiones!", "Les dimensions sont faussées !", "As dimensões foram distorcidas!", "Die Dimensionen wurden verzerrt!")
+                : t("뒤틀린 시공이 원래대로 돌아왔다!", "The twisted dimensions returned to normal!", "ゆがんだ じくうが もとに もどった！", "¡Las dimensiones volvieron a la normalidad!", "Les dimensions redeviennent normales !", "As dimensões voltaram ao normal!", "Die Dimensionen sind wieder normal!")
+    }
+    func battleGravity(started: Bool) -> String {
+        started ? t("중력이 강해졌다!", "Gravity intensified!", "じゅうりょくが つよくなった！", "¡La gravedad se intensificó!", "La gravité s’intensifie !", "A gravidade aumentou!", "Die Schwerkraft wird stärker!")
+                : t("중력이 원래대로 돌아왔다!", "Gravity returned to normal!", "じゅうりょくが もとに もどった！", "¡La gravedad volvió a la normalidad!", "La gravité redevient normale !", "A gravidade voltou ao normal!", "Die Schwerkraft ist wieder normal!")
+    }
+    func battleUproar(_ subject: String, started: Bool) -> String {
+        started ? t("\(KoreanParticle.topic.attach(to: subject)) 소란을 피우기 시작했다!", "\(subject) caused an uproar!", "\(subject)は さわぎだした！", "¡\(subject) armó un alboroto!", "\(subject) fait un brouhaha !", "\(subject) causou um alvoroço!", "\(subject) veranstaltet einen Aufruhr!")
+                : t("\(KoreanParticle.topic.attach(to: subject)) 조용해졌다.", "\(subject) calmed down.", "\(subject)は おとなしくなった。", "\(subject) se calmó.", "\(subject) se calme.", "\(subject) se acalmou.", "\(subject) hat sich beruhigt.")
+    }
+    func battleTaunted(_ subject: String, ended: Bool) -> String {
+        ended ? t("\(subject)의 도발 효과가 풀렸다!", "\(subject) shook off the taunt!", "\(subject)の ちょうはつの こうかが とけた！", "¡\(subject) ya no cae en la mofa!", "\(subject) ne subit plus la provoc !", "\(subject) se livrou da provocação!", "\(subject) lässt sich nicht mehr verhöhnen!")
+              : t("\(KoreanParticle.topic.attach(to: subject)) 도발에 넘어가 버렸다!", "\(subject) fell for the taunt!", "\(subject)は ちょうはつに のってしまった！", "¡\(subject) cayó en la mofa!", "\(subject) répond à la provoc !", "\(subject) caiu na provocação!", "\(subject) lässt sich verhöhnen!")
+    }
+    func battleEncored(_ subject: String, ended: Bool) -> String {
+        ended ? t("\(subject)의 앙코르 상태가 풀렸다!", "\(subject)’s encore ended!", "\(subject)の アンコールじょうたいが とけた！", "¡Terminó el efecto de Otra vez sobre \(subject)!", "L’effet Encore sur \(subject) prend fin !", "O bis de \(subject) acabou!", "Die Zugabe von \(subject) ist vorbei!")
+              : t("\(KoreanParticle.topic.attach(to: subject)) 앙코르를 받았다!", "\(subject) received an encore!", "\(subject)は アンコールを うけた！", "¡\(subject) sufre los efectos de Otra vez!", "\(subject) subit l’effet Encore !", "\(subject) recebeu um bis!", "\(subject) gibt eine Zugabe!")
+    }
+    func battleDisabled(_ subject: String, _ move: String) -> String {
+        t("\(subject)의 \(KoreanParticle.object.attach(to: move)) 봉인했다!", "\(subject)’s \(move) was disabled!", "\(subject)の \(move)を ふうじこめた！", "¡Se anuló \(move) de \(subject)!", "La capacité \(move) de \(subject) est bloquée !", "\(move) de \(subject) foi bloqueado!", "\(move) von \(subject) wurde blockiert!")
+    }
+    func battleDisableEnded(_ subject: String) -> String {
+        t("\(subject)의 사슬묶기가 풀렸다!", "\(subject) is no longer disabled!", "\(subject)の かなしばりが とけた！", "¡\(subject) ya no está anulado!", "\(subject) n’est plus entravé !", "\(subject) não está mais bloqueado!", "\(subject) ist nicht mehr blockiert!")
+    }
+    func battleTormented(_ subject: String) -> String { t("\(KoreanParticle.topic.attach(to: subject)) 트집을 잡혔다!", "\(subject) was subjected to torment!", "\(subject)は いちゃもんを つけられた！", "¡\(subject) sufre el tormento!", "\(subject) est tourmenté !", "\(subject) está sendo atormentado!", "\(subject) wird gequält!") }
+    func battleImprisoning(_ subject: String) -> String { t("\(KoreanParticle.topic.attach(to: subject)) 상대의 기술을 봉인했다!", "\(subject) sealed any moves its target shares with it!", "\(subject)は あいての わざを ふういんした！", "¡\(subject) selló los movimientos que comparte con su rival!", "\(subject) scelle les capacités qu’il partage avec l’adversaire !", "\(subject) selou os golpes em comum com o alvo!", "\(subject) versiegelt gemeinsame Attacken!") }
+    func battleHealBlocked(_ subject: String, ended: Bool) -> String {
+        ended ? t("\(subject)의 회복봉인이 풀렸다!", "\(subject)’s Heal Block wore off!", "\(subject)の かいふくふうじが とけた！", "¡Se acabó el Anticura de \(subject)!", "L’Anti-Soin de \(subject) prend fin !", "O Bloqueio de Cura de \(subject) acabou!", "Die Heilblockade von \(subject) ist vorbei!")
+              : t("\(KoreanParticle.topic.attach(to: subject)) 회복이 봉인되었다!", "\(subject) was prevented from healing!", "\(subject)は かいふくを ふうじられた！", "¡\(subject) no se puede curar!", "\(subject) ne peut plus se soigner !", "\(subject) não pode mais se curar!", "\(subject) kann sich nicht mehr heilen!")
+    }
+    func battleSeeded(_ subject: String) -> String { t("\(subject)에게 씨앗을 심었다!", "\(subject) was seeded!", "\(subject)に たねを うえつけた！", "¡\(subject) fue infectado por drenadoras!", "\(subject) est infecté !", "\(subject) foi semeado!", "\(subject) wurde bepflanzt!") }
+    func battleDrowsy(_ subject: String) -> String { t("\(KoreanParticle.topic.attach(to: subject)) 졸음이 쏟아지기 시작했다!", "\(subject) grew drowsy!", "\(subject)は ねむけを もよおした！", "¡\(subject) tiene sueño!", "\(subject) commence à somnoler !", "\(subject) ficou sonolento!", "\(subject) wird schläfrig!") }
+    func battleIdentified(_ subject: String) -> String { t("\(subject)의 정체를 꿰뚫어 보았다!", "\(subject) was identified!", "\(subject)の しょうたいを みやぶった！", "¡\(subject) ha sido identificado!", "\(subject) est identifié !", "\(subject) foi identificado!", "\(subject) wurde identifiziert!") }
+    func battleTrapped(_ subject: String) -> String { t("\(KoreanParticle.topic.attach(to: subject)) 더 이상 도망칠 수 없다!", "\(subject) can no longer escape!", "\(subject)は もう にげられない！", "¡\(subject) ya no puede huir!", "\(subject) ne peut plus s’enfuir !", "\(subject) não pode mais fugir!", "\(subject) kann nicht mehr fliehen!") }
+    func battleRooted(_ subject: String) -> String { t("\(KoreanParticle.topic.attach(to: subject)) 뿌리를 내렸다!", "\(subject) planted its roots!", "\(subject)は ねを はった！", "¡\(subject) echó raíces!", "\(subject) s’enracine !", "\(subject) criou raízes!", "\(subject) schlägt Wurzeln!") }
+    func battleAquaRing(_ subject: String) -> String { t("\(KoreanParticle.topic.attach(to: subject)) 물의 베일을 둘렀다!", "\(subject) surrounded itself with a veil of water!", "\(subject)は みずの ベールを まとった！", "¡\(subject) se rodeó de un manto de agua!", "\(subject) s’entoure d’un voile d’eau !", "\(subject) se cercou de um véu de água!", "\(subject) umgibt sich mit einem Wasserschleier!") }
+    func battleStockpiled(_ subject: String, _ count: Int) -> String { t("\(KoreanParticle.topic.attach(to: subject)) \(count)만큼 비축했다!", "\(subject) stockpiled \(count)!", "\(subject)は \(count)つ たくわえた！", "¡\(subject) reservó energía \(count) veces!", "\(subject) stocke \(count) fois !", "\(subject) armazenou \(count)!", "\(subject) hat \(count)-mal gehortet!") }
+    func battleCopiedStages(_ subject: String) -> String { t("\(KoreanParticle.topic.attach(to: subject)) 상대의 능력 변화를 복사했다!", "\(subject) copied its opponent’s stat changes!", "\(subject)は あいての のうりょくへんかを コピーした！", "¡\(subject) copió los cambios de características del rival!", "\(subject) copie les changements de stats adverses !", "\(subject) copiou as mudanças de atributos do oponente!", "\(subject) kopiert die Statuswertänderungen des Gegners!") }
+    func battleTookAim(_ subject: String) -> String { t("\(KoreanParticle.topic.attach(to: subject)) 목표를 정했다!", "\(subject) took aim at its target!", "\(subject)は ねらいを さだめた！", "¡\(subject) apuntó a su objetivo!", "\(subject) vise sa cible !", "\(subject) mirou no alvo!", "\(subject) nimmt sein Ziel ins Visier!") }
+    func battleDestinyBond(_ subject: String) -> String { t("\(KoreanParticle.topic.attach(to: subject)) 상대를 길동무로 삼으려 한다!", "\(subject) is hoping to take its attacker down with it!", "\(subject)は あいてを みちづれに しようとしている！", "¡\(subject) quiere llevarse a su rival consigo!", "\(subject) veut entraîner son adversaire avec lui !", "\(subject) quer levar o oponente junto!", "\(subject) will seinen Angreifer mitnehmen!") }
+    func battleTookDownWithIt(_ subject: String) -> String { t("\(KoreanParticle.topic.attach(to: subject)) 상대를 길동무로 삼았다!", "\(subject) took its attacker down with it!", "\(subject)は あいてを みちづれに した！", "¡\(subject) se llevó a su rival consigo!", "\(subject) entraîne son adversaire avec lui !", "\(subject) levou o oponente junto!", "\(subject) hat seinen Angreifer mitgenommen!") }
+    func battleHealingWish(_ subject: String) -> String { t("\(subject)에게 치유소원이 이루어졌다!", "The healing wish came true for \(subject)!", "\(subject)の いやしのねがいが かなった！", "¡El Deseo cura de \(subject) se hizo realidad!", "Le Vœu Soin se réalise pour \(subject) !", "O Desejo de Cura se realizou para \(subject)!", "Der Heilwunsch geht für \(subject) in Erfüllung!") }
+    func battleInfatuated(_ subject: String) -> String { t("\(KoreanParticle.topic.attach(to: subject)) 헤롱헤롱해졌다!", "\(subject) fell in love!", "\(subject)は メロメロに なった！", "¡\(subject) se ha enamorado!", "\(subject) tombe amoureux !", "\(subject) se apaixonou!", "\(subject) hat sich verliebt!") }
+    func battleLevitating(_ subject: String) -> String { t("\(KoreanParticle.topic.attach(to: subject)) 전자력으로 떠올랐다!", "\(subject) levitated with electromagnetism!", "\(subject)は でんじりょくで ういた！", "¡\(subject) levita gracias al electromagnetismo!", "\(subject) lévite grâce à l’électromagnétisme !", "\(subject) levitou com eletromagnetismo!", "\(subject) schwebt durch Elektromagnetismus!") }
+    var battlePerishSong: String { t("멸망의노래를 들은 포켓몬은 3턴 후에 쓰러진다!", "All Pokémon that heard the song will faint in three turns!", "ほろびのうたを きいた ポケモンは 3ターンご ほろびる！", "¡Los Pokémon que oyeron la canción se debilitarán en tres turnos!", "Les Pokémon qui entendent le chant seront K.O. dans trois tours !", "Os Pokémon que ouviram a canção vão desmaiar em três turnos!", "Alle Pokémon, die das Lied hören, werden in drei Runden besiegt!") }
+    func battlePerishCount(_ subject: String, _ count: Int) -> String { t("\(subject)의 멸망 카운트가 \(KoreanParticle.direction.attach(to: String(count))) 되었다!", "\(subject)’s perish count fell to \(count).", "\(subject)の ほろびの カウントが \(count)に なった！", "La cuenta atrás de \(subject) bajó a \(count).", "Le compte à rebours de \(subject) passe à \(count).", "A contagem de \(subject) caiu para \(count).", "Der Countdown von \(subject) fällt auf \(count).") }
+    func battleGuarding(_ subject: String) -> String { t("\(KoreanParticle.topic.attach(to: subject)) 팀을 지키고 있다!", "\(subject) is protecting its team!", "\(subject)は みかたを まもっている！", "¡\(subject) protege a su equipo!", "\(subject) protège son équipe !", "\(subject) está protegendo a equipe!", "\(subject) schützt sein Team!") }
+    func battleHazardSet(_ team: String, _ hazard: BattleHazard) -> String {
+        switch hazard {
+        case .spikes: return t("\(team)의 발밑에 압정이 뿌려졌다!", "Spikes were scattered around \(team)!", "\(team)の あしもとに まきびしが ちらばった！", "¡El equipo de \(team) está rodeado de púas!", "Des picots s’éparpillent autour de \(team) !", "Espinhos foram espalhados ao redor de \(team)!", "Um \(team) liegen jetzt Stacheln!")
+        case .toxicSpikes: return t("\(team)의 발밑에 독압정이 뿌려졌다!", "Poison spikes were scattered around \(team)!", "\(team)の あしもとに どくびしが ちらばった！", "¡\(team) está rodeado de púas tóxicas!", "Des pics toxiques s’éparpillent autour de \(team) !", "Espinhos venenosos foram espalhados ao redor de \(team)!", "Um \(team) liegen jetzt Giftstacheln!")
+        case .stealthRock: return t("\(team)의 주위에 뾰족한 바위가 떠올랐다!", "Pointed stones float in the air around \(team)!", "\(team)の まわりに とがった いわが ただよう！", "¡Unas piedras puntiagudas flotan alrededor de \(team)!", "Des pierres pointues flottent autour de \(team) !", "Pedras pontiagudas flutuam ao redor de \(team)!", "Um \(team) schweben spitze Steine!")
+        }
+    }
+    func battleTransformed(_ subject: String, into target: String) -> String { t("\(KoreanParticle.topic.attach(to: subject)) \(KoreanParticle.direction.attach(to: target)) 변신했다!", "\(subject) transformed into \(target)!", "\(subject)は \(target)に へんしんした！", "¡\(subject) se transformó en \(target)!", "\(subject) se transforme en \(target) !", "\(subject) se transformou em \(target)!", "\(subject) verwandelt sich in \(target)!") }
+    func battleTypeChanged(_ subject: String, _ type: String) -> String { t("\(KoreanParticle.topic.attach(to: subject)) \(type) 타입이 되었다!", "\(subject) became the \(type) type!", "\(subject)は \(type)タイプに なった！", "¡\(subject) ahora es de tipo \(type)!", "\(subject) devient de type \(type) !", "\(subject) virou do tipo \(type)!", "\(subject) hat jetzt den Typ \(type)!") }
+    func battleLearnedMove(_ subject: String, _ move: String) -> String { t("\(KoreanParticle.topic.attach(to: subject)) \(KoreanParticle.object.attach(to: move)) 익혔다!", "\(subject) learned \(move)!", "\(subject)は \(move)を おぼえた！", "¡\(subject) aprendió \(move)!", "\(subject) apprend \(move) !", "\(subject) aprendeu \(move)!", "\(subject) hat \(move) erlernt!") }
+    var battleSharedPain: String { t("서로의 체력을 나눠 가졌다!", "The battlers shared their pain!", "おたがいの たいりょくを わけあった！", "¡Los contrincantes compartieron su dolor!", "Les combattants partagent leur douleur !", "Os combatentes dividiram a dor!", "Die Kämpfer teilen ihre Schmerzen!") }
+    func battleMaximizedAttack(_ subject: String) -> String { t("\(KoreanParticle.topic.attach(to: subject)) 체력을 깎아 공격을 최대로 올렸다!", "\(subject) cut its own HP and maximized its Attack!", "\(subject)は たいりょくを けずって こうげきを さいだいに した！", "¡\(subject) redujo sus PS y maximizó su Ataque!", "\(subject) sacrifie des PV et maximise son Attaque !", "\(subject) sacrificou energia e maximizou seu Ataque!", "\(subject) opfert KP und maximiert seinen Angriff!") }
+    func battleMadeWish(_ subject: String) -> String { t("\(KoreanParticle.topic.attach(to: subject)) 소원을 빌었다!", "\(subject) made a wish!", "\(subject)は ねがいごとを した！", "¡\(subject) pidió un deseo!", "\(subject) fait un vœu !", "\(subject) fez um desejo!", "\(subject) wünscht sich etwas!") }
+    func battleNightmare(_ subject: String) -> String { t("\(KoreanParticle.topic.attach(to: subject)) 악몽을 꾸기 시작했다!", "\(subject) began having a nightmare!", "\(subject)は あくむを みはじめた！", "¡\(subject) comenzó a tener pesadillas!", "\(subject) commence à cauchemarder !", "\(subject) começou a ter um pesadelo!", "\(subject) hat einen Albtraum!") }
+    func battleSpite(_ subject: String, _ move: String, _ amount: Int) -> String { t("\(subject)의 \(move)의 PP가 \(amount) 줄었다!", "It reduced the PP of \(subject)’s \(move) by \(amount)!", "\(subject)の \(move)を \(amount)けずった！", "¡Los PP de \(move) de \(subject) bajaron en \(amount)!", "Les PP de \(move) de \(subject) baissent de \(amount) !", "Os PP de \(move) de \(subject) caíram em \(amount)!", "Die AP von \(move) von \(subject) sinken um \(amount)!") }
+    func battleGrudge(_ subject: String) -> String { t("\(KoreanParticle.topic.attach(to: subject)) 상대에게 원한을 품으려 한다!", "\(subject) wants its target to bear a grudge!", "\(subject)は あいてに おんねんを かけようと している！", "¡\(subject) quiere que su rival le guarde rencor!", "\(subject) veut que son adversaire lui en veuille !", "\(subject) quer que o alvo guarde rancor!", "\(subject) will, dass sein Ziel einen Groll hegt!") }
+    func battleGrudgeTriggered(_ subject: String, _ move: String) -> String { t("\(subject)의 \(KoreanParticle.topic.attach(to: move)) 원념으로 PP가 0이 되었다!", "\(subject)’s \(move) lost all its PP due to the grudge!", "\(subject)の \(move)は おんねんで PPが 0に なった！", "¡\(move) de \(subject) perdió todos sus PP por el rencor!", "\(move) de \(subject) perd tous ses PP à cause de la rancune !", "\(move) de \(subject) perdeu todos os PP pelo rancor!", "\(move) von \(subject) hat wegen des Grolls alle AP verloren!") }
+    func battleSwappedStages(_ subject: String) -> String { t("\(KoreanParticle.topic.attach(to: subject)) 상대와 능력 변화를 바꿨다!", "\(subject) switched stat changes with its target!", "\(subject)は あいてと のうりょくへんかを いれかえた！", "¡\(subject) intercambió los cambios de características con su rival!", "\(subject) échange ses changements de stats avec la cible !", "\(subject) trocou as mudanças de atributos com o alvo!", "\(subject) tauscht die Statuswertänderungen mit dem Ziel!") }
+    func battleSharedStats(_ subject: String) -> String { t("\(KoreanParticle.topic.attach(to: subject)) 상대와 능력을 나눠 가졌다!", "\(subject) shared its power with its target!", "\(subject)は あいてと ちからを わかちあった！", "¡\(subject) compartió su poder con el rival!", "\(subject) partage sa puissance avec la cible !", "\(subject) dividiu seu poder com o alvo!", "\(subject) teilt seine Kraft mit dem Ziel!") }
+    func battleLighter(_ subject: String) -> String { t("\(KoreanParticle.topic.attach(to: subject)) 몸이 가벼워졌다!", "\(subject) became nimble!", "\(subject)は からだが かるくなった！", "¡\(subject) se volvió más ágil!", "\(subject) devient plus agile !", "\(subject) ficou mais ágil!", "\(subject) ist jetzt flinker!") }
+    func battleHurledIntoAir(_ subject: String) -> String { t("\(KoreanParticle.topic.attach(to: subject)) 공중에 떠올랐다!", "\(subject) was hurled into the air!", "\(subject)は ちゅうに うかびあがった！", "¡\(subject) fue lanzado por los aires!", "\(subject) est projeté en l’air !", "\(subject) foi lançado ao ar!", "\(subject) wurde in die Luft gehoben!") }
+    func battleMagicCoat(_ subject: String) -> String { t("\(KoreanParticle.topic.attach(to: subject)) 매직코트로 몸을 감쌌다!", "\(subject) shrouded itself with Magic Coat!", "\(subject)は マジックコートに つつまれた！", "¡\(subject) se protegió con Capa mágica!", "\(subject) s’entoure d’un Reflet Magik !", "\(subject) se cobriu com Casaco Mágico!", "\(subject) hüllt sich in einen Magiemantel!") }
+    func battleBounced(_ subject: String, _ move: String) -> String { t("\(KoreanParticle.topic.attach(to: subject)) \(KoreanParticle.object.attach(to: move)) 튕겨냈다!", "\(subject) bounced the \(move) back!", "\(subject)は \(move)を はねかえした！", "¡\(subject) devolvió \(move)!", "\(subject) renvoie \(move) !", "\(subject) rebateu \(move)!", "\(subject) wirft \(move) zurück!") }
+    func battleChargingPower(_ subject: String) -> String { t("\(KoreanParticle.topic.attach(to: subject)) 충전을 시작했다!", "\(subject) began charging power!", "\(subject)は じゅうでんを はじめた！", "¡\(subject) comenzó a cargar energía!", "\(subject) commence à se charger !", "\(subject) começou a carregar energia!", "\(subject) lädt sich auf!") }
+    func battleMagnitude(_ level: Int) -> String { t("매그니튜드 \(level)!", "Magnitude \(level)!", "マグニチュード \(level)！", "¡Magnitud \(level)!", "Ampleur \(level) !", "Magnitude \(level)!", "Intensität \(level)!") }
+}
+
+extension L {
+    func battleWeatherName(_ weather: BattleWeather) -> String {
+        switch weather {
+        case .rain: return t("비", "Rain", "あめ", "Lluvia", "Pluie", "Chuva", "Regen")
+        case .sun: return t("쾌청", "Harsh sunlight", "ひざしが つよい", "Sol intenso", "Soleil", "Sol intenso", "Sonnenschein")
+        case .sandstorm: return t("모래바람", "Sandstorm", "すなあらし", "Tormenta de arena", "Tempête de sable", "Tempestade de areia", "Sandsturm")
+        case .hail: return t("싸라기눈", "Hail", "あられ", "Granizo", "Grêle", "Granizo", "Hagel")
+        }
     }
 }
