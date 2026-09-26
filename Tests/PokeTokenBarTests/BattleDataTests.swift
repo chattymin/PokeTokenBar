@@ -104,7 +104,9 @@ final class BattleMoveTests: XCTestCase {
         XCTAssertNil(growl.power)
         XCTAssertFalse(growl.isDamaging)
         let seismicToss = try XCTUnwrap(try decodeMove(moveJSON(name: "seismic-toss", power: "null")))
-        XCTAssertFalse(seismicToss.isDamaging, "Fixed-damage moves have no power and need their own engine rule")
+        XCTAssertTrue(seismicToss.isDamaging, "fixed-damage moves have no power but deal damage through their rule")
+        XCTAssertFalse(try XCTUnwrap(try decodeMove(moveJSON(name: "sky-uppercut-v2", power: "null"))).isDamaging,
+                       "an unknown move without power has no rule to deal damage with")
     }
 
     func testServerValuesAreClampedAndMissingMetaDefaults() throws {

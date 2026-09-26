@@ -9,11 +9,10 @@ enum BattleCPU {
         let moves = state.usableMoves(for: side)
         guard !moves.isEmpty else { return .struggle }
         if rng.percent(randomMovePercent) { return .move(moves[rng.below(moves.count)]) }
-        let attacker = state[side].current.pokemon
-        let defender = state[side.opponent].current.pokemon
+        let known = state[side].current.moves
         var best = moves[0]
         for index in moves.dropFirst()
-        where score(attacker.moves[index], attacker, defender) > score(attacker.moves[best], attacker, defender) {
+        where score(known[index], by: side, in: state) > score(known[best], by: side, in: state) {
             best = index
         }
         return .move(best)
@@ -26,18 +25,73 @@ enum BattleCPU {
         }
     }
 
-    /// Expected damage proxy: power × effectiveness × STAB × accuracy. Status moves get a small fixed value
-    /// so a Pokémon without attacks still uses them instead of standing still.
-    static func score(_ move: BattleMove, _ attacker: BattlePokemon, _ defender: BattlePokemon) -> Int {
+    /// Expected-value proxy in "power × effectiveness × STAB × accuracy" units. Status moves only score
+    /// when they can still do something, so the CPU does not paralyze what is already paralyzed.
+    static func score(_ move: BattleMove, by side: BattleSide, in state: BattleState) -> Int {
         guard move.isSupportedInBattle else { return -1 }
-        guard move.isDamaging else { return 20 * 4 * 2 * 100 }
-        let effectiveness = BattleTypeChart.effectiveness(of: move.type, against: defender.types)
-        let stab = attacker.types.contains(move.type) ? 3 : 2
-        return (move.power ?? 0) * effectiveness * stab * (move.accuracy ?? 100)
+        let user = state[side].current, target = state[side.opponent].current
+        let accuracy = move.accuracy ?? 100
+        if move.isDamaging {
+            let effectiveness = state.effectiveness(of: move, type: move.type, against: side.opponent)
+            if move.damageRule != nil || move.kind == .ohko { return effectiveness > 0 ? 60 * 4 * 2 * accuracy : 0 }
+            let stab = user.types.contains(move.type) ? 3 : 2
+            var value = (state.effectivePower(of: move, by: side) ?? 60) * effectiveness * stab * accuracy
+            // Moves that cost a turn or the user are worth less than their power suggests.
+            switch move.kind {
+            case .recharge, .charge: value = value * 2 / 3
+            case .selfDestruct: value = user.hp * 4 < user.maxHP ? value : value / 4
+            default: break
+            }
+            return value
+        }
+        switch move.kind {
+        case .effect(.protect), .effect(.endure): return 5 * 4 * 2 * 100
+        case .effect(.rest):
+            return user.hp * 2 < user.maxHP && user.status != .sleep ? 90 * 4 * 2 * 100 : 0
+        case .effect(let effect):
+            return uniqueScore(effect, user: user, target: target, state: state, side: side)
+        default:
+            break
+        }
+        switch move.inflictedAilment {
+        case .major(let status):
+            let affected = target.status == nil && target.types.allSatisfy { !status.immuneTypes.contains($0) }
+            // Worth about a 70-power hit: better than a weak STAB move, worse than a strong one.
+            return affected ? 70 * 4 * 2 * accuracy : 0
+        case .confusion:
+            return target.volatiles.confusionTurns == 0 ? 30 * 4 * 2 * accuracy : 0
+        case .triAttack, nil:
+            return 20 * 4 * 2 * 100
+        }
+    }
+
+    /// Setup and field moves score once; using them again while they are still active would fail.
+    private static func uniqueScore(_ effect: BattleUniqueEffect, user: BattleCombatant, target: BattleCombatant,
+                                    state: BattleState, side: BattleSide) -> Int {
+        let useful: Bool
+        switch effect {
+        case .screen(let barrier): useful = !state[side].conditions.has(barrier)
+        case .weather(let weather): useful = state.field.weather != weather
+        case .hazard(let hazard):
+            let conditions = state[side.opponent].conditions
+            useful = hazard == .spikes ? conditions.spikes < 3 : hazard == .toxicSpikes ? conditions.toxicSpikes < 2 : !conditions.stealthRock
+        case .leechSeed: useful = !target.volatiles.leechSeeded && !target.types.contains("grass")
+        case .taunt: useful = target.volatiles.tauntTurns == 0
+        case .focusEnergy: useful = !user.volatiles.focusEnergy
+        case .curse: useful = user.types.contains("ghost") ? !target.volatiles.cursed && user.hp * 2 > user.maxHP : true
+        case .yawn: useful = target.status == nil && target.volatiles.yawnTurns == 0
+        case .bellyDrum: useful = user.hp * 2 > user.maxHP && user.stages.attack < 6
+        case .splash, .noEffectHere, .failsInSingles: useful = false
+        default: useful = true
+        }
+        return useful ? 25 * 4 * 2 * 100 : 0
     }
 
     private static func bestScore(_ attacker: BattlePokemon, _ defender: BattlePokemon) -> Int {
-        attacker.moves.map { score($0, attacker, defender) }.max() ?? 0
+        attacker.moves.filter(\.isDamaging).map { move in
+            (move.power ?? 60) * BattleTypeChart.effectiveness(of: move.type, against: defender.types)
+                * (attacker.types.contains(move.type) ? 3 : 2)
+        }.max() ?? 0
     }
 }
 

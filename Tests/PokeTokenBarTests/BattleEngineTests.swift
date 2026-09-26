@@ -18,7 +18,7 @@ private let growl = move("growl", power: nil, damageClass: .status, target: "all
 private let swordsDance = move("swords-dance", power: nil, damageClass: .status, target: "user",
                                statChanges: [BattleStatChange(stat: "attack", change: 2)], category: "net-good-stats")
 private let recover = move("recover", power: nil, damageClass: .status, target: "user", category: "heal", healing: 50)
-private let splash = move("splash", power: nil, damageClass: .status, target: "user", category: "unique")
+private let splash = move("metronome", power: nil, damageClass: .status, target: "user", category: "unique")
 
 private func mon(_ id: String, hp: Int = 100, attack: Int = 50, defense: Int = 50, speed: Int = 50,
                  level: Int = 50, types: [String] = ["normal"], moves: [BattleMove] = [tackle]) -> BattlePokemon {
@@ -102,7 +102,7 @@ final class BattleEngineTests: XCTestCase {
     func testSwitchHappensBeforeTheOpponentsMoveAndTakesTheHit() throws {
         var state = try battle([mon("lead"), mon("bench")], [mon("foe", speed: 200)])
         let events = try state.resolveTurn(.switchTo(1), .move(0))
-        XCTAssertEqual(events.first, .sentOut(.a, index: 1))
+        XCTAssertEqual(events.prefix(2), [.withdrew(.a), .sentOut(.a, index: 1)])
         XCTAssertEqual(state[.a].active, 1)
         XCTAssertEqual(state[.a].team[0].hp, 100)
         XCTAssertLessThan(state[.a].team[1].hp, 100)
@@ -272,7 +272,38 @@ final class BattleEngineTests: XCTestCase {
                     move("ember", type: "fire", power: 40, accuracy: 100, damageClass: .special),
                     move("psychic", type: "psychic", power: 90, accuracy: 100, damageClass: .special,
                          statChanges: [BattleStatChange(stat: "special-defense", change: -1)],
-                         category: "damage-lower", statChance: 10)]
+                         category: "damage-lower", statChance: 10),
+                    BattleMove(name: "protect", type: "normal", power: nil, accuracy: nil, pp: 10, priority: 4,
+                               damageClass: .status, target: "user", category: "unique"),
+                    BattleMove(name: "rest", type: "psychic", power: nil, accuracy: nil, pp: 10, priority: 0,
+                               damageClass: .status, target: "user", category: "unique"),
+                    BattleMove(name: "toxic", type: "poison", power: nil, accuracy: 90, pp: 10, priority: 0,
+                               damageClass: .status, target: "selected-pokemon", category: "ailment", ailment: "poison"),
+                    BattleMove(name: "confuse-ray", type: "ghost", power: nil, accuracy: 100, pp: 10, priority: 0,
+                               damageClass: .status, target: "selected-pokemon", category: "ailment", ailment: "confusion"),
+                    BattleMove(name: "body-slam", type: "normal", power: 85, accuracy: 100, pp: 15, priority: 0,
+                               damageClass: .physical, target: "selected-pokemon", category: "damage-ailment",
+                               ailment: "paralysis", ailmentChance: 30, flinchChance: 10),
+                    move("reversal", type: "fighting", power: nil), move("seismic-toss", type: "fighting", power: nil)]
+            + ["u-turn", "fury-swipes", "hyper-beam", "solar-beam", "fly", "outrage", "rollout", "bide", "future-sight",
+               "explosion", "jump-kick", "fake-out", "sucker-punch", "pursuit", "counter", "dragon-tail", "rapid-spin"]
+                .map { name -> BattleMove in
+                    BattleMove(name: name, type: "normal", power: name == "bide" || name == "counter" ? nil : 60,
+                               accuracy: 90, pp: 10, priority: name == "counter" ? -5 : 0, damageClass: .physical,
+                               target: "selected-pokemon", category: "damage",
+                               minHits: name == "fury-swipes" ? 2 : nil, maxHits: name == "fury-swipes" ? 5 : nil)
+                }
+            + ["reflect", "rain-dance", "spikes", "stealth-rock", "taunt", "encore", "leech-seed", "yawn", "baton-pass",
+               "roar", "trick-room", "transform", "perish-song", "substitute-x", "wish", "haze", "focus-energy", "curse",
+               "mean-look", "copycat", "sleep-talk", "magic-coat"]
+                .map { name -> BattleMove in
+                    let target = ["reflect", "baton-pass", "focus-energy", "wish", "magic-coat", "sleep-talk", "copycat"]
+                        .contains(name) ? "user" : ["rain-dance", "trick-room", "haze", "perish-song"].contains(name)
+                        ? "entire-field" : ["spikes", "stealth-rock"].contains(name) ? "opponents-field" : "selected-pokemon"
+                    return BattleMove(name: name, type: "normal", power: nil, accuracy: nil, pp: 10,
+                                      priority: name == "roar" ? -6 : name == "magic-coat" ? 4 : 0, damageClass: .status,
+                                      target: target, category: "unique")
+                }
         let typePool = ["normal", "fire", "water", "grass", "ghost", "psychic", "steel", "fairy"]
         for seed in UInt64(1)...200 {
             var setup = BattleRNG(seed: seed &* 7919)

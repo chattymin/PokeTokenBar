@@ -38,10 +38,12 @@ extension NetworkOpponent {
 struct BattleDisplay: Equatable, Sendable {
     var active: [Int] = [0, 0]
     var hp: [[Int]]
+    var status: [[BattleStatus?]]
     var isOut: [Bool] = [false, false]
 
     init(_ state: BattleState) {
         hp = BattleSide.allCases.map { side in state[side].team.map(\.hp) }
+        status = BattleSide.allCases.map { side in state[side].team.map(\.status) }
     }
 
     mutating func apply(_ event: BattleEvent) {
@@ -49,8 +51,23 @@ struct BattleDisplay: Equatable, Sendable {
         case .sentOut(let side, let index):
             active[side.rawValue] = index
             isOut[side.rawValue] = true
-        case .damaged(let side, _, let value, _, _), .healed(let side, _, let value), .recoil(let side, _, let value):
+        case .damaged(let side, _, let value, _, _), .healed(let side, _, let value), .recoil(let side, _, let value),
+             .hurtByConfusion(let side, _, let value), .residual(let side, _, _, let value),
+             .effectDamage(let side, _, _, let value), .effectHeal(let side, _, _, let value), .futureHit(let side, _, let value):
             hp[side.rawValue][active[side.rawValue]] = value
+        case .statusCured(let side):
+            status[side.rawValue][active[side.rawValue]] = nil
+        case .teamCured(let side):
+            status[side.rawValue] = status[side.rawValue].map { _ in nil }
+        case .healingWishCameTrue(let side):
+            status[side.rawValue][active[side.rawValue]] = nil
+        case .statusApplied(let side, let applied):
+            status[side.rawValue][active[side.rawValue]] = applied
+        case .wokeUp(let side), .thawed(let side):
+            status[side.rawValue][active[side.rawValue]] = nil
+        case .rested(let side, let value):
+            hp[side.rawValue][active[side.rawValue]] = value
+            status[side.rawValue][active[side.rawValue]] = .sleep
         case .fainted(let side, _):
             isOut[side.rawValue] = false
         default:
@@ -146,8 +163,10 @@ final class BattleSession {
     func replace(with index: Int) async {
         guard awaitingReplacement else { return }
         await perform {
-            await animate(try state.replace(mySide, with: index))
+            // Send before applying: after U-turn or Baton Pass the replacement finishes the turn, and the
+            // peer checks the message against the turn it is still waiting in.
             try await opponent.sendReplacement(index, in: state)
+            await animate(try state.replace(mySide, with: index))
             try await replaceOpponentIfNeeded()
         }
     }
@@ -265,6 +284,10 @@ final class BattleSession {
                 guard let self, let pick = self.switchTargets.randomElement() else { return }
                 await self.replace(with: pick)
             }
+        } else if canChoose, let forced = state.forcedMove(for: mySide) {
+            // Charging, recharging and rampages pick themselves; the choice still travels to the peer.
+            message = prompt
+            Task { [weak self] in await self?.choose(.move(forced)) }
         } else if canChoose {
             message = prompt
             armTimer { [weak self] in
@@ -331,6 +354,8 @@ final class BattleSession {
             ?? PokemonNameLocalization.identifier(raw)
     }
 
+    private func team(_ side: BattleSide) -> String { side == mySide ? l.battleYourTeam : l.battleOpposingTeam }
+
     private func subject(_ side: BattleSide) -> String {
         let own = name(side, display.active[side.rawValue])
         return side == mySide ? own : l.battleOpposing(own)
@@ -362,7 +387,94 @@ final class BattleSession {
         case .statLimit(let side, let stat, let rising):
             return [l.battleStatLimit(subject(side), l.battleStatLabel(stat), rising: rising)]
         case .failed: return [l.battleFailed]
+        case .statusApplied(let side, let status): return [l.battleStatusApplied(subject(side), status)]
+        case .confused(let side): return [l.battleBecameConfused(subject(side))]
+        case .cantMove(let side, let reason): return [l.battleCantMove(subject(side), reason)]
+        case .wokeUp(let side): return [l.battleWokeUp(subject(side))]
+        case .thawed(let side): return [l.battleThawed(subject(side))]
+        case .isConfused(let side): return [l.battleIsConfused(subject(side))]
+        case .snappedOut(let side): return [l.battleSnappedOut(subject(side))]
+        case .hurtByConfusion: return [l.battleHurtByConfusion]
+        case .residual(let side, let status, _, _): return [l.battleResidual(subject(side), status)]
+        case .protecting(let side): return [l.battleProtecting(subject(side))]
+        case .bracing(let side): return [l.battleBracing(subject(side))]
+        case .blocked(let side): return [l.battleBlocked(subject(side))]
+        case .endured(let side): return [l.battleEndured(subject(side))]
+        case .rested(let side, _): return [l.battleRested(subject(side))]
         case .fainted(let side, _): return [l.battleFainted(subject(side))]
+        case .withdrew(let side): return [l.battleWithdrew(name(side, display.active[side.rawValue]), mine: side == mySide)]
+        case .hitCount(let count): return [l.battleHitCount(count)]
+        case .oneHitKO: return [l.battleOneHitKO]
+        case .effectDamage(let side, let kind, _, _): return l.battleEffectDamage(subject(side), kind).map { [$0] } ?? []
+        case .effectHeal(let side, let kind, _, _): return l.battleEffectHeal(subject(side), kind).map { [$0] } ?? []
+        case .stagesReset(let side): return [l.battleStagesReset(side.map(subject))]
+        case .nothingHappened: return [l.battleNothingHappened]
+        case .statusCured(let side): return [l.battleStatusCured(subject(side))]
+        case .teamCured(let side): return [l.battleTeamCured(team(side))]
+        case .charging(let side, let kind): return [l.battleCharging(subject(side), kind)]
+        case .storingEnergy(let side): return [l.battleStoringEnergy(subject(side))]
+        case .unleashedEnergy(let side): return [l.battleUnleashedEnergy(subject(side))]
+        case .fellForFeint(let side): return [l.battleFellForFeint(subject(side))]
+        case .foresaw(let side): return [l.battleForesaw(subject(side))]
+        case .futureHit(let side, _, _): return [l.battleFutureHit(subject(side))]
+        case .draggedOut(let side): return [l.battleDraggedOut(subject(side))]
+        case .hazardsCleared(let side): return [l.battleHazardsCleared(team(side))]
+        case .fellDown(let side): return [l.battleFellDown(subject(side))]
+        case .pumped(let side): return [l.battlePumped(subject(side))]
+        case .screenStarted(let side, let barrier): return [l.battleBarrierStarted(team(side), barrier)]
+        case .screenEnded(let side, let barrier): return [l.battleBarrierEnded(team(side), moveName(barrier.moveName))]
+        case .weatherStarted(let weather): return [l.battleWeather(weather, started: true)]
+        case .weatherEnded(let weather): return [l.battleWeather(weather, started: false)]
+        case .sportStarted(let type): return [l.battleSport(type)]
+        case .trickRoom(let started): return [l.battleTrickRoom(started: started)]
+        case .gravity(let started): return [l.battleGravity(started: started)]
+        case .uproar(let side, let started): return [l.battleUproar(subject(side), started: started)]
+        case .taunted(let side): return [l.battleTaunted(subject(side), ended: false)]
+        case .tauntEnded(let side): return [l.battleTaunted(subject(side), ended: true)]
+        case .encored(let side): return [l.battleEncored(subject(side), ended: false)]
+        case .encoreEnded(let side): return [l.battleEncored(subject(side), ended: true)]
+        case .disabled(let side, let move): return [l.battleDisabled(subject(side), moveName(move))]
+        case .disableEnded(let side): return [l.battleDisableEnded(subject(side))]
+        case .tormented(let side): return [l.battleTormented(subject(side))]
+        case .imprisoning(let side): return [l.battleImprisoning(subject(side))]
+        case .healBlocked(let side): return [l.battleHealBlocked(subject(side), ended: false)]
+        case .healBlockEnded(let side): return [l.battleHealBlocked(subject(side), ended: true)]
+        case .seeded(let side): return [l.battleSeeded(subject(side))]
+        case .drowsy(let side): return [l.battleDrowsy(subject(side))]
+        case .identified(let side): return [l.battleIdentified(subject(side))]
+        case .trapped(let side): return [l.battleTrapped(subject(side))]
+        case .stockpiled(let side, let count): return [l.battleStockpiled(subject(side), count)]
+        case .copiedStages(let side): return [l.battleCopiedStages(subject(side))]
+        case .tookAim(let side): return [l.battleTookAim(subject(side))]
+        case .destinyBond(let side): return [l.battleDestinyBond(subject(side))]
+        case .tookDownWithIt(let side): return [l.battleTookDownWithIt(subject(side))]
+        case .healingWishCameTrue(let side): return [l.battleHealingWish(subject(side))]
+        case .infatuated(let side): return [l.battleInfatuated(subject(side))]
+        case .levitating(let side): return [l.battleLevitating(subject(side))]
+        case .perishSong: return [l.battlePerishSong]
+        case .perishCount(let side, let count): return [l.battlePerishCount(subject(side), count)]
+        case .guarding(let side): return [l.battleGuarding(subject(side))]
+        case .hazardSet(let side, let hazard): return [l.battleHazardSet(team(side), hazard)]
+        case .transformed(let side, let into): return [l.battleTransformed(subject(side), into: subject(into))]
+        case .typeChanged(let side, let type): return [l.battleTypeChanged(subject(side), typeName(type))]
+        case .learnedMove(let side, let move): return [l.battleLearnedMove(subject(side), moveName(move))]
+        case .sharedPain: return [l.battleSharedPain]
+        case .maximizedAttack(let side): return [l.battleMaximizedAttack(subject(side))]
+        case .madeWish(let side): return [l.battleMadeWish(subject(side))]
+        case .nightmareStarted(let side): return [l.battleNightmare(subject(side))]
+        case .spite(let side, let move, let amount): return [l.battleSpite(subject(side), moveName(move), amount)]
+        case .grudge(let side): return [l.battleGrudge(subject(side))]
+        case .grudgeTriggered(let side, let move): return [l.battleGrudgeTriggered(subject(side), moveName(move))]
+        case .swappedStages(let side): return [l.battleSwappedStages(subject(side))]
+        case .sharedStats(let side): return [l.battleSharedStats(subject(side))]
+        case .lighter(let side): return [l.battleLighter(subject(side))]
+        case .hurledIntoAir(let side): return [l.battleHurledIntoAir(subject(side))]
+        case .magicCoat(let side): return [l.battleMagicCoat(subject(side))]
+        case .bounced(let side, let move): return [l.battleBounced(subject(side), moveName(move))]
+        case .chargingPower(let side): return [l.battleChargingPower(subject(side))]
+        case .magnitude(let level): return [l.battleMagnitude(level)]
+        case .aquaRing(let side): return [l.battleAquaRing(subject(side))]
+        case .rooted(let side): return [l.battleRooted(subject(side))]
         case .forfeited(let side): return [side == mySide ? l.battleYouForfeited : l.battleOpponentForfeited]
         case .ended: return []
         }

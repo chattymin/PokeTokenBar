@@ -83,20 +83,61 @@ struct BattleScreen: View {
                 }
             }
             .padding(16)
+            if let weather = session.state.field.weather {
+                VStack {
+                    Label(l.battleWeatherName(weather), systemImage: weatherSymbol(weather))
+                        .font(.caption.weight(.semibold))
+                        .padding(.horizontal, 10).padding(.vertical, 4)
+                        .background(.regularMaterial, in: Capsule())
+                    Spacer()
+                }
+                .padding(.top, 10)
+            }
         }
         .frame(height: 300)
     }
 
+    private func weatherSymbol(_ weather: BattleWeather) -> String {
+        switch weather {
+        case .rain: return "cloud.rain.fill"
+        case .sun: return "sun.max.fill"
+        case .sandstorm: return "wind"
+        case .hail: return "cloud.hail.fill"
+        }
+    }
+
+    /// Screens and entry hazards on one side, named with the moves that set them.
+    private func conditionChips(_ side: BattleSide) -> some View {
+        let conditions = session.state[side].conditions
+        var labels: [String] = []
+        for barrier in [BattleBarrier.reflect, .lightScreen, .safeguard, .mist, .tailwind, .luckyChant] where conditions.has(barrier) {
+            labels.append(session.moveName(barrier.moveName))
+        }
+        if conditions.spikes > 0 { labels.append(session.moveName("spikes") + (conditions.spikes > 1 ? " ×\(conditions.spikes)" : "")) }
+        if conditions.toxicSpikes > 0 { labels.append(session.moveName("toxic-spikes")) }
+        if conditions.stealthRock { labels.append(session.moveName("stealth-rock")) }
+        return HStack(spacing: 4) {
+            ForEach(labels, id: \.self) { label in
+                Text(label).font(.system(size: 9, weight: .semibold))
+                    .padding(.horizontal, 5).padding(.vertical, 1)
+                    .background(Color.secondary.opacity(0.25), in: Capsule())
+            }
+        }
+    }
+
     private func combatantSprite(_ side: BattleSide, size: CGFloat) -> some View {
         let index = session.display.active[side.rawValue]
-        let pokemon = session.state[side].team[index].pokemon
+        let combatant = session.state[side].team[index]
+        let pokemon = combatant.pokemon
         let isOut = session.display.isOut[side.rawValue]
+        // A transformed Pokémon looks like its target until it leaves the field.
+        let species = combatant.appearance ?? pokemon.speciesID
         return ZStack(alignment: .bottom) {
             Ellipse().fill(Color.black.opacity(0.12)).frame(width: size * 0.9, height: size * 0.22)
-            SpriteView(speciesID: pokemon.speciesID, size: size, animated: true, shiny: pokemon.isShiny,
-                       unownForm: pokemon.unownForm)
+            SpriteView(speciesID: species, size: size, animated: true, shiny: combatant.appearance == nil && pokemon.isShiny,
+                       unownForm: combatant.appearance == nil ? pokemon.unownForm : nil)
                 .scaleEffect(x: side == session.mySide ? -1 : 1, y: 1)
-                .id("\(side)-\(index)")
+                .id("\(side)-\(index)-\(species)")
                 .opacity(isOut ? 1 : 0)
                 .offset(y: isOut ? 0 : size * 0.4)
                 .animation(.easeInOut(duration: 0.45), value: isOut)
@@ -112,6 +153,12 @@ struct BattleScreen: View {
             HStack(spacing: 4) {
                 Text(session.name(side, index)).font(.callout.weight(.semibold)).lineLimit(1)
                 if pokemon.isShiny { Text("✨").font(.caption2).accessibilityLabel(l.dexShinyLabel) }
+                if let status = session.display.status[side.rawValue][index] {
+                    Text(l.battleStatusBadge(status))
+                        .font(.system(size: 9, weight: .bold)).foregroundStyle(.white)
+                        .padding(.horizontal, 5).padding(.vertical, 1)
+                        .background(BattleTypeColor.statusColor(status), in: Capsule())
+                }
                 Spacer(minLength: 6)
                 Text(l.battleLevel(pokemon.level)).font(.caption).foregroundStyle(.secondary).monospacedDigit()
             }
@@ -122,6 +169,7 @@ struct BattleScreen: View {
                     .frame(maxWidth: .infinity, alignment: .trailing)
             }
             teamPips(side)
+            conditionChips(side)
         }
         .padding(10)
         .frame(width: 210)
@@ -204,11 +252,12 @@ struct BattleScreen: View {
                 .disabled(!session.canChoose)
             }
             LazyVGrid(columns: [GridItem(.flexible(), spacing: 8), GridItem(.flexible(), spacing: 8)], spacing: 8) {
-                ForEach(current.pokemon.moves.indices, id: \.self) { index in
-                    let move = current.pokemon.moves[index]
+                ForEach(current.moves.indices, id: \.self) { index in
+                    let move = current.moves[index]
                     Button { Task { await session.choose(.move(index)) } } label: {
                         MoveLabel(name: session.moveName(move.name), typeName: session.typeName(move.type),
-                                  move: move, pp: (current.pp[index], move.pp))
+                                  move: move, pp: (current.pp[index], current.maxPP[index]),
+                                  unsupportedLabel: move.isSupportedInBattle ? nil : l.battleNotYet)
                     }
                     .buttonStyle(.plain)
                     .disabled(!session.canChoose || !usable.contains(index))
@@ -283,6 +332,7 @@ private struct MoveLabel: View {
     let typeName: String
     let move: BattleMove
     let pp: (Int, Int)?
+    var unsupportedLabel: String? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -291,7 +341,12 @@ private struct MoveLabel: View {
                 Text(typeName.uppercased())
                     .font(.system(size: 9, weight: .bold)).foregroundStyle(.white.opacity(0.9))
                 Spacer()
-                if let pp {
+                if let unsupportedLabel {
+                    Text(unsupportedLabel.uppercased())
+                        .font(.system(size: 9, weight: .bold)).foregroundStyle(.white)
+                        .padding(.horizontal, 5).padding(.vertical, 1)
+                        .background(.black.opacity(0.35), in: Capsule())
+                } else if let pp {
                     Text("PP \(pp.0)/\(pp.1)").font(.system(size: 10).monospacedDigit()).foregroundStyle(.white.opacity(0.9))
                 }
             }
@@ -334,6 +389,16 @@ enum BattleTypeColor {
         "rock": (0.71, 0.62, 0.23), "ghost": (0.45, 0.34, 0.59), "dragon": (0.44, 0.21, 0.99),
         "dark": (0.44, 0.34, 0.27), "steel": (0.56, 0.56, 0.68), "fairy": (0.84, 0.52, 0.68),
     ]
+
+    static func statusColor(_ status: BattleStatus) -> Color {
+        switch status {
+        case .paralysis: return color("electric")
+        case .burn: return color("fire")
+        case .poison, .badPoison: return color("poison")
+        case .sleep: return color("normal")
+        case .freeze: return color("ice")
+        }
+    }
 
     static func color(_ type: String) -> Color {
         guard let (r, g, b) = colors[type] else { return Color(white: 0.45) }
@@ -387,7 +452,7 @@ final class ChallengePrompt: NSObject, NSWindowDelegate {
 }
 
 @MainActor
-private struct ChallengePromptView: View {
+struct ChallengePromptView: View {
     let challenge: IncomingChallenge
     let l: L
     let accept: () -> Void

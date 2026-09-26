@@ -25,6 +25,8 @@ struct BattlePokemon: Codable, Sendable, Equatable {
     let types: [String]
     let stats: BattleStats
     let moves: [BattleMove]
+    /// PokéAPI hectograms; Heavy Slam, Heat Crash, Low Kick and Grass Knot scale with it.
+    var weight = 100
 }
 
 struct BattleTeam: Codable, Sendable, Equatable {
@@ -64,7 +66,7 @@ extension BattlePokemon {
         guard (1...64).contains(instanceID.count), (1...100).contains(level) else { return false }
         guard statValues.allSatisfy({ (1...9_999).contains($0) }) else { return false }
         guard (1...2).contains(types.count), types.allSatisfy({ (1...20).contains($0.count) }) else { return false }
-        guard moves.count <= 4, moves.allSatisfy(\.isPlausible) else { return false }
+        guard moves.count <= 4, moves.allSatisfy(\.isPlausible), (1...9_999).contains(weight) else { return false }
         return names.count <= 64 && names.allSatisfy { $0.key.count <= 16 && $0.value.count <= 64 }
     }
 }
@@ -129,7 +131,8 @@ enum BattleSnapshotBuilder {
             abilityName: profile.abilityName,
             types: details.types,
             stats: stats,
-            moves: resolved)
+            moves: resolved,
+            weight: min(9_999, max(1, details.weight)))
     }
 }
 

@@ -586,6 +586,28 @@ read_when:
   `Task` too, so the test finished before it ran: deliver interrupts synchronously.
   Guard: `testForfeitArrivingDuringPlaybackIsAppliedAfterwards`.
 
+## Battle engine
+
+- **Every engine rule change bumps `BattleWireMessage.protocolVersion`.** Two Macs battle in lockstep,
+  each running its own engine; an old and a new app with different rules would compute different
+  battles and end in a desync with no winner. `BattleEngineVersionTests` pins the digest of a reference
+  battle together with the version, so a rule change fails until both are updated on purpose.
+  The reference pool avoids overkill moves: when every hit is a KO, damage rules cannot change the digest.
+- **Test a modifier against a bound, not against a second random battle.** The first burn test compared
+  a burned and an unburned battle that drew different random rolls; "less damage" held with the halving
+  removed. The random factor is 85–100%, so a halved hit must stay at or below half the unburned maximum —
+  that bound fails without the rule (`testBurnHalvesPhysicalDamageAndHurtsEachTurn`).
+
+- **Lockstep state encodes only String-keyed dictionaries.** `JSONEncoder` writes a dictionary with
+  enum or Int keys as an array in hash order, and Swift seeds hashing per process: two Macs holding the
+  same battle would compute different digests and abort each other with a false desync. No in-process
+  test can see this (both engines share one seed), so it is a review rule: side conditions store
+  `screens` keyed by `BattleBarrier.rawValue`, and `.sortedKeys` makes String keys deterministic.
+- **Send a mid-turn choice before applying it.** After U-turn or Baton Pass the replacement finishes the
+  turn locally, so a pick sent afterwards carried the next turn number and the waiting peer aborted
+  with a desync. KO replacements never change the turn, which is why only the pivot path broke.
+  Guard: `testUTurnAcrossTheNetworkKeepsBothMachinesInSync` (fails with the order reversed).
+
 ## 프로세스·인스턴스
 
 - **로그인 실행을 LaunchAgent 로 등록하면 "등록하는 순간" 앱이 한 번 더 뜬다.** plist 의 `RunAtLoad` 는

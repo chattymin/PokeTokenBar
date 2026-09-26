@@ -67,15 +67,15 @@ final class BattleCPUTests: XCTestCase {
         let growl = BattleMove(name: "growl", type: "normal", power: nil, accuracy: 100, pp: 40, priority: 0,
                                damageClass: .status, target: "all-opponents",
                                statChanges: [BattleStatChange(stat: "attack", change: -1)], category: "net-good-stats")
-        let splash = move("splash", power: nil, damageClass: .status, category: "unique")
-        let attacker = mon("cpu", moves: [splash, growl, move("tackle")])
-        let defender = mon("foe")
-        XCTAssertLessThan(BattleCPU.score(splash, attacker, defender), BattleCPU.score(growl, attacker, defender))
-        XCTAssertLessThan(BattleCPU.score(growl, attacker, defender), BattleCPU.score(move("tackle"), attacker, defender))
+        let splash = move("metronome", power: nil, damageClass: .status, category: "unique")
+        let state = BattleState(teamA: try team([mon("cpu", moves: [splash, growl, move("tackle")])]),
+                                teamB: try team([mon("foe")]), seed: 1)
+        XCTAssertLessThan(BattleCPU.score(splash, by: .a, in: state), BattleCPU.score(growl, by: .a, in: state))
+        XCTAssertLessThan(BattleCPU.score(growl, by: .a, in: state), BattleCPU.score(move("tackle"), by: .a, in: state))
     }
 
     func testStrugglesWithoutUsableMovesAndReplacesWithTheBestMatchup() throws {
-        let splash = move("splash", power: nil, damageClass: .status, category: "unique")
+        let splash = move("metronome", power: nil, damageClass: .status, category: "unique")
         var rng = BattleRNG(seed: 1)
         let stuck = BattleState(teamA: try team([mon("foe")]), teamB: try team([mon("cpu", moves: [splash])]), seed: 1)
         XCTAssertEqual(BattleCPU.action(for: .b, in: stuck, rng: &rng), .struggle)
@@ -269,6 +269,23 @@ final class BattleSessionTests: XCTestCase {
             (.statLimit(.a, stat: "attack", rising: true), ["A’s Attack won’t go any higher!"]),
             (.failed(.a), ["But it failed!"]),
             (.forfeited(.b), ["The opponent forfeited!"]),
+            (.statusApplied(.b, .paralysis), ["The opposing B is paralyzed! It may be unable to move!"]),
+            (.statusApplied(.a, .badPoison), ["A was badly poisoned!"]),
+            (.confused(.b), ["The opposing B became confused!"]),
+            (.cantMove(.a, .asleep), ["A is fast asleep."]),
+            (.cantMove(.b, .flinched), ["The opposing B flinched and couldn’t move!"]),
+            (.wokeUp(.a), ["A woke up!"]),
+            (.thawed(.b), ["The opposing B thawed out!"]),
+            (.isConfused(.a), ["A is confused!"]),
+            (.hurtByConfusion(.a, amount: 3, hp: 7), ["It hurt itself in its confusion!"]),
+            (.snappedOut(.a), ["A snapped out of its confusion!"]),
+            (.residual(.a, .burn, amount: 6, hp: 94), ["A is hurt by its burn!"]),
+            (.residual(.b, .poison, amount: 6, hp: 94), ["The opposing B is hurt by poison!"]),
+            (.protecting(.a), ["A protected itself!"]),
+            (.bracing(.a), ["A braced itself!"]),
+            (.blocked(.b), ["The opposing B protected itself!"]),
+            (.endured(.a), ["A endured the hit!"]),
+            (.rested(.a, hp: 100), ["A slept and became healthy!"]),
             (.ended(winner: nil), []),
         ]
         for (event, lines) in expected { XCTAssertEqual(s.lines(for: event), lines, "\(event)") }
@@ -285,6 +302,20 @@ final class BattleSessionTests: XCTestCase {
         await s.choose(.move(0))
         XCTAssertEqual(s.outcome, .draw)
         XCTAssertEqual(s.message, "It’s a draw!")
+    }
+
+    func testStatusCopyKeepsThePokemonNameInEveryLanguage() {
+        let a = "ZQXA"
+        for language in AppLanguage.allCases {
+            let l = L(language)
+            var lines = BattleStatus.allCases.flatMap { [l.battleStatusApplied(a, $0), l.battleResidual(a, $0)] }
+            lines += [BattleCantMoveReason.asleep, .frozen, .paralyzed, .flinched].map { l.battleCantMove(a, $0) }
+            lines += [l.battleWokeUp(a), l.battleThawed(a), l.battleBecameConfused(a), l.battleIsConfused(a),
+                      l.battleSnappedOut(a), l.battleProtecting(a), l.battleBracing(a), l.battleBlocked(a),
+                      l.battleEndured(a), l.battleRested(a)]
+            for line in lines { XCTAssertTrue(line.contains(a), "\(language.rawValue): \(line)") }
+            XCTAssertEqual(Set(BattleStatus.allCases.map { l.battleStatusApplied(a, $0) }).count, BattleStatus.allCases.count)
+        }
     }
 
     func testMatchCopyKeepsEveryPlaceholderInEveryLanguage() {

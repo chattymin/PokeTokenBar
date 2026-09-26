@@ -361,3 +361,24 @@ private final class MultipeerProxy: NSObject, MCSessionDelegate, MCNearbyService
     func session(_ session: MCSession, didFinishReceivingResourceWithName resourceName: String, fromPeer peerID: MCPeerID,
                  at localURL: URL?, withError error: Error?) {}
 }
+
+#if DEBUG
+extension NearbyBattleService {
+    /// Puts the lobby into a shown state without touching the network, for rendering screenshots.
+    /// `trainer` must match what the view configures, or `configure` restarts real discovery.
+    func stageForScreenshot(trainer: String, trainers names: [(String, compatible: Bool)], status: Status = .idle,
+                            challengeFrom challenger: String? = nil) {
+        trainerName = trainer
+        isVisible = true
+        trainers = names.map { NearbyTrainer(id: MCPeerID(displayName: $0.0), isCompatible: $0.compatible) }
+        self.status = status
+        incoming = challenger.map(IncomingChallengeStub.make)
+    }
+}
+
+enum IncomingChallengeStub {
+    static func make(_ trainer: String) -> IncomingChallenge {
+        IncomingChallenge(trainer: trainer, peer: MCPeerID(displayName: trainer), respond: { _, _ in })
+    }
+}
+#endif

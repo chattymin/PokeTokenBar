@@ -13,7 +13,7 @@ enum BattleWireMessage: Codable, Sendable, Equatable {
     case replacement(turn: Int, index: Int)
     case forfeit
 
-    static let protocolVersion = 1
+    static let protocolVersion = 3
     static let maxSize = 256 * 1024
 
     func encoded() throws -> Data { try JSONEncoder().encode(self) }

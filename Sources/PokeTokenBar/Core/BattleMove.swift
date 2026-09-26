@@ -32,7 +32,8 @@ struct BattleMove: Codable, Sendable, Equatable {
     let ailmentChance: Int
     let flinchChance: Int
 
-    var isDamaging: Bool { damageClass != .status && power != nil }
+    /// Includes moves whose damage comes from a rule instead of a fixed power (see `damageRule`).
+    var isDamaging: Bool { damageClass != .status && (power != nil || hasDamageRule) }
 
     func withType(_ type: String) -> BattleMove {
         BattleMove(name: name, type: type, power: power, accuracy: accuracy, pp: pp, priority: priority,
