@@ -470,6 +470,11 @@ read_when:
   → Generic helpers that take an async closure and return its result on an actor constrain `T: Sendable`.
   Sweep: every other isolation-crossing value in the battle code (`Task<Snapshot, Error>`, task groups of
   `BattleMove`, `async let` of `BattleMatch`) is already a `Sendable` type. Guard: the `macos-15` CI build.
+  **Third instance (same PR):** a `@MainActor` `XCTestCase` read its `files` array in `override func
+  tearDown()`. 6.1.2 treats XCTest's `tearDown` as nonisolated, so the actor-isolated property was an error.
+  → Clean up per resource with `addTeardownBlock { … }` capturing only the `Sendable` value, instead of
+  overriding `setUp`/`tearDown` in a `@MainActor` test class. The first CI run hid this one: a build error
+  in `Sources/` stops before the test target compiles, so fix one CI failure and expect the next.
 - **SwiftUI `View`/`App` 경계는 `@MainActor` 를 명시한다.** Swift 6.3 은 `body` 밖의 `@ViewBuilder` helper·
   동기 클로저를 nonisolated 로 검사해, `@MainActor` `@Observable` store 접근이 수십 개의 오류로 연쇄된다.
   개별 프로퍼티에 `MainActor.assumeIsolated` 를 흩뿌리지 말고 UI 타입 선언 한 곳에 격리를 둔다.

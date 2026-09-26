@@ -16,15 +16,9 @@ private func dexEntry(_ instanceID: String, speciesID: Int = 25, level: Int = 30
 
 @MainActor
 final class BattleTeamTests: XCTestCase {
-    private var files: [URL] = []
-    override func tearDown() {
-        files.forEach { try? FileManager.default.removeItem(at: $0) }
-        super.tearDown()
-    }
-
     private func stateFile(_ state: CompanionState) throws -> URL {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("battle-team-\(UUID().uuidString).json")
-        files.append(url)
+        addTeardownBlock { try? FileManager.default.removeItem(at: url) }
         try JSONEncoder().encode(state).write(to: url)
         return url
     }
@@ -73,11 +67,15 @@ final class BattleTeamTests: XCTestCase {
 
     func testTeamPersistsAcrossRelaunch() throws {
         let entries = ["a", "b"].map { dexEntry($0) }
-        let s = try store(dex: entries)
+        var state = CompanionState()
+        state.dex = entries
+        let url = try stateFile(state)
+        let s = CompanionStore(provider: StubProvider(value: singleStage), clock: { fixedNow },
+                               fileURL: url, rng: SeededRNG(seed: 7))
         s.toggleBattleTeamMember(entries[1])
         s.toggleBattleTeamMember(entries[0])
         let reopened = CompanionStore(provider: StubProvider(value: singleStage), clock: { fixedNow },
-                                      fileURL: try XCTUnwrap(files.last), rng: SeededRNG(seed: 7))
+                                      fileURL: url, rng: SeededRNG(seed: 7))
         XCTAssertEqual(reopened.battleTeamEntries.map(\.id), ["b", "a"])
     }
 
