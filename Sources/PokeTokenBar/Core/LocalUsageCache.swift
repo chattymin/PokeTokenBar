@@ -122,6 +122,9 @@ actor LocalUsageCache {
     private let piRoots: [URL]?
     private let ompRoots: [URL]?
     private let fileURL: URL
+    /// Whether this cache reads and writes `fileURL` (`AppEnv.persistsToUserLocation`). Not private so
+    /// tests can check the gate without doing any IO.
+    nonisolated let persistsToDisk: Bool
     private let now: @Sendable () -> Date
     /// throwing probe 를 쓴다 — 읽기 실패(throw)와 "metadata 없음"(`nil`)은 인덱스에 남길지가 다르다.
     private let codexProbe: @Sendable (URL) throws -> String?
@@ -153,6 +156,9 @@ actor LocalUsageCache {
         self.piRoots = piRoots
         self.ompRoots = ompRoots
         self.fileURL = fileURL ?? Self.defaultFileURL
+        // `LocalUsageProvider` uses `.shared`, so without this a single `refresh()` during `swift test`
+        // reads and rewrites the user's real usage-cache.json.
+        self.persistsToDisk = AppEnv.persistsToUserLocation(injectedFileURL: fileURL)
         self.now = now
         self.codexProbe = codexProbe
     }
@@ -414,10 +420,20 @@ actor LocalUsageCache {
 
     // MARK: 영속화
 
+    /// Number of loaded blobs, used to observe the read gate: if a default-path cache read the user's
+    /// real file, hundreds of their blobs would show up next to a single fixture.
+    var cachedBlobCount: Int {
+        ensureLoaded()
+        return claudeCache.count + codexCache.count + geminiCache.count
+            + grokCache.count + piCache.count + ompCache.count
+    }
+
     private func ensureLoaded() {
         guard !loaded else { return }
         loaded = true
-        guard let raw = try? Data(contentsOf: fileURL) else { return }
+        // Reads are gated too: a test that read the user's real cache would assert on fixtures mixed
+        // with live data.
+        guard persistsToDisk, let raw = try? Data(contentsOf: fileURL) else { return }
         // zlib 압축 스냅샷(현행) → 실패 시 평문 JSON(구버전 캐시) 폴백
         let data = (try? (raw as NSData).decompressed(using: .zlib) as Data) ?? raw
         guard let snap = try? JSONDecoder().decode(Snapshot.self, from: data) else { return }
@@ -471,6 +487,7 @@ actor LocalUsageCache {
     /// 변경이 있으면 디스크에 저장(최소 60초 간격으로 throttle — 잦은 쓰기 방지).
     private func saveIfNeeded() {
         guard dirty else { return }
+        guard persistsToDisk else { dirty = false; return }
         if let last = lastSave, now().timeIntervalSince(last) < 60 { return }
         prune()
         let snap = Snapshot(
