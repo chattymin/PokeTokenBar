@@ -618,14 +618,16 @@ final class UsageStore {
                     key: "codex.\(bucketKey).primary",
                     name: "\(bucketName) \(l.codexWindow(primary.windowDurationMins))",
                     kind: Self.windowClass(minutes: primary.windowDurationMins),
-                    utilization: Double(primary.usedPercent)))
+                    utilization: Double(primary.usedPercent),
+                    epoch: primary.resetsAt.map(String.init)))
             }
             if let secondary = bucket.secondary {
                 windows.append(CandyWindow(
                     key: "codex.\(bucketKey).secondary",
                     name: "\(bucketName) \(l.codexWindow(secondary.windowDurationMins))",
                     kind: Self.windowClass(minutes: secondary.windowDurationMins),
-                    utilization: Double(secondary.usedPercent)))
+                    utilization: Double(secondary.usedPercent),
+                    epoch: secondary.resetsAt.map(String.init)))
             }
         }
         for group in antigravityLimits?.groups ?? [] {
@@ -636,14 +638,16 @@ final class UsageStore {
                     key: "antigravity.\(groupKey).5h",
                     name: "\(groupTitle) \(l.fiveHourSession)",
                     kind: .session,
-                    utilization: fiveHour.usedPercent))
+                    utilization: fiveHour.usedPercent,
+                    epoch: fiveHour.resetTime))
             }
             if let weekly = group.weeklyBucket {
                 windows.append(CandyWindow(
                     key: "antigravity.\(groupKey).weekly",
                     name: "\(groupTitle) \(l.weekly)",
                     kind: .weekly,
-                    utilization: weekly.usedPercent))
+                    utilization: weekly.usedPercent,
+                    epoch: weekly.resetTime))
             }
         }
         return windows
@@ -653,13 +657,15 @@ final class UsageStore {
     private func claudeCandyWindows(_ account: ClaudeAccountLimits, named: Bool, _ l: L) -> [CandyWindow] {
         let suffix = named ? " (\(account.title))" : ""
         var windows: [CandyWindow] = []
-        if let u = account.status.fiveHour?.utilization {
+        if let fiveHour = account.status.fiveHour, let u = fiveHour.utilization {
             windows.append(CandyWindow(key: "\(account.windowKeyPrefix).fiveHour",
-                                       name: l.claudeFiveHour + suffix, kind: .session, utilization: u))
+                                       name: l.claudeFiveHour + suffix, kind: .session,
+                                       utilization: u, epoch: fiveHour.resetsAt))
         }
-        if let u = account.status.sevenDay?.utilization {
+        if let sevenDay = account.status.sevenDay, let u = sevenDay.utilization {
             windows.append(CandyWindow(key: "\(account.windowKeyPrefix).sevenDay",
-                                       name: l.claudeWeekly + suffix, kind: .weekly, utilization: u))
+                                       name: l.claudeWeekly + suffix, kind: .weekly,
+                                       utilization: u, epoch: sevenDay.resetsAt))
         }
         return windows
     }

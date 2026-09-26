@@ -15,8 +15,9 @@ private let rcLinear3 = rcLine(base: 1, tree: rcNode(1, [rcNode(2, [rcNode(3)])]
 private let rcNoEvo = rcLine(base: 20, tree: rcNode(20))                              // 커먼 1형태: 750M 단일
 private let rcNow = Date(timeIntervalSince1970: 1_700_000_000)
 
-private func w(_ key: String, _ kind: WindowClass, _ util: Double, name: String = "T") -> CandyWindow {
-    CandyWindow(key: key, name: name, kind: kind, utilization: util)
+private func w(_ key: String, _ kind: WindowClass, _ util: Double, name: String = "T",
+               epoch: String? = nil) -> CandyWindow {
+    CandyWindow(key: key, name: name, kind: kind, utilization: util, epoch: epoch)
 }
 
 /// line() 이 throw 하는 provider — 라인 미로딩(오프라인/재시작 직후) 상태 재현용.
@@ -32,20 +33,26 @@ private struct RCLineThrows: PokeProviding {
 final class CandyGrantEvaluationTests: XCTestCase {
     func testSessionGrantsOne() {
         var tier: [String: Int] = [:]
-        let grants = CompanionStore.evaluateCandyGrants(windows: [w("s", .session, 100)], grantTier: &tier)
+        var epochs: [String: String] = [:]
+        let grants = CompanionStore.evaluateCandyGrants(
+            windows: [w("s", .session, 100)], grantTier: &tier, windowEpoch: &epochs)
         XCTAssertEqual(grants.map(\.count), [1])
         XCTAssertEqual(tier["s"], 1)
     }
 
     func testWeeklyGrantsFive() {
         var tier: [String: Int] = [:]
-        let grants = CompanionStore.evaluateCandyGrants(windows: [w("wk", .weekly, 100)], grantTier: &tier)
+        var epochs: [String: String] = [:]
+        let grants = CompanionStore.evaluateCandyGrants(
+            windows: [w("wk", .weekly, 100)], grantTier: &tier, windowEpoch: &epochs)
         XCTAssertEqual(grants.map(\.count), [RareCandy.weeklyGrant])
     }
 
     func testBelow100NoGrant() {
         var tier: [String: Int] = [:]
-        let grants = CompanionStore.evaluateCandyGrants(windows: [w("s", .session, 99.9)], grantTier: &tier)
+        var epochs: [String: String] = [:]
+        let grants = CompanionStore.evaluateCandyGrants(
+            windows: [w("s", .session, 99.9)], grantTier: &tier, windowEpoch: &epochs)
         XCTAssertTrue(grants.isEmpty)
         XCTAssertNil(tier["s"])
     }
@@ -53,37 +60,76 @@ final class CandyGrantEvaluationTests: XCTestCase {
     /// 같은 tier 유지 중엔 재지급 안 함(80·81·84… 억제의 사탕 버전).
     func testNoDoubleGrantWhileAt100() {
         var tier: [String: Int] = [:]
-        _ = CompanionStore.evaluateCandyGrants(windows: [w("s", .session, 100)], grantTier: &tier)
-        let again = CompanionStore.evaluateCandyGrants(windows: [w("s", .session, 100)], grantTier: &tier)
+        var epochs: [String: String] = [:]
+        _ = CompanionStore.evaluateCandyGrants(
+            windows: [w("s", .session, 100, epoch: "E1")], grantTier: &tier, windowEpoch: &epochs)
+        let again = CompanionStore.evaluateCandyGrants(
+            windows: [w("s", .session, 100, epoch: "E1")], grantTier: &tier, windowEpoch: &epochs)
         XCTAssertTrue(again.isEmpty, "이미 지급한 창은 재지급 안 함")
     }
 
     /// 100% 아래로 내려가면 재무장(맵에서 제거) → 다시 채우면 재지급.
     func testRearmAfterDropBelow100() {
         var tier: [String: Int] = [:]
-        _ = CompanionStore.evaluateCandyGrants(windows: [w("s", .session, 100)], grantTier: &tier)
-        _ = CompanionStore.evaluateCandyGrants(windows: [w("s", .session, 40)], grantTier: &tier)
+        var epochs: [String: String] = [:]
+        _ = CompanionStore.evaluateCandyGrants(
+            windows: [w("s", .session, 100)], grantTier: &tier, windowEpoch: &epochs)
+        _ = CompanionStore.evaluateCandyGrants(
+            windows: [w("s", .session, 40)], grantTier: &tier, windowEpoch: &epochs)
         XCTAssertNil(tier["s"], "경고선 아래 → 제거(재무장)")
-        let regrant = CompanionStore.evaluateCandyGrants(windows: [w("s", .session, 100)], grantTier: &tier)
+        let regrant = CompanionStore.evaluateCandyGrants(
+            windows: [w("s", .session, 100)], grantTier: &tier, windowEpoch: &epochs)
         XCTAssertEqual(regrant.map(\.count), [1], "리셋 후 다시 채우면 재지급")
+    }
+
+    /// [#326] 창이 리셋됐는데 앱이 중간 &lt;100% 샘플을 못 보면(슬립·종료) util 은 계속 100%다.
+    /// key 는 안정(claude.fiveHour)이라 util-only 재무장은 안 되고, epoch(`resets_at`) 교체로 재무장한다.
+    func testRearmWhenWindowEpochAdvancesWhileStillAt100() {
+        var tier: [String: Int] = [:]
+        var epochs: [String: String] = [:]
+        _ = CompanionStore.evaluateCandyGrants(
+            windows: [w("claude.fiveHour", .session, 100, epoch: "2026-09-17T10:00:00Z")],
+            grantTier: &tier, windowEpoch: &epochs)
+        XCTAssertEqual(tier["claude.fiveHour"], 1)
+
+        let grants = CompanionStore.evaluateCandyGrants(
+            windows: [w("claude.fiveHour", .session, 100, epoch: "2026-09-17T15:00:00Z")],
+            grantTier: &tier, windowEpoch: &epochs)
+        XCTAssertEqual(grants.map(\.count), [1], "새 창 epoch + 100% 는 재지급(슬립 중 리셋 누락 방지)")
+        XCTAssertEqual(epochs["claude.fiveHour"], "2026-09-17T15:00:00Z")
+    }
+
+    /// epoch 를 처음 알게 된 것만으로 재지급하지 않는다(구세이브 → 신규 필드 도입 시 폭탄 방지).
+    func testLearningEpochForFirstTimeDoesNotRegrant() {
+        var tier: [String: Int] = ["claude.fiveHour": 1]
+        var epochs: [String: String] = [:]
+        let grants = CompanionStore.evaluateCandyGrants(
+            windows: [w("claude.fiveHour", .session, 100, epoch: "E1")],
+            grantTier: &tier, windowEpoch: &epochs)
+        XCTAssertTrue(grants.isEmpty, "nil→E1 은 재무장이 아니라 epoch 기록만")
+        XCTAssertEqual(epochs["claude.fiveHour"], "E1")
+        XCTAssertEqual(tier["claude.fiveHour"], 1)
     }
 
     /// 세션+주간+미달 혼합 — 세션 1 + 주간 5, 미달 창은 무시.
     func testMixedWindows() {
         var tier: [String: Int] = [:]
+        var epochs: [String: String] = [:]
         let grants = CompanionStore.evaluateCandyGrants(windows: [
             w("claude.fiveHour", .session, 100),
             w("claude.sevenDay", .weekly, 100),
             w("codex.codex.primary", .session, 50),
-        ], grantTier: &tier)
+        ], grantTier: &tier, windowEpoch: &epochs)
         XCTAssertEqual(grants.reduce(0) { $0 + $1.count }, 1 + RareCandy.weeklyGrant)
     }
 
     /// 지급 grant 는 발화 창 이름을 담는다(알림 "왜 받는지").
     func testGrantCarriesWindowName() {
         var tier: [String: Int] = [:]
+        var epochs: [String: String] = [:]
         let grants = CompanionStore.evaluateCandyGrants(
-            windows: [w("claude.fiveHour", .session, 100, name: "Claude 5시간 세션")], grantTier: &tier)
+            windows: [w("claude.fiveHour", .session, 100, name: "Claude 5시간 세션")],
+            grantTier: &tier, windowEpoch: &epochs)
         XCTAssertEqual(grants.first?.windowName, "Claude 5시간 세션")
     }
 
@@ -127,6 +173,18 @@ final class RareCandyStoreTests: XCTestCase {
     private func store(_ line: EvoLine, seed: UInt64 = 7) -> CompanionStore {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("rc-\(UUID().uuidString).json")
         return CompanionStore(provider: StubProvider(value: line), clock: { rcNow }, fileURL: url, rng: SeededRNG(seed: seed))
+    }
+
+    /// [#326] 시드 후 util 이 계속 100%여도 창 epoch 가 바뀌면 재지급.
+    func testGrantAfterSeedWhenEpochAdvancesWithoutUtilDip() {
+        let s = store(rcLinear3)
+        s.grantCandies(from: [w("claude.fiveHour", .session, 100, epoch: "E1")], limitsReady: true)  // 시드
+        XCTAssertEqual(s.rareCandyCount, 0)
+        s.grantCandies(from: [w("claude.fiveHour", .session, 100, epoch: "E1")], limitsReady: true)
+        XCTAssertEqual(s.rareCandyCount, 0, "같은 epoch 는 재지급 없음")
+        s.grantCandies(from: [w("claude.fiveHour", .session, 100, epoch: "E2")], limitsReady: true)
+        XCTAssertEqual(s.rareCandyCount, 1, "새 epoch + 100% → 지급")
+        XCTAssertEqual(s.state.candyWindowEpoch["claude.fiveHour"], "E2")
     }
 
     /// 시드+지급 헬퍼 — 빈 창으로 시드 완료 후, 유니크 세션 창을 100%로 올려 n개 지급.
