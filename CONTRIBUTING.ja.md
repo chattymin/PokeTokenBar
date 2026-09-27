@@ -19,12 +19,14 @@
 本プロジェクトは Swift Package です。リポジトリのルートから:
 
 ```bash
-swift build      # アプリターゲットをコンパイル
-swift test       # 全テストスイートを実行
+swift build             # アプリターゲットをコンパイル
+./scripts/test-gate.sh   # 全テストを実行し、ロジックコアのカバレッジを検証
 ```
 
-CI はすべてのプルリクエストで `swift build` と `swift test` を実行します。まず
-ローカルで両方が通ることを確認してください。
+CI もすべてのプルリクエストで同じコマンドを実行します。テストゲートは
+`swift test --enable-code-coverage` を実行し、デフォルトでロジックコアの行カバレッジ
+75% 以上を要求します。PR を提出する前に、ローカルで両方を実行してください。
+開発中に特定のテストだけを確認する場合は `swift test --filter <TestCase>` を使ってください。
 
 ## 貢献ワークフロー
 
@@ -61,8 +63,11 @@ CI はすべてのプルリクエストで `swift build` と `swift test` を実
 - **使用量ソースの追加**（新しい AI CLI）= `UsageProvider` プロトコル
   (`Sources/PokeTokenBar/Core/UsageProvider.swift`) を新しい型ひとつで実装し、
   `UsageStore.init` のデフォルト `providers:` 配列
-  (`Sources/PokeTokenBar/Core/UsageStore.swift`) に登録します。触れる必要があるのは
-  この2箇所だけです。
+  (`Sources/PokeTokenBar/Core/UsageStore.swift`) に登録します。この2箇所は基本の追加先であり、
+  変更が2ファイルに限定されるわけではありません。ソースに応じて、リーダー、共有キャッシュとの連携、
+  カスタムスキャンパス、テストも追加・更新してください。
+  [プロバイダー拡張ガイド](docs/reference/provider-extension.md)と
+  [プロバイダー貢献チェックリスト](https://github.com/chattymin/PokeTokenBar/issues/115)に従ってください。
 - **汎用的な動作はすべてのプロバイダーにわたって集計する必要があります**（今日/週/月の
   合計、消費ペースの段階、コンパニオンのリズム）。汎用的な計算を特定のプロバイダーに結び付けたり、
   汎用パスに `providerID == "..."` のリテラル分岐を追加したりしないでください。
