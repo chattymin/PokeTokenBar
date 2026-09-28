@@ -401,8 +401,8 @@ enum PokemonNature: String, Codable, Sendable, CaseIterable {
     /// pt 만 예외 — 본가에 포르투갈어판이 없어 공식 명칭이 없다. "natureza"(여성 명사)에
     /// 맞춘 자체 번역이며 25종이 겹치지 않게 골랐다(`testNatureNamesComplete` 가 중복·공백을 막는다).
     /// ru 도 예외 — 본가 러시아어판이 없다. 커뮤니티 번역(러시아어 Pixelmon 위키의 характеры 표)을
-    /// 기준으로 "характер"(남성 명사)에 맞춘 남성형이며, 뜻이 어긋난 3종만 고쳤다:
-    /// Lax Слабый→Беспечный, Gentle Вежливый→Кроткий, Quirky Ловкий→Причудливый.
+    /// 기준으로 "характер"(남성 명사)에 맞춘 남성형이며, 뜻이 어긋난 2종만 고쳤다:
+    /// Lax Слабый→Беспечный, Gentle Вежливый→Кроткий.
     func name(_ lang: AppLanguage) -> String {
         let names: (String, String, String, String, String, String, String, String)
         switch self {
@@ -430,7 +430,7 @@ enum PokemonNature: String, Codable, Sendable, CaseIterable {
         case .gentle:  names = ("얌전", "Gentle", "おとなしい", "Amable", "Gentil", "Gentil", "Zart", "Кроткий")
         case .sassy:   names = ("건방", "Sassy", "なまいき", "Grosera", "Malpoli", "Atrevida", "Forsch", "Нахальный")
         case .careful: names = ("신중", "Careful", "しんちょう", "Cauta", "Prudent", "Cautelosa", "Sacht", "Внимательный")
-        case .quirky:  names = ("변덕", "Quirky", "きまぐれ", "Rara", "Bizarre", "Excêntrica", "Kauzig", "Причудливый")
+        case .quirky:  names = ("변덕", "Quirky", "きまぐれ", "Rara", "Bizarre", "Excêntrica", "Kauzig", "Ловкий")
         }
         switch lang { case .ko: return names.0; case .en: return names.1; case .ja: return names.2; case .es: return names.3; case .fr: return names.4; case .pt: return names.5; case .de: return names.6; case .ru: return names.7 }
     }
