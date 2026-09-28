@@ -174,7 +174,21 @@ const I18N = {
     "alt.trend": "Example daily token usage chart",
     "alt.quota": "Example provider limits and reset timing",
     "alt.collection": "Example Pokédex showing collected species",
-    "alt.pet": "Example floating desktop pet with usage callout"
+    "alt.pet": "Example floating desktop pet with usage callout",
+    "f16.t": "A clearer collection",
+    "f16.d": "Browse 16 Pokémon per page in a 4 × 4 Pokédex with larger sprites and names. Search, sort, and filter by rarity or Shiny status.",
+    "f17.t": "Your usage recap",
+    "f17.d": "Review token usage and companion milestones by week, month, or year.",
+    "f18.t": "Back up your progress",
+    "f18.d": "Export a backup of your companion data and restore it when needed.",
+    "f19.t": "Multiple Claude accounts",
+    "f19.d": "Track official Claude limits across multiple accounts from the same app.",
+    "f20.t": "See your usage pace",
+    "f20.d": "Quota bar colors reflect your usage pace relative to the remaining time in the window.",
+    "f21.t": "More ways to collect and grow",
+    "f21.d": "Collect Unown forms and use multiple Rare Candies at once to grow your partner.",
+    "alt.recap": "Example weekly recap with token usage and an Unown graduation",
+    "alt.pace": "Example quota bar with the usage pace marker"
   },
   "ko": {
     "f13.t": "이번 달의 일별 사용량",
@@ -350,7 +364,21 @@ const I18N = {
     "alt.trend": "일별 토큰 사용량 차트 예시",
     "alt.quota": "프로바이더 한도와 리셋 시점 예시",
     "alt.collection": "수집한 포켓몬이 표시된 도감 예시",
-    "alt.pet": "사용량 말풍선이 표시된 바탕화면 펫 예시"
+    "alt.pet": "사용량 말풍선이 표시된 바탕화면 펫 예시",
+    "f16.t": "더 잘 보이는 컬렉션",
+    "f16.d": "커진 이미지와 이름으로 한 페이지에 16마리를 4 × 4 도감에서 확인하세요. 검색·정렬과 희귀도·이로치 필터를 지원합니다.",
+    "f17.t": "사용량 리캡",
+    "f17.d": "주·월·연도별 토큰 사용량과 파트너의 성장 기록을 돌아보세요.",
+    "f18.t": "성장 기록 백업",
+    "f18.d": "파트너 데이터를 백업 파일로 내보내고 필요할 때 복원하세요.",
+    "f19.t": "여러 Claude 계정",
+    "f19.d": "하나의 앱에서 여러 Claude 계정의 공식 사용 한도를 확인하세요.",
+    "f20.t": "사용 속도를 색으로 확인",
+    "f20.d": "한도 막대 색상이 해당 구간의 남은 시간 대비 사용 속도를 보여줍니다.",
+    "f21.t": "더 다양한 수집과 성장",
+    "f21.d": "안농의 여러 모습을 수집하고 이상한 사탕을 한 번에 여러 개 사용해 파트너를 키우세요.",
+    "alt.recap": "토큰 사용량과 안농 졸업 기록을 보여주는 주간 리캡 예시",
+    "alt.pace": "사용 속도 마커가 표시된 한도 막대 예시"
   },
   "ja": {
     "f13.t": "今月の日別使用量",
@@ -526,7 +554,21 @@ const I18N = {
     "alt.trend": "日別トークン使用量グラフの例",
     "alt.quota": "プロバイダーの上限とリセット時刻の例",
     "alt.collection": "集めたポケモンを表示した図鑑の例",
-    "alt.pet": "使用量の吹き出しを表示したデスクトップペットの例"
+    "alt.pet": "使用量の吹き出しを表示したデスクトップペットの例",
+    "f16.t": "見やすくなったコレクション",
+    "f16.d": "大きくなった画像と名前で、1ページ16匹の4 × 4図鑑を表示。検索・並べ替えと、レア度・色違いの絞り込みに対応します。",
+    "f17.t": "使用量の振り返り",
+    "f17.d": "週・月・年ごとのトークン使用量とパートナーの成長記録を振り返りましょう。",
+    "f18.t": "成長記録をバックアップ",
+    "f18.d": "パートナーのデータをバックアップファイルに書き出し、必要なときに復元できます。",
+    "f19.t": "複数のClaudeアカウント",
+    "f19.d": "一つのアプリで複数のClaudeアカウントの公式使用上限を確認できます。",
+    "f20.t": "使用ペースを色で確認",
+    "f20.d": "上限バーの色で、ウィンドウの残り時間に対する使用ペースを確認できます。",
+    "f21.t": "さらに集めて育てる",
+    "f21.d": "アンノーンの姿を集めたり、ふしぎなアメをまとめて使ってパートナーを育てたりできます。",
+    "alt.recap": "トークン使用量とアンノーンの卒業記録を表示した週間リキャップの例",
+    "alt.pace": "使用ペースのマーカーを表示した上限バーの例"
   }
 };
 const root = document.documentElement;
