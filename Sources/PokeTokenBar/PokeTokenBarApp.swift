@@ -96,8 +96,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             button.imagePosition = .imageLeading
             button.font = .monospacedDigitSystemFont(ofSize: 13, weight: .regular)
             button.cell?.usesSingleLineMode = false   // 사용량/한도를 2줄로 세로 스택 가능하게
-            button.action = #selector(togglePopover)
+            button.action = #selector(statusItemClicked)
             button.target = self
+            button.sendAction(on: [.leftMouseUp, .rightMouseUp])   // right click opens StatusItemMenu
             prepareSpriteLayer(on: button)   // 프레임 교체를 레이어 contents 로 — 설정이 먼저다
             let egg = Self.eggImage(up: false)
             setStatusImage(egg, cgFrame: Self.cgFrame(from: egg))   // 초기 알도 같은 경로로(불변식)
@@ -552,21 +553,61 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
                 .environment(store).environment(companion).environment(updater).environment(navigation))
     }
 
-    @objc private func togglePopover() {
+    @objc private func statusItemClicked() {
+        let event = NSApp.currentEvent
+        if StatusItemMenu.opensMenu(eventType: event?.type, modifiers: event?.modifierFlags ?? []) {
+            showStatusMenu()
+        } else {
+            togglePopover()
+        }
+    }
+
+    private func showStatusMenu() {
         guard let button = statusItem.button else { return }
+        if popover.isShown { popover.performClose(nil) }
+        let entries = StatusItemMenu.entries(
+            l: companion.l, todayTokens: store.todayTotalTokens,
+            todayCost: store.showsCost ? store.todayUsageCost : nil,
+            floatingPetEnabled: store.floatingPetEnabled)
+        // Attaching the menu only for this click keeps left click on the popover. performClick
+        // tracks the menu synchronously, with the button highlighted like any other status menu.
+        statusItem.menu = StatusItemMenu.build(entries, target: self, selector: #selector(handleStatusMenu(_:)))
+        button.performClick(nil)
+        statusItem.menu = nil
+    }
+
+    @objc private func handleStatusMenu(_ item: NSMenuItem) {
+        switch StatusItemMenu.action(of: item) {
+        case .refresh: Task { await store.refresh() }
+        case .openDex: showPopover { $0.openRepresentativeDex() }
+        case .openSettings: showPopover { $0.showSettings = true }
+        case .toggleFloatingPet: store.floatingPetEnabled.toggle()
+        case .quit: NSApp.terminate(nil)
+        case nil: break
+        }
+    }
+
+    @objc private func togglePopover() {
         if popover.isShown {
             popover.performClose(nil)   // 해제·메뉴 애니메이션 재개는 popoverDidClose 에서
         } else {
-            navigation.reset()   // 닫혔다 열리면 항상 Home 으로 (설정 화면 잔류 방지)
-            buildPopoverContent()   // 열 때 호스팅 트리 생성(닫힐 때 해제)
-            // LSUIElement 앱이 비활성이면 팝오버 내부 버튼 클릭이 무시됨 — show 전에 활성화 보장
-            NSApp.activate(ignoringOtherApps: true)
-            popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
-            popover.contentViewController?.view.window?.makeKeyAndOrderFront(nil)
-            syncMenuAnimation()   // 팝오버 열림 → 메뉴바 애니메이션 정지(중복 + WindowServer 부하 회피)
-            store.requestNotificationAuthorizationIfNeeded()   // 알림 권한은 사용자가 앱을 처음 열 때 요청
-            Task { await updater.check() }   // 팝오버 열 때 재확인(내부 minInterval 디바운스)
+            showPopover()
         }
+    }
+
+    /// `route` runs after the reset to Home, so a menu item can land on a specific screen.
+    private func showPopover(route: (PopoverNavigation) -> Void = { _ in }) {
+        guard let button = statusItem.button, !popover.isShown else { return }
+        navigation.reset()   // 닫혔다 열리면 항상 Home 으로 (설정 화면 잔류 방지)
+        route(navigation)
+        buildPopoverContent()   // 열 때 호스팅 트리 생성(닫힐 때 해제)
+        // LSUIElement 앱이 비활성이면 팝오버 내부 버튼 클릭이 무시됨 — show 전에 활성화 보장
+        NSApp.activate(ignoringOtherApps: true)
+        popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+        popover.contentViewController?.view.window?.makeKeyAndOrderFront(nil)
+        syncMenuAnimation()   // 팝오버 열림 → 메뉴바 애니메이션 정지(중복 + WindowServer 부하 회피)
+        store.requestNotificationAuthorizationIfNeeded()   // 알림 권한은 사용자가 앱을 처음 열 때 요청
+        Task { await updater.check() }   // 팝오버 열 때 재확인(내부 minInterval 디바운스)
     }
 
     /// Start and stop are both delegate-driven so a second `show` path cannot
