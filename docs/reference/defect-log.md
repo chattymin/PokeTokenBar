@@ -40,6 +40,14 @@ read_when:
   sprite's independent SwiftUI `.task(id:)` had not finished rendering. Keep transition-index
   diagnostics and prove a permanently stale sprite still fails after the readiness deadline.
 
+- **Bundled CLI discovery must cover the shipped app layout.** ChatGPT moved Codex from
+  `Contents/Resources/codex` into `Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex`.
+  After an update removed the cached executable, GUI discovery returned nil and hid the limits.
+  Fake-response tests bypassed the production candidate list. `CodexRateLimitsProviderTests`
+  now checks both bundle layouts in the default candidates and preserves dedicated-install
+  precedence; removing the new candidate must fail the regression. The source sweep found
+  this provider is the only owner of ChatGPT CLI bundle paths.
+
 - **Localized metadata names must not replace persistent API identifiers.** The dex rendered
   ability, move, and type slugs directly, while existing tests covered species names and profile
   metadata rather than these visible labels. All five detail-view name sites now use a shared
