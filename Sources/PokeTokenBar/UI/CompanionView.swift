@@ -290,6 +290,9 @@ struct EvoLineView: View {
     /// 한 줄이 쓸 수 있는 가로 폭. 기본 .infinity = 제한 없음(스크롤 없이 나열).
     var maxWidth: CGFloat = .infinity
     var unownForm: UnownForm? = nil
+    var nameFontSize: CGFloat = 8
+    var nameLineLimit: Int = 1
+    var nameMinimumScaleFactor: CGFloat = 0.7
 
     private static let spacing: CGFloat = 2
     /// 화살표 칸 폭 = 썸네일 × 이 비율. 고정 frame 을 줘 SF Symbol 글리프 폭에 의존하지 않게 한다 —
@@ -471,8 +474,10 @@ struct EvoLineView: View {
                         }
                     if let names, case .species(let id) = node.content {
                         Text(UnownForm.displayName(names[id] ?? "…", speciesID: id, form: unownForm))
-                            .font(.system(size: 8)).foregroundStyle(.secondary)
-                            .lineLimit(1).minimumScaleFactor(0.7).frame(maxWidth: thumb + Self.nameSlack)
+                            .font(.system(size: nameFontSize)).foregroundStyle(.secondary)
+                            .lineLimit(nameLineLimit).minimumScaleFactor(nameMinimumScaleFactor)
+                            .multilineTextAlignment(.center)
+                            .frame(maxWidth: thumb + Self.nameSlack)
                     }
                 }
                 .frame(width: thumb + (names == nil ? 0 : Self.nameSlack))
@@ -729,11 +734,11 @@ struct RarityTally: View {
     var body: some View {
         HStack(spacing: 3) {
             Circle().fill(color).frame(width: 6, height: 6)
-            Text(label).font(.system(size: 9, weight: isSelected ? .semibold : .medium))
-            Text("\(count)").font(.system(size: 9, weight: .bold))
+            Text(label).font(.system(size: 11, weight: isSelected ? .semibold : .medium))
+            Text("\(count)").font(.system(size: 11, weight: .bold))
             if isSelected {
                 Image(systemName: "checkmark")
-                    .font(.system(size: 7, weight: .bold)).foregroundStyle(color)
+                    .font(.system(size: 9, weight: .bold)).foregroundStyle(color)
             }
         }
         .foregroundStyle(.primary)
@@ -758,21 +763,25 @@ struct DexSummaryHeader: View {
             HStack(spacing: 6) {
                 Text(store.l.catchLogTitle).font(.callout.weight(.semibold))
                 Text(store.l.dexTotal(store.dexEntries.count))
-                    .font(.caption2).foregroundStyle(.secondary)
+                    .font(.caption).foregroundStyle(.secondary)
             }
-            HStack(spacing: 4) {
-                ForEach(rarityDisplayOrder, id: \.self) { r in
-                    let count = store.dexCount(r)
-                    Button { onSelect(r) } label: {
-                        RarityTally(
-                            label: store.l.rarityLabel(r), count: count, color: rarityColor(r),
-                            isSelected: selected == r)
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 4) {
+                    ForEach(rarityDisplayOrder, id: \.self) { r in
+                        let count = store.dexCount(r)
+                        Button { onSelect(r) } label: {
+                            RarityTally(
+                                label: store.l.rarityLabel(r), count: count, color: rarityColor(r),
+                                isSelected: selected == r)
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(count == 0)          // 0마리 희귀도는 필터 불가
+                        .help(store.l.dexFilterHint)
                     }
-                    .buttonStyle(.plain)
-                    .disabled(count == 0)          // 0마리 희귀도는 필터 불가
-                    .help(store.l.dexFilterHint)
                 }
+                .fixedSize(horizontal: true, vertical: false)
             }
+            .fixedSize(horizontal: false, vertical: true)
         }
     }
 }
@@ -865,17 +874,17 @@ struct CollectionView: View {
             HStack(spacing: 4) {
                 Image(systemName: "magnifyingglass")
                     .foregroundStyle(.secondary)
-                    .font(.system(size: 11))
+                    .font(.system(size: 13))
                 TextField(store.l.dexSearchPlaceholder, text: $searchText)
                     .textFieldStyle(.plain)
-                    .font(.system(size: 11))
+                    .font(.system(size: 13))
                 if !searchText.isEmpty {
                     Button {
                         searchText = ""
                     } label: {
                         Image(systemName: "xmark.circle.fill")
                             .foregroundStyle(.secondary)
-                            .font(.system(size: 11))
+                            .font(.system(size: 13))
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel(store.l.clearFilters)
@@ -896,7 +905,7 @@ struct CollectionView: View {
                 }
             } label: {
                 Image(systemName: shinyOnly ? "sparkles" : "sparkle")
-                    .font(.system(size: 11, weight: shinyOnly ? .bold : .regular))
+                    .font(.system(size: 13, weight: shinyOnly ? .bold : .regular))
                     .foregroundStyle(shinyOnly ? Color.yellow : Color.secondary)
                     .padding(.horizontal, 6)
                     .padding(.vertical, 4)
@@ -941,7 +950,7 @@ struct CollectionView: View {
                 }
             } label: {
                 Image(systemName: "arrow.up.arrow.down")
-                    .font(.system(size: 11))
+                    .font(.system(size: 13))
                     .foregroundStyle(isCustomSortActive ? Color.accentColor : Color.secondary)
                     .padding(.horizontal, 6)
                     .padding(.vertical, 4)
@@ -1059,7 +1068,7 @@ struct RepresentativeFooterButton: View {
     }
 }
 
-/// 도감 — 보유 종만 도감 번호순으로, 한 페이지 24칸(4열×6행) 고정 격자.
+/// 도감 — 보유 종만 도감 번호순으로, 한 페이지 16칸(4열×4행) 고정 격자.
 @MainActor
 private struct DexGridView: View {
     let store: CompanionStore
@@ -1075,8 +1084,8 @@ private struct DexGridView: View {
     @State private var selectedID: String?
 
     private static let columns = 4
-    private static let rows = 6
-    private static let pageSize = columns * rows      // 24
+    private static let rows = 4
+    private static let pageSize = columns * rows      // 16
     private static let spacing: CGFloat = 4
 
     var body: some View {
@@ -1132,26 +1141,30 @@ private struct DexGridView: View {
         VStack(alignment: .leading, spacing: 5) {
             HStack(spacing: 6) {
                 Text(store.l.dexTitle).font(.callout.weight(.semibold))
-                Text(store.l.dexSpeciesTotal(all.count)).font(.caption2).foregroundStyle(.secondary)
+                Text(store.l.dexSpeciesTotal(all.count)).font(.caption).foregroundStyle(.secondary)
             }
-            HStack(spacing: 4) {
-                ForEach(rarityDisplayOrder, id: \.self) { r in
-                    let count = all.lazy.filter { $0.rarity == r }.count
-                    Button {
-                        withAnimation(.easeInOut(duration: 0.15)) {
-                            selectedRarity = (selectedRarity == r) ? nil : r
-                            page = 0
-                            selectedID = nil
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 4) {
+                    ForEach(rarityDisplayOrder, id: \.self) { r in
+                        let count = all.lazy.filter { $0.rarity == r }.count
+                        Button {
+                            withAnimation(.easeInOut(duration: 0.15)) {
+                                selectedRarity = (selectedRarity == r) ? nil : r
+                                page = 0
+                                selectedID = nil
+                            }
+                        } label: {
+                            RarityTally(label: store.l.rarityLabel(r), count: count,
+                                        color: rarityColor(r), isSelected: selectedRarity == r)
                         }
-                    } label: {
-                        RarityTally(label: store.l.rarityLabel(r), count: count,
-                                    color: rarityColor(r), isSelected: selectedRarity == r)
+                        .buttonStyle(.plain)
+                        .disabled(count == 0)
+                        .help(store.l.dexFilterHint)
                     }
-                    .buttonStyle(.plain)
-                    .disabled(count == 0)
-                    .help(store.l.dexFilterHint)
                 }
+                .fixedSize(horizontal: true, vertical: false)
             }
+            .fixedSize(horizontal: false, vertical: true)
         }
     }
 
@@ -1189,7 +1202,7 @@ private struct DexGridView: View {
             if let sel = slice.first(where: { $0.collectionID == selectedID }) {
                 // 칸은 번호·스프라이트·이름만 보여주므로 희귀도가 선택으로 얻는 정보다.
                 Text("#\(sel.id) \(sel.name) · \(store.l.rarityLabel(sel.rarity))")
-                    .font(.system(size: 9)).foregroundStyle(.secondary).lineLimit(1)
+                    .font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1)
                 if sel.id != UnownForm.speciesID {
                     let isRepresentative = store.isRepresentative(sel)
                     RepresentativeFooterButton(localization: store.l,
@@ -1206,7 +1219,7 @@ private struct DexGridView: View {
                 .buttonStyle(.plain).disabled(current == 0)
                 .accessibilityLabel(store.l.dexPagePrev)
                 Text("\(current + 1) / \(pageCount)")
-                    .font(.system(size: 10, weight: .semibold)).monospacedDigit()
+                    .font(.system(size: 12, weight: .semibold)).monospacedDigit()
                     .foregroundStyle(.secondary)
                     .accessibilityLabel(store.l.dexPageLabel(current + 1, pageCount))
                 Button { page = min(pageCount - 1, current + 1); selectedID = nil } label: {
@@ -1216,7 +1229,7 @@ private struct DexGridView: View {
                 .accessibilityLabel(store.l.dexPageNext)
             }
         }
-        .font(.system(size: 11, weight: .semibold))
+        .font(.system(size: 13, weight: .semibold))
         .frame(height: 18)
     }
 }
@@ -1277,7 +1290,7 @@ struct PokemonDetailView: View {
                 }
                 .buttonStyle(.borderless)
                 Spacer()
-                Text("#\(species.id)").font(.caption).foregroundStyle(.secondary)
+                Text("#\(species.id)").font(.callout).foregroundStyle(.secondary)
             }
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
@@ -1286,7 +1299,7 @@ struct PokemonDetailView: View {
                     identityHeader
                     if !individuals.isEmpty { individualPicker }
                     else {
-                        Text(store.l.dexAppearancePreview).font(.caption).foregroundStyle(.secondary)
+                        Text(store.l.dexAppearancePreview).font(.callout).foregroundStyle(.secondary)
                     }
                     if let details = store.pokemonDetailsByID[species.id] {
                         if let individual, let profile = individual.profile {
@@ -1322,7 +1335,7 @@ struct PokemonDetailView: View {
         let forms = formSpecies
         let selected = displayedSpecies.unownForm
         return VStack(alignment: .leading, spacing: 6) {
-            Text(store.l.unownFormsCollected(forms.count)).font(.caption.weight(.semibold))
+            Text(store.l.unownFormsCollected(forms.count)).font(.callout.weight(.semibold))
             LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 3), count: 7), spacing: 4) {
                 ForEach(UnownForm.allCases, id: \.self) { form in
                     let owned = forms.first { $0.unownForm == form }
@@ -1332,13 +1345,13 @@ struct PokemonDetailView: View {
                         selectedShiny = nil
                     } label: {
                         VStack(spacing: 0) {
-                            SpriteView(speciesID: UnownForm.speciesID, size: 28,
+                            SpriteView(speciesID: UnownForm.speciesID, size: 36,
                                        shiny: owned?.isShiny == true, unownForm: form)
-                                .frame(width: 28, height: 28)
+                                .frame(width: 36, height: 36)
                                 .overlay(alignment: .topTrailing) {
-                                    if owned?.isShiny == true { Text("✨").font(.system(size: 7)) }
+                                    if owned?.isShiny == true { Text("✨").font(.system(size: 11)) }
                                 }
-                            Text(form.symbol).font(.system(size: 9, weight: .semibold))
+                            Text(form.symbol).font(.system(size: 11, weight: .semibold))
                         }
                         .frame(maxWidth: .infinity).padding(.vertical, 3)
                         .opacity(owned == nil ? 0.25 : 1)
@@ -1366,15 +1379,15 @@ struct PokemonDetailView: View {
     private var identityHeader: some View {
         let species = displayedSpecies
         return HStack(spacing: 14) {
-            SpriteView(speciesID: species.id, size: 82, animated: true,
+            SpriteView(speciesID: species.id, size: 104, animated: true,
                        shiny: displayedShiny, spriteStore: spriteStore, unownForm: species.unownForm)
-                .frame(width: 82, height: 82)
+                .frame(width: 104, height: 104)
             VStack(alignment: .leading, spacing: 5) {
                 Text(species.name).font(.title3.weight(.bold))
                 Text(store.l.rarityLabel(species.rarity))
-                    .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
-                if displayedShiny { Text("✨ \(store.l.dexShinyLabel)").font(.caption2) }
-                if let individual, store.isActiveDexEntry(individual) { Text(store.l.dexRaising).font(.caption2).foregroundStyle(Color.accentColor) }
+                    .font(.callout.weight(.semibold)).foregroundStyle(.secondary)
+                if displayedShiny { Text("✨ \(store.l.dexShinyLabel)").font(.callout) }
+                if let individual, store.isActiveDexEntry(individual) { Text(store.l.dexRaising).font(.callout).foregroundStyle(Color.accentColor) }
                 let isRepresentative = store.isRepresentative(species)
                 RepresentativeFooterButton(localization: store.l,
                                            isRepresentative: isRepresentative) {
@@ -1423,19 +1436,19 @@ struct PokemonDetailView: View {
                 valuePair(store.l.nature, entry.nature?.name(store.language) ?? "—")
             }
             VStack(alignment: .leading, spacing: 1) {
-                Text(store.l.ability).font(.system(size: 9)).foregroundStyle(.secondary)
+                Text(store.l.ability).font(.system(size: 11)).foregroundStyle(.secondary)
                 if let name = profile.abilityName {
                     PokemonNameLabel(.ability, name, language: store.language,
                                      suffix: profile.abilityIsHidden ? " · " + store.l.hiddenAbility : "")
-                        .font(.caption.weight(.semibold))
+                        .font(.callout.weight(.semibold))
                 } else {
-                    Text("—").font(.caption.weight(.semibold))
+                    Text("—").font(.callout.weight(.semibold))
                 }
             }
             statsSection(PokemonStatCalculator.stats(details: details, profile: profile, nature: entry.nature))
             detailTitle(store.l.activeMoves)
             if profile.moves.isEmpty {
-                Text(store.l.noLevelMoves).font(.caption).foregroundStyle(.secondary)
+                Text(store.l.noLevelMoves).font(.callout).foregroundStyle(.secondary)
             } else {
                 ForEach(profile.moves) { move in
                     HStack {
@@ -1443,7 +1456,7 @@ struct PokemonDetailView: View {
                         Spacer()
                         Text("Lv. \(move.learnedAtLevel)").foregroundStyle(.secondary)
                     }
-                    .font(.caption)
+                    .font(.callout)
                 }
             }
         }
@@ -1474,12 +1487,12 @@ struct PokemonDetailView: View {
 
     private func statRow(name: String, value: Int, iv: Int?, scaleMaximum: Int) -> some View {
         HStack(spacing: 6) {
-            Text(store.l.statLabel(name)).frame(width: 62, alignment: .leading)
+            Text(store.l.statLabel(name)).frame(width: 74, alignment: .leading)
             ProgressView(value: Double(value), total: Double(scaleMaximum)).tint(Color.accentColor)
-            Text("\(value)").monospacedDigit().frame(width: 28, alignment: .trailing)
-            if let iv { Text("IV \(iv)").foregroundStyle(.secondary).frame(width: 34, alignment: .trailing) }
+            Text("\(value)").monospacedDigit().frame(width: 30, alignment: .trailing)
+            if let iv { Text("IV \(iv)").foregroundStyle(.secondary).frame(width: 38, alignment: .trailing) }
         }
-        .font(.system(size: 10))
+        .font(.system(size: 12))
     }
 
     private func speciesSection(_ details: PokemonDetails) -> some View {
@@ -1488,7 +1501,7 @@ struct PokemonDetailView: View {
             HStack(spacing: 5) {
                 ForEach(details.types, id: \.self) { type in
                     PokemonNameLabel(.type, type, language: store.language).textCase(.uppercase)
-                        .font(.system(size: 9, weight: .bold))
+                        .font(.system(size: 11, weight: .bold))
                         .padding(.horizontal, 6).padding(.vertical, 3)
                         .background(Color.accentColor.opacity(0.16), in: Capsule())
                 }
@@ -1503,7 +1516,7 @@ struct PokemonDetailView: View {
                 PokemonNameItem(resource: .init(kind: .ability, name: option.name),
                                 suffix: option.isHidden ? " (\(store.l.hidden))" : "")
             }, language: store.language)
-            .font(.caption).foregroundStyle(.secondary)
+            .font(.callout).foregroundStyle(.secondary)
         }
         .detailCard()
     }
@@ -1518,7 +1531,7 @@ struct PokemonDetailView: View {
                     Text(move.learnMethods.map(store.l.moveMethod).uniqued().joined(separator: " · "))
                         .foregroundStyle(.secondary).multilineTextAlignment(.trailing)
                 }
-                .font(.caption)
+                .font(.callout)
                 Divider()
             }
         }
@@ -1526,13 +1539,13 @@ struct PokemonDetailView: View {
     }
 
     private func detailTitle(_ text: String) -> some View {
-        Text(text).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+        Text(text).font(.callout.weight(.semibold)).foregroundStyle(.secondary)
     }
 
     private func valuePair(_ label: String, _ value: String, suffix: String? = nil) -> some View {
         VStack(alignment: .leading, spacing: 1) {
-            Text(label).font(.system(size: 9)).foregroundStyle(.secondary)
-            Text(value + (suffix.map { " · \($0)" } ?? "")).font(.caption.weight(.semibold))
+            Text(label).font(.system(size: 11)).foregroundStyle(.secondary)
+            Text(value + (suffix.map { " · \($0)" } ?? "")).font(.callout.weight(.semibold))
         }
     }
 
@@ -1553,7 +1566,7 @@ private extension Array where Element == String {
 }
 
 /// 도감 한 칸 — 도감 번호 + 스프라이트 + 종 이름. 종 정보만 담는다(성격·획득 횟수는 로그의 몫).
-/// 정적 스프라이트만 쓴다(animated 생략) — 한 페이지 24칸을 GIF 로 동시 재생하면 CPU 가 안 된다.
+/// 정적 스프라이트만 쓴다(animated 생략) — 한 페이지 16칸을 GIF 로 동시 재생하면 CPU 가 안 된다.
 @MainActor
 private struct DexSpeciesCell: View {
     let store: CompanionStore
@@ -1564,9 +1577,8 @@ private struct DexSpeciesCell: View {
     let onTap: () -> Void
     @State private var isHovered = false
 
-    /// 로그(56)보다 작다 — 24칸 격자에 이름까지 담아야 한다. 원본 96×96 픽셀아트를
-    /// interpolation(.none) 으로 축소하므로 이 크기에서도 식별에 문제없다.
-    private static let thumb: CGFloat = 40
+    /// Larger thumbnails remain static so a full page does not animate concurrently.
+    private static let thumb: CGFloat = 56
 
     var body: some View {
         Button(action: onTap) {
@@ -1577,28 +1589,23 @@ private struct DexSpeciesCell: View {
                 SpriteView(speciesID: species.id, size: Self.thumb,
                            shiny: species.id != UnownForm.speciesID && species.isShiny && isSelected)
                     .frame(width: Self.thumb, height: Self.thumb)
-                    // 표식은 스프라이트 아래가 아니라 위에 겹친다 — 별도 줄로 빼면 칸 높이가 넘친다.
-                    // 이 줄은 번호·이로치와 폭을 다투지 않아 네 언어 모두 8pt 그대로 들어간다
-                    // (가장 긴 es "CRIANDO"가 캡슐 포함 50pt, 칸 안쪽 폭 74pt).
-                    // `fixedSize` 필수 — 오버레이는 붙은 뷰(스프라이트 44)의 폭을 제안받아서, 없으면
-                    // 칸이 아니라 스프라이트 폭에 갇혀 "RAISIN/G" 로 줄바꿈된다.
+                    // Keep the raising badge over the sprite to leave room for the name.
                     .overlay(alignment: .bottom) {
                         if species.isRaising { raisingBadge.fixedSize() }
                     }
                 Text(species.id == UnownForm.speciesID ? "\(species.name) \(unownFormCount)/28" : species.name)
-                    .font(.system(size: 9))
-                    .lineLimit(1).minimumScaleFactor(0.8)
+                    .font(.system(size: 12))
+                    .lineLimit(2, reservesSpace: true)
+                    .multilineTextAlignment(.center)
             }
             .frame(maxWidth: .infinity)
-            // 번호·이로치는 스프라이트(44)가 아니라 **칸 안쪽 폭**(74)에 건다 — 스프라이트에 걸면
-            // 가운데 정렬된 44 기준이라 좌우 15 씩 안으로 밀려 번호가 칸 중앙 쪽에 떠 보인다.
-            // 칸 기준으로 두면 양 끝으로 붙고, 픽셀아트 몸통과 겹치는 폭도 줄어든다.
+            // Attach number and shiny markers to the full cell width.
             .overlay(alignment: .topLeading) { numberTag }
             .overlay(alignment: .topTrailing) {
                 // ✨ = 이 종의 이로치를 잡은 적이 있다는 표식(탭하면 그 색으로 바뀐다).
                 if species.isShiny {
                     Text("✨")
-                        .font(.system(size: 8))
+                        .font(.system(size: 10))
                         .padding(.horizontal, 2)
                         .background(.regularMaterial, in: Capsule())
                         .accessibilityLabel(store.l.dexShinyLabel)
@@ -1657,13 +1664,13 @@ private struct DexSpeciesCell: View {
             // 현지화된 툴팁·접근성 라벨이 보완한다.
             if isRepresentative {
                 Image(systemName: "star.fill")
-                    .font(.system(size: 6, weight: .bold))
+                    .font(.system(size: 8, weight: .bold))
                     .foregroundStyle(Color.accentColor)
                     .accessibilityHidden(true)
             }
         }
             // 번호 색 = 희귀도 — "전체" 보기에서도 칸마다 희귀도가 보인다.
-            .font(.system(size: 8, weight: .semibold))
+            .font(.system(size: 10, weight: .semibold))
             .foregroundStyle(rarityColor(species.rarity))
             .padding(.horizontal, 2)
             .background(.regularMaterial, in: Capsule())
@@ -1673,7 +1680,7 @@ private struct DexSpeciesCell: View {
     /// 스프라이트가 비치므로 material 을 한 겹 깔아 대비를 확보한다(로그는 카드 배경 위라 불필요).
     private var raisingBadge: some View {
         Text(store.l.dexRaising.uppercased())
-            .font(.system(size: 8, weight: .bold))
+            .font(.system(size: 10, weight: .bold))
             .padding(.horizontal, 5).padding(.vertical, 1)
             .foregroundStyle(Color.accentColor)
             .background(Color.accentColor.opacity(0.14), in: Capsule())
@@ -1709,13 +1716,13 @@ private struct DexEntryRow: View {
         VStack(alignment: .leading, spacing: 3) {
             HStack {
                 Text(store.l.rarityLabel(entry.rarity).uppercased())
-                    .font(.system(size: 8, weight: .bold))
+                    .font(.system(size: 10, weight: .bold))
                     .padding(.horizontal, 5).padding(.vertical, 1)
                     .background(rarityColor(entry.rarity)).foregroundStyle(.white)
                     .clipShape(Capsule())
                 if store.isActiveDexEntry(entry) {
                     Text(store.l.dexRaising.uppercased())
-                        .font(.system(size: 8, weight: .bold))
+                        .font(.system(size: 10, weight: .bold))
                         .padding(.horizontal, 5).padding(.vertical, 1)
                         .background(Color.accentColor.opacity(0.14))
                         .foregroundStyle(Color.accentColor)
@@ -1724,7 +1731,7 @@ private struct DexEntryRow: View {
                     // 놓아준 개체 — 종은 도감에 남지만 이 개체는 끝까지 키우지 않았다.
                     // 중립색(secondary)으로 둔다: 실패가 아니라 다른 종류의 기록이라 경고색은 과하다.
                     Text(store.l.dexReleased.uppercased())
-                        .font(.system(size: 8, weight: .bold))
+                        .font(.system(size: 10, weight: .bold))
                         .padding(.horizontal, 5).padding(.vertical, 1)
                         .background(Color.secondary.opacity(0.14))
                         .foregroundStyle(Color.secondary)
@@ -1738,15 +1745,16 @@ private struct DexEntryRow: View {
                 Spacer()
                 if let nature = entry.nature {
                     Text(nature.name(store.language))
-                        .font(.system(size: 9)).foregroundStyle(.secondary)
+                        .font(.system(size: 11)).foregroundStyle(.secondary)
                 }
             }
             EvoLineView(nodes: entry.chainOrder.map { EvoLineItem(.species($0), .done) },
-                        mysteryLabel: store.l.unknownNextEvolution, language: store.language, thumb: 56,
+                        mysteryLabel: store.l.unknownNextEvolution, language: store.language, thumb: 68,
                         shiny: entry.isShiny, names: names,
-                        maxWidth: PopoverMetrics.scrollContentWidth - Self.cardPadding * 2, unownForm: entry.unownForm)
+                        maxWidth: PopoverMetrics.scrollContentWidth - Self.cardPadding * 2, unownForm: entry.unownForm,
+                        nameFontSize: 11, nameLineLimit: 2, nameMinimumScaleFactor: 1)
             if let caughtAt = entry.caughtAt {
-                Text(caughtAt, style: .relative).font(.system(size: 9)).foregroundStyle(.tertiary)
+                Text(caughtAt, style: .relative).font(.system(size: 11)).foregroundStyle(.secondary)
             }
         }
         .padding(Self.cardPadding)
