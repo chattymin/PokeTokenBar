@@ -39,6 +39,11 @@ read_when:
   locally but sampled the previous sprite in macOS 15 CI: the header had updated while the
   sprite's independent SwiftUI `.task(id:)` had not finished rendering. Keep transition-index
   diagnostics and prove a permanently stale sprite still fails after the readiness deadline.
+  Similarly, Pokédex grid cells previously gated shiny sprite rendering on `isSelected` (from
+  an older design where tapping toggled selection in place); once tapping opened the detail
+  sheet, cells were never selected in place and shiny species always rendered with normal sprites.
+  `DexSpeciesCell` must render shiny sprites directly for collected shiny species, verified
+  by `DexColorRenderingTests.testPokedexGridRendersShinySpeciesColor`.
 
 - **Bundled CLI discovery must cover the shipped app layout.** ChatGPT moved Codex from
   `Contents/Resources/codex` into `Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex`.

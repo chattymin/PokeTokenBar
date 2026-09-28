@@ -1583,11 +1583,10 @@ private struct DexSpeciesCell: View {
     var body: some View {
         Button(action: onTap) {
             VStack(spacing: 1) {
-                // 기본은 일반색. 이로치를 잡은 종은 선택하면 이로치색으로 바뀐다 —
-                // 일반·이로치를 둘 다 가진 종도 두 모습을 다 볼 수 있다(본가 HOME 의 이로치 토글과 같은 결).
+                // 이로치를 잡은 종은 이로치 스프라이트로 표시한다(상세 화면에서 일반/이로치 모습 전환 가능).
                 // 안농의 종 아이콘은 일반 A로 유지하고, 폼별 색은 상세 화면에서 보여준다.
                 SpriteView(speciesID: species.id, size: Self.thumb,
-                           shiny: species.id != UnownForm.speciesID && species.isShiny && isSelected)
+                           shiny: species.id != UnownForm.speciesID && species.isShiny)
                     .frame(width: Self.thumb, height: Self.thumb)
                     // Keep the raising badge over the sprite to leave room for the name.
                     .overlay(alignment: .bottom) {
@@ -1602,7 +1601,7 @@ private struct DexSpeciesCell: View {
             // Attach number and shiny markers to the full cell width.
             .overlay(alignment: .topLeading) { numberTag }
             .overlay(alignment: .topTrailing) {
-                // ✨ = 이 종의 이로치를 잡은 적이 있다는 표식(탭하면 그 색으로 바뀐다).
+                // ✨ = 이 종의 이로치를 잡은 적이 있다는 표식.
                 if species.isShiny {
                     Text("✨")
                         .font(.system(size: 10))
