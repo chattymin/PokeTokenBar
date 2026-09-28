@@ -90,6 +90,7 @@ final class RepresentativeLocalizationTests: XCTestCase {
              "Definir como representante"),
             (.de, "Repräsentatives Pokémon", "Aktuellem Begleiter folgen", "Im Pokédex auswählen…",
              "Als repräsentativ festlegen"),
+            (.ru, "Главный покемон", "Текущий компаньон", "Выбрать в Покедексе…", "Сделать главным"),
         ]
 
         XCTAssertEqual(expected.map(\.0), AppLanguage.allCases)

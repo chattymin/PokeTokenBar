@@ -46,6 +46,20 @@ final class EvoLineNameTests: XCTestCase {
         XCTAssertEqual(line.localizedName(1, .de), "Bisasam")
         XCTAssertEqual(line.localizedName(2, .de), "Ivysaur")
     }
+
+    /// PokéAPI 에 러시아어 이름이 없는 종이 대부분이라 영어 폴백이 사실상 기본 경로다 —
+    /// 다른 UI 언어(de 등)로 새지 않고 영어로 떨어지는지, ru 가 생기면 그걸 쓰는지 고정한다.
+    func testRussianNameUsesRussianThenFallsBackToEnglish() {
+        let line = EvoLine(
+            baseID: 1, tree: evoNode(1), rarity: .common,
+            names: [
+                1: ["ru": "Бульбазавр", "en": "Bulbasaur"],
+                2: ["de": "Bisaknosp", "en": "Ivysaur"],
+            ])
+
+        XCTAssertEqual(line.localizedName(1, .ru), "Бульбазавр")
+        XCTAssertEqual(line.localizedName(2, .ru), "Ivysaur")
+    }
 }
 
 final class PokeAPILanguageTests: XCTestCase {
@@ -55,6 +69,7 @@ final class PokeAPILanguageTests: XCTestCase {
         XCTAssertEqual(PokeAPIClient.langCodes, expected)
         XCTAssertEqual(Set(PokeAPIClient.langCodes).count, PokeAPIClient.langCodes.count)
         XCTAssertTrue(PokeAPIClient.langCodes.contains("de"))
+        XCTAssertTrue(PokeAPIClient.langCodes.contains("ru"))
     }
 }
 
