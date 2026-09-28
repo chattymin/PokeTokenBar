@@ -34,6 +34,13 @@ cat > "$APP/Contents/Info.plist" <<PLIST
     <key>CFBundleIconFile</key><string>AppIcon</string>
     <key>LSUIElement</key><true/>
     <key>NSHighResolutionCapable</key><true/>
+    <key>NSLocalNetworkUsageDescription</key>
+    <string>Local network access is required to trade Pokémon with nearby devices.</string>
+    <key>NSBonjourServices</key>
+    <array>
+        <string>_ptb-trade._tcp</string>
+        <string>_ptb-trade._udp</string>
+    </array>
 </dict>
 </plist>
 PLIST
