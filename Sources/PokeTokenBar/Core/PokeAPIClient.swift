@@ -226,6 +226,11 @@ actor PokeAPIClient: PokeProviding, PokemonDetailProviding {
         return entries
     }
 
+    /// Every API language for one species; empty offline so callers fall back to the dex number.
+    func speciesNames(id: Int) async -> [String: String] {
+        (try? await species(id)).map { PokemonNameLocalization.collect($0.names) } ?? [:]
+    }
+
     private func species(_ id: Int) async throws -> SpeciesDTO {
         if let c = speciesCache[id] { return c }
         let dto: SpeciesDTO = try await get(base.appendingPathComponent("pokemon-species/\(id)"))

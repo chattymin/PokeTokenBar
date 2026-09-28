@@ -620,6 +620,21 @@ private extension KeyedDecodingContainer {
     }
 }
 
+struct BattleRecord: Codable, Sendable, Equatable {
+    var wins = 0
+    var losses = 0
+    var draws = 0
+
+    mutating func add(_ outcome: BattleSession.Outcome) {
+        switch outcome {
+        case .won: wins += 1
+        case .lost: losses += 1
+        case .draw: draws += 1
+        case .aborted: break
+        }
+    }
+}
+
 /// 영속 상태(Application Support JSON). 포켓몬 전환 — 이전 커스텀 캐릭터 상태는 폐기(새로 시작).
 struct CompanionState: Codable, Sendable {
     // 토큰: 설치 이후만 측정
@@ -667,6 +682,10 @@ struct CompanionState: Codable, Sendable {
     var candyWindowEpoch: [String: String] = [:]
     // 사탕 지급 첫 실행 시드 완료 — 업데이트 직후 이미 100%였던 창의 소급 지급 차단.
     var candyFeatureSeeded = false
+    /// Battle team in slot order, as `PokemonProfile.instanceID`s. IDs survive graduation and release.
+    var battleTeam: [String] = []
+    /// Results of battles with nearby trainers. Practice battles against the CPU are not counted.
+    var battleRecord = BattleRecord()
 
     init() {}
 
@@ -707,6 +726,8 @@ struct CompanionState: Codable, Sendable {
         candyGrantTier     = c.lenient([String: Int].self, forKey: .candyGrantTier, default: [:])
         candyWindowEpoch   = c.lenient([String: String].self, forKey: .candyWindowEpoch, default: [:])
         candyFeatureSeeded = c.lenient(Bool.self, forKey: .candyFeatureSeeded, default: false)
+        battleTeam         = c.lenient([String].self, forKey: .battleTeam, default: [])
+        battleRecord       = c.lenient(BattleRecord.self, forKey: .battleRecord, default: BattleRecord())
     }
 
     /// 졸업 기록 또는 현재 개체가 실제로 도달한 단계에 이 종이 포함되는가.
@@ -756,6 +777,14 @@ struct CompanionState: Codable, Sendable {
 
     /// 대표 포켓몬은 사용자가 현재 보유한 종만 가리킨다. Fresh Egg·메타몽 리빌·손편집 세이브가
     /// 유령 종을 메뉴바와 플로팅 펫에 영구히 남기지 않게 한다.
+    /// Imports and hand edits can name individuals this save does not own, repeat one, or exceed six.
+    mutating func reconcileBattleTeam() {
+        let owned = Set(([active?.profile] + dex.map(\.profile)).compactMap { $0?.instanceID })
+        var seen = Set<String>()
+        battleTeam = Array(battleTeam.filter { owned.contains($0) && seen.insert($0).inserted }
+            .prefix(BattleTeam.maxSize))
+    }
+
     mutating func reconcileRepresentativeSelection() {
         guard let selected = representativeSpeciesID else {
             representativeUnownForm = nil
