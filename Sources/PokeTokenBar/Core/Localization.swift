@@ -994,15 +994,19 @@ struct L {
     var catchLogTitle: String { t("포획 로그", "Catch log", "捕獲ログ", "Registro de capturas", "Journal de captures", "Registro de capturas", "Fangprotokoll") }
     /// 도감 총계는 개체가 아니라 종 수 — 로그의 dexTotal("총 N마리")과 단위가 다르다.
     func dexSpeciesTotal(_ n: Int) -> String { t("\(n)종", "\(n) species", "\(n)種", "\(n) especies", "\(n) espèces", "\(n) espécies", "\(n) Spezies") }
-    func unownFormsCollected(_ count: Int) -> String {
-        t("안농 글자 \(count)/28", "Unown forms \(count)/28", "アンノーン \(count)/28文字",
-          "Formas Unown \(count)/28", "Formes Zarbi \(count)/28", "Formas Unown \(count)/28",
-          "Icognito-Formen \(count)/28")
+    func formsCollected(_ count: Int, of total: Int) -> String {
+        t("폼 \(count)/\(total)", "Forms \(count)/\(total)", "フォルム \(count)/\(total)",
+          "Formas \(count)/\(total)", "Formes \(count)/\(total)", "Formas \(count)/\(total)",
+          "Formen \(count)/\(total)")
     }
-    var unownChooseForm: String {
-        t("글자 선택", "Choose form", "フォルムを選択", "Elegir forma", "Choisir une forme", "Escolher forma", "Form auswählen")
+    var chooseForm: String {
+        t("폼 선택", "Choose form", "フォルムを選択", "Elegir forma", "Choisir une forme", "Escolher forma", "Form auswählen")
     }
-    var unownNotCollected: String {
+    /// Usual look of a species whose official data names no form (Castform, Rotom, Kyurem, Genesect).
+    var normalForm: String {
+        t("노말폼", "Normal Form", "ノーマルフォルム", "Forma Normal", "Forme Normale", "Forma Normal", "Normalform")
+    }
+    var formNotCollected: String {
         t("미수집", "Not collected", "未収集", "Sin conseguir", "Non collectionnée", "Não coletada", "Noch nicht gesammelt")
     }
     func dexPageLabel(_ page: Int, _ total: Int) -> String {

@@ -39,7 +39,7 @@ private struct UnownSpriteTogglePreview: View {
     let store: SpriteStore
 
     var body: some View {
-        SpriteView(speciesID: 201, size: 64, shiny: selection.shiny, spriteStore: store, unownForm: .b)
+        SpriteView(speciesID: 201, size: 64, shiny: selection.shiny, spriteStore: store, form: .b)
     }
 }
 
@@ -72,12 +72,12 @@ final class UnownSpriteViewTests: XCTestCase {
         try shinyBytes.write(to: shinyFile)
         let spriteStore = SpriteStore(directory: directory)
         // Keep the async loader deterministic and offline, while the synchronous shiny cache misses.
-        let warmed = await spriteStore.data(speciesID: 201, animated: false, shiny: true, unownForm: .b)
+        let warmed = await spriteStore.data(speciesID: 201, animated: false, shiny: true, form: .b)
         XCTAssertEqual(warmed, shinyBytes)
         try FileManager.default.removeItem(at: shinyFile)
-        let normal = try XCTUnwrap(SpriteLoader.cachedImage(speciesID: 201, directory: directory, unownForm: .b))
+        let normal = try XCTUnwrap(SpriteLoader.cachedImage(speciesID: 201, directory: directory, form: .b))
         XCTAssertTrue(SpriteLoader.cachedImage(speciesID: 201, shiny: true,
-                                               directory: directory, unownForm: .b) === normal)
+                                               directory: directory, form: .b) === normal)
 
         _ = NSApplication.shared
         let selection = UnownSpriteSelection()
@@ -110,12 +110,12 @@ final class UnownSpriteViewTests: XCTestCase {
     func testAnimationIdentitiesSeparateAllLettersAndShinyVariants() {
         var viewIDs = Set<String>()
         var menuIDs = Set<String>()
-        for form in UnownForm.allCases {
+        for form in PokemonForm.unownLetters {
             for shiny in [false, true] {
                 viewIDs.insert(SpriteView.frameTaskID(speciesID: 201, shiny: shiny, floor: 0.4,
-                                                      unownForm: form))
+                                                      form: form))
                 menuIDs.insert(AppDelegate.menuSpriteKey(id: 201, shiny: shiny, floor: 0.4,
-                                                         unownForm: form))
+                                                         form: form))
             }
         }
         XCTAssertEqual(viewIDs.count, 56)
@@ -124,21 +124,21 @@ final class UnownSpriteViewTests: XCTestCase {
 
     func testAnimationIdentitiesNormalizeLegacyAAndIgnoreFormsForOtherSpecies() {
         XCTAssertEqual(SpriteView.frameTaskID(speciesID: 201, shiny: false, floor: 0.4),
-                       SpriteView.frameTaskID(speciesID: 201, shiny: false, floor: 0.4, unownForm: .a))
+                       SpriteView.frameTaskID(speciesID: 201, shiny: false, floor: 0.4, form: .a))
         XCTAssertEqual(AppDelegate.menuSpriteKey(id: 201, shiny: false, floor: 0.4),
-                       AppDelegate.menuSpriteKey(id: 201, shiny: false, floor: 0.4, unownForm: .a))
+                       AppDelegate.menuSpriteKey(id: 201, shiny: false, floor: 0.4, form: .a))
         XCTAssertEqual(SpriteView.frameTaskID(speciesID: 25, shiny: false, floor: 0.4),
-                       SpriteView.frameTaskID(speciesID: 25, shiny: false, floor: 0.4, unownForm: .z))
+                       SpriteView.frameTaskID(speciesID: 25, shiny: false, floor: 0.4, form: .z))
         XCTAssertEqual(AppDelegate.menuSpriteKey(id: 25, shiny: false, floor: 0.4),
-                       AppDelegate.menuSpriteKey(id: 25, shiny: false, floor: 0.4, unownForm: .z))
+                       AppDelegate.menuSpriteKey(id: 25, shiny: false, floor: 0.4, form: .z))
     }
 
     func testChangingUnownLetterReloadsEvenWhenSpeciesAndShinyMatch() {
-        for previous in UnownForm.allCases {
-            for next in UnownForm.allCases {
+        for previous in PokemonForm.unownLetters {
+            for next in PokemonForm.unownLetters {
                 XCTAssertEqual(
                     SpriteView.needsReload(loadedID: 201, loadedShiny: false, id: 201, shiny: false,
-                                           loadedUnownForm: previous, unownForm: next),
+                                           loadedForm: previous, form: next),
                     previous != next,
                     "Changing \(previous.symbol) to \(next.symbol) must display the correct letter")
             }
@@ -147,25 +147,25 @@ final class UnownSpriteViewTests: XCTestCase {
 
     func testLegacyUnownFormUsesTheSameSpriteAsExplicitA() {
         XCTAssertFalse(SpriteView.needsReload(loadedID: 201, loadedShiny: false, id: 201, shiny: false,
-                                             loadedUnownForm: nil, unownForm: .a))
+                                             loadedForm: nil, form: .a))
         XCTAssertFalse(SpriteView.needsReload(loadedID: 201, loadedShiny: false, id: 201, shiny: false,
-                                             loadedUnownForm: .a, unownForm: nil))
+                                             loadedForm: .a, form: nil))
         XCTAssertTrue(SpriteView.needsReload(loadedID: 201, loadedShiny: false, id: 201, shiny: false,
-                                            loadedUnownForm: nil, unownForm: .question))
+                                            loadedForm: nil, form: .question))
     }
 
     func testSameUnownLetterStillReloadsOnShinyToggle() {
         XCTAssertTrue(SpriteView.needsReload(loadedID: 201, loadedShiny: false, id: 201, shiny: true,
-                                            loadedUnownForm: .exclamation, unownForm: .exclamation))
+                                            loadedForm: .exclamation, form: .exclamation))
         XCTAssertFalse(SpriteView.needsReload(loadedID: 201, loadedShiny: true, id: 201, shiny: true,
-                                             loadedUnownForm: .question, unownForm: .question))
+                                             loadedForm: .question, form: .question))
     }
 
     func testUnownFormDoesNotAffectOtherSpeciesSprites() {
         XCTAssertFalse(SpriteView.needsReload(loadedID: 25, loadedShiny: false, id: 25, shiny: false,
-                                             loadedUnownForm: .a, unownForm: .z))
+                                             loadedForm: .a, form: .z))
         XCTAssertTrue(SpriteView.needsReload(loadedID: 201, loadedShiny: false, id: 25, shiny: false,
-                                            loadedUnownForm: .a, unownForm: nil))
+                                            loadedForm: .a, form: nil))
     }
 
     func testCachedAToBToAReturnsToAWhileBLoadIsPending() async {
@@ -178,46 +178,46 @@ final class UnownSpriteViewTests: XCTestCase {
 
     /// 실제 await 구간을 게이트로 유지한다. 중간 캐시 이미지를 표시한 뒤 첫 모습으로 돌아가고,
     /// 취소된 중간 로드가 늦게 끝나도 이미지·폼·이로치가 함께 첫 모습으로 남아야 한다.
-    private func assertCachedRoundTrip(intermediateForm: UnownForm, intermediateShiny: Bool,
+    private func assertCachedRoundTrip(intermediateForm: PokemonForm, intermediateShiny: Bool,
                                        file: StaticString = #filePath, line: UInt = #line) async {
         let original = NSImage(size: NSSize(width: 4, height: 4))
         let intermediate = NSImage(size: NSSize(width: 8, height: 8))
         let box = UnownSpriteSubjectBox(SpriteSubject(image: original, loadedID: 201,
-                                                       loadedShiny: false, loadedUnownForm: .a))
+                                                       loadedShiny: false, loadedForm: .a))
         let gate = UnownSpriteLoadGate()
         let (started, startSignal) = AsyncStream<Void>.makeStream()
         let pendingLoad = Task { @MainActor in
             box.subject = box.subject.startingLoad(cachedImage: intermediate, for: 201,
-                                                   shiny: intermediateShiny, unownForm: intermediateForm)
+                                                   shiny: intermediateShiny, form: intermediateForm)
             startSignal.yield(())
             startSignal.finish()
             await gate.wait()
             box.sawCancellation = Task.isCancelled
             if let next = box.subject.applyingLoad(intermediate, for: 201, cancelled: Task.isCancelled,
-                                                   shiny: intermediateShiny, unownForm: intermediateForm) {
+                                                   shiny: intermediateShiny, form: intermediateForm) {
                 box.subject = next
             }
         }
         for await _ in started {}
         XCTAssertTrue(box.subject.image === intermediate, file: file, line: line)
-        XCTAssertEqual(box.subject.loadedUnownForm, intermediateForm, file: file, line: line)
+        XCTAssertEqual(box.subject.loadedForm, intermediateForm, file: file, line: line)
         XCTAssertEqual(box.subject.loadedShiny, intermediateShiny, file: file, line: line)
 
         pendingLoad.cancel()
         let needsOriginal = SpriteView.needsReload(loadedID: box.subject.loadedID,
                                                    loadedShiny: box.subject.loadedShiny, id: 201, shiny: false,
-                                                   loadedUnownForm: box.subject.loadedUnownForm, unownForm: .a)
+                                                   loadedForm: box.subject.loadedForm, form: .a)
         XCTAssertTrue(needsOriginal, "The intermediate cache must not be mistaken for the original sprite",
                       file: file, line: line)
         if needsOriginal {
-            box.subject = box.subject.startingLoad(cachedImage: original, for: 201, shiny: false, unownForm: .a)
+            box.subject = box.subject.startingLoad(cachedImage: original, for: 201, shiny: false, form: .a)
         }
         await gate.release()
         await pendingLoad.value
 
         XCTAssertTrue(box.sawCancellation, file: file, line: line)
         XCTAssertTrue(box.subject.image === original, file: file, line: line)
-        XCTAssertEqual(box.subject.loadedUnownForm, .a, file: file, line: line)
+        XCTAssertEqual(box.subject.loadedForm, .a, file: file, line: line)
         XCTAssertFalse(box.subject.loadedShiny, file: file, line: line)
     }
 }
