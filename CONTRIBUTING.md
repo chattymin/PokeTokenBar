@@ -19,12 +19,14 @@ Please read the short sections below before opening a pull request.
 The project is a Swift Package. From the repository root:
 
 ```bash
-swift build      # compile the app target
-swift test       # run the full test suite
+swift build             # compile the app target
+./scripts/test-gate.sh   # run all tests and enforce logic-core coverage
 ```
 
-CI runs `swift build` and `swift test` on every pull request; please make sure
-both pass locally first.
+CI runs these same commands on every pull request. The test gate runs
+`swift test --enable-code-coverage` and requires at least 75% logic-core line
+coverage by default. Run both commands locally before submitting a PR.
+Use `swift test --filter <TestCase>` for focused checks during development.
 
 ## Contribution workflow
 
@@ -63,8 +65,11 @@ The app is provider-agnostic by design. When extending it, follow these rules
 - **Adding a usage source** (a new AI CLI) = implement the `UsageProvider`
   protocol (`Sources/PokeTokenBar/Core/UsageProvider.swift`) in one new type and
   register it in the default `providers:` array of `UsageStore.init`
-  (`Sources/PokeTokenBar/Core/UsageStore.swift`). Those are the only two places
-  you should need to touch.
+  (`Sources/PokeTokenBar/Core/UsageStore.swift`). These are the core entry points,
+  not a two-file limit. Depending on the source, also add or update its reader,
+  shared cache integration, custom scan roots, and tests. Follow the
+  [provider extension guide](docs/reference/provider-extension.md) and the
+  [provider contribution checklist](https://github.com/chattymin/PokeTokenBar/issues/115).
 - **Generic behavior must aggregate across all providers** (today/week/month
   totals, burn tier, companion rhythm). Do not attach a generic calculation to a
   single provider, and do not add `providerID == "..."` literal branches on
