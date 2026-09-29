@@ -1068,6 +1068,30 @@ struct RepresentativeFooterButton: View {
     }
 }
 
+/// 도감 페이지 셰브론. `.plain` 버튼은 라벨 프레임만 클릭되는데 13pt 셰브론은 약 7×12pt 라
+/// 클릭이 자주 빗나갔다(#379). 글리프는 그대로 두고 히트 영역만 `hitSize` 정사각형으로 넓힌다.
+/// 푸터는 18pt 높이로 고정돼 있어 넘치는 부분은 레이아웃을 밀지 않고 위아래로 겹친다.
+@MainActor
+struct DexPageButton: View {
+    static let hitSize: CGFloat = 28
+    /// 13pt 셰브론 글리프(약 7pt 폭) 양옆에 생기는 히트 영역 여백.
+    static let edgeInset: CGFloat = 10
+
+    let forward: Bool
+    let label: String
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: forward ? "chevron.right" : "chevron.left")
+                .frame(width: Self.hitSize, height: Self.hitSize)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(label)
+    }
+}
+
 /// 도감 — 보유 종만 도감 번호순으로, 한 페이지 16칸(4열×4행) 고정 격자.
 @MainActor
 private struct DexGridView: View {
@@ -1213,20 +1237,23 @@ private struct DexGridView: View {
             }
             Spacer(minLength: 4)
             if pageCount > 1 {
-                Button { page = max(0, current - 1); selectedID = nil } label: {
-                    Image(systemName: "chevron.left")
+                // 넓힌 히트 영역의 여백이 곧 셰브론↔숫자 간격이다. 바깥 음수 패딩으로 글리프를
+                // 원래 자리(우측 끝)에 두고, 넘친 히트 영역은 팝오버 여백 쪽으로 뻗게 한다.
+                HStack(spacing: 0) {
+                    DexPageButton(forward: false, label: store.l.dexPagePrev) {
+                        page = max(0, current - 1); selectedID = nil
+                    }
+                    .disabled(current == 0)
+                    Text("\(current + 1) / \(pageCount)")
+                        .font(.system(size: 12, weight: .semibold)).monospacedDigit()
+                        .foregroundStyle(.secondary)
+                        .accessibilityLabel(store.l.dexPageLabel(current + 1, pageCount))
+                    DexPageButton(forward: true, label: store.l.dexPageNext) {
+                        page = min(pageCount - 1, current + 1); selectedID = nil
+                    }
+                    .disabled(current == pageCount - 1)
                 }
-                .buttonStyle(.plain).disabled(current == 0)
-                .accessibilityLabel(store.l.dexPagePrev)
-                Text("\(current + 1) / \(pageCount)")
-                    .font(.system(size: 12, weight: .semibold)).monospacedDigit()
-                    .foregroundStyle(.secondary)
-                    .accessibilityLabel(store.l.dexPageLabel(current + 1, pageCount))
-                Button { page = min(pageCount - 1, current + 1); selectedID = nil } label: {
-                    Image(systemName: "chevron.right")
-                }
-                .buttonStyle(.plain).disabled(current == pageCount - 1)
-                .accessibilityLabel(store.l.dexPageNext)
+                .padding(.horizontal, -DexPageButton.edgeInset)
             }
         }
         .font(.system(size: 13, weight: .semibold))
