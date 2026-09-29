@@ -259,6 +259,20 @@ read_when:
   `reportsCost` 를 켜지 마라. 가드: `testExtraRootFindsJsonlSessionsWithoutSqlite`·
   `testCliJsonlSessionIsReadFromWriterShapedEvents`·`testV3MessagesJsonlSessionIsRead` —
   JSONL 스캔을 끄면 이 셋이 빨개져야 한다(헬퍼 복사본이 아니라 프로덕션 `kiroEntries`).
+- **A valid event envelope does not guarantee complete content-block coverage.** Kiro CLI
+  2.25.0 JSONL contains `toolUse.data.input`, `toolResult.data.content` (nested `text`/`json`),
+  and `thinking.data.text`, but the reader accepted only `kind=text`. Tool-heavy sessions
+  therefore lost both current content and the history resent in later turns. Existing CLI
+  fixtures contained only text; the separate v3 tool-call test did not exercise this path.
+  Dispatch known block kinds, reusing the existing JSON-value byte estimate for arguments
+  and JSON results. Do not traverse the entire event: IDs, thinking signatures/redacted data,
+  images, and the duplicate `ToolResults.data.results` bookkeeping are not additional text.
+  `KiroContentBlockTests` uses synthetic writer-shaped blocks to cover input/output routing,
+  tool-only responses, UTF-8/nested JSON, cross-day history, Clear, late-result rescans and
+  keep-max deduplication. Kiro's entries/signatures are memory-only, so no disk-cache version
+  changes are needed. This fixes missing content, not the estimator's existing limitations:
+  bytes/4 and per-prompt history are not authoritative per-request/billed token counts.
+
 - **Antigravity의 생성 시각은 `gen_metadata` 한 곳에 고정돼 있지 않다.** 구 포맷은
   `chat_start_metadata.created_at`에 시각을 넣지만, 현재 포맷은 그 필드를 비우고 `steps.metadata`에
   타임스탬프를 둔다(`8 finished_at`, 없으면 `1 created_at`). 토큰 필드는 유지되므로 `gen_metadata`만
