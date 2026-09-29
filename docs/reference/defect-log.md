@@ -875,6 +875,21 @@ read_when:
   아니다(구세이브 업그레이드 폭탄 방지). 회귀: `testRearmWhenWindowEpochAdvancesWhileStillAt100`·
   `testGrantAfterSeedWhenEpochAdvancesWithoutUtilDip`·`testLearningEpochForFirstTimeDoesNotRegrant`.
 
+- **Compare reset instants, not raw timestamp strings, when rearming candy grants.**
+  Claude weekly usage stayed at 100% while `resets_at` changed only in fractional seconds;
+  raw string inequality cleared the tier and awarded five candies on every poll. Existing
+  tests used fixed epochs or actual window changes, missing same-window timestamp jitter.
+  Compare ISO timestamps with a one-second tolerance, preserving the accepted baseline;
+  timezone/precision changes and jitter across a whole-second boundary must not rearm.
+  Parse both the stored and incoming value so old saves work without migration. Non-ISO
+  epochs retain exact comparison. The shared evaluator covers all ISO-based candy windows;
+  no provider-specific key exception is needed. Do not remove the weekly epoch: doing so
+  reintroduces #326 when the app misses a reset/refill while closed. Synthetic pure and
+  integration tests cover jitter, the tolerance boundary, equivalent offsets, legacy saves,
+  utilization dips, restart persistence and a real next week without a dip sample
+  (`testClaudeWeeklyJitterThenNewWeekWithoutUtilizationDipAcrossRestart`). This tolerance
+  addresses observed subsecond jitter, not arbitrary deadline movement of seconds or minutes.
+
 - **휘발성 필드를 dedup/identity 키에 쓰지 마라.** 매 fetch/refresh 마다 값이 변하는 필드(예: rolling
   한도 창의 `resets_at`)를 알림 중복방지 키에 넣으면 매번 새 키가 되어 dedup 이 무력화된다 — 주간 한도
   알림이 80·81·84…갱신마다 반복되던 회귀. 임계값 알림은 **엣지 트리거**(직전 tier 보다 높아진 순간만
