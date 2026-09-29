@@ -25,6 +25,18 @@ read_when:
 
 ## 판정·데이터
 
+- **An idle day must not erase historical usage.** The store admitted enrichment-only snapshots
+  only for a positive active block, so providers with no usage today lost their week/month totals
+  and chart. Earlier tests deliberately rejected even positive historical totals to hide unused
+  provider tabs; that conflated "unused today" with "no recorded usage". Keep snapshots when a
+  block, period, or daily series has positive tokens, while excluding non-nil all-zero summaries.
+  `UsageStoreTests` covers each history source independently, nil today/nil block, repeated
+  refresh, enrichment failure, successful empty replacement, and ledger recording. The source
+  sweep found this carrier gate was the shared loss point; today-based burn/limit eligibility
+  remains intentionally scoped to current activity. Preserve carriers during phase 1 to avoid
+  hiding the chart between refresh phases. Removing the history predicates makes the historical
+  carrier regression fail; restoring them passes all three history regression tests.
+
 - **Species ownership is not an individual's appearance.** A species-level shiny flag means
   at least one shiny was collected; using it for the selected individual's badge mislabeled
   normal catches, and earlier evolution pages offered no way to choose their normal appearance.

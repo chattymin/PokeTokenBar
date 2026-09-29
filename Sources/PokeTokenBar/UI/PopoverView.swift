@@ -184,10 +184,12 @@ struct PopoverView: View {
                 Text(TokenFormatter.compact(store.todayTotalTokens))
                     .font(.system(size: 28, weight: .bold))
                     .monospacedDigit()
-                Text(TokenFormatter.grouped(store.todayTotalTokens))
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .monospacedDigit()
+                if store.todayTotalTokens >= 1_000 {
+                    Text(TokenFormatter.grouped(store.todayTotalTokens))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .monospacedDigit()
+                }
                 Spacer()
                 if store.showsCost {
                     UsageCostText(cost: store.todayUsageCost, l: l)
@@ -196,21 +198,19 @@ struct PopoverView: View {
                 }
             }
 
-            // 주간/월간 누적 (전 서비스 합산 — 오늘 합계와 함께 통합 통계)
-            if store.weekTotalTokens > 0 || store.monthTotalTokens > 0 {
-                HStack(spacing: 14) {
-                    periodLabel(l.thisWeek, tokens: store.weekTotalTokens, cost: store.showsCost ? store.weekUsageCost : nil)
-                    periodLabel(l.thisMonth, tokens: store.monthTotalTokens, cost: store.showsCost ? store.monthUsageCost : nil)
-                    Spacer()
-                    Button { nav.showingRecap = true } label: {
-                        Image(systemName: "chart.bar.xaxis")
-                    }
-                    .buttonStyle(.borderless)
-                    .help(l.recapOpen)
-                    .accessibilityLabel(l.recapOpen)
+            // Keep period totals and saved-history navigation visible on quiet days too.
+            HStack(spacing: 14) {
+                periodLabel(l.thisWeek, tokens: store.weekTotalTokens, cost: store.showsCost ? store.weekUsageCost : nil)
+                periodLabel(l.thisMonth, tokens: store.monthTotalTokens, cost: store.showsCost ? store.monthUsageCost : nil)
+                Spacer()
+                Button { nav.showingRecap = true } label: {
+                    Image(systemName: "chart.bar.xaxis")
                 }
-                .padding(.top, 2)
+                .buttonStyle(.borderless)
+                .help(l.recapOpen)
+                .accessibilityLabel(l.recapOpen)
             }
+            .padding(.top, 2)
 
             MonthDailyTrend(series: store.monthDailyTotals,
                             showsCost: store.showsCost,
