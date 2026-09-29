@@ -1640,6 +1640,8 @@ final class CompanionStore {
         m.totalForms = evolutionPlan.count
         m.usedAtStage = carryOver
         m.dittoRevealed = true
+        // The hatch boost came from the disguise's line; from now on only a repeat Ditto earns it.
+        m.hasGrowthBoost = state.hasCollectedFinal(forBaseID: dittoLine.baseID)
         m.profile?.rebaseForSpeciesIdentity(from: previousRarity, to: dittoLine.rarity)
         if let details = pokemonDetailsByID[dittoLine.baseID] {
             m.profile?.enrich(with: details)

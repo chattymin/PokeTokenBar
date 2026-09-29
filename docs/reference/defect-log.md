@@ -142,7 +142,12 @@ read_when:
   표시 임계 직전/도달·설정 즉시 변경·최종 졸업까지 검증한다.
   가드: `testRepeatGrowthIsDecidedFromTheCollectedBaseNotThePlannedFinal`·
   `testRepeatGrowthPersistsAcrossRestartWhileLegacyActiveDefaultsToStandardGrowth`·
-  `testRoundTripPreservesActiveRepeatGrowthBoost`·`testBoostedDisguiseRevealsAtTheHalvedThresholdAndKeepsTheBoost`.
+  `testRoundTripPreservesActiveRepeatGrowthBoost`·`testBoostedDisguiseRevealsAtTheHalvedThresholdAndANewDittoDropsTheBoost`.
+  메타몽 리빌은 hatch 뒤에 개체의 base 가 바뀌는 유일한 지점이라 base predicate 를 **리빌 때 메타몽 base 로
+  다시 판정**한다. 위장체의 할인은 위장 라인 기준(정체를 숨긴다)이고, 리빌이 그 값을 그대로 넘겨서 이미
+  졸업한 메타몽을 다시 얻어도 x2 가 없고 새 메타몽이 위장 라인의 x2 를 가져갔다. 리빌 테스트가 모두
+  `collectedFinals: []` 로 시드해 `메타몽 졸업 → 위장 메타몽 재부화` 트리거를 밟지 않았다.
+  가드: `testRevealingAnAlreadyGraduatedDittoGrantsTheRepeatBoost`.
 - **같은 규칙이 세이브 파일이 아니라 *외부에서 오는 모든 수치*에 적용된다 — 파싱 경계도 포함.** 위 규칙을
   "세이브 파일"로 좁게 읽은 탓에 사용량 로그 파서(`LocalUsageReader`)의 `intValue` 가 무방비로 남았고,
   같은 SIGTRAP 이 Codex·Claude·Gemini 세 경로에서 재현됐다(딥리뷰 2026-08-04). 사용량 로그도 앱이 쓴 게
