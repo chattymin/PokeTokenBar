@@ -1295,7 +1295,7 @@ final class CompanionStore {
 
     /// 지급 판정(순수·엣지 트리거) — 한도 창이 100% 를 새로 넘어선 순간에만 지급.
     /// - 100% 미만 → 맵에서 제거(재무장).
-    /// - 같은 key 라도 epoch(`resets_at`)가 바뀌면 새 창으로 보고 재무장 — 슬립·종료로 &lt;100% 샘플을
+    /// - 같은 key 라도 epoch(`resets_at`)가 실질적으로 바뀌면 새 창으로 보고 재무장 — 슬립·종료로 &lt;100% 샘플을
     ///   못 본 채 다시 100%만 관측해도 지급 누락이 없다(#326). key 자체엔 epoch 를 넣지 않는다
     ///   (알림 dedup 과 같은 이유로 매 fetch 새 키 폭탄 방지).
     /// - 이미 지급한 창(tier≥1)은 재지급 안 함. session=1개·weekly=weeklyGrant.
@@ -1308,10 +1308,14 @@ final class CompanionStore {
         var grants: [CandyGrant] = []
         for w in windows {
             if let epoch = w.epoch {
-                if let previousEpoch = windowEpoch[w.key], previousEpoch != epoch {
-                    grantTier[w.key] = nil
+                if let previousEpoch = windowEpoch[w.key] {
+                    if !sameCandyWindowEpoch(previousEpoch, epoch) {
+                        grantTier[w.key] = nil
+                        windowEpoch[w.key] = epoch
+                    }
+                } else {
+                    windowEpoch[w.key] = epoch
                 }
-                windowEpoch[w.key] = epoch
             }
             guard w.utilization >= 100 else { grantTier[w.key] = nil; continue }
             let previous = grantTier[w.key] ?? 0
@@ -1321,6 +1325,19 @@ final class CompanionStore {
             grants.append(CandyGrant(windowKey: w.key, windowName: w.name, count: count))
         }
         return grants
+    }
+
+    /// Reset timestamps are not opaque IDs: Claude can vary their fractional seconds
+    /// between polls without resetting usage. Compare instants with a one-second tolerance,
+    /// including across whole-second boundaries, while preserving real session/week changes.
+    /// Keep the accepted epoch as the baseline so small deltas cannot accumulate unnoticed.
+    /// Parsing both sides also handles existing saves without a migration. Non-ISO epochs
+    /// (e.g. Codex's integer reset value) retain their existing exact-identity semantics.
+    private static func sameCandyWindowEpoch(_ previous: String, _ current: String) -> Bool {
+        if previous == current { return true }
+        guard let previousDate = ISO8601Parser.date(from: previous),
+              let currentDate = ISO8601Parser.date(from: current) else { return false }
+        return abs(currentDate.timeIntervalSince(previousDate)) <= 1
     }
 
     /// 한도 창 상태로부터 사탕 지급(엣지·영속). AppDelegate 가 매 refresh 완료 시(한도 로드 후) 호출.
