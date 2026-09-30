@@ -258,6 +258,27 @@ struct L {
     var todayTokensShort: String { t("오늘 토큰", "Today's tokens", "本日のトークン", "Tokens de hoy", "Tokens du jour", "Tokens de hoje", "Heutige Tokens") }
     var todayCost: String { t("오늘 비용 ($)", "Today's cost ($)", "本日のコスト ($)", "Coste de hoy ($)", "Coût du jour ($)", "Custo de hoje ($)", "Heutige Kosten ($)") }
     var limitPercent: String { t("한도 %", "Limit %", "上限 %", "Límite %", "Limite %", "Limite %", "Limit %") }
+    var pokemonGrowthPercent: String {
+        t("포켓몬 성장률", "Pokémon growth %", "ポケモンの成長率", "Crecimiento del Pokémon %",
+          "Croissance du Pokémon %", "Crescimento do Pokémon %", "Pokémon-Wachstum %")
+    }
+    var pokemonGrowthPercentHint: String {
+        t("키우는 알의 부화 또는 포켓몬의 다음 진화·졸업 진행률",
+          "Progress toward hatching or your companion's next evolution or graduation",
+          "育てているタマゴの孵化、またはポケモンの次の進化・卒業までの進捗",
+          "Progreso hasta la eclosión o la próxima evolución o graduación de tu compañero",
+          "Progression vers l'éclosion ou la prochaine évolution ou le diplôme de ton compagnon",
+          "Progresso até a eclosão ou a próxima evolução ou formatura do seu companheiro",
+          "Fortschritt bis zum Schlüpfen oder zur nächsten Entwicklung oder zum Abschied deines Begleiters")
+    }
+    func menuGrowthProgress(_ percent: Int, isEgg: Bool) -> String {
+        if isEgg {
+            return t("부화 \(percent)%", "Hatch \(percent)%", "孵化 \(percent)%", "Eclosión \(percent)%",
+                     "Éclosion \(percent)%", "Eclosão \(percent)%", "Schlüpfen \(percent)%")
+        }
+        return t("성장 \(percent)%", "Growth \(percent)%", "成長 \(percent)%", "Crecimiento \(percent)%",
+                 "Croissance \(percent)%", "Crescimento \(percent)%", "Wachstum \(percent)%")
+    }
     var menuLimitColor: String {
         t("퍼센트 색상", "Percent color", "パーセントの色", "Color del porcentaje", "Couleur du pourcentage",
           "Cor da porcentagem", "Prozentfarbe")
