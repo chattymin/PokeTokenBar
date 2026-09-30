@@ -479,6 +479,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
 
     // MARK: 프레임 합성 (22px)
 
+    /// Widest the menu bar sprite may get, so a wide species does not push the usage text too far.
+    /// At 36pt, 645 of the 649 species reach the full 20pt height. The rest: Swanna, Linoone and
+    /// Gorebyss at ~18pt, Tynamo (57×19) at 12pt, which would need 60pt to fill the height.
+    nonisolated static let menuBarSpriteMaxWidth: CGFloat = 36
+
     /// 스프라이트 정적 + 가벼운 상하 bob 2프레임 (animated 미지원/로딩 폴백).
     private static func bobFrames(from sprite: NSImage) -> [(image: NSImage, delay: TimeInterval)] {
         [(menuBarImage(from: sprite, up: false), 0.5), (menuBarImage(from: sprite, up: true), 0.5)]
@@ -495,9 +500,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     /// + 좌우 1pt 만큼만. 정사각 22 고정으로 두면 세로로 긴 종(잭키 36×66 → 폭 10.9)의 좌우에 죽은
     /// 여백이 5pt 씩 생겨 사용량 숫자와 사이가 벌어진다. 세로 기준선은 바닥 정렬 유지 — GIF 캔버스는
     /// 스프라이트에 딱 맞게 크롭돼 있어 바닥이 곧 발밑이고, 정사각 원본은 예전과 픽셀 단위로 같다.
+    ///
+    /// The sprite fits the 20pt height and may grow wider than it, up to `menuBarSpriteMaxWidth`.
+    /// Fitting a 20pt square instead let the width decide for wide canvases: Swanna's spread wings
+    /// (137×69) came out 10pt tall, Tynamo (57×19) under 7pt.
     nonisolated static func menuBarLayout(for pixelSize: CGSize, height h: CGFloat = 22,
                                           up: Bool) -> (canvas: NSSize, rect: NSRect) {
-        let fit = SpriteFit.size(for: pixelSize, box: h - 2)
+        let fit = SpriteFit.size(for: pixelSize, width: menuBarSpriteMaxWidth, height: h - 2)
         return (NSSize(width: fit.width + 2, height: h),
                 NSRect(x: 1, y: up ? 1 : 0, width: fit.width, height: fit.height))
     }
