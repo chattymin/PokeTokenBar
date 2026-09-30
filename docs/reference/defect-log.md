@@ -919,6 +919,14 @@ read_when:
   ③ **크기가 0 인 원본**(디코드 실패)은 0 나눗셈이 되므로 정사각 폴백으로 막는다.
   회귀 가드(`SpriteAspectRatioTests`)는 실제 PokeAPI 캔버스 치수를 넣고, **"비정사각이 정사각으로 나오지
   않는다"는 트리거 명제를 따로 둔다** — 이게 없으면 원본이 애초에 정사각인 케이스로도 전부 통과한다.
+- **In a fixed-height slot, fit the height, not a square.** The menu bar still fitted a 20pt
+  square after the fix above, so a wide canvas was sized by its width: Swanna #581 (137×69) came out
+  10pt tall, Tynamo #602 (57×19) under 7pt, and 345 of the 649 species missed the full 20pt height.
+  The tests missed it because their widest fixture was Pikachu (50×46), where width and height
+  barely differ, and the wide case asserted the square rule ("fills the 20pt content box" on the
+  width). `menuBarLayout` now fits 20pt tall up to `menuBarSpriteMaxWidth` (36pt, 645/649 at full
+  height). Measure a new cap against every canvas in the dex, not the cached few; the guard is
+  `testWideSpriteFillsMenuBarHeightUntilTheWidthCap` with the real Swanna and Tynamo canvases.
 
 ## 프로세스 제어·업데이트
 
