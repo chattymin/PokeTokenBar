@@ -907,6 +907,7 @@ struct CollectionView: View {
                 Image(systemName: shinyOnly ? "sparkles" : "sparkle")
                     .font(.system(size: 13, weight: shinyOnly ? .bold : .regular))
                     .foregroundStyle(shinyOnly ? Color.yellow : Color.secondary)
+                    .frame(width: 16, height: 16)
                     .padding(.horizontal, 6)
                     .padding(.vertical, 4)
                     .background(shinyOnly ? Color.yellow.opacity(0.18) : Color(nsColor: .controlBackgroundColor))
