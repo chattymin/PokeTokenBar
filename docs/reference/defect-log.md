@@ -23,7 +23,26 @@ read_when:
   보존해 정적 보기로 전환할 때 복원한다. `SpriteAnimationPreviewTests`는 실제 SwiftUI 첫 렌더의
   GIF 픽셀·크기, 캐시 재사용, 프레임 지연, 정적 원본 보존을 검사한다.
 
+## Mega Evolution controls
+
+- **Permanent appearance unlocks need controls on the Pokémon that uses them.**
+  The first implementation exposed activation only in the Bag and changed only
+  the representative overlay; Home kept rendering the base species. Store tests
+  verified the overlay without checking the Pokémon-page controls or sprite.
+  Home and collection detail must provide owned-form ON/OFF controls and render
+  the active form for the selected appearance. Keep growth and stats on the base
+  species. Switching a form must not charge tokens or consume the permanent stone,
+  and old consumed-but-active saves must retain a reusable unlock after OFF.
+
 ## 판정·데이터
+
+- **Representative appearance must store the user's selected color.** Species-level
+  shiny ownership made a normal choice revert to shiny in the menu bar and floating
+  pet when both appearances were collected. The detail picker only stored local UI
+  state, and representative tests verified species IDs without mixed-color display
+  choices. Persist an optional representative color, validate that appearance is
+  owned, and pass the detail selection to representative actions. Test both color
+  transitions and reloads, and keep Mega color changes tied to the active overlay.
 
 - **Species ownership is not an individual's appearance.** A species-level shiny flag means
   at least one shiny was collected; using it for the selected individual's badge mislabeled
