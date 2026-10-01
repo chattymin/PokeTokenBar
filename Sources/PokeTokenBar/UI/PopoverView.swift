@@ -32,12 +32,19 @@ extension View {
 @MainActor
 @Observable
 final class PopoverNavigation {
-    var showSettings = false
-    var tab: PopoverTab = .home
+    var showSettings = false { didSet { if showSettings { dexDetailCollectionID = nil } } }
+    var tab: PopoverTab = .home { didSet { if tab != .collection { dexDetailCollectionID = nil } } }
     /// 일반적인 컬렉션 재진입에는 마지막 세그먼트를 유지하되, 대표 포켓몬 선택 진입점은 도감으로 강제한다.
-    var showingCollectionLog = false
+    var showingCollectionLog = false {
+        didSet { if showingCollectionLog != oldValue { dexDetailCollectionID = nil } }
+    }
     /// The usage recap takes over the popover like Settings does; closing the popover drops it.
-    var showingRecap = false
+    var showingRecap = false { didSet { if showingRecap { dexDetailCollectionID = nil } } }
+    /// The Collection tab's open Pokédex detail page (`DexSpecies.collectionID`); nil = grid or log.
+    /// It lives here so Home sprites can open it, but it only lasts while the collection content is
+    /// on screen: leaving the tab, switching segment, or covering it with Settings/Recap drops it —
+    /// the same lifetime it had as `CollectionView`'s own `@State`.
+    var dexDetailCollectionID: String?
     /// 프로바이더 탭 선택 — reset() 대상이 아님(팝오버를 다시 열어도 보던 서비스 유지).
     var providerID: String?
     /// Claude account tab in the limits section. Kept across openings, like `providerID`.
@@ -57,6 +64,14 @@ final class PopoverNavigation {
     func openSessionKeySettings() {
         showSettings = true
         expandAdvancedOnOpen = true
+    }
+
+    /// Clicking a Pokémon sprite on Home opens that species' Pokédex detail page. The segment is left
+    /// as it was, so Back lands where the Collection tab would normally reopen.
+    func openDexEntry(collectionID: String) {
+        showSettings = false
+        tab = .collection
+        dexDetailCollectionID = collectionID   // last: the didSets above clear it
     }
 
     /// 설정의 대표 포켓몬 행에서 기존 도감으로 이동한다. 별도 선택 화면을 만들지 않고
@@ -154,7 +169,7 @@ struct PopoverView: View {
                 // 고정 높이 — 상점/가방/컬렉션과 동일(팝오버가 화면을 넘어가는 것을 방지).
                 ScrollView {
                     VStack(alignment: .leading, spacing: 12) {
-                        CompanionHeader(store: companion)
+                        CompanionHeader(store: companion) { nav.openDexEntry(collectionID: $0) }
                         Divider()
                         header
                         Divider()

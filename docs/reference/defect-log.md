@@ -774,6 +774,17 @@ read_when:
   **회귀 가드:** `ScrollerLaneTests` 가 `Sources/PokeTokenBar/UI` 의 모든 세로 `ScrollView` 가 자기
   클로저 안에서 `.reservesScrollerLane()` 을 쓰는지 괄호 매칭으로 검사한다(주석·문자열 제외, 바깥에 붙인
   패딩은 스크롤러까지 밀어 불인정). 다섯 곳 각각을 빼면 해당 `파일:줄` 로 실패하는 것을 확인했다.
+- **A view that sets the cursor must reset it when it disappears, not only when hover ends.** Dex
+  links (#394) used `.pointerStyle(.link)`. Clicking one navigates the link away while the pointer is
+  still on it, so no hover-ended event arrives and the hand cursor stuck on the next screen. Nothing
+  caught it: hover can't be synthesized in tests (offscreen `mouseMoved` events don't drive SwiftUI
+  hover), and the PR screenshots were offscreen renders with no cursor. `DexEntryLink` now sets the
+  cursor from `onContinuousHover` and resets it in `onDisappear` (only if it set it), via the pure
+  `DexEntryLink.cursor(after:wasHovered:)`. **Regression guard:** `DexEntryLinkCursorTests`; with the
+  disappear reset removed, it fails.
+  **Test trap:** in the test process `NSCursor.arrow` compares equal to `nil` (`nil == .arrow` is
+  true), so an `XCTAssertEqual` on `NSCursor?` passes no matter what. Decide with a plain enum and map
+  to `NSCursor` only at the call site.
 
 ## 에너지 (상시 표시 애니메이션)
 

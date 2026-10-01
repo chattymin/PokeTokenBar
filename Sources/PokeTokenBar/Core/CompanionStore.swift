@@ -459,6 +459,14 @@ final class CompanionStore {
         collectedDexSpecies(groupUnownForms: false)
     }
 
+    /// Sprite → Pokédex detail link targets (species number → dex cell `collectionID`). Only species
+    /// in the dex have a key, so eggs, unreached evolutions and uncaught species are not clickable.
+    /// The main dex does not split Unown letters (the letter is picked on the detail page), so a
+    /// species number maps to exactly one cell.
+    var dexLinkTargets: [Int: String] {
+        dexSpecies.reduce(into: [:]) { links, species in links[species.id] = species.collectionID }
+    }
+
     /// Collected form summaries for the detail picker; missing forms remain visible but disabled.
     var unownFormSpecies: [DexSpecies] {
         collectedDexSpecies(groupUnownForms: true).filter { $0.id == UnownForm.speciesID }
