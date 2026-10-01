@@ -315,9 +315,14 @@ struct CandyGrant: Equatable, Sendable {
 /// PokéAPI 의 Gen-V animated 에셋은 전국도감 #1...649까지만 존재한다.
 enum PokemonAssets {
     static let animatedSpeciesIDs = 1...649
+    static let animatedMegaSpeciesIDs: Set<Int> = Set(MegaStone.allCases.map(\.megaSpeciesID))
 
     static func hasAnimatedSprite(speciesID: Int) -> Bool {
-        animatedSpeciesIDs.contains(speciesID)
+        animatedSpeciesIDs.contains(speciesID) || animatedMegaSpeciesIDs.contains(speciesID)
+    }
+
+    static func isMegaSpecies(speciesID: Int) -> Bool {
+        animatedMegaSpeciesIDs.contains(speciesID)
     }
 }
 
@@ -654,13 +659,22 @@ struct CompanionState: Codable, Sendable {
     // 졸업분 + 현재 개체의 도달 단계이며, 그 범위에서 빠지면 reconcileRepresentativeSelection 이 nil 로 복구한다.
     var representativeSpeciesID: Int? = nil
     var representativeUnownForm: UnownForm? = nil
+    /// The representative species' displayed color. nil preserves the aggregate behavior of
+    /// saves created before this field existed; otherwise the Pokédex color choice is remembered.
+    var representativeIsShiny: Bool? = nil
     // 도감
     var dex: [DexEntry] = []
     // 소유한 (base,final) 쌍 — 분기 다양성용
     var collectedFinals: Set<String> = []
     var language: AppLanguage = .systemDefault   // 신규 설치 = 시스템 로케일
-    // 인벤토리 (ItemKind.rawValue → 개수)
+    // Inventory (ItemKind.rawValue → count; Mega Stone keys store permanent unlocks).
     var inventory: [String: Int] = [:]
+    // `megaStones` reads permanent-unlock saves from the initial unreleased implementation.
+    // Current Mega Stone unlocks are stored in inventory[stone.inventoryKey].
+    var megaStones: Set<MegaStone> = []
+    // The active Mega Evolution is an overlay that does not replace the representative
+    // selection, which remains available when the user ends it or chooses another representative.
+    var activeMegaEvolution: MegaEvolutionState?
     // 사탕 지급 엣지 상태(창 key → 지급한 tier). ★영속 — notifiedTier(인메모리)와 달리 재시작 무한지급 방지.
     var candyGrantTier: [String: Int] = [:]
     // 창 key → 마지막으로 본 epoch(`resets_at`). util 이 계속 100%여도 epoch 교체로 재무장(#326).
@@ -699,11 +713,37 @@ struct CompanionState: Codable, Sendable {
         representativeSpeciesID = c.lenientOptional(Int.self, forKey: .representativeSpeciesID)
         representativeUnownForm = UnownForm.resolved(speciesID: representativeSpeciesID ?? 0,
             form: c.lenientOptional(UnownForm.self, forKey: .representativeUnownForm))
+        representativeIsShiny = c.lenientOptional(Bool.self, forKey: .representativeIsShiny)
         // 도감은 항목별 격리 — 손상 항목 하나가 도감 전체를 날리지 않게.
         dex                = c.lenient([Lossy<DexEntry>].self, forKey: .dex, default: []).compactMap(\.value)
         collectedFinals    = c.lenient(Set<String>.self, forKey: .collectedFinals, default: [])
         language           = c.lenient(AppLanguage.self, forKey: .language, default: .systemDefault)
         inventory          = c.lenient([String: Int].self, forKey: .inventory, default: [:])
+        let legacyMegaStones = c.lenient(Set<MegaStone>.self, forKey: .megaStones, default: [])
+        // The first implementation stored permanent unlocks in a Set. Preserve
+        // every legacy unlock and normalize any older short-lived format back to
+        // one permanent unlock. New saves keep the legacy field empty.
+        for stone in legacyMegaStones {
+            inventory[stone.inventoryKey] = 1
+        }
+        for stone in MegaStone.allCases {
+            let key = stone.inventoryKey
+            if let count = inventory[key] {
+                inventory[key] = count > 0 ? 1 : 0
+            }
+        }
+        megaStones         = []
+        activeMegaEvolution = c.lenientOptional(MegaEvolutionState.self, forKey: .activeMegaEvolution)
+        // A previous consumable build could leave an active overlay with a zero
+        // inventory bit. The active state proves that this stone was purchased;
+        // restore its permanent unlock on migration so turning Mega off does not
+        // make the user's existing unlock disappear. Require the eligible final
+        // species as a corruption guard before granting the migrated bit.
+        if let active = activeMegaEvolution,
+           (inventory[active.stone.inventoryKey] ?? 0) <= 0,
+           ownsSpecies(active.stone.eligibleSpeciesID) {
+            inventory[active.stone.inventoryKey] = 1
+        }
         candyGrantTier     = c.lenient([String: Int].self, forKey: .candyGrantTier, default: [:])
         candyWindowEpoch   = c.lenient([String: String].self, forKey: .candyWindowEpoch, default: [:])
         candyFeatureSeeded = c.lenient(Bool.self, forKey: .candyFeatureSeeded, default: false)
@@ -754,17 +794,45 @@ struct CompanionState: Codable, Sendable {
         return active.dittoDisguise == nil || active.dittoRevealed
     }
 
+    /// Whether a particular species is owned in its normal color. Keep this separate from
+    /// the shiny aggregate so representative color selection handles normal-only and shiny-only saves.
+    func ownsNormalSpecies(_ speciesID: Int, unownForm: UnownForm? = nil) -> Bool {
+        let form = UnownForm.resolved(speciesID: speciesID, form: unownForm)
+        if dex.contains(where: {
+            !$0.isShiny && $0.chainOrder.contains(speciesID)
+                && UnownForm.resolved(speciesID: speciesID, form: $0.unownForm) == form
+        }) { return true }
+        guard let active,
+              active.pathIDs.prefix(active.stageIndex + 1).contains(speciesID),
+              UnownForm.resolved(speciesID: speciesID, form: active.unownForm) == form else {
+            return false
+        }
+        let visibleShiny = active.isShiny && (active.dittoDisguise == nil || active.dittoRevealed)
+        return !visibleShiny
+    }
+
     /// 대표 포켓몬은 사용자가 현재 보유한 종만 가리킨다. Fresh Egg·메타몽 리빌·손편집 세이브가
     /// 유령 종을 메뉴바와 플로팅 펫에 영구히 남기지 않게 한다.
     mutating func reconcileRepresentativeSelection() {
         guard let selected = representativeSpeciesID else {
             representativeUnownForm = nil
+            representativeIsShiny = nil
             return
         }
         representativeUnownForm = UnownForm.resolved(speciesID: selected, form: representativeUnownForm)
         if !ownsSpecies(selected, unownForm: representativeUnownForm) {
             representativeSpeciesID = nil
             representativeUnownForm = nil
+            representativeIsShiny = nil
+            return
+        }
+        if let isShiny = representativeIsShiny {
+            let ownsAppearance = isShiny
+                ? ownsShinySpecies(selected, unownForm: representativeUnownForm)
+                : ownsNormalSpecies(selected, unownForm: representativeUnownForm)
+            if !ownsAppearance {
+                representativeIsShiny = nil
+            }
         }
     }
 }

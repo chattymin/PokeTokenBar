@@ -4,7 +4,7 @@ import AppKit
 actor SpriteStore {
     static let shared = SpriteStore()
     private static let base = "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon"
-    private let itemBase = "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items"
+    private static let itemBase = "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items"
     private var mem: [String: Data] = [:]
     private var memOrder: [String] = []   // LRU 순서(최근 접근이 뒤). 상한 초과 시 앞(오래된 것)부터 evict
     // 원본 PNG/GIF 바이트의 LRU 상한 — 도감 한 페이지(24칸)보다 넉넉히 유지하되,
@@ -35,7 +35,14 @@ actor SpriteStore {
     /// 캐시와 다운로드가 같은 폼 이름을 사용한다. 네트워크 없이 요청 경로를 검증할 수 있다.
     static func spriteURL(speciesID: Int, animated: Bool, shiny: Bool, unownForm: UnownForm? = nil) -> URL {
         let name = assetName(speciesID: speciesID, unownForm: unownForm)
-        let path = animated ? "versions/generation-v/black-white/animated/" : ""
+        let path: String
+        if animated, PokemonAssets.isMegaSpecies(speciesID: speciesID) {
+            // PokeAPI's legacy Gen-V animated directory stops at #649. Mega forms
+            // use the runtime Showdown GIFs instead, with the same shiny split.
+            path = "other/showdown/"
+        } else {
+            path = animated ? "versions/generation-v/black-white/animated/" : ""
+        }
         let color = shiny ? "shiny/" : ""
         let ext = animated ? "gif" : "png"
         return URL(string: "\(base)/\(path)\(color)\(name).\(ext)")!
@@ -63,12 +70,17 @@ actor SpriteStore {
         if let d = mem[key] { touch(key); return d }
         let file = directory.appendingPathComponent("\(key).png")
         if let d = try? Data(contentsOf: file) { remember(key, d); return d }
-        guard let url = URL(string: "\(itemBase)/\(itemName).png"),
+        guard let url = Self.itemURL(name: itemName),
               let (d, resp) = try? await URLSession.shared.data(from: url),
               (resp as? HTTPURLResponse)?.statusCode == 200, !d.isEmpty else { return nil }
         try? d.write(to: file, options: .atomic)
         remember(key, d)
         return d
+    }
+
+    /// Item sprite URL mapping, testable without network access.
+    static func itemURL(name: String) -> URL? {
+        URL(string: "\(itemBase)/\(name).png")
     }
 
     /// 알 스프라이트(정적, pokemon/egg.png) — 애니메이션 알은 없음. 포켓몬/아이템과 같은 메모리·디스크 캐시(키 "egg").

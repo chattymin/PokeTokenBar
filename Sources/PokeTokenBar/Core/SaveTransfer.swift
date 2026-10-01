@@ -149,6 +149,45 @@ enum SaveTransfer {
         s.claimedTodayTokensByProvider = s.claimedTodayTokensByProvider?.reduce(into: [:]) { result, entry in
             result[entry.key] = clampToken(entry.value)
         }
+        // Also migrate values supplied directly by callers (rather than decoded
+        // from JSON), then normalize any previous purchase quantity to a
+        // permanent unlock bit.
+        for stone in s.megaStones {
+            s.inventory[stone.inventoryKey] = 1
+        }
+        s.megaStones.removeAll()
+        for stone in MegaStone.allCases {
+            let key = stone.inventoryKey
+            if let count = s.inventory[key] { s.inventory[key] = count > 0 ? 1 : 0 }
+        }
+        // A legacy consumable save can contain a valid active overlay after its
+        // one stone was spent. Treat that proof of prior purchase as a permanent
+        // unlock during import as well as during CompanionState decoding. The
+        // ownership check prevents a malformed overlay from granting a stone.
+        if let mega = s.activeMegaEvolution,
+           (s.inventory[mega.stone.inventoryKey] ?? 0) <= 0,
+           s.ownsSpecies(mega.stone.eligibleSpeciesID) {
+            s.inventory[mega.stone.inventoryKey] = 1
+        }
+        // Mega Evolutions are permanent cosmetic overlays. Older saves may carry
+        // startedAt/expiresAt fields, but those dates are intentionally ignored.
+        // The selected appearance is normalized to an owned normal/shiny color.
+        if let mega = s.activeMegaEvolution {
+            let speciesID = mega.stone.eligibleSpeciesID
+            let ownsNormal = s.ownsNormalSpecies(speciesID)
+            let ownsShiny = s.ownsShinySpecies(speciesID)
+            if !ownsNormal && !ownsShiny {
+                s.activeMegaEvolution = nil
+            } else if mega.isShiny, !ownsShiny {
+                s.activeMegaEvolution = ownsNormal
+                    ? MegaEvolutionState(stone: mega.stone, isShiny: false)
+                    : nil
+            } else if !mega.isShiny, !ownsNormal {
+                s.activeMegaEvolution = ownsShiny
+                    ? MegaEvolutionState(stone: mega.stone, isShiny: true)
+                    : nil
+            }
+        }
         // 알 보증은 "지금 품고 있는 알"에만 붙는 값이라 활성 포켓몬과 공존할 수 없다. 손편집·구버전
         // 조합으로 둘 다 들어오면 그 보증이 다음 알로 새어 영구 프리미엄이 되므로 여기서 떨군다.
         // 그 보증으로 미리 뽑아둔 종(pendingHatchID)도 함께 버린다 — 보증만 지우면 졸업 후 받는 **무료**
@@ -178,7 +217,8 @@ enum SaveTransfer {
     ///
     /// `CompanionState` 의 필드는 이전 관점에서 세 부류다.
     ///  - **진행**: 어느 기기에서든 참(`usedSinceInstall`·`dex`·`inventory`·`active`·`eggUsage`·`eggTier`·
-    ///    `pendingHatchID`·`pendingUnownForm`·`representativeSpeciesID`·`representativeUnownForm`…)
+    ///    `pendingHatchID`·`pendingUnownForm`·`representativeSpeciesID`·`representativeUnownForm`·
+    ///    `representativeIsShiny`…)
     ///    → 그대로. 알 보증(`eggTier`)은 산 물건이지 이 기기의 장부가 아니라 기기를 옮겨도 따라간다.
     ///  - **로컬 장부**: *그 기기가* 어디까지 적립했나(`claimedTodayTokensByProvider`·`lastDate`·`installBaselineSet`)
     ///    → 새 기기 기준으로 다시 잡는다. 그대로 들여오면 옛 기기의 오늘 총량이 문턱이 되어
