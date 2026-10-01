@@ -7,7 +7,7 @@ struct BagView: View {
     let nav: PopoverNavigation
 
     var body: some View {
-        if store.ownedItems.isEmpty {
+        if store.ownedItems.isEmpty && store.bagMegaStones.isEmpty {
             emptyState
         } else {
             // 고정 높이 — 컬렉션과 동일(팝오버 재오픈 시 fitting size 축소 방지).
@@ -15,6 +15,9 @@ struct BagView: View {
                 VStack(alignment: .leading, spacing: 8) {
                     ForEach(store.ownedItems, id: \.kind) { item in
                         ItemCard(store: store, nav: nav, kind: item.kind, count: item.count)
+                    }
+                    ForEach(store.bagMegaStones, id: \.self) { stone in
+                        MegaStoneBagCard(store: store, stone: stone)
                     }
                 }
                 .reservesScrollerLane()
@@ -32,6 +35,80 @@ struct BagView: View {
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 28)
+    }
+}
+
+/// A permanently unlocked Mega Stone. The stone sprite and transparent Mega
+/// preview share the runtime loaders used by the shop and companion views.
+@MainActor
+private struct MegaStoneBagCard: View {
+    let store: CompanionStore
+    let stone: MegaStone
+
+    private var isActive: Bool { store.isMegaEvolutionActive(stone) }
+    private var canUse: Bool { store.canMegaEvolve(stone) }
+    private var previewIsShiny: Bool {
+        if let active = store.activeMegaEvolution, active.stone == stone {
+            return active.isShiny
+        }
+        return store.state.ownsShinySpecies(stone.eligibleSpeciesID)
+    }
+
+    var body: some View {
+        let l = store.l
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .top, spacing: 10) {
+                ItemIconView(spriteName: stone.spriteName,
+                             fallbackEmoji: stone.fallbackEmoji, size: 30)
+                .frame(width: 36)
+                SpriteView(speciesID: stone.megaSpeciesID, size: 42, shiny: previewIsShiny)
+                    .frame(width: 42, height: 42)
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: 6) {
+                        Text(l.megaStoneName(stone)).font(.callout.weight(.semibold))
+                        if store.ownsMegaStone(stone) {
+                            Text(l.ownedAlready).font(.caption2.weight(.bold))
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    Text(l.megaStoneDescription(stone))
+                        .font(.caption).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer()
+            }
+            controls(l)
+        }
+        .padding(10)
+        .background(Color.secondary.opacity(0.06))
+        .clipShape(RoundedRectangle(cornerRadius: 10))
+    }
+
+    @ViewBuilder
+    private func controls(_ l: L) -> some View {
+        if isActive {
+            HStack(alignment: .top, spacing: 6) {
+                Image(systemName: "bolt.fill").font(.caption2).foregroundStyle(.orange)
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: 5) {
+                        Text(l.megaActive).font(.caption2.weight(.semibold)).foregroundStyle(.orange)
+                        if previewIsShiny { Text("✨").font(.caption2) }
+                    }
+                    Text(l.megaPokemonHint).font(.caption2).foregroundStyle(.tertiary)
+                }
+                Spacer()
+            }
+        } else if canUse {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(l.megaOwnedHint).font(.caption2).foregroundStyle(.tertiary)
+                Text(l.megaPokemonHint).font(.caption2).foregroundStyle(.tertiary)
+            }
+        } else {
+            HStack(spacing: 6) {
+                Image(systemName: "lock.fill").font(.caption2).foregroundStyle(.secondary)
+                Text(l.megaRequiresFinal).font(.caption2).foregroundStyle(.tertiary)
+            }
+        }
     }
 }
 
