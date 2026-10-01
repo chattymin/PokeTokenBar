@@ -171,6 +171,11 @@ final class CompanionStore {
     func price(of entry: ShopEntry) -> Int {
         PokemonBalance.scaled(entry.price, by: shopDifficulty)
     }
+
+    /// The effective Mega Stone price uses the same shop difficulty multiplier as other items.
+    func price(of stone: MegaStone) -> Int {
+        PokemonBalance.scaled(stone.price, by: shopDifficulty)
+    }
     /// 앱 전체 UI 문자열 — language 변경 시 자동 재렌더.
     var l: L { L(language) }
 
@@ -204,14 +209,67 @@ final class CompanionStore {
 
     var representativeSpeciesID: Int? { state.representativeSpeciesID }
     var representativeUnownForm: UnownForm? { state.representativeUnownForm }
+    var representativeIsShiny: Bool? { state.representativeIsShiny }
+
+    /// The currently active Mega overlay. It remains selected until the user ends it
+    /// or chooses another representative, including across app restarts.
+    var activeMegaEvolution: MegaEvolutionState? {
+        state.activeMegaEvolution
+    }
+
+    /// Whether the shared inventory contains this permanently unlocked stone.
+    func megaStoneCount(_ stone: MegaStone) -> Int {
+        (state.inventory[stone.inventoryKey] ?? 0) > 0 ? 1 : 0
+    }
+
+    func ownsMegaStone(_ stone: MegaStone) -> Bool { megaStoneCount(stone) > 0 }
+
+    /// Final-stage ownership is required. A partially raised Bulbasaur/Charmander/
+    /// Squirtle does not unlock its final form's Mega Evolution early.
+    func canMegaEvolve(_ stone: MegaStone, isShiny: Bool? = nil) -> Bool {
+        guard megaStoneCount(stone) > 0,
+              state.ownsSpecies(stone.eligibleSpeciesID) else { return false }
+        guard let isShiny else { return true }
+        return isShiny
+            ? state.ownsShinySpecies(stone.eligibleSpeciesID)
+            : ownsNormalSpecies(stone.eligibleSpeciesID)
+    }
+
+    /// `CompanionState.ownsSpecies` intentionally aggregates normal and shiny
+    /// entries for Pokédex membership. Screen-level Mega controls need the
+    /// narrower appearance check so a shiny-only catch cannot be shown as a
+    /// normal Mega form.
+    private func ownsNormalSpecies(_ speciesID: Int, unownForm: UnownForm? = nil) -> Bool {
+        let form = UnownForm.resolved(speciesID: speciesID, form: unownForm)
+        if state.dex.contains(where: {
+            !$0.isShiny && $0.chainOrder.contains(speciesID)
+                && UnownForm.resolved(speciesID: speciesID, form: $0.unownForm) == form
+        }) { return true }
+        guard let active = state.active,
+              active.pathIDs.prefix(active.stageIndex + 1).contains(speciesID),
+              UnownForm.resolved(speciesID: speciesID, form: active.unownForm) == form else {
+            return false
+        }
+        return !active.isShiny || (active.dittoDisguise != nil && !active.dittoRevealed)
+    }
+
+    func isMegaEvolutionActive(_ stone: MegaStone) -> Bool {
+        activeMegaEvolution?.stone == stone
+    }
 
     /// 관련 상태가 바뀌어 저장되는 경계에서만 갱신한다. 고정 종 하나의 이로치 여부만 조회하므로
     /// 이름 해석·정렬을 포함한 `dexSpecies` 계산을 메뉴바/플로팅 펫 렌더마다 반복하지 않는다.
     private func refreshRepresentativeSubject() {
         let next: RepresentativeSubject
-        if let selected = state.representativeSpeciesID {
+        if let mega = state.activeMegaEvolution {
+            // Mega Evolution is an overlay. Keep the user's underlying representative
+            // fields intact so ending it naturally restores them.
+            next = RepresentativeSubject(speciesID: mega.stone.megaSpeciesID,
+                                         isShiny: mega.isShiny)
+        } else if let selected = state.representativeSpeciesID {
             next = RepresentativeSubject(speciesID: selected,
-                isShiny: state.ownsShinySpecies(selected, unownForm: state.representativeUnownForm),
+                isShiny: state.representativeIsShiny
+                    ?? state.ownsShinySpecies(selected, unownForm: state.representativeUnownForm),
                 unownForm: UnownForm.resolved(speciesID: selected, form: state.representativeUnownForm))
         } else {
             next = RepresentativeSubject(speciesID: currentSpeciesID, isShiny: currentIsShiny,
@@ -223,10 +281,53 @@ final class CompanionStore {
     /// nil 은 자동 추적. 도감에 없는 id 는 저장하지 않는다 — UI 밖 호출이나 손상된 입력도 같은
     /// 불변식을 지키며, 실패한 요청이 기존 선택을 조용히 해제하지 않도록 false 만 반환한다.
     @discardableResult
-    func setRepresentativeSpeciesID(_ id: Int?, unownForm: UnownForm? = nil) -> Bool {
-        if let id, !state.ownsSpecies(id, unownForm: unownForm) { return false }
+    func setRepresentativeSpeciesID(_ id: Int?, unownForm: UnownForm? = nil,
+                                    isShiny: Bool? = nil) -> Bool {
+        if let id {
+            let form = UnownForm.resolved(speciesID: id, form: unownForm)
+            guard state.ownsSpecies(id, unownForm: form) else { return false }
+            // A new selection defaults to normal when that appearance is owned.
+            // Callers that came from the detail picker pass the exact selected color.
+            let selectedAppearance = isShiny ?? !state.ownsNormalSpecies(id, unownForm: form)
+            let ownsAppearance = selectedAppearance
+                ? state.ownsShinySpecies(id, unownForm: form)
+                : state.ownsNormalSpecies(id, unownForm: form)
+            guard ownsAppearance else { return false }
+            state.representativeIsShiny = selectedAppearance
+        } else {
+            state.representativeIsShiny = nil
+        }
+        // An explicit representative choice ends the Mega overlay. The new choice
+        // is preserved as-is and immediately returns the display to a normal form.
+        state.activeMegaEvolution = nil
         state.representativeSpeciesID = id
         state.representativeUnownForm = UnownForm.resolved(speciesID: id ?? 0, form: unownForm)
+        save()
+        return true
+    }
+
+    /// Change only the displayed color of the selected representative. This is
+    /// separate from species selection so a normal/shiny toggle updates the
+    /// menu-bar and floating sprites immediately without changing the raised pet.
+    @discardableResult
+    func setRepresentativeAppearance(isShiny: Bool) -> Bool {
+        guard let id = state.representativeSpeciesID else { return false }
+        let form = state.representativeUnownForm
+        let ownsAppearance = isShiny
+            ? state.ownsShinySpecies(id, unownForm: form)
+            : state.ownsNormalSpecies(id, unownForm: form)
+        guard ownsAppearance else { return false }
+        state.representativeIsShiny = isShiny
+        save()
+        return true
+    }
+
+    /// End the current overlay while keeping the user's representative choice.
+    @discardableResult
+    func endMegaEvolution() -> Bool {
+        guard state.activeMegaEvolution != nil else { return false }
+        state.activeMegaEvolution = nil
+        refreshRepresentativeSubject()
         save()
         return true
     }
@@ -1062,6 +1163,17 @@ final class CompanionStore {
         }
     }
 
+    /// Permanent Mega Stone unlocks shown in the Bag. Keep an older active
+    /// overlay visible until the user ends it even if its previous consumable
+    /// save had no remaining inventory bit.
+    var bagMegaStones: [MegaStone] {
+        var result = MegaStone.allCases.filter(ownsMegaStone)
+        if let active = state.activeMegaEvolution, !result.contains(active.stone) {
+            result.append(active.stone)
+        }
+        return result
+    }
+
     /// 이상한 사탕 사용 가능 — 활성 포켓몬 + 라인 로딩 완료 + 재고>0.
     /// 라인 미로딩(재시작 직후·오프라인)이면 비활성 — 사탕이 진화 없이 적립만 되는 것 방지.
     var canUseRareCandy: Bool { maxRareCandyUseCount > 0 }
@@ -1227,6 +1339,47 @@ final class CompanionStore {
         if kind.isPassive && itemCount(kind) > 0 { return false }   // 보유형 중복 구매 방지(방어)
         state.spentTokens += price
         state.inventory[kind.rawValue, default: 0] += 1
+        save()
+        return true
+    }
+
+    // MARK: Mega Evolution
+
+    var megaStonePrice: Int { price(of: MegaStone.venusaurite) }
+
+    /// Mega Stones shown in the shop. A final species must be registered before
+    /// its stone is offered; owned stones remain visible so users can see the
+    /// permanent unlock while using it from the Bag.
+    var purchasableMegaStones: [MegaStone] {
+        MegaStone.allCases.filter { state.ownsSpecies($0.eligibleSpeciesID) }
+    }
+
+    func canBuy(_ stone: MegaStone) -> Bool {
+        state.ownsSpecies(stone.eligibleSpeciesID)
+            && !ownsMegaStone(stone)
+            && availableTokens >= price(of: stone)
+    }
+
+    @discardableResult
+    func buy(_ stone: MegaStone) -> Bool {
+        guard canBuy(stone) else { return false }
+        state.spentTokens += price(of: stone)
+        state.inventory[stone.inventoryKey] = 1
+        save()
+        return true
+    }
+
+    /// Activate a selected owned stone. A new activation replaces the previous one;
+    /// only one Mega form is shown at once and the unlock remains reusable.
+    @discardableResult
+    func startMegaEvolution(_ stone: MegaStone, isShiny: Bool? = nil) -> Bool {
+        guard canMegaEvolve(stone, isShiny: isShiny) else { return false }
+        // The existing representative remains untouched. A caller that is showing
+        // a specific normal/shiny appearance can pass it through; Bag activation
+        // keeps the historical species-level fallback when it passes nil.
+        state.activeMegaEvolution = MegaEvolutionState(
+            stone: stone,
+            isShiny: isShiny ?? state.ownsShinySpecies(stone.eligibleSpeciesID))
         save()
         return true
     }
