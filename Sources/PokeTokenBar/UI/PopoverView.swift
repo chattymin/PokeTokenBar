@@ -1065,13 +1065,16 @@ struct MonthDailyTrend: View {
     @State private var hovered: String?
 
     var body: some View {
-        let peak = series.map(\.totalTokens).max() ?? 0
+        // 축은 시리즈 길이가 아니라 **달력의 이번 달**이다. 시리즈는 오늘에서 끝나므로 그 길이로
+        // 폭을 나누면 1일엔 막대 하나가 행 전체로 늘어나고, 첫 주 내내 막대 폭과 라벨 위치가 매일 바뀐다.
+        let columns = DailyTrendMetrics.monthColumns(series: series, today: today)
+        let peak = columns.map(\.tokens).max() ?? 0
         if peak > 0 {
             VStack(alignment: .leading, spacing: 3) {
-                captionRow(peak: peak)
-                barRow(peak: peak)
-                weekendTickRow
-                axisRow
+                captionRow(peak: peak, showsPeak: DailyTrendMetrics.showsPeak(columns))
+                barRow(columns, peak: peak)
+                weekendTickRow(columns)
+                axisRow(columns)
             }
             .padding(.top, 4)
         }
@@ -1079,7 +1082,8 @@ struct MonthDailyTrend: View {
 
     /// 캡션 + 리드아웃(호버 중인 날, 없으면 오늘) + 최댓값.
     /// 최댓값을 남기는 이유: 막대 높이가 상대값이라 어딘가 한 곳은 절대 스케일을 적어야 한다.
-    private func captionRow(peak: Int) -> some View {
+    /// 쓴 날이 하루뿐이면 최댓값이 리드아웃과 같은 숫자라 생략한다.
+    private func captionRow(peak: Int, showsPeak: Bool) -> some View {
         HStack(spacing: 5) {
             Text(l.dailyTrend)
                 .font(.caption)
@@ -1089,30 +1093,38 @@ struct MonthDailyTrend: View {
                 .foregroundStyle(.secondary)
                 .monospacedDigit()
             Spacer()
-            Text(l.peakDay)
-                .font(.caption2)
-                .foregroundStyle(.tertiary)
-            Text(TokenFormatter.compact(peak))
-                .font(.caption2.weight(.semibold))
-                .foregroundStyle(.secondary)
-                .monospacedDigit()
+            if showsPeak {
+                Text(l.peakDay)
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+                Text(TokenFormatter.compact(peak))
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .monospacedDigit()
+            }
         }
     }
 
-    private func barRow(peak: Int) -> some View {
+    private func barRow(_ columns: [DailyTrendColumn], peak: Int) -> some View {
         HStack(alignment: .bottom, spacing: DailyTrendMetrics.spacing) {
-            ForEach(series, id: \.date) { day in
-                let isToday = day.date == today
-                // 사용 0 인 날은 바닥 눈금만 남으므로, 아주 조금 쓴 날과 높이로는 구분되지
-                // 않는다 — 색을 한 단계 흐리게 해 "안 쓴 날"과 "조금 쓴 날"을 갈라준다.
-                let isEmptyDay = day.totalTokens == 0
-                RoundedRectangle(cornerRadius: 1, style: .continuous)
-                    .fill(isToday ? Color.accentColor
-                                  : Color.secondary.opacity(isEmptyDay ? 0.18 : 0.45))
-                    .frame(height: DailyTrendMetrics.barHeight(tokens: day.totalTokens, peak: peak))
-                    .frame(maxWidth: .infinity)
-                    .contentShape(Rectangle())   // 낮은 막대도 칼럼 전체가 호버 대상이 되게
-                    .onHover { inside in hovered = inside ? day.date : nil }
+            ForEach(columns) { column in
+                if column.isFuture {
+                    // 아직 오지 않은 날 — 막대도 바닥 눈금도 주말 밑줄도 없이 자리만 지킨다. 0 과 달리
+                    // "안 쓴 날"이 아니라 "아직 없는 날"이라 호버 대상도 아니다.
+                    Color.clear.frame(maxWidth: .infinity)
+                } else {
+                    let isToday = column.date == today
+                    // 사용 0 인 날은 바닥 눈금만 남으므로, 아주 조금 쓴 날과 높이로는 구분되지
+                    // 않는다 — 색을 한 단계 흐리게 해 "안 쓴 날"과 "조금 쓴 날"을 갈라준다.
+                    let isEmptyDay = column.tokens == 0
+                    RoundedRectangle(cornerRadius: 1, style: .continuous)
+                        .fill(isToday ? Color.accentColor
+                                      : Color.secondary.opacity(isEmptyDay ? 0.18 : 0.45))
+                        .frame(height: DailyTrendMetrics.barHeight(tokens: column.tokens, peak: peak))
+                        .frame(maxWidth: .infinity)
+                        .contentShape(Rectangle())   // 낮은 막대도 칼럼 전체가 호버 대상이 되게
+                        .onHover { inside in hovered = inside ? column.date : nil }
+                }
             }
         }
         .frame(height: DailyTrendMetrics.track, alignment: .bottom)
@@ -1120,11 +1132,11 @@ struct MonthDailyTrend: View {
 
     /// 주말 칼럼에 짧은 밑줄. **전체 높이 음영으로 하면 안 된다** — 다크 배경에서 그 음영이
     /// 막대로 읽혀 주말이 큰 사용량인 것처럼 보인다(후보 B 를 렌더해서 확인하고 버렸다).
-    private var weekendTickRow: some View {
+    private func weekendTickRow(_ columns: [DailyTrendColumn]) -> some View {
         HStack(spacing: DailyTrendMetrics.spacing) {
-            ForEach(series, id: \.date) { day in
+            ForEach(columns) { column in
                 Rectangle()
-                    .fill(DailyTrendMetrics.isWeekend(day.date)
+                    .fill(DailyTrendMetrics.showsWeekendTick(column)
                           ? Color.secondary.opacity(0.5) : Color.clear)
                     .frame(height: DailyTrendMetrics.tickHeight)
                     .frame(maxWidth: .infinity)
@@ -1135,15 +1147,17 @@ struct MonthDailyTrend: View {
     /// 날짜 축. 막대 폭이 한 달 기준 약 9pt 라 두 자리 숫자가 다 안 들어가므로 **전부 붙이면
     /// 서로 겹친다** — 1일·7일 간격·오늘에만 붙이고 나머지 칼럼은 빈 자리로 폭을 맞춘다
     /// (빈 자리를 빼면 라벨이 막대와 어긋난다).
-    private var axisRow: some View {
+    private func axisRow(_ columns: [DailyTrendColumn]) -> some View {
         HStack(spacing: DailyTrendMetrics.spacing) {
-            ForEach(series, id: \.date) { day in
+            ForEach(columns) { column in
                 Group {
-                    if let label = DailyTrendMetrics.axisLabel(for: day.date, today: today) {
+                    if let label = DailyTrendMetrics.axisLabel(for: column.date, today: today) {
                         Text(label)
                             .font(.caption2)
                             .monospacedDigit()
-                            .foregroundStyle(day.date == today ? Color.accentColor : Color.secondary)
+                            .foregroundStyle(column.date == today ? AnyShapeStyle(Color.accentColor)
+                                             : column.isFuture ? AnyShapeStyle(.tertiary)
+                                             : AnyShapeStyle(.secondary))
                             .fixedSize(horizontal: true, vertical: false)
                     } else {
                         Color.clear.frame(height: 1)
@@ -1167,6 +1181,14 @@ struct MonthDailyTrend: View {
     }
 }
 
+/// 일별 추이 축의 한 칸. `isFuture` 는 이번 달 중 아직 오지 않은 날이다.
+struct DailyTrendColumn: Identifiable, Equatable {
+    let date: String
+    let tokens: Int
+    let isFuture: Bool
+    var id: String { date }
+}
+
 /// 추이 막대의 기하 — 뷰 밖의 순수 함수로 둔다. SwiftUI 안에 두면 헤드리스로 검증할 수 없고,
 /// 이 계산은 0 과 최댓값 경계에서 조용히 틀리기 쉽다(0 을 0pt 로 그리면 "그날이 없는" 것처럼 보인다).
 enum DailyTrendMetrics {
@@ -1187,6 +1209,49 @@ enum DailyTrendMetrics {
         guard peak > 0, tokens > 0 else { return baseline }
         let ratio = min(1, Double(tokens) / Double(peak))
         return max(baseline, CGFloat(ratio) * track)
+    }
+
+    /// 이번 달 전체(1일~말일)의 칼럼. 시리즈에 있는 날은 그 토큰을, 오늘까지인데 시리즈에 없는 날은
+    /// 0 을, 오늘 이후는 `isFuture` 로 채운다.
+    ///
+    /// 데이터 쪽(`monthDailySeries`)은 그대로 오늘에서 끝난다. 미래 날짜를 데이터에 넣으면 회고 원장
+    /// (`UsageLedger.merge`)이 "시리즈의 0 은 진짜 0"이라고 믿는 계약이 깨지므로, 채우기는 뷰 경계에서만 한다.
+    /// 다른 달의 날짜(자정을 넘긴 직후 아직 지난달 시리즈를 들고 있는 프로바이더)는 축에 들어오지 않는다.
+    /// `today` 를 해석할 수 없으면 시리즈를 그대로 칼럼으로 쓴다(테스트할 분기가 아니라 API 강제다).
+    static func monthColumns(series: [DailyUsage], today: String) -> [DailyTrendColumn] {
+        let month = String(today.prefix(7))   // "yyyy-MM"
+        guard let year = Int(today.prefix(4)), let monthNumber = Int(month.suffix(2)),
+              let todayOfMonth = Int(today.suffix(2)),
+              let length = daysInMonth(year: year, month: monthNumber)
+        else {
+            return series.map { DailyTrendColumn(date: $0.date, tokens: $0.totalTokens, isFuture: false) }
+        }
+        let tokensByDay = Dictionary(series.map { ($0.date, $0.totalTokens) }, uniquingKeysWith: +)
+        return (1...length).map { day in
+            let date = String(format: "%@-%02d", month, day)
+            return DailyTrendColumn(date: date, tokens: tokensByDay[date] ?? 0, isFuture: day > todayOfMonth)
+        }
+    }
+
+    /// 주말 밑줄은 지난날과 오늘에만 긋는다. 막대가 없는 미래 칸 아래에 밑줄만 남으면 의미 없는
+    /// 기호("__ __")로 읽힌다.
+    static func showsWeekendTick(_ column: DailyTrendColumn, calendar: Calendar = .current) -> Bool {
+        !column.isFuture && isWeekend(column.date, calendar: calendar)
+    }
+
+    /// 쓴 날이 둘 이상일 때만 캡션에 최댓값을 적는다. 하루뿐이면 리드아웃(오늘)과 같은 숫자다.
+    static func showsPeak(_ columns: [DailyTrendColumn]) -> Bool {
+        columns.filter { $0.tokens > 0 }.count > 1
+    }
+
+    /// 그레고리력 기준 그 달의 일수. 날짜 키가 `en_US_POSIX` 그레고리력이므로 같은 달력을 쓴다.
+    /// 시각을 다루지 않으므로 서머타임과 무관하게 UTC 로 계산한다.
+    private static func daysInMonth(year: Int, month: Int) -> Int? {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "UTC") ?? .current
+        guard let first = calendar.date(from: DateComponents(year: year, month: month, day: 1)),
+              let range = calendar.range(of: .day, in: .month, for: first) else { return nil }
+        return range.count
     }
 
     /// 축에 숫자를 붙일 날인가 — 1일, 7일 간격, 그리고 오늘.
