@@ -154,10 +154,7 @@ private struct EggCard: View {
                         Text(l.eggName(tier)).font(.callout.weight(.semibold))
                         if let tier {
                             // 도감 칩과 같은 라벨·색 — 상점의 등급 표기가 도감과 한 말로 맞물리게.
-                            Text(l.rarityLabel(tier).uppercased()).font(.system(size: 8, weight: .bold))
-                                .padding(.horizontal, 5).padding(.vertical, 1)
-                                .background(rarityColor(tier)).foregroundStyle(.white)
-                                .clipShape(Capsule())
+                            Badge(l.rarityLabel(tier).uppercased(), tint: .rarity(tier))
                         }
                     }
                     Text(l.eggDescription(tier))

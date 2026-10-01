@@ -559,11 +559,11 @@ struct CompanionHeader: View {
                         Text(store.displayName).font(.callout.weight(.semibold))
                         if store.currentIsShiny { Text("✨").font(.system(size: 11)) }
                         if let r = store.rarity {
-                            Text(store.l.rarityLabel(r).uppercased()).font(.system(size: 8, weight: .bold))
-                                .padding(.horizontal, 5).padding(.vertical, 1)
-                                .background(rarityColor(r)).foregroundStyle(.white)
-                                .clipShape(Capsule())
+                            Badge(store.l.rarityLabel(r).uppercased(), tint: .rarity(r))
                         }
+                    }
+                    if store.hasActive, let id = store.currentSpeciesID, let details = store.pokemonDetailsByID[id] {
+                        TypeBadges(types: details.types, language: store.language)
                     }
                     if store.hasActive {
                         // 단계 + 성격(부화 시 확정된 개체 아이덴티티)
@@ -571,11 +571,7 @@ struct CompanionHeader: View {
                         HStack(spacing: 5) {
                             Text(store.stageText + nature).font(.caption2).foregroundStyle(.secondary)
                             if let multiplier = store.growthMultiplier {
-                                Text(store.l.growthBoost(multiplier))
-                                    .font(.system(size: 8, weight: .bold))
-                                    .padding(.horizontal, 5).padding(.vertical, 1)
-                                    .background(.orange.opacity(0.15)).foregroundStyle(.orange)
-                                    .clipShape(Capsule())
+                                Badge(store.l.growthBoost(multiplier), tint: .orange, style: .tinted)
                                     .fixedSize()
                             }
                         }
@@ -594,10 +590,7 @@ struct CompanionHeader: View {
                             // 등급 보증 알이면 무엇을 품고 있는지 — 도감 칩과 같은 라벨·색.
                             // 알 스프라이트는 한 장뿐이라 등급 구분은 이 배지가 유일한 신호다.
                             if let guarantee = store.eggGuarantee {
-                                Text(store.l.eggGuaranteeHint(guarantee)).font(.system(size: 8, weight: .bold))
-                                    .padding(.horizontal, 5).padding(.vertical, 1)
-                                    .background(rarityColor(guarantee)).foregroundStyle(.white)
-                                    .clipShape(Capsule())
+                                Badge(store.l.eggGuaranteeHint(guarantee), tint: .rarity(guarantee))
                             }
                         }
                         ProgressView(value: store.eggProgress).controlSize(.small).tint(.orange)
@@ -631,6 +624,11 @@ struct CompanionHeader: View {
                 Text(store.l.graduated(g))
                     .font(.caption2).foregroundStyle(.orange)
             }
+        }
+        // Types come from PokéAPI details; cached after the first fetch. Same ID as the sprite,
+        // so a disguised Ditto shows its disguise's types.
+        .task(id: store.currentSpeciesID) {
+            if store.hasActive, let id = store.currentSpeciesID { await store.loadPokemonDetails(speciesID: id) }
         }
         .onAppear {
             playCelebrationIfNeeded()
@@ -1383,9 +1381,16 @@ struct PokemonDetailView: View {
                        shiny: displayedShiny, spriteStore: spriteStore, unownForm: species.unownForm)
                 .frame(width: 104, height: 104)
             VStack(alignment: .leading, spacing: 5) {
-                Text(species.name).font(.title3.weight(.bold))
-                Text(store.l.rarityLabel(species.rarity))
-                    .font(.callout.weight(.semibold)).foregroundStyle(.secondary)
+                HStack(alignment: .firstTextBaseline) {
+                    Text(species.name).font(.title3.weight(.bold))
+                    Spacer(minLength: 8)
+                    Text(store.l.rarityLabel(species.rarity))
+                        .font(.callout.weight(.semibold)).foregroundStyle(.secondary)
+                }
+                if let details = store.pokemonDetailsByID[species.id] {
+                    TypeBadges(types: details.types, language: store.language, size: 11,
+                               horizontalPadding: 7, verticalPadding: 2)
+                }
                 if displayedShiny { Text("✨ \(store.l.dexShinyLabel)").font(.callout) }
                 if let individual, store.isActiveDexEntry(individual) { Text(store.l.dexRaising).font(.callout).foregroundStyle(Color.accentColor) }
                 let isRepresentative = store.isRepresentative(species)
@@ -1395,6 +1400,7 @@ struct PokemonDetailView: View {
                                                          unownForm: species.unownForm)
                 }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 
@@ -1498,14 +1504,6 @@ struct PokemonDetailView: View {
     private func speciesSection(_ details: PokemonDetails) -> some View {
         VStack(alignment: .leading, spacing: 7) {
             detailTitle(store.l.speciesData)
-            HStack(spacing: 5) {
-                ForEach(details.types, id: \.self) { type in
-                    PokemonNameLabel(.type, type, language: store.language).textCase(.uppercase)
-                        .font(.system(size: 11, weight: .bold))
-                        .padding(.horizontal, 6).padding(.vertical, 3)
-                        .background(Color.accentColor.opacity(0.16), in: Capsule())
-                }
-            }
             HStack(spacing: 14) {
                 valuePair(store.l.height, String(format: "%.1f m", Double(details.height) / 10))
                 valuePair(store.l.weight, String(format: "%.1f kg", Double(details.weight) / 10))
@@ -1679,11 +1677,7 @@ private struct DexSpeciesCell: View {
     /// "키우는 중"은 현재 개체의 현재 형태 한 칸에만 표시한다. accent 틴트는 반투명이라
     /// 스프라이트가 비치므로 material 을 한 겹 깔아 대비를 확보한다(로그는 카드 배경 위라 불필요).
     private var raisingBadge: some View {
-        Text(store.l.dexRaising.uppercased())
-            .font(.system(size: 10, weight: .bold))
-            .padding(.horizontal, 5).padding(.vertical, 1)
-            .foregroundStyle(Color.accentColor)
-            .background(Color.accentColor.opacity(0.14), in: Capsule())
+        Badge(store.l.dexRaising.uppercased(), tint: .accent, style: .tinted, size: 10)
             .background(.regularMaterial, in: Capsule())
     }
 
@@ -1715,27 +1709,13 @@ private struct DexEntryRow: View {
         let names = store.dexStoredChainNames(entry) ?? (resolved.isEmpty ? nil : resolved)
         VStack(alignment: .leading, spacing: 3) {
             HStack {
-                Text(store.l.rarityLabel(entry.rarity).uppercased())
-                    .font(.system(size: 10, weight: .bold))
-                    .padding(.horizontal, 5).padding(.vertical, 1)
-                    .background(rarityColor(entry.rarity)).foregroundStyle(.white)
-                    .clipShape(Capsule())
+                Badge(store.l.rarityLabel(entry.rarity).uppercased(), tint: .rarity(entry.rarity), size: 10)
                 if store.isActiveDexEntry(entry) {
-                    Text(store.l.dexRaising.uppercased())
-                        .font(.system(size: 10, weight: .bold))
-                        .padding(.horizontal, 5).padding(.vertical, 1)
-                        .background(Color.accentColor.opacity(0.14))
-                        .foregroundStyle(Color.accentColor)
-                        .clipShape(Capsule())
+                    Badge(store.l.dexRaising.uppercased(), tint: .accent, style: .tinted, size: 10)
                 } else if entry.isReleased {
                     // 놓아준 개체 — 종은 도감에 남지만 이 개체는 끝까지 키우지 않았다.
                     // 중립색(secondary)으로 둔다: 실패가 아니라 다른 종류의 기록이라 경고색은 과하다.
-                    Text(store.l.dexReleased.uppercased())
-                        .font(.system(size: 10, weight: .bold))
-                        .padding(.horizontal, 5).padding(.vertical, 1)
-                        .background(Color.secondary.opacity(0.14))
-                        .foregroundStyle(Color.secondary)
-                        .clipShape(Capsule())
+                    Badge(store.l.dexReleased.uppercased(), tint: .secondary, style: .tinted, size: 10)
                 }
                 if entry.isShiny {
                     // 이모지는 스크린리더가 일관되게 읽지 못해 명사 라벨을 붙인다(도감 칸과 동일 규칙).
