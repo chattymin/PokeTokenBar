@@ -1109,7 +1109,7 @@ struct MonthDailyTrend: View {
         HStack(alignment: .bottom, spacing: DailyTrendMetrics.spacing) {
             ForEach(columns) { column in
                 if column.isFuture {
-                    // 아직 오지 않은 날 — 막대도 바닥 눈금도 없이 자리만 지킨다. 0 과 달리
+                    // 아직 오지 않은 날 — 막대도 바닥 눈금도 주말 밑줄도 없이 자리만 지킨다. 0 과 달리
                     // "안 쓴 날"이 아니라 "아직 없는 날"이라 호버 대상도 아니다.
                     Color.clear.frame(maxWidth: .infinity)
                 } else {
@@ -1136,7 +1136,7 @@ struct MonthDailyTrend: View {
         HStack(spacing: DailyTrendMetrics.spacing) {
             ForEach(columns) { column in
                 Rectangle()
-                    .fill(DailyTrendMetrics.isWeekend(column.date)
+                    .fill(DailyTrendMetrics.showsWeekendTick(column)
                           ? Color.secondary.opacity(0.5) : Color.clear)
                     .frame(height: DailyTrendMetrics.tickHeight)
                     .frame(maxWidth: .infinity)
@@ -1231,6 +1231,12 @@ enum DailyTrendMetrics {
             let date = String(format: "%@-%02d", month, day)
             return DailyTrendColumn(date: date, tokens: tokensByDay[date] ?? 0, isFuture: day > todayOfMonth)
         }
+    }
+
+    /// 주말 밑줄은 지난날과 오늘에만 긋는다. 막대가 없는 미래 칸 아래에 밑줄만 남으면 의미 없는
+    /// 기호("__ __")로 읽힌다.
+    static func showsWeekendTick(_ column: DailyTrendColumn, calendar: Calendar = .current) -> Bool {
+        !column.isFuture && isWeekend(column.date, calendar: calendar)
     }
 
     /// 쓴 날이 둘 이상일 때만 캡션에 최댓값을 적는다. 하루뿐이면 리드아웃(오늘)과 같은 숫자다.

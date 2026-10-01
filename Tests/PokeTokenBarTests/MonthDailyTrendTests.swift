@@ -449,6 +449,21 @@ final class MonthDailyTrendTests: XCTestCase {
         XCTAssertEqual(columns.map(\.tokens).max(), 3, "지난달 값이 최댓값을 끌어올리면 안 된다")
     }
 
+    /// 주말 밑줄은 미래 칸에 긋지 않는다. 막대 없이 밑줄만 남으면 "__ __" 같은 기호로 읽힌다.
+    func testWeekendTicksStopAtToday() {
+        var seoul = Calendar(identifier: .gregorian)
+        seoul.locale = Locale(identifier: "ko_KR")
+        // 2026-10-03 토, 10-04 일, 10-10 토
+        let columns = DailyTrendMetrics.monthColumns(series: [usage("2026-10-03", 5)], today: "2026-10-03")
+        func tick(_ day: Int) -> Bool { DailyTrendMetrics.showsWeekendTick(columns[day - 1], calendar: seoul) }
+        XCTAssertTrue(tick(3), "오늘인 토요일엔 밑줄이 있다")
+        XCTAssertFalse(tick(4), "미래의 일요일엔 밑줄이 없다")
+        XCTAssertFalse(tick(10), "미래의 토요일엔 밑줄이 없다")
+        XCTAssertFalse(tick(2), "지난 평일엔 밑줄이 없다")
+        let late = DailyTrendMetrics.monthColumns(series: [usage("2026-10-12", 5)], today: "2026-10-12")
+        XCTAssertTrue(DailyTrendMetrics.showsWeekendTick(late[10], calendar: seoul), "지난 일요일(11일)엔 밑줄이 있다")
+    }
+
     /// 쓴 날이 하루뿐이면 최댓값이 리드아웃과 같은 숫자라 캡션에서 뺀다.
     func testPeakIsShownOnlyOnceMoreThanOneDayHasUsage() {
         let first = DailyTrendMetrics.monthColumns(series: [usage("2026-10-01", 3)], today: "2026-10-01")
