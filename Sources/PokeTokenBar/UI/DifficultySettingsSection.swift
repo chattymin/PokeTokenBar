@@ -38,14 +38,13 @@ struct DifficultySettingsSection: View {
                 .font(.caption).fontWeight(.semibold).foregroundStyle(.secondary)
                 .textCase(.uppercase).padding(.leading, 4)
             VStack(spacing: 0) {
-                row(l.difficultyGrowthLabel, value: $draft.growth)
+                row(l.difficultyGrowthLabel, value: $draft.growth, low: l.difficultyGrowthLowLabel, high: l.difficultyGrowthHighLabel)
                 Divider()
-                row(l.difficultyShopLabel, value: $draft.shop)
+                row(l.difficultyShopLabel, value: $draft.shop, low: l.difficultyShopLowLabel, high: l.difficultyShopHighLabel)
             }
             .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
             .overlay(RoundedRectangle(cornerRadius: 8)
                 .stroke(Color(nsColor: .separatorColor).opacity(0.6), lineWidth: 1))
-            Text("10%–200% · " + l.difficultyHint).font(.caption2).foregroundStyle(.tertiary).padding(.leading, 4)
             if draft.differs(from: companion) {
                 HStack {
                     Spacer()
@@ -57,16 +56,28 @@ struct DifficultySettingsSection: View {
         }
     }
 
-    private func row(_ label: String, value: Binding<Double>) -> some View {
-        HStack(spacing: 10) {
-            Text(label).font(.callout).frame(width: 76, alignment: .leading)
-            Slider(value: Binding(
-                get: { PokemonBalance.difficultyPosition(value.wrappedValue) },
-                set: { value.wrappedValue = PokemonBalance.difficulty(atPosition: $0) }), in: 0...1)
-                .accessibilityLabel(label)
-            Text(l.difficultyValue(value.wrappedValue))
-                .font(.caption).monospacedDigit().frame(width: 52, alignment: .trailing)
+    private func row(_ label: String, value: Binding<Double>, low: String, high: String) -> some View {
+        VStack(spacing: 2) {
+            HStack(spacing: 10) {
+                Text(label).font(.callout).frame(width: 76, alignment: .leading)
+                Slider(value: Binding(
+                    get: { PokemonBalance.difficultyPosition(value.wrappedValue) },
+                    set: { value.wrappedValue = PokemonBalance.difficulty(atPosition: $0) }), in: 0...1)
+                    .accessibilityLabel(label)
+                    .accessibilityHint(l.difficultyScaleHint(low: low, high: high))
+                Text(l.difficultyValue(value.wrappedValue))
+                    .font(.caption).monospacedDigit().frame(width: 52, alignment: .trailing)
+            }
+            // Insets match the name (76 + 10) and value (52 + 10) columns so the labels sit under the slider.
+            HStack {
+                Text(low)
+                Spacer()
+                Text(high)
+            }
+            .font(.caption2).foregroundStyle(.secondary)
+            .padding(.leading, 86).padding(.trailing, 62)
+            .accessibilityHidden(true) // Read via the slider's hint instead.
         }
-        .padding(.horizontal, 12).padding(.vertical, 8).frame(minHeight: 38)
+        .padding(.horizontal, 12).padding(.vertical, 8)
     }
 }
