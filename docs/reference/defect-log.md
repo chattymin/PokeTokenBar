@@ -14,6 +14,24 @@ read_when:
 `CLAUDE.md` §결함 대응 프로토콜의 4단계(근본원인 → 부류 스윕 → 회귀 테스트 → 영구 캡처)를 거쳐
 남은 규칙들이다. 각 항목은 실제로 겪은 회귀에 묶여 있다.
 
+## Native rendering tests
+
+- **Assert rendered controls, not SwiftUI's AppKit backing classes.**
+  `SessionKeySettingsRenderingTests` counted four `NSSlider` descendants to protect the
+  growth, shop-price, warning, and critical controls when merging Settings sections.
+  macOS 27 renders those controls without `NSSlider` views, so a correct screen failed;
+  macOS 15 CI did not expose the assumption. Selecting an older SDK still uses the newer
+  runtime and reproduced the failure. The test now keeps the session-key viewport and
+  optional keyboard-focus checks and verifies the four native controls when present.
+  When the runtime exposes no native sliders, it scrolls through the real Settings screen
+  and locates each English row with Vision before checking its visible horizontal track.
+  Keep both paths: macOS 15 native-slider CI passes the original control count, but its
+  offscreen capture/scroll behavior does not support the macOS 27 rendering probe.
+  Labels alone cannot pass: replacing the difficulty sliders with layout-preserving
+  spacers produced zero track pixels and failed both difficulty assertions. The sweep
+  found no other tests counting or casting `NSSlider` descendants. Existing difficulty
+  tests continue to cover draft/save behavior separately.
+
 ## 스프라이트 전환
 
 - **움직이는 상세 화면은 첫 렌더부터 캐시된 GIF 프레임을 사용한다.** 정적 PNG는 96px 투명

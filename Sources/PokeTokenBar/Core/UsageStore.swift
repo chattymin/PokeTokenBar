@@ -94,6 +94,9 @@ final class UsageStore {
     var showLimitInMenu: Bool {
         didSet { defaults.set(showLimitInMenu, forKey: "showLimitInMenu") }
     }
+    var showGrowthInMenu: Bool {
+        didSet { defaults.set(showGrowthInMenu, forKey: "showGrowthInMenu") }
+    }
     /// 한도 % 표시 방식 — 사용한 양(기본) 또는 남은 양. 숫자 표시에만 적용되고
     /// 경고/위험 판정·게이지 채움·알림은 사용률 원값 기준을 유지한다(경고 의미론 분리).
     enum LimitDisplayMode: String, CaseIterable {
@@ -280,20 +283,26 @@ final class UsageStore {
     /// 사용량 데이터(스냅샷)가 하나라도 있는가 — companion sleep 판정용
     var hasUsageData: Bool { !snapshots.isEmpty }
 
-    /// 메뉴바 표시 줄 규칙 (사용자 확정 — 조합표 전수 검증: `UsageStoreTests.testMenuLinesAllCombinations`):
-    /// - **활성 항목 2개 이하 → 각 항목을 개별 세로 줄로**(토큰/비용/한도 각 1줄).
-    /// - **3개(토큰+비용+한도) 모두 활성 → 토큰·비용을 한 줄로, 한도를 아랫줄로**(= 총 2줄).
-    /// 한도 줄은 오늘 사용한 프로바이더만(`menuLimitLine`). 빈 배열이면 아이콘만.
+    /// Up to two items stack vertically. With more items, combine non-limit items to keep two lines;
+    /// available limits always get their own bottom line. An empty array shows only the sprite.
     var menuLines: [String] {
-        guard lastUpdated != nil else { return ["—"] }
+        menuLines(growthText: nil)
+    }
+
+    func menuLines(growthText: String?) -> [String] {
+        // Saved growth is available even before the first usage refresh finishes.
+        guard lastUpdated != nil else { return growthText.map { [$0] } ?? ["—"] }
         var usage: [String] = []
         if showTokensInMenu { usage.append(TokenFormatter.compact(todayTotalTokens)) }
         if showCostInMenu, showsCost { usage.append(todayUsageCost.text(L(localizationLanguage), compact: true)) }
+        if let growthText { usage.append(growthText) }
         let limit = menuLimitLine   // nil = 한도 미표시/미가용
 
-        if limit != nil && usage.count == 2 {
-            // 3개 다 활성 → 토큰·비용 한 줄 + 한도 아랫줄 (≤2줄 유지)
-            return [usage.joined(separator: " · "), limit!]
+        if let limit, usage.count >= 2 {
+            return [usage.joined(separator: " · "), limit]
+        }
+        if usage.count > 2 {
+            return [usage.dropLast().joined(separator: " · "), usage[usage.count - 1]]
         }
         // 그 외(2개 이하) → 각 항목 개별 세로 줄
         var lines = usage
@@ -771,6 +780,7 @@ final class UsageStore {
         showTokensInMenu = d.object(forKey: "showTokensInMenu") as? Bool ?? true
         showCostInMenu = d.object(forKey: "showCostInMenu") as? Bool ?? false
         showLimitInMenu = d.object(forKey: "showLimitInMenu") as? Bool ?? false
+        showGrowthInMenu = d.object(forKey: "showGrowthInMenu") as? Bool ?? false
         limitDisplayMode = LimitDisplayMode(rawValue: d.string(forKey: "limitDisplayMode") ?? "") ?? .used
         menuLimitColorMode = MenuLimitColorMode(rawValue: d.string(forKey: "menuLimitColorMode") ?? "") ?? .gauge
         limitNotifications = d.object(forKey: "limitNotifications") as? Bool ?? true
