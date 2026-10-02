@@ -50,12 +50,19 @@ final class SessionKeySettingsRenderingTests: XCTestCase {
             XCTAssertNotNil(secure.currentEditor(), "session key entry must receive keyboard focus")
             XCTAssertTrue(secure.currentEditor() === window.firstResponder)
         }
-        // SwiftUI sliders need not have NSSlider backing views on newer macOS.
-        // Inspect each labeled row's rendered track, not a platform implementation class.
-        let scroll = try XCTUnwrap(views.compactMap { $0 as? NSScrollView }.first)
-        for label in [companion.l.difficultyGrowthLabel, companion.l.difficultyShopLabel,
-                      companion.l.warning, companion.l.critical] {
-            try await assertVisibleSlider(label: label, host: host.view, scroll: scroll)
+        let nativeSliders = views.compactMap { $0 as? NSSlider }
+        if nativeSliders.isEmpty {
+            // Newer SwiftUI runtimes draw sliders without NSSlider backing views.
+            // Verify each actual track; labels alone must not satisfy this fallback.
+            let scroll = try XCTUnwrap(views.compactMap { $0 as? NSScrollView }.first)
+            for label in [companion.l.difficultyGrowthLabel, companion.l.difficultyShopLabel,
+                          companion.l.warning, companion.l.critical] {
+                try await assertVisibleSlider(label: label, host: host.view, scroll: scroll)
+            }
+        } else {
+            // Growth, shop prices, warning, and critical controls on AppKit-backed runtimes.
+            XCTAssertEqual(nativeSliders.count, 4,
+                           "growth and shop difficulty controls must survive the Settings merge")
         }
         XCTAssertTrue(navigation.showSettings)
         navigation.reset()

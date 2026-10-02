@@ -22,8 +22,11 @@ read_when:
   macOS 27 renders those controls without `NSSlider` views, so a correct screen failed;
   macOS 15 CI did not expose the assumption. Selecting an older SDK still uses the newer
   runtime and reproduced the failure. The test now keeps the session-key viewport and
-  optional keyboard-focus checks, scrolls through the real Settings screen, and locates
-  each English row with Vision before checking its visible horizontal slider track.
+  optional keyboard-focus checks and verifies the four native controls when present.
+  When the runtime exposes no native sliders, it scrolls through the real Settings screen
+  and locates each English row with Vision before checking its visible horizontal track.
+  Keep both paths: macOS 15 native-slider CI passes the original control count, but its
+  offscreen capture/scroll behavior does not support the macOS 27 rendering probe.
   Labels alone cannot pass: replacing the difficulty sliders with layout-preserving
   spacers produced zero track pixels and failed both difficulty assertions. The sweep
   found no other tests counting or casting `NSSlider` descendants. Existing difficulty
