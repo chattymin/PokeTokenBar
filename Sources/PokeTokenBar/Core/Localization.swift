@@ -257,6 +257,28 @@ struct L {
     var menuBarItems: String { t("메뉴바 표시 항목 (복수 선택)", "Menu bar items (multi-select)", "メニューバー表示項目（複数選択）", "Elementos de la barra de menús (selección múltiple)", "Éléments de la barre des menus (sélection multiple)", "Itens da barra de menus (seleção múltipla)", "Elemente der Menüleiste (Mehrfachauswahl)") }
     var todayTokensShort: String { t("오늘 토큰", "Today's tokens", "本日のトークン", "Tokens de hoy", "Tokens du jour", "Tokens de hoje", "Heutige Tokens") }
     var todayCost: String { t("오늘 비용 ($)", "Today's cost ($)", "本日のコスト ($)", "Coste de hoy ($)", "Coût du jour ($)", "Custo de hoje ($)", "Heutige Kosten ($)") }
+    var monthlyPlanPriceLabel: String {
+        t("Claude 월 구독료 ($)", "Claude monthly plan price ($)", "Claude 月額プラン ($)", "Precio mensual del plan de Claude ($)", "Prix mensuel du forfait Claude ($)", "Preço mensal do plano Claude ($)", "Monatlicher Claude-Planpreis ($)")
+    }
+    var monthlyPlanPriceHint: String {
+        t("선택. Claude Max/Pro/Team 레버리지 행에만 씁니다. 0 이면 행을 숨깁니다.",
+          "Optional. Used only for the Claude Max/Pro/Team leverage row. Set to 0 to hide it.",
+          "任意。Claude Max/Pro/Team のレバレッジ行にだけ使います。0 なら行を隠します。",
+          "Opcional. Solo para la fila de rendimiento de Claude Max/Pro/Team. 0 la oculta.",
+          "Facultatif. Uniquement pour la ligne de rendement Claude Max/Pro/Team. 0 la masque.",
+          "Opcional. Só para a linha de rendimento do Claude Max/Pro/Team. 0 esconde a linha.",
+          "Optional. Nur für die Claude-Max/Pro/Team-Hebelzeile. 0 blendet sie aus.")
+    }
+    /// `plan` and `apiEquivalent` already include `$`; `multiplier` already includes `×`.
+    func subscriptionLeverage(plan: String, apiEquivalent: String, multiplier: String) -> String {
+        t("Claude 플랜 \(plan)/월 · API 환산 \(apiEquivalent) · \(multiplier)",
+          "Claude plan \(plan)/mo · API-equiv \(apiEquivalent) · \(multiplier)",
+          "Claude プラン \(plan)/月 · API換算 \(apiEquivalent) · \(multiplier)",
+          "Plan de Claude \(plan)/mes · equiv. API \(apiEquivalent) · \(multiplier)",
+          "Forfait Claude \(plan)/mois · éq. API \(apiEquivalent) · \(multiplier)",
+          "Plano Claude \(plan)/mês · equiv. API \(apiEquivalent) · \(multiplier)",
+          "Claude-Plan \(plan)/Monat · API-äquiv. \(apiEquivalent) · \(multiplier)")
+    }
     var limitPercent: String { t("한도 %", "Limit %", "上限 %", "Límite %", "Limite %", "Limite %", "Limit %") }
     var menuLimitColor: String {
         t("퍼센트 색상", "Percent color", "パーセントの色", "Color del porcentaje", "Couleur du pourcentage",

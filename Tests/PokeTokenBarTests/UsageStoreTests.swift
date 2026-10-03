@@ -1383,4 +1383,163 @@ extension UsageStoreTests {
         store.menuLimitColorMode = .attention
         XCTAssertEqual(makeStore(providers: []).menuLimitColorMode, .attention)
     }
+
+    // MARK: Claude subscription leverage (#200)
+
+    private func claudeMonth(_ cost: Double, coverage: CostCoverage = .source,
+                             reportsCost: Bool = true) -> FakeUsageProvider {
+        let claude = FakeUsageProvider(id: "claude_code", displayName: "Claude Code",
+                                       daily: todayDaily(100_000, cost: 10), reportsCost: reportsCost)
+        claude.enrichment = monthEnrichment(tokens: 1_000_000, cost: cost, coverage: coverage)
+        return claude
+    }
+
+    private func flatRate(_ plan: String? = "max") -> LimitStatus {
+        var status = claudeLimits(fiveHourUtil: 10)
+        status.subscriptionType = plan
+        return status
+    }
+
+    /// Owner scenario: Claude $610 + another subscription's estimate + a server bill, plan $100.
+    /// The header keeps summing everything; the leverage numerator is Claude's month only.
+    func testLeverageUsesOnlyClaudeMonthCost() async {
+        let gemini = FakeUsageProvider(id: "gemini", displayName: "Gemini", daily: todayDaily(30_000, cost: 8))
+        gemini.enrichment = monthEnrichment(tokens: 200_000, cost: 200, coverage: .estimate)
+        let grok = FakeUsageProvider(id: "grok", displayName: "Grok", daily: todayDaily(20_000, cost: 5))
+        grok.enrichment = monthEnrichment(tokens: 50_000, cost: 50, coverage: .source)
+        let store = makeStore(providers: [claudeMonth(610), gemini, grok], claude: flatRate())
+        await store.refresh(scheduleEmptyRetry: false)
+        store.monthlyPlanPrice = 100
+
+        XCTAssertEqual(store.monthCostTotal, 860, accuracy: 0.000_001)
+        XCTAssertEqual(store.claudeMonthAPIEquivalentCost?.amount ?? -1, 610, accuracy: 0.000_001)
+        XCTAssertEqual(store.subscriptionLeverage ?? -1, 6.1, accuracy: 0.000_001)
+    }
+
+    /// Without a Claude snapshot nothing else may stand in for the numerator.
+    func testOtherProvidersNeverFeedLeverage() async {
+        let other = FakeUsageProvider(id: "future_tool_xyz", displayName: "Future", daily: todayDaily(1_000, cost: 1))
+        other.enrichment = monthEnrichment(tokens: 10_000, cost: 40, coverage: .estimate)
+        let store = makeStore(providers: [other], claude: flatRate())
+        await store.refresh(scheduleEmptyRetry: false)
+        store.monthlyPlanPrice = 10
+
+        XCTAssertNil(store.claudeMonthAPIEquivalentCost)
+        XCTAssertNil(store.subscriptionLeverage)
+    }
+
+    /// Provenance comes from the records: a month mixing source-reported, estimated and unpriced
+    /// Claude records counts the known amount and stays marked partial for the tooltip.
+    func testLeverageKeepsRecordLevelCoverage() async {
+        var mixed = CostCoverage.source
+        mixed.merge(.estimate)
+        mixed.merge(.unavailable)
+        let store = makeStore(providers: [claudeMonth(300, coverage: mixed)], claude: flatRate())
+        await store.refresh(scheduleEmptyRetry: false)
+        store.monthlyPlanPrice = 100
+
+        XCTAssertEqual(store.claudeMonthAPIEquivalentCost?.coverage, mixed)
+        XCTAssertEqual(store.subscriptionLeverage ?? -1, 3, accuracy: 0.000_001)
+        let l = L(.en)
+        XCTAssertEqual(store.claudeMonthAPIEquivalentCost?.explanation(l), l.costPartialHint)
+    }
+
+    func testLeverageGates() async {
+        let maxStore = makeStore(providers: [claudeMonth(610)], claude: flatRate())
+        await maxStore.refresh(scheduleEmptyRetry: false)
+        XCTAssertNil(maxStore.subscriptionLeverage, "price unset")
+        maxStore.monthlyPlanPrice = 100
+        XCTAssertNotNil(maxStore.subscriptionLeverage)
+        maxStore.monthlyPlanPrice = 0
+        XCTAssertNil(maxStore.subscriptionLeverage, "price 0 turns the row off")
+
+        for plan in ["free", nil] as [String?] {
+            let store = makeStore(providers: [claudeMonth(610)], claude: flatRate(plan))
+            await store.refresh(scheduleEmptyRetry: false)
+            store.monthlyPlanPrice = 100
+            XCTAssertNil(store.subscriptionLeverage, "\(plan ?? "nil") plan")
+        }
+
+        let noLimits = makeStore(providers: [claudeMonth(610)], claude: nil)
+        await noLimits.refresh(scheduleEmptyRetry: false)
+        noLimits.monthlyPlanPrice = 100
+        XCTAssertNil(noLimits.subscriptionLeverage, "no credential plan")
+
+        let unpriced = makeStore(providers: [claudeMonth(0, coverage: .unavailable)], claude: flatRate())
+        await unpriced.refresh(scheduleEmptyRetry: false)
+        unpriced.monthlyPlanPrice = 100
+        XCTAssertNil(unpriced.subscriptionLeverage, "no known Claude $ → no 0× row")
+
+        let tokenOnly = makeStore(providers: [claudeMonth(610, reportsCost: false)], claude: flatRate())
+        await tokenOnly.refresh(scheduleEmptyRetry: false)
+        tokenOnly.monthlyPlanPrice = 100
+        XCTAssertNil(tokenOnly.subscriptionLeverage, "a non-costing snapshot never feeds the row")
+    }
+
+    func testLeverageOpensForProAndTeam() async {
+        for plan in ["pro", "team", "PRO"] {
+            let store = makeStore(providers: [claudeMonth(200)], claude: flatRate(plan))
+            await store.refresh(scheduleEmptyRetry: false)
+            store.monthlyPlanPrice = 20
+            XCTAssertEqual(store.subscriptionLeverage ?? -1, 10, accuracy: 0.000_001, plan)
+        }
+    }
+
+    /// The month is machine-wide while the plan is one login's, so several Claude logins hide
+    /// the row rather than divide mixed usage by one plan.
+    func testLeverageHiddenWithSeveralClaudeAccounts() async throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("ptb-leverage-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        testDefaults.set(folder.path, forKey: ClaudeAccountRoots.defaultsKey)
+        let maxPlan = flatRate()
+        let store = UsageStore(providers: [claudeMonth(610)],
+                               claudeLimitsProvider: FakeClaudeLimits(status: maxPlan),
+                               additionalClaudeLimitsProvider: { _ in FakeClaudeLimits(status: maxPlan) },
+                               codexLimitsProvider: FakeCodexLimits(status: nil),
+                               antigravityLimitsProvider: FakeAntigravityLimits(status: nil),
+                               autoRefresh: false,
+                               defaults: testDefaults)
+        await store.refresh(scheduleEmptyRetry: false)
+        store.monthlyPlanPrice = 100
+
+        XCTAssertEqual(store.claudeAccounts.count, 2)
+        XCTAssertNil(store.subscriptionLeverage)
+    }
+
+    func testMonthlyPlanPricePersistsAndSanitizes() {
+        let store = makeStore(providers: [])
+        XCTAssertEqual(store.monthlyPlanPrice, 0)
+        store.monthlyPlanPrice = 100
+        XCTAssertEqual(testDefaults.double(forKey: "monthlyPlanPrice"), 100)
+        XCTAssertEqual(makeStore(providers: []).monthlyPlanPrice, 100)
+        store.monthlyPlanPrice = -5
+        XCTAssertEqual(store.monthlyPlanPrice, 0)
+        store.monthlyPlanPrice = .nan
+        XCTAssertEqual(store.monthlyPlanPrice, 0)
+        store.monthlyPlanPrice = .infinity
+        XCTAssertEqual(store.monthlyPlanPrice, 0, "an infinite price would show a 0× row")
+        testDefaults.set(-3.0, forKey: "monthlyPlanPrice")
+        XCTAssertEqual(makeStore(providers: []).monthlyPlanPrice, 0, "a bad stored value loads as off")
+    }
+
+    func testLeverageStaysOutOfTheMenuBar() async {
+        let store = makeStore(providers: [claudeMonth(610)], claude: flatRate())
+        store.showTokensInMenu = true
+        store.showCostInMenu = true
+        store.showLimitInMenu = false
+        store.monthlyPlanPrice = 100
+        await store.refresh(scheduleEmptyRetry: false)
+        XCTAssertNotNil(store.subscriptionLeverage)
+        let joined = store.menuLines.joined(separator: " ")
+        XCTAssertFalse(joined.contains("API"))
+        XCTAssertFalse(joined.contains("×"))
+    }
+}
+
+private func monthEnrichment(tokens: Int, cost: Double, coverage: CostCoverage) -> ProviderEnrichment {
+    var e = ProviderEnrichment()
+    e.monthTotal = PeriodUsage(period: "month", totalTokens: tokens, totalCost: cost, costCoverage: coverage)
+    e.periodsOK = true
+    return e
 }

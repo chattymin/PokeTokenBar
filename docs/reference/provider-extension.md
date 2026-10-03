@@ -20,6 +20,10 @@ read_when:
 - **프로바이더 고유 동작만 `providerID` 로 명시 분기**: 공식 한도(Claude=HTTP·Codex=프로세스),
   5h forecast·"현재 블록" 행처럼 *특정 프로바이더에만 존재하는* 기능만 id 로 조건 분기한다.
   범용 경로에 `== "claude_code"` 류 리터럴 분기를 추가하는 건 금지.
+  구독 레버리지 행(#200)도 이 부류다 — 게이트가 Claude 플랜·Claude 구독료라 분자는 Claude 스냅샷의
+  월 `usageCost` 만 id 로 조회한다(`claudeMonthAPIEquivalentCost`). `$` 의 출처(source/estimate/
+  unavailable)는 프로바이더 단위 플래그가 아니라 레코드별 `CostCoverage` 로 판정한다. 다른
+  프로바이더의 레버리지는 그 프로바이더의 플랜·가격 입력과 함께 따로 추가한다.
 - **버전매니저/설치경로 추가** = `BinaryLocator.commonToolDirectories()` 한 곳에만 추가한다
   (탐색·자식 프로세스 PATH 보강이 이 단일 소스를 공유).
 - **로그 스캔 루트 추가** = `LocalUsageReader.claudeProjectRoots` 같은 프로바이더별 루트 목록 한 곳에만

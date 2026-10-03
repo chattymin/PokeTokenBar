@@ -289,6 +289,39 @@ final class ModelDecodingTests: XCTestCase {
         XCTAssertNil(status.planDisplay)
     }
 
+    func testIsFlatRateSubscription() throws {
+        var status = try JSONDecoder().decode(LimitStatus.self, from: Data("{}".utf8))
+        for plan in ["max", "pro", "team", "MAX", "Pro"] {
+            status.subscriptionType = plan
+            XCTAssertTrue(status.isFlatRateSubscription, plan)
+        }
+        for plan in ["free", "api", "", nil] as [String?] {
+            status.subscriptionType = plan
+            XCTAssertFalse(status.isFlatRateSubscription, plan ?? "nil")
+        }
+    }
+
+    func testMultiplierFormat() {
+        XCTAssertEqual(TokenFormatter.multiplier(6.1), "6.1×")
+        XCTAssertEqual(TokenFormatter.multiplier(6.0), "6×")
+        XCTAssertEqual(TokenFormatter.multiplier(12.26), "12.3×")
+    }
+
+    /// Cost rows keep a bare `$` (#224); the API-equivalent qualifier lives on the leverage row,
+    /// and the plan price drafts locally like the scan-roots field (#187).
+    func testLeverageUiShape() throws {
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let popover = try String(contentsOf: root.appendingPathComponent("Sources/PokeTokenBar/UI/PopoverView.swift"), encoding: .utf8)
+        XCTAssertTrue(popover.contains("l.subscriptionLeverage("))
+        XCTAssertFalse(popover.contains("(API-equiv.)"))
+        let settings = try String(contentsOf: root.appendingPathComponent("Sources/PokeTokenBar/UI/SettingsView.swift"), encoding: .utf8)
+        XCTAssertFalse(settings.contains("$store.monthlyPlanPrice"),
+                       "binding the store directly writes UserDefaults on every keystroke")
+        XCTAssertTrue(settings.contains("$monthlyPlanPriceDraft"))
+        XCTAssertTrue(settings.contains(".onDisappear { commitMonthlyPlanPrice() }"))
+    }
+
     /// 자격증명 파싱이 subscriptionType/rateLimitTier 를 추출하는지 — 실 keychain JSON 형태 기반.
     func testCredentialParsesPlanFields() throws {
         let json = Data("""

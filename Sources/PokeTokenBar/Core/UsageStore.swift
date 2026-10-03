@@ -181,6 +181,23 @@ final class UsageStore {
         }
     }
 
+    /// Optional user-entered Claude plan price (USD). 0 = off. No built-in price table — plan
+    /// prices vary by seat, region and tax.
+    var monthlyPlanPrice: Double {
+        didSet {
+            let sanitized = Self.sanitizedPlanPrice(monthlyPlanPrice)
+            guard sanitized == monthlyPlanPrice else {
+                monthlyPlanPrice = sanitized
+                return
+            }
+            defaults.set(monthlyPlanPrice, forKey: "monthlyPlanPrice")
+        }
+    }
+
+    static func sanitizedPlanPrice(_ value: Double) -> Double {
+        value.isFinite ? max(0, value) : 0
+    }
+
     static let intervalPresets: [(label: String, value: TimeInterval)] = [
         ("수동", 0), ("1분", 60), ("2분", 120), ("5분", 300), ("15분", 900),
     ]
@@ -501,6 +518,27 @@ final class UsageStore {
         ledger.save(to: defaults)
     }
 
+    /// Claude's calendar-month `$`, with the per-record provenance (`CostCoverage`) the scan
+    /// merged. Claude's source-reported amounts and price-table estimates are both API-rate
+    /// figures, so every known amount is API-equivalent; unpriced records stay out of the amount
+    /// and mark the total partial. Looked up by id like `claudeActiveBlock`: the leverage gate
+    /// reads the Claude plan, so other providers' costs (other subscriptions, real bills) never
+    /// enter the numerator. The combined month total still sums every provider.
+    var claudeMonthAPIEquivalentCost: UsageCost? {
+        snapshots.first { $0.providerID == "claude_code" && $0.reportsCost }?.monthTotal?.usageCost
+    }
+
+    /// API-equivalent ÷ plan price for a single Max/Pro/Team login with a price set. With several
+    /// Claude logins the month is machine-wide while the plan is one account's, so the ratio
+    /// would mix plans — hidden until usage can be attributed per account.
+    var subscriptionLeverage: Double? {
+        guard claudeAccounts.count <= 1,
+              limits?.isFlatRateSubscription == true,
+              monthlyPlanPrice > 0,
+              let cost = claudeMonthAPIEquivalentCost, cost.amount > 0 else { return nil }
+        return cost.amount / monthlyPlanPrice
+    }
+
     /// Claude 의 활성 5h 블록 — 5h forecast·"현재 블록" 행은 Claude 공식 한도와 짝이므로
     /// providerID 로 명시 조회한다 (전 프로바이더가 블록을 갖게 된 후 first-with-block 은 오매칭).
     private var claudeActiveBlock: BlockUsage? {
@@ -784,6 +822,7 @@ final class UsageStore {
         // 사용자의 배터리 프로파일은 그대로다. 더 부드러운 쪽은 opt-in(실측 idle CPU 1.8%/5.1%).
         animationQuality = AnimationQuality(rawValue: d.string(forKey: "animationQuality") ?? "") ?? .powerSaver
         disableKeychainAccess = d.object(forKey: "disableKeychainAccess") as? Bool ?? false
+        monthlyPlanPrice = Self.sanitizedPlanPrice(d.object(forKey: "monthlyPlanPrice") as? Double ?? 0)
         additionalClaudeConfigDirs = d.string(forKey: ClaudeAccountRoots.defaultsKey) ?? ""
         claudeTrackedAccountMode = ClaudeTrackedAccountMode(storedValue: d.string(forKey: ClaudeTrackedAccountMode.defaultsKey))
         armedCandyWindows = Set(d.stringArray(forKey: Self.armedCandyWindowsKey) ?? [])

@@ -290,6 +290,15 @@ struct LimitStatus: Decodable, Sendable {
         return "\(accountEmail) · \(org)"
     }
 
+    /// Max/Pro/Team pay a flat monthly price, so Claude's per-record `$` reads as API-equivalent
+    /// value rather than spend. Gates the leverage row only; cost rows keep their bare `$`.
+    var isFlatRateSubscription: Bool {
+        switch subscriptionType?.lowercased() {
+        case "max", "pro", "team": return true
+        default: return false
+        }
+    }
+
     /// rateLimitTier 끝의 배수 토큰("20x"/"5x") 추출 — "_" 로 나눠 숫자+x 형태를 찾는다.
     /// 배수가 없는 등급("default_claude_pro")은 nil → 등급명만 표시.
     private static func tierMultiplier(from tier: String) -> String? {

@@ -633,6 +633,13 @@ read_when:
 
 ## 표시·UI
 
+- **구독 플래그를 모든 `$` 에 덮어쓰지 말고, 출처는 레코드 단위로 판정하라.** Claude Max 플래그로
+  모든 행에 "API 환산"을 찍으면 Grok 의 실제 청구서까지 환산이 된다(#224). 프로바이더 단위
+  `costIsEstimate` 도 같은 실수의 축소판이다 — 한 프로바이더 안에서도 레코드마다 source/estimate/
+  unavailable 이 섞인다. 레버리지 분자는 Claude 월 `usageCost`(레코드별 `CostCoverage` 병합)만
+  쓰고, Claude 로그인이 여럿이면 월 합계가 기기 전체라 행을 숨긴다. 회귀:
+  `testLeverageUsesOnlyClaudeMonthCost`, `testOtherProvidersNeverFeedLeverage`,
+  `testLeverageHiddenWithSeveralClaudeAccounts`. (#200, #249)
 - **Antigravity 그룹 표시명은 한 헬퍼로.** API 의 `displayName`("Gemini Models" 등)을 알림·사탕·
   펫 버블에 그대로 넣으면 앱 언어가 한국어여도 본문에 영어가 섞인다. 팝오버만 `L` 로 바꾸던
   분기를 `L.antigravityGroupTitle` 로 끌어올려 candy / `buildLimitWindows` / 팝오버가 공유한다.

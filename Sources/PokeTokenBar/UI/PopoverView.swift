@@ -211,6 +211,15 @@ struct PopoverView: View {
                 }
                 .padding(.top, 2)
             }
+            if let ratio = store.subscriptionLeverage, let cost = store.claudeMonthAPIEquivalentCost {
+                Text(l.subscriptionLeverage(
+                    plan: TokenFormatter.cost(store.monthlyPlanPrice),
+                    apiEquivalent: cost.text(l),
+                    multiplier: TokenFormatter.multiplier(ratio)))
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+                    .help(cost.explanation(l))
+            }
 
             MonthDailyTrend(series: store.monthDailyTotals,
                             showsCost: store.showsCost,

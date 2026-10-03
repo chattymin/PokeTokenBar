@@ -37,6 +37,8 @@ struct SettingsView: View {
     @FocusState private var customScanFocused: Bool
     @State private var additionalAccountsDraft = ""
     @FocusState private var additionalAccountsFocused: Bool
+    @State private var monthlyPlanPriceDraft: Double = 0
+    @FocusState private var monthlyPlanPriceFocused: Bool
     @FocusState private var sessionKeyFocused: Bool
     private var l: L { companion.l }
 
@@ -206,6 +208,28 @@ struct SettingsView: View {
                     Text(l.animationSmooth).tag(UsageStore.AnimationQuality.smooth)
                 }
                 .labelsHidden().pickerStyle(.menu).fixedSize()
+            }
+            Divider()
+            groupRow {
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(l.monthlyPlanPriceLabel)
+                    Text(l.monthlyPlanPriceHint)
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer()
+                TextField("0", value: $monthlyPlanPriceDraft, format: .number.precision(.fractionLength(0...2)))
+                    .multilineTextAlignment(.trailing)
+                    .textFieldStyle(.roundedBorder)
+                    .frame(width: 72)
+                    .focused($monthlyPlanPriceFocused)
+                    .onSubmit { commitMonthlyPlanPrice() }
+            }
+            .onAppear { monthlyPlanPriceDraft = store.monthlyPlanPrice }
+            .onDisappear { commitMonthlyPlanPrice() }
+            .onChange(of: monthlyPlanPriceFocused) { _, focused in
+                if !focused { commitMonthlyPlanPrice() }
             }
             Divider()
             groupRow {
@@ -918,6 +942,11 @@ struct SettingsView: View {
 
     private func commitCustomScanDraft() {
         store.setCustomScanRoots(customScanDraft, for: customScanDraftOwnerID)
+    }
+
+    private func commitMonthlyPlanPrice() {
+        store.monthlyPlanPrice = monthlyPlanPriceDraft
+        monthlyPlanPriceDraft = store.monthlyPlanPrice
     }
 
     private func scheduleCustomScanMatchCount() {
