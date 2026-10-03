@@ -1766,8 +1766,9 @@ final class CompanionStore {
     var suggestedExportFileName: String { SaveTransfer.suggestedFileName(date: clock()) }
 
     /// 내보내기 페이로드. 파일 쓰기는 호출자(UI)가 사용자가 고른 위치에 수행한다.
-    func exportedSaveData(appVersion: String, deviceName: String) throws -> Data {
-        try SaveTransfer.encode(state: state, appVersion: appVersion, deviceName: deviceName, now: clock())
+    func exportedSaveData(appVersion: String, deviceName: String, deviceID: String? = nil) throws -> Data {
+        try SaveTransfer.encode(state: state, appVersion: appVersion, deviceName: deviceName, now: clock(),
+                                deviceID: deviceID)
     }
 
     /// 검증된 세이브를 이 기기에 적용 — 기존 상태 백업 → 기기 기준 재정렬 → 저장 → 라인 재로딩.

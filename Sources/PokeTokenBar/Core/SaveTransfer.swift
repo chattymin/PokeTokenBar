@@ -18,6 +18,9 @@ struct SaveEnvelope: Codable, Sendable {
     var exportedAt: Date
     var sourceDevice: String
     var state: CompanionState
+    /// Per-install id of the exporting Mac (`SaveSyncFolder`). Optional so files written before it,
+    /// and manual exports, still decode under the same schema; older builds ignore the key.
+    var sourceDeviceID: String? = nil
 }
 
 /// 봉투의 앞부분만 읽는 최소 구조 — 본문(`state`)이 상위 스키마라 못 읽히더라도 "새 버전 세이브"임을
@@ -96,13 +99,15 @@ enum SaveTransfer {
     private static func dayStamp(_ date: Date) -> String { stamp(date, "yyyy-MM-dd") }
     private static func secondStamp(_ date: Date) -> String { stamp(date, "yyyy-MM-dd-HHmmss") }
 
-    static func encode(state: CompanionState, appVersion: String, deviceName: String, now: Date) throws -> Data {
+    static func encode(state: CompanionState, appVersion: String, deviceName: String, now: Date,
+                       deviceID: String? = nil) throws -> Data {
         let envelope = SaveEnvelope(format: SaveEnvelope.formatID,
                                     schema: SaveEnvelope.schemaVersion,
                                     appVersion: appVersion,
                                     exportedAt: now,
                                     sourceDevice: deviceName,
-                                    state: state)
+                                    state: state,
+                                    sourceDeviceID: deviceID)
         let encoder = JSONEncoder()
         // 사람이 열어봤을 때 읽히도록(무엇이 옮겨가는지 확인 가능) — 4KB 라 크기는 무의미.
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]

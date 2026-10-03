@@ -38,6 +38,9 @@ struct SettingsView: View {
     @State private var additionalAccountsDraft = ""
     @FocusState private var additionalAccountsFocused: Bool
     @FocusState private var sessionKeyFocused: Bool
+    /// Mirrors `SaveSyncFolder.folderURL` so the rows update when the folder is turned off in place.
+    @State private var syncFolderPath = SaveSyncFolder().folderURL?.path
+    private var syncFolder: SaveSyncFolder { SaveSyncFolder() }
     private var l: L { companion.l }
 
     private var isBundledApp: Bool { AppEnv.isBundledApp }
@@ -429,7 +432,44 @@ struct SettingsView: View {
                 Button(l.importSaveButton) { importSave(store) }
             }
             Divider()
+            syncFolderSection(store)
+            Divider()
             snapshotsSection(store)
+        }
+    }
+
+    /// 동기화 폴더 — 두 Mac 이 공유하는 폴더(iCloud Drive 등)로 세이브 하나를 주고받는다(#257).
+    /// 병합이 아니라 기존 내보내기/불러오기에 위치를 기억시킨 것이다. 자동으로 덮어쓰거나 불러오지 않는다.
+    @ViewBuilder
+    private func syncFolderSection(_ store: UsageStore) -> some View {
+        groupRow {
+            VStack(alignment: .leading, spacing: 1) {
+                Text(l.syncFolderLabel)
+                Text(l.syncFolderHint).font(.caption2).foregroundStyle(.tertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+                if let path = syncFolderPath {
+                    HStack(spacing: 6) {
+                        Text(NSString(string: path).abbreviatingWithTildeInPath)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1).truncationMode(.middle)
+                        Button(l.syncFolderStopButton) {
+                            syncFolder.folderURL = nil
+                            syncFolderPath = nil
+                        }
+                        .buttonStyle(.link)
+                    }
+                    .font(.caption2)
+                }
+            }
+            Spacer()
+            Button(l.syncFolderChooseButton) { chooseSyncFolder(store) }
+        }
+        if syncFolderPath != nil {
+            groupRow {
+                Spacer()
+                Button(l.saveToSyncFolderButton) { saveToSyncFolder() }
+                Button(l.loadFromSyncFolderButton) { loadFromSyncFolder(store) }
+            }
         }
     }
 
@@ -1004,44 +1044,82 @@ struct SettingsView: View {
             presentAlert(title: l.importSaveLabel, message: l.importErrorMessage(error), style: .warning)
             return
         }
-        let incoming = SaveSummary(state: envelope.state)
-
         // 고른 즉시 덮어쓰지 않는다 — 무엇이 대체되는지 수치로 보여주고 한 번 더 확인받는다.
-        let current = companion.transferSummary
-        let confirm = NSAlert()
-        confirm.alertStyle = .warning
-        confirm.messageText = l.importConfirmTitle
-        confirm.informativeText = l.importConfirmBody(
-            incomingDex: incoming.dexCount,
-            incomingTokens: TokenFormatter.compact(incoming.lifetimeTokens),
-            exportedAt: Self.exportedAtText(envelope.exportedAt, language: companion.language),
-            sourceDevice: envelope.sourceDevice,
-            currentDex: current.dexCount,
-            currentTokens: TokenFormatter.compact(current.lifetimeTokens))
-        confirm.addButton(withTitle: l.importConfirmReplace)
-        confirm.addButton(withTitle: l.cancel)
-        // 파괴적 동작을 기본 버튼으로 두지 않는다(Return 한 번에 진행이 대체되지 않게).
-        // 규칙 자체는 ImportConfirmPolicy 에 있고 여기선 적용만 한다 — NSAlert 구성은 테스트 불가라
-        // 순서가 뒤바뀌어도 잡을 자동 경로가 없기 때문이다.
-        for (index, button) in confirm.buttons.enumerated() {
-            button.keyEquivalent = ImportConfirmPolicy.keyEquivalent(forButtonAt: index)
-        }
-        guard confirm.runModal() == .alertFirstButtonReturn else { return }
+        _ = SaveImportPrompt.confirmAndApply(envelope, title: l.importConfirmTitle,
+                                             companion: companion, store: store)
+    }
 
+    // MARK: 동기화 폴더 (#257)
+
+    private func chooseSyncFolder(_ store: UsageStore) {
+        let panel = NSOpenPanel()
+        panel.title = l.syncFolderLabel
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.canCreateDirectories = true
+        panel.allowsMultipleSelection = false
+        NSApp.activate(ignoringOtherApps: true)
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        syncFolder.folderURL = url
+        syncFolderPath = url.path
+        // 이미 다른 Mac 이 남긴 세이브가 있으면 바로 제안한다 — 없으면 다음 할 일을 알려준다.
+        if let envelope = syncFolder.pendingHandoff() {
+            if SaveImportPrompt.confirmAndApply(envelope, title: l.syncHandoffTitle(envelope.sourceDevice),
+                                                cancelTitle: l.syncNotNow,
+                                                companion: companion, store: store) != .failed {
+                syncFolder.markSeen(envelope)
+            }
+        } else {
+            presentAlert(title: l.syncFolderLabel, message: l.syncFolderSetDone, style: .informational)
+        }
+    }
+
+    private func saveToSyncFolder() {
         do {
-            try companion.applySave(envelope,
-                                    todayTokensByProvider: store.todayTokensByProvider,
-                                    todayDate: LocalUsageReader.todayKey(),
-                                    hasUsageData: store.hasUsageData)
+            // 깨진 파일은 덮어써도 잃을 게 없다 — 읽기 실패는 확인 없이 진행한다.
+            let existing = try? syncFolder.read()
+            if syncFolder.needsOverwriteConfirmation(existing: existing), let existing {
+                let confirm = NSAlert()
+                confirm.alertStyle = .warning
+                confirm.messageText = l.syncOverwriteTitle
+                confirm.informativeText = l.syncOverwriteBody(
+                    device: existing.sourceDevice,
+                    exportedAt: Self.exportedAtText(existing.exportedAt, language: companion.language))
+                confirm.addButton(withTitle: l.importConfirmReplace)
+                confirm.addButton(withTitle: l.cancel)
+                for (index, button) in confirm.buttons.enumerated() {
+                    button.keyEquivalent = ImportConfirmPolicy.keyEquivalent(forButtonAt: index)
+                }
+                NSApp.activate(ignoringOtherApps: true)
+                guard confirm.runModal() == .alertFirstButtonReturn else { return }
+            }
+            let data = try companion.exportedSaveData(appVersion: Self.appVersion, deviceName: Self.deviceName,
+                                                      deviceID: syncFolder.deviceID)
+            try syncFolder.write(data)
+            presentAlert(title: l.saveToSyncFolderButton, message: l.syncSavedDone, style: .informational)
         } catch {
-            AppLog.write("save import apply failed: \(error)")
-            presentAlert(title: l.importSaveLabel, message: l.importErrorMessage(error), style: .warning)
+            AppLog.write("save sync write failed: \(error)")
+            presentAlert(title: l.saveToSyncFolderButton, message: l.userFacingError(error), style: .warning)
+        }
+    }
+
+    private func loadFromSyncFolder(_ store: UsageStore) {
+        let envelope: SaveEnvelope
+        do {
+            guard let found = try syncFolder.read() else {
+                presentAlert(title: l.loadFromSyncFolderButton, message: l.syncFolderEmpty, style: .informational)
+                return
+            }
+            envelope = found
+        } catch {
+            AppLog.write("save sync read failed: \(error)")
+            presentAlert(title: l.loadFromSyncFolderButton, message: l.importErrorMessage(error), style: .warning)
             return
         }
-        presentAlert(title: l.importSaveLabel,
-                     message: l.importSaveDone(dex: incoming.dexCount,
-                                               tokens: TokenFormatter.compact(incoming.lifetimeTokens)),
-                     style: .informational)
+        if SaveImportPrompt.confirmAndApply(envelope, title: l.importConfirmTitle,
+                                            companion: companion, store: store) != .failed {
+            syncFolder.markSeen(envelope)
+        }
     }
 
     private func takeManualSnapshot() {
@@ -1105,12 +1183,6 @@ struct SettingsView: View {
     }
 
     private func presentAlert(title: String, message: String, style: NSAlert.Style) {
-        let alert = NSAlert()
-        alert.alertStyle = style
-        alert.messageText = title
-        alert.informativeText = message
-        alert.addButton(withTitle: l.close)
-        NSApp.activate(ignoringOtherApps: true)
-        alert.runModal()
+        SaveImportPrompt.present(title: title, message: message, style: style, l: l)
     }
 }
