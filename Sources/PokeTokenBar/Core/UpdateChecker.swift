@@ -15,24 +15,36 @@ final class UpdateChecker {
         case current
     }
 
+    /// Tag + release-page URL from the GitHub latest endpoint (or a test double).
+    struct LatestRelease: Equatable, Sendable {
+        let tag: String
+        let url: String
+    }
+
     private(set) var available: Available?
     /// Newer release the user chose to skip. Hidden from the banner, still shown in Settings.
     private(set) var skipped: Available?
     private(set) var isUpdating = false
 
     let currentVersion: String
-    private let repo = "chattymin/PokeTokenBar"
     private let clock: () -> Date
     private let defaults: UserDefaults
+    /// Injected so tests can fail or succeed without hitting the network.
+    private let fetchLatest: () async -> LatestRelease?
     private var lastChecked: Date?
+    /// Overlapping popover opens must not stack concurrent GitHub calls once the early
+    /// cooldown stamp is gone (a failed check no longer blocks the next attempt).
+    private var checkInFlight = false
 
     static let skippedVersionKey = "skippedUpdateVersion"
 
-    init(currentVersion: String? = nil, clock: @escaping () -> Date = Date.init, defaults: UserDefaults = .standard) {
+    init(currentVersion: String? = nil, clock: @escaping () -> Date = Date.init, defaults: UserDefaults = .standard,
+         fetchLatest: (() async -> LatestRelease?)? = nil) {
         self.currentVersion = currentVersion
             ?? (Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String) ?? "0"
         self.clock = clock
         self.defaults = defaults
+        self.fetchLatest = fetchLatest ?? { await Self.liveLatestRelease(repo: "chattymin/PokeTokenBar") }
     }
 
     var settingsNotice: SettingsNotice {
@@ -45,22 +57,53 @@ final class UpdateChecker {
     var updateTarget: Available? { available ?? skipped }
 
     /// 최신 릴리스 조회. 스킵한 버전은 배너(`available`)에 안 올리고 Settings(`skipped`)에만 남긴다.
-    /// minInterval 보다 자주 호출되면 무시(레이트리밋 보호).
+    /// minInterval 은 **성공한** 조회 사이에만 적용한다(레이트리밋 보호). 실패 — 네트워크·비정상 응답·
+    /// 불안전 URL·지원하지 않는 태그 — 는 쿨다운을 시작하지 않아, 팝오버를 다시 열면 곧장 재시도한다.
     func check(minInterval: TimeInterval = 1800) async {
+        if checkInFlight { return }
         if let last = lastChecked, clock().timeIntervalSince(last) < minInterval { return }
+        checkInFlight = true
+        defer { checkInFlight = false }
+
+        guard let release = await fetchLatest(),
+              Self.isTrustedReleaseURL(release.url),
+              let version = Self.normalizedReleaseVersion(release.tag) else { return }
         lastChecked = clock()
-        guard let url = URL(string: "https://api.github.com/repos/\(repo)/releases/latest") else { return }
+        consider(latest: version, url: release.url)
+    }
+
+    /// NSWorkspace.open 으로 가는 릴리스 URL — https + github.com 만 허용(스킴 하이재킹 방지).
+    nonisolated static func isTrustedReleaseURL(_ string: String) -> Bool {
+        guard let url = URL(string: string), url.scheme == "https", url.host == "github.com" else { return false }
+        return true
+    }
+
+    /// Release tag → comparable version, or nil when the tag is not a plain `MAJOR.MINOR.PATCH`
+    /// (optionally `v`-prefixed). `isNewer` reads non-numeric parts as 0, so a prerelease such as
+    /// `v2.6.0-beta.1` would compare equal to `2.6.0` and garbage would compare as `0.0.0`; neither
+    /// may be applied or counted as a successful check.
+    nonisolated static func normalizedReleaseVersion(_ tag: String) -> String? {
+        var version = Substring(tag.trimmingCharacters(in: .whitespacesAndNewlines))
+        if version.first == "v" || version.first == "V" { version = version.dropFirst() }
+        let parts = version.split(separator: ".", omittingEmptySubsequences: false)
+        guard parts.count == 3,
+              parts.allSatisfy({ part in
+                  !part.isEmpty && part.count <= 9 && part.allSatisfy { $0.isASCII && $0.isNumber }
+              }) else { return nil }
+        return parts.map { String(Int($0)!) }.joined(separator: ".")
+    }
+
+    /// Live GitHub latest-release fetch. nil on any transport or payload failure.
+    private nonisolated static func liveLatestRelease(repo: String) async -> LatestRelease? {
+        guard let url = URL(string: "https://api.github.com/repos/\(repo)/releases/latest") else { return nil }
         var req = URLRequest(url: url, timeoutInterval: 15)
         req.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
         guard let (data, resp) = try? await URLSession.shared.data(for: req),
               (resp as? HTTPURLResponse)?.statusCode == 200,
               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let tag = json["tag_name"] as? String,
-              let html = json["html_url"] as? String,
-              // 응답 필드가 NSWorkspace.open 으로 가므로 https + github.com 만 허용(스킴 하이재킹 방지)
-              let htmlURL = URL(string: html), htmlURL.scheme == "https", htmlURL.host == "github.com"
-        else { return }
-        consider(latest: tag, url: html)
+              let html = json["html_url"] as? String else { return nil }
+        return LatestRelease(tag: tag, url: html)
     }
 
     /// Apply one fetched release. `latest` may be a tag (`v2.5.4`) or a bare version.
