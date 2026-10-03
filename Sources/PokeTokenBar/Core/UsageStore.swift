@@ -241,6 +241,11 @@ final class UsageStore {
     private var timer: Timer?
     private var networkMonitor: NetworkReachabilityMonitor?
     private var pollingSuspended = false   // 디스플레이 꺼짐 동안 폴링 정지 (배터리)
+    /// 정지 중에만 도는 저빈도 점검. screensDidWake 를 놓치면 폴링이 영영 안 돌아와 마지막 스냅샷
+    /// (자정에 기록된 빈 스냅샷 등)이 재시작 전까지 굳었다(#350).
+    private var suspendedProbeTimer: Timer?
+    static let suspendedProbeInterval: TimeInterval = 300
+    private let displaysAsleep: @MainActor () -> Bool
     private var emptyUsageRetryTask: Task<Void, Never>?
     /// 한도 알림 상태(엣지 트리거) — 창 이름 → 이미 알린 최고 tier(0=없음, 1=경고, 2=위험).
     /// utilization 이 경고선 아래로 내려가면 맵에서 제거해 재무장. resets_at 같은 매 fetch 변하는
@@ -748,8 +753,10 @@ final class UsageStore {
             SessionKeyLimitsProvider(store: .forConfigRoot($0))
          },
          autoRefresh: Bool = true,
-         defaults: UserDefaults = .standard) {
+         defaults: UserDefaults = .standard,
+         displaysAsleep: @escaping @MainActor () -> Bool = { CGDisplayIsAsleep(CGMainDisplayID()) != 0 }) {
         self.providers = providers
+        self.displaysAsleep = displaysAsleep
         self.limitsProvider = claudeLimitsProvider
         self.additionalClaudeLimitsProvider = additionalClaudeLimitsProvider
         self.discoverClaudeConfigDirs = discoverClaudeConfigDirs
@@ -806,7 +813,7 @@ final class UsageStore {
         NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.didWakeNotification, object: nil, queue: .main
         ) { [weak self] _ in
-            Task { @MainActor in await self?.refresh() }
+            Task { @MainActor in await self?.handleSystemWake() }
         }
         // 디스플레이 꺼짐 → 폴링(로그 파싱 + 한도 조회 + codex 서브프로세스) 일시정지, 켜짐 → 재개 + 즉시 갱신 (배터리)
         NSWorkspace.shared.notificationCenter.addObserver(
@@ -849,19 +856,55 @@ final class UsageStore {
         timer = t
     }
 
+    var isPollingSuspended: Bool { pollingSuspended }
+    var isPollingTimerScheduled: Bool { timer != nil }
+    var isSuspendedProbeScheduled: Bool { suspendedProbeTimer != nil }
+
     /// 디스플레이 꺼짐 → 폴링 타이머 정지(예약된 로그 파싱·한도 조회 중단).
-    private func suspendPolling() {
+    func suspendPolling() {
         pollingSuspended = true
         timer?.invalidate()
         timer = nil
+        suspendedProbeTimer?.invalidate()
+        let probe = Timer(timeInterval: Self.suspendedProbeInterval, repeats: true) { _ in
+            Task { @MainActor [weak self] in await self?.runSuspendedPollingProbe() }
+        }
+        probe.tolerance = Self.suspendedProbeInterval * 0.2
+        RunLoop.main.add(probe, forMode: .common)
+        suspendedProbeTimer = probe
     }
 
     /// 디스플레이 켜짐 → 폴링 재개 + 즉시 1회 갱신(켜졌을 때 메뉴 숫자 최신화).
     private func resumePolling() {
         guard pollingSuspended else { return }
-        pollingSuspended = false
-        reschedule()
+        clearPollingSuspension()
         Task { await refresh() }
+    }
+
+    private func clearPollingSuspension() {
+        pollingSuspended = false
+        suspendedProbeTimer?.invalidate()
+        suspendedProbeTimer = nil
+        reschedule()
+    }
+
+    /// screensDidWake 없이 화면이 이미 켜져 있으면 정지를 푼다. 풀었으면 true.
+    @discardableResult
+    private func clearStaleSuspension(reason: String) -> Bool {
+        guard pollingSuspended, !displaysAsleep() else { return false }
+        AppLog.write("polling resumed without screensDidWake (\(reason))")
+        clearPollingSuspension()
+        return true
+    }
+
+    func runSuspendedPollingProbe() async {
+        guard clearStaleSuspension(reason: "probe") else { return }
+        await refresh()
+    }
+
+    func handleSystemWake() async {
+        clearStaleSuspension(reason: "didWake")
+        await refresh()
     }
 
     // MARK: 갱신
@@ -872,6 +915,7 @@ final class UsageStore {
         // Claude 한도가 다음 수동 액션까지 빈 채로 남던 회귀 방지.
         if isRefreshing { refreshPending = true; return }
         isRefreshing = true
+        clearStaleSuspension(reason: "refresh")
         // App Nap 방지 — 백그라운드 스로틀로 로그 파싱·codex 조회가 타임아웃되는 것을 막는다 (시스템 슬립은 허용)
         let activity = ProcessInfo.processInfo.beginActivity(
             options: .userInitiatedAllowingIdleSystemSleep, reason: "PokeTokenBar usage refresh")

@@ -777,6 +777,14 @@ read_when:
 
 ## 에너지 (상시 표시 애니메이션)
 
+- **절전용 정지 상태는 짝 알림 하나에만 복구를 맡기지 마라.** `screensDidSleep` 이 폴링 타이머를 끄고
+  `screensDidWake` 만 되살렸다. wake 알림을 놓치면 폴링이 영영 멈추고, 자정 `NSCalendarDayChanged` 갱신이
+  남긴 빈 스냅샷(menuTitle "0", providers [])이 재시작 전까지 굳었다(#350, `lastError` 도 비어 무증상).
+  **왜 못 걸렀나:** 정지/재개 경로에 테스트가 하나도 없었고, 실기기에서는 알림이 대개 짝지어 와서 재현이
+  안 됐다. → 정지 중엔 5분 점검 타이머가 실제 디스플레이 상태(`CGDisplayIsAsleep`)를 보고 복구하고,
+  `didWake`·모든 `refresh()` 진입도 같은 검사를 한다. 회귀 가드: `UsageStoreTests` 의
+  `testSuspendedPollingProbe*`·`testSystemWakeResumes*`·`testRefreshWhileDisplays*`.
+
 - **메뉴바 상태아이템 = idle CPU 저격수 (두 규칙 필수).** 실측: 라이브 앱 idle ~14% CPU → 수정 후 ~2%.
   ① **`statusItem.button.image` 대입은 반드시 `setDisableActions` 트랜잭션 안에서** (`AppDelegate.setStatusImage`).
   레이어 백드 `NSStatusBarButton` 은 이미지 대입마다 `NSStatusItemScene` 암묵적 전환 애니메이션
