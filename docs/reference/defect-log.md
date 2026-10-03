@@ -488,6 +488,13 @@ read_when:
   `default.profdata` 를 구형 Xcode의 `xcrun llvm-cov` 로 읽으면 `unsupported instrumentation profile format
   version` 으로 테스트 성공 뒤 게이트만 실패한다. `test-gate.sh` 는 현재 `swift` 실경로 옆의 `llvm-cov` 를
   우선하고, sibling이 없는 Apple toolchain에서만 `xcrun --find llvm-cov` 로 폴백한다.
+- **배포 바이너리는 빌드 호스트 아키텍처를 따라가지 않게 명시적으로 universal 로 만든다.** v2.5.4 는
+  `build-app.sh` 의 아키텍처 미지정 `swift build -c release` 가 Apple Silicon 호스트의 arm64 만 패키징해,
+  README 가 지원한다고 적은 Intel Mac 에서 `bad CPU type in executable` 로 실행조차 안 됐다(#358).
+  **왜 못 걸렀나:** CI·로컬 테스트·release.sh 게이트 모두 arm64 호스트에서만 돌아 결과 바이너리의 아키텍처를
+  확인하는 단계가 없었다. `swift build --arch arm64 --arch x86_64` 는 xcbuild(Xcode)가 필요해 CLT 환경에서
+  실패하므로, 아키텍처별 빌드 + `lipo -create` 로 합친다. 회귀 가드: `build-app.sh` 의 `lipo -verify_arch`
+  와 release.sh 4/8 의 `lipo -verify_arch arm64 x86_64` 하드 게이트(릴리스는 `PTB_NATIVE_ARCH_ONLY` 금지).
 
 ## 자격증명·Keychain
 
