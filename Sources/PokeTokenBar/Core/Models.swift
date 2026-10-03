@@ -646,6 +646,8 @@ struct ProviderSnapshot: Sendable, Identifiable {
     var fetchedAt: Date
     /// Mirrors `UsageProvider.reportsCost`. Default keeps existing call sites unchanged.
     var reportsCost: Bool = true
+    /// Mirrors `ProviderEnrichment.lastUsage`.
+    var lastUsage: Date? = nil
 
     var id: String { providerID }
     var todayTotalTokens: Int { today?.totalTokens ?? 0 }

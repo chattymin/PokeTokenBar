@@ -929,7 +929,9 @@ final class UsageStore {
             var prevWeek: PeriodUsage?
             var prevMonth: PeriodUsage?
             var prevMonthDaily: [DailyUsage]?
+            var prevLastUsage: Date?
             if let previous = snapshots.first(where: { $0.providerID == provider.id }) {
+                prevLastUsage = previous.lastUsage
                 if previous.today?.date == todayKey { prevToday = previous.today }
                 prevBlock = previous.activeBlock
                 // 주/월 누적도 이어받는다 — phase 2 가 다시 채우기 전까지 nil 로 비면
@@ -951,18 +953,19 @@ final class UsageStore {
                 today = nil         // 성공했지만 오늘 데이터 없음 (예: Codex 미사용)
             }
 
-            if today != nil {
-                newSnapshots.append(ProviderSnapshot(
-                    providerID: provider.id,
-                    displayName: provider.displayName,
-                    today: today,
-                    activeBlock: prevBlock,
-                    weekTotal: prevWeek,
-                    monthTotal: prevMonth,
-                    monthDaily: prevMonthDaily,
-                    fetchedAt: Date(),
-                    reportsCost: provider.reportsCost))
-            }
+            let snapshot = ProviderSnapshot(
+                providerID: provider.id,
+                displayName: provider.displayName,
+                today: today,
+                activeBlock: prevBlock,
+                weekTotal: prevWeek,
+                monthTotal: prevMonth,
+                monthDaily: prevMonthDaily,
+                fetchedAt: Date(),
+                reportsCost: provider.reportsCost,
+                lastUsage: prevLastUsage)
+            // Keep history visible while phase 2 refreshes it, including on idle days.
+            if snapshot.hasDisplayableUsage { newSnapshots.append(snapshot) }
         }
         snapshots = newSnapshots
 
@@ -984,22 +987,19 @@ final class UsageStore {
             }
             for await (id, enrichment) in group {
                 guard let index = snapshots.firstIndex(where: { $0.providerID == id }) else {
-                    // 캐리어 스냅샷은 "**실제 활성 5h 블록**이 있을 때만" 만든다(어제 늦은밤 코딩이 5h
-                    // 윈도우에 남아 자정 후 오늘 토큰 0인 경우 — burn/forecast/companion 보존). 주/월
-                    // 누적만으로 만들면, weekTotal 이 옵셔널이 아니라(토큰 0이어도 non-nil) 오늘·최근
-                    // 미사용 프로바이더까지 탭이 떠서 "안 썼는데 왜 뜨지" 회귀가 난다. 블록이 있을 때만
-                    // 그 시점의 주/월도 함께 보존한다.
-                    let hasActiveBlock = enrichment.blocksOK
-                        && (enrichment.activeBlock?.totalTokens ?? 0) > 0
-                    if hasActiveBlock, let provider = providers.first(where: { $0.id == id }) {
-                        snapshots.append(ProviderSnapshot(
+                    // An idle day still has useful history. Require positive usage, not merely
+                    // non-nil periods: local providers also return all-zero period summaries.
+                    if let provider = providers.first(where: { $0.id == id }) {
+                        let snapshot = ProviderSnapshot(
                             providerID: id, displayName: provider.displayName, today: nil,
-                            activeBlock: enrichment.activeBlock,
+                            activeBlock: enrichment.blocksOK ? enrichment.activeBlock : nil,
                             weekTotal: enrichment.periodsOK ? enrichment.weekTotal : nil,
                             monthTotal: enrichment.periodsOK ? enrichment.monthTotal : nil,
                             monthDaily: enrichment.periodsOK ? enrichment.monthDaily : nil,
                             fetchedAt: Date(),
-                            reportsCost: provider.reportsCost))
+                            reportsCost: provider.reportsCost,
+                            lastUsage: enrichment.periodsOK ? enrichment.lastUsage : nil)
+                        if snapshot.hasDisplayableUsage { snapshots.append(snapshot) }
                     }
                     continue
                 }
@@ -1008,9 +1008,15 @@ final class UsageStore {
                     snapshots[index].weekTotal = enrichment.weekTotal
                     snapshots[index].monthTotal = enrichment.monthTotal
                     snapshots[index].monthDaily = enrichment.monthDaily
+                    snapshots[index].lastUsage = enrichment.lastUsage
                 }
             }
         }
+        // Successful empty enrichment removes obsolete carriers; failed reads retain history.
+        snapshots.removeAll { !$0.hasDisplayableUsage }
+        // Carriers arrive in task-completion order; keep tabs in provider registration order.
+        let order = Dictionary(providers.enumerated().map { ($1.id, $0) }, uniquingKeysWith: { first, _ in first })
+        snapshots.sort { (order[$0.providerID] ?? .max) < (order[$1.providerID] ?? .max) }
         // 일별 원장은 여기서 갱신한다 — monthDaily 는 phase 2 에서만 채워지므로, phase 1 직후에
         // 기록하면 설치 후 첫 갱신에서 사용량 요약이 통째로 빈다.
         recordDailyLedger()
@@ -1972,5 +1978,16 @@ final class UsageStore {
         if let data = try? JSONSerialization.data(withJSONObject: payload, options: [.prettyPrinted, .sortedKeys]) {
             try? data.write(to: dir.appendingPathComponent("last-snapshot.json"), options: .atomic)
         }
+    }
+}
+
+private extension ProviderSnapshot {
+    var hasDisplayableUsage: Bool {
+        today != nil
+            || (activeBlock?.totalTokens ?? 0) > 0
+            || (weekTotal?.totalTokens ?? 0) > 0
+            || (monthTotal?.totalTokens ?? 0) > 0
+            || monthDaily?.contains(where: { $0.totalTokens > 0 }) == true
+            || lastUsage.map { Date().timeIntervalSince($0) <= LocalUsageReader.recentUseWindow } == true
     }
 }

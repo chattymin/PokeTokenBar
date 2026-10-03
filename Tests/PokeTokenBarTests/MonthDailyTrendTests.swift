@@ -160,6 +160,21 @@ final class MonthDailyTrendTests: XCTestCase {
                        enrichment.monthTotal?.totalCost ?? -1, accuracy: 1e-9)
     }
 
+    /// `lastUsage` keeps a provider's tab on idle days (#336). Zero-token `<synthetic>` records must not
+    /// count as use, or a provider that was only ever installed would get a tab (#56 boundary).
+    func testEnrichmentLastUsageIgnoresZeroTokenEntries() {
+        let now = day(2026, 7, 10)
+        let enrichment = ProviderEnrichment.local(entries: [
+            entry("real", at: day(2026, 7, 6), output: 300),
+            entry("synthetic", at: day(2026, 7, 9), output: 0),
+        ], now: now)
+        XCTAssertEqual(enrichment.lastUsage, day(2026, 7, 6))
+
+        let onlySynthetic = ProviderEnrichment.local(
+            entries: [entry("synthetic", at: day(2026, 7, 9), output: 0)], now: now)
+        XCTAssertNil(onlySynthetic.lastUsage)
+    }
+
     // MARK: 빈 날짜 — 0 으로 채운다(누락 아님)
 
     /// 사용 없는 날은 0 으로 존재한다. 막대 위치가 곧 날짜라, 빈 날을 빼면 이후 막대가 전부 밀린다.

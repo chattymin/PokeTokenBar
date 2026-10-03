@@ -25,6 +25,30 @@ read_when:
 
 ## 판정·데이터
 
+- **An idle day must not erase historical usage.** The store admitted enrichment-only snapshots
+  only for a positive active block, so providers with no usage today lost their week/month totals
+  and chart. Earlier tests deliberately rejected even positive historical totals to hide unused
+  provider tabs; that conflated "unused today" with "no recorded usage". Keep snapshots when a
+  block, period, or daily series has positive tokens, while excluding non-nil all-zero summaries.
+  `UsageStoreTests` covers each history source independently, nil today/nil block, repeated
+  refresh, enrichment failure, successful empty replacement, and ledger recording. The source
+  sweep found this carrier gate was the shared loss point; today-based burn/limit eligibility
+  remains intentionally scoped to current activity. Preserve carriers during phase 1 to avoid
+  hiding the chart between refresh phases. Removing the history predicates makes the historical
+  carrier regression fail; restoring them passes all three history regression tests.
+- **Calendar totals are not a "recently used" signal.** Week and month totals reset at their
+  boundaries, so a provider used Friday had week = month = 0 on Monday (or after the 1st) and lost
+  its tab — and with it the official limits, which the popover can only reach through a snapshot,
+  although the limits had been fetched successfully (#336). Why it was missed: every carrier test
+  used positive week/month fixtures, so none crossed a boundary. Snapshots now also stay when the
+  newest positive-token entry (`lastUsage`, from the shared `ProviderEnrichment.local`) is within
+  `LocalUsageReader.recentUseWindow` (7 days, the weekly quota window); zero-token synthetic
+  records do not count (#56 boundary). `enrichmentScanStart` covers that window, and snapshots
+  keep provider registration order because carriers arrive in task-completion order. Guards:
+  `testCarrierForProviderUsedWithinRecentWindowAcrossCalendarBoundaries`,
+  `testNoCarrierForProviderIdleBeyondRecentWindow`, `testSnapshotOrderFollowsProviderRegistrationOrder`,
+  `testEnrichmentLastUsageIgnoresZeroTokenEntries`, extended `testEnrichmentScanStartCoversAllWindows`.
+
 - **Species ownership is not an individual's appearance.** A species-level shiny flag means
   at least one shiny was collected; using it for the selected individual's badge mislabeled
   normal catches, and earlier evolution pages offered no way to choose their normal appearance.
