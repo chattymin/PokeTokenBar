@@ -269,6 +269,7 @@ struct RecapCard: View {
                 // The meter is plain rectangles, so VoiceOver would otherwise read the label alone.
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel(content.accessibilityLabel(bucket))
+                .help(content.accessibilityLabel(bucket))
             }
         }
     }

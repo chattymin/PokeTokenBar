@@ -6,6 +6,21 @@ import Security
 #endif
 
 final class TokenFormatterTests: XCTestCase {
+    func testCompactPromotesUnitsAtRoundedBoundaries() {
+        let cases: [(Int, String)] = [
+            (999, "999"), (1_000, "1K"),
+            (999_949, "999.9K"), (999_950, "1M"),
+            (999_999, "1M"), (1_000_000, "1M"),
+            (999_949_999, "999.9M"), (999_950_000, "1B"),
+            (999_999_999, "1B"), (1_000_000_000, "1B"),
+            (1_240_000_000, "1.24B"),
+        ]
+        for (value, expected) in cases {
+            XCTAssertEqual(TokenFormatter.compact(value), expected, "value: \(value)")
+            XCTAssertEqual(TokenFormatter.compact(-value), "-" + expected, "value: \(-value)")
+        }
+    }
+
     func testCompact() {
         XCTAssertEqual(TokenFormatter.compact(0), "0")
         XCTAssertEqual(TokenFormatter.compact(987), "987")

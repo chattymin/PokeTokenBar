@@ -82,6 +82,45 @@ final class AntigravityRateLimitsProviderTests: XCTestCase {
         XCTAssertEqual(status.maxPrimaryUsedPercent, 50.0)
     }
 
+    /// `remaining` is a protobuf oneof upstream, and the field is sometimes omitted. One such
+    /// bucket used to fail the whole decode, so every Antigravity bar froze at its last value.
+    /// The bucket is unknown — not exhausted — so it is dropped and the rest still decodes.
+    func testBucketWithoutRemainingFractionDoesNotDropTheResponse() throws {
+        let json = """
+        {"groups": [
+          {"displayName": "Gemini Models", "buckets": [
+            {"bucketId": "gemini-weekly", "displayName": "Weekly", "window": "weekly", "remainingFraction": 0.4},
+            {"bucketId": "gemini-5h", "displayName": "Five Hour", "window": "5h",
+             "resetTime": "2026-08-21T04:46:04Z", "description": "not used yet"}
+          ]},
+          {"displayName": "Claude and GPT models", "buckets": [
+            {"bucketId": "3p-5h", "displayName": "Five Hour", "window": "5h"}
+          ]}
+        ]}
+        """
+        let status = try JSONDecoder().decode(AntigravityRateLimitStatus.self, from: Data(json.utf8))
+        let gemini = try XCTUnwrap(status.geminiGroup)
+        XCTAssertEqual(gemini.buckets.map(\.bucketId), ["gemini-weekly"])
+        XCTAssertEqual(gemini.weeklyBucket?.usedPercent ?? -1, 60, accuracy: 0.001)
+        XCTAssertNil(gemini.fiveHourBucket, "an unknown bucket is not shown as 100% used")
+        XCTAssertEqual(status.thirdPartyGroup?.buckets.count, 0)
+        XCTAssertTrue(status.hasVisibleLimit)
+        XCTAssertNil(status.maxPrimaryUsedPercent)
+    }
+
+    func testMalformedBucketIsSkippedButMalformedEnvelopeStillFails() throws {
+        let json = """
+        {"groups": [{"displayName": "Gemini", "buckets": [
+          {"displayName": "no id", "remainingFraction": 0.5},
+          {"bucketId": "g-5h", "displayName": "Five Hour", "window": "5h", "remainingFraction": 0.25}
+        ]}]}
+        """
+        let status = try JSONDecoder().decode(AntigravityRateLimitStatus.self, from: Data(json.utf8))
+        XCTAssertEqual(status.groups.first?.buckets.map(\.bucketId), ["g-5h"])
+        XCTAssertThrowsError(try JSONDecoder().decode(AntigravityRateLimitStatus.self,
+                                                      from: Data(#"{"groups": [{"buckets": []}]}"#.utf8)))
+    }
+
     @MainActor
     func testUsageStoreIntegration() async throws {
         let data = Data(sampleJSON.utf8)

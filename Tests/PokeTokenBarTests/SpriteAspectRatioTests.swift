@@ -21,6 +21,8 @@ final class SpriteAspectRatioTests: XCTestCase {
     private static let pikachuGIF = CGSize(width: 50, height: 46)   // wide
     private static let gengarGIF = CGSize(width: 74, height: 75)    // near-square
     private static let staticPNG = CGSize(width: 96, height: 96)    // square — the silent case
+    private static let swannaGIF = CGSize(width: 137, height: 69)   // wings spread — very wide
+    private static let tynamoGIF = CGSize(width: 57, height: 19)    // widest ratio
 
     // MARK: Aspect fit
 
@@ -84,9 +86,27 @@ final class SpriteAspectRatioTests: XCTestCase {
         XCTAssertLessThan(tall.canvas.width, 22, "a 36×66 sprite must not claim the full square width")
 
         let wide = AppDelegate.menuBarLayout(for: Self.pikachuGIF, up: false)
-        XCTAssertEqual(wide.rect.width, 20, accuracy: 0.001, "wide sprite fills the 20pt content box")
-        XCTAssertEqual(wide.rect.height, 20 * (46.0 / 50.0), accuracy: 0.001)
+        XCTAssertEqual(wide.rect.height, 20, accuracy: 0.001, "wide sprite fills the 20pt height too")
+        XCTAssertEqual(wide.rect.width, 20 * (50.0 / 46.0), accuracy: 0.001)
+        XCTAssertEqual(wide.canvas.width, wide.rect.width + 2, accuracy: 0.001)
         XCTAssertEqual(wide.canvas.height, 22, accuracy: 0.001, "height is fixed so the baseline cannot jitter")
+    }
+
+    /// The trigger: a wide canvas sized by a 20pt square comes out half height (Swanna 10pt tall).
+    /// It must fill the height and only give way once it reaches the width cap.
+    func testWideSpriteFillsMenuBarHeightUntilTheWidthCap() {
+        let cap = AppDelegate.menuBarSpriteMaxWidth
+        let swanna = AppDelegate.menuBarLayout(for: Self.swannaGIF, up: false)
+        XCTAssertGreaterThan(swanna.rect.height, 15,
+                             "137×69 fitted to a 20pt square is 10pt tall — the defect")
+        XCTAssertEqual(swanna.rect.width, min(cap, 20 * (137.0 / 69.0)), accuracy: 0.001)
+        XCTAssertEqual(swanna.rect.width / swanna.rect.height, 137.0 / 69.0, accuracy: 0.001)
+
+        let tynamo = AppDelegate.menuBarLayout(for: Self.tynamoGIF, up: false)
+        XCTAssertEqual(tynamo.rect.width, cap, accuracy: 0.001, "the widest ratio stops at the cap")
+        XCTAssertEqual(tynamo.rect.height, cap * (19.0 / 57.0), accuracy: 0.001)
+        XCTAssertEqual(tynamo.canvas.width, cap + 2, accuracy: 0.001)
+        XCTAssertEqual(tynamo.canvas.height, 22, accuracy: 0.001)
     }
 
     /// Square static sprites keep the exact pre-fix menu bar geometry (22×22 canvas, 20×20 at x=1).
@@ -98,7 +118,7 @@ final class SpriteAspectRatioTests: XCTestCase {
 
     /// The bob offset still lifts the sprite by 1pt, and the sprite stays inside the canvas.
     func testBobOffsetLiftsSpriteAndStaysInsideCanvas() {
-        for source in [Self.spoinkGIF, Self.pikachuGIF, Self.staticPNG] {
+        for source in [Self.spoinkGIF, Self.pikachuGIF, Self.staticPNG, Self.swannaGIF, Self.tynamoGIF] {
             let down = AppDelegate.menuBarLayout(for: source, up: false)
             let up = AppDelegate.menuBarLayout(for: source, up: true)
             XCTAssertEqual(up.rect.minY - down.rect.minY, 1, accuracy: 0.001, "source=\(source)")

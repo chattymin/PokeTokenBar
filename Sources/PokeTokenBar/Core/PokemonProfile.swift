@@ -213,6 +213,8 @@ struct PokemonComputedStat: Identifiable, Sendable, Equatable {
 
 enum PokemonStatCalculator {
     static let order = ["hp", "attack", "defense", "special-attack", "special-defense", "speed"]
+    /// 본가 규칙: 껍질몬은 레벨·개체값과 무관하게 HP 가 항상 1.
+    static let shedinjaSpeciesID = 292
 
     static func displayScaleMaximum(for values: [Int]) -> Int {
         let highest = max(300, values.max() ?? 300)
@@ -228,7 +230,7 @@ enum PokemonStatCalculator {
             let level = profile.level
             let value: Int
             if name == "hp" {
-                value = ((2 * base + iv) * level) / 100 + level + 10
+                value = details.speciesID == shedinjaSpeciesID ? 1 : ((2 * base + iv) * level) / 100 + level + 10
             } else {
                 let neutral = ((2 * base + iv) * level) / 100 + 5
                 value = Int((Double(neutral) * (nature?.modifier(for: name) ?? 1)).rounded(.down))

@@ -77,7 +77,7 @@ enum SaveSnapshotManager {
                     dexCount: st.dex.count,
                     lifetimeTokens: st.usedSinceInstall,
                     currentSpeciesID: st.active?.currentID,
-                    currentIsShiny: st.active?.isShiny ?? false
+                    currentIsShiny: st.active?.displaysShiny ?? false
                 ))
             } else if let st = try? JSONDecoder().decode(CompanionState.self, from: data) {
                 let date = parseStamp(file) ?? (try? url.resourceValues(forKeys: [.creationDateKey]).creationDate) ?? Date()
@@ -88,7 +88,7 @@ enum SaveSnapshotManager {
                     dexCount: st.dex.count,
                     lifetimeTokens: st.usedSinceInstall,
                     currentSpeciesID: st.active?.currentID,
-                    currentIsShiny: st.active?.isShiny ?? false
+                    currentIsShiny: st.active?.displaysShiny ?? false
                 ))
             }
         }
@@ -156,7 +156,7 @@ enum SaveSnapshotManager {
             dexCount: state.dex.count,
             lifetimeTokens: state.usedSinceInstall,
             currentSpeciesID: state.active?.currentID,
-            currentIsShiny: state.active?.isShiny ?? false
+            currentIsShiny: state.active?.displaysShiny ?? false
         )
     }
 

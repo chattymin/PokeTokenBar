@@ -323,14 +323,14 @@ struct L {
     var difficultySectionTitle: String { t("난이도", "Difficulty", "難易度", "Dificultad", "Difficulté", "Dificuldade", "Schwierigkeit") }
     var difficultyGrowthLabel: String { t("성장", "Growth", "成長", "Crecimiento", "Croissance", "Crescimento", "Wachstum") }
     var difficultyShopLabel: String { t("상점 가격", "Shop prices", "ショップ価格", "Precios de la tienda", "Prix de la boutique", "Preços da loja", "Shop-Preise") }
-    var difficultyHint: String {
-        t("기본값 100% 기준이에요 — 낮추면 빨리 자라고 싸지고, 높이면 그 반대예요",
-          "Percentages of the default balance — lower grows faster and costs less, higher does the opposite",
-          "標準バランスに対する割合です — 下げると早く育ち安くなり、上げるとその逆になります",
-          "Porcentajes del balance predeterminado: si los bajas, crece más rápido y cuesta menos; si los subes, al revés",
-          "Pourcentages de l'équilibrage par défaut — plus bas, la croissance est plus rapide et les prix baissent ; plus haut, l'inverse",
-          "Porcentagens do balanceamento padrão — reduzir faz crescer mais rápido e custar menos; aumentar faz o contrário",
-          "Prozentwerte der Standardbalance — niedriger wächst schneller und kostet weniger, höher bewirkt das Gegenteil")
+    var difficultyGrowthLowLabel: String { t("쉬움", "Easy", "やさしい", "Fácil", "Facile", "Fácil", "Leicht") }
+    var difficultyGrowthHighLabel: String { t("어려움", "Hard", "難しい", "Difícil", "Difficile", "Difícil", "Schwer") }
+    var difficultyShopLowLabel: String { t("저렴", "Cheap", "安い", "Barato", "Pas cher", "Barato", "Günstig") }
+    var difficultyShopHighLabel: String { t("비쌈", "Expensive", "高い", "Caro", "Cher", "Caro", "Teuer") }
+    func difficultyScaleHint(low: String, high: String) -> String {
+        t("낮추면 \(low), 높이면 \(high)", "Lower: \(low), higher: \(high)", "下げると\(low)、上げると\(high)",
+          "Más bajo: \(low); más alto: \(high)", "Plus bas : \(low) ; plus haut : \(high)",
+          "Mais baixo: \(low); mais alto: \(high)", "Niedriger: \(low), höher: \(high)")
     }
     /// 슬라이더 옆 현재 배율 — 10%~200%, 1.0 = 100%.
     func difficultyValue(_ value: Double) -> String {
@@ -1025,6 +1025,8 @@ struct L {
     var rarityRare: String { t("희귀", "Rare", "レア", "Raro", "Rare", "Raro", "Selten") }
     var rarityLegendary: String { t("전설", "Legendary", "伝説", "Legendario", "Légendaire", "Lendário", "Legendär") }
     var dexFilterHint: String { t("탭하면 이 희귀도만 보기 · 다시 탭하면 전체", "Tap to show only this rarity · tap again to clear", "タップでこの希少度のみ表示・再タップで全体", "Toca para ver solo esta rareza · toca de nuevo para ver todo", "Touche pour n'afficher que cette rareté · touche à nouveau pour tout afficher", "Toque para ver só esta raridade · toque de novo para ver tudo", "Tippe, um nur diese Seltenheit zu sehen · tippe erneut für alle") }
+    /// 스프라이트 클릭 → 그 종의 도감 상세. 툴팁·접근성 라벨 공용.
+    var dexOpenEntryHint: String { t("컬렉션에서 도감 항목 보기", "View entry in collection", "コレクションで図鑑を見る", "Ver entrada en la colección", "Voir la fiche dans la collection", "Ver registro na coleção", "Eintrag in der Sammlung ansehen") }
     /// 도감 칸의 ✨ 를 읽어주는 명사 — 이모지는 스크린리더가 일관되게 읽지 못한다.
     var dexShinyLabel: String { t("이로치", "Shiny", "色違い", "Variocolor", "Chromatique", "Shiny", "Schillernd") }
     var dexSearchPlaceholder: String { t("이름 또는 #번호 검색…", "Search name or #…", "名前または#番号で検索…", "Buscar por nombre o #…", "Rechercher par nom ou #…", "Buscar por nome ou #…", "Nach Name oder # suchen…") }
