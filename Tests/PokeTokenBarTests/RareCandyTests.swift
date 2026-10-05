@@ -111,6 +111,53 @@ final class CandyGrantEvaluationTests: XCTestCase {
         XCTAssertEqual(tier["claude.fiveHour"], 1)
     }
 
+    func testTimestampJitterAndEquivalentRepresentationsDoNotRegrant() {
+        let key = "claude.sevenDay"
+        let original = "2026-01-01T09:00:00.600000+00:00"
+        var tier = [key: 1]
+        var epochs = [key: original]
+        for epoch in [
+            "2026-01-01T09:00:00.200000+00:00",
+            "2026-01-01T09:00:00.900000Z",
+            "2026-01-01T09:00:01.100000Z", // Crosses a whole-second boundary.
+            "2026-01-01T18:00:00.600+09:00",
+            "2026-01-01T09:00:00Z",
+            "2026-01-01T09:00:00.600000+00:00",
+        ] {
+            let grants = CompanionStore.evaluateCandyGrants(
+                windows: [w(key, .weekly, 100, epoch: epoch)],
+                grantTier: &tier, windowEpoch: &epochs)
+            XCTAssertTrue(grants.isEmpty, epoch)
+            XCTAssertEqual(tier[key], 1)
+            XCTAssertEqual(epochs[key], original, "Jitter must not move the comparison baseline")
+        }
+    }
+
+    func testTimestampToleranceDoesNotHideANewWindow() {
+        for (delta, expectedCount) in [("01", 0), ("02", 1)] {
+            var tier = ["s": 1]
+            var epochs = ["s": "2026-01-01T09:00:00Z"]
+            let grants = CompanionStore.evaluateCandyGrants(
+                windows: [w("s", .session, 100, epoch: "2026-01-01T09:00:\(delta)Z")],
+                grantTier: &tier, windowEpoch: &epochs)
+            XCTAssertEqual(grants.count, expectedCount)
+        }
+    }
+
+    func testNonISOEpochsKeepTheirExistingIdentitySemantics() {
+        for (old, new) in [("1700000000", "1700000001"), ("E1", "E2"),
+                           ("unknown", "2026-01-01T09:00:00Z"),
+                           ("2026-01-01T09:00:00Z", "unknown")] {
+            var tier = ["s": 1]
+            var epochs = ["s": old]
+            let grants = CompanionStore.evaluateCandyGrants(
+                windows: [w("s", .session, 100, epoch: new)],
+                grantTier: &tier, windowEpoch: &epochs)
+            XCTAssertEqual(grants.map(\.count), [1])
+            XCTAssertEqual(epochs["s"], new)
+        }
+    }
+
     /// 세션+주간+미달 혼합 — 세션 1 + 주간 5, 미달 창은 무시.
     func testMixedWindows() {
         var tier: [String: Int] = [:]
@@ -585,10 +632,17 @@ private func rcDaily(_ tokens: Int) -> DailyUsage {
                cacheCreationTokens: 0, cacheReadTokens: 0, totalTokens: tokens, totalCost: 0)
 }
 private func rcClaude(fiveHour: Double? = nil, sevenDay: Double? = nil,
-                      opus: Double? = nil, sonnet: Double? = nil) -> LimitStatus {
+                      opus: Double? = nil, sonnet: Double? = nil,
+                      fiveHourReset: String? = nil, sevenDayReset: String? = nil) -> LimitStatus {
     var parts: [String] = []
-    if let fiveHour { parts.append("\"five_hour\":{\"utilization\":\(fiveHour)}") }
-    if let sevenDay { parts.append("\"seven_day\":{\"utilization\":\(sevenDay)}") }
+    if let fiveHour {
+        let reset = fiveHourReset.map { ",\"resets_at\":\"\($0)\"" } ?? ""
+        parts.append("\"five_hour\":{\"utilization\":\(fiveHour)\(reset)}")
+    }
+    if let sevenDay {
+        let reset = sevenDayReset.map { ",\"resets_at\":\"\($0)\"" } ?? ""
+        parts.append("\"seven_day\":{\"utilization\":\(sevenDay)\(reset)}")
+    }
     if let opus { parts.append("\"seven_day_opus\":{\"utilization\":\(opus)}") }
     if let sonnet { parts.append("\"seven_day_sonnet\":{\"utilization\":\(sonnet)}") }
     return try! JSONDecoder().decode(LimitStatus.self, from: Data("{\(parts.joined(separator: ","))}".utf8))
@@ -636,16 +690,83 @@ final class RareCandyGrantIntegrationTests: XCTestCase {
         return CompanionStore(provider: StubProvider(value: rcLinear3), clock: { rcNow }, fileURL: url, rng: SeededRNG(seed: 7))
     }
 
+    private func claudeWeeklyWindow(utilization: Double, reset: String) async throws -> CandyWindow {
+        let store = usage(claude: rcClaude(sevenDay: utilization, sevenDayReset: reset))
+        await store.refresh(scheduleEmptyRetry: false)
+        return try XCTUnwrap(store.candyEligibleWindows.first { $0.key == "claude.sevenDay" })
+    }
+
     // MARK: candyEligibleWindows 구성
 
     func testEligibleWindowsClaudeSessionAndWeekly() async {
-        let store = usage(claude: rcClaude(fiveHour: 100, sevenDay: 100))
+        let store = usage(claude: rcClaude(fiveHour: 100, sevenDay: 100,
+                                           fiveHourReset: "2026-01-01T14:00:00Z",
+                                           sevenDayReset: "2026-01-08T09:00:00Z"))
         await store.refresh(scheduleEmptyRetry: false)
         let byKey = Dictionary(uniqueKeysWithValues: store.candyEligibleWindows.map { ($0.key, $0) })
         XCTAssertEqual(byKey["claude.fiveHour"]?.kind, .session)
         XCTAssertEqual(byKey["claude.fiveHour"]?.utilization, 100)
+        XCTAssertEqual(byKey["claude.fiveHour"]?.epoch, "2026-01-01T14:00:00Z")
         XCTAssertEqual(byKey["claude.sevenDay"]?.kind, .weekly)
+        XCTAssertEqual(byKey["claude.sevenDay"]?.epoch, "2026-01-08T09:00:00Z")
         XCTAssertEqual(store.candyEligibleWindows.count, 2)
+    }
+
+    func testClaudeWeeklyJitterThenNewWeekWithoutUtilizationDipAcrossRestart() async throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("rc-weekly-\(UUID().uuidString).json")
+        defer { try? FileManager.default.removeItem(at: url) }
+        let makeCompanion = {
+            CompanionStore(provider: StubProvider(value: rcLinear3), clock: { rcNow },
+                           fileURL: url, rng: SeededRNG(seed: 1))
+        }
+        let candy = makeCompanion()
+        candy.grantCandies(from: [], limitsReady: true)
+
+        for resetAt in ["2026-01-01T09:00:00.600000+00:00",
+                        "2026-01-01T09:00:00.200000+00:00",
+                        "2026-01-01T09:00:01.100000Z"] {
+            let window = try await claudeWeeklyWindow(utilization: 100, reset: resetAt)
+            candy.grantCandies(from: [window], limitsReady: true)
+            XCTAssertEqual(candy.rareCandyCount, RareCandy.weeklyGrant,
+                           "Fractional reset jitter must not regrant at 100%")
+        }
+
+        let restarted = makeCompanion()
+        let stillFull = try await claudeWeeklyWindow(utilization: 100, reset: "2026-01-01T18:00:00.600+09:00")
+        restarted.grantCandies(from: [stillFull], limitsReady: true)
+        XCTAssertEqual(restarted.rareCandyCount, RareCandy.weeklyGrant)
+
+        // The app missed the reset and refill while closed (#326).
+        let nextWeek = try await claudeWeeklyWindow(utilization: 100, reset: "2026-01-08T09:00:00.300000Z")
+        restarted.grantCandies(from: [nextWeek], limitsReady: true)
+        XCTAssertEqual(restarted.rareCandyCount, 2 * RareCandy.weeklyGrant,
+                       "A real weekly rollover still grants without an observed utilization dip")
+        let restartedAgain = makeCompanion()
+        let nextWeekJitter = try await claudeWeeklyWindow(utilization: 100, reset: "2026-01-08T09:00:00.800000Z")
+        restartedAgain.grantCandies(from: [nextWeekJitter], limitsReady: true)
+        XCTAssertEqual(restartedAgain.rareCandyCount, 2 * RareCandy.weeklyGrant)
+    }
+
+    func testPersistedClaudeWeeklyEpochFromOlderSaveCannotRegrantAt100() async throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("rc-legacy-weekly-\(UUID().uuidString).json")
+        defer { try? FileManager.default.removeItem(at: url) }
+        var saved = CompanionState()
+        saved.candyFeatureSeeded = true
+        saved.inventory[ItemKind.rareCandy.rawValue] = RareCandy.weeklyGrant
+        saved.candyGrantTier["claude.sevenDay"] = 1
+        saved.candyWindowEpoch["claude.sevenDay"] = "2026-01-01T09:00:00Z"
+        try JSONEncoder().encode(saved).write(to: url)
+
+        let candy = CompanionStore(provider: StubProvider(value: rcLinear3), clock: { rcNow },
+                                   fileURL: url, rng: SeededRNG(seed: 1))
+        let full = try await claudeWeeklyWindow(utilization: 100, reset: "2026-01-01T09:00:00.200000Z")
+        candy.grantCandies(from: [full], limitsReady: true)
+        XCTAssertEqual(candy.rareCandyCount, RareCandy.weeklyGrant)
+
+        let dip = try await claudeWeeklyWindow(utilization: 80, reset: "2026-01-01T09:00:00.600000Z")
+        candy.grantCandies(from: [dip], limitsReady: true)
+        candy.grantCandies(from: [full], limitsReady: true)
+        XCTAssertEqual(candy.rareCandyCount, 2 * RareCandy.weeklyGrant)
     }
 
     /// Opus/Sonnet 주간은 지급 대상에서 제외(헤드라인 창 중복 방지).
