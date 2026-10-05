@@ -35,14 +35,19 @@ enum TokenFormatter {
     }
 
     /// 메뉴바용 짧은 비용 표기: $9.5 / $311 / $1.2K
+    /// 구간 판정은 원값이 아니라 *반올림된 문자열*로 한다 — 99.96 은 "$100.0" 이 아니라 "$100".
     static func costCompact(_ usd: Double) -> String {
-        if usd < 100 { return String(format: "$%.1f", usd) }
-        if usd < 10_000 { return String(format: "$%.0f", usd) }
+        let tenths = String(format: "%.1f", usd)
+        if let v = Double(tenths), v < 100 { return "$" + tenths }
+        let whole = String(format: "%.0f", usd)
+        if let v = Double(whole), v < 10_000 { return "$" + whole }
         return String(format: "$%.1fK", usd / 1_000)
     }
 
+    /// 79.96 → "80%" (not "80.0%"), 88.35 → "88.3%"
     static func percent(_ value: Double) -> String {
-        value == value.rounded() ? String(format: "%.0f%%", value) : String(format: "%.1f%%", value)
+        let tenths = String(format: "%.1f", value)
+        return (tenths.hasSuffix(".0") ? String(tenths.dropLast(2)) : tenths) + "%"
     }
 
     private static func trim(_ value: Double, decimals: Int) -> String {

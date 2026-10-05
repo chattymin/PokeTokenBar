@@ -161,15 +161,29 @@ enum SaveTransfer {
         // load() 의 .corrupt 복구도 안 걸려 파일을 손으로 지우기 전엔 앱을 못 쓴다.
         // 관대 디코딩은 모르는 rawValue 만 걸러낼 뿐 **아는데 만족 불가능한 값**은 그대로 통과시킨다.
         if s.eggTier?.captureRateCeiling == nil { s.eggTier = nil }
+        // 진화 체인에 같은 종이 두 번 들어오면(손편집) 도감 이름 조회·놓아주기·졸업의
+        // `Dictionary(uniqueKeysWithValues:)` 가 트랩한다. 첫 등장만 남긴다.
+        func deduped(_ ids: [Int]) -> [Int] {
+            var seen = Set<Int>()
+            return ids.filter { seen.insert($0).inserted }
+        }
         if var active = s.active {
             active.usedAtStage = clampToken(active.usedAtStage)
             // totalForms 는 `kk * (kk + 1)` 형태로 쓰여(PokemonBalance.phaseThreshold) 큰 값이 그 자체로 트랩이다.
             active.totalForms = min(max(1, active.totalForms), 12)
             active.stageIndex = min(max(0, active.stageIndex), max(0, active.pathIDs.count - 1))
+            let currentID = active.currentID
+            active.pathIDs = deduped(active.pathIDs)
+            active.plannedPathIDs = deduped(active.plannedPathIDs)
+            active.stageIndex = active.pathIDs.firstIndex(of: currentID) ?? active.stageIndex
+            active.stageIndex = min(active.stageIndex, max(0, active.pathIDs.count - 1))
             active.profile?.sanitize()
             s.active = active
         }
-        for index in s.dex.indices { s.dex[index].profile?.sanitize() }
+        for index in s.dex.indices {
+            s.dex[index].chainOrder = deduped(s.dex[index].chainOrder)
+            s.dex[index].profile?.sanitize()
+        }
         s.reconcileRepresentativeSelection()
         return s
     }

@@ -512,6 +512,26 @@ public struct AntigravityQuotaGroup: Decodable, Sendable {
         self.description = description
         self.buckets = buckets
     }
+
+    private enum CodingKeys: String, CodingKey { case displayName, description, buckets }
+
+    /// Upstream `remaining` is a protobuf oneof and `remainingFraction` is sometimes omitted.
+    /// Such a bucket is unknown, not exhausted: drop it instead of failing the whole response
+    /// (which froze every Antigravity bar at its previous value).
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        displayName = try container.decode(String.self, forKey: .displayName)
+        description = try container.decodeIfPresent(String.self, forKey: .description)
+        buckets = (try container.decodeIfPresent([LossyBucket].self, forKey: .buckets) ?? [])
+            .compactMap(\.bucket)
+    }
+
+    private struct LossyBucket: Decodable {
+        let bucket: AntigravityQuotaBucket?
+        init(from decoder: Decoder) throws {
+            bucket = try? AntigravityQuotaBucket(from: decoder)
+        }
+    }
 }
 
 public struct AntigravityRateLimitStatus: Decodable, Sendable {

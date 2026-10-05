@@ -35,6 +35,56 @@ final class PopoverNavigationTests: XCTestCase {
         XCTAssertFalse(nav.showingCollectionLog, "포획 로그에서 설정을 열었어도 대표 선택은 도감으로 이동")
     }
 
+    /// Clicking a sprite on Home opens that species' Pokédex page, even from Settings. The segment
+    /// is kept so Back lands where the Collection tab would normally reopen.
+    func testOpenDexEntryShowsDetailInCollection() {
+        let nav = PopoverNavigation()
+        nav.showSettings = true
+        nav.showingCollectionLog = true
+
+        nav.openDexEntry(collectionID: "25")
+
+        XCTAssertFalse(nav.showSettings)
+        XCTAssertEqual(nav.tab, .collection)
+        XCTAssertEqual(nav.dexDetailCollectionID, "25", "set after the tab/settings changes that clear it")
+        XCTAssertTrue(nav.showingCollectionLog, "segment is left as it was")
+    }
+
+    /// The detail page used to be `CollectionView` `@State`, dropped whenever the collection
+    /// content left the screen. Each trigger must still drop it.
+    func testDexDetailDroppedWhenCollectionContentLeavesScreen() {
+        let triggers: [(String, (PopoverNavigation) -> Void)] = [
+            ("other tab", { $0.tab = .home }),
+            ("settings", { $0.showSettings = true }),
+            ("recap", { $0.showingRecap = true }),
+            ("segment switch", { $0.showingCollectionLog.toggle() }),
+            ("popover reopen", { $0.reset() }),
+        ]
+        for (name, trigger) in triggers {
+            let nav = PopoverNavigation()
+            nav.openDexEntry(collectionID: "25")
+            trigger(nav)
+            XCTAssertNil(nav.dexDetailCollectionID, name)
+        }
+    }
+
+    /// Writes that leave the collection content on screen must keep the page — otherwise the
+    /// didSets would clear it on no-op assignments (a re-tapped tab or segment).
+    func testDexDetailKeptWhileCollectionContentStaysOnScreen() {
+        let keepers: [(String, (PopoverNavigation) -> Void)] = [
+            ("same tab", { $0.tab = .collection }),
+            ("same segment", { $0.showingCollectionLog = $0.showingCollectionLog }),
+            ("settings closed", { $0.showSettings = false }),
+            ("recap closed", { $0.showingRecap = false }),
+        ]
+        for (name, keep) in keepers {
+            let nav = PopoverNavigation()
+            nav.openDexEntry(collectionID: "25")
+            keep(nav)
+            XCTAssertEqual(nav.dexDetailCollectionID, "25", name)
+        }
+    }
+
     /// #301: Hide is a right-click. Show has to live on the popover footer, bound to the same
     /// `floatingPetEnabled` the Settings checkbox already uses. Removing the button must fail this.
     func testPopoverFooterTogglesFloatingPetWithoutOpeningSettings() throws {

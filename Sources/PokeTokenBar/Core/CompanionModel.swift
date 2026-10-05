@@ -459,6 +459,8 @@ struct MonState: Codable, Sendable {
     // 메타몽 위장 — nil=일반. 값=정체 메타몽, 이 종으로 위장 중(위장 구간엔 baseID 와 동일, 리빌 후에도 원 위장체 보존).
     var dittoDisguise: Int?
     var dittoRevealed = false       // 위장 → 리빌(정체 공개) 전환 여부
+    /// 화면에 이로치로 보여도 되는가 — 위장 중 메타몽은 리빌 전까지 숨긴다. 표시 경로는 전부 이것만 쓴다.
+    var displaysShiny: Bool { isShiny && (dittoDisguise == nil || dittoRevealed) }
     // pathIDs 가 비면(손상된 상태 파일) baseID 로 폴백 — 렌더마다 읽히므로 out-of-bounds 크래시 방지.
     var currentID: Int { pathIDs.isEmpty ? baseID : pathIDs[min(stageIndex, pathIDs.count - 1)] }
     var phaseThreshold: Int {
@@ -749,9 +751,8 @@ struct CompanionState: Codable, Sendable {
         }) { return true }
         guard let active,
               active.pathIDs.prefix(active.stageIndex + 1).contains(speciesID),
-              UnownForm.resolved(speciesID: speciesID, form: active.unownForm) == form,
-              active.isShiny else { return false }
-        return active.dittoDisguise == nil || active.dittoRevealed
+              UnownForm.resolved(speciesID: speciesID, form: active.unownForm) == form else { return false }
+        return active.displaysShiny
     }
 
     /// 대표 포켓몬은 사용자가 현재 보유한 종만 가리킨다. Fresh Egg·메타몽 리빌·손편집 세이브가

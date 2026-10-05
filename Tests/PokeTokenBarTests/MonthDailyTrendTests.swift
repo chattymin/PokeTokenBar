@@ -359,16 +359,21 @@ final class MonthDailyTrendTests: XCTestCase {
     func testAxisLabelCountForAFullMonthStaysSmallEnoughToFit() {
         // 달이 다 찬 시점(31일) — 라벨 6개가 상한이다.
         XCTAssertEqual(labels(inAugustWithToday: "2026-08-31"), ["1", "7", "14", "21", "28", "31"])
-        // 달 중간(24일)엔 축이 24일에서 끝나므로 28 은 아예 칼럼이 없다.
-        XCTAssertEqual(labels(inAugustWithToday: "2026-08-24"), ["1", "7", "14", "21", "24"])
+        // 달 중간(24일)에도 축은 말일까지 있으므로 28 이 미래 칼럼에 붙는다.
+        XCTAssertEqual(labels(inAugustWithToday: "2026-08-24"), ["1", "7", "14", "21", "24", "28"])
+        // 어느 날이 오늘이어도 6개를 넘지 않는다.
+        for day in 1...31 {
+            let count = labels(inAugustWithToday: String(format: "2026-08-%02d", day)).count
+            XCTAssertLessThanOrEqual(count, 6, "8월 \(day)일: 라벨 \(count)개")
+        }
     }
 
     /// 오늘이 정기 라벨 **바로 옆**이면 그 정기 라벨을 지운다. 안 지우면 한 달이 찬 축(칼럼 약 9pt,
     /// 두 자리 숫자 약 11pt)에서 `21 22`·`28 29` 가 간격 없이 붙어 한 숫자로 읽힌다 —
     /// 8월 실데이터를 22·27·29·30·31일 시점으로 렌더해서 확인한 결함이다.
     func testARegularLabelNextToTodayIsDroppedSoTheTwoCannotCollide() {
-        // 22일: 21 을 지운다(간격 1).
-        XCTAssertEqual(labels(inAugustWithToday: "2026-08-22"), ["1", "7", "14", "22"])
+        // 22일: 21 을 지운다(간격 1). 28 은 미래 칼럼에 남는다.
+        XCTAssertEqual(labels(inAugustWithToday: "2026-08-22"), ["1", "7", "14", "22", "28"])
         // 29일: 28 을 지운다(간격 1).
         XCTAssertEqual(labels(inAugustWithToday: "2026-08-29"), ["1", "7", "14", "21", "29"])
         // 30일: 간격 2 — 아직 좁으므로 지운다.
@@ -376,9 +381,9 @@ final class MonthDailyTrendTests: XCTestCase {
         // 31일: 간격 3 — 충분히 떨어졌으므로 28 을 남긴다.
         XCTAssertEqual(labels(inAugustWithToday: "2026-08-31"), ["1", "7", "14", "21", "28", "31"])
         // 오늘이 정기 라벨 자신이면 중복 없이 하나만.
-        XCTAssertEqual(labels(inAugustWithToday: "2026-08-21"), ["1", "7", "14", "21"])
+        XCTAssertEqual(labels(inAugustWithToday: "2026-08-21"), ["1", "7", "14", "21", "28"])
         // 1일 근처: 2일이 오늘이면 1 을 지운다 — 그래도 오늘 라벨이 남아 축이 비지 않는다.
-        XCTAssertEqual(labels(inAugustWithToday: "2026-08-02"), ["2"])
+        XCTAssertEqual(labels(inAugustWithToday: "2026-08-02"), ["2", "7", "14", "21", "28"])
     }
 
     /// 어떤 날이 오늘이어도 라벨은 최소 1개(=오늘)다. 축이 완전히 비면 방향 감각이 사라진다.
@@ -395,13 +400,97 @@ final class MonthDailyTrendTests: XCTestCase {
         }
     }
 
-    /// 8월 축의 라벨 목록. **오늘까지만** 돈다 — 프로덕션 시리즈는 항상 오늘에서 끝나므로
-    /// 오늘 이후 날짜에는 칼럼 자체가 없다(31일까지 돌면 존재할 수 없는 라벨을 재게 된다).
+    /// 8월 축의 라벨 목록. 축은 시리즈가 아니라 달력의 이번 달이므로(`monthColumns`) 오늘 이후
+    /// 칼럼에도 정기 라벨이 붙는다 — 실제 뷰가 도는 칼럼 목록 그대로 센다.
     private func labels(inAugustWithToday today: String) -> [String] {
-        let lastDay = Int(today.suffix(2)) ?? 0
-        return (1...lastDay).compactMap {
-            DailyTrendMetrics.axisLabel(for: String(format: "2026-08-%02d", $0), today: today)
+        DailyTrendMetrics.monthColumns(series: [], today: today).compactMap {
+            DailyTrendMetrics.axisLabel(for: $0.date, today: today)
         }
+    }
+
+    // MARK: 달력 축 — 1일에 막대 하나가 행 전체로 늘어나던 결함
+
+    private func usage(_ date: String, _ tokens: Int) -> DailyUsage {
+        DailyUsage(date: date, inputTokens: 0, outputTokens: tokens, cacheCreationTokens: 0,
+                   cacheReadTokens: 0, totalTokens: tokens, totalCost: 0)
+    }
+
+    /// 칼럼 수는 시리즈 길이가 아니라 그 달의 일수다 — 시리즈가 하루뿐인 1일에도 마찬가지.
+    /// 윤년 2월과 서머타임이 바뀌는 달(미국 3월·11월)도 같은 규칙이다.
+    func testColumnsSpanTheWholeCalendarMonthEvenOnTheFirst() {
+        let cases: [(today: String, days: Int)] = [
+            ("2026-10-01", 31), ("2026-09-15", 30), ("2026-02-01", 28), ("2028-02-29", 29),
+            ("2026-03-08", 31), ("2026-11-01", 30), ("2026-12-31", 31),
+        ]
+        for (today, days) in cases {
+            let columns = DailyTrendMetrics.monthColumns(series: [usage(today, 10)], today: today)
+            XCTAssertEqual(columns.count, days, today)
+            XCTAssertEqual(columns.first?.date, String(today.prefix(8)) + "01", today)
+            XCTAssertEqual(columns.last?.date, String(today.prefix(8)) + String(format: "%02d", days), today)
+        }
+    }
+
+    /// 오늘 이후만 미래다. 오늘까지는 시리즈 값을, 시리즈에 빠진 지난날은 0 을 받는다.
+    func testDaysAfterTodayAreFutureAndMissingPastDaysAreZero() {
+        let columns = DailyTrendMetrics.monthColumns(
+            series: [usage("2026-10-01", 5), usage("2026-10-03", 7)], today: "2026-10-03")
+        XCTAssertEqual(columns.prefix(3).map(\.tokens), [5, 0, 7])
+        XCTAssertEqual(columns.prefix(3).map(\.isFuture), [false, false, false])
+        XCTAssertTrue(columns.dropFirst(3).allSatisfy { $0.isFuture && $0.tokens == 0 })
+    }
+
+    /// 자정 직후 한 프로바이더가 아직 지난달 시리즈를 들고 있어도(`monthDailyTotals` 는 축의 합집합이다)
+    /// 지난달 날짜는 이번 달 축에 섞이지 않는다.
+    func testDaysFromAnotherMonthStayOffTheAxis() {
+        let columns = DailyTrendMetrics.monthColumns(
+            series: [usage("2026-09-30", 900), usage("2026-10-01", 3)], today: "2026-10-01")
+        XCTAssertEqual(columns.count, 31)
+        XCTAssertFalse(columns.contains { $0.date.hasPrefix("2026-09") })
+        XCTAssertEqual(columns.map(\.tokens).max(), 3, "지난달 값이 최댓값을 끌어올리면 안 된다")
+    }
+
+    /// 주말 밑줄은 미래 칸에 긋지 않는다. 막대 없이 밑줄만 남으면 "__ __" 같은 기호로 읽힌다.
+    func testWeekendTicksStopAtToday() {
+        var seoul = Calendar(identifier: .gregorian)
+        seoul.locale = Locale(identifier: "ko_KR")
+        // 2026-10-03 토, 10-04 일, 10-10 토
+        let columns = DailyTrendMetrics.monthColumns(series: [usage("2026-10-03", 5)], today: "2026-10-03")
+        func tick(_ day: Int) -> Bool { DailyTrendMetrics.showsWeekendTick(columns[day - 1], calendar: seoul) }
+        XCTAssertTrue(tick(3), "오늘인 토요일엔 밑줄이 있다")
+        XCTAssertFalse(tick(4), "미래의 일요일엔 밑줄이 없다")
+        XCTAssertFalse(tick(10), "미래의 토요일엔 밑줄이 없다")
+        XCTAssertFalse(tick(2), "지난 평일엔 밑줄이 없다")
+        let late = DailyTrendMetrics.monthColumns(series: [usage("2026-10-12", 5)], today: "2026-10-12")
+        XCTAssertTrue(DailyTrendMetrics.showsWeekendTick(late[10], calendar: seoul), "지난 일요일(11일)엔 밑줄이 있다")
+    }
+
+    /// 쓴 날이 하루뿐이면 최댓값이 리드아웃과 같은 숫자라 캡션에서 뺀다.
+    func testPeakIsShownOnlyOnceMoreThanOneDayHasUsage() {
+        let first = DailyTrendMetrics.monthColumns(series: [usage("2026-10-01", 3)], today: "2026-10-01")
+        XCTAssertFalse(DailyTrendMetrics.showsPeak(first))
+        let second = DailyTrendMetrics.monthColumns(
+            series: [usage("2026-10-01", 3), usage("2026-10-02", 4)], today: "2026-10-02")
+        XCTAssertTrue(DailyTrendMetrics.showsPeak(second))
+        let idleFirst = DailyTrendMetrics.monthColumns(
+            series: [usage("2026-10-01", 0), usage("2026-10-02", 4)], today: "2026-10-02")
+        XCTAssertFalse(DailyTrendMetrics.showsPeak(idleFirst), "0 인 날은 쓴 날이 아니다")
+    }
+
+    /// 1일의 렌더 높이가 한 달 중간과 같다 — 칼럼 수가 바뀌어도 행 구조(캡션·막대·틱·축)는 그대로다.
+    /// 막대 폭 자체는 헤드리스로 재기 어려우므로, 폭은 `monthColumns` 의 칼럼 수로 계약하고 여기선
+    /// 1일에도 행이 정상적으로 그려지는지만 본다.
+    @MainActor
+    func testFirstOfTheMonthRendersTheSameRowAsMidMonth() {
+        func height(series: [DailyUsage], today: String) -> CGFloat {
+            let view = MonthDailyTrend(series: series, showsCost: true, today: today, l: L(.ko))
+            return NSHostingController(rootView: view)
+                .sizeThatFits(in: CGSize(width: PopoverMetrics.contentWidth, height: 600)).height
+        }
+        let first = height(series: [usage("2026-10-01", 13_600_000)], today: "2026-10-01")
+        let mid = height(series: (1...15).map { usage(String(format: "2026-10-%02d", $0), $0 * 1_000) },
+                         today: "2026-10-15")
+        XCTAssertGreaterThan(first, DailyTrendMetrics.track)
+        XCTAssertEqual(first, mid, accuracy: 0.5)
     }
 
     /// 주말이 어느 요일인지는 **로케일이 정한다**(금·토인 지역도 있다). 달력을 주입해 그 축이

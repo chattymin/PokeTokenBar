@@ -76,6 +76,32 @@ final class PokemonProfileLogicTests: XCTestCase {
         XCTAssertEqual(specialAttack.value, Int((Double(neutralSpecial) * 0.9).rounded(.down)))
     }
 
+    /// Shedinja (#292) always has exactly 1 HP in the main series, regardless of level and IVs.
+    /// The generic HP formula gives it level + 12 or more. Nincada's branch makes it reachable.
+    func testShedinjaAlwaysHasOneHP() throws {
+        let shedinja = PokemonDetails(
+            speciesID: 292, name: "shedinja", height: 8, weight: 12, baseExperience: 83,
+            genderRate: -1, types: ["bug", "ghost"],
+            baseStats: ["hp": 1, "attack": 90, "defense": 45,
+                        "special-attack": 30, "special-defense": 30, "speed": 40],
+            abilities: [], moves: [])
+        for level in [1, 50, 100] {
+            var profile = PokemonProfile.generate(seed: 3, instanceID: "shedinja")
+            profile.level = level
+            let stats = PokemonStatCalculator.stats(details: shedinja, profile: profile, nature: .hardy)
+            XCTAssertEqual(try XCTUnwrap(stats.first { $0.name == "hp" }).value, 1, "level \(level)")
+            let attack = try XCTUnwrap(stats.first { $0.name == "attack" })
+            XCTAssertEqual(attack.value, ((2 * 90 + profile.ivs.attack) * level) / 100 + 5)
+        }
+        var other = PokemonProfile.generate(seed: 3, instanceID: "base-1")
+        other.level = 50
+        let oneBase = PokemonDetails(
+            speciesID: 999, name: "test", height: 1, weight: 1, baseExperience: nil,
+            genderRate: -1, types: ["normal"], baseStats: ["hp": 1], abilities: [], moves: [])
+        XCTAssertEqual(PokemonStatCalculator.stats(details: oneBase, profile: other, nature: nil).first?.value,
+                       ((2 + other.ivs.hp) * 50) / 100 + 60, "only Shedinja is special, not base HP 1")
+    }
+
     func testActualStatScaleExpandsForHighHPPokemon() {
         XCTAssertEqual(PokemonStatCalculator.displayScaleMaximum(for: [180, 299]), 300)
         XCTAssertEqual(PokemonStatCalculator.displayScaleMaximum(for: [651, 300]), 700)

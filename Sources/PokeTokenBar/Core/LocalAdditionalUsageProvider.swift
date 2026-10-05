@@ -1485,6 +1485,10 @@ enum LocalAdditionalUsageReader {
         return entries
     }
 
+    /// Count textual content, not the whole event envelope. CLI 2.25.0 also writes
+    /// toolUse/input, toolResult/content (text or JSON), and thinking/text blocks.
+    /// Only payload text counts: omit IDs, signatures, redacted data and images.
+    /// JSON payloads use the existing value-byte estimator, not content-block dispatch.
     private static func kiroJSONLTextBytes(_ value: Any?) -> Int {
         if let string = value as? String { return string.utf8.count }
         if let array = value as? [Any] {
@@ -1492,7 +1496,21 @@ enum LocalAdditionalUsageReader {
         }
         guard let object = value as? Object else { return 0 }
         if let kind = object["kind"] as? String {
-            return kind == "text" ? kiroJSONLTextBytes(object["data"]) : 0
+            let data = object["data"]
+            switch kind {
+            case "text":
+                return kiroJSONLTextBytes(data)
+            case "toolUse":
+                return ((data as? Object)?["input"]).map(kiroJSONValueByteLength) ?? 0
+            case "toolResult":
+                return kiroJSONLTextBytes((data as? Object)?["content"])
+            case "thinking":
+                return ((data as? Object)?["text"] as? String)?.utf8.count ?? 0
+            case "json":
+                return data.map(kiroJSONValueByteLength) ?? 0
+            default:
+                return 0
+            }
         }
         for key in ["content", "text", "data"] where object[key] != nil {
             return kiroJSONLTextBytes(object[key])

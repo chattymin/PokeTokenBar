@@ -288,8 +288,16 @@ enum SpriteFit {
     /// `box`×`box` 정사각 안에 원본 비율을 유지해 맞춘 크기(contentMode .fit — 긴 변이 box 에 닿는다).
     /// 원본 크기가 비었으면(디코드 실패 등) 정사각 폴백 — 0 나눗셈 방지.
     static func size(for pixelSize: CGSize, box: CGFloat) -> CGSize {
-        guard pixelSize.width > 0, pixelSize.height > 0 else { return CGSize(width: box, height: box) }
-        let scale = min(box / pixelSize.width, box / pixelSize.height)
+        size(for: pixelSize, width: box, height: box)
+    }
+
+    /// Same fit inside a `width`×`height` box. An empty source falls back to a square on the shorter side.
+    static func size(for pixelSize: CGSize, width: CGFloat, height: CGFloat) -> CGSize {
+        guard pixelSize.width > 0, pixelSize.height > 0 else {
+            let side = min(width, height)
+            return CGSize(width: side, height: side)
+        }
+        let scale = min(width / pixelSize.width, height / pixelSize.height)
         return CGSize(width: pixelSize.width * scale, height: pixelSize.height * scale)
     }
 }

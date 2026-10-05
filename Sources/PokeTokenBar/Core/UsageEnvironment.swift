@@ -31,6 +31,7 @@ enum UsageEnvironment {
         "CURSOR_DATA_DIR",     // Cursor user-data dir override
         "OMP_CODING_AGENT_DIR", // omp (oh-my-pi) config/session base directory
         "ANTIGRAVITY_TOKEN_FILE", // Antigravity OAuth token file override
+        "KIMI_CODE_HOME",      // Kimi Code data root — sessions live under <this>/sessions
     ]
 
     /// `name` 의 값. 프로세스 환경이 우선이고, 없으면 로그인 셸에서 읽은 값을 쓴다.

@@ -100,13 +100,15 @@ final class DittoDisguiseRollTests: XCTestCase {
 final class DittoRevealTests: XCTestCase {
     /// 활성 = 커먼 3형태 위장 메타몽(정체). currentLine 은 nil(재시작류) → update 로 로드해 리빌 트리거.
     private func seedDisguise(usedAtStage: Int = 0, shiny: Bool = false, revealed: Bool = false,
-                              boosted: Bool = false, defaults: UserDefaults = .standard) -> CompanionStore {
+                              boosted: Bool = false, collectedFinals: [String] = [],
+                              defaults: UserDefaults = .standard) -> CompanionStore {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("ditto-\(UUID().uuidString).json")
         let active = "{\"baseID\":1,\"pathIDs\":[1],\"stageIndex\":0,\"usedAtStage\":\(usedAtStage),"
             + "\"rarity\":\"common\",\"totalForms\":3,\"isShiny\":\(shiny),\"hasGrowthBoost\":\(boosted),"
             + "\"dittoDisguise\":1,\"dittoRevealed\":\(revealed)}"
+        let finals = collectedFinals.map { "\"\($0)\"" }.joined(separator: ",")
         let json = "{\"installBaselineSet\":true,\"usedSinceInstall\":1000000000,\"spentTokens\":0,"
-            + "\"lastDate\":\"d1\",\"active\":\(active),\"dex\":[],\"collectedFinals\":[]}"
+            + "\"lastDate\":\"d1\",\"active\":\(active),\"dex\":[],\"collectedFinals\":[\(finals)]}"
         try? json.data(using: .utf8)!.write(to: url)
         return CompanionStore(provider: DittoTestProvider(), clock: { dNow }, fileURL: url, rng: SeededRNG(seed: 7), defaults: defaults)
     }
@@ -186,7 +188,7 @@ final class DittoRevealTests: XCTestCase {
         }
         let revealed = try XCTUnwrap(s.state.active)
         XCTAssertEqual(revealed.usedAtStage, 1_000_000)
-        XCTAssertTrue(revealed.hasGrowthBoost)
+        XCTAssertFalse(revealed.hasGrowthBoost, "a new Ditto drops the disguise's boost but keeps its level")
         XCTAssertEqual(revealed.profile?.instanceID, initial.instanceID)
         XCTAssertEqual(revealed.profile?.ivs, initial.ivs)
         XCTAssertEqual(revealed.profile?.level, earnedLevel)
@@ -196,7 +198,8 @@ final class DittoRevealTests: XCTestCase {
         XCTAssertEqual(s.state.dex.last?.profile?.level, 100)
     }
 
-    func testBoostedDisguiseRevealsAtTheHalvedThresholdAndKeepsTheBoost() async throws {
+    /// The disguise hatches with its own line's boost. After the reveal only a repeat Ditto keeps it.
+    func testBoostedDisguiseRevealsAtTheHalvedThresholdAndANewDittoDropsTheBoost() async throws {
         let s = seedDisguise(boosted: true)
         s.applyUsage(62_500_000)
 
@@ -204,8 +207,20 @@ final class DittoRevealTests: XCTestCase {
 
         let revealed = try XCTUnwrap(s.state.active)
         XCTAssertTrue(revealed.dittoRevealed)
-        XCTAssertTrue(revealed.hasGrowthBoost)
+        XCTAssertFalse(revealed.hasGrowthBoost)
         XCTAssertEqual(revealed.usedAtStage, 0)
+        XCTAssertEqual(revealed.phaseThreshold, 3_000_000_000)
+    }
+
+    func testRevealingAnAlreadyGraduatedDittoGrantsTheRepeatBoost() async throws {
+        let s = seedDisguise(collectedFinals: ["\(PokemonOdds.dittoSpeciesID):\(PokemonOdds.dittoSpeciesID)"])
+        s.applyUsage(125_000_000)
+
+        await drainReveal(s)
+
+        let revealed = try XCTUnwrap(s.state.active)
+        XCTAssertTrue(revealed.dittoRevealed)
+        XCTAssertTrue(revealed.hasGrowthBoost)
         XCTAssertEqual(revealed.phaseThreshold, 1_500_000_000)
     }
 

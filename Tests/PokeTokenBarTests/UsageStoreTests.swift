@@ -127,6 +127,12 @@ private func sessionOrg(_ id: String, hasUsage: Bool) -> SessionKeyOrganization 
                            limits: claudeLimits(fiveHourUtil: hasUsage ? 7 : 0))
 }
 
+/// 디스플레이 슬립 상태 스텁 — 테스트가 "화면은 켜졌는데 screensDidWake 는 안 온" 상황을 만든다.
+private final class DisplayState: @unchecked Sendable {
+    nonisolated(unsafe) var asleep: Bool
+    init(asleep: Bool) { self.asleep = asleep }
+}
+
 private final class FakeStatusProvider: ProviderStatusProviding, @unchecked Sendable {
     nonisolated(unsafe) var result: [String: ProviderStatus]
     init(_ result: [String: ProviderStatus] = [:]) { self.result = result }
@@ -231,6 +237,86 @@ final class UsageStoreTests: XCTestCase {
         for _ in 0..<500 { if await p.dailyCalls >= 2 { break }; await Task.yield() }
         let calls = await p.dailyCalls
         XCTAssertGreaterThanOrEqual(calls, 2, "겹친 refresh 는 완료 후 1회 재실행돼야 한다(드롭 금지)")
+    }
+
+    // MARK: 디스플레이 슬립 폴링 정지 자가 복구 (#350)
+
+    private func makeSleepStore(displays: DisplayState,
+                                provider: FakeUsageProvider? = nil) -> UsageStore {
+        let p = provider ?? FakeUsageProvider(id: "claude_code", displayName: "Claude Code",
+                                              daily: todayDaily(1_000))
+        return UsageStore(providers: [p],
+                          claudeLimitsProvider: FakeClaudeLimits(status: nil),
+                          codexLimitsProvider: FakeCodexLimits(status: nil),
+                          antigravityLimitsProvider: FakeAntigravityLimits(status: nil),
+                          statusProvider: FakeStatusProvider([:]),
+                          autoRefresh: false, defaults: testDefaults,
+                          displaysAsleep: { displays.asleep })
+    }
+
+    /// [회귀 #350] screensDidSleep 뒤 screensDidWake 를 놓치면 폴링 타이머가 영영 안 돌아와, 자정에
+    /// 기록된 빈 스냅샷(menuTitle "0", providers [])이 재시작 전까지 굳었다. 정지 중에는 저빈도
+    /// 점검이 돌아 화면이 실제로 켜져 있으면 폴링을 되살려야 한다.
+    func testSuspendedPollingProbeResumesWhenDisplaysAreAwake() async {
+        let displays = DisplayState(asleep: true)
+        let store = makeSleepStore(displays: displays)
+        store.suspendPolling()
+        XCTAssertTrue(store.isPollingSuspended)
+        XCTAssertFalse(store.isPollingTimerScheduled, "정지 중엔 폴링 타이머가 없어야 한다(배터리)")
+        XCTAssertTrue(store.isSuspendedProbeScheduled, "정지 중엔 복구 점검 타이머가 있어야 한다")
+
+        displays.asleep = false   // 화면은 켜졌지만 screensDidWake 는 오지 않았다
+        await store.runSuspendedPollingProbe()
+
+        XCTAssertFalse(store.isPollingSuspended, "화면이 켜져 있으면 점검이 폴링을 되살려야 한다")
+        XCTAssertTrue(store.isPollingTimerScheduled)
+        XCTAssertFalse(store.isSuspendedProbeScheduled, "복구 뒤 점검 타이머는 정리돼야 한다")
+        XCTAssertEqual(store.todayTotalTokens, 1_000, "복구 직후 1회 갱신으로 스냅샷이 채워져야 한다")
+    }
+
+    func testSuspendedPollingProbeStaysSuspendedWhileDisplaysSleep() async {
+        let displays = DisplayState(asleep: true)
+        let store = makeSleepStore(displays: displays)
+        store.suspendPolling()
+        await store.runSuspendedPollingProbe()
+        XCTAssertTrue(store.isPollingSuspended, "화면이 꺼져 있는 동안은 계속 정지해야 한다")
+        XCTAssertFalse(store.isPollingTimerScheduled)
+        XCTAssertTrue(store.isSuspendedProbeScheduled)
+    }
+
+    /// 시스템 wake(didWake)는 오고 screensDidWake 만 빠진 경우 — 점검 주기를 기다리지 않고 바로 복구.
+    func testSystemWakeResumesSuspendedPollingWhenDisplaysAreAwake() async {
+        let displays = DisplayState(asleep: true)
+        let store = makeSleepStore(displays: displays)
+        store.suspendPolling()
+        displays.asleep = false
+        await store.handleSystemWake()
+        XCTAssertFalse(store.isPollingSuspended)
+        XCTAssertTrue(store.isPollingTimerScheduled)
+        XCTAssertEqual(store.todayTotalTokens, 1_000)
+    }
+
+    /// 어떤 경로든(네트워크 재연결·수동 새로고침·날짜 변경) refresh 가 돌 때 화면이 켜져 있으면
+    /// 정지 상태를 바로잡는다 — 점검·wake 와 무관한 단독 경로.
+    func testRefreshWhileDisplaysAwakeClearsAStaleSuspension() async {
+        let displays = DisplayState(asleep: true)
+        let store = makeSleepStore(displays: displays)
+        store.suspendPolling()
+        displays.asleep = false
+        await store.refresh(scheduleEmptyRetry: false)
+        XCTAssertFalse(store.isPollingSuspended)
+        XCTAssertTrue(store.isPollingTimerScheduled)
+        XCTAssertFalse(store.isSuspendedProbeScheduled)
+    }
+
+    /// 화면이 꺼진 채 도는 refresh(자정 NSCalendarDayChanged 등)는 정지를 풀지 않는다.
+    func testRefreshWhileDisplaysAsleepKeepsPollingSuspended() async {
+        let displays = DisplayState(asleep: true)
+        let store = makeSleepStore(displays: displays)
+        store.suspendPolling()
+        await store.refresh(scheduleEmptyRetry: false)
+        XCTAssertTrue(store.isPollingSuspended)
+        XCTAssertFalse(store.isPollingTimerScheduled)
     }
 
     // MARK: Keychain 프롬프트 경로 분리 (회귀)
@@ -827,9 +913,8 @@ final class UsageStoreTests: XCTestCase {
         XCTAssertEqual(store.burnTier, .fast, "자정 직후에도 활성 블록으로 burn 반영(idle 아님)")
     }
 
-    /// 오늘·최근 미사용(활성 블록 없음)인데 주/월 기록만 있으면 캐리어를 만들지 않는다 —
-    /// weekTotal 이 항상 non-nil 이라 탭이 뜨던 회귀 방지("안 썼는데 왜 뜨지").
-    func testNoCarrierForWeekMonthOnlyWithoutActiveBlock() async {
+    /// Positive historical usage remains visible even before today's first token.
+    func testCarrierForWeekMonthOnlyWithoutActiveBlock() async {
         let codex = FakeUsageProvider(id: "codex", displayName: "Codex", daily: nil)
         codex.enrichment = ProviderEnrichment(
             activeBlock: nil, blocksOK: true,   // 최근 5h 사용 없음 → 블록 없음
@@ -838,8 +923,61 @@ final class UsageStoreTests: XCTestCase {
             periodsOK: true)
         let store = makeStore(providers: [codex])
         await store.refresh(scheduleEmptyRetry: false)
-        XCTAssertFalse(store.snapshots.contains { $0.providerID == "codex" },
-                       "오늘·최근 미사용 프로바이더는 탭이 뜨면 안 됨")
+        XCTAssertTrue(store.snapshots.contains { $0.providerID == "codex" })
+        XCTAssertEqual(store.todayTotalTokens, 0)
+        XCTAssertTrue(store.todayTokensByProvider.isEmpty)
+        XCTAssertEqual(store.weekTotalTokens, 50_000_000)
+        XCTAssertEqual(store.monthTotalTokens, 80_000_000)
+        XCTAssertEqual(store.burnTier, .idle)
+    }
+
+    func testIdleHistoryPersistsAcrossRefreshAndEnrichmentFailure() async {
+        let provider = FakeUsageProvider(id: "future_tool", displayName: "Future Tool")
+        var history = todayDaily(12_000)
+        history.date = LocalUsageReader.localDayFormatter().string(from: Calendar.current.date(byAdding: .day, value: -1, to: Date())!)
+        provider.enrichment = ProviderEnrichment(
+            activeBlock: nil, blocksOK: true,
+            weekTotal: PeriodUsage(period: "w", totalTokens: 12_000, totalCost: 0),
+            monthTotal: PeriodUsage(period: "m", totalTokens: 12_000, totalCost: 0),
+            monthDaily: [history, todayDaily(0)], periodsOK: true)
+        let store = makeStore(providers: [provider])
+
+        for _ in 0..<2 {
+            await store.refresh(scheduleEmptyRetry: false)
+            XCTAssertEqual(store.monthDailyTotals.map(\.totalTokens), [12_000, 0])
+            XCTAssertEqual(store.dailyLedger.tokens(on: history.date), 12_000)
+            XCTAssertEqual(store.todayTotalTokens, 0)
+            XCTAssertTrue(store.todayTokensByProvider.isEmpty)
+        }
+
+        provider.enrichment = ProviderEnrichment()
+        await store.refresh(scheduleEmptyRetry: false)
+        XCTAssertEqual(store.weekTotalTokens, 12_000)
+        XCTAssertEqual(store.monthTotalTokens, 12_000)
+        XCTAssertEqual(store.monthDailyTotals.map(\.totalTokens), [12_000, 0])
+
+        // A successful empty scan is authoritative; it must not retain a ghost provider.
+        provider.enrichment = ProviderEnrichment(blocksOK: true, periodsOK: true)
+        await store.refresh(scheduleEmptyRetry: false)
+        XCTAssertTrue(store.snapshots.isEmpty)
+        XCTAssertEqual(store.dailyLedger.tokens(on: history.date), 12_000)
+    }
+
+    func testIdleCarrierRequiresPositiveHistoricalValue() async {
+        for source in ["week", "month", "series", "empty", "failed"] {
+            let provider = FakeUsageProvider(id: "future_tool", displayName: "Future Tool")
+            var day = todayDaily(source == "series" ? 12_000 : 0)
+            day.date = LocalUsageReader.localDayFormatter().string(from: Calendar.current.date(byAdding: .day, value: -1, to: Date())!)
+            provider.enrichment = ProviderEnrichment(
+                blocksOK: true,
+                weekTotal: PeriodUsage(period: "w", totalTokens: source == "week" ? 12_000 : 0, totalCost: 0),
+                monthTotal: PeriodUsage(period: "m", totalTokens: source == "month" ? 12_000 : 0, totalCost: 0),
+                monthDaily: [day], periodsOK: source != "failed")
+            let store = makeStore(providers: [provider])
+            await store.refresh(scheduleEmptyRetry: false)
+            XCTAssertEqual(store.snapshots.count, ["empty", "failed"].contains(source) ? 0 : 1, source)
+            XCTAssertEqual(store.todayTotalTokens, 0, source)
+        }
     }
 
     /// Provider enrichment must not turn a zero-token parser artifact into a visible tab.
