@@ -51,11 +51,23 @@ Because the repository squash-merges, the PR title becomes the commit subject on
 
 - Use [Conventional Commits](https://www.conventionalcommits.org/) style:
   `feat:`, `fix:`, `docs:`, `chore:`, `refactor:`, `test:`, etc.
-- Fill out the pull request template.
-- **UI changes** (anything under `Sources/PokeTokenBar/UI/`) should describe the
-  before/after in the PR. Screenshots or GIFs are welcome but optional — a clear
-  text description is fine. The canonical `assets/` screenshots are regenerated
-  at release, not per PR.
+- Use an English PR title such as `fix(home): retain idle usage history` and fill
+  out every applicable section and checklist in the pull request template.
+- **Every visible UI change** requires embedded images in `UI changes`, including
+  changes caused outside `Sources/PokeTokenBar/UI/`. Actual screenshots, local
+  renders of the production UI, and clearly labeled illustrations are accepted.
+  Label sample-data renders explicitly. Existing screens need before/after
+  images; a new screen needs its image and an explanation that no previous screen
+  exists. Text alone is insufficient. If images are missing, coding agents
+  generate and attach them as part of the authorized PR work. Try suitable
+  generation and attachment alternatives; keep publication pending only if a
+  concrete failure still prevents completion. Canonical `assets/` screenshots
+  are regenerated at release, not per PR.
+- Coding agents use the shared `prepare-pr` skill in `.agents/skills/prepare-pr/`;
+  `.claude/skills/prepare-pr` points to the same skill for Claude Code. Before
+  publishing, run its local check with the chosen base ref and PR body file:
+  `python3 scripts/check-pr.py --base origin/main --title 'docs: clarify PR requirements' --body-file /tmp/pr-body.md`.
+  Add `--ui-changes` when visible behavior changes outside the UI directory.
 
 ## Code conventions
 

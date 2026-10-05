@@ -49,11 +49,21 @@ CI もすべてのプルリクエストで同じコマンドを実行します�
 
 - [Conventional Commits](https://www.conventionalcommits.org/) スタイルを使用:
   `feat:`, `fix:`, `docs:`, `chore:`, `refactor:`, `test:` など。
-- プルリクエストテンプレートを記入してください。
-- **UI の変更**（`Sources/PokeTokenBar/UI/` 配下のすべて）は、PR で before/after を
-  説明してください。スクリーンショットや GIF は歓迎ですが任意です — 明確なテキスト説明で
-  十分です。正式な `assets/` スクリーンショットは PR ごとではなくリリース時に
+- 英語の PR タイトル（例: `fix(home): retain idle usage history`）を使い、テンプレートの
+  該当するセクションとチェックリストを記入してください。
+- **画面が変わるすべての PR** は `UI changes` に画像を埋め込む必要があります。
+  UI ディレクトリ外に起因する変更も対象です。実際のスクリーンショット、本番 UI の
+  ローカルレンダリング、変更した UI のイラストを使用できます。サンプルデータの
+  レンダリングとイラストはその旨を明記してください。既存画面には変更前後の画像、
+  新規画面には画像と以前の画面がない旨の説明が必要です。テキストだけでは代用できません。
+  画像がない場合、コーディングエージェントは許可された PR 作業の一環として生成・添付します。
+  適切な生成・添付の代替手段を試し、それでも具体的な障害で完了できない場合に限り公開を
+  保留してください。正式な `assets/` スクリーンショットは PR ごとではなくリリース時に
   再生成されます。
+- コーディングエージェントは `.agents/skills/prepare-pr/` の共通 skill を使用します。
+  `.claude/skills/prepare-pr` も同じ skill を参照します。公開前のローカルチェック:
+  `python3 scripts/check-pr.py --base origin/main --title 'docs: clarify PR requirements' --body-file /tmp/pr-body.md`。
+  UI ディレクトリ外の画面変更には `--ui-changes` を追加してください。
 
 ## コード規約
 
