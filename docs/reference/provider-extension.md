@@ -12,7 +12,10 @@ read_when:
 아래는 절차이며, **코드 리뷰 시 이 규약 위반을 결함으로 본다.**
 
 - **사용량 소스 추가** = `UsageProvider` 프로토콜(`Core/UsageProvider.swift`) 구현체 1개 작성 +
-  `UsageStore.init` 의 기본 `providers:` 배열(`Core/UsageStore.swift`)에 등록. 이 두 곳이 유일한 손댈 지점.
+  `UsageStore.init`의 기본 `providers:` 배열(`Core/UsageStore.swift`)에 등록합니다. 이 두 곳은 기본
+  진입점이며, 수정 범위가 두 파일로 제한되지는 않습니다. 소스에 맞춰 리더, 공유 캐시 연동, 사용자 지정
+  스캔 경로, 테스트도 추가하거나 수정하세요. 아래 규약과
+  [프로바이더 기여 체크리스트](https://github.com/chattymin/PokeTokenBar/issues/115)를 따르세요.
 - **범용 동작은 프로바이더 무관하게 집계**: 오늘/주/월 합계·burn tier·companion 리듬은 전 프로바이더
   합산이어야 한다(`snapshots` reduce). 한 프로바이더에만 계산을 붙이지 마라(과거 회귀: burn 이 Claude
   블록만 관측 → Codex/Gemini 전용 사용자 companion 이 항상 idle). 패리티 테스트가 이를 강제한다

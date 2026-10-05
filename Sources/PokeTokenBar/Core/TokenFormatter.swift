@@ -8,9 +8,10 @@ enum TokenFormatter {
         switch v {
         case ..<1_000:
             return "\(value)"
-        case ..<1_000_000:
+        // K and M use one decimal: promote when rounding would display 1000.0.
+        case ..<999_950:
             return sign + trim(v / 1_000, decimals: 1) + "K"
-        case ..<1_000_000_000:
+        case ..<999_950_000:
             return sign + trim(v / 1_000_000, decimals: 1) + "M"
         default:
             return sign + trim(v / 1_000_000_000, decimals: 2) + "B"

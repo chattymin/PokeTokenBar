@@ -19,12 +19,14 @@
 이 프로젝트는 Swift Package입니다. 저장소 루트에서:
 
 ```bash
-swift build      # 앱 타깃 컴파일
-swift test       # 전체 테스트 스위트 실행
+swift build             # 앱 타깃 컴파일
+./scripts/test-gate.sh   # 전체 테스트 실행 및 로직 코어 커버리지 검사
 ```
 
-CI는 모든 풀 리퀘스트에서 `swift build`와 `swift test`를 실행합니다; 먼저 로컬에서
-둘 다 통과하는지 확인해 주세요.
+CI도 모든 풀 리퀘스트에서 같은 명령을 실행합니다. 테스트 게이트는
+`swift test --enable-code-coverage`를 실행하고, 기본적으로 로직 코어 라인 커버리지
+75% 이상을 요구합니다. PR을 제출하기 전에 로컬에서 두 명령을 실행하세요.
+개발 중 특정 테스트만 확인하려면 `swift test --filter <TestCase>`를 실행하세요.
 
 ## 기여 워크플로우
 
@@ -60,8 +62,11 @@ CI는 모든 풀 리퀘스트에서 `swift build`와 `swift test`를 실행합�
 - **사용량 소스 추가** (새 AI CLI) = `UsageProvider` 프로토콜
   (`Sources/PokeTokenBar/Core/UsageProvider.swift`)을 새 타입 하나로 구현하고
   `UsageStore.init`의 기본 `providers:` 배열
-  (`Sources/PokeTokenBar/Core/UsageStore.swift`)에 등록합니다. 이 두 곳만 손대면
-  됩니다.
+  (`Sources/PokeTokenBar/Core/UsageStore.swift`)에 등록합니다. 이 두 곳은 기본 진입점이며,
+  수정 범위가 두 파일로 제한되지는 않습니다. 소스에 맞춰 리더, 공유 캐시 연동,
+  사용자 지정 스캔 경로, 테스트도 추가하거나 수정하세요.
+  [프로바이더 확장 규약](docs/reference/provider-extension.md)과
+  [프로바이더 기여 체크리스트](https://github.com/chattymin/PokeTokenBar/issues/115)를 따르세요.
 - **범용 동작은 모든 프로바이더에 걸쳐 집계해야 합니다** (오늘/주/월 합계, burn tier,
   companion 리듬). 범용 계산을 한 프로바이더에만 붙이지 말고, 범용 경로에
   `providerID == "..."` 리터럴 분기를 추가하지 마세요. 프로바이더 고유 동작
