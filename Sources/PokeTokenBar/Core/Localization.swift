@@ -1369,12 +1369,77 @@ struct L {
           "Beim Trainingsabschluss verfallen \(xp) überschüssige EP.")
     }
 
+    /// 포켓몬 타입 표시명.
+    func typeName(_ type: PokemonType) -> String {
+        switch type {
+        case .normal:   return t("노말", "Normal", "ノーマル", "Normal", "Normal", "Normal", "Normal")
+        case .fire:     return t("불꽃", "Fire", "ほのお", "Fuego", "Feu", "Fogo", "Feuer")
+        case .water:    return t("물", "Water", "みず", "Agua", "Eau", "Água", "Wasser")
+        case .grass:    return t("풀", "Grass", "くさ", "Planta", "Plante", "Planta", "Pflanze")
+        case .electric: return t("전기", "Electric", "でんき", "Eléctrico", "Électrik", "Elétrico", "Elektro")
+        case .ice:      return t("얼음", "Ice", "こおり", "Hielo", "Glace", "Gelo", "Eis")
+        case .fighting: return t("격투", "Fighting", "かくとう", "Lucha", "Combat", "Lutador", "Kampf")
+        case .poison:   return t("독", "Poison", "どく", "Veneno", "Poison", "Veneno", "Gift")
+        case .ground:   return t("땅", "Ground", "じめん", "Tierra", "Sol", "Terra", "Boden")
+        case .flying:   return t("비행", "Flying", "ひこう", "Volador", "Vol", "Voador", "Flug")
+        case .psychic:  return t("에스퍼", "Psychic", "エスパー", "Psíquico", "Psy", "Psíquico", "Psycho")
+        case .bug:      return t("벌레", "Bug", "むし", "Bicho", "Insecte", "Inseto", "Käfer")
+        case .rock:     return t("바위", "Rock", "いわ", "Roca", "Roche", "Rocha", "Gestein")
+        case .ghost:    return t("고스트", "Ghost", "ゴースト", "Fantasma", "Spectre", "Fantasma", "Geist")
+        case .dragon:   return t("드래곤", "Dragon", "ドラゴン", "Dragón", "Dragon", "Dragão", "Drache")
+        case .steel:    return t("강철", "Steel", "はがね", "Acero", "Acier", "Aço", "Stahl")
+        case .dark:     return t("악", "Dark", "あく", "Siniestro", "Ténèbres", "Sombrio", "Unlicht")
+        case .fairy:    return t("페어리", "Fairy", "フェアリー", "Hada", "Fée", "Fada", "Fee")
+        }
+    }
+
     /// 아이템 표시명 — species 처럼 공식 현지명.
     func itemName(_ kind: ItemKind) -> String {
         switch kind {
         case .rareCandy: return t("이상한 사탕", "Rare Candy", "ふしぎなアメ", "Caramelo Raro", "Super Bonbon", "Doce Raro", "Sonderbonbon")
         case .mint:      return t("민트", "Mint", "ミント", "Menta", "Menthe", "Menta", "Minze")
         case .shinyCharm: return t("이로치 부적", "Shiny Charm", "ひかるおまもり", "Amuleto Iris", "Charme Chroma", "Amuleto Shiny", "Schillerpin")
+        case .legendCharm: return t("천공의피리", "Azure Flute", "てんかいのふえ", "Flauta Azur", "Flûte Azur", "Flauta Celestial", "Azurflöte")
+        case .silverWing: return t("은빛날개", "Silver Wing", "ぎんいろのはね", "Ala Plateada", "Aile d'Argent", "Asa Prateada", "Silberflügel")
+        case .oldSeaMap: return t("오래된해도", "Old Sea Map", "ふるびたかいず", "Mapa Viejo", "Vieille Carte", "Mapa Velho", "Alte Karte")
+        case .clearBell: return t("투명한방울", "Clear Bell", "とうめいなスズ", "Campana Clara", "Clochette Claire", "Sino Transparente", "Klarglocke")
+        case .rainbowWing: return t("무지갯빛날개", "Rainbow Wing", "にじいろのはね", "Ala Arcoíris", "Aile Arc-en-Ciel", "Asa Arco-íris", "Buntflügel")
+        case .magmaStone: return t("화산의돌", "Magma Stone", "かざんのおきいし", "Piedra Magma", "Pierre Magma", "Pedra de Magma", "Magmastein")
+        case .soulDew: return t("마음의물방울", "Soul Dew", "こころのしずく", "Rocío Bondad", "Rosée Âme", "Orvalho da Alma", "Seelentau")
+        case .jadeOrb: return t("초록구슬", "Jade Orb", "もえぎいろのたま", "Esfera Verde", "Orbe Vert", "Esfera de Jade", "Grüne Kugel")
+        case .gracidea: return t("그라시데아꽃", "Gracidea", "グラシデアのはな", "Gracídea", "Gracidée", "Gracidea", "Gracidea")
+        case .griseousOrb: return t("백금옥", "Griseous Orb", "はっきんだま", "Griseosfera", "Orbe Platiné", "Esfera de Platina", "Platinum-Orb")
+        case .libertyPass: return t("리버티티켓", "Liberty Pass", "リバティチケット", "Pase Libertad", "Passe Liberté", "Passe da Liberdade", "Gartenpass")
+        case .revealGlass: return t("비추는거울", "Reveal Glass", "うつしかがみ", "Espejo Veraz", "Miroir Sacré", "Espelho Revelador", "Wahrspiegel")
+        case .dnaSplicers: return t("유전자쐐기", "DNA Splicers", "いでんしのくさび", "Punta ADN", "Pointeau ADN", "Fundidor de DNA", "DNS-Keil")
+        case .boulderBadge: return t("회색배지", "Boulder Badge", "グレーバッジ", "Medalla Roca", "Badge Roche", "Insígnia da Rocha", "Felsorden")
+        case .cascadeBadge: return t("블루배지", "Cascade Badge", "ブルーバッジ", "Medalla Cascada", "Badge Cascade", "Insígnia da Cascata", "Quellorden")
+        case .thunderBadge: return t("오렌지배지", "Thunder Badge", "オレンジバッジ", "Medalla Trueno", "Badge Foudre", "Insígnia do Trovão", "Donnerorden")
+        case .rainbowBadge: return t("무지개배지", "Rainbow Badge", "レインボーバッジ", "Medalla Arcoíris", "Badge Prisme", "Insígnia do Arco-Íris", "Farborden")
+        case .soulBadge:    return t("핑크배지", "Soul Badge", "ピンクバッジ", "Medalla Alma", "Badge Âme", "Insígnia da Alma", "Seelenorden")
+        case .marshBadge:   return t("골드배지", "Marsh Badge", "ゴールドバッジ", "Medalla Pantano", "Badge Marais", "Insígnia do Pântano", "Sumpforden")
+        case .volcanoBadge: return t("진홍배지", "Volcano Badge", "クリムゾンバッジ", "Medalla Volcán", "Badge Volcan", "Insígnia do Vulcão", "Vulkanorden")
+        case .earthBadge:   return t("그린배지", "Earth Badge", "グリーンバッジ", "Medalla Tierra", "Badge Terre", "Insígnia da Terra", "Erdorden")
+        case .zephyrBadge:  return t("윙배지", "Zephyr Badge", "ウイングバッジ", "Medalla Céfiro", "Badge Zéphyr", "Insígnia do Zéfiro", "Flügelorden")
+        case .hiveBadge:    return t("인섹트배지", "Hive Badge", "インセクトバッジ", "Medalla Colmena", "Badge Essaim", "Insígnia da Colmeia", "Insektorden")
+        case .plainBadge:   return t("레귤러배지", "Plain Badge", "レギュラーバッジ", "Medalla Planicie", "Badge Plaine", "Insígnia da Planície", "Basisorden")
+        case .fogBadge:     return t("팬텀배지", "Fog Badge", "ファントムバッジ", "Medalla Niebla", "Badge Brume", "Insígnia da Névoa", "Phantomorden")
+        case .stormBadge:   return t("쇼크배지", "Storm Badge", "ショックバッジ", "Medalla Tormenta", "Badge Choc", "Insígnia da Tempestade", "Faustorden")
+        case .mineralBadge: return t("스틸배지", "Mineral Badge", "スチールバッジ", "Medalla Mineral", "Badge Minéral", "Insígnia do Mineral", "Stahlorden")
+        case .glacierBadge: return t("아이스배지", "Glacier Badge", "アイスバッジ", "Medalla Glaciar", "Badge Glacier", "Insígnia da Geada", "Eisorden")
+        case .risingBadge:  return t("라이징배지", "Rising Badge", "ライジングバッジ", "Medalla Dragón", "Badge Lever", "Insígnia do Dragão", "Drachenorden")
+        case .darkBadge:    return t("악배지", "Dark Badge", "あくバッジ", "Medalla Siniestro", "Badge Ténèbres", "Insígnia Sombria", "Unlicht-Orden")
+        case .fairyBadge:   return t("페어리배지", "Fairy Badge", "フェアリーバッジ", "Medalla Hada", "Badge Fée", "Insígnia da Fada", "Feenorden")
+        case .leafStone:    return t("리프의돌", "Leaf Stone", "リーフのいし", "Piedra Hoja", "Pierre Plante", "Pedra da Folha", "Blattstein")
+        case .fireStone:    return t("불꽃의돌", "Fire Stone", "ほのおのいし", "Piedra Fuego", "Pierre Feu", "Pedra do Fogo", "Feuerstein")
+        case .waterStone:   return t("물의돌", "Water Stone", "みずのいし", "Piedra Agua", "Pierre Eau", "Pedra da Água", "Wasserstein")
+        case .thunderStone: return t("천둥의돌", "Thunder Stone", "かみなりのいし", "Piedra Trueno", "Pierre Foudre", "Pedra do Trovão", "Donnerstein")
+        case .sunStone:     return t("태양의돌", "Sun Stone", "たいようのいし", "Piedra Solar", "Pierre Soleil", "Pedra Solar", "Sonnenstein")
+        case .moonStone:    return t("달의돌", "Moon Stone", "つきのいし", "Piedra Lunar", "Pierre Lune", "Pedra da Lua", "Mondstein")
+        case .iceStone:     return t("얼음의돌", "Ice Stone", "こおりのいし", "Piedra Hielo", "Pierre Glace", "Pedra de Gelo", "Eisstein")
+        case .duskStone:    return t("어둠의돌", "Dusk Stone", "やみのいし", "Piedra Noche", "Pierre Nuit", "Pedra do Anoitecer", "Finsterstein")
+        case .dawnStone:    return t("각성의돌", "Dawn Stone", "めざめいし", "Piedra Alba", "Pierre Aube", "Pedra da Alvorada", "Funkelstein")
+        case .shinyStone:   return t("빛의돌", "Shiny Stone", "ひかりのいし", "Piedra Día", "Pierre Éclat", "Pedra do Brilho", "Leuchtstein")
         }
     }
     func itemDescription(_ kind: ItemKind) -> String {
@@ -1404,10 +1469,159 @@ struct L {
                      "Tant que tu le possèdes, augmente les chances qu'un Pokémon chromatique éclose.",
                      "Enquanto estiver na sua bolsa, aumenta a chance de nascer um Pokémon shiny.",
                      "Erhöht im Beutel die Chance, dass ein schillerndes Pokémon schlüpft.")
+        case .legendCharm:
+            return t("보유하면 전설의 포켓몬이 태어날 확률이 크게 올라가요.",
+                     "While owned, greatly increases the chance of hatching a legendary Pokémon.",
+                     "持っていると伝説のポケモンが生まれる確率が大きく上がります。",
+                     "Mientras lo tengas, aumenta considerablemente la probabilidad de eclosionar un Pokémon legendario.",
+                     "Tant que tu la possèdes, augmente grandement les chances de faire éclore un Pokémon légendaire.",
+                     "Enquanto estiver na bolsa, aumenta muito a chance de chocar um Pokémon lendário.",
+                     "Erhöht im Beutel die Chance auf ein legendäres Pokémon erheblich.")
+        case .silverWing:
+            return t("보유하면 알 부화에 필요한 토큰 소모량이 대폭 줄어듭니다.",
+                     "While owned, significantly reduces the token threshold needed to hatch eggs.",
+                     "持っているとタマゴの孵化に必要なトークン消費量が大幅に減少します。",
+                     "Mientras lo tengas, reduce significativamente los tokens necesarios para eclosionar huevos.",
+                     "Tant que tu la possèdes, réduit considérablement les tokens requis pour faire éclore un œuf.",
+                     "Enquanto estiver na bolsa, reduz significativamente os tokens necessários para chocar ovos.",
+                     "Verringert im Beutel die benötigten Tokens zum Ausbrüten von Eiern spürbar.")
+        case .oldSeaMap:
+            return t("보유하면 토큰 소모를 통한 포켓몬 성장 경험치가 추가로 증가합니다.",
+                     "While owned, grants bonus growth EXP from token usage.",
+                     "持っているとトークン消費によるポケモンの成長経験値が増加します。",
+                     "Mientras lo tengas, otorga EXP de crecimiento adicional por gasto de tokens.",
+                     "Tant que tu la possèdes, augmente l'EXP de croissance reçue via tes tokens.",
+                     "Enquanto estiver na bolsa, concede bônus de EXP de crescimento ao gastar tokens.",
+                     "Verleiht im Beutel zusätzliche Wachstums-EP durch Token-Verbrauch.")
+        case .clearBell:
+            return t("보유하면 알에서 희귀(Rare) 등급 이상의 포켓몬이 등장할 확률이 올라갑니다.",
+                     "While owned, increases the appearance rate of Rare Pokémon in eggs.",
+                     "持っているとタマゴからレアなポケモンが出現する確率が上がります。",
+                     "Mientras lo tengas, aumenta la probabilidad de obtener Pokémon raros en huevos.",
+                     "Tant que tu la possèdes, augmente le taux d'apparition des Pokémon Rares dans les œufs.",
+                     "Enquanto estiver na bolsa, aumenta a taxa de aparição de Pokémon Raros em ovos.",
+                     "Erhöht im Beutel die Chance auf seltene Pokémon aus Eiern.")
+        case .rainbowWing:
+            return t("보유하면 토큰 상점의 모든 아이템을 할인된 가격으로 구매할 수 있습니다.",
+                     "While owned, grants a discount on all shop purchases.",
+                     "持っているとショップの全商品を割引価格で購入できます。",
+                     "Mientras lo tengas, otorga un descuento en todos los artículos de la tienda.",
+                     "Tant que tu l'as, offre une réduction sur tous les articles de la boutique de tokens.",
+                     "Enquanto estiver na bolsa, concede desconto em todos os itens da loja.",
+                     "Gewährt im Beutel einen Rabatt auf alle Einkäufe im Token-Laden.")
+        case .magmaStone:
+            return t("보유하면 이미 졸업시킨 종을 다시 키울 때 성장 요구량이 감소합니다.",
+                     "While owned, reduces the growth required when raising duplicate species.",
+                     "持っていると図鑑登録済みの種を再育成する際の成長必要量が減少します。",
+                     "Mientras lo tengas, reduce el esfuerzo requerido al criar especies ya registradas.",
+                     "Tant que tu la possèdes, accélère la croissance des Pokémon d'une espèce déjà enregistrée.",
+                     "Enquanto estiver na bolsa, reduz a exigência de crescimento ao criar espécies já registradas.",
+                     "Verringert im Beutel den Wachstumsbedarf beim wiederholten Züchten registrierter Arten.")
+        case .soulDew:
+            return t("보유하면 이상한 사탕 사용 시 획득하는 경험치가 크게 증가합니다.",
+                     "While owned, Rare Candies grant significantly more EXP.",
+                     "持っているとふしぎなアメ使用時の獲得経験値が大きく増加します。",
+                     "Mientras lo tengas, los Caramelos Raros otorgan mucha más experiencia.",
+                     "Tant que tu la possèdes, augmente grandement l'EXP conférée par les Super Bonbons.",
+                     "Enquanto estiver na bolsa, os Doces Raros concedem muito mais experiência.",
+                     "Erhöht im Beutel die durch Sonderbonbons erhaltenen EP deutlich.")
+        case .jadeOrb:
+            return t("보유하면 상점에서 판매하는 포켓몬 알을 추가 할인된 가격에 구매합니다.",
+                     "While owned, gives an extra discount on eggs in the shop.",
+                     "持っているとショップのタマゴを特別割引価格で購入できます。",
+                     "Mientras lo tengas, otorga un descuento adicional en los huevos de la tienda.",
+                     "Tant que tu l'as, offre une réduction supplémentaire sur les œufs de la boutique.",
+                     "Enquanto estiver na bolsa, concede desconto adicional nos ovos da loja.",
+                     "Gibt im Beutel einen zusätzlichen Rabatt auf Eier im Laden.")
+        case .gracidea:
+            return t("보유하면 이상한 사탕을 얻을 때마다 1개를 더 받아요.",
+                     "While owned, every Rare Candy you get comes with one more.",
+                     "持っているとふしぎなアメを手に入れるたびに1個多くもらえます。",
+                     "Mientras la tengas, cada Caramelo Raro que obtengas viene con uno más.",
+                     "Tant que tu la possèdes, chaque Super Bonbon obtenu t'en donne un de plus.",
+                     "Enquanto estiver na bolsa, cada Doce Raro que você obtiver vem com mais um.",
+                     "Für jedes Sonderbonbon, das du erhältst, bekommst du im Beutel ein weiteres dazu.")
+        case .griseousOrb:
+            return t("보유하면 알에서 고스트·드래곤타입 포켓몬이 두 배 자주 태어나요.",
+                     "While owned, Ghost- and Dragon-type Pokémon hatch twice as often.",
+                     "持っているとゴースト・ドラゴンタイプのポケモンが2倍生まれやすくなります。",
+                     "Mientras la tengas, los Pokémon de tipo Fantasma y Dragón nacen el doble de a menudo.",
+                     "Tant que tu le possèdes, les Pokémon de type Spectre et Dragon éclosent deux fois plus souvent.",
+                     "Enquanto estiver na bolsa, Pokémon dos tipos Fantasma e Dragão nascem com o dobro de frequência.",
+                     "Lässt im Beutel Pokémon vom Typ Geist und Drache doppelt so oft schlüpfen.")
+        case .libertyPass:
+            return t("보유하면 아직 졸업시킨 적 없는 종을 키울 때 성장 요구량이 25% 줄어요.",
+                     "While owned, species you have never graduated need 25% less growth.",
+                     "持っているとまだ卒業させたことのない種を育てるときの成長必要量が25%減ります。",
+                     "Mientras lo tengas, las especies que nunca se han graduado necesitan un 25% menos de crecimiento.",
+                     "Tant que tu le possèdes, les espèces jamais diplômées demandent 25% de croissance en moins.",
+                     "Enquanto estiver na bolsa, espécies que nunca se formaram precisam de 25% menos crescimento.",
+                     "Senkt im Beutel den Wachstumsbedarf für noch nie verabschiedete Arten um 25%.")
+        case .revealGlass:
+            return t("보유하면 이로치 포켓몬이 태어날 확률이 더욱 증가합니다 (이로치 부적과 중첩).",
+                     "While owned, further boosts shiny hatch odds (stacks with Shiny Charm).",
+                     "持っていると色違いの出現率がさらに上昇します（ひかるおまもりと重複可）。",
+                     "Mientras lo tengas, mejora aún más las probabilidades de obtener variocolor (acumulable con Amuleto Iris).",
+                     "Tant que tu le possèdes, augmente encore davantage les chances d'obtenir un chromatique (cumulable avec Charme Chroma).",
+                     "Enquanto estiver na bolsa, aumenta ainda mais a chance de shiny (acumula com Amuleto Shiny).",
+                     "Erhöht im Beutel die Schiller-Chance noch weiter (stapelbar mit dem Schillerpin).")
+        case .dnaSplicers:
+            return t("보유하면 토큰 소모를 통한 포켓몬 성장 속도가 극적으로 빨라집니다.",
+                     "While owned, dramatically accelerates Pokémon growth from token usage.",
+                     "持っているとトークン消費によるポケモンの成長スピードが劇的に速くなります。",
+                     "Mientras lo tengas, acelera drásticamente el crecimiento del Pokémon por tokens.",
+                     "Tant que tu le possèdes, accélère considérablement la croissance de ton Pokémon via les tokens.",
+                     "Enquanto estiver na bolsa, acelera drasticamente o crescimento do Pokémon com tokens.",
+                     "Beschleunigt im Beutel das Wachstum deines Pokémon durch Token-Verbrauch drastisch.")
+        case .plainBadge:
+            return t("보유하면 노말타입 포켓몬의 출현률과 성장 속도가 20% 빨라져요 (누적 가능).",
+                     "While owned, Normal-type Pokémon appear and grow 20% faster (stacks cumulatively).",
+                     "持っていると、ノーマルタイプのポケモンの出現率と成長速度が20%早くなります（重複可能）。",
+                     "Mientras lo tengas, los Pokémon de tipo Normal aparecen y crecen un 20% más rápido (acumulable).",
+                     "Tant que tu le possèdes, les Pokémon de type Normal apparaissent et grandissent 20% plus vite (cumulable).",
+                     "Enquanto estiver na bolsa, Pokémon do tipo Normal aparecem e crescem 20% mais rápido (cumulativo).",
+                     "Erhöht im Beutel die Erscheinungs- und Wachstumsrate für Normal-Pokémon um 20% (stapelbar).")
+        case .boulderBadge, .cascadeBadge, .thunderBadge, .rainbowBadge,
+             .soulBadge, .marshBadge, .volcanoBadge, .earthBadge,
+             .zephyrBadge, .hiveBadge, .fogBadge, .stormBadge,
+             .mineralBadge, .glacierBadge, .risingBadge, .darkBadge, .fairyBadge:
+            return t("보유하면 이 배지에 약한 포켓몬의 출현률과 성장 속도가 20% 빨라져요 (누적 가능).",
+                     "While owned, Pokémon weak to this badge appear and grow 20% faster (stacks cumulatively).",
+                     "持っていると、このバッジに弱いポケモンの出現率と成長速度が20%早くなります（重複可能）。",
+                     "Mientras lo tengas, los Pokémon débiles a esta medalla aparecen y crecen un 20% más rápido (acumulable).",
+                     "Tant que tu le possèdes, les Pokémon faibles face à ce badge apparaissent et grandissent 20% plus vite (cumulable).",
+                     "Enquanto estiver na bolsa, Pokémon fracos a esta insígnia aparecem e crescem 20% mais rápido (cumulativo).",
+                     "Erhöht im Beutel die Erscheinungs- und Wachstumsrate für Pokémon mit Schwäche gegen diesen Orden um 20% (stapelbar).")
+        case .leafStone, .fireStone, .waterStone, .thunderStone, .sunStone,
+             .moonStone, .duskStone, .iceStone, .dawnStone, .shinyStone:
+            // Worded like `eggDescription`: buying the stone sends the Pokémon off at once, like an egg.
+            let tn = kind.stoneType.map { typeName($0) } ?? ""
+            return t("지금 포켓몬을 놓아주고 \(tn)타입이 확정으로 나오는 알을 받아요.",
+                     "Send off your current Pokémon for an egg guaranteed to hatch a \(tn)-type Pokémon.",
+                     "いまのポケモンを手放して \(tn)タイプが確定で孵るタマゴをもらいます。",
+                     "Suelta a tu Pokémon actual y consigue un huevo garantizado de tipo \(tn).",
+                     "Laisse partir ton Pokémon actuel pour un œuf garanti de type \(tn).",
+                     "Solte seu Pokémon atual e ganhe um ovo que garante o tipo \(tn).",
+                     "Verabschiede dein aktuelles Pokémon und erhalte ein Ei, aus dem garantiert ein Pokémon vom Typ \(tn) schlüpft.")
         }
     }
     /// 가방 사용 컨트롤의 효과 힌트 — 민트("성격 랜덤 변경", 사탕의 "+XP" 자리).
     var mintEffectHint: String { t("성격 랜덤 변경", "Random nature", "せいかくランダム変更", "Naturaleza aleatoria", "Nature aléatoire", "Natureza aleatória", "Zufälliges Wesen") }
+    /// 진화의 돌 구매 확인 문구: 구매하는 순간 현재 포켓몬을 놓아준다(알 구매와 같은 동작).
+    func stoneConfirm(_ monName: String, _ stoneName: String) -> String {
+        t("\(KoreanParticle.object.attach(to: monName)) 놓아주고 \(KoreanParticle.object.attach(to: stoneName)) 사용할까요?",
+          "Send off \(monName) and use \(stoneName)?",
+          "\(monName) を手放して \(stoneName) を使いますか？",
+          "¿Soltar a \(monName) y usar \(stoneName)?",
+          "Laisser partir \(monName) et utiliser \(stoneName) ?",
+          "Soltar \(monName) e usar \(stoneName)?",
+          "\(monName) verabschieden und \(stoneName) einsetzen?")
+    }
+    /// 인큐베이션 중 표시하는 타입 보증 배지: 진화의 돌로 품은 알의 확정 타입.
+    func eggTypeGuaranteeHint(_ type: PokemonType) -> String {
+        let name = typeName(type)
+        return t("\(name)타입 확정", "Guaranteed \(name)", "\(name)タイプ確定", "\(name) garantizado", "\(name) garanti", "\(name) garantido", "Garantiert \(name)")
+    }
 
     // MARK: 상점 (재화 = 사용한 토큰)
     var shop: String { t("상점", "Shop", "ショップ", "Tienda", "Boutique", "Loja", "Laden") }
@@ -1419,7 +1633,56 @@ struct L {
     func ownedCount(_ n: Int) -> String { t("보유 ×\(n)", "Owned ×\(n)", "所持 ×\(n)", "En posesión ×\(n)", "Possédés ×\(n)", "Você tem ×\(n)", "Im Beutel ×\(n)") }
     var shopPriceLabel: String { t("가격", "Price", "価格", "Precio", "Prix", "Preço", "Preis") }
     var ownedAlready: String { t("보유 중", "Owned", "所持済み", "En posesión", "Possédé", "Já tem", "Im Beutel") }
+    /// Collector sections of the shop (items unlocked by the Pokédex).
+    func collectorGroupTitle(_ group: CollectorGroup) -> String {
+        switch group {
+        case .evolutionStones:
+            return t("진화의 돌", "Evolution Stones", "しんかのいし", "Piedras evolutivas", "Pierres d'évolution", "Pedras de evolução", "Entwicklungssteine")
+        case .legendaryArtifacts:
+            return t("전설의 유물", "Legendary Artifacts", "でんせつのどうぐ", "Objetos legendarios", "Artefacts légendaires", "Artefatos lendários", "Legendäre Artefakte")
+        case .gymBadges:
+            return t("체육관 배지", "Gym Badges", "ジムバッジ", "Medallas de gimnasio", "Badges d'arène", "Insígnias de ginásio", "Arenaorden")
+        }
+    }
+    func collectorUnlockedCount(_ unlocked: Int, of total: Int) -> String {
+        t("\(unlocked)/\(total) 해금", "\(unlocked)/\(total) unlocked", "\(unlocked)/\(total) 解放", "\(unlocked)/\(total) desbloqueados", "\(unlocked)/\(total) débloqués", "\(unlocked)/\(total) desbloqueados", "\(unlocked)/\(total) freigeschaltet")
+    }
+    var collectorHint: String {
+        t("필요한 포켓몬을 도감에 등록하면 구매할 수 있어요.",
+          "Register the Pokémon shown on a card in your Pokédex to unlock it.",
+          "カードのポケモンを図鑑に登録すると購入できます。",
+          "Registra en tu Pokédex los Pokémon de cada carta para desbloquearla.",
+          "Enregistre dans ton Pokédex les Pokémon indiqués sur une carte pour la débloquer.",
+          "Registre na Pokédex os Pokémon de cada carta para desbloqueá-la.",
+          "Registriere die Pokémon einer Karte im Pokédex, um sie freizuschalten.")
+    }
+    var lockedLabel: String { t("잠김", "Locked", "ロック中", "Bloqueado", "Verrouillé", "Bloqueado", "Gesperrt") }
+    var unlockOr: String { t("또는", "or", "または", "o", "ou", "ou", "oder") }
+    func typeGoal(_ type: PokemonType) -> String {
+        let tn = typeName(type)
+        return t("모든 \(tn)타입 포켓몬", "Every \(tn)-type Pokémon", "すべての\(tn)タイプのポケモン", "Todos los Pokémon de tipo \(tn)", "Tous les Pokémon de type \(tn)", "Todos os Pokémon do tipo \(tn)", "Alle Pokémon vom Typ \(tn)")
+    }
+    func anyOfGoal(_ needed: Int) -> String {
+        t("이 중 \(needed)마리", "Any \(needed) of these", "このうち\(needed)匹", "\(needed) de estos", "\(needed) parmi ceux-ci", "\(needed) destes", "\(needed) davon")
+    }
+    var duplicateLegendaryGoal: String {
+        t("같은 전설의 포켓몬 2번 졸업", "Graduate the same legendary Pokémon twice", "同じ伝説のポケモンを2回卒業", "Gradúa dos veces al mismo Pokémon legendario", "Diplômer deux fois le même Pokémon légendaire", "Forme duas vezes o mesmo Pokémon lendário", "Dasselbe legendäre Pokémon zweimal verabschieden")
+    }
     var shinyCharmEffectHint: String { t("이로치 확률 ↑ · 적용 중", "Shiny rate ↑ · active", "色違い率↑ · 適用中", "Prob. variocolor ↑ · activo", "Taux chromatique ↑ · actif", "Chance shiny ↑ · ativo", "Schillerchance ↑ · aktiv") }
+    var legendCharmEffectHint: String { t("전설 출현 4× · 적용 중", "Legendary rate 4× · active", "伝説出現 4× · 適用中", "Prob. legendario 4× · activo", "Taux légendaire 4× · actif", "Chance lendária 4× · ativo", "Legendäre Chance 4× · aktiv") }
+    var silverWingEffectHint: String { t("부화 임계치 ½ · 적용 중", "Egg threshold ½ · active", "タマゴ必要量½ · 適用中", "Umbral eclosión ½ · activo", "Seuil d'éclosion ½ · actif", "Meta de choque ½ · ativo", "Ei-Schwelle ½ · aktiv") }
+    var oldSeaMapEffectHint: String { t("성장 경험치 +20% · 적용 중", "Growth EXP +20% · active", "育成EXP +20% · 適用中", "EXP crecimiento +20% · activo", "EXP croissance +20% · actif", "EXP crescimento +20% · ativo", "Wachstums-EP +20% · aktiv") }
+    var clearBellEffectHint: String { t("희귀 출현 2× · 적용 중", "Rare rate 2× · active", "レア出現 2× · 適用中", "Prob. raro 2× · activo", "Taux Rare 2× · actif", "Chance raro 2× · ativo", "Seltene Chance 2× · aktiv") }
+    var rainbowWingEffectHint: String { t("상점 할인 25% · 적용 중", "Shop discount 25% · active", "ショップ25%引 · 適用中", "Descuento tienda 25% · activo", "Réduction boutique 25% · actif", "Desconto loja 25% · ativo", "Ladenrabatt 25% · aktiv") }
+    var magmaStoneEffectHint: String { t("중복 육성 25% 할인 · 적용 중", "Duplicate raising -25% · active", "重複育成25%減 · 適用中", "Crianza repetida -25% · activo", "Élevage doublon -25% · actif", "Criação repetida -25% · ativo", "Doppelte Zucht -25% · aktiv") }
+    var soulDewEffectHint: String { t("사탕 경험치 +50% · 적용 중", "Candy EXP +50% · active", "アメEXP +50% · 適用中", "EXP caramelo +50% · activo", "EXP bonbon +50% · actif", "EXP doce +50% · ativo", "Bonbon-EP +50% · aktiv") }
+    var jadeOrbEffectHint: String { t("알 추가할인 20% · 적용 중", "Egg discount 20% · active", "タマゴ20%引 · 適用中", "Descuento huevos 20% · activo", "Réduction œufs 20% · actif", "Desconto ovos 20% · ativo", "Ei-Rabatt 20% · aktiv") }
+    var gracideaEffectHint: String { t("사탕마다 +1 · 적용 중", "+1 per candy · active", "アメごとに+1 · 適用中", "+1 por caramelo · activo", "+1 par bonbon · actif", "+1 por doce · ativo", "+1 pro Bonbon · aktiv") }
+    var griseousOrbEffectHint: String { t("고스트·드래곤 출현 2× · 적용 중", "Ghost & Dragon rate 2× · active", "ゴースト・ドラゴン出現 2× · 適用中", "Prob. Fantasma y Dragón 2× · activo", "Taux Spectre et Dragon 2× · actif", "Chance Fantasma e Dragão 2× · ativo", "Geist- & Drachen-Chance 2× · aktiv") }
+    var libertyPassEffectHint: String { t("새 종 육성 25% 할인 · 적용 중", "New species raising -25% · active", "新種育成25%減 · 適用中", "Crianza de especie nueva -25% · activo", "Élevage nouvelle espèce -25% · actif", "Criação de espécie nova -25% · ativo", "Neue Art Zucht -25% · aktiv") }
+    var revealGlassEffectHint: String { t("이로치 분모 ½ · 적용 중", "Shiny denom ½ · active", "色違い分母½ · 適用中", "Denominador shiny ½ · activo", "Dénominateur shiny ½ · actif", "Denominador shiny ½ · ativo", "Schiller-Nenner ½ · aktiv") }
+    var dnaSplicersEffectHint: String { t("성장 경험치 +50% · 적용 중", "Growth EXP +50% · active", "育成EXP +50% · 適用中", "EXP crecimiento +50% · activo", "EXP croissance +50% · actif", "EXP crescimento +50% · ativo", "Wachstums-EP +50% · aktiv") }
+    var badgeEffectHint: String { t("약점 포획 속도 +20% · 적용 중", "Weakness speed +20% · active", "弱点捕獲速度 +20% · 適用中", "Vel. debilidad +20% · activo", "Vitesse faiblesse +20% · actif", "Vel. fraqueza +20% · ativo", "Schwäche-Tempo +20% · aktiv") }
     // 알 (리롤) — tier = 보증 등급 하한(nil = 보증 없는 기본 알).
     // 이름은 `rarityLabel(r) + " 알"` 식 조합으로 만들지 않는다: 한국어·영어는 맞아떨어져도 일본어에서
     // 조사가 어긋난다(レアのタマゴ vs 자연스러운 レアなタマゴ). 세 언어를 명시 트리플로 적는다.

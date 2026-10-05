@@ -746,6 +746,9 @@ struct CompanionHeader: View {
                             if let guarantee = store.eggGuarantee {
                                 Badge(store.l.eggGuaranteeHint(guarantee), tint: .rarity(guarantee))
                             }
+                            if let typeGuarantee = store.eggTypeGuarantee {
+                                Badge(store.l.eggTypeGuaranteeHint(typeGuarantee), tint: .type(typeGuarantee))
+                            }
                         }
                         LabeledProgressBar(value: store.eggProgress,
                                            label: Self.progressDetail(used: store.state.eggUsage,

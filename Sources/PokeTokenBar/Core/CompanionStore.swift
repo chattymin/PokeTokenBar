@@ -153,23 +153,43 @@ final class CompanionStore {
 
     /// 난이도를 반영한 알 부화 임계. 첫 실행 안내 문구도 이 값을 보여준다.
     var eggHatchThreshold: Int {
-        PokemonBalance.scaled(PokemonBalance.eggHatchThreshold, by: growthDifficulty)
+        var threshold = PokemonBalance.scaled(PokemonBalance.eggHatchThreshold, by: growthDifficulty)
+        if ownsSilverWing {
+            threshold = max(1_000_000, threshold / 2)
+        }
+        return threshold
     }
 
     /// 난이도를 반영한 단계 임계. **`PokemonBalance.phaseThreshold` 를 직접 부르지 않는다** —
     /// 배율을 빠뜨린 호출부가 생기면 그 경로만 조용히 기본 난이도로 돌아간다.
     private func stageThreshold(for mon: MonState) -> Int {
-        PokemonBalance.scaled(mon.phaseThreshold, by: growthDifficulty)
+        var base = mon.phaseThreshold
+        // Magma Stone speeds up lines already graduated, Liberty Pass the ones never graduated.
+        if mon.hasGrowthBoost ? ownsMagmaStone : ownsLibertyPass {
+            base = (base * 3) / 4
+        }
+        let badgeMult = typeBadgeSpeedMultiplier(forSpeciesID: mon.currentID)
+        if badgeMult > 1.0 {
+            base = max(1, Int((Double(base) / badgeMult).rounded()))
+        }
+        return PokemonBalance.scaled(base, by: growthDifficulty)
     }
 
     /// 상점 표시·결제에 쓰는 실제 가격 — 기본가 × 상점 난이도. 미판매면 nil.
     func price(of kind: ItemKind) -> Int? {
-        kind.shopPrice.map { PokemonBalance.scaled($0, by: shopDifficulty) }
+        kind.shopPrice.map { base in
+            var p = PokemonBalance.scaled(base, by: shopDifficulty)
+            if ownsRainbowWing { p = max(1, Int(Double(p) * 0.75)) }
+            return p
+        }
     }
 
     /// 알을 포함한 상점 한 줄의 실제 가격.
     func price(of entry: ShopEntry) -> Int {
-        PokemonBalance.scaled(entry.price, by: shopDifficulty)
+        var p = PokemonBalance.scaled(entry.price, by: shopDifficulty)
+        if ownsRainbowWing { p = max(1, Int(Double(p) * 0.75)) }
+        if case .egg = entry, ownsJadeOrb { p = max(1, Int(Double(p) * 0.80)) }
+        return p
     }
     /// 앱 전체 UI 문자열 — language 변경 시 자동 재렌더.
     var l: L { L(language) }
@@ -901,9 +921,14 @@ final class CompanionStore {
     /// 토큰 증분을 현재 포켓몬에 적용 — 임계 도달 시 진화/졸업.
     /// 라인 미로딩(재시작 직후·오프라인)이어도 사용량은 항상 적립한다 — 여기서 드롭하면
     /// 프로바이더별 ledger 는 이미 전진해 델타가 영구 유실된다. 진화 판정만 라인 로드 후로 미룬다.
-    func applyUsage(_ delta: Int) {
+    func applyUsage(_ delta: Int, isTokenUsage: Bool = true) {
         guard state.active != nil else { return }
-        state.active!.usedAtStage += delta
+        var growthDelta = delta
+        if isTokenUsage {
+            if ownsOldSeaMap { growthDelta = Int(Double(growthDelta) * 1.20) }
+            if ownsDnaSplicers { growthDelta = Int(Double(growthDelta) * 1.50) }
+        }
+        state.active!.usedAtStage += growthDelta
         reconcileActiveProfileGrowth()
         guard let line = currentLine else { save(); return }
         var guardCount = 0
@@ -1057,6 +1082,37 @@ final class CompanionStore {
     func itemCount(_ kind: ItemKind) -> Int { state.inventory[kind.rawValue] ?? 0 }
     /// 이로치 부적 보유 여부 — 보유형이라 개수>0 = 소유(부화 shiny 분모를 낮춘다).
     var ownsShinyCharm: Bool { itemCount(.shinyCharm) > 0 }
+    var ownsLegendCharm: Bool { itemCount(.legendCharm) > 0 }
+    var ownsSilverWing: Bool { itemCount(.silverWing) > 0 }
+    var ownsOldSeaMap: Bool { itemCount(.oldSeaMap) > 0 }
+    var ownsClearBell: Bool { itemCount(.clearBell) > 0 }
+    var ownsRainbowWing: Bool { itemCount(.rainbowWing) > 0 }
+    var ownsMagmaStone: Bool { itemCount(.magmaStone) > 0 }
+    var ownsSoulDew: Bool { itemCount(.soulDew) > 0 }
+    var ownsJadeOrb: Bool { itemCount(.jadeOrb) > 0 }
+    var ownsGracidea: Bool { itemCount(.gracidea) > 0 }
+    var ownsGriseousOrb: Bool { itemCount(.griseousOrb) > 0 }
+    var ownsLibertyPass: Bool { itemCount(.libertyPass) > 0 }
+    var ownsRevealGlass: Bool { itemCount(.revealGlass) > 0 }
+    var ownsDnaSplicers: Bool { itemCount(.dnaSplicers) > 0 }
+
+    /// 보유한 배지 중 특정 종에 효과적인 배지 개수 (약점 공격 가능 배지 또는 노말 배지의 경우 노말 종).
+    func ownedBadgeCount(weakAgainst speciesID: Int) -> Int {
+        var count = 0
+        for type in PokemonType.allCases {
+            if itemCount(type.badgeItem) > 0 && PokemonTypeData.isWeak(to: type, speciesID: speciesID) {
+                count += 1
+            }
+        }
+        return count
+    }
+
+    /// 배지로 인한 포획/성장 가속 배율 (+20% per effective badge, cumulative).
+    func typeBadgeSpeedMultiplier(forSpeciesID speciesID: Int) -> Double {
+        let count = ownedBadgeCount(weakAgainst: speciesID)
+        guard count > 0 else { return 1.0 }
+        return 1.0 + 0.20 * Double(count)
+    }
 
     /// 소유 아이템(개수>0) — 가방 목록. 정렬은 ItemKind.allCases 순서.
     var ownedItems: [(kind: ItemKind, count: Int)] {
@@ -1084,15 +1140,20 @@ final class CompanionStore {
         }
     }
 
+    /// EXP one Rare Candy gives now: the Soul Dew adds 50%. Planning and use both read this value.
+    var rareCandyXP: Int { ownsSoulDew ? RareCandy.xp * 3 / 2 : RareCandy.xp }
+
     var maxRareCandyUseCount: Int {
         let remaining = max(0, rareCandyStageCosts.reduce(0, +) - (state.active?.usedAtStage ?? 0))
-        let needed = remaining / RareCandy.xp + (remaining % RareCandy.xp == 0 ? 0 : 1)
+        let xp = rareCandyXP
+        let needed = remaining / xp + (remaining % xp == 0 ? 0 : 1)
         return min(rareCandyCount, needed)
     }
 
     struct RareCandyUsePlan {
         let count: Int
-        var xp: Int { count * RareCandy.xp }
+        let xpPerCandy: Int
+        var xp: Int { count * xpPerCandy }
         let evolves: Bool
         let graduates: Bool
         let carryoverXP: Int
@@ -1103,18 +1164,19 @@ final class CompanionStore {
         let count = min(max(0, requested), maxRareCandyUseCount)
         guard count > 0, let mon = state.active else { return nil }
         let costs = rareCandyStageCosts
-        var remaining = mon.usedAtStage + count * RareCandy.xp
+        let xpPerCandy = rareCandyXP
+        var remaining = mon.usedAtStage + count * xpPerCandy
         var evolves = false
         for (index, cost) in costs.enumerated() {
             guard remaining >= cost else { break }
             remaining -= cost
             if index == costs.count - 1 {
-                return RareCandyUsePlan(count: count, evolves: evolves, graduates: true,
+                return RareCandyUsePlan(count: count, xpPerCandy: xpPerCandy, evolves: evolves, graduates: true,
                                        carryoverXP: 0, discardedXP: remaining)
             }
             evolves = true
         }
-        return RareCandyUsePlan(count: count, evolves: evolves, graduates: false,
+        return RareCandyUsePlan(count: count, xpPerCandy: xpPerCandy, evolves: evolves, graduates: false,
                                carryoverXP: evolves ? remaining : 0, discardedXP: 0)
     }
 
@@ -1131,16 +1193,17 @@ final class CompanionStore {
             // Keep the picker indistinguishable from the apparent Pokémon, but preserve whole
             // candies beyond the surprise reveal. Only the last consumed candy's XP carries over.
             let remaining = max(0, stageThreshold(for: mon) - mon.usedAtStage)
-            let needed = remaining / RareCandy.xp + (remaining % RareCandy.xp == 0 ? 0 : 1)
+            let needed = remaining / preview.xpPerCandy + (remaining % preview.xpPerCandy == 0 ? 0 : 1)
             consumed = min(consumed, needed)
         }
-        let xp = consumed * RareCandy.xp
+        let xp = consumed * preview.xpPerCandy
         state.inventory[ItemKind.rareCandy.rawValue] = rareCandyCount - consumed
         let beforeStage = state.active?.stageIndex ?? 0
         // 진화 안 될 때(부분 진행)도 즉시 "+XP" 피드백 — CompanionHeader 가 연출과 별개로 표시.
         candyFeedbackAmount = xp
         candyFeedbackSeq += 1
-        applyUsage(xp)   // Saves inventory and growth together, with existing evolution effects.
+        // Saves inventory and growth together. Candy XP is not token usage: no growth item multiplies it twice.
+        applyUsage(xp, isTokenUsage: false)
         if state.active == nil { return .graduated }
         if state.active!.stageIndex > beforeStage { return .evolved }
         return .progressed
@@ -1175,9 +1238,10 @@ final class CompanionStore {
     var availableTokens: Int { max(0, state.usedSinceInstall - state.spentTokens) }
 
     /// 상점 판매 아이템 — shopPrice 있는 것만. 가격 저렴한 순, 단 구매 완료한 보유형은 맨 아래로.
+    /// Collector items have their own sections (`collectorItems(in:)`), so they stay out of this list.
     var purchasableItems: [ItemKind] {
         ItemKind.allCases
-            .filter { $0.shopPrice != nil }
+            .filter { $0.shopPrice != nil && $0.collectorGroup == nil }
             .sorted { a, b in
                 // 구매 완료한 보유형(이로치 부적 등)은 맨 아래로 — 재구매 불가라 위에 있을 이유가 없다.
                 let aDone = a.isPassive && itemCount(a) > 0
@@ -1217,28 +1281,104 @@ final class CompanionStore {
     }
 
     /// 구매 가능 — 잔액이 그 아이템 가격 이상(상점 미판매면 false). 활성/알 무관(재고는 미리 쌓아둘 수 있음).
+    /// Collector items also need their Pokédex goal. Evolution stones are not Bag items: see `buyStone`.
     func canBuy(_ kind: ItemKind) -> Bool {
-        guard let price = price(of: kind) else { return false }
+        guard kind.stoneType == nil, let price = price(of: kind) else { return false }
         if kind.isPassive && itemCount(kind) > 0 { return false }   // 보유형은 1회만(재구매 불가)
+        guard isUnlocked(kind) else { return false }
         return availableTokens >= price
     }
 
     /// 한 번에 살 수 있는 최대 개수 — 잔액 ÷ 가격. 보유형은 1회 구매라 최대 1, 이미 보유했거나
-    /// 미판매·잔액 부족이면 0.
+    /// 미판매·잔액 부족·잠김이면 0.
     func maxBuyCount(_ kind: ItemKind) -> Int {
         guard canBuy(kind), let price = price(of: kind), price > 0 else { return 0 }
         return kind.isPassive ? 1 : availableTokens / price
     }
 
     /// 아이템 count 개 구매 — 지갑에서 price × count 차감, 인벤토리 +count. usedSinceInstall(성장·통계)·
-    /// 진화 진행엔 무영향(지출 원장만 증가). 잔액 부족/미판매/범위 밖 개수면 부분 구매 없이 no-op(false).
+    /// 진화 진행엔 무영향(지출 원장만 증가). 잔액 부족/미판매/잠김/범위 밖 개수면 부분 구매 없이 no-op(false).
+    /// The unlock is checked through `maxBuyCount` → `canBuy`: the store is the gate, not the button.
     @discardableResult
     func buy(_ kind: ItemKind, count: Int = 1) -> Bool {
         guard count >= 1, count <= maxBuyCount(kind), let price = price(of: kind) else { return false }
         state.spentTokens += price * count
-        state.inventory[kind.rawValue, default: 0] += count
+        if kind == .rareCandy {
+            addRareCandies(count)
+        } else {
+            state.inventory[kind.rawValue, default: 0] += count
+        }
         save()
         return true
+    }
+
+    /// Adds Rare Candies from any source. With the Gracidea, every candy obtained comes with one more.
+    /// Returns how many landed in the bag.
+    @discardableResult
+    private func addRareCandies(_ count: Int) -> Int {
+        let received = ownsGracidea ? count * 2 : count
+        state.inventory[ItemKind.rareCandy.rawValue, default: 0] += received
+        return received
+    }
+
+    // MARK: Collector items (unlocked by the Pokédex)
+
+    /// Species registered in the Pokédex: the set the Pokédex grid shows (`dexSpecies`). Graduated and
+    /// released chains, plus the stages the current Pokémon has reached. Never `plannedPathIDs`.
+    var registeredSpeciesIDs: Set<Int> {
+        var ids = Set<Int>()
+        for entry in state.dex { ids.formUnion(entry.chainOrder) }
+        if let active = state.active { ids.formUnion(active.pathIDs.prefix(active.stageIndex + 1)) }
+        return ids
+    }
+
+    /// How far one species goal is from unlocking its item.
+    struct GoalProgress: Equatable, Sendable {
+        let goal: SpeciesGoal
+        /// Goal species already registered, in the goal's order.
+        let registered: [Int]
+        var count: Int { min(registered.count, goal.needed) }
+        var isMet: Bool { registered.count >= goal.needed }
+    }
+
+    /// Species goals of a collector item with what is already registered. Empty for items without
+    /// species goals (always on sale, or the Azure Flute's duplicate legendary).
+    func unlockProgress(of kind: ItemKind, registered: Set<Int>? = nil) -> [GoalProgress] {
+        guard case .species(let goals) = kind.unlock else { return [] }
+        let registered = registered ?? registeredSpeciesIDs
+        return goals.map { goal in
+            GoalProgress(goal: goal, registered: goal.species.filter(registered.contains))
+        }
+    }
+
+    /// Most graduated copies of a single legendary species (released copies excluded).
+    var graduatedLegendaryCopies: Int {
+        let graduated = state.dex.filter { $0.rarity == .legendary && !$0.isReleased }
+        return Dictionary(grouping: graduated, by: \.finalID).values.map(\.count).max() ?? 0
+    }
+
+    /// Whether the shop may sell this item. Items without a Pokédex condition are always unlocked.
+    func isUnlocked(_ kind: ItemKind, registered: Set<Int>? = nil) -> Bool {
+        switch kind.unlock {
+        case nil: return true
+        case .duplicateLegendary: return graduatedLegendaryCopies >= 2
+        case .species: return unlockProgress(of: kind, registered: registered).contains(where: \.isMet)
+        }
+    }
+
+    /// One collector section of the shop: items on sale first, then locked ones, then passives already
+    /// owned. `ItemKind.allCases` order inside each group.
+    func collectorItems(in group: CollectorGroup) -> [ItemKind] {
+        let registered = registeredSpeciesIDs
+        func rank(_ kind: ItemKind) -> Int {
+            if kind.isPassive && itemCount(kind) > 0 { return 2 }
+            return isUnlocked(kind, registered: registered) ? 0 : 1
+        }
+        let items = ItemKind.allCases.filter { $0.collectorGroup == group }
+        let ranks = Dictionary(uniqueKeysWithValues: items.map { ($0, rank($0)) })
+        return items.enumerated()
+            .sorted { (ranks[$0.element]!, $0.offset) < (ranks[$1.element]!, $1.offset) }
+            .map(\.element)
     }
 
     // 사탕 전용 래퍼 — 기존 호출부/테스트 호환.
@@ -1250,6 +1390,8 @@ final class CompanionStore {
 
     /// 현재 알이 보증하는 등급 하한(UI 표시용). 활성 포켓몬이 있으면 알이 없으므로 nil.
     var eggGuarantee: Rarity? { state.active == nil ? state.eggTier : nil }
+    /// 현재 알이 보증하는 타입(진화의 돌 구매 UI 표시용). 활성 포켓몬이 있으면 알이 없으므로 nil.
+    var eggTypeGuarantee: PokemonType? { state.active == nil ? state.eggTypeGuarantee : nil }
 
     /// 알 구매 가능 — 폐기할 활성 포켓몬이 있고 지갑이 그 티어 가격 이상일 때만.
     /// 알 상태에서도 살 수 있게 하는 안은 채택하지 않았다(기존 새 알과 게이트 통일) — 알끼리 교체하는
@@ -1275,7 +1417,32 @@ final class CompanionStore {
     @discardableResult
     func buyEgg(_ tier: Rarity?) -> Bool {
         guard canBuyEgg(tier) else { return false }
-        state.spentTokens += price(of: .egg(tier))
+        replaceActiveWithEgg(price: price(of: .egg(tier)), tier: tier, type: nil)
+        AppLog.write("egg purchased: discarded active, tier=\(tier?.rawValue ?? "none")")
+        return true
+    }
+
+    /// Evolution stone purchase gate: same as an egg (a companion to send off, enough tokens) plus the
+    /// stone's Pokédex goal.
+    func canBuyStone(_ kind: ItemKind) -> Bool {
+        guard kind.stoneType != nil, let price = price(of: kind) else { return false }
+        return hasActive && isUnlocked(kind) && availableTokens >= price
+    }
+
+    /// Evolution stone purchase: works like an egg. The current Pokémon is sent off right away for an egg
+    /// guaranteed to hatch the stone's type; the stone itself never goes to the Bag.
+    @discardableResult
+    func buyStone(_ kind: ItemKind) -> Bool {
+        guard canBuyStone(kind), let type = kind.stoneType, let price = price(of: kind) else { return false }
+        replaceActiveWithEgg(price: price, tier: nil, type: type)
+        AppLog.write("stone purchased: \(kind.rawValue), discarded active, type=\(type.rawValue)")
+        return true
+    }
+
+    /// Shared reset of `buyEgg` and `buyStone`: pays, sends the current Pokémon off (kept in the Pokédex)
+    /// and starts a new egg carrying the bought guarantee.
+    private func replaceActiveWithEgg(price: Int, tier: Rarity?, type: PokemonType?) {
+        state.spentTokens += price
         if let a = state.active {
             state.dex.append(releasedDexEntry(from: a))   // 놓아줌 기록 — 도감에서 종이 사라지지 않게
         }
@@ -1288,14 +1455,13 @@ final class CompanionStore {
         state.eggUsage = 0            // 새 알은 처음부터 인큐베이션(재부화에 5M 필요)
         isHatchRetryDelayed = false
         state.eggTier = tier          // 등급 보증(nil = 보증 없음)
+        state.eggTypeGuarantee = type // 진화의 돌의 타입 보증(nil = 보증 없음)
         state.pendingHatchID = nil    // 새 보증으로 처음부터 롤(활성 포켓몬이 있는 동안엔 원래 비어 있다)
         state.pendingUnownForm = nil
         prefetchedLineID = nil
         justGraduated = nil; justEvolvedTo = nil; eventUntil = nil
-        AppLog.write("egg purchased: discarded active, tier=\(tier?.rawValue ?? "none")")
         Task { await self.ensureEggPrefetch() }   // 다음 부화 예열
         save()
-        return true
     }
 
     // 보증 없는 기본 알 래퍼 — 기존 호출부/테스트 호환.
@@ -1362,9 +1528,9 @@ final class CompanionStore {
         state.candyGrantTier = grantTier
         state.candyWindowEpoch = windowEpoch
         for g in grants {
-            state.inventory[ItemKind.rareCandy.rawValue, default: 0] += g.count
+            let received = addRareCandies(g.count)
             // 지급 자체는 알림 여부와 무관(상태 변경). 알림은 "왜 받는지"(그 창 한도를 다 채운 수고) 명시.
-            notifyCompanionEvent(l.notifCandyTitle(item: l.itemName(.rareCandy), count: g.count),
+            notifyCompanionEvent(l.notifCandyTitle(item: l.itemName(.rareCandy), count: received),
                                  l.notifCandyBody(window: g.windowName))
         }
         // 지급이 없어도 재무장(util dip / epoch 교체)은 영속해야 한다 —
@@ -1527,17 +1693,21 @@ final class CompanionStore {
         rarity == .common && totalForms >= 2 && roll % PokemonOdds.dittoDisguiseDenominator == 0
     }
 
-    /// 이로치 부화 분모 — 부적 보유 48, 없으면 64. 판정과 알림 문구가 같은 값을 쓰도록 여기가 단일 소스다.
-    nonisolated static func shinyDenominator(charmOwned: Bool) -> UInt64 {
-        charmOwned ? ShinyCharm.shinyDenominator : PokemonOdds.shinyDenominator
+    /// 이로치 부화 분모: 부적 보유 48, 없으면 64; the Reveal Glass halves it again. 판정과 알림 문구가 같은
+    /// 값을 쓰도록 여기가 단일 소스다.
+    nonisolated static func shinyDenominator(charmOwned: Bool, revealGlassOwned: Bool = false) -> UInt64 {
+        let denom = charmOwned ? ShinyCharm.shinyDenominator : PokemonOdds.shinyDenominator
+        return revealGlassOwned ? max(1, denom / 2) : denom
     }
 
     /// 지금 부화하면 적용될 이로치 분모.
-    var shinyDenominator: UInt64 { Self.shinyDenominator(charmOwned: ownsShinyCharm) }
+    var shinyDenominator: UInt64 {
+        Self.shinyDenominator(charmOwned: ownsShinyCharm, revealGlassOwned: ownsRevealGlass)
+    }
 
     /// 이로치 부화 판정(순수) — 미리 뽑은 roll 값 % 분모==0. (부수효과 없이 xctest)
-    nonisolated static func rollsShiny(roll: UInt64, charmOwned: Bool) -> Bool {
-        roll % shinyDenominator(charmOwned: charmOwned) == 0
+    nonisolated static func rollsShiny(roll: UInt64, charmOwned: Bool, revealGlassOwned: Bool = false) -> Bool {
+        roll % shinyDenominator(charmOwned: charmOwned, revealGlassOwned: revealGlassOwned) == 0
     }
 
     /// 실제 부화 로직 — isHatching 락은 호출자(hatch / hatchIfNeeded)가 소유·해제한다.
@@ -1570,6 +1740,18 @@ final class CompanionStore {
             save()
             return
         }
+        // Same last gate for a stone's type guarantee: the index type is the base species', so a stale
+        // index could still hand over another type. Keep the egg and re-roll next tick.
+        if let typeGuarantee = state.eggTypeGuarantee,
+           !PokemonTypeData.types(forSpeciesID: line.baseID).contains(typeGuarantee) {
+            AppLog.write("hatch: rolled \(line.baseID) without guaranteed type \(typeGuarantee), discarded; re-roll next tick")
+            state.pendingHatchID = nil
+            state.pendingUnownForm = nil
+            prefetchedLineID = nil
+            markHatchRetryDelayedIfReady(generation: generation)
+            save()
+            return
+        }
         state.pendingHatchID = nil
         state.pendingUnownForm = nil
         // A later egg can roll the same species with another letter and must warm its own sprite.
@@ -1580,10 +1762,11 @@ final class CompanionStore {
         let overflow = max(0, state.eggUsage - eggHatchThreshold)
         state.eggUsage = 0
         state.eggTier = nil   // 보증은 이 부화로 소비된다(다음 알은 다시 무보증)
-        // 개체 롤 — shiny(1/64, 부적 1/48)·성격(25종)은 부화 순간 확정, 진화해도 유지.
+        state.eggTypeGuarantee = nil
+        // 개체 롤: shiny(1/64, 부적 1/48, Reveal Glass halves it)·성격(25종)은 부화 순간 확정, 진화해도 유지.
         // 알림 문구는 이 판정과 같은 분모를 보여준다.
         let shinyOdds = shinyDenominator
-        let isShiny = Self.rollsShiny(roll: rng.next(), charmOwned: ownsShinyCharm)
+        let isShiny = Self.rollsShiny(roll: rng.next(), charmOwned: ownsShinyCharm, revealGlassOwned: ownsRevealGlass)
         let nature = PokemonNature.allCases[Int(rng.next() % UInt64(PokemonNature.allCases.count))]
         // 메타몽 위장 롤 — common·≥2형태에 한해 1/128. .app 게이트(&& 단락 → 비앱에선 rng 미소비로
         // 기존 테스트 RNG 시퀀스 무영향). 위장/리빌 로직은 상태 기반으로 별도 테스트한다.
@@ -1697,6 +1880,26 @@ final class CompanionStore {
         }
     }
 
+    /// Roll weight of one base species: its capture rate (halved once its line is collected), then the
+    /// boosts of the items owned. Split out of `chooseBase` so each boost can be tested without a roll.
+    func hatchWeight(for e: BaseSpecies) -> Int {
+        var w = CollectionWeight.adjusted(e.captureRate, isCollected: state.hasCollectedFinal(forBaseID: e.id))
+        if ownsLegendCharm && e.captureRate <= 3 {
+            w *= LegendCharm.weightMultiplier
+        }
+        if ownsClearBell && e.captureRate <= 45 && e.captureRate > 3 {
+            w *= 2
+        }
+        if ownsGriseousOrb && PokemonTypeData.types(forSpeciesID: e.id).contains(where: { $0 == .ghost || $0 == .dragon }) {
+            w *= 2
+        }
+        let badgeMult = typeBadgeSpeedMultiplier(forSpeciesID: e.id)
+        if badgeMult > 1.0 {
+            w = max(1, Int((Double(w) * badgeMult).rounded()))
+        }
+        return w
+    }
+
     /// 부화 종 선정 — 하드코딩 풀 없이 PokéAPI 1~5세대 base 전체(329종)에서 가중 선택.
     ///   ① base 인덱스(id + capture_rate)를 GraphQL 1쿼리로 취득(30일 디스크 캐시 → 보통 0콜)
     ///   ② 가중치 = 공식 capture_rate 그대로(캐터피 255 vs 뮤츠 3 = 85:1, 전설군 ≈ 0.77%)
@@ -1705,18 +1908,21 @@ final class CompanionStore {
     /// 인덱스 취득 실패(오프라인 + 캐시 없음) 시 nil → 알 유지, 다음 갱신 틱 재시도.
     private func chooseBase() async -> Int? {
         let tier = state.eggTier
+        let typeGuarantee = state.eggTypeGuarantee
         if let full = try? await provider.baseSpeciesIndex(), !full.isEmpty {
             // 등급 보증 알은 후보를 먼저 좁힌다 — capture_rate 상한이 곧 등급 하한이므로
             // (Rarity.captureRateCeiling) 전설도 자연히 포함된다("희귀 이상"에 전설이 들어가는 게 정상).
             // 좁힌 결과가 비면 보증을 못 지키므로 전체 풀로 폴백하지 말고 알을 유지한다(다음 틱 재시도).
-            let index = tier.map { t in full.filter { t.includes(captureRate: $0.captureRate) } } ?? full
+            var index = tier.map { t in full.filter { t.includes(captureRate: $0.captureRate) } } ?? full
+            if let targetType = typeGuarantee {
+                let typeSpecies = PokemonTypeData.species(for: targetType)
+                index = index.filter { typeSpecies.contains($0.id) }
+            }
             guard !index.isEmpty else {
-                AppLog.write("hatch: no candidate for guaranteed \(tier?.rawValue ?? "none") — egg kept, retry next tick")
+                AppLog.write("hatch: no candidate for guaranteed tier=\(tier?.rawValue ?? "none") type=\(typeGuarantee?.rawValue ?? "none"), egg kept; retry next tick")
                 return nil
             }
-            let weights = index.map { e in
-                CollectionWeight.adjusted(e.captureRate, isCollected: state.hasCollectedFinal(forBaseID: e.id))
-            }
+            let weights = index.map(hatchWeight(for:))
             let total = weights.reduce(0, +)
             var r = Int(rng.next() % UInt64(total))
             for (i, w) in weights.enumerated() {
@@ -1735,7 +1941,8 @@ final class CompanionStore {
     /// line() 이 실제 capture_rate 로 계산하므로 결과 개체의 등급은 정확하다. 인덱스 복구 시 가중 선택 재개.
     private func chooseBaseViaREST() async -> Int? {
         let tier = state.eggTier
-        for attempt in 1...16 {
+        let typeGuarantee = state.eggTypeGuarantee
+        for attempt in 1...32 {
             let ids = PokemonAssets.animatedSpeciesIDs
             let id = Int(rng.next() % UInt64(ids.count)) + ids.lowerBound
             do {
@@ -1743,6 +1950,7 @@ final class CompanionStore {
                     // 등급 보증은 가중 경로와 **같은 기준**으로 여기서도 걸러야 한다 — 이 폴백만 빠지면
                     // GraphQL 인덱스 장애 때 보증이 조용히 깨진다. 못 찾으면 알 유지(구매 소멸 금지).
                     if let tier, !tier.includes(captureRate: bs.captureRate) { continue }
+                    if let typeGuarantee, !PokemonTypeData.types(forSpeciesID: bs.id).contains(typeGuarantee) { continue }
                     AppLog.write("hatch: REST fallback picked base \(id) (cap \(bs.captureRate), \(attempt) tries)")
                     return id
                 }
@@ -1752,7 +1960,7 @@ final class CompanionStore {
                 return nil   // REST 도 불가 → 알 유지, 다음 update 틱 재시도
             }
         }
-        AppLog.write("hatch: REST fallback exhausted 16 tries")
+        AppLog.write("hatch: REST fallback exhausted 32 tries")
         return nil
     }
 
@@ -2076,3 +2284,12 @@ final class CompanionStore {
         try? data.write(to: fileURL, options: .atomic)   // 부분 쓰기 손상 방지(펫 상태)
     }
 }
+
+#if DEBUG
+extension CompanionStore {
+    /// 테스트용 알 사용량 주입.
+    func setEggUsageForTesting(_ usage: Int) {
+        state.eggUsage = usage
+    }
+}
+#endif

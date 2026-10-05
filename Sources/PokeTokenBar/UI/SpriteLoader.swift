@@ -7,9 +7,12 @@ actor SpriteStore {
     private let itemBase = "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items"
     private var mem: [String: Data] = [:]
     private var memOrder: [String] = []   // LRU 순서(최근 접근이 뒤). 상한 초과 시 앞(오래된 것)부터 evict
-    // 원본 PNG/GIF 바이트의 LRU 상한 — 도감 한 페이지(24칸)보다 넉넉히 유지하되,
-    // 세션 중 종 변경으로 무한 누적되지 않게 한다. NSImage 캐시는 SpriteLoader 가 별도로 관리한다.
-    private let memLimit = 64
+    /// Keys the server answered without a sprite (404…), so they are not requested again this session.
+    /// A request that failed to reach the server (offline) is not recorded: it must be retried later.
+    private var failedKeys: Set<String> = []
+    // Raw PNG/GIF LRU cap: the Pokédex page (24 cells), the shop collector sections (38 items plus the
+    // Pokémon they ask for) and the bag must not thrash each other. SpriteLoader keeps its own NSImage cache.
+    private let memLimit = 256
     nonisolated let directory: URL
 
     init(directory: URL? = nil) {
@@ -48,9 +51,13 @@ actor SpriteStore {
         let ext = animated ? "gif" : "png"
         let file = directory.appendingPathComponent("\(key).\(ext)")
         if let d = try? Data(contentsOf: file) { remember(key, d); return d }
+        if failedKeys.contains(key) { return nil }
         let url = Self.spriteURL(speciesID: speciesID, animated: animated, shiny: shiny, unownForm: unownForm)
-        guard let (d, resp) = try? await URLSession.shared.data(from: url),
-              (resp as? HTTPURLResponse)?.statusCode == 200, !d.isEmpty else { return nil }
+        guard let (d, resp) = try? await URLSession.shared.data(from: url) else { return nil }
+        guard (resp as? HTTPURLResponse)?.statusCode == 200, !d.isEmpty else {
+            failedKeys.insert(key)
+            return nil
+        }
         try? d.write(to: file, options: .atomic)   // torn write 방지 — 크래시/강제종료 시 손상 캐시가 남지 않게
         remember(key, d)
         return d
@@ -63,9 +70,20 @@ actor SpriteStore {
         if let d = mem[key] { touch(key); return d }
         let file = directory.appendingPathComponent("\(key).png")
         if let d = try? Data(contentsOf: file) { remember(key, d); return d }
-        guard let url = URL(string: "\(itemBase)/\(itemName).png"),
-              let (d, resp) = try? await URLSession.shared.data(from: url),
-              (resp as? HTTPURLResponse)?.statusCode == 200, !d.isEmpty else { return nil }
+        if failedKeys.contains(key) { return nil }
+        let urlStr: String
+        if itemName.hasPrefix("badge-") {
+            let badgeNum = itemName.dropFirst(6)
+            urlStr = "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/badges/\(badgeNum).png"
+        } else {
+            urlStr = "\(itemBase)/\(itemName).png"
+        }
+        guard let url = URL(string: urlStr),
+              let (d, resp) = try? await URLSession.shared.data(from: url) else { return nil }
+        guard (resp as? HTTPURLResponse)?.statusCode == 200, !d.isEmpty else {
+            failedKeys.insert(key)
+            return nil
+        }
         try? d.write(to: file, options: .atomic)
         remember(key, d)
         return d

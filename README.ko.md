@@ -42,7 +42,7 @@ PokeTokenBar는 당신이 이미 태우고 있는 AI 코딩 토큰(Claude Code �
 3. ⚡ **진화.** 계속 코딩하면 실제 진화 트리(1/2/3단, 분기)를 따라 자라고, 단계마다 작은 연출이 반겨줍니다.
 4. 🎓 **졸업 & 수집.** 최종 진화 + 임계 도달 시 **도감**에 영구 보존됩니다 — 희귀할수록 오래 걸리고(헤비 유저 기준 common ≈3일 → legendary ≈24일) — 새 알이 도착합니다.
 5. 🍬 **한도 채우고 사탕 받기.** 5시간 또는 주간 사용량 한도를 다 채우면 **이상한 사탕**을 받아요 — 새 **가방** 탭에서 써서 현재 포켓몬을 키우세요.
-6. 🛒 **상점에서 쓰기.** 그동안 사용한 토큰이 곧 재화입니다 — 새 **상점** 탭에서 **이상한 사탕**, 포켓몬 성격을 랜덤으로 다시 굴리는 **민트**, 이로치 확률을 영구히 올리는 **이로치 부적**, 또는 지금 포켓몬을 놓아주고 다시 시작하는 알을 살 수 있어요. 알은 세 종류입니다 — 일반 **포켓몬 알**, 고급 이상이 확정으로 나오는 **고급 알**, 희귀 이상이 확정으로 나오는 **희귀 알**.
+6. 🛒 **상점에서 쓰기.** 그동안 사용한 토큰이 곧 재화입니다 — 새 **상점** 탭에서 **이상한 사탕**, 포켓몬 성격을 랜덤으로 다시 굴리는 **민트**, 이로치 확률을 영구히 올리는 **이로치 부적**, 또는 지금 포켓몬을 놓아주고 다시 시작하는 알을 살 수 있어요. 알은 세 종류입니다 — 일반 **포켓몬 알**, 고급 이상이 확정으로 나오는 **고급 알**, 희귀 이상이 확정으로 나오는 **희귀 알**. 상점 아래쪽의 수집 아이템(진화의 돌·전설의 유물·체육관 배지)은 필요한 포켓몬을 도감에 등록하면 구매할 수 있어요.
 
 ## 둘러보기
 
@@ -153,6 +153,74 @@ Pi는 모델 여러 개를 세션 로그 하나로 흘려보낼 수 있습니다
 </td>
 </tr>
 </table>
+
+## 수집 아이템
+
+**상점** 탭의 일반 상품 아래에 접힌 수집 아이템 섹션이 세 개 있어요. 각 아이템은 필요한 포켓몬을 도감에 등록하기 전까지 **잠겨** 있어요. 졸업시킨 포켓몬과 놓아준 포켓몬, 그리고 지금 키우는 포켓몬이 이미 도달한 단계가 모두 등록으로 인정돼요. 잠긴 카드에는 필요한 포켓몬이 표시되고, 아직 등록하지 않은 포켓몬은 회색으로 보여요. 해금한 뒤에도 카드에 조건이 작게 남아요. 가격은 기본 상점 난이도 기준이에요.
+
+### 진화의 돌
+
+돌은 알처럼 구매해요. 사는 즉시 지금 포켓몬을 놓아주고(도감에는 놓아준 기록으로 남아요) 돌의 타입이 확정으로 나오는 새 알을 받아요. 가방에는 들어가지 않아요. 돌은 개당 **5B**이고, 알이 부화하면 다시 살 수 있어요.
+
+| 돌 | 스프라이트 | 알 타입 | 해금 조건 |
+| :--- | :---: | :---: | :--- |
+| **리프의돌** | <img src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/leaf-stone.png" width="28" height="28" alt="리프의돌"> | 풀 | 이상해꽃, 리자몽, 거북왕 |
+| **불꽃의돌** | <img src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/fire-stone.png" width="28" height="28" alt="불꽃의돌"> | 불꽃 | 메가니움, 블레이범, 장크로다일 |
+| **물의돌** | <img src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/water-stone.png" width="28" height="28" alt="물의돌"> | 물 | 나무킹, 번치코, 대짱이 **또는** 샤미드, 쥬피썬더, 부스터 |
+| **천둥의돌** | <img src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/thunder-stone.png" width="28" height="28" alt="천둥의돌"> | 전기 | 라이츄, 쥬피썬더, 저리더프 |
+| **태양의돌** | <img src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/sun-stone.png" width="28" height="28" alt="태양의돌"> | 에스퍼 | 토대부기, 초염몽, 엠페르트 |
+| **달의돌** | <img src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/moon-stone.png" width="28" height="28" alt="달의돌"> | 페어리 | 샤로다, 염무왕, 대검귀 |
+| **어둠의돌** | <img src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/dusk-stone.png" width="28" height="28" alt="어둠의돌"> | 악 | 에브이, 블래키 |
+| **얼음의돌** | <img src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/ice-stone.png" width="28" height="28" alt="얼음의돌"> | 얼음 | 리피아, 글레이시아 |
+| **각성의돌** | <img src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/dawn-stone.png" width="28" height="28" alt="각성의돌"> | 격투 | 엘레이드, 눈여아 |
+| **빛의돌** | <img src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/shiny-stone.png" width="28" height="28" alt="빛의돌"> | 드래곤 | 망나뇽, 보만다, 레쿠쟈 |
+
+### 전설의 유물
+
+한 번만 사면 가방에 있는 동안 효과가 계속 적용돼요.
+
+| 유물 | 스프라이트 | 해금 조건 | 효과 | 가격 |
+| :--- | :---: | :--- | :--- | ---: |
+| **천공의피리** | <img src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/azure-flute.png" width="28" height="28" alt="천공의피리"> | 같은 전설의 포켓몬을 두 번 졸업 | 전설의 포켓몬이 4배 자주 태어나요 | 20B |
+| **은빛날개** | <img src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/silver-wing.png" width="28" height="28" alt="은빛날개"> | 프리져, 썬더, 파이어 | 알 부화에 필요한 토큰이 절반으로 줄어요 | 8B |
+| **오래된해도** | <img src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/old-sea-map.png" width="28" height="28" alt="오래된해도"> | 뮤츠, 뮤 | 토큰 사용으로 얻는 성장 +20% | 10B |
+| **투명한방울** | <img src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/clear-bell.png" width="28" height="28" alt="투명한방울"> | 라이코, 앤테이, 스이쿤 | 희귀 등급 포켓몬이 2배 자주 태어나요 | 10B |
+| **무지갯빛날개** | <img src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/rainbow-wing.png" width="28" height="28" alt="무지갯빛날개"> | 루기아, 칠색조 | 상점의 모든 구매 25% 할인 | 12B |
+| **화산의돌** | <img src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/magma-stone.png" width="28" height="28" alt="화산의돌"> | 레지락, 레지아이스, 레지스틸 **또는** 화석 포켓몬 아무거나 4마리¹ | 이미 졸업시킨 라인의 성장 요구량 25% 감소 | 8B |
+| **마음의물방울** | <img src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/soul-dew.png" width="28" height="28" alt="마음의물방울"> | 라티아스, 라티오스 | 이상한 사탕 경험치 +50% | 6B |
+| **초록구슬** | <img src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/jade-orb.png" width="28" height="28" alt="초록구슬"> | 가이오가, 그란돈, 레쿠쟈 | 알 추가 20% 할인 | 6B |
+| **그라시데아꽃** | <img src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/gracidea.png" width="28" height="28" alt="그라시데아꽃"> | 유크시, 엠라이트, 아그놈 | 이상한 사탕을 얻을 때마다 1개 더 | 10B |
+| **백금옥** | <img src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/griseous-orb.png" width="28" height="28" alt="백금옥"> | 디아루가, 펄기아, 기라티나 | 고스트·드래곤타입 포켓몬이 2배 자주 태어나요 | 8B |
+| **리버티티켓** | <img src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/liberty-pass.png" width="28" height="28" alt="리버티티켓"> | 코바르온, 테라키온, 비리디온 | 아직 졸업시킨 적 없는 라인의 성장 요구량 25% 감소 | 12B |
+| **비추는거울** | <img src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/reveal-glass.png" width="28" height="28" alt="비추는거울"> | 토네로스, 볼트로스, 랜드로스 | 이로치 확률 2배 (이로치 부적과 중첩) | 15B |
+| **유전자쐐기** | <img src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/dna-splicers.png" width="28" height="28" alt="유전자쐐기"> | 레시라무, 제크로무 | 토큰 사용으로 얻는 성장 +50% | 20B |
+
+¹ 암스타, 투구푸스, 프테라, 릴리요, 아말도, 램펄드, 바리톱스, 늑골라, 아케오스.
+
+### 체육관 배지
+
+1~5세대의 한 타입 포켓몬을 모두 도감에 등록하면 그 타입의 배지가 해금돼요. 개당 **8B**. 보유하는 동안 그 타입에 약한 포켓몬이 20% 더 자주 태어나고 20% 빨리 자라요. 여러 배지에 약한 포켓몬은 효과가 누적돼요.
+
+| 배지 | 스프라이트 | 타입 | 해금 조건 | 효과를 받는 포켓몬 |
+| :--- | :---: | :---: | :--- | :--- |
+| **회색배지** | <img src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/badges/1.png" width="28" height="28" alt="회색배지"> | 바위 | 바위타입 포켓몬 47마리 전부 | 불꽃, 얼음, 비행, 벌레 |
+| **블루배지** | <img src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/badges/2.png" width="28" height="28" alt="블루배지"> | 물 | 물타입 포켓몬 109마리 전부 | 불꽃, 땅, 바위 |
+| **오렌지배지** | <img src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/badges/3.png" width="28" height="28" alt="오렌지배지"> | 전기 | 전기타입 포켓몬 39마리 전부 | 물, 비행 |
+| **무지개배지** | <img src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/badges/4.png" width="28" height="28" alt="무지개배지"> | 풀 | 풀타입 포켓몬 75마리 전부 | 물, 땅, 바위 |
+| **핑크배지** | <img src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/badges/5.png" width="28" height="28" alt="핑크배지"> | 독 | 독타입 포켓몬 57마리 전부 | 풀, 페어리 |
+| **골드배지** | <img src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/badges/6.png" width="28" height="28" alt="골드배지"> | 에스퍼 | 에스퍼타입 포켓몬 68마리 전부 | 격투, 독 |
+| **진홍배지** | <img src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/badges/7.png" width="28" height="28" alt="진홍배지"> | 불꽃 | 불꽃타입 포켓몬 48마리 전부 | 풀, 얼음, 벌레, 강철 |
+| **그린배지** | <img src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/badges/8.png" width="28" height="28" alt="그린배지"> | 땅 | 땅타입 포켓몬 58마리 전부 | 불꽃, 전기, 독, 바위, 강철 |
+| **윙배지** | <img src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/badges/9.png" width="28" height="28" alt="윙배지"> | 비행 | 비행타입 포켓몬 82마리 전부 | 풀, 격투, 벌레 |
+| **인섹트배지** | <img src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/badges/10.png" width="28" height="28" alt="인섹트배지"> | 벌레 | 벌레타입 포켓몬 63마리 전부 | 풀, 에스퍼, 악 |
+| **레귤러배지** | <img src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/badges/11.png" width="28" height="28" alt="레귤러배지"> | 노말 | 노말타입 포켓몬 89마리 전부 | 노말타입 (노말에 약한 타입이 없어서) |
+| **팬텀배지** | <img src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/badges/12.png" width="28" height="28" alt="팬텀배지"> | 고스트 | 고스트타입 포켓몬 27마리 전부 | 에스퍼, 고스트 |
+| **쇼크배지** | <img src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/badges/13.png" width="28" height="28" alt="쇼크배지"> | 격투 | 격투타입 포켓몬 40마리 전부 | 노말, 얼음, 바위, 악, 강철 |
+| **스틸배지** | <img src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/badges/14.png" width="28" height="28" alt="스틸배지"> | 강철 | 강철타입 포켓몬 37마리 전부 | 얼음, 바위, 페어리 |
+| **아이스배지** | <img src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/badges/15.png" width="28" height="28" alt="아이스배지"> | 얼음 | 얼음타입 포켓몬 29마리 전부 | 풀, 땅, 비행, 드래곤 |
+| **라이징배지** | <img src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/badges/16.png" width="28" height="28" alt="라이징배지"> | 드래곤 | 드래곤타입 포켓몬 29마리 전부 | 드래곤 |
+| **악배지** | <img src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/badges/59.png" width="28" height="28" alt="악배지"> | 악 | 악타입 포켓몬 39마리 전부 | 에스퍼, 고스트 |
+| **페어리배지** | <img src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/badges/48.png" width="28" height="28" alt="페어리배지"> | 페어리 | 페어리타입 포켓몬 22마리 전부 | 격투, 드래곤, 악 |
 
 ## 이 밖에도
 
