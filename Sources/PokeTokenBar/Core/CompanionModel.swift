@@ -18,6 +18,8 @@ enum AppLanguage: String, Codable, Sendable, CaseIterable {
         case .fr: return ["fr"]
         case .pt: return ["pt-br", "pt"]
         case .de: return ["de"]
+        // 공식 러시아어 이름(Пикачу·Иви 등)은 있지만 PokéAPI 에 ru 데이터가 아직 없어 지금은 영어로 폴백된다 —
+        // 데이터 부재에 따른 임시 범위이지 러시아의 표기 관행이 아니다. PokéAPI 가 ru 를 제공하면 그대로 쓰인다.
         case .ru: return ["ru"]
         }
     }
@@ -400,8 +402,9 @@ enum PokemonNature: String, Codable, Sendable, CaseIterable {
     /// 본가 공식 번역 명칭 (ko/en/ja/es/fr/de).
     /// pt 만 예외 — 본가에 포르투갈어판이 없어 공식 명칭이 없다. "natureza"(여성 명사)에
     /// 맞춘 자체 번역이며 25종이 겹치지 않게 골랐다(`testNatureNamesComplete` 가 중복·공백을 막는다).
-    /// ru 도 예외 — 본가 러시아어판이 없다. 커뮤니티 번역(러시아어 Pixelmon 위키의 характеры 표)을
-    /// 기준으로 "характер"(남성 명사)에 맞춘 남성형이며, 뜻이 어긋난 2종만 고쳤다:
+    /// ru 도 예외 — 성격 명칭의 공식 러시아어 출처를 찾지 못했다(본가 게임은 러시아어 미지원). 그래서 커뮤니티
+    /// 번역(러시아어 Pixelmon 위키의 характеры 표)을 기준으로 "характер"(남성 명사)에 맞춘 남성형이며, 공식 출처가
+    /// 확인되면 그쪽으로 바꾼다. 뜻이 어긋난 2종만 고쳤다:
     /// Lax Слабый→Беспечный, Gentle Вежливый→Кроткий.
     func name(_ lang: AppLanguage) -> String {
         let names: (String, String, String, String, String, String, String, String)

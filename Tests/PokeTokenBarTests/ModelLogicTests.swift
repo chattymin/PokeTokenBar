@@ -47,8 +47,8 @@ final class EvoLineNameTests: XCTestCase {
         XCTAssertEqual(line.localizedName(2, .de), "Ivysaur")
     }
 
-    /// PokéAPI 에 러시아어 이름이 없는 종이 대부분이라 영어 폴백이 사실상 기본 경로다 —
-    /// 다른 UI 언어(de 등)로 새지 않고 영어로 떨어지는지, ru 가 생기면 그걸 쓰는지 고정한다.
+    /// 공식 러시아어 이름은 있지만 PokéAPI 에 ru 데이터가 없어 지금은 영어 폴백이 실제 경로다(데이터 부재에 따른
+    /// 임시 범위) — 다른 UI 언어(de 등)로 새지 않고 영어로 떨어지는지, ru 가 생기면 그걸 쓰는지 고정한다.
     func testRussianNameUsesRussianThenFallsBackToEnglish() {
         let line = EvoLine(
             baseID: 1, tree: evoNode(1), rarity: .common,
