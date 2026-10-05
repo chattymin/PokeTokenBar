@@ -32,6 +32,9 @@ struct BagView: View {
             SpriteView(speciesID: 143, size: 96, animated: true)   // 잠만보(움직임)
             Text(store.l.bagEmptyTitle)
                 .font(.callout.weight(.semibold))
+            Button(store.l.shop) { nav.tab = .shop }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 28)

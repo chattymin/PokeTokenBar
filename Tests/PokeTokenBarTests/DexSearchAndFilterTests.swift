@@ -55,14 +55,47 @@ final class DexSearchAndFilterTests: XCTestCase {
         return makeStore(dex: [entryBulbasaur, entryPikachu, entryMewtwo])
     }
 
-    private func makeStore(dex: [DexEntry]) -> CompanionStore {
+    private func makeStore(dex: [DexEntry], active: MonState? = nil) -> CompanionStore {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("dex-search-\(UUID().uuidString).json")
         var state = CompanionState()
         state.dex = dex
+        state.active = active
         state.language = .en
         try? JSONEncoder().encode(state).write(to: url)
 
         return CompanionStore(provider: MockPokeProvider(), clock: { self.now }, fileURL: url, rng: SeededRNG(seed: 42))
+    }
+
+    /// Sprite → Pokédex page links. Every dex species (graduated chains and the raising Pokémon's
+    /// reached stages) links to its dex cell; an unreached evolution and an uncaught species do
+    /// not, so their sprites stay inert. Unown links to its single species cell, not a letter.
+    func testDexLinkTargetsCoverOnlySpeciesInTheDex() {
+        let unown = DexEntry(id: "entry-unown", baseID: 201, finalID: 201, chainOrder: [201],
+                             rarity: .rare, caughtAt: now, isShiny: false, unownForm: .q)
+        let raising = MonState(baseID: 4, pathIDs: [4, 5], plannedPathIDs: [4, 5, 6], stageIndex: 1,
+                               usedAtStage: 0, rarity: .common, totalForms: 3)
+        let store = makeStore(dex: [unown] + createTestStore().state.dex, active: raising)
+
+        let links = store.dexLinkTargets
+        XCTAssertEqual(links[1], "1")
+        XCTAssertEqual(links[26], "26")
+        XCTAssertEqual(links[201], "201", "Unown opens its species cell; the letter is chosen on the page")
+        XCTAssertEqual(links[5], "5", "the raising Pokémon's current form links (it has a RAISING dex cell)")
+        XCTAssertEqual(links[4], "4", "a reached earlier stage links")
+        XCTAssertNil(links[6], "an unreached evolution has no dex page")
+        XCTAssertNil(links[999], "an uncaught species has no dex page")
+        XCTAssertEqual(Set(links.keys), Set(store.dexSpecies.map(\.id)))
+        for (id, collectionID) in links {
+            XCTAssertEqual(store.dexSpecies.first { $0.collectionID == collectionID }?.id, id,
+                           "every link resolves to the detail page CollectionView would open")
+        }
+    }
+
+    /// An egg has no species, so the Home header sprite gets no link target.
+    func testEggHasNoDexLinkTarget() {
+        let store = makeStore(dex: createTestStore().state.dex)
+        XCTAssertTrue(store.isEgg)
+        XCTAssertNil(store.currentSpeciesID.flatMap { store.dexLinkTargets[$0] })
     }
 
     func testDexSpeciesSearchByIDAndName() {
@@ -249,9 +282,7 @@ final class DexSearchAndFilterTests: XCTestCase {
     }
 
     func testSortOptionLabelsExistInAllLanguages() {
-        let languages: [AppLanguage] = [.ko, .en, .ja, .es, .fr, .pt, .de]
-
-        for lang in languages {
+        for lang in AppLanguage.allCases {
             let l = L(lang)
             for option in CompanionStore.DexSortOption.allCases {
                 let label = l.label(for: option)

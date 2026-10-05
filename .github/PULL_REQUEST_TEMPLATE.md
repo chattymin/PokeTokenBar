@@ -1,4 +1,4 @@
-<!-- Write the PR title and this description in English (see CONTRIBUTING.md). -->
+<!-- Use an English Conventional Commits title, e.g. fix(home): retain idle usage history. Write this description in English (see CONTRIBUTING.md). -->
 
 ## Summary
 
@@ -15,11 +15,20 @@
 ## UI changes
 
 <!--
-When this PR changes anything under `Sources/PokeTokenBar/UI/`, describe the
-before/after below. Images (screenshots or GIFs) are welcome but optional — a
-clear text description is fine. The canonical app screenshots in `assets/` are
-regenerated at release, so they don't need updating per PR. Remove this section
-only if there are no UI changes.
+Every visible UI change requires embedded images here, including changes caused
+outside `Sources/PokeTokenBar/UI/`. Use actual screenshots, local renders of the
+production UI, or clearly labeled illustrations of the changed UI. Label renders
+using sample data and illustrations explicitly. Existing images are acceptable
+only when they show the relevant version and state.
+Include before/after images for an existing screen. For a new screen, explain
+that no previous screen exists and include its image. Text alone is insufficient.
+If images are missing, generate and attach them; coding agents do this as part
+of the authorized PR work. Try suitable capture/render/illustration and upload
+alternatives before keeping publication pending for a concrete remaining blocker.
+Use image URLs that
+render on GitHub, not local file paths. The canonical app screenshots in `assets/`
+are regenerated at release, so they don't need updating per PR. Remove this
+section only if there is no visible UI change.
 -->
 
 | Before | After |
@@ -29,7 +38,7 @@ only if there are no UI changes.
 ## Checklist
 
 - [ ] `swift build` and `swift test` pass locally
-- [ ] PR title and description are written in English
-- [ ] UI changes are described above (before/after — images optional)
+- [ ] PR title follows Conventional Commits and title/description are written in English
+- [ ] UI changes include embedded images (before/after for existing screens; image of a new screen), or there is no visible UI change
 - [ ] No copyrighted assets, secrets, or private tooling references are committed (see [CONTRIBUTING](../CONTRIBUTING.md))
 - [ ] Tests were added or updated for this change

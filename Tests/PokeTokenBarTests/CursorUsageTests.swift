@@ -687,6 +687,38 @@ final class CursorUsageTests: XCTestCase {
         XCTAssertEqual(result.entries?.count, 101)
     }
 
+    /// Without `pagination` and `totalUsageEventsCount`, a full page must still lead to the next
+    /// one. `hasNextPage` alone already did this, but the fetch loop passed a missing total as `0`
+    /// instead of `nil`, so `page * 100 < 0` stopped after page 1 and dropped the rest.
+    func testFetchFilteredEventsWithoutAnyPaginationMetadataKeepsPaginatingWhileFull() async throws {
+        let since = try date("2025-01-01T00:00:00Z")
+        for total in [nil, 101] as [Int?] {
+            final class PageRecorder: @unchecked Sendable { var pages: [Int] = [] }
+            let recorder = PageRecorder()
+            let transport: CursorUsageAPI.Transport = { request in
+                guard let body = request.httpBody,
+                      let json = try? JSONSerialization.jsonObject(with: body) as? [String: Any] else {
+                    return nil
+                }
+                let page = json["page"] as? Int ?? 0
+                recorder.pages.append(page)
+                let count = page == 1 ? 100 : 1
+                var object: [String: Any] = ["usageEvents": (0 ..< count).map { index in
+                    ["timestamp": "1750979225854", "model": "gpt",
+                     "tokenUsage": ["inputTokens": page * 1_000 + index + 1]] as [String: Any]
+                }]
+                if let total { object["totalUsageEventsCount"] = total }
+                guard let payload = try? JSONSerialization.data(withJSONObject: object) else { return nil }
+                return (payload, 200)
+            }
+            let result = await CursorUsageAPI.fetchFilteredEventsForTesting(
+                token: "test-token", modifiedSince: since, transport: transport)
+            XCTAssertNil(result.failureReason, "total \(String(describing: total))")
+            XCTAssertEqual(recorder.pages, [1, 2], "total \(String(describing: total))")
+            XCTAssertEqual(result.entries?.count, 101, "total \(String(describing: total))")
+        }
+    }
+
     func testFetchFilteredEventsReturnsFailureReasonForHTTPError() async throws {
         let since = try date("2025-01-01T00:00:00Z")
         let transport: CursorUsageAPI.Transport = { _ in

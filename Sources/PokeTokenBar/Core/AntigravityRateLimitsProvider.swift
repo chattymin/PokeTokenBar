@@ -181,6 +181,11 @@ actor AntigravityTokenCache {
             if let cachedCredential, !cachedCredential.isExpired {
                 return cachedCredential.accessToken
             }
+            // An expired Keychain-sourced token still carries its refresh token in memory, and
+            // refreshing with it needs no Keychain (Google refresh tokens do not rotate).
+            if let cachedCredential, let refresh = cachedCredential.refreshToken, !refresh.isEmpty {
+                return try await resolveValidToken(from: cachedCredential)
+            }
             throw LimitsError.keychainInteractionNotAllowed
         }
 

@@ -302,6 +302,10 @@ struct EvoLineView: View {
     var nameFontSize: CGFloat = 8
     var nameLineLimit: Int = 1
     var nameMinimumScaleFactor: CGFloat = 0.7
+    /// Species number → dex `collectionID` (`CompanionStore.dexLinkTargets`). Together with
+    /// `onOpenDexEntry` it makes the sprites of species in the dex open their Pokédex page.
+    var dexLinks: [Int: String] = [:]
+    var onOpenDexEntry: ((String) -> Void)? = nil
 
     private static let spacing: CGFloat = 2
     /// 화살표 칸 폭 = 썸네일 × 이 비율. 고정 frame 을 줘 SF Symbol 글리프 폭에 의존하지 않게 한다 —
@@ -453,6 +457,23 @@ struct EvoLineView: View {
 
     // MARK: 라인 본체
 
+    /// Which dex page a node opens. Only species already in the dex link — the `?` placeholder and
+    /// uncaught species have no page. Pure function (regression-tested).
+    static func dexLinkTarget(for node: EvoLineItem, links: [Int: String]) -> String? {
+        guard case .species(let id) = node.content else { return nil }
+        return links[id]
+    }
+
+    private func dexLinkModifier(for node: EvoLineItem) -> DexEntryLink {
+        let target = onOpenDexEntry == nil ? nil : Self.dexLinkTarget(for: node, links: dexLinks)
+        var name: String?
+        if case .species(let id) = node.content, let names, let raw = names[id] {
+            name = UnownForm.displayName(raw, speciesID: id, form: unownForm)
+        }
+        return DexEntryLink(target: target, hint: L(language).dexOpenEntryHint,
+                            accessibilityName: name, cornerRadius: 6, open: onOpenDexEntry)
+    }
+
     private var row: some View {
         HStack(alignment: .top, spacing: Self.spacing) {
             ForEach(Array(nodes.enumerated()), id: \.offset) { i, node in
@@ -490,8 +511,121 @@ struct EvoLineView: View {
                     }
                 }
                 .frame(width: thumb + (names == nil ? 0 : Self.nameSlack))
+                // After the fixed frame, so the link only adds a hover background — column widths
+                // (and `rowWidth`) stay exactly as measured.
+                .modifier(dexLinkModifier(for: node))
                 .id(i)   // 셰브론 페이징(ScrollViewProxy.scrollTo) 대상
             }
+        }
+    }
+}
+
+/// Growth bar. Hovering 300 ms grows it with a small spring "plop" and reveals the exact numbers
+/// ("X / Y · Z%") inside; leaving shrinks it back. The expanded height is always reserved, so the
+/// hover never moves the layout or resizes the popover.
+@MainActor
+struct LabeledProgressBar: View {
+    let value: Double
+    let label: String
+    @State private var expanded = false
+    @State private var hoverTask: Task<Void, Never>?
+
+    private static let collapsedHeight: CGFloat = 6
+    private static let expandedHeight: CGFloat = 12
+
+    var body: some View {
+        Capsule().fill(Color.secondary.opacity(0.2))
+            .overlay(alignment: .leading) {
+                GeometryReader { geo in
+                    Capsule().fill(Color.orange).frame(width: geo.size.width * min(1, max(0, value)))
+                }
+            }
+            .overlay {
+                Text(label)
+                    .font(.system(size: 9, weight: .semibold)).monospacedDigit()
+                    .foregroundStyle(.primary)
+                    .lineLimit(1).minimumScaleFactor(0.7)
+                    .padding(.horizontal, 6)
+                    .opacity(expanded ? 1 : 0)
+                    // In after the bar has grown; out at once so it never squeezes into the thin bar.
+                    .animation(expanded ? .easeIn(duration: 0.12).delay(0.12) : .easeOut(duration: 0.06),
+                               value: expanded)
+            }
+            .clipShape(Capsule())
+            .frame(height: expanded ? Self.expandedHeight : Self.collapsedHeight)
+            .frame(height: Self.expandedHeight)
+            .contentShape(Rectangle())
+            .onHover { hovering in
+                hoverTask?.cancel()
+                if hovering {
+                    hoverTask = Task {
+                        try? await Task.sleep(for: .milliseconds(300))
+                        guard !Task.isCancelled else { return }
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.55)) { expanded = true }
+                    }
+                } else {
+                    withAnimation(.easeOut(duration: 0.18)) { expanded = false }
+                }
+            }
+            .accessibilityElement(children: .ignore)
+            .accessibilityValue(label)
+    }
+}
+
+/// Makes a sprite open its Pokédex detail page. With no target (egg, uncaught species, `?` node)
+/// the content is returned untouched — no button, hover highlight or tooltip — so only real links
+/// look clickable. The hover highlight is a background, so it never changes the sprite's layout.
+@MainActor
+struct DexEntryLink: ViewModifier {
+    let target: String?
+    let hint: String
+    let accessibilityName: String?
+    let cornerRadius: CGFloat
+    let open: ((String) -> Void)?
+    @State private var isHovered = false
+
+    func body(content: Content) -> some View {
+        if let target, let open {
+            Button { open(target) } label: {
+                content
+                    .contentShape(RoundedRectangle(cornerRadius: cornerRadius))
+                    .background {
+                        if isHovered {
+                            RoundedRectangle(cornerRadius: cornerRadius).fill(Color.primary.opacity(0.1))
+                        }
+                    }
+                    .animation(.easeOut(duration: 0.12), value: isHovered)
+            }
+            .buttonStyle(.plain)
+            .onContinuousHover { phase in
+                isHovered = phase != .ended
+                Self.cursor(after: phase == .ended ? .ended : .moved, wasHovered: isHovered)?.nsCursor.set()
+            }
+            // A click navigates the link away while the pointer is still on it; no `.ended` follows,
+            // so without this the hand cursor sticks on the next screen.
+            .onDisappear { Self.cursor(after: .disappeared, wasHovered: isHovered)?.nsCursor.set() }
+            .help(hint)
+            .accessibilityLabel(accessibilityName.map { "\($0), \(hint)" } ?? hint)
+        } else {
+            content
+        }
+    }
+}
+
+extension DexEntryLink {
+    enum HoverEvent { case moved, ended, disappeared }
+    enum Cursor {
+        case hand, arrow
+        var nsCursor: NSCursor { self == .hand ? .pointingHand : .arrow }
+    }
+
+    /// The cursor to set after a hover event, or nil to leave it alone. `set()` (not push/pop) so
+    /// nothing can stay stacked; disappearing only resets a cursor this link set itself.
+    static func cursor(after event: HoverEvent, wasHovered: Bool) -> Cursor? {
+        switch event {
+        case .moved: .hand
+        case .ended: .arrow
+        case .disappeared: wasHovered ? .arrow : nil
         }
     }
 }
@@ -500,6 +634,8 @@ struct EvoLineView: View {
 @MainActor
 struct CompanionHeader: View {
     let store: CompanionStore
+    /// Opens a species' Pokédex detail page (`PopoverNavigation.openDexEntry`). nil = sprites inert.
+    var onOpenDexEntry: ((String) -> Void)? = nil
     // 연출 상태 — 부화/진화 순간 흰 플래시 + 스프링 스케일(본가 진화 신 오마주)
     @State private var flashOpacity: Double = 0
     @State private var celebScale: CGFloat = 1
@@ -514,6 +650,14 @@ struct CompanionHeader: View {
     // 민트 사용 시 "반짝" 스파클 (성격 변경 피드백 — 텍스트 없이 짧은 이펙트)
     @State private var seenMintSeq = -1
     @State private var mintSparkle = false
+
+    /// Hover tooltip for the growth bars: "X / Y · Z%". Used is clamped to total (egg usage can
+    /// overshoot while a hatch retry is pending) and the percent floors, so 100% means done.
+    nonisolated static func progressDetail(used: Int, total: Int) -> String {
+        let used = min(used, total)
+        let percent = total > 0 ? used * 100 / total : 0
+        return "\(TokenFormatter.compact(used)) / \(TokenFormatter.compact(total)) · \(percent)%"
+    }
 
     /// 부화 임박(90%+) — 알이 흔들리고 문구가 바뀐다.
     private var eggImminent: Bool { store.isEgg && store.eggProgress >= 0.9 }
@@ -543,6 +687,8 @@ struct CompanionHeader: View {
     }
 
     var body: some View {
+        // Computed once per render and shared by the big sprite and the evolution line.
+        let dexLinks = onOpenDexEntry == nil ? [:] : store.dexLinkTargets
         VStack(alignment: .leading, spacing: 6) {
             HStack(alignment: .center, spacing: 12) {
                 SpriteView(speciesID: visibleSpeciesID, size: 76, bob: true, animated: true,
@@ -587,16 +733,22 @@ struct CompanionHeader: View {
                             .transition(.scale.combined(with: .opacity))
                         }
                     }
+                    // Outermost, so the celebration overlays and animations above stay intact.
+                    // An egg has no species (nil) and therefore no link.
+                    .modifier(DexEntryLink(
+                        target: store.currentSpeciesID.flatMap { dexLinks[$0] },
+                        hint: store.l.dexOpenEntryHint, accessibilityName: store.displayName,
+                        cornerRadius: 12, open: onOpenDexEntry))
                 VStack(alignment: .leading, spacing: 4) {
                     HStack(spacing: 6) {
                         Text(visibleName).font(.callout.weight(.semibold))
                         if visibleIsShiny { Text("✨").font(.system(size: 11)) }
                         if let r = store.rarity {
-                            Text(store.l.rarityLabel(r).uppercased()).font(.system(size: 8, weight: .bold))
-                                .padding(.horizontal, 5).padding(.vertical, 1)
-                                .background(rarityColor(r)).foregroundStyle(.white)
-                                .clipShape(Capsule())
+                            Badge(store.l.rarityLabel(r).uppercased(), tint: .rarity(r))
                         }
+                    }
+                    if store.hasActive, let id = store.currentSpeciesID, let details = store.pokemonDetailsByID[id] {
+                        TypeBadges(types: details.types, language: store.language)
                     }
                     if store.hasActive {
                         // 단계 + 성격(부화 시 확정된 개체 아이덴티티)
@@ -604,15 +756,13 @@ struct CompanionHeader: View {
                         HStack(spacing: 5) {
                             Text(store.stageText + nature).font(.caption2).foregroundStyle(.secondary)
                             if let multiplier = store.growthMultiplier {
-                                Text(store.l.growthBoost(multiplier))
-                                    .font(.system(size: 8, weight: .bold))
-                                    .padding(.horizontal, 5).padding(.vertical, 1)
-                                    .background(.orange.opacity(0.15)).foregroundStyle(.orange)
-                                    .clipShape(Capsule())
+                                Badge(store.l.growthBoost(multiplier), tint: .orange, style: .tinted)
                                     .fixedSize()
                             }
                         }
-                        ProgressView(value: store.progress).controlSize(.small).tint(.orange)
+                        LabeledProgressBar(value: store.progress,
+                                           label: Self.progressDetail(used: store.state.active?.usedAtStage ?? 0,
+                                                                      total: store.threshold))
                         if store.tokensToNext > 0 {
                             let amount = TokenFormatter.compact(store.tokensToNext)
                             Text(store.isFinalStage ? store.l.toGraduation(amount) : store.l.toNextEvolution(amount))
@@ -627,13 +777,12 @@ struct CompanionHeader: View {
                             // 등급 보증 알이면 무엇을 품고 있는지 — 도감 칩과 같은 라벨·색.
                             // 알 스프라이트는 한 장뿐이라 등급 구분은 이 배지가 유일한 신호다.
                             if let guarantee = store.eggGuarantee {
-                                Text(store.l.eggGuaranteeHint(guarantee)).font(.system(size: 8, weight: .bold))
-                                    .padding(.horizontal, 5).padding(.vertical, 1)
-                                    .background(rarityColor(guarantee)).foregroundStyle(.white)
-                                    .clipShape(Capsule())
+                                Badge(store.l.eggGuaranteeHint(guarantee), tint: .rarity(guarantee))
                             }
                         }
-                        ProgressView(value: store.eggProgress).controlSize(.small).tint(.orange)
+                        LabeledProgressBar(value: store.eggProgress,
+                                           label: Self.progressDetail(used: store.state.eggUsage,
+                                                                      total: store.eggHatchThreshold))
                         if store.isEgg, store.isHatchRetryDelayed {
                             Text(store.l.eggHatchDelayed)
                                 .font(.caption2)
@@ -663,12 +812,18 @@ struct CompanionHeader: View {
                 // 폭을 안 주면 분기 라인(이브이)이 넘쳐 팝오버 콘텐츠 전체가 좌우로 잘린다.
                 EvoLineView(nodes: store.lineNodes, mysteryLabel: store.l.unknownNextEvolution,
                             language: store.language, shiny: visibleIsShiny,
-                            maxWidth: PopoverMetrics.scrollContentWidth, unownForm: store.currentUnownForm)
+                            maxWidth: PopoverMetrics.scrollContentWidth, unownForm: store.currentUnownForm,
+                            dexLinks: dexLinks, onOpenDexEntry: onOpenDexEntry)
             }
             if let g = store.justGraduated {
                 Text(store.l.graduated(g))
                     .font(.caption2).foregroundStyle(.orange)
             }
+        }
+        // Types come from PokéAPI details; cached after the first fetch. Same ID as the sprite,
+        // so a disguised Ditto shows its disguise's types.
+        .task(id: store.currentSpeciesID) {
+            if store.hasActive, let id = store.currentSpeciesID { await store.loadPokemonDetails(speciesID: id) }
         }
         .onAppear {
             playCelebrationIfNeeded()
@@ -981,7 +1136,6 @@ struct CollectionView: View {
     @State private var shinyOnly = false
     @State private var dexSort: CompanionStore.DexSortOption = .numberAsc
     @State private var logSort: CompanionStore.CatchLogSortOption = .recentFirst
-    @State private var detailCollectionID: String?
 
     /// 도감·로그 공통 높이 — 상점·가방과 같은 520. 세그먼트를 전환할 때도, 탭을 넘나들 때도
     /// 팝오버가 리사이즈되지 않는다.
@@ -1012,8 +1166,9 @@ struct CollectionView: View {
         @Bindable var nav = navigation
         if store.dexEntries.isEmpty {
             emptyState
-        } else if let id = detailCollectionID, let species = store.dexSpecies.first(where: { $0.collectionID == id }) {
-            PokemonDetailView(store: store, species: species) { detailCollectionID = nil }
+        } else if let id = nav.dexDetailCollectionID,
+                  let species = store.dexSpecies.first(where: { $0.collectionID == id }) {
+            PokemonDetailView(store: store, species: species) { nav.dexDetailCollectionID = nil }
                 .id(species.collectionID)
                 .frame(height: Self.contentHeight)
         } else {
@@ -1036,15 +1191,13 @@ struct CollectionView: View {
                         shinyOnly: shinyOnly,
                         sortOption: dexSort,
                         selectedRarity: $selectedRarity,
-                        onSelectSpecies: { sp in detailCollectionID = sp.collectionID },
+                        onSelectSpecies: { sp in nav.dexDetailCollectionID = sp.collectionID },
                         onResetFilters: resetFilters
                     )
                 }
             }
             .frame(height: Self.contentHeight)
-            .onChange(of: nav.showingCollectionLog) {
-                detailCollectionID = nil
-            }
+            // Switching segment drops the open detail page — `PopoverNavigation.showingCollectionLog`.
         }
     }
 
@@ -1086,6 +1239,7 @@ struct CollectionView: View {
                 Image(systemName: shinyOnly ? "sparkles" : "sparkle")
                     .font(.system(size: 13, weight: shinyOnly ? .bold : .regular))
                     .foregroundStyle(shinyOnly ? Color.yellow : Color.secondary)
+                    .frame(width: 16, height: 16)
                     .padding(.horizontal, 6)
                     .padding(.vertical, 4)
                     .background(shinyOnly ? Color.yellow.opacity(0.18) : Color(nsColor: .controlBackgroundColor))
@@ -1149,7 +1303,8 @@ struct CollectionView: View {
 
     /// 포획 로그 — 개체 단위 기록. 필터(요약 헤더)는 고정, 목록만 스크롤한다
     private var catchLog: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        let dexLinks = store.dexLinkTargets   // once for all rows, not per row
+        return VStack(alignment: .leading, spacing: 6) {
             DexSummaryHeader(store: store, selected: selectedRarity) { r in
                 withAnimation(.easeInOut(duration: 0.15)) {
                     selectedRarity = (selectedRarity == r) ? nil : r
@@ -1163,7 +1318,10 @@ struct CollectionView: View {
                         LazyVStack(alignment: .leading, spacing: 8) {
                             Color.clear.frame(height: 0).id("dexTop")
                             ForEach(visibleEntries) { entry in
-                                DexEntryRow(store: store, entry: entry)
+                                // Keeps the segment, so Back from the detail page returns to the log.
+                                DexEntryRow(store: store, entry: entry, dexLinks: dexLinks) {
+                                    navigation.dexDetailCollectionID = $0
+                                }
                             }
                         }
                         .reservesScrollerLane()
@@ -1247,6 +1405,106 @@ struct RepresentativeFooterButton: View {
     }
 }
 
+/// 도감 페이지 셰브론. `.plain` 버튼은 라벨 프레임만 클릭되는데 13pt 셰브론은 약 7×12pt 라
+/// 클릭이 자주 빗나갔다(#379). 글리프는 그대로 두고 히트 영역만 `hitSize` 정사각형으로 넓힌다.
+/// 푸터는 18pt 높이로 고정돼 있어 넘치는 부분은 레이아웃을 밀지 않고 위아래로 겹친다.
+@MainActor
+struct DexPageButton: View {
+    static let hitSize: CGFloat = 28
+    /// 13pt 셰브론 글리프(약 7pt 폭) 양옆에 생기는 히트 영역 여백.
+    static let edgeInset: CGFloat = 10
+
+    let forward: Bool
+    let label: String
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: forward ? "chevron.right" : "chevron.left")
+                .frame(width: Self.hitSize, height: Self.hitSize)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(label)
+    }
+}
+
+/// Turns scroll-wheel / trackpad events into single page steps for the Dex grid.
+/// `scrollingDeltaY` already reflects the natural-scrolling setting, so a negative delta always
+/// means "move the content up" (reveal what comes next), exactly like a list would.
+struct DexScrollPager {
+    /// Accumulated trackpad distance (pt) before a gesture flips the page.
+    static let preciseThreshold: CGFloat = 24
+
+    private var accumulated: CGFloat = 0
+    private var firedThisGesture = false
+
+    /// +1 = next page, -1 = previous page, 0 = no change.
+    mutating func step(deltaY: CGFloat, precise: Bool,
+                       phase: NSEvent.Phase, momentumPhase: NSEvent.Phase) -> Int {
+        // Wheel notch: one event per notch, one page per notch.
+        guard precise else { return Self.direction(deltaY) }
+        // The momentum tail belongs to a gesture that has already paged.
+        guard momentumPhase.isEmpty else { return 0 }
+        if phase.contains(.began) || phase.contains(.mayBegin) {
+            accumulated = 0
+            firedThisGesture = false
+        }
+        if phase.contains(.ended) || phase.contains(.cancelled) {
+            accumulated = 0
+            firedThisGesture = false
+            return 0
+        }
+        guard !firedThisGesture else { return 0 }
+        accumulated += deltaY
+        guard abs(accumulated) >= Self.preciseThreshold else { return 0 }
+        let result = Self.direction(accumulated)
+        accumulated = 0
+        // Phase-less precise devices have no gesture boundary, so only latch real gestures.
+        firedThisGesture = !phase.isEmpty
+        return result
+    }
+
+    static func pageAfterScroll(current: Int, pageCount: Int, step: Int) -> Int {
+        min(max(0, current + step), max(0, pageCount - 1))
+    }
+
+    private static func direction(_ deltaY: CGFloat) -> Int {
+        deltaY < 0 ? 1 : (deltaY > 0 ? -1 : 0)
+    }
+}
+
+/// Background view that feeds scroll events over its bounds to `onStep`. A local monitor (not a
+/// `scrollWheel(with:)` override) keeps clicks and hover on the cells above it untouched.
+private struct ScrollWheelPager: NSViewRepresentable {
+    let onStep: (Int) -> Void
+
+    func makeNSView(context: Context) -> PagerView { PagerView() }
+    func updateNSView(_ view: PagerView, context: Context) { view.onStep = onStep }
+
+    final class PagerView: NSView {
+        var onStep: ((Int) -> Void)?
+        private var pager = DexScrollPager()
+        private var monitor: Any?
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            if let monitor { NSEvent.removeMonitor(monitor); self.monitor = nil }
+            guard window != nil else { return }
+            monitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] event in
+                guard let self, let window = self.window, event.window === window,
+                      self.bounds.contains(self.convert(event.locationInWindow, from: nil))
+                else { return event }
+                let step = self.pager.step(deltaY: event.scrollingDeltaY,
+                                           precise: event.hasPreciseScrollingDeltas,
+                                           phase: event.phase, momentumPhase: event.momentumPhase)
+                if step != 0 { self.onStep?(step) }
+                return nil
+            }
+        }
+    }
+}
+
 /// 도감 — 보유 종만 도감 번호순으로, 한 페이지 16칸(4열×4행) 고정 격자.
 @MainActor
 private struct DexGridView: View {
@@ -1285,6 +1543,10 @@ private struct DexGridView: View {
                 emptySearchResults
             } else {
                 grid(slice)
+                    .background(ScrollWheelPager { step in
+                        let next = DexScrollPager.pageAfterScroll(current: current, pageCount: pageCount, step: step)
+                        if next != current { page = next; selectedID = nil }
+                    })
                 footer(slice, current: current, pageCount: pageCount)
             }
         }
@@ -1392,20 +1654,23 @@ private struct DexGridView: View {
             }
             Spacer(minLength: 4)
             if pageCount > 1 {
-                Button { page = max(0, current - 1); selectedID = nil } label: {
-                    Image(systemName: "chevron.left")
+                // 넓힌 히트 영역의 여백이 곧 셰브론↔숫자 간격이다. 바깥 음수 패딩으로 글리프를
+                // 원래 자리(우측 끝)에 두고, 넘친 히트 영역은 팝오버 여백 쪽으로 뻗게 한다.
+                HStack(spacing: 0) {
+                    DexPageButton(forward: false, label: store.l.dexPagePrev) {
+                        page = max(0, current - 1); selectedID = nil
+                    }
+                    .disabled(current == 0)
+                    Text("\(current + 1) / \(pageCount)")
+                        .font(.system(size: 12, weight: .semibold)).monospacedDigit()
+                        .foregroundStyle(.secondary)
+                        .accessibilityLabel(store.l.dexPageLabel(current + 1, pageCount))
+                    DexPageButton(forward: true, label: store.l.dexPageNext) {
+                        page = min(pageCount - 1, current + 1); selectedID = nil
+                    }
+                    .disabled(current == pageCount - 1)
                 }
-                .buttonStyle(.plain).disabled(current == 0)
-                .accessibilityLabel(store.l.dexPagePrev)
-                Text("\(current + 1) / \(pageCount)")
-                    .font(.system(size: 12, weight: .semibold)).monospacedDigit()
-                    .foregroundStyle(.secondary)
-                    .accessibilityLabel(store.l.dexPageLabel(current + 1, pageCount))
-                Button { page = min(pageCount - 1, current + 1); selectedID = nil } label: {
-                    Image(systemName: "chevron.right")
-                }
-                .buttonStyle(.plain).disabled(current == pageCount - 1)
-                .accessibilityLabel(store.l.dexPageNext)
+                .padding(.horizontal, -DexPageButton.edgeInset)
             }
         }
         .font(.system(size: 13, weight: .semibold))
@@ -1504,7 +1769,7 @@ struct PokemonDetailView: View {
                 VStack(alignment: .leading, spacing: 12) {
                     if species.id == UnownForm.speciesID { unownFormPicker }
                     if displayedSpecies.hasNormal && displayedSpecies.isShiny { appearancePicker }
-                identityHeader
+                    identityHeader
                     if let speciesID = megaEligibleSpeciesID {
                         MegaEvolutionControl(store: store, speciesID: speciesID,
                                              isShiny: displayedShiny,
@@ -1598,10 +1863,17 @@ struct PokemonDetailView: View {
                        spriteStore: spriteStore, unownForm: species.unownForm)
                 .frame(width: 104, height: 104)
             VStack(alignment: .leading, spacing: 5) {
-                Text(activeMega.map { store.l.megaFormName($0.stone) } ?? species.name)
-                    .font(.title3.weight(.bold))
-                Text(store.l.rarityLabel(species.rarity))
-                    .font(.callout.weight(.semibold)).foregroundStyle(.secondary)
+                HStack(alignment: .firstTextBaseline) {
+                    Text(activeMega.map { store.l.megaFormName($0.stone) } ?? species.name)
+                        .font(.title3.weight(.bold))
+                    Spacer(minLength: 8)
+                    Text(store.l.rarityLabel(species.rarity))
+                        .font(.callout.weight(.semibold)).foregroundStyle(.secondary)
+                }
+                if let details = store.pokemonDetailsByID[species.id] {
+                    TypeBadges(types: details.types, language: store.language, size: 11,
+                               horizontalPadding: 7, verticalPadding: 2)
+                }
                 if activeMega != nil {
                     Text(store.l.megaActive).font(.callout).foregroundStyle(.orange)
                 }
@@ -1615,6 +1887,7 @@ struct PokemonDetailView: View {
                                                          isShiny: isRepresentative ? nil : displayedShiny)
                 }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 
@@ -1731,14 +2004,6 @@ struct PokemonDetailView: View {
     private func speciesSection(_ details: PokemonDetails) -> some View {
         VStack(alignment: .leading, spacing: 7) {
             detailTitle(store.l.speciesData)
-            HStack(spacing: 5) {
-                ForEach(details.types, id: \.self) { type in
-                    PokemonNameLabel(.type, type, language: store.language).textCase(.uppercase)
-                        .font(.system(size: 11, weight: .bold))
-                        .padding(.horizontal, 6).padding(.vertical, 3)
-                        .background(Color.accentColor.opacity(0.16), in: Capsule())
-                }
-            }
             HStack(spacing: 14) {
                 valuePair(store.l.height, String(format: "%.1f m", Double(details.height) / 10))
                 valuePair(store.l.weight, String(format: "%.1f kg", Double(details.weight) / 10))
@@ -1816,11 +2081,10 @@ private struct DexSpeciesCell: View {
     var body: some View {
         Button(action: onTap) {
             VStack(spacing: 1) {
-                // 기본은 일반색. 이로치를 잡은 종은 선택하면 이로치색으로 바뀐다 —
-                // 일반·이로치를 둘 다 가진 종도 두 모습을 다 볼 수 있다(본가 HOME 의 이로치 토글과 같은 결).
+                // 이로치를 잡은 종은 이로치 스프라이트로 표시한다(상세 화면에서 일반/이로치 모습 전환 가능).
                 // 안농의 종 아이콘은 일반 A로 유지하고, 폼별 색은 상세 화면에서 보여준다.
                 SpriteView(speciesID: species.id, size: Self.thumb,
-                           shiny: species.id != UnownForm.speciesID && species.isShiny && isSelected)
+                           shiny: species.id != UnownForm.speciesID && species.isShiny)
                     .frame(width: Self.thumb, height: Self.thumb)
                     // Keep the raising badge over the sprite to leave room for the name.
                     .overlay(alignment: .bottom) {
@@ -1835,7 +2099,7 @@ private struct DexSpeciesCell: View {
             // Attach number and shiny markers to the full cell width.
             .overlay(alignment: .topLeading) { numberTag }
             .overlay(alignment: .topTrailing) {
-                // ✨ = 이 종의 이로치를 잡은 적이 있다는 표식(탭하면 그 색으로 바뀐다).
+                // ✨ = 이 종의 이로치를 잡은 적이 있다는 표식.
                 if species.isShiny {
                     Text("✨")
                         .font(.system(size: 10))
@@ -1912,11 +2176,7 @@ private struct DexSpeciesCell: View {
     /// "키우는 중"은 현재 개체의 현재 형태 한 칸에만 표시한다. accent 틴트는 반투명이라
     /// 스프라이트가 비치므로 material 을 한 겹 깔아 대비를 확보한다(로그는 카드 배경 위라 불필요).
     private var raisingBadge: some View {
-        Text(store.l.dexRaising.uppercased())
-            .font(.system(size: 10, weight: .bold))
-            .padding(.horizontal, 5).padding(.vertical, 1)
-            .foregroundStyle(Color.accentColor)
-            .background(Color.accentColor.opacity(0.14), in: Capsule())
+        Badge(store.l.dexRaising.uppercased(), tint: .accent, style: .tinted, size: 10)
             .background(.regularMaterial, in: Capsule())
     }
 
@@ -1938,6 +2198,8 @@ private struct DexSpeciesCell: View {
 private struct DexEntryRow: View {
     let store: CompanionStore
     let entry: DexEntry
+    let dexLinks: [Int: String]
+    let onOpenDexEntry: (String) -> Void
     @State private var resolved: [Int: String] = [:]
 
     /// 카드 안쪽 여백. 진화 라인이 쓸 수 있는 폭 계산과 단일 소스를 공유한다.
@@ -1948,27 +2210,13 @@ private struct DexEntryRow: View {
         let names = store.dexStoredChainNames(entry) ?? (resolved.isEmpty ? nil : resolved)
         VStack(alignment: .leading, spacing: 3) {
             HStack {
-                Text(store.l.rarityLabel(entry.rarity).uppercased())
-                    .font(.system(size: 10, weight: .bold))
-                    .padding(.horizontal, 5).padding(.vertical, 1)
-                    .background(rarityColor(entry.rarity)).foregroundStyle(.white)
-                    .clipShape(Capsule())
+                Badge(store.l.rarityLabel(entry.rarity).uppercased(), tint: .rarity(entry.rarity), size: 10)
                 if store.isActiveDexEntry(entry) {
-                    Text(store.l.dexRaising.uppercased())
-                        .font(.system(size: 10, weight: .bold))
-                        .padding(.horizontal, 5).padding(.vertical, 1)
-                        .background(Color.accentColor.opacity(0.14))
-                        .foregroundStyle(Color.accentColor)
-                        .clipShape(Capsule())
+                    Badge(store.l.dexRaising.uppercased(), tint: .accent, style: .tinted, size: 10)
                 } else if entry.isReleased {
                     // 놓아준 개체 — 종은 도감에 남지만 이 개체는 끝까지 키우지 않았다.
                     // 중립색(secondary)으로 둔다: 실패가 아니라 다른 종류의 기록이라 경고색은 과하다.
-                    Text(store.l.dexReleased.uppercased())
-                        .font(.system(size: 10, weight: .bold))
-                        .padding(.horizontal, 5).padding(.vertical, 1)
-                        .background(Color.secondary.opacity(0.14))
-                        .foregroundStyle(Color.secondary)
-                        .clipShape(Capsule())
+                    Badge(store.l.dexReleased.uppercased(), tint: .secondary, style: .tinted, size: 10)
                 }
                 if entry.isShiny {
                     // 이모지는 스크린리더가 일관되게 읽지 못해 명사 라벨을 붙인다(도감 칸과 동일 규칙).
@@ -1985,7 +2233,8 @@ private struct DexEntryRow: View {
                         mysteryLabel: store.l.unknownNextEvolution, language: store.language, thumb: 68,
                         shiny: entry.isShiny, names: names,
                         maxWidth: PopoverMetrics.scrollContentWidth - Self.cardPadding * 2, unownForm: entry.unownForm,
-                        nameFontSize: 11, nameLineLimit: 2, nameMinimumScaleFactor: 1)
+                        nameFontSize: 11, nameLineLimit: 2, nameMinimumScaleFactor: 1,
+                        dexLinks: dexLinks, onOpenDexEntry: onOpenDexEntry)
             if let caughtAt = entry.caughtAt {
                 Text(caughtAt, style: .relative).font(.system(size: 11)).foregroundStyle(.secondary)
             }

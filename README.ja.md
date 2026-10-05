@@ -21,9 +21,9 @@
 
 </div>
 
-PokeTokenBar は、あなたがすでに使っている AI コーディングトークン（Claude Code・Codex・Gemini CLI・Antigravity・OpenCode・Hermes Agent・Cursor・Grok CLI・Copilot CLI・Kiro CLI・Pi Agent・omp・Aside）を、macOS メニューバーの中で育っていく **ポケモンのパートナー** に変えます。トークンを使うとタマゴが孵化し、実際の進化ラインに沿って進化し、最終進化後に図鑑へ卒業して、また新しいタマゴが始まります。パートナーの下には正確な使用量トラッカーがあります — 今日の使用量・コスト、公式の5時間／週間上限をローカルログから直接読み取ります。
+PokeTokenBar は、あなたがすでに使っている AI コーディングトークン（Claude Code・Codex・Gemini CLI・Antigravity・OpenCode・Hermes Agent・Cursor・Grok CLI・Copilot CLI・Kiro CLI・Pi Agent・omp・Aside・Kimi Code）を、macOS メニューバーの中で育っていく **ポケモンのパートナー** に変えます。トークンを使うとタマゴが孵化し、実際の進化ラインに沿って進化し、最終進化後に図鑑へ卒業して、また新しいタマゴが始まります。パートナーの下には正確な使用量トラッカーがあります — 今日の使用量・コスト、公式の5時間／週間上限をローカルログから直接読み取ります。
 
-> トークン使用量はローカルの Claude Code・Codex・Gemini CLI・Antigravity・OpenCode・Hermes Agent・Cursor・Grok CLI・Copilot CLI・Kiro CLI・Pi Agent・omp・Aside データから直接読み取ります（`totalTokens` = input + output + cache、ローカル日付）— 外部 CLI 不要。非公式・非商用のポケモンファンプロジェクトです — [ライセンス & 免責](#ライセンス--免責) を参照。
+> トークン使用量はローカルの Claude Code・Codex・Gemini CLI・Antigravity・OpenCode・Hermes Agent・Cursor・Grok CLI・Copilot CLI・Kiro CLI・Pi Agent・omp・Aside・Kimi Code データから直接読み取ります（`totalTokens` = input + output + cache、ローカル日付）— 外部 CLI 不要。非公式・非商用のポケモンファンプロジェクトです — [ライセンス & 免責](#ライセンス--免責) を参照。
 
 ## なぜ
 
@@ -37,7 +37,7 @@ PokeTokenBar は、あなたがすでに使っている AI コーディングト
 
 ## しくみ
 
-1. 🥚 **いつも通りコーディング。** Claude Code・Codex・Gemini CLI・Antigravity・OpenCode・Hermes Agent・Cursor・Grok CLI・Copilot CLI・Kiro CLI・Pi Agent・omp・Aside で使うトークンがタマゴを温めます — 追加の操作は不要です。
+1. 🥚 **いつも通りコーディング。** Claude Code・Codex・Gemini CLI・Antigravity・OpenCode・Hermes Agent・Cursor・Grok CLI・Copilot CLI・Kiro CLI・Pi Agent・omp・Aside・Kimi Code で使うトークンがタマゴを温めます — 追加の操作は不要です。
 2. 🐣 **孵化。** [PokéAPI](https://pokeapi.co/) の**第1〜5世代すべての進化系統（起点329種）**から、公式の捕獲率で重み付けされて生まれます — よくいるポケモンは頻繁に、伝説は129回に1回。孵化したポケモンは育成中もすぐに **図鑑** に表示されます。孵化ごとに25種類のせいかくがひとつ決まり — **ごくまれな偶然で ✨ 色違いが生まれます**。
 3. ⚡ **進化。** コーディングを続けると実際の進化ツリー（1/2/3段階、分岐）に沿って育ち、各段階で小さな演出が流れます。
 4. 🎓 **卒業 & 収集。** 最終進化 + 閾値で **図鑑** に永久保存されます — レアなほど時間がかかり（ヘビーユーザーで common ≈3日 → legendary ≈24日）— 新しいタマゴが届きます。
@@ -161,7 +161,7 @@ Pi は複数のモデルを一つのセッションログに流すことがあ�
 - **代表ポケモン** — 図鑑で所有している種を選び、育成中のポケモンとは別にメニューバーと任意のフローティングペットへ固定。固定中はメニューバーがタマゴ・孵化・進化を追わなくなりますが、育成の進行は Home で引き続き確認できます。
 - **アニメーション品質** — メニューバーのスプライトとフローティングペットの滑らかさを選べます（バッテリー優先／標準／滑らか）。常に表示される2つの表面が同じ設定を共有します。既定の「バッテリー優先」はこの設定が入る前と同じフレームレートで、「標準」「滑らか」はバッテリーを多く使います（実測アイドル CPU 約1.8%／約5.1%）。
 - **インタラクティブなフローティングペット** — ホバーで今日の使用量、クリックでメイン画面、右クリックでメニュー、上限アラートは吹き出しで表示。
-- **サービス別タブ** — Claude Code・Codex・Gemini CLI・Antigravity・OpenCode・Hermes Agent・Cursor・Grok CLI・Copilot CLI・Kiro CLI・Pi Agent・omp・Aside のうち2つ以上が検出されると、小さなタブでサービス別の詳細を切替（今日の合計は合算のまま）。
+- **サービス別タブ** — Claude Code・Codex・Gemini CLI・Antigravity・OpenCode・Hermes Agent・Cursor・Grok CLI・Copilot CLI・Kiro CLI・Pi Agent・omp・Aside・Kimi Code のうち2つ以上が検出されると、小さなタブでサービス別の詳細を切替（今日の合計は合算のまま）。
 - **公式の上限** — Claude・Codex・Antigravity の5時間／週間使用率とリセットのカウントダウンを、今日の数字のすぐ下に。
 - **追加スキャンフォルダ** — 既定のパスの外にあるログのために、プロバイダーごとにスキャンルートを追加（設定 → 詳細）。
 - **複数の Claude アカウント** — 設定フォルダ（`CLAUDE_CONFIG_DIR`）ごとにログインした Claude Code アカウントには公式上限の下にそれぞれのタブが付き、ゲージ・ふしぎなアメ・通知・今日/今月のトークンを個別に表示します。`~/.claude-*` フォルダとエクスポートされた `CLAUDE_CONFIG_DIR` は自動で見つけ、それ以外の場所は設定 → 詳細で追加します。メニューバーの上限 %・コンパニオンの様子・予測は最後に使ったアカウントに従います（設定 → 一般 → 追跡する Claude アカウント）。アカウントごとに claude.ai セッションキーを設定でき（設定 → 詳細）、Keychain なしでもそのアカウントの上限が更新され続けます。
@@ -193,6 +193,7 @@ Pi は複数のモデルを一つのセッションログに流すことがあ�
 | **Pi Agent** | 今日 · 5時間ブロック · 週 · 月 | — |
 | **omp** (oh-my-pi) | 今日 · 5時間ブロック · 週 · 月 | — |
 | **Aside** | 今日 · 5時間ブロック · 週 · 月 | — |
+| **Kimi Code** | 今日 · 5時間ブロック · 週 · 月 | — |
 
 すべてローカルから読み取り — 外部の使用量CLIは不要。ツールはプロバイダーの実装と登録で追加します（[CONTRIBUTING.ja.md](CONTRIBUTING.ja.md) 参照）。
 
@@ -200,7 +201,7 @@ Pi は複数のモデルを一つのセッションログに流すことがあ�
 
 ### 必要条件
 
-macOS 14+（Apple Silicon または Intel）。それだけ — トークン使用量はローカルの Claude Code・Codex・Gemini CLI・Antigravity・OpenCode・Hermes Agent・Cursor・Grok CLI・Copilot CLI・Kiro CLI・Pi Agent・omp・Aside データから直接読み取り、外部の使用量 CLI は不要です。
+macOS 14+（Apple Silicon または Intel）。それだけ — トークン使用量はローカルの Claude Code・Codex・Gemini CLI・Antigravity・OpenCode・Hermes Agent・Cursor・Grok CLI・Copilot CLI・Kiro CLI・Pi Agent・omp・Aside・Kimi Code データから直接読み取り、外部の使用量 CLI は不要です。
 
 ### Homebrew
 
@@ -250,6 +251,7 @@ swift test                   # ユニットテスト
 | `~/.pi/agent/sessions/**/*.jsonl` | Pi Agent daily/blocks/weekly/monthly | 全プロジェクトの保存済み usage を直接集計；`$PI_CODING_AGENT_DIR`・`$PI_CODING_AGENT_SESSION_DIR` override 対応；output には reasoning がすでに含まれるため二重計上しない；fork のコピーは entry ID で重複排除；記録されたコストを使用 |
 | `~/.omp/agent/sessions/**/*.jsonl` | omp (oh-my-pi) daily/blocks/weekly/monthly | pi 形式セッション JSONL；すべての assistant `usage` イベントを合算（巻き戻した分岐も請求済みトークン）し、サブエージェントのセッションファイルも親に折り込まれないため合算対象；`$OMP_CODING_AGENT_DIR` を尊重；イベントごとの `cost` が記録されていればそのまま信頼；`bridge/` 以下の変換コピーは原本側で集計済みのため除外 |
 | `~/.aside/u/*/state.db` | Aside daily/blocks/weekly/monthly | SQLite のターン合計を読み取り専用で集計；削除済みターンはスキャンキャッシュのリセットまで集計を保持；記録されたコストのみ使用 |
+| `~/.kimi-code/sessions/**/agents/*/wire.jsonl` | Kimi Code daily/blocks/weekly/monthly | すべての `usage.record`（リクエスト単位、`turn`・`session` スコープ）をメイン・サブエージェントの wire ファイル全体で合算；`$KIMI_CODE_HOME` と Kimi デスクトップのランタイムルートを尊重；`/fork` のコピーはレコード内容で重複除去；Kimi はコストを記録しないためコストは「なし」と表示 |
 | Keychain（`Claude Code-credentials`、ほかの設定フォルダごとに `Claude Code-credentials-<hash>`）/ `<設定フォルダ>/.credentials.json` → `api.anthropic.com` | アカウントごとの Claude 公式 5h/週間 % | 非公式 endpoint；Keychain は**更新ボタンを押した時のみ**読み取り — 自動更新では読みません |
 | `codex app-server` | Codex 公式 5h/週間 % | ローカル子プロセス；アカウント snapshot のみ、モデル turn なし |
 | [PokéAPI](https://pokeapi.co/) — `pokeapi.co`, `graphql.pokeapi.co` | ポケモンの種・能力値・特性・技・進化 | ランタイム取得；ローカルキャッシュ、バンドルしない |
@@ -261,7 +263,7 @@ swift test                   # ユニットテスト
 
 ## プライバシー & 権限
 
-- **オンデバイス優先。** トークン使用量はローカルの Claude Code・Codex・Gemini CLI・Antigravity・OpenCode・Hermes Agent・Cursor・Grok CLI・Copilot CLI・Kiro CLI・Pi Agent・omp・Aside データから直接読み取ります。使用量のアップロードも、モデルの推論実行も行いません。アカウントごとに Claude の使用量を分けるため、各設定フォルダの `history.jsonl` からはセッション id とプロンプト時刻だけを読み取ります。プロンプト本文は読まず、Mac の外にも送りません。
+- **オンデバイス優先。** トークン使用量はローカルの Claude Code・Codex・Gemini CLI・Antigravity・OpenCode・Hermes Agent・Cursor・Grok CLI・Copilot CLI・Kiro CLI・Pi Agent・omp・Aside・Kimi Code データから直接読み取ります。使用量のアップロードも、モデルの推論実行も行いません。アカウントごとに Claude の使用量を分けるため、各設定フォルダの `history.jsonl` からはセッション id とプロンプト時刻だけを読み取ります。プロンプト本文は読まず、Mac の外にも送りません。
 - **外部リクエスト。** 本アプリは完全オフラインではありません。13のホストに接続します — `pokeapi.co`・`graphql.pokeapi.co`（種・進化）、`raw.githubusercontent.com`（スプライト）、`api.anthropic.com`（Claude 公式の上限）、`claude.ai`（設定で claude.ai セッションキーを保存した場合の Claude 公式の上限 — そのキーのみ、プロンプトやプロジェクトのパスは送りません）、`cursor.com`（ローカルで Cursor にサインインしている場合の Cursor 使用量サマリー — セッション資格情報のみ、プロンプトやプロジェクトのパスは送りません）、`api2.cursor.sh`（Cursor 公式の月間 included usage — Bearer JWT のみ、IDE ログインと同じ資格情報）、`cloudcode-pa.googleapis.com`・`daily-cloudcode-pa.googleapis.com`（Antigravity 公式の上限）と `oauth2.googleapis.com`（トークン更新）、`status.claude.com`・`status.openai.com`（障害バナー — 設定でオフ可）、`api.github.com`（アップデート確認）。**いずれのリクエストにも使用量ログ・プロンプト・プロジェクトのパスは含まれません** — 送られるのはリクエストそのものだけです（Cursor は Web ダッシュボードと同様に、自分の使用量の行を取得するためセッション Cookie を送信します）。
 - **Keychain（任意）。** Claude OAuth 資格情報は**更新ボタンを押した時のみ**読み取ります（設定、またはポップオーバーの上限行）。自動更新では Keychain に触れないためパスワードのプロンプトは表示されず、`~/.claude/.credentials.json` があれば毎回読み直すので、`/login` でアカウントを切り替えても更新ボタンなしで追従します。トークンはメモリ上にのみ保持し、**アプリ自身の Keychain 項目は作成しません。** 資格情報ファイルが無い場合、上限はキャッシュされたトークンが期限切れになるか更新するまで以前の値のままです。設定でオフにすると上限セクションが非表示になります。Claude アカウントが複数ある場合、更新時にほかの設定フォルダの項目もフォルダごとに1回読み取り、プロンプトを拒否すると残りは尋ねません。
 - **ポケモンのデータとアセット** はランタイムに PokéAPI から取得し、`~/Library/Application Support/PokeTokenBar/` にのみキャッシュされます。生成された個体値（IV・性別・特性・覚えている技など）は値が変わらないよう、ローカルのパートナーセーブに保存されます。アプリのバイナリおよびリリース成果物にポケモンのアセットは含まれません。

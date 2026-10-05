@@ -152,3 +152,30 @@ struct LocalOmpProvider: UsageProvider {
         return .local(entries: entries, now: now)
     }
 }
+
+/// Local-log parsing based Kimi Code provider (CLI `~/.kimi-code` and the Kimi desktop runtime).
+/// Data appears only when `sessions/**/agents/*/wire.jsonl` has `usage.record` lines (otherwise no
+/// snapshot → hidden in the UI). Kimi records no cost and the price table has no Kimi models, so
+/// cost shows as unavailable rather than a measured $0.
+struct LocalKimiCodeProvider: UsageProvider {
+    let id = "kimi_code"
+    let displayName = "Kimi Code"
+    let cache: LocalUsageCache
+
+    init(cache: LocalUsageCache = .shared) { self.cache = cache }
+
+    func fetchDaily() async throws -> DailyUsage? {
+        let now = Date()
+        let entries = await cache.kimiEntries(modifiedSince: Calendar.current.startOfDay(for: now))
+        // One session can switch models (k3-agent, k2d6-agent, …) → per-model breakdown, as Pi/omp.
+        return LocalUsageReader.daily(
+            entries: entries, localDay: LocalUsageReader.todayKey(), includeModels: true)
+    }
+
+    func fetchEnrichment() async -> ProviderEnrichment {
+        let now = Date()
+        let entries = await cache.kimiEntries(
+            modifiedSince: LocalUsageReader.enrichmentScanStart(now: now))
+        return .local(entries: entries, now: now)
+    }
+}

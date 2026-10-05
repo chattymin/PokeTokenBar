@@ -112,6 +112,29 @@ final class SaveTransferTests: XCTestCase {
         XCTAssertEqual(envelope.state.representativeSpeciesID, 2, "대표 포켓몬 선택도 세이브와 함께 이동")
     }
 
+    /// A hand-edited or imported save with a repeated species id in `chainOrder` / `pathIDs` decodes
+    /// fine, but the Pokédex name lookup and release/graduation build
+    /// `Dictionary(uniqueKeysWithValues:)` from those arrays, which traps on the duplicate.
+    func testDuplicateSpeciesInSavedChainsAreRemovedOnLoad() async throws {
+        let url = tempURL("dup-chain")
+        var s = oldMacState(today: "2026-08-03")
+        s.dex = [DexEntry(baseID: 1, finalID: 2, chainOrder: [1, 1, 2], rarity: .common, caughtAt: transferNow)]
+        s.active = MonState(baseID: 4, pathIDs: [4, 4, 5], plannedPathIDs: [4, 4, 5, 5, 6],
+                            stageIndex: 2, usedAtStage: 0, rarity: .common, totalForms: 3)
+        try JSONEncoder().encode(s).write(to: url)
+
+        let store = store(at: url)
+        XCTAssertEqual(store.state.dex.first?.chainOrder, [1, 2])
+        XCTAssertEqual(store.state.active?.pathIDs, [4, 5])
+        XCTAssertEqual(store.state.active?.plannedPathIDs, [4, 5, 6])
+        XCTAssertEqual(store.currentSpeciesID, 5, "the current species survives the dedupe")
+        XCTAssertEqual(store.state.active?.stageIndex, 1)
+
+        let entry = try XCTUnwrap(store.state.dex.first)
+        let names = await store.dexResolveChainNames(entry)
+        XCTAssertEqual(names, [1: "#1", 2: "#2"])
+    }
+
     func testRoundTripPreservesActiveRepeatGrowthBoost() throws {
         var original = CompanionState()
         original.active = MonState(

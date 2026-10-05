@@ -181,11 +181,7 @@ final class CompanionStore {
 
     var hasActive: Bool { state.active != nil }
     var rarity: Rarity? { state.active?.rarity }
-    var currentIsShiny: Bool {
-        guard let a = state.active else { return false }
-        if a.dittoDisguise != nil && !a.dittoRevealed { return false }   // 위장 중엔 이로치 숨김(리빌 때 공개)
-        return a.isShiny
-    }
+    var currentIsShiny: Bool { state.active?.displaysShiny ?? false }   // 위장 중엔 이로치 숨김(리빌 때 공개)
     /// 새 알(리롤) 구매 시 실수로 놓아주지 않도록 2단계 확인이 필요한 고가치 개체인지 판정.
     /// 이로치(shiny)이거나 전설(legendary)인 경우에만 2단계 경고를 띄운다.
     /// 희귀(rare)는 고급/희귀 알의 반복 리롤 피로도(alert fatigue)를 방지하기 위해 일반 확인만 거친다.
@@ -558,6 +554,14 @@ final class CompanionStore {
     /// 아직 진화하지 않은 종이 보유로 잡힌다.
     var dexSpecies: [DexSpecies] {
         collectedDexSpecies(groupUnownForms: false)
+    }
+
+    /// Sprite → Pokédex detail link targets (species number → dex cell `collectionID`). Only species
+    /// in the dex have a key, so eggs, unreached evolutions and uncaught species are not clickable.
+    /// The main dex does not split Unown letters (the letter is picked on the detail page), so a
+    /// species number maps to exactly one cell.
+    var dexLinkTargets: [Int: String] {
+        dexSpecies.reduce(into: [:]) { links, species in links[species.id] = species.collectionID }
     }
 
     /// Collected form summaries for the detail picker; missing forms remain visible but disabled.
@@ -1331,14 +1335,20 @@ final class CompanionStore {
         return availableTokens >= price
     }
 
-    /// 아이템 1개 구매 — 지갑에서 price 차감, 인벤토리 +1. usedSinceInstall(성장·통계)·진화 진행엔
-    /// 무영향(지출 원장만 증가). 잔액 부족/미판매면 no-op(false).
+    /// 한 번에 살 수 있는 최대 개수 — 잔액 ÷ 가격. 보유형은 1회 구매라 최대 1, 이미 보유했거나
+    /// 미판매·잔액 부족이면 0.
+    func maxBuyCount(_ kind: ItemKind) -> Int {
+        guard canBuy(kind), let price = price(of: kind), price > 0 else { return 0 }
+        return kind.isPassive ? 1 : availableTokens / price
+    }
+
+    /// 아이템 count 개 구매 — 지갑에서 price × count 차감, 인벤토리 +count. usedSinceInstall(성장·통계)·
+    /// 진화 진행엔 무영향(지출 원장만 증가). 잔액 부족/미판매/범위 밖 개수면 부분 구매 없이 no-op(false).
     @discardableResult
-    func buy(_ kind: ItemKind) -> Bool {
-        guard let price = price(of: kind), availableTokens >= price else { return false }
-        if kind.isPassive && itemCount(kind) > 0 { return false }   // 보유형 중복 구매 방지(방어)
-        state.spentTokens += price
-        state.inventory[kind.rawValue, default: 0] += 1
+    func buy(_ kind: ItemKind, count: Int = 1) -> Bool {
+        guard count >= 1, count <= maxBuyCount(kind), let price = price(of: kind) else { return false }
+        state.spentTokens += price * count
+        state.inventory[kind.rawValue, default: 0] += count
         save()
         return true
     }
@@ -1793,6 +1803,8 @@ final class CompanionStore {
         m.totalForms = evolutionPlan.count
         m.usedAtStage = carryOver
         m.dittoRevealed = true
+        // The hatch boost came from the disguise's line; from now on only a repeat Ditto earns it.
+        m.hasGrowthBoost = state.hasCollectedFinal(forBaseID: dittoLine.baseID)
         m.profile?.rebaseForSpeciesIdentity(from: previousRarity, to: dittoLine.rarity)
         if let details = pokemonDetailsByID[dittoLine.baseID] {
             m.profile?.enrich(with: details)

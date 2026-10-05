@@ -91,4 +91,19 @@ final class LimitPaceTests: XCTestCase {
         XCTAssertNil(LimitProgressBar.markerFraction(pace: nil, mode: .used))
         XCTAssertNil(LimitProgressBar.markerFraction(pace: nil, mode: .remaining))
     }
+
+    /// A limit row that draws its own `ProgressView(value:)` fills with the raw used percent
+    /// while its label follows the display mode — "80% left" over a 20% bar on the Cursor tab.
+    /// Every determinate limit bar in the popover has to go through `LimitProgressBar`, and
+    /// rows must take their colors from `PaceTier.gauge` like the menu bar does.
+    func testEveryPopoverLimitBarFollowsTheDisplayMode() throws {
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let popover = try String(contentsOf: root.appendingPathComponent("Sources/PokeTokenBar/UI/PopoverView.swift"),
+                                 encoding: .utf8)
+        let determinateBars = popover.components(separatedBy: "ProgressView(value:").count - 1
+        XCTAssertEqual(determinateBars, 1, "only LimitProgressBar may draw a determinate limit bar")
+        XCTAssertTrue(popover.contains("ProgressView(value: min(100, max(0, store.limitDisplayPercent(usedPercent)))"))
+        XCTAssertFalse(popover.contains("limitColor("), "absolute-threshold colors bypass the pace gauge")
+    }
 }

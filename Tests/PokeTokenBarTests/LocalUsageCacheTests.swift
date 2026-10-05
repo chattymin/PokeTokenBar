@@ -824,6 +824,22 @@ final class LocalUsageCacheTests: XCTestCase {
         XCTAssertEqual(TokenFormatter.percent(88.35), "88.3%")
     }
 
+    /// Branching on the raw value and then rounding prints a value the branch said was below the
+    /// cutoff: "80.0%" instead of "80%", "$100.0" instead of "$100", "$10000" instead of "$10.0K".
+    /// Cursor's `usedPercent` is fractional and remaining mode prints `100 − x`, so these reach
+    /// the menu bar and the popover.
+    func testFormatterRoundingBoundaries() {
+        XCTAssertEqual(TokenFormatter.percent(79.96), "80%")
+        XCTAssertEqual(TokenFormatter.percent(99.97), "100%")
+        XCTAssertEqual(TokenFormatter.percent(0.04), "0%")
+        XCTAssertEqual(TokenFormatter.percent(79.94), "79.9%")
+        XCTAssertEqual(TokenFormatter.costCompact(99.96), "$100")
+        XCTAssertEqual(TokenFormatter.costCompact(99.94), "$99.9")
+        XCTAssertEqual(TokenFormatter.costCompact(9_999.6), "$10.0K")
+        XCTAssertEqual(TokenFormatter.costCompact(9_999.4), "$9999")
+        XCTAssertEqual(TokenFormatter.costCompact(100), "$100")
+    }
+
     /// 날짜 유틸 — 주/월 경계와 monthKey (집계 윈도우 계산의 기반).
     func testDateHelpers() {
         var c = Calendar.current
