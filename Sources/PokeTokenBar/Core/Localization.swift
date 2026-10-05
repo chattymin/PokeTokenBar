@@ -219,6 +219,13 @@ struct L {
                       "Comparado com os mesmos dias do ano passado", "Verglichen mit denselben Tagen des Vorjahres")
         }
     }
+    func recapCurrentPeriod(_ scope: RecapScope) -> String {
+        switch scope {
+        case .week: thisWeek
+        case .month: thisMonth
+        case .year: t("올해", "This year", "今年", "Este año", "Cette année", "Este ano", "Dieses Jahr")
+        }
+    }
     var recapPrevious: String { t("이전", "Previous", "前へ", "Anterior", "Précédent", "Anterior", "Vorherige") }
     var recapNext: String { t("다음", "Next", "次へ", "Siguiente", "Suivant", "Próximo", "Nächste") }
     var recapBestDay: String { t("최고의 날", "Best day", "最高の日", "Mejor día", "Meilleur jour", "Melhor dia", "Bester Tag") }

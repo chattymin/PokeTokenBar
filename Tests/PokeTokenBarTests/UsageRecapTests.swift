@@ -366,6 +366,20 @@ final class UsageRecapRenderingTests: XCTestCase {
         }
     }
 
+    func testCurrentPeriodLabelsFollowTheScopeInEveryLanguage() {
+        let expectedYears: [AppLanguage: String] = [
+            .ko: "올해", .en: "This year", .ja: "今年", .es: "Este año",
+            .fr: "Cette année", .pt: "Este ano", .de: "Dieses Jahr",
+        ]
+        XCTAssertEqual(expectedYears.count, AppLanguage.allCases.count)
+        for language in AppLanguage.allCases {
+            let l = L(language)
+            XCTAssertEqual(l.recapCurrentPeriod(.week), l.thisWeek)
+            XCTAssertEqual(l.recapCurrentPeriod(.month), l.thisMonth)
+            XCTAssertEqual(l.recapCurrentPeriod(.year), expectedYears[language])
+        }
+    }
+
     func testBucketDescriptionsDistinguishUsageZeroAndMissingDataInEveryLanguage() throws {
         let suite = "recap-bucket-descriptions-\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))

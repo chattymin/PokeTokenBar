@@ -382,6 +382,9 @@ struct RecapScreen: View {
                 }
                 .disabled(!content.recap.canGoBack)
                 Spacer()
+                Button(l.recapCurrentPeriod(scope)) { offset = 0 }
+                    .disabled(offset == 0)
+                Spacer()
                 Button { offset += 1 } label: {
                     HStack(spacing: 4) {
                         Text(l.recapNext)
