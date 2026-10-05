@@ -71,7 +71,7 @@ final class DexSearchAndFilterTests: XCTestCase {
     /// not, so their sprites stay inert. Unown links to its single species cell, not a letter.
     func testDexLinkTargetsCoverOnlySpeciesInTheDex() {
         let unown = DexEntry(id: "entry-unown", baseID: 201, finalID: 201, chainOrder: [201],
-                             rarity: .rare, caughtAt: now, isShiny: false, unownForm: .q)
+                             rarity: .rare, caughtAt: now, isShiny: false, form: .q)
         let raising = MonState(baseID: 4, pathIDs: [4, 5], plannedPathIDs: [4, 5, 6], stageIndex: 1,
                                usedAtStage: 0, rarity: .common, totalForms: 3)
         let store = makeStore(dex: [unown] + createTestStore().state.dex, active: raising)

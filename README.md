@@ -169,7 +169,7 @@ Reset countdowns include the clock time, and the colored percentage stays aligne
 - **Usage recap** — a Pokédex-style recap of any week, month or year you step back to (total, meters, comparison with the previous period, day for day while it is still running, best day, best streak, graduations). History is kept locally for this year and the last.
 
 - **Local save backups** — automatic snapshots and corruption recovery, with a restore screen in Settings.
-- **Unown forms** — collect all 28 letter forms and inspect the forms you own in the Pokédex.
+- **Pokémon forms** — collect the alternate forms of generation 1–5 species (Unown letters, Rotom appliances, Arceus types, Deerling seasons…) and inspect the forms you own in the Pokédex.
 - **Bulk Rare Candy** — use several candies at once and preview the growth before spending.
 - **Quota pace** — gauge markers show the elapsed share of a limit window; six color tiers indicate usage pace, and menu-bar limit percentages use the same colors.
 
