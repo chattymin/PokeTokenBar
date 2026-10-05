@@ -282,9 +282,7 @@ final class DexSearchAndFilterTests: XCTestCase {
     }
 
     func testSortOptionLabelsExistInAllLanguages() {
-        let languages: [AppLanguage] = [.ko, .en, .ja, .es, .fr, .pt, .de]
-
-        for lang in languages {
+        for lang in AppLanguage.allCases {
             let l = L(lang)
             for option in CompanionStore.DexSortOption.allCases {
                 let label = l.label(for: option)
