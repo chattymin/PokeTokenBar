@@ -1018,14 +1018,21 @@ read_when:
 
 ## 알림
 
-- **사탕 재무장도 util dip 만 믿지 마라 — 창 epoch 를 같이 보라.** 지급 key 는 안정
+- **사탕 재무장도 util dip 만 믿지 마라 — 창 epoch 를 같이 보되, 휘발성 지터에 재무장되지 않게 하라.** 지급 key 는 안정
   (`claude.fiveHour`)이어야 알림 dedup 과 같은 이유로 `resets_at` 을 key 에 넣으면 안 된다. 그런데
   재무장을 *오직* utilization&lt;100 관측에만 걸면, Mac 이 리셋 구간을 잠자거나 앱이 꺼져 있는 동안
   창이 바뀌고 다음 poll 이 다시 100%면 `candyGrantTier` 가 영원히 1 로 남아 "한도를 여러 번
   찍었는데 사탕이 안 온다"가 된다(#326). 해결: `candyWindowEpoch[key]=resets_at` 을 영속하고, 같은
   key 에서 epoch 가 바뀌면 util 과 무관하게 tier 를 비운 뒤 100%면 재지급. nil→첫 epoch 는 재무장이
-  아니다(구세이브 업그레이드 폭탄 방지). 회귀: `testRearmWhenWindowEpochAdvancesWhileStillAt100`·
-  `testGrantAfterSeedWhenEpochAdvancesWithoutUtilDip`·`testLearningEpochForFirstTimeDoesNotRegrant`.
+  아니다(구세이브 업그레이드 폭탄 방지).
+  **그러나 날 것의 epoch 문자열을 단순 `!=` 로 비교하면 안 된다**: Anthropic API 가 매 응답 새로 매기는
+  마이크로초(`...00.928794` vs `...00.935515`)나 Codex app-server 의 ±1s 지터, 롤링 5h 창의 분 단위 드리프트로
+  인해 매 poll(60초)마다 새 epoch 로 오판되어 100% 상태에서 사탕이 매분 무한 지급되는 결함이 터졌다.
+  방지: ① `UsageStore` 에서 ISO8601 초 단위 정규화로 마이크로초 휘발성 제거, ② `CompanionStore.isNewEpoch` 에서
+  타임스탬프 차이를 파싱해 창 규모(세션 ≥30분, 주간 ≥24시간) 이상 전진했을 때만 실제 리셋으로 인정(지터·1분 드리프트 차단).
+  회귀 가드: `testRearmWhenWindowEpochAdvancesWhileStillAt100`·`testGrantAfterSeedWhenEpochAdvancesWithoutUtilDip`·
+  `testLearningEpochForFirstTimeDoesNotRegrant`·`testVolatileMicrosecondEpochDoesNotRegrant`·
+  `testCodexJitterEpochDoesNotRegrant`·`testRollingWindowMinorDriftDoesNotRegrant`·`testSessionFullResetWhileStillAt100Regrants`.
 
 - **휘발성 필드를 dedup/identity 키에 쓰지 마라.** 매 fetch/refresh 마다 값이 변하는 필드(예: rolling
   한도 창의 `resets_at`)를 알림 중복방지 키에 넣으면 매번 새 키가 되어 dedup 이 무력화된다 — 주간 한도

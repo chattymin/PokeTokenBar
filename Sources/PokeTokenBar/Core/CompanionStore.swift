@@ -1310,6 +1310,33 @@ final class CompanionStore {
     ///   (알림 dedup 과 같은 이유로 매 fetch 새 키 폭탄 방지).
     /// - 이미 지급한 창(tier≥1)은 재지급 안 함. session=1개·weekly=weeklyGrant.
     /// - 부수효과(인벤토리·알림)와 분리해 xctest 가능. (evaluateLimitAlerts 자매)
+    /// Parse an epoch string into a Date, supporting Unix timestamp (seconds or ms) or ISO8601 strings.
+    static func parseEpochDate(_ string: String) -> Date? {
+        if let ts = Double(string) {
+            if ts > 1_000_000_000_000 {
+                return Date(timeIntervalSince1970: ts / 1000.0)
+            } else if ts > 100_000_000 {
+                return Date(timeIntervalSince1970: ts)
+            }
+        }
+        return ISO8601Parser.date(from: string)
+    }
+
+    /// Determines if a new epoch represents an actual window advancement (reset) rather than
+    /// volatile network jitter (e.g. Codex ±1s) or fractional-second differences (Claude microseconds).
+    /// For session windows (≈5h), requires advancing forward by at least 30 minutes.
+    /// For weekly windows (7d), requires advancing forward by at least 24 hours.
+    /// Non-date strings (used in synthetic unit tests) fall back to string inequality.
+    static func isNewEpoch(previous: String, current: String, kind: WindowClass) -> Bool {
+        guard previous != current else { return false }
+        guard let dPrev = parseEpochDate(previous), let dCurr = parseEpochDate(current) else {
+            return true
+        }
+        let delta = dCurr.timeIntervalSince(dPrev)
+        let minAdvance: TimeInterval = kind == .weekly ? 86400 : 1800
+        return delta >= minAdvance
+    }
+
     static func evaluateCandyGrants(
         windows: [CandyWindow],
         grantTier: inout [String: Int],
@@ -1318,15 +1345,28 @@ final class CompanionStore {
         var grants: [CandyGrant] = []
         for w in windows {
             if let epoch = w.epoch {
-                if let previousEpoch = windowEpoch[w.key], previousEpoch != epoch {
-                    grantTier[w.key] = nil
+                if let previousEpoch = windowEpoch[w.key] {
+                    if isNewEpoch(previous: previousEpoch, current: epoch, kind: w.kind) {
+                        grantTier[w.key] = nil
+                        windowEpoch[w.key] = epoch
+                    }
+                } else {
+                    windowEpoch[w.key] = epoch
                 }
-                windowEpoch[w.key] = epoch
             }
-            guard w.utilization >= 100 else { grantTier[w.key] = nil; continue }
+            guard w.utilization >= 100 else {
+                grantTier[w.key] = nil
+                if let epoch = w.epoch {
+                    windowEpoch[w.key] = epoch
+                }
+                continue
+            }
             let previous = grantTier[w.key] ?? 0
             guard previous < 1 else { continue }
             grantTier[w.key] = 1
+            if let epoch = w.epoch {
+                windowEpoch[w.key] = epoch
+            }
             let count = w.kind == .weekly ? RareCandy.weeklyGrant : 1
             grants.append(CandyGrant(windowKey: w.key, windowName: w.name, count: count))
         }

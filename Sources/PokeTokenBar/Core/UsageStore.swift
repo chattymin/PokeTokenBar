@@ -649,20 +649,22 @@ final class UsageStore {
             let groupKey = group.displayName.localizedCaseInsensitiveContains("gemini") ? "gemini" : "3p"
             let groupTitle = l.antigravityGroupTitle(group.displayName)
             if let fiveHour = group.fiveHourBucket {
+                let epoch = fiveHour.resetDate.map { ISO8601DateFormatter().string(from: $0) } ?? fiveHour.resetTime
                 windows.append(CandyWindow(
                     key: "antigravity.\(groupKey).5h",
                     name: "\(groupTitle) \(l.fiveHourSession)",
                     kind: .session,
                     utilization: fiveHour.usedPercent,
-                    epoch: fiveHour.resetTime))
+                    epoch: epoch))
             }
             if let weekly = group.weeklyBucket {
+                let epoch = weekly.resetDate.map { ISO8601DateFormatter().string(from: $0) } ?? weekly.resetTime
                 windows.append(CandyWindow(
                     key: "antigravity.\(groupKey).weekly",
                     name: "\(groupTitle) \(l.weekly)",
                     kind: .weekly,
                     utilization: weekly.usedPercent,
-                    epoch: weekly.resetTime))
+                    epoch: epoch))
             }
         }
         return windows
@@ -673,14 +675,16 @@ final class UsageStore {
         let suffix = named ? " (\(account.title))" : ""
         var windows: [CandyWindow] = []
         if let fiveHour = account.status.fiveHour, let u = fiveHour.utilization {
+            let epoch = fiveHour.resetDate.map { ISO8601DateFormatter().string(from: $0) } ?? fiveHour.resetsAt
             windows.append(CandyWindow(key: "\(account.windowKeyPrefix).fiveHour",
                                        name: l.claudeFiveHour + suffix, kind: .session,
-                                       utilization: u, epoch: fiveHour.resetsAt))
+                                       utilization: u, epoch: epoch))
         }
         if let sevenDay = account.status.sevenDay, let u = sevenDay.utilization {
+            let epoch = sevenDay.resetDate.map { ISO8601DateFormatter().string(from: $0) } ?? sevenDay.resetsAt
             windows.append(CandyWindow(key: "\(account.windowKeyPrefix).sevenDay",
                                        name: l.claudeWeekly + suffix, kind: .weekly,
-                                       utilization: u, epoch: sevenDay.resetsAt))
+                                       utilization: u, epoch: epoch))
         }
         return windows
     }
