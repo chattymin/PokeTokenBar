@@ -1877,36 +1877,26 @@ enum LocalUsageReader {
     /// Scope is baked in rather than parameterised — a caller cannot widen this to a rolling
     /// window or last month, which is where this area has had month-boundary regressions before
     /// (see `enrichmentScanStart`).
-    /// - Parameter timeZone: 테스트 주입 구멍. 기본값은 `Entry.localDay` 를 만든 것과 같은 현지 시간대다
-    ///   — 다른 값을 주면 축의 날짜 문자열이 엔트리의 `localDay` 와 어긋나므로 프로덕션에선 기본값만 쓴다.
-    ///   DST 가 없는 시간대(예: Asia/Seoul)에서만 테스트하면 하루 전진 결함이 통과하기 때문에 뚫었다.
-    static func monthDailySeries(entries: [Entry], now: Date,
-                                 timeZone: TimeZone = .current) -> [DailyUsage]
+    /// Arbitrary date range daily series helper. Days without entries are explicit zeros.
+    static func dailySeries(entries: [Entry], startDay: Date, endDay: Date,
+                            timeZone: TimeZone = .current) -> [DailyUsage]
     {
         var calendar = Calendar.current
         calendar.timeZone = timeZone
         let fmt = localDayFormatter(timeZone: timeZone)
 
         var days: [String] = []
-        var cursor = calendar.startOfDay(for: startOfMonth(now, calendar: calendar))
-        let lastDay = calendar.startOfDay(for: now)
+        var cursor = calendar.startOfDay(for: startDay)
+        let lastDay = calendar.startOfDay(for: endDay)
         while cursor <= lastDay {
             days.append(fmt.string(from: cursor))
-            // `date(byAdding:)` rather than +86400 — a DST day is 23 or 25 hours long and a fixed
-            // stride would drift the axis off the calendar for the rest of the month
-            // (`testAxisLengthMatchesTheDayOfMonthInEveryMonthAndAcrossDSTTimeZones`).
-            // The `else` is an API-forced unwrap with no reachable trigger on a Gregorian date,
-            // like the `?? date` in `startOfMonth`/`startOfWeek` — not a guard worth a test.
             guard let next = calendar.date(byAdding: .day, value: 1, to: cursor) else { break }
             cursor = next
         }
 
-        // `days` 는 여기서 항상 비어 있지 않다 — `startOfMonth(now) <= now` 라 위 루프가 최소 한 번
-        // 돈다. 그래서 empty 가드를 두지 않는다(도달 불가한 분기는 커버리지에 ^0 으로 남고, 읽는 사람
-        // 에게 "빌 수 있다"는 잘못된 신호를 준다). 아래 `Set`·`map` 은 빈 배열에서도 안전하다.
-        let inMonth = Set(days)
+        let inRange = Set(days)
         var buckets: [String: Bucket] = [:]
-        for e in entries where inMonth.contains(e.localDay) {
+        for e in entries where inRange.contains(e.localDay) {
             buckets[e.localDay, default: Bucket()].add(e)
         }
 
@@ -1916,6 +1906,29 @@ enum LocalUsageReader {
                               cacheCreationTokens: b.cacheWrite, cacheReadTokens: b.cacheRead,
                               totalTokens: b.total, totalCost: b.cost, costCoverage: b.costCoverage)
         }
+    }
+
+    /// - Parameter timeZone: 테스트 주입 구멍. 기본값은 `Entry.localDay` 를 만든 것과 같은 현지 시간대다
+    ///   — 다른 값을 주면 축의 날짜 문자열이 엔트리의 `localDay` 와 어긋나므로 프로덕션에선 기본값만 쓴다.
+    ///   DST 가 없는 시간대(예: Asia/Seoul)에서만 테스트하면 하루 전진 결함이 통과하기 때문에 뚫었다.
+    static func monthDailySeries(entries: [Entry], now: Date,
+                                 timeZone: TimeZone = .current) -> [DailyUsage]
+    {
+        var calendar = Calendar.current
+        calendar.timeZone = timeZone
+        let start = startOfMonth(now, calendar: calendar)
+        return dailySeries(entries: entries, startDay: start, endDay: now, timeZone: timeZone)
+    }
+
+    /// Rolling window daily series (e.g. 7, 14, 21 days up to today).
+    static func rollingDailySeries(entries: [Entry], days: Int, now: Date,
+                                   timeZone: TimeZone = .current) -> [DailyUsage]
+    {
+        var calendar = Calendar.current
+        calendar.timeZone = timeZone
+        let clampedDays = max(1, days)
+        let start = calendar.date(byAdding: .day, value: -(clampedDays - 1), to: calendar.startOfDay(for: now)) ?? now
+        return dailySeries(entries: entries, startDay: start, endDay: now, timeZone: timeZone)
     }
 
     /// 최근 5시간 롤링 윈도우 기반 활성 블록(번 레이트 추정용).
@@ -1959,9 +1972,12 @@ enum LocalUsageReader {
     /// 파일이 스캔에서 빠지며 주간 합계·번레이트가 며칠간 과소집계된다. min 으로 그 경계를 흡수한다.
     /// (OpenCode/Hermes 경로엔 이미 `now-7일` 하한이 있었으나 Claude/Codex/Gemini 경로엔 없어
     /// 드리프트했다 — 네 프로바이더가 이 단일 소스를 공유하게 통일.)
+    static let maxDailyTrendWindow: TimeInterval = 21 * 86_400
+
     static func enrichmentScanStart(now: Date) -> Date {
         min(startOfMonth(now), startOfWeek(now), now.addingTimeInterval(-blockWindow),
-            now.addingTimeInterval(-LocalUsageReader.recentUseWindow))
+            now.addingTimeInterval(-LocalUsageReader.recentUseWindow),
+            now.addingTimeInterval(-LocalUsageReader.maxDailyTrendWindow))
     }
 
     static func monthKey(_ date: Date) -> String {
