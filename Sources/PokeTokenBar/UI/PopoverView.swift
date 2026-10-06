@@ -227,16 +227,11 @@ struct PopoverView: View {
             }
             .padding(.top, 2)
 
-            MonthDailyTrend(series: store.monthDailyTotals,
-                            providers: store.snapshots.compactMap { snap in
-                                snap.monthDaily.map {
-                                    DailyTrendStack.ProviderSeries(
-                                        id: snap.providerID, name: snap.displayName,
-                                        days: $0, reportsCost: snap.reportsCost)
-                                }
-                            },
+            MonthDailyTrend(series: store.dailyTrendTotals,
+                            providers: store.trendProviders,
                             providerOrder: store.registeredProviderIDs,
                             showsCost: store.showsCost,
+                            window: Binding(get: { store.dailyTrendWindow }, set: { store.dailyTrendWindow = $0 }),
                             today: LocalUsageReader.todayKey(),
                             l: l)
 

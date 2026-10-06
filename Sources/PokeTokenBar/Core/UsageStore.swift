@@ -1053,6 +1053,7 @@ final class UsageStore {
             var prevWeek: PeriodUsage?
             var prevMonth: PeriodUsage?
             var prevMonthDaily: [DailyUsage]?
+            var prevRecentDaily: [DailyUsage]?
             var prevLastUsage: Date?
             if let previous = snapshots.first(where: { $0.providerID == provider.id }) {
                 prevLastUsage = previous.lastUsage
@@ -1063,6 +1064,7 @@ final class UsageStore {
                 prevWeek = previous.weekTotal
                 prevMonth = previous.monthTotal
                 prevMonthDaily = previous.monthDaily
+                prevRecentDaily = previous.recentDaily
             }
 
             let today: DailyUsage?
@@ -1085,6 +1087,7 @@ final class UsageStore {
                 weekTotal: prevWeek,
                 monthTotal: prevMonth,
                 monthDaily: prevMonthDaily,
+                recentDaily: prevRecentDaily,
                 fetchedAt: Date(),
                 reportsCost: provider.reportsCost,
                 lastUsage: prevLastUsage)
@@ -1120,6 +1123,7 @@ final class UsageStore {
                             weekTotal: enrichment.periodsOK ? enrichment.weekTotal : nil,
                             monthTotal: enrichment.periodsOK ? enrichment.monthTotal : nil,
                             monthDaily: enrichment.periodsOK ? enrichment.monthDaily : nil,
+                            recentDaily: enrichment.periodsOK ? enrichment.recentDaily : nil,
                             fetchedAt: Date(),
                             reportsCost: provider.reportsCost,
                             lastUsage: enrichment.periodsOK ? enrichment.lastUsage : nil)
@@ -1132,6 +1136,7 @@ final class UsageStore {
                     snapshots[index].weekTotal = enrichment.weekTotal
                     snapshots[index].monthTotal = enrichment.monthTotal
                     snapshots[index].monthDaily = enrichment.monthDaily
+                    snapshots[index].recentDaily = enrichment.recentDaily
                     snapshots[index].lastUsage = enrichment.lastUsage
                 }
             }
@@ -2113,6 +2118,7 @@ private extension ProviderSnapshot {
             || (weekTotal?.totalTokens ?? 0) > 0
             || (monthTotal?.totalTokens ?? 0) > 0
             || monthDaily?.contains(where: { $0.totalTokens > 0 }) == true
+            || recentDaily?.contains(where: { $0.totalTokens > 0 }) == true
             || lastUsage.map { Date().timeIntervalSince($0) <= LocalUsageReader.recentUseWindow } == true
     }
 }
