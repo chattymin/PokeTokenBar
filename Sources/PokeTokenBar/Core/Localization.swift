@@ -703,6 +703,65 @@ struct L {
           "Импортировано — Покедекс \(dex) · \(tokens) за всё время")
     }
 
+    // MARK: 동기화 폴더 (설정 → 백업 & 이전, #257)
+    var syncFolderLabel: String { t("동기화 폴더", "Sync folder", "同期フォルダ", "Carpeta de sincronización", "Dossier de synchronisation", "Pasta de sincronização", "Sync-Ordner") }
+    var syncFolderHint: String {
+        t("Mac끼리 공유하는 폴더(iCloud Drive 등)에 세이브를 두고 이어서 키워요. 다른 Mac이 남긴 새 세이브가 있으면 불러올지 물어봐요",
+          "Keep your save in a folder your Macs share (e.g. iCloud Drive). When another Mac leaves a new save there, you're asked whether to load it",
+          "Mac同士で共有するフォルダ（iCloud Driveなど）にセーブを置いて続きを育てます。他のMacが新しいセーブを残すと、読み込むか確認します",
+          "Guarda tu partida en una carpeta que comparten tus Mac (p. ej. iCloud Drive). Si otro Mac deja ahí una partida nueva, se te pregunta si quieres cargarla",
+          "Garde ta sauvegarde dans un dossier partagé par tes Mac (ex. iCloud Drive). Si un autre Mac y laisse une nouvelle sauvegarde, on te demande si tu veux la charger",
+          "Mantenha seu save em uma pasta compartilhada entre seus Macs (ex.: iCloud Drive). Quando outro Mac deixar um save novo lá, você decide se quer carregá-lo",
+          "Lege deinen Spielstand in einen Ordner, den deine Macs teilen (z. B. iCloud Drive). Liegt dort ein neuer Spielstand eines anderen Macs, wirst du gefragt, ob du ihn laden willst")
+    }
+    var syncFolderChooseButton: String { t("폴더 선택…", "Choose…", "選択…", "Elegir…", "Choisir…", "Escolher…", "Auswählen…") }
+    var syncFolderStopButton: String { t("사용 안 함", "Turn Off", "オフにする", "Desactivar", "Désactiver", "Desativar", "Ausschalten") }
+    var saveToSyncFolderButton: String { t("폴더에 저장", "Save to Folder", "フォルダに保存", "Guardar en la carpeta", "Enregistrer dans le dossier", "Salvar na pasta", "In Ordner sichern") }
+    var loadFromSyncFolderButton: String { t("폴더에서 불러오기", "Load from Folder", "フォルダから読み込む", "Cargar de la carpeta", "Charger depuis le dossier", "Carregar da pasta", "Aus Ordner laden") }
+    var syncFolderSetDone: String {
+        t("동기화 폴더를 정했어요. Mac을 바꾸기 전에 \"폴더에 저장\"을 눌러 두세요",
+          "Sync folder set. Click \"Save to Folder\" before you switch Macs",
+          "同期フォルダを設定しました。Macを切り替える前に「フォルダに保存」を押してください",
+          "Carpeta de sincronización configurada. Pulsa \"Guardar en la carpeta\" antes de cambiar de Mac",
+          "Dossier de synchronisation défini. Clique sur « Enregistrer dans le dossier » avant de changer de Mac",
+          "Pasta de sincronização definida. Clique em \"Salvar na pasta\" antes de trocar de Mac",
+          "Sync-Ordner festgelegt. Klicke vor dem Wechsel des Macs auf „In Ordner sichern“")
+    }
+    var syncSavedDone: String {
+        t("동기화 폴더에 저장했어요 — 다른 Mac에서 이어서 키울 수 있어요",
+          "Saved to the sync folder — your other Mac can pick it up from there",
+          "同期フォルダに保存しました — 他のMacで続きを育てられます",
+          "Guardado en la carpeta de sincronización — tu otro Mac puede continuar desde ahí",
+          "Enregistré dans le dossier de synchronisation — ton autre Mac peut reprendre à partir de là",
+          "Salvo na pasta de sincronização — seu outro Mac pode continuar a partir dali",
+          "Im Sync-Ordner gesichert – dein anderer Mac kann dort weitermachen")
+    }
+    var syncFolderEmpty: String {
+        t("동기화 폴더에 아직 세이브가 없어요. iCloud Drive라면 아직 내려받는 중일 수 있어요",
+          "There's no save in the sync folder yet. On iCloud Drive it may still be downloading",
+          "同期フォルダにはまだセーブがありません。iCloud Driveの場合はダウンロード中の可能性があります",
+          "Aún no hay ninguna partida en la carpeta de sincronización. En iCloud Drive puede que todavía se esté descargando",
+          "Il n'y a pas encore de sauvegarde dans le dossier de synchronisation. Sur iCloud Drive, elle est peut-être encore en cours de téléchargement",
+          "Ainda não há save na pasta de sincronização. No iCloud Drive, ele pode ainda estar sendo baixado",
+          "Im Sync-Ordner liegt noch kein Spielstand. Bei iCloud Drive wird er vielleicht noch geladen")
+    }
+    var syncOverwriteTitle: String {
+        t("다른 Mac의 세이브를 덮어쓸까요?", "Replace the save from another Mac?", "他のMacのセーブを上書きしますか？", "¿Reemplazar la partida de otro Mac?", "Remplacer la sauvegarde d'un autre Mac ?", "Substituir o save de outro Mac?", "Spielstand eines anderen Macs ersetzen?")
+    }
+    func syncOverwriteBody(device: String, exportedAt: String) -> String {
+        t("동기화 폴더에 이 Mac이 아직 불러오지 않은 \(device)의 세이브(\(exportedAt))가 있어요. 지금 저장하면 이 Mac의 진행으로 대체돼요",
+          "The sync folder has a save from \(device) (\(exportedAt)) that this Mac hasn't loaded. Saving now replaces it with this Mac's progress",
+          "同期フォルダに、このMacがまだ読み込んでいない\(device)のセーブ（\(exportedAt)）があります。今保存するとこのMacの進行で置き換わります",
+          "La carpeta de sincronización tiene una partida de \(device) (\(exportedAt)) que este Mac no ha cargado. Si guardas ahora, se reemplazará con el progreso de este Mac",
+          "Le dossier de synchronisation contient une sauvegarde de \(device) (\(exportedAt)) que ce Mac n'a pas chargée. Enregistrer maintenant la remplace par la progression de ce Mac",
+          "A pasta de sincronização tem um save de \(device) (\(exportedAt)) que este Mac não carregou. Salvar agora o substitui pelo progresso deste Mac",
+          "Im Sync-Ordner liegt ein Spielstand von \(device) (\(exportedAt)), den dieser Mac nicht geladen hat. Wenn du jetzt sicherst, wird er durch den Fortschritt dieses Macs ersetzt")
+    }
+    func syncHandoffTitle(_ device: String) -> String {
+        t("\(device)의 세이브로 이어서 할까요?", "Continue with the save from \(device)?", "\(device)のセーブで続けますか？", "¿Continuar con la partida de \(device)?", "Continuer avec la sauvegarde de \(device) ?", "Continuar com o save de \(device)?", "Mit dem Spielstand von \(device) weitermachen?")
+    }
+    var syncNotNow: String { t("나중에", "Not Now", "後で", "Ahora no", "Plus tard", "Agora não", "Nicht jetzt") }
+
     // MARK: 스냅샷 백업 (설정 → 자동 백업)
     var snapshotsSectionTitle: String {
         t("자동 백업 (스냅샷)",
