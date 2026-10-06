@@ -47,6 +47,13 @@ final class CompanionStore {
     private(set) var pokemonDetailsByID: [Int: PokemonDetails] = [:]
     private(set) var loadingPokemonDetailIDs: Set<Int> = []
     private(set) var failedPokemonDetailIDs: Set<Int> = []
+    private let flavorProvider: (any PokemonFlavorTextProviding)?
+    /// Keyed by species *and* language: switching languages never shows the other language's entries.
+    private(set) var flavorTextsByRequest: [FlavorTextRequest: DexEntries] = [:]
+    private(set) var failedFlavorTextRequests: Set<FlavorTextRequest> = []
+    /// Store-owned so a detail page closing mid-request does not cancel it: reopening joins the
+    /// same request instead of finding it "in flight" and waiting on one that never lands.
+    private var flavorTextTasks: [FlavorTextRequest: Task<Void, Never>] = [:]
     private let defaults: UserDefaults
     /// 세션 내 활성 개체 교체 감지용. await 뒤 이전 개체의 결과가 새 개체를 덮지 않게 한다.
     private var activeGeneration = 0
@@ -67,6 +74,7 @@ final class CompanionStore {
 
     init(provider: any PokeProviding = PokeAPIClient.shared,
          detailProvider: (any PokemonDetailProviding)? = nil,
+         flavorProvider: (any PokemonFlavorTextProviding)? = nil,
          clock: @escaping () -> Date = Date.init,
          fileURL: URL? = nil,
          rng: any RandomNumberGenerator = SystemRandomNumberGenerator(),
@@ -74,6 +82,7 @@ final class CompanionStore {
          defaults: UserDefaults = .standard) {
         self.provider = provider
         self.detailProvider = detailProvider ?? (provider as? any PokemonDetailProviding)
+        self.flavorProvider = flavorProvider ?? (provider as? any PokemonFlavorTextProviding)
         self.clock = clock
         self.fileURL = fileURL ?? Self.defaultURL()
         self.rng = rng
@@ -1932,6 +1941,42 @@ final class CompanionStore {
             failedPokemonDetailIDs.insert(speciesID)
             AppLog.write("pokemon details fetch failed id=\(speciesID): \(error)")
         }
+    }
+
+    /// The request the detail page shows: the species in the current app language.
+    func flavorTextRequest(speciesID: Int) -> FlavorTextRequest {
+        FlavorTextRequest(speciesID: speciesID, language: state.language)
+    }
+
+    func isLoadingFlavorTexts(_ request: FlavorTextRequest) -> Bool { flavorTextTasks[request] != nil }
+
+    /// Loads the species' Pokédex entries in the current language, independently of battle details.
+    ///
+    /// The request outlives the page that started it, so the language it was made for is captured
+    /// before the first await and checked again before success *or* failure is stored. A degraded
+    /// (REST) result stays visible but is fetched again on the next visit.
+    func loadFlavorTexts(speciesID: Int) async {
+        let request = flavorTextRequest(speciesID: speciesID)
+        if let running = flavorTextTasks[request] { return await running.value }
+        if let loaded = flavorTextsByRequest[request], !loaded.isDegraded { return }
+        guard let flavorProvider else { return }
+        failedFlavorTextRequests.remove(request)
+        let task = Task {
+            defer { flavorTextTasks[request] = nil }
+            do {
+                let entries = try await flavorProvider.flavorTexts(speciesID: request.speciesID,
+                                                                   language: request.language)
+                guard state.language == request.language else { return }
+                flavorTextsByRequest[request] = entries
+            } catch {
+                guard state.language == request.language else { return }
+                failedFlavorTextRequests.insert(request)
+                AppLog.write("dex flavor text fetch failed id=\(request.speciesID) " +
+                             "lang=\(request.language.rawValue): \(error)")
+            }
+        }
+        flavorTextTasks[request] = task
+        await task.value
     }
 
     /// Startup/background warmup for the only profile needed before a detail page is opened.

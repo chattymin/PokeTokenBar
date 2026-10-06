@@ -1153,6 +1153,13 @@ struct L {
     var weight: String { t("몸무게", "Weight", "重さ", "Peso", "Poids", "Peso", "Gewicht", "Вес") }
     var baseStatTotal: String { t("합계", "Base total", "合計", "Total base", "Total de base", "Total base", "Basiswertsumme", "Сумма базовых") }
     var possibleAbilities: String { t("가능한 특성", "Possible abilities", "可能な特性", "Habilidades posibles", "Talents possibles", "Habilidades possíveis", "Mögliche Fähigkeiten", "Возможные способности") }
+    var dexFlavorTitle: String { t("도감 설명", "Pokédex entries", "図鑑説明", "Descripciones de la Pokédex", "Descriptions du Pokédex", "Descrições da Pokédex", "Pokédex-Einträge", "Записи Покедекса") }
+    var dexFlavorShowAll: String { t("도감 설명 전체 보기", "All Pokédex entries", "図鑑説明をすべて見る", "Ver todas las descripciones", "Voir toutes les descriptions", "Ver todas as descrições", "Alle Pokédex-Einträge", "Все записи Покедекса") }
+    var dexFlavorLoading: String { t("도감 설명 불러오는 중…", "Loading Pokédex entries…", "図鑑説明を読み込み中…", "Cargando descripciones de la Pokédex…", "Chargement des descriptions du Pokédex…", "Carregando descrições da Pokédex…", "Pokédex-Einträge werden geladen…", "Загрузка записей Покедекса…") }
+    var dexFlavorFailed: String { t("도감 설명을 불러오지 못했어요", "Couldn't load Pokédex entries", "図鑑説明を読み込めませんでした", "No se pudieron cargar las descripciones de la Pokédex", "Impossible de charger les descriptions du Pokédex", "Não foi possível carregar as descrições da Pokédex", "Pokédex-Einträge konnten nicht geladen werden", "Не удалось загрузить записи Покедекса") }
+    /// PokéAPI has no entries in this language at all (e.g. `pt`, `ru`); species names fall back the same way.
+    var dexFlavorEnglishFallback: String { t("이 언어로 제공되는 설명이 없어 영어로 표시합니다", "No entries in this language — showing English", "この言語の説明がないため英語で表示します", "No hay descripciones en este idioma — se muestra en inglés", "Aucune description dans cette langue — affichage en anglais", "Sem descrições neste idioma — exibindo em inglês", "Keine Einträge in dieser Sprache — Anzeige auf Englisch", "Записей на этом языке нет — показаны на английском") }
+    var dexFlavorEmpty: String { t("도감 설명이 없어요", "No Pokédex entries", "図鑑説明がありません", "No hay descripciones de la Pokédex", "Aucune description du Pokédex", "Sem descrições da Pokédex", "Keine Pokédex-Einträge", "Нет записей Покедекса") }
     func completeMoveList(_ count: Int) -> String { t("전체 기술 목록 \(count)개", "Complete move list · \(count)", "全技リスト・\(count)", "Lista completa · \(count)", "Liste complète · \(count)", "Lista completa · \(count)", "Vollständige Attackenliste · \(count)", "Все приёмы · \(count)") }
     func genderLabel(_ gender: PokemonGender?) -> String {
         switch gender {
