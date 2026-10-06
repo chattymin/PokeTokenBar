@@ -1118,12 +1118,19 @@ final class LocalUsageReaderTests: XCTestCase {
         XCTAssertLessThanOrEqual(scan, now.addingTimeInterval(-LocalUsageReader.blockWindow))
         XCTAssertLessThanOrEqual(scan, now.addingTimeInterval(-LocalUsageReader.recentUseWindow),
                                  "the recent-use window (#336) must not be clipped by the mtime filter")
+        XCTAssertLessThanOrEqual(scan, now.addingTimeInterval(-LocalUsageReader.maxDailyTrendWindow),
+                                 "the 21-day rolling daily trend window must not be clipped by the mtime filter")
         XCTAssertLessThan(scan, LocalUsageReader.startOfMonth(now),
                           "월초엔 weekStart 가 더 이르므로 하한이 monthStart 보다 앞서야 한다")
 
-        // 월 중순: monthStart 가 가장 이르므로 하한 == monthStart (경계 밖 과다 스캔 없음).
+        // 월말(25일 이후): startOfMonth(25일 이상 전)가 maxDailyTrendWindow(21일)보다 앞서므로 하한 == monthStart.
+        let late = cal.date(from: DateComponents(year: 2026, month: 7, day: 28, hour: 12))!
+        XCTAssertEqual(LocalUsageReader.enrichmentScanStart(now: late), LocalUsageReader.startOfMonth(late))
+
+        // 월 중순(20일): 21일 전이 전달 말이므로 now - maxDailyTrendWindow 가 startOfMonth 보다 앞선다.
         let mid = cal.date(from: DateComponents(year: 2026, month: 7, day: 20, hour: 12))!
-        XCTAssertEqual(LocalUsageReader.enrichmentScanStart(now: mid), LocalUsageReader.startOfMonth(mid))
+        XCTAssertEqual(LocalUsageReader.enrichmentScanStart(now: mid),
+                       mid.addingTimeInterval(-LocalUsageReader.maxDailyTrendWindow))
     }
     // MARK: 파싱 경계 클램프 (딥리뷰 후속 — 크래시 부류)
 
@@ -1222,6 +1229,46 @@ final class LocalUsageReaderTests: XCTestCase {
         ], to: dir, name: "rollout-child.jsonl", sub: "child")
         let entries = LocalUsageReader.codexEntries(modifiedSince: .distantPast, root: dir)
         XCTAssertEqual(entries.map(\.total).sorted(), [110, 220], "부모 replay 는 대조로 잘리고 자기 턴만 남는다")
+    }
+
+    func testDayDifferenceCalculatesCalendarDaysCorrectly() {
+        XCTAssertEqual(LocalUsageReader.dayDifference(from: "2026-10-01", to: "2026-10-04"), 3)
+        XCTAssertEqual(LocalUsageReader.dayDifference(from: "2026-10-04", to: "2026-10-01"), -3)
+        XCTAssertEqual(LocalUsageReader.dayDifference(from: "2026-10-01", to: "2026-10-01"), 0)
+        XCTAssertEqual(LocalUsageReader.dayDifference(from: "2026-09-25", to: "2026-10-02"), 7)
+        XCTAssertNil(LocalUsageReader.dayDifference(from: "invalid", to: "2026-10-01"))
+    }
+
+    func testRollingDailySeriesReturnsExactWindowCountAndFillsMissingDaysWithZero() {
+        let fmt = LocalUsageReader.localDayFormatter()
+        let now = fmt.date(from: "2026-10-15")!
+        let entries = [
+            LocalUsageReader.Entry(id: "e1", date: fmt.date(from: "2026-10-14")!, localDay: "2026-10-14",
+                                   model: "test", input: 100, output: 50, cacheWrite: 0, cacheRead: 0),
+            LocalUsageReader.Entry(id: "e2", date: fmt.date(from: "2026-10-15")!, localDay: "2026-10-15",
+                                   model: "test", input: 200, output: 80, cacheWrite: 0, cacheRead: 0),
+            LocalUsageReader.Entry(id: "e0", date: fmt.date(from: "2026-09-01")!, localDay: "2026-09-01",
+                                   model: "test", input: 500, output: 50, cacheWrite: 0, cacheRead: 0),
+        ]
+
+        let series7 = LocalUsageReader.rollingDailySeries(entries: entries, days: 7, now: now)
+        XCTAssertEqual(series7.count, 7)
+        XCTAssertEqual(series7.first?.date, "2026-10-09")
+        XCTAssertEqual(series7.last?.date, "2026-10-15")
+        XCTAssertEqual(series7.last?.totalTokens, 280)
+        XCTAssertEqual(series7[5].date, "2026-10-14")
+        XCTAssertEqual(series7[5].totalTokens, 150)
+        XCTAssertEqual(series7[0].totalTokens, 0, "Missing days in window are explicitly 0")
+
+        let series14 = LocalUsageReader.rollingDailySeries(entries: entries, days: 14, now: now)
+        XCTAssertEqual(series14.count, 14)
+        XCTAssertEqual(series14.first?.date, "2026-10-02")
+        XCTAssertEqual(series14.last?.date, "2026-10-15")
+
+        let series21 = LocalUsageReader.rollingDailySeries(entries: entries, days: 21, now: now)
+        XCTAssertEqual(series21.count, 21)
+        XCTAssertEqual(series21.first?.date, "2026-09-25")
+        XCTAssertEqual(series21.last?.date, "2026-10-15")
     }
 
 }

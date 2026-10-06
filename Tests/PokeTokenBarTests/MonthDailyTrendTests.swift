@@ -614,4 +614,100 @@ final class MonthDailyTrendTests: XCTestCase {
             .sizeThatFits(in: CGSize(width: PopoverMetrics.contentWidth, height: 600)).height
         XCTAssertEqual(height, 0)
     }
+
+    // MARK: Daily Trend Window (7d / 14d / 21d / month)
+
+    func testDailyTrendColumnsByWindow() {
+        let today = "2026-10-15"
+        let series = [
+            DailyUsage(date: "2026-10-14", inputTokens: 0, outputTokens: 100, cacheCreationTokens: 0, cacheReadTokens: 0, totalTokens: 100, totalCost: 0),
+            DailyUsage(date: "2026-10-15", inputTokens: 0, outputTokens: 200, cacheCreationTokens: 0, cacheReadTokens: 0, totalTokens: 200, totalCost: 0),
+        ]
+
+        // 7d: 7 columns, none future, ends today
+        let cols7 = DailyTrendMetrics.columns(series: series, today: today, window: .d7)
+        XCTAssertEqual(cols7.count, 7)
+        XCTAssertEqual(cols7.first?.date, "2026-10-09")
+        XCTAssertEqual(cols7.last?.date, today)
+        XCTAssertTrue(cols7.allSatisfy { !$0.isFuture })
+
+        // 14d: 14 columns, none future, ends today
+        let cols14 = DailyTrendMetrics.columns(series: series, today: today, window: .d14)
+        XCTAssertEqual(cols14.count, 14)
+        XCTAssertEqual(cols14.first?.date, "2026-10-02")
+        XCTAssertEqual(cols14.last?.date, today)
+        XCTAssertTrue(cols14.allSatisfy { !$0.isFuture })
+
+        // 21d: 21 columns, none future, ends today
+        let cols21 = DailyTrendMetrics.columns(series: series, today: today, window: .d21)
+        XCTAssertEqual(cols21.count, 21)
+        XCTAssertEqual(cols21.first?.date, "2026-09-25")
+        XCTAssertEqual(cols21.last?.date, today)
+        XCTAssertTrue(cols21.allSatisfy { !$0.isFuture })
+
+        // month: 31 columns for October, future columns beyond today (15)
+        let colsMonth = DailyTrendMetrics.columns(series: series, today: today, window: .month)
+        XCTAssertEqual(colsMonth.count, 31)
+        XCTAssertEqual(colsMonth.first?.date, "2026-10-01")
+        XCTAssertEqual(colsMonth.last?.date, "2026-10-31")
+        XCTAssertFalse(colsMonth[14].isFuture, "day 15 is today -> not future")
+        XCTAssertTrue(colsMonth[15].isFuture, "day 16 is future")
+    }
+
+    func testAxisLabelsByWindow() {
+        let today = "2026-10-15"
+
+        // Today is always labeled across all windows
+        for win in DailyTrendWindow.allCases {
+            XCTAssertEqual(DailyTrendMetrics.axisLabel(for: today, today: today, window: win), "15",
+                           "Today must always have an axis label in \(win)")
+        }
+
+        // 7d: midpoint (3 days before = Oct 12) gets label, Oct 14 does not
+        XCTAssertEqual(DailyTrendMetrics.axisLabel(for: "2026-10-12", today: today, window: .d7), "12")
+        XCTAssertNil(DailyTrendMetrics.axisLabel(for: "2026-10-14", today: today, window: .d7))
+
+        // 14d: 7 days before (Oct 8) gets label, Oct 12 does not
+        XCTAssertEqual(DailyTrendMetrics.axisLabel(for: "2026-10-08", today: today, window: .d14), "8")
+        XCTAssertNil(DailyTrendMetrics.axisLabel(for: "2026-10-12", today: today, window: .d14))
+
+        // 21d: 7 and 14 days before get labels (Oct 8, Oct 1)
+        XCTAssertEqual(DailyTrendMetrics.axisLabel(for: "2026-10-08", today: today, window: .d21), "8")
+        XCTAssertEqual(DailyTrendMetrics.axisLabel(for: "2026-10-01", today: today, window: .d21), "1")
+        XCTAssertNil(DailyTrendMetrics.axisLabel(for: "2026-10-05", today: today, window: .d21))
+
+        // 1st of month is labeled if far enough from today
+        XCTAssertEqual(DailyTrendMetrics.axisLabel(for: "2026-10-01", today: "2026-10-10", window: .d14), "1")
+        // 1st of month suppressed if too close to today (< 3 days)
+        XCTAssertNil(DailyTrendMetrics.axisLabel(for: "2026-10-01", today: "2026-10-02", window: .d14))
+    }
+
+    func testAxisLabelsSuppressCollisionsNearMonthBoundary() {
+        // In 7d window on the 2nd of month: Oct 1 must NOT collide with Oct 2
+        XCTAssertEqual(DailyTrendMetrics.axisLabel(for: "2026-10-02", today: "2026-10-02", window: .d7), "2")
+        XCTAssertNil(DailyTrendMetrics.axisLabel(for: "2026-10-01", today: "2026-10-02", window: .d7),
+                     "Oct 1 must be suppressed in 7d when today is Oct 2 to avoid adjacent 1 2 label collision")
+
+        // In 14d/21d window when today is the 9th: Oct 2 (regular 7d mark, diff=7) would sit right next
+        // to Oct 1 (landmark, diff=8). Oct 1 must be shown and Oct 2 must be suppressed.
+        let today9 = "2026-10-09"
+        XCTAssertEqual(DailyTrendMetrics.axisLabel(for: "2026-10-01", today: today9, window: .d14), "1",
+                       "Oct 1 landmark must be displayed")
+        XCTAssertNil(DailyTrendMetrics.axisLabel(for: "2026-10-02", today: today9, window: .d14),
+                     "Oct 2 regular mark must yield to Oct 1 to avoid adjacent 1 2 label collision")
+        XCTAssertEqual(DailyTrendMetrics.axisLabel(for: today9, today: today9, window: .d14), "9")
+
+        // In 7d window when today is the 4th (diff=3): Oct 1 is the midpoint and >= 3 from today -> displayed
+        XCTAssertEqual(DailyTrendMetrics.axisLabel(for: "2026-10-01", today: "2026-10-04", window: .d7), "1")
+        XCTAssertEqual(DailyTrendMetrics.axisLabel(for: "2026-10-04", today: "2026-10-04", window: .d7), "4")
+    }
+
+    func testDailyTrendHoverFallsBackToZeroTokensForMissingDays() {
+        let l = L(.en)
+        let emptySeries: [DailyUsage] = []
+        let info = DailyTrendHover.info(day: "2026-10-15", series: emptySeries, stack: [], showsCost: true, l: l)
+        XCTAssertNotNil(info, "Hovering a missing day in series must return zero-token info rather than nil")
+        XCTAssertEqual(info?.tokens, "0")
+    }
 }
+

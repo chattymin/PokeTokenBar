@@ -663,6 +663,8 @@ struct ProviderSnapshot: Sendable, Identifiable {
     /// This month's day-by-day totals (month start → today, empty days as zeros), or `nil` when
     /// the provider cannot produce a series. Defaulted so existing call sites stay unchanged.
     var monthDaily: [DailyUsage]? = nil
+    /// Rolling recent day-by-day totals (21 days → today), or `nil`.
+    var recentDaily: [DailyUsage]? = nil
     var fetchedAt: Date
     /// Mirrors `UsageProvider.reportsCost`. Default keeps existing call sites unchanged.
     var reportsCost: Bool = true
@@ -671,6 +673,24 @@ struct ProviderSnapshot: Sendable, Identifiable {
 
     var id: String { providerID }
     var todayTotalTokens: Int { today?.totalTokens ?? 0 }
+}
+
+enum DailyTrendWindow: String, CaseIterable, Identifiable, Sendable {
+    case d7 = "7d"
+    case d14 = "14d"
+    case d21 = "21d"
+    case month = "month"
+
+    var id: String { rawValue }
+
+    var dayCount: Int? {
+        switch self {
+        case .d7: return 7
+        case .d14: return 14
+        case .d21: return 21
+        case .month: return nil
+        }
+    }
 }
 
 // MARK: - ISO8601 with fractional seconds

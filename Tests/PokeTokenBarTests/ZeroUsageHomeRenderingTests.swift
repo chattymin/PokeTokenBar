@@ -121,11 +121,13 @@ final class ZeroUsageHomeRenderingTests: XCTestCase {
             XCTAssertTrue(normalizedText.contains(label.replacingOccurrences(of: " ", with: "")),
                           "Missing visible \(label): \(text)")
         }
+        let trendLabel = companion.l.title(for: store.dailyTrendWindow).replacingOccurrences(of: " ", with: "")
+        let legacyLabel = companion.l.dailyTrend.replacingOccurrences(of: " ", with: "")
         if history && day > 1 {
-            XCTAssertTrue(normalizedText.contains(companion.l.dailyTrend.replacingOccurrences(of: " ", with: "")),
+            XCTAssertTrue(normalizedText.contains(trendLabel) || normalizedText.contains(legacyLabel),
                           "Historical chart missing: \(text)")
         } else {
-            XCTAssertFalse(normalizedText.contains(companion.l.dailyTrend.replacingOccurrences(of: " ", with: "")),
+            XCTAssertFalse(normalizedText.contains(trendLabel) || normalizedText.contains(legacyLabel),
                            "Empty history must not invent a chart")
         }
         if let output = ProcessInfo.processInfo.environment["PTB_ZERO_USAGE_SCREENSHOT_DIR"] {
