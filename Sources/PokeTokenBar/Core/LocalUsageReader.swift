@@ -1996,6 +1996,15 @@ enum LocalUsageReader {
         return f
     }
 
+    /// Calculate whole calendar days between two "yyyy-MM-dd" keys. Positive when `to` is later than `from`.
+    static func dayDifference(from: String, to: String, timeZone: TimeZone = .current) -> Int? {
+        let fmt = localDayFormatter(timeZone: timeZone)
+        guard let d1 = fmt.date(from: from), let d2 = fmt.date(from: to) else { return nil }
+        var cal = Calendar(identifier: .gregorian)
+        cal.timeZone = timeZone
+        return cal.dateComponents([.day], from: d1, to: d2).day
+    }
+
     /// 파싱 상한 — 실사용(수십억)의 10만 배라 정상 사용량을 자르지 않는다.
     /// `Int.max` 로 잡지 않는 이유: 클램프 자체는 되지만 `output + thoughts` 처럼 **파싱 직후 더하는**
     /// 지점에서 다시 오버플로 트랩이 난다. 이 값끼리 여러 번 더해도 Int64 안에 머무는 상한이어야 한다.

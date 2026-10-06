@@ -1491,10 +1491,6 @@ enum DailyTrendMetrics {
             return nil
         }
     }
-        if let todayOfMonth = Int(today.suffix(2)),
-           abs(dayOfMonth - todayOfMonth) < minimumSeparation { return nil }
-        return "\(dayOfMonth)"
-    }
 
     /// `calendar` 는 테스트 주입 구멍 — 주말이 어느 요일인지는 로케일이 정한다(금·토인 지역도
     /// 있다). 프로덕션은 사용자 달력을 그대로 따라야 하므로 기본값을 쓴다.
