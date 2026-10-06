@@ -1467,21 +1467,41 @@ enum DailyTrendMetrics {
                abs(dayOfMonth - todayOfMonth) < minimumSeparation { return nil }
             return "\(dayOfMonth)"
         case .d7:
-            if dayOfMonth == 1 { return "\(dayOfMonth)" }
-            if let diff = LocalUsageReader.dayDifference(from: date, to: today) {
-                if diff == 3 && diff >= minimumSeparation { return "\(dayOfMonth)" }
+            guard let diff = LocalUsageReader.dayDifference(from: date, to: today), diff > 0 else { return nil }
+            if dayOfMonth == 1 {
+                // In a 7-day window, midpoint is diff == 3. Label "1" only if it is far enough
+                // from both today and the midpoint to avoid visual collision.
+                guard diff >= minimumSeparation && (diff == 3 || abs(diff - 3) >= minimumSeparation) else {
+                    return nil
+                }
+                return "\(dayOfMonth)"
+            }
+            if diff == 3 && diff >= minimumSeparation {
+                return "\(dayOfMonth)"
             }
             return nil
         case .d14, .d21:
+            guard let diff = LocalUsageReader.dayDifference(from: date, to: today), diff > 0 else { return nil }
             if dayOfMonth == 1 {
-                if let diff = LocalUsageReader.dayDifference(from: date, to: today),
-                   diff < minimumSeparation { return nil }
-                return "\(dayOfMonth)"
+                return diff >= minimumSeparation ? "\(dayOfMonth)" : nil
             }
-            if let diff = LocalUsageReader.dayDifference(from: date, to: today) {
-                if diff > 0 && diff % 7 == 0 && diff >= minimumSeparation {
-                    return "\(dayOfMonth)"
+            if diff % 7 == 0 && diff >= minimumSeparation {
+                // If the 1st of this month is in the window and separated from today,
+                // it takes precedence as a landmark. Suppress regular marks that sit
+                // within minimumSeparation of the 1st of the month to avoid visual collision.
+                let diffToFirst = diff - (dayOfMonth - 1)
+                if diffToFirst >= minimumSeparation && abs(dayOfMonth - 1) < minimumSeparation {
+                    return nil
                 }
+                if let year = Int(date.prefix(4)), let month = Int(date.dropFirst(5).prefix(2)),
+                   let daysInCurMonth = daysInMonth(year: year, month: month) {
+                    let daysToNextFirst = daysInCurMonth - dayOfMonth + 1
+                    let diffToNextFirst = diff - daysToNextFirst
+                    if diffToNextFirst >= minimumSeparation && daysToNextFirst < minimumSeparation {
+                        return nil
+                    }
+                }
+                return "\(dayOfMonth)"
             }
             return nil
         }
@@ -1535,7 +1555,9 @@ enum DailyTrendHover {
     /// bill (`reportsCost`). Nil for a day outside the series.
     static func info(day: String, series: [DailyUsage], stack: [DailyTrendStack.ProviderSeries],
                      showsCost: Bool, l: L) -> Info? {
-        guard let total = series.first(where: { $0.date == day }) else { return nil }
+        let total = series.first(where: { $0.date == day }) ?? DailyUsage(
+            date: day, inputTokens: 0, outputTokens: 0,
+            cacheCreationTokens: 0, cacheReadTokens: 0, totalTokens: 0, totalCost: 0, costCoverage: .empty)
         let rows: [Row] = DailyTrendStack.isStacked(stack) ? stack.compactMap { provider in
             guard let usage = provider.days.first(where: { $0.date == day }), usage.totalTokens > 0 else { return nil }
             return Row(id: provider.id, name: provider.name, tokens: TokenFormatter.compact(usage.totalTokens),

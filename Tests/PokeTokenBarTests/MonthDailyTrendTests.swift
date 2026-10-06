@@ -681,4 +681,33 @@ final class MonthDailyTrendTests: XCTestCase {
         // 1st of month suppressed if too close to today (< 3 days)
         XCTAssertNil(DailyTrendMetrics.axisLabel(for: "2026-10-01", today: "2026-10-02", window: .d14))
     }
+
+    func testAxisLabelsSuppressCollisionsNearMonthBoundary() {
+        // In 7d window on the 2nd of month: Oct 1 must NOT collide with Oct 2
+        XCTAssertEqual(DailyTrendMetrics.axisLabel(for: "2026-10-02", today: "2026-10-02", window: .d7), "2")
+        XCTAssertNil(DailyTrendMetrics.axisLabel(for: "2026-10-01", today: "2026-10-02", window: .d7),
+                     "Oct 1 must be suppressed in 7d when today is Oct 2 to avoid adjacent 1 2 label collision")
+
+        // In 14d/21d window when today is the 9th: Oct 2 (regular 7d mark, diff=7) would sit right next
+        // to Oct 1 (landmark, diff=8). Oct 1 must be shown and Oct 2 must be suppressed.
+        let today9 = "2026-10-09"
+        XCTAssertEqual(DailyTrendMetrics.axisLabel(for: "2026-10-01", today: today9, window: .d14), "1",
+                       "Oct 1 landmark must be displayed")
+        XCTAssertNil(DailyTrendMetrics.axisLabel(for: "2026-10-02", today: today9, window: .d14),
+                     "Oct 2 regular mark must yield to Oct 1 to avoid adjacent 1 2 label collision")
+        XCTAssertEqual(DailyTrendMetrics.axisLabel(for: today9, today: today9, window: .d14), "9")
+
+        // In 7d window when today is the 4th (diff=3): Oct 1 is the midpoint and >= 3 from today -> displayed
+        XCTAssertEqual(DailyTrendMetrics.axisLabel(for: "2026-10-01", today: "2026-10-04", window: .d7), "1")
+        XCTAssertEqual(DailyTrendMetrics.axisLabel(for: "2026-10-04", today: "2026-10-04", window: .d7), "4")
+    }
+
+    func testDailyTrendHoverFallsBackToZeroTokensForMissingDays() {
+        let l = L(.en)
+        let emptySeries: [DailyUsage] = []
+        let info = DailyTrendHover.info(day: "2026-10-15", series: emptySeries, stack: [], showsCost: true, l: l)
+        XCTAssertNotNil(info, "Hovering a missing day in series must return zero-token info rather than nil")
+        XCTAssertEqual(info?.tokens, "0")
+    }
 }
+
