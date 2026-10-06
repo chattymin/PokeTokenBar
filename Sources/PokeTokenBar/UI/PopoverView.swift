@@ -1136,14 +1136,9 @@ struct MonthDailyTrend: View {
                         }
                     }
                 } label: {
-                    HStack(spacing: 3) {
-                        Text(l.title(for: activeWindow))
-                            .font(.caption)
-                            .foregroundStyle(.tertiary)
-                        Image(systemName: "chevron.down")
-                            .font(.system(size: 7, weight: .semibold))
-                            .foregroundStyle(.tertiary)
-                    }
+                    Text(l.title(for: activeWindow))
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
                 }
                 .menuStyle(.borderlessButton)
                 .fixedSize()
