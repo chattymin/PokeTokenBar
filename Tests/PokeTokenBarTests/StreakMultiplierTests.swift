@@ -279,10 +279,11 @@ final class StreakMultiplierTests: XCTestCase {
         let store = makeStore()
         XCTAssertEqual(store.state.streak.days, 0)
 
+        let today = LocalUsageReader.todayKey()
         // Multi-provider tokens: Claude 6M + Codex 4.5M = 10.5M >= 10M threshold
         store.update(
             todayTokensByProvider: ["claude": 6_000_000, "codex": 4_500_000],
-            todayDate: "2026-09-23",
+            todayDate: today,
             monthTotal: 10_500_000,
             burnTier: .normal,
             limitWarning: false,
@@ -290,7 +291,7 @@ final class StreakMultiplierTests: XCTestCase {
         )
 
         XCTAssertEqual(store.state.streak.days, 1)
-        XCTAssertEqual(store.state.streak.lastDay, "2026-09-23")
+        XCTAssertEqual(store.state.streak.lastDay, today)
         XCTAssertEqual(store.streakDays, 1)
     }
 
