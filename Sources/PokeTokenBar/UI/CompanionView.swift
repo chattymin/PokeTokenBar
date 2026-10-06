@@ -1562,8 +1562,8 @@ struct PokemonDetailView: View {
                     if species.id == UnownForm.speciesID { unownFormPicker }
                     if displayedSpecies.hasNormal && displayedSpecies.isShiny { appearancePicker }
                     identityHeader
-                    if !individuals.isEmpty { individualPicker }
-                    else {
+                    if individuals.count > 1 { individualPicker }
+                    if individuals.isEmpty {
                         Text(store.l.dexAppearancePreview).font(.callout).foregroundStyle(.secondary)
                     }
                     if let details = store.pokemonDetailsByID[species.id] {
