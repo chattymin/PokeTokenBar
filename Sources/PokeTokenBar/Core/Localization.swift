@@ -1501,6 +1501,8 @@ struct L {
 
     // MARK: 상점 (재화 = 사용한 토큰)
     var shop: String { t("상점", "Shop", "ショップ", "Tienda", "Boutique", "Loja", "Laden", "Магазин") }
+    var shopItemsTab: String { t("아이템", "Items", "アイテム", "Objetos", "Objets", "Itens", "Gegenstände", "Предметы") }
+    var shopMegaStonesTab: String { t("메가스톤", "Mega Stones", "メガストーン", "Megapiedras", "Méga-Gemmes", "Mega-Pedras", "Mega-Steine", "Мега-камни") }
     var spendableTokens: String { t("쓸 수 있는 토큰", "Spendable tokens", "使えるトークン", "Tokens disponibles", "Tokens disponibles", "Tokens disponíveis", "Verfügbare Tokens", "Доступно токенов") }
     var shopHint: String { t("사용한 토큰으로 아이템을 살 수 있어요.", "Spend the tokens you've used on items.", "使ったトークンでアイテムを購入できます。", "Usa los tokens que has consumido para comprar objetos.", "Dépense les tokens que tu as consommés pour acheter des objets.", "Compre itens com os tokens que você já usou.", "Mit deinen verbrauchten Tokens kannst du Gegenstände kaufen.", "Тратьте использованные токены на предметы.") }
     var buy: String { t("구매", "Buy", "購入", "Comprar", "Acheter", "Comprar", "Kaufen", "Купить") }
@@ -1510,6 +1512,126 @@ struct L {
     var shopPriceLabel: String { t("가격", "Price", "価格", "Precio", "Prix", "Preço", "Preis", "Цена") }
     var ownedAlready: String { t("보유 중", "Owned", "所持済み", "En posesión", "Possédé", "Já tem", "Im Beutel", "Уже есть") }
     var shinyCharmEffectHint: String { t("이로치 확률 ↑ · 적용 중", "Shiny rate ↑ · active", "色違い率↑ · 適用中", "Prob. variocolor ↑ · activo", "Taux chromatique ↑ · actif", "Chance shiny ↑ · ativo", "Schillerchance ↑ · aktiv", "Шанс шайни ↑ · активен") }
+    // MARK: Mega Evolution
+    var megaEvolution: String { t("메가진화", "Mega Evolution", "メガシンカ", "Megaevolución", "Méga-Évolution", "Mega Evolução", "Mega-Entwicklung", "Мегаэволюция") }
+    var megaStoneShopTitle: String { t("메가스톤", "Mega Stones", "メガストーン", "Megapiedras", "Méga-Gemmes", "Mega-Pedras", "Mega-Steine", "Мега-камни") }
+    func megaStoneName(_ stone: MegaStone) -> String {
+        switch stone {
+        case .venusaurite: return t("이상해꽃나이트", "Venusaurite", "フシギバナイト", "Venusaurita", "Florizarite", "Venusaurita", "Bisaflornit", "Венузаврит")
+        case .charizarditeX: return t("리자몽나이트 X", "Charizardite X", "リザードナイトX", "Charizardita X", "Dracaufite X", "Charizardita X", "Gluraknit X", "Чаризардит X")
+        case .charizarditeY: return t("리자몽나이트 Y", "Charizardite Y", "リザードナイトY", "Charizardita Y", "Dracaufite Y", "Charizardita Y", "Gluraknit Y", "Чаризардит Y")
+        case .blastoisinite: return t("거북왕나이트", "Blastoisinite", "カメックスナイト", "Blastoisita", "Tortankite", "Blastoisinita", "Turtoknit", "Бластойзинит")
+        case .alakazite: return t("후디나이트", "Alakazite", "フーディナイト", "Alakazamita", "Alakazamite", "Alakazita", "Simsalanit", "Алаказамит")
+        case .gengarite: return t("팬텀나이트", "Gengarite", "ゲンガナイト", "Gengarita", "Ectoplasmite", "Gengarita", "Gengarnit", "Генгарит")
+        case .kangaskhanite: return t("캥카나이트", "Kangaskhanite", "ガルーラナイト", "Kangaskhanita", "Kangourexite", "Kangaskhanita", "Kangamanit", "Кангасханит")
+        case .pinsirite: return t("쁘사이저나이트", "Pinsirite", "カイロスナイト", "Pinsirita", "Scarabruite", "Pinsirita", "Pinsirnit", "Пинсирит")
+        case .gyaradosite: return t("갸라도스나이트", "Gyaradosite", "ギャラドスナイト", "Gyaradosita", "Léviatorite", "Gyaradosita", "Garadosnit", "Гьярадосит")
+        case .aerodactylite: return t("프테라나이트", "Aerodactylite", "プテラナイト", "Aerodactylita", "Ptéraïte", "Aerodactylita", "Aerodactylonit", "Аэродактилит")
+        case .mewtwoniteX: return t("뮤츠나이트 X", "Mewtwonite X", "ミュウツナイトX", "Mewtwoita X", "Mewtwoïte X", "Mewtwonita X", "Mewtunit X", "Мьютунит X")
+        case .mewtwoniteY: return t("뮤츠나이트 Y", "Mewtwonite Y", "ミュウツナイトY", "Mewtwoita Y", "Mewtwoïte Y", "Mewtwonita Y", "Mewtunit Y", "Мьютунит Y")
+        case .ampharosite: return t("전룡나이트", "Ampharosite", "デンリュウナイト", "Ampharosita", "Pharampite", "Ampharosita", "Ampharosnit", "Амфаросит")
+        case .scizorite: return t("핫삼나이트", "Scizorite", "ハッサムナイト", "Scizorita", "Cizayoxite", "Scizorita", "Scheroxnit", "Скайзорит")
+        case .heracronite: return t("헤라크로스나이트", "Heracronite", "ヘラクロスナイト", "Heracrossita", "Scarhinite", "Heracrossita", "Skarabornnit", "Геракроссит")
+        case .houndoominite: return t("헬가나이트", "Houndoominite", "ヘルガナイト", "Houndoomita", "Démolossite", "Houndoominita", "Hundemonit", "Хундумит")
+        case .tyranitarite: return t("마기라스나이트", "Tyranitarite", "バンギラスナイト", "Tyranitarita", "Tyranocifite", "Tyranitarita", "Despotarnit", "Тиранитарит")
+        case .blazikenite: return t("번치코나이트", "Blazikenite", "バシャーモナイト", "Blazikenita", "Braségalite", "Blazikenita", "Lohgocknit", "Блазикенит")
+        case .gardevoirite: return t("가디안나이트", "Gardevoirite", "サーナイトナイト", "Gardevoirita", "Gardevoirite", "Gardevoirita", "Guardevoirnit", "Гардевуарит")
+        case .mawilite: return t("입치트나이트", "Mawilite", "クチートナイト", "Mawilita", "Mysdibulite", "Mawilita", "Flunkifernit", "Мавайлит")
+        case .aggronite: return t("보스로라나이트", "Aggronite", "ボスゴドラナイト", "Aggronita", "Galekingite", "Aggronita", "Stollossnit", "Аггронит")
+        case .medichamite: return t("요가램나이트", "Medichamite", "チャーレムナイト", "Medichamita", "Charminite", "Medichamita", "Meditalisnit", "Медичамит")
+        case .manectite: return t("썬더볼트나이트", "Manectite", "ライボルトナイト", "Manectita", "Élecsprintite", "Manectita", "Voltnit", "Манектрикит")
+        case .banettite: return t("다크펫나이트", "Banettite", "ジュペッタナイト", "Banettita", "Branettite", "Banettita", "Banettenit", "Банеттит")
+        case .absolite: return t("앱솔나이트", "Absolite", "アブソルナイト", "Absolita", "Absolite", "Absolita", "Absolnit", "Абсолит")
+        case .garchompite: return t("한카리아스나이트", "Garchompite", "ガブリアスナイト", "Garchompita", "Carchacrokite", "Garchompita", "Knakracknit", "Гарчомпит")
+        case .lucarionite: return t("루카리오나이트", "Lucarionite", "ルカリオナイト", "Lucarionita", "Lucarite", "Lucarionita", "Lucariornit", "Лукарионит")
+        case .abomasite: return t("눈설왕나이트", "Abomasite", "ユキノオナイト", "Abomasita", "Blizzaroïte", "Abomasita", "Rexblisarnit", "Абомасайт")
+        case .latiasite: return t("라티아스나이트", "Latiasite", "ラティアスナイト", "Latiasita", "Latiasite", "Latiasita", "Latiasnit", "Латиасит")
+        case .latiosite: return t("라티오스나이트", "Latiosite", "ラティオスナイト", "Latiosita", "Latiosite", "Latiosita", "Latiosnit", "Латиосит")
+        case .swampertite: return t("대짱이나이트", "Swampertite", "ラグラージナイト", "Swampertita", "Laggronite", "Swampertita", "Sumpexnit", "Свампертит")
+        case .sceptilite: return t("나무킹나이트", "Sceptilite", "ジュカインナイト", "Sceptilita", "Jungkite", "Sceptilita", "Gewaldronit", "Септайлит")
+        case .sablenite: return t("깜까미나이트", "Sablenite", "ヤミラミナイト", "Sablenita", "Ténéfixite", "Sablenita", "Zobirisnit", "Сэйблайтит")
+        case .altarianite: return t("파비코리나이트", "Altarianite", "チルタリスナイト", "Altarianita", "Altarianite", "Altarianita", "Altarianit", "Алтаренайт")
+        case .galladite: return t("엘레이드나이트", "Galladite", "エルレイドナイト", "Galladita", "Gallamite", "Galladita", "Galagladinit", "Галладеит")
+        case .audinite: return t("다부니나이트", "Audinite", "タブンネナイト", "Audinita", "Nanméouïte", "Audinita", "Ohrdochnit", "Аудинит")
+        case .sharpedonite: return t("샤크니아나이트", "Sharpedonite", "サメハダーナイト", "Sharpedonita", "Sharpedonite", "Sharpedonita", "Tohaidonit", "Шарпедонит")
+        case .slowbronite: return t("야도란나이트", "Slowbronite", "ヤドランナイト", "Slowbronita", "Flagadossite", "Slowbronita", "Lahmusnit", "Слоубронит")
+        case .steelixite: return t("강철톤나이트", "Steelixite", "ハガネールナイト", "Steelixita", "Steelixite", "Steelixita", "Stahlosnit", "Стиликсит")
+        case .pidgeotite: return t("피죤투나이트", "Pidgeotite", "ピジョットナイト", "Pidgeotita", "Roucarnagite", "Pidgeotita", "Taubossnit", "Пиджеотит")
+        case .glalitite: return t("얼음귀신나이트", "Glalitite", "オニゴーリナイト", "Glalitita", "Oniglalyte", "Glalitita", "Firnontornit", "Глэйлиайт")
+        case .metagrossite: return t("메타그로스나이트", "Metagrossite", "メタグロスナイト", "Metagrossita", "Métalossite", "Metagrossita", "Metagrossnit", "Метагроссит")
+        case .cameruptite: return t("폭타나이트", "Cameruptite", "バクーダナイト", "Cameruptita", "Caméruptite", "Cameruptita", "Cameruptnit", "Камераптит")
+        case .lopunnite: return t("이어롭나이트", "Lopunnite", "ミミロップナイト", "Lopunnita", "Lockpinite", "Lopunnita", "Schlapornit", "Лопуннит")
+        case .salamencite: return t("보만다나이트", "Salamencite", "ボーマンダナイト", "Salamencita", "Drattakite", "Salamencita", "Brutalandanit", "Саламенсит")
+        case .beedrillite: return t("독침붕나이트", "Beedrillite", "スピアナイト", "Beedrillita", "Dardargnanite", "Beedrillita", "Bibornit", "Бидриллит")
+        }
+    }
+    func megaFormName(_ stone: MegaStone) -> String {
+        switch stone {
+        case .venusaurite: return t("메가이상해꽃", "Mega Venusaur", "メガフシギバナ", "Mega-Venusaur", "Méga-Florizarre", "Mega-Venusaur", "Mega-Bisaflor", "Мега Венузавр")
+        case .charizarditeX: return t("메가리자몽 X", "Mega Charizard X", "メガリザードンX", "Mega-Charizard X", "Méga-Dracaufeu X", "Mega-Charizard X", "Mega-Glurak X", "Мега Чаризард X")
+        case .charizarditeY: return t("메가리자몽 Y", "Mega Charizard Y", "メガリザードンY", "Mega-Charizard Y", "Méga-Dracaufeu Y", "Mega-Charizard Y", "Mega-Glurak Y", "Мега Чаризард Y")
+        case .blastoisinite: return t("메가거북왕", "Mega Blastoise", "メガカメックス", "Mega-Blastoise", "Méga-Tortank", "Mega-Blastoise", "Mega-Turtok", "Мега Бластойз")
+        case .alakazite: return t("메가후딘", "Mega Alakazam", "メガフーディン", "Mega-Alakazam", "Méga-Alakazam", "Mega-Alakazam", "Mega-Simsala", "Мега Алаказам")
+        case .gengarite: return t("메가팬텀", "Mega Gengar", "メガゲンガー", "Mega-Gengar", "Méga-Ectoplasma", "Mega-Gengar", "Mega-Gengar", "Мега Генгар")
+        case .kangaskhanite: return t("메가캥카", "Mega Kangaskhan", "メガガルーラ", "Mega-Kangaskhan", "Méga-Kangourex", "Mega-Kangaskhan", "Mega-Kangama", "Мега Кангасхан")
+        case .pinsirite: return t("메가쁘사이저", "Mega Pinsir", "メガカイロス", "Mega-Pinsir", "Méga-Scarabrute", "Mega-Pinsir", "Mega-Pinsir", "Мега Пинсир")
+        case .gyaradosite: return t("메가갸라도스", "Mega Gyarados", "メガギャラドス", "Mega-Gyarados", "Méga-Léviator", "Mega-Gyarados", "Mega-Garados", "Мега Гьярадос")
+        case .aerodactylite: return t("메가프테라", "Mega Aerodactyl", "メガプテラ", "Mega-Aerodactyl", "Méga-Ptéra", "Mega-Aerodactyl", "Mega-Aerodactyl", "Мега Аэродактиль")
+        case .mewtwoniteX: return t("메가뮤츠 X", "Mega Mewtwo X", "メガミュウツーX", "Mega-Mewtwo X", "Méga-Mewtwo X", "Mega-Mewtwo X", "Mega-Mewtu X", "Мега Мьюту X")
+        case .mewtwoniteY: return t("메가뮤츠 Y", "Mega Mewtwo Y", "メガミュウツーY", "Mega-Mewtwo Y", "Méga-Mewtwo Y", "Mega-Mewtwo Y", "Mega-Mewtu Y", "Мега Мьюту Y")
+        case .ampharosite: return t("메가전룡", "Mega Ampharos", "メガデンリュウ", "Mega-Ampharos", "Méga-Pharamp", "Mega-Ampharos", "Mega-Ampharos", "Мега Амфарос")
+        case .scizorite: return t("메가핫삼", "Mega Scizor", "メガハッサム", "Mega-Scizor", "Méga-Cizayox", "Mega-Scizor", "Mega-Scherox", "Мега Скайзор")
+        case .heracronite: return t("메가헤라크로스", "Mega Heracross", "メガヘラクロス", "Mega-Heracross", "Méga-Scarhino", "Mega-Heracross", "Mega-Skaraborn", "Мега Геракросс")
+        case .houndoominite: return t("메가헬가", "Mega Houndoom", "メガヘルガー", "Mega-Houndoom", "Méga-Démolosse", "Mega-Houndoom", "Mega-Hundemon", "Мега Хундум")
+        case .tyranitarite: return t("메가마기라스", "Mega Tyranitar", "メガバンギラス", "Mega-Tyranitar", "Méga-Tyranocif", "Mega-Tyranitar", "Mega-Despotar", "Мега Тиранитар")
+        case .blazikenite: return t("메가번치코", "Mega Blaziken", "メガバシャーモ", "Mega-Blaziken", "Méga-Braségali", "Mega-Blaziken", "Mega-Lohgock", "Мега Блазикен")
+        case .gardevoirite: return t("메가가디안", "Mega Gardevoir", "メガサーナイト", "Mega-Gardevoir", "Méga-Gardevoir", "Mega-Gardevoir", "Mega-Guardevoir", "Мега Гардевуар")
+        case .mawilite: return t("메가입치트", "Mega Mawile", "メガクチート", "Mega-Mawile", "Méga-Mysdibule", "Mega-Mawile", "Mega-Flunkifer", "Мега Мавайл")
+        case .aggronite: return t("메가보스로라", "Mega Aggron", "メガボスゴドラ", "Mega-Aggron", "Méga-Galeking", "Mega-Aggron", "Mega-Stolloss", "Мега Аггрон")
+        case .medichamite: return t("메가요가램", "Mega Medicham", "メガチャーレム", "Mega-Medicham", "Méga-Charmina", "Mega-Medicham", "Mega-Meditalis", "Мега Медичам")
+        case .manectite: return t("메가썬더볼트", "Mega Manectric", "メガライボルト", "Mega-Manectric", "Méga-Élecsprint", "Mega-Manectric", "Mega-Voltenso", "Мега Манектрик")
+        case .banettite: return t("메가다크펫", "Mega Banette", "メガジュペッタ", "Mega-Banette", "Méga-Branette", "Mega-Banette", "Mega-Banette", "Мега Банетт")
+        case .absolite: return t("메가앱솔", "Mega Absol", "メガアブソル", "Mega-Absol", "Méga-Absol", "Mega-Absol", "Mega-Absol", "Мега Абсол")
+        case .garchompite: return t("메가한카리아스", "Mega Garchomp", "メガガブリアス", "Mega-Garchomp", "Méga-Carchacrok", "Mega-Garchomp", "Mega-Knakrack", "Мега Гарчомп")
+        case .lucarionite: return t("메가루카리오", "Mega Lucario", "メガルカリオ", "Mega-Lucario", "Méga-Lucario", "Mega-Lucario", "Mega-Lucario", "Мега Лукарио")
+        case .abomasite: return t("메가눈설왕", "Mega Abomasnow", "メガユキノオー", "Mega-Abomasnow", "Méga-Blizzaroi", "Mega-Abomasnow", "Mega-Rexblisar", "Мега Абомасноу")
+        case .latiasite: return t("메가라티아스", "Mega Latias", "メガラティアス", "Mega-Latias", "Méga-Latias", "Mega-Latias", "Mega-Latias", "Мега Латиас")
+        case .latiosite: return t("메가라티오스", "Mega Latios", "メガラティオス", "Mega-Latios", "Méga-Latios", "Mega-Latios", "Mega-Latios", "Мега Латиос")
+        case .swampertite: return t("메가대짱이", "Mega Swampert", "メガラグラージ", "Mega-Swampert", "Méga-Laggron", "Mega-Swampert", "Mega-Sumpex", "Мега Свамперт")
+        case .sceptilite: return t("메가나무킹", "Mega Sceptile", "メガジュカイン", "Mega-Sceptile", "Méga-Jungko", "Mega-Sceptile", "Mega-Gewaldro", "Мега Септайл")
+        case .sablenite: return t("메가깜까미", "Mega Sableye", "メガヤミラミ", "Mega-Sableye", "Méga-Ténéfix", "Mega-Sableye", "Mega-Zobiris", "Мега Сэйблай")
+        case .altarianite: return t("메가파비코리", "Mega Altaria", "メガチルタリス", "Mega-Altaria", "Méga-Altaria", "Mega-Altaria", "Mega-Altaria", "Мега Алтария")
+        case .galladite: return t("메가엘레이드", "Mega Gallade", "メガエルレイド", "Mega-Gallade", "Méga-Gallame", "Mega-Gallade", "Mega-Galagladi", "Мега Галлейд")
+        case .audinite: return t("메가다부니", "Mega Audino", "メガタブンネ", "Mega-Audino", "Méga-Nanméouïe", "Mega-Audino", "Mega-Ohrdoch", "Мега Аудино")
+        case .sharpedonite: return t("메가샤크니아", "Mega Sharpedo", "メガサメハダー", "Mega-Sharpedo", "Méga-Sharpedo", "Mega-Sharpedo", "Mega-Tohaido", "Мега Шарпедо")
+        case .slowbronite: return t("메가야도란", "Mega Slowbro", "メガヤドラン", "Mega-Slowbro", "Méga-Flagadoss", "Mega-Slowbro", "Mega-Lahmus", "Мега Слоубро")
+        case .steelixite: return t("메가강철톤", "Mega Steelix", "メガハガネール", "Mega-Steelix", "Méga-Steelix", "Mega-Steelix", "Mega-Stahlos", "Мега Стиликс")
+        case .pidgeotite: return t("메가피죤투", "Mega Pidgeot", "メガピジョット", "Mega-Pidgeot", "Méga-Roucarnage", "Mega-Pidgeot", "Mega-Tauboss", "Мега Пиджеот")
+        case .glalitite: return t("메가얼음귀신", "Mega Glalie", "メガオニゴーリ", "Mega-Glalie", "Méga-Oniglali", "Mega-Glalie", "Mega-Firnontor", "Мега Глэйли")
+        case .metagrossite: return t("메가메타그로스", "Mega Metagross", "メガメタグロス", "Mega-Metagross", "Méga-Métalosse", "Mega-Metagross", "Mega-Metagross", "Мега Метагросс")
+        case .cameruptite: return t("메가폭타", "Mega Camerupt", "メガバクーダ", "Mega-Camerupt", "Méga-Camérupt", "Mega-Camerupt", "Mega-Camerupt", "Мега Камерапт")
+        case .lopunnite: return t("메가이어롭", "Mega Lopunny", "メガミミロップ", "Mega-Lopunny", "Méga-Lockpin", "Mega-Lopunny", "Mega-Schlapor", "Мега Лопунни")
+        case .salamencite: return t("메가보만다", "Mega Salamence", "メガボーマンダ", "Mega-Salamence", "Méga-Drattak", "Mega-Salamence", "Mega-Brutalanda", "Мега Саламенс")
+        case .beedrillite: return t("메가독침붕", "Mega Beedrill", "メガスピアー", "Mega-Beedrill", "Méga-Dardargnan", "Mega-Beedrill", "Mega-Bibor", "Мега Бидрилл")
+        }
+    }
+    func megaStoneDescription(_ stone: MegaStone) -> String {
+        let name = megaFormName(stone)
+        return t("영구 해금 후 해당 포켓몬 화면에서 " + name + "으로 언제든 메가진화할 수 있어요.",
+                 "Permanently unlock " + name + " and activate it from that Pokémon's screen whenever you like.",
+                 "永久解放すると、そのポケモンの画面でいつでも" + name + "にメガシンカできます。",
+                 "Desbloquea permanentemente " + name + " y actívalo desde la pantalla de ese Pokémon cuando quieras.",
+                 "Débloquez définitivement " + name + " et activez-le depuis l'écran de ce Pokémon quand vous voulez.",
+                 "Desbloqueie permanentemente " + name + " e ative-o na tela desse Pokémon quando quiser.",
+                 "Schalte " + name + " dauerhaft frei und aktiviere es auf dem Bildschirm dieses Pokémon.", "Разблокируйте навсегда " + name + " и активируйте его на экране этого покемона в любое время.")
+    }
+    var megaActive: String { t("메가진화 중", "Mega active", "メガシンカ中", "Megaevolución activa", "Méga-évolution active", "Mega Evolução ativa", "Mega-Entwicklung aktiv", "Мегаактивна") }
+    var megaOwnedHint: String { t("메가스톤을 보유하고 있어요.", "Mega Stone owned.", "メガストーンを所持中です。", "Tienes la megapiedra.", "Vous possédez la méga-gemme.", "Você possui a Mega-Pedra.", "Mega-Stein im Besitz.", "Мега-камень получен") }
+    var megaPokemonHint: String { t("해당 포켓몬 화면에서 메가진화를 켜고 끌 수 있어요.", "Open that Pokémon's screen to turn Mega Evolution on or off.", "そのポケモンの画面でメガシンカをオン／オフできます。", "Activa o desactiva la Megaevolución en la pantalla de ese Pokémon.", "Activez ou désactivez la Méga-Évolution sur l'écran de ce Pokémon.", "Ative ou desative a Mega Evolução na tela desse Pokémon.", "Auf dem Pokémon-Bildschirm kannst du die Mega-Entwicklung ein- oder ausschalten.", "Откройте экран этого покемона, чтобы включить или выключить мегаэволюцию.") }
+    var megaStoneNoEligiblePokemon: String { t("메가진화 가능한 최종 포켓몬을 등록하면 메가스톤이 표시돼요.", "Register an eligible final-stage Pokémon to see its Mega Stone.", "メガシンカできる最終進化ポケモンを登録すると、メガストーンが表示されます。", "Registra un Pokémon de fase final elegible para ver su megapiedra.", "Enregistrez un Pokémon final éligible pour voir sa méga-gemme.", "Registre um Pokémon final elegível para ver sua Mega-Pedra.", "Registriere ein geeignetes Pokémon der letzten Entwicklungsstufe, um seinen Mega-Stein zu sehen.", "Зарегистрируйте подходящего покемона финальной стадии, чтобы увидеть его мега-камень.") }
+    var megaStoneNeeded: String { t("메가스톤을 해금하면 여기서 메가진화할 수 있어요.", "Unlock a Mega Stone to activate it here.", "メガストーンを解放すると、ここでメガシンカできます。", "Desbloquea una megapiedra para activarla aquí.", "Débloquez une méga-gemme pour l'activer ici.", "Desbloqueie uma Mega-Pedra para ativá-la aqui.", "Schalte einen Mega-Stein frei, um ihn hier zu aktivieren.", "Получите мега-камень, чтобы активировать мегаэволюцию здесь.") }
+    var megaFormChoice: String { t("메가진화 형태", "Mega form", "メガシンカの形態", "Forma mega", "Forme méga", "Forma Mega", "Mega-Form", "Форма мегаэволюции") }
+    var megaRequiresFinal: String { t("최종 진화한 포켓몬을 보유하면 사용할 수 있어요.", "Requires an owned final-stage Pokémon.", "最終進化したポケモンを持っていると使えます。", "Necesita un Pokémon de fase final que tengas.", "Nécessite un Pokémon final que vous possédez.", "Requer um Pokémon final que você possua.", "Erfordert ein besessenes Pokémon der letzten Entwicklungsstufe.", "Нужен принадлежащий вам покемон финальной стадии.") }
     // 알 (리롤) — tier = 보증 등급 하한(nil = 보증 없는 기본 알).
     // 이름은 `rarityLabel(r) + " 알"` 식 조합으로 만들지 않는다: 한국어·영어는 맞아떨어져도 일본어에서
     // 조사가 어긋난다(レアのタマゴ vs 자연스러운 レアなタマゴ). 세 언어를 명시 트리플로 적는다.

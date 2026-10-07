@@ -16,15 +16,24 @@ let rarityDisplayOrder: [Rarity] = [.legendary, .rare, .uncommon, .common]
 /// 아이템 아이콘 — 실제 스프라이트(런타임 로드+캐시) 우선, 로딩 전/미제공/실패 시 이모지 폴백.
 @MainActor
 struct ItemIconView: View {
-    let kind: ItemKind
+    private let spriteName: String?
+    private let fallbackEmoji: String
     var size: CGFloat = 30
     @State private var img: NSImage?
 
     init(kind: ItemKind, size: CGFloat = 30) {
-        self.kind = kind
+        self.spriteName = kind.spriteName
+        self.fallbackEmoji = kind.fallbackEmoji
         self.size = size
         // 캐시에 있으면 즉시(동기) 표시 — 재렌더 플래시 방지.
         _img = State(initialValue: kind.spriteName.flatMap { SpriteLoader.cachedItemImage(name: $0) })
+    }
+
+    init(spriteName: String, fallbackEmoji: String = "💎", size: CGFloat = 30) {
+        self.spriteName = spriteName
+        self.fallbackEmoji = fallbackEmoji
+        self.size = size
+        _img = State(initialValue: SpriteLoader.cachedItemImage(name: spriteName))
     }
 
     var body: some View {
@@ -37,12 +46,12 @@ struct ItemIconView: View {
                     .frame(width: fit.width, height: fit.height)
                     .frame(width: size, height: size)
             } else {
-                Text(kind.fallbackEmoji).font(.system(size: size))
+                Text(fallbackEmoji).font(.system(size: size))
                     .frame(width: size, height: size)
             }
         }
-        .task(id: kind.spriteName ?? "") {
-            guard img == nil, let name = kind.spriteName else { return }
+        .task(id: spriteName ?? "") {
+            guard img == nil, let name = spriteName else { return }
             img = await SpriteLoader.itemImage(name: name)
         }
     }
@@ -653,13 +662,37 @@ struct CompanionHeader: View {
     /// 부화 임박(90%+) — 알이 흔들리고 문구가 바뀐다.
     private var eggImminent: Bool { store.isEgg && store.eggProgress >= 0.9 }
 
+    /// Mega is a display overlay only when it belongs to the final form currently
+    /// being raised. A Mega selected for another collected species stays in the
+    /// menu-bar/floating representative without replacing this companion.
+    private var activeMegaForCurrent: MegaEvolutionState? {
+        guard let currentID = store.currentSpeciesID,
+              let active = store.activeMegaEvolution,
+              active.stone.eligibleSpeciesID == currentID else { return nil }
+        return active
+    }
+
+    private var megaEligibleCurrentSpeciesID: Int? {
+        guard let currentID = store.currentSpeciesID,
+              MegaStone.allCases.contains(where: { $0.eligibleSpeciesID == currentID }) else {
+            return nil
+        }
+        return currentID
+    }
+
+    private var visibleSpeciesID: Int? { activeMegaForCurrent?.megaSpeciesID ?? store.currentSpeciesID }
+    private var visibleIsShiny: Bool { activeMegaForCurrent?.isShiny ?? store.currentIsShiny }
+    private var visibleName: String {
+        activeMegaForCurrent.map { store.l.megaFormName($0.stone) } ?? store.displayName
+    }
+
     var body: some View {
         // Computed once per render and shared by the big sprite and the evolution line.
         let dexLinks = onOpenDexEntry == nil ? [:] : store.dexLinkTargets
         VStack(alignment: .leading, spacing: 6) {
             HStack(alignment: .center, spacing: 12) {
-                SpriteView(speciesID: store.currentSpeciesID, size: 76, bob: true, animated: true,
-                           shiny: store.currentIsShiny, unownForm: store.currentUnownForm)
+                SpriteView(speciesID: visibleSpeciesID, size: 76, bob: true, animated: true,
+                           shiny: visibleIsShiny, unownForm: store.currentUnownForm)
                     .frame(width: 76, height: 76)
                     .background(Color.secondary.opacity(0.06))
                     .clipShape(RoundedRectangle(cornerRadius: 12))
@@ -708,8 +741,8 @@ struct CompanionHeader: View {
                         cornerRadius: 12, open: onOpenDexEntry))
                 VStack(alignment: .leading, spacing: 4) {
                     HStack(spacing: 6) {
-                        Text(store.displayName).font(.callout.weight(.semibold))
-                        if store.currentIsShiny { Text("✨").font(.system(size: 11)) }
+                        Text(visibleName).font(.callout.weight(.semibold))
+                        if visibleIsShiny { Text("✨").font(.system(size: 11)) }
                         if let r = store.rarity {
                             Badge(store.l.rarityLabel(r).uppercased(), tint: .rarity(r))
                         }
@@ -770,10 +803,15 @@ struct CompanionHeader: View {
                 }
                 Spacer()
             }
+            if let speciesID = megaEligibleCurrentSpeciesID {
+                MegaEvolutionControl(store: store, speciesID: speciesID,
+                                     isShiny: store.currentIsShiny,
+                                     matchAppearance: false)
+            }
             if store.hasActive, !store.lineNodes.isEmpty {
                 // 폭을 안 주면 분기 라인(이브이)이 넘쳐 팝오버 콘텐츠 전체가 좌우로 잘린다.
                 EvoLineView(nodes: store.lineNodes, mysteryLabel: store.l.unknownNextEvolution,
-                            language: store.language, shiny: store.currentIsShiny,
+                            language: store.language, shiny: visibleIsShiny,
                             maxWidth: PopoverMetrics.scrollContentWidth, unownForm: store.currentUnownForm,
                             dexLinks: dexLinks, onOpenDexEntry: onOpenDexEntry)
             }
@@ -873,6 +911,147 @@ struct CompanionHeader: View {
         case .sleep:   return l.statusSleep
         case .levelUp: return store.justEvolvedTo.map { l.statusEvolved($0) } ?? l.statusGrew
         }
+    }
+}
+
+/// Final-stage Mega controls shared by the Home companion header and Pokédex detail.
+/// The control is intentionally species-scoped: an active Venusaur overlay must not
+/// change a Charizard screen, and an old active overlay with no inventory bit must
+/// remain switchable off until the user ends it.
+@MainActor
+private struct MegaEvolutionControl: View {
+    let store: CompanionStore
+    let speciesID: Int
+    let isShiny: Bool
+    /// Home renders the selected active overlay itself, while detail pages have
+    /// an independent normal/shiny picker that must scope the toggle to that
+    /// appearance.
+    var matchAppearance = true
+    @State private var selectedStone: MegaStone?
+
+    private var eligibleStones: [MegaStone] {
+        MegaStone.allCases.filter { $0.eligibleSpeciesID == speciesID }
+    }
+
+    private var ownedStones: [MegaStone] {
+        eligibleStones.filter(store.ownsMegaStone)
+    }
+
+    private var active: MegaEvolutionState? {
+        guard let active = store.activeMegaEvolution,
+              active.stone.eligibleSpeciesID == speciesID else { return nil }
+        if matchAppearance && active.isShiny != isShiny { return nil }
+        return active
+    }
+
+    private var selectedOrDefault: MegaStone? {
+        if let selectedStone, ownedStones.contains(selectedStone) {
+            return selectedStone
+        }
+        if let activeStone = active?.stone, ownedStones.contains(activeStone) {
+            return activeStone
+        }
+        return ownedStones.first
+    }
+
+    /// Activating from a screen follows that screen's selected appearance. This
+    /// also lets a Home toggle replace a legacy shiny overlay with the current
+    /// companion's normal form after it has been turned off.
+    private var targetIsShiny: Bool { isShiny }
+
+    var body: some View {
+        Group {
+            if eligibleStones.isEmpty {
+                EmptyView()
+            } else {
+                content
+            }
+        }
+        .onAppear {
+            if let activeStone = active?.stone, ownedStones.contains(activeStone) {
+                selectedStone = activeStone
+            } else {
+                selectedStone = ownedStones.first
+            }
+        }
+        .onChange(of: store.activeMegaEvolution?.stone) { _, newStone in
+            if let newStone, newStone.eligibleSpeciesID == speciesID,
+               ownedStones.contains(newStone) {
+                selectedStone = newStone
+            } else if selectedStone.map({ !ownedStones.contains($0) }) ?? true {
+                selectedStone = ownedStones.first
+            }
+        }
+    }
+
+    private var content: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            if ownedStones.isEmpty && active == nil {
+                HStack(spacing: 6) {
+                    Image(systemName: "bolt.fill").font(.caption2).foregroundStyle(.secondary)
+                    Text(store.l.megaStoneNeeded)
+                        .font(.caption2).foregroundStyle(.tertiary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            } else {
+                HStack(spacing: 8) {
+                    Image(systemName: "bolt.fill").font(.caption2).foregroundStyle(.orange)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(store.l.megaEvolution).font(.caption.weight(.semibold))
+                        Text(active.map { store.l.megaFormName($0.stone) } ?? store.l.megaOwnedHint)
+                            .font(.caption2)
+                            .foregroundStyle(active == nil ? AnyShapeStyle(.secondary) : AnyShapeStyle(.orange))
+                    }
+                    Spacer(minLength: 4)
+                    Toggle("", isOn: Binding(
+                        get: { active != nil },
+                        set: { setActive($0) }
+                    ))
+                    .labelsHidden()
+                    .toggleStyle(.switch)
+                }
+
+                if ownedStones.count > 1 {
+                    Picker(store.l.megaFormChoice,
+                           selection: Binding(
+                            get: { selectedOrDefault ?? ownedStones[0] },
+                            set: { stone in
+                                selectedStone = stone
+                                if active != nil { activate(stone) }
+                            })) {
+                        ForEach(ownedStones, id: \.self) { stone in
+                            Text(store.l.megaFormName(stone)).tag(stone)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                }
+
+                if active != nil {
+                    Text(store.l.megaActive)
+                        .font(.caption2).foregroundStyle(.orange)
+                } else {
+                    Text(store.l.megaOwnedHint)
+                        .font(.caption2).foregroundStyle(.tertiary)
+                }
+            }
+        }
+        .padding(8)
+        .background(Color.secondary.opacity(0.06), in: RoundedRectangle(cornerRadius: 8))
+    }
+
+    private func setActive(_ enabled: Bool) {
+        if enabled {
+            guard let stone = selectedOrDefault else { return }
+            activate(stone)
+        } else if active != nil {
+            _ = store.endMegaEvolution()
+        }
+    }
+
+    private func activate(_ stone: MegaStone) {
+        guard store.startMegaEvolution(stone, isShiny: targetIsShiny) else { return }
+        selectedStone = stone
     }
 }
 
@@ -1535,10 +1714,39 @@ struct PokemonDetailView: View {
     private var allIndividuals: [DexEntry] {
         store.pokemonIndividuals(speciesID: species.id, unownForm: displayedSpecies.unownForm)
     }
-    private var displayedShiny: Bool {
+
+    /// The appearance selected in the detail view before applying a Mega overlay.
+    /// This remains the base appearance when no Mega is active. Once a Mega is
+    /// active, its selected appearance is authoritative for this species so a
+    /// Bag activation cannot be hidden by the detail view's default selection.
+    private var baseDisplayedShiny: Bool {
+        if store.isRepresentative(displayedSpecies),
+           let representativeIsShiny = store.representativeIsShiny {
+            return representativeIsShiny
+        }
         if let selectedShiny,
-           selectedShiny ? displayedSpecies.isShiny : displayedSpecies.hasNormal { return selectedShiny }
+           selectedShiny ? displayedSpecies.isShiny : displayedSpecies.hasNormal {
+            return selectedShiny
+        }
         return allIndividuals.first?.isShiny ?? displayedSpecies.isShiny
+    }
+
+    private var activeMegaForDisplayedSpecies: MegaEvolutionState? {
+        guard let active = store.activeMegaEvolution,
+              active.stone.eligibleSpeciesID == displayedSpecies.id else { return nil }
+        return active
+    }
+
+    private var megaEligibleSpeciesID: Int? {
+        MegaStone.allCases.contains(where: { $0.eligibleSpeciesID == displayedSpecies.id })
+            ? displayedSpecies.id : nil
+    }
+
+    private var displayedShiny: Bool {
+        if let active = activeMegaForDisplayedSpecies {
+            return active.isShiny
+        }
+        return baseDisplayedShiny
     }
     private var individuals: [DexEntry] {
         allIndividuals.filter { $0.isShiny == displayedShiny }
@@ -1562,6 +1770,11 @@ struct PokemonDetailView: View {
                     if species.id == UnownForm.speciesID { unownFormPicker }
                     if displayedSpecies.hasNormal && displayedSpecies.isShiny { appearancePicker }
                     identityHeader
+                    if let speciesID = megaEligibleSpeciesID {
+                        MegaEvolutionControl(store: store, speciesID: speciesID,
+                                             isShiny: displayedShiny,
+                                             matchAppearance: false)
+                    }
                     if individuals.count > 1 { individualPicker }
                     if individuals.isEmpty {
                         Text(store.l.dexAppearancePreview).font(.callout).foregroundStyle(.secondary)
@@ -1643,13 +1856,16 @@ struct PokemonDetailView: View {
 
     private var identityHeader: some View {
         let species = displayedSpecies
+        let activeMega = activeMegaForDisplayedSpecies
         return HStack(spacing: 14) {
-            SpriteView(speciesID: species.id, size: 104, animated: true,
-                       shiny: displayedShiny, spriteStore: spriteStore, unownForm: species.unownForm)
+            SpriteView(speciesID: activeMega?.megaSpeciesID ?? species.id, size: 104, animated: true,
+                       shiny: activeMega?.isShiny ?? displayedShiny,
+                       spriteStore: spriteStore, unownForm: species.unownForm)
                 .frame(width: 104, height: 104)
             VStack(alignment: .leading, spacing: 5) {
                 HStack(alignment: .firstTextBaseline) {
-                    Text(species.name).font(.title3.weight(.bold))
+                    Text(activeMega.map { store.l.megaFormName($0.stone) } ?? species.name)
+                        .font(.title3.weight(.bold))
                     Spacer(minLength: 8)
                     Text(store.l.rarityLabel(species.rarity))
                         .font(.callout.weight(.semibold)).foregroundStyle(.secondary)
@@ -1658,13 +1874,17 @@ struct PokemonDetailView: View {
                     TypeBadges(types: details.types, language: store.language, size: 11,
                                horizontalPadding: 7, verticalPadding: 2)
                 }
+                if activeMega != nil {
+                    Text(store.l.megaActive).font(.callout).foregroundStyle(.orange)
+                }
                 if displayedShiny { Text("✨ \(store.l.dexShinyLabel)").font(.callout) }
                 if let individual, store.isActiveDexEntry(individual) { Text(store.l.dexRaising).font(.callout).foregroundStyle(Color.accentColor) }
                 let isRepresentative = store.isRepresentative(species)
                 RepresentativeFooterButton(localization: store.l,
                                            isRepresentative: isRepresentative) {
                     _ = store.setRepresentativeSpeciesID(isRepresentative ? nil : species.id,
-                                                         unownForm: species.unownForm)
+                                                         unownForm: species.unownForm,
+                                                         isShiny: isRepresentative ? nil : displayedShiny)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -1673,7 +1893,20 @@ struct PokemonDetailView: View {
 
     private var appearancePicker: some View {
         Picker(store.l.dexAppearance, selection: Binding(
-            get: { displayedShiny }, set: { selectedShiny = $0; selectedInstanceID = "" })) {
+            get: { displayedShiny }, set: { selected in
+                // Capture the overlay before changing the local picker state. An active
+                // Mega takes precedence over the base appearance, so a same-species
+                // shiny → normal change must update that overlay rather than lose its
+                // stone while SwiftUI recomputes the view.
+                let active = activeMegaForDisplayedSpecies
+                selectedShiny = selected
+                selectedInstanceID = ""
+                if let active {
+                    _ = store.startMegaEvolution(active.stone, isShiny: selected)
+                } else if store.isRepresentative(displayedSpecies) {
+                    _ = store.setRepresentativeAppearance(isShiny: selected)
+                }
+            })) {
             Text(store.l.dexNormalLabel).tag(false)
             Text("✨ \(store.l.dexShinyLabel)").tag(true)
         }
