@@ -219,9 +219,17 @@ struct PopoverView: View {
                 periodLabel(l.thisMonth, tokens: store.monthTotalTokens, cost: store.showsCost ? store.monthUsageCost : nil)
                 Spacer()
                 Button { nav.showingRecap = true } label: {
-                    Image(systemName: "chart.bar.xaxis")
+                    HStack(spacing: 3) {
+                        Image(systemName: "chart.bar.xaxis")
+                        Text(l.recapDetails)
+                            .font(.caption)
+                    }
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(Color.primary.opacity(0.08), in: Capsule())
+                    .contentShape(Capsule())
                 }
-                .buttonStyle(.borderless)
+                .buttonStyle(.plain)
                 .help(l.recapOpen)
                 .accessibilityLabel(l.recapOpen)
             }
