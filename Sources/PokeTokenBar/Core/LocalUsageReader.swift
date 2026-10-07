@@ -1734,6 +1734,138 @@ enum LocalUsageReader {
                      costIsEstimate: true, costUnavailable: true)
     }
 
+    // MARK: omo (senpi)
+
+    /// Install default from the omo binary: `~/.omo/agent/sessions`.
+    static let defaultOmoSessionsPath = ".omo/agent/sessions"
+    /// Documented senpi default (`docs/sessions.md`, `docs/session-format.md`).
+    static let defaultSenpiSessionsPath = ".senpi/agent/sessions"
+
+    static var omoSessionRoots: [URL] {
+        computeOmoSessionRoots()
+    }
+
+    /// Both on-disk defaults, plus `$OMO_CODING_AGENT_DIR/sessions` and
+    /// `$SENPI_CODING_AGENT_DIR/sessions`. The binary resolves
+    /// `OMO_CODING_AGENT_DIR ?? SENPI_CODING_AGENT_DIR ?? PI_CODING_AGENT_DIR ?? ~/.omo/agent`.
+    /// `PI_CODING_AGENT_DIR` is not added here: `piSessionRoots` already scans it, so counting
+    /// it again would double Pi sessions when omo falls back to that directory.
+    static func computeOmoSessionRoots(
+        omoAgentDirValue: String? = UsageEnvironment.value("OMO_CODING_AGENT_DIR"),
+        senpiAgentDirValue: String? = UsageEnvironment.value("SENPI_CODING_AGENT_DIR"),
+        home: URL = FileManager.default.homeDirectoryForCurrentUser
+    ) -> [URL] {
+        var roots = [
+            home.appendingPathComponent(defaultOmoSessionsPath),
+            home.appendingPathComponent(defaultSenpiSessionsPath),
+        ]
+        for value in [omoAgentDirValue, senpiAgentDirValue] {
+            guard let value,
+                  !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { continue }
+            roots.append(URL(fileURLWithPath: NSString(string: value).expandingTildeInPath)
+                .appendingPathComponent("sessions"))
+        }
+        return normalizedRoots(roots)
+    }
+
+    /// Parses an omo/senpi CLI session file. nil = unreadable (not cached, retried next refresh).
+    ///
+    /// Format evidence is senpi `docs/session-format.md`: assistant `message.usage`, optional
+    /// `toolResult.usage` for nested LLM work, and compaction/branch_summary `usage` included in
+    /// session totals. `output` already includes `reasoning`. `usage.cost` is a price breakdown,
+    /// not a subscription invoice, so a recorded amount stays an estimate. Aborted and error
+    /// assistant lines are skipped, matching Pi. Entry ids are unique only inside one file.
+    static func parseOmoFile(_ url: URL, fmt: DateFormatter) -> [Entry]? {
+        guard let text = try? String(contentsOf: url, encoding: .utf8) else { return nil }
+        let file = omoEntryFileKey(url)
+        var out: [Entry] = []
+        for line in text.split(separator: "\n", omittingEmptySubsequences: true) {
+            guard line.contains("\"usage\"") else { continue }
+            autoreleasepool {
+                if let e = parseOmoLine(String(line), file: file, fmt: fmt) { out.append(e) }
+            }
+        }
+        return dedupKeepMax(out)
+    }
+
+    static func omoEntries(modifiedSince: Date, roots: [URL] = omoSessionRoots) -> [Entry] {
+        let fmt = localDayFormatter()
+        var all: [Entry] = []
+        for root in normalizedRoots(roots) {
+            for file in jsonlFiles(in: root, modifiedSince: modifiedSince) {
+                all.append(contentsOf: parseOmoFile(file, fmt: fmt) ?? [])
+            }
+        }
+        return dedupKeepMax(all)
+    }
+
+    /// Last two path components, so two `__advisor.jsonl` files under different sessions do not collide.
+    private static func omoEntryFileKey(_ url: URL) -> String {
+        let parent = url.deletingLastPathComponent().lastPathComponent
+        guard !parent.isEmpty, parent != "/" else { return url.lastPathComponent }
+        return parent + "/" + url.lastPathComponent
+    }
+
+    private static func parseOmoLine(_ line: String, file: String, fmt: DateFormatter) -> Entry? {
+        guard let data = line.data(using: .utf8),
+              let envelope = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let type = envelope["type"] as? String else { return nil }
+        let usage: [String: Any]
+        let date: Date?
+        var model = "omo"
+        switch type {
+        case "message":
+            guard let message = envelope["message"] as? [String: Any] else { return nil }
+            let role = message["role"] as? String
+            if role == "assistant" {
+                guard message["stopReason"] as? String != "aborted",
+                      message["stopReason"] as? String != "error",
+                      let messageUsage = message["usage"] as? [String: Any] else { return nil }
+                usage = messageUsage
+                model = (message["model"] as? String) ?? "omo"
+            } else if role == "toolResult", let messageUsage = message["usage"] as? [String: Any] {
+                usage = messageUsage
+                model = (message["model"] as? String) ?? "omo"
+            } else {
+                return nil
+            }
+            date = piMessageDate(message, envelope: envelope)
+        case "compaction", "branch_summary":
+            usage = envelope["usage"] as? [String: Any] ?? [:]
+            date = piEnvelopeDate(envelope)
+        default:
+            return nil
+        }
+        guard let date, !usage.isEmpty else { return nil }
+        let id = "omo|" + file + "|" + ((envelope["id"] as? String) ?? UUID().uuidString)
+        let cost = (usage["cost"] as? [String: Any]).flatMap { doubleOrNil($0["total"]) }
+            .flatMap { $0.isFinite && $0 >= 0 ? $0 : nil }
+        return omoEntry(id: id, date: date, usage: usage, model: model, cost: cost, fmt: fmt)
+    }
+
+    private static func omoEntry(
+        id: String, date: Date, usage: [String: Any], model: String, cost: Double?, fmt: DateFormatter
+    ) -> Entry? {
+        let names = ["input", "output", "cacheWrite", "cacheRead", "cacheWrite1h"]
+        let hasGranularUsage = names.contains { intOrNil(usage[$0]) != nil }
+        if hasGranularUsage {
+            // `cacheWrite1h` is a separate bucket in the session format, not part of `cacheWrite`.
+            // `reasoning` is already inside `output` and must not be added again.
+            let cacheWrite = (intOrNil(usage["cacheWrite"]) ?? 0) + (intOrNil(usage["cacheWrite1h"]) ?? 0)
+            return Entry(
+                id: id, date: date, localDay: fmt.string(from: date), model: model,
+                input: intOrNil(usage["input"]) ?? 0,
+                output: intOrNil(usage["output"]) ?? 0,
+                cacheWrite: cacheWrite,
+                cacheRead: intOrNil(usage["cacheRead"]) ?? 0,
+                explicitCost: cost, costIsEstimate: true)
+        }
+        guard let total = intOrNil(usage["totalTokens"]) else { return nil }
+        return Entry(id: id, date: date, localDay: fmt.string(from: date), model: model,
+                     input: total, output: 0, cacheWrite: 0, cacheRead: 0, explicitCost: cost,
+                     costIsEstimate: true, costUnavailable: true)
+    }
+
     // MARK: Kimi Code
 
     /// Standalone CLI data root (`$KIMI_CODE_HOME`, default `~/.kimi-code`) — Kimi Code docs,
@@ -1834,7 +1966,7 @@ enum LocalUsageReader {
 
     /// 특정 로컬 날짜의 합계 → DailyUsage. 해당 날짜 데이터 없으면 nil.
     /// `includeModels` 를 켠 프로바이더만 per-model 내역을 채운다 — 끄면 `models` 는 nil 이라
-    /// 팝오버의 per-model 행이 그 프로바이더에서는 뜨지 않는다(현재는 Pi·omp 가 opt-in).
+    /// 팝오버의 per-model 행이 그 프로바이더에서는 뜨지 않는다(현재는 Pi·omp·omo 가 opt-in).
     static func daily(entries: [Entry], localDay: String, includeModels: Bool = false) -> DailyUsage? {
         var b = Bucket()
         var models: [String: Int]? = includeModels ? [:] : nil
