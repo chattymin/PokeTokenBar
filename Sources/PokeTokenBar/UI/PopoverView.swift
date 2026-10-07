@@ -228,6 +228,14 @@ struct PopoverView: View {
             .padding(.top, 2)
 
             MonthDailyTrend(series: store.monthDailyTotals,
+                            providers: store.snapshots.compactMap { snap in
+                                snap.monthDaily.map {
+                                    DailyTrendStack.ProviderSeries(
+                                        id: snap.providerID, name: snap.displayName,
+                                        days: $0, reportsCost: snap.reportsCost)
+                                }
+                            },
+                            providerOrder: store.registeredProviderIDs,
                             showsCost: store.showsCost,
                             today: LocalUsageReader.todayKey(),
                             l: l)
@@ -1046,15 +1054,42 @@ struct PopoverView: View {
 @MainActor
 struct MonthDailyTrend: View {
     let series: [DailyUsage]
+    /// Each provider's own month series. With two or more providers used this month the bars
+    /// stack by provider and a legend under the axis names each provider's color; otherwise the
+    /// row is unchanged.
+    var providers: [DailyTrendStack.ProviderSeries] = []
+    /// `UsageStore.registeredProviderIDs` — what keeps a provider's color fixed (see `DailyTrendStack.colorIndices`).
+    var providerOrder: [String] = []
     let showsCost: Bool
     /// 오늘의 `localDay` 키 — 강조할 막대를 뷰가 시계를 다시 읽어 고르지 않게 주입한다.
     let today: String
     let l: L
 
-    /// 마우스가 올라간 막대. 캡션의 리드아웃이 이걸 따라가고, 벗어나면 오늘로 돌아온다.
-    /// 툴팁(`.help`)과 달리 **지연이 없고, 안 올려도 오늘 값이 항상 보인다** — 날짜를 알려면
-    /// 반드시 호버해야 했던 게 첫 버전의 불만이었다.
+    /// The hovered bar. Its day's numbers show in a tooltip above the bars, without the `.help` delay.
+    /// The caption keeps today's combined readout either way — opening the popover shows today's
+    /// total without hovering anything.
     @State private var hovered: String?
+
+    /// Segment colors, indexed by `DailyTrendStack.colorIndices`. At least one per registered
+    /// provider, so no two of them share a color (a test pins this). A provider registered past
+    /// the palette wraps around; the legend and the tooltip still name it. Muted enough to sit next to
+    /// the accent-colored today bar of the single-provider row without competing with it.
+    static let providerPalette: [Color] = [
+        Color(red: 0.85, green: 0.47, blue: 0.34),
+        Color(red: 0.36, green: 0.62, blue: 0.95),
+        Color(red: 0.45, green: 0.78, blue: 0.52),
+        Color(red: 0.78, green: 0.55, blue: 0.92),
+        Color(red: 0.95, green: 0.76, blue: 0.32),
+        Color(red: 0.35, green: 0.78, blue: 0.80),
+        Color(red: 0.93, green: 0.51, blue: 0.68),
+        Color(red: 0.62, green: 0.64, blue: 0.70),
+        Color(red: 0.88, green: 0.80, blue: 0.60),
+        Color(red: 0.70, green: 0.82, blue: 0.38),
+        Color(red: 0.60, green: 0.42, blue: 0.30),
+        Color(red: 0.30, green: 0.60, blue: 0.55),
+        Color(red: 0.80, green: 0.35, blue: 0.40),
+        Color(red: 0.40, green: 0.48, blue: 0.80),
+    ]
 
     var body: some View {
         // 축은 시리즈 길이가 아니라 **달력의 이번 달**이다. 시리즈는 오늘에서 끝나므로 그 길이로
@@ -1062,17 +1097,27 @@ struct MonthDailyTrend: View {
         let columns = DailyTrendMetrics.monthColumns(series: series, today: today)
         let peak = columns.map(\.tokens).max() ?? 0
         if peak > 0 {
+            let stack = DailyTrendStack.ordered(providers)
+            let colors = DailyTrendStack.colorIndices(for: stack.map(\.id), registry: providerOrder,
+                                                      paletteCount: Self.providerPalette.count)
             VStack(alignment: .leading, spacing: 3) {
                 captionRow(peak: peak, showsPeak: DailyTrendMetrics.showsPeak(columns))
-                barRow(columns, peak: peak)
+                barRow(columns, peak: peak, stack: stack, colors: colors)
+                    .overlay(alignment: .bottomLeading) { hoverTooltip(columns, stack: stack, colors: colors) }
+                    .zIndex(1)   // the tooltip rises over the caption and the rows above
                 weekendTickRow(columns)
                 axisRow(columns)
+                if DailyTrendStack.isStacked(stack) {
+                    legend(stack, colors: colors)
+                        .padding(.top, 2)
+                }
             }
             .padding(.top, 4)
         }
     }
 
-    /// 캡션 + 리드아웃(호버 중인 날, 없으면 오늘) + 최댓값.
+    /// 캡션 + 오늘의 합산 리드아웃 + 최댓값. 리드아웃은 호버를 따라가지 않는다 — 다른 날은
+    /// 툴팁이 보여주고, 여기는 팝오버를 열자마자 오늘 합계(모든 프로바이더)가 보이는 자리다.
     /// 최댓값을 남기는 이유: 막대 높이가 상대값이라 어딘가 한 곳은 절대 스케일을 적어야 한다.
     /// 쓴 날이 하루뿐이면 최댓값이 리드아웃과 같은 숫자라 생략한다.
     private func captionRow(peak: Int, showsPeak: Bool) -> some View {
@@ -1080,7 +1125,7 @@ struct MonthDailyTrend: View {
             Text(l.dailyTrend)
                 .font(.caption)
                 .foregroundStyle(.tertiary)
-            Text(readout)
+            Text(Self.readout(series: series, today: today, showsCost: showsCost, l: l))
                 .font(.caption.weight(.medium))
                 .foregroundStyle(.secondary)
                 .monospacedDigit()
@@ -1097,7 +1142,89 @@ struct MonthDailyTrend: View {
         }
     }
 
-    private func barRow(_ columns: [DailyTrendColumn], peak: Int) -> some View {
+    /// Today's "8/24 (Mon) 5.2M $3.10", summed across providers. Empty for a day outside the
+    /// series — in production the series always ends today, so the lookup cannot miss.
+    nonisolated static func readout(series: [DailyUsage], today: String, showsCost: Bool, l: L) -> String {
+        guard let day = series.first(where: { $0.date == today }) else { return "" }
+        let stamp = DailyTrendMetrics.dayStamp(day.date, language: l.lang)
+        let tokens = TokenFormatter.compact(day.totalTokens)
+        guard showsCost else { return "\(stamp) \(tokens)" }
+        return "\(stamp) \(tokens) \(day.usageCost.text(l))"
+    }
+
+    /// Swatch + name per provider, wrapping onto more lines rather than truncating — names are
+    /// what tells providers apart once colors repeat.
+    private func legend(_ stack: [DailyTrendStack.ProviderSeries], colors: [String: Int]) -> some View {
+        WrappingHStack(spacing: 8, lineSpacing: 2) {
+            ForEach(stack, id: \.id) { provider in
+                HStack(spacing: 3) {
+                    swatch(provider.id, colors)
+                    Text(provider.name).font(.caption2).foregroundStyle(.tertiary)
+                }
+                .lineLimit(1)
+                .fixedSize()
+            }
+        }
+    }
+
+    private func swatch(_ providerID: String, _ colors: [String: Int]) -> some View {
+        RoundedRectangle(cornerRadius: 1)
+            .fill(color(for: providerID, in: colors))
+            .frame(width: 6, height: 6)
+    }
+
+    /// The hovered day's date, total and (when stacked) per-provider split, floating just above
+    /// the bars and centered on the column, clamped to the row's edges.
+    @ViewBuilder
+    private func hoverTooltip(_ columns: [DailyTrendColumn], stack: [DailyTrendStack.ProviderSeries], colors: [String: Int]) -> some View {
+        if let hovered, let index = columns.firstIndex(where: { $0.date == hovered }),
+           let info = DailyTrendHover.info(day: hovered, series: series, stack: stack, showsCost: showsCost, l: l) {
+            GeometryReader { geometry in
+                let width = geometry.size.width
+                let column = (width + DailyTrendMetrics.spacing) / CGFloat(columns.count)
+                let center = column * (CGFloat(index) + 0.5)
+                tooltipCard(info, colors: colors)
+                    .fixedSize()
+                    .alignmentGuide(.leading) { d in -min(max(center - d.width / 2, 0), max(0, width - d.width)) }
+                    .alignmentGuide(.bottom) { d in d.height + geometry.size.height + 4 }
+                    .frame(width: width, height: geometry.size.height, alignment: .bottomLeading)
+            }
+            .allowsHitTesting(false)
+        }
+    }
+
+    private func tooltipCard(_ info: DailyTrendHover.Info, colors: [String: Int]) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: 5) {
+                Text(info.stamp).fontWeight(.semibold)
+                Text(info.tokens)
+                if let cost = info.cost { Text(cost).foregroundStyle(.secondary) }
+            }
+            .font(.caption)
+            ForEach(info.providers, id: \.id) { row in
+                HStack(spacing: 4) {
+                    swatch(row.id, colors)
+                    Text(row.name).foregroundStyle(.secondary)
+                    Spacer(minLength: 8)
+                    Text(row.tokens)
+                    if let cost = row.cost { Text(cost).foregroundStyle(.secondary) }
+                }
+                .font(.caption2)
+            }
+        }
+        .monospacedDigit()
+        .lineLimit(1)
+        .padding(.horizontal, 7)
+        .padding(.vertical, 5)
+        .background(RoundedRectangle(cornerRadius: 6, style: .continuous)
+            .fill(Color(nsColor: .windowBackgroundColor)))
+        .overlay(RoundedRectangle(cornerRadius: 6, style: .continuous)
+            .strokeBorder(Color.secondary.opacity(0.35), lineWidth: 0.5))
+        .shadow(color: .black.opacity(0.25), radius: 4, y: 1)
+    }
+
+    private func barRow(_ columns: [DailyTrendColumn], peak: Int, stack: [DailyTrendStack.ProviderSeries],
+                        colors: [String: Int]) -> some View {
         HStack(alignment: .bottom, spacing: DailyTrendMetrics.spacing) {
             ForEach(columns) { column in
                 if column.isFuture {
@@ -1109,10 +1236,21 @@ struct MonthDailyTrend: View {
                     // 사용 0 인 날은 바닥 눈금만 남으므로, 아주 조금 쓴 날과 높이로는 구분되지
                     // 않는다 — 색을 한 단계 흐리게 해 "안 쓴 날"과 "조금 쓴 날"을 갈라준다.
                     let isEmptyDay = column.tokens == 0
-                    RoundedRectangle(cornerRadius: 1, style: .continuous)
-                        .fill(isToday ? Color.accentColor
-                                      : Color.secondary.opacity(isEmptyDay ? 0.18 : 0.45))
-                        .frame(height: DailyTrendMetrics.barHeight(tokens: column.tokens, peak: peak))
+                    let height = DailyTrendMetrics.barHeight(tokens: column.tokens, peak: peak)
+                    let segments = DailyTrendStack.isStacked(stack) && !isEmptyDay
+                        ? DailyTrendStack.segments(on: column.date, stack: stack, barHeight: height) : []
+                    Group {
+                        if segments.isEmpty {
+                            RoundedRectangle(cornerRadius: 1, style: .continuous)
+                                .fill(isToday ? Color.accentColor
+                                              : Color.secondary.opacity(hovered == column.date ? 0.8
+                                                                        : isEmptyDay ? 0.18 : 0.45))
+                                .frame(height: height)
+                        } else {
+                            stackedBar(segments, height: height, colors: colors,
+                                       highlighted: isToday || hovered == column.date)
+                        }
+                    }
                         .frame(maxWidth: .infinity)
                         .contentShape(Rectangle())   // 낮은 막대도 칼럼 전체가 호버 대상이 되게
                         .onHover { inside in hovered = inside ? column.date : nil }
@@ -1120,6 +1258,26 @@ struct MonthDailyTrend: View {
             }
         }
         .frame(height: DailyTrendMetrics.track, alignment: .bottom)
+    }
+
+    /// One bar split into provider segments. `segments` runs bottom → top; a `VStack` lays out
+    /// top → bottom, hence the reversal. Days other than today/hovered are dimmed — in the stacked
+    /// row the accent color no longer marks today, so brightness does.
+    private func stackedBar(_ segments: [DailyTrendStack.Segment], height: CGFloat,
+                            colors: [String: Int], highlighted: Bool) -> some View {
+        VStack(spacing: 0) {
+            ForEach(segments.reversed(), id: \.providerID) { segment in
+                color(for: segment.providerID, in: colors)
+                    .opacity(highlighted ? 1 : 0.55)
+                    .frame(height: segment.height)
+            }
+        }
+        .frame(height: height)
+        .clipShape(RoundedRectangle(cornerRadius: 1, style: .continuous))
+    }
+
+    private func color(for providerID: String, in colors: [String: Int]) -> Color {
+        Self.providerPalette[(colors[providerID] ?? 0) % Self.providerPalette.count]
     }
 
     /// 주말 칼럼에 짧은 밑줄. **전체 높이 음영으로 하면 안 된다** — 다크 배경에서 그 음영이
@@ -1158,18 +1316,6 @@ struct MonthDailyTrend: View {
                 .frame(maxWidth: .infinity)
             }
         }
-    }
-
-    /// 호버 중인 날(없으면 오늘)의 "8/24 (월) 5.2M". 시리즈에 없는 날짜면 빈 문자열 —
-    /// 프로덕션에선 시리즈가 항상 오늘로 끝나므로 조회 실패는 일어나지 않는다(배열 조회가
-    /// 옵셔널이라 생기는 분기일 뿐, 테스트할 분기가 아니다).
-    private var readout: String {
-        let target = hovered ?? today
-        guard let day = series.first(where: { $0.date == target }) else { return "" }
-        let stamp = DailyTrendMetrics.dayStamp(day.date, language: l.lang)
-        let tokens = TokenFormatter.compact(day.totalTokens)
-        guard showsCost else { return "\(stamp) \(tokens)" }
-        return "\(stamp) \(tokens) \(day.usageCost.text(l))"
     }
 }
 
@@ -1293,6 +1439,156 @@ enum DailyTrendMetrics {
         formatter.locale = language.displayLocale
         formatter.setLocalizedDateFormatFromTemplate("MdE")
         return formatter.string(from: parsed)
+    }
+}
+
+/// What the trend tooltip says for one day — pure, so the wording rules can be checked without hovering.
+enum DailyTrendHover {
+    struct Row: Equatable {
+        var id: String
+        var name: String
+        var tokens: String
+        var cost: String?
+    }
+
+    struct Info: Equatable {
+        var stamp: String
+        var tokens: String
+        var cost: String?
+        /// Per-provider split, in stack order; only when the bars stack, and only providers that used
+        /// something that day.
+        var providers: [Row]
+    }
+
+    /// Cost follows the totals' rule: shown only with `showsCost`, and per provider only for those that
+    /// bill (`reportsCost`). Nil for a day outside the series.
+    static func info(day: String, series: [DailyUsage], stack: [DailyTrendStack.ProviderSeries],
+                     showsCost: Bool, l: L) -> Info? {
+        guard let total = series.first(where: { $0.date == day }) else { return nil }
+        let rows: [Row] = DailyTrendStack.isStacked(stack) ? stack.compactMap { provider in
+            guard let usage = provider.days.first(where: { $0.date == day }), usage.totalTokens > 0 else { return nil }
+            return Row(id: provider.id, name: provider.name, tokens: TokenFormatter.compact(usage.totalTokens),
+                       cost: showsCost && provider.reportsCost ? usage.usageCost.text(l) : nil)
+        } : []
+        return Info(stamp: DailyTrendMetrics.dayStamp(day, language: l.lang),
+                    tokens: TokenFormatter.compact(total.totalTokens),
+                    cost: showsCost ? total.usageCost.text(l) : nil,
+                    providers: rows)
+    }
+}
+
+/// Per-provider stacking of the daily trend bars — pure, like `DailyTrendMetrics`, so the
+/// ordering and the height split can be checked headlessly. The split is where a view-local
+/// version goes quietly wrong: independently scaled segments do not sum to the bar, and the
+/// stacked bar then disagrees with the single-color bar's height for the same day.
+enum DailyTrendStack {
+    struct ProviderSeries {
+        var id: String
+        var name: String
+        var days: [DailyUsage]
+        var reportsCost: Bool
+    }
+
+    struct Segment: Equatable {
+        var providerID: String
+        var tokens: Int
+        var height: CGFloat
+    }
+
+    /// Providers that used anything this month, largest month total first (bottom of the stack).
+    /// Ties break on id so the order cannot flip between refreshes.
+    static func ordered(_ providers: [ProviderSeries]) -> [ProviderSeries] {
+        let totals: [(provider: ProviderSeries, tokens: Int)] = providers.map { provider in
+            (provider, provider.days.reduce(0) { $0 + $1.totalTokens })
+        }
+        return totals
+            .filter { $0.tokens > 0 }
+            .sorted { lhs, rhs in
+                lhs.tokens != rhs.tokens ? lhs.tokens > rhs.tokens : lhs.provider.id < rhs.provider.id
+            }
+            .map(\.provider)
+    }
+
+    /// Whether the row stacks at all. With one provider (or none) the row stays the plain
+    /// single-color bar with today in the accent color.
+    static func isStacked(_ ordered: [ProviderSeries]) -> Bool { ordered.count > 1 }
+
+    /// Segments of `date`'s bar, bottom → top in `ordered` order. Zero-token providers are left
+    /// out. Heights come from cumulative shares, so they add up to exactly `barHeight` with no
+    /// rounding drift. Empty when nobody used anything that day.
+    static func segments(on date: String, stack ordered: [ProviderSeries],
+                         barHeight: CGFloat) -> [Segment] {
+        let parts = ordered.compactMap { provider -> (String, Int)? in
+            let tokens = provider.days.first { $0.date == date }?.totalTokens ?? 0
+            return tokens > 0 ? (provider.id, tokens) : nil
+        }
+        let total = parts.reduce(0) { $0 + $1.1 }
+        guard total > 0 else { return [] }
+
+        var segments: [Segment] = []
+        var running = 0
+        var placed: CGFloat = 0
+        for (index, part) in parts.enumerated() {
+            running += part.1
+            let top = index == parts.count - 1
+                ? barHeight
+                : barHeight * CGFloat(running) / CGFloat(total)
+            segments.append(Segment(providerID: part.0, tokens: part.1, height: top - placed))
+            placed = top
+        }
+        return segments
+    }
+
+    /// Palette slot per provider id: its registration index (`UsageStore.registeredProviderIDs`) modulo the
+    /// palette. It depends on nothing but that index, so a provider keeps its color as others become
+    /// active or idle and as usage rank shifts during the month. Past the palette size colors repeat;
+    /// the legend and tooltip name the providers, so a shared color stays readable.
+    static func colorIndices(for ids: [String], registry: [String],
+                             paletteCount: Int) -> [String: Int] {
+        var slots: [String: Int] = [:]
+        for id in ids {
+            slots[id] = (registry.firstIndex(of: id) ?? 0) % paletteCount
+        }
+        return slots
+    }
+}
+
+/// Lays children left to right, starting a new line when the next one would not fit the width.
+struct WrappingHStack: Layout {
+    var spacing: CGFloat
+    var lineSpacing: CGFloat
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let frames = arrange(subviews, width: proposal.width ?? .infinity)
+        let width = frames.map(\.maxX).max() ?? 0
+        let height = frames.map(\.maxY).max() ?? 0
+        return CGSize(width: width, height: height)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        for (subview, frame) in zip(subviews, arrange(subviews, width: bounds.width)) {
+            subview.place(at: CGPoint(x: bounds.minX + frame.minX, y: bounds.minY + frame.minY),
+                          proposal: ProposedViewSize(frame.size))
+        }
+    }
+
+    private func arrange(_ subviews: Subviews, width: CGFloat) -> [CGRect] {
+        var frames: [CGRect] = []
+        var x: CGFloat = 0
+        var y: CGFloat = 0
+        var lineHeight: CGFloat = 0
+        for subview in subviews {
+            let size = subview.sizeThatFits(.unspecified)
+            if x > 0, x + size.width > width {
+                x = 0
+                y += lineHeight + lineSpacing
+                lineHeight = 0
+            }
+            frames.append(CGRect(origin: CGPoint(x: x, y: y), size: size))
+            x += size.width + spacing
+            lineHeight = max(lineHeight, size.height)
+        }
+        return frames
     }
 }
 

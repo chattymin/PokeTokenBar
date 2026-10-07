@@ -1775,8 +1775,8 @@ struct PokemonDetailView: View {
                                              isShiny: displayedShiny,
                                              matchAppearance: false)
                     }
-                    if !individuals.isEmpty { individualPicker }
-                    else {
+                    if individuals.count > 1 { individualPicker }
+                    if individuals.isEmpty {
                         Text(store.l.dexAppearancePreview).font(.callout).foregroundStyle(.secondary)
                     }
                     if let details = store.pokemonDetailsByID[species.id] {
