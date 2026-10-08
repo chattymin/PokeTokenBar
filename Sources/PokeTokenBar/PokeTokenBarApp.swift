@@ -117,11 +117,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         applyState()
     }
 
-    /// Observation 기반 상태 반영 — store 의 menuTitle(=menuLines) 변경 시 재호출.
+    /// Observe usage settings and the enabled growth text together, including companion-only changes.
     /// (isStale 은 더 이상 추적 안 함 — 메뉴바 dim 제거로 시각 출력에 관여하지 않음.)
     private func observeStore() {
         withObservationTracking {
-            _ = store.menuTitle
+            _ = MenuBarContent.lines(store: store, companion: companion)
             _ = store.menuToolTip
             // The mode and thresholds can change the colors while the text stays the same.
             _ = store.menuLimitColorRuns()
@@ -136,11 +136,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
 
     /// 대표 스프라이트 정체성(종/shiny/fps 하한) 관찰 — 대표 선택·해제와 애니메이션 품질 변경뿐 아니라
     /// 사탕 진화·졸업(BagView), 세이브 가져오기, 부화·메타몽 리빌 async 완료처럼 store 갱신 틱 없이
-    /// companion 만 바뀌는 경로에서도 메뉴바를 즉시 갱신한다. observeStore(menuTitle)만으론 다음 사용량 폴링(기본 120s)까지
-    /// 이전 포켓몬이 남는다(사탕 졸업 후 메뉴바 잔상 리포트 — UsageStore.onRefresh 주석과 같은 부류).
+    /// companion 만 바뀌는 경로에서도 메뉴바를 즉시 갱신한다. 성장률 표시가 꺼져 있어도 스프라이트는
+    /// 바로 갱신되어야 한다(사탕 졸업 후 메뉴바 잔상 리포트 — UsageStore.onRefresh 주석과 같은 부류).
     ///
     /// **fps 설정도 여기서 관찰한다**: 프레임은 하한에 맞춰 솎아낸 결과물이라 하한이 곧 정체성의
-    /// 일부다(`menuSpriteKey`). `observeStore` 는 `menuTitle` 만 추적하므로, 이걸 빼면 설정을
+    /// 일부다(`menuSpriteKey`). `observeStore` 는 애니메이션 품질을 추적하지 않으므로, 이걸 빼면 설정을
     /// 바꿔도 다음 사용량 폴링(기본 120s)까지 옛 fps 로 돈다 — 위 '메뉴바 잔상'과 같은 부류.
     /// (플로팅 펫은 `body` 에서 직접 읽어 SwiftUI 관찰이 처리한다.)
     private func observeCompanionSprite() {
@@ -174,8 +174,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
 
     private func applyState() {
         guard let button = statusItem.button else { return }
+        updateCompanion()
         // Recomputed on every refresh, so a tier that moves with the clock redraws even when the text doesn't.
-        Self.applyMenuText(store.menuLines, to: button, colors: store.menuLimitColorRuns())
+        Self.applyMenuText(MenuBarContent.lines(store: store, companion: companion),
+                           to: button, colors: store.menuLimitColorRuns())
         button.toolTip = store.menuToolTip
         needsSpriteLayout = true   // 텍스트 길이가 바뀌면 버튼 폭이 변해 이미지 자리도 움직인다
         // stale 시각 dim 제거 — 슬립/런치 직후 refresh 완료 전 몇 초간 회색으로 보여 '고장/비활성'
@@ -183,7 +185,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         // (limitsUpdatedAt 등)에서 제공하고, 메뉴바 아이콘·숫자는 흐리게 하지 않는다.
         button.appearsDisabled = false
 
-        updateCompanion()
         ensureMenuAnimation()
         syncMenuAnimation()   // 가시성 상태 주기적 재평가(occlusion 이 잘못 멈춰도 자가 복구)
         // 같은 프레임이면 setStatusImage 가 diff-gate 로 조기 반환해 재배치를 못 했을 수 있다.
@@ -193,7 +194,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     /// 메뉴바 버튼 텍스트 반영 — 1줄이면 기본 title(13pt), 2줄 이상이면 세로 스택.
     /// 줄 수에 맞춰 폰트를 자동 축소해 N줄이 메뉴바 높이에 클리핑 없이 들어오게 한다. 한도 항목 색
     /// (`colors`) 외에는 색을 지정하지 않아 메뉴바 명암(라이트/다크)·비활성(appearsDisabled) 상태에 자동 적응한다.
-    private static func applyMenuText(_ lines: [String], to button: NSStatusBarButton,
+    static func applyMenuText(_ lines: [String], to button: NSStatusBarButton,
                                       colors: [UsageStore.MenuLimitColorRun]) {
         if lines.count >= 2 {
             // NSStatusBarButton 은 멀티라인 title 을 세로 중앙에 두지 않고 위로 치우쳐 그린다(측정:

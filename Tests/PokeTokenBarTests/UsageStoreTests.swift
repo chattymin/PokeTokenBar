@@ -656,6 +656,45 @@ final class UsageStoreTests: XCTestCase {
         XCTAssertTrue(three[1].contains("Claude"))           // 아랫줄=한도
     }
 
+    func testMenuLinesWithGrowthAllCombinations() async {
+        let claude = FakeUsageProvider(id: "claude_code", displayName: "Claude Code",
+                                       daily: todayDaily(1_200_000, cost: 3.45))
+        let store = makeStore(providers: [claude],
+                              claude: claudeLimits(fiveHourUtil: 40, resetsAt: "2099-01-01T00:00:00Z"))
+        await store.refresh(scheduleEmptyRetry: false)
+        let token = TokenFormatter.compact(store.todayTotalTokens)
+        let cost = store.todayUsageCost.text(L(store.localizationLanguage), compact: true)
+        for mask in 0..<16 {
+            store.showTokensInMenu = mask & 1 != 0
+            store.showCostInMenu = mask & 2 != 0
+            store.showLimitInMenu = mask & 4 != 0
+            let growth = mask & 8 != 0 ? "Growth 42%" : nil
+            let lines = store.menuLines(growthText: growth)
+            var expected: [String] = []
+            if store.showTokensInMenu { expected.append(token) }
+            if store.showCostInMenu { expected.append(cost) }
+            if let growth { expected.append(growth) }
+            if store.showLimitInMenu { expected.append("Claude 40%") }
+            XCTAssertEqual(lines.flatMap { $0.components(separatedBy: " · ") }, expected, "mask=\(mask)")
+            XCTAssertLessThanOrEqual(lines.count, 2, "mask=\(mask)")
+            if store.showLimitInMenu {
+                XCTAssertEqual(lines.last, "Claude 40%", "limits retain a separate line")
+            }
+            if expected.count <= 2 { XCTAssertEqual(lines, expected) }
+        }
+    }
+
+    func testGrowthSettingPersistsAndSavedGrowthIsAvailableBeforeUsageLoads() {
+        let store = makeStore(providers: [])
+        XCTAssertFalse(store.showGrowthInMenu)
+        XCTAssertEqual(store.menuLines, ["—"])
+        XCTAssertEqual(store.menuLines(growthText: "Hatch 42%"), ["Hatch 42%"])
+        store.showGrowthInMenu = true
+        XCTAssertTrue(makeStore(providers: []).showGrowthInMenu)
+        store.showGrowthInMenu = false
+        XCTAssertFalse(makeStore(providers: []).showGrowthInMenu)
+    }
+
     // MARK: 한도 표시 방식 (used / remaining)
 
     /// 표시 변환 순수 판정 — remaining = 100−사용률, 0 하한(사용률 100 초과 시 음수 금지), 경계 포함.
