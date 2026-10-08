@@ -23,11 +23,6 @@ final class UsageStore {
     private(set) var additionalLimitsPending = false
     private(set) var codexLimits: CodexRateLimitStatus?
     private(set) var codexLimitsUpdatedAt: Date?
-    /// Reference account history can overlap local Codex: never put it in `snapshots` or ledgers.
-    private(set) var codexAccountUsageSnapshot: CodexAccountUsageSnapshot?
-    private(set) var codexAccountUsageUnavailable = false
-    private(set) var codexAccountUsageRefreshFailed = false
-    private(set) var codexAccountUsageChecked = false
     private(set) var antigravityLimits: AntigravityRateLimitStatus?
     private(set) var antigravityLimitsUpdatedAt: Date?
     private(set) var antigravityLimitsAuthExpired = false
@@ -248,8 +243,6 @@ final class UsageStore {
     /// the same file (`ChainedLimitsProvider.forConfigRoot`).
     private let accountSessionKeys: @Sendable (URL) -> any SessionKeyManaging
     private let codexLimitsProvider: any CodexLimitsProviding
-    private let codexAccountUsageProvider: any CodexAccountUsageProviding
-    private let codexAccountUsageFileURL: URL?
     private let antigravityLimitsProvider: any AntigravityLimitsProviding
     private let cursorLimitsProvider: any CursorLimitsProviding
     private let statusProvider: any ProviderStatusProviding
@@ -762,8 +755,6 @@ final class UsageStore {
             ClaudePromptHistory.installedPrompts(configDir: $0)
          },
          codexLimitsProvider: any CodexLimitsProviding = CodexRateLimitsProvider(),
-         codexAccountUsageProvider: any CodexAccountUsageProviding = CodexAccountUsageProvider(),
-         codexAccountUsageFileURL: URL? = nil,
          antigravityLimitsProvider: any AntigravityLimitsProviding = AntigravityRateLimitsProvider(),
          cursorLimitsProvider: any CursorLimitsProviding = CursorRateLimitsProvider(),
          statusProvider: any ProviderStatusProviding = StatuspageStatusProvider(),
@@ -786,9 +777,6 @@ final class UsageStore {
         self.sessionKeys = sessionKeys
         self.accountSessionKeys = accountSessionKeys
         self.codexLimitsProvider = codexLimitsProvider
-        self.codexAccountUsageProvider = codexAccountUsageProvider
-        self.codexAccountUsageFileURL = codexAccountUsageFileURL
-        self.codexAccountUsageSnapshot = CodexAccountUsageSnapshot.load(from: codexAccountUsageFileURL)
         self.antigravityLimitsProvider = antigravityLimitsProvider
         self.cursorLimitsProvider = cursorLimitsProvider
         self.statusProvider = statusProvider
@@ -1118,7 +1106,6 @@ final class UsageStore {
         }
         await refreshAdditionalClaudeLimits(allowKeychainPrompt: false)
         await refreshCodexLimits()
-        await refreshCodexAccountUsage()
         await refreshAntigravityLimits(allowKeychainPrompt: false)
         await refreshCursorLimits()
         await refreshProviderStatuses()
@@ -1786,26 +1773,6 @@ final class UsageStore {
             }
         } catch {
             AppLog.write("codex limits unavailable: \(error)")
-        }
-    }
-
-    private func refreshCodexAccountUsage() async {
-        do {
-            guard let usage = try await codexAccountUsageProvider.fetch() else {
-                codexAccountUsageUnavailable = codexAccountUsageSnapshot != nil
-                return
-            }
-            codexAccountUsageChecked = true
-            codexAccountUsageRefreshFailed = false
-            codexAccountUsageUnavailable = !usage.hasReportedTokens
-            guard usage.hasReportedTokens else { return }
-            let snapshot = CodexAccountUsageSnapshot(usage: usage, fetchedAt: Date())
-            codexAccountUsageSnapshot = snapshot
-            snapshot.save(to: codexAccountUsageFileURL)
-        } catch {
-            codexAccountUsageChecked = true
-            codexAccountUsageRefreshFailed = true
-            AppLog.writeIfChanged("codex-account-usage", "ChatGPT account usage refresh failed; keeping the last report")
         }
     }
 

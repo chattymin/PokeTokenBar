@@ -25,30 +25,6 @@ read_when:
 
 ## 판정·데이터
 
-- **Service account history is a separate source from local rollout usage.** ChatGPT dot/cloud
-  tasks need not create a local `token_count` rollout, so adding another local log root cannot
-  recover their account report. Local Codex tests exercised only JSONL usage; successful quota
-  reads also said nothing about token-history support. The source sweep found every app/game
-  total consumes local `ProviderSnapshot` values, while the documented app-server
-  `account/usage/read` returns optional account metrics and dated buckets without proven local
-  overlap, timezone, input/output breakdown or cost. Keep its reported lifetime and source dates
-  in a separate persisted snapshot and account-history section; never add it to local totals,
-  menu numbers, burn, companion credit or the local ledger, and never invent today's count from
-  a lifetime delta. Null metrics are unavailable, explicit zero is reported, and failed/null
-  refreshes retain the last successful report with its original fetch time. The CLI performs
-  authenticated reads internally, so gate before discovery under tests/raw builds.
-  `CodexAccountUsageTests` covers the executable RPC fixture, null/zero/daily-only responses,
-  source lag, isolated persistence/restart, failure recovery and non-additivity;
-  `CodexAccountUsageRenderingTests` renders the production section/home for visible source
-  scope, date and last-good status. The supported source is documented at
-  <https://learn.chatgpt.com/docs/app-server>; it does not establish per-dot attribution.
-  Removing the daily-bucket side of `hasReportedTokens` fails the daily-only regression;
-  restoring it passes the nine core tests. This checks the optional lifetime/bucket OR gate's
-  bucket-only branch, rather than relying on reports that always supply lifetime tokens.
-  Feature-only tests passed while repository source gates caught translations placed in the UI
-  file and a missing explicit `@MainActor` view boundary. Keep the table in `Localization.swift`
-  and run `LocalizedUILiteralTests` and `SwiftUIIsolationTests` alongside feature tests.
-
 - **An idle day must not erase historical usage.** The store admitted enrichment-only snapshots
   only for a positive active block, so providers with no usage today lost their week/month totals
   and chart. Earlier tests deliberately rejected even positive historical totals to hide unused
