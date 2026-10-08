@@ -17,7 +17,7 @@ enum RunnerError: Error, CustomStringConvertible {
 }
 
 /// Process 실행 지점은 이 파일 하나로 제한한다.
-/// 현재 유일한 용도는 Codex app-server rate-limit read(JSON-RPC) — usage 집계는 로컬 로그 직파싱.
+/// Codex app-server의 읽기 전용 계정 요청(JSON-RPC)에 사용 — 앱 사용량 합계는 로컬 로그 직파싱.
 enum ProcessRunner {
     /// newline-delimited JSON-RPC 서버에 요청을 보내고 특정 id의 `result` JSON만 반환.
     /// Codex app-server가 stdout에 로그/notification을 섞어 내보낼 수 있어 line 단위로 필터링한다.

@@ -173,6 +173,13 @@ struct PopoverView: View {
                         Divider()
                         header
                         Divider()
+                        if store.codexAccountUsageSnapshot != nil || store.codexAccountUsageChecked {
+                            CodexAccountUsageSection(usage: store.codexAccountUsageSnapshot?.usage,
+                                updatedAt: store.codexAccountUsageSnapshot?.fetchedAt,
+                                isUnavailable: store.codexAccountUsageUnavailable,
+                                refreshFailed: store.codexAccountUsageRefreshFailed, l: l)
+                            Divider()
+                        }
                         providerStatusBanner   // 인시던트 있을 때만 — 한도 가용 여부와 무관(API 다운=한도 nil 케이스에도)
                         if selectedProviderHasLimits {
                             limitsSection

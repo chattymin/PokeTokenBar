@@ -36,7 +36,7 @@ struct CodexRateLimitsProvider: CodexLimitsProviding {
 
     func fetch() async throws -> CodexRateLimitStatus? {
         guard let bin = resolvedBinary else { return nil }
-        let lines = try Self.requestLines()
+        let lines = try CodexAppServerRequest.lines(method: "account/rateLimits/read")
         let data = try await ProcessRunner.runJSONRPC(
             binary: bin,
             arguments: ["app-server", "--stdio"],
@@ -46,7 +46,11 @@ struct CodexRateLimitsProvider: CodexLimitsProviding {
         return try JSONDecoder().decode(CodexRateLimitStatus.self, from: data)
     }
 
-    private static func requestLines() throws -> [String] {
+}
+
+/// Read-only account requests share the supported app-server initialization handshake.
+enum CodexAppServerRequest {
+    static func lines(method: String) throws -> [String] {
         let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.1.0"
         let messages: [[String: Any]] = [
             [
@@ -68,7 +72,7 @@ struct CodexRateLimitsProvider: CodexLimitsProviding {
                 "params": [:],
             ],
             [
-                "method": "account/rateLimits/read",
+                "method": method,
                 "id": 1,
                 "params": [:],
             ],
