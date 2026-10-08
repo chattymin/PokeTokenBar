@@ -17,7 +17,7 @@ struct ModelRate: Equatable {
 }
 
 enum ModelPricing {
-    /// Standard API prices, checked 2026-09-11: https://developers.openai.com/api/docs/pricing
+    /// Standard API prices: https://developers.openai.com/api/docs/pricing
     /// Historical GPT rates: https://developers.openai.com/api/docs/models/<model-id>
     /// The table is a current-price estimate, not a historical invoice ledger.
     static let table: [String: ModelRate] = [
@@ -29,6 +29,8 @@ enum ModelPricing {
         // Opus 5.5, checked 2026-09-25: cheaper than Opus 5, cache read cut to $0.20/MTok (0.05× input).
         "claude-opus-5-5":            .perMillion(4, 20, 5, 0.2),
         "claude-sonnet-5":            .perMillion(2, 10, 2.5, 0.2),
+        // Sonnet 5.5, checked 2026-09-29: 5m cache write $2.50 and cache read $0.20 / MTok.
+        "claude-sonnet-5-5":          .perMillion(2, 10, 2.5, 0.2),
         "claude-opus-4-20250514":     .perMillion(15, 75, 18.75, 1.5),
         "claude-sonnet-4-20250514":   .perMillion(3, 15, 3.75, 0.3),
         "claude-sonnet-4-5-20250929": .perMillion(3, 15, 3.75, 0.3),
@@ -40,6 +42,10 @@ enum ModelPricing {
         // Fable 5.1: same base rates as Fable 5, cache read cut to $0.25/MTok (0.025× input).
         "claude-fable-5-1":           .perMillion(10, 50, 12.5, 0.25),
         "gpt-6-astra":                .perMillion(10, 50, 12.5, 1),
+        // GPT-6 Sol variants and Luna rates checked 2026-09-30 against the official API pricing page above.
+        "gpt-6-sol":                  .perMillion(2, 10, 2.5, 0.2),
+        "gpt-6.1-sol":                .perMillion(2, 10, 2.5, 0.1),
+        "gpt-6-luna":                 .perMillion(0.1, 0.5, 0.125, 0.01),
         "gpt-5.6-sol":                .perMillion(4, 20, 5, 0.4),
         "gpt-5.6-terra":              .perMillion(2, 12, 2.5, 0.2),
         "gpt-5.6-luna":               .perMillion(0.2, 1.2, 0.25, 0.02),
@@ -101,7 +107,8 @@ enum ModelPricing {
         // Zero in this column means no supported separate write rate, not free write tokens.
         guard cacheWrite == 0 || r.cacheWrite > 0 else { return nil }
         let prompt = Double(input) + Double(cacheRead) + Double(cacheWrite)
-        let longContext = ["gpt-6-astra", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna",
+        let longContext = ["gpt-6-astra", "gpt-6-sol", "gpt-6.1-sol", "gpt-6-luna",
+                           "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna",
                            "gpt-5.5", "gpt-5.4"].contains(key) && prompt > 272_000
             || key == "gemini-2.5-pro" && prompt > 200_000
         let inputMultiplier = longContext ? 2.0 : 1.0

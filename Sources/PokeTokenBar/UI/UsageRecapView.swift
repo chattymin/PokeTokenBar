@@ -269,6 +269,7 @@ struct RecapCard: View {
                 // The meter is plain rectangles, so VoiceOver would otherwise read the label alone.
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel(content.accessibilityLabel(bucket))
+                .help(content.accessibilityLabel(bucket))
             }
         }
     }
@@ -380,6 +381,9 @@ struct RecapScreen: View {
                     Label(l.recapPrevious, systemImage: "arrowtriangle.left.fill").labelStyle(.titleAndIcon)
                 }
                 .disabled(!content.recap.canGoBack)
+                Spacer()
+                Button(l.recapCurrentPeriod(scope)) { offset = 0 }
+                    .disabled(offset == 0)
                 Spacer()
                 Button { offset += 1 } label: {
                     HStack(spacing: 4) {

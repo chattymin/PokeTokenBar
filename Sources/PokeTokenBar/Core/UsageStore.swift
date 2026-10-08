@@ -78,11 +78,21 @@ final class UsageStore {
             reschedule()
         }
     }
+    /// The Settings sliders overlap (warn 50…95, crit 80…100), so moving one past the other pushes
+    /// the other along by one slider step. Otherwise a window between them raises a critical
+    /// alert below the warning line and the warning tier never fires.
+    static let thresholdGap: Double = 5
     var warnThreshold: Double {
-        didSet { defaults.set(warnThreshold, forKey: "warnThreshold") }
+        didSet {
+            defaults.set(warnThreshold, forKey: "warnThreshold")
+            if critThreshold <= warnThreshold { critThreshold = warnThreshold + Self.thresholdGap }
+        }
     }
     var critThreshold: Double {
-        didSet { defaults.set(critThreshold, forKey: "critThreshold") }
+        didSet {
+            defaults.set(critThreshold, forKey: "critThreshold")
+            if warnThreshold >= critThreshold { warnThreshold = critThreshold - Self.thresholdGap }
+        }
     }
     // 메뉴바 표시 항목 (복수 선택 가능)
     var showTokensInMenu: Bool {
@@ -244,6 +254,11 @@ final class UsageStore {
     private var timer: Timer?
     private var networkMonitor: NetworkReachabilityMonitor?
     private var pollingSuspended = false   // 디스플레이 꺼짐 동안 폴링 정지 (배터리)
+    /// 정지 중에만 도는 저빈도 점검. screensDidWake 를 놓치면 폴링이 영영 안 돌아와 마지막 스냅샷
+    /// (자정에 기록된 빈 스냅샷 등)이 재시작 전까지 굳었다(#350).
+    private var suspendedProbeTimer: Timer?
+    static let suspendedProbeInterval: TimeInterval = 300
+    private let displaysAsleep: @MainActor () -> Bool
     private var emptyUsageRetryTask: Task<Void, Never>?
     /// 한도 알림 상태(엣지 트리거) — 창 이름 → 이미 알린 최고 tier(0=없음, 1=경고, 2=위험).
     /// utilization 이 경고선 아래로 내려가면 맵에서 제거해 재무장. resets_at 같은 매 fetch 변하는
@@ -730,7 +745,7 @@ final class UsageStore {
         LocalAntigravityProvider(), LocalOpenCodeProvider(), LocalHermesProvider(),
         LocalCursorProvider(), LocalGrokProvider(), LocalCopilotProvider(), LocalKiroProvider(),
         LocalPiProvider(),
-        LocalOmpProvider(), LocalAsideProvider(),
+        LocalOmpProvider(), LocalAsideProvider(), LocalKimiCodeProvider(),
     ],
          // 세션 키 우선, 없거나 죽었으면 기존 Keychain/파일 OAuth 경로. 두 인자는 같은
          // SessionKeyLimitsProvider 인스턴스를 봐야 한다 — 설정 화면이 고른 조직을 조회 경로가 써야 하므로.
@@ -757,8 +772,10 @@ final class UsageStore {
             SessionKeyLimitsProvider(store: .forConfigRoot($0))
          },
          autoRefresh: Bool = true,
-         defaults: UserDefaults = .standard) {
+         defaults: UserDefaults = .standard,
+         displaysAsleep: @escaping @MainActor () -> Bool = { CGDisplayIsAsleep(CGMainDisplayID()) != 0 }) {
         self.providers = providers
+        self.displaysAsleep = displaysAsleep
         self.limitsProvider = claudeLimitsProvider
         self.additionalClaudeLimitsProvider = additionalClaudeLimitsProvider
         self.discoverClaudeConfigDirs = discoverClaudeConfigDirs
@@ -775,8 +792,9 @@ final class UsageStore {
         self.defaults = defaults
         let d = defaults
         refreshInterval = d.object(forKey: "refreshInterval") as? TimeInterval ?? 120
-        warnThreshold = d.object(forKey: "warnThreshold") as? Double ?? 80
-        critThreshold = d.object(forKey: "critThreshold") as? Double ?? 95
+        let storedCrit = d.object(forKey: "critThreshold") as? Double ?? 95
+        critThreshold = storedCrit
+        warnThreshold = min(d.object(forKey: "warnThreshold") as? Double ?? 80, storedCrit - Self.thresholdGap)
         showTokensInMenu = d.object(forKey: "showTokensInMenu") as? Bool ?? true
         showCostInMenu = d.object(forKey: "showCostInMenu") as? Bool ?? false
         showLimitInMenu = d.object(forKey: "showLimitInMenu") as? Bool ?? false
@@ -816,7 +834,7 @@ final class UsageStore {
         NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.didWakeNotification, object: nil, queue: .main
         ) { [weak self] _ in
-            Task { @MainActor in await self?.refresh() }
+            Task { @MainActor in await self?.handleSystemWake() }
         }
         // 디스플레이 꺼짐 → 폴링(로그 파싱 + 한도 조회 + codex 서브프로세스) 일시정지, 켜짐 → 재개 + 즉시 갱신 (배터리)
         NSWorkspace.shared.notificationCenter.addObserver(
@@ -859,19 +877,55 @@ final class UsageStore {
         timer = t
     }
 
+    var isPollingSuspended: Bool { pollingSuspended }
+    var isPollingTimerScheduled: Bool { timer != nil }
+    var isSuspendedProbeScheduled: Bool { suspendedProbeTimer != nil }
+
     /// 디스플레이 꺼짐 → 폴링 타이머 정지(예약된 로그 파싱·한도 조회 중단).
-    private func suspendPolling() {
+    func suspendPolling() {
         pollingSuspended = true
         timer?.invalidate()
         timer = nil
+        suspendedProbeTimer?.invalidate()
+        let probe = Timer(timeInterval: Self.suspendedProbeInterval, repeats: true) { _ in
+            Task { @MainActor [weak self] in await self?.runSuspendedPollingProbe() }
+        }
+        probe.tolerance = Self.suspendedProbeInterval * 0.2
+        RunLoop.main.add(probe, forMode: .common)
+        suspendedProbeTimer = probe
     }
 
     /// 디스플레이 켜짐 → 폴링 재개 + 즉시 1회 갱신(켜졌을 때 메뉴 숫자 최신화).
     private func resumePolling() {
         guard pollingSuspended else { return }
-        pollingSuspended = false
-        reschedule()
+        clearPollingSuspension()
         Task { await refresh() }
+    }
+
+    private func clearPollingSuspension() {
+        pollingSuspended = false
+        suspendedProbeTimer?.invalidate()
+        suspendedProbeTimer = nil
+        reschedule()
+    }
+
+    /// screensDidWake 없이 화면이 이미 켜져 있으면 정지를 푼다. 풀었으면 true.
+    @discardableResult
+    private func clearStaleSuspension(reason: String) -> Bool {
+        guard pollingSuspended, !displaysAsleep() else { return false }
+        AppLog.write("polling resumed without screensDidWake (\(reason))")
+        clearPollingSuspension()
+        return true
+    }
+
+    func runSuspendedPollingProbe() async {
+        guard clearStaleSuspension(reason: "probe") else { return }
+        await refresh()
+    }
+
+    func handleSystemWake() async {
+        clearStaleSuspension(reason: "didWake")
+        await refresh()
     }
 
     // MARK: 갱신
@@ -882,6 +936,7 @@ final class UsageStore {
         // Claude 한도가 다음 수동 액션까지 빈 채로 남던 회귀 방지.
         if isRefreshing { refreshPending = true; return }
         isRefreshing = true
+        clearStaleSuspension(reason: "refresh")
         // App Nap 방지 — 백그라운드 스로틀로 로그 파싱·codex 조회가 타임아웃되는 것을 막는다 (시스템 슬립은 허용)
         let activity = ProcessInfo.processInfo.beginActivity(
             options: .userInitiatedAllowingIdleSystemSleep, reason: "PokeTokenBar usage refresh")
@@ -939,7 +994,9 @@ final class UsageStore {
             var prevWeek: PeriodUsage?
             var prevMonth: PeriodUsage?
             var prevMonthDaily: [DailyUsage]?
+            var prevLastUsage: Date?
             if let previous = snapshots.first(where: { $0.providerID == provider.id }) {
+                prevLastUsage = previous.lastUsage
                 if previous.today?.date == todayKey { prevToday = previous.today }
                 prevBlock = previous.activeBlock
                 // 주/월 누적도 이어받는다 — phase 2 가 다시 채우기 전까지 nil 로 비면
@@ -961,18 +1018,19 @@ final class UsageStore {
                 today = nil         // 성공했지만 오늘 데이터 없음 (예: Codex 미사용)
             }
 
-            if today != nil {
-                newSnapshots.append(ProviderSnapshot(
-                    providerID: provider.id,
-                    displayName: provider.displayName,
-                    today: today,
-                    activeBlock: prevBlock,
-                    weekTotal: prevWeek,
-                    monthTotal: prevMonth,
-                    monthDaily: prevMonthDaily,
-                    fetchedAt: Date(),
-                    reportsCost: provider.reportsCost))
-            }
+            let snapshot = ProviderSnapshot(
+                providerID: provider.id,
+                displayName: provider.displayName,
+                today: today,
+                activeBlock: prevBlock,
+                weekTotal: prevWeek,
+                monthTotal: prevMonth,
+                monthDaily: prevMonthDaily,
+                fetchedAt: Date(),
+                reportsCost: provider.reportsCost,
+                lastUsage: prevLastUsage)
+            // Keep history visible while phase 2 refreshes it, including on idle days.
+            if snapshot.hasDisplayableUsage { newSnapshots.append(snapshot) }
         }
         snapshots = newSnapshots
 
@@ -994,22 +1052,19 @@ final class UsageStore {
             }
             for await (id, enrichment) in group {
                 guard let index = snapshots.firstIndex(where: { $0.providerID == id }) else {
-                    // 캐리어 스냅샷은 "**실제 활성 5h 블록**이 있을 때만" 만든다(어제 늦은밤 코딩이 5h
-                    // 윈도우에 남아 자정 후 오늘 토큰 0인 경우 — burn/forecast/companion 보존). 주/월
-                    // 누적만으로 만들면, weekTotal 이 옵셔널이 아니라(토큰 0이어도 non-nil) 오늘·최근
-                    // 미사용 프로바이더까지 탭이 떠서 "안 썼는데 왜 뜨지" 회귀가 난다. 블록이 있을 때만
-                    // 그 시점의 주/월도 함께 보존한다.
-                    let hasActiveBlock = enrichment.blocksOK
-                        && (enrichment.activeBlock?.totalTokens ?? 0) > 0
-                    if hasActiveBlock, let provider = providers.first(where: { $0.id == id }) {
-                        snapshots.append(ProviderSnapshot(
+                    // An idle day still has useful history. Require positive usage, not merely
+                    // non-nil periods: local providers also return all-zero period summaries.
+                    if let provider = providers.first(where: { $0.id == id }) {
+                        let snapshot = ProviderSnapshot(
                             providerID: id, displayName: provider.displayName, today: nil,
-                            activeBlock: enrichment.activeBlock,
+                            activeBlock: enrichment.blocksOK ? enrichment.activeBlock : nil,
                             weekTotal: enrichment.periodsOK ? enrichment.weekTotal : nil,
                             monthTotal: enrichment.periodsOK ? enrichment.monthTotal : nil,
                             monthDaily: enrichment.periodsOK ? enrichment.monthDaily : nil,
                             fetchedAt: Date(),
-                            reportsCost: provider.reportsCost))
+                            reportsCost: provider.reportsCost,
+                            lastUsage: enrichment.periodsOK ? enrichment.lastUsage : nil)
+                        if snapshot.hasDisplayableUsage { snapshots.append(snapshot) }
                     }
                     continue
                 }
@@ -1018,9 +1073,15 @@ final class UsageStore {
                     snapshots[index].weekTotal = enrichment.weekTotal
                     snapshots[index].monthTotal = enrichment.monthTotal
                     snapshots[index].monthDaily = enrichment.monthDaily
+                    snapshots[index].lastUsage = enrichment.lastUsage
                 }
             }
         }
+        // Successful empty enrichment removes obsolete carriers; failed reads retain history.
+        snapshots.removeAll { !$0.hasDisplayableUsage }
+        // Carriers arrive in task-completion order; keep tabs in provider registration order.
+        let order = Dictionary(providers.enumerated().map { ($1.id, $0) }, uniquingKeysWith: { first, _ in first })
+        snapshots.sort { (order[$0.providerID] ?? .max) < (order[$1.providerID] ?? .max) }
         // 일별 원장은 여기서 갱신한다 — monthDaily 는 phase 2 에서만 채워지므로, phase 1 직후에
         // 기록하면 설치 후 첫 갱신에서 사용량 요약이 통째로 빈다.
         recordDailyLedger()
@@ -1597,9 +1658,10 @@ final class UsageStore {
     private func refreshCursorLimits() async {
         do {
             cursorLimits = try await cursorLimitsProvider.fetch()
+            // nil = no Cursor login or the API is switched off: nothing is left to re-authenticate.
+            cursorLimitsAuthExpired = false
             if let status = cursorLimits {
                 cursorLimitsUpdatedAt = Date()
-                cursorLimitsAuthExpired = false
                 let used = status.planUsage?.usedPercent.map { String(format: "%.1f", $0) } ?? "nil"
                 let remaining = status.planUsage?.remainingDollars.map { TokenFormatter.cost($0) } ?? "nil"
                 AppLog.write("cursor limits refreshed used=\(used)% remaining=\(remaining)")
@@ -1982,5 +2044,16 @@ final class UsageStore {
         if let data = try? JSONSerialization.data(withJSONObject: payload, options: [.prettyPrinted, .sortedKeys]) {
             try? data.write(to: dir.appendingPathComponent("last-snapshot.json"), options: .atomic)
         }
+    }
+}
+
+private extension ProviderSnapshot {
+    var hasDisplayableUsage: Bool {
+        today != nil
+            || (activeBlock?.totalTokens ?? 0) > 0
+            || (weekTotal?.totalTokens ?? 0) > 0
+            || (monthTotal?.totalTokens ?? 0) > 0
+            || monthDaily?.contains(where: { $0.totalTokens > 0 }) == true
+            || lastUsage.map { Date().timeIntervalSince($0) <= LocalUsageReader.recentUseWindow } == true
     }
 }

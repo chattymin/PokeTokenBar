@@ -57,6 +57,31 @@ final class SaveSnapshotTests: XCTestCase {
         XCTAssertEqual(store.availableSnapshots.first?.id, snapshot.id)
     }
 
+    /// A disguised Ditto hides its shiny state until the reveal (`currentIsShiny`). The snapshot
+    /// row in Settings renders `SpriteView(shiny: snapshot.currentIsShiny)`, so reading the raw
+    /// `isShiny` there spoiled the reveal with a shiny sprite of the disguise species.
+    func testSnapshotDoesNotRevealShinyOfDisguisedDitto() throws {
+        let url = tempURL("ditto")
+        var state = sampleState(tokens: 1_000, dexCount: 1)
+        state.active?.isShiny = true
+        state.active?.dittoDisguise = 1
+
+        let created = try SaveSnapshotManager.createSnapshot(state: state, for: url, date: baseNow)
+        XCTAssertFalse(created.currentIsShiny)
+        XCTAssertEqual(SaveSnapshotManager.listSnapshots(for: url).map(\.currentIsShiny), [false])
+
+        state.active?.dittoRevealed = true
+        let revealed = try SaveSnapshotManager.createSnapshot(state: state, for: url, date: baseNow.addingTimeInterval(60))
+        XCTAssertTrue(revealed.currentIsShiny)
+        XCTAssertEqual(SaveSnapshotManager.listSnapshots(for: url).map(\.currentIsShiny), [true, false])
+
+        let legacyURL = SaveSnapshotManager.snapshotsDirectory(for: url)
+            .appendingPathComponent("\(SaveSnapshotManager.snapshotPrefix)2020-01-01-000000.json")
+        state.active?.dittoRevealed = false
+        try JSONEncoder().encode(state).write(to: legacyURL)
+        XCTAssertEqual(SaveSnapshotManager.listSnapshots(for: url).last?.currentIsShiny, false)
+    }
+
     func testSnapshotPruningKeepsAtMostTen() throws {
         let url = tempURL("pruning")
         let state = sampleState(tokens: 20_000, dexCount: 2)

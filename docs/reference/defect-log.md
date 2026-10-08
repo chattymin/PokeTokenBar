@@ -43,6 +43,30 @@ read_when:
 
 ## 판정·데이터
 
+- **An idle day must not erase historical usage.** The store admitted enrichment-only snapshots
+  only for a positive active block, so providers with no usage today lost their week/month totals
+  and chart. Earlier tests deliberately rejected even positive historical totals to hide unused
+  provider tabs; that conflated "unused today" with "no recorded usage". Keep snapshots when a
+  block, period, or daily series has positive tokens, while excluding non-nil all-zero summaries.
+  `UsageStoreTests` covers each history source independently, nil today/nil block, repeated
+  refresh, enrichment failure, successful empty replacement, and ledger recording. The source
+  sweep found this carrier gate was the shared loss point; today-based burn/limit eligibility
+  remains intentionally scoped to current activity. Preserve carriers during phase 1 to avoid
+  hiding the chart between refresh phases. Removing the history predicates makes the historical
+  carrier regression fail; restoring them passes all three history regression tests.
+- **Calendar totals are not a "recently used" signal.** Week and month totals reset at their
+  boundaries, so a provider used Friday had week = month = 0 on Monday (or after the 1st) and lost
+  its tab — and with it the official limits, which the popover can only reach through a snapshot,
+  although the limits had been fetched successfully (#336). Why it was missed: every carrier test
+  used positive week/month fixtures, so none crossed a boundary. Snapshots now also stay when the
+  newest positive-token entry (`lastUsage`, from the shared `ProviderEnrichment.local`) is within
+  `LocalUsageReader.recentUseWindow` (7 days, the weekly quota window); zero-token synthetic
+  records do not count (#56 boundary). `enrichmentScanStart` covers that window, and snapshots
+  keep provider registration order because carriers arrive in task-completion order. Guards:
+  `testCarrierForProviderUsedWithinRecentWindowAcrossCalendarBoundaries`,
+  `testNoCarrierForProviderIdleBeyondRecentWindow`, `testSnapshotOrderFollowsProviderRegistrationOrder`,
+  `testEnrichmentLastUsageIgnoresZeroTokenEntries`, extended `testEnrichmentScanStartCoversAllWindows`.
+
 - **Species ownership is not an individual's appearance.** A species-level shiny flag means
   at least one shiny was collected; using it for the selected individual's badge mislabeled
   normal catches, and earlier evolution pages offered no way to choose their normal appearance.
@@ -57,6 +81,11 @@ read_when:
   locally but sampled the previous sprite in macOS 15 CI: the header had updated while the
   sprite's independent SwiftUI `.task(id:)` had not finished rendering. Keep transition-index
   diagnostics and prove a permanently stale sprite still fails after the readiness deadline.
+  Similarly, Pokédex grid cells previously gated shiny sprite rendering on `isSelected` (from
+  an older design where tapping toggled selection in place); once tapping opened the detail
+  sheet, cells were never selected in place and shiny species always rendered with normal sprites.
+  `DexSpeciesCell` must render shiny sprites directly for collected shiny species, verified
+  by `DexColorRenderingTests.testPokedexGridRendersShinySpeciesColor`.
 
 - **Bundled CLI discovery must cover the shipped app layout.** ChatGPT moved Codex from
   `Contents/Resources/codex` into `Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex`.
@@ -160,7 +189,12 @@ read_when:
   표시 임계 직전/도달·설정 즉시 변경·최종 졸업까지 검증한다.
   가드: `testRepeatGrowthIsDecidedFromTheCollectedBaseNotThePlannedFinal`·
   `testRepeatGrowthPersistsAcrossRestartWhileLegacyActiveDefaultsToStandardGrowth`·
-  `testRoundTripPreservesActiveRepeatGrowthBoost`·`testBoostedDisguiseRevealsAtTheHalvedThresholdAndKeepsTheBoost`.
+  `testRoundTripPreservesActiveRepeatGrowthBoost`·`testBoostedDisguiseRevealsAtTheHalvedThresholdAndANewDittoDropsTheBoost`.
+  메타몽 리빌은 hatch 뒤에 개체의 base 가 바뀌는 유일한 지점이라 base predicate 를 **리빌 때 메타몽 base 로
+  다시 판정**한다. 위장체의 할인은 위장 라인 기준(정체를 숨긴다)이고, 리빌이 그 값을 그대로 넘겨서 이미
+  졸업한 메타몽을 다시 얻어도 x2 가 없고 새 메타몽이 위장 라인의 x2 를 가져갔다. 리빌 테스트가 모두
+  `collectedFinals: []` 로 시드해 `메타몽 졸업 → 위장 메타몽 재부화` 트리거를 밟지 않았다.
+  가드: `testRevealingAnAlreadyGraduatedDittoGrantsTheRepeatBoost`.
 - **같은 규칙이 세이브 파일이 아니라 *외부에서 오는 모든 수치*에 적용된다 — 파싱 경계도 포함.** 위 규칙을
   "세이브 파일"로 좁게 읽은 탓에 사용량 로그 파서(`LocalUsageReader`)의 `intValue` 가 무방비로 남았고,
   같은 SIGTRAP 이 Codex·Claude·Gemini 세 경로에서 재현됐다(딥리뷰 2026-08-04). 사용량 로그도 앱이 쓴 게
@@ -188,6 +222,14 @@ read_when:
   (`UsageLedger.coveredSince`) — 행은 사용량이 있는 날에만 생기므로, 첫 행 날짜로 커버리지를 추정하면
   조용했던 기간과 기록 이전 기간이 구별되지 않는다. 오래된 행을 잘라낼 땐 커버리지도 함께 올린다
   (`testPruningForgetsTheCoverageItDrops`).
+- **본가 공식의 종 예외 — 껍질몬(#292) HP 는 항상 1.** `PokemonStatCalculator` 는 HP 를 일반 공식
+  `((2·base + iv)·level)/100 + level + 10` 으로만 계산해 껍질몬이 Lv50 에 67 HP 로 표시됐다. 토쿠닌
+  (#290) 분기에서 선택될 수 있고 Gen V 상한 안이라 실제로 부화 경로에 있다.
+  **왜 못 걸렀나:** 스탯 테스트는 일반 종(야돈) 하나로 공식만 확인했다. 공식의 종 예외는 그 종을 넣어야만 보인다.
+  **수정:** 종 id 로 HP 1 고정(`shedinjaSpeciesID`). base HP 1 이라는 이유로 판정하지 않는다 — 공식 데이터에
+  base HP 1 인 종은 껍질몬뿐이지만 규칙은 "종" 에 걸린 것이다.
+  **회귀 가드:** `PokemonProfileLogicTests.testShedinjaAlwaysHasOneHP` — Lv1/50/100 모두 1, 다른 스탯은 일반 공식,
+  base HP 1 인 다른 종은 일반 공식. 수정 전 3건 실패 확인.
 
 ## 외부 로그·사용량 소스
 
@@ -277,6 +319,20 @@ read_when:
   `reportsCost` 를 켜지 마라. 가드: `testExtraRootFindsJsonlSessionsWithoutSqlite`·
   `testCliJsonlSessionIsReadFromWriterShapedEvents`·`testV3MessagesJsonlSessionIsRead` —
   JSONL 스캔을 끄면 이 셋이 빨개져야 한다(헬퍼 복사본이 아니라 프로덕션 `kiroEntries`).
+- **A valid event envelope does not guarantee complete content-block coverage.** Kiro CLI
+  2.25.0 JSONL contains `toolUse.data.input`, `toolResult.data.content` (nested `text`/`json`),
+  and `thinking.data.text`, but the reader accepted only `kind=text`. Tool-heavy sessions
+  therefore lost both current content and the history resent in later turns. Existing CLI
+  fixtures contained only text; the separate v3 tool-call test did not exercise this path.
+  Dispatch known block kinds, reusing the existing JSON-value byte estimate for arguments
+  and JSON results. Do not traverse the entire event: IDs, thinking signatures/redacted data,
+  images, and the duplicate `ToolResults.data.results` bookkeeping are not additional text.
+  `KiroContentBlockTests` uses synthetic writer-shaped blocks to cover input/output routing,
+  tool-only responses, UTF-8/nested JSON, cross-day history, Clear, late-result rescans and
+  keep-max deduplication. Kiro's entries/signatures are memory-only, so no disk-cache version
+  changes are needed. This fixes missing content, not the estimator's existing limitations:
+  bytes/4 and per-prompt history are not authoritative per-request/billed token counts.
+
 - **Antigravity의 생성 시각은 `gen_metadata` 한 곳에 고정돼 있지 않다.** 구 포맷은
   `chat_start_metadata.created_at`에 시각을 넣지만, 현재 포맷은 그 필드를 비우고 `steps.metadata`에
   타임스탬프를 둔다(`8 finished_at`, 없으면 `1 created_at`). 토큰 필드는 유지되므로 `gen_metadata`만
@@ -487,6 +543,18 @@ read_when:
   통과한다 — 틀리는 건 첫 갱신 한 번뿐이라 눈에 띄지 않는다(개발 앱 defaults 에 키가 안 생긴 걸 보고
   발견). refresh 파이프라인에 새 파생 상태를 붙일 땐 그 입력이 phase 1/2 중 어디서 채워지는지 먼저
   확인하고, 회귀 가드는 **첫 refresh 한 번**으로 검증한다(`testTheFirstRefreshAlreadyFillsTheLedger`).
+- **"없음"을 0 으로 접는 파서는 옵셔널 폴백을 죽인다 — Cursor 페이지네이션.** `hasNextPage(totalCount: Int?)`
+  는 총계가 없으면 "꽉 찬 페이지면 계속" 으로 폴백하도록 짜였지만, 호출부가 `intValue(object["totalUsageEventsCount"])`
+  를 넘겨 키가 없을 때 `nil` 이 아니라 `0` 이 들어갔다 → `page * 100 < 0` 이 거짓이라 1페이지(100건)에서
+  멈추고 나머지 이벤트를 조용히 버렸다. 응답 키 자체를 세 가지(`usageEventsDisplay`/`usageEvents`/`events`)로
+  받는 코드라 메타데이터 부재는 설계상 가정된 입력이다.
+  **왜 못 걸렀나:** 폴백 테스트(`testHasNextPageWithoutMetadataKeepsPaginatingWhileFull`)가 `hasNextPage` 를
+  직접 `totalCount` 생략으로 불러 통과했다 — 실제 루프는 그 인자를 항상 채워 넘기므로 *다른 경로*로 통과한
+  false confidence.
+  **수정:** `optionalIntValue` — 키 부재·NSNull·파싱 불가면 `nil`.
+  **회귀 가드:** `testFetchFilteredEventsWithoutAnyPaginationMetadataKeepsPaginatingWhileFull` 가
+  `fetchFilteredEventsForTesting` 으로 루프 전체를 돈다(총계 없음/있음 둘 다). 수정 전 `[1]`·100건으로 실패 확인.
+  **스윕:** 이 파일의 다른 `intValue` 호출은 토큰 수라 0 이 올바른 기본값이다.
 
 ## 빌드·도구체인
 
@@ -506,6 +574,13 @@ read_when:
   `default.profdata` 를 구형 Xcode의 `xcrun llvm-cov` 로 읽으면 `unsupported instrumentation profile format
   version` 으로 테스트 성공 뒤 게이트만 실패한다. `test-gate.sh` 는 현재 `swift` 실경로 옆의 `llvm-cov` 를
   우선하고, sibling이 없는 Apple toolchain에서만 `xcrun --find llvm-cov` 로 폴백한다.
+- **배포 바이너리는 빌드 호스트 아키텍처를 따라가지 않게 명시적으로 universal 로 만든다.** v2.5.4 는
+  `build-app.sh` 의 아키텍처 미지정 `swift build -c release` 가 Apple Silicon 호스트의 arm64 만 패키징해,
+  README 가 지원한다고 적은 Intel Mac 에서 `bad CPU type in executable` 로 실행조차 안 됐다(#358).
+  **왜 못 걸렀나:** CI·로컬 테스트·release.sh 게이트 모두 arm64 호스트에서만 돌아 결과 바이너리의 아키텍처를
+  확인하는 단계가 없었다. `swift build --arch arm64 --arch x86_64` 는 xcbuild(Xcode)가 필요해 CLT 환경에서
+  실패하므로, 아키텍처별 빌드 + `lipo -create` 로 합친다. 회귀 가드: `build-app.sh` 의 `lipo -verify_arch`
+  와 release.sh 4/8 의 `lipo -verify_arch arm64 x86_64` 하드 게이트(릴리스는 `PTB_NATIVE_ARCH_ONLY` 금지).
 
 ## 자격증명·Keychain
 
@@ -540,6 +615,10 @@ read_when:
   **Antigravity 와 다른 이유가 여기 있다** — Google 은 회전하지 않아서 `AntigravityTokenCache` 가
   `refreshToken: refreshToken` 으로 기존 값을 그대로 재사용한다(`refreshGoogleToken`). 두 프로바이더의
   토큰 규약이 다른 것이지 Claude 쪽 구현 누락이 아니다.
+  반대로 Antigravity 는 이 갱신을 **자동 경로에서도** 써야 한다 — 토큰 파일 없이 수동 갱신으로 키체인에서
+  받은 자격증명은 메모리에 refresh token 을 들고 있는데, 자동 폴이 만료만 보고 `keychainInteractionNotAllowed`
+  를 던져 한도가 ~1시간 뒤부터 수동 클릭 전까지 stale 이었다(#415). 회귀:
+  `testAutoPollRefreshesAnExpiredKeychainCredentialWithoutKeychain`.
   **확실도:** 회전은 "Claude Code 가 응답의 토큰으로 교체 저장한다"에서 추론한 것이고 실제로 갱신을
   걸어 확인하지는 않았다 — 틀렸을 때의 대가가 사용자의 주 도구 로그인 파손이라 시험 자체를 하지 않았다.
   판단 근거는 확률이 아니라 비대칭이다: **잘 돼야 #241 세션 키가 이미 더 완전하게 주는 것(간격 축소 vs
@@ -651,6 +730,27 @@ read_when:
 
 ## 표시·UI
 
+- **"재인증하라" 플래그는 성공뿐 아니라 "조회할 로그인이 없음"(nil) 에서도 내린다.** Cursor 401 뒤
+  로그아웃·`CURSOR_USAGE_API=0` 이면 `fetch()` 가 던지지 않고 nil 을 주는데, 플래그 해제가
+  `if let status` 안에만 있어 재로그인 안내가 재시작까지 남았다. 회귀:
+  `testCursorAuthExpiredClearsWhenThereIsNoCursorLoginAnymore`. (#411)
+- **겹치는 두 슬라이더는 서로의 순서를 지켜야 한다.** 경고(50…95)·위험(80…100) 임계가 겹쳐 경고 95 /
+  위험 80 이 가능했고, 85% 창이 경고선 아래에서 "위험" 알림을 띄우며 경고 단계는 영영 발화하지 않았다.
+  한쪽을 넘기면 다른 쪽을 한 칸(5) 밀고, 저장값도 로드 시 정렬한다. 회귀:
+  `testWarningStaysBelowCritical`, `testStoredThresholdsLoadInOrder`. (#409)
+- **한도 막대는 `LimitProgressBar`·`PaceTier.gauge` 한 경로로만 그린다.** Cursor 행이 자체
+  `ProgressView(value: utilization)` 와 절대 임계색을 써서, 잔량 모드에서 라벨은 "80% 남음"인데 막대는
+  20% 만 차고 색도 메뉴바·다른 탭과 달랐다. 새 행을 추가할 때 `quotaRow` 를 거치지 않으면 같은 부류가
+  재발한다. 회귀: `LimitPaceTests.testEveryPopoverLimitBarFollowsTheDisplayMode`. (#407)
+- **`L.t` 는 위치 인자라 옆 칸 문구를 붙여도 컴파일·자리표시자 검사를 통과한다.** 포르투갈어 칸에
+  스페인어 "evolución" 이 두 곳 들어가 홈 카드에 그대로 노출됐다(#405). 같은 문구를 옆 언어에서
+  복사할 때 생기는 부류라 소스 전체의 `t(` 호출을 스캔해 es/pt 전용 표지를 교차 검사한다.
+  회귀: `LocalizationColumnTests`.
+- **외부 응답 배열의 원소 하나가 전체 디코드를 죽이지 않게 한다.** Antigravity 쿼터의 `remaining` 은
+  protobuf oneof 라 `remainingFraction` 이 빠진 bucket 이 온다. 필드가 non-optional 이라 한 bucket 때문에
+  응답 전체가 throw → 모든 Antigravity 막대가 직전 값에 얼어붙었다. 빠진 bucket 은 "소진"이 아니라
+  "알 수 없음"이므로 버리고 나머지는 디코드한다. 회귀:
+  `testBucketWithoutRemainingFractionDoesNotDropTheResponse`. (#413)
 - **Antigravity 그룹 표시명은 한 헬퍼로.** API 의 `displayName`("Gemini Models" 등)을 알림·사탕·
   펫 버블에 그대로 넣으면 앱 언어가 한국어여도 본문에 영어가 섞인다. 팝오버만 `L` 로 바꾸던
   분기를 `L.antigravityGroupTitle` 로 끌어올려 candy / `buildLimitWindows` / 팝오버가 공유한다.
@@ -727,6 +827,17 @@ read_when:
   가드: `testReleasedSpeciesStaysInTheDex`·`testReleasingMidChainCreditsOnlyReachedForms`·
   `testReleasingDisguisedDittoKeepsShinyHidden` — 기록을 빼거나 `plannedPathIDs` 로 바꾸면 실패한다(주입 확인).
 
+- **위장 메타몽 이로치 숨김은 표시 경로 전부가 같은 판정을 써야 한다 — `MonState.displaysShiny`.**
+  규칙은 `currentIsShiny`·`ownsShinySpecies` 에 손으로 두 번 적혀 있었고, 세이브 스냅샷(`SaveSnapshotManager`
+  의 생성·목록·구버전 파일 경로 3곳)은 원값 `active.isShiny` 를 읽었다. 설정 → 스냅샷 행이
+  `SpriteView(shiny: snapshot.currentIsShiny)` 로 위장 종을 이로치로 그려 리빌을 미리 누설했다.
+  **왜 못 걸렀나:** 숨김 테스트는 `CompanionStore` 경로(홈·놓아주기·도감)만 봤고, 스냅샷은 `CompanionState` 를
+  직접 받아 store 를 거치지 않는다 — 새 표시 경로가 규칙을 재구현하지 않고 원값을 읽어도 막을 장치가 없었다.
+  **수정:** 판정을 `MonState.displaysShiny` 하나로 모으고 store·도감·스냅샷이 모두 그것을 쓴다.
+  `graduate` 의 `DexEntry(isShiny: a.isShiny)` 는 저장값(표시 아님)이라 원값이 맞다.
+  **회귀 가드:** `SaveSnapshotTests.testSnapshotDoesNotRevealShinyOfDisguisedDitto` — 생성·목록·구버전 파일
+  3경로와 리빌 후 공개를 확인. 수정 전 4건 실패 확인.
+
 - **컴팩트 표시는 오늘 사용한 프로바이더만.** 메뉴바(`menuLines`) 등 좁은 표시에서 한도·상태를 보일 땐
   `snapshots` 의 오늘 토큰>0 으로 게이트한다 — 설치만 되고 오늘 안 쓴 프로바이더(Codex 등)를 노출하지
   마라(#56 "미사용 프로바이더 탭" 계열의 표시 버전). 팝오버 상세 뷰는 전체 노출 유지(의도된 상세). 함정:
@@ -792,8 +903,49 @@ read_when:
   **회귀 가드:** `ScrollerLaneTests` 가 `Sources/PokeTokenBar/UI` 의 모든 세로 `ScrollView` 가 자기
   클로저 안에서 `.reservesScrollerLane()` 을 쓰는지 괄호 매칭으로 검사한다(주석·문자열 제외, 바깥에 붙인
   패딩은 스크롤러까지 밀어 불인정). 다섯 곳 각각을 빼면 해당 `파일:줄` 로 실패하는 것을 확인했다.
+- **A view that sets the cursor must reset it when it disappears, not only when hover ends.** Dex
+  links (#394) used `.pointerStyle(.link)`. Clicking one navigates the link away while the pointer is
+  still on it, so no hover-ended event arrives and the hand cursor stuck on the next screen. Nothing
+  caught it: hover can't be synthesized in tests (offscreen `mouseMoved` events don't drive SwiftUI
+  hover), and the PR screenshots were offscreen renders with no cursor. `DexEntryLink` now sets the
+  cursor from `onContinuousHover` and resets it in `onDisappear` (only if it set it), via the pure
+  `DexEntryLink.cursor(after:wasHovered:)`. **Regression guard:** `DexEntryLinkCursorTests`; with the
+  disappear reset removed, it fails.
+  **Test trap:** in the test process `NSCursor.arrow` compares equal to `nil` (`nil == .arrow` is
+  true), so an `XCTAssertEqual` on `NSCursor?` passes no matter what. Decide with a plain enum and map
+  to `NSCursor` only at the call site.
+
+- **숫자 표기 구간은 원값이 아니라 반올림된 문자열로 판정한다.**
+  `TokenFormatter.percent` 는 `value == value.rounded()` 로 정수 여부를 보고 아니면 `%.1f` 를 찍었다 —
+  79.96 은 정수가 아니라 `%.1f` 로 가서 "80.0%" 가 됐다(88% 는 "88%" 인데 80% 만 소수점). `costCompact` 도
+  `usd < 100` 을 원값으로 판정해 99.96 → "$100.0", 9 999.6 → "$10000"(K 구간 대신 5자리)이 나왔다.
+  Cursor `usedPercent`·잔여 모드 `100 − x`·리캡 증감 `abs(delta)*100`·토큰 단가 기반 비용은 전부 임의의
+  소수라 메뉴바·팝오버·알림에 실제로 나온다.
+  **왜 못 걸렀나:** `testFormatterEdges` 는 구간 한가운데 값(88, 88.35, 9.54, 311.4)만 넣었다. 반올림이
+  구간 경계를 넘는 값(x.95 이상)이 없으면 "판정 후 반올림" 순서 결함은 보이지 않는다.
+  **수정:** 먼저 그 구간의 정밀도로 포맷하고, 그 문자열(파싱값)로 구간을 고른다.
+  **회귀 가드:** `testFormatterRoundingBoundaries` — 경계 직전·직후 쌍(79.96/79.94, 99.96/99.94,
+  9 999.6/9 999.4). 수정 전 코드로 5건 실패 확인. 스윕: `L.difficultyValue` 도 같은 모양이지만
+  `snapDifficulty` 가 유효숫자 2자리로 스냅해 경계 넘는 입력이 존재하지 않아 손대지 않았다.
+
+- **아이콘만 있는 `.plain` 버튼은 히트 영역을 명시한다(#379).** `.plain` 버튼은 라벨 프레임만 클릭되므로
+  `Image(systemName:)` 하나를 라벨로 쓰면 글리프 크기(도감 셰브론은 약 7×12pt)가 곧 클릭 영역이라 자주
+  빗나갔다. 라벨에 `.frame(width:height:)` + `.contentShape(Rectangle())` 로 최소 24~28pt 를 준다 —
+  시각 위치를 지켜야 하면 바깥 음수 패딩으로 레이아웃 폭을 되돌린다(`DexPageButton`). 기존 렌더 테스트는
+  픽셀·텍스트만 봤지 클릭 도달 여부는 안 봐서 못 걸렀다. **회귀:** `DexPageButtonHitAreaTests` 가 글리프
+  밖·히트 영역 안 지점에 합성 마우스 이벤트를 보내 액션 발화를 확인한다. 스윕: 같은 형태의 나머지
+  (`questionmark.circle` 키체인 도움말, 검색 지우기 `xmark.circle.fill`)는 채워진 원형 글리프라 라벨
+  프레임이 이미 아이콘 전체라 제외.
 
 ## 에너지 (상시 표시 애니메이션)
+
+- **절전용 정지 상태는 짝 알림 하나에만 복구를 맡기지 마라.** `screensDidSleep` 이 폴링 타이머를 끄고
+  `screensDidWake` 만 되살렸다. wake 알림을 놓치면 폴링이 영영 멈추고, 자정 `NSCalendarDayChanged` 갱신이
+  남긴 빈 스냅샷(menuTitle "0", providers [])이 재시작 전까지 굳었다(#350, `lastError` 도 비어 무증상).
+  **왜 못 걸렀나:** 정지/재개 경로에 테스트가 하나도 없었고, 실기기에서는 알림이 대개 짝지어 와서 재현이
+  안 됐다. → 정지 중엔 5분 점검 타이머가 실제 디스플레이 상태(`CGDisplayIsAsleep`)를 보고 복구하고,
+  `didWake`·모든 `refresh()` 진입도 같은 검사를 한다. 회귀 가드: `UsageStoreTests` 의
+  `testSuspendedPollingProbe*`·`testSystemWakeResumes*`·`testRefreshWhileDisplays*`.
 
 - **메뉴바 상태아이템 = idle CPU 저격수 (두 규칙 필수).** 실측: 라이브 앱 idle ~14% CPU → 수정 후 ~2%.
   ① **`statusItem.button.image` 대입은 반드시 `setDisableActions` 트랜잭션 안에서** (`AppDelegate.setStatusImage`).
@@ -920,6 +1072,19 @@ read_when:
   unreadable selection must fail before anything is written or pruned.
   Guards: `testRestoreOldestSnapshotAtRetentionLimit`,
   `testRestoreUnreadableSnapshotLeavesStateAndSnapshotsUntouched`.
+- **정규화는 "디코드 가능한데 쓰면 트랩인 값"까지 — 체인 내 중복 종 id.** `DexEntry.chainOrder`·
+  `MonState.pathIDs` 에 같은 종이 두 번 들어간 세이브(손편집·외부 불러오기)는 디코드에 성공하지만,
+  도감 이름 조회(`dexResolveChainNames` 오프라인·온라인 양쪽)·놓아주기·졸업이 그 배열로
+  `Dictionary(uniqueKeysWithValues:)` 를 만들어 `Duplicate values for key` 로 앱이 죽는다. 디코드 성공이라
+  `.corrupt` 복구도 안 걸린다.
+  **왜 못 걸렀나:** `sanitized` 는 수치 트랩(토큰 상한·`totalForms`)만 다뤘고, 컬렉션 불변식(중복 없음)은
+  "정상 플레이로는 안 생긴다"는 이유로 검사 대상이 아니었다 — 그러나 이 함수의 존재 이유가 손편집 입력이다.
+  **수정:** `sanitized` 에서 `chainOrder`·`pathIDs`·`plannedPathIDs` 의 첫 등장만 남기고, `stageIndex` 는
+  dedupe 전의 현재 종 위치로 다시 맞춘다. 디스크 로드·스냅샷 복구·불러오기가 모두 이 함수를 지난다.
+  **회귀 가드:** `SaveTransferTests.testDuplicateSpeciesInSavedChainsAreRemovedOnLoad` — 수정 전엔
+  `Fatal error: Duplicate values for key: '1'` 로 프로세스가 죽는 것을 확인.
+  **스윕:** `CompanionStore` 의 나머지(`claimedTodayTokensByProvider` 키)는 딕셔너리 키라 유일하다. 세이브
+  밖의 사용처(로그 스캔·PokéAPI 스탯)는 이 입력 경로가 아니라 범위 밖.
 
 ## 렌더 기하 (스프라이트·이미지)
 
@@ -937,6 +1102,14 @@ read_when:
   ③ **크기가 0 인 원본**(디코드 실패)은 0 나눗셈이 되므로 정사각 폴백으로 막는다.
   회귀 가드(`SpriteAspectRatioTests`)는 실제 PokeAPI 캔버스 치수를 넣고, **"비정사각이 정사각으로 나오지
   않는다"는 트리거 명제를 따로 둔다** — 이게 없으면 원본이 애초에 정사각인 케이스로도 전부 통과한다.
+- **In a fixed-height slot, fit the height, not a square.** The menu bar still fitted a 20pt
+  square after the fix above, so a wide canvas was sized by its width: Swanna #581 (137×69) came out
+  10pt tall, Tynamo #602 (57×19) under 7pt, and 345 of the 649 species missed the full 20pt height.
+  The tests missed it because their widest fixture was Pikachu (50×46), where width and height
+  barely differ, and the wide case asserted the square rule ("fills the 20pt content box" on the
+  width). `menuBarLayout` now fits 20pt tall up to `menuBarSpriteMaxWidth` (36pt, 645/649 at full
+  height). Measure a new cap against every canvas in the dex, not the cached few; the guard is
+  `testWideSpriteFillsMenuBarHeightUntilTheWidthCap` with the real Swanna and Tynamo canvases.
 
 ## 프로세스 제어·업데이트
 
@@ -946,6 +1119,16 @@ read_when:
   상태다. 스킵한 릴리스는 `skipped` 로 남기고 Settings 는 "건너뜀" + 업데이트/다시 알리기를 보여 준다.
   더 새 태그는 배너로 돌아온다. 회귀: `testSkippedReleaseStaysVisibleAndANewerOneReturnsToTheBanner`,
   `testShowAgainRestoresTheBannerAndUpdateUsesTheSkippedRelease`.
+
+- **쿨다운 스탬프는 *검증까지 통과한* 조회에만 찍는다.** `UpdateChecker.check` 가 GitHub 호출 *전에*
+  `lastChecked` 를 쓰면 네트워크·파싱 실패도 30분 쿨다운을 시작해, 팝오버를 다시 열어도(`minInterval`
+  디바운스) 재시도가 막히고 배너가 조용히 안 뜬다. "응답을 받았다"도 성공이 아니다 — 태그가 `MAJOR.MINOR.PATCH`
+  가 아니면(`v2.6.0-beta.1`·`latest`·`v2.5`) `isNewer` 가 숫자 아닌 부분을 0 으로 읽어 prerelease 가 정식과
+  같게, 쓰레기가 `0.0.0` 으로 비교된다. 실패·불안전 URL·지원하지 않는 태그는 스탬프하지 않고, 정규화
+  (`normalizedReleaseVersion`)까지 통과한 릴리스만 스탬프한다. 조기 스탬프가 없어지면 겹친 `check()` 가
+  동시에 나갈 수 있으므로 in-flight 가드도 둔다. 회귀(세 가드 각각 결함 주입으로 실패 확인):
+  `testFailedCheckDoesNotStartTheCooldown`, `testRejectedReleaseUrlDoesNotStartTheCooldown`,
+  `testMalformedOrPrereleaseTagIsAFailedCheckAndDoesNotBlockTheNextOne`, `testOverlappingChecksShareOneFetch`.
 
 - **`pgrep -x <name>` 은 실행 파일의 정체성 검사이지, 기다리는 특정 프로세스에 대한 검사가 아니다.**
   중복 인스턴스가 떠 있는 동안 실행될 수 있는 모든 wait-for-exit 루프는 PID를 받아야 한다. `UpdateChecker`가

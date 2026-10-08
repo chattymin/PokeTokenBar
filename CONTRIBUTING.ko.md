@@ -19,12 +19,14 @@
 이 프로젝트는 Swift Package입니다. 저장소 루트에서:
 
 ```bash
-swift build      # 앱 타깃 컴파일
-swift test       # 전체 테스트 스위트 실행
+swift build             # 앱 타깃 컴파일
+./scripts/test-gate.sh   # 전체 테스트 실행 및 로직 코어 커버리지 검사
 ```
 
-CI는 모든 풀 리퀘스트에서 `swift build`와 `swift test`를 실행합니다; 먼저 로컬에서
-둘 다 통과하는지 확인해 주세요.
+CI도 모든 풀 리퀘스트에서 같은 명령을 실행합니다. 테스트 게이트는
+`swift test --enable-code-coverage`를 실행하고, 기본적으로 로직 코어 라인 커버리지
+75% 이상을 요구합니다. PR을 제출하기 전에 로컬에서 두 명령을 실행하세요.
+개발 중 특정 테스트만 확인하려면 `swift test --filter <TestCase>`를 실행하세요.
 
 ## 기여 워크플로우
 
@@ -47,10 +49,20 @@ CI는 모든 풀 리퀘스트에서 `swift build`와 `swift test`를 실행합�
 
 - [Conventional Commits](https://www.conventionalcommits.org/) 스타일 사용:
   `feat:`, `fix:`, `docs:`, `chore:`, `refactor:`, `test:` 등.
-- 풀 리퀘스트 템플릿을 채워 주세요.
-- **UI 변경** (`Sources/PokeTokenBar/UI/` 아래 무엇이든)은 PR에 before/after를
-  설명해야 합니다. 스크린샷이나 GIF는 환영하지만 선택입니다 — 명확한 텍스트 설명이면
-  충분합니다. 정식 `assets/` 스크린샷은 PR마다가 아니라 릴리스 때 재생성됩니다.
+- 영어 PR 제목(예: `fix(home): retain idle usage history`)을 사용하고 풀 리퀘스트
+  템플릿의 해당 섹션과 체크리스트를 채워 주세요.
+- **화면이 달라지는 모든 PR**은 `UI changes`에 이미지를 삽입해야 합니다. UI 디렉터리
+  밖에서 발생하는 화면 변경도 포함합니다. 실제 스크린샷, 프로덕션 UI의 로컬 렌더링,
+  변경 UI를 그린 이미지 모두 허용합니다. 샘플 데이터 렌더링과 일러스트는 그 사실을
+  명시해 주세요. 기존 화면은 전후 이미지, 신규 화면은 이전 화면이 없다는 설명과 신규
+  이미지가 필요합니다. 텍스트만으로 대체할 수 없습니다. 이미지가 없으면 코딩 에이전트가
+  승인된 PR 작업의 일부로 직접 생성하고 첨부합니다. 적절한 생성·첨부 대안을 시도한 뒤에도
+  실제 장애로 완료할 수 없을 때만 게시를 보류합니다. 정식 `assets/` 스크린샷은 PR마다가
+  아니라 릴리스 때 재생성됩니다.
+- 코딩 에이전트는 `.agents/skills/prepare-pr/`의 공용 skill을 사용합니다.
+  `.claude/skills/prepare-pr`도 같은 skill을 가리킵니다. 게시 전 로컬 검사:
+  `python3 scripts/check-pr.py --base origin/main --title 'docs: clarify PR requirements' --body-file /tmp/pr-body.md`.
+  UI 디렉터리 밖의 화면 변경은 `--ui-changes`를 추가해 주세요.
 
 ## 코드 컨벤션
 
@@ -60,8 +72,11 @@ CI는 모든 풀 리퀘스트에서 `swift build`와 `swift test`를 실행합�
 - **사용량 소스 추가** (새 AI CLI) = `UsageProvider` 프로토콜
   (`Sources/PokeTokenBar/Core/UsageProvider.swift`)을 새 타입 하나로 구현하고
   `UsageStore.init`의 기본 `providers:` 배열
-  (`Sources/PokeTokenBar/Core/UsageStore.swift`)에 등록합니다. 이 두 곳만 손대면
-  됩니다.
+  (`Sources/PokeTokenBar/Core/UsageStore.swift`)에 등록합니다. 이 두 곳은 기본 진입점이며,
+  수정 범위가 두 파일로 제한되지는 않습니다. 소스에 맞춰 리더, 공유 캐시 연동,
+  사용자 지정 스캔 경로, 테스트도 추가하거나 수정하세요.
+  [프로바이더 확장 규약](docs/reference/provider-extension.md)과
+  [프로바이더 기여 체크리스트](https://github.com/chattymin/PokeTokenBar/issues/115)를 따르세요.
 - **범용 동작은 모든 프로바이더에 걸쳐 집계해야 합니다** (오늘/주/월 합계, burn tier,
   companion 리듬). 범용 계산을 한 프로바이더에만 붙이지 말고, 범용 경로에
   `providerID == "..."` 리터럴 분기를 추가하지 마세요. 프로바이더 고유 동작

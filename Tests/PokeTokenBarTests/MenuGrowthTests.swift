@@ -86,6 +86,10 @@ final class MenuGrowthTests: XCTestCase {
             companion.setLanguage(.ko)
             XCTAssertTrue(language.changed)
             XCTAssertEqual(companion.menuGrowthText, "성장 80%")
+            let russian = observe(usage, companion)
+            companion.setLanguage(.ru)
+            XCTAssertTrue(russian.changed)
+            XCTAssertEqual(MenuBarContent.lines(store: usage, companion: companion), ["Рост 80%"])
             let toggle = observe(usage, companion)
             usage.showGrowthInMenu = false
             XCTAssertTrue(toggle.changed)
