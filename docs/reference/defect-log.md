@@ -1026,6 +1026,15 @@ read_when:
   key 에서 epoch 가 바뀌면 util 과 무관하게 tier 를 비운 뒤 100%면 재지급. nil→첫 epoch 는 재무장이
   아니다(구세이브 업그레이드 폭탄 방지). 회귀: `testRearmWhenWindowEpochAdvancesWhileStillAt100`·
   `testGrantAfterSeedWhenEpochAdvancesWithoutUtilDip`·`testLearningEpochForFirstTimeDoesNotRegrant`.
+  **epoch 는 문자열이 아니라 시각으로 비교한다.** #334 는 원본 문자열을 비교했는데, Claude `resets_at` 은
+  같은 창이어도 응답마다 초 미만 자릿수가 바뀐다(`14:59:59.988942` → `.912345`). 그래서 100%가 유지되는
+  동안 폴마다 새 창으로 오판해 사탕과 알림이 1분 간격으로 쏟아졌다. 아래 "휘발성 필드" 항목이 이미 같은
+  필드의 휘발성을 적어 두었는데, #334 테스트는 `"E1"`→`"E2"` 같은 합성 epoch 만 써서 실제 API 형태를
+  밟지 않았다. 해결: `CompanionStore.isNewCandyWindow` 가 ISO 8601·unix 초를 파싱해
+  `candyEpochTolerance`(10분)보다 크게 움직일 때만 새 창으로 보고, 지터로는 저장값도 갱신하지 않는다.
+  회귀: `testSubSecondResetJitterIsTheSameWindow`·`testUnixSecondEpochsCompareAsTimes`·
+  `testPollsAtFullLimitWithJitteredResetGrantNothing`. **외부 API 값으로 동등 비교하는 테스트는 실제 응답
+  모양의 픽스처를 쓴다.**
 
 - **휘발성 필드를 dedup/identity 키에 쓰지 마라.** 매 fetch/refresh 마다 값이 변하는 필드(예: rolling
   한도 창의 `resets_at`)를 알림 중복방지 키에 넣으면 매번 새 키가 되어 dedup 이 무력화된다 — 주간 한도

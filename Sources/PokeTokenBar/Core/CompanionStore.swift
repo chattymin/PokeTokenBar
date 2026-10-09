@@ -1318,10 +1318,14 @@ final class CompanionStore {
         var grants: [CandyGrant] = []
         for w in windows {
             if let epoch = w.epoch {
-                if let previousEpoch = windowEpoch[w.key], previousEpoch != epoch {
-                    grantTier[w.key] = nil
+                if let previousEpoch = windowEpoch[w.key] {
+                    if isNewCandyWindow(previous: previousEpoch, current: epoch) {
+                        grantTier[w.key] = nil
+                        windowEpoch[w.key] = epoch
+                    }
+                } else {
+                    windowEpoch[w.key] = epoch
                 }
-                windowEpoch[w.key] = epoch
             }
             guard w.utilization >= 100 else { grantTier[w.key] = nil; continue }
             let previous = grantTier[w.key] ?? 0
@@ -1331,6 +1335,25 @@ final class CompanionStore {
             grants.append(CandyGrant(windowKey: w.key, windowName: w.name, count: count))
         }
         return grants
+    }
+
+    /// Claude `resets_at` carries sub-second digits that change on every response
+    /// ("...14:59:59.988942" then "...14:59:59.912345") for the same window. A new window moves the
+    /// reset by at least the shortest window length (hours), so anything closer is the same window.
+    static let candyEpochTolerance: TimeInterval = 10 * 60
+
+    /// Compares reset times, not strings. Falls back to string equality when either side is not a
+    /// timestamp (ISO 8601 or unix seconds).
+    static func isNewCandyWindow(previous: String, current: String) -> Bool {
+        guard let before = candyEpochDate(previous), let after = candyEpochDate(current) else {
+            return previous != current
+        }
+        return abs(after.timeIntervalSince(before)) > candyEpochTolerance
+    }
+
+    private static func candyEpochDate(_ epoch: String) -> Date? {
+        if let seconds = TimeInterval(epoch) { return Date(timeIntervalSince1970: seconds) }
+        return ISO8601Parser.date(from: epoch)
     }
 
     /// 한도 창 상태로부터 사탕 지급(엣지·영속). AppDelegate 가 매 refresh 완료 시(한도 로드 후) 호출.
