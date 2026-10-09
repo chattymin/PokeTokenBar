@@ -957,6 +957,9 @@ struct CollectionView: View {
     @State private var shinyOnly = false
     @State private var dexSort: CompanionStore.DexSortOption = .numberAsc
     @State private var logSort: CompanionStore.CatchLogSortOption = .recentFirst
+    /// The species whose detail page was just closed. The detail page replaces the grid, so Back
+    /// rebuilds it; this makes it reopen on that species' page instead of page 1. Used once.
+    @State private var dexReturnAnchor: String?
 
     /// 도감·로그 공통 높이 — 상점·가방과 같은 520. 세그먼트를 전환할 때도, 탭을 넘나들 때도
     /// 팝오버가 리사이즈되지 않는다.
@@ -989,7 +992,10 @@ struct CollectionView: View {
             emptyState
         } else if let id = nav.dexDetailCollectionID,
                   let species = store.dexSpecies.first(where: { $0.collectionID == id }) {
-            PokemonDetailView(store: store, species: species) { nav.dexDetailCollectionID = nil }
+            PokemonDetailView(store: store, species: species) {
+                dexReturnAnchor = id
+                nav.dexDetailCollectionID = nil
+            }
                 .id(species.collectionID)
                 .frame(height: Self.contentHeight)
         } else {
@@ -1012,9 +1018,12 @@ struct CollectionView: View {
                         shinyOnly: shinyOnly,
                         sortOption: dexSort,
                         selectedRarity: $selectedRarity,
+                        returnAnchor: dexReturnAnchor,
                         onSelectSpecies: { sp in nav.dexDetailCollectionID = sp.collectionID },
                         onResetFilters: resetFilters
                     )
+                    // The grid took the anchor as its selection; a later rebuild (segment switch) starts on page 1.
+                    .onAppear { dexReturnAnchor = nil }
                 }
             }
             .frame(height: Self.contentHeight)
@@ -1344,7 +1353,8 @@ private struct DexGridView: View {
     let onSelectSpecies: (CompanionStore.DexSpecies) -> Void
     let onResetFilters: () -> Void
 
-    @State private var page = 0
+    /// nil = the page that shows `selectedID` (Back from a detail page). Paging or filtering sets it.
+    @State private var page: Int?
     /// 선택한 칸 — 하단 줄에 희귀도를 띄우고, 이로치를 잡은 종이면 스프라이트를 그 색으로 바꾼다.
     @State private var selectedID: String?
 
@@ -1352,6 +1362,23 @@ private struct DexGridView: View {
     private static let rows = 4
     private static let pageSize = columns * rows      // 16
     private static let spacing: CGFloat = 4
+
+    /// `returnAnchor` = the species whose detail page was just closed. Selection starts on it here
+    /// rather than in `onAppear`, which would flash page 1 for a frame first.
+    init(store: CompanionStore, searchText: String, shinyOnly: Bool,
+         sortOption: CompanionStore.DexSortOption, selectedRarity: Binding<Rarity?>,
+         returnAnchor: String?,
+         onSelectSpecies: @escaping (CompanionStore.DexSpecies) -> Void,
+         onResetFilters: @escaping () -> Void) {
+        self.store = store
+        self.searchText = searchText
+        self.shinyOnly = shinyOnly
+        self.sortOption = sortOption
+        _selectedRarity = selectedRarity
+        self.onSelectSpecies = onSelectSpecies
+        self.onResetFilters = onResetFilters
+        _selectedID = State(initialValue: returnAnchor)
+    }
 
     var body: some View {
         let all = store.dexSpecies
@@ -1362,7 +1389,9 @@ private struct DexGridView: View {
             sort: sortOption
         )
         let pageCount = max(1, (visible.count + Self.pageSize - 1) / Self.pageSize)
-        let current = min(page, pageCount - 1)
+        let current = min(page ?? DexScrollPager.page(containing: selectedID, in: visible.map(\.collectionID),
+                                                      pageSize: Self.pageSize),
+                          pageCount - 1)
         let slice = Array(visible.dropFirst(current * Self.pageSize).prefix(Self.pageSize))
 
         VStack(alignment: .leading, spacing: 6) {
