@@ -99,6 +99,47 @@ final class CandyGrantEvaluationTests: XCTestCase {
         XCTAssertEqual(epochs["claude.fiveHour"], "2026-09-17T15:00:00Z")
     }
 
+    /// The usage API returns the same window's `resets_at` with different sub-second digits on every
+    /// poll. Treating each string as a new window granted a candy per poll while at 100%.
+    func testSubSecondResetJitterIsTheSameWindow() {
+        var tier: [String: Int] = [:]
+        var epochs: [String: String] = [:]
+        _ = CompanionStore.evaluateCandyGrants(
+            windows: [w("claude.fiveHour", .session, 100, epoch: "2026-10-09T14:59:59.988942+00:00")],
+            grantTier: &tier, windowEpoch: &epochs)
+        for jittered in ["2026-10-09T14:59:59.912345+00:00", "2026-10-09T15:00:00.004211+00:00"] {
+            let grants = CompanionStore.evaluateCandyGrants(
+                windows: [w("claude.fiveHour", .session, 100, epoch: jittered)],
+                grantTier: &tier, windowEpoch: &epochs)
+            XCTAssertTrue(grants.isEmpty, "\(jittered) is the same window")
+        }
+        XCTAssertEqual(epochs["claude.fiveHour"], "2026-10-09T14:59:59.988942+00:00",
+                       "jitter must not rewrite the stored epoch (a save per poll)")
+
+        let grants = CompanionStore.evaluateCandyGrants(
+            windows: [w("claude.fiveHour", .session, 100, epoch: "2026-10-09T19:59:59.901122+00:00")],
+            grantTier: &tier, windowEpoch: &epochs)
+        XCTAssertEqual(grants.map(\.count), [1], "the next 5h window still grants")
+        XCTAssertEqual(epochs["claude.fiveHour"], "2026-10-09T19:59:59.901122+00:00")
+    }
+
+    /// Codex sends unix seconds. A one-second drift is the same window, a 5h move is a new one.
+    func testUnixSecondEpochsCompareAsTimes() {
+        var tier: [String: Int] = [:]
+        var epochs: [String: String] = [:]
+        _ = CompanionStore.evaluateCandyGrants(
+            windows: [w("codex.codex.primary", .session, 100, epoch: "1791949300")],
+            grantTier: &tier, windowEpoch: &epochs)
+        let drift = CompanionStore.evaluateCandyGrants(
+            windows: [w("codex.codex.primary", .session, 100, epoch: "1791949301")],
+            grantTier: &tier, windowEpoch: &epochs)
+        XCTAssertTrue(drift.isEmpty)
+        let next = CompanionStore.evaluateCandyGrants(
+            windows: [w("codex.codex.primary", .session, 100, epoch: "1791967300")],
+            grantTier: &tier, windowEpoch: &epochs)
+        XCTAssertEqual(next.map(\.count), [1])
+    }
+
     /// epoch 를 처음 알게 된 것만으로 재지급하지 않는다(구세이브 → 신규 필드 도입 시 폭탄 방지).
     func testLearningEpochForFirstTimeDoesNotRegrant() {
         var tier: [String: Int] = ["claude.fiveHour": 1]
@@ -185,6 +226,18 @@ final class RareCandyStoreTests: XCTestCase {
         s.grantCandies(from: [w("claude.fiveHour", .session, 100, epoch: "E2")], limitsReady: true)
         XCTAssertEqual(s.rareCandyCount, 1, "새 epoch + 100% → 지급")
         XCTAssertEqual(s.state.candyWindowEpoch["claude.fiveHour"], "E2")
+    }
+
+    /// The reported bug end to end: polls at 100% with jittered `resets_at` grant nothing after the seed.
+    func testPollsAtFullLimitWithJitteredResetGrantNothing() {
+        let s = store(rcLinear3)
+        s.grantCandies(from: [w("claude.fiveHour", .session, 100,
+                                epoch: "2026-10-09T14:59:59.988942+00:00")], limitsReady: true)  // 시드
+        for micros in ["912345", "954001", "990310"] {
+            s.grantCandies(from: [w("claude.fiveHour", .session, 100,
+                                    epoch: "2026-10-09T14:59:59.\(micros)+00:00")], limitsReady: true)
+        }
+        XCTAssertEqual(s.rareCandyCount, 0)
     }
 
     /// 시드+지급 헬퍼 — 빈 창으로 시드 완료 후, 유니크 세션 창을 100%로 올려 n개 지급.
