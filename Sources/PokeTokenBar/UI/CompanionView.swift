@@ -1162,11 +1162,13 @@ struct CollectionView: View {
                     }
                     .frame(maxHeight: .infinity)
                     .task {
-                        // A turn later than onAppear: the lazy rows above the anchor are only
-                        // estimated before the first layout, and scrolling then stops short of it.
                         guard let anchor = logReturnAnchor else { return }
                         logReturnAnchor = nil
-                        await Task.yield()
+                        // The first scroll is placed with estimated heights for the lazy rows. The
+                        // rows it reveals are measured afterwards and push the target off its spot
+                        // (a row short on CI), so scroll again once they have been laid out.
+                        proxy.scrollTo(anchor, anchor: .center)
+                        try? await Task.sleep(for: .milliseconds(50))
                         proxy.scrollTo(anchor, anchor: .center)
                     }
                     // 필터·검색·정렬 변경 시 새 결과를 처음부터 보여준다.

@@ -57,7 +57,19 @@ final class DexBackNavigationTests: XCTestCase {
 
     /// `candidates`: Vision's top readings. The pager's "2/2" still reads as "212", so tests check
     /// which species a page shows instead.
-    private struct Word { let candidates: [String]; let box: CGRect }   // box: normalized, y-up
+    private struct Word {
+        let candidates: [String]
+        let box: CGRect   // normalized, y-up
+
+        /// Spaces are ignored: Vision splits and joins words inconsistently.
+        func reads(_ text: String, exactly: Bool) -> Bool {
+            let wanted = text.replacingOccurrences(of: " ", with: "")
+            return candidates.contains {
+                let candidate = $0.replacingOccurrences(of: " ", with: "")
+                return exactly ? candidate == wanted : candidate.contains(wanted)
+            }
+        }
+    }
 
     private func words(in host: NSView) throws -> [Word] {
         host.layoutSubtreeIfNeeded()
@@ -81,14 +93,7 @@ final class DexBackNavigationTests: XCTestCase {
         var seen: [Word] = []
         repeat {
             seen = try words(in: host).filter { !footerOnly || $0.box.midY < 0.05 }
-            let wanted = text.replacingOccurrences(of: " ", with: "")
-            let match = seen.first { word in
-                word.candidates.contains {
-                    let candidate = $0.replacingOccurrences(of: " ", with: "")
-                    return exactly ? candidate == wanted : candidate.contains(wanted)
-                }
-            }
-            if let match { return match }
+            if let match = seen.first(where: { $0.reads(text, exactly: exactly) }) { return match }
             try await Task.sleep(for: .milliseconds(50))
         } while ContinuousClock.now < deadline
         XCTFail("\(text) not rendered. Seen: \(seen.map(\.candidates))", file: file, line: line)
@@ -116,13 +121,35 @@ final class DexBackNavigationTests: XCTestCase {
         }
     }
 
+    private func isRendered(_ text: String, exactly: Bool = false, in host: NSView) throws -> Bool {
+        try words(in: host).contains { $0.reads(text, exactly: exactly) }
+    }
+
+    /// Presses the control labeled `text` until the screen changes: `opens` appears, or `text` goes
+    /// away. Right after a transition the view tree can still hit-test the previous screen (seen on
+    /// CI), so a press that lands there is retried.
+    private func press(_ text: String, exactly: Bool = false, opens: String? = nil, in host: NSView,
+                       file: StaticString = #filePath, line: UInt = #line) async throws {
+        for _ in 0..<5 {
+            let word = try await waitForText(text, exactly: exactly, in: host, file: file, line: line)
+            try press(XCTUnwrap(word, file: file, line: line), in: host)
+            let deadline = ContinuousClock.now + .seconds(1)
+            repeat {
+                try await Task.sleep(for: .milliseconds(50))
+                let changed = try opens.map { try isRendered($0, in: host) }
+                    ?? !isRendered(text, exactly: exactly, in: host)
+                if changed { return }
+            } while ContinuousClock.now < deadline
+        }
+        XCTFail("Pressing \(text) never changed the screen", file: file, line: line)
+    }
+
     /// Opens #18 (page 2) the way Home's sprite does, then presses the detail page's Back.
     private func openPageTwoSpeciesAndGoBack(_ store: CompanionStore, _ navigation: PopoverNavigation,
                                              _ host: NSView) async throws {
         let species = try XCTUnwrap(store.dexSpecies.first { $0.id == 18 })
         navigation.dexDetailCollectionID = species.collectionID
-        let back = try await waitForText(store.l.back, in: host)
-        try press(XCTUnwrap(back), in: host)
+        try await press(store.l.back, in: host)
     }
 
     // MARK: Pokédex grid
@@ -159,7 +186,7 @@ final class DexBackNavigationTests: XCTestCase {
     // MARK: Catch log
 
     /// Mon1 is the oldest catch, so it is the log's last row — off screen until scrolled to.
-    func testBackFromDetailScrollsTheLogBackToThatRow() async throws {
+    func testBackFromDetailReturnsTheLogToWhereItWas() async throws {
         let store = try makeStore()
         let navigation = PopoverNavigation()
         navigation.tab = .collection
@@ -177,14 +204,18 @@ final class DexBackNavigationTests: XCTestCase {
             clip.scroll(to: NSPoint(x: 0, y: clip.isFlipped ? bottom : 0))
             log.reflectScrolledClipView(clip)
             try await Task.sleep(for: .milliseconds(100))
-            row = try words(in: root).first { $0.candidates.contains("Mon1") }
+            row = try words(in: root).first { $0.reads("Mon1", exactly: true) }
         }
-        try press(XCTUnwrap(row), in: root)
-        try await waitForText("#1", exactly: true, in: root)   // the detail page header
-
-        let back = try await waitForText(store.l.back, in: root)
-        try press(XCTUnwrap(back), in: root)
+        XCTAssertNotNil(row, "scrolling never reached Mon1")
+        try await press("Mon1", exactly: true, opens: store.l.back, in: root)
+        try await press(store.l.back, in: root)
 
         try await waitForText("Mon1", exactly: true, in: root)
+
+        // Like the grid's page, the position does not survive a segment switch.
+        navigation.showingCollectionLog = false
+        try await Task.sleep(for: .milliseconds(100))
+        navigation.showingCollectionLog = true
+        try await waitForText("Mon20", in: root)
     }
 }
