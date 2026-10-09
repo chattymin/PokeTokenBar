@@ -958,7 +958,8 @@ struct CollectionView: View {
     @State private var dexSort: CompanionStore.DexSortOption = .numberAsc
     @State private var logSort: CompanionStore.CatchLogSortOption = .recentFirst
     /// The species whose detail page was just closed. The detail page replaces the grid, so Back
-    /// rebuilds it; this makes it reopen on that species' page instead of page 1. Used once.
+    /// rebuilds it; this makes it reopen on that species' page instead of page 1. Used once, and set
+    /// only when Back lands on the grid: the grid's appearance is what clears it.
     @State private var dexReturnAnchor: String?
     /// Same for the catch log: the row (`DexEntry.id`) that opened the detail page, scrolled back
     /// into view when Back rebuilds the log. Used once.
@@ -996,7 +997,8 @@ struct CollectionView: View {
         } else if let id = nav.dexDetailCollectionID,
                   let species = store.dexSpecies.first(where: { $0.collectionID == id }) {
             PokemonDetailView(store: store, species: species) {
-                dexReturnAnchor = id
+                // Back to the log would leave it for the next switch to the grid.
+                if !nav.showingCollectionLog { dexReturnAnchor = id }
                 nav.dexDetailCollectionID = nil
             }
                 .id(species.collectionID)

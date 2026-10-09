@@ -183,6 +183,21 @@ final class DexBackNavigationTests: XCTestCase {
         try await waitForText("Mon5", in: root)
     }
 
+    /// Back to the log must not leave the grid's return page behind for the next segment switch.
+    func testBackToTheLogLeavesTheGridOnItsFirstPage() async throws {
+        let store = try makeStore()
+        let navigation = PopoverNavigation()
+        navigation.tab = .collection
+        navigation.showingCollectionLog = true
+        let root = host(store, navigation)
+        try await openPageTwoSpeciesAndGoBack(store, navigation, root)
+        try await waitForText("Mon20", in: root)   // the log's top row
+
+        navigation.showingCollectionLog = false
+
+        try await waitForText("Mon5", in: root)
+    }
+
     // MARK: Catch log
 
     /// Mon1 is the oldest catch, so it is the log's last row — off screen until scrolled to.
