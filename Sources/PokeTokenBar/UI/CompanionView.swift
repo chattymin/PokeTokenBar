@@ -960,6 +960,9 @@ struct CollectionView: View {
     /// The species whose detail page was just closed. The detail page replaces the grid, so Back
     /// rebuilds it; this makes it reopen on that species' page instead of page 1. Used once.
     @State private var dexReturnAnchor: String?
+    /// Same for the catch log: the row (`DexEntry.id`) that opened the detail page, scrolled back
+    /// into view when Back rebuilds the log. Used once.
+    @State private var logReturnAnchor: String?
 
     /// 도감·로그 공통 높이 — 상점·가방과 같은 520. 세그먼트를 전환할 때도, 탭을 넘나들 때도
     /// 팝오버가 리사이즈되지 않는다.
@@ -1150,6 +1153,7 @@ struct CollectionView: View {
                             ForEach(visibleEntries) { entry in
                                 // Keeps the segment, so Back from the detail page returns to the log.
                                 DexEntryRow(store: store, entry: entry, dexLinks: dexLinks) {
+                                    logReturnAnchor = entry.id
                                     navigation.dexDetailCollectionID = $0
                                 }
                             }
@@ -1157,6 +1161,14 @@ struct CollectionView: View {
                         .reservesScrollerLane()
                     }
                     .frame(maxHeight: .infinity)
+                    .task {
+                        // A turn later than onAppear: the lazy rows above the anchor are only
+                        // estimated before the first layout, and scrolling then stops short of it.
+                        guard let anchor = logReturnAnchor else { return }
+                        logReturnAnchor = nil
+                        await Task.yield()
+                        proxy.scrollTo(anchor, anchor: .center)
+                    }
                     // 필터·검색·정렬 변경 시 새 결과를 처음부터 보여준다.
                     .onChange(of: selectedRarity) {
                         withAnimation(.easeInOut(duration: 0.2)) { proxy.scrollTo("dexTop", anchor: .top) }

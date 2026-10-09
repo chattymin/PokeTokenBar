@@ -155,4 +155,36 @@ final class DexBackNavigationTests: XCTestCase {
 
         try await waitForText("Mon5", in: root)
     }
+
+    // MARK: Catch log
+
+    /// Mon1 is the oldest catch, so it is the log's last row — off screen until scrolled to.
+    func testBackFromDetailScrollsTheLogBackToThatRow() async throws {
+        let store = try makeStore()
+        let navigation = PopoverNavigation()
+        navigation.tab = .collection
+        navigation.showingCollectionLog = true
+        let root = host(store, navigation)
+        try await waitForText("Mon20", in: root)
+        func descendants(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(descendants) }
+        let log = try XCTUnwrap(descendants(root).compactMap { $0 as? NSScrollView }
+            .max { ($0.documentView?.frame.height ?? 0) < ($1.documentView?.frame.height ?? 0) })
+        // LazyVStack grows the document as rows are realized, so keep scrolling to the end.
+        var row: Word?
+        for _ in 0..<20 where row == nil {
+            let clip = log.contentView
+            let bottom = (log.documentView?.frame.height ?? 0) - clip.bounds.height
+            clip.scroll(to: NSPoint(x: 0, y: clip.isFlipped ? bottom : 0))
+            log.reflectScrolledClipView(clip)
+            try await Task.sleep(for: .milliseconds(100))
+            row = try words(in: root).first { $0.candidates.contains("Mon1") }
+        }
+        try press(XCTUnwrap(row), in: root)
+        try await waitForText("#1", exactly: true, in: root)   // the detail page header
+
+        let back = try await waitForText(store.l.back, in: root)
+        try press(XCTUnwrap(back), in: root)
+
+        try await waitForText("Mon1", exactly: true, in: root)
+    }
 }
