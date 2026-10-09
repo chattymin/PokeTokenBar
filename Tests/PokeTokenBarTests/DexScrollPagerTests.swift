@@ -21,6 +21,28 @@ final class DexScrollPagerTests: XCTestCase {
         XCTAssertEqual(DexScrollPager.pageAfterScroll(current: 0, pageCount: 1, step: 1), 0)
     }
 
+    // MARK: page(containing:) — Back from a detail page
+
+    private let ids = (0..<40).map { "sp\($0)" }   // 3 pages of 16
+
+    func testPageContainingFindsThePageOfTheSpecies() {
+        XCTAssertEqual(DexScrollPager.page(containing: "sp0", in: ids, pageSize: 16), 0)
+        XCTAssertEqual(DexScrollPager.page(containing: "sp20", in: ids, pageSize: 16), 1)
+        XCTAssertEqual(DexScrollPager.page(containing: "sp39", in: ids, pageSize: 16), 2)
+    }
+
+    func testPageContainingSplitsAtThePageBoundary() {
+        XCTAssertEqual(DexScrollPager.page(containing: "sp15", in: ids, pageSize: 16), 0)
+        XCTAssertEqual(DexScrollPager.page(containing: "sp16", in: ids, pageSize: 16), 1)
+        XCTAssertEqual(DexScrollPager.page(containing: "sp32", in: ids, pageSize: 16), 2)
+    }
+
+    func testPageContainingFallsBackToFirstPage() {
+        XCTAssertEqual(DexScrollPager.page(containing: nil, in: ids, pageSize: 16), 0)
+        XCTAssertEqual(DexScrollPager.page(containing: "filtered-out", in: ids, pageSize: 16), 0)
+        XCTAssertEqual(DexScrollPager.page(containing: "sp3", in: [], pageSize: 16), 0)
+    }
+
     // MARK: Mouse wheel (non-precise)
 
     func testWheelNotchPagesOncePerEvent() {

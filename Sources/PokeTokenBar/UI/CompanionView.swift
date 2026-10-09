@@ -1290,6 +1290,13 @@ struct DexScrollPager {
         min(max(0, current + step), max(0, pageCount - 1))
     }
 
+    /// The page that shows `id` — where Back from a detail page lands. 0 when `id` is nil or
+    /// filtered out, the same page a fresh grid opens on.
+    static func page(containing id: String?, in ids: [String], pageSize: Int) -> Int {
+        guard let id, let index = ids.firstIndex(of: id) else { return 0 }
+        return index / pageSize
+    }
+
     private static func direction(_ deltaY: CGFloat) -> Int {
         deltaY < 0 ? 1 : (deltaY > 0 ? -1 : 0)
     }
