@@ -87,12 +87,12 @@ final class DexBackNavigationTests: XCTestCase {
 
     /// Polls: SwiftUI renders a state change a run-loop turn or two later.
     @discardableResult
-    private func waitForText(_ text: String, exactly: Bool = false, in host: NSView, footerOnly: Bool = false,
+    private func waitForText(_ text: String, exactly: Bool = false, in host: NSView,
                              file: StaticString = #filePath, line: UInt = #line) async throws -> Word? {
         let deadline = ContinuousClock.now + .seconds(5)
         var seen: [Word] = []
         repeat {
-            seen = try words(in: host).filter { !footerOnly || $0.box.midY < 0.05 }
+            seen = try words(in: host)
             if let match = seen.first(where: { $0.reads(text, exactly: exactly) }) { return match }
             try await Task.sleep(for: .milliseconds(50))
         } while ContinuousClock.now < deadline
@@ -164,8 +164,9 @@ final class DexBackNavigationTests: XCTestCase {
         try await openPageTwoSpeciesAndGoBack(store, navigation, root)
 
         try await waitForText("Mon20", in: root)
-        // The species stays selected, so the footer names it.
-        try await waitForText("#18 Mon18", in: root, footerOnly: true)
+        // Only the page comes back: the species is not selected, so the footer does not name it.
+        let footer = try words(in: root).filter { $0.box.midY < 0.05 }   // y-up: the bottom strip
+        XCTAssertFalse(footer.contains { $0.reads("Mon18", exactly: false) }, "Seen: \(footer.map(\.candidates))")
     }
 
     func testReturnPageIsUsedOnlyOnce() async throws {

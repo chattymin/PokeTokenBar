@@ -1027,7 +1027,7 @@ struct CollectionView: View {
                         onSelectSpecies: { sp in nav.dexDetailCollectionID = sp.collectionID },
                         onResetFilters: resetFilters
                     )
-                    // The grid took the anchor as its selection; a later rebuild (segment switch) starts on page 1.
+                    // The grid kept its own copy of the anchor; a later rebuild (segment switch) starts on page 1.
                     .onAppear { dexReturnAnchor = nil }
                 }
             }
@@ -1369,8 +1369,11 @@ private struct DexGridView: View {
     let onSelectSpecies: (CompanionStore.DexSpecies) -> Void
     let onResetFilters: () -> Void
 
-    /// nil = the page that shows `selectedID` (Back from a detail page). Paging or filtering sets it.
+    /// nil = the page that shows `returnAnchor` (Back from a detail page). Paging or filtering sets it.
     @State private var page: Int?
+    /// The species whose detail page was just closed. Only picks the page; nothing is selected.
+    /// State, not a `let`: the parent clears its copy once the grid appears, which must not move the page.
+    @State private var returnAnchor: String?
     /// 선택한 칸 — 하단 줄에 희귀도를 띄우고, 이로치를 잡은 종이면 스프라이트를 그 색으로 바꾼다.
     @State private var selectedID: String?
 
@@ -1379,8 +1382,8 @@ private struct DexGridView: View {
     private static let pageSize = columns * rows      // 16
     private static let spacing: CGFloat = 4
 
-    /// `returnAnchor` = the species whose detail page was just closed. Selection starts on it here
-    /// rather than in `onAppear`, which would flash page 1 for a frame first.
+    /// `returnAnchor` = the species whose detail page was just closed. The grid opens on its page,
+    /// set here rather than in `onAppear`, which would flash page 1 for a frame first.
     init(store: CompanionStore, searchText: String, shinyOnly: Bool,
          sortOption: CompanionStore.DexSortOption, selectedRarity: Binding<Rarity?>,
          returnAnchor: String?,
@@ -1393,7 +1396,7 @@ private struct DexGridView: View {
         _selectedRarity = selectedRarity
         self.onSelectSpecies = onSelectSpecies
         self.onResetFilters = onResetFilters
-        _selectedID = State(initialValue: returnAnchor)
+        _returnAnchor = State(initialValue: returnAnchor)
     }
 
     var body: some View {
@@ -1405,7 +1408,7 @@ private struct DexGridView: View {
             sort: sortOption
         )
         let pageCount = max(1, (visible.count + Self.pageSize - 1) / Self.pageSize)
-        let current = min(page ?? DexScrollPager.page(containing: selectedID, in: visible.map(\.collectionID),
+        let current = min(page ?? DexScrollPager.page(containing: returnAnchor, in: visible.map(\.collectionID),
                                                       pageSize: Self.pageSize),
                           pageCount - 1)
         let slice = Array(visible.dropFirst(current * Self.pageSize).prefix(Self.pageSize))

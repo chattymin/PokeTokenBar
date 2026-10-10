@@ -719,7 +719,7 @@ read_when:
   **왜 못 걸렀나:** 휠 페이징(#393)과 스프라이트→상세(#394) 테스트는 페이지 이동과 상세 진입을 따로 봤다.
   상세에서 Back으로 돌아오는 왕복 경로를 밟은 테스트가 없었다.
   → `CollectionView`가 방금 본 종(`dexReturnAnchor`)과 로그 행(`logReturnAnchor`)을 기억한다. 다시 만들어진
-  격자는 그 종을 선택한 채 시작하고 페이지는 선택에서 계산한다(`DexScrollPager.page(containing:)`).
+  격자는 그 종이 있는 페이지에서 시작한다(`DexScrollPager.page(containing:)`).
   로그는 그 행을 가운데로 스크롤한다. 앵커는 한 번만 쓴다. `LazyVStack`의 첫 `scrollTo`는 아직 안 잰 행
   높이를 추정치로 써서, 드러난 행이 측정되면 대상이 밀려 한 행 못 미친다. 그래서 측정이 끝난 뒤 한 번 더
   스크롤한다. 처음엔 한 턴(`Task.yield`) 미뤄 한 번만 스크롤했는데, 로컬은 타이밍이 맞아 통과했고 CI
@@ -729,11 +729,16 @@ read_when:
   격자 앵커는 처음에 Back마다 썼다. 그런데 지우는 곳은 격자의 `onAppear`뿐이라, 로그로 돌아가는 Back
   (로그 행에서 열었거나 로그 세그먼트에서 Home 스프라이트로 열었을 때)에서는 남았다가 다음에 도감으로
   전환할 때 소비됐다. 그래서 Back이 격자로 돌아갈 때만 쓴다. 일회성 앵커는 소비할 화면이 확실할 때만 쓴다.
+  또 처음엔 앵커를 격자의 `selectedID` 초기값으로 넣어 페이지를 계산했다. 그러자 #264 이후 화면에서 볼 수
+  없던 선택 테두리와 하단 정보 줄이 Back마다 되살아났고, 스크롤만 돌려놓는 로그와도 달라졌다. 테스트가 이
+  부수 효과를 "선택 유지"라는 의도된 동작으로 단언해서 리뷰에서도 못 걸렀다. 위치 복원용 값은 선택과 다른
+  상태(`DexGridView.returnAnchor`)로 둔다.
   **부류 스윕:** 팝오버에서 목록→상세→Back 구조는 컬렉션 탭뿐이다. 설정과 리캡은 화면 전체를 덮고 닫으면
   Home 맨 위로 돌아오는 게 의도한 동작이라 대상이 아니다.
   **회귀 가드:** `DexBackNavigationTests`는 실제 `CollectionView`를 창에 띄우고 상세→Back 왕복 후 렌더된
   글자를 Vision으로 읽는다. 앵커 저장, 1회 소비, 로그 앵커를 각각 지우면 실패한다. 격자 앵커를 무조건 쓰게
-  되돌리면 `testBackToTheLogLeavesTheGridOnItsFirstPage`가 실패한다. 접근성 트리는 AX 클라이언트
+  되돌리면 `testBackToTheLogLeavesTheGridOnItsFirstPage`가 실패한다. 앵커로 종을 다시 선택하게 하면
+  `testBackFromDetailReturnsToThePageOfThatSpecies`가 하단 줄의 종 이름을 읽고 실패한다. 접근성 트리는 AX 클라이언트
   없이는 비어 있어 쓸 수 없다. Back은 AppKit `NSButton`이라 합성 마우스 다운을 보내면 추적 루프가 마우스 업을
   기다리며 멈추니 `performClick`으로 누른다. 화면 전환 직후엔 뷰 트리가 이전 화면을 히트 테스트해 누름이
   빠질 수 있어(CI), 화면이 바뀔 때까지 다시 누른다.
