@@ -108,6 +108,36 @@ final class LocalAdditionalUsageTests: XCTestCase {
         XCTAssertEqual(v2.explicitCost, 0.5)
     }
 
+    func testOpenCodeSkipsClaudeCodeMirrorRowsThatClaudeCodeLogsAlreadyCount() throws {
+        let database = temporaryDirectory.appendingPathComponent("opencode.db")
+        try execute(database, sql: """
+        CREATE TABLE message (
+            id TEXT PRIMARY KEY, session_id TEXT NOT NULL, time_created INTEGER NOT NULL, data TEXT NOT NULL
+        );
+        CREATE TABLE session_message (
+            id TEXT PRIMARY KEY, session_id TEXT NOT NULL, type TEXT NOT NULL, seq INTEGER NOT NULL,
+            time_created INTEGER NOT NULL, time_updated INTEGER NOT NULL, data TEXT NOT NULL
+        );
+        INSERT INTO message VALUES (
+            'msg-v1-cc', 'session-v1', 1767312000000,
+            '{"id":"msg-v1-cc","providerID":"claude-code","modelID":"claude-sonnet-5-5","time":{"created":1767312000000},"tokens":{"input":100,"output":50,"total":180,"cache":{"read":10,"write":20}}}'
+        );
+        INSERT INTO session_message VALUES (
+            'msg-v2-cc', 'session-v2', 'assistant', 1, 1767312000000, 1767312000000,
+            '{"model":{"id":"claude-sonnet-5-5","providerID":"claude-code"},"time":{"created":1767312000000},"tokens":{"input":100,"output":50,"reasoning":30,"cache":{"read":10,"write":20}}}'
+        );
+        INSERT INTO session_message VALUES (
+            'msg-v2-native', 'session-v2', 'assistant', 2, 1767312000000, 1767312000000,
+            '{"model":{"id":"gpt-5","providerID":"openai"},"time":{"created":1767312000000},"tokens":{"input":100,"output":50,"reasoning":30,"cache":{"read":10,"write":20}}}'
+        );
+        """)
+
+        let entries = LocalAdditionalUsageReader.openCodeEntries(
+            modifiedSince: try date("2026-01-01T00:00:00Z"), roots: [temporaryDirectory])
+
+        XCTAssertEqual(entries.map(\.id), ["opencode|msg-v2-native"])
+    }
+
     func testHermesReadsSessionTokensReasoningAndActualCost() throws {
         let database = temporaryDirectory.appendingPathComponent("state.db")
         try execute(database, sql: """

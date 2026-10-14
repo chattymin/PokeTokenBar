@@ -374,6 +374,11 @@ enum LocalAdditionalUsageReader {
         return entries
     }
 
+    /// OpenCode wrappers (e.g. OpenChamber's `claude-code` provider) run Claude Code underneath and
+    /// mirror each request into OpenCode's database. Claude Code's own logs already count that usage,
+    /// so reading the mirror too would count every token twice.
+    private static let mirroredProviderIDs: Set<String> = ["claude-code"]
+
     static func parseOpenCodeMessage(
         _ object: Object,
         fallbackID: String
@@ -381,7 +386,8 @@ enum LocalAdditionalUsageReader {
         guard let tokens = object["tokens"] as? Object,
               let date = dateValue((object["time"] as? Object)?["created"]),
               let model = stringValue(object["modelID"]),
-              stringValue(object["providerID"]) != nil else { return nil }
+              let providerID = stringValue(object["providerID"]),
+              !mirroredProviderIDs.contains(providerID) else { return nil }
         let cache = tokens["cache"] as? Object
         return makeEntry(
             id: "opencode|\(stringValue(object["id"]) ?? fallbackID)",
@@ -472,7 +478,8 @@ enum LocalAdditionalUsageReader {
               let model = object["model"] as? Object,
               let date = dateValue(createdAt),
               let modelID = stringValue(model["id"]),
-              stringValue(model["providerID"]) != nil else { return nil }
+              let providerID = stringValue(model["providerID"]),
+              !mirroredProviderIDs.contains(providerID) else { return nil }
         let cache = tokens["cache"] as? Object
         return makeEntry(
             id: "opencode|\(fallbackID)",
