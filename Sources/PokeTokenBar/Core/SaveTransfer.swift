@@ -146,6 +146,13 @@ enum SaveTransfer {
         s.usedSinceInstall = clampToken(s.usedSinceInstall)
         s.spentTokens = clampToken(s.spentTokens)
         s.eggUsage = clampToken(s.eggUsage)
+        s.streak.days = min(max(0, s.streak.days), 3650)
+        let today = LocalUsageReader.todayKey()
+        let streakDateDifference = LocalUsageReader.dayDifference(from: s.streak.lastDay, to: today)
+        if s.streak.days == 0 || s.streak.lastDay.isEmpty
+            || streakDateDifference.map({ $0 < -1 }) != false {
+            s.streak = StreakState()
+        }
         s.claimedTodayTokensByProvider = s.claimedTodayTokensByProvider?.reduce(into: [:]) { result, entry in
             result[entry.key] = clampToken(entry.value)
         }
