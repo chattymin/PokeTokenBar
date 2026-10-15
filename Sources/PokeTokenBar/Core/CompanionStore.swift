@@ -94,6 +94,7 @@ final class CompanionStore {
         defaults.set(growthDifficulty, forKey: "growthDifficulty")
         defaults.set(shopDifficulty, forKey: "shopDifficulty")
         migratePokemonProfilesIfNeeded()
+        seedDexCompletionsIfNeeded()
         refreshRepresentativeSubject()
         refreshSnapshots()
         if state.active != nil { displayState = .idle }
@@ -468,6 +469,73 @@ final class CompanionStore {
         collectedDexSpecies(groupUnownForms: true).filter { $0.id == UnownForm.speciesID }
     }
 
+    // MARK: 세대(지역) 도감 완성 추적
+
+    /// Owned species reduced to the (dex number, shiny) pairs the generation math needs.
+    private var ownedDexForProgress: [(id: Int, isShiny: Bool)] {
+        dexSpecies.map { (id: $0.id, isShiny: $0.isShiny) }
+    }
+
+    /// Per-region owned/total progress, in National Dex order. Drives the Pokédex generation chips.
+    var dexCompletions: [DexCompletion] {
+        DexProgress.regionCompletions(owned: ownedDexForProgress)
+    }
+
+    /// National (Gen 1–5) progress for the Pokédex header.
+    var nationalDexProgress: (owned: Int, shinyOwned: Int, total: Int) {
+        DexProgress.nationalProgress(owned: ownedDexForProgress)
+    }
+
+    /// Every completion badge currently earned — derived, never persisted (ownership only grows).
+    var earnedDexBadges: [DexBadge] {
+        DexProgress.earnedBadges(owned: ownedDexForProgress,
+                                 unownFormsCollected: state.collectedUnownForms.count)
+    }
+
+    /// Fire a one-time completion notification for every badge earned since the last check.
+    /// Idempotent: a badge already in `notifiedDexCompletions` never re-fires. Does not persist on its
+    /// own — `save()` calls it just before encoding, so the recorded keys are written in the same pass.
+    /// Guarded on seeding so pre-feature completions are announced by `seedDexCompletionsIfNeeded`, not here.
+    func checkDexCompletions() {
+        guard state.dexCompletionsSeeded else { return }
+        let newly = DexProgress.newlyEarnedBadges(earned: earnedDexBadges,
+                                                  alreadyNotified: state.notifiedDexCompletions)
+        for badge in newly {
+            let (title, body) = dexCompletionNotification(badge)
+            notifyCompanionEvent(title, body)
+            state.notifiedDexCompletions.insert(badge.notificationKey)
+        }
+    }
+
+    /// On first run after this feature ships, record already-earned badges as announced *without*
+    /// firing — a player who finished a region months ago should not get a notification burst.
+    private func seedDexCompletionsIfNeeded() {
+        guard !state.dexCompletionsSeeded else { return }
+        state.dexCompletionsSeeded = true
+        let keys = earnedDexBadges.map(\.notificationKey)
+        // A fresh or just-reset save owns nothing — don't rewrite the state file just to seed an empty
+        // set (that would clobber the "corrupt original moved aside, not recreated" invariant). The
+        // seeded flag then persists on the next natural save; re-seeding meanwhile is idempotent.
+        guard !keys.isEmpty else { return }
+        state.notifiedDexCompletions.formUnion(keys)
+        save()
+    }
+
+    private func dexCompletionNotification(_ badge: DexBadge) -> (title: String, body: String) {
+        switch badge {
+        case .region(let r):
+            return (l.notifDexRegionCompleteTitle(l.regionName(r)), l.notifDexRegionCompleteBody(l.regionName(r)))
+        case .regionShiny(let r):
+            return (l.notifDexRegionShinyCompleteTitle(l.regionName(r)), l.notifDexRegionShinyCompleteBody(l.regionName(r)))
+        case .unown:
+            return (l.notifDexUnownCompleteTitle, l.notifDexUnownCompleteBody)
+        case .national:
+            return (l.notifDexNationalCompleteTitle, l.notifDexNationalCompleteBody)
+        case .nationalShiny:
+            return (l.notifDexNationalShinyCompleteTitle, l.notifDexNationalShinyCompleteBody)
+        }
+    }
+
     private func collectedDexSpecies(groupUnownForms: Bool) -> [DexSpecies] {
         // 종별 누적을 한 번에 훑는다(뷰가 body 에서 1회 소비 — 메모이즈 없이 충분).
         var acc: [DexKey: DexAccumulator] = [:]
@@ -560,11 +628,15 @@ final class CompanionStore {
         query: String = "",
         rarity: Rarity? = nil,
         shinyOnly: Bool = false,
+        region: PokedexRegion? = nil,
         sort: DexSortOption = .numberAsc
     ) -> [DexSpecies] {
         var result = dexSpecies
         if let rarity {
             result = result.filter { $0.rarity == rarity }
+        }
+        if let region {
+            result = result.filter { region.dexRange.contains($0.id) }
         }
         if shinyOnly {
             result = result.filter { $0.isShiny }
@@ -2112,6 +2184,7 @@ final class CompanionStore {
     }
     private func save() {
         refreshRepresentativeSubject()
+        checkDexCompletions()   // 보유 성장분이 영속되는 매 지점에서 세대 완성 알림을 한 번만 띄운다
         guard let data = try? JSONEncoder().encode(state) else { return }
         try? data.write(to: fileURL, options: .atomic)   // 부분 쓰기 손상 방지(펫 상태)
     }

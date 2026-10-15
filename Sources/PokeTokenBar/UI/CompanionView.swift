@@ -906,6 +906,55 @@ struct RarityTally: View {
     }
 }
 
+/// 세대(지역)별 도감 진행 캡슐 — "관동 87/151". 완성 시 🏅, 이로치 완성 시 ✨ 를 덧붙인다.
+/// 희귀도 캡슐(RarityTally)과 같은 시각 언어를 쓰되 색 대신 완성 상태로 강조한다.
+@MainActor
+struct RegionTally: View {
+    let label: String
+    let completion: DexCompletion
+    var isSelected: Bool = false
+    private var accent: Color { completion.isComplete ? .green : .secondary }
+    var body: some View {
+        HStack(spacing: 3) {
+            if completion.isShinyComplete {
+                Text("✨").font(.system(size: 10))
+            } else if completion.isComplete {
+                Text("🏅").font(.system(size: 10))
+            }
+            Text(label).font(.system(size: 11, weight: isSelected ? .semibold : .medium))
+            Text("\(completion.owned)/\(completion.total)")
+                .font(.system(size: 11, weight: .bold))
+                .foregroundStyle(completion.isComplete ? accent : .secondary)
+            if isSelected {
+                Image(systemName: "checkmark").font(.system(size: 9, weight: .bold)).foregroundStyle(accent)
+            }
+        }
+        .foregroundStyle(.primary)
+        .padding(.horizontal, 6).padding(.vertical, 2)
+        .background(accent.opacity(isSelected ? 0.22 : (completion.isComplete ? 0.14 : 0.08)))
+        .clipShape(Capsule())
+        .overlay(Capsule().strokeBorder(isSelected ? accent : accent.opacity(0.35),
+                                        lineWidth: isSelected ? 1.5 : 0.5))
+        .opacity(completion.owned == 0 ? 0.5 : 1)
+    }
+}
+
+/// 헤더의 완성 메달 — 전국·안농 등 획득한 배지를 이모지 캡슐로 보여준다(순수 장식).
+@MainActor
+struct DexBadgeMedal: View {
+    let emoji: String
+    let help: String
+    var body: some View {
+        Text(emoji)
+            .font(.system(size: 12))
+            .padding(.horizontal, 5).padding(.vertical, 2)
+            .background(Color.yellow.opacity(0.14))
+            .clipShape(Capsule())
+            .overlay(Capsule().strokeBorder(Color.yellow.opacity(0.5), lineWidth: 0.5))
+            .help(help)
+    }
+}
+
 /// 포획 로그 요약 헤더 — 총 개체 수 + 희귀도별 개체 수 캡슐.
 /// 개수 단위가 개체(store.dexCount)라 종 단위인 도감 헤더와 공유하지 않는다.
 @MainActor
@@ -953,6 +1002,7 @@ struct CollectionView: View {
     let store: CompanionStore
     let navigation: PopoverNavigation
     @State private var selectedRarity: Rarity?
+    @State private var selectedRegion: PokedexRegion?
     @State private var searchText = ""
     @State private var shinyOnly = false
     @State private var dexSort: CompanionStore.DexSortOption = .numberAsc
@@ -979,6 +1029,7 @@ struct CollectionView: View {
         searchText = ""
         shinyOnly = false
         selectedRarity = nil
+        selectedRegion = nil
         dexSort = .numberAsc
         logSort = .recentFirst
     }
@@ -1012,6 +1063,7 @@ struct CollectionView: View {
                         shinyOnly: shinyOnly,
                         sortOption: dexSort,
                         selectedRarity: $selectedRarity,
+                        selectedRegion: $selectedRegion,
                         onSelectSpecies: { sp in nav.dexDetailCollectionID = sp.collectionID },
                         onResetFilters: resetFilters
                     )
@@ -1334,6 +1386,7 @@ private struct DexGridView: View {
     let shinyOnly: Bool
     let sortOption: CompanionStore.DexSortOption
     @Binding var selectedRarity: Rarity?
+    @Binding var selectedRegion: PokedexRegion?
     let onSelectSpecies: (CompanionStore.DexSpecies) -> Void
     let onResetFilters: () -> Void
 
@@ -1352,6 +1405,7 @@ private struct DexGridView: View {
             query: searchText,
             rarity: selectedRarity,
             shinyOnly: shinyOnly,
+            region: selectedRegion,
             sort: sortOption
         )
         let pageCount = max(1, (visible.count + Self.pageSize - 1) / Self.pageSize)
@@ -1375,6 +1429,7 @@ private struct DexGridView: View {
         .onChange(of: shinyOnly) { page = 0; selectedID = nil }
         .onChange(of: sortOption) { page = 0; selectedID = nil }
         .onChange(of: selectedRarity) { page = 0; selectedID = nil }
+        .onChange(of: selectedRegion) { page = 0; selectedID = nil }
         .task { await store.backfillMissingDexNames() }
     }
 
@@ -1404,7 +1459,10 @@ private struct DexGridView: View {
             HStack(spacing: 6) {
                 Text(store.l.dexTitle).font(.callout.weight(.semibold))
                 Text(store.l.dexSpeciesTotal(all.count)).font(.caption).foregroundStyle(.secondary)
+                Spacer(minLength: 4)
+                earnedMedals
             }
+            regionChips
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 4) {
                     ForEach(rarityDisplayOrder, id: \.self) { r in
@@ -1427,6 +1485,58 @@ private struct DexGridView: View {
                 .fixedSize(horizontal: true, vertical: false)
             }
             .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    /// 세대(지역)별 진행 캡슐 — 탭하면 그 세대만 필터. 아직 한 마리도 없는 세대는 비활성.
+    private var regionChips: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 4) {
+                ForEach(store.dexCompletions) { completion in
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.15)) {
+                            selectedRegion = (selectedRegion == completion.region) ? nil : completion.region
+                            page = 0
+                            selectedID = nil
+                        }
+                    } label: {
+                        RegionTally(label: store.l.regionName(completion.region),
+                                    completion: completion,
+                                    isSelected: selectedRegion == completion.region)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(completion.owned == 0)
+                    .help(store.l.dexRegionProgressLabel(completion.region,
+                                                         owned: completion.owned, total: completion.total))
+                }
+            }
+            .fixedSize(horizontal: true, vertical: false)
+        }
+        .fixedSize(horizontal: false, vertical: true)
+    }
+
+    /// 전국·안농 등 획득한 완성 메달 줄. 하나도 없으면 공간을 차지하지 않는다.
+    @ViewBuilder private var earnedMedals: some View {
+        let badges = store.earnedDexBadges.filter {
+            // 지역 메달은 지역 캡슐에서 이미 드러나므로 전국·안농 티어만 헤더에 모은다.
+            switch $0 { case .region, .regionShiny: return false; default: return true }
+        }
+        if !badges.isEmpty {
+            HStack(spacing: 3) {
+                ForEach(badges, id: \.notificationKey) { badge in
+                    DexBadgeMedal(emoji: medalEmoji(badge), help: store.l.dexBadgeLabel(badge))
+                }
+            }
+        }
+    }
+
+    private func medalEmoji(_ badge: DexBadge) -> String {
+        switch badge {
+        case .region: return "🏅"
+        case .regionShiny: return "✨"
+        case .unown: return "🔤"
+        case .national: return "🌍"
+        case .nationalShiny: return "✨"
         }
     }
 
