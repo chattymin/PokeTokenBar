@@ -232,6 +232,7 @@ struct PopoverView: View {
                             providerOrder: store.registeredProviderIDs,
                             showsCost: store.showsCost,
                             window: Binding(get: { store.dailyTrendWindow }, set: { store.dailyTrendWindow = $0 }),
+                            hasAvailableHistory: store.hasDailyTrendHistory,
                             today: LocalUsageReader.todayKey(),
                             l: l)
 
@@ -1058,6 +1059,7 @@ struct MonthDailyTrend: View {
     let showsCost: Bool
     var window: Binding<DailyTrendWindow>? = nil
     var currentWindow: DailyTrendWindow = .month
+    var hasAvailableHistory = false
     /// 오늘의 `localDay` 키 — 강조할 막대를 뷰가 시계를 다시 읽어 고르지 않게 주입한다.
     let today: String
     let l: L
@@ -1112,7 +1114,16 @@ struct MonthDailyTrend: View {
                 }
             }
             .padding(.top, 4)
+        } else if Self.shouldShowSurface(peak: peak, hasAvailableHistory: hasAvailableHistory,
+                                         isSelectable: window != nil) {
+            captionRow(peak: 0, showsPeak: false)
+                .padding(.top, 4)
         }
+    }
+
+    nonisolated static func shouldShowSurface(peak: Int, hasAvailableHistory: Bool,
+                                              isSelectable: Bool) -> Bool {
+        peak > 0 || (isSelectable && hasAvailableHistory)
     }
 
     /// 캡션 + 오늘의 합산 리드아웃 + 최댓값. 리드아웃은 호버를 따라가지 않는다 — 다른 날은

@@ -505,6 +505,13 @@ final class UsageStore {
         dailyTrendTotals(for: dailyTrendWindow)
     }
 
+    var hasDailyTrendHistory: Bool {
+        snapshots.contains { snapshot in
+            snapshot.monthDaily?.contains(where: { $0.totalTokens > 0 }) == true
+                || snapshot.recentDaily?.contains(where: { $0.totalTokens > 0 }) == true
+        }
+    }
+
     func dailyTrendTotals(for window: DailyTrendWindow) -> [DailyUsage] {
         switch window {
         case .month:

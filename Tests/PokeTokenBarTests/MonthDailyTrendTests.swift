@@ -29,7 +29,6 @@ private struct NoAntigravityLimits: AntigravityLimitsProviding {
 private struct NoStatus: ProviderStatusProviding {
     func fetch() async -> [String: ProviderStatus] { [:] }
 }
-
 /// enrichment 를 테스트가 직접 지정하는 프로바이더 — 시리즈를 못 주는 프로바이더(nil)를 섞기 위함.
 private final class TrendProvider: UsageProvider, @unchecked Sendable {
     let id: String
@@ -709,5 +708,13 @@ final class MonthDailyTrendTests: XCTestCase {
         XCTAssertNotNil(info, "Hovering a missing day in series must return zero-token info rather than nil")
         XCTAssertEqual(info?.tokens, "0")
     }
-}
 
+    func testEmptySelectedWindowKeepsSelectableSurfaceWhenAnotherWindowHasHistory() {
+        XCTAssertTrue(MonthDailyTrend.shouldShowSurface(
+            peak: 0, hasAvailableHistory: true, isSelectable: true))
+        XCTAssertFalse(MonthDailyTrend.shouldShowSurface(
+            peak: 0, hasAvailableHistory: false, isSelectable: true))
+        XCTAssertFalse(MonthDailyTrend.shouldShowSurface(
+            peak: 0, hasAvailableHistory: true, isSelectable: false))
+    }
+}
