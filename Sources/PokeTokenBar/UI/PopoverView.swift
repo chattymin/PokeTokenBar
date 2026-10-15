@@ -1,7 +1,7 @@
 import AppKit
 import SwiftUI
 
-enum PopoverTab { case home, shop, bag, collection }
+enum PopoverTab { case home, shop, bag, collection, achievements }
 
 /// 팝오버 치수의 단일 소스. 자식이 쓸 수 있는 폭을 알아야 할 때 이 값을 쓴다 — 넘치는 자식이
 /// 부모 폭을 부풀리므로 GeometryReader 로 재면 순환한다.
@@ -155,12 +155,15 @@ struct PopoverView: View {
                 Text(l.shop).tag(PopoverTab.shop)
                 Text(l.bag).tag(PopoverTab.bag)
                 Text(l.collection).tag(PopoverTab.collection)
+                Text(achievementsTabTitle).tag(PopoverTab.achievements)
             }
             .pickerStyle(.segmented)
             .labelsHidden()
 
             if nav.tab == .collection {
                 CollectionView(store: companion, navigation: nav)
+            } else if nav.tab == .achievements {
+                AchievementsView(store: companion, nav: nav)
             } else if nav.tab == .bag {
                 BagView(store: companion, nav: nav)
             } else if nav.tab == .shop {
@@ -186,6 +189,11 @@ struct PopoverView: View {
             footer
         }
         .padding(PopoverMetrics.padding)
+    }
+
+    private var achievementsTabTitle: String {
+        let unclaimed = companion.unclaimedAchievementsCount
+        return unclaimed > 0 ? "\(l.achievements) (\(unclaimed))" : l.achievements
     }
 
     // MARK: 헤더 — 오늘 합계 + provider/토큰타입 분해
