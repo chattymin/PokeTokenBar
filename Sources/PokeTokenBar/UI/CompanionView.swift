@@ -1985,6 +1985,14 @@ private struct DexEntryRow: View {
                     // 중립색(secondary)으로 둔다: 실패가 아니라 다른 종류의 기록이라 경고색은 과하다.
                     Badge(store.l.dexReleased.uppercased(), tint: .secondary, style: .tinted, size: 10)
                 }
+                if store.isDuplicateCatch(entry) {
+                    Text(store.l.dexDuplicate.uppercased())
+                        .font(.system(size: 10, weight: .bold))
+                        .padding(.horizontal, 5).padding(.vertical, 1)
+                        .background(Color.secondary.opacity(0.14))
+                        .foregroundStyle(Color.secondary)
+                        .clipShape(Capsule())
+                }
                 if entry.isShiny {
                     // 이모지는 스크린리더가 일관되게 읽지 못해 명사 라벨을 붙인다(도감 칸과 동일 규칙).
                     Text("✨").font(.system(size: 10))

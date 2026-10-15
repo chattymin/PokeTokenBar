@@ -365,6 +365,41 @@ final class CompanionStore {
         entry.id == activeDexEntry?.id
     }
 
+    /// 포획 로그에서 특정 항목이 중복 포획 개체인지(이전에 동일 진화 라인이나 동일 안농 폼을 이미 잡았는지) 판별한다.
+    func isDuplicateCatch(_ entry: DexEntry) -> Bool {
+        duplicateCatchEntryIDs.contains(entry.id)
+    }
+
+    /// 시간순(과거 졸업분부터 현재 키우는 개체까지)으로 중복 포획된 개체들의 ID 집합.
+    var duplicateCatchEntryIDs: Set<String> {
+        var seen = Set<DexCatchKey>()
+        var duplicates = Set<String>()
+
+        let graduated = state.dex.enumerated().sorted { a, b in
+            let d0 = a.element.caughtAt
+            let d1 = b.element.caughtAt
+            if let d0, let d1 {
+                if d0 != d1 { return d0 < d1 }
+            } else if d0 != nil, d1 == nil {
+                return false
+            } else if d0 == nil, d1 != nil {
+                return true
+            }
+            return a.offset < b.offset
+        }.map(\.element)
+
+        let allEntries = activeDexEntry.map { graduated + [$0] } ?? graduated
+        for e in allEntries {
+            let key = DexCatchKey(e)
+            if seen.contains(key) {
+                duplicates.insert(e.id)
+            } else {
+                seen.insert(key)
+            }
+        }
+        return duplicates
+    }
+
     /// 포획 로그 표시 순서 — 현재 키우는 포켓몬을 맨 앞에 고정하고, 졸업 항목은 **기록 시각 최신순**.
     ///
     /// 과거에는 희귀도 내림차순이 먼저였다(종 단위 도감의 규칙). 로그는 시간순 기록이라 희귀도로
@@ -432,6 +467,16 @@ final class CompanionStore {
         init(_ speciesID: Int, unownForm: UnownForm?, groupUnownForms: Bool) {
             self.speciesID = speciesID
             self.unownForm = groupUnownForms ? UnownForm.resolved(speciesID: speciesID, form: unownForm) : nil
+        }
+    }
+
+    private struct DexCatchKey: Hashable {
+        let baseID: Int
+        let unownForm: UnownForm?
+
+        init(_ entry: DexEntry) {
+            self.baseID = entry.baseID
+            self.unownForm = UnownForm.resolved(speciesID: entry.baseID, form: entry.unownForm)
         }
     }
 
