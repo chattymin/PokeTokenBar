@@ -652,19 +652,26 @@ struct StreakState: Codable, Sendable, Equatable {
     /// 시차 이동(동->서 등)으로 `todayDate <= lastDay`인 경우에도 확보한 스트릭을 보존한다.
     func effectiveDays(todayDate: String) -> Int {
         guard days > 0, !lastDay.isEmpty else { return 0 }
-        if todayDate <= lastDay {
-            return days
+        guard let diff = LocalUsageReader.dayDifference(from: lastDay, to: todayDate), diff >= -1 else {
+            return 0
         }
-        if let diff = LocalUsageReader.dayDifference(from: lastDay, to: todayDate), diff == 1 {
-            return days
-        }
-        return 0
+        return diff <= 1 ? days : 0
     }
 
     /// 당일 활성 토큰 임계 도달 시 호출.
     mutating func recordActiveDay(_ todayDate: String) {
-        if !lastDay.isEmpty && todayDate <= lastDay { return }
-        if !lastDay.isEmpty, let diff = LocalUsageReader.dayDifference(from: lastDay, to: todayDate), diff == 1 {
+        guard !lastDay.isEmpty else {
+            days = 1
+            lastDay = todayDate
+            return
+        }
+        guard let diff = LocalUsageReader.dayDifference(from: lastDay, to: todayDate) else {
+            days = 1
+            lastDay = todayDate
+            return
+        }
+        if diff == -1 || diff == 0 { return }
+        if diff == 1 {
             days += 1
         } else {
             days = 1
@@ -702,6 +709,8 @@ struct CompanionState: Codable, Sendable {
     var lastDate = ""
     // 연속 코딩 스트릭 (일수 + 마지막 달성일)
     var streak = StreakState()
+    // 구버전 사용 이력을 스트릭으로 초기화했는지 여부. 0일도 완료 상태와 미초기화 상태를 구분한다.
+    var streakFeatureSeeded = false
     // 현재 포켓몬(없으면 알)
     var active: MonState?
     // 메뉴바와 플로팅 펫에 고정한 대표 종. nil = 현재 키우는 포켓몬(또는 알)을 그대로 따라간다.
@@ -750,6 +759,7 @@ struct CompanionState: Codable, Sendable {
         }
         lastDate           = c.lenient(String.self, forKey: .lastDate, default: "")
         streak             = c.lenient(StreakState.self, forKey: .streak, default: StreakState())
+        streakFeatureSeeded = c.lenient(Bool.self, forKey: .streakFeatureSeeded, default: false)
         // active 손상(빈 pathIDs 등) → 알로 폴백하되 도감·인벤토리는 보존.
         active             = c.lenientOptional(MonState.self, forKey: .active)
         representativeSpeciesID = c.lenientOptional(Int.self, forKey: .representativeSpeciesID)

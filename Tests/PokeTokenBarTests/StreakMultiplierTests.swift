@@ -14,11 +14,12 @@ final class StreakMultiplierTests: XCTestCase {
     @MainActor
     private func makeStore(state: CompanionState = CompanionState(),
                            growthDifficulty: Double = 1.0,
-                           line: EvoLine? = nil) -> CompanionStore {
+                           line: EvoLine? = nil,
+                           defaults: UserDefaults? = nil) -> CompanionStore {
         let file = FileManager.default.temporaryDirectory.appendingPathComponent("ptb-streak-\(UUID().uuidString).json")
         let data = try! JSONEncoder().encode(state)
         try! data.write(to: file)
-        let defs = UserDefaults(suiteName: "test-\(UUID().uuidString)")!
+        let defs = defaults ?? UserDefaults(suiteName: "test-\(UUID().uuidString)")!
         defs.set(growthDifficulty, forKey: "growthDifficulty")
         let provider = StubDiffProvider(value: line ?? Self.defaultLine())
         return CompanionStore(provider: provider,
@@ -26,6 +27,12 @@ final class StreakMultiplierTests: XCTestCase {
                               fileURL: file, rng: SeededDiffRNG(seed: 7),
                               dittoDisguiseRollingEnabled: false,
                               defaults: defs)
+    }
+
+    private func makeLedger(_ series: [DailyUsage]) -> UsageLedger {
+        var ledger = UsageLedger()
+        ledger.merge(series)
+        return ledger
     }
 
     // MARK: - Multiplier Tiers
@@ -171,7 +178,7 @@ final class StreakMultiplierTests: XCTestCase {
                                      totalTokens: 10_000_000, totalCost: 0, costCoverage: .empty))
         }
         let todayStr = fmt.string(from: today)
-        store.bootstrapStreakIfNeeded(from: series, todayDate: todayStr)
+        store.bootstrapStreakIfNeeded(from: makeLedger(series), todayDate: todayStr)
 
         XCTAssertEqual(store.streakDays, 7)
         XCTAssertEqual(store.streakMultiplier, 1.25)
@@ -210,7 +217,7 @@ final class StreakMultiplierTests: XCTestCase {
         XCTAssertEqual(store.state.streak.days, 0)
 
         // Bootstrap on 2026-09-23 (where today is 1M < 10M, but yesterday 2026-09-22 completed 3 days)
-        store.bootstrapStreakIfNeeded(from: series, todayDate: "2026-09-23")
+        store.bootstrapStreakIfNeeded(from: makeLedger(series), todayDate: "2026-09-23")
 
         XCTAssertEqual(store.state.streak.days, 3)
         XCTAssertEqual(store.state.streak.lastDay, "2026-09-22")
@@ -218,18 +225,116 @@ final class StreakMultiplierTests: XCTestCase {
         XCTAssertEqual(store.state.streak.effectiveDays(todayDate: "2026-09-23"), 3)
     }
 
+    func testBootstrapPreservesStreakAcrossMonthBoundary() {
+        let series = [
+            DailyUsage(date: "2026-09-29", inputTokens: 0, outputTokens: 0, cacheCreationTokens: 0,
+                       cacheReadTokens: 0, totalTokens: 11_000_000, totalCost: 0, costCoverage: .empty),
+            DailyUsage(date: "2026-09-30", inputTokens: 0, outputTokens: 0, cacheCreationTokens: 0,
+                       cacheReadTokens: 0, totalTokens: 12_000_000, totalCost: 0, costCoverage: .empty),
+            DailyUsage(date: "2026-10-01", inputTokens: 0, outputTokens: 0, cacheCreationTokens: 0,
+                       cacheReadTokens: 0, totalTokens: 13_000_000, totalCost: 0, costCoverage: .empty),
+            DailyUsage(date: "2026-10-02", inputTokens: 0, outputTokens: 0, cacheCreationTokens: 0,
+                       cacheReadTokens: 0, totalTokens: 14_000_000, totalCost: 0, costCoverage: .empty),
+            DailyUsage(date: "2026-10-03", inputTokens: 0, outputTokens: 0, cacheCreationTokens: 0,
+                       cacheReadTokens: 0, totalTokens: 1_000_000, totalCost: 0, costCoverage: .empty)
+        ]
+        let store = makeStore()
+
+        store.bootstrapStreakIfNeeded(from: makeLedger(series), todayDate: "2026-10-03")
+
+        XCTAssertEqual(store.state.streak, StreakState(days: 4, lastDay: "2026-10-02"))
+        XCTAssertFalse(store.needsStreakBootstrap)
+    }
+
+    func testBootstrapWithoutQualifyingDaysStillCompletesOnce() {
+        let series = [
+            DailyUsage(date: "2026-10-03", inputTokens: 0, outputTokens: 0, cacheCreationTokens: 0,
+                       cacheReadTokens: 0, totalTokens: 1_000_000, totalCost: 0, costCoverage: .empty)
+        ]
+        let store = makeStore()
+
+        store.bootstrapStreakIfNeeded(from: makeLedger(series), todayDate: "2026-10-03")
+
+        XCTAssertEqual(store.state.streak.days, 0)
+        XCTAssertFalse(store.needsStreakBootstrap)
+    }
+
+    func testExistingInstallWaitsForCompletedRefreshBeforeBootstrap() {
+        var state = CompanionState()
+        state.installBaselineSet = true
+        let store = makeStore(state: state)
+        let today = "2026-10-03"
+        let series = [
+            DailyUsage(date: "2026-10-01", inputTokens: 0, outputTokens: 0, cacheCreationTokens: 0,
+                       cacheReadTokens: 0, totalTokens: 11_000_000, totalCost: 0, costCoverage: .empty),
+            DailyUsage(date: "2026-10-02", inputTokens: 0, outputTokens: 0, cacheCreationTokens: 0,
+                       cacheReadTokens: 0, totalTokens: 12_000_000, totalCost: 0, costCoverage: .empty),
+            DailyUsage(date: today, inputTokens: 0, outputTokens: 0, cacheCreationTokens: 0,
+                       cacheReadTokens: 0, totalTokens: 1_000_000, totalCost: 0, costCoverage: .empty)
+        ]
+
+        store.update(todayTokensByProvider: ["test": 1_000_000], todayDate: today,
+                     monthTotal: 24_000_000, burnTier: .normal, limitWarning: false,
+                     hasUsageData: true, streakLedger: nil)
+        XCTAssertTrue(store.needsStreakBootstrap)
+
+        store.update(todayTokensByProvider: ["test": 1_000_000], todayDate: today,
+                     monthTotal: 24_000_000, burnTier: .normal, limitWarning: false,
+                     hasUsageData: true, streakLedger: makeLedger(series))
+
+        XCTAssertEqual(store.state.streak, StreakState(days: 2, lastDay: "2026-10-02"))
+        XCTAssertFalse(store.needsStreakBootstrap)
+    }
+
+    func testTrackedAccountChangeDoesNotMasqueradeAsCompletedRefresh() {
+        let suiteName = "streak-account-change-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let usage = UsageStore(providers: [], autoRefresh: false, defaults: defaults)
+        var refreshes = 0
+        var accountChanges = 0
+        usage.onRefresh = { refreshes += 1 }
+        usage.onTrackedAccountChange = { accountChanges += 1 }
+
+        usage.claudeTrackedAccountMode = .highest
+
+        XCTAssertEqual(accountChanges, 1)
+        XCTAssertEqual(refreshes, 0)
+    }
+
     // MARK: - Save Sanitization
 
     func testSaveSanitizationClampsStreakDays() {
         var state = CompanionState()
         state.streak.days = 99999
+        state.streak.lastDay = LocalUsageReader.todayKey()
         let sanitized = SaveTransfer.sanitized(state)
         XCTAssertEqual(sanitized.streak.days, 3650)
 
         var negative = CompanionState()
         negative.streak.days = -10
+        negative.streak.lastDay = LocalUsageReader.todayKey()
         let sanitizedNegative = SaveTransfer.sanitized(negative)
         XCTAssertEqual(sanitizedNegative.streak.days, 0)
+    }
+
+    func testMalformedAndFarFutureStreakDatesAreDiscarded() {
+        var malformed = CompanionState()
+        malformed.streak = StreakState(days: 30, lastDay: "not-a-date")
+        XCTAssertEqual(SaveTransfer.sanitized(malformed).streak, StreakState())
+
+        var future = CompanionState()
+        future.streak = StreakState(days: 30, lastDay: "9999-12-31")
+        XCTAssertEqual(SaveTransfer.sanitized(future).streak, StreakState())
+    }
+
+    func testFarFutureStreakDoesNotGrantBoostAndSelfHealsOnActivity() {
+        var streak = StreakState(days: 30, lastDay: "9999-12-31")
+        XCTAssertEqual(streak.effectiveDays(todayDate: "2026-10-03"), 0)
+
+        streak.recordActiveDay("2026-10-03")
+
+        XCTAssertEqual(streak, StreakState(days: 1, lastDay: "2026-10-03"))
     }
 
     // MARK: - Extreme Difficulty Scaling (Defect Log Requirement)
@@ -308,6 +413,18 @@ final class StreakMultiplierTests: XCTestCase {
         XCTAssertEqual(store.dailyStreakThreshold, 1)
 
         store.setDailyStreakThreshold(2_000_000_000)
+        XCTAssertEqual(store.dailyStreakThreshold, 1_000_000_000)
+    }
+
+    func testDailyStreakThresholdClampsExternallyStoredValues() {
+        let suiteName = "streak-threshold-invalid-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set(-50, forKey: "dailyStreakThreshold")
+        let store = makeStore(defaults: defaults)
+        XCTAssertEqual(store.dailyStreakThreshold, 1)
+
+        defaults.set(2_000_000_000, forKey: "dailyStreakThreshold")
         XCTAssertEqual(store.dailyStreakThreshold, 1_000_000_000)
     }
 

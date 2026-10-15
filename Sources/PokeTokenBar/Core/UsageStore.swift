@@ -267,6 +267,8 @@ final class UsageStore {
     /// observeStore(menuTitle)만으론 showLimitInMenu=false 일 때 한도 변경이 companion 에 전달 안 됨
     /// (menuTitle 미변경) → 지급은 이 훅으로 확실히 트리거한다. AppDelegate 가 설정.
     var onRefresh: (@MainActor () -> Void)?
+    /// 설정의 계정 선택 투영만 바뀐 경우. 사용량 이력이 새로 스캔됐다는 신호가 아니다.
+    var onTrackedAccountChange: (@MainActor () -> Void)?
 
     // MARK: 파생값
 
@@ -1186,7 +1188,7 @@ final class UsageStore {
     var claudeTrackedAccountMode: ClaudeTrackedAccountMode {
         didSet {
             defaults.set(claudeTrackedAccountMode.storedValue, forKey: ClaudeTrackedAccountMode.defaultsKey)
-            onRefresh?()   // the companion mood follows the tracked account's warning state
+            onTrackedAccountChange?()   // the companion mood follows the tracked account's warning state
         }
     }
 

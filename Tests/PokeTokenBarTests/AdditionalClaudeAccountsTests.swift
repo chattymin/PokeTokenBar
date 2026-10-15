@@ -1491,7 +1491,7 @@ final class ClaudeTrackedAccountStoreTests: XCTestCase {
         let store = makeStore(primary: fullStatus(fiveHour: 10, sevenDay: 1, email: "me@corp.example"),
                               personal: nil, lastPrompt: [:])
         var updates = 0
-        store.onRefresh = { updates += 1 }
+        store.onTrackedAccountChange = { updates += 1 }
         store.claudeTrackedAccountMode = .highest
         XCTAssertEqual(updates, 1)
     }

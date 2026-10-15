@@ -153,7 +153,9 @@ final class CompanionStore {
 
     /// 일일 스트릭 인정 최소 토큰 (기본 10M).
     var dailyStreakThreshold: Int {
-        defaults.object(forKey: "dailyStreakThreshold") as? Int ?? PokemonBalance.defaultDailyStreakThreshold
+        let stored = defaults.object(forKey: "dailyStreakThreshold") as? Int
+            ?? PokemonBalance.defaultDailyStreakThreshold
+        return max(1, min(stored, 1_000_000_000))
     }
 
     func setDailyStreakThreshold(_ value: Int) {
@@ -799,67 +801,63 @@ final class CompanionStore {
 
     /// 구버전에서 업그레이드 시 이번 달 기록(monthDailyTotals)으로 스트릭을 초기 1회 시드해야 하는지 여부.
     var needsStreakBootstrap: Bool {
-        state.streak.days == 0 && state.streak.lastDay.isEmpty
+        !state.streakFeatureSeeded
     }
 
-    /// 구버전에서 업그레이드 시 이번 달 기록(monthDailyTotals)으로 스트릭을 초기 1회 시드.
-    func bootstrapStreakIfNeeded(from series: [DailyUsage], todayDate: String) {
-        guard state.streak.days == 0, state.streak.lastDay.isEmpty, !series.isEmpty else { return }
+    /// 구버전에서 업그레이드 시 월 경계를 보존하는 일별 원장으로 스트릭을 초기 1회 시드.
+    func bootstrapStreakIfNeeded(from ledger: UsageLedger, todayDate: String) {
+        guard !state.streakFeatureSeeded, ledger.covers(todayDate) else { return }
         let threshold = dailyStreakThreshold
-        let activeDates = Set(series.filter { $0.totalTokens >= threshold }.map(\.date))
-        guard !activeDates.isEmpty else { return }
+        let fmt = LocalUsageReader.localDayFormatter()
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = .current
+        func previousDay(_ day: String) -> String? {
+            guard let date = fmt.date(from: day),
+                  let previous = calendar.date(byAdding: .day, value: -1, to: date) else { return nil }
+            return fmt.string(from: previous)
+        }
 
-        // 오늘 이미 달성했으면 오늘부터 카운트 시작, 아니면 어제부터
-        let checkDate: String
-        if activeDates.contains(todayDate) {
-            checkDate = todayDate
-        } else {
-            guard let yesterday = series.last(where: { $0.date < todayDate })?.date,
-                  let diff = LocalUsageReader.dayDifference(from: yesterday, to: todayDate), diff == 1,
-                  activeDates.contains(yesterday) else {
+        var lastAchievedDay = todayDate
+        if ledger.tokens(on: todayDate) < threshold {
+            guard let yesterday = previousDay(todayDate), ledger.covers(yesterday) else {
+                state.streakFeatureSeeded = true
+                save()
                 return
             }
-            checkDate = yesterday
+            lastAchievedDay = yesterday
         }
 
         var count = 0
-        var cursor = checkDate
-        let lastAchievedDay = checkDate
-        let fmt = LocalUsageReader.localDayFormatter()
-        while activeDates.contains(cursor) {
+        var cursor: String? = lastAchievedDay
+        while let day = cursor, ledger.covers(day), ledger.tokens(on: day) >= threshold {
             count += 1
-            guard let currentDate = fmt.date(from: cursor),
-                  let prevDate = Calendar(identifier: .gregorian).date(byAdding: .day, value: -1, to: currentDate) else {
-                break
-            }
-            let prevString = fmt.string(from: prevDate)
-            if activeDates.contains(prevString) {
-                cursor = prevString
-            } else {
-                break
-            }
+            cursor = previousDay(day)
         }
-
         if count > 0 {
-            state.streak.days = count
-            state.streak.lastDay = lastAchievedDay
-            save()
+            state.streak = StreakState(days: count, lastDay: lastAchievedDay)
         }
+        state.streakFeatureSeeded = true
+        save()
     }
 
     // MARK: 갱신 (AppDelegate 가 UsageStore 값으로 호출)
 
     func update(todayTokensByProvider: [String: Int], todayDate: String, monthTotal: Int,
                 burnTier: BurnTier, limitWarning: Bool, hasUsageData: Bool,
-                monthDailyTotals: [DailyUsage] = []) {
+                streakLedger: UsageLedger? = nil) {
         let todayTokens = todayTokensByProvider.values.reduce(0, +)
         // `hasUsageData`는 표시용 snapshot 존재 여부이고, 이 map은 오늘 날짜가 확인된
         // provider 데이터만 담는다. stale snapshot이나 today == nil carrier만 있는 refresh는
         // ledger의 기준점을 움직일 수 있는 관측으로 취급하지 않는다.
         let hasCurrentProviderData = hasUsageData && !todayTokensByProvider.isEmpty
         if hasCurrentProviderData {
-            if !monthDailyTotals.isEmpty {
-                bootstrapStreakIfNeeded(from: monthDailyTotals, todayDate: todayDate)
+            if needsStreakBootstrap {
+                if state.installBaselineSet, let streakLedger {
+                    bootstrapStreakIfNeeded(from: streakLedger, todayDate: todayDate)
+                } else if !state.installBaselineSet {
+                    state.streakFeatureSeeded = true
+                    save()
+                }
             }
             if todayTokens >= dailyStreakThreshold {
                 let prevLastDay = state.streak.lastDay
