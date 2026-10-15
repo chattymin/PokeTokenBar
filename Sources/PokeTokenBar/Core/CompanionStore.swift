@@ -1045,6 +1045,7 @@ final class CompanionStore {
         currentLine = nil
         state.eggUsage = 0   // 새 알은 처음부터 인큐베이션
         isHatchRetryDelayed = false
+        eggRolledRarity = nil
         // eggTier 는 손대지 않는다 — 여기 도달했다는 건 활성 포켓몬이 있었다는 뜻이라 보증은 이미 nil 이다
         // (부화가 소비, 디스크/불러오기는 sanitized 가 정규화). 소비 지점은 hatchCore 한 곳으로 유지한다.
         // "알을 받는 순간" 즉시 프리패칭 시작 — 다음 부화의 종·라인·스프라이트 예열.
@@ -1246,10 +1247,23 @@ final class CompanionStore {
     @discardableResult
     func buyRareCandy() -> Bool { buy(.rareCandy) }
 
-    // MARK: 알 (리롤 — 현재 포켓몬 폐기, 도감·확률 무영향)
-
     /// 현재 알이 보증하는 등급 하한(UI 표시용). 활성 포켓몬이 있으면 알이 없으므로 nil.
     var eggGuarantee: Rarity? { state.active == nil ? state.eggTier : nil }
+
+    /// 현재 인큐베이션 중인 알의 희귀도 스타일.
+    /// (common: 럭키 알, uncommon: 표준 알, rare: 마나피 알, legendary: 토게피 알).
+    var eggRarity: Rarity {
+        guard state.active == nil else { return .uncommon }
+        if let rolled = eggRolledRarity {
+            if let guarantee = state.eggTier, guarantee.sortRank > rolled.sortRank {
+                return guarantee
+            }
+            return rolled
+        }
+        return state.eggTier ?? .common
+    }
+
+    private(set) var eggRolledRarity: Rarity?
 
     /// 알 구매 가능 — 폐기할 활성 포켓몬이 있고 지갑이 그 티어 가격 이상일 때만.
     /// 알 상태에서도 살 수 있게 하는 안은 채택하지 않았다(기존 새 알과 게이트 통일) — 알끼리 교체하는
@@ -1291,6 +1305,7 @@ final class CompanionStore {
         state.pendingHatchID = nil    // 새 보증으로 처음부터 롤(활성 포켓몬이 있는 동안엔 원래 비어 있다)
         state.pendingUnownForm = nil
         prefetchedLineID = nil
+        eggRolledRarity = nil
         justGraduated = nil; justEvolvedTo = nil; eventUntil = nil
         AppLog.write("egg purchased: discarded active, tier=\(tier?.rawValue ?? "none")")
         Task { await self.ensureEggPrefetch() }   // 다음 부화 예열
@@ -1547,6 +1562,7 @@ final class CompanionStore {
             }
         }
         guard isCurrentEgg(generation: generation), state.pendingHatchID == id else { return }
+        eggRolledRarity = line.rarity
         prefetchedLineID = id
         isHatchRetryDelayed = false
         shouldHatch = true
@@ -1606,6 +1622,7 @@ final class CompanionStore {
             state.pendingHatchID = nil
             state.pendingUnownForm = nil
             prefetchedLineID = nil
+            eggRolledRarity = nil
             markHatchRetryDelayedIfReady(generation: generation)
             save()
             return
@@ -1614,6 +1631,7 @@ final class CompanionStore {
         state.pendingUnownForm = nil
         // A later egg can roll the same species with another letter and must warm its own sprite.
         prefetchedLineID = nil
+        eggRolledRarity = nil
         currentLine = line
         isHatchRetryDelayed = false
         // 부화 임계 초과분은 부화체 성장에 이월(낭비 없음).

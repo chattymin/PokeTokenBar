@@ -71,15 +71,69 @@ actor SpriteStore {
         return d
     }
 
-    /// 알 스프라이트(정적, pokemon/egg.png) — 애니메이션 알은 없음. 포켓몬/아이템과 같은 메모리·디스크 캐시(키 "egg").
-    func eggData() async -> Data? {
-        let key = "egg"
+    /// 알 캐시 키(희귀도별).
+    static func eggCacheKey(rarity: Rarity) -> String {
+        "egg-\(rarity.rawValue)"
+    }
+
+    /// 알 스프라이트 원격 URL.
+    static func eggURL(rarity: Rarity) -> URL? {
+        switch rarity {
+        case .common:
+            return URL(string: "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/lucky-egg.png")
+        case .uncommon:
+            return URL(string: "\(base)/egg.png")
+        case .rare:
+            return URL(string: "\(base)/egg-manaphy.png")
+        case .legendary:
+            return nil
+        }
+    }
+
+    /// 오프라인/기본 내장 알 스프라이트 데이터 (common=럭키 알, legendary=토게피 알).
+    static let commonEggData: Data? = Data(base64Encoded:
+        "iVBORw0KGgoAAAANSUhEUgAAAB4AAAAeBAMAAADJHrORAAAAA3NCSVQFBQUYJt5DAAAAElBMVEX///8xMTHe7/fO1t7///+lrbXKGaJ8AAAAAXRSTlMAQObYZgAAAGJJREFUeNq90MsNgCAQRVHoADQ2cIkFIKEDC9CY6b8ViRtmSNzydid5yXzcpMRoSQqKHsjKC+iC5wRGX6YO95/9xzR4H1ytk3QfQO12KxSRPn8rVeRR+0lL1uc2BvuOxhl5AWjiEdl1GaVxAAAAAElFTkSuQmCC"
+    )
+
+    static let legendaryEggData: Data? = Data(base64Encoded:
+        "iVBORw0KGgoAAAANSUhEUgAAAGAAAABgCAYAAADimHc4AAACJUlEQVR4nO3Zv07bUBTH8WuLlc4d2BADndqHqDJWooAzMUL7FIWnoExIZYkTGNgS8RAwIBiqbh0606XbrWz5oosFceJk+B3z/UiRbfIH33N8zvVNnAMAAAAAAAAAAAAAAAAAAAAAAAAsS5xRWZb5+DjPc5NjWXFGAz8YDOpPeYuJSDoQ+Cf6/b6zmAj54M+r3qJUWbhKvPftYpkkifwYU9fR4Beq90pXQtrV4FtJQirc892yFJ+lOieo9kcfEnB/cPD4x82Tk9YfqDofpF2/+oPheCxZBYmF3n9fVcEiFaBaBVInk2WZb1poNYlbVuF2a8vt9Hrl/mgycRenpyzSpvCLutvfn3qsdkckNwcsQ70KlKVWJt/to7/lo0mYJ15KgtpkLJOAPM9net0ykjDr/3ptfNGv6z07+Hz48LgN+20Mx2OpeUCmAgq/v35p7OHn31ZnrgQLpBLw5+evqe3j6uZ64cD/e9BKnNr9sI+/gqgvvOLgh0qwvhiT+0ny6ubarR1/f/a5tkEPzkbnTo1cAtaq4BfzweYSk6pKphQj/sdwFB+7txvr5fbj+w9unoAXc0psb3dHbsxyFfCcEMizahsS8tLrLJG6GqZVwaIUr36529BIUgVsbpd3vfJhIfjKCWiVhHrg1YMvfWKRcmHQ1JJC8D+9m5T7F4dvTIxR+uRmTUQc/KhqTIzNxEnW+A6OCQAAAAAAAAAAAAAAAAAAAAAAOLv+A0hgvlE8oXnzAAAAAElFTkSuQmCC"
+    )
+
+    /// 알 스프라이트(정적 PNG) — 희귀도별 스타일(common=럭키 알, uncommon=표준 알, rare=마나피 알, legendary=토게피 알).
+    func eggData(rarity: Rarity = .uncommon) async -> Data? {
+        let key = Self.eggCacheKey(rarity: rarity)
         if let d = mem[key] { touch(key); return d }
-        let file = directory.appendingPathComponent("egg.png")
+        let file = directory.appendingPathComponent("\(key).png")
         if let d = try? Data(contentsOf: file) { remember(key, d); return d }
-        guard let url = URL(string: "\(Self.base)/egg.png"),
+
+        // 이전 버전 단일 캐시(egg.png)와의 호환성
+        if rarity == .uncommon {
+            let legacyFile = directory.appendingPathComponent("egg.png")
+            if let d = try? Data(contentsOf: legacyFile) {
+                try? d.write(to: file, options: .atomic)
+                remember(key, d)
+                return d
+            }
+        }
+
+        // 전설 알은 내장 토게피 알 데이터 우선 적용
+        if rarity == .legendary, let data = Self.legendaryEggData {
+            try? data.write(to: file, options: .atomic)
+            remember(key, data)
+            return data
+        }
+
+        guard let url = Self.eggURL(rarity: rarity),
               let (d, resp) = try? await URLSession.shared.data(from: url),
-              (resp as? HTTPURLResponse)?.statusCode == 200, !d.isEmpty else { return nil }
+              (resp as? HTTPURLResponse)?.statusCode == 200, !d.isEmpty else {
+            // 오프라인 폴백: common 알은 내장 럭키 알 데이터 사용
+            if rarity == .common, let fallback = Self.commonEggData {
+                try? fallback.write(to: file, options: .atomic)
+                remember(key, fallback)
+                return fallback
+            }
+            return nil
+        }
         try? d.write(to: file, options: .atomic)
         remember(key, d)
         return d
@@ -238,20 +292,23 @@ enum SpriteLoader {
         return img
     }
 
-    /// 알 스프라이트는 96×96 캔버스에 실제 알이 28×30(≈29%)만 차지 — 그대로 쓰면 프레임에서 아주 작게
-    /// 보인다(🥚 이모지는 여백이 없어 꽉 찼음). 콘텐츠 경계로 1회 크롭해 여백을 제거하고 캐시 →
-    /// 상점·홈 등 모든 크기에서 이모지처럼 프레임을 꽉 채운다.
-    private static var croppedEgg: NSImage?
+    /// 희귀도별 크롭된 알 스프라이트 캐시 (메모이즈).
+    private static var croppedEggs: [Rarity: NSImage] = [:]
 
     /// 크롭 완료분만 동기 반환(미준비면 nil — 동기 크롭 안 함, 히치 방지). 첫 표시 때만 🥚 폴백 후 eggImage 로 교체.
-    static func cachedEggImage() -> NSImage? { croppedEgg }
+    static func cachedEggImage(rarity: Rarity = .uncommon) -> NSImage? {
+        croppedEggs[rarity] ?? croppedEggs[.uncommon]
+    }
 
     /// 알 스프라이트 — 런타임 로드 + 콘텐츠 크롭(최초 1회 메모이즈). 오프라인/실패면 nil(뷰가 🥚 폴백).
-    static func eggImage() async -> NSImage? {
-        if let c = croppedEgg { return c }
-        guard let d = await SpriteStore.shared.eggData(), let img = NSImage(data: d) else { return nil }
-        croppedEgg = cropToContent(img)
-        return croppedEgg
+    static func eggImage(rarity: Rarity = .uncommon) async -> NSImage? {
+        if let c = croppedEggs[rarity] { return c }
+        guard let d = await SpriteStore.shared.eggData(rarity: rarity), let img = NSImage(data: d) else {
+            return cachedEggImage(rarity: rarity)
+        }
+        let cropped = cropToContent(img)
+        croppedEggs[rarity] = cropped
+        return cropped
     }
 
     /// 비투명(alpha>0) 콘텐츠 경계로 크롭 — 큰 투명 여백 제거. 96×96 1회만 수행(메모이즈).

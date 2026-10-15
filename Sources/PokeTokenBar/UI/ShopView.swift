@@ -155,8 +155,7 @@ private struct ShopItemCard: View {
 /// 인라인 2단계 확인: 일반은 1회, 이로치면 한 번 더(사고 폐기 방지). 성공하면 Home 으로 전환해 새 알을 보여준다.
 /// 알 상태(활성 없음)에서도 카드는 노출하되 구매 버튼만 비활성 + 사유 한 줄(eggShopLockedHint).
 ///
-/// 등급 알의 시각 구분은 **카드의 등급 배지**로만 한다 — 알 스프라이트는 한 장뿐이고, 메뉴바·플로팅 펫은
-/// 기존 알 그대로 둔다(새 에셋 없이 구분이 서는 최소 범위).
+/// 등급 알은 희귀도별 스프라이트(common: 럭키 알, uncommon: 기본 알, rare: 마나피 알)로 시각 구분된다.
 @MainActor
 private struct EggCard: View {
     let store: CompanionStore
@@ -173,7 +172,7 @@ private struct EggCard: View {
             HStack(alignment: .top, spacing: 10) {
                 // 크롭+정사각 보정한 알. 레이아웃은 30(다른 아이템 아이콘과 정렬 일치)으로 두되 알 자체는 26으로
                 // 살짝 작게 — 프레임에 여백이 생겨 꽉 찬 "뚱뚱" 느낌이 줄고 크기도 약간 작아진다.
-                SpriteView(speciesID: nil, size: 26)
+                SpriteView(speciesID: nil, eggRarity: tier ?? .common, size: 26)
                     .frame(width: 30, height: 30)
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(spacing: 6) {

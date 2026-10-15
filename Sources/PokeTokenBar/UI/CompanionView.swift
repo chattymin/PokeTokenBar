@@ -58,6 +58,16 @@ struct SpriteSubject: Equatable {
     var loadedID: Int?
     var loadedShiny = false
     var loadedUnownForm: UnownForm? = nil
+    var loadedEggRarity: Rarity? = nil
+
+    init(image: NSImage?, loadedID: Int? = nil, loadedShiny: Bool = false,
+         loadedUnownForm: UnownForm? = nil, loadedEggRarity: Rarity? = nil) {
+        self.image = image
+        self.loadedID = loadedID
+        self.loadedShiny = loadedShiny
+        self.loadedUnownForm = loadedUnownForm
+        self.loadedEggRarity = loadedEggRarity
+    }
 
     /// Keep the cached pixels and their identity together, including when a pending load is cancelled.
     func startingLoad(cachedImage: NSImage?, for id: Int, shiny: Bool, unownForm: UnownForm?) -> SpriteSubject {
@@ -66,10 +76,15 @@ struct SpriteSubject: Equatable {
     }
 
     /// 주체가 알로 바뀌었다(졸업·새 알). 이전 **개체**의 이미지는 다른 주체의 픽셀이라 버린다.
-    /// 이미 알이던 경우(loadedID == nil)엔 손대지 않는다 — 시드된 알 이미지를 지워 🥚 글리프로 깜빡이게 하지 않기 위해.
-    func becomingEgg(cachedEgg: NSImage?) -> SpriteSubject {
-        guard loadedID != nil else { return self }
-        return SpriteSubject(image: cachedEgg, loadedID: nil)
+    /// 이미 알이던 경우(loadedID == nil)엔 알 희귀도가 바뀐 경우에만 새 캐시로 갱신 — 시드된 알 이미지를 지워 🥚 글리프로 깜빡이게 하지 않기 위해.
+    func becomingEgg(cachedEgg: NSImage?, rarity: Rarity = .uncommon) -> SpriteSubject {
+        guard loadedID != nil || (loadedEggRarity != nil && loadedEggRarity != rarity) else {
+            if loadedID == nil && loadedEggRarity == nil && image != nil {
+                return SpriteSubject(image: image, loadedID: nil, loadedEggRarity: rarity)
+            }
+            return self
+        }
+        return SpriteSubject(image: cachedEgg, loadedID: nil, loadedEggRarity: rarity)
     }
 
     /// 로드된 정적 스프라이트를 반영한 결과. **취소된 로드는 nil — 상태를 아예 건드리지 않는다.**
@@ -85,8 +100,8 @@ struct SpriteSubject: Equatable {
     }
 
     /// 로드된 알 스프라이트를 반영한 결과(같은 이유로 취소면 nil). 알은 종이 없으므로 loadedID 는 그대로.
-    func applyingEgg(_ image: NSImage?, cancelled: Bool) -> SpriteSubject? {
-        cancelled ? nil : SpriteSubject(image: image, loadedID: loadedID)
+    func applyingEgg(_ image: NSImage?, rarity: Rarity = .uncommon, cancelled: Bool) -> SpriteSubject? {
+        cancelled ? nil : SpriteSubject(image: image, loadedID: loadedID, loadedEggRarity: rarity)
     }
 }
 
@@ -95,6 +110,7 @@ struct SpriteSubject: Equatable {
 @MainActor
 struct SpriteView: View {
     let speciesID: Int?
+    var eggRarity: Rarity = .uncommon
     var size: CGFloat = 84
     var bob: Bool = false
     var animated: Bool = false
@@ -113,10 +129,11 @@ struct SpriteView: View {
     @State private var frames: [(image: NSImage, delay: TimeInterval)] = []
     @State private var frameIndex = 0
 
-    init(speciesID: Int?, size: CGFloat = 84, bob: Bool = false, animated: Bool = false,
+    init(speciesID: Int?, eggRarity: Rarity = .uncommon, size: CGFloat = 84, bob: Bool = false, animated: Bool = false,
          shiny: Bool = false, minFrameDelay: TimeInterval = 0, spriteStore: SpriteStore = .shared,
          unownForm: UnownForm? = nil) {
         self.speciesID = speciesID
+        self.eggRarity = eggRarity
         self.spriteStore = spriteStore
         self.size = size
         self.bob = bob
@@ -128,14 +145,15 @@ struct SpriteView: View {
         // speciesID==nil(알 상태)이면 알 스프라이트를 시드(없으면 body 가 🥚 폴백).
         let form = speciesID.flatMap { UnownForm.resolved(speciesID: $0, form: unownForm) }
         let cached = speciesID.map { SpriteLoader.cachedImage(speciesID: $0, shiny: shiny, directory: spriteStore.directory,
-                                                            unownForm: form) } ?? SpriteLoader.cachedEggImage()
+                                                            unownForm: form) } ?? SpriteLoader.cachedEggImage(rarity: eggRarity)
         let cachedFrames = animated ? speciesID.map {
             SpriteLoader.cachedFrames(speciesID: $0, shiny: shiny, directory: spriteStore.directory, unownForm: form)
         } ?? [] : []
         _frames = State(initialValue: GIFDecoder.capFrameRate(cachedFrames, floor: minFrameDelay))
         _subject = State(initialValue: SpriteSubject(image: cached,
                                                     loadedID: (speciesID != nil && cached != nil) ? speciesID : nil,
-                                                    loadedShiny: shiny, loadedUnownForm: form))
+                                                    loadedShiny: shiny, loadedUnownForm: form,
+                                                    loadedEggRarity: speciesID == nil ? eggRarity : nil))
     }
 
     private var resolvedUnownForm: UnownForm? {
@@ -145,10 +163,11 @@ struct SpriteView: View {
     /// GIF 프레임 로드 task 의 정체성 — 바뀌면 재디코드·재솎아내기. **하한을 포함한다**:
     /// 프레임은 하한에 맞춰 솎아낸 결과물이라, 빠지면 fps 설정 변경이 종 교체까지 안 먹는다
     /// (`AppDelegate.menuSpriteKey` 와 같은 이유). 순수·테스트용.
-    static func frameTaskID(speciesID: Int?, shiny: Bool, floor: TimeInterval, animated: Bool = true,
+    nonisolated static func frameTaskID(speciesID: Int?, eggRarity: Rarity = .uncommon, shiny: Bool, floor: TimeInterval, animated: Bool = true,
                             unownForm: UnownForm? = nil) -> String {
         let form = speciesID.flatMap { UnownForm.resolved(speciesID: $0, form: unownForm) }
-        return "\(speciesID.map(String.init) ?? "nil")-\(shiny)-\(floor)-\(animated)-\(form?.rawValue ?? "")"
+        let eggPart = speciesID == nil ? "-\(eggRarity.rawValue)" : ""
+        return "\(speciesID.map(String.init) ?? "nil")\(eggPart)-\(shiny)-\(floor)-\(animated)-\(form?.rawValue ?? "")"
     }
 
     /// 디코드된 GIF 프레임 중 실제로 재생할 것 — 취소됐거나 2프레임 미만이면 빈 배열(정적 폴백).
@@ -206,7 +225,7 @@ struct SpriteView: View {
         }
         // GIF 재생 중엔 bob 정지(프레임 자체가 움직임) — 폴백/정적일 때만 상하 움직임
         .offset(y: bob && frames.isEmpty && up ? -3 : 0)
-        .task(id: Self.frameTaskID(speciesID: speciesID, shiny: shiny, floor: minFrameDelay,
+        .task(id: Self.frameTaskID(speciesID: speciesID, eggRarity: eggRarity, shiny: shiny, floor: minFrameDelay,
                                   animated: animated, unownForm: resolvedUnownForm)) {
             // animated 프레임은 id/shiny 변경 시 항상 초기화(이전 개체 프레임 잔상 방지)
             frames = animated ? GIFDecoder.capFrameRate(
@@ -218,10 +237,10 @@ struct SpriteView: View {
                 // 알 상태 — 정적 알 스프라이트 로드(애니메이션 알은 없음). 실패/오프라인이면 body 가 🥚 폴백.
                 // 종 → 알(졸업·새 알)이면 이전 개체 이미지를 버려야 한다 — img 는 뷰 identity 가 살아있는 동안
                 // 유지되고 플로팅 펫 패널은 졸업 때 재생성되지 않아, 안 버리면 옛 포켓몬이 계속 떠 있다.
-                apply(subject.becomingEgg(cachedEgg: SpriteLoader.cachedEggImage()))
-                if subject.image == nil {
-                    let egg = await SpriteLoader.eggImage()
-                    if let next = subject.applyingEgg(egg, cancelled: Task.isCancelled) { apply(next) }
+                apply(subject.becomingEgg(cachedEgg: SpriteLoader.cachedEggImage(rarity: eggRarity), rarity: eggRarity))
+                if subject.image == nil || subject.loadedEggRarity != eggRarity {
+                    let egg = await SpriteLoader.eggImage(rarity: eggRarity)
+                    if let next = subject.applyingEgg(egg, rarity: eggRarity, cancelled: Task.isCancelled) { apply(next) }
                 }
                 return
             }
@@ -658,7 +677,7 @@ struct CompanionHeader: View {
         let dexLinks = onOpenDexEntry == nil ? [:] : store.dexLinkTargets
         VStack(alignment: .leading, spacing: 6) {
             HStack(alignment: .center, spacing: 12) {
-                SpriteView(speciesID: store.currentSpeciesID, size: 76, bob: true, animated: true,
+                SpriteView(speciesID: store.currentSpeciesID, eggRarity: store.eggRarity, size: 76, bob: true, animated: true,
                            shiny: store.currentIsShiny, unownForm: store.currentUnownForm)
                     .frame(width: 76, height: 76)
                     .background(Color.secondary.opacity(0.06))
