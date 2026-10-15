@@ -37,6 +37,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private var menuLoadGen = 0     // async 로드 경합 방지
     private var displayAwake = true     // 디스플레이 켜짐 여부 (꺼지면 메뉴 애니메이션 정지 — 배터리)
     private var powerObserver: NSObjectProtocol?   // 저전력 토글 → 유효 fps 하한 재평가
+    private let syncFolder = SaveSyncFolder()
+    /// Launch and each wake arm one sync-folder check (#257). It runs after the next refresh so an
+    /// accepted save is rebased onto this Mac's today totals, as Settings → Import does.
+    private var syncCheckArmed = true
+    private var isOfferingHandoff = false
 
     /// 스프라이트 전용 서브레이어 — 프레임 교체의 드로잉 비용을 없앤다.
     ///
@@ -259,6 +264,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private func onStoreRefreshed() {
         updateCompanion()
         companion.grantCandies(from: store.candyEligibleWindows, limitsReady: store.limitsReady)
+        if syncCheckArmed {
+            syncCheckArmed = false
+            // Out of the refresh callback: the offer is a modal alert.
+            Task { @MainActor in self.offerSyncHandoffIfNeeded() }
+        }
+    }
+
+    /// Another Mac left a save in the sync folder that this Mac has not taken in → offer it.
+    /// Never loads on its own; "Not Now" marks it seen so it is not re-asked on every wake.
+    private func offerSyncHandoffIfNeeded() {
+        guard !isOfferingHandoff, let envelope = syncFolder.pendingHandoff() else { return }
+        isOfferingHandoff = true
+        defer { isOfferingHandoff = false }
+        if popover.isShown { popover.performClose(nil) }
+        let outcome = SaveImportPrompt.confirmAndApply(
+            envelope, title: companion.l.syncHandoffTitle(envelope.sourceDevice),
+            cancelTitle: companion.l.syncNotNow, companion: companion, store: store)
+        if outcome != .failed { syncFolder.markSeen(envelope) }
     }
 
     // MARK: 메뉴바 애니메이션
@@ -659,7 +682,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             Task { @MainActor in self?.setDisplayAwake(false) }
         }
         workspace.addObserver(forName: NSWorkspace.screensDidWakeNotification, object: nil, queue: .main) { [weak self] _ in
-            Task { @MainActor in self?.setDisplayAwake(true) }
+            Task { @MainActor in
+                self?.setDisplayAwake(true)
+                self?.syncCheckArmed = true   // back at this Mac — the other one may have left a save
+            }
         }
         // 메뉴바가 가려지면(풀스크린 등으로 occlusion) 애니메이션 정지, 다시 보이면 재개.
         NotificationCenter.default.addObserver(
