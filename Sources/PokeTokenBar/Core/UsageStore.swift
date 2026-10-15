@@ -169,6 +169,25 @@ final class UsageStore {
     var floatingPetBubbleAlerts: Bool {
         didSet { defaults.set(floatingPetBubbleAlerts, forKey: "floatingPetBubbleAlerts") }
     }
+    // 사운드 효과
+    var soundEffectsEnabled: Bool {
+        didSet {
+            defaults.set(soundEffectsEnabled, forKey: "soundEffectsEnabled")
+            PokemonAudioPlayer.shared.isEnabled = soundEffectsEnabled
+        }
+    }
+    var soundVolume: Double {
+        didSet {
+            let normalized = Self.normalizedSoundVolume(soundVolume)
+            if soundVolume != normalized { soundVolume = normalized }
+            defaults.set(normalized, forKey: "soundVolume")
+            PokemonAudioPlayer.shared.volume = Float(normalized)
+        }
+    }
+    static func normalizedSoundVolume(_ value: Double) -> Double {
+        guard value.isFinite else { return 0.8 }
+        return min(max(value, 0), 1)
+    }
     var disableKeychainAccess: Bool {
         didSet {
             defaults.set(disableKeychainAccess, forKey: "disableKeychainAccess")   // 저장 누락이던 기존 버그 — 재시작 후 풀렸음
@@ -806,6 +825,12 @@ final class UsageStore {
         claudeTrackedAccountMode = ClaudeTrackedAccountMode(storedValue: d.string(forKey: ClaudeTrackedAccountMode.defaultsKey))
         armedCandyWindows = Set(d.stringArray(forKey: Self.armedCandyWindowsKey) ?? [])
         dailyLedger = UsageLedger.load(from: d)
+        soundEffectsEnabled = d.object(forKey: "soundEffectsEnabled") as? Bool ?? true
+        let storedSoundVolume = d.object(forKey: "soundVolume") as? Double ?? 0.8
+        soundVolume = Self.normalizedSoundVolume(storedSoundVolume)
+        if storedSoundVolume != soundVolume { d.set(soundVolume, forKey: "soundVolume") }
+        PokemonAudioPlayer.shared.isEnabled = soundEffectsEnabled
+        PokemonAudioPlayer.shared.volume = Float(soundVolume)
 
         if let credential = sessionKeys.credential() {
             sessionKeyConfigured = true

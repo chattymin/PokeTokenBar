@@ -393,6 +393,11 @@ struct L {
     var launchAtLogin: String { t("로그인 시 자동 시작", "Launch at login", "ログイン時に自動起動", "Iniciar al arrancar sesión", "Lancer à l'ouverture de session", "Abrir ao iniciar sessão", "Bei der Anmeldung starten", "Запускать при входе в систему") }
     var bundledOnly: String { t(".app 번들로 설치된 경우에만 사용 가능 (scripts/build-app.sh)", "Available only when installed as an .app bundle (scripts/build-app.sh)", ".appバンドルでインストールした場合のみ利用可能 (scripts/build-app.sh)", "Disponible solo si se instaló como paquete .app (scripts/build-app.sh)", "Disponible uniquement si installé comme paquet .app (scripts/build-app.sh)", "Disponível apenas quando instalado como pacote .app (scripts/build-app.sh)", "Nur verfügbar, wenn die App als .app-Bundle installiert ist (scripts/build-app.sh)", "Доступно только при установке в виде .app (scripts/build-app.sh)") }
     var notificationsSection: String { t("알림", "Notifications", "通知", "Notificaciones", "Notifications", "Notificações", "Benachrichtigungen", "Уведомления") }
+    // MARK: 사운드 효과
+    var soundSection: String { t("사운드 효과", "Sound Effects", "効果音", "Efectos de sonido", "Effets sonores", "Efeitos sonoros", "Toneffekte", "Звуковые эффекты") }
+    var soundEffectsLabel: String { t("효과음 켜기", "Sound effects", "効果音を有効化", "Activar efectos de sonido", "Activer les effets sonores", "Ativar efeitos sonoros", "Toneffekte aktivieren", "Включить звуковые эффекты") }
+    var soundVolumeLabel: String { t("음량", "Volume", "音量", "Volumen", "Volume", "Volume", "Lautstärke", "Громкость") }
+    var soundTestLabel: String { t("효과음 테스트", "Test sound", "効果音テスト", "Probar sonido", "Tester le son", "Testar som", "Ton testen", "Проверить звук") }
     // MARK: claude.ai 세션 키 (Keychain 프롬프트 없는 한도 경로)
     var sessionKeyLabel: String { t("claude.ai 세션 키", "claude.ai session key", "claude.ai セッションキー", "Clave de sesión de claude.ai", "Clé de session claude.ai", "Chave de sessão do claude.ai", "claude.ai-Sitzungsschlüssel", "Ключ сессии claude.ai") }
     var sessionKeyHint: String {
