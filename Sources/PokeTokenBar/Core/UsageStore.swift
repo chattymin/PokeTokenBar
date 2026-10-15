@@ -178,9 +178,15 @@ final class UsageStore {
     }
     var soundVolume: Double {
         didSet {
-            defaults.set(soundVolume, forKey: "soundVolume")
-            PokemonAudioPlayer.shared.volume = Float(soundVolume)
+            let normalized = Self.normalizedSoundVolume(soundVolume)
+            if soundVolume != normalized { soundVolume = normalized }
+            defaults.set(normalized, forKey: "soundVolume")
+            PokemonAudioPlayer.shared.volume = Float(normalized)
         }
+    }
+    static func normalizedSoundVolume(_ value: Double) -> Double {
+        guard value.isFinite else { return 0.8 }
+        return min(max(value, 0), 1)
     }
     var disableKeychainAccess: Bool {
         didSet {
@@ -820,7 +826,9 @@ final class UsageStore {
         armedCandyWindows = Set(d.stringArray(forKey: Self.armedCandyWindowsKey) ?? [])
         dailyLedger = UsageLedger.load(from: d)
         soundEffectsEnabled = d.object(forKey: "soundEffectsEnabled") as? Bool ?? true
-        soundVolume = d.object(forKey: "soundVolume") as? Double ?? 0.8
+        let storedSoundVolume = d.object(forKey: "soundVolume") as? Double ?? 0.8
+        soundVolume = Self.normalizedSoundVolume(storedSoundVolume)
+        if storedSoundVolume != soundVolume { d.set(soundVolume, forKey: "soundVolume") }
         PokemonAudioPlayer.shared.isEnabled = soundEffectsEnabled
         PokemonAudioPlayer.shared.volume = Float(soundVolume)
 

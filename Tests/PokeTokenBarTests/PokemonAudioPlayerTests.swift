@@ -22,6 +22,16 @@ final class PokemonAudioPlayerTests: XCTestCase {
         XCTAssertEqual(player.lastPlayedEffect, .evolve)
     }
 
+    func testDisablingStopsCurrentPlaybackState() {
+        let player = PokemonAudioPlayer(canPlayHardwareAudio: false)
+        player.play(.hatch)
+        XCTAssertEqual(player.lastPlayedEffect, .hatch)
+
+        player.isEnabled = false
+
+        XCTAssertNil(player.lastPlayedEffect)
+    }
+
     func testVolumeClampingAndZeroSuppression() {
         let player = PokemonAudioPlayer(canPlayHardwareAudio: false)
 
@@ -56,6 +66,9 @@ final class PokemonAudioPlayerTests: XCTestCase {
             XCTAssertGreaterThan(buffer.frameLength, 0, "Buffer for \(effect) must have non-zero frames")
             XCTAssertEqual(buffer.format.sampleRate, 44100.0)
             XCTAssertEqual(buffer.format.channelCount, 1)
+            let samples = UnsafeBufferPointer(
+                start: buffer.floatChannelData?[0], count: Int(buffer.frameLength))
+            XCTAssertTrue(samples.contains { abs($0) > 0.0001 }, "Buffer for \(effect) must contain audible signal")
 
             // Duration bounds verification (all SFX should be <= 1.5s for snappy UI feel)
             let duration = Double(buffer.frameLength) / buffer.format.sampleRate
