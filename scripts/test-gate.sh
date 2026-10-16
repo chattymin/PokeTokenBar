@@ -37,6 +37,13 @@ LOGIC_CORE=(
   "Sources/PokeTokenBar/Core/ModelPricing.swift"
   "Sources/PokeTokenBar/Core/CustomScanRoots.swift"
   "Sources/PokeTokenBar/Core/UsageRecap.swift"
+  "Sources/PokeTokenBar/Core/BattleMove.swift"
+  "Sources/PokeTokenBar/Core/BattleSnapshot.swift"
+  "Sources/PokeTokenBar/Core/BattleEngine.swift"
+  "Sources/PokeTokenBar/Core/BattleCPU.swift"
+  "Sources/PokeTokenBar/Core/BattleSession.swift"
+  "Sources/PokeTokenBar/Core/BattleLink.swift"
+  "Sources/PokeTokenBar/Core/BattleMoveRules.swift"
 )
 
 echo "▶ swift test (--enable-code-coverage)"
