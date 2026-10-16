@@ -208,6 +208,85 @@ final class LocalAdditionalUsageTests: XCTestCase {
         XCTAssertEqual(days, [LocalUsageReader.localDayFormatter().string(from: t)])
     }
 
+    private final class MirrorClock: @unchecked Sendable {
+        var now: Date
+        init(_ now: Date) { self.now = now }
+    }
+
+    private final class ScanLog: @unchecked Sendable { var claudeReadsFrom: [Date] = [] }
+
+    func testOpenCodeCacheRetainsAPendingMirrorRowOnALaterScanWithoutDuplicating() async throws {
+        let database = temporaryDirectory.appendingPathComponent("opencode.db")
+        let t = try date("2026-01-05T10:00:00Z")
+        // A native row newer than the pending mirror row would move a plain "newest entry" watermark
+        // past it; only the pending-row pin lets a later scan resolve it.
+        try execute(database, sql: mirrorSchema + "\n"
+            + v2Row("late", provider: "claude-code", created: t, completed: t.addingTimeInterval(10)) + "\n"
+            + v2Row("native", provider: "openai", created: t.addingTimeInterval(15)))
+        let clock = MirrorClock(t.addingTimeInterval(20))
+        let cache = LocalAdditionalUsageCache(
+            openCodeRootsOverride: [temporaryDirectory],
+            claudeEntriesSource: { _ in [] },
+            clock: { clock.now })
+
+        let waiting = await cache.entries(for: .opencode)
+        XCTAssertEqual(waiting.map(\.id), ["opencode|native"],
+                       "inside the grace period the Claude transcript may still be flushed")
+
+        clock.now = t.addingTimeInterval(600)
+        let resolved = await cache.entries(for: .opencode)
+        XCTAssertEqual(resolved.map(\.id).sorted(), ["opencode|late", "opencode|native"])
+
+        clock.now = t.addingTimeInterval(1200)
+        let again = await cache.entries(for: .opencode)
+        XCTAssertEqual(again.map(\.total), [210, 210], "re-reading a kept row must not count it twice")
+    }
+
+    func testOpenCodeCacheResumesAfterDroppedMirrorRowsInsteadOfTheLastNativeEntry() async throws {
+        let database = temporaryDirectory.appendingPathComponent("opencode.db")
+        let t = try date("2026-01-05T10:00:00Z")
+        let mirrorAt = t.addingTimeInterval(3600)
+        try execute(database, sql: mirrorSchema + "\n"
+            + v2Row("native", provider: "openai", created: t) + "\n"
+            + v2Row("covered", provider: "claude-code", created: mirrorAt, completed: mirrorAt.addingTimeInterval(10)))
+        let claude = [claudeEntry(at: mirrorAt.addingTimeInterval(4))]
+        let log = ScanLog()
+        let clock = MirrorClock(mirrorAt.addingTimeInterval(200))
+        let cache = LocalAdditionalUsageCache(
+            openCodeRootsOverride: [temporaryDirectory],
+            claudeEntriesSource: { from in log.claudeReadsFrom.append(from); return claude },
+            clock: { clock.now })
+
+        _ = await cache.entries(for: .opencode)
+        clock.now = mirrorAt.addingTimeInterval(400)
+        let entries = await cache.entries(for: .opencode)
+
+        XCTAssertEqual(entries.map(\.id), ["opencode|native"])
+        XCTAssertEqual(log.claudeReadsFrom.count, 2)
+        // Resuming from the native row (an hour earlier) would re-read every dropped mirror row each refresh.
+        XCTAssertGreaterThan(try XCTUnwrap(log.claudeReadsFrom.last), t.addingTimeInterval(3000))
+    }
+
+    func testMirrorWindowReachesFiveSecondsBeforeAndThirtySecondsAfterTheMessage() throws {
+        let database = temporaryDirectory.appendingPathComponent("opencode.db")
+        let t = try date("2026-01-05T10:00:00Z")
+        try execute(database, sql: mirrorSchema + "\n"
+            + v2Row("edge", provider: "claude-code", created: t, completed: t.addingTimeInterval(10)))
+        let scan = LocalAdditionalUsageReader.openCodeScan(
+            modifiedSince: try date("2026-01-01T00:00:00Z"), roots: [temporaryDirectory])
+        let later = t.addingTimeInterval(10_000)
+
+        func kept(claudeAt offset: TimeInterval) -> Bool {
+            !LocalAdditionalUsageReader.resolveOpenCodeMirrors(
+                scan.mirrors, claudeEntries: [claudeEntry(at: t.addingTimeInterval(offset))], now: later)
+                .retained.isEmpty
+        }
+        XCTAssertFalse(kept(claudeAt: -5), "inclusive lower edge")
+        XCTAssertTrue(kept(claudeAt: -6))
+        XCTAssertFalse(kept(claudeAt: 40), "completion + 30s is the inclusive upper edge")
+        XCTAssertTrue(kept(claudeAt: 41))
+    }
+
     func testOpenCodeProviderReportsExplicitZeroWhenOnlyMirrorRowsRemainToday() async throws {
         let database = temporaryDirectory.appendingPathComponent("opencode.db")
         let t = Date().addingTimeInterval(-300)

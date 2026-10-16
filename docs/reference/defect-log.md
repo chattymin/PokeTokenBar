@@ -612,6 +612,29 @@ read_when:
   `fetchFilteredEventsForTesting` 으로 루프 전체를 돈다(총계 없음/있음 둘 다). 수정 전 `[1]`·100건으로 실패 확인.
   **스윕:** 이 파일의 다른 `intValue` 호출은 토큰 수라 0 이 올바른 기본값이다.
 
+- **A wrapper that runs another tracked tool leaves two records of the same usage; dedupe by evidence, not by blanket provider filter.**
+  OpenChamber's `claude-code` provider for OpenCode runs Claude Code underneath and mirrors every request into
+  `opencode.db` (`providerID = "claude-code"`), while Claude Code also logs it under `~/.claude/projects`. Reading both
+  counted each token twice (#443: ~216M "OpenCode" vs ~220M Claude Code for one day). A first fix that dropped every
+  `claude-code` row lost the only record of usage whenever Claude Code does not persist a transcript
+  (`persistSession: false`, `CLAUDE_CODE_SKIP_PROMPT_HISTORY=1`), and it made the OpenCode line disappear, so the companion
+  ledger kept the old mirror total as that provider's baseline and read the first new native usage as a counter decrease.
+  **Rules:** a mirror row has no id shared with the other tool, so match by time window and drop it only when the other
+  tool has usage inside it; keep it otherwise. Hold an unmatched row back for a grace period (the other tool's log may not
+  be flushed) and keep the incremental watermark before it. When filtering empties a provider's day, report an explicit
+  0 (not "no data") so a per-provider baseline in `CompanionStore` is rebased before new usage. A kept mirror row is not
+  retracted if Claude usage shows up after the grace period.
+  **Why it was missed:** the blanket filter was tested only with a Claude transcript present, the one condition under
+  which it is correct. **Regression guards (each broken on purpose to confirm it fails: the match, the pending-row watermark
+  pin, the watermark over dropped rows):**
+  `testOpenCodeDropsClaudeCodeMirrorRowsOnlyWhenClaudeUsageCoversThem`, `testOpenCodeKeepsMirrorUsageWhenThereIsNoClaudeTranscript`,
+  `testRecentUnmatchedMirrorRowsAreHeldBackUntilTheGracePeriodPasses`,
+  `testOpenCodeCacheRetainsAPendingMirrorRowOnALaterScanWithoutDuplicating`,
+  `testOpenCodeCacheResumesAfterDroppedMirrorRowsInsteadOfTheLastNativeEntry`,
+  `testMirrorWindowReachesFiveSecondsBeforeAndThirtySecondsAfterTheMessage`, `testOpenCodeProviderReportsExplicitZeroWhenOnlyMirrorRowsRemainToday`.
+  **Sweep:** grepped the other providers for wrapper/mirror handling and found none; OpenCode is the only source known to be
+  fed by another tracked tool, so the mirror set is kept inside the OpenCode reader.
+
 ## 빌드·도구체인
 
 - **새 SDK에서 통과해도 CI의 AppKit Sendable 선언을 가정하지 마라.** 동시 캐시 로드 테스트가
