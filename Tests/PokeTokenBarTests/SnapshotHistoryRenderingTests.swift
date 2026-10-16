@@ -19,6 +19,7 @@ private final class SnapshotHistoryTestWindow: NSWindow {
 final class SnapshotHistoryRenderingTests: XCTestCase {
     private var window: NSWindow?
     private var previousKeyWindow: NSWindow?
+    private var renderNumber = 0
 
     override func tearDown() async throws {
         window?.close()
@@ -149,6 +150,9 @@ final class SnapshotHistoryRenderingTests: XCTestCase {
 
     private struct Word {
         let candidates: [String]
+        let confidences: [Float]
+        /// Pixel coordinates in the complete image, with the origin at the top left.
+        let bounds: CGRect
         static func normalized(_ text: String) -> String {
             text.lowercased().filter { $0.isLetter || $0.isNumber }
         }
@@ -159,6 +163,26 @@ final class SnapshotHistoryRenderingTests: XCTestCase {
                 return exactly ? text == normalized : text.contains(normalized)
             }
         }
+        func duplicates(_ other: Word) -> Bool {
+            let overlap = bounds.intersection(other.bounds)
+            let smallerArea = min(bounds.width * bounds.height, other.bounds.width * other.bounds.height)
+            let texts = Set(candidates.map(Self.normalized).filter { !$0.isEmpty })
+            return !overlap.isNull && overlap.width * overlap.height > smallerArea * 0.5
+                && abs(bounds.midY - other.bounds.midY) < min(bounds.height, other.bounds.height) * 0.5
+                && !texts.isDisjoint(with: other.candidates.map(Self.normalized))
+        }
+        var diagnostic: [String: Any] {
+            ["candidates": candidates, "confidences": confidences, "globalPixelBounds": NSStringFromRect(bounds)]
+        }
+    }
+
+    private func diagnosticDirectory() throws -> URL? {
+        guard let path = ProcessInfo.processInfo.environment["PTB_SNAPSHOT_SCREENSHOT_DIR"] else { return nil }
+        let directory = URL(fileURLWithPath: path, isDirectory: true)
+            .appendingPathComponent("diagnostics", isDirectory: true)
+            .appendingPathComponent(name.filter { $0.isLetter || $0.isNumber }, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        return directory
     }
 
     private func bitmap(of view: NSView) async throws -> NSBitmapImageRep {
@@ -187,6 +211,7 @@ final class SnapshotHistoryRenderingTests: XCTestCase {
         // visible tile at 2x, rather than asking offscreen controls to draw the whole document.
         let tileLimit = Int((bounds.height / max(clip.bounds.height, 1)).rounded(.up)) + 2
         var coveredY = bounds.minY
+        var tiles = [[String: Any]]()
         for _ in 0..<tileLimit where coveredY < bounds.maxY - 0.5 {
             clip.scroll(to: NSPoint(x: bounds.minX, y: coveredY))
             scroll.reflectScrolledClipView(clip)
@@ -209,28 +234,90 @@ final class SnapshotHistoryRenderingTests: XCTestCase {
             XCTAssertGreaterThanOrEqual(CGFloat(tile.pixelsWide) / rect.width, 2)
             XCTAssertGreaterThanOrEqual(CGFloat(tile.pixelsHigh) / rect.height, 2)
             let y = view.isFlipped ? bounds.maxY - rect.maxY : rect.minY - bounds.minY
-            context.draw(try XCTUnwrap(tile.cgImage), in: CGRect(
+            let destination = CGRect(
                 x: (rect.minX - bounds.minX) * 2, y: y * 2,
-                width: rect.width * 2, height: rect.height * 2))
+                width: rect.width * 2, height: rect.height * 2)
+            context.draw(try XCTUnwrap(tile.cgImage), in: destination)
+            tiles.append(["requestedY": coveredY, "clipBounds": NSStringFromRect(clip.bounds),
+                          "visibleRect": NSStringFromRect(view.visibleRect), "sourceRect": NSStringFromRect(rect),
+                          "destinationPixels": NSStringFromRect(destination),
+                          "pixels": [tile.pixelsWide, tile.pixelsHigh]])
             coveredY = rect.maxY
         }
         XCTAssertGreaterThanOrEqual(coveredY, bounds.maxY - 0.5, "All document tiles must be rendered")
         let bitmap = NSBitmapImageRep(cgImage: try XCTUnwrap(context.makeImage()))
         bitmap.size = bounds.size
+        renderNumber += 1
+        if let directory = try diagnosticDirectory() {
+            let metadata: [String: Any] = [
+                "render": renderNumber, "documentClass": String(describing: type(of: view)),
+                "documentBounds": NSStringFromRect(bounds), "documentIsFlipped": view.isFlipped,
+                "clipClass": String(describing: type(of: clip)), "originalClipOrigin": NSStringFromPoint(originalOrigin),
+                "windowBackingScale": view.window?.backingScaleFactor ?? 0, "pixels": [width, height], "tiles": tiles]
+            try JSONSerialization.data(withJSONObject: metadata, options: [.prettyPrinted, .sortedKeys])
+                .write(to: directory.appendingPathComponent("render-\(renderNumber).json"))
+            try XCTUnwrap(bitmap.representation(using: .png, properties: [:]))
+                .write(to: directory.appendingPathComponent("render-\(renderNumber).png"))
+        }
         return bitmap
     }
 
-    private func words(in view: NSView) async throws -> [Word] {
-        let rendered = try await bitmap(of: view)
-        let image = try XCTUnwrap(rendered.cgImage)
+    private func recognize(_ image: CGImage, crop: CGRect) throws -> [Word] {
         let request = VNRecognizeTextRequest()
         request.recognitionLevel = .accurate
         request.recognitionLanguages = ["en-US"]
         try VNImageRequestHandler(cgImage: image).perform([request])
         return request.results?.compactMap {
-            let candidates = $0.topCandidates(10).map(\.string)
-            return candidates.isEmpty ? nil : Word(candidates: candidates)
+            let candidates = $0.topCandidates(10)
+            let box = $0.boundingBox
+            // CGImage crops start at the top; Vision boxes start at the bottom of each crop.
+            let global = CGRect(x: crop.minX + box.minX * crop.width,
+                                y: crop.minY + (1 - box.maxY) * crop.height,
+                                width: box.width * crop.width, height: box.height * crop.height)
+            return candidates.isEmpty ? nil : Word(candidates: candidates.map(\.string),
+                confidences: candidates.map(\.confidence), bounds: global)
         } ?? []
+    }
+
+    private func words(in view: NSView) async throws -> [Word] {
+        let rendered = try await bitmap(of: view)
+        let image = try XCTUnwrap(rendered.cgImage)
+        let directory = try diagnosticDirectory()
+        let whole: [Word]
+        if directory != nil {
+            whole = try recognize(image, crop: CGRect(x: 0, y: 0, width: image.width, height: image.height))
+        } else { whole = [] }
+        // Use native pixels without resizing. A 48pt overlap keeps row labels intact at crop
+        // boundaries; global geometry merges only observations of the same physical label.
+        let stripHeight = min(image.height, Int((try XCTUnwrap(view.enclosingScrollView).contentView.bounds.height * 2).rounded(.up)))
+        let overlap = min(96, stripHeight / 4)
+        var y = 0
+        var result = [Word]()
+        var strips = [[String: Any]]()
+        while y < image.height {
+            let crop = CGRect(x: 0, y: y, width: image.width, height: min(stripHeight, image.height - y))
+            let words = try recognize(try XCTUnwrap(image.cropping(to: crop)), crop: crop)
+            strips.append(["cropPixels": NSStringFromRect(crop), "words": words.map(\.diagnostic)])
+            for word in words {
+                if let index = result.firstIndex(where: { $0.duplicates(word) }) {
+                    if (word.confidences.first ?? 0) > (result[index].confidences.first ?? 0) { result[index] = word }
+                } else { result.append(word) }
+            }
+            if crop.maxY >= CGFloat(image.height) { break }
+            y += stripHeight - overlap
+        }
+        if let directory {
+            let metadata: [String: Any] = ["render": renderNumber, "whole": whole.map(\.diagnostic),
+                                         "strips": strips, "merged": result.map(\.diagnostic)]
+            try JSONSerialization.data(withJSONObject: metadata, options: [.prettyPrinted, .sortedKeys])
+                .write(to: directory.appendingPathComponent("ocr-\(renderNumber).json"))
+            let wholeCount = whole.filter { $0.reads("Restore", exactly: true) }.count
+            let stripCount = result.filter { $0.reads("Restore", exactly: true) }.count
+            let wholeCreate = whole.contains { $0.reads("Create snapshot") }
+            let stripCreate = result.contains { $0.reads("Create snapshot") }
+            print("Snapshot OCR render=\(renderNumber) pixels=\(image.width)x\(image.height) wholeRestore=\(wholeCount) stripRestore=\(stripCount) wholeCreate=\(wholeCreate) stripCreate=\(stripCreate)")
+        }
+        return result
     }
 
     @discardableResult
