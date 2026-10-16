@@ -17,6 +17,7 @@ struct SettingsView: View {
     @State private var launchAtLoginError: Error?
     @State private var reportFailed = false
     @State private var advancedExpanded = false
+    @State private var snapshotsExpanded = false
     /// startExpanded 를 @State 초기값으로 못 쓴다 — 뷰가 재사용되면 초기화가 다시 안 돌아
     /// 두 번째 진입부터 접힌 채로 열린다. onAppear 에서 1회 반영한다.
     @State private var didApplyStartExpanded = false
@@ -85,6 +86,7 @@ struct SettingsView: View {
                 }
                 .onAppear {
                     companion.refreshSnapshots()
+                    snapshotsExpanded = false
                     guard !didApplyStartExpanded else { return }
                     didApplyStartExpanded = true
                     if startExpanded {
@@ -436,24 +438,28 @@ struct SettingsView: View {
     @ViewBuilder
     private func snapshotsSection(_ store: UsageStore) -> some View {
         groupRow {
-            VStack(alignment: .leading, spacing: 1) {
-                Text(l.snapshotsSectionTitle)
-                Text(l.createSnapshotHint).font(.caption2).foregroundStyle(.tertiary)
-            }
+            Text(l.createSnapshotHint).font(.caption2).foregroundStyle(.tertiary)
             Spacer()
             Button(l.createSnapshotButton) { takeManualSnapshot() }
         }
-        if companion.availableSnapshots.isEmpty {
-            groupRow {
-                Text(l.noSnapshotsYet).font(.caption2).foregroundStyle(.tertiary)
-                Spacer()
-            }
-        } else {
-            ForEach(companion.availableSnapshots) { snapshot in
-                Divider()
-                snapshotRow(snapshot, store: store)
+        Divider()
+        DisclosureGroup(l.snapshotsSectionTitle, isExpanded: $snapshotsExpanded) {
+            VStack(spacing: 0) {
+                if companion.availableSnapshots.isEmpty {
+                    groupRow {
+                        Text(l.noSnapshotsYet).font(.caption2).foregroundStyle(.tertiary)
+                        Spacer()
+                    }
+                } else {
+                    ForEach(companion.availableSnapshots) { snapshot in
+                        Divider()
+                        snapshotRow(snapshot, store: store)
+                    }
+                }
             }
         }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
     }
 
     @ViewBuilder
