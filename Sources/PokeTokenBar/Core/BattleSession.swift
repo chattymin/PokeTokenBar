@@ -340,7 +340,7 @@ final class BattleSession {
     func name(_ side: BattleSide, _ index: Int) -> String {
         let pokemon = state[side].team[index].pokemon
         let base = language.resolveName(pokemon.names) ?? "#\(pokemon.speciesID)"
-        return UnownForm.displayName(base, speciesID: pokemon.speciesID, form: pokemon.unownForm)
+        return PokemonForm.displayName(base, speciesID: pokemon.speciesID, form: pokemon.form, language: language)
     }
 
     func moveName(_ raw: String) -> String { localized(.move, raw) }

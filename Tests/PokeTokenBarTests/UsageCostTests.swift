@@ -53,6 +53,8 @@ final class UsageCostTests: XCTestCase {
         XCTAssertEqual(unavailable.costCoverage, .unavailable)
         XCTAssertEqual(unavailable.usageCost.text(L(.ko)), "계산 불가")
         XCTAssertEqual(unavailable.usageCost.text(L(.en), compact: true), "$—")
+        let luna = entry("gpt-6-luna")
+        XCTAssertEqual(LocalUsageReader.daily(entries: [luna], localDay: luna.localDay)?.costCoverage, .estimate)
         let entries = [known, unknown, entry(cost: 0)]
         let daily = try XCTUnwrap(LocalUsageReader.daily(entries: entries, localDay: known.localDay))
         let enrichment = ProviderEnrichment.local(entries: entries)
@@ -133,6 +135,60 @@ final class UsageCostTests: XCTestCase {
                                      "modelType": "gpt-5.5", "createdAt": ISO8601DateFormatter().string(from: Date())]
         let value = try XCTUnwrap(LocalAdditionalUsageReader.parseCursorBubble(bubble, key: "test", modifiedSince: .distantPast))
         XCTAssertEqual(LocalUsageReader.daily(entries: [value], localDay: value.localDay)?.costCoverage, .unavailable)
+    }
+
+    func testSonnet55ClaudeLogPricesColdWarmAndPersistedTokenCaches() async throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory.appendingPathComponent("CostClaude-\(UUID().uuidString)")
+        let projects = root.appendingPathComponent("projects")
+        try fm.createDirectory(at: projects, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: root) }
+        let now = Date(timeIntervalSince1970: Date().timeIntervalSince1970.rounded(.down))
+        let stamp = ISO8601DateFormatter().string(from: now)
+        let transcript = projects.appendingPathComponent("session.jsonl")
+        let source = """
+        {"type":"assistant","timestamp":"\(stamp)","requestId":"request-1","message":{"id":"message-1",\
+        "model":"claude-sonnet-5-5","usage":{"input_tokens":100,"output_tokens":10,\
+        "cache_creation_input_tokens":40,"cache_read_input_tokens":1000}}}
+
+        """
+        try source.write(to: transcript, atomically: true, encoding: .utf8)
+        // Whole-second mtimes survive the JSON cache's Date round trip exactly.
+        try fm.setAttributes([.modificationDate: now], ofItemAtPath: transcript.path)
+        let cacheURL = root.appendingPathComponent("usage-cache.json")
+        let cache = LocalUsageCache(claudeRoots: [projects], fileURL: cacheURL, now: { now })
+
+        func assertPrice(_ entries: [LocalUsageReader.Entry]) throws {
+            let parsed = try XCTUnwrap(entries.first)
+            XCTAssertEqual(entries.count, 1)
+            XCTAssertNil(parsed.explicitCost, "a transcript without cost-state must be repriced at aggregation time")
+            let daily = try XCTUnwrap(LocalUsageReader.daily(entries: entries, localDay: parsed.localDay))
+            XCTAssertEqual(daily.totalTokens, 1_150)
+            // Official $/MTok: 100*2 + 10*10 + 40*2.5 + 1000*0.1, divided by 1M.
+            XCTAssertEqual(daily.totalCost, 0.0005, accuracy: 1e-12)
+            XCTAssertEqual(daily.costCoverage, .estimate)
+            let enrichment = ProviderEnrichment.local(entries: entries, now: now)
+            for cost in [enrichment.weekTotal?.totalCost, enrichment.monthTotal?.totalCost,
+                         enrichment.monthDaily?.last?.totalCost, enrichment.activeBlock?.costUSD] {
+                XCTAssertEqual(try XCTUnwrap(cost), 0.0005, accuracy: 1e-12)
+            }
+            XCTAssertEqual(enrichment.monthTotal?.costCoverage, .estimate)
+        }
+
+        let cold = await cache.claudeEntries(modifiedSince: .distantPast)
+        try assertPrice(cold)
+        XCTAssertTrue(fm.fileExists(atPath: cacheURL.path))
+
+        // Keep the signature but remove every parseable record: later reads must hit raw-entry
+        // caches, rather than accidentally proving the price only by reparsing the source.
+        try String(repeating: " ", count: source.utf8.count).write(to: transcript, atomically: false, encoding: .utf8)
+        try fm.setAttributes([.modificationDate: now], ofItemAtPath: transcript.path)
+        XCTAssertTrue(LocalUsageReader.parseClaudeFile(transcript, fmt: LocalUsageReader.localDayFormatter()).isEmpty)
+        let warm = await cache.claudeEntries(modifiedSince: .distantPast)
+        try assertPrice(warm)
+        let reloaded = LocalUsageCache(claudeRoots: [projects], fileURL: cacheURL, now: { now })
+        let persisted = await reloaded.claudeEntries(modifiedSince: .distantPast)
+        try assertPrice(persisted)
     }
 
     func testCodexProviderPricesColdAndWarmCacheAndMarksTotalOnlyUnknown() async throws {

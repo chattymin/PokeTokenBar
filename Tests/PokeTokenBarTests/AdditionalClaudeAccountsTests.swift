@@ -846,13 +846,23 @@ final class AdditionalClaudeAccountsStoreTests: XCTestCase {
         await store.refresh(scheduleEmptyRetry: false)
         await store.refresh(scheduleEmptyRetry: false)
         var tiers: [String: Int] = [:]
+        var epochs: [String: String] = [:]
 
-        let grants = CompanionStore.evaluateCandyGrants(windows: store.candyEligibleWindows, grantTier: &tiers)
+        let grants = CompanionStore.evaluateCandyGrants(
+            windows: store.candyEligibleWindows,
+            grantTier: &tiers,
+            windowEpoch: &epochs)
         XCTAssertEqual(grants.map(\.count).reduce(0, +), 1 + 1 + RareCandy.weeklyGrant)
 
         let defaultOnly = store.candyEligibleWindows.filter { !$0.key.contains(workKey) }
-        XCTAssertTrue(CompanionStore.evaluateCandyGrants(windows: defaultOnly, grantTier: &tiers).isEmpty)
-        XCTAssertTrue(CompanionStore.evaluateCandyGrants(windows: store.candyEligibleWindows, grantTier: &tiers).isEmpty)
+        XCTAssertTrue(CompanionStore.evaluateCandyGrants(
+            windows: defaultOnly,
+            grantTier: &tiers,
+            windowEpoch: &epochs).isEmpty)
+        XCTAssertTrue(CompanionStore.evaluateCandyGrants(
+            windows: store.candyEligibleWindows,
+            grantTier: &tiers,
+            windowEpoch: &epochs).isEmpty)
     }
 
     /// The first-run seed only covers the windows known at first launch: an account found later

@@ -55,6 +55,19 @@ final class DexColorRenderingTests: XCTestCase {
         return (CompanionStore(provider: ColorRenderingProvider(), fileURL: file), file)
     }
 
+    private func fixture(onlyShiny: Bool) throws -> (CompanionStore, URL) {
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent("dex-color-\(UUID()).json")
+        var state = CompanionState()
+        state.language = .en
+        state.dex = [
+            DexEntry(baseID: 606, finalID: 606, chainOrder: [606], rarity: .common,
+                     caughtAt: Date(timeIntervalSince1970: 1_700_000_000),
+                     isShiny: onlyShiny, names: [606: ["en": "Elgyem"]])
+        ]
+        try JSONEncoder().encode(state).write(to: file)
+        return (CompanionStore(provider: ColorRenderingProvider(), fileURL: file), file)
+    }
+
     private func colorRows(_ captured: NSBitmapImageRep, shiny: Bool) -> [Int] {
         // AppKit display caches may use float/extended color formats. Normalize via PNG
         // before reading components, matching the pixels written to the evidence file.
@@ -204,4 +217,45 @@ final class DexColorRenderingTests: XCTestCase {
             }
         }
     }
+
+    func testPokedexGridRendersShinySpeciesColor() throws {
+        try withSprites {
+            for shiny in [true, false] {
+                let (store, file) = try fixture(onlyShiny: shiny)
+                defer { try? FileManager.default.removeItem(at: file) }
+                let navigation = PopoverNavigation()
+                navigation.showingCollectionLog = false
+                let view = CollectionView(store: store, navigation: navigation)
+                    .frame(width: PopoverMetrics.contentWidth, height: 520)
+                    .background(Color.white)
+                    .environment(\.colorScheme, .light)
+                    .environment(\.locale, store.language.displayLocale)
+                let host = NSHostingView(rootView: view)
+                host.frame = NSRect(x: 0, y: 0, width: PopoverMetrics.contentWidth, height: 520)
+                let window = NSWindow(contentRect: NSRect(x: -10000, y: -10000,
+                    width: PopoverMetrics.contentWidth, height: 520),
+                    styleMask: .borderless, backing: .buffered, defer: false)
+                window.isReleasedWhenClosed = false
+                window.appearance = NSAppearance(named: .aqua)
+                window.contentView = host
+                window.orderFront(nil)
+                defer { window.close() }
+                host.layoutSubtreeIfNeeded()
+                RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.1))
+                host.layoutSubtreeIfNeeded()
+                let bitmap = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+                host.cacheDisplay(in: host.bounds, to: bitmap)
+                let normalRows = colorRows(bitmap, shiny: false)
+                let shinyRows = colorRows(bitmap, shiny: true)
+                if shiny {
+                    XCTAssertGreaterThan(shinyRows.count, 20, "shiny species must render shiny pixels in Pokédex grid")
+                    XCTAssertEqual(normalRows.count, 0, "shiny species must not render normal pixels in Pokédex grid")
+                } else {
+                    XCTAssertGreaterThan(normalRows.count, 20, "normal species must render normal pixels in Pokédex grid")
+                    XCTAssertEqual(shinyRows.count, 0, "normal species must not render shiny pixels in Pokédex grid")
+                }
+            }
+        }
+    }
 }
+

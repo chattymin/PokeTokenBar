@@ -25,7 +25,7 @@ private let thunderWave = status("thunder-wave", type: "electric", category: "ai
 
 private func mon(_ id: String, hp: Int = 200, attack: Int = 80, defense: Int = 80, speed: Int = 50, level: Int = 50,
                  types: [String] = ["normal"], moves: [BattleMove] = [tackle], gender: PokemonGender? = nil) -> BattlePokemon {
-    BattlePokemon(instanceID: id, speciesID: 25, names: ["en": id], level: level, isShiny: false, unownForm: nil,
+    BattlePokemon(instanceID: id, speciesID: 25, names: ["en": id], level: level, isShiny: false, form: nil,
                   gender: gender, nature: nil, abilityName: nil, types: types,
                   stats: BattleStats(hp: hp, attack: attack, defense: defense, specialAttack: 80, specialDefense: 80,
                                      speed: speed),

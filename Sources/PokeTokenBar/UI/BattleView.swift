@@ -195,7 +195,7 @@ struct BattleView: View {
     private func teamSlot(_ entry: DexEntry, isLead: Bool, _ l: L) -> some View {
         Button { store.toggleBattleTeamMember(entry) } label: {
             VStack(spacing: 1) {
-                SpriteView(speciesID: entry.finalID, size: Self.thumb, shiny: entry.isShiny, unownForm: entry.unownForm)
+                SpriteView(speciesID: entry.finalID, size: Self.thumb, shiny: entry.isShiny, form: entry.form)
                 Text(levelText(entry, l)).font(.system(size: 9)).foregroundStyle(.secondary).monospacedDigit()
             }
             .frame(maxWidth: .infinity)
@@ -229,7 +229,7 @@ struct BattleView: View {
         let disabled = slot == nil && store.isBattleTeamFull
         return Button { store.toggleBattleTeamMember(entry) } label: {
             VStack(spacing: 1) {
-                SpriteView(speciesID: entry.finalID, size: Self.thumb, shiny: entry.isShiny, unownForm: entry.unownForm)
+                SpriteView(speciesID: entry.finalID, size: Self.thumb, shiny: entry.isShiny, form: entry.form)
                 Text(levelText(entry, l)).font(.system(size: 9)).foregroundStyle(.secondary).monospacedDigit()
             }
             .frame(maxWidth: .infinity)
@@ -301,7 +301,8 @@ struct BattleView: View {
 
     private func tooltip(_ entry: DexEntry, _ l: L) -> String {
         let name = store.dexStoredChainNames(entry)?[entry.finalID] ?? "#\(entry.finalID)"
-        var parts = [UnownForm.displayName(name, speciesID: entry.finalID, form: entry.unownForm), levelText(entry, l)]
+        var parts = [PokemonForm.displayName(name, speciesID: entry.finalID, form: entry.form, language: store.language),
+                     levelText(entry, l)]
         if let nature = entry.nature { parts.append(nature.name(store.language)) }
         if entry.isShiny { parts.append(l.dexShinyLabel) }
         return parts.joined(separator: " · ")
@@ -348,8 +349,10 @@ enum BattleNamePrefetch {
     static func load(_ teams: [BattleTeam], provider: any PokemonNameProviding = PokemonNameClient.shared,
                      store: PokemonNameDisplayStore = .shared) async {
         let moves = teams.flatMap(\.members).flatMap(\.moves) + [BattleMove.struggle]
+        let forms = teams.flatMap(\.members).compactMap { PokemonForm.nameResource(speciesID: $0.speciesID, form: $0.form) }
         let resources = Set(moves.map { PokemonNameResource(kind: .move, name: $0.name) }
-            + moves.filter { $0.type != BattleTypeChart.typeless }.map { PokemonNameResource(kind: .type, name: $0.type) })
+            + moves.filter { $0.type != BattleTypeChart.typeless }.map { PokemonNameResource(kind: .type, name: $0.type) }
+            + forms)
         await withTaskGroup(of: Void.self) { group in
             for resource in resources where store.names[resource] == nil {
                 group.addTask { _ = await store.load(resource, provider: provider) }

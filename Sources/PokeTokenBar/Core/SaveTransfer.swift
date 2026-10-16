@@ -154,22 +154,36 @@ enum SaveTransfer {
         // 그 보증으로 미리 뽑아둔 종(pendingHatchID)도 함께 버린다 — 보증만 지우면 졸업 후 받는 **무료**
         // 알이 그 pre-roll 로 부화해, 아무도 사지 않은 프리미엄 결과가 나온다.
         if s.active != nil { s.eggTier = nil; s.pendingHatchID = nil }
-        s.pendingUnownForm = UnownForm.resolved(speciesID: s.pendingHatchID ?? 0, form: s.pendingUnownForm)
+        s.pendingForm = PokemonForm.resolved(baseID: s.pendingHatchID ?? 0, form: s.pendingForm)
         // 만족시킬 수 없는 보증은 알을 영구히 못 깨게 만든다 — 전설은 capture_rate 로 표현할 수 없어
         // (captureRateCeiling == nil) 두 롤 경로 모두 후보를 0개로 만들고, 부화가 없으니 보증도 소비되지
         // 않으며, 새 알 구매는 `hasActive` 게이트에 막혀 빠져나갈 수단이 없다. 디코드는 *성공*하므로
         // load() 의 .corrupt 복구도 안 걸려 파일을 손으로 지우기 전엔 앱을 못 쓴다.
         // 관대 디코딩은 모르는 rawValue 만 걸러낼 뿐 **아는데 만족 불가능한 값**은 그대로 통과시킨다.
         if s.eggTier?.captureRateCeiling == nil { s.eggTier = nil }
+        // 진화 체인에 같은 종이 두 번 들어오면(손편집) 도감 이름 조회·놓아주기·졸업의
+        // `Dictionary(uniqueKeysWithValues:)` 가 트랩한다. 첫 등장만 남긴다.
+        func deduped(_ ids: [Int]) -> [Int] {
+            var seen = Set<Int>()
+            return ids.filter { seen.insert($0).inserted }
+        }
         if var active = s.active {
             active.usedAtStage = clampToken(active.usedAtStage)
             // totalForms 는 `kk * (kk + 1)` 형태로 쓰여(PokemonBalance.phaseThreshold) 큰 값이 그 자체로 트랩이다.
             active.totalForms = min(max(1, active.totalForms), 12)
             active.stageIndex = min(max(0, active.stageIndex), max(0, active.pathIDs.count - 1))
+            let currentID = active.currentID
+            active.pathIDs = deduped(active.pathIDs)
+            active.plannedPathIDs = deduped(active.plannedPathIDs)
+            active.stageIndex = active.pathIDs.firstIndex(of: currentID) ?? active.stageIndex
+            active.stageIndex = min(active.stageIndex, max(0, active.pathIDs.count - 1))
             active.profile?.sanitize()
             s.active = active
         }
-        for index in s.dex.indices { s.dex[index].profile?.sanitize() }
+        for index in s.dex.indices {
+            s.dex[index].chainOrder = deduped(s.dex[index].chainOrder)
+            s.dex[index].profile?.sanitize()
+        }
         s.reconcileRepresentativeSelection()
         s.reconcileBattleTeam()
         s.battleRecord = BattleRecord(wins: max(0, s.battleRecord.wins), losses: max(0, s.battleRecord.losses),
@@ -181,7 +195,7 @@ enum SaveTransfer {
     ///
     /// `CompanionState` 의 필드는 이전 관점에서 세 부류다.
     ///  - **진행**: 어느 기기에서든 참(`usedSinceInstall`·`dex`·`inventory`·`active`·`eggUsage`·`eggTier`·
-    ///    `pendingHatchID`·`pendingUnownForm`·`representativeSpeciesID`·`representativeUnownForm`·`battleTeam`·`battleRecord`…)
+    ///    `pendingHatchID`·`pendingForm`·`representativeSpeciesID`·`representativeForm`·`battleTeam`·`battleRecord`…)
     ///    → 그대로. 알 보증(`eggTier`)은 산 물건이지 이 기기의 장부가 아니라 기기를 옮겨도 따라간다.
     ///  - **로컬 장부**: *그 기기가* 어디까지 적립했나(`claimedTodayTokensByProvider`·`lastDate`·`installBaselineSet`)
     ///    → 새 기기 기준으로 다시 잡는다. 그대로 들여오면 옛 기기의 오늘 총량이 문턱이 되어
@@ -190,7 +204,7 @@ enum SaveTransfer {
     ///  - **기기 환경설정**: 진행이 아니라 이 기기에서 보는 방식(`language`) → **현재 기기 값을 지킨다**.
     ///    일본어 Mac 의 세이브가 영어 Mac 의 UI 언어를 바꾸면 안 된다.
     ///
-    /// 계정 전역 원장(`candyGrantTier`)은 교체가 아니라 **key 별 max 병합**이다. 한도 창 key 는 계정
+    /// 계정 전역 원장(`candyGrantTier`·`candyWindowEpoch`)은 교체가 아니라 **key 별 병합**이다. 한도 창 key 는 계정
     /// 단위라 두 기기가 같은 창을 본다 — 더 오래된 세이브로 통째 교체하면 이미 지급한 창의 기록이
     /// 사라져 같은 창에서 사탕이 재지급된다(보존만으로는 이 역방향을 못 막는다).
     static func rebasedForThisDevice(_ imported: CompanionState,
@@ -201,6 +215,9 @@ enum SaveTransfer {
         var state = imported
         state.language = current.language
         state.candyGrantTier = mergedGrantTier(imported.candyGrantTier, current.candyGrantTier)
+        state.candyWindowEpoch = mergedWindowEpochs(
+            imported.candyWindowEpoch, imported.candyGrantTier,
+            current.candyWindowEpoch, current.candyGrantTier)
         state.candyFeatureSeeded = imported.candyFeatureSeeded || current.candyFeatureSeeded
         let hasCurrentProviderData = hasUsageData && !todayTokensByProvider.isEmpty
         if hasCurrentProviderData {
@@ -223,5 +240,29 @@ enum SaveTransfer {
     /// 창 key 별로 더 높은 tier 를 남긴다 — 어느 쪽에서든 이미 지급했으면 지급한 것으로 본다.
     static func mergedGrantTier(_ a: [String: Int], _ b: [String: Int]) -> [String: Int] {
         a.merging(b) { max($0, $1) }
+    }
+
+    /// epoch 병합 — 양쪽이 이미 지급(tier≥1)한 창은 더 늦은 epoch 를 남겨 현재 창에서 재지급을 막고,
+    /// 한쪽만 지급했으면 그쪽 epoch 를 쓴다(다른 기기가 못 본 창은 이후 live epoch 교체로 재무장 가능).
+    static func mergedWindowEpochs(
+        _ epochsA: [String: String], _ tiersA: [String: Int],
+        _ epochsB: [String: String], _ tiersB: [String: Int]
+    ) -> [String: String] {
+        let keys = Set(epochsA.keys).union(epochsB.keys).union(tiersA.keys).union(tiersB.keys)
+        var out: [String: String] = [:]
+        for key in keys {
+            let tierA = tiersA[key] ?? 0
+            let tierB = tiersB[key] ?? 0
+            if tierA > 0, tierB > 0 {
+                out[key] = [epochsA[key], epochsB[key]].compactMap { $0 }.max()
+            } else if tierA > 0 {
+                out[key] = epochsA[key]
+            } else if tierB > 0 {
+                out[key] = epochsB[key]
+            } else {
+                out[key] = [epochsA[key], epochsB[key]].compactMap { $0 }.max()
+            }
+        }
+        return out.compactMapValues { $0 }
     }
 }

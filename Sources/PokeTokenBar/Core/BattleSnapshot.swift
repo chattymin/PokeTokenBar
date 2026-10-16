@@ -18,7 +18,7 @@ struct BattlePokemon: Codable, Sendable, Equatable {
     let names: [String: String]
     let level: Int
     let isShiny: Bool
-    let unownForm: UnownForm?
+    let form: PokemonForm?
     let gender: PokemonGender?
     let nature: PokemonNature?
     let abilityName: String?
@@ -66,6 +66,7 @@ extension BattlePokemon {
         guard (1...64).contains(instanceID.count), (1...100).contains(level) else { return false }
         guard statValues.allSatisfy({ (1...9_999).contains($0) }) else { return false }
         guard (1...2).contains(types.count), types.allSatisfy({ (1...20).contains($0.count) }) else { return false }
+        guard (form?.rawValue.count ?? 1) <= 32 else { return false }
         guard moves.count <= 4, moves.allSatisfy(\.isPlausible), (1...9_999).contains(weight) else { return false }
         return names.count <= 64 && names.allSatisfy { $0.key.count <= 16 && $0.value.count <= 64 }
     }
@@ -125,7 +126,7 @@ enum BattleSnapshotBuilder {
             names: entry.names?[entry.finalID] ?? [:],
             level: profile.level,
             isShiny: entry.isShiny,
-            unownForm: entry.unownForm,
+            form: entry.form,
             gender: profile.gender,
             nature: entry.nature,
             abilityName: profile.abilityName,

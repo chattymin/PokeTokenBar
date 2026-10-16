@@ -8,9 +8,10 @@ enum TokenFormatter {
         switch v {
         case ..<1_000:
             return "\(value)"
-        case ..<1_000_000:
+        // K and M use one decimal: promote when rounding would display 1000.0.
+        case ..<999_950:
             return sign + trim(v / 1_000, decimals: 1) + "K"
-        case ..<1_000_000_000:
+        case ..<999_950_000:
             return sign + trim(v / 1_000_000, decimals: 1) + "M"
         default:
             return sign + trim(v / 1_000_000_000, decimals: 2) + "B"
@@ -35,14 +36,19 @@ enum TokenFormatter {
     }
 
     /// 메뉴바용 짧은 비용 표기: $9.5 / $311 / $1.2K
+    /// 구간 판정은 원값이 아니라 *반올림된 문자열*로 한다 — 99.96 은 "$100.0" 이 아니라 "$100".
     static func costCompact(_ usd: Double) -> String {
-        if usd < 100 { return String(format: "$%.1f", usd) }
-        if usd < 10_000 { return String(format: "$%.0f", usd) }
+        let tenths = String(format: "%.1f", usd)
+        if let v = Double(tenths), v < 100 { return "$" + tenths }
+        let whole = String(format: "%.0f", usd)
+        if let v = Double(whole), v < 10_000 { return "$" + whole }
         return String(format: "$%.1fK", usd / 1_000)
     }
 
+    /// 79.96 → "80%" (not "80.0%"), 88.35 → "88.3%"
     static func percent(_ value: Double) -> String {
-        value == value.rounded() ? String(format: "%.0f%%", value) : String(format: "%.1f%%", value)
+        let tenths = String(format: "%.1f", value)
+        return (tenths.hasSuffix(".0") ? String(tenths.dropLast(2)) : tenths) + "%"
     }
 
     private static func trim(_ value: Double, decimals: Int) -> String {

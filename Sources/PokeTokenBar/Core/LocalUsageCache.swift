@@ -32,19 +32,22 @@ actor LocalUsageCache {
         var grok: [String: Blob]
         var pi: [String: Blob]
         var omp: [String: Blob]
+        var kimi: [String: Blob]
         var claudeParserVersion: Int
         var codexParserVersion: Int
         var codexSessionIndexVersion: Int
         var grokParserVersion: Int
         var piParserVersion: Int
         var ompParserVersion: Int
+        var kimiParserVersion: Int
 
         init(claude: [String: Blob], codex: [String: CodexBlob],
              codexSessionIDs: [String: CodexSessionProbe], gemini: [String: Blob],
-             grok: [String: Blob], pi: [String: Blob], omp: [String: Blob], claudeParserVersion: Int,
+             grok: [String: Blob], pi: [String: Blob], omp: [String: Blob], kimi: [String: Blob],
+             claudeParserVersion: Int,
              codexParserVersion: Int,
              codexSessionIndexVersion: Int, grokParserVersion: Int, piParserVersion: Int,
-             ompParserVersion: Int) {
+             ompParserVersion: Int, kimiParserVersion: Int) {
             self.claude = claude
             self.codex = codex
             self.codexSessionIDs = codexSessionIDs
@@ -52,12 +55,14 @@ actor LocalUsageCache {
             self.grok = grok
             self.pi = pi
             self.omp = omp
+            self.kimi = kimi
             self.claudeParserVersion = claudeParserVersion
             self.codexParserVersion = codexParserVersion
             self.codexSessionIndexVersion = codexSessionIndexVersion
             self.grokParserVersion = grokParserVersion
             self.piParserVersion = piParserVersion
             self.ompParserVersion = ompParserVersion
+            self.kimiParserVersion = kimiParserVersion
         }
 
         // Backward compat: older snapshots without the gemini/grok/omp/codexSessionIDs keys still load (no cold-start recurrence).
@@ -72,12 +77,14 @@ actor LocalUsageCache {
             grok = try c.decodeIfPresent([String: Blob].self, forKey: .grok) ?? [:]
             pi = try c.decodeIfPresent([String: Blob].self, forKey: .pi) ?? [:]
             omp = try c.decodeIfPresent([String: Blob].self, forKey: .omp) ?? [:]
+            kimi = try c.decodeIfPresent([String: Blob].self, forKey: .kimi) ?? [:]
             claudeParserVersion = try c.decodeIfPresent(Int.self, forKey: .claudeParserVersion) ?? 0
             codexParserVersion = try c.decodeIfPresent(Int.self, forKey: .codexParserVersion) ?? 0
             codexSessionIndexVersion = try c.decodeIfPresent(Int.self, forKey: .codexSessionIndexVersion) ?? 0
             grokParserVersion = try c.decodeIfPresent(Int.self, forKey: .grokParserVersion) ?? 0
             piParserVersion = try c.decodeIfPresent(Int.self, forKey: .piParserVersion) ?? 0
             ompParserVersion = try c.decodeIfPresent(Int.self, forKey: .ompParserVersion) ?? 0
+            kimiParserVersion = try c.decodeIfPresent(Int.self, forKey: .kimiParserVersion) ?? 0
         }
     }
 
@@ -99,6 +106,8 @@ actor LocalUsageCache {
     private static let piParserVersion = 3
     /// Omp usage mapping/dedup semantics. Bump when the direct usage paths, bridge exclusion, or bucket mapping changes.
     private static let ompParserVersion = 2
+    /// Kimi Code `usage.record` mapping/scope rules. Bump when the bucket mapping or scope filter changes.
+    private static let kimiParserVersion = 1
 
     private var claudeCache: [String: Blob] = [:]
     private var codexCache: [String: CodexBlob] = [:]
@@ -107,6 +116,7 @@ actor LocalUsageCache {
     private var grokCache: [String: Blob] = [:]
     private var piCache: [String: Blob] = [:]
     private var ompCache: [String: Blob] = [:]
+    private var kimiCache: [String: Blob] = [:]
     private var loaded = false
     private var dirty = false
     private var lastSave: Date?
@@ -121,6 +131,7 @@ actor LocalUsageCache {
     private let grokRoots: [URL]?
     private let piRoots: [URL]?
     private let ompRoots: [URL]?
+    private let kimiRoots: [URL]?
     private let fileURL: URL
     /// Whether this cache reads and writes `fileURL` (`AppEnv.persistsToUserLocation`). Not private so
     /// tests can check the gate without doing any IO.
@@ -137,7 +148,7 @@ actor LocalUsageCache {
          codexRoot: URL? = nil, codexRoots: [URL]? = nil,
          geminiRoot: URL? = nil, grokRoot: URL? = nil,
          geminiRoots: [URL]? = nil, grokRoots: [URL]? = nil,
-         piRoots: [URL]? = nil, ompRoots: [URL]? = nil,
+         piRoots: [URL]? = nil, ompRoots: [URL]? = nil, kimiRoots: [URL]? = nil,
          fileURL: URL? = nil, now: @escaping @Sendable () -> Date = Date.init,
          codexProbe: @escaping @Sendable (URL) throws -> String? = {
              try LocalUsageReader.probeCodexRolloutSessionID(at: $0)
@@ -155,6 +166,7 @@ actor LocalUsageCache {
         self.grokRoots = grokRoots
         self.piRoots = piRoots
         self.ompRoots = ompRoots
+        self.kimiRoots = kimiRoots
         self.fileURL = fileURL ?? Self.defaultFileURL
         // `LocalUsageProvider` uses `.shared`, so without this a single `refresh()` during `swift test`
         // reads and rewrites the user's real usage-cache.json.
@@ -284,6 +296,24 @@ actor LocalUsageCache {
             }
         }
         saveIfNeeded()
+        return LocalUsageReader.dedupKeepMax(all)
+    }
+
+    func kimiEntries(modifiedSince: Date) -> [LocalUsageReader.Entry] {
+        ensureLoaded()
+        let fmt = LocalUsageReader.localDayFormatter()
+        let roots = kimiRoots ?? CustomScanRoots.union(
+            defaults: LocalUsageReader.kimiSessionRoots,
+            extraRaw: CustomScanRoots.storedValue(for: "kimi_code"))
+        var all: [LocalUsageReader.Entry] = []
+        for root in roots {
+            all += collect(root: root, since: modifiedSince, cache: &kimiCache,
+                           include: LocalUsageReader.isKimiUsageFile) {
+                LocalUsageReader.parseKimiWireFile($0, fmt: fmt)
+            }
+        }
+        saveIfNeeded()
+        // A forked session copies its records; the content-based id folds the copy (global dedup).
         return LocalUsageReader.dedupKeepMax(all)
     }
 
@@ -425,7 +455,7 @@ actor LocalUsageCache {
     var cachedBlobCount: Int {
         ensureLoaded()
         return claudeCache.count + codexCache.count + geminiCache.count
-            + grokCache.count + piCache.count + ompCache.count
+            + grokCache.count + piCache.count + ompCache.count + kimiCache.count
     }
 
     private func ensureLoaded() {
@@ -444,6 +474,7 @@ actor LocalUsageCache {
         grokCache = snap.grok
         piCache = snap.pi
         ompCache = snap.omp
+        kimiCache = snap.kimi
 
         if snap.claudeParserVersion != Self.claudeParserVersion {
             claudeCache = [:]
@@ -469,6 +500,10 @@ actor LocalUsageCache {
             ompCache = [:]
             dirty = true
         }
+        if snap.kimiParserVersion != Self.kimiParserVersion {
+            kimiCache = [:]
+            dirty = true
+        }
     }
 
     /// 어떤 조회 윈도우(오늘/주/월)에도 들지 않는 오래된 파일 blob 을 제거해 캐시 무한 증가를 막는다.
@@ -482,6 +517,7 @@ actor LocalUsageCache {
         grokCache = grokCache.filter { $0.value.mtime >= cutoff }
         piCache = piCache.filter { $0.value.mtime >= cutoff }
         ompCache = ompCache.filter { $0.value.mtime >= cutoff }
+        kimiCache = kimiCache.filter { $0.value.mtime >= cutoff }
     }
 
     /// 변경이 있으면 디스크에 저장(최소 60초 간격으로 throttle — 잦은 쓰기 방지).
@@ -498,12 +534,14 @@ actor LocalUsageCache {
             grok: grokCache,
             pi: piCache,
             omp: ompCache,
+            kimi: kimiCache,
             claudeParserVersion: Self.claudeParserVersion,
             codexParserVersion: Self.codexParserVersion,
             codexSessionIndexVersion: Self.codexSessionIndexVersion,
             grokParserVersion: Self.grokParserVersion,
             piParserVersion: Self.piParserVersion,
-            ompParserVersion: Self.ompParserVersion)
+            ompParserVersion: Self.ompParserVersion,
+            kimiParserVersion: Self.kimiParserVersion)
         if let data = try? JSONEncoder().encode(snap) {
             // JSON 은 zlib 로 크게 압축됨(수 MB → 수백 KB). 실패 시 평문 저장(로드가 양쪽 다 처리).
             let out = (try? (data as NSData).compressed(using: .zlib) as Data) ?? data

@@ -135,7 +135,7 @@ struct BattleScreen: View {
         return ZStack(alignment: .bottom) {
             Ellipse().fill(Color.black.opacity(0.12)).frame(width: size * 0.9, height: size * 0.22)
             SpriteView(speciesID: species, size: size, animated: true, shiny: combatant.appearance == nil && pokemon.isShiny,
-                       unownForm: combatant.appearance == nil ? pokemon.unownForm : nil)
+                       form: combatant.appearance == nil ? pokemon.form : nil)
                 .scaleEffect(x: side == session.mySide ? -1 : 1, y: 1)
                 .id("\(side)-\(index)-\(species)")
                 .opacity(isOut ? 1 : 0)
@@ -303,7 +303,7 @@ struct BattleScreen: View {
                     Button { pick(index) } label: {
                         HStack(spacing: 6) {
                             SpriteView(speciesID: member.pokemon.speciesID, size: 34, shiny: member.pokemon.isShiny,
-                                       unownForm: member.pokemon.unownForm)
+                                       form: member.pokemon.form)
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(session.name(session.mySide, index)).font(.caption.weight(.semibold)).lineLimit(1)
                                 HPBar(hp: member.hp, maxHP: member.pokemon.stats.hp).frame(height: 5)

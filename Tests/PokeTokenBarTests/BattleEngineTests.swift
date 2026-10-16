@@ -22,7 +22,7 @@ private let splash = move("metronome", power: nil, damageClass: .status, target:
 
 private func mon(_ id: String, hp: Int = 100, attack: Int = 50, defense: Int = 50, speed: Int = 50,
                  level: Int = 50, types: [String] = ["normal"], moves: [BattleMove] = [tackle]) -> BattlePokemon {
-    BattlePokemon(instanceID: id, speciesID: 25, names: ["en": id], level: level, isShiny: false, unownForm: nil,
+    BattlePokemon(instanceID: id, speciesID: 25, names: ["en": id], level: level, isShiny: false, form: nil,
                   gender: nil, nature: nil, abilityName: nil, types: types,
                   stats: BattleStats(hp: hp, attack: attack, defense: defense, specialAttack: 50,
                                      specialDefense: 50, speed: speed),

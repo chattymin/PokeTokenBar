@@ -10,7 +10,7 @@ private func move(_ name: String, type: String = "normal", power: Int? = 40, dam
 private func mon(_ id: String, hp: Int = 100, speed: Int = 50, types: [String] = ["normal"],
                  moves: [BattleMove] = [move("tackle")], names: [String: String]? = nil) -> BattlePokemon {
     BattlePokemon(instanceID: id, speciesID: 25, names: names ?? ["en": id.capitalized], level: 50, isShiny: false,
-                  unownForm: nil, gender: nil, nature: nil, abilityName: nil, types: types,
+                  form: nil, gender: nil, nature: nil, abilityName: nil, types: types,
                   stats: BattleStats(hp: hp, attack: 60, defense: 50, specialAttack: 60, specialDefense: 50, speed: speed),
                   moves: moves)
 }
@@ -115,7 +115,7 @@ final class BattleOpponentFactoryTests: XCTestCase {
         let player = try team(levels.enumerated().map { index, level in
             let base = mon("p\(index)")
             return BattlePokemon(instanceID: base.instanceID, speciesID: base.speciesID, names: base.names, level: level,
-                                 isShiny: false, unownForm: nil, gender: nil, nature: nil, abilityName: nil,
+                                 isShiny: false, form: nil, gender: nil, nature: nil, abilityName: nil,
                                  types: base.types, stats: base.stats, moves: base.moves)
         })
         let factory = BattleOpponentFactory(details: FactoryDetails(), moves: FactoryMoves(),

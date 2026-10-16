@@ -6,10 +6,10 @@ private func move(_ name: String, power: Int? = 40, pp: Int = 20) -> BattleMove 
                damageClass: .physical, target: "selected-pokemon", category: "damage")
 }
 
-private func mon(_ id: String, hp: Int = 100, speed: Int = 50, level: Int = 50,
+private func mon(_ id: String, hp: Int = 100, speed: Int = 50, level: Int = 50, form: PokemonForm? = nil,
                  moves: [BattleMove] = [move("tackle"), move("slam", power: 80)]) -> BattlePokemon {
     BattlePokemon(instanceID: id, speciesID: 25, names: ["en": id.capitalized], level: level, isShiny: false,
-                  unownForm: nil, gender: nil, nature: nil, abilityName: nil, types: ["normal"],
+                  form: form, gender: nil, nature: nil, abilityName: nil, types: ["normal"],
                   stats: BattleStats(hp: hp, attack: 60, defense: 50, specialAttack: 60, specialDefense: 50, speed: speed),
                   moves: moves)
 }
@@ -51,6 +51,8 @@ final class BattleWireTests: XCTestCase {
         XCTAssertFalse(decodes([mon("a", moves: [move("x", pp: 0)])]))
         XCTAssertFalse(decodes([mon("a", moves: (0..<5).map { move("m\($0)") })]))
         XCTAssertTrue(decodes([mon("a", moves: [])]), "no moves is legal: the engine falls back to Struggle")
+        XCTAssertTrue(decodes([mon("a", form: PokemonForm("sky"))]))
+        XCTAssertFalse(decodes([mon("a", form: PokemonForm(String(repeating: "x", count: 33)))]))
     }
 
     func testDigestChangesWithAnyStateChange() throws {

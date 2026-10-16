@@ -31,7 +31,7 @@ private let confuseRay = statusMove("confuse-ray", "confusion", type: "ghost")
 
 private func mon(_ id: String, hp: Int = 160, attack: Int = 60, defense: Int = 60, speed: Int = 50, level: Int = 50,
                  types: [String] = ["normal"], moves: [BattleMove] = [tackle], weight: Int = 100) -> BattlePokemon {
-    BattlePokemon(instanceID: id, speciesID: 25, names: ["en": id], level: level, isShiny: false, unownForm: nil,
+    BattlePokemon(instanceID: id, speciesID: 25, names: ["en": id], level: level, isShiny: false, form: nil,
                   gender: nil, nature: nil, abilityName: nil, types: types,
                   stats: BattleStats(hp: hp, attack: attack, defense: defense, specialAttack: 60,
                                      specialDefense: 60, speed: speed),
@@ -417,7 +417,7 @@ final class BattleEngineVersionTests: XCTestCase {
             _ = try state.resolveTurn(a[choices.below(a.count)], b[choices.below(b.count)])
             turns += 1
         }
-        XCTAssertEqual(BattleWireMessage.protocolVersion, 3)
+        XCTAssertEqual(BattleWireMessage.protocolVersion, 4)
         XCTAssertEqual(state.digest, "ae68e64cf558898535d9ef2d", """
             The reference battle changed. If you changed engine rules on purpose, bump \
             BattleWireMessage.protocolVersion and update both expected values here.

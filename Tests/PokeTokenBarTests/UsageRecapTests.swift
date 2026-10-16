@@ -366,11 +366,60 @@ final class UsageRecapRenderingTests: XCTestCase {
         }
     }
 
-    func testTheGraduateStripCarriesTheUnownLetter() throws {
-        let unown = DexEntry(id: "unown-q", baseID: UnownForm.speciesID, finalID: UnownForm.speciesID,
-                             chainOrder: [UnownForm.speciesID], rarity: .rare, caughtAt: date(2026, 9, 17),
-                             names: [UnownForm.speciesID: ["en": "Unown"]], unownForm: .q)
-        let dexJSON = String(decoding: try JSONEncoder().encode([unown]), as: UTF8.self)
+    func testCurrentPeriodLabelsFollowTheScopeInEveryLanguage() {
+        let expectedYears: [AppLanguage: String] = [
+            .ko: "올해", .en: "This year", .ja: "今年", .es: "Este año",
+            .fr: "Cette année", .pt: "Este ano", .de: "Dieses Jahr",
+            .ru: "Этот год",
+        ]
+        XCTAssertEqual(expectedYears.count, AppLanguage.allCases.count)
+        for language in AppLanguage.allCases {
+            let l = L(language)
+            XCTAssertEqual(l.recapCurrentPeriod(.week), l.thisWeek)
+            XCTAssertEqual(l.recapCurrentPeriod(.month), l.thisMonth)
+            XCTAssertEqual(l.recapCurrentPeriod(.year), expectedYears[language])
+        }
+    }
+
+    func testBucketDescriptionsDistinguishUsageZeroAndMissingDataInEveryLanguage() throws {
+        let suite = "recap-bucket-descriptions-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        ledger(since: key(2026, 8, 1), [(key(2026, 9, 17), 12_345)]).save(to: defaults)
+        let store = UsageStore(providers: [], autoRefresh: false, defaults: defaults)
+        let companion = CompanionStore(fileURL: url, defaults: defaults)
+
+        for language in AppLanguage.allCases {
+            companion.setLanguage(language)
+            for scope in RecapScope.allCases {
+                let content = RecapContent(store: store, companion: companion, scope: scope, offset: 0,
+                                           now: now, calendar: calendar())
+                let used = try XCTUnwrap(content.recap.buckets.first { $0.tokens == 12_345 })
+                let zero = try XCTUnwrap(content.recap.buckets.first { $0.hasData && $0.tokens == 0 })
+                let missing = try XCTUnwrap(content.recap.buckets.last { !$0.hasData })
+                XCTAssertTrue(content.accessibilityLabel(used).hasSuffix(", " + TokenFormatter.grouped(12_345)))
+                XCTAssertTrue(content.accessibilityLabel(zero).hasSuffix(", 0"))
+                XCTAssertTrue(content.accessibilityLabel(missing).hasSuffix(", " + L(language).recapNoData))
+                if scope != .year {
+                    XCTAssertTrue(content.accessibilityLabel(used).hasPrefix(content.dayLabel(used.key)))
+                } else if language == .en {
+                    XCTAssertTrue(content.accessibilityLabel(used).hasPrefix("September 2026, "))
+                    let beforeRecording = try XCTUnwrap(content.recap.buckets.first)
+                    XCTAssertFalse(beforeRecording.hasData)
+                    XCTAssertTrue(content.accessibilityLabel(beforeRecording).hasSuffix(", no data"))
+                }
+            }
+        }
+    }
+
+    func testTheGraduateStripCarriesTheUnownLetterAndOnlyTheSpriteOfOtherForms() throws {
+        let unown = DexEntry(id: "unown-q", baseID: PokemonForm.unownSpeciesID, finalID: PokemonForm.unownSpeciesID,
+                             chainOrder: [PokemonForm.unownSpeciesID], rarity: .rare, caughtAt: date(2026, 9, 17),
+                             names: [PokemonForm.unownSpeciesID: ["en": "Unown"]], form: .q)
+        let wormadam = DexEntry(id: "wormadam-sandy", baseID: 412, finalID: 413, chainOrder: [412, 413],
+                                rarity: .common, caughtAt: date(2026, 9, 16),
+                                names: [413: ["en": "Wormadam"]], form: PokemonForm("sandy"))
+        let dexJSON = String(decoding: try JSONEncoder().encode([unown, wormadam]), as: UTF8.self)
         try Data(#"{"installBaselineSet":true,"usedSinceInstall":1000,"lastDate":"d","language":"en","dex":\#(dexJSON)}"#.utf8)
             .write(to: url)
         let defaults = UserDefaults(suiteName: "recap-unown-\(UUID().uuidString)")!
@@ -379,8 +428,11 @@ final class UsageRecapRenderingTests: XCTestCase {
                                    companion: CompanionStore(fileURL: url, defaults: defaults),
                                    scope: .week, offset: 0, now: now, calendar: calendar())
 
-        let graduate = try XCTUnwrap(content.graduates.first)
-        XCTAssertEqual(graduate.entry.unownForm, .q, "the strip would otherwise draw the default A sprite")
+        let graduate = try XCTUnwrap(content.graduates.first { $0.entry.id == "unown-q" })
+        XCTAssertEqual(graduate.entry.form, .q, "the strip would otherwise draw the default A sprite")
         XCTAssertEqual(graduate.name, "Unown [Q]")
+        let cloaked = try XCTUnwrap(content.graduates.first { $0.entry.id == "wormadam-sandy" })
+        XCTAssertEqual(cloaked.entry.form, PokemonForm("sandy"))
+        XCTAssertEqual(cloaked.name, "Wormadam", "a form name does not fit a quarter-row chip")
     }
 }

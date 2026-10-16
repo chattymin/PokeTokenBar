@@ -28,7 +28,7 @@ private func mon(_ id: String, hp: Int = 200, attack: Int = 80, defense: Int = 8
                  speed: Int = 50, level: Int = 50, types: [String] = ["normal"], moves: [BattleMove] = [tackle],
                  weight: Int = 100, gender: PokemonGender? = nil) -> BattlePokemon {
     BattlePokemon(instanceID: id, speciesID: 25, names: ["en": id.capitalized], level: level, isShiny: false,
-                  unownForm: nil, gender: gender, nature: nil, abilityName: nil, types: types,
+                  form: nil, gender: gender, nature: nil, abilityName: nil, types: types,
                   stats: BattleStats(hp: hp, attack: attack, defense: defense, specialAttack: spAtk,
                                      specialDefense: spDef, speed: speed),
                   moves: moves, weight: weight)

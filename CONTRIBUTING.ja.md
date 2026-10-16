@@ -19,12 +19,14 @@
 本プロジェクトは Swift Package です。リポジトリのルートから:
 
 ```bash
-swift build      # アプリターゲットをコンパイル
-swift test       # 全テストスイートを実行
+swift build             # アプリターゲットをコンパイル
+./scripts/test-gate.sh   # 全テストを実行し、ロジックコアのカバレッジを検証
 ```
 
-CI はすべてのプルリクエストで `swift build` と `swift test` を実行します。まず
-ローカルで両方が通ることを確認してください。
+CI もすべてのプルリクエストで同じコマンドを実行します。テストゲートは
+`swift test --enable-code-coverage` を実行し、デフォルトでロジックコアの行カバレッジ
+75% 以上を要求します。PR を提出する前に、ローカルで両方を実行してください。
+開発中に特定のテストだけを確認する場合は `swift test --filter <TestCase>` を使ってください。
 
 ## 貢献ワークフロー
 
@@ -47,11 +49,21 @@ CI はすべてのプルリクエストで `swift build` と `swift test` を実
 
 - [Conventional Commits](https://www.conventionalcommits.org/) スタイルを使用:
   `feat:`, `fix:`, `docs:`, `chore:`, `refactor:`, `test:` など。
-- プルリクエストテンプレートを記入してください。
-- **UI の変更**（`Sources/PokeTokenBar/UI/` 配下のすべて）は、PR で before/after を
-  説明してください。スクリーンショットや GIF は歓迎ですが任意です — 明確なテキスト説明で
-  十分です。正式な `assets/` スクリーンショットは PR ごとではなくリリース時に
+- 英語の PR タイトル（例: `fix(home): retain idle usage history`）を使い、テンプレートの
+  該当するセクションとチェックリストを記入してください。
+- **画面が変わるすべての PR** は `UI changes` に画像を埋め込む必要があります。
+  UI ディレクトリ外に起因する変更も対象です。実際のスクリーンショット、本番 UI の
+  ローカルレンダリング、変更した UI のイラストを使用できます。サンプルデータの
+  レンダリングとイラストはその旨を明記してください。既存画面には変更前後の画像、
+  新規画面には画像と以前の画面がない旨の説明が必要です。テキストだけでは代用できません。
+  画像がない場合、コーディングエージェントは許可された PR 作業の一環として生成・添付します。
+  適切な生成・添付の代替手段を試し、それでも具体的な障害で完了できない場合に限り公開を
+  保留してください。正式な `assets/` スクリーンショットは PR ごとではなくリリース時に
   再生成されます。
+- コーディングエージェントは `.agents/skills/prepare-pr/` の共通 skill を使用します。
+  `.claude/skills/prepare-pr` も同じ skill を参照します。公開前のローカルチェック:
+  `python3 scripts/check-pr.py --base origin/main --title 'docs: clarify PR requirements' --body-file /tmp/pr-body.md`。
+  UI ディレクトリ外の画面変更には `--ui-changes` を追加してください。
 
 ## コード規約
 
@@ -61,8 +73,11 @@ CI はすべてのプルリクエストで `swift build` と `swift test` を実
 - **使用量ソースの追加**（新しい AI CLI）= `UsageProvider` プロトコル
   (`Sources/PokeTokenBar/Core/UsageProvider.swift`) を新しい型ひとつで実装し、
   `UsageStore.init` のデフォルト `providers:` 配列
-  (`Sources/PokeTokenBar/Core/UsageStore.swift`) に登録します。触れる必要があるのは
-  この2箇所だけです。
+  (`Sources/PokeTokenBar/Core/UsageStore.swift`) に登録します。この2箇所は基本の追加先であり、
+  変更が2ファイルに限定されるわけではありません。ソースに応じて、リーダー、共有キャッシュとの連携、
+  カスタムスキャンパス、テストも追加・更新してください。
+  [プロバイダー拡張ガイド](docs/reference/provider-extension.md)と
+  [プロバイダー貢献チェックリスト](https://github.com/chattymin/PokeTokenBar/issues/115)に従ってください。
 - **汎用的な動作はすべてのプロバイダーにわたって集計する必要があります**（今日/週/月の
   合計、消費ペースの段階、コンパニオンのリズム）。汎用的な計算を特定のプロバイダーに結び付けたり、
   汎用パスに `providerID == "..."` のリテラル分岐を追加したりしないでください。

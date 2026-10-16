@@ -181,6 +181,11 @@ actor AntigravityTokenCache {
             if let cachedCredential, !cachedCredential.isExpired {
                 return cachedCredential.accessToken
             }
+            // An expired Keychain-sourced token still carries its refresh token in memory, and
+            // refreshing with it needs no Keychain (Google refresh tokens do not rotate).
+            if let cachedCredential, let refresh = cachedCredential.refreshToken, !refresh.isEmpty {
+                return try await resolveValidToken(from: cachedCredential)
+            }
             throw LimitsError.keychainInteractionNotAllowed
         }
 
@@ -198,15 +203,24 @@ actor AntigravityTokenCache {
             cachedCredential = cred
             return cred.accessToken
         }
+        // Keep a manually acquired refresh token before a transient grant failure: the next
+        // automatic poll must be able to retry without reading Keychain again.
+        cachedCredential = cred
         // 만료되었거나 bypassCache인 경우 refresh_token이 있다면 갱신 시도
         if let refreshToken = cred.refreshToken {
-            if let refreshed = try? await refreshGoogleToken(refreshToken: refreshToken) {
-                cachedCredential = refreshed
-                return refreshed.accessToken
+            do {
+                if let refreshed = try await refreshGoogleToken(refreshToken: refreshToken) {
+                    cachedCredential = refreshed
+                    return refreshed.accessToken
+                }
+            } catch {
+                // Sending an expired token after a temporary grant failure leads to quota HTTP401,
+                // which invalidates our only refresh credential. Leave it available for retry.
+                if cred.isExpired { throw error }
             }
         }
-        // 갱신 실패했더라도 기존 accessToken 반환 (API에서 401 나면 다시 처리)
-        cachedCredential = cred
+        // A still-valid token can survive a failed forced refresh. Nonretryable grant failures
+        // retain the existing fallback contract (API HTTP401 handles revoked credentials).
         return cred.accessToken
     }
 
@@ -253,6 +267,14 @@ actor AntigravityTokenCache {
         request.httpBody = Data(bodyString.utf8)
 
         let (data, response) = try await urlSession.data(for: request)
+        if let http = response as? HTTPURLResponse {
+            if http.statusCode == 429 {
+                throw LimitsError.rateLimited(retryAfter: OAuthLimitsProvider.retryAfterSeconds(http))
+            }
+            if (500 ... 599).contains(http.statusCode) {
+                throw LimitsError.httpStatus(http.statusCode)
+            }
+        }
         guard let http = response as? HTTPURLResponse, http.statusCode == 200,
               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let newAccessToken = json["access_token"] as? String, !newAccessToken.isEmpty else {

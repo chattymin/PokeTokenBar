@@ -1116,6 +1116,8 @@ final class LocalUsageReaderTests: XCTestCase {
         XCTAssertLessThanOrEqual(scan, LocalUsageReader.startOfMonth(now))
         XCTAssertLessThanOrEqual(scan, LocalUsageReader.startOfWeek(now))
         XCTAssertLessThanOrEqual(scan, now.addingTimeInterval(-LocalUsageReader.blockWindow))
+        XCTAssertLessThanOrEqual(scan, now.addingTimeInterval(-LocalUsageReader.recentUseWindow),
+                                 "the recent-use window (#336) must not be clipped by the mtime filter")
         XCTAssertLessThan(scan, LocalUsageReader.startOfMonth(now),
                           "월초엔 weekStart 가 더 이르므로 하한이 monthStart 보다 앞서야 한다")
 

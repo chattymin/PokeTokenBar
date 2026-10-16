@@ -121,6 +121,74 @@ final class ShopTests: XCTestCase {
         XCTAssertEqual(s2.availableTokens, 1_000_000_000 - RareCandy.price)
     }
 
+    // MARK: 수량 구매 (buy(_:count:) / maxBuyCount)
+
+    /// 최대 수량 = 잔액 ÷ 가격(내림). 가격 미만이면 0.
+    func testMaxBuyCountIsFloorOfWalletOverPrice() {
+        XCTAssertEqual(store(used: 1_200_000_000).maxBuyCount(.rareCandy), 2)
+        XCTAssertEqual(store(used: 1_200_000_000).maxBuyCount(.mint), 12)
+        XCTAssertEqual(store(used: RareCandy.price - 1).maxBuyCount(.rareCandy), 0)
+    }
+
+    /// 보유형은 잔액이 여러 개 값이어도 최대 1, 보유 후엔 0(재구매 불가).
+    func testMaxBuyCountCapsPassiveAtOne() {
+        let s = store(used: 10 * ShinyCharm.price)
+        XCTAssertEqual(s.maxBuyCount(.shinyCharm), 1)
+        XCTAssertFalse(s.buy(.shinyCharm, count: 2), "보유형 2개 구매는 거부")
+        XCTAssertEqual(s.state.spentTokens, 0)
+        XCTAssertTrue(s.buy(.shinyCharm))
+        XCTAssertEqual(s.maxBuyCount(.shinyCharm), 0)
+    }
+
+    /// N개 구매 = 지갑 price×N 차감, 인벤토리 +N(기존 재고에 합산), 성장 미터 불변.
+    func testBuyCountDebitsTotalAndCreditsInventory() {
+        let s = store(used: 2_000_000_000, rareCandy: 1)
+        XCTAssertTrue(s.buy(.rareCandy, count: 3))
+        XCTAssertEqual(s.rareCandyCount, 4)
+        XCTAssertEqual(s.state.spentTokens, 3 * RareCandy.price)
+        XCTAssertEqual(s.availableTokens, 2_000_000_000 - 3 * RareCandy.price)
+        XCTAssertEqual(s.state.usedSinceInstall, 2_000_000_000, "성장 미터(usedSinceInstall)는 불변")
+    }
+
+    /// 잔액을 정확히 소진하는 최대 수량까지는 성공.
+    func testBuyExactlyMaxCountEmptiesWallet() {
+        let s = store(used: 3 * RareCandy.price)
+        XCTAssertTrue(s.buy(.rareCandy, count: s.maxBuyCount(.rareCandy)))
+        XCTAssertEqual(s.rareCandyCount, 3)
+        XCTAssertEqual(s.availableTokens, 0)
+    }
+
+    /// 잔액을 넘는 수량은 부분 구매 없이 전부 거부 — 살 수 있는 만큼만 사고 끝나면 안 된다.
+    func testBuyCountAboveAffordableIsNoOp() {
+        let s = store(used: 1_200_000_000)   // 2개까지 가능
+        XCTAssertFalse(s.buy(.rareCandy, count: 3))
+        XCTAssertEqual(s.rareCandyCount, 0)
+        XCTAssertEqual(s.state.spentTokens, 0)
+    }
+
+    /// 0·음수 수량은 no-op(음수 차감으로 잔액이 늘어나는 경로 차단).
+    func testBuyNonPositiveCountIsNoOp() {
+        let s = store(used: 1_000_000_000)
+        XCTAssertFalse(s.buy(.rareCandy, count: 0))
+        XCTAssertFalse(s.buy(.rareCandy, count: -1))
+        XCTAssertEqual(s.rareCandyCount, 0)
+        XCTAssertEqual(s.state.spentTokens, 0)
+    }
+
+    /// [영속] 수량 구매도 재시작 후 지출·재고가 유지된다.
+    func testBuyCountPersistsAcrossRestart() {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("shop-bulk-\(UUID().uuidString).json")
+        let json = "{\"installBaselineSet\":true,\"usedSinceInstall\":1000000000,\"spentTokens\":0,"
+            + "\"lastDate\":\"d\",\"dex\":[],\"collectedFinals\":[]}"
+        try? json.data(using: .utf8)!.write(to: url)
+        let s1 = CompanionStore(provider: ShopNoProvider(), clock: { self.now }, fileURL: url, rng: SeededRNG(seed: 1))
+        XCTAssertTrue(s1.buy(.mint, count: 4))
+
+        let s2 = CompanionStore(provider: ShopNoProvider(), clock: { self.now }, fileURL: url, rng: SeededRNG(seed: 1))
+        XCTAssertEqual(s2.itemCount(.mint), 4, "재고 영속")
+        XCTAssertEqual(s2.state.spentTokens, 4 * Mint.price, "지출 영속")
+    }
+
     // MARK: 정렬 (가격 저렴한 순 + 구매 완료 보유형 맨 아래)
 
     /// 상점 목록은 가격 오름차순(민트 100M < 사탕 500M < 이로치 부적 3B).

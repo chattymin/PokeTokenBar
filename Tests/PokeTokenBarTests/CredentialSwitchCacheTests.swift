@@ -313,6 +313,70 @@ final class CredentialSwitchCacheTests: XCTestCase {
         XCTAssertEqual(KeychainReader.queryCount, 0)
     }
 
+    /// Without a token file the credential comes from Keychain on a manual refresh. Once the
+    /// access token expires (~1h), the automatic poll already holds the refresh token in memory —
+    /// refreshing with it needs no Keychain, so the poll must keep the limits fresh instead of
+    /// throwing `keychainInteractionNotAllowed` until the next manual click.
+    func testAutoPollRefreshesAnExpiredKeychainCredentialWithoutKeychain() async throws {
+        AppEnv.allowLiveFetchForTesting = true
+        defer { AppEnv.allowLiveFetchForTesting = false }
+        let savedGate = KeychainAccessGate.isDisabled
+        KeychainAccessGate.isDisabled = false
+        defer { KeychainAccessGate.isDisabled = savedGate }
+
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [MockOAuthURLProtocol.self]
+        let session = URLSession(configuration: config)
+        MockOAuthURLProtocol.reset()
+        nonisolated(unsafe) var issued = 0
+        MockOAuthURLProtocol.requestHandler = { request in
+            issued += 1
+            let bodyData = MockOAuthURLProtocol.extractBodyData(from: request)
+            let body = bodyData.flatMap { String(data: $0, encoding: .utf8) } ?? ""
+            XCTAssertTrue(body.contains("refresh_token=1%2F%2Fkeychain-refresh"))
+            // The first grant is already inside the 60 s expiry margin, so the next poll needs another.
+            let expiresIn = issued == 1 ? 30 : 3600
+            let json = "{\"access_token\": \"ya29.refreshed-\(issued)\", \"expires_in\": \(expiresIn)}"
+            let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil,
+                                           headerFields: ["Content-Type": "application/json"])!
+            return (response, Data(json.utf8))
+        }
+        let keychainJSON = """
+        {"token": {"access_token": "ya29.keychain", "refresh_token": "1//keychain-refresh",
+                   "expiry": "2020-01-01T00:00:00Z"}}
+        """
+        KeychainReader.copyMatchingForTesting = { _, result in
+            result = Data(keychainJSON.utf8) as CFData
+            return errSecSuccess
+        }
+
+        let cache = AntigravityTokenCache(tokenFileURLs: [tempDir.appendingPathComponent("absent")],
+                                          urlSession: session)
+        let manual = try await cache.accessToken(allowKeychainPrompt: true, bypassCache: true)
+        XCTAssertEqual(manual, "ya29.refreshed-1")
+
+        KeychainReader.resetQueryCountForTesting()
+        let auto = try await cache.accessToken(allowKeychainPrompt: false)
+        XCTAssertEqual(auto, "ya29.refreshed-2")
+        XCTAssertEqual(MockOAuthURLProtocol.requestCount, 2)
+        XCTAssertEqual(KeychainReader.queryCount, 0, "the automatic poll must still never open Keychain")
+
+        let again = try await cache.accessToken(allowKeychainPrompt: false)
+        XCTAssertEqual(again, "ya29.refreshed-2", "a fresh refreshed token is reused without another grant")
+        XCTAssertEqual(MockOAuthURLProtocol.requestCount, 2)
+    }
+
+    /// With no refresh token there is nothing to refresh silently: stay on the old contract.
+    func testAutoPollWithoutCachedRefreshTokenStillRequiresKeychain() async throws {
+        let cache = AntigravityTokenCache(tokenFileURLs: [tempDir.appendingPathComponent("absent")])
+        do {
+            _ = try await cache.accessToken(allowKeychainPrompt: false)
+            XCTFail("expected keychainInteractionNotAllowed")
+        } catch LimitsError.keychainInteractionNotAllowed {
+        }
+        XCTAssertEqual(KeychainReader.queryCount, 0)
+    }
+
     func testExpiredFileRefreshFailsReturnsOriginalToken() async throws {
         // Drives the provider's real network code against a stubbed transport (see AppEnv.allowsLiveLimitsFetch).
         AppEnv.allowLiveFetchForTesting = true
@@ -348,7 +412,142 @@ final class CredentialSwitchCacheTests: XCTestCase {
         XCTAssertEqual(KeychainReader.queryCount, 0)
     }
 
+    func testExpiredKeychainCredentialRetriesAfterRefreshTimeoutWithoutKeychain() async throws {
+        try await assertAntigravityRefreshRecovery(after: .timeout)
+    }
+
+    func testExpiredKeychainCredentialRetriesAfterRefresh503WithoutKeychain() async throws {
+        try await assertAntigravityRefreshRecovery(after: .unavailable)
+    }
+
+    func testExpiredKeychainCredentialRetriesAfterRefresh429WithoutKeychain() async throws {
+        try await assertAntigravityRefreshRecovery(after: .rateLimited)
+    }
+
+    func testInitialManualKeychainRefreshTimeoutPreservesCredentialForAutomaticRetry() async throws {
+        try await assertAntigravityRefreshRecovery(after: .timeout, failInitialManualRefresh: true)
+    }
+
+    func testNonexpiredManualBypassKeepsValidTokenAfterRefresh503() async throws {
+        AppEnv.allowLiveFetchForTesting = true
+        let savedGate = KeychainAccessGate.isDisabled
+        KeychainAccessGate.isDisabled = false
+        defer {
+            AppEnv.allowLiveFetchForTesting = false
+            KeychainAccessGate.isDisabled = savedGate
+        }
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [MockOAuthURLProtocol.self]
+        let session = URLSession(configuration: config)
+        defer { session.invalidateAndCancel() }
+        MockOAuthURLProtocol.reset()
+        MockOAuthURLProtocol.requestHandler = { request in
+            let response = HTTPURLResponse(url: request.url!, statusCode: 503,
+                                           httpVersion: nil, headerFields: nil)!
+            return (response, Data("{\"error\":\"temporarily_unavailable\"}".utf8))
+        }
+        let data = Data("""
+        {"token":{"access_token":"ya29.still-valid","refresh_token":"fixture-refresh",
+                  "expiry":"2099-01-01T00:00:00Z"}}
+        """.utf8)
+        KeychainReader.copyMatchingForTesting = { _, result in
+            result = data as CFData
+            return errSecSuccess
+        }
+        let cache = AntigravityTokenCache(tokenFileURLs: [tempDir.appendingPathComponent("absent")],
+                                          urlSession: session)
+        let manual = try await cache.accessToken(allowKeychainPrompt: true, bypassCache: true)
+        XCTAssertEqual(manual, "ya29.still-valid")
+        XCTAssertEqual(MockOAuthURLProtocol.requestCount, 1, "manual bypass must still attempt a grant")
+        KeychainReader.resetQueryCountForTesting()
+        let automatic = try await cache.accessToken(allowKeychainPrompt: false)
+        XCTAssertEqual(automatic, manual)
+        XCTAssertEqual(MockOAuthURLProtocol.requestCount, 1)
+        XCTAssertEqual(KeychainReader.queryCount, 0)
+    }
+
     // MARK: fixtures
+
+    private enum AntigravityRefreshFailure {
+        case timeout, unavailable, rateLimited
+    }
+
+    /// The real cache receives a failed grant. It must throw before `fetch` can send the expired
+    /// access token to quota (HTTP401 would invalidate the only cached refresh token).
+    private func assertAntigravityRefreshRecovery(
+        after failure: AntigravityRefreshFailure,
+        failInitialManualRefresh: Bool = false
+    ) async throws {
+        AppEnv.allowLiveFetchForTesting = true
+        let savedGate = KeychainAccessGate.isDisabled
+        KeychainAccessGate.isDisabled = false
+        defer {
+            AppEnv.allowLiveFetchForTesting = false
+            KeychainAccessGate.isDisabled = savedGate
+        }
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [MockOAuthURLProtocol.self]
+        let session = URLSession(configuration: config)
+        defer { session.invalidateAndCancel() }
+        MockOAuthURLProtocol.reset()
+        nonisolated(unsafe) var phase = failInitialManualRefresh ? 1 : 0
+        MockOAuthURLProtocol.requestHandler = { request in
+            XCTAssertEqual(request.url, AntigravityRateLimitsProvider.googleTokenURL)
+            if phase == 1 {
+                let status: Int
+                switch failure {
+                case .timeout: throw URLError(.timedOut)
+                case .unavailable: status = 503
+                case .rateLimited: status = 429
+                }
+                let response = HTTPURLResponse(url: request.url!, statusCode: status,
+                                               httpVersion: nil, headerFields: ["Retry-After": "17"])!
+                return (response, Data("{\"error\":\"temporarily_unavailable\"}".utf8))
+            }
+            let expiresIn = phase == 0 ? 30 : 3600
+            let data = Data("{\"access_token\":\"ya29.phase-\(phase)\",\"expires_in\":\(expiresIn)}".utf8)
+            return (HTTPURLResponse(url: request.url!, statusCode: 200,
+                                    httpVersion: nil, headerFields: nil)!, data)
+        }
+        let data = Data("""
+        {"token":{"access_token":"ya29.expired","refresh_token":"fixture-refresh",
+                  "expiry":"2020-01-01T00:00:00Z"}}
+        """.utf8)
+        KeychainReader.copyMatchingForTesting = { _, result in
+            result = data as CFData
+            return errSecSuccess
+        }
+        let cache = AntigravityTokenCache(tokenFileURLs: [tempDir.appendingPathComponent("absent")],
+                                          urlSession: session)
+        if !failInitialManualRefresh {
+            let primed = try await cache.accessToken(allowKeychainPrompt: true, bypassCache: true)
+            XCTAssertEqual(primed, "ya29.phase-0")
+            KeychainReader.resetQueryCountForTesting()
+            phase = 1
+        }
+        do {
+            _ = try await cache.accessToken(allowKeychainPrompt: failInitialManualRefresh,
+                                            bypassCache: failInitialManualRefresh)
+            // Mirrors fetch's quota401 invalidation if an expired token incorrectly escapes.
+            await cache.invalidate()
+            XCTFail("a temporary refresh failure must not return an expired access token")
+        } catch {
+            switch failure {
+            case .timeout: XCTAssertEqual((error as? URLError)?.code, .timedOut)
+            case .unavailable: XCTAssertEqual(error as? LimitsError, .httpStatus(503))
+            case .rateLimited: XCTAssertEqual(error as? LimitsError, .rateLimited(retryAfter: 17))
+            }
+        }
+        if failInitialManualRefresh { KeychainReader.resetQueryCountForTesting() }
+        phase = 2
+        let recovered = try await cache.accessToken(allowKeychainPrompt: false)
+        XCTAssertEqual(recovered, "ya29.phase-2")
+        XCTAssertEqual(MockOAuthURLProtocol.requestCount, failInitialManualRefresh ? 2 : 3)
+        XCTAssertEqual(KeychainReader.queryCount, 0, "automatic recovery must not reopen Keychain")
+        let again = try await cache.accessToken(allowKeychainPrompt: false)
+        XCTAssertEqual(again, recovered)
+        XCTAssertEqual(MockOAuthURLProtocol.requestCount, failInitialManualRefresh ? 2 : 3)
+    }
 
     private func writeClaudeCredentials(
         to url: URL, token: String, subscription: String, expiresIn: TimeInterval = 3600
