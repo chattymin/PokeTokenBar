@@ -1569,6 +1569,7 @@ struct PokemonDetailView: View {
     @State private var selectedInstanceID = ""
     @State private var selectedForm: PokemonForm?
     @State private var selectedShiny: Bool?
+    @State private var showingAllFlavorTexts = false
 
     init(store: CompanionStore, species: CompanionStore.DexSpecies,
          onBack: @escaping () -> Void, selectedShiny: Bool? = nil,
@@ -1607,6 +1608,31 @@ struct PokemonDetailView: View {
     }
 
     var body: some View {
+        // Laid over the detail page rather than replacing it, so Back returns to the same individual,
+        // appearance and scroll position.
+        ZStack(alignment: .top) {
+            detailPage
+                .opacity(showingAllFlavorTexts ? 0 : 1)
+                .allowsHitTesting(!showingAllFlavorTexts)
+                .accessibilityHidden(showingAllFlavorTexts)
+            // The button only appears once entries exist, and they are never removed afterwards.
+            if showingAllFlavorTexts,
+               let entries = store.flavorTextsByRequest[store.flavorTextRequest(speciesID: species.id)] {
+                PokedexEntriesPage(store: store, species: species, entries: entries) { showingAllFlavorTexts = false }
+            }
+        }
+        .task {
+            if selectedForm == nil { selectedForm = displayedSpecies.form }
+            if selectedInstanceID.isEmpty { selectedInstanceID = individuals.first?.id ?? "" }
+            await store.loadPokemonDetails(speciesID: species.id)
+        }
+        // A separate task, so flavor text never waits behind the battle-details request.
+        .task(id: store.flavorTextRequest(speciesID: species.id)) {
+            await store.loadFlavorTexts(speciesID: species.id)
+        }
+    }
+
+    private var detailPage: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
                 Button(action: onBack) {
@@ -1647,11 +1673,6 @@ struct PokemonDetailView: View {
                 .padding(.bottom, 8)
                 .reservesScrollerLane()
             }
-        }
-        .task {
-            if selectedForm == nil { selectedForm = displayedSpecies.form }
-            if selectedInstanceID.isEmpty { selectedInstanceID = individuals.first?.id ?? "" }
-            await store.loadPokemonDetails(speciesID: species.id)
         }
     }
 
@@ -1844,6 +1865,7 @@ struct PokemonDetailView: View {
     private func speciesSection(_ details: PokemonDetails) -> some View {
         VStack(alignment: .leading, spacing: 7) {
             detailTitle(store.l.speciesData)
+            flavorSummary
             HStack(spacing: 14) {
                 valuePair(store.l.height, String(format: "%.1f m", Double(details.height) / 10))
                 valuePair(store.l.weight, String(format: "%.1f kg", Double(details.weight) / 10))
@@ -1857,6 +1879,36 @@ struct PokemonDetailView: View {
             .font(.callout).foregroundStyle(.secondary)
         }
         .detailCard()
+    }
+
+    /// The newest Pokédex entry (shared by every form of the species) and the way into every version's entry.
+    /// Loading and failure stay inside this block; a failed refetch keeps the entry already shown.
+    private var flavorSummary: some View {
+        let request = store.flavorTextRequest(speciesID: species.id)
+        let result = store.flavorTextsByRequest[request]
+        return VStack(alignment: .leading, spacing: 4) {
+            if let result {
+                if result.language != request.language { FlavorFallbackNotice(store: store) }
+                if let newest = result.entries.last {
+                    Text(newest.versionLabel).font(.system(size: 11, weight: .bold)).foregroundStyle(Color.accentColor)
+                    Text(newest.text).font(.callout).fixedSize(horizontal: false, vertical: true)
+                    HStack {
+                        Spacer()
+                        Button { showingAllFlavorTexts = true } label: {
+                            HStack(spacing: 2) {
+                                Text(store.l.dexFlavorShowAll)
+                                Image(systemName: "chevron.right")
+                            }
+                        }
+                        .buttonStyle(.borderless)
+                        .font(.callout)
+                    }
+                } else {
+                    Text(store.l.dexFlavorEmpty).font(.callout).foregroundStyle(.secondary)
+                }
+            }
+            FlavorTextStatusRow(store: store, speciesID: species.id)
+        }
     }
 
     private func movesSection(_ details: PokemonDetails) -> some View {
@@ -1887,6 +1939,82 @@ struct PokemonDetailView: View {
         }
     }
 
+}
+
+/// Every version's Pokédex entry for one species, oldest first — opened from the species data card.
+@MainActor
+private struct PokedexEntriesPage: View {
+    let store: CompanionStore
+    let species: CompanionStore.DexSpecies
+    let entries: DexEntries
+    let onBack: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Button(action: onBack) {
+                    Label(store.l.back, systemImage: "chevron.left")
+                }
+                .buttonStyle(.borderless)
+                Spacer()
+                Text("#\(species.id)").font(.callout).foregroundStyle(.secondary)
+            }
+            VStack(alignment: .leading, spacing: 2) {
+                Text(species.name).font(.title3.weight(.bold))
+                Text(store.l.dexFlavorTitle).font(.callout.weight(.semibold)).foregroundStyle(.secondary)
+            }
+            if entries.language != store.flavorTextRequest(speciesID: species.id).language {
+                FlavorFallbackNotice(store: store)
+            }
+            FlavorTextStatusRow(store: store, speciesID: species.id)
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 10) {
+                    ForEach(entries.entries) { entry in
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(entry.versionLabel).font(.system(size: 11, weight: .bold))
+                                .foregroundStyle(Color.accentColor)
+                            Text(entry.text).font(.callout).fixedSize(horizontal: false, vertical: true)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                    }
+                }
+                .padding(.bottom, 8)
+                .reservesScrollerLane()
+            }
+        }
+    }
+}
+
+/// PokéAPI has no entries at all in some languages (`pt`); say why the text is English.
+@MainActor
+private struct FlavorFallbackNotice: View {
+    let store: CompanionStore
+    var body: some View {
+        Text(store.l.dexFlavorEnglishFallback).font(.system(size: 11)).foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+    }
+}
+
+/// Loading and failure rows shared by the species card and the entries page.
+@MainActor
+private struct FlavorTextStatusRow: View {
+    let store: CompanionStore
+    let speciesID: Int
+
+    var body: some View {
+        let request = store.flavorTextRequest(speciesID: speciesID)
+        if store.failedFlavorTextRequests.contains(request) {
+            HStack {
+                Text(store.l.dexFlavorFailed).foregroundStyle(.secondary)
+                Spacer()
+                Button(store.l.retry) { Task { await store.loadFlavorTexts(speciesID: speciesID) } }
+            }
+            .font(.callout)
+        } else if store.flavorTextsByRequest[request] == nil {
+            HStack(spacing: 6) { ProgressView().controlSize(.small); Text(store.l.dexFlavorLoading) }
+                .font(.callout).foregroundStyle(.secondary)
+        }
+    }
 }
 
 private extension View {
