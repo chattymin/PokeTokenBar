@@ -263,6 +263,8 @@ struct SettingsView: View {
                 Divider()
                 toggleRow(l.todayCost, $store.showCostInMenu)
                 Divider()
+                toggleRow(l.pokemonGrowthPercent, $store.showGrowthInMenu, hint: l.pokemonGrowthPercentHint)
+                Divider()
                 toggleRow(l.limitPercent, $store.showLimitInMenu)
                 if store.showLimitInMenu {
                     Divider()
@@ -897,9 +899,12 @@ struct SettingsView: View {
             .frame(minHeight: 38)
     }
 
-    private func toggleRow(_ label: String, _ isOn: Binding<Bool>) -> some View {
+    private func toggleRow(_ label: String, _ isOn: Binding<Bool>, hint: String? = nil) -> some View {
         groupRow {
-            Text(label)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(label)
+                if let hint { Text(hint).font(.caption2).foregroundStyle(.tertiary) }
+            }
             Spacer()
             Toggle(label, isOn: isOn).labelsHidden().toggleStyle(.switch).controlSize(.small)
         }
