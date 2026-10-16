@@ -189,7 +189,7 @@ final class LocalAdditionalUsageTests: XCTestCase {
         XCTAssertNil(late.pendingSince)
     }
 
-    func testOpenCodeCacheTracksMirroredDaysAndResumesPastDroppedRows() async throws {
+    func testOpenCodeCacheTracksTheDaysThatHadMirrorRows() async throws {
         let database = temporaryDirectory.appendingPathComponent("opencode.db")
         let t = try date("2026-01-05T10:00:00Z")
         let now = t.addingTimeInterval(3600)
