@@ -231,8 +231,16 @@ final class SnapshotHistoryRenderingTests: XCTestCase {
     private func bitmap(of view: NSView) throws -> NSBitmapImageRep {
         view.window?.contentView?.layoutSubtreeIfNeeded()
         view.layoutSubtreeIfNeeded()
-        let bitmap = try XCTUnwrap(view.bitmapImageRepForCachingDisplay(in: view.bounds))
+        // Render native text at 2x even when the runner's screen backing is only 1x.
+        let bitmap = try XCTUnwrap(NSBitmapImageRep(
+            bitmapDataPlanes: nil, pixelsWide: Int((view.bounds.width * 2).rounded(.up)),
+            pixelsHigh: Int((view.bounds.height * 2).rounded(.up)), bitsPerSample: 8,
+            samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+            colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0))
+        bitmap.size = view.bounds.size
         view.cacheDisplay(in: view.bounds, to: bitmap)
+        XCTAssertGreaterThanOrEqual(CGFloat(bitmap.pixelsWide) / view.bounds.width, 2)
+        XCTAssertGreaterThanOrEqual(CGFloat(bitmap.pixelsHigh) / view.bounds.height, 2)
         return bitmap
     }
 
@@ -332,15 +340,18 @@ final class SnapshotHistoryRenderingTests: XCTestCase {
         guard let word = match else {
             let nearby = recognized.filter { abs($0.box.midY - create.box.midY) * document.bounds.height < 180 }
             let diagnostic = nearby.prefix(16).map { "\($0.candidates.prefix(2)) @ \($0.box)" }.joined(separator: "\n")
-            XCTFail("Missing rendered disclosure: \(title); document=\(document.bounds), visible=\(document.visibleRect)\n\(diagnostic)")
+            let raster = try bitmap(of: document)
+            XCTFail("Missing rendered disclosure: \(title); document=\(document.bounds), visible=\(document.visibleRect), pixels=\(raster.pixelsWide)x\(raster.pixelsHigh), backingScale=\(document.window?.backingScaleFactor ?? 0)\n\(diagnostic)")
             throw URLError(.cannotParseResponse)
         }
         // Punctuation/case normalization must not turn a plain text box into a chevron box.
         let first = word.candidates.first?.trimmingCharacters(in: .whitespacesAndNewlines).first
         let includesChevron = first.map { ">›⌄∨vV▸▾".contains($0) } ?? false
+        // Center the native 16pt leading control area. The 2x render's chevron is at
+        // x=28...35.5pt; x=32pt hits its center with either chevron-inclusive or text-only OCR.
         let arrow = Word(candidates: word.candidates, box: CGRect(
             x: word.box.minX + (includesChevron ? 0 : -16) / document.bounds.width, y: word.box.minY,
-            width: 8 / document.bounds.width, height: word.box.height))
+            width: 16 / document.bounds.width, height: word.box.height))
         try await press(arrow, in: document)
     }
 
