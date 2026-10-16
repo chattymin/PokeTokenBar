@@ -200,6 +200,7 @@ struct L {
 
     // MARK: Usage recap
     var recapOpen: String { t("사용량 돌아보기", "Usage recap", "使用量のふりかえり", "Resumen de uso", "Récap d'utilisation", "Resumo de uso", "Nutzungsrückblick", "Итоги расхода") }
+    var recapDetails: String { t("상세", "Details", "詳細", "Detalle", "Détails", "Detalhes", "Details", "Детали") }
     var recapTokensUnit: String { t("토큰", "tokens", "トークン", "tokens", "tokens", "tokens", "Tokens", "токенов") }
     func recapScopeName(_ scope: RecapScope) -> String {
         switch scope {
