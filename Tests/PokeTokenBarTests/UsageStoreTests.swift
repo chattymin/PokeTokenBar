@@ -1636,4 +1636,37 @@ extension UsageStoreTests {
         store.menuLimitColorMode = .attention
         XCTAssertEqual(makeStore(providers: []).menuLimitColorMode, .attention)
     }
+
+    func testDailyTrendWindowDefaultsTo14DaysAndPersists() {
+        let store = makeStore(providers: [])
+        XCTAssertEqual(store.dailyTrendWindow, .d14, "Default daily trend window must be 14 days")
+
+        store.dailyTrendWindow = .d7
+        XCTAssertEqual(store.dailyTrendWindow, .d7)
+
+        let reloaded = makeStore(providers: [])
+        XCTAssertEqual(reloaded.dailyTrendWindow, .d7, "Daily trend window selection must persist in defaults")
+    }
+
+    func testDailyTrendTotalsFollowsActiveWindow() async {
+        let fake = FakeUsageProvider(id: "fake", displayName: "Fake")
+        fake.daily = DailyUsage(date: "2026-10-15", inputTokens: 0, outputTokens: 100,
+                                cacheCreationTokens: 0, cacheReadTokens: 0, totalTokens: 100, totalCost: 0)
+        var en = ProviderEnrichment()
+        en.recentDaily = [DailyUsage(date: "2026-10-15", inputTokens: 0, outputTokens: 100,
+                                     cacheCreationTokens: 0, cacheReadTokens: 0, totalTokens: 100, totalCost: 0)]
+        en.monthDaily = [DailyUsage(date: "2026-10-01", inputTokens: 0, outputTokens: 500,
+                                    cacheCreationTokens: 0, cacheReadTokens: 0, totalTokens: 500, totalCost: 0)]
+        en.periodsOK = true
+        fake.enrichment = en
+
+        let store = makeStore(providers: [fake])
+        await store.refresh()
+
+        store.dailyTrendWindow = .d14
+        XCTAssertEqual(store.dailyTrendTotals.first?.totalTokens, 100)
+
+        store.dailyTrendWindow = .month
+        XCTAssertEqual(store.dailyTrendTotals.first?.totalTokens, 500)
+    }
 }
