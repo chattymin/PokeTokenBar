@@ -31,7 +31,7 @@ final class SnapshotHistoryRenderingTests: XCTestCase {
         let (companion, usage) = try makeStores(snapshotCount: 10)
         let root = host(companion, usage)
         let document = try await settingsDocument(in: root)
-        try capture(document, name: "snapshots-collapsed")
+        try await capture(document, name: "snapshots-collapsed")
         try await waitForRows(0, in: document)
         try await assertCreationAvailable(in: document, label: companion.l.createSnapshotButton)
         let collapsedHeight = document.bounds.height
@@ -40,13 +40,13 @@ final class SnapshotHistoryRenderingTests: XCTestCase {
         try await waitForRows(10, in: document)
         XCTAssertGreaterThan(document.bounds.height, collapsedHeight + 200)
         XCTAssertEqual(companion.availableSnapshots.count, 10)
-        try capture(document, name: "snapshots-expanded")
+        try await capture(document, name: "snapshots-expanded")
         try await assertCreationAvailable(in: document, label: companion.l.createSnapshotButton)
 
         try await toggleHistory(in: document, l: companion.l, expanded: true)
         try await waitForRows(0, in: document)
         XCTAssertEqual(document.bounds.height, collapsedHeight, accuracy: 2)
-        try capture(document, name: "snapshots-collapsed-again")
+        try await capture(document, name: "snapshots-collapsed-again")
 
         // Reopening Settings starts a new visit, even after leaving its history expanded.
         try await toggleHistory(in: document, l: companion.l, expanded: false)
@@ -57,20 +57,21 @@ final class SnapshotHistoryRenderingTests: XCTestCase {
         try await waitForRows(0, in: reopenedDocument)
         try await assertCreationAvailable(in: reopenedDocument, label: companion.l.createSnapshotButton)
         XCTAssertEqual(companion.availableSnapshots.count, 10)
-        try capture(reopenedDocument, name: "snapshots-reopened")
+        try await capture(reopenedDocument, name: "snapshots-reopened")
     }
 
     func testEmptyHistoryIsDisclosedAndManualCreationRemainsAvailable() async throws {
         let (companion, usage) = try makeStores(snapshotCount: 0)
         let document = try await settingsDocument(in: host(companion, usage))
         try await assertCreationAvailable(in: document, label: companion.l.createSnapshotButton)
-        XCTAssertFalse(try words(in: document).contains { $0.reads(companion.l.noSnapshotsYet) })
+        let collapsedWords = try await words(in: document)
+        XCTAssertFalse(collapsedWords.contains { $0.reads(companion.l.noSnapshotsYet) })
 
         try await toggleHistory(in: document, l: companion.l, expanded: false)
         try await waitForText(companion.l.noSnapshotsYet, in: document)
         try await waitForRows(0, in: document)
         try await assertCreationAvailable(in: document, label: companion.l.createSnapshotButton)
-        try capture(document, name: "snapshots-empty-expanded")
+        try await capture(document, name: "snapshots-empty-expanded")
     }
 
     private func makeStores(snapshotCount: Int) throws -> (CompanionStore, UsageStore) {
@@ -160,24 +161,68 @@ final class SnapshotHistoryRenderingTests: XCTestCase {
         }
     }
 
-    private func bitmap(of view: NSView) throws -> NSBitmapImageRep {
+    private func bitmap(of view: NSView) async throws -> NSBitmapImageRep {
         view.window?.contentView?.layoutSubtreeIfNeeded()
         view.layoutSubtreeIfNeeded()
-        // Render native text at 2x even when the runner's screen backing is only 1x.
-        let bitmap = try XCTUnwrap(NSBitmapImageRep(
-            bitmapDataPlanes: nil, pixelsWide: Int((view.bounds.width * 2).rounded(.up)),
-            pixelsHigh: Int((view.bounds.height * 2).rounded(.up)), bitsPerSample: 8,
-            samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
-            colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0))
-        bitmap.size = view.bounds.size
-        view.cacheDisplay(in: view.bounds, to: bitmap)
-        XCTAssertGreaterThanOrEqual(CGFloat(bitmap.pixelsWide) / view.bounds.width, 2)
-        XCTAssertGreaterThanOrEqual(CGFloat(bitmap.pixelsHigh) / view.bounds.height, 2)
+        let bounds = view.bounds
+        let scroll = try XCTUnwrap(view.enclosingScrollView)
+        let clip = scroll.contentView
+        let originalOrigin = clip.bounds.origin
+        defer {
+            clip.scroll(to: originalOrigin)
+            scroll.reflectScrolledClipView(clip)
+            view.window?.contentView?.layoutSubtreeIfNeeded()
+        }
+        let width = Int((bounds.width * 2).rounded(.up))
+        let height = Int((bounds.height * 2).rounded(.up))
+        let context = try XCTUnwrap(CGContext(data: nil, width: width, height: height,
+            bitsPerComponent: 8, bytesPerRow: width * 4, space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue))
+        view.effectiveAppearance.performAsCurrentDrawingAppearance {
+            context.setFillColor(NSColor.windowBackgroundColor.cgColor)
+            context.fill(CGRect(x: 0, y: 0, width: CGFloat(width), height: CGFloat(height)))
+        }
+
+        // Native controls may draw only inside the current viewport. Capture every actual
+        // visible tile at 2x, rather than asking offscreen controls to draw the whole document.
+        let tileLimit = Int((bounds.height / max(clip.bounds.height, 1)).rounded(.up)) + 2
+        var coveredY = bounds.minY
+        for _ in 0..<tileLimit where coveredY < bounds.maxY - 0.5 {
+            clip.scroll(to: NSPoint(x: bounds.minX, y: coveredY))
+            scroll.reflectScrolledClipView(clip)
+            view.window?.contentView?.layoutSubtreeIfNeeded()
+            try await Task.sleep(for: .milliseconds(100))
+            view.window?.contentView?.layoutSubtreeIfNeeded()
+            let rect = view.visibleRect.intersection(bounds)
+            guard rect.width >= bounds.width - 0.5, rect.minY <= coveredY + 0.5,
+                  rect.maxY > coveredY + 0.5 else {
+                XCTFail("Snapshot tile did not cover document: tile=\(rect), coveredY=\(coveredY), bounds=\(bounds)")
+                throw URLError(.cannotParseResponse)
+            }
+            let tile = try XCTUnwrap(NSBitmapImageRep(
+                bitmapDataPlanes: nil, pixelsWide: Int((rect.width * 2).rounded(.up)),
+                pixelsHigh: Int((rect.height * 2).rounded(.up)), bitsPerSample: 8,
+                samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+                colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0))
+            tile.size = rect.size
+            view.cacheDisplay(in: rect, to: tile)
+            XCTAssertGreaterThanOrEqual(CGFloat(tile.pixelsWide) / rect.width, 2)
+            XCTAssertGreaterThanOrEqual(CGFloat(tile.pixelsHigh) / rect.height, 2)
+            let y = view.isFlipped ? bounds.maxY - rect.maxY : rect.minY - bounds.minY
+            context.draw(try XCTUnwrap(tile.cgImage), in: CGRect(
+                x: (rect.minX - bounds.minX) * 2, y: y * 2,
+                width: rect.width * 2, height: rect.height * 2))
+            coveredY = rect.maxY
+        }
+        XCTAssertGreaterThanOrEqual(coveredY, bounds.maxY - 0.5, "All document tiles must be rendered")
+        let bitmap = NSBitmapImageRep(cgImage: try XCTUnwrap(context.makeImage()))
+        bitmap.size = bounds.size
         return bitmap
     }
 
-    private func words(in view: NSView) throws -> [Word] {
-        let image = try XCTUnwrap(bitmap(of: view).cgImage)
+    private func words(in view: NSView) async throws -> [Word] {
+        let rendered = try await bitmap(of: view)
+        let image = try XCTUnwrap(rendered.cgImage)
         let request = VNRecognizeTextRequest()
         request.recognitionLevel = .accurate
         request.recognitionLanguages = ["en-US"]
@@ -192,7 +237,7 @@ final class SnapshotHistoryRenderingTests: XCTestCase {
     private func waitForText(_ text: String, in view: NSView) async throws -> Word {
         let deadline = ContinuousClock.now + .seconds(5)
         repeat {
-            if let match = try words(in: view).first(where: { $0.reads(text) }) { return match }
+            if let match = try await words(in: view).first(where: { $0.reads(text) }) { return match }
             try await Task.sleep(for: .milliseconds(100))
         } while ContinuousClock.now < deadline
         XCTFail("Missing rendered text: \(text)")
@@ -204,7 +249,7 @@ final class SnapshotHistoryRenderingTests: XCTestCase {
         var actual = -1
         repeat {
             document.window?.contentView?.layoutSubtreeIfNeeded()
-            actual = try words(in: document).filter { $0.reads("Restore", exactly: true) }.count
+            actual = try await words(in: document).filter { $0.reads("Restore", exactly: true) }.count
             if actual == count {
                 try await Task.sleep(for: .milliseconds(300))
                 document.window?.contentView?.layoutSubtreeIfNeeded()
@@ -245,22 +290,12 @@ final class SnapshotHistoryRenderingTests: XCTestCase {
         throw URLError(.cannotParseResponse)
     }
 
-    private func capture(_ view: NSView, name: String) throws {
+    private func capture(_ view: NSView, name: String) async throws {
         guard let path = ProcessInfo.processInfo.environment["PTB_SNAPSHOT_SCREENSHOT_DIR"] else { return }
         let directory = URL(fileURLWithPath: path, isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        let source = try XCTUnwrap(bitmap(of: view).cgImage)
-        let context = try XCTUnwrap(CGContext(data: nil, width: source.width, height: source.height,
-            bitsPerComponent: 8, bytesPerRow: source.width * 4, space: CGColorSpaceCreateDeviceRGB(),
-            bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue))
-        let rect = CGRect(x: 0, y: 0, width: source.width, height: source.height)
-        view.effectiveAppearance.performAsCurrentDrawingAppearance {
-            context.setFillColor(NSColor.windowBackgroundColor.cgColor)
-            context.fill(rect)
-        }
-        context.draw(source, in: rect)
-        let opaque = NSBitmapImageRep(cgImage: try XCTUnwrap(context.makeImage()))
-        let data = try XCTUnwrap(opaque.representation(using: .png, properties: [:]))
+        let rendered = try await bitmap(of: view)
+        let data = try XCTUnwrap(rendered.representation(using: .png, properties: [:]))
         try data.write(to: directory.appendingPathComponent("\(name).png"))
     }
 }
