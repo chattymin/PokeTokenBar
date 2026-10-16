@@ -29,8 +29,8 @@ enum ModelPricing {
         // Opus 5.5, checked 2026-09-25: cheaper than Opus 5, cache read cut to $0.20/MTok (0.05× input).
         "claude-opus-5-5":            .perMillion(4, 20, 5, 0.2),
         "claude-sonnet-5":            .perMillion(2, 10, 2.5, 0.2),
-        // Sonnet 5.5, checked 2026-09-29: 5m cache write $2.50 and cache read $0.20 / MTok.
-        "claude-sonnet-5-5":          .perMillion(2, 10, 2.5, 0.2),
+        // Sonnet 5.5, checked 2026-10-16: 5m cache write $2.50 and cache read $0.10 / MTok.
+        "claude-sonnet-5-5":          .perMillion(2, 10, 2.5, 0.1),
         "claude-opus-4-20250514":     .perMillion(15, 75, 18.75, 1.5),
         "claude-sonnet-4-20250514":   .perMillion(3, 15, 3.75, 0.3),
         "claude-sonnet-4-5-20250929": .perMillion(3, 15, 3.75, 0.3),

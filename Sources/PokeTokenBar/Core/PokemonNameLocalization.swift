@@ -37,7 +37,7 @@ enum PokemonNameLocalization {
 }
 
 struct PokemonNameResource: Hashable, Sendable {
-    enum Kind: String, Sendable { case type, ability, move }
+    enum Kind: String, Sendable { case type, ability, move, pokemonForm = "pokemon-form" }
     let kind: Kind
     let name: String
 
@@ -59,7 +59,8 @@ actor PokemonNameClient: PokemonNameProviding {
         let fetchedAt: Date
         let names: [String: String]
     }
-    private struct NamesDTO: Decodable { let names: [NameDTO] }
+    /// `pokemon-form` keeps the bare form name ("Sky Forme") in `form_names`.
+    private struct NamesDTO: Decodable { let names: [NameDTO]; let form_names: [NameDTO]? }
     private let directory: URL?
     private let fetch: @Sendable (URL) async throws -> Data
     private let now: @Sendable () -> Date
@@ -98,7 +99,9 @@ actor PokemonNameClient: PokemonNameProviding {
         let task = Task<Snapshot, Error> {
             do {
                 let response = try await fetch(url)
-                let names = PokemonNameLocalization.collect(try JSONDecoder().decode(NamesDTO.self, from: response).names)
+                let dto = try JSONDecoder().decode(NamesDTO.self, from: response)
+                let names = PokemonNameLocalization.collect(
+                    resource.kind == .pokemonForm ? dto.form_names ?? [] : dto.names)
                 return Snapshot(fetchedAt: clock(), names: names)
             } catch {
                 if let previous { return previous }

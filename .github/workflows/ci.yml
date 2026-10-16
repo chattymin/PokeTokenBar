@@ -30,7 +30,18 @@ jobs:
       # line-coverage floor on the logic-core files. It replaces a bare `swift test`:
       # the tests still run, and a coverage regression now fails the build.
       - name: Test + coverage gate
+        env:
+          PTB_SNAPSHOT_SCREENSHOT_DIR: ${{ runner.temp }}/snapshot-history-renders
         run: ./scripts/test-gate.sh
+
+      - name: Preserve native snapshot-history renders
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: snapshot-history-renders
+          path: ${{ runner.temp }}/snapshot-history-renders
+          if-no-files-found: ignore
+          retention-days: 7
 
   secret-scan:
     name: secret-scan
