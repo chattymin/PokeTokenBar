@@ -898,6 +898,24 @@ final class CompanionStoreTests: XCTestCase {
         XCTAssertEqual(s.state.usedSinceInstall, 2_200)
     }
 
+    /// [회귀] A provider that reports an explicit 0 (OpenCode once every row it had was a mirror of
+    /// Claude Code usage and got filtered out) rebases its own baseline, so the first new native
+    /// usage afterwards is credited instead of being read as a counter decrease.
+    func testExplicitZeroRebasesProviderLedgerBeforeNewNativeUsage() {
+        let s = store(linear3)
+        useMap(s, ["claude_code": 1_000, "opencode": 1_000])   // install baseline, both already counted
+        XCTAssertEqual(s.state.usedSinceInstall, 0)
+
+        useMap(s, ["claude_code": 1_000, "opencode": 0])       // upgrade: mirror rows gone, native 0
+        XCTAssertEqual(s.state.usedSinceInstall, 0)
+        XCTAssertEqual(s.state.claimedTodayTokensByProvider?["opencode"], 0)
+
+        useMap(s, ["claude_code": 1_000, "opencode": 100])     // first native usage is credited
+        XCTAssertEqual(s.state.usedSinceInstall, 100)
+        useMap(s, ["claude_code": 1_000, "opencode": 200])
+        XCTAssertEqual(s.state.usedSinceInstall, 200)
+    }
+
     /// [회귀] 날짜가 바뀌면 이전 날짜의 provider별 기준값과 비교하지 않고,
     /// 새 날짜에 이미 사용한 누적값 전체를 적립한 뒤 이후 증가분을 이어서 적립한다.
     func testDateRolloverCreditsCurrentDayUsage() {

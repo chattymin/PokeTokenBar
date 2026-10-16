@@ -108,34 +108,123 @@ final class LocalAdditionalUsageTests: XCTestCase {
         XCTAssertEqual(v2.explicitCost, 0.5)
     }
 
-    func testOpenCodeSkipsClaudeCodeMirrorRowsThatClaudeCodeLogsAlreadyCount() throws {
+    // MARK: Claude Code mirror rows (OpenChamber's `claude-code` provider)
+
+    private let mirrorSchema = """
+    CREATE TABLE message (
+        id TEXT PRIMARY KEY, session_id TEXT NOT NULL, time_created INTEGER NOT NULL, data TEXT NOT NULL
+    );
+    CREATE TABLE session_message (
+        id TEXT PRIMARY KEY, session_id TEXT NOT NULL, type TEXT NOT NULL, seq INTEGER NOT NULL,
+        time_created INTEGER NOT NULL, time_updated INTEGER NOT NULL, data TEXT NOT NULL
+    );
+    """
+
+    private func v2Row(_ id: String, provider: String, created: Date, completed: Date? = nil,
+                       tokens: String = #"{"input":100,"output":50,"reasoning":30,"cache":{"read":10,"write":20}}"#) -> String {
+        let ms = Int64(created.timeIntervalSince1970 * 1000)
+        let end = Int64((completed ?? created).timeIntervalSince1970 * 1000)
+        return """
+        INSERT INTO session_message VALUES ('\(id)', 'session', 'assistant', 1, \(ms), \(ms),
+        '{"model":{"id":"claude-sonnet-5-5","providerID":"\(provider)"},"time":{"created":\(ms),"completed":\(end)},"tokens":\(tokens)}');
+        """
+    }
+
+    private func claudeEntry(at date: Date) -> LocalUsageReader.Entry {
+        LocalUsageReader.Entry(
+            id: "claude-\(date.timeIntervalSince1970)", date: date,
+            localDay: LocalUsageReader.localDayFormatter().string(from: date),
+            model: "claude-sonnet-5-5", input: 1, output: 1, cacheWrite: 0, cacheRead: 0)
+    }
+
+    func testOpenCodeDropsClaudeCodeMirrorRowsOnlyWhenClaudeUsageCoversThem() throws {
         let database = temporaryDirectory.appendingPathComponent("opencode.db")
-        try execute(database, sql: """
-        CREATE TABLE message (
-            id TEXT PRIMARY KEY, session_id TEXT NOT NULL, time_created INTEGER NOT NULL, data TEXT NOT NULL
-        );
-        CREATE TABLE session_message (
-            id TEXT PRIMARY KEY, session_id TEXT NOT NULL, type TEXT NOT NULL, seq INTEGER NOT NULL,
-            time_created INTEGER NOT NULL, time_updated INTEGER NOT NULL, data TEXT NOT NULL
-        );
+        let t = try date("2026-01-05T10:00:00Z")
+        try execute(database, sql: mirrorSchema + """
+        \(v2Row("covered", provider: "claude-code", created: t, completed: t.addingTimeInterval(10)))
+        \(v2Row("uncovered", provider: "claude-code", created: t.addingTimeInterval(3600)))
+        \(v2Row("native", provider: "openai", created: t.addingTimeInterval(7200)))
         INSERT INTO message VALUES (
-            'msg-v1-cc', 'session-v1', 1767312000000,
-            '{"id":"msg-v1-cc","providerID":"claude-code","modelID":"claude-sonnet-5-5","time":{"created":1767312000000},"tokens":{"input":100,"output":50,"total":180,"cache":{"read":10,"write":20}}}'
-        );
-        INSERT INTO session_message VALUES (
-            'msg-v2-cc', 'session-v2', 'assistant', 1, 1767312000000, 1767312000000,
-            '{"model":{"id":"claude-sonnet-5-5","providerID":"claude-code"},"time":{"created":1767312000000},"tokens":{"input":100,"output":50,"reasoning":30,"cache":{"read":10,"write":20}}}'
-        );
-        INSERT INTO session_message VALUES (
-            'msg-v2-native', 'session-v2', 'assistant', 2, 1767312000000, 1767312000000,
-            '{"model":{"id":"gpt-5","providerID":"openai"},"time":{"created":1767312000000},"tokens":{"input":100,"output":50,"reasoning":30,"cache":{"read":10,"write":20}}}'
+            'legacy-covered', 'session-v1', \(Int64(t.addingTimeInterval(1800).timeIntervalSince1970 * 1000)),
+            '{"id":"legacy-covered","providerID":"claude-code","modelID":"claude-sonnet-5-5","time":{"created":\(Int64(t.addingTimeInterval(1800).timeIntervalSince1970 * 1000))},"tokens":{"input":100,"output":50,"total":180,"cache":{"read":10,"write":20}}}'
         );
         """)
+        let claude = [claudeEntry(at: t.addingTimeInterval(4)), claudeEntry(at: t.addingTimeInterval(1800))]
+
+        let entries = LocalAdditionalUsageReader.openCodeEntries(
+            modifiedSince: try date("2026-01-01T00:00:00Z"), roots: [temporaryDirectory],
+            claudeEntries: claude)
+
+        XCTAssertEqual(entries.map(\.id).sorted(), ["opencode|native", "opencode|uncovered"],
+                       "covered mirror rows are Claude's own usage; an uncovered one is the only record left")
+    }
+
+    func testOpenCodeKeepsMirrorUsageWhenThereIsNoClaudeTranscript() throws {
+        let database = temporaryDirectory.appendingPathComponent("opencode.db")
+        let t = try date("2026-01-05T10:00:00Z")
+        try execute(database, sql: mirrorSchema + "\n" + v2Row("only", provider: "claude-code", created: t))
 
         let entries = LocalAdditionalUsageReader.openCodeEntries(
             modifiedSince: try date("2026-01-01T00:00:00Z"), roots: [temporaryDirectory])
 
-        XCTAssertEqual(entries.map(\.id), ["opencode|msg-v2-native"])
+        XCTAssertEqual(entries.map(\.total), [210])
+    }
+
+    func testRecentUnmatchedMirrorRowsAreHeldBackUntilTheGracePeriodPasses() throws {
+        let database = temporaryDirectory.appendingPathComponent("opencode.db")
+        let t = try date("2026-01-05T10:00:00Z")
+        try execute(database, sql: mirrorSchema + "\n" + v2Row("fresh", provider: "claude-code", created: t))
+        let scan = LocalAdditionalUsageReader.openCodeScan(
+            modifiedSince: try date("2026-01-01T00:00:00Z"), roots: [temporaryDirectory])
+        XCTAssertEqual(scan.mirrors.count, 1)
+
+        let early = LocalAdditionalUsageReader.resolveOpenCodeMirrors(
+            scan.mirrors, claudeEntries: [], now: t.addingTimeInterval(20))
+        XCTAssertTrue(early.retained.isEmpty, "the Claude transcript may not be flushed yet")
+        XCTAssertEqual(early.pendingSince, scan.mirrors[0].entry.date)
+
+        let late = LocalAdditionalUsageReader.resolveOpenCodeMirrors(
+            scan.mirrors, claudeEntries: [], now: t.addingTimeInterval(600))
+        XCTAssertEqual(late.retained.map(\.id), ["opencode|fresh"])
+        XCTAssertNil(late.pendingSince)
+    }
+
+    func testOpenCodeCacheTracksMirroredDaysAndResumesPastDroppedRows() async throws {
+        let database = temporaryDirectory.appendingPathComponent("opencode.db")
+        let t = try date("2026-01-05T10:00:00Z")
+        let now = t.addingTimeInterval(3600)
+        try execute(database, sql: mirrorSchema + "\n"
+            + v2Row("covered", provider: "claude-code", created: t, completed: t.addingTimeInterval(10)))
+        let claude = [claudeEntry(at: t.addingTimeInterval(4))]
+        let cache = LocalAdditionalUsageCache(
+            openCodeRootsOverride: [temporaryDirectory],
+            claudeEntriesSource: { _ in claude },
+            clock: { now })
+
+        let entries = await cache.entries(for: .opencode)
+        let days = await cache.mirroredDays(for: .opencode)
+
+        XCTAssertTrue(entries.isEmpty)
+        XCTAssertEqual(days, [LocalUsageReader.localDayFormatter().string(from: t)])
+    }
+
+    func testOpenCodeProviderReportsExplicitZeroWhenOnlyMirrorRowsRemainToday() async throws {
+        let database = temporaryDirectory.appendingPathComponent("opencode.db")
+        let t = Date().addingTimeInterval(-300)
+        try XCTSkipUnless(
+            LocalUsageReader.localDayFormatter().string(from: t) == LocalUsageReader.todayKey(),
+            "fixture would straddle midnight")
+        try execute(database, sql: mirrorSchema + "\n"
+            + v2Row("covered", provider: "claude-code", created: t, completed: t.addingTimeInterval(10)))
+        let claude = [claudeEntry(at: t.addingTimeInterval(4))]
+        let cache = LocalAdditionalUsageCache(
+            openCodeRootsOverride: [temporaryDirectory],
+            claudeEntriesSource: { _ in claude })
+
+        let daily = try await LocalOpenCodeProvider(cache: cache).fetchDaily()
+
+        // Not nil: an absent provider would leave a saved mirror baseline in the companion ledger.
+        XCTAssertEqual(try XCTUnwrap(daily).totalTokens, 0)
     }
 
     func testHermesReadsSessionTokensReasoningAndActualCost() throws {

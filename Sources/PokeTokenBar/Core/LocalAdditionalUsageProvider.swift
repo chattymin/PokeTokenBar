@@ -14,14 +14,23 @@ enum LocalAdditionalSource: String, Sendable {
 struct LocalOpenCodeProvider: UsageProvider {
     let id = "opencode"
     let displayName = "OpenCode"
+    var cache: LocalAdditionalUsageCache = .shared
 
     func fetchDaily() async throws -> DailyUsage? {
-        let entries = await LocalAdditionalUsageCache.shared.entries(for: .opencode)
-        return LocalUsageReader.daily(entries: entries, localDay: LocalUsageReader.todayKey())
+        let entries = await cache.entries(for: .opencode)
+        let today = LocalUsageReader.todayKey()
+        if let daily = LocalUsageReader.daily(entries: entries, localDay: today) { return daily }
+        // Every OpenCode row today was a mirror of Claude Code usage, which Claude Code's own logs
+        // already count. Report an explicit zero instead of no data so the companion ledger rebases
+        // this provider's baseline (it may hold the old mirror total) before new native usage lands.
+        guard await cache.mirroredDays(for: .opencode).contains(today) else { return nil }
+        return DailyUsage(date: today, inputTokens: 0, outputTokens: 0, cacheCreationTokens: 0,
+                          cacheReadTokens: 0, totalTokens: 0, totalCost: 0, models: nil,
+                          costCoverage: LocalUsageReader.Bucket().costCoverage)
     }
 
     func fetchEnrichment() async -> ProviderEnrichment {
-        let entries = await LocalAdditionalUsageCache.shared.entries(for: .opencode)
+        let entries = await cache.entries(for: .opencode)
         return .local(entries: entries)
     }
 }
@@ -136,10 +145,17 @@ actor LocalAdditionalUsageCache {
     /// other sources still read their own roots) and a clock so a test can step past the
     /// 30 s entry without sleeping.
     private let asideRootsOverride: [URL]?
+    private let openCodeRootsOverride: [URL]?
+    private let claudeEntriesSource: (@Sendable (Date) async -> [LocalUsageReader.Entry])?
     private let clock: @Sendable () -> Date
 
-    init(asideRootsOverride: [URL]? = nil, clock: @escaping @Sendable () -> Date = Date.init) {
+    init(asideRootsOverride: [URL]? = nil,
+         openCodeRootsOverride: [URL]? = nil,
+         claudeEntriesSource: (@Sendable (Date) async -> [LocalUsageReader.Entry])? = nil,
+         clock: @escaping @Sendable () -> Date = Date.init) {
         self.asideRootsOverride = asideRootsOverride
+        self.openCodeRootsOverride = openCodeRootsOverride
+        self.claudeEntriesSource = claudeEntriesSource
         self.clock = clock
     }
 
@@ -154,12 +170,20 @@ actor LocalAdditionalUsageCache {
         /// drop that empties `entries` also drops the signatures, so the skip
         /// cannot fire against an empty `existing` (#179).
         let kiroSignatures: [String: (mtime: Date, size: Int)]
+        /// OpenCode only: where the next incremental scan resumes. Unlike the newest cached entry it
+        /// also covers mirror rows that were dropped, so they are not re-read on every refresh, and
+        /// it stops before a mirror row still waiting for its Claude Code usage to appear.
+        var openCodeWatermark: Date? = nil
+        /// OpenCode only: local days that had Claude Code mirror rows (dropped or kept).
+        var mirroredDays: Set<String> = []
     }
 
     private struct ScanResult: Sendable {
         var entries: [LocalUsageReader.Entry]
         var highWaterByPath: [String: Int64] = [:]
         var kiroSignatures: [String: (mtime: Date, size: Int)] = [:]
+        var openCodeWatermark: Date? = nil
+        var mirroredDays: Set<String> = []
     }
 
     private var cached: [LocalAdditionalSource: Cached] = [:]
@@ -171,6 +195,11 @@ actor LocalAdditionalUsageCache {
         epoch += 1
         cached = [:]
         inFlight = [:]
+    }
+
+    /// Local days on which an OpenCode scan saw Claude Code mirror rows (see `LocalOpenCodeProvider`).
+    func mirroredDays(for source: LocalAdditionalSource) -> Set<String> {
+        cached[source]?.mirroredDays ?? []
     }
 
     func entries(for source: LocalAdditionalSource) async -> [LocalUsageReader.Entry] {
@@ -193,7 +222,9 @@ actor LocalAdditionalUsageCache {
         let afterRowIDByPath: [String: Int64]
         switch source {
         case .opencode:
-            if let newest = previous?.entries.map(\.date).max() {
+            if let watermark = previous?.openCodeWatermark {
+                since = max(periodStart, watermark)
+            } else if let newest = previous?.entries.map(\.date).max() {
                 since = max(periodStart, newest.addingTimeInterval(-1))
             } else {
                 since = periodStart
@@ -231,12 +262,35 @@ actor LocalAdditionalUsageCache {
         let existing = previous?.entries ?? []
         let knownKiro = previous?.kiroSignatures ?? [:]
         let asideRoots = asideRootsOverride
+        let openCodeRoots = openCodeRootsOverride
+        let claudeEntriesSource = claudeEntriesSource
+        let previousWatermark = previous?.openCodeWatermark
+        let previousMirroredDays = previous?.mirroredDays ?? []
         let task = Task.detached(priority: .utility) {
             () async -> ScanResult in
             switch source {
             case .opencode:
-                let loaded = LocalAdditionalUsageReader.openCodeEntries(modifiedSince: since)
-                return ScanResult(entries: LocalUsageReader.dedupKeepMax(existing + loaded))
+                let scan = LocalAdditionalUsageReader.openCodeScan(modifiedSince: since, roots: openCodeRoots)
+                var claude: [LocalUsageReader.Entry] = []
+                if !scan.mirrors.isEmpty {
+                    // Only a scan that met mirror rows needs Claude Code's own usage to match them.
+                    let from = since.addingTimeInterval(-LocalAdditionalUsageReader.openCodeMirrorLead)
+                    if let claudeEntriesSource {
+                        claude = await claudeEntriesSource(from)
+                    } else {
+                        claude = await LocalUsageCache.shared.claudeEntries(modifiedSince: from)
+                    }
+                }
+                let resolution = LocalAdditionalUsageReader.resolveOpenCodeMirrors(
+                    scan.mirrors, claudeEntries: claude, now: now)
+                var watermark = scan.newestRowDate?.addingTimeInterval(-1)
+                if let pending = resolution.pendingSince {
+                    watermark = min(watermark ?? pending, pending.addingTimeInterval(-1))
+                }
+                return ScanResult(
+                    entries: LocalUsageReader.dedupKeepMax(existing + scan.entries + resolution.retained),
+                    openCodeWatermark: watermark ?? previousWatermark,
+                    mirroredDays: previousMirroredDays.union(resolution.mirroredDays))
             case .hermes:
                 return ScanResult(entries: LocalAdditionalUsageReader.hermesEntries(modifiedSince: since))
             case .kiro:
@@ -291,7 +345,9 @@ actor LocalAdditionalUsageCache {
         cached[source] = Cached(
             loadedAt: now, monthKey: monthKey, entries: result.entries,
             highWaterByPath: result.highWaterByPath,
-            kiroSignatures: result.kiroSignatures)
+            kiroSignatures: result.kiroSignatures,
+            openCodeWatermark: result.openCodeWatermark,
+            mirroredDays: result.mirroredDays)
         return result.entries
     }
 }
@@ -334,26 +390,128 @@ enum LocalAdditionalUsageReader {
         return CustomScanRoots.union(defaults: curated, extraRaw: customRootsValue)
     }
 
+    /// OpenCode wrappers (e.g. OpenChamber's `claude-code` provider) run Claude Code underneath and
+    /// mirror each request into OpenCode's database. Claude Code's own logs already count that usage,
+    /// so reading the mirror too would count every token twice.
+    private static let mirroredProviderIDs: Set<String> = ["claude-code"]
+
+    /// A mirror row is matched to Claude Code usage by time: the OpenCode message and the transcript
+    /// lines of the same request share the machine clock, but a row carries no Claude message id.
+    /// Claude can stamp its lines slightly before the OpenCode message starts or after it completes.
+    static let openCodeMirrorLead: TimeInterval = 5
+    static let openCodeMirrorTrail: TimeInterval = 30
+    /// An unmatched mirror row younger than this is held back instead of kept, because the Claude
+    /// transcript for it may simply not have been flushed yet.
+    static let openCodeMirrorGrace: TimeInterval = 90
+
+    struct OpenCodeMirrorRow: Sendable {
+        let entry: LocalUsageReader.Entry
+        let window: ClosedRange<Date>
+    }
+
+    struct OpenCodeScan: Sendable {
+        var entries: [LocalUsageReader.Entry] = []
+        var mirrors: [OpenCodeMirrorRow] = []
+        /// Newest `created` time over every parsed row, mirror or not.
+        var newestRowDate: Date?
+    }
+
+    struct OpenCodeMirrorResolution: Sendable {
+        /// Mirror rows with no Claude Code usage to account for them, so they must count here.
+        var retained: [LocalUsageReader.Entry] = []
+        /// Oldest mirror row still waiting for its Claude Code usage to show up.
+        var pendingSince: Date?
+        var mirroredDays: Set<String> = []
+    }
+
+    /// Native OpenCode rows count as usual. Mirror rows only count when Claude Code's own logs
+    /// have no usage in the same time window (transcripts disabled or not persisted).
     static func openCodeEntries(
         modifiedSince: Date,
-        roots: [URL]? = nil
+        roots: [URL]? = nil,
+        claudeEntries: [LocalUsageReader.Entry] = [],
+        now: Date = Date()
     ) -> [LocalUsageReader.Entry] {
+        let scan = openCodeScan(modifiedSince: modifiedSince, roots: roots)
+        let resolution = resolveOpenCodeMirrors(scan.mirrors, claudeEntries: claudeEntries, now: now)
+        return LocalUsageReader.dedupKeepMax(scan.entries + resolution.retained)
+    }
+
+    static func openCodeScan(modifiedSince: Date, roots: [URL]? = nil) -> OpenCodeScan {
         let sourceRoots = roots ?? openCodeRoots(
             customRootsValue: CustomScanRoots.storedValue(for: "opencode"))
-        var entries: [LocalUsageReader.Entry] = []
+        var rows: [OpenCodeRow] = []
         for root in sourceRoots {
             if let database = preferredOpenCodeDatabase(in: root) {
-                entries += openCodeDatabaseEntries(database, modifiedSince: modifiedSince)
+                rows += openCodeDatabaseRows(database, modifiedSince: modifiedSince)
             }
             let legacyRoot = root.appendingPathComponent("storage/message")
             for file in files(in: legacyRoot, modifiedSince: modifiedSince) where file.pathExtension == "json" {
                 guard let object = jsonObject(at: file),
                       let entry = parseOpenCodeMessage(
                         object, fallbackID: file.deletingPathExtension().lastPathComponent) else { continue }
-                entries.append(entry)
+                rows.append(OpenCodeRow(entry: entry, mirrorWindow: openCodeMirrorWindow(object)))
             }
         }
-        return LocalUsageReader.dedupKeepMax(entries.filter { $0.date >= modifiedSince })
+        var scan = OpenCodeScan()
+        var native: [LocalUsageReader.Entry] = []
+        var mirrorsByID: [String: OpenCodeMirrorRow] = [:]
+        for row in rows where row.entry.date >= modifiedSince {
+            scan.newestRowDate = max(scan.newestRowDate ?? row.entry.date, row.entry.date)
+            guard let window = row.mirrorWindow else { native.append(row.entry); continue }
+            if let existing = mirrorsByID[row.entry.id], existing.entry.total >= row.entry.total { continue }
+            mirrorsByID[row.entry.id] = OpenCodeMirrorRow(entry: row.entry, window: window)
+        }
+        scan.entries = LocalUsageReader.dedupKeepMax(native)
+        scan.mirrors = mirrorsByID.values.sorted { $0.entry.date < $1.entry.date }
+        return scan
+    }
+
+    static func resolveOpenCodeMirrors(
+        _ mirrors: [OpenCodeMirrorRow],
+        claudeEntries: [LocalUsageReader.Entry],
+        now: Date
+    ) -> OpenCodeMirrorResolution {
+        var result = OpenCodeMirrorResolution()
+        guard !mirrors.isEmpty else { return result }
+        let claudeTimes = claudeEntries.map(\.date).sorted()
+        for mirror in mirrors {
+            result.mirroredDays.insert(mirror.entry.localDay)
+            if containsDate(in: mirror.window, sorted: claudeTimes) { continue }
+            if now < mirror.window.upperBound.addingTimeInterval(openCodeMirrorGrace) {
+                result.pendingSince = min(result.pendingSince ?? mirror.entry.date, mirror.entry.date)
+            } else {
+                result.retained.append(mirror.entry)
+            }
+        }
+        return result
+    }
+
+    /// Whether any value of the ascending `sorted` array falls inside `window`.
+    private static func containsDate(in window: ClosedRange<Date>, sorted: [Date]) -> Bool {
+        var low = 0, high = sorted.count
+        while low < high {
+            let mid = (low + high) / 2
+            if sorted[mid] < window.lowerBound { low = mid + 1 } else { high = mid }
+        }
+        return low < sorted.count && sorted[low] <= window.upperBound
+    }
+
+    private struct OpenCodeRow {
+        let entry: LocalUsageReader.Entry
+        let mirrorWindow: ClosedRange<Date>?
+    }
+
+    /// The time window of an assistant message from a mirrored provider, or nil for native usage.
+    /// Handles the legacy shape (`providerID` at the top level) and V2 (`model.providerID`).
+    private static func openCodeMirrorWindow(_ object: Object) -> ClosedRange<Date>? {
+        let providerID = stringValue(object["providerID"])
+            ?? stringValue((object["model"] as? Object)?["providerID"])
+        guard let providerID, mirroredProviderIDs.contains(providerID),
+              let time = object["time"] as? Object,
+              let created = dateValue(time["created"]) else { return nil }
+        let end = dateValue(time["completed"]) ?? dateValue(time["streamed"]) ?? created
+        return created.addingTimeInterval(-openCodeMirrorLead)...max(created, end).addingTimeInterval(openCodeMirrorTrail)
     }
 
     static func hermesEntries(
@@ -374,11 +532,6 @@ enum LocalAdditionalUsageReader {
         return entries
     }
 
-    /// OpenCode wrappers (e.g. OpenChamber's `claude-code` provider) run Claude Code underneath and
-    /// mirror each request into OpenCode's database. Claude Code's own logs already count that usage,
-    /// so reading the mirror too would count every token twice.
-    private static let mirroredProviderIDs: Set<String> = ["claude-code"]
-
     static func parseOpenCodeMessage(
         _ object: Object,
         fallbackID: String
@@ -386,8 +539,7 @@ enum LocalAdditionalUsageReader {
         guard let tokens = object["tokens"] as? Object,
               let date = dateValue((object["time"] as? Object)?["created"]),
               let model = stringValue(object["modelID"]),
-              let providerID = stringValue(object["providerID"]),
-              !mirroredProviderIDs.contains(providerID) else { return nil }
+              stringValue(object["providerID"]) != nil else { return nil }
         let cache = tokens["cache"] as? Object
         return makeEntry(
             id: "opencode|\(stringValue(object["id"]) ?? fallbackID)",
@@ -418,15 +570,15 @@ enum LocalAdditionalUsageReader {
             .first
     }
 
-    private static func openCodeDatabaseEntries(
+    private static func openCodeDatabaseRows(
         _ database: URL,
         modifiedSince: Date
-    ) -> [LocalUsageReader.Entry] {
+    ) -> [OpenCodeRow] {
         let cutoff = Int64(modifiedSince.timeIntervalSince1970 * 1000)
         // OpenCode V2 writes assistant usage to the event-sourced session_message
         // projection. Its global time index keeps this query bounded to the active
         // usage window; the older message table remains useful for V1 history.
-        var entries = query(
+        var rows = query(
             database,
             sql: """
             SELECT id, time_created, data FROM session_message
@@ -437,34 +589,36 @@ enum LocalAdditionalUsageReader {
             } ?? []
 
         let recentSQL = "SELECT id, session_id, data FROM message WHERE time_created >= ?1"
-        var rows = query(database, sql: recentSQL, bindInt64: cutoff) { statement in
+        var legacy = query(database, sql: recentSQL, bindInt64: cutoff) { statement in
             parseOpenCodeDatabaseRow(statement)
         }
         // Older OpenCode databases did not expose time_created as a column.
-        if rows == nil {
-            rows = query(database, sql: "SELECT id, session_id, data FROM message") { statement in
+        if legacy == nil {
+            legacy = query(database, sql: "SELECT id, session_id, data FROM message") { statement in
                 parseOpenCodeDatabaseRow(statement)
             }
         }
-        entries += rows ?? []
-        return LocalUsageReader.dedupKeepMax(entries)
+        rows += legacy ?? []
+        return rows
     }
 
-    private static func parseOpenCodeDatabaseRow(_ statement: OpaquePointer) -> LocalUsageReader.Entry? {
+    private static func parseOpenCodeDatabaseRow(_ statement: OpaquePointer) -> OpenCodeRow? {
         guard let id = columnText(statement, 0),
               let payload = columnText(statement, 2),
-              let object = jsonObject(data: Data(payload.utf8)) else { return nil }
-        return parseOpenCodeMessage(object, fallbackID: id)
+              let object = jsonObject(data: Data(payload.utf8)),
+              let entry = parseOpenCodeMessage(object, fallbackID: id) else { return nil }
+        return OpenCodeRow(entry: entry, mirrorWindow: openCodeMirrorWindow(object))
     }
 
-    private static func parseOpenCodeSessionMessageRow(_ statement: OpaquePointer) -> LocalUsageReader.Entry? {
+    private static func parseOpenCodeSessionMessageRow(_ statement: OpaquePointer) -> OpenCodeRow? {
         guard let id = columnText(statement, 0),
               let payload = columnText(statement, 2),
-              let object = jsonObject(data: Data(payload.utf8)) else { return nil }
-        return parseOpenCodeSessionMessage(
-            object,
-            fallbackID: id,
-            createdAt: sqlite3_column_double(statement, 1))
+              let object = jsonObject(data: Data(payload.utf8)),
+              let entry = parseOpenCodeSessionMessage(
+                object,
+                fallbackID: id,
+                createdAt: sqlite3_column_double(statement, 1)) else { return nil }
+        return OpenCodeRow(entry: entry, mirrorWindow: openCodeMirrorWindow(object))
     }
 
     /// OpenCode V2 stores assistant messages separately from the V1 `message` projection.
@@ -478,8 +632,7 @@ enum LocalAdditionalUsageReader {
               let model = object["model"] as? Object,
               let date = dateValue(createdAt),
               let modelID = stringValue(model["id"]),
-              let providerID = stringValue(model["providerID"]),
-              !mirroredProviderIDs.contains(providerID) else { return nil }
+              stringValue(model["providerID"]) != nil else { return nil }
         let cache = tokens["cache"] as? Object
         return makeEntry(
             id: "opencode|\(fallbackID)",
