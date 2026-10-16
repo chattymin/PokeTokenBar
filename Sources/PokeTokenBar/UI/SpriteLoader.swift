@@ -160,6 +160,7 @@ enum SpriteLoader {
                                 form: PokemonForm? = nil) async
         -> [(image: NSImage, delay: TimeInterval)] {
         for variant in shiny ? [true, false] : [false] {
+            guard !Task.isCancelled else { return [] }
             let cached = cachedFrames(speciesID: speciesID, shiny: variant,
                                       directory: store.directory, form: form)
             if !cached.isEmpty { return cached }
@@ -169,6 +170,39 @@ enum SpriteLoader {
                                             shiny: variant, form: form)
             let frames = rememberFrames(data, file: store.directory.appendingPathComponent("\(key).gif"))
             if !frames.isEmpty { return frames }
+        }
+        return []
+    }
+
+    /// Keep the caller's static fallback visible while a transient GIF failure recovers.
+    /// The caller owns this await: cancelling its view/load task also cancels requests and backoff.
+    static func recoveringAnimationFrames(
+        speciesID: Int, shiny: Bool, store: SpriteStore = .shared, form: PokemonForm? = nil,
+        waitBeforeRetry: (Duration) async throws -> Void = { try await Task.sleep(for: $0) },
+        onUnavailable: () async -> Void
+    ) async -> [(image: NSImage, delay: TimeInterval)] {
+        guard !Task.isCancelled else { return [] }
+        // Unsupported species have no GIF endpoint; a static fallback is their final state.
+        guard PokemonAssets.hasAnimatedSprite(speciesID: speciesID) else {
+            await onUnavailable()
+            return []
+        }
+        var retryDelay = Duration.seconds(2)
+        var showedFallback = false
+        while !Task.isCancelled {
+            let frames = await animationFrames(speciesID: speciesID, shiny: shiny, store: store,
+                                               form: form)
+            guard !Task.isCancelled else { return [] }
+            if frames.count > 1 { return frames }
+            if !showedFallback {
+                await onUnavailable()
+                showedFallback = true
+            }
+            guard !Task.isCancelled else { return [] }
+            do { try await waitBeforeRetry(retryDelay) } catch { return [] }
+            // No attempt limit: cap request frequency during a long outage while keeping recovery
+            // within 30 seconds of the next successful request (plus download time).
+            retryDelay = min(retryDelay * 2, .seconds(30))
         }
         return []
     }

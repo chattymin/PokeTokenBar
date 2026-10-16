@@ -16,6 +16,25 @@ read_when:
 
 ## 스프라이트 전환
 
+- **A transient GIF request failure must not become a permanent static state.** `SpriteView` used
+  one `.task(id:)` request, showed its PNG fallback, then returned; neither a later cache fill nor
+  network recovery changed the task ID. The menu had the same class of defect: nonempty bob
+  frames satisfied its loaded-key gate after a failed GIF request. This is a confirmed recovery
+  gap, not proof of the cause of the reported floating-pet freeze. Both surfaces now await the
+  same cancellable recovery loader, apply a static fallback once, and retry at 2/4/8/16/30-second
+  intervals. The 30-second ceiling limits request frequency during long outages, not the number
+  of attempts; unsupported species remain static without retrying. The menu owns one load task
+  so a late PNG cannot replace a successful GIF, cancels it on subject change/display sleep, and
+  retries unfinished loads on wake. Sleep clears unfinished fallback frames rather than resetting
+  only the key: graduation can select the nil-key egg while asleep, which would otherwise match
+  the invalidated key and reuse the previous Pokémon's nonempty fallback. Successful GIFs stay cached.
+  Existing preview tests sampled only the cached first frame
+  and helper tests checked identities, so neither exercised a failed first request. Permanent
+  guards: `SpriteAnimationRecoveryTests` drive the production recovery/URLSession/cache/decoder
+  path with isolated fixtures, including fail-once recovery, another surface's later cache fill,
+  bounded backoff, cancellation during sleep/shiny download, unsupported species, and warm form
+  caches. These tests are headless; they do not establish ongoing on-screen SwiftUI rendering.
+
 - **움직이는 상세 화면은 첫 렌더부터 캐시된 GIF 프레임을 사용한다.** 정적 PNG는 96px 투명
   캔버스이고 GIF는 본체에 맞춘 작은 캔버스라, PNG를 먼저 보여준 뒤 같은 슬롯에 GIF를 맞추면
   정지한 작은 포켓몬이 뒤늦게 커진다. 디코드 프레임을 캐시해 시드와 재생에서 공유하고 GIF 요청을

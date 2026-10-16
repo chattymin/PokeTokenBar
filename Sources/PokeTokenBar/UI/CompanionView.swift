@@ -165,6 +165,15 @@ struct SpriteView: View {
         guard next != subject else { return }
         subject = next
     }
+    private func loadStaticImage(for id: Int) async {
+        let loaded = await SpriteLoader.image(speciesID: id, animated: false, shiny: shiny, store: spriteStore,
+                                              form: resolvedForm)
+        if let next = subject.applyingLoad(loaded, for: id, cancelled: Task.isCancelled,
+                                           shiny: shiny, form: resolvedForm) {
+            apply(next)
+        }
+    }
+
     /// 정적 스프라이트를 다시 불러야 하는가 — 종이 바뀌었거나 **이로치 여부가 뒤집혔을 때**.
     /// 순수·테스트용(`GIFDecoder.capFrameRate` 와 같은 이유). 종만 비교하던 과거 판정은 도감의 이로치 토글에서
     /// .task 가 다시 돌아도 "이미 그 종을 로드했다"로 판정해 색이 안 바뀌는 회귀를 낳았다.
@@ -236,20 +245,14 @@ struct SpriteView: View {
             }
             // Request animation before a missing static PNG can hold playback behind a network fetch.
             if animated && frames.isEmpty {
-                let decoded = await SpriteLoader.animationFrames(speciesID: id, shiny: shiny, store: spriteStore,
-                                                                 form: resolvedForm)
+                let decoded = await SpriteLoader.recoveringAnimationFrames(
+                    speciesID: id, shiny: shiny, store: spriteStore, form: resolvedForm,
+                    onUnavailable: { await loadStaticImage(for: id) })
                 guard !Task.isCancelled else { return }
                 frames = GIFDecoder.capFrameRate(Self.framesToApply(decoded, cancelled: false), floor: minFrameDelay)
-            }
-            // A normal-color cache fallback is only a placeholder, including on initial render.
-            // The async loader returns an exact cached image immediately or requests the shiny variant.
-            if frames.isEmpty {
-                let loaded = await SpriteLoader.image(speciesID: id, animated: false, shiny: shiny, store: spriteStore,
-                                                      form: resolvedForm)
-                if let next = subject.applyingLoad(loaded, for: id, cancelled: Task.isCancelled,
-                                                   shiny: shiny, form: resolvedForm) {
-                    apply(next)
-                }
+            } else if frames.isEmpty {
+                // Nonanimated views still fetch the exact PNG variant once.
+                await loadStaticImage(for: id)
             }
             guard !frames.isEmpty, !Task.isCancelled else { return }
             // delay 기반 프레임 advance. .task 취소 시(speciesID 변경/뷰 소멸) 루프 종료 — 누수 없음
