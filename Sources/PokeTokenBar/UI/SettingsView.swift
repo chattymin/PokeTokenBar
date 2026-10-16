@@ -443,7 +443,13 @@ struct SettingsView: View {
             Button(l.createSnapshotButton) { takeManualSnapshot() }
         }
         Divider()
-        DisclosureGroup(l.snapshotsSectionTitle, isExpanded: $snapshotsExpanded) {
+        SnapshotHistoryButton(isExpanded: $snapshotsExpanded, title: l.snapshotsSectionTitle,
+                              stateDescription: l.snapshotHistoryState(expanded: snapshotsExpanded))
+            .frame(maxWidth: .infinity)
+            .frame(height: 20)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+        if snapshotsExpanded {
             VStack(spacing: 0) {
                 if companion.availableSnapshots.isEmpty {
                     groupRow {
@@ -458,8 +464,6 @@ struct SettingsView: View {
                 }
             }
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
     }
 
     @ViewBuilder
@@ -1118,5 +1122,41 @@ struct SettingsView: View {
         alert.addButton(withTitle: l.close)
         NSApp.activate(ignoringOtherApps: true)
         alert.runModal()
+    }
+}
+
+/// A native button keeps the full history header keyboard-accessible and clickable.
+@MainActor
+private struct SnapshotHistoryButton: NSViewRepresentable {
+    @Binding var isExpanded: Bool
+    let title: String
+    let stateDescription: String
+
+    func makeCoordinator() -> Coordinator { Coordinator(isExpanded: $isExpanded) }
+
+    func makeNSView(context: Context) -> NSButton {
+        let button = NSButton(title: title, target: context.coordinator, action: #selector(Coordinator.toggle))
+        button.isBordered = false
+        button.alignment = .left
+        button.imagePosition = .imageLeading
+        button.contentTintColor = .secondaryLabelColor
+        button.setAccessibilityIdentifier("snapshotHistory")
+        return button
+    }
+
+    func updateNSView(_ button: NSButton, context: Context) {
+        context.coordinator.isExpanded = $isExpanded
+        button.title = title
+        button.image = NSImage(systemSymbolName: isExpanded ? "chevron.down" : "chevron.right",
+                               accessibilityDescription: nil)
+        button.setAccessibilityLabel(title)
+        button.setAccessibilityValue(stateDescription)
+    }
+
+    @MainActor
+    final class Coordinator: NSObject {
+        var isExpanded: Binding<Bool>
+        init(isExpanded: Binding<Bool>) { self.isExpanded = isExpanded }
+        @objc func toggle() { isExpanded.wrappedValue.toggle() }
     }
 }

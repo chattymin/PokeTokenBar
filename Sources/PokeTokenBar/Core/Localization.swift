@@ -724,6 +724,11 @@ struct L {
           "Snapshot erstellen",
           "Создать снимок")
     }
+    func snapshotHistoryState(expanded: Bool) -> String {
+        expanded
+            ? t("펼쳐짐", "Expanded", "展開", "Expandido", "Développé", "Expandido", "Erweitert", "Развёрнуто")
+            : t("접힘", "Collapsed", "折りたたみ", "Contraído", "Réduit", "Recolhido", "Eingeklappt", "Свёрнуто")
+    }
     var createSnapshotHint: String {
         t("진행 상태의 로컬 복원 지점을 즉시 저장해요 (최근 10개 보존)",
           "Saves an instant local restore point of your progress (keeps up to 10)",
