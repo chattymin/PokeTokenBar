@@ -115,7 +115,7 @@ final class ZeroUsageHomeRenderingTests: XCTestCase {
         request.recognitionLanguages = ["ko-KR", "en-US"]
         request.recognitionLevel = .accurate
         // The chart caption's “일별” can otherwise be recognized as “일벌” in CI.
-        request.customWords = [companion.l.dailyTrend]
+        request.customWords = [companion.l.dailyTrend] + companion.l.dailyTrend.components(separatedBy: " ")
         try VNImageRequestHandler(cgImage: XCTUnwrap(bitmap.cgImage)).perform([request])
         let text = request.results?.compactMap { $0.topCandidates(1).first?.string }.joined(separator: " ") ?? ""
         let normalizedText = text.replacingOccurrences(of: " ", with: "")
