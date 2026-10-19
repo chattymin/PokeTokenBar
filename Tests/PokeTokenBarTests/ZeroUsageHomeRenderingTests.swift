@@ -124,12 +124,20 @@ final class ZeroUsageHomeRenderingTests: XCTestCase {
         let request = VNRecognizeTextRequest()
         request.recognitionLanguages = ["ko-KR", "en-US"]
         request.recognitionLevel = .accurate
-        request.usesLanguageCorrection = true
-        // Preserve the localized caption's vocabulary when Vision ranks similar Korean glyphs.
-        request.customWords = [companion.l.dailyTrend] + companion.l.dailyTrend.split(separator: " ").map(String.init)
         try VNImageRequestHandler(cgImage: XCTUnwrap(bitmap.cgImage)).perform([request])
         let text = request.results?.compactMap { $0.topCandidates(1).first?.string }.joined(separator: " ") ?? ""
         let normalizedText = text.replacingOccurrences(of: " ", with: "")
+        let chartCaption = companion.l.dailyTrend.replacingOccurrences(of: " ", with: "")
+        let chartVisible = (request.results ?? []).contains { observation in
+            // CI ranks "일벌" before "일별" at the same confidence. Vision returns at most 10 candidates.
+            // Match the exact caption only within this observation's most confident tie.
+            let alternatives = observation.topCandidates(10)
+            guard let maximumConfidence = alternatives.first?.confidence else { return false }
+            return alternatives.contains {
+                $0.confidence == maximumConfidence
+                    && $0.string.replacingOccurrences(of: " ", with: "").contains(chartCaption)
+            }
+        }
         let candidates = (request.results ?? []).enumerated().map { index, observation in
             let alternatives = observation.topCandidates(10).map {
                 "\($0.string.debugDescription) confidence=\($0.confidence)"
@@ -142,10 +150,10 @@ final class ZeroUsageHomeRenderingTests: XCTestCase {
                           "Missing visible \(label): \(text)\n\(diagnostics)")
         }
         if history && day > 1 {
-            XCTAssertTrue(normalizedText.contains(companion.l.dailyTrend.replacingOccurrences(of: " ", with: "")),
+            XCTAssertTrue(chartVisible,
                           "Historical chart missing: \(text)\n\(diagnostics)")
         } else {
-            XCTAssertFalse(normalizedText.contains(companion.l.dailyTrend.replacingOccurrences(of: " ", with: "")),
+            XCTAssertFalse(chartVisible,
                            "Empty history must not invent a chart\n\(diagnostics)")
         }
         if let output = ProcessInfo.processInfo.environment["PTB_ZERO_USAGE_SCREENSHOT_DIR"] {

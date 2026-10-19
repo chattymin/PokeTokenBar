@@ -1259,13 +1259,13 @@ read_when:
   `NSTextView` and verifies its selected range.
 
 - **OCR output is an interpretation of rendered pixels.** `ZeroUsageHomeRenderingTests`
-  failed twice on CI because Vision read `이번 달 일별` as `이번 달 일벌`, although the chart
-  values and axis were present. Fixed-2× capture alone did not resolve the substitution;
-  a local pass could not establish the behavior of another OS's recognition model.
-  Keep explicit pixel density and supply the localized chart vocabulary through Vision's
-  `customWords` with language correction enabled, identically in both history states.
-  Retain exact top-1 Korean and empty-history assertions: hiding `MonthDailyTrend` must still
-  fail the historical-chart assertion. Failure messages include alternate candidates and
-  recognition metadata, and CI preserves both fixture PNGs in its existing render artifact.
-  Other OCR harnesses were inspected and passed the same CI runs; this repair is limited
-  to the failing fixture.
+  failed on CI because Vision ranked `이번 달 일벌` before the correct `이번 달 일별`
+  at the same maximum confidence. The saved fixture visibly contained the correct caption
+  and chart; fixed-2× capture and lexical hints did not change the candidate ordering.
+  Match the exact localized chart caption within one candidate from one observation's
+  maximum-confidence tie, identically in both history states. Do not combine candidates,
+  accept lower-confidence alternatives, or seed recognition with the expected vocabulary.
+  Period summaries retain their top-1 text assertions. Hiding `MonthDailyTrend` must still
+  fail the historical-chart assertion. Keep explicit pixel density, candidate diagnostics,
+  and both CI fixture PNGs so recognition failures can be checked against rendered pixels.
+  Other OCR harnesses passed the same CI runs; this repair is limited to the failing fixture.
