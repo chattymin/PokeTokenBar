@@ -502,6 +502,11 @@ final class UsageStore {
     /// numbers are copied into a rolling ledger at every refresh — see `UsageLedger`.
     private(set) var dailyLedger = UsageLedger()
 
+    /// The run of days with usage that is still going, read from the same ledger as the recap.
+    var currentStreak: UsageStreak {
+        dailyLedger.currentStreak(now: Date(), calendar: RecapPeriod.calendar())
+    }
+
     private func recordDailyLedger() {
         var ledger = dailyLedger
         ledger.merge(monthDailyTotals)
