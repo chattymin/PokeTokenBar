@@ -124,19 +124,29 @@ final class ZeroUsageHomeRenderingTests: XCTestCase {
         let request = VNRecognizeTextRequest()
         request.recognitionLanguages = ["ko-KR", "en-US"]
         request.recognitionLevel = .accurate
+        request.usesLanguageCorrection = true
+        // Preserve the localized caption's vocabulary when Vision ranks similar Korean glyphs.
+        request.customWords = [companion.l.dailyTrend] + companion.l.dailyTrend.split(separator: " ").map(String.init)
         try VNImageRequestHandler(cgImage: XCTUnwrap(bitmap.cgImage)).perform([request])
         let text = request.results?.compactMap { $0.topCandidates(1).first?.string }.joined(separator: " ") ?? ""
         let normalizedText = text.replacingOccurrences(of: " ", with: "")
+        let candidates = (request.results ?? []).enumerated().map { index, observation in
+            let alternatives = observation.topCandidates(10).map {
+                "\($0.string.debugDescription) confidence=\($0.confidence)"
+            }.joined(separator: " | ")
+            return "observation \(index) bbox=\(NSStringFromRect(observation.boundingBox)): \(alternatives)"
+        }.joined(separator: "\n")
+        let diagnostics = "OCR revision=\(request.revision) pixels=\(bitmap.pixelsWide)x\(bitmap.pixelsHigh)\n\(candidates)"
         for label in [companion.l.todayTokens, companion.l.thisWeek, companion.l.thisMonth] {
             XCTAssertTrue(normalizedText.contains(label.replacingOccurrences(of: " ", with: "")),
-                          "Missing visible \(label): \(text)")
+                          "Missing visible \(label): \(text)\n\(diagnostics)")
         }
         if history && day > 1 {
             XCTAssertTrue(normalizedText.contains(companion.l.dailyTrend.replacingOccurrences(of: " ", with: "")),
-                          "Historical chart missing: \(text)")
+                          "Historical chart missing: \(text)\n\(diagnostics)")
         } else {
             XCTAssertFalse(normalizedText.contains(companion.l.dailyTrend.replacingOccurrences(of: " ", with: "")),
-                           "Empty history must not invent a chart")
+                           "Empty history must not invent a chart\n\(diagnostics)")
         }
         if let output = ProcessInfo.processInfo.environment["PTB_ZERO_USAGE_SCREENSHOT_DIR"] {
             let directory = URL(fileURLWithPath: output)

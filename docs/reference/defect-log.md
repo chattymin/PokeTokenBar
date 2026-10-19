@@ -1258,11 +1258,14 @@ read_when:
   responder shortcuts explicitly; the menu regression test routes Command-A to a real
   `NSTextView` and verifies its selected range.
 
-- **OCR fixtures must choose their pixel density explicitly.** `ZeroUsageHomeRenderingTests`
-  captured the home view at the window's backing scale; CI recognized the chart caption
-  `이번 달 일별` as `이번 달 일벌` even though the chart values and axis were present.
-  A local pass did not establish that the caption had enough pixels on another screen.
-  Use the existing fixed-2× bitmap pattern from `FormMetadataNoteRenderingTests`, assert its
-  pixel dimensions, and retain the exact Korean text and empty-history assertions. Hiding
-  `MonthDailyTrend` must still fail the historical-chart assertion. The other OCR harnesses
-  were inspected and passed the same CI run; this repair is limited to the failing fixture.
+- **OCR output is an interpretation of rendered pixels.** `ZeroUsageHomeRenderingTests`
+  failed twice on CI because Vision read `이번 달 일별` as `이번 달 일벌`, although the chart
+  values and axis were present. Fixed-2× capture alone did not resolve the substitution;
+  a local pass could not establish the behavior of another OS's recognition model.
+  Keep explicit pixel density and supply the localized chart vocabulary through Vision's
+  `customWords` with language correction enabled, identically in both history states.
+  Retain exact top-1 Korean and empty-history assertions: hiding `MonthDailyTrend` must still
+  fail the historical-chart assertion. Failure messages include alternate candidates and
+  recognition metadata, and CI preserves both fixture PNGs in its existing render artifact.
+  Other OCR harnesses were inspected and passed the same CI runs; this repair is limited
+  to the failing fixture.
