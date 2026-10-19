@@ -1243,3 +1243,17 @@ read_when:
   자동 업데이트 시 앱 종료를 기다릴 때 `pgrep -x PokeTokenBar`를 쓰면, 중복 인스턴스가 살아있는 동안 루프를
   결코 빠져나오지 못하고 20초 타임아웃을 온전히 소모한다(#175). `ProcessInfo.processInfo.processIdentifier`로
   종료 대상 프로세스 PID를 전달하고 `kill -0 "$3"`로 특정 프로세스의 종료를 대기한다.
+
+- **An empty SwiftUI `Settings` scene is still a real window.** The menu bar app registered
+  `Settings { EmptyView() }` solely to satisfy its SwiftUI `App` entry point, although actual
+  settings are hosted inside `PopoverView`. This leaves an unnecessary standalone Settings
+  window available to framework launch/reopen behavior; the declaration predates the reported
+  update. Start the existing AppKit delegate directly, retain it throughout `NSApplication.run`,
+  and decline default reopen window handling. Existing navigation tests only exercised the
+  popover's settings flag and could not detect a separate framework-owned window.
+  `ApplicationLifecycleTests` exercises the production reopen delegate with no visible windows
+  and with a visible surface, including repeated requests. These tests cover the delegate policy;
+  verify cold launch and repeated `open` against an actual app bundle to check scene creation.
+  Removing SwiftUI `App` also removes its default Edit menu: install the standard nil-target
+  responder shortcuts explicitly; the menu regression test routes Command-A to a real
+  `NSTextView` and verifies its selected range.

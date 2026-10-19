@@ -4,13 +4,46 @@ import SwiftUI
 
 @main
 @MainActor
-struct PokeTokenBarApp: App {
-    @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
+enum PokeTokenBarApp {
+    static func main() {
+        let application = NSApplication.shared
+        let delegate = AppDelegate()
+        application.delegate = delegate
+        application.setActivationPolicy(.accessory)
+        application.mainMenu = makeMainMenu()
+        // Settings { EmptyView() } still registers a window that SwiftUI can open on launch/reopen.
+        // This app owns its status item and hosts settings inside the popover instead.
+        // NSApplication.delegate is weak, so retain the delegate throughout the event loop.
+        withExtendedLifetime(delegate) {
+            application.run()
+        }
+    }
 
-    var body: some Scene {
-        // 메뉴바는 AppDelegate 의 NSStatusItem 이 담당.
-        // MenuBarExtra 라벨은 고빈도 갱신 시 재렌더링 폭주로 CPU/메모리 문제가 있어 사용하지 않는다.
-        Settings { EmptyView() }
+    static func makeMainMenu() -> NSMenu {
+        let menu = NSMenu()
+        let applicationItem = NSMenuItem(title: "PokeTokenBar", action: nil, keyEquivalent: "")
+        let applicationMenu = NSMenu()
+        applicationMenu.addItem(withTitle: "Quit PokeTokenBar",
+                                action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        applicationItem.submenu = applicationMenu
+        menu.addItem(applicationItem)
+
+        // SwiftUI's App supplied these responder-chain shortcuts. AppKit startup must retain
+        // them for the settings text fields without registering a standalone Settings scene.
+        let editMenu = NSMenu(title: "Edit")
+        editMenu.addItem(withTitle: "Undo", action: Selector(("undo:")), keyEquivalent: "z")
+        let redo = editMenu.addItem(withTitle: "Redo", action: Selector(("redo:")), keyEquivalent: "z")
+        redo.keyEquivalentModifierMask = [.command, .shift]
+        editMenu.addItem(.separator())
+        editMenu.addItem(withTitle: "Cut", action: #selector(NSText.cut(_:)), keyEquivalent: "x")
+        editMenu.addItem(withTitle: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
+        editMenu.addItem(withTitle: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
+        editMenu.addItem(.separator())
+        editMenu.addItem(withTitle: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
+        let editItem = NSMenuItem(title: "Edit", action: nil, keyEquivalent: "")
+        editItem.submenu = editMenu
+        menu.addItem(editItem)
+        return menu
     }
 }
 
@@ -57,6 +90,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     /// 버튼 폭(=텍스트 길이)이나 스프라이트 크기가 변하면 레이어를 이미지 자리에 다시 맞춰야 한다.
     private var needsSpriteLayout = true
 
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        // Finder/open and update relaunches must not create or restore an unrelated window.
+        // The menu bar item and floating pet provide the app's explicit entry points.
+        false
+    }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         // 로그인 에이전트 등록(plist 의 RunAtLoad)이 이미 떠 있는 앱을 한 번 더 실행한다 — 나중에 뜬
         // 쪽이 물러난다. 메뉴바 항목을 만들기 전에 판정해 아이콘이 떴다 사라지는 깜빡임을 없애고,
@@ -76,7 +115,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         // 크래시·OOM·강제종료·런치실패를 로그에 남기는 전역 처리. 가능한 이르게(초기 크래시도 잡히게).
         CrashReporter.install(
             version: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "?")
-        NSApp.setActivationPolicy(.accessory)
         // Tooltips show 40% sooner than AppKit's 1 s default; the app's hover hints are short and
         // the popover closes quickly. Registration domain only, so a user `defaults write` still wins.
         UserDefaults.standard.register(defaults: ["NSInitialToolTipDelay": 600])
