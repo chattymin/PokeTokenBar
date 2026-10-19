@@ -71,6 +71,49 @@ final class MenuGrowthTests: XCTestCase {
         }
     }
 
+    func testEggPercentageMatchesHomeAtExactTwentyNinePercentBoundary() async throws {
+        try await fixture { usage, companion in
+            companion.setLanguage(.ko)
+            XCTAssertEqual(companion.eggHatchThreshold, 5_000_000)
+            companion.update(todayTokensByProvider: ["test": 0], todayDate: "d", monthTotal: 0,
+                             burnTier: .idle, limitWarning: false, hasUsageData: true)
+            // The former Double conversion turns exactly 29% into 28.999999999999996.
+            // Also protect flooring just below a boundary and clamping while hatching is pending.
+            for (credits, percent) in [(0, 0), (1_449_999, 28), (1_450_000, 29),
+                                       (1_499_999, 29), (1_500_000, 30), (4_999_999, 99),
+                                       (5_000_000, 100), (5_000_001, 100)] {
+                companion.update(todayTokensByProvider: ["test": credits], todayDate: "d", monthTotal: 0,
+                                 burnTier: .idle, limitWarning: false, hasUsageData: true)
+                XCTAssertTrue(companion.isEgg)
+                XCTAssertEqual(companion.state.eggUsage, credits)
+                XCTAssertEqual(MenuBarContent.lines(store: usage, companion: companion),
+                               ["부화 \(percent)%"], "credits=\(credits)")
+                XCTAssertTrue(CompanionHeader.progressDetail(used: credits, total: companion.eggHatchThreshold)
+                    .hasSuffix(" · \(percent)%"), "Home and menu must agree for credits=\(credits)")
+            }
+        }
+    }
+
+    func testActivePercentageMatchesHomeAtExactTwentyNinePercentBoundary() async throws {
+        try await fixture { usage, companion in
+            await companion.hatch(baseID: 1)
+            companion.setLanguage(.ko)
+            let total = companion.threshold
+            XCTAssertEqual(total % 100, 0, "fixture must have an exact integer 29% boundary")
+            let twentyNinePercent = total * 29 / 100
+            let thirtyPercent = total * 30 / 100
+            for (credits, percent) in [(twentyNinePercent - 1, 28), (twentyNinePercent, 29),
+                                       (thirtyPercent - 1, 29), (thirtyPercent, 30)] {
+                companion.applyUsage(credits - (companion.state.active?.usedAtStage ?? 0))
+                XCTAssertEqual(companion.state.active?.usedAtStage, credits)
+                XCTAssertEqual(MenuBarContent.lines(store: usage, companion: companion),
+                               ["성장 \(percent)%"], "credits=\(credits)")
+                XCTAssertTrue(CompanionHeader.progressDetail(used: credits, total: total)
+                    .hasSuffix(" · \(percent)%"), "Home and menu must agree for credits=\(credits)")
+            }
+        }
+    }
+
     func testCandyDifficultyLanguageAndToggleInvalidateMenuWithoutUsageRefresh() async throws {
         try await fixture { usage, companion in
             await companion.hatch(baseID: 1)

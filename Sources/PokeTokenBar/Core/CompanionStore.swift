@@ -273,7 +273,11 @@ final class CompanionStore {
     }
     /// Follow the companion being raised, even when a Pokédex representative is pinned.
     var menuGrowthText: String {
-        let percent = Int((isEgg ? eggProgress : progress) * 100)
+        let total = isEgg ? eggHatchThreshold : threshold
+        let credits = isEgg ? state.eggUsage : (state.active?.usedAtStage ?? 0)
+        let used = min(max(0, credits), total)
+        // Match Home's integer flooring without losing exact boundaries to Double rounding.
+        let percent = total > 0 ? used * 100 / total : 0
         return l.menuGrowthProgress(percent, isEgg: isEgg)
     }
     var tokensToNext: Int { guard let a = state.active else { return 0 }; return max(0, threshold - a.usedAtStage) }
