@@ -1125,8 +1125,12 @@ struct L {
     var filterShinyOnly: String { t("이로치만", "Shiny only", "色違いのみ", "Solo variocolor", "Chromatique uniquement", "Apenas Shiny", "Nur schillernde", "Только шайни") }
     var noSearchResults: String { t("검색 결과가 없어요", "No Pokémon found", "見つかりませんでした", "No se encontraron Pokémon", "Aucun Pokémon trouvé", "Nenhum Pokémon encontrado", "Keine Pokémon gefunden", "Покемоны не найдены") }
     var clearFilters: String { t("필터 초기화", "Reset filters", "フィルターを解除", "Restablecer filtros", "Réinitialiser les filtres", "Redefinir filtros", "Filter zurücksetzen", "Сбросить фильтры") }
+    var sortRecentCaught: String { t("최근 포획순", "Recent catches", "最近捕まえた順", "Capturas recientes", "Captures récentes", "Capturas recentes", "Zuletzt gefangen", "Недавние поимки") }
+    var sortFirstCollected: String { t("최초 수집순", "First collected", "初めて集めた順", "Primera obtención", "Première obtention", "Primeira obtenção", "Zuerst gesammelt", "Первые приобретения") }
     func label(for option: CompanionStore.DexSortOption) -> String {
         switch option {
+        case .recentCaught: return sortRecentCaught
+        case .firstCollected: return sortFirstCollected
         case .numberAsc: return sortDexNumberAsc
         case .numberDesc: return sortDexNumberDesc
         case .nameAsc: return sortNameAsc

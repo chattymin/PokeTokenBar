@@ -57,6 +57,7 @@ final class DexSearchAndFilterTests: XCTestCase {
 
     private func makeStore(dex: [DexEntry], active: MonState? = nil) -> CompanionStore {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("dex-search-\(UUID().uuidString).json")
+        addTeardownBlock { try? FileManager.default.removeItem(at: url) }
         var state = CompanionState()
         state.dex = dex
         state.active = active
@@ -253,6 +254,68 @@ final class DexSearchAndFilterTests: XCTestCase {
         let legendaryEntries = store.filteredDexEntries(rarity: .legendary)
         XCTAssertEqual(legendaryEntries.count, 1)
         XCTAssertEqual(legendaryEntries.first?.baseID, 150)
+    }
+
+    /// Product intent: find yesterday's catch to pin it, or revisit the first companions.
+    /// Recapturing Pikachu changes only its latest-acquisition position.
+    func testRecaptureMovesSpeciesForwardWithoutChangingFirstCollection() {
+        let pikachu = DexEntry(baseID: 25, finalID: 25, chainOrder: [25], rarity: .rare,
+                               caughtAt: now, names: [25: ["en": "Pikachu"]])
+        let mewtwo = DexEntry(baseID: 150, finalID: 150, chainOrder: [150], rarity: .legendary,
+                              caughtAt: now.addingTimeInterval(100))
+        var recapture = pikachu
+        recapture.id = "recaptured-pikachu"
+        recapture.caughtAt = now.addingTimeInterval(200)
+        let before = makeStore(dex: [pikachu, mewtwo])
+        XCTAssertEqual(before.filteredDexSpecies(sort: .recentCaught).map(\.id), [150, 25])
+        // Deliberately not in chronological save order.
+        let store = makeStore(dex: [recapture, mewtwo, pikachu])
+
+        XCTAssertEqual(store.filteredDexSpecies(sort: .recentCaught).map(\.id), [25, 150])
+        XCTAssertEqual(store.filteredDexSpecies(sort: .firstCollected).map(\.id), [25, 150])
+        XCTAssertEqual(store.filteredDexSpecies(sort: .firstCollected).map(\.id),
+                       before.filteredDexSpecies(sort: .firstCollected).map(\.id))
+        XCTAssertEqual(store.dexSpecies.count, 2)
+        XCTAssertTrue(store.setRepresentativeSpeciesID(store.filteredDexSpecies(sort: .recentCaught).first?.id))
+        XCTAssertEqual(store.representativeSpeciesID, 25)
+        XCTAssertEqual(store.filteredDexSpecies(sort: .numberAsc).map(\.id), [25, 150])
+    }
+
+    func testAcquisitionOrderUsesRecordDatesRatherThanSaveArrayOrder() {
+        let store = makeStore(dex: [
+            DexEntry(baseID: 25, finalID: 25, chainOrder: [25], rarity: .rare,
+                     caughtAt: now.addingTimeInterval(200)),
+            DexEntry(baseID: 150, finalID: 150, chainOrder: [150], rarity: .legendary, caughtAt: now),
+            DexEntry(baseID: 133, finalID: 133, chainOrder: [133], rarity: .rare,
+                     caughtAt: now.addingTimeInterval(100)),
+        ])
+        XCTAssertEqual(store.filteredDexSpecies(sort: .recentCaught).map(\.id), [25, 133, 150])
+        XCTAssertEqual(store.filteredDexSpecies(sort: .firstCollected).map(\.id), [150, 133, 25])
+    }
+
+    func testAcquisitionOrderFollowsEvolutionPathRatherThanDexNumber() {
+        let store = makeStore(dex: [
+            DexEntry(baseID: 172, finalID: 26, chainOrder: [172, 25, 26], rarity: .rare,
+                     caughtAt: now),
+        ])
+        XCTAssertEqual(store.filteredDexSpecies(sort: .firstCollected).map(\.id), [172, 25, 26])
+        XCTAssertEqual(store.filteredDexSpecies(sort: .recentCaught).map(\.id), [26, 25, 172])
+        XCTAssertEqual(store.filteredDexSpecies().map(\.id), [25, 26, 172], "Keep the existing default")
+    }
+
+    func testCurrentCompanionIsDiscoverableWithoutCreditingPlannedEvolutions() {
+        let active = MonState(baseID: 172, pathIDs: [172, 25, 26], stageIndex: 1,
+                              usedAtStage: 0, rarity: .rare, totalForms: 3)
+        let store = makeStore(dex: [
+            DexEntry(baseID: 25, finalID: 25, chainOrder: [25], rarity: .rare, caughtAt: now),
+            DexEntry(baseID: 150, finalID: 150, chainOrder: [150], rarity: .legendary,
+                     caughtAt: now.addingTimeInterval(100)),
+        ], active: active)
+
+        XCTAssertEqual(store.filteredDexSpecies(sort: .recentCaught).map(\.id), [25, 172, 150])
+        XCTAssertEqual(store.filteredDexSpecies(sort: .firstCollected).map(\.id), [25, 150, 172])
+        XCTAssertFalse(store.dexSpecies.contains { $0.id == 26 })
+        XCTAssertTrue(store.setRepresentativeSpeciesID(25))
     }
 
     func testCatchLogSorting() {
