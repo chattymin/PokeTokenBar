@@ -866,7 +866,7 @@ final class CompanionStore {
     /// It comes from the slower enrichment scan, so a rise in today's total seen here counts as usage at once.
     func update(todayTokensByProvider: [String: Int], todayDate: String, monthTotal: Int,
                 burnTier: BurnTier, limitWarning: Bool, hasUsageData: Bool,
-                timeSinceLastUsage: TimeInterval? = nil) {
+                timeSinceLastUsage: TimeInterval? = nil, streakDays: Int = 0) {
         let todayTokens = todayTokensByProvider.values.reduce(0, +)
         // `hasUsageData`는 표시용 snapshot 존재 여부이고, 이 map은 오늘 날짜가 확인된
         // provider 데이터만 담는다. stale snapshot이나 today == nil carrier만 있는 refresh는
@@ -920,15 +920,7 @@ final class CompanionStore {
                         newLedger[providerID] = current
                     }
                     state.claimedTodayTokensByProvider = newLedger
-                    let delta = todayTokensByProvider.values.reduce(0, +)
-                    if delta > 0 {
-                        state.usedSinceInstall += delta
-                        if state.active == nil {
-                            state.eggUsage += delta
-                        } else {
-                            applyUsage(delta)
-                        }
-                    }
+                    creditUsage(todayTokensByProvider.values.reduce(0, +), streakDays: streakDays)
                 } else {
                     var ledger = state.claimedTodayTokensByProvider ?? [:]
                     var delta = 0
@@ -951,14 +943,7 @@ final class CompanionStore {
                         ledger[providerID] = current
                     }
                     state.claimedTodayTokensByProvider = ledger
-                    if delta > 0 {
-                        state.usedSinceInstall += delta
-                        if state.active == nil {
-                            state.eggUsage += delta   // 알 인큐베이션 누적
-                        } else {
-                            applyUsage(delta)
-                        }
-                    }
+                    creditUsage(delta, streakDays: streakDays)
                 }
             }
         }
@@ -994,6 +979,22 @@ final class CompanionStore {
         sulkIdle = displayState == .sulk ? idle ?? 0 : 0
         save()
         autoSnapshotIfNeeded()
+    }
+
+    /// Credits a confirmed usage delta to the wallet and to growth — the one place both `update`
+    /// paths (new day / same day) go through, so a growth rule cannot end up on only one of them.
+    ///
+    /// The wallet gets the real tokens; only growth (egg or Pokémon) gets the streak bonus. The
+    /// wallet is also the shop balance, and boosting it would tie shop prices to the streak tiers.
+    private func creditUsage(_ delta: Int, streakDays: Int) {
+        guard delta > 0 else { return }
+        state.usedSinceInstall += delta
+        let growth = PokemonBalance.streakBoosted(delta, streakDays: streakDays)
+        if state.active == nil {
+            state.eggUsage += growth   // 알 인큐베이션 누적
+        } else {
+            applyUsage(growth)
+        }
     }
 
     /// 토큰 증분을 현재 포켓몬에 적용 — 임계 도달 시 진화/졸업.

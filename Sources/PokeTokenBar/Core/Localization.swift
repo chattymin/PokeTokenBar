@@ -298,6 +298,12 @@ struct L {
     }
     var recapGraduates: String { t("졸업", "Graduated", "卒業", "Graduados", "Diplômés", "Formados", "Abschlüsse", "Выпускники") }
     var recapNoData: String { t("기록 없음", "no data", "記録なし", "sin datos", "pas de données", "sem dados", "keine Daten", "нет данных") }
+    /// Appended to the streak tooltip while the streak speeds up growth.
+    func streakGrowthBonus(_ multiplier: String) -> String {
+        t("성장 \(multiplier)", "growth \(multiplier)", "成長 \(multiplier)", "crecimiento \(multiplier)",
+          "croissance \(multiplier)", "crescimento \(multiplier)", "Wachstum \(multiplier)",
+          "рост \(multiplier)")
+    }
     func recapDays(_ count: Int) -> String {
         t("\(count)일", "\(count)d", "\(count)日", "\(count) d", "\(count) j", "\(count) d", "\(count) T", "\(count) дн.")
     }

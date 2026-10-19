@@ -16,9 +16,17 @@ struct StreakBadge: View {
 
     nonisolated static func isShown(_ streak: UsageStreak) -> Bool { streak.days >= minimumDays }
 
+    /// Tooltip and accessibility label: the run, plus the growth bonus it currently gives.
+    nonisolated static func label(_ streak: UsageStreak, l: L) -> String {
+        let base = streak.includesToday ? l.streakDays(streak.days) : l.streakDaysPending(streak.days)
+        let multiplier = PokemonBalance.streakMultiplier(days: streak.days)
+        guard multiplier > 1 else { return base }
+        return base + " · " + l.streakGrowthBonus(String(format: "×%.2f", multiplier))
+    }
+
     var body: some View {
         if Self.isShown(streak) {
-            let label = streak.includesToday ? l.streakDays(streak.days) : l.streakDaysPending(streak.days)
+            let label = Self.label(streak, l: l)
             HStack(spacing: 2) {
                 Image(systemName: "flame.fill")
                     .foregroundStyle(streak.includesToday ? Color.orange : Color.secondary)

@@ -276,7 +276,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             burnTier: store.burnTier,
             limitWarning: store.isLimitWarning,
             hasUsageData: store.hasUsageData,
-            timeSinceLastUsage: store.timeSinceLastUsage())
+            timeSinceLastUsage: store.timeSinceLastUsage(),
+            streakDays: store.currentStreak.days)
     }
 
     /// 매 refresh 완료 훅 — companion 갱신 + 사탕 지급(한도가 신선한 시점). 지급을 여기 묶는 이유는
