@@ -109,8 +109,18 @@ final class ZeroUsageHomeRenderingTests: XCTestCase {
         defer { window.close() }
         try await Task.sleep(for: .milliseconds(500))
         host.layoutSubtreeIfNeeded()
-        let bitmap = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
-        host.cacheDisplay(in: host.bounds, to: bitmap)
+        // Keep caption OCR at 2x regardless of the runner's screen backing scale.
+        let bounds = host.bounds
+        let bitmap = try XCTUnwrap(NSBitmapImageRep(
+            bitmapDataPlanes: nil,
+            pixelsWide: Int((bounds.width * 2).rounded(.up)),
+            pixelsHigh: Int((bounds.height * 2).rounded(.up)),
+            bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+            colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0))
+        bitmap.size = bounds.size
+        XCTAssertGreaterThanOrEqual(CGFloat(bitmap.pixelsWide) / bounds.width, 2)
+        XCTAssertGreaterThanOrEqual(CGFloat(bitmap.pixelsHigh) / bounds.height, 2)
+        host.cacheDisplay(in: bounds, to: bitmap)
         let request = VNRecognizeTextRequest()
         request.recognitionLanguages = ["ko-KR", "en-US"]
         request.recognitionLevel = .accurate

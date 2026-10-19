@@ -1257,3 +1257,12 @@ read_when:
   Removing SwiftUI `App` also removes its default Edit menu: install the standard nil-target
   responder shortcuts explicitly; the menu regression test routes Command-A to a real
   `NSTextView` and verifies its selected range.
+
+- **OCR fixtures must choose their pixel density explicitly.** `ZeroUsageHomeRenderingTests`
+  captured the home view at the window's backing scale; CI recognized the chart caption
+  `이번 달 일별` as `이번 달 일벌` even though the chart values and axis were present.
+  A local pass did not establish that the caption had enough pixels on another screen.
+  Use the existing fixed-2× bitmap pattern from `FormMetadataNoteRenderingTests`, assert its
+  pixel dimensions, and retain the exact Korean text and empty-history assertions. Hiding
+  `MonthDailyTrend` must still fail the historical-chart assertion. The other OCR harnesses
+  were inspected and passed the same CI run; this repair is limited to the failing fixture.
