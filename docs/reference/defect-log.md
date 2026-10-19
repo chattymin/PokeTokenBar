@@ -12,9 +12,28 @@ read_when:
 # 결함 대응 축적 규칙
 
 `CLAUDE.md` §결함 대응 프로토콜의 4단계(근본원인 → 부류 스윕 → 회귀 테스트 → 영구 캡처)를 거쳐
-남은 규칙들이다. 각 항목은 실제로 겪은 회귀에 묶여 있다.
+남은 규칙들이다. 각 항목은 실제로 확인한 결함·회귀·표시 공백에 묶여 있다.
 
 ## 스프라이트 전환
+
+- **A transient GIF request failure must not become a permanent static state.** `SpriteView` used
+  one `.task(id:)` request, showed its PNG fallback, then returned; neither a later cache fill nor
+  network recovery changed the task ID. The menu had the same class of defect: nonempty bob
+  frames satisfied its loaded-key gate after a failed GIF request. This is a confirmed recovery
+  gap, not proof of the cause of the reported floating-pet freeze. Both surfaces now await the
+  same cancellable recovery loader, apply a static fallback once, and retry at 2/4/8/16/30-second
+  intervals. The 30-second ceiling limits request frequency during long outages, not the number
+  of attempts; unsupported species remain static without retrying. The menu owns one load task
+  so a late PNG cannot replace a successful GIF, cancels it on subject change/display sleep, and
+  retries unfinished loads on wake. Sleep clears unfinished fallback frames rather than resetting
+  only the key: graduation can select the nil-key egg while asleep, which would otherwise match
+  the invalidated key and reuse the previous Pokémon's nonempty fallback. Successful GIFs stay cached.
+  Existing preview tests sampled only the cached first frame
+  and helper tests checked identities, so neither exercised a failed first request. Permanent
+  guards: `SpriteAnimationRecoveryTests` drive the production recovery/URLSession/cache/decoder
+  path with isolated fixtures, including fail-once recovery, another surface's later cache fill,
+  bounded backoff, cancellation during sleep/shiny download, unsupported species, and warm form
+  caches. These tests are headless; they do not establish ongoing on-screen SwiftUI rendering.
 
 - **움직이는 상세 화면은 첫 렌더부터 캐시된 GIF 프레임을 사용한다.** 정적 PNG는 96px 투명
   캔버스이고 GIF는 본체에 맞춘 작은 캔버스라, PNG를 먼저 보여준 뒤 같은 슬롯에 GIF를 맞추면
@@ -24,6 +43,61 @@ read_when:
   GIF 픽셀·크기, 캐시 재사용, 프레임 지연, 정적 원본 보존을 검사한다.
 
 ## 판정·데이터
+
+- **A model-price test needs an independent bucket-level oracle.** Sonnet 5.5 copied Sonnet 5's
+  cache-read rate ($0.20/MTok) although its official rate is $0.10; source-unpriced Claude logs
+  therefore doubled that bucket's estimate. The standard-row test repeated the wrong literal,
+  and model coverage only required a positive estimate. Check each newly introduced model row
+  and long-context rule against primary pricing, then exercise real-format JSONL through
+  `LocalUsageCache` and aggregation. `testSonnet55ClaudeLogPricesColdWarmAndPersistedTokenCaches`
+  independently prices input/output/cache-write/cache-read = 100/10/40/1000 as 1,150 tokens and
+  $0.0005; old code returns $0.0006000000000000001 and fails all five cold aggregation assertions.
+  Fixed cold, warm and persisted-cache paths pass; `ModelPricingTests` has 12 tests and
+  `UsageCostTests` 13 (one skipped), zero failures. The class sweep confirmed Claude disk blobs
+  persist raw token/model entries, not estimated money: do not bump the parser version or discard
+  caches for this price-only change. Keep explicit source cost, including zero, authoritative.
+
+- **Snapshot summaries must carry the current individual's species-resolved form.** Saved Sky
+  Shaymin restored correctly but Settings listed its thumbnail as Land: `SaveSnapshot` retained
+  species/shiny metadata without a form, and the row omitted `SpriteView.form`. Correct payload
+  and restore checks did not cover this derived-summary-to-view boundary. Derive `currentForm`
+  for the active current species in create, envelope listing and raw legacy listing, then forward
+  it to the sprite; do not copy a future evolution's carried form. The list model is non-Codable,
+  so no schema bump, payload rewrite or restore change is needed. Sweep all three constructors
+  and preserve `displaysShiny` for disguised Ditto. Guards:
+  `testSnapshotKeepsNonDefaultFormInSummaryAndRestoredState` and
+  `testSnapshotSummariesResolveCurrentAppearanceAcrossLegacyAndEnvelopeFiles`, including missing/
+  invalid forms, legacy Unown, precursor/single-appearance species and eggs. Restoring old summary
+  behavior fails both tests with 16 assertions; the fixed `SaveSnapshotTests` passes all 11 tests.
+  Non-A Unown already had this display gap; generic forms widened it, without corrupting saves.
+
+- **Temporary refresh failure must retain the credential needed for the next automatic retry.**
+  An expired Keychain-only Antigravity credential fell back to its expired access token after a
+  grant timeout/429/5xx. Quota401 invalidation then deleted the only cached refresh token, and
+  automatic polls could not reopen Keychain. This recovery gap already existed in v2.5.5; it is
+  not a newly broken working path. Tests covered successful grants and permanent invalid_grant,
+  not transient failure followed by another automatic poll. Cache the acquired credential before
+  awaiting the grant; throw temporary errors before sending expired access, classify 429/5xx,
+  and preserve valid-token fallback and permanent-error behavior. Sweep provider-specific grant
+  ownership rather than copying this policy to Claude/Cursor. Four new recovery tests (timeout,
+  503, 429 and initial manual timeout) all fail against old behavior; all 21 fixed
+  `CredentialSwitchCacheTests` pass, including valid-token manual fallback, with no automatic
+  Keychain reread. These use production token/cache transport with synthetic credentials; the
+  quota401-to-invalidate transition is modeled, not a live provider or Keychain verification.
+
+- **Appearance-only forms need an explicit default-data note at both metadata presentations.**
+  Home and Pokédex showed an alternate-form name/sprite beside default-form metadata without
+  explaining the difference. Existing appearance/collection checks did not test that disclosure;
+  the intended species-based API/cache/profile contract itself was not a failed form lookup.
+  Keep that contract: do not expand this fix into per-form API data or profile regeneration.
+  Show `L.defaultFormDataNote` only for loaded details and a non-default displayed form, using
+  Home's current species and the Pokédex's displayed selection/representative, not its aggregate
+  input. Sweep both call sites, normalized nil/invalid/foreign forms, eggs, unavailable details
+  and all eight localization columns. The two production-view native tests
+  `testHomeExplainsLoadedAlternateMetadataOnly` and
+  `testDexExplainsTheDisplayedFormRatherThanTheOriginalSelection` pass and cover initial Home
+  and Pokédex presentations. Keep mounted picker transitions and localized layout checks
+  separate from these initial-render guards.
 
 - **An idle day must not erase historical usage.** The store admitted enrichment-only snapshots
   only for a positive active block, so providers with no usage today lost their week/month totals
@@ -712,6 +786,51 @@ read_when:
 
 ## 표시·UI
 
+- **초기 설정 이동은 애니메이션 완료에 의존하지 않는다.** 세션 키 만료·등록 안내에서
+  `startExpanded`로 연 고급 섹션의 animated `scrollTo`가 비활성·non-key native 호스트에서
+  반영되지 않았다. 원래 500ms 검사 시 clip Y는 0, 입력란의 host Y는 1483이었고, 입력 포커스만
+  `NSSecureTextView`로 이동했다. 기준 버전과 최종 전체 게이트에서 재현됐지만 단독·선별 실행은
+  통과해 원인을 좁히지 못했다. 호스트 크기 지정·명시적 표시·bitmap 렌더·화면 안 배치로는
+  해결되지 않았고, 원래 테스트에서 애니메이션만 끈 대조 실험은 통과했다.
+  → 초기 `proxy.scrollTo`는 바로 적용한다. 80ms 대기·대상 ID·상단 anchor·포커스·1회 진입 가드는
+  유지하고, 사용자가 누르는 고급 섹션의 펼침 애니메이션은 바꾸지 않는다. 스윕한 컬렉션 로그의
+  위치 복원은 이미 직접 스크롤하므로 대상이 아니다. 원래 `SessionKeySettingsRenderingTests`의
+  500ms·viewport·슬라이더·navigation 검사를 유지한 focused 실행은 1건, 실패 0건으로 통과했다
+  (1.266초). 실제 clip Y는 1312, 입력란의 host Y는 171로 화면 안에 들어왔다. `scrollTo` 한 줄만
+  제거한 대조 실행은 같은 테스트의 기존 viewport 검사만 실패했다(1건, 실패 1건, 1.524초).
+  재현 범위는 native 호스팅 테스트이며 설치 앱의 활성·key 팝오버에서 같은 실패를 확인한 것은 아니다.
+
+- **화면을 if/else로 갈아 끼우면 내려간 쪽의 `@State`는 Back에서 돌아오지 않는다.** 도감 상세는
+  `CollectionView`에서 격자와 포획 로그를 대신 차지한다. 그래서 Back을 누르면 `DexGridView`가 새로 만들어지고
+  `page`가 0으로 돌아갔다. 3페이지에서 연 포켓몬도 Back 하면 1페이지였다. 포획 로그도 같은 분기라 스크롤이
+  맨 위로 갔다. 필터는 `CollectionView`에 있어서 멀쩡했고, 페이지만 내려가는 쪽에 있었다.
+  **왜 못 걸렀나:** 휠 페이징(#393)과 스프라이트→상세(#394) 테스트는 페이지 이동과 상세 진입을 따로 봤다.
+  상세에서 Back으로 돌아오는 왕복 경로를 밟은 테스트가 없었다.
+  → `CollectionView`가 방금 본 종(`dexReturnAnchor`)과 로그 행(`logReturnAnchor`)을 기억한다. 다시 만들어진
+  격자는 그 종이 있는 페이지에서 시작한다(`DexScrollPager.page(containing:)`).
+  로그는 그 행을 가운데로 스크롤한다. 앵커는 한 번만 쓴다. `LazyVStack`의 첫 `scrollTo`는 아직 안 잰 행
+  높이를 추정치로 써서, 드러난 행이 측정되면 대상이 밀려 한 행 못 미친다. 그래서 측정이 끝난 뒤 한 번 더
+  스크롤한다. 처음엔 한 턴(`Task.yield`) 미뤄 한 번만 스크롤했는데, 로컬은 타이밍이 맞아 통과했고 CI
+  (macOS 15)에서 한 행 못 미쳐 실패했다. 스크롤을 한 번만 하도록 되돌리면 로컬에서도 실패한다.
+  `scrollPosition(id:)`도 시도했지만 macOS 14 API(`anchor:` 없음)는 마지막 행을 맨 위로 올리려다 목록 끝을
+  넘겨 빈 화면을 보였다.
+  격자 앵커는 처음에 Back마다 썼다. 그런데 지우는 곳은 격자의 `onAppear`뿐이라, 로그로 돌아가는 Back
+  (로그 행에서 열었거나 로그 세그먼트에서 Home 스프라이트로 열었을 때)에서는 남았다가 다음에 도감으로
+  전환할 때 소비됐다. 그래서 Back이 격자로 돌아갈 때만 쓴다. 일회성 앵커는 소비할 화면이 확실할 때만 쓴다.
+  또 처음엔 앵커를 격자의 `selectedID` 초기값으로 넣어 페이지를 계산했다. 그러자 #264 이후 화면에서 볼 수
+  없던 선택 테두리와 하단 정보 줄이 Back마다 되살아났고, 스크롤만 돌려놓는 로그와도 달라졌다. 테스트가 이
+  부수 효과를 "선택 유지"라는 의도된 동작으로 단언해서 리뷰에서도 못 걸렀다. 위치 복원용 값은 선택과 다른
+  상태(`DexGridView.returnAnchor`)로 둔다.
+  **부류 스윕:** 팝오버에서 목록→상세→Back 구조는 컬렉션 탭뿐이다. 설정과 리캡은 화면 전체를 덮고 닫으면
+  Home 맨 위로 돌아오는 게 의도한 동작이라 대상이 아니다.
+  **회귀 가드:** `DexBackNavigationTests`는 실제 `CollectionView`를 창에 띄우고 상세→Back 왕복 후 렌더된
+  글자를 Vision으로 읽는다. 앵커 저장, 1회 소비, 로그 앵커를 각각 지우면 실패한다. 격자 앵커를 무조건 쓰게
+  되돌리면 `testBackToTheLogLeavesTheGridOnItsFirstPage`가 실패한다. 앵커로 종을 다시 선택하게 하면
+  `testBackFromDetailReturnsToThePageOfThatSpecies`가 하단 줄의 종 이름을 읽고 실패한다. 접근성 트리는 AX 클라이언트
+  없이는 비어 있어 쓸 수 없다. Back은 AppKit `NSButton`이라 합성 마우스 다운을 보내면 추적 루프가 마우스 업을
+  기다리며 멈추니 `performClick`으로 누른다. 화면 전환 직후엔 뷰 트리가 이전 화면을 히트 테스트해 누름이
+  빠질 수 있어(CI), 화면이 바뀔 때까지 다시 누른다.
+
 - **"재인증하라" 플래그는 성공뿐 아니라 "조회할 로그인이 없음"(nil) 에서도 내린다.** Cursor 401 뒤
   로그아웃·`CURSOR_USAGE_API=0` 이면 `fetch()` 가 던지지 않고 nil 을 주는데, 플래그 해제가
   `if let status` 안에만 있어 재로그인 안내가 재시작까지 남았다. 회귀:
@@ -1018,14 +1137,21 @@ read_when:
 
 ## 알림
 
-- **사탕 재무장도 util dip 만 믿지 마라 — 창 epoch 를 같이 보라.** 지급 key 는 안정
+- **사탕 재무장도 util dip 만 믿지 마라 — 창 epoch 를 같이 보되, 휘발성 지터에 재무장되지 않게 하라.** 지급 key 는 안정
   (`claude.fiveHour`)이어야 알림 dedup 과 같은 이유로 `resets_at` 을 key 에 넣으면 안 된다. 그런데
   재무장을 *오직* utilization&lt;100 관측에만 걸면, Mac 이 리셋 구간을 잠자거나 앱이 꺼져 있는 동안
   창이 바뀌고 다음 poll 이 다시 100%면 `candyGrantTier` 가 영원히 1 로 남아 "한도를 여러 번
   찍었는데 사탕이 안 온다"가 된다(#326). 해결: `candyWindowEpoch[key]=resets_at` 을 영속하고, 같은
   key 에서 epoch 가 바뀌면 util 과 무관하게 tier 를 비운 뒤 100%면 재지급. nil→첫 epoch 는 재무장이
-  아니다(구세이브 업그레이드 폭탄 방지). 회귀: `testRearmWhenWindowEpochAdvancesWhileStillAt100`·
-  `testGrantAfterSeedWhenEpochAdvancesWithoutUtilDip`·`testLearningEpochForFirstTimeDoesNotRegrant`.
+  아니다(구세이브 업그레이드 폭탄 방지).
+  **그러나 날 것의 epoch 문자열을 단순 `!=` 로 비교하면 안 된다**: Anthropic API 가 매 응답 새로 매기는
+  마이크로초(`...00.928794` vs `...00.935515`)나 Codex app-server 의 ±1s 지터, 롤링 5h 창의 분 단위 드리프트로
+  인해 매 poll(60초)마다 새 epoch 로 오판되어 100% 상태에서 사탕이 매분 무한 지급되는 결함이 터졌다.
+  방지: ① `UsageStore` 에서 ISO8601 초 단위 정규화로 마이크로초 휘발성 제거, ② `CompanionStore.isNewEpoch` 에서
+  타임스탬프 차이를 파싱해 창 규모(세션 ≥30분, 주간 ≥24시간) 이상 전진했을 때만 실제 리셋으로 인정(지터·1분 드리프트 차단).
+  회귀 가드: `testRearmWhenWindowEpochAdvancesWhileStillAt100`·`testGrantAfterSeedWhenEpochAdvancesWithoutUtilDip`·
+  `testLearningEpochForFirstTimeDoesNotRegrant`·`testVolatileMicrosecondEpochDoesNotRegrant`·
+  `testCodexJitterEpochDoesNotRegrant`·`testRollingWindowMinorDriftDoesNotRegrant`·`testSessionFullResetWhileStillAt100Regrants`.
 
 - **휘발성 필드를 dedup/identity 키에 쓰지 마라.** 매 fetch/refresh 마다 값이 변하는 필드(예: rolling
   한도 창의 `resets_at`)를 알림 중복방지 키에 넣으면 매번 새 키가 되어 dedup 이 무력화된다 — 주간 한도

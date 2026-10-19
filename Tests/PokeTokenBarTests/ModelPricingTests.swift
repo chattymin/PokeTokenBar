@@ -20,7 +20,7 @@ final class ModelPricingTests: XCTestCase {
         XCTAssertEqual(ModelPricing.rate(for: "claude-opus-5"), .perMillion(5, 25, 6.25, 0.5))
         XCTAssertEqual(ModelPricing.rate(for: "claude-opus-5-5"), .perMillion(4, 20, 5, 0.2))
         XCTAssertEqual(ModelPricing.rate(for: "claude-sonnet-5"), .perMillion(2, 10, 2.5, 0.2))
-        XCTAssertEqual(ModelPricing.rate(for: "claude-sonnet-5-5"), .perMillion(2, 10, 2.5, 0.2))
+        XCTAssertEqual(ModelPricing.rate(for: "claude-sonnet-5-5"), .perMillion(2, 10, 2.5, 0.1))
     }
 
     /// The inverse of `testUnknownNamesNeverBorrowFamilyPrices`: that test guards against a

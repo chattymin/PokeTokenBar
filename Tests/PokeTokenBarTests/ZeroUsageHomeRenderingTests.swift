@@ -114,8 +114,6 @@ final class ZeroUsageHomeRenderingTests: XCTestCase {
         let request = VNRecognizeTextRequest()
         request.recognitionLanguages = ["ko-KR", "en-US"]
         request.recognitionLevel = .accurate
-        // The chart caption's “일별” can otherwise be recognized as “일벌” in CI.
-        request.customWords = [companion.l.dailyTrend] + companion.l.dailyTrend.components(separatedBy: " ")
         try VNImageRequestHandler(cgImage: XCTUnwrap(bitmap.cgImage)).perform([request])
         let text = request.results?.compactMap { $0.topCandidates(1).first?.string }.joined(separator: " ") ?? ""
         let normalizedText = text.replacingOccurrences(of: " ", with: "")
@@ -123,11 +121,17 @@ final class ZeroUsageHomeRenderingTests: XCTestCase {
             XCTAssertTrue(normalizedText.contains(label.replacingOccurrences(of: " ", with: "")),
                           "Missing visible \(label): \(text)")
         }
+        // The dated readout belongs to the chart, including when only one day has history.
+        // Checking it avoids CI's recurring “일별” → “일벌” OCR error in the low-contrast caption.
+        let chartDate = DailyTrendMetrics.dayStamp(formatter.string(from: now), language: companion.language)
+        let chartVisible = text.filter { $0.isLetter || $0.isNumber }
+            .contains(chartDate.filter { $0.isLetter || $0.isNumber })
+        XCTAssertFalse(chartDate.isEmpty)
         if history && day > 1 {
-            XCTAssertTrue(normalizedText.contains(companion.l.dailyTrend.replacingOccurrences(of: " ", with: "")),
+            XCTAssertTrue(chartVisible,
                           "Historical chart missing: \(text)")
         } else {
-            XCTAssertFalse(normalizedText.contains(companion.l.dailyTrend.replacingOccurrences(of: " ", with: "")),
+            XCTAssertFalse(chartVisible,
                            "Empty history must not invent a chart")
         }
         if let output = ProcessInfo.processInfo.environment["PTB_ZERO_USAGE_SCREENSHOT_DIR"] {

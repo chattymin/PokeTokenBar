@@ -746,6 +746,11 @@ struct L {
           "Snapshot erstellen",
           "Создать снимок")
     }
+    func snapshotHistoryState(expanded: Bool) -> String {
+        expanded
+            ? t("펼쳐짐", "Expanded", "展開", "Expandido", "Développé", "Expandido", "Erweitert", "Развёрнуто")
+            : t("접힘", "Collapsed", "折りたたみ", "Contraído", "Réduit", "Recolhido", "Eingeklappt", "Свёрнуто")
+    }
     var createSnapshotHint: String {
         t("진행 상태의 로컬 복원 지점을 즉시 저장해요 (최근 10개 보존)",
           "Saves an instant local restore point of your progress (keeps up to 10)",
@@ -1092,16 +1097,25 @@ struct L {
     var catchLogTitle: String { t("포획 로그", "Catch log", "捕獲ログ", "Registro de capturas", "Journal de captures", "Registro de capturas", "Fangprotokoll", "Журнал поимок") }
     /// 도감 총계는 개체가 아니라 종 수 — 로그의 dexTotal("총 N마리")과 단위가 다르다.
     func dexSpeciesTotal(_ n: Int) -> String { t("\(n)종", "\(n) species", "\(n)種", "\(n) especies", "\(n) espèces", "\(n) espécies", "\(n) Spezies", "Видов: \(n)") }
-    func unownFormsCollected(_ count: Int) -> String {
-        t("안농 글자 \(count)/28", "Unown forms \(count)/28", "アンノーン \(count)/28文字",
-          "Formas Unown \(count)/28", "Formes Zarbi \(count)/28", "Formas Unown \(count)/28",
-          "Icognito-Formen \(count)/28",
-          "Формы Unown: \(count)/28")
+    func formsCollected(_ count: Int, of total: Int) -> String {
+        t("폼 \(count)/\(total)", "Forms \(count)/\(total)", "フォルム \(count)/\(total)",
+          "Formas \(count)/\(total)", "Formes \(count)/\(total)", "Formas \(count)/\(total)",
+          "Formen \(count)/\(total)",
+          "Формы: \(count)/\(total)")
     }
-    var unownChooseForm: String {
-        t("글자 선택", "Choose form", "フォルムを選択", "Elegir forma", "Choisir une forme", "Escolher forma", "Form auswählen", "Выбрать форму")
+    var chooseForm: String {
+        t("폼 선택", "Choose form", "フォルムを選択", "Elegir forma", "Choisir une forme", "Escolher forma", "Form auswählen", "Выбрать форму")
     }
-    var unownNotCollected: String {
+    /// Usual look of a species whose official data names no form (Castform, Rotom, Kyurem, Genesect).
+    var normalForm: String {
+        t("노말폼", "Normal Form", "ノーマルフォルム", "Forma Normal", "Forme Normale", "Forma Normal", "Normalform", "Обычная форма")
+    }
+    var defaultFormDataNote: String {
+        t("정보는 기본 폼 기준", "Data uses the default form", "データは基本フォルムに基づきます",
+          "Datos de la forma predeterminada", "Données de la forme par défaut", "Dados da forma padrão",
+          "Daten der Standardform", "Данные обычной формы")
+    }
+    var formNotCollected: String {
         t("미수집", "Not collected", "未収集", "Sin conseguir", "Non collectionnée", "Não coletada", "Noch nicht gesammelt", "Не собрано")
     }
     func dexPageLabel(_ page: Int, _ total: Int) -> String {
