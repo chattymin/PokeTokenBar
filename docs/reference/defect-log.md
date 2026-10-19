@@ -1248,15 +1248,13 @@ read_when:
   `Settings { EmptyView() }` solely to satisfy its SwiftUI `App` entry point, although actual
   settings are hosted inside `PopoverView`. This leaves an unnecessary standalone Settings
   window available to framework launch/reopen behavior; the declaration predates the reported
-  update. Start the existing AppKit delegate directly, retain it throughout `NSApplication.run`,
-  and decline default reopen window handling. Existing navigation tests only exercised the
-  popover's settings flag and could not detect a separate framework-owned window.
-  `ApplicationLifecycleTests` exercises the production reopen delegate with no visible windows
-  and with a visible surface, including repeated requests. These tests cover the delegate policy;
-  verify cold launch and repeated `open` against an actual app bundle to check scene creation.
-  Removing SwiftUI `App` also removes its default Edit menu: install the standard nil-target
-  responder shortcuts explicitly; the menu regression test routes Command-A to a real
-  `NSTextView` and verifies its selected range.
+  update. Keep the SwiftUI `App` and delegate adapter, and use `_EmptyScene()` instead of
+  registering a window. The public underscored empty scene is present in macOS 14's SwiftUI;
+  a bare empty `SceneBuilder` body does not compile with the macOS 14.5 SDK. Existing navigation
+  tests only exercised
+  the popover's settings flag and missed the separate framework-owned scene. Compare actual
+  SwiftUI cold launch and status-item popover placement: changing startup to manual AppKit
+  introduced clipped first-show geometry and was removed rather than adding placement code.
 
 - **OCR output is an interpretation of rendered pixels.** `ZeroUsageHomeRenderingTests`
   failed on CI because Vision ranked `이번 달 일벌` before the correct `이번 달 일별`
