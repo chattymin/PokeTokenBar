@@ -7,27 +7,50 @@ import SwiftUI
 struct ShopView: View {
     let store: CompanionStore
     let nav: PopoverNavigation
+    @State private var section: ShopSection = .items
+
+    private enum ShopSection: Hashable {
+        case items
+        case megaStones
+    }
 
     var body: some View {
         let l = store.l
-        // 고정 높이 — 컬렉션/가방과 동일(팝오버 재오픈 시 fitting size 축소 방지).
-        ScrollView {
-            VStack(alignment: .leading, spacing: 10) {
-                walletHeader(l)
-                // shopEntries = 판매 아이템 + 알 3종(보증 없음·고급 이상·희귀 이상)을 가격 오름차순으로
-                // 병합한 단일 목록. 알은 항상 포함되고(즉시 액션이라 ItemKind 가 아님), 알 상태에선
-                // EggCard 가 구매만 비활성으로 보여준다.
-                ForEach(store.shopEntries, id: \.self) { entry in
-                    switch entry {
-                    case .item(let kind):
-                        ShopItemCard(store: store, kind: kind)
-                    case .egg(let tier):
-                        EggCard(store: store, nav: nav, tier: tier)
+        VStack(alignment: .leading, spacing: 10) {
+            walletHeader(l)
+            Picker("", selection: $section) {
+                Text(l.shopItemsTab).tag(ShopSection.items)
+                Text(l.shopMegaStonesTab).tag(ShopSection.megaStones)
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+
+            // Keep the wallet and section picker visible while only the selected
+            // product list scrolls. The shop keeps the same fixed content height
+            // as the other popover tabs.
+            ScrollView {
+                VStack(alignment: .leading, spacing: 10) {
+                    if section == .megaStones {
+                        MegaStoneSection(store: store)
+                    } else {
+                        // shopEntries merges the items with three eggs (unrestricted, uncommon+, rare+).
+                        // Eggs are always included as immediate actions rather than ItemKind values;
+                        // EggCard only disables purchase while an egg is active.
+                        ForEach(store.shopEntries, id: \.self) { entry in
+                            switch entry {
+                            case .item(let kind):
+                                ShopItemCard(store: store, kind: kind)
+                            case .egg(let tier):
+                                EggCard(store: store, nav: nav, tier: tier)
+                            }
+                        }
                     }
                 }
+                .reservesScrollerLane()
             }
-            .reservesScrollerLane()
+            .layoutPriority(1)
         }
+        // Fixed height, shared with Collection and Bag, prevents the popover from shrinking on reopen.
         .frame(height: 520)
     }
 
