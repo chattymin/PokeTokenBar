@@ -109,30 +109,52 @@ final class ZeroUsageHomeRenderingTests: XCTestCase {
         defer { window.close() }
         try await Task.sleep(for: .milliseconds(500))
         host.layoutSubtreeIfNeeded()
-        let bitmap = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
-        host.cacheDisplay(in: host.bounds, to: bitmap)
+        // Keep caption OCR at 2x regardless of the runner's screen backing scale.
+        let bounds = host.bounds
+        let bitmap = try XCTUnwrap(NSBitmapImageRep(
+            bitmapDataPlanes: nil,
+            pixelsWide: Int((bounds.width * 2).rounded(.up)),
+            pixelsHigh: Int((bounds.height * 2).rounded(.up)),
+            bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+            colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0))
+        bitmap.size = bounds.size
+        XCTAssertGreaterThanOrEqual(CGFloat(bitmap.pixelsWide) / bounds.width, 2)
+        XCTAssertGreaterThanOrEqual(CGFloat(bitmap.pixelsHigh) / bounds.height, 2)
+        host.cacheDisplay(in: bounds, to: bitmap)
         let request = VNRecognizeTextRequest()
         request.recognitionLanguages = ["ko-KR", "en-US"]
         request.recognitionLevel = .accurate
         try VNImageRequestHandler(cgImage: XCTUnwrap(bitmap.cgImage)).perform([request])
         let text = request.results?.compactMap { $0.topCandidates(1).first?.string }.joined(separator: " ") ?? ""
         let normalizedText = text.replacingOccurrences(of: " ", with: "")
+        let chartCaption = companion.l.dailyTrend.replacingOccurrences(of: " ", with: "")
+        let chartVisible = (request.results ?? []).contains { observation in
+            // CI ranks "일벌" before "일별" at the same confidence. Vision returns at most 10 candidates.
+            // Match the exact caption only within this observation's most confident tie.
+            let alternatives = observation.topCandidates(10)
+            guard let maximumConfidence = alternatives.first?.confidence else { return false }
+            return alternatives.contains {
+                $0.confidence == maximumConfidence
+                    && $0.string.replacingOccurrences(of: " ", with: "").contains(chartCaption)
+            }
+        }
+        let candidates = (request.results ?? []).enumerated().map { index, observation in
+            let alternatives = observation.topCandidates(10).map {
+                "\($0.string.debugDescription) confidence=\($0.confidence)"
+            }.joined(separator: " | ")
+            return "observation \(index) bbox=\(NSStringFromRect(observation.boundingBox)): \(alternatives)"
+        }.joined(separator: "\n")
+        let diagnostics = "OCR revision=\(request.revision) pixels=\(bitmap.pixelsWide)x\(bitmap.pixelsHigh)\n\(candidates)"
         for label in [companion.l.todayTokens, companion.l.thisWeek, companion.l.thisMonth] {
             XCTAssertTrue(normalizedText.contains(label.replacingOccurrences(of: " ", with: "")),
-                          "Missing visible \(label): \(text)")
+                          "Missing visible \(label): \(text)\n\(diagnostics)")
         }
-        // The dated readout belongs to the chart, including when only one day has history.
-        // Checking it avoids CI's recurring “일별” → “일벌” OCR error in the low-contrast caption.
-        let chartDate = DailyTrendMetrics.dayStamp(formatter.string(from: now), language: companion.language)
-        let chartVisible = text.filter { $0.isLetter || $0.isNumber }
-            .contains(chartDate.filter { $0.isLetter || $0.isNumber })
-        XCTAssertFalse(chartDate.isEmpty)
         if history && day > 1 {
             XCTAssertTrue(chartVisible,
-                          "Historical chart missing: \(text)")
+                          "Historical chart missing: \(text)\n\(diagnostics)")
         } else {
             XCTAssertFalse(chartVisible,
-                           "Empty history must not invent a chart")
+                           "Empty history must not invent a chart\n\(diagnostics)")
         }
         if let output = ProcessInfo.processInfo.environment["PTB_ZERO_USAGE_SCREENSHOT_DIR"] {
             let directory = URL(fileURLWithPath: output)

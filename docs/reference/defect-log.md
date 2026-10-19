@@ -1243,3 +1243,27 @@ read_when:
   자동 업데이트 시 앱 종료를 기다릴 때 `pgrep -x PokeTokenBar`를 쓰면, 중복 인스턴스가 살아있는 동안 루프를
   결코 빠져나오지 못하고 20초 타임아웃을 온전히 소모한다(#175). `ProcessInfo.processInfo.processIdentifier`로
   종료 대상 프로세스 PID를 전달하고 `kill -0 "$3"`로 특정 프로세스의 종료를 대기한다.
+
+- **An empty SwiftUI `Settings` scene is still a real window.** The menu bar app registered
+  `Settings { EmptyView() }` solely to satisfy its SwiftUI `App` entry point, although actual
+  settings are hosted inside `PopoverView`. This leaves an unnecessary standalone Settings
+  window available to framework launch/reopen behavior; the declaration predates the reported
+  update. Keep the SwiftUI `App` and delegate adapter, and use `_EmptyScene()` instead of
+  registering a window. The public underscored empty scene is present in macOS 14's SwiftUI;
+  a bare empty `SceneBuilder` body does not compile with the macOS 14.5 SDK. Existing navigation
+  tests only exercised
+  the popover's settings flag and missed the separate framework-owned scene. Compare actual
+  SwiftUI cold launch and status-item popover placement: changing startup to manual AppKit
+  introduced clipped first-show geometry and was removed rather than adding placement code.
+
+- **OCR output is an interpretation of rendered pixels.** `ZeroUsageHomeRenderingTests`
+  failed on CI because Vision ranked `이번 달 일벌` before the correct `이번 달 일별`
+  at the same maximum confidence. The saved fixture visibly contained the correct caption
+  and chart; fixed-2× capture and lexical hints did not change the candidate ordering.
+  Match the exact localized chart caption within one candidate from one observation's
+  maximum-confidence tie, identically in both history states. Do not combine candidates,
+  accept lower-confidence alternatives, or seed recognition with the expected vocabulary.
+  Period summaries retain their top-1 text assertions. Hiding `MonthDailyTrend` must still
+  fail the historical-chart assertion. Keep explicit pixel density, candidate diagnostics,
+  and both CI fixture PNGs so recognition failures can be checked against rendered pixels.
+  Other OCR harnesses passed the same CI runs; this repair is limited to the failing fixture.

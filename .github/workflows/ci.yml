@@ -32,6 +32,7 @@ jobs:
       - name: Test + coverage gate
         env:
           PTB_SNAPSHOT_SCREENSHOT_DIR: ${{ runner.temp }}/snapshot-history-renders
+          PTB_ZERO_USAGE_SCREENSHOT_DIR: ${{ runner.temp }}/snapshot-history-renders/zero-usage
         run: ./scripts/test-gate.sh
 
       - name: Preserve native snapshot-history renders

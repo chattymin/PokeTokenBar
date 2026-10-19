@@ -10,7 +10,8 @@ struct PokeTokenBarApp: App {
     var body: some Scene {
         // 메뉴바는 AppDelegate 의 NSStatusItem 이 담당.
         // MenuBarExtra 라벨은 고빈도 갱신 시 재렌더링 폭주로 CPU/메모리 문제가 있어 사용하지 않는다.
-        Settings { EmptyView() }
+        // No standalone windows: the status item and its popover are owned by AppDelegate.
+        _EmptyScene()
     }
 }
 
