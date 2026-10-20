@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// The 18 main-series types, keyed by PokeAPI's canonical lowercase English name.
-enum PokemonType: String, CaseIterable {
+enum PokemonType: String, Codable, Sendable, CaseIterable {
     case normal, fire, water, electric, grass, ice, fighting, poison, ground,
          flying, psychic, bug, rock, ghost, dragon, dark, steel, fairy
 

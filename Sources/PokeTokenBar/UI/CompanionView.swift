@@ -107,6 +107,7 @@ struct SpriteView: View {
     /// 팝오버 등 일시적 표시는 0(기본)으로 두어 네이티브 fps 유지.
     var minFrameDelay: TimeInterval = 0
     var form: PokemonForm? = nil
+    var isSilhouette: Bool = false
     private let spriteStore: SpriteStore
     @State private var subject: SpriteSubject
     @State private var up = false
@@ -115,7 +116,7 @@ struct SpriteView: View {
 
     init(speciesID: Int?, size: CGFloat = 84, bob: Bool = false, animated: Bool = false,
          shiny: Bool = false, minFrameDelay: TimeInterval = 0, spriteStore: SpriteStore = .shared,
-         form: PokemonForm? = nil) {
+         form: PokemonForm? = nil, isSilhouette: Bool = false) {
         self.speciesID = speciesID
         self.spriteStore = spriteStore
         self.size = size
@@ -124,6 +125,7 @@ struct SpriteView: View {
         self.shiny = shiny
         self.minFrameDelay = minFrameDelay
         self.form = form
+        self.isSilhouette = isSilhouette
         // 캐시에 있으면 즉시(동기) 표시 — 재렌더 플래시 방지 + 정적 스냅샷에서도 보임.
         // speciesID==nil(알 상태)이면 알 스프라이트를 시드(없으면 body 가 🥚 폴백).
         let resolvedForm = speciesID.flatMap { PokemonForm.resolved(speciesID: $0, form: form) }
@@ -196,9 +198,21 @@ struct SpriteView: View {
     @ViewBuilder
     private func fitted(_ image: NSImage) -> some View {
         let fit = Self.imageSize(for: image, box: size)
-        Image(nsImage: image).resizable().interpolation(.none)
-            .frame(width: fit.width, height: fit.height)
-            .frame(width: size, height: size)
+        if isSilhouette {
+            Image(nsImage: image)
+                .renderingMode(.template)
+                .resizable()
+                .interpolation(.none)
+                .foregroundStyle(Color.black.opacity(0.85))
+                .frame(width: fit.width, height: fit.height)
+                .frame(width: size, height: size)
+        } else {
+            Image(nsImage: image)
+                .resizable()
+                .interpolation(.none)
+                .frame(width: fit.width, height: fit.height)
+                .frame(width: size, height: size)
+        }
     }
 
     var body: some View {
@@ -330,8 +344,17 @@ struct EvoLineView: View {
         return rowWidth(count: count, thumb: thumb, hasNames: hasNames) > maxWidth
     }
 
+    private var totalColumns: Int {
+        nodes.reduce(0) { sum, node in
+            switch node.content {
+            case .branch(let items): return sum + max(1, items.count)
+            default: return sum + 1
+            }
+        }
+    }
+
     var body: some View {
-        if Self.needsScroll(count: nodes.count, thumb: thumb,
+        if Self.needsScroll(count: totalColumns, thumb: thumb,
                             hasNames: names != nil, maxWidth: maxWidth) {
             scrollableRow
         } else {
@@ -458,14 +481,21 @@ struct EvoLineView: View {
         return links[id]
     }
 
-    private func dexLinkModifier(for node: EvoLineItem) -> DexEntryLink {
-        let target = onOpenDexEntry == nil ? nil : Self.dexLinkTarget(for: node, links: dexLinks)
+    private func dexLinkModifier(forSpeciesID id: Int, isCollected: Bool) -> DexEntryLink {
+        let target = (onOpenDexEntry != nil && isCollected) ? dexLinks[id] : nil
         var name: String?
-        if case .species(let id) = node.content, let names, let raw = names[id] {
+        if let names, let raw = names[id] {
             name = PokemonForm.displayName(raw, speciesID: id, form: form, label: nil)
         }
         return DexEntryLink(target: target, hint: L(language).dexOpenEntryHint,
                             accessibilityName: name, cornerRadius: 6, open: onOpenDexEntry)
+    }
+
+    private func dexLinkModifier(for node: EvoLineItem) -> DexEntryLink {
+        guard case .species(let id) = node.content else {
+            return DexEntryLink(target: nil, hint: "", accessibilityName: nil, cornerRadius: 6, open: onOpenDexEntry)
+        }
+        return dexLinkModifier(forSpeciesID: id, isCollected: true)
     }
 
     private var row: some View {
@@ -477,39 +507,72 @@ struct EvoLineView: View {
                         .frame(width: thumb * Self.arrowRatio)
                         .padding(.top, thumb * 0.4)   // 스프라이트 세로 중앙에 정렬
                 }
-                VStack(spacing: 1) {
-                    Group {
-                        switch node.content {
-                        case .species(let id):
-                            SpriteView(speciesID: id, size: thumb, shiny: shiny, form: form)
-                        case .mystery:
-                            Text("?")
-                                .font(.system(size: thumb * 0.55, weight: .bold, design: .rounded))
-                                .frame(width: thumb, height: thumb)
-                                .accessibilityLabel(Text(mysteryLabel))
-                        }
-                    }
-                        .opacity(node.state == .future ? 0.32 : 1)
-                        .saturation(node.state == .future ? 0.4 : 1)
-                        .overlay(alignment: .bottom) {
-                            if node.state == .current {
-                                Circle().fill(Color.accentColor).frame(width: 4, height: 4).offset(y: 2)
+                switch node.content {
+                case .species(let id):
+                    VStack(spacing: 1) {
+                        SpriteView(speciesID: id, size: thumb, shiny: shiny, form: form)
+                            .opacity(node.state == .future ? 0.32 : 1)
+                            .saturation(node.state == .future ? 0.4 : 1)
+                            .overlay(alignment: .bottom) {
+                                if node.state == .current {
+                                    Circle().fill(Color.accentColor).frame(width: 4, height: 4).offset(y: 2)
+                                }
                             }
+                        if let names {
+                            // Labels are one thumbnail wide: only Unown's letter fits, the sprite shows other forms.
+                            Text(PokemonForm.displayName(names[id] ?? "…", speciesID: id, form: form, label: nil))
+                                .font(.system(size: nameFontSize)).foregroundStyle(.secondary)
+                                .lineLimit(nameLineLimit).minimumScaleFactor(nameMinimumScaleFactor)
+                                .multilineTextAlignment(.center)
+                                .frame(maxWidth: thumb + Self.nameSlack)
                         }
-                    if let names, case .species(let id) = node.content {
-                        // Labels are one thumbnail wide: only Unown's letter fits, the sprite shows other forms.
-                        Text(PokemonForm.displayName(names[id] ?? "…", speciesID: id, form: form, label: nil))
-                            .font(.system(size: nameFontSize)).foregroundStyle(.secondary)
-                            .lineLimit(nameLineLimit).minimumScaleFactor(nameMinimumScaleFactor)
-                            .multilineTextAlignment(.center)
-                            .frame(maxWidth: thumb + Self.nameSlack)
                     }
+                    .frame(width: thumb + (names == nil ? 0 : Self.nameSlack))
+                    .modifier(dexLinkModifier(for: node))
+                    .id(i)
+
+                case .mystery:
+                    VStack(spacing: 1) {
+                        Text("?")
+                            .font(.system(size: thumb * 0.55, weight: .bold, design: .rounded))
+                            .frame(width: thumb, height: thumb)
+                            .accessibilityLabel(Text(mysteryLabel))
+                            .opacity(0.32)
+                    }
+                    .frame(width: thumb + (names == nil ? 0 : Self.nameSlack))
+                    .id(i)
+
+                case .branch(let items):
+                    HStack(alignment: .top, spacing: Self.spacing) {
+                        ForEach(items) { item in
+                            VStack(spacing: 1) {
+                                Group {
+                                    if item.isCollected {
+                                        SpriteView(speciesID: item.speciesID, size: thumb, shiny: shiny, form: form)
+                                            .opacity(0.4)
+                                            .saturation(0.6)
+                                    } else {
+                                        // Silhouette noire (ombre) pour les évolutions non encore obtenues
+                                        SpriteView(speciesID: item.speciesID, size: thumb, shiny: false, form: form, isSilhouette: true)
+                                    }
+                                }
+                                if let names {
+                                    Text(item.isCollected ? PokemonForm.displayName(names[item.speciesID] ?? "…", speciesID: item.speciesID, form: form, label: nil) : "???")
+                                        .font(.system(size: nameFontSize))
+                                        .foregroundStyle(item.isCollected ? .secondary : .tertiary)
+                                        .lineLimit(nameLineLimit)
+                                        .minimumScaleFactor(nameMinimumScaleFactor)
+                                        .multilineTextAlignment(.center)
+                                        .frame(maxWidth: thumb + Self.nameSlack)
+                                }
+                            }
+                            .frame(width: thumb + (names == nil ? 0 : Self.nameSlack))
+                            .modifier(dexLinkModifier(forSpeciesID: item.speciesID, isCollected: item.isCollected))
+                            .help(item.isCollected ? (names?[item.speciesID] ?? "") : mysteryLabel)
+                        }
+                    }
+                    .id(i)
                 }
-                .frame(width: thumb + (names == nil ? 0 : Self.nameSlack))
-                // After the fixed frame, so the link only adds a hover background — column widths
-                // (and `rowWidth`) stay exactly as measured.
-                .modifier(dexLinkModifier(for: node))
-                .id(i)   // 셰브론 페이징(ScrollViewProxy.scrollTo) 대상
             }
         }
     }
@@ -755,6 +818,9 @@ struct CompanionHeader: View {
                             if let guarantee = store.eggGuarantee {
                                 Badge(store.l.eggGuaranteeHint(guarantee), tint: .rarity(guarantee))
                             }
+                            if let typeGuarantee = store.eggTypeGuarantee {
+                                Badge(store.l.eggTypeGuaranteeHint(typeGuarantee), tint: .type(typeGuarantee))
+                            }
                         }
                         LabeledProgressBar(value: store.eggProgress,
                                            label: Self.progressDetail(used: store.state.eggUsage,
@@ -965,6 +1031,7 @@ struct CollectionView: View {
     @State private var selectedRarity: Rarity?
     @State private var searchText = ""
     @State private var shinyOnly = false
+    @State private var evolutionFamily = false
     @State private var dexSort: CompanionStore.DexSortOption = .numberAsc
     @State private var logSort: CompanionStore.CatchLogSortOption = .recentFirst
     /// The species whose detail page was just closed. The detail page replaces the grid, so Back
@@ -984,6 +1051,7 @@ struct CollectionView: View {
             query: searchText,
             rarity: selectedRarity,
             shinyOnly: shinyOnly,
+            evolutionFamily: evolutionFamily,
             sort: logSort
         )
     }
@@ -995,6 +1063,7 @@ struct CollectionView: View {
     private func resetFilters() {
         searchText = ""
         shinyOnly = false
+        evolutionFamily = false
         selectedRarity = nil
         dexSort = .numberAsc
         logSort = .recentFirst
@@ -1031,6 +1100,7 @@ struct CollectionView: View {
                         store: store,
                         searchText: searchText,
                         shinyOnly: shinyOnly,
+                        evolutionFamily: evolutionFamily,
                         sortOption: dexSort,
                         selectedRarity: $selectedRarity,
                         returnAnchor: dexReturnAnchor,
@@ -1097,6 +1167,28 @@ struct CollectionView: View {
             .buttonStyle(.plain)
             .help(store.l.filterShinyOnly)
             .accessibilityLabel(store.l.filterShinyOnly)
+
+            Button {
+                withAnimation(.easeInOut(duration: 0.15)) {
+                    evolutionFamily.toggle()
+                }
+            } label: {
+                Image(systemName: "arrow.triangle.branch")
+                    .font(.system(size: 13, weight: evolutionFamily ? .bold : .regular))
+                    .foregroundStyle(evolutionFamily ? Color.teal : Color.secondary)
+                    .frame(width: 16, height: 16)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 4)
+                    .background(evolutionFamily ? Color.teal.opacity(0.18) : Color(nsColor: .controlBackgroundColor))
+                    .clipShape(RoundedRectangle(cornerRadius: 6))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 6)
+                            .strokeBorder(evolutionFamily ? Color.teal.opacity(0.6) : Color.secondary.opacity(0.2), lineWidth: 0.5)
+                    )
+            }
+            .buttonStyle(.plain)
+            .help(store.l.filterEvolutionFamily)
+            .accessibilityLabel(store.l.filterEvolutionFamily)
 
             Menu {
                 if navigation.showingCollectionLog {
@@ -1191,6 +1283,9 @@ struct CollectionView: View {
                         withAnimation(.easeInOut(duration: 0.2)) { proxy.scrollTo("dexTop", anchor: .top) }
                     }
                     .onChange(of: shinyOnly) {
+                        withAnimation(.easeInOut(duration: 0.2)) { proxy.scrollTo("dexTop", anchor: .top) }
+                    }
+                    .onChange(of: evolutionFamily) {
                         withAnimation(.easeInOut(duration: 0.2)) { proxy.scrollTo("dexTop", anchor: .top) }
                     }
                     .onChange(of: logSort) {
@@ -1374,6 +1469,7 @@ private struct DexGridView: View {
     let store: CompanionStore
     let searchText: String
     let shinyOnly: Bool
+    let evolutionFamily: Bool
     let sortOption: CompanionStore.DexSortOption
     @Binding var selectedRarity: Rarity?
     let onSelectSpecies: (CompanionStore.DexSpecies) -> Void
@@ -1394,7 +1490,7 @@ private struct DexGridView: View {
 
     /// `returnAnchor` = the species whose detail page was just closed. The grid opens on its page,
     /// set here rather than in `onAppear`, which would flash page 1 for a frame first.
-    init(store: CompanionStore, searchText: String, shinyOnly: Bool,
+    init(store: CompanionStore, searchText: String, shinyOnly: Bool, evolutionFamily: Bool,
          sortOption: CompanionStore.DexSortOption, selectedRarity: Binding<Rarity?>,
          returnAnchor: String?,
          onSelectSpecies: @escaping (CompanionStore.DexSpecies) -> Void,
@@ -1402,6 +1498,7 @@ private struct DexGridView: View {
         self.store = store
         self.searchText = searchText
         self.shinyOnly = shinyOnly
+        self.evolutionFamily = evolutionFamily
         self.sortOption = sortOption
         _selectedRarity = selectedRarity
         self.onSelectSpecies = onSelectSpecies
@@ -1415,6 +1512,7 @@ private struct DexGridView: View {
             query: searchText,
             rarity: selectedRarity,
             shinyOnly: shinyOnly,
+            evolutionFamily: evolutionFamily,
             sort: sortOption
         )
         let pageCount = max(1, (visible.count + Self.pageSize - 1) / Self.pageSize)
@@ -1438,6 +1536,7 @@ private struct DexGridView: View {
         }
         .onChange(of: searchText) { page = 0; selectedID = nil }
         .onChange(of: shinyOnly) { page = 0; selectedID = nil }
+        .onChange(of: evolutionFamily) { page = 0; selectedID = nil }
         .onChange(of: sortOption) { page = 0; selectedID = nil }
         .onChange(of: selectedRarity) { page = 0; selectedID = nil }
         .task { await store.backfillMissingDexNames() }
@@ -2073,6 +2172,14 @@ private struct DexEntryRow: View {
                     // 놓아준 개체 — 종은 도감에 남지만 이 개체는 끝까지 키우지 않았다.
                     // 중립색(secondary)으로 둔다: 실패가 아니라 다른 종류의 기록이라 경고색은 과하다.
                     Badge(store.l.dexReleased.uppercased(), tint: .secondary, style: .tinted, size: 10)
+                }
+                if store.isDuplicateCatch(entry) {
+                    Text(store.l.dexDuplicate.uppercased())
+                        .font(.system(size: 10, weight: .bold))
+                        .padding(.horizontal, 5).padding(.vertical, 1)
+                        .background(Color.secondary.opacity(0.14))
+                        .foregroundStyle(Color.secondary)
+                        .clipShape(Capsule())
                 }
                 if entry.isShiny {
                     // 이모지는 스크린리더가 일관되게 읽지 못해 명사 라벨을 붙인다(도감 칸과 동일 규칙).

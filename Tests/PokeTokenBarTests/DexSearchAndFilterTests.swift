@@ -295,8 +295,105 @@ final class DexSearchAndFilterTests: XCTestCase {
             XCTAssertFalse(l.dexSearchPlaceholder.isEmpty)
             XCTAssertFalse(l.sortTitle.isEmpty)
             XCTAssertFalse(l.filterShinyOnly.isEmpty)
+            XCTAssertFalse(l.filterEvolutionFamily.isEmpty)
             XCTAssertFalse(l.noSearchResults.isEmpty)
             XCTAssertFalse(l.clearFilters.isEmpty)
         }
+    }
+
+    func testDexSpeciesEvolutionFamilySearch() {
+        let store = createTestStore()
+
+        // Without evolutionFamily (exact search)
+        let exactVenusaur = store.filteredDexSpecies(query: "Venusaur", evolutionFamily: false)
+        XCTAssertEqual(exactVenusaur.map(\.id), [3], "Exact search for Venusaur must only return Venusaur")
+
+        let exactBulbasaur = store.filteredDexSpecies(query: "Bulbizarre", evolutionFamily: false)
+        XCTAssertEqual(exactBulbasaur.map(\.id), [1], "Exact search for Bulbizarre must only return Bulbasaur")
+
+        // With evolutionFamily active: searching any member in Bulbasaur line returns Bulbasaur, Ivysaur, Venusaur
+        let familyFromVenusaur = store.filteredDexSpecies(query: "Venusaur", evolutionFamily: true)
+        XCTAssertEqual(familyFromVenusaur.map(\.id), [1, 2, 3], "Searching Venusaur with evolutionFamily must include Bulbasaur and Ivysaur")
+
+        let familyFromBulbizarre = store.filteredDexSpecies(query: "Bulbizarre", evolutionFamily: true)
+        XCTAssertEqual(familyFromBulbizarre.map(\.id), [1, 2, 3], "Searching Bulbizarre with evolutionFamily must include whole line")
+
+        let familyFromIvysaur = store.filteredDexSpecies(query: "Ivysaur", evolutionFamily: true)
+        XCTAssertEqual(familyFromIvysaur.map(\.id), [1, 2, 3], "Searching Ivysaur with evolutionFamily must include whole line")
+
+        // Number search with evolutionFamily
+        let familyByNumber = store.filteredDexSpecies(query: "3", evolutionFamily: true)
+        XCTAssertEqual(familyByNumber.map(\.id), [1, 2, 3])
+
+        // Single non-evolving species (Mewtwo)
+        let mewtwoFamily = store.filteredDexSpecies(query: "Mewtwo", evolutionFamily: true)
+        XCTAssertEqual(mewtwoFamily.map(\.id), [150])
+
+        // Missing query returns empty
+        let noMatch = store.filteredDexSpecies(query: "MissingNo", evolutionFamily: true)
+        XCTAssertTrue(noMatch.isEmpty)
+
+        // Empty query with evolutionFamily returns all
+        let all = store.filteredDexSpecies(query: "", evolutionFamily: true)
+        XCTAssertEqual(all.count, store.dexSpecies.count)
+    }
+
+    func testBranchingEvolutionFamilySearch() {
+        let entryVaporeon = DexEntry(
+            id: "entry-vaporeon",
+            baseID: 133,
+            finalID: 134,
+            chainOrder: [133, 134],
+            rarity: .rare,
+            caughtAt: Date(timeIntervalSince1970: 1_700_000_100),
+            isShiny: false,
+            names: [
+                133: ["en": "Eevee", "fr": "Évoli", "ko": "이브이"],
+                134: ["en": "Vaporeon", "fr": "Aquali", "ko": "샤미드"]
+            ]
+        )
+        let entryJolteon = DexEntry(
+            id: "entry-jolteon",
+            baseID: 133,
+            finalID: 135,
+            chainOrder: [133, 135],
+            rarity: .rare,
+            caughtAt: Date(timeIntervalSince1970: 1_700_000_200),
+            isShiny: true,
+            names: [
+                133: ["en": "Eevee", "fr": "Évoli", "ko": "이브이"],
+                135: ["en": "Jolteon", "fr": "Voltali", "ko": "쥬피썬더"]
+            ]
+        )
+        let store = makeStore(dex: [entryVaporeon, entryJolteon])
+
+        // Without evolutionFamily
+        XCTAssertEqual(store.filteredDexSpecies(query: "Aquali", evolutionFamily: false).map(\.id), [134])
+        XCTAssertEqual(store.filteredDexSpecies(query: "Voltali", evolutionFamily: false).map(\.id), [135])
+        XCTAssertEqual(store.filteredDexSpecies(query: "Évoli", evolutionFamily: false).map(\.id), [133])
+
+        // With evolutionFamily active: searching any branch returns all collected members of the family
+        let fromEevee = store.filteredDexSpecies(query: "Évoli", evolutionFamily: true)
+        XCTAssertEqual(fromEevee.map(\.id), [133, 134, 135])
+
+        let fromAquali = store.filteredDexSpecies(query: "Aquali", evolutionFamily: true)
+        XCTAssertEqual(fromAquali.map(\.id), [133, 134, 135], "Searching Aquali must also display Eevee and sibling Jolteon")
+
+        let fromVoltali = store.filteredDexSpecies(query: "Voltali", evolutionFamily: true)
+        XCTAssertEqual(fromVoltali.map(\.id), [133, 134, 135])
+
+        // Catch Log with evolutionFamily
+        let logFromAquali = store.filteredDexEntries(query: "Aquali", evolutionFamily: true)
+        XCTAssertEqual(logFromAquali.map(\.id), ["entry-jolteon", "entry-vaporeon"], "Searching Aquali in catch log with evolution family must match both entries")
+
+        let logWithoutFamily = store.filteredDexEntries(query: "Aquali", evolutionFamily: false)
+        XCTAssertEqual(logWithoutFamily.map(\.id), ["entry-vaporeon"])
+
+        // Composition with shinyOnly: searching Eevee family + shiny only returns shiny Eevee and Jolteon (excluding normal Vaporeon)
+        let shinyFamily = store.filteredDexSpecies(query: "Évoli", shinyOnly: true, evolutionFamily: true)
+        XCTAssertEqual(shinyFamily.map(\.id), [133, 135], "Combining shinyOnly and evolutionFamily must filter out normal Vaporeon and keep shiny Eevee and Jolteon")
+
+        let normalFamily = store.filteredDexSpecies(query: "Évoli", shinyOnly: false, evolutionFamily: true)
+        XCTAssertEqual(normalFamily.map(\.id), [133, 134, 135])
     }
 }

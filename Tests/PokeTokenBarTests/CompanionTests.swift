@@ -1167,24 +1167,46 @@ final class CompanionStoreTests: XCTestCase {
             [265, 266, 267])
     }
 
-    func testLineNodesHidesUnresolvedWurmpleBranchAsSingleMystery() async {
+    func testLineNodesShowsUnresolvedWurmpleBranchAsBranchCandidates() async {
         let s = store(wurmpleLine)
         await s.hatch(baseID: 265)
 
         XCTAssertEqual(s.lineNodes, [
             EvoLineItem(.species(265), .current),
-            EvoLineItem(.mystery, .future),
+            EvoLineItem(.branch([
+                BranchEvolutionItem(speciesID: 266, isCollected: false),
+                BranchEvolutionItem(speciesID: 268, isCollected: false),
+            ]), .future),
         ])
     }
 
-    func testLineNodesShowsKnownPrefixBeforeDownstreamBranchAsMystery() async {
+    func testLineNodesShowsKnownPrefixBeforeDownstreamBranchAsBranchCandidates() async {
         let s = store(delayedBranchLine)
         await s.hatch(baseID: 43)
 
         XCTAssertEqual(s.lineNodes, [
             EvoLineItem(.species(43), .current),
             EvoLineItem(.species(44), .future),
-            EvoLineItem(.mystery, .future),
+            EvoLineItem(.branch([
+                BranchEvolutionItem(speciesID: 45, isCollected: false),
+                BranchEvolutionItem(speciesID: 182, isCollected: false),
+            ]), .future),
+        ])
+    }
+
+    func testLineNodesMarksCollectedBranchItems() async throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("poke-\(UUID().uuidString).json")
+        let json = #"{"installBaselineSet":true,"usedSinceInstall":5,"claimedTodayTokens":5,"lastDate":"d","active":null,"dex":[{"baseID":265,"finalID":266,"chainOrder":[265,266],"rarity":"common"}],"collectedFinals":["265:266"],"language":"ko"}"#
+        try Data(json.utf8).write(to: url)
+        let s = CompanionStore(provider: StubProvider(value: wurmpleLine), clock: { fixedNow }, fileURL: url, rng: SeededRNG(seed: 1))
+        await s.hatch(baseID: 265)
+
+        XCTAssertEqual(s.lineNodes, [
+            EvoLineItem(.species(265), .current),
+            EvoLineItem(.branch([
+                BranchEvolutionItem(speciesID: 266, isCollected: true),
+                BranchEvolutionItem(speciesID: 268, isCollected: false),
+            ]), .future),
         ])
     }
 
@@ -1218,6 +1240,280 @@ final class CompanionStoreTests: XCTestCase {
         }
         XCTAssertEqual(Set(finals).count, 3)   // 같은 base 재부화 시 매번 다른 분기
         XCTAssertEqual(Set(finals), [11, 12, 13])
+    }
+
+    func testBranchingProtectionNeverSelectsCollectedWhileUncollectedExists() async throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("poke-\(UUID().uuidString).json")
+        // 11 is collected
+        let json = #"{"installBaselineSet":true,"usedSinceInstall":5,"claimedTodayTokens":5,"lastDate":"d","active":null,"dex":[],"collectedFinals":["10:11"],"language":"ko"}"#
+        try Data(json.utf8).write(to: url)
+        let evo = PokemonBalance.phaseThreshold(rarity: .common, totalForms: 2, stageIndex: 0)
+        let grad = PokemonBalance.phaseThreshold(rarity: .common, totalForms: 2, stageIndex: 1)
+
+        let s = CompanionStore(provider: StubProvider(value: branch3), clock: { fixedNow }, fileURL: url, rng: SeededRNG(seed: 42))
+
+        // First hatch must pick 12 or 13, never 11
+        await s.hatch(baseID: 10)
+        let firstHatch = try XCTUnwrap(s.state.active?.plannedPathIDs[1])
+        XCTAssertTrue(firstHatch == 12 || firstHatch == 13, "Should not pick 11 while 12 and 13 are uncollected (got \(firstHatch))")
+        s.applyUsage(evo)
+        s.applyUsage(grad)
+
+        // Second hatch must pick the remaining uncollected branch
+        await s.hatch(baseID: 10)
+        let secondHatch = try XCTUnwrap(s.state.active?.plannedPathIDs[1])
+        let remaining = (firstHatch == 12) ? 13 : 12
+        XCTAssertEqual(secondHatch, remaining, "Must pick remaining uncollected branch")
+        s.applyUsage(evo)
+        s.applyUsage(grad)
+
+        // Now all 11, 12, 13 are collected: third hatch can pick any branch
+        await s.hatch(baseID: 10)
+        let thirdHatch = try XCTUnwrap(s.state.active?.plannedPathIDs[1])
+        XCTAssertTrue([11, 12, 13].contains(thirdHatch))
+    }
+
+    func testWurmpleMultiStageEvolutionBothBranchesProgressToFinalAndGraduate() async throws {
+        let evo0 = PokemonBalance.phaseThreshold(rarity: .common, totalForms: 3, stageIndex: 0)
+        let evo1 = PokemonBalance.phaseThreshold(rarity: .common, totalForms: 3, stageIndex: 1)
+        let grad = PokemonBalance.phaseThreshold(rarity: .common, totalForms: 3, stageIndex: 2)
+
+        // Branch 1: Silcoon (266) -> Beautifly (267)
+        let url1 = FileManager.default.temporaryDirectory.appendingPathComponent("poke-wurmple1-\(UUID().uuidString).json")
+        defer { try? FileManager.default.removeItem(at: url1) }
+        var state1 = CompanionState()
+        state1.installBaselineSet = true
+        state1.dex = [DexEntry(baseID: 265, finalID: 269, chainOrder: [265, 268, 269], rarity: .common, caughtAt: fixedNow)]
+        state1.collectedFinals = ["265:269"]
+        try JSONEncoder().encode(state1).write(to: url1)
+
+        let s1 = CompanionStore(provider: StubProvider(value: wurmpleLine), clock: { fixedNow }, fileURL: url1, rng: SeededRNG(seed: 1))
+        await s1.hatch(baseID: 265)
+        XCTAssertEqual(s1.state.active?.plannedPathIDs, [265, 266, 267])
+        XCTAssertEqual(s1.state.active?.stageIndex, 0)
+        XCTAssertEqual(s1.currentSpeciesID, 265)
+
+        // Stage 0 -> Stage 1: Wurmple -> Silcoon
+        s1.applyUsage(s1.threshold)
+        XCTAssertEqual(s1.state.active?.stageIndex, 1)
+        XCTAssertEqual(s1.currentSpeciesID, 266)
+        XCTAssertEqual(s1.state.active?.pathIDs, [265, 266])
+        XCTAssertEqual(s1.lineNodes, [
+            EvoLineItem(.species(265), .done),
+            EvoLineItem(.species(266), .current),
+            EvoLineItem(.species(267), .future),
+        ])
+
+        // Stage 1 -> Stage 2: Silcoon -> Beautifly
+        s1.applyUsage(s1.threshold)
+        XCTAssertEqual(s1.state.active?.stageIndex, 2)
+        XCTAssertEqual(s1.currentSpeciesID, 267)
+        XCTAssertEqual(s1.state.active?.pathIDs, [265, 266, 267])
+        XCTAssertTrue(s1.isFinalStage)
+        XCTAssertEqual(s1.lineNodes, [
+            EvoLineItem(.species(265), .done),
+            EvoLineItem(.species(266), .done),
+            EvoLineItem(.species(267), .current),
+        ])
+
+        // Stage 2 -> Graduation
+        s1.applyUsage(s1.threshold)
+        XCTAssertNil(s1.state.active)
+        XCTAssertTrue(s1.state.collectedFinals.contains("265:267"))
+        XCTAssertEqual(s1.dexEntries.last?.chainOrder, [265, 266, 267])
+
+        // Branch 2: Cascoon (268) -> Dustox (269)
+        let url2 = FileManager.default.temporaryDirectory.appendingPathComponent("poke-wurmple2-\(UUID().uuidString).json")
+        defer { try? FileManager.default.removeItem(at: url2) }
+        var state2 = CompanionState()
+        state2.installBaselineSet = true
+        state2.dex = [DexEntry(baseID: 265, finalID: 267, chainOrder: [265, 266, 267], rarity: .common, caughtAt: fixedNow)]
+        state2.collectedFinals = ["265:267"]
+        try JSONEncoder().encode(state2).write(to: url2)
+
+        let s2 = CompanionStore(provider: StubProvider(value: wurmpleLine), clock: { fixedNow }, fileURL: url2, rng: SeededRNG(seed: 2))
+        await s2.hatch(baseID: 265)
+        XCTAssertEqual(s2.state.active?.plannedPathIDs, [265, 268, 269])
+        XCTAssertEqual(s2.state.active?.stageIndex, 0)
+        XCTAssertEqual(s2.currentSpeciesID, 265)
+
+        // Stage 0 -> Stage 1: Wurmple -> Cascoon
+        s2.applyUsage(s2.threshold)
+        XCTAssertEqual(s2.state.active?.stageIndex, 1)
+        XCTAssertEqual(s2.currentSpeciesID, 268)
+        XCTAssertEqual(s2.state.active?.pathIDs, [265, 268])
+        XCTAssertEqual(s2.lineNodes, [
+            EvoLineItem(.species(265), .done),
+            EvoLineItem(.species(268), .current),
+            EvoLineItem(.species(269), .future),
+        ])
+
+        // Stage 1 -> Stage 2: Cascoon -> Dustox
+        s2.applyUsage(s2.threshold)
+        XCTAssertEqual(s2.state.active?.stageIndex, 2)
+        XCTAssertEqual(s2.currentSpeciesID, 269)
+        XCTAssertEqual(s2.state.active?.pathIDs, [265, 268, 269])
+        XCTAssertTrue(s2.isFinalStage)
+        XCTAssertEqual(s2.lineNodes, [
+            EvoLineItem(.species(265), .done),
+            EvoLineItem(.species(268), .done),
+            EvoLineItem(.species(269), .current),
+        ])
+
+        // Stage 2 -> Graduation
+        s2.applyUsage(s2.threshold)
+        XCTAssertNil(s2.state.active)
+        XCTAssertTrue(s2.state.collectedFinals.contains("265:269"))
+        XCTAssertEqual(s2.dexEntries.last?.chainOrder, [265, 268, 269])
+    }
+
+    func testWurmpleUncollectedFinalPrioritizedWhenIntermediateFormWasCollected() async throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("poke-wurmple-intermediate-\(UUID().uuidString).json")
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        // Suppose Silcoon (266) is registered in dex (e.g. from an early release), but Beautifly (267) is uncollected.
+        // Dustox (269) is fully collected.
+        let json = #"{"installBaselineSet":true,"usedSinceInstall":5,"claimedTodayTokens":5,"lastDate":"d","active":null,"dex":[{"baseID":265,"finalID":266,"chainOrder":[265,266],"rarity":"common"},{"baseID":265,"finalID":269,"chainOrder":[265,268,269],"rarity":"common"}],"collectedFinals":["265:269"],"language":"ko"}"#
+        try Data(json.utf8).write(to: url)
+
+        let s = CompanionStore(provider: StubProvider(value: wurmpleLine), clock: { fixedNow }, fileURL: url, rng: SeededRNG(seed: 42))
+        await s.hatch(baseID: 265)
+
+        // Must pick Silcoon -> Beautifly since Beautifly is still missing!
+        XCTAssertEqual(s.state.active?.plannedPathIDs, [265, 266, 267])
+
+        s.applyUsage(s.threshold)
+        XCTAssertEqual(s.currentSpeciesID, 266)
+        s.applyUsage(s.threshold)
+        XCTAssertEqual(s.currentSpeciesID, 267)
+        s.applyUsage(s.threshold)
+        XCTAssertNil(s.state.active)
+        XCTAssertTrue(s.state.collectedFinals.contains("265:267"))
+    }
+
+    func testWurmpleBothBranchesCollectedAllowsAnyBranchToEvolveFully() async throws {
+        var observedFinals: Set<Int> = []
+        for seed in 0..<20 {
+            let url = FileManager.default.temporaryDirectory.appendingPathComponent("poke-wurmple-all-\(UUID().uuidString).json")
+            defer { try? FileManager.default.removeItem(at: url) }
+
+            var state = CompanionState()
+            state.installBaselineSet = true
+            state.collectedFinals = ["265:267", "265:269"]
+            state.dex = [
+                DexEntry(baseID: 265, finalID: 267, chainOrder: [265, 266, 267], rarity: .common, caughtAt: fixedNow),
+                DexEntry(baseID: 265, finalID: 269, chainOrder: [265, 268, 269], rarity: .common, caughtAt: fixedNow),
+            ]
+            try JSONEncoder().encode(state).write(to: url)
+
+            let s = CompanionStore(provider: StubProvider(value: wurmpleLine), clock: { fixedNow }, fileURL: url, rng: SeededRNG(seed: UInt64(seed)))
+
+            await s.hatch(baseID: 265)
+            let plan = try XCTUnwrap(s.state.active?.plannedPathIDs)
+            XCTAssertTrue(plan == [265, 266, 267] || plan == [265, 268, 269])
+            observedFinals.insert(plan.last!)
+
+            s.applyUsage(s.threshold)
+            s.applyUsage(s.threshold)
+            s.applyUsage(s.threshold)
+            XCTAssertNil(s.state.active)
+        }
+        XCTAssertEqual(observedFinals, [267, 269], "Both branches should be rolled when all are collected")
+    }
+
+    func testDelayedBranchOddishToVileplumeOrBellossomFollowThrough() async throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("poke-oddish-\(UUID().uuidString).json")
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        // Vileplume (45) is collected
+        let json = #"{"installBaselineSet":true,"usedSinceInstall":5,"claimedTodayTokens":5,"lastDate":"d","active":null,"dex":[{"baseID":43,"finalID":45,"chainOrder":[43,44,45],"rarity":"common"}],"collectedFinals":["43:45"],"language":"ko"}"#
+        try Data(json.utf8).write(to: url)
+
+        let s = CompanionStore(provider: StubProvider(value: delayedBranchLine), clock: { fixedNow }, fileURL: url, rng: SeededRNG(seed: 42))
+        await s.hatch(baseID: 43)
+
+        // Must plan Bellossom (182) route
+        XCTAssertEqual(s.state.active?.plannedPathIDs, [43, 44, 182])
+
+        // At Oddish stage 0, lineNodes shows Oddish, Gloom future, and branch candidates [45, 182]
+        XCTAssertEqual(s.lineNodes, [
+            EvoLineItem(.species(43), .current),
+            EvoLineItem(.species(44), .future),
+            EvoLineItem(.branch([
+                BranchEvolutionItem(speciesID: 45, isCollected: true),
+                BranchEvolutionItem(speciesID: 182, isCollected: false),
+            ]), .future),
+        ])
+
+        // Evolve to Gloom (44)
+        s.applyUsage(s.threshold)
+        XCTAssertEqual(s.currentSpeciesID, 44)
+        XCTAssertEqual(s.lineNodes, [
+            EvoLineItem(.species(43), .done),
+            EvoLineItem(.species(44), .current),
+            EvoLineItem(.branch([
+                BranchEvolutionItem(speciesID: 45, isCollected: true),
+                BranchEvolutionItem(speciesID: 182, isCollected: false),
+            ]), .future),
+        ])
+
+        // Evolve to Bellossom (182)
+        s.applyUsage(s.threshold)
+        XCTAssertEqual(s.currentSpeciesID, 182)
+        XCTAssertTrue(s.isFinalStage)
+        XCTAssertEqual(s.lineNodes, [
+            EvoLineItem(.species(43), .done),
+            EvoLineItem(.species(44), .done),
+            EvoLineItem(.species(182), .current),
+        ])
+
+        // Graduate
+        s.applyUsage(s.threshold)
+        XCTAssertNil(s.state.active)
+        XCTAssertTrue(s.state.collectedFinals.contains("43:182"))
+    }
+
+    func testDeepMultiStageBranchingEvolutionsDoNotBlock() async throws {
+        // Line: 100 -> { 101 -> 102 -> 103, 104 -> 105 }
+        let deepLine = makeLine(base: 100, tree: node(100, [
+            node(101, [node(102, [node(103)])]),
+            node(104, [node(105)])
+        ]))
+
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("poke-deep-\(UUID().uuidString).json")
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        // Pre-collect 105 so 100 -> 101 -> 102 -> 103 is chosen
+        let json = #"{"installBaselineSet":true,"usedSinceInstall":5,"claimedTodayTokens":5,"lastDate":"d","active":null,"dex":[{"baseID":100,"finalID":105,"chainOrder":[100,104,105],"rarity":"common"}],"collectedFinals":["100:105"],"language":"ko"}"#
+        try Data(json.utf8).write(to: url)
+
+        let s = CompanionStore(provider: StubProvider(value: deepLine), clock: { fixedNow }, fileURL: url, rng: SeededRNG(seed: 42))
+        await s.hatch(baseID: 100)
+
+        XCTAssertEqual(s.state.active?.plannedPathIDs, [100, 101, 102, 103])
+        XCTAssertEqual(s.state.active?.totalForms, 4)
+
+        // 100 -> 101
+        s.applyUsage(s.threshold)
+        XCTAssertEqual(s.currentSpeciesID, 101)
+        XCTAssertEqual(s.state.active?.stageIndex, 1)
+
+        // 101 -> 102
+        s.applyUsage(s.threshold)
+        XCTAssertEqual(s.currentSpeciesID, 102)
+        XCTAssertEqual(s.state.active?.stageIndex, 2)
+
+        // 102 -> 103
+        s.applyUsage(s.threshold)
+        XCTAssertEqual(s.currentSpeciesID, 103)
+        XCTAssertEqual(s.state.active?.stageIndex, 3)
+        XCTAssertTrue(s.isFinalStage)
+
+        // 103 -> Graduate
+        s.applyUsage(s.threshold)
+        XCTAssertNil(s.state.active)
+        XCTAssertTrue(s.state.collectedFinals.contains("100:103"))
+        XCTAssertEqual(s.dexEntries.last?.chainOrder, [100, 101, 102, 103])
     }
 
     func testRepeatGrowthIsDecidedFromTheCollectedBaseNotThePlannedFinal() async throws {
@@ -1894,6 +2190,31 @@ final class CompanionIdentityTests: XCTestCase {
         let s2 = samplerStore(p2, seed: seed, preloadState: eggReadyState(collected: ["1:1"]))
         await s2.hatchIfNeeded()
         XCTAssertEqual(s2.state.active?.baseID, 2, "수집済 가중치 ½ 로 선택 구간이 이동해야 한다")
+    }
+
+    /// A legendary that cannot hatch from an egg weighs 3 like Mewtwo, whatever its capture_rate. Mew,
+    /// Celebi and Rayquaza have 45, so weighing them by capture_rate made each as likely as a Kanto starter.
+    func testSamplerWeighsUnbreedableLegendaryLikeMewtwo() async {
+        // capture_rate weights: [45, 45] → total 90. hatchWeight: [45, 3] → total 48.
+        let index = [BaseSpecies(id: 1, captureRate: 45),
+                     BaseSpecies(id: 151, captureRate: 45, isUnbreedableLegendary: true)]
+        // Trigger: v%90 ≥ 45 picks Mew under capture_rate weights, v%48 < 45 picks id 1 under hatchWeight.
+        // Control: v%48 ≥ 45 still picks Mew, so the legendary stays reachable.
+        var triggerSeed: UInt64?, controlSeed: UInt64?
+        for seed: UInt64 in 0..<5000 {
+            var r = SeededRNG(seed: seed)
+            let v = r.next()
+            if triggerSeed == nil, v % 90 >= 45, v % 48 < 45 { triggerSeed = seed }
+            if controlSeed == nil, v % 48 >= 45 { controlSeed = seed }
+            if triggerSeed != nil, controlSeed != nil { break }
+        }
+        guard let triggerSeed, let controlSeed else { return XCTFail("seed search failed") }
+        for (seed, expected) in [(triggerSeed, 1), (controlSeed, 151)] {
+            let p = IndexProvider(); p.index = index
+            let s = samplerStore(p, seed: seed, preloadState: eggReadyState())
+            await s.hatchIfNeeded()
+            XCTAssertEqual(s.state.active?.baseID, expected, "seed \(seed)")
+        }
     }
 
     /// 알 상태 프리패칭 — update 틱에 종이 pre-roll 되어 영속되고, 부화는 pending 을 그대로 사용.

@@ -180,38 +180,267 @@ enum ItemKind: String, Codable, Sendable, CaseIterable {
     case rareCandy
     case mint
     case shinyCharm
+    case leafStone
+    case fireStone
+    case waterStone
+    case thunderStone
+    case sunStone
+    case moonStone
+    case duskStone
+    case iceStone
+    case dawnStone
+    case shinyStone
+    case legendCharm
+    case silverWing
+    case oldSeaMap
+    case clearBell
+    case rainbowWing
+    case magmaStone
+    case soulDew
+    case jadeOrb
+    case gracidea
+    case griseousOrb
+    case libertyPass
+    case revealGlass
+    case dnaSplicers
+    case boulderBadge
+    case cascadeBadge
+    case thunderBadge
+    case rainbowBadge
+    case soulBadge
+    case marshBadge
+    case volcanoBadge
+    case earthBadge
+    case zephyrBadge
+    case hiveBadge
+    case plainBadge
+    case fogBadge
+    case stormBadge
+    case mineralBadge
+    case glacierBadge
+    case risingBadge
+    case darkBadge
+    case fairyBadge
 
-    /// PokéAPI 아이템 스프라이트 파일명(.../sprites/items/{name}.png). nil = 스프라이트 없음(이모지 폴백만).
-    var spriteName: String? {
+    var badgeType: PokemonType? {
         switch self {
-        case .rareCandy: return "rare-candy"
-        case .mint: return nil   // PokéAPI 에 민트 스프라이트 없음(8세대 아이템) → 이모지 폴백
-        case .shinyCharm: return "shiny-charm"
+        case .boulderBadge: return .rock
+        case .cascadeBadge: return .water
+        case .thunderBadge: return .electric
+        case .rainbowBadge: return .grass
+        case .soulBadge:    return .poison
+        case .marshBadge:   return .psychic
+        case .volcanoBadge: return .fire
+        case .earthBadge:   return .ground
+        case .zephyrBadge:  return .flying
+        case .hiveBadge:    return .bug
+        case .plainBadge:   return .normal
+        case .fogBadge:     return .ghost
+        case .stormBadge:   return .fighting
+        case .mineralBadge: return .steel
+        case .glacierBadge: return .ice
+        case .risingBadge:  return .dragon
+        case .darkBadge:    return .dark
+        case .fairyBadge:   return .fairy
+        default:            return nil
         }
     }
-    /// 스프라이트 로딩 전/미제공/실패 시 폴백 이모지.
+
+    /// 진화의 돌이 보증하는 포켓몬 타입. nil = 돌이 아님.
+    var stoneType: PokemonType? {
+        switch self {
+        case .leafStone:    return .grass
+        case .fireStone:    return .fire
+        case .waterStone:   return .water
+        case .thunderStone: return .electric
+        case .sunStone:     return .psychic
+        case .moonStone:    return .fairy
+        case .duskStone:    return .dark
+        case .iceStone:     return .ice
+        case .dawnStone:    return .fighting
+        case .shinyStone:   return .dragon
+        default:            return nil
+        }
+    }
+
+    /// PokéAPI 아이템 스프라이트 파일명(.../sprites/items/{name}.png 또는 badge-{id}). nil = 스프라이트 없음.
+    var spriteName: String? {
+        if let badgeType { return badgeType.badgeSpriteName }
+        switch self {
+        case .rareCandy: return "rare-candy"
+        case .mint: return "mental-herb"
+        case .shinyCharm: return "shiny-charm"
+        case .legendCharm: return "azure-flute"
+        case .silverWing: return "silver-wing"
+        case .oldSeaMap: return "old-sea-map"
+        case .clearBell: return "clear-bell"
+        case .rainbowWing: return "rainbow-wing"
+        case .magmaStone: return "magma-stone"
+        case .soulDew: return "soul-dew"
+        case .jadeOrb: return "jade-orb"
+        case .gracidea: return "gracidea"
+        case .griseousOrb: return "griseous-orb"
+        case .libertyPass: return "liberty-pass"
+        case .revealGlass: return "reveal-glass"
+        case .dnaSplicers: return "dna-splicers"
+        case .leafStone: return "leaf-stone"
+        case .fireStone: return "fire-stone"
+        case .waterStone: return "water-stone"
+        case .thunderStone: return "thunder-stone"
+        case .sunStone: return "sun-stone"
+        case .moonStone: return "moon-stone"
+        case .duskStone: return "dusk-stone"
+        case .iceStone: return "ice-stone"
+        case .dawnStone: return "dawn-stone"
+        case .shinyStone: return "shiny-stone"
+        default: return nil
+        }
+    }
+    /// 스프라이트 로딩 전/미제공/실패 시 폴백 기호.
     var fallbackEmoji: String {
         switch self {
         case .rareCandy: return "🍬"
         case .mint: return "🌿"
         case .shinyCharm: return "✨"
+        case .legendCharm: return "🪈"
+        case .silverWing: return "🪶"
+        case .oldSeaMap: return "🗺️"
+        case .clearBell: return "🔔"
+        case .rainbowWing: return "🌈"
+        case .magmaStone: return "🌋"
+        case .soulDew: return "💧"
+        case .jadeOrb: return "🟢"
+        case .gracidea: return "🌸"
+        case .griseousOrb: return "🔮"
+        case .libertyPass: return "🎟️"
+        case .revealGlass: return "🪞"
+        case .dnaSplicers: return "🧬"
+        case .boulderBadge, .cascadeBadge, .thunderBadge, .rainbowBadge,
+             .soulBadge, .marshBadge, .volcanoBadge, .earthBadge,
+             .zephyrBadge, .hiveBadge, .plainBadge, .fogBadge,
+             .stormBadge, .mineralBadge, .glacierBadge, .risingBadge,
+             .darkBadge, .fairyBadge,
+             .leafStone, .fireStone, .waterStone, .thunderStone, .sunStone,
+             .moonStone, .duskStone, .iceStone, .dawnStone, .shinyStone:
+            return "★"
         }
     }
-    /// 상점 판매가(재화 = 사용한 토큰). nil = 상점 미판매.
+    /// 상점 판매가(재화 = 사용한 토큰). nil = 상점 미판매(업적 보상).
     var shopPrice: Int? {
         switch self {
         case .rareCandy: return RareCandy.price
         case .mint: return Mint.price
         case .shinyCharm: return ShinyCharm.price
+        default: return nil
         }
     }
     /// 보유형(패시브) 아이템 — 소비하지 않고 보유하는 동안 상시 효과. 1회 구매(재구매 불가), 가방엔 "적용 중" 표시.
     var isPassive: Bool {
         switch self {
-        case .rareCandy, .mint: return false
-        case .shinyCharm: return true
+        case .rareCandy, .mint,
+             .leafStone, .fireStone, .waterStone, .thunderStone, .sunStone,
+             .moonStone, .duskStone, .iceStone, .dawnStone, .shinyStone:
+            return false
+        default:
+            return true
         }
     }
+
+    /// Whether this item is claimed as an achievement rather than bought in the shop.
+    var isAchievement: Bool { collectorGroup != nil }
+
+    /// How many of this item one claim of its achievement adds to the Bag.
+    var achievementRewardCount: Int { stoneType != nil ? EvolutionStone.achievementReward : 1 }
+
+    /// Achievement group of an item that unlocks through the Pokédex. nil = sold in the shop.
+    var collectorGroup: CollectorGroup? {
+        if badgeType != nil { return .gymBadges }
+        if stoneType != nil { return .evolutionStones }
+        switch self {
+        case .rareCandy, .mint, .shinyCharm: return nil
+        default: return .legendaryArtifacts
+        }
+    }
+
+    /// Pokédex condition before this item's achievement can be claimed. nil = sold in the shop.
+    /// Each item keeps the Pokémon of the achievement that used to award it.
+    var unlock: ItemUnlock? {
+        switch self {
+        case .rareCandy, .mint, .shinyCharm: return nil
+        case .leafStone:   return .species([SpeciesGoal([3, 6, 9])])            // Kanto starters
+        case .fireStone:   return .species([SpeciesGoal([154, 157, 160])])      // Johto starters
+        case .waterStone:  return .species([SpeciesGoal([254, 257, 260]),       // Hoenn starters
+                                            SpeciesGoal([134, 135, 136])])      // Kanto Eeveelutions
+        case .thunderStone: return .species([SpeciesGoal([26, 135, 604])])      // Raichu, Jolteon, Eelektross
+        case .sunStone:    return .species([SpeciesGoal([389, 392, 395])])      // Sinnoh starters
+        case .moonStone:   return .species([SpeciesGoal([497, 500, 503])])      // Unova starters
+        case .duskStone:   return .species([SpeciesGoal([196, 197])])           // Espeon, Umbreon
+        case .iceStone:    return .species([SpeciesGoal([470, 471])])           // Leafeon, Glaceon
+        case .dawnStone:   return .species([SpeciesGoal([475, 478])])           // Gallade, Froslass
+        // Dragon is the strongest egg type, so its stone asks for the three Dragon/Flying Pokémon:
+        // two pseudo-legendaries (long to raise) and Rayquaza.
+        case .shinyStone:  return .species([SpeciesGoal([149, 373, 384])])      // Dragonite, Salamence, Rayquaza
+        case .legendCharm: return .duplicateLegendary
+        case .silverWing:  return .species([SpeciesGoal([144, 145, 146])])      // Legendary birds
+        case .oldSeaMap:   return .species([SpeciesGoal([150, 151])])           // Mewtwo, Mew
+        case .clearBell:   return .species([SpeciesGoal([243, 244, 245])])      // Legendary beasts
+        case .rainbowWing: return .species([SpeciesGoal([249, 250])])           // Lugia, Ho-Oh
+        case .magmaStone:  return .species([SpeciesGoal([377, 378, 379]),       // Legendary titans
+                                            SpeciesGoal(SpeciesGoal.fossils, needed: 4)])
+        case .soulDew:     return .species([SpeciesGoal([380, 381])])           // Latias, Latios
+        case .jadeOrb:     return .species([SpeciesGoal([382, 383, 384])])      // Weather trio
+        case .gracidea:    return .species([SpeciesGoal([480, 481, 482])])      // Lake guardians
+        case .griseousOrb: return .species([SpeciesGoal([483, 484, 487])])      // Creation trio
+        case .libertyPass: return .species([SpeciesGoal([638, 639, 640])])      // Swords of Justice
+        case .revealGlass: return .species([SpeciesGoal([641, 642, 645])])      // Forces of Nature
+        case .dnaSplicers: return .species([SpeciesGoal([643, 644])])           // Reshiram, Zekrom
+        case .boulderBadge, .cascadeBadge, .thunderBadge, .rainbowBadge,
+             .soulBadge, .marshBadge, .volcanoBadge, .earthBadge,
+             .zephyrBadge, .hiveBadge, .plainBadge, .fogBadge,
+             .stormBadge, .mineralBadge, .glacierBadge, .risingBadge,
+             .darkBadge, .fairyBadge:
+            return badgeType.map { .species([SpeciesGoal(PokemonTypeData.badgeSpecies(for: $0))]) }
+        }
+    }
+}
+
+/// Groups of the items unlocked by the Pokédex, each a section of the Achievements tab.
+enum CollectorGroup: String, CaseIterable, Sendable {
+    case evolutionStones, legendaryArtifacts, gymBadges
+}
+
+/// One way to unlock a collector item: `needed` of `species` registered in the Pokédex.
+struct SpeciesGoal: Equatable, Sendable {
+    /// Final fossil Pokémon of Gen 1 to 5 (and Aerodactyl).
+    static let fossils = [139, 141, 142, 346, 348, 409, 411, 565, 567]
+
+    let species: [Int]
+    let needed: Int
+
+    init(_ species: [Int], needed: Int? = nil) {
+        self.species = species
+        self.needed = min(needed ?? species.count, species.count)
+    }
+}
+
+/// What the Pokédex must hold before a collector item's achievement can be claimed.
+enum ItemUnlock: Equatable, Sendable {
+    /// Any one goal met is enough.
+    case species([SpeciesGoal])
+    /// The same legendary graduated twice. Released copies don't count: they were never raised to the end.
+    case duplicateLegendary
+}
+
+/// Evolution stones are consumables: each one sends the current Pokémon off for an egg of the stone's type.
+enum EvolutionStone {
+    /// Stones one claim of a stone achievement adds to the Bag.
+    static let achievementReward = 5
+}
+
+/// Azure Flute balance constant (passive collector item).
+enum LegendCharm {
+    /// 보유 시 전설 포켓몬 부화 가중치 배율 (capture_rate 3 기준 출현 확률 4배 증가).
+    static let weightMultiplier = 4
 }
 
 /// 이상한 사탕 밸런스 상수.
@@ -349,9 +578,21 @@ struct EvoNode: Codable, Sendable {
     }
 }
 
+struct BranchEvolutionItem: Equatable, Sendable, Identifiable {
+    var id: Int { speciesID }
+    let speciesID: Int
+    let isCollected: Bool
+
+    init(speciesID: Int, isCollected: Bool) {
+        self.speciesID = speciesID
+        self.isCollected = isCollected
+    }
+}
+
 enum EvoLineItemContent: Equatable, Sendable {
     case species(Int)
     case mystery
+    case branch([BranchEvolutionItem])
 }
 
 enum EvoLineItemState: Equatable, Sendable {
@@ -447,6 +688,9 @@ enum PokemonOdds {
     static let dittoDisguiseDenominator: UInt64 = 128
     /// 메타몽 종 id — 위장 리빌 전용(일반 부화 풀에서 제외).
     static let dittoSpeciesID = 132
+    /// Egg-roll weight of a legendary that cannot hatch from an egg: Mewtwo's capture_rate, the lowest
+    /// in the games, whatever the species' own capture_rate (`BaseSpecies.hatchWeight`).
+    static let legendaryHatchWeight = 3
 }
 
 /// 현재 키우는 포켓몬.
@@ -643,6 +887,8 @@ struct CompanionState: Codable, Sendable {
     // ★영속이어야 한다 — 구매 시점엔 종을 못 정한다(롤에 네트워크가 필요). 보증을 상태에 적어 두고
     // 롤이 그것을 읽어야 오프라인·재시작을 건너서도 산 것을 받는다. 부화·졸업 때 nil 로 소비된다.
     var eggTier: Rarity?
+    // 알에서 특정 타입의 포켓몬이 부화하도록 보증하는 타입(진화의 돌 사용). nil = 타입 보증 없음.
+    var eggTypeGuarantee: PokemonType?
     // 알 상태에서 미리 롤해둔 부화 종(프리패칭) — 부화 순간 네트워크 딜레이 제거. 재시작에도 유지.
     var pendingHatchID: Int?
     /// The form is chosen with the species so prefetch warms the exact sprite that will hatch.
@@ -670,6 +916,9 @@ struct CompanionState: Codable, Sendable {
     var language: AppLanguage = .systemDefault   // 신규 설치 = 시스템 로케일
     // 인벤토리 (ItemKind.rawValue → 개수)
     var inventory: [String: Int] = [:]
+    // Achievements already claimed (ItemKind.rawValue). The Bag cannot tell: stones are used up, and an
+    // empty slot must not make their achievement claimable again.
+    var claimedAchievements: Set<String> = []
     // 사탕 지급 엣지 상태(창 key → 지급한 tier). ★영속 — notifiedTier(인메모리)와 달리 재시작 무한지급 방지.
     var candyGrantTier: [String: Int] = [:]
     // 창 key → 마지막으로 본 epoch(`resets_at`). util 이 계속 100%여도 epoch 교체로 재무장(#326).
@@ -690,6 +939,7 @@ struct CompanionState: Codable, Sendable {
         eggUsage           = c.lenient(Int.self, forKey: .eggUsage, default: 0)
         // 모르는 rawValue 는 nil(보증 없음)로 강등 — 관대 디코딩의 안전한 방향(있지도 않은 보증을 만들지 않는다).
         eggTier            = c.lenientOptional(Rarity.self, forKey: .eggTier)
+        eggTypeGuarantee   = c.lenientOptional(PokemonType.self, forKey: .eggTypeGuarantee)
         pendingHatchID     = c.lenientOptional(Int.self, forKey: .pendingHatchID)
         pendingForm        = PokemonForm.resolved(baseID: pendingHatchID ?? 0,
             form: PokemonForm.decoded(from: decoder, keys: "pendingForm", "pendingUnownForm"))
@@ -713,6 +963,7 @@ struct CompanionState: Codable, Sendable {
         collectedFinals    = c.lenient(Set<String>.self, forKey: .collectedFinals, default: [])
         language           = c.lenient(AppLanguage.self, forKey: .language, default: .systemDefault)
         inventory          = c.lenient([String: Int].self, forKey: .inventory, default: [:])
+        claimedAchievements = c.lenient(Set<String>.self, forKey: .claimedAchievements, default: [])
         candyGrantTier     = c.lenient([String: Int].self, forKey: .candyGrantTier, default: [:])
         candyWindowEpoch   = c.lenient([String: String].self, forKey: .candyWindowEpoch, default: [:])
         candyFeatureSeeded = c.lenient(Bool.self, forKey: .candyFeatureSeeded, default: false)

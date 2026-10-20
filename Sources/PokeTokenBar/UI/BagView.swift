@@ -60,6 +60,9 @@ private struct ItemCard: View {
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(spacing: 6) {
                         Text(l.itemName(kind)).font(.callout.weight(.semibold))
+                        if let type = kind.stoneType {
+                            Badge(l.typeName(type).uppercased(), tint: .type(type))
+                        }
                         if !kind.isPassive {   // 보유형은 개수 개념이 없음(1회 구매·영구)
                             Text("×\(count)").font(.caption.weight(.bold))
                                 .foregroundStyle(.secondary).monospacedDigit()
@@ -77,6 +80,12 @@ private struct ItemCard: View {
                     Text(l.itemDescription(kind))
                         .font(.caption).foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
+                    // A stone sends the companion off like a Shop egg: say what stays, as the egg card does.
+                    if kind.stoneType != nil, store.hasActive {
+                        Text(l.eggReleaseNote)
+                            .font(.caption2).foregroundStyle(.tertiary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
                 }
             }
             if kind == .rareCandy, let preview = store.planRareCandyUse(count: selectedCandyCount) {
@@ -106,32 +115,62 @@ private struct ItemCard: View {
         switch kind {
         case .rareCandy: return store.canUseRareCandy
         case .mint:      return store.canUseMint
-        case .shinyCharm: return false   // 보유형 — 사용 개념 없음(상시 효과)
+        // 보유형: 사용 개념 없음(상시 효과). Stones have their own controls (`useControls`).
+        default:         return false
         }
     }
     /// 사용 컨트롤 효과 힌트 ("+XP" / "성격 랜덤 변경").
     private func effectHint(_ l: L) -> String {
         switch kind {
-        case .rareCandy: return "+\(TokenFormatter.compact(selectedCandyCount * RareCandy.xp)) XP"
+        case .rareCandy: return "+\(TokenFormatter.compact(selectedCandyCount * store.rareCandyXP)) XP"
         case .mint:      return l.mintEffectHint
         case .shinyCharm: return l.shinyCharmEffectHint
+        case .legendCharm: return l.legendCharmEffectHint
+        case .silverWing: return l.silverWingEffectHint
+        case .oldSeaMap: return l.oldSeaMapEffectHint
+        case .clearBell: return l.clearBellEffectHint
+        case .rainbowWing: return l.rainbowWingEffectHint
+        case .magmaStone: return l.magmaStoneEffectHint
+        case .soulDew: return l.soulDewEffectHint
+        case .jadeOrb: return l.jadeOrbEffectHint
+        case .gracidea: return l.gracideaEffectHint
+        case .griseousOrb: return l.griseousOrbEffectHint
+        case .libertyPass: return l.libertyPassEffectHint
+        case .revealGlass: return l.revealGlassEffectHint
+        case .dnaSplicers: return l.dnaSplicersEffectHint
+        case .boulderBadge, .cascadeBadge, .thunderBadge, .rainbowBadge,
+             .soulBadge, .marshBadge, .volcanoBadge, .earthBadge,
+             .zephyrBadge, .hiveBadge, .plainBadge, .fogBadge,
+             .stormBadge, .mineralBadge, .glacierBadge, .risingBadge,
+             .darkBadge, .fairyBadge:
+            return l.badgeEffectHint
+        case .leafStone, .fireStone, .waterStone, .thunderStone, .sunStone,
+             .moonStone, .duskStone, .iceStone, .dawnStone, .shinyStone:
+            return kind.stoneType.map(l.eggTypeGuaranteeHint) ?? ""
         }
     }
     private func performUse() {
         switch kind {
         case .rareCandy: _ = store.useRareCandy(count: selectedCandyCount)
         case .mint:      _ = store.useMint()
-        case .shinyCharm: break   // 보유형 — 사용 동작 없음
+        default:         break   // 보유형: 사용 동작 없음
         }
     }
 
     @ViewBuilder
     private func useControls(_ l: L) -> some View {
-        if kind.isPassive {
-            // 보유형(이로치 부적) — 사용 버튼 대신 상시 효과 표시.
+        if kind.stoneType != nil {
+            // Using a stone sends the companion off for a typed egg: the Shop egg's confirmations apply.
+            ReleaseForEggControls(store: store, nav: nav, detail: effectHint(l), actionTitle: l.useItem,
+                                  isAvailable: store.canUseStone(kind), unavailableText: l.useNeedsPokemon,
+                                  confirmText: l.stoneConfirm(store.displayName, l.itemName(kind))) {
+                store.useStone(kind)
+            }
+        } else if kind.isPassive {
+            // 보유형(패시브 아이템): 사용 버튼 대신 상시 효과 표시.
             HStack(spacing: 6) {
                 Image(systemName: "checkmark.seal.fill").font(.caption2).foregroundStyle(.green)
-                Text(l.shinyCharmEffectHint).font(.caption2.weight(.semibold)).foregroundStyle(.green)
+                Text(effectHint(l)).font(.caption2.weight(.semibold)).foregroundStyle(.green)
                 Spacer()
             }
         } else if canUse {

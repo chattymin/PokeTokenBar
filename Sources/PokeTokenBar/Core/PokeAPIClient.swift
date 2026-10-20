@@ -4,6 +4,27 @@ import Foundation
 struct BaseSpecies: Sendable, Codable {
     let id: Int
     let captureRate: Int    // 3(뮤츠급)~255(캐터피급), 공식 희귀도 신호
+    /// Legendary or mythical species that no game lets hatch from an egg. Their capture_rate does not
+    /// tell how rare they are (Mew, Celebi and Rayquaza are 45 like the Kanto starters), so
+    /// `hatchWeight` ignores it. Required when decoding: a base index cached before this field existed
+    /// fails to decode and is fetched again, instead of keeping capture-rate weights for 30 days.
+    let isUnbreedableLegendary: Bool
+
+    init(id: Int, captureRate: Int, isUnbreedableLegendary: Bool = false) {
+        self.id = id
+        self.captureRate = captureRate
+        self.isUnbreedableLegendary = isUnbreedableLegendary
+    }
+
+    /// Weight of this species in the egg roll (`CompanionStore.chooseBase`).
+    var hatchWeight: Int { isUnbreedableLegendary ? PokemonOdds.legendaryHatchWeight : captureRate }
+
+    /// Phione and Manaphy are the only legendary or mythical species with an egg group other than
+    /// "no-eggs" (Phione hatches from Manaphy's egg in the games), so they keep their capture_rate.
+    /// Missing egg group data counts as unbreedable: a legendary never falls back to a common weight.
+    static func isUnbreedableLegendary(isLegendary: Bool, isMythical: Bool, eggGroups: [String]) -> Bool {
+        (isLegendary || isMythical) && !eggGroups.contains { $0 != "no-eggs" }
+    }
 }
 
 /// 포켓몬 라인 데이터 제공(주입 가능 — 테스트는 스텁 사용).
@@ -132,8 +153,28 @@ actor PokeAPIClient: PokeProviding, PokemonDetailProviding {
     private struct BaseIndexSnapshot: Codable { let fetchedAt: Date; let entries: [BaseSpecies] }
     private struct GraphQLBaseResponse: Decodable {
         struct DataBox: Decodable { let pokemonspecies: [Row] }
-        struct Row: Decodable { let id: Int; let capture_rate: Int }
+        struct Row: Decodable {
+            let id: Int
+            let capture_rate: Int
+            let is_legendary: Bool
+            let is_mythical: Bool
+            let pokemonegggroups: [EggGroupLink]
+        }
+        struct EggGroupLink: Decodable {
+            struct Group: Decodable { let name: String }
+            let egggroup: Group?
+        }
         let data: DataBox
+    }
+
+    /// GraphQL base index response → candidates. Split from the fetch so the legendary rule is testable offline.
+    static func baseIndexEntries(from data: Data) throws -> [BaseSpecies] {
+        try JSONDecoder().decode(GraphQLBaseResponse.self, from: data).data.pokemonspecies.map {
+            BaseSpecies(id: $0.id, captureRate: $0.capture_rate,
+                        isUnbreedableLegendary: BaseSpecies.isUnbreedableLegendary(
+                            isLegendary: $0.is_legendary, isMythical: $0.is_mythical,
+                            eggGroups: $0.pokemonegggroups.compactMap { $0.egggroup?.name }))
+        }
     }
 
     /// 1~5세대 base(진화라인 시작점) 전체 — PokéAPI GraphQL 1쿼리.
@@ -216,12 +257,11 @@ actor PokeAPIClient: PokeProviding, PokemonDetailProviding {
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         // 메타몽(#132)은 위장 리빌 전용 → 일반 부화 풀에서 제외(_neq).
         let maxID = PokemonAssets.animatedSpeciesIDs.upperBound
-        let query = "{ pokemonspecies(where: {evolves_from_species_id: {_is_null: true}, id: {_lte: \(maxID), _neq: \(PokemonOdds.dittoSpeciesID)}}, order_by: {id: asc}) { id capture_rate } }"
+        let query = "{ pokemonspecies(where: {evolves_from_species_id: {_is_null: true}, id: {_lte: \(maxID), _neq: \(PokemonOdds.dittoSpeciesID)}}, order_by: {id: asc}) { id capture_rate is_legendary is_mythical pokemonegggroups { egggroup { name } } } }"
         req.httpBody = try JSONSerialization.data(withJSONObject: ["query": query])
         let (data, resp) = try await URLSession.shared.data(for: req)
         guard (resp as? HTTPURLResponse)?.statusCode == 200 else { throw URLError(.badServerResponse) }
-        let decoded = try JSONDecoder().decode(GraphQLBaseResponse.self, from: data)
-        let entries = decoded.data.pokemonspecies.map { BaseSpecies(id: $0.id, captureRate: $0.capture_rate) }
+        let entries = try Self.baseIndexEntries(from: data)
         guard !entries.isEmpty else { throw URLError(.cannotParseResponse) }
         return entries
     }
@@ -238,8 +278,16 @@ actor PokeAPIClient: PokeProviding, PokemonDetailProviding {
     func baseSpecies(id: Int) async throws -> BaseSpecies? {
         guard id != PokemonOdds.dittoSpeciesID else { return nil }   // 메타몽은 위장 리빌 전용 — 일반 부화 제외
         let dto = try await species(id)
+        return Self.baseSpecies(id: id, species: dto)
+    }
+
+    /// REST species → candidate, with the same legendary rule as the GraphQL index.
+    static func baseSpecies(id: Int, species dto: SpeciesDTO) -> BaseSpecies? {
         guard dto.evolves_from_species == nil else { return nil }   // 진화 중간체는 부화 후보 아님
-        return BaseSpecies(id: id, captureRate: dto.capture_rate)
+        return BaseSpecies(id: id, captureRate: dto.capture_rate,
+                           isUnbreedableLegendary: BaseSpecies.isUnbreedableLegendary(
+                               isLegendary: dto.is_legendary, isMythical: dto.is_mythical,
+                               eggGroups: (dto.egg_groups ?? []).map(\.name)))
     }
 
     private func get<T: Decodable>(_ url: URL) async throws -> T {
@@ -279,6 +327,7 @@ struct SpeciesDTO: Decodable, Sendable {
     let evolution_chain: URLRef
     let evolves_from_species: NamedRef?   // nil = 진화라인 시작점(base)
     let gender_rate: Int?
+    let egg_groups: [NamedRef]?
 }
 struct NameDTO: Decodable, Sendable { let name: String; let language: NamedRef }
 struct NamedRef: Decodable, Sendable { let name: String; let url: String? }

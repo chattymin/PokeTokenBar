@@ -35,3 +35,7 @@ docs/*
 
 # Local-only review-gate opt-out (not published)
 .no-review-gate
+
+# Local private patch & config (never committed to git)
+*.patch
+.local-config.json

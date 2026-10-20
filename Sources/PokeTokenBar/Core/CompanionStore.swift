@@ -153,23 +153,43 @@ final class CompanionStore {
 
     /// 난이도를 반영한 알 부화 임계. 첫 실행 안내 문구도 이 값을 보여준다.
     var eggHatchThreshold: Int {
-        PokemonBalance.scaled(PokemonBalance.eggHatchThreshold, by: growthDifficulty)
+        var threshold = PokemonBalance.scaled(PokemonBalance.eggHatchThreshold, by: growthDifficulty)
+        if ownsSilverWing {
+            threshold = max(1_000_000, threshold / 2)
+        }
+        return threshold
     }
 
     /// 난이도를 반영한 단계 임계. **`PokemonBalance.phaseThreshold` 를 직접 부르지 않는다** —
     /// 배율을 빠뜨린 호출부가 생기면 그 경로만 조용히 기본 난이도로 돌아간다.
     private func stageThreshold(for mon: MonState) -> Int {
-        PokemonBalance.scaled(mon.phaseThreshold, by: growthDifficulty)
+        var base = mon.phaseThreshold
+        // Magma Stone speeds up lines already graduated, Liberty Pass the ones never graduated.
+        if mon.hasGrowthBoost ? ownsMagmaStone : ownsLibertyPass {
+            base = (base * 3) / 4
+        }
+        let badgeMult = typeBadgeSpeedMultiplier(forSpeciesID: mon.currentID)
+        if badgeMult > 1.0 {
+            base = max(1, Int((Double(base) / badgeMult).rounded()))
+        }
+        return PokemonBalance.scaled(base, by: growthDifficulty)
     }
 
     /// 상점 표시·결제에 쓰는 실제 가격 — 기본가 × 상점 난이도. 미판매면 nil.
     func price(of kind: ItemKind) -> Int? {
-        kind.shopPrice.map { PokemonBalance.scaled($0, by: shopDifficulty) }
+        kind.shopPrice.map { base in
+            var p = PokemonBalance.scaled(base, by: shopDifficulty)
+            if ownsRainbowWing { p = max(1, Int(Double(p) * 0.75)) }
+            return p
+        }
     }
 
     /// 알을 포함한 상점 한 줄의 실제 가격.
     func price(of entry: ShopEntry) -> Int {
-        PokemonBalance.scaled(entry.price, by: shopDifficulty)
+        var p = PokemonBalance.scaled(entry.price, by: shopDifficulty)
+        if ownsRainbowWing { p = max(1, Int(Double(p) * 0.75)) }
+        if case .egg = entry, ownsJadeOrb { p = max(1, Int(Double(p) * 0.80)) }
+        return p
     }
     /// 앱 전체 UI 문자열 — language 변경 시 자동 재렌더.
     var l: L { L(language) }
@@ -275,8 +295,7 @@ final class CompanionStore {
     var tokensToNext: Int { guard let a = state.active else { return 0 }; return max(0, threshold - a.usedAtStage) }
 
     /// 진화 라인 표시용: 실현된 경로 + 다음 단계 미리보기.
-    /// 유일하게 이어지는 단계 뒤에 분기가 있으면, 그 확정 접두어와 하나의 미지 항목을 함께 보여 준다.
-    /// 분기 후보는 부화 시 계획됐더라도 실제 진화 전까지 하나의 미지 항목으로 숨긴다.
+    /// 분기 후보가 있는 경우 각 후보(이미 수집된 것은 스프라이트, 미수집은 실루엣/음영)를 모두 표시한다.
     var lineNodes: [EvoLineItem] {
         guard let a = state.active, let line = currentLine else { return [] }
         var out = Self.realizedLineItems(pathIDs: a.pathIDs, stageIndex: a.stageIndex)
@@ -290,7 +309,13 @@ final class CompanionStore {
 
             if node.children.count > 1 {
                 out += guaranteedPrefix.map { EvoLineItem(.species($0.speciesID), .future) }
-                out.append(EvoLineItem(.mystery, .future))
+                let branchItems = node.children.map { ch in
+                    BranchEvolutionItem(
+                        speciesID: ch.speciesID,
+                        isCollected: isEvolutionCollected(speciesID: ch.speciesID, baseID: a.baseID)
+                    )
+                }
+                out.append(EvoLineItem(.branch(branchItems), .future))
             } else {
                 out += guaranteedPrefix.map { EvoLineItem(.species($0.speciesID), .future) }
             }
@@ -366,6 +391,56 @@ final class CompanionStore {
         entry.id == activeDexEntry?.id
     }
 
+    /// 포획 로그에서 특정 항목이 중복 포획 개체인지(이전에 동일 진화 라인이나 동일 안농 폼을 이미 잡았는지) 판별한다.
+    func isDuplicateCatch(_ entry: DexEntry) -> Bool {
+        duplicateCatchEntryIDs.contains(entry.id)
+    }
+
+    /// 시간순(과거 졸업분부터 현재 키우는 개체까지)으로 중복 포획된 개체들의 ID 집합.
+    var duplicateCatchEntryIDs: Set<String> {
+        var seenGraduatedSpecies = Set<DexSpeciesKey>()
+        var duplicates = Set<String>()
+
+        let graduated = state.dex.enumerated().sorted { a, b in
+            let d0 = a.element.caughtAt
+            let d1 = b.element.caughtAt
+            if let d0, let d1 {
+                if d0 != d1 { return d0 < d1 }
+            } else if d0 != nil, d1 == nil {
+                return false
+            } else if d0 == nil, d1 != nil {
+                return true
+            }
+            return a.offset < b.offset
+        }.map(\.element)
+
+        let allEntries = activeDexEntry.map { graduated + [$0] } ?? graduated
+        for e in allEntries {
+            let reachedSpeciesSeen = e.chainOrder.allSatisfy { id in
+                seenGraduatedSpecies.contains(DexSpeciesKey(speciesID: id, form: e.form))
+            }
+
+            if e.isReleased || isActiveDexEntry(e) {
+                let uncollected = hasUncollectedEvolutions(
+                    from: e.finalID,
+                    form: e.form,
+                    collectedSpecies: seenGraduatedSpecies
+                )
+                if reachedSpeciesSeen && !uncollected {
+                    duplicates.insert(e.id)
+                }
+            } else {
+                if reachedSpeciesSeen {
+                    duplicates.insert(e.id)
+                }
+                for id in e.chainOrder {
+                    seenGraduatedSpecies.insert(DexSpeciesKey(speciesID: id, form: e.form))
+                }
+            }
+        }
+        return duplicates
+    }
+
     /// 포획 로그 표시 순서 — 현재 키우는 포켓몬을 맨 앞에 고정하고, 졸업 항목은 **기록 시각 최신순**.
     ///
     /// 과거에는 희귀도 내림차순이 먼저였다(종 단위 도감의 규칙). 로그는 시간순 기록이라 희귀도로
@@ -418,6 +493,7 @@ final class CompanionStore {
         var form: PokemonForm? = nil
         var names: [String: String]? = nil
         var hasNormal = false
+        var baseID: Int = 0
 
         /// Species IDs remain Pokédex numbers; selection also includes the form.
         var collectionID: String {
@@ -436,12 +512,78 @@ final class CompanionStore {
         }
     }
 
+    private struct DexSpeciesKey: Hashable {
+        let speciesID: Int
+        let form: PokemonForm?
+
+        init(speciesID: Int, form: PokemonForm?) {
+            self.speciesID = speciesID
+            self.form = PokemonForm.resolved(speciesID: speciesID, form: form)
+        }
+    }
+
+    /// Known branching evolution lines mapping a species to its reachable final evolution IDs.
+    static func branchingFinals(for speciesID: Int) -> [Int]? {
+        switch speciesID {
+        case 43, 44:
+            return [45, 182]        // Oddish, Gloom -> Vileplume, Bellossom
+        case 60, 61:
+            return [62, 186]        // Poliwag, Poliwhirl -> Poliwrath, Politoed
+        case 79:
+            return [80, 199]        // Slowpoke -> Slowbro, Slowking
+        case 133:
+            return [134, 135, 136, 196, 197, 470, 471, 700] // Eevee -> Vaporeon, Jolteon, Flareon, Espeon, Umbreon, Leafeon, Glaceon, Sylveon
+        case 236:
+            return [106, 107, 237]  // Tyrogue -> Hitmonlee, Hitmonchan, Hitmontop
+        case 265:
+            return [267, 269]       // Wurmple -> Beautifly, Dustox
+        case 266:
+            return [267]            // Silcoon -> Beautifly
+        case 268:
+            return [269]            // Cascoon -> Dustox
+        case 280, 281:
+            return [282, 475]       // Ralts, Kirlia -> Gardevoir, Gallade
+        case 290:
+            return [291, 292]       // Nincada -> Ninjask, Shedinja
+        case 361:
+            return [362, 478]       // Snorunt -> Glalie, Froslass
+        case 366:
+            return [367, 368]       // Clamperl -> Huntail, Gorebyss
+        case 412:
+            return [413, 414]       // Burmy -> Wormadam, Mothim
+        default:
+            return nil
+        }
+    }
+
+    private func hasUncollectedEvolutions(
+        from speciesID: Int,
+        form: PokemonForm?,
+        collectedSpecies: Set<DexSpeciesKey>
+    ) -> Bool {
+        if let currentLine, (currentLine.baseID == speciesID || currentLine.tree.node(withID: speciesID) != nil) {
+            let finals = currentLine.tree.node(withID: speciesID)?.finalIDs ?? currentLine.tree.finalIDs
+            if finals.count > 1 || finals != [speciesID] {
+                return finals.contains { finalID in
+                    !collectedSpecies.contains(DexSpeciesKey(speciesID: finalID, form: form))
+                }
+            }
+        }
+        if let finals = Self.branchingFinals(for: speciesID) {
+            return finals.contains { finalID in
+                !collectedSpecies.contains(DexSpeciesKey(speciesID: finalID, form: form))
+            }
+        }
+        return false
+    }
+
     /// 종 하나가 모으는 것 — 누적 전용. 병렬 딕셔너리를 여러 개 두면 키 집합이 서로 어긋날 수 있고
     /// (한쪽에만 써서 그 종이 조용히 사라지거나), 읽는 쪽에 도달 불가한 기본값이 생긴다. 하나로 묶어
     /// 두 여지를 함께 없앤다.
     private struct DexAccumulator {
         /// 첫 발견 때 확정 — 같은 종은 항상 같은 base 라인에서 오므로 갱신할 값이 없다.
         let rarity: Rarity
+        let baseID: Int
         var names: [String: String]?
         var isShiny = false
         var hasNormal = false
@@ -476,7 +618,7 @@ final class CompanionStore {
         for entry in state.dex {
             for id in entry.chainOrder {
                 let key = DexKey(id, form: entry.form, groupForms: groupForms)
-                var a = acc[key] ?? DexAccumulator(rarity: entry.rarity)
+                var a = acc[key] ?? DexAccumulator(rarity: entry.rarity, baseID: entry.baseID)
                 if let n = entry.names?[id] { a.names = n }   // 이름 없는 구버전 항목이 덮어쓰지 않게
                 if entry.isShiny { a.isShiny = true } else { a.hasNormal = true }
                 acc[key] = a
@@ -487,7 +629,7 @@ final class CompanionStore {
             // MonState.init(from:) 의 clamp, 그리고 SaveTransfer 의 가져오기 정규화.
             for id in active.pathIDs.prefix(active.stageIndex + 1) {
                 let key = DexKey(id, form: active.form, groupForms: groupForms)
-                var a = acc[key] ?? DexAccumulator(rarity: active.rarity)
+                var a = acc[key] ?? DexAccumulator(rarity: active.rarity, baseID: active.baseID)
                 if let n = currentLine?.names[id] { a.names = n }
                 if currentIsShiny { a.isShiny = true } else { a.hasNormal = true }   // 위장 중 숨김 규칙 재사용
                 acc[key] = a
@@ -506,7 +648,8 @@ final class CompanionStore {
                 isRaising: key.speciesID == state.active?.currentID && (!groupForms || key.form == currentForm),
                 form: key.form,
                 names: a.names,
-                hasNormal: a.hasNormal)
+                hasNormal: a.hasNormal,
+                baseID: a.baseID)
         }
     }
 
@@ -528,8 +671,8 @@ final class CompanionStore {
     /// drift apart. A query matches a Pokédex number (`25` or `#25`) or part of any stored name
     /// in any language, ignoring case and diacritics ("flabebe" finds Flabébé).
     struct DexSearchMatcher: Sendable {
-        private let query: String
-        private let number: Int?
+        let query: String
+        let number: Int?
 
         /// `nil` for a blank query, which filters nothing out.
         init?(_ rawQuery: String) {
@@ -541,6 +684,10 @@ final class CompanionStore {
 
         func matches(_ species: DexSpecies) -> Bool {
             matches(ids: [species.id], names: [species.name] + (species.names.map { Array($0.values) } ?? []))
+        }
+
+        func matches(speciesID: Int, names: [String: String]? = nil) -> Bool {
+            matches(ids: [speciesID], names: names.map { Array($0.values) } ?? [])
         }
 
         /// An individual matches through any species of its chain, like its evolution line in the log row.
@@ -557,11 +704,95 @@ final class CompanionStore {
         }
     }
 
+    /// Groups related species IDs into evolution families based on entries' chainOrder,
+    /// baseIDs, active companion, and branching finals.
+    func evolutionFamilySpeciesIDs(for matcher: DexSearchMatcher) -> Set<Int> {
+        var directSpeciesIDs = Set<Int>()
+        for species in dexSpecies {
+            if matcher.matches(species) {
+                directSpeciesIDs.insert(species.id)
+            }
+        }
+        for entry in dexEntries {
+            if matcher.matches(entry) {
+                directSpeciesIDs.insert(entry.baseID)
+                directSpeciesIDs.insert(entry.finalID)
+                directSpeciesIDs.formUnion(entry.chainOrder)
+                if let names = entry.names {
+                    for (speciesID, langMap) in names {
+                        if matcher.matches(speciesID: speciesID, names: langMap) {
+                            directSpeciesIDs.insert(speciesID)
+                        }
+                    }
+                }
+            }
+        }
+        if directSpeciesIDs.isEmpty {
+            return []
+        }
+
+        var adj: [Int: Set<Int>] = [:]
+        func connect(_ a: Int, _ b: Int) {
+            adj[a, default: []].insert(b)
+            adj[b, default: []].insert(a)
+        }
+
+        for entry in dexEntries {
+            connect(entry.baseID, entry.finalID)
+            for id in entry.chainOrder {
+                connect(entry.baseID, id)
+            }
+            if let names = entry.names {
+                for id in names.keys {
+                    connect(entry.baseID, id)
+                }
+            }
+        }
+        for species in dexSpecies where species.baseID > 0 {
+            connect(species.baseID, species.id)
+        }
+        if let active = state.active {
+            for id in active.pathIDs {
+                connect(active.baseID, id)
+            }
+            if let line = currentLine {
+                for id in line.names.keys {
+                    connect(active.baseID, id)
+                }
+            }
+        }
+        for (speciesID, _) in adj {
+            if let finals = Self.branchingFinals(for: speciesID) {
+                for finalID in finals {
+                    connect(speciesID, finalID)
+                }
+            }
+        }
+
+        var familyIDs = Set<Int>()
+        var queue = Array(directSpeciesIDs)
+        var visited = directSpeciesIDs
+
+        while !queue.isEmpty {
+            let current = queue.removeFirst()
+            familyIDs.insert(current)
+            if let neighbors = adj[current] {
+                for next in neighbors where !visited.contains(next) {
+                    visited.insert(next)
+                    queue.append(next)
+                }
+            }
+        }
+
+        return familyIDs
+    }
+
     /// Filters and sorts DexSpecies for the Pokédex grid.
     func filteredDexSpecies(
         query: String = "",
         rarity: Rarity? = nil,
         shinyOnly: Bool = false,
+        evolutionFamily: Bool = false,
         sort: DexSortOption = .numberAsc
     ) -> [DexSpecies] {
         var result = dexSpecies
@@ -572,7 +803,12 @@ final class CompanionStore {
             result = result.filter { $0.isShiny }
         }
         if let matcher = DexSearchMatcher(query) {
-            result = result.filter { matcher.matches($0) }
+            if evolutionFamily {
+                let matchingFamilySpeciesIDs = evolutionFamilySpeciesIDs(for: matcher)
+                result = result.filter { matchingFamilySpeciesIDs.contains($0.id) }
+            } else {
+                result = result.filter { matcher.matches($0) }
+            }
         }
         return sortDexSpecies(result, by: sort)
     }
@@ -609,6 +845,7 @@ final class CompanionStore {
         query: String = "",
         rarity: Rarity? = nil,
         shinyOnly: Bool = false,
+        evolutionFamily: Bool = false,
         sort: CatchLogSortOption = .recentFirst
     ) -> [DexEntry] {
         var result = dexEntries
@@ -619,7 +856,16 @@ final class CompanionStore {
             result = result.filter { $0.isShiny }
         }
         if let matcher = DexSearchMatcher(query) {
-            result = result.filter { matcher.matches($0) }
+            if evolutionFamily {
+                let matchingFamilySpeciesIDs = evolutionFamilySpeciesIDs(for: matcher)
+                result = result.filter { entry in
+                    matchingFamilySpeciesIDs.contains(entry.baseID)
+                        || matchingFamilySpeciesIDs.contains(entry.finalID)
+                        || entry.chainOrder.contains(where: { matchingFamilySpeciesIDs.contains($0) })
+                }
+            } else {
+                result = result.filter { matcher.matches($0) }
+            }
         }
         return sortDexEntries(result, by: sort)
     }
@@ -903,9 +1149,14 @@ final class CompanionStore {
     /// 토큰 증분을 현재 포켓몬에 적용 — 임계 도달 시 진화/졸업.
     /// 라인 미로딩(재시작 직후·오프라인)이어도 사용량은 항상 적립한다 — 여기서 드롭하면
     /// 프로바이더별 ledger 는 이미 전진해 델타가 영구 유실된다. 진화 판정만 라인 로드 후로 미룬다.
-    func applyUsage(_ delta: Int) {
+    func applyUsage(_ delta: Int, isTokenUsage: Bool = true) {
         guard state.active != nil else { return }
-        state.active!.usedAtStage += delta
+        var growthDelta = delta
+        if isTokenUsage {
+            if ownsOldSeaMap { growthDelta = Int(Double(growthDelta) * 1.20) }
+            if ownsDnaSplicers { growthDelta = Int(Double(growthDelta) * 1.50) }
+        }
+        state.active!.usedAtStage += growthDelta
         reconcileActiveProfileGrowth()
         guard let line = currentLine else { save(); return }
         var guardCount = 0
@@ -960,11 +1211,27 @@ final class CompanionStore {
         save()
     }
 
-    private func pickPlannedChild(_ node: EvoNode, baseID: Int) -> EvoNode {
-        let fresh = node.children.filter { ch in
-            ch.finalIDs.contains { !state.collectedFinals.contains("\(baseID):\($0)") }
+    /// 특정 진화 종이 이미 도감(dex), 졸업(collectedFinals), 또는 활성 개체에 등록되어 있는지 여부.
+    func isEvolutionCollected(speciesID: Int, baseID: Int) -> Bool {
+        if state.collectedFinals.contains("\(baseID):\(speciesID)") { return true }
+        if state.dex.contains(where: { $0.finalID == speciesID || $0.chainOrder.contains(speciesID) }) { return true }
+        if state.active?.pathIDs.contains(speciesID) == true { return true }
+        return false
+    }
+
+    /// 분기 노드의 모든 최종체가 이미 수집되었는지 여부. (단일 진화 종인 경우 해당 종 자체의 수집 여부)
+    func isBranchNodeCollected(_ node: EvoNode, baseID: Int) -> Bool {
+        if node.children.isEmpty {
+            return isEvolutionCollected(speciesID: node.speciesID, baseID: baseID)
         }
-        let pool = fresh.isEmpty ? node.children : fresh
+        return node.finalIDs.allSatisfy { isEvolutionCollected(speciesID: $0, baseID: baseID) }
+    }
+
+    /// 분기 진화 anti-duplicate: 미수집 분기가 있으면 이미 획득한 진화는 배제하고 미수집 분기 중에서만 추첨.
+    /// 모든 분기를 전부 획득한 경우에만 전체 풀에서 무작위 선택.
+    private func pickPlannedChild(_ node: EvoNode, baseID: Int) -> EvoNode {
+        let uncollected = node.children.filter { !isBranchNodeCollected($0, baseID: baseID) }
+        let pool = uncollected.isEmpty ? node.children : uncollected
         return pool[Int(rng.next() % UInt64(pool.count))]
     }
 
@@ -1060,13 +1327,46 @@ final class CompanionStore {
     func itemCount(_ kind: ItemKind) -> Int { state.inventory[kind.rawValue] ?? 0 }
     /// 이로치 부적 보유 여부 — 보유형이라 개수>0 = 소유(부화 shiny 분모를 낮춘다).
     var ownsShinyCharm: Bool { itemCount(.shinyCharm) > 0 }
+    var ownsLegendCharm: Bool { itemCount(.legendCharm) > 0 }
+    var ownsSilverWing: Bool { itemCount(.silverWing) > 0 }
+    var ownsOldSeaMap: Bool { itemCount(.oldSeaMap) > 0 }
+    var ownsClearBell: Bool { itemCount(.clearBell) > 0 }
+    var ownsRainbowWing: Bool { itemCount(.rainbowWing) > 0 }
+    var ownsMagmaStone: Bool { itemCount(.magmaStone) > 0 }
+    var ownsSoulDew: Bool { itemCount(.soulDew) > 0 }
+    var ownsJadeOrb: Bool { itemCount(.jadeOrb) > 0 }
+    var ownsGracidea: Bool { itemCount(.gracidea) > 0 }
+    var ownsGriseousOrb: Bool { itemCount(.griseousOrb) > 0 }
+    var ownsLibertyPass: Bool { itemCount(.libertyPass) > 0 }
+    var ownsRevealGlass: Bool { itemCount(.revealGlass) > 0 }
+    var ownsDnaSplicers: Bool { itemCount(.dnaSplicers) > 0 }
 
-    /// 소유 아이템(개수>0) — 가방 목록. 정렬은 ItemKind.allCases 순서.
+    /// 보유한 배지 중 특정 종에 효과적인 배지 개수 (약점 공격 가능 배지 또는 노말 배지의 경우 노말 종).
+    func ownedBadgeCount(weakAgainst speciesID: Int) -> Int {
+        var count = 0
+        for type in PokemonType.allCases {
+            if itemCount(type.badgeItem) > 0 && PokemonTypeData.isWeak(to: type, speciesID: speciesID) {
+                count += 1
+            }
+        }
+        return count
+    }
+
+    /// 배지로 인한 포획/성장 가속 배율 (+20% per effective badge, cumulative).
+    func typeBadgeSpeedMultiplier(forSpeciesID speciesID: Int) -> Double {
+        let count = ownedBadgeCount(weakAgainst: speciesID)
+        guard count > 0 else { return 1.0 }
+        return 1.0 + 0.20 * Double(count)
+    }
+
+    /// 소유 아이템(개수>0): 가방 목록.
+    /// Consumables first (candies, mints, stones), then passive items, each in `ItemKind` order.
     var ownedItems: [(kind: ItemKind, count: Int)] {
-        ItemKind.allCases.compactMap { k in
+        let owned: [(kind: ItemKind, count: Int)] = ItemKind.allCases.compactMap { k in
             let c = itemCount(k)
             return c > 0 ? (k, c) : nil
         }
+        return owned.filter { !$0.kind.isPassive } + owned.filter { $0.kind.isPassive }
     }
 
     /// 이상한 사탕 사용 가능 — 활성 포켓몬 + 라인 로딩 완료 + 재고>0.
@@ -1087,15 +1387,20 @@ final class CompanionStore {
         }
     }
 
+    /// EXP one Rare Candy gives now: the Soul Dew adds 50%. Planning and use both read this value.
+    var rareCandyXP: Int { ownsSoulDew ? RareCandy.xp * 3 / 2 : RareCandy.xp }
+
     var maxRareCandyUseCount: Int {
         let remaining = max(0, rareCandyStageCosts.reduce(0, +) - (state.active?.usedAtStage ?? 0))
-        let needed = remaining / RareCandy.xp + (remaining % RareCandy.xp == 0 ? 0 : 1)
+        let xp = rareCandyXP
+        let needed = remaining / xp + (remaining % xp == 0 ? 0 : 1)
         return min(rareCandyCount, needed)
     }
 
     struct RareCandyUsePlan {
         let count: Int
-        var xp: Int { count * RareCandy.xp }
+        let xpPerCandy: Int
+        var xp: Int { count * xpPerCandy }
         let evolves: Bool
         let graduates: Bool
         let carryoverXP: Int
@@ -1106,18 +1411,19 @@ final class CompanionStore {
         let count = min(max(0, requested), maxRareCandyUseCount)
         guard count > 0, let mon = state.active else { return nil }
         let costs = rareCandyStageCosts
-        var remaining = mon.usedAtStage + count * RareCandy.xp
+        let xpPerCandy = rareCandyXP
+        var remaining = mon.usedAtStage + count * xpPerCandy
         var evolves = false
         for (index, cost) in costs.enumerated() {
             guard remaining >= cost else { break }
             remaining -= cost
             if index == costs.count - 1 {
-                return RareCandyUsePlan(count: count, evolves: evolves, graduates: true,
+                return RareCandyUsePlan(count: count, xpPerCandy: xpPerCandy, evolves: evolves, graduates: true,
                                        carryoverXP: 0, discardedXP: remaining)
             }
             evolves = true
         }
-        return RareCandyUsePlan(count: count, evolves: evolves, graduates: false,
+        return RareCandyUsePlan(count: count, xpPerCandy: xpPerCandy, evolves: evolves, graduates: false,
                                carryoverXP: evolves ? remaining : 0, discardedXP: 0)
     }
 
@@ -1134,16 +1440,17 @@ final class CompanionStore {
             // Keep the picker indistinguishable from the apparent Pokémon, but preserve whole
             // candies beyond the surprise reveal. Only the last consumed candy's XP carries over.
             let remaining = max(0, stageThreshold(for: mon) - mon.usedAtStage)
-            let needed = remaining / RareCandy.xp + (remaining % RareCandy.xp == 0 ? 0 : 1)
+            let needed = remaining / preview.xpPerCandy + (remaining % preview.xpPerCandy == 0 ? 0 : 1)
             consumed = min(consumed, needed)
         }
-        let xp = consumed * RareCandy.xp
+        let xp = consumed * preview.xpPerCandy
         state.inventory[ItemKind.rareCandy.rawValue] = rareCandyCount - consumed
         let beforeStage = state.active?.stageIndex ?? 0
         // 진화 안 될 때(부분 진행)도 즉시 "+XP" 피드백 — CompanionHeader 가 연출과 별개로 표시.
         candyFeedbackAmount = xp
         candyFeedbackSeq += 1
-        applyUsage(xp)   // Saves inventory and growth together, with existing evolution effects.
+        // Saves inventory and growth together. Candy XP is not token usage: no growth item multiplies it twice.
+        applyUsage(xp, isTokenUsage: false)
         if state.active == nil { return .graduated }
         if state.active!.stageIndex > beforeStage { return .evolved }
         return .progressed
@@ -1178,6 +1485,7 @@ final class CompanionStore {
     var availableTokens: Int { max(0, state.usedSinceInstall - state.spentTokens) }
 
     /// 상점 판매 아이템 — shopPrice 있는 것만. 가격 저렴한 순, 단 구매 완료한 보유형은 맨 아래로.
+    /// Collector items have no price: they are only claimed in the Achievements tab.
     var purchasableItems: [ItemKind] {
         ItemKind.allCases
             .filter { $0.shopPrice != nil }
@@ -1239,9 +1547,126 @@ final class CompanionStore {
     func buy(_ kind: ItemKind, count: Int = 1) -> Bool {
         guard count >= 1, count <= maxBuyCount(kind), let price = price(of: kind) else { return false }
         state.spentTokens += price * count
-        state.inventory[kind.rawValue, default: 0] += count
+        if kind == .rareCandy {
+            addRareCandies(count)
+        } else {
+            state.inventory[kind.rawValue, default: 0] += count
+        }
         save()
         return true
+    }
+
+    /// Adds Rare Candies from any source. With the Gracidea, every candy obtained comes with one more.
+    /// Returns how many landed in the bag.
+    @discardableResult
+    private func addRareCandies(_ count: Int) -> Int {
+        let received = ownsGracidea ? count * 2 : count
+        state.inventory[ItemKind.rareCandy.rawValue, default: 0] += received
+        return received
+    }
+
+    // MARK: Collector items (unlocked by the Pokédex)
+
+    /// Species registered in the Pokédex: the set the Pokédex grid shows (`dexSpecies`). Graduated and
+    /// released chains, plus the stages the current Pokémon has reached. Never `plannedPathIDs`.
+    var registeredSpeciesIDs: Set<Int> {
+        var ids = Set<Int>()
+        for entry in state.dex { ids.formUnion(entry.chainOrder) }
+        if let active = state.active { ids.formUnion(active.pathIDs.prefix(active.stageIndex + 1)) }
+        return ids
+    }
+
+    /// How far one species goal is from unlocking its item.
+    struct GoalProgress: Equatable, Sendable {
+        let goal: SpeciesGoal
+        /// Goal species already registered, in the goal's order.
+        let registered: [Int]
+        var count: Int { min(registered.count, goal.needed) }
+        var isMet: Bool { registered.count >= goal.needed }
+    }
+
+    /// Species goals of a collector item with what is already registered. Empty for items without
+    /// species goals (always on sale, or the Azure Flute's duplicate legendary).
+    func unlockProgress(of kind: ItemKind, registered: Set<Int>? = nil) -> [GoalProgress] {
+        guard case .species(let goals) = kind.unlock else { return [] }
+        let registered = registered ?? registeredSpeciesIDs
+        return goals.map { goal in
+            GoalProgress(goal: goal, registered: goal.species.filter(registered.contains))
+        }
+    }
+
+    /// Most graduated copies of a single legendary species (released copies excluded).
+    var graduatedLegendaryCopies: Int {
+        let graduated = state.dex.filter { $0.rarity == .legendary && !$0.isReleased }
+        return Dictionary(grouping: graduated, by: \.finalID).values.map(\.count).max() ?? 0
+    }
+
+    /// Whether this item's achievement goal is met. Items without a Pokédex condition are always unlocked.
+    func isUnlocked(_ kind: ItemKind, registered: Set<Int>? = nil) -> Bool {
+        switch kind.unlock {
+        case nil: return true
+        case .duplicateLegendary: return graduatedLegendaryCopies >= 2
+        case .species: return unlockProgress(of: kind, registered: registered).contains(where: \.isMet)
+        }
+    }
+
+    // MARK: 업적 (진화의 돌, 체육관 배지, 전설의 유물)
+
+    /// All items claimed through achievements (Evolution Stones, Gym Badges, Legendary Artifacts).
+    static let achievementItems: [ItemKind] = ItemKind.allCases.filter(\.isAchievement)
+
+    /// Whether this achievement was already claimed. Stones are used up, so the Bag cannot tell: the
+    /// ledger can. A passive item owned before the ledger existed counts as claimed.
+    func isClaimed(_ kind: ItemKind) -> Bool {
+        state.claimedAchievements.contains(kind.rawValue) || (kind.isPassive && itemCount(kind) > 0)
+    }
+
+    /// Number of achievements ready to be claimed.
+    var unclaimedAchievementsCount: Int {
+        let registered = registeredSpeciesIDs
+        return Self.achievementItems.filter { isUnlocked($0, registered: registered) && !isClaimed($0) }.count
+    }
+
+    /// Number of claimed achievements.
+    var claimedAchievementsCount: Int {
+        Self.achievementItems.filter(isClaimed).count
+    }
+
+    /// Total number of achievements.
+    var totalAchievementsCount: Int {
+        Self.achievementItems.count
+    }
+
+    /// Claim an achievement reward once unlocked, adding it to the bag for free: one passive item, or
+    /// `EvolutionStone.achievementReward` stones.
+    @discardableResult
+    func claimAchievement(_ kind: ItemKind) -> Bool {
+        guard kind.isAchievement, isUnlocked(kind), !isClaimed(kind) else { return false }
+        let count = kind.achievementRewardCount
+        state.claimedAchievements.insert(kind.rawValue)
+        state.inventory[kind.rawValue, default: 0] += count
+        save()
+        notifyCompanionEvent(l.notifAchievementClaimedTitle, l.notifAchievementClaimedBody(l.itemName(kind), count: count))
+        return true
+    }
+
+    /// Items for a specific achievement section, sorted: claimable first, then in-progress, then claimed.
+    func achievementItems(in group: CollectorGroup) -> [ItemKind] {
+        let registered = registeredSpeciesIDs
+        func rank(_ kind: ItemKind) -> Int {
+            if isClaimed(kind) { return 2 }
+            return isUnlocked(kind, registered: registered) ? 0 : 1
+        }
+        let items = ItemKind.allCases.filter { $0.collectorGroup == group }
+        let ranks = Dictionary(uniqueKeysWithValues: items.map { ($0, rank($0)) })
+        return items.enumerated()
+            .sorted { (ranks[$0.element]!, $0.offset) < (ranks[$1.element]!, $1.offset) }
+            .map(\.element)
+    }
+
+    /// Alias for backward compatibility with existing tests and collector group listings.
+    func collectorItems(in group: CollectorGroup) -> [ItemKind] {
+        achievementItems(in: group)
     }
 
     // 사탕 전용 래퍼 — 기존 호출부/테스트 호환.
@@ -1253,6 +1678,8 @@ final class CompanionStore {
 
     /// 현재 알이 보증하는 등급 하한(UI 표시용). 활성 포켓몬이 있으면 알이 없으므로 nil.
     var eggGuarantee: Rarity? { state.active == nil ? state.eggTier : nil }
+    /// 현재 알이 보증하는 타입(진화의 돌 사용 UI 표시용). 활성 포켓몬이 있으면 알이 없으므로 nil.
+    var eggTypeGuarantee: PokemonType? { state.active == nil ? state.eggTypeGuarantee : nil }
 
     /// 알 구매 가능 — 폐기할 활성 포켓몬이 있고 지갑이 그 티어 가격 이상일 때만.
     /// 알 상태에서도 살 수 있게 하는 안은 채택하지 않았다(기존 새 알과 게이트 통일) — 알끼리 교체하는
@@ -1278,7 +1705,31 @@ final class CompanionStore {
     @discardableResult
     func buyEgg(_ tier: Rarity?) -> Bool {
         guard canBuyEgg(tier) else { return false }
-        state.spentTokens += price(of: .egg(tier))
+        replaceActiveWithEgg(price: price(of: .egg(tier)), tier: tier, type: nil)
+        AppLog.write("egg purchased: discarded active, tier=\(tier?.rawValue ?? "none")")
+        return true
+    }
+
+    /// Evolution stone use gate: a stone in the Bag and, like an egg purchase, a companion to send off.
+    func canUseStone(_ kind: ItemKind) -> Bool {
+        kind.stoneType != nil && hasActive && itemCount(kind) > 0
+    }
+
+    /// Uses one evolution stone from the Bag. Like an egg purchase, the current Pokémon is sent off right
+    /// away for an egg, here guaranteed to hatch the stone's type.
+    @discardableResult
+    func useStone(_ kind: ItemKind) -> Bool {
+        guard canUseStone(kind), let type = kind.stoneType else { return false }
+        state.inventory[kind.rawValue] = itemCount(kind) - 1   // saved with the new egg
+        replaceActiveWithEgg(price: 0, tier: nil, type: type)
+        AppLog.write("stone used: \(kind.rawValue), discarded active, type=\(type.rawValue)")
+        return true
+    }
+
+    /// Shared reset of `buyEgg` and `useStone`: pays (nothing for a stone), sends the current Pokémon off
+    /// (kept in the Pokédex) and starts a new egg carrying the guarantee.
+    private func replaceActiveWithEgg(price: Int, tier: Rarity?, type: PokemonType?) {
+        state.spentTokens += price
         if let a = state.active {
             state.dex.append(releasedDexEntry(from: a))   // 놓아줌 기록 — 도감에서 종이 사라지지 않게
         }
@@ -1291,14 +1742,13 @@ final class CompanionStore {
         state.eggUsage = 0            // 새 알은 처음부터 인큐베이션(재부화에 5M 필요)
         isHatchRetryDelayed = false
         state.eggTier = tier          // 등급 보증(nil = 보증 없음)
+        state.eggTypeGuarantee = type // 진화의 돌의 타입 보증(nil = 보증 없음)
         state.pendingHatchID = nil    // 새 보증으로 처음부터 롤(활성 포켓몬이 있는 동안엔 원래 비어 있다)
         state.pendingForm = nil
         prefetchedLineID = nil
         justGraduated = nil; justEvolvedTo = nil; eventUntil = nil
-        AppLog.write("egg purchased: discarded active, tier=\(tier?.rawValue ?? "none")")
         Task { await self.ensureEggPrefetch() }   // 다음 부화 예열
         save()
-        return true
     }
 
     // 보증 없는 기본 알 래퍼 — 기존 호출부/테스트 호환.
@@ -1405,9 +1855,9 @@ final class CompanionStore {
         state.candyGrantTier = grantTier
         state.candyWindowEpoch = windowEpoch
         for g in grants {
-            state.inventory[ItemKind.rareCandy.rawValue, default: 0] += g.count
+            let received = addRareCandies(g.count)
             // 지급 자체는 알림 여부와 무관(상태 변경). 알림은 "왜 받는지"(그 창 한도를 다 채운 수고) 명시.
-            notifyCompanionEvent(l.notifCandyTitle(item: l.itemName(.rareCandy), count: g.count),
+            notifyCompanionEvent(l.notifCandyTitle(item: l.itemName(.rareCandy), count: received),
                                  l.notifCandyBody(window: g.windowName))
         }
         // 지급이 없어도 재무장(util dip / epoch 교체)은 영속해야 한다 —
@@ -1600,17 +2050,21 @@ final class CompanionStore {
         rarity == .common && totalForms >= 2 && roll % PokemonOdds.dittoDisguiseDenominator == 0
     }
 
-    /// 이로치 부화 분모 — 부적 보유 48, 없으면 64. 판정과 알림 문구가 같은 값을 쓰도록 여기가 단일 소스다.
-    nonisolated static func shinyDenominator(charmOwned: Bool) -> UInt64 {
-        charmOwned ? ShinyCharm.shinyDenominator : PokemonOdds.shinyDenominator
+    /// 이로치 부화 분모: 부적 보유 48, 없으면 64; the Reveal Glass halves it again. 판정과 알림 문구가 같은
+    /// 값을 쓰도록 여기가 단일 소스다.
+    nonisolated static func shinyDenominator(charmOwned: Bool, revealGlassOwned: Bool = false) -> UInt64 {
+        let denom = charmOwned ? ShinyCharm.shinyDenominator : PokemonOdds.shinyDenominator
+        return revealGlassOwned ? max(1, denom / 2) : denom
     }
 
     /// 지금 부화하면 적용될 이로치 분모.
-    var shinyDenominator: UInt64 { Self.shinyDenominator(charmOwned: ownsShinyCharm) }
+    var shinyDenominator: UInt64 {
+        Self.shinyDenominator(charmOwned: ownsShinyCharm, revealGlassOwned: ownsRevealGlass)
+    }
 
     /// 이로치 부화 판정(순수) — 미리 뽑은 roll 값 % 분모==0. (부수효과 없이 xctest)
-    nonisolated static func rollsShiny(roll: UInt64, charmOwned: Bool) -> Bool {
-        roll % shinyDenominator(charmOwned: charmOwned) == 0
+    nonisolated static func rollsShiny(roll: UInt64, charmOwned: Bool, revealGlassOwned: Bool = false) -> Bool {
+        roll % shinyDenominator(charmOwned: charmOwned, revealGlassOwned: revealGlassOwned) == 0
     }
 
     /// 실제 부화 로직 — isHatching 락은 호출자(hatch / hatchIfNeeded)가 소유·해제한다.
@@ -1643,6 +2097,18 @@ final class CompanionStore {
             save()
             return
         }
+        // Same last gate for a stone's type guarantee: the index type is the base species', so a stale
+        // index could still hand over another type. Keep the egg and re-roll next tick.
+        if let typeGuarantee = state.eggTypeGuarantee,
+           !PokemonTypeData.types(forSpeciesID: line.baseID).contains(typeGuarantee) {
+            AppLog.write("hatch: rolled \(line.baseID) without guaranteed type \(typeGuarantee), discarded; re-roll next tick")
+            state.pendingHatchID = nil
+            state.pendingForm = nil
+            prefetchedLineID = nil
+            markHatchRetryDelayedIfReady(generation: generation)
+            save()
+            return
+        }
         state.pendingHatchID = nil
         state.pendingForm = nil
         // A later egg can roll the same species with another form and must warm its own sprite.
@@ -1653,10 +2119,11 @@ final class CompanionStore {
         let overflow = max(0, state.eggUsage - eggHatchThreshold)
         state.eggUsage = 0
         state.eggTier = nil   // 보증은 이 부화로 소비된다(다음 알은 다시 무보증)
-        // 개체 롤 — shiny(1/64, 부적 1/48)·성격(25종)은 부화 순간 확정, 진화해도 유지.
+        state.eggTypeGuarantee = nil
+        // 개체 롤: shiny(1/64, 부적 1/48, Reveal Glass halves it)·성격(25종)은 부화 순간 확정, 진화해도 유지.
         // 알림 문구는 이 판정과 같은 분모를 보여준다.
         let shinyOdds = shinyDenominator
-        let isShiny = Self.rollsShiny(roll: rng.next(), charmOwned: ownsShinyCharm)
+        let isShiny = Self.rollsShiny(roll: rng.next(), charmOwned: ownsShinyCharm, revealGlassOwned: ownsRevealGlass)
         let nature = PokemonNature.allCases[Int(rng.next() % UInt64(PokemonNature.allCases.count))]
         // 메타몽 위장 롤 — common·≥2형태에 한해 1/128. .app 게이트(&& 단락 → 비앱에선 rng 미소비로
         // 기존 테스트 RNG 시퀀스 무영향). 위장/리빌 로직은 상태 기반으로 별도 테스트한다.
@@ -1773,26 +2240,52 @@ final class CompanionStore {
         }
     }
 
+    /// Roll weight of one base species: its hatch weight (halved once its line is collected), then the
+    /// boosts of the items owned. Split out of `chooseBase` so each boost can be tested without a roll.
+    /// The Azure Flute and Clear Bell tiers read the hatch weight too, not the capture rate: Mew, Celebi,
+    /// Rayquaza and Shaymin have a capture rate of 45 but roll like Mewtwo.
+    func hatchWeight(for e: BaseSpecies) -> Int {
+        var w = CollectionWeight.adjusted(e.hatchWeight, isCollected: state.hasCollectedFinal(forBaseID: e.id))
+        if ownsLegendCharm && e.hatchWeight <= PokemonOdds.legendaryHatchWeight {
+            w *= LegendCharm.weightMultiplier
+        }
+        if ownsClearBell && e.hatchWeight <= 45 && e.hatchWeight > PokemonOdds.legendaryHatchWeight {
+            w *= 2
+        }
+        if ownsGriseousOrb && PokemonTypeData.types(forSpeciesID: e.id).contains(where: { $0 == .ghost || $0 == .dragon }) {
+            w *= 2
+        }
+        let badgeMult = typeBadgeSpeedMultiplier(forSpeciesID: e.id)
+        if badgeMult > 1.0 {
+            w = max(1, Int((Double(w) * badgeMult).rounded()))
+        }
+        return w
+    }
+
     /// 부화 종 선정 — 하드코딩 풀 없이 PokéAPI 1~5세대 base 전체(329종)에서 가중 선택.
     ///   ① base 인덱스(id + capture_rate)를 GraphQL 1쿼리로 취득(30일 디스크 캐시 → 보통 0콜)
-    ///   ② 가중치 = 공식 capture_rate 그대로(캐터피 255 vs 뮤츠 3 = 85:1, 전설군 ≈ 0.77%)
+    ///   ② 가중치 = 공식 capture_rate(캐터피 255 vs 뮤츠 3 = 85:1). 단 알로 얻을 수 없는 전설·환상은
+    ///      capture_rate 와 무관하게 뮤츠급 3(`BaseSpecies.hatchWeight`) → 전설군 ≈ 0.39%
     ///      단, 이미 수집한 base 는 가중치 ½(미수집 부스트 — 재부화/shiny 사냥은 열어둠)
     ///   ③ 누적 가중치에서 정확히 1롤 — 루프/재롤 없음, 시간 상한 확정적
     /// 인덱스 취득 실패(오프라인 + 캐시 없음) 시 nil → 알 유지, 다음 갱신 틱 재시도.
     private func chooseBase() async -> Int? {
         let tier = state.eggTier
+        let typeGuarantee = state.eggTypeGuarantee
         if let full = try? await provider.baseSpeciesIndex(), !full.isEmpty {
             // 등급 보증 알은 후보를 먼저 좁힌다 — capture_rate 상한이 곧 등급 하한이므로
             // (Rarity.captureRateCeiling) 전설도 자연히 포함된다("희귀 이상"에 전설이 들어가는 게 정상).
             // 좁힌 결과가 비면 보증을 못 지키므로 전체 풀로 폴백하지 말고 알을 유지한다(다음 틱 재시도).
-            let index = tier.map { t in full.filter { t.includes(captureRate: $0.captureRate) } } ?? full
+            var index = tier.map { t in full.filter { t.includes(captureRate: $0.captureRate) } } ?? full
+            if let targetType = typeGuarantee {
+                let typeSpecies = PokemonTypeData.species(for: targetType)
+                index = index.filter { typeSpecies.contains($0.id) }
+            }
             guard !index.isEmpty else {
-                AppLog.write("hatch: no candidate for guaranteed \(tier?.rawValue ?? "none") — egg kept, retry next tick")
+                AppLog.write("hatch: no candidate for guaranteed tier=\(tier?.rawValue ?? "none") type=\(typeGuarantee?.rawValue ?? "none"), egg kept; retry next tick")
                 return nil
             }
-            let weights = index.map { e in
-                CollectionWeight.adjusted(e.captureRate, isCollected: state.hasCollectedFinal(forBaseID: e.id))
-            }
+            let weights = index.map(hatchWeight(for:))
             let total = weights.reduce(0, +)
             var r = Int(rng.next() % UInt64(total))
             for (i, w) in weights.enumerated() {
@@ -1811,7 +2304,8 @@ final class CompanionStore {
     /// line() 이 실제 capture_rate 로 계산하므로 결과 개체의 등급은 정확하다. 인덱스 복구 시 가중 선택 재개.
     private func chooseBaseViaREST() async -> Int? {
         let tier = state.eggTier
-        for attempt in 1...16 {
+        let typeGuarantee = state.eggTypeGuarantee
+        for attempt in 1...32 {
             let ids = PokemonAssets.animatedSpeciesIDs
             let id = Int(rng.next() % UInt64(ids.count)) + ids.lowerBound
             do {
@@ -1819,6 +2313,7 @@ final class CompanionStore {
                     // 등급 보증은 가중 경로와 **같은 기준**으로 여기서도 걸러야 한다 — 이 폴백만 빠지면
                     // GraphQL 인덱스 장애 때 보증이 조용히 깨진다. 못 찾으면 알 유지(구매 소멸 금지).
                     if let tier, !tier.includes(captureRate: bs.captureRate) { continue }
+                    if let typeGuarantee, !PokemonTypeData.types(forSpeciesID: bs.id).contains(typeGuarantee) { continue }
                     AppLog.write("hatch: REST fallback picked base \(id) (cap \(bs.captureRate), \(attempt) tries)")
                     return id
                 }
@@ -1828,7 +2323,7 @@ final class CompanionStore {
                 return nil   // REST 도 불가 → 알 유지, 다음 update 틱 재시도
             }
         }
-        AppLog.write("hatch: REST fallback exhausted 16 tries")
+        AppLog.write("hatch: REST fallback exhausted 32 tries")
         return nil
     }
 
@@ -2152,3 +2647,12 @@ final class CompanionStore {
         try? data.write(to: fileURL, options: .atomic)   // 부분 쓰기 손상 방지(펫 상태)
     }
 }
+
+#if DEBUG
+extension CompanionStore {
+    /// 테스트용 알 사용량 주입.
+    func setEggUsageForTesting(_ usage: Int) {
+        state.eggUsage = usage
+    }
+}
+#endif

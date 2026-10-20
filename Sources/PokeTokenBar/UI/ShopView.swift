@@ -162,8 +162,6 @@ private struct EggCard: View {
     let store: CompanionStore
     let nav: PopoverNavigation
     let tier: Rarity?
-    @State private var stage: Stage = .idle
-    private enum Stage { case idle, confirm, preciousConfirm }
 
     private var price: Int { store.price(of: .egg(tier)) }
 
@@ -198,69 +196,16 @@ private struct EggCard: View {
                 }
                 Spacer()
             }
-            controls(l)
+            ReleaseForEggControls(store: store, nav: nav,
+                                  detail: "\(l.shopPriceLabel) \(TokenFormatter.compact(price))",
+                                  actionTitle: l.buy, isAvailable: store.canBuyEgg(tier),
+                                  unavailableText: l.notEnoughTokens,
+                                  confirmText: l.eggConfirm(store.displayName, l.eggName(tier))) {
+                store.buyEgg(tier)
+            }
         }
         .padding(10)
         .background(Color.secondary.opacity(0.06))
         .clipShape(RoundedRectangle(cornerRadius: 10))
-    }
-
-    @ViewBuilder
-    private func controls(_ l: L) -> some View {
-        switch stage {
-        case .idle:
-            VStack(alignment: .leading, spacing: 4) {
-                HStack {
-                    Text("\(l.shopPriceLabel) \(TokenFormatter.compact(price))")
-                        .font(.caption2).foregroundStyle(.tertiary).monospacedDigit()
-                    Spacer()
-                    if !store.hasActive {
-                        // 알 상태 — 리롤 대상이 없어 구매만 막는다(canBuyEgg 게이트). 항목을 숨기는 대신
-                        // 비활성 버튼으로 "상점에 있긴 하다"를 보이고, 사유는 아래 한 줄로.
-                        Button(l.buy) {}
-                            .buttonStyle(.bordered).controlSize(.small).disabled(true)
-                    } else if store.canBuyEgg(tier) {
-                        Button(l.buy) { stage = .confirm }
-                            .buttonStyle(.bordered).controlSize(.small)
-                    } else {
-                        Text(l.notEnoughTokens).font(.caption2).foregroundStyle(.tertiary)
-                    }
-                }
-                if !store.hasActive {
-                    Text(l.eggShopLockedHint)
-                        .font(.caption2).foregroundStyle(.tertiary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
-        case .confirm:
-            HStack(spacing: 8) {
-                Text(l.eggConfirm(store.displayName, l.eggName(tier)))
-                    .font(.caption2).foregroundStyle(.secondary).lineLimit(2)
-                Spacer()
-                // 이로치나 전설 등 고가치 포켓몬이면 한 번 더 경고, 아니면 즉시 실행.
-                Button(l.buy) {
-                    if store.isHighValueCompanion { stage = .preciousConfirm } else { commit() }
-                }
-                .buttonStyle(.borderedProminent).controlSize(.small)
-                Button(l.cancel) { stage = .idle }
-                    .buttonStyle(.borderless).controlSize(.small)
-            }
-        case .preciousConfirm:
-            HStack(spacing: 8) {
-                Text(store.rarity == .legendary ? l.freshEggLegendaryWarning : l.freshEggShinyWarning)
-                    .font(.caption2.weight(.semibold)).foregroundStyle(.orange).lineLimit(2)
-                Spacer()
-                Button(store.currentIsShiny && store.rarity != .legendary ? l.freshEggDiscardShiny : l.freshEggDiscardValuable) { commit() }
-                    .buttonStyle(.borderedProminent).controlSize(.small).tint(.orange)
-                Button(l.cancel) { stage = .idle }
-                    .buttonStyle(.borderless).controlSize(.small)
-            }
-        }
-    }
-
-    /// 리롤 실행 → 새 알을 볼 수 있게 Home 으로 전환(가방 사용과 동일 패턴).
-    private func commit() {
-        stage = .idle
-        if store.buyEgg(tier) { nav.tab = .home }
     }
 }

@@ -34,8 +34,8 @@ final class UpdateCheckerTests: XCTestCase {
             "pgrep -x matches any instance by name and always times out when a duplicate runs"
         )
         XCTAssertTrue(
-            script.contains("kill -0 \"$3\""),
-            "the wait loop must wait on the specific terminating PID via $3"
+            script.contains("kill -0 \"$1\""),
+            "the wait loop must wait on the specific terminating PID via $1"
         )
     }
 
@@ -219,8 +219,43 @@ final class UpdateCheckerTests: XCTestCase {
 
     func testDetachedUpgradeScriptUsesPositionalParameters() {
         let script = UpdateChecker.detachedUpgradeScript
-        XCTAssertTrue(script.contains("\"$1\" update"), "must execute brew via $1 positional arg")
-        XCTAssertTrue(script.contains("\"$1\" upgrade"), "must execute brew upgrade via $1 positional arg")
-        XCTAssertTrue(script.contains("open \"$2\""), "must open bundlePath via $2 positional arg")
+        XCTAssertTrue(script.contains("kill -0 \"$1\""), "must wait on terminating pid via $1 positional arg")
+        XCTAssertTrue(script.contains("./scripts/build-app.sh"), "must execute build-app.sh")
+        XCTAssertTrue(script.contains("open \"$TARGET_APP\"") || script.contains("open \"$2\""), "must reopen target app via $2 positional arg")
+    }
+
+    @MainActor
+    func testCommitSHAUpdateDetection() async {
+        let remoteSHA = "c328d5ceb9ef53221fde58a2b5e97b5c92689a72"
+        let remoteURL = "https://github.com/KillianHzr/PokeTokenLBI/commit/\(remoteSHA)"
+        let checker = UpdateChecker(currentCommit: "1111111", defaults: isolatedDefaults()) {
+            UpdateChecker.LatestCommit(sha: remoteSHA, message: "feat: new commit", url: remoteURL)
+        }
+
+        await checker.check(minInterval: 0)
+        XCTAssertEqual(checker.available?.version, "c328d5c")
+        XCTAssertEqual(checker.settingsNotice, .offer("c328d5c"))
+
+        // When current is already the remote SHA, no update offered
+        let upToDateChecker = UpdateChecker(currentCommit: remoteSHA, defaults: isolatedDefaults()) {
+            UpdateChecker.LatestCommit(sha: remoteSHA, message: "feat: new commit", url: remoteURL)
+        }
+        await upToDateChecker.check(minInterval: 0)
+        XCTAssertNil(upToDateChecker.available)
+        XCTAssertEqual(upToDateChecker.settingsNotice, .current)
+    }
+
+    func testDetachedUpgradeScriptWritesStatusFile() {
+        let script = UpdateChecker.detachedUpgradeScript
+        XCTAssertTrue(script.contains("STATUS_FILE=\"$APP_SUPPORT/update-status\""), "must define STATUS_FILE")
+        XCTAssertTrue(script.contains("echo \"running\" > \"$STATUS_FILE\""), "must record running state")
+        XCTAssertTrue(script.contains("echo \"success\" > \"$STATUS_FILE\""), "must record success state")
+    }
+
+    @MainActor
+    func testIsUpdatingState() {
+        let checker = UpdateChecker(currentCommit: "1111111", defaults: isolatedDefaults())
+        XCTAssertFalse(checker.isUpdating)
+        XCTAssertNil(checker.updateError)
     }
 }

@@ -1,12 +1,21 @@
 #!/bin/bash
-# PokeTokenBar.app 번들 조립 + /Applications 설치
+# PokeTokenLBI.app 번들 조립 + /Applications 설치
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
 VERSION="2.5.6"
-APP_NAME="PokeTokenBar"
+APP_NAME="PokeTokenLBI"
 BUILD_DIR="build"
 APP="$BUILD_DIR/$APP_NAME.app"
+GIT_COMMIT_SHA="$(git rev-parse HEAD 2>/dev/null || echo 'unknown')"
+GIT_COMMIT_DATE="$(git log -1 --format='%cd' --date=format:'%Y-%m-%d %H:%M' 2>/dev/null || date '+%Y-%m-%d %H:%M')"
+
+# Apply optional local patch (for private personal tweaks not committed to git)
+LOCAL_PATCH="${PTB_LOCAL_PATCH:-$HOME/Library/Application Support/PokeTokenBar/local.patch}"
+if [[ -f "$LOCAL_PATCH" ]]; then
+    echo "==> Applying local private patch from $LOCAL_PATCH"
+    git apply "$LOCAL_PATCH" 2>/dev/null || true
+fi
 
 # README 가 Apple Silicon + Intel 지원을 약속하므로 배포 바이너리는 universal(arm64 + x86_64)이어야 한다.
 # `swift build --arch arm64 --arch x86_64` 는 Xcode(xcbuild)가 필요해 Command Line Tools 만으로는 실패하므로
@@ -20,7 +29,7 @@ SLICES=()
 for arch in "${ARCHS[@]}"; do
     echo "==> swift build -c release --arch $arch"
     swift build -c release --arch "$arch"
-    SLICES+=("$(swift build -c release --arch "$arch" --show-bin-path)/$APP_NAME")
+    SLICES+=("$(swift build -c release --arch "$arch" --show-bin-path)/PokeTokenBar")
 done
 
 echo "==> $APP 조립"
@@ -40,10 +49,13 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 <dict>
     <key>CFBundleIdentifier</key><string>io.github.chattymin.poketokenbar</string>
     <key>CFBundleName</key><string>$APP_NAME</string>
+    <key>CFBundleDisplayName</key><string>$APP_NAME</string>
     <key>CFBundleExecutable</key><string>$APP_NAME</string>
     <key>CFBundlePackageType</key><string>APPL</string>
     <key>CFBundleShortVersionString</key><string>$VERSION</string>
     <key>CFBundleVersion</key><string>$VERSION</string>
+    <key>PTBCommitSHA</key><string>$GIT_COMMIT_SHA</string>
+    <key>PTBCommitDate</key><string>$GIT_COMMIT_DATE</string>
     <key>LSMinimumSystemVersion</key><string>14.0</string>
     <key>CFBundleIconFile</key><string>AppIcon</string>
     <key>LSUIElement</key><true/>
@@ -54,7 +66,6 @@ PLIST
 
 # 크래시/OOM(exit≠0) 시 자동 재실행 LaunchAgent(KeepAlive) — SMAppService.agent 가 등록해 launchd 가
 # 워치독으로 동작. 정상 종료(exit 0: 사용자 종료·업데이트)엔 재실행 안 함(SuccessfulExit=false).
-# ProgramArguments 는 brew 설치 경로(/Applications) 고정. codesign 전에 생성해 서명 seal 에 포함.
 mkdir -p "$APP/Contents/Library/LaunchAgents"
 cat > "$APP/Contents/Library/LaunchAgents/io.github.chattymin.poketokenbar.login.plist" <<AGENT
 <?xml version="1.0" encoding="UTF-8"?>
@@ -99,6 +110,7 @@ fi
 
 echo "==> 기존 인스턴스 종료 + /Applications 설치"
 pkill -x "$APP_NAME" 2>/dev/null || true
+pkill -x "PokeTokenBar" 2>/dev/null || true
 rm -rf "/Applications/$APP_NAME.app"
 cp -R "$APP" /Applications/
 

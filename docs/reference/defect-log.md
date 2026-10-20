@@ -44,6 +44,47 @@ read_when:
 
 ## 판정·데이터
 
+- **An egg-roll weight must not treat capture_rate as rarity for legendaries.** `chooseBase` weighted
+  candidates by PokéAPI `capture_rate`: 3 for most legendaries, but 45 for Mew, Celebi, Rayquaza and
+  Shaymin (255 for Necrozma, Eternatus and Terapagos in later generations). Each of those four was as
+  likely as a Kanto starter and 15 times as likely as Mewtwo; with Phione (30) they held 62% of the
+  legendary weight. Rarity labels stayed right because `line()` reads `is_legendary`/`is_mythical`, but
+  the base index carried only `capture_rate`, and `testSamplerCaptureRateIsWeight` modeled a legendary
+  as a low capture rate, so no test rolled a legendary with a high one. The index now carries
+  `isUnbreedableLegendary` (legendary or mythical with no egg group besides `no-eggs`; Phione and
+  Manaphy are the only exceptions and keep their rate) and `BaseSpecies.hatchWeight` uses
+  `PokemonOdds.legendaryHatchWeight` (3). The field is required when decoding, so a 30-day
+  `base-index.json` written without it is fetched again. Sweep: the GraphQL index and REST
+  `baseSpecies(id:)` share `BaseSpecies.isUnbreedableLegendary`; the per-hatch REST fallback
+  (`chooseBaseViaREST`) stays unweighted by design, so it still over-represents legendaries during a
+  GraphQL outage with no cached index. Premium egg tiers still filter by `captureRateCeiling`, which
+  includes every Gen 1-5 legendary (all at 45 or less) but would exclude a later legendary at 255 from
+  "rare or better" eggs. Guards: `testSamplerWeighsUnbreedableLegendaryLikeMewtwo` (rolling by
+  capture_rate again fails both assertions), `LegendaryHatchWeightTests` (ignoring egg groups fails 2 of
+  3 tests on Phione) and `testBaseIndexCachedWithoutTheFlagIsNotReused`.
+
+- **An item boost must read the same weight as the roll it boosts.** After the roll moved to
+  `BaseSpecies.hatchWeight`, the Azure Flute (x4 for legendaries) and Clear Bell (x2 for rares) in
+  `hatchWeight(for:)` still tiered species by `capture_rate` (3 or less, then 4 to 45): Mew, Celebi,
+  Rayquaza and Shaymin got the bell's rare boost and missed the flute. The item test's only legendary
+  was Mewtwo (3), so no test put a legendary with a high capture rate through the item tiers. Both
+  tiers now read `hatchWeight`. Sweep: the egg-tier filter still reads `captureRateCeiling` on purpose
+  (see the entry above); the Griseous Orb and badges read types, not rates. Guard:
+  `testAzureFluteAndClearBellTierLegendariesByHatchWeight`.
+
+- **A per-species table must cover every species that can hatch.** `PokemonTypeData` stopped at #649
+  while the Gen 6 to 9 PRs widen `PokemonAssets.animatedSpeciesIDs` to 1025, and
+  `types(forSpeciesID:)` returns `[]` for a missing id: a later Pokémon would never hatch from a stone
+  egg and would silently ignore badges and the Griseous Orb. The per-type sets were a second
+  hand-written copy of the same data. The table now covers #1 to #1025 (PokéAPI default forms; types
+  and `typeefficacy` checked against PokéAPI), the per-type sets derive from it, and gym badges keep
+  their Gen 1 to 5 goal through `badgeSpeciesIDs`. Guard: `testTypeTableCoversEveryHatchableSpecies`
+  fails as soon as the hatch range outgrows the table.
+
+- **A positional translation can hold the wrong script.** `L.t(ko, en, ja, ...)` compiles with a
+  Korean syllable inside the Japanese column (`は가네`, `こころ의しずく` shipped in the collector items
+  PR before merge). Guard: `testHangulAndKanaStayInTheirColumns` scans every `t(` call.
+
 - **A model-price test needs an independent bucket-level oracle.** Sonnet 5.5 copied Sonnet 5's
   cache-read rate ($0.20/MTok) although its official rate is $0.10; source-unpriced Claude logs
   therefore doubled that bucket's estimate. The standard-row test repeated the wrong literal,
@@ -1037,6 +1078,28 @@ read_when:
   밖·히트 영역 안 지점에 합성 마우스 이벤트를 보내 액션 발화를 확인한다. 스윕: 같은 형태의 나머지
   (`questionmark.circle` 키체인 도움말, 검색 지우기 `xmark.circle.fill`)는 채워진 원형 글리프라 라벨
   프레임이 이미 아이콘 전체라 제외.
+
+- **A popover tab inside the fixed 520 pt frame lets its scroll area take the remaining height.**
+  `AchievementsView` gave its list a fixed 460 pt under a header, the claim banner and a segmented
+  picker, all inside the 520 pt tab frame. The stack was taller than the frame: the list ended at
+  534.5 pt and ran under the footer, and the header sat tight under the tab bar. Only the PR renders
+  showed it: the collector tests check which items the list returns, and no test laid the tab out.
+  The list now has no height of its own, like Collection, Settings and Bag, whose scroll areas
+  already flex (the sweep of `.frame(height:)` under `UI/` found no other fixed child inside a fixed
+  tab). `AchievementsRenderingTests` lays the tab out with the claim banner on and keeps the category
+  picker and the list vertically inside the frame; putting the 460 pt back fails it (list maxY 534.5).
+
+- **A segmented control sized by its labels must fit the popover width in every language.** The
+  Evolution Stones section made the Achievements picker three long titles wide (449 pt in English,
+  468 pt in Spanish, for a 332 pt tab), and the fifth popover tab, "Achievements (41)", pushed the tab
+  bar past the popover in English and German, and in Russian even without a count. SwiftUI centered
+  the wider stack, so the whole tab slid off both edges. The layout test above only checked heights,
+  and the PR renders were English with a one-digit count. Section titles are now one word, the tab
+  reads "Achievements 2" without parentheses, and Russian uses "Успехи" with no count (the banner
+  inside the tab still counts). `testCategoryPickerFitsTheTabWidthInEveryLanguage` and
+  `testTabBarFitsThePopoverInEveryLanguage` lay both controls out in the 8 languages with two-digit
+  counts; the former labels fail them in English, German, Spanish, Japanese and Russian. The other
+  segmented pickers under `UI/` are unchanged by this PR and were not measured.
 
 ## 에너지 (상시 표시 애니메이션)
 

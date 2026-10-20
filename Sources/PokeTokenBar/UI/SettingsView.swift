@@ -55,6 +55,40 @@ struct SettingsView: View {
         Host.current().localizedName ?? ProcessInfo.processInfo.hostName
     }
 
+    /// 현재 앱 커밋 SHA (풀 해시)
+    private static var fullCommitSHA: String? {
+        if let sha = Bundle.main.object(forInfoDictionaryKey: "PTBCommitSHA") as? String,
+           !sha.isEmpty, sha != "unknown" {
+            return sha
+        }
+        return nil
+    }
+
+    /// 현재 앱 커밋 SHA (짧은 7자리)
+    private static var commitSHA: String? {
+        fullCommitSHA.map { String($0.prefix(7)) }
+    }
+
+    /// 현재 앱 커밋 일시 (예: 2026-10-14 17:12)
+    private static var commitDate: String? {
+        if let date = Bundle.main.object(forInfoDictionaryKey: "PTBCommitDate") as? String,
+           !date.isEmpty {
+            return date
+        }
+        return nil
+    }
+
+    /// 푸터에 표시할 커밋 / 버전 문자열 (예: "017ae26 (2026-10-14 17:12)")
+    private static var commitDisplay: String {
+        if let sha = commitSHA {
+            if let date = commitDate {
+                return "\(sha) (\(date))"
+            }
+            return sha
+        }
+        return "v\(appVersion)"
+    }
+
     /// 현재 앱 버전 — 업데이트 적용 여부 확인용으로 설정창 하단에 표기.
     private static var appVersion: String {
         Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "—"
@@ -129,9 +163,13 @@ struct SettingsView: View {
 
     private var footer: some View {
         HStack(spacing: 5) {
-            Text("v\(Self.appVersion)")
+            if let sha = Self.fullCommitSHA {
+                footerLink(Self.commitDisplay, "https://github.com/KillianHzr/PokeTokenLBI/commit/\(sha)")
+            } else {
+                Text(Self.commitDisplay)
+            }
             Text("·")
-            footerLink("GitHub", "https://github.com/chattymin/PokeTokenBar")
+            footerLink("GitHub", "https://github.com/KillianHzr/PokeTokenLBI")
             Text("·")
             footerLink(l.website, "https://chattymin.github.io/PokeTokenBar/")
             Text("·")
@@ -357,6 +395,16 @@ struct SettingsView: View {
     private func updateGroup(_ store: UsageStore) -> some View {
         @Bindable var store = store
         settingsSection(l.updateSectionTitle) {
+            if updater.isUpdating {
+                groupRow {
+                    HStack(spacing: 8) {
+                        ProgressView().controlSize(.small)
+                        Text(l.updating).font(.caption).foregroundStyle(.secondary)
+                        Spacer()
+                    }
+                }
+                Divider()
+            }
             toggleRow(l.updateNotificationsLabel, $store.updateNotificationsEnabled)
             Divider()
             groupRow {
@@ -376,13 +424,19 @@ struct SettingsView: View {
                         Text(l.checkNowButton)
                     }
                 }
-                .disabled(isCheckingUpdate)
+                .disabled(isCheckingUpdate || updater.isUpdating)
             }
             // 확인 결과 — 알림을 꺼둔 사용자도 여기서 새 버전을 알고 바로 적용할 수 있게 업데이트 버튼을 함께 노출.
             if didCheckUpdate, !isCheckingUpdate {
                 Divider()
                 groupRow {
-                    if case .offer(let version) = updater.settingsNotice {
+                    if updater.isUpdating {
+                        HStack(spacing: 6) {
+                            ProgressView().controlSize(.small)
+                            Text(l.updating).font(.caption).foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                    } else if case .offer(let version) = updater.settingsNotice {
                         Text(l.updateFound(version)).font(.caption).foregroundStyle(.orange)
                         Spacer()
                         Button(l.updateButton) { updater.applyUpdate() }.controlSize(.small)
@@ -398,7 +452,12 @@ struct SettingsView: View {
                             }
                         }
                     } else {
-                        Text(l.upToDate(Self.appVersion)).font(.caption).foregroundStyle(.secondary)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(l.upToDate(Self.commitSHA ?? Self.appVersion)).font(.caption).foregroundStyle(.secondary)
+                            if let date = Self.commitDate {
+                                Text(date).font(.caption2).foregroundStyle(.tertiary)
+                            }
+                        }
                         Spacer()
                     }
                 }

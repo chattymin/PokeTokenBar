@@ -116,6 +116,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         observeCompanionSprite()
         observeDisplaySleep()
         observePowerState()
+        observeUpdater()
         applyState()
     }
 
@@ -174,8 +175,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         }
     }
 
+    private func observeUpdater() {
+        withObservationTracking {
+            _ = updater.isUpdating
+        } onChange: { [weak self] in
+            Task { @MainActor in
+                guard let self else { return }
+                self.applyState()
+                self.observeUpdater()
+            }
+        }
+    }
+
     private func applyState() {
         guard let button = statusItem.button else { return }
+        if updater.isUpdating {
+            button.title = " " + companion.l.updating
+            button.toolTip = companion.l.updatingToolTip
+            button.appearsDisabled = false
+            needsSpriteLayout = true
+            ensureUpdatingAnimation()
+            syncMenuAnimation()
+            if needsSpriteLayout { layoutSpriteLayer() }
+            return
+        }
+
         // Recomputed on every refresh, so a tier that moves with the clock redraws even when the text doesn't.
         Self.applyMenuText(store.menuLines, to: button, colors: store.menuLimitColorRuns())
         button.toolTip = store.menuToolTip
@@ -334,6 +358,49 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         }
     }
 
+    private func ensureUpdatingAnimation() {
+        let key = "updating-spinner"
+        if key == menuSpriteKey, !menuFrames.isEmpty { return }
+        menuSpriteKey = key
+        menuLoadGen += 1
+        setMenuFrames(Self.updatingFrames())
+    }
+
+    private static var cachedUpdatingFrames: [(image: NSImage, delay: TimeInterval)]?
+
+    private static func updatingFrames() -> [(image: NSImage, delay: TimeInterval)] {
+        if let cached = cachedUpdatingFrames { return cached }
+        let size = NSSize(width: 18, height: 18)
+        let config = NSImage.SymbolConfiguration(pointSize: 13, weight: .semibold)
+        guard let base = NSImage(systemSymbolName: "arrow.triangle.2.circlepath", accessibilityDescription: nil)?
+            .withSymbolConfiguration(config) else {
+            return []
+        }
+        let steps = 12
+        var frames: [(image: NSImage, delay: TimeInterval)] = []
+        for i in 0..<steps {
+            let img = NSImage(size: size)
+            img.lockFocus()
+            let context = NSGraphicsContext.current?.cgContext
+            context?.translateBy(x: size.width / 2, y: size.height / 2)
+            let angle = -CGFloat(i) * (2 * .pi / CGFloat(steps))
+            context?.rotate(by: angle)
+            let baseSize = base.size
+            let drawRect = NSRect(
+                x: -baseSize.width / 2,
+                y: -baseSize.height / 2,
+                width: baseSize.width,
+                height: baseSize.height
+            )
+            base.draw(in: drawRect, from: .zero, operation: .sourceOver, fraction: 1.0)
+            img.unlockFocus()
+            img.isTemplate = true
+            frames.append((image: img, delay: 0.07))
+        }
+        cachedUpdatingFrames = frames
+        return frames
+    }
+
     private func setMenuFrames(_ frames: [(image: NSImage, delay: TimeInterval)]) {
         menuFrames = frames
         // 레이어용 비트맵은 프레임을 준비할 때 한 번만 만든다 — 프레임마다 변환하면 절감분이 사라진다.
@@ -441,8 +508,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         guard !menuFrames.isEmpty else { return }
         let index = menuIndex % menuFrames.count
         let frame = menuFrames[index]
-        // 현재 프레임은 항상 반영(정지 중에도 올바른 스프라이트). 전환 억제 + 레이어 contents 교체.
-        setStatusImage(frame.image, cgFrame: menuLayerFrames.indices.contains(index) ? menuLayerFrames[index] : nil)
+        if updater.isUpdating {
+            spriteLayer.isHidden = true
+            spriteLayer.contents = nil
+            placeholderSize = nil
+            lastStatusImage = nil
+            statusItem.button?.image = frame.image
+        } else {
+            // 현재 프레임은 항상 반영(정지 중에도 올바른 스프라이트). 전환 억제 + 레이어 contents 교체.
+            setStatusImage(frame.image, cgFrame: menuLayerFrames.indices.contains(index) ? menuLayerFrames[index] : nil)
+        }
         // 화면 꺼짐/메뉴바 가림(occlusion) 또는 단일 프레임이면 다음 프레임 예약 안 함 → 정지(낭비 제거).
         guard menuShouldAnimate, menuFrames.count > 1 else { return }
         let timer = Timer(timeInterval: frame.delay, repeats: false) { [weak self] _ in
@@ -462,10 +537,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
 
     /// 메뉴바가 실제로 보이고(occlusion) 화면이 켜져 있을 때만 애니메이션 — 안 보이면 정지(낭비 제거).
     private var menuShouldAnimate: Bool {
+        if updater.isUpdating {
+            return displayAwake && (statusItem.button?.window?.occlusionState.contains(.visible) ?? true)
+        }
         // 팝오버 열림 중엔 정지 — 팝오버 SpriteView 가 이미 컴패니언을 움직여 중복이고, 트래킹 중 상태아이콘
         // 리드로우는 WindowServer 부하(다른 앱 비컨볼) 위험. (status-item 앱은 occlusion 이 실제로 잘 안 떠서
         // displayAwake 슬립 게이팅이 실질 방어 — occlusion 체크는 유지하되 보조적.)
-        displayAwake && !popover.isShown
+        return displayAwake && !popover.isShown
             && (statusItem.button?.window?.occlusionState.contains(.visible) ?? true)
     }
 
