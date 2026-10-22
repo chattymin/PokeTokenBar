@@ -930,8 +930,9 @@ final class CompanionStore {
                    let planned = node.children.first(where: { $0.speciesID == a.plannedPathIDs[nextIndex] }) {
                     next = planned
                 } else {
-                    next = pickPlannedChild(node, baseID: a.baseID)
-                    let fallbackRoute = [node.speciesID] + makeEvolutionPlan(from: next, baseID: a.baseID)
+                    next = pickPlannedChild(node, baseID: a.baseID, personalityValue: a.personalityValue)
+                    let fallbackRoute = [node.speciesID] + makeEvolutionPlan(from: next, baseID: a.baseID,
+                                                                             personalityValue: a.personalityValue)
                     let repaired = Self.repairedPlan(realizedPath: a.pathIDs, stageIndex: a.stageIndex,
                                                      fallbackRoute: fallbackRoute)
                     state.active!.plannedPathIDs = repaired
@@ -960,7 +961,13 @@ final class CompanionStore {
         save()
     }
 
-    private func pickPlannedChild(_ node: EvoNode, baseID: Int) -> EvoNode {
+    /// A personality-value branch follows the main-series rule even when its final is already collected.
+    private func pickPlannedChild(_ node: EvoNode, baseID: Int, personalityValue: UInt32?) -> EvoNode {
+        if let personalityValue,
+           let childID = PersonalityBranch.childID(of: node.speciesID, personalityValue: personalityValue),
+           let child = node.children.first(where: { $0.speciesID == childID }) {
+            return child
+        }
         let fresh = node.children.filter { ch in
             ch.finalIDs.contains { !state.collectedFinals.contains("\(baseID):\($0)") }
         }
@@ -968,15 +975,21 @@ final class CompanionStore {
         return pool[Int(rng.next() % UInt64(pool.count))]
     }
 
-    private func makeEvolutionPlan(from root: EvoNode, baseID: Int) -> [Int] {
+    private func makeEvolutionPlan(from root: EvoNode, baseID: Int, personalityValue: UInt32?) -> [Int] {
         var plan = [root.speciesID]
         var node = root
         while !node.children.isEmpty {
-            let next = pickPlannedChild(node, baseID: baseID)
+            let next = pickPlannedChild(node, baseID: baseID, personalityValue: personalityValue)
             plan.append(next.speciesID)
             node = next
         }
         return plan
+    }
+
+    /// Rolls only for lines that need one, so other lines keep their existing RNG sequence.
+    private func rollPersonalityValue(for root: EvoNode) -> UInt32? {
+        guard PersonalityBranch.decidesBranch(in: root) else { return nil }
+        return UInt32(truncatingIfNeeded: rng.next() >> 32)
     }
 
     static func repairedPlan(realizedPath: [Int], stageIndex: Int, fallbackRoute: [Int]) -> [Int] {
@@ -1012,7 +1025,12 @@ final class CompanionStore {
         if canReusePlan {
             plan = candidate.path
         } else {
-            let suffix = makeEvolutionPlan(from: realized.lastNode, baseID: saved.baseID)
+            // Older saves lack a personality value; roll one so the rebuilt route follows the PID rule.
+            if normalized.personalityValue == nil {
+                normalized.personalityValue = rollPersonalityValue(for: realized.lastNode)
+            }
+            let suffix = makeEvolutionPlan(from: realized.lastNode, baseID: saved.baseID,
+                                           personalityValue: normalized.personalityValue)
             plan = realized.path + suffix.dropFirst()
         }
         normalized.pathIDs = realized.path
@@ -1665,7 +1683,9 @@ final class CompanionStore {
            Self.dittoDisguiseHit(rarity: line.rarity, totalForms: line.totalForms, roll: rng.next()) {
             dittoDisguise = line.baseID
         }
-        let evolutionPlan = makeEvolutionPlan(from: line.tree, baseID: line.baseID)
+        let personalityValue = rollPersonalityValue(for: line.tree)
+        let evolutionPlan = makeEvolutionPlan(from: line.tree, baseID: line.baseID,
+                                              personalityValue: personalityValue)
         var profile = PokemonProfile.generate(seed: rng.next())
         if let details = pokemonDetailsByID[line.baseID] { profile.enrich(with: details) }
         let hasGrowthBoost = state.hasCollectedFinal(forBaseID: line.baseID)
@@ -1675,7 +1695,8 @@ final class CompanionStore {
         activeGeneration += 1
         state.active = MonState(baseID: line.baseID, pathIDs: [line.baseID], plannedPathIDs: evolutionPlan,
                                 stageIndex: 0, usedAtStage: 0, rarity: line.rarity, totalForms: evolutionPlan.count,
-                                isShiny: isShiny, nature: nature, profile: profile, hasGrowthBoost: hasGrowthBoost,
+                                isShiny: isShiny, nature: nature, personalityValue: personalityValue,
+                                profile: profile, hasGrowthBoost: hasGrowthBoost,
                                 dittoDisguise: dittoDisguise, form: form)
         AppLog.write("hatch: base=\(line.baseID) rarity=\(line.rarity) shiny=\(isShiny) forms=\(evolutionPlan.count) boost=\(hasGrowthBoost) ditto=\(dittoDisguise != nil)")
         let name = formDisplayName(line.localizedName(line.baseID, state.language),
@@ -1714,7 +1735,8 @@ final class CompanionStore {
         // 메타몽으로 전환 — rarity/forms 는 로드한 라인에서, isShiny/nature/dittoDisguise 는 유지.
         let previousRarity = m.rarity
         m.baseID = dittoLine.baseID
-        let evolutionPlan = makeEvolutionPlan(from: dittoLine.tree, baseID: dittoLine.baseID)
+        let evolutionPlan = makeEvolutionPlan(from: dittoLine.tree, baseID: dittoLine.baseID,
+                                              personalityValue: m.personalityValue)
         m.pathIDs = [dittoLine.baseID]
         m.plannedPathIDs = evolutionPlan
         m.stageIndex = 0

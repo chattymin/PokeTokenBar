@@ -1241,6 +1241,54 @@ final class CompanionStoreTests: XCTestCase {
         XCTAssertEqual(s.tokensToNext, evolution / PokemonBalance.repeatGrowthMultiplier)
     }
 
+    func testWurmpleBranchReadsUpperSixteenBitsOfPersonalityValue() {
+        let silcoon = PersonalityBranch.silcoonSpeciesID
+        let cascoon = PersonalityBranch.cascoonSpeciesID
+        XCTAssertEqual(PersonalityBranch.childID(of: 265, personalityValue: 0x0004_FFFF), silcoon)
+        XCTAssertEqual(PersonalityBranch.childID(of: 265, personalityValue: 0x0005_0000), cascoon)
+        XCTAssertEqual(PersonalityBranch.childID(of: 265, personalityValue: 0x0000_0009), silcoon,
+                       "the lower 16 bits, including the PID's last decimal digit, must not decide")
+        XCTAssertEqual(PersonalityBranch.childID(of: 265, personalityValue: 0xFFF9_0000), cascoon)   // 65529
+        XCTAssertEqual(PersonalityBranch.childID(of: 265, personalityValue: 0xFFFA_0000), silcoon)   // 65530
+        XCTAssertNil(PersonalityBranch.childID(of: 43, personalityValue: 0))
+
+        var silcoonCount = 0
+        for upper in UInt32(0)...0xFFFF where PersonalityBranch.childID(of: 265, personalityValue: upper << 16) == silcoon {
+            silcoonCount += 1
+        }
+        XCTAssertEqual(silcoonCount, 32_770)
+        XCTAssertEqual(65_536 - silcoonCount, 32_766)
+    }
+
+    func testWurmpleHatchFollowsPersonalityValueEvenWhenFinalIsCollected() async throws {
+        var repeatedCollectedFinal = false
+        for seed in UInt64(1)...32 {
+            let s = store(wurmpleLine, seed: seed)
+            for hatchIndex in 0..<2 {
+                await s.hatch(baseID: 265)
+                let mon = try XCTUnwrap(s.state.active)
+                let pid = try XCTUnwrap(mon.personalityValue, "Wurmple must roll a personality value at hatch")
+                XCTAssertEqual(mon.plannedPathIDs[1], PersonalityBranch.childID(of: 265, personalityValue: pid))
+                if hatchIndex == 1, s.state.collectedFinals.contains("265:\(mon.plannedPathIDs[2])") {
+                    repeatedCollectedFinal = true
+                }
+                for stage in 0..<mon.totalForms {
+                    s.applyUsage(PokemonBalance.phaseThreshold(rarity: .common, totalForms: mon.totalForms,
+                                                               stageIndex: stage))
+                }
+            }
+        }
+        XCTAssertTrue(repeatedCollectedFinal, "the PID rule must override the uncollected-final preference")
+    }
+
+    func testLinesWithoutPersonalityBranchDoNotRollPersonalityValue() async {
+        for line in [branch3, delayedBranchLine, linear3] {
+            let s = store(line)
+            await s.hatch(baseID: line.baseID)
+            XCTAssertNil(s.state.active?.personalityValue, "base \(line.baseID)")
+        }
+    }
+
     func testHatchPreselectsWurmpleRouteAndEvolutionDoesNotConsumeRNG() async {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("poke-\(UUID().uuidString).json")
         let rng = CountingRNG(seed: 7)
@@ -1342,7 +1390,9 @@ final class CompanionStoreTests: XCTestCase {
         XCTAssertTrue([[265, 266, 267], [265, 268, 269]].contains(migratedPlan ?? []))
         XCTAssertEqual(s.state.active?.pathIDs, [265], "realized path must remain intact")
         XCTAssertEqual(s.state.active?.totalForms, migratedPlan?.count)
-        XCTAssertEqual(rng.callCount, 2, "Wurmple suffix selection rolls once per evolution edge")
+        let migratedPID = try XCTUnwrap(s.state.active?.personalityValue, "migration must roll a personality value")
+        XCTAssertEqual(migratedPlan?[1], PersonalityBranch.childID(of: 265, personalityValue: migratedPID))
+        XCTAssertEqual(rng.callCount, 2, "Wurmple migration rolls the PID and then the single-child edge")
 
         let reloadRNG = CountingRNG(seed: 1)
         let reloaded = CompanionStore(provider: StubProvider(value: line), clock: { fixedNow }, fileURL: url, rng: reloadRNG)
@@ -1351,6 +1401,7 @@ final class CompanionStoreTests: XCTestCase {
         let reloadedLine = await waitUntil { reloaded.currentLine != nil }
         XCTAssertTrue(reloadedLine)
         XCTAssertEqual(reloaded.state.active?.plannedPathIDs, migratedPlan, "migration must persist its one-time choice")
+        XCTAssertEqual(reloaded.state.active?.personalityValue, migratedPID)
         XCTAssertEqual(reloadRNG.callCount, 0, "a persisted complete route must not reroll on restart")
     }
 

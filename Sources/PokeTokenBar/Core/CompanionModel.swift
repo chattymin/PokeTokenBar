@@ -449,6 +449,27 @@ enum PokemonOdds {
     static let dittoSpeciesID = 132
 }
 
+/// Main-series branches decided by the individual's personality value (PID) instead of chance.
+enum PersonalityBranch {
+    static let wurmpleSpeciesID = 265
+    static let silcoonSpeciesID = 266
+    static let cascoonSpeciesID = 268
+
+    /// The child species the personality value selects at `speciesID`, or nil when chance decides.
+    /// Wurmple (Gen III+): the upper 16 bits of the PID mod 10 are 0–4 → Silcoon, 5–9 → Cascoon.
+    /// 65,536 does not divide by 10, so Silcoon wins 32,770 of the values and Cascoon 32,766.
+    static func childID(of speciesID: Int, personalityValue: UInt32) -> Int? {
+        guard speciesID == wurmpleSpeciesID else { return nil }
+        return (personalityValue >> 16) % 10 < 5 ? silcoonSpeciesID : cascoonSpeciesID
+    }
+
+    /// Whether a branch below `root` (inclusive) needs a personality value to plan the route.
+    static func decidesBranch(in root: EvoNode) -> Bool {
+        (root.speciesID == wurmpleSpeciesID && root.children.count > 1)
+            || root.children.contains { decidesBranch(in: $0) }
+    }
+}
+
 /// 현재 키우는 포켓몬.
 struct MonState: Codable, Sendable {
     var baseID: Int
@@ -460,6 +481,8 @@ struct MonState: Codable, Sendable {
     var totalForms: Int
     var isShiny = false             // 부화 시 확정, 진화해도 유지
     var nature: PokemonNature?      // 부화 시 확정 (구버전 저장은 nil)
+    /// Rolled at hatch only for lines with a `PersonalityBranch`; nil for other lines and older saves.
+    var personalityValue: UInt32?
     /// Chosen at hatch for the whole line and resolved per species (`PokemonForm.resolved`).
     var form: PokemonForm?
     /// 개체 고유 전투 프로필. 구버전 저장은 nil이며 `CompanionStore`가 한 번만 마이그레이션한다.
@@ -482,7 +505,7 @@ struct MonState: Codable, Sendable {
 
     init(baseID: Int, pathIDs: [Int], plannedPathIDs: [Int]? = nil, stageIndex: Int, usedAtStage: Int,
          rarity: Rarity, totalForms: Int, isShiny: Bool = false, nature: PokemonNature? = nil,
-         profile: PokemonProfile? = nil, hasGrowthBoost: Bool = false,
+         personalityValue: UInt32? = nil, profile: PokemonProfile? = nil, hasGrowthBoost: Bool = false,
          dittoDisguise: Int? = nil, dittoRevealed: Bool = false, form: PokemonForm? = nil) {
         self.baseID = baseID
         self.pathIDs = pathIDs
@@ -497,6 +520,7 @@ struct MonState: Codable, Sendable {
         self.totalForms = totalForms
         self.isShiny = isShiny
         self.nature = nature
+        self.personalityValue = personalityValue
         self.profile = profile
         self.hasGrowthBoost = hasGrowthBoost
         self.dittoDisguise = dittoDisguise
@@ -525,6 +549,7 @@ struct MonState: Codable, Sendable {
         totalForms = try c.decode(Int.self, forKey: .totalForms)
         isShiny = try c.decodeIfPresent(Bool.self, forKey: .isShiny) ?? false
         nature = try c.decodeIfPresent(PokemonNature.self, forKey: .nature)
+        personalityValue = try c.decodeIfPresent(UInt32.self, forKey: .personalityValue)
         // 손상된 신규 프로필 하나 때문에 기존 성장 상태 전체를 잃지 않는다. nil이면 스토어가 재마이그레이션한다.
         profile = (try? c.decodeIfPresent(PokemonProfile.self, forKey: .profile)) ?? nil
         hasGrowthBoost = try c.decodeIfPresent(Bool.self, forKey: .hasGrowthBoost) ?? false
