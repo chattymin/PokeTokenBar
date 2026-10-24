@@ -28,19 +28,18 @@ public struct CursorRateLimitsProvider: CursorLimitsProviding, Sendable {
     public init() {}
 
     public func fetch() async throws -> CursorRateLimitStatus? {
-        guard UsageEnvironment.value("CURSOR_USAGE_API") != "0" else { return nil }
-        guard var token = CursorUsageAPI.sessionToken() else {
+        guard CursorAuthentication.isEnabled else { return nil }
+        guard let credential = CursorAuthentication.current() else {
             AppLog.writeIfChanged("cursor-limits-session", "cursor limits: no session token")
             return nil
         }
 
         do {
-            return try await fetchStatus(token: token)
+            return try await fetchStatus(token: credential.accessToken)
         } catch let error as LimitsError {
             guard case .httpStatus(let code) = error, code == 401 || code == 403 else { throw error }
-            guard let refreshed = try await Self.refreshAccessToken() else { throw error }
-            token = refreshed
-            return try await fetchStatus(token: token)
+            guard let refreshed = await CursorAuthentication.refresh(afterRejecting: credential) else { throw error }
+            return try await fetchStatus(token: refreshed.accessToken)
         }
     }
 
@@ -50,7 +49,7 @@ public struct CursorRateLimitsProvider: CursorLimitsProviding, Sendable {
         request.httpBody = Data("{}".utf8)
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("1", forHTTPHeaderField: "Connect-Protocol-Version")
-        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.setValue("Bearer \(CursorAuthentication.bearerToken(from: token))", forHTTPHeaderField: "Authorization")
 
         let send = Self.transportForTesting ?? Self.perform
         guard let (data, status) = await send(request) else {
@@ -68,36 +67,8 @@ public struct CursorRateLimitsProvider: CursorLimitsProviding, Sendable {
         return try JSONDecoder().decode(CursorRateLimitStatus.self, from: data)
     }
 
-    private static func refreshAccessToken() async throws -> String? {
-        guard let refreshToken = LocalAdditionalUsageReader.cursorAuthValue("cursorAuth/refreshToken")?
-            .trimmingCharacters(in: .whitespacesAndNewlines), !refreshToken.isEmpty else {
-            AppLog.writeIfChanged("cursor-limits-refresh", "cursor limits: no refresh token")
-            return nil
-        }
-        var request = URLRequest(url: tokenURL, timeoutInterval: 10)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        let body: [String: String] = [
-            "grant_type": "refresh_token",
-            "client_id": clientID,
-            "refresh_token": refreshToken,
-        ]
-        request.httpBody = try JSONSerialization.data(withJSONObject: body)
-
-        let send = transportForTesting ?? perform
-        guard let (data, status) = await send(request), (200 ... 299).contains(status),
-              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let accessToken = object["access_token"] as? String,
-              !accessToken.isEmpty else {
-            AppLog.write("cursor limits: token refresh failed")
-            return nil
-        }
-        if object["shouldLogout"] as? Bool == true { return nil }
-        return accessToken
-    }
-
     private static func perform(_ request: URLRequest) async -> (Data, Int)? {
-        // The only real network boundary (usage and token refresh); tests inject `transportForTesting`.
+        // Limits network boundary; token grants are gated separately in CursorAuthentication.
         guard AppEnv.allowsLiveLimitsFetch else { return nil }
         do {
             let (data, response) = try await session.data(for: request)

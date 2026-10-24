@@ -197,13 +197,15 @@ Pi는 모델 여러 개를 세션 로그 하나로 흘려보낼 수 있습니다
 | **OpenCode** | 오늘 · 5시간 블록 · 주 · 월 | — |
 | **Hermes Agent** | 오늘 · 5시간 블록 · 주 · 월 | — |
 | **Cursor** | 오늘 · 5시간 블록 · 주 · 월 | — |
-| **Grok CLI** | 오늘 · 5시간 블록 · 주 · 월 | — |
+| **Grok Build CLI** | 오늘 · 5시간 블록 · 주 · 월 | — |
 | **Copilot CLI** | 오늘 · 5시간 블록 · 주 · 월 | — |
 | **Kiro CLI** | 오늘 · 5시간 블록 · 주 · 월 | — (추정치) |
 | **Pi Agent** | 오늘 · 5시간 블록 · 주 · 월 | — |
 | **omp** (oh-my-pi) | 오늘 · 5시간 블록 · 주 · 월 | — |
 | **Aside** | 오늘 · 5시간 블록 · 주 · 월 | — |
 | **Kimi Code** | 오늘 · 5시간 블록 · 주 · 월 | — |
+
+Grok 지원은 Grok Build CLI의 로컬 세션 로그를 읽습니다. Grok Bot의 클라우드 사용량과 구독 한도는 연동되어 있지 않습니다.
 
 모두 로컬에서 읽습니다 — 외부 사용량 CLI 불필요. 도구는 프로바이더 구현과 등록으로 추가합니다([CONTRIBUTING.ko.md](CONTRIBUTING.ko.md) 참고).
 
@@ -255,7 +257,7 @@ swift test                   # 단위 테스트
 | `~/Library/Application Support/Cursor/User/globalStorage/state.vscdb` | Cursor daily/blocks/weekly/monthly | SQLite 읽기 전용 폴백(`cursorDiskKV` 버블 엔트리의 `tokenCount`); 로그인 상태면 `cursor.com` 대시보드 API 가 기본 소스(개인정보 항목 참고) |
 | `cursor.com`(대시보드 API) | Cursor daily/blocks/weekly/monthly | 비공식 JSON endpoint(`get-filtered-usage-events`); 세션은 `state.vscdb` 의 `cursorAuth/accessToken` 또는 `CURSOR_SESSION_TOKEN`; 프로바이더가 새로고침될 때마다 다시 가져옴; 네트워크 실패 시 계정별로 분리된 최대 6시간 이내의 디스크 캐시로 대체; `CURSOR_USAGE_API=0` 으로 비활성화 |
 | `api2.cursor.sh`(대시보드 한도 API) | Cursor 공식 월간 included usage | Connect RPC `GetCurrentPeriodUsage`; `state.vscdb` 또는 `CURSOR_SESSION_TOKEN` 의 Bearer JWT; usage events 와 같은 비활성화 스위치 |
-| `~/.grok/sessions/**/updates.jsonl` | Grok CLI daily/blocks/weekly/monthly | `turn_completed` 레코드(턴 단위 `usage`, 서버 보고 비용); `$GROK_HOME` 설정 시 그 경로; 서브에이전트 세션은 토큰이 부모 턴에 이미 포함돼 제외 |
+| `~/.grok/sessions/**/updates.jsonl` | Grok Build CLI daily/blocks/weekly/monthly | `turn_completed` 레코드(턴 단위 `usage`, 서버 보고 비용); `$GROK_HOME` 설정 시 그 경로; 서브에이전트 세션은 토큰이 부모 턴에 이미 포함돼 제외 |
 | `~/.copilot/session-store.db` | Copilot CLI daily/blocks/weekly/monthly | SQLite 읽기 전용; `assistant_usage_events` 1행 = API 호출 1건; `$COPILOT_HOME` 설정 시 그 경로; `input_tokens` 에 캐시 프롬프트가 이미 포함돼 캐시 read/write 를 빼고 집계; premium request 과금이라 비용은 추정하지 않음 |
 | `~/Library/Application Support/kiro-cli/data.sqlite3`<br>`~/.kiro/sessions/cli/*.jsonl`<br>`~/.kiro/sessions/<ws>/<session>/messages.jsonl` | Kiro CLI daily/blocks/weekly/monthly | 2.20 이전 SQLite + 2.20+/`--v3` JSONL; 어느 쪽도 실제 토큰 수를 저장하지 않아 input 은 매 턴 재전송되는 누적 대화 텍스트를 바이트÷4 로 **추정**; `usage_summary` 크레딧은 USD 로 바꾸지 않음; `/clear`·압축으로 지워진 SQLite 대화의 이미 집계된 토큰은 앱을 재시작하기 전까지 계속 집계; `$KIRO_CLI_HOME`·`$KIRO_HOME` 지원 |
 | `~/.pi/agent/sessions/**/*.jsonl` | Pi Agent daily/blocks/weekly/monthly | 모든 프로젝트의 저장된 usage를 직접 집계; `$PI_CODING_AGENT_DIR`·`$PI_CODING_AGENT_SESSION_DIR` override 지원; output에는 reasoning이 이미 포함되어 별도 합산하지 않음; fork 복사본은 entry ID로 중복 제거; 기록된 비용 사용 |

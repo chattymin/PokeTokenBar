@@ -44,6 +44,25 @@ read_when:
 
 ## 판정·데이터
 
+- **Cursor usage and limits must share the refreshed login, with cookie and Bearer forms kept
+  distinct.** Usage reread the expired SQLite access token on every poll while limits refreshed
+  only its private local variable. This left limits working beside frozen/cached usage. A browser
+  `CURSOR_SESSION_TOKEN` cookie also became an invalid `Bearer user::jwt` in the limits request.
+  The old HTTP test copied the request into `TestCursorLimitsProvider`, bypassing the production
+  credential selection and refresh branches. `CursorAuthentication` now pairs access/refresh from
+  one selected database root, shares refreshed credentials in memory, and normalizes raw or
+  percent-encoded browser cookies for Bearer requests. Explicit overrides never refresh a local
+  account. Root/access/refresh/override/logout changes discard refreshed state; a rotated refresh
+  token survives transient grants in memory without rewriting Cursor's database. Both fetchers
+  retry only 401/403 once, retaining existing non-auth failure/cache semantics. The class sweep
+  covered both Cursor callers, Stable/Nightly/custom roots, grant ownership and the live-network
+  gate. Two production-path synthetic reproducers failed before the fix (usage remained on the
+  old token after a successful limits refresh; limits sent the entire cookie as Bearer).
+  The initial 13 production regression tests passed; the final 15 `CursorAuthenticationTests`
+  cover recovery in both call orders, cookie encodings, account/root
+  invalidation, local-root pairing, override isolation, grant failure/retry/rotation, bounded
+  retries and the live grant gate. `CursorLimitsTests` now calls the real provider.
+
 - **A model-price test needs an independent bucket-level oracle.** Sonnet 5.5 copied Sonnet 5's
   cache-read rate ($0.20/MTok) although its official rate is $0.10; source-unpriced Claude logs
   therefore doubled that bucket's estimate. The standard-row test repeated the wrong literal,

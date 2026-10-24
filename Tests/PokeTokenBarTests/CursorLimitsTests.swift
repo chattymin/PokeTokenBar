@@ -4,6 +4,8 @@ import XCTest
 final class CursorLimitsTests: XCTestCase {
     override func tearDown() {
         CursorRateLimitsProvider.transportForTesting = nil
+        CursorAuthentication.configurationForTesting = nil
+        CursorAuthentication.resetForTesting()
         super.tearDown()
     }
 
@@ -36,6 +38,7 @@ final class CursorLimitsTests: XCTestCase {
     }
 
     func testFetchCurrentPeriodUsageUsesBearerAndConnectHeaders() async throws {
+        CursorAuthentication.configurationForTesting = .init(environment: ["CURSOR_SESSION_TOKEN": "test-jwt"])
         let expectation = expectation(description: "transport called")
         CursorRateLimitsProvider.transportForTesting = { request in
             defer { expectation.fulfill() }
@@ -57,29 +60,9 @@ final class CursorLimitsTests: XCTestCase {
             return (payload, 200)
         }
 
-        let provider = TestCursorLimitsProvider(token: "test-jwt")
+        let provider = CursorRateLimitsProvider()
         let status = try await provider.fetch()
         await fulfillment(of: [expectation], timeout: 1)
         XCTAssertEqual(status?.planUsage?.usedPercent, 75)
-    }
-}
-
-/// Injects a fixed session token without touching Cursor's state.vscdb.
-private struct TestCursorLimitsProvider: CursorLimitsProviding {
-    let token: String
-
-    func fetch() async throws -> CursorRateLimitStatus? {
-        var request = URLRequest(url: CursorRateLimitsProvider.usageURL, timeoutInterval: 10)
-        request.httpMethod = "POST"
-        request.httpBody = Data("{}".utf8)
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue("1", forHTTPHeaderField: "Connect-Protocol-Version")
-        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        guard let transport = CursorRateLimitsProvider.transportForTesting,
-              let (data, status) = await transport(request),
-              (200 ... 299).contains(status) else {
-            throw LimitsError.httpStatus(500)
-        }
-        return try JSONDecoder().decode(CursorRateLimitStatus.self, from: data)
     }
 }

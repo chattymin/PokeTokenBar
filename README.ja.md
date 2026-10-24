@@ -197,13 +197,15 @@ Pi は複数のモデルを一つのセッションログに流すことがあ�
 | **OpenCode** | 今日 · 5時間ブロック · 週 · 月 | — |
 | **Hermes Agent** | 今日 · 5時間ブロック · 週 · 月 | — |
 | **Cursor** | 今日 · 5時間ブロック · 週 · 月 | — |
-| **Grok CLI** | 今日 · 5時間ブロック · 週 · 月 | — |
+| **Grok Build CLI** | 今日 · 5時間ブロック · 週 · 月 | — |
 | **Copilot CLI** | 今日 · 5時間ブロック · 週 · 月 | — |
 | **Kiro CLI** | 今日 · 5時間ブロック · 週 · 月 | — (推定値) |
 | **Pi Agent** | 今日 · 5時間ブロック · 週 · 月 | — |
 | **omp** (oh-my-pi) | 今日 · 5時間ブロック · 週 · 月 | — |
 | **Aside** | 今日 · 5時間ブロック · 週 · 月 | — |
 | **Kimi Code** | 今日 · 5時間ブロック · 週 · 月 | — |
+
+Grok の対応範囲は Grok Build CLI のローカルセッションログです。Grok Bot のクラウド使用量とサブスクリプションの上限は連携していません。
 
 すべてローカルから読み取り — 外部の使用量CLIは不要。ツールはプロバイダーの実装と登録で追加します（[CONTRIBUTING.ja.md](CONTRIBUTING.ja.md) 参照）。
 
@@ -255,7 +257,7 @@ swift test                   # ユニットテスト
 | `~/Library/Application Support/Cursor/User/globalStorage/state.vscdb` | Cursor daily/blocks/weekly/monthly | SQLite 読み取り専用のフォールバック（`cursorDiskKV` バブルエントリの `tokenCount`）；サインイン時は `cursor.com` ダッシュボード API が主ソース（プライバシー参照） |
 | `cursor.com`（ダッシュボード API） | Cursor daily/blocks/weekly/monthly | 非公式 JSON endpoint（`get-filtered-usage-events`）；セッションは `state.vscdb` の `cursorAuth/accessToken` または `CURSOR_SESSION_TOKEN`；プロバイダー更新のたびに再取得；ネットワーク失敗時はアカウント単位に分離された最大6時間以内のディスクキャッシュで代替；`CURSOR_USAGE_API=0` で無効化 |
 | `api2.cursor.sh`（ダッシュボード上限 API） | Cursor 公式の月間 included usage | Connect RPC `GetCurrentPeriodUsage`；`state.vscdb` または `CURSOR_SESSION_TOKEN` の Bearer JWT；usage events と同じ無効化スイッチ |
-| `~/.grok/sessions/**/updates.jsonl` | Grok CLI daily/blocks/weekly/monthly | `turn_completed` レコード（ターン単位の `usage`、サーバー報告のコスト）；`$GROK_HOME` を設定していればそのパス；サブエージェントのセッションは親ターンに合算済みのため除外 |
+| `~/.grok/sessions/**/updates.jsonl` | Grok Build CLI daily/blocks/weekly/monthly | `turn_completed` レコード（ターン単位の `usage`、サーバー報告のコスト）；`$GROK_HOME` を設定していればそのパス；サブエージェントのセッションは親ターンに合算済みのため除外 |
 | `~/.copilot/session-store.db` | Copilot CLI daily/blocks/weekly/monthly | SQLite 読み取り専用；`assistant_usage_events` の1行が API 呼び出し1回；`$COPILOT_HOME` を設定していればそのパス；`input_tokens` にキャッシュ分が含まれるため cache read/write を差し引いて集計；premium request 課金のためコストは推定しない |
 | `~/Library/Application Support/kiro-cli/data.sqlite3`<br>`~/.kiro/sessions/cli/*.jsonl`<br>`~/.kiro/sessions/<ws>/<session>/messages.jsonl` | Kiro CLI daily/blocks/weekly/monthly | 2.20 以前の SQLite と 2.20+ / `--v3` の JSONL。どちらも実トークン数を記録しないため、input は毎ターン再送される累積会話テキストをバイト÷4 で**推定**。`usage_summary` のクレジットは USD に換算しない。`/clear`・圧縮で消えた SQLite 会話の集計済みトークンはアプリ再起動まで数え続ける。`$KIRO_CLI_HOME` と `$KIRO_HOME` に対応 |
 | `~/.pi/agent/sessions/**/*.jsonl` | Pi Agent daily/blocks/weekly/monthly | 全プロジェクトの保存済み usage を直接集計；`$PI_CODING_AGENT_DIR`・`$PI_CODING_AGENT_SESSION_DIR` override 対応；output には reasoning がすでに含まれるため二重計上しない；fork のコピーは entry ID で重複排除；記録されたコストを使用 |
