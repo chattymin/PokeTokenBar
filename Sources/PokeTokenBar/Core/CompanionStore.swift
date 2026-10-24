@@ -387,6 +387,8 @@ final class CompanionStore {
     enum DexSortOption: String, CaseIterable, Identifiable, Sendable {
         case numberAsc
         case numberDesc
+        case firstCollected
+        case recentCaught
         case nameAsc
         case nameDesc
         case rarityDesc
@@ -418,6 +420,9 @@ final class CompanionStore {
         var form: PokemonForm? = nil
         var names: [String: String]? = nil
         var hasNormal = false
+        /// Relative acquisition positions, derived from saved records and reached evolution forms.
+        var firstCollectedOrder = 0
+        var lastCaughtOrder = 0
 
         /// Species IDs remain Pokédex numbers; selection also includes the form.
         var collectionID: String {
@@ -445,6 +450,8 @@ final class CompanionStore {
         var names: [String: String]?
         var isShiny = false
         var hasNormal = false
+        let firstCollectedOrder: Int
+        var lastCaughtOrder: Int
     }
 
     /// 도감 목록 — 보유 종만, 도감 번호 오름차순.
@@ -473,10 +480,22 @@ final class CompanionStore {
     private func collectedDexSpecies(groupForms: Bool) -> [DexSpecies] {
         // 종별 누적을 한 번에 훑는다(뷰가 body 에서 1회 소비 — 메모이즈 없이 충분).
         var acc: [DexKey: DexAccumulator] = [:]
-        for entry in state.dex {
+        // Saves have record timestamps, not per-form timestamps. Reconstruct relative acquisition
+        // order from records and their realized paths; legacy/tied records retain save order.
+        let chronologicalEntries = state.dex.enumerated().sorted {
+            let lhs = $0.element.caughtAt ?? .distantPast
+            let rhs = $1.element.caughtAt ?? .distantPast
+            return lhs != rhs ? lhs < rhs : $0.offset < $1.offset
+        }
+        var acquisitionOrder = 0
+        for (_, entry) in chronologicalEntries {
             for id in entry.chainOrder {
                 let key = DexKey(id, form: entry.form, groupForms: groupForms)
-                var a = acc[key] ?? DexAccumulator(rarity: entry.rarity)
+                var a = acc[key] ?? DexAccumulator(rarity: entry.rarity,
+                                                   firstCollectedOrder: acquisitionOrder,
+                                                   lastCaughtOrder: acquisitionOrder)
+                a.lastCaughtOrder = acquisitionOrder
+                acquisitionOrder += 1
                 if let n = entry.names?[id] { a.names = n }   // 이름 없는 구버전 항목이 덮어쓰지 않게
                 if entry.isShiny { a.isShiny = true } else { a.hasNormal = true }
                 acc[key] = a
@@ -487,7 +506,11 @@ final class CompanionStore {
             // MonState.init(from:) 의 clamp, 그리고 SaveTransfer 의 가져오기 정규화.
             for id in active.pathIDs.prefix(active.stageIndex + 1) {
                 let key = DexKey(id, form: active.form, groupForms: groupForms)
-                var a = acc[key] ?? DexAccumulator(rarity: active.rarity)
+                var a = acc[key] ?? DexAccumulator(rarity: active.rarity,
+                                                   firstCollectedOrder: acquisitionOrder,
+                                                   lastCaughtOrder: acquisitionOrder)
+                a.lastCaughtOrder = acquisitionOrder
+                acquisitionOrder += 1
                 if let n = currentLine?.names[id] { a.names = n }
                 if currentIsShiny { a.isShiny = true } else { a.hasNormal = true }   // 위장 중 숨김 규칙 재사용
                 acc[key] = a
@@ -506,7 +529,9 @@ final class CompanionStore {
                 isRaising: key.speciesID == state.active?.currentID && (!groupForms || key.form == currentForm),
                 form: key.form,
                 names: a.names,
-                hasNormal: a.hasNormal)
+                hasNormal: a.hasNormal,
+                firstCollectedOrder: a.firstCollectedOrder,
+                lastCaughtOrder: a.lastCaughtOrder)
         }
     }
 
@@ -580,6 +605,20 @@ final class CompanionStore {
     /// Sorts DexSpecies by the given option.
     func sortDexSpecies(_ species: [DexSpecies], by sort: DexSortOption) -> [DexSpecies] {
         switch sort {
+        case .recentCaught:
+            return species.sorted {
+                if $0.lastCaughtOrder != $1.lastCaughtOrder {
+                    return $0.lastCaughtOrder > $1.lastCaughtOrder
+                }
+                return $0.id < $1.id
+            }
+        case .firstCollected:
+            return species.sorted {
+                if $0.firstCollectedOrder != $1.firstCollectedOrder {
+                    return $0.firstCollectedOrder < $1.firstCollectedOrder
+                }
+                return $0.id < $1.id
+            }
         case .numberAsc:
             return species.sorted { $0.id < $1.id }
         case .numberDesc:

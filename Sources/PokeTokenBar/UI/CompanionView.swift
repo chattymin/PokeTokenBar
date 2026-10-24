@@ -1368,7 +1368,7 @@ private struct ScrollWheelPager: NSViewRepresentable {
     }
 }
 
-/// 도감 — 보유 종만 도감 번호순으로, 한 페이지 16칸(4열×4행) 고정 격자.
+/// 도감 — 보유 종을 선택한 기준으로 정렬, 한 페이지 16칸(4열×4행) 고정 격자.
 @MainActor
 private struct DexGridView: View {
     let store: CompanionStore
