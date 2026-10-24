@@ -51,6 +51,21 @@ struct L {
                                "По дням") }
     /// 추이의 최댓값 라벨 — 막대 높이가 상대값이라 절대 스케일을 한 군데는 적어줘야 한다.
     var peakDay: String { t("최다", "Peak", "最多", "Máx.", "Max.", "Máx.", "Max.", "Макс.") }
+    /// 최근 16주 히트맵의 제목. 막대 제목보다 짧게 둔다 — 캡션 한 줄에 리드아웃(날짜·토큰·비용)과
+    /// 최댓값이 같이 들어가야 한다. 숫자는 `ActivityHeatmapMetrics.weeks` 와 맞춘다
+    /// (`ActivityVisualizationTests` 가 대조한다).
+    var recentHeatmap: String {
+        t("최근 16주", "16 weeks", "16週間", "16 semanas", "16 semaines", "16 semanas", "16 Wochen",
+          "16 недель")
+    }
+    /// 활동 시각화를 클릭으로 바꿀 수 있다는 안내(툴팁). 클릭 순환은 발견성이 낮아
+    /// 점(`PageDots`)과 이 툴팁이 유일한 단서다.
+    var activitySwitchHint: String {
+        t("클릭해서 다른 표시로 전환", "Click to switch the view", "クリックで表示を切り替え",
+          "Haz clic para cambiar la vista", "Cliquez pour changer d'affichage",
+          "Clique para alternar a exibição", "Zum Wechseln der Ansicht klicken",
+          "Нажмите, чтобы сменить вид")
+    }
 
     // MARK: 한도 섹션
     var limitsOfficial: String { t("한도 (공식)", "Limits (official)", "上限（公式）", "Límites (oficial)", "Limites (officiel)", "Limites (oficiais)", "Limits (offiziell)", "Лимиты (официальные)") }

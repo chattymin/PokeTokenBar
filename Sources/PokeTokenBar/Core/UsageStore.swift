@@ -142,6 +142,12 @@ final class UsageStore {
     var animationQuality: AnimationQuality {
         didSet { defaults.set(animationQuality.rawValue, forKey: "animationQuality") }
     }
+    /// 팝오버가 그릴 활동 시각화. 저장된 rawValue 를 모르면 기본값으로 내려앉으므로, 시각화를
+    /// 덜어낸 빌드로 되돌아가거나 `defaults write` 로 아무 값이나 들어와도 팝오버가 비지 않는다
+    /// (`LimitDisplayMode` 와 같은 관대 복원).
+    var activityVisualization: ActivityVisualization {
+        didSet { defaults.set(activityVisualization.rawValue, forKey: "activityVisualization") }
+    }
     // 알림(독립 토글)
     var limitNotifications: Bool {
         didSet { defaults.set(limitNotifications, forKey: "limitNotifications") }
@@ -795,6 +801,8 @@ final class UsageStore {
         showLimitInMenu = d.object(forKey: "showLimitInMenu") as? Bool ?? false
         limitDisplayMode = LimitDisplayMode(rawValue: d.string(forKey: "limitDisplayMode") ?? "") ?? .used
         menuLimitColorMode = MenuLimitColorMode(rawValue: d.string(forKey: "menuLimitColorMode") ?? "") ?? .gauge
+        activityVisualization = ActivityVisualization(
+            rawValue: d.string(forKey: "activityVisualization") ?? "") ?? .default
         limitNotifications = d.object(forKey: "limitNotifications") as? Bool ?? true
         companionNotifications = d.object(forKey: "companionNotifications") as? Bool ?? true
         updateNotificationsEnabled = d.object(forKey: "updateNotificationsEnabled") as? Bool ?? true
