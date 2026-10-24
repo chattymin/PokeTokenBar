@@ -208,7 +208,7 @@ final class LocalAdditionalUsageTests: XCTestCase {
         XCTAssertEqual(
             Set(store.registeredProviderIDs),
             Set(["claude_code", "codex", "gemini", "antigravity",
-                 "opencode", "hermes", "cursor", "grok", "copilot", "kiro", "pi", "omp", "aside", "kimi_code"]))
+                 "opencode", "hermes", "cursor", "grok", "copilot", "kiro", "pi", "omp", "omo", "aside", "kimi_code"]))
     }
 
     /// Extra-provider logs are external files. A `1e30` token count must clamp, not trap
