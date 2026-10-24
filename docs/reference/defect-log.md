@@ -1294,6 +1294,17 @@ read_when:
   and both CI fixture PNGs so recognition failures can be checked against rendered pixels.
   Other OCR harnesses passed the same CI runs; this repair is limited to the failing fixture.
 
+- **Use unambiguous fixture words for exact OCR navigation assertions.**
+  `DexBackNavigationTests.testBackFromDetailReturnsTheLogToWhereItWas` failed in CI run
+  `39184274574`: after Back, Vision read the artificial oldest-catch label `Mon1` as
+  `Mont`/`Monl` even though the rendered log had reached its bottom rows. Retrying the same
+  pixels could not recover a candidate that was absent. A subsequent successful feature-branch
+  run used `Oldest`, but that fixture repair had not reached `main`. Name only the first catch
+  `Oldest` and keep the exact OCR match, rendered-row click, Back round trip, and segment-switch
+  reset assertions. The production `CollectionView` and OCR candidate acceptance stay unchanged.
+  This keeps the guard focused on restoring the viewed catch row rather than reading an
+  ambiguous digit in a synthetic name.
+
 - **A wider navigation label must not squeeze numeric period summaries.** Adding the localized
   recap capsule to the home's fixed-width summary row left too little space for its week/month
   labels and costs: the real English and German popovers split `$31.64` and `$121.30` across
