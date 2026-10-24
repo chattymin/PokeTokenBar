@@ -58,8 +58,9 @@ PokeTokenBar は、あなたがすでに使っている AI コーディングト
 <td width="55%" valign="middle">
 <h3>メニューバーの相棒</h3>
 動く Gen-V スプライトが今日のトークン合計（compact、例：<code>200.7M</code>）の隣に住んでいます。今日のコスト（<code>$</code>）や公式上限 <code>%</code> を追加しても、すべてオフにしてキャラクターだけにしても。
+<b>設定 → メニューバーに表示 → ポケモンの成長率</b>をオンにすると、タマゴの孵化、または次の進化・卒業までの進捗が表示されます。ふしぎなアメを使うとすぐに更新され、代表ポケモンを固定していても育てている相棒の成長率を表示します。
 </td>
-<td width="45%" align="center"><img src="assets/menubar.gif" width="240" alt="メニューバー"></td>
+<td width="45%" align="center"><img src="assets/menubar.gif" width="240" alt="メニューバー"><br><img src="assets/screenshot-menu-growth-ja.png" width="240" alt="ポケモンの成長率を表示するメニューバー"></td>
 </tr>
 <tr>
 <td width="45%" align="center"><img src="assets/shiny-banner.gif" width="340" alt="通常 vs 色違い"></td>
