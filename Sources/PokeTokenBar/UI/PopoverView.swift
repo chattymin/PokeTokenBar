@@ -218,6 +218,7 @@ struct PopoverView: View {
                 periodLabel(l.thisWeek, tokens: store.weekTotalTokens, cost: store.showsCost ? store.weekUsageCost : nil)
                 periodLabel(l.thisMonth, tokens: store.monthTotalTokens, cost: store.showsCost ? store.monthUsageCost : nil)
                 Spacer()
+                StreakBadge(streak: store.currentStreak, l: l)
                 Button { nav.showingRecap = true } label: {
                     Image(systemName: "chart.bar.xaxis")
                 }

@@ -234,6 +234,23 @@ struct L {
     var recapBestDay: String { t("최고의 날", "Best day", "最高の日", "Mejor día", "Meilleur jour", "Melhor dia", "Bester Tag", "Лучший день") }
     var recapActiveDays: String { t("활동한 날", "Active days", "稼働日", "Días activos", "Jours actifs", "Dias ativos", "Aktive Tage", "Активных дней") }
     var recapBestStreak: String { t("최장 연속", "Best streak", "最長連続", "Mejor racha", "Meilleure série", "Melhor sequência", "Beste Serie", "Лучшая серия") }
+    /// Current-streak badge tooltip. The number sits inside the sentence, so word order is left to
+    /// each language.
+    func streakDays(_ count: Int) -> String {
+        t("\(count)일 연속 사용", "\(count)-day streak", "\(count)日連続", "Racha de \(count) días",
+          "Série de \(count) jours", "\(count) dias seguidos", "\(count) Tage in Folge",
+          "\(count) дн. подряд")
+    }
+    /// The same while today has no usage yet: the run is intact but ends yesterday. Says what keeps
+    /// it going instead of implying it is already lost.
+    func streakDaysPending(_ count: Int) -> String {
+        t("\(count)일 연속 — 오늘 사용하면 이어집니다", "\(count)-day streak — use it today to keep it going",
+          "\(count)日連続 — 今日使えば続きます", "Racha de \(count) días: úsalo hoy para mantenerla",
+          "Série de \(count) jours — utilisez-le aujourd'hui pour la garder",
+          "\(count) dias seguidos — use hoje para manter",
+          "\(count) Tage in Folge – heute nutzen, um sie zu halten",
+          "\(count) дн. подряд — используйте сегодня, чтобы не прервать")
+    }
     var recapGraduates: String { t("졸업", "Graduated", "卒業", "Graduados", "Diplômés", "Formados", "Abschlüsse", "Выпускники") }
     var recapNoData: String { t("기록 없음", "no data", "記録なし", "sin datos", "pas de données", "sem dados", "keine Daten", "нет данных") }
     func recapDays(_ count: Int) -> String {
