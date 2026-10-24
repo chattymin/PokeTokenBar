@@ -108,6 +108,41 @@ enum PokemonBalance {
     static let eggHatchThreshold = 5_000_000
     static let repeatGrowthMultiplier = 2
 
+    // MARK: Streak growth bonus
+
+    /// Current streak → growth multiplier, as `(minimum days, multiplier)` in ascending order. This
+    /// table is the single source of the numbers; tuning should only ever touch it.
+    ///
+    /// The ceiling is low on purpose: a standing ×1.5 leaves no room for a timed event on top, and a
+    /// combined multiplier past ×2 starts moving shop balance along with growth. The top tier sits at
+    /// fourteen days because at ~250M tokens/day a common graduates in about three days and a rare in
+    /// about thirteen — a thirty-day tier would arrive after the Pokémon it speeds up is long gone.
+    static let streakGrowthTiers: [(days: Int, multiplier: Double)] = [
+        (3, 1.05),
+        (7, 1.10),
+        (14, 1.20),
+    ]
+
+    /// The multiplier for a streak, 1.0 below the first tier.
+    static func streakMultiplier(days: Int) -> Double {
+        streakGrowthTiers.last { days >= $0.days }?.multiplier ?? 1.0
+    }
+
+    /// Growth to credit for `delta` real tokens during a streak.
+    ///
+    /// It boosts the delta rather than dividing the threshold: when a streak ends, progress already
+    /// earned stays where it is and only the rate goes back to normal. Dividing the threshold would
+    /// push the progress bar back the day the streak breaks. The wallet (`usedSinceInstall`, which is
+    /// also the shop balance) never sees this — see `CompanionStore.creditUsage`.
+    static func streakBoosted(_ delta: Int, streakDays: Int) -> Int {
+        let multiplier = streakMultiplier(days: streakDays)
+        guard multiplier > 1.0, delta > 0 else { return delta }
+        let boosted = (Double(delta) * multiplier).rounded()
+        // Same ceiling as the save boundary, so adding this to a stage total cannot overflow.
+        guard boosted < Double(SaveTransfer.maxTokenValue) else { return SaveTransfer.maxTokenValue }
+        return max(delta, Int(boosted))
+    }
+
     static func graduationTotal(_ rarity: Rarity) -> Int {
         switch rarity {
         case .common:    return    750_000_000

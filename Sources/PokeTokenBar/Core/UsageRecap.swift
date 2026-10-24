@@ -61,6 +61,42 @@ struct UsageLedger: Equatable, Sendable {
     }
 }
 
+/// The run of consecutive days with usage that is still going.
+struct UsageStreak: Equatable, Sendable {
+    let days: Int
+    /// Today is part of the run. False while today has no usage yet: the run ends yesterday and
+    /// today's first use extends it.
+    let includesToday: Bool
+
+    static let none = UsageStreak(days: 0, includesToday: false)
+}
+
+extension UsageLedger {
+    /// The current run of active days. "Active" is any usage at all — the rule the recap's best
+    /// streak uses — so the two never disagree about a day.
+    ///
+    /// A today without usage does not end the run; only a whole day without usage does. Otherwise
+    /// the run would read as broken every morning until the first prompt.
+    ///
+    /// Days step through `calendar`, never a fixed 86400 seconds: a DST day is 23 or 25 hours long.
+    /// The ledger reaches back past the 1st, so the run does not reset when a month starts.
+    func currentStreak(now: Date, calendar: Calendar) -> UsageStreak {
+        let formatter = LocalUsageReader.localDayFormatter(timeZone: calendar.timeZone)
+        func previous(_ day: Date) -> Date? { calendar.date(byAdding: .day, value: -1, to: day) }
+        func isActive(_ day: Date) -> Bool { tokens(on: formatter.string(from: day)) > 0 }
+
+        let today = calendar.startOfDay(for: now)
+        let includesToday = isActive(today)
+        var cursor = includesToday ? today : previous(today)
+        var days = 0
+        while let day = cursor, isActive(day) {
+            days += 1
+            cursor = previous(day)
+        }
+        return UsageStreak(days: days, includesToday: includesToday)
+    }
+}
+
 enum RecapScope: String, CaseIterable, Sendable {
     case week, month, year
 
