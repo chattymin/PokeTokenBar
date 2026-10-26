@@ -395,8 +395,8 @@ final class FloatingPetEnergyTests: XCTestCase {
                         layout.wouldTruncate,
                         "\(lang.rawValue) '\(title)' / '\(body)' wraps to \(layout.bodyLineCount) lines and would truncate at lineLimit(\(FloatingPetController.bubbleBodyLineLimit))")
                     XCTAssertLessThanOrEqual(
-                        layout.size.height, FloatingPetController.bubbleHeadroom - 2,
-                        "\(lang.rawValue) bubble height \(layout.size.height) must fit headroom \(FloatingPetController.bubbleHeadroom)")
+                        layout.size.height + FloatingPetController.bubbleSpacing, FloatingPetController.bubbleHeadroom,
+                        "\(lang.rawValue) bubble height \(layout.size.height) + spacing must fit headroom \(FloatingPetController.bubbleHeadroom)")
                 }
             }
         }

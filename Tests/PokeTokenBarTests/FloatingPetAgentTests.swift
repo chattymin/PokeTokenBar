@@ -212,7 +212,7 @@ final class FloatingPetAgentTests: XCTestCase {
                     XCTAssertFalse(layout.wouldTruncate, "\(lang.rawValue): \(content.body)")
                     XCTAssertLessThanOrEqual(layout.unclampedTitleWidth, C.bubbleContentWidth,
                                              "\(lang.rawValue) title wraps: \(content.title)")
-                    XCTAssertLessThanOrEqual(layout.size.height, C.bubbleHeadroom - 2,
+                    XCTAssertLessThanOrEqual(layout.size.height + C.bubbleSpacing, C.bubbleHeadroom,
                                              "\(lang.rawValue) bubble overflows the headroom")
                 }
             }

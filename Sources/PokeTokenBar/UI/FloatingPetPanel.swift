@@ -35,15 +35,30 @@ final class FloatingPetController: NSObject, NSWindowDelegate {
     /// Squared movement (pt²) below which a mouse-up counts as a click, not a drag.
     static let clickThresholdSquared: CGFloat = 16  // ~4pt
 
-    /// Vertical space above the sprite for the bubble + VStack spacing (pt).
-    /// Sized for two wrapped body lines + title + padding + tail (ja strings).
-    static let bubbleHeadroom: CGFloat = 72
+    /// Vertical space above the sprite for the bubble + `bubbleSpacing` (pt).
+    /// Sized for two wrapped body lines + title + padding (ja strings).
+    static let bubbleHeadroom: CGFloat = 84
+    /// Gap between the bubble and the sprite (the pet view's VStack spacing).
+    static let bubbleSpacing: CGFloat = 8
     /// Minimum panel width while a bubble is showing.
-    static let bubbleMinWidth: CGFloat = 180
-    /// Horizontal padding inside the bubble chrome (each side). Content + 2× this = `bubbleMinWidth`.
-    static let bubbleHorizontalPadding: CGFloat = 8
-    /// Fixed text column — wraps instead of growing past the panel (`bubbleMinWidth` − 16).
+    static let bubbleMinWidth: CGFloat = 190
+    /// Horizontal padding inside the dialogue box (each side): the frame, its corner balls and a gap.
+    /// Content + 2× this = `bubbleMinWidth`.
+    static let bubbleHorizontalPadding: CGFloat = 11
+    /// Fixed text column — wraps instead of growing past the panel.
     static let bubbleContentWidth: CGFloat = bubbleMinWidth - (bubbleHorizontalPadding * 2)
+    /// Above the title, inside the frame.
+    static let bubbleTopPadding: CGFloat = 11
+    /// Below the body: room for the ▼ indicator inside the frame.
+    static let bubbleBottomPadding: CGFloat = 14
+    /// Dialogue text uses the rounded system face; view and measurement share these fonts.
+    static let bubbleTitleFont = roundedFont(size: 11, weight: .bold)
+    static let bubbleBodyFont = roundedFont(size: 10, weight: .medium)
+
+    private static func roundedFont(size: CGFloat, weight: NSFont.Weight) -> NSFont {
+        let base = NSFont.systemFont(ofSize: size, weight: weight)
+        return base.fontDescriptor.withDesign(.rounded).flatMap { NSFont(descriptor: $0, size: size) } ?? base
+    }
     /// `SpeechBubbleView` body `.lineLimit`. Measure and view must share this — a
     /// headroom-only guard stays green for 3-line copy that still fits 70pt (#167).
     static let bubbleBodyLineLimit = 2
@@ -550,8 +565,8 @@ final class FloatingPetController: NSObject, NSWindowDelegate {
     /// `≤ panel.width` assert); `unclamped*Width` is the check that can.
     static func measureSpeechBubbleLayout(title: String, body: String,
                                           contentWidth: CGFloat = bubbleContentWidth) -> SpeechBubbleLayout {
-        let titleFont = NSFont.systemFont(ofSize: 11, weight: .bold)
-        let bodyFont = NSFont.systemFont(ofSize: 10)
+        let titleFont = bubbleTitleFont
+        let bodyFont = bubbleBodyFont
         let wrap = NSSize(width: contentWidth, height: 10_000)
         let unclamped = NSSize(width: CGFloat.greatestFiniteMagnitude, height: 10_000)
         let opts: NSString.DrawingOptions = [.usesLineFragmentOrigin, .usesFontLeading]
@@ -564,16 +579,26 @@ final class FloatingPetController: NSObject, NSWindowDelegate {
         let unclampedBody = (body as NSString).boundingRect(
             with: unclamped, options: opts, attributes: [.font: bodyFont])
         let textWidth = min(contentWidth, max(titleRect.width, bodyRect.width))
-        let textHeight = ceil(titleRect.height) + 2 + ceil(bodyRect.height)
-        // Match SpeechBubbleView: horizontal padding ×2, vertical 6, bottom pad 6 for the tail.
-        let hPad = bubbleHorizontalPadding * 2
+        let titleLineCount = wrappedLineCount(title, font: titleFont, width: contentWidth)
         let bodyLineCount = wrappedLineCount(body, font: bodyFont, width: contentWidth)
+        let textHeight = CGFloat(titleLineCount) * drawnLineHeight(titleFont) + 2
+            + CGFloat(bodyLineCount) * drawnLineHeight(bodyFont)
+        // Match SpeechBubbleView: horizontal padding ×2, top/bottom padding.
+        let hPad = bubbleHorizontalPadding * 2
+        let vPad = bubbleTopPadding + bubbleBottomPadding
         return SpeechBubbleLayout(
-            size: NSSize(width: textWidth + hPad, height: textHeight + 12 + 6),
+            size: NSSize(width: textWidth + hPad, height: textHeight + vPad),
             bodyLineCount: bodyLineCount,
             unclampedTitleWidth: unclampedTitle.width,
             unclampedBodyWidth: unclampedBody.width,
             wouldTruncate: bodyLineCount > bubbleBodyLineLimit)
+    }
+
+    /// Line height SwiftUI draws: ascent and descent each rounded up. `boundingRect` reports one
+    /// point less per line (12 vs 13 at 10 pt), which left two-line bubbles 3 pt taller than
+    /// measured. `SpeechBubbleRenderingTests` holds this against real renders.
+    private static func drawnLineHeight(_ font: NSFont) -> CGFloat {
+        ceil(font.ascender) + ceil(-font.descender) + ceil(font.leading)
     }
 
     /// Wrap count at `width` using the same `boundingRect` path as `size`, so a
@@ -1031,9 +1056,10 @@ struct FloatingPetView: View {
         let size = CGFloat(store.floatingPetSize)
         let subject = companion.representativeSubject
         let bubble = FloatingPetController.bubble(limitAlert: store.currentBubbleAlert, agent: agent.summary)
-        VStack(spacing: 8) {
+        VStack(spacing: FloatingPetController.bubbleSpacing) {
             if let bubble {
-                SpeechBubbleView(content: FloatingPetController.bubbleContent(bubble, l: L(companion.language)))
+                let content = FloatingPetController.bubbleContent(bubble, l: L(companion.language))
+                SpeechBubbleView(content: content)
                     .transition(.scale(scale: 0.8, anchor: .bottom).combined(with: .opacity))
                     .zIndex(1)
             }
@@ -1210,42 +1236,105 @@ private struct AgentBob: ViewModifier {
     }
 }
 
-/// Transient limit-alert or agent bubble. Width is capped so copy wraps instead of clipping the panel.
+/// Classic 8-bit dialogue box for limit alerts and agent messages: square white box, black
+/// double frame with a Poké Ball at each corner, ▼ indicator. Drawn in code as whole-point rectangles (no
+/// strokes), so edges stay crisp at 1× and 2×, and with fixed colors so it reads the same in
+/// light and dark mode. Width is capped so copy wraps instead of clipping the panel.
 @MainActor
-private struct SpeechBubbleView: View {
+struct SpeechBubbleView: View {
     let content: FloatingPetController.SpeechBubbleContent
+
+    private static let ink = Color(white: 0.06)
+    private static let paper = Color.white
+    private static let titleColor = Color(white: 0.08)
+    private static let criticalColor = Color(red: 0.80, green: 0.12, blue: 0.12)
+    /// Monochrome like a Game Boy screen. Not 0.5: an ink/white edge on a half point blends
+    /// to about 0.53, and the crisp-frame test must tell that blur from the ball.
+    private static let ballGrey = Color(white: 0.45)
+    private static let bodyColor = Color(white: 0.18)
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
             Text(content.title)
-                .font(.system(size: 11, weight: .bold))
-                .foregroundColor(content.isCritical ? .red : .primary)
+                .font(Font(FloatingPetController.bubbleTitleFont))
+                .foregroundColor(content.isCritical ? Self.criticalColor : Self.titleColor)
             Text(content.body)
-                .font(.system(size: 10))
-                .foregroundColor(.secondary)
+                .font(Font(FloatingPetController.bubbleBodyFont))
+                .foregroundColor(Self.bodyColor)
                 .lineLimit(FloatingPetController.bubbleBodyLineLimit)
                 .fixedSize(horizontal: false, vertical: true)
         }
         .frame(width: FloatingPetController.bubbleContentWidth, alignment: .leading)
         .padding(.horizontal, FloatingPetController.bubbleHorizontalPadding)
-        .padding(.vertical, 6)
-        .background(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(Color(nsColor: .windowBackgroundColor))
-                .shadow(color: .black.opacity(0.15), radius: 4, y: 2)
-        )
-        .overlay(
-            Path { path in
-                path.move(to: CGPoint(x: 10, y: 0))
-                path.addLine(to: CGPoint(x: 20, y: 0))
-                path.addLine(to: CGPoint(x: 15, y: 6))
-                path.closeSubpath()
+        .padding(.top, FloatingPetController.bubbleTopPadding)
+        .padding(.bottom, FloatingPetController.bubbleBottomPadding)
+        .background(Canvas { context, size in
+            Self.drawFrame(in: &context, width: size.width.rounded(.down), height: size.height.rounded(.down))
+        })
+        .overlay(alignment: .bottomTrailing) {
+            Canvas { context, _ in
+                for rect in Self.indicatorRects { context.fill(Path(rect), with: .color(Self.ink)) }
             }
-            .fill(Color(nsColor: .windowBackgroundColor))
-            .offset(y: 5),
-            alignment: .bottom
-        )
-        .padding(.bottom, 6)
+            .frame(width: 7, height: 4)
+            .padding(.trailing, 11)
+            .padding(.bottom, 9)
+        }
+    }
+
+    /// Outer line at 3 pt, 1 pt gap, inner line (2 pt top/bottom, 1 pt sides), and a 10 pt
+    /// Poké Ball centered where the lines meet at each corner. Outside the outer line stays clear.
+    private static func drawFrame(in context: inout GraphicsContext, width w: CGFloat, height h: CGFloat) {
+        let paper = CGRect(x: 3, y: 3, width: w - 6, height: h - 6)
+        let ink = [
+            CGRect(x: 10, y: 3, width: w - 20, height: 1), CGRect(x: 10, y: h - 4, width: w - 20, height: 1),
+            CGRect(x: 3, y: 10, width: 1, height: h - 20), CGRect(x: w - 4, y: 10, width: 1, height: h - 20),
+            CGRect(x: 10, y: 5, width: w - 20, height: 2), CGRect(x: 10, y: h - 7, width: w - 20, height: 2),
+            CGRect(x: 5, y: 10, width: 1, height: h - 20), CGRect(x: w - 6, y: 10, width: 1, height: h - 20),
+        ]
+        context.fill(Path(paper), with: .color(Self.paper))
+        for rect in ink { context.fill(Path(rect), with: .color(Self.ink)) }
+        for origin in [CGPoint(x: 0, y: 0), CGPoint(x: w - 10, y: 0), CGPoint(x: 0, y: h - 10), CGPoint(x: w - 10, y: h - 10)] {
+            for (rect, color) in pokeBall {
+                context.fill(Path(rect.offsetBy(dx: origin.x, dy: origin.y)), with: .color(color))
+            }
+        }
+    }
+
+    /// The corner ornament: a 10 pt pixel-art Poké Ball drawn here row by row — no image asset.
+    /// `#` ink, `g` grey, `w` white, `.` clear. Runs of one color become one rectangle.
+    private static let pokeBall: [(CGRect, Color)] = {
+        let rows = [
+            "..######..",
+            ".#gggggg#.",
+            "#gggggggg#",
+            "#ggg##ggg#",
+            "####ww####",
+            "####ww####",
+            "#www##www#",
+            "#wwwwwwww#",
+            ".#wwwwww#.",
+            "..######..",
+        ]
+        let colors: [Character: Color] = ["#": ink, "g": ballGrey, "w": paper]
+        var runs: [(CGRect, Color)] = []
+        for (y, row) in rows.enumerated() {
+            let cells = Array(row)
+            var x = 0
+            while x < cells.count {
+                var end = x
+                while end + 1 < cells.count, cells[end + 1] == cells[x] { end += 1 }
+                if let color = colors[cells[x]] {
+                    runs.append((CGRect(x: x, y: y, width: end - x + 1, height: 1), color))
+                }
+                x = end + 1
+            }
+        }
+        return runs
+    }()
+
+    /// Solid ▼, one row per point: 7, 5, 3, 1.
+    private static let indicatorRects = (0..<4).map {
+        CGRect(x: CGFloat($0), y: CGFloat($0), width: CGFloat(7 - 2 * $0), height: 1)
     }
 }
 
