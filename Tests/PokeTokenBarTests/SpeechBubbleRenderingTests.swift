@@ -10,8 +10,8 @@ import XCTest
 final class SpeechBubbleRenderingTests: XCTestCase {
     private typealias C = FloatingPetController
 
-    private func render(_ content: C.SpeechBubbleContent, scale: CGFloat = 2) throws -> CGImage {
-        let renderer = ImageRenderer(content: SpeechBubbleView(content: content))
+    private func render(_ content: C.SpeechBubbleContent, animates: Bool = false, scale: CGFloat = 2) throws -> CGImage {
+        let renderer = ImageRenderer(content: SpeechBubbleView(content: content, animates: animates))
         renderer.scale = scale
         return try XCTUnwrap(renderer.cgImage, "render failed")
     }
@@ -57,6 +57,18 @@ final class SpeechBubbleRenderingTests: XCTestCase {
         let warning = try Self.count(in: render(C.bubbleContent(.limit(alert(false)), l: l)), where: Self.isRed)
         XCTAssertGreaterThan(critical, 50, "the critical title must be visibly red")
         XCTAssertEqual(warning, 0)
+    }
+
+    /// With motion, the bubble starts empty and types in; without it, the text is all there at once.
+    func testAnimatedBubbleStartsEmptyAndStaticBubbleStartsFull() throws {
+        let content = C.bubbleContent(.agentWaiting(label: nil, message: nil, others: 0), l: L(.en))
+        // Only the text column: the frame is black too.
+        let column = CGRect(x: C.bubbleHorizontalPadding, y: C.bubbleTopPadding,
+                            width: C.bubbleContentWidth, height: 30)
+        let full = try Self.count(in: render(content, animates: false), region: column, where: Self.isText)
+        let typing = try Self.count(in: render(content, animates: true), region: column, where: Self.isText)
+        XCTAssertGreaterThan(full, 100)
+        XCTAssertLessThan(typing, full / 10, "nothing is revealed before the first tick")
     }
 
     /// The frame and its corner balls are whole-point rectangles: at 1× and 2× the band holds
@@ -109,6 +121,24 @@ final class SpeechBubbleRenderingTests: XCTestCase {
         }
     }
 
+    func testTypewriterAndBlinkAreBounded() {
+        for count in [1, 5, 12, 20, 40, 120, 500] {
+            let steps = C.typewriterSteps(characterCount: count)
+            XCTAssertGreaterThanOrEqual(steps, 1)
+            XCTAssertLessThanOrEqual(Double(steps) * C.typewriterTick, 0.8 + 1e-9, "\(count) chars")
+            if count >= 12 {
+                XCTAssertGreaterThanOrEqual(Double(steps) * C.typewriterTick, 0.4 - 1e-9, "\(count) chars")
+            }
+            let revealed = (0...steps).map { C.revealedCount(step: $0, of: steps, characterCount: count) }
+            XCTAssertEqual(revealed.first, 0)
+            XCTAssertEqual(revealed.last, count, "the last tick shows everything")
+            XCTAssertEqual(revealed, revealed.sorted(), "never un-types")
+        }
+        XCTAssertGreaterThan(C.dialogueBlinkInterval, 0)
+        XCTAssertGreaterThan(C.dialogueBlinkLimit, 0)
+        XCTAssertLessThanOrEqual(C.dialogueBlinkLimit, 15, "a waiting bubble may stay up for hours; the blink must not")
+    }
+
     /// PR images. Skipped unless `PTB_BUBBLE_RENDER_DIR` is set.
     func testWriteBubbleRenders() throws {
         guard let output = ProcessInfo.processInfo.environment["PTB_BUBBLE_RENDER_DIR"] else {
@@ -138,6 +168,7 @@ final class SpeechBubbleRenderingTests: XCTestCase {
     }
     private static func isInk(_ r: Double, _ g: Double, _ b: Double) -> Bool { max(r, g, b) < 0.1 }
     private static func isPaper(_ r: Double, _ g: Double, _ b: Double) -> Bool { min(r, g, b) > 0.97 }
+    private static func isText(_ r: Double, _ g: Double, _ b: Double) -> Bool { max(r, g, b) < 0.35 }
 
     /// Pixels matching `match`. `region` is in points from the top-left; nil means the whole image.
     /// Translucent pixels are skipped unless `includeTranslucent`, which then counts them all.

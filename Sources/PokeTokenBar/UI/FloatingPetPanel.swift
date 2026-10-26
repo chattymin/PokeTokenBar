@@ -59,6 +59,22 @@ final class FloatingPetController: NSObject, NSWindowDelegate {
         let base = NSFont.systemFont(ofSize: size, weight: weight)
         return base.fontDescriptor.withDesign(.rounded).flatMap { NSFont(descriptor: $0, size: size) } ?? base
     }
+
+    /// Typewriter reveal: one tick per frame at 30 fps, finished within 0.4–0.8 s.
+    static let typewriterTick: TimeInterval = 1.0 / 30
+    static func typewriterSteps(characterCount: Int) -> Int {
+        let duration = min(max(Double(characterCount) * 0.02, 0.4), 0.8)
+        return max(1, min(characterCount, Int((duration / typewriterTick).rounded())))
+    }
+
+    /// Characters shown after `step` of `steps` (from `typewriterSteps`, always ≥ 1).
+    static func revealedCount(step: Int, of steps: Int, characterCount: Int) -> Int {
+        characterCount * min(step, steps) / steps
+    }
+
+    /// ▼ blinks after the reveal, then stays on: a bubble can stay up indefinitely (waiting).
+    static let dialogueBlinkInterval: TimeInterval = 0.5
+    static let dialogueBlinkLimit: TimeInterval = 10
     /// `SpeechBubbleView` body `.lineLimit`. Measure and view must share this — a
     /// headroom-only guard stays green for 3-line copy that still fits 70pt (#167).
     static let bubbleBodyLineLimit = 2
@@ -126,7 +142,7 @@ final class FloatingPetController: NSObject, NSWindowDelegate {
         return nil
     }
 
-    struct SpeechBubbleContent: Equatable {
+    struct SpeechBubbleContent: Hashable {
         var title: String
         var body: String
         var isCritical: Bool
@@ -1051,6 +1067,7 @@ struct FloatingPetView: View {
     var hearts = PetHeartState()
     @Environment(UsageStore.self) private var store
     @Environment(CompanionStore.self) private var companion
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         let size = CGFloat(store.floatingPetSize)
@@ -1059,7 +1076,10 @@ struct FloatingPetView: View {
         VStack(spacing: FloatingPetController.bubbleSpacing) {
             if let bubble {
                 let content = FloatingPetController.bubbleContent(bubble, l: L(companion.language))
-                SpeechBubbleView(content: content)
+                SpeechBubbleView(content: content,
+                                 animates: FloatingPetController.allowsMotion(animated: animated,
+                                                                              reduceMotion: reduceMotion))
+                    .id(content)   // a new message replays the reveal
                     .transition(.scale(scale: 0.8, anchor: .bottom).combined(with: .opacity))
                     .zIndex(1)
             }
@@ -1240,9 +1260,13 @@ private struct AgentBob: ViewModifier {
 /// double frame with a Poké Ball at each corner, ▼ indicator. Drawn in code as whole-point rectangles (no
 /// strokes), so edges stay crisp at 1× and 2×, and with fixed colors so it reads the same in
 /// light and dark mode. Width is capped so copy wraps instead of clipping the panel.
+/// The reveal/blink state lives here, so its ticks re-run only this view.
 @MainActor
 struct SpeechBubbleView: View {
     let content: FloatingPetController.SpeechBubbleContent
+    let animates: Bool
+    @State private var revealed: Int
+    @State private var indicatorVisible = true
 
     private static let ink = Color(white: 0.06)
     private static let paper = Color.white
@@ -1253,12 +1277,19 @@ struct SpeechBubbleView: View {
     private static let ballGrey = Color(white: 0.45)
     private static let bodyColor = Color(white: 0.18)
 
+    init(content: FloatingPetController.SpeechBubbleContent, animates: Bool) {
+        self.content = content
+        self.animates = animates
+        _revealed = State(initialValue: animates ? 0 : content.title.count + content.body.count)
+    }
+
     var body: some View {
+        let titleCount = content.title.count
         VStack(alignment: .leading, spacing: 2) {
-            Text(content.title)
+            Self.reveal(content.title, upTo: revealed)
                 .font(Font(FloatingPetController.bubbleTitleFont))
                 .foregroundColor(content.isCritical ? Self.criticalColor : Self.titleColor)
-            Text(content.body)
+            Self.reveal(content.body, upTo: revealed - titleCount)
                 .font(Font(FloatingPetController.bubbleBodyFont))
                 .foregroundColor(Self.bodyColor)
                 .lineLimit(FloatingPetController.bubbleBodyLineLimit)
@@ -1276,9 +1307,17 @@ struct SpeechBubbleView: View {
                 for rect in Self.indicatorRects { context.fill(Path(rect), with: .color(Self.ink)) }
             }
             .frame(width: 7, height: 4)
+            .opacity(indicatorVisible ? 1 : 0)
             .padding(.trailing, 11)
             .padding(.bottom, 9)
         }
+        .task { await play() }
+    }
+
+    /// The unrevealed rest is laid out but clear, so lines never re-wrap while typing.
+    private static func reveal(_ text: String, upTo count: Int) -> Text {
+        let shown = max(0, min(count, text.count))
+        return Text(text.prefix(shown)) + Text(text.dropFirst(shown)).foregroundColor(.clear)
     }
 
     /// Outer line at 3 pt, 1 pt gap, inner line (2 pt top/bottom, 1 pt sides), and a 10 pt
@@ -1335,6 +1374,26 @@ struct SpeechBubbleView: View {
     /// Solid ▼, one row per point: 7, 5, 3, 1.
     private static let indicatorRects = (0..<4).map {
         CGRect(x: CGFloat($0), y: CGFloat($0), width: CGFloat(7 - 2 * $0), height: 1)
+    }
+
+    /// Bounded: the reveal takes at most 24 ticks and the blink stops after `dialogueBlinkLimit`.
+    private func play() async {
+        guard animates else { return }
+        let total = content.title.count + content.body.count
+        let steps = FloatingPetController.typewriterSteps(characterCount: total)
+        let tick = FloatingPetController.typewriterTick
+        for step in 1...steps {
+            try? await Task.sleep(for: .seconds(tick))
+            guard !Task.isCancelled else { return }
+            revealed = FloatingPetController.revealedCount(step: step, of: steps, characterCount: total)
+        }
+        let interval = FloatingPetController.dialogueBlinkInterval
+        for _ in 0..<Int(FloatingPetController.dialogueBlinkLimit / interval) {
+            try? await Task.sleep(for: .seconds(interval), tolerance: .seconds(interval * 0.1))
+            guard !Task.isCancelled else { return }
+            indicatorVisible.toggle()
+        }
+        indicatorVisible = true
     }
 }
 
