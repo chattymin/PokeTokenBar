@@ -373,8 +373,19 @@ struct L {
     var floatingPetMenuHide: String {
         t("플로팅 펫 끄기", "Turn off floating pet", "フローティングペットをオフ", "Desactivar mascota flotante", "Désactiver le compagnon flottant", "Desativar mascote flutuante", "Schwebendes Pokémon ausschalten", "Выключить питомца на экране")
     }
+    var floatingPetHeartsLabel: String {
+        t("펫이 기분 좋아해요", "Your pet is happy", "ペットが喜んでいます", "Tu mascota está feliz", "Votre compagnon est content", "Seu mascote está feliz", "Dein Pokémon freut sich", "Питомцу приятно")
+    }
     func floatingPetHoverTokensOnly(_ tokens: String) -> String {
         t("오늘 \(tokens) 토큰", "Today: \(tokens) tokens", "今日: \(tokens) トークン", "Hoy: \(tokens) tokens", "Aujourd'hui : \(tokens) tokens", "Hoje: \(tokens) tokens", "Heute: \(tokens) Tokens", "Токенов сегодня: \(tokens)")
+    }
+    /// Sulking for `hours` (3...47) — below that the companion is not sulking yet.
+    func floatingPetHoverSulkHours(_ hours: Int) -> String {
+        t("\(hours)시간째 삐져 있어요", "Sulking for \(hours) hours", "\(hours)時間ずっと拗ねています", "Enfurruñado desde hace \(hours) horas", "Boude depuis \(hours) heures", "Emburrado há \(hours) horas", "Schmollt seit \(hours) Stunden", "Обижен уже \(hours) ч.")
+    }
+    /// Sulking for `days` (2 or more).
+    func floatingPetHoverSulkDays(_ days: Int) -> String {
+        t("\(days)일째 삐져 있어요", "Sulking for \(days) days", "\(days)日連続で拗ねています", "Enfurruñado desde hace \(days) días", "Boude depuis \(days) jours", "Emburrado há \(days) dias", "Schmollt seit \(days) Tagen", "Обижен уже \(days) дн.")
     }
     func floatingPetHoverWithLimit(_ tokens: String, _ percent: String) -> String {
         t("오늘 \(tokens) 토큰 (한도 \(percent))",
@@ -1215,6 +1226,8 @@ struct L {
     var statusFocus: String { t("지금은 집중 모드예요.", "In focus mode now.", "今は集中モードです。", "Ahora está en modo concentración.", "En mode concentration.", "Agora está em modo foco.", "Gerade voll konzentriert.", "Сейчас в режиме фокуса.") }
     var statusTired: String { t("한도에 가까워요. 잠깐 쉬어도 괜찮아요.", "Close to the limit. A short break is fine.", "上限が近いです。少し休んでも大丈夫。", "Está cerca del límite. Un pequeño descanso no vendría mal.", "Proche de la limite. Une petite pause ne fait pas de mal.", "Está perto do limite. Uma pausa cai bem.", "Fast am Limit. Eine kurze Pause tut gut.", "Лимит близко. Короткий перерыв не помешает.") }
     var statusSleep: String { t("지금은 자고 있어요.", "Sleeping now.", "今は眠っています。", "Ahora está durmiendo.", "En train de dormir.", "Agora está dormindo.", "Schläft gerade.", "Сейчас спит.") }
+    var backViewLabel: String { t("뒷모습 보기", "Show back view", "後ろ姿を見る", "Ver de espaldas", "Voir de dos", "Ver de costas", "Rückansicht zeigen", "Показывать спину") }
+    var statusSulk: String { t("삐져서 등을 돌리고 있어요.", "Sulking with its back turned.", "拗ねて背を向けています。", "Está de espaldas, enfurruñado.", "Boude, le dos tourné.", "Está de costas, emburrado.", "Schmollt mit dem Rücken zu dir.", "Обиделся и отвернулся.") }
     func statusEvolved(_ name: String) -> String { t("\(KoreanParticle.direction.attach(to: name)) 진화했어요!", "Evolved into \(name)!", "\(name) に進化しました！", "¡Evolucionó a \(name)!", "A évolué en \(name) !", "Evoluiu para \(name)!", "Hat sich zu \(name) entwickelt!", "Эволюционировал в \(name)!") }
     var statusGrew: String { t("성장했어요!", "It grew!", "成長しました！", "¡Ha crecido!", "Il a grandi !", "Cresceu!", "Ist gewachsen!", "Подрос!") }
 
@@ -1224,6 +1237,66 @@ struct L {
     var notifShinyHatchTitle: String { t("✨ 이로치 포켓몬!", "✨ Shiny Pokémon!", "✨ 色違いポケモン！", "✨ ¡Pokémon variocolor!", "✨ Pokémon chromatique !", "✨ Pokémon shiny!", "✨ Schillerndes Pokémon!", "✨ Шайни-покемон!") }
     /// 실제 판정에 쓴 분모를 받는다 — 부적이 있으면 64 가 아니다.
     func notifShinyHatchBody(_ name: String, odds: UInt64) -> String { t("이로치 \(KoreanParticle.subject.attach(to: name)) 태어났어요! (1/\(odds))", "A shiny \(name) hatched! (1 in \(odds))", "色違いの \(name) が生まれました！(1/\(odds))", "¡Nació un \(name) variocolor! (1 entre \(odds))", "Un \(name) chromatique est né ! (1 sur \(odds))", "Nasceu um \(name) shiny! (1 em \(odds))", "Ein schillerndes \(name) ist geschlüpft! (1/\(odds))", "Вылупился шайни \(name)! (шанс 1 к \(odds))") }
+    // MARK: 기도하기 (알 위약 버튼)
+    func prayerBornWith(_ n: Int) -> String { t("기도 \(n)번 받고 태어남", "Born after \(n) prayers", "お祈り\(n)回を受けて誕生", "Nació tras \(n) oraciones", "Né après \(n) prières", "Nasceu após \(n) orações", "Geboren nach \(n) Gebeten", "Родился после \(n) молитв") }
+    /// `purchased` = the egg came from `buyEgg`; otherwise it arrived on its own.
+    func prayerFutileNote(purchased: Bool) -> String {
+        purchased
+            ? t("참고: 이 아이의 종은 알을 산 순간 정해져 있었어요.", "Fun fact: this one's species was decided the moment you bought the egg.", "豆知識：この子の種類はタマゴを買った瞬間に決まっていました。", "Dato curioso: la especie de este quedó decidida en el momento en que compraste el huevo.", "Info utile : l'espèce de celui-ci était décidée dès l'achat de l'œuf.", "Curiosidade: a espécie deste foi decidida no instante em que você comprou o ovo.", "Wusstest du schon? Die Art dieses Pokémon stand fest, sobald du das Ei gekauft hast.", "Забавный факт: вид этого покемона был решён в момент покупки яйца.")
+            : t("참고: 이 아이의 종은 알이 온 순간 정해져 있었어요.", "Fun fact: this one's species was decided the moment the egg arrived.", "豆知識：この子の種類はタマゴが届いた瞬間に決まっていました。", "Dato curioso: la especie de este quedó decidida en el momento en que llegó el huevo.", "Info utile : l'espèce de celui-ci était décidée dès l'arrivée de l'œuf.", "Curiosidade: a espécie deste foi decidida no instante em que o ovo chegou.", "Wusstest du schon? Die Art dieses Pokémon stand fest, sobald das Ei ankam.", "Забавный факт: вид этого покемона был решён в момент появления яйца.")
+    }
+
+    /// Prayers per quip (and per usage refresh): the joke advances every 30 prayers.
+    static let prayersPerQuip = 30
+    static let prayerQuipCount = 11
+
+    /// Index into the ordered quip list: `count / 30`, capped at the last one. nil at 0 prayers (nothing to say yet).
+    static func prayerQuipIndex(_ prayers: Int) -> Int? {
+        guard prayers > 0 else { return nil }
+        return min(prayers / prayersPerQuip, prayerQuipCount - 1)
+    }
+
+    /// Floating-pet hover line: "{n} prayers · {quip}".
+    func prayerHoverLine(_ n: Int) -> String {
+        guard n > 0 else { return "" }
+        let count = n == 1
+            ? t("기도 1회", "1 prayer", "お祈り1回", "1 oración", "1 prière", "1 oração", "1 Gebet", "Молитв: 1")
+            : t("기도 \(n)회", "\(n) prayers", "お祈り\(n)回", "\(n) oraciones", "\(n) prières", "\(n) orações", "\(n) Gebete", "Молитв: \(n)")
+        return count + " · " + prayerQuip(n)
+    }
+
+    func prayerQuip(_ n: Int) -> String {
+        switch Self.prayerQuipIndex(n) ?? 0 {
+        case 0: return t("일단 한번 빌어봄", "just trying it out", "とりあえず祈ってみた", "probando a ver qué pasa", "juste pour essayer", "só para testar", "einfach mal ausprobiert", "просто попробовали")
+        case 1: return t("하늘이 아직 확인 안 함", "heaven hasn't checked yet", "天国はまだ確認していない", "el cielo aún no lo ha revisado", "le ciel n'a pas encore regardé", "o céu ainda não conferiu", "der Himmel hat noch nicht nachgesehen", "небеса ещё не проверили")
+        case 2: return t("알이 살짝 부담스러워함", "the egg feels a little pressured", "タマゴがちょっとプレッシャーを感じてる", "el huevo siente algo de presión", "l'œuf se sent un peu sous pression", "o ovo está sentindo a pressão", "dem Ei wird das langsam zu viel Druck", "яйцу слегка не по себе")
+        case 3: return t("손 모으는 자세가 제법 프로", "your praying form is getting pro", "手を合わせるフォームが様になってきた", "ya rezas con técnica de profesional", "ta technique de prière devient pro", "sua pose de oração já está profissional", "deine Gebetshaltung wird professionell", "молитвенная стойка уже как у профи")
+        case 4: return t("하늘 서버 응답 지연 중", "heaven's servers are lagging", "天国のサーバーが応答遅延中", "los servidores del cielo van con lag", "les serveurs du ciel rament", "os servidores do céu estão com lag", "die Server des Himmels laggen", "серверы небес лагают")
+        case 5: return t("하늘 대기열 3,812번째", "you're #3,812 in heaven's queue", "天国の順番待ち3,812番目", "eres el n.º 3.812 en la cola del cielo", "tu es n° 3 812 dans la file du ciel", "você é o nº 3.812 na fila do céu", "du bist Nr. 3.812 in der Warteschlange des Himmels", "вы 3 812-й в очереди небес")
+        case 6: return t("손바닥이 닳는 중", "your palms are wearing thin", "手のひらがすり減ってきた", "las palmas de tus manos se desgastan", "tes paumes s'usent", "suas palmas estão se desgastando", "deine Handflächen werden dünn", "ладони понемногу стираются")
+        case 7: return t("이쯤 되면 알도 같이 빌어줌", "at this point the egg is praying with you", "ここまで来るとタマゴも一緒に祈ってる", "a estas alturas el huevo reza contigo", "à ce stade, l'œuf prie avec toi", "a essa altura o ovo reza junto", "mittlerweile betet das Ei mit", "теперь яйцо молится вместе с вами")
+        case 8: return t("하늘: \"접수했습니다. 검토 후 답변드릴게요\"", "heaven: \"received, we'll get back to you\"", "天国「受け付けました。確認後ご連絡します」", "el cielo: «recibido, le responderemos»", "le ciel : « bien reçu, nous revenons vers vous »", "o céu: \"recebido, retornaremos o contato\"", "Himmel: „Eingegangen, wir melden uns bei Ihnen“", "небеса: «заявка принята, мы с вами свяжемся»")
+        case 9: return t("알이 방금 \"그만…\"이라고 한 것 같음", "the egg just whispered \"please stop\"", "タマゴが今「やめて…」ってささやいた気がする", "creo que el huevo acaba de susurrar «para…»", "l'œuf vient de murmurer « arrête… »", "o ovo acabou de sussurrar \"para…\"", "das Ei hat gerade „hör auf…“ geflüstert", "яйцо только что прошептало «хватит…»")
+        default: return t("전설 나오면 이건 실력임", "if a legendary hatches, that's pure skill", "伝説が出たらそれは実力", "si sale un legendario, es pura habilidad", "si un légendaire éclot, c'est du talent pur", "se sair um lendário, é pura habilidade", "schlüpft ein Legendäres, ist das reine Skill", "вылупится легендарный — это чистый скилл")
+        }
+    }
+
+    /// Hatch notification body once the egg was prayed over; the joke follows the outcome.
+    func notifPrayerHatchBody(_ name: String, prayers n: Int, shiny: Bool, rarity: Rarity) -> String {
+        if shiny && rarity == .legendary {
+            return t("기도 \(n)번… 하늘이 진심이었다. 이로치 \(name)!", "\(n) prayers… heaven went all in. Shiny \(name)!", "お祈り\(n)回… 天も本気だった。色違いの\(name)！", "¡\(n) oraciones… el cielo fue con todo. \(name) variocolor!", "\(n) prières… le ciel a tout donné. \(name) chromatique !", "\(n) orações… o céu foi com tudo. \(name) shiny!", "\(n) Gebete… der Himmel hat alles gegeben. Schillerndes \(name)!", "\(n) молитв… небеса постарались на все сто. Шайни \(name)!")
+        }
+        if rarity == .legendary {
+            return t("기도 \(n)번… 통했다?! \(KoreanParticle.subject.attach(to: name)) 나왔어요!", "\(n) prayers… it worked?! \(name) hatched!", "お祈り\(n)回… 通じた？！\(name) が生まれました！", "\(n) oraciones… ¿funcionó?! ¡Salió \(name)!", "\(n) prières… ça a marché ?! \(name) est sorti !", "\(n) orações… funcionou?! Saiu \(name)!", "\(n) Gebete… hat es gewirkt?! \(name) ist geschlüpft!", "\(n) молитв… сработало?! Вылупился \(name)!")
+        }
+        if shiny {
+            return t("기도 \(n)번에 이로치까지?! \(KoreanParticle.subject.attach(to: name)) 나왔어요!", "\(n) prayers AND it's shiny?! \(name) hatched!", "お祈り\(n)回で色違いまで？！\(name) が生まれました！", "¿\(n) oraciones Y encima variocolor?! ¡Salió \(name)!", "\(n) prières ET en plus chromatique ?! \(name) est sorti !", "\(n) orações E ainda shiny?! Saiu \(name)!", "\(n) Gebete UND dann noch schillernd?! \(name) ist geschlüpft!", "\(n) молитв И ещё шайни?! Вылупился \(name)!")
+        }
+        if rarity == .common {
+            return t("기도 \(n)번 끝에 \(KoreanParticle.subject.attach(to: name)) 나왔어요. 하늘도 오늘 바빴나 봐요.", "\(n) prayers later: \(name). Heaven must be swamped today.", "お祈り\(n)回の末、\(name) が生まれました。天国も今日は忙しかったみたい。", "Tras \(n) oraciones: \(name). El cielo debe de andar saturado hoy.", "Après \(n) prières : \(name). Le ciel doit être débordé aujourd'hui.", "Após \(n) orações: \(name). O céu deve estar lotado hoje.", "Nach \(n) Gebeten: \(name). Der Himmel hat heute wohl viel zu tun.", "После \(n) молитв: \(name). У небес сегодня, видимо, много дел.")
+        }
+        return t("기도 \(n)번 끝에 \(KoreanParticle.subject.attach(to: name)) 나왔어요. 반은 통한 걸로 칩시다.", "\(n) prayers later: \(name). Let's call it half a miracle.", "お祈り\(n)回の末、\(name) が生まれました。半分は通じたってことにしよう。", "Tras \(n) oraciones: \(name). Digamos que fue medio milagro.", "Après \(n) prières : \(name). Disons que c'est un demi-miracle.", "Após \(n) orações: \(name). Vamos chamar de meio milagre.", "Nach \(n) Gebeten: \(name). Nennen wir es ein halbes Wunder.", "После \(n) молитв: \(name). Считаем это половиной чуда.")
+    }
     var eggImminent: String { t("곧 부화해요!", "About to hatch!", "もうすぐ孵化！", "¡Está a punto de eclosionar!", "Sur le point d'éclore !", "Está quase chocando!", "Schlüpft gleich!", "Вот-вот вылупится!") }
     /// 첫 실행(아직 토큰 적립 0) 안내 — "왜 아무 일도 안 일어나지"를 방지.
     /// `amount` 는 성장 난이도가 반영된 부화 임계(포맷된 값) — 고정 5M 이 아니다.
@@ -1237,7 +1310,8 @@ struct L {
           "Wächst mit der Nutzung deiner lokalen KI-Coding-Tools. Nach etwa \(amount) Tokens schlüpft dein Ei.",
           "Растёт вместе с вашим локальным использованием ИИ для программирования. Яйцо вылупится примерно через \(amount) токенов.") }
     var notifEvolveTitle: String { t("✨ 진화!", "✨ Evolved!", "✨ 進化！", "✨ ¡Evolucionó!", "✨ Évolution !", "✨ Evoluiu!", "✨ Entwicklung!", "✨ Эволюция!") }
-    func notifEvolveBody(_ name: String) -> String { t("\(KoreanParticle.direction.attach(to: name)) 진화했어요!", "Evolved into \(name)!", "\(name) に進化しました！", "¡Evolucionó a \(name)!", "A évolué en \(name) !", "Evoluiu para \(name)!", "Hat sich zu \(name) entwickelt!", "Эволюционировал в \(name)!") }
+    /// Both names, so the notification and the floating pet's hover line say who evolved into what.
+    func notifEvolveBody(from old: String, to new: String) -> String { t("\(KoreanParticle.subject.attach(to: old)) \(KoreanParticle.direction.attach(to: new)) 진화했어요!", "\(old) evolved into \(new)!", "\(old) が \(new) に進化しました！", "¡\(old) evolucionó a \(new)!", "\(old) a évolué en \(new) !", "\(old) evoluiu para \(new)!", "\(old) hat sich zu \(new) entwickelt!", "\(old) эволюционировал в \(new)!") }
     // 메타몽 위장 리빌 — 진화 못 하는 메타몽이 첫 진화 순간 정체를 드러낸다.
     var notifDittoRevealTitle: String { t("🎭 어라? 메타몽!", "🎭 Huh? It's Ditto!", "🎭 あれ？メタモン！", "🎭 ¿Eh? ¡Es Ditto!", "🎭 Hein ? C'est Métamorph !", "🎭 Ué? É um Ditto!", "🎭 Huch? Ditto!", "🎭 Что? Это Ditto!") }
     func notifDittoRevealBody(_ disguise: String) -> String { t("\(disguise)인 줄 알았는데 — 사실은 메타몽이었어요!", "You thought it was \(disguise) — it was Ditto all along!", "\(disguise) だと思ってた… 実はメタモンでした！", "Pensabas que era \(disguise) — ¡en realidad era Ditto!", "Tu croyais que c'était \(disguise) — c'était Métamorph depuis le début !", "Você achava que era \(disguise) — era um Ditto o tempo todo!", "Du dachtest, es wäre \(disguise) – dabei war es die ganze Zeit Ditto!", "Думали, это \(disguise)? А это всё время был Ditto!") }

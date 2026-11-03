@@ -125,6 +125,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         withObservationTracking {
             _ = store.menuTitle
             _ = store.menuToolTip
+            _ = store.alwaysFacesBack   // mirrored into the companion by `updateCompanion`
             // The mode and thresholds can change the colors while the text stays the same.
             _ = store.menuLimitColorRuns()
         } onChange: { [weak self] in
@@ -148,6 +149,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private func observeCompanionSprite() {
         withObservationTracking {
             _ = companion.representativeSubject
+            _ = companion.facesBack   // part of `menuSpriteKey`
             _ = store.animationQuality
         } onChange: { [weak self] in
             Task { @MainActor in
@@ -247,13 +249,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
 
     /// UsageStore 값 → CompanionStore (사용량 적립 + 표시 상태). 매 관찰 변경 시 호출.
     private func updateCompanion() {
+        companion.alwaysFacesBack = store.alwaysFacesBack
         companion.update(
             todayTokensByProvider: store.todayTokensByProvider,
             todayDate: LocalUsageReader.todayKey(),
             monthTotal: store.monthTotalTokens,
             burnTier: store.burnTier,
             limitWarning: store.isLimitWarning,
-            hasUsageData: store.hasUsageData)
+            hasUsageData: store.hasUsageData,
+            timeSinceLastUsage: store.timeSinceLastUsage())
     }
 
     /// 매 refresh 완료 훅 — companion 갱신 + 사탕 지급(한도가 신선한 시점). 지급을 여기 묶는 이유는
@@ -296,7 +300,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         let id = subject.speciesID
         let shiny = subject.isShiny
         let form = subject.form
-        let key = id.map { Self.menuSpriteKey(id: $0, shiny: shiny, floor: menuFrameFloor, form: form) }
+        let back = companion.facesBack
+        let key = id.map { Self.menuSpriteKey(id: $0, shiny: shiny, floor: menuFrameFloor, form: form, back: back) }
         if key == menuSpriteKey, !menuFrames.isEmpty { return }   // 이미 이 개체로 애니메이션 중
         menuLoadTask?.cancel()
         menuLoadTask = nil
@@ -309,7 +314,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             return
         }
         // Seed from the PNG cache immediately; a missing PNG must not delay the first GIF request.
-        let cached = SpriteLoader.cachedImage(speciesID: id, shiny: shiny, form: form)
+        let cached = SpriteLoader.cachedImage(speciesID: id, shiny: shiny, form: form, back: back)
         setMenuFrames(cached.map { Self.bobFrames(from: $0) } ?? Self.eggFrames())
 
         // One owned task applies its static fallback before retrying GIFs. A late PNG response
@@ -318,10 +323,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             guard let self, gen == self.menuLoadGen else { return }
             defer { if gen == self.menuLoadGen { self.menuLoadTask = nil } }
             let raw = await SpriteLoader.recoveringAnimationFrames(
-                speciesID: id, shiny: shiny, form: form,
+                speciesID: id, shiny: shiny, form: form, back: back,
                 onUnavailable: {
                     guard cached == nil, !Task.isCancelled, gen == self.menuLoadGen else { return }
-                    let sprite = await SpriteLoader.image(speciesID: id, shiny: shiny, form: form)
+                    let sprite = await SpriteLoader.image(speciesID: id, shiny: shiny, form: form, back: back)
                     guard !Task.isCancelled, gen == self.menuLoadGen, let sprite else { return }
                     self.setMenuFrames(Self.bobFrames(from: sprite))
                 })
@@ -474,9 +479,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     /// **하한(fps 설정)이 반드시 들어가야 한다.** 프레임은 하한에 맞춰 솎아낸 결과물이라, 키가
     /// 종·이로치만 담으면 설정을 바꿔도 다음 진화까지 옛 fps 로 계속 돈다(설계 시 확인된 함정).
     /// 순수·테스트용: `testIdentityKeysIncludeTheFrameFloor`.
-    static func menuSpriteKey(id: Int, shiny: Bool, floor: TimeInterval, form: PokemonForm? = nil) -> String {
+    static func menuSpriteKey(id: Int, shiny: Bool, floor: TimeInterval, form: PokemonForm? = nil,
+                              back: Bool = false) -> String {
         let form = PokemonForm.resolved(speciesID: id, form: form)
-        return "\(id)-\(shiny)-\(floor)-\(form?.rawValue ?? "")"
+        let key = "\(id)-\(shiny)-\(floor)-\(form?.rawValue ?? "")"
+        return back ? key + "-back" : key
     }
 
     // MARK: 프레임 합성 (22px)
@@ -578,7 +585,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         let entries = StatusItemMenu.entries(
             l: companion.l, todayTokens: store.todayTotalTokens,
             todayCost: store.showsCost ? store.todayUsageCost : nil,
-            floatingPetEnabled: store.floatingPetEnabled)
+            floatingPetEnabled: store.floatingPetEnabled, alwaysFacesBack: store.alwaysFacesBack)
         // Attaching the menu only for this click keeps left click on the popover. performClick
         // tracks the menu synchronously, with the button highlighted like any other status menu.
         statusItem.menu = StatusItemMenu.build(entries, target: self, selector: #selector(handleStatusMenu(_:)))
@@ -592,6 +599,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         case .openDex: showPopover { $0.openRepresentativeDex() }
         case .openSettings: showPopover { $0.showSettings = true }
         case .toggleFloatingPet: store.floatingPetEnabled.toggle()
+        case .toggleBackView: store.alwaysFacesBack.toggle()
         case .quit: NSApp.terminate(nil)
         case nil: break
         }

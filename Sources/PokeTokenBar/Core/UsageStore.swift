@@ -161,6 +161,10 @@ final class UsageStore {
     var floatingPetEnabled: Bool {
         didSet { defaults.set(floatingPetEnabled, forKey: "floatingPetEnabled") }
     }
+    /// Always show the companion's back sprite, regardless of usage. A display preference only. Default off.
+    var alwaysFacesBack: Bool {
+        didSet { defaults.set(alwaysFacesBack, forKey: "alwaysFacesBack") }
+    }
     /// 플로팅 펫 스프라이트 한 변 크기(pt).
     var floatingPetSize: Double {
         didSet { defaults.set(floatingPetSize, forKey: "floatingPetSize") }
@@ -501,6 +505,18 @@ final class UsageStore {
     /// Day-by-day history behind the usage recap. Providers only report the current month, so the
     /// numbers are copied into a rolling ledger at every refresh — see `UsageLedger`.
     private(set) var dailyLedger = UsageLedger()
+    /// Every provider's last enrichment scan succeeded in this session. Until then `lastUsage` may be a
+    /// restored or carried-over value, and a failed scan may be hiding newer usage — both are unknown.
+    private(set) var lastUsageKnown = false
+
+    /// How long ago the newest token usage across all providers happened (`ProviderSnapshot.lastUsage`,
+    /// the same value that keeps a recently used provider's tab visible). nil = unknown, which must never
+    /// be treated as idle. A complete scan that found no usage at all means "at least the scan window".
+    func timeSinceLastUsage(now: Date = Date()) -> TimeInterval? {
+        guard lastUsageKnown else { return nil }
+        guard let last = snapshots.compactMap(\.lastUsage).max() else { return LocalUsageReader.recentUseWindow }
+        return max(0, now.timeIntervalSince(last))
+    }
 
     private func recordDailyLedger() {
         var ledger = dailyLedger
@@ -800,6 +816,7 @@ final class UsageStore {
         updateNotificationsEnabled = d.object(forKey: "updateNotificationsEnabled") as? Bool ?? true
         statusChecksEnabled = d.object(forKey: "statusChecksEnabled") as? Bool ?? true
         floatingPetEnabled = d.object(forKey: "floatingPetEnabled") as? Bool ?? false
+        alwaysFacesBack = d.object(forKey: "alwaysFacesBack") as? Bool ?? false
         floatingPetSize = d.object(forKey: "floatingPetSize") as? Double ?? 96
         floatingPetBubbleAlerts = d.object(forKey: "floatingPetBubbleAlerts") as? Bool ?? true
         // 기본 powerSaver — 이 설정이 생기기 전의 고정 캡(0.4s)과 같은 프레임 레이트라, 기존
@@ -1040,11 +1057,13 @@ final class UsageStore {
         handleEmptyUsageRetry(schedule: scheduleEmptyRetry, hasErrors: !errors.isEmpty)
 
         // ── Phase 2: 블록/주월 누적 상세 (best effort) — 실패 시 이전 값 유지
+        var allPeriodsOK = true
         await withTaskGroup(of: (String, ProviderEnrichment).self) { group in
             for provider in providers {
                 group.addTask { (provider.id, await provider.fetchEnrichment()) }
             }
             for await (id, enrichment) in group {
+                if !enrichment.periodsOK { allPeriodsOK = false }
                 guard let index = snapshots.firstIndex(where: { $0.providerID == id }) else {
                     // An idle day still has useful history. Require positive usage, not merely
                     // non-nil periods: local providers also return all-zero period summaries.
@@ -1071,6 +1090,7 @@ final class UsageStore {
                 }
             }
         }
+        lastUsageKnown = allPeriodsOK
         // Successful empty enrichment removes obsolete carriers; failed reads retain history.
         snapshots.removeAll { !$0.hasDisplayableUsage }
         // Carriers arrive in task-completion order; keep tabs in provider registration order.

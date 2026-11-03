@@ -372,6 +372,15 @@ final class UsageStoreTests: XCTestCase {
         XCTAssertFalse(reloaded.floatingPetBubbleAlerts)
     }
 
+    /// Always facing back is a display preference: default off, persisted like the floating pet settings.
+    func testAlwaysFacesBackDefaultsOffAndPersists() {
+        let claude = FakeUsageProvider(id: "claude_code", displayName: "Claude Code", daily: todayDaily(1_000))
+        let store = makeStore(providers: [claude])
+        XCTAssertFalse(store.alwaysFacesBack)
+        store.alwaysFacesBack = true
+        XCTAssertTrue(makeStore(providers: [claude]).alwaysFacesBack, "persists across restarts")
+    }
+
     /// Bubble picker is pure: critical beats warn; within a tier higher utilization wins (stable choice).
     func testBubbleAlertPicksHighestSeverityThenUtilization() {
         let warnLow = UsageStore.LimitAlert(key: "a", window: "A", isCritical: false, utilization: 81)
@@ -1087,6 +1096,36 @@ final class UsageStoreTests: XCTestCase {
         // The next refresh starts from the carrier in phase 1 and must keep it there too.
         await store.refresh(scheduleEmptyRetry: false)
         XCTAssertTrue(store.snapshots.contains { $0.providerID == "codex" })
+    }
+
+    /// Sulk input: unknown before this session's scan, the newest `lastUsage` across providers afterwards,
+    /// unknown again when a scan fails, and "at least the scan window" when a complete scan found nothing.
+    func testTimeSinceLastUsageIsUnknownUntilACompleteScan() async throws {
+        let now = Date()
+        let older = FakeUsageProvider(id: "codex", displayName: "Codex", daily: todayDaily(1))
+        let newer = FakeUsageProvider(id: "claude_code", displayName: "Claude Code", daily: todayDaily(1))
+        func enrichment(lastUsage: Date?, periodsOK: Bool = true) -> ProviderEnrichment {
+            ProviderEnrichment(activeBlock: nil, blocksOK: true,
+                               weekTotal: PeriodUsage(period: "w", totalTokens: 1, totalCost: 0),
+                               monthTotal: PeriodUsage(period: "m", totalTokens: 1, totalCost: 0),
+                               monthDaily: [todayDaily(1)], periodsOK: periodsOK, lastUsage: lastUsage)
+        }
+        older.enrichment = enrichment(lastUsage: now.addingTimeInterval(-50 * 3600))
+        newer.enrichment = enrichment(lastUsage: now.addingTimeInterval(-30 * 3600))
+        let store = makeStore(providers: [older, newer])
+        XCTAssertNil(store.timeSinceLastUsage(now: now), "nothing scanned yet: unknown, never idle")
+
+        await store.refresh(scheduleEmptyRetry: false)
+        XCTAssertEqual(try XCTUnwrap(store.timeSinceLastUsage(now: now)), 30 * 3600, accuracy: 1)
+
+        newer.enrichment = enrichment(lastUsage: nil, periodsOK: false)
+        await store.refresh(scheduleEmptyRetry: false)
+        XCTAssertNil(store.timeSinceLastUsage(now: now), "a failed scan may hide newer usage")
+
+        older.enrichment = enrichment(lastUsage: nil)
+        newer.enrichment = enrichment(lastUsage: nil)
+        await store.refresh(scheduleEmptyRetry: false)
+        XCTAssertEqual(store.timeSinceLastUsage(now: now), LocalUsageReader.recentUseWindow)
     }
 
     func testNoCarrierForProviderIdleBeyondRecentWindow() async {
