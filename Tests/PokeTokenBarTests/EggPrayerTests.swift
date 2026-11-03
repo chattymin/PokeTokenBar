@@ -263,8 +263,8 @@ final class EggPrayerTests: XCTestCase {
     func testDetailCopy() {
         XCTAssertEqual(L(.ko).prayerBornWith(37), "기도 37번 받고 태어남")
         XCTAssertEqual(L(.en).prayerBornWith(37), "Born after 37 prayers")
-        XCTAssertEqual(L(.ko).prayerReachedHeaven, "기도가 하늘에 닿았다")
-        XCTAssertEqual(L(.en).prayerReachedHeaven, "Your prayers reached the heavens.")
+        XCTAssertEqual(L(.ko).prayerReachedHeaven, "기도가 하늘에 닿았어요. 아마도요.")
+        XCTAssertEqual(L(.en).prayerReachedHeaven, "Your prayers reached the heavens. Probably.")
         for language in AppLanguage.allCases {
             XCTAssertFalse(L(language).prayerReachedHeaven.isEmpty, "\(language)")
         }

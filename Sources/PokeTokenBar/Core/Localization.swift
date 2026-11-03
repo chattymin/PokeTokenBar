@@ -1239,7 +1239,7 @@ struct L {
     func notifShinyHatchBody(_ name: String, odds: UInt64) -> String { t("이로치 \(KoreanParticle.subject.attach(to: name)) 태어났어요! (1/\(odds))", "A shiny \(name) hatched! (1 in \(odds))", "色違いの \(name) が生まれました！(1/\(odds))", "¡Nació un \(name) variocolor! (1 entre \(odds))", "Un \(name) chromatique est né ! (1 sur \(odds))", "Nasceu um \(name) shiny! (1 em \(odds))", "Ein schillerndes \(name) ist geschlüpft! (1/\(odds))", "Вылупился шайни \(name)! (шанс 1 к \(odds))") }
     // MARK: 기도하기 (알 위약 버튼)
     func prayerBornWith(_ n: Int) -> String { t("기도 \(n)번 받고 태어남", "Born after \(n) prayers", "お祈り\(n)回を受けて誕生", "Nació tras \(n) oraciones", "Né après \(n) prières", "Nasceu após \(n) orações", "Geboren nach \(n) Gebeten", "Родился после \(n) молитв") }
-    var prayerReachedHeaven: String { t("기도가 하늘에 닿았다", "Your prayers reached the heavens.", "祈りは天に届いた", "Tus plegarias llegaron al cielo.", "Tes prières sont montées jusqu'au ciel.", "Suas preces chegaram aos céus.", "Deine Gebete haben den Himmel erreicht.", "Молитвы дошли до небес.") }
+    var prayerReachedHeaven: String { t("기도가 하늘에 닿았어요. 아마도요.", "Your prayers reached the heavens. Probably.", "祈りは天に届きました。たぶん。", "Tus plegarias llegaron al cielo. Probablemente.", "Tes prières sont montées jusqu'au ciel. Probablement.", "Suas preces chegaram aos céus. Provavelmente.", "Deine Gebete haben den Himmel erreicht. Vermutlich.", "Молитвы дошли до небес. Наверное.") }
 
     /// Prayers per quip (and per usage refresh): the joke advances every 30 prayers.
     static let prayersPerQuip = 30
