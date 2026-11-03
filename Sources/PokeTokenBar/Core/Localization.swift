@@ -1239,12 +1239,7 @@ struct L {
     func notifShinyHatchBody(_ name: String, odds: UInt64) -> String { t("이로치 \(KoreanParticle.subject.attach(to: name)) 태어났어요! (1/\(odds))", "A shiny \(name) hatched! (1 in \(odds))", "色違いの \(name) が生まれました！(1/\(odds))", "¡Nació un \(name) variocolor! (1 entre \(odds))", "Un \(name) chromatique est né ! (1 sur \(odds))", "Nasceu um \(name) shiny! (1 em \(odds))", "Ein schillerndes \(name) ist geschlüpft! (1/\(odds))", "Вылупился шайни \(name)! (шанс 1 к \(odds))") }
     // MARK: 기도하기 (알 위약 버튼)
     func prayerBornWith(_ n: Int) -> String { t("기도 \(n)번 받고 태어남", "Born after \(n) prayers", "お祈り\(n)回を受けて誕生", "Nació tras \(n) oraciones", "Né après \(n) prières", "Nasceu após \(n) orações", "Geboren nach \(n) Gebeten", "Родился после \(n) молитв") }
-    /// `purchased` = the egg came from `buyEgg`; otherwise it arrived on its own.
-    func prayerFutileNote(purchased: Bool) -> String {
-        purchased
-            ? t("참고: 이 아이의 종은 알을 산 순간 정해져 있었어요.", "Fun fact: this one's species was decided the moment you bought the egg.", "豆知識：この子の種類はタマゴを買った瞬間に決まっていました。", "Dato curioso: la especie de este quedó decidida en el momento en que compraste el huevo.", "Info utile : l'espèce de celui-ci était décidée dès l'achat de l'œuf.", "Curiosidade: a espécie deste foi decidida no instante em que você comprou o ovo.", "Wusstest du schon? Die Art dieses Pokémon stand fest, sobald du das Ei gekauft hast.", "Забавный факт: вид этого покемона был решён в момент покупки яйца.")
-            : t("참고: 이 아이의 종은 알이 온 순간 정해져 있었어요.", "Fun fact: this one's species was decided the moment the egg arrived.", "豆知識：この子の種類はタマゴが届いた瞬間に決まっていました。", "Dato curioso: la especie de este quedó decidida en el momento en que llegó el huevo.", "Info utile : l'espèce de celui-ci était décidée dès l'arrivée de l'œuf.", "Curiosidade: a espécie deste foi decidida no instante em que o ovo chegou.", "Wusstest du schon? Die Art dieses Pokémon stand fest, sobald das Ei ankam.", "Забавный факт: вид этого покемона был решён в момент появления яйца.")
-    }
+    var prayerReachedHeaven: String { t("기도가 하늘에 닿았다", "Your prayers reached the heavens.", "祈りは天に届いた", "Tus plegarias llegaron al cielo.", "Tes prières sont montées jusqu'au ciel.", "Suas preces chegaram aos céus.", "Deine Gebete haben den Himmel erreicht.", "Молитвы дошли до небес.") }
 
     /// Prayers per quip (and per usage refresh): the joke advances every 30 prayers.
     static let prayersPerQuip = 30

@@ -456,13 +456,6 @@ enum PokemonOdds {
 /// Purely cosmetic: no roll (species, rarity, shiny, nature, form, profile) ever reads it.
 struct PrayerRecord: Codable, Sendable, Equatable {
     var count: Int
-    /// The species was already rolled (`pendingHatchID != nil`) when the first prayer was said. Cleared at hatch
-    /// when a different species hatched (`rolledSpeciesID`) or the hatch turned out to be a Ditto.
-    var wasFutile: Bool
-    /// That pre-rolled species. Compared with the hatched one: the tier guard can discard a pre-roll and re-roll.
-    var rolledSpeciesID: Int? = nil
-    /// The egg came from `buyEgg`; otherwise it arrived by itself (first egg, graduation).
-    var eggWasPurchased: Bool
 }
 
 /// 현재 키우는 포켓몬.
@@ -675,8 +668,6 @@ struct CompanionState: Codable, Sendable {
     /// Prayers said over the current egg (nil until the first one). Egg-scoped like `eggUsage`:
     /// reset by `resetEggPrayers` whenever a new egg starts and copied onto the hatched individual.
     var eggPrayers: PrayerRecord?
-    /// The current egg was bought (`buyEgg`) rather than received. Copied into `eggPrayers` at the first prayer.
-    var eggWasPurchased = false
     /// 오늘 사용량 적립 기준값 — 프로바이더별로 독립 관리한다.
     ///
     /// `nil`은 aggregate `claimedTodayTokens`만 가지고 있던 구버전 세이브가 아직 첫 유효
@@ -724,7 +715,6 @@ struct CompanionState: Codable, Sendable {
         pendingForm        = PokemonForm.resolved(baseID: pendingHatchID ?? 0,
             form: PokemonForm.decoded(from: decoder, keys: "pendingForm", "pendingUnownForm"))
         eggPrayers         = c.lenientOptional(PrayerRecord.self, forKey: .eggPrayers)
-        eggWasPurchased    = c.lenient(Bool.self, forKey: .eggWasPurchased, default: false)
         if c.contains(.claimedTodayTokensByProvider) {
             claimedTodayTokensByProvider = c.lenient([String: Int].self,
                                                       forKey: .claimedTodayTokensByProvider,
@@ -806,14 +796,11 @@ struct CompanionState: Codable, Sendable {
         return active.displaysShiny
     }
 
+    /// Forget the prayers of the previous egg. Call on every path that starts a new egg (or consumes this one).
+    mutating func resetEggPrayers() { eggPrayers = nil }
+
     /// 대표 포켓몬은 사용자가 현재 보유한 종만 가리킨다. Fresh Egg·메타몽 리빌·손편집 세이브가
     /// 유령 종을 메뉴바와 플로팅 펫에 영구히 남기지 않게 한다.
-    /// Forget the prayers of the previous egg. Call on every path that starts a new egg (or consumes this one).
-    mutating func resetEggPrayers(purchased: Bool = false) {
-        eggPrayers = nil
-        eggWasPurchased = purchased
-    }
-
     mutating func reconcileRepresentativeSelection() {
         guard let selected = representativeSpeciesID else {
             representativeForm = nil

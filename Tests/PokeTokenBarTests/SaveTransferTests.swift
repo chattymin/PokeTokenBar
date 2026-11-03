@@ -550,9 +550,9 @@ final class SaveTransferTests: XCTestCase {
     /// 딸려 들어간다(`language` 가 실제로 그랬다). 필드 목록을 테스트로 고정해 **분류를 강제**한다.
     func testEveryCompanionStateFieldIsClassifiedForTransfer() {
         // eggTier(알 등급 보증) = 진행 — 산 물건이지 이 기기의 장부가 아니라 기기를 옮겨도 따라간다.
-        // eggPrayers·eggWasPurchased = 진행 — 품고 있는 알에 붙은 기록이라 알과 함께 이동한다.
+        // eggPrayers = 진행 — 품고 있는 알에 붙은 기록이라 알과 함께 이동한다.
         let progress: Set<String> = ["usedSinceInstall", "spentTokens", "eggUsage", "eggTier",
-                                     "pendingHatchID", "pendingForm", "eggPrayers", "eggWasPurchased", "active",
+                                     "pendingHatchID", "pendingForm", "eggPrayers", "active",
                                      "representativeSpeciesID", "representativeForm", "dex",
                                      "collectedFinals", "inventory"]
         let deviceLedger: Set<String> = ["installBaselineSet", "claimedTodayTokensByProvider", "lastDate"]

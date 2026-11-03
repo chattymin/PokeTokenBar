@@ -82,11 +82,9 @@ final class EggPrayerRenderTests: XCTestCase {
             throw XCTSkip("PTB_PRAYER_RENDER_DIR not set")
         }
         let output = URL(fileURLWithPath: directory)
-        let prayed = PrayerRecord(count: 37, wasFutile: false, eggWasPurchased: false)
-        let futile = PrayerRecord(count: 37, wasFutile: true, eggWasPurchased: true)
+        let prayed = PrayerRecord(count: 37)
         for (language, tag) in [(AppLanguage.ko, "ko"), (.en, "en")] {
-            for (record, name) in [(nil, "detail-no-prayers"), (prayed, "detail-37-prayers"),
-                                   (futile, "detail-37-prayers-futile-purchased-egg")] as [(PrayerRecord?, String)] {
+            for (record, name) in [(nil, "detail-no-prayers"), (prayed, "detail-37-prayers")] as [(PrayerRecord?, String)] {
                 let store = try await store(language: language, prayers: record, egg: false)
                 let species = try XCTUnwrap(store.dexSpecies.first { $0.id == 47 })
                 let spriteDirectory = FileManager.default.temporaryDirectory.appendingPathComponent("prayer-sprites-\(UUID())")

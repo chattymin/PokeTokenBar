@@ -9,20 +9,6 @@ private struct PrayerOfflineProvider: PokeProviding {
     func baseSpecies(id: Int) async throws -> BaseSpecies? { nil }
 }
 
-/// Base 1 is a common three-stage line (the disguise); 132 is Ditto.
-private struct DisguiseTestProvider: PokeProviding {
-    func line(baseSpeciesID: Int) async throws -> EvoLine {
-        if baseSpeciesID == PokemonOdds.dittoSpeciesID {
-            return EvoLine(baseID: 132, tree: EvoNode(speciesID: 132, children: []), rarity: .rare,
-                           names: [132: ["en": "Ditto"]])
-        }
-        return EvoLine(baseID: 1,
-                       tree: EvoNode(speciesID: 1, children: [EvoNode(speciesID: 2, children: [EvoNode(speciesID: 3, children: [])])]),
-                       rarity: .common, names: [1: ["en": "Bulb"], 2: ["en": "Ivy"], 3: ["en": "Venu"]])
-    }
-    func baseSpeciesIndex() async throws -> [BaseSpecies] { [BaseSpecies(id: 1, captureRate: 255)] }
-}
-
 @MainActor
 final class EggPrayerTests: XCTestCase {
     private let now = Date(timeIntervalSince1970: 1_700_000_000)
@@ -37,13 +23,12 @@ final class EggPrayerTests: XCTestCase {
     }
 
     /// Egg at the hatch threshold; `pending` = species already rolled (the prefetched case).
-    private func hatchReadyEgg(seed: UInt64 = 7, pending: Bool, purchased: Bool = false,
+    private func hatchReadyEgg(seed: UInt64 = 7, pending: Bool,
                                provider: (any PokeProviding)? = nil) -> CompanionStore {
         let url = tempURL()
         let json = "{\"installBaselineSet\":true,\"usedSinceInstall\":10000000,\"spentTokens\":0,"
             + "\"lastDate\":\"d\",\"active\":null,\"dex\":[],\"collectedFinals\":[],"
-            + "\"eggUsage\":\(PokemonBalance.eggHatchThreshold),"
-            + "\"eggWasPurchased\":\(purchased)"
+            + "\"eggUsage\":\(PokemonBalance.eggHatchThreshold)"
             + (pending ? ",\"pendingHatchID\":1" : "") + "}"
         try? json.data(using: .utf8)!.write(to: url)
         return CompanionStore(provider: provider ?? StubProvider(value: line), clock: { self.now },
@@ -73,16 +58,10 @@ final class EggPrayerTests: XCTestCase {
 
     // MARK: pray()
 
-    func testPrayCountsAndRemembersFutility() {
-        let futile = hatchReadyEgg(pending: true, purchased: true)
-        futile.pray(); futile.pray(); futile.pray()
-        XCTAssertEqual(futile.state.eggPrayers, PrayerRecord(count: 3, wasFutile: true, rolledSpeciesID: 1, eggWasPurchased: true))
-
-        let early = hatchReadyEgg(pending: false)
-        early.pray()
-        XCTAssertEqual(early.state.eggPrayers, PrayerRecord(count: 1, wasFutile: false, eggWasPurchased: false))
-        early.pray()
-        XCTAssertFalse(early.state.eggPrayers?.wasFutile ?? true, "flag is fixed at the first prayer")
+    func testPrayCounts() {
+        let store = hatchReadyEgg(pending: true)
+        store.pray(); store.pray(); store.pray()
+        XCTAssertEqual(store.state.eggPrayers, PrayerRecord(count: 3))
     }
 
     func testPrayIsIgnoredWhileRaisingAPokemon() {
@@ -109,13 +88,11 @@ final class EggPrayerTests: XCTestCase {
     // MARK: copy on hatch, reset on every new egg
 
     func testHatchCopiesPrayersAndClearsEggScope() async throws {
-        let store = hatchReadyEgg(pending: true, purchased: true)
+        let store = hatchReadyEgg(pending: true)
         store.pray(); store.pray()
         await store.hatchIfNeeded()
-        XCTAssertEqual(store.state.active?.prayers,
-                       PrayerRecord(count: 2, wasFutile: true, rolledSpeciesID: 1, eggWasPurchased: true))
+        XCTAssertEqual(store.state.active?.prayers, PrayerRecord(count: 2))
         XCTAssertNil(store.state.eggPrayers)
-        XCTAssertFalse(store.state.eggWasPurchased)
     }
 
     func testGraduationKeepsPrayersOnTheDexEntryAndStartsAPlainEgg() async throws {
@@ -128,22 +105,20 @@ final class EggPrayerTests: XCTestCase {
         XCTAssertNil(store.state.active)
         XCTAssertEqual(store.state.dex.first?.prayers?.count, 1)
         XCTAssertNil(store.state.eggPrayers, "the next egg starts without prayers")
-        XCTAssertFalse(store.state.eggWasPurchased)
     }
 
-    func testBuyEggResetsPrayersAndMarksPurchase() {
+    func testBuyEggStartsWithoutPrayers() {
         let store = activeStoreWithWallet()
         XCTAssertTrue(store.buyFreshEgg())
         XCTAssertNil(store.state.eggPrayers)
-        XCTAssertTrue(store.state.eggWasPurchased)
         store.pray()
-        XCTAssertEqual(store.state.eggPrayers?.eggWasPurchased, true)
+        XCTAssertEqual(store.state.eggPrayers?.count, 1)
     }
 
     func testReleasedEntryKeepsThePrayersOfTheIndividual() {
         let store = activeStoreWithWallet()
         var state = store.state
-        state.active?.prayers = PrayerRecord(count: 4, wasFutile: true, eggWasPurchased: false)
+        state.active?.prayers = PrayerRecord(count: 4)
         let url = tempURL()
         try? JSONEncoder().encode(state).write(to: url)
         let reloaded = CompanionStore(provider: PrayerOfflineProvider(), clock: { self.now }, fileURL: url,
@@ -156,16 +131,13 @@ final class EggPrayerTests: XCTestCase {
     func testImportedSaveWithAnActivePokemonDropsEggPrayers() {
         var state = CompanionState()
         state.active = MonState(baseID: 4, pathIDs: [4], stageIndex: 0, usedAtStage: 0, rarity: .common, totalForms: 1)
-        state.eggPrayers = PrayerRecord(count: 9, wasFutile: true, eggWasPurchased: true)
-        state.eggWasPurchased = true
-        let clean = SaveTransfer.sanitized(state)
-        XCTAssertNil(clean.eggPrayers)
-        XCTAssertFalse(clean.eggWasPurchased)
+        state.eggPrayers = PrayerRecord(count: 9)
+        XCTAssertNil(SaveTransfer.sanitized(state).eggPrayers)
     }
 
     func testSanitizeClampsAnAbsurdPrayerCount() {
         var state = CompanionState()
-        state.eggPrayers = PrayerRecord(count: Int.max, wasFutile: false, eggWasPurchased: false)
+        state.eggPrayers = PrayerRecord(count: Int.max)
         XCTAssertEqual(SaveTransfer.sanitized(state).eggPrayers?.count, SaveTransfer.maxTokenValue)
     }
 
@@ -173,16 +145,13 @@ final class EggPrayerTests: XCTestCase {
 
     func testPrayerFieldsSurviveEncodeAndSaveTransfer() throws {
         var state = CompanionState()
-        state.eggPrayers = PrayerRecord(count: 5, wasFutile: true, eggWasPurchased: true)
-        state.eggWasPurchased = true
-        state.active = nil
+        state.eggPrayers = PrayerRecord(count: 5)
         let envelope = try SaveTransfer.decode(
             SaveTransfer.encode(state: state, appVersion: "x", deviceName: "d", now: now))
         XCTAssertEqual(envelope.state.eggPrayers, state.eggPrayers)
-        XCTAssertTrue(envelope.state.eggWasPurchased)
 
         let mon = MonState(baseID: 1, pathIDs: [1], stageIndex: 0, usedAtStage: 0, rarity: .common, totalForms: 1,
-                           prayers: PrayerRecord(count: 2, wasFutile: false, eggWasPurchased: false))
+                           prayers: PrayerRecord(count: 2))
         let decodedMon = try JSONDecoder().decode(MonState.self, from: JSONEncoder().encode(mon))
         XCTAssertEqual(decodedMon.prayers, mon.prayers)
         let entry = DexEntry(baseID: 1, finalID: 1, chainOrder: [1], rarity: .common, caughtAt: nil,
@@ -191,10 +160,21 @@ final class EggPrayerTests: XCTestCase {
         XCTAssertEqual(decodedEntry.prayers, mon.prayers)
     }
 
+    /// Dev builds once stored extra prayer fields (futility flags); they are gone, but those saves must still load.
+    func testSavesWithRemovedPrayerKeysStillDecode() throws {
+        let record = "{\"count\":7,\"wasFutile\":true,\"rolledSpeciesID\":1,\"eggWasPurchased\":true}"
+        let state = try JSONDecoder().decode(CompanionState.self, from: Data(
+            "{\"eggUsage\":5,\"eggWasPurchased\":true,\"eggPrayers\":\(record)}".utf8))
+        XCTAssertEqual(state.eggPrayers, PrayerRecord(count: 7))
+        let mon = try JSONDecoder().decode(MonState.self, from: Data(
+            ("{\"baseID\":1,\"pathIDs\":[1],\"stageIndex\":0,\"usedAtStage\":0,\"rarity\":\"common\","
+             + "\"totalForms\":1,\"prayers\":\(record)}").utf8))
+        XCTAssertEqual(mon.prayers, PrayerRecord(count: 7))
+    }
+
     func testOldSavesDecodeWithoutPrayers() throws {
         let state = try JSONDecoder().decode(CompanionState.self, from: Data("{\"eggUsage\":5}".utf8))
         XCTAssertNil(state.eggPrayers)
-        XCTAssertFalse(state.eggWasPurchased)
         let mon = try JSONDecoder().decode(MonState.self, from: Data(
             "{\"baseID\":1,\"pathIDs\":[1],\"stageIndex\":0,\"usedAtStage\":0,\"rarity\":\"common\",\"totalForms\":1}".utf8))
         XCTAssertNil(mon.prayers)
@@ -280,15 +260,14 @@ final class EggPrayerTests: XCTestCase {
         XCTAssertEqual(L(.en).prayerHoverLine(300), "300 prayers · if a legendary hatches, that's pure skill")
     }
 
-    func testFutileNoteDependsOnHowTheEggArrived() {
-        XCTAssertEqual(L(.ko).prayerFutileNote(purchased: true), "참고: 이 아이의 종은 알을 산 순간 정해져 있었어요.")
-        XCTAssertEqual(L(.ko).prayerFutileNote(purchased: false), "참고: 이 아이의 종은 알이 온 순간 정해져 있었어요.")
-        XCTAssertEqual(L(.en).prayerFutileNote(purchased: true),
-                       "Fun fact: this one's species was decided the moment you bought the egg.")
-        XCTAssertEqual(L(.en).prayerFutileNote(purchased: false),
-                       "Fun fact: this one's species was decided the moment the egg arrived.")
+    func testDetailCopy() {
         XCTAssertEqual(L(.ko).prayerBornWith(37), "기도 37번 받고 태어남")
         XCTAssertEqual(L(.en).prayerBornWith(37), "Born after 37 prayers")
+        XCTAssertEqual(L(.ko).prayerReachedHeaven, "기도가 하늘에 닿았다")
+        XCTAssertEqual(L(.en).prayerReachedHeaven, "Your prayers reached the heavens.")
+        for language in AppLanguage.allCases {
+            XCTAssertFalse(L(language).prayerReachedHeaven.isEmpty, "\(language)")
+        }
     }
 
     // MARK: floating pet click routing and particles
@@ -435,78 +414,6 @@ final class EggPrayerTests: XCTestCase {
         XCTAssertTrue(decide(30, last: 0, at: now, later))
         XCTAssertTrue(decide(60, last: 1, at: now, later))
     }
-
-    // MARK: Ditto: the disguise is rolled at hatch, so the species note must not outlive the reveal
-
-    /// Seeds found once with a plain script using this RNG and the hatch roll order (shiny, nature, Ditto disguise):
-    /// both end in a disguised Ditto; 2466 also rolls shiny (1/64 * 1/128 of seeds, hence not searched at test time).
-    private static let disguisedDittoSeed: UInt64 = 239
-    private static let shinyDisguisedDittoSeed: UInt64 = 2466
-
-    private func prayedDisguisedDitto(shiny: Bool = false) async throws -> CompanionStore {
-        let url = tempURL()
-        let json = "{\"installBaselineSet\":true,\"usedSinceInstall\":2000000000,\"lastDate\":\"d\","
-            + "\"active\":null,\"dex\":[],\"collectedFinals\":[],\"pendingHatchID\":1,\"eggWasPurchased\":true}"
-        try Data(json.utf8).write(to: url)
-        let store = CompanionStore(provider: DisguiseTestProvider(), clock: { self.now }, fileURL: url,
-                                   rng: SeededRNG(seed: shiny ? Self.shinyDisguisedDittoSeed : Self.disguisedDittoSeed),
-                                   dittoDisguiseRollingEnabled: true)
-        store.pray(); store.pray()
-        await store.hatch(baseID: 1)
-        XCTAssertNotNil(store.state.active?.dittoDisguise, "the seed must produce a disguised Ditto")
-        return store
-    }
-
-    func testADisguisedDittoKeepsItsPrayersAndTheSpeciesNoteLooksLikeAnyOtherEgg() async throws {
-        let store = try await prayedDisguisedDitto()
-        let record = PrayerRecord(count: 2, wasFutile: true, rolledSpeciesID: 1, eggWasPurchased: true)
-        XCTAssertEqual(store.state.active?.prayers, record)
-        XCTAssertEqual(store.dexEntries.first?.prayers, record,
-                       "the detail page reads this entry; the disguise species was fixed at purchase, so the note is true")
-    }
-
-    func testRevealingTheDittoDropsTheSpeciesNoteButKeepsThePrayerCount() async throws {
-        let store = try await prayedDisguisedDitto()
-        store.applyUsage(130_000_000)   // past the first evolution threshold: the disguise breaks
-        let deadline = Date().addingTimeInterval(2)
-        while store.state.active?.dittoRevealed != true, Date() < deadline {
-            try? await Task.sleep(nanoseconds: 5_000_000)
-        }
-        XCTAssertEqual(store.state.active?.dittoRevealed, true)
-        XCTAssertEqual(store.state.active?.prayers?.count, 2)
-        XCTAssertEqual(store.state.active?.prayers?.wasFutile, false, "the Ditto was rolled at hatch, not at purchase")
-        XCTAssertEqual(store.dexEntries.first?.prayers?.wasFutile, false)
-    }
-
-
-    // MARK: the species note only holds if the pre-rolled species is the one that hatched
-
-    private func prayedEgg(pendingSpecies: Int) throws -> CompanionStore {
-        let url = tempURL()
-        let json = "{\"installBaselineSet\":true,\"usedSinceInstall\":2000000000,\"lastDate\":\"d\","
-            + "\"active\":null,\"dex\":[],\"collectedFinals\":[],\"pendingHatchID\":\(pendingSpecies)}"
-        try Data(json.utf8).write(to: url)
-        let store = CompanionStore(provider: DisguiseTestProvider(), clock: { self.now }, fileURL: url,
-                                   rng: SeededRNG(seed: 7))
-        store.pray()
-        return store
-    }
-
-    func testTheNoteSurvivesWhenThePreRolledSpeciesHatches() async throws {
-        let store = try prayedEgg(pendingSpecies: 1)
-        XCTAssertEqual(store.state.eggPrayers?.rolledSpeciesID, 1)
-        await store.hatch(baseID: 1)
-        XCTAssertEqual(store.state.active?.prayers?.wasFutile, true)
-    }
-
-    func testTheNoteIsDroppedWhenAnotherSpeciesHatchesAfterAReroll() async throws {
-        let store = try prayedEgg(pendingSpecies: 1)
-        await store.hatch(baseID: 132)   // e.g. the tier guard threw the pre-roll away and rolled again
-        XCTAssertEqual(store.state.active?.baseID, 132)
-        XCTAssertEqual(store.state.active?.prayers?.wasFutile, false)
-        XCTAssertEqual(store.state.active?.prayers?.count, 1)
-    }
-
 }
 
 @MainActor
