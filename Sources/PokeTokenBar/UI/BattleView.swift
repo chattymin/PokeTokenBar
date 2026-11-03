@@ -1068,247 +1068,261 @@ private struct BattleAttackEffectView: View, @preconcurrency Animatable {
     }
 
     var body: some View {
-        Canvas { context, size in
-            let p = min(1, max(0, progress))
-            let start = startPoint
-            let end = endPoint
-            let direction: CGFloat = end.x >= start.x ? 1 : -1
-            func trajectoryPoint(_ fraction: CGFloat, verticalOffset: CGFloat = 0) -> CGPoint {
-                CGPoint(x: start.x + (end.x - start.x) * fraction,
-                        y: start.y + (end.y - start.y) * fraction + verticalOffset)
+        Canvas { context, _ in
+            var renderer = BattleAttackEffectRenderer(context: context)
+            renderer.draw(effect: effect, progress: progress, startPoint: startPoint, endPoint: endPoint)
+            context = renderer.context
+        }
+    }
+}
+
+private struct BattleAttackEffectRenderer {
+    var context: GraphicsContext
+
+    mutating func draw(effect: BattleAttackEffect, progress: CGFloat, startPoint: CGPoint, endPoint: CGPoint) {
+        let p = min(1, max(0, progress))
+        let start = startPoint
+        let end = endPoint
+        let direction: CGFloat = end.x >= start.x ? 1 : -1
+        func trajectoryPoint(_ fraction: CGFloat, verticalOffset: CGFloat = 0) -> CGPoint {
+            CGPoint(x: start.x + (end.x - start.x) * fraction,
+                    y: start.y + (end.y - start.y) * fraction + verticalOffset)
+        }
+        let point = effect.kind == .attack
+            ? trajectoryPoint(p)
+            : end
+        let alpha = Double(min(1, p * 8) * min(1, (1 - p) * 8))
+        context.opacity = alpha
+        let color = effect.color
+        let strength = min(1.5, max(0.65, effect.intensity))
+
+        if effect.kind != .attack {
+            switch effect.kind {
+            case .boost:
+                circle(end, radius: 10 + 23 * p, tint: color.opacity(0.75 * (1 - p)), filled: false)
+                circle(end, radius: 7 + 12 * p, tint: color.opacity(0.45 * (1 - p)), filled: false)
+                for i in 0..<4 {
+                    let angle = CGFloat(i) * .pi / 2 + p * .pi * 0.8
+                    let center = CGPoint(x: end.x + cos(angle) * (15 + 13 * p),
+                                         y: end.y + sin(angle) * (15 + 13 * p) - 8 * p)
+                    polygon(center, radius: 4 * (1 - p * 0.4), sides: 4,
+                            rotation: p * .pi, tint: color)
+                }
+            case .status:
+                circle(end, radius: 19 + 7 * p, tint: color.opacity(0.3 * (1 - p)), filled: false)
+                for i in 0..<5 {
+                    let lag = CGFloat(i) * 0.08
+                    let q = max(0, p - lag)
+                    let angle = CGFloat(i) * .pi * 0.4 + q * .pi * 2
+                    let center = CGPoint(x: end.x + cos(angle) * (8 + 13 * q),
+                                         y: end.y + sin(angle) * (8 + 13 * q))
+                    circle(center, radius: (4.5 - CGFloat(i) * 0.35) * (1 - q * 0.4),
+                           tint: color.opacity(0.85 - Double(i) * 0.08))
+                }
+            case .shield:
+                var shield = Path()
+                shield.move(to: CGPoint(x: end.x, y: end.y - 27))
+                shield.addLine(to: CGPoint(x: end.x + 21, y: end.y - 17))
+                shield.addLine(to: CGPoint(x: end.x + 17, y: end.y + 8))
+                shield.addQuadCurve(to: CGPoint(x: end.x, y: end.y + 27),
+                                    control: CGPoint(x: end.x + 10, y: end.y + 23))
+                shield.addQuadCurve(to: CGPoint(x: end.x - 17, y: end.y + 8),
+                                    control: CGPoint(x: end.x - 10, y: end.y + 23))
+                shield.addLine(to: CGPoint(x: end.x - 21, y: end.y - 17))
+                shield.closeSubpath()
+                context.opacity *= 0.25
+                context.fill(shield, with: .color(color))
+                context.opacity = alpha
+                context.stroke(shield, with: .color(color), lineWidth: 3)
+                circle(end, radius: 34 + 4 * p, tint: color.opacity(0.45 * (1 - p)), filled: false)
+            case .attack:
+                break
             }
-            let point = effect.kind == .attack
-                ? trajectoryPoint(p)
-                : end
-            let alpha = Double(min(1, p * 8) * min(1, (1 - p) * 8))
-            context.opacity = alpha
-            let color = effect.color
-            let strength = min(1.5, max(0.65, effect.intensity))
-            func line(_ points: [CGPoint], width: CGFloat, tint: Color) {
-                guard let first = points.first else { return }
-                var path = Path(); path.move(to: first)
-                for point in points.dropFirst() { path.addLine(to: point) }
-                context.stroke(path, with: .color(tint), style: StrokeStyle(lineWidth: width, lineCap: .round, lineJoin: .round))
+            return
+        }
+        switch effect.motif {
+        case .flame:
+            for i in 0..<4 {
+                let lag = CGFloat(i) * 0.07
+                let q = max(0, p - lag)
+                let center = trajectoryPoint(q, verticalOffset: sin(q * .pi * 4 + CGFloat(i)) * 6)
+                polygon(center, radius: (11 - CGFloat(i)) * strength, sides: 3,
+                        rotation: -.pi / 2 + q * .pi, tint: color.opacity(1 - Double(i) * 0.14))
+                if i == 0 { circle(center, radius: 4 * strength, tint: .yellow) }
             }
-            func circle(_ center: CGPoint, radius: CGFloat, tint: Color, filled: Bool = true) {
-                let path = Path(ellipseIn: CGRect(x: center.x - radius, y: center.y - radius, width: radius * 2, height: radius * 2))
-                if filled { context.fill(path, with: .color(tint)) }
-                else { context.stroke(path, with: .color(tint), lineWidth: 2) }
+        case .ice, .steel:
+            for i in 0..<4 {
+                let lag = CGFloat(i) * 0.08
+                let q = max(0, p - lag)
+                let center = trajectoryPoint(q, verticalOffset: sin(q * .pi * 3 + CGFloat(i)) * 14)
+                polygon(center, radius: (9 - CGFloat(i)) * strength,
+                        sides: effect.motif == .ice ? 4 : 6,
+                        rotation: q * .pi * 2, tint: color.opacity(1 - Double(i) * 0.15))
+                line([CGPoint(x: center.x - 3, y: center.y), CGPoint(x: center.x + 3, y: center.y)],
+                     width: 1.5, tint: .white.opacity(0.8))
             }
-            func polygon(_ center: CGPoint, radius: CGFloat, sides: Int, rotation: CGFloat = 0, tint: Color) {
+        case .poison:
+            for i in 0..<5 {
+                let lag = CGFloat(i) * 0.07
+                let q = max(0, p - lag)
+                let center = trajectoryPoint(q, verticalOffset: sin(q * .pi * 4 + CGFloat(i) * 1.4) * 11)
+                circle(center, radius: (7 - CGFloat(i) * 0.6) * strength,
+                       tint: color.opacity(0.8 - Double(i) * 0.1))
+                circle(center, radius: 2, tint: .white.opacity(0.65))
+            }
+        case .swarm:
+            for i in 0..<6 {
+                let lag = CGFloat(i) * 0.045
+                let q = max(0, p - lag)
+                let offset = CGFloat(i - 2) * 5
+                let center = trajectoryPoint(q, verticalOffset: sin(q * .pi * 5 + CGFloat(i)) * 12 + offset)
+                circle(center, radius: 3.5 * strength, tint: color)
+                line([CGPoint(x: center.x - direction * 5, y: center.y - 2),
+                      CGPoint(x: center.x + direction * 5, y: center.y + 2)], width: 1.5, tint: .white)
+            }
+        case .earth:
+            for i in 0..<5 {
+                let lag = CGFloat(i) * 0.07
+                let q = max(0, p - lag)
+                let center = trajectoryPoint(q, verticalOffset: sin(q * .pi * 4 + CGFloat(i)) * 13)
+                polygon(center, radius: (6 + CGFloat(i % 2) * 2) * strength,
+                        sides: 5, rotation: q * .pi * 2, tint: color.opacity(0.9 - Double(i) * 0.12))
+            }
+            let burst = min(1, p * 1.7)
+            circle(end, radius: 10 * burst, tint: color.opacity(0.18), filled: false)
+        case .ghost:
+            for i in 0..<3 {
+                let q = max(0, p - CGFloat(i) * 0.09)
+                let center = trajectoryPoint(q, verticalOffset: sin(q * .pi * 3 + CGFloat(i)) * 8)
+                circle(center, radius: (12 - CGFloat(i) * 2) * strength,
+                       tint: color.opacity(0.22 - Double(i) * 0.04))
+                circle(center, radius: (7 - CGFloat(i)) * strength,
+                       tint: color.opacity(0.75 - Double(i) * 0.15), filled: false)
+            }
+        case .stream:
+            for i in 0..<5 {
+                let lag = CGFloat(i) * 0.055
+                let q = max(0, p - lag)
+                let center = trajectoryPoint(q, verticalOffset: sin(q * .pi * 5 + CGFloat(i)) * 6)
+                circle(center, radius: (8 - CGFloat(i)) * strength, tint: color.opacity(1 - Double(i) * 0.13))
+            }
+            line([CGPoint(x: point.x - direction * 25 * strength, y: point.y), point], width: 4 * strength, tint: .white.opacity(0.7))
+        case .vine, .tail:
+            var path = Path(); path.move(to: start)
+            path.addQuadCurve(to: point, control: CGPoint(x: (start.x + point.x) / 2,
+                                                          y: (start.y + point.y) / 2 - sin(p * .pi) * 48))
+            context.stroke(path, with: .color(color), style: StrokeStyle(lineWidth: effect.motif == .tail ? 10 : 4 * strength, lineCap: .round))
+            circle(point, radius: 4, tint: color)
+        case .bolt:
+            let span = point.x - start.x
+            var vertices: [CGPoint] = []
+            for i in 0...8 {
+                let x = start.x + span * CGFloat(i) / 8
+                let displacement: CGFloat = i == 0 || i == 8 ? 0 : (i.isMultiple(of: 2) ? -12 : 12)
+                let baseY = start.y + (point.y - start.y) * CGFloat(i) / 8
+                vertices.append(CGPoint(x: x, y: baseY + displacement))
+            }
+            line(vertices, width: 5, tint: color)
+            circle(point, radius: 8, tint: .white)
+        case .rings, .pulse:
+            for i in 0..<3 {
+                let center = CGPoint(x: point.x - direction * CGFloat(i) * 15, y: point.y)
+                let radius = CGFloat(10 + i * 5) * (effect.motif == .pulse ? 1.2 : 1)
+                circle(center, radius: radius, tint: color.opacity(1 - Double(i) * 0.2), filled: false)
+            }
+        case .wing:
+            for i in 0..<3 {
+                let lag = CGFloat(i) * 0.08
+                let q = max(0, p - lag)
+                let center = trajectoryPoint(q, verticalOffset: CGFloat(i - 1) * 12)
+                let span = CGFloat(24 - i * 5) * strength
+                line([CGPoint(x: center.x - direction * span, y: center.y + 8),
+                      CGPoint(x: center.x, y: center.y - 7),
+                      CGPoint(x: center.x + direction * span, y: center.y + 8)],
+                     width: 2.5 * strength, tint: color.opacity(1 - Double(i) * 0.18))
+            }
+        case .aura:
+            circle(point, radius: 19, tint: color.opacity(0.25))
+            circle(point, radius: 13, tint: color)
+            circle(point, radius: 7, tint: .white)
+            circle(point, radius: 22 + sin(p * .pi * 4) * 3, tint: color, filled: false)
+        case .star:
+            for i in 0..<3 {
+                let center = CGPoint(x: point.x - direction * CGFloat(i) * 14,
+                                     y: point.y + CGFloat(i - 1) * 13)
                 var path = Path()
-                for i in 0..<sides {
-                    let angle = CGFloat(i) * .pi * 2 / CGFloat(sides) + rotation
-                    let vertex = CGPoint(x: center.x + cos(angle) * radius, y: center.y + sin(angle) * radius)
-                    if i == 0 { path.move(to: vertex) } else { path.addLine(to: vertex) }
+                for vertex in 0..<10 {
+                    let angle = CGFloat(vertex) * .pi / 5 - .pi / 2 + p * .pi
+                    let radius: CGFloat = vertex % 2 == 0 ? 10 : 4
+                    let v = CGPoint(x: center.x + cos(angle) * radius, y: center.y + sin(angle) * radius)
+                    if vertex == 0 { path.move(to: v) } else { path.addLine(to: v) }
                 }
-                path.closeSubpath(); context.fill(path, with: .color(tint))
+                path.closeSubpath(); context.fill(path, with: .color(color))
             }
-            if effect.kind != .attack {
-                switch effect.kind {
-                case .boost:
-                    circle(end, radius: 10 + 23 * p, tint: color.opacity(0.75 * (1 - p)), filled: false)
-                    circle(end, radius: 7 + 12 * p, tint: color.opacity(0.45 * (1 - p)), filled: false)
-                    for i in 0..<4 {
-                        let angle = CGFloat(i) * .pi / 2 + p * .pi * 0.8
-                        let center = CGPoint(x: end.x + cos(angle) * (15 + 13 * p),
-                                             y: end.y + sin(angle) * (15 + 13 * p) - 8 * p)
-                        polygon(center, radius: 4 * (1 - p * 0.4), sides: 4,
-                                rotation: p * .pi, tint: color)
-                    }
-                case .status:
-                    circle(end, radius: 19 + 7 * p, tint: color.opacity(0.3 * (1 - p)), filled: false)
-                    for i in 0..<5 {
-                        let lag = CGFloat(i) * 0.08
-                        let q = max(0, p - lag)
-                        let angle = CGFloat(i) * .pi * 0.4 + q * .pi * 2
-                        let center = CGPoint(x: end.x + cos(angle) * (8 + 13 * q),
-                                             y: end.y + sin(angle) * (8 + 13 * q))
-                        circle(center, radius: (4.5 - CGFloat(i) * 0.35) * (1 - q * 0.4),
-                               tint: color.opacity(0.85 - Double(i) * 0.08))
-                    }
-                case .shield:
-                    var shield = Path()
-                    shield.move(to: CGPoint(x: end.x, y: end.y - 27))
-                    shield.addLine(to: CGPoint(x: end.x + 21, y: end.y - 17))
-                    shield.addLine(to: CGPoint(x: end.x + 17, y: end.y + 8))
-                    shield.addQuadCurve(to: CGPoint(x: end.x, y: end.y + 27),
-                                        control: CGPoint(x: end.x + 10, y: end.y + 23))
-                    shield.addQuadCurve(to: CGPoint(x: end.x - 17, y: end.y + 8),
-                                        control: CGPoint(x: end.x - 10, y: end.y + 23))
-                    shield.addLine(to: CGPoint(x: end.x - 21, y: end.y - 17))
-                    shield.closeSubpath()
-                    context.opacity *= 0.25
-                    context.fill(shield, with: .color(color))
-                    context.opacity = alpha
-                    context.stroke(shield, with: .color(color), lineWidth: 3)
-                    circle(end, radius: 34 + 4 * p, tint: color.opacity(0.45 * (1 - p)), filled: false)
-                case .attack:
-                    break
-                }
-                return
+        case .leaf, .seed:
+            for i in 0..<4 {
+                let center = CGPoint(x: point.x - direction * CGFloat(i) * 8,
+                                     y: point.y + sin(p * .pi * 3 + CGFloat(i)) * 16)
+                polygon(center, radius: effect.motif == .leaf ? 8 : 5, sides: effect.motif == .leaf ? 4 : 6, rotation: p * .pi * 2, tint: color)
             }
-            switch effect.motif {
-            case .flame:
-                for i in 0..<4 {
-                    let lag = CGFloat(i) * 0.07
-                    let q = max(0, p - lag)
-                    let center = trajectoryPoint(q, verticalOffset: sin(q * .pi * 4 + CGFloat(i)) * 6)
-                    polygon(center, radius: (11 - CGFloat(i)) * strength, sides: 3,
-                            rotation: -.pi / 2 + q * .pi, tint: color.opacity(1 - Double(i) * 0.14))
-                    if i == 0 { circle(center, radius: 4 * strength, tint: .yellow) }
-                }
-            case .ice, .steel:
-                for i in 0..<4 {
-                    let lag = CGFloat(i) * 0.08
-                    let q = max(0, p - lag)
-                    let center = trajectoryPoint(q, verticalOffset: sin(q * .pi * 3 + CGFloat(i)) * 14)
-                    polygon(center, radius: (9 - CGFloat(i)) * strength,
-                            sides: effect.motif == .ice ? 4 : 6,
-                            rotation: q * .pi * 2, tint: color.opacity(1 - Double(i) * 0.15))
-                    line([CGPoint(x: center.x - 3, y: center.y), CGPoint(x: center.x + 3, y: center.y)],
-                         width: 1.5, tint: .white.opacity(0.8))
-                }
-            case .poison:
-                for i in 0..<5 {
-                    let lag = CGFloat(i) * 0.07
-                    let q = max(0, p - lag)
-                    let center = trajectoryPoint(q, verticalOffset: sin(q * .pi * 4 + CGFloat(i) * 1.4) * 11)
-                    circle(center, radius: (7 - CGFloat(i) * 0.6) * strength,
-                           tint: color.opacity(0.8 - Double(i) * 0.1))
-                    circle(center, radius: 2, tint: .white.opacity(0.65))
-                }
-            case .swarm:
-                for i in 0..<6 {
-                    let lag = CGFloat(i) * 0.045
-                    let q = max(0, p - lag)
-                    let offset = CGFloat(i - 2) * 5
-                    let center = trajectoryPoint(q, verticalOffset: sin(q * .pi * 5 + CGFloat(i)) * 12 + offset)
-                    circle(center, radius: 3.5 * strength, tint: color)
-                    line([CGPoint(x: center.x - direction * 5, y: center.y - 2),
-                          CGPoint(x: center.x + direction * 5, y: center.y + 2)], width: 1.5, tint: .white)
-                }
-            case .earth:
-                for i in 0..<5 {
-                    let lag = CGFloat(i) * 0.07
-                    let q = max(0, p - lag)
-                    let center = trajectoryPoint(q, verticalOffset: sin(q * .pi * 4 + CGFloat(i)) * 13)
-                    polygon(center, radius: (6 + CGFloat(i % 2) * 2) * strength,
-                            sides: 5, rotation: q * .pi * 2, tint: color.opacity(0.9 - Double(i) * 0.12))
-                }
-                let burst = min(1, p * 1.7)
-                circle(end, radius: 10 * burst, tint: color.opacity(0.18), filled: false)
-            case .ghost:
-                for i in 0..<3 {
-                    let q = max(0, p - CGFloat(i) * 0.09)
-                    let center = trajectoryPoint(q, verticalOffset: sin(q * .pi * 3 + CGFloat(i)) * 8)
-                    circle(center, radius: (12 - CGFloat(i) * 2) * strength,
-                           tint: color.opacity(0.22 - Double(i) * 0.04))
-                    circle(center, radius: (7 - CGFloat(i)) * strength,
-                           tint: color.opacity(0.75 - Double(i) * 0.15), filled: false)
-                }
-            case .stream:
-                for i in 0..<5 {
-                    let lag = CGFloat(i) * 0.055
-                    let q = max(0, p - lag)
-                    let center = trajectoryPoint(q, verticalOffset: sin(q * .pi * 5 + CGFloat(i)) * 6)
-                    circle(center, radius: (8 - CGFloat(i)) * strength, tint: color.opacity(1 - Double(i) * 0.13))
-                }
-                line([CGPoint(x: point.x - direction * 25 * strength, y: point.y), point], width: 4 * strength, tint: .white.opacity(0.7))
-            case .vine, .tail:
-                var path = Path(); path.move(to: start)
-                path.addQuadCurve(to: point, control: CGPoint(x: (start.x + point.x) / 2,
-                                                              y: (start.y + point.y) / 2 - sin(p * .pi) * 48))
-                context.stroke(path, with: .color(color), style: StrokeStyle(lineWidth: effect.motif == .tail ? 10 : 4 * strength, lineCap: .round))
-                circle(point, radius: 4, tint: color)
-            case .bolt:
-                let span = point.x - start.x
-                var vertices: [CGPoint] = []
-                for i in 0...8 {
-                    let x = start.x + span * CGFloat(i) / 8
-                    let displacement: CGFloat = i == 0 || i == 8 ? 0 : (i.isMultiple(of: 2) ? -12 : 12)
-                    let baseY = start.y + (point.y - start.y) * CGFloat(i) / 8
-                    vertices.append(CGPoint(x: x, y: baseY + displacement))
-                }
-                line(vertices, width: 5, tint: color)
-                circle(point, radius: 8, tint: .white)
-            case .rings, .pulse:
-                for i in 0..<3 {
-                    let center = CGPoint(x: point.x - direction * CGFloat(i) * 15, y: point.y)
-                    let radius = CGFloat(10 + i * 5) * (effect.motif == .pulse ? 1.2 : 1)
-                    circle(center, radius: radius, tint: color.opacity(1 - Double(i) * 0.2), filled: false)
-                }
-            case .wing:
-                for i in 0..<3 {
-                    let lag = CGFloat(i) * 0.08
-                    let q = max(0, p - lag)
-                    let center = trajectoryPoint(q, verticalOffset: CGFloat(i - 1) * 12)
-                    let span = CGFloat(24 - i * 5) * strength
-                    line([CGPoint(x: center.x - direction * span, y: center.y + 8),
-                          CGPoint(x: center.x, y: center.y - 7),
-                          CGPoint(x: center.x + direction * span, y: center.y + 8)],
-                         width: 2.5 * strength, tint: color.opacity(1 - Double(i) * 0.18))
-                }
-            case .aura:
-                circle(point, radius: 19, tint: color.opacity(0.25))
-                circle(point, radius: 13, tint: color)
-                circle(point, radius: 7, tint: .white)
-                circle(point, radius: 22 + sin(p * .pi * 4) * 3, tint: color, filled: false)
-            case .star:
-                for i in 0..<3 {
-                    let center = CGPoint(x: point.x - direction * CGFloat(i) * 14,
-                                         y: point.y + CGFloat(i - 1) * 13)
-                    var path = Path()
-                    for vertex in 0..<10 {
-                        let angle = CGFloat(vertex) * .pi / 5 - .pi / 2 + p * .pi
-                        let radius: CGFloat = vertex % 2 == 0 ? 10 : 4
-                        let v = CGPoint(x: center.x + cos(angle) * radius, y: center.y + sin(angle) * radius)
-                        if vertex == 0 { path.move(to: v) } else { path.addLine(to: v) }
-                    }
-                    path.closeSubpath(); context.fill(path, with: .color(color))
-                }
-            case .leaf, .seed:
-                for i in 0..<4 {
-                    let center = CGPoint(x: point.x - direction * CGFloat(i) * 8,
-                                         y: point.y + sin(p * .pi * 3 + CGFloat(i)) * 16)
-                    polygon(center, radius: effect.motif == .leaf ? 8 : 5, sides: effect.motif == .leaf ? 4 : 6, rotation: p * .pi * 2, tint: color)
-                }
-            case .rock, .gem, .magnet, .egg:
-                let center = CGPoint(x: point.x, y: point.y - sin(p * .pi) * 28)
-                if effect.motif == .egg {
-                    context.fill(Path(ellipseIn: CGRect(x: center.x - 9, y: center.y - 13, width: 18, height: 26)), with: .color(.white))
-                    circle(CGPoint(x: center.x + 3, y: center.y - 3), radius: 3, tint: .orange)
-                } else {
-                    polygon(center, radius: 13, sides: effect.motif == .gem ? 4 : 6, rotation: p * .pi * 2, tint: color)
-                    circle(center, radius: 4, tint: .white.opacity(0.6))
-                }
-            case .slash, .claw, .cross:
-                let center = CGPoint(x: end.x, y: end.y)
-                let reveal = min(1, p * 1.5)
-                for i in 0..<(effect.motif == .claw ? 3 : 2) {
-                    let shift = CGFloat(i) * 9 - 7
-                    let reverse: CGFloat = effect.motif == .cross && i == 1 ? -1 : 1
-                    line([CGPoint(x: center.x - 22 + shift, y: center.y + 23 * reverse), CGPoint(x: center.x - 22 + shift + 44 * reveal, y: center.y + (23 - 46 * reveal) * reverse)], width: 3, tint: color)
-                }
-            case .horn:
-                polygon(point, radius: 15 * strength, sides: 3, rotation: direction > 0 ? 0 : .pi, tint: color)
-                line([CGPoint(x: point.x - direction * 28, y: point.y), point], width: 3, tint: color.opacity(0.5))
-            case .clamp:
-                let gap = 5 + (1 - p) * 18
-                for sign: CGFloat in [-1, 1] {
-                    line([CGPoint(x: end.x - 14, y: end.y + sign * gap),
-                          CGPoint(x: end.x, y: end.y + sign * gap / 2),
-                          CGPoint(x: end.x + 14, y: end.y + sign * gap)], width: 5, tint: color)
-                }
-            case .punch, .kick, .shadow, .impact:
-                let radius = (effect.motif == .kick ? 16 : 12) * strength
-                circle(point, radius: radius + 6, tint: color.opacity(0.2))
-                polygon(point, radius: radius, sides: effect.motif == .punch ? 6 : 8, rotation: p * .pi, tint: color)
-                for i in 0..<5 {
-                    let angle = CGFloat(i) * .pi * 2 / 5
-                    line([CGPoint(x: point.x + cos(angle) * (radius + 4), y: point.y + sin(angle) * (radius + 4)), CGPoint(x: point.x + cos(angle) * (radius + 11), y: point.y + sin(angle) * (radius + 11))], width: 2, tint: color)
-                }
+        case .rock, .gem, .magnet, .egg:
+            let center = CGPoint(x: point.x, y: point.y - sin(p * .pi) * 28)
+            if effect.motif == .egg {
+                context.fill(Path(ellipseIn: CGRect(x: center.x - 9, y: center.y - 13, width: 18, height: 26)), with: .color(.white))
+                circle(CGPoint(x: center.x + 3, y: center.y - 3), radius: 3, tint: .orange)
+            } else {
+                polygon(center, radius: 13, sides: effect.motif == .gem ? 4 : 6, rotation: p * .pi * 2, tint: color)
+                circle(center, radius: 4, tint: .white.opacity(0.6))
+            }
+        case .slash, .claw, .cross:
+            let center = CGPoint(x: end.x, y: end.y)
+            let reveal = min(1, p * 1.5)
+            for i in 0..<(effect.motif == .claw ? 3 : 2) {
+                let shift = CGFloat(i) * 9 - 7
+                let reverse: CGFloat = effect.motif == .cross && i == 1 ? -1 : 1
+                line([CGPoint(x: center.x - 22 + shift, y: center.y + 23 * reverse), CGPoint(x: center.x - 22 + shift + 44 * reveal, y: center.y + (23 - 46 * reveal) * reverse)], width: 3, tint: color)
+            }
+        case .horn:
+            polygon(point, radius: 15 * strength, sides: 3, rotation: direction > 0 ? 0 : .pi, tint: color)
+            line([CGPoint(x: point.x - direction * 28, y: point.y), point], width: 3, tint: color.opacity(0.5))
+        case .clamp:
+            let gap = 5 + (1 - p) * 18
+            for sign: CGFloat in [-1, 1] {
+                line([CGPoint(x: end.x - 14, y: end.y + sign * gap),
+                      CGPoint(x: end.x, y: end.y + sign * gap / 2),
+                      CGPoint(x: end.x + 14, y: end.y + sign * gap)], width: 5, tint: color)
+            }
+        case .punch, .kick, .shadow, .impact:
+            let radius = (effect.motif == .kick ? 16 : 12) * strength
+            circle(point, radius: radius + 6, tint: color.opacity(0.2))
+            polygon(point, radius: radius, sides: effect.motif == .punch ? 6 : 8, rotation: p * .pi, tint: color)
+            for i in 0..<5 {
+                let angle = CGFloat(i) * .pi * 2 / 5
+                line([CGPoint(x: point.x + cos(angle) * (radius + 4), y: point.y + sin(angle) * (radius + 4)), CGPoint(x: point.x + cos(angle) * (radius + 11), y: point.y + sin(angle) * (radius + 11))], width: 2, tint: color)
             }
         }
+    }
+
+    mutating func line(_ points: [CGPoint], width: CGFloat, tint: Color) {
+        guard let first = points.first else { return }
+        var path = Path(); path.move(to: first)
+        for point in points.dropFirst() { path.addLine(to: point) }
+        context.stroke(path, with: .color(tint), style: StrokeStyle(lineWidth: width, lineCap: .round, lineJoin: .round))
+    }
+
+    mutating func circle(_ center: CGPoint, radius: CGFloat, tint: Color, filled: Bool = true) {
+        let path = Path(ellipseIn: CGRect(x: center.x - radius, y: center.y - radius, width: radius * 2, height: radius * 2))
+        if filled { context.fill(path, with: .color(tint)) }
+        else { context.stroke(path, with: .color(tint), lineWidth: 2) }
+    }
+
+    mutating func polygon(_ center: CGPoint, radius: CGFloat, sides: Int, rotation: CGFloat = 0, tint: Color) {
+        var path = Path()
+        for i in 0..<sides {
+            let angle = CGFloat(i) * .pi * 2 / CGFloat(sides) + rotation
+            let vertex = CGPoint(x: center.x + cos(angle) * radius, y: center.y + sin(angle) * radius)
+            if i == 0 { path.move(to: vertex) } else { path.addLine(to: vertex) }
+        }
+        path.closeSubpath(); context.fill(path, with: .color(tint))
     }
 }
