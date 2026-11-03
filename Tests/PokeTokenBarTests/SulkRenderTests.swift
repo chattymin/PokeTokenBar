@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import Vision
 import XCTest
 @testable import PokeTokenBar
 
@@ -251,5 +252,57 @@ final class SulkRenderTests: XCTestCase {
         try await writeIllustration(menuIllustration(rows, width: 280),
                                     name: "illustration-status-menu-checked-en.png",
                                     size: CGSize(width: 304, height: 240), to: directory)
+    }
+
+    // MARK: Settings section
+
+    /// Crops a full-page render to the span between two section titles, found by OCR. The titles are the
+    /// real localized strings; if either is not found the whole page is written so nothing is lost.
+    private func crop(_ png: Data, from startTitle: String, to endTitle: String) throws -> Data {
+        let rep = try XCTUnwrap(NSBitmapImageRep(data: png))
+        let cgImage = try XCTUnwrap(rep.cgImage)
+        let request = VNRecognizeTextRequest()
+        request.recognitionLevel = .accurate
+        request.recognitionLanguages = ["en-US"]
+        try VNImageRequestHandler(cgImage: cgImage).perform([request])
+        func topY(of title: String) -> CGFloat? {
+            // Rows below a title may repeat its words ("Show floating pet"), so take the topmost match.
+            let rows = (request.results ?? [])
+                .filter { $0.topCandidates(1).first?.string.lowercased().contains(title.lowercased()) == true }
+                // Vision's origin is bottom-left; convert to image rows from the top.
+                .map { (1 - $0.boundingBox.maxY) * CGFloat(cgImage.height) }
+            return rows.min()
+        }
+        guard let top = topY(of: startTitle), let bottom = topY(of: endTitle), bottom > top else {
+            print("sulk-render crop: titles not found, writing the full page")
+            return png
+        }
+        let margin: CGFloat = 16
+        let rect = CGRect(x: 0, y: max(0, top - margin), width: CGFloat(cgImage.width),
+                          height: bottom - top)
+        let cropped = try XCTUnwrap(cgImage.cropping(to: rect))
+        return try XCTUnwrap(NSBitmapImageRep(cgImage: cropped).representation(using: .png, properties: [:]))
+    }
+
+    func testRenderSettingsFloatingPetSection() async throws {
+        let directory = try outputDirectory()
+        let suite = "SulkRenderSettings-\(UUID())"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        addTeardownBlock { defaults.removePersistentDomain(forName: suite) }
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent("\(suite).json")
+        addTeardownBlock { try? FileManager.default.removeItem(at: file) }
+        let usage = UsageStore(providers: [], autoRefresh: false, defaults: defaults)
+        usage.floatingPetEnabled = true
+        let companion = CompanionStore(fileURL: file, defaults: defaults)
+        companion.setLanguage(.en)
+        let view = SettingsView(onClose: {}, onChooseRepresentative: {})
+            .environment(usage).environment(companion).environment(UpdateChecker())
+        // Tall enough that the scroll view lays out every section; the section is cropped afterwards.
+        let host = mount(view, width: PopoverMetrics.width, height: 2600)
+        let page = try await snapshot(host)
+        let l = L(.en)
+        let section = try crop(page, from: l.floatingPetSectionTitle, to: l.notificationsSection)
+        try section.write(to: directory.appendingPathComponent("settings-floating-pet-after-en.png"))
+        print("wrote settings-floating-pet-after-en.png (\(section.count) bytes)")
     }
 }
