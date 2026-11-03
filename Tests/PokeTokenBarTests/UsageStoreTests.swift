@@ -1098,9 +1098,9 @@ final class UsageStoreTests: XCTestCase {
         XCTAssertTrue(store.snapshots.contains { $0.providerID == "codex" })
     }
 
-    /// Sulk input: unknown before this session's scan, the newest `lastUsage` across providers afterwards,
-    /// unknown again when a scan fails, and "at least the scan window" when a complete scan found nothing.
-    func testTimeSinceLastUsageIsUnknownUntilACompleteScan() async throws {
+    /// Sulk input: unknown only before the first complete refresh; afterwards unreadable providers are
+    /// ignored (not a veto) and the newest `lastUsage` among the rest decides.
+    func testTimeSinceLastUsageIsUnknownOnlyBeforeTheFirstRefresh() async throws {
         let now = Date()
         let older = FakeUsageProvider(id: "codex", displayName: "Codex", daily: todayDaily(1))
         let newer = FakeUsageProvider(id: "claude_code", displayName: "Claude Code", daily: todayDaily(1))
@@ -1118,10 +1118,25 @@ final class UsageStoreTests: XCTestCase {
         await store.refresh(scheduleEmptyRetry: false)
         XCTAssertEqual(try XCTUnwrap(store.timeSinceLastUsage(now: now)), 30 * 3600, accuracy: 1)
 
+        // The newer provider becomes unreadable: its carried-over time is ignored, the older one decides.
         newer.enrichment = enrichment(lastUsage: nil, periodsOK: false)
         await store.refresh(scheduleEmptyRetry: false)
-        XCTAssertNil(store.timeSinceLastUsage(now: now), "a failed scan may hide newer usage")
+        XCTAssertEqual(try XCTUnwrap(store.timeSinceLastUsage(now: now)), 50 * 3600, accuracy: 1,
+                       "an unreadable provider does not veto sulking")
 
+        // One provider fails while the other reported 4 h ago: that is idle enough to sulk.
+        older.enrichment = enrichment(lastUsage: now.addingTimeInterval(-4 * 3600))
+        await store.refresh(scheduleEmptyRetry: false)
+        let idle = try XCTUnwrap(store.timeSinceLastUsage(now: now))
+        XCTAssertEqual(idle, 4 * 3600, accuracy: 1)
+        XCTAssertGreaterThanOrEqual(idle, PokemonBalance.sulkAfterIdle)
+
+        // Every provider fails after the first refresh: nothing reports, so it is long idle.
+        older.enrichment = enrichment(lastUsage: nil, periodsOK: false)
+        await store.refresh(scheduleEmptyRetry: false)
+        XCTAssertEqual(store.timeSinceLastUsage(now: now), LocalUsageReader.recentUseWindow)
+
+        // A complete scan that found no usage at all means the same.
         older.enrichment = enrichment(lastUsage: nil)
         newer.enrichment = enrichment(lastUsage: nil)
         await store.refresh(scheduleEmptyRetry: false)
