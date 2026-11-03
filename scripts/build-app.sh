@@ -11,6 +11,7 @@ APP="$BUILD_DIR/$APP_NAME.app"
 # README 가 Apple Silicon + Intel 지원을 약속하므로 배포 바이너리는 universal(arm64 + x86_64)이어야 한다.
 # `swift build --arch arm64 --arch x86_64` 는 Xcode(xcbuild)가 필요해 Command Line Tools 만으로는 실패하므로
 # 아키텍처별로 따로 빌드한 뒤 lipo 로 합친다. 로컬 개발에서 빌드 시간을 줄이려면 PTB_NATIVE_ARCH_ONLY=1.
+# swiftpm.sh 는 CLT 단독 사용 시 SwiftUI @State 가 매크로가 되기 전의 macOS 26 SDK 를 선택한다.
 ARCHS=(arm64 x86_64)
 if [[ "${PTB_NATIVE_ARCH_ONLY:-0}" == "1" ]]; then
     [[ "${PTB_REQUIRE_STABLE_SIGN:-0}" == "1" ]] && { echo "   ✗ 릴리스 빌드는 PTB_NATIVE_ARCH_ONLY 를 쓸 수 없다 (universal 필수)." >&2; exit 1; }
@@ -18,9 +19,9 @@ if [[ "${PTB_NATIVE_ARCH_ONLY:-0}" == "1" ]]; then
 fi
 SLICES=()
 for arch in "${ARCHS[@]}"; do
-    echo "==> swift build -c release --arch $arch"
-    swift build -c release --arch "$arch"
-    SLICES+=("$(swift build -c release --arch "$arch" --show-bin-path)/$APP_NAME")
+    echo "==> SwiftPM release build ($arch)"
+    ./scripts/swiftpm.sh build -c release --arch "$arch"
+    SLICES+=("$(./scripts/swiftpm.sh build -c release --arch "$arch" --show-bin-path)/$APP_NAME")
 done
 
 echo "==> $APP 조립"
@@ -48,6 +49,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
     <key>CFBundleIconFile</key><string>AppIcon</string>
     <key>LSUIElement</key><true/>
     <key>NSHighResolutionCapable</key><true/>
+    <key>NSLocalNetworkUsageDescription</key><string>Connect to a friend on your local network for Pokémon battles.</string>
 </dict>
 </plist>
 PLIST

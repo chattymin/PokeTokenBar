@@ -169,6 +169,7 @@ Pi는 모델 여러 개를 세션 로그 하나로 흘려보낼 수 있습니다
 - **대표 포켓몬** — 도감에서 보유한 종을 골라 현재 키우는 포켓몬과 별개로 메뉴바와 선택적 플로팅 펫에 고정. 고정 중에는 메뉴바가 알·부화·진화를 따라가지 않지만, 육성 과정은 Home에서 계속 확인할 수 있습니다.
 - **애니메이션 품질** — 메뉴바 스프라이트와 플로팅 펫이 얼마나 부드럽게 움직일지 고릅니다(배터리 절약 / 기본 / 부드럽게). 상시 표시되는 두 표면이 같은 설정을 씁니다. 기본값 "배터리 절약"은 이 설정이 생기기 전과 같은 프레임 레이트이고, "기본"·"부드럽게"는 배터리를 더 씁니다(실측 유휴 CPU 약 1.8% / 약 5.1%).
 - **인터랙티브 플로팅 펫** — 호버로 오늘 사용량, 클릭으로 메인 창, 우클릭 메뉴, 한도 알림은 말풍선으로 표시.
+- **제한된 연습 대전** — 가로형 대전 창에서 보유한 서로 다른 두 개체를 골라 양쪽을 직접 조작하거나, 같은 신뢰할 수 있는 LAN에서 친구와 대전합니다. 지원 기술만 사용하며 피해·타입·명중률·능력치 단계·회복·반동을 계산합니다. 특성·상태이상·아이템·보상은 적용하지 않으며 세이브는 바뀌지 않습니다.
 - **서비스별 탭** — Claude Code·Codex·Gemini CLI·Antigravity·OpenCode·Hermes Agent·Cursor·Grok CLI·Copilot CLI·Kiro CLI·Pi Agent·omp·Aside·Kimi Code 중 2개 이상 감지되면 작은 탭으로 상세를 서비스별 전환(오늘 합계는 통합 유지).
 - **공식 한도** — Claude·Codex·Antigravity 5시간/주간 사용률 + 리셋 카운트다운을 오늘 숫자 바로 아래에.
 - **추가 스캔 폴더** — 기본 경로 밖에 있는 로그를 위해 프로바이더별로 스캔 루트를 더 지정 (설정 → 고급).
@@ -237,8 +238,8 @@ Homebrew를 쓰지 않는다면 [최신 릴리스](https://github.com/chattymin/
 ### 소스 빌드
 
 ```bash
-swift build                  # 디버그
-swift test                   # 단위 테스트
+./scripts/swiftpm.sh build   # 디버그 (Command Line Tools만 있으면 macOS 26 SDK 사용)
+./scripts/swiftpm.sh test    # 단위 테스트
 ./scripts/build-app.sh       # release → PokeTokenBar.app → /Applications
 ```
 

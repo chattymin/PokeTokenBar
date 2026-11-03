@@ -1326,3 +1326,17 @@ read_when:
   On the same CI image, English-only recognition corrected the period label but still read
   the unrelated chart caption `Daily` as `Dally`; do not teach OCR that misspelling or relax
   the original chart guard to make a period-row regression pass.
+
+## Battle move selection
+
+- Filtering the automatically generated last four learned moves against the battle catalog can leave a Pokémon without an attack even when it learned a supported move earlier. The original roster tests used isolated supported or unsupported moves and did not cover a mixed learnset with newer unsupported moves. Battle preparation now filters the full legal level-up history first and selects up to four supported moves; when none exist it uses the explicitly app-specific Practice Strike. Roster regression tests cover the mixed-history and fallback branches without changing the saved profile.
+
+## Battle move effects
+
+- **The move's actual Type owns its battle effect.** Keep Type as the outer mapping for both palette and motif; use move-specific shapes only inside that Type, and draw them with the Type color. Keep white highlights as small accents rather than the dominant effect. The current limited ruleset animates only the moves it implements.
+- **Anchor every battle effect to the fighter sprites, not a fixed Canvas row.** Publish each sprite center as an anchor and resolve those anchors in the arena overlay; calculate each projectile's path and motif offsets from the resolved points. Clear the effect after each ordered battle event so a previous move cannot leak into the next animation.
+- **Keep the battle Canvas body as a thin adapter.** The macOS 15 CI build (Swift 6.1.2) could not type-check the inline effect renderer in `BattleAttackEffectView.body`; the error pointed at the `Canvas` expression before tests started. Local release builds used Swift 6.4.2 and did not expose the compiler-limit difference, so the first validation missed the CI toolchain. The renderer now lives in a dedicated imperative helper with small drawing primitives, leaving only context setup in `View.body`. A source sweep found this was the only production `Canvas` closure. The CI build is the regression guard for this compiler-only failure; no runtime test can reproduce a type-check timeout.
+
+## Build wrapper arguments
+
+- **Do not expand an optional empty array under macOS Bash 3.2 with `set -u`.** CI's `swift build` uses Xcode directly and passed, but `test-gate.sh` calls `swiftpm.sh` under the Xcode toolchain. That path leaves the optional SDK argument empty; `${SDK_ARGS[@]}` then fails as “unbound variable” before `swift test` starts. Local CLT builds always populated the array, so they missed the Xcode branch. Replace the optional array with an initialized scalar SDK path and branch before invoking SwiftPM. The macOS 15 CI test gate exercises the previously empty-argument path.

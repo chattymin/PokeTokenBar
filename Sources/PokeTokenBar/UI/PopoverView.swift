@@ -40,6 +40,7 @@ final class PopoverNavigation {
     }
     /// The usage recap takes over the popover like Settings does; closing the popover drops it.
     var showingRecap = false { didSet { if showingRecap { dexDetailCollectionID = nil } } }
+    var showingBattle = false { didSet { if showingBattle { dexDetailCollectionID = nil } } }
     /// The Collection tab's open Pokédex detail page (`DexSpecies.collectionID`); nil = grid or log.
     /// It lives here so Home sprites can open it, but it only lasts while the collection content is
     /// on screen: leaving the tab, switching segment, or covering it with Settings/Recap drops it —
@@ -57,6 +58,7 @@ final class PopoverNavigation {
         showSettings = false
         expandAdvancedOnOpen = false
         showingRecap = false
+        showingBattle = false
         tab = .home
     }
 
@@ -85,6 +87,7 @@ final class PopoverNavigation {
 
 @MainActor
 struct PopoverView: View {
+    var onOpenBattle: () -> Void = {}
     @Environment(UsageStore.self) private var store
     @Environment(CompanionStore.self) private var companion
     @Environment(UpdateChecker.self) private var updater
@@ -1047,6 +1050,14 @@ struct PopoverView: View {
                 }
             }
             Spacer()
+            Button {
+                onOpenBattle()
+            } label: {
+                Image(systemName: "bolt.shield")
+            }
+            .buttonStyle(.borderless)
+            .help(l.battleTitle)
+            .accessibilityLabel(l.battleTitle)
             // 끄기는 펫 우클릭. 켜기는 여기 — 숨기면 우클릭할 대상이 없다(#301).
             // Settings 체크박스와 같은 `floatingPetEnabled`. 홈 탭에만 두면 도감에서 못 켠다.
             Button {

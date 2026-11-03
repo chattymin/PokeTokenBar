@@ -19,7 +19,7 @@
 本プロジェクトは Swift Package です。リポジトリのルートから:
 
 ```bash
-swift build             # アプリターゲットをコンパイル
+./scripts/swiftpm.sh build  # アプリターゲットをコンパイル（CLTのみならmacOS 26 SDKを選択）
 ./scripts/test-gate.sh   # 全テストを実行し、ロジックコアのカバレッジを検証
 ```
 

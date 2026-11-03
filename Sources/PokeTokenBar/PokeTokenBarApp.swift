@@ -10,15 +10,16 @@ struct PokeTokenBarApp: App {
     var body: some Scene {
         // 메뉴바는 AppDelegate 의 NSStatusItem 이 담당.
         // MenuBarExtra 라벨은 고빈도 갱신 시 재렌더링 폭주로 CPU/메모리 문제가 있어 사용하지 않는다.
-        // No standalone windows: the status item and its popover are owned by AppDelegate.
+        // The status item and transient popover are owned by AppDelegate; Battle opens in an independent window.
         _EmptyScene()
     }
 }
 
 @MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSWindowDelegate {
     private var statusItem: NSStatusItem!
     private let popover = NSPopover()
+    private var battleWindow: NSWindow?
     private var outsideClickMonitor = OutsideClickMonitor()
     private var store: UsageStore!
     private var companion: CompanionStore!
@@ -117,6 +118,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         observeDisplaySleep()
         observePowerState()
         applyState()
+        if AppEnv.opensBattleOnStart {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
+                self?.openBattleWindow()
+            }
+        }
     }
 
     /// Observation 기반 상태 반영 — store 의 menuTitle(=menuLines) 변경 시 재호출.
@@ -559,8 +565,67 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
 
     private func buildPopoverContent() {
         popover.contentViewController = NSHostingController(
-            rootView: PopoverView()
+            rootView: PopoverView(onOpenBattle: { [weak self] in self?.openBattleWindow() })
                 .environment(store).environment(companion).environment(updater).environment(navigation))
+    }
+
+    private func openBattleWindow() {
+        if let battleWindow {
+            if popover.isShown { popover.performClose(nil) }
+            NSApp.activate(ignoringOtherApps: true)
+            if battleWindow.isMiniaturized { battleWindow.deminiaturize(nil) }
+            battleWindow.makeKeyAndOrderFront(nil)
+            return
+        }
+
+        let visibleFrame = NSScreen.main?.visibleFrame
+            ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
+        // Keep the dedicated battle screen landscape even when the active display is portrait.
+        let aspectRatio = CGSize(width: 16, height: 10)
+        let maxWidth = min(visibleFrame.width * 0.90, 1600)
+        let maxHeight = min(visibleFrame.height * 0.84, 1000)
+        let contentHeight = min(maxHeight, maxWidth * aspectRatio.height / aspectRatio.width)
+        let contentWidth = contentHeight * aspectRatio.width / aspectRatio.height
+        let contentSize = NSSize(width: contentWidth, height: contentHeight)
+        let scrollAreaHeight = max(360, contentSize.height - 100)
+        let rootView = BattleView(store: companion, onClose: { [weak self] in
+            self?.closeBattleWindow()
+        }, scrollAreaHeight: scrollAreaHeight)
+        .environment(\.locale, companion.language.displayLocale)
+        .frame(width: contentSize.width, height: contentSize.height, alignment: .topLeading)
+        let window = NSWindow(
+            contentRect: NSRect(origin: .zero, size: contentSize),
+            styleMask: [.titled, .closable, .miniaturizable, .resizable],
+            backing: .buffered,
+            defer: false)
+        window.title = companion.l.battleTitle
+        window.contentViewController = NSHostingController(rootView: rootView)
+        window.isReleasedWhenClosed = false
+        window.minSize = NSSize(width: min(980, contentSize.width),
+                                height: min(612.5, contentSize.height))
+        window.aspectRatio = aspectRatio
+        window.setContentSize(contentSize)
+        window.tabbingMode = .disallowed
+        window.delegate = self
+        battleWindow = window
+
+        if popover.isShown { popover.performClose(nil) }
+        NSApp.activate(ignoringOtherApps: true)
+        window.center()
+        window.makeKeyAndOrderFront(nil)
+    }
+
+    private func closeBattleWindow() {
+        battleWindow?.close()
+    }
+
+    func windowWillClose(_ notification: Notification) {
+        guard let window = notification.object as? NSWindow, window === battleWindow else { return }
+        battleWindow = nil
+    }
+
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
+        false
     }
 
     @objc private func statusItemClicked() {
