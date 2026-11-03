@@ -24,7 +24,7 @@ for argument in "$@"; do
     fi
 done
 
-SDK_ARGS=()
+SDK_PATH=""
 ACTIVE_DEVELOPER_DIR="${DEVELOPER_DIR:-$(xcode-select --print-path 2>/dev/null || true)}"
 if [[ "$HAS_EXPLICIT_SDK" == "0" && "$ACTIVE_DEVELOPER_DIR" == "/Library/Developer/CommandLineTools" ]]; then
     CLT_MACOS26_SDK="$ACTIVE_DEVELOPER_DIR/SDKs/MacOSX26.sdk"
@@ -33,7 +33,11 @@ if [[ "$HAS_EXPLICIT_SDK" == "0" && "$ACTIVE_DEVELOPER_DIR" == "/Library/Develop
         echo "The macOS 27 SDK needs SwiftUIMacros from Xcode; install a CLT package with macOS 26 SDK or select full Xcode." >&2
         exit 1
     fi
-    SDK_ARGS=(--sdk "$CLT_MACOS26_SDK")
+    SDK_PATH="$CLT_MACOS26_SDK"
 fi
 
-exec swift "$ACTION" "${SDK_ARGS[@]}" "$@"
+# Avoid an empty optional array: macOS Bash 3.2 treats `${array[@]}` as unset under `set -u`.
+if [[ -n "$SDK_PATH" ]]; then
+    exec swift "$ACTION" --sdk "$SDK_PATH" "$@"
+fi
+exec swift "$ACTION" "$@"
