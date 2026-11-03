@@ -73,7 +73,7 @@ struct SettingsView: View {
                         generalGroup(store)
                         difficultyGroup
                         menuBarGroup(store)
-                        floatingPetGroup(store)
+                        FloatingPetSettingsSection()
                         notificationsGroup(store)
                         updateGroup(store)
                         transferGroup(store)
@@ -284,45 +284,6 @@ struct SettingsView: View {
                 }
             }
             Text(l.allOffHint).font(.caption2).foregroundStyle(.tertiary).padding(.leading, 4)
-        }
-    }
-
-    @ViewBuilder
-    private func floatingPetGroup(_ store: UsageStore) -> some View {
-        @Bindable var store = store
-        settingsSection(l.floatingPetSectionTitle) {
-            groupRow {
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(l.floatingPetEnableLabel)
-                    Text(l.floatingPetHint).font(.caption2).foregroundStyle(.tertiary)
-                }
-                Spacer()
-                Toggle(l.floatingPetEnableLabel, isOn: $store.floatingPetEnabled)
-                    .labelsHidden().toggleStyle(.switch).controlSize(.small)
-            }
-            Divider()
-            groupRow {
-                // Also reachable from both right-click menus. Applies to every surface, not only the pet.
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(l.backViewLabel)
-                    Text(l.backViewHint).font(.caption2).foregroundStyle(.tertiary)
-                }
-                Spacer()
-                Toggle(l.backViewLabel, isOn: $store.alwaysFacesBack)
-                    .labelsHidden().toggleStyle(.switch).controlSize(.small)
-            }
-            if store.floatingPetEnabled {
-                Divider()
-                groupRow {
-                    Text(l.floatingPetSizeLabel).font(.callout)
-                    Slider(value: $store.floatingPetSize, in: 48...384, step: 8)
-                        .accessibilityLabel(l.floatingPetSizeLabel)
-                    Text("\(Int(store.floatingPetSize))px")
-                        .font(.caption).monospacedDigit().frame(width: 44, alignment: .trailing)
-                }
-                Divider()
-                toggleRow(l.floatingPetBubbleAlertsLabel, $store.floatingPetBubbleAlerts)
-            }
         }
     }
 
@@ -894,36 +855,21 @@ struct SettingsView: View {
 
     // MARK: 공용 빌더
 
-    /// 섹션 = 소문자 회색 타이틀 + 라운드 카드 (macOS inset grouped 룩).
+    /// 섹션 = 소문자 회색 타이틀 + 라운드 카드 (macOS inset grouped 룩). 구현은 `SettingsCard` 와 공유한다.
     @ViewBuilder
     private func settingsSection<Content: View>(
         _ title: String, @ViewBuilder content: () -> Content
     ) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(title)
-                .font(.caption).fontWeight(.semibold).foregroundStyle(.secondary)
-                .textCase(.uppercase).padding(.leading, 4)
-            VStack(spacing: 0) { content() }
-                .background(Color(nsColor: .controlBackgroundColor),
-                           in: RoundedRectangle(cornerRadius: 8))
-                .overlay(RoundedRectangle(cornerRadius: 8)
-                    .stroke(Color(nsColor: .separatorColor).opacity(0.6), lineWidth: 1))
-        }
+        SettingsCard.section(title, content: content)
     }
 
     /// 카드 내부 한 줄 — 좌 라벨 / 우 컨트롤.
     private func groupRow<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
-        HStack(spacing: 10) { content() }
-            .padding(.horizontal, 12).padding(.vertical, 8)
-            .frame(minHeight: 38)
+        SettingsCard.row(content)
     }
 
     private func toggleRow(_ label: String, _ isOn: Binding<Bool>) -> some View {
-        groupRow {
-            Text(label)
-            Spacer()
-            Toggle(label, isOn: isOn).labelsHidden().toggleStyle(.switch).controlSize(.small)
-        }
+        SettingsCard.toggleRow(label, isOn)
     }
 
     /// 푸터 링크 — 버전 표기와 동일한 크기·색을 상속하고 밑줄로만 구분.

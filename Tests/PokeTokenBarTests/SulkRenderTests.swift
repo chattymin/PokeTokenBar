@@ -1,6 +1,5 @@
 import AppKit
 import SwiftUI
-import Vision
 import XCTest
 @testable import PokeTokenBar
 
@@ -256,36 +255,9 @@ final class SulkRenderTests: XCTestCase {
 
     // MARK: Settings section
 
-    /// Crops a full-page render to the span between two section titles, found by OCR. The titles are the
-    /// real localized strings; if either is not found the whole page is written so nothing is lost.
-    private func crop(_ png: Data, from startTitle: String, to endTitle: String) throws -> Data {
-        let rep = try XCTUnwrap(NSBitmapImageRep(data: png))
-        let cgImage = try XCTUnwrap(rep.cgImage)
-        let request = VNRecognizeTextRequest()
-        request.recognitionLevel = .accurate
-        request.recognitionLanguages = ["en-US"]
-        try VNImageRequestHandler(cgImage: cgImage).perform([request])
-        func topY(of title: String) -> CGFloat? {
-            // Rows below a title may repeat its words ("Show floating pet"), so take the topmost match.
-            let rows = (request.results ?? [])
-                .filter { $0.topCandidates(1).first?.string.lowercased().contains(title.lowercased()) == true }
-                // Vision's origin is bottom-left; convert to image rows from the top.
-                .map { (1 - $0.boundingBox.maxY) * CGFloat(cgImage.height) }
-            return rows.min()
-        }
-        guard let top = topY(of: startTitle), let bottom = topY(of: endTitle), bottom > top else {
-            print("sulk-render crop: titles not found, writing the full page")
-            return png
-        }
-        let margin: CGFloat = 16
-        let rect = CGRect(x: 0, y: max(0, top - margin), width: CGFloat(cgImage.width),
-                          height: bottom - top)
-        let cropped = try XCTUnwrap(cgImage.cropping(to: rect))
-        return try XCTUnwrap(NSBitmapImageRep(cgImage: cropped).representation(using: .png, properties: [:]))
-    }
-
-    func testRenderSettingsFloatingPetSection() async throws {
-        let directory = try outputDirectory()
+    /// The Floating Pet section alone, at the width it has inside Settings (the page's 16 pt padding on
+    /// both sides) and as tall as its rows need. No cropping, so before and after share one recipe.
+    private func renderFloatingPetSection(backView: Bool, name: String, to directory: URL) async throws {
         let suite = "SulkRenderSettings-\(UUID())"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
         addTeardownBlock { defaults.removePersistentDomain(forName: suite) }
@@ -293,16 +265,24 @@ final class SulkRenderTests: XCTestCase {
         addTeardownBlock { try? FileManager.default.removeItem(at: file) }
         let usage = UsageStore(providers: [], autoRefresh: false, defaults: defaults)
         usage.floatingPetEnabled = true
+        usage.alwaysFacesBack = backView
         let companion = CompanionStore(fileURL: file, defaults: defaults)
         companion.setLanguage(.en)
-        let view = SettingsView(onClose: {}, onChooseRepresentative: {})
-            .environment(usage).environment(companion).environment(UpdateChecker())
-        // Tall enough that the scroll view lays out every section; the section is cropped afterwards.
-        let host = mount(view, width: PopoverMetrics.width, height: 2600)
-        let page = try await snapshot(host)
-        let l = L(.en)
-        let section = try crop(page, from: l.floatingPetSectionTitle, to: l.notificationsSection)
-        try section.write(to: directory.appendingPathComponent("settings-floating-pet-after-en.png"))
-        print("wrote settings-floating-pet-after-en.png (\(section.count) bytes)")
+        let content = FloatingPetSettingsSection()
+            .environment(usage).environment(companion)
+            .padding(16)
+            .frame(width: PopoverMetrics.width)
+            .fixedSize(horizontal: false, vertical: true)
+        let height = ceil(NSHostingView(rootView: content).fittingSize.height)
+        let png = try await snapshot(mount(content, width: PopoverMetrics.width, height: height))
+        try png.write(to: directory.appendingPathComponent(name))
+        print("wrote \(name) (\(png.count) bytes, \(Int(PopoverMetrics.width))x\(Int(height)) pt)")
+    }
+
+    func testRenderSettingsFloatingPetSection() async throws {
+        let directory = try outputDirectory()
+        try await renderFloatingPetSection(backView: false, name: "settings-floating-pet-after-en.png", to: directory)
+        try await renderFloatingPetSection(backView: true, name: "settings-floating-pet-after-back-on-en.png",
+                                           to: directory)
     }
 }
