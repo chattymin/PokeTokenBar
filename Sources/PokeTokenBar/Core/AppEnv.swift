@@ -6,7 +6,9 @@ enum AppEnv {
     /// "실앱 전용" 부수효과의 단일 게이트 — `swift test`/로우 바이너리(dev 실행)에선 false.
     /// bundleIdentifier(Info.plist)와 경로 접미사를 함께 확인(둘 다 실앱에서만 참).
     static var isBundledApp: Bool {
-        Bundle.main.bundleIdentifier != nil && Bundle.main.bundlePath.hasSuffix(".app")
+        // An isolated QA bundle opts out of production-only side effects while using its copied state.
+        ProcessInfo.processInfo.environment["PTB_TEST_BUILD"] != "1"
+            && Bundle.main.bundleIdentifier != nil && Bundle.main.bundlePath.hasSuffix(".app")
     }
 
     /// `PTB_PARITY=1` — a QA/parity run where live endpoints are allowed (the same flag the parity

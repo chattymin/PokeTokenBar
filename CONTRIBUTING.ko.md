@@ -19,7 +19,7 @@
 이 프로젝트는 Swift Package입니다. 저장소 루트에서:
 
 ```bash
-swift build             # 앱 타깃 컴파일
+./scripts/swiftpm.sh build  # 앱 타깃 컴파일 (CLT만 사용하면 macOS 26 SDK 선택)
 ./scripts/test-gate.sh   # 전체 테스트 실행 및 로직 코어 커버리지 검사
 ```
 

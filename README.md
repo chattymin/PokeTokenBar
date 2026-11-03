@@ -168,6 +168,7 @@ Reset countdowns include the clock time, and the colored percentage stays aligne
 - **Representative Pokémon** — pin any owned Pokédex species to the menu bar and optional floating pet, independently of the companion you're raising. While pinned, the menu bar stops following egg, hatch, and evolution changes; raising progress remains visible on Home.
 - **Animation quality** — pick how smoothly the menu bar sprite and the floating pet animate (Power saver / Balanced / Smooth). Both always-visible surfaces share the setting. Power saver is the default and keeps the frame rate the app used before this setting existed; Balanced and Smooth trade battery for smoothness (measured idle CPU ~1.8% and ~5.1%).
 - **Interactive floating pet** — hover for today's usage, click to open the main window, right-click for a menu, and show limit alerts as speech bubbles.
+- **Limited practice battles** — open a separate landscape Battle window, choose two owned individuals, and control both sides or play with a friend on the same trusted LAN. Only supported moves use the app's implemented damage, type, accuracy, stat-stage, healing, and recoil rules; Abilities, status conditions, items, and rewards are not included, and battles never change your save.
 - **Per-service tabs** — when two or more of Claude Code, Codex, Gemini CLI, Antigravity, OpenCode, Hermes Agent, Cursor, Grok CLI, Copilot CLI, Kiro CLI, Pi Agent, omp, Aside, and Kimi Code are detected, compact tabs switch between them; today's total stays combined.
 - **Official limits** — Claude, Codex & Antigravity 5-hour / weekly utilization with reset countdowns, right under today's numbers.
 - **Additional scan folders** — per-provider extra scan roots for logs kept outside the built-in paths (Settings → Advanced).
@@ -236,8 +237,8 @@ Because the app is ad-hoc/self-signed (not notarized under an Apple Developer ac
 ### Build from source
 
 ```bash
-swift build                  # debug
-swift test                   # unit tests
+./scripts/swiftpm.sh build   # debug (uses macOS 26 SDK with Command Line Tools only)
+./scripts/swiftpm.sh test    # unit tests
 ./scripts/build-app.sh       # release → PokeTokenBar.app → /Applications
 ```
 

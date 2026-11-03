@@ -19,7 +19,7 @@ Please read the short sections below before opening a pull request.
 The project is a Swift Package. From the repository root:
 
 ```bash
-swift build             # compile the app target
+./scripts/swiftpm.sh build  # compile the app target; selects macOS 26 SDK for CLT-only toolchains
 ./scripts/test-gate.sh   # run all tests and enforce logic-core coverage
 ```
 

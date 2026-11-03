@@ -1162,6 +1162,11 @@ struct L {
     var activeMoves: String { t("배운 기술", "Known moves", "覚えている技", "Movimientos conocidos", "Capacités connues", "Golpes conhecidos", "Erlernte Attacken", "Изученные приёмы") }
     var noLevelMoves: String { t("현재 레벨에서 배운 기술이 없어요.", "No level-up moves learned at this level.", "現在のレベルで覚えた技はありません。", "No hay movimientos aprendidos a este nivel.", "Aucune capacité apprise à ce niveau.", "Nenhum golpe aprendido neste nível.", "Auf diesem Level wurden keine Attacken erlernt.", "На этом уровне ещё нет приёмов, изучаемых по уровню.") }
     var actualStats: String { t("실제 능력치", "Actual stats", "実能力値", "Estadísticas reales", "Stats réelles", "Atributos reais", "Tatsächliche Werte", "Фактические характеристики") }
+    func actualStatsScaleMaximum(_ value: Int) -> String {
+        t("표시된 능력치 중 최고 · \(value)", "Highest stat shown · \(value)", "表示中の能力値の最大 · \(value)",
+          "Máximo entre las estadísticas mostradas · \(value)", "Maximum des stats affichées · \(value)",
+          "Maior atributo exibido · \(value)", "Höchster angezeigter Wert · \(value)", "Максимум среди показанных · \(value)")
+    }
     var baseStats: String { t("기본 능력치", "Base stats", "種族値", "Estadísticas base", "Stats de base", "Atributos base", "Basiswerte", "Базовые характеристики") }
     var speciesData: String { t("종 정보", "Species data", "種情報", "Datos de especie", "Données de l’espèce", "Dados da espécie", "Speziesdaten", "Данные вида") }
     var height: String { t("키", "Height", "高さ", "Altura", "Taille", "Altura", "Größe", "Рост") }
