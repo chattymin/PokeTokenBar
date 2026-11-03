@@ -118,7 +118,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
         observeDisplaySleep()
         observePowerState()
         applyState()
-        if ProcessInfo.processInfo.environment["PTB_OPEN_BATTLE_ON_START"] == "1" {
+        if AppEnv.opensBattleOnStart {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
                 self?.openBattleWindow()
             }

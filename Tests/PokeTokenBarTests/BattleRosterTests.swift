@@ -126,12 +126,12 @@ final class BattleRosterTests: XCTestCase {
                                       height: base.height, weight: base.weight,
                                       baseExperience: base.baseExperience, genderRate: base.genderRate,
                                       types: base.types, baseStats: base.baseStats, abilities: base.abilities,
-                                      moves: ["tackle", "growl", "vine-whip", "synthesis", "growth"].enumerated().map {
+                                      moves: ["tackle", "growl", "vine-whip", "synthesis", "work-up"].enumerated().map {
                                           PokemonMoveOption(name: $0.element,
                                                             learnMethods: [.init(method: "level-up", level: $0.offset + 1)])
                                       })
         let availability = BattleRoster.moveAvailability(details: metadata, level: 50)
-        XCTAssertEqual(availability.selectedMoves.map(\.id), ["growl", "vine-whip", "synthesis", "growth"])
+        XCTAssertEqual(availability.selectedMoves.map(\.id), ["growl", "vine-whip", "synthesis", "work-up"])
         XCTAssertTrue(availability.unsupportedKnownMoves.isEmpty)
         XCTAssertTrue(availability.recalledMoves.isEmpty)
         XCTAssertFalse(availability.usesPracticeStrike)

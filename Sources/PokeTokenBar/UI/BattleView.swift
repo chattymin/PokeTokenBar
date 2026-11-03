@@ -328,6 +328,7 @@ struct BattleView: View {
                         .accessibilityLabel("\(candidate.displayName(language: store.language)), \(l.level) \(candidate.level), \(isSelected ? l.battlePickerSelected : (isInUse ? l.battlePickerInUse : l.battlePickerChoose))")
                     }
                 }
+                .reservesScrollerLane()
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
@@ -652,6 +653,7 @@ struct BattleView: View {
                         Color.clear.frame(height: 1).id("battle-log-bottom")
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
+                    .reservesScrollerLane()
                 }
                 .onChange(of: events.count) { _, _ in
                     proxy.scrollTo("battle-log-bottom", anchor: .bottom)
@@ -1057,6 +1059,7 @@ private struct BattleAttackEffect {
 }
 
 /// A finite animation driven by turn playback, with no repeating timer or persistent particles.
+@MainActor
 private struct BattleAttackEffectView: View, @preconcurrency Animatable {
     let effect: BattleAttackEffect
     var progress: CGFloat
