@@ -316,6 +316,14 @@ struct LimitStatus: Decodable, Sendable {
         return nil
     }
 
+    /// 메뉴바처럼 좁은 표면이 대표로 보여 줄 창 — 5시간 세션이 있으면 그것, 없으면 주간.
+    /// 세션 한도가 없는 플랜(Ultra)은 `five_hour: null` 을 보낸다. 5h 고정이면 메뉴바에서 Claude 가 사라진다.
+    var headlineWindow: (window: LimitWindow, span: TimeInterval)? {
+        if let fiveHour, fiveHour.utilization != nil { return (fiveHour, LimitWindowSpan.fiveHour) }
+        if let sevenDay, sevenDay.utilization != nil { return (sevenDay, LimitWindowSpan.sevenDay) }
+        return nil
+    }
+
     /// 레거시 필드가 못 담는 윈도우 — session(=five_hour)·weekly_all(=seven_day)은 레거시 행이
     /// 이미 표시하므로 제외하고, weekly_scoped(모델별 주간) 등 나머지만 추가 노출.
     /// 레거시 필드가 전부 비면(신형 응답만 오는 경우) limits 전체를 표시 대상으로 폴백.

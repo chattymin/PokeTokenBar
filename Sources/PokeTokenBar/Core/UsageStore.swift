@@ -342,8 +342,8 @@ final class UsageStore {
             parts.append(MenuLimitPart(text: "\(label) \(TokenFormatter.percent(limitDisplayPercent(utilization)))",
                                        utilization: utilization, pace: pace))
         }
-        if let window = menuClaudeAccount?.status.fiveHour, let utilization = window.utilization {
-            add("Claude", utilization, reset: window.resetDate, span: LimitWindowSpan.fiveHour)
+        if let (window, span) = menuClaudeAccount?.status.headlineWindow, let utilization = window.utilization {
+            add("Claude", utilization, reset: window.resetDate, span: span)
         }
         if usedToday.contains("codex"), let usedPercent = codexLimits?.maxPrimaryUsedPercent {
             // The window the percentage came from, so the pace belongs to the same bucket.
@@ -389,11 +389,11 @@ final class UsageStore {
         }
     }
 
-    /// The account whose 5h percentage the menu bar shows, nil when it shows none.
+    /// The account whose headline percentage (5h, else weekly) the menu bar shows, nil when it shows none.
     private var menuClaudeAccount: ClaudeAccountLimits? {
         guard showLimitInMenu,
               snapshots.contains(where: { $0.providerID == "claude_code" && $0.todayTotalTokens > 0 }),
-              let account = trackedClaudeAccount, account.status.fiveHour?.utilization != nil
+              let account = trackedClaudeAccount, account.status.headlineWindow != nil
         else { return nil }
         return account
     }

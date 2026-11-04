@@ -638,6 +638,17 @@ read_when:
   `fetchFilteredEventsForTesting` 으로 루프 전체를 돈다(총계 없음/있음 둘 다). 수정 전 `[1]`·100건으로 실패 확인.
   **스윕:** 이 파일의 다른 `intValue` 호출은 토큰 수라 0 이 올바른 기본값이다.
 
+- **한도 창 구성은 플랜마다 다르다. 특정 창이 항상 온다고 가정하지 않는다.** Ultra 플랜은 5시간 세션 한도를
+  없앴고, `oauth/usage` 는 `five_hour: null` 과 주간 창(`seven_day`, `limits[].weekly_all`)만 보낸다
+  (2026-10-31 관측). 메뉴바는 Claude 대표 %를 `status.fiveHour` 로 고정해, 주간 66%가 있는데도 Claude 항목이
+  통째로 사라졌다. Codex 는 창 길이와 무관하게 `primary` 를 써서 주간 창 하나뿐인 Pro 계정도 정상 표시됐다.
+  **왜 못 걸렀나:** 메뉴바 테스트 픽스처가 전부 5h 창을 넣었고, #327 의 다중 계정 테스트는 "주간만 있으면 메뉴바에
+  Claude 없음"을 오히려 기대값으로 고정했다. → 좁은 표면의 대표 창 선택은 `LimitStatus.headlineWindow`
+  (5h 우선, 없으면 주간) 한 곳에서 하고 메뉴바는 그것만 읽는다. 팝오버 행·알림·캔디·경고는 이미 창별로
+  nil 을 견딘다(스윕 완료). 회귀 가드: `UsageStoreTests.testMenuShowsTheWeeklyLimitWhenThePlanHasNoSessionLimit`·
+  `testMenuPrefersTheSessionLimitOverTheWeeklyOne`·`testHeadlineWindowPicksTheSessionThenTheWeeklyWindow`,
+  `AdditionalClaudeAccountsTests.testTheMenuToolTipOnlyNamesAnAccountBehindAShownPercentage`.
+
 ## 빌드·도구체인
 
 - **새 SDK에서 통과해도 CI의 AppKit Sendable 선언을 가정하지 마라.** 동시 캐시 로드 테스트가
