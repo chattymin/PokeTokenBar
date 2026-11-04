@@ -361,15 +361,18 @@ final class UsageStoreTests: XCTestCase {
         XCTAssertFalse(store.floatingPetEnabled, "옵트인 기능 — 기본은 꺼짐")
         XCTAssertEqual(store.floatingPetSize, 96)
         XCTAssertTrue(store.floatingPetBubbleAlerts, "bubble alerts default on when pet is later enabled")
+        XCTAssertTrue(store.floatingPetAgentActivity, "inert until an agent hook sends a URL")
 
         store.floatingPetEnabled = true
         store.floatingPetSize = 144
         store.floatingPetBubbleAlerts = false
+        store.floatingPetAgentActivity = false
 
         let reloaded = makeStore(providers: [claude])   // 같은 suite 재로딩 = 앱 재시작
         XCTAssertTrue(reloaded.floatingPetEnabled)
         XCTAssertEqual(reloaded.floatingPetSize, 144)
         XCTAssertFalse(reloaded.floatingPetBubbleAlerts)
+        XCTAssertFalse(reloaded.floatingPetAgentActivity)
     }
 
     /// Bubble picker is pure: critical beats warn; within a tier higher utilization wins (stable choice).

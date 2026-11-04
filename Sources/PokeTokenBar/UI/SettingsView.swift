@@ -311,6 +311,16 @@ struct SettingsView: View {
                 }
                 Divider()
                 toggleRow(l.floatingPetBubbleAlertsLabel, $store.floatingPetBubbleAlerts)
+                Divider()
+                groupRow {
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(l.floatingPetAgentActivityLabel)
+                        Text(l.floatingPetAgentActivityHint).font(.caption2).foregroundStyle(.tertiary)
+                    }
+                    Spacer()
+                    Toggle(l.floatingPetAgentActivityLabel, isOn: $store.floatingPetAgentActivity)
+                        .labelsHidden().toggleStyle(.switch).controlSize(.small)
+                }
             }
         }
     }

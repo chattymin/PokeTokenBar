@@ -386,6 +386,39 @@ struct L {
           "Heute: \(tokens) Tokens (Limit \(percent))",
           "Токенов сегодня: \(tokens) (лимит \(percent))")
     }
+    var floatingPetAgentActivityLabel: String {
+        t("에이전트 활동에 반응", "React to agent activity", "エージェントの動きに反応", "Reaccionar a la actividad del agente",
+          "Réagir à l’activité de l’agent", "Reagir à atividade do agente", "Auf Agent-Aktivität reagieren", "Реагировать на работу агента")
+    }
+    var floatingPetAgentActivityHint: String {
+        t("코딩 에이전트가 poketokenbar:// 링크로 펫을 움직여요 — README 참고",
+          "Coding agents trigger it with poketokenbar:// links — see the README",
+          "コーディングエージェントが poketokenbar:// リンクで動かします — README 参照",
+          "Los agentes de código lo activan con enlaces poketokenbar:// — consulta el README",
+          "Les agents de code le pilotent via des liens poketokenbar:// — voir le README",
+          "Agentes de código o acionam com links poketokenbar:// — veja o README",
+          "Coding-Agents steuern es über poketokenbar://-Links – siehe README",
+          "Агенты управляют питомцем через ссылки poketokenbar:// — см. README")
+    }
+    var agentWaitingTitle: String {
+        t("에이전트가 기다려요", "Your agent needs you", "エージェントが呼んでいます", "Tu agente te necesita",
+          "Ton agent a besoin de toi", "Seu agente precisa de você", "Dein Agent braucht dich", "Агент ждёт вас")
+    }
+    var agentWaitingDefaultBody: String {
+        t("입력을 기다리고 있어요.", "It's waiting for your input.", "入力を待っています。", "Está esperando tu respuesta.",
+          "Il attend ta réponse.", "Está aguardando sua resposta.", "Er wartet auf deine Eingabe.", "Он ждёт вашего ответа.")
+    }
+    var agentDoneTitle: String { t("완료!", "Done!", "完了！", "¡Listo!", "Terminé !", "Pronto!", "Fertig!", "Готово!") }
+    /// After an agent's label in the bubble title: "<label> · waiting".
+    var agentWaitingStatus: String {
+        t("대기 중", "waiting", "待機中", "espera", "attend", "aguarda", "wartet", "ждёт")
+    }
+    var agentDoneStatus: String { t("완료", "done", "完了", "listo", "terminé", "pronto", "fertig", "готово") }
+
+    var agentDoneDefaultBody: String {
+        t("에이전트가 작업을 마쳤어요.", "Your agent finished its task.", "エージェントの作業が終わりました。", "Tu agente terminó su tarea.",
+          "Ton agent a terminé sa tâche.", "Seu agente concluiu a tarefa.", "Dein Agent ist fertig.", "Агент завершил задачу.")
+    }
 
     var disableKeychain: String { t("Keychain 접근 끄기", "Disable Keychain access", "Keychainアクセスを無効化", "Desactivar acceso a Keychain", "Désactiver l'accès au Keychain", "Desativar acesso ao Keychain", "Keychain-Zugriff deaktivieren", "Отключить доступ к Связке ключей") }
     var disableKeychainHint: String { t("켜면 Keychain 접근 허용 팝업이 더 안 뜹니다 — 공식 한도(%)만 숨겨지고 토큰·비용은 그대로", "When on, no more Keychain permission pop-ups — only official limits (%) are hidden; tokens/cost stay", "オンにするとKeychain許可のポップアップが出なくなります — 公式上限(%)のみ非表示、トークン・費用はそのまま", "Al activarlo, ya no aparecerán los avisos de permiso de Keychain — solo se ocultan los límites oficiales (%), los tokens y el coste se mantienen", "Une fois activé, plus de pop-ups d'autorisation Keychain — seules les limites officielles (%) sont masquées ; les tokens et le coût restent visibles", "Ao ativar, os avisos de permissão do Keychain não aparecem mais — só os limites oficiais (%) ficam ocultos; tokens e custo continuam", "Wenn aktiviert, erscheinen keine Keychain-Berechtigungsfenster mehr – nur offizielle Limits (%) werden ausgeblendet; Tokens und Kosten bleiben sichtbar", "Если включено, запросов доступа к Связке ключей не будет — скрываются только официальные лимиты (%), токены и стоимость остаются") }

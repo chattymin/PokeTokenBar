@@ -169,6 +169,11 @@ final class UsageStore {
     var floatingPetBubbleAlerts: Bool {
         didSet { defaults.set(floatingPetBubbleAlerts, forKey: "floatingPetBubbleAlerts") }
     }
+    /// Let coding agents drive the floating pet through `poketokenbar://agent` URLs. Default on —
+    /// nothing happens until the user wires an agent hook.
+    var floatingPetAgentActivity: Bool {
+        didSet { defaults.set(floatingPetAgentActivity, forKey: "floatingPetAgentActivity") }
+    }
     var disableKeychainAccess: Bool {
         didSet {
             defaults.set(disableKeychainAccess, forKey: "disableKeychainAccess")   // 저장 누락이던 기존 버그 — 재시작 후 풀렸음
@@ -802,6 +807,7 @@ final class UsageStore {
         floatingPetEnabled = d.object(forKey: "floatingPetEnabled") as? Bool ?? false
         floatingPetSize = d.object(forKey: "floatingPetSize") as? Double ?? 96
         floatingPetBubbleAlerts = d.object(forKey: "floatingPetBubbleAlerts") as? Bool ?? true
+        floatingPetAgentActivity = d.object(forKey: "floatingPetAgentActivity") as? Bool ?? true
         // 기본 powerSaver — 이 설정이 생기기 전의 고정 캡(0.4s)과 같은 프레임 레이트라, 기존
         // 사용자의 배터리 프로파일은 그대로다. 더 부드러운 쪽은 opt-in(실측 idle CPU 1.8%/5.1%).
         animationQuality = AnimationQuality(rawValue: d.string(forKey: "animationQuality") ?? "") ?? .powerSaver

@@ -186,6 +186,48 @@ Pi は複数のモデルを一つのセッションログに流すことがあ�
 
 <small>上のホーム・設定・フォルム・ショップ・バッグ・難易度・日別グラフ・振り返り画像は、サンプルデータで実際の UI をローカル描画したものです。</small>
 
+## エージェントの動き
+
+フローティングペットが AI コーディングエージェントの状態に合わせて動きます。作業中は弾み、入力が必要なときは吹き出しで呼び、作業が終わるとマウスカーソルのそばへ駆け寄ります。エージェントは URL で状態を伝えます:
+
+```text
+poketokenbar://agent?state=<working|waiting|done|idle>[&label=<name>][&message=<text>]
+```
+
+- `label` と `message` は任意です。URL エンコードして渡すと、プレーンテキストで表示されます。`label`（最大 24 文字）はエージェントの名前で、複数のエージェントが同時に動いてもそれぞれの状態を別々に持ちます。label がなければ、すべてのイベントを 1 つのエージェントとして扱います。
+- `working` は 10 分間新しい通知がなければ通常の状態に戻ります。`done` は約 6 秒表示されたあとペットが元の位置へ戻り、`waiting` はそのエージェントの次のイベントかペットのクリックまで残ります。
+- エージェントが複数あるときは質問が優先です。吹き出しには最後に待ち始めたエージェントと、ほかに待っている数が表示され、どれか 1 つでも作業中ならペットは弾み続けます。`done` は数秒間 label を表示したあと、前の吹き出しに戻ります。ペットをクリックするとすべての質問が消え、メインウィンドウも従来どおり開きます。label は最大 8 個まで追跡します。
+- 上限アラートの吹き出しが優先されます。視差効果を減らす・低電力モードでは動かずに吹き出しだけを表示します。
+- フローティングペットがオフのときは何も起きません。反応をオフにするには **設定 → フローティングペット → エージェントの動きに反応**。
+
+**Claude Code** — 次の内容を `~/.claude/poketokenbar.sh` に保存します。セッションごとにプロジェクトフォルダ名を label として付けるため、同じフォルダの 2 つのセッションは 1 つの label を共有します。`pgrep` はアプリを終了したあとにフックがアプリを再起動しないようにし、`open -g` はターミナルのフォーカスを奪いません。
+
+```sh
+#!/bin/sh
+# PokeTokenBar agent hook: sh ~/.claude/poketokenbar.sh <working|waiting|done>
+# Labels the agent with the project folder name, percent-encoded (perl ships with macOS).
+pgrep -xq PokeTokenBar || exit 0
+label=$(printf %s "${CLAUDE_PROJECT_DIR##*/}" | perl -pe 's/([^A-Za-z0-9._~-])/sprintf("%%%02X", ord $1)/ge')
+open -g "poketokenbar://agent?state=$1&label=$label" >/dev/null 2>&1
+exit 0
+```
+
+次に `~/.claude/settings.json` にフックを追加します。`Notification` の matcher は Claude Code のアイドル通知を除外します。これがないと、ターンが終わるたびに「waiting」の吹き出しが残ります。ターンを中断すると（Esc）`Stop` は発火しないため、10 分のタイムアウトか `idle` を送るまでペットは作業中のままです。
+
+```json
+{
+  "hooks": {
+    "UserPromptSubmit": [{ "hooks": [{ "type": "command", "command": "sh ~/.claude/poketokenbar.sh working || true" }] }],
+    "PostToolUse": [{ "matcher": "*", "hooks": [{ "type": "command", "command": "sh ~/.claude/poketokenbar.sh working || true" }] }],
+    "PreToolUse": [{ "matcher": "AskUserQuestion", "hooks": [{ "type": "command", "command": "sh ~/.claude/poketokenbar.sh waiting || true" }] }],
+    "Notification": [{ "matcher": "permission_prompt|elicitation_dialog", "hooks": [{ "type": "command", "command": "sh ~/.claude/poketokenbar.sh waiting || true" }] }],
+    "Stop": [{ "hooks": [{ "type": "command", "command": "sh ~/.claude/poketokenbar.sh done || true" }] }]
+  }
+}
+```
+
+**ほかのエージェント** — フックやスクリプトから URL を開きます。例: `pgrep -xq PokeTokenBar && open -g 'poketokenbar://agent?state=done&label=my-app&message=Build%20passed' >/dev/null 2>&1 || true`
+
 ## 対応ツール
 
 | ツール | 集計範囲 | 公式の上限 |
