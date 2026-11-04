@@ -1750,6 +1750,11 @@ final class UsageStore {
     }
 
     private func refreshOpenCodeGoLimits() async {
+        guard isProviderEnabled("opencode") else {
+            openCodeGoLimits = nil
+            openCodeGoLimitsAuthExpired = false
+            return
+        }
         do {
             openCodeGoLimits = try await openCodeGoLimitsProvider.fetch()
             // nil = no OpenCode Go key: nothing is left to re-authenticate.
@@ -1775,6 +1780,11 @@ final class UsageStore {
     }
 
     private func refreshGrokLimits() async {
+        guard isProviderEnabled("grok") else {
+            grokLimits = nil
+            grokLimitsAuthExpired = false
+            return
+        }
         do {
             grokLimits = try await grokLimitsProvider.fetch()
             // nil = no Grok CLI login: nothing is left to re-authenticate.

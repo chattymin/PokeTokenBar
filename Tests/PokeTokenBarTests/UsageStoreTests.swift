@@ -1807,9 +1807,11 @@ extension UsageStoreTests {
 
 private final class ScriptedOpenCodeGoLimits: OpenCodeGoLimitsProviding, @unchecked Sendable {
     private var results: [Result<OpenCodeGoRateLimitStatus?, Error>]
+    private(set) var fetchCount = 0
     init(_ results: [Result<OpenCodeGoRateLimitStatus?, Error>]) { self.results = results }
     func fetch() async throws -> OpenCodeGoRateLimitStatus? {
-        try (results.count > 1 ? results.removeFirst() : results[0]).get()
+        fetchCount += 1
+        return try (results.count > 1 ? results.removeFirst() : results[0]).get()
     }
 }
 
@@ -1829,6 +1831,39 @@ extension UsageStoreTests {
                           openCodeGoLimitsProvider: limits,
                           autoRefresh: false,
                           defaults: testDefaults)
+    }
+
+    func testDisabledOpenCodeGoSkipsLimitsFetch() async {
+        testDefaults.set(["opencode"], forKey: UsageStore.disabledProvidersKey)
+        let limits = ScriptedOpenCodeGoLimits([.success(openCodeGoRolling(36, resetsIn: 3600, now: Date()))])
+        let store = makeOpenCodeStore(limits)
+
+        await store.refresh(scheduleEmptyRetry: false)
+
+        XCTAssertEqual(limits.fetchCount, 0)
+        XCTAssertNil(store.openCodeGoLimits)
+        XCTAssertFalse(store.openCodeGoLimitsAuthExpired)
+    }
+
+    func testDisablingOpenCodeGoClearsLoadedLimitsAndAuthNotice() async {
+        let limits = ScriptedOpenCodeGoLimits([
+            .success(openCodeGoRolling(36, resetsIn: 3600, now: Date())),
+            .failure(LimitsError.httpStatus(401)),
+        ])
+        let store = makeOpenCodeStore(limits)
+        await store.refresh(scheduleEmptyRetry: false)
+        await store.refresh(scheduleEmptyRetry: false)
+        XCTAssertEqual(limits.fetchCount, 2)
+        XCTAssertEqual(store.openCodeGoLimits?.rolling?.percent, 36)
+        XCTAssertTrue(store.openCodeGoLimitsAuthExpired)
+
+        store.setProviderEnabled("opencode", false)
+        await store.refresh(scheduleEmptyRetry: false)
+
+        XCTAssertEqual(limits.fetchCount, 2)
+        XCTAssertNil(store.openCodeGoLimits)
+        XCTAssertFalse(store.openCodeGoLimitsAuthExpired)
+        XCTAssertFalse(store.openCodeGoLimitsStale)
     }
 
     /// A rejected key shows the "reconnect" notice; once the key is gone (`fetch` → nil) it clears.
@@ -1888,9 +1923,11 @@ extension UsageStoreTests {
 
 private final class ScriptedGrokLimits: GrokLimitsProviding, @unchecked Sendable {
     private var results: [Result<GrokCreditStatus?, Error>]
+    private(set) var fetchCount = 0
     init(_ results: [Result<GrokCreditStatus?, Error>]) { self.results = results }
     func fetch() async throws -> GrokCreditStatus? {
-        try (results.count > 1 ? results.removeFirst() : results[0]).get()
+        fetchCount += 1
+        return try (results.count > 1 ? results.removeFirst() : results[0]).get()
     }
 }
 
@@ -1913,6 +1950,39 @@ extension UsageStoreTests {
                           grokLimitsProvider: limits,
                           autoRefresh: false,
                           defaults: testDefaults)
+    }
+
+    func testDisabledGrokSkipsLimitsFetch() async {
+        testDefaults.set(["grok"], forKey: UsageStore.disabledProvidersKey)
+        let limits = ScriptedGrokLimits([.success(grokWeek(12, endsIn: 86400, now: Date()))])
+        let store = makeGrokStore(limits)
+
+        await store.refresh(scheduleEmptyRetry: false)
+
+        XCTAssertEqual(limits.fetchCount, 0)
+        XCTAssertNil(store.grokLimits)
+        XCTAssertFalse(store.grokLimitsAuthExpired)
+    }
+
+    func testDisablingGrokClearsLoadedLimitsAndAuthNotice() async {
+        let limits = ScriptedGrokLimits([
+            .success(grokWeek(12, endsIn: 86400, now: Date())),
+            .failure(LimitsError.httpStatus(401)),
+        ])
+        let store = makeGrokStore(limits)
+        await store.refresh(scheduleEmptyRetry: false)
+        await store.refresh(scheduleEmptyRetry: false)
+        XCTAssertEqual(limits.fetchCount, 2)
+        XCTAssertEqual(store.grokLimits?.creditUsagePercent, 12)
+        XCTAssertTrue(store.grokLimitsAuthExpired)
+
+        store.setProviderEnabled("grok", false)
+        await store.refresh(scheduleEmptyRetry: false)
+
+        XCTAssertEqual(limits.fetchCount, 2)
+        XCTAssertNil(store.grokLimits)
+        XCTAssertFalse(store.grokLimitsAuthExpired)
+        XCTAssertFalse(store.grokLimitsStale)
     }
 
     /// A rejected token keeps the last status (dimmed, with the notice); a later success clears the notice,
