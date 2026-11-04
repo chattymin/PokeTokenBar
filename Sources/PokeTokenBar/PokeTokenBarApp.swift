@@ -58,6 +58,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     /// 버튼 폭(=텍스트 길이)이나 스프라이트 크기가 변하면 레이어를 이미지 자리에 다시 맞춰야 한다.
     private var needsSpriteLayout = true
 
+    func applicationWillFinishLaunching(_ notification: Notification) {
+        // Handle GetURL directly instead of `application(_:open:)`: the SwiftUI app lifecycle owns
+        // that path, and an agent URL must never open a window or activate the app. AppKit installs
+        // its own handler before this point, so registering here is what replaces it.
+        NSAppleEventManager.shared().setEventHandler(
+            self, andSelector: #selector(handleGetURL(_:withReply:)),
+            forEventClass: AEEventClass(kInternetEventClass), andEventID: AEEventID(kAEGetURL))
+    }
+
+    @objc private func handleGetURL(_ event: NSAppleEventDescriptor, withReply reply: NSAppleEventDescriptor) {
+        guard let url = Self.url(fromGetURLEvent: event), let agentEvent = AgentActivityEvent(url: url) else { return }
+        floatingPet?.handleAgentEvent(agentEvent)   // nil until launch finishes; the event is dropped
+    }
+
+    nonisolated static func url(fromGetURLEvent event: NSAppleEventDescriptor) -> URL? {
+        event.paramDescriptor(forKeyword: AEKeyword(keyDirectObject))?.stringValue.flatMap { URL(string: $0) }
+    }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         // 로그인 에이전트 등록(plist 의 RunAtLoad)이 이미 떠 있는 앱을 한 번 더 실행한다 — 나중에 뜬
         // 쪽이 물러난다. 메뉴바 항목을 만들기 전에 판정해 아이콘이 떴다 사라지는 깜빡임을 없애고,
