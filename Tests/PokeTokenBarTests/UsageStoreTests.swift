@@ -1563,6 +1563,23 @@ private func claudeFiveHour(_ utilization: Double, resetsIn: TimeInterval?, now:
     return try! JSONDecoder().decode(LimitStatus.self, from: Data(json.utf8))
 }
 
+/// A plan without a 5-hour session limit, as `oauth/usage` sends it: `five_hour` is null and
+/// `limits[]` has no `session` entry. `fiveHour` adds a session window back for the precedence case.
+private func claudeWeekly(_ utilization: Double, resetsIn: TimeInterval, fiveHour: Double? = nil,
+                          now: Date) -> LimitStatus {
+    let iso = ISO8601DateFormatter()
+    let weeklyReset = iso.string(from: now.addingTimeInterval(resetsIn))
+    let session = fiveHour.map {
+        "{\"utilization\":\($0),\"resets_at\":\"\(iso.string(from: now.addingTimeInterval(2.5 * 3600)))\"}"
+    } ?? "null"
+    let json = """
+    {"five_hour":\(session),
+     "seven_day":{"utilization":\(utilization),"resets_at":"\(weeklyReset)"},
+     "limits":[{"kind":"weekly_all","group":"weekly","percent":\(utilization),"resets_at":"\(weeklyReset)"}]}
+    """
+    return try! JSONDecoder().decode(LimitStatus.self, from: Data(json.utf8))
+}
+
 private func codexPrimary(_ usedPercent: Int, resetsIn: TimeInterval, now: Date) -> CodexRateLimitStatus {
     let reset = Int(now.addingTimeInterval(resetsIn).timeIntervalSince1970)
     let json = "{\"rateLimits\":{\"primary\":{\"usedPercent\":\(usedPercent),\"windowDurationMins\":300,\"resetsAt\":\(reset)}}}"
@@ -1635,5 +1652,52 @@ extension UsageStoreTests {
         let store = makeStore(providers: [])
         store.menuLimitColorMode = .attention
         XCTAssertEqual(makeStore(providers: []).menuLimitColorMode, .attention)
+    }
+
+    /// Plans without a session limit (Ultra) send `five_hour: null`: the menu bar falls back to the
+    /// weekly window instead of dropping Claude, and the pace comes from the 7-day span.
+    func testMenuShowsTheWeeklyLimitWhenThePlanHasNoSessionLimit() async throws {
+        let now = Date()
+        let claude = FakeUsageProvider(id: "claude_code", displayName: "Claude Code", daily: todayDaily(1_000))
+        let store = makeStore(providers: [claude], claude: claudeWeekly(66, resetsIn: 3.5 * 24 * 3600, now: now))
+        store.showTokensInMenu = false
+        store.showCostInMenu = false
+        store.showLimitInMenu = true
+        await store.refresh(scheduleEmptyRetry: false)
+
+        let parts = store.menuLimitParts(now: now)
+        XCTAssertEqual(parts.map(\.text), ["Claude 66%"])
+        XCTAssertEqual(try XCTUnwrap(parts.first?.pace), 0.5, accuracy: 0.01)
+        XCTAssertEqual(store.menuTitle, "Claude 66%")
+
+        store.limitDisplayMode = .remaining
+        XCTAssertEqual(store.menuLimitParts(now: now).map(\.text), ["Claude 34%"])
+    }
+
+    /// With both windows, the menu bar keeps showing the 5-hour session.
+    func testMenuPrefersTheSessionLimitOverTheWeeklyOne() async {
+        let now = Date()
+        let claude = FakeUsageProvider(id: "claude_code", displayName: "Claude Code", daily: todayDaily(1_000))
+        let store = makeStore(providers: [claude],
+                              claude: claudeWeekly(66, resetsIn: 3.5 * 24 * 3600, fiveHour: 40, now: now))
+        store.showTokensInMenu = false
+        store.showCostInMenu = false
+        store.showLimitInMenu = true
+        await store.refresh(scheduleEmptyRetry: false)
+        XCTAssertEqual(store.menuLimitParts(now: now).map(\.text), ["Claude 40%"])
+    }
+
+    func testHeadlineWindowPicksTheSessionThenTheWeeklyWindow() throws {
+        let now = Date()
+        let both = try XCTUnwrap(claudeWeekly(66, resetsIn: 3600, fiveHour: 40, now: now).headlineWindow)
+        XCTAssertEqual(both.window.utilization, 40)
+        XCTAssertEqual(both.span, LimitWindowSpan.fiveHour)
+
+        let weeklyOnly = try XCTUnwrap(claudeWeekly(66, resetsIn: 3600, now: now).headlineWindow)
+        XCTAssertEqual(weeklyOnly.window.utilization, 66)
+        XCTAssertEqual(weeklyOnly.span, LimitWindowSpan.sevenDay)
+
+        let empty = try JSONDecoder().decode(LimitStatus.self, from: Data(#"{"five_hour":null,"seven_day":null}"#.utf8))
+        XCTAssertNil(empty.headlineWindow)
     }
 }

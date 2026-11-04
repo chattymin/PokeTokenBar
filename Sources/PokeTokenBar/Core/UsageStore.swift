@@ -342,8 +342,8 @@ final class UsageStore {
             parts.append(MenuLimitPart(text: "\(label) \(TokenFormatter.percent(limitDisplayPercent(utilization)))",
                                        utilization: utilization, pace: pace))
         }
-        if let window = menuClaudeAccount?.status.fiveHour, let utilization = window.utilization {
-            add("Claude", utilization, reset: window.resetDate, span: LimitWindowSpan.fiveHour)
+        if let (window, span) = menuClaudeAccount?.status.headlineWindow, let utilization = window.utilization {
+            add("Claude", utilization, reset: window.resetDate, span: span)
         }
         if usedToday.contains("codex"), let usedPercent = codexLimits?.maxPrimaryUsedPercent {
             // The window the percentage came from, so the pace belongs to the same bucket.
@@ -389,11 +389,11 @@ final class UsageStore {
         }
     }
 
-    /// The account whose 5h percentage the menu bar shows, nil when it shows none.
+    /// The account whose headline percentage (5h, else weekly) the menu bar shows, nil when it shows none.
     private var menuClaudeAccount: ClaudeAccountLimits? {
         guard showLimitInMenu,
               snapshots.contains(where: { $0.providerID == "claude_code" && $0.todayTotalTokens > 0 }),
-              let account = trackedClaudeAccount, account.status.fiveHour?.utilization != nil
+              let account = trackedClaudeAccount, account.status.headlineWindow != nil
         else { return nil }
         return account
     }
@@ -625,6 +625,7 @@ final class UsageStore {
             windows += claudeCandyWindows(account, named: accounts.count > 1, l)
                 .filter { account.isDefault || armedCandyWindows.contains($0.key) }
         }
+        // Codex 는 한도를 다 써도 credits 로 계속 쓴다 — epoch 를 넘기지 않아 100% 미만 관측으로만 재무장한다.
         for bucket in codexLimits?.visibleSnapshots ?? [] {
             let bucketKey = bucket.limitId ?? bucket.limitName ?? "codex"
             let bucketName = bucket.bucketDisplayName
@@ -633,16 +634,14 @@ final class UsageStore {
                     key: "codex.\(bucketKey).primary",
                     name: "\(bucketName) \(l.codexWindow(primary.windowDurationMins))",
                     kind: Self.windowClass(minutes: primary.windowDurationMins),
-                    utilization: Double(primary.usedPercent),
-                    epoch: primary.resetsAt.map(String.init)))
+                    utilization: Double(primary.usedPercent)))
             }
             if let secondary = bucket.secondary {
                 windows.append(CandyWindow(
                     key: "codex.\(bucketKey).secondary",
                     name: "\(bucketName) \(l.codexWindow(secondary.windowDurationMins))",
                     kind: Self.windowClass(minutes: secondary.windowDurationMins),
-                    utilization: Double(secondary.usedPercent),
-                    epoch: secondary.resetsAt.map(String.init)))
+                    utilization: Double(secondary.usedPercent)))
             }
         }
         for group in antigravityLimits?.groups ?? [] {
@@ -740,7 +739,7 @@ final class UsageStore {
         LocalAntigravityProvider(), LocalOpenCodeProvider(), LocalHermesProvider(),
         LocalCursorProvider(), LocalGrokProvider(), LocalCopilotProvider(), LocalKiroProvider(),
         LocalPiProvider(),
-        LocalOmpProvider(), LocalAsideProvider(), LocalKimiCodeProvider(),
+        LocalOmpProvider(), LocalOmoProvider(), LocalAsideProvider(), LocalKimiCodeProvider(),
         LocalDevinProvider(),
     ],
          // 세션 키 우선, 없거나 죽었으면 기존 Keychain/파일 OAuth 경로. 두 인자는 같은

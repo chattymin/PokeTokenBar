@@ -208,7 +208,7 @@ final class LocalAdditionalUsageTests: XCTestCase {
         XCTAssertEqual(
             Set(store.registeredProviderIDs),
             Set(["claude_code", "codex", "gemini", "antigravity",
-                 "opencode", "hermes", "cursor", "grok", "copilot", "kiro", "pi", "omp", "aside", "kimi_code",
+                 "opencode", "hermes", "cursor", "grok", "copilot", "kiro", "pi", "omp", "omo", "aside", "kimi_code",
                  "devin"]))
     }
 

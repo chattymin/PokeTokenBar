@@ -76,6 +76,8 @@ struct OAuthLimitsProvider: ClaudeLimitsProviding, Sendable {
         if let identity = await OAuthProfileCache.shared.identity(accessToken: activeToken) {
             status.accountEmail = identity.email
             status.accountOrganizationName = identity.organizationName
+            // 서버가 정한 현재 플랜 이름 — 이름이 바뀌어도 앱 수정 없이 따라간다.
+            status.planDisplayName = identity.planDisplayName
         }
         return status
     }
@@ -110,6 +112,9 @@ struct OAuthLimitsProvider: ClaudeLimitsProviding, Sendable {
 struct AccountIdentity: Equatable, Sendable {
     let email: String
     let organizationName: String?
+    /// 서버가 알려주는 현재 플랜 이름(`organization.plan_display_name`). 이름 변경을
+    /// 코드 수정 없이 따라가기 위한 값 — 저장 로그인(.claude.json)에는 없어서 nil 이다.
+    var planDisplayName: String? = nil
 }
 
 /// profile 조회 캐시 — 토큰이 바뀌지 않는 한 계정 주인도 바뀌지 않으므로 토큰당 1회만 네트워크를 탄다
@@ -150,8 +155,9 @@ actor OAuthProfileCache {
 
 /// profile 응답 파싱 — 순수 함수로 분리해 픽스처로 테스트한다.
 enum OAuthProfileData {
-    /// `{"account":{"email":...},"organization":{"name":...}}` → AccountIdentity.
+    /// `{"account":{"email":...},"organization":{"name":...,"plan_display_name":...}}` → AccountIdentity.
     /// email 이 없거나 비면 응답 전체를 버린다(부분 라벨은 오인 소지) — organization 은 선택.
+    /// plan_display_name 은 서버가 정하는 현재 플랜 이름이라, 없으면 표시 단계가 티어로 조립한다.
     static func identity(from data: Data) -> AccountIdentity? {
         guard
             let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -161,8 +167,16 @@ enum OAuthProfileData {
             return nil
         }
         let organization = json["organization"] as? [String: Any]
-        let orgName = (organization?["name"] as? String).flatMap { $0.isEmpty ? nil : $0 }
-        return AccountIdentity(email: email, organizationName: orgName)
+        let orgName = nonEmpty(organization?["name"] as? String)
+        return AccountIdentity(email: email, organizationName: orgName,
+                               planDisplayName: nonEmpty(organization?["plan_display_name"] as? String))
+    }
+
+    private static func nonEmpty(_ value: String?) -> String? {
+        guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines), !trimmed.isEmpty else {
+            return nil
+        }
+        return trimmed
     }
 }
 
