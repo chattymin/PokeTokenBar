@@ -1344,6 +1344,25 @@ read_when:
   and both CI fixture PNGs so recognition failures can be checked against rendered pixels.
   Other OCR harnesses passed the same CI runs; this repair is limited to the failing fixture.
 
+- **A native coordinate test must hit the requested glyphs and await the whole transition.**
+  CI run `41867694174` failed only the new region-chip test: Kanto's Maple card remained
+  visible after one Johto click, although the local full gate passed. The test clicked the
+  midpoint of Vision's whole observation and bypassed the existing navigation helper's
+  bounded transition retry. Vision can combine adjacent chip labels into one observation,
+  and native SwiftUI hit testing can lag the first rendered pixels. The original test saved
+  neither click bounds nor pixels, so the CI log could not distinguish those two paths.
+  Resolve the label's substring range against the same `VNRecognizedText` candidate and use
+  its glyph bounds; do not fall back to the merged row's midpoint. Check the complete target
+  state from one OCR snapshot before and after each bounded attempt, stopping immediately
+  on success so a late first click is not blindly toggled back off. The class sweep found
+  existing Back-navigation transitions already used a bounded retry; keep this repair on
+  the new region interaction. Preserve exact both-visible → Johto-only → both-visible checks,
+  log selected candidates/bounds, and save before/filtered/restored/failure PNGs into CI's
+  existing native-render artifact. `testClickBoundsFocusOnTheRequestedTextInsideAMergedObservation`
+  fails when glyph bounds are replaced by the full observation. The real CollectionView
+  interaction must still fail if the production region selection is disconnected, even after
+  all retry attempts. No production UI behavior or CI gate is changed for this harness repair.
+
 - **Use unambiguous fixture words for exact OCR navigation assertions.**
   `DexBackNavigationTests.testBackFromDetailReturnsTheLogToWhereItWas` failed in CI run
   `39184274574`: after Back, Vision read the artificial oldest-catch label `Mon1` as

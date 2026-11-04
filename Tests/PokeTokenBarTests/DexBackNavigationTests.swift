@@ -61,6 +61,7 @@ final class DexBackNavigationTests: XCTestCase {
     private struct Word {
         let candidates: [String]
         let box: CGRect   // normalized, y-up
+        let readings: [VNRecognizedText]
 
         /// Spaces are ignored: Vision splits and joins words inconsistently.
         func reads(_ text: String, exactly: Bool) -> Bool {
@@ -69,6 +70,17 @@ final class DexBackNavigationTests: XCTestCase {
                 let candidate = $0.replacingOccurrences(of: " ", with: "")
                 return exactly ? candidate == wanted : candidate.contains(wanted)
             }
+        }
+
+        /// Vision may combine neighboring chips into one observation. Click this label's glyphs,
+        /// rather than the midpoint of that whole row (which can be a different, disabled chip).
+        func focused(on text: String) throws -> Word? {
+            for reading in readings {
+                guard let range = reading.string.range(of: text),
+                      let rectangle = try reading.boundingBox(for: range) else { continue }
+                return Word(candidates: candidates, box: rectangle.boundingBox, readings: readings)
+            }
+            return nil
         }
     }
 
@@ -81,8 +93,9 @@ final class DexBackNavigationTests: XCTestCase {
         request.recognitionLanguages = ["en-US"]
         try VNImageRequestHandler(cgImage: XCTUnwrap(bitmap.cgImage)).perform([request])
         return request.results?.compactMap { observation in
-            let candidates = observation.topCandidates(10).map(\.string)
-            return candidates.isEmpty ? nil : Word(candidates: candidates, box: observation.boundingBox)
+            let readings = observation.topCandidates(10)
+            return readings.isEmpty ? nil : Word(candidates: readings.map(\.string),
+                                                 box: observation.boundingBox, readings: readings)
         } ?? []
     }
 
@@ -155,6 +168,67 @@ final class DexBackNavigationTests: XCTestCase {
 
     // MARK: Pokédex grid
 
+    /// Uses the same complete rendered state before and after each attempt. Checking the state
+    /// before retrying avoids toggling a selection back off when the first click has just settled.
+    private func pressRegionChip(_ label: String, showing: [String], hiding: [String] = [],
+                                 in root: NSView, file: StaticString = #filePath,
+                                 line: UInt = #line) async throws -> Bool {
+        func reached(_ seen: [Word]) -> Bool {
+            showing.allSatisfy { text in seen.contains { $0.reads(text, exactly: true) } }
+                && hiding.allSatisfy { text in !seen.contains { $0.reads(text, exactly: true) } }
+        }
+        var seen = try words(in: root)
+        for attempt in 1...5 {
+            if reached(seen) { return true }
+            let chip = try XCTUnwrap(try seen.compactMap { try $0.focused(on: label) }
+                .max { $0.box.midY < $1.box.midY },
+                "No glyph bounds for \(label). Seen: \(seen.map(\.candidates))", file: file, line: line)
+            print("Region click \(attempt): candidates=\(chip.candidates) glyphBox=\(chip.box)")
+            try press(chip, in: root)
+            let deadline = ContinuousClock.now + .seconds(1)
+            repeat {
+                try await Task.sleep(for: .milliseconds(50))
+                seen = try words(in: root)
+                if reached(seen) { return true }
+            } while ContinuousClock.now < deadline
+        }
+        try saveRegionRender(root, phase: "failed")
+        XCTFail("Pressing \(label) did not show \(showing) / hide \(hiding). Seen: \(seen.map(\.candidates))",
+                file: file, line: line)
+        return false
+    }
+
+    /// CI already uploads this directory. Keep exact pixels alongside the click/OCR diagnostics.
+    private func saveRegionRender(_ root: NSView, phase: String) throws {
+        guard let directory = ProcessInfo.processInfo.environment["PTB_SNAPSHOT_SCREENSHOT_DIR"] else { return }
+        let destination = URL(fileURLWithPath: directory)
+        try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
+        root.layoutSubtreeIfNeeded()
+        let bitmap = try XCTUnwrap(root.bitmapImageRepForCachingDisplay(in: root.bounds))
+        root.cacheDisplay(in: root.bounds, to: bitmap)
+        let png = try XCTUnwrap(bitmap.representation(using: .png, properties: [:]))
+        try png.write(to: destination.appendingPathComponent("dex-region-\(phase).png"))
+    }
+
+    func testClickBoundsFocusOnTheRequestedTextInsideAMergedObservation() throws {
+        let renderer = ImageRenderer(content: Text("Before Middle After")
+            .font(.system(size: 24)).foregroundStyle(.black)
+            .padding(16).background(Color.white))
+        renderer.scale = 2
+        let request = VNRecognizeTextRequest()
+        request.recognitionLevel = .accurate
+        request.recognitionLanguages = ["en-US"]
+        try VNImageRequestHandler(cgImage: XCTUnwrap(renderer.cgImage)).perform([request])
+        let observation = try XCTUnwrap(request.results?.first { result in
+            result.topCandidates(10).contains { $0.string.contains("Before Middle After") }
+        })
+        let readings = observation.topCandidates(10)
+        let merged = Word(candidates: readings.map(\.string), box: observation.boundingBox, readings: readings)
+        let middle = try XCTUnwrap(try merged.focused(on: "Middle"))
+        XCTAssertGreaterThan(middle.box.minX, merged.box.minX)
+        XCTAssertLessThan(middle.box.maxX, merged.box.maxX)
+    }
+
     func testRegionChipFiltersMountedCollectionAndTogglesBack() async throws {
         let file = FileManager.default.temporaryDirectory.appendingPathComponent("dex-region-\(UUID()).json")
         defer { try? FileManager.default.removeItem(at: file) }
@@ -173,22 +247,17 @@ final class DexBackNavigationTests: XCTestCase {
         let root = host(store, navigation)
         try await waitForText("Maple", exactly: true, in: root)
         try await waitForText("Willow", exactly: true, in: root)
+        try saveRegionRender(root, phase: "before")
 
-        let chip = try XCTUnwrap(try words(in: root).filter { $0.reads("Johto", exactly: false) }
-            .max { $0.box.midY < $1.box.midY })
-        try press(chip, in: root)
-        let deadline = ContinuousClock.now + .seconds(5)
-        while try isRendered("Maple", exactly: true, in: root), ContinuousClock.now < deadline {
-            try await Task.sleep(for: .milliseconds(50))
-        }
+        guard try await pressRegionChip("Johto", showing: ["Willow"], hiding: ["Maple"], in: root) else { return }
         XCTAssertFalse(try isRendered("Maple", exactly: true, in: root))
         try await waitForText("Willow", exactly: true, in: root)
+        try saveRegionRender(root, phase: "johto")
 
-        let selectedChip = try XCTUnwrap(try words(in: root).filter { $0.reads("Johto", exactly: false) }
-            .max { $0.box.midY < $1.box.midY })
-        try press(selectedChip, in: root)
+        guard try await pressRegionChip("Johto", showing: ["Maple", "Willow"], in: root) else { return }
         try await waitForText("Maple", exactly: true, in: root)
         try await waitForText("Willow", exactly: true, in: root)
+        try saveRegionRender(root, phase: "restored")
     }
 
     func testBackFromDetailReturnsToThePageOfThatSpecies() async throws {
