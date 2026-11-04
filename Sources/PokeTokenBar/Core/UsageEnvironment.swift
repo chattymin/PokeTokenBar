@@ -20,6 +20,7 @@ enum UsageEnvironment {
         "OPENCODE_DATA_DIR",   // OpenCode 데이터 디렉터리
         "HERMES_HOME",         // Hermes 홈
         "COPILOT_HOME",        // Copilot CLI 홈
+        "XDG_DATA_HOME",       // Devin honors this instead of ~/.local/share for its devin data root.
         "GROK_HOME",           // Grok CLI 홈
         "CLOUD_CODE_URL",      // Google CloudCode Quota API 엔드포인트 override
         "PI_CODING_AGENT_DIR", // pi config/session base directory
