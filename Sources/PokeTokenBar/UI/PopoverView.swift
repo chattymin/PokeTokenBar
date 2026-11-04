@@ -1205,6 +1205,7 @@ struct MonthDailyTrend: View {
         Color(red: 0.80, green: 0.35, blue: 0.40),
         Color(red: 0.40, green: 0.48, blue: 0.80),
         Color(red: 0.96, green: 0.58, blue: 0.22),
+        Color(red: 0.76, green: 0.58, blue: 0.38),
     ]
 
     var body: some View {

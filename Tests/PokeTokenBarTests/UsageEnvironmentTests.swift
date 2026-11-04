@@ -167,7 +167,7 @@ final class UsageEnvironmentTests: XCTestCase {
             "CURSOR_SESSION_TOKEN", "CURSOR_USAGE_API",
             "KIRO_CLI_HOME", "KIRO_HOME", "CURSOR_DATA_DIR",
             "OMP_CODING_AGENT_DIR", "OMO_CODING_AGENT_DIR", "SENPI_CODING_AGENT_DIR",
-            "ANTIGRAVITY_TOKEN_FILE", "KIMI_CODE_HOME",
+            "ANTIGRAVITY_TOKEN_FILE", "KIMI_CODE_HOME", "XDG_DATA_HOME",
         ] {
             XCTAssertTrue(UsageEnvironment.names.contains(name), "\(name) 이 조회 대상에서 빠졌다")
         }
