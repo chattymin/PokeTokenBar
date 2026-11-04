@@ -155,6 +155,42 @@ final class DexBackNavigationTests: XCTestCase {
 
     // MARK: Pokédex grid
 
+    func testRegionChipFiltersMountedCollectionAndTogglesBack() async throws {
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent("dex-region-\(UUID()).json")
+        defer { try? FileManager.default.removeItem(at: file) }
+        var state = CompanionState()
+        state.language = .en
+        state.dex = [
+            DexEntry(baseID: 1, finalID: 1, chainOrder: [1], rarity: .common,
+                     caughtAt: Date(), names: [1: ["en": "Maple"]]),
+            DexEntry(baseID: 152, finalID: 152, chainOrder: [152], rarity: .common,
+                     caughtAt: Date(), names: [152: ["en": "Willow"]]),
+        ]
+        try JSONEncoder().encode(state).write(to: file)
+        let store = CompanionStore(provider: OfflineProvider(), fileURL: file)
+        let navigation = PopoverNavigation()
+        navigation.tab = .collection
+        let root = host(store, navigation)
+        try await waitForText("Maple", exactly: true, in: root)
+        try await waitForText("Willow", exactly: true, in: root)
+
+        let chip = try XCTUnwrap(try words(in: root).filter { $0.reads("Johto", exactly: false) }
+            .max { $0.box.midY < $1.box.midY })
+        try press(chip, in: root)
+        let deadline = ContinuousClock.now + .seconds(5)
+        while try isRendered("Maple", exactly: true, in: root), ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(50))
+        }
+        XCTAssertFalse(try isRendered("Maple", exactly: true, in: root))
+        try await waitForText("Willow", exactly: true, in: root)
+
+        let selectedChip = try XCTUnwrap(try words(in: root).filter { $0.reads("Johto", exactly: false) }
+            .max { $0.box.midY < $1.box.midY })
+        try press(selectedChip, in: root)
+        try await waitForText("Maple", exactly: true, in: root)
+        try await waitForText("Willow", exactly: true, in: root)
+    }
+
     func testBackFromDetailReturnsToThePageOfThatSpecies() async throws {
         let store = try makeStore()
         let navigation = PopoverNavigation()

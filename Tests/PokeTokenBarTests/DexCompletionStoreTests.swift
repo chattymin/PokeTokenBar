@@ -106,4 +106,56 @@ final class DexCompletionStoreTests: XCTestCase {
         XCTAssertEqual(complete.formSpecies(speciesID: 201).filter { $0.hasNormal || $0.isShiny }.count, 28)
         XCTAssertTrue(complete.state.notifiedDexCompletions.contains("unown"))
     }
+
+    func testLegacyImportSeedsExistingCompletionsBeforeANewHatch() async throws {
+        try await assertLegacyImportTracksTheNextCompletion(existingKanto: true)
+    }
+
+    func testLegacyImportWithoutEarnedBadgesStillEnablesFutureCompletions() async throws {
+        try await assertLegacyImportTracksTheNextCompletion(existingKanto: false)
+    }
+
+    private func assertLegacyImportTracksTheNextCompletion(existingKanto: Bool) async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("ptb-dex-import-\(UUID())")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let url = directory.appendingPathComponent("companion-state.json")
+        let suite = "ptb-dex-import-\(UUID())"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        defaults.set(1.0, forKey: "growthDifficulty")
+
+        var legacy = CompanionState()
+        let lower = existingKanto ? 1 : 152
+        legacy.dex = [DexEntry(baseID: lower, finalID: 250, chainOrder: Array(lower...250),
+                               rarity: .common, caughtAt: Date())]
+        legacy.eggUsage = PokemonBalance.eggHatchThreshold
+        legacy.pendingHatchID = 251 // The final missing Johto species, ready to hatch after import.
+        let data = try SaveTransfer.encode(state: legacy, appVersion: "2.5.0", deviceName: "Old Mac", now: Date())
+        var json = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        var oldState = try XCTUnwrap(json["state"] as? [String: Any])
+        oldState.removeValue(forKey: "notifiedDexCompletions")
+        oldState.removeValue(forKey: "dexCompletionsSeeded")
+        json["state"] = oldState
+        let envelope = try SaveTransfer.decode(JSONSerialization.data(withJSONObject: json))
+        XCTAssertFalse(envelope.state.dexCompletionsSeeded, "the exported save predates completion tracking")
+
+        let store = CompanionStore(provider: OfflineProvider(), fileURL: url, defaults: defaults)
+        try store.applySave(envelope, todayTokensByProvider: ["test": 0], todayDate: "2026-11-05", hasUsageData: true)
+        let preexisting: Set<String> = existingKanto ? ["region.kanto"] : []
+        XCTAssertTrue(store.state.dexCompletionsSeeded)
+        XCTAssertEqual(store.state.notifiedDexCompletions, preexisting,
+                       "imported completions are seeded rather than announced again")
+        let persisted = try JSONDecoder().decode(CompanionState.self, from: Data(contentsOf: url))
+        XCTAssertTrue(persisted.dexCompletionsSeeded, "even an empty seed must persist during import")
+
+        await store.hatchIfNeeded()
+        XCTAssertEqual(store.state.active?.baseID, 251)
+        XCTAssertTrue(store.earnedDexBadges.contains(.region(.johto)))
+        XCTAssertEqual(store.state.notifiedDexCompletions, preexisting.union(["region.johto"]),
+                       "a newly completed region is announced in the same session without restarting")
+        let after = store.state.notifiedDexCompletions
+        store.checkDexCompletions()
+        XCTAssertEqual(store.state.notifiedDexCompletions, after, "completion is announced once")
+    }
 }

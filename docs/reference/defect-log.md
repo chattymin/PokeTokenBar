@@ -44,6 +44,22 @@ read_when:
 
 ## 판정·데이터
 
+- **Legacy save imports must initialize completion history before tracking new catches.**
+  Generation-dex completion seeding originally ran only after `load()` in the initializer.
+  `applySave` replaced that seeded state with an older save whose missing tracking fields
+  decoded to `dexCompletionsSeeded = false`; every later completion check then returned early.
+  Restarting silently seeded completions earned in that session, so their notifications were
+  lost permanently. Seed immediately after importing and migrating profiles, before saving:
+  existing badges become history without notifications and later catches can announce new
+  badges. The class sweep covered all state replacements: startup loads already seed, while
+  snapshot restoration delegates to `applySave` and needs the same repair. Earlier tests only
+  loaded legacy files at startup and missed the import boundary. Permanent guards
+  `testLegacyImportSeedsExistingCompletionsBeforeANewHatch` and
+  `testLegacyImportWithoutEarnedBadgesStillEnablesFutureCompletions` decode actual old-format
+  save envelopes, import them, verify persisted seeding (including no earned badges), then
+  hatch the final Johto species and require the new notification key in the same session.
+  Both tests failed before the fix with seven assertions and pass after adding import seeding.
+
 - **Cursor usage and limits must share the refreshed login, with cookie and Bearer forms kept
   distinct.** Usage reread the expired SQLite access token on every poll while limits refreshed
   only its private local variable. This left limits working beside frozen/cached usage. A browser

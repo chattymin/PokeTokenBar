@@ -1957,6 +1957,7 @@ final class CompanionStore {
         mintFeedbackNature = nil
         displayState = state.active != nil ? .idle : .egg
         migratePokemonProfilesIfNeeded()
+        seedDexCompletionsIfNeeded()
         save()
         if state.active != nil { Task { await loadCurrentLine() } }
         if detailProvider != nil { Task { await preparePokemonProfiles() } }
