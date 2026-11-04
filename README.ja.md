@@ -21,9 +21,9 @@
 
 </div>
 
-PokeTokenBar は、あなたがすでに使っている AI コーディングトークン（Claude Code・Codex・Gemini CLI・Antigravity・OpenCode・Hermes Agent・Cursor・Grok CLI・Copilot CLI・Kiro CLI・Pi Agent・omp・Aside・Kimi Code）を、macOS メニューバーの中で育っていく **ポケモンのパートナー** に変えます。トークンを使うとタマゴが孵化し、実際の進化ラインに沿って進化し、最終進化後に図鑑へ卒業して、また新しいタマゴが始まります。パートナーの下には正確な使用量トラッカーがあります — 今日の使用量・コスト、公式の5時間／週間上限をローカルログから直接読み取ります。
+PokeTokenBar は、あなたがすでに使っている AI コーディングトークン（Claude Code・Codex・Gemini CLI・Antigravity・OpenCode・Hermes Agent・Cursor・Grok CLI・Copilot CLI・Kiro CLI・Pi Agent・omp・omo・Aside・Kimi Code）を、macOS メニューバーの中で育っていく **ポケモンのパートナー** に変えます。トークンを使うとタマゴが孵化し、実際の進化ラインに沿って進化し、最終進化後に図鑑へ卒業して、また新しいタマゴが始まります。パートナーの下には正確な使用量トラッカーがあります — 今日の使用量・コスト、公式の5時間／週間上限をローカルログから直接読み取ります。
 
-> トークン使用量はローカルの Claude Code・Codex・Gemini CLI・Antigravity・OpenCode・Hermes Agent・Cursor・Grok CLI・Copilot CLI・Kiro CLI・Pi Agent・omp・Aside・Kimi Code データから直接読み取ります（`totalTokens` = input + output + cache、ローカル日付）— 外部 CLI 不要。非公式・非商用のポケモンファンプロジェクトです — [ライセンス & 免責](#ライセンス--免責) を参照。
+> トークン使用量はローカルの Claude Code・Codex・Gemini CLI・Antigravity・OpenCode・Hermes Agent・Cursor・Grok CLI・Copilot CLI・Kiro CLI・Pi Agent・omp・omo・Aside・Kimi Code データから直接読み取ります（`totalTokens` = input + output + cache、ローカル日付）— 外部 CLI 不要。非公式・非商用のポケモンファンプロジェクトです — [ライセンス & 免責](#ライセンス--免責) を参照。
 
 ## なぜ
 
@@ -37,7 +37,7 @@ PokeTokenBar は、あなたがすでに使っている AI コーディングト
 
 ## しくみ
 
-1. 🥚 **いつも通りコーディング。** Claude Code・Codex・Gemini CLI・Antigravity・OpenCode・Hermes Agent・Cursor・Grok CLI・Copilot CLI・Kiro CLI・Pi Agent・omp・Aside・Kimi Code で使うトークンがタマゴを温めます — 追加の操作は不要です。
+1. 🥚 **いつも通りコーディング。** Claude Code・Codex・Gemini CLI・Antigravity・OpenCode・Hermes Agent・Cursor・Grok CLI・Copilot CLI・Kiro CLI・Pi Agent・omp・omo・Aside・Kimi Code で使うトークンがタマゴを温めます — 追加の操作は不要です。
 2. 🐣 **孵化。** [PokéAPI](https://pokeapi.co/) の**第1〜5世代すべての進化系統（起点329種）**から、公式の捕獲率で重み付けされて生まれます — よくいるポケモンは頻繁に、伝説は129回に1回。孵化したポケモンは育成中もすぐに **図鑑** に表示されます。孵化ごとに25種類のせいかくがひとつ決まり — **ごくまれな偶然で ✨ 色違いが生まれます**。
 3. ⚡ **進化。** コーディングを続けると実際の進化ツリー（1/2/3段階、分岐）に沿って育ち、各段階で小さな演出が流れます。
 4. 🎓 **卒業 & 収集。** 最終進化 + 閾値で **図鑑** に永久保存されます — レアなほど時間がかかり（ヘビーユーザーで common ≈3日 → legendary ≈24日）— 新しいタマゴが届きます。
@@ -58,8 +58,9 @@ PokeTokenBar は、あなたがすでに使っている AI コーディングト
 <td width="55%" valign="middle">
 <h3>メニューバーの相棒</h3>
 動く Gen-V スプライトが今日のトークン合計（compact、例：<code>200.7M</code>）の隣に住んでいます。今日のコスト（<code>$</code>）や公式上限 <code>%</code> を追加しても、すべてオフにしてキャラクターだけにしても。
+<b>設定 → メニューバーに表示 → ポケモンの成長率</b>をオンにすると、タマゴの孵化、または次の進化・卒業までの進捗が表示されます。ふしぎなアメを使うとすぐに更新され、代表ポケモンを固定していても育てている相棒の成長率を表示します。
 </td>
-<td width="45%" align="center"><img src="assets/menubar.gif" width="240" alt="メニューバー"></td>
+<td width="45%" align="center"><img src="assets/menubar.gif" width="240" alt="メニューバー"><br><img src="assets/screenshot-menu-growth-ja.png" width="240" alt="ポケモンの成長率を表示するメニューバー"></td>
 </tr>
 <tr>
 <td width="45%" align="center"><img src="assets/shiny-banner.gif" width="340" alt="通常 vs 色違い"></td>
@@ -169,7 +170,7 @@ Pi は複数のモデルを一つのセッションログに流すことがあ�
 - **代表ポケモン** — 図鑑で所有している種を選び、育成中のポケモンとは別にメニューバーと任意のフローティングペットへ固定。固定中はメニューバーがタマゴ・孵化・進化を追わなくなりますが、育成の進行は Home で引き続き確認できます。
 - **アニメーション品質** — メニューバーのスプライトとフローティングペットの滑らかさを選べます（バッテリー優先／標準／滑らか）。常に表示される2つの表面が同じ設定を共有します。既定の「バッテリー優先」はこの設定が入る前と同じフレームレートで、「標準」「滑らか」はバッテリーを多く使います（実測アイドル CPU 約1.8%／約5.1%）。
 - **インタラクティブなフローティングペット** — ホバーで今日の使用量、クリックでメイン画面、右クリックでメニュー、上限アラートは吹き出しで表示。
-- **サービス別タブ** — Claude Code・Codex・Gemini CLI・Antigravity・OpenCode・Hermes Agent・Cursor・Grok CLI・Copilot CLI・Kiro CLI・Pi Agent・omp・Aside・Kimi Code のうち2つ以上が検出されると、小さなタブでサービス別の詳細を切替（今日の合計は合算のまま）。
+- **サービス別タブ** — Claude Code・Codex・Gemini CLI・Antigravity・OpenCode・Hermes Agent・Cursor・Grok CLI・Copilot CLI・Kiro CLI・Pi Agent・omp・omo・Aside・Kimi Code のうち2つ以上が検出されると、小さなタブでサービス別の詳細を切替（今日の合計は合算のまま）。
 - **公式の上限** — Claude・Codex・Antigravity の5時間／週間使用率とリセットのカウントダウンを、今日の数字のすぐ下に。
 - **追加スキャンフォルダ** — 既定のパスの外にあるログのために、プロバイダーごとにスキャンルートを追加（設定 → 詳細）。
 - **複数の Claude アカウント** — 設定フォルダ（`CLAUDE_CONFIG_DIR`）ごとにログインした Claude Code アカウントには公式上限の下にそれぞれのタブが付き、ゲージ・ふしぎなアメ・通知・今日/今月のトークンを個別に表示します。`~/.claude-*` フォルダとエクスポートされた `CLAUDE_CONFIG_DIR` は自動で見つけ、それ以外の場所は設定 → 詳細で追加します。メニューバーの上限 %・コンパニオンの様子・予測は最後に使ったアカウントに従います（設定 → 一般 → 追跡する Claude アカウント）。アカウントごとに claude.ai セッションキーを設定でき（設定 → 詳細）、Keychain なしでもそのアカウントの上限が更新され続けます。
@@ -186,6 +187,48 @@ Pi は複数のモデルを一つのセッションログに流すことがあ�
 
 <small>上のホーム・設定・フォルム・ショップ・バッグ・難易度・日別グラフ・振り返り画像は、サンプルデータで実際の UI をローカル描画したものです。</small>
 
+## エージェントの動き
+
+フローティングペットが AI コーディングエージェントの状態に合わせて動きます。作業中は弾み、入力が必要なときは吹き出しで呼び、作業が終わるとマウスカーソルのそばへ駆け寄ります。エージェントは URL で状態を伝えます:
+
+```text
+poketokenbar://agent?state=<working|waiting|done|idle>[&label=<name>][&message=<text>]
+```
+
+- `label` と `message` は任意です。URL エンコードして渡すと、プレーンテキストで表示されます。`label`（最大 24 文字）はエージェントの名前で、複数のエージェントが同時に動いてもそれぞれの状態を別々に持ちます。label がなければ、すべてのイベントを 1 つのエージェントとして扱います。
+- `working` は 10 分間新しい通知がなければ通常の状態に戻ります。`done` は約 6 秒表示されたあとペットが元の位置へ戻り、`waiting` はそのエージェントの次のイベントかペットのクリックまで残ります。
+- エージェントが複数あるときは質問が優先です。吹き出しには最後に待ち始めたエージェントと、ほかに待っている数が表示され、どれか 1 つでも作業中ならペットは弾み続けます。`done` は数秒間 label を表示したあと、前の吹き出しに戻ります。ペットをクリックするとすべての質問が消え、メインウィンドウも従来どおり開きます。label は最大 8 個まで追跡します。
+- 上限アラートの吹き出しが優先されます。視差効果を減らす・低電力モードでは動かずに吹き出しだけを表示します。
+- フローティングペットがオフのときは何も起きません。反応をオフにするには **設定 → フローティングペット → エージェントの動きに反応**。
+
+**Claude Code** — 次の内容を `~/.claude/poketokenbar.sh` に保存します。セッションごとにプロジェクトフォルダ名を label として付けるため、同じフォルダの 2 つのセッションは 1 つの label を共有します。`pgrep` はアプリを終了したあとにフックがアプリを再起動しないようにし、`open -g` はターミナルのフォーカスを奪いません。
+
+```sh
+#!/bin/sh
+# PokeTokenBar agent hook: sh ~/.claude/poketokenbar.sh <working|waiting|done>
+# Labels the agent with the project folder name, percent-encoded (perl ships with macOS).
+pgrep -xq PokeTokenBar || exit 0
+label=$(printf %s "${CLAUDE_PROJECT_DIR##*/}" | perl -pe 's/([^A-Za-z0-9._~-])/sprintf("%%%02X", ord $1)/ge')
+open -g "poketokenbar://agent?state=$1&label=$label" >/dev/null 2>&1
+exit 0
+```
+
+次に `~/.claude/settings.json` にフックを追加します。`Notification` の matcher は Claude Code のアイドル通知を除外します。これがないと、ターンが終わるたびに「waiting」の吹き出しが残ります。ターンを中断すると（Esc）`Stop` は発火しないため、10 分のタイムアウトか `idle` を送るまでペットは作業中のままです。
+
+```json
+{
+  "hooks": {
+    "UserPromptSubmit": [{ "hooks": [{ "type": "command", "command": "sh ~/.claude/poketokenbar.sh working || true" }] }],
+    "PostToolUse": [{ "matcher": "*", "hooks": [{ "type": "command", "command": "sh ~/.claude/poketokenbar.sh working || true" }] }],
+    "PreToolUse": [{ "matcher": "AskUserQuestion", "hooks": [{ "type": "command", "command": "sh ~/.claude/poketokenbar.sh waiting || true" }] }],
+    "Notification": [{ "matcher": "permission_prompt|elicitation_dialog", "hooks": [{ "type": "command", "command": "sh ~/.claude/poketokenbar.sh waiting || true" }] }],
+    "Stop": [{ "hooks": [{ "type": "command", "command": "sh ~/.claude/poketokenbar.sh done || true" }] }]
+  }
+}
+```
+
+**ほかのエージェント** — フックやスクリプトから URL を開きます。例: `pgrep -xq PokeTokenBar && open -g 'poketokenbar://agent?state=done&label=my-app&message=Build%20passed' >/dev/null 2>&1 || true`
+
 ## 対応ツール
 
 | ツール | 集計範囲 | 公式の上限 |
@@ -194,14 +237,15 @@ Pi は複数のモデルを一つのセッションログに流すことがあ�
 | **Codex** | 今日 · 週 · 月 | ✅ 5時間／週間 |
 | **Gemini CLI** | 今日 · 週 · 月 | — |
 | **Antigravity** | 今日 · 5時間ブロック · 週 · 月 | ✅ 5時間／週間 |
-| **OpenCode** | 今日 · 5時間ブロック · 週 · 月 | — |
+| **OpenCode** | 今日 · 5時間ブロック · 週 · 月 | ✅ 5時間／週間／月間（OpenCode Go） |
 | **Hermes Agent** | 今日 · 5時間ブロック · 週 · 月 | — |
 | **Cursor** | 今日 · 5時間ブロック · 週 · 月 | — |
-| **Grok Build CLI** | 今日 · 5時間ブロック · 週 · 月 | — |
+| **Grok Build CLI** | 今日 · 5時間ブロック · 週 · 月 | ✅ クレジット上限（週間） |
 | **Copilot CLI** | 今日 · 5時間ブロック · 週 · 月 | — |
 | **Kiro CLI** | 今日 · 5時間ブロック · 週 · 月 | — (推定値) |
 | **Pi Agent** | 今日 · 5時間ブロック · 週 · 月 | — |
 | **omp** (oh-my-pi) | 今日 · 5時間ブロック · 週 · 月 | — |
+| **omo** (senpi) | 今日 · 5時間ブロック · 週 · 月 | — |
 | **Aside** | 今日 · 5時間ブロック · 週 · 月 | — |
 | **Kimi Code** | 今日 · 5時間ブロック · 週 · 月 | — |
 
@@ -213,7 +257,7 @@ Grok の対応範囲は Grok Build CLI のローカルセッションログで�
 
 ### 必要条件
 
-macOS 14+（Apple Silicon または Intel）。それだけ — トークン使用量はローカルの Claude Code・Codex・Gemini CLI・Antigravity・OpenCode・Hermes Agent・Cursor・Grok CLI・Copilot CLI・Kiro CLI・Pi Agent・omp・Aside・Kimi Code データから直接読み取り、外部の使用量 CLI は不要です。
+macOS 14+（Apple Silicon または Intel）。それだけ — トークン使用量はローカルの Claude Code・Codex・Gemini CLI・Antigravity・OpenCode・Hermes Agent・Cursor・Grok CLI・Copilot CLI・Kiro CLI・Pi Agent・omp・omo・Aside・Kimi Code データから直接読み取り、外部の使用量 CLI は不要です。
 
 ### Homebrew
 
@@ -256,12 +300,15 @@ swift test                   # ユニットテスト
 | `~/.hermes/state.db` | Hermes Agent daily/blocks/weekly/monthly | SQLite 読み取り専用；セッショントークン合計と保存済みコスト |
 | `~/Library/Application Support/Cursor/User/globalStorage/state.vscdb` | Cursor daily/blocks/weekly/monthly | SQLite 読み取り専用のフォールバック（`cursorDiskKV` バブルエントリの `tokenCount`）；サインイン時は `cursor.com` ダッシュボード API が主ソース（プライバシー参照） |
 | `cursor.com`（ダッシュボード API） | Cursor daily/blocks/weekly/monthly | 非公式 JSON endpoint（`get-filtered-usage-events`）；セッションは `state.vscdb` の `cursorAuth/accessToken` または `CURSOR_SESSION_TOKEN`；プロバイダー更新のたびに再取得；ネットワーク失敗時はアカウント単位に分離された最大6時間以内のディスクキャッシュで代替；`CURSOR_USAGE_API=0` で無効化 |
+| `opencode.ai`（OpenCode Go 使用量 API） | OpenCode Go 公式の5時間／週間／月間の使用率 | opencode.ai コンソールが使う非公式 JSON エンドポイント（`/zen/go/v1/usage`）；`opencode.db` の `credential` テーブルにある OpenCode Go API キー（なければ `auth.json`）を Bearer で使用；Go キーがある場合のみ呼び出し、失敗時は上限のみ非表示 |
+| `cli-chat-proxy.grok.com`（Grok 課金 API） | Grok 公式のクレジット上限（現在の期間） | Grok CLI の `/usage` 画面が使う非公式 JSON エンドポイント（`/v1/billing?format=credits`）；`$GROK_HOME/auth.json`（既定 `~/.grok`）のアクセストークンを Bearer で使用；トークンを自分では更新しないため、ログイン期限切れ時は Grok を一度実行するよう案内；失敗時は上限のみ非表示 |
 | `api2.cursor.sh`（ダッシュボード上限 API） | Cursor 公式の月間 included usage | Connect RPC `GetCurrentPeriodUsage`；`state.vscdb` または `CURSOR_SESSION_TOKEN` の Bearer JWT；usage events と同じ無効化スイッチ |
 | `~/.grok/sessions/**/updates.jsonl` | Grok Build CLI daily/blocks/weekly/monthly | `turn_completed` レコード（ターン単位の `usage`、サーバー報告のコスト）；`$GROK_HOME` を設定していればそのパス；サブエージェントのセッションは親ターンに合算済みのため除外 |
 | `~/.copilot/session-store.db` | Copilot CLI daily/blocks/weekly/monthly | SQLite 読み取り専用；`assistant_usage_events` の1行が API 呼び出し1回；`$COPILOT_HOME` を設定していればそのパス；`input_tokens` にキャッシュ分が含まれるため cache read/write を差し引いて集計；premium request 課金のためコストは推定しない |
 | `~/Library/Application Support/kiro-cli/data.sqlite3`<br>`~/.kiro/sessions/cli/*.jsonl`<br>`~/.kiro/sessions/<ws>/<session>/messages.jsonl` | Kiro CLI daily/blocks/weekly/monthly | 2.20 以前の SQLite と 2.20+ / `--v3` の JSONL。どちらも実トークン数を記録しないため、input は毎ターン再送される累積会話テキストをバイト÷4 で**推定**。`usage_summary` のクレジットは USD に換算しない。`/clear`・圧縮で消えた SQLite 会話の集計済みトークンはアプリ再起動まで数え続ける。`$KIRO_CLI_HOME` と `$KIRO_HOME` に対応 |
 | `~/.pi/agent/sessions/**/*.jsonl` | Pi Agent daily/blocks/weekly/monthly | 全プロジェクトの保存済み usage を直接集計；`$PI_CODING_AGENT_DIR`・`$PI_CODING_AGENT_SESSION_DIR` override 対応；output には reasoning がすでに含まれるため二重計上しない；fork のコピーは entry ID で重複排除；記録されたコストを使用 |
 | `~/.omp/agent/sessions/**/*.jsonl` | omp (oh-my-pi) daily/blocks/weekly/monthly | pi 形式セッション JSONL；すべての assistant `usage` イベントを合算（巻き戻した分岐も請求済みトークン）し、サブエージェントのセッションファイルも親に折り込まれないため合算対象；`$OMP_CODING_AGENT_DIR` を尊重；イベントごとの `cost` が記録されていればそのまま信頼；`bridge/` 以下の変換コピーは原本側で集計済みのため除外 |
+| `~/.omo/agent/sessions/**/*.jsonl`<br>`~/.senpi/agent/sessions/**/*.jsonl` | omo (senpi) daily/blocks/weekly/monthly | senpi `docs/session-format.md` の pi 形式 JSONL；assistant usage、ネストした `toolResult.usage`、compaction/branch-summary usage を合算；output には reasoning が含まれる；`cacheWrite1h` は cache write に加算；`$OMO_CODING_AGENT_DIR` と `$SENPI_CODING_AGENT_DIR` を尊重；記録された `usage.cost` は価格見積もりでありサブスクリプション請求額ではない |
 | `~/.aside/u/*/state.db` | Aside daily/blocks/weekly/monthly | SQLite のターン合計を読み取り専用で集計；削除済みターンはスキャンキャッシュのリセットまで集計を保持；記録されたコストのみ使用 |
 | `~/.kimi-code/sessions/**/agents/*/wire.jsonl` | Kimi Code daily/blocks/weekly/monthly | すべての `usage.record`（リクエスト単位、`turn`・`session` スコープ）をメイン・サブエージェントの wire ファイル全体で合算；`$KIMI_CODE_HOME` と Kimi デスクトップのランタイムルートを尊重；`/fork` のコピーはレコード内容で重複除去；Kimi はコストを記録しないためコストは「なし」と表示 |
 | Keychain（`Claude Code-credentials`、ほかの設定フォルダごとに `Claude Code-credentials-<hash>`）/ `<設定フォルダ>/.credentials.json` → `api.anthropic.com` | アカウントごとの Claude 公式 5h/週間 % | 非公式 endpoint；Keychain は**更新ボタンを押した時のみ**読み取り — 自動更新では読みません |
@@ -275,8 +322,8 @@ swift test                   # ユニットテスト
 
 ## プライバシー & 権限
 
-- **オンデバイス優先。** トークン使用量はローカルの Claude Code・Codex・Gemini CLI・Antigravity・OpenCode・Hermes Agent・Cursor・Grok CLI・Copilot CLI・Kiro CLI・Pi Agent・omp・Aside・Kimi Code データから直接読み取ります。使用量のアップロードも、モデルの推論実行も行いません。アカウントごとに Claude の使用量を分けるため、各設定フォルダの `history.jsonl` からはセッション id とプロンプト時刻だけを読み取ります。プロンプト本文は読まず、Mac の外にも送りません。
-- **外部リクエスト。** 本アプリは完全オフラインではありません。13のホストに接続します — `pokeapi.co`・`graphql.pokeapi.co`（種・進化）、`raw.githubusercontent.com`（スプライト）、`api.anthropic.com`（Claude 公式の上限）、`claude.ai`（設定で claude.ai セッションキーを保存した場合の Claude 公式の上限 — そのキーのみ、プロンプトやプロジェクトのパスは送りません）、`cursor.com`（ローカルで Cursor にサインインしている場合の Cursor 使用量サマリー — セッション資格情報のみ、プロンプトやプロジェクトのパスは送りません）、`api2.cursor.sh`（Cursor 公式の月間 included usage — Bearer JWT のみ、IDE ログインと同じ資格情報）、`cloudcode-pa.googleapis.com`・`daily-cloudcode-pa.googleapis.com`（Antigravity 公式の上限）と `oauth2.googleapis.com`（トークン更新）、`status.claude.com`・`status.openai.com`（障害バナー — 設定でオフ可）、`api.github.com`（アップデート確認）。**いずれのリクエストにも使用量ログ・プロンプト・プロジェクトのパスは含まれません** — 送られるのはリクエストそのものだけです（Cursor は Web ダッシュボードと同様に、自分の使用量の行を取得するためセッション Cookie を送信します）。
+- **オンデバイス優先。** トークン使用量はローカルの Claude Code・Codex・Gemini CLI・Antigravity・OpenCode・Hermes Agent・Cursor・Grok CLI・Copilot CLI・Kiro CLI・Pi Agent・omp・omo・Aside・Kimi Code データから直接読み取ります。使用量のアップロードも、モデルの推論実行も行いません。アカウントごとに Claude の使用量を分けるため、各設定フォルダの `history.jsonl` からはセッション id とプロンプト時刻だけを読み取ります。プロンプト本文は読まず、Mac の外にも送りません。
+- **外部リクエスト。** 本アプリは完全オフラインではありません。15のホストに接続します — `pokeapi.co`・`graphql.pokeapi.co`（種・進化）、`raw.githubusercontent.com`（スプライト）、`api.anthropic.com`（Claude 公式の上限）、`claude.ai`（設定で claude.ai セッションキーを保存した場合の Claude 公式の上限 — そのキーのみ、プロンプトやプロジェクトのパスは送りません）、`cursor.com`（ローカルで Cursor にサインインしている場合の Cursor 使用量サマリー — セッション資格情報のみ、プロンプトやプロジェクトのパスは送りません）、`api2.cursor.sh`（Cursor 公式の月間 included usage — Bearer JWT のみ、IDE ログインと同じ資格情報）、`opencode.ai`（ローカルに OpenCode Go キーが接続されている場合の OpenCode Go 公式上限 — API キーのみ）、`cli-chat-proxy.grok.com`（Grok CLI にログインしている場合の Grok 公式クレジット上限 — アクセストークンのみ）、`cloudcode-pa.googleapis.com`・`daily-cloudcode-pa.googleapis.com`（Antigravity 公式の上限）と `oauth2.googleapis.com`（トークン更新）、`status.claude.com`・`status.openai.com`（障害バナー — 設定でオフ可）、`api.github.com`（アップデート確認）。**いずれのリクエストにも使用量ログ・プロンプト・プロジェクトのパスは含まれません** — 送られるのはリクエストそのものだけです（Cursor は Web ダッシュボードと同様に、自分の使用量の行を取得するためセッション Cookie を送信します）。
 - **Keychain（任意）。** Claude OAuth 資格情報は**更新ボタンを押した時のみ**読み取ります（設定、またはポップオーバーの上限行）。自動更新では Keychain に触れないためパスワードのプロンプトは表示されず、`~/.claude/.credentials.json` があれば毎回読み直すので、`/login` でアカウントを切り替えても更新ボタンなしで追従します。トークンはメモリ上にのみ保持し、**アプリ自身の Keychain 項目は作成しません。** 資格情報ファイルが無い場合、上限はキャッシュされたトークンが期限切れになるか更新するまで以前の値のままです。設定でオフにすると上限セクションが非表示になります。Claude アカウントが複数ある場合、更新時にほかの設定フォルダの項目もフォルダごとに1回読み取り、プロンプトを拒否すると残りは尋ねません。
 - **ポケモンのデータとアセット** はランタイムに PokéAPI から取得し、`~/Library/Application Support/PokeTokenBar/` にのみキャッシュされます。生成された個体値（IV・性別・特性・覚えている技など）は値が変わらないよう、ローカルのパートナーセーブに保存されます。アプリのバイナリおよびリリース成果物にポケモンのアセットは含まれません。
 
