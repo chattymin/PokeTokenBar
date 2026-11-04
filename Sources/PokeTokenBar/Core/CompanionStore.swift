@@ -272,6 +272,15 @@ final class CompanionStore {
         guard let a = state.active, threshold > 0 else { return 0 }
         return min(1, max(0, Double(a.usedAtStage) / Double(threshold)))
     }
+    /// Follow the companion being raised, even when a Pokédex representative is pinned.
+    var menuGrowthText: String {
+        let total = isEgg ? eggHatchThreshold : threshold
+        let credits = isEgg ? state.eggUsage : (state.active?.usedAtStage ?? 0)
+        let used = min(max(0, credits), total)
+        // Match Home's integer flooring without losing exact boundaries to Double rounding.
+        let percent = total > 0 ? used * 100 / total : 0
+        return l.menuGrowthProgress(percent, isEgg: isEgg)
+    }
     var tokensToNext: Int { guard let a = state.active else { return 0 }; return max(0, threshold - a.usedAtStage) }
 
     /// 진화 라인 표시용: 실현된 경로 + 다음 단계 미리보기.

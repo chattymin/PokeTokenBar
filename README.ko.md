@@ -58,8 +58,9 @@ PokeTokenBar는 당신이 이미 태우고 있는 AI 코딩 토큰(Claude Code �
 <td width="55%" valign="middle">
 <h3>메뉴바 속 파트너</h3>
 움직이는 Gen-V 스프라이트가 오늘 토큰 합계(compact, 예: <code>200.7M</code>) 옆에 삽니다. 오늘 비용(<code>$</code>)이나 공식 한도 <code>%</code> 를 더하거나 — 전부 꺼서 캐릭터만 남길 수도 있어요.
+<b>설정 → 메뉴바에 표시 → 포켓몬 성장률</b>을 켜면 알의 부화 또는 다음 진화·졸업까지의 진행률을 볼 수 있어요. 이상한사탕을 쓰면 바로 갱신되고, 대표 포켓몬을 고정해도 현재 키우는 파트너의 성장률을 표시합니다.
 </td>
-<td width="45%" align="center"><img src="assets/menubar.gif" width="240" alt="메뉴바"></td>
+<td width="45%" align="center"><img src="assets/menubar.gif" width="240" alt="메뉴바"><br><img src="assets/screenshot-menu-growth-ko.png" width="240" alt="포켓몬 성장률을 표시한 메뉴바"></td>
 </tr>
 <tr>
 <td width="45%" align="center"><img src="assets/shiny-banner.gif" width="340" alt="일반 vs 이로치"></td>

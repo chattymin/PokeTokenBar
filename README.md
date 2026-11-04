@@ -57,8 +57,9 @@ Move your companion out of the menu bar and onto the desktop, at any size from 4
 <td width="55%" valign="middle">
 <h3>In your menu bar</h3>
 An animated Gen-V sprite lives next to today's total tokens (compact, e.g. <code>200.7M</code>). Add today's cost (<code>$</code>) or official limit <code>%</code> — or turn everything off for a character-only bar.
+Enable <b>Settings → Show in menu bar → Pokémon growth %</b> to see your egg's hatch progress or your companion's progress toward its next evolution or graduation. It updates immediately after Rare Candy use and follows the companion being raised even if a representative Pokémon is pinned.
 </td>
-<td width="45%" align="center"><img src="assets/menubar.gif" width="240" alt="Menu bar"></td>
+<td width="45%" align="center"><img src="assets/menubar.gif" width="240" alt="Menu bar"><br><img src="assets/screenshot-menu-growth.png" width="240" alt="Menu bar with Pokémon growth progress"></td>
 </tr>
 <tr>
 <td width="45%" align="center"><img src="assets/shiny-banner.gif" width="340" alt="Normal vs shiny"></td>
