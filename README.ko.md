@@ -58,8 +58,9 @@ PokeTokenBar는 당신이 이미 태우고 있는 AI 코딩 토큰(Claude Code �
 <td width="55%" valign="middle">
 <h3>메뉴바 속 파트너</h3>
 움직이는 Gen-V 스프라이트가 오늘 토큰 합계(compact, 예: <code>200.7M</code>) 옆에 삽니다. 오늘 비용(<code>$</code>)이나 공식 한도 <code>%</code> 를 더하거나 — 전부 꺼서 캐릭터만 남길 수도 있어요.
+<b>설정 → 메뉴바에 표시 → 포켓몬 성장률</b>을 켜면 알의 부화 또는 다음 진화·졸업까지의 진행률을 볼 수 있어요. 이상한사탕을 쓰면 바로 갱신되고, 대표 포켓몬을 고정해도 현재 키우는 파트너의 성장률을 표시합니다.
 </td>
-<td width="45%" align="center"><img src="assets/menubar.gif" width="240" alt="메뉴바"></td>
+<td width="45%" align="center"><img src="assets/menubar.gif" width="240" alt="메뉴바"><br><img src="assets/screenshot-menu-growth-ko.png" width="240" alt="포켓몬 성장률을 표시한 메뉴바"></td>
 </tr>
 <tr>
 <td width="45%" align="center"><img src="assets/shiny-banner.gif" width="340" alt="일반 vs 이로치"></td>
@@ -185,6 +186,48 @@ Pi는 모델 여러 개를 세션 로그 하나로 흘려보낼 수 있습니다
 <img src="assets/screenshot-usage-recap-ko.png" width="360" alt="선택한 기간의 사용량 돌아보기">
 
 <small>위 홈·설정·폼·상점·가방·난이도·일별 차트·회고 이미지는 샘플 데이터로 실제 UI를 로컬 렌더링한 이미지입니다.</small>
+
+## 에이전트 활동
+
+플로팅 펫이 AI 코딩 에이전트의 상태를 따라 움직입니다. 에이전트가 일하는 동안 들썩이고, 입력이 필요하면 말풍선으로 부르고, 작업이 끝나면 마우스 커서 옆으로 달려옵니다. 에이전트는 URL 로 상태를 알립니다:
+
+```text
+poketokenbar://agent?state=<working|waiting|done|idle>[&label=<name>][&message=<text>]
+```
+
+- `label` 과 `message` 는 선택 사항입니다. URL 인코딩해서 넘기면 일반 텍스트로 표시됩니다. `label`(최대 24자)은 에이전트 이름이라, 여러 에이전트가 동시에 돌아도 각자 상태를 따로 가집니다. label 이 없으면 모든 이벤트가 하나의 에이전트로 처리됩니다.
+- `working` 은 10분 동안 새 소식이 없으면 평소 상태로 돌아갑니다. `done` 은 약 6초 표시된 뒤 펫이 원래 자리로 돌아가고, `waiting` 은 그 에이전트의 다음 이벤트가 오거나 펫을 클릭할 때까지 남습니다.
+- 에이전트가 여럿이면 질문이 먼저입니다. 말풍선에는 가장 최근에 기다리기 시작한 에이전트와 더 기다리는 수가 표시되고, 하나라도 일하는 동안 펫은 계속 들썩입니다. `done` 은 몇 초 동안 label 을 보여 준 뒤 이전 말풍선으로 돌아갑니다. 펫을 클릭하면 모든 질문이 지워지고 메인 창도 그대로 열립니다. label 은 최대 8개까지 추적합니다.
+- 한도 알림 말풍선이 우선합니다. 동작 줄이기나 저전력 모드에선 움직이지 않고 말풍선만 띄웁니다.
+- 플로팅 펫이 꺼져 있으면 아무 일도 일어나지 않습니다. 반응을 끄려면 **설정 → 플로팅 펫 → 에이전트 활동에 반응**.
+
+**Claude Code** — 아래 내용을 `~/.claude/poketokenbar.sh` 로 저장합니다. 세션마다 프로젝트 폴더 이름을 label 로 붙이므로, 같은 폴더의 두 세션은 label 하나를 같이 씁니다. `pgrep` 은 앱을 종료한 뒤 훅이 앱을 다시 띄우지 않게 하고, `open -g` 는 터미널 포커스를 빼앗지 않습니다.
+
+```sh
+#!/bin/sh
+# PokeTokenBar agent hook: sh ~/.claude/poketokenbar.sh <working|waiting|done>
+# Labels the agent with the project folder name, percent-encoded (perl ships with macOS).
+pgrep -xq PokeTokenBar || exit 0
+label=$(printf %s "${CLAUDE_PROJECT_DIR##*/}" | perl -pe 's/([^A-Za-z0-9._~-])/sprintf("%%%02X", ord $1)/ge')
+open -g "poketokenbar://agent?state=$1&label=$label" >/dev/null 2>&1
+exit 0
+```
+
+그다음 `~/.claude/settings.json` 에 훅을 추가합니다. `Notification` 의 matcher 는 Claude Code 의 유휴 알림을 걸러 냅니다. 이게 없으면 턴이 끝날 때마다 "waiting" 말풍선이 남습니다. 턴을 중단하면(Esc) `Stop` 이 오지 않아, 10분 제한이 지나거나 `idle` 을 보낼 때까지 펫이 일하는 상태로 남습니다.
+
+```json
+{
+  "hooks": {
+    "UserPromptSubmit": [{ "hooks": [{ "type": "command", "command": "sh ~/.claude/poketokenbar.sh working || true" }] }],
+    "PostToolUse": [{ "matcher": "*", "hooks": [{ "type": "command", "command": "sh ~/.claude/poketokenbar.sh working || true" }] }],
+    "PreToolUse": [{ "matcher": "AskUserQuestion", "hooks": [{ "type": "command", "command": "sh ~/.claude/poketokenbar.sh waiting || true" }] }],
+    "Notification": [{ "matcher": "permission_prompt|elicitation_dialog", "hooks": [{ "type": "command", "command": "sh ~/.claude/poketokenbar.sh waiting || true" }] }],
+    "Stop": [{ "hooks": [{ "type": "command", "command": "sh ~/.claude/poketokenbar.sh done || true" }] }]
+  }
+}
+```
+
+**다른 에이전트** — 훅이나 스크립트에서 URL 을 열면 됩니다. 예: `pgrep -xq PokeTokenBar && open -g 'poketokenbar://agent?state=done&label=my-app&message=Build%20passed' >/dev/null 2>&1 || true`
 
 ## 지원 도구
 

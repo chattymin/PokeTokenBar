@@ -361,15 +361,18 @@ final class UsageStoreTests: XCTestCase {
         XCTAssertFalse(store.floatingPetEnabled, "옵트인 기능 — 기본은 꺼짐")
         XCTAssertEqual(store.floatingPetSize, 96)
         XCTAssertTrue(store.floatingPetBubbleAlerts, "bubble alerts default on when pet is later enabled")
+        XCTAssertTrue(store.floatingPetAgentActivity, "inert until an agent hook sends a URL")
 
         store.floatingPetEnabled = true
         store.floatingPetSize = 144
         store.floatingPetBubbleAlerts = false
+        store.floatingPetAgentActivity = false
 
         let reloaded = makeStore(providers: [claude])   // 같은 suite 재로딩 = 앱 재시작
         XCTAssertTrue(reloaded.floatingPetEnabled)
         XCTAssertEqual(reloaded.floatingPetSize, 144)
         XCTAssertFalse(reloaded.floatingPetBubbleAlerts)
+        XCTAssertFalse(reloaded.floatingPetAgentActivity)
     }
 
     /// Bubble picker is pure: critical beats warn; within a tier higher utilization wins (stable choice).
@@ -654,6 +657,45 @@ final class UsageStoreTests: XCTestCase {
         XCTAssertTrue(three[0].contains(" · "))              // 윗줄=토큰·비용 나란히
         XCTAssertFalse(three[0].contains("Claude"))          // 윗줄에 한도 없음
         XCTAssertTrue(three[1].contains("Claude"))           // 아랫줄=한도
+    }
+
+    func testMenuLinesWithGrowthAllCombinations() async {
+        let claude = FakeUsageProvider(id: "claude_code", displayName: "Claude Code",
+                                       daily: todayDaily(1_200_000, cost: 3.45))
+        let store = makeStore(providers: [claude],
+                              claude: claudeLimits(fiveHourUtil: 40, resetsAt: "2099-01-01T00:00:00Z"))
+        await store.refresh(scheduleEmptyRetry: false)
+        let token = TokenFormatter.compact(store.todayTotalTokens)
+        let cost = store.todayUsageCost.text(L(store.localizationLanguage), compact: true)
+        for mask in 0..<16 {
+            store.showTokensInMenu = mask & 1 != 0
+            store.showCostInMenu = mask & 2 != 0
+            store.showLimitInMenu = mask & 4 != 0
+            let growth = mask & 8 != 0 ? "Growth 42%" : nil
+            let lines = store.menuLines(growthText: growth)
+            var expected: [String] = []
+            if store.showTokensInMenu { expected.append(token) }
+            if store.showCostInMenu { expected.append(cost) }
+            if let growth { expected.append(growth) }
+            if store.showLimitInMenu { expected.append("Claude 40%") }
+            XCTAssertEqual(lines.flatMap { $0.components(separatedBy: " · ") }, expected, "mask=\(mask)")
+            XCTAssertLessThanOrEqual(lines.count, 2, "mask=\(mask)")
+            if store.showLimitInMenu {
+                XCTAssertEqual(lines.last, "Claude 40%", "limits retain a separate line")
+            }
+            if expected.count <= 2 { XCTAssertEqual(lines, expected) }
+        }
+    }
+
+    func testGrowthSettingPersistsAndSavedGrowthIsAvailableBeforeUsageLoads() {
+        let store = makeStore(providers: [])
+        XCTAssertFalse(store.showGrowthInMenu)
+        XCTAssertEqual(store.menuLines, ["—"])
+        XCTAssertEqual(store.menuLines(growthText: "Hatch 42%"), ["Hatch 42%"])
+        store.showGrowthInMenu = true
+        XCTAssertTrue(makeStore(providers: []).showGrowthInMenu)
+        store.showGrowthInMenu = false
+        XCTAssertFalse(makeStore(providers: []).showGrowthInMenu)
     }
 
     // MARK: 한도 표시 방식 (used / remaining)

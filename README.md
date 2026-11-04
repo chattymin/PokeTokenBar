@@ -57,8 +57,9 @@ Move your companion out of the menu bar and onto the desktop, at any size from 4
 <td width="55%" valign="middle">
 <h3>In your menu bar</h3>
 An animated Gen-V sprite lives next to today's total tokens (compact, e.g. <code>200.7M</code>). Add today's cost (<code>$</code>) or official limit <code>%</code> — or turn everything off for a character-only bar.
+Enable <b>Settings → Show in menu bar → Pokémon growth %</b> to see your egg's hatch progress or your companion's progress toward its next evolution or graduation. It updates immediately after Rare Candy use and follows the companion being raised even if a representative Pokémon is pinned.
 </td>
-<td width="45%" align="center"><img src="assets/menubar.gif" width="240" alt="Menu bar"></td>
+<td width="45%" align="center"><img src="assets/menubar.gif" width="240" alt="Menu bar"><br><img src="assets/screenshot-menu-growth.png" width="240" alt="Menu bar with Pokémon growth progress"></td>
 </tr>
 <tr>
 <td width="45%" align="center"><img src="assets/shiny-banner.gif" width="340" alt="Normal vs shiny"></td>
@@ -184,6 +185,48 @@ Reset countdowns include the clock time, and the colored percentage stays aligne
 <img src="assets/screenshot-usage-recap.png" width="360" alt="Usage recap for a selected period">
 
 <small>The Home, Settings, form, Shop, Bag, difficulty, daily-chart, and recap images above are local renders of the production UI with sample data.</small>
+
+## Agent activity
+
+The floating pet can follow any AI coding agent: it bobs while the agent works, asks for you in a speech bubble when the agent needs input, and runs to your cursor when the agent finishes. The agent reports through a URL:
+
+```text
+poketokenbar://agent?state=<working|waiting|done|idle>[&label=<name>][&message=<text>]
+```
+
+- `label` and `message` are optional, URL-encoded, and shown as plain text. `label` (up to 24 characters) names the agent so several can run at once, each with its own state. Without a label, all events belong to one agent.
+- `working` falls back to idle after 10 minutes without news. `done` shows for about 6 seconds, then the pet walks home. `waiting` stays until that agent's next event or until you click the pet.
+- With several agents, a question comes first: the bubble shows the latest waiting agent and how many more are waiting, and the pet keeps bobbing while any agent works. A `done` shows its label for a few seconds, then the earlier bubble comes back. Clicking the pet clears every question and still opens the main window. Up to 8 labels are tracked.
+- A limit alert bubble takes priority. With Reduce Motion or Low Power Mode on, the pet shows bubbles without moving.
+- Nothing happens while the floating pet is off. Turn the reactions off in **Settings → Floating Pet → React to agent activity**.
+
+**Claude Code** — save this as `~/.claude/poketokenbar.sh`. It labels each session with its project folder name, so two sessions in the same folder share one label. `pgrep` keeps a hook from relaunching the app after you quit it, and `open -g` keeps your terminal focused.
+
+```sh
+#!/bin/sh
+# PokeTokenBar agent hook: sh ~/.claude/poketokenbar.sh <working|waiting|done>
+# Labels the agent with the project folder name, percent-encoded (perl ships with macOS).
+pgrep -xq PokeTokenBar || exit 0
+label=$(printf %s "${CLAUDE_PROJECT_DIR##*/}" | perl -pe 's/([^A-Za-z0-9._~-])/sprintf("%%%02X", ord $1)/ge')
+open -g "poketokenbar://agent?state=$1&label=$label" >/dev/null 2>&1
+exit 0
+```
+
+Then add the hooks to `~/.claude/settings.json`. The `Notification` matcher skips Claude Code's idle reminder, which would otherwise leave a "waiting" bubble after every turn. `Stop` does not fire when you interrupt a turn (Esc), so the pet keeps working until the 10-minute timeout or an `idle` event.
+
+```json
+{
+  "hooks": {
+    "UserPromptSubmit": [{ "hooks": [{ "type": "command", "command": "sh ~/.claude/poketokenbar.sh working || true" }] }],
+    "PostToolUse": [{ "matcher": "*", "hooks": [{ "type": "command", "command": "sh ~/.claude/poketokenbar.sh working || true" }] }],
+    "PreToolUse": [{ "matcher": "AskUserQuestion", "hooks": [{ "type": "command", "command": "sh ~/.claude/poketokenbar.sh waiting || true" }] }],
+    "Notification": [{ "matcher": "permission_prompt|elicitation_dialog", "hooks": [{ "type": "command", "command": "sh ~/.claude/poketokenbar.sh waiting || true" }] }],
+    "Stop": [{ "hooks": [{ "type": "command", "command": "sh ~/.claude/poketokenbar.sh done || true" }] }]
+  }
+}
+```
+
+**Other agents** — open the URL from any hook or script, e.g. `pgrep -xq PokeTokenBar && open -g 'poketokenbar://agent?state=done&label=my-app&message=Build%20passed' >/dev/null 2>&1 || true`.
 
 ## Works with
 
