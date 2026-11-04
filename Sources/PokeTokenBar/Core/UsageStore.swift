@@ -625,6 +625,7 @@ final class UsageStore {
             windows += claudeCandyWindows(account, named: accounts.count > 1, l)
                 .filter { account.isDefault || armedCandyWindows.contains($0.key) }
         }
+        // Codex 는 한도를 다 써도 credits 로 계속 쓴다 — epoch 를 넘기지 않아 100% 미만 관측으로만 재무장한다.
         for bucket in codexLimits?.visibleSnapshots ?? [] {
             let bucketKey = bucket.limitId ?? bucket.limitName ?? "codex"
             let bucketName = bucket.bucketDisplayName
@@ -633,16 +634,14 @@ final class UsageStore {
                     key: "codex.\(bucketKey).primary",
                     name: "\(bucketName) \(l.codexWindow(primary.windowDurationMins))",
                     kind: Self.windowClass(minutes: primary.windowDurationMins),
-                    utilization: Double(primary.usedPercent),
-                    epoch: primary.resetsAt.map(String.init)))
+                    utilization: Double(primary.usedPercent)))
             }
             if let secondary = bucket.secondary {
                 windows.append(CandyWindow(
                     key: "codex.\(bucketKey).secondary",
                     name: "\(bucketName) \(l.codexWindow(secondary.windowDurationMins))",
                     kind: Self.windowClass(minutes: secondary.windowDurationMins),
-                    utilization: Double(secondary.usedPercent),
-                    epoch: secondary.resetsAt.map(String.init)))
+                    utilization: Double(secondary.usedPercent)))
             }
         }
         for group in antigravityLimits?.groups ?? [] {
