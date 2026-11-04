@@ -48,6 +48,13 @@ cat > "$APP/Contents/Info.plist" <<PLIST
     <key>CFBundleIconFile</key><string>AppIcon</string>
     <key>LSUIElement</key><true/>
     <key>NSHighResolutionCapable</key><true/>
+    <key>CFBundleURLTypes</key>
+    <array>
+        <dict>
+            <key>CFBundleURLName</key><string>io.github.chattymin.poketokenbar.agent</string>
+            <key>CFBundleURLSchemes</key><array><string>poketokenbar</string></array>
+        </dict>
+    </array>
 </dict>
 </plist>
 PLIST

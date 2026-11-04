@@ -256,6 +256,35 @@ final class ModelDecodingTests: XCTestCase {
         XCTAssertNil(OAuthProfileData.identity(from: emptyEmail))
     }
 
+    /// 서버가 알려주는 현재 플랜 이름 — 이름 변경(Max 20x → Ultra)이 앱 수정 없이 화면에 닿는 경로.
+    /// 값이 없거나 공백뿐이면 nil 이어야 티어 조립 폴백이 살아난다.
+    func testOAuthProfilePlanDisplayNameParsing() {
+        let named = """
+        {"account":{"email":"dev@example.com"},
+        "organization":{"organization_type":"claude_max","rate_limit_tier":"default_claude_max_20x",
+        "plan_display_name":"Ultra","plan_display_label":"Ultra plan"}}
+        """.data(using: .utf8)!
+        XCTAssertEqual(OAuthProfileData.identity(from: named),
+                       AccountIdentity(email: "dev@example.com", organizationName: nil,
+                                       planDisplayName: "Ultra"))
+
+        // 앞뒤 공백은 다듬고, 빈 값은 없는 것으로 본다
+        let padded = """
+        {"account":{"email":"dev@example.com"},"organization":{"plan_display_name":"  Max  "}}
+        """.data(using: .utf8)!
+        XCTAssertEqual(OAuthProfileData.identity(from: padded)?.planDisplayName, "Max")
+        let blank = """
+        {"account":{"email":"dev@example.com"},"organization":{"plan_display_name":"   "}}
+        """.data(using: .utf8)!
+        XCTAssertNil(OAuthProfileData.identity(from: blank)?.planDisplayName)
+
+        // 조직 정보가 통째로 없어도 파싱은 성공한다(이메일이 필수 조건)
+        let noOrg = """
+        {"account":{"email":"dev@example.com"}}
+        """.data(using: .utf8)!
+        XCTAssertNil(OAuthProfileData.identity(from: noOrg)?.planDisplayName)
+    }
+
     /// 계정 라벨 — 팀/기업 조직명은 붙이고, 개인 플랜의 자동 생성 조직명("<email>'s Organization")은
     /// 이메일과 중복이라 생략한다.
     func testLimitStatusAccountDisplay() throws {
@@ -273,19 +302,59 @@ final class ModelDecodingTests: XCTestCase {
         XCTAssertEqual(status.accountDisplay, "dev@example.com")
     }
 
-    /// 플랜 표시 문자열 — subscriptionType + rateLimitTier 조립. Max 는 배수까지 세분화.
-    /// 조합표 전수: {max×20x, max×5x, pro×배수없음, free×nil, 구독없음}.
+    /// 플랜 표시 문자열 — profile 이 준 이름이 우선, 없으면 subscriptionType + rateLimitTier 조립.
+    /// 조립은 Claude 의 티어 이름 변경(Max 5x → Max, Max 20x → Ultra)을 표시 단계에서 반영한다.
+    /// 조합표 전수: {profile 이름 우선·빈 이름 폴백, max×20x, max×5x, max×미지배수, max×티어없음,
+    /// pro×배수없음, free×nil, 구독없음}.
     func testPlanDisplay() throws {
         var status = try JSONDecoder().decode(LimitStatus.self, from: Data("{}".utf8))
 
         status.subscriptionType = "max"
         status.rateLimitTier = "default_claude_max_20x"
-        XCTAssertEqual(status.planDisplay, "Max 20x")
+        XCTAssertEqual(status.planDisplay, "Ultra")
 
         status.rateLimitTier = "default_claude_max_5x"
-        XCTAssertEqual(status.planDisplay, "Max 5x")
+        XCTAssertEqual(status.planDisplay, "Max")
 
-        // 배수 토큰이 없는 등급 → 등급명만
+        // 티어 문자열에 배수가 없어도 Max 는 Max — 이름 변경이 배수 파싱에 기대지 않는다
+        status.rateLimitTier = "default_claude_max"
+        XCTAssertEqual(status.planDisplay, "Max")
+
+        status.rateLimitTier = nil
+        XCTAssertEqual(status.planDisplay, "Max")
+
+        // 모르는 배수는 이름을 지어내지 않고 숫자를 남긴다
+        status.rateLimitTier = "default_claude_max_10x"
+        XCTAssertEqual(status.planDisplay, "Max 10x")
+
+        // profile 이 준 이름이 있으면 그대로 — 서버가 정한 이름이 티어 조립보다 우선한다
+        status.rateLimitTier = "default_claude_max_20x"
+        status.planDisplayName = "Ultra"
+        XCTAssertEqual(status.planDisplay, "Ultra")
+
+        // 폴백이 살아 있는지: 빈 이름·공백 이름은 무시하고 티어로 조립한다
+        status.planDisplayName = ""
+        XCTAssertEqual(status.planDisplay, "Ultra")
+        status.planDisplayName = "   "
+        XCTAssertEqual(status.planDisplay, "Ultra")
+        status.planDisplayName = nil
+        XCTAssertEqual(status.planDisplay, "Ultra")
+
+        // 이름은 자격증명이 아니라 profile 에서 오므로, 자격증명 필드가 비어도 표시된다
+        status.subscriptionType = nil
+        status.rateLimitTier = nil
+        status.planDisplayName = "Ultra"
+        XCTAssertEqual(status.planDisplay, "Ultra")
+        status.planDisplayName = nil
+        XCTAssertNil(status.planDisplay)
+
+        status.subscriptionType = "max"
+        status.rateLimitTier = "default_claude_max_5x"
+        status.planDisplayName = "Max"
+        XCTAssertEqual(status.planDisplay, "Max")
+        status.planDisplayName = nil
+
+        // 이름이 바뀌지 않은 등급 — 배수 토큰이 없으면 등급명만
         status.subscriptionType = "pro"
         status.rateLimitTier = "default_claude_pro"
         XCTAssertEqual(status.planDisplay, "Pro")

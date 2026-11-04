@@ -218,11 +218,15 @@ struct PopoverView: View {
                 HStack(spacing: 14) {
                     periodTotals.fixedSize(horizontal: true, vertical: false)
                     Spacer(minLength: 0)
+                    StreakBadge(streak: store.currentStreak, l: l)
                     recapButton
                 }
                 VStack(alignment: .trailing, spacing: 6) {
                     periodTotals.frame(maxWidth: .infinity, alignment: .leading)
-                    recapButton
+                    HStack(spacing: 14) {
+                        StreakBadge(streak: store.currentStreak, l: l)
+                        recapButton
+                    }
                 }
             }
             .padding(.top, 2)
@@ -1125,6 +1129,7 @@ struct MonthDailyTrend: View {
         Color(red: 0.30, green: 0.60, blue: 0.55),
         Color(red: 0.80, green: 0.35, blue: 0.40),
         Color(red: 0.40, green: 0.48, blue: 0.80),
+        Color(red: 0.96, green: 0.58, blue: 0.22),
     ]
 
     var body: some View {

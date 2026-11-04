@@ -1367,10 +1367,12 @@ final class ClaudeTrackedAccountStoreTests: XCTestCase {
         let noFiveHour = makeStore(primary: fullStatus(fiveHour: 40, sevenDay: 10, email: "me@corp.example", org: "Corp"),
                                    personal: weeklyOnly, lastPrompt: ["personal": Date()])
         noFiveHour.showLimitInMenu = true
+        noFiveHour.localizationLanguage = .en
         await noFiveHour.refresh(scheduleEmptyRetry: false)
         XCTAssertEqual(noFiveHour.trackedClaudeAccount?.id, personalKey)
-        XCTAssertEqual(noFiveHour.menuLines.filter { $0.hasPrefix("Claude") }, [])
-        XCTAssertNil(noFiveHour.menuToolTip, "the tracked account shows no 5h percentage")
+        XCTAssertEqual(noFiveHour.menuLines.filter { $0.hasPrefix("Claude") }, ["Claude 30%"],
+                       "a plan without a session limit shows its weekly percentage")
+        XCTAssertEqual(noFiveHour.menuToolTip, "Tracked Claude account: me@example.com")
     }
 
     func testTheForecastUsesTheTrackedAccount() async {
