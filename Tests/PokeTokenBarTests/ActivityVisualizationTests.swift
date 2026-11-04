@@ -354,6 +354,56 @@ final class ActivityVisualizationTests: XCTestCase {
         XCTAssertEqual(panel, withHistory, "the panel dropped the ledger")
     }
 
+    /// A visualization wrapper must preserve the bar period picker and its selected axis.
+    @MainActor
+    func testPanelPreservesTheSelectedBarPeriodAndPicker() throws {
+        let total = series(through: "2026-08-24")
+        let selected = Array(total.suffix(7))
+        let period = Binding.constant(DailyTrendWindow.d7)
+        let dots = AnyView(PageDots(current: .monthlyBars))
+        let panel = try pixels(ActivityPanel(visualization: .monthlyBars, series: selected,
+                                             showsCost: false, window: period, hasAvailableHistory: true,
+                                             today: "2026-08-24", l: L(.en), onCycle: {}))
+        let expected = try pixels(MonthDailyTrend(series: selected, showsCost: false, window: period,
+                                                 hasAvailableHistory: true, today: "2026-08-24",
+                                                 l: L(.en), trailing: dots))
+        let month = try pixels(MonthDailyTrend(series: selected, showsCost: false,
+                                              today: "2026-08-24", l: L(.en), trailing: dots))
+        XCTAssertNotEqual(expected, month, "the fixture must distinguish the selected period and picker")
+        XCTAssertEqual(panel, expected, "the wrapper dropped the selected period or picker")
+    }
+
+    /// Empty recent usage must leave the period picker and switch dots available for recovery.
+    @MainActor
+    func testPanelKeepsThePickerForAnEmptySelectedWindow() throws {
+        let empty = series(through: "2026-08-24").suffix(7).map { usage($0.date, 0) }
+        let period = Binding.constant(DailyTrendWindow.d7)
+        let panel = ActivityPanel(visualization: .monthlyBars, series: empty,
+                                  showsCost: false, window: period, hasAvailableHistory: true,
+                                  today: "2026-08-24", l: L(.en), onCycle: {})
+        let renderer = ImageRenderer(content: panel.frame(width: PopoverMetrics.contentWidth))
+        XCTAssertGreaterThan(try XCTUnwrap(renderer.cgImage).height, 0,
+                             "an empty selected window must not hide both controls")
+    }
+
+    /// A short bar window must not remove this month's earlier live usage from the grid.
+    @MainActor
+    func testPanelGridUsesTheWholeMonthIndependentlyOfTheBarWindow() throws {
+        let month = series(through: "2026-08-24")
+        let selected = Array(month.suffix(7))
+        let dots = AnyView(PageDots(current: .recentHeatmap))
+        let panel = try pixels(ActivityPanel(visualization: .recentHeatmap, series: selected,
+                                             heatmapSeries: month, showsCost: false,
+                                             window: .constant(.d7), today: "2026-08-24",
+                                             l: L(.en), onCycle: {}))
+        let expected = try pixels(ActivityHeatmap(series: month, history: UsageLedger(), showsCost: false,
+                                                  today: "2026-08-24", l: L(.en), trailing: dots))
+        let recentOnly = try pixels(ActivityHeatmap(series: selected, history: UsageLedger(), showsCost: false,
+                                                    today: "2026-08-24", l: L(.en), trailing: dots))
+        XCTAssertNotEqual(expected, recentOnly, "the fixture must contain usage outside the bar window")
+        XCTAssertEqual(panel, expected, "the grid used the bar window instead of the full month")
+    }
+
     @MainActor
     private func pixels<V: View>(_ view: V) throws -> Data {
         let renderer = ImageRenderer(content: view.frame(width: PopoverMetrics.contentWidth))

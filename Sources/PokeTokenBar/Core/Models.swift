@@ -253,6 +253,9 @@ struct LimitStatus: Decodable, Sendable {
     /// CodingKeys 에 없어 디코드 시 무시되고, OAuthLimitsProvider.fetch 가 채운다.
     var subscriptionType: String?
     var rateLimitTier: String?
+    /// profile endpoint 가 알려주는 현재 플랜 이름("Ultra" 등) — usage 응답이 아니라
+    /// OAuthProfileCache 가 주입한다. 이름은 서버가 정하고, 앱은 그대로 보여준다.
+    var planDisplayName: String?
     /// 토큰의 실제 주인 — usage 응답이 아니라 profile endpoint(OAuthProfileCache)에서 주입한다.
     /// 같은 기기에서 두 계정이 하나의 Keychain 항목을 덮어쓸 때 어느 계정의 한도인지 구분하는 라벨.
     var accountEmail: String?
@@ -266,17 +269,30 @@ struct LimitStatus: Decodable, Sendable {
         case limits
     }
 
-    /// subscriptionType(max/pro/free) + rateLimitTier 배수를 합친 표시 문자열.
-    /// 예: subscriptionType="max", rateLimitTier="default_claude_max_20x" → "Max 20x".
-    /// 배수는 등급과 무관하게 tier 에 배수 토큰이 있을 때만 붙는다(Max 전용 분기 아님).
+    /// 플랜 표시 문자열. profile endpoint 가 이름을 알려주면(`plan_display_name`) 그대로 쓰고,
+    /// 없거나 실패하면 subscriptionType + rateLimitTier 로 조립한다.
+    /// 조립 규칙: Claude 가 Max 티어 이름을 바꿨다 — Max 5x → Max, Max 20x → Ultra. 자격증명의
+    /// subscriptionType/rateLimitTier 토큰은 그대로라(tier 는 여전히 default_claude_max_5x/20x)
+    /// 표시 단계에서만 새 이름으로 옮긴다.
+    /// 예: ("max","default_claude_max_20x") → "Ultra".
+    /// 배수는 등급과 무관하게 tier 에 배수 토큰이 있을 때만 붙는다(Max 전용 분기 아님) — Max 의
+    /// 미지 배수는 "Max 10x" 로 남겨, 새 등급이 생겨도 배수 숫자를 감추지 않는다.
     /// tier 에 배수 토큰이 없으면 등급명만("Pro"/"Free"), 구독 정보가 없으면 nil.
     var planDisplay: String? {
+        if let name = planDisplayName?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty {
+            return name
+        }
         guard let subscriptionType, !subscriptionType.isEmpty else { return nil }
         let base = subscriptionType.prefix(1).uppercased() + subscriptionType.dropFirst()
-        if let tier = rateLimitTier, let multiplier = Self.tierMultiplier(from: tier) {
-            return "\(base) \(multiplier)"
+        guard let tier = rateLimitTier, let multiplier = Self.tierMultiplier(from: tier) else {
+            return base
         }
-        return base
+        guard subscriptionType.lowercased() == "max" else { return "\(base) \(multiplier)" }
+        switch multiplier {
+        case "5x": return "Max"
+        case "20x": return "Ultra"
+        default: return "Max \(multiplier)"
+        }
     }
 
     /// 계정 라벨 — "email · 조직명". 개인 플랜의 자동 생성 조직명("<email>'s Organization")은
@@ -297,6 +313,14 @@ struct LimitStatus: Decodable, Sendable {
             let digits = part.dropLast()
             if !digits.isEmpty, digits.allSatisfy(\.isNumber) { return String(part) }
         }
+        return nil
+    }
+
+    /// 메뉴바처럼 좁은 표면이 대표로 보여 줄 창 — 5시간 세션이 있으면 그것, 없으면 주간.
+    /// 세션 한도가 없는 플랜(Ultra)은 `five_hour: null` 을 보낸다. 5h 고정이면 메뉴바에서 Claude 가 사라진다.
+    var headlineWindow: (window: LimitWindow, span: TimeInterval)? {
+        if let fiveHour, fiveHour.utilization != nil { return (fiveHour, LimitWindowSpan.fiveHour) }
+        if let sevenDay, sevenDay.utilization != nil { return (sevenDay, LimitWindowSpan.sevenDay) }
         return nil
     }
 
@@ -663,6 +687,8 @@ struct ProviderSnapshot: Sendable, Identifiable {
     /// This month's day-by-day totals (month start → today, empty days as zeros), or `nil` when
     /// the provider cannot produce a series. Defaulted so existing call sites stay unchanged.
     var monthDaily: [DailyUsage]? = nil
+    /// Rolling recent day-by-day totals (21 days → today), or `nil`.
+    var recentDaily: [DailyUsage]? = nil
     var fetchedAt: Date
     /// Mirrors `UsageProvider.reportsCost`. Default keeps existing call sites unchanged.
     var reportsCost: Bool = true
@@ -673,27 +699,65 @@ struct ProviderSnapshot: Sendable, Identifiable {
     var todayTotalTokens: Int { today?.totalTokens ?? 0 }
 }
 
+enum DailyTrendWindow: String, CaseIterable, Identifiable, Sendable {
+    case d7 = "7d"
+    case d14 = "14d"
+    case d21 = "21d"
+    case month = "month"
+
+    var id: String { rawValue }
+
+    var dayCount: Int? {
+        switch self {
+        case .d7: return 7
+        case .d14: return 14
+        case .d21: return 21
+        case .month: return nil
+        }
+    }
+}
+
 // MARK: - ISO8601 with fractional seconds
 
 enum ISO8601Parser {
     /// resets_at 은 마이크로초("...034464+00:00") 또는 밀리초("....303Z") 형태 — 둘 다 처리.
-    /// ISO8601DateFormatter 는 non-Sendable 이라 호출마다 생성 (파싱 빈도 낮음).
     static func date(from string: String) -> Date? {
-        let fractional = ISO8601DateFormatter()
-        fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        if let d = fractional.date(from: string) { return d }
-        // 소수점 자릿수가 3자리가 아니면 3자리로 절단 후 재시도
-        if let dotIndex = string.firstIndex(of: ".") {
-            let afterDot = string.index(after: dotIndex)
-            if let tzIndex = string[afterDot...].firstIndex(where: { $0 == "+" || $0 == "-" || $0 == "Z" }) {
-                let frac = String(string[afterDot..<tzIndex]).prefix(3)
-                let padded = String(frac).padding(toLength: 3, withPad: "0", startingAt: 0)
-                let rebuilt = String(string[..<dotIndex]) + "." + padded + String(string[tzIndex...])
-                if let d = fractional.date(from: rebuilt) { return d }
-            }
+        shared.date(from: string)
+    }
+
+    private static let shared = LockedParser()
+
+    /// This is also the per-line timestamp parser for every local session log, so it runs
+    /// millions of times on a large history. Allocating an `ISO8601DateFormatter` per call was
+    /// the dominant cost of a cold scan. The formatters are non-Sendable and callers (the
+    /// provider caches) run concurrently, so one shared pair is kept behind a lock.
+    private final class LockedParser: @unchecked Sendable {
+        private let lock = NSLock()
+        private let fractional: ISO8601DateFormatter
+        private let plain: ISO8601DateFormatter
+
+        init() {
+            fractional = ISO8601DateFormatter()
+            fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+            plain = ISO8601DateFormatter()
+            plain.formatOptions = [.withInternetDateTime]
         }
-        let plain = ISO8601DateFormatter()
-        plain.formatOptions = [.withInternetDateTime]
-        return plain.date(from: string)
+
+        func date(from string: String) -> Date? {
+            lock.lock()
+            defer { lock.unlock() }
+            if let d = fractional.date(from: string) { return d }
+            // 소수점 자릿수가 3자리가 아니면 3자리로 절단 후 재시도
+            if let dotIndex = string.firstIndex(of: ".") {
+                let afterDot = string.index(after: dotIndex)
+                if let tzIndex = string[afterDot...].firstIndex(where: { $0 == "+" || $0 == "-" || $0 == "Z" }) {
+                    let frac = String(string[afterDot..<tzIndex]).prefix(3)
+                    let padded = String(frac).padding(toLength: 3, withPad: "0", startingAt: 0)
+                    let rebuilt = String(string[..<dotIndex]) + "." + padded + String(string[tzIndex...])
+                    if let d = fractional.date(from: rebuilt) { return d }
+                }
+            }
+            return plain.date(from: string)
+        }
     }
 }

@@ -22,7 +22,7 @@ final class DexBackNavigationTests: XCTestCase {
         window = nil
     }
 
-    /// 20 species = 2 grid pages: Mon1…Mon16, then Mon17…Mon20.
+    /// 20 species = 2 grid pages: species 1…16, then 17…20.
     private func makeStore() throws -> CompanionStore {
         let file = FileManager.default.temporaryDirectory.appendingPathComponent("dex-back-\(UUID()).json")
         addTeardownBlock { try? FileManager.default.removeItem(at: file) }
@@ -31,7 +31,8 @@ final class DexBackNavigationTests: XCTestCase {
         state.dex = (1...20).map { id in
             DexEntry(id: "entry-\(id)", baseID: id, finalID: id, chainOrder: [id], rarity: .common,
                      caughtAt: Date(timeIntervalSince1970: 1_700_000_000 + Double(id)),
-                     names: [id: ["en": "Mon\(id)"]])
+                     // A word avoids the ambiguous digit in Mon1, which Vision reads as Mont/Monl.
+                     names: [id: ["en": id == 1 ? "Oldest" : "Mon\(id)"]])
         }
         try JSONEncoder().encode(state).write(to: file)
         return CompanionStore(provider: OfflineProvider(), fileURL: file)
@@ -201,7 +202,7 @@ final class DexBackNavigationTests: XCTestCase {
 
     // MARK: Catch log
 
-    /// Mon1 is the oldest catch, so it is the log's last row — off screen until scrolled to.
+    /// Oldest is the first catch, so it is the log's last row — off screen until scrolled to.
     func testBackFromDetailReturnsTheLogToWhereItWas() async throws {
         let store = try makeStore()
         let navigation = PopoverNavigation()
@@ -220,13 +221,13 @@ final class DexBackNavigationTests: XCTestCase {
             clip.scroll(to: NSPoint(x: 0, y: clip.isFlipped ? bottom : 0))
             log.reflectScrolledClipView(clip)
             try await Task.sleep(for: .milliseconds(100))
-            row = try words(in: root).first { $0.reads("Mon1", exactly: true) }
+            row = try words(in: root).first { $0.reads("Oldest", exactly: true) }
         }
-        XCTAssertNotNil(row, "scrolling never reached Mon1")
-        try await press("Mon1", exactly: true, opens: store.l.back, in: root)
+        XCTAssertNotNil(row, "scrolling never reached Oldest")
+        try await press("Oldest", exactly: true, opens: store.l.back, in: root)
         try await press(store.l.back, in: root)
 
-        try await waitForText("Mon1", exactly: true, in: root)
+        try await waitForText("Oldest", exactly: true, in: root)
 
         // Like the grid's page, the position does not survive a segment switch.
         navigation.showingCollectionLog = false

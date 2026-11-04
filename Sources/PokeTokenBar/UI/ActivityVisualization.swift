@@ -47,7 +47,10 @@ enum ActivityVisualization: String, CaseIterable, Sendable {
 @MainActor
 struct ActivityPanel: View {
     let visualization: ActivityVisualization
+    /// The selected bar window; it can cover fewer days than this month's live series.
     let series: [DailyUsage]
+    /// The grid keeps this month's live values regardless of the selected bar period.
+    var heatmapSeries: [DailyUsage]? = nil
     /// The bars split by provider when more than one was used. The grid does not: before this
     /// month only daily totals exist (`history`).
     var providers: [DailyTrendStack.ProviderSeries] = []
@@ -55,6 +58,8 @@ struct ActivityPanel: View {
     /// Days before this month, for the grid. `UsageStore.dailyLedger`.
     var history = UsageLedger()
     let showsCost: Bool
+    var window: Binding<DailyTrendWindow>? = nil
+    var hasAvailableHistory = false
     let today: String
     let l: L
     let onCycle: () -> Void
@@ -71,10 +76,11 @@ struct ActivityPanel: View {
         switch visualization {
         case .monthlyBars:
             MonthDailyTrend(series: series, providers: providers, providerOrder: providerOrder,
-                            showsCost: showsCost, today: today, l: l,
+                            showsCost: showsCost, window: window, hasAvailableHistory: hasAvailableHistory,
+                            today: today, l: l,
                             trailing: AnyView(PageDots(current: visualization)))
         case .recentHeatmap:
-            ActivityHeatmap(series: series, history: history,
+            ActivityHeatmap(series: heatmapSeries ?? series, history: history,
                             showsCost: showsCost, today: today, l: l,
                             trailing: AnyView(PageDots(current: visualization)))
         }
