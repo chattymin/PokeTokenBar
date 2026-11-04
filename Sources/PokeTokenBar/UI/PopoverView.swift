@@ -218,11 +218,15 @@ struct PopoverView: View {
                 HStack(spacing: 14) {
                     periodTotals.fixedSize(horizontal: true, vertical: false)
                     Spacer(minLength: 0)
+                    StreakBadge(streak: store.currentStreak, l: l)
                     recapButton
                 }
                 VStack(alignment: .trailing, spacing: 6) {
                     periodTotals.frame(maxWidth: .infinity, alignment: .leading)
-                    recapButton
+                    HStack(spacing: 14) {
+                        StreakBadge(streak: store.currentStreak, l: l)
+                        recapButton
+                    }
                 }
             }
             .padding(.top, 2)
