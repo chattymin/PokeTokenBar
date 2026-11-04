@@ -253,6 +253,9 @@ struct LimitStatus: Decodable, Sendable {
     /// CodingKeys 에 없어 디코드 시 무시되고, OAuthLimitsProvider.fetch 가 채운다.
     var subscriptionType: String?
     var rateLimitTier: String?
+    /// profile endpoint 가 알려주는 현재 플랜 이름("Ultra" 등) — usage 응답이 아니라
+    /// OAuthProfileCache 가 주입한다. 이름은 서버가 정하고, 앱은 그대로 보여준다.
+    var planDisplayName: String?
     /// 토큰의 실제 주인 — usage 응답이 아니라 profile endpoint(OAuthProfileCache)에서 주입한다.
     /// 같은 기기에서 두 계정이 하나의 Keychain 항목을 덮어쓸 때 어느 계정의 한도인지 구분하는 라벨.
     var accountEmail: String?
@@ -266,17 +269,30 @@ struct LimitStatus: Decodable, Sendable {
         case limits
     }
 
-    /// subscriptionType(max/pro/free) + rateLimitTier 배수를 합친 표시 문자열.
-    /// 예: subscriptionType="max", rateLimitTier="default_claude_max_20x" → "Max 20x".
-    /// 배수는 등급과 무관하게 tier 에 배수 토큰이 있을 때만 붙는다(Max 전용 분기 아님).
+    /// 플랜 표시 문자열. profile endpoint 가 이름을 알려주면(`plan_display_name`) 그대로 쓰고,
+    /// 없거나 실패하면 subscriptionType + rateLimitTier 로 조립한다.
+    /// 조립 규칙: Claude 가 Max 티어 이름을 바꿨다 — Max 5x → Max, Max 20x → Ultra. 자격증명의
+    /// subscriptionType/rateLimitTier 토큰은 그대로라(tier 는 여전히 default_claude_max_5x/20x)
+    /// 표시 단계에서만 새 이름으로 옮긴다.
+    /// 예: ("max","default_claude_max_20x") → "Ultra".
+    /// 배수는 등급과 무관하게 tier 에 배수 토큰이 있을 때만 붙는다(Max 전용 분기 아님) — Max 의
+    /// 미지 배수는 "Max 10x" 로 남겨, 새 등급이 생겨도 배수 숫자를 감추지 않는다.
     /// tier 에 배수 토큰이 없으면 등급명만("Pro"/"Free"), 구독 정보가 없으면 nil.
     var planDisplay: String? {
+        if let name = planDisplayName?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty {
+            return name
+        }
         guard let subscriptionType, !subscriptionType.isEmpty else { return nil }
         let base = subscriptionType.prefix(1).uppercased() + subscriptionType.dropFirst()
-        if let tier = rateLimitTier, let multiplier = Self.tierMultiplier(from: tier) {
-            return "\(base) \(multiplier)"
+        guard let tier = rateLimitTier, let multiplier = Self.tierMultiplier(from: tier) else {
+            return base
         }
-        return base
+        guard subscriptionType.lowercased() == "max" else { return "\(base) \(multiplier)" }
+        switch multiplier {
+        case "5x": return "Max"
+        case "20x": return "Ultra"
+        default: return "Max \(multiplier)"
+        }
     }
 
     /// 계정 라벨 — "email · 조직명". 개인 플랜의 자동 생성 조직명("<email>'s Organization")은
