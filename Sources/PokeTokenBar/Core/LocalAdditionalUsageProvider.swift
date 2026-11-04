@@ -6,6 +6,7 @@ enum LocalAdditionalSource: String, Sendable {
     case hermes
     case cursor
     case copilot
+    case devin
     case kiro
     case aside
 }
@@ -76,6 +77,23 @@ struct LocalCopilotProvider: UsageProvider {
     }
 }
 
+/// Devin CLI usage from its local session database.
+struct LocalDevinProvider: UsageProvider {
+    let id = "devin"
+    let displayName = "Devin"
+    var cache: LocalAdditionalUsageCache = .shared
+
+    func fetchDaily() async throws -> DailyUsage? {
+        let entries = await cache.entries(for: .devin)
+        return LocalUsageReader.daily(entries: entries, localDay: LocalUsageReader.todayKey())
+    }
+
+    func fetchEnrichment() async -> ProviderEnrichment {
+        let entries = await cache.entries(for: .devin)
+        return .local(entries: entries)
+    }
+}
+
 /// Kiro CLI usage estimated from local conversation history.
 ///
 /// Two on-disk generations coexist. Pre-2.20 writes
@@ -132,14 +150,20 @@ struct LocalAsideProvider: UsageProvider {
 actor LocalAdditionalUsageCache {
     static let shared = LocalAdditionalUsageCache()
 
-    /// Test seams: fixed Aside scan roots (production reads Settings inside the reader; the
+    /// Test seams: fixed Aside/Devin scan roots (production reads Settings inside the reader; the
     /// other sources still read their own roots) and a clock so a test can step past the
     /// 30 s entry without sleeping.
     private let asideRootsOverride: [URL]?
+    private let devinRootsOverride: [URL]?
     private let clock: @Sendable () -> Date
 
-    init(asideRootsOverride: [URL]? = nil, clock: @escaping @Sendable () -> Date = Date.init) {
+    init(
+        asideRootsOverride: [URL]? = nil,
+        devinRootsOverride: [URL]? = nil,
+        clock: @escaping @Sendable () -> Date = Date.init
+    ) {
         self.asideRootsOverride = asideRootsOverride
+        self.devinRootsOverride = devinRootsOverride
         self.clock = clock
     }
 
@@ -207,6 +231,9 @@ actor LocalAdditionalUsageCache {
             // only the rows written since the last scan.
             since = periodStart
             afterRowIDByPath = previous?.highWaterByPath ?? [:]
+        case .devin:
+            since = periodStart
+            afterRowIDByPath = previous?.highWaterByPath ?? [:]
         case .hermes:
             since = periodStart
             afterRowIDByPath = [:]
@@ -231,6 +258,7 @@ actor LocalAdditionalUsageCache {
         let existing = previous?.entries ?? []
         let knownKiro = previous?.kiroSignatures ?? [:]
         let asideRoots = asideRootsOverride
+        let devinRoots = devinRootsOverride
         let task = Task.detached(priority: .utility) {
             () async -> ScanResult in
             switch source {
@@ -273,6 +301,17 @@ actor LocalAdditionalUsageCache {
                     modifiedSince: since, afterRowIDByPath: afterRowIDByPath)
                 // A pruned / recreated session store restarts ids — the cached rows would
                 // then collide with different events, so keep only the rescan.
+                if loaded.didReset {
+                    return ScanResult(entries: loaded.entries, highWaterByPath: loaded.highWaterByPath)
+                }
+                return ScanResult(
+                    entries: LocalUsageReader.dedupKeepMax(existing + loaded.entries),
+                    highWaterByPath: loaded.highWaterByPath)
+            case .devin:
+                let loaded = LocalAdditionalUsageReader.devinEntries(
+                    modifiedSince: since, afterRowIDByPath: afterRowIDByPath, roots: devinRoots)
+                // A recreated append-only store restarts ids, so cached entries with
+                // those ids belong to the old database and must not survive the rescan.
                 if loaded.didReset {
                     return ScanResult(entries: loaded.entries, highWaterByPath: loaded.highWaterByPath)
                 }
@@ -1077,6 +1116,75 @@ enum LocalAdditionalUsageReader {
         let time = text.dropFirst(11)
         if !time.contains("Z"), !time.contains("+"), !time.contains("-") { text += "Z" }
         return parseISO8601(text)
+    }
+
+    // MARK: Devin CLI database
+
+    static var defaultDevinRoots: [URL] { devinRoots() }
+
+    static func devinRoots(
+        customRootsValue: String? = nil,
+        home: URL = FileManager.default.homeDirectoryForCurrentUser
+    ) -> [URL] {
+        let curated = environmentPaths("XDG_DATA_HOME").map { roots in
+            roots.map { $0.appendingPathComponent("devin") }
+        } ?? [home.appendingPathComponent(".local/share/devin")]
+        return CustomScanRoots.union(defaults: curated, extraRaw: customRootsValue)
+    }
+
+    static func devinEntries(
+        modifiedSince: Date,
+        afterRowID: Int64 = 0,
+        afterRowIDByPath: [String: Int64]? = nil,
+        roots: [URL]? = nil
+    ) -> IncrementalStoreLoadResult {
+        scanIncrementalStores(
+            roots: roots ?? devinRoots(customRootsValue: CustomScanRoots.storedValue(for: "devin")),
+            modifiedSince: modifiedSince,
+            afterRowID: afterRowID,
+            afterRowIDByPath: afterRowIDByPath,
+            databaseURL: { root in
+                if root.pathExtension == "db" { return root }
+                return root.lastPathComponent == "cli"
+                    ? root.appendingPathComponent("sessions.db")
+                    : root.appendingPathComponent("cli/sessions.db")
+            },
+            maxRowIDSQL: "SELECT MAX(row_id) FROM message_nodes",
+            rowSQL: { effectiveAfter, since in
+                // This is a coarse SQL prefilter; the shared scanner applies the exact
+                // parsed-date window. Back off one day, as with Copilot, so the cutoff
+                // stays below the window before a later row advances the watermark.
+                // The interpolated cutoff is an in-process Int64, not external SQL input.
+                let cutoff = Int64(since.timeIntervalSince1970) - 86_400
+                return IncrementalRowQuery(
+                    sql: """
+                    SELECT m.row_id, m.chat_message, m.session_id, m.created_at, s.model
+                    FROM message_nodes m LEFT JOIN sessions s ON s.id = m.session_id
+                    WHERE m.row_id > ?1 AND m.created_at >= \(cutoff)
+                    """,
+                    bindInt64: effectiveAfter)
+            },
+            parse: { statement, database in
+                let rowID = sqlite3_column_int64(statement, 0)
+                guard let payload = columnText(statement, 1),
+                      let object = jsonObject(data: Data(payload.utf8)),
+                      let metadata = object["metadata"] as? Object,
+                      let metrics = metadata["metrics"] as? Object,
+                      let date = dateValue(sqlite3_column_double(statement, 3)) else { return nil }
+                let sessionID = columnText(statement, 2)
+                let messageID = stringValue(object["message_id"])
+                // Branch copies have new row IDs but retain the logical message ID.
+                // Devin's input already excludes both cache buckets, unlike Copilot.
+                return makeEntry(
+                    id: "devin|\(database.path)|\(sessionID ?? "nosession")|\(messageID ?? "row\(rowID)")",
+                    date: date,
+                    model: stringValue(columnText(statement, 4)) ?? "unknown",
+                    input: intValue(metrics["input_tokens"]),
+                    output: intValue(metrics["output_tokens"]),
+                    cacheWrite: intValue(metrics["cache_creation_tokens"]),
+                    cacheRead: intValue(metrics["cache_read_tokens"]),
+                    costUnavailable: true)
+            })
     }
 
     // MARK: Kiro CLI database + JSONL sessions
