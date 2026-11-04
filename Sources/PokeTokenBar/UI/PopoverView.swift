@@ -218,11 +218,15 @@ struct PopoverView: View {
                 HStack(spacing: 14) {
                     periodTotals.fixedSize(horizontal: true, vertical: false)
                     Spacer(minLength: 0)
+                    StreakBadge(streak: store.currentStreak, l: l)
                     recapButton
                 }
                 VStack(alignment: .trailing, spacing: 6) {
                     periodTotals.frame(maxWidth: .infinity, alignment: .leading)
-                    recapButton
+                    HStack(spacing: 14) {
+                        StreakBadge(streak: store.currentStreak, l: l)
+                        recapButton
+                    }
                 }
             }
             .padding(.top, 2)
@@ -383,6 +387,7 @@ struct PopoverView: View {
         case "codex": return store.codexLimits?.hasVisibleLimit == true
         case "antigravity": return !store.disableKeychainAccess || store.antigravityHasTokenFile || store.antigravityLimits?.hasVisibleLimit == true || store.antigravityLimitsAuthExpired
         case "cursor": return store.cursorLimits?.hasVisibleLimit == true || store.cursorLimitsAuthExpired
+        case "opencode": return store.openCodeGoLimits?.hasVisibleLimit == true || store.openCodeGoLimitsAuthExpired
         case "grok": return store.grokLimits?.hasVisibleLimit == true || store.grokLimitsAuthExpired
         default: return false
         }
@@ -471,6 +476,9 @@ struct PopoverView: View {
             if selectedSnapshot?.providerID == "cursor" {
                 cursorLimitsContent
             }
+            if selectedSnapshot?.providerID == "opencode" {
+                openCodeGoLimitsContent
+            }
             if selectedSnapshot?.providerID == "grok" {
                 grokLimitsContent
             }
@@ -515,6 +523,36 @@ struct PopoverView: View {
     /// the colors follow the pace gauge. The billing cycle has no fixed span, so no pace marker.
     private func cursorLimitRow(name: String, utilization: Double, reset: Date?) -> some View {
         quotaRow(name: name, utilization: utilization, reset: reset)
+    }
+
+    @ViewBuilder
+    private var openCodeGoLimitsContent: some View {
+        if store.openCodeGoLimitsAuthExpired {
+            authExpiredNotice(title: l.openCodeGoAuthExpiredTitle, hint: l.openCodeGoAuthExpiredHint)
+        }
+        if let status = store.openCodeGoLimits, status.hasVisibleLimit {
+            if store.openCodeGoLimitsStale {
+                staleBadge(updatedAt: store.openCodeGoLimitsUpdatedAt)
+            }
+            VStack(alignment: .leading, spacing: 8) {
+                openCodeGoLimitRow(name: l.fiveHourSession, window: status.rolling,
+                                   span: LimitWindowSpan.fiveHour, notStartedHint: l.fiveHourNotStarted)
+                openCodeGoLimitRow(name: l.weekly, window: status.weekly, span: LimitWindowSpan.sevenDay)
+                // The monthly window follows the subscription date, not a fixed span: no pace marker.
+                openCodeGoLimitRow(name: l.openCodeGoMonthly, window: status.monthly, span: nil)
+            }
+            .opacity(store.openCodeGoLimitsAuthExpired ? 0.5 : 1)
+        }
+    }
+
+    @ViewBuilder
+    private func openCodeGoLimitRow(name: String, window: OpenCodeGoWindow?, span: TimeInterval?,
+                                    notStartedHint: String? = nil) -> some View {
+        let now = Date()
+        if let window, let utilization = window.utilization(now: now) {
+            quotaRow(name: name, utilization: utilization, reset: window.activeReset(now: now), span: span,
+                     idleHint: window.hasEnded(now: now) ? notStartedHint : nil)
+        }
     }
 
     @ViewBuilder
@@ -1166,6 +1204,7 @@ struct MonthDailyTrend: View {
         Color(red: 0.30, green: 0.60, blue: 0.55),
         Color(red: 0.80, green: 0.35, blue: 0.40),
         Color(red: 0.40, green: 0.48, blue: 0.80),
+        Color(red: 0.96, green: 0.58, blue: 0.22),
     ]
 
     var body: some View {

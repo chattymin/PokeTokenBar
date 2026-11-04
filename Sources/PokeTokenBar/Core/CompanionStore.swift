@@ -272,6 +272,15 @@ final class CompanionStore {
         guard let a = state.active, threshold > 0 else { return 0 }
         return min(1, max(0, Double(a.usedAtStage) / Double(threshold)))
     }
+    /// Follow the companion being raised, even when a Pokédex representative is pinned.
+    var menuGrowthText: String {
+        let total = isEgg ? eggHatchThreshold : threshold
+        let credits = isEgg ? state.eggUsage : (state.active?.usedAtStage ?? 0)
+        let used = min(max(0, credits), total)
+        // Match Home's integer flooring without losing exact boundaries to Double rounding.
+        let percent = total > 0 ? used * 100 / total : 0
+        return l.menuGrowthProgress(percent, isEgg: isEgg)
+    }
     var tokensToNext: Int { guard let a = state.active else { return 0 }; return max(0, threshold - a.usedAtStage) }
 
     /// 진화 라인 표시용: 실현된 경로 + 다음 단계 미리보기.
@@ -1306,13 +1315,6 @@ final class CompanionStore {
     @discardableResult
     func buyFreshEgg() -> Bool { buyEgg(nil) }
 
-    /// 지급 판정(순수·엣지 트리거) — 한도 창이 100% 를 새로 넘어선 순간에만 지급.
-    /// - 100% 미만 → 맵에서 제거(재무장).
-    /// - 같은 key 라도 epoch(`resets_at`)가 바뀌면 새 창으로 보고 재무장 — 슬립·종료로 &lt;100% 샘플을
-    ///   못 본 채 다시 100%만 관측해도 지급 누락이 없다(#326). key 자체엔 epoch 를 넣지 않는다
-    ///   (알림 dedup 과 같은 이유로 매 fetch 새 키 폭탄 방지).
-    /// - 이미 지급한 창(tier≥1)은 재지급 안 함. session=1개·weekly=weeklyGrant.
-    /// - 부수효과(인벤토리·알림)와 분리해 xctest 가능. (evaluateLimitAlerts 자매)
     /// Parse an epoch string into a Date, supporting Unix timestamp (seconds or ms) or ISO8601 strings.
     static func parseEpochDate(_ string: String) -> Date? {
         if let ts = Double(string) {
@@ -1340,6 +1342,14 @@ final class CompanionStore {
         return delta >= minAdvance
     }
 
+    /// 지급 판정(순수·엣지 트리거) — 한도 창이 100% 를 새로 넘어선 순간에만 지급.
+    /// - 100% 미만 → 맵에서 제거(재무장).
+    /// - 같은 key 라도 epoch(`resets_at`)가 바뀌면 새 창으로 보고 재무장 — 슬립·종료로 &lt;100% 샘플을
+    ///   못 본 채 다시 100%만 관측해도 지급 누락이 없다(#326). key 자체엔 epoch 를 넣지 않는다
+    ///   (알림 dedup 과 같은 이유로 매 fetch 새 키 폭탄 방지).
+    /// - epoch 없는 창(Codex)은 100% 미만 관측으로만 재무장한다.
+    /// - 이미 지급한 창(tier≥1)은 재지급 안 함. session=1개·weekly=weeklyGrant.
+    /// - 부수효과(인벤토리·알림)와 분리해 xctest 가능. (evaluateLimitAlerts 자매)
     static func evaluateCandyGrants(
         windows: [CandyWindow],
         grantTier: inout [String: Int],

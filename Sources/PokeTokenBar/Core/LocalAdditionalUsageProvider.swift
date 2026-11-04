@@ -395,6 +395,50 @@ enum LocalAdditionalUsageReader {
             cost: doubleValue(object["cost"]))
     }
 
+    // MARK: OpenCode credentials
+
+    /// The active API key OpenCode stores for `integrationID` (e.g. `opencode-go`).
+    /// OpenCode 2 keeps `/connect` keys in the `credential` table; older versions wrote `auth.json`,
+    /// which stays the fallback. Never logged.
+    static func openCodeAPIKey(integrationID: String, roots: [URL]? = nil) -> String? {
+        for root in roots ?? defaultOpenCodeRoots {
+            if let database = preferredOpenCodeDatabase(in: root) {
+                let values = query(
+                    database,
+                    sql: """
+                    SELECT value FROM credential
+                    WHERE integration_id = ?2 AND active = 1
+                    ORDER BY time_updated DESC
+                    """,
+                    bindText: integrationID) { statement in
+                        columnText(statement, 0)
+                    } ?? []
+                for value in values {
+                    if let key = apiKey(fromCredentialJSON: Data(value.utf8)) { return key }
+                }
+            }
+            if let data = try? Data(contentsOf: root.appendingPathComponent("auth.json")),
+               let object = (try? JSONSerialization.jsonObject(with: data)) as? Object,
+               let entry = object[integrationID] as? Object,
+               let key = apiKey(fromCredential: entry) {
+                return key
+            }
+        }
+        return nil
+    }
+
+    private static func apiKey(fromCredentialJSON data: Data) -> String? {
+        guard let object = (try? JSONSerialization.jsonObject(with: data)) as? Object else { return nil }
+        return apiKey(fromCredential: object)
+    }
+
+    /// `{"type": "key", "key": "…"}` in the credential table, `"type": "api"` in `auth.json`.
+    /// OAuth credentials carry no API key.
+    private static func apiKey(fromCredential object: Object) -> String? {
+        guard let type = stringValue(object["type"]), type == "key" || type == "api" else { return nil }
+        return stringValue(object["key"])
+    }
+
     // MARK: OpenCode database
 
     private static func preferredOpenCodeDatabase(in root: URL) -> URL? {
