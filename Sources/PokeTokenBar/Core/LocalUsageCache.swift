@@ -8,7 +8,35 @@ import Foundation
 actor LocalUsageCache {
     static let shared = LocalUsageCache()
 
-    private struct Blob: Codable { let mtime: Date; let size: Int; let entries: [LocalUsageReader.Entry] }
+    private struct Blob: Codable {
+        let mtime: Date
+        let size: Int
+        let entries: [LocalUsageReader.Entry]
+        /// Bytes already parsed, for append-only logs. Nil on blobs from older cache files.
+        let offset: Int?
+        /// Latest cumulative Claude ledger. Entries stay raw so a later total can be reapplied.
+        let claudeCostState: LocalUsageReader.ClaudeCostState?
+
+        init(mtime: Date, size: Int, entries: [LocalUsageReader.Entry], offset: Int? = nil,
+             claudeCostState: LocalUsageReader.ClaudeCostState? = nil) {
+            self.mtime = mtime; self.size = size; self.entries = entries; self.offset = offset
+            self.claudeCostState = claudeCostState
+        }
+
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            mtime = try c.decode(Date.self, forKey: .mtime)
+            size = try c.decode(Int.self, forKey: .size)
+            entries = try c.decode([LocalUsageReader.Entry].self, forKey: .entries)
+            offset = try c.decodeIfPresent(Int.self, forKey: .offset)
+            claudeCostState = try c.decodeIfPresent(LocalUsageReader.ClaudeCostState.self, forKey: .claudeCostState)
+        }
+
+        var attributedEntries: [LocalUsageReader.Entry] {
+            guard let claudeCostState else { return entries }
+            return LocalUsageReader.applyReportedCost(entries, claudeCostState)
+        }
+    }
     private struct CodexBlob: Codable {
         let mtime: Date
         let size: Int
@@ -192,7 +220,10 @@ actor LocalUsageCache {
         var all: [LocalUsageReader.Entry] = []
         for root in roots {
             // Blobs cached before `Entry.sessionID` existed get it from their path, without a re-parse.
-            all += collect(root: root, since: modifiedSince, cache: &claudeCache, annotate: { url, entries in
+            all += collect(root: root, since: modifiedSince, cache: &claudeCache,
+                           incremental: { url, offset in
+                LocalUsageReader.parseClaudeFile(url, fromOffset: offset, fmt: fmt)
+            }, annotate: { url, entries in
                 guard entries.contains(where: { $0.sessionID == nil }) else { return entries }
                 let session = LocalUsageReader.claudeSessionID(forTranscript: url)
                 return entries.map { entry in
@@ -319,9 +350,14 @@ actor LocalUsageCache {
 
     /// `include` 는 blob 캐시 조회 **전에** 평가된다 — 파일 밖 상태(옆 파일 등)에 의존하는 판정을
     /// 캐시에 굳히지 않기 위해서다.
+    /// `incremental` parses from a byte offset for append-only logs. When the cached blob has an
+    /// offset and the file grew, only the new tail is read and merged with the cached entries;
+    /// otherwise the file is parsed from the start and the resulting offset recorded.
     /// `annotate` adjusts what is returned for a file, never what is cached.
     private func collect(root: URL, since: Date, cache: inout [String: Blob],
                          allowJSON: Bool = false, include: ((URL) -> Bool)? = nil,
+                         incremental: ((URL, Int) -> (entries: [LocalUsageReader.Entry], newOffset: Int,
+                                                      costState: LocalUsageReader.ClaudeCostState?)?)? = nil,
                          annotate: ((URL, [LocalUsageReader.Entry]) -> [LocalUsageReader.Entry])? = nil,
                          parse: (URL) -> [LocalUsageReader.Entry]?) -> [LocalUsageReader.Entry] {
         let fm = FileManager.default
@@ -341,7 +377,27 @@ actor LocalUsageCache {
             let key = url.path
             let fileEntries: [LocalUsageReader.Entry]
             if let blob = cache[key], blob.mtime == mtime, blob.size == size {
-                fileEntries = blob.entries            // 변경 없음 → 재파싱 안 함
+                fileEntries = blob.attributedEntries            // 변경 없음 → 재파싱 안 함
+            } else if let incremental {
+                let prior = cache[key]
+                // Tail-parse only when the file strictly grew; a same-size rewrite or a
+                // truncation is re-read from the start.
+                let from = prior.flatMap { p in size > p.size ? p.offset : nil } ?? 0
+                if let tail = incremental(url, from) {
+                    let entries = from > 0
+                        ? LocalUsageReader.dedupKeepMax((prior?.entries ?? []) + tail.entries)
+                        : tail.entries
+                    let costState = tail.costState ?? (from > 0 ? prior?.claudeCostState : nil)
+                    let blob = Blob(mtime: mtime, size: size, entries: entries, offset: tail.newOffset,
+                                    claudeCostState: costState)
+                    cache[key] = blob
+                    dirty = true
+                    fileEntries = blob.attributedEntries
+                } else if let prior {
+                    fileEntries = prior.attributedEntries
+                } else {
+                    continue
+                }
             } else if let entries = parse(url) {
                 cache[key] = Blob(mtime: mtime, size: size, entries: entries)
                 dirty = true
@@ -349,7 +405,7 @@ actor LocalUsageCache {
             } else if let blob = cache[key] {
                 // 일시적 읽기 실패는 현재 signature에 굳히지 않는다. 이전 blob을 쓰되,
                 // signature는 옛 상태로 남겨 다음 refresh에서 다시 읽게 한다.
-                fileEntries = blob.entries
+                fileEntries = blob.attributedEntries
             } else {
                 continue
             }

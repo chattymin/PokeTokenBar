@@ -7,7 +7,7 @@ struct RecapContent {
     let recap: UsageRecap
     let companionSpeciesID: Int?
     let companionShiny: Bool
-    let companionUnownForm: UnownForm?
+    let companionForm: PokemonForm?
     let graduates: [(entry: DexEntry, name: String)]
     private let calendar: Calendar
     /// Built once per read: a `DateFormatter` is expensive and the card asks for a label per meter.
@@ -27,10 +27,11 @@ struct RecapContent {
         // usage that just happened, so it shows who lived it.
         companionSpeciesID = companion.currentSpeciesID
         companionShiny = companion.currentIsShiny
-        companionUnownForm = companion.currentUnownForm
+        companionForm = companion.currentForm
         graduates = recap.graduated.prefix(4).map { entry in
             let name = companion.dexStoredChainNames(entry)?[entry.finalID] ?? "#\(entry.finalID)"
-            return (entry, UnownForm.displayName(name, speciesID: entry.finalID, form: entry.unownForm))
+            // Four chips share a row: only Unown's letter fits, the sprite already shows other forms.
+            return (entry, PokemonForm.displayName(name, speciesID: entry.finalID, form: entry.form, label: nil))
         }
         dayKeyFormatter = LocalUsageReader.localDayFormatter(timeZone: calendar.timeZone)
         dayNameFormatter = Self.formatter(language, calendar, template: "EEEE d MMM")
@@ -310,7 +311,7 @@ struct RecapCard: View {
     private var graduateStrip: some View {
         HStack(spacing: 5) {
             SpriteView(speciesID: content.companionSpeciesID, size: 18, animated: false,
-                       shiny: content.companionShiny, unownForm: content.companionUnownForm)
+                       shiny: content.companionShiny, form: content.companionForm)
             Rectangle().fill(.white.opacity(0.35)).frame(width: 1, height: 14)
             if content.graduates.isEmpty {
                 Text(content.l.recapNoGraduates)
@@ -322,7 +323,7 @@ struct RecapCard: View {
                     HStack(spacing: 2) {
                         SpriteView(speciesID: graduate.entry.finalID, size: 18, animated: false,
                                    shiny: graduate.entry.isShiny,
-                                   unownForm: graduate.entry.unownForm)
+                                   form: graduate.entry.form)
                             // A badge on the sprite rather than after the name: four chips share
                             // the row, and a trailing sparkle cut "Charizard" to "Chariza…".
                             .overlay(alignment: .topTrailing) {

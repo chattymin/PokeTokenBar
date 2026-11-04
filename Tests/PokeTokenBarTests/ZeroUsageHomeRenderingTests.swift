@@ -7,7 +7,7 @@ import XCTest
 private struct QuietHomeProvider: UsageProvider {
     let id = "fixture"
     let displayName = "Fixture"
-    let reportsCost = false
+    var reportsCost = false
     let enrichment: ProviderEnrichment
     func fetchDaily() async throws -> DailyUsage? { nil }
     func fetchEnrichment() async -> ProviderEnrichment { enrichment }
@@ -53,14 +53,24 @@ final class ZeroUsageHomeRenderingTests: XCTestCase {
         try await render(history: false)
     }
 
-    private func render(history: Bool) async throws {
+    func testRecapLabelKeepsPeriodCostsOnOneLine() async throws {
+        for language in [AppLanguage.en, .de] {
+            try await render(history: true, language: language, costs: .source)
+        }
+    }
+
+    func testUnavailablePeriodCostsKeepGermanHomeWithinPopover() async throws {
+        try await render(history: true, language: .de, costs: .unavailable)
+    }
+
+    private func render(history: Bool, language: AppLanguage = .ko, costs: CostCoverage? = nil) async throws {
         let suite = "QuietHome-\(UUID())"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
         let file = FileManager.default.temporaryDirectory.appendingPathComponent("\(suite).json")
         defer { try? FileManager.default.removeItem(at: file) }
         var state = CompanionState()
-        state.language = .ko
+        state.language = language
         state.active = MonState(baseID: 129, pathIDs: [129, 130], stageIndex: 1,
                                 usedAtStage: 170_100_000, rarity: .common, totalForms: 2, nature: .hardy)
         try JSONEncoder().encode(state).write(to: file)
@@ -79,10 +89,17 @@ final class ZeroUsageHomeRenderingTests: XCTestCase {
         }
         let weekKey = formatter.string(from: LocalUsageReader.startOfWeek(now))
         let enrichment = ProviderEnrichment(blocksOK: true,
-            weekTotal: PeriodUsage(period: weekKey, daily: series.filter { $0.date >= weekKey }),
-            monthTotal: PeriodUsage(period: LocalUsageReader.monthKey(now), daily: series),
+            weekTotal: costs != nil
+                ? PeriodUsage(period: weekKey, totalTokens: 4_800_000, totalCost: costs == .unavailable ? 0 : 31.64,
+                              costCoverage: costs ?? .source)
+                : PeriodUsage(period: weekKey, daily: series.filter { $0.date >= weekKey }),
+            monthTotal: costs != nil
+                ? PeriodUsage(period: LocalUsageReader.monthKey(now), totalTokens: 17_900_000,
+                              totalCost: costs == .unavailable ? 0 : 121.30,
+                              costCoverage: costs ?? .source)
+                : PeriodUsage(period: LocalUsageReader.monthKey(now), daily: series),
             monthDaily: series, periodsOK: true)
-        let store = UsageStore(providers: [QuietHomeProvider(enrichment: enrichment)],
+        let store = UsageStore(providers: [QuietHomeProvider(reportsCost: costs != nil, enrichment: enrichment)],
             claudeLimitsProvider: QuietHomeClaude(), discoverClaudeConfigDirs: { [] },
             readDefaultIdentity: { nil }, claudeUsageEntries: { _ in [] },
             codexLimitsProvider: QuietHomeCodex(), antigravityLimitsProvider: QuietHomeAntigravity(),
@@ -90,7 +107,7 @@ final class ZeroUsageHomeRenderingTests: XCTestCase {
             autoRefresh: false, defaults: defaults)
         await store.refresh(scheduleEmptyRetry: false)
         XCTAssertEqual(store.todayTotalTokens, 0)
-        XCTAssertEqual(store.monthTotalTokens, series.reduce(0) { $0 + $1.totalTokens })
+        XCTAssertEqual(store.monthTotalTokens, costs != nil ? 17_900_000 : series.reduce(0) { $0 + $1.totalTokens })
 
         let height = 604.0
         let host = NSHostingView(rootView: PopoverView()
@@ -109,29 +126,79 @@ final class ZeroUsageHomeRenderingTests: XCTestCase {
         defer { window.close() }
         try await Task.sleep(for: .milliseconds(500))
         host.layoutSubtreeIfNeeded()
-        let bitmap = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
-        host.cacheDisplay(in: host.bounds, to: bitmap)
+        // Keep caption OCR at 2x regardless of the runner's screen backing scale.
+        let bounds = host.bounds
+        let bitmap = try XCTUnwrap(NSBitmapImageRep(
+            bitmapDataPlanes: nil,
+            pixelsWide: Int((bounds.width * 2).rounded(.up)),
+            pixelsHigh: Int((bounds.height * 2).rounded(.up)),
+            bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+            colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0))
+        bitmap.size = bounds.size
+        XCTAssertGreaterThanOrEqual(CGFloat(bitmap.pixelsWide) / bounds.width, 2)
+        XCTAssertGreaterThanOrEqual(CGFloat(bitmap.pixelsHigh) / bounds.height, 2)
+        host.cacheDisplay(in: bounds, to: bitmap)
         let request = VNRecognizeTextRequest()
-        request.recognitionLanguages = ["ko-KR", "en-US"]
+        switch language {
+        case .en: request.recognitionLanguages = ["en-US"]
+        case .de: request.recognitionLanguages = ["de-DE", "en-US"]
+        default: request.recognitionLanguages = ["ko-KR", "en-US"]
+        }
         request.recognitionLevel = .accurate
         try VNImageRequestHandler(cgImage: XCTUnwrap(bitmap.cgImage)).perform([request])
         let text = request.results?.compactMap { $0.topCandidates(1).first?.string }.joined(separator: " ") ?? ""
         let normalizedText = text.replacingOccurrences(of: " ", with: "")
+        let chartCaption = companion.l.dailyTrend.replacingOccurrences(of: " ", with: "")
+        let chartVisible = (request.results ?? []).contains { observation in
+            // CI ranks "일벌" before "일별" at the same confidence. Vision returns at most 10 candidates.
+            // Match the exact caption only within this observation's most confident tie.
+            let alternatives = observation.topCandidates(10)
+            guard let maximumConfidence = alternatives.first?.confidence else { return false }
+            return alternatives.contains {
+                $0.confidence == maximumConfidence
+                    && $0.string.replacingOccurrences(of: " ", with: "").contains(chartCaption)
+            }
+        }
+        let candidates = (request.results ?? []).enumerated().map { index, observation in
+            let alternatives = observation.topCandidates(10).map {
+                "\($0.string.debugDescription) confidence=\($0.confidence)"
+            }.joined(separator: " | ")
+            return "observation \(index) bbox=\(NSStringFromRect(observation.boundingBox)): \(alternatives)"
+        }.joined(separator: "\n")
+        let diagnostics = "OCR revision=\(request.revision) pixels=\(bitmap.pixelsWide)x\(bitmap.pixelsHigh)\n\(candidates)"
         for label in [companion.l.todayTokens, companion.l.thisWeek, companion.l.thisMonth] {
             XCTAssertTrue(normalizedText.contains(label.replacingOccurrences(of: " ", with: "")),
-                          "Missing visible \(label): \(text)")
+                          "Missing visible \(label): \(text)\n\(diagnostics)")
         }
-        if history && day > 1 {
-            XCTAssertTrue(normalizedText.contains(companion.l.dailyTrend.replacingOccurrences(of: " ", with: "")),
-                          "Historical chart missing: \(text)")
-        } else {
-            XCTAssertFalse(normalizedText.contains(companion.l.dailyTrend.replacingOccurrences(of: " ", with: "")),
-                           "Empty history must not invent a chart")
+        if costs == .source {
+            // A split currency value creates separate OCR observations; do not join their digits.
+            for amount in ["$31.64", "$121.30"] {
+                XCTAssertTrue((request.results ?? []).contains {
+                    $0.topCandidates(1).first?.string.replacingOccurrences(of: " ", with: "").contains(amount) == true
+                }, "Split or missing period cost \(amount) in \(language.rawValue): \(text)\n\(diagnostics)")
+            }
+        }
+        if costs == .unavailable {
+            let unavailable = companion.l.costUnavailable.replacingOccurrences(of: " ", with: "")
+            XCTAssertEqual((request.results ?? []).filter {
+                $0.topCandidates(1).first?.string.replacingOccurrences(of: " ", with: "").contains(unavailable) == true
+            }.count, 2, "Both unavailable period costs must stay visible\n\(diagnostics)")
+        }
+        if costs == nil {
+            // The original quiet-day fixtures own chart coverage; cost fixtures target the period row.
+            if history && day > 1 {
+                XCTAssertTrue(chartVisible,
+                              "Historical chart missing: \(text)\n\(diagnostics)")
+            } else {
+                XCTAssertFalse(chartVisible,
+                               "Empty history must not invent a chart\n\(diagnostics)")
+            }
         }
         if let output = ProcessInfo.processInfo.environment["PTB_ZERO_USAGE_SCREENSHOT_DIR"] {
             let directory = URL(fileURLWithPath: output)
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-            let name = history ? "ko-zero-today-with-history.png" : "ko-zero-all-periods.png"
+            let name = costs != nil ? "\(language.rawValue)-period-costs-\(costs == .source ? "known" : "unavailable").png"
+                : (history ? "ko-zero-today-with-history.png" : "ko-zero-all-periods.png")
             try XCTUnwrap(bitmap.representation(using: .png, properties: [:])).write(to: directory.appendingPathComponent(name))
         }
     }

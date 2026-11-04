@@ -467,7 +467,7 @@ struct FloatingPetView: View {
 
             SpriteView(speciesID: subject.speciesID, size: size, animated: animated,
                        shiny: subject.isShiny,
-                       minFrameDelay: store.animationQuality.frameFloor, unownForm: subject.unownForm)
+                       minFrameDelay: store.animationQuality.frameFloor, form: subject.form)
                 .frame(width: size, height: size)
                 .zIndex(0)
         }

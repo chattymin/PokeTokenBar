@@ -51,10 +51,75 @@ final class SaveSnapshotTests: XCTestCase {
         XCTAssertEqual(snapshot.lifetimeTokens, 12_500)
         XCTAssertEqual(snapshot.currentSpeciesID, 1)
         XCTAssertFalse(snapshot.currentIsShiny)
+        XCTAssertNil(snapshot.currentForm)
         XCTAssertTrue(FileManager.default.fileExists(atPath: snapshot.fileURL.path))
 
         XCTAssertEqual(store.availableSnapshots.count, 1)
         XCTAssertEqual(store.availableSnapshots.first?.id, snapshot.id)
+    }
+
+    func testSnapshotKeepsNonDefaultFormInSummaryAndRestoredState() throws {
+        let url = tempURL("form")
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        let sky = PokemonForm("sky")
+        var state = sampleState(tokens: 1_000, dexCount: 1)
+        state.active = MonState(baseID: 492, pathIDs: [492], stageIndex: 0, usedAtStage: 500,
+                                rarity: .legendary, totalForms: 1, isShiny: true, form: sky)
+
+        let created = try SaveSnapshotManager.createSnapshot(state: state, for: url, date: baseNow)
+        let listed = try XCTUnwrap(SaveSnapshotManager.listSnapshots(for: url).first)
+        for snapshot in [created, listed] {
+            XCTAssertEqual(snapshot.currentSpeciesID, 492)
+            XCTAssertTrue(snapshot.currentIsShiny)
+            XCTAssertEqual(snapshot.currentForm, sky)
+            XCTAssertEqual(SpriteStore.spriteURL(speciesID: 492, animated: false,
+                                                 shiny: snapshot.currentIsShiny,
+                                                 form: snapshot.currentForm).lastPathComponent, "10006.png")
+        }
+        let restored = try SaveSnapshotManager.loadEnvelope(from: created.fileURL).state
+        XCTAssertEqual(restored.active?.form, sky)
+        XCTAssertEqual(restored.active?.isShiny, true)
+    }
+
+    func testSnapshotSummariesResolveCurrentAppearanceAcrossLegacyAndEnvelopeFiles() throws {
+        let cases: [(name: String, speciesID: Int, storedForm: String?, key: String, expected: PokemonForm?)] = [
+            ("sky", 492, "sky", "form", PokemonForm("sky")),
+            ("missing", 492, nil, "form", PokemonForm("land")),
+            ("invalid", 492, "future", "form", PokemonForm("land")),
+            ("unown", 201, "b", "unownForm", PokemonForm("b")),
+            ("precursor", 420, "sunshine", "form", nil),
+            ("single", 25, "future", "form", nil),
+        ]
+        for fixture in cases {
+            let url = tempURL("form-\(fixture.name)")
+            defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+            var active: [String: Any] = [
+                "baseID": fixture.speciesID, "pathIDs": [fixture.speciesID], "stageIndex": 0,
+                "usedAtStage": 0, "rarity": "common", "totalForms": 1,
+            ]
+            if let form = fixture.storedForm { active[fixture.key] = form }
+            let data = try JSONSerialization.data(withJSONObject: ["active": active])
+            let legacyURL = SaveSnapshotManager.snapshotsDirectory(for: url)
+                .appendingPathComponent("\(SaveSnapshotManager.snapshotPrefix)2020-01-01-000000.json")
+            try data.write(to: legacyURL)
+            var state = try JSONDecoder().decode(CompanionState.self, from: data)
+            // Creation also resolves raw in-memory values, rather than relying on the decoder.
+            state.active?.form = fixture.storedForm.map { PokemonForm($0) }
+            let created = try SaveSnapshotManager.createSnapshot(state: state, for: url, date: baseNow)
+            let listed = SaveSnapshotManager.listSnapshots(for: url)
+            XCTAssertEqual(listed.count, 2, fixture.name)
+            for snapshot in [created] + listed {
+                XCTAssertEqual(snapshot.currentSpeciesID, fixture.speciesID, fixture.name)
+                XCTAssertEqual(snapshot.currentForm, fixture.expected, fixture.name)
+            }
+        }
+
+        let url = tempURL("form-egg")
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        let egg = try SaveSnapshotManager.createSnapshot(state: CompanionState(), for: url, date: baseNow)
+        XCTAssertNil(egg.currentSpeciesID)
+        XCTAssertNil(egg.currentForm)
+        XCTAssertNil(SaveSnapshotManager.listSnapshots(for: url).first?.currentForm)
     }
 
     /// A disguised Ditto hides its shiny state until the reveal (`currentIsShiny`). The snapshot
@@ -63,23 +128,31 @@ final class SaveSnapshotTests: XCTestCase {
     func testSnapshotDoesNotRevealShinyOfDisguisedDitto() throws {
         let url = tempURL("ditto")
         var state = sampleState(tokens: 1_000, dexCount: 1)
-        state.active?.isShiny = true
-        state.active?.dittoDisguise = 1
+        let trash = PokemonForm("trash")
+        state.active = MonState(baseID: 412, pathIDs: [412], stageIndex: 0, usedAtStage: 500,
+                                rarity: .common, totalForms: 2, isShiny: true,
+                                dittoDisguise: 412, form: trash)
+        let disguisedState = state
 
         let created = try SaveSnapshotManager.createSnapshot(state: state, for: url, date: baseNow)
         XCTAssertFalse(created.currentIsShiny)
+        XCTAssertEqual(created.currentForm, trash)
         XCTAssertEqual(SaveSnapshotManager.listSnapshots(for: url).map(\.currentIsShiny), [false])
+        XCTAssertEqual(SaveSnapshotManager.listSnapshots(for: url).map(\.currentForm), [trash])
 
-        state.active?.dittoRevealed = true
+        state.active = MonState(baseID: 132, pathIDs: [132], stageIndex: 0, usedAtStage: 0,
+                                rarity: .rare, totalForms: 1, isShiny: true,
+                                dittoDisguise: 412, dittoRevealed: true)
         let revealed = try SaveSnapshotManager.createSnapshot(state: state, for: url, date: baseNow.addingTimeInterval(60))
         XCTAssertTrue(revealed.currentIsShiny)
+        XCTAssertNil(revealed.currentForm)
         XCTAssertEqual(SaveSnapshotManager.listSnapshots(for: url).map(\.currentIsShiny), [true, false])
 
         let legacyURL = SaveSnapshotManager.snapshotsDirectory(for: url)
             .appendingPathComponent("\(SaveSnapshotManager.snapshotPrefix)2020-01-01-000000.json")
-        state.active?.dittoRevealed = false
-        try JSONEncoder().encode(state).write(to: legacyURL)
+        try JSONEncoder().encode(disguisedState).write(to: legacyURL)
         XCTAssertEqual(SaveSnapshotManager.listSnapshots(for: url).last?.currentIsShiny, false)
+        XCTAssertEqual(SaveSnapshotManager.listSnapshots(for: url).last?.currentForm, trash)
     }
 
     func testSnapshotPruningKeepsAtMostTen() throws {

@@ -70,7 +70,7 @@ enum DexBadge: Equatable, Hashable, Sendable {
 /// generation math is unit-testable without spinning up the whole companion store.
 enum DexProgress {
     /// Number of Unown letter forms required for the Unown badge (all 28).
-    static var unownTotal: Int { UnownForm.allCases.count }
+    static var unownTotal: Int { PokemonForm.forms(speciesID: PokemonForm.unownSpeciesID).count }
 
     /// Per-region owned/total (and shiny-owned) counts. Duplicate ids contribute once per form;
     /// a species counts as shiny-owned if any owned individual of it is shiny.

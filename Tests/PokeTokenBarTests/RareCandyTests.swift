@@ -99,6 +99,95 @@ final class CandyGrantEvaluationTests: XCTestCase {
         XCTAssertEqual(epochs["claude.fiveHour"], "2026-09-17T15:00:00Z")
     }
 
+    /// Claude API microsecond variations across polls must NOT trigger candy regranting.
+    func testVolatileMicrosecondEpochDoesNotRegrant() {
+        var tier: [String: Int] = [:]
+        var epochs: [String: String] = [:]
+        let initial = CompanionStore.evaluateCandyGrants(
+            windows: [w("claude.152146ba.fiveHour", .session, 100, epoch: "2026-09-28T17:10:00.928794+00:00")],
+            grantTier: &tier, windowEpoch: &epochs)
+        XCTAssertEqual(initial.map(\.count), [1], "Initial 100% earns 1 candy")
+
+        let nextPoll = CompanionStore.evaluateCandyGrants(
+            windows: [w("claude.152146ba.fiveHour", .session, 100, epoch: "2026-09-28T17:10:00.935515+00:00")],
+            grantTier: &tier, windowEpoch: &epochs)
+        XCTAssertTrue(nextPoll.isEmpty, "Microsecond timestamp variance must not regrant candy")
+        XCTAssertEqual(tier["claude.152146ba.fiveHour"], 1)
+    }
+
+    /// Codex server-side ±1s timestamp jitter must NOT trigger candy regranting.
+    func testCodexJitterEpochDoesNotRegrant() {
+        var tier: [String: Int] = [:]
+        var epochs: [String: String] = [:]
+        let initial = CompanionStore.evaluateCandyGrants(
+            windows: [w("codex.codex.primary", .session, 100, epoch: "1790613843")],
+            grantTier: &tier, windowEpoch: &epochs)
+        XCTAssertEqual(initial.map(\.count), [1], "Initial 100% earns 1 candy")
+
+        let nextPollJitterForward = CompanionStore.evaluateCandyGrants(
+            windows: [w("codex.codex.primary", .session, 100, epoch: "1790613844")],
+            grantTier: &tier, windowEpoch: &epochs)
+        XCTAssertTrue(nextPollJitterForward.isEmpty, "+1s timestamp jitter must not regrant candy")
+
+        let nextPollJitterBack = CompanionStore.evaluateCandyGrants(
+            windows: [w("codex.codex.primary", .session, 100, epoch: "1790613843")],
+            grantTier: &tier, windowEpoch: &epochs)
+        XCTAssertTrue(nextPollJitterBack.isEmpty, "Jitter back to original must not regrant candy")
+        XCTAssertEqual(tier["codex.codex.primary"], 1)
+    }
+
+    /// Rolling window minor drift (1-2 minutes) must NOT trigger candy regranting.
+    func testRollingWindowMinorDriftDoesNotRegrant() {
+        var tier: [String: Int] = [:]
+        var epochs: [String: String] = [:]
+        _ = CompanionStore.evaluateCandyGrants(
+            windows: [w("antigravity.3p.5h", .session, 100, epoch: "2026-09-28T19:10:12Z")],
+            grantTier: &tier, windowEpoch: &epochs)
+        XCTAssertEqual(tier["antigravity.3p.5h"], 1)
+
+        let drift1Min = CompanionStore.evaluateCandyGrants(
+            windows: [w("antigravity.3p.5h", .session, 100, epoch: "2026-09-28T19:11:12Z")],
+            grantTier: &tier, windowEpoch: &epochs)
+        XCTAssertTrue(drift1Min.isEmpty, "1-minute rolling drift must not regrant candy")
+
+        let drift5Min = CompanionStore.evaluateCandyGrants(
+            windows: [w("antigravity.3p.5h", .session, 100, epoch: "2026-09-28T19:15:12Z")],
+            grantTier: &tier, windowEpoch: &epochs)
+        XCTAssertTrue(drift5Min.isEmpty, "5-minute rolling drift must not regrant candy")
+    }
+
+    /// Full session window advancement (e.g. 5h) while still at 100% regrants candy.
+    func testSessionFullResetWhileStillAt100Regrants() {
+        var tier: [String: Int] = [:]
+        var epochs: [String: String] = [:]
+        _ = CompanionStore.evaluateCandyGrants(
+            windows: [w("codex.codex.primary", .session, 100, epoch: "1790613843")],
+            grantTier: &tier, windowEpoch: &epochs)
+
+        // 5 hours later = +18000s
+        let nextSession = CompanionStore.evaluateCandyGrants(
+            windows: [w("codex.codex.primary", .session, 100, epoch: "1790631843")],
+            grantTier: &tier, windowEpoch: &epochs)
+        XCTAssertEqual(nextSession.map(\.count), [1], "5h advancement regrants 1 candy")
+        XCTAssertEqual(epochs["codex.codex.primary"], "1790631843")
+    }
+
+    /// Full weekly window advancement (7d) while still at 100% regrants weekly candy grant.
+    func testWeeklyFullResetWhileStillAt100Regrants() {
+        var tier: [String: Int] = [:]
+        var epochs: [String: String] = [:]
+        _ = CompanionStore.evaluateCandyGrants(
+            windows: [w("claude.sevenDay", .weekly, 100, epoch: "2026-09-20T00:00:00Z")],
+            grantTier: &tier, windowEpoch: &epochs)
+
+        // 7 days later
+        let nextWeek = CompanionStore.evaluateCandyGrants(
+            windows: [w("claude.sevenDay", .weekly, 100, epoch: "2026-09-27T00:00:00Z")],
+            grantTier: &tier, windowEpoch: &epochs)
+        XCTAssertEqual(nextWeek.map(\.count), [RareCandy.weeklyGrant], "7d advancement regrants weekly candies")
+        XCTAssertEqual(epochs["claude.sevenDay"], "2026-09-27T00:00:00Z")
+    }
+
     /// epoch 를 처음 알게 된 것만으로 재지급하지 않는다(구세이브 → 신규 필드 도입 시 폭탄 방지).
     func testLearningEpochForFirstTimeDoesNotRegrant() {
         var tier: [String: Int] = ["claude.fiveHour": 1]

@@ -116,7 +116,7 @@ final class PokedexRegionTests: XCTestCase {
     }
 
     func testUnownBadgeEarnedAtTwentyEightForms() {
-        let total = UnownForm.allCases.count
+        let total = PokemonForm.forms(speciesID: PokemonForm.unownSpeciesID).count
         XCTAssertFalse(DexProgress.earnedBadges(owned: [], unownFormsCollected: total - 1).contains(.unown))
         XCTAssertTrue(DexProgress.earnedBadges(owned: [], unownFormsCollected: total).contains(.unown))
     }

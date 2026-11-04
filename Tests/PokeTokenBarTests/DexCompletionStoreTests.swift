@@ -76,4 +76,34 @@ final class DexCompletionStoreTests: XCTestCase {
         XCTAssertTrue(s.earnedDexBadges.contains(.national))
         XCTAssertTrue(PokedexRegion.allCases.allSatisfy { s.earnedDexBadges.contains(.region($0)) })
     }
+
+    func testCurrentFormsCountUnownLettersWithoutInflatingRegionalSpecies() throws {
+        var state = CompanionState()
+        let letters = PokemonForm.forms(speciesID: PokemonForm.unownSpeciesID)
+        state.dex = letters.dropLast().map { form in
+            DexEntry(baseID: 201, finalID: 201, chainOrder: [201], rarity: .rare,
+                     caughtAt: Date(), form: form)
+        }
+        state.dex += PokemonForm.forms(speciesID: 351).map { form in
+            DexEntry(baseID: 351, finalID: 351, chainOrder: [351], rarity: .common,
+                     caughtAt: Date(), form: form)
+        }
+        let url = tempURL()
+        defer { try? FileManager.default.removeItem(at: url) }
+        try JSONEncoder().encode(state).write(to: url)
+        let partial = CompanionStore(provider: OfflineProvider(), fileURL: url)
+        XCTAssertFalse(partial.earnedDexBadges.contains(.unown))
+
+        // The last letter belongs to the active individual, which is owned before graduation.
+        state.active = MonState(baseID: 201, pathIDs: [201], stageIndex: 0, usedAtStage: 0,
+                                rarity: .rare, totalForms: 1, form: letters.last)
+        try JSONEncoder().encode(state).write(to: url)
+        let complete = CompanionStore(provider: OfflineProvider(), fileURL: url)
+        XCTAssertTrue(complete.earnedDexBadges.contains(.unown))
+        XCTAssertEqual(complete.dexCompletions.first { $0.region == .johto }?.owned, 1)
+        XCTAssertEqual(complete.dexCompletions.first { $0.region == .hoenn }?.owned, 1)
+        XCTAssertEqual(complete.nationalDexProgress.owned, 2)
+        XCTAssertEqual(complete.formSpecies(speciesID: 201).filter { $0.hasNormal || $0.isShiny }.count, 28)
+        XCTAssertTrue(complete.state.notifiedDexCompletions.contains("unown"))
+    }
 }

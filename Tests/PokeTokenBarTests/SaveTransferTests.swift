@@ -553,8 +553,8 @@ final class SaveTransferTests: XCTestCase {
         // notifiedDexCompletions·dexCompletionsSeeded = 진행 — 완성 알림 기록은 도감(dex)에서 파생되므로
         // 도감과 함께 따라가야 한다(옮긴 기기에서 같은 완성분에 중복 알림을 울리지 않는다).
         let progress: Set<String> = ["usedSinceInstall", "spentTokens", "eggUsage", "eggTier",
-                                     "pendingHatchID", "pendingUnownForm", "active",
-                                     "representativeSpeciesID", "representativeUnownForm", "dex",
+                                     "pendingHatchID", "pendingForm", "active",
+                                     "representativeSpeciesID", "representativeForm", "dex",
                                      "collectedFinals", "inventory",
                                      "notifiedDexCompletions", "dexCompletionsSeeded"]
         let deviceLedger: Set<String> = ["installBaselineSet", "claimedTodayTokensByProvider", "lastDate"]
