@@ -297,6 +297,7 @@ struct CandyWindow: Sendable {
     let kind: WindowClass    // session=1개 · weekly=5개
     let utilization: Double  // 0~100+
     /// 창 epoch (`resets_at` / reset unix). key 는 안정, epoch 가 바뀌면 새 창 → 재무장(#326).
+    /// nil 이면 100% 미만 관측으로만 재무장한다(Codex — credits 로 100% 를 넘겨 쓴다).
     let epoch: String?
 
     init(key: String, name: String, kind: WindowClass, utilization: Double, epoch: String? = nil) {

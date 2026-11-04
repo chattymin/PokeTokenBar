@@ -107,6 +107,9 @@ enum CustomScanRoots {
         case "omp":
             return CustomScanRoots.union(
                 defaults: LocalUsageReader.computeOmpSessionRoots(), extraRaw: nil)
+        case "omo":
+            return CustomScanRoots.union(
+                defaults: LocalUsageReader.computeOmoSessionRoots(), extraRaw: nil)
         case "kimi_code":
             return CustomScanRoots.union(
                 defaults: LocalUsageReader.computeKimiSessionRoots(), extraRaw: nil)
