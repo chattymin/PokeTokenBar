@@ -107,6 +107,9 @@ final class UsageStore {
     var showLimitInMenu: Bool {
         didSet { defaults.set(showLimitInMenu, forKey: "showLimitInMenu") }
     }
+    var showGrowthInMenu: Bool {
+        didSet { defaults.set(showGrowthInMenu, forKey: "showGrowthInMenu") }
+    }
     /// 한도 % 표시 방식 — 사용한 양(기본) 또는 남은 양. 숫자 표시에만 적용되고
     /// 경고/위험 판정·게이지 채움·알림은 사용률 원값 기준을 유지한다(경고 의미론 분리).
     enum LimitDisplayMode: String, CaseIterable {
@@ -171,6 +174,11 @@ final class UsageStore {
     /// Show limit alerts as speech bubbles on the floating pet. Default on; independent of Notification Center.
     var floatingPetBubbleAlerts: Bool {
         didSet { defaults.set(floatingPetBubbleAlerts, forKey: "floatingPetBubbleAlerts") }
+    }
+    /// Let coding agents drive the floating pet through `poketokenbar://agent` URLs. Default on —
+    /// nothing happens until the user wires an agent hook.
+    var floatingPetAgentActivity: Bool {
+        didSet { defaults.set(floatingPetAgentActivity, forKey: "floatingPetAgentActivity") }
     }
     var disableKeychainAccess: Bool {
         didSet {
@@ -299,20 +307,26 @@ final class UsageStore {
     /// 사용량 데이터(스냅샷)가 하나라도 있는가 — companion sleep 판정용
     var hasUsageData: Bool { !snapshots.isEmpty }
 
-    /// 메뉴바 표시 줄 규칙 (사용자 확정 — 조합표 전수 검증: `UsageStoreTests.testMenuLinesAllCombinations`):
-    /// - **활성 항목 2개 이하 → 각 항목을 개별 세로 줄로**(토큰/비용/한도 각 1줄).
-    /// - **3개(토큰+비용+한도) 모두 활성 → 토큰·비용을 한 줄로, 한도를 아랫줄로**(= 총 2줄).
-    /// 한도 줄은 오늘 사용한 프로바이더만(`menuLimitLine`). 빈 배열이면 아이콘만.
+    /// Up to two items stack vertically. With more items, combine non-limit items to keep two lines;
+    /// available limits always get their own bottom line. An empty array shows only the sprite.
     var menuLines: [String] {
-        guard lastUpdated != nil else { return ["—"] }
+        menuLines(growthText: nil)
+    }
+
+    func menuLines(growthText: String?) -> [String] {
+        // Saved growth is available even before the first usage refresh finishes.
+        guard lastUpdated != nil else { return growthText.map { [$0] } ?? ["—"] }
         var usage: [String] = []
         if showTokensInMenu { usage.append(TokenFormatter.compact(todayTotalTokens)) }
         if showCostInMenu, showsCost { usage.append(todayUsageCost.text(L(localizationLanguage), compact: true)) }
+        if let growthText { usage.append(growthText) }
         let limit = menuLimitLine   // nil = 한도 미표시/미가용
 
-        if limit != nil && usage.count == 2 {
-            // 3개 다 활성 → 토큰·비용 한 줄 + 한도 아랫줄 (≤2줄 유지)
-            return [usage.joined(separator: " · "), limit!]
+        if let limit, usage.count >= 2 {
+            return [usage.joined(separator: " · "), limit]
+        }
+        if usage.count > 2 {
+            return [usage.dropLast().joined(separator: " · "), usage[usage.count - 1]]
         }
         // 그 외(2개 이하) → 각 항목 개별 세로 줄
         var lines = usage
@@ -346,8 +360,8 @@ final class UsageStore {
             parts.append(MenuLimitPart(text: "\(label) \(TokenFormatter.percent(limitDisplayPercent(utilization)))",
                                        utilization: utilization, pace: pace))
         }
-        if let window = menuClaudeAccount?.status.fiveHour, let utilization = window.utilization {
-            add("Claude", utilization, reset: window.resetDate, span: LimitWindowSpan.fiveHour)
+        if let (window, span) = menuClaudeAccount?.status.headlineWindow, let utilization = window.utilization {
+            add("Claude", utilization, reset: window.resetDate, span: span)
         }
         if usedToday.contains("codex"), let usedPercent = codexLimits?.maxPrimaryUsedPercent {
             // The window the percentage came from, so the pace belongs to the same bucket.
@@ -397,11 +411,11 @@ final class UsageStore {
         }
     }
 
-    /// The account whose 5h percentage the menu bar shows, nil when it shows none.
+    /// The account whose headline percentage (5h, else weekly) the menu bar shows, nil when it shows none.
     private var menuClaudeAccount: ClaudeAccountLimits? {
         guard showLimitInMenu,
               snapshots.contains(where: { $0.providerID == "claude_code" && $0.todayTotalTokens > 0 }),
-              let account = trackedClaudeAccount, account.status.fiveHour?.utilization != nil
+              let account = trackedClaudeAccount, account.status.headlineWindow != nil
         else { return nil }
         return account
     }
@@ -509,6 +523,11 @@ final class UsageStore {
     /// Day-by-day history behind the usage recap. Providers only report the current month, so the
     /// numbers are copied into a rolling ledger at every refresh — see `UsageLedger`.
     private(set) var dailyLedger = UsageLedger()
+
+    /// The run of days with usage that is still going, read from the same ledger as the recap.
+    var currentStreak: UsageStreak {
+        dailyLedger.currentStreak(now: Date(), calendar: RecapPeriod.calendar())
+    }
 
     private func recordDailyLedger() {
         var ledger = dailyLedger
@@ -633,6 +652,7 @@ final class UsageStore {
             windows += claudeCandyWindows(account, named: accounts.count > 1, l)
                 .filter { account.isDefault || armedCandyWindows.contains($0.key) }
         }
+        // Codex 는 한도를 다 써도 credits 로 계속 쓴다 — epoch 를 넘기지 않아 100% 미만 관측으로만 재무장한다.
         for bucket in codexLimits?.visibleSnapshots ?? [] {
             let bucketKey = bucket.limitId ?? bucket.limitName ?? "codex"
             let bucketName = bucket.bucketDisplayName
@@ -641,16 +661,14 @@ final class UsageStore {
                     key: "codex.\(bucketKey).primary",
                     name: "\(bucketName) \(l.codexWindow(primary.windowDurationMins))",
                     kind: Self.windowClass(minutes: primary.windowDurationMins),
-                    utilization: Double(primary.usedPercent),
-                    epoch: primary.resetsAt.map(String.init)))
+                    utilization: Double(primary.usedPercent)))
             }
             if let secondary = bucket.secondary {
                 windows.append(CandyWindow(
                     key: "codex.\(bucketKey).secondary",
                     name: "\(bucketName) \(l.codexWindow(secondary.windowDurationMins))",
                     kind: Self.windowClass(minutes: secondary.windowDurationMins),
-                    utilization: Double(secondary.usedPercent),
-                    epoch: secondary.resetsAt.map(String.init)))
+                    utilization: Double(secondary.usedPercent)))
             }
         }
         for group in antigravityLimits?.groups ?? [] {
@@ -749,7 +767,7 @@ final class UsageStore {
         LocalAntigravityProvider(), LocalOpenCodeProvider(), LocalHermesProvider(),
         LocalCursorProvider(), LocalGrokProvider(), LocalCopilotProvider(), LocalKiroProvider(),
         LocalPiProvider(),
-        LocalOmpProvider(), LocalAsideProvider(), LocalKimiCodeProvider(),
+        LocalOmpProvider(), LocalOmoProvider(), LocalAsideProvider(), LocalKimiCodeProvider(),
     ],
          // 세션 키 우선, 없거나 죽었으면 기존 Keychain/파일 OAuth 경로. 두 인자는 같은
          // SessionKeyLimitsProvider 인스턴스를 봐야 한다 — 설정 화면이 고른 조직을 조회 경로가 써야 하므로.
@@ -804,6 +822,7 @@ final class UsageStore {
         showTokensInMenu = d.object(forKey: "showTokensInMenu") as? Bool ?? true
         showCostInMenu = d.object(forKey: "showCostInMenu") as? Bool ?? false
         showLimitInMenu = d.object(forKey: "showLimitInMenu") as? Bool ?? false
+        showGrowthInMenu = d.object(forKey: "showGrowthInMenu") as? Bool ?? false
         limitDisplayMode = LimitDisplayMode(rawValue: d.string(forKey: "limitDisplayMode") ?? "") ?? .used
         menuLimitColorMode = MenuLimitColorMode(rawValue: d.string(forKey: "menuLimitColorMode") ?? "") ?? .gauge
         limitNotifications = d.object(forKey: "limitNotifications") as? Bool ?? true
@@ -813,6 +832,7 @@ final class UsageStore {
         floatingPetEnabled = d.object(forKey: "floatingPetEnabled") as? Bool ?? false
         floatingPetSize = d.object(forKey: "floatingPetSize") as? Double ?? 96
         floatingPetBubbleAlerts = d.object(forKey: "floatingPetBubbleAlerts") as? Bool ?? true
+        floatingPetAgentActivity = d.object(forKey: "floatingPetAgentActivity") as? Bool ?? true
         // 기본 powerSaver — 이 설정이 생기기 전의 고정 캡(0.4s)과 같은 프레임 레이트라, 기존
         // 사용자의 배터리 프로파일은 그대로다. 더 부드러운 쪽은 opt-in(실측 idle CPU 1.8%/5.1%).
         animationQuality = AnimationQuality(rawValue: d.string(forKey: "animationQuality") ?? "") ?? .powerSaver

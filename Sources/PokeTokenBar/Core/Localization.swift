@@ -235,6 +235,23 @@ struct L {
     var recapBestDay: String { t("최고의 날", "Best day", "最高の日", "Mejor día", "Meilleur jour", "Melhor dia", "Bester Tag", "Лучший день") }
     var recapActiveDays: String { t("활동한 날", "Active days", "稼働日", "Días activos", "Jours actifs", "Dias ativos", "Aktive Tage", "Активных дней") }
     var recapBestStreak: String { t("최장 연속", "Best streak", "最長連続", "Mejor racha", "Meilleure série", "Melhor sequência", "Beste Serie", "Лучшая серия") }
+    /// Current-streak badge tooltip. The number sits inside the sentence, so word order is left to
+    /// each language.
+    func streakDays(_ count: Int) -> String {
+        t("\(count)일 연속 사용", "\(count)-day streak", "\(count)日連続", "Racha de \(count) días",
+          "Série de \(count) jours", "\(count) dias seguidos", "\(count) Tage in Folge",
+          "\(count) дн. подряд")
+    }
+    /// The same while today has no usage yet: the run is intact but ends yesterday. Says what keeps
+    /// it going instead of implying it is already lost.
+    func streakDaysPending(_ count: Int) -> String {
+        t("\(count)일 연속 — 오늘 사용하면 이어집니다", "\(count)-day streak — use it today to keep it going",
+          "\(count)日連続 — 今日使えば続きます", "Racha de \(count) días: úsalo hoy para mantenerla",
+          "Série de \(count) jours — utilisez-le aujourd'hui pour la garder",
+          "\(count) dias seguidos — use hoje para manter",
+          "\(count) Tage in Folge – heute nutzen, um sie zu halten",
+          "\(count) дн. подряд — используйте сегодня, чтобы не прервать")
+    }
     var recapGraduates: String { t("졸업", "Graduated", "卒業", "Graduados", "Diplômés", "Formados", "Abschlüsse", "Выпускники") }
     var recapNoData: String { t("기록 없음", "no data", "記録なし", "sin datos", "pas de données", "sem dados", "keine Daten", "нет данных") }
     func recapDays(_ count: Int) -> String {
@@ -270,6 +287,28 @@ struct L {
     var todayTokensShort: String { t("오늘 토큰", "Today's tokens", "本日のトークン", "Tokens de hoy", "Tokens du jour", "Tokens de hoje", "Heutige Tokens", "Токены за сегодня") }
     var todayCost: String { t("오늘 비용 ($)", "Today's cost ($)", "本日のコスト ($)", "Coste de hoy ($)", "Coût du jour ($)", "Custo de hoje ($)", "Heutige Kosten ($)", "Стоимость за сегодня ($)") }
     var limitPercent: String { t("한도 %", "Limit %", "上限 %", "Límite %", "Limite %", "Limite %", "Limit %", "Лимит, %") }
+    var pokemonGrowthPercent: String {
+        t("포켓몬 성장률", "Pokémon growth %", "ポケモンの成長率", "Crecimiento del Pokémon %",
+          "Croissance du Pokémon %", "Crescimento do Pokémon %", "Pokémon-Wachstum %", "Рост покемона, %")
+    }
+    var pokemonGrowthPercentHint: String {
+        t("키우는 알의 부화 또는 포켓몬의 다음 진화·졸업 진행률",
+          "Progress toward hatching or your companion's next evolution or graduation",
+          "育てているタマゴの孵化、またはポケモンの次の進化・卒業までの進捗",
+          "Progreso hasta la eclosión o la próxima evolución o graduación de tu compañero",
+          "Progression vers l'éclosion ou la prochaine évolution ou le diplôme de ton compagnon",
+          "Progresso até a eclosão ou a próxima evolução ou formatura do seu companheiro",
+          "Fortschritt bis zum Schlüpfen oder zur nächsten Entwicklung oder zum Abschied deines Begleiters",
+          "Прогресс до вылупления, следующей эволюции или выпуска вашего покемона")
+    }
+    func menuGrowthProgress(_ percent: Int, isEgg: Bool) -> String {
+        if isEgg {
+            return t("부화 \(percent)%", "Hatch \(percent)%", "孵化 \(percent)%", "Eclosión \(percent)%",
+                     "Éclosion \(percent)%", "Eclosão \(percent)%", "Schlüpfen \(percent)%", "Вылупление \(percent)%")
+        }
+        return t("성장 \(percent)%", "Growth \(percent)%", "成長 \(percent)%", "Crecimiento \(percent)%",
+                 "Croissance \(percent)%", "Crescimento \(percent)%", "Wachstum \(percent)%", "Рост \(percent)%")
+    }
     var menuLimitColor: String {
         t("퍼센트 색상", "Percent color", "パーセントの色", "Color del porcentaje", "Couleur du pourcentage",
           "Cor da porcentagem", "Prozentfarbe", "Цвет процентов")
@@ -385,6 +424,39 @@ struct L {
           "Hoje: \(tokens) tokens (limite \(percent))",
           "Heute: \(tokens) Tokens (Limit \(percent))",
           "Токенов сегодня: \(tokens) (лимит \(percent))")
+    }
+    var floatingPetAgentActivityLabel: String {
+        t("에이전트 활동에 반응", "React to agent activity", "エージェントの動きに反応", "Reaccionar a la actividad del agente",
+          "Réagir à l’activité de l’agent", "Reagir à atividade do agente", "Auf Agent-Aktivität reagieren", "Реагировать на работу агента")
+    }
+    var floatingPetAgentActivityHint: String {
+        t("코딩 에이전트가 poketokenbar:// 링크로 펫을 움직여요 — README 참고",
+          "Coding agents trigger it with poketokenbar:// links — see the README",
+          "コーディングエージェントが poketokenbar:// リンクで動かします — README 参照",
+          "Los agentes de código lo activan con enlaces poketokenbar:// — consulta el README",
+          "Les agents de code le pilotent via des liens poketokenbar:// — voir le README",
+          "Agentes de código o acionam com links poketokenbar:// — veja o README",
+          "Coding-Agents steuern es über poketokenbar://-Links – siehe README",
+          "Агенты управляют питомцем через ссылки poketokenbar:// — см. README")
+    }
+    var agentWaitingTitle: String {
+        t("에이전트가 기다려요", "Your agent needs you", "エージェントが呼んでいます", "Tu agente te necesita",
+          "Ton agent a besoin de toi", "Seu agente precisa de você", "Dein Agent braucht dich", "Агент ждёт вас")
+    }
+    var agentWaitingDefaultBody: String {
+        t("입력을 기다리고 있어요.", "It's waiting for your input.", "入力を待っています。", "Está esperando tu respuesta.",
+          "Il attend ta réponse.", "Está aguardando sua resposta.", "Er wartet auf deine Eingabe.", "Он ждёт вашего ответа.")
+    }
+    var agentDoneTitle: String { t("완료!", "Done!", "完了！", "¡Listo!", "Terminé !", "Pronto!", "Fertig!", "Готово!") }
+    /// After an agent's label in the bubble title: "<label> · waiting".
+    var agentWaitingStatus: String {
+        t("대기 중", "waiting", "待機中", "espera", "attend", "aguarda", "wartet", "ждёт")
+    }
+    var agentDoneStatus: String { t("완료", "done", "完了", "listo", "terminé", "pronto", "fertig", "готово") }
+
+    var agentDoneDefaultBody: String {
+        t("에이전트가 작업을 마쳤어요.", "Your agent finished its task.", "エージェントの作業が終わりました。", "Tu agente terminó su tarea.",
+          "Ton agent a terminé sa tâche.", "Seu agente concluiu a tarefa.", "Dein Agent ist fertig.", "Агент завершил задачу.")
     }
 
     var disableKeychain: String { t("Keychain 접근 끄기", "Disable Keychain access", "Keychainアクセスを無効化", "Desactivar acceso a Keychain", "Désactiver l'accès au Keychain", "Desativar acesso ao Keychain", "Keychain-Zugriff deaktivieren", "Отключить доступ к Связке ключей") }
