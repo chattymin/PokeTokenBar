@@ -108,6 +108,24 @@ final class FloatingPetAgentTests: XCTestCase {
         XCTAssertNil(C.bubble(limitAlert: nil, agent: AgentActivitySummary()))
     }
 
+    func testAgentSpeechReservesHeadroomAndOutranksHeartsAndEventCallouts() {
+        typealias Note = AgentActivitySummary.Note
+        for agent in [AgentActivitySummary(waiting: Note(label: "web", message: nil)),
+                      AgentActivitySummary(done: Note(label: "api", message: nil))] {
+            let showingBubble = C.isShowingBubble(alertActive: false, heartsShowing: false, agent: agent)
+            XCTAssertTrue(showingBubble, "agent-only speech needs the same panel headroom as limit alerts")
+            XCTAssertFalse(C.heartsShowing(afterStrokeWithAlertActive: false, agent: agent))
+            XCTAssertFalse(C.shouldPopEvent(eventSeq: 2, lastSeenSeq: 1, petVisible: true,
+                                            bubbleShowing: showingBubble))
+        }
+        let working = AgentActivitySummary(working: true)
+        XCTAssertTrue(C.heartsShowing(afterStrokeWithAlertActive: false, agent: working),
+                      "working only bobs: it must not block stroking")
+        XCTAssertTrue(C.isShowingBubble(alertActive: false, heartsShowing: true, agent: working))
+        XCTAssertFalse(C.isShowingBubble(alertActive: false, heartsShowing: false, agent: working))
+        XCTAssertFalse(C.heartsShowing(afterStrokeWithAlertActive: true, agent: working))
+    }
+
     /// Generalizing the bubble view must leave the limit-alert copy exactly as before.
     func testLimitBubbleContentIsUnchanged() {
         for lang in AppLanguage.allCases {
@@ -222,22 +240,30 @@ final class FloatingPetAgentWiringTests: XCTestCase {
     private struct Fixture {
         let controller: FloatingPetController
         let store: UsageStore
+        let companion: CompanionStore
         let defaults: UserDefaults
         let cleanUp: () -> Void
     }
 
-    private func makeFixture(petEnabled: Bool = true, onOpenPopover: (() -> Void)? = nil) throws -> Fixture {
+    private func makeFixture(petEnabled: Bool = true, hatched: Bool = true,
+                             onOpenPopover: (() -> Void)? = nil) throws -> Fixture {
         // Motion pinned on: the bob must not depend on this Mac's Low Power or Reduce Motion.
         let suite = "FloatingPetAgentWiringTests-\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
         let file = FileManager.default.temporaryDirectory.appendingPathComponent("\(suite).json")
         let store = UsageStore(providers: [], autoRefresh: false, defaults: defaults)
+        if hatched {
+            var state = CompanionState()
+            state.active = MonState(baseID: 1, pathIDs: [1], stageIndex: 0, usedAtStage: 0,
+                                    rarity: .common, totalForms: 1)
+            try JSONEncoder().encode(state).write(to: file)
+        }
         let companion = CompanionStore(fileURL: file, defaults: defaults)
         let controller = FloatingPetController(store: store, companion: companion, defaults: defaults,
                                                onOpenPopover: onOpenPopover, motionOverride: true)
         controller.setDisplayAwake(false)
         store.floatingPetEnabled = petEnabled
-        return Fixture(controller: controller, store: store, defaults: defaults, cleanUp: {
+        return Fixture(controller: controller, store: store, companion: companion, defaults: defaults, cleanUp: {
             defaults.removePersistentDomain(forName: suite)
             try? FileManager.default.removeItem(at: file)
         })
@@ -345,6 +371,47 @@ final class FloatingPetAgentWiringTests: XCTestCase {
         fixture.controller.petClicked()
         XCTAssertEqual(fixture.controller.tracker.activity, .working, "a click does not stop work")
         XCTAssertEqual(opened, 2)
+    }
+
+    /// Exercise the callback installed on the actual hosting view, so resolving the mouse-up
+    /// route to either PR alone cannot silently discard the other feature.
+    func testHostingClickAcknowledgesAgentsAndPraysOverAnEgg() throws {
+        var opened = 0
+        let fixture = try makeFixture(hatched: false, onOpenPopover: { opened += 1 })
+        defer { fixture.cleanUp() }
+        XCTAssertNil(fixture.companion.representativeSubject.speciesID)
+        let hosting = fixture.controller.makeHostingView(animated: false)
+
+        try send("waiting", to: fixture.controller)
+        hosting.onClick?()
+        XCTAssertEqual(fixture.controller.tracker.activity, .idle)
+        XCTAssertEqual(fixture.companion.state.eggPrayers?.count, 1)
+        XCTAssertEqual(opened, 0)
+
+        try send("working", to: fixture.controller)
+        hosting.onClick?()
+        XCTAssertEqual(fixture.controller.tracker.activity, .working)
+        XCTAssertEqual(fixture.companion.state.eggPrayers?.count, 2)
+        XCTAssertEqual(opened, 0)
+
+        try send("done", to: fixture.controller)
+        hosting.handleOpen(nil)
+        XCTAssertEqual(fixture.controller.tracker.activity, .idle)
+        XCTAssertEqual(opened, 1, "context-menu Open still opens an egg")
+        XCTAssertEqual(fixture.companion.state.eggPrayers?.count, 2)
+    }
+
+    func testHostingClickAcknowledgesAgentsAndOpensAHatchedPet() throws {
+        var opened = 0
+        let fixture = try makeFixture(onOpenPopover: { opened += 1 })
+        defer { fixture.cleanUp() }
+        XCTAssertNotNil(fixture.companion.representativeSubject.speciesID)
+        let hosting = fixture.controller.makeHostingView(animated: false)
+        try send("waiting", to: fixture.controller)
+        hosting.onClick?()
+        XCTAssertEqual(fixture.controller.tracker.activity, .idle)
+        XCTAssertEqual(opened, 1)
+        XCTAssertNil(fixture.companion.state.eggPrayers)
     }
 
     func testExpiryRearmsWhenTheTimerFiresEarly() throws {

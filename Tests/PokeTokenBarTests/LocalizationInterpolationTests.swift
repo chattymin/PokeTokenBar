@@ -66,6 +66,8 @@ final class LocalizationInterpolationTests: XCTestCase {
             // Floating pet & settings / 플로팅 펫 · 설정
             expect(lang, "floatingPetHoverTokensOnly", l.floatingPetHoverTokensOnly(a), a)
             expect(lang, "floatingPetHoverWithLimit", l.floatingPetHoverWithLimit(a, b), a, b)
+            expect(lang, "floatingPetHoverSulkHours", l.floatingPetHoverSulkHours(4242), "4242")
+            expect(lang, "floatingPetHoverSulkDays", l.floatingPetHoverSulkDays(4242), "4242")
             expect(lang, "intervalLabel", l.intervalLabel(1860), "31")  // 1860 s → 31 min / 1860초 → 31분
             expect(lang, "customScanRootsMatches", l.customScanRootsMatches(4242), "4242")
 
@@ -106,7 +108,7 @@ final class LocalizationInterpolationTests: XCTestCase {
             // System notifications / 시스템 알림
             expect(lang, "notifHatchBody", l.notifHatchBody(a), a)
             expect(lang, "notifShinyHatchBody", l.notifShinyHatchBody(a, odds: 4242), a, "4242")
-            expect(lang, "notifEvolveBody", l.notifEvolveBody(a), a)
+            expect(lang, "notifEvolveBody", l.notifEvolveBody(from: a, to: b), a, b)
             expect(lang, "notifDittoRevealBody", l.notifDittoRevealBody(a), a)
             expect(lang, "notifShinyDittoRevealBody", l.notifShinyDittoRevealBody(a), a)
             expect(lang, "notifGraduateBody", l.notifGraduateBody(a), a)

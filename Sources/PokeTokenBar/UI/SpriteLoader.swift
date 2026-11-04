@@ -10,6 +10,9 @@ actor SpriteStore {
     // 원본 PNG/GIF 바이트의 LRU 상한 — 도감 한 페이지(24칸)보다 넉넉히 유지하되,
     // 세션 중 종 변경으로 무한 누적되지 않게 한다. NSImage 캐시는 SpriteLoader 가 별도로 관리한다.
     private let memLimit = 64
+    // Keys the server answered 404 for this session. A back sprite that does not exist is final (use the
+    // front one); any other failure is transient and must be retried instead of settling on the front.
+    private var confirmedMissing: Set<String> = []
     nonisolated let directory: URL
 
     init(directory: URL? = nil) {
@@ -20,34 +23,50 @@ actor SpriteStore {
     }
 
     /// 기본 폼은 구캐시 키 그대로 유지. 다른 폼은 폼·이로치·애니메이션을 모두 구분한다.
-    static func cacheKey(speciesID: Int, animated: Bool, shiny: Bool, form: PokemonForm? = nil) -> String {
-        "\(PokemonForm.assetName(speciesID: speciesID, form: form))-\(shiny ? "sh" : "")\(animated ? "a" : "s")"
+    /// `back` sprites (the companion turned away) get their own `-back` segment; front keys are unchanged.
+    static func cacheKey(speciesID: Int, animated: Bool, shiny: Bool, form: PokemonForm? = nil,
+                         back: Bool = false) -> String {
+        let name = PokemonForm.assetName(speciesID: speciesID, form: form)
+        return "\(name)-\(back ? "back-" : "")\(shiny ? "sh" : "")\(animated ? "a" : "s")"
     }
 
     /// PokeAPI names form GIFs `201-b`/`492-sky`; static PNGs of separate varieties use the variety
     /// id (`10006.png`). Cache files keep the `<id>-<form>` name either way.
-    static func spriteURL(speciesID: Int, animated: Bool, shiny: Bool, form: PokemonForm? = nil) -> URL {
+    /// Back sprites sit in a `back/` folder in front of `shiny/`, for both GIFs and PNGs.
+    static func spriteURL(speciesID: Int, animated: Bool, shiny: Bool, form: PokemonForm? = nil,
+                          back: Bool = false) -> URL {
         let name = animated ? PokemonForm.assetName(speciesID: speciesID, form: form)
                             : PokemonForm.staticAssetName(speciesID: speciesID, form: form)
         let path = animated ? "versions/generation-v/black-white/animated/" : ""
+        let facing = back ? "back/" : ""
         let color = shiny ? "shiny/" : ""
         let ext = animated ? "gif" : "png"
-        return URL(string: "\(base)/\(path)\(color)\(name).\(ext)")!
+        return URL(string: "\(base)/\(path)\(facing)\(color)\(name).\(ext)")!
     }
 
-    func data(speciesID: Int, animated: Bool, shiny: Bool = false, form: PokemonForm? = nil) async -> Data? {
+    func data(speciesID: Int, animated: Bool, shiny: Bool = false, form: PokemonForm? = nil,
+              back: Bool = false) async -> Data? {
         if animated, !PokemonAssets.hasAnimatedSprite(speciesID: speciesID) { return nil }
-        let key = Self.cacheKey(speciesID: speciesID, animated: animated, shiny: shiny, form: form)
+        let key = Self.cacheKey(speciesID: speciesID, animated: animated, shiny: shiny, form: form, back: back)
         if let d = mem[key] { touch(key); return d }
         let ext = animated ? "gif" : "png"
         let file = directory.appendingPathComponent("\(key).\(ext)")
         if let d = try? Data(contentsOf: file) { remember(key, d); return d }
-        let url = Self.spriteURL(speciesID: speciesID, animated: animated, shiny: shiny, form: form)
-        guard let (d, resp) = try? await URLSession.shared.data(from: url),
-              (resp as? HTTPURLResponse)?.statusCode == 200, !d.isEmpty else { return nil }
+        if confirmedMissing.contains(key) { return nil }
+        let url = Self.spriteURL(speciesID: speciesID, animated: animated, shiny: shiny, form: form, back: back)
+        guard let (d, resp) = try? await URLSession.shared.data(from: url) else { return nil }
+        let status = (resp as? HTTPURLResponse)?.statusCode
+        if back, status == 404 { confirmedMissing.insert(key) }
+        guard status == 200, !d.isEmpty else { return nil }
         try? d.write(to: file, options: .atomic)   // torn write 방지 — 크래시/강제종료 시 손상 캐시가 남지 않게
         remember(key, d)
         return d
+    }
+
+    /// True once the server answered 404 for this sprite in this session.
+    func isConfirmedMissing(speciesID: Int, animated: Bool, shiny: Bool, form: PokemonForm?, back: Bool) -> Bool {
+        confirmedMissing.contains(Self.cacheKey(speciesID: speciesID, animated: animated, shiny: shiny,
+                                                form: form, back: back))
     }
 
     /// 아이템 스프라이트(정적 PNG, 이름 기반). 포켓몬과 같은 메모리/디스크 캐시 사용(키 "item-<name>",
@@ -112,10 +131,12 @@ enum SpriteLoader {
 
     /// 메모리·디스크 캐시에 이미 있으면 동기 반환(네트워크 없음). 없으면 nil.
     /// shiny 캐시 미스는 일반 캐시로 폴백 — 오프라인에서 live mon 이 알 글리프로 보이는 것 방지.
+    /// back 캐시 미스는 앞모습으로 폴백 — 뒷모습이 없어도 화면이 비지 않게.
     static func cachedImage(speciesID: Int, animated: Bool = false, shiny: Bool = false,
-                            directory: URL = cacheDir, form: PokemonForm? = nil) -> NSImage? {
+                            directory: URL = cacheDir, form: PokemonForm? = nil,
+                            back: Bool = false) -> NSImage? {
         let ext = animated ? "gif" : "png"
-        let key = SpriteStore.cacheKey(speciesID: speciesID, animated: animated, shiny: shiny, form: form)
+        let key = SpriteStore.cacheKey(speciesID: speciesID, animated: animated, shiny: shiny, form: form, back: back)
         let f = directory.appendingPathComponent("\(key).\(ext)")
         let imageKey = f.path as NSString
         if let img = imageCache.object(forKey: imageKey) { return img }
@@ -123,10 +144,14 @@ enum SpriteLoader {
             imageCache.setObject(img, forKey: imageKey)
             return img
         }
-        guard shiny else { return nil }
         // 폴백은 일반색 키에만 저장한다 — 나중에 받은 이로치 이미지를 가리지 않게.
-        return cachedImage(speciesID: speciesID, animated: animated, shiny: false,
-                           directory: directory, form: form)
+        if shiny, let plain = cachedImage(speciesID: speciesID, animated: animated, shiny: false,
+                                          directory: directory, form: form, back: back) {
+            return plain
+        }
+        guard back else { return nil }
+        return cachedImage(speciesID: speciesID, animated: animated, shiny: shiny,
+                           directory: directory, form: form, back: false)
     }
 
     private final class AnimationFrames {
@@ -141,9 +166,10 @@ enum SpriteLoader {
     }()
 
     /// First render and playback share the exact GIF pixels, including its canvas and delays.
-    static func cachedFrames(speciesID: Int, shiny: Bool, directory: URL = cacheDir, form: PokemonForm? = nil)
-        -> [(image: NSImage, delay: TimeInterval)] {
-        let key = SpriteStore.cacheKey(speciesID: speciesID, animated: true, shiny: shiny, form: form)
+    /// A missing back GIF returns [] — callers keep the front fallback until it loads.
+    static func cachedFrames(speciesID: Int, shiny: Bool, directory: URL = cacheDir, form: PokemonForm? = nil,
+                             back: Bool = false) -> [(image: NSImage, delay: TimeInterval)] {
+        let key = SpriteStore.cacheKey(speciesID: speciesID, animated: true, shiny: shiny, form: form, back: back)
         let file = directory.appendingPathComponent("\(key).gif")
         if let cached = animationCache.object(forKey: file.path as NSString) { return cached.frames }
         guard let data = try? Data(contentsOf: file) else { return [] }
@@ -156,20 +182,33 @@ enum SpriteLoader {
         return frames
     }
 
+    /// With `back`, the back GIF is tried first (shiny, then plain) and the front GIF is the fallback.
     static func animationFrames(speciesID: Int, shiny: Bool, store: SpriteStore = .shared,
-                                form: PokemonForm? = nil) async
+                                form: PokemonForm? = nil, back: Bool = false) async
         -> [(image: NSImage, delay: TimeInterval)] {
-        for variant in shiny ? [true, false] : [false] {
-            guard !Task.isCancelled else { return [] }
-            let cached = cachedFrames(speciesID: speciesID, shiny: variant,
-                                      directory: store.directory, form: form)
-            if !cached.isEmpty { return cached }
-            guard let data = await store.data(speciesID: speciesID, animated: true,
-                                             shiny: variant, form: form) else { continue }
-            let key = SpriteStore.cacheKey(speciesID: speciesID, animated: true,
-                                            shiny: variant, form: form)
-            let frames = rememberFrames(data, file: store.directory.appendingPathComponent("\(key).gif"))
-            if !frames.isEmpty { return frames }
+        var backFailedTransiently = false
+        for facing in back ? [true, false] : [false] {
+            // A transient back failure returns [] so the caller's retry loop tries the back GIF again,
+            // rather than settling on the front GIF. Only a 404 (no such back sprite) falls through.
+            if !facing, backFailedTransiently { return [] }
+            for variant in shiny ? [true, false] : [false] {
+                guard !Task.isCancelled else { return [] }
+                let cached = cachedFrames(speciesID: speciesID, shiny: variant,
+                                          directory: store.directory, form: form, back: facing)
+                if !cached.isEmpty { return cached }
+                guard let data = await store.data(speciesID: speciesID, animated: true,
+                                                 shiny: variant, form: form, back: facing) else {
+                    if facing, !(await store.isConfirmedMissing(speciesID: speciesID, animated: true,
+                                                                shiny: variant, form: form, back: true)) {
+                        backFailedTransiently = true
+                    }
+                    continue
+                }
+                let key = SpriteStore.cacheKey(speciesID: speciesID, animated: true,
+                                                shiny: variant, form: form, back: facing)
+                let frames = rememberFrames(data, file: store.directory.appendingPathComponent("\(key).gif"))
+                if !frames.isEmpty { return frames }
+            }
         }
         return []
     }
@@ -178,6 +217,7 @@ enum SpriteLoader {
     /// The caller owns this await: cancelling its view/load task also cancels requests and backoff.
     static func recoveringAnimationFrames(
         speciesID: Int, shiny: Bool, store: SpriteStore = .shared, form: PokemonForm? = nil,
+        back: Bool = false,
         waitBeforeRetry: (Duration) async throws -> Void = { try await Task.sleep(for: $0) },
         onUnavailable: () async -> Void
     ) async -> [(image: NSImage, delay: TimeInterval)] {
@@ -191,7 +231,7 @@ enum SpriteLoader {
         var showedFallback = false
         while !Task.isCancelled {
             let frames = await animationFrames(speciesID: speciesID, shiny: shiny, store: store,
-                                               form: form)
+                                               form: form, back: back)
             guard !Task.isCancelled else { return [] }
             if frames.count > 1 { return frames }
             if !showedFallback {
@@ -223,24 +263,29 @@ enum SpriteLoader {
 
     /// 정적 스프라이트. animated=true 면 Gen-V 움직이는 스프라이트(없으면 정적으로 폴백).
     /// shiny=true 는 색이 다른 스프라이트 — 미제공 종이면 일반으로 폴백.
+    /// back=true 는 뒷모습을 먼저 시도하고, 없으면 앞모습으로 폴백한다.
     static func image(speciesID: Int, animated: Bool = false, shiny: Bool = false,
-                      store: SpriteStore = .shared, form: PokemonForm? = nil) async -> NSImage? {
+                      store: SpriteStore = .shared, form: PokemonForm? = nil, back: Bool = false) async -> NSImage? {
         for moving in animated ? [true, false] : [false] {
-            let key = SpriteStore.cacheKey(speciesID: speciesID, animated: moving, shiny: shiny, form: form)
+            let key = SpriteStore.cacheKey(speciesID: speciesID, animated: moving, shiny: shiny, form: form, back: back)
             let ext = moving ? "gif" : "png"
             let imageKey = store.directory.appendingPathComponent("\(key).\(ext)").path as NSString
             if let img = imageCache.object(forKey: imageKey) { return img }
             guard let d = await store.data(speciesID: speciesID, animated: moving,
-                                          shiny: shiny, form: form) else { continue }
+                                          shiny: shiny, form: form, back: back) else { continue }
             // await 중 같은 종의 다른 행이 로드를 끝냈으면 그 객체를 재사용한다.
             if let img = imageCache.object(forKey: imageKey) { return img }
             guard let img = NSImage(data: d) else { continue }
             imageCache.setObject(img, forKey: imageKey)
             return img
         }
-        // shiny 미제공 → 일반 폴백
-        guard shiny else { return nil }
-        return await image(speciesID: speciesID, animated: animated, shiny: false, store: store, form: form)
+        // shiny 미제공 → 일반 폴백, 그다음 back 미제공 → 앞모습 폴백
+        if shiny, let plain = await image(speciesID: speciesID, animated: animated, shiny: false,
+                                          store: store, form: form, back: back) {
+            return plain
+        }
+        guard back else { return nil }
+        return await image(speciesID: speciesID, animated: animated, shiny: shiny, store: store, form: form)
     }
 
     /// 아이템 스프라이트 — 메모리·디스크 캐시 동기 조회(없으면 nil). 아이콘 즉시 표시용.
@@ -327,5 +372,75 @@ enum SpriteFit {
         }
         let scale = min(width / pixelSize.width, height / pixelSize.height)
         return CGSize(width: pixelSize.width * scale, height: pixelSize.height * scale)
+    }
+}
+
+/// Where a sprite's visible top sits inside its square box, so overlays can hug the Pokémon
+/// instead of the (often emptier) box. Most Gen-V canvases do not fill the box.
+enum SpriteVisibleTop {
+    private static let alphaThreshold: UInt8 = 16
+    /// The bubble's tail points at the horizontal center, so only this middle band of the image
+    /// decides the anchor. Raised arms, ears and tails at the sides must not.
+    private static let centralBand: ClosedRange<Double> = 0.35...0.65
+    /// Opaque-row scan results, per decoded image. Frames and the egg are decoded once, then reused.
+    nonisolated(unsafe) private static let cache = NSCache<NSImage, NSNumber>()
+
+    /// Distance (pt) from the box top to the first visible row of an image that is aspect-fit
+    /// and centred in a `box`×`box` slot. `opaqueTopFraction` is the share of the image height
+    /// above its first opaque row (0 = the sprite touches the canvas top).
+    static func inset(box: CGFloat, imageSize: CGSize, opaqueTopFraction: CGFloat) -> CGFloat {
+        let fit = SpriteFit.size(for: imageSize, box: box)
+        return (box - fit.height) / 2 + min(max(opaqueTopFraction, 0), 1) * fit.height
+    }
+
+    /// Which top to anchor to across an animation: the median frame. The minimum would follow the few
+    /// frames that jump or stretch to the canvas top (Rotom-Heat: min 0, typical 0.3), dragging the
+    /// bubble far above the sprite. The sprite may still rise into the bubble on frames above the
+    /// median; the bubble is drawn over it.
+    static func anchorFraction(of frameFractions: [CGFloat]) -> CGFloat {
+        guard !frameFractions.isEmpty else { return 0 }
+        return frameFractions.sorted()[frameFractions.count / 2]
+    }
+
+    /// Y of a bubble's top edge, measured from the box top, so its tail tip lands `overlap` pt
+    /// below the sprite's visible top. Rounded to whole points: a pixel-art bubble drawn at a
+    /// fractional offset leaves seams and blurred edges.
+    static func bubbleTopOffset(visibleTop: CGFloat, bubbleHeight: CGFloat, overlap: CGFloat) -> CGFloat {
+        (visibleTop + overlap - bubbleHeight).rounded()
+    }
+
+    /// Share of the image height above the first non-transparent row of the central band
+    /// (the whole width when the band is empty); 0 when the image cannot be read.
+    static func opaqueTopFraction(of image: NSImage) -> CGFloat {
+        if let cached = cache.object(forKey: image) { return CGFloat(cached.doubleValue) }
+        let fraction = scanOpaqueTopFraction(of: image)
+        cache.setObject(NSNumber(value: Double(fraction)), forKey: image)
+        return fraction
+    }
+
+    private static func scanOpaqueTopFraction(of image: NSImage) -> CGFloat {
+        var rect = CGRect(origin: .zero, size: image.size)
+        guard let cg = image.cgImage(forProposedRect: &rect, context: nil, hints: nil),
+              cg.width > 0, cg.height > 0,
+              let context = CGContext(data: nil, width: cg.width, height: cg.height, bitsPerComponent: 8,
+                                      bytesPerRow: cg.width * 4, space: CGColorSpaceCreateDeviceRGB(),
+                                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue),
+              let data = context.data
+        else { return 0 }
+        context.draw(cg, in: CGRect(x: 0, y: 0, width: cg.width, height: cg.height))
+        let pixels = data.bindMemory(to: UInt8.self, capacity: cg.width * cg.height * 4)
+        let bandStart = Int(Double(cg.width) * centralBand.lowerBound)
+        let bandEnd = max(bandStart + 1, Int(Double(cg.width) * centralBand.upperBound))
+        // Memory row 0 is the top row of the drawn image.
+        func firstOpaqueRow(columns: Range<Int>) -> Int? {
+            for row in 0..<cg.height {
+                for column in columns where pixels[(row * cg.width + column) * 4 + 3] > alphaThreshold {
+                    return row
+                }
+            }
+            return nil
+        }
+        let row = firstOpaqueRow(columns: bandStart..<min(bandEnd, cg.width)) ?? firstOpaqueRow(columns: 0..<cg.width)
+        return row.map { CGFloat($0) / CGFloat(cg.height) } ?? 0
     }
 }
