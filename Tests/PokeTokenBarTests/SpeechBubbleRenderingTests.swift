@@ -30,6 +30,7 @@ final class SpeechBubbleRenderingTests: XCTestCase {
                 .agentWaiting(label: String(repeating: "W", count: 23) + "…", message: nil, others: 7), l: l)),
             ("limit-warning", C.bubbleContent(.limit(warning), l: l)),
             ("limit-critical", C.bubbleContent(.limit(critical), l: l)),
+            ("hook-offer", C.bubbleContent(.hookOffer(agentName: "Claude Code"), l: l)),
         ]
     }
 

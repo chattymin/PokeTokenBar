@@ -246,7 +246,8 @@ final class FloatingPetAgentWiringTests: XCTestCase {
     }
 
     private func makeFixture(petEnabled: Bool = true, hatched: Bool = true,
-                             onOpenPopover: (() -> Void)? = nil) throws -> Fixture {
+                             onOpenPopover: (() -> Void)? = nil,
+                             confirmHookOffer: (@MainActor (AgentHookIntegration) -> Void)? = nil) throws -> Fixture {
         // Motion pinned on: the bob must not depend on this Mac's Low Power or Reduce Motion.
         let suite = "FloatingPetAgentWiringTests-\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
@@ -260,8 +261,10 @@ final class FloatingPetAgentWiringTests: XCTestCase {
         }
         let companion = CompanionStore(fileURL: file, defaults: defaults)
         let controller = FloatingPetController(store: store, companion: companion, defaults: defaults,
-                                               onOpenPopover: onOpenPopover, motionOverride: true)
+                                               onOpenPopover: onOpenPopover, motionOverride: true,
+                                               confirmHookOffer: confirmHookOffer ?? { _ in XCTFail("unexpected confirmation") })
         controller.setDisplayAwake(false)
+        controller.showsHookOffersWhileAsleep = true
         store.floatingPetEnabled = petEnabled
         return Fixture(controller: controller, store: store, companion: companion, defaults: defaults, cleanUp: {
             defaults.removePersistentDomain(forName: suite)
@@ -489,5 +492,104 @@ final class FloatingPetAgentWiringTests: XCTestCase {
         XCTAssertEqual(fixture.controller.tracker.summary.working, true)
         XCTAssertTrue(fixture.controller.isBobbing)
         XCTAssertEqual(opened, 1)
+    }
+
+    // MARK: Session logs and the hook offer
+
+    private func fakeHooks(status: AgentHookStatus = .notInstalled) -> AgentLogSource {
+        AgentLogSource(id: "fake", roots: { [] }, accepts: { _ in true }, interpret: { _ in nil },
+                       hooks: AgentHookIntegration(agentName: "Fake Agent", settingsDescription: { "~/fake.json" },
+                                                   status: { status }, install: {}, uninstall: {}))
+    }
+
+    private func read(_ activity: AgentActivity, label: String = "web", hooksInstalled: Bool = false,
+                      source: AgentLogSource, to controller: FloatingPetController) {
+        controller.handleAgentReading(AgentLogReading(activity: activity, label: label, lineID: UUID().uuidString),
+                                      source: source, hooksInstalled: hooksInstalled)
+    }
+
+    func testLogReadingsDriveThePetLikeURLs() throws {
+        let fixture = try makeFixture()
+        defer { fixture.cleanUp() }
+        let source = fakeHooks()
+        read(.working, source: source, to: fixture.controller)
+        XCTAssertTrue(fixture.controller.isBobbing)
+        read(.idle, source: source, to: fixture.controller)
+        XCTAssertEqual(fixture.controller.tracker.activity, .idle, "an Esc interrupt stops the bob at once")
+    }
+
+    /// After the first done, once its bubble is over, the pet offers the hooks; a click confirms.
+    func testTheFirstDoneLeadsToOneOfferAndAClickAsks() throws {
+        var asked: [String] = []
+        var opened = 0
+        let fixture = try makeFixture(onOpenPopover: { opened += 1 }, confirmHookOffer: { asked.append($0.agentName) })
+        defer { fixture.cleanUp() }
+        let source = fakeHooks()
+
+        read(.done(message: nil), source: source, to: fixture.controller)
+        XCTAssertEqual(fixture.controller.currentBubble, .agentDone(label: "web", message: nil), "done first")
+        let deadline = try XCTUnwrap(fixture.controller.tracker.deadline)
+        fixture.controller.expireAgentActivity(now: deadline)
+        XCTAssertEqual(fixture.controller.currentBubble, .hookOffer(agentName: "Fake Agent"))
+        XCTAssertEqual(fixture.defaults.integer(forKey: FloatingPetController.hookOfferCountKey), 1)
+
+        fixture.controller.petClicked()
+        XCTAssertEqual(asked, ["Fake Agent"])
+        XCTAssertEqual(opened, 0, "the click answers the offer instead of opening the popover")
+        XCTAssertNil(fixture.controller.currentBubble)
+
+        // Once per launch.
+        read(.done(message: nil), source: source, to: fixture.controller)
+        fixture.controller.expireAgentActivity(now: try XCTUnwrap(fixture.controller.tracker.deadline))
+        XCTAssertNil(fixture.controller.currentBubble)
+    }
+
+    func testAgentSpeechOutranksTheOffer() throws {
+        let fixture = try makeFixture()
+        defer { fixture.cleanUp() }
+        let source = fakeHooks()
+        read(.done(message: nil), source: source, to: fixture.controller)
+        fixture.controller.expireAgentActivity(now: try XCTUnwrap(fixture.controller.tracker.deadline))
+        XCTAssertTrue(fixture.controller.isOfferingHooks)
+        try send("waiting", label: "api", to: fixture.controller)
+        XCTAssertEqual(fixture.controller.currentBubble, .agentWaiting(label: "api", message: nil, others: 0))
+        fixture.controller.petClicked()   // answers the question, not the offer
+        XCTAssertEqual(fixture.controller.currentBubble, .hookOffer(agentName: "Fake Agent"))
+    }
+
+    func testNoOfferWithHooksAfterNeverOrAfterThreeTimes() {
+        typealias C = FloatingPetController
+        let done = AgentActivity.done(message: nil)
+        XCTAssertTrue(C.shouldOfferHooks(activity: done, hooksInstalled: false, declined: false, shownCount: 0, offeredThisLaunch: false))
+        XCTAssertFalse(C.shouldOfferHooks(activity: .working, hooksInstalled: false, declined: false, shownCount: 0, offeredThisLaunch: false))
+        XCTAssertFalse(C.shouldOfferHooks(activity: done, hooksInstalled: true, declined: false, shownCount: 0, offeredThisLaunch: false))
+        XCTAssertFalse(C.shouldOfferHooks(activity: done, hooksInstalled: false, declined: true, shownCount: 0, offeredThisLaunch: false))
+        XCTAssertFalse(C.shouldOfferHooks(activity: done, hooksInstalled: false, declined: false,
+                                          shownCount: C.maxHookOffers, offeredThisLaunch: false))
+        XCTAssertFalse(C.shouldOfferHooks(activity: done, hooksInstalled: false, declined: false, shownCount: 0, offeredThisLaunch: true))
+    }
+
+    func testTurningTheSettingOffDropsTheOffer() async throws {
+        let fixture = try makeFixture()
+        defer { fixture.cleanUp() }
+        try? await Task.sleep(for: .milliseconds(50))
+        read(.done(message: nil), source: fakeHooks(), to: fixture.controller)
+        fixture.controller.expireAgentActivity(now: try XCTUnwrap(fixture.controller.tracker.deadline))
+        XCTAssertTrue(fixture.controller.isOfferingHooks)
+        fixture.store.floatingPetAgentActivity = false
+        await waitUntil { !fixture.controller.isOfferingHooks }
+        XCTAssertFalse(fixture.controller.isOfferingHooks)
+    }
+
+    /// The offer copy fits the dialogue box in every language.
+    func testOfferBubbleFits() {
+        typealias C = FloatingPetController
+        for lang in AppLanguage.allCases {
+            let content = C.bubbleContent(.hookOffer(agentName: "Claude Code"), l: L(lang))
+            XCTAssertEqual(content.body, L(lang).agentHookOfferBody, "\(lang.rawValue) offer was cut")
+            let layout = C.measureSpeechBubbleLayout(title: content.title, body: content.body)
+            XCTAssertFalse(layout.wouldTruncate, lang.rawValue)
+            XCTAssertLessThanOrEqual(layout.size.height + C.bubbleSpacing, C.bubbleHeadroom, lang.rawValue)
+        }
     }
 }

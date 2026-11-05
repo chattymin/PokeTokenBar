@@ -110,7 +110,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         floatingPet = FloatingPetController(
             store: store, companion: companion,
             onOpenPopover: { [weak self] in self?.openPopover() },
-            onHide: { [weak self] in self?.store.floatingPetEnabled = false }
+            onHide: { [weak self] in self?.store.floatingPetEnabled = false },
+            agentLogSources: AgentLogSource.installed
         )   // 데스크톱 플로팅 펫(옵트인)
         Task { await updater.check() }                    // 기동 시 1회 업데이트 확인
 

@@ -44,6 +44,12 @@ struct AgentActivityEvent: Equatable, Sendable {
         }
     }
 
+    /// An event read from an agent's own session log instead of a URL. The label is cleaned the same way.
+    init(activity: AgentActivity, label: String?) {
+        self.activity = activity
+        self.label = Self.sanitizedLabel(label)
+    }
+
     static func sanitizedMessage(_ raw: String?) -> String? { sanitized(raw, maxLength: maxMessageLength) }
     static func sanitizedLabel(_ raw: String?) -> String? { sanitized(raw, maxLength: maxLabelLength) }
 
@@ -87,6 +93,9 @@ struct AgentActivitySummary: Equatable, Sendable {
     var waiting: Note?
     var otherWaitingCount = 0
     var working = false
+    /// Agent whose hooks the pet offers to add (shown below every other agent bubble). Not tracker
+    /// state: the pet controller sets it.
+    var hookOffer: String?
 }
 
 /// Pure state machine behind the floating pet's agent reactions, one entry per label.

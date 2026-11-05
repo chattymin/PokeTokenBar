@@ -2,6 +2,11 @@ import AppKit
 import QuartzCore
 import SwiftUI
 
+extension Notification.Name {
+    /// The app added or removed an agent's hooks.
+    static let agentHooksDidChange = Notification.Name("PokeTokenBar.agentHooksDidChange")
+}
+
 /// 데스크톱 위에 떠 있는 컴패니언 포켓몬 오버레이(옵트인, 설정 → 플로팅 펫).
 /// - 드래그: 커스텀 `mouseDragged` (클릭과 충돌하지 않음).
 /// - 클릭 → 알 기도 / 포켓몬 팝오버, 우클릭 → 메뉴, 호버 → 오늘 사용량 콜아웃.
@@ -28,6 +33,17 @@ final class FloatingPetController: NSObject, NSWindowDelegate {
     private var awayPetOrigin: NSPoint?
     /// Bumped on every run/return animation so a stale completion handler does nothing.
     private var runGeneration = 0
+    /// Agents whose session logs drive the pet with no setup. Empty in tests: no file watching.
+    private let agentLogSources: [AgentLogSource]
+    private var agentLogWatcher: AgentLogWatcher?
+    /// Hooks the pet is offering to add right now, shown as the lowest-priority bubble.
+    private var hookOffer: AgentHookIntegration?
+    /// Offer waiting for the `done` bubble that prompted it to finish.
+    private var pendingHookOffer: AgentHookIntegration?
+    private var hookOfferExpiry: Task<Void, Never>?
+    private var offeredHooksThisLaunch = false
+    private let confirmHookOffer: @MainActor (AgentHookIntegration) -> Void
+    private var hooksObserver: NSObjectProtocol?
 
     private static let originXKey = "floatingPetOriginX"
     private static let originYKey = "floatingPetOriginY"
@@ -130,6 +146,8 @@ final class FloatingPetController: NSObject, NSWindowDelegate {
         case limit(UsageStore.LimitAlert)
         case agentWaiting(label: String?, message: String?, others: Int)
         case agentDone(label: String?, message: String?)
+        /// The pet offers to add an agent's hooks; a click asks for confirmation.
+        case hookOffer(agentName: String)
     }
 
     /// A limit alert outranks agents; among agents a fresh `done` outranks waiting.
@@ -139,6 +157,7 @@ final class FloatingPetController: NSObject, NSWindowDelegate {
         if let waiting = agent.waiting {
             return .agentWaiting(label: waiting.label, message: waiting.message, others: agent.otherWaitingCount)
         }
+        if let offer = agent.hookOffer { return .hookOffer(agentName: offer) }
         return nil
     }
 
@@ -161,6 +180,8 @@ final class FloatingPetController: NSObject, NSWindowDelegate {
         case .agentDone(let label, let message):
             let title = agentTitle(label: label, unlabeled: l.agentDoneTitle, status: l.agentDoneStatus, count: nil)
             return agentContent(title: title, body: message ?? l.agentDoneDefaultBody)
+        case .hookOffer(let agentName):
+            return agentContent(title: agentName, body: l.agentHookOfferBody)
         }
     }
 
@@ -337,12 +358,18 @@ final class FloatingPetController: NSObject, NSWindowDelegate {
     init(store: UsageStore, companion: CompanionStore, defaults: UserDefaults = .standard,
          clock: @escaping () -> Date = Date.init,
          onOpenPopover: (() -> Void)? = nil, onHide: (() -> Void)? = nil,
-         motionOverride: Bool? = nil) {
+         motionOverride: Bool? = nil,
+         agentLogSources: [AgentLogSource] = [],
+         confirmHookOffer: (@MainActor (AgentHookIntegration) -> Void)? = nil) {
         self.clock = clock
         self.store = store
         self.companion = companion
         self.defaults = defaults
         self.motionOverride = motionOverride
+        self.agentLogSources = agentLogSources
+        self.confirmHookOffer = confirmHookOffer ?? { [companion] in
+            FloatingPetController.presentHookConfirmation($0, defaults: defaults, language: companion.language)
+        }
         self.onOpenPopover = onOpenPopover
         self.onHide = onHide
         super.init()
@@ -361,6 +388,10 @@ final class FloatingPetController: NSObject, NSWindowDelegate {
 
     func setDisplayAwake(_ awake: Bool) {
         displayAwake = awake
+        if awake, let pending = pendingHookOffer, tracker.summary.done == nil {
+            presentHookOffer(pending)
+            agentModel.summary = agentSummary
+        }
         sync()
     }
 
@@ -427,7 +458,8 @@ final class FloatingPetController: NSObject, NSWindowDelegate {
     }
 
     private func agentDidChange() {
-        let summary = tracker.summary
+        if tracker.summary.done == nil, let pending = pendingHookOffer { presentHookOffer(pending) }
+        let summary = agentSummary
         agentModel.summary = summary
         agentModel.bobs = Self.shouldBob(working: summary.working, motionAllowed: motionAllowed)
         scheduleAgentExpiry()
@@ -469,12 +501,128 @@ final class FloatingPetController: NSObject, NSWindowDelegate {
 
     private func resetAgent() {
         tracker.reset()
+        hookOffer = nil
+        pendingHookOffer = nil
+        hookOfferExpiry?.cancel()
         agentTimer?.invalidate()
         agentTimer = nil
         agentModel.summary = AgentActivitySummary()
         agentModel.bobs = false
         runPhase = .home
         runGeneration += 1
+    }
+
+    // MARK: Agent session logs
+
+    /// Session-log readings arrive here (see `AgentLogWatcher`). The first `done` of a launch from
+    /// an agent without hooks queues an offer to add them, shown once that `done` bubble is over.
+    func handleAgentReading(_ reading: AgentLogReading, source: AgentLogSource, hooksInstalled: Bool) {
+        guard agentEnabled else { return }
+        if let hooks = source.hooks, hookOffer == nil, pendingHookOffer == nil,
+           Self.shouldOfferHooks(activity: reading.activity, hooksInstalled: hooksInstalled,
+                                 declined: defaults.bool(forKey: Self.hookOfferDeclinedKey),
+                                 shownCount: defaults.integer(forKey: Self.hookOfferCountKey),
+                                 offeredThisLaunch: offeredHooksThisLaunch) {
+            pendingHookOffer = hooks
+        }
+        handleAgentEvent(AgentActivityEvent(activity: reading.activity, label: reading.label))
+    }
+
+    static let hookOfferCountKey = "agentHookOfferCount"
+    static let hookOfferDeclinedKey = "agentHookOfferDeclined"
+    /// Asked at most this many times (once per launch) unless the person says never.
+    static let maxHookOffers = 3
+    static let hookOfferDuration: Duration = .seconds(30)
+
+    /// Offer right after a turn ends: the person just looked at the pet, and the agent is quiet.
+    static func shouldOfferHooks(activity: AgentActivity, hooksInstalled: Bool, declined: Bool,
+                                 shownCount: Int, offeredThisLaunch: Bool) -> Bool {
+        guard case .done = activity else { return false }
+        return !hooksInstalled && !declined && shownCount < maxHookOffers && !offeredThisLaunch
+    }
+
+    var isOfferingHooks: Bool { hookOffer != nil }
+
+    /// Tests keep the display "asleep" so no panel goes on screen; this lets them see the offer.
+    var showsHookOffersWhileAsleep = false
+
+    /// The bubble the pet shows now, offer included.
+    var currentBubble: Bubble? { Self.bubble(limitAlert: store.currentBubbleAlert, agent: agentSummary) }
+
+    private func presentHookOffer(_ hooks: AgentHookIntegration) {
+        // Nobody would see it: it stays pending until the display wakes.
+        guard displayAwake || showsHookOffersWhileAsleep else { return }
+        pendingHookOffer = nil
+        hookOffer = hooks
+        offeredHooksThisLaunch = true
+        defaults.set(defaults.integer(forKey: Self.hookOfferCountKey) + 1, forKey: Self.hookOfferCountKey)
+        hookOfferExpiry?.cancel()
+        hookOfferExpiry = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: Self.hookOfferDuration)
+            guard !Task.isCancelled, let self, self.hookOffer != nil else { return }
+            self.dismissHookOffer()
+        }
+    }
+
+    private func dismissHookOffer() {
+        hookOffer = nil
+        hookOfferExpiry?.cancel()
+        hookOfferExpiry = nil
+        agentDidChange()
+    }
+
+    /// Asks before touching another app's settings. Runs the edit off the main thread.
+    private static func presentHookConfirmation(_ hooks: AgentHookIntegration, defaults: UserDefaults,
+                                                language: AppLanguage) {
+        let l = L(language)
+        let alert = NSAlert()
+        alert.messageText = l.agentHookConfirmTitle(hooks.agentName)
+        alert.informativeText = l.agentHookConfirmBody(hooks.agentName, hooks.settingsDescription())
+        alert.addButton(withTitle: l.agentHookConnect)
+        alert.addButton(withTitle: l.agentHookLater)
+        alert.addButton(withTitle: l.agentHookNever)
+        NSApp.activate(ignoringOtherApps: true)
+        switch alert.runModal() {
+        case .alertFirstButtonReturn:
+            Task.detached {
+                var failure: String?
+                do { try hooks.install() } catch {
+                    failure = (error as? ClaudeAgentHooks.Failure) == .unreadableSettings
+                        ? l.agentHookFailed : l.agentHookWriteFailed
+                }
+                await MainActor.run { [failure] in
+                    NotificationCenter.default.post(name: .agentHooksDidChange, object: nil)
+                    guard let failure else { return }
+                    let error = NSAlert()
+                    error.messageText = failure
+                    error.runModal()
+                }
+            }
+        case .alertThirdButtonReturn:
+            defaults.set(true, forKey: hookOfferDeclinedKey)
+        default:
+            break
+        }
+    }
+
+    private func updateAgentLogWatcher() {
+        let wanted = agentEnabled && !agentLogSources.isEmpty
+        if wanted, agentLogWatcher == nil {
+            let watcher = AgentLogWatcher(sources: agentLogSources) { [weak self] reading, source, installed in
+                Task { @MainActor in self?.handleAgentReading(reading, source: source, hooksInstalled: installed) }
+            }
+            watcher.start()
+            agentLogWatcher = watcher
+            hooksObserver = NotificationCenter.default.addObserver(
+                forName: .agentHooksDidChange, object: nil, queue: .main) { [weak watcher] _ in
+                watcher?.invalidateHookStatus()
+            }
+        } else if !wanted, let watcher = agentLogWatcher {
+            watcher.stop()
+            agentLogWatcher = nil
+            if let hooksObserver { NotificationCenter.default.removeObserver(hooksObserver) }
+            hooksObserver = nil
+        }
     }
 
     private func runToCursor(_ p: NSPanel) {
@@ -533,6 +681,11 @@ final class FloatingPetController: NSObject, NSWindowDelegate {
 
     /// A plain click answers waiting/done agents, then prays over an egg or opens a hatched pet.
     func petClicked() {
+        if let offer = hookOffer, currentBubble == .hookOffer(agentName: offer.agentName) {
+            dismissHookOffer()
+            confirmHookOffer(offer)
+            return
+        }
         if tracker.dismissBubble() { agentDidChange() }
         clickRouter.handle(subjectIsEgg: companion.representativeSubject.speciesID == nil)
     }
@@ -631,14 +784,22 @@ final class FloatingPetController: NSObject, NSWindowDelegate {
     }
 
     private func sync() {
-        if !agentEnabled, !tracker.agents.isEmpty || runPhase != .home { resetAgent() }
+        if !agentEnabled, !tracker.agents.isEmpty || runPhase != .home || hookOffer != nil { resetAgent() }
+        updateAgentLogWatcher()
         guard store.floatingPetEnabled, displayAwake else { hide(); return }
         show()
     }
 
     private var showingBubble: Bool {
         Self.isShowingBubble(alertActive: store.currentBubbleAlert != nil, heartsShowing: hearts.isShowing,
-                             agent: tracker.summary)
+                             agent: agentSummary)
+    }
+
+    /// The tracker's summary plus the hook offer, which is the controller's own state.
+    private var agentSummary: AgentActivitySummary {
+        var summary = tracker.summary
+        summary.hookOffer = hookOffer?.agentName
+        return summary
     }
 
     /// Build once per animation mode; callbacks share the controller's click and bubble routing.
@@ -682,7 +843,7 @@ final class FloatingPetController: NSObject, NSWindowDelegate {
 
     private func petWasStroked() {
         hearts.isShowing = Self.heartsShowing(afterStrokeWithAlertActive: store.currentBubbleAlert != nil,
-                                             agent: tracker.summary)
+                                             agent: agentSummary)
         guard hearts.isShowing else { return }
         hideHoverCallout()
         sync()
