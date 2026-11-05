@@ -236,7 +236,8 @@ final class DevinUsageTests: XCTestCase, @unchecked Sendable {
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
         let ids = UsageStore(autoRefresh: false, defaults: defaults).registeredProviderIDs
-        XCTAssertEqual(ids.last, "devin")
+        XCTAssertEqual(ids.first(where: { $0 == "devin" }), "devin")
+        XCTAssertEqual(ids.count, 17, "ZCode joins after Devin; bump when the registry grows")
     }
 
     func testReadsCommittedRowsWhileWALWriterRemainsOpen() throws {
