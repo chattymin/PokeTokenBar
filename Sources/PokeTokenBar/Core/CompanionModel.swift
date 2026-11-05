@@ -677,6 +677,10 @@ struct CompanionState: Codable, Sendable {
     var candyWindowEpoch: [String: String] = [:]
     // 사탕 지급 첫 실행 시드 완료 — 업데이트 직후 이미 100%였던 창의 소급 지급 차단.
     var candyFeatureSeeded = false
+    // 세대(지역) 도감 완성 알림을 이미 보낸 배지 키. 재시작마다 다시 알리지 않게 영속.
+    var notifiedDexCompletions: Set<String> = []
+    // 완성 추적 첫 실행 시드 완료 — 기능 출시 전 이미 완성한 세대에 알림 폭주를 막는다(candyFeatureSeeded 패턴).
+    var dexCompletionsSeeded = false
 
     init() {}
 
@@ -717,6 +721,8 @@ struct CompanionState: Codable, Sendable {
         candyGrantTier     = c.lenient([String: Int].self, forKey: .candyGrantTier, default: [:])
         candyWindowEpoch   = c.lenient([String: String].self, forKey: .candyWindowEpoch, default: [:])
         candyFeatureSeeded = c.lenient(Bool.self, forKey: .candyFeatureSeeded, default: false)
+        notifiedDexCompletions = c.lenient(Set<String>.self, forKey: .notifiedDexCompletions, default: [])
+        dexCompletionsSeeded = c.lenient(Bool.self, forKey: .dexCompletionsSeeded, default: false)
     }
 
     /// 졸업 기록 또는 현재 개체가 실제로 도달한 단계에 이 종이 포함되는가.

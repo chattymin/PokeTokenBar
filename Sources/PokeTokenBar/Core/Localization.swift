@@ -49,6 +49,35 @@ struct L {
                                "Diario de este mes", "Par jour ce mois-ci", "Diário deste mês",
                                "Täglich",
                                "По дням") }
+    var dailyTrendPeriod: String { t("일별 추이 기간", "Daily trend period", "日別推移の期間",
+                                     "Período de tendencia diaria", "Période de tendance quotidienne", "Período de tendência diária",
+                                     "Täglicher Trendzeitraum",
+                                     "Период тренда") }
+    var dailyTrend7d: String { t("최근 7일", "Last 7 days", "直近7日",
+                                 "Últimos 7 días", "7 derniers jours", "Últimos 7 dias",
+                                 "Letzte 7 Tage",
+                                 "За 7 дней") }
+    var dailyTrend14d: String { t("최근 14일", "Last 14 days", "直近14日",
+                                  "Últimos 14 días", "14 derniers jours", "Últimos 14 dias",
+                                  "Letzte 14 Tage",
+                                  "За 14 дней") }
+    var dailyTrend21d: String { t("최근 21일", "Last 21 days", "直近21日",
+                                  "Últimos 21 días", "21 derniers jours", "Últimos 21 dias",
+                                  "Letzte 21 Tage",
+                                  "За 21 день") }
+    var dailyTrendMonth: String { t("이번 달", "This month", "今月",
+                                    "Este mes", "Ce mois-ci", "Este mês",
+                                    "Dieser Monat",
+                                    "Этот месяц") }
+
+    func title(for window: DailyTrendWindow) -> String {
+        switch window {
+        case .d7: return dailyTrend7d
+        case .d14: return dailyTrend14d
+        case .d21: return dailyTrend21d
+        case .month: return dailyTrendMonth
+        }
+    }
     /// 추이의 최댓값 라벨 — 막대 높이가 상대값이라 절대 스케일을 한 군데는 적어줘야 한다.
     var peakDay: String { t("최다", "Peak", "最多", "Máx.", "Max.", "Máx.", "Max.", "Макс.") }
 
@@ -1318,6 +1347,103 @@ struct L {
     func notifShinyDittoRevealBody(_ disguise: String) -> String { t("\(disguise)인 줄 알았는데 — 이로치 메타몽이었어요!", "You thought it was \(disguise) — it was a shiny Ditto!", "\(disguise) だと思ってた… 色違いのメタモンでした！", "Pensabas que era \(disguise) — ¡era un Ditto variocolor!", "Tu croyais que c'était \(disguise) — c'était un Métamorph chromatique !", "Você achava que era \(disguise) — era um Ditto shiny!", "Du dachtest, es wäre \(disguise) – dabei war es ein schillerndes Ditto!", "Думали, это \(disguise)? А это шайни-Ditto!") }
     var notifGraduateTitle: String { t("🎓 졸업!", "🎓 Graduated!", "🎓 卒業！", "🎓 ¡Graduado!", "🎓 Diplômé !", "🎓 Formatura!", "🎓 Abschied!", "🎓 Выпуск!") }
     func notifGraduateBody(_ name: String) -> String { t("\(name) — 도감에 보존! 새 알이 도착했어요.", "\(name) — saved to your Pokédex! A new egg has arrived.", "\(name) — 図鑑に保存！新しいタマゴが届きました。", "\(name) — ¡guardado en tu Pokédex! Ha llegado un nuevo huevo.", "\(name) — conservé dans ton Pokédex ! Un nouvel œuf est arrivé.", "\(name) — guardado na sua Pokédex! Chegou um novo ovo.", "\(name) – in deinem Pokédex gespeichert! Ein neues Ei ist da.", "\(name) — запись в Покедексе! Появилось новое яйцо.") }
+
+    // MARK: 세대(지역) 도감 완성 — 지역 이름·진행·완성 알림·배지
+    func regionName(_ region: PokedexRegion) -> String {
+        switch region {
+        case .kanto: return t("관동", "Kanto", "カントー", "Kanto", "Kanto", "Kanto", "Kanto", "Канто")
+        case .johto: return t("성도", "Johto", "ジョウト", "Johto", "Johto", "Johto", "Johto", "Джото")
+        case .hoenn: return t("호연", "Hoenn", "ホウエン", "Hoenn", "Hoenn", "Hoenn", "Hoenn", "Хоэнн")
+        case .sinnoh: return t("신오", "Sinnoh", "シンオウ", "Sinnoh", "Sinnoh", "Sinnoh", "Sinnoh", "Синно")
+        case .unova: return t("하나", "Unova", "イッシュ", "Teselia", "Unys", "Unova", "Einall", "Юнова")
+        }
+    }
+
+    /// Accessible label for a region filter chip, e.g. "Kanto 87/151".
+    func dexRegionProgressLabel(_ region: PokedexRegion, owned: Int, total: Int) -> String {
+        "\(regionName(region)) \(owned)/\(total)"
+    }
+
+    var dexNationalLabel: String {
+        t("전국도감", "National Dex", "全国図鑑", "Pokédex Nacional", "Pokédex national", "Pokédex Nacional", "National-Dex", "Национальный Покедекс")
+    }
+
+    var dexUnownLabel: String {
+        t("안농 도감", "Unown collection", "アンノーン図鑑", "Colección Unown", "Collection Zarbi", "Coleção Unown", "Icognito-Sammlung", "Коллекция Анноун")
+    }
+
+    /// Help/tooltip text for an earned completion medal in the header strip.
+    func dexBadgeLabel(_ badge: DexBadge) -> String {
+        switch badge {
+        case .region(let r):
+            return t("\(regionName(r)) 도감 완성", "\(regionName(r)) Dex complete", "\(regionName(r))図鑑コンプリート",
+                     "Pokédex de \(regionName(r)) completada", "Pokédex de \(regionName(r)) terminé",
+                     "Pokédex de \(regionName(r)) completa", "\(regionName(r))-Dex komplett", "Покедекс \(regionName(r)) завершён")
+        case .regionShiny(let r):
+            return t("\(regionName(r)) 이로치 도감 완성", "Shiny \(regionName(r)) Dex complete", "\(regionName(r)) 色違い図鑑コンプリート",
+                     "Pokédex variocolor de \(regionName(r)) completada", "Pokédex chromatique de \(regionName(r)) terminé",
+                     "Pokédex shiny de \(regionName(r)) completa", "Schillernde \(regionName(r))-Dex komplett", "Шайни-Покедекс \(regionName(r)) завершён")
+        case .unown:
+            return t("안농 도감 완성", "Unown collection complete", "アンノーン図鑑コンプリート", "Colección Unown completada",
+                     "Collection Zarbi terminée", "Coleção Unown completa", "Icognito-Sammlung komplett", "Коллекция Анноун завершена")
+        case .national:
+            return t("전국도감 완성", "National Dex complete", "全国図鑑コンプリート", "Pokédex Nacional completada",
+                     "Pokédex national terminé", "Pokédex Nacional completa", "National-Dex komplett", "Национальный Покедекс завершён")
+        case .nationalShiny:
+            return t("전국 이로치 도감 완성", "Shiny National Dex complete", "色違い全国図鑑コンプリート", "Pokédex Nacional variocolor completada",
+                     "Pokédex national chromatique terminé", "Pokédex Nacional shiny completa", "Schillernde National-Dex komplett", "Шайни Национальный Покедекс завершён")
+        }
+    }
+
+    func notifDexRegionCompleteTitle(_ region: String) -> String {
+        t("🏅 \(region) 도감 완성!", "🏅 \(region) Dex complete!", "🏅 \(region)図鑑コンプリート！", "🏅 ¡Pokédex de \(region) completada!",
+          "🏅 Pokédex de \(region) terminé !", "🏅 Pokédex de \(region) completa!", "🏅 \(region)-Dex komplett!", "🏅 Покедекс \(region) завершён!")
+    }
+    func notifDexRegionCompleteBody(_ region: String) -> String {
+        t("\(region) 지방의 모든 포켓몬을 모았어요!", "You've caught every Pokémon in \(region)!", "\(region)地方のすべてのポケモンを集めました！",
+          "¡Has capturado todos los Pokémon de \(region)!", "Tu as capturé tous les Pokémon de \(region) !",
+          "Você capturou todos os Pokémon de \(region)!", "Du hast alle Pokémon aus \(region) gefangen!", "Вы поймали всех покемонов региона \(region)!")
+    }
+
+    func notifDexRegionShinyCompleteTitle(_ region: String) -> String {
+        t("✨ \(region) 이로치 도감 완성!", "✨ Shiny \(region) Dex complete!", "✨ \(region) 色違い図鑑コンプリート！", "✨ ¡Pokédex variocolor de \(region) completada!",
+          "✨ Pokédex chromatique de \(region) terminé !", "✨ Pokédex shiny de \(region) completa!", "✨ Schillernde \(region)-Dex komplett!", "✨ Шайни-Покедекс \(region) завершён!")
+    }
+    func notifDexRegionShinyCompleteBody(_ region: String) -> String {
+        t("\(region) 지방의 모든 포켓몬을 이로치로 모았어요!", "You've caught a shiny of every Pokémon in \(region)!", "\(region)地方のすべてのポケモンを色違いで集めました！",
+          "¡Has capturado un variocolor de cada Pokémon de \(region)!", "Tu as capturé un chromatique de chaque Pokémon de \(region) !",
+          "Você capturou um shiny de cada Pokémon de \(region)!", "Du hast ein schillerndes Exemplar jedes Pokémon aus \(region)!", "Вы поймали шайни каждого покемона региона \(region)!")
+    }
+
+    var notifDexUnownCompleteTitle: String {
+        t("🔤 안농 도감 완성!", "🔤 Unown collection complete!", "🔤 アンノーン図鑑コンプリート！", "🔤 ¡Colección Unown completada!",
+          "🔤 Collection Zarbi terminée !", "🔤 Coleção Unown completa!", "🔤 Icognito-Sammlung komplett!", "🔤 Коллекция Анноун завершена!")
+    }
+    var notifDexUnownCompleteBody: String {
+        t("28가지 안농 형태를 모두 모았어요!", "You've collected all 28 Unown forms!", "28種類のアンノーンをすべて集めました！",
+          "¡Has reunido las 28 formas de Unown!", "Tu as réuni les 28 formes de Zarbi !",
+          "Você reuniu todas as 28 formas de Unown!", "Du hast alle 28 Icognito-Formen gesammelt!", "Вы собрали все 28 форм Анноуна!")
+    }
+
+    var notifDexNationalCompleteTitle: String {
+        t("🌍 전국도감 완성!", "🌍 National Dex complete!", "🌍 全国図鑑コンプリート！", "🌍 ¡Pokédex Nacional completada!",
+          "🌍 Pokédex national terminé !", "🌍 Pokédex Nacional completa!", "🌍 National-Dex komplett!", "🌍 Национальный Покедекс завершён!")
+    }
+    var notifDexNationalCompleteBody: String {
+        t("1~5세대 모든 포켓몬을 모았어요!", "You've caught every Pokémon from Gen 1–5!", "第1〜5世代のすべてのポケモンを集めました！",
+          "¡Has capturado todos los Pokémon de la 1.ª a la 5.ª generación!", "Tu as capturé tous les Pokémon des générations 1 à 5 !",
+          "Você capturou todos os Pokémon das gerações 1 a 5!", "Du hast alle Pokémon der Generationen 1–5 gefangen!", "Вы поймали всех покемонов 1–5 поколений!")
+    }
+
+    var notifDexNationalShinyCompleteTitle: String {
+        t("✨ 전국 이로치 도감 완성!", "✨ Shiny National Dex complete!", "✨ 色違い全国図鑑コンプリート！", "✨ ¡Pokédex Nacional variocolor completada!",
+          "✨ Pokédex national chromatique terminé !", "✨ Pokédex Nacional shiny completa!", "✨ Schillernde National-Dex komplett!", "✨ Шайни Национальный Покедекс завершён!")
+    }
+    var notifDexNationalShinyCompleteBody: String {
+        t("모든 포켓몬의 이로치를 모았어요!", "You've caught a shiny of every Pokémon!", "すべてのポケモンの色違いを集めました！",
+          "¡Has capturado un variocolor de cada Pokémon!", "Tu as capturé un chromatique de chaque Pokémon !",
+          "Você capturou um shiny de cada Pokémon!", "Du hast ein schillerndes Exemplar jedes Pokémon!", "Вы поймали шайни каждого покемона!")
+    }
 
     // MARK: Claude 한도 토큰 갱신 오류 (친절 안내)
     func limitRefreshHTTPError(_ status: Int) -> String {
