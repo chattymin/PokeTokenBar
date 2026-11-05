@@ -237,7 +237,7 @@ exit 0
 | **Codex** | 오늘 · 주 · 월 | ✅ 5시간 / 주간 |
 | **Gemini CLI** | 오늘 · 주 · 월 | — |
 | **Antigravity** | 오늘 · 5시간 블록 · 주 · 월 | ✅ 5시간 / 주간 |
-| **OpenCode** | 오늘 · 5시간 블록 · 주 · 월 | — |
+| **OpenCode** | 오늘 · 5시간 블록 · 주 · 월 | ✅ 5시간 / 주간 / 월간 (OpenCode Go) |
 | **Hermes Agent** | 오늘 · 5시간 블록 · 주 · 월 | — |
 | **Cursor** | 오늘 · 5시간 블록 · 주 · 월 | — |
 | **Grok Build CLI** | 오늘 · 5시간 블록 · 주 · 월 | — |
@@ -301,6 +301,7 @@ swift test                   # 단위 테스트
 | `~/.hermes/state.db` | Hermes Agent daily/blocks/weekly/monthly | SQLite 읽기 전용; 세션 토큰 합계와 저장된 비용 |
 | `~/Library/Application Support/Cursor/User/globalStorage/state.vscdb` | Cursor daily/blocks/weekly/monthly | SQLite 읽기 전용 폴백(`cursorDiskKV` 버블 엔트리의 `tokenCount`); 로그인 상태면 `cursor.com` 대시보드 API 가 기본 소스(개인정보 항목 참고) |
 | `cursor.com`(대시보드 API) | Cursor daily/blocks/weekly/monthly | 비공식 JSON endpoint(`get-filtered-usage-events`); 세션은 `state.vscdb` 의 `cursorAuth/accessToken` 또는 `CURSOR_SESSION_TOKEN`; 프로바이더가 새로고침될 때마다 다시 가져옴; 네트워크 실패 시 계정별로 분리된 최대 6시간 이내의 디스크 캐시로 대체; `CURSOR_USAGE_API=0` 으로 비활성화 |
+| `opencode.ai`(OpenCode Go 사용량 API) | OpenCode Go 공식 5시간 / 주간 / 월간 사용률 | opencode.ai 콘솔이 쓰는 비공식 JSON 엔드포인트(`/zen/go/v1/usage`); `opencode.db` 의 `credential` 테이블에 저장된 OpenCode Go API 키(없으면 `auth.json`)를 Bearer 로 사용; Go 키가 있을 때만 호출하고, 실패하면 한도만 숨김 |
 | `api2.cursor.sh`(대시보드 한도 API) | Cursor 공식 월간 included usage | Connect RPC `GetCurrentPeriodUsage`; `state.vscdb` 또는 `CURSOR_SESSION_TOKEN` 의 Bearer JWT; usage events 와 같은 비활성화 스위치 |
 | `~/.grok/sessions/**/updates.jsonl` | Grok Build CLI daily/blocks/weekly/monthly | `turn_completed` 레코드(턴 단위 `usage`, 서버 보고 비용); `$GROK_HOME` 설정 시 그 경로; 서브에이전트 세션은 토큰이 부모 턴에 이미 포함돼 제외 |
 | `~/.copilot/session-store.db` | Copilot CLI daily/blocks/weekly/monthly | SQLite 읽기 전용; `assistant_usage_events` 1행 = API 호출 1건; `$COPILOT_HOME` 설정 시 그 경로; `input_tokens` 에 캐시 프롬프트가 이미 포함돼 캐시 read/write 를 빼고 집계; premium request 과금이라 비용은 추정하지 않음 |
@@ -323,7 +324,7 @@ swift test                   # 단위 테스트
 ## 프라이버시 & 권한
 
 - **온디바이스 우선.** 토큰 사용량은 로컬 Claude Code·Codex·Gemini CLI·Antigravity·OpenCode·Hermes Agent·Cursor·Grok CLI·Copilot CLI·Kiro CLI·Pi Agent·omp·omo·Aside·Kimi Code·Devin CLI 데이터에서 직접 읽습니다. 사용량을 업로드하거나 모델 turn을 실행하지 않습니다. Claude 사용량을 계정별로 나누려고 설정 폴더마다 `history.jsonl` 에서 세션 id 와 프롬프트 시각만 읽습니다. 프롬프트 내용은 읽지 않고 Mac 밖으로 보내지도 않습니다.
-- **외부 요청.** 앱은 완전 오프라인이 아닙니다. 13개 호스트에 접속합니다 — `pokeapi.co`·`graphql.pokeapi.co`(종·진화), `raw.githubusercontent.com`(스프라이트), `api.anthropic.com`(Claude 공식 한도), `claude.ai`(설정에서 claude.ai 세션 키를 저장한 경우의 Claude 공식 한도 — 그 키만, 프롬프트·프로젝트 경로 없음), `cursor.com`(로컬에서 Cursor 에 로그인한 경우 Cursor 사용량 요약 — 세션 자격증명만, 프롬프트·프로젝트 경로 없음), `api2.cursor.sh`(Cursor 공식 월간 included usage — Bearer JWT만, IDE 로그인과 동일한 자격증명), `cloudcode-pa.googleapis.com`·`daily-cloudcode-pa.googleapis.com`(Antigravity 공식 한도)와 `oauth2.googleapis.com`(토큰 갱신), `status.claude.com`·`status.openai.com`(장애 배너 — 설정에서 끌 수 있음), `api.github.com`(업데이트 확인). **어느 요청에도 사용량 로그·프롬프트·프로젝트 경로는 담기지 않습니다** — 요청 자체만 나갑니다(Cursor 는 웹 대시보드와 동일하게 본인 사용량 행을 가져오기 위해 세션 쿠키를 보냅니다).
+- **외부 요청.** 앱은 완전 오프라인이 아닙니다. 14개 호스트에 접속합니다 — `pokeapi.co`·`graphql.pokeapi.co`(종·진화), `raw.githubusercontent.com`(스프라이트), `api.anthropic.com`(Claude 공식 한도), `claude.ai`(설정에서 claude.ai 세션 키를 저장한 경우의 Claude 공식 한도 — 그 키만, 프롬프트·프로젝트 경로 없음), `cursor.com`(로컬에서 Cursor 에 로그인한 경우 Cursor 사용량 요약 — 세션 자격증명만, 프롬프트·프로젝트 경로 없음), `api2.cursor.sh`(Cursor 공식 월간 included usage — Bearer JWT만, IDE 로그인과 동일한 자격증명), `opencode.ai`(로컬에 OpenCode Go 키가 연결된 경우의 OpenCode Go 공식 한도 — API 키만), `cloudcode-pa.googleapis.com`·`daily-cloudcode-pa.googleapis.com`(Antigravity 공식 한도)와 `oauth2.googleapis.com`(토큰 갱신), `status.claude.com`·`status.openai.com`(장애 배너 — 설정에서 끌 수 있음), `api.github.com`(업데이트 확인). **어느 요청에도 사용량 로그·프롬프트·프로젝트 경로는 담기지 않습니다** — 요청 자체만 나갑니다(Cursor 는 웹 대시보드와 동일하게 본인 사용량 행을 가져오기 위해 세션 쿠키를 보냅니다).
 - **Keychain(선택).** Claude OAuth 자격증명은 **갱신 버튼을 누를 때만** 읽습니다(설정, 또는 팝오버의 한도 행). 자동 폴링은 Keychain 을 건드리지 않으므로 비밀번호 프롬프트가 뜨지 않고, `~/.claude/.credentials.json` 이 있으면 매 폴마다 다시 읽어 `/login` 으로 계정을 바꿔도 갱신 버튼 없이 따라갑니다. 토큰은 메모리에만 두며 **앱 자체 Keychain 항목은 만들지 않습니다.** 자격증명 파일이 없으면 캐시 토큰이 만료될 때까지(또는 갱신 버튼을 누를 때까지) 한도는 이전 값으로 남습니다. 설정에서 끄면 한도 섹션만 숨겨집니다. Claude 계정이 여러 개면 갱신할 때 다른 설정 폴더의 항목도 폴더마다 한 번씩 읽고, 프롬프트를 거절하면 나머지는 묻지 않습니다.
 - **포켓몬 데이터와 에셋**은 런타임에 PokéAPI에서 받아오며 `~/Library/Application Support/PokeTokenBar/`에만 캐시됩니다. 생성된 개체값(IV·성별·특성·배운 기술 등)은 값이 변하지 않도록 로컬 파트너 세이브에 저장됩니다. 앱 바이너리와 릴리스 아티팩트에는 포켓몬 에셋이 포함되지 않습니다.
 

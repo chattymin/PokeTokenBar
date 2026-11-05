@@ -387,6 +387,7 @@ struct PopoverView: View {
         case "codex": return store.codexLimits?.hasVisibleLimit == true
         case "antigravity": return !store.disableKeychainAccess || store.antigravityHasTokenFile || store.antigravityLimits?.hasVisibleLimit == true || store.antigravityLimitsAuthExpired
         case "cursor": return store.cursorLimits?.hasVisibleLimit == true || store.cursorLimitsAuthExpired
+        case "opencode": return store.openCodeGoLimits?.hasVisibleLimit == true || store.openCodeGoLimitsAuthExpired
         default: return false
         }
     }
@@ -474,6 +475,9 @@ struct PopoverView: View {
             if selectedSnapshot?.providerID == "cursor" {
                 cursorLimitsContent
             }
+            if selectedSnapshot?.providerID == "opencode" {
+                openCodeGoLimitsContent
+            }
         }
     }
 
@@ -518,21 +522,54 @@ struct PopoverView: View {
     }
 
     @ViewBuilder
-    private var cursorAuthExpiredNotice: some View {
+    private var openCodeGoLimitsContent: some View {
+        if store.openCodeGoLimitsAuthExpired {
+            authExpiredNotice(title: l.openCodeGoAuthExpiredTitle, hint: l.openCodeGoAuthExpiredHint)
+        }
+        if let status = store.openCodeGoLimits, status.hasVisibleLimit {
+            if store.openCodeGoLimitsStale {
+                staleBadge(updatedAt: store.openCodeGoLimitsUpdatedAt)
+            }
+            VStack(alignment: .leading, spacing: 8) {
+                openCodeGoLimitRow(name: l.fiveHourSession, window: status.rolling,
+                                   span: LimitWindowSpan.fiveHour, notStartedHint: l.fiveHourNotStarted)
+                openCodeGoLimitRow(name: l.weekly, window: status.weekly, span: LimitWindowSpan.sevenDay)
+                // The monthly window follows the subscription date, not a fixed span: no pace marker.
+                openCodeGoLimitRow(name: l.openCodeGoMonthly, window: status.monthly, span: nil)
+            }
+            .opacity(store.openCodeGoLimitsAuthExpired ? 0.5 : 1)
+        }
+    }
+
+    @ViewBuilder
+    private func openCodeGoLimitRow(name: String, window: OpenCodeGoWindow?, span: TimeInterval?,
+                                    notStartedHint: String? = nil) -> some View {
+        let now = Date()
+        if let window, let utilization = window.utilization(now: now) {
+            quotaRow(name: name, utilization: utilization, reset: window.activeReset(now: now), span: span,
+                     idleHint: window.hasEnded(now: now) ? notStartedHint : nil)
+        }
+    }
+
+    private func authExpiredNotice(title: String, hint: String) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 6) {
                 Image(systemName: "exclamationmark.triangle.fill")
                     .foregroundStyle(.orange)
-                Text(l.cursorAuthExpiredTitle)
+                Text(title)
                     .font(.caption).fontWeight(.medium)
             }
-            Text(l.cursorAuthExpiredHint)
+            Text(hint)
                 .font(.caption2)
                 .foregroundStyle(.secondary)
         }
         .padding(8)
         .background(Color.orange.opacity(0.1))
         .clipShape(RoundedRectangle(cornerRadius: 6))
+    }
+
+    private var cursorAuthExpiredNotice: some View {
+        authExpiredNotice(title: l.cursorAuthExpiredTitle, hint: l.cursorAuthExpiredHint)
     }
 
     @ViewBuilder
