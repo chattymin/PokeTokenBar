@@ -205,3 +205,30 @@ struct LocalKimiCodeProvider: UsageProvider {
         return .local(entries: entries, now: now)
     }
 }
+
+/// Local-log parsing based ZCode provider (the Z.ai coding harness).
+/// Data appears only when `~/.zcode/cli/rollout/model-io-*.jsonl` has request records with usage
+/// (otherwise no snapshot → hidden in the UI). ZCode records no cost and the price table has no
+/// GLM models, so cost shows as unavailable rather than a measured $0.
+struct LocalZCodeProvider: UsageProvider {
+    let id = "zcode"
+    let displayName = "ZCode"
+    let cache: LocalUsageCache
+
+    init(cache: LocalUsageCache = .shared) { self.cache = cache }
+
+    func fetchDaily() async throws -> DailyUsage? {
+        let now = Date()
+        let entries = await cache.zcodeEntries(modifiedSince: Calendar.current.startOfDay(for: now))
+        // One session can switch models (GLM-5.3-Flash, GLM-5.3, …) → per-model breakdown, as Pi/omp.
+        return LocalUsageReader.daily(
+            entries: entries, localDay: LocalUsageReader.todayKey(), includeModels: true)
+    }
+
+    func fetchEnrichment() async -> ProviderEnrichment {
+        let now = Date()
+        let entries = await cache.zcodeEntries(
+            modifiedSince: LocalUsageReader.enrichmentScanStart(now: now))
+        return .local(entries: entries, now: now)
+    }
+}
