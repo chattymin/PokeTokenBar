@@ -231,14 +231,18 @@ struct PopoverView: View {
             }
             .padding(.top, 2)
 
-            MonthDailyTrend(series: store.dailyTrendTotals,
-                            providers: store.trendProviders,
-                            providerOrder: store.registeredProviderIDs,
-                            showsCost: store.showsCost,
-                            window: Binding(get: { store.dailyTrendWindow }, set: { store.dailyTrendWindow = $0 }),
-                            hasAvailableHistory: store.hasDailyTrendHistory,
-                            today: LocalUsageReader.todayKey(),
-                            l: l)
+            ActivityPanel(visualization: store.activityVisualization,
+                          series: store.dailyTrendTotals,
+                          heatmapSeries: store.monthDailyTotals,
+                          providers: store.trendProviders,
+                          providerOrder: store.registeredProviderIDs,
+                          history: store.dailyLedger,
+                          showsCost: store.showsCost,
+                          window: Binding(get: { store.dailyTrendWindow }, set: { store.dailyTrendWindow = $0 }),
+                          hasAvailableHistory: store.hasDailyTrendHistory,
+                          today: LocalUsageReader.todayKey(),
+                          l: l,
+                          onCycle: { store.activityVisualization = store.activityVisualization.next })
 
             // 연결된 서비스가 2개 이상이면 작은 탭으로 서비스별 상세를 넘나든다
             // (합계는 위에 유지 — 상세·한도만 탭 스코프).
@@ -1178,6 +1182,9 @@ struct MonthDailyTrend: View {
     /// 오늘의 `localDay` 키 — 강조할 막대를 뷰가 시계를 다시 읽어 고르지 않게 주입한다.
     let today: String
     let l: L
+    /// What sits at the caption's right end — the visualization switch dots (`PageDots`). A slot
+    /// rather than a reference to `ActivityVisualization`, so visualizations do not know each other.
+    var trailing = AnyView(EmptyView())
 
     var activeWindow: DailyTrendWindow {
         window?.wrappedValue ?? currentWindow
@@ -1289,6 +1296,7 @@ struct MonthDailyTrend: View {
                     .foregroundStyle(.secondary)
                     .monospacedDigit()
             }
+            trailing
         }
     }
 
