@@ -1744,6 +1744,67 @@ extension UsageStoreTests {
                        [.init(text: "Claude 60%", tier: .onPace), .init(text: "Codex 30%", tier: .over)])
     }
 
+    // MARK: Tracked providers (opt-out)
+
+    func testDisabledProviderLeavesTabsTotalsAndLimits() async {
+        testDefaults.set(["codex"], forKey: UsageStore.disabledProvidersKey)
+        let claude = FakeUsageProvider(id: "claude_code", displayName: "Claude Code", daily: todayDaily(100))
+        let codex = FakeUsageProvider(id: "codex", displayName: "Codex", daily: todayDaily(50))
+        let store = makeStore(providers: [claude, codex],
+                              claude: claudeLimits(fiveHourUtil: 40),
+                              codex: codexLimits(primaryUsed: 40))
+        await store.refresh(scheduleEmptyRetry: false)
+
+        XCTAssertEqual(store.snapshots.map(\.providerID), ["claude_code"])
+        XCTAssertEqual(store.todayTokensByProvider, ["claude_code": 100])
+        XCTAssertNil(store.codexLimits, "a disabled provider's limits must not feed alerts or candies")
+        XCTAssertNotNil(store.limits)
+        XCTAssertEqual(store.registeredProviderIDs, ["claude_code", "codex"], "Settings still lists it")
+    }
+
+    /// Phase 2 appends a carrier for a provider with history but no usage today (#336). That path is
+    /// what kept an unused provider's tab forever, so it must honor the switch too.
+    func testDisabledProviderWithOnlyHistoryGetsNoCarrierTab() async {
+        testDefaults.set(["codex"], forKey: UsageStore.disabledProvidersKey)
+        let claude = FakeUsageProvider(id: "claude_code", displayName: "Claude Code", daily: todayDaily(100))
+        let codex = FakeUsageProvider(id: "codex", displayName: "Codex", daily: nil)
+        codex.enrichment = ProviderEnrichment(
+            weekTotal: PeriodUsage(period: "w", totalTokens: 900, totalCost: 0),
+            monthTotal: PeriodUsage(period: "m", totalTokens: 3_000, totalCost: 0),
+            periodsOK: true, lastUsage: Date())
+        let store = makeStore(providers: [claude, codex])
+        await store.refresh(scheduleEmptyRetry: false)
+
+        XCTAssertEqual(store.snapshots.map(\.providerID), ["claude_code"])
+        XCTAssertEqual(store.monthTotalTokens, 0)
+    }
+
+    func testDisablingClaudeClearsItsLimits() async {
+        testDefaults.set(["claude_code"], forKey: UsageStore.disabledProvidersKey)
+        let codex = FakeUsageProvider(id: "codex", displayName: "Codex", daily: todayDaily(50))
+        let store = makeStore(providers: [codex], claude: claudeLimits(fiveHourUtil: 90))
+        await store.refresh(scheduleEmptyRetry: false)
+        XCTAssertNil(store.limits)
+        XCTAssertTrue(store.additionalLimits.isEmpty)
+    }
+
+    func testProviderSwitchDropsTabAtOnceAndPersists() async {
+        let claude = FakeUsageProvider(id: "claude_code", displayName: "Claude Code", daily: todayDaily(100))
+        let codex = FakeUsageProvider(id: "codex", displayName: "Codex", daily: todayDaily(50))
+        let store = makeStore(providers: [claude, codex])
+        await store.refresh(scheduleEmptyRetry: false)
+        XCTAssertEqual(store.snapshots.count, 2)
+
+        store.setProviderEnabled("codex", false)
+        XCTAssertEqual(store.snapshots.map(\.providerID), ["claude_code"], "tab goes before the next poll")
+        XCTAssertFalse(makeStore(providers: [claude, codex]).isProviderEnabled("codex"))
+
+        store.setProviderEnabled("codex", true)
+        await store.refresh(scheduleEmptyRetry: false)
+        XCTAssertEqual(store.snapshots.map(\.providerID), ["claude_code", "codex"])
+        XCTAssertTrue(makeStore(providers: [claude, codex]).isProviderEnabled("codex"))
+    }
+
     func testMenuLimitColorModePersists() {
         let store = makeStore(providers: [])
         store.menuLimitColorMode = .attention
@@ -1833,9 +1894,11 @@ extension UsageStoreTests {
 
 private final class ScriptedOpenCodeGoLimits: OpenCodeGoLimitsProviding, @unchecked Sendable {
     private var results: [Result<OpenCodeGoRateLimitStatus?, Error>]
+    private(set) var fetchCount = 0
     init(_ results: [Result<OpenCodeGoRateLimitStatus?, Error>]) { self.results = results }
     func fetch() async throws -> OpenCodeGoRateLimitStatus? {
-        try (results.count > 1 ? results.removeFirst() : results[0]).get()
+        fetchCount += 1
+        return try (results.count > 1 ? results.removeFirst() : results[0]).get()
     }
 }
 
@@ -1855,6 +1918,39 @@ extension UsageStoreTests {
                           openCodeGoLimitsProvider: limits,
                           autoRefresh: false,
                           defaults: testDefaults)
+    }
+
+    func testDisabledOpenCodeGoSkipsLimitsFetch() async {
+        testDefaults.set(["opencode"], forKey: UsageStore.disabledProvidersKey)
+        let limits = ScriptedOpenCodeGoLimits([.success(openCodeGoRolling(36, resetsIn: 3600, now: Date()))])
+        let store = makeOpenCodeStore(limits)
+
+        await store.refresh(scheduleEmptyRetry: false)
+
+        XCTAssertEqual(limits.fetchCount, 0)
+        XCTAssertNil(store.openCodeGoLimits)
+        XCTAssertFalse(store.openCodeGoLimitsAuthExpired)
+    }
+
+    func testDisablingOpenCodeGoClearsLoadedLimitsAndAuthNotice() async {
+        let limits = ScriptedOpenCodeGoLimits([
+            .success(openCodeGoRolling(36, resetsIn: 3600, now: Date())),
+            .failure(LimitsError.httpStatus(401)),
+        ])
+        let store = makeOpenCodeStore(limits)
+        await store.refresh(scheduleEmptyRetry: false)
+        await store.refresh(scheduleEmptyRetry: false)
+        XCTAssertEqual(limits.fetchCount, 2)
+        XCTAssertEqual(store.openCodeGoLimits?.rolling?.percent, 36)
+        XCTAssertTrue(store.openCodeGoLimitsAuthExpired)
+
+        store.setProviderEnabled("opencode", false)
+        await store.refresh(scheduleEmptyRetry: false)
+
+        XCTAssertEqual(limits.fetchCount, 2)
+        XCTAssertNil(store.openCodeGoLimits)
+        XCTAssertFalse(store.openCodeGoLimitsAuthExpired)
+        XCTAssertFalse(store.openCodeGoLimitsStale)
     }
 
     /// A rejected key shows the "reconnect" notice; once the key is gone (`fetch` → nil) it clears.
@@ -1914,9 +2010,11 @@ extension UsageStoreTests {
 
 private final class ScriptedGrokLimits: GrokLimitsProviding, @unchecked Sendable {
     private var results: [Result<GrokCreditStatus?, Error>]
+    private(set) var fetchCount = 0
     init(_ results: [Result<GrokCreditStatus?, Error>]) { self.results = results }
     func fetch() async throws -> GrokCreditStatus? {
-        try (results.count > 1 ? results.removeFirst() : results[0]).get()
+        fetchCount += 1
+        return try (results.count > 1 ? results.removeFirst() : results[0]).get()
     }
 }
 
@@ -1939,6 +2037,39 @@ extension UsageStoreTests {
                           grokLimitsProvider: limits,
                           autoRefresh: false,
                           defaults: testDefaults)
+    }
+
+    func testDisabledGrokSkipsLimitsFetch() async {
+        testDefaults.set(["grok"], forKey: UsageStore.disabledProvidersKey)
+        let limits = ScriptedGrokLimits([.success(grokWeek(12, endsIn: 86400, now: Date()))])
+        let store = makeGrokStore(limits)
+
+        await store.refresh(scheduleEmptyRetry: false)
+
+        XCTAssertEqual(limits.fetchCount, 0)
+        XCTAssertNil(store.grokLimits)
+        XCTAssertFalse(store.grokLimitsAuthExpired)
+    }
+
+    func testDisablingGrokClearsLoadedLimitsAndAuthNotice() async {
+        let limits = ScriptedGrokLimits([
+            .success(grokWeek(12, endsIn: 86400, now: Date())),
+            .failure(LimitsError.httpStatus(401)),
+        ])
+        let store = makeGrokStore(limits)
+        await store.refresh(scheduleEmptyRetry: false)
+        await store.refresh(scheduleEmptyRetry: false)
+        XCTAssertEqual(limits.fetchCount, 2)
+        XCTAssertEqual(store.grokLimits?.creditUsagePercent, 12)
+        XCTAssertTrue(store.grokLimitsAuthExpired)
+
+        store.setProviderEnabled("grok", false)
+        await store.refresh(scheduleEmptyRetry: false)
+
+        XCTAssertEqual(limits.fetchCount, 2)
+        XCTAssertNil(store.grokLimits)
+        XCTAssertFalse(store.grokLimitsAuthExpired)
+        XCTAssertFalse(store.grokLimitsStale)
     }
 
     /// A rejected token keeps the last status (dimmed, with the notice); a later success clears the notice,

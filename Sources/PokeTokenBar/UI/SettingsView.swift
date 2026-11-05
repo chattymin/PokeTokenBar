@@ -73,6 +73,7 @@ struct SettingsView: View {
                         generalGroup(store)
                         difficultyGroup
                         menuBarGroup(store)
+                        trackedProvidersGroup(store)
                         floatingPetGroup(store)
                         notificationsGroup(store)
                         updateGroup(store)
@@ -297,6 +298,21 @@ struct SettingsView: View {
                 }
             }
             Text(l.allOffHint).font(.caption2).foregroundStyle(.tertiary).padding(.leading, 4)
+        }
+    }
+
+    @ViewBuilder
+    private func trackedProvidersGroup(_ store: UsageStore) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            settingsSection(l.trackedProvidersSectionTitle) {
+                ForEach(Array(store.registeredProviders.enumerated()), id: \.element.id) { index, provider in
+                    if index > 0 { Divider() }
+                    toggleRow(provider.displayName, Binding(
+                        get: { store.isProviderEnabled(provider.id) },
+                        set: { store.setProviderEnabled(provider.id, $0) }))
+                }
+            }
+            Text(l.trackedProvidersHint).font(.caption2).foregroundStyle(.tertiary).padding(.leading, 4)
         }
     }
 

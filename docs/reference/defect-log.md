@@ -44,6 +44,17 @@ read_when:
 
 ## 판정·데이터
 
+- **Provider opt-out must also cover independently added official limits.** The provider toggle
+  and the OpenCode Go/Grok limit integrations passed separately, but their combined refresh
+  pipeline still fetched both disabled providers and retained their previous limits and expired-login
+  notices. The toggle tests covered only the previously existing limit providers, while the new
+  limit tests exercised enabled providers only. Guard every provider-specific limit refresh with
+  `isProviderEnabled` and clear its status and auth notice, matching Cursor and Antigravity.
+  The class sweep covered Claude (primary/additional), Codex, Cursor, Antigravity, OpenCode Go and
+  Grok. Four regression cases cover disabled-at-start with zero fetches and disabling after a
+  loaded status followed by HTTP 401. All four fail without the new guards (10 assertions), so the
+  tests detect both unwanted external fetches and state left behind by a disabled provider.
+
 - **Legacy save imports must initialize completion history before tracking new catches.**
   Generation-dex completion seeding originally ran only after `load()` in the initializer.
   `applySave` replaced that seeded state with an older save whose missing tracking fields
