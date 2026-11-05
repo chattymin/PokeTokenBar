@@ -57,7 +57,7 @@ Move your companion out of the menu bar and onto the desktop, at any size from 4
 <td width="45%" align="center"><img src="assets/screenshot-pet-interactions.png" width="300" alt="Separate native pet samples for prayer, petting, sulking, and agent waiting"><br><small>Native UI components · sample states</small></td>
 <td width="55%" valign="middle">
 <h3>A companion with a little personality</h3>
-Move the pointer over your floating pet to pet it, click an egg to pray, and watch for small reactions, sulking, and occasional event bubbles. These interactions are cosmetic: praying does not change hatch odds or growth rewards. Every 30 prayers, a quip can accompany a usage refresh. Agent activity can add working, waiting, and done reactions after <a href="#agent-activity">manual setup</a>.
+Move the pointer over your floating pet to pet it, click an egg to pray, and watch for small reactions, sulking, and occasional event bubbles. These interactions are cosmetic: praying does not change hatch odds or growth rewards. Every 30 prayers, a quip can accompany a usage refresh. With Claude Code it also reacts to <a href="#agent-activity">agent activity</a> on its own: working, waiting, and done.
 </td>
 </tr>
 <tr>
@@ -206,7 +206,9 @@ Reset countdowns include the clock time, and the colored percentage stays aligne
 
 The floating pet can follow any AI coding agent: it bobs while the agent works, asks for you in a speech bubble when the agent needs input, and runs to your cursor when the agent finishes. The agent reports through a URL:
 
-Setup is manual and optional: PokeTokenBar does not install agent hooks or edit your agent settings. Enable the floating pet, leave **React to agent activity** on, and add the appropriate hook below.
+**Claude Code needs no setup.** PokeTokenBar already reads Claude Code's session logs for token usage, and now watches them for activity too: the pet bobs while a turn runs, runs to your cursor when it ends, and stops when you press Esc. Session logs do not show a permission prompt, so after the first finished turn the pet offers to add Claude Code hooks for that. Click it and confirm, or use **Settings → Floating Pet → Claude Code hooks**. The app edits `~/.claude/settings.json` (each `CLAUDE_CONFIG_DIR` folder if you set one) only after you confirm. It adds only its own five entries, keeps everything else in the file as it was, and saves the original as `settings.json.poketokenbar-backup` first. Disconnect removes only those entries. If you say "Don't ask again", the pet stops offering.
+
+Other agents report through a URL. Enable the floating pet, leave **React to agent activity** on, and add the appropriate hook below.
 
 ```text
 poketokenbar://agent?state=<working|waiting|done|idle>[&label=<name>][&message=<text>]
@@ -218,7 +220,7 @@ poketokenbar://agent?state=<working|waiting|done|idle>[&label=<name>][&message=<
 - A limit alert bubble takes priority. With Reduce Motion or Low Power Mode on, the pet shows bubbles without moving.
 - Nothing happens while the floating pet is off. Turn the reactions off in **Settings → Floating Pet → React to agent activity**.
 
-**Claude Code** — save this as `~/.claude/poketokenbar.sh`. It labels each session with its project folder name, so two sessions in the same folder share one label. `pgrep` keeps a hook from relaunching the app after you quit it, and `open -g` keeps your terminal focused.
+**Claude Code, set up by hand** — if you prefer to manage the hooks yourself, save this as `~/.claude/poketokenbar.sh`. The app counts these hooks as connected and never removes them. It labels each session with its project folder name, so two sessions in the same folder share one label. `pgrep` keeps a hook from relaunching the app after you quit it, and `open -g` keeps your terminal focused.
 
 ```sh
 #!/bin/sh
@@ -230,7 +232,7 @@ open -g "poketokenbar://agent?state=$1&label=$label" >/dev/null 2>&1
 exit 0
 ```
 
-Then add the hooks to `~/.claude/settings.json`. The `Notification` matcher skips Claude Code's idle reminder, which would otherwise leave a "waiting" bubble after every turn. `Stop` does not fire when you interrupt a turn (Esc), so the pet keeps working until the 10-minute timeout or an `idle` event.
+Then add the hooks to `~/.claude/settings.json`. The `Notification` matcher skips Claude Code's idle reminder, which would otherwise leave a "waiting" bubble after every turn. `Stop` does not fire when you interrupt a turn (Esc); the app sees the interrupt in the session log and stops the bob.
 
 ```json
 {
