@@ -24,6 +24,7 @@ LOGIC_CORE=(
   "Sources/PokeTokenBar/Core/CollectionWeight.swift"
   "Sources/PokeTokenBar/Core/KoreanParticle.swift"
   "Sources/PokeTokenBar/Core/CompanionStore.swift"
+  "Sources/PokeTokenBar/Core/PokedexRegion.swift"
   "Sources/PokeTokenBar/Core/PokemonProfile.swift"
   "Sources/PokeTokenBar/Core/PokemonNameLocalization.swift"
   "Sources/PokeTokenBar/Core/LocalizationErrors.swift"
@@ -37,6 +38,7 @@ LOGIC_CORE=(
   "Sources/PokeTokenBar/Core/ModelPricing.swift"
   "Sources/PokeTokenBar/Core/CustomScanRoots.swift"
   "Sources/PokeTokenBar/Core/UsageRecap.swift"
+  "Sources/PokeTokenBar/Core/AgentActivity.swift"
 )
 
 echo "▶ swift test (--enable-code-coverage)"

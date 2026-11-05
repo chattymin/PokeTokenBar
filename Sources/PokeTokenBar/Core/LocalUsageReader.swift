@@ -1489,6 +1489,11 @@ enum LocalUsageReader {
         return FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".grok/sessions")
     }
 
+    /// Grok CLI login file (`$GROK_HOME/auth.json`), next to the sessions folder.
+    static var grokAuthFile: URL {
+        grokSessionsDir.deletingLastPathComponent().appendingPathComponent("auth.json")
+    }
+
     /// Grok CLI 세션 파일(`~/.grok/sessions/<id>/updates.jsonl`) 파싱.
     ///
     /// 턴이 끝날 때마다 durable 로 append 되는 `sessionUpdate:"turn_completed"` 라인의 `usage`
@@ -1777,6 +1782,138 @@ enum LocalUsageReader {
                      costIsEstimate: true, costUnavailable: true)
     }
 
+    // MARK: omo (senpi)
+
+    /// Install default from the omo binary: `~/.omo/agent/sessions`.
+    static let defaultOmoSessionsPath = ".omo/agent/sessions"
+    /// Documented senpi default (`docs/sessions.md`, `docs/session-format.md`).
+    static let defaultSenpiSessionsPath = ".senpi/agent/sessions"
+
+    static var omoSessionRoots: [URL] {
+        computeOmoSessionRoots()
+    }
+
+    /// Both on-disk defaults, plus `$OMO_CODING_AGENT_DIR/sessions` and
+    /// `$SENPI_CODING_AGENT_DIR/sessions`. The binary resolves
+    /// `OMO_CODING_AGENT_DIR ?? SENPI_CODING_AGENT_DIR ?? PI_CODING_AGENT_DIR ?? ~/.omo/agent`.
+    /// `PI_CODING_AGENT_DIR` is not added here: `piSessionRoots` already scans it, so counting
+    /// it again would double Pi sessions when omo falls back to that directory.
+    static func computeOmoSessionRoots(
+        omoAgentDirValue: String? = UsageEnvironment.value("OMO_CODING_AGENT_DIR"),
+        senpiAgentDirValue: String? = UsageEnvironment.value("SENPI_CODING_AGENT_DIR"),
+        home: URL = FileManager.default.homeDirectoryForCurrentUser
+    ) -> [URL] {
+        var roots = [
+            home.appendingPathComponent(defaultOmoSessionsPath),
+            home.appendingPathComponent(defaultSenpiSessionsPath),
+        ]
+        for value in [omoAgentDirValue, senpiAgentDirValue] {
+            guard let value,
+                  !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { continue }
+            roots.append(URL(fileURLWithPath: NSString(string: value).expandingTildeInPath)
+                .appendingPathComponent("sessions"))
+        }
+        return normalizedRoots(roots)
+    }
+
+    /// Parses an omo/senpi CLI session file. nil = unreadable (not cached, retried next refresh).
+    ///
+    /// Format evidence is senpi `docs/session-format.md`: assistant `message.usage`, optional
+    /// `toolResult.usage` for nested LLM work, and compaction/branch_summary `usage` included in
+    /// session totals. `output` already includes `reasoning`. `usage.cost` is a price breakdown,
+    /// not a subscription invoice, so a recorded amount stays an estimate. Aborted and error
+    /// assistant lines are skipped, matching Pi. Entry ids are unique only inside one file.
+    static func parseOmoFile(_ url: URL, fmt: DateFormatter) -> [Entry]? {
+        guard let text = try? String(contentsOf: url, encoding: .utf8) else { return nil }
+        let file = omoEntryFileKey(url)
+        var out: [Entry] = []
+        for line in text.split(separator: "\n", omittingEmptySubsequences: true) {
+            guard line.contains("\"usage\"") else { continue }
+            autoreleasepool {
+                if let e = parseOmoLine(String(line), file: file, fmt: fmt) { out.append(e) }
+            }
+        }
+        return dedupKeepMax(out)
+    }
+
+    static func omoEntries(modifiedSince: Date, roots: [URL] = omoSessionRoots) -> [Entry] {
+        let fmt = localDayFormatter()
+        var all: [Entry] = []
+        for root in normalizedRoots(roots) {
+            for file in jsonlFiles(in: root, modifiedSince: modifiedSince) {
+                all.append(contentsOf: parseOmoFile(file, fmt: fmt) ?? [])
+            }
+        }
+        return dedupKeepMax(all)
+    }
+
+    /// Last two path components, so two `__advisor.jsonl` files under different sessions do not collide.
+    private static func omoEntryFileKey(_ url: URL) -> String {
+        let parent = url.deletingLastPathComponent().lastPathComponent
+        guard !parent.isEmpty, parent != "/" else { return url.lastPathComponent }
+        return parent + "/" + url.lastPathComponent
+    }
+
+    private static func parseOmoLine(_ line: String, file: String, fmt: DateFormatter) -> Entry? {
+        guard let data = line.data(using: .utf8),
+              let envelope = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let type = envelope["type"] as? String else { return nil }
+        let usage: [String: Any]
+        let date: Date?
+        var model = "omo"
+        switch type {
+        case "message":
+            guard let message = envelope["message"] as? [String: Any] else { return nil }
+            let role = message["role"] as? String
+            if role == "assistant" {
+                guard message["stopReason"] as? String != "aborted",
+                      message["stopReason"] as? String != "error",
+                      let messageUsage = message["usage"] as? [String: Any] else { return nil }
+                usage = messageUsage
+                model = (message["model"] as? String) ?? "omo"
+            } else if role == "toolResult", let messageUsage = message["usage"] as? [String: Any] {
+                usage = messageUsage
+                model = (message["model"] as? String) ?? "omo"
+            } else {
+                return nil
+            }
+            date = piMessageDate(message, envelope: envelope)
+        case "compaction", "branch_summary":
+            usage = envelope["usage"] as? [String: Any] ?? [:]
+            date = piEnvelopeDate(envelope)
+        default:
+            return nil
+        }
+        guard let date, !usage.isEmpty else { return nil }
+        let id = "omo|" + file + "|" + ((envelope["id"] as? String) ?? UUID().uuidString)
+        let cost = (usage["cost"] as? [String: Any]).flatMap { doubleOrNil($0["total"]) }
+            .flatMap { $0.isFinite && $0 >= 0 ? $0 : nil }
+        return omoEntry(id: id, date: date, usage: usage, model: model, cost: cost, fmt: fmt)
+    }
+
+    private static func omoEntry(
+        id: String, date: Date, usage: [String: Any], model: String, cost: Double?, fmt: DateFormatter
+    ) -> Entry? {
+        let names = ["input", "output", "cacheWrite", "cacheRead", "cacheWrite1h"]
+        let hasGranularUsage = names.contains { intOrNil(usage[$0]) != nil }
+        if hasGranularUsage {
+            // `cacheWrite1h` is a separate bucket in the session format, not part of `cacheWrite`.
+            // `reasoning` is already inside `output` and must not be added again.
+            let cacheWrite = (intOrNil(usage["cacheWrite"]) ?? 0) + (intOrNil(usage["cacheWrite1h"]) ?? 0)
+            return Entry(
+                id: id, date: date, localDay: fmt.string(from: date), model: model,
+                input: intOrNil(usage["input"]) ?? 0,
+                output: intOrNil(usage["output"]) ?? 0,
+                cacheWrite: cacheWrite,
+                cacheRead: intOrNil(usage["cacheRead"]) ?? 0,
+                explicitCost: cost, costIsEstimate: true)
+        }
+        guard let total = intOrNil(usage["totalTokens"]) else { return nil }
+        return Entry(id: id, date: date, localDay: fmt.string(from: date), model: model,
+                     input: total, output: 0, cacheWrite: 0, cacheRead: 0, explicitCost: cost,
+                     costIsEstimate: true, costUnavailable: true)
+    }
+
     // MARK: Kimi Code
 
     /// Standalone CLI data root (`$KIMI_CODE_HOME`, default `~/.kimi-code`) — Kimi Code docs,
@@ -1877,7 +2014,7 @@ enum LocalUsageReader {
 
     /// 특정 로컬 날짜의 합계 → DailyUsage. 해당 날짜 데이터 없으면 nil.
     /// `includeModels` 를 켠 프로바이더만 per-model 내역을 채운다 — 끄면 `models` 는 nil 이라
-    /// 팝오버의 per-model 행이 그 프로바이더에서는 뜨지 않는다(현재는 Pi·omp 가 opt-in).
+    /// 팝오버의 per-model 행이 그 프로바이더에서는 뜨지 않는다(현재는 Pi·omp·omo 가 opt-in).
     static func daily(entries: [Entry], localDay: String, includeModels: Bool = false) -> DailyUsage? {
         var b = Bucket()
         var models: [String: Int]? = includeModels ? [:] : nil
@@ -1920,36 +2057,26 @@ enum LocalUsageReader {
     /// Scope is baked in rather than parameterised — a caller cannot widen this to a rolling
     /// window or last month, which is where this area has had month-boundary regressions before
     /// (see `enrichmentScanStart`).
-    /// - Parameter timeZone: 테스트 주입 구멍. 기본값은 `Entry.localDay` 를 만든 것과 같은 현지 시간대다
-    ///   — 다른 값을 주면 축의 날짜 문자열이 엔트리의 `localDay` 와 어긋나므로 프로덕션에선 기본값만 쓴다.
-    ///   DST 가 없는 시간대(예: Asia/Seoul)에서만 테스트하면 하루 전진 결함이 통과하기 때문에 뚫었다.
-    static func monthDailySeries(entries: [Entry], now: Date,
-                                 timeZone: TimeZone = .current) -> [DailyUsage]
+    /// Arbitrary date range daily series helper. Days without entries are explicit zeros.
+    static func dailySeries(entries: [Entry], startDay: Date, endDay: Date,
+                            timeZone: TimeZone = .current) -> [DailyUsage]
     {
         var calendar = Calendar.current
         calendar.timeZone = timeZone
         let fmt = localDayFormatter(timeZone: timeZone)
 
         var days: [String] = []
-        var cursor = calendar.startOfDay(for: startOfMonth(now, calendar: calendar))
-        let lastDay = calendar.startOfDay(for: now)
+        var cursor = calendar.startOfDay(for: startDay)
+        let lastDay = calendar.startOfDay(for: endDay)
         while cursor <= lastDay {
             days.append(fmt.string(from: cursor))
-            // `date(byAdding:)` rather than +86400 — a DST day is 23 or 25 hours long and a fixed
-            // stride would drift the axis off the calendar for the rest of the month
-            // (`testAxisLengthMatchesTheDayOfMonthInEveryMonthAndAcrossDSTTimeZones`).
-            // The `else` is an API-forced unwrap with no reachable trigger on a Gregorian date,
-            // like the `?? date` in `startOfMonth`/`startOfWeek` — not a guard worth a test.
             guard let next = calendar.date(byAdding: .day, value: 1, to: cursor) else { break }
             cursor = next
         }
 
-        // `days` 는 여기서 항상 비어 있지 않다 — `startOfMonth(now) <= now` 라 위 루프가 최소 한 번
-        // 돈다. 그래서 empty 가드를 두지 않는다(도달 불가한 분기는 커버리지에 ^0 으로 남고, 읽는 사람
-        // 에게 "빌 수 있다"는 잘못된 신호를 준다). 아래 `Set`·`map` 은 빈 배열에서도 안전하다.
-        let inMonth = Set(days)
+        let inRange = Set(days)
         var buckets: [String: Bucket] = [:]
-        for e in entries where inMonth.contains(e.localDay) {
+        for e in entries where inRange.contains(e.localDay) {
             buckets[e.localDay, default: Bucket()].add(e)
         }
 
@@ -1959,6 +2086,28 @@ enum LocalUsageReader {
                               cacheCreationTokens: b.cacheWrite, cacheReadTokens: b.cacheRead,
                               totalTokens: b.total, totalCost: b.cost, costCoverage: b.costCoverage)
         }
+    }
+
+    /// - Parameter timeZone: 테스트 주입 구멍. 기본값은 `Entry.localDay` 를 만든 것과 같은 현지 시간대다
+    ///   — 다른 값을 주면 축의 날짜 문자열이 엔트리의 `localDay` 와 어긋나므로 프로덕션에선 기본값만 쓴다.
+    ///   DST 가 없는 시간대(예: Asia/Seoul)에서만 테스트하면 하루 전진 결함이 통과하기 때문에 뚫었다.
+    static func monthDailySeries(entries: [Entry], now: Date,
+                                 timeZone: TimeZone = .current) -> [DailyUsage]
+    {
+        var calendar = Calendar.current
+        calendar.timeZone = timeZone
+        let start = startOfMonth(now, calendar: calendar)
+        return dailySeries(entries: entries, startDay: start, endDay: now, timeZone: timeZone)
+    }
+
+    /// Rolling window daily series (e.g. 7, 14, 21 days up to today).
+    static func rollingDailySeries(entries: [Entry], days: Int, now: Date,
+                                   timeZone: TimeZone = .current) -> [DailyUsage]
+    {
+        var calendar = Calendar.current
+        calendar.timeZone = timeZone
+        let start = startOfRollingWindow(days: days, from: now, calendar: calendar)
+        return dailySeries(entries: entries, startDay: start, endDay: now, timeZone: timeZone)
     }
 
     /// 최근 5시간 롤링 윈도우 기반 활성 블록(번 레이트 추정용).
@@ -1989,22 +2138,39 @@ enum LocalUsageReader {
         calendar.date(from: calendar.dateComponents([.year, .month], from: date)) ?? date
     }
 
-    static func startOfWeek(_ date: Date) -> Date {
-        Calendar.current.dateInterval(of: .weekOfYear, for: date)?.start ?? date
+    static func startOfWeek(_ date: Date, calendar: Calendar = .current) -> Date {
+        calendar.dateInterval(of: .weekOfYear, for: date)?.start ?? date
     }
 
-    /// enrichment(활성 블록·이번 주·이번 달)를 한 번의 스캔에서 모두 도출하므로, mtime 하한은
-    /// 그 세 윈도우 중 **가장 이른 시작**이어야 한다. append-only 로그에서 "범위 시작 이전에 수정된
+    static let maxDailyTrendWindowDays = 21
+
+    /// First visible day's calendar start (`00:00` in `calendar.timeZone`) for an N-day rolling
+    /// trend ending on `date`. Deriving this via calendar day arithmetic rather than a fixed
+    /// `days * 86_400` second offset keeps the scan lower bound aligned with `00:00` of the first
+    /// chart day even when the window crosses a 25-hour DST fall-back day.
+    static func startOfRollingWindow(days: Int = maxDailyTrendWindowDays, from date: Date,
+                                     calendar: Calendar = .current) -> Date
+    {
+        let clampedDays = max(1, days)
+        let todayStart = calendar.startOfDay(for: date)
+        let targetDay = calendar.date(byAdding: .day, value: -(clampedDays - 1), to: todayStart) ?? todayStart
+        return calendar.startOfDay(for: targetDay)
+    }
+
+    /// enrichment(활성 블록·이번 주·이번 달·롤링 21일 추이)를 한 번의 스캔에서 모두 도출하므로, mtime 하한은
+    /// 모든 표시 윈도우 중 **가장 이른 시작**이어야 한다. append-only 로그에서 "범위 시작 이전에 수정된
     /// 파일엔 범위 내 엔트리가 없다"는 전제가 성립하려면 스캔 하한 ≤ 모든 표시 윈도우의 시작이어야 하기 때문.
     ///
-    /// 함정: monthStart 만 하한으로 쓰면 **월초**에 이번 주 시작(weekStart)이 지난달로 넘어가고
-    /// (2026년 12개월 중 11개월이 그렇다) 자정 직후엔 5h 블록이 어제로 넘어가, 지난달에 수정된 세션
-    /// 파일이 스캔에서 빠지며 주간 합계·번레이트가 며칠간 과소집계된다. min 으로 그 경계를 흡수한다.
-    /// (OpenCode/Hermes 경로엔 이미 `now-7일` 하한이 있었으나 Claude/Codex/Gemini 경로엔 없어
-    /// 드리프트했다 — 네 프로바이더가 이 단일 소스를 공유하게 통일.)
-    static func enrichmentScanStart(now: Date) -> Date {
-        min(startOfMonth(now), startOfWeek(now), now.addingTimeInterval(-blockWindow),
-            now.addingTimeInterval(-LocalUsageReader.recentUseWindow))
+    /// 함정: monthStart 만 하한으로 쓰면 **월초**에 이번 주 시작(weekStart)이나 21일 롤링 시작이 지난달로
+    /// 넘어가고 자정 직후엔 5h 블록이 어제로 넘어가, 지난달에 수정된 세션 파일이 스캔에서 빠지며 합계·차트·
+    /// 번레이트가 과소집계된다. 또한 21일 창을 고정 초(`21 * 86400`)로 빼면 25시간인 DST fall-back 날 밤에
+    /// 첫 표시 날짜의 새벽(00:00~00:59) 세션이 잘린다. 달력 기준 첫 표시 날짜 자정을 포함한 min 으로 경계를 흡수한다.
+    static func enrichmentScanStart(now: Date, calendar: Calendar = .current) -> Date {
+        min(startOfMonth(now, calendar: calendar),
+            startOfWeek(now, calendar: calendar),
+            now.addingTimeInterval(-blockWindow),
+            now.addingTimeInterval(-LocalUsageReader.recentUseWindow),
+            startOfRollingWindow(days: maxDailyTrendWindowDays, from: now, calendar: calendar))
     }
 
     static func monthKey(_ date: Date) -> String {
@@ -2023,16 +2189,13 @@ enum LocalUsageReader {
         return f
     }
 
-    /// 두 yyyy-MM-dd 날짜 사이의 달력 일수 차이 (to - from). 파싱 실패 시 nil.
-    static func dayDifference(from previous: String, to current: String, timeZone: TimeZone = .current) -> Int? {
-        if previous == current { return 0 }
+    /// Calculate whole calendar days between two "yyyy-MM-dd" keys. Positive when `to` is later than `from`.
+    static func dayDifference(from: String, to: String, timeZone: TimeZone = .current) -> Int? {
         let fmt = localDayFormatter(timeZone: timeZone)
-        guard let d1 = fmt.date(from: previous), let d2 = fmt.date(from: current) else { return nil }
+        guard let d1 = fmt.date(from: from), let d2 = fmt.date(from: to) else { return nil }
         var cal = Calendar(identifier: .gregorian)
         cal.timeZone = timeZone
-        let start1 = cal.startOfDay(for: d1)
-        let start2 = cal.startOfDay(for: d2)
-        return cal.dateComponents([.day], from: start1, to: start2).day
+        return cal.dateComponents([.day], from: d1, to: d2).day
     }
 
     /// 파싱 상한 — 실사용(수십억)의 10만 배라 정상 사용량을 자르지 않는다.

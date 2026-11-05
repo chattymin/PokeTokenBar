@@ -58,6 +58,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     /// 버튼 폭(=텍스트 길이)이나 스프라이트 크기가 변하면 레이어를 이미지 자리에 다시 맞춰야 한다.
     private var needsSpriteLayout = true
 
+    func applicationWillFinishLaunching(_ notification: Notification) {
+        // Handle GetURL directly instead of `application(_:open:)`: the SwiftUI app lifecycle owns
+        // that path, and an agent URL must never open a window or activate the app. AppKit installs
+        // its own handler before this point, so registering here is what replaces it.
+        NSAppleEventManager.shared().setEventHandler(
+            self, andSelector: #selector(handleGetURL(_:withReply:)),
+            forEventClass: AEEventClass(kInternetEventClass), andEventID: AEEventID(kAEGetURL))
+    }
+
+    @objc private func handleGetURL(_ event: NSAppleEventDescriptor, withReply reply: NSAppleEventDescriptor) {
+        guard let url = Self.url(fromGetURLEvent: event), let agentEvent = AgentActivityEvent(url: url) else { return }
+        floatingPet?.handleAgentEvent(agentEvent)   // nil until launch finishes; the event is dropped
+    }
+
+    nonisolated static func url(fromGetURLEvent event: NSAppleEventDescriptor) -> URL? {
+        event.paramDescriptor(forKeyword: AEKeyword(keyDirectObject))?.stringValue.flatMap { URL(string: $0) }
+    }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         // 로그인 에이전트 등록(plist 의 RunAtLoad)이 이미 떠 있는 앱을 한 번 더 실행한다 — 나중에 뜬
         // 쪽이 물러난다. 메뉴바 항목을 만들기 전에 판정해 아이콘이 떴다 사라지는 깜빡임을 없애고,
@@ -120,12 +138,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         applyState()
     }
 
-    /// Observation 기반 상태 반영 — store 의 menuTitle(=menuLines) 변경 시 재호출.
+    /// Observe usage settings and the enabled growth text together, including companion-only changes.
     /// (isStale 은 더 이상 추적 안 함 — 메뉴바 dim 제거로 시각 출력에 관여하지 않음.)
     private func observeStore() {
         withObservationTracking {
-            _ = store.menuTitle
+            _ = MenuBarContent.lines(store: store, companion: companion)
             _ = store.menuToolTip
+            _ = store.alwaysFacesBack   // mirrored into the companion by `updateCompanion`
             // The mode and thresholds can change the colors while the text stays the same.
             _ = store.menuLimitColorRuns()
         } onChange: { [weak self] in
@@ -139,16 +158,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
 
     /// 대표 스프라이트 정체성(종/shiny/fps 하한) 관찰 — 대표 선택·해제와 애니메이션 품질 변경뿐 아니라
     /// 사탕 진화·졸업(BagView), 세이브 가져오기, 부화·메타몽 리빌 async 완료처럼 store 갱신 틱 없이
-    /// companion 만 바뀌는 경로에서도 메뉴바를 즉시 갱신한다. observeStore(menuTitle)만으론 다음 사용량 폴링(기본 120s)까지
-    /// 이전 포켓몬이 남는다(사탕 졸업 후 메뉴바 잔상 리포트 — UsageStore.onRefresh 주석과 같은 부류).
+    /// companion 만 바뀌는 경로에서도 메뉴바를 즉시 갱신한다. 성장률 표시가 꺼져 있어도 스프라이트는
+    /// 바로 갱신되어야 한다(사탕 졸업 후 메뉴바 잔상 리포트 — UsageStore.onRefresh 주석과 같은 부류).
     ///
     /// **fps 설정도 여기서 관찰한다**: 프레임은 하한에 맞춰 솎아낸 결과물이라 하한이 곧 정체성의
-    /// 일부다(`menuSpriteKey`). `observeStore` 는 `menuTitle` 만 추적하므로, 이걸 빼면 설정을
+    /// 일부다(`menuSpriteKey`). `observeStore` 는 애니메이션 품질을 추적하지 않으므로, 이걸 빼면 설정을
     /// 바꿔도 다음 사용량 폴링(기본 120s)까지 옛 fps 로 돈다 — 위 '메뉴바 잔상'과 같은 부류.
     /// (플로팅 펫은 `body` 에서 직접 읽어 SwiftUI 관찰이 처리한다.)
     private func observeCompanionSprite() {
         withObservationTracking {
             _ = companion.representativeSubject
+            _ = companion.facesBack   // part of `menuSpriteKey`
             _ = store.animationQuality
         } onChange: { [weak self] in
             Task { @MainActor in
@@ -177,8 +197,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
 
     private func applyState() {
         guard let button = statusItem.button else { return }
+        updateCompanion()
         // Recomputed on every refresh, so a tier that moves with the clock redraws even when the text doesn't.
-        Self.applyMenuText(store.menuLines, to: button, colors: store.menuLimitColorRuns())
+        Self.applyMenuText(MenuBarContent.lines(store: store, companion: companion),
+                           to: button, colors: store.menuLimitColorRuns())
         button.toolTip = store.menuToolTip
         needsSpriteLayout = true   // 텍스트 길이가 바뀌면 버튼 폭이 변해 이미지 자리도 움직인다
         // stale 시각 dim 제거 — 슬립/런치 직후 refresh 완료 전 몇 초간 회색으로 보여 '고장/비활성'
@@ -186,7 +208,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         // (limitsUpdatedAt 등)에서 제공하고, 메뉴바 아이콘·숫자는 흐리게 하지 않는다.
         button.appearsDisabled = false
 
-        updateCompanion()
         ensureMenuAnimation()
         syncMenuAnimation()   // 가시성 상태 주기적 재평가(occlusion 이 잘못 멈춰도 자가 복구)
         // 같은 프레임이면 setStatusImage 가 diff-gate 로 조기 반환해 재배치를 못 했을 수 있다.
@@ -196,7 +217,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     /// 메뉴바 버튼 텍스트 반영 — 1줄이면 기본 title(13pt), 2줄 이상이면 세로 스택.
     /// 줄 수에 맞춰 폰트를 자동 축소해 N줄이 메뉴바 높이에 클리핑 없이 들어오게 한다. 한도 항목 색
     /// (`colors`) 외에는 색을 지정하지 않아 메뉴바 명암(라이트/다크)·비활성(appearsDisabled) 상태에 자동 적응한다.
-    private static func applyMenuText(_ lines: [String], to button: NSStatusBarButton,
+    static func applyMenuText(_ lines: [String], to button: NSStatusBarButton,
                                       colors: [UsageStore.MenuLimitColorRun]) {
         if lines.count >= 2 {
             // NSStatusBarButton 은 멀티라인 title 을 세로 중앙에 두지 않고 위로 치우쳐 그린다(측정:
@@ -248,6 +269,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
 
     /// UsageStore 값 → CompanionStore (사용량 적립 + 표시 상태). 매 관찰 변경 시 호출.
     private func updateCompanion(allowStreakBootstrap: Bool = false) {
+        companion.alwaysFacesBack = store.alwaysFacesBack
         companion.update(
             todayTokensByProvider: store.todayTokensByProvider,
             todayDate: LocalUsageReader.todayKey(),
@@ -255,7 +277,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             burnTier: store.burnTier,
             limitWarning: store.isLimitWarning,
             hasUsageData: store.hasUsageData,
-            streakLedger: allowStreakBootstrap && companion.needsStreakBootstrap ? store.dailyLedger : nil)
+            streakLedger: allowStreakBootstrap && companion.needsStreakBootstrap ? store.dailyLedger : nil,
+            timeSinceLastUsage: store.timeSinceLastUsage())
     }
 
     /// 매 refresh 완료 훅 — companion 갱신 + 사탕 지급(한도가 신선한 시점). 지급을 여기 묶는 이유는
@@ -298,7 +321,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         let id = subject.speciesID
         let shiny = subject.isShiny
         let form = subject.form
-        let key = id.map { Self.menuSpriteKey(id: $0, shiny: shiny, floor: menuFrameFloor, form: form) }
+        let back = companion.facesBack
+        let key = id.map { Self.menuSpriteKey(id: $0, shiny: shiny, floor: menuFrameFloor, form: form, back: back) }
         if key == menuSpriteKey, !menuFrames.isEmpty { return }   // 이미 이 개체로 애니메이션 중
         menuLoadTask?.cancel()
         menuLoadTask = nil
@@ -311,7 +335,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             return
         }
         // Seed from the PNG cache immediately; a missing PNG must not delay the first GIF request.
-        let cached = SpriteLoader.cachedImage(speciesID: id, shiny: shiny, form: form)
+        let cached = SpriteLoader.cachedImage(speciesID: id, shiny: shiny, form: form, back: back)
         setMenuFrames(cached.map { Self.bobFrames(from: $0) } ?? Self.eggFrames())
 
         // One owned task applies its static fallback before retrying GIFs. A late PNG response
@@ -320,10 +344,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             guard let self, gen == self.menuLoadGen else { return }
             defer { if gen == self.menuLoadGen { self.menuLoadTask = nil } }
             let raw = await SpriteLoader.recoveringAnimationFrames(
-                speciesID: id, shiny: shiny, form: form,
+                speciesID: id, shiny: shiny, form: form, back: back,
                 onUnavailable: {
                     guard cached == nil, !Task.isCancelled, gen == self.menuLoadGen else { return }
-                    let sprite = await SpriteLoader.image(speciesID: id, shiny: shiny, form: form)
+                    let sprite = await SpriteLoader.image(speciesID: id, shiny: shiny, form: form, back: back)
                     guard !Task.isCancelled, gen == self.menuLoadGen, let sprite else { return }
                     self.setMenuFrames(Self.bobFrames(from: sprite))
                 })
@@ -476,9 +500,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     /// **하한(fps 설정)이 반드시 들어가야 한다.** 프레임은 하한에 맞춰 솎아낸 결과물이라, 키가
     /// 종·이로치만 담으면 설정을 바꿔도 다음 진화까지 옛 fps 로 계속 돈다(설계 시 확인된 함정).
     /// 순수·테스트용: `testIdentityKeysIncludeTheFrameFloor`.
-    static func menuSpriteKey(id: Int, shiny: Bool, floor: TimeInterval, form: PokemonForm? = nil) -> String {
+    static func menuSpriteKey(id: Int, shiny: Bool, floor: TimeInterval, form: PokemonForm? = nil,
+                              back: Bool = false) -> String {
         let form = PokemonForm.resolved(speciesID: id, form: form)
-        return "\(id)-\(shiny)-\(floor)-\(form?.rawValue ?? "")"
+        let key = "\(id)-\(shiny)-\(floor)-\(form?.rawValue ?? "")"
+        return back ? key + "-back" : key
     }
 
     // MARK: 프레임 합성 (22px)
@@ -580,7 +606,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         let entries = StatusItemMenu.entries(
             l: companion.l, todayTokens: store.todayTotalTokens,
             todayCost: store.showsCost ? store.todayUsageCost : nil,
-            floatingPetEnabled: store.floatingPetEnabled)
+            floatingPetEnabled: store.floatingPetEnabled, alwaysFacesBack: store.alwaysFacesBack)
         // Attaching the menu only for this click keeps left click on the popover. performClick
         // tracks the menu synchronously, with the button highlighted like any other status menu.
         statusItem.menu = StatusItemMenu.build(entries, target: self, selector: #selector(handleStatusMenu(_:)))
@@ -594,6 +620,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         case .openDex: showPopover { $0.openRepresentativeDex() }
         case .openSettings: showPopover { $0.showSettings = true }
         case .toggleFloatingPet: store.floatingPetEnabled.toggle()
+        case .toggleBackView: store.alwaysFacesBack.toggle()
         case .quit: NSApp.terminate(nil)
         case nil: break
         }

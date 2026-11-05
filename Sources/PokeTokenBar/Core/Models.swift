@@ -253,6 +253,9 @@ struct LimitStatus: Decodable, Sendable {
     /// CodingKeys 에 없어 디코드 시 무시되고, OAuthLimitsProvider.fetch 가 채운다.
     var subscriptionType: String?
     var rateLimitTier: String?
+    /// profile endpoint 가 알려주는 현재 플랜 이름("Ultra" 등) — usage 응답이 아니라
+    /// OAuthProfileCache 가 주입한다. 이름은 서버가 정하고, 앱은 그대로 보여준다.
+    var planDisplayName: String?
     /// 토큰의 실제 주인 — usage 응답이 아니라 profile endpoint(OAuthProfileCache)에서 주입한다.
     /// 같은 기기에서 두 계정이 하나의 Keychain 항목을 덮어쓸 때 어느 계정의 한도인지 구분하는 라벨.
     var accountEmail: String?
@@ -266,17 +269,30 @@ struct LimitStatus: Decodable, Sendable {
         case limits
     }
 
-    /// subscriptionType(max/pro/free) + rateLimitTier 배수를 합친 표시 문자열.
-    /// 예: subscriptionType="max", rateLimitTier="default_claude_max_20x" → "Max 20x".
-    /// 배수는 등급과 무관하게 tier 에 배수 토큰이 있을 때만 붙는다(Max 전용 분기 아님).
+    /// 플랜 표시 문자열. profile endpoint 가 이름을 알려주면(`plan_display_name`) 그대로 쓰고,
+    /// 없거나 실패하면 subscriptionType + rateLimitTier 로 조립한다.
+    /// 조립 규칙: Claude 가 Max 티어 이름을 바꿨다 — Max 5x → Max, Max 20x → Ultra. 자격증명의
+    /// subscriptionType/rateLimitTier 토큰은 그대로라(tier 는 여전히 default_claude_max_5x/20x)
+    /// 표시 단계에서만 새 이름으로 옮긴다.
+    /// 예: ("max","default_claude_max_20x") → "Ultra".
+    /// 배수는 등급과 무관하게 tier 에 배수 토큰이 있을 때만 붙는다(Max 전용 분기 아님) — Max 의
+    /// 미지 배수는 "Max 10x" 로 남겨, 새 등급이 생겨도 배수 숫자를 감추지 않는다.
     /// tier 에 배수 토큰이 없으면 등급명만("Pro"/"Free"), 구독 정보가 없으면 nil.
     var planDisplay: String? {
+        if let name = planDisplayName?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty {
+            return name
+        }
         guard let subscriptionType, !subscriptionType.isEmpty else { return nil }
         let base = subscriptionType.prefix(1).uppercased() + subscriptionType.dropFirst()
-        if let tier = rateLimitTier, let multiplier = Self.tierMultiplier(from: tier) {
-            return "\(base) \(multiplier)"
+        guard let tier = rateLimitTier, let multiplier = Self.tierMultiplier(from: tier) else {
+            return base
         }
-        return base
+        guard subscriptionType.lowercased() == "max" else { return "\(base) \(multiplier)" }
+        switch multiplier {
+        case "5x": return "Max"
+        case "20x": return "Ultra"
+        default: return "Max \(multiplier)"
+        }
     }
 
     /// 계정 라벨 — "email · 조직명". 개인 플랜의 자동 생성 조직명("<email>'s Organization")은
@@ -297,6 +313,14 @@ struct LimitStatus: Decodable, Sendable {
             let digits = part.dropLast()
             if !digits.isEmpty, digits.allSatisfy(\.isNumber) { return String(part) }
         }
+        return nil
+    }
+
+    /// 메뉴바처럼 좁은 표면이 대표로 보여 줄 창 — 5시간 세션이 있으면 그것, 없으면 주간.
+    /// 세션 한도가 없는 플랜(Ultra)은 `five_hour: null` 을 보낸다. 5h 고정이면 메뉴바에서 Claude 가 사라진다.
+    var headlineWindow: (window: LimitWindow, span: TimeInterval)? {
+        if let fiveHour, fiveHour.utilization != nil { return (fiveHour, LimitWindowSpan.fiveHour) }
+        if let sevenDay, sevenDay.utilization != nil { return (sevenDay, LimitWindowSpan.sevenDay) }
         return nil
     }
 
@@ -651,6 +675,158 @@ public struct CursorRateLimitStatus: Decodable, Sendable {
     }
 }
 
+// MARK: - OpenCode Go limits (opencode.ai/zen/go/v1/usage)
+
+/// One OpenCode Go window. The server reports a percentage of the dollar allowance, not dollars.
+public struct OpenCodeGoWindow: Decodable, Sendable, Equatable {
+    /// Raw server status (`"ok"` observed). Kept as text so an unknown value cannot fail the decode.
+    public var status: String?
+    public var percent: Double?
+    public var resetsAt: String?
+
+    public init(status: String? = nil, percent: Double? = nil, resetsAt: String? = nil) {
+        self.status = status
+        self.percent = percent
+        self.resetsAt = resetsAt
+    }
+
+    public var resetDate: Date? {
+        guard let resetsAt else { return nil }
+        return ISO8601Parser.date(from: resetsAt)
+    }
+
+    /// The server keeps the last window until the next request opens a new one, so a reset time in the
+    /// past means the window already ended: nothing of it is used any more.
+    func hasEnded(now: Date) -> Bool {
+        guard let reset = resetDate else { return false }
+        return reset <= now
+    }
+
+    /// Percentage that still counts at `now` — 0 once the window has ended.
+    func utilization(now: Date) -> Double? {
+        guard let percent else { return nil }
+        return hasEnded(now: now) ? 0 : max(0, percent)
+    }
+
+    /// Reset time to show, or nil once it has passed.
+    func activeReset(now: Date) -> Date? {
+        hasEnded(now: now) ? nil : resetDate
+    }
+}
+
+public struct OpenCodeGoRateLimitStatus: Decodable, Sendable, Equatable {
+    public var rolling: OpenCodeGoWindow?
+    public var weekly: OpenCodeGoWindow?
+    public var monthly: OpenCodeGoWindow?
+
+    public init(rolling: OpenCodeGoWindow? = nil, weekly: OpenCodeGoWindow? = nil, monthly: OpenCodeGoWindow? = nil) {
+        self.rolling = rolling
+        self.weekly = weekly
+        self.monthly = monthly
+    }
+
+    public var hasVisibleLimit: Bool {
+        [rolling, weekly, monthly].contains { $0?.percent != nil }
+    }
+
+    private enum RootKeys: String, CodingKey { case usage }
+    private enum UsageKeys: String, CodingKey { case rolling, weekly, monthly }
+
+    public init(from decoder: Decoder) throws {
+        let root = try decoder.container(keyedBy: RootKeys.self)
+        let usage = try root.nestedContainer(keyedBy: UsageKeys.self, forKey: .usage)
+        rolling = try? usage.decodeIfPresent(OpenCodeGoWindow.self, forKey: .rolling)
+        weekly = try? usage.decodeIfPresent(OpenCodeGoWindow.self, forKey: .weekly)
+        monthly = try? usage.decodeIfPresent(OpenCodeGoWindow.self, forKey: .monthly)
+    }
+}
+
+// MARK: - Grok credit limits (cli-chat-proxy.grok.com/v1/billing?format=credits)
+
+/// The Grok subscription's credit allowance for the current usage period, as the Grok CLI `/usage`
+/// modal shows it. The server reports percentages, not credits.
+public struct GrokCreditStatus: Decodable, Sendable, Equatable {
+    public struct Period: Decodable, Sendable, Equatable {
+        /// `USAGE_PERIOD_TYPE_WEEKLY` observed. Kept as text so an unknown value cannot fail the decode.
+        public var type: String?
+        public var start: String?
+        public var end: String?
+
+        public init(type: String? = nil, start: String? = nil, end: String? = nil) {
+            self.type = type
+            self.start = start
+            self.end = end
+        }
+    }
+
+    public struct ProductUsage: Decodable, Sendable, Equatable {
+        public var product: String?
+        public var usagePercent: Double?
+
+        public init(product: String? = nil, usagePercent: Double? = nil) {
+            self.product = product
+            self.usagePercent = usagePercent
+        }
+    }
+
+    public var currentPeriod: Period?
+    public var creditUsagePercent: Double?
+    public var productUsage: [ProductUsage]
+
+    public init(currentPeriod: Period? = nil, creditUsagePercent: Double? = nil, productUsage: [ProductUsage] = []) {
+        self.currentPeriod = currentPeriod
+        self.creditUsagePercent = creditUsagePercent
+        self.productUsage = productUsage
+    }
+
+    public var hasVisibleLimit: Bool { creditUsagePercent != nil }
+
+    public var periodStart: Date? { currentPeriod?.start.flatMap(ISO8601Parser.date(from:)) }
+    public var periodEnd: Date? { currentPeriod?.end.flatMap(ISO8601Parser.date(from:)) }
+
+    public var isWeekly: Bool { currentPeriod?.type == "USAGE_PERIOD_TYPE_WEEKLY" }
+    public var isMonthly: Bool { currentPeriod?.type == "USAGE_PERIOD_TYPE_MONTHLY" }
+
+    /// Length of the period, for the pace marker.
+    public var periodSpan: TimeInterval? {
+        guard let start = periodStart, let end = periodEnd, end > start else { return nil }
+        return end.timeIntervalSince(start)
+    }
+
+    /// A kept status can outlive its period (the token expired, so no newer status arrived).
+    /// Once the period has ended, none of it counts any more.
+    func hasEnded(now: Date) -> Bool {
+        guard let end = periodEnd else { return false }
+        return end <= now
+    }
+
+    func utilization(now: Date) -> Double? {
+        guard let creditUsagePercent else { return nil }
+        return hasEnded(now: now) ? 0 : max(0, creditUsagePercent)
+    }
+
+    func activeReset(now: Date) -> Date? {
+        hasEnded(now: now) ? nil : periodEnd
+    }
+
+    /// Per-product shares of the allowance, in server order, without products that used nothing.
+    func usedProducts(now: Date) -> [ProductUsage] {
+        guard !hasEnded(now: now) else { return [] }
+        return productUsage.filter { ($0.usagePercent ?? 0) > 0 && $0.product != nil }
+    }
+
+    private enum RootKeys: String, CodingKey { case config }
+    private enum ConfigKeys: String, CodingKey { case currentPeriod, creditUsagePercent, productUsage }
+
+    public init(from decoder: Decoder) throws {
+        let root = try decoder.container(keyedBy: RootKeys.self)
+        let config = try root.nestedContainer(keyedBy: ConfigKeys.self, forKey: .config)
+        currentPeriod = try? config.decodeIfPresent(Period.self, forKey: .currentPeriod)
+        creditUsagePercent = try? config.decodeIfPresent(Double.self, forKey: .creditUsagePercent)
+        productUsage = (try? config.decodeIfPresent([ProductUsage].self, forKey: .productUsage)) ?? []
+    }
+}
+
 // MARK: - Provider snapshot
 
 struct ProviderSnapshot: Sendable, Identifiable {
@@ -663,6 +839,8 @@ struct ProviderSnapshot: Sendable, Identifiable {
     /// This month's day-by-day totals (month start → today, empty days as zeros), or `nil` when
     /// the provider cannot produce a series. Defaulted so existing call sites stay unchanged.
     var monthDaily: [DailyUsage]? = nil
+    /// Rolling recent day-by-day totals (21 days → today), or `nil`.
+    var recentDaily: [DailyUsage]? = nil
     var fetchedAt: Date
     /// Mirrors `UsageProvider.reportsCost`. Default keeps existing call sites unchanged.
     var reportsCost: Bool = true
@@ -671,6 +849,24 @@ struct ProviderSnapshot: Sendable, Identifiable {
 
     var id: String { providerID }
     var todayTotalTokens: Int { today?.totalTokens ?? 0 }
+}
+
+enum DailyTrendWindow: String, CaseIterable, Identifiable, Sendable {
+    case d7 = "7d"
+    case d14 = "14d"
+    case d21 = "21d"
+    case month = "month"
+
+    var id: String { rawValue }
+
+    var dayCount: Int? {
+        switch self {
+        case .d7: return 7
+        case .d14: return 14
+        case .d21: return 21
+        case .month: return nil
+        }
+    }
 }
 
 // MARK: - ISO8601 with fractional seconds
