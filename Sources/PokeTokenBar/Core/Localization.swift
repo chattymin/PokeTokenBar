@@ -1527,6 +1527,31 @@ struct L {
           "Токен авторизации истёк. Повторите попытку или один раз запустите Antigravity IDE — токен обновится автоматически.")
     }
 
+    // MARK: OpenCode Go 공식 한도
+    var openCodeGoMonthly: String {
+        t("월간", "Monthly", "月間", "Mensual", "Mensuel", "Mensal", "Monatlich", "Месяц")
+    }
+    var openCodeGoAuthExpiredTitle: String {
+        t("OpenCode Go 키 거부 — 한도가 갱신 안 돼요",
+          "OpenCode Go key rejected — limits can't refresh",
+          "OpenCode Go キーが拒否されました — 上限を更新できません",
+          "Clave de OpenCode Go rechazada — los límites no se pueden actualizar",
+          "Clé OpenCode Go refusée — les limites ne s'actualisent pas",
+          "Chave do OpenCode Go recusada — não dá para atualizar os limites",
+          "OpenCode-Go-Schlüssel abgelehnt – Limits können nicht aktualisiert werden",
+          "Ключ OpenCode Go отклонён — лимиты не обновляются")
+    }
+    var openCodeGoAuthExpiredHint: String {
+        t("OpenCode 에서 /connect 로 OpenCode Go 키를 다시 연결해 주세요.",
+          "Reconnect your OpenCode Go key with /connect in OpenCode.",
+          "OpenCode で /connect を使って OpenCode Go キーを再接続してください。",
+          "Vuelve a conectar tu clave de OpenCode Go con /connect en OpenCode.",
+          "Reconnecte ta clé OpenCode Go avec /connect dans OpenCode.",
+          "Reconecte sua chave do OpenCode Go com /connect no OpenCode.",
+          "Verbinde deinen OpenCode-Go-Schlüssel in OpenCode mit /connect neu.",
+          "Подключите ключ OpenCode Go заново командой /connect в OpenCode.")
+    }
+
     // MARK: Cursor 공식 한도(월간 포함 allowance)
     var cursorMonthlyIncluded: String {
         t("월간 포함 allowance", "Monthly included", "月間 included", "Incluido mensual", "Inclus mensuel", "Incluso mensal", "Monatlich inklusive", "Включено в месяц")

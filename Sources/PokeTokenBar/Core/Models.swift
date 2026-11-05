@@ -675,6 +675,72 @@ public struct CursorRateLimitStatus: Decodable, Sendable {
     }
 }
 
+// MARK: - OpenCode Go limits (opencode.ai/zen/go/v1/usage)
+
+/// One OpenCode Go window. The server reports a percentage of the dollar allowance, not dollars.
+public struct OpenCodeGoWindow: Decodable, Sendable, Equatable {
+    /// Raw server status (`"ok"` observed). Kept as text so an unknown value cannot fail the decode.
+    public var status: String?
+    public var percent: Double?
+    public var resetsAt: String?
+
+    public init(status: String? = nil, percent: Double? = nil, resetsAt: String? = nil) {
+        self.status = status
+        self.percent = percent
+        self.resetsAt = resetsAt
+    }
+
+    public var resetDate: Date? {
+        guard let resetsAt else { return nil }
+        return ISO8601Parser.date(from: resetsAt)
+    }
+
+    /// The server keeps the last window until the next request opens a new one, so a reset time in the
+    /// past means the window already ended: nothing of it is used any more.
+    func hasEnded(now: Date) -> Bool {
+        guard let reset = resetDate else { return false }
+        return reset <= now
+    }
+
+    /// Percentage that still counts at `now` — 0 once the window has ended.
+    func utilization(now: Date) -> Double? {
+        guard let percent else { return nil }
+        return hasEnded(now: now) ? 0 : max(0, percent)
+    }
+
+    /// Reset time to show, or nil once it has passed.
+    func activeReset(now: Date) -> Date? {
+        hasEnded(now: now) ? nil : resetDate
+    }
+}
+
+public struct OpenCodeGoRateLimitStatus: Decodable, Sendable, Equatable {
+    public var rolling: OpenCodeGoWindow?
+    public var weekly: OpenCodeGoWindow?
+    public var monthly: OpenCodeGoWindow?
+
+    public init(rolling: OpenCodeGoWindow? = nil, weekly: OpenCodeGoWindow? = nil, monthly: OpenCodeGoWindow? = nil) {
+        self.rolling = rolling
+        self.weekly = weekly
+        self.monthly = monthly
+    }
+
+    public var hasVisibleLimit: Bool {
+        [rolling, weekly, monthly].contains { $0?.percent != nil }
+    }
+
+    private enum RootKeys: String, CodingKey { case usage }
+    private enum UsageKeys: String, CodingKey { case rolling, weekly, monthly }
+
+    public init(from decoder: Decoder) throws {
+        let root = try decoder.container(keyedBy: RootKeys.self)
+        let usage = try root.nestedContainer(keyedBy: UsageKeys.self, forKey: .usage)
+        rolling = try? usage.decodeIfPresent(OpenCodeGoWindow.self, forKey: .rolling)
+        weekly = try? usage.decodeIfPresent(OpenCodeGoWindow.self, forKey: .weekly)
+        monthly = try? usage.decodeIfPresent(OpenCodeGoWindow.self, forKey: .monthly)
+    }
+}
+
 // MARK: - Provider snapshot
 
 struct ProviderSnapshot: Sendable, Identifiable {
