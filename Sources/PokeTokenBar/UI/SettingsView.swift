@@ -219,6 +219,17 @@ struct SettingsView: View {
                 }
                 .labelsHidden().pickerStyle(.segmented).fixedSize()
             }
+            Divider()
+            groupRow {
+                Text(l.dailyTrendPeriod)
+                Spacer()
+                Picker(l.dailyTrendPeriod, selection: $store.dailyTrendWindow) {
+                    ForEach(DailyTrendWindow.allCases) { win in
+                        Text(l.title(for: win)).tag(win)
+                    }
+                }
+                .labelsHidden().pickerStyle(.menu).fixedSize()
+            }
             if store.claudeAccounts.count > 1 {
                 Divider()
                 trackedAccountRow(store)
@@ -316,6 +327,17 @@ struct SettingsView: View {
                 }
                 Spacer()
                 Toggle(l.floatingPetEnableLabel, isOn: $store.floatingPetEnabled)
+                    .labelsHidden().toggleStyle(.switch).controlSize(.small)
+            }
+            Divider()
+            groupRow {
+                // Also reachable from both right-click menus. Applies to every surface, not only the pet.
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(l.backViewLabel)
+                    Text(l.backViewHint).font(.caption2).foregroundStyle(.tertiary)
+                }
+                Spacer()
+                Toggle(l.backViewLabel, isOn: $store.alwaysFacesBack)
                     .labelsHidden().toggleStyle(.switch).controlSize(.small)
             }
             if store.floatingPetEnabled {

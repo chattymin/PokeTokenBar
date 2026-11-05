@@ -148,15 +148,18 @@ final class ZeroUsageHomeRenderingTests: XCTestCase {
         try VNImageRequestHandler(cgImage: XCTUnwrap(bitmap.cgImage)).perform([request])
         let text = request.results?.compactMap { $0.topCandidates(1).first?.string }.joined(separator: " ") ?? ""
         let normalizedText = text.replacingOccurrences(of: " ", with: "")
-        let chartCaption = companion.l.dailyTrend.replacingOccurrences(of: " ", with: "")
+        let chartCaptions = [
+            companion.l.title(for: store.dailyTrendWindow).replacingOccurrences(of: " ", with: ""),
+            companion.l.dailyTrend.replacingOccurrences(of: " ", with: ""),
+        ]
         let chartVisible = (request.results ?? []).contains { observation in
             // CI ranks "일벌" before "일별" at the same confidence. Vision returns at most 10 candidates.
             // Match the exact caption only within this observation's most confident tie.
             let alternatives = observation.topCandidates(10)
             guard let maximumConfidence = alternatives.first?.confidence else { return false }
-            return alternatives.contains {
-                $0.confidence == maximumConfidence
-                    && $0.string.replacingOccurrences(of: " ", with: "").contains(chartCaption)
+            return alternatives.contains { candidate in
+                candidate.confidence == maximumConfidence
+                    && chartCaptions.contains { candidate.string.replacingOccurrences(of: " ", with: "").contains($0) }
             }
         }
         let candidates = (request.results ?? []).enumerated().map { index, observation in

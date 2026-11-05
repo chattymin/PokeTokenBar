@@ -55,6 +55,22 @@ read_when:
   loaded status followed by HTTP 401. All four fail without the new guards (10 assertions), so the
   tests detect both unwanted external fetches and state left behind by a disabled provider.
 
+- **Legacy save imports must initialize completion history before tracking new catches.**
+  Generation-dex completion seeding originally ran only after `load()` in the initializer.
+  `applySave` replaced that seeded state with an older save whose missing tracking fields
+  decoded to `dexCompletionsSeeded = false`; every later completion check then returned early.
+  Restarting silently seeded completions earned in that session, so their notifications were
+  lost permanently. Seed immediately after importing and migrating profiles, before saving:
+  existing badges become history without notifications and later catches can announce new
+  badges. The class sweep covered all state replacements: startup loads already seed, while
+  snapshot restoration delegates to `applySave` and needs the same repair. Earlier tests only
+  loaded legacy files at startup and missed the import boundary. Permanent guards
+  `testLegacyImportSeedsExistingCompletionsBeforeANewHatch` and
+  `testLegacyImportWithoutEarnedBadgesStillEnablesFutureCompletions` decode actual old-format
+  save envelopes, import them, verify persisted seeding (including no earned badges), then
+  hatch the final Johto species and require the new notification key in the same session.
+  Both tests failed before the fix with seven assertions and pass after adding import seeding.
+
 - **Cursor usage and limits must share the refreshed login, with cookie and Bearer forms kept
   distinct.** Usage reread the expired SQLite access token on every poll while limits refreshed
   only its private local variable. This left limits working beside frozen/cached usage. A browser
@@ -834,6 +850,16 @@ read_when:
 
 ## 표시·UI
 
+- **Floating-pet features share one click route and one bubble reservation.** Agent activity (#457)
+  and pet interactions (#466) both changed the controller, hosting callbacks and sprite composition.
+  Keeping either side of their conflict alone discards egg prayers or agent acknowledgement, or
+  clips agent-only speech by reserving headroom only for limit alerts/hearts. Their original tests
+  exercised each feature separately. Resolve the shared surface together: limit > agent done >
+  agent waiting > hearts > hover/event; a plain click acknowledges agents before egg prayer or
+  hatched-pet Open, while context-menu Open always opens. Keep the heart/particles attached to
+  the sprite's bob modifier. `FloatingPetAgentTests` checks combined speech/headroom/event gates;
+  `FloatingPetAgentWiringTests` invokes the production hosting callbacks for eggs and hatched pets.
+
 - **초기 설정 이동은 애니메이션 완료에 의존하지 않는다.** 세션 키 만료·등록 안내에서
   `startExpanded`로 연 고급 섹션의 animated `scrollTo`가 비활성·non-key native 호스트에서
   반영되지 않았다. 원래 500ms 검사 시 clip Y는 0, 입력란의 host Y는 1483이었고, 입력 포커스만
@@ -1338,6 +1364,25 @@ read_when:
   fail the historical-chart assertion. Keep explicit pixel density, candidate diagnostics,
   and both CI fixture PNGs so recognition failures can be checked against rendered pixels.
   Other OCR harnesses passed the same CI runs; this repair is limited to the failing fixture.
+
+- **A native coordinate test must hit the requested glyphs and await the whole transition.**
+  CI run `41867694174` failed only the new region-chip test: Kanto's Maple card remained
+  visible after one Johto click, although the local full gate passed. The test clicked the
+  midpoint of Vision's whole observation and bypassed the existing navigation helper's
+  bounded transition retry. Vision can combine adjacent chip labels into one observation,
+  and native SwiftUI hit testing can lag the first rendered pixels. The original test saved
+  neither click bounds nor pixels, so the CI log could not distinguish those two paths.
+  Resolve the label's substring range against the same `VNRecognizedText` candidate and use
+  its glyph bounds; do not fall back to the merged row's midpoint. Check the complete target
+  state from one OCR snapshot before and after each bounded attempt, stopping immediately
+  on success so a late first click is not blindly toggled back off. The class sweep found
+  existing Back-navigation transitions already used a bounded retry; keep this repair on
+  the new region interaction. Preserve exact both-visible → Johto-only → both-visible checks,
+  log selected candidates/bounds, and save before/filtered/restored/failure PNGs into CI's
+  existing native-render artifact. `testClickBoundsFocusOnTheRequestedTextInsideAMergedObservation`
+  fails when glyph bounds are replaced by the full observation. The real CollectionView
+  interaction must still fail if the production region selection is disconnected, even after
+  all retry attempts. No production UI behavior or CI gate is changed for this harness repair.
 
 - **Use unambiguous fixture words for exact OCR navigation assertions.**
   `DexBackNavigationTests.testBackFromDetailReturnsTheLogToWhereItWas` failed in CI run

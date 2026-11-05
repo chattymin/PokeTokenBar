@@ -121,6 +121,9 @@ final class UsageStore {
     var limitDisplayMode: LimitDisplayMode {
         didSet { defaults.set(limitDisplayMode.rawValue, forKey: "limitDisplayMode") }
     }
+    var dailyTrendWindow: DailyTrendWindow {
+        didSet { defaults.set(dailyTrendWindow.rawValue, forKey: "dailyTrendWindow") }
+    }
     /// 상시 표시 애니메이션(메뉴바 스프라이트 + 플로팅 펫)의 부드러움 ↔ 배터리 절충.
     ///
     /// 값은 GIF 프레임 지속의 **하한**(초)으로, `GIFDecoder.capFrameRate` 가 프레임을 솎아내
@@ -151,6 +154,12 @@ final class UsageStore {
     var animationQuality: AnimationQuality {
         didSet { defaults.set(animationQuality.rawValue, forKey: "animationQuality") }
     }
+    /// 팝오버가 그릴 활동 시각화. 저장된 rawValue 를 모르면 기본값으로 내려앉으므로, 시각화를
+    /// 덜어낸 빌드로 되돌아가거나 `defaults write` 로 아무 값이나 들어와도 팝오버가 비지 않는다
+    /// (`LimitDisplayMode` 와 같은 관대 복원).
+    var activityVisualization: ActivityVisualization {
+        didSet { defaults.set(activityVisualization.rawValue, forKey: "activityVisualization") }
+    }
     // 알림(독립 토글)
     var limitNotifications: Bool {
         didSet { defaults.set(limitNotifications, forKey: "limitNotifications") }
@@ -169,6 +178,10 @@ final class UsageStore {
     // 플로팅 펫 (데스크톱 위 고정 오버레이 — 스스로 이동하지 않음, 드래그로만 위치 변경)
     var floatingPetEnabled: Bool {
         didSet { defaults.set(floatingPetEnabled, forKey: "floatingPetEnabled") }
+    }
+    /// Always show the companion's back sprite, regardless of usage. A display preference only. Default off.
+    var alwaysFacesBack: Bool {
+        didSet { defaults.set(alwaysFacesBack, forKey: "alwaysFacesBack") }
     }
     /// 플로팅 펫 스프라이트 한 변 크기(pt).
     var floatingPetSize: Double {
@@ -548,9 +561,97 @@ final class UsageStore {
         return byDay.values.sorted { $0.date < $1.date }
     }
 
+    var dailyTrendTotals: [DailyUsage] {
+        dailyTrendTotals(for: dailyTrendWindow)
+    }
+
+    var hasDailyTrendHistory: Bool {
+        snapshots.contains { snapshot in
+            snapshot.monthDaily?.contains(where: { $0.totalTokens > 0 }) == true
+                || snapshot.recentDaily?.contains(where: { $0.totalTokens > 0 }) == true
+        }
+    }
+
+    func dailyTrendTotals(for window: DailyTrendWindow) -> [DailyUsage] {
+        switch window {
+        case .month:
+            return monthDailyTotals
+        case .d7, .d14, .d21:
+            guard let days = window.dayCount else { return monthDailyTotals }
+            return rollingDailyTotals(days: days)
+        }
+    }
+
+    func rollingDailyTotals(days: Int) -> [DailyUsage] {
+        var byDay: [String: DailyUsage] = [:]
+        for snapshot in snapshots {
+            guard let fullSeries = snapshot.recentDaily ?? snapshot.monthDaily else { continue }
+            let countsCost = snapshot.reportsCost
+            let series = fullSeries.suffix(days)
+            for day in series {
+                var merged = byDay[day.date] ?? DailyUsage(
+                    date: day.date, inputTokens: 0, outputTokens: 0,
+                    cacheCreationTokens: 0, cacheReadTokens: 0, totalTokens: 0, totalCost: 0, costCoverage: .empty)
+                merged.inputTokens += day.inputTokens
+                merged.outputTokens += day.outputTokens
+                merged.cacheCreationTokens += day.cacheCreationTokens
+                merged.cacheReadTokens += day.cacheReadTokens
+                merged.totalTokens += day.totalTokens
+                if countsCost {
+                    merged.totalCost += day.totalCost
+                    merged.costCoverage.merge(day.costCoverage)
+                }
+                byDay[day.date] = merged
+            }
+        }
+        return byDay.values.sorted { $0.date < $1.date }
+    }
+
+    var trendProviders: [DailyTrendStack.ProviderSeries] {
+        trendProviders(for: dailyTrendWindow)
+    }
+
+    func trendProviders(for window: DailyTrendWindow) -> [DailyTrendStack.ProviderSeries] {
+        snapshots.compactMap { snap in
+            let series: [DailyUsage]? = {
+                switch window {
+                case .month:
+                    return snap.monthDaily
+                case .d7, .d14, .d21:
+                    guard let days = window.dayCount else { return snap.monthDaily }
+                    if let recent = snap.recentDaily {
+                        return Array(recent.suffix(days))
+                    }
+                    return snap.monthDaily.map { Array($0.suffix(days)) }
+                }
+            }()
+            return series.map {
+                DailyTrendStack.ProviderSeries(
+                    id: snap.providerID, name: snap.displayName,
+                    days: $0, reportsCost: snap.reportsCost)
+            }
+        }
+    }
+
     /// Day-by-day history behind the usage recap. Providers only report the current month, so the
     /// numbers are copied into a rolling ledger at every refresh — see `UsageLedger`.
     private(set) var dailyLedger = UsageLedger()
+    /// The first refresh of this session has finished its enrichment scan. Until then `lastUsage` may be a
+    /// restored or carried-over value, so nothing is known yet.
+    private(set) var lastUsageKnown = false
+    /// Providers whose latest enrichment scan failed. Their `lastUsage` is a carried-over value.
+    private var failedEnrichmentIDs: Set<String> = []
+
+    /// How long ago the newest token usage happened (`ProviderSnapshot.lastUsage`, the same value that
+    /// keeps a recently used provider's tab visible). nil only before the first complete refresh, which
+    /// must never be treated as idle. After that a provider that cannot be read does not veto: it is
+    /// ignored, and if no provider reports any usage time the answer is "at least the scan window".
+    func timeSinceLastUsage(now: Date = Date()) -> TimeInterval? {
+        guard lastUsageKnown else { return nil }
+        let reported = snapshots.filter { !failedEnrichmentIDs.contains($0.providerID) }.compactMap(\.lastUsage)
+        guard let last = reported.max() else { return LocalUsageReader.recentUseWindow }
+        return max(0, now.timeIntervalSince(last))
+    }
 
     /// The run of days with usage that is still going, read from the same ledger as the recap.
     var currentStreak: UsageStreak {
@@ -856,12 +957,16 @@ final class UsageStore {
         showLimitInMenu = d.object(forKey: "showLimitInMenu") as? Bool ?? false
         showGrowthInMenu = d.object(forKey: "showGrowthInMenu") as? Bool ?? false
         limitDisplayMode = LimitDisplayMode(rawValue: d.string(forKey: "limitDisplayMode") ?? "") ?? .used
+        dailyTrendWindow = DailyTrendWindow(rawValue: d.string(forKey: "dailyTrendWindow") ?? "") ?? .d14
         menuLimitColorMode = MenuLimitColorMode(rawValue: d.string(forKey: "menuLimitColorMode") ?? "") ?? .gauge
+        activityVisualization = ActivityVisualization(
+            rawValue: d.string(forKey: "activityVisualization") ?? "") ?? .default
         limitNotifications = d.object(forKey: "limitNotifications") as? Bool ?? true
         companionNotifications = d.object(forKey: "companionNotifications") as? Bool ?? true
         updateNotificationsEnabled = d.object(forKey: "updateNotificationsEnabled") as? Bool ?? true
         statusChecksEnabled = d.object(forKey: "statusChecksEnabled") as? Bool ?? true
         floatingPetEnabled = d.object(forKey: "floatingPetEnabled") as? Bool ?? false
+        alwaysFacesBack = d.object(forKey: "alwaysFacesBack") as? Bool ?? false
         floatingPetSize = d.object(forKey: "floatingPetSize") as? Double ?? 96
         floatingPetBubbleAlerts = d.object(forKey: "floatingPetBubbleAlerts") as? Bool ?? true
         floatingPetAgentActivity = d.object(forKey: "floatingPetAgentActivity") as? Bool ?? true
@@ -1052,6 +1157,7 @@ final class UsageStore {
             var prevWeek: PeriodUsage?
             var prevMonth: PeriodUsage?
             var prevMonthDaily: [DailyUsage]?
+            var prevRecentDaily: [DailyUsage]?
             var prevLastUsage: Date?
             if let previous = snapshots.first(where: { $0.providerID == provider.id }) {
                 prevLastUsage = previous.lastUsage
@@ -1062,6 +1168,7 @@ final class UsageStore {
                 prevWeek = previous.weekTotal
                 prevMonth = previous.monthTotal
                 prevMonthDaily = previous.monthDaily
+                prevRecentDaily = previous.recentDaily
             }
 
             let today: DailyUsage?
@@ -1084,6 +1191,7 @@ final class UsageStore {
                 weekTotal: prevWeek,
                 monthTotal: prevMonth,
                 monthDaily: prevMonthDaily,
+                recentDaily: prevRecentDaily,
                 fetchedAt: Date(),
                 reportsCost: provider.reportsCost,
                 lastUsage: prevLastUsage)
@@ -1105,11 +1213,13 @@ final class UsageStore {
         handleEmptyUsageRetry(schedule: scheduleEmptyRetry && !providers.isEmpty, hasErrors: !errors.isEmpty)
 
         // ── Phase 2: 블록/주월 누적 상세 (best effort) — 실패 시 이전 값 유지
+        var failedEnrichment: Set<String> = []
         await withTaskGroup(of: (String, ProviderEnrichment).self) { group in
             for provider in providers {
                 group.addTask { (provider.id, await provider.fetchEnrichment()) }
             }
             for await (id, enrichment) in group {
+                if !enrichment.periodsOK { failedEnrichment.insert(id) }
                 guard let index = snapshots.firstIndex(where: { $0.providerID == id }) else {
                     // An idle day still has useful history. Require positive usage, not merely
                     // non-nil periods: local providers also return all-zero period summaries.
@@ -1120,6 +1230,7 @@ final class UsageStore {
                             weekTotal: enrichment.periodsOK ? enrichment.weekTotal : nil,
                             monthTotal: enrichment.periodsOK ? enrichment.monthTotal : nil,
                             monthDaily: enrichment.periodsOK ? enrichment.monthDaily : nil,
+                            recentDaily: enrichment.periodsOK ? enrichment.recentDaily : nil,
                             fetchedAt: Date(),
                             reportsCost: provider.reportsCost,
                             lastUsage: enrichment.periodsOK ? enrichment.lastUsage : nil)
@@ -1132,10 +1243,13 @@ final class UsageStore {
                     snapshots[index].weekTotal = enrichment.weekTotal
                     snapshots[index].monthTotal = enrichment.monthTotal
                     snapshots[index].monthDaily = enrichment.monthDaily
+                    snapshots[index].recentDaily = enrichment.recentDaily
                     snapshots[index].lastUsage = enrichment.lastUsage
                 }
             }
         }
+        failedEnrichmentIDs = failedEnrichment
+        lastUsageKnown = true
         // Successful empty enrichment removes obsolete carriers; failed reads retain history.
         snapshots.removeAll { !$0.hasDisplayableUsage }
         // Carriers arrive in task-completion order; keep tabs in provider registration order.
@@ -2195,6 +2309,7 @@ private extension ProviderSnapshot {
             || (weekTotal?.totalTokens ?? 0) > 0
             || (monthTotal?.totalTokens ?? 0) > 0
             || monthDaily?.contains(where: { $0.totalTokens > 0 }) == true
+            || recentDaily?.contains(where: { $0.totalTokens > 0 }) == true
             || lastUsage.map { Date().timeIntervalSince($0) <= LocalUsageReader.recentUseWindow } == true
     }
 }

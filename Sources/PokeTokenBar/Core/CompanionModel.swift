@@ -1,8 +1,9 @@
 import Foundation
 
 /// 표시 상태 — 사용량/burn 으로 결정(스프라이트 모션 강도·상태 문구).
+/// `sulk`: no token usage for `PokemonBalance.sulkAfterIdle` — the companion turns its back.
 enum CompanionStateKind: String, Sendable {
-    case egg, idle, working, focus, tired, sleep, levelUp
+    case egg, idle, working, focus, tired, sleep, sulk, levelUp
 }
 
 /// 앱 언어. 포켓몬 이름은 PokéAPI 다국어 names 에서 가져온다.
@@ -104,6 +105,8 @@ enum Rarity: String, Codable, Sendable {
 /// 졸업 총량 T 는 같은 희귀도면 진화 단계 수와 무관하게 동일.
 /// 형태 k개 라인에서 i번째 형태 성장 비용 = T·i / (k(k+1)/2) → 합 = T, 단계↑일수록 비용↑.
 enum PokemonBalance {
+    /// With no token usage for this long the companion turns its back (`CompanionStateKind.sulk`).
+    static let sulkAfterIdle: TimeInterval = 3 * 3600
     /// 알 부화 임계 — 이만큼 토큰을 써야 알이 깨진다(즉시 부화 대신 기대감). 초과분은 부화체 성장에 이월.
     static let eggHatchThreshold = 5_000_000
     static let repeatGrowthMultiplier = 2
@@ -450,6 +453,12 @@ enum PokemonOdds {
     static let dittoSpeciesID = 132
 }
 
+/// Prayers said over an egg, carried onto the individual that hatched from it.
+/// Purely cosmetic: no roll (species, rarity, shiny, nature, form, profile) ever reads it.
+struct PrayerRecord: Codable, Sendable, Equatable {
+    var count: Int
+}
+
 /// 현재 키우는 포켓몬.
 struct MonState: Codable, Sendable {
     var baseID: Int
@@ -469,6 +478,8 @@ struct MonState: Codable, Sendable {
     // 메타몽 위장 — nil=일반. 값=정체 메타몽, 이 종으로 위장 중(위장 구간엔 baseID 와 동일, 리빌 후에도 원 위장체 보존).
     var dittoDisguise: Int?
     var dittoRevealed = false       // 위장 → 리빌(정체 공개) 전환 여부
+    /// Prayers said over the egg this individual hatched from. Nil = none (and every pre-prayer save).
+    var prayers: PrayerRecord?
     /// 화면에 이로치로 보여도 되는가 — 위장 중 메타몽은 리빌 전까지 숨긴다. 표시 경로는 전부 이것만 쓴다.
     var displaysShiny: Bool { isShiny && (dittoDisguise == nil || dittoRevealed) }
     // pathIDs 가 비면(손상된 상태 파일) baseID 로 폴백 — 렌더마다 읽히므로 out-of-bounds 크래시 방지.
@@ -484,7 +495,8 @@ struct MonState: Codable, Sendable {
     init(baseID: Int, pathIDs: [Int], plannedPathIDs: [Int]? = nil, stageIndex: Int, usedAtStage: Int,
          rarity: Rarity, totalForms: Int, isShiny: Bool = false, nature: PokemonNature? = nil,
          profile: PokemonProfile? = nil, hasGrowthBoost: Bool = false,
-         dittoDisguise: Int? = nil, dittoRevealed: Bool = false, form: PokemonForm? = nil) {
+         dittoDisguise: Int? = nil, dittoRevealed: Bool = false, form: PokemonForm? = nil,
+         prayers: PrayerRecord? = nil) {
         self.baseID = baseID
         self.pathIDs = pathIDs
         if let plannedPathIDs, !plannedPathIDs.isEmpty {
@@ -502,6 +514,7 @@ struct MonState: Codable, Sendable {
         self.hasGrowthBoost = hasGrowthBoost
         self.dittoDisguise = dittoDisguise
         self.dittoRevealed = dittoRevealed
+        self.prayers = prayers
         self.form = PokemonForm.resolved(baseID: baseID, form: form)
     }
 
@@ -531,6 +544,7 @@ struct MonState: Codable, Sendable {
         hasGrowthBoost = try c.decodeIfPresent(Bool.self, forKey: .hasGrowthBoost) ?? false
         dittoDisguise = try c.decodeIfPresent(Int.self, forKey: .dittoDisguise)
         dittoRevealed = try c.decodeIfPresent(Bool.self, forKey: .dittoRevealed) ?? false
+        prayers = (try? c.decodeIfPresent(PrayerRecord.self, forKey: .prayers)) ?? nil
         form = PokemonForm.resolved(baseID: baseID, form: PokemonForm.decoded(from: decoder, keys: "form", "unownForm"))
     }
 }
@@ -550,6 +564,8 @@ struct DexEntry: Codable, Sendable, Identifiable {
     var form: PokemonForm?
     /// The individual profile at graduation/release. Nil only for pre-profile saves until migration.
     var profile: PokemonProfile?
+    /// Prayers said over the egg this individual hatched from. Nil = none (and every pre-prayer save).
+    var prayers: PrayerRecord?
     /// 진화 체인 각 종의 다국어 이름(speciesID → langCode → name). 졸업 시 로드된 라인에서 저장 →
     /// 도감의 단계별 스프라이트 밑 이름 표시가 네트워크 없이 즉시 + 언어 전환 대응. 구버전 저장분엔
     /// 없어(nil) 뷰가 line fetch 로 조회 후 백필한다.
@@ -572,7 +588,7 @@ struct DexEntry: Codable, Sendable, Identifiable {
          baseID: Int, finalID: Int, chainOrder: [Int], rarity: Rarity,
          caughtAt: Date?, isShiny: Bool = false, nature: PokemonNature? = nil,
          profile: PokemonProfile? = nil, names: [Int: [String: String]]? = nil, releasedAt: Date? = nil,
-         form: PokemonForm? = nil) {
+         form: PokemonForm? = nil, prayers: PrayerRecord? = nil) {
         self.id = id
         self.baseID = baseID
         self.finalID = finalID
@@ -586,6 +602,7 @@ struct DexEntry: Codable, Sendable, Identifiable {
         self.namesVersion = chainOrder.allSatisfy { names?[$0]?.isEmpty == false }
             ? Self.currentNamesVersion : nil
         self.releasedAt = releasedAt
+        self.prayers = prayers
         self.form = PokemonForm.resolved(baseID: baseID, form: form)
     }
 
@@ -602,6 +619,7 @@ struct DexEntry: Codable, Sendable, Identifiable {
         nature = try c.decodeIfPresent(PokemonNature.self, forKey: .nature)
         // 프로필만 손상되면 개체 기록은 보존하고 프로필을 다시 생성한다.
         profile = (try? c.decodeIfPresent(PokemonProfile.self, forKey: .profile)) ?? nil
+        prayers = (try? c.decodeIfPresent(PrayerRecord.self, forKey: .prayers)) ?? nil
         // try? — 구버전(최종체 단일 [String:String]) 형식이 남아 있어도 종별 맵 디코딩 실패 시 nil 로
         // 강등(항목 전체 로드는 유지). 뷰가 line 조회로 백필한다.
         names = (try? c.decodeIfPresent([Int: [String: String]].self, forKey: .names)) ?? nil
@@ -648,6 +666,9 @@ struct CompanionState: Codable, Sendable {
     var pendingHatchID: Int?
     /// The form is chosen with the species so prefetch warms the exact sprite that will hatch.
     var pendingForm: PokemonForm?
+    /// Prayers said over the current egg (nil until the first one). Egg-scoped like `eggUsage`:
+    /// reset by `resetEggPrayers` whenever a new egg starts and copied onto the hatched individual.
+    var eggPrayers: PrayerRecord?
     /// 오늘 사용량 적립 기준값 — 프로바이더별로 독립 관리한다.
     ///
     /// `nil`은 aggregate `claimedTodayTokens`만 가지고 있던 구버전 세이브가 아직 첫 유효
@@ -677,6 +698,10 @@ struct CompanionState: Codable, Sendable {
     var candyWindowEpoch: [String: String] = [:]
     // 사탕 지급 첫 실행 시드 완료 — 업데이트 직후 이미 100%였던 창의 소급 지급 차단.
     var candyFeatureSeeded = false
+    // 세대(지역) 도감 완성 알림을 이미 보낸 배지 키. 재시작마다 다시 알리지 않게 영속.
+    var notifiedDexCompletions: Set<String> = []
+    // 완성 추적 첫 실행 시드 완료 — 기능 출시 전 이미 완성한 세대에 알림 폭주를 막는다(candyFeatureSeeded 패턴).
+    var dexCompletionsSeeded = false
 
     init() {}
 
@@ -694,6 +719,7 @@ struct CompanionState: Codable, Sendable {
         pendingHatchID     = c.lenientOptional(Int.self, forKey: .pendingHatchID)
         pendingForm        = PokemonForm.resolved(baseID: pendingHatchID ?? 0,
             form: PokemonForm.decoded(from: decoder, keys: "pendingForm", "pendingUnownForm"))
+        eggPrayers         = c.lenientOptional(PrayerRecord.self, forKey: .eggPrayers)
         if c.contains(.claimedTodayTokensByProvider) {
             claimedTodayTokensByProvider = c.lenient([String: Int].self,
                                                       forKey: .claimedTodayTokensByProvider,
@@ -717,6 +743,8 @@ struct CompanionState: Codable, Sendable {
         candyGrantTier     = c.lenient([String: Int].self, forKey: .candyGrantTier, default: [:])
         candyWindowEpoch   = c.lenient([String: String].self, forKey: .candyWindowEpoch, default: [:])
         candyFeatureSeeded = c.lenient(Bool.self, forKey: .candyFeatureSeeded, default: false)
+        notifiedDexCompletions = c.lenient(Set<String>.self, forKey: .notifiedDexCompletions, default: [])
+        dexCompletionsSeeded = c.lenient(Bool.self, forKey: .dexCompletionsSeeded, default: false)
     }
 
     /// 졸업 기록 또는 현재 개체가 실제로 도달한 단계에 이 종이 포함되는가.
@@ -774,6 +802,9 @@ struct CompanionState: Codable, Sendable {
               PokemonForm.resolved(speciesID: speciesID, form: active.form) == form else { return false }
         return active.displaysShiny
     }
+
+    /// Forget the prayers of the previous egg. Call on every path that starts a new egg (or consumes this one).
+    mutating func resetEggPrayers() { eggPrayers = nil }
 
     /// 대표 포켓몬은 사용자가 현재 보유한 종만 가리킨다. Fresh Egg·메타몽 리빌·손편집 세이브가
     /// 유령 종을 메뉴바와 플로팅 펫에 영구히 남기지 않게 한다.

@@ -375,6 +375,15 @@ final class UsageStoreTests: XCTestCase {
         XCTAssertFalse(reloaded.floatingPetAgentActivity)
     }
 
+    /// Always facing back is a display preference: default off, persisted like the floating pet settings.
+    func testAlwaysFacesBackDefaultsOffAndPersists() {
+        let claude = FakeUsageProvider(id: "claude_code", displayName: "Claude Code", daily: todayDaily(1_000))
+        let store = makeStore(providers: [claude])
+        XCTAssertFalse(store.alwaysFacesBack)
+        store.alwaysFacesBack = true
+        XCTAssertTrue(makeStore(providers: [claude]).alwaysFacesBack, "persists across restarts")
+    }
+
     /// Bubble picker is pure: critical beats warn; within a tier higher utilization wins (stable choice).
     func testBubbleAlertPicksHighestSeverityThenUtilization() {
         let warnLow = UsageStore.LimitAlert(key: "a", window: "A", isCritical: false, utilization: 81)
@@ -1131,6 +1140,51 @@ final class UsageStoreTests: XCTestCase {
         XCTAssertTrue(store.snapshots.contains { $0.providerID == "codex" })
     }
 
+    /// Sulk input: unknown only before the first complete refresh; afterwards unreadable providers are
+    /// ignored (not a veto) and the newest `lastUsage` among the rest decides.
+    func testTimeSinceLastUsageIsUnknownOnlyBeforeTheFirstRefresh() async throws {
+        let now = Date()
+        let older = FakeUsageProvider(id: "codex", displayName: "Codex", daily: todayDaily(1))
+        let newer = FakeUsageProvider(id: "claude_code", displayName: "Claude Code", daily: todayDaily(1))
+        func enrichment(lastUsage: Date?, periodsOK: Bool = true) -> ProviderEnrichment {
+            ProviderEnrichment(activeBlock: nil, blocksOK: true,
+                               weekTotal: PeriodUsage(period: "w", totalTokens: 1, totalCost: 0),
+                               monthTotal: PeriodUsage(period: "m", totalTokens: 1, totalCost: 0),
+                               monthDaily: [todayDaily(1)], periodsOK: periodsOK, lastUsage: lastUsage)
+        }
+        older.enrichment = enrichment(lastUsage: now.addingTimeInterval(-50 * 3600))
+        newer.enrichment = enrichment(lastUsage: now.addingTimeInterval(-30 * 3600))
+        let store = makeStore(providers: [older, newer])
+        XCTAssertNil(store.timeSinceLastUsage(now: now), "nothing scanned yet: unknown, never idle")
+
+        await store.refresh(scheduleEmptyRetry: false)
+        XCTAssertEqual(try XCTUnwrap(store.timeSinceLastUsage(now: now)), 30 * 3600, accuracy: 1)
+
+        // The newer provider becomes unreadable: its carried-over time is ignored, the older one decides.
+        newer.enrichment = enrichment(lastUsage: nil, periodsOK: false)
+        await store.refresh(scheduleEmptyRetry: false)
+        XCTAssertEqual(try XCTUnwrap(store.timeSinceLastUsage(now: now)), 50 * 3600, accuracy: 1,
+                       "an unreadable provider does not veto sulking")
+
+        // One provider fails while the other reported 4 h ago: that is idle enough to sulk.
+        older.enrichment = enrichment(lastUsage: now.addingTimeInterval(-4 * 3600))
+        await store.refresh(scheduleEmptyRetry: false)
+        let idle = try XCTUnwrap(store.timeSinceLastUsage(now: now))
+        XCTAssertEqual(idle, 4 * 3600, accuracy: 1)
+        XCTAssertGreaterThanOrEqual(idle, PokemonBalance.sulkAfterIdle)
+
+        // Every provider fails after the first refresh: nothing reports, so it is long idle.
+        older.enrichment = enrichment(lastUsage: nil, periodsOK: false)
+        await store.refresh(scheduleEmptyRetry: false)
+        XCTAssertEqual(store.timeSinceLastUsage(now: now), LocalUsageReader.recentUseWindow)
+
+        // A complete scan that found no usage at all means the same.
+        older.enrichment = enrichment(lastUsage: nil)
+        newer.enrichment = enrichment(lastUsage: nil)
+        await store.refresh(scheduleEmptyRetry: false)
+        XCTAssertEqual(store.timeSinceLastUsage(now: now), LocalUsageReader.recentUseWindow)
+    }
+
     func testNoCarrierForProviderIdleBeyondRecentWindow() async {
         let codex = FakeUsageProvider(id: "codex", displayName: "Codex", daily: nil)
         codex.enrichment = ProviderEnrichment(
@@ -1755,6 +1809,39 @@ extension UsageStoreTests {
         let store = makeStore(providers: [])
         store.menuLimitColorMode = .attention
         XCTAssertEqual(makeStore(providers: []).menuLimitColorMode, .attention)
+    }
+
+    func testDailyTrendWindowDefaultsTo14DaysAndPersists() {
+        let store = makeStore(providers: [])
+        XCTAssertEqual(store.dailyTrendWindow, .d14, "Default daily trend window must be 14 days")
+
+        store.dailyTrendWindow = .d7
+        XCTAssertEqual(store.dailyTrendWindow, .d7)
+
+        let reloaded = makeStore(providers: [])
+        XCTAssertEqual(reloaded.dailyTrendWindow, .d7, "Daily trend window selection must persist in defaults")
+    }
+
+    func testDailyTrendTotalsFollowsActiveWindow() async {
+        let fake = FakeUsageProvider(id: "fake", displayName: "Fake")
+        fake.daily = DailyUsage(date: "2026-10-15", inputTokens: 0, outputTokens: 100,
+                                cacheCreationTokens: 0, cacheReadTokens: 0, totalTokens: 100, totalCost: 0)
+        var en = ProviderEnrichment()
+        en.recentDaily = [DailyUsage(date: "2026-10-15", inputTokens: 0, outputTokens: 100,
+                                     cacheCreationTokens: 0, cacheReadTokens: 0, totalTokens: 100, totalCost: 0)]
+        en.monthDaily = [DailyUsage(date: "2026-10-01", inputTokens: 0, outputTokens: 500,
+                                    cacheCreationTokens: 0, cacheReadTokens: 0, totalTokens: 500, totalCost: 0)]
+        en.periodsOK = true
+        fake.enrichment = en
+
+        let store = makeStore(providers: [fake])
+        await store.refresh()
+
+        store.dailyTrendWindow = .d14
+        XCTAssertEqual(store.dailyTrendTotals.first?.totalTokens, 100)
+
+        store.dailyTrendWindow = .month
+        XCTAssertEqual(store.dailyTrendTotals.first?.totalTokens, 500)
     }
 
     /// Plans without a session limit (Ultra) send `five_hour: null`: the menu bar falls back to the
