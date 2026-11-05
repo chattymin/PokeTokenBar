@@ -7,6 +7,7 @@ enum LocalAdditionalSource: String, Sendable {
     case cursor
     case copilot
     case devin
+    case mistral
     case kiro
     case aside
 }
@@ -94,6 +95,23 @@ struct LocalDevinProvider: UsageProvider {
     }
 }
 
+/// Mistral Vibe usage from its local unified session store.
+struct LocalMistralProvider: UsageProvider {
+    let id = "mistral"
+    let displayName = "Mistral"
+    var cache: LocalAdditionalUsageCache = .shared
+
+    func fetchDaily() async throws -> DailyUsage? {
+        let entries = await cache.entries(for: .mistral)
+        return LocalUsageReader.daily(entries: entries, localDay: LocalUsageReader.todayKey())
+    }
+
+    func fetchEnrichment() async -> ProviderEnrichment {
+        let entries = await cache.entries(for: .mistral)
+        return .local(entries: entries)
+    }
+}
+
 /// Kiro CLI usage estimated from local conversation history.
 ///
 /// Two on-disk generations coexist. Pre-2.20 writes
@@ -150,20 +168,23 @@ struct LocalAsideProvider: UsageProvider {
 actor LocalAdditionalUsageCache {
     static let shared = LocalAdditionalUsageCache()
 
-    /// Test seams: fixed Aside/Devin scan roots (production reads Settings inside the reader; the
+    /// Test seams: fixed Aside/Devin/Mistral scan roots (production reads Settings inside the reader; the
     /// other sources still read their own roots) and a clock so a test can step past the
     /// 30 s entry without sleeping.
     private let asideRootsOverride: [URL]?
     private let devinRootsOverride: [URL]?
+    private let mistralRootsOverride: [URL]?
     private let clock: @Sendable () -> Date
 
     init(
         asideRootsOverride: [URL]? = nil,
         devinRootsOverride: [URL]? = nil,
+        mistralRootsOverride: [URL]? = nil,
         clock: @escaping @Sendable () -> Date = Date.init
     ) {
         self.asideRootsOverride = asideRootsOverride
         self.devinRootsOverride = devinRootsOverride
+        self.mistralRootsOverride = mistralRootsOverride
         self.clock = clock
     }
 
@@ -247,6 +268,12 @@ actor LocalAdditionalUsageCache {
             // silently drop out of today's total.
             since = periodStart
             afterRowIDByPath = [:]
+        case .mistral:
+            // Vibe rewrites each session's snapshot in place and deletes a closed subagent's
+            // store, so every scan re-derives session totals and merges with `existing` below:
+            // keep-max holds a session's highest total, and a deleted child stays counted.
+            since = periodStart
+            afterRowIDByPath = [:]
         case .aside:
             // Aside's `session_turns.token_usage` is rewritten in place while a turn runs
             // and deleting a session cascades to its turns, so like Kiro every scan
@@ -259,6 +286,7 @@ actor LocalAdditionalUsageCache {
         let knownKiro = previous?.kiroSignatures ?? [:]
         let asideRoots = asideRootsOverride
         let devinRoots = devinRootsOverride
+        let mistralRoots = mistralRootsOverride
         let task = Task.detached(priority: .utility) {
             () async -> ScanResult in
             switch source {
@@ -273,6 +301,10 @@ actor LocalAdditionalUsageCache {
                 return ScanResult(
                     entries: LocalUsageReader.dedupKeepMax(existing + loaded.entries),
                     kiroSignatures: loaded.signatures)
+            case .mistral:
+                let loaded = LocalAdditionalUsageReader.mistralEntries(
+                    modifiedSince: since, roots: mistralRoots)
+                return ScanResult(entries: LocalUsageReader.dedupKeepMax(existing + loaded))
             case .aside:
                 let loaded = LocalAsideUsageReader.entries(modifiedSince: since, roots: asideRoots)
                 return ScanResult(entries: LocalUsageReader.dedupKeepMax(existing + loaded))
@@ -1229,6 +1261,158 @@ enum LocalAdditionalUsageReader {
                     cacheRead: intValue(metrics["cache_read_tokens"]),
                     costUnavailable: true)
             })
+    }
+
+    // MARK: Mistral Vibe unified session store
+
+    static var defaultMistralRoots: [URL] { mistralRoots() }
+
+    /// Vibe's session log folder, `$VIBE_HOME/logs/session` (default `~/.vibe/logs/session`).
+    /// Each session keeps its own store in `<root>/unified/<session id>/`.
+    static func mistralRoots(
+        customRootsValue: String? = nil,
+        home: URL = FileManager.default.homeDirectoryForCurrentUser
+    ) -> [URL] {
+        let curated = environmentPaths("VIBE_HOME").map { roots in
+            roots.map { $0.appendingPathComponent("logs/session") }
+        } ?? [home.appendingPathComponent(".vibe/logs/session")]
+        return CustomScanRoots.union(defaults: curated, extraRaw: customRootsValue)
+    }
+
+    /// One entry per Vibe session, holding the session's running token total.
+    ///
+    /// Vibe 3 keeps no per-request history that survives: it snapshots the session into
+    /// `generations/<n>/projection-state.json` and drops old journal segments. The snapshot's
+    /// `tokenUsage` covers every completion up to its `snapshot_sequence`, so the current total
+    /// is that snapshot plus the `completion_succeeded` records journaled after it. The entry is
+    /// dated at the session's start, like Hermes session totals, which keeps a session on one
+    /// day across rescans. Vibe records no cost, so cost shows as unavailable.
+    static func mistralEntries(
+        modifiedSince: Date,
+        roots: [URL]? = nil
+    ) -> [LocalUsageReader.Entry] {
+        let sourceRoots = roots ?? mistralRoots(
+            customRootsValue: CustomScanRoots.storedValue(for: "mistral"))
+        var entries: [LocalUsageReader.Entry] = []
+        for root in sourceRoots {
+            for store in mistralSessionStores(in: root) {
+                guard let entry = mistralSessionEntry(store, modifiedSince: modifiedSince),
+                      entry.date >= modifiedSince else { continue }
+                entries.append(entry)
+            }
+        }
+        return LocalUsageReader.dedupKeepMax(entries)
+    }
+
+    /// A root can name the session log folder, a Vibe home, the `unified` folder, or one store.
+    private static func mistralSessionStores(in root: URL) -> [URL] {
+        if isMistralSessionStore(root) { return [root] }
+        let container = [
+            root.appendingPathComponent("unified"),
+            root.appendingPathComponent("logs/session/unified"),
+        ].first { isDirectory($0) } ?? root
+        let children = (try? FileManager.default.contentsOfDirectory(
+            at: container, includingPropertiesForKeys: [.isDirectoryKey],
+            options: [.skipsHiddenFiles])) ?? []
+        return children.filter(isMistralSessionStore)
+    }
+
+    private static func isMistralSessionStore(_ url: URL) -> Bool {
+        isDirectory(url.appendingPathComponent("journal"))
+            || FileManager.default.fileExists(atPath: url.appendingPathComponent("CURRENT").path)
+    }
+
+    private static func isDirectory(_ url: URL) -> Bool {
+        var isDirectory: ObjCBool = false
+        return FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory)
+            && isDirectory.boolValue
+    }
+
+    private static func mistralSessionEntry(
+        _ store: URL,
+        modifiedSince: Date
+    ) -> LocalUsageReader.Entry? {
+        let fileManager = FileManager.default
+        let current = store.appendingPathComponent("CURRENT")
+        let metaURL = store.appendingPathComponent("meta.json")
+        let segments = ((try? fileManager.contentsOfDirectory(
+            at: store.appendingPathComponent("journal"),
+            includingPropertiesForKeys: [.contentModificationDateKey],
+            options: [.skipsHiddenFiles])) ?? [])
+            .filter { $0.pathExtension == "jsonl" }
+        // The start date never follows the last write, so an untouched store cannot hold
+        // usage dated inside the window.
+        let lastWrite = ([current, metaURL] + segments).compactMap { url in
+            try? url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate
+        }.max()
+        guard let lastWrite, lastWrite >= modifiedSince else { return nil }
+
+        var input = 0, cachedInput = 0, output = 0
+        var snapshotSequence: Int64 = -1
+        var startedAt: Date?
+        if fileManager.fileExists(atPath: current.path) {
+            // A CURRENT whose snapshot cannot be read leaves no base to add the journal to.
+            // Skipping the session lets the cache's keep-max merge hold its last good total.
+            guard let pointer = jsonObject(at: current),
+                  let generation = stringValue(pointer["generation"]),
+                  generation.allSatisfy(\.isNumber),
+                  let projection = jsonObject(at: store.appendingPathComponent(
+                    "generations/\(generation)/projection-state.json")),
+                  let snapshot = projection["snapshot"] as? Object,
+                  let session = snapshot["session"] as? Object else { return nil }
+            let usage = session["tokenUsage"] as? Object ?? [:]
+            input = intValue(usage["inputTokens"])
+            cachedInput = intValue(usage["cachedInputTokens"])
+            output = intValue(usage["outputTokens"])
+            snapshotSequence = Int64(intValue(projection["snapshot_sequence"] ?? pointer["snapshot_sequence"]))
+            startedAt = dateValue(session["createdAt"])
+        }
+
+        // Segments are named by their first sequence; the one after a snapshot starts past it.
+        for segment in segments {
+            guard let first = Int64(segment.deletingPathExtension().lastPathComponent),
+                  first > snapshotSequence,
+                  let data = try? Data(contentsOf: segment) else { continue }
+            for line in data.split(separator: UInt8(ascii: "\n"))
+            where line.range(of: mistralCompletionMarker) != nil {
+                // The writer may be mid-line; an unparsable tail is picked up on a later scan.
+                guard let record = jsonObject(data: Data(line)),
+                      stringValue(record["type"]) == "action_result",
+                      Int64(intValue(record["sequence"])) > snapshotSequence,
+                      let payload = record["payload"] as? Object,
+                      let action = payload["result"] as? Object,
+                      stringValue(action["type"]) == "completion_succeeded",
+                      let completion = action["result"] as? Object,
+                      let usage = completion["usage"] as? Object else { continue }
+                input = cappedSum(input, intValue(usage["input_tokens"]))
+                cachedInput = cappedSum(
+                    cachedInput, intValue(usage["cached_input_tokens"]))
+                output = cappedSum(output, intValue(usage["output_tokens"]))
+            }
+        }
+
+        let meta = jsonObject(at: metaURL) ?? [:]
+        let config = meta["config"] as? Object ?? [:]
+        guard let date = startedAt ?? stringValue(meta["start_time"]).flatMap(parseISO8601) else {
+            return nil
+        }
+        let sessionID = stringValue(meta["session_id"]) ?? store.lastPathComponent
+        // Vibe's input count includes the cached prefix, and its output includes reasoning.
+        return makeEntry(
+            id: "mistral|\(sessionID)",
+            date: date,
+            model: stringValue(config["model_name"]) ?? stringValue(config["active_model"]) ?? "unknown",
+            input: input - cachedInput,
+            output: output,
+            cacheRead: min(cachedInput, input),
+            costUnavailable: true)
+    }
+
+    private static let mistralCompletionMarker = Data("completion_succeeded".utf8)
+
+    /// Both terms are already clamped to `maxParsedTokenValue`, so the raw sum cannot overflow.
+    private static func cappedSum(_ lhs: Int, _ rhs: Int) -> Int {
+        min(LocalUsageReader.maxParsedTokenValue, lhs + rhs)
     }
 
     // MARK: Kiro CLI database + JSONL sessions

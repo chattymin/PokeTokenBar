@@ -389,6 +389,9 @@ struct PopoverView: View {
         case "cursor": return store.cursorLimits?.hasVisibleLimit == true || store.cursorLimitsAuthExpired
         case "opencode": return store.openCodeGoLimits?.hasVisibleLimit == true || store.openCodeGoLimitsAuthExpired
         case "grok": return store.grokLimits?.hasVisibleLimit == true || store.grokLimitsAuthExpired
+        // Like Antigravity: the key usually sits in the Keychain, which only a tap may read.
+        case "mistral": return !store.disableKeychainAccess || store.mistralLimits?.hasVisibleLimit == true
+            || store.mistralLimitsAuthExpired
         default: return false
         }
     }
@@ -481,6 +484,9 @@ struct PopoverView: View {
             }
             if selectedSnapshot?.providerID == "grok" {
                 grokLimitsContent
+            }
+            if selectedSnapshot?.providerID == "mistral" {
+                mistralLimitsContent
             }
         }
     }
@@ -579,6 +585,64 @@ struct PopoverView: View {
                 }
             }
             .opacity(store.grokLimitsAuthExpired ? 0.5 : 1)
+        }
+    }
+
+    @ViewBuilder
+    private var mistralLimitsContent: some View {
+        if store.mistralLimitsAuthExpired {
+            authExpiredNotice(title: l.mistralKeyRejectedTitle, hint: l.mistralKeyRejectedHint)
+        }
+        if !store.disableKeychainAccess
+            && (store.mistralLimits == nil || store.mistralLimitsStale || store.mistralLimitsAuthExpired) {
+            mistralRefreshRow
+        }
+        if let status = store.mistralLimits, status.hasVisibleLimit {
+            let now = Date()
+            VStack(alignment: .leading, spacing: 4) {
+                // The plan sets both allowances, so it heads them instead of a per-row label.
+                Text([status.plan?.displayName.map(l.plan), l.mistralMonthlyIncluded]
+                    .compactMap { $0 }.joined(separator: " · "))
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+                // Product names, not translated.
+                if let budget = status.vibe, let utilization = budget.utilization(now: now) {
+                    quotaRow(name: "Vibe", utilization: utilization,
+                             reset: budget.activeReset(now: now), span: budget.periodSpan,
+                             detail: budget.amountText(now: now))
+                }
+                if let budget = status.api, let utilization = budget.utilization(now: now) {
+                    quotaRow(name: "API", utilization: utilization,
+                             reset: budget.activeReset(now: now), span: budget.periodSpan,
+                             detail: budget.amountText(now: now))
+                }
+            }
+            .opacity(store.mistralLimitsAuthExpired ? 0.5 : 1)
+        }
+    }
+
+    @ViewBuilder
+    private var mistralRefreshRow: some View {
+        HStack(spacing: 6) {
+            if store.mistralLimits == nil {
+                Text(l.limitsTapToLoad)
+                    .font(.caption).foregroundStyle(.secondary)
+            } else {
+                (Text(l.staleLimits) + Text(" · ") + Text(store.mistralLimitsUpdatedAt ?? Date(), style: .relative))
+                    .font(.caption).foregroundStyle(.orange)
+            }
+            Spacer()
+            Button {
+                Task { await store.refreshMistralLimitsFromKeychain() }
+            } label: {
+                if store.isRefreshingMistralLimits {
+                    ProgressView().controlSize(.small)
+                } else {
+                    Text(l.refresh)
+                }
+            }
+            .controlSize(.small)
+            .disabled(store.isRefreshingMistralLimits)
         }
     }
 
@@ -1216,6 +1280,7 @@ struct MonthDailyTrend: View {
         Color(red: 0.40, green: 0.48, blue: 0.80),
         Color(red: 0.96, green: 0.58, blue: 0.22),
         Color(red: 0.76, green: 0.58, blue: 0.38),
+        Color(red: 0.62, green: 0.40, blue: 0.66),
     ]
 
     var body: some View {
