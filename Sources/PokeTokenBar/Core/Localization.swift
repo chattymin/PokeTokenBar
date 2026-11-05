@@ -1651,6 +1651,37 @@ struct L {
           "Подключите ключ OpenCode Go заново командой /connect в OpenCode.")
     }
 
+    // MARK: Grok 공식 한도(크레딧)
+    func grokCreditPeriod(weekly: Bool, monthly: Bool) -> String {
+        if weekly {
+            return t("주간 크레딧", "Weekly credits", "週間クレジット", "Créditos semanales", "Crédits hebdo", "Créditos semanais", "Wöchentliche Credits", "Кредиты на неделю")
+        }
+        if monthly {
+            return t("월간 크레딧", "Monthly credits", "月間クレジット", "Créditos mensuales", "Crédits mensuels", "Créditos mensais", "Monatliche Credits", "Кредиты на месяц")
+        }
+        return t("크레딧", "Credits", "クレジット", "Créditos", "Crédits", "Créditos", "Credits", "Кредиты")
+    }
+    var grokAuthExpiredTitle: String {
+        t("Grok 로그인 만료 — 한도가 갱신 안 돼요",
+          "Grok login expired — limits can't refresh",
+          "Grok のログイン期限切れ — 上限を更新できません",
+          "Sesión de Grok expirada — los límites no se pueden actualizar",
+          "Connexion Grok expirée — les limites ne s'actualisent pas",
+          "Login do Grok expirado — não dá para atualizar os limites",
+          "Grok-Anmeldung abgelaufen – Limits können nicht aktualisiert werden",
+          "Вход в Grok истёк — лимиты не обновляются")
+    }
+    var grokAuthExpiredHint: String {
+        t("Grok CLI 를 한 번 실행하면 로그인이 갱신돼요. 안 되면 grok login 을 실행해 주세요.",
+          "Run Grok CLI once to refresh the login, or run grok login.",
+          "Grok CLI を一度実行するとログインが更新されます。だめなら grok login を実行してください。",
+          "Ejecuta Grok CLI una vez para renovar la sesión, o ejecuta grok login.",
+          "Lance Grok CLI une fois pour renouveler la connexion, ou lance grok login.",
+          "Abra o Grok CLI uma vez para renovar o login, ou rode grok login.",
+          "Starte Grok CLI einmal, um die Anmeldung zu erneuern, oder führe grok login aus.",
+          "Запустите Grok CLI один раз, чтобы обновить вход, или выполните grok login.")
+    }
+
     // MARK: Cursor 공식 한도(월간 포함 allowance)
     var cursorMonthlyIncluded: String {
         t("월간 포함 allowance", "Monthly included", "月間 included", "Incluido mensual", "Inclus mensuel", "Incluso mensal", "Monatlich inklusive", "Включено в месяц")

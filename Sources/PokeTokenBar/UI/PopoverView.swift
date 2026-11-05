@@ -384,6 +384,7 @@ struct PopoverView: View {
         case "antigravity": return !store.disableKeychainAccess || store.antigravityHasTokenFile || store.antigravityLimits?.hasVisibleLimit == true || store.antigravityLimitsAuthExpired
         case "cursor": return store.cursorLimits?.hasVisibleLimit == true || store.cursorLimitsAuthExpired
         case "opencode": return store.openCodeGoLimits?.hasVisibleLimit == true || store.openCodeGoLimitsAuthExpired
+        case "grok": return store.grokLimits?.hasVisibleLimit == true || store.grokLimitsAuthExpired
         default: return false
         }
     }
@@ -474,6 +475,9 @@ struct PopoverView: View {
             if selectedSnapshot?.providerID == "opencode" {
                 openCodeGoLimitsContent
             }
+            if selectedSnapshot?.providerID == "grok" {
+                grokLimitsContent
+            }
         }
     }
 
@@ -544,6 +548,43 @@ struct PopoverView: View {
         if let window, let utilization = window.utilization(now: now) {
             quotaRow(name: name, utilization: utilization, reset: window.activeReset(now: now), span: span,
                      idleHint: window.hasEnded(now: now) ? notStartedHint : nil)
+        }
+    }
+
+    @ViewBuilder
+    private var grokLimitsContent: some View {
+        if store.grokLimitsAuthExpired {
+            authExpiredNotice(title: l.grokAuthExpiredTitle, hint: l.grokAuthExpiredHint)
+        }
+        if let status = store.grokLimits, status.hasVisibleLimit {
+            if store.grokLimitsStale {
+                staleBadge(updatedAt: store.grokLimitsUpdatedAt)
+            }
+            let now = Date()
+            VStack(alignment: .leading, spacing: 4) {
+                if let utilization = status.utilization(now: now) {
+                    quotaRow(name: l.grokCreditPeriod(weekly: status.isWeekly, monthly: status.isMonthly),
+                             utilization: utilization, reset: status.activeReset(now: now), span: status.periodSpan)
+                }
+                let products = status.usedProducts(now: now)
+                if !products.isEmpty {
+                    Text(products.map { "\(grokProductName($0.product)) \(TokenFormatter.percent($0.usagePercent ?? 0))" }
+                        .joined(separator: " · "))
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                }
+            }
+            .opacity(store.grokLimitsAuthExpired ? 0.5 : 1)
+        }
+    }
+
+    /// Billing product ids → the names grok.com shows.
+    private func grokProductName(_ product: String?) -> String {
+        switch product {
+        case "GrokBot": return "Grok"
+        case "GrokBuild": return "Grok Build"
+        case "Api": return "API"
+        default: return product ?? ""
         }
     }
 

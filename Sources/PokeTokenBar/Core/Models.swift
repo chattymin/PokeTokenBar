@@ -741,6 +741,92 @@ public struct OpenCodeGoRateLimitStatus: Decodable, Sendable, Equatable {
     }
 }
 
+// MARK: - Grok credit limits (cli-chat-proxy.grok.com/v1/billing?format=credits)
+
+/// The Grok subscription's credit allowance for the current usage period, as the Grok CLI `/usage`
+/// modal shows it. The server reports percentages, not credits.
+public struct GrokCreditStatus: Decodable, Sendable, Equatable {
+    public struct Period: Decodable, Sendable, Equatable {
+        /// `USAGE_PERIOD_TYPE_WEEKLY` observed. Kept as text so an unknown value cannot fail the decode.
+        public var type: String?
+        public var start: String?
+        public var end: String?
+
+        public init(type: String? = nil, start: String? = nil, end: String? = nil) {
+            self.type = type
+            self.start = start
+            self.end = end
+        }
+    }
+
+    public struct ProductUsage: Decodable, Sendable, Equatable {
+        public var product: String?
+        public var usagePercent: Double?
+
+        public init(product: String? = nil, usagePercent: Double? = nil) {
+            self.product = product
+            self.usagePercent = usagePercent
+        }
+    }
+
+    public var currentPeriod: Period?
+    public var creditUsagePercent: Double?
+    public var productUsage: [ProductUsage]
+
+    public init(currentPeriod: Period? = nil, creditUsagePercent: Double? = nil, productUsage: [ProductUsage] = []) {
+        self.currentPeriod = currentPeriod
+        self.creditUsagePercent = creditUsagePercent
+        self.productUsage = productUsage
+    }
+
+    public var hasVisibleLimit: Bool { creditUsagePercent != nil }
+
+    public var periodStart: Date? { currentPeriod?.start.flatMap(ISO8601Parser.date(from:)) }
+    public var periodEnd: Date? { currentPeriod?.end.flatMap(ISO8601Parser.date(from:)) }
+
+    public var isWeekly: Bool { currentPeriod?.type == "USAGE_PERIOD_TYPE_WEEKLY" }
+    public var isMonthly: Bool { currentPeriod?.type == "USAGE_PERIOD_TYPE_MONTHLY" }
+
+    /// Length of the period, for the pace marker.
+    public var periodSpan: TimeInterval? {
+        guard let start = periodStart, let end = periodEnd, end > start else { return nil }
+        return end.timeIntervalSince(start)
+    }
+
+    /// A kept status can outlive its period (the token expired, so no newer status arrived).
+    /// Once the period has ended, none of it counts any more.
+    func hasEnded(now: Date) -> Bool {
+        guard let end = periodEnd else { return false }
+        return end <= now
+    }
+
+    func utilization(now: Date) -> Double? {
+        guard let creditUsagePercent else { return nil }
+        return hasEnded(now: now) ? 0 : max(0, creditUsagePercent)
+    }
+
+    func activeReset(now: Date) -> Date? {
+        hasEnded(now: now) ? nil : periodEnd
+    }
+
+    /// Per-product shares of the allowance, in server order, without products that used nothing.
+    func usedProducts(now: Date) -> [ProductUsage] {
+        guard !hasEnded(now: now) else { return [] }
+        return productUsage.filter { ($0.usagePercent ?? 0) > 0 && $0.product != nil }
+    }
+
+    private enum RootKeys: String, CodingKey { case config }
+    private enum ConfigKeys: String, CodingKey { case currentPeriod, creditUsagePercent, productUsage }
+
+    public init(from decoder: Decoder) throws {
+        let root = try decoder.container(keyedBy: RootKeys.self)
+        let config = try root.nestedContainer(keyedBy: ConfigKeys.self, forKey: .config)
+        currentPeriod = try? config.decodeIfPresent(Period.self, forKey: .currentPeriod)
+        creditUsagePercent = try? config.decodeIfPresent(Double.self, forKey: .creditUsagePercent)
+        productUsage = (try? config.decodeIfPresent([ProductUsage].self, forKey: .productUsage)) ?? []
+    }
+}
+
 // MARK: - Provider snapshot
 
 struct ProviderSnapshot: Sendable, Identifiable {

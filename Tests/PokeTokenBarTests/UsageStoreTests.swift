@@ -1911,3 +1911,89 @@ extension UsageStoreTests {
         XCTAssertEqual(store.menuLimitParts(now: now).map(\.text), [])
     }
 }
+
+private final class ScriptedGrokLimits: GrokLimitsProviding, @unchecked Sendable {
+    private var results: [Result<GrokCreditStatus?, Error>]
+    init(_ results: [Result<GrokCreditStatus?, Error>]) { self.results = results }
+    func fetch() async throws -> GrokCreditStatus? {
+        try (results.count > 1 ? results.removeFirst() : results[0]).get()
+    }
+}
+
+private func grokWeek(_ percent: Double, endsIn: TimeInterval, now: Date) -> GrokCreditStatus {
+    let f = ISO8601DateFormatter()
+    let end = now.addingTimeInterval(endsIn)
+    return GrokCreditStatus(currentPeriod: .init(type: "USAGE_PERIOD_TYPE_WEEKLY",
+                                                 start: f.string(from: end.addingTimeInterval(-7 * 86400)),
+                                                 end: f.string(from: end)),
+                            creditUsagePercent: percent)
+}
+
+extension UsageStoreTests {
+    private func makeGrokStore(_ limits: ScriptedGrokLimits, usedToday: Bool = true) -> UsageStore {
+        let grok = FakeUsageProvider(id: "grok", displayName: "Grok", daily: usedToday ? todayDaily(1_000) : nil)
+        return UsageStore(providers: [grok],
+                          claudeLimitsProvider: FakeClaudeLimits(status: nil),
+                          codexLimitsProvider: FakeCodexLimits(status: nil),
+                          antigravityLimitsProvider: FakeAntigravityLimits(status: nil),
+                          grokLimitsProvider: limits,
+                          autoRefresh: false,
+                          defaults: testDefaults)
+    }
+
+    /// A rejected token keeps the last status (dimmed, with the notice); a later success clears the notice,
+    /// and a logout (`fetch` → nil) clears both.
+    func testGrokAuthExpiredKeepsTheLastStatusUntilTheLoginIsBack() async {
+        let now = Date()
+        let store = makeGrokStore(ScriptedGrokLimits([
+            .success(grokWeek(12, endsIn: 86400, now: now)),
+            .failure(LimitsError.httpStatus(401)),
+            .success(grokWeek(14, endsIn: 86400, now: now)),
+            .success(nil),
+        ]))
+        await store.refresh(scheduleEmptyRetry: false)
+        XCTAssertTrue(store.limitsReady)
+        XCTAssertFalse(store.grokLimitsAuthExpired)
+
+        await store.refresh(scheduleEmptyRetry: false)
+        XCTAssertTrue(store.grokLimitsAuthExpired)
+        XCTAssertEqual(store.grokLimits?.creditUsagePercent, 12, "the last status stays visible")
+
+        await store.refresh(scheduleEmptyRetry: false)
+        XCTAssertFalse(store.grokLimitsAuthExpired)
+        XCTAssertEqual(store.grokLimits?.creditUsagePercent, 14)
+
+        await store.refresh(scheduleEmptyRetry: false)
+        XCTAssertNil(store.grokLimits)
+        XCTAssertFalse(store.grokLimitsAuthExpired)
+    }
+
+    /// Half the week has passed: the menu item carries the credit percent and the week's pace.
+    func testMenuShowsTheGrokCreditPeriodWithItsPace() async throws {
+        let now = Date()
+        let store = makeGrokStore(ScriptedGrokLimits([.success(grokWeek(12, endsIn: 3.5 * 86400, now: now))]))
+        store.showLimitInMenu = true
+        await store.refresh(scheduleEmptyRetry: false)
+        let parts = store.menuLimitParts(now: now)
+        XCTAssertEqual(parts.map(\.text), ["Grok 12%"])
+        XCTAssertEqual(try XCTUnwrap(parts.first?.pace), 0.5, accuracy: 0.01)
+    }
+
+    func testMenuShowsZeroForAnEndedGrokPeriod() async {
+        let now = Date()
+        let store = makeGrokStore(ScriptedGrokLimits([.success(grokWeek(80, endsIn: -60, now: now))]))
+        store.showLimitInMenu = true
+        await store.refresh(scheduleEmptyRetry: false)
+        let parts = store.menuLimitParts(now: now)
+        XCTAssertEqual(parts.map(\.text), ["Grok 0%"])
+        XCTAssertNil(parts.first?.pace)
+    }
+
+    func testMenuSkipsGrokWhenGrokWasNotUsedToday() async {
+        let now = Date()
+        let store = makeGrokStore(ScriptedGrokLimits([.success(grokWeek(12, endsIn: 86400, now: now))]), usedToday: false)
+        store.showLimitInMenu = true
+        await store.refresh(scheduleEmptyRetry: false)
+        XCTAssertEqual(store.menuLimitParts(now: now).map(\.text), [])
+    }
+}

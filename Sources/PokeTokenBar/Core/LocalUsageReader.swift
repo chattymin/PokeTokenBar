@@ -1489,6 +1489,11 @@ enum LocalUsageReader {
         return FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".grok/sessions")
     }
 
+    /// Grok CLI login file (`$GROK_HOME/auth.json`), next to the sessions folder.
+    static var grokAuthFile: URL {
+        grokSessionsDir.deletingLastPathComponent().appendingPathComponent("auth.json")
+    }
+
     /// Grok CLI 세션 파일(`~/.grok/sessions/<id>/updates.jsonl`) 파싱.
     ///
     /// 턴이 끝날 때마다 durable 로 append 되는 `sessionUpdate:"turn_completed"` 라인의 `usage`
