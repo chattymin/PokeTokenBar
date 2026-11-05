@@ -49,6 +49,35 @@ struct L {
                                "Diario de este mes", "Par jour ce mois-ci", "Diário deste mês",
                                "Täglich",
                                "По дням") }
+    var dailyTrendPeriod: String { t("일별 추이 기간", "Daily trend period", "日別推移の期間",
+                                     "Período de tendencia diaria", "Période de tendance quotidienne", "Período de tendência diária",
+                                     "Täglicher Trendzeitraum",
+                                     "Период тренда") }
+    var dailyTrend7d: String { t("최근 7일", "Last 7 days", "直近7日",
+                                 "Últimos 7 días", "7 derniers jours", "Últimos 7 dias",
+                                 "Letzte 7 Tage",
+                                 "За 7 дней") }
+    var dailyTrend14d: String { t("최근 14일", "Last 14 days", "直近14日",
+                                  "Últimos 14 días", "14 derniers jours", "Últimos 14 dias",
+                                  "Letzte 14 Tage",
+                                  "За 14 дней") }
+    var dailyTrend21d: String { t("최근 21일", "Last 21 days", "直近21日",
+                                  "Últimos 21 días", "21 derniers jours", "Últimos 21 dias",
+                                  "Letzte 21 Tage",
+                                  "За 21 день") }
+    var dailyTrendMonth: String { t("이번 달", "This month", "今月",
+                                    "Este mes", "Ce mois-ci", "Este mês",
+                                    "Dieser Monat",
+                                    "Этот месяц") }
+
+    func title(for window: DailyTrendWindow) -> String {
+        switch window {
+        case .d7: return dailyTrend7d
+        case .d14: return dailyTrend14d
+        case .d21: return dailyTrend21d
+        case .month: return dailyTrendMonth
+        }
+    }
     /// 추이의 최댓값 라벨 — 막대 높이가 상대값이라 절대 스케일을 한 군데는 적어줘야 한다.
     var peakDay: String { t("최다", "Peak", "最多", "Máx.", "Max.", "Máx.", "Max.", "Макс.") }
 
