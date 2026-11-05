@@ -99,6 +99,8 @@ enum CustomScanRoots {
             return LocalAdditionalUsageReader.cursorRoots(customRootsValue: nil)
         case "copilot":
             return LocalAdditionalUsageReader.copilotRoots(customRootsValue: nil)
+        case "devin":
+            return LocalAdditionalUsageReader.devinRoots(customRootsValue: nil)
         case "kiro":
             return LocalAdditionalUsageReader.kiroRoots(customRootsValue: nil)
         case "pi":
@@ -107,6 +109,9 @@ enum CustomScanRoots {
         case "omp":
             return CustomScanRoots.union(
                 defaults: LocalUsageReader.computeOmpSessionRoots(), extraRaw: nil)
+        case "omo":
+            return CustomScanRoots.union(
+                defaults: LocalUsageReader.computeOmoSessionRoots(), extraRaw: nil)
         case "kimi_code":
             return CustomScanRoots.union(
                 defaults: LocalUsageReader.computeKimiSessionRoots(), extraRaw: nil)

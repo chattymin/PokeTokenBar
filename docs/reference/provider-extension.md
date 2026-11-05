@@ -42,6 +42,10 @@ read_when:
   `CustomScanRoots.curatedRoots(for:)` 에도 그 기본 루트 목록을 넣는다 — Settings 매치 카운트가
   이 두 번째 레지스트리를 본다. 빼먹으면 `default: []` 로 카운트만 0 이 되고 스캔은 리더 쪽
   기본값으로 돌아간다.
+- **추적 끄기** = `disabledProviderIDs` (Settings → 추적할 프로바이더). opt-out 목록이라 새
+  프로바이더는 등록만 하면 켜진 채로 목록에 나온다. 꺼진 프로바이더는 `refresh()` 가 아예 읽지
+  않는다. 공식 한도처럼 스냅샷 밖에 따로 저장하는 값이 있으면, 그 프로바이더 전용 refresh 함수에서
+  `isProviderEnabled` 로 막고 값을 비운다 — 한도 알림·사탕은 스냅샷이 아니라 그 값을 직접 읽는다.
 - **로컬 파일을 읽는 새 사용량 소스는 `LocalAdditionalUsageCache` 위에 얹는다 — 리더를 손으로
   완결하지 마라.** OpenCode/Hermes/Kiro/Cursor/Copilot 이 전부 이 캐시(30초 공유 엔트리, `existing +
   loaded` keep-max 병합, `invalidateScanCache` 훅)를 타는데 Aside 만 `fetchDaily`/`fetchEnrichment` 가

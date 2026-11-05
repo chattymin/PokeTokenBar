@@ -73,6 +73,7 @@ struct SettingsView: View {
                         generalGroup(store)
                         difficultyGroup
                         menuBarGroup(store)
+                        trackedProvidersGroup(store)
                         floatingPetGroup(store)
                         soundGroup(store)
                         notificationsGroup(store)
@@ -219,6 +220,17 @@ struct SettingsView: View {
                 }
                 .labelsHidden().pickerStyle(.segmented).fixedSize()
             }
+            Divider()
+            groupRow {
+                Text(l.dailyTrendPeriod)
+                Spacer()
+                Picker(l.dailyTrendPeriod, selection: $store.dailyTrendWindow) {
+                    ForEach(DailyTrendWindow.allCases) { win in
+                        Text(l.title(for: win)).tag(win)
+                    }
+                }
+                .labelsHidden().pickerStyle(.menu).fixedSize()
+            }
             if store.claudeAccounts.count > 1 {
                 Divider()
                 trackedAccountRow(store)
@@ -265,6 +277,8 @@ struct SettingsView: View {
                 Divider()
                 toggleRow(l.todayCost, $store.showCostInMenu)
                 Divider()
+                toggleRow(l.pokemonGrowthPercent, $store.showGrowthInMenu, hint: l.pokemonGrowthPercentHint)
+                Divider()
                 toggleRow(l.limitPercent, $store.showLimitInMenu)
                 if store.showLimitInMenu {
                     Divider()
@@ -289,6 +303,21 @@ struct SettingsView: View {
     }
 
     @ViewBuilder
+    private func trackedProvidersGroup(_ store: UsageStore) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            settingsSection(l.trackedProvidersSectionTitle) {
+                ForEach(Array(store.registeredProviders.enumerated()), id: \.element.id) { index, provider in
+                    if index > 0 { Divider() }
+                    toggleRow(provider.displayName, Binding(
+                        get: { store.isProviderEnabled(provider.id) },
+                        set: { store.setProviderEnabled(provider.id, $0) }))
+                }
+            }
+            Text(l.trackedProvidersHint).font(.caption2).foregroundStyle(.tertiary).padding(.leading, 4)
+        }
+    }
+
+    @ViewBuilder
     private func floatingPetGroup(_ store: UsageStore) -> some View {
         @Bindable var store = store
         settingsSection(l.floatingPetSectionTitle) {
@@ -299,6 +328,17 @@ struct SettingsView: View {
                 }
                 Spacer()
                 Toggle(l.floatingPetEnableLabel, isOn: $store.floatingPetEnabled)
+                    .labelsHidden().toggleStyle(.switch).controlSize(.small)
+            }
+            Divider()
+            groupRow {
+                // Also reachable from both right-click menus. Applies to every surface, not only the pet.
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(l.backViewLabel)
+                    Text(l.backViewHint).font(.caption2).foregroundStyle(.tertiary)
+                }
+                Spacer()
+                Toggle(l.backViewLabel, isOn: $store.alwaysFacesBack)
                     .labelsHidden().toggleStyle(.switch).controlSize(.small)
             }
             if store.floatingPetEnabled {
@@ -312,6 +352,16 @@ struct SettingsView: View {
                 }
                 Divider()
                 toggleRow(l.floatingPetBubbleAlertsLabel, $store.floatingPetBubbleAlerts)
+                Divider()
+                groupRow {
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(l.floatingPetAgentActivityLabel)
+                        Text(l.floatingPetAgentActivityHint).font(.caption2).foregroundStyle(.tertiary)
+                    }
+                    Spacer()
+                    Toggle(l.floatingPetAgentActivityLabel, isOn: $store.floatingPetAgentActivity)
+                        .labelsHidden().toggleStyle(.switch).controlSize(.small)
+                }
             }
         }
     }
@@ -935,9 +985,12 @@ struct SettingsView: View {
             .frame(minHeight: 38)
     }
 
-    private func toggleRow(_ label: String, _ isOn: Binding<Bool>) -> some View {
+    private func toggleRow(_ label: String, _ isOn: Binding<Bool>, hint: String? = nil) -> some View {
         groupRow {
-            Text(label)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(label)
+                if let hint { Text(hint).font(.caption2).foregroundStyle(.tertiary) }
+            }
             Spacer()
             Toggle(label, isOn: isOn).labelsHidden().toggleStyle(.switch).controlSize(.small)
         }

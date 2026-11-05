@@ -3,7 +3,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-VERSION="2.5.6"
+VERSION="2.5.7"
 APP_NAME="PokeTokenBar"
 BUILD_DIR="build"
 APP="$BUILD_DIR/$APP_NAME.app"
@@ -48,6 +48,13 @@ cat > "$APP/Contents/Info.plist" <<PLIST
     <key>CFBundleIconFile</key><string>AppIcon</string>
     <key>LSUIElement</key><true/>
     <key>NSHighResolutionCapable</key><true/>
+    <key>CFBundleURLTypes</key>
+    <array>
+        <dict>
+            <key>CFBundleURLName</key><string>io.github.chattymin.poketokenbar.agent</string>
+            <key>CFBundleURLSchemes</key><array><string>poketokenbar</string></array>
+        </dict>
+    </array>
 </dict>
 </plist>
 PLIST

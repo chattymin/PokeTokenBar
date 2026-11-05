@@ -35,7 +35,7 @@ final class KoreanParticleTests: XCTestCase {
         let l = L(.ko)
         XCTAssertEqual(l.notifHatchBody("유니란"), "알에서 유니란이 나왔어요!")
         XCTAssertEqual(l.notifShinyHatchBody("뚜벅쵸", odds: 48), "이로치 뚜벅쵸가 태어났어요! (1/48)")
-        XCTAssertEqual(l.notifEvolveBody("듀란"), "듀란으로 진화했어요!")
+        XCTAssertEqual(l.notifEvolveBody(from: "솔록", to: "듀란"), "솔록이 듀란으로 진화했어요!")
         XCTAssertEqual(l.statusEvolved("란쿨루스"), "란쿨루스로 진화했어요!")
         XCTAssertEqual(l.eggConfirm("레트라", l.eggName(.rare)), "레트라를 놓아주고 희귀 알로 바꿀까요?")
     }
@@ -43,6 +43,6 @@ final class KoreanParticleTests: XCTestCase {
     /// 조사 선택은 한국어 문구에만 적용된다.
     func testOtherLanguagesAreUntouched() {
         XCTAssertEqual(L(.en).notifHatchBody("Unfezant"), "Unfezant hatched from the egg!")
-        XCTAssertEqual(L(.ja).notifEvolveBody("デスカーン"), "デスカーン に進化しました！")
+        XCTAssertEqual(L(.ja).notifEvolveBody(from: "デスマス", to: "デスカーン"), "デスマス が デスカーン に進化しました！")
     }
 }

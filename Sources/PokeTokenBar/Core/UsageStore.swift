@@ -29,6 +29,12 @@ final class UsageStore {
     private(set) var cursorLimits: CursorRateLimitStatus?
     private(set) var cursorLimitsUpdatedAt: Date?
     private(set) var cursorLimitsAuthExpired = false
+    private(set) var openCodeGoLimits: OpenCodeGoRateLimitStatus?
+    private(set) var openCodeGoLimitsUpdatedAt: Date?
+    private(set) var openCodeGoLimitsAuthExpired = false
+    private(set) var grokLimits: GrokCreditStatus?
+    private(set) var grokLimitsUpdatedAt: Date?
+    private(set) var grokLimitsAuthExpired = false
     private(set) var limitsUpdatedAt: Date?
     private(set) var limitsAvailable = true
     /// Claude 한도 인증이 만료된 **출처**. nil = 만료 아님. 성공 시 해제.
@@ -104,6 +110,9 @@ final class UsageStore {
     var showLimitInMenu: Bool {
         didSet { defaults.set(showLimitInMenu, forKey: "showLimitInMenu") }
     }
+    var showGrowthInMenu: Bool {
+        didSet { defaults.set(showGrowthInMenu, forKey: "showGrowthInMenu") }
+    }
     /// 한도 % 표시 방식 — 사용한 양(기본) 또는 남은 양. 숫자 표시에만 적용되고
     /// 경고/위험 판정·게이지 채움·알림은 사용률 원값 기준을 유지한다(경고 의미론 분리).
     enum LimitDisplayMode: String, CaseIterable {
@@ -111,6 +120,9 @@ final class UsageStore {
     }
     var limitDisplayMode: LimitDisplayMode {
         didSet { defaults.set(limitDisplayMode.rawValue, forKey: "limitDisplayMode") }
+    }
+    var dailyTrendWindow: DailyTrendWindow {
+        didSet { defaults.set(dailyTrendWindow.rawValue, forKey: "dailyTrendWindow") }
     }
     /// 상시 표시 애니메이션(메뉴바 스프라이트 + 플로팅 펫)의 부드러움 ↔ 배터리 절충.
     ///
@@ -142,6 +154,12 @@ final class UsageStore {
     var animationQuality: AnimationQuality {
         didSet { defaults.set(animationQuality.rawValue, forKey: "animationQuality") }
     }
+    /// 팝오버가 그릴 활동 시각화. 저장된 rawValue 를 모르면 기본값으로 내려앉으므로, 시각화를
+    /// 덜어낸 빌드로 되돌아가거나 `defaults write` 로 아무 값이나 들어와도 팝오버가 비지 않는다
+    /// (`LimitDisplayMode` 와 같은 관대 복원).
+    var activityVisualization: ActivityVisualization {
+        didSet { defaults.set(activityVisualization.rawValue, forKey: "activityVisualization") }
+    }
     // 알림(독립 토글)
     var limitNotifications: Bool {
         didSet { defaults.set(limitNotifications, forKey: "limitNotifications") }
@@ -160,6 +178,10 @@ final class UsageStore {
     // 플로팅 펫 (데스크톱 위 고정 오버레이 — 스스로 이동하지 않음, 드래그로만 위치 변경)
     var floatingPetEnabled: Bool {
         didSet { defaults.set(floatingPetEnabled, forKey: "floatingPetEnabled") }
+    }
+    /// Always show the companion's back sprite, regardless of usage. A display preference only. Default off.
+    var alwaysFacesBack: Bool {
+        didSet { defaults.set(alwaysFacesBack, forKey: "alwaysFacesBack") }
     }
     /// 플로팅 펫 스프라이트 한 변 크기(pt).
     var floatingPetSize: Double {
@@ -187,6 +209,11 @@ final class UsageStore {
     static func normalizedSoundVolume(_ value: Double) -> Double {
         guard value.isFinite else { return 0.8 }
         return min(max(value, 0), 1)
+    }
+    /// Let coding agents drive the floating pet through `poketokenbar://agent` URLs. Default on —
+    /// nothing happens until the user wires an agent hook.
+    var floatingPetAgentActivity: Bool {
+        didSet { defaults.set(floatingPetAgentActivity, forKey: "floatingPetAgentActivity") }
     }
     var disableKeychainAccess: Bool {
         didSet {
@@ -229,6 +256,27 @@ final class UsageStore {
     /// 등록된 프로바이더 id 목록 — 확장 규약 레지스트리 무결성 테스트용.
     var registeredProviderIDs: [String] { registeredProviders.map(\.id) }
 
+    /// Providers the user switched off in Settings. Stored as an opt-out list so a newly added
+    /// provider is tracked by default. A disabled provider is not read at all: no tab, no totals,
+    /// no companion XP, no official limits.
+    private(set) var disabledProviderIDs: Set<String> = []
+    static let disabledProvidersKey = "disabledProviderIDs"
+
+    func isProviderEnabled(_ id: String) -> Bool { !disabledProviderIDs.contains(id) }
+
+    func setProviderEnabled(_ id: String, _ enabled: Bool) {
+        guard enabled != isProviderEnabled(id) else { return }
+        if enabled { disabledProviderIDs.remove(id) } else { disabledProviderIDs.insert(id) }
+        defaults.set(disabledProviderIDs.sorted(), forKey: Self.disabledProvidersKey)
+        // Drop the tab now instead of waiting for the next poll.
+        if !enabled { snapshots.removeAll { $0.providerID == id } }
+        Task { await refresh() }
+    }
+
+    private var activeProviders: [any UsageProvider] {
+        providers.filter { isProviderEnabled($0.id) }
+    }
+
     func customScanRoots(for providerID: String) -> String {
         defaults.string(forKey: CustomScanRoots.defaultsKey(for: providerID)) ?? ""
     }
@@ -264,6 +312,8 @@ final class UsageStore {
     private let codexLimitsProvider: any CodexLimitsProviding
     private let antigravityLimitsProvider: any AntigravityLimitsProviding
     private let cursorLimitsProvider: any CursorLimitsProviding
+    private let openCodeGoLimitsProvider: any OpenCodeGoLimitsProviding
+    private let grokLimitsProvider: any GrokLimitsProviding
     private let statusProvider: any ProviderStatusProviding
     /// 설정 저장소 — 테스트는 suite 를 주입해 실제 사용자 설정을 오염시키지 않는다.
     private let defaults: UserDefaults
@@ -314,20 +364,26 @@ final class UsageStore {
     /// 사용량 데이터(스냅샷)가 하나라도 있는가 — companion sleep 판정용
     var hasUsageData: Bool { !snapshots.isEmpty }
 
-    /// 메뉴바 표시 줄 규칙 (사용자 확정 — 조합표 전수 검증: `UsageStoreTests.testMenuLinesAllCombinations`):
-    /// - **활성 항목 2개 이하 → 각 항목을 개별 세로 줄로**(토큰/비용/한도 각 1줄).
-    /// - **3개(토큰+비용+한도) 모두 활성 → 토큰·비용을 한 줄로, 한도를 아랫줄로**(= 총 2줄).
-    /// 한도 줄은 오늘 사용한 프로바이더만(`menuLimitLine`). 빈 배열이면 아이콘만.
+    /// Up to two items stack vertically. With more items, combine non-limit items to keep two lines;
+    /// available limits always get their own bottom line. An empty array shows only the sprite.
     var menuLines: [String] {
-        guard lastUpdated != nil else { return ["—"] }
+        menuLines(growthText: nil)
+    }
+
+    func menuLines(growthText: String?) -> [String] {
+        // Saved growth is available even before the first usage refresh finishes.
+        guard lastUpdated != nil else { return growthText.map { [$0] } ?? ["—"] }
         var usage: [String] = []
         if showTokensInMenu { usage.append(TokenFormatter.compact(todayTotalTokens)) }
         if showCostInMenu, showsCost { usage.append(todayUsageCost.text(L(localizationLanguage), compact: true)) }
+        if let growthText { usage.append(growthText) }
         let limit = menuLimitLine   // nil = 한도 미표시/미가용
 
-        if limit != nil && usage.count == 2 {
-            // 3개 다 활성 → 토큰·비용 한 줄 + 한도 아랫줄 (≤2줄 유지)
-            return [usage.joined(separator: " · "), limit!]
+        if let limit, usage.count >= 2 {
+            return [usage.joined(separator: " · "), limit]
+        }
+        if usage.count > 2 {
+            return [usage.dropLast().joined(separator: " · "), usage[usage.count - 1]]
         }
         // 그 외(2개 이하) → 각 항목 개별 세로 줄
         var lines = usage
@@ -361,8 +417,8 @@ final class UsageStore {
             parts.append(MenuLimitPart(text: "\(label) \(TokenFormatter.percent(limitDisplayPercent(utilization)))",
                                        utilization: utilization, pace: pace))
         }
-        if let window = menuClaudeAccount?.status.fiveHour, let utilization = window.utilization {
-            add("Claude", utilization, reset: window.resetDate, span: LimitWindowSpan.fiveHour)
+        if let (window, span) = menuClaudeAccount?.status.headlineWindow, let utilization = window.utilization {
+            add("Claude", utilization, reset: window.resetDate, span: span)
         }
         if usedToday.contains("codex"), let usedPercent = codexLimits?.maxPrimaryUsedPercent {
             // The window the percentage came from, so the pace belongs to the same bucket.
@@ -374,6 +430,13 @@ final class UsageStore {
         }
         if usedToday.contains("cursor"), let usedPercent = cursorLimits?.planUsage?.usedPercent {
             add("Cursor", usedPercent)
+        }
+        if usedToday.contains("opencode"), let window = openCodeGoLimits?.rolling,
+           let utilization = window.utilization(now: now) {
+            add("OpenCode", utilization, reset: window.activeReset(now: now), span: LimitWindowSpan.fiveHour)
+        }
+        if usedToday.contains("grok"), let status = grokLimits, let utilization = status.utilization(now: now) {
+            add("Grok", utilization, reset: status.activeReset(now: now), span: status.periodSpan)
         }
         return parts
     }
@@ -408,11 +471,11 @@ final class UsageStore {
         }
     }
 
-    /// The account whose 5h percentage the menu bar shows, nil when it shows none.
+    /// The account whose headline percentage (5h, else weekly) the menu bar shows, nil when it shows none.
     private var menuClaudeAccount: ClaudeAccountLimits? {
         guard showLimitInMenu,
               snapshots.contains(where: { $0.providerID == "claude_code" && $0.todayTotalTokens > 0 }),
-              let account = trackedClaudeAccount, account.status.fiveHour?.utilization != nil
+              let account = trackedClaudeAccount, account.status.headlineWindow != nil
         else { return nil }
         return account
     }
@@ -517,9 +580,102 @@ final class UsageStore {
         return byDay.values.sorted { $0.date < $1.date }
     }
 
+    var dailyTrendTotals: [DailyUsage] {
+        dailyTrendTotals(for: dailyTrendWindow)
+    }
+
+    var hasDailyTrendHistory: Bool {
+        snapshots.contains { snapshot in
+            snapshot.monthDaily?.contains(where: { $0.totalTokens > 0 }) == true
+                || snapshot.recentDaily?.contains(where: { $0.totalTokens > 0 }) == true
+        }
+    }
+
+    func dailyTrendTotals(for window: DailyTrendWindow) -> [DailyUsage] {
+        switch window {
+        case .month:
+            return monthDailyTotals
+        case .d7, .d14, .d21:
+            guard let days = window.dayCount else { return monthDailyTotals }
+            return rollingDailyTotals(days: days)
+        }
+    }
+
+    func rollingDailyTotals(days: Int) -> [DailyUsage] {
+        var byDay: [String: DailyUsage] = [:]
+        for snapshot in snapshots {
+            guard let fullSeries = snapshot.recentDaily ?? snapshot.monthDaily else { continue }
+            let countsCost = snapshot.reportsCost
+            let series = fullSeries.suffix(days)
+            for day in series {
+                var merged = byDay[day.date] ?? DailyUsage(
+                    date: day.date, inputTokens: 0, outputTokens: 0,
+                    cacheCreationTokens: 0, cacheReadTokens: 0, totalTokens: 0, totalCost: 0, costCoverage: .empty)
+                merged.inputTokens += day.inputTokens
+                merged.outputTokens += day.outputTokens
+                merged.cacheCreationTokens += day.cacheCreationTokens
+                merged.cacheReadTokens += day.cacheReadTokens
+                merged.totalTokens += day.totalTokens
+                if countsCost {
+                    merged.totalCost += day.totalCost
+                    merged.costCoverage.merge(day.costCoverage)
+                }
+                byDay[day.date] = merged
+            }
+        }
+        return byDay.values.sorted { $0.date < $1.date }
+    }
+
+    var trendProviders: [DailyTrendStack.ProviderSeries] {
+        trendProviders(for: dailyTrendWindow)
+    }
+
+    func trendProviders(for window: DailyTrendWindow) -> [DailyTrendStack.ProviderSeries] {
+        snapshots.compactMap { snap in
+            let series: [DailyUsage]? = {
+                switch window {
+                case .month:
+                    return snap.monthDaily
+                case .d7, .d14, .d21:
+                    guard let days = window.dayCount else { return snap.monthDaily }
+                    if let recent = snap.recentDaily {
+                        return Array(recent.suffix(days))
+                    }
+                    return snap.monthDaily.map { Array($0.suffix(days)) }
+                }
+            }()
+            return series.map {
+                DailyTrendStack.ProviderSeries(
+                    id: snap.providerID, name: snap.displayName,
+                    days: $0, reportsCost: snap.reportsCost)
+            }
+        }
+    }
+
     /// Day-by-day history behind the usage recap. Providers only report the current month, so the
     /// numbers are copied into a rolling ledger at every refresh — see `UsageLedger`.
     private(set) var dailyLedger = UsageLedger()
+    /// The first refresh of this session has finished its enrichment scan. Until then `lastUsage` may be a
+    /// restored or carried-over value, so nothing is known yet.
+    private(set) var lastUsageKnown = false
+    /// Providers whose latest enrichment scan failed. Their `lastUsage` is a carried-over value.
+    private var failedEnrichmentIDs: Set<String> = []
+
+    /// How long ago the newest token usage happened (`ProviderSnapshot.lastUsage`, the same value that
+    /// keeps a recently used provider's tab visible). nil only before the first complete refresh, which
+    /// must never be treated as idle. After that a provider that cannot be read does not veto: it is
+    /// ignored, and if no provider reports any usage time the answer is "at least the scan window".
+    func timeSinceLastUsage(now: Date = Date()) -> TimeInterval? {
+        guard lastUsageKnown else { return nil }
+        let reported = snapshots.filter { !failedEnrichmentIDs.contains($0.providerID) }.compactMap(\.lastUsage)
+        guard let last = reported.max() else { return LocalUsageReader.recentUseWindow }
+        return max(0, now.timeIntervalSince(last))
+    }
+
+    /// The run of days with usage that is still going, read from the same ledger as the recap.
+    var currentStreak: UsageStreak {
+        dailyLedger.currentStreak(now: Date(), calendar: RecapPeriod.calendar())
+    }
 
     private func recordDailyLedger() {
         var ledger = dailyLedger
@@ -644,6 +800,7 @@ final class UsageStore {
             windows += claudeCandyWindows(account, named: accounts.count > 1, l)
                 .filter { account.isDefault || armedCandyWindows.contains($0.key) }
         }
+        // Codex 는 한도를 다 써도 credits 로 계속 쓴다 — epoch 를 넘기지 않아 100% 미만 관측으로만 재무장한다.
         for bucket in codexLimits?.visibleSnapshots ?? [] {
             let bucketKey = bucket.limitId ?? bucket.limitName ?? "codex"
             let bucketName = bucket.bucketDisplayName
@@ -652,16 +809,14 @@ final class UsageStore {
                     key: "codex.\(bucketKey).primary",
                     name: "\(bucketName) \(l.codexWindow(primary.windowDurationMins))",
                     kind: Self.windowClass(minutes: primary.windowDurationMins),
-                    utilization: Double(primary.usedPercent),
-                    epoch: primary.resetsAt.map(String.init)))
+                    utilization: Double(primary.usedPercent)))
             }
             if let secondary = bucket.secondary {
                 windows.append(CandyWindow(
                     key: "codex.\(bucketKey).secondary",
                     name: "\(bucketName) \(l.codexWindow(secondary.windowDurationMins))",
                     kind: Self.windowClass(minutes: secondary.windowDurationMins),
-                    utilization: Double(secondary.usedPercent),
-                    epoch: secondary.resetsAt.map(String.init)))
+                    utilization: Double(secondary.usedPercent)))
             }
         }
         for group in antigravityLimits?.groups ?? [] {
@@ -734,6 +889,7 @@ final class UsageStore {
     /// 한도 데이터가 최소 1개 프로바이더 로드됐는가 — 사탕 첫 실행 시드 게이트(미로딩 중 시드 방지).
     var limitsReady: Bool {
         limits != nil || !additionalLimits.isEmpty || codexLimits != nil || antigravityLimits != nil || cursorLimits != nil
+            || openCodeGoLimits != nil || grokLimits != nil
     }
 
     /// burn rate 티어 — companion 표시 상태(idle/working/focus) 판정에 사용.
@@ -759,7 +915,8 @@ final class UsageStore {
         LocalAntigravityProvider(), LocalOpenCodeProvider(), LocalHermesProvider(),
         LocalCursorProvider(), LocalGrokProvider(), LocalCopilotProvider(), LocalKiroProvider(),
         LocalPiProvider(),
-        LocalOmpProvider(), LocalAsideProvider(), LocalKimiCodeProvider(),
+        LocalOmpProvider(), LocalOmoProvider(), LocalAsideProvider(), LocalKimiCodeProvider(),
+        LocalDevinProvider(),
     ],
          // 세션 키 우선, 없거나 죽었으면 기존 Keychain/파일 OAuth 경로. 두 인자는 같은
          // SessionKeyLimitsProvider 인스턴스를 봐야 한다 — 설정 화면이 고른 조직을 조회 경로가 써야 하므로.
@@ -780,6 +937,8 @@ final class UsageStore {
          codexLimitsProvider: any CodexLimitsProviding = CodexRateLimitsProvider(),
          antigravityLimitsProvider: any AntigravityLimitsProviding = AntigravityRateLimitsProvider(),
          cursorLimitsProvider: any CursorLimitsProviding = CursorRateLimitsProvider(),
+         openCodeGoLimitsProvider: any OpenCodeGoLimitsProviding = OpenCodeGoRateLimitsProvider(),
+         grokLimitsProvider: any GrokLimitsProviding = GrokRateLimitsProvider(),
          statusProvider: any ProviderStatusProviding = StatuspageStatusProvider(),
          sessionKeys: any SessionKeyManaging = SessionKeyLimitsProvider.shared,
          accountSessionKeys: @escaping @Sendable (URL) -> any SessionKeyManaging = {
@@ -802,9 +961,12 @@ final class UsageStore {
         self.codexLimitsProvider = codexLimitsProvider
         self.antigravityLimitsProvider = antigravityLimitsProvider
         self.cursorLimitsProvider = cursorLimitsProvider
+        self.openCodeGoLimitsProvider = openCodeGoLimitsProvider
+        self.grokLimitsProvider = grokLimitsProvider
         self.statusProvider = statusProvider
         self.defaults = defaults
         let d = defaults
+        disabledProviderIDs = Set(d.stringArray(forKey: Self.disabledProvidersKey) ?? [])
         refreshInterval = d.object(forKey: "refreshInterval") as? TimeInterval ?? 120
         let storedCrit = d.object(forKey: "critThreshold") as? Double ?? 95
         critThreshold = storedCrit
@@ -812,15 +974,21 @@ final class UsageStore {
         showTokensInMenu = d.object(forKey: "showTokensInMenu") as? Bool ?? true
         showCostInMenu = d.object(forKey: "showCostInMenu") as? Bool ?? false
         showLimitInMenu = d.object(forKey: "showLimitInMenu") as? Bool ?? false
+        showGrowthInMenu = d.object(forKey: "showGrowthInMenu") as? Bool ?? false
         limitDisplayMode = LimitDisplayMode(rawValue: d.string(forKey: "limitDisplayMode") ?? "") ?? .used
+        dailyTrendWindow = DailyTrendWindow(rawValue: d.string(forKey: "dailyTrendWindow") ?? "") ?? .d14
         menuLimitColorMode = MenuLimitColorMode(rawValue: d.string(forKey: "menuLimitColorMode") ?? "") ?? .gauge
+        activityVisualization = ActivityVisualization(
+            rawValue: d.string(forKey: "activityVisualization") ?? "") ?? .default
         limitNotifications = d.object(forKey: "limitNotifications") as? Bool ?? true
         companionNotifications = d.object(forKey: "companionNotifications") as? Bool ?? true
         updateNotificationsEnabled = d.object(forKey: "updateNotificationsEnabled") as? Bool ?? true
         statusChecksEnabled = d.object(forKey: "statusChecksEnabled") as? Bool ?? true
         floatingPetEnabled = d.object(forKey: "floatingPetEnabled") as? Bool ?? false
+        alwaysFacesBack = d.object(forKey: "alwaysFacesBack") as? Bool ?? false
         floatingPetSize = d.object(forKey: "floatingPetSize") as? Double ?? 96
         floatingPetBubbleAlerts = d.object(forKey: "floatingPetBubbleAlerts") as? Bool ?? true
+        floatingPetAgentActivity = d.object(forKey: "floatingPetAgentActivity") as? Bool ?? true
         // 기본 powerSaver — 이 설정이 생기기 전의 고정 캡(0.4s)과 같은 프레임 레이트라, 기존
         // 사용자의 배터리 프로파일은 그대로다. 더 부드러운 쪽은 opt-in(실측 idle CPU 1.8%/5.1%).
         animationQuality = AnimationQuality(rawValue: d.string(forKey: "animationQuality") ?? "") ?? .powerSaver
@@ -970,6 +1138,7 @@ final class UsageStore {
         }
 
         let todayKey = LocalUsageReader.todayKey()
+        let providers = activeProviders
 
         // ── Phase 1: daily (critical) — 메뉴바 숫자와 stale 판정은 여기서 확정.
         // 블록/주월 상세가 느리거나 멈춰도 메뉴바 숫자는 영향받지 않는다.
@@ -1013,6 +1182,7 @@ final class UsageStore {
             var prevWeek: PeriodUsage?
             var prevMonth: PeriodUsage?
             var prevMonthDaily: [DailyUsage]?
+            var prevRecentDaily: [DailyUsage]?
             var prevLastUsage: Date?
             if let previous = snapshots.first(where: { $0.providerID == provider.id }) {
                 prevLastUsage = previous.lastUsage
@@ -1023,6 +1193,7 @@ final class UsageStore {
                 prevWeek = previous.weekTotal
                 prevMonth = previous.monthTotal
                 prevMonthDaily = previous.monthDaily
+                prevRecentDaily = previous.recentDaily
             }
 
             let today: DailyUsage?
@@ -1045,6 +1216,7 @@ final class UsageStore {
                 weekTotal: prevWeek,
                 monthTotal: prevMonth,
                 monthDaily: prevMonthDaily,
+                recentDaily: prevRecentDaily,
                 fetchedAt: Date(),
                 reportsCost: provider.reportsCost,
                 lastUsage: prevLastUsage)
@@ -1062,14 +1234,17 @@ final class UsageStore {
         }
         writeParitySnapshot()
         AppLog.write("phase1 done total=\(todayTotalTokens) errors=\(errors.isEmpty ? "none" : errors.joined(separator: " | "))")
-        handleEmptyUsageRetry(schedule: scheduleEmptyRetry, hasErrors: !errors.isEmpty)
+        // Nothing to wait for when every provider is switched off.
+        handleEmptyUsageRetry(schedule: scheduleEmptyRetry && !providers.isEmpty, hasErrors: !errors.isEmpty)
 
         // ── Phase 2: 블록/주월 누적 상세 (best effort) — 실패 시 이전 값 유지
+        var failedEnrichment: Set<String> = []
         await withTaskGroup(of: (String, ProviderEnrichment).self) { group in
             for provider in providers {
                 group.addTask { (provider.id, await provider.fetchEnrichment()) }
             }
             for await (id, enrichment) in group {
+                if !enrichment.periodsOK { failedEnrichment.insert(id) }
                 guard let index = snapshots.firstIndex(where: { $0.providerID == id }) else {
                     // An idle day still has useful history. Require positive usage, not merely
                     // non-nil periods: local providers also return all-zero period summaries.
@@ -1080,6 +1255,7 @@ final class UsageStore {
                             weekTotal: enrichment.periodsOK ? enrichment.weekTotal : nil,
                             monthTotal: enrichment.periodsOK ? enrichment.monthTotal : nil,
                             monthDaily: enrichment.periodsOK ? enrichment.monthDaily : nil,
+                            recentDaily: enrichment.periodsOK ? enrichment.recentDaily : nil,
                             fetchedAt: Date(),
                             reportsCost: provider.reportsCost,
                             lastUsage: enrichment.periodsOK ? enrichment.lastUsage : nil)
@@ -1092,10 +1268,13 @@ final class UsageStore {
                     snapshots[index].weekTotal = enrichment.weekTotal
                     snapshots[index].monthTotal = enrichment.monthTotal
                     snapshots[index].monthDaily = enrichment.monthDaily
+                    snapshots[index].recentDaily = enrichment.recentDaily
                     snapshots[index].lastUsage = enrichment.lastUsage
                 }
             }
         }
+        failedEnrichmentIDs = failedEnrichment
+        lastUsageKnown = true
         // Successful empty enrichment removes obsolete carriers; failed reads retain history.
         snapshots.removeAll { !$0.hasDisplayableUsage }
         // Carriers arrive in task-completion order; keep tabs in provider registration order.
@@ -1108,7 +1287,12 @@ final class UsageStore {
         // ── 한도 조회 (Keychain 프롬프트로 블로킹될 수 있어 마지막)
         // 세션 키 경로는 Keychain 을 안 읽으므로 이 토글과 무관하게 조회한다 — 토글을 켠 이유(팝업)가
         // 세션 키에는 없는데도 같이 막으면, 키를 넣은 사용자가 한도를 영영 못 본다.
-        if disableKeychainAccess && !sessionKeyConfigured {
+        if !isProviderEnabled("claude_code") {
+            // Limit alerts and candies read `limits` directly, so a disabled provider's value is cleared.
+            limits = nil
+            limitsAvailable = false
+            limitsAuthExpiry = nil
+        } else if disableKeychainAccess && !sessionKeyConfigured {
             limits = nil
             limitsAvailable = false
             limitsAuthExpiry = nil   // 조회 자체를 안 하므로 "세션 만료" 안내는 무의미 → 해제
@@ -1137,6 +1321,8 @@ final class UsageStore {
         await refreshCodexLimits()
         await refreshAntigravityLimits(allowKeychainPrompt: false)
         await refreshCursorLimits()
+        await refreshOpenCodeGoLimits()
+        await refreshGrokLimits()
         await refreshProviderStatuses()
 
         checkLimitAlerts()
@@ -1298,6 +1484,11 @@ final class UsageStore {
     private var additionalRefresh: Task<Void, Never>?
 
     private func refreshAdditionalClaudeLimits(allowKeychainPrompt: Bool) async {
+        guard isProviderEnabled("claude_code") else {
+            additionalLimits = []
+            additionalLimitsPending = false
+            return
+        }
         let previous = additionalRefresh
         let task = Task {
             await previous?.value
@@ -1675,6 +1866,11 @@ final class UsageStore {
     }
 
     private func refreshCursorLimits() async {
+        guard isProviderEnabled("cursor") else {
+            cursorLimits = nil
+            cursorLimitsAuthExpired = false
+            return
+        }
         do {
             cursorLimits = try await cursorLimitsProvider.fetch()
             // nil = no Cursor login or the API is switched off: nothing is left to re-authenticate.
@@ -1693,6 +1889,66 @@ final class UsageStore {
         }
     }
 
+    private func refreshOpenCodeGoLimits() async {
+        guard isProviderEnabled("opencode") else {
+            openCodeGoLimits = nil
+            openCodeGoLimitsAuthExpired = false
+            return
+        }
+        do {
+            openCodeGoLimits = try await openCodeGoLimitsProvider.fetch()
+            // nil = no OpenCode Go key: nothing is left to re-authenticate.
+            openCodeGoLimitsAuthExpired = false
+            if let status = openCodeGoLimits {
+                openCodeGoLimitsUpdatedAt = Date()
+                let parts = [("5h", status.rolling), ("week", status.weekly), ("month", status.monthly)]
+                    .map { "\($0.0)=\($0.1?.percent.map { String(format: "%.1f", $0) } ?? "nil")" }
+                AppLog.write("opencode go limits refreshed \(parts.joined(separator: " "))")
+            }
+        } catch {
+            if case LimitsError.httpStatus(let code) = error, code == 401 || code == 403 {
+                openCodeGoLimitsAuthExpired = true
+            }
+            AppLog.writeIfChanged("opencode-go-limits", "opencode go limits unavailable: \(error)")
+        }
+    }
+
+    /// OpenCode Go 한도 staleness — 15분 경과 시 stale
+    var openCodeGoLimitsStale: Bool {
+        guard openCodeGoLimits != nil, let openCodeGoLimitsUpdatedAt else { return false }
+        return Date().timeIntervalSince(openCodeGoLimitsUpdatedAt) > 15 * 60
+    }
+
+    private func refreshGrokLimits() async {
+        guard isProviderEnabled("grok") else {
+            grokLimits = nil
+            grokLimitsAuthExpired = false
+            return
+        }
+        do {
+            grokLimits = try await grokLimitsProvider.fetch()
+            // nil = no Grok CLI login: nothing is left to re-authenticate.
+            grokLimitsAuthExpired = false
+            if let status = grokLimits {
+                grokLimitsUpdatedAt = Date()
+                let used = status.creditUsagePercent.map { String(format: "%.1f", $0) } ?? "nil"
+                AppLog.write("grok limits refreshed used=\(used)% period=\(status.currentPeriod?.type ?? "nil")")
+            }
+        } catch {
+            // Keep the last status: the token expires within hours and only the Grok CLI refreshes it.
+            if case LimitsError.httpStatus(let code) = error, code == 401 || code == 403 {
+                grokLimitsAuthExpired = true
+            }
+            AppLog.writeIfChanged("grok-limits", "grok limits unavailable: \(error)")
+        }
+    }
+
+    /// Grok 한도 staleness — 15분 경과 시 stale
+    var grokLimitsStale: Bool {
+        guard grokLimits != nil, let grokLimitsUpdatedAt else { return false }
+        return Date().timeIntervalSince(grokLimitsUpdatedAt) > 15 * 60
+    }
+
     /// Cursor 한도 staleness — 15분 경과 시 stale
     var cursorLimitsStale: Bool {
         guard cursorLimits != nil, let cursorLimitsUpdatedAt else { return false }
@@ -1700,7 +1956,8 @@ final class UsageStore {
     }
 
     private func refreshAntigravityLimits(allowKeychainPrompt: Bool) async {
-        if disableKeychainAccess && !antigravityLimitsProvider.hasTokenFile {
+        if !isProviderEnabled("antigravity")
+            || (disableKeychainAccess && !antigravityLimitsProvider.hasTokenFile) {
             antigravityLimits = nil
             antigravityLimitsAuthExpired = false
             return
@@ -1789,6 +2046,10 @@ final class UsageStore {
     }
 
     private func refreshCodexLimits() async {
+        guard isProviderEnabled("codex") else {
+            codexLimits = nil
+            return
+        }
         do {
             codexLimits = try await codexLimitsProvider.fetch()
             if let status = codexLimits {
@@ -2073,6 +2334,7 @@ private extension ProviderSnapshot {
             || (weekTotal?.totalTokens ?? 0) > 0
             || (monthTotal?.totalTokens ?? 0) > 0
             || monthDaily?.contains(where: { $0.totalTokens > 0 }) == true
+            || recentDaily?.contains(where: { $0.totalTokens > 0 }) == true
             || lastUsage.map { Date().timeIntervalSince($0) <= LocalUsageReader.recentUseWindow } == true
     }
 }
