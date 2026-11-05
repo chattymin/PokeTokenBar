@@ -28,7 +28,7 @@ PokeTokenBar turns the AI coding tokens you're already burning — Claude Code, 
 
 - **The usage tracker you actually enjoy opening.** Your spend raises a Pokémon that hatches, evolves, graduates, and fills a Pokédex — and every shiny is a reason to check back.
 - See today's token spend & cost at a glance — no dashboard, no browser tab.
-- Track official **5-hour / weekly** limits with reset countdowns and a burn-rate forecast for when you'll hit them.
+- Track official provider limits and reset countdowns, including OpenCode Go allowances and Grok CLI subscription credits; a burn-rate forecast helps with supported 5-hour windows.
 
 <div align="center">
 <img src="assets/screenshot-home.png" width="420" alt="Popover home — companion, today's tokens, daily chart">
@@ -50,7 +50,14 @@ PokeTokenBar turns the AI coding tokens you're already burning — Claude Code, 
 <td width="45%" align="center"><img src="assets/floating-pet.gif" width="340" alt="Floating desktop pet with a hover callout and right-click menu"></td>
 <td width="55%" valign="middle">
 <h3>🐾 Let it live on your desktop</h3>
-Move your companion out of the menu bar and onto the desktop, at any size from 48 to 384px. Hover it for today's usage, click to open the popover, right-click for a menu, drag it wherever you like — and limit alerts can appear as a speech bubble above it.
+Move your companion out of the menu bar and onto the desktop, at any size from 48 to 384px. Hover for today's usage, right-click for a menu, and drag it wherever you like. Click an egg to pray or a hatched Pokémon to open the popover; <b>right-click → Open</b> always opens it. Limit alerts can appear as speech bubbles.
+</td>
+</tr>
+<tr>
+<td width="45%" align="center"><img src="assets/screenshot-pet-interactions.png" width="300" alt="Separate native pet samples for prayer, petting, sulking, and agent waiting"><br><small>Native UI components · sample states</small></td>
+<td width="55%" valign="middle">
+<h3>A companion with a little personality</h3>
+Move the pointer over your floating pet to pet it, click an egg to pray, and watch for small reactions, sulking, and occasional event bubbles. These interactions are cosmetic: praying does not change hatch odds or growth rewards. Every 30 prayers, a quip can accompany a usage refresh. Agent activity can add working, waiting, and done reactions after <a href="#agent-activity">manual setup</a>.
 </td>
 </tr>
 <tr>
@@ -76,6 +83,13 @@ The <b>Pokédex</b> folds every species you've owned into one cell — 16 per pa
 <td width="45%" align="center"><img src="assets/screenshot-collection-pokedex.png" width="300" alt="Pokédex — one cell per species"><br><br><img src="assets/screenshot-collection-catchlog.png" width="300" alt="Catch log — one row per Pokémon raised"></td>
 </tr>
 <tr>
+<td width="45%" align="center"><img src="assets/screenshot-regional-dex.png" width="300" alt="Native regional collection counts and completion-badge component samples"><br><small>Native UI components · sample states</small></td>
+<td width="55%" valign="middle">
+<h3>Complete a region, keep a badge</h3>
+Filter the Pokédex to <b>Kanto, Johto, Hoenn, Sinnoh, or Unova</b> and check each region's owned and shiny counts. Collect completion badges for a region, its shiny set, all 28 Unown forms, or the national collection of 649 species. Badges record collection milestones and do not change hatch odds or growth.
+</td>
+</tr>
+<tr>
 <td width="45%" align="center"><img src="assets/screenshot-pokemon-forms.png" width="300" alt="Rotom form picker and form-specific individuals"><br><small>Production UI rendered locally with sample Pokémon.</small></td>
 <td width="55%" valign="middle">
 <h3>Collect more than one look</h3>
@@ -83,10 +97,10 @@ Collect Rotom appliances, Shaymin's Land and Sky Formes, Deerling seasons, Unown
 </td>
 </tr>
 <tr>
-<td width="45%" align="center"><img src="assets/settings.png" width="300" alt="Settings"></td>
+<td width="45%" align="center"><img src="assets/screenshot-provider-settings.png" width="300" alt="Provider switches in Settings with individual tools enabled and disabled"></td>
 <td width="55%" valign="middle">
 <h3>Tune it your way</h3>
-Menu-bar items, refresh interval (1–15 min or manual), launch at login, a Keychain opt-out that just hides the limits section, limit alerts with warning/critical thresholds, and companion event notifications. Full <b>KO / EN / JA / ES / FR / PT / DE / RU</b> UI; Pokémon, type, ability, and move names use your language when available and otherwise fall back to English.
+Choose which tools to track in <b>Settings → Tracked providers</b>. Turning one off stops reading that provider and excludes it from tabs, totals, Pokémon growth, and official-limit requests. Configure menu-bar items, refresh interval (1–15 min or manual), launch at login, and usage or companion alerts. Full <b>KO / EN / JA / ES / FR / PT / DE / RU</b> UI; Pokémon names and metadata fall back to English when a translation is unavailable.
 </td>
 </tr>
 <tr>
@@ -146,10 +160,10 @@ Set growth thresholds and shop prices independently from <b>10% to 200%</b>, wit
 </td>
 </tr>
 <tr>
-<td width="45%" align="center"><img src="assets/screenshot-daily-trend.png" width="300" alt="Your month, day by day"></td>
+<td width="45%" align="center"><img src="assets/screenshot-activity-views.png" width="300" alt="Activity views with selectable bar periods and a 16-week grid"></td>
 <td width="55%" valign="middle">
-<h3>Your month, day by day</h3>
-The daily chart keeps every date in the calendar month in place, with future dates left blank. When you use two or more tools this month, each day's bar stacks their usage in separate colors with a legend. Hover for that day's total and per-tool tokens and cost when enabled. Weekly and monthly history, plus the recap shortcut, stay visible even when today's usage is zero.
+<h3>Choose your activity view</h3>
+Choose <b>7, 14, or 21 days, or this month</b> from the bar-chart title. Bars stack by provider when several tools are used; hover for daily totals and the per-tool breakdown. <b>Click the chart</b> to switch to a <b>16-week activity grid</b>, which keeps its own range regardless of the selected bar period. History already stored locally and the labeled recap shortcut stay available on quiet days; a flame badge marks a usage streak of at least two days.
 </td>
 </tr>
 <tr>
@@ -168,9 +182,11 @@ Reset countdowns include the clock time, and the colored percentage stays aligne
 - **Reconnect refresh** — usage and limits refresh when the network comes back.
 - **Representative Pokémon** — pin any owned Pokédex species to the menu bar and optional floating pet, independently of the companion you're raising. While pinned, the menu bar stops following egg, hatch, and evolution changes; raising progress remains visible on Home.
 - **Animation quality** — pick how smoothly the menu bar sprite and the floating pet animate (Power saver / Balanced / Smooth). Both always-visible surfaces share the setting. Power saver is the default and keeps the frame rate the app used before this setting existed; Balanced and Smooth trade battery for smoothness (measured idle CPU ~1.8% and ~5.1%).
-- **Interactive floating pet** — hover for today's usage, click to open the main window, right-click for a menu, and show limit alerts as speech bubbles.
+- **Interactive floating pet** — hover for today's usage, pet it with the pointer, click an egg to pray or a hatched Pokémon to open the popover, and right-click for the menu. Alerts and small events appear as bubbles.
 - **Per-service tabs** — when two or more of Claude Code, Codex, Gemini CLI, Antigravity, OpenCode, Hermes Agent, Cursor, Grok CLI, Copilot CLI, Kiro CLI, Pi Agent, omp, omo, Aside, Kimi Code, and Devin CLI are detected, compact tabs switch between them; today's total stays combined.
-- **Official limits** — Claude, Codex & Antigravity 5-hour / weekly utilization with reset countdowns, right under today's numbers.
+- **Official limits** — Claude, Codex, and Antigravity limits with reset countdowns; OpenCode Go 5-hour / weekly / monthly allowances; and Grok CLI weekly subscription credits. Available limits depend on the provider login or subscription.
+- **Usage streak** — a flame beside the recap shortcut shows consecutive usage days, from two days onward. It stays gray until today's first usage extends the streak.
+- **Sprite recovery** — failed animated-sprite downloads retry automatically while the fallback remains visible.
 - **Additional scan folders** — per-provider extra scan roots for logs kept outside the built-in paths (Settings → Advanced).
 - **Several Claude accounts** — Claude Code logins kept in their own config folder (`CLAUDE_CONFIG_DIR`) each get a tab under the official limits, with their own gauges, Rare Candy, alerts, and today/month tokens. `~/.claude-*` folders and an exported `CLAUDE_CONFIG_DIR` are found automatically; add others in Settings → Advanced. The menu bar percentage, companion mood, and forecast follow the account you used last (Settings → General → Tracked Claude account). Each account can take its own claude.ai session key (Settings → Advanced), so its limits keep refreshing without the Keychain.
 - **Burn-rate forecast** — projects when the current 5h window hits 100%.
@@ -184,11 +200,13 @@ Reset countdowns include the clock time, and the colored percentage stays aligne
 
 <img src="assets/screenshot-usage-recap.png" width="360" alt="Usage recap for a selected period">
 
-<small>The Home, Settings, form, Shop, Bag, difficulty, daily-chart, and recap images above are local renders of the production UI with sample data.</small>
+<small>The Home, Settings, form, Shop, Bag, difficulty, activity, regional Pokédex, pet-interaction, and recap images above are local renders of the production UI with sample data. The regional and pet boards combine separate native UI component renders. Animated GIFs are illustrative demonstrations and may show an earlier layout.</small>
 
 ## Agent activity
 
 The floating pet can follow any AI coding agent: it bobs while the agent works, asks for you in a speech bubble when the agent needs input, and runs to your cursor when the agent finishes. The agent reports through a URL:
+
+Setup is manual and optional: PokeTokenBar does not install agent hooks or edit your agent settings. Enable the floating pet, leave **React to agent activity** on, and add the appropriate hook below.
 
 ```text
 poketokenbar://agent?state=<working|waiting|done|idle>[&label=<name>][&message=<text>]
@@ -196,7 +214,7 @@ poketokenbar://agent?state=<working|waiting|done|idle>[&label=<name>][&message=<
 
 - `label` and `message` are optional, URL-encoded, and shown as plain text. `label` (up to 24 characters) names the agent so several can run at once, each with its own state. Without a label, all events belong to one agent.
 - `working` falls back to idle after 10 minutes without news. `done` shows for about 6 seconds, then the pet walks home. `waiting` stays until that agent's next event or until you click the pet.
-- With several agents, a question comes first: the bubble shows the latest waiting agent and how many more are waiting, and the pet keeps bobbing while any agent works. A `done` shows its label for a few seconds, then the earlier bubble comes back. Clicking the pet clears every question and still opens the main window. Up to 8 labels are tracked.
+- With several agents, a question comes first: the bubble shows the latest waiting agent and how many more are waiting, and the pet keeps bobbing while any agent works. A `done` shows its label for a few seconds, then the earlier bubble comes back. Clicking the pet clears every question, then prays when an egg is shown or opens the popover for a hatched Pokémon. Use right-click → Open to open it while showing an egg. Up to 8 labels are tracked.
 - A limit alert bubble takes priority. With Reduce Motion or Low Power Mode on, the pet shows bubbles without moving.
 - Nothing happens while the floating pet is off. Turn the reactions off in **Settings → Floating Pet → React to agent activity**.
 
@@ -249,7 +267,7 @@ Then add the hooks to `~/.claude/settings.json`. The `Notification` matcher skip
 | **Kimi Code** | today · 5h block · week · month | — |
 | **Devin CLI** | today · 5h block · week · month | — |
 
-Grok support reads Grok Build CLI's local session logs. Grok Bot cloud usage and subscription limits are not integrated.
+Grok token usage comes from Grok Build CLI's local session logs; weekly subscription credits use the CLI's saved login. If that login expires, run Grok CLI once to refresh it. OpenCode Go limits use the Go API key already saved by OpenCode. Grok Bot cloud usage and its cloud subscription limits are not integrated.
 
 All read locally — no external usage CLI required. Adding a tool is a provider implementation and registration (see [CONTRIBUTING.md](CONTRIBUTING.md)).
 
