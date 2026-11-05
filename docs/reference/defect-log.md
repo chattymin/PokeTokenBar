@@ -839,6 +839,16 @@ read_when:
 
 ## 표시·UI
 
+- **Floating-pet features share one click route and one bubble reservation.** Agent activity (#457)
+  and pet interactions (#466) both changed the controller, hosting callbacks and sprite composition.
+  Keeping either side of their conflict alone discards egg prayers or agent acknowledgement, or
+  clips agent-only speech by reserving headroom only for limit alerts/hearts. Their original tests
+  exercised each feature separately. Resolve the shared surface together: limit > agent done >
+  agent waiting > hearts > hover/event; a plain click acknowledges agents before egg prayer or
+  hatched-pet Open, while context-menu Open always opens. Keep the heart/particles attached to
+  the sprite's bob modifier. `FloatingPetAgentTests` checks combined speech/headroom/event gates;
+  `FloatingPetAgentWiringTests` invokes the production hosting callbacks for eggs and hatched pets.
+
 - **초기 설정 이동은 애니메이션 완료에 의존하지 않는다.** 세션 키 만료·등록 안내에서
   `startExpanded`로 연 고급 섹션의 animated `scrollTo`가 비활성·non-key native 호스트에서
   반영되지 않았다. 원래 500ms 검사 시 clip Y는 0, 입력란의 host Y는 1483이었고, 입력 포커스만

@@ -313,6 +313,17 @@ struct SettingsView: View {
                 Toggle(l.floatingPetEnableLabel, isOn: $store.floatingPetEnabled)
                     .labelsHidden().toggleStyle(.switch).controlSize(.small)
             }
+            Divider()
+            groupRow {
+                // Also reachable from both right-click menus. Applies to every surface, not only the pet.
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(l.backViewLabel)
+                    Text(l.backViewHint).font(.caption2).foregroundStyle(.tertiary)
+                }
+                Spacer()
+                Toggle(l.backViewLabel, isOn: $store.alwaysFacesBack)
+                    .labelsHidden().toggleStyle(.switch).controlSize(.small)
+            }
             if store.floatingPetEnabled {
                 Divider()
                 groupRow {

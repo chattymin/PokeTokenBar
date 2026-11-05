@@ -170,6 +170,10 @@ final class UsageStore {
     var floatingPetEnabled: Bool {
         didSet { defaults.set(floatingPetEnabled, forKey: "floatingPetEnabled") }
     }
+    /// Always show the companion's back sprite, regardless of usage. A display preference only. Default off.
+    var alwaysFacesBack: Bool {
+        didSet { defaults.set(alwaysFacesBack, forKey: "alwaysFacesBack") }
+    }
     /// 플로팅 펫 스프라이트 한 변 크기(pt).
     var floatingPetSize: Double {
         didSet { defaults.set(floatingPetSize, forKey: "floatingPetSize") }
@@ -598,6 +602,22 @@ final class UsageStore {
     /// Day-by-day history behind the usage recap. Providers only report the current month, so the
     /// numbers are copied into a rolling ledger at every refresh — see `UsageLedger`.
     private(set) var dailyLedger = UsageLedger()
+    /// The first refresh of this session has finished its enrichment scan. Until then `lastUsage` may be a
+    /// restored or carried-over value, so nothing is known yet.
+    private(set) var lastUsageKnown = false
+    /// Providers whose latest enrichment scan failed. Their `lastUsage` is a carried-over value.
+    private var failedEnrichmentIDs: Set<String> = []
+
+    /// How long ago the newest token usage happened (`ProviderSnapshot.lastUsage`, the same value that
+    /// keeps a recently used provider's tab visible). nil only before the first complete refresh, which
+    /// must never be treated as idle. After that a provider that cannot be read does not veto: it is
+    /// ignored, and if no provider reports any usage time the answer is "at least the scan window".
+    func timeSinceLastUsage(now: Date = Date()) -> TimeInterval? {
+        guard lastUsageKnown else { return nil }
+        let reported = snapshots.filter { !failedEnrichmentIDs.contains($0.providerID) }.compactMap(\.lastUsage)
+        guard let last = reported.max() else { return LocalUsageReader.recentUseWindow }
+        return max(0, now.timeIntervalSince(last))
+    }
 
     /// The run of days with usage that is still going, read from the same ledger as the recap.
     var currentStreak: UsageStreak {
@@ -907,6 +927,7 @@ final class UsageStore {
         updateNotificationsEnabled = d.object(forKey: "updateNotificationsEnabled") as? Bool ?? true
         statusChecksEnabled = d.object(forKey: "statusChecksEnabled") as? Bool ?? true
         floatingPetEnabled = d.object(forKey: "floatingPetEnabled") as? Bool ?? false
+        alwaysFacesBack = d.object(forKey: "alwaysFacesBack") as? Bool ?? false
         floatingPetSize = d.object(forKey: "floatingPetSize") as? Double ?? 96
         floatingPetBubbleAlerts = d.object(forKey: "floatingPetBubbleAlerts") as? Bool ?? true
         floatingPetAgentActivity = d.object(forKey: "floatingPetAgentActivity") as? Bool ?? true
@@ -1151,11 +1172,13 @@ final class UsageStore {
         handleEmptyUsageRetry(schedule: scheduleEmptyRetry, hasErrors: !errors.isEmpty)
 
         // ── Phase 2: 블록/주월 누적 상세 (best effort) — 실패 시 이전 값 유지
+        var failedEnrichment: Set<String> = []
         await withTaskGroup(of: (String, ProviderEnrichment).self) { group in
             for provider in providers {
                 group.addTask { (provider.id, await provider.fetchEnrichment()) }
             }
             for await (id, enrichment) in group {
+                if !enrichment.periodsOK { failedEnrichment.insert(id) }
                 guard let index = snapshots.firstIndex(where: { $0.providerID == id }) else {
                     // An idle day still has useful history. Require positive usage, not merely
                     // non-nil periods: local providers also return all-zero period summaries.
@@ -1184,6 +1207,8 @@ final class UsageStore {
                 }
             }
         }
+        failedEnrichmentIDs = failedEnrichment
+        lastUsageKnown = true
         // Successful empty enrichment removes obsolete carriers; failed reads retain history.
         snapshots.removeAll { !$0.hasDisplayableUsage }
         // Carriers arrive in task-completion order; keep tabs in provider registration order.

@@ -9,6 +9,13 @@ import UserNotifications
 final class CompanionStore {
     private(set) var state = CompanionState()
     private(set) var displayState: CompanionStateKind = .egg
+    /// Time since the last token usage while `displayState == .sulk`, else 0.
+    private(set) var sulkIdle: TimeInterval = 0
+    /// Mirror of `UsageStore.alwaysFacesBack` (set by `AppDelegate.updateCompanion`): a display preference.
+    var alwaysFacesBack = false
+    /// The companion shows its back sprite on every surface: while sulking, or always when asked to.
+    /// An egg has no back to show.
+    var facesBack: Bool { state.active != nil && (alwaysFacesBack || displayState == .sulk) }
     private(set) var currentLine: EvoLine?
     private(set) var representativeSubject = RepresentativeSubject(speciesID: nil, isShiny: false)
     private(set) var isHatching = false
@@ -332,7 +339,8 @@ final class CompanionStore {
                 Dictionary(uniqueKeysWithValues:
                     active.pathIDs.compactMap { id in line.names[id].map { (id, $0) } })
             },
-            form: active.form
+            form: active.form,
+            prayers: active.prayers
         )
     }
 
@@ -363,7 +371,7 @@ final class CompanionStore {
                 Dictionary(uniqueKeysWithValues:
                     chain.compactMap { id in line.names[id].map { (id, $0) } })
             },
-            releasedAt: now, form: a.form)
+            releasedAt: now, form: a.form, prayers: a.prayers)
     }
 
     var dexEntries: [DexEntry] {
@@ -854,13 +862,18 @@ final class CompanionStore {
 
     // MARK: 갱신 (AppDelegate 가 UsageStore 값으로 호출)
 
+    /// `timeSinceLastUsage`: nil when unknown (see `UsageStore.timeSinceLastUsage`); unknown never sulks.
+    /// It comes from the slower enrichment scan, so a rise in today's total seen here counts as usage at once.
     func update(todayTokensByProvider: [String: Int], todayDate: String, monthTotal: Int,
-                burnTier: BurnTier, limitWarning: Bool, hasUsageData: Bool) {
+                burnTier: BurnTier, limitWarning: Bool, hasUsageData: Bool,
+                timeSinceLastUsage: TimeInterval? = nil) {
         let todayTokens = todayTokensByProvider.values.reduce(0, +)
         // `hasUsageData`는 표시용 snapshot 존재 여부이고, 이 map은 오늘 날짜가 확인된
         // provider 데이터만 담는다. stale snapshot이나 today == nil carrier만 있는 refresh는
         // ledger의 기준점을 움직일 수 있는 관측으로 취급하지 않는다.
         let hasCurrentProviderData = hasUsageData && !todayTokensByProvider.isEmpty
+        let idle = effectiveIdle(timeSinceLastUsage: timeSinceLastUsage, todayDate: todayDate,
+                                 todayTokens: todayTokens, hasCurrentProviderData: hasCurrentProviderData)
         if !state.installBaselineSet {
             // 설치 기준선 — 실제 데이터가 도착한 시점의 today 를 baseline 으로(이전 사용량 미카운트).
             // 데이터 도착 전(기동 직후 빈 새로고침)에는 잡지 않는다.
@@ -976,7 +989,9 @@ final class CompanionStore {
             Task { await revealDitto() }
         }
         displayState = computeState(burnTier: burnTier, limitWarning: limitWarning,
-                                    hasUsageData: hasUsageData, today: todayTokens)
+                                    hasUsageData: hasUsageData, today: todayTokens,
+                                    timeSinceLastUsage: idle)
+        sulkIdle = displayState == .sulk ? idle ?? 0 : 0
         save()
         autoSnapshotIfNeeded()
     }
@@ -1027,6 +1042,8 @@ final class CompanionStore {
                 } else if detailProvider != nil {
                     Task { await self.loadPokemonDetails(speciesID: next.speciesID) }
                 }
+                let oldName = formDisplayName(line.localizedName(a.currentID, state.language),
+                                              speciesID: a.currentID, form: a.form)
                 let newName = formDisplayName(line.localizedName(next.speciesID, state.language),
                                               speciesID: next.speciesID, form: a.form)
                 justEvolvedTo = newName
@@ -1034,7 +1051,7 @@ final class CompanionStore {
                 // 짧은 levelUp 창 — 진화 순간 "…(으)로 진화했어요" 문구 노출(hatch/graduate 와 동일 패턴).
                 // 이게 없으면 computeState 가 .levelUp 을 안 내 statusEvolved 가 도달 불가(dead code)였다.
                 eventUntil = clock().addingTimeInterval(4)
-                notifyCompanionEvent(l.notifEvolveTitle, l.notifEvolveBody(newName))
+                notifyCompanionEvent(l.notifEvolveTitle, l.notifEvolveBody(from: oldName, to: newName))
             }
         }
         reconcileActiveProfileGrowth()
@@ -1117,7 +1134,7 @@ final class CompanionStore {
                                   names: currentLine.map { line in   // 체인 각 종의 다국어 이름 저장(표시 즉시)
                                       Dictionary(uniqueKeysWithValues:
                                           a.pathIDs.compactMap { id in line.names[id].map { (id, $0) } })
-                                  }, form: a.form))
+                                  }, form: a.form, prayers: a.prayers))
         let name = formDisplayName(currentLine?.localizedName(finalID, state.language) ?? "",
                                    speciesID: finalID, form: a.form)
         justGraduated = name
@@ -1128,6 +1145,7 @@ final class CompanionStore {
         activeGeneration += 1
         currentLine = nil
         state.eggUsage = 0   // 새 알은 처음부터 인큐베이션
+        state.resetEggPrayers()
         isHatchRetryDelayed = false
         // eggTier 는 손대지 않는다 — 여기 도달했다는 건 활성 포켓몬이 있었다는 뜻이라 보증은 이미 nil 이다
         // (부화가 소비, 디스크/불러오기는 sanitized 가 정규화). 소비 지점은 hatchCore 한 곳으로 유지한다.
@@ -1370,6 +1388,7 @@ final class CompanionStore {
         activeGeneration += 1
         currentLine = nil
         state.eggUsage = 0            // 새 알은 처음부터 인큐베이션(재부화에 5M 필요)
+        state.resetEggPrayers()
         isHatchRetryDelayed = false
         state.eggTier = tier          // 등급 보증(nil = 보증 없음)
         state.pendingHatchID = nil    // 새 보증으로 처음부터 롤(활성 포켓몬이 있는 동안엔 원래 비어 있다)
@@ -1380,6 +1399,16 @@ final class CompanionStore {
         Task { await self.ensureEggPrefetch() }   // 다음 부화 예열
         save()
         return true
+    }
+
+    /// Pray over the egg. A placebo: it only counts, and never touches an RNG or a roll — the species is
+    /// usually already in `pendingHatchID` (prefetched at purchase) long before anyone prays.
+    func pray() {
+        guard state.active == nil else { return }
+        var record = state.eggPrayers ?? PrayerRecord(count: 0)
+        record.count += 1
+        state.eggPrayers = record
+        save()
     }
 
     // 보증 없는 기본 알 래퍼 — 기존 호출부/테스트 호환.
@@ -1490,7 +1519,7 @@ final class CompanionStore {
             state.inventory[ItemKind.rareCandy.rawValue, default: 0] += g.count
             // 지급 자체는 알림 여부와 무관(상태 변경). 알림은 "왜 받는지"(그 창 한도를 다 채운 수고) 명시.
             notifyCompanionEvent(l.notifCandyTitle(item: l.itemName(.rareCandy), count: g.count),
-                                 l.notifCandyBody(window: g.windowName))
+                                 l.notifCandyBody(window: g.windowName), showsOnPet: false)
         }
         // 지급이 없어도 재무장(util dip / epoch 교체)은 영속해야 한다 —
         // 안 하면 재시작 시 stale tier=1 로 다음 100% 도달이 "이미 지급"으로 오판돼 지급 누락(회귀).
@@ -1503,7 +1532,18 @@ final class CompanionStore {
 
     /// companion 이벤트 시스템 알림(.app + 토글 ON 일 때만). 한도 알림과 독립.
     private var notifSeq = 0
-    private func notifyCompanionEvent(_ title: String, _ body: String) {
+    /// The newest hatch / evolution / graduation / Ditto line; the floating pet pops it once. Recorded before the
+    /// bundled-app guard below so a dev build (no system notifications) shows it too.
+    /// `seq` tells a new event from one already shown, even when two share a clock instant.
+    struct CompanionEvent: Equatable { let seq: Int; let text: String; let at: Date }
+    private(set) var latestEvent: CompanionEvent?
+    private var eventSeq = 0
+
+    private func notifyCompanionEvent(_ title: String, _ body: String, showsOnPet: Bool = true) {
+        if showsOnPet {
+            eventSeq += 1
+            latestEvent = CompanionEvent(seq: eventSeq, text: body, at: clock())
+        }
         guard AppEnv.isBundledApp else { return }
         guard UserDefaults.standard.object(forKey: "companionNotifications") as? Bool ?? true else { return }
         notifSeq += 1
@@ -1735,6 +1775,8 @@ final class CompanionStore {
         let overflow = max(0, state.eggUsage - eggHatchThreshold)
         state.eggUsage = 0
         state.eggTier = nil   // 보증은 이 부화로 소비된다(다음 알은 다시 무보증)
+        let prayers = state.eggPrayers   // 부화체에 옮기고 알 쪽은 비운다
+        state.resetEggPrayers()
         // 개체 롤 — shiny(1/64, 부적 1/48)·성격(25종)은 부화 순간 확정, 진화해도 유지.
         // 알림 문구는 이 판정과 같은 분모를 보여준다.
         let shinyOdds = shinyDenominator
@@ -1758,12 +1800,18 @@ final class CompanionStore {
         state.active = MonState(baseID: line.baseID, pathIDs: [line.baseID], plannedPathIDs: evolutionPlan,
                                 stageIndex: 0, usedAtStage: 0, rarity: line.rarity, totalForms: evolutionPlan.count,
                                 isShiny: isShiny, nature: nature, profile: profile, hasGrowthBoost: hasGrowthBoost,
-                                dittoDisguise: dittoDisguise, form: form)
+                                dittoDisguise: dittoDisguise, form: form, prayers: prayers)
         AppLog.write("hatch: base=\(line.baseID) rarity=\(line.rarity) shiny=\(isShiny) forms=\(evolutionPlan.count) boost=\(hasGrowthBoost) ditto=\(dittoDisguise != nil)")
         let name = formDisplayName(line.localizedName(line.baseID, state.language),
                                    speciesID: line.baseID, form: form)
-        notifyCompanionEvent(showShiny ? l.notifShinyHatchTitle : l.notifHatchTitle,
-                             showShiny ? l.notifShinyHatchBody(name, odds: shinyOdds) : l.notifHatchBody(name))
+        let hatchBody: String
+        if let prayers, prayers.count > 0 {
+            hatchBody = l.notifPrayerHatchBody(name, prayers: prayers.count, shiny: showShiny,
+                                               rarity: line.rarity)
+        } else {
+            hatchBody = showShiny ? l.notifShinyHatchBody(name, odds: shinyOdds) : l.notifHatchBody(name)
+        }
+        notifyCompanionEvent(showShiny ? l.notifShinyHatchTitle : l.notifHatchTitle, hatchBody)
         justEvolvedTo = nil        // 새 부화는 "성장" 문구(진화 아님) — 직전 진화명이 남아 표시되지 않게
         displayState = .levelUp
         eventUntil = clock().addingTimeInterval(4)
@@ -1914,10 +1962,36 @@ final class CompanionStore {
         return nil
     }
 
-    private func computeState(burnTier: BurnTier, limitWarning: Bool, hasUsageData: Bool, today: Int) -> CompanionStateKind {
+    /// Today's total at the previous refresh, and when a rise in it was last seen. The enrichment scan's
+    /// `lastUsage` lags a refresh behind, so without this the companion would keep its back turned for a
+    /// while after usage resumed. Not persisted: after a launch there is nothing to compare with.
+    private var lastSeenToday: (date: String, total: Int)?
+    private var lastObservedUsage: Date?
+
+    /// `timeSinceLastUsage`, capped by how long ago this store itself saw today's total rise.
+    /// A new day or a first sighting only sets the baseline — it is not usage, so a midnight rollover
+    /// neither un-sulks nor sulks by itself. nil stays nil: unknown is never idle.
+    private func effectiveIdle(timeSinceLastUsage: TimeInterval?, todayDate: String, todayTokens: Int,
+                               hasCurrentProviderData: Bool) -> TimeInterval? {
+        if hasCurrentProviderData {
+            if let seen = lastSeenToday, seen.date == todayDate, todayTokens > seen.total {
+                lastObservedUsage = clock()
+            }
+            lastSeenToday = (todayDate, todayTokens)
+        }
+        guard let reported = timeSinceLastUsage else { return nil }
+        guard let observed = lastObservedUsage else { return reported }
+        return min(reported, max(0, clock().timeIntervalSince(observed)))
+    }
+
+    private func computeState(burnTier: BurnTier, limitWarning: Bool, hasUsageData: Bool, today: Int,
+                              timeSinceLastUsage: TimeInterval? = nil) -> CompanionStateKind {
         if state.active == nil { return .egg }
         if justGraduated != nil || (eventUntil != nil && clock() < eventUntil!) { return .levelUp }
         if limitWarning { return .tired }
+        if hasUsageData, let idle = timeSinceLastUsage, idle >= PokemonBalance.sulkAfterIdle {
+            return .sulk
+        }
         if !hasUsageData || today == 0 { return .sleep }
         switch burnTier {
         case .idle: return .idle
