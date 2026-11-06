@@ -676,6 +676,23 @@ read_when:
   `testMenuPrefersTheSessionLimitOverTheWeeklyOne`·`testHeadlineWindowPicksTheSessionThenTheWeeklyWindow`,
   `AdditionalClaudeAccountsTests.testTheMenuToolTipOnlyNamesAnAccountBehindAShownPercentage`.
 
+- **같은 `LimitStatus` 를 만드는 경로가 둘이면, usage 응답 밖에서 채우는 필드는 두 경로 모두에서 채운다.**
+  플랜(`subscriptionType`·`rateLimitTier`·`planDisplayName`)은 usage 응답에 없어서 OAuth 경로만 자격증명과
+  profile 에서 채웠다. 세션 키 경로는 usage 만 디코딩해, 세션 키로 조회하는 계정은 Max 든 Ultra 든 플랜 줄이
+  통째로 빠졌다(2026-11-07, Max 5x 개인 계정 탭). claude.ai `/api/organizations` 행에는 `capabilities` 의
+  `claude_max` 와 `rate_limit_tier`(`default_claude_max_5x`/`_20x`)가 있고 `plan_display_name` 은 null 이었다.
+  **왜 못 걸렀나:** 플랜 테스트(`planDisplay`, profile 파싱)는 OAuth 경로와 표시 규칙만 밟았고, 세션 키 테스트는
+  한도 값만 확인했다. 두 경로가 같은 타입을 돌려준다는 이유로 필드 채움도 같다고 가정했다.
+  **수정:** 세션 키 경로가 조직 정보에서 플랜을 채운다. 재탐색은 이미 받은 목록 행을 쓰고, 캐시된 조직은
+  `/api/organizations/{id}` 를 조직당 1시간에 한 번만 부른다(`SessionKeyPlanCache`). 플랜 조회 실패는 한도를
+  막지 않고 캐시하지도 않는다. 플랜 필드 타입이 바뀌어도 조직 목록 디코딩은 실패하지 않는다.
+  **스윕:** Claude `LimitStatus` 생성 경로는 OAuth·세션 키 두 곳뿐이다. 계정 이메일은 세션 키 경로에서도
+  저장된 로그인(`.claude.json`)으로 채워진다.
+  **회귀 가드:** `SessionKeyLimitsTests.testCachedOrgFetchFillsPlanFromOrganization`·
+  `testDiscoveryTakesPlanFromOrganizationList`·`testPlanIsFetchedOncePerLifetime`·
+  `testFailedPlanLookupKeepsLimitsAndRetriesNextPoll`·`testUnexpectedPlanFieldTypesKeepOrganizations`.
+  플랜 적용을 빼면 실패하는 것을 확인했다.
+
 ## 빌드·도구체인
 
 - **새 SDK에서 통과해도 CI의 AppKit Sendable 선언을 가정하지 마라.** 동시 캐시 로드 테스트가

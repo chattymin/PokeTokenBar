@@ -157,11 +157,14 @@ struct SessionKeyLimitsProvider: ClaudeLimitsProviding, SessionKeyManaging {
 
     private let store: SessionKeyStore
     private let http: any SessionKeyHTTPClient
+    private let plans: SessionKeyPlanCache
 
     init(store: SessionKeyStore = SessionKeyStore(),
-         http: any SessionKeyHTTPClient = URLSessionSessionKeyClient()) {
+         http: any SessionKeyHTTPClient = URLSessionSessionKeyClient(),
+         plans: SessionKeyPlanCache = .shared) {
         self.store = store
         self.http = http
+        self.plans = plans
     }
 
     /// `allowKeychainPrompt` 는 쓰지 않는다 — 이 경로는 Keychain 을 건드리지 않으므로 자동 폴링에서도
@@ -171,7 +174,9 @@ struct SessionKeyLimitsProvider: ClaudeLimitsProviding, SessionKeyManaging {
 
         if let orgID = credential.organizationID {
             do {
-                return try await usage(organizationID: orgID, sessionKey: credential.key)
+                var status = try await usage(organizationID: orgID, sessionKey: credential.key)
+                await plan(organizationID: orgID, sessionKey: credential.key)?.apply(to: &status)
+                return status
             } catch LimitsError.httpStatus(403) {
                 // 403 은 "이 조직에 권한 없음"(탈퇴·권한 회수). 키 자체는 살아있을 수 있으니 다시 고른다.
                 // 401(키 무효)은 여기서 잡지 않는다 — 재탐색해도 같은 401 이라 낭비다.
@@ -233,7 +238,12 @@ struct SessionKeyLimitsProvider: ClaudeLimitsProviding, SessionKeyManaging {
             for (index, row) in candidates.enumerated() {
                 group.addTask {
                     do {
-                        let limits = try await usage(organizationID: row.uuid, sessionKey: sessionKey)
+                        var limits = try await usage(organizationID: row.uuid, sessionKey: sessionKey)
+                        // The list already carries the plan: no extra request, and the cached-org
+                        // path of the next polls starts with a cache hit.
+                        let plan = row.plan
+                        await plans.store(plan, for: row.uuid)
+                        plan.apply(to: &limits)
                         return (index, SessionKeyOrganization(
                             id: row.uuid, name: row.name ?? row.uuid,
                             hasUsageData: Self.hasUsageData(limits), limits: limits))
@@ -259,6 +269,20 @@ struct SessionKeyLimitsProvider: ClaudeLimitsProviding, SessionKeyManaging {
         return try JSONDecoder().decode(LimitStatus.self, from: response.data)
     }
 
+    /// The organization's plan, cached for `SessionKeyPlanCache.lifetime`. The usage response has no
+    /// plan, so without this every session-key account showed no plan row. Best-effort: a failed
+    /// lookup leaves the plan out and never fails the limits, and it is not cached.
+    private func plan(organizationID: String, sessionKey: String) async -> ClaudePlan? {
+        if let cached = await plans.plan(for: organizationID) { return cached }
+        let url = Self.base.appendingPathComponent("organizations").appendingPathComponent(organizationID)
+        guard let response = try? await http.get(url, sessionKey: sessionKey), response.status == 200,
+              let row = try? JSONDecoder().decode(OrganizationRow.self, from: response.data)
+        else { return nil }
+        let plan = row.plan
+        await plans.store(plan, for: organizationID)
+        return plan
+    }
+
     /// 200 이 아니면 던진다. 401 은 키 무효(재입력 안내), 403 은 호출부가 판단(조직 권한일 수 있다).
     private static func mapFailure(_ response: SessionKeyHTTPResponse) throws {
         switch response.status {
@@ -280,6 +304,30 @@ struct SessionKeyLimitsProvider: ClaudeLimitsProviding, SessionKeyManaging {
         let uuid: String
         let name: String?
         let capabilities: [String]?
+        let rateLimitTier: String?
+        let planDisplayName: String?
+
+        private enum CodingKeys: String, CodingKey {
+            case uuid, name, capabilities
+            case rateLimitTier = "rate_limit_tier"
+            case planDisplayName = "plan_display_name"
+        }
+
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            uuid = try c.decode(String.self, forKey: .uuid)
+            name = try c.decodeIfPresent(String.self, forKey: .name)
+            capabilities = try c.decodeIfPresent([String].self, forKey: .capabilities)
+            // Plan fields only label the tab. A changed type there must not drop the whole
+            // organization list, and with it the limits.
+            rateLimitTier = try? c.decodeIfPresent(String.self, forKey: .rateLimitTier)
+            planDisplayName = try? c.decodeIfPresent(String.self, forKey: .planDisplayName)
+        }
+
+        var plan: ClaudePlan {
+            ClaudePlan(capabilities: capabilities, rateLimitTier: rateLimitTier,
+                       planDisplayName: planDisplayName)
+        }
     }
 
     private static func decodeRows(_ data: Data) throws -> [OrganizationRow] {
@@ -288,6 +336,70 @@ struct SessionKeyLimitsProvider: ClaudeLimitsProviding, SessionKeyManaging {
         } catch {
             throw LimitsError.credentialFormat
         }
+    }
+}
+
+// MARK: 플랜
+
+/// The plan claude.ai reports for an organization, in the fields the OAuth path fills
+/// (`LimitStatus.planDisplay` turns them into "Max"/"Ultra").
+///
+/// Seen 2026-11-07 on `/api/organizations`: `capabilities` holds `claude_max` and `rate_limit_tier`
+/// holds `default_claude_max_5x`/`_20x`, as the OAuth credential does. `plan_display_name` came back
+/// null for both tiers; it is read anyway so a name the server sets wins, as on the OAuth path.
+struct ClaudePlan: Equatable, Sendable {
+    var subscriptionType: String?
+    var rateLimitTier: String?
+    var planDisplayName: String?
+
+    /// Subscription capabilities and the `subscriptionType` value the OAuth credential uses for them.
+    /// Only `claude_max` was seen. Anything else gives no type, so a team or API organization does
+    /// not get labeled with its `rate_limit_tier` (`default_raven`, `auto_trust_tier_a`).
+    private static let subscriptionCapabilities = ["claude_max": "max", "claude_pro": "pro"]
+
+    init(subscriptionType: String? = nil, rateLimitTier: String? = nil, planDisplayName: String? = nil) {
+        self.subscriptionType = subscriptionType
+        self.rateLimitTier = rateLimitTier
+        self.planDisplayName = planDisplayName
+    }
+
+    init(capabilities: [String]?, rateLimitTier: String?, planDisplayName: String?) {
+        let type = capabilities?.lazy.compactMap { Self.subscriptionCapabilities[$0] }.first
+        let name = planDisplayName?.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.init(subscriptionType: type,
+                  rateLimitTier: type == nil ? nil : rateLimitTier,
+                  planDisplayName: name?.isEmpty == false ? name : nil)
+    }
+
+    func apply(to status: inout LimitStatus) {
+        status.subscriptionType = subscriptionType
+        status.rateLimitTier = rateLimitTier
+        status.planDisplayName = planDisplayName
+    }
+}
+
+/// Plans by organization id. Polls hit the usage endpoint every few minutes; the plan changes only
+/// on an upgrade or downgrade, so it is fetched at most once per `lifetime` per organization.
+/// Keyed by organization, so the default and additional accounts can share one cache.
+actor SessionKeyPlanCache {
+    static let shared = SessionKeyPlanCache()
+    static let lifetime: TimeInterval = 3600
+
+    private var entries: [String: (plan: ClaudePlan, fetchedAt: Date)] = [:]
+    private let now: @Sendable () -> Date
+
+    init(now: @escaping @Sendable () -> Date = Date.init) {
+        self.now = now
+    }
+
+    func plan(for organizationID: String) -> ClaudePlan? {
+        guard let entry = entries[organizationID],
+              now().timeIntervalSince(entry.fetchedAt) < Self.lifetime else { return nil }
+        return entry.plan
+    }
+
+    func store(_ plan: ClaudePlan, for organizationID: String) {
+        entries[organizationID] = (plan, now())
     }
 }
 

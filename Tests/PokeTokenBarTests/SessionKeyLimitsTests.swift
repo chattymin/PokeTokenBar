@@ -101,6 +101,23 @@ private func limitStatus(fiveHour: Double) -> LimitStatus {
 
 private let orgsPath = "/api/organizations"
 private func usagePath(_ id: String) -> String { "/api/organizations/\(id)/usage" }
+private func orgPath(_ id: String) -> String { "/api/organizations/\(id)" }
+
+/// `/api/organizations` rows as claude.ai sent them on 2026-11-07 (ids and names anonymized).
+private func subscriptionOrgJSON(_ id: String, tier: String, displayName: String = "null") -> String {
+    """
+    {"uuid":"\(id)","name":"user@example.com's Organization","capabilities":["chat","claude_max"],
+     "rate_limit_tier":"\(tier)","plan_display_name":\(displayName),"billing_type":"stripe_subscription"}
+    """
+}
+
+/// A clock the plan cache tests move by hand.
+private final class TestClock: @unchecked Sendable {
+    private let lock = NSLock()
+    private var current = Date(timeIntervalSince1970: 1_800_000_000)
+    var now: Date { lock.withLock { current } }
+    func advance(_ seconds: TimeInterval) { lock.withLock { current += seconds } }
+}
 
 // MARK: 테스트
 
@@ -196,13 +213,13 @@ final class SessionKeyLimitsTests: XCTestCase {
             orgsPath: ok(orgsJSON),
             usagePath("org-team"): ok(activeUsageJSON),
         ])
-        let provider = SessionKeyLimitsProvider(store: store, http: http)
+        let provider = SessionKeyLimitsProvider(store: store, http: http, plans: SessionKeyPlanCache())
 
         _ = try await provider.fetch(allowKeychainPrompt: false)
 
         let paths = await http.paths()
-        XCTAssertEqual(paths, [usagePath("org-team")],
-                       "캐시된 조직이 있으면 목록 조회 없이 usage 만 쳐야 한다")
+        XCTAssertFalse(paths.contains(orgsPath), "캐시된 조직이 있으면 목록 조회를 하지 않는다")
+        XCTAssertEqual(paths.first, usagePath("org-team"))
     }
 
     /// 조직에서 빠졌거나 권한이 사라진 경우(403) — 목록을 다시 훑어 살아있는 조직으로 옮겨간다.
@@ -240,6 +257,124 @@ final class SessionKeyLimitsTests: XCTestCase {
         XCTAssertEqual(limits.fiveHour?.utilization, 7)
         let paths = await http.paths()
         XCTAssertFalse(paths.contains(usagePath("org-api")), "API 전용 조직은 아예 조회하지 않는다")
+    }
+
+    // MARK: 플랜
+
+    /// [Regression] A session-key account showed no plan row: the usage response has no plan and
+    /// only the OAuth path filled one. The cached-org path is the one every poll takes.
+    func testCachedOrgFetchFillsPlanFromOrganization() async throws {
+        for (tier, expected) in [("default_claude_max_5x", "Max"), ("default_claude_max_20x", "Ultra")] {
+            try seed(org: "org-max")
+            let http = StubSessionKeyHTTP([
+                usagePath("org-max"): ok(activeUsageJSON),
+                orgPath("org-max"): ok(subscriptionOrgJSON("org-max", tier: tier)),
+            ])
+            let provider = SessionKeyLimitsProvider(store: store, http: http, plans: SessionKeyPlanCache())
+
+            let limits = try await provider.fetch(allowKeychainPrompt: false)
+
+            XCTAssertEqual(limits.fiveHour?.utilization, 7)
+            XCTAssertEqual(limits.subscriptionType, "max")
+            XCTAssertEqual(limits.rateLimitTier, tier)
+            XCTAssertEqual(limits.planDisplay, expected, tier)
+        }
+    }
+
+    func testPlanIsFetchedOncePerLifetime() async throws {
+        try seed(org: "org-max")
+        let http = StubSessionKeyHTTP([
+            usagePath("org-max"): ok(activeUsageJSON),
+            orgPath("org-max"): ok(subscriptionOrgJSON("org-max", tier: "default_claude_max_5x")),
+        ])
+        let clock = TestClock()
+        let provider = SessionKeyLimitsProvider(
+            store: store, http: http, plans: SessionKeyPlanCache(now: { clock.now }))
+
+        _ = try await provider.fetch(allowKeychainPrompt: false)
+        clock.advance(SessionKeyPlanCache.lifetime - 1)
+        let cached = try await provider.fetch(allowKeychainPrompt: false)
+        XCTAssertEqual(cached.planDisplay, "Max", "a cache hit still labels the plan")
+        var paths = await http.paths()
+        XCTAssertEqual(paths.filter { $0 == orgPath("org-max") }.count, 1, "polls inside the lifetime reuse the plan")
+
+        clock.advance(2)
+        _ = try await provider.fetch(allowKeychainPrompt: false)
+        paths = await http.paths()
+        XCTAssertEqual(paths.filter { $0 == orgPath("org-max") }.count, 2, "an expired plan is fetched again")
+    }
+
+    func testFailedPlanLookupKeepsLimitsAndRetriesNextPoll() async throws {
+        try seed(org: "org-max")
+        let http = StubSessionKeyHTTP([usagePath("org-max"): ok(activeUsageJSON)])
+        let provider = SessionKeyLimitsProvider(store: store, http: http, plans: SessionKeyPlanCache())
+
+        let limits = try await provider.fetch(allowKeychainPrompt: false)
+        _ = try await provider.fetch(allowKeychainPrompt: false)
+
+        XCTAssertEqual(limits.fiveHour?.utilization, 7, "the plan lookup must not fail the limits")
+        XCTAssertNil(limits.planDisplay)
+        let paths = await http.paths()
+        XCTAssertEqual(paths.filter { $0 == orgPath("org-max") }.count, 2, "a failure is not cached")
+    }
+
+    /// Discovery already has the rows: it labels the plan without a request per organization.
+    func testDiscoveryTakesPlanFromOrganizationList() async throws {
+        try seed()
+        let rows = "[\(subscriptionOrgJSON("org-max", tier: "default_claude_max_20x")),"
+            + #"{"uuid":"org-api","name":"API","capabilities":["api"],"rate_limit_tier":"auto_trust_tier_a"}]"#
+        let http = StubSessionKeyHTTP([
+            orgsPath: ok(rows),
+            usagePath("org-max"): ok(activeUsageJSON),
+        ])
+        let provider = SessionKeyLimitsProvider(store: store, http: http, plans: SessionKeyPlanCache())
+
+        let limits = try await provider.fetch(allowKeychainPrompt: false)
+        let next = try await provider.fetch(allowKeychainPrompt: false)
+
+        XCTAssertEqual(limits.planDisplay, "Ultra")
+        XCTAssertEqual(next.planDisplay, "Ultra")
+        let paths = await http.paths()
+        XCTAssertFalse(paths.contains(orgPath("org-max")), "the list already carried the plan")
+    }
+
+    func testNonSubscriptionOrganizationsGetNoPlan() {
+        XCTAssertEqual(ClaudePlan(capabilities: ["raven", "chat"], rateLimitTier: "default_raven", planDisplayName: nil),
+                       ClaudePlan(), "a team tier is not a plan name")
+        XCTAssertEqual(ClaudePlan(capabilities: ["api"], rateLimitTier: "auto_trust_tier_a", planDisplayName: nil),
+                       ClaudePlan())
+        XCTAssertEqual(ClaudePlan(capabilities: nil, rateLimitTier: "default_claude_max_5x", planDisplayName: nil),
+                       ClaudePlan())
+    }
+
+    func testServerPlanNameWins() async throws {
+        try seed(org: "org-max")
+        let http = StubSessionKeyHTTP([
+            usagePath("org-max"): ok(activeUsageJSON),
+            orgPath("org-max"): ok(subscriptionOrgJSON("org-max", tier: "default_claude_max_5x",
+                                                       displayName: #"" Max Plus ""#)),
+        ])
+        let provider = SessionKeyLimitsProvider(store: store, http: http, plans: SessionKeyPlanCache())
+
+        let limits = try await provider.fetch(allowKeychainPrompt: false)
+
+        XCTAssertEqual(limits.planDisplay, "Max Plus")
+    }
+
+    /// The plan fields are labels: an unexpected type there must not drop the organization list.
+    func testUnexpectedPlanFieldTypesKeepOrganizations() async throws {
+        let drifted = #"[{"uuid":"org-x","capabilities":["chat","claude_max"],"rate_limit_tier":5,"plan_display_name":{"a":1}}]"#
+        let http = StubSessionKeyHTTP([
+            orgsPath: ok(drifted),
+            usagePath("org-x"): ok(activeUsageJSON),
+        ])
+        let provider = SessionKeyLimitsProvider(store: store, http: http, plans: SessionKeyPlanCache())
+
+        let orgs = try await provider.organizations(sessionKey: "sk-ant-sid02-\(String(repeating: "f", count: 60))")
+
+        XCTAssertEqual(orgs.map(\.id), ["org-x"])
+        XCTAssertEqual(orgs.first?.limits.subscriptionType, "max")
+        XCTAssertEqual(orgs.first?.limits.planDisplay, "Max")
     }
 
     // MARK: 스키마 변동 방어 (응답이 우리 기대와 다를 때)
