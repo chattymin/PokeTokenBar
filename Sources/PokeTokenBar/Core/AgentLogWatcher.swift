@@ -19,7 +19,9 @@ final class AgentLogWatcher: @unchecked Sendable {
     private let queue = DispatchQueue(label: "PokeTokenBar.AgentLogWatcher", qos: .utility)
     private var stream: FSEventStreamRef?
     private var rootsBySource: [(source: AgentLogSource, roots: [String])] = []
-    private var cursors: [String: UInt64] = [:]
+    private var cursors: [String: (offset: UInt64, inode: UInt64?)] = [:]
+    private var heads: [String: AgentLogHead] = [:]
+    private var watermarks: [String: String] = [:]
     private var emitter = AgentLogEmitter()
     private var sessions = AgentSessionMemory()
     private var hookStatus: [String: (installed: Bool, at: Date)] = [:]
@@ -66,6 +68,8 @@ final class AgentLogWatcher: @unchecked Sendable {
             if let stream { Self.release(stream) }
             stream = nil
             cursors = [:]
+            heads = [:]
+            watermarks = [:]
             emitter = AgentLogEmitter()
             sessions = AgentSessionMemory()
         }
@@ -100,32 +104,92 @@ final class AgentLogWatcher: @unchecked Sendable {
 
     private func filesChanged(_ paths: [String]) {
         guard running else { return }
+        var databases: [(url: URL, source: AgentLogSource, reader: AgentDatabaseReader)] = []
         for path in paths.sorted() {
             let url = URL(fileURLWithPath: path)
             guard let source = rootsBySource.first(where: { entry in
                 entry.roots.contains { path.hasPrefix($0 + "/") } && entry.source.accepts(url)
-            })?.source,
-                let lines = read(path)
+            })?.source
             else { continue }
-            // Before interpreting: a batch can hold only a title or a turn start, and later
-            // readings (and hook events) still need them.
-            let session = sessions.update(file: path, title: source.title(lines), turn: { source.turns(lines, $0) })
-            guard var reading = source.interpret(lines) else { continue }
-            reading.title = session.title
-            // A turn nobody asked for ended: the agent is idle, but there is nothing to announce.
-            if session.automaticTurn, case .done = reading.activity { reading.activity = .idle }
-            sessions.noteActivity(label: reading.label, file: path)
-            let installed = hooksInstalled(source)
-            if emitter.shouldEmit(reading, sourceID: source.id, hooksReport: installed, now: Date()) {
-                handler(reading, source, installed)
+            if let reader = source.database {
+                // `x.db` and `x.db-wal` often change in one batch: query each database once.
+                if let db = reader.database(url), !databases.contains(where: { $0.url == db }) {
+                    databases.append((db, source, reader))
+                }
+                continue
+            }
+            logChanged(path, url: url, source: source)
+        }
+        for (db, source, reader) in databases {
+            let result = reader.read(db, watermarks[db.path])
+            if watermarks[db.path] == nil, watermarks.count >= Self.maxCursors { watermarks = [:] }
+            watermarks[db.path] = result.watermark
+            for reading in result.readings {
+                let key = db.path + "#" + (reading.session ?? "")
+                sessions.noteActivity(label: reading.label, file: key)
+                _ = sessions.update(file: key, title: AgentSessionTitle(named: nil, generated: reading.title), turn: { $0 })
+                emit(reading, source: source)
             }
         }
     }
 
+    private func logChanged(_ path: String, url: URL, source: AgentLogSource) {
+        if source.head != nil, heads[path] == nil {
+            if heads.count >= Self.maxCursors { heads = [:] }
+            heads[path] = Self.readHead(path).map { source.head!($0) } ?? AgentLogHead()
+        }
+        let head = heads[path] ?? AgentLogHead()
+        guard !head.skip, let lines = read(path) else { return }
+        // Before interpreting: a batch can hold only a title or a turn start, and later
+        // readings (and hook events) still need them.
+        var title = head.title
+        title.update(with: source.title(lines))
+        var session = sessions.update(file: path, title: title, turn: { source.turns(lines, $0) })
+        guard var reading = source.interpret(lines) else { return }
+        if reading.label == nil { reading.label = head.label }
+        if let externalTitle = source.externalTitle, reading.activity != .working, reading.activity != .idle {
+            session = sessions.update(file: path, title: externalTitle(url), turn: { $0 })
+        }
+        reading.title = session.title
+        // A turn nobody asked for ended: the agent is idle, but there is nothing to announce.
+        if session.automaticTurn, case .done = reading.activity { reading.activity = .idle }
+        sessions.noteActivity(label: reading.label, file: path)
+        emit(reading, source: source)
+    }
+
+    private func emit(_ reading: AgentLogReading, source: AgentLogSource) {
+        let installed = hooksInstalled(source)
+        if emitter.shouldEmit(reading, sourceID: source.id, hooksReport: installed, now: Date()) {
+            handler(reading, source, installed)
+        }
+    }
+
+    /// The first few complete lines, for `AgentLogSource.head`. Bounded: some agents put long
+    /// instructions in their first line.
+    static let headLines = 4
+    static let headBytes = 1024 * 1024
+
+    private static func readHead(_ path: String) -> [Substring]? {
+        guard let handle = FileHandle(forReadingAtPath: path) else { return nil }
+        defer { try? handle.close() }
+        var data = Data()
+        while data.count < headBytes, data.filter({ $0 == 0x0A }).count < headLines,
+              let chunk = try? handle.read(upToCount: 64 * 1024), !chunk.isEmpty {
+            data.append(chunk)
+        }
+        let lines = AgentLogTail.completeLines(data, dropsFirstLine: false).lines
+        return lines.isEmpty ? nil : Array(lines.prefix(headLines))
+    }
+
     /// New complete lines since the last read, or the tail of a file seen for the first time.
+    /// A file replaced by another (written aside, then renamed over it) is read as new.
     private func read(_ path: String) -> [Substring]? {
-        guard let size = (try? FileManager.default.attributesOfItem(atPath: path))?[.size] as? UInt64,
-              let range = AgentLogTail.range(size: size, knownOffset: cursors[path]),
+        guard let attributes = try? FileManager.default.attributesOfItem(atPath: path),
+              let size = attributes[.size] as? UInt64
+        else { return nil }
+        let inode = attributes[.systemFileNumber] as? UInt64
+        let known = cursors[path].flatMap { $0.inode == inode ? $0.offset : nil }
+        guard let range = AgentLogTail.range(size: size, knownOffset: known),
               let handle = FileHandle(forReadingAtPath: path)
         else { return nil }
         defer { try? handle.close() }
@@ -134,7 +198,7 @@ final class AgentLogWatcher: @unchecked Sendable {
         else { return nil }
         let (lines, consumed) = AgentLogTail.completeLines(data, dropsFirstLine: range.dropsFirstLine)
         if cursors[path] == nil, cursors.count >= Self.maxCursors { cursors = [:] }
-        cursors[path] = range.start + UInt64(consumed)
+        cursors[path] = (range.start + UInt64(consumed), inode)
         return lines.isEmpty ? nil : lines
     }
 

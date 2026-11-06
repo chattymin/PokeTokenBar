@@ -327,3 +327,146 @@ final class AgentLogWatcherTests: XCTestCase {
         XCTAssertEqual(watcher.latestSession(label: "web-app")?.automaticTurn, true)
     }
 }
+
+/// The watcher's extension points for agents other than Claude Code, on the real FSEvents path.
+final class AgentLogWatcherSourceShapeTests: XCTestCase {
+    private final class Box: @unchecked Sendable {
+        private let lock = NSLock()
+        private var items: [AgentLogReading] = []
+        func append(_ r: AgentLogReading) { lock.lock(); items.append(r); lock.unlock() }
+        var all: [AgentLogReading] { lock.lock(); defer { lock.unlock() }; return items }
+    }
+
+    private var root: URL!
+
+    override func setUpWithError() throws {
+        root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("AgentLogWatcherSourceShapeTests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+    }
+
+    override func tearDownWithError() throws {
+        try? FileManager.default.removeItem(at: root)
+    }
+
+    /// A toy line format: `state` lines (`working`, `done`) and a `head:<label>` or `head:skip` first line.
+    private func lineSource(externalTitle: (@Sendable (URL) -> AgentSessionTitle)? = nil) -> AgentLogSource {
+        let root = root!
+        return AgentLogSource(
+            id: "toy", roots: { [root] }, accepts: { $0.pathExtension == "log" },
+            interpret: { lines in
+                guard let last = lines.last(where: { !$0.hasPrefix("head:") }) else { return nil }
+                return AgentLogReading(activity: last == "done" ? .done(message: nil) : .working, label: nil,
+                                       lineID: UUID().uuidString)
+            },
+            hooks: nil,
+            head: { lines in
+                let first = lines.first.map(String.init) ?? ""
+                return first == "head:skip" ? AgentLogHead(skip: true)
+                    : AgentLogHead(label: first.replacingOccurrences(of: "head:", with: ""))
+            },
+            externalTitle: externalTitle)
+    }
+
+    private func append(_ text: String, to file: URL) throws {
+        if !FileManager.default.fileExists(atPath: file.path) { try Data().write(to: file) }
+        let handle = try FileHandle(forWritingTo: file)
+        try handle.seekToEnd()
+        try handle.write(contentsOf: Data(text.utf8))
+        try handle.close()
+    }
+
+    func testHeadGivesTheLabelAndSkipsHelperLogs() throws {
+        let received = Box()
+        let done = expectation(description: "done from the main log")
+        let watcher = AgentLogWatcher(sources: [lineSource(externalTitle: { _ in
+            AgentSessionTitle(named: nil, generated: "From the index")
+        })]) { reading, _, _ in
+            received.append(reading)
+            if case .done = reading.activity { done.fulfill() }
+        }
+        watcher.start()
+        defer { watcher.stop() }
+        Thread.sleep(forTimeInterval: 0.5)
+
+        // A long tail pushes the head line out of the 64 KB read; the head read still finds it.
+        let main = root.appendingPathComponent("main.log")
+        try append("head:web-app\n" + String(repeating: "working\n", count: 20_000), to: main)
+        try append("head:skip\nworking\ndone\n", to: root.appendingPathComponent("helper.log"))
+        Thread.sleep(forTimeInterval: 0.6)
+        try append("done\n", to: main)
+
+        wait(for: [done], timeout: 5)
+        let last = try XCTUnwrap(received.all.last)
+        XCTAssertEqual(last.label, "web-app")
+        XCTAssertEqual(last.title, "From the index", "an external title fills a done")
+        XCTAssertEqual(received.all.filter { if case .done = $0.activity { true } else { false } }.count, 1,
+                       "the helper's done never arrives")
+    }
+
+    /// Written aside and renamed over the old file: the new file is read from its tail, not from the
+    /// old offset (which would start mid-line).
+    func testAReplacedFileIsReadAsNew() throws {
+        let received = Box()
+        let done = expectation(description: "done after the file was replaced")
+        let watcher = AgentLogWatcher(sources: [lineSource()]) { reading, _, _ in
+            received.append(reading)
+            if case .done = reading.activity { done.fulfill() }
+        }
+        watcher.start()
+        defer { watcher.stop() }
+        Thread.sleep(forTimeInterval: 0.5)
+
+        let file = root.appendingPathComponent("s.log")
+        try append("head:a\n" + String(repeating: "working\n", count: 50), to: file)
+        Thread.sleep(forTimeInterval: 0.6)
+        let aside = root.appendingPathComponent("s.tmp")
+        try Data(("head:a\n" + String(repeating: "x", count: 900) + "\ndone\n").utf8).write(to: aside)
+        _ = try FileManager.default.replaceItemAt(file, withItemAt: aside)
+        wait(for: [done], timeout: 5)
+    }
+
+    func testDatabaseSourcesAreQueriedOncePerBatchAndNeverForShm() throws {
+        final class Calls: @unchecked Sendable {
+            private let lock = NSLock()
+            private var marks: [String?] = []
+            func add(_ m: String?) { lock.lock(); marks.append(m); lock.unlock() }
+            var all: [String?] { lock.lock(); defer { lock.unlock() }; return marks }
+        }
+        let calls = Calls()
+        let root = root!
+        let reader = AgentDatabaseReader(
+            database: { url in
+                url.lastPathComponent.hasSuffix("-shm") ? nil
+                    : URL(fileURLWithPath: url.path.replacingOccurrences(of: "-wal", with: ""))
+            },
+            read: { _, watermark in
+                calls.add(watermark)
+                let next = String((Int(watermark ?? "0") ?? 0) + 1)
+                return ([AgentLogReading(activity: .done(message: nil), label: "api", lineID: next,
+                                         title: "Add rate limits", session: "s1")], next)
+            })
+        let source = AgentLogSource(id: "db", roots: { [root] }, accepts: { $0.lastPathComponent.hasPrefix("state.db") },
+                                    interpret: { _ in nil }, hooks: nil, database: reader)
+        let received = Box()
+        let first = expectation(description: "first query")
+        let watcher = AgentLogWatcher(sources: [source]) { reading, _, _ in
+            received.append(reading)
+            first.fulfill()
+        }
+        watcher.start()
+        defer { watcher.stop() }
+        Thread.sleep(forTimeInterval: 0.5)
+
+        try Data("db".utf8).write(to: root.appendingPathComponent("state.db"))
+        try Data("wal".utf8).write(to: root.appendingPathComponent("state.db-wal"))
+        wait(for: [first], timeout: 5)
+        try Data("shm".utf8).write(to: root.appendingPathComponent("state.db-shm"))
+        Thread.sleep(forTimeInterval: 0.8)
+
+        XCTAssertEqual(calls.all.first ?? "unset", nil, "the first look has no watermark")
+        XCTAssertLessThanOrEqual(calls.all.count, 2, "db and -wal in one batch share a query; -shm adds none")
+        XCTAssertEqual(received.all.first?.title, "Add rate limits")
+        XCTAssertEqual(watcher.latestSession(label: "api")?.title, "Add rate limits", "hook events find database sessions too")
+    }
+}

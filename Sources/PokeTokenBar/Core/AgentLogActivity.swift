@@ -28,8 +28,10 @@ struct AgentLogReading: Equatable, Sendable {
     /// file events still count as two.
     var lineID: String?
     /// The session's title, shown instead of the generic bubble text. Set by the watcher, which
-    /// remembers titles across reads.
+    /// remembers titles across reads (database readers set it themselves).
     var title: String? = nil
+    /// Which session within a database this is about. Nil for log files: the file is the session.
+    var session: String? = nil
 }
 
 /// A session's name as the agent itself records it, e.g. in its session list.
@@ -115,6 +117,35 @@ struct AgentLogSource: Sendable {
     /// Turn state after these complete lines, from the state before them. The default never
     /// marks a turn automatic.
     var turns: @Sendable ([Substring], AgentTurnState) -> AgentTurnState = { $1 }
+    /// Reads the first lines of a log once, for agents that write the folder or the kind of
+    /// session only there (the tail read never sees them). Nil: the newest lines say enough.
+    var head: (@Sendable ([Substring]) -> AgentLogHead)? = nil
+    /// A title kept outside the log, e.g. in an index or a state file next to it. Asked only
+    /// before a done or waiting reaches the pet.
+    var externalTitle: (@Sendable (URL) -> AgentSessionTitle)? = nil
+    /// For agents that keep sessions in SQLite instead of an appended log. When set, `interpret`,
+    /// `title`, `turns` and `head` are not used.
+    var database: AgentDatabaseReader? = nil
+}
+
+/// What the first lines of a log say about the whole session.
+struct AgentLogHead: Equatable, Sendable {
+    var label: String?
+    /// A subagent's or a helper's log: its turns are not the person's, so the file is ignored.
+    var skip = false
+    var title = AgentSessionTitle()
+}
+
+/// Sessions kept in a SQLite database. FSEvents only says the database (or its `-wal`) changed;
+/// the reader then asks for what is new since its own watermark.
+struct AgentDatabaseReader: Sendable {
+    /// The database behind a changed path (`x.db`, `x.db-wal`). Nil to ignore it: a read-only
+    /// WAL reader writes read marks into `-shm`, so following `-shm` would loop on its own reads.
+    let database: @Sendable (URL) -> URL?
+    /// Newest reading per session that changed after `watermark`, and the new watermark. A nil
+    /// watermark is the first look at this database: return only sessions that changed in the
+    /// last minute, so a launch does not replay old turns. Each reading sets `session`.
+    let read: @Sendable (_ database: URL, _ watermark: String?) -> (readings: [AgentLogReading], watermark: String?)
 }
 
 extension AgentLogSource {
