@@ -146,7 +146,7 @@ final class AgentLogWatcher: @unchecked Sendable {
         title.update(with: source.title(lines))
         var session = sessions.update(file: path, title: title, turn: { source.turns(lines, $0) })
         guard var reading = source.interpret(lines) else { return }
-        if reading.label == nil { reading.label = head.label }
+        if reading.label == nil { reading.label = head.label ?? source.pathLabel?(url) }
         if let externalTitle = source.externalTitle, reading.activity != .working, reading.activity != .idle {
             session = sessions.update(file: path, title: externalTitle(url), turn: { $0 })
         }

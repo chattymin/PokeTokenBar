@@ -123,6 +123,9 @@ struct AgentLogSource: Sendable {
     /// A title kept outside the log, e.g. in an index or a state file next to it. Asked only
     /// before a done or waiting reaches the pet.
     var externalTitle: (@Sendable (URL) -> AgentSessionTitle)? = nil
+    /// The label for a log whose lines and head name no folder, from its path (agents that encode
+    /// the working folder in a folder name). Used after `interpret` and `head`.
+    var pathLabel: (@Sendable (URL) -> String?)? = nil
     /// For agents that keep sessions in SQLite instead of an appended log. When set, `interpret`,
     /// `title`, `turns` and `head` are not used.
     var database: AgentDatabaseReader? = nil

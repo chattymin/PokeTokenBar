@@ -362,10 +362,11 @@ final class AgentLogWatcherSourceShapeTests: XCTestCase {
             hooks: nil,
             head: { lines in
                 let first = lines.first.map(String.init) ?? ""
-                return first == "head:skip" ? AgentLogHead(skip: true)
-                    : AgentLogHead(label: first.replacingOccurrences(of: "head:", with: ""))
+                let label = first.replacingOccurrences(of: "head:", with: "")
+                return first == "head:skip" ? AgentLogHead(skip: true) : AgentLogHead(label: label.isEmpty ? nil : label)
             },
-            externalTitle: externalTitle)
+            externalTitle: externalTitle,
+            pathLabel: { $0.deletingPathExtension().lastPathComponent })
     }
 
     private func append(_ text: String, to file: URL) throws {
@@ -402,6 +403,22 @@ final class AgentLogWatcherSourceShapeTests: XCTestCase {
         XCTAssertEqual(last.title, "From the index", "an external title fills a done")
         XCTAssertEqual(received.all.filter { if case .done = $0.activity { true } else { false } }.count, 1,
                        "the helper's done never arrives")
+
+    }
+
+    func testThePathNamesTheFolderWhenNothingElseDoes() throws {
+        let done = expectation(description: "done labeled from the path")
+        let watcher = AgentLogWatcher(sources: [lineSource()]) { reading, _, _ in
+            if case .done = reading.activity, reading.label == "api" { done.fulfill() }
+        }
+        watcher.start()
+        defer { watcher.stop() }
+        Thread.sleep(forTimeInterval: 0.5)
+        let file = root.appendingPathComponent("api.log")
+        try append("head:\nworking\n", to: file)
+        Thread.sleep(forTimeInterval: 0.6)
+        try append("done\n", to: file)
+        wait(for: [done], timeout: 5)
     }
 
     /// Written aside and renamed over the old file: the new file is read from its tail, not from the
