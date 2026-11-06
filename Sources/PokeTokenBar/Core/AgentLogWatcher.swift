@@ -21,6 +21,8 @@ final class AgentLogWatcher: @unchecked Sendable {
     private var rootsBySource: [(source: AgentLogSource, roots: [String])] = []
     private var cursors: [String: (offset: UInt64, inode: UInt64?)] = [:]
     private var heads: [String: AgentLogHead] = [:]
+    private var pathLabels: [String: String?] = [:]
+    private var lastLabels: [String: String] = [:]
     private var watermarks: [String: String] = [:]
     private var emitter = AgentLogEmitter()
     private var sessions = AgentSessionMemory()
@@ -69,6 +71,8 @@ final class AgentLogWatcher: @unchecked Sendable {
             stream = nil
             cursors = [:]
             heads = [:]
+            pathLabels = [:]
+            lastLabels = [:]
             watermarks = [:]
             emitter = AgentLogEmitter()
             sessions = AgentSessionMemory()
@@ -146,7 +150,11 @@ final class AgentLogWatcher: @unchecked Sendable {
         title.update(with: source.title(lines))
         var session = sessions.update(file: path, title: title, turn: { source.turns(lines, $0) })
         guard var reading = source.interpret(lines) else { return }
-        if reading.label == nil { reading.label = head.label ?? source.pathLabel?(url) }
+        // A batch without a folder keeps the file's last one: a resumed session can move folders,
+        // and its head still names the first.
+        if reading.label == nil { reading.label = lastLabels[path] ?? head.label ?? pathLabel(path, url: url, source: source) }
+        if lastLabels[path] == nil, lastLabels.count >= Self.maxCursors { lastLabels = [:] }
+        lastLabels[path] = reading.label
         if let externalTitle = source.externalTitle, reading.activity != .working, reading.activity != .idle {
             session = sessions.update(file: path, title: externalTitle(url), turn: { $0 })
         }
@@ -155,6 +163,16 @@ final class AgentLogWatcher: @unchecked Sendable {
         if session.automaticTurn, case .done = reading.activity { reading.activity = .idle }
         sessions.noteActivity(label: reading.label, file: path)
         emit(reading, source: source)
+    }
+
+    /// Once per file: a path label can look at folders on disk.
+    private func pathLabel(_ path: String, url: URL, source: AgentLogSource) -> String? {
+        guard let pathLabel = source.pathLabel else { return nil }
+        if let known = pathLabels[path] { return known }
+        if pathLabels.count >= Self.maxCursors { pathLabels = [:] }
+        let label = pathLabel(url)
+        pathLabels[path] = .some(label)
+        return label
     }
 
     private func emit(_ reading: AgentLogReading, source: AgentLogSource) {
@@ -173,8 +191,10 @@ final class AgentLogWatcher: @unchecked Sendable {
         guard let handle = FileHandle(forReadingAtPath: path) else { return nil }
         defer { try? handle.close() }
         var data = Data()
-        while data.count < headBytes, data.filter({ $0 == 0x0A }).count < headLines,
+        var newlines = 0
+        while data.count < headBytes, newlines < headLines,
               let chunk = try? handle.read(upToCount: 64 * 1024), !chunk.isEmpty {
+            newlines += chunk.reduce(0) { $1 == 0x0A ? $0 + 1 : $0 }
             data.append(chunk)
         }
         let lines = AgentLogTail.completeLines(data, dropsFirstLine: false).lines

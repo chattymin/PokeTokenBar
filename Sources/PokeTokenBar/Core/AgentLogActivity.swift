@@ -169,7 +169,14 @@ extension AgentLogSource {
 extension AgentLogSource {
     /// What the app watches. Empty outside the bundled app: tests must not read the developer's
     /// own logs or settings.
-    static var installed: [AgentLogSource] { AppEnv.isBundledApp ? [.claudeCode()] : [] }
+    static var installed: [AgentLogSource] { AppEnv.isBundledApp ? all : [] }
+
+    /// Every agent the pet can follow from its own session data, in the order the watcher matches
+    /// a changed path (the first source whose roots hold it wins; the roots do not overlap).
+    static var all: [AgentLogSource] {
+        [.claudeCode(), .codex(), .kimiCode(), .pi(), .omp(), .omo(), .grok(), .geminiCLI(), .copilotCLI(),
+         .kiroCLI(), .cursor(), .openCode(), .hermes(), .devin(), .aside()]
+    }
 }
 
 extension AgentHookIntegration {
