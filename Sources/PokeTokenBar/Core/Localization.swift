@@ -485,14 +485,14 @@ struct L {
           "Réagir à l’activité de l’agent", "Reagir à atividade do agente", "Auf Agent-Aktivität reagieren", "Реагировать на работу агента")
     }
     var floatingPetAgentActivityHint: String {
-        t("Claude Code 는 자동으로, 다른 에이전트는 poketokenbar:// 링크로 — README 참고",
-          "Claude Code works on its own; other agents use poketokenbar:// links — see the README",
-          "Claude Code は自動で、ほかのエージェントは poketokenbar:// リンクで — README 参照",
-          "Claude Code funciona solo; otros agentes usan enlaces poketokenbar:// — consulta el README",
-          "Claude Code fonctionne tout seul ; les autres agents via des liens poketokenbar:// — voir le README",
-          "Claude Code funciona sozinho; outros agentes usam links poketokenbar:// — veja o README",
-          "Claude Code klappt von selbst, andere Agents über poketokenbar://-Links – siehe README",
-          "Claude Code — автоматически, другие агенты — через ссылки poketokenbar:// (см. README)")
+        t("대부분의 에이전트는 자동으로, 그 밖의 도구는 poketokenbar:// 링크로 — README 참고",
+          "Most agents work on their own; other tools can use poketokenbar:// links — see the README",
+          "ほとんどのエージェントは自動で、ほかのツールは poketokenbar:// リンクで — README 参照",
+          "La mayoría de los agentes funcionan solos; otras herramientas usan enlaces poketokenbar:// — consulta el README",
+          "La plupart des agents fonctionnent seuls ; les autres outils via des liens poketokenbar:// — voir le README",
+          "A maioria dos agentes funciona sozinha; outras ferramentas usam links poketokenbar:// — veja o README",
+          "Die meisten Agents klappen von selbst, andere Tools über poketokenbar://-Links – siehe README",
+          "Большинство агентов — автоматически, другие инструменты — через ссылки poketokenbar:// (см. README)")
     }
     var agentWaitingTitle: String {
         t("에이전트가 기다려요", "Your agent needs you", "エージェントが呼んでいます", "Tu agente te necesita",
@@ -533,26 +533,63 @@ struct L {
     }
 
     /// The pet's own offer, in a speech bubble under the agent's name. Two lines at most.
-    var agentHookOfferBody: String {
-        t("권한을 물을 때도 부를까요? 저를 눌러 주세요.", "Want a call when it asks for permission too? Click me.",
-          "許可を求めるときも呼ぼうか？ クリックしてね。", "¿Te aviso también cuando pida permiso? Haz clic.",
-          "Je t’appelle aussi quand il demande l’accord ? Clique-moi.", "Aviso também quando pedir permissão? Clique em mim.",
-          "Auch bei Rechteanfragen rufen? Klick mich.", "Звать и при запросе разрешения? Нажмите.")
+    func agentHookOfferBody(_ gain: AgentHookGain) -> String {
+        switch gain {
+        case .permissionPrompts:
+            t("권한을 물을 때도 부를까요? 저를 눌러 주세요.", "Want a call when it asks for permission too? Click me.",
+              "許可を求めるときも呼ぼうか？ クリックしてね。", "¿Te aviso también cuando pida permiso? Haz clic.",
+              "Je t’appelle aussi quand il demande l’accord ? Clique-moi.", "Aviso também quando pedir permissão? Clique em mim.",
+              "Auch bei Rechteanfragen rufen? Klick mich.", "Звать и при запросе разрешения? Нажмите.")
+        case .finish:
+            t("끝났을 때도 부를까요? 저를 눌러 주세요.", "Want a call when it finishes too? Click me.",
+              "終わったときも呼ぼうか？ クリックしてね。", "¿Te aviso también cuando termine? Haz clic.",
+              "Je t’appelle aussi quand il a fini ? Clique-moi.", "Aviso também quando terminar? Clique em mim.",
+              "Auch rufen, wenn es fertig ist? Klick mich.", "Звать и когда он закончит? Нажмите.")
+        case .finishAndPermissionPrompts:
+            t("끝났을 때와 권한을 물을 때도 부를까요? 눌러 주세요.", "Want a call when it finishes or asks for permission? Click me.",
+              "終わったときと許可のときも呼ぼうか？ クリックしてね。", "¿Te aviso al terminar y al pedir permiso? Haz clic.",
+              "Je t’appelle quand il finit ou demande l’accord ? Clique-moi.", "Aviso ao terminar e ao pedir permissão? Clique em mim.",
+              "Rufen, wenn es fertig ist oder fragt? Klick mich.", "Звать по завершении и при запросах? Нажмите.")
+        case .everything:
+            t("이 에이전트도 따라갈까요? 저를 눌러 주세요.", "Want me to follow this agent too? Click me.",
+              "このエージェントも追いかけようか？ クリックしてね。", "¿Sigo también a este agente? Haz clic.",
+              "Je suis aussi cet agent ? Clique-moi.", "Sigo também este agente? Clique em mim.",
+              "Diesem Agenten auch folgen? Klick mich.", "Следить и за этим агентом? Нажмите.")
+        }
     }
     func agentHookConfirmTitle(_ name: String) -> String {
         t("\(name)에 연결할까요?", "Connect \(name)?", "\(name) と連携しますか？", "¿Conectar \(name)?",
           "Connecter \(name) ?", "Conectar \(name)?", "\(name) verbinden?", "Подключить \(name)?")
     }
-    func agentHookConfirmBody(_ name: String, _ file: String) -> String {
+    func agentHookConfirmBody(_ name: String, _ file: String, _ gain: AgentHookGain = .permissionPrompts) -> String {
         let place = "\(settings) → \(floatingPetSectionTitle)"
-        return t("\(name) 설정 파일(\(file))에 훅 5개를 더해요. 권한을 묻거나 질문할 때도 펫이 알려 줘요. 다른 설정은 그대로 두고, 원래 파일은 옆에 백업해 둬요. \(place)에서 언제든 뺄 수 있어요.",
-          "Adds 5 hooks to the \(name) settings file (\(file)), so the pet also tells you when it asks for permission or asks you a question. Other settings stay as they are, and the original file is backed up next to it. Remove them anytime in \(place).",
-          "\(name) の設定ファイル（\(file)）にフックを5つ追加します。許可や質問を求めるときもペットが知らせます。ほかの設定はそのままで、元のファイルは隣にバックアップします。\(place) からいつでも外せます。",
-          "Añade 5 hooks al archivo de ajustes de \(name) (\(file)) para que la mascota también te avise cuando pida permiso o te haga una pregunta. El resto de ajustes no cambia y el archivo original se copia al lado. Quítalos cuando quieras en \(place).",
-          "Ajoute 5 hooks au fichier de réglages de \(name) (\(file)) : le compagnon te prévient aussi quand il demande une autorisation ou te pose une question. Les autres réglages ne changent pas et le fichier d’origine est sauvegardé à côté. Retire-les quand tu veux dans \(place).",
-          "Adiciona 5 hooks ao arquivo de configurações do \(name) (\(file)), para o mascote avisar também quando ele pedir permissão ou fizer uma pergunta. As outras configurações não mudam e o arquivo original ganha uma cópia ao lado. Remova quando quiser em \(place).",
-          "Fügt der Einstellungsdatei von \(name) (\(file)) 5 Hooks hinzu, damit dein Pokémon auch bei Rechteanfragen und Rückfragen Bescheid gibt. Andere Einstellungen bleiben unverändert, die Originaldatei wird daneben gesichert. Jederzeit entfernbar unter \(place).",
-          "Добавит 5 хуков в файл настроек \(name) (\(file)), чтобы питомец сообщал и о запросах разрешений и вопросах. Остальные настройки не меняются, исходный файл сохраняется рядом. Убрать можно в любой момент: \(place).")
+        let shows = agentHookGainNoun(gain)
+        return t("\(name) 훅 파일(\(file))에 훅을 더해 \(shows)도 펫이 알려 줘요. 다른 설정은 그대로 두고, 원래 파일은 옆에 백업해 둬요. \(place)에서 언제든 뺄 수 있어요.",
+          "Adds hooks to the \(name) hook file (\(file)) so the pet also shows \(shows). Other settings stay as they are, and the original file is backed up next to it. Remove them anytime in \(place).",
+          "\(name) のフックファイル（\(file)）にフックを追加し、\(shows)もペットが知らせます。ほかの設定はそのままで、元のファイルは隣にバックアップします。\(place) からいつでも外せます。",
+          "Añade hooks al archivo de \(name) (\(file)) para que la mascota también muestre \(shows). El resto de ajustes no cambia y el archivo original se copia al lado. Quítalos cuando quieras en \(place).",
+          "Ajoute des hooks au fichier de \(name) (\(file)) : le compagnon montre aussi \(shows). Les autres réglages ne changent pas et le fichier d’origine est sauvegardé à côté. Retire-les quand tu veux dans \(place).",
+          "Adiciona hooks ao arquivo do \(name) (\(file)) para o mascote mostrar também \(shows). As outras configurações não mudam e o arquivo original ganha uma cópia ao lado. Remova quando quiser em \(place).",
+          "Fügt der Hook-Datei von \(name) (\(file)) Hooks hinzu, damit dein Pokémon auch \(shows) zeigt. Andere Einstellungen bleiben unverändert, die Originaldatei wird daneben gesichert. Jederzeit entfernbar unter \(place).",
+          "Добавит хуки в файл \(name) (\(file)), чтобы питомец показывал и \(shows). Остальные настройки не меняются, исходный файл сохраняется рядом. Убрать можно в любой момент: \(place).")
+    }
+    /// What an agent's hooks add, as a noun phrase for the sentences around it.
+    func agentHookGainNoun(_ gain: AgentHookGain) -> String {
+        switch gain {
+        case .permissionPrompts:
+            t("권한 요청", "permission prompts", "許可の確認", "los permisos", "les demandes d’accord", "as permissões",
+              "Rechteanfragen", "запросы разрешений")
+        case .finish:
+            t("끝날 때", "finished turns", "終わったターン", "los turnos terminados", "les tours terminés", "os turnos concluídos",
+              "fertige Runden", "завершённые ходы")
+        case .finishAndPermissionPrompts:
+            t("끝날 때와 권한 요청", "finished turns and permission prompts", "終わったターンと許可の確認",
+              "los turnos terminados y los permisos", "les tours terminés et les demandes d’accord",
+              "os turnos concluídos e as permissões", "fertige Runden und Rechteanfragen", "завершённые ходы и запросы разрешений")
+        case .everything:
+            t("작업 중과 완료", "working and done", "作業中と完了", "el trabajo y el final", "le travail et la fin",
+              "o trabalho e o fim", "Arbeit und Ende", "работу и завершение")
+        }
     }
     var agentHookConnect: String { t("연결", "Connect", "連携する", "Conectar", "Connecter", "Conectar", "Verbinden", "Подключить") }
     var agentHookLater: String { t("나중에", "Later", "あとで", "Más tarde", "Plus tard", "Depois", "Später", "Позже") }
@@ -583,20 +620,17 @@ struct L {
         t("\(name) 훅", "\(name) hooks", "\(name) フック", "Hooks de \(name)", "Hooks \(name)", "Hooks do \(name)",
           "\(name)-Hooks", "Хуки \(name)")
     }
-    var agentHookStatusOff: String {
-        t("없어도 작업 중·완료는 보여요. 넣으면 권한 요청도 알려요",
-          "Working and done show without them; with them, permission prompts too",
-          "なくても作業中・完了は出ます。入れると許可の確認も知らせます",
-          "Sin ellos ya se ve trabajando y listo; con ellos, también los permisos",
-          "Sans eux : en cours et terminé ; avec eux, aussi les demandes d’accord",
-          "Sem eles já mostra trabalhando e pronto; com eles, também permissões",
-          "Ohne sie: arbeitet und fertig; mit ihnen auch Rechteanfragen",
-          "Без них видно работу и готовность; с ними — и запросы разрешений")
+    func agentHookStatusOff(_ gain: AgentHookGain) -> String {
+        let shows = agentHookGainNoun(gain)
+        return t("연결하면 \(shows)도 알려요", "Connect to show \(shows) too", "連携すると\(shows)も知らせます",
+          "Conéctalo para ver también \(shows)", "Connecte-le pour voir aussi \(shows)", "Conecte para ver também \(shows)",
+          "Verbinden, um auch \(shows) zu sehen", "Подключите, чтобы видеть и \(shows)")
     }
-    var agentHookStatusOn: String {
-        t("연결됨 — 권한 요청도 알려요", "Connected — permission prompts show too", "連携中 — 許可の確認も知らせます",
-          "Conectado — también avisa de permisos", "Connecté — signale aussi les demandes d’accord",
-          "Conectado — avisa também permissões", "Verbunden – meldet auch Rechteanfragen", "Подключено — сообщает и о разрешениях")
+    func agentHookStatusOn(_ gain: AgentHookGain) -> String {
+        let shows = agentHookGainNoun(gain)
+        return t("연결됨 — \(shows)도 알려요", "Connected — shows \(shows) too", "連携中 — \(shows)も知らせます",
+          "Conectado — también muestra \(shows)", "Connecté — montre aussi \(shows)", "Conectado — mostra também \(shows)",
+          "Verbunden – zeigt auch \(shows)", "Подключено — показывает и \(shows)")
     }
     var agentHookStatusManual: String {
         t("직접 넣은 훅을 쓰고 있어요", "Using hooks you set up yourself", "自分で入れたフックを使用中",

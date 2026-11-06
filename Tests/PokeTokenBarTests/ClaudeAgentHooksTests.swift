@@ -219,6 +219,7 @@ final class ClaudeAgentHooksTests: XCTestCase {
         }
         let cases: [([String: String], Bool)] = [
             (["CLAUDE_PROJECT_DIR": "/x/web", "GROK_HOOK_EVENT": "stop"], false),
+            (["CLAUDE_PROJECT_DIR": "/x/web", "CURSOR_VERSION": "2.6.11"], false),
             (["DEVIN_PROJECT_DIR": "/x/web"], true),
             (["CLAUDE_PROJECT_DIR": "/x/web"], true),
         ]

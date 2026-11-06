@@ -172,7 +172,7 @@ final class CopilotCLIActivityTests: XCTestCase {
     func testSourceShape() {
         let source = AgentLogSource.copilotCLI()
         XCTAssertEqual(source.id, "copilot")
-        XCTAssertNil(source.hooks)
+        XCTAssertEqual(source.hooks?.id, "copilot", "its hooks add what the log lacks")
         XCTAssertNotNil(source.head)
         XCTAssertNotNil(source.externalTitle)
         XCTAssertNil(source.database)

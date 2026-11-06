@@ -657,15 +657,18 @@ final class FloatingPetAgentWiringTests: XCTestCase {
         XCTAssertFalse(fixture.controller.isOfferingHooks)
     }
 
-    /// The offer copy fits the dialogue box in every language.
+    /// Every offer's copy fits the dialogue box in every language.
     func testOfferBubbleFits() {
         typealias C = FloatingPetController
         for lang in AppLanguage.allCases {
-            let content = C.bubbleContent(.hookOffer(agentName: "Claude Code"), l: L(lang))
-            XCTAssertEqual(content.body, L(lang).agentHookOfferBody, "\(lang.rawValue) offer was cut")
-            let layout = C.measureSpeechBubbleLayout(title: content.title, body: content.body)
-            XCTAssertFalse(layout.wouldTruncate, lang.rawValue)
-            XCTAssertLessThanOrEqual(layout.size.height + C.bubbleSpacing, C.bubbleHeadroom, lang.rawValue)
+            for gain in AgentHookGain.allCases {
+                let tag = "\(lang.rawValue) \(gain)"
+                let content = C.bubbleContent(.hookOffer(agentName: "Copilot CLI", gain: gain), l: L(lang))
+                XCTAssertEqual(content.body, L(lang).agentHookOfferBody(gain), "\(tag) offer was cut")
+                let layout = C.measureSpeechBubbleLayout(title: content.title, body: content.body)
+                XCTAssertFalse(layout.wouldTruncate, tag)
+                XCTAssertLessThanOrEqual(layout.size.height + C.bubbleSpacing, C.bubbleHeadroom, tag)
+            }
         }
     }
 }

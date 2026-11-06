@@ -7,13 +7,17 @@ struct AgentHookEntry: Equatable, Sendable {
     /// Written only for layouts with matcher groups; nil leaves it out.
     let matcher: String?
     /// `field:value=state,…,*=state` clauses separated by `;`, tried in order; a bare word is a
-    /// fixed state. `skip` sends nothing. Booleans read as `1`/`0`; a missing field as empty.
+    /// fixed state. `+` matches any non-empty value, `*` any value. `skip` sends nothing.
+    /// Booleans read as `1`/`0`; a missing field as empty.
     let rule: String
+    /// Printed after the URL is sent, for events whose stdout the agent reads as a reply.
+    let stdout: String?
 
-    init(_ event: String, matcher: String? = nil, _ rule: String) {
+    init(_ event: String, matcher: String? = nil, _ rule: String, stdout: String? = nil) {
         self.event = event
         self.matcher = matcher
         self.rule = rule
+        self.stdout = stdout
     }
 }
 
@@ -21,8 +25,10 @@ struct AgentHookEntry: Equatable, Sendable {
 enum AgentHookLayout: Equatable, Sendable {
     /// Claude Code's shape: `{<root>: {Event: [{"matcher"?, "hooks": [{"type": "command", "command"}]}]}}`.
     case groups(root: String)
-    /// `{<header…>, <root>: {event: [{<commandKey>: …, <extra…>}]}}` (Copilot, Cursor).
-    case flat(root: String, commandKey: String, extra: [String: OrderedJSONScalar], header: [String: OrderedJSONScalar])
+    /// `{<header…>, <root>: {<rootFields…>, event: [{<commandKey>: …, <extra…>}]}}` (Copilot, Cursor,
+    /// Antigravity's named bucket with `"enabled": true`).
+    case flat(root: String, commandKey: String, extra: [String: OrderedJSONScalar], header: [String: OrderedJSONScalar],
+              rootFields: [String: OrderedJSONScalar] = [:])
 }
 
 /// A JSON scalar for fixed keys in a layout (`"version": 1`, `"type": "command"`), kept `Equatable`
@@ -30,11 +36,13 @@ enum AgentHookLayout: Equatable, Sendable {
 enum OrderedJSONScalar: Equatable, Sendable {
     case string(String)
     case number(String)
+    case bool(Bool)
 
     var json: OrderedJSON {
         switch self {
         case .string(let s): .string(s)
         case .number(let n): .number(n)
+        case .bool(let b): .bool(b)
         }
     }
 }
@@ -50,16 +58,19 @@ struct AgentHookFile: Sendable {
     let ownsFile: Bool
     let layout: AgentHookLayout
     let entries: [AgentHookEntry]
-    /// Where the hook finds the working folder: payload keys first (an array uses its first
-    /// item), then `$NAME` environment variables.
+    /// Where the hook finds the working folder, in order: payload keys (an array uses its first
+    /// item) and `env:NAME` environment variables.
     let labelKeys: [String]
-    /// Printed after the URL is sent, for agents that read a hook's stdout as a reply.
-    let stdout: String?
+    /// Environment variables that mean another agent is running this hook (agents run each
+    /// other's hook files); the command then does nothing.
+    let skipEnv: [String]
     /// Whether the agent looks installed on this Mac (its data folder exists), so Settings and
     /// the offer only mention agents the person uses.
     let isAvailable: @Sendable () -> Bool
     /// Set when the agent runs a new hook only after the person approves it in the agent.
     let approval: String?
+    /// What these hooks add to the agent's session data.
+    var gain: AgentHookGain = .permissionPrompts
 
     static let marker = ClaudeAgentHooks.marker
 
@@ -68,26 +79,37 @@ struct AgentHookFile: Sendable {
     /// Reads the payload with the `perl` and `JSON::PP` that ship with macOS, picks a state with the
     /// entry's rule, takes the folder name, percent-encodes it (as UTF-8) and opens the URL. No script
     /// file to leave behind; `pgrep` keeps a hook from relaunching a quit app; always exits 0.
-    /// The script has no single quotes, so it sits inside one single-quoted shell word.
-    static let script = #"my($a,$r,@k)=@ARGV;my $i=do{local $/;<STDIN>};my $j=eval{decode_json($i)};$j={} unless ref $j eq "HASH";my $s="";for my $p(split /;/,$r){if($p=~/^(\w+):(.*)$/){my($f,$l)=($1,$2);my $v=$j->{$f};$v="" unless defined $v;$v=$v?"1":"0" if JSON::PP::is_bool($v);my %m=map{split /=/,$_,2}split /,/,$l;if(exists $m{$v}){$s=$m{$v};last}if(exists $m{"*"}){$s=$m{"*"};last}}else{$s=$p;last}}exit 0 if $s eq "" or $s eq "skip";my $d="";for my $x(@k){my $v=$x=~/^\$(\w+)$/?$ENV{$1}:$j->{$x};$v=$v->[0] if ref $v eq "ARRAY";if(defined $v and !ref $v and length $v){$d=$v;last}}$d=~s{/+$}{};$d=~s{^.*/}{};utf8::encode($d) if utf8::is_utf8($d);$d=~s/([^A-Za-z0-9._~-])/sprintf("%%%02X",ord $1)/ge;system("open","-g","poketokenbar://agent?state=$s&agent=$a&label=$d");"#
+    /// Arguments: agent id, rule, `skipEnv` joined by `,`, then the label keys.
+    static let script = #"my($a,$r,$x,@k)=@ARGV;for my $e(split /,/,$x){exit 0 if defined $ENV{$e} and length $ENV{$e}}my $i=do{local $/;<STDIN>};my $j=eval{decode_json($i)};$j={} unless ref $j eq "HASH";my $s="";for my $p(split /;/,$r){if($p=~/^(\w+):(.*)$/){my($f,$l)=($1,$2);my $v=$j->{$f};$v="" unless defined $v;$v=$v?"1":"0" if JSON::PP::is_bool($v);my %m=map{split /=/,$_,2}split /,/,$l;if(exists $m{$v}){$s=$m{$v};last}if(exists $m{"+"} and !ref $v and length $v){$s=$m{"+"};last}if(exists $m{"*"}){$s=$m{"*"};last}}else{$s=$p;last}}exit 0 if $s eq "" or $s eq "skip";my $d="";for my $y(@k){my $v=$y=~/^env:(\w+)$/?$ENV{$1}:$j->{$y};$v=$v->[0] if ref $v eq "ARRAY";if(defined $v and !ref $v and length $v){$d=$v;last}}$d=~s{/+$}{};$d=~s{^.*/}{};utf8::encode($d) if utf8::is_utf8($d);$d=~s/([^A-Za-z0-9._~-])/sprintf("%%%02X",ord $1)/ge;system("open","-g","poketokenbar://agent?state=$s&agent=$a&label=$d");"#
 
+    /// The command line has no `$` and no shell expansion at all: Grok CLI substitutes (or refuses
+    /// to run on) every `$NAME` in a hook command, even inside quotes (its `env_expand.rs`), and
+    /// Gemini CLI rewrites `$GEMINI_PROJECT_DIR` and `$CLAUDE_PROJECT_DIR` in the text. So the
+    /// script travels base64-encoded and environment names are passed as `env:NAME`.
     func command(for entry: AgentHookEntry) -> String {
-        let words = ([agentID, entry.rule] + labelKeys).map { "'" + $0 + "'" }.joined(separator: " ")
-        let reply = stdout.map { "printf '%s' '" + $0 + "'; " } ?? ""
-        return "pgrep -xq PokeTokenBar && perl -MJSON::PP -e '" + Self.script + "' " + words
-            + " >/dev/null 2>&1; " + reply + "exit 0 " + Self.marker
+        let encoded = Data(Self.script.utf8).base64EncodedString()
+        let words = ([agentID, entry.rule, skipEnv.joined(separator: ",")] + labelKeys)
+            .map(Self.quoted).joined(separator: " ")
+        let reply = entry.stdout.map { "printf '%s' " + Self.quoted($0) + "; " } ?? ""
+        return "pgrep -xq PokeTokenBar && perl -MJSON::PP -MMIME::Base64 -e 'eval decode_base64 q(" + encoded + ")' "
+            + words + " >/dev/null 2>&1; " + reply + "exit 0 " + Self.marker
+    }
+
+    /// One shell word: single quotes, with an embedded `'` written as `'\''` (no `$` involved).
+    static func quoted(_ word: String) -> String {
+        "'" + word.replacingOccurrences(of: "'", with: #"'\''"#) + "'"
     }
 
     // MARK: Pure edits
 
     private var root: String {
         switch layout {
-        case .groups(let root), .flat(let root, _, _, _): root
+        case .groups(let root), .flat(let root, _, _, _, _): root
         }
     }
 
     private var commandKey: String {
-        if case .flat(_, let key, _, _) = layout { return key }
+        if case .flat(_, let key, _, _, _) = layout { return key }
         return "command"
     }
 
@@ -109,13 +131,16 @@ struct AgentHookFile: Sendable {
     /// Adds the app's hooks after whatever is there. Idempotent: earlier app entries are replaced.
     func installing(into config: OrderedJSON) -> OrderedJSON {
         var config = removing(from: config)
-        if case .flat(_, _, _, let header) = layout {
+        var events = config[root] ?? .object([])
+        if case .object = events {} else { events = .object([]) }
+        if case .flat(_, _, _, let header, let rootFields) = layout {
             for (key, value) in header.sorted(by: { $0.key < $1.key }) where config[key] == nil {
                 config.set(key, value.json)
             }
+            for (key, value) in rootFields.sorted(by: { $0.key < $1.key }) where events[key] == nil {
+                events.set(key, value.json)
+            }
         }
-        var events = config[root] ?? .object([])
-        if case .object = events {} else { events = .object([]) }
         for entry in entries {
             var list = events[entry.event]?.arrayValue ?? []
             switch layout {
@@ -127,7 +152,7 @@ struct AgentHookFile: Sendable {
                     ("command", .string(command(for: entry))),
                 ])])))
                 list.append(.object(group))
-            case .flat(_, let key, let extra, _):
+            case .flat(_, let key, let extra, _, _):
                 var item: [(key: String, value: OrderedJSON)] = [(key, .string(command(for: entry)))]
                 item += extra.sorted(by: { $0.key < $1.key }).map { ($0.key, $0.value.json) }
                 list.append(.object(item))
@@ -166,7 +191,11 @@ struct AgentHookFile: Sendable {
         }
         guard changed else { return config }
         var config = config
-        config.set(root, kept.isEmpty ? nil : .object(kept))
+        // Only the layout's own fields left (Antigravity's `enabled`): the bucket goes too.
+        var rootFieldKeys: Set<String> = []
+        if case .flat(_, _, _, _, let rootFields) = layout { rootFieldKeys = Set(rootFields.keys) }
+        let empty = kept.allSatisfy { rootFieldKeys.contains($0.key) }
+        config.set(root, empty ? nil : .object(kept))
         return config
     }
 
@@ -190,7 +219,7 @@ struct AgentHookFile: Sendable {
         for file in files() {
             guard let config = try? AgentSettingsFile.read(file), case .object(let members) = config else { continue }
             var headerKeys: Set<String> = []
-            if case .flat(_, _, _, let header) = layout { headerKeys = Set(header.keys) }
+            if case .flat(_, _, _, let header, _) = layout { headerKeys = Set(header.keys) }
             if members.allSatisfy({ headerKeys.contains($0.key) }) {
                 try? FileManager.default.removeItem(at: file.resolvingSymlinksInPath())
             }
@@ -209,7 +238,8 @@ struct AgentHookFile: Sendable {
             uninstall: { try spec.uninstall() },
             id: agentID,
             isAvailable: { spec.isAvailable() },
-            approval: approval)
+            approval: approval,
+            gain: gain)
     }
 }
 
@@ -234,8 +264,12 @@ enum AgentSettingsFile {
             return (file, current, transform(current))
         }
         let fm = FileManager.default
+        // Files already rewritten, with their bytes before: a later failure puts them back, so an
+        // edit spanning several files lands in all of them or in none.
+        var written: [(file: URL, before: Data?)] = []
         for (link, current, updated) in plans where updated != current {
             let file = link.resolvingSymlinksInPath()
+            let before = fm.contents(atPath: file.path)
             do {
                 try fm.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
                 let backup = file.appendingPathExtension("poketokenbar-backup")
@@ -243,7 +277,11 @@ enum AgentSettingsFile {
                     try fm.copyItem(at: file, to: backup)
                 }
                 try Data(updated.serialized().utf8).write(to: file, options: .atomic)
+                written.append((file, before))
             } catch {
+                for (done, original) in written.reversed() {
+                    if let original { try? original.write(to: done, options: .atomic) } else { try? fm.removeItem(at: done) }
+                }
                 throw ClaudeAgentHooks.Failure.writeFailed
             }
         }

@@ -153,7 +153,7 @@ final class FloatingPetController: NSObject, NSWindowDelegate {
         /// `task`: a subagent or background task finished, not the person's own turn.
         case agentDone(label: String?, message: String?, task: AgentTaskKind? = nil)
         /// The pet offers to add an agent's hooks; a click asks for confirmation.
-        case hookOffer(agentName: String)
+        case hookOffer(agentName: String, gain: AgentHookGain = .permissionPrompts)
     }
 
     /// A limit alert outranks agents; among agents a fresh `done` outranks waiting.
@@ -163,7 +163,7 @@ final class FloatingPetController: NSObject, NSWindowDelegate {
         if let waiting = agent.waiting {
             return .agentWaiting(label: waiting.label, message: waiting.message, others: agent.otherWaitingCount)
         }
-        if let offer = agent.hookOffer { return .hookOffer(agentName: offer) }
+        if let offer = agent.hookOffer { return .hookOffer(agentName: offer, gain: agent.hookOfferGain) }
         return nil
     }
 
@@ -191,8 +191,8 @@ final class FloatingPetController: NSObject, NSWindowDelegate {
             }
             let title = agentTitle(label: label, unlabeled: unlabeled, status: status, count: nil)
             return agentContent(title: title, body: message ?? l.agentDoneDefaultBody)
-        case .hookOffer(let agentName):
-            return agentContent(title: agentName, body: l.agentHookOfferBody)
+        case .hookOffer(let agentName, let gain):
+            return agentContent(title: agentName, body: l.agentHookOfferBody(gain))
         }
     }
 
@@ -623,7 +623,7 @@ final class FloatingPetController: NSObject, NSWindowDelegate {
         let l = L(language)
         let alert = NSAlert()
         alert.messageText = l.agentHookConfirmTitle(hooks.agentName)
-        alert.informativeText = l.agentHookConfirmBody(hooks.agentName, hooks.settingsDescription())
+        alert.informativeText = l.agentHookConfirmBody(hooks.agentName, hooks.settingsDescription(), hooks.gain)
         alert.addButton(withTitle: l.agentHookConnect)
         alert.addButton(withTitle: l.agentHookLater)
         alert.addButton(withTitle: l.agentHookNever)
@@ -732,7 +732,7 @@ final class FloatingPetController: NSObject, NSWindowDelegate {
 
     /// A plain click answers waiting/done agents, then prays over an egg or opens a hatched pet.
     func petClicked() {
-        if let offer = hookOffer, currentBubble == .hookOffer(agentName: offer.agentName) {
+        if let offer = hookOffer, currentBubble == .hookOffer(agentName: offer.agentName, gain: offer.gain) {
             dismissHookOffer()
             confirmHookOffer(offer)
             return
@@ -850,6 +850,7 @@ final class FloatingPetController: NSObject, NSWindowDelegate {
     private var agentSummary: AgentActivitySummary {
         var summary = tracker.summary
         summary.hookOffer = hookOffer?.agentName
+        summary.hookOfferGain = hookOffer?.gain ?? .permissionPrompts
         return summary
     }
 

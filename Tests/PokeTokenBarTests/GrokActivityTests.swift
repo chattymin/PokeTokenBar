@@ -190,7 +190,7 @@ final class GrokActivityTests: XCTestCase {
     func testSourceSkipsSubagentSessions() throws {
         let source = AgentLogSource.grok()
         XCTAssertEqual(source.id, "grok", "the usage provider's id")
-        XCTAssertNil(source.hooks)
+        XCTAssertEqual(source.hooks?.id, "grok", "its hooks add what the log lacks")
         let folder = encoded("/Users/me/web")
         XCTAssertTrue(source.accepts(try session(cwdFolder: folder, summary: summary())))
         XCTAssertTrue(source.accepts(try session(cwdFolder: folder)), "summary not written yet")

@@ -130,6 +130,7 @@ struct AgentActivitySummary: Equatable, Sendable {
     /// Agent whose hooks the pet offers to add (shown below every other agent bubble). Not tracker
     /// state: the pet controller sets it.
     var hookOffer: String?
+    var hookOfferGain: AgentHookGain = .permissionPrompts
 }
 
 /// Pure state machine behind the floating pet's agent reactions, one entry per label.

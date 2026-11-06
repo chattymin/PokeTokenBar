@@ -207,9 +207,27 @@ Pi는 모델 여러 개를 세션 로그 하나로 흘려보낼 수 있습니다
 
 플로팅 펫이 AI 코딩 에이전트의 상태를 따라 움직입니다. 에이전트가 일하는 동안 들썩이고, 입력이 필요하면 말풍선으로 부르고, 작업이 끝나면 마우스 커서 옆으로 달려옵니다. 에이전트는 URL 로 상태를 알립니다:
 
-**Claude Code 는 설정할 것이 없습니다.** PokeTokenBar 는 사용량을 세려고 이미 Claude Code 세션 로그를 읽고 있고, 이제 같은 로그로 활동도 봅니다. 턴이 도는 동안 들썩이고, 턴이 끝나면 커서로 달려오고, Esc 로 멈추면 바로 멈춥니다. 권한 요청은 세션 로그에 남지 않아서, 첫 턴이 끝난 뒤 펫이 Claude Code 훅을 넣을지 묻습니다. 펫을 눌러 확인하거나 **설정 → 플로팅 펫 → Claude Code 훅** 에서 연결하세요. 앱은 확인을 받은 뒤에만 `~/.claude/settings.json`(`CLAUDE_CONFIG_DIR` 을 쓰면 그 폴더마다)을 고칩니다. 자기 항목 5개만 더하고 파일의 나머지는 그대로 두며, 고치기 전에 원래 파일을 `settings.json.poketokenbar-backup` 으로 남깁니다. 연결 해제는 그 항목만 지웁니다. "다시 묻지 않기"를 고르면 더 묻지 않습니다.
+**대부분의 에이전트는 설정할 것이 없습니다.** PokeTokenBar 는 사용량을 세려고 이미 에이전트들의 로컬 세션 데이터를 읽고 있고, 이제 같은 데이터로 활동도 따라갑니다. 에이전트가 세션 제목을 남기면(Claude Code, Codex, Kimi Code, Grok CLI, Kiro CLI, OpenCode 등) 말풍선에 그 제목이 나옵니다. 백그라운드 서브 에이전트나 명령이 끝나 세션이 결과를 받으면, 펫은 커서로 달려오지 않고 제자리에서 "서브 에이전트 끝남"이라고 말합니다. 커서로 달려오는 건 내가 시킨 일이 끝났을 때뿐입니다. 다른 에이전트 세션이 보낸 메시지로 시작된 턴은 조용히 끝납니다.
 
-다른 에이전트는 URL 로 상태를 알립니다. 플로팅 펫과 **에이전트 활동에 반응**을 켜고 아래 훅을 추가하세요.
+| 에이전트 | 자체 세션 데이터로 | 훅을 더하면 |
+| --- | --- | --- |
+| Claude Code | 작업 중, 완료, 질문, Esc | 권한 요청 |
+| Codex | 작업 중, 완료, 질문, Esc | 권한 요청 (`/hooks` 에서 한 번 승인) |
+| Kimi Code, Kiro CLI | 작업 중, 완료, 승인·질문, 취소 | — |
+| Pi, omp, omo | 작업 중, 완료, Esc (omp·omo 는 질문도) | — |
+| Grok CLI | 작업 중, 완료, 취소 | 권한 요청 |
+| OpenCode | 작업 중, 완료, 질문, Esc | — |
+| Hermes Agent | 작업 중, 완료, 질문 | — |
+| Aside | 작업 중, 완료, 중단 | — |
+| Copilot CLI | 작업 중, 승인 요청, 중단 | 완료 |
+| Gemini CLI | 작업 중, 취소 | 완료, 권한 요청 |
+| Cursor | 작업 중, 질문 | 완료 |
+| Devin CLI | 작업 중 | 완료 (Devin 이 실행하는 Claude Code 훅으로) |
+| Antigravity | — (기록이 턴이 끝난 뒤에 써짐) | 작업 중, 완료 |
+
+Gemini CLI, Copilot CLI, Cursor 는 턴이 끝났다는 기록을 확실히 남기지 않아서, 훅이 없으면 펫은 들썩임만 멈춥니다. 에이전트가 아직 일하는 중일 수 있을 때 "완료"를 짐작해 띄우지 않습니다. 훅이 보탬이 되는 에이전트는 턴이 끝난 뒤 펫이 연결을 제안하고(에이전트마다 실행할 때 한 번, 최대 세 번), **설정 → 플로팅 펫** 에서도 이 Mac 에 설치된 에이전트를 연결할 수 있습니다. 앱은 확인을 받은 뒤에만 에이전트의 훅 파일을 씁니다: `~/.claude/settings.json`, `~/.codex/hooks.json`, `~/.gemini/settings.json`, `~/.cursor/hooks.json`, `~/.gemini/config/hooks.json`(Antigravity), 그리고 앱 전용 파일 `~/.grok/hooks/poketokenbar.json`, `~/.copilot/hooks/poketokenbar.json`. 자기 항목만 더하고(명령 끝이 `# poketokenbar-agent-hook`) 파일의 나머지는 그대로 두며, 원래 파일을 한 번 `<파일>.poketokenbar-backup` 으로 남기고, 주석이 있는 파일은 건드리지 않습니다. 연결 해제는 그 항목만 지우거나 앱 전용 파일을 지웁니다. Codex 는 `/hooks` 에서 승인한 뒤에야 새 훅을 실행하고, Gemini CLI 는 신뢰한 폴더에서만 훅을 실행합니다. 서로의 훅 파일을 실행하는 에이전트(Grok·Cursor 는 Claude Code 의 것을, Grok 은 Cursor 의 것을)도 구분하므로 한 턴은 한 번만 알립니다.
+
+그 밖의 도구는 URL 로 상태를 알릴 수 있습니다. 플로팅 펫과 **에이전트 활동에 반응**을 켜고, 훅이나 스크립트에서 아래 URL 을 여세요.
 
 ```text
 poketokenbar://agent?state=<working|waiting|done|idle>[&label=<name>][&message=<text>]

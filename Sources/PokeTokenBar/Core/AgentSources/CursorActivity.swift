@@ -17,7 +17,7 @@ extension AgentLogSource {
             roots: { CursorTranscriptActivity.roots() },
             accepts: CursorTranscriptActivity.isChatTranscript(_:),
             interpret: CursorTranscriptActivity.reading(lines:),
-            hooks: nil,
+            hooks: AgentHookFile.cursor.integration,
             pathLabel: { CursorTranscriptActivity.folderName(transcript: $0) })
     }
 }

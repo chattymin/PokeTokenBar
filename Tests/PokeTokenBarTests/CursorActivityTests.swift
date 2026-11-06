@@ -78,7 +78,7 @@ final class CursorTranscriptActivityTests: XCTestCase {
     func testSourceWatchesChatTranscriptsButNotSubagents() {
         let source = AgentLogSource.cursor()
         XCTAssertEqual(source.id, "cursor", "the usage provider's id")
-        XCTAssertNil(source.hooks)
+        XCTAssertEqual(source.hooks?.id, "cursor", "its hooks add what the log lacks")
         let root = "/h/.cursor/projects/Users-me-code-web-app/agent-transcripts"
         XCTAssertTrue(source.accepts(URL(fileURLWithPath: root + "/0b6abeae-fbe9-43db-bd0c-088516bb1536.jsonl")), "flat")
         XCTAssertTrue(source.accepts(URL(fileURLWithPath: root + "/0b6abeae/0b6abeae.jsonl")), "nested")

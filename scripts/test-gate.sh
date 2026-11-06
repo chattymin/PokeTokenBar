@@ -40,6 +40,8 @@ LOGIC_CORE=(
   "Sources/PokeTokenBar/Core/UsageRecap.swift"
   "Sources/PokeTokenBar/Core/AgentActivity.swift"
   "Sources/PokeTokenBar/Core/AgentLogActivity.swift"
+  "Sources/PokeTokenBar/Core/AgentHookFiles.swift"
+  "Sources/PokeTokenBar/Core/AgentSources/AgentHookSpecs.swift"
   "Sources/PokeTokenBar/Core/AgentSources/AgentSQLite.swift"
   "Sources/PokeTokenBar/Core/AgentSources/AsideActivity.swift"
   "Sources/PokeTokenBar/Core/AgentSources/CodexActivity.swift"

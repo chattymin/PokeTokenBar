@@ -12,7 +12,7 @@ extension AgentLogSource {
             roots: { CodexRolloutActivity.sessionRoots() },
             accepts: CodexRolloutActivity.isLiveRollout(_:),
             interpret: CodexRolloutActivity.reading(lines:),
-            hooks: nil,
+            hooks: AgentHookFile.codex.integration,
             head: CodexRolloutActivity.head(lines:),
             externalTitle: CodexRolloutActivity.indexTitle(rollout:))
     }

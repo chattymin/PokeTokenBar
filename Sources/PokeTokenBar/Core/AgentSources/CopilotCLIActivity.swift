@@ -11,7 +11,7 @@ extension AgentLogSource {
             roots: { LocalAdditionalUsageReader.copilotRoots(customRootsValue: CustomScanRoots.storedValue(for: "copilot")) },
             accepts: CopilotCLIActivity.accepts(_:),
             interpret: CopilotCLIActivity.reading(lines:),
-            hooks: nil,
+            hooks: AgentHookFile.copilotCLI.integration,
             head: CopilotCLIActivity.head(lines:),
             externalTitle: CopilotCLIActivity.externalTitle(forLog:))
     }

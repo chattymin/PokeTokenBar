@@ -12,7 +12,7 @@ extension AgentLogSource {
             roots: { LocalUsageReader.geminiScanRoots(customRootsValue: CustomScanRoots.storedValue(for: "gemini")) },
             accepts: GeminiCLIActivity.accepts(_:),
             interpret: GeminiCLIActivity.reading(lines:),
-            hooks: nil,
+            hooks: AgentHookFile.geminiCLI.integration,
             title: GeminiCLIActivity.title(lines:),
             head: GeminiCLIActivity.head(lines:),
             pathLabel: GeminiCLIActivity.label(forLog:))

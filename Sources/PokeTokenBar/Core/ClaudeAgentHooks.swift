@@ -32,10 +32,11 @@ enum ClaudeAgentHooks {
     /// Grok CLI and Devin CLI run the hooks in `~/.claude/settings.json` too (Grok: always, its
     /// `custom-hooks.md`; Devin: by default, `read_config_from.claude`). Grok's turns are read from
     /// its own log and its own hook file, so the command does nothing when `GROK_HOOK_EVENT` is set.
-    /// Devin sets no `CLAUDE_PROJECT_DIR`, so its folder comes from `DEVIN_PROJECT_DIR`: these hooks
-    /// give Devin the done its database does not record.
+    /// Cursor runs them too (Third-Party Imports, on by default) and has its own hook file, so
+    /// `CURSOR_VERSION` also means "not Claude Code". Devin sets no `CLAUDE_PROJECT_DIR`, so its
+    /// folder comes from `DEVIN_PROJECT_DIR`: these hooks give Devin the done its database lacks.
     static func command(state: String) -> String {
-        #"[ -z "$GROK_HOOK_EVENT" ] && pgrep -xq PokeTokenBar && d="${CLAUDE_PROJECT_DIR:-$DEVIN_PROJECT_DIR}" && open -g "poketokenbar://agent?state="# + state
+        #"[ -z "$GROK_HOOK_EVENT$CURSOR_VERSION" ] && pgrep -xq PokeTokenBar && d="${CLAUDE_PROJECT_DIR:-$DEVIN_PROJECT_DIR}" && open -g "poketokenbar://agent?state="# + state
             + #"&label=$(printf %s "${d##*/}" | perl -pe 's/([^A-Za-z0-9._~-])/sprintf("%%%02X", ord $1)/ge')" >/dev/null 2>&1; exit 0 "#
             + marker
     }

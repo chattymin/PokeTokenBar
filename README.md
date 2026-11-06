@@ -206,9 +206,27 @@ Reset countdowns include the clock time, and the colored percentage stays aligne
 
 The floating pet can follow any AI coding agent: it bobs while the agent works, asks for you in a speech bubble when the agent needs input, and runs to your cursor when the agent finishes. The agent reports through a URL:
 
-**Claude Code needs no setup.** PokeTokenBar already reads Claude Code's session logs for token usage, and now watches them for activity too: the pet bobs while a turn runs, runs to your cursor when it ends, and stops when you press Esc. Session logs do not show a permission prompt, so after the first finished turn the pet offers to add Claude Code hooks for that. Click it and confirm, or use **Settings → Floating Pet → Claude Code hooks**. The app edits `~/.claude/settings.json` (each `CLAUDE_CONFIG_DIR` folder if you set one) only after you confirm. It adds only its own five entries, keeps everything else in the file as it was, and saves the original as `settings.json.poketokenbar-backup` first. Disconnect removes only those entries. If you say "Don't ask again", the pet stops offering.
+**Most agents need no setup.** PokeTokenBar already reads your agents' local session data for token usage, and now follows it for activity too. The bubble names the session where the agent records a title (Claude Code, Codex, Kimi Code, Grok CLI, Kiro CLI, OpenCode and others). When a background subagent or command ends and its session takes in the result, the pet says "subagent done" where it stands instead of running to you; only your own request finishing calls you over. A turn another agent session started (a message between sessions) ends quietly.
 
-Other agents report through a URL. Enable the floating pet, leave **React to agent activity** on, and add the appropriate hook below.
+| Agent | From its own session data | Its hooks add |
+| --- | --- | --- |
+| Claude Code | working, done, questions, Esc | permission prompts |
+| Codex | working, done, questions, Esc | permission prompts (approve the hooks once in `/hooks`) |
+| Kimi Code, Kiro CLI | working, done, approvals and questions, cancel | — |
+| Pi, omp, omo | working, done, Esc; questions in omp and omo | — |
+| Grok CLI | working, done, cancel | permission prompts |
+| OpenCode | working, done, questions, Esc | — |
+| Hermes Agent | working, done, questions | — |
+| Aside | working, done, abort | — |
+| Copilot CLI | working, approval prompts, abort | done |
+| Gemini CLI | working, cancel | done, permission prompts |
+| Cursor | working, questions | done |
+| Devin CLI | working | done, through the Claude Code hooks Devin runs |
+| Antigravity | — (its transcript is written after the turn) | working, done |
+
+Gemini CLI, Copilot CLI and Cursor record no reliable end of a turn, so without hooks the pet just stops bobbing; it never guesses a "done" while the agent may still be working. Where hooks add something, the pet offers them after a turn ends (once per launch, three times at most, per agent), or use **Settings → Floating Pet**, which lists the agents installed on this Mac. The app writes an agent's hook file only after you confirm: `~/.claude/settings.json`, `~/.codex/hooks.json`, `~/.gemini/settings.json`, `~/.cursor/hooks.json`, `~/.gemini/config/hooks.json` (Antigravity), or its own `~/.grok/hooks/poketokenbar.json` and `~/.copilot/hooks/poketokenbar.json`. It adds only its own entries (each command ends in `# poketokenbar-agent-hook`), keeps the rest of the file as it was, saves the original once as `<file>.poketokenbar-backup`, and leaves a file with comments alone. Disconnect removes only those entries, or deletes the app's own file. Codex runs new hooks only after you approve them in `/hooks`; Gemini CLI runs hooks only in folders you trust. Agents that run each other's hook files (Grok and Cursor run Claude Code's, Grok runs Cursor's) are told apart, so a turn is reported once.
+
+Any other tool can report through a URL. Enable the floating pet, leave **React to agent activity** on, and open the URL below from a hook or script.
 
 ```text
 poketokenbar://agent?state=<working|waiting|done|idle>[&label=<name>][&message=<text>]

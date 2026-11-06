@@ -11,7 +11,7 @@ extension AgentLogSource {
             roots: { LocalUsageReader.grokSessionRoots(customRootsValue: CustomScanRoots.storedValue(for: "grok")) },
             accepts: { LocalUsageReader.isGrokUsageFile($0) },
             interpret: GrokActivity.reading(lines:),
-            hooks: nil,
+            hooks: AgentHookFile.grok.integration,
             turns: GrokActivity.turns(lines:from:),
             externalTitle: { GrokActivity.title(summary: $0.deletingLastPathComponent().appendingPathComponent("summary.json")) },
             pathLabel: GrokActivity.label(updatesFile:))

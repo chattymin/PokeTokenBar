@@ -120,7 +120,7 @@ final class GeminiCLIActivityTests: XCTestCase {
     func testSourceShape() {
         let source = AgentLogSource.geminiCLI()
         XCTAssertEqual(source.id, "gemini")
-        XCTAssertNil(source.hooks)
+        XCTAssertEqual(source.hooks?.id, "gemini", "its hooks add what the log lacks")
         XCTAssertNotNil(source.head)
         XCTAssertNotNil(source.pathLabel)
         XCTAssertNil(source.database)

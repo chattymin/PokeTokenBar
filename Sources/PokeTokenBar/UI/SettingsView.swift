@@ -1256,10 +1256,10 @@ private struct AgentHookRow: View {
         if let failure { return failure }
         switch status {
         case .installed(removable: true):
-            return hooks.approval.map { l.agentHookStatusOn + " · " + l.agentHookApprovalHint(hooks.agentName, $0) }
-                ?? l.agentHookStatusOn
+            return hooks.approval.map { l.agentHookStatusOn(hooks.gain) + " · " + l.agentHookApprovalHint(hooks.agentName, $0) }
+                ?? l.agentHookStatusOn(hooks.gain)
         case .installed(removable: false): return l.agentHookStatusManual
-        case .notInstalled, nil: return l.agentHookStatusOff
+        case .notInstalled, nil: return l.agentHookStatusOff(hooks.gain)
         }
     }
 

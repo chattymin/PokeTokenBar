@@ -24,6 +24,18 @@ struct AgentHookIntegration: Sendable {
     var isAvailable: @Sendable () -> Bool = { true }
     /// What the person runs in the agent to approve new hooks (Codex: `/hooks`), if it asks.
     var approval: String? = nil
+    /// What the hooks show that the agent's own session data does not.
+    var gain: AgentHookGain = .permissionPrompts
+}
+
+/// What an agent's hooks add to what its session data shows; the offer and Settings say so.
+enum AgentHookGain: Equatable, Sendable, CaseIterable {
+    case permissionPrompts
+    /// A reliable end of the turn.
+    case finish
+    case finishAndPermissionPrompts
+    /// The agent has no session data the app can follow: the hooks are all there is.
+    case everything
 }
 
 /// What the newest lines of a session log say about its agent.
@@ -187,7 +199,7 @@ extension AgentLogSource {
     /// a changed path (the first source whose roots hold it wins; the roots do not overlap).
     static var all: [AgentLogSource] {
         [.claudeCode(), .codex(), .kimiCode(), .pi(), .omp(), .omo(), .grok(), .geminiCLI(), .copilotCLI(),
-         .kiroCLI(), .cursor(), .openCode(), .hermes(), .devin(), .aside()]
+         .kiroCLI(), .cursor(), .openCode(), .hermes(), .devin(), .aside(), .antigravity()]
     }
 }
 
