@@ -948,8 +948,11 @@ final class AdditionalClaudeAccountsStoreTests: XCTestCase {
         let l = L(.en)
         let short = UsageStore.LimitAlert(key: "k", window: l.claudeWeekly, isCritical: false, utilization: 85, account: "Corp")
         XCTAssertEqual(FloatingPetController.bubbleBody(for: short, title: l.notifWarning, l: l), "Claude weekly at 85% · Corp")
+        // Long enough to need a third line in the dialogue box's 168 pt column.
         let long = UsageStore.LimitAlert(key: "k", window: l.claudeFiveHour, isCritical: true, utilization: 96,
-                                         account: "firstname.lastname@corp.example")
+                                         account: "firstname.middlename.lastname@corporation.example")
+        XCTAssertTrue(FloatingPetController.measureSpeechBubbleLayout(
+            title: l.notifCritical, body: long.body(l)).wouldTruncate, "precondition: the account does not fit")
         XCTAssertEqual(FloatingPetController.bubbleBody(for: long, title: l.notifCritical, l: l), "Claude 5-hour session at 96%")
     }
 

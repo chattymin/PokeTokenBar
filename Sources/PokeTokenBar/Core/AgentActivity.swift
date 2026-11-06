@@ -44,6 +44,32 @@ struct AgentActivityEvent: Equatable, Sendable {
         }
     }
 
+    /// An event read from an agent's own session log instead of a URL. Label and message are
+    /// cleaned the same way.
+    init(activity: AgentActivity, label: String?) {
+        switch activity {
+        case .waiting(let message): self.activity = .waiting(message: Self.sanitizedMessage(message))
+        case .done(let message): self.activity = .done(message: Self.sanitizedMessage(message))
+        case .idle, .working: self.activity = activity
+        }
+        self.label = Self.sanitizedLabel(label)
+    }
+
+    /// Whether a done or waiting event came without a message, so a session title can stand in.
+    var lacksMessage: Bool {
+        activity == .done(message: nil) || activity == .waiting(message: nil)
+    }
+
+    /// The same event with `text` (a session title) as its message, unless it already has one.
+    func fillingMessage(_ text: String?) -> AgentActivityEvent {
+        guard let text, lacksMessage else { return self }
+        switch activity {
+        case .waiting: return AgentActivityEvent(activity: .waiting(message: text), label: label)
+        case .done: return AgentActivityEvent(activity: .done(message: text), label: label)
+        case .idle, .working: return self
+        }
+    }
+
     static func sanitizedMessage(_ raw: String?) -> String? { sanitized(raw, maxLength: maxMessageLength) }
     static func sanitizedLabel(_ raw: String?) -> String? { sanitized(raw, maxLength: maxLabelLength) }
 
@@ -87,6 +113,9 @@ struct AgentActivitySummary: Equatable, Sendable {
     var waiting: Note?
     var otherWaitingCount = 0
     var working = false
+    /// Agent whose hooks the pet offers to add (shown below every other agent bubble). Not tracker
+    /// state: the pet controller sets it.
+    var hookOffer: String?
 }
 
 /// Pure state machine behind the floating pet's agent reactions, one entry per label.

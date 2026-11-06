@@ -39,6 +39,9 @@ LOGIC_CORE=(
   "Sources/PokeTokenBar/Core/CustomScanRoots.swift"
   "Sources/PokeTokenBar/Core/UsageRecap.swift"
   "Sources/PokeTokenBar/Core/AgentActivity.swift"
+  "Sources/PokeTokenBar/Core/AgentLogActivity.swift"
+  "Sources/PokeTokenBar/Core/ClaudeAgentHooks.swift"
+  "Sources/PokeTokenBar/Core/OrderedJSON.swift"
 )
 
 echo "▶ swift test (--enable-code-coverage)"
