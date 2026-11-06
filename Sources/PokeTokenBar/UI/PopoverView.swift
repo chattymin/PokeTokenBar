@@ -24,6 +24,17 @@ extension View {
     func reservesScrollerLane() -> some View {
         padding(.trailing, PopoverMetrics.scrollerInset)
     }
+
+    /// macOS 27.2 부터 segmented Picker 가 세그먼트 크기만큼만 자라 왼쪽에 붙는다. `.frame(maxWidth:)`·
+    /// `.frame(width:)` 로는 늘어나지 않고 `buttonSizing(.flexible)` 만 제안 폭을 채운다(실측).
+    @ViewBuilder
+    func segmentedFillsWidth() -> some View {
+        #if compiler(>=6.2)
+        if #available(macOS 26, *) { buttonSizing(.flexible) } else { self }
+        #else
+        self
+        #endif
+    }
 }
 
 /// 팝오버 내부 내비게이션 상태(현재 탭 / 컬렉션 세그먼트 / 설정 표시 여부).
@@ -158,6 +169,7 @@ struct PopoverView: View {
             }
             .pickerStyle(.segmented)
             .labelsHidden()
+            .segmentedFillsWidth()
 
             if nav.tab == .collection {
                 CollectionView(store: companion, navigation: nav)
