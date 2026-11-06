@@ -29,8 +29,12 @@ enum ClaudeAgentHooks {
     /// Self-contained: no script file to leave behind. `pgrep` keeps a hook from relaunching a quit
     /// app, `open -g` keeps terminal focus, and the label is the project folder, percent-encoded with
     /// the `perl` that ships with macOS. Always exits 0 so a hook can never block Claude Code.
+    /// Grok CLI and Devin CLI run the hooks in `~/.claude/settings.json` too (Grok: always, its
+    /// `custom-hooks.md`; Devin: by default, `read_config_from.claude`). Their turns are not Claude
+    /// Code's and are read from their own logs, so the command does nothing when they set
+    /// `GROK_HOOK_EVENT` or `DEVIN_PROJECT_DIR`.
     static func command(state: String) -> String {
-        #"pgrep -xq PokeTokenBar && open -g "poketokenbar://agent?state="# + state
+        #"[ -z "$GROK_HOOK_EVENT$DEVIN_PROJECT_DIR" ] && pgrep -xq PokeTokenBar && open -g "poketokenbar://agent?state="# + state
             + #"&label=$(printf %s "${CLAUDE_PROJECT_DIR##*/}" | perl -pe 's/([^A-Za-z0-9._~-])/sprintf("%%%02X", ord $1)/ge')" >/dev/null 2>&1; exit 0 "#
             + marker
     }

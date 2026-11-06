@@ -206,6 +206,30 @@ final class ClaudeAgentHooksTests: XCTestCase {
         XCTAssertEqual(event.label, "my app & 日本")
     }
 
+    /// Grok CLI and Devin CLI run Claude's user hooks as their own; those turns are not Claude Code's.
+    func testHookCommandIsQuietUnderOtherAgents() throws {
+        let bin = dir.appendingPathComponent("bin")
+        try FileManager.default.createDirectory(at: bin, withIntermediateDirectories: true)
+        let marker = dir.appendingPathComponent("opened")
+        for (name, body) in ["pgrep": "exit 0", "open": "touch '\(marker.path)'"] {
+            let url = bin.appendingPathComponent(name)
+            try Data("#!/bin/sh\n\(body)\n".utf8).write(to: url)
+            try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: url.path)
+        }
+        for env in [["GROK_HOOK_EVENT": "stop"], ["DEVIN_PROJECT_DIR": "/x/web"], [:]] {
+            try? FileManager.default.removeItem(at: marker)
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/bin/sh")
+            process.arguments = ["-c", H.command(state: "done")]
+            process.environment = ["PATH": bin.path + ":/usr/bin:/bin", "CLAUDE_PROJECT_DIR": "/x/web"]
+                .merging(env) { $1 }
+            try process.run()
+            process.waitUntilExit()
+            XCTAssertEqual(process.terminationStatus, 0)
+            XCTAssertEqual(FileManager.default.fileExists(atPath: marker.path), env.isEmpty, "\(env)")
+        }
+    }
+
     /// Quit app: `pgrep` fails, nothing is opened, and the hook still succeeds.
     func testHookCommandIsQuietWhenTheAppIsNotRunning() throws {
         let bin = dir.appendingPathComponent("bin")
