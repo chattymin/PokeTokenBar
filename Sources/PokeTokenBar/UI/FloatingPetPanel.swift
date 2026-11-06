@@ -451,8 +451,24 @@ final class FloatingPetController: NSObject, NSWindowDelegate {
     // MARK: Agent activity
 
     /// Entry point for `poketokenbar://agent` URLs. Dropped while the pet or the setting is off.
+    /// A done or waiting without a message shows the title of the session that last moved in that
+    /// folder, when its log has one. A done for a turn that session started on its own (a message
+    /// from another session) only ends the work: nobody is waiting for it.
     func handleAgentEvent(_ event: AgentActivityEvent) {
         guard agentEnabled else { return }
+        var event = event
+        let isDone = if case .done = event.activity { true } else { false }
+        if isDone || event.lacksMessage, let session = latestSession(event.label) {
+            if isDone, session.automaticTurn {
+                event = AgentActivityEvent(activity: .idle, label: event.label)
+            } else {
+                event = event.fillingMessage(session.title)
+            }
+        }
+        apply(event)
+    }
+
+    private func apply(_ event: AgentActivityEvent) {
         tracker.apply(event, now: Date())
         agentDidChange()
     }
@@ -525,7 +541,16 @@ final class FloatingPetController: NSObject, NSWindowDelegate {
                                  offeredThisLaunch: offeredHooksThisLaunch) {
             pendingHookOffer = hooks
         }
-        handleAgentEvent(AgentActivityEvent(activity: reading.activity, label: reading.label))
+        // Already about its own session file: no lookup by folder, which could pick another session.
+        apply(AgentActivityEvent(activity: reading.activity, label: reading.label).fillingMessage(reading.title))
+    }
+
+    /// Tests set this instead of running a log watcher.
+    var sessionOverride: ((String?) -> AgentSessionInfo?)?
+
+    private func latestSession(_ label: String?) -> AgentSessionInfo? {
+        if let sessionOverride { return sessionOverride(label) }
+        return agentLogWatcher?.latestSession(label: label)
     }
 
     static let hookOfferCountKey = "agentHookOfferCount"

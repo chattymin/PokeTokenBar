@@ -518,6 +518,54 @@ final class FloatingPetAgentWiringTests: XCTestCase {
         XCTAssertEqual(fixture.controller.tracker.activity, .idle, "an Esc interrupt stops the bob at once")
     }
 
+    /// The bubble names the session that finished, not only its folder.
+    func testSessionTitleIsTheBubbleText() throws {
+        let fixture = try makeFixture()
+        defer { fixture.cleanUp() }
+        let source = fakeHooks()
+        fixture.controller.handleAgentReading(
+            AgentLogReading(activity: .done(message: nil), label: "web", lineID: "1", title: "Fix login bug"),
+            source: source, hooksInstalled: true)
+        XCTAssertEqual(fixture.controller.currentBubble, .agentDone(label: "web", message: "Fix login bug"))
+        fixture.controller.petClicked()   // seen
+
+        // Hook events carry only the folder; the title of the session that last moved there fills in.
+        fixture.controller.sessionOverride = { $0 == "api" ? AgentSessionInfo(title: "Add rate limits") : nil }
+        try send("waiting", label: "api", to: fixture.controller)
+        XCTAssertEqual(bubble(fixture.controller), .agentWaiting(label: "api", message: "Add rate limits", others: 0))
+        try send("done", label: "other", to: fixture.controller)
+        XCTAssertEqual(bubble(fixture.controller), .agentDone(label: "other", message: nil), "no title: the usual text")
+
+        // A message the hook sent itself stays.
+        let url = try XCTUnwrap(URL(string: "poketokenbar://agent?state=done&label=api&message=Tests%20pass"))
+        fixture.controller.handleAgentEvent(try XCTUnwrap(AgentActivityEvent(url: url)))
+        XCTAssertEqual(bubble(fixture.controller), .agentDone(label: "api", message: "Tests pass"))
+    }
+
+    /// A session driven by other sessions ends many turns nobody asked for; their Stop hooks are not news.
+    func testADoneForATurnAnotherSessionStartedOnlyEndsTheWork() throws {
+        let fixture = try makeFixture()
+        defer { fixture.cleanUp() }
+        fixture.controller.sessionOverride = { _ in AgentSessionInfo(title: "QA", automaticTurn: true) }
+        try send("working", label: "web", to: fixture.controller)
+        XCTAssertTrue(fixture.controller.isBobbing)
+        try send("done", label: "web", to: fixture.controller)
+        XCTAssertNil(bubble(fixture.controller), "no done bubble, no run to the cursor")
+        XCTAssertEqual(fixture.controller.tracker.activity, .idle)
+
+        fixture.controller.sessionOverride = { _ in AgentSessionInfo(title: "QA", automaticTurn: false) }
+        try send("done", label: "web", to: fixture.controller)
+        XCTAssertEqual(bubble(fixture.controller), .agentDone(label: "web", message: "QA"), "the person's own turn")
+    }
+
+    func testLogTitlesAreCleanedLikeURLMessages() {
+        let long = String(repeating: "가", count: 200)
+        let event = AgentActivityEvent(activity: .done(message: nil), label: "web").fillingMessage("a\u{202E}b\n" + long)
+        guard case .done(let message?) = event.activity else { return XCTFail() }
+        XCTAssertTrue(message.hasPrefix("ab "), "format characters dropped, a newline becomes a space")
+        XCTAssertEqual(message.count, AgentActivityEvent.maxMessageLength)
+    }
+
     /// After the first done, once its bubble is over, the pet offers the hooks; a click confirms.
     func testTheFirstDoneLeadsToOneOfferAndAClickAsks() throws {
         var asked: [String] = []

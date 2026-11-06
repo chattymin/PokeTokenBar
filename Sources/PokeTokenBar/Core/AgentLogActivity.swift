@@ -27,6 +27,77 @@ struct AgentLogReading: Equatable, Sendable {
     /// Identifies the line behind a `done` or `waiting`, so two turns that end within one batch of
     /// file events still count as two.
     var lineID: String?
+    /// The session's title, shown instead of the generic bubble text. Set by the watcher, which
+    /// remembers titles across reads.
+    var title: String? = nil
+}
+
+/// A session's name as the agent itself records it, e.g. in its session list.
+struct AgentSessionTitle: Equatable, Sendable {
+    /// Given by the person (Claude Code `/rename`); wins over a generated one.
+    var named: String?
+    /// Written by the agent from the conversation.
+    var generated: String?
+
+    var text: String? { named ?? generated }
+
+    /// Newer lines replace what they name; a batch without titles changes nothing.
+    mutating func update(with newer: AgentSessionTitle) {
+        if let named = newer.named { self.named = named }
+        if let generated = newer.generated { self.generated = generated }
+    }
+}
+
+/// Who started the turn a session is in, so the pet skips the end of turns nobody asked for.
+struct AgentTurnState: Equatable, Sendable {
+    /// A turn is running. True when a file is first seen: its tail may start mid-turn.
+    var open = true
+    /// The running (or last) turn was started by something other than the person, e.g. a message
+    /// from another agent session. Its end is not news for the person.
+    var automatic = false
+}
+
+/// What the watcher knows about one session beyond its newest lines.
+struct AgentSessionInfo: Equatable, Sendable {
+    var title: String?
+    var automaticTurn = false
+}
+
+/// Per log file: its title and who started its turn. Per label: which file moved last, so a hook
+/// event (which carries only a label) gets the session that just moved in that folder. Looked up
+/// when asked: an agent often writes the title a moment after the prompt, in a batch with no
+/// turn line.
+struct AgentSessionMemory: Sendable {
+    /// Matches the watcher's file memory.
+    static let maxFiles = 512
+
+    private var titles: [String: AgentSessionTitle] = [:]
+    private var turns: [String: AgentTurnState] = [:]
+    private var fileByLabel: [String: String] = [:]
+
+    /// Merges what newly read lines say about the session in `file`.
+    mutating func update(file: String, title newer: AgentSessionTitle,
+                         turn: (AgentTurnState) -> AgentTurnState) -> AgentSessionInfo {
+        if titles[file] == nil, titles.count >= Self.maxFiles { titles = [:]; turns = [:] }
+        var title = titles[file] ?? AgentSessionTitle()
+        title.update(with: newer)
+        titles[file] = title
+        let state = turn(turns[file] ?? AgentTurnState())
+        turns[file] = state
+        return AgentSessionInfo(title: title.text, automaticTurn: state.automatic)
+    }
+
+    /// The session in `file` moved last under `label`; it answers for the label from now on.
+    mutating func noteActivity(label: String?, file: String) {
+        guard let key = AgentActivityEvent.sanitizedLabel(label) else { return }
+        if fileByLabel[key] == nil, fileByLabel.count >= Self.maxFiles { fileByLabel = [:] }
+        fileByLabel[key] = file
+    }
+
+    func latest(label: String?) -> AgentSessionInfo? {
+        guard let file = AgentActivityEvent.sanitizedLabel(label).flatMap({ fileByLabel[$0] }) else { return nil }
+        return AgentSessionInfo(title: titles[file]?.text, automaticTurn: turns[file]?.automatic ?? false)
+    }
 }
 
 /// One kind of agent whose session logs show its activity, so the pet reacts with no setup.
@@ -39,6 +110,11 @@ struct AgentLogSource: Sendable {
     /// Reading after these complete lines were appended; nil when they say nothing new.
     let interpret: @Sendable ([Substring]) -> AgentLogReading?
     let hooks: AgentHookIntegration?
+    /// Session titles in these complete lines; empty for an agent that writes none.
+    var title: @Sendable ([Substring]) -> AgentSessionTitle = { _ in AgentSessionTitle() }
+    /// Turn state after these complete lines, from the state before them. The default never
+    /// marks a turn automatic.
+    var turns: @Sendable ([Substring], AgentTurnState) -> AgentTurnState = { $1 }
 }
 
 extension AgentLogSource {
@@ -50,7 +126,9 @@ extension AgentLogSource {
             roots: { LocalUsageReader.claudeProjectRoots },
             accepts: { $0.pathExtension == "jsonl" && !$0.pathComponents.contains("subagents") },
             interpret: ClaudeTranscriptActivity.reading(lines:),
-            hooks: hooks)
+            hooks: hooks,
+            title: ClaudeTranscriptActivity.title(lines:),
+            turns: ClaudeTranscriptActivity.turns(lines:from:))
     }
 }
 
@@ -120,6 +198,67 @@ enum ClaudeTranscriptActivity {
             }
         }
         return nil
+    }
+
+    /// `{"type":"custom-title","customTitle":…}` (`/rename`) and `{"type":"ai-title","aiTitle":…}`,
+    /// the names Claude Code shows in its session list. It writes them again every few lines, so
+    /// the 64 KB tail of a file seen for the first time holds them too (checked 2026-11).
+    static func title(lines: [Substring]) -> AgentSessionTitle {
+        var title = AgentSessionTitle()
+        for line in lines.reversed() where title.named == nil || title.generated == nil {
+            let named = line.contains(#""type":"custom-title""#)
+            guard named || line.contains(#""type":"ai-title""#),
+                  let object = try? JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any]
+            else { continue }
+            if named, title.named == nil, object["type"] as? String == "custom-title" {
+                title.named = nonEmpty(object["customTitle"])
+            } else if !named, title.generated == nil, object["type"] as? String == "ai-title" {
+                title.generated = nonEmpty(object["aiTitle"])
+            }
+        }
+        return title
+    }
+
+    /// A turn starts with the first user line after the previous turn ended (`end_turn`, an API
+    /// error, or an Esc interrupt). It is automatic when that line is `isMeta`: Claude Code writes
+    /// messages from other sessions that way, and they start turns nobody is waiting for (checked
+    /// against a session driven by other sessions, 2026-11: 24 of its 32 turns). `isMeta` lines
+    /// inside a turn (attached images, skill text) are not starts. Tool results never are, so they
+    /// are skipped before parsing.
+    static func turns(lines: [Substring], from start: AgentTurnState) -> AgentTurnState {
+        var state = start
+        for line in lines {
+            let user = line.contains(#""type":"user""#)
+            guard user ? !line.contains(#""type":"tool_result""#)
+                       : line.contains(#""stop_reason":"end_turn""#) || line.contains(#""isApiErrorMessage":true"#),
+                  let object = try? JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any],
+                  object["isSidechain"] as? Bool != true,
+                  let message = object["message"] as? [String: Any]
+            else { continue }
+            switch object["type"] as? String {
+            case "assistant":
+                if message["stop_reason"] as? String == "end_turn" || object["isApiErrorMessage"] as? Bool == true {
+                    state.open = false
+                }
+            case "user":
+                if object["isCompactSummary"] as? Bool == true || object["isVisibleInTranscriptOnly"] as? Bool == true {
+                    continue
+                }
+                let text = firstText(message["content"])
+                if text?.hasPrefix("[Request interrupted by user") == true { state.open = false; continue }
+                if let text, text.hasPrefix("<command-name>") || text.hasPrefix("<local-command") { continue }
+                if !state.open { state = AgentTurnState(open: true, automatic: object["isMeta"] as? Bool == true) }
+            default:
+                continue
+            }
+        }
+        return state
+    }
+
+    private static func nonEmpty(_ value: Any?) -> String? {
+        guard let text = (value as? String)?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty
+        else { return nil }
+        return text
     }
 
     private static func firstText(_ content: Any?) -> String? {

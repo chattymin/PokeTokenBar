@@ -21,6 +21,7 @@ final class AgentLogWatcher: @unchecked Sendable {
     private var rootsBySource: [(source: AgentLogSource, roots: [String])] = []
     private var cursors: [String: UInt64] = [:]
     private var emitter = AgentLogEmitter()
+    private var sessions = AgentSessionMemory()
     private var hookStatus: [String: (installed: Bool, at: Date)] = [:]
     private var running = false
 
@@ -66,7 +67,13 @@ final class AgentLogWatcher: @unchecked Sendable {
             stream = nil
             cursors = [:]
             emitter = AgentLogEmitter()
+            sessions = AgentSessionMemory()
         }
+    }
+
+    /// The session that last moved under `label`, for events that come in through hooks.
+    func latestSession(label: String?) -> AgentSessionInfo? {
+        queue.sync { sessions.latest(label: label) }
     }
 
     /// FSEvents reports real paths (`/private/var/…`, symlinks resolved). `resolvingSymlinksInPath`
@@ -98,8 +105,16 @@ final class AgentLogWatcher: @unchecked Sendable {
             guard let source = rootsBySource.first(where: { entry in
                 entry.roots.contains { path.hasPrefix($0 + "/") } && entry.source.accepts(url)
             })?.source,
-                let reading = read(path).flatMap(source.interpret)
+                let lines = read(path)
             else { continue }
+            // Before interpreting: a batch can hold only a title or a turn start, and later
+            // readings (and hook events) still need them.
+            let session = sessions.update(file: path, title: source.title(lines), turn: { source.turns(lines, $0) })
+            guard var reading = source.interpret(lines) else { continue }
+            reading.title = session.title
+            // A turn nobody asked for ended: the agent is idle, but there is nothing to announce.
+            if session.automaticTurn, case .done = reading.activity { reading.activity = .idle }
+            sessions.noteActivity(label: reading.label, file: path)
             let installed = hooksInstalled(source)
             if emitter.shouldEmit(reading, sourceID: source.id, hooksReport: installed, now: Date()) {
                 handler(reading, source, installed)

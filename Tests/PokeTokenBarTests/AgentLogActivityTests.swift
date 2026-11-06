@@ -31,6 +31,12 @@ private enum Line {
     static let meta = user(content: #""Caveat: local command""#, extra: #","isMeta":true"#)
     static let lastPrompt = #"{"type":"last-prompt","lastPrompt":"Fix the login bug","sessionId":"s"}"#
     static let attachment = #"{"type":"attachment","attachment":{"type":"hook"},"uuid":"a","timestamp":"2026-11-05T05:56:46.000Z"}"#
+    static func aiTitle(_ title: String) -> String {
+        #"{"type":"ai-title","aiTitle":""# + title + #"","sessionId":"s"}"#
+    }
+    static func customTitle(_ title: String) -> String {
+        #"{"type":"custom-title","customTitle":""# + title + #"","sessionId":"s"}"#
+    }
 }
 
 final class ClaudeTranscriptActivityTests: XCTestCase {
@@ -82,6 +88,83 @@ final class ClaudeTranscriptActivityTests: XCTestCase {
     func testNestedTranscriptTextDoesNotMatch() {
         let quoted = Line.user(content: #"[{"type":"tool_result","tool_use_id":"t","content":"{\"type\":\"assistant\",\"message\":{\"stop_reason\":\"end_turn\"}}"}]"#)
         XCTAssertEqual(reading(Line.toolUse, quoted)?.activity, .working)
+    }
+
+    private func title(_ lines: String...) -> AgentSessionTitle {
+        ClaudeTranscriptActivity.title(lines: lines.map { Substring($0) })
+    }
+
+    func testTitlesComeFromTitleLines() {
+        XCTAssertEqual(title(Line.prompt, Line.aiTitle("Fix login"), Line.toolUse, Line.aiTitle("Fix login bug")),
+                       AgentSessionTitle(named: nil, generated: "Fix login bug"), "the newest generated title")
+        XCTAssertEqual(title(Line.customTitle("auth"), Line.aiTitle("Fix login bug")).text, "auth",
+                       "a name the person gave wins")
+        XCTAssertEqual(title(Line.prompt, Line.lastPrompt), AgentSessionTitle(), "no title lines")
+        XCTAssertEqual(title(Line.aiTitle("  ")), AgentSessionTitle(), "a blank title is no title")
+        let quoted = Line.user(content: #"[{"type":"tool_result","tool_use_id":"t","content":"{\"type\":\"ai-title\",\"aiTitle\":\"x\"}"}]"#)
+        XCTAssertEqual(title(quoted), AgentSessionTitle(), "an escaped copy inside a tool result is not a title")
+    }
+
+    private func info(_ memory: inout AgentSessionMemory, _ file: String, _ title: AgentSessionTitle = AgentSessionTitle(),
+                      _ lines: String...) -> AgentSessionInfo {
+        memory.update(file: file, title: title) {
+            ClaudeTranscriptActivity.turns(lines: lines.map { Substring($0) }, from: $0)
+        }
+    }
+
+    func testTitlesAreRememberedPerFileAndLabel() {
+        var memory = AgentSessionMemory()
+        XCTAssertEqual(info(&memory, "/a.jsonl", AgentSessionTitle(named: nil, generated: "Fix login bug")).title,
+                       "Fix login bug")
+        XCTAssertEqual(info(&memory, "/a.jsonl").title, "Fix login bug", "a later batch without title lines keeps the title")
+        XCTAssertEqual(info(&memory, "/a.jsonl", AgentSessionTitle(named: "auth", generated: nil)).title, "auth")
+        XCTAssertNil(info(&memory, "/b.jsonl").title)
+
+        memory.noteActivity(label: "web", file: "/a.jsonl")
+        XCTAssertEqual(memory.latest(label: "web")?.title, "auth")
+        memory.noteActivity(label: "web", file: "/b.jsonl")
+        XCTAssertEqual(memory.latest(label: "web"), AgentSessionInfo(title: nil, automaticTurn: false),
+                       "another session in the folder moved; it has no title")
+        XCTAssertNil(memory.latest(label: nil))
+        XCTAssertNil(memory.latest(label: "api"))
+    }
+
+    /// Claude Code writes the title a moment after the prompt, often in a batch with no turn line.
+    func testATitleWrittenAfterThePromptStillAnswersForTheFolder() {
+        var memory = AgentSessionMemory()
+        _ = info(&memory, "/c.jsonl", AgentSessionTitle(), Line.prompt)
+        memory.noteActivity(label: "web", file: "/c.jsonl")
+        XCTAssertNil(memory.latest(label: "web")?.title)
+        _ = info(&memory, "/c.jsonl", AgentSessionTitle(named: nil, generated: "Fix login bug"))
+        XCTAssertEqual(memory.latest(label: "web")?.title, "Fix login bug")
+    }
+
+    private func turns(_ lines: String..., from start: AgentTurnState = AgentTurnState()) -> AgentTurnState {
+        ClaudeTranscriptActivity.turns(lines: lines.map { Substring($0) }, from: start)
+    }
+
+    /// Another session's message starts a turn as an `isMeta` user line; the person did not ask for it.
+    func testTurnsStartedByAnotherSessionAreAutomatic() {
+        let done = Line.assistant(stop: "end_turn")
+        let fromSession = Line.user(content: #""Another Claude session sent a message""#, extra: #","isMeta":true"#)
+        XCTAssertEqual(turns(done, fromSession, Line.toolUse), AgentTurnState(open: true, automatic: true))
+        XCTAssertEqual(turns(done, fromSession, Line.toolUse, done), AgentTurnState(open: false, automatic: true))
+        XCTAssertEqual(turns(done, fromSession, done, Line.prompt), AgentTurnState(open: true, automatic: false),
+                       "the person's next prompt starts a turn of their own")
+        XCTAssertEqual(turns(Line.toolUse, Line.interrupted, fromSession), AgentTurnState(open: true, automatic: true),
+                       "an interrupt ends a turn too")
+    }
+
+    func testMetaLinesInsideATurnAreNotStarts() {
+        let done = Line.assistant(stop: "end_turn")
+        let image = Line.user(content: #"[{"type":"text","text":"[Image: source]"}]"#, extra: #","isMeta":true"#)
+        XCTAssertEqual(turns(done, Line.prompt, Line.toolUse, image, Line.toolResult),
+                       AgentTurnState(open: true, automatic: false), "an attached image is part of the person's turn")
+        XCTAssertEqual(turns(Line.toolUse, image), AgentTurnState(), "first sight: the tail starts mid-turn")
+        let sidechainDone = done.replacingOccurrences(of: #""isSidechain":false"#, with: #""isSidechain":true"#)
+        XCTAssertEqual(turns(Line.prompt, sidechainDone), AgentTurnState(), "a subagent finishing does not end the turn")
+        XCTAssertEqual(turns(done, Line.localCommand, Line.localStdout), AgentTurnState(open: false, automatic: false),
+                       "a local slash command starts no turn")
     }
 
     func testClaudeSourceSkipsSubagentFiles() {
@@ -199,19 +282,26 @@ final class AgentLogWatcherTests: XCTestCase {
         try FileManager.default.createDirectory(at: project, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
         let source = AgentLogSource(id: "test", roots: { [root] }, accepts: { $0.pathExtension == "jsonl" },
-                                    interpret: ClaudeTranscriptActivity.reading(lines:), hooks: nil)
+                                    interpret: ClaudeTranscriptActivity.reading(lines:), hooks: nil,
+                                    title: ClaudeTranscriptActivity.title(lines:),
+                                    turns: ClaudeTranscriptActivity.turns(lines:from:))
         let received = Box()
         let done = expectation(description: "done read from the log")
+        let quiet = expectation(description: "a turn another session started ends without a done")
         let watcher = AgentLogWatcher(sources: [source]) { reading, _, _ in
             received.append(reading.activity)
-            if case .done = reading.activity { done.fulfill() }
+            if case .done = reading.activity {
+                XCTAssertEqual(reading.title, "Fix login bug", "the title from the first write is remembered")
+                done.fulfill()
+            }
+            if reading.activity == .idle { quiet.fulfill() }
         }
         watcher.start()
         defer { watcher.stop() }
         Thread.sleep(forTimeInterval: 0.5)   // let the stream start before writing
 
         let file = project.appendingPathComponent("session.jsonl")
-        try Data((Line.prompt + "\n").utf8).write(to: file)
+        try Data((Line.prompt + "\n" + Line.aiTitle("Fix login bug") + "\n").utf8).write(to: file)
         Thread.sleep(forTimeInterval: 0.6)
         let handle = try FileHandle(forWritingTo: file)
         try handle.seekToEnd()
@@ -221,5 +311,19 @@ final class AgentLogWatcherTests: XCTestCase {
         wait(for: [done], timeout: 5)
         XCTAssertEqual(received.all.first, .working)
         XCTAssertEqual(received.all.last, .done(message: nil))
+        XCTAssertEqual(watcher.latestSession(label: "web-app")?.title, "Fix login bug", "hook events look the title up by folder")
+
+        let fromSession = Line.user(content: #""Another Claude session sent a message""#, extra: #","isMeta":true"#)
+        let more = try FileHandle(forWritingTo: file)
+        try more.seekToEnd()
+        try more.write(contentsOf: Data((fromSession + "\n" + Line.toolUse + "\n").utf8))
+        Thread.sleep(forTimeInterval: 0.6)
+        try more.write(contentsOf: Data((Line.assistant(stop: "end_turn") + "\n").utf8))
+        try more.close()
+        wait(for: [quiet], timeout: 5)
+        XCTAssertEqual(received.all.last, .idle)
+        XCTAssertEqual(received.all.filter { if case .done = $0 { true } else { false } }.count, 1,
+                       "only the person's turn ended with a done (FSEvents may merge the last two writes)")
+        XCTAssertEqual(watcher.latestSession(label: "web-app")?.automaticTurn, true)
     }
 }
