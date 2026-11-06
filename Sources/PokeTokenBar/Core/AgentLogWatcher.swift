@@ -160,7 +160,14 @@ final class AgentLogWatcher: @unchecked Sendable {
         }
         reading.title = session.title
         // A turn nobody asked for ended: the agent is idle, but there is nothing to announce.
-        if session.automaticTurn, case .done = reading.activity { reading.activity = .idle }
+        if case .done = reading.activity {
+            if session.automaticTurn {
+                reading.activity = .idle
+            } else if let task = session.task {
+                // A subagent or background task finished: say which, without calling the person over.
+                reading.activity = .done(message: session.taskName, task: task)
+            }
+        }
         sessions.noteActivity(label: reading.label, file: path)
         emit(reading, source: source)
     }

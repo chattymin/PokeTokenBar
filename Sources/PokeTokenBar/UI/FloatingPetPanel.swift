@@ -137,6 +137,10 @@ final class FloatingPetController: NSObject, NSWindowDelegate {
         phase != .away && motionAllowed && panelVisible
     }
 
+    /// Only the person's own turn ending calls them over to the cursor; a finished subagent or
+    /// background task is said where the pet stands.
+    static func callsPersonOver(_ done: AgentActivitySummary.Note) -> Bool { done.task == nil }
+
     static func shouldBob(working: Bool, motionAllowed: Bool) -> Bool {
         motionAllowed && working
     }
@@ -145,7 +149,8 @@ final class FloatingPetController: NSObject, NSWindowDelegate {
     enum Bubble: Equatable {
         case limit(UsageStore.LimitAlert)
         case agentWaiting(label: String?, message: String?, others: Int)
-        case agentDone(label: String?, message: String?)
+        /// `task`: a subagent or background task finished, not the person's own turn.
+        case agentDone(label: String?, message: String?, task: AgentTaskKind? = nil)
         /// The pet offers to add an agent's hooks; a click asks for confirmation.
         case hookOffer(agentName: String)
     }
@@ -153,7 +158,7 @@ final class FloatingPetController: NSObject, NSWindowDelegate {
     /// A limit alert outranks agents; among agents a fresh `done` outranks waiting.
     static func bubble(limitAlert: UsageStore.LimitAlert?, agent: AgentActivitySummary) -> Bubble? {
         if let limitAlert { return .limit(limitAlert) }
-        if let done = agent.done { return .agentDone(label: done.label, message: done.message) }
+        if let done = agent.done { return .agentDone(label: done.label, message: done.message, task: done.task) }
         if let waiting = agent.waiting {
             return .agentWaiting(label: waiting.label, message: waiting.message, others: agent.otherWaitingCount)
         }
@@ -177,8 +182,13 @@ final class FloatingPetController: NSObject, NSWindowDelegate {
             let title = agentTitle(label: label, unlabeled: l.agentWaitingTitle, status: l.agentWaitingStatus,
                                    count: others > 0 ? "+\(others)" : nil)
             return agentContent(title: title, body: message ?? l.agentWaitingDefaultBody)
-        case .agentDone(let label, let message):
-            let title = agentTitle(label: label, unlabeled: l.agentDoneTitle, status: l.agentDoneStatus, count: nil)
+        case .agentDone(let label, let message, let task):
+            let (unlabeled, status) = switch task {
+            case nil: (l.agentDoneTitle, l.agentDoneStatus)
+            case .subagent: (l.agentSubagentDoneTitle, l.agentSubagentDoneStatus)
+            case .background: (l.agentBackgroundDoneTitle, l.agentBackgroundDoneStatus)
+            }
+            let title = agentTitle(label: label, unlabeled: unlabeled, status: status, count: nil)
             return agentContent(title: title, body: message ?? l.agentDoneDefaultBody)
         case .hookOffer(let agentName):
             return agentContent(title: agentName, body: l.agentHookOfferBody)
@@ -461,6 +471,9 @@ final class FloatingPetController: NSObject, NSWindowDelegate {
         if isDone || event.lacksMessage, let session = latestSession(event.label) {
             if isDone, session.automaticTurn {
                 event = AgentActivityEvent(activity: .idle, label: event.label)
+            } else if isDone, let task = session.task {
+                event = AgentActivityEvent(activity: .done(message: session.taskName, task: task), label: event.label)
+                    .fillingMessage(session.title)
             } else {
                 event = event.fillingMessage(session.title)
             }
@@ -479,8 +492,9 @@ final class FloatingPetController: NSObject, NSWindowDelegate {
         agentModel.summary = summary
         agentModel.bobs = Self.shouldBob(working: summary.working, motionAllowed: motionAllowed)
         scheduleAgentExpiry()
-        if summary.done != nil {
-            if let p = panel, Self.runsToCursor(phase: runPhase, motionAllowed: motionAllowed, panelVisible: p.isVisible) {
+        if let done = summary.done {
+            if Self.callsPersonOver(done), let p = panel,
+               Self.runsToCursor(phase: runPhase, motionAllowed: motionAllowed, panelVisible: p.isVisible) {
                 runToCursor(p)
             } else {
                 sync()

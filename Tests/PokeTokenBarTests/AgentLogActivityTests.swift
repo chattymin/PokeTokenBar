@@ -155,6 +155,26 @@ final class ClaudeTranscriptActivityTests: XCTestCase {
                        "an interrupt ends a turn too")
     }
 
+    /// A finished background subagent or command starts a turn with `<task-notification>`; its end is
+    /// "the subagent finished", not "your request is done".
+    func testTaskNotificationsStartTurnsAboutTheTask() {
+        let done = Line.assistant(stop: "end_turn")
+        func notification(_ summary: String) -> String {
+            Line.user(content: "\"<task-notification>\\n<task-id>a1</task-id>\\n<status>completed</status>\\n<summary>"
+                      + summary + "</summary>\\n</task-notification>\"")
+        }
+        let agent = notification(#"Agent \"Codex survey\" finished"#)
+        XCTAssertEqual(turns(done, agent, Line.toolUse, done),
+                       AgentTurnState(open: false, automatic: false, task: .subagent, taskName: "Codex survey"))
+        let command = notification(#"Background command \"Run the full test suite\" completed (exit code 0)"#)
+        XCTAssertEqual(turns(done, command), AgentTurnState(open: true, automatic: false, task: .background,
+                                                             taskName: "Run the full test suite"))
+        XCTAssertEqual(turns(done, command, done, Line.prompt), AgentTurnState(open: true, automatic: false),
+                       "the person's next prompt is their own turn again")
+        XCTAssertEqual(ClaudeTranscriptActivity.taskNotification("<task-notification><summary>Monitor stopped</summary>")?.name, nil)
+        XCTAssertNil(ClaudeTranscriptActivity.taskNotification("Fix the login bug"))
+    }
+
     func testMetaLinesInsideATurnAreNotStarts() {
         let done = Line.assistant(stop: "end_turn")
         let image = Line.user(content: #"[{"type":"text","text":"[Image: source]"}]"#, extra: #","isMeta":true"#)

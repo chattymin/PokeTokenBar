@@ -542,6 +542,31 @@ final class FloatingPetAgentWiringTests: XCTestCase {
         XCTAssertEqual(bubble(fixture.controller), .agentDone(label: "api", message: "Tests pass"))
     }
 
+    /// A finished subagent is announced where the pet stands, named, without calling the person over.
+    func testAFinishedSubagentIsSaidInPlace() throws {
+        let fixture = try makeFixture()
+        defer { fixture.cleanUp() }
+        fixture.controller.handleAgentReading(
+            AgentLogReading(activity: .done(message: "Codex survey", task: .subagent), label: "web", lineID: "1"),
+            source: fakeHooks(), hooksInstalled: false)
+        let bubble = fixture.controller.currentBubble
+        XCTAssertEqual(bubble, .agentDone(label: "web", message: "Codex survey", task: .subagent))
+        let done = try XCTUnwrap(fixture.controller.tracker.summary.done)
+        XCTAssertFalse(FloatingPetController.callsPersonOver(done))
+        XCTAssertTrue(FloatingPetController.callsPersonOver(AgentActivitySummary.Note(label: "web", message: nil)))
+
+        // Through hooks: the Stop hook says only "done"; the log says what the turn was about.
+        fixture.controller.sessionOverride = { _ in
+            AgentSessionInfo(title: "Fix login bug", task: .background, taskName: "Run the full test suite")
+        }
+        try send("done", label: "api", to: fixture.controller)
+        XCTAssertEqual(self.bubble(fixture.controller),
+                       .agentDone(label: "api", message: "Run the full test suite", task: .background))
+        let backgroundBubble = FloatingPetController.Bubble.agentDone(label: "api", message: nil, task: AgentTaskKind.background)
+        let title: String = FloatingPetController.bubbleContent(backgroundBubble, l: L(.ko)).title
+        XCTAssertTrue(title.contains("백그라운드 작업 끝남"), title)
+    }
+
     /// A session driven by other sessions ends many turns nobody asked for; their Stop hooks are not news.
     func testADoneForATurnAnotherSessionStartedOnlyEndsTheWork() throws {
         let fixture = try makeFixture()
@@ -561,7 +586,7 @@ final class FloatingPetAgentWiringTests: XCTestCase {
     func testLogTitlesAreCleanedLikeURLMessages() {
         let long = String(repeating: "가", count: 200)
         let event = AgentActivityEvent(activity: .done(message: nil), label: "web").fillingMessage("a\u{202E}b\n" + long)
-        guard case .done(let message?) = event.activity else { return XCTFail() }
+        guard case .done(let message?, _) = event.activity else { return XCTFail() }
         XCTAssertTrue(message.hasPrefix("ab "), "format characters dropped, a newline becomes a space")
         XCTAssertEqual(message.count, AgentActivityEvent.maxMessageLength)
     }

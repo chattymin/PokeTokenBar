@@ -508,6 +508,24 @@ struct L {
         t("대기 중", "waiting", "待機中", "espera", "attend", "aguarda", "wartet", "ждёт")
     }
     var agentDoneStatus: String { t("완료", "done", "完了", "listo", "terminé", "pronto", "fertig", "готово") }
+    /// A background subagent finished and its session took in the result (not the person's own turn).
+    var agentSubagentDoneTitle: String {
+        t("서브 에이전트 끝!", "Subagent done!", "サブエージェント完了！", "¡Subagente listo!",
+          "Sous-agent terminé !", "Subagente pronto!", "Subagent fertig!", "Субагент готов!")
+    }
+    var agentSubagentDoneStatus: String {
+        t("서브 에이전트 끝남", "subagent done", "サブエージェント完了", "subagente listo",
+          "sous-agent terminé", "subagente pronto", "Subagent fertig", "субагент готов")
+    }
+    /// A background command, monitor or workflow finished and its session took in the result.
+    var agentBackgroundDoneTitle: String {
+        t("백그라운드 작업 끝!", "Background task done!", "バックグラウンド作業完了！", "¡Tarea de fondo lista!",
+          "Tâche de fond terminée !", "Tarefa de fundo pronta!", "Hintergrundaufgabe fertig!", "Фоновая задача готова!")
+    }
+    var agentBackgroundDoneStatus: String {
+        t("백그라운드 작업 끝남", "background task done", "バックグラウンド作業完了", "tarea de fondo lista",
+          "tâche de fond terminée", "tarefa de fundo pronta", "Hintergrundaufgabe fertig", "фоновая задача готова")
+    }
 
     var agentDoneDefaultBody: String {
         t("에이전트가 작업을 마쳤어요.", "Your agent finished its task.", "エージェントの作業が終わりました。", "Tu agente terminó su tarea.",

@@ -31,6 +31,11 @@ final class SpeechBubbleRenderingTests: XCTestCase {
             ("limit-warning", C.bubbleContent(.limit(warning), l: l)),
             ("limit-critical", C.bubbleContent(.limit(critical), l: l)),
             ("hook-offer", C.bubbleContent(.hookOffer(agentName: "Claude Code"), l: l)),
+            ("subagent-done", C.bubbleContent(.agentDone(label: "my-web-app", message: "Research agent activity: Codex group",
+                                                         task: .subagent), l: l)),
+            ("background-done", C.bubbleContent(.agentDone(label: "my-web-app", message: "Run the full test suite",
+                                                           task: .background), l: l)),
+            ("subagent-done-unlabeled", C.bubbleContent(.agentDone(label: nil, message: nil, task: .subagent), l: l)),
         ]
     }
 

@@ -6,7 +6,16 @@ enum AgentActivity: Equatable, Sendable {
     case idle
     case working
     case waiting(message: String?)
-    case done(message: String?)
+    /// `task` is set when the turn only took in a finished subagent or background task: the pet
+    /// says so where it stands instead of running to the cursor.
+    case done(message: String?, task: AgentTaskKind? = nil)
+}
+
+/// What finished, for a turn the agent started on its own to take in the result.
+enum AgentTaskKind: Equatable, Sendable {
+    case subagent
+    /// A background shell command, monitor or workflow.
+    case background
 }
 
 /// One parsed `poketokenbar://agent?state=<working|waiting|done|idle>[&message=<text>][&label=<name>]` URL.
@@ -49,7 +58,7 @@ struct AgentActivityEvent: Equatable, Sendable {
     init(activity: AgentActivity, label: String?) {
         switch activity {
         case .waiting(let message): self.activity = .waiting(message: Self.sanitizedMessage(message))
-        case .done(let message): self.activity = .done(message: Self.sanitizedMessage(message))
+        case .done(let message, let task): self.activity = .done(message: Self.sanitizedMessage(message), task: task)
         case .idle, .working: self.activity = activity
         }
         self.label = Self.sanitizedLabel(label)
@@ -57,7 +66,10 @@ struct AgentActivityEvent: Equatable, Sendable {
 
     /// Whether a done or waiting event came without a message, so a session title can stand in.
     var lacksMessage: Bool {
-        activity == .done(message: nil) || activity == .waiting(message: nil)
+        switch activity {
+        case .done(nil, _), .waiting(nil): true
+        default: false
+        }
     }
 
     /// The same event with `text` (a session title) as its message, unless it already has one.
@@ -65,7 +77,7 @@ struct AgentActivityEvent: Equatable, Sendable {
         guard let text, lacksMessage else { return self }
         switch activity {
         case .waiting: return AgentActivityEvent(activity: .waiting(message: text), label: label)
-        case .done: return AgentActivityEvent(activity: .done(message: text), label: label)
+        case .done(_, let task): return AgentActivityEvent(activity: .done(message: text, task: task), label: label)
         case .idle, .working: return self
         }
     }
@@ -105,6 +117,8 @@ struct AgentActivitySummary: Equatable, Sendable {
     struct Note: Equatable, Sendable {
         var label: String?
         var message: String?
+        /// For a done: what finished, when it was not the person's own turn.
+        var task: AgentTaskKind? = nil
     }
 
     /// The latest `done`: a transient overlay over everything else.
@@ -144,21 +158,21 @@ struct AgentActivityTracker: Equatable, Sendable {
     var deadline: Date? { agents.values.compactMap(\.deadline).min() }
 
     var summary: AgentActivitySummary {
-        func note(_ key: String, _ message: String?) -> AgentActivitySummary.Note {
-            .init(label: key.isEmpty ? nil : key, message: message)
+        func note(_ key: String, _ message: String?, _ task: AgentTaskKind? = nil) -> AgentActivitySummary.Note {
+            .init(label: key.isEmpty ? nil : key, message: message, task: task)
         }
         var summary = AgentActivitySummary()
         var waiting: [(key: String, message: String?, sequence: Int)] = []
-        var done: [(key: String, message: String?, sequence: Int)] = []
+        var done: [(key: String, message: String?, task: AgentTaskKind?, sequence: Int)] = []
         for (key, entry) in agents {
             switch entry.activity {
             case .working: summary.working = true
             case .waiting(let message): waiting.append((key, message, entry.sequence))
-            case .done(let message): done.append((key, message, entry.sequence))
+            case .done(let message, let task): done.append((key, message, task, entry.sequence))
             case .idle: break   // never stored
             }
         }
-        summary.done = done.max(by: { $0.sequence < $1.sequence }).map { note($0.key, $0.message) }
+        summary.done = done.max(by: { $0.sequence < $1.sequence }).map { note($0.key, $0.message, $0.task) }
         if let latest = waiting.max(by: { $0.sequence < $1.sequence }) {
             summary.waiting = note(latest.key, latest.message)
             summary.otherWaitingCount = waiting.count - 1
@@ -169,7 +183,7 @@ struct AgentActivityTracker: Equatable, Sendable {
     /// The one activity the pet shows first: done, then waiting, then working.
     var activity: AgentActivity {
         let summary = summary
-        if let done = summary.done { return .done(message: done.message) }
+        if let done = summary.done { return .done(message: done.message, task: done.task) }
         if let waiting = summary.waiting { return .waiting(message: waiting.message) }
         return summary.working ? .working : .idle
     }

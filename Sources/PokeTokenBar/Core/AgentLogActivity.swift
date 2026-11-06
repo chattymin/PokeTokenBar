@@ -57,12 +57,17 @@ struct AgentTurnState: Equatable, Sendable {
     /// The running (or last) turn was started by something other than the person, e.g. a message
     /// from another agent session. Its end is not news for the person.
     var automatic = false
+    /// The turn was started to take in a finished subagent or background task, and its name.
+    var task: AgentTaskKind? = nil
+    var taskName: String? = nil
 }
 
 /// What the watcher knows about one session beyond its newest lines.
 struct AgentSessionInfo: Equatable, Sendable {
     var title: String?
     var automaticTurn = false
+    var task: AgentTaskKind? = nil
+    var taskName: String? = nil
 }
 
 /// Per log file: its title and who started its turn. Per label: which file moved last, so a hook
@@ -86,7 +91,7 @@ struct AgentSessionMemory: Sendable {
         titles[file] = title
         let state = turn(turns[file] ?? AgentTurnState())
         turns[file] = state
-        return AgentSessionInfo(title: title.text, automaticTurn: state.automatic)
+        return AgentSessionInfo(title: title.text, automaticTurn: state.automatic, task: state.task, taskName: state.taskName)
     }
 
     /// The session in `file` moved last under `label`; it answers for the label from now on.
@@ -98,7 +103,8 @@ struct AgentSessionMemory: Sendable {
 
     func latest(label: String?) -> AgentSessionInfo? {
         guard let file = AgentActivityEvent.sanitizedLabel(label).flatMap({ fileByLabel[$0] }) else { return nil }
-        return AgentSessionInfo(title: titles[file]?.text, automaticTurn: turns[file]?.automatic ?? false)
+        let turn = turns[file] ?? AgentTurnState()
+        return AgentSessionInfo(title: titles[file]?.text, automaticTurn: turn.automatic, task: turn.task, taskName: turn.taskName)
     }
 }
 
@@ -288,12 +294,30 @@ enum ClaudeTranscriptActivity {
                 let text = firstText(message["content"])
                 if text?.hasPrefix("[Request interrupted by user") == true { state.open = false; continue }
                 if let text, text.hasPrefix("<command-name>") || text.hasPrefix("<local-command") { continue }
-                if !state.open { state = AgentTurnState(open: true, automatic: object["isMeta"] as? Bool == true) }
+                if !state.open {
+                    let task = text.flatMap(taskNotification)
+                    state = AgentTurnState(open: true, automatic: object["isMeta"] as? Bool == true,
+                                           task: task?.kind, taskName: task?.name)
+                }
             default:
                 continue
             }
         }
         return state
+    }
+
+    /// Claude Code starts a turn with `<task-notification>…<summary>Agent "Name" finished</summary>`
+    /// when a background subagent, shell command or monitor ends (checked in real transcripts,
+    /// 2026-11). The quoted name is what finished.
+    static func taskNotification(_ text: String) -> (kind: AgentTaskKind, name: String?)? {
+        guard text.hasPrefix("<task-notification>") else { return nil }
+        let summary = text.range(of: "<summary>").flatMap { start in
+            text.range(of: "</summary>", range: start.upperBound..<text.endIndex).map { text[start.upperBound..<$0.lowerBound] }
+        } ?? ""
+        let kind: AgentTaskKind = summary.hasPrefix("Agent ") ? .subagent : .background
+        let quoted = summary.split(separator: "\"", omittingEmptySubsequences: false)
+        let name = quoted.count >= 3 ? nonEmpty(String(quoted[1])) : nil
+        return (kind, name)
     }
 
     private static func nonEmpty(_ value: Any?) -> String? {
