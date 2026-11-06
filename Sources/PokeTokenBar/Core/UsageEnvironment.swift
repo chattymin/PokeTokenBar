@@ -35,6 +35,8 @@ enum UsageEnvironment {
         "SENPI_CODING_AGENT_DIR", // senpi agent home (documented default ~/.senpi/agent)
         "ANTIGRAVITY_TOKEN_FILE", // Antigravity OAuth token file override
         "KIMI_CODE_HOME",      // Kimi Code data root — sessions live under <this>/sessions
+        "VIBE_HOME",           // Mistral Vibe home — session stores live under <this>/logs/session/unified
+        "MISTRAL_API_KEY",     // Mistral Vibe API key — the official limits read it before Vibe's Keychain item
     ]
 
     /// `name` 의 값. 프로세스 환경이 우선이고, 없으면 로그인 셸에서 읽은 값을 쓴다.

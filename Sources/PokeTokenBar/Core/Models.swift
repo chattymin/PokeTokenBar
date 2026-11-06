@@ -827,6 +827,150 @@ public struct GrokCreditStatus: Decodable, Sendable, Equatable {
     }
 }
 
+// MARK: - Mistral subscription budgets (api.mistral.ai/v1/billing/budget)
+
+/// The monthly allowances included in a Mistral plan, as admin.mistral.ai → Subscription shows them.
+/// Both budgets reset on the 1st of the month at 00:00 UTC, independent of the billing date.
+public struct MistralBudgetStatus: Decodable, Sendable, Equatable {
+    public struct Budget: Decodable, Sendable, Equatable {
+        /// Percent of `initialBudget` spent (0–100+; pay-as-you-go can go past 100).
+        public var usagePercentage: Double?
+        public var initialBudget: Double?
+        public var currency: String?
+        public var resetAt: String?
+        public var paygEnabled: Bool?
+
+        public init(usagePercentage: Double? = nil, initialBudget: Double? = nil, currency: String? = "USD",
+                    resetAt: String? = nil, paygEnabled: Bool? = nil) {
+            self.usagePercentage = usagePercentage
+            self.initialBudget = initialBudget
+            self.currency = currency
+            self.resetAt = resetAt
+            self.paygEnabled = paygEnabled
+        }
+
+        private enum CodingKeys: String, CodingKey {
+            case usagePercentage = "usage_percentage", initialBudget = "initial_budget", currency
+            case resetAt = "reset_at", paygEnabled = "payg_enabled"
+        }
+
+        public init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            usagePercentage = try? c.decodeIfPresent(Double.self, forKey: .usagePercentage)
+            initialBudget = try? c.decodeIfPresent(Double.self, forKey: .initialBudget)
+            currency = try? c.decodeIfPresent(String.self, forKey: .currency)
+            resetAt = try? c.decodeIfPresent(String.self, forKey: .resetAt)
+            paygEnabled = try? c.decodeIfPresent(Bool.self, forKey: .paygEnabled)
+        }
+
+        /// A zero budget (a plan without that allowance) has nothing to fill.
+        public var isVisible: Bool { usagePercentage != nil && (initialBudget ?? 1) > 0 }
+
+        public var resetDate: Date? { resetAt.flatMap(ISO8601Parser.date(from:)) }
+
+        /// A kept status can outlive its month (the key stopped working, so no newer one arrived).
+        func hasEnded(now: Date) -> Bool {
+            guard let resetDate else { return false }
+            return resetDate <= now
+        }
+
+        func utilization(now: Date) -> Double? {
+            guard isVisible, let usagePercentage else { return nil }
+            return hasEnded(now: now) ? 0 : max(0, usagePercentage)
+        }
+
+        func activeReset(now: Date) -> Date? {
+            hasEnded(now: now) ? nil : resetDate
+        }
+
+        /// The month that ends at the reset, for the pace marker.
+        public var periodSpan: TimeInterval? {
+            guard let resetDate else { return nil }
+            var utc = Calendar(identifier: .gregorian)
+            utc.timeZone = TimeZone(identifier: "UTC")!
+            guard let start = utc.date(byAdding: .month, value: -1, to: resetDate) else { return nil }
+            return resetDate.timeIntervalSince(start)
+        }
+
+        /// "$12.16 / $150" — what admin.mistral.ai shows next to the bar. A whole allowance drops
+        /// its cents, as the console does, so the row stays on one line.
+        func amountText(now: Date) -> String? {
+            guard let initialBudget, let utilization = utilization(now: now) else { return nil }
+            let spent = initialBudget * utilization / 100
+            let total = initialBudget.rounded() == initialBudget
+                ? String(format: "%.0f", initialBudget) : String(format: "%.2f", initialBudget)
+            if (currency ?? "USD").uppercased() == "USD" {
+                return "\(TokenFormatter.cost(spent)) / $\(total)"
+            }
+            return String(format: "%.2f / %@ %@", spent, total, currency ?? "")
+        }
+    }
+
+    public var vibe: Budget?
+    public var api: Budget?
+    /// Filled from the whoami lookup, not from the budget response.
+    public var plan: MistralPlan?
+
+    public init(vibe: Budget? = nil, api: Budget? = nil, plan: MistralPlan? = nil) {
+        self.vibe = vibe
+        self.api = api
+        self.plan = plan
+    }
+
+    private enum CodingKeys: String, CodingKey { case vibe = "vibe_budget", api = "api_budget" }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        vibe = try? c.decodeIfPresent(Budget.self, forKey: .vibe)
+        api = try? c.decodeIfPresent(Budget.self, forKey: .api)
+        plan = nil
+    }
+
+    public var hasVisibleLimit: Bool { vibe?.isVisible == true || api?.isVisible == true }
+
+    /// The menu bar shows one number: the Vibe allowance, which is what Vibe usage spends,
+    /// or the API allowance for an API-only plan.
+    var headline: Budget? { vibe?.isVisible == true ? vibe : (api?.isVisible == true ? api : nil) }
+}
+
+/// `plan_type` / `plan_name` from Vibe's whoami. The names follow Vibe's own account view.
+public struct MistralPlan: Decodable, Sendable, Equatable {
+    public var planType: String
+    public var planName: String
+
+    public init(planType: String, planName: String) {
+        self.planType = planType
+        self.planName = planName
+    }
+
+    private enum CodingKeys: String, CodingKey { case planType = "plan_type", planName = "plan_name" }
+
+    public var displayName: String? {
+        let name = planName.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+        switch planType.trimmingCharacters(in: .whitespacesAndNewlines).uppercased() {
+        case "CHAT":
+            switch name {
+            case "FREE": return "Free"
+            case "INDIVIDUAL": return "Pro"
+            case "EDU": return "Pro (Education)"
+            case "TEAM": return "Team"
+            case "": return nil
+            default: return name.capitalized
+            }
+        case "API":
+            return name.contains("FREE") ? "API Free" : "API Scale"
+        case "MISTRAL_CODE":
+            switch name {
+            case "F": return "Mistral Code Free"
+            case "E": return "Mistral Code Enterprise"
+            default: return nil
+            }
+        default:
+            return nil
+        }
+    }
+}
+
 // MARK: - Provider snapshot
 
 struct ProviderSnapshot: Sendable, Identifiable {

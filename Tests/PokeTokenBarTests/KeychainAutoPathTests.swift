@@ -66,5 +66,9 @@ final class KeychainAutoPathTests: XCTestCase {
         Probe(name: "antigravity") {
             _ = try? await AntigravityRateLimitsProvider().fetch(allowKeychainPrompt: false)
         },
+        Probe(name: "mistral") {
+            let keys = MistralKeyCache(environmentKey: { nil }, envFiles: { [] })
+            _ = try? await MistralRateLimitsProvider(keys: keys).fetch(allowKeychainPrompt: false)
+        },
     ]
 }

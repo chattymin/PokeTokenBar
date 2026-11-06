@@ -35,6 +35,10 @@ final class UsageStore {
     private(set) var grokLimits: GrokCreditStatus?
     private(set) var grokLimitsUpdatedAt: Date?
     private(set) var grokLimitsAuthExpired = false
+    private(set) var mistralLimits: MistralBudgetStatus?
+    private(set) var mistralLimitsUpdatedAt: Date?
+    private(set) var mistralLimitsAuthExpired = false
+    private(set) var isRefreshingMistralLimits = false
     private(set) var limitsUpdatedAt: Date?
     private(set) var limitsAvailable = true
     /// Claude 한도 인증이 만료된 **출처**. nil = 만료 아님. 성공 시 해제.
@@ -295,6 +299,7 @@ final class UsageStore {
     private let cursorLimitsProvider: any CursorLimitsProviding
     private let openCodeGoLimitsProvider: any OpenCodeGoLimitsProviding
     private let grokLimitsProvider: any GrokLimitsProviding
+    private let mistralLimitsProvider: any MistralLimitsProviding
     private let statusProvider: any ProviderStatusProviding
     /// 설정 저장소 — 테스트는 suite 를 주입해 실제 사용자 설정을 오염시키지 않는다.
     private let defaults: UserDefaults
@@ -418,6 +423,10 @@ final class UsageStore {
         }
         if usedToday.contains("grok"), let status = grokLimits, let utilization = status.utilization(now: now) {
             add("Grok", utilization, reset: status.activeReset(now: now), span: status.periodSpan)
+        }
+        if usedToday.contains("mistral"), let budget = mistralLimits?.headline,
+           let utilization = budget.utilization(now: now) {
+            add("Mistral", utilization, reset: budget.activeReset(now: now), span: budget.periodSpan)
         }
         return parts
     }
@@ -870,7 +879,7 @@ final class UsageStore {
     /// 한도 데이터가 최소 1개 프로바이더 로드됐는가 — 사탕 첫 실행 시드 게이트(미로딩 중 시드 방지).
     var limitsReady: Bool {
         limits != nil || !additionalLimits.isEmpty || codexLimits != nil || antigravityLimits != nil || cursorLimits != nil
-            || openCodeGoLimits != nil || grokLimits != nil
+            || openCodeGoLimits != nil || grokLimits != nil || mistralLimits != nil
     }
 
     /// burn rate 티어 — companion 표시 상태(idle/working/focus) 판정에 사용.
@@ -897,7 +906,7 @@ final class UsageStore {
         LocalCursorProvider(), LocalGrokProvider(), LocalCopilotProvider(), LocalKiroProvider(),
         LocalPiProvider(),
         LocalOmpProvider(), LocalOmoProvider(), LocalAsideProvider(), LocalKimiCodeProvider(),
-        LocalDevinProvider(),
+        LocalDevinProvider(), LocalMistralProvider(),
     ],
          // 세션 키 우선, 없거나 죽었으면 기존 Keychain/파일 OAuth 경로. 두 인자는 같은
          // SessionKeyLimitsProvider 인스턴스를 봐야 한다 — 설정 화면이 고른 조직을 조회 경로가 써야 하므로.
@@ -920,6 +929,7 @@ final class UsageStore {
          cursorLimitsProvider: any CursorLimitsProviding = CursorRateLimitsProvider(),
          openCodeGoLimitsProvider: any OpenCodeGoLimitsProviding = OpenCodeGoRateLimitsProvider(),
          grokLimitsProvider: any GrokLimitsProviding = GrokRateLimitsProvider(),
+         mistralLimitsProvider: any MistralLimitsProviding = MistralRateLimitsProvider(),
          statusProvider: any ProviderStatusProviding = StatuspageStatusProvider(),
          sessionKeys: any SessionKeyManaging = SessionKeyLimitsProvider.shared,
          accountSessionKeys: @escaping @Sendable (URL) -> any SessionKeyManaging = {
@@ -944,6 +954,7 @@ final class UsageStore {
         self.cursorLimitsProvider = cursorLimitsProvider
         self.openCodeGoLimitsProvider = openCodeGoLimitsProvider
         self.grokLimitsProvider = grokLimitsProvider
+        self.mistralLimitsProvider = mistralLimitsProvider
         self.statusProvider = statusProvider
         self.defaults = defaults
         let d = defaults
@@ -1298,6 +1309,7 @@ final class UsageStore {
         await refreshCursorLimits()
         await refreshOpenCodeGoLimits()
         await refreshGrokLimits()
+        await refreshMistralLimits(allowKeychainPrompt: false)
         await refreshProviderStatuses()
 
         checkLimitAlerts()
@@ -1916,6 +1928,47 @@ final class UsageStore {
             }
             AppLog.writeIfChanged("grok-limits", "grok limits unavailable: \(error)")
         }
+    }
+
+    /// The popover's load/refresh button: the only path that reads Vibe's Keychain item.
+    func refreshMistralLimitsFromKeychain() async {
+        guard !isRefreshingMistralLimits else { return }
+        isRefreshingMistralLimits = true
+        defer { isRefreshingMistralLimits = false }
+        await refreshMistralLimits(allowKeychainPrompt: true)
+    }
+
+    private func refreshMistralLimits(allowKeychainPrompt: Bool) async {
+        guard isProviderEnabled("mistral") else {
+            mistralLimits = nil
+            mistralLimitsAuthExpired = false
+            return
+        }
+        do {
+            let status = try await mistralLimitsProvider.fetch(allowKeychainPrompt: allowKeychainPrompt)
+            // nil = no key reachable. A key a user action read from the Keychain stays cached in
+            // the provider, so the automatic path keeps refreshing with it.
+            mistralLimits = status
+            mistralLimitsAuthExpired = false
+            if let status {
+                mistralLimitsUpdatedAt = Date()
+                let vibe = status.vibe?.usagePercentage.map { String(format: "%.1f", $0) } ?? "nil"
+                let api = status.api?.usagePercentage.map { String(format: "%.1f", $0) } ?? "nil"
+                AppLog.write("mistral limits refreshed vibe=\(vibe)% api=\(api)% plan=\(status.plan?.planName ?? "nil")")
+            }
+        } catch {
+            // Keep the last status: a rejected key is fixed with `vibe --setup` and a refresh.
+            if case LimitsError.httpStatus(let code) = error, code == 401 || code == 403 {
+                mistralLimitsAuthExpired = true
+            }
+            AppLog.writeIfChanged("mistral-limits", "mistral limits unavailable: \(error)")
+        }
+    }
+
+    /// Mistral 한도 staleness — 15분 경과 시 stale
+    var mistralLimitsStale: Bool {
+        guard mistralLimits != nil, let mistralLimitsUpdatedAt else { return false }
+        return Date().timeIntervalSince(mistralLimitsUpdatedAt) > 15 * 60
     }
 
     /// Grok 한도 staleness — 15분 경과 시 stale

@@ -2128,3 +2128,135 @@ extension UsageStoreTests {
         XCTAssertEqual(store.menuLimitParts(now: now).map(\.text), [])
     }
 }
+
+private final class ScriptedMistralLimits: MistralLimitsProviding, @unchecked Sendable {
+    private var results: [Result<MistralBudgetStatus?, Error>]
+    private(set) var promptFlags: [Bool] = []
+    init(_ results: [Result<MistralBudgetStatus?, Error>]) { self.results = results }
+    func fetch(allowKeychainPrompt: Bool) async throws -> MistralBudgetStatus? {
+        promptFlags.append(allowKeychainPrompt)
+        return try (results.count > 1 ? results.removeFirst() : results[0]).get()
+    }
+}
+
+private func mistralMonth(vibe: Double, api: Double? = nil, resetsIn: TimeInterval, now: Date) -> MistralBudgetStatus {
+    let reset = ISO8601DateFormatter().string(from: now.addingTimeInterval(resetsIn))
+    return MistralBudgetStatus(
+        vibe: .init(usagePercentage: vibe, initialBudget: 150, resetAt: reset),
+        api: api.map { .init(usagePercentage: $0, initialBudget: 15, resetAt: reset) })
+}
+
+extension UsageStoreTests {
+    private func makeMistralStore(_ limits: ScriptedMistralLimits, usedToday: Bool = true) -> UsageStore {
+        let mistral = FakeUsageProvider(id: "mistral", displayName: "Mistral", daily: usedToday ? todayDaily(1_000) : nil)
+        return UsageStore(providers: [mistral],
+                          claudeLimitsProvider: FakeClaudeLimits(status: nil),
+                          codexLimitsProvider: FakeCodexLimits(status: nil),
+                          antigravityLimitsProvider: FakeAntigravityLimits(status: nil),
+                          mistralLimitsProvider: limits,
+                          autoRefresh: false,
+                          defaults: testDefaults)
+    }
+
+    /// The Keychain holds Vibe's key, so only the user's tap may pass `true`.
+    func testMistralAutoRefreshNeverAllowsTheKeychainButTheButtonDoes() async {
+        let limits = ScriptedMistralLimits([.success(mistralMonth(vibe: 8, resetsIn: 86400, now: Date()))])
+        let store = makeMistralStore(limits)
+        await store.refresh(scheduleEmptyRetry: false)
+        XCTAssertEqual(limits.promptFlags, [false])
+        XCTAssertTrue(store.limitsReady)
+
+        await store.refreshMistralLimitsFromKeychain()
+        XCTAssertEqual(limits.promptFlags, [false, true])
+        XCTAssertFalse(store.isRefreshingMistralLimits)
+    }
+
+    func testDisabledMistralSkipsLimitsFetchAndClearsLoadedLimits() async {
+        let limits = ScriptedMistralLimits([.success(mistralMonth(vibe: 8, resetsIn: 86400, now: Date()))])
+        let store = makeMistralStore(limits)
+        await store.refresh(scheduleEmptyRetry: false)
+        XCTAssertNotNil(store.mistralLimits)
+
+        store.setProviderEnabled("mistral", false)
+        await store.refresh(scheduleEmptyRetry: false)
+        await store.refreshMistralLimitsFromKeychain()
+        XCTAssertEqual(limits.promptFlags.count, 1)
+        XCTAssertNil(store.mistralLimits)
+        XCTAssertFalse(store.mistralLimitsAuthExpired)
+        XCTAssertFalse(store.mistralLimitsStale)
+    }
+
+    /// A rejected key keeps the last budgets (dimmed, with the notice). A later success clears the
+    /// notice, and losing the key (`fetch` → nil) clears both.
+    func testMistralRejectedKeyKeepsTheLastBudgetsUntilAKeyWorksAgain() async {
+        let now = Date()
+        let store = makeMistralStore(ScriptedMistralLimits([
+            .success(mistralMonth(vibe: 8, resetsIn: 86400, now: now)),
+            .failure(LimitsError.httpStatus(401)),
+            .success(mistralMonth(vibe: 9, resetsIn: 86400, now: now)),
+            .success(nil),
+        ]))
+        await store.refresh(scheduleEmptyRetry: false)
+        XCTAssertFalse(store.mistralLimitsAuthExpired)
+
+        await store.refresh(scheduleEmptyRetry: false)
+        XCTAssertTrue(store.mistralLimitsAuthExpired)
+        XCTAssertEqual(store.mistralLimits?.vibe?.usagePercentage, 8, "the last budgets stay visible")
+
+        await store.refresh(scheduleEmptyRetry: false)
+        XCTAssertFalse(store.mistralLimitsAuthExpired)
+        XCTAssertEqual(store.mistralLimits?.vibe?.usagePercentage, 9)
+
+        await store.refresh(scheduleEmptyRetry: false)
+        XCTAssertNil(store.mistralLimits)
+        XCTAssertFalse(store.mistralLimitsAuthExpired)
+    }
+
+    /// A network failure is not a rejected key: no notice, last budgets kept.
+    func testMistralNetworkFailureKeepsBudgetsWithoutTheKeyNotice() async {
+        let store = makeMistralStore(ScriptedMistralLimits([
+            .success(mistralMonth(vibe: 8, resetsIn: 86400, now: Date())),
+            .failure(LimitsError.httpStatus(0)),
+        ]))
+        await store.refresh(scheduleEmptyRetry: false)
+        await store.refresh(scheduleEmptyRetry: false)
+        XCTAssertFalse(store.mistralLimitsAuthExpired)
+        XCTAssertEqual(store.mistralLimits?.vibe?.usagePercentage, 8)
+    }
+
+    /// The menu bar shows the Vibe allowance with the month's pace.
+    func testMenuShowsTheMistralVibeBudgetWithItsPace() async throws {
+        let now = Date()
+        let store = makeMistralStore(ScriptedMistralLimits([
+            .success(mistralMonth(vibe: 8, api: 60, resetsIn: 15 * 86400, now: now)),
+        ]))
+        store.showLimitInMenu = true
+        await store.refresh(scheduleEmptyRetry: false)
+        let parts = store.menuLimitParts(now: now)
+        XCTAssertEqual(parts.map(\.text), ["Mistral 8%"], "the Vibe budget, not the higher API one")
+        let span = try XCTUnwrap(store.mistralLimits?.vibe?.periodSpan)
+        XCTAssertEqual(try XCTUnwrap(parts.first?.pace), 1 - 15 * 86400 / span, accuracy: 0.01)
+    }
+
+    /// An API-only plan has no Vibe allowance; the API budget stands in.
+    func testMenuFallsBackToTheMistralAPIBudgetWithoutAVibeAllowance() async {
+        let now = Date()
+        let reset = ISO8601DateFormatter().string(from: now.addingTimeInterval(86400))
+        let status = MistralBudgetStatus(
+            vibe: .init(usagePercentage: 0, initialBudget: 0, resetAt: reset),
+            api: .init(usagePercentage: 30, initialBudget: 15, resetAt: reset))
+        let store = makeMistralStore(ScriptedMistralLimits([.success(status)]))
+        store.showLimitInMenu = true
+        await store.refresh(scheduleEmptyRetry: false)
+        XCTAssertEqual(store.menuLimitParts(now: now).map(\.text), ["Mistral 30%"])
+    }
+
+    func testMenuSkipsMistralWhenItWasNotUsedToday() async {
+        let now = Date()
+        let store = makeMistralStore(ScriptedMistralLimits([.success(mistralMonth(vibe: 8, resetsIn: 86400, now: now))]),
+                                     usedToday: false)
+        store.showLimitInMenu = true
+        await store.refresh(scheduleEmptyRetry: false)
+        XCTAssertEqual(store.menuLimitParts(now: now).map(\.text), [])
+    }
+}

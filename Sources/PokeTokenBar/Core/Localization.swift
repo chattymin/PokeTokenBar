@@ -1718,6 +1718,31 @@ struct L {
           "Запустите Grok CLI один раз, чтобы обновить вход, или выполните grok login.")
     }
 
+    // MARK: Mistral 공식 한도(월간 포함 할당량)
+    var mistralMonthlyIncluded: String {
+        t("월간 포함 사용량", "Monthly included usage", "月間付与分", "Uso mensual incluido", "Usage mensuel inclus", "Uso mensal incluso", "Monatlich inklusive Nutzung", "Включено в месяц")
+    }
+    var mistralKeyRejectedTitle: String {
+        t("Mistral API 키가 거부됐어요 — 한도가 갱신 안 돼요",
+          "Mistral API key rejected — limits can't refresh",
+          "Mistral API キーが拒否されました — 上限を更新できません",
+          "Clave de API de Mistral rechazada — los límites no se pueden actualizar",
+          "Clé API Mistral refusée — les limites ne s'actualisent pas",
+          "Chave de API da Mistral recusada — não dá para atualizar os limites",
+          "Mistral-API-Schlüssel abgelehnt – Limits können nicht aktualisiert werden",
+          "Ключ API Mistral отклонён — лимиты не обновляются")
+    }
+    var mistralKeyRejectedHint: String {
+        t("vibe --setup 으로 키를 다시 설정한 뒤 갱신을 눌러 주세요.",
+          "Set the key again with vibe --setup, then press Refresh.",
+          "vibe --setup でキーを設定し直してから、更新を押してください。",
+          "Vuelve a configurar la clave con vibe --setup y pulsa Actualizar.",
+          "Reconfigure la clé avec vibe --setup, puis appuie sur Actualiser.",
+          "Configure a chave de novo com vibe --setup e toque em Atualizar.",
+          "Richte den Schlüssel mit vibe --setup neu ein und tippe dann auf Aktualisieren.",
+          "Задайте ключ заново командой vibe --setup и нажмите «Обновить».")
+    }
+
     // MARK: Cursor 공식 한도(월간 포함 allowance)
     var cursorMonthlyIncluded: String {
         t("월간 포함 allowance", "Monthly included", "月間 included", "Incluido mensual", "Inclus mensuel", "Incluso mensal", "Monatlich inklusive", "Включено в месяц")
