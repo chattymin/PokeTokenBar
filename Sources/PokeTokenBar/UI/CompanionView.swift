@@ -1017,23 +1017,19 @@ struct DexSummaryHeader: View {
                 Text(store.l.dexTotal(store.dexEntries.count))
                     .font(.caption).foregroundStyle(.secondary)
             }
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 4) {
-                    ForEach(rarityDisplayOrder, id: \.self) { r in
-                        let count = store.dexCount(r)
-                        Button { onSelect(r) } label: {
-                            RarityTally(
-                                label: store.l.rarityLabel(r), count: count, color: rarityColor(r),
-                                isSelected: selected == r)
-                        }
-                        .buttonStyle(.plain)
-                        .disabled(count == 0)          // 0마리 희귀도는 필터 불가
-                        .help(store.l.dexFilterHint)
+            WrappingHStack(spacing: 4, lineSpacing: 4) {
+                ForEach(rarityDisplayOrder, id: \.self) { r in
+                    let count = store.dexCount(r)
+                    Button { onSelect(r) } label: {
+                        RarityTally(
+                            label: store.l.rarityLabel(r), count: count, color: rarityColor(r),
+                            isSelected: selected == r)
                     }
+                    .buttonStyle(.plain)
+                    .disabled(count == 0)          // 0마리 희귀도는 필터 불가
+                    .help(store.l.dexFilterHint)
                 }
-                .fixedSize(horizontal: true, vertical: false)
             }
-            .fixedSize(horizontal: false, vertical: true)
         }
     }
 }
@@ -1568,56 +1564,48 @@ private struct DexGridView: View {
                 earnedMedals
             }
             regionChips
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 4) {
-                    ForEach(rarityDisplayOrder, id: \.self) { r in
-                        let count = all.lazy.filter { $0.rarity == r }.count
-                        Button {
-                            withAnimation(.easeInOut(duration: 0.15)) {
-                                selectedRarity = (selectedRarity == r) ? nil : r
-                                page = 0
-                                selectedID = nil
-                            }
-                        } label: {
-                            RarityTally(label: store.l.rarityLabel(r), count: count,
-                                        color: rarityColor(r), isSelected: selectedRarity == r)
+            WrappingHStack(spacing: 4, lineSpacing: 4) {
+                ForEach(rarityDisplayOrder, id: \.self) { r in
+                    let count = all.lazy.filter { $0.rarity == r }.count
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.15)) {
+                            selectedRarity = (selectedRarity == r) ? nil : r
+                            page = 0
+                            selectedID = nil
                         }
-                        .buttonStyle(.plain)
-                        .disabled(count == 0)
-                        .help(store.l.dexFilterHint)
+                    } label: {
+                        RarityTally(label: store.l.rarityLabel(r), count: count,
+                                    color: rarityColor(r), isSelected: selectedRarity == r)
                     }
+                    .buttonStyle(.plain)
+                    .disabled(count == 0)
+                    .help(store.l.dexFilterHint)
                 }
-                .fixedSize(horizontal: true, vertical: false)
             }
-            .fixedSize(horizontal: false, vertical: true)
         }
     }
 
     /// 세대(지역)별 진행 캡슐 — 탭하면 그 세대만 필터. 아직 한 마리도 없는 세대는 비활성.
     private var regionChips: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 4) {
-                ForEach(store.dexCompletions) { completion in
-                    Button {
-                        withAnimation(.easeInOut(duration: 0.15)) {
-                            selectedRegion = (selectedRegion == completion.region) ? nil : completion.region
-                            page = 0
-                            selectedID = nil
-                        }
-                    } label: {
-                        RegionTally(label: store.l.regionName(completion.region),
-                                    completion: completion,
-                                    isSelected: selectedRegion == completion.region)
+        WrappingHStack(spacing: 4, lineSpacing: 4) {
+            ForEach(store.dexCompletions) { completion in
+                Button {
+                    withAnimation(.easeInOut(duration: 0.15)) {
+                        selectedRegion = (selectedRegion == completion.region) ? nil : completion.region
+                        page = 0
+                        selectedID = nil
                     }
-                    .buttonStyle(.plain)
-                    .disabled(completion.owned == 0)
-                    .help(store.l.dexRegionProgressLabel(completion.region,
-                                                         owned: completion.owned, total: completion.total))
+                } label: {
+                    RegionTally(label: store.l.regionName(completion.region),
+                                completion: completion,
+                                isSelected: selectedRegion == completion.region)
                 }
+                .buttonStyle(.plain)
+                .disabled(completion.owned == 0)
+                .help(store.l.dexRegionProgressLabel(completion.region,
+                                                     owned: completion.owned, total: completion.total))
             }
-            .fixedSize(horizontal: true, vertical: false)
         }
-        .fixedSize(horizontal: false, vertical: true)
     }
 
     /// 전국·안농 등 획득한 완성 메달 줄. 하나도 없으면 공간을 차지하지 않는다.
