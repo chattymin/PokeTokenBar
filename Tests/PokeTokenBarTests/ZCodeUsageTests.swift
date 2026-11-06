@@ -77,6 +77,19 @@ final class ZCodeUsageTests: XCTestCase {
         XCTAssertEqual(entries.first?.total, 650)
     }
 
+    /// ISO-8601 stamps without fractional seconds parse through the whole-second fallback.
+    func testReadsWholeSecondTimestamps() throws {
+        let f = ISO8601DateFormatter()
+        try writeRollout(
+            "{\"completedAt\":\"\(f.string(from: Self.baseDate))\",\"requestId\":\"r1\"," +
+            "\"model\":{\"modelId\":\"GLM-5.3-Flash\"},\"response\":{\"usage\":{\"inputTokens\":5,\"outputTokens\":6,\"totalTokens\":11}}}")
+        let entries = try XCTUnwrap(LocalUsageReader.parseZCodeFile(
+            root.appendingPathComponent("model-io-sess_abc.jsonl"),
+            fmt: LocalUsageReader.localDayFormatter()))
+        XCTAssertEqual(entries.count, 1)
+        XCTAssertEqual(entries.first?.date, Self.baseDate)
+    }
+
     /// Broken JSON, no usage object, and missing/invalid timestamps yield nothing.
     /// A missing model falls back to `zcode`; `startedAt` substitutes for a missing `completedAt`.
     func testSkipsMalformedLinesAndDefaultsModel() throws {
