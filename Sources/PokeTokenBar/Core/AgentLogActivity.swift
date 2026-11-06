@@ -18,6 +18,12 @@ struct AgentHookIntegration: Sendable {
     let status: @Sendable () -> AgentHookStatus
     let install: @Sendable () throws -> Void
     let uninstall: @Sendable () throws -> Void
+    /// Keys the offer's per-agent counters.
+    var id: String = "claude-code"
+    /// Whether the agent looks installed on this Mac; Settings lists only those.
+    var isAvailable: @Sendable () -> Bool = { true }
+    /// What the person runs in the agent to approve new hooks (Codex: `/hooks`), if it asks.
+    var approval: String? = nil
 }
 
 /// What the newest lines of a session log say about its agent.
@@ -188,6 +194,7 @@ extension AgentLogSource {
 extension AgentHookIntegration {
     /// Rows in Settings → Floating Pet. Render tests replace it with a fake integration.
     @MainActor static var settingsRows: [AgentHookIntegration] = AgentLogSource.installed.compactMap(\.hooks)
+        .filter { $0.isAvailable() }
 
     static let claudeCode = AgentHookIntegration(
         agentName: "Claude Code",

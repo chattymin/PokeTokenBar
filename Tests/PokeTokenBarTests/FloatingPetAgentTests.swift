@@ -604,7 +604,7 @@ final class FloatingPetAgentWiringTests: XCTestCase {
         let deadline = try XCTUnwrap(fixture.controller.tracker.deadline)
         fixture.controller.expireAgentActivity(now: deadline)
         XCTAssertEqual(fixture.controller.currentBubble, .hookOffer(agentName: "Fake Agent"))
-        XCTAssertEqual(fixture.defaults.integer(forKey: FloatingPetController.hookOfferCountKey), 1)
+        XCTAssertEqual(fixture.defaults.integer(forKey: FloatingPetController.hookOfferCountKey("claude-code")), 1)
 
         fixture.controller.petClicked()
         XCTAssertEqual(asked, ["Fake Agent"])
@@ -634,6 +634,9 @@ final class FloatingPetAgentWiringTests: XCTestCase {
         typealias C = FloatingPetController
         let done = AgentActivity.done(message: nil)
         XCTAssertTrue(C.shouldOfferHooks(activity: done, hooksInstalled: false, declined: false, shownCount: 0, offeredThisLaunch: false))
+        XCTAssertFalse(C.shouldOfferHooks(activity: .waiting(message: nil), hooksInstalled: false, declined: false, shownCount: 0, offeredThisLaunch: false))
+        XCTAssertTrue(C.shouldOfferHooks(activity: .idle, hooksInstalled: false, declined: false, shownCount: 0, offeredThisLaunch: false),
+                      "an agent whose log ends turns as idle is offered too")
         XCTAssertFalse(C.shouldOfferHooks(activity: .working, hooksInstalled: false, declined: false, shownCount: 0, offeredThisLaunch: false))
         XCTAssertFalse(C.shouldOfferHooks(activity: done, hooksInstalled: true, declined: false, shownCount: 0, offeredThisLaunch: false))
         XCTAssertFalse(C.shouldOfferHooks(activity: done, hooksInstalled: false, declined: true, shownCount: 0, offeredThisLaunch: false))

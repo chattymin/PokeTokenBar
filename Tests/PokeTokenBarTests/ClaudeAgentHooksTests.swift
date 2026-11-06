@@ -206,27 +206,33 @@ final class ClaudeAgentHooksTests: XCTestCase {
         XCTAssertEqual(event.label, "my app & 日本")
     }
 
-    /// Grok CLI and Devin CLI run Claude's user hooks as their own; those turns are not Claude Code's.
-    func testHookCommandIsQuietUnderOtherAgents() throws {
+    /// Grok CLI runs Claude's user hooks as its own (its own hook file reports it); Devin CLI does
+    /// too and names its folder in `DEVIN_PROJECT_DIR`.
+    func testHookCommandUnderOtherAgents() throws {
         let bin = dir.appendingPathComponent("bin")
         try FileManager.default.createDirectory(at: bin, withIntermediateDirectories: true)
         let marker = dir.appendingPathComponent("opened")
-        for (name, body) in ["pgrep": "exit 0", "open": "touch '\(marker.path)'"] {
+        for (name, body) in ["pgrep": "exit 0", "open": "printf %s \"$2\" > '\(marker.path)'"] {
             let url = bin.appendingPathComponent(name)
             try Data("#!/bin/sh\n\(body)\n".utf8).write(to: url)
             try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: url.path)
         }
-        for env in [["GROK_HOOK_EVENT": "stop"], ["DEVIN_PROJECT_DIR": "/x/web"], [:]] {
+        let cases: [([String: String], Bool)] = [
+            (["CLAUDE_PROJECT_DIR": "/x/web", "GROK_HOOK_EVENT": "stop"], false),
+            (["DEVIN_PROJECT_DIR": "/x/web"], true),
+            (["CLAUDE_PROJECT_DIR": "/x/web"], true),
+        ]
+        for (env, opens) in cases {
             try? FileManager.default.removeItem(at: marker)
             let process = Process()
             process.executableURL = URL(fileURLWithPath: "/bin/sh")
             process.arguments = ["-c", H.command(state: "done")]
-            process.environment = ["PATH": bin.path + ":/usr/bin:/bin", "CLAUDE_PROJECT_DIR": "/x/web"]
-                .merging(env) { $1 }
+            process.environment = ["PATH": bin.path + ":/usr/bin:/bin"].merging(env) { $1 }
             try process.run()
             process.waitUntilExit()
             XCTAssertEqual(process.terminationStatus, 0)
-            XCTAssertEqual(FileManager.default.fileExists(atPath: marker.path), env.isEmpty, "\(env)")
+            XCTAssertEqual(FileManager.default.fileExists(atPath: marker.path), opens, "\(env)")
+            if opens { XCTAssertEqual(try String(contentsOf: marker, encoding: .utf8), "poketokenbar://agent?state=done&label=web") }
         }
     }
 

@@ -41,7 +41,8 @@ final class FloatingPetController: NSObject, NSWindowDelegate {
     /// Offer waiting for the `done` bubble that prompted it to finish.
     private var pendingHookOffer: AgentHookIntegration?
     private var hookOfferExpiry: Task<Void, Never>?
-    private var offeredHooksThisLaunch = false
+    /// Agents offered this launch (by `AgentHookIntegration.id`).
+    private var offeredHooksThisLaunch: Set<String> = []
     private let confirmHookOffer: @MainActor (AgentHookIntegration) -> Void
     private var hooksObserver: NSObjectProtocol?
 
@@ -544,15 +545,15 @@ final class FloatingPetController: NSObject, NSWindowDelegate {
 
     // MARK: Agent session logs
 
-    /// Session-log readings arrive here (see `AgentLogWatcher`). The first `done` of a launch from
-    /// an agent without hooks queues an offer to add them, shown once that `done` bubble is over.
+    /// Session-log readings arrive here (see `AgentLogWatcher`). The first turn end of a launch from
+    /// an agent without hooks queues an offer to add them, shown once that bubble is over.
     func handleAgentReading(_ reading: AgentLogReading, source: AgentLogSource, hooksInstalled: Bool) {
         guard agentEnabled else { return }
         if let hooks = source.hooks, hookOffer == nil, pendingHookOffer == nil,
            Self.shouldOfferHooks(activity: reading.activity, hooksInstalled: hooksInstalled,
-                                 declined: defaults.bool(forKey: Self.hookOfferDeclinedKey),
-                                 shownCount: defaults.integer(forKey: Self.hookOfferCountKey),
-                                 offeredThisLaunch: offeredHooksThisLaunch) {
+                                 declined: defaults.bool(forKey: Self.hookOfferDeclinedKey(hooks.id)),
+                                 shownCount: defaults.integer(forKey: Self.hookOfferCountKey(hooks.id)),
+                                 offeredThisLaunch: offeredHooksThisLaunch.contains(hooks.id)) {
             pendingHookOffer = hooks
         }
         // Already about its own session file: no lookup by folder, which could pick another session.
@@ -567,16 +568,21 @@ final class FloatingPetController: NSObject, NSWindowDelegate {
         return agentLogWatcher?.latestSession(label: label)
     }
 
-    static let hookOfferCountKey = "agentHookOfferCount"
-    static let hookOfferDeclinedKey = "agentHookOfferDeclined"
+    /// Per agent: one agent's "never" does not silence the others.
+    static func hookOfferCountKey(_ id: String) -> String { "agentHookOfferCount." + id }
+    static func hookOfferDeclinedKey(_ id: String) -> String { "agentHookOfferDeclined." + id }
     /// Asked at most this many times (once per launch) unless the person says never.
     static let maxHookOffers = 3
     static let hookOfferDuration: Duration = .seconds(30)
 
     /// Offer right after a turn ends: the person just looked at the pet, and the agent is quiet.
+    /// An idle counts too: some agents' logs show a turn's end only as idle (no reliable done).
     static func shouldOfferHooks(activity: AgentActivity, hooksInstalled: Bool, declined: Bool,
                                  shownCount: Int, offeredThisLaunch: Bool) -> Bool {
-        guard case .done = activity else { return false }
+        switch activity {
+        case .done, .idle: break
+        case .working, .waiting: return false
+        }
         return !hooksInstalled && !declined && shownCount < maxHookOffers && !offeredThisLaunch
     }
 
@@ -593,8 +599,9 @@ final class FloatingPetController: NSObject, NSWindowDelegate {
         guard displayAwake || showsHookOffersWhileAsleep else { return }
         pendingHookOffer = nil
         hookOffer = hooks
-        offeredHooksThisLaunch = true
-        defaults.set(defaults.integer(forKey: Self.hookOfferCountKey) + 1, forKey: Self.hookOfferCountKey)
+        offeredHooksThisLaunch.insert(hooks.id)
+        let countKey = Self.hookOfferCountKey(hooks.id)
+        defaults.set(defaults.integer(forKey: countKey) + 1, forKey: countKey)
         hookOfferExpiry?.cancel()
         hookOfferExpiry = Task { @MainActor [weak self] in
             try? await Task.sleep(for: Self.hookOfferDuration)
@@ -631,14 +638,19 @@ final class FloatingPetController: NSObject, NSWindowDelegate {
                 }
                 await MainActor.run { [failure] in
                     NotificationCenter.default.post(name: .agentHooksDidChange, object: nil)
-                    guard let failure else { return }
-                    let error = NSAlert()
-                    error.messageText = failure
-                    error.runModal()
+                    if let failure {
+                        let error = NSAlert()
+                        error.messageText = failure
+                        error.runModal()
+                    } else if let approval = hooks.approval {
+                        let note = NSAlert()
+                        note.messageText = l.agentHookApprovalHint(hooks.agentName, approval)
+                        note.runModal()
+                    }
                 }
             }
         case .alertThirdButtonReturn:
-            defaults.set(true, forKey: hookOfferDeclinedKey)
+            defaults.set(true, forKey: hookOfferDeclinedKey(hooks.id))
         default:
             break
         }

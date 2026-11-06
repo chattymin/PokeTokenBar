@@ -30,12 +30,13 @@ enum ClaudeAgentHooks {
     /// app, `open -g` keeps terminal focus, and the label is the project folder, percent-encoded with
     /// the `perl` that ships with macOS. Always exits 0 so a hook can never block Claude Code.
     /// Grok CLI and Devin CLI run the hooks in `~/.claude/settings.json` too (Grok: always, its
-    /// `custom-hooks.md`; Devin: by default, `read_config_from.claude`). Their turns are not Claude
-    /// Code's and are read from their own logs, so the command does nothing when they set
-    /// `GROK_HOOK_EVENT` or `DEVIN_PROJECT_DIR`.
+    /// `custom-hooks.md`; Devin: by default, `read_config_from.claude`). Grok's turns are read from
+    /// its own log and its own hook file, so the command does nothing when `GROK_HOOK_EVENT` is set.
+    /// Devin sets no `CLAUDE_PROJECT_DIR`, so its folder comes from `DEVIN_PROJECT_DIR`: these hooks
+    /// give Devin the done its database does not record.
     static func command(state: String) -> String {
-        #"[ -z "$GROK_HOOK_EVENT$DEVIN_PROJECT_DIR" ] && pgrep -xq PokeTokenBar && open -g "poketokenbar://agent?state="# + state
-            + #"&label=$(printf %s "${CLAUDE_PROJECT_DIR##*/}" | perl -pe 's/([^A-Za-z0-9._~-])/sprintf("%%%02X", ord $1)/ge')" >/dev/null 2>&1; exit 0 "#
+        #"[ -z "$GROK_HOOK_EVENT" ] && pgrep -xq PokeTokenBar && d="${CLAUDE_PROJECT_DIR:-$DEVIN_PROJECT_DIR}" && open -g "poketokenbar://agent?state="# + state
+            + #"&label=$(printf %s "${d##*/}" | perl -pe 's/([^A-Za-z0-9._~-])/sprintf("%%%02X", ord $1)/ge')" >/dev/null 2>&1; exit 0 "#
             + marker
     }
 
@@ -122,12 +123,7 @@ enum ClaudeAgentHooks {
     }
 
     /// A missing file is an empty object: Claude Code creates it the same way.
-    static func read(_ file: URL) throws -> OrderedJSON {
-        guard let data = FileManager.default.contents(atPath: file.path) else { return .object([]) }
-        if data.allSatisfy({ [0x20, 0x09, 0x0A, 0x0D].contains($0) }) { return .object([]) }
-        guard let json = try? OrderedJSON(parsing: data), case .object = json else { throw Failure.unreadableSettings }
-        return json
-    }
+    static func read(_ file: URL) throws -> OrderedJSON { try AgentSettingsFile.read(file) }
 
     static func status(files: [URL]) -> AgentHookStatus {
         let statuses = files.compactMap { try? status(of: read($0)) }
@@ -139,27 +135,8 @@ enum ClaudeAgentHooks {
     static func install(files: [URL]) throws { try edit(files, installing(into:)) }
     static func uninstall(files: [URL]) throws { try edit(files, removing(from:)) }
 
-    /// Reads right before writing, keeps a one-time backup of the user's original, writes atomically.
-    /// Every file is read and checked before the first write, so one unreadable file changes nothing.
+    /// See `AgentSettingsFile.edit`: read and checked first, backed up once, written atomically.
     private static func edit(_ files: [URL], _ transform: (OrderedJSON) -> OrderedJSON) throws {
-        let plans = try files.map { file -> (URL, OrderedJSON, OrderedJSON) in
-            let current = try read(file)
-            return (file, current, transform(current))
-        }
-        let fm = FileManager.default
-        for (link, current, updated) in plans where updated != current {
-            // An atomic write replaces the path, so write through a symlink (a dotfiles repo) instead.
-            let file = link.resolvingSymlinksInPath()
-            do {
-                try fm.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
-                let backup = file.appendingPathExtension("poketokenbar-backup")
-                if fm.fileExists(atPath: file.path), !fm.fileExists(atPath: backup.path) {
-                    try fm.copyItem(at: file, to: backup)
-                }
-                try Data(updated.serialized().utf8).write(to: file, options: .atomic)
-            } catch {
-                throw Failure.writeFailed
-            }
-        }
+        try AgentSettingsFile.edit(files, transform)
     }
 }

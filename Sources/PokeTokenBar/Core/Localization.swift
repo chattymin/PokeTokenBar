@@ -572,6 +572,13 @@ struct L {
           "Impossible d’enregistrer le fichier de réglages. Vérifie les autorisations du dossier.", "Não foi possível salvar o arquivo de configurações. Verifique as permissões da pasta.",
           "Die Einstellungsdatei konnte nicht gespeichert werden. Prüfe die Ordnerrechte.", "Не удалось сохранить файл настроек. Проверьте права на папку.")
     }
+    /// After connecting an agent that runs new hooks only once the person approves them in it.
+    func agentHookApprovalHint(_ name: String, _ command: String) -> String {
+        t("\(name)에서 \(command)를 열어 한 번 승인해 주세요.", "Open \(command) in \(name) and approve the hooks once.",
+          "\(name)で\(command)を開いて一度承認してください。", "Abre \(command) en \(name) y aprueba los hooks una vez.",
+          "Ouvre \(command) dans \(name) et approuve les hooks une fois.", "Abra \(command) no \(name) e aprove os hooks uma vez.",
+          "Öffne \(command) in \(name) und bestätige die Hooks einmal.", "Откройте \(command) в \(name) и один раз одобрите хуки.")
+    }
     func agentHookRowLabel(_ name: String) -> String {
         t("\(name) 훅", "\(name) hooks", "\(name) フック", "Hooks de \(name)", "Hooks \(name)", "Hooks do \(name)",
           "\(name)-Hooks", "Хуки \(name)")
