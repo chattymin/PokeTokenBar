@@ -811,11 +811,21 @@ read_when:
 
 ## 프로세스·인스턴스
 
+- **LaunchAgent의 등록 성공과 실행 성공은 별개다.** macOS 26.5에서 PokeTokenBar 2.5.7 자체 서명
+  배포본은 `SMAppService.agent.status == .enabled`였지만, launchd가 직접 실행하면 AMFI가
+  `Launch Constraint Violation`으로 프로세스를 종료했다. 수동 실행과 기존 E2E의 `open`은
+  LaunchServices 경로여서 이 실패를 검증하지 못했다. 설정은 `SMAppService.mainApp`으로 등록하고
+  승인이 필요할 때 로그인 항목 설정을 연다. 기존 에이전트는 새 항목이 활성화된 뒤 제거한다.
+  기존 에이전트가 현재 앱을 실행했다면 앱이 갑자기 종료되지 않도록 다음 일반 실행까지 제거를 미룬다.
+  새 로그인 항목은 기존 KeepAlive의 크래시 후 자동 재실행을 제공하지 않는다.
+  업데이트 후에는 `open`으로 재실행한다. 기존 `kickstart`의 성공은 작업 제출 성공만 뜻해서 앱이
+  뜨지 않아도 재실행 루프를 끝냈다. `LoginItemTests`와 `UpdateCheckerTests`에서 각각 마이그레이션과
+  기존 작업 제출이 성공하더라도 앱 번들을 여는 경로를 검증한다.
+
 - **로그인 실행을 LaunchAgent 로 등록하면 "등록하는 순간" 앱이 한 번 더 뜬다.** plist 의 `RunAtLoad` 는
   로그인 때만이 아니라 **에이전트가 로드되는 시점**의 실행을 뜻하고, `SMAppService.agent.register()` 가
-  곧 그 로드다. 앱이 떠 있는 채로 등록되는 경로가 둘이라 둘 다 아이콘이 두 개가 된다 — 설정 토글
-  (`LoginItem.setEnabled(true)`)과 구 로그인아이템 사용자의 업데이트 첫 기동
-  (`migrateFromLegacyLoginItemIfNeeded()`). 후자는 **사용자가 아무것도 누르지 않아도** 일어난다.
+  곧 그 로드다. 이전 구현에서는 설정 토글과 구 로그인아이템 사용자의 업데이트 첫 기동이 모두
+  에이전트를 등록했다. 후자는 **사용자가 아무것도 누르지 않아도** 일어났다.
   **LaunchServices 의 중복 실행 방지를 믿지 마라** — GUI 로 여는 경로(Finder·`open`)에만 걸리고
   launchd 는 `Contents/MacOS/…` 를 직접 exec 한다. **피해는 아이콘이 아니라 상태다**: 두 인스턴스가
   `CompanionStore`·`UsageStore` 를 같은 파일에 각자 써서 저장이 last-writer-wins 가 되고, 진화·사용량이

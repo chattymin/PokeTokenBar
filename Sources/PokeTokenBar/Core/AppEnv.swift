@@ -9,6 +9,11 @@ enum AppEnv {
         Bundle.main.bundleIdentifier != nil && Bundle.main.bundlePath.hasSuffix(".app")
     }
 
+    /// The service label launchd gives this process when it starts as a LaunchAgent.
+    static var xpcServiceName: String? {
+        ProcessInfo.processInfo.environment["XPC_SERVICE_NAME"]
+    }
+
     /// `PTB_PARITY=1` — a QA/parity run where live endpoints are allowed (the same flag the parity
     /// smoke tests already use). Only ever opens a gate that `isBundledApp` keeps closed.
     static var isParityRun: Bool {

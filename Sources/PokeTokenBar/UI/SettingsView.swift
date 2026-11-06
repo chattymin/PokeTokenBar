@@ -13,7 +13,8 @@ struct SettingsView: View {
     /// 고급 섹션을 펼친 채로 열지. 세션 키 만료 안내에서 들어온 경우에만 true —
     /// 접힌 채로 열면 고칠 입력란이 안 보여 안내가 막다른 길이 된다.
     var startExpanded = false
-    @State private var launchAtLogin = LoginItem.isEnabled
+    @State private var launchAtLoginEnabled = false
+    @State private var launchAtLoginNeedsApproval = false
     @State private var launchAtLoginError: Error?
     @State private var reportFailed = false
     @State private var advancedExpanded = false
@@ -105,6 +106,38 @@ struct SettingsView: View {
             footer
         }
         .frame(height: 460)
+        .onAppear(perform: refreshLaunchAtLoginStatus)
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            refreshLaunchAtLoginStatus()
+        }
+    }
+
+    private func refreshLaunchAtLoginStatus() {
+        guard isBundledApp else { return }
+        let item = LoginItem.system
+        do {
+            try item.removeLegacyAgentAfterActivation()
+        } catch {
+            AppLog.write("login item cleanup failed: \(error)")
+        }
+        updateLaunchAtLoginState(item)
+    }
+
+    private func setLaunchAtLogin(_ enabled: Bool) {
+        let item = LoginItem.system
+        do {
+            try item.setEnabled(enabled)
+            launchAtLoginError = nil
+        } catch {
+            AppLog.write("login item update failed: \(error)")
+            launchAtLoginError = error
+        }
+        updateLaunchAtLoginState(item)
+    }
+
+    private func updateLaunchAtLoginState(_ item: LoginItem) {
+        launchAtLoginEnabled = item.isEnabled
+        launchAtLoginNeedsApproval = item.status == .requiresApproval
     }
 
     private var header: some View {
@@ -240,25 +273,22 @@ struct SettingsView: View {
                     Text(l.launchAtLogin)
                     if !isBundledApp {
                         Text(l.bundledOnly).font(.caption2).foregroundStyle(.tertiary)
+                    } else if launchAtLoginNeedsApproval {
+                        Button(l.launchAtLoginApprovalHint) { setLaunchAtLogin(true) }
+                            .buttonStyle(.link)
+                            .font(.caption2)
                     }
                     if let launchAtLoginError {
                         Text(l.userFacingError(launchAtLoginError)).font(.caption2).foregroundStyle(.red)
                     }
                 }
                 Spacer()
-                Toggle(l.launchAtLogin, isOn: $launchAtLogin)
+                Toggle(l.launchAtLogin, isOn: Binding(
+                    get: { launchAtLoginEnabled },
+                    set: { setLaunchAtLogin($0) }
+                ))
                     .labelsHidden().toggleStyle(.switch).controlSize(.small)
                     .disabled(!isBundledApp)
-                    .onChange(of: launchAtLogin) { _, newValue in
-                        do {
-                            try LoginItem.setEnabled(newValue)   // KeepAlive 에이전트(로그인 실행+크래시 재실행)
-                            launchAtLoginError = nil
-                        } catch {
-                            AppLog.write("login item update failed: \(error)")
-                            launchAtLoginError = error
-                            launchAtLogin = LoginItem.isEnabled
-                        }
-                    }
             }
         }
     }

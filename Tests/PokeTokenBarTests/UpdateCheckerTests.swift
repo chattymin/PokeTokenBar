@@ -223,4 +223,26 @@ final class UpdateCheckerTests: XCTestCase {
         XCTAssertTrue(script.contains("\"$1\" upgrade"), "must execute brew upgrade via $1 positional arg")
         XCTAssertTrue(script.contains("open \"$2\""), "must open bundlePath via $2 positional arg")
     }
+
+    func testDetachedUpgradeReopensAppEvenWhenLegacyJobCanBeSubmitted() throws {
+        let bundlePath = "/fake directory/PokeTokenBar.app"
+        let process = Process()
+        let output = Pipe()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = [
+            "-c",
+            """
+            launchctl() { return 0; }
+            open() { printf '%s' "$1"; }
+            \(UpdateChecker.detachedUpgradeScript)
+            """,
+            "sh", "/usr/bin/true", bundlePath, String(Int32.max)
+        ]
+        process.standardOutput = output
+        try process.run()
+        let reopenedPath = String(decoding: output.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+        process.waitUntilExit()
+
+        XCTAssertEqual(reopenedPath, bundlePath)
+    }
 }

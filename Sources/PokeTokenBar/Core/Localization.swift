@@ -519,6 +519,16 @@ struct L {
     var refreshLimitToken: String { t("한도 토큰 캐시 갱신", "Refresh limit token cache", "上限トークンキャッシュを更新", "Actualizar caché del token de límite", "Actualiser le cache du token de limite", "Atualizar cache do token de limite", "Limit-Token-Cache aktualisieren", "Обновить токен") }
     var onlyOnPress: String { t("누를 때만 Keychain 을 읽어요 — 자동 폴링은 안 읽어 팝업이 안 떠요. 토큰 만료 후 이 버튼으로 한도 갱신", "Reads Keychain only when pressed — auto-polling never does, so no pop-ups. Refresh limits here after the token expires", "押した時のみKeychainを読みます — 自動更新では読まずポップアップも出ません。トークン期限切れ後はこのボタンで上限を更新", "Solo lee Keychain al pulsar — el sondeo automático nunca lo hace, así que no aparecen avisos. Usa este botón para actualizar los límites tras la expiración del token", "Lit le Keychain uniquement sur appui — le polling automatique ne le fait jamais, donc pas de pop-up. Actualise les limites ici après l'expiration du token", "Só lê o Keychain quando você clica no botão — a atualização automática nunca lê, então não aparecem avisos. Use este botão para atualizar os limites depois que o token expirar", "Keychain wird nur auf Knopfdruck gelesen – die automatische Abfrage greift nicht darauf zu, daher gibt es keine Pop-ups. Aktualisiere die Limits hier, wenn das Token abgelaufen ist", "Связка ключей читается только по нажатию — автообновление её не трогает, поэтому запросов не будет. Обновите лимиты здесь, когда токен истечёт") }
     var launchAtLogin: String { t("로그인 시 자동 시작", "Launch at login", "ログイン時に自動起動", "Iniciar al arrancar sesión", "Lancer à l'ouverture de session", "Abrir ao iniciar sessão", "Bei der Anmeldung starten", "Запускать при входе в систему") }
+    var launchAtLoginApprovalHint: String {
+        t("자동 시작을 켜려면 시스템 설정에서 PokeTokenBar를 허용하세요.",
+          "Allow PokeTokenBar in System Settings to launch at login.",
+          "ログイン時に起動するには、システム設定で PokeTokenBar を許可してください。",
+          "Permite PokeTokenBar en Ajustes del Sistema para abrirlo al iniciar sesión.",
+          "Autorisez PokeTokenBar dans Réglages Système pour l’ouvrir à la connexion.",
+          "Permita o PokeTokenBar nos Ajustes do Sistema para abri-lo ao iniciar sessão.",
+          "Erlaube PokeTokenBar in den Systemeinstellungen, damit es bei der Anmeldung startet.",
+          "Разрешите PokeTokenBar в Системных настройках, чтобы запускать его при входе.")
+    }
     var bundledOnly: String { t(".app 번들로 설치된 경우에만 사용 가능 (scripts/build-app.sh)", "Available only when installed as an .app bundle (scripts/build-app.sh)", ".appバンドルでインストールした場合のみ利用可能 (scripts/build-app.sh)", "Disponible solo si se instaló como paquete .app (scripts/build-app.sh)", "Disponible uniquement si installé comme paquet .app (scripts/build-app.sh)", "Disponível apenas quando instalado como pacote .app (scripts/build-app.sh)", "Nur verfügbar, wenn die App als .app-Bundle installiert ist (scripts/build-app.sh)", "Доступно только при установке в виде .app (scripts/build-app.sh)") }
     var notificationsSection: String { t("알림", "Notifications", "通知", "Notificaciones", "Notifications", "Notificações", "Benachrichtigungen", "Уведомления") }
     // MARK: claude.ai 세션 키 (Keychain 프롬프트 없는 한도 경로)
