@@ -209,7 +209,7 @@ final class LocalAdditionalUsageTests: XCTestCase {
             Set(store.registeredProviderIDs),
             Set(["claude_code", "codex", "gemini", "antigravity",
                  "opencode", "hermes", "cursor", "grok", "copilot", "kiro", "pi", "omp", "omo", "aside", "kimi_code",
-                 "devin"]))
+                 "devin", "zcode"]))
     }
 
     /// Extra-provider logs are external files. A `1e30` token count must clamp, not trap

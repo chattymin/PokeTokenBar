@@ -115,6 +115,9 @@ enum CustomScanRoots {
         case "kimi_code":
             return CustomScanRoots.union(
                 defaults: LocalUsageReader.computeKimiSessionRoots(), extraRaw: nil)
+        case "zcode":
+            return CustomScanRoots.union(
+                defaults: LocalUsageReader.computeZCodeRolloutRoots(), extraRaw: nil)
         default:
             return []
         }

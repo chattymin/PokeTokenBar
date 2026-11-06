@@ -62,6 +62,7 @@ actor LocalUsageCache {
         var omp: [String: Blob]
         var omo: [String: Blob]
         var kimi: [String: Blob]
+        var zcode: [String: Blob]
         var claudeParserVersion: Int
         var codexParserVersion: Int
         var codexSessionIndexVersion: Int
@@ -70,15 +71,17 @@ actor LocalUsageCache {
         var ompParserVersion: Int
         var omoParserVersion: Int
         var kimiParserVersion: Int
+        var zcodeParserVersion: Int
 
         init(claude: [String: Blob], codex: [String: CodexBlob],
              codexSessionIDs: [String: CodexSessionProbe], gemini: [String: Blob],
              grok: [String: Blob], pi: [String: Blob], omp: [String: Blob], omo: [String: Blob],
-             kimi: [String: Blob],
+             kimi: [String: Blob], zcode: [String: Blob],
              claudeParserVersion: Int,
              codexParserVersion: Int,
              codexSessionIndexVersion: Int, grokParserVersion: Int, piParserVersion: Int,
-             ompParserVersion: Int, omoParserVersion: Int, kimiParserVersion: Int) {
+             ompParserVersion: Int, omoParserVersion: Int, kimiParserVersion: Int,
+             zcodeParserVersion: Int) {
             self.claude = claude
             self.codex = codex
             self.codexSessionIDs = codexSessionIDs
@@ -88,6 +91,7 @@ actor LocalUsageCache {
             self.omp = omp
             self.omo = omo
             self.kimi = kimi
+            self.zcode = zcode
             self.claudeParserVersion = claudeParserVersion
             self.codexParserVersion = codexParserVersion
             self.codexSessionIndexVersion = codexSessionIndexVersion
@@ -96,6 +100,7 @@ actor LocalUsageCache {
             self.ompParserVersion = ompParserVersion
             self.omoParserVersion = omoParserVersion
             self.kimiParserVersion = kimiParserVersion
+            self.zcodeParserVersion = zcodeParserVersion
         }
 
         // Backward compat: older snapshots without the gemini/grok/omp/codexSessionIDs keys still load (no cold-start recurrence).
@@ -120,6 +125,8 @@ actor LocalUsageCache {
             ompParserVersion = try c.decodeIfPresent(Int.self, forKey: .ompParserVersion) ?? 0
             omoParserVersion = try c.decodeIfPresent(Int.self, forKey: .omoParserVersion) ?? 0
             kimiParserVersion = try c.decodeIfPresent(Int.self, forKey: .kimiParserVersion) ?? 0
+            zcode = try c.decodeIfPresent([String: Blob].self, forKey: .zcode) ?? [:]
+            zcodeParserVersion = try c.decodeIfPresent(Int.self, forKey: .zcodeParserVersion) ?? 0
         }
     }
 
@@ -145,6 +152,9 @@ actor LocalUsageCache {
     private static let omoParserVersion = 1
     /// Kimi Code `usage.record` mapping/scope rules. Bump when the bucket mapping or scope filter changes.
     private static let kimiParserVersion = 1
+    /// ZCode model-I/O bucket mapping (`response.usage` / `response.body.usage` shapes). Bump when
+    /// the bucket mapping or usage-location rules change.
+    private static let zcodeParserVersion = 1
 
     private var claudeCache: [String: Blob] = [:]
     private var codexCache: [String: CodexBlob] = [:]
@@ -155,6 +165,7 @@ actor LocalUsageCache {
     private var ompCache: [String: Blob] = [:]
     private var omoCache: [String: Blob] = [:]
     private var kimiCache: [String: Blob] = [:]
+    private var zcodeCache: [String: Blob] = [:]
     private var loaded = false
     private var dirty = false
     private var lastSave: Date?
@@ -171,6 +182,7 @@ actor LocalUsageCache {
     private let ompRoots: [URL]?
     private let omoRoots: [URL]?
     private let kimiRoots: [URL]?
+    private let zcodeRoots: [URL]?
     private let fileURL: URL
     /// Whether this cache reads and writes `fileURL` (`AppEnv.persistsToUserLocation`). Not private so
     /// tests can check the gate without doing any IO.
@@ -188,7 +200,7 @@ actor LocalUsageCache {
          geminiRoot: URL? = nil, grokRoot: URL? = nil,
          geminiRoots: [URL]? = nil, grokRoots: [URL]? = nil,
          piRoots: [URL]? = nil, ompRoots: [URL]? = nil, omoRoots: [URL]? = nil,
-         kimiRoots: [URL]? = nil,
+         kimiRoots: [URL]? = nil, zcodeRoots: [URL]? = nil,
          fileURL: URL? = nil, now: @escaping @Sendable () -> Date = Date.init,
          codexProbe: @escaping @Sendable (URL) throws -> String? = {
              try LocalUsageReader.probeCodexRolloutSessionID(at: $0)
@@ -208,6 +220,7 @@ actor LocalUsageCache {
         self.ompRoots = ompRoots
         self.omoRoots = omoRoots
         self.kimiRoots = kimiRoots
+        self.zcodeRoots = zcodeRoots
         self.fileURL = fileURL ?? Self.defaultFileURL
         // `LocalUsageProvider` uses `.shared`, so without this a single `refresh()` during `swift test`
         // reads and rewrites the user's real usage-cache.json.
@@ -377,6 +390,23 @@ actor LocalUsageCache {
         return LocalUsageReader.dedupKeepMax(all)
     }
 
+    func zcodeEntries(modifiedSince: Date) -> [LocalUsageReader.Entry] {
+        ensureLoaded()
+        let fmt = LocalUsageReader.localDayFormatter()
+        let roots = zcodeRoots ?? CustomScanRoots.union(
+            defaults: LocalUsageReader.zcodeRolloutRoots,
+            extraRaw: CustomScanRoots.storedValue(for: "zcode"))
+        var all: [LocalUsageReader.Entry] = []
+        for root in roots {
+            all += collect(root: root, since: modifiedSince, cache: &zcodeCache,
+                           include: LocalUsageReader.isZCodeUsageFile) {
+                LocalUsageReader.parseZCodeFile($0, fmt: fmt)
+            }
+        }
+        saveIfNeeded()
+        return LocalUsageReader.dedupKeepMax(all)
+    }
+
     /// `include` 는 blob 캐시 조회 **전에** 평가된다 — 파일 밖 상태(옆 파일 등)에 의존하는 판정을
     /// 캐시에 굳히지 않기 위해서다.
     /// `incremental` parses from a byte offset for append-only logs. When the cached blob has an
@@ -541,6 +571,7 @@ actor LocalUsageCache {
         ensureLoaded()
         return claudeCache.count + codexCache.count + geminiCache.count
             + grokCache.count + piCache.count + ompCache.count + omoCache.count + kimiCache.count
+            + zcodeCache.count
     }
 
     private func ensureLoaded() {
@@ -561,6 +592,7 @@ actor LocalUsageCache {
         ompCache = snap.omp
         omoCache = snap.omo
         kimiCache = snap.kimi
+        zcodeCache = snap.zcode
 
         if snap.claudeParserVersion != Self.claudeParserVersion {
             claudeCache = [:]
@@ -594,6 +626,10 @@ actor LocalUsageCache {
             kimiCache = [:]
             dirty = true
         }
+        if snap.zcodeParserVersion != Self.zcodeParserVersion {
+            zcodeCache = [:]
+            dirty = true
+        }
     }
 
     /// 어떤 조회 윈도우(오늘/주/월)에도 들지 않는 오래된 파일 blob 을 제거해 캐시 무한 증가를 막는다.
@@ -609,6 +645,7 @@ actor LocalUsageCache {
         ompCache = ompCache.filter { $0.value.mtime >= cutoff }
         omoCache = omoCache.filter { $0.value.mtime >= cutoff }
         kimiCache = kimiCache.filter { $0.value.mtime >= cutoff }
+        zcodeCache = zcodeCache.filter { $0.value.mtime >= cutoff }
     }
 
     /// 변경이 있으면 디스크에 저장(최소 60초 간격으로 throttle — 잦은 쓰기 방지).
@@ -627,6 +664,7 @@ actor LocalUsageCache {
             omp: ompCache,
             omo: omoCache,
             kimi: kimiCache,
+            zcode: zcodeCache,
             claudeParserVersion: Self.claudeParserVersion,
             codexParserVersion: Self.codexParserVersion,
             codexSessionIndexVersion: Self.codexSessionIndexVersion,
@@ -634,7 +672,8 @@ actor LocalUsageCache {
             piParserVersion: Self.piParserVersion,
             ompParserVersion: Self.ompParserVersion,
             omoParserVersion: Self.omoParserVersion,
-            kimiParserVersion: Self.kimiParserVersion)
+            kimiParserVersion: Self.kimiParserVersion,
+            zcodeParserVersion: Self.zcodeParserVersion)
         if let data = try? JSONEncoder().encode(snap) {
             // JSON 은 zlib 로 크게 압축됨(수 MB → 수백 KB). 실패 시 평문 저장(로드가 양쪽 다 처리).
             let out = (try? (data as NSData).compressed(using: .zlib) as Data) ?? data

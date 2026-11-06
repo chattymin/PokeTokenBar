@@ -2002,6 +2002,108 @@ enum LocalUsageReader {
                      input: input, output: output, cacheWrite: cacheWrite, cacheRead: cacheRead)
     }
 
+    // MARK: ZCode (Z.ai)
+
+    /// ZCode harness data root — per-request model-I/O rollouts live under `~/.zcode/cli/rollout`
+    /// as `model-io-<sessionId>.jsonl` (plus `model-io-no-session.jsonl` for runs outside a session).
+    static let defaultZCodeRolloutPath = ".zcode/cli/rollout"
+
+    static var zcodeRolloutRoots: [URL] {
+        computeZCodeRolloutRoots()
+    }
+
+    static func computeZCodeRolloutRoots(
+        home: URL = FileManager.default.homeDirectoryForCurrentUser
+    ) -> [URL] {
+        normalizedRoots([home.appendingPathComponent(defaultZCodeRolloutPath)])
+    }
+
+    /// Only `model-io-*.jsonl` rollout files carry usage; other jsonl under `~/.zcode` (app logs)
+    /// must not be scanned.
+    static func isZCodeUsageFile(_ url: URL) -> Bool {
+        url.lastPathComponent.hasPrefix("model-io-") && url.pathExtension == "jsonl"
+    }
+
+    /// Parses a ZCode `model-io-*.jsonl` rollout. nil = unreadable (not cached, retried next
+    /// refresh) — same contract as `parseKimiWireFile`.
+    ///
+    /// One record per LLM request. Usage sits at `response.usage` in current builds and at
+    /// `response.body.usage` in older ones — both are read so either shape counts. The buckets are
+    /// distinct (`inputTokens` excludes both cache buckets; the recorded `totalTokens` is
+    /// input + output only), so the app-level `total` (input + output + cache) is recomputed from
+    /// the four buckets rather than trusting `totalTokens`.
+    static func parseZCodeFile(_ url: URL, fmt: DateFormatter) -> [Entry]? {
+        guard let text = try? String(contentsOf: url, encoding: .utf8) else { return nil }
+        var out: [Entry] = []
+        // Request bodies are large and share lines with everything else — no string prefilter
+        // (unlike Kimi), parse each line directly.
+        for line in text.split(separator: "\n", omittingEmptySubsequences: true) {
+            autoreleasepool {
+                if let e = parseZCodeLine(String(line), fmt: fmt) { out.append(e) }
+            }
+        }
+        return out
+    }
+
+    static func zcodeEntries(modifiedSince: Date, roots: [URL] = zcodeRolloutRoots) -> [Entry] {
+        let fmt = localDayFormatter()
+        var all: [Entry] = []
+        for root in normalizedRoots(roots) {
+            for file in jsonlFiles(in: root, modifiedSince: modifiedSince) where isZCodeUsageFile(file) {
+                all.append(contentsOf: parseZCodeFile(file, fmt: fmt) ?? [])
+            }
+        }
+        return dedupKeepMax(all)
+    }
+
+    private static func parseZCodeLine(_ line: String, fmt: DateFormatter) -> Entry? {
+        guard let data = line.data(using: .utf8),
+              let record = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
+        let response = record["response"] as? [String: Any]
+        // Current builds put the payload directly on `response`; older ones nested it in `body`.
+        let payload = (response?["body"] as? [String: Any]) ?? response
+        guard let usage = payload?["usage"] as? [String: Any] else { return nil }
+        // `completedAt` is when the request settled; `startedAt` is the fallback for a record
+        // without one. Both are ISO-8601 with fractional seconds and a UTC offset.
+        let stamp = (record["completedAt"] as? String) ?? (record["startedAt"] as? String)
+        guard let stamp, let date = zcodeTimestamp(stamp) else { return nil }
+        let input = intOrNil(usage["inputTokens"]) ?? 0
+        let output = intOrNil(usage["outputTokens"]) ?? 0
+        let cacheRead = intOrNil(usage["cacheReadTokens"]) ?? 0
+        let cacheWrite = intOrNil(usage["cacheWriteTokens"]) ?? 0
+        let model = ((record["model"] as? [String: Any])?["modelId"] as? String)
+            .flatMap { $0.isEmpty ? nil : $0 }
+            ?? (payload?["modelId"] as? String)
+            ?? "zcode"
+        // `requestId` is unique per request; `attempt` separates logged retries that share one.
+        // Without a requestId the record's own content identifies it (same fold as Kimi).
+        let attempt = intOrNil(record["attempt"]) ?? 1
+        let id: String
+        if let requestID = (record["requestId"] as? String).flatMap({ $0.isEmpty ? nil : $0 }) {
+            id = "zcode|\(requestID)|\(attempt)"
+        } else {
+            let millis = Int64(date.timeIntervalSince1970 * 1000)
+            id = "zcode|\(millis)|\(model)|\(input)|\(output)|\(cacheRead)|\(cacheWrite)"
+        }
+        return Entry(id: id, date: date, localDay: fmt.string(from: date), model: model,
+                     input: input, output: output, cacheWrite: cacheWrite, cacheRead: cacheRead)
+    }
+
+    private static func zcodeTimestamp(_ value: String) -> Date? {
+        if let date = zcodeStampFractional.date(from: value) { return date }
+        return zcodeStampWhole.date(from: value)
+    }
+
+    // ISO8601DateFormatter is not Sendable; parse calls only read these, same as
+    // `LocalAdditionalUsageProvider`'s shared formatters.
+    nonisolated(unsafe) private static let zcodeStampFractional: ISO8601DateFormatter = {
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return f
+    }()
+
+    nonisolated(unsafe) private static let zcodeStampWhole = ISO8601DateFormatter()
+
     private static func codexModel(_ line: Data) -> String? {
         guard let obj = try? JSONSerialization.jsonObject(with: line) as? [String: Any],
               let payload = obj["payload"] as? [String: Any] else { return nil }
