@@ -58,7 +58,7 @@ PokeTokenBar는 당신이 이미 태우고 있는 AI 코딩 토큰(Claude Code �
 <td width="45%" align="center"><img src="assets/screenshot-pet-interactions-ko.png" width="300" alt="기도·쓰다듬기·삐침·에이전트 대기를 각각 렌더링한 펫 샘플"><br><small>실제 UI 컴포넌트 · 샘플 상태</small></td>
 <td width="55%" valign="middle">
 <h3>작은 반응이 있는 파트너</h3>
-플로팅 펫 위로 포인터를 움직여 쓰다듬고, 알을 클릭해 기도해 보세요. 작은 반응, 삐침, 가끔 나타나는 이벤트 말풍선을 볼 수 있어요. 이 상호작용은 연출이며 기도가 부화 확률이나 성장 보상을 바꾸지는 않습니다. 기도 30회마다 한마디와 함께 사용량을 새로고침할 수 있어요. 에이전트의 작업·입력 대기·완료 반응은 <a href="#에이전트-활동">수동 설정</a> 후 사용할 수 있어요.
+플로팅 펫 위로 포인터를 움직여 쓰다듬고, 알을 클릭해 기도해 보세요. 작은 반응, 삐침, 가끔 나타나는 이벤트 말풍선을 볼 수 있어요. 이 상호작용은 연출이며 기도가 부화 확률이나 성장 보상을 바꾸지는 않습니다. 기도 30회마다 한마디와 함께 사용량을 새로고침할 수 있어요. Claude Code 를 쓰면 <a href="#에이전트-활동">에이전트 활동</a>(작업·입력 대기·완료)에도 알아서 반응해요.
 </td>
 </tr>
 <tr>
@@ -207,7 +207,27 @@ Pi는 모델 여러 개를 세션 로그 하나로 흘려보낼 수 있습니다
 
 플로팅 펫이 AI 코딩 에이전트의 상태를 따라 움직입니다. 에이전트가 일하는 동안 들썩이고, 입력이 필요하면 말풍선으로 부르고, 작업이 끝나면 마우스 커서 옆으로 달려옵니다. 에이전트는 URL 로 상태를 알립니다:
 
-설정은 선택 사항이며 수동으로 진행합니다. PokeTokenBar가 에이전트 훅을 설치하거나 에이전트 설정 파일을 수정하지는 않습니다. 플로팅 펫과 **에이전트 활동에 반응**을 켜고 아래 훅을 추가하세요.
+**대부분의 에이전트는 설정할 것이 없습니다.** PokeTokenBar 는 사용량을 세려고 이미 에이전트들의 로컬 세션 데이터를 읽고 있고, 이제 같은 데이터로 활동도 따라갑니다. 에이전트가 세션 제목을 남기면(Claude Code, Codex, Kimi Code, Grok CLI, Kiro CLI, OpenCode 등) 말풍선에 그 제목이 나옵니다. 백그라운드 서브 에이전트나 명령이 끝나 세션이 결과를 받으면, 펫은 커서로 달려오지 않고 제자리에서 "서브 에이전트 끝남"이라고 말합니다. 커서로 달려오는 건 내가 시킨 일이 끝났을 때뿐입니다. 다른 에이전트 세션이 보낸 메시지로 시작된 턴은 조용히 끝납니다.
+
+| 에이전트 | 자체 세션 데이터로 | 훅을 더하면 |
+| --- | --- | --- |
+| Claude Code | 작업 중, 완료, 질문, Esc | 권한 요청 |
+| Codex | 작업 중, 완료, 질문, Esc | 권한 요청 (`/hooks` 에서 한 번 승인) |
+| Kimi Code, Kiro CLI | 작업 중, 완료, 승인·질문, 취소 | — |
+| Pi, omp, omo | 작업 중, 완료, Esc (omp·omo 는 질문도) | — |
+| Grok CLI | 작업 중, 완료, 취소 | 권한 요청 |
+| OpenCode | 작업 중, 완료, 질문, Esc | — |
+| Hermes Agent | 작업 중, 완료, 질문 | — |
+| Aside | 작업 중, 완료, 중단 | — |
+| Copilot CLI | 작업 중, 승인 요청, 중단 | 완료 |
+| Gemini CLI | 작업 중, 취소 | 완료, 권한 요청 |
+| Cursor | 작업 중, 질문 | 완료 |
+| Devin CLI | 작업 중 | 완료 (Devin 이 실행하는 Claude Code 훅으로) |
+| Antigravity | — (기록이 턴이 끝난 뒤에 써짐) | 작업 중, 완료 |
+
+Gemini CLI, Copilot CLI, Cursor 는 턴이 끝났다는 기록을 확실히 남기지 않아서, 훅이 없으면 펫은 들썩임만 멈춥니다. 에이전트가 아직 일하는 중일 수 있을 때 "완료"를 짐작해 띄우지 않습니다. 훅이 보탬이 되는 에이전트는 턴이 끝난 뒤 펫이 연결을 제안하고(에이전트마다 실행할 때 한 번, 최대 세 번), **설정 → 플로팅 펫** 에서도 이 Mac 에 설치된 에이전트를 연결할 수 있습니다. 앱은 확인을 받은 뒤에만 에이전트의 훅 파일을 씁니다: `~/.claude/settings.json`, `~/.codex/hooks.json`, `~/.gemini/settings.json`, `~/.cursor/hooks.json`, `~/.gemini/config/hooks.json`(Antigravity), 그리고 앱 전용 파일 `~/.grok/hooks/poketokenbar.json`, `~/.copilot/hooks/poketokenbar.json`. 자기 항목만 더하고(명령 끝이 `# poketokenbar-agent-hook`) 파일의 나머지는 그대로 두며, 원래 파일을 한 번 `<파일>.poketokenbar-backup` 으로 남기고, 주석이 있는 파일은 건드리지 않습니다. 연결 해제는 그 항목만 지우거나 앱 전용 파일을 지웁니다. Codex 는 `/hooks` 에서 승인한 뒤에야 새 훅을 실행하고, Gemini CLI 는 신뢰한 폴더에서만 훅을 실행합니다. 서로의 훅 파일을 실행하는 에이전트(Grok·Cursor 는 Claude Code 의 것을, Grok 은 Cursor 의 것을)도 구분하므로 한 턴은 한 번만 알립니다.
+
+그 밖의 도구는 URL 로 상태를 알릴 수 있습니다. 플로팅 펫과 **에이전트 활동에 반응**을 켜고, 훅이나 스크립트에서 아래 URL 을 여세요.
 
 ```text
 poketokenbar://agent?state=<working|waiting|done|idle>[&label=<name>][&message=<text>]
@@ -219,7 +239,7 @@ poketokenbar://agent?state=<working|waiting|done|idle>[&label=<name>][&message=<
 - 한도 알림 말풍선이 우선합니다. 동작 줄이기나 저전력 모드에선 움직이지 않고 말풍선만 띄웁니다.
 - 플로팅 펫이 꺼져 있으면 아무 일도 일어나지 않습니다. 반응을 끄려면 **설정 → 플로팅 펫 → 에이전트 활동에 반응**.
 
-**Claude Code** — 아래 내용을 `~/.claude/poketokenbar.sh` 로 저장합니다. 세션마다 프로젝트 폴더 이름을 label 로 붙이므로, 같은 폴더의 두 세션은 label 하나를 같이 씁니다. `pgrep` 은 앱을 종료한 뒤 훅이 앱을 다시 띄우지 않게 하고, `open -g` 는 터미널 포커스를 빼앗지 않습니다.
+**Claude Code 를 직접 설정하려면** — 훅을 직접 관리하고 싶다면 아래 내용을 `~/.claude/poketokenbar.sh` 로 저장합니다. 앱은 이 훅도 연결된 것으로 보고, 지우지 않습니다. 세션마다 프로젝트 폴더 이름을 label 로 붙이므로, 같은 폴더의 두 세션은 label 하나를 같이 씁니다. `pgrep` 은 앱을 종료한 뒤 훅이 앱을 다시 띄우지 않게 하고, `open -g` 는 터미널 포커스를 빼앗지 않습니다.
 
 ```sh
 #!/bin/sh
@@ -231,7 +251,7 @@ open -g "poketokenbar://agent?state=$1&label=$label" >/dev/null 2>&1
 exit 0
 ```
 
-그다음 `~/.claude/settings.json` 에 훅을 추가합니다. `Notification` 의 matcher 는 Claude Code 의 유휴 알림을 걸러 냅니다. 이게 없으면 턴이 끝날 때마다 "waiting" 말풍선이 남습니다. 턴을 중단하면(Esc) `Stop` 이 오지 않아, 10분 제한이 지나거나 `idle` 을 보낼 때까지 펫이 일하는 상태로 남습니다.
+그다음 `~/.claude/settings.json` 에 훅을 추가합니다. `Notification` 의 matcher 는 Claude Code 의 유휴 알림을 걸러 냅니다. 이게 없으면 턴이 끝날 때마다 "waiting" 말풍선이 남습니다. 턴을 중단하면(Esc) `Stop` 이 오지 않지만, 앱이 세션 로그에서 중단을 보고 들썩임을 멈춥니다.
 
 ```json
 {

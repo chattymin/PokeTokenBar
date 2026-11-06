@@ -2,6 +2,11 @@ import AppKit
 import QuartzCore
 import SwiftUI
 
+extension Notification.Name {
+    /// The app added or removed an agent's hooks.
+    static let agentHooksDidChange = Notification.Name("PokeTokenBar.agentHooksDidChange")
+}
+
 /// 데스크톱 위에 떠 있는 컴패니언 포켓몬 오버레이(옵트인, 설정 → 플로팅 펫).
 /// - 드래그: 커스텀 `mouseDragged` (클릭과 충돌하지 않음).
 /// - 클릭 → 알 기도 / 포켓몬 팝오버, 우클릭 → 메뉴, 호버 → 오늘 사용량 콜아웃.
@@ -28,6 +33,18 @@ final class FloatingPetController: NSObject, NSWindowDelegate {
     private var awayPetOrigin: NSPoint?
     /// Bumped on every run/return animation so a stale completion handler does nothing.
     private var runGeneration = 0
+    /// Agents whose session logs drive the pet with no setup. Empty in tests: no file watching.
+    private let agentLogSources: [AgentLogSource]
+    private var agentLogWatcher: AgentLogWatcher?
+    /// Hooks the pet is offering to add right now, shown as the lowest-priority bubble.
+    private var hookOffer: AgentHookIntegration?
+    /// Offer waiting for the `done` bubble that prompted it to finish.
+    private var pendingHookOffer: AgentHookIntegration?
+    private var hookOfferExpiry: Task<Void, Never>?
+    /// Agents offered this launch (by `AgentHookIntegration.id`).
+    private var offeredHooksThisLaunch: Set<String> = []
+    private let confirmHookOffer: @MainActor (AgentHookIntegration) -> Void
+    private var hooksObserver: NSObjectProtocol?
 
     private static let originXKey = "floatingPetOriginX"
     private static let originYKey = "floatingPetOriginY"
@@ -35,15 +52,46 @@ final class FloatingPetController: NSObject, NSWindowDelegate {
     /// Squared movement (pt²) below which a mouse-up counts as a click, not a drag.
     static let clickThresholdSquared: CGFloat = 16  // ~4pt
 
-    /// Vertical space above the sprite for the bubble + VStack spacing (pt).
-    /// Sized for two wrapped body lines + title + padding + tail (ja strings).
-    static let bubbleHeadroom: CGFloat = 72
+    /// Vertical space above the sprite for the bubble + `bubbleSpacing` (pt).
+    /// Sized for two wrapped body lines + title + padding (ja strings).
+    static let bubbleHeadroom: CGFloat = 84
+    /// Gap between the bubble and the sprite (the pet view's VStack spacing).
+    static let bubbleSpacing: CGFloat = 8
     /// Minimum panel width while a bubble is showing.
-    static let bubbleMinWidth: CGFloat = 180
-    /// Horizontal padding inside the bubble chrome (each side). Content + 2× this = `bubbleMinWidth`.
-    static let bubbleHorizontalPadding: CGFloat = 8
-    /// Fixed text column — wraps instead of growing past the panel (`bubbleMinWidth` − 16).
+    static let bubbleMinWidth: CGFloat = 190
+    /// Horizontal padding inside the dialogue box (each side): the frame, its corner balls and a gap.
+    /// Content + 2× this = `bubbleMinWidth`.
+    static let bubbleHorizontalPadding: CGFloat = 11
+    /// Fixed text column — wraps instead of growing past the panel.
     static let bubbleContentWidth: CGFloat = bubbleMinWidth - (bubbleHorizontalPadding * 2)
+    /// Above the title, inside the frame.
+    static let bubbleTopPadding: CGFloat = 11
+    /// Below the body: room for the ▼ indicator inside the frame.
+    static let bubbleBottomPadding: CGFloat = 14
+    /// Dialogue text uses the rounded system face; view and measurement share these fonts.
+    static let bubbleTitleFont = roundedFont(size: 11, weight: .bold)
+    static let bubbleBodyFont = roundedFont(size: 10, weight: .medium)
+
+    private static func roundedFont(size: CGFloat, weight: NSFont.Weight) -> NSFont {
+        let base = NSFont.systemFont(ofSize: size, weight: weight)
+        return base.fontDescriptor.withDesign(.rounded).flatMap { NSFont(descriptor: $0, size: size) } ?? base
+    }
+
+    /// Typewriter reveal: one tick per frame at 30 fps, finished within 0.4–0.8 s.
+    static let typewriterTick: TimeInterval = 1.0 / 30
+    static func typewriterSteps(characterCount: Int) -> Int {
+        let duration = min(max(Double(characterCount) * 0.02, 0.4), 0.8)
+        return max(1, min(characterCount, Int((duration / typewriterTick).rounded())))
+    }
+
+    /// Characters shown after `step` of `steps` (from `typewriterSteps`, always ≥ 1).
+    static func revealedCount(step: Int, of steps: Int, characterCount: Int) -> Int {
+        characterCount * min(step, steps) / steps
+    }
+
+    /// ▼ blinks after the reveal, then stays on: a bubble can stay up indefinitely (waiting).
+    static let dialogueBlinkInterval: TimeInterval = 0.5
+    static let dialogueBlinkLimit: TimeInterval = 10
     /// `SpeechBubbleView` body `.lineLimit`. Measure and view must share this — a
     /// headroom-only guard stays green for 3-line copy that still fits 70pt (#167).
     static let bubbleBodyLineLimit = 2
@@ -90,6 +138,10 @@ final class FloatingPetController: NSObject, NSWindowDelegate {
         phase != .away && motionAllowed && panelVisible
     }
 
+    /// Only the person's own turn ending calls them over to the cursor; a finished subagent or
+    /// background task is said where the pet stands.
+    static func callsPersonOver(_ done: AgentActivitySummary.Note) -> Bool { done.task == nil }
+
     static func shouldBob(working: Bool, motionAllowed: Bool) -> Bool {
         motionAllowed && working
     }
@@ -98,20 +150,24 @@ final class FloatingPetController: NSObject, NSWindowDelegate {
     enum Bubble: Equatable {
         case limit(UsageStore.LimitAlert)
         case agentWaiting(label: String?, message: String?, others: Int)
-        case agentDone(label: String?, message: String?)
+        /// `task`: a subagent or background task finished, not the person's own turn.
+        case agentDone(label: String?, message: String?, task: AgentTaskKind? = nil)
+        /// The pet offers to add an agent's hooks; a click asks for confirmation.
+        case hookOffer(agentName: String, gain: AgentHookGain = .permissionPrompts)
     }
 
     /// A limit alert outranks agents; among agents a fresh `done` outranks waiting.
     static func bubble(limitAlert: UsageStore.LimitAlert?, agent: AgentActivitySummary) -> Bubble? {
         if let limitAlert { return .limit(limitAlert) }
-        if let done = agent.done { return .agentDone(label: done.label, message: done.message) }
+        if let done = agent.done { return .agentDone(label: done.label, message: done.message, task: done.task) }
         if let waiting = agent.waiting {
             return .agentWaiting(label: waiting.label, message: waiting.message, others: agent.otherWaitingCount)
         }
+        if let offer = agent.hookOffer { return .hookOffer(agentName: offer, gain: agent.hookOfferGain) }
         return nil
     }
 
-    struct SpeechBubbleContent: Equatable {
+    struct SpeechBubbleContent: Hashable {
         var title: String
         var body: String
         var isCritical: Bool
@@ -127,9 +183,16 @@ final class FloatingPetController: NSObject, NSWindowDelegate {
             let title = agentTitle(label: label, unlabeled: l.agentWaitingTitle, status: l.agentWaitingStatus,
                                    count: others > 0 ? "+\(others)" : nil)
             return agentContent(title: title, body: message ?? l.agentWaitingDefaultBody)
-        case .agentDone(let label, let message):
-            let title = agentTitle(label: label, unlabeled: l.agentDoneTitle, status: l.agentDoneStatus, count: nil)
+        case .agentDone(let label, let message, let task):
+            let (unlabeled, status) = switch task {
+            case nil: (l.agentDoneTitle, l.agentDoneStatus)
+            case .subagent: (l.agentSubagentDoneTitle, l.agentSubagentDoneStatus)
+            case .background: (l.agentBackgroundDoneTitle, l.agentBackgroundDoneStatus)
+            }
+            let title = agentTitle(label: label, unlabeled: unlabeled, status: status, count: nil)
             return agentContent(title: title, body: message ?? l.agentDoneDefaultBody)
+        case .hookOffer(let agentName, let gain):
+            return agentContent(title: agentName, body: l.agentHookOfferBody(gain))
         }
     }
 
@@ -306,12 +369,18 @@ final class FloatingPetController: NSObject, NSWindowDelegate {
     init(store: UsageStore, companion: CompanionStore, defaults: UserDefaults = .standard,
          clock: @escaping () -> Date = Date.init,
          onOpenPopover: (() -> Void)? = nil, onHide: (() -> Void)? = nil,
-         motionOverride: Bool? = nil) {
+         motionOverride: Bool? = nil,
+         agentLogSources: [AgentLogSource] = [],
+         confirmHookOffer: (@MainActor (AgentHookIntegration) -> Void)? = nil) {
         self.clock = clock
         self.store = store
         self.companion = companion
         self.defaults = defaults
         self.motionOverride = motionOverride
+        self.agentLogSources = agentLogSources
+        self.confirmHookOffer = confirmHookOffer ?? { [companion] in
+            FloatingPetController.presentHookConfirmation($0, defaults: defaults, language: companion.language)
+        }
         self.onOpenPopover = onOpenPopover
         self.onHide = onHide
         super.init()
@@ -330,6 +399,10 @@ final class FloatingPetController: NSObject, NSWindowDelegate {
 
     func setDisplayAwake(_ awake: Bool) {
         displayAwake = awake
+        if awake, let pending = pendingHookOffer, tracker.summary.done == nil {
+            presentHookOffer(pending)
+            agentModel.summary = agentSummary
+        }
         sync()
     }
 
@@ -389,19 +462,40 @@ final class FloatingPetController: NSObject, NSWindowDelegate {
     // MARK: Agent activity
 
     /// Entry point for `poketokenbar://agent` URLs. Dropped while the pet or the setting is off.
+    /// A done or waiting without a message shows the title of the session that last moved in that
+    /// folder, when its log has one. A done for a turn that session started on its own (a message
+    /// from another session) only ends the work: nobody is waiting for it.
     func handleAgentEvent(_ event: AgentActivityEvent) {
         guard agentEnabled else { return }
+        var event = event
+        let isDone = if case .done = event.activity { true } else { false }
+        if isDone || event.lacksMessage, let session = latestSession(event.label) {
+            if isDone, session.automaticTurn {
+                event = AgentActivityEvent(activity: .idle, label: event.label)
+            } else if isDone, let task = session.task {
+                event = AgentActivityEvent(activity: .done(message: session.taskName, task: task), label: event.label)
+                    .fillingMessage(session.title)
+            } else {
+                event = event.fillingMessage(session.title)
+            }
+        }
+        apply(event)
+    }
+
+    private func apply(_ event: AgentActivityEvent) {
         tracker.apply(event, now: Date())
         agentDidChange()
     }
 
     private func agentDidChange() {
-        let summary = tracker.summary
+        if tracker.summary.done == nil, let pending = pendingHookOffer { presentHookOffer(pending) }
+        let summary = agentSummary
         agentModel.summary = summary
         agentModel.bobs = Self.shouldBob(working: summary.working, motionAllowed: motionAllowed)
         scheduleAgentExpiry()
-        if summary.done != nil {
-            if let p = panel, Self.runsToCursor(phase: runPhase, motionAllowed: motionAllowed, panelVisible: p.isVisible) {
+        if let done = summary.done {
+            if Self.callsPersonOver(done), let p = panel,
+               Self.runsToCursor(phase: runPhase, motionAllowed: motionAllowed, panelVisible: p.isVisible) {
                 runToCursor(p)
             } else {
                 sync()
@@ -438,12 +532,148 @@ final class FloatingPetController: NSObject, NSWindowDelegate {
 
     private func resetAgent() {
         tracker.reset()
+        hookOffer = nil
+        pendingHookOffer = nil
+        hookOfferExpiry?.cancel()
         agentTimer?.invalidate()
         agentTimer = nil
         agentModel.summary = AgentActivitySummary()
         agentModel.bobs = false
         runPhase = .home
         runGeneration += 1
+    }
+
+    // MARK: Agent session logs
+
+    /// Session-log readings arrive here (see `AgentLogWatcher`). The first turn end of a launch from
+    /// an agent without hooks queues an offer to add them, shown once that bubble is over.
+    func handleAgentReading(_ reading: AgentLogReading, source: AgentLogSource, hooksInstalled: Bool) {
+        guard agentEnabled else { return }
+        if let hooks = source.hooks, hookOffer == nil, pendingHookOffer == nil,
+           Self.shouldOfferHooks(activity: reading.activity, hooksInstalled: hooksInstalled,
+                                 declined: defaults.bool(forKey: Self.hookOfferDeclinedKey(hooks.id)),
+                                 shownCount: defaults.integer(forKey: Self.hookOfferCountKey(hooks.id)),
+                                 offeredThisLaunch: offeredHooksThisLaunch.contains(hooks.id)) {
+            pendingHookOffer = hooks
+        }
+        // Already about its own session file: no lookup by folder, which could pick another session.
+        apply(AgentActivityEvent(activity: reading.activity, label: reading.label).fillingMessage(reading.title))
+    }
+
+    /// Tests set this instead of running a log watcher.
+    var sessionOverride: ((String?) -> AgentSessionInfo?)?
+
+    private func latestSession(_ label: String?) -> AgentSessionInfo? {
+        if let sessionOverride { return sessionOverride(label) }
+        return agentLogWatcher?.latestSession(label: label)
+    }
+
+    /// Per agent: one agent's "never" does not silence the others.
+    static func hookOfferCountKey(_ id: String) -> String { "agentHookOfferCount." + id }
+    static func hookOfferDeclinedKey(_ id: String) -> String { "agentHookOfferDeclined." + id }
+    /// Asked at most this many times (once per launch) unless the person says never.
+    static let maxHookOffers = 3
+    static let hookOfferDuration: Duration = .seconds(30)
+
+    /// Offer right after a turn ends: the person just looked at the pet, and the agent is quiet.
+    /// An idle counts too: some agents' logs show a turn's end only as idle (no reliable done).
+    static func shouldOfferHooks(activity: AgentActivity, hooksInstalled: Bool, declined: Bool,
+                                 shownCount: Int, offeredThisLaunch: Bool) -> Bool {
+        switch activity {
+        case .done, .idle: break
+        case .working, .waiting: return false
+        }
+        return !hooksInstalled && !declined && shownCount < maxHookOffers && !offeredThisLaunch
+    }
+
+    var isOfferingHooks: Bool { hookOffer != nil }
+
+    /// Tests keep the display "asleep" so no panel goes on screen; this lets them see the offer.
+    var showsHookOffersWhileAsleep = false
+
+    /// The bubble the pet shows now, offer included.
+    var currentBubble: Bubble? { Self.bubble(limitAlert: store.currentBubbleAlert, agent: agentSummary) }
+
+    private func presentHookOffer(_ hooks: AgentHookIntegration) {
+        // Nobody would see it: it stays pending until the display wakes.
+        guard displayAwake || showsHookOffersWhileAsleep else { return }
+        pendingHookOffer = nil
+        hookOffer = hooks
+        offeredHooksThisLaunch.insert(hooks.id)
+        let countKey = Self.hookOfferCountKey(hooks.id)
+        defaults.set(defaults.integer(forKey: countKey) + 1, forKey: countKey)
+        hookOfferExpiry?.cancel()
+        hookOfferExpiry = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: Self.hookOfferDuration)
+            guard !Task.isCancelled, let self, self.hookOffer != nil else { return }
+            self.dismissHookOffer()
+        }
+    }
+
+    private func dismissHookOffer() {
+        hookOffer = nil
+        hookOfferExpiry?.cancel()
+        hookOfferExpiry = nil
+        agentDidChange()
+    }
+
+    /// Asks before touching another app's settings. Runs the edit off the main thread.
+    private static func presentHookConfirmation(_ hooks: AgentHookIntegration, defaults: UserDefaults,
+                                                language: AppLanguage) {
+        let l = L(language)
+        let alert = NSAlert()
+        alert.messageText = l.agentHookConfirmTitle(hooks.agentName)
+        alert.informativeText = l.agentHookConfirmBody(hooks.agentName, hooks.settingsDescription(), hooks.gain)
+        alert.addButton(withTitle: l.agentHookConnect)
+        alert.addButton(withTitle: l.agentHookLater)
+        alert.addButton(withTitle: l.agentHookNever)
+        NSApp.activate(ignoringOtherApps: true)
+        switch alert.runModal() {
+        case .alertFirstButtonReturn:
+            Task.detached {
+                var failure: String?
+                do { try hooks.install() } catch {
+                    failure = (error as? ClaudeAgentHooks.Failure) == .unreadableSettings
+                        ? l.agentHookFailed : l.agentHookWriteFailed
+                }
+                await MainActor.run { [failure] in
+                    NotificationCenter.default.post(name: .agentHooksDidChange, object: nil)
+                    if let failure {
+                        let error = NSAlert()
+                        error.messageText = failure
+                        error.runModal()
+                    } else if let approval = hooks.approval {
+                        let note = NSAlert()
+                        note.messageText = l.agentHookApprovalHint(hooks.agentName, approval)
+                        note.runModal()
+                    }
+                }
+            }
+        case .alertThirdButtonReturn:
+            defaults.set(true, forKey: hookOfferDeclinedKey(hooks.id))
+        default:
+            break
+        }
+    }
+
+    private func updateAgentLogWatcher() {
+        let wanted = agentEnabled && !agentLogSources.isEmpty
+        if wanted, agentLogWatcher == nil {
+            let watcher = AgentLogWatcher(sources: agentLogSources) { [weak self] reading, source, installed in
+                Task { @MainActor in self?.handleAgentReading(reading, source: source, hooksInstalled: installed) }
+            }
+            watcher.start()
+            agentLogWatcher = watcher
+            hooksObserver = NotificationCenter.default.addObserver(
+                forName: .agentHooksDidChange, object: nil, queue: .main) { [weak watcher] _ in
+                watcher?.invalidateHookStatus()
+            }
+        } else if !wanted, let watcher = agentLogWatcher {
+            watcher.stop()
+            agentLogWatcher = nil
+            if let hooksObserver { NotificationCenter.default.removeObserver(hooksObserver) }
+            hooksObserver = nil
+        }
     }
 
     private func runToCursor(_ p: NSPanel) {
@@ -502,6 +732,11 @@ final class FloatingPetController: NSObject, NSWindowDelegate {
 
     /// A plain click answers waiting/done agents, then prays over an egg or opens a hatched pet.
     func petClicked() {
+        if let offer = hookOffer, currentBubble == .hookOffer(agentName: offer.agentName, gain: offer.gain) {
+            dismissHookOffer()
+            confirmHookOffer(offer)
+            return
+        }
         if tracker.dismissBubble() { agentDidChange() }
         clickRouter.handle(subjectIsEgg: companion.representativeSubject.speciesID == nil)
     }
@@ -550,8 +785,8 @@ final class FloatingPetController: NSObject, NSWindowDelegate {
     /// `≤ panel.width` assert); `unclamped*Width` is the check that can.
     static func measureSpeechBubbleLayout(title: String, body: String,
                                           contentWidth: CGFloat = bubbleContentWidth) -> SpeechBubbleLayout {
-        let titleFont = NSFont.systemFont(ofSize: 11, weight: .bold)
-        let bodyFont = NSFont.systemFont(ofSize: 10)
+        let titleFont = bubbleTitleFont
+        let bodyFont = bubbleBodyFont
         let wrap = NSSize(width: contentWidth, height: 10_000)
         let unclamped = NSSize(width: CGFloat.greatestFiniteMagnitude, height: 10_000)
         let opts: NSString.DrawingOptions = [.usesLineFragmentOrigin, .usesFontLeading]
@@ -564,16 +799,26 @@ final class FloatingPetController: NSObject, NSWindowDelegate {
         let unclampedBody = (body as NSString).boundingRect(
             with: unclamped, options: opts, attributes: [.font: bodyFont])
         let textWidth = min(contentWidth, max(titleRect.width, bodyRect.width))
-        let textHeight = ceil(titleRect.height) + 2 + ceil(bodyRect.height)
-        // Match SpeechBubbleView: horizontal padding ×2, vertical 6, bottom pad 6 for the tail.
-        let hPad = bubbleHorizontalPadding * 2
+        let titleLineCount = wrappedLineCount(title, font: titleFont, width: contentWidth)
         let bodyLineCount = wrappedLineCount(body, font: bodyFont, width: contentWidth)
+        let textHeight = CGFloat(titleLineCount) * drawnLineHeight(titleFont) + 2
+            + CGFloat(bodyLineCount) * drawnLineHeight(bodyFont)
+        // Match SpeechBubbleView: horizontal padding ×2, top/bottom padding.
+        let hPad = bubbleHorizontalPadding * 2
+        let vPad = bubbleTopPadding + bubbleBottomPadding
         return SpeechBubbleLayout(
-            size: NSSize(width: textWidth + hPad, height: textHeight + 12 + 6),
+            size: NSSize(width: textWidth + hPad, height: textHeight + vPad),
             bodyLineCount: bodyLineCount,
             unclampedTitleWidth: unclampedTitle.width,
             unclampedBodyWidth: unclampedBody.width,
             wouldTruncate: bodyLineCount > bubbleBodyLineLimit)
+    }
+
+    /// Line height SwiftUI draws: ascent and descent each rounded up. `boundingRect` reports one
+    /// point less per line (12 vs 13 at 10 pt), which left two-line bubbles 3 pt taller than
+    /// measured. `SpeechBubbleRenderingTests` holds this against real renders.
+    private static func drawnLineHeight(_ font: NSFont) -> CGFloat {
+        ceil(font.ascender) + ceil(-font.descender) + ceil(font.leading)
     }
 
     /// Wrap count at `width` using the same `boundingRect` path as `size`, so a
@@ -590,14 +835,23 @@ final class FloatingPetController: NSObject, NSWindowDelegate {
     }
 
     private func sync() {
-        if !agentEnabled, !tracker.agents.isEmpty || runPhase != .home { resetAgent() }
+        if !agentEnabled, !tracker.agents.isEmpty || runPhase != .home || hookOffer != nil { resetAgent() }
+        updateAgentLogWatcher()
         guard store.floatingPetEnabled, displayAwake else { hide(); return }
         show()
     }
 
     private var showingBubble: Bool {
         Self.isShowingBubble(alertActive: store.currentBubbleAlert != nil, heartsShowing: hearts.isShowing,
-                             agent: tracker.summary)
+                             agent: agentSummary)
+    }
+
+    /// The tracker's summary plus the hook offer, which is the controller's own state.
+    private var agentSummary: AgentActivitySummary {
+        var summary = tracker.summary
+        summary.hookOffer = hookOffer?.agentName
+        summary.hookOfferGain = hookOffer?.gain ?? .permissionPrompts
+        return summary
     }
 
     /// Build once per animation mode; callbacks share the controller's click and bubble routing.
@@ -641,7 +895,7 @@ final class FloatingPetController: NSObject, NSWindowDelegate {
 
     private func petWasStroked() {
         hearts.isShowing = Self.heartsShowing(afterStrokeWithAlertActive: store.currentBubbleAlert != nil,
-                                             agent: tracker.summary)
+                                             agent: agentSummary)
         guard hearts.isShowing else { return }
         hideHoverCallout()
         sync()
@@ -1026,14 +1280,19 @@ struct FloatingPetView: View {
     var hearts = PetHeartState()
     @Environment(UsageStore.self) private var store
     @Environment(CompanionStore.self) private var companion
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         let size = CGFloat(store.floatingPetSize)
         let subject = companion.representativeSubject
         let bubble = FloatingPetController.bubble(limitAlert: store.currentBubbleAlert, agent: agent.summary)
-        VStack(spacing: 8) {
+        VStack(spacing: FloatingPetController.bubbleSpacing) {
             if let bubble {
-                SpeechBubbleView(content: FloatingPetController.bubbleContent(bubble, l: L(companion.language)))
+                let content = FloatingPetController.bubbleContent(bubble, l: L(companion.language))
+                SpeechBubbleView(content: content,
+                                 animates: FloatingPetController.allowsMotion(animated: animated,
+                                                                              reduceMotion: reduceMotion))
+                    .id(content)   // a new message replays the reveal
                     .transition(.scale(scale: 0.8, anchor: .bottom).combined(with: .opacity))
                     .zIndex(1)
             }
@@ -1210,42 +1469,144 @@ private struct AgentBob: ViewModifier {
     }
 }
 
-/// Transient limit-alert or agent bubble. Width is capped so copy wraps instead of clipping the panel.
+/// Classic 8-bit dialogue box for limit alerts and agent messages: square white box, black
+/// double frame with a Poké Ball at each corner, ▼ indicator. Drawn in code as whole-point rectangles (no
+/// strokes), so edges stay crisp at 1× and 2×, and with fixed colors so it reads the same in
+/// light and dark mode. Width is capped so copy wraps instead of clipping the panel.
+/// The reveal/blink state lives here, so its ticks re-run only this view.
 @MainActor
-private struct SpeechBubbleView: View {
+struct SpeechBubbleView: View {
     let content: FloatingPetController.SpeechBubbleContent
+    let animates: Bool
+    @State private var revealed: Int
+    @State private var indicatorVisible = true
+
+    private static let ink = Color(white: 0.06)
+    private static let paper = Color.white
+    private static let titleColor = Color(white: 0.08)
+    private static let criticalColor = Color(red: 0.80, green: 0.12, blue: 0.12)
+    /// Monochrome like a Game Boy screen. Not 0.5: an ink/white edge on a half point blends
+    /// to about 0.53, and the crisp-frame test must tell that blur from the ball.
+    private static let ballGrey = Color(white: 0.45)
+    private static let bodyColor = Color(white: 0.18)
+
+    init(content: FloatingPetController.SpeechBubbleContent, animates: Bool) {
+        self.content = content
+        self.animates = animates
+        _revealed = State(initialValue: animates ? 0 : content.title.count + content.body.count)
+    }
 
     var body: some View {
+        let titleCount = content.title.count
         VStack(alignment: .leading, spacing: 2) {
-            Text(content.title)
-                .font(.system(size: 11, weight: .bold))
-                .foregroundColor(content.isCritical ? .red : .primary)
-            Text(content.body)
-                .font(.system(size: 10))
-                .foregroundColor(.secondary)
+            Self.reveal(content.title, upTo: revealed)
+                .font(Font(FloatingPetController.bubbleTitleFont))
+                .foregroundColor(content.isCritical ? Self.criticalColor : Self.titleColor)
+            Self.reveal(content.body, upTo: revealed - titleCount)
+                .font(Font(FloatingPetController.bubbleBodyFont))
+                .foregroundColor(Self.bodyColor)
                 .lineLimit(FloatingPetController.bubbleBodyLineLimit)
                 .fixedSize(horizontal: false, vertical: true)
         }
         .frame(width: FloatingPetController.bubbleContentWidth, alignment: .leading)
         .padding(.horizontal, FloatingPetController.bubbleHorizontalPadding)
-        .padding(.vertical, 6)
-        .background(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(Color(nsColor: .windowBackgroundColor))
-                .shadow(color: .black.opacity(0.15), radius: 4, y: 2)
-        )
-        .overlay(
-            Path { path in
-                path.move(to: CGPoint(x: 10, y: 0))
-                path.addLine(to: CGPoint(x: 20, y: 0))
-                path.addLine(to: CGPoint(x: 15, y: 6))
-                path.closeSubpath()
+        .padding(.top, FloatingPetController.bubbleTopPadding)
+        .padding(.bottom, FloatingPetController.bubbleBottomPadding)
+        .background(Canvas { context, size in
+            Self.drawFrame(in: &context, width: size.width.rounded(.down), height: size.height.rounded(.down))
+        })
+        .overlay(alignment: .bottomTrailing) {
+            Canvas { context, _ in
+                for rect in Self.indicatorRects { context.fill(Path(rect), with: .color(Self.ink)) }
             }
-            .fill(Color(nsColor: .windowBackgroundColor))
-            .offset(y: 5),
-            alignment: .bottom
-        )
-        .padding(.bottom, 6)
+            .frame(width: 7, height: 4)
+            .opacity(indicatorVisible ? 1 : 0)
+            .padding(.trailing, 11)
+            .padding(.bottom, 9)
+        }
+        .task { await play() }
+    }
+
+    /// The unrevealed rest is laid out but clear, so lines never re-wrap while typing.
+    private static func reveal(_ text: String, upTo count: Int) -> Text {
+        let shown = max(0, min(count, text.count))
+        return Text(text.prefix(shown)) + Text(text.dropFirst(shown)).foregroundColor(.clear)
+    }
+
+    /// Outer line at 3 pt, 1 pt gap, inner line (2 pt top/bottom, 1 pt sides), and a 10 pt
+    /// Poké Ball centered where the lines meet at each corner. Outside the outer line stays clear.
+    private static func drawFrame(in context: inout GraphicsContext, width w: CGFloat, height h: CGFloat) {
+        let paper = CGRect(x: 3, y: 3, width: w - 6, height: h - 6)
+        let ink = [
+            CGRect(x: 10, y: 3, width: w - 20, height: 1), CGRect(x: 10, y: h - 4, width: w - 20, height: 1),
+            CGRect(x: 3, y: 10, width: 1, height: h - 20), CGRect(x: w - 4, y: 10, width: 1, height: h - 20),
+            CGRect(x: 10, y: 5, width: w - 20, height: 2), CGRect(x: 10, y: h - 7, width: w - 20, height: 2),
+            CGRect(x: 5, y: 10, width: 1, height: h - 20), CGRect(x: w - 6, y: 10, width: 1, height: h - 20),
+        ]
+        context.fill(Path(paper), with: .color(Self.paper))
+        for rect in ink { context.fill(Path(rect), with: .color(Self.ink)) }
+        for origin in [CGPoint(x: 0, y: 0), CGPoint(x: w - 10, y: 0), CGPoint(x: 0, y: h - 10), CGPoint(x: w - 10, y: h - 10)] {
+            for (rect, color) in pokeBall {
+                context.fill(Path(rect.offsetBy(dx: origin.x, dy: origin.y)), with: .color(color))
+            }
+        }
+    }
+
+    /// The corner ornament: a 10 pt pixel-art Poké Ball drawn here row by row — no image asset.
+    /// `#` ink, `g` grey, `w` white, `.` clear. Runs of one color become one rectangle.
+    private static let pokeBall: [(CGRect, Color)] = {
+        let rows = [
+            "..######..",
+            ".#gggggg#.",
+            "#gggggggg#",
+            "#ggg##ggg#",
+            "####ww####",
+            "####ww####",
+            "#www##www#",
+            "#wwwwwwww#",
+            ".#wwwwww#.",
+            "..######..",
+        ]
+        let colors: [Character: Color] = ["#": ink, "g": ballGrey, "w": paper]
+        var runs: [(CGRect, Color)] = []
+        for (y, row) in rows.enumerated() {
+            let cells = Array(row)
+            var x = 0
+            while x < cells.count {
+                var end = x
+                while end + 1 < cells.count, cells[end + 1] == cells[x] { end += 1 }
+                if let color = colors[cells[x]] {
+                    runs.append((CGRect(x: x, y: y, width: end - x + 1, height: 1), color))
+                }
+                x = end + 1
+            }
+        }
+        return runs
+    }()
+
+    /// Solid ▼, one row per point: 7, 5, 3, 1.
+    private static let indicatorRects = (0..<4).map {
+        CGRect(x: CGFloat($0), y: CGFloat($0), width: CGFloat(7 - 2 * $0), height: 1)
+    }
+
+    /// Bounded: the reveal takes at most 24 ticks and the blink stops after `dialogueBlinkLimit`.
+    private func play() async {
+        guard animates else { return }
+        let total = content.title.count + content.body.count
+        let steps = FloatingPetController.typewriterSteps(characterCount: total)
+        let tick = FloatingPetController.typewriterTick
+        for step in 1...steps {
+            try? await Task.sleep(for: .seconds(tick))
+            guard !Task.isCancelled else { return }
+            revealed = FloatingPetController.revealedCount(step: step, of: steps, characterCount: total)
+        }
+        let interval = FloatingPetController.dialogueBlinkInterval
+        for _ in 0..<Int(FloatingPetController.dialogueBlinkLimit / interval) {
+            try? await Task.sleep(for: .seconds(interval), tolerance: .seconds(interval * 0.1))
+            guard !Task.isCancelled else { return }
+            indicatorVisible.toggle()
+        }
+        indicatorVisible = true
     }
 }
 

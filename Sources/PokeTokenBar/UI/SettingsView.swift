@@ -361,6 +361,12 @@ struct SettingsView: View {
                     Toggle(l.floatingPetAgentActivityLabel, isOn: $store.floatingPetAgentActivity)
                         .labelsHidden().toggleStyle(.switch).controlSize(.small)
                 }
+                if store.floatingPetAgentActivity {
+                    ForEach(AgentHookIntegration.settingsRows, id: \.agentName) { hooks in
+                        Divider()
+                        AgentHookRow(hooks: hooks, l: l)
+                    }
+                }
             }
         }
     }
@@ -1211,5 +1217,74 @@ private struct SnapshotHistoryButton: NSViewRepresentable {
         var isExpanded: Binding<Bool>
         init(isExpanded: Binding<Bool>) { self.isExpanded = isExpanded }
         @objc func toggle() { isExpanded.wrappedValue.toggle() }
+    }
+}
+
+/// Adds or removes an agent's hooks from Settings. The status is read off the main thread, because
+/// finding the settings file can ask the login shell for `CLAUDE_CONFIG_DIR`.
+@MainActor
+private struct AgentHookRow: View {
+    let hooks: AgentHookIntegration
+    let l: L
+    @State private var status: AgentHookStatus?
+    @State private var busy = false
+    @State private var failure: String?
+
+    var body: some View {
+        HStack(spacing: 10) {
+            VStack(alignment: .leading, spacing: 1) {
+                Text(l.agentHookRowLabel(hooks.agentName))
+                Text(caption).font(.caption2).foregroundStyle(failure != nil ? AnyShapeStyle(.red) : AnyShapeStyle(.tertiary))
+            }
+            Spacer()
+            // Hand-written hooks are the person's own; the app never removes them.
+            if let status, status != .installed(removable: false) {
+                Button(status.isInstalled ? l.agentHookDisconnect : l.agentHookConnect) { toggle(status) }
+                    .controlSize(.small)
+                    .disabled(busy)
+            }
+        }
+        .padding(.horizontal, 12).padding(.vertical, 8)
+        .frame(minHeight: 38)
+        .task { await load() }
+        .onReceive(NotificationCenter.default.publisher(for: .agentHooksDidChange)) { _ in
+            Task { await load() }
+        }
+    }
+
+    private var caption: String {
+        if let failure { return failure }
+        switch status {
+        case .installed(removable: true):
+            return hooks.approval.map { l.agentHookStatusOn(hooks.gain) + " · " + l.agentHookApprovalHint(hooks.agentName, $0) }
+                ?? l.agentHookStatusOn(hooks.gain)
+        case .installed(removable: false): return l.agentHookStatusManual
+        case .notInstalled, nil: return l.agentHookStatusOff(hooks.gain)
+        }
+    }
+
+    private func load() async {
+        let hooks = hooks
+        status = await Task.detached { hooks.status() }.value
+    }
+
+    private func toggle(_ current: AgentHookStatus) {
+        busy = true
+        failure = nil
+        let hooks = hooks
+        let l = l
+        Task {
+            failure = await Task.detached { () -> String? in
+                do {
+                    if current.isInstalled { try hooks.uninstall() } else { try hooks.install() }
+                    return nil
+                } catch {
+                    return (error as? ClaudeAgentHooks.Failure) == .unreadableSettings
+                        ? l.agentHookFailed : l.agentHookWriteFailed
+                }
+            }.value
+            busy = false
+            NotificationCenter.default.post(name: .agentHooksDidChange, object: nil)
+        }
     }
 }

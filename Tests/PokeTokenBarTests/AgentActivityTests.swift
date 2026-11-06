@@ -58,7 +58,7 @@ final class AgentActivityTests: XCTestCase {
         XCTAssertFalse(capped.dropLast().hasSuffix(" "), "no dangling space before the ellipsis")
 
         let encoded = try XCTUnwrap(long.addingPercentEncoding(withAllowedCharacters: .alphanumerics))
-        guard case .done(let message)? = event("poketokenbar://agent?state=done&message=\(encoded)") else {
+        guard case .done(let message, _)? = event("poketokenbar://agent?state=done&message=\(encoded)") else {
             return XCTFail("expected done")
         }
         XCTAssertEqual(message, capped)
@@ -86,7 +86,7 @@ final class AgentActivityTests: XCTestCase {
         case .idle: state = "idle"
         case .working: state = "working"
         case .waiting(let m): state = "waiting"; message = m.map { "&message=\($0)" } ?? ""
-        case .done(let m): state = "done"; message = m.map { "&message=\($0)" } ?? ""
+        case .done(let m, _): state = "done"; message = m.map { "&message=\($0)" } ?? ""
         }
         let labelItem = label.map { "&label=\($0)" } ?? ""
         tracker.apply(AgentActivityEvent(url: URL(string: "poketokenbar://agent?state=\(state)\(message)\(labelItem)")!)!,
