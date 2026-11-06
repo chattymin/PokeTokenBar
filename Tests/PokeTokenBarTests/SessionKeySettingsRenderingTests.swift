@@ -56,12 +56,12 @@ final class SessionKeySettingsRenderingTests: XCTestCase {
             // Verify each actual track; labels alone must not satisfy this fallback.
             let scroll = try XCTUnwrap(views.compactMap { $0 as? NSScrollView }.first)
             for label in [companion.l.difficultyGrowthLabel, companion.l.difficultyShopLabel,
-                          companion.l.warning, companion.l.critical] {
+                          companion.l.warning, companion.l.critical, companion.l.soundVolumeLabel] {
                 try await assertVisibleSlider(label: label, host: host.view, scroll: scroll)
             }
         } else {
-            // Growth, shop prices, warning, and critical controls on AppKit-backed runtimes.
-            XCTAssertEqual(nativeSliders.count, 4,
+            // Growth, shop prices, warning, critical, and sound volume controls on AppKit-backed runtimes.
+            XCTAssertEqual(nativeSliders.count, 5,
                            "growth and shop difficulty controls must survive the Settings merge")
         }
         XCTAssertTrue(navigation.showSettings)
