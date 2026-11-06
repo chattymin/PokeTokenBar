@@ -23,6 +23,21 @@ final class ModelPricingTests: XCTestCase {
         XCTAssertEqual(ModelPricing.rate(for: "claude-sonnet-5-5"), .perMillion(2, 10, 2.5, 0.1))
     }
 
+    func testCurrentGLMStandardRates() {
+        // https://docs.z.ai/guides/overview/pricing — base input, output, cache write (undocumented
+        // separate fee → 0), cached input. ZCode reports the identity upper-camel-cased.
+        XCTAssertEqual(ModelPricing.rate(for: "GLM-5.3-Flash"), .perMillion(0.15, 0.5, 0, 0.03))
+        XCTAssertEqual(ModelPricing.rate(for: "GLM-5.3-FlashX"), .perMillion(0.37, 1.25, 0, 0.075))
+        XCTAssertEqual(ModelPricing.rate(for: "GLM-5.3"), .perMillion(1.4, 4.4, 0, 0.26))
+        XCTAssertEqual(ModelPricing.rate(for: "GLM-5.2"), .perMillion(1.4, 4.4, 0, 0.26))
+        XCTAssertEqual(ModelPricing.rate(for: "GLM-5"), .perMillion(1.0, 3.2, 0, 0.2))
+        XCTAssertEqual(ModelPricing.rate(for: "GLM-4.7"), .perMillion(0.6, 2.2, 0, 0.11))
+        XCTAssertEqual(ModelPricing.rate(for: "GLM-4.6"), .perMillion(0.6, 2.2, 0, 0.11))
+        // Exact rows only — a longer identity must not borrow the shorter row.
+        XCTAssertNil(ModelPricing.estimatedCost(model: "glm-5.3-flash-plus", input: 10, output: 5,
+                                                cacheWrite: 0, cacheRead: 5))
+    }
+
     /// The inverse of `testUnknownNamesNeverBorrowFamilyPrices`: that test guards against a
     /// *wrong* price, this one against *no* price. #289 dropped the model-family fallback
     /// without adding exact rows for the identities it had been covering, so the whole Claude 5
@@ -39,6 +54,16 @@ final class ModelPricingTests: XCTestCase {
             let cost = try XCTUnwrap(
                 ModelPricing.estimatedCost(model: model, input: 2, output: 175,
                                            cacheWrite: 26_939, cacheRead: 42_676),
+                "\(model) resolves to no price — the usage cost row renders as unavailable")
+            XCTAssertGreaterThan(cost, 0, model)
+        }
+        // ZCode's real bucket shape: distinct buckets with no cache-write tokens at all
+        // (ZCode reports cacheWriteTokens, observed 0 on every record).
+        for model in ["GLM-5.3-Flash", "GLM-5.3", "GLM-5.3-FlashX", "GLM-5.2", "GLM-5",
+                      "GLM-4.7", "GLM-4.6"] {
+            let cost = try XCTUnwrap(
+                ModelPricing.estimatedCost(model: model, input: 30_694, output: 90,
+                                           cacheWrite: 0, cacheRead: 16_896),
                 "\(model) resolves to no price — the usage cost row renders as unavailable")
             XCTAssertGreaterThan(cost, 0, model)
         }

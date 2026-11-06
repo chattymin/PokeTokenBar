@@ -332,7 +332,7 @@ swift test                   # ユニットテスト
 | `~/.aside/u/*/state.db` | Aside daily/blocks/weekly/monthly | SQLite のターン合計を読み取り専用で集計；削除済みターンはスキャンキャッシュのリセットまで集計を保持；記録されたコストのみ使用 |
 | `~/.kimi-code/sessions/**/agents/*/wire.jsonl` | Kimi Code daily/blocks/weekly/monthly | すべての `usage.record`（リクエスト単位、`turn`・`session` スコープ）をメイン・サブエージェントの wire ファイル全体で合算；`$KIMI_CODE_HOME` と Kimi デスクトップのランタイムルートを尊重；`/fork` のコピーはレコード内容で重複除去；Kimi はコストを記録しないためコストは「なし」と表示 |
 | `~/.local/share/devin/cli/sessions.db` | Devin CLI daily/blocks/weekly/monthly | SQLite を読み取り専用で参照；`message_nodes` の metrics とセッションのモデルを結合；input とキャッシュの各トークンは別集計；同じセッションの分岐コピーは message ID で重複除去；`$XDG_DATA_HOME` と追加スキャンフォルダに対応；コストは推定しない |
-| `~/.zcode/cli/rollout/model-io-*.jsonl` | ZCode daily/blocks/weekly/monthly | LLM リクエストごとに 1 レコード；usage は `response.usage` にあり（旧ビルドは `response.body.usage` に格納）、4 つのトークンバケットは別集計で、記録される `totalTokens` は input + output のみのため合計は再計算；`requestId` + `attempt` でコピーと再試行を重複除去；追加スキャンフォルダに対応；コストは推定しない |
+| `~/.zcode/cli/rollout/model-io-*.jsonl` | ZCode daily/blocks/weekly/monthly | LLM リクエストごとに 1 レコード；usage は `response.usage` にあり（旧ビルドは `response.body.usage` に格納）、4 つのトークンバケットは別集計で、記録される `totalTokens` は input + output のみのため合計は再計算；`requestId` + `attempt` でコピーと再試行を重複除去；追加スキャンフォルダに対応；コストは Z.ai API 価格表に基づく推定値で、Coding Plan の請求ではない |
 | Keychain（`Claude Code-credentials`、ほかの設定フォルダごとに `Claude Code-credentials-<hash>`）/ `<設定フォルダ>/.credentials.json` → `api.anthropic.com` | アカウントごとの Claude 公式 5h/週間 % | 非公式 endpoint；Keychain は**更新ボタンを押した時のみ**読み取り — 自動更新では読みません |
 | `codex app-server` | Codex 公式 5h/週間 % | ローカル子プロセス；アカウント snapshot のみ、モデル turn なし |
 | [PokéAPI](https://pokeapi.co/) — `pokeapi.co`, `graphql.pokeapi.co` | ポケモンの種・能力値・特性・技・進化 | ランタイム取得；ローカルキャッシュ、バンドルしない |

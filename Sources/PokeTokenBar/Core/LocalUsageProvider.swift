@@ -208,8 +208,9 @@ struct LocalKimiCodeProvider: UsageProvider {
 
 /// Local-log parsing based ZCode provider (the Z.ai coding harness).
 /// Data appears only when `~/.zcode/cli/rollout/model-io-*.jsonl` has request records with usage
-/// (otherwise no snapshot → hidden in the UI). ZCode records no cost and the price table has no
-/// GLM models, so cost shows as unavailable rather than a measured $0.
+/// (otherwise no snapshot → hidden in the UI). ZCode records no cost, so the cost row is an
+/// API-list-price estimate from `ModelPricing` — a GLM Coding Plan subscription bill is not
+/// reflected (same caveat as the Claude/Codex estimates).
 struct LocalZCodeProvider: UsageProvider {
     let id = "zcode"
     let displayName = "ZCode"

@@ -65,6 +65,24 @@ enum ModelPricing {
         // Distinct SKU. A "flash" substring match would bill this at Flash rates.
         "gemini-2.5-flash-lite":      .perMillion(0.10, 0.40, 0, 0.01),
         "gemini-2.0-flash":           .perMillion(0.10, 0.4, 0, 0.025),
+        // Z.ai GLM text rates, checked 2026-11-06: https://docs.z.ai/guides/overview/pricing
+        // (base input, output, cache write, cached input). No separate cache-write fee is
+        // documented (cache storage is limited-time free), so the write column is 0 — per the
+        // table convention that means a log carrying cache-write tokens stays unpriced instead
+        // of borrowing the input rate. Free flash/vision SKUs are left out on purpose.
+        "glm-5.3":                    .perMillion(1.4, 4.4, 0, 0.26),
+        "glm-5.3-flash":              .perMillion(0.15, 0.5, 0, 0.03),
+        "glm-5.3-flashx":             .perMillion(0.37, 1.25, 0, 0.075),
+        "glm-5.2":                    .perMillion(1.4, 4.4, 0, 0.26),
+        "glm-5.1":                    .perMillion(1.4, 4.4, 0, 0.26),
+        "glm-5":                      .perMillion(1.0, 3.2, 0, 0.2),
+        "glm-4.7":                    .perMillion(0.6, 2.2, 0, 0.11),
+        "glm-4.6":                    .perMillion(0.6, 2.2, 0, 0.11),
+        "glm-4.5":                    .perMillion(0.6, 2.2, 0, 0.11),
+        "glm-4.5-x":                  .perMillion(2.2, 8.9, 0, 0.45),
+        "glm-4.5-air":                .perMillion(0.2, 1.1, 0, 0.03),
+        "glm-4.5-airx":               .perMillion(1.1, 4.5, 0, 0.22),
+        "glm-4.7-flashx":             .perMillion(0.07, 0.4, 0, 0.01),
     ]
 
     // Only documented model identities and simple provider namespaces are normalized.

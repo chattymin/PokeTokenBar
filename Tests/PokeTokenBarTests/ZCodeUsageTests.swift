@@ -191,9 +191,10 @@ final class ZCodeUsageTests: XCTestCase {
                        ["/Users/tester/.zcode/cli/rollout"])
     }
 
-    /// Through the provider: today's records → daily total with a per-model breakdown. GLM models
-    /// are not in the price table and ZCode records no cost → cost is unavailable, not a measured $0.
-    func testProviderFetchDailyBreakdownAndUnavailableCost() async throws {
+    /// Through the provider: today's records → daily total with a per-model breakdown. ZCode
+    /// records no cost, so the total is an API-list-price estimate from the GLM table rows
+    /// (100·$0.15 + 200·$0.5 + 10·$1.4 + 20·$4.4) / 1M = $0.000217.
+    func testProviderFetchDailyBreakdownAndEstimatedCost() async throws {
         let now = Date()
         try writeRollout([
             Self.record(model: "GLM-5.3-Flash", date: now.addingTimeInterval(-2),
@@ -208,7 +209,8 @@ final class ZCodeUsageTests: XCTestCase {
         let fetched = try await provider.fetchDaily()
         let daily = try XCTUnwrap(fetched)
         XCTAssertEqual(daily.totalTokens, 330)
-        XCTAssertEqual(daily.costCoverage, .unavailable)
+        XCTAssertEqual(daily.costCoverage, .estimate, "GLM rows price the usage, labeled as an estimate")
+        XCTAssertEqual(daily.totalCost, 0.000217, accuracy: 1e-9)
         let models = try XCTUnwrap(daily.models)
         XCTAssertEqual(models["GLM-5.3-Flash"], 300)
         XCTAssertEqual(models["GLM-5.3"], 30)

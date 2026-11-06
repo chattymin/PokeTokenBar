@@ -332,7 +332,7 @@ swift test                   # 단위 테스트
 | `~/.aside/u/*/state.db` | Aside daily/blocks/weekly/monthly | SQLite 턴 합계 읽기 전용; 삭제된 턴은 스캔 캐시 초기화까지 집계 유지; 기록된 비용만 사용 |
 | `~/.kimi-code/sessions/**/agents/*/wire.jsonl` | Kimi Code daily/blocks/weekly/monthly | 모든 `usage.record`(요청 단위, `turn`·`session` 스코프)를 메인·서브에이전트 wire 파일 전체에서 합산; `$KIMI_CODE_HOME` 과 Kimi 데스크톱 런타임 루트 지원; `/fork` 사본은 레코드 내용으로 중복 제거; Kimi 는 비용을 기록하지 않아 비용은 '없음'으로 표시 |
 | `~/.local/share/devin/cli/sessions.db` | Devin CLI daily/blocks/weekly/monthly | SQLite 읽기 전용; `message_nodes`의 metrics와 세션 모델을 연결; input과 캐시 토큰은 별도 집계; 같은 세션의 분기 사본은 message ID로 중복 제거; `$XDG_DATA_HOME`과 추가 스캔 폴더 지원; 비용은 추정하지 않음 |
-| `~/.zcode/cli/rollout/model-io-*.jsonl` | ZCode daily/blocks/weekly/monthly | LLM 요청당 레코드 1개; usage는 `response.usage`에 있고(구버전은 `response.body.usage`에 중첩) 네 토큰 버킷은 별도 집계이며 기록된 `totalTokens`는 input + output만 담으므로 총계를 다시 계산; `requestId` + `attempt`로 사본과 재시도 중복 제거; 추가 스캔 폴더 지원; 비용은 추정하지 않음 |
+| `~/.zcode/cli/rollout/model-io-*.jsonl` | ZCode daily/blocks/weekly/monthly | LLM 요청당 레코드 1개; usage는 `response.usage`에 있고(구버전은 `response.body.usage`에 중첩) 네 토큰 버킷은 별도 집계이며 기록된 `totalTokens`는 input + output만 담으므로 총계를 다시 계산; `requestId` + `attempt`로 사본과 재시도 중복 제거; 추가 스캔 폴더 지원; 비용은 Z.ai API 목록가 기준 추정치이며 Coding Plan 청구서가 아님 |
 | Keychain(`Claude Code-credentials`, 다른 설정 폴더마다 `Claude Code-credentials-<hash>`) / `<설정 폴더>/.credentials.json` → `api.anthropic.com` | 계정별 Claude 공식 5h/주간 % | 비공식 endpoint; Keychain 은 **갱신 버튼을 누를 때만** 읽음 — 자동 폴링은 읽지 않음 |
 | `codex app-server` | Codex 공식 5h/주간 % | 로컬 자식 프로세스; 계정 snapshot만, 모델 turn 없음 |
 | [PokéAPI](https://pokeapi.co/) — `pokeapi.co`, `graphql.pokeapi.co` | 포켓몬 종·능력치·특성·기술·진화 | 런타임 fetch; 로컬 캐시, 번들 안 함 |
