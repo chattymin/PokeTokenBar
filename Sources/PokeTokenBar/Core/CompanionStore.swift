@@ -59,6 +59,7 @@ final class CompanionStore {
     private var activeGeneration = 0
     private var lastAutoSnapshotDate: Date?
     private(set) var availableSnapshots: [SaveSnapshot] = []
+    private var currentTodayDate: String?
 
     // MARK: 난이도 배율 (설정 — UserDefaults)
     //
@@ -159,15 +160,39 @@ final class CompanionStore {
         defaults.set(clamped, forKey: "shopDifficulty")
     }
 
-    /// 난이도를 반영한 알 부화 임계. 첫 실행 안내 문구도 이 값을 보여준다.
-    var eggHatchThreshold: Int {
-        PokemonBalance.scaled(PokemonBalance.eggHatchThreshold, by: growthDifficulty)
+    /// 일일 스트릭 인정 최소 토큰 (기본 10M).
+    var dailyStreakThreshold: Int {
+        let stored = defaults.object(forKey: "dailyStreakThreshold") as? Int
+            ?? PokemonBalance.defaultDailyStreakThreshold
+        return max(1, min(stored, 1_000_000_000))
     }
 
-    /// 난이도를 반영한 단계 임계. **`PokemonBalance.phaseThreshold` 를 직접 부르지 않는다** —
+    func setDailyStreakThreshold(_ value: Int) {
+        let clamped = max(1, min(value, 1_000_000_000))
+        defaults.set(clamped, forKey: "dailyStreakThreshold")
+    }
+
+    /// 현재 유효 연속 코딩 일수.
+    var streakDays: Int {
+        state.streak.effectiveDays(todayDate: currentTodayDate ?? LocalUsageReader.todayKey())
+    }
+
+    /// 연속 코딩 스트릭에 따른 성장 배율 (3일 1.1x, 7일 1.25x, 14일 1.35x, 30일 1.5x).
+    var streakMultiplier: Double {
+        PokemonBalance.streakMultiplier(for: streakDays)
+    }
+
+    /// 난이도 및 연속 스트릭 배율을 반영한 알 부화 임계. 첫 실행 안내 문구도 이 값을 보여준다.
+    var eggHatchThreshold: Int {
+        let base = PokemonBalance.scaled(PokemonBalance.eggHatchThreshold, by: growthDifficulty)
+        return max(1, Int((Double(base) / streakMultiplier).rounded()))
+    }
+
+    /// 난이도 및 연속 스트릭 배율을 반영한 단계 임계. **`PokemonBalance.phaseThreshold` 를 직접 부르지 않는다** —
     /// 배율을 빠뜨린 호출부가 생기면 그 경로만 조용히 기본 난이도로 돌아간다.
     private func stageThreshold(for mon: MonState) -> Int {
-        PokemonBalance.scaled(mon.phaseThreshold, by: growthDifficulty)
+        let base = PokemonBalance.scaled(mon.phaseThreshold, by: growthDifficulty)
+        return max(1, Int((Double(base) / streakMultiplier).rounded()))
     }
 
     /// 상점 표시·결제에 쓰는 실제 가격 — 기본가 × 상점 난이도. 미판매면 nil.
@@ -196,6 +221,12 @@ final class CompanionStore {
     var currentNature: PokemonNature? { state.active?.nature }
     var growthMultiplier: Int? {
         state.active?.hasGrowthBoost == true ? PokemonBalance.repeatGrowthMultiplier : nil
+    }
+    var streakBadgeText: String {
+        l.streakBadge(days: streakDays, multiplier: streakMultiplier)
+    }
+    var streakTooltipText: String {
+        l.streakTooltip(days: streakDays, multiplier: streakMultiplier)
     }
 
     /// 메뉴바와 플로팅 펫이 그릴 대표 종과 색. nil 선택은 기존 동작(현재 개체/알)을 보존한다.
@@ -860,18 +891,80 @@ final class CompanionStore {
         })
     }
 
+    /// 구버전에서 업그레이드 시 이번 달 기록(monthDailyTotals)으로 스트릭을 초기 1회 시드해야 하는지 여부.
+    var needsStreakBootstrap: Bool {
+        !state.streakFeatureSeeded
+    }
+
+    /// 구버전에서 업그레이드 시 월 경계를 보존하는 일별 원장으로 스트릭을 초기 1회 시드.
+    func bootstrapStreakIfNeeded(from ledger: UsageLedger, todayDate: String) {
+        currentTodayDate = todayDate.isEmpty ? nil : todayDate
+        guard !state.streakFeatureSeeded, ledger.covers(todayDate) else { return }
+        let threshold = dailyStreakThreshold
+        let fmt = LocalUsageReader.localDayFormatter()
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = .current
+        func previousDay(_ day: String) -> String? {
+            guard let date = fmt.date(from: day),
+                  let previous = calendar.date(byAdding: .day, value: -1, to: date) else { return nil }
+            return fmt.string(from: previous)
+        }
+
+        var lastAchievedDay = todayDate
+        if ledger.tokens(on: todayDate) < threshold {
+            guard let yesterday = previousDay(todayDate), ledger.covers(yesterday) else {
+                state.streakFeatureSeeded = true
+                save()
+                return
+            }
+            lastAchievedDay = yesterday
+        }
+
+        var count = 0
+        var cursor: String? = lastAchievedDay
+        while let day = cursor, ledger.covers(day), ledger.tokens(on: day) >= threshold {
+            count += 1
+            cursor = previousDay(day)
+        }
+        if count > 0 {
+            state.streak = StreakState(days: count, lastDay: lastAchievedDay)
+        }
+        state.streakFeatureSeeded = true
+        save()
+    }
+
     // MARK: 갱신 (AppDelegate 가 UsageStore 값으로 호출)
 
     /// `timeSinceLastUsage`: nil when unknown (see `UsageStore.timeSinceLastUsage`); unknown never sulks.
     /// It comes from the slower enrichment scan, so a rise in today's total seen here counts as usage at once.
     func update(todayTokensByProvider: [String: Int], todayDate: String, monthTotal: Int,
                 burnTier: BurnTier, limitWarning: Bool, hasUsageData: Bool,
+                streakLedger: UsageLedger? = nil,
                 timeSinceLastUsage: TimeInterval? = nil) {
+        currentTodayDate = todayDate.isEmpty ? nil : todayDate
         let todayTokens = todayTokensByProvider.values.reduce(0, +)
         // `hasUsageData`는 표시용 snapshot 존재 여부이고, 이 map은 오늘 날짜가 확인된
         // provider 데이터만 담는다. stale snapshot이나 today == nil carrier만 있는 refresh는
         // ledger의 기준점을 움직일 수 있는 관측으로 취급하지 않는다.
         let hasCurrentProviderData = hasUsageData && !todayTokensByProvider.isEmpty
+        if needsStreakBootstrap {
+            // 기존 설치(installBaselineSet)의 완료된 refresh는 오늘 사용량이 없는 상태(today == nil
+            // 히스토리 carrier)여도 일별 원장(streakLedger)이 채워져 도착하므로, 오늘 첫 사용을 기다리지
+            // 않고 아침 스트릭과 성장 배율을 즉시 복원한다.
+            if state.installBaselineSet, hasUsageData, let streakLedger {
+                bootstrapStreakIfNeeded(from: streakLedger, todayDate: todayDate)
+            } else if !state.installBaselineSet, hasCurrentProviderData {
+                state.streakFeatureSeeded = true
+                save()
+            }
+        }
+        if hasCurrentProviderData, todayTokens >= dailyStreakThreshold {
+            let prevLastDay = state.streak.lastDay
+            state.streak.recordActiveDay(todayDate)
+            if state.streak.lastDay != prevLastDay {
+                save()
+            }
+        }
         let idle = effectiveIdle(timeSinceLastUsage: timeSinceLastUsage, todayDate: todayDate,
                                  todayTokens: todayTokens, hasCurrentProviderData: hasCurrentProviderData)
         if !state.installBaselineSet {
@@ -2020,6 +2113,7 @@ final class CompanionStore {
     func applySave(_ envelope: SaveEnvelope, todayTokensByProvider: [String: Int], todayDate: String,
                    hasUsageData: Bool) throws {
         try backupStateBeforeImport()
+        currentTodayDate = todayDate.isEmpty ? nil : todayDate
         state = SaveTransfer.rebasedForThisDevice(envelope.state,
                                                   current: state,
                                                   todayTokensByProvider: todayTokensByProvider,
