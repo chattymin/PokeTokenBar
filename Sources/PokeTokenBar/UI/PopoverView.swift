@@ -24,6 +24,32 @@ extension View {
     func reservesScrollerLane() -> some View {
         padding(.trailing, PopoverMetrics.scrollerInset)
     }
+
+    /// Fits a full-width segmented `Picker` to the popover column on macOS 26+.
+    ///
+    /// There a segmented picker is laid out at its intrinsic width (equal segments × the widest
+    /// label) instead of the proposed width. Short labels shrink it against the leading edge
+    /// (Korean 232pt). Long labels never compress: the Japanese tabs (386pt) widen the whole
+    /// column past `contentWidth`, `PopoverView`'s fixed frame centres it, and every row shifts left
+    /// with both edges clipped. `.small` brings every language under the column (Japanese 324pt) and
+    /// `.flexible` stretches the segments to fill it. Neither `.frame(width:)` nor `.fitted` does:
+    /// the control keeps its intrinsic width inside any frame. `PopoverSegmentedPickerWidthTests`
+    /// checks every language.
+    ///
+    /// `buttonSizing` needs the macOS 26 SDK. Older toolchains (CI's Xcode 16) build without it,
+    /// and older systems already fill the proposed width.
+    @ViewBuilder
+    func fitsPopoverColumn() -> some View {
+        #if compiler(>=6.2)
+        if #available(macOS 26, *) {
+            controlSize(.small).buttonSizing(.flexible)
+        } else {
+            self
+        }
+        #else
+        self
+        #endif
+    }
 }
 
 /// 팝오버 내부 내비게이션 상태(현재 탭 / 컬렉션 세그먼트 / 설정 표시 여부).
@@ -158,6 +184,7 @@ struct PopoverView: View {
             }
             .pickerStyle(.segmented)
             .labelsHidden()
+            .fitsPopoverColumn()
 
             if nav.tab == .collection {
                 CollectionView(store: companion, navigation: nav)

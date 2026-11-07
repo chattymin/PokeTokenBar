@@ -860,6 +860,34 @@ read_when:
 
 ## 표시·UI
 
+- **A platform control's intrinsic width can widen the whole popover column.** On macOS 27.2 the
+  popover's segmented tab bar is laid out at its intrinsic width (equal segments × the widest
+  label), not the proposed 332pt. Japanese tabs measured 386pt: the picker widened the column,
+  `PopoverView`'s fixed 360pt frame centred it, and after switching tabs every row (tab bar,
+  companion card, totals, footer) sat 27pt to the left with both edges clipped. English, Spanish,
+  French, German and Russian overflowed by 6–36pt; Korean and Portuguese shrank against the
+  leading edge instead (upstream #476 reports only that half). **Why it was missed:** the
+  rendering tests use Korean, where the bar is too narrow to overflow; CI runs macOS 15, which
+  still compresses segmented pickers; and the shift depends on layout timing (it reproduced in an
+  off-screen hosting window and after tab switches in the installed app, not in every on-screen
+  render), so screenshots alone gave false confidence. `.frame(width:)`, `.frame(maxWidth:)` and
+  `.buttonSizing(.fitted)` do not help: the control keeps its intrinsic width inside any frame, and
+  SwiftUI's segmented control always uses equal segments. `.buttonSizing(.flexible)` alone (#476)
+  fixes the narrow case but leaves Japanese at 386pt.
+  → `fitsPopoverColumn()` (macOS 26+: `.controlSize(.small)` + `.buttonSizing(.flexible)`) on the
+  tab bar and the Pokédex / catch-log switch. Small labels fit every language (Japanese 324pt).
+  Swept the other segmented pickers: Settings and Recap use `.fixedSize()` inside rows and fit.
+  **Regression guard:** `PopoverSegmentedPickerWidthTests` mounts Home, Collection, Settings and
+  Recap in all languages. On macOS 26+ it requires every segmented control's intrinsic width to
+  fit its frame and the two full-width pickers to fit and span the column; on every OS it
+  requires all segmented controls to stay inside the popover. The intrinsic check is the
+  deterministic one, because the frame only shows the overflow when layout adopts it. Removing
+  `.small` fails Japanese/English/Russian; removing the Collection call fails every language.
+  A new language whose tab labels exceed the column fails this test before it ships.
+  Compare the control's alignment rect, not its view frame: macOS 15 pads a segmented control's
+  frame by 2pt per side (x=12, width 336 for the 332pt column) while macOS 27 does not, so the
+  first version passed locally on 27.2 and failed every language on CI's macOS 15.
+
 - **Floating-pet features share one click route and one bubble reservation.** Agent activity (#457)
   and pet interactions (#466) both changed the controller, hosting callbacks and sprite composition.
   Keeping either side of their conflict alone discards egg prayers or agent acknowledgement, or
