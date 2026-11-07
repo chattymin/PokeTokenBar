@@ -495,6 +495,15 @@ read_when:
   **와** 실제로 로그에서 읽히는 현행 식별자가 전부 가격을 갖는지
   (`testModelsReadFromProviderLogsAreAllPriced`) 를 둘 다 단언한다. 미지로 남겨 두는 단언에는
   **아직 출시되지 않은** 이름만 쓴다(`claude-opus-6`), 현행 세대 이름은 절대 쓰지 않는다.
+- **로그의 모델 식별자는 CLI 가 아니라 *실행 경로*가 정한다 — 라우터를 거치면 접두사가 붙는다.** magpie
+  게이트웨이를 거친 Codex 는 `turn_context.model` 에 `codex/gpt-6.1-sol` 을, Claude Code 는
+  `claude/claude-opus-5-5` 를 남긴다. `modelKey` 가 `openai/`·`anthropic/` 류만 벗겨서 토큰은 집계되는데
+  비용은 "계산 불가" 로 나왔다. `testModelsReadFromProviderLogsAreAllPriced` 는 손으로 고른 *맨 이름*만
+  단언해 이 형태를 못 밟았다. 규칙: 단가 누락 리포트가 오면 `PokeTokenBar.log` 의 `Unpriced model:` 줄을
+  먼저 본다(실제 로그 형태가 그대로 찍힌다). 접두사는 **원 벤더 모델 ID 를 그대로 싣는 namespace 만**
+  벗긴다 — magpie 내장 구독 provider `codex/`·`claude/` 는 해당, 사용자 정의 provider(`mistral/`,
+  `anthropic-toss/`)·라우팅 그룹(`magpie/auto/…`)은 대상 모델·과금이 달라 미가격으로 둔다. 가드:
+  `testMagpieSubscriptionNamespacesPriceAsVendorModel`, `testCodexMagpieRoutedModelIsPriced`.
 - **새 provider를 추가할 때 reader/cache만 연결하면 Settings의 custom-root contract가 조용히 빠진다.** `CustomScanRoots`는
   provider별 `curatedRoots(for:)`와 실제 reader의 `CustomScanRoots.storedValue(for:)` 조회를 모두 registry로
   취급한다. Pi 추가 때 reader/cache/provider는 등록했지만 이 두 지점을 빠뜨려 CI의

@@ -87,6 +87,25 @@ final class ModelPricingTests: XCTestCase {
         XCTAssertEqual(ModelPricing.rate(for: "models/gemini-2.5-pro"), ModelPricing.rate(for: "gemini-2.5-pro"))
     }
 
+    /// Codex and Claude Code routed through magpie log "<magpie provider>/<model>". The built-in
+    /// subscription providers carry the vendor's exact model ID and must price like the bare ID.
+    func testMagpieSubscriptionNamespacesPriceAsVendorModel() throws {
+        for (routed, bare) in [("codex/gpt-6.1-sol", "gpt-6.1-sol"), ("codex/gpt-6-astra", "gpt-6-astra"),
+                               ("claude/claude-opus-5-5", "claude-opus-5-5"),
+                               ("claude/claude-fable-5-1", "claude-fable-5-1")] {
+            let expected = try XCTUnwrap(ModelPricing.estimatedCost(
+                model: bare, input: 1_000, output: 200, cacheWrite: 0, cacheRead: 300_000), bare)
+            XCTAssertEqual(try XCTUnwrap(ModelPricing.estimatedCost(
+                model: routed, input: 1_000, output: 200, cacheWrite: 0, cacheRead: 300_000), routed),
+                expected, accuracy: 1e-12, routed)
+        }
+        // Only the built-in namespaces: a user-defined magpie provider or an unknown model stays unpriced.
+        for model in ["mistral/deepseek-v4-1-flash-1017", "anthropic-toss/claude-opus-5-5",
+                      "magpie/auto/claude-opus-5-5", "codex/codex-auto-review", "claude/opus"] {
+            XCTAssertNil(ModelPricing.estimatedCost(model: model, input: 100, output: 20, cacheWrite: 0, cacheRead: 40), model)
+        }
+    }
+
     func testRequestContextThresholdIncludesCacheRead() throws {
         let at = try XCTUnwrap(ModelPricing.estimatedCost(model: "gpt-5.5", input: 2_000, output: 1_000, cacheWrite: 0, cacheRead: 270_000))
         XCTAssertEqual(at, 0.175, accuracy: 1e-12)
