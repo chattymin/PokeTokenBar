@@ -9,6 +9,7 @@ private struct OfflinePokemon: PokeProviding {
     func baseSpecies(id: Int) async throws -> BaseSpecies? { nil }
 }
 
+@MainActor
 func segmentedControls(in view: NSView) -> [NSSegmentedControl] {
     (view as? NSSegmentedControl).map { [$0] } ?? view.subviews.flatMap(segmentedControls)
 }
