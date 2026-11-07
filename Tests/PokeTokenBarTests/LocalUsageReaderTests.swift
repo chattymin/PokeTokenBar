@@ -352,6 +352,23 @@ final class LocalUsageReaderTests: XCTestCase {
         XCTAssertEqual(e.cacheWrite, 0)
     }
 
+    /// Codex routed through magpie writes `turn_context.model = "codex/gpt-6.1-sol"`. That
+    /// session used to render its cost as Unavailable while the tokens were counted.
+    func testCodexMagpieRoutedModelIsPriced() throws {
+        let dir = tempDir()
+        write([#"{"type":"turn_context","timestamp":"2026-11-07T21:29:00.000Z","payload":{"model":"codex/gpt-6.1-sol"}}"#,
+               codexLine(ts: "2026-11-07T21:29:01.000Z")],
+              to: dir, name: "rollout-magpie.jsonl", sub: "2026/11/08")
+        let entries = LocalUsageReader.codexEntries(modifiedSince: .distantPast, root: dir)
+        XCTAssertEqual(entries.map(\.model), ["codex/gpt-6.1-sol"])
+        var bucket = LocalUsageReader.Bucket()
+        entries.forEach { bucket.add($0) }
+        XCTAssertEqual(bucket.costCoverage, .estimate)
+        let expected = try XCTUnwrap(ModelPricing.estimatedCost(
+            model: "gpt-6.1-sol", input: 800, output: 50, cacheWrite: 0, cacheRead: 200))
+        XCTAssertEqual(bucket.cost, expected, accuracy: 1e-12)
+    }
+
     func testCodexNonForkResolverPreservesParsedEntriesExceptCanonicalIDs() {
         let dir = tempDir()
         write([
