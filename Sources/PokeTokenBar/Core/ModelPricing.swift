@@ -87,7 +87,9 @@ enum ModelPricing {
         // "codex/" and "claude/" are magpie's built-in ChatGPT and Claude subscription
         // providers: a session routed through magpie logs "codex/gpt-6.1-sol" for the vendor's
         // own model ID. User-defined magpie providers (any other id) stay unpriced.
-        for prefix in ["openai/", "anthropic/", "google/", "models/", "codex/", "claude/"] where key.hasPrefix(prefix) {
+        // "group/<id>" is a magpie routing group; it prices only when the group id is itself an
+        // exact model ID in the table ("group/claude-opus-5-5"), never by family resemblance.
+        for prefix in ["openai/", "anthropic/", "google/", "models/", "codex/", "claude/", "group/"] where key.hasPrefix(prefix) {
             key = String(key.dropFirst(prefix.count))
             break
         }

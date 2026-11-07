@@ -502,7 +502,9 @@ read_when:
   단언해 이 형태를 못 밟았다. 규칙: 단가 누락 리포트가 오면 `PokeTokenBar.log` 의 `Unpriced model:` 줄을
   먼저 본다(실제 로그 형태가 그대로 찍힌다). 접두사는 **원 벤더 모델 ID 를 그대로 싣는 namespace 만**
   벗긴다 — magpie 내장 구독 provider `codex/`·`claude/` 는 해당, 사용자 정의 provider(`mistral/`,
-  `anthropic-toss/`)·라우팅 그룹(`magpie/auto/…`)은 대상 모델·과금이 달라 미가격으로 둔다. 가드:
+  `anthropic-toss/`)·`magpie/auto/…` 는 대상 모델·과금이 달라 미가격으로 둔다. 라우팅 그룹 `group/<id>` 는
+  Claude Code 응답 모델명으로 남는데 `<id>` 는 사용자가 정한 그룹 이름이다. 그룹 id 가 단가표의 모델 ID 와
+  *정확히* 같을 때만(`group/claude-opus-5-5`) 가격을 매기고, `group/toss-opus-5-5` 처럼 아니면 미가격이다. 가드:
   `testMagpieSubscriptionNamespacesPriceAsVendorModel`, `testCodexMagpieRoutedModelIsPriced`.
 - **새 provider를 추가할 때 reader/cache만 연결하면 Settings의 custom-root contract가 조용히 빠진다.** `CustomScanRoots`는
   provider별 `curatedRoots(for:)`와 실제 reader의 `CustomScanRoots.storedValue(for:)` 조회를 모두 registry로

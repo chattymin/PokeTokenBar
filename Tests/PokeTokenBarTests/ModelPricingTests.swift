@@ -92,7 +92,8 @@ final class ModelPricingTests: XCTestCase {
     func testMagpieSubscriptionNamespacesPriceAsVendorModel() throws {
         for (routed, bare) in [("codex/gpt-6.1-sol", "gpt-6.1-sol"), ("codex/gpt-6-astra", "gpt-6-astra"),
                                ("claude/claude-opus-5-5", "claude-opus-5-5"),
-                               ("claude/claude-fable-5-1", "claude-fable-5-1")] {
+                               ("claude/claude-fable-5-1", "claude-fable-5-1"),
+                               ("group/claude-opus-5-5", "claude-opus-5-5")] {
             let expected = try XCTUnwrap(ModelPricing.estimatedCost(
                 model: bare, input: 1_000, output: 200, cacheWrite: 0, cacheRead: 300_000), bare)
             XCTAssertEqual(try XCTUnwrap(ModelPricing.estimatedCost(
@@ -101,7 +102,9 @@ final class ModelPricingTests: XCTestCase {
         }
         // Only the built-in namespaces: a user-defined magpie provider or an unknown model stays unpriced.
         for model in ["mistral/deepseek-v4-1-flash-1017", "anthropic-toss/claude-opus-5-5",
-                      "magpie/auto/claude-opus-5-5", "codex/codex-auto-review", "claude/opus"] {
+                      "magpie/auto/claude-opus-5-5", "codex/codex-auto-review", "claude/opus",
+                      // Group ids that are not model IDs never borrow a member's price.
+                      "group/toss-opus-5-5", "group/ds-v4.1-flash-1017", "group/claude-opus"] {
             XCTAssertNil(ModelPricing.estimatedCost(model: model, input: 100, output: 20, cacheWrite: 0, cacheRead: 40), model)
         }
     }
