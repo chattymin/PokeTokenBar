@@ -44,6 +44,52 @@ read_when:
 
 ## 판정·데이터
 
+- **Provider opt-out must also cover independently added official limits.** The provider toggle
+  and the OpenCode Go/Grok limit integrations passed separately, but their combined refresh
+  pipeline still fetched both disabled providers and retained their previous limits and expired-login
+  notices. The toggle tests covered only the previously existing limit providers, while the new
+  limit tests exercised enabled providers only. Guard every provider-specific limit refresh with
+  `isProviderEnabled` and clear its status and auth notice, matching Cursor and Antigravity.
+  The class sweep covered Claude (primary/additional), Codex, Cursor, Antigravity, OpenCode Go and
+  Grok. Four regression cases cover disabled-at-start with zero fetches and disabling after a
+  loaded status followed by HTTP 401. All four fail without the new guards (10 assertions), so the
+  tests detect both unwanted external fetches and state left behind by a disabled provider.
+
+- **Legacy save imports must initialize completion history before tracking new catches.**
+  Generation-dex completion seeding originally ran only after `load()` in the initializer.
+  `applySave` replaced that seeded state with an older save whose missing tracking fields
+  decoded to `dexCompletionsSeeded = false`; every later completion check then returned early.
+  Restarting silently seeded completions earned in that session, so their notifications were
+  lost permanently. Seed immediately after importing and migrating profiles, before saving:
+  existing badges become history without notifications and later catches can announce new
+  badges. The class sweep covered all state replacements: startup loads already seed, while
+  snapshot restoration delegates to `applySave` and needs the same repair. Earlier tests only
+  loaded legacy files at startup and missed the import boundary. Permanent guards
+  `testLegacyImportSeedsExistingCompletionsBeforeANewHatch` and
+  `testLegacyImportWithoutEarnedBadgesStillEnablesFutureCompletions` decode actual old-format
+  save envelopes, import them, verify persisted seeding (including no earned badges), then
+  hatch the final Johto species and require the new notification key in the same session.
+  Both tests failed before the fix with seven assertions and pass after adding import seeding.
+
+- **Cursor usage and limits must share the refreshed login, with cookie and Bearer forms kept
+  distinct.** Usage reread the expired SQLite access token on every poll while limits refreshed
+  only its private local variable. This left limits working beside frozen/cached usage. A browser
+  `CURSOR_SESSION_TOKEN` cookie also became an invalid `Bearer user::jwt` in the limits request.
+  The old HTTP test copied the request into `TestCursorLimitsProvider`, bypassing the production
+  credential selection and refresh branches. `CursorAuthentication` now pairs access/refresh from
+  one selected database root, shares refreshed credentials in memory, and normalizes raw or
+  percent-encoded browser cookies for Bearer requests. Explicit overrides never refresh a local
+  account. Root/access/refresh/override/logout changes discard refreshed state; a rotated refresh
+  token survives transient grants in memory without rewriting Cursor's database. Both fetchers
+  retry only 401/403 once, retaining existing non-auth failure/cache semantics. The class sweep
+  covered both Cursor callers, Stable/Nightly/custom roots, grant ownership and the live-network
+  gate. Two production-path synthetic reproducers failed before the fix (usage remained on the
+  old token after a successful limits refresh; limits sent the entire cookie as Bearer).
+  The initial 13 production regression tests passed; the final 15 `CursorAuthenticationTests`
+  cover recovery in both call orders, cookie encodings, account/root
+  invalidation, local-root pairing, override isolation, grant failure/retry/rotation, bounded
+  retries and the live grant gate. `CursorLimitsTests` now calls the real provider.
+
 - **A model-price test needs an independent bucket-level oracle.** Sonnet 5.5 copied Sonnet 5's
   cache-read rate ($0.20/MTok) although its official rate is $0.10; source-unpriced Claude logs
   therefore doubled that bucket's estimate. The standard-row test repeated the wrong literal,
@@ -202,6 +248,13 @@ read_when:
   Session/turn aggregates (Hermes/Aside), Cursor bubbles without cache buckets, and Kiro text
   estimates cannot be passed to request-size-dependent pricing as if they were single requests.
   Parser semantic changes require the corresponding disk-cache version bump.
+
+- **Incremental transcript parsing must retain cumulative ledgers, not add their totals.** Claude's
+  latest `cost-state` reprices the entire session, including entries cached before the appended tail.
+  Keep raw entries and the latest ledger together in the blob, then attribute costs after merging.
+  Retain that ledger when the next tail has none; discard it on a full reparse. Assistant-only append
+  tests miss this semantic conflict with source-cost attribution. `ClaudeReportedCostTests` covers
+  changed totals, unchanged cache hits, disk reload without a new ledger, truncation, and partial ledgers.
 
 - **프로필 레벨은 난이도와 반복 부화 보정을 반영한 단계 진행에서 계산한다.** #244/#254의 임계값을
   낮춰도 #264가 원시 토큰을 기본 졸업 비용으로 나누면 졸업한 개체가 레벨 5 또는 52에 남는다.
@@ -612,6 +665,17 @@ read_when:
   `fetchFilteredEventsForTesting` 으로 루프 전체를 돈다(총계 없음/있음 둘 다). 수정 전 `[1]`·100건으로 실패 확인.
   **스윕:** 이 파일의 다른 `intValue` 호출은 토큰 수라 0 이 올바른 기본값이다.
 
+- **한도 창 구성은 플랜마다 다르다. 특정 창이 항상 온다고 가정하지 않는다.** Ultra 플랜은 5시간 세션 한도를
+  없앴고, `oauth/usage` 는 `five_hour: null` 과 주간 창(`seven_day`, `limits[].weekly_all`)만 보낸다
+  (2026-10-31 관측). 메뉴바는 Claude 대표 %를 `status.fiveHour` 로 고정해, 주간 66%가 있는데도 Claude 항목이
+  통째로 사라졌다. Codex 는 창 길이와 무관하게 `primary` 를 써서 주간 창 하나뿐인 Pro 계정도 정상 표시됐다.
+  **왜 못 걸렀나:** 메뉴바 테스트 픽스처가 전부 5h 창을 넣었고, #327 의 다중 계정 테스트는 "주간만 있으면 메뉴바에
+  Claude 없음"을 오히려 기대값으로 고정했다. → 좁은 표면의 대표 창 선택은 `LimitStatus.headlineWindow`
+  (5h 우선, 없으면 주간) 한 곳에서 하고 메뉴바는 그것만 읽는다. 팝오버 행·알림·캔디·경고는 이미 창별로
+  nil 을 견딘다(스윕 완료). 회귀 가드: `UsageStoreTests.testMenuShowsTheWeeklyLimitWhenThePlanHasNoSessionLimit`·
+  `testMenuPrefersTheSessionLimitOverTheWeeklyOne`·`testHeadlineWindowPicksTheSessionThenTheWeeklyWindow`,
+  `AdditionalClaudeAccountsTests.testTheMenuToolTipOnlyNamesAnAccountBehindAShownPercentage`.
+
 ## 빌드·도구체인
 
 - **새 SDK에서 통과해도 CI의 AppKit Sendable 선언을 가정하지 마라.** 동시 캐시 로드 테스트가
@@ -797,11 +861,21 @@ read_when:
 
 ## 프로세스·인스턴스
 
+- **LaunchAgent의 등록 성공과 실행 성공은 별개다.** macOS 26.5에서 PokeTokenBar 2.5.7 자체 서명
+  배포본은 `SMAppService.agent.status == .enabled`였지만, launchd가 직접 실행하면 AMFI가
+  `Launch Constraint Violation`으로 프로세스를 종료했다. 수동 실행과 기존 E2E의 `open`은
+  LaunchServices 경로여서 이 실패를 검증하지 못했다. 설정은 `SMAppService.mainApp`으로 등록하고
+  승인이 필요할 때 로그인 항목 설정을 연다. 기존 에이전트는 새 항목이 활성화된 뒤 제거한다.
+  기존 에이전트가 현재 앱을 실행했다면 앱이 갑자기 종료되지 않도록 다음 일반 실행까지 제거를 미룬다.
+  새 로그인 항목은 기존 KeepAlive의 크래시 후 자동 재실행을 제공하지 않는다.
+  업데이트 후에는 `open`으로 재실행한다. 기존 `kickstart`의 성공은 작업 제출 성공만 뜻해서 앱이
+  뜨지 않아도 재실행 루프를 끝냈다. `LoginItemTests`와 `UpdateCheckerTests`에서 각각 마이그레이션과
+  기존 작업 제출이 성공하더라도 앱 번들을 여는 경로를 검증한다.
+
 - **로그인 실행을 LaunchAgent 로 등록하면 "등록하는 순간" 앱이 한 번 더 뜬다.** plist 의 `RunAtLoad` 는
   로그인 때만이 아니라 **에이전트가 로드되는 시점**의 실행을 뜻하고, `SMAppService.agent.register()` 가
-  곧 그 로드다. 앱이 떠 있는 채로 등록되는 경로가 둘이라 둘 다 아이콘이 두 개가 된다 — 설정 토글
-  (`LoginItem.setEnabled(true)`)과 구 로그인아이템 사용자의 업데이트 첫 기동
-  (`migrateFromLegacyLoginItemIfNeeded()`). 후자는 **사용자가 아무것도 누르지 않아도** 일어난다.
+  곧 그 로드다. 이전 구현에서는 설정 토글과 구 로그인아이템 사용자의 업데이트 첫 기동이 모두
+  에이전트를 등록했다. 후자는 **사용자가 아무것도 누르지 않아도** 일어났다.
   **LaunchServices 의 중복 실행 방지를 믿지 마라** — GUI 로 여는 경로(Finder·`open`)에만 걸리고
   launchd 는 `Contents/MacOS/…` 를 직접 exec 한다. **피해는 아이콘이 아니라 상태다**: 두 인스턴스가
   `CompanionStore`·`UsageStore` 를 같은 파일에 각자 써서 저장이 last-writer-wins 가 되고, 진화·사용량이
@@ -835,6 +909,16 @@ read_when:
   초록인데 #174 가 다시 산다. (#174)
 
 ## 표시·UI
+
+- **Floating-pet features share one click route and one bubble reservation.** Agent activity (#457)
+  and pet interactions (#466) both changed the controller, hosting callbacks and sprite composition.
+  Keeping either side of their conflict alone discards egg prayers or agent acknowledgement, or
+  clips agent-only speech by reserving headroom only for limit alerts/hearts. Their original tests
+  exercised each feature separately. Resolve the shared surface together: limit > agent done >
+  agent waiting > hearts > hover/event; a plain click acknowledges agents before egg prayer or
+  hatched-pet Open, while context-menu Open always opens. Keep the heart/particles attached to
+  the sprite's bob modifier. `FloatingPetAgentTests` checks combined speech/headroom/event gates;
+  `FloatingPetAgentWiringTests` invokes the production hosting callbacks for eggs and hatched pets.
 
 - **초기 설정 이동은 애니메이션 완료에 의존하지 않는다.** 세션 키 만료·등록 안내에서
   `startExpanded`로 연 고급 섹션의 animated `scrollTo`가 비활성·non-key native 호스트에서
@@ -1187,7 +1271,30 @@ read_when:
 
 ## 알림
 
-- **사탕 재무장도 util dip 만 믿지 마라 — 창 epoch 를 같이 보되, 휘발성 지터에 재무장되지 않게 하라.** 지급 key 는 안정
+- **Codex 사탕은 사용률 하락을 관측해야 다시 지급한다.** Codex는 구독 한도를 다 써도 credits로
+  같은 세션을 계속 사용한다. 실제 로그에서도 credits 잔액이 감소하는 동안 주간 사용률은 100%,
+  `resets_at`은 같은 값으로 유지됐다. 사용자는 이 상태에서 매 새로고침마다 사탕을 받았다고 보고했다.
+  같은 epoch 반복 조회와 ±1초 지터는 #375의 `isNewEpoch`가 이미 막으므로, 보고된 반복 지급의 직접
+  원인은 아직 확정하지 못했다. 다만 `evaluateCandyGrants`에는 리셋 시각이 창 규모(세션 30분, 주간
+  24시간) 이상 전진하면 100%가 유지돼도 지급 기록을 지우는 경로가 남아 있다. #375 테스트도 Codex 키로
+  큰 epoch 전진 시 재지급을 기대했고, credits 사용 중에도 그 기대가 맞는지는 검증하지 않았다.
+  새 기준은 Codex primary와 secondary 창에 `epoch`를 넘기지 않아, epoch 변화만으로 지급 기록을 지우지
+  않는 것이다. 판정 함수의 기존 계약(`epoch == nil`이면 사용률 하락으로만 재무장)을 그대로 쓰므로 별도
+  플래그를 두지 않는다. 기존 세이브에 남은 Codex `candyWindowEpoch`는 더 읽히지 않는다.
+  100% 미만을 관측한 뒤 다시 100%에 도달하면 지급한다. credits 보유 여부와 잔액은 지급 조건이 아니다. 앱 종료나 슬립 중 리셋과 재소진이 끝나 중간 사용률을 못 봤으면
+  재지급하지 않는다. 최초 시드와 기존 지급 원장은 유지하고, 이미 지급한 사탕은 회수하지 않는다.
+  스윕 결과 지급 기록 해제는 `CompanionStore`의 epoch 변경과 사용률 하락 두 경로에만 있고,
+  `SaveTransfer`는 원장을 병합해 유지한다. Claude와 Antigravity는 기존 epoch 재무장을 유지한다.
+  회귀 가드: `testCodexCreditsAtFullLimitDoNotRegrantWithoutUtilizationDrop`은 app-server 응답을 디코딩해
+  `UsageStore → candyEligibleWindows → grantCandies`를 검증한다. primary가 주간인 실제 형태와
+  primary=세션, secondary=주간 형태를 모두 다룬다. 잔액 감소, 동일 시각, 지터 왕복, 다음 epoch에서도
+  추가 지급이 없고, 99%→100%에만 재지급한다. `testEligibleWindowsCodexOmitsResetEpoch`는 `resetsAt`이
+  있는 응답에서도 Codex 창의 `epoch`가 비어 있는지 확인한다. 최초 시드, 재시작, 한도 조회 누락,
+  재무장 영속과 Claude, Antigravity epoch 재지급도 별도 테스트로 검증한다. Codex 창에 `epoch`를
+  되살리는 결함을 주입해 회귀 테스트가 실패하는 것을 확인했다.
+
+- **사탕 재무장도 util dip 만 믿지 마라 — 창 epoch 를 같이 보되, 휘발성 지터에 재무장되지 않게 하라.**
+  Codex는 위 사용률 관측 기준을 따른다. 지급 key 는 안정
   (`claude.fiveHour`)이어야 알림 dedup 과 같은 이유로 `resets_at` 을 key 에 넣으면 안 된다. 그런데
   재무장을 *오직* utilization&lt;100 관측에만 걸면, Mac 이 리셋 구간을 잠자거나 앱이 꺼져 있는 동안
   창이 바뀌고 다음 poll 이 다시 100%면 `candyGrantTier` 가 영원히 1 로 남아 "한도를 여러 번
@@ -1293,3 +1400,79 @@ read_when:
   자동 업데이트 시 앱 종료를 기다릴 때 `pgrep -x PokeTokenBar`를 쓰면, 중복 인스턴스가 살아있는 동안 루프를
   결코 빠져나오지 못하고 20초 타임아웃을 온전히 소모한다(#175). `ProcessInfo.processInfo.processIdentifier`로
   종료 대상 프로세스 PID를 전달하고 `kill -0 "$3"`로 특정 프로세스의 종료를 대기한다.
+
+- **An empty SwiftUI `Settings` scene is still a real window.** The menu bar app registered
+  `Settings { EmptyView() }` solely to satisfy its SwiftUI `App` entry point, although actual
+  settings are hosted inside `PopoverView`. This leaves an unnecessary standalone Settings
+  window available to framework launch/reopen behavior; the declaration predates the reported
+  update. Keep the SwiftUI `App` and delegate adapter, and use `_EmptyScene()` instead of
+  registering a window. The public underscored empty scene is present in macOS 14's SwiftUI;
+  a bare empty `SceneBuilder` body does not compile with the macOS 14.5 SDK. Existing navigation
+  tests only exercised
+  the popover's settings flag and missed the separate framework-owned scene. Compare actual
+  SwiftUI cold launch and status-item popover placement: changing startup to manual AppKit
+  introduced clipped first-show geometry and was removed rather than adding placement code.
+
+- **OCR output is an interpretation of rendered pixels.** `ZeroUsageHomeRenderingTests`
+  failed on CI because Vision ranked `이번 달 일벌` before the correct `이번 달 일별`
+  at the same maximum confidence. The saved fixture visibly contained the correct caption
+  and chart; fixed-2× capture and lexical hints did not change the candidate ordering.
+  Match the exact localized chart caption within one candidate from one observation's
+  maximum-confidence tie, identically in both history states. Do not combine candidates,
+  accept lower-confidence alternatives, or seed recognition with the expected vocabulary.
+  Period summaries retain their top-1 text assertions. Hiding `MonthDailyTrend` must still
+  fail the historical-chart assertion. Keep explicit pixel density, candidate diagnostics,
+  and both CI fixture PNGs so recognition failures can be checked against rendered pixels.
+  Other OCR harnesses passed the same CI runs; this repair is limited to the failing fixture.
+
+- **A native coordinate test must hit the requested glyphs and await the whole transition.**
+  CI run `41867694174` failed only the new region-chip test: Kanto's Maple card remained
+  visible after one Johto click, although the local full gate passed. The test clicked the
+  midpoint of Vision's whole observation and bypassed the existing navigation helper's
+  bounded transition retry. Vision can combine adjacent chip labels into one observation,
+  and native SwiftUI hit testing can lag the first rendered pixels. The original test saved
+  neither click bounds nor pixels, so the CI log could not distinguish those two paths.
+  Resolve the label's substring range against the same `VNRecognizedText` candidate and use
+  its glyph bounds; do not fall back to the merged row's midpoint. Check the complete target
+  state from one OCR snapshot before and after each bounded attempt, stopping immediately
+  on success so a late first click is not blindly toggled back off. The class sweep found
+  existing Back-navigation transitions already used a bounded retry; keep this repair on
+  the new region interaction. Preserve exact both-visible → Johto-only → both-visible checks,
+  log selected candidates/bounds, and save before/filtered/restored/failure PNGs into CI's
+  existing native-render artifact. `testClickBoundsFocusOnTheRequestedTextInsideAMergedObservation`
+  fails when glyph bounds are replaced by the full observation. The real CollectionView
+  interaction must still fail if the production region selection is disconnected, even after
+  all retry attempts. No production UI behavior or CI gate is changed for this harness repair.
+
+- **Use unambiguous fixture words for exact OCR navigation assertions.**
+  `DexBackNavigationTests.testBackFromDetailReturnsTheLogToWhereItWas` failed in CI run
+  `39184274574`: after Back, Vision read the artificial oldest-catch label `Mon1` as
+  `Mont`/`Monl` even though the rendered log had reached its bottom rows. Retrying the same
+  pixels could not recover a candidate that was absent. A subsequent successful feature-branch
+  run used `Oldest`, but that fixture repair had not reached `main`. Name only the first catch
+  `Oldest` and keep the exact OCR match, rendered-row click, Back round trip, and segment-switch
+  reset assertions. The production `CollectionView` and OCR candidate acceptance stay unchanged.
+  This keeps the guard focused on restoring the viewed catch row rather than reading an
+  ambiguous digit in a synthetic name.
+
+- **A wider navigation label must not squeeze numeric period summaries.** Adding the localized
+  recap capsule to the home's fixed-width summary row left too little space for its week/month
+  labels and costs: the real English and German popovers split `$31.64` and `$121.30` across
+  lines. The existing production render used Korean with costs disabled, so it never exercised
+  that combination. Preserve the period totals' intrinsic width and let `ViewThatFits` move
+  the recap button to a trailing row when the inline arrangement does not fit. If the two period
+  groups alone exceed the content width (German `Nicht verfügbar`), stack those groups too;
+  forcing their combined intrinsic width expands and clips the entire popover. The sibling
+  Claude account period row has no recap control and does not share this trigger.
+  `testRecapLabelKeepsPeriodCostsOnOneLine` renders the full production popover in English
+  and German with costs enabled and requires each complete amount in one top-ranked OCR
+  observation. Restoring the previous inline row makes both languages fail; joining OCR
+  observations would conceal the broken digits. `testUnavailablePeriodCostsKeepGermanHomeWithinPopover`
+  also requires the full leading home captions and both unavailable labels, so a clipped
+  popover cannot pass merely because its trailing recap button remains visible.
+  Match OCR recognition languages to each fixture: inheriting Korean for English made CI
+  read `This` as `Thls` despite correct pixels. The period-cost fixtures retain strict labels
+  and complete amounts; the original Korean quiet-day fixtures own the strict chart assertion.
+  On the same CI image, English-only recognition corrected the period label but still read
+  the unrelated chart caption `Daily` as `Dally`; do not teach OCR that misspelling or relax
+  the original chart guard to make a period-row regression pass.

@@ -13,7 +13,8 @@ struct SettingsView: View {
     /// 고급 섹션을 펼친 채로 열지. 세션 키 만료 안내에서 들어온 경우에만 true —
     /// 접힌 채로 열면 고칠 입력란이 안 보여 안내가 막다른 길이 된다.
     var startExpanded = false
-    @State private var launchAtLogin = LoginItem.isEnabled
+    @State private var launchAtLoginEnabled = false
+    @State private var launchAtLoginNeedsApproval = false
     @State private var launchAtLoginError: Error?
     @State private var reportFailed = false
     @State private var advancedExpanded = false
@@ -73,6 +74,7 @@ struct SettingsView: View {
                         generalGroup(store)
                         difficultyGroup
                         menuBarGroup(store)
+                        trackedProvidersGroup(store)
                         floatingPetGroup(store)
                         notificationsGroup(store)
                         updateGroup(store)
@@ -104,6 +106,38 @@ struct SettingsView: View {
             footer
         }
         .frame(height: 460)
+        .onAppear(perform: refreshLaunchAtLoginStatus)
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            refreshLaunchAtLoginStatus()
+        }
+    }
+
+    private func refreshLaunchAtLoginStatus() {
+        guard isBundledApp else { return }
+        let item = LoginItem.system
+        do {
+            try item.removeLegacyAgentAfterActivation()
+        } catch {
+            AppLog.write("login item cleanup failed: \(error)")
+        }
+        updateLaunchAtLoginState(item)
+    }
+
+    private func setLaunchAtLogin(_ enabled: Bool) {
+        let item = LoginItem.system
+        do {
+            try item.setEnabled(enabled)
+            launchAtLoginError = nil
+        } catch {
+            AppLog.write("login item update failed: \(error)")
+            launchAtLoginError = error
+        }
+        updateLaunchAtLoginState(item)
+    }
+
+    private func updateLaunchAtLoginState(_ item: LoginItem) {
+        launchAtLoginEnabled = item.isEnabled
+        launchAtLoginNeedsApproval = item.status == .requiresApproval
     }
 
     private var header: some View {
@@ -218,6 +252,17 @@ struct SettingsView: View {
                 }
                 .labelsHidden().pickerStyle(.segmented).fixedSize()
             }
+            Divider()
+            groupRow {
+                Text(l.dailyTrendPeriod)
+                Spacer()
+                Picker(l.dailyTrendPeriod, selection: $store.dailyTrendWindow) {
+                    ForEach(DailyTrendWindow.allCases) { win in
+                        Text(l.title(for: win)).tag(win)
+                    }
+                }
+                .labelsHidden().pickerStyle(.menu).fixedSize()
+            }
             if store.claudeAccounts.count > 1 {
                 Divider()
                 trackedAccountRow(store)
@@ -228,25 +273,22 @@ struct SettingsView: View {
                     Text(l.launchAtLogin)
                     if !isBundledApp {
                         Text(l.bundledOnly).font(.caption2).foregroundStyle(.tertiary)
+                    } else if launchAtLoginNeedsApproval {
+                        Button(l.launchAtLoginApprovalHint) { setLaunchAtLogin(true) }
+                            .buttonStyle(.link)
+                            .font(.caption2)
                     }
                     if let launchAtLoginError {
                         Text(l.userFacingError(launchAtLoginError)).font(.caption2).foregroundStyle(.red)
                     }
                 }
                 Spacer()
-                Toggle(l.launchAtLogin, isOn: $launchAtLogin)
+                Toggle(l.launchAtLogin, isOn: Binding(
+                    get: { launchAtLoginEnabled },
+                    set: { setLaunchAtLogin($0) }
+                ))
                     .labelsHidden().toggleStyle(.switch).controlSize(.small)
                     .disabled(!isBundledApp)
-                    .onChange(of: launchAtLogin) { _, newValue in
-                        do {
-                            try LoginItem.setEnabled(newValue)   // KeepAlive 에이전트(로그인 실행+크래시 재실행)
-                            launchAtLoginError = nil
-                        } catch {
-                            AppLog.write("login item update failed: \(error)")
-                            launchAtLoginError = error
-                            launchAtLogin = LoginItem.isEnabled
-                        }
-                    }
             }
         }
     }
@@ -263,6 +305,8 @@ struct SettingsView: View {
                 toggleRow(l.todayTokensShort, $store.showTokensInMenu)
                 Divider()
                 toggleRow(l.todayCost, $store.showCostInMenu)
+                Divider()
+                toggleRow(l.pokemonGrowthPercent, $store.showGrowthInMenu, hint: l.pokemonGrowthPercentHint)
                 Divider()
                 toggleRow(l.limitPercent, $store.showLimitInMenu)
                 if store.showLimitInMenu {
@@ -288,6 +332,21 @@ struct SettingsView: View {
     }
 
     @ViewBuilder
+    private func trackedProvidersGroup(_ store: UsageStore) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            settingsSection(l.trackedProvidersSectionTitle) {
+                ForEach(Array(store.registeredProviders.enumerated()), id: \.element.id) { index, provider in
+                    if index > 0 { Divider() }
+                    toggleRow(provider.displayName, Binding(
+                        get: { store.isProviderEnabled(provider.id) },
+                        set: { store.setProviderEnabled(provider.id, $0) }))
+                }
+            }
+            Text(l.trackedProvidersHint).font(.caption2).foregroundStyle(.tertiary).padding(.leading, 4)
+        }
+    }
+
+    @ViewBuilder
     private func floatingPetGroup(_ store: UsageStore) -> some View {
         @Bindable var store = store
         settingsSection(l.floatingPetSectionTitle) {
@@ -298,6 +357,17 @@ struct SettingsView: View {
                 }
                 Spacer()
                 Toggle(l.floatingPetEnableLabel, isOn: $store.floatingPetEnabled)
+                    .labelsHidden().toggleStyle(.switch).controlSize(.small)
+            }
+            Divider()
+            groupRow {
+                // Also reachable from both right-click menus. Applies to every surface, not only the pet.
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(l.backViewLabel)
+                    Text(l.backViewHint).font(.caption2).foregroundStyle(.tertiary)
+                }
+                Spacer()
+                Toggle(l.backViewLabel, isOn: $store.alwaysFacesBack)
                     .labelsHidden().toggleStyle(.switch).controlSize(.small)
             }
             if store.floatingPetEnabled {
@@ -311,6 +381,16 @@ struct SettingsView: View {
                 }
                 Divider()
                 toggleRow(l.floatingPetBubbleAlertsLabel, $store.floatingPetBubbleAlerts)
+                Divider()
+                groupRow {
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(l.floatingPetAgentActivityLabel)
+                        Text(l.floatingPetAgentActivityHint).font(.caption2).foregroundStyle(.tertiary)
+                    }
+                    Spacer()
+                    Toggle(l.floatingPetAgentActivityLabel, isOn: $store.floatingPetAgentActivity)
+                        .labelsHidden().toggleStyle(.switch).controlSize(.small)
+                }
             }
         }
     }
@@ -907,9 +987,12 @@ struct SettingsView: View {
             .frame(minHeight: 38)
     }
 
-    private func toggleRow(_ label: String, _ isOn: Binding<Bool>) -> some View {
+    private func toggleRow(_ label: String, _ isOn: Binding<Bool>, hint: String? = nil) -> some View {
         groupRow {
-            Text(label)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(label)
+                if let hint { Text(hint).font(.caption2).foregroundStyle(.tertiary) }
+            }
             Spacer()
             Toggle(label, isOn: isOn).labelsHidden().toggleStyle(.switch).controlSize(.small)
         }

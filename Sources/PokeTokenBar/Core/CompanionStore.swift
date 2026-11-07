@@ -9,6 +9,13 @@ import UserNotifications
 final class CompanionStore {
     private(set) var state = CompanionState()
     private(set) var displayState: CompanionStateKind = .egg
+    /// Time since the last token usage while `displayState == .sulk`, else 0.
+    private(set) var sulkIdle: TimeInterval = 0
+    /// Mirror of `UsageStore.alwaysFacesBack` (set by `AppDelegate.updateCompanion`): a display preference.
+    var alwaysFacesBack = false
+    /// The companion shows its back sprite on every surface: while sulking, or always when asked to.
+    /// An egg has no back to show.
+    var facesBack: Bool { state.active != nil && (alwaysFacesBack || displayState == .sulk) }
     private(set) var currentLine: EvoLine?
     private(set) var representativeSubject = RepresentativeSubject(speciesID: nil, isShiny: false)
     private(set) var isHatching = false
@@ -94,6 +101,7 @@ final class CompanionStore {
         defaults.set(growthDifficulty, forKey: "growthDifficulty")
         defaults.set(shopDifficulty, forKey: "shopDifficulty")
         migratePokemonProfilesIfNeeded()
+        seedDexCompletionsIfNeeded()
         refreshRepresentativeSubject()
         refreshSnapshots()
         if state.active != nil { displayState = .idle }
@@ -319,6 +327,15 @@ final class CompanionStore {
         guard let a = state.active, threshold > 0 else { return 0 }
         return min(1, max(0, Double(a.usedAtStage) / Double(threshold)))
     }
+    /// Follow the companion being raised, even when a Pokédex representative is pinned.
+    var menuGrowthText: String {
+        let total = isEgg ? eggHatchThreshold : threshold
+        let credits = isEgg ? state.eggUsage : (state.active?.usedAtStage ?? 0)
+        let used = min(max(0, credits), total)
+        // Match Home's integer flooring without losing exact boundaries to Double rounding.
+        let percent = total > 0 ? used * 100 / total : 0
+        return l.menuGrowthProgress(percent, isEgg: isEgg)
+    }
     var tokensToNext: Int { guard let a = state.active else { return 0 }; return max(0, threshold - a.usedAtStage) }
 
     /// 진화 라인 표시용: 실현된 경로 + 다음 단계 미리보기.
@@ -369,7 +386,8 @@ final class CompanionStore {
                 Dictionary(uniqueKeysWithValues:
                     active.pathIDs.compactMap { id in line.names[id].map { (id, $0) } })
             },
-            form: active.form
+            form: active.form,
+            prayers: active.prayers
         )
     }
 
@@ -400,7 +418,7 @@ final class CompanionStore {
                 Dictionary(uniqueKeysWithValues:
                     chain.compactMap { id in line.names[id].map { (id, $0) } })
             },
-            releasedAt: now, form: a.form)
+            releasedAt: now, form: a.form, prayers: a.prayers)
     }
 
     var dexEntries: [DexEntry] {
@@ -517,6 +535,73 @@ final class CompanionStore {
         return collectedDexSpecies(groupForms: true).filter { $0.id == speciesID }
     }
 
+    // MARK: 세대(지역) 도감 완성 추적
+
+    /// Owned species reduced to the (dex number, shiny) pairs the generation math needs.
+    private var ownedDexForProgress: [(id: Int, isShiny: Bool)] {
+        dexSpecies.map { (id: $0.id, isShiny: $0.isShiny) }
+    }
+
+    /// Per-region owned/total progress, in National Dex order. Drives the Pokédex generation chips.
+    var dexCompletions: [DexCompletion] {
+        DexProgress.regionCompletions(owned: ownedDexForProgress)
+    }
+
+    /// National (Gen 1–5) progress for the Pokédex header.
+    var nationalDexProgress: (owned: Int, shinyOwned: Int, total: Int) {
+        DexProgress.nationalProgress(owned: ownedDexForProgress)
+    }
+
+    /// Every completion badge currently earned — derived, never persisted (ownership only grows).
+    var earnedDexBadges: [DexBadge] {
+        DexProgress.earnedBadges(owned: ownedDexForProgress,
+                                 unownFormsCollected: state.collectedForms(speciesID: PokemonForm.unownSpeciesID).count)
+    }
+
+    /// Fire a one-time completion notification for every badge earned since the last check.
+    /// Idempotent: a badge already in `notifiedDexCompletions` never re-fires. Does not persist on its
+    /// own — `save()` calls it just before encoding, so the recorded keys are written in the same pass.
+    /// Guarded on seeding so pre-feature completions are announced by `seedDexCompletionsIfNeeded`, not here.
+    func checkDexCompletions() {
+        guard state.dexCompletionsSeeded else { return }
+        let newly = DexProgress.newlyEarnedBadges(earned: earnedDexBadges,
+                                                  alreadyNotified: state.notifiedDexCompletions)
+        for badge in newly {
+            let (title, body) = dexCompletionNotification(badge)
+            notifyCompanionEvent(title, body)
+            state.notifiedDexCompletions.insert(badge.notificationKey)
+        }
+    }
+
+    /// On first run after this feature ships, record already-earned badges as announced *without*
+    /// firing — a player who finished a region months ago should not get a notification burst.
+    private func seedDexCompletionsIfNeeded() {
+        guard !state.dexCompletionsSeeded else { return }
+        state.dexCompletionsSeeded = true
+        let keys = earnedDexBadges.map(\.notificationKey)
+        // A fresh or just-reset save owns nothing — don't rewrite the state file just to seed an empty
+        // set (that would clobber the "corrupt original moved aside, not recreated" invariant). The
+        // seeded flag then persists on the next natural save; re-seeding meanwhile is idempotent.
+        guard !keys.isEmpty else { return }
+        state.notifiedDexCompletions.formUnion(keys)
+        save()
+    }
+
+    private func dexCompletionNotification(_ badge: DexBadge) -> (title: String, body: String) {
+        switch badge {
+        case .region(let r):
+            return (l.notifDexRegionCompleteTitle(l.regionName(r)), l.notifDexRegionCompleteBody(l.regionName(r)))
+        case .regionShiny(let r):
+            return (l.notifDexRegionShinyCompleteTitle(l.regionName(r)), l.notifDexRegionShinyCompleteBody(l.regionName(r)))
+        case .unown:
+            return (l.notifDexUnownCompleteTitle, l.notifDexUnownCompleteBody)
+        case .national:
+            return (l.notifDexNationalCompleteTitle, l.notifDexNationalCompleteBody)
+        case .nationalShiny:
+            return (l.notifDexNationalShinyCompleteTitle, l.notifDexNationalShinyCompleteBody)
+        }
+    }
+
     private func collectedDexSpecies(groupForms: Bool) -> [DexSpecies] {
         // 종별 누적을 한 번에 훑는다(뷰가 body 에서 1회 소비 — 메모이즈 없이 충분).
         var acc: [DexKey: DexAccumulator] = [:]
@@ -609,11 +694,15 @@ final class CompanionStore {
         query: String = "",
         rarity: Rarity? = nil,
         shinyOnly: Bool = false,
+        region: PokedexRegion? = nil,
         sort: DexSortOption = .numberAsc
     ) -> [DexSpecies] {
         var result = dexSpecies
         if let rarity {
             result = result.filter { $0.rarity == rarity }
+        }
+        if let region {
+            result = result.filter { region.dexRange.contains($0.id) }
         }
         if shinyOnly {
             result = result.filter { $0.isShiny }
@@ -820,13 +909,18 @@ final class CompanionStore {
 
     // MARK: 갱신 (AppDelegate 가 UsageStore 값으로 호출)
 
+    /// `timeSinceLastUsage`: nil when unknown (see `UsageStore.timeSinceLastUsage`); unknown never sulks.
+    /// It comes from the slower enrichment scan, so a rise in today's total seen here counts as usage at once.
     func update(todayTokensByProvider: [String: Int], todayDate: String, monthTotal: Int,
-                burnTier: BurnTier, limitWarning: Bool, hasUsageData: Bool) {
+                burnTier: BurnTier, limitWarning: Bool, hasUsageData: Bool,
+                timeSinceLastUsage: TimeInterval? = nil) {
         let todayTokens = todayTokensByProvider.values.reduce(0, +)
         // `hasUsageData`는 표시용 snapshot 존재 여부이고, 이 map은 오늘 날짜가 확인된
         // provider 데이터만 담는다. stale snapshot이나 today == nil carrier만 있는 refresh는
         // ledger의 기준점을 움직일 수 있는 관측으로 취급하지 않는다.
         let hasCurrentProviderData = hasUsageData && !todayTokensByProvider.isEmpty
+        let idle = effectiveIdle(timeSinceLastUsage: timeSinceLastUsage, todayDate: todayDate,
+                                 todayTokens: todayTokens, hasCurrentProviderData: hasCurrentProviderData)
         if !state.installBaselineSet {
             // 설치 기준선 — 실제 데이터가 도착한 시점의 today 를 baseline 으로(이전 사용량 미카운트).
             // 데이터 도착 전(기동 직후 빈 새로고침)에는 잡지 않는다.
@@ -942,7 +1036,9 @@ final class CompanionStore {
             Task { await revealDitto() }
         }
         displayState = computeState(burnTier: burnTier, limitWarning: limitWarning,
-                                    hasUsageData: hasUsageData, today: todayTokens)
+                                    hasUsageData: hasUsageData, today: todayTokens,
+                                    timeSinceLastUsage: idle)
+        sulkIdle = displayState == .sulk ? idle ?? 0 : 0
         save()
         autoSnapshotIfNeeded()
     }
@@ -993,6 +1089,8 @@ final class CompanionStore {
                 } else if detailProvider != nil {
                     Task { await self.loadPokemonDetails(speciesID: next.speciesID) }
                 }
+                let oldName = formDisplayName(line.localizedName(a.currentID, state.language),
+                                              speciesID: a.currentID, form: a.form)
                 let newName = formDisplayName(line.localizedName(next.speciesID, state.language),
                                               speciesID: next.speciesID, form: a.form)
                 justEvolvedTo = newName
@@ -1000,7 +1098,7 @@ final class CompanionStore {
                 // 짧은 levelUp 창 — 진화 순간 "…(으)로 진화했어요" 문구 노출(hatch/graduate 와 동일 패턴).
                 // 이게 없으면 computeState 가 .levelUp 을 안 내 statusEvolved 가 도달 불가(dead code)였다.
                 eventUntil = clock().addingTimeInterval(4)
-                notifyCompanionEvent(l.notifEvolveTitle, l.notifEvolveBody(newName))
+                notifyCompanionEvent(l.notifEvolveTitle, l.notifEvolveBody(from: oldName, to: newName))
             }
         }
         reconcileActiveProfileGrowth()
@@ -1083,7 +1181,7 @@ final class CompanionStore {
                                   names: currentLine.map { line in   // 체인 각 종의 다국어 이름 저장(표시 즉시)
                                       Dictionary(uniqueKeysWithValues:
                                           a.pathIDs.compactMap { id in line.names[id].map { (id, $0) } })
-                                  }, form: a.form))
+                                  }, form: a.form, prayers: a.prayers))
         let name = formDisplayName(currentLine?.localizedName(finalID, state.language) ?? "",
                                    speciesID: finalID, form: a.form)
         justGraduated = name
@@ -1094,6 +1192,7 @@ final class CompanionStore {
         activeGeneration += 1
         currentLine = nil
         state.eggUsage = 0   // 새 알은 처음부터 인큐베이션
+        state.resetEggPrayers()
         isHatchRetryDelayed = false
         // eggTier 는 손대지 않는다 — 여기 도달했다는 건 활성 포켓몬이 있었다는 뜻이라 보증은 이미 nil 이다
         // (부화가 소비, 디스크/불러오기는 sanitized 가 정규화). 소비 지점은 hatchCore 한 곳으로 유지한다.
@@ -1336,6 +1435,7 @@ final class CompanionStore {
         activeGeneration += 1
         currentLine = nil
         state.eggUsage = 0            // 새 알은 처음부터 인큐베이션(재부화에 5M 필요)
+        state.resetEggPrayers()
         isHatchRetryDelayed = false
         state.eggTier = tier          // 등급 보증(nil = 보증 없음)
         state.pendingHatchID = nil    // 새 보증으로 처음부터 롤(활성 포켓몬이 있는 동안엔 원래 비어 있다)
@@ -1348,18 +1448,21 @@ final class CompanionStore {
         return true
     }
 
+    /// Pray over the egg. A placebo: it only counts, and never touches an RNG or a roll — the species is
+    /// usually already in `pendingHatchID` (prefetched at purchase) long before anyone prays.
+    func pray() {
+        guard state.active == nil else { return }
+        var record = state.eggPrayers ?? PrayerRecord(count: 0)
+        record.count += 1
+        state.eggPrayers = record
+        save()
+    }
+
     // 보증 없는 기본 알 래퍼 — 기존 호출부/테스트 호환.
     var canBuyFreshEgg: Bool { canBuyEgg(nil) }
     @discardableResult
     func buyFreshEgg() -> Bool { buyEgg(nil) }
 
-    /// 지급 판정(순수·엣지 트리거) — 한도 창이 100% 를 새로 넘어선 순간에만 지급.
-    /// - 100% 미만 → 맵에서 제거(재무장).
-    /// - 같은 key 라도 epoch(`resets_at`)가 바뀌면 새 창으로 보고 재무장 — 슬립·종료로 &lt;100% 샘플을
-    ///   못 본 채 다시 100%만 관측해도 지급 누락이 없다(#326). key 자체엔 epoch 를 넣지 않는다
-    ///   (알림 dedup 과 같은 이유로 매 fetch 새 키 폭탄 방지).
-    /// - 이미 지급한 창(tier≥1)은 재지급 안 함. session=1개·weekly=weeklyGrant.
-    /// - 부수효과(인벤토리·알림)와 분리해 xctest 가능. (evaluateLimitAlerts 자매)
     /// Parse an epoch string into a Date, supporting Unix timestamp (seconds or ms) or ISO8601 strings.
     static func parseEpochDate(_ string: String) -> Date? {
         if let ts = Double(string) {
@@ -1387,6 +1490,14 @@ final class CompanionStore {
         return delta >= minAdvance
     }
 
+    /// 지급 판정(순수·엣지 트리거) — 한도 창이 100% 를 새로 넘어선 순간에만 지급.
+    /// - 100% 미만 → 맵에서 제거(재무장).
+    /// - 같은 key 라도 epoch(`resets_at`)가 바뀌면 새 창으로 보고 재무장 — 슬립·종료로 &lt;100% 샘플을
+    ///   못 본 채 다시 100%만 관측해도 지급 누락이 없다(#326). key 자체엔 epoch 를 넣지 않는다
+    ///   (알림 dedup 과 같은 이유로 매 fetch 새 키 폭탄 방지).
+    /// - epoch 없는 창(Codex)은 100% 미만 관측으로만 재무장한다.
+    /// - 이미 지급한 창(tier≥1)은 재지급 안 함. session=1개·weekly=weeklyGrant.
+    /// - 부수효과(인벤토리·알림)와 분리해 xctest 가능. (evaluateLimitAlerts 자매)
     static func evaluateCandyGrants(
         windows: [CandyWindow],
         grantTier: inout [String: Int],
@@ -1455,7 +1566,7 @@ final class CompanionStore {
             state.inventory[ItemKind.rareCandy.rawValue, default: 0] += g.count
             // 지급 자체는 알림 여부와 무관(상태 변경). 알림은 "왜 받는지"(그 창 한도를 다 채운 수고) 명시.
             notifyCompanionEvent(l.notifCandyTitle(item: l.itemName(.rareCandy), count: g.count),
-                                 l.notifCandyBody(window: g.windowName))
+                                 l.notifCandyBody(window: g.windowName), showsOnPet: false)
         }
         // 지급이 없어도 재무장(util dip / epoch 교체)은 영속해야 한다 —
         // 안 하면 재시작 시 stale tier=1 로 다음 100% 도달이 "이미 지급"으로 오판돼 지급 누락(회귀).
@@ -1468,7 +1579,18 @@ final class CompanionStore {
 
     /// companion 이벤트 시스템 알림(.app + 토글 ON 일 때만). 한도 알림과 독립.
     private var notifSeq = 0
-    private func notifyCompanionEvent(_ title: String, _ body: String) {
+    /// The newest hatch / evolution / graduation / Ditto line; the floating pet pops it once. Recorded before the
+    /// bundled-app guard below so a dev build (no system notifications) shows it too.
+    /// `seq` tells a new event from one already shown, even when two share a clock instant.
+    struct CompanionEvent: Equatable { let seq: Int; let text: String; let at: Date }
+    private(set) var latestEvent: CompanionEvent?
+    private var eventSeq = 0
+
+    private func notifyCompanionEvent(_ title: String, _ body: String, showsOnPet: Bool = true) {
+        if showsOnPet {
+            eventSeq += 1
+            latestEvent = CompanionEvent(seq: eventSeq, text: body, at: clock())
+        }
         guard AppEnv.isBundledApp else { return }
         guard UserDefaults.standard.object(forKey: "companionNotifications") as? Bool ?? true else { return }
         notifSeq += 1
@@ -1700,6 +1822,8 @@ final class CompanionStore {
         let overflow = max(0, state.eggUsage - eggHatchThreshold)
         state.eggUsage = 0
         state.eggTier = nil   // 보증은 이 부화로 소비된다(다음 알은 다시 무보증)
+        let prayers = state.eggPrayers   // 부화체에 옮기고 알 쪽은 비운다
+        state.resetEggPrayers()
         // 개체 롤 — shiny(1/64, 부적 1/48)·성격(25종)은 부화 순간 확정, 진화해도 유지.
         // 알림 문구는 이 판정과 같은 분모를 보여준다.
         let shinyOdds = shinyDenominator
@@ -1723,12 +1847,18 @@ final class CompanionStore {
         state.active = MonState(baseID: line.baseID, pathIDs: [line.baseID], plannedPathIDs: evolutionPlan,
                                 stageIndex: 0, usedAtStage: 0, rarity: line.rarity, totalForms: evolutionPlan.count,
                                 isShiny: isShiny, nature: nature, profile: profile, hasGrowthBoost: hasGrowthBoost,
-                                dittoDisguise: dittoDisguise, form: form)
+                                dittoDisguise: dittoDisguise, form: form, prayers: prayers)
         AppLog.write("hatch: base=\(line.baseID) rarity=\(line.rarity) shiny=\(isShiny) forms=\(evolutionPlan.count) boost=\(hasGrowthBoost) ditto=\(dittoDisguise != nil)")
         let name = formDisplayName(line.localizedName(line.baseID, state.language),
                                    speciesID: line.baseID, form: form)
-        notifyCompanionEvent(showShiny ? l.notifShinyHatchTitle : l.notifHatchTitle,
-                             showShiny ? l.notifShinyHatchBody(name, odds: shinyOdds) : l.notifHatchBody(name))
+        let hatchBody: String
+        if let prayers, prayers.count > 0 {
+            hatchBody = l.notifPrayerHatchBody(name, prayers: prayers.count, shiny: showShiny,
+                                               rarity: line.rarity)
+        } else {
+            hatchBody = showShiny ? l.notifShinyHatchBody(name, odds: shinyOdds) : l.notifHatchBody(name)
+        }
+        notifyCompanionEvent(showShiny ? l.notifShinyHatchTitle : l.notifHatchTitle, hatchBody)
         justEvolvedTo = nil        // 새 부화는 "성장" 문구(진화 아님) — 직전 진화명이 남아 표시되지 않게
         displayState = .levelUp
         eventUntil = clock().addingTimeInterval(4)
@@ -1879,10 +2009,36 @@ final class CompanionStore {
         return nil
     }
 
-    private func computeState(burnTier: BurnTier, limitWarning: Bool, hasUsageData: Bool, today: Int) -> CompanionStateKind {
+    /// Today's total at the previous refresh, and when a rise in it was last seen. The enrichment scan's
+    /// `lastUsage` lags a refresh behind, so without this the companion would keep its back turned for a
+    /// while after usage resumed. Not persisted: after a launch there is nothing to compare with.
+    private var lastSeenToday: (date: String, total: Int)?
+    private var lastObservedUsage: Date?
+
+    /// `timeSinceLastUsage`, capped by how long ago this store itself saw today's total rise.
+    /// A new day or a first sighting only sets the baseline — it is not usage, so a midnight rollover
+    /// neither un-sulks nor sulks by itself. nil stays nil: unknown is never idle.
+    private func effectiveIdle(timeSinceLastUsage: TimeInterval?, todayDate: String, todayTokens: Int,
+                               hasCurrentProviderData: Bool) -> TimeInterval? {
+        if hasCurrentProviderData {
+            if let seen = lastSeenToday, seen.date == todayDate, todayTokens > seen.total {
+                lastObservedUsage = clock()
+            }
+            lastSeenToday = (todayDate, todayTokens)
+        }
+        guard let reported = timeSinceLastUsage else { return nil }
+        guard let observed = lastObservedUsage else { return reported }
+        return min(reported, max(0, clock().timeIntervalSince(observed)))
+    }
+
+    private func computeState(burnTier: BurnTier, limitWarning: Bool, hasUsageData: Bool, today: Int,
+                              timeSinceLastUsage: TimeInterval? = nil) -> CompanionStateKind {
         if state.active == nil { return .egg }
         if justGraduated != nil || (eventUntil != nil && clock() < eventUntil!) { return .levelUp }
         if limitWarning { return .tired }
+        if hasUsageData, let idle = timeSinceLastUsage, idle >= PokemonBalance.sulkAfterIdle {
+            return .sulk
+        }
         if !hasUsageData || today == 0 { return .sleep }
         switch burnTier {
         case .idle: return .idle
@@ -1932,6 +2088,7 @@ final class CompanionStore {
         mintFeedbackNature = nil
         displayState = state.active != nil ? .idle : .egg
         migratePokemonProfilesIfNeeded()
+        seedDexCompletionsIfNeeded()
         save()
         if state.active != nil { Task { await loadCurrentLine() } }
         if detailProvider != nil { Task { await preparePokemonProfiles() } }
@@ -2195,6 +2352,7 @@ final class CompanionStore {
     }
     private func save() {
         refreshRepresentativeSubject()
+        checkDexCompletions()   // 보유 성장분이 영속되는 매 지점에서 세대 완성 알림을 한 번만 띄운다
         guard let data = try? JSONEncoder().encode(state) else { return }
         try? data.write(to: fileURL, options: .atomic)   // 부분 쓰기 손상 방지(펫 상태)
     }

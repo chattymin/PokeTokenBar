@@ -217,31 +217,35 @@ struct PopoverView: View {
             }
 
             // Keep period totals and saved-history navigation visible on quiet days too.
-            HStack(spacing: 14) {
-                periodLabel(l.thisWeek, tokens: store.weekTotalTokens, cost: store.showsCost ? store.weekUsageCost : nil)
-                periodLabel(l.thisMonth, tokens: store.monthTotalTokens, cost: store.showsCost ? store.monthUsageCost : nil)
-                Spacer()
-                Button { nav.showingRecap = true } label: {
-                    Image(systemName: "chart.bar.xaxis")
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 14) {
+                    periodTotals.fixedSize(horizontal: true, vertical: false)
+                    Spacer(minLength: 0)
+                    StreakBadge(streak: store.currentStreak, l: l)
+                    recapButton
                 }
-                .buttonStyle(.borderless)
-                .help(l.recapOpen)
-                .accessibilityLabel(l.recapOpen)
+                VStack(alignment: .trailing, spacing: 6) {
+                    periodTotals.frame(maxWidth: .infinity, alignment: .leading)
+                    HStack(spacing: 14) {
+                        StreakBadge(streak: store.currentStreak, l: l)
+                        recapButton
+                    }
+                }
             }
             .padding(.top, 2)
 
-            MonthDailyTrend(series: store.monthDailyTotals,
-                            providers: store.snapshots.compactMap { snap in
-                                snap.monthDaily.map {
-                                    DailyTrendStack.ProviderSeries(
-                                        id: snap.providerID, name: snap.displayName,
-                                        days: $0, reportsCost: snap.reportsCost)
-                                }
-                            },
-                            providerOrder: store.registeredProviderIDs,
-                            showsCost: store.showsCost,
-                            today: LocalUsageReader.todayKey(),
-                            l: l)
+            ActivityPanel(visualization: store.activityVisualization,
+                          series: store.dailyTrendTotals,
+                          heatmapSeries: store.monthDailyTotals,
+                          providers: store.trendProviders,
+                          providerOrder: store.registeredProviderIDs,
+                          history: store.dailyLedger,
+                          showsCost: store.showsCost,
+                          window: Binding(get: { store.dailyTrendWindow }, set: { store.dailyTrendWindow = $0 }),
+                          hasAvailableHistory: store.hasDailyTrendHistory,
+                          today: LocalUsageReader.todayKey(),
+                          l: l,
+                          onCycle: { store.activityVisualization = store.activityVisualization.next })
 
             // 연결된 서비스가 2개 이상이면 작은 탭으로 서비스별 상세를 넘나든다
             // (합계는 위에 유지 — 상세·한도만 탭 스코프).
@@ -258,6 +262,39 @@ struct PopoverView: View {
     /// 현재 선택된 프로바이더 스냅샷 — 선택이 없거나 연결 해제됐으면 첫 번째로 폴백.
     private var selectedSnapshot: ProviderSnapshot? {
         store.snapshot(preferring: nav.providerID)
+    }
+
+    private var periodTotals: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 14) { periodLabels }
+                .fixedSize(horizontal: true, vertical: false)
+            VStack(alignment: .leading, spacing: 4) { periodLabels }
+        }
+    }
+
+    private var periodLabels: some View {
+        Group {
+            periodLabel(l.thisWeek, tokens: store.weekTotalTokens, cost: store.showsCost ? store.weekUsageCost : nil)
+                .fixedSize(horizontal: true, vertical: false)
+            periodLabel(l.thisMonth, tokens: store.monthTotalTokens, cost: store.showsCost ? store.monthUsageCost : nil)
+                .fixedSize(horizontal: true, vertical: false)
+        }
+    }
+
+    private var recapButton: some View {
+        Button { nav.showingRecap = true } label: {
+            HStack(spacing: 3) {
+                Image(systemName: "chart.bar.xaxis")
+                Text(l.recapDetails).font(.caption)
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(Color.primary.opacity(0.08), in: Capsule())
+            .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .help(l.recapOpen)
+        .accessibilityLabel(l.recapOpen)
     }
 
     private var providerTabBar: some View {
@@ -353,6 +390,8 @@ struct PopoverView: View {
         case "codex": return store.codexLimits?.hasVisibleLimit == true
         case "antigravity": return !store.disableKeychainAccess || store.antigravityHasTokenFile || store.antigravityLimits?.hasVisibleLimit == true || store.antigravityLimitsAuthExpired
         case "cursor": return store.cursorLimits?.hasVisibleLimit == true || store.cursorLimitsAuthExpired
+        case "opencode": return store.openCodeGoLimits?.hasVisibleLimit == true || store.openCodeGoLimitsAuthExpired
+        case "grok": return store.grokLimits?.hasVisibleLimit == true || store.grokLimitsAuthExpired
         default: return false
         }
     }
@@ -440,6 +479,12 @@ struct PopoverView: View {
             if selectedSnapshot?.providerID == "cursor" {
                 cursorLimitsContent
             }
+            if selectedSnapshot?.providerID == "opencode" {
+                openCodeGoLimitsContent
+            }
+            if selectedSnapshot?.providerID == "grok" {
+                grokLimitsContent
+            }
         }
     }
 
@@ -484,21 +529,91 @@ struct PopoverView: View {
     }
 
     @ViewBuilder
-    private var cursorAuthExpiredNotice: some View {
+    private var openCodeGoLimitsContent: some View {
+        if store.openCodeGoLimitsAuthExpired {
+            authExpiredNotice(title: l.openCodeGoAuthExpiredTitle, hint: l.openCodeGoAuthExpiredHint)
+        }
+        if let status = store.openCodeGoLimits, status.hasVisibleLimit {
+            if store.openCodeGoLimitsStale {
+                staleBadge(updatedAt: store.openCodeGoLimitsUpdatedAt)
+            }
+            VStack(alignment: .leading, spacing: 8) {
+                openCodeGoLimitRow(name: l.fiveHourSession, window: status.rolling,
+                                   span: LimitWindowSpan.fiveHour, notStartedHint: l.fiveHourNotStarted)
+                openCodeGoLimitRow(name: l.weekly, window: status.weekly, span: LimitWindowSpan.sevenDay)
+                // The monthly window follows the subscription date, not a fixed span: no pace marker.
+                openCodeGoLimitRow(name: l.openCodeGoMonthly, window: status.monthly, span: nil)
+            }
+            .opacity(store.openCodeGoLimitsAuthExpired ? 0.5 : 1)
+        }
+    }
+
+    @ViewBuilder
+    private func openCodeGoLimitRow(name: String, window: OpenCodeGoWindow?, span: TimeInterval?,
+                                    notStartedHint: String? = nil) -> some View {
+        let now = Date()
+        if let window, let utilization = window.utilization(now: now) {
+            quotaRow(name: name, utilization: utilization, reset: window.activeReset(now: now), span: span,
+                     idleHint: window.hasEnded(now: now) ? notStartedHint : nil)
+        }
+    }
+
+    @ViewBuilder
+    private var grokLimitsContent: some View {
+        if store.grokLimitsAuthExpired {
+            authExpiredNotice(title: l.grokAuthExpiredTitle, hint: l.grokAuthExpiredHint)
+        }
+        if let status = store.grokLimits, status.hasVisibleLimit {
+            if store.grokLimitsStale {
+                staleBadge(updatedAt: store.grokLimitsUpdatedAt)
+            }
+            let now = Date()
+            VStack(alignment: .leading, spacing: 4) {
+                if let utilization = status.utilization(now: now) {
+                    quotaRow(name: l.grokCreditPeriod(weekly: status.isWeekly, monthly: status.isMonthly),
+                             utilization: utilization, reset: status.activeReset(now: now), span: status.periodSpan)
+                }
+                let products = status.usedProducts(now: now)
+                if !products.isEmpty {
+                    Text(products.map { "\(grokProductName($0.product)) \(TokenFormatter.percent($0.usagePercent ?? 0))" }
+                        .joined(separator: " · "))
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                }
+            }
+            .opacity(store.grokLimitsAuthExpired ? 0.5 : 1)
+        }
+    }
+
+    /// Billing product ids → the names grok.com shows.
+    private func grokProductName(_ product: String?) -> String {
+        switch product {
+        case "GrokBot": return "Grok"
+        case "GrokBuild": return "Grok Build"
+        case "Api": return "API"
+        default: return product ?? ""
+        }
+    }
+
+    private func authExpiredNotice(title: String, hint: String) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 6) {
                 Image(systemName: "exclamationmark.triangle.fill")
                     .foregroundStyle(.orange)
-                Text(l.cursorAuthExpiredTitle)
+                Text(title)
                     .font(.caption).fontWeight(.medium)
             }
-            Text(l.cursorAuthExpiredHint)
+            Text(hint)
                 .font(.caption2)
                 .foregroundStyle(.secondary)
         }
         .padding(8)
         .background(Color.orange.opacity(0.1))
         .clipShape(RoundedRectangle(cornerRadius: 6))
+    }
+
+    private var cursorAuthExpiredNotice: some View {
+        authExpiredNotice(title: l.cursorAuthExpiredTitle, hint: l.cursorAuthExpiredHint)
     }
 
     @ViewBuilder
@@ -1064,9 +1179,19 @@ struct MonthDailyTrend: View {
     /// `UsageStore.registeredProviderIDs` — what keeps a provider's color fixed (see `DailyTrendStack.colorIndices`).
     var providerOrder: [String] = []
     let showsCost: Bool
+    var window: Binding<DailyTrendWindow>? = nil
+    var currentWindow: DailyTrendWindow = .month
+    var hasAvailableHistory = false
     /// 오늘의 `localDay` 키 — 강조할 막대를 뷰가 시계를 다시 읽어 고르지 않게 주입한다.
     let today: String
     let l: L
+    /// What sits at the caption's right end — the visualization switch dots (`PageDots`). A slot
+    /// rather than a reference to `ActivityVisualization`, so visualizations do not know each other.
+    var trailing = AnyView(EmptyView())
+
+    var activeWindow: DailyTrendWindow {
+        window?.wrappedValue ?? currentWindow
+    }
 
     /// The hovered bar. Its day's numbers show in a tooltip above the bars, without the `.help` delay.
     /// The caption keeps today's combined readout either way — opening the popover shows today's
@@ -1092,12 +1217,12 @@ struct MonthDailyTrend: View {
         Color(red: 0.30, green: 0.60, blue: 0.55),
         Color(red: 0.80, green: 0.35, blue: 0.40),
         Color(red: 0.40, green: 0.48, blue: 0.80),
+        Color(red: 0.96, green: 0.58, blue: 0.22),
+        Color(red: 0.76, green: 0.58, blue: 0.38),
     ]
 
     var body: some View {
-        // 축은 시리즈 길이가 아니라 **달력의 이번 달**이다. 시리즈는 오늘에서 끝나므로 그 길이로
-        // 폭을 나누면 1일엔 막대 하나가 행 전체로 늘어나고, 첫 주 내내 막대 폭과 라벨 위치가 매일 바뀐다.
-        let columns = DailyTrendMetrics.monthColumns(series: series, today: today)
+        let columns = DailyTrendMetrics.columns(series: series, today: today, window: activeWindow)
         let peak = columns.map(\.tokens).max() ?? 0
         if peak > 0 {
             let stack = DailyTrendStack.ordered(providers)
@@ -1109,14 +1234,23 @@ struct MonthDailyTrend: View {
                     .overlay(alignment: .bottomLeading) { hoverTooltip(columns, stack: stack, colors: colors) }
                     .zIndex(1)   // the tooltip rises over the caption and the rows above
                 weekendTickRow(columns)
-                axisRow(columns)
+                axisRow(columns, window: activeWindow)
                 if DailyTrendStack.isStacked(stack) {
                     legend(stack, colors: colors)
                         .padding(.top, 2)
                 }
             }
             .padding(.top, 4)
+        } else if Self.shouldShowSurface(peak: peak, hasAvailableHistory: hasAvailableHistory,
+                                         isSelectable: window != nil) {
+            captionRow(peak: 0, showsPeak: false)
+                .padding(.top, 4)
         }
+    }
+
+    nonisolated static func shouldShowSurface(peak: Int, hasAvailableHistory: Bool,
+                                              isSelectable: Bool) -> Bool {
+        peak > 0 || (isSelectable && hasAvailableHistory)
     }
 
     /// 캡션 + 오늘의 합산 리드아웃 + 최댓값. 리드아웃은 호버를 따라가지 않는다 — 다른 날은
@@ -1125,9 +1259,32 @@ struct MonthDailyTrend: View {
     /// 쓴 날이 하루뿐이면 최댓값이 리드아웃과 같은 숫자라 생략한다.
     private func captionRow(peak: Int, showsPeak: Bool) -> some View {
         HStack(spacing: 5) {
-            Text(l.dailyTrend)
-                .font(.caption)
-                .foregroundStyle(.tertiary)
+            if let windowBinding = window {
+                Menu {
+                    ForEach(DailyTrendWindow.allCases) { win in
+                        Button {
+                            windowBinding.wrappedValue = win
+                        } label: {
+                            HStack {
+                                Text(l.title(for: win))
+                                if activeWindow == win {
+                                    Image(systemName: "checkmark")
+                                }
+                            }
+                        }
+                    }
+                } label: {
+                    Text(l.title(for: activeWindow))
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                }
+                .menuStyle(.borderlessButton)
+                .fixedSize()
+            } else {
+                Text(l.title(for: activeWindow))
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+            }
             Text(Self.readout(series: series, today: today, showsCost: showsCost, l: l))
                 .font(.caption.weight(.medium))
                 .foregroundStyle(.secondary)
@@ -1142,6 +1299,7 @@ struct MonthDailyTrend: View {
                     .foregroundStyle(.secondary)
                     .monospacedDigit()
             }
+            trailing
         }
     }
 
@@ -1300,11 +1458,11 @@ struct MonthDailyTrend: View {
     /// 날짜 축. 막대 폭이 한 달 기준 약 9pt 라 두 자리 숫자가 다 안 들어가므로 **전부 붙이면
     /// 서로 겹친다** — 1일·7일 간격·오늘에만 붙이고 나머지 칼럼은 빈 자리로 폭을 맞춘다
     /// (빈 자리를 빼면 라벨이 막대와 어긋난다).
-    private func axisRow(_ columns: [DailyTrendColumn]) -> some View {
+    private func axisRow(_ columns: [DailyTrendColumn], window: DailyTrendWindow = .month) -> some View {
         HStack(spacing: DailyTrendMetrics.spacing) {
             ForEach(columns) { column in
                 Group {
-                    if let label = DailyTrendMetrics.axisLabel(for: column.date, today: today) {
+                    if let label = DailyTrendMetrics.axisLabel(for: column.date, today: today, window: window) {
                         Text(label)
                             .font(.caption2)
                             .monospacedDigit()
@@ -1350,6 +1508,34 @@ enum DailyTrendMetrics {
         guard peak > 0, tokens > 0 else { return baseline }
         let ratio = min(1, Double(tokens) / Double(peak))
         return max(baseline, CGFloat(ratio) * track)
+    }
+
+    /// 설정된 윈도우(7일/14일/21일/이번 달)에 따른 칼럼 목록 생성.
+    static func columns(series: [DailyUsage], today: String, window: DailyTrendWindow = .month) -> [DailyTrendColumn] {
+        switch window {
+        case .month:
+            return monthColumns(series: series, today: today)
+        case .d7, .d14, .d21:
+            guard let days = window.dayCount else { return monthColumns(series: series, today: today) }
+            return rollingColumns(series: series, today: today, count: days)
+        }
+    }
+
+    /// 롤링 윈도우 칼럼 (과거 N일 ~ 오늘). 모든 칼럼이 이미 도달한 날이므로 `isFuture: false`.
+    static func rollingColumns(series: [DailyUsage], today: String, count: Int) -> [DailyTrendColumn] {
+        guard let todayDate = LocalUsageReader.localDayFormatter().date(from: today) else {
+            return series.map { DailyTrendColumn(date: $0.date, tokens: $0.totalTokens, isFuture: false) }
+        }
+        var cal = Calendar(identifier: .gregorian)
+        cal.timeZone = .current
+        let fmt = LocalUsageReader.localDayFormatter()
+        let tokensByDay = Dictionary(series.map { ($0.date, $0.totalTokens) }, uniquingKeysWith: +)
+
+        return (0..<count).reversed().map { offset in
+            let dateObj = cal.date(byAdding: .day, value: -offset, to: todayDate) ?? todayDate
+            let dateStr = fmt.string(from: dateObj)
+            return DailyTrendColumn(date: dateStr, tokens: tokensByDay[dateStr] ?? 0, isFuture: false)
+        }
     }
 
     /// 이번 달 전체(1일~말일)의 칼럼. 시리즈에 있는 날은 그 토큰을, 오늘까지인데 시리즈에 없는 날은
@@ -1404,19 +1590,60 @@ enum DailyTrendMetrics {
     /// 약 11pt 라, 오늘이 7의 배수 바로 옆이면(22일·29일 등) `21 22` 가 간격 없이 붙어 한 숫자로
     /// 읽힌다(8월 실데이터로 렌더해서 확인했다). 오늘은 절대 지우지 않으므로 라벨이 0개가 되는
     /// 상태는 없고, 인접한 정기 라벨 하나를 잃는 대가는 없다 — 오늘 위치를 알면 그 옆도 안다.
-    static func axisLabel(for date: String, today: String, labelInterval: Int = 7,
-                          minimumSeparation: Int = 3) -> String?
+    static func axisLabel(for date: String, today: String, window: DailyTrendWindow = .month,
+                          labelInterval: Int = 7, minimumSeparation: Int = 3) -> String?
     {
         // `Int(...)` 옵셔널 해제는 API 강제다 — 시리즈의 날짜는 항상 "yyyy-MM-dd" 라 실패하지
         // 않는다(테스트할 분기가 아니다).
         guard let dayOfMonth = Int(date.suffix(2)) else { return nil }
         if date == today { return "\(dayOfMonth)" }
 
-        let isRegular = dayOfMonth == 1 || (labelInterval > 0 && dayOfMonth % labelInterval == 0)
-        guard isRegular else { return nil }
-        if let todayOfMonth = Int(today.suffix(2)),
-           abs(dayOfMonth - todayOfMonth) < minimumSeparation { return nil }
-        return "\(dayOfMonth)"
+        switch window {
+        case .month:
+            let isRegular = dayOfMonth == 1 || (labelInterval > 0 && dayOfMonth % labelInterval == 0)
+            guard isRegular else { return nil }
+            if let todayOfMonth = Int(today.suffix(2)),
+               abs(dayOfMonth - todayOfMonth) < minimumSeparation { return nil }
+            return "\(dayOfMonth)"
+        case .d7:
+            guard let diff = LocalUsageReader.dayDifference(from: date, to: today), diff > 0 else { return nil }
+            if dayOfMonth == 1 {
+                // In a 7-day window, midpoint is diff == 3. Label "1" only if it is far enough
+                // from both today and the midpoint to avoid visual collision.
+                guard diff >= minimumSeparation && (diff == 3 || abs(diff - 3) >= minimumSeparation) else {
+                    return nil
+                }
+                return "\(dayOfMonth)"
+            }
+            if diff == 3 && diff >= minimumSeparation {
+                return "\(dayOfMonth)"
+            }
+            return nil
+        case .d14, .d21:
+            guard let diff = LocalUsageReader.dayDifference(from: date, to: today), diff > 0 else { return nil }
+            if dayOfMonth == 1 {
+                return diff >= minimumSeparation ? "\(dayOfMonth)" : nil
+            }
+            if diff % 7 == 0 && diff >= minimumSeparation {
+                // If the 1st of this month is in the window and separated from today,
+                // it takes precedence as a landmark. Suppress regular marks that sit
+                // within minimumSeparation of the 1st of the month to avoid visual collision.
+                let diffToFirst = diff - (dayOfMonth - 1)
+                if diffToFirst >= minimumSeparation && abs(dayOfMonth - 1) < minimumSeparation {
+                    return nil
+                }
+                if let year = Int(date.prefix(4)), let month = Int(date.dropFirst(5).prefix(2)),
+                   let daysInCurMonth = daysInMonth(year: year, month: month) {
+                    let daysToNextFirst = daysInCurMonth - dayOfMonth + 1
+                    let diffToNextFirst = diff - daysToNextFirst
+                    if diffToNextFirst >= minimumSeparation && daysToNextFirst < minimumSeparation {
+                        return nil
+                    }
+                }
+                return "\(dayOfMonth)"
+            }
+            return nil
+        }
     }
 
     /// `calendar` 는 테스트 주입 구멍 — 주말이 어느 요일인지는 로케일이 정한다(금·토인 지역도
@@ -1467,7 +1694,9 @@ enum DailyTrendHover {
     /// bill (`reportsCost`). Nil for a day outside the series.
     static func info(day: String, series: [DailyUsage], stack: [DailyTrendStack.ProviderSeries],
                      showsCost: Bool, l: L) -> Info? {
-        guard let total = series.first(where: { $0.date == day }) else { return nil }
+        let total = series.first(where: { $0.date == day }) ?? DailyUsage(
+            date: day, inputTokens: 0, outputTokens: 0,
+            cacheCreationTokens: 0, cacheReadTokens: 0, totalTokens: 0, totalCost: 0, costCoverage: .empty)
         let rows: [Row] = DailyTrendStack.isStacked(stack) ? stack.compactMap { provider in
             guard let usage = provider.days.first(where: { $0.date == day }), usage.totalTokens > 0 else { return nil }
             return Row(id: provider.id, name: provider.name, tokens: TokenFormatter.compact(usage.totalTokens),

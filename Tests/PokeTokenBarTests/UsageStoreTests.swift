@@ -361,15 +361,27 @@ final class UsageStoreTests: XCTestCase {
         XCTAssertFalse(store.floatingPetEnabled, "옵트인 기능 — 기본은 꺼짐")
         XCTAssertEqual(store.floatingPetSize, 96)
         XCTAssertTrue(store.floatingPetBubbleAlerts, "bubble alerts default on when pet is later enabled")
+        XCTAssertTrue(store.floatingPetAgentActivity, "inert until an agent hook sends a URL")
 
         store.floatingPetEnabled = true
         store.floatingPetSize = 144
         store.floatingPetBubbleAlerts = false
+        store.floatingPetAgentActivity = false
 
         let reloaded = makeStore(providers: [claude])   // 같은 suite 재로딩 = 앱 재시작
         XCTAssertTrue(reloaded.floatingPetEnabled)
         XCTAssertEqual(reloaded.floatingPetSize, 144)
         XCTAssertFalse(reloaded.floatingPetBubbleAlerts)
+        XCTAssertFalse(reloaded.floatingPetAgentActivity)
+    }
+
+    /// Always facing back is a display preference: default off, persisted like the floating pet settings.
+    func testAlwaysFacesBackDefaultsOffAndPersists() {
+        let claude = FakeUsageProvider(id: "claude_code", displayName: "Claude Code", daily: todayDaily(1_000))
+        let store = makeStore(providers: [claude])
+        XCTAssertFalse(store.alwaysFacesBack)
+        store.alwaysFacesBack = true
+        XCTAssertTrue(makeStore(providers: [claude]).alwaysFacesBack, "persists across restarts")
     }
 
     /// Bubble picker is pure: critical beats warn; within a tier higher utilization wins (stable choice).
@@ -654,6 +666,45 @@ final class UsageStoreTests: XCTestCase {
         XCTAssertTrue(three[0].contains(" · "))              // 윗줄=토큰·비용 나란히
         XCTAssertFalse(three[0].contains("Claude"))          // 윗줄에 한도 없음
         XCTAssertTrue(three[1].contains("Claude"))           // 아랫줄=한도
+    }
+
+    func testMenuLinesWithGrowthAllCombinations() async {
+        let claude = FakeUsageProvider(id: "claude_code", displayName: "Claude Code",
+                                       daily: todayDaily(1_200_000, cost: 3.45))
+        let store = makeStore(providers: [claude],
+                              claude: claudeLimits(fiveHourUtil: 40, resetsAt: "2099-01-01T00:00:00Z"))
+        await store.refresh(scheduleEmptyRetry: false)
+        let token = TokenFormatter.compact(store.todayTotalTokens)
+        let cost = store.todayUsageCost.text(L(store.localizationLanguage), compact: true)
+        for mask in 0..<16 {
+            store.showTokensInMenu = mask & 1 != 0
+            store.showCostInMenu = mask & 2 != 0
+            store.showLimitInMenu = mask & 4 != 0
+            let growth = mask & 8 != 0 ? "Growth 42%" : nil
+            let lines = store.menuLines(growthText: growth)
+            var expected: [String] = []
+            if store.showTokensInMenu { expected.append(token) }
+            if store.showCostInMenu { expected.append(cost) }
+            if let growth { expected.append(growth) }
+            if store.showLimitInMenu { expected.append("Claude 40%") }
+            XCTAssertEqual(lines.flatMap { $0.components(separatedBy: " · ") }, expected, "mask=\(mask)")
+            XCTAssertLessThanOrEqual(lines.count, 2, "mask=\(mask)")
+            if store.showLimitInMenu {
+                XCTAssertEqual(lines.last, "Claude 40%", "limits retain a separate line")
+            }
+            if expected.count <= 2 { XCTAssertEqual(lines, expected) }
+        }
+    }
+
+    func testGrowthSettingPersistsAndSavedGrowthIsAvailableBeforeUsageLoads() {
+        let store = makeStore(providers: [])
+        XCTAssertFalse(store.showGrowthInMenu)
+        XCTAssertEqual(store.menuLines, ["—"])
+        XCTAssertEqual(store.menuLines(growthText: "Hatch 42%"), ["Hatch 42%"])
+        store.showGrowthInMenu = true
+        XCTAssertTrue(makeStore(providers: []).showGrowthInMenu)
+        store.showGrowthInMenu = false
+        XCTAssertFalse(makeStore(providers: []).showGrowthInMenu)
     }
 
     // MARK: 한도 표시 방식 (used / remaining)
@@ -1087,6 +1138,51 @@ final class UsageStoreTests: XCTestCase {
         // The next refresh starts from the carrier in phase 1 and must keep it there too.
         await store.refresh(scheduleEmptyRetry: false)
         XCTAssertTrue(store.snapshots.contains { $0.providerID == "codex" })
+    }
+
+    /// Sulk input: unknown only before the first complete refresh; afterwards unreadable providers are
+    /// ignored (not a veto) and the newest `lastUsage` among the rest decides.
+    func testTimeSinceLastUsageIsUnknownOnlyBeforeTheFirstRefresh() async throws {
+        let now = Date()
+        let older = FakeUsageProvider(id: "codex", displayName: "Codex", daily: todayDaily(1))
+        let newer = FakeUsageProvider(id: "claude_code", displayName: "Claude Code", daily: todayDaily(1))
+        func enrichment(lastUsage: Date?, periodsOK: Bool = true) -> ProviderEnrichment {
+            ProviderEnrichment(activeBlock: nil, blocksOK: true,
+                               weekTotal: PeriodUsage(period: "w", totalTokens: 1, totalCost: 0),
+                               monthTotal: PeriodUsage(period: "m", totalTokens: 1, totalCost: 0),
+                               monthDaily: [todayDaily(1)], periodsOK: periodsOK, lastUsage: lastUsage)
+        }
+        older.enrichment = enrichment(lastUsage: now.addingTimeInterval(-50 * 3600))
+        newer.enrichment = enrichment(lastUsage: now.addingTimeInterval(-30 * 3600))
+        let store = makeStore(providers: [older, newer])
+        XCTAssertNil(store.timeSinceLastUsage(now: now), "nothing scanned yet: unknown, never idle")
+
+        await store.refresh(scheduleEmptyRetry: false)
+        XCTAssertEqual(try XCTUnwrap(store.timeSinceLastUsage(now: now)), 30 * 3600, accuracy: 1)
+
+        // The newer provider becomes unreadable: its carried-over time is ignored, the older one decides.
+        newer.enrichment = enrichment(lastUsage: nil, periodsOK: false)
+        await store.refresh(scheduleEmptyRetry: false)
+        XCTAssertEqual(try XCTUnwrap(store.timeSinceLastUsage(now: now)), 50 * 3600, accuracy: 1,
+                       "an unreadable provider does not veto sulking")
+
+        // One provider fails while the other reported 4 h ago: that is idle enough to sulk.
+        older.enrichment = enrichment(lastUsage: now.addingTimeInterval(-4 * 3600))
+        await store.refresh(scheduleEmptyRetry: false)
+        let idle = try XCTUnwrap(store.timeSinceLastUsage(now: now))
+        XCTAssertEqual(idle, 4 * 3600, accuracy: 1)
+        XCTAssertGreaterThanOrEqual(idle, PokemonBalance.sulkAfterIdle)
+
+        // Every provider fails after the first refresh: nothing reports, so it is long idle.
+        older.enrichment = enrichment(lastUsage: nil, periodsOK: false)
+        await store.refresh(scheduleEmptyRetry: false)
+        XCTAssertEqual(store.timeSinceLastUsage(now: now), LocalUsageReader.recentUseWindow)
+
+        // A complete scan that found no usage at all means the same.
+        older.enrichment = enrichment(lastUsage: nil)
+        newer.enrichment = enrichment(lastUsage: nil)
+        await store.refresh(scheduleEmptyRetry: false)
+        XCTAssertEqual(store.timeSinceLastUsage(now: now), LocalUsageReader.recentUseWindow)
     }
 
     func testNoCarrierForProviderIdleBeyondRecentWindow() async {
@@ -1563,6 +1659,23 @@ private func claudeFiveHour(_ utilization: Double, resetsIn: TimeInterval?, now:
     return try! JSONDecoder().decode(LimitStatus.self, from: Data(json.utf8))
 }
 
+/// A plan without a 5-hour session limit, as `oauth/usage` sends it: `five_hour` is null and
+/// `limits[]` has no `session` entry. `fiveHour` adds a session window back for the precedence case.
+private func claudeWeekly(_ utilization: Double, resetsIn: TimeInterval, fiveHour: Double? = nil,
+                          now: Date) -> LimitStatus {
+    let iso = ISO8601DateFormatter()
+    let weeklyReset = iso.string(from: now.addingTimeInterval(resetsIn))
+    let session = fiveHour.map {
+        "{\"utilization\":\($0),\"resets_at\":\"\(iso.string(from: now.addingTimeInterval(2.5 * 3600)))\"}"
+    } ?? "null"
+    let json = """
+    {"five_hour":\(session),
+     "seven_day":{"utilization":\(utilization),"resets_at":"\(weeklyReset)"},
+     "limits":[{"kind":"weekly_all","group":"weekly","percent":\(utilization),"resets_at":"\(weeklyReset)"}]}
+    """
+    return try! JSONDecoder().decode(LimitStatus.self, from: Data(json.utf8))
+}
+
 private func codexPrimary(_ usedPercent: Int, resetsIn: TimeInterval, now: Date) -> CodexRateLimitStatus {
     let reset = Int(now.addingTimeInterval(resetsIn).timeIntervalSince1970)
     let json = "{\"rateLimits\":{\"primary\":{\"usedPercent\":\(usedPercent),\"windowDurationMins\":300,\"resetsAt\":\(reset)}}}"
@@ -1631,9 +1744,387 @@ extension UsageStoreTests {
                        [.init(text: "Claude 60%", tier: .onPace), .init(text: "Codex 30%", tier: .over)])
     }
 
+    // MARK: Tracked providers (opt-out)
+
+    func testDisabledProviderLeavesTabsTotalsAndLimits() async {
+        testDefaults.set(["codex"], forKey: UsageStore.disabledProvidersKey)
+        let claude = FakeUsageProvider(id: "claude_code", displayName: "Claude Code", daily: todayDaily(100))
+        let codex = FakeUsageProvider(id: "codex", displayName: "Codex", daily: todayDaily(50))
+        let store = makeStore(providers: [claude, codex],
+                              claude: claudeLimits(fiveHourUtil: 40),
+                              codex: codexLimits(primaryUsed: 40))
+        await store.refresh(scheduleEmptyRetry: false)
+
+        XCTAssertEqual(store.snapshots.map(\.providerID), ["claude_code"])
+        XCTAssertEqual(store.todayTokensByProvider, ["claude_code": 100])
+        XCTAssertNil(store.codexLimits, "a disabled provider's limits must not feed alerts or candies")
+        XCTAssertNotNil(store.limits)
+        XCTAssertEqual(store.registeredProviderIDs, ["claude_code", "codex"], "Settings still lists it")
+    }
+
+    /// Phase 2 appends a carrier for a provider with history but no usage today (#336). That path is
+    /// what kept an unused provider's tab forever, so it must honor the switch too.
+    func testDisabledProviderWithOnlyHistoryGetsNoCarrierTab() async {
+        testDefaults.set(["codex"], forKey: UsageStore.disabledProvidersKey)
+        let claude = FakeUsageProvider(id: "claude_code", displayName: "Claude Code", daily: todayDaily(100))
+        let codex = FakeUsageProvider(id: "codex", displayName: "Codex", daily: nil)
+        codex.enrichment = ProviderEnrichment(
+            weekTotal: PeriodUsage(period: "w", totalTokens: 900, totalCost: 0),
+            monthTotal: PeriodUsage(period: "m", totalTokens: 3_000, totalCost: 0),
+            periodsOK: true, lastUsage: Date())
+        let store = makeStore(providers: [claude, codex])
+        await store.refresh(scheduleEmptyRetry: false)
+
+        XCTAssertEqual(store.snapshots.map(\.providerID), ["claude_code"])
+        XCTAssertEqual(store.monthTotalTokens, 0)
+    }
+
+    func testDisablingClaudeClearsItsLimits() async {
+        testDefaults.set(["claude_code"], forKey: UsageStore.disabledProvidersKey)
+        let codex = FakeUsageProvider(id: "codex", displayName: "Codex", daily: todayDaily(50))
+        let store = makeStore(providers: [codex], claude: claudeLimits(fiveHourUtil: 90))
+        await store.refresh(scheduleEmptyRetry: false)
+        XCTAssertNil(store.limits)
+        XCTAssertTrue(store.additionalLimits.isEmpty)
+    }
+
+    func testProviderSwitchDropsTabAtOnceAndPersists() async {
+        let claude = FakeUsageProvider(id: "claude_code", displayName: "Claude Code", daily: todayDaily(100))
+        let codex = FakeUsageProvider(id: "codex", displayName: "Codex", daily: todayDaily(50))
+        let store = makeStore(providers: [claude, codex])
+        await store.refresh(scheduleEmptyRetry: false)
+        XCTAssertEqual(store.snapshots.count, 2)
+
+        store.setProviderEnabled("codex", false)
+        XCTAssertEqual(store.snapshots.map(\.providerID), ["claude_code"], "tab goes before the next poll")
+        XCTAssertFalse(makeStore(providers: [claude, codex]).isProviderEnabled("codex"))
+
+        store.setProviderEnabled("codex", true)
+        await store.refresh(scheduleEmptyRetry: false)
+        XCTAssertEqual(store.snapshots.map(\.providerID), ["claude_code", "codex"])
+        XCTAssertTrue(makeStore(providers: [claude, codex]).isProviderEnabled("codex"))
+    }
+
     func testMenuLimitColorModePersists() {
         let store = makeStore(providers: [])
         store.menuLimitColorMode = .attention
         XCTAssertEqual(makeStore(providers: []).menuLimitColorMode, .attention)
+    }
+
+    func testDailyTrendWindowDefaultsTo14DaysAndPersists() {
+        let store = makeStore(providers: [])
+        XCTAssertEqual(store.dailyTrendWindow, .d14, "Default daily trend window must be 14 days")
+
+        store.dailyTrendWindow = .d7
+        XCTAssertEqual(store.dailyTrendWindow, .d7)
+
+        let reloaded = makeStore(providers: [])
+        XCTAssertEqual(reloaded.dailyTrendWindow, .d7, "Daily trend window selection must persist in defaults")
+    }
+
+    func testDailyTrendTotalsFollowsActiveWindow() async {
+        let fake = FakeUsageProvider(id: "fake", displayName: "Fake")
+        fake.daily = DailyUsage(date: "2026-10-15", inputTokens: 0, outputTokens: 100,
+                                cacheCreationTokens: 0, cacheReadTokens: 0, totalTokens: 100, totalCost: 0)
+        var en = ProviderEnrichment()
+        en.recentDaily = [DailyUsage(date: "2026-10-15", inputTokens: 0, outputTokens: 100,
+                                     cacheCreationTokens: 0, cacheReadTokens: 0, totalTokens: 100, totalCost: 0)]
+        en.monthDaily = [DailyUsage(date: "2026-10-01", inputTokens: 0, outputTokens: 500,
+                                    cacheCreationTokens: 0, cacheReadTokens: 0, totalTokens: 500, totalCost: 0)]
+        en.periodsOK = true
+        fake.enrichment = en
+
+        let store = makeStore(providers: [fake])
+        await store.refresh()
+
+        store.dailyTrendWindow = .d14
+        XCTAssertEqual(store.dailyTrendTotals.first?.totalTokens, 100)
+
+        store.dailyTrendWindow = .month
+        XCTAssertEqual(store.dailyTrendTotals.first?.totalTokens, 500)
+    }
+
+    /// Plans without a session limit (Ultra) send `five_hour: null`: the menu bar falls back to the
+    /// weekly window instead of dropping Claude, and the pace comes from the 7-day span.
+    func testMenuShowsTheWeeklyLimitWhenThePlanHasNoSessionLimit() async throws {
+        let now = Date()
+        let claude = FakeUsageProvider(id: "claude_code", displayName: "Claude Code", daily: todayDaily(1_000))
+        let store = makeStore(providers: [claude], claude: claudeWeekly(66, resetsIn: 3.5 * 24 * 3600, now: now))
+        store.showTokensInMenu = false
+        store.showCostInMenu = false
+        store.showLimitInMenu = true
+        await store.refresh(scheduleEmptyRetry: false)
+
+        let parts = store.menuLimitParts(now: now)
+        XCTAssertEqual(parts.map(\.text), ["Claude 66%"])
+        XCTAssertEqual(try XCTUnwrap(parts.first?.pace), 0.5, accuracy: 0.01)
+        XCTAssertEqual(store.menuTitle, "Claude 66%")
+
+        store.limitDisplayMode = .remaining
+        XCTAssertEqual(store.menuLimitParts(now: now).map(\.text), ["Claude 34%"])
+    }
+
+    /// With both windows, the menu bar keeps showing the 5-hour session.
+    func testMenuPrefersTheSessionLimitOverTheWeeklyOne() async {
+        let now = Date()
+        let claude = FakeUsageProvider(id: "claude_code", displayName: "Claude Code", daily: todayDaily(1_000))
+        let store = makeStore(providers: [claude],
+                              claude: claudeWeekly(66, resetsIn: 3.5 * 24 * 3600, fiveHour: 40, now: now))
+        store.showTokensInMenu = false
+        store.showCostInMenu = false
+        store.showLimitInMenu = true
+        await store.refresh(scheduleEmptyRetry: false)
+        XCTAssertEqual(store.menuLimitParts(now: now).map(\.text), ["Claude 40%"])
+    }
+
+    func testHeadlineWindowPicksTheSessionThenTheWeeklyWindow() throws {
+        let now = Date()
+        let both = try XCTUnwrap(claudeWeekly(66, resetsIn: 3600, fiveHour: 40, now: now).headlineWindow)
+        XCTAssertEqual(both.window.utilization, 40)
+        XCTAssertEqual(both.span, LimitWindowSpan.fiveHour)
+
+        let weeklyOnly = try XCTUnwrap(claudeWeekly(66, resetsIn: 3600, now: now).headlineWindow)
+        XCTAssertEqual(weeklyOnly.window.utilization, 66)
+        XCTAssertEqual(weeklyOnly.span, LimitWindowSpan.sevenDay)
+
+        let empty = try JSONDecoder().decode(LimitStatus.self, from: Data(#"{"five_hour":null,"seven_day":null}"#.utf8))
+        XCTAssertNil(empty.headlineWindow)
+    }
+}
+
+private final class ScriptedOpenCodeGoLimits: OpenCodeGoLimitsProviding, @unchecked Sendable {
+    private var results: [Result<OpenCodeGoRateLimitStatus?, Error>]
+    private(set) var fetchCount = 0
+    init(_ results: [Result<OpenCodeGoRateLimitStatus?, Error>]) { self.results = results }
+    func fetch() async throws -> OpenCodeGoRateLimitStatus? {
+        fetchCount += 1
+        return try (results.count > 1 ? results.removeFirst() : results[0]).get()
+    }
+}
+
+private func openCodeGoRolling(_ percent: Double, resetsIn: TimeInterval, now: Date) -> OpenCodeGoRateLimitStatus {
+    let reset = ISO8601DateFormatter().string(from: now.addingTimeInterval(resetsIn))
+    return OpenCodeGoRateLimitStatus(rolling: OpenCodeGoWindow(status: "ok", percent: percent, resetsAt: reset))
+}
+
+extension UsageStoreTests {
+    private func makeOpenCodeStore(_ limits: ScriptedOpenCodeGoLimits, usedToday: Bool = true) -> UsageStore {
+        let openCode = FakeUsageProvider(id: "opencode", displayName: "OpenCode",
+                                         daily: usedToday ? todayDaily(1_000) : nil)
+        return UsageStore(providers: [openCode],
+                          claudeLimitsProvider: FakeClaudeLimits(status: nil),
+                          codexLimitsProvider: FakeCodexLimits(status: nil),
+                          antigravityLimitsProvider: FakeAntigravityLimits(status: nil),
+                          openCodeGoLimitsProvider: limits,
+                          autoRefresh: false,
+                          defaults: testDefaults)
+    }
+
+    func testDisabledOpenCodeGoSkipsLimitsFetch() async {
+        testDefaults.set(["opencode"], forKey: UsageStore.disabledProvidersKey)
+        let limits = ScriptedOpenCodeGoLimits([.success(openCodeGoRolling(36, resetsIn: 3600, now: Date()))])
+        let store = makeOpenCodeStore(limits)
+
+        await store.refresh(scheduleEmptyRetry: false)
+
+        XCTAssertEqual(limits.fetchCount, 0)
+        XCTAssertNil(store.openCodeGoLimits)
+        XCTAssertFalse(store.openCodeGoLimitsAuthExpired)
+    }
+
+    func testDisablingOpenCodeGoClearsLoadedLimitsAndAuthNotice() async {
+        let limits = ScriptedOpenCodeGoLimits([
+            .success(openCodeGoRolling(36, resetsIn: 3600, now: Date())),
+            .failure(LimitsError.httpStatus(401)),
+        ])
+        let store = makeOpenCodeStore(limits)
+        await store.refresh(scheduleEmptyRetry: false)
+        await store.refresh(scheduleEmptyRetry: false)
+        XCTAssertEqual(limits.fetchCount, 2)
+        XCTAssertEqual(store.openCodeGoLimits?.rolling?.percent, 36)
+        XCTAssertTrue(store.openCodeGoLimitsAuthExpired)
+
+        store.setProviderEnabled("opencode", false)
+        await store.refresh(scheduleEmptyRetry: false)
+
+        XCTAssertEqual(limits.fetchCount, 2)
+        XCTAssertNil(store.openCodeGoLimits)
+        XCTAssertFalse(store.openCodeGoLimitsAuthExpired)
+        XCTAssertFalse(store.openCodeGoLimitsStale)
+    }
+
+    /// A rejected key shows the "reconnect" notice; once the key is gone (`fetch` → nil) it clears.
+    func testOpenCodeGoAuthExpiredClearsWhenThereIsNoKeyAnymore() async {
+        let store = makeOpenCodeStore(ScriptedOpenCodeGoLimits([.failure(LimitsError.httpStatus(401)), .success(nil)]))
+        await store.refresh(scheduleEmptyRetry: false)
+        XCTAssertTrue(store.openCodeGoLimitsAuthExpired)
+
+        await store.refresh(scheduleEmptyRetry: false)
+        XCTAssertNil(store.openCodeGoLimits)
+        XCTAssertFalse(store.openCodeGoLimitsAuthExpired)
+    }
+
+    func testOpenCodeGoLimitsLoadAndCountAsReady() async {
+        let now = Date()
+        let store = makeOpenCodeStore(ScriptedOpenCodeGoLimits([.success(openCodeGoRolling(36, resetsIn: 3600, now: now))]))
+        XCTAssertFalse(store.limitsReady)
+        await store.refresh(scheduleEmptyRetry: false)
+        XCTAssertEqual(store.openCodeGoLimits?.rolling?.percent, 36)
+        XCTAssertNotNil(store.openCodeGoLimitsUpdatedAt)
+        XCTAssertTrue(store.limitsReady)
+        XCTAssertFalse(store.openCodeGoLimitsStale)
+    }
+
+    /// 2.5h into the 5h window: the menu item carries the rolling percent and its pace.
+    func testMenuShowsTheRunningOpenCodeGoWindow() async throws {
+        let now = Date()
+        let store = makeOpenCodeStore(ScriptedOpenCodeGoLimits([.success(openCodeGoRolling(36, resetsIn: 2.5 * 3600, now: now))]))
+        store.showLimitInMenu = true
+        await store.refresh(scheduleEmptyRetry: false)
+        let parts = store.menuLimitParts(now: now)
+        XCTAssertEqual(parts.map(\.text), ["OpenCode 36%"])
+        XCTAssertEqual(try XCTUnwrap(parts.first?.pace), 0.5, accuracy: 0.01)
+    }
+
+    /// The server keeps the last window's percent after its reset passed: the menu must say 0%, not 36%.
+    func testMenuShowsZeroForAnEndedOpenCodeGoWindow() async {
+        let now = Date()
+        let store = makeOpenCodeStore(ScriptedOpenCodeGoLimits([.success(openCodeGoRolling(36, resetsIn: -60, now: now))]))
+        store.showLimitInMenu = true
+        await store.refresh(scheduleEmptyRetry: false)
+        let parts = store.menuLimitParts(now: now)
+        XCTAssertEqual(parts.map(\.text), ["OpenCode 0%"])
+        XCTAssertNil(parts.first?.pace)
+    }
+
+    /// Like the other providers, the menu item appears only on days OpenCode was used.
+    func testMenuSkipsOpenCodeGoWhenOpenCodeWasNotUsedToday() async {
+        let now = Date()
+        let store = makeOpenCodeStore(ScriptedOpenCodeGoLimits([.success(openCodeGoRolling(36, resetsIn: 3600, now: now))]),
+                                      usedToday: false)
+        store.showLimitInMenu = true
+        await store.refresh(scheduleEmptyRetry: false)
+        XCTAssertEqual(store.menuLimitParts(now: now).map(\.text), [])
+    }
+}
+
+private final class ScriptedGrokLimits: GrokLimitsProviding, @unchecked Sendable {
+    private var results: [Result<GrokCreditStatus?, Error>]
+    private(set) var fetchCount = 0
+    init(_ results: [Result<GrokCreditStatus?, Error>]) { self.results = results }
+    func fetch() async throws -> GrokCreditStatus? {
+        fetchCount += 1
+        return try (results.count > 1 ? results.removeFirst() : results[0]).get()
+    }
+}
+
+private func grokWeek(_ percent: Double, endsIn: TimeInterval, now: Date) -> GrokCreditStatus {
+    let f = ISO8601DateFormatter()
+    let end = now.addingTimeInterval(endsIn)
+    return GrokCreditStatus(currentPeriod: .init(type: "USAGE_PERIOD_TYPE_WEEKLY",
+                                                 start: f.string(from: end.addingTimeInterval(-7 * 86400)),
+                                                 end: f.string(from: end)),
+                            creditUsagePercent: percent)
+}
+
+extension UsageStoreTests {
+    private func makeGrokStore(_ limits: ScriptedGrokLimits, usedToday: Bool = true) -> UsageStore {
+        let grok = FakeUsageProvider(id: "grok", displayName: "Grok", daily: usedToday ? todayDaily(1_000) : nil)
+        return UsageStore(providers: [grok],
+                          claudeLimitsProvider: FakeClaudeLimits(status: nil),
+                          codexLimitsProvider: FakeCodexLimits(status: nil),
+                          antigravityLimitsProvider: FakeAntigravityLimits(status: nil),
+                          grokLimitsProvider: limits,
+                          autoRefresh: false,
+                          defaults: testDefaults)
+    }
+
+    func testDisabledGrokSkipsLimitsFetch() async {
+        testDefaults.set(["grok"], forKey: UsageStore.disabledProvidersKey)
+        let limits = ScriptedGrokLimits([.success(grokWeek(12, endsIn: 86400, now: Date()))])
+        let store = makeGrokStore(limits)
+
+        await store.refresh(scheduleEmptyRetry: false)
+
+        XCTAssertEqual(limits.fetchCount, 0)
+        XCTAssertNil(store.grokLimits)
+        XCTAssertFalse(store.grokLimitsAuthExpired)
+    }
+
+    func testDisablingGrokClearsLoadedLimitsAndAuthNotice() async {
+        let limits = ScriptedGrokLimits([
+            .success(grokWeek(12, endsIn: 86400, now: Date())),
+            .failure(LimitsError.httpStatus(401)),
+        ])
+        let store = makeGrokStore(limits)
+        await store.refresh(scheduleEmptyRetry: false)
+        await store.refresh(scheduleEmptyRetry: false)
+        XCTAssertEqual(limits.fetchCount, 2)
+        XCTAssertEqual(store.grokLimits?.creditUsagePercent, 12)
+        XCTAssertTrue(store.grokLimitsAuthExpired)
+
+        store.setProviderEnabled("grok", false)
+        await store.refresh(scheduleEmptyRetry: false)
+
+        XCTAssertEqual(limits.fetchCount, 2)
+        XCTAssertNil(store.grokLimits)
+        XCTAssertFalse(store.grokLimitsAuthExpired)
+        XCTAssertFalse(store.grokLimitsStale)
+    }
+
+    /// A rejected token keeps the last status (dimmed, with the notice); a later success clears the notice,
+    /// and a logout (`fetch` → nil) clears both.
+    func testGrokAuthExpiredKeepsTheLastStatusUntilTheLoginIsBack() async {
+        let now = Date()
+        let store = makeGrokStore(ScriptedGrokLimits([
+            .success(grokWeek(12, endsIn: 86400, now: now)),
+            .failure(LimitsError.httpStatus(401)),
+            .success(grokWeek(14, endsIn: 86400, now: now)),
+            .success(nil),
+        ]))
+        await store.refresh(scheduleEmptyRetry: false)
+        XCTAssertTrue(store.limitsReady)
+        XCTAssertFalse(store.grokLimitsAuthExpired)
+
+        await store.refresh(scheduleEmptyRetry: false)
+        XCTAssertTrue(store.grokLimitsAuthExpired)
+        XCTAssertEqual(store.grokLimits?.creditUsagePercent, 12, "the last status stays visible")
+
+        await store.refresh(scheduleEmptyRetry: false)
+        XCTAssertFalse(store.grokLimitsAuthExpired)
+        XCTAssertEqual(store.grokLimits?.creditUsagePercent, 14)
+
+        await store.refresh(scheduleEmptyRetry: false)
+        XCTAssertNil(store.grokLimits)
+        XCTAssertFalse(store.grokLimitsAuthExpired)
+    }
+
+    /// Half the week has passed: the menu item carries the credit percent and the week's pace.
+    func testMenuShowsTheGrokCreditPeriodWithItsPace() async throws {
+        let now = Date()
+        let store = makeGrokStore(ScriptedGrokLimits([.success(grokWeek(12, endsIn: 3.5 * 86400, now: now))]))
+        store.showLimitInMenu = true
+        await store.refresh(scheduleEmptyRetry: false)
+        let parts = store.menuLimitParts(now: now)
+        XCTAssertEqual(parts.map(\.text), ["Grok 12%"])
+        XCTAssertEqual(try XCTUnwrap(parts.first?.pace), 0.5, accuracy: 0.01)
+    }
+
+    func testMenuShowsZeroForAnEndedGrokPeriod() async {
+        let now = Date()
+        let store = makeGrokStore(ScriptedGrokLimits([.success(grokWeek(80, endsIn: -60, now: now))]))
+        store.showLimitInMenu = true
+        await store.refresh(scheduleEmptyRetry: false)
+        let parts = store.menuLimitParts(now: now)
+        XCTAssertEqual(parts.map(\.text), ["Grok 0%"])
+        XCTAssertNil(parts.first?.pace)
+    }
+
+    func testMenuSkipsGrokWhenGrokWasNotUsedToday() async {
+        let now = Date()
+        let store = makeGrokStore(ScriptedGrokLimits([.success(grokWeek(12, endsIn: 86400, now: now))]), usedToday: false)
+        store.showLimitInMenu = true
+        await store.refresh(scheduleEmptyRetry: false)
+        XCTAssertEqual(store.menuLimitParts(now: now).map(\.text), [])
     }
 }
