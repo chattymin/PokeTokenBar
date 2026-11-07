@@ -105,6 +105,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         }
         store = UsageStore()
         companion = CompanionStore()
+        NearbyBattleUI.install(companion: companion)
         Task { await companion.preparePokemonProfiles() }
         updater = UpdateChecker()
         store.localizationLanguage = companion.language   // 알림 현지화용 미러 시드
