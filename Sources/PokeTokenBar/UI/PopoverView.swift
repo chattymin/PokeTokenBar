@@ -25,12 +25,14 @@ extension View {
         padding(.trailing, PopoverMetrics.scrollerInset)
     }
 
-    /// macOS 27.2 부터 segmented Picker 가 세그먼트 크기만큼만 자라 왼쪽에 붙는다. `.frame(maxWidth:)`·
-    /// `.frame(width:)` 로는 늘어나지 않고 `buttonSizing(.flexible)` 만 제안 폭을 채운다(실측).
+    /// macOS 26 이상에서 segmented Picker 는 제안 폭 대신 고유 폭(세그먼트 수 × 가장 긴 라벨)으로 놓인다.
+    /// 라벨이 짧으면 왼쪽에 붙고(한국어), 길면 줄어들지 않고 열을 넓혀 팝오버 내용 전체가 밀리고 잘린다
+    /// (일본어 366pt·러시아어 368pt vs 332pt 열). `.frame(maxWidth:)`·`.frame(width:)` 는 어느 쪽도 못 막는다.
+    /// `.small` 로 모든 언어를 열 폭 안에 넣고 `buttonSizing(.flexible)` 로 열 폭을 채운다(실측).
     @ViewBuilder
     func segmentedFillsWidth() -> some View {
         #if compiler(>=6.2)
-        if #available(macOS 26, *) { buttonSizing(.flexible) } else { self }
+        if #available(macOS 26, *) { controlSize(.small).buttonSizing(.flexible) } else { self }
         #else
         self
         #endif
