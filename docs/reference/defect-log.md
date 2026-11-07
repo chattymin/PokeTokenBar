@@ -884,6 +884,9 @@ read_when:
   deterministic one, because the frame only shows the overflow when layout adopts it. Removing
   `.small` fails Japanese/English/Russian; removing the Collection call fails every language.
   A new language whose tab labels exceed the column fails this test before it ships.
+  Compare the control's alignment rect, not its view frame: macOS 15 pads a segmented control's
+  frame by 2pt per side (x=12, width 336 for the 332pt column) while macOS 27 does not, so the
+  first version passed locally on 27.2 and failed every language on CI's macOS 15.
 
 - **Floating-pet features share one click route and one bubble reservation.** Agent activity (#457)
   and pet interactions (#466) both changed the controller, hosting callbacks and sprite composition.

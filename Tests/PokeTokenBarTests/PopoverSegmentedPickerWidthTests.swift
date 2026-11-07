@@ -74,8 +74,9 @@ final class PopoverSegmentedPickerWidthTests: XCTestCase {
             failures.append("\(context): the Pokédex / catch-log picker is not mounted")
         }
         for (index, control) in controls.enumerated() {
-            let frame = control.convert(control.bounds, to: host)
-            let name = "\(context) picker \(index) [\(labels(of: control))] frame=\(NSStringFromRect(frame))"
+            let frame = visibleFrame(of: control, in: host)
+            let name = "\(context) picker \(index) [\(labels(of: control))] frame=\(NSStringFromRect(frame)) "
+                + "insets=\(control.alignmentRectInsets)"
             // The control must be readable in full, not just inside the popover.
             if #available(macOS 26, *), control.intrinsicContentSize.width > frame.width + 0.5 {
                 failures.append("\(name): intrinsic width \(control.intrinsicContentSize.width) exceeds its frame")
@@ -87,8 +88,9 @@ final class PopoverSegmentedPickerWidthTests: XCTestCase {
         // The tab bar and the Pokédex / catch-log switch are the column's full-width pickers.
         if screen == .home || screen == .collection {
             for control in controls.prefix(screen == .home ? 1 : 2) {
-                let frame = control.convert(control.bounds, to: host)
-                let name = "\(context) [\(labels(of: control))] frame=\(NSStringFromRect(frame))"
+                let frame = visibleFrame(of: control, in: host)
+                let name = "\(context) [\(labels(of: control))] frame=\(NSStringFromRect(frame)) "
+                    + "insets=\(control.alignmentRectInsets)"
                 if #available(macOS 26, *), control.intrinsicContentSize.width > PopoverMetrics.contentWidth + 0.5 {
                     failures.append("\(name): intrinsic width \(control.intrinsicContentSize.width) exceeds "
                         + "the \(PopoverMetrics.contentWidth)pt column, which widens and shifts every row")
@@ -101,6 +103,13 @@ final class PopoverSegmentedPickerWidthTests: XCTestCase {
             }
         }
         return failures
+    }
+
+    /// The control's alignment rect in host coordinates. macOS 15 pads a segmented control's view
+    /// frame by 2pt on each side (frame x=12, width 336 for a 332pt column); macOS 27 does not. The
+    /// alignment rect is the edge SwiftUI lines up with the column on both.
+    private func visibleFrame(of control: NSSegmentedControl, in host: NSView) -> NSRect {
+        control.convert(control.alignmentRect(forFrame: control.bounds), to: host)
     }
 
     private func segmentedControls(in view: NSView) -> [NSSegmentedControl] {
