@@ -24,6 +24,19 @@ extension View {
     func reservesScrollerLane() -> some View {
         padding(.trailing, PopoverMetrics.scrollerInset)
     }
+
+    /// macOS 26 이상에서 segmented Picker 는 제안 폭 대신 고유 폭(세그먼트 수 × 가장 긴 라벨)으로 놓인다.
+    /// 라벨이 짧으면 왼쪽에 붙고(한국어), 길면 줄어들지 않고 열을 넓혀 팝오버 내용 전체가 밀리고 잘린다
+    /// (일본어 366pt·러시아어 368pt vs 332pt 열). `.frame(maxWidth:)`·`.frame(width:)` 는 어느 쪽도 못 막는다.
+    /// `.small` 로 모든 언어를 열 폭 안에 넣고 `buttonSizing(.flexible)` 로 열 폭을 채운다(실측).
+    @ViewBuilder
+    func segmentedFillsWidth() -> some View {
+        #if compiler(>=6.2)
+        if #available(macOS 26, *) { controlSize(.small).buttonSizing(.flexible) } else { self }
+        #else
+        self
+        #endif
+    }
 }
 
 /// 팝오버 내부 내비게이션 상태(현재 탭 / 컬렉션 세그먼트 / 설정 표시 여부).
@@ -158,6 +171,7 @@ struct PopoverView: View {
             }
             .pickerStyle(.segmented)
             .labelsHidden()
+            .segmentedFillsWidth()
 
             if nav.tab == .collection {
                 CollectionView(store: companion, navigation: nav)

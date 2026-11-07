@@ -1110,6 +1110,7 @@ struct CollectionView: View {
                 }
                 .pickerStyle(.segmented)
                 .labelsHidden()
+                .segmentedFillsWidth()
 
                 filterToolbar
 

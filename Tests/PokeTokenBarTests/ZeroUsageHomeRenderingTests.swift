@@ -126,6 +126,11 @@ final class ZeroUsageHomeRenderingTests: XCTestCase {
         defer { window.close() }
         try await Task.sleep(for: .milliseconds(500))
         host.layoutSubtreeIfNeeded()
+        let tabs = try XCTUnwrap(segmentedControls(in: host).first { $0.segmentCount == 4 })
+        let tabsFrame = tabs.convert(tabs.bounds, to: host)
+        XCTAssertEqual(tabsFrame.minX, PopoverMetrics.padding, accuracy: 0.5, "tab picker must start at the content edge")
+        XCTAssertEqual(tabsFrame.width, PopoverMetrics.contentWidth, accuracy: 0.5,
+                       "tab picker must span the popover content width")
         // Keep caption OCR at 2x regardless of the runner's screen backing scale.
         let bounds = host.bounds
         let bitmap = try XCTUnwrap(NSBitmapImageRep(
