@@ -42,7 +42,10 @@ final class DexBackNavigationTests: XCTestCase {
         let host = NSHostingView(rootView: CollectionView(store: store, navigation: navigation)
             .frame(width: PopoverMetrics.contentWidth, height: 520)
             .background(Color.white)
-            .environment(\.colorScheme, .light))
+            .environment(\.colorScheme, .light)
+            // An offscreen window on CI can stop ticking animations, leaving a half-faded screen
+            // that never matches the expected text. These tests check the state after a press.
+            .transaction { $0.animation = nil })
         host.frame = NSRect(x: 0, y: 0, width: PopoverMetrics.contentWidth, height: 520)
         let window = NSWindow(contentRect: NSRect(x: -10000, y: -10000, width: PopoverMetrics.contentWidth, height: 520),
                               styleMask: .borderless, backing: .buffered, defer: false)
