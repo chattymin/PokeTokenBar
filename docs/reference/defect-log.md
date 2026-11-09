@@ -480,6 +480,11 @@ read_when:
   패치·마이너가 단가 한 칸만 바꿀 수 있으면 **정확 매칭 행을 표에 추가**하고, 폴백이 우연히 맞는
   모델(예: `claude-opus-5` → opus 폴백)은 건드리지 않는다. 가드: `testPricingExactAndFallbackAndZero`
   의 `claude-fable-5-1` cache-read $0.25 단언.
+  Fable 5.2 (2026-11-10): a new exact model ID had no row, so costs were unavailable.
+  Existing tests only enumerated earlier releases. `testFable52StandardRatesAndUsageCost`
+  fails without the row and checks all four official rates, normalized IDs, and the daily
+  cost text with mixed cache usage. The known-model list now includes `claude-fable-5-2`;
+  unknown future Fable IDs still remain unpriced. No family fallback is introduced.
 - **폴백을 제거하는 것은 그 폴백이 덮던 *모든 입력*에 대한 동작 변경이다 — 지우기 전에 그 입력을 열거하라.**
   #289 가 `contains("opus")` 류 패밀리 폴백을 없앨 때(그 자체는 #277 때문에 옳다) 폴백으로만
   가격이 매겨지던 `claude-opus-5`·`claude-sonnet-5` 의 정확 매칭 행을 넣지 않아, 현행 세대 Claude
