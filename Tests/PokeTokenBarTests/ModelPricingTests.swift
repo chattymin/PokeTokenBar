@@ -2,6 +2,31 @@ import XCTest
 @testable import PokeTokenBar
 
 final class ModelPricingTests: XCTestCase {
+    func testFable52StandardRatesAndUsageCost() throws {
+        // Official standard API rates, checked 2026-11-10; cache writes use the 5m rate.
+        for model in ["claude-fable-5-2", " ANTHROPIC/CLAUDE-FABLE-5-2 "] {
+            XCTAssertEqual(ModelPricing.rate(for: model), .perMillion(8, 40, 10, 0.2))
+            for (input, output, write, read, expected) in [
+                (100_000, 0, 0, 0, 0.8), (0, 100_000, 0, 0, 4.0),
+                (0, 0, 100_000, 0, 1.0), (0, 0, 0, 100_000, 0.02),
+                (100_000, 10_000, 20_000, 300_000, 1.46),
+            ] {
+                XCTAssertEqual(try XCTUnwrap(ModelPricing.estimatedCost(
+                    model: model, input: input, output: output,
+                    cacheWrite: write, cacheRead: read)), expected, accuracy: 1e-12)
+            }
+        }
+        let now = Date()
+        let day = LocalUsageReader.todayKey()
+        let entry = LocalUsageReader.Entry(id: "fable-52", date: now, localDay: day,
+            model: "claude-fable-5-2", input: 100_000, output: 10_000,
+            cacheWrite: 20_000, cacheRead: 300_000)
+        let daily = try XCTUnwrap(LocalUsageReader.daily(entries: [entry], localDay: day))
+        XCTAssertEqual(daily.totalCost, 1.46, accuracy: 1e-12)
+        XCTAssertEqual(daily.costCoverage, .estimate)
+        XCTAssertEqual(daily.usageCost.text(L(.en)), "$1.46")
+    }
+
     func testCurrentOpenAIStandardRates() {
         XCTAssertEqual(ModelPricing.rate(for: "gpt-6-astra"), .perMillion(10, 50, 12.5, 1))
         XCTAssertEqual(ModelPricing.rate(for: "gpt-6-sol"), .perMillion(2, 10, 2.5, 0.2))
@@ -35,7 +60,7 @@ final class ModelPricingTests: XCTestCase {
         // output columns are filled in.
         for model in ["claude-opus-5", "claude-opus-5-5", "claude-sonnet-5", "claude-sonnet-5-5",
                       "claude-opus-4-8", "claude-opus-4-7",
-                      "claude-sonnet-4-6", "claude-haiku-4-5", "claude-fable-5", "claude-fable-5-1"] {
+                      "claude-sonnet-4-6", "claude-haiku-4-5", "claude-fable-5", "claude-fable-5-1", "claude-fable-5-2"] {
             let cost = try XCTUnwrap(
                 ModelPricing.estimatedCost(model: model, input: 2, output: 175,
                                            cacheWrite: 26_939, cacheRead: 42_676),
