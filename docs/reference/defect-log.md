@@ -1394,6 +1394,21 @@ read_when:
   interaction must still fail if the production region selection is disconnected, even after
   all retry attempts. No production UI behavior or CI gate is changed for this harness repair.
 
+- **Retrying a toggle is only safe when the screen settles between attempts.**
+  `testRegionChipFiltersMountedCollectionAndTogglesBack` kept failing on unrelated PRs (CI runs
+  `41991406830`, `42189590277`, `42297809746`, `42685395324`) while `main` passed. The chip
+  runs its selection inside `withAnimation`, and the offscreen CI window did not finish that
+  0.15 s fade within the 1 s attempt window: the saved `dex-region-failed.png` shows one card
+  with Maple and `#152` cross-faded. The bounded retry from the entry above then pressed the
+  chip again, which toggles the selection back, so the five attempts alternated between two
+  states and none of them rendered completely. The local gate could not catch it because
+  animations tick normally on a developer display. `host(_:_:)` now clears the transaction
+  animation for the hosted `CollectionView`, so each press renders its final state on the next
+  update. Stretching the chip animation to 30 s reproduces the CI failure locally without this
+  change (five clicks, both phases stuck) and passes with it (one click per phase). The class
+  sweep found the other native-click harnesses do not retry a toggling control, and none of
+  them failed in those runs, so they are unchanged. Production animation is untouched.
+
 - **Use unambiguous fixture words for exact OCR navigation assertions.**
   `DexBackNavigationTests.testBackFromDetailReturnsTheLogToWhereItWas` failed in CI run
   `39184274574`: after Back, Vision read the artificial oldest-catch label `Mon1` as
