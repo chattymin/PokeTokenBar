@@ -73,6 +73,7 @@ struct SettingsView: View {
                     VStack(alignment: .leading, spacing: 18) {
                         generalGroup(store)
                         difficultyGroup
+                        hatchRegionsGroup
                         menuBarGroup(store)
                         trackedProvidersGroup(store)
                         floatingPetGroup(store)
@@ -295,6 +296,10 @@ struct SettingsView: View {
 
     private var difficultyGroup: some View {
         DifficultySettingsSection(companion: companion)
+    }
+
+    private var hatchRegionsGroup: some View {
+        HatchRegionSettingsSection(companion: companion)
     }
 
     @ViewBuilder
