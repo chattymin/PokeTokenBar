@@ -410,6 +410,13 @@ struct L {
     }
     var representativeBadge: String { t("대표", "Representative", "代表", "Representante", "Représentatif", "Representante", "Repräsentativ", "Основной") }
     // MARK: 난이도
+    // MARK: 부화 지역 제한 (설정)
+    var hatchRegionsSectionTitle: String { t("부화 지역", "Hatch regions", "孵化する地方", "Regiones de incubación", "Régions d'éclosion", "Regiões de chocagem", "Brutregionen", "Регионы вылупления") }
+    var hatchRegionsHint: String { t("선택한 지역의 포켓몬만 알에서 나와요. 확률·성장·가격은 그대로예요.", "Only Pokémon from the selected regions hatch. Odds, growth and prices are unchanged.", "選んだ地方のポケモンだけがタマゴから生まれます。確率・成長・価格は変わりません。", "Solo nacen Pokémon de las regiones seleccionadas. Probabilidades, crecimiento y precios no cambian.", "Seuls les Pokémon des régions sélectionnées éclosent. Probabilités, croissance et prix inchangés.", "Apenas Pokémon das regiões selecionadas chocam. Chances, crescimento e preços não mudam.", "Es schlüpfen nur Pokémon der gewählten Regionen. Chancen, Wachstum und Preise bleiben gleich.", "Вылупляются только покемоны из выбранных регионов. Шансы, рост и цены не меняются.") }
+    var hatchRegionsLastOneHint: String { t("최소 한 지역은 켜 두어야 해요.", "At least one region must stay on.", "少なくとも1つの地方はオンのままにしてください。", "Al menos una región debe permanecer activa.", "Au moins une région doit rester activée.", "Pelo menos uma região deve permanecer ativa.", "Mindestens eine Region muss aktiviert bleiben.", "Хотя бы один регион должен остаться включённым.") }
+    /// 꺼 둔 지역의 도감 배지는 부화로 달성할 수 없다 — 설정에서 미리 알린다(#442 와의 상호작용).
+    var hatchRegionsBadgeWarning: String { t("꺼 둔 지역과 전국 도감 배지는 달성할 수 없어요.", "Badges for the regions you turn off, and the National Dex badge, become unreachable.", "オフにした地方と全国図鑑のバッジは達成できなくなります。", "Las medallas de las regiones desactivadas y la Pokédex Nacional quedan inalcanzables.", "Les badges des régions désactivées et du Pokédex National deviennent inaccessibles.", "As medalhas das regiões desativadas e da Pokédex Nacional ficam inalcançáveis.", "Abzeichen deaktivierter Regionen und des National-Pokédex sind nicht mehr erreichbar.", "Значки выключенных регионов и Национального Покедекса станут недостижимы.") }
+
     var difficultySectionTitle: String { t("난이도", "Difficulty", "難易度", "Dificultad", "Difficulté", "Dificuldade", "Schwierigkeit", "Сложность") }
     var difficultyGrowthLabel: String { t("성장", "Growth", "成長", "Crecimiento", "Croissance", "Crescimento", "Wachstum", "Рост") }
     var difficultyShopLabel: String { t("상점 가격", "Shop prices", "ショップ価格", "Precios de la tienda", "Prix de la boutique", "Preços da loja", "Shop-Preise", "Цены в магазине") }

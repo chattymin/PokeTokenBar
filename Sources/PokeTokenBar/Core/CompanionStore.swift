@@ -72,6 +72,26 @@ final class CompanionStore {
     /// 상점 배율 — 아이템·알 가격에 곱한다. 낮을수록 싸다.
     private(set) var shopDifficulty: Double
 
+    /// 부화 후보 지역 — 선택한 지역의 base 종만 알에서 나온다. 기본은 전체라 기존 동작과 같다.
+    /// 난이도와 같은 이유로 UserDefaults 에 둔다(진행이 아니라 취향, 남의 세이브가 덮지 않게).
+    /// **빈 집합은 저장하지 않는다**: 후보 0 은 영원히 안 깨지는 알이다 — 비면 전체로 되돌린다.
+    private(set) var hatchRegions: Set<PokedexRegion>
+
+    static let hatchRegionsKey = "hatchRegions"
+
+    /// 저장값 → 지역 집합. 알 수 없는 rawValue 는 버린다(구버전/수기 편집 방어).
+    static func storedHatchRegions(_ defaults: UserDefaults) -> Set<PokedexRegion> {
+        let raw = defaults.array(forKey: hatchRegionsKey) as? [String] ?? []
+        let parsed = Set(raw.compactMap(PokedexRegion.init(rawValue:)))
+        return parsed.isEmpty ? Set(PokedexRegion.allCases) : parsed
+    }
+
+    /// 이 종이 지금 선택된 지역에서 부화할 수 있는가. Gen 1–5 밖(= 도감 범위 밖)은 항상 false.
+    func allowsHatching(speciesID: Int) -> Bool {
+        guard let region = PokedexRegion.region(forDexNumber: speciesID) else { return false }
+        return hatchRegions.contains(region)
+    }
+
     init(provider: any PokeProviding = PokeAPIClient.shared,
          detailProvider: (any PokemonDetailProviding)? = nil,
          clock: @escaping () -> Date = Date.init,
@@ -93,6 +113,7 @@ final class CompanionStore {
         growthDifficulty = PokemonBalance.clampDifficulty(storedGrowth)
         shopDifficulty = PokemonBalance.clampDifficulty(
             defaults.object(forKey: "shopDifficulty") as? Double ?? PokemonBalance.defaultDifficulty)
+        hatchRegions = Self.storedHatchRegions(defaults)
         load()
         if previousGrowth != growthDifficulty {
             rescaleBankedGrowth(from: previousGrowth, to: growthDifficulty)
@@ -100,6 +121,7 @@ final class CompanionStore {
         }
         defaults.set(growthDifficulty, forKey: "growthDifficulty")
         defaults.set(shopDifficulty, forKey: "shopDifficulty")
+        defaults.set(hatchRegions.map(\.rawValue).sorted(), forKey: Self.hatchRegionsKey)
         migratePokemonProfilesIfNeeded()
         seedDexCompletionsIfNeeded()
         refreshRepresentativeSubject()
@@ -131,6 +153,25 @@ final class CompanionStore {
         defaults.set(clamped, forKey: "growthDifficulty")
         // Do not evolve, graduate or hatch just because Settings changed.
         save()
+    }
+
+    /// 부화 후보 지역을 바꾼다. 빈 선택은 전체로 되돌린다 — 후보 0 이면 알이 영영 안 깨진다.
+    ///
+    /// 이미 pre-roll 된 종(`pendingHatchID`)이 새 선택 밖이면 **여기서 버린다**. 안 그러면
+    /// 설정을 바꿔도 다음 한 번은 옛 선택대로 부화하고, 사용자는 설정이 안 먹었다고 읽는다.
+    /// 예열해 둔 라인 캐시도 같이 비워 다음 프리패치가 새로 뽑게 한다.
+    func setHatchRegions(_ regions: Set<PokedexRegion>) {
+        let next = regions.isEmpty ? Set(PokedexRegion.allCases) : regions
+        guard next != hatchRegions else { return }
+        hatchRegions = next
+        defaults.set(next.map(\.rawValue).sorted(), forKey: Self.hatchRegionsKey)
+        if let pending = state.pendingHatchID, !allowsHatching(speciesID: pending) {
+            AppLog.write("hatch regions changed — dropped pre-rolled base \(pending)")
+            state.pendingHatchID = nil
+            state.pendingForm = nil
+            prefetchedLineID = nil
+            save()
+        }
     }
 
     private func rescaleBankedGrowth(from old: Double, to new: Double) {
@@ -1915,9 +1956,13 @@ final class CompanionStore {
             // 등급 보증 알은 후보를 먼저 좁힌다 — capture_rate 상한이 곧 등급 하한이므로
             // (Rarity.captureRateCeiling) 전설도 자연히 포함된다("희귀 이상"에 전설이 들어가는 게 정상).
             // 좁힌 결과가 비면 보증을 못 지키므로 전체 풀로 폴백하지 말고 알을 유지한다(다음 틱 재시도).
-            let index = tier.map { t in full.filter { t.includes(captureRate: $0.captureRate) } } ?? full
+            // 지역 필터가 먼저다 — 등급 보증은 "선택한 지역 안에서" 지켜야 한다. 순서를 뒤집어도
+            // 결과 집합은 같지만, 비었을 때 로그가 어느 조건 때문인지 구분되지 않는다.
+            let regional = full.filter { allowsHatching(speciesID: $0.id) }
+            let index = tier.map { t in regional.filter { t.includes(captureRate: $0.captureRate) } } ?? regional
             guard !index.isEmpty else {
-                AppLog.write("hatch: no candidate for guaranteed \(tier?.rawValue ?? "none") — egg kept, retry next tick")
+                // 전체 풀로 폴백하지 않는다: 지역 제한도 등급 보증과 똑같이 지켜야 하는 약속이다.
+                AppLog.write("hatch: no candidate for guaranteed \(tier?.rawValue ?? "none") in regions \(hatchRegions.map(\.rawValue).sorted().joined(separator: ",")) — egg kept, retry next tick")
                 return nil
             }
             let weights = index.map { e in
@@ -1941,9 +1986,17 @@ final class CompanionStore {
     /// line() 이 실제 capture_rate 로 계산하므로 결과 개체의 등급은 정확하다. 인덱스 복구 시 가중 선택 재개.
     private func chooseBaseViaREST() async -> Int? {
         let tier = state.eggTier
+        // 지역 제한은 **이 경로에도** 걸어야 한다. 빠지면 GraphQL 인덱스가 죽은 동안에만
+        // 조용히 제한이 풀려, 재현하기 어려운 "가끔 딴 지역이 나온다"가 된다.
+        // 전체에서 뽑고 거르는 대신 후보를 미리 좁힌다 — 관동만 켜면 전체의 23% 라
+        // 거르는 방식은 16번 시도 대부분을 헛돌린다(게다가 판정에 네트워크가 든다).
+        let candidates = PokemonAssets.animatedSpeciesIDs.filter { allowsHatching(speciesID: $0) }
+        guard !candidates.isEmpty else {
+            AppLog.write("hatch: REST fallback has no candidate in selected regions — egg kept")
+            return nil
+        }
         for attempt in 1...16 {
-            let ids = PokemonAssets.animatedSpeciesIDs
-            let id = Int(rng.next() % UInt64(ids.count)) + ids.lowerBound
+            let id = candidates[Int(rng.next() % UInt64(candidates.count))]
             do {
                 if let bs = try await provider.baseSpecies(id: id) {
                     // 등급 보증은 가중 경로와 **같은 기준**으로 여기서도 걸러야 한다 — 이 폴백만 빠지면
