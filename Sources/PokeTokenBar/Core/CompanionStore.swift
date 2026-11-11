@@ -32,6 +32,17 @@ final class CompanionStore {
     /// 연출 재생 후 UI 가 호출(1회성 보장).
     func consumeCelebration() { celebration = nil }
 
+    /// The last evolution, for a sprite on screen to play the old ⇄ new silhouette sequence. Unlike
+    /// `celebration` it is never consumed: the popover and the floating pet each play it once, and
+    /// only when they see the species change (`SpriteView.playsEvolution`).
+    struct EvolutionCue: Equatable, Sendable {
+        let seq: Int
+        let fromID: Int
+        let toID: Int
+        let at: Date
+    }
+    private(set) var lastEvolution: EvolutionCue?
+
     /// 사탕 사용 시 "+XP" 순간 표시 — 진화 없이 부분 진행일 때도 피드백. seq 증가로 CompanionHeader 감지.
     private(set) var candyFeedbackSeq = 0
     private(set) var candyFeedbackAmount = 0
@@ -1051,6 +1062,8 @@ final class CompanionStore {
                 let newName = formDisplayName(line.localizedName(next.speciesID, state.language),
                                               speciesID: next.speciesID, form: a.form)
                 justEvolvedTo = newName
+                lastEvolution = EvolutionCue(seq: (lastEvolution?.seq ?? 0) + 1, fromID: a.currentID,
+                                             toID: next.speciesID, at: Date())
                 fireCelebration(.evolve)
                 // 짧은 levelUp 창 — 진화 순간 "…(으)로 진화했어요" 문구 노출(hatch/graduate 와 동일 패턴).
                 // 이게 없으면 computeState 가 .levelUp 을 안 내 statusEvolved 가 도달 불가(dead code)였다.

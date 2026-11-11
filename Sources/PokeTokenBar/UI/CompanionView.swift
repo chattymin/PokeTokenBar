@@ -134,6 +134,9 @@ struct SpriteView: View {
     var back: Bool = false
     /// Emit `SpriteVisibleTopKey` so an overlay can sit on the visible sprite instead of its box.
     var reportsVisibleTop = false
+    /// The companion's last evolution. A view that sees its species change into `toID` plays the
+    /// old ⇄ new silhouette sequence; nil (the default) never plays it.
+    var evolution: CompanionStore.EvolutionCue? = nil
     private let spriteStore: SpriteStore
     @State private var subject: SpriteSubject
     @State private var up = false
@@ -149,13 +152,20 @@ struct SpriteView: View {
     /// earlier GIF pose beside the sprite. The token ignores the completion of a superseded fade.
     @State private var revealing = false
     @State private var revealToken = 0
+    /// Evolution sequence: the previous Pokémon as drawn when the species changed (nil = not playing),
+    /// which silhouette is up, a counter that restarts the sequence task, and the cue already played.
+    @State private var evolutionOld: NSImage?
+    @State private var evolutionShowsNew = false
+    @State private var evolutionRun = 0
+    @State private var playedEvolutionSeq: Int?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     init(speciesID: Int?, size: CGFloat = 84, bob: Bool = false, animated: Bool = false,
          shiny: Bool = false, minFrameDelay: TimeInterval = 0, spriteStore: SpriteStore = .shared,
          form: PokemonForm? = nil, back: Bool = false,
-         reportsVisibleTop: Bool = false) {
+         reportsVisibleTop: Bool = false, evolution: CompanionStore.EvolutionCue? = nil) {
         self.reportsVisibleTop = reportsVisibleTop
+        self.evolution = evolution
         self.speciesID = speciesID
         self.spriteStore = spriteStore
         self.back = back
@@ -216,8 +226,34 @@ struct SpriteView: View {
         return nil
     }
 
+    /// How long after an evolution a view may still start its sequence. Covers a floating pet whose
+    /// subject follows the companion a moment later; a much later switch to the same species is not it.
+    static let evolutionCueLifetime: TimeInterval = 5
+
+    /// Whether a species change into `incoming` is the evolution in `cue`, still to be played here.
+    /// Reduce Motion skips it: the sprite then changes with the white fade only. Pure, for tests.
+    static func playsEvolution(cue: CompanionStore.EvolutionCue?, incoming: Int, played: Int?,
+                               now: Date, reduceMotion: Bool) -> Bool {
+        guard let cue, !reduceMotion, cue.toID == incoming, cue.seq != played else { return false }
+        return now.timeIntervalSince(cue.at) <= evolutionCueLifetime
+    }
+
+    /// The previous Pokémon stays a white silhouette this long before the swapping starts.
+    static let evolutionHold: TimeInterval = 0.5
+
+    /// The swapping, like the games: new, old, new… each shown a little shorter than the last, ending
+    /// on the new form held for a beat before its colors come in.
+    static let evolutionFlips: [(showsNew: Bool, duration: TimeInterval)] =
+        [0.45, 0.4, 0.35, 0.3, 0.26, 0.22, 0.18, 0.15, 0.12, 0.1, 0.08, 0.07, 0.2]
+            .enumerated().map { (showsNew: $0.offset.isMultiple(of: 2), duration: $0.element) }
+
     /// The silhouette shows only while no frame of the new species can be drawn.
     private var showsSilhouette: Bool { frames.isEmpty && subject.isPlaceholder && subject.image != nil }
+
+    /// The new species can be drawn: its GIF frames or its own static image.
+    private var evolutionNewReady: Bool {
+        !frames.isEmpty || (!subject.isPlaceholder && subject.loadedID == speciesID && subject.image != nil)
+    }
 
     /// The image currently drawn, for the white that fades off it when the new species arrives.
     private var drawnImage: NSImage? {
@@ -261,6 +297,26 @@ struct SpriteView: View {
 
     /// Glow strength of a silhouette waiting for its sprite: it breathes between dim and full.
     private var waitingHalo: Double { reduceMotion ? 1 : (silhouetteGlow ? 1 : 0.3) }
+
+    /// Runs the evolution sequence started in the frame task. Waits for the new sprite if it is still
+    /// downloading; a species change in the meantime clears `evolutionOld` and ends it.
+    private func playEvolution() async {
+        guard evolutionOld != nil else { return }
+        try? await Task.sleep(for: .seconds(Self.evolutionHold))
+        while !evolutionNewReady {
+            guard !Task.isCancelled, evolutionOld != nil else { return }
+            try? await Task.sleep(for: .milliseconds(100))
+        }
+        for flip in Self.evolutionFlips {
+            guard !Task.isCancelled, evolutionOld != nil else { return }
+            evolutionShowsNew = flip.showsNew
+            try? await Task.sleep(for: .seconds(flip.duration))
+        }
+        guard !Task.isCancelled, evolutionOld != nil else { return }
+        evolutionOld = nil
+        evolutionShowsNew = false
+        startReveal()
+    }
 
     /// The new sprite starts white and its colors come in.
     private func startReveal() {
@@ -332,7 +388,15 @@ struct SpriteView: View {
 
     var body: some View {
         Group {
-            if !frames.isEmpty {
+            if let old = evolutionOld {
+                // Evolution sequence: the old and new silhouettes take turns, then the new one colors in.
+                if evolutionShowsNew, evolutionNewReady, let drawn = drawnImage {
+                    whiteSilhouette(drawn)
+                } else {
+                    // Before the swapping, and while the new sprite is still downloading (it pulses then).
+                    whiteSilhouette(old, halo: evolutionNewReady ? 1 : waitingHalo)
+                }
+            } else if !frames.isEmpty {
                 // GIF 애니메이션 경로 — 현재 프레임만 렌더. Gen-V GIF 캔버스는 종마다 비정사각이라
                 // (잭키 36×66) 정사각으로 늘리면 뚱뚱해진다 → fitted 로 비율 유지.
                 fitted(frames[frameIndex % frames.count].image)
@@ -360,8 +424,9 @@ struct SpriteView: View {
                 withAnimation(.easeInOut(duration: 0.7).repeatForever(autoreverses: true)) { silhouetteGlow = true }
             } else {
                 withAnimation(nil) { silhouetteGlow = false }
-                // The new species arrived: it starts white and its colors come in.
-                guard was, speciesID != nil, !reduceMotion else { return }
+                // The new species arrived: it starts white and its colors come in. An evolution
+                // sequence does this itself after the swapping.
+                guard was, speciesID != nil, !reduceMotion, evolutionOld == nil else { return }
                 startReveal()
             }
         }
@@ -371,6 +436,9 @@ struct SpriteView: View {
             let outgoing = Self.outgoingImage(subject: subject,
                                               frame: frames.isEmpty ? nil : frames[frameIndex % frames.count].image,
                                               framesID: framesID, incoming: speciesID)
+            // The previous Pokémon exactly as drawn, so its silhouette matches what was on screen.
+            let outgoingDrawn = outgoing == nil ? nil : drawnImage
+            if evolutionOld != nil { evolutionOld = nil }   // a later change ends an unfinished sequence
             // animated 프레임은 id/shiny 변경 시 항상 초기화(이전 개체 프레임 잔상 방지)
             frames = animated ? GIFDecoder.capFrameRate(
                 speciesID.map { SpriteLoader.cachedFrames(speciesID: $0, shiny: shiny, directory: spriteStore.directory,
@@ -400,6 +468,13 @@ struct SpriteView: View {
                 apply(subject.startingLoad(cachedImage: cached, outgoing: frames.isEmpty ? outgoing : nil,
                                            for: id, shiny: shiny, form: resolvedForm, back: back))
             }
+            if let outgoingDrawn, Self.playsEvolution(cue: evolution, incoming: id, played: playedEvolutionSeq,
+                                                      now: Date(), reduceMotion: reduceMotion) {
+                playedEvolutionSeq = evolution?.seq
+                evolutionShowsNew = false
+                evolutionOld = outgoingDrawn
+                evolutionRun += 1
+            }
             // Request animation before a missing static PNG can hold playback behind a network fetch.
             if animated && frames.isEmpty {
                 let decoded = await SpriteLoader.recoveringAnimationFrames(
@@ -427,6 +502,7 @@ struct SpriteView: View {
                 frameIndex = (frameIndex + 1) % frames.count
             }
         }
+        .task(id: evolutionRun) { await playEvolution() }
         .onAppear {
             guard bob else { return }
             withAnimation(.easeInOut(duration: 0.9).repeatForever(autoreverses: true)) { up = true }
@@ -808,6 +884,7 @@ struct CompanionHeader: View {
     // 민트 사용 시 "반짝" 스파클 (성격 변경 피드백 — 텍스트 없이 짧은 이펙트)
     @State private var seenMintSeq = -1
     @State private var mintSparkle = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     /// Hover tooltip for the growth bars: "X / Y · Z%". Used is clamped to total (egg usage can
     /// overshoot while a hatch retry is pending) and the percent floors, so 100% means done.
@@ -827,7 +904,7 @@ struct CompanionHeader: View {
             HStack(alignment: .center, spacing: 12) {
                 SpriteView(speciesID: store.currentSpeciesID, size: 76, bob: true, animated: true,
                            shiny: store.currentIsShiny, spriteStore: spriteStore, form: store.currentForm,
-                           back: store.facesBack)
+                           back: store.facesBack, evolution: store.lastEvolution)
                     .frame(width: 76, height: 76)
                     .background(Color.secondary.opacity(0.06))
                     .clipShape(RoundedRectangle(cornerRadius: 12))
@@ -966,7 +1043,7 @@ struct CompanionHeader: View {
             showMintIfNeeded()
             syncEggWiggle()
         }
-        .onChange(of: store.celebrationSeq) { playCelebrationIfNeeded() }
+        .onChange(of: store.celebrationSeq) { playCelebrationIfNeeded(live: true) }
         .onChange(of: store.candyFeedbackSeq) { showCandyXPIfNeeded() }
         .onChange(of: store.mintFeedbackSeq) { showMintIfNeeded() }
         .onChange(of: eggImminent) { syncEggWiggle() }
@@ -974,10 +1051,13 @@ struct CompanionHeader: View {
     }
 
     /// 부화/진화 연출 1회 재생 — 흰 플래시 페이드아웃 + 스프링 팝. shiny 부화는 ✨ 버스트 추가.
-    private func playCelebrationIfNeeded() {
+    /// `live`: the event happened while this header was on screen. A live evolution is shown by the
+    /// sprite's own old ⇄ new silhouette sequence, so the flash and pop are skipped for it.
+    private func playCelebrationIfNeeded(live: Bool = false) {
         guard let c = store.celebration, store.celebrationSeq != seenSeq else { return }
         seenSeq = store.celebrationSeq
         store.consumeCelebration()
+        if Self.spriteShowsEvolution(c, live: live, reduceMotion: reduceMotion) { return }
         flashOpacity = 0.85
         celebScale = 0.6
         withAnimation(.easeOut(duration: 0.8)) { flashOpacity = 0 }
@@ -1000,6 +1080,12 @@ struct CompanionHeader: View {
                 withAnimation(.easeOut(duration: 0.5)) { dittoBurst = false; shinyBurst = false }
             }
         }
+    }
+
+    /// Whether the sprite plays this celebration itself (`SpriteView.playsEvolution`). Pure, for tests.
+    nonisolated static func spriteShowsEvolution(_ c: CompanionStore.Celebration, live: Bool,
+                                                 reduceMotion: Bool) -> Bool {
+        c == .evolve && live && !reduceMotion
     }
 
     /// 사탕 사용 "+XP" 1회 표시. store 를 consume 해 1회성 보장 — 다른 탭 갔다 홈 재진입해

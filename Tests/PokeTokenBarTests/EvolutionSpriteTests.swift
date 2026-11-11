@@ -82,6 +82,51 @@ final class EvolutionSpriteTests: XCTestCase {
                      "the egg sprite is not a Pokémon to silhouette")
     }
 
+    // MARK: Evolution sequence (old ⇄ new silhouettes)
+
+    private let now = Date(timeIntervalSince1970: 1_000_000)
+    private func cue(seq: Int = 1, to: Int = 106, secondsAgo: TimeInterval = 0) -> CompanionStore.EvolutionCue {
+        CompanionStore.EvolutionCue(seq: seq, fromID: 236, toID: to, at: now.addingTimeInterval(-secondsAgo))
+    }
+
+    func testEvolutionPlaysOnceForTheEvolvedSpecies() {
+        XCTAssertTrue(SpriteView.playsEvolution(cue: cue(), incoming: 106, played: nil, now: now, reduceMotion: false))
+        XCTAssertFalse(SpriteView.playsEvolution(cue: cue(), incoming: 106, played: 1, now: now, reduceMotion: false),
+                       "a cue already played here")
+        XCTAssertTrue(SpriteView.playsEvolution(cue: cue(seq: 2), incoming: 106, played: 1, now: now, reduceMotion: false))
+    }
+
+    func testEvolutionDoesNotPlayForOtherChanges() {
+        XCTAssertFalse(SpriteView.playsEvolution(cue: nil, incoming: 106, played: nil, now: now, reduceMotion: false),
+                       "no evolution happened (a hatch, a representative or dex change)")
+        XCTAssertFalse(SpriteView.playsEvolution(cue: cue(), incoming: 25, played: nil, now: now, reduceMotion: false),
+                       "the pet switched to another species, not the evolved one")
+        XCTAssertFalse(SpriteView.playsEvolution(cue: cue(secondsAgo: 30), incoming: 106, played: nil, now: now,
+                                                 reduceMotion: false),
+                       "picking the evolved species later is not the evolution")
+        XCTAssertFalse(SpriteView.playsEvolution(cue: cue(), incoming: 106, played: nil, now: now, reduceMotion: true))
+    }
+
+    func testEvolutionFlipsSpeedUpAndEndOnTheNewForm() {
+        let flips = SpriteView.evolutionFlips
+        XCTAssertGreaterThanOrEqual(flips.count, 5)
+        XCTAssertTrue(flips.first!.showsNew, "the hold already showed the old form")
+        XCTAssertTrue(flips.last!.showsNew, "the colors come in on the new form")
+        for (a, b) in zip(flips, flips.dropFirst()) { XCTAssertNotEqual(a.showsNew, b.showsNew) }
+        let swaps = flips.dropLast().map(\.duration)
+        XCTAssertEqual(swaps, swaps.sorted(by: >), "each swap is shorter than the last")
+        let total = SpriteView.evolutionHold + flips.map(\.duration).reduce(0, +) + 0.6
+        XCTAssertLessThanOrEqual(total, 4, "done within the 4 s \"evolved into…\" message")
+    }
+
+    func testPopoverSkipsItsFlashOnlyWhenTheSpritePlaysTheEvolution() {
+        XCTAssertTrue(CompanionHeader.spriteShowsEvolution(.evolve, live: true, reduceMotion: false))
+        XCTAssertFalse(CompanionHeader.spriteShowsEvolution(.evolve, live: false, reduceMotion: false),
+                       "opened after the evolution: the sprite saw no change, so the flash plays")
+        XCTAssertFalse(CompanionHeader.spriteShowsEvolution(.evolve, live: true, reduceMotion: true))
+        XCTAssertFalse(CompanionHeader.spriteShowsEvolution(.hatch(shiny: false), live: true, reduceMotion: false))
+    }
+
     // MARK: Which sprites are warmed
 
     private func mon(planned: [Int], stage: Int, disguise: Int? = nil, revealed: Bool = false) -> MonState {

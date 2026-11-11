@@ -1732,6 +1732,19 @@ final class CompanionIdentityTests: XCTestCase {
         XCTAssertEqual(s.celebration, .evolve)
     }
 
+    /// The evolution cue names the species before and after, so a sprite can swap their silhouettes.
+    func testEvolutionCueNamesBothSpecies() async {
+        let s = store(linear3, seed: 9)
+        await s.hatch(baseID: 1)
+        XCTAssertNil(s.lastEvolution, "hatching is not an evolution")
+        s.applyUsage(PokemonBalance.phaseThreshold(rarity: .common, totalForms: 3, stageIndex: 0))
+        XCTAssertEqual(s.lastEvolution?.seq, 1)
+        XCTAssertEqual(s.lastEvolution?.fromID, 1)
+        XCTAssertEqual(s.lastEvolution?.toID, 2)
+        s.consumeCelebration()
+        XCTAssertNotNil(s.lastEvolution, "the popover consuming its flash must not take the cue from the pet")
+    }
+
     /// [회귀] 라인 미로딩(재시작 직후/오프라인) 중 델타가 유실되지 않고 적립, 라인 로드 후 진화 판정.
     func testUsageAccruesWhileLineUnloadedThenEvolvesOnLoad() async {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("poke-\(UUID().uuidString).json")
