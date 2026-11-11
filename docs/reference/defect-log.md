@@ -42,6 +42,22 @@ read_when:
   보존해 정적 보기로 전환할 때 복원한다. `SpriteAnimationPreviewTests`는 실제 SwiftUI 첫 렌더의
   GIF 픽셀·크기, 캐시 재사용, 프레임 지연, 정적 원본 보존을 검사한다.
 
+- **An evolution must not show the egg while the new form's sprite downloads.** (2026-11-11,
+  Tyrogue → Hitmonlee) Only the hatch was prefetched. An evolution into an uncached species
+  cleared the old image, waited on the GIF first (static PNG only on GIF failure), and drew the
+  `🥚` glyph meanwhile — about three seconds that read as "it turned back into an egg". Two
+  guards: `CompanionStore.ensureEvolutionPrefetch` warms the rest of `plannedPathIDs` (the branch
+  is fixed at hatch; Ditto for an unrevealed disguise) on every update tick — static/animated,
+  front/back, shiny when the individual is — and the hatch prefetch now includes back sprites.
+  If a sprite is still missing, `SpriteView` keeps the previous Pokémon as a glowing silhouette
+  (`SpriteSubject.isPlaceholder`) that the egg transition also drops, and a species view with no
+  sprite draws an empty slot; the `🥚` glyph is for the egg only. The menu bar still falls back
+  to its egg frames and relies on the prefetch. Guards: `EvolutionSpriteTests`.
+  Related pitfall in the same view: an overlay gated on its own animated
+  value (`if revealWhite > 0`) leaves the tree the moment the fade starts, and SwiftUI fades out a
+  frozen copy — a ghost of an earlier GIF pose beside the sprite. Keep the view until the fade's
+  completion (`SpriteView.startReveal`).
+
 ## 판정·데이터
 
 - **Provider opt-out must also cover independently added official limits.** The provider toggle
