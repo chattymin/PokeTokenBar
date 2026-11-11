@@ -63,6 +63,27 @@ actor SpriteStore {
         return d
     }
 
+    // Keys a prefetch got a 404 for, front ones included, so the next warm-up does not ask again.
+    // Separate from `confirmedMissing`, which keeps its back-only meaning for `data`.
+    private var prefetchMissing: Set<String> = []
+
+    /// Puts a sprite on disk ahead of time (an upcoming evolution) without holding its bytes in
+    /// memory. Cheap when the file is already there; a failure is left for the next warm-up.
+    func prefetch(speciesID: Int, animated: Bool, shiny: Bool, form: PokemonForm? = nil,
+                  back: Bool = false) async {
+        if animated, !PokemonAssets.hasAnimatedSprite(speciesID: speciesID) { return }
+        let key = Self.cacheKey(speciesID: speciesID, animated: animated, shiny: shiny, form: form, back: back)
+        let file = directory.appendingPathComponent("\(key).\(animated ? "gif" : "png")")
+        if prefetchMissing.contains(key) || confirmedMissing.contains(key)
+            || FileManager.default.fileExists(atPath: file.path) { return }
+        let url = Self.spriteURL(speciesID: speciesID, animated: animated, shiny: shiny, form: form, back: back)
+        guard let (d, resp) = try? await URLSession.shared.data(from: url) else { return }
+        let status = (resp as? HTTPURLResponse)?.statusCode
+        if status == 404 { prefetchMissing.insert(key); return }
+        guard status == 200, !d.isEmpty else { return }
+        try? d.write(to: file, options: .atomic)
+    }
+
     /// True once the server answered 404 for this sprite in this session.
     func isConfirmedMissing(speciesID: Int, animated: Bool, shiny: Bool, form: PokemonForm?, back: Bool) -> Bool {
         confirmedMissing.contains(Self.cacheKey(speciesID: speciesID, animated: animated, shiny: shiny,

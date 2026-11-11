@@ -32,6 +32,17 @@ final class CompanionStore {
     /// 연출 재생 후 UI 가 호출(1회성 보장).
     func consumeCelebration() { celebration = nil }
 
+    /// The last evolution, for a sprite on screen to play the old ⇄ new silhouette sequence. Unlike
+    /// `celebration` it is never consumed: the popover and the floating pet each play it once, and
+    /// only when they see the species change (`SpriteView.playsEvolution`).
+    struct EvolutionCue: Equatable, Sendable {
+        let seq: Int
+        let fromID: Int
+        let toID: Int
+        let at: Date
+    }
+    private(set) var lastEvolution: EvolutionCue?
+
     /// 사탕 사용 시 "+XP" 순간 표시 — 진화 없이 부분 진행일 때도 피드백. seq 증가로 CompanionHeader 감지.
     private(set) var candyFeedbackSeq = 0
     private(set) var candyFeedbackAmount = 0
@@ -982,6 +993,10 @@ final class CompanionStore {
         if state.active != nil, currentLine == nil, !isHatching {
             Task { await loadCurrentLine() }
         }
+        // Warm the sprites of the forms still ahead, so an evolution never waits on the network.
+        if state.active != nil, !isHatching {
+            Task { await ensureEvolutionPrefetch() }
+        }
         // 위장 메타몽이 첫 진화 임계 도달 → 리빌(재시작 등 applyUsage 킥을 못 탄 경우 백업 트리거)
         if let a = state.active, a.dittoDisguise != nil, !a.dittoRevealed, currentLine != nil,
            !isHatching, !isRevealingDitto,
@@ -1047,6 +1062,8 @@ final class CompanionStore {
                 let newName = formDisplayName(line.localizedName(next.speciesID, state.language),
                                               speciesID: next.speciesID, form: a.form)
                 justEvolvedTo = newName
+                lastEvolution = EvolutionCue(seq: (lastEvolution?.seq ?? 0) + 1, fromID: a.currentID,
+                                             toID: next.speciesID, at: Date())
                 fireCelebration(.evolve)
                 // 짧은 levelUp 창 — 진화 순간 "…(으)로 진화했어요" 문구 노출(hatch/graduate 와 동일 패턴).
                 // 이게 없으면 computeState 가 .levelUp 을 안 내 statusEvolved 가 도달 불가(dead code)였다.
@@ -1666,6 +1683,9 @@ final class CompanionStore {
             _ = await SpriteStore.shared.data(speciesID: line.baseID, animated: false, shiny: false, form: form)
             _ = await SpriteStore.shared.data(speciesID: line.baseID, animated: true, shiny: false, form: form)
             _ = await SpriteStore.shared.data(speciesID: line.baseID, animated: true, shiny: true, form: form)
+            // Hatching while turned away (sulking, always-back) needs the back sprites too.
+            await SpriteStore.shared.prefetch(speciesID: line.baseID, animated: true, shiny: false, form: form, back: true)
+            await SpriteStore.shared.prefetch(speciesID: line.baseID, animated: false, shiny: false, form: form, back: true)
             if PokemonForm.hasForms(speciesID: line.baseID) {
                 _ = await SpriteStore.shared.data(speciesID: line.baseID, animated: false, shiny: true, form: form)
             }
@@ -1675,6 +1695,50 @@ final class CompanionStore {
         prefetchedLineID = id
         isHatchRetryDelayed = false
         shouldHatch = true
+    }
+
+    // MARK: 진화 프리패칭
+
+    private var evolutionPrefetchInFlight = false
+
+    /// Species the raised Pokémon can still become. The branch is fixed at hatch (`plannedPathIDs`),
+    /// so only the planned forms are warmed; an unrevealed Ditto disguise turns into Ditto instead.
+    /// The plan is never shown — warming only fills the sprite cache. Pure, for tests.
+    static func upcomingSpeciesIDs(_ mon: MonState) -> [Int] {
+        if mon.dittoDisguise != nil, !mon.dittoRevealed { return [PokemonOdds.dittoSpeciesID] }
+        return Array(mon.plannedPathIDs.dropFirst(mon.stageIndex + 1))
+    }
+
+    /// The sprite files one upcoming species needs on every surface: static and animated, front and
+    /// back (sulking or the always-back setting can turn the pet away at any time), and the shiny
+    /// ones too for a shiny individual (plain stays as their fallback). Pure, for tests.
+    static func evolutionSpriteRequests(shiny: Bool) -> [(animated: Bool, shiny: Bool, back: Bool)] {
+        var requests: [(animated: Bool, shiny: Bool, back: Bool)] = []
+        for back in [false, true] {
+            for variant in shiny ? [true, false] : [false] {
+                for animated in [true, false] { requests.append((animated, variant, back)) }
+            }
+        }
+        return requests
+    }
+
+    /// Warms every upcoming form's sprites. The egg prefetch covers the hatch; this covers the rest of
+    /// the line, which used to load only when the evolution happened and showed the egg glyph meanwhile.
+    /// Runs every update tick: files already on disk cost one existence check, failures retry next tick.
+    private func ensureEvolutionPrefetch() async {
+        // .app only, so unit tests never reach the network (same gate as the egg prefetch).
+        guard AppEnv.isBundledApp, !evolutionPrefetchInFlight, let mon = state.active else { return }
+        let ids = Self.upcomingSpeciesIDs(mon)
+        guard !ids.isEmpty else { return }
+        evolutionPrefetchInFlight = true
+        defer { evolutionPrefetchInFlight = false }
+        for id in ids {
+            let form = PokemonForm.resolved(speciesID: id, form: mon.form)
+            for request in Self.evolutionSpriteRequests(shiny: mon.isShiny) {
+                await SpriteStore.shared.prefetch(speciesID: id, animated: request.animated,
+                                                  shiny: request.shiny, form: form, back: request.back)
+            }
+        }
     }
 
     /// Draws only for lines with forms, so other species keep their random sequence.
