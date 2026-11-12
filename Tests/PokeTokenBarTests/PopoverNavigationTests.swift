@@ -141,6 +141,7 @@ final class RepresentativeLocalizationTests: XCTestCase {
             (.de, "Repräsentatives Pokémon", "Aktuellem Begleiter folgen", "Im Pokédex auswählen…",
              "Als repräsentativ festlegen"),
             (.ru, "Основной покемон", "Текущий компаньон", "Выбрать в Покедексе…", "Сделать основным"),
+            (.zhHans, "展示宝可梦", "跟随当前伙伴", "从图鉴中选择…", "设为展示宝可梦"),
         ]
 
         XCTAssertEqual(expected.map(\.0), AppLanguage.allCases)
