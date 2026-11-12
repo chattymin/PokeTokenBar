@@ -2004,6 +2004,7 @@ final class CompanionIdentityTests: XCTestCase {
             "⏳ A eclosão está atrasada — nova tentativa na próxima atualização",
             "⏳ Das Schlüpfen verzögert sich — neuer Versuch bei der nächsten Aktualisierung",
             "⏳ Вылупление задерживается — повторим при следующем обновлении",
+            "⏳ 孵化延迟，将在下次刷新时重试",
         ]
         XCTAssertEqual(AppLanguage.allCases.count, expected.count)
         for (lang, copy) in zip(AppLanguage.allCases, expected) {
