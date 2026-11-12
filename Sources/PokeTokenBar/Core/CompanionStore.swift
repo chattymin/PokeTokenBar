@@ -266,7 +266,7 @@ final class CompanionStore {
     }
     var isFinalStage: Bool {
         guard let a = state.active, let line = currentLine else { return false }
-        return line.tree.node(withID: a.currentID)?.children.isEmpty ?? true
+        return line.tree.node(withID: a.currentID)?.children(allowing: a.profile?.gender).isEmpty ?? true
     }
     var stageText: String {
         guard let a = state.active else { return "" }
@@ -298,9 +298,10 @@ final class CompanionStore {
         guard let a = state.active, let line = currentLine else { return [] }
         var out = Self.realizedLineItems(pathIDs: a.pathIDs, stageIndex: a.stageIndex)
         if let current = line.tree.node(withID: a.currentID) {
+            let gender = a.profile?.gender
             var node = current
             var guaranteedPrefix: [EvoNode] = []
-            while node.children.count == 1, let child = node.children.first {
+            while node.children(allowing: gender).count == 1, let child = node.children(allowing: gender).first {
                 guaranteedPrefix.append(child)
                 node = child
             }
@@ -1017,7 +1018,7 @@ final class CompanionStore {
                 if !isRevealingDitto { Task { await revealDitto() } }
                 break
             }
-            if node.children.isEmpty {
+            if node.children(allowing: a.profile?.gender).isEmpty {
                 graduate(); break
             } else {
                 let nextIndex = a.stageIndex + 1
@@ -1039,6 +1040,7 @@ final class CompanionStore {
                 state.active!.usedAtStage = a.usedAtStage - thr   // 초과분 이월
                 if let details = pokemonDetailsByID[next.speciesID] {
                     state.active!.profile?.enrich(with: details)
+                    alignActivePlanWithGender()
                 } else if detailProvider != nil {
                     Task { await self.loadPokemonDetails(speciesID: next.speciesID) }
                 }
@@ -1058,19 +1060,21 @@ final class CompanionStore {
         save()
     }
 
-    private func pickPlannedChild(_ node: EvoNode, baseID: Int) -> EvoNode {
-        let fresh = node.children.filter { ch in
+    /// Callers only ask for a node that still has a branch this gender can take.
+    private func pickPlannedChild(_ node: EvoNode, baseID: Int, gender: PokemonGender? = nil) -> EvoNode {
+        let options = node.children(allowing: gender)
+        let fresh = options.filter { ch in
             ch.finalIDs.contains { !state.collectedFinals.contains("\(baseID):\($0)") }
         }
-        let pool = fresh.isEmpty ? node.children : fresh
+        let pool = fresh.isEmpty ? options : fresh
         return pool[Int(rng.next() % UInt64(pool.count))]
     }
 
-    private func makeEvolutionPlan(from root: EvoNode, baseID: Int) -> [Int] {
+    private func makeEvolutionPlan(from root: EvoNode, baseID: Int, gender: PokemonGender? = nil) -> [Int] {
         var plan = [root.speciesID]
         var node = root
-        while !node.children.isEmpty {
-            let next = pickPlannedChild(node, baseID: baseID)
+        while !node.children(allowing: gender).isEmpty {
+            let next = pickPlannedChild(node, baseID: baseID, gender: gender)
             plan.append(next.speciesID)
             node = next
         }
@@ -1103,21 +1107,31 @@ final class CompanionStore {
         var normalized = saved
         let realized = longestValidPath(saved.pathIDs, from: root)
         let candidate = longestValidPath(saved.plannedPathIDs, from: root)
+        let gender = saved.profile?.gender
         let canReusePlan = candidate.path == saved.plannedPathIDs
             && candidate.path.starts(with: realized.path)
-            && candidate.lastNode.children.isEmpty
+            && candidate.lastNode.children(allowing: gender).isEmpty
+            && gender?.allows(path: candidate.path) ?? true
         let plan: [Int]
         if canReusePlan {
             plan = candidate.path
         } else {
-            let suffix = makeEvolutionPlan(from: realized.lastNode, baseID: saved.baseID)
+            let suffix = makeEvolutionPlan(from: realized.lastNode, baseID: saved.baseID, gender: gender)
             plan = realized.path + suffix.dropFirst()
         }
         normalized.pathIDs = realized.path
         normalized.plannedPathIDs = plan
         normalized.stageIndex = realized.path.count - 1
         normalized.totalForms = plan.count
+        // An evolution that already happened wins over the gender (an old save's female Gallade).
+        normalized.profile?.lockGender(toPath: realized.path)
         return normalized
+    }
+
+    /// A gender rolled after the plan (details arrive late) re-plans the branches still ahead.
+    private func alignActivePlanWithGender() {
+        guard let a = state.active, let line = currentLine, line.baseID == a.baseID else { return }
+        state.active = normalizedEvolutionState(a, from: line.tree)
     }
 
     private func graduate() {
@@ -1801,6 +1815,7 @@ final class CompanionStore {
                                 stageIndex: 0, usedAtStage: 0, rarity: line.rarity, totalForms: evolutionPlan.count,
                                 isShiny: isShiny, nature: nature, profile: profile, hasGrowthBoost: hasGrowthBoost,
                                 dittoDisguise: dittoDisguise, form: form, prayers: prayers)
+        alignActivePlanWithGender()
         AppLog.write("hatch: base=\(line.baseID) rarity=\(line.rarity) shiny=\(isShiny) forms=\(evolutionPlan.count) boost=\(hasGrowthBoost) ditto=\(dittoDisguise != nil)")
         let name = formDisplayName(line.localizedName(line.baseID, state.language),
                                    speciesID: line.baseID, form: form)
@@ -2181,6 +2196,7 @@ final class CompanionStore {
             if profile != before {
                 active.profile = profile
                 state.active = active
+                alignActivePlanWithGender()
                 changed = true
             }
         }
@@ -2188,6 +2204,7 @@ final class CompanionStore {
             guard var profile = state.dex[index].profile else { continue }
             let before = profile
             profile.enrich(with: details)
+            profile.lockGender(toPath: state.dex[index].chainOrder)   // repairs saves from before the lock
             if profile != before {
                 state.dex[index].profile = profile
                 changed = true

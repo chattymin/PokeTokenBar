@@ -340,6 +340,19 @@ read_when:
   **회귀 가드:** `PokemonProfileLogicTests.testShedinjaAlwaysHasOneHP` — Lv1/50/100 모두 1, 다른 스탯은 일반 공식,
   base HP 1 인 다른 종은 일반 공식. 수정 전 3건 실패 확인.
 
+- **성별 한정 진화는 개체 성별이 고른다.** 진화 경로는 부화 때 `pickPlannedChild` 가
+  미보유 분기를 우선해 무작위로 정하고, 성별은 그 뒤 `PokemonProfile.enrich` 가 종 성비로 따로
+  굴렸다. 그래서 암컷 엘레이드, 수컷 눈여아, 수컷 비퀸, 암컷 도롱마담, 수컷 나메일이 나올 수 있었다.
+  기존 분기 테스트는 성별이 없는 가짜 트리로만 경로를 검증해 두 롤의 결합을 밟지 않았다.
+  지금은 `PokemonGender.evolutionLocks` 한 곳에 Gen 1-5 성별 한정 종(413, 414, 416, 475, 478)을
+  두고, `EvoNode.children(allowing:)` 이 성별이 갈 수 있는 분기만 돌려준다. 계획, 진화, 졸업 판정,
+  최종 단계 표시가 모두 이것을 쓴다. 성별은 원작 성비대로 굴리고, 상세 정보가 늦게 와서 성별이
+  계획 뒤에 정해지면 `alignActivePlanWithGender` 가 남은 분기를 다시 계획한다. 갈 분기가 없으면
+  그 단계에서 졸업한다(수컷 세꿀버리는 세꿀버리로 졸업). 이미 일어난 진화는 성별보다 우선해,
+  이전 저장의 암컷 엘레이드는 수컷으로 고친다(활성 개체는 라인 로드 때, 도감 개체는 상세 로드 때).
+  가드: `CompanionStoreTests` 의 성별 테스트 4개, `testDetailLoadRepairsGenderOfStoredGenderLockedEvolution`.
+  범위를 Gen 6 이상으로 넓히면(염뉴트 등) 표를 같이 갱신한다.
+
 ## 외부 로그·사용량 소스
 
 - **토큰 파일 파서는 외부 도구의 실제 직렬화 구조체(중첩 객체)를 반영해야 한다.** `jetski-standalone-oauth-token`

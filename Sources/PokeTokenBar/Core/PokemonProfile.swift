@@ -58,6 +58,19 @@ enum PokemonGender: String, Codable, Sendable, CaseIterable {
     case male
     case female
     case genderless
+
+    /// Gen 1-5 species that only one gender can evolve into: Wormadam, Mothim, Vespiquen, Gallade, Froslass.
+    static let evolutionLocks: [Int: PokemonGender] = [413: .female, 414: .male, 416: .female, 475: .male, 478: .female]
+
+    /// The gender an evolution path forces, if it passes through a gender-locked species.
+    static func required(byPath ids: [Int]) -> PokemonGender? {
+        ids.lazy.compactMap { evolutionLocks[$0] }.first
+    }
+
+    /// Whether an individual of this gender (nil = not rolled yet) can follow the path.
+    func allows(path ids: [Int]) -> Bool {
+        PokemonGender.required(byPath: ids).map { $0 == self } ?? true
+    }
 }
 
 struct PokemonIVs: Codable, Sendable, Equatable {
@@ -173,6 +186,11 @@ struct PokemonProfile: Codable, Sendable, Equatable {
 
         // Automatic moveset: the four most recently learned legal level-up moves.
         moves = Array(details.levelUpMoves(through: level).suffix(4))
+    }
+
+    /// Forces the gender a gender-locked evolution needs, so enrich never rolls the other one.
+    mutating func lockGender(toPath ids: [Int]) {
+        if let required = PokemonGender.required(byPath: ids) { gender = required }
     }
 
     mutating func applyGrowth(_ delta: Int, rarity: Rarity) {
