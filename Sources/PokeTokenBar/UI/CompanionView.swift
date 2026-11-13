@@ -1768,6 +1768,13 @@ struct PokemonDetailView: View {
     private var individual: DexEntry? {
         individuals.first { $0.id == selectedInstanceID } ?? individuals.first
     }
+    private var evolutionSource: DexEntry? {
+        let entries = store.dexEntries
+        return Self.evolutionSourceEntry(selected: individual, entries: entries,
+                                         activeID: entries.first { store.isActiveDexEntry($0) }?.id,
+                                         speciesID: species.id, form: displayedSpecies.form,
+                                         shiny: displayedShiny)
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -1788,7 +1795,7 @@ struct PokemonDetailView: View {
                     if individuals.isEmpty {
                         Text(store.l.dexAppearancePreview).font(.callout).foregroundStyle(.secondary)
                     }
-                    if let individual { evolutionSection(entry: individual) }
+                    if let entry = evolutionSource { evolutionSection(entry: entry) }
                     if let details = store.pokemonDetailsByID[species.id] {
                         if let individual, let profile = individual.profile {
                             individualSection(entry: individual, profile: profile, details: details)
@@ -1819,10 +1826,10 @@ struct PokemonDetailView: View {
         }
     }
 
-    /// Evolution line of one individual on its Pokédex page. The individual being raised shows the
-    /// Home card's line (`activeLine`: done / current / upcoming stages); a finished individual shows
-    /// the stages it went through, ending on this page's species marked as its form. Empty — the
-    /// section is hidden — when the line has a single stage.
+    /// Evolution line of one individual on a Pokédex page. The individual being raised shows the
+    /// Home card's line (`activeLine`: done / current / upcoming stages); any other individual shows
+    /// the stages it went through with this page's species marked current. Empty — the section is
+    /// hidden — when the line has a single stage.
     static func evolutionLineItems(chainOrder: [Int], speciesID: Int,
                                    activeLine: [EvoLineItem]?) -> [EvoLineItem] {
         let items: [EvoLineItem]
@@ -1835,6 +1842,17 @@ struct PokemonDetailView: View {
             }
         }
         return items.count > 1 ? items : []
+    }
+
+    /// Whose evolution line the page shows: the selected individual, or on an earlier stage's page (no
+    /// individual ends there) one that went through this species in the displayed form and appearance —
+    /// the individual being raised first, else the most recent record (ties broken by id).
+    static func evolutionSourceEntry(selected: DexEntry?, entries: [DexEntry], activeID: String?,
+                                     speciesID: Int, form: PokemonForm?, shiny: Bool) -> DexEntry? {
+        if let selected { return selected }
+        let matches = entries.filter { $0.isShiny == shiny && $0.passedThrough(speciesID, form: form) }
+        if let active = matches.first(where: { $0.id == activeID }) { return active }
+        return matches.max { ($0.caughtAt ?? .distantPast, $0.id) < ($1.caughtAt ?? .distantPast, $1.id) }
     }
 
     /// Unown's 28 letters fill seven columns; named forms get wider cells for their labels.

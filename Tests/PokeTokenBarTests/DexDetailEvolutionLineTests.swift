@@ -32,6 +32,65 @@ final class DexDetailEvolutionLineTests: XCTestCase {
         XCTAssertEqual(PokemonDetailView.evolutionLineItems(
             chainOrder: [144], speciesID: 144, activeLine: [EvoLineItem(.species(144), .current)]), [])
     }
+
+    // MARK: Whose line an earlier stage's page shows
+
+    private func entry(_ id: String, _ chain: [Int], caughtAt: TimeInterval? = 1_700_000_000,
+                       shiny: Bool = false, form: PokemonForm? = nil) -> DexEntry {
+        DexEntry(id: id, baseID: chain[0], finalID: chain.last!, chainOrder: chain, rarity: .common,
+                 caughtAt: caughtAt.map(Date.init(timeIntervalSince1970:)), isShiny: shiny, form: form)
+    }
+
+    private func source(_ entries: [DexEntry], selected: DexEntry? = nil, activeID: String? = nil,
+                        speciesID: Int = 2, form: PokemonForm? = nil, shiny: Bool = false) -> String? {
+        PokemonDetailView.evolutionSourceEntry(selected: selected, entries: entries, activeID: activeID,
+                                               speciesID: speciesID, form: form, shiny: shiny)?.id
+    }
+
+    func testEarlierStagePageShowsTheLineOfAnIndividualThatPassedThrough() throws {
+        let venusaur = entry("venusaur", [1, 2, 3])
+        XCTAssertEqual(source([venusaur]), "venusaur")
+        let shown = try XCTUnwrap(PokemonDetailView.evolutionSourceEntry(
+            selected: nil, entries: [venusaur], activeID: nil, speciesID: 2, form: nil, shiny: false))
+        XCTAssertEqual(PokemonDetailView.evolutionLineItems(chainOrder: shown.chainOrder, speciesID: 2, activeLine: nil), [
+            EvoLineItem(.species(1), .done),
+            EvoLineItem(.species(2), .current),
+            EvoLineItem(.species(3), .done),
+        ])
+    }
+
+    func testSelectedIndividualWins() {
+        let selected = entry("ivysaur", [1, 2])
+        XCTAssertEqual(source([entry("venusaur", [1, 2, 3], caughtAt: 1_800_000_000)], selected: selected), "ivysaur")
+    }
+
+    func testChoiceAmongSeveralEntriesIsDeterministic() {
+        let old = entry("old", [1, 2, 3], caughtAt: 1_600_000_000)
+        let new = entry("new", [1, 2, 3], caughtAt: 1_700_000_000)
+        let raising = entry("raising", [1, 2], caughtAt: nil)
+        // The individual being raised first, else the most recent record, whatever the input order.
+        XCTAssertEqual(source([old, new, raising], activeID: "raising"), "raising")
+        XCTAssertEqual(source([old, new, raising]), "new")
+        XCTAssertEqual(source([new, old]), "new")
+        // Equal times fall back to the id.
+        XCTAssertEqual(source([entry("a", [1, 2, 3]), entry("b", [1, 2, 3])]), "b")
+        XCTAssertEqual(source([entry("b", [1, 2, 3]), entry("a", [1, 2, 3])]), "b")
+    }
+
+    func testOnlyEntriesInTheDisplayedAppearanceAndFormCount() {
+        let normal = entry("normal", [1, 2, 3], caughtAt: 1_600_000_000)
+        let shiny = entry("shiny", [1, 2, 3], caughtAt: 1_700_000_000, shiny: true)
+        XCTAssertEqual(source([normal, shiny], shiny: false), "normal")
+        XCTAssertEqual(source([normal, shiny], shiny: true), "shiny")
+        let plant = entry("plant", [412, 413], caughtAt: 1_800_000_000, form: PokemonForm("plant"))
+        let sandy = entry("sandy", [412, 413], form: PokemonForm("sandy"))
+        XCTAssertEqual(source([plant, sandy], speciesID: 412, form: PokemonForm("sandy")), "sandy")
+    }
+
+    func testNoEntryThroughThisSpeciesHidesTheLine() {
+        XCTAssertNil(source([entry("charizard", [4, 5, 6])]))
+        XCTAssertNil(source([]))
+    }
 }
 
 private struct EvolutionRenderProvider: PokeProviding, PokemonDetailProviding {
