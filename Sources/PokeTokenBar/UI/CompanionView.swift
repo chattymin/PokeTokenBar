@@ -1727,6 +1727,7 @@ struct PokemonDetailView: View {
     @State private var selectedInstanceID = ""
     @State private var selectedForm: PokemonForm?
     @State private var selectedShiny: Bool?
+    @State private var resolvedEvolutionNames: [Int: String] = [:]
 
     init(store: CompanionStore, species: CompanionStore.DexSpecies,
          onBack: @escaping () -> Void, selectedShiny: Bool? = nil,
@@ -1783,6 +1784,7 @@ struct PokemonDetailView: View {
                     if individuals.isEmpty {
                         Text(store.l.dexAppearancePreview).font(.callout).foregroundStyle(.secondary)
                     }
+                    if let individual { evolutionSection(entry: individual) }
                     if let details = store.pokemonDetailsByID[species.id] {
                         if let individual, let profile = individual.profile {
                             individualSection(entry: individual, profile: profile, details: details)
@@ -1811,6 +1813,24 @@ struct PokemonDetailView: View {
             if selectedInstanceID.isEmpty { selectedInstanceID = individuals.first?.id ?? "" }
             await store.loadPokemonDetails(speciesID: species.id)
         }
+    }
+
+    /// Evolution line of one individual on its Pokédex page. The individual being raised shows the
+    /// Home card's line (`activeLine`: done / current / upcoming stages); a finished individual shows
+    /// the stages it went through, ending on this page's species marked as its form. Empty — the
+    /// section is hidden — when the line has a single stage.
+    static func evolutionLineItems(chainOrder: [Int], speciesID: Int,
+                                   activeLine: [EvoLineItem]?) -> [EvoLineItem] {
+        let items: [EvoLineItem]
+        if let activeLine, !activeLine.isEmpty {
+            items = activeLine
+        } else {
+            let current = chainOrder.lastIndex(of: speciesID)
+            items = chainOrder.enumerated().map { i, id in
+                EvoLineItem(.species(id), i == current ? .current : .done)
+            }
+        }
+        return items.count > 1 ? items : []
     }
 
     /// Unown's 28 letters fill seven columns; named forms get wider cells for their labels.
@@ -1980,6 +2000,42 @@ struct PokemonDetailView: View {
         .detailCard()
     }
 
+    @ViewBuilder
+    private func evolutionSection(entry: DexEntry) -> some View {
+        let isActive = store.isActiveDexEntry(entry)
+        let items = Self.evolutionLineItems(chainOrder: entry.chainOrder, speciesID: species.id,
+                                            activeLine: isActive ? store.lineNodes : nil)
+        if !items.isEmpty {
+            VStack(alignment: .leading, spacing: 6) {
+                detailTitle(store.l.evolutionHistory)
+                EvoLineView(nodes: items, mysteryLabel: store.l.unknownNextEvolution,
+                            language: store.language, thumb: 68, shiny: entry.isShiny,
+                            names: evolutionNames(entry: entry, items: items, isActive: isActive),
+                            maxWidth: PopoverMetrics.scrollContentWidth - Self.cardPadding * 2,
+                            form: entry.form, nameFontSize: 11, nameLineLimit: 2, nameMinimumScaleFactor: 1,
+                            spriteStore: spriteStore)
+            }
+            .detailCard()
+            .task(id: "\(entry.id)-\(store.language.rawValue)") {
+                resolvedEvolutionNames = await store.dexResolveChainNames(entry)
+            }
+        }
+    }
+
+    /// Stage names as in the catch log; upcoming stages of the individual being raised are not in its
+    /// `chainOrder` yet, so they come from the loaded evolution line.
+    private func evolutionNames(entry: DexEntry, items: [EvoLineItem], isActive: Bool) -> [Int: String] {
+        var names = store.dexStoredChainNames(entry) ?? resolvedEvolutionNames
+        if isActive, let line = store.currentLine {
+            for item in items {
+                if case .species(let id) = item.content, names[id] == nil {
+                    names[id] = line.localizedName(id, store.language)
+                }
+            }
+        }
+        return names
+    }
+
     private func baseStatsSection(_ details: PokemonDetails) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             detailTitle(store.l.baseStats)
@@ -2047,6 +2103,9 @@ struct PokemonDetailView: View {
         .detailCard()
     }
 
+    /// Inner padding of `detailCard`, shared with the width the evolution line may use.
+    fileprivate static let cardPadding: CGFloat = 9
+
     private func detailTitle(_ text: String) -> some View {
         Text(text).font(.callout.weight(.semibold)).foregroundStyle(.secondary)
     }
@@ -2062,7 +2121,7 @@ struct PokemonDetailView: View {
 
 private extension View {
     func detailCard() -> some View {
-        self.padding(9)
+        self.padding(PokemonDetailView.cardPadding)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(Color.secondary.opacity(0.07), in: RoundedRectangle(cornerRadius: 9))
     }
