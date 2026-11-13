@@ -1988,4 +1988,42 @@ struct L {
           "Du hast das Token-Limit für \(window) ausgeschöpft. Eine Belohnung für deinen Einsatz – verwende sie, um dein Pokémon zu entwickeln!",
           "Вы полностью исчерпали лимит токенов (\(window)). Это награда за старания — используйте её, чтобы эволюционировать покемона!")
     }
+
+    // MARK: LAN battle
+    var battleMenu: String { t("배틀", "Battle", "バトル", "Combate", "Combat", "Batalha", "Kampf", "Битва") }
+    var battleTitle: String { t("LAN 배틀", "LAN Battle", "LANバトル", "Combate en red local", "Combat en réseau local", "Batalha em rede local", "LAN-Kampf", "Битва по локальной сети") }
+    var battlePickTeam: String { t("배틀에 나갈 포켓몬을 최대 3마리 고르세요. 첫 번째가 선봉입니다.", "Pick up to 3 Pokémon. The first one leads.", "バトルに出すポケモンを3匹まで選んでください。1匹目が先頭です。", "Elige hasta 3 Pokémon. El primero sale en cabeza.", "Choisissez jusqu’à 3 Pokémon. Le premier ouvre le combat.", "Escolha até 3 Pokémon. O primeiro entra na frente.", "Wähle bis zu 3 Pokémon. Das erste kämpft zuerst.", "Выберите до 3 покемонов. Первый выходит в бой первым.") }
+    var battleNoPokemon: String { t("배틀에 나갈 포켓몬이 아직 없어요. 먼저 알을 부화시키세요.", "No Pokémon to battle with yet. Hatch an egg first.", "バトルに出せるポケモンがまだいません。まずタマゴをかえしましょう。", "Aún no tienes Pokémon para combatir. Primero eclosiona un huevo.", "Aucun Pokémon pour combattre. Faites d’abord éclore un Œuf.", "Ainda não há Pokémon para batalhar. Choque um ovo primeiro.", "Noch kein Pokémon zum Kämpfen. Brüte zuerst ein Ei aus.", "Пока нет покемонов для битвы. Сначала выведите покемона из яйца.") }
+    var battleFindOpponents: String { t("상대 찾기", "Find opponents", "相手を探す", "Buscar rivales", "Chercher des adversaires", "Procurar oponentes", "Gegner suchen", "Найти соперников") }
+    var battlePreparing: String { t("배틀 엔진을 준비하는 중…", "Preparing the battle engine…", "バトルエンジンを準備しています…", "Preparando el motor de combate…", "Préparation du moteur de combat…", "Preparando o motor de batalha…", "Kampf-Engine wird vorbereitet …", "Готовим боевой движок…") }
+    var battleDownloadFailed: String { t("배틀 엔진을 내려받지 못했어요. 인터넷 연결을 확인하고 다시 시도해 주세요.", "The battle engine could not be downloaded. Check your internet connection and try again.", "バトルエンジンをダウンロードできませんでした。インターネット接続を確認して、もう一度お試しください。", "No se pudo descargar el motor de combate. Revisa tu conexión a internet e inténtalo de nuevo.", "Impossible de télécharger le moteur de combat. Vérifiez votre connexion internet et réessayez.", "Não foi possível baixar o motor de batalha. Verifique sua internet e tente de novo.", "Die Kampf-Engine konnte nicht geladen werden. Prüfe deine Internetverbindung und versuche es erneut.", "Не удалось загрузить боевой движок. Проверьте подключение к интернету и попробуйте ещё раз.") }
+    var battleSearching: String { t("같은 네트워크에서 상대를 찾는 중…", "Looking for opponents on this network…", "同じネットワークで相手を探しています…", "Buscando rivales en esta red…", "Recherche d’adversaires sur ce réseau…", "Procurando oponentes nesta rede…", "Suche Gegner in diesem Netzwerk …", "Ищем соперников в этой сети…") }
+    var battleSearchingHint: String { t("상대도 PokeTokenBar에서 배틀 창을 열고 팀을 골라야 보입니다.", "The other player must open Battle in PokeTokenBar and pick a team too.", "相手もPokeTokenBarでバトルを開き、チームを選ぶと表示されます。", "El otro jugador también debe abrir Combate en PokeTokenBar y elegir equipo.", "L’autre joueur doit aussi ouvrir Combat dans PokeTokenBar et choisir une équipe.", "O outro jogador também precisa abrir Batalha no PokeTokenBar e escolher um time.", "Der andere Spieler muss in PokeTokenBar ebenfalls Kampf öffnen und ein Team wählen.", "Соперник тоже должен открыть «Битву» в PokeTokenBar и выбрать команду.") }
+    var battleChallenge: String { t("도전", "Challenge", "挑戦", "Desafiar", "Défier", "Desafiar", "Herausfordern", "Вызвать") }
+    func battleChallenging(_ name: String) -> String {
+        t("\(name) 님의 응답을 기다리는 중…", "Waiting for \(name) to answer…", "\(name) さんの返事を待っています…",
+          "Esperando la respuesta de \(name)…", "En attente de la réponse de \(name)…", "Aguardando a resposta de \(name)…",
+          "Warte auf Antwort von \(name) …", "Ждём ответа от \(name)…")
+    }
+    func battleIncoming(_ name: String) -> String {
+        t("\(name) 님이 배틀을 신청했어요!", "\(name) challenges you to a battle!", "\(name) さんがバトルを申し込みました！",
+          "\(name) te desafía a un combate.", "\(name) vous défie en combat !", "\(name) desafiou você para uma batalha!",
+          "\(name) fordert dich zum Kampf heraus!", "\(name) вызывает вас на битву!")
+    }
+    var battleAccept: String { t("수락", "Accept", "受ける", "Aceptar", "Accepter", "Aceitar", "Annehmen", "Принять") }
+    var battleDecline: String { t("거절", "Decline", "断る", "Rechazar", "Refuser", "Recusar", "Ablehnen", "Отклонить") }
+    var battleChangeTeam: String { t("팀 변경", "Change team", "チーム変更", "Cambiar equipo", "Changer d’équipe", "Trocar time", "Team ändern", "Сменить команду") }
+    var battleWaiting: String { t("상대의 선택을 기다리는 중…", "Waiting for the opponent…", "相手の選択を待っています…", "Esperando al rival…", "En attente de l’adversaire…", "Aguardando o oponente…", "Warte auf den Gegner …", "Ждём хода соперника…") }
+    var battleSwitch: String { t("교체", "Switch", "交代", "Cambiar", "Changer", "Trocar", "Wechseln", "Замена") }
+    var battleChooseNext: String { t("다음에 내보낼 포켓몬을 고르세요.", "Choose your next Pokémon.", "次に出すポケモンを選んでください。", "Elige a tu siguiente Pokémon.", "Choisissez votre prochain Pokémon.", "Escolha seu próximo Pokémon.", "Wähle dein nächstes Pokémon.", "Выберите следующего покемона.") }
+    var battleForfeit: String { t("항복", "Forfeit", "降参", "Rendirse", "Abandonner", "Desistir", "Aufgeben", "Сдаться") }
+    var battleForfeitConfirm: String { t("정말 항복할까요?", "Forfeit this battle?", "本当に降参しますか？", "¿Rendirte en este combate?", "Abandonner ce combat ?", "Desistir desta batalha?", "Diesen Kampf aufgeben?", "Сдаться в этой битве?") }
+    var battleWon: String { t("승리!", "You won!", "勝利！", "¡Has ganado!", "Victoire !", "Você venceu!", "Du hast gewonnen!", "Победа!") }
+    var battleLost: String { t("패배…", "You lost…", "敗北…", "Has perdido…", "Défaite…", "Você perdeu…", "Du hast verloren …", "Поражение…") }
+    var battleTie: String { t("무승부", "It's a tie", "引き分け", "Empate", "Égalité", "Empate", "Unentschieden", "Ничья") }
+    var battleBackToLobby: String { t("로비로 돌아가기", "Back to lobby", "ロビーに戻る", "Volver a la sala", "Retour au salon", "Voltar ao lobby", "Zurück zur Lobby", "Вернуться в лобби") }
+    var battleNoticeDeclined: String { t("상대가 도전을 받지 않았어요.", "The opponent did not take the challenge.", "相手は挑戦を受けませんでした。", "El rival no ha aceptado el desafío.", "L’adversaire n’a pas relevé le défi.", "O oponente não aceitou o desafio.", "Der Gegner hat die Herausforderung nicht angenommen.", "Соперник не принял вызов.") }
+    var battleNoticeDisconnected: String { t("상대와의 연결이 끊어졌어요.", "The opponent disconnected.", "相手との接続が切れました。", "El rival se ha desconectado.", "L’adversaire s’est déconnecté.", "O oponente se desconectou.", "Die Verbindung zum Gegner wurde getrennt.", "Соперник отключился.") }
+    var battleNoticeEngineFailed: String { t("배틀을 시작하지 못했어요.", "The battle could not be started.", "バトルを開始できませんでした。", "No se pudo iniciar el combate.", "Impossible de lancer le combat.", "Não foi possível iniciar a batalha.", "Der Kampf konnte nicht gestartet werden.", "Не удалось начать битву.") }
+    var battleNoticeNetworkFailed: String { t("로컬 네트워크를 사용할 수 없어요. 시스템 설정 › 개인정보 보호 및 보안 › 로컬 네트워크에서 PokeTokenBar를 허용해 주세요.", "The local network is unavailable. Allow PokeTokenBar under System Settings › Privacy & Security › Local Network.", "ローカルネットワークを使用できません。システム設定 › プライバシーとセキュリティ › ローカルネットワークでPokeTokenBarを許可してください。", "La red local no está disponible. Permite PokeTokenBar en Ajustes del Sistema › Privacidad y seguridad › Red local.", "Réseau local indisponible. Autorisez PokeTokenBar dans Réglages Système › Confidentialité et sécurité › Réseau local.", "A rede local está indisponível. Permita o PokeTokenBar em Ajustes do Sistema › Privacidade e Segurança › Rede Local.", "Das lokale Netzwerk ist nicht verfügbar. Erlaube PokeTokenBar unter Systemeinstellungen › Datenschutz & Sicherheit › Lokales Netzwerk.", "Локальная сеть недоступна. Разрешите PokeTokenBar в «Системные настройки» › «Конфиденциальность и безопасность» › «Локальная сеть».") }
 }

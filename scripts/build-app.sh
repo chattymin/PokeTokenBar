@@ -32,6 +32,8 @@ echo "   archs: $(lipo -archs "$APP/Contents/MacOS/$APP_NAME")"
 # 심볼 strip — 릴리스 바이너리 1.84MB → 0.80MB(-57%). codesign 전에 수행(서명 무효화 방지).
 strip -rSTx "$APP/Contents/MacOS/$APP_NAME" 2>/dev/null || strip -rSx "$APP/Contents/MacOS/$APP_NAME"
 cp assets/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
+# LAN battles: the bridge script BattleEngine loads via Bundle.main (the simulator is fetched at runtime).
+cp Sources/PokeTokenBar/Resources/battle-bridge.js "$APP/Contents/Resources/battle-bridge.js"
 
 cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -48,6 +50,8 @@ cat > "$APP/Contents/Info.plist" <<PLIST
     <key>CFBundleIconFile</key><string>AppIcon</string>
     <key>LSUIElement</key><true/>
     <key>NSHighResolutionCapable</key><true/>
+    <key>NSLocalNetworkUsageDescription</key><string>PokeTokenBar uses the local network to find and battle other players nearby.</string>
+    <key>NSBonjourServices</key><array><string>_ptbbattle._tcp</string></array>
     <key>CFBundleURLTypes</key>
     <array>
         <dict>
