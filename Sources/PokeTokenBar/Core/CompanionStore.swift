@@ -1123,8 +1123,6 @@ final class CompanionStore {
         normalized.plannedPathIDs = plan
         normalized.stageIndex = realized.path.count - 1
         normalized.totalForms = plan.count
-        // An evolution that already happened wins over the gender (an old save's female Gallade).
-        normalized.profile?.lockGender(toPath: realized.path)
         return normalized
     }
 
@@ -2204,7 +2202,6 @@ final class CompanionStore {
             guard var profile = state.dex[index].profile else { continue }
             let before = profile
             profile.enrich(with: details)
-            profile.lockGender(toPath: state.dex[index].chainOrder)   // repairs saves from before the lock
             if profile != before {
                 state.dex[index].profile = profile
                 changed = true

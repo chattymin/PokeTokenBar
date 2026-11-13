@@ -482,25 +482,6 @@ final class PokemonProfileMigrationTests: XCTestCase {
         XCTAssertTrue(store.state.dex.allSatisfy { !($0.profile?.moves.isEmpty ?? true) })
     }
 
-    /// Saves from before the gender lock can hold a female Gallade; loading its details repairs it.
-    func testDetailLoadRepairsGenderOfStoredGenderLockedEvolution() async throws {
-        let file = FileManager.default.temporaryDirectory
-            .appendingPathComponent("profile-gender-lock-\(UUID().uuidString).json")
-        defer { try? FileManager.default.removeItem(at: file) }
-        var profile = PokemonProfile.generate(seed: 1, instanceID: "gallade")
-        profile.gender = .female
-        var saved = CompanionState()
-        saved.dex = [DexEntry(id: "gallade", baseID: 280, finalID: 475, chainOrder: [280, 281, 475],
-                              rarity: .common, caughtAt: Date(), profile: profile)]
-        try JSONEncoder().encode(saved).write(to: file)
-        let store = CompanionStore(provider: ProfileLineProvider(), detailProvider: ProfileDetailProvider(),
-                                   fileURL: file)
-
-        await store.loadPokemonDetails(speciesID: 475)
-
-        XCTAssertEqual(store.state.dex.first?.profile?.gender, .male)
-    }
-
     func testDetailFetchFailureSetsRetryStateAndClearsLoadingState() async {
         let file = FileManager.default.temporaryDirectory
             .appendingPathComponent("profile-detail-error-\(UUID().uuidString).json")

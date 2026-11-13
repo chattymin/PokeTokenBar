@@ -188,11 +188,6 @@ struct PokemonProfile: Codable, Sendable, Equatable {
         moves = Array(details.levelUpMoves(through: level).suffix(4))
     }
 
-    /// Forces the gender a gender-locked evolution needs, so enrich never rolls the other one.
-    mutating func lockGender(toPath ids: [Int]) {
-        if let required = PokemonGender.required(byPath: ids) { gender = required }
-    }
-
     mutating func applyGrowth(_ delta: Int, rarity: Rarity) {
         advanceGrowth(to: growthTokens + max(0, delta), rarity: rarity)
     }

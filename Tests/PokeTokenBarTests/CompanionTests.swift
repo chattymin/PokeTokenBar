@@ -1432,17 +1432,6 @@ final class CompanionStoreTests: XCTestCase {
         XCTAssertEqual(s.dexEntries.last?.profile?.gender, .male)
     }
 
-    func testReloadKeepsRealizedGalladeAndFixesItsGender() async throws {
-        var profile = PokemonProfile.generate(seed: 3)
-        profile.gender = .female
-        let s = try await reloaded(raltsLine, active: MonState(
-            baseID: 280, pathIDs: [280, 281, 475], plannedPathIDs: [280, 281, 475], stageIndex: 2,
-            usedAtStage: 0, rarity: .common, totalForms: 3, profile: profile))
-
-        XCTAssertEqual(s.state.active?.pathIDs, [280, 281, 475])
-        XCTAssertEqual(s.state.active?.profile?.gender, .male)
-    }
-
     func testReloadRepairsInvalidPlanSuffixWithoutRewindingRealizedPath() async throws {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("poke-invalid-plan-\(UUID().uuidString).json")
         let saved = #"{"active":{"baseID":265,"pathIDs":[265,266],"plannedPathIDs":[265,266,269],"stageIndex":1,"usedAtStage":42,"rarity":"common","totalForms":3}}"#
