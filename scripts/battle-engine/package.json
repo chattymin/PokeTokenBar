@@ -1,0 +1,15 @@
+{
+  "name": "poketokenbar-battle-engine",
+  "private": true,
+  "description": "Builds Sources/PokeTokenBar/Resources/showdown-battle.js (Pokémon Showdown simulator for JavaScriptCore)",
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs"
+  },
+  "devDependencies": {
+    "@pkmn/protocol": "0.7.3",
+    "@pkmn/sim": "0.11.0",
+    "@pkmn/view": "0.7.3",
+    "esbuild": "0.28.2"
+  }
+}

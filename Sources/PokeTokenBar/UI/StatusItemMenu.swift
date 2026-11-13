@@ -7,7 +7,7 @@ import AppKit
 @MainActor
 enum StatusItemMenu {
     enum Action: Equatable {
-        case refresh, openDex, openSettings, toggleFloatingPet, toggleBackView, quit
+        case refresh, openDex, openBattle, openSettings, toggleFloatingPet, toggleBackView, quit
     }
 
     struct Entry: Equatable {
@@ -27,6 +27,7 @@ enum StatusItemMenu {
             nil,
             Entry(title: l.refreshNow, keyEquivalent: "r", action: .refresh),
             Entry(title: l.dexTitle, keyEquivalent: "d", action: .openDex),
+            Entry(title: l.battleMenu + "…", keyEquivalent: "b", action: .openBattle),
             Entry(title: l.settings + "…", keyEquivalent: ",", action: .openSettings),
             Entry(title: floatingPetEnabled ? l.floatingPetHideLabel : l.floatingPetEnableLabel,
                   keyEquivalent: "", action: .toggleFloatingPet),

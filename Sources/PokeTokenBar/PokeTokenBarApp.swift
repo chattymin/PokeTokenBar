@@ -24,6 +24,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private var companion: CompanionStore!
     private var updater: UpdateChecker!
     private var floatingPet: FloatingPetController!
+    private var battleWindow: BattleWindowController?
     private let navigation = PopoverNavigation()
 
     // 메뉴바 캐릭터 애니메이션 — 단일 타이머로 프레임 순환.
@@ -619,6 +620,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         case .refresh: Task { await store.refresh() }
         case .openDex: showPopover { $0.openRepresentativeDex() }
         case .openSettings: showPopover { $0.showSettings = true }
+        case .openBattle:
+            if battleWindow == nil { battleWindow = BattleWindowController(store: companion) }
+            battleWindow?.show()
         case .toggleFloatingPet: store.floatingPetEnabled.toggle()
         case .toggleBackView: store.alwaysFacesBack.toggle()
         case .quit: NSApp.terminate(nil)
