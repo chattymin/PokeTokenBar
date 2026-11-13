@@ -1,3 +1,5 @@
+import AppKit
+import SwiftUI
 import XCTest
 @testable import PokeTokenBar
 
@@ -29,5 +31,87 @@ final class DexDetailEvolutionLineTests: XCTestCase {
         XCTAssertEqual(PokemonDetailView.evolutionLineItems(chainOrder: [144], speciesID: 144, activeLine: nil), [])
         XCTAssertEqual(PokemonDetailView.evolutionLineItems(
             chainOrder: [144], speciesID: 144, activeLine: [EvoLineItem(.species(144), .current)]), [])
+    }
+}
+
+private struct EvolutionRenderProvider: PokeProviding, PokemonDetailProviding {
+    func line(baseSpeciesID: Int) async throws -> EvoLine {
+        EvoLine(baseID: 1, tree: EvoNode(speciesID: 1, children: [
+            EvoNode(speciesID: 2, children: [EvoNode(speciesID: 3, children: [])]),
+        ]), rarity: .common, names: [1: ["en": "Bulbasaur"], 2: ["en": "Ivysaur"], 3: ["en": "Venusaur"]])
+    }
+    func baseSpeciesIndex() async throws -> [BaseSpecies] { [] }
+    func baseSpecies(id: Int) async throws -> BaseSpecies? { nil }
+    func pokemonDetails(speciesID: Int) async throws -> PokemonDetails {
+        PokemonDetails(speciesID: speciesID, name: "fixture", height: 10, weight: 130,
+            baseExperience: 142, genderRate: 1, types: ["grass", "poison"],
+            baseStats: ["hp": 60, "attack": 62, "defense": 63, "special-attack": 80, "special-defense": 80, "speed": 60],
+            abilities: [PokemonAbilityOption(name: "overgrow", slot: 1, isHidden: false)], moves: [])
+    }
+}
+
+/// Opt-in sample-data renders of the detail page for PR evidence. Temporary saves and a temporary
+/// sprite cache only — never the user's collection or sprite cache.
+@MainActor
+final class DexDetailEvolutionLineRenderingTests: XCTestCase {
+    func testRenderDetailPageEvolutionLine() async throws {
+        guard let output = ProcessInfo.processInfo.environment["PTB_DEX_EVOLUTION_RENDER_DIR"] else {
+            throw XCTSkip("Set PTB_DEX_EVOLUTION_RENDER_DIR to render the Pokédex detail evolution line")
+        }
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("dex-evolution-\(UUID())")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let sprites = SpriteStore(directory: dir)
+
+        // A finished Venusaur that went through the whole line.
+        var finished = CompanionState()
+        finished.language = .en
+        finished.dex = [DexEntry(id: "fixture-finished", baseID: 1, finalID: 3, chainOrder: [1, 2, 3], rarity: .common,
+            caughtAt: Date(timeIntervalSince1970: 1_700_000_000), nature: .modest,
+            profile: PokemonProfile.generate(seed: 3, instanceID: "fixture-finished"),
+            names: [1: ["en": "Bulbasaur"], 2: ["en": "Ivysaur"], 3: ["en": "Venusaur"]])]
+        let finishedFile = dir.appendingPathComponent("finished.json")
+        try JSONEncoder().encode(finished).write(to: finishedFile)
+        let finishedStore = CompanionStore(provider: EvolutionRenderProvider(), fileURL: finishedFile)
+        try await render(finishedStore, speciesID: 3, sprites: sprites, to: output, name: "finished")
+
+        // An Ivysaur being raised, one evolution away from Venusaur.
+        var raising = CompanionState()
+        raising.language = .en
+        let raisingFile = dir.appendingPathComponent("raising.json")
+        try JSONEncoder().encode(raising).write(to: raisingFile)
+        let raisingStore = CompanionStore(provider: EvolutionRenderProvider(), fileURL: raisingFile,
+                                          rng: SeededRNG(seed: 7))
+        await raisingStore.hatch(baseID: 1)
+        raisingStore.applyUsage(PokemonBalance.phaseThreshold(rarity: .common, totalForms: 3, stageIndex: 0))
+        XCTAssertEqual(raisingStore.state.active?.currentID, 2)
+        try await render(raisingStore, speciesID: 2, sprites: sprites, to: output, name: "raising")
+    }
+
+    private func render(_ store: CompanionStore, speciesID: Int, sprites: SpriteStore,
+                        to output: String, name: String) async throws {
+        await store.loadPokemonDetails(speciesID: speciesID)
+        let species = try XCTUnwrap(store.dexSpecies.first { $0.id == speciesID })
+        let size = NSSize(width: PopoverMetrics.contentWidth, height: 560)
+        let view = PokemonDetailView(store: store, species: species, onBack: {}, spriteStore: sprites)
+            .frame(width: size.width, height: size.height)
+            .background(Color.white).environment(\.colorScheme, .light)
+        let host = NSHostingView(rootView: view)
+        host.frame = NSRect(origin: .zero, size: size)
+        // Borderless and far off-screen: never visible, never key, never takes focus.
+        let window = NSWindow(contentRect: NSRect(origin: NSPoint(x: -10000, y: -10000), size: size),
+                              styleMask: .borderless, backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        window.appearance = NSAppearance(named: .aqua)
+        window.contentView = host
+        window.orderFront(nil)
+        // Sprites load from the network into the temporary cache.
+        try await Task.sleep(for: .seconds(3))
+        host.layoutSubtreeIfNeeded()
+        let bitmap = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+        host.cacheDisplay(in: host.bounds, to: bitmap)
+        try XCTUnwrap(bitmap.representation(using: .png, properties: [:]))
+            .write(to: URL(fileURLWithPath: output).appendingPathComponent("\(name).png"))
     }
 }
