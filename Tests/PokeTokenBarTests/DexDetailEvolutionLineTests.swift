@@ -141,6 +141,8 @@ final class DexDetailEvolutionLineRenderingTests: XCTestCase {
         try JSONEncoder().encode(finished).write(to: finishedFile)
         let finishedStore = CompanionStore(provider: EvolutionRenderProvider(), fileURL: finishedFile)
         try await render(finishedStore, speciesID: 3, sprites: sprites, to: output, name: "finished")
+        // Ivysaur's page when only that Venusaur is owned: no individual ends on Ivysaur.
+        try await render(finishedStore, speciesID: 2, sprites: sprites, to: output, name: "earlier-stage")
 
         // An Ivysaur being raised, one evolution away from Venusaur.
         var raising = CompanionState()
