@@ -63,6 +63,7 @@ final class BattleSession {
 
     private let serviceName: String
     private let advertises: Bool
+    private let engineDirectory: URL
     private var player = BattlePlayer(name: "", team: [])
     private var listener: NWListener?
     private var browser: NWBrowser?
@@ -73,8 +74,9 @@ final class BattleSession {
     private var requestBeforeChoice: BattleSnapshot.Request?   // challenger only
 
     /// `advertises: false` keeps Bonjour (and the Local Network prompt) out of tests.
-    init(advertises: Bool = true) {
+    init(advertises: Bool = true, engineDirectory: URL = BattleEnginePackages.defaultDirectory) {
         self.advertises = advertises
+        self.engineDirectory = engineDirectory
         serviceName = String(format: "%04x", UInt16.random(in: 0...UInt16.max))
     }
 
@@ -122,7 +124,7 @@ final class BattleSession {
     func accept() {
         guard case .incoming = phase, let guest else { return }
         do {
-            let engine = try BattleEngine()
+            let engine = try BattleEngine(directory: engineDirectory)
             let snapshots = try engine.start(host: player, guest: guest)
             self.engine = engine
             phase = .battle

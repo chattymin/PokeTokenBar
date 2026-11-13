@@ -35,6 +35,3 @@ docs/*
 
 # Local-only review-gate opt-out (not published)
 .no-review-gate
-
-# Battle engine build tooling (the built bundle in Sources/…/Resources is committed)
-scripts/battle-engine/node_modules/

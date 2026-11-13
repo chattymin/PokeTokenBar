@@ -8,8 +8,8 @@ let package = Package(
         .executableTarget(
             name: "PokeTokenBar",
             path: "Sources/PokeTokenBar",
-            // Pokémon Showdown simulator for LAN battles; rebuilt by scripts/battle-engine.
-            resources: [.copy("Resources/showdown-battle.js")],
+            // Glue for LAN battles; the simulator itself is downloaded at runtime (BattleEngine.swift).
+            resources: [.copy("Resources/battle-bridge.js")],
             linkerSettings: [.linkedLibrary("sqlite3")]
         ),
         .testTarget(

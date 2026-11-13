@@ -1,8 +1,44 @@
-// PokeTokenBar battle bridge: wraps the Pokémon Showdown simulator (@pkmn/sim, MIT)
-// behind a tiny synchronous JSON API that Swift drives through JavaScriptCore.
-import {Battle, Dex} from '@pkmn/sim';
-import {Protocol} from '@pkmn/protocol';
-import {LogFormatter} from '@pkmn/view';
+// PokeTokenBar battle bridge, evaluated by BattleEngine.swift in JavaScriptCore.
+//
+// The Pokémon Showdown simulator itself is NOT part of this repository or the app bundle: the app
+// downloads the published npm packages (@pkmn/sim and friends, MIT) on first use, verifies their
+// hashes, and caches them on the user's device. This file is only (1) a minimal CommonJS loader
+// over that cache — the host supplies `__read(path)`, returning a file's text or null — and
+// (2) a small synchronous JSON API on top of the simulator.
+
+// MARK: CommonJS loader
+(function () {
+  const cache = {};
+  const stubs = {fs: {}, path: {join: (...a) => a.join('/'), resolve: (...a) => a.join('/'), dirname: p => p}, assert: Object.assign(() => {}, {ok() {}})};
+  const norm = p => { const out = []; for (const s of p.split('/')) { if (s === '..') out.pop(); else if (s && s !== '.') out.push(s); } return out.join('/'); };
+  function resolveFile(p) {
+    for (const c of [p, p + '.js', p + '/index.js']) if (/\.js(on)?$/.test(c) && __read(c) != null) return c;
+    return null;
+  }
+  function resolve(from, id) {
+    if (id[0] === '.') return resolveFile(norm(from + '/../' + id));
+    const parts = id.split('/'); const name = id[0] === '@' ? parts.slice(0, 2).join('/') : parts[0];
+    const rest = parts.slice(name.split('/').length).join('/');
+    if (rest) return resolveFile(name + '/' + rest);
+    const pkg = JSON.parse(__read(name + '/package.json'));
+    return resolveFile(norm(name + '/' + (pkg.main || 'index.js')));
+  }
+  function load(file) {
+    if (cache[file]) return cache[file].exports;
+    const module = cache[file] = {exports: {}};
+    const src = __read(file);
+    if (file.endsWith('.json')) { module.exports = JSON.parse(src); return module.exports; }
+    const fn = (0, eval)('(function(require,module,exports){' + src + '\n})\n//# sourceURL=' + file);
+    fn(id => { if (stubs[id]) return stubs[id]; const f = resolve(file, id); if (!f) throw new Error('cannot find ' + id + ' from ' + file); return load(f); }, module, module.exports);
+    return module.exports;
+  }
+  globalThis.__require = id => load(resolve('', id) || (() => { throw new Error('cannot find ' + id); })());
+})();
+
+// MARK: Battle API
+const {Battle, Dex} = __require('@pkmn/sim');
+const {Protocol} = __require('@pkmn/protocol');
+const {LogFormatter} = __require('@pkmn/view');
 
 // Gen 5 mechanics (the app's species/learnsets stop at Gen V). Teams are already picked, so no preview.
 const FORMAT = 'gen5ubers@@@!Team Preview,!Sleep Clause Mod,!Species Clause,!Nickname Clause';

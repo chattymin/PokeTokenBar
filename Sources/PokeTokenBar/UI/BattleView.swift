@@ -48,6 +48,7 @@ struct BattleView: View {
     /// `DexEntry.id`s in battle order; the first one leads.
     @State private var picked: [String] = []
     @State private var preparing = false
+    @State private var downloadFailed = false
     @State private var confirmingForfeit = false
 
     private var l: L { store.l }
@@ -80,6 +81,14 @@ struct BattleView: View {
                     }
                 }
                 .reservesScrollerLane()
+            }
+            if preparing {
+                HStack(spacing: 8) {
+                    ProgressView().controlSize(.small)
+                    Text(l.battlePreparing).font(.callout).foregroundStyle(.secondary)
+                }
+            } else if downloadFailed {
+                Text(l.battleDownloadFailed).font(.callout).foregroundStyle(.orange)
             }
             Button {
                 enterLobby()
@@ -123,10 +132,20 @@ struct BattleView: View {
     }
 
     /// Profiles are enriched lazily (ability, moves) the first time a species' details load, so make
-    /// sure every picked Pokémon has them before its data is frozen into the team.
+    /// sure every picked Pokémon has them before its data is frozen into the team. The simulator is
+    /// fetched here too (first battle only): whoever gets challenged must be able to host at once.
     private func enterLobby() {
         preparing = true
+        downloadFailed = false
         Task {
+            do {
+                try await BattleEnginePackages.install(into: BattleEnginePackages.defaultDirectory)
+            } catch {
+                AppLog.write("battle engine download failed: \(error)")
+                preparing = false
+                downloadFailed = true
+                return
+            }
             for entry in roster where picked.contains(entry.id) && entry.profile?.moves.isEmpty != false {
                 await store.loadPokemonDetails(speciesID: entry.finalID)
             }
@@ -183,6 +202,7 @@ struct BattleView: View {
             Spacer()
             Button(l.battleChangeTeam) { session.stop() }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func text(for notice: BattleSession.Notice) -> String {
