@@ -1672,6 +1672,10 @@ final class CompanionStore {
             return
         }
         guard isCurrentEgg(generation: generation), state.pendingHatchID == id else { return }
+        // Warm the details too: with the gender ratio cached, the hatch rolls the gender before it plans
+        // a gender-locked branch. The hatch never waits for this; without it the remaining route is
+        // re-planned once details arrive.
+        await loadPokemonDetails(speciesID: line.baseID)
         // 스프라이트 예열 — 부화 직후 보일 것들: base 정적+애니메이션, shiny 롤(1/64) 대비 shiny 애니메이션.
         // .app 번들에서만(단위 테스트가 실네트워크에 닿지 않도록 — 알림과 동일한 게이트).
         if AppEnv.isBundledApp {

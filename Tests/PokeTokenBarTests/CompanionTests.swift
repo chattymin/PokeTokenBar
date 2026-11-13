@@ -1370,17 +1370,28 @@ final class CompanionStoreTests: XCTestCase {
         }
     }
 
-    /// Details usually arrive after the hatch planned the route, so the late gender roll re-plans it.
+    /// Offline at hatch: details fail, the route is planned without a gender, and the roll that
+    /// follows once details arrive re-plans the branches still ahead.
+    private final class OfflineThenFemaleDetails: PokemonDetailProviding, @unchecked Sendable {
+        var online = false
+        func pokemonDetails(speciesID: Int) async throws -> PokemonDetails {
+            guard online else { throw URLError(.notConnectedToInternet) }
+            return try await FemaleOnlyDetails().pokemonDetails(speciesID: speciesID)
+        }
+    }
+
     func testLateFemaleRollReplansRaltsAwayFromGallade() async throws {
         var checked = false
         for seed in UInt64(1)...20 where !checked {
             let url = FileManager.default.temporaryDirectory.appendingPathComponent("poke-\(UUID().uuidString).json")
-            let s = CompanionStore(provider: StubProvider(value: raltsLine), detailProvider: FemaleOnlyDetails(),
+            let details = OfflineThenFemaleDetails()
+            let s = CompanionStore(provider: StubProvider(value: raltsLine), detailProvider: details,
                                    clock: { fixedNow }, fileURL: url, rng: SeededRNG(seed: seed))
             await s.hatch(baseID: 280)
             guard s.state.active?.plannedPathIDs.last == 475 else { continue }
             XCTAssertNil(s.state.active?.profile?.gender, "gender is rolled only once details load")
 
+            details.online = true
             await s.loadPokemonDetails(speciesID: 280)
 
             XCTAssertEqual(s.state.active?.profile?.gender, .female)
@@ -1389,6 +1400,25 @@ final class CompanionStoreTests: XCTestCase {
             checked = true
         }
         XCTAssertTrue(checked, "some seed must plan Gallade before the gender roll")
+    }
+
+    /// The egg prefetch loads the gender ratio, so an egg hatch already knows the gender and never
+    /// shows a route it later has to change.
+    func testEggHatchRollsGenderBeforeGenderLockedRoute() async {
+        for seed in UInt64(1)...10 {
+            let url = FileManager.default.temporaryDirectory.appendingPathComponent("poke-\(UUID().uuidString).json")
+            let s = CompanionStore(provider: StubProvider(value: raltsLine), detailProvider: FemaleOnlyDetails(),
+                                   clock: { fixedNow }, fileURL: url, rng: SeededRNG(seed: seed))
+            base(s)
+            use(s, 1_000)   // still an egg: only the prefetch runs
+            for _ in 0..<200 where s.pokemonDetailsByID[280] == nil { await Task.yield() }
+            XCTAssertNotNil(s.pokemonDetailsByID[280], "seed \(seed): the egg prefetch should load details")
+            use(s, PokemonBalance.eggHatchThreshold + 1_000)
+            await s.hatchIfNeeded()
+
+            XCTAssertEqual(s.state.active?.profile?.gender, .female, "seed \(seed)")
+            XCTAssertEqual(s.state.active?.plannedPathIDs, [280, 281, 282], "seed \(seed)")
+        }
     }
 
     private func reloaded(_ line: EvoLine, active: MonState) async throws -> CompanionStore {
