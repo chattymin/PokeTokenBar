@@ -31,6 +31,11 @@ struct OakAdviceCard: View {
                     .font(.caption).foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
+            if let budget = words.budgetNote {
+                Label(budget, systemImage: "hourglass")
+                    .font(.caption).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
             stepList(l, words)
             Button { nav.showingOakDetails = true } label: {
                 HStack(spacing: 4) {
@@ -227,6 +232,11 @@ struct OakAdviceScreen: View {
                                 .font(.caption).foregroundStyle(.secondary)
                                 .fixedSize(horizontal: false, vertical: true)
                         }
+                        if let budget = words.budgetNote {
+                            Label(budget, systemImage: "hourglass")
+                                .font(.caption).foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
                     }
                     ForEach(Array(words.steps.enumerated()), id: \.offset) { index, step in
                         HStack(alignment: .firstTextBaseline, spacing: 6) {
@@ -299,6 +309,14 @@ private struct OakWords {
     var pauseNote: String? {
         guard store.growthPaused, let dungeon = store.expedition?.dungeon else { return nil }
         return verdict == nil ? l.oakDungeonPauseEgg(l.dungeonName(dungeon)) : l.oakDungeonPause(name, l.dungeonName(dungeon))
+    }
+
+    /// While the dungeons have had their share of the tokens, why Oak proposes none.
+    var budgetNote: String? {
+        guard store.expedition == nil, let left = store.oakDungeonBudgetLeft else { return nil }
+        let eta = store.timeToEarn(left).map { l.oakAtYourPace(l.shortDuration($0)) } ?? ""
+        return l.oakDungeonBudgetNote(share: l.oddsPercent(15, share: CompanionStore.oakDungeonShare),
+                                      left: TokenFormatter.compact(left), eta: eta)
     }
 
     /// One sentence: what to do with a Spare, else what the Pokémon brings.

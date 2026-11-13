@@ -104,6 +104,19 @@ final class OakDungeonTests: XCTestCase {
         XCTAssertEqual(under.oakSteps.last, under.oakDungeon.map(OakStep.dungeon))
     }
 
+    /// Spent, the budget tells how far the next dungeon is: the tokens until the dungeons' fall back under 15% of those
+    /// since the budget started.
+    func testTheSpentBudgetTellsWhenADungeonMayComeBack() throws {
+        let spent = try store(used: 1_400_000_000) {
+            $0.dungeons.budget = DungeonBudget(start: 400_000_000, dungeonTokens: 300_000_000)
+        }
+        XCTAssertEqual(Double(try XCTUnwrap(spent.oakDungeonBudgetLeft)), 1_000_000_000, accuracy: 1)
+        let under = try store(used: 1_400_000_000) {
+            $0.dungeons.budget = DungeonBudget(start: 400_000_000, dungeonTokens: 149_000_000)
+        }
+        XCTAssertNil(under.oakDungeonBudgetLeft)
+    }
+
     func testTheBudgetGoesOnceEveryEggFormKeyIsHeld() async throws {
         let index = [BaseSpecies(id: 16, captureRate: 255)]
         let held = try store(dex: strong + [graduated(18, chain: [16, 17, 18]), graduated(132)], index: index, used: 1_000) {

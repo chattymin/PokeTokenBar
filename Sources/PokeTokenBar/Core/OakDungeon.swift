@@ -127,6 +127,12 @@ extension CompanionStore {
         }
     }
 
+    /// The tokens until the dungeons' fall back under their share, nil while they are under it.
+    var oakDungeonBudgetLeft: Int? {
+        guard oakDungeonBudgetSpent, let budget = state.dungeons.budget else { return nil }
+        return Int(Double(budget.dungeonTokens) / Self.oakDungeonShare) - (state.usedSinceInstall - budget.start)
+    }
+
     private var oakDungeonBudgetSpent: Bool {
         guard let budget = state.dungeons.budget else { return false }
         let tokens = max(state.usedSinceInstall - budget.start, 1)
