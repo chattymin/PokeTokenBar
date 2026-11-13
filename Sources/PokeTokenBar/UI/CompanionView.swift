@@ -1844,15 +1844,19 @@ struct PokemonDetailView: View {
         return items.count > 1 ? items : []
     }
 
-    /// Whose evolution line the page shows: the selected individual, or on an earlier stage's page (no
-    /// individual ends there) one that went through this species in the displayed form and appearance —
-    /// the individual being raised first, else the most recent record (ties broken by id).
+    /// Whose evolution line the page shows: the selected individual when it went through more than this
+    /// one stage. Otherwise — an earlier stage's page, where no individual ends, or one released before
+    /// evolving — an individual that went through this species in the displayed form and appearance:
+    /// the one being raised first, else the longest recorded line, then the most recent, then by id.
     static func evolutionSourceEntry(selected: DexEntry?, entries: [DexEntry], activeID: String?,
                                      speciesID: Int, form: PokemonForm?, shiny: Bool) -> DexEntry? {
-        if let selected { return selected }
+        if let selected, selected.chainOrder.count > 1 { return selected }
         let matches = entries.filter { $0.isShiny == shiny && $0.passedThrough(speciesID, form: form) }
         if let active = matches.first(where: { $0.id == activeID }) { return active }
-        return matches.max { ($0.caughtAt ?? .distantPast, $0.id) < ($1.caughtAt ?? .distantPast, $1.id) }
+        return matches.max {
+            ($0.chainOrder.count, $0.caughtAt ?? .distantPast, $0.id)
+                < ($1.chainOrder.count, $1.caughtAt ?? .distantPast, $1.id)
+        }
     }
 
     /// Evolution-line sprites that open a Pokédex page: none without a way to open one, and never the

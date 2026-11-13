@@ -59,16 +59,43 @@ final class DexDetailEvolutionLineTests: XCTestCase {
         ])
     }
 
-    func testSelectedIndividualWins() {
+    func testSelectedIndividualThatEvolvedWinsOverALongerLine() {
         let selected = entry("ivysaur", [1, 2])
-        XCTAssertEqual(source([entry("venusaur", [1, 2, 3], caughtAt: 1_800_000_000)], selected: selected), "ivysaur")
+        XCTAssertEqual(source([selected, entry("venusaur", [1, 2, 3], caughtAt: 1_800_000_000)],
+                              selected: selected), "ivysaur")
+    }
+
+    func testIndividualReleasedBeforeEvolvingShowsALongerRecordedLine() throws {
+        // Nidoran♂'s page: the only individual ending there was released at stage 1.
+        let released = entry("released", [32], caughtAt: 1_800_000_000)
+        let nidoking = entry("nidoking", [32, 33, 34], caughtAt: 1_600_000_000)
+        XCTAssertEqual(source([released, nidoking], selected: released, speciesID: 32), "nidoking")
+        let shown = try XCTUnwrap(PokemonDetailView.evolutionSourceEntry(
+            selected: released, entries: [released, nidoking], activeID: nil, speciesID: 32, form: nil, shiny: false))
+        XCTAssertEqual(PokemonDetailView.evolutionLineItems(chainOrder: shown.chainOrder, speciesID: 32, activeLine: nil), [
+            EvoLineItem(.species(32), .current),
+            EvoLineItem(.species(33), .done),
+            EvoLineItem(.species(34), .done),
+        ])
+        // Nothing longer recorded: the single stage stays hidden.
+        let legendary = entry("legendary", [144])
+        let only = try XCTUnwrap(PokemonDetailView.evolutionSourceEntry(
+            selected: legendary, entries: [legendary], activeID: nil, speciesID: 144, form: nil, shiny: false))
+        XCTAssertEqual(PokemonDetailView.evolutionLineItems(chainOrder: only.chainOrder, speciesID: 144, activeLine: nil), [])
+    }
+
+    func testLongestLineWinsOverAMoreRecentShorterOne() {
+        let ivysaur = entry("ivysaur", [1, 2], caughtAt: 1_800_000_000)
+        let venusaur = entry("venusaur", [1, 2, 3], caughtAt: 1_600_000_000)
+        XCTAssertEqual(source([ivysaur, venusaur], speciesID: 1), "venusaur")
+        XCTAssertEqual(source([venusaur, ivysaur], speciesID: 1), "venusaur")
     }
 
     func testChoiceAmongSeveralEntriesIsDeterministic() {
         let old = entry("old", [1, 2, 3], caughtAt: 1_600_000_000)
         let new = entry("new", [1, 2, 3], caughtAt: 1_700_000_000)
         let raising = entry("raising", [1, 2], caughtAt: nil)
-        // The individual being raised first, else the most recent record, whatever the input order.
+        // The individual being raised first, else (equal lengths) the most recent record, whatever the input order.
         XCTAssertEqual(source([old, new, raising], activeID: "raising"), "raising")
         XCTAssertEqual(source([old, new, raising]), "new")
         XCTAssertEqual(source([new, old]), "new")
