@@ -1855,6 +1855,13 @@ struct PokemonDetailView: View {
         return matches.max { ($0.caughtAt ?? .distantPast, $0.id) < ($1.caughtAt ?? .distantPast, $1.id) }
     }
 
+    /// Evolution-line sprites that open a Pokédex page: none without a way to open one, and never the
+    /// page's own species, which would reopen the page already shown.
+    static func evolutionDexLinks(_ links: [Int: String], pageSpeciesID: Int,
+                                  canOpen: Bool) -> [Int: String] {
+        canOpen ? links.filter { $0.key != pageSpeciesID } : [:]
+    }
+
     /// Unown's 28 letters fill seven columns; named forms get wider cells for their labels.
     static func formPickerColumns(formCount: Int) -> Int {
         formCount > 8 ? (formCount > 20 ? 7 : 6) : min(formCount, 4)
@@ -2035,9 +2042,8 @@ struct PokemonDetailView: View {
                             names: evolutionNames(entry: entry, items: items, isActive: isActive),
                             maxWidth: PopoverMetrics.scrollContentWidth - Self.cardPadding * 2,
                             form: entry.form, nameFontSize: 11, nameLineLimit: 2, nameMinimumScaleFactor: 1,
-                            // This page's own sprite would reopen the page it is on.
-                            dexLinks: onOpenDexEntry == nil ? [:]
-                                : store.dexLinkTargets.filter { $0.key != species.id },
+                            dexLinks: Self.evolutionDexLinks(store.dexLinkTargets, pageSpeciesID: species.id,
+                                                             canOpen: onOpenDexEntry != nil),
                             onOpenDexEntry: onOpenDexEntry, spriteStore: spriteStore)
             }
             .detailCard()

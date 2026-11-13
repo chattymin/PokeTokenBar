@@ -91,6 +91,14 @@ final class DexDetailEvolutionLineTests: XCTestCase {
         XCTAssertNil(source([entry("charizard", [4, 5, 6])]))
         XCTAssertNil(source([]))
     }
+
+    // MARK: Links
+
+    func testLinksSkipThisPageAndNeedACallback() {
+        let links = [1: "c1", 2: "c2", 3: "c3"]
+        XCTAssertEqual(PokemonDetailView.evolutionDexLinks(links, pageSpeciesID: 2, canOpen: true), [1: "c1", 3: "c3"])
+        XCTAssertEqual(PokemonDetailView.evolutionDexLinks(links, pageSpeciesID: 2, canOpen: false), [:])
+    }
 }
 
 private struct EvolutionRenderProvider: PokeProviding, PokemonDetailProviding {
