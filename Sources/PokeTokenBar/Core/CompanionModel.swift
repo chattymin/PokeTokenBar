@@ -342,6 +342,10 @@ struct EvoNode: Codable, Sendable {
         return nil
     }
     /// 이 노드에서 도달 가능한 모든 최종체 id
+    /// Branches an individual of `gender` can take (nil = not rolled yet: all). Empty = it graduates here.
+    func children(allowing gender: PokemonGender?) -> [EvoNode] {
+        children.filter { gender?.allows(path: [$0.speciesID]) ?? true }
+    }
     var finalIDs: [Int] {
         children.isEmpty ? [speciesID] : children.flatMap(\.finalIDs)
     }

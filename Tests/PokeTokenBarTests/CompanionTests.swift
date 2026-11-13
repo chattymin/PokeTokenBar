@@ -1354,6 +1354,114 @@ final class CompanionStoreTests: XCTestCase {
         XCTAssertEqual(reloadRNG.callCount, 0, "a persisted complete route must not reroll on restart")
     }
 
+    // MARK: 성별 한정 진화 (엘레이드·눈여아·비퀸·도롱마담·나메일)
+
+    // Ralts: 280 → 281 → {282 Gardevoir, 475 Gallade}
+    private let raltsLine = makeLine(base: 280, tree: node(280, [node(281, [node(282), node(475)])]))
+    // Combee: 415 → 416 Vespiquen (female only)
+    private let combeeLine = makeLine(base: 415, tree: node(415, [node(416)]))
+
+    private struct FemaleOnlyDetails: PokemonDetailProviding {
+        func pokemonDetails(speciesID: Int) async throws -> PokemonDetails {
+            PokemonDetails(speciesID: speciesID, name: "fixture", height: 1, weight: 1, baseExperience: 1,
+                           genderRate: 8, types: ["psychic"], baseStats: ["hp": 28],
+                           abilities: [PokemonAbilityOption(name: "synchronize", slot: 1, isHidden: false)],
+                           moves: [])
+        }
+    }
+
+    /// Offline at hatch: details fail, the route is planned without a gender, and the roll that
+    /// follows once details arrive re-plans the branches still ahead.
+    private final class OfflineThenFemaleDetails: PokemonDetailProviding, @unchecked Sendable {
+        var online = false
+        func pokemonDetails(speciesID: Int) async throws -> PokemonDetails {
+            guard online else { throw URLError(.notConnectedToInternet) }
+            return try await FemaleOnlyDetails().pokemonDetails(speciesID: speciesID)
+        }
+    }
+
+    func testLateFemaleRollReplansRaltsAwayFromGallade() async throws {
+        var checked = false
+        for seed in UInt64(1)...20 where !checked {
+            let url = FileManager.default.temporaryDirectory.appendingPathComponent("poke-\(UUID().uuidString).json")
+            let details = OfflineThenFemaleDetails()
+            let s = CompanionStore(provider: StubProvider(value: raltsLine), detailProvider: details,
+                                   clock: { fixedNow }, fileURL: url, rng: SeededRNG(seed: seed))
+            await s.hatch(baseID: 280)
+            guard s.state.active?.plannedPathIDs.last == 475 else { continue }
+            XCTAssertNil(s.state.active?.profile?.gender, "gender is rolled only once details load")
+
+            details.online = true
+            await s.loadPokemonDetails(speciesID: 280)
+
+            XCTAssertEqual(s.state.active?.profile?.gender, .female)
+            XCTAssertEqual(s.state.active?.plannedPathIDs, [280, 281, 282])
+            XCTAssertEqual(s.state.active?.totalForms, 3)
+            checked = true
+        }
+        XCTAssertTrue(checked, "some seed must plan Gallade before the gender roll")
+    }
+
+    /// The egg prefetch loads the gender ratio, so an egg hatch already knows the gender and never
+    /// shows a route it later has to change.
+    func testEggHatchRollsGenderBeforeGenderLockedRoute() async {
+        for seed in UInt64(1)...10 {
+            let url = FileManager.default.temporaryDirectory.appendingPathComponent("poke-\(UUID().uuidString).json")
+            let s = CompanionStore(provider: StubProvider(value: raltsLine), detailProvider: FemaleOnlyDetails(),
+                                   clock: { fixedNow }, fileURL: url, rng: SeededRNG(seed: seed))
+            base(s)
+            use(s, 1_000)   // still an egg: only the prefetch runs
+            for _ in 0..<200 where s.pokemonDetailsByID[280] == nil { await Task.yield() }
+            XCTAssertNotNil(s.pokemonDetailsByID[280], "seed \(seed): the egg prefetch should load details")
+            use(s, PokemonBalance.eggHatchThreshold + 1_000)
+            await s.hatchIfNeeded()
+
+            XCTAssertEqual(s.state.active?.profile?.gender, .female, "seed \(seed)")
+            XCTAssertEqual(s.state.active?.plannedPathIDs, [280, 281, 282], "seed \(seed)")
+        }
+    }
+
+    private func reloaded(_ line: EvoLine, active: MonState) async throws -> CompanionStore {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("poke-gender-\(UUID().uuidString).json")
+        let json = String(decoding: try JSONEncoder().encode(active), as: UTF8.self)
+        try Data(#"{"active":\#(json)}"#.utf8).write(to: url)
+        let s = CompanionStore(provider: StubProvider(value: line), clock: { fixedNow }, fileURL: url, rng: SeededRNG(seed: 9))
+        s.update(todayTokensByProvider: ["test": 0], todayDate: "d1", monthTotal: 0,
+                 burnTier: .idle, limitWarning: false, hasUsageData: true)
+        let loaded = await waitUntil { s.currentLine != nil }
+        XCTAssertTrue(loaded)
+        return s
+    }
+
+    func testReloadReplansFemaleKirliaAwayFromGallade() async throws {
+        var profile = PokemonProfile.generate(seed: 3)
+        profile.gender = .female
+        let s = try await reloaded(raltsLine, active: MonState(
+            baseID: 280, pathIDs: [280, 281], plannedPathIDs: [280, 281, 475], stageIndex: 1,
+            usedAtStage: 0, rarity: .common, totalForms: 3, profile: profile))
+
+        XCTAssertEqual(s.state.active?.plannedPathIDs, [280, 281, 282])
+        XCTAssertEqual(s.state.active?.profile?.gender, .female)
+    }
+
+    func testMaleCombeeGraduatesWithoutEvolving() async throws {
+        var profile = PokemonProfile.generate(seed: 3)
+        profile.gender = .male
+        let s = try await reloaded(combeeLine, active: MonState(
+            baseID: 415, pathIDs: [415], plannedPathIDs: [415, 416], stageIndex: 0,
+            usedAtStage: 0, rarity: .common, totalForms: 2, profile: profile))
+
+        XCTAssertEqual(s.state.active?.plannedPathIDs, [415])
+        XCTAssertTrue(s.isFinalStage)
+        XCTAssertFalse(s.lineNodes.contains { $0.content == .species(416) }, "no Vespiquen preview for a male")
+
+        s.applyUsage(s.threshold)
+
+        XCTAssertNil(s.state.active)
+        XCTAssertEqual(s.dexEntries.last?.finalID, 415)
+        XCTAssertEqual(s.dexEntries.last?.profile?.gender, .male)
+    }
+
     func testReloadRepairsInvalidPlanSuffixWithoutRewindingRealizedPath() async throws {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("poke-invalid-plan-\(UUID().uuidString).json")
         let saved = #"{"active":{"baseID":265,"pathIDs":[265,266],"plannedPathIDs":[265,266,269],"stageIndex":1,"usedAtStage":42,"rarity":"common","totalForms":3}}"#
