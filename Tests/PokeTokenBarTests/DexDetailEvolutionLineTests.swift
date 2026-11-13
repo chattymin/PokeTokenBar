@@ -171,6 +171,18 @@ final class DexDetailEvolutionLineRenderingTests: XCTestCase {
         // Ivysaur's page when only that Venusaur is owned: no individual ends on Ivysaur.
         try await render(finishedStore, speciesID: 2, sprites: sprites, to: output, name: "earlier-stage")
 
+        // Bulbasaur's page when its only individual was released before evolving, next to that Venusaur.
+        var released = finished
+        let releasedAt = Date(timeIntervalSince1970: 1_700_100_000)
+        released.dex.append(DexEntry(id: "fixture-released", baseID: 1, finalID: 1, chainOrder: [1], rarity: .common,
+            caughtAt: releasedAt, nature: .bold,
+            profile: PokemonProfile.generate(seed: 5, instanceID: "fixture-released"),
+            names: [1: ["en": "Bulbasaur"]], releasedAt: releasedAt))
+        let releasedFile = dir.appendingPathComponent("released.json")
+        try JSONEncoder().encode(released).write(to: releasedFile)
+        let releasedStore = CompanionStore(provider: EvolutionRenderProvider(), fileURL: releasedFile)
+        try await render(releasedStore, speciesID: 1, sprites: sprites, to: output, name: "released-first-stage")
+
         // An Ivysaur being raised, one evolution away from Venusaur.
         var raising = CompanionState()
         raising.language = .en
