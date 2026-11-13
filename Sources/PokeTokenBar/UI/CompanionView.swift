@@ -1095,11 +1095,11 @@ struct CollectionView: View {
             emptyState
         } else if let id = nav.dexDetailCollectionID,
                   let species = store.dexSpecies.first(where: { $0.collectionID == id }) {
-            PokemonDetailView(store: store, species: species) {
+            PokemonDetailView(store: store, species: species, onBack: {
                 // Back to the log would leave it for the next switch to the grid.
                 if !nav.showingCollectionLog { dexReturnAnchor = id }
                 nav.dexDetailCollectionID = nil
-            }
+            }, onOpenDexEntry: { nav.dexDetailCollectionID = $0 })
                 .id(species.collectionID)
                 .frame(height: Self.contentHeight)
         } else {
@@ -1723,6 +1723,8 @@ struct PokemonDetailView: View {
     let store: CompanionStore
     let species: CompanionStore.DexSpecies
     let onBack: () -> Void
+    /// Opens another species' Pokédex page from the evolution line (nil = sprites are not links).
+    private let onOpenDexEntry: ((String) -> Void)?
     private let spriteStore: SpriteStore
     @State private var selectedInstanceID = ""
     @State private var selectedForm: PokemonForm?
@@ -1731,10 +1733,12 @@ struct PokemonDetailView: View {
 
     init(store: CompanionStore, species: CompanionStore.DexSpecies,
          onBack: @escaping () -> Void, selectedShiny: Bool? = nil,
+         onOpenDexEntry: ((String) -> Void)? = nil,
          spriteStore: SpriteStore = .shared) {
         self.store = store
         self.species = species
         self.onBack = onBack
+        self.onOpenDexEntry = onOpenDexEntry
         self.spriteStore = spriteStore
         _selectedShiny = State(initialValue: selectedShiny)
     }
@@ -2013,7 +2017,10 @@ struct PokemonDetailView: View {
                             names: evolutionNames(entry: entry, items: items, isActive: isActive),
                             maxWidth: PopoverMetrics.scrollContentWidth - Self.cardPadding * 2,
                             form: entry.form, nameFontSize: 11, nameLineLimit: 2, nameMinimumScaleFactor: 1,
-                            spriteStore: spriteStore)
+                            // This page's own sprite would reopen the page it is on.
+                            dexLinks: onOpenDexEntry == nil ? [:]
+                                : store.dexLinkTargets.filter { $0.key != species.id },
+                            onOpenDexEntry: onOpenDexEntry, spriteStore: spriteStore)
             }
             .detailCard()
             .task(id: "\(entry.id)-\(store.language.rawValue)") {
