@@ -66,8 +66,8 @@ enum Changelog {
     }
 
     static let days: [ChangelogDay] = [
-        ChangelogDay(date: "2026-11-13", entries: [
-            .improved("2026-11-13-oak-dungeon-budget", { $0.t("던전이 이미 토큰을 충분히 써서 오박사가 던전을 추천하지 않을 때, 그 이유와 다음 던전까지 남은 토큰을 알려 줘요.",
+        ChangelogDay(date: "2026-11-14", entries: [
+            .improved("2026-11-14-oak-dungeon-budget", { $0.t("던전이 이미 토큰을 충분히 써서 오박사가 던전을 추천하지 않을 때, 그 이유와 다음 던전까지 남은 토큰을 알려 줘요.",
                                                            "When dungeons have had their share of your tokens and Prof. Oak suggests none, he now says so, and how many tokens until the next one.",
                                                            "ダンジョンがもう十分にトークンを使ってオーキド博士がダンジョンを勧めないとき、その理由と次のダンジョンまでのトークンを伝えます。",
                                                            "Cuando las mazmorras ya se llevaron su parte de tus tokens y el Profesor Oak no propone ninguna, ahora lo dice, y cuántos tokens faltan para la siguiente.",
@@ -75,6 +75,8 @@ enum Changelog {
                                                            "Quando as masmorras já levaram sua parte dos seus tokens e o Prof. Carvalho não sugere nenhuma, ele agora avisa, e diz quantos tokens faltam para a próxima.",
                                                            "Wenn Dungeons schon ihren Anteil deiner Tokens hatten und Prof. Eich keinen vorschlägt, sagt er das jetzt, und wie viele Tokens es bis zum nächsten sind.",
                                                            "Когда подземелья уже забрали свою долю токенов и профессор Оук не советует ни одного, он теперь говорит об этом и называет, сколько токенов осталось до следующего.") }),
+        ]),
+        ChangelogDay(date: "2026-11-13", entries: [
             .fixed("2026-11-13-paste-open-window", { $0.t("이제 앱의 입력 칸에서 ⌘V로 정말 붙여 넣을 수 있어요. 설정의 세션 키 칸도요. 이전 수정은 창을 열면 더 이상 동작하지 않았어요.",
                                                         "⌘V really pastes in the app's text fields now, the session key's in Settings too. The previous fix stopped working as soon as the window opened.",
                                                         "アプリの入力欄で⌘Vが本当に貼り付けられるようになりました。設定のセッションキーの欄も同様です。前回の修正はウィンドウを開くと効かなくなっていました。",
