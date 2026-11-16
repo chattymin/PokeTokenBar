@@ -16,7 +16,7 @@ struct ExpeditionGuideHeader: View {
         let l = store.l
         HStack(alignment: .top, spacing: 4) {
             // The dungeon itself (the owner: "on ne voit jamais le donjon"), the guide at its foot.
-            DungeonIcon(id: e.dungeon, size: 80, boss: e.dungeon.isChallenge ? e.boss : nil)
+            DungeonIcon(id: e.dungeon, size: 80, boss: e.dungeon.isChallenge ? e.boss : nil, animated: true)
                 .shadow(color: DungeonCard.colors(e.dungeon)[0].opacity(0.55), radius: 10)
                 .overlay(alignment: .bottomTrailing) {
                     PortraitBust(name: Self.guidePortrait, width: 50, symbol: "figure.hiking")
@@ -374,7 +374,7 @@ struct ExpeditionResultGuide: View {
     private var guide: some View {
         let l = store.l
         return HStack(alignment: .top, spacing: 4) {
-            DungeonIcon(id: r.dungeon, size: 80, boss: r.dungeon.isChallenge ? r.boss : nil)
+            DungeonIcon(id: r.dungeon, size: 80, boss: r.dungeon.isChallenge ? r.boss : nil, animated: true)
                 .grayscale(0.6)
                 .overlay(alignment: .bottomTrailing) {
                     PortraitBust(name: ExpeditionGuideHeader.guidePortrait, width: 50, symbol: "figure.hiking")

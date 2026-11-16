@@ -278,7 +278,9 @@ private struct ChallengeCard: View {
             // hard to make out). It fills its box: at one scale with the others, a small form stayed small.
             Group {
                 if let boss {
-                    SpriteView(speciesID: boss.speciesID, size: 92, form: boss.form)
+                    // Moving, as the Pokémon raised on Home (the owner, 2026-11-16); a battle form without an animation
+                    // shows its still (`BattleForms.isAnimated`).
+                    SpriteView(speciesID: boss.speciesID, size: 92, animated: unmet.isEmpty && !lost, form: boss.form)
                         .shadow(color: color.opacity(unmet.isEmpty && !lost ? 0.7 : 0), radius: 12)
                 } else {
                     Image(systemName: id == .daily ? "sun.max.fill" : "calendar").font(.largeTitle).foregroundStyle(.secondary)
@@ -355,11 +357,14 @@ struct DungeonIcon: View {
     let id: DungeonID
     var size: CGFloat = 32
     var boss: ExpeditionBoss?
+    /// A challenge's boss moving, where it is shown large (Home's card; the owner, 2026-11-16); the small icons of the
+    /// lists stay still.
+    var animated = false
 
     var body: some View {
         Group {
             if id.isChallenge, let boss {
-                SpriteView(speciesID: boss.speciesID, size: size, form: boss.form, sameScale: true)
+                SpriteView(speciesID: boss.speciesID, size: size, animated: animated, form: boss.form, sameScale: true)
             } else if let image = DungeonSprites.image(id) {
                 Image(decorative: image, scale: 1).resizable().interpolation(size.truncatingRemainder(dividingBy: 32) == 0 ? .none : .high)
             } else {

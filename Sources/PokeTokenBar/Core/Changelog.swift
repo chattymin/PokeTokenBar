@@ -67,6 +67,28 @@ enum Changelog {
 
     static let days: [ChangelogDay] = [
         ChangelogDay(date: "2026-11-16", entries: [
+            .improved("2026-11-16-challenge-boss-moves", { $0.t("오늘·이번 주 던전의 보스가 던전 목록 카드와 홈에서 움직여요.",
+                                                             "The daily and weekly dungeons' bosses move on their cards in the dungeon list and on Home.",
+                                                             "今日と今週のダンジョンのボスが、ダンジョン一覧のカードとホームで動きます。",
+                                                             "Los jefes de las mazmorras del día y de la semana se mueven en sus tarjetas de la lista y en el Inicio.",
+                                                             "Les boss des donjons du jour et de la semaine bougent sur leur carte de la liste des donjons et sur l'Accueil.",
+                                                             "Os chefes das masmorras do dia e da semana se mexem nos cartões da lista e no Início.",
+                                                             "Die Bosse der Tages- und Wochen-Dungeons bewegen sich auf ihren Karten in der Liste und auf dem Start.",
+                                                             "Боссы подземелий дня и недели двигаются на карточках в списке и на главной.") }),
+            .improved("2026-11-16-throws-cheapest-ball") { l in
+                // The free Poké Ball is no item of the Bag: its name written here.
+                let poke = l.t("몬스터볼", "the Poké Ball", "モンスターボール", "la Poké Ball", "la Poké Ball", "a Pokébola", "der Pokéball",
+                               "покебол")
+                let great = l.itemName(.greatBall), ultra = l.itemName(.ultraBall)
+                return l.t("자동 투구는 3번 안에 90% 이상 잡히는 가장 싼 볼을 써요: 흔한 보스는 \(poke), 조금 드문 보스는 \(great), 드문 보스는 \(ultra). 전설은 여전히 마스터볼.",
+                           "The automatic throws take the cheapest ball that catches the boss 90% of the time over three: \(poke) at a common boss, \(great) at an uncommon one, \(ultra) at a rare one. Still the Master Ball at a legendary.",
+                           "自動の投球は、3回で90%以上つかまえられるいちばん安いボールを使います：ふつうのボスは\(poke)、すこしめずらしいボスは\(great)、めずらしいボスは\(ultra)。伝説はこれまでどおりマスターボール。",
+                           "Los lanzamientos automáticos usan la Ball más barata que atrapa al jefe el 90% de las veces en tres: \(poke) para un jefe común, \(great) para uno poco común, \(ultra) para uno raro. Sigue la Master Ball para un legendario.",
+                           "Les lancers automatiques prennent la Ball la moins chère qui attrape le boss 90 % du temps sur trois : \(poke) pour un boss commun, \(great) pour un peu commun, \(ultra) pour un rare. Toujours la Master Ball pour un légendaire.",
+                           "Os lançamentos automáticos usam a Bola mais barata que pega o chefe 90% das vezes em três: \(poke) para um chefe comum, \(great) para um incomum, \(ultra) para um raro. Ainda a Master Ball para um lendário.",
+                           "Die automatischen Würfe nehmen den günstigsten Ball, der den Boss in drei Würfen zu 90 % fängt: \(poke) bei einem häufigen Boss, \(great) bei einem ungewöhnlichen, \(ultra) bei einem seltenen. Beim Legendären weiter der Meisterball.",
+                           "Автоброски берут самый дешёвый мяч, ловящий босса в 90% случаев за три броска: \(poke) для обычного босса, \(great) для необычного, \(ultra) для редкого. Для легендарного по-прежнему мастербол.")
+            },
             .fixed("2026-11-16-costume-graduated", { $0.t("코스튬은 도감처럼 포켓몬이 졸업해야 코스튬 컬렉션에 들어가요. 그 전에 놓아주면 들어가지 않아요.",
                                                           "A costume joins your costume collection once its Pokémon graduates, as the Pokédex counts: sent off before, it does not.",
                                                           "コスチュームは図鑑と同じく、ポケモンが卒業してからコスチュームのコレクションに入ります。その前に逃がすと入りません。",
