@@ -1301,6 +1301,7 @@ struct L {
     var loadingPokemonDetails: String { t("포켓몬 정보를 불러오는 중…", "Loading Pokémon details…", "ポケモン情報を読み込み中…", "Cargando detalles del Pokémon…", "Chargement des détails du Pokémon…", "Carregando detalhes do Pokémon…", "Pokémon-Details werden geladen…", "Загрузка данных покемона…") }
     var pokemonDetailsUnavailable: String { t("포켓몬 정보를 불러오지 못했어요.", "Pokémon details could not be loaded.", "ポケモン情報を読み込めませんでした。", "No se pudieron cargar los detalles.", "Impossible de charger les détails.", "Não foi possível carregar os detalhes.", "Pokémon-Details konnten nicht geladen werden.", "Не удалось загрузить данные покемона.") }
     var pokemonIndividual: String { t("개체", "Individual", "個体", "Ejemplar", "Individu", "Indivíduo", "Individuum", "Особь") }
+    var evolutionHistory: String { t("진화 과정", "Evolution", "進化の過程", "Evolución", "Évolution", "Evolução", "Entwicklung", "Эволюция") }
     var level: String { t("레벨", "Level", "レベル", "Nivel", "Niveau", "Nível", "Level", "Уровень") }
     var gender: String { t("성별", "Gender", "性別", "Sexo", "Sexe", "Gênero", "Geschlecht", "Пол") }
     var nature: String { t("성격", "Nature", "性格", "Naturaleza", "Nature", "Natureza", "Wesen", "Характер") }

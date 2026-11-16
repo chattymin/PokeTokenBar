@@ -583,6 +583,12 @@ struct DexEntry: Codable, Sendable, Identifiable {
     var releasedAt: Date?
     /// 졸업이 아니라 놓아준 기록인가 — 포획 로그가 뱃지를 가르는 판정.
     var isReleased: Bool { releasedAt != nil }
+    /// Whether this individual went through `speciesID` in the given form — the Pokédex ownership rule.
+    func passedThrough(_ speciesID: Int, form: PokemonForm?) -> Bool {
+        chainOrder.contains(speciesID)
+            && PokemonForm.resolved(speciesID: speciesID, form: self.form)
+                == PokemonForm.resolved(speciesID: speciesID, form: form)
+    }
 
     init(id: String = UUID().uuidString,
          baseID: Int, finalID: Int, chainOrder: [Int], rarity: Rarity,
@@ -750,11 +756,8 @@ struct CompanionState: Codable, Sendable {
     /// 졸업 기록 또는 현재 개체가 실제로 도달한 단계에 이 종이 포함되는가.
     /// 도감 전체 표시 모델을 만들지 않고 대표 종 하나만 확인하는 경량 경로다.
     func ownsSpecies(_ speciesID: Int, form: PokemonForm? = nil) -> Bool {
+        if dex.contains(where: { $0.passedThrough(speciesID, form: form) }) { return true }
         let form = PokemonForm.resolved(speciesID: speciesID, form: form)
-        if dex.contains(where: {
-            $0.chainOrder.contains(speciesID)
-                && PokemonForm.resolved(speciesID: speciesID, form: $0.form) == form
-        }) { return true }
         guard let active else { return false }
         return active.pathIDs.prefix(active.stageIndex + 1).contains(speciesID)
             && PokemonForm.resolved(speciesID: speciesID, form: active.form) == form
@@ -792,11 +795,8 @@ struct CompanionState: Codable, Sendable {
     /// 보유한 특정 종의 이로치 여부. 졸업 기록과 현재 도달 단계만 훑으며 이름·정렬·희귀도 등
     /// 도감 표시 모델은 계산하지 않는다. 위장 중인 메타몽의 이로치는 리빌 전까지 숨긴다.
     func ownsShinySpecies(_ speciesID: Int, form: PokemonForm? = nil) -> Bool {
+        if dex.contains(where: { $0.isShiny && $0.passedThrough(speciesID, form: form) }) { return true }
         let form = PokemonForm.resolved(speciesID: speciesID, form: form)
-        if dex.contains(where: {
-            $0.isShiny && $0.chainOrder.contains(speciesID)
-                && PokemonForm.resolved(speciesID: speciesID, form: $0.form) == form
-        }) { return true }
         guard let active,
               active.pathIDs.prefix(active.stageIndex + 1).contains(speciesID),
               PokemonForm.resolved(speciesID: speciesID, form: active.form) == form else { return false }
