@@ -1281,6 +1281,23 @@ final class CompanionStore {
         kind.incenseRegion != nil && itemCount(kind) > 0 && state.pendingIncense == nil
     }
 
+    /// Set when `useIncense` invalidates the current egg's roll. Cleared when the new pre-roll starts.
+    private var eggWorkNeedsRestart = false
+
+    /// Starts the egg's pre-roll again once no roll or hatch holds a lock. Called by `useIncense`
+    /// and wherever a lock is released.
+    private func restartEggWorkIfNeeded() {
+        guard eggWorkNeedsRestart, !isHatching, !prefetchInFlight else { return }
+        eggWorkNeedsRestart = false
+        Task { await self.ensureEggPrefetch() }
+    }
+
+    /// Every `isHatching` owner releases through here, so an invalidated egg is never left waiting.
+    private func releaseHatchLock() {
+        isHatching = false
+        restartEggWorkIfNeeded()
+    }
+
     /// Burns one incense for the next hatch. While a Pokémon is growing it waits for the next egg.
     ///
     /// An incubating egg already has its species: `ensureEggPrefetch` rolls it as soon as the egg
@@ -1297,7 +1314,11 @@ final class CompanionStore {
             state.discardPreRoll()
             prefetchedLineID = nil
             activeGeneration += 1
-            Task { await self.ensureEggPrefetch() }
+            // A roll or hatch in flight still holds its lock, and a pre-roll started now would return
+            // at that lock. Mark the restart instead: the lock's owner starts it on release. Without
+            // this a ready egg waited for the next refresh tick, or for ever in manual refresh.
+            eggWorkNeedsRestart = true
+            restartEggWorkIfNeeded()
         }
         AppLog.write("incense lit: \(region.rawValue), egg=\(state.active == nil)")
         save()
@@ -1611,7 +1632,7 @@ final class CompanionStore {
         // 여기서 소유한 락 하나로 롤·부화가 원자적으로 보호된다.
         let generation = activeGeneration
         isHatching = true
-        defer { isHatching = false }
+        defer { releaseHatchLock() }
         // 프리패칭된 종이 있으면 그대로 사용(라인·스프라이트 예열됨 → 딜레이 ~0), 없으면 지금 롤.
         // A stored roll is hatched as it is, incense included: `useIncense` already forced a new roll,
         // and `pendingHatchIncense` says whether that roll was biased.
@@ -1663,6 +1684,7 @@ final class CompanionStore {
 
     private func finishEggPrefetch(generation: Int, shouldHatch: Bool) {
         prefetchInFlight = false
+        restartEggWorkIfNeeded()
         guard shouldHatch, isCurrentReadyEgg(generation: generation) else { return }
         Task { await self.hatchIfNeeded() }
     }
@@ -1757,7 +1779,7 @@ final class CompanionStore {
         guard !isHatching else { return }
         let generation = activeGeneration
         isHatching = true
-        defer { isHatching = false }
+        defer { releaseHatchLock() }
         await hatchCore(baseID: baseID, generation: generation)
     }
 
@@ -1939,7 +1961,7 @@ final class CompanionStore {
         guard let a = state.active, currentLine == nil, !isHatching else { return }
         let generation = activeGeneration
         isHatching = true
-        defer { isHatching = false }
+        defer { releaseHatchLock() }
         if let line = try? await provider.line(baseSpeciesID: a.baseID) {
             // await 중 사용량·민트 등 활성 상태는 계속 바뀔 수 있다. 요청 당시 스냅샷을 다시 쓰지 말고
             // 같은 개체가 아직 활성인 경우에만 최신 상태를 정규화한다.
@@ -1997,7 +2019,7 @@ final class CompanionStore {
                     weights = biased
                     incense = region
                 } else {
-                    AppLog.write("hatch: no \(region.rawValue) candidate for the incense — normal roll, incense kept")
+                    AppLog.write("hatch: cannot bias toward \(region.rawValue) (no candidate) — normal roll, incense kept")
                 }
             }
             let total = weights.reduce(0, +)
@@ -2020,6 +2042,11 @@ final class CompanionStore {
     /// The incense applies here too, as the same fixed share: one flip per roll picks the region or
     /// the rest. Not one flip per attempt: the two id ranges hold different fractions of base species,
     /// so re-flipping after each rejected id would pull the result away from the stated share.
+    ///
+    /// Accepted approximation: a roll that uses up its 16 attempts returns nil, and the retry on the
+    /// next tick flips again. The branch that runs out more often therefore loses a little share.
+    /// With the live id ranges that is under one percentage point even for a Rare Egg, in a fallback
+    /// that only runs while the index endpoint is down, so the flip is not carried across retries.
     private func chooseBaseViaREST() async -> BaseRoll? {
         let tier = state.eggTier
         let incense = state.pendingIncense

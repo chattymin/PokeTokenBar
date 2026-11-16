@@ -340,22 +340,37 @@ enum RegionalIncense {
     /// Weights keep their ratios inside each group, so capture rate, the collected ½ and the egg grade
     /// filter still decide which species of the region hatches.
     ///
-    /// nil = no candidate is in the region, so there is nothing to bias toward. Unchanged weights =
-    /// every candidate is in the region already.
+    /// nil = these weights cannot be biased: no candidate is in the region, or the values are too
+    /// large to rescale exactly. Unchanged weights = every candidate is in the region already.
     static func biasedWeights(_ weights: [Int], inRegion: [Bool]) -> [Int]? {
         precondition(weights.count == inRegion.count, "one in-region flag per weight")
         var inTotal = 0, outTotal = 0
         for (weight, isIn) in zip(weights, inRegion) {
-            if isIn { inTotal += weight } else { outTotal += weight }
+            let (sum, overflow) = (isIn ? inTotal : outTotal).addingReportingOverflow(weight)
+            guard !overflow else { return nil }
+            if isIn { inTotal = sum } else { outTotal = sum }
         }
         guard inTotal > 0 else { return nil }
         guard outTotal > 0 else { return weights }
         // Cross-multiplying by the other group's total gives both groups a common denominator:
         // in-region sums to share·in·out, out-of-region to (100 − share)·in·out. The live totals are
-        // below 50_000, so the products stay far inside Int.
-        let inScale = inRegionSharePercent * outTotal
-        let outScale = (100 - inRegionSharePercent) * inTotal
-        return zip(weights, inRegion).map { weight, isIn in weight * (isIn ? inScale : outScale) }
+        // below 50_000, so the products stay far inside Int. Capture rates come from a cache file and
+        // from the network, though, and a trap here would repeat on every launch while the incense
+        // burns: the caller sums the result, so that sum is checked here as well.
+        let (inScale, inOverflow) = inRegionSharePercent.multipliedReportingOverflow(by: outTotal)
+        let (outScale, outOverflow) = (100 - inRegionSharePercent).multipliedReportingOverflow(by: inTotal)
+        guard !inOverflow, !outOverflow else { return nil }
+        var biased: [Int] = []
+        biased.reserveCapacity(weights.count)
+        var total = 0
+        for (weight, isIn) in zip(weights, inRegion) {
+            let (scaled, scaleOverflow) = weight.multipliedReportingOverflow(by: isIn ? inScale : outScale)
+            let (sum, sumOverflow) = total.addingReportingOverflow(scaled)
+            guard !scaleOverflow, !sumOverflow else { return nil }
+            biased.append(scaled)
+            total = sum
+        }
+        return biased
     }
 }
 

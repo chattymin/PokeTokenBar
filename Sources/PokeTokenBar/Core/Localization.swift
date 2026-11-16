@@ -1879,14 +1879,15 @@ struct L {
     /// Why the Bag will not burn a second incense: `region` is the one already burning.
     func incenseAlreadyBurning(_ region: PokedexRegion) -> String {
         let n = incenseName(region)
-        return t("\(n)를 이미 피우고 있어요. 다음 부화 때 소모돼요.",
-                 "\(n) is already burning. It is used up at your next hatch.",
-                 "\(n)をすでにたいています。次の孵化で消費されます。",
-                 "\(n) ya está encendido. Se consume en tu próxima eclosión.",
-                 "\(n) brûle déjà. Il sera consommé à ta prochaine éclosion.",
-                 "\(n) já está aceso. Ele é consumido na próxima eclosão.",
-                 "\(n) brennt bereits. Er wird beim nächsten Schlüpfen verbraucht.",
-                 "\(n) уже горит. Оно израсходуется, когда вылупится следующее яйцо.")
+        // States the rule, not when the incense ends: a hatch it could not bias does not spend it.
+        return t("\(n)를 이미 피우고 있어요. 향로는 한 번에 하나만 피울 수 있어요.",
+                 "\(n) is already burning. Only one incense can burn at a time.",
+                 "\(n)をすでにたいています。おこうは一度にひとつしかたけません。",
+                 "\(n) ya está encendido. Solo puede arder un incienso a la vez.",
+                 "\(n) brûle déjà. Un seul encens peut brûler à la fois.",
+                 "\(n) já está aceso. Só um incenso pode queimar por vez.",
+                 "\(n) brennt bereits. Es kann immer nur ein Rauch brennen.",
+                 "\(n) уже горит. Одновременно может гореть только одно благовоние.")
     }
     var notifIncenseKeptTitle: String { t("향로가 아직 타고 있어요", "Incense still burning", "おこうはまだ残っています", "El incienso sigue encendido", "L'encens brûle encore", "O incenso continua aceso", "Der Rauch brennt weiter", "Благовоние ещё горит") }
     /// Sent when a hatch could not be biased because no candidate was in the region.
@@ -1895,7 +1896,7 @@ struct L {
         let n = incenseName(region)
         return t("이번에는 \(r)지방 포켓몬이 태어날 수 없어서 \(n)는 소모되지 않았어요.",
                  "No Pokémon from \(r) could hatch this time, so your \(n) was not used up.",
-                 "今回は\(r)地方のポケモンが生まれなかったため、\(n)は消費されませんでした。",
+                 "今回は\(r)地方のポケモンが生まれる候補がいなかったため、\(n)は消費されませんでした。",
                  "Esta vez no podía nacer ningún Pokémon de \(r), así que tu \(n) no se ha consumido.",
                  "Aucun Pokémon de \(r) ne pouvait éclore cette fois : ton \(n) n'a pas été consommé.",
                  "Desta vez nenhum Pokémon de \(r) podia chocar, então seu \(n) não foi consumido.",

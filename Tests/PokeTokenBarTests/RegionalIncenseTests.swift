@@ -203,6 +203,21 @@ final class RegionalIncenseTests: XCTestCase {
         XCTAssertNil(RegionalIncense.biasedWeights([], inRegion: []))
     }
 
+    /// Capture rates come from a cache file and from the network. Values too large to rescale must
+    /// not trap: the roll then runs unbiased and the incense is kept, as for an empty region.
+    func testBiasedWeightsRefusesValuesTooLargeToRescale() throws {
+        XCTAssertNil(RegionalIncense.biasedWeights([1_000_000_000, 1_000_000_000], inRegion: [true, false]),
+                     "the scaled weight does not fit")
+        XCTAssertNil(RegionalIncense.biasedWeights([Int.max, 1, 1], inRegion: [true, true, false]),
+                     "the in-region total does not fit")
+        XCTAssertNil(RegionalIncense.biasedWeights([200_000_000, 200_000_000, 200_000_000, 200_000_000],
+                                                   inRegion: [true, true, false, false]),
+                     "each scaled weight fits, their sum does not")
+        // Large values that do fit are still rescaled exactly.
+        let biased = try XCTUnwrap(RegionalIncense.biasedWeights([1_000_000, 1_000_000], inRegion: [true, false]))
+        XCTAssertEqual(biased[0] * 100, (biased[0] + biased[1]) * RegionalIncense.inRegionSharePercent)
+    }
+
     func testBiasedWeightsLeavesAnAllInRegionPoolUnchanged() {
         XCTAssertEqual(RegionalIncense.biasedWeights([255, 100, 3], inRegion: [true, true, true]), [255, 100, 3])
     }
@@ -318,9 +333,27 @@ final class RegionalIncenseTests: XCTestCase {
         XCTAssertNil(s.state.active, "the roll made without the incense must not hatch this egg")
         XCTAssertEqual(s.state.pendingIncense, .kanto)
 
-        await hatchWhenReady(s)   // the next ticks
-        XCTAssertNotNil(s.state.active)
+        // No refresh tick is simulated here: the store itself must start the egg's work again when
+        // the discarded hatch releases its lock. Otherwise a ready egg waits for the next refresh.
+        await waitUntil { s.state.active != nil }
+        XCTAssertNotNil(s.state.active, "the egg was rolled again and hatched without a refresh tick")
         XCTAssertNil(s.state.pendingIncense, "the new roll was made under the incense and spent it")
+    }
+
+    /// The same for a pre-roll in flight: its result is discarded, and a new pre-roll must start when
+    /// it releases its lock. Nothing else would start one before the next refresh.
+    func testIncenseLitDuringAPreRollStartsANewOne() async {
+        let provider = HeldRestProvider()
+        let s = store("\"active\":\(Self.mon),\"inventory\":{\"kantoIncense\":1}", provider: provider)
+        XCTAssertTrue(s.buyEgg(nil))   // starts the egg's pre-roll, which the provider holds
+        await waitUntil { await provider.isHolding() }
+        let holding = await provider.isHolding()
+        XCTAssertTrue(holding, "the pre-roll must be in flight when the incense is lit")
+        XCTAssertTrue(s.useIncense(.kantoIncense))
+        await provider.release()
+        await waitForPreRoll(s)
+        XCTAssertNotNil(s.state.pendingHatchID, "a new pre-roll ran without a refresh tick")
+        XCTAssertEqual(s.state.pendingHatchIncense, .kanto, "and it was made under the incense")
     }
 
     /// While a Pokémon is growing there is no egg to roll: the incense waits, across a restart, for the
@@ -386,16 +419,29 @@ final class RegionalIncenseTests: XCTestCase {
         XCTAssertNil(s.state.active)
         await waitForPreRoll(s)
         XCTAssertEqual(s.state.pendingHatchIncense, .kanto, "the plain egg that follows has Kanto candidates")
+
+        // The first refresh only sets each provider's baseline; the second one is usage.
+        s.update(todayTokensByProvider: ["test": 0], todayDate: "d", monthTotal: 0, burnTier: .idle,
+                 limitWarning: false, hasUsageData: true)
+        s.update(todayTokensByProvider: ["test": PokemonBalance.eggHatchThreshold], todayDate: "d", monthTotal: 0,
+                 burnTier: .idle, limitWarning: false, hasUsageData: true)
+        await hatchWhenReady(s)
+        XCTAssertNotNil(s.state.active, "the second egg hatched")
+        XCTAssertNil(s.state.pendingIncense, "and that hatch spent the incense")
+        XCTAssertNil(s.state.pendingHatchIncense)
     }
 
     /// The grade gate throws a pre-roll away and rolls again. The incense must still be there for
-    /// that second roll.
+    /// that second roll, and the mark of the rejected pre-roll must go with it.
     func testGradeGateRerollKeepsTheIncense() async {
-        let s = store(readyEgg(incense: .kanto, tier: .rare), provider: StaleKantoIndexProvider())
+        let s = store(readyEgg(incense: .kanto, tier: .rare) + ",\"pendingHatchID\":7,\"pendingHatchIncense\":\"kanto\"",
+                      provider: StaleKantoIndexProvider())
+        XCTAssertEqual(s.state.pendingHatchID, 7, "the egg starts with a stored, biased pre-roll")
+        XCTAssertEqual(s.state.pendingHatchIncense, .kanto)
         await s.hatchIfNeeded()
         XCTAssertNil(s.state.active, "below the guarantee: no hatch")
-        XCTAssertNil(s.state.pendingHatchID)
-        XCTAssertNil(s.state.pendingHatchIncense)
+        XCTAssertNil(s.state.pendingHatchID, "the rejected pre-roll is dropped")
+        XCTAssertNil(s.state.pendingHatchIncense, "with its mark")
         XCTAssertEqual(s.state.pendingIncense, .kanto, "a discarded roll does not spend the incense")
     }
 
