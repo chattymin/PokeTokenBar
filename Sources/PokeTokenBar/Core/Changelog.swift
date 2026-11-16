@@ -67,6 +67,36 @@ enum Changelog {
 
     static let days: [ChangelogDay] = [
         ChangelogDay(date: "2026-11-16", entries: [
+            .improved("2026-11-16-villains-return") { l in
+                let candy = l.itemName(.rareCandy)
+                return l.t("악당 팀은 던전에서 돌아오는 순간에도 와요: 탐험에서 가져온 \(candy)을 모두, 없으면 가장 귀한 물건을 가져가요.",
+                           "The villains' teams also strike as your team comes back from a dungeon: every \(candy) the run brought, else its most precious item.",
+                           "悪の組織は、チームがダンジョンから帰ってきた瞬間にも来ます：探検で持ち帰った\(candy)をぜんぶ、なければいちばん貴重などうぐを。",
+                           "Los equipos de villanos también atacan cuando tu equipo vuelve de una mazmorra: todos los \(candy) de la expedición, o su objeto más valioso.",
+                           "Les teams de méchants frappent aussi au retour de ton équipe d'un donjon : tous les \(candy) rapportés, sinon l'objet le plus précieux.",
+                           "As equipes de vilões também atacam quando sua equipe volta de uma masmorra: todos os \(candy) trazidos, ou o item mais valioso.",
+                           "Die Schurkenteams schlagen auch zu, wenn dein Team aus einem Dungeon zurückkommt: alle mitgebrachten \(candy), sonst das wertvollste Item.",
+                           "Злодеи нападают и когда команда возвращается из подземелья: забирают все принесённые \(candy) или самый ценный предмет.")
+            },
+            .improved("2026-11-16-villains-take-more", { $0.t("악당 팀은 흔한 물건을 절반(3~20개), 2단계 물건은 3개까지 가져가요. 빼앗긴 것은 아지트 카드에서 포기할 수 있어요(아티팩트는 제외).",
+                                                            "The villains' teams take half a stack of an everyday item (3 to 20) and up to three of a T2 item. What they took can be given up on their hideout's card, the artifacts aside.",
+                                                            "悪の組織は、ふつうのどうぐを半分（3〜20こ）、T2のどうぐを3こまで持っていきます。うばわれたものはアジトのカードであきらめられます（アーティファクトはのぞく）。",
+                                                            "Los equipos de villanos se llevan la mitad de un objeto común (de 3 a 20) y hasta tres de un objeto T2. Puedes renunciar a lo robado en la tarjeta de su guarida, salvo los artefactos.",
+                                                            "Les teams de méchants prennent la moitié d'un objet courant (3 à 20) et jusqu'à trois d'un objet T2. Tu peux abandonner ce qu'ils ont pris sur la carte de leur repaire, sauf les artefacts.",
+                                                            "As equipes de vilões levam metade de um item comum (3 a 20) e até três de um item T2. Você pode desistir do que levaram no cartão do esconderijo, exceto os artefatos.",
+                                                            "Die Schurkenteams nehmen die Hälfte eines Alltags-Items (3 bis 20) und bis zu drei eines T2-Items. Auf der Karte ihres Verstecks kannst du das Gestohlene aufgeben, außer Artefakten.",
+                                                            "Злодеи забирают половину обычного предмета (от 3 до 20) и до трёх предметов T2. От украденного можно отказаться на карточке логова, кроме артефактов.") }),
+            .new("2026-11-16-hideout-chest") { l in
+                let master = l.itemName(.masterBall), legend = l.itemName(.legendaryEgg)
+                return l.t("아지트의 보스를 쓰러뜨리면 빼앗긴 것과 함께 보스의 상자도 얻어요: T1은 이상한사탕과 볼, T5(로켓단)는 \(legend)과 \(master).",
+                           "Beating a hideout's leader opens their chest beside all they took: Rare Candies and balls in T1, up to \(legend) and \(master) from Team Rocket.",
+                           "アジトのボスをたおすと、うばわれたものといっしょにボスの宝箱も：T1はふしぎなアメとボール、T5（ロケット団）は\(legend)と\(master)。",
+                           "Vencer al jefe de una guarida abre su cofre además de devolver lo robado: Caramelos raros y Balls en T1, hasta \(legend) y \(master) del Team Rocket.",
+                           "Battre le chef d'un repaire ouvre son coffre en plus de rendre ce qu'ils ont pris : Super Bonbons et Balls en T1, jusqu'à \(legend) et \(master) chez la Team Rocket.",
+                           "Vencer o líder de um esconderijo abre o baú dele além de devolver o que levaram: Doces Raros e Bolas no T1, até \(legend) e \(master) da Equipe Rocket.",
+                           "Wer den Anführer eines Verstecks besiegt, öffnet zusätzlich dessen Truhe: Sonderbonbons und Bälle in T1, bis zu \(legend) und \(master) bei Team Rocket.",
+                           "Победа над главарём логова открывает его сундук вдобавок к украденному: редкие конфеты и мячи в T1, вплоть до \(legend) и \(master) у команды R.")
+            },
             .improved("2026-11-16-lighter-cpu", { $0.t("앱이 CPU를 덜 써요: 사용량 캐시를 1분마다가 아니라 최대 10분마다 저장해요.",
                                                      "The app uses less CPU: its usage cache is written every 10 minutes at most, not every minute.",
                                                      "アプリのCPU使用が減りました：使用量のキャッシュを毎分ではなく、多くても10分ごとに保存します。",

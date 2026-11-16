@@ -171,6 +171,8 @@ struct HideoutCard: View {
     let store: CompanionStore
     let team: VillainTeam
     let onPrepare: () -> Void
+    /// "Abandon" asks once more before the items are lost for good.
+    @State private var confirmingAbandon = false
 
     var body: some View {
         if let stash = store.villainStash(team) {
@@ -213,6 +215,26 @@ struct HideoutCard: View {
                     }
                     Text(l.villainWaitsAtTheEnd(team)).font(.caption).foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
+                    // Giving up what they took (the owner, 2026-11-16), never an artifact.
+                    if stash.items.keys.contains(where: { ItemKind(rawValue: $0).map(VillainRules.canAbandon) ?? true }) {
+                        if confirmingAbandon {
+                            HStack(spacing: 6) {
+                                Text(l.villainAbandonConfirm).font(.caption.weight(.semibold)).foregroundStyle(Color.readableOrange)
+                                    .fixedSize(horizontal: false, vertical: true)
+                                Spacer(minLength: 0)
+                                Button(l.cancel) { confirmingAbandon = false }.buttonStyle(.borderless).font(.caption)
+                                Button(l.villainAbandon) {
+                                    store.abandonStolen(team)
+                                    confirmingAbandon = false
+                                }
+                                .buttonStyle(.pill())
+                            }
+                        } else {
+                            Button(l.villainAbandon) { confirmingAbandon = true }
+                                .buttonStyle(.borderless).font(.caption)
+                                .hoverTip(l.villainAbandonHint)
+                        }
+                    }
                     HStack {
                         Spacer(minLength: 0)
                         Text(TokenFormatter.compact(store.dungeonCost(id))).font(.caption.weight(.semibold))

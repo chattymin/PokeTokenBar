@@ -27,7 +27,9 @@ extension CompanionStore {
     /// give chase. They take the item as they come (the owner, 2026-11-10: else no one would fight them) and thefts add
     /// up, hideouts open or not; the team is the one of the item's tier, so a team only comes for what it is after, and
     /// none comes once nothing is left to take.
-    func settleVillainAmbush() {
+    /// `runLoot`: what an expedition just brought back (the owner, 2026-11-16): the day's thieves due at the team's
+    /// return strike at once and take from it (`VillainRules.target(fromRun:)`), before it can be used.
+    func settleVillainAmbush(runLoot: ExpeditionLoot? = nil) {
         let day = challengePeriod(.daily)
         guard state.dungeons.villainDay != day else { return }
         if state.dungeons.villainWaiting == nil {
@@ -52,7 +54,7 @@ extension CompanionStore {
         }
         var random = VillainRules.random(day + ":target")
         let bag = Dictionary(uniqueKeysWithValues: ItemKind.allCases.map { ($0, itemCount($0)) })
-        guard let target = VillainRules.target(bag, random: &random),
+        guard let target = runLoot.flatMap({ VillainRules.target(fromRun: $0, bag: bag) }) ?? VillainRules.target(bag, random: &random),
               let tier = VillainRules.tier(of: target.kind) else {
             persist()
             return
@@ -74,6 +76,25 @@ extension CompanionStore {
         notifyCompanionEvent(l.villainAmbushTitle(team), l.villainStoleLine(team, item: l.itemName(target.kind)))
         AppLog.write("villains: \(team.rawValue) took \(taken) \(target.kind.rawValue)")
         persist()
+    }
+
+    /// Gives up what a team took (the owner, 2026-11-16): gone for good, its thefts still waiting settled with it; the
+    /// hideout closes once nothing is left. An artifact is never given up (`VillainRules.canAbandon`). Returns whether
+    /// anything was given up.
+    @discardableResult
+    func abandonStolen(_ team: VillainTeam) -> Bool {
+        guard let stash = villainStash(team) else { return false }
+        let given = stash.items.filter { key, count in count > 0 && ItemKind(rawValue: key).map(VillainRules.canAbandon) ?? true }
+        guard !given.isEmpty else { return false }
+        changeDungeons { progress in
+            guard let i = progress.stashes.firstIndex(where: { $0.team == team }) else { return }
+            for key in given.keys { progress.stashes[i].items[key] = nil }
+            progress.ambushes.removeAll { $0.team == team && $0.won == nil && given[$0.item] != nil }
+            if progress.stashes[i].items.isEmpty { progress.stashes.remove(at: i) }
+        }
+        AppLog.write("villains: \(team.rawValue) keeps \(given.keys.sorted()), given up")
+        persist()
+        return true
     }
 
     /// Who gives chase: Mon équipe, else the six strongest graduated Pokémon.

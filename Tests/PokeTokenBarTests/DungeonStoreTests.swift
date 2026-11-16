@@ -23,6 +23,8 @@ final class DungeonStoreTests: XCTestCase {
         st.dex = dex
         st.active = MonState(baseID: 16, pathIDs: [16, 17, 18], stageIndex: 0, usedAtStage: 0, rarity: .common, totalForms: 3)
         st.inventory = Dictionary(uniqueKeysWithValues: inventory.map { ($0.key.rawValue, $0.value) })
+        // The day's thieves already came: they would rob a run's return (2026-11-16), which these tests do not test.
+        st.dungeons.villainDay = DungeonProgress.challengePeriod(.daily, at: now)
         prepare(&st)
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("dungeon-\(UUID().uuidString).json")
         try JSONEncoder().encode(st).write(to: url)

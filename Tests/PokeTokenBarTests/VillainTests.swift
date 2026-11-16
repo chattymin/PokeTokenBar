@@ -53,7 +53,7 @@ final class VillainTests: XCTestCase {
         var random = BattleRandom(seed: 1)
         let target = try? XCTUnwrap(VillainRules.target([.rareCandy: 7, .boulderBadge: 1], random: &random))
         XCTAssertEqual(target?.kind, .rareCandy)
-        XCTAssertEqual(target?.count, 3, "up to three of an everyday item")
+        XCTAssertEqual(target?.count, 3, "half the stack of an everyday item, three at least")
         XCTAssertNil(VillainRules.target([.boulderBadge: 1], random: &random), "nothing they would take")
     }
 
@@ -252,7 +252,9 @@ final class VillainTests: XCTestCase {
         s.changeDungeons { $0.expedition?.phase = .capture(throwsLeft: 3) }
         s.endCapture()
         XCTAssertEqual(s.itemCount(.shinyCharm), 1)
-        XCTAssertEqual(s.itemCount(.masterBall), 1)
+        XCTAssertGreaterThanOrEqual(s.itemCount(.masterBall), 2, "the one taken back, and the leader's chest's (2026-11-16)")
+        XCTAssertGreaterThanOrEqual(s.itemCount(.legendaryEgg), 1, "Team Rocket's chest: a Legendary Egg")
+        XCTAssertEqual(s.dungeonProgress.lastResult?.loot.items[ItemKind.legendaryEgg.rawValue].map { $0 >= 1 }, true)
         XCTAssertNil(s.villainStash(.rocket))
         XCTAssertNotNil(s.villainStash(.skull), "another team's hideout stays")
         XCTAssertTrue(s.villainAmbushes.isEmpty, "its theft is settled with it")
@@ -261,6 +263,76 @@ final class VillainTests: XCTestCase {
         XCTAssertEqual(s.dungeonProgress.lastResult?.villain, .rocket)
         XCTAssertEqual(s.dungeonProgress.wins(.rocketHideout), 0)
         XCTAssertTrue(s.dungeonProgress.bossesBeaten.isEmpty, "Giovanni's Mewtwo opens nothing")
+    }
+
+    /// The owner, 2026-11-16: "les vols les moins oufs plus chiants". Half the stack of an everyday item, three at
+    /// least and twenty at most; up to three of a T2 item; one of the rest.
+    func testTheyTakeMoreOfAnEverydayItem() {
+        XCTAssertEqual([2, 5, 10, 40, 100].map { VillainRules.count(of: .rareCandy, have: $0) }, [2, 3, 5, 20, 20])
+        XCTAssertEqual([1, 2, 7].map { VillainRules.count(of: .ultraBall, have: $0) }, [1, 2, 3])
+        XCTAssertEqual(VillainRules.count(of: .rareEgg, have: 4), 1)
+        XCTAssertEqual(VillainRules.count(of: .masterBall, have: 3), 1)
+    }
+
+    /// [Regression] The owner, 2026-11-16: back from a dungeon, a player used its loot and set off again, never robbed.
+    /// The thieves due strike at the team's return and take what it brought: every Rare Candy, else its most precious
+    /// item; nothing they would take, a Bag item as before.
+    func testTheyStrikeAtTheReturnOnTheLoot() throws {
+        let (day, hour, minute) = coming()
+        let clock = Clock(try date(day, hour: hour, minute: minute).addingTimeInterval(60))
+        func robbed(_ loot: ExpeditionLoot, bag: [String: Int]) throws -> VillainAmbush? {
+            let s = try store(dex: strong, clock: clock) {
+                $0.dungeons.wins[DungeonID.viridianForest.rawValue] = 1
+                $0.inventory = bag
+            }
+            s.settleVillainAmbush(runLoot: loot)
+            return s.villainAmbushes.first
+        }
+        let candies = try XCTUnwrap(robbed(ExpeditionLoot(candies: 4), bag: ["rareCandy": 10, "ultraBall": 1]))
+        XCTAssertEqual(candies.kind, .rareCandy)
+        XCTAssertEqual(candies.count, 4, "every candy the run brought")
+        let best = try XCTUnwrap(robbed(ExpeditionLoot(items: ["ultraBall": 1, "oranBerry": 2]), bag: ["ultraBall": 1, "oranBerry": 2]))
+        XCTAssertEqual(best.kind, .ultraBall, "the most precious item it brought")
+        XCTAssertEqual(best.count, 1)
+        XCTAssertNotNil(try robbed(ExpeditionLoot(), bag: ["rareCandy": 5]), "nothing brought: a Bag item, as before")
+        // A whole run: the team set off before their minute and comes back after it; they strike as it returns.
+        clock.date = try date(day, hour: 7)
+        let s = try store(dex: strong, clock: clock) {
+            $0.dungeons.wins[DungeonID.viridianForest.rawValue] = 1
+            $0.inventory = ["rareCandy": 5]
+        }
+        XCTAssertTrue(s.startExpedition(.viridianForest, team: strong.prefix(3).map(\.id)))
+        clock.date = try date(day, hour: hour, minute: minute).addingTimeInterval(60)
+        var total = 0
+        for _ in 0..<200 where s.expedition != nil {
+            total += DungeonTier.t1.cost(difficulty: 0.1) / 5
+            s.update(todayTokensByProvider: ["test": total], todayDate: "d", monthTotal: 0, burnTier: .idle,
+                     limitWarning: false, hasUsageData: true)
+            if case .awaitingHeal? = s.expedition?.phase { s.answerEmergencyHeal(pay: false) }
+        }
+        XCTAssertNil(s.expedition, "back")
+        XCTAssertEqual(s.villainAmbushes.count, 1, "robbed at the return, no popover opened")
+    }
+
+    /// The owner, 2026-11-16: what they took may be given up, gone for good, its thefts settled; never an artifact, and
+    /// the hideout closes once nothing is left.
+    func testWhatTheyTookCanBeGivenUp() throws {
+        let clock = Clock(try date(10, hour: 12))
+        let s = try store(dex: strong, clock: clock) {
+            $0.dungeons.stashes = [VillainStash(team: .rocket, items: ["rareCandy": 3, "shinyCharm": 1]),
+                                   VillainStash(team: .skull, items: ["rareCandy": 3])]
+            $0.dungeons.ambushes = [self.ambush(.rocket, .rareCandy, count: 3, at: clock.date),
+                                    self.ambush(.rocket, .shinyCharm, at: clock.date)]
+        }
+        XCTAssertTrue(s.abandonStolen(.rocket))
+        XCTAssertEqual(s.villainStash(.rocket)?.items, ["shinyCharm": 1], "the artifact stays to win back")
+        XCTAssertEqual(s.villainAmbushes.map(\.item), ["shinyCharm"], "the candies' theft settled with them")
+        XCTAssertFalse(s.abandonStolen(.rocket), "an artifact is never given up")
+        XCTAssertTrue(s.isDungeonOpen(.rocketHideout))
+        XCTAssertTrue(s.abandonStolen(.skull))
+        XCTAssertNil(s.villainStash(.skull))
+        XCTAssertFalse(s.isDungeonOpen(.skullHideout), "nothing left: the hideout closes")
+        XCTAssertEqual(s.itemCount(.rareCandy), 0, "gone for good")
     }
 
     func testTheLeaderComesWithThree() throws {

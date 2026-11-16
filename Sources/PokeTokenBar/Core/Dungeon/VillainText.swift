@@ -118,4 +118,23 @@ extension L {
     var villainTakenBack: String {
         t("되찾은 것", "Taken back", "取り返したもの", "Recuperado", "Récupéré", "Recuperado", "Zurückgeholt", "Возвращено")
     }
+
+    var villainAbandon: String {
+        t("포기하기", "Give up", "あきらめる", "Renunciar", "Abandonner", "Desistir", "Aufgeben", "Отказаться")
+    }
+    var villainAbandonConfirm: String {
+        t("영영 잃어요. 아티팩트는 남아요.", "Lost for good; the artifacts stay to win back.", "ずっとうしないます。アーティファクトは残ります。",
+          "Se pierde para siempre; los artefactos se quedan por recuperar.", "Perdu pour de bon ; les artefacts restent à récupérer.",
+          "Perdido para sempre; os artefatos continuam a recuperar.", "Für immer verloren; die Artefakte bleiben zurückzuholen.",
+          "Потеряно навсегда; артефакты остаются, их можно вернуть.")
+    }
+    var villainAbandonHint: String {
+        t("빼앗긴 것을 포기해요(아티팩트 제외). 비면 아지트가 닫혀요.", "Give up what they took, the artifacts aside; the hideout closes once empty.",
+          "うばわれたものをあきらめます（アーティファクトはのぞく）。空になるとアジトは閉じます。",
+          "Renuncia a lo que se llevaron, salvo los artefactos; la guarida se cierra al quedar vacía.",
+          "Abandonne ce qu'ils ont pris, sauf les artefacts ; le repaire ferme une fois vide.",
+          "Desista do que levaram, exceto os artefatos; o esconderijo fecha quando vazio.",
+          "Gib auf, was sie genommen haben, außer Artefakten; das Versteck schließt, sobald es leer ist.",
+          "Откажитесь от украденного, кроме артефактов; логово закроется, когда опустеет.")
+    }
 }

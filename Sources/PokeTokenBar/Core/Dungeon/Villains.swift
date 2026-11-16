@@ -161,8 +161,43 @@ enum VillainRules {
     /// The draw's weights by tier, among the tiers the Bag holds: a candy most often, an artifact rarely.
     static let tierWeights: [DungeonTier: Int] = [.t1: 40, .t2: 28, .t3: 18, .t4: 9, .t5: 5]
 
-    /// Up to three of an everyday item at once, one of anything else.
-    static func count(of kind: ItemKind, have: Int) -> Int { tier(of: kind) == .t1 ? min(3, have) : min(1, have) }
+    /// How many they take (the owner, 2026-11-16: "les vols les moins oufs plus chiants"): half the stack of an
+    /// everyday item, three at least and twenty at most; up to three of a T2 item; one of anything else. Three of an
+    /// everyday item and one of the rest before.
+    static func count(of kind: ItemKind, have: Int) -> Int {
+        switch tier(of: kind) {
+        case .t1?: min(have, min(20, max(3, have / 2)))
+        case .t2?: min(have, 3)
+        default: min(have, 1)
+        }
+    }
+
+    /// What they take from a team just back from a dungeon (the owner, 2026-11-16): every Rare Candy the run brought,
+    /// else the most precious item it brought, as many as `count` allows of what it brought; nil when the run brought
+    /// nothing they would take, or none of it is left in the Bag.
+    static func target(fromRun loot: ExpeditionLoot, bag: [ItemKind: Int]) -> (kind: ItemKind, count: Int)? {
+        if loot.candies > 0, let have = bag[.rareCandy], have > 0 { return (.rareCandy, min(loot.candies, have)) }
+        let brought = loot.items.compactMap { key, count -> (kind: ItemKind, count: Int, tier: DungeonTier)? in
+            guard count > 0, let kind = ItemKind(rawValue: key), let tier = tier(of: kind), (bag[kind] ?? 0) > 0 else { return nil }
+            return (kind, count, tier)
+        }
+        guard let best = brought.max(by: { ($0.tier, $1.kind.rawValue) < ($1.tier, $0.kind.rawValue) }) else { return nil }
+        return (best.kind, min(best.count, count(of: best.kind, have: bag[best.kind] ?? 0)))
+    }
+
+    /// The leader's chest, given with all the team took once its leader falls (the owner, 2026-11-16).
+    static func leaderChest(_ tier: DungeonTier) -> (candies: Int, items: [(kind: ItemKind, count: Int)]) {
+        switch tier {
+        case .t1: (3, [(.greatBall, 2)])
+        case .t2: (0, [(.silverCapsule, 1), (.ultraBall, 2)])
+        case .t3: (0, [(.goldCapsule, 1), (.legendaryKey, 1)])
+        case .t4: (0, [(.rareEgg, 1), (.masterBall, 1)])
+        case .t5: (0, [(.legendaryEgg, 1), (.masterBall, 1)])
+        }
+    }
+
+    /// What may be abandoned to a team: anything but an artifact, which they can never keep for good.
+    static func canAbandon(_ kind: ItemKind) -> Bool { !kind.isPassive }
 
     /// The minute of the day (`yyyy-MM-dd`) they come at, from midnight, the same all day on every launch: FNV-1a, as the
     /// merchant's. The team is the one of the item it takes (`VillainTeam.team(for:)`).

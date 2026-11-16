@@ -878,6 +878,12 @@ extension CompanionStore {
                 loot.add(table[random.below(table.count)])
             }
             loot.add(Self.victoryExtras(tier: dungeon.tier, random: &random))
+            // A hideout's leader beaten opens their chest (the owner, 2026-11-16), beside all the team took.
+            if e.dungeon.isHideout {
+                let chest = VillainRules.leaderChest(dungeon.tier)
+                loot.candies += chest.candies
+                for item in chest.items { loot.add(item.kind, item.count) }
+            }
             if random.below(100) < Self.technicalCapsuleChance(dungeon.tier) {
                 let locked = MoveTable.all.values.filter { $0.isLocked && $0.hasEffect && !state.dungeons.unlockedMoves.contains($0.slug) }
                     .map(\.slug).sorted()
@@ -957,5 +963,8 @@ extension CompanionStore {
         }
         AppLog.write("dungeon: \(e.dungeon.rawValue) over, won=\(won) left=\(leftEarly) caught=\(caught) candies=\(loot.candies)")
         persist()
+        // The day's thieves due strike at the team's return, at what it brought (the owner, 2026-11-16): a player back
+        // from a dungeon who used its loot and set off again was never robbed.
+        if !e.dungeon.isHideout { settleVillainAmbush(runLoot: loot) }
     }
 }
