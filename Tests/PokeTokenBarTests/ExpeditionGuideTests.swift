@@ -80,4 +80,24 @@ final class ExpeditionGuideTests: XCTestCase {
         }
         XCTAssertEqual(L(.fr).listed(["Léviator", "Mégagnathe", "Ectoplasma"]), "Léviator, Mégagnathe et Ectoplasma")
     }
+
+    /// The owner, 2026-11-16 (the floor cards): the floor crossed, the one under way, the next, the boss; none crossed on
+    /// the first floor, no next one when only the boss's floor is left, past the last floor the last one.
+    func testTheFloorCardsFollowTheTeam() {
+        typealias Slot = ExpeditionFloorCards.Slot
+        XCTAssertEqual(ExpeditionFloorCards.slots(floor: 1, floors: 5), [Slot.current(1), .ahead(2), .boss])
+        XCTAssertEqual(ExpeditionFloorCards.slots(floor: 3, floors: 5), [Slot.crossed(2), .current(3), .ahead(4), .boss])
+        XCTAssertEqual(ExpeditionFloorCards.slots(floor: 4, floors: 5), [Slot.crossed(3), .current(4), .boss])
+        XCTAssertEqual(ExpeditionFloorCards.slots(floor: 5, floors: 5), [Slot.crossed(4), .current(5), .boss])
+        XCTAssertEqual(ExpeditionFloorCards.slots(floor: 6, floors: 5), [Slot.crossed(4), .current(5), .boss], "the boss's fight")
+    }
+
+    /// A floor's card names its main event as its stroke colors it: a find before a fight.
+    func testAFloorIsNamedByItsMainEvent() {
+        let chest = ExpeditionLogEntry(id: 1, floor: 2, date: Date(), kind: .chest(ExpeditionLoot(candies: 1)))
+        let spring = ExpeditionLogEntry(id: 2, floor: 2, date: Date(), kind: .spring(percent: 50))
+        XCTAssertEqual(ExpeditionLogText.eventKind(floor: 2, log: [spring, chest]), .chest)
+        XCTAssertEqual(ExpeditionLogText.eventKind(floor: 2, log: [spring]), .spring)
+        XCTAssertNil(ExpeditionLogText.eventKind(floor: 3, log: [spring, chest]))
+    }
 }

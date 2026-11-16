@@ -79,8 +79,9 @@ struct MyTeamScreen: View {
     }
 }
 
-/// A dungeon's page (a player, 2026-11-05): what it is, what opens it, its wild Pokémon and bosses as met, its loot and
-/// odds from the rolls' own tables, and the expeditions that ended there.
+/// A dungeon's page (a player, 2026-11-05), in the Pokémon page's look (issue #181, the owner's choice A, 2026-11-16):
+/// the dungeon as a hero card, then cards under small capital titles, its bosses as named portraits, its loot as item
+/// tiles, its two paths with the odds folded away, the expeditions that ended there, its wild Pokémon.
 @MainActor
 struct DungeonDetailScreen: View {
     let store: CompanionStore
@@ -88,11 +89,15 @@ struct DungeonDetailScreen: View {
     let id: DungeonID
     let onBack: () -> Void
     let onPrepare: () -> Void
+    @State private var showsOdds = false
+    @State private var showsAllWild = false
+
+    /// The wild Pokémon shown before "See all".
+    private static let wildShown = 16
 
     var body: some View {
         let l = store.l
         let dungeon = DungeonCatalog.dungeon(id)
-        let (size, rules) = store.teamRules(id)
         let runs = store.runs(of: id)
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 6) {
@@ -100,17 +105,14 @@ struct DungeonDetailScreen: View {
                     .buttonStyle(.borderless)
                     .keyboardShortcut(.cancelAction)
                 Spacer(minLength: 4)
-                DungeonIcon(id: id, size: 20)
-                Badge("T\(dungeon.tier.rawValue)", tint: .secondary, style: .tinted)
-                Text(l.dungeonName(id)).font(.headline)
             }
             ScrollView {
-                VStack(alignment: .leading, spacing: 10) {
-                    facts(dungeon, size: size, rules: rules, runs: runs, l)
+                VStack(alignment: .leading, spacing: 12) {
+                    hero(dungeon, l)
                     bosses(dungeon, l)
                     loot(dungeon, l)
-                    events(dungeon, l)
-                    history(runs, l)
+                    floors(dungeon, l)
+                    record(runs, l)
                     // Last: a T2 or later brings a hundred and more.
                     wild(dungeon, l)
                 }
@@ -127,38 +129,57 @@ struct DungeonDetailScreen: View {
         .frame(height: 520, alignment: .top)
     }
 
-    private func facts(_ dungeon: Dungeon, size: Int, rules: [DungeonRule], runs: [DungeonRunRecord], _ l: L) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(([l.dungeonTeamSize(size)] + rules.map(l.dungeonRule)
-                  + [l.dungeonCost(TokenFormatter.compact(store.dungeonCost(id)))])
-                .joined(separator: " · "))
-                .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-            HStack(spacing: 3) {
-                ForEach(dungeon.themeTypes, id: \.self) { type in
-                    Badge(l.typeName(type).uppercased(), tint: .type(type)).fixedSize()
+    private func title(_ text: String, trailing: String? = nil) -> some View {
+        HStack(alignment: .firstTextBaseline) {
+            Text(text.uppercased()).font(.system(size: 10, weight: .bold, design: .rounded)).tracking(0.6).foregroundStyle(.secondary)
+            Spacer(minLength: 4)
+            if let trailing { Text(trailing).font(.caption.monospacedDigit()).foregroundStyle(.secondary) }
+        }
+    }
+
+    /// Its identity, as the Pokémon's: the diorama large, the tier, the name, the types, what the team must be, what
+    /// opens it while it is closed, how often it was finished.
+    private func hero(_ dungeon: Dungeon, _ l: L) -> some View {
+        let (size, rules) = store.teamRules(id)
+        let wins = store.dungeonProgress.wins(id)
+        return VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 14) {
+                DungeonIcon(id: id, size: 92, animated: true)
+                    .frame(width: 100, height: 100)
+                    .background(alignment: .bottom) {
+                        Ellipse().fill(Color.black.opacity(0.22)).frame(width: 70, height: 12).blur(radius: 2)
+                    }
+                VStack(alignment: .leading, spacing: 5) {
+                    Badge("T\(dungeon.tier.rawValue)", tint: .secondary).fixedSize()
+                    Text(l.dungeonName(id)).font(.system(size: 18, weight: .bold, design: .rounded))
+                        .lineLimit(2).minimumScaleFactor(0.85).fixedSize(horizontal: false, vertical: true)
+                    if !dungeon.themeTypes.isEmpty {
+                        HStack(spacing: 3) {
+                            ForEach(dungeon.themeTypes, id: \.self) { type in
+                                Badge(l.typeName(type).uppercased(), tint: .type(type)).fixedSize()
+                            }
+                        }
+                    }
+                    Text(([l.dungeonFloors(dungeon.floors), l.dungeonTeamSize(size)] + rules.map(l.dungeonRule)).joined(separator: " · "))
+                        .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                    if wins > 0 {
+                        Label(l.dungeonWins(wins), systemImage: "checkmark.seal.fill").font(.caption.weight(.semibold))
+                            .foregroundStyle(Design.actionColor)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            // What opens it, while it is closed.
+            if wins == 0 {
+                ForEach(Array(dungeon.unlocks.enumerated()), id: \.offset) { _, unlock in
+                    let met = store.isMet(unlock)
+                    Label(store.unlockLine(unlock), systemImage: met ? "checkmark.circle.fill" : "lock.fill")
+                        .font(.caption).foregroundStyle(met ? .primary : .secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
-            ForEach(Array(dungeon.unlocks.enumerated()), id: \.offset) { _, unlock in
-                let met = store.isMet(unlock) || store.dungeonProgress.wins(id) > 0
-                Label(store.unlockLine(unlock), systemImage: met ? "checkmark.circle.fill" : "circle")
-                    .font(.caption).foregroundStyle(met ? .primary : .secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            // The artifacts that speed it up (the owner, 2026-11-06), each with its share, the cost above counting them.
-            let factors = store.dungeonGrowthFactors(id)
-            if !factors.isEmpty {
-                Label(l.dungeonArtifactsSpeed(Int(((store.dungeonSpeed(id) - 1) * 100).rounded()),
-                                              factors.map { Self.factorName($0.source, l) + " +" + String(Int((($0.multiplier - 1) * 100).rounded())) + " %" }
-                                                .joined(separator: ", ")),
-                      systemImage: "sparkles")
-                    .font(.caption2).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-            }
-            Text(l.dungeonDetailRuns(runs.count, wins: store.dungeonProgress.wins(id)))
-                .font(.caption.weight(.semibold))
         }
-        .padding(10)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .designSurface(cornerRadius: 10)
+        .heroCard(colors: DungeonCard.colors(id))
     }
 
     static func factorName(_ source: CompanionStore.GrowthFactor.Source, _ l: L) -> String {
@@ -169,103 +190,169 @@ struct DungeonDetailScreen: View {
         }
     }
 
-    /// The bosses as the card shows them (Q17, #137): whole once beaten, a silhouette once reached, a "?" before.
+    /// The bosses as the evolution line shows a family (Q17, #137): a portrait each, whole once caught here, a
+    /// silhouette once met, a "?" before; its name under it.
     private func bosses(_ dungeon: Dungeon, _ l: L) -> some View {
-        let slots = BossSlots(store: store, id: id, dungeon: dungeon, size: 30, shownAtMost: 16)
-        return VStack(alignment: .leading, spacing: 4) {
-            Text(l.dungeonDetailBosses(met: slots.met, of: dungeon.bosses.count)).font(.caption.weight(.semibold))
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 2), count: 8), spacing: 2) {
-                ForEach(Array(slots.slots.enumerated()), id: \.offset) { _, slot in slot.view(size: 30, language: store.language) }
+        let slots = BossSlots(store: store, id: id, dungeon: dungeon, size: 44, shownAtMost: 12)
+        let caught = dungeon.bosses.filter { store.dungeonProgress.caughtInDungeon(id, $0) }.count
+        return VStack(alignment: .leading, spacing: 8) {
+            title(l.dungeonBossesTitle, trailing: l.dungeonBossesCaught(caught, of: dungeon.bosses.count))
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 6), count: 4), spacing: 8) {
+                ForEach(Array(slots.slots.enumerated()), id: \.offset) { _, slot in bossPortrait(slot, l) }
             }
             if slots.hidden > 0 {
                 Text("+\(slots.hidden)").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
             }
         }
+        .designCard()
     }
 
-    private func wild(_ dungeon: Dungeon, _ l: L) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text("\(l.dungeonDetailWild) · \(dungeon.wild.count)").font(.caption.weight(.semibold))
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 2), count: 10), spacing: 2) {
-                ForEach(dungeon.wild, id: \.self) { species in
-                    SpriteView(speciesID: species, size: 26, sameScale: true)
-                        .speciesNameTooltip(species, language: store.language)
+    private func bossPortrait(_ slot: BossSlots.Slot, _ l: L) -> some View {
+        VStack(spacing: 3) {
+            slot.view(size: 44, language: store.language)
+                .frame(width: 54, height: 54)
+                .background(Circle().fill(Color.black.opacity(0.18)))
+            switch slot {
+            case .met(let species, let caught, _):
+                HStack(spacing: 3) {
+                    Image(systemName: caught ? "checkmark.circle.fill" : "eye.fill").font(.system(size: 9))
+                        .foregroundStyle(caught ? Design.actionColor : .secondary)
+                    PokemonNameLabel(.pokemonSpecies, String(species), language: store.language)
+                        .font(.system(size: 10, weight: .semibold)).lineLimit(1).minimumScaleFactor(0.7)
                 }
+                .hoverTip(caught ? l.dungeonBossCaughtHere : l.dungeonBossMetNotCaught)
+            case .unknown:
+                Text(l.dungeonBossNotMet).font(.system(size: 10)).foregroundStyle(.secondary).lineLimit(1).minimumScaleFactor(0.7)
             }
         }
+        .frame(maxWidth: .infinity)
     }
 
+    /// What it gives as the Bag shows items, from the rolls' own tables: an icon each with how many or how often (a box
+    /// for a chest's, a crown for the boss's), the chests' items in a row, what a first victory adds.
     private func loot(_ dungeon: Dungeon, _ l: L) -> some View {
         let tier = dungeon.tier
         let candies = ExpeditionEngine.candyRange(tier)
         let items = ExpeditionEngine.itemTable(tier).reduce(into: [ItemKind]()) { if !$0.contains($1) { $0.append($1) } }
         let eggs = ExpeditionEngine.chestEggOdds(tier)
         let extras = CompanionStore.victoryExtraOdds(tier)
-        return VStack(alignment: .leading, spacing: 4) {
-            Text(l.dungeonDetailLoot).font(.caption.weight(.semibold))
-            line(l.dungeonDetailCandies(candies.lowerBound, candies.upperBound), nil)
-            line(l.dungeonDetailChestItems, items.map(l.itemName).joined(separator: ", "))
-            line(l.dungeonDetailChestEggs, eggs.isEmpty ? l.dungeonDetailNone
-                 : eggs.map { "\(l.itemName($0.egg)) \(l.oddsPercent(Double($0.perMille) / 10))" }.joined(separator: ", "))
-            line(l.dungeonDetailVictory, (extras.map { "\(l.itemName($0.item)) \(l.oddsPercent($0.percent))" }
-                 + ["\(l.dungeonTechnicalCapsule) \(l.oddsPercent(Double(CompanionStore.technicalCapsuleChance(tier))))"])
-                 .joined(separator: ", "))
-            Text(l.dungeonDetailFirstVictory).font(.caption2).foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
+        var tiles: [(kind: ItemKind?, name: String, value: String, symbol: String?, hint: String)] = [
+            (.rareCandy, l.itemName(.rareCandy), l.dungeonRange(candies.lowerBound, candies.upperBound), nil,
+             l.dungeonDetailCandies(candies.lowerBound, candies.upperBound)),
+        ]
+        tiles += eggs.map { ($0.egg, l.itemName($0.egg), l.oddsPercent(Double($0.perMille) / 10), "shippingbox.fill", l.dungeonDetailChestEggs) }
+        tiles += extras.map { ($0.item, l.itemName($0.item), l.oddsPercent($0.percent), "crown.fill", l.dungeonDetailVictory) }
+        tiles.append((nil, l.dungeonTechnicalCapsule, l.oddsPercent(Double(CompanionStore.technicalCapsuleChance(tier))),
+                      "crown.fill", l.dungeonDetailVictory))
+        return VStack(alignment: .leading, spacing: 8) {
+            title(l.dungeonLootTitle)
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 6), count: 3), spacing: 6) {
+                ForEach(Array(tiles.enumerated()), id: \.offset) { _, tile in
+                    VStack(spacing: 3) {
+                        if let kind = tile.kind {
+                            ItemIconView(kind: kind, size: 26)
+                        } else {
+                            Image(systemName: "opticaldisc.fill").font(.system(size: 18)).foregroundStyle(.secondary).frame(height: 26)
+                        }
+                        Text(tile.name).font(.system(size: 10, weight: .semibold)).lineLimit(1).minimumScaleFactor(0.65)
+                        HStack(spacing: 2) {
+                            if let symbol = tile.symbol { Image(systemName: symbol).font(.system(size: 8)) }
+                            Text(tile.value).font(.system(size: 10)).monospacedDigit()
+                        }
+                        .foregroundStyle(.secondary)
+                    }
+                    .padding(.vertical, 6).padding(.horizontal, 2).frame(maxWidth: .infinity)
+                    .background(RoundedRectangle(cornerRadius: 9).fill(Color.black.opacity(0.16)))
+                    .hoverTip(tile.hint)
+                }
+            }
+            title(l.dungeonDetailChestItems)
+            HStack(spacing: 8) {
+                ForEach(items, id: \.self) { kind in ItemIconView(kind: kind, size: 24).hoverTip(l.itemName(kind)) }
+            }
+            Label(l.dungeonDetailFirstVictory, systemImage: "star.fill").font(.caption.weight(.semibold))
+                .foregroundStyle(Color.yellow).fixedSize(horizontal: false, vertical: true)
         }
-        .padding(10)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .designSurface(cornerRadius: 10)
+        .designCard()
     }
 
-    /// What a floor holds on each path, from the draw's own weights, and the rule of the dice (the owner, 2026-11-06:
+    /// Its floors: the two paths as the die gives them, what a floor holds on each folded away (the owner, 2026-11-06:
     /// nothing said what they change).
-    private func events(_ dungeon: Dungeon, _ l: L) -> some View {
+    private func floors(_ dungeon: Dungeon, _ l: L) -> some View {
         let safe = ExpeditionEngine.eventOdds(tier: dungeon.tier, risky: false)
         let risky = ExpeditionEngine.eventOdds(tier: dungeon.tier, risky: true)
-        return VStack(alignment: .leading, spacing: 4) {
-            Text(l.dungeonDetailEvents).font(.caption.weight(.semibold))
-            Text(l.dungeonPathRule).font(.caption2).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-            Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 2) {
-                GridRow {
-                    Text("")
-                    Label(l.dungeonPath(risky: false), systemImage: "dice").font(.caption2.weight(.semibold))
-                        .gridColumnAlignment(.trailing)
-                    Label(l.dungeonPath(risky: true), systemImage: "dice.fill").font(.caption2.weight(.semibold))
-                        .foregroundStyle(Color.readableOrange).gridColumnAlignment(.trailing)
-                }
-                ForEach(Array(safe.enumerated()), id: \.offset) { i, item in
-                    GridRow {
-                        Text(l.dungeonEventName(item.kind)).font(.caption2)
-                        Text(l.oddsPercent(item.percent)).font(.caption2).monospacedDigit()
-                        Text(l.oddsPercent(risky[i].percent)).font(.caption2.weight(risky[i].percent > item.percent + 0.5 ? .bold : .regular))
-                            .monospacedDigit()
+        return VStack(alignment: .leading, spacing: 8) {
+            title(l.dungeonFloorsTitle, trailing: "\(dungeon.floors)")
+            HStack(spacing: 6) {
+                path(risky: false, l)
+                path(risky: true, l)
+            }
+            Button {
+                withAnimation(.easeOut(duration: 0.15)) { showsOdds.toggle() }
+            } label: {
+                Label(l.dungeonOddsToggle(open: showsOdds), systemImage: showsOdds ? "chevron.up" : "chevron.down")
+                    .font(.caption.weight(.semibold)).foregroundStyle(Design.actionColor)
+            }
+            .buttonStyle(.plain)
+            if showsOdds {
+                Text(l.dungeonPathRule).font(.caption2).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 3) {
+                    ForEach(Array(safe.enumerated()), id: \.offset) { i, item in
+                        GridRow {
+                            Text(l.dungeonEventName(item.kind)).font(.caption)
+                            Text(l.oddsPercent(item.percent)).font(.caption).monospacedDigit().foregroundStyle(Design.actionColor)
+                                .gridColumnAlignment(.trailing)
+                            Text(l.oddsPercent(risky[i].percent))
+                                .font(.caption.weight(risky[i].percent > item.percent + 0.5 ? .bold : .regular)).monospacedDigit()
+                                .foregroundStyle(Color.readableOrange).gridColumnAlignment(.trailing)
+                        }
                     }
                 }
-            }
-            // #141: on top of the floor's event, on either path.
-            if dungeon.tier >= .t2, !id.isChallenge {
-                Label(l.dungeonSecretRule, systemImage: "door.left.hand.open").font(.caption2).foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-        }
-        .padding(10)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .designSurface(cornerRadius: 10)
-    }
-
-    private func line(_ title: String, _ value: String?) -> some View {
-        VStack(alignment: .leading, spacing: 1) {
-            Text(title).font(.caption.weight(value == nil ? .regular : .medium))
-            if let value {
-                Text(value).font(.caption2).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                // #141: on top of the floor's event, on either path.
+                if dungeon.tier >= .t2, !id.isChallenge {
+                    Label(l.dungeonSecretRule, systemImage: "door.left.hand.open").font(.caption2).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
         }
+        .designCard()
     }
 
-    private func history(_ runs: [DungeonRunRecord], _ l: L) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(l.dungeonDetailHistory).font(.caption.weight(.semibold))
+    /// A path, by name, glyph and color: blue the safe one, orange the risky one.
+    private func path(risky: Bool, _ l: L) -> some View {
+        let color = risky ? Color.readableOrange : Design.actionColor
+        return HStack(spacing: 6) {
+            Image(systemName: risky ? "dice.fill" : "dice").font(.system(size: 16, weight: .bold)).foregroundStyle(color)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(l.dungeonPath(risky: risky)).font(.system(size: 11, weight: .bold)).lineLimit(1).minimumScaleFactor(0.7)
+                Text(l.dungeonPathShort(risky: risky)).font(.system(size: 10)).foregroundStyle(.secondary)
+                    .lineLimit(1).minimumScaleFactor(0.65)
+            }
+        }
+        .padding(8).frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 9).fill(color.opacity(0.14)))
+    }
+
+    /// The expeditions that ended there: four numbers, what speeds it up, then each run.
+    private func record(_ runs: [DungeonRunRecord], _ l: L) -> some View {
+        let best = runs.map(\.floor).max() ?? 0
+        let factors = store.dungeonGrowthFactors(id)
+        return VStack(alignment: .leading, spacing: 8) {
+            title(l.dungeonYourRuns)
+            HStack(spacing: 18) {
+                stat(l.dungeonStatRuns, "\(runs.count)")
+                stat(l.dungeonStatWins, "\(store.dungeonProgress.wins(id))")
+                stat(l.dungeonStatBest, best > 0 ? "\(best)" : "-")
+                stat(l.dungeonStatCost, TokenFormatter.compact(store.dungeonCost(id)))
+            }
+            // The artifacts that speed it up (the owner, 2026-11-06), each with its share, the cost above counting them.
+            if !factors.isEmpty {
+                Label(l.dungeonArtifactsSpeed(Int(((store.dungeonSpeed(id) - 1) * 100).rounded()),
+                                              factors.map { Self.factorName($0.source, l) + " +" + String(Int((($0.multiplier - 1) * 100).rounded())) + " %" }
+                                                .joined(separator: ", ")),
+                      systemImage: "sparkles")
+                    .font(.caption2).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            }
             if runs.isEmpty {
                 Text(l.dungeonDetailNoRun).font(.caption).foregroundStyle(.secondary)
             }
@@ -273,6 +360,37 @@ struct DungeonDetailScreen: View {
                 RunRow(store: store, run: run) { nav.pastRun = run.endedAt }
             }
         }
+        .designCard()
+    }
+
+    private func stat(_ label: String, _ value: String) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(label).font(.caption).foregroundStyle(.secondary).lineLimit(1).minimumScaleFactor(0.7)
+            Text(value).font(.system(size: 15, weight: .bold)).monospacedDigit()
+        }
+    }
+
+    private func wild(_ dungeon: Dungeon, _ l: L) -> some View {
+        let shown = showsAllWild ? dungeon.wild : Array(dungeon.wild.prefix(Self.wildShown))
+        return VStack(alignment: .leading, spacing: 8) {
+            title(l.dungeonDetailWild, trailing: "\(dungeon.wild.count)")
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 2), count: 8), spacing: 4) {
+                ForEach(shown, id: \.self) { species in
+                    SpriteView(speciesID: species, size: 32, sameScale: true)
+                        .speciesNameTooltip(species, language: store.language)
+                }
+            }
+            if dungeon.wild.count > Self.wildShown {
+                Button {
+                    showsAllWild.toggle()
+                } label: {
+                    Text(showsAllWild ? l.dungeonShowLess : "\(l.costumesSeeAll) (+\(dungeon.wild.count - Self.wildShown))")
+                        .font(.caption.weight(.semibold)).foregroundStyle(Design.actionColor)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .designCard()
     }
 }
 

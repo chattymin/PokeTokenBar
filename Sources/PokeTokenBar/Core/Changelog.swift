@@ -67,6 +67,14 @@ enum Changelog {
 
     static let days: [ChangelogDay] = [
         ChangelogDay(date: "2026-11-16", entries: [
+            .improved("2026-11-16-expedition-redesign", { $0.t("홈의 탐험이 새로워졌어요: 층 카드(지난 층, 지금 층, 다음 층, 보스), 이름과 HP가 보이는 팀, 그 아래 일지 두 줄. 던전 페이지도 포켓몬 페이지처럼 바뀌었어요.",
+                                                             "Home's expedition is redone: floor cards (the one crossed, the one under way, the next, the boss), the team with names and HP, the journal's last two lines under them. A dungeon's page now looks like a Pokémon's.",
+                                                             "ホームの探検が新しくなりました：階のカード（通った階、いまの階、次の階、ボス）、名前とHPが見えるチーム、その下に記録の2行。ダンジョンのページもポケモンのページのようになりました。",
+                                                             "La expedición del Inicio se renueva: tarjetas de piso (el cruzado, el actual, el siguiente, el jefe), el equipo con nombres y PS, y debajo las dos últimas líneas del diario. La página de una mazmorra ahora se parece a la de un Pokémon.",
+                                                             "L'expédition de l'Accueil est refaite : des cartes d'étage (celui passé, celui en cours, le suivant, le boss), l'équipe avec ses noms et ses PV, les deux dernières lignes du journal dessous. La page d'un donjon ressemble maintenant à la fiche d'un Pokémon.",
+                                                             "A expedição do Início foi refeita: cartões de andar (o passado, o atual, o próximo, o chefe), a equipe com nomes e PS, e embaixo as duas últimas linhas do diário. A página de uma masmorra agora parece a de um Pokémon.",
+                                                             "Die Expedition auf dem Start ist neu: Ebenen-Karten (die geschaffte, die laufende, die nächste, der Boss), das Team mit Namen und KP, darunter die letzten zwei Zeilen des Logbuchs. Die Seite eines Dungeons sieht jetzt aus wie die eines Pokémon.",
+                                                             "Экспедиция на главной переделана: карточки этажей (пройденный, текущий, следующий, босс), команда с именами и ОЗ, под ними две последние строки журнала. Страница подземелья теперь похожа на страницу покемона.") }),
             .new("2026-11-16-costumes-page", { $0.t("포켓몬 페이지에 그 종의 코스튬이 모두 나와요: 가진 것은 컬러로, 누르면 위에 보여요. 코스튬 포켓몬도 코스튬을 입은 채로 보이고, 더 이상 작게 보이지 않아요.",
                                                      "A Pokémon's page lists all its species' costumes: those you have in color, shown on top with a click. A costumed Pokémon shows in its costume there, and costumes are no longer tiny.",
                                                      "ポケモンのページに、その種のコスチュームがすべて並びます：持っているものはカラーで、押すと上に表示されます。コスチュームのポケモンはそのコスチュームで表示され、もう小さくなりません。",

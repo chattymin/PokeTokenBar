@@ -365,7 +365,7 @@ enum SpriteLoader {
         let imageKey = f.path as NSString
         if let img = remembered(imageKey) { return img }
         if let d = try? Data(contentsOf: f), let raw = NSImage(data: d) {
-            let img = still(raw, form: form)
+            let img = still(raw, speciesID: speciesID, form: form)
             remember(img, forKey: imageKey)
             return img
         }
@@ -498,7 +498,7 @@ enum SpriteLoader {
             // await 중 같은 종의 다른 행이 로드를 끝냈으면 그 객체를 재사용한다.
             if let img = remembered(imageKey) { return img }
             guard let raw = NSImage(data: d) else { continue }
-            let img = still(raw, form: form)
+            let img = still(raw, speciesID: speciesID, form: form)
             remember(img, forKey: imageKey)
             return img
         }
@@ -555,11 +555,13 @@ enum SpriteLoader {
         return img
     }
 
-    /// A costume's still, Pokémon GO's 256 px render, cropped to the Pokémon with a PokéAPI still's margin: GO draws
+    /// A costume's still (and the armored Mewtwo's), Pokémon GO's 256 px render, cropped to the Pokémon with a PokéAPI still's margin: GO draws
     /// each at its size on the canvas, and an Eevee took a fifth of its cell (the owner, 2026-11-16). Any other still
     /// as it is.
-    static func still(_ image: NSImage, form: PokemonForm?) -> NSImage {
-        CostumeCatalog.parse(form) == nil ? image : cropToContent(image, margin: 0.12)
+    static func still(_ image: NSImage, speciesID: Int = 0, form: PokemonForm?) -> NSImage {
+        // Giovanni's armored Mewtwo is a Pokémon GO render too (issue #180).
+        CostumeCatalog.parse(form) == nil && !ArmoredMewtwo.matches(speciesID: speciesID, form: form)
+            ? image : cropToContent(image, margin: 0.12)
     }
 
     /// 비투명(alpha>0) 콘텐츠 경계로 크롭: 큰 투명 여백 제거. 1회만 수행(메모이즈). The alpha is read from one bitmap
