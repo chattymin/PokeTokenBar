@@ -1868,6 +1868,8 @@ struct L {
         let r = regionName(region)
         return t("\(r) 확률 ↑ · 다음 부화", "\(r) chance ↑ · next hatch", "\(r)の確率↑ · 次の孵化", "Prob. \(r) ↑ · próxima eclosión", "Chances \(r) ↑ · prochaine éclosion", "Chance \(r) ↑ · próxima eclosão", "\(r)-Chance ↑ · nächstes Schlüpfen", "Шанс \(r) ↑ · следующее яйцо")
     }
+    /// Accessibility label of the Shop's region selector on the incense card.
+    var incenseRegionPicker: String { t("지역", "Region", "地方", "Región", "Région", "Região", "Region", "Регион") }
     var incenseUseConfirm: String { t("다음 부화를 위해 피울까요?", "Burn it for your next hatch?", "次の孵化のためにたきますか？", "¿Quemarlo para tu próxima eclosión?", "Le brûler pour ta prochaine éclosion ?", "Queimar para a próxima eclosão?", "Für das nächste Schlüpfen verbrennen?", "Зажечь для следующего яйца?") }
     /// Home badge while an incense waits for the next hatch.
     func incenseBurning(_ region: PokedexRegion) -> String {

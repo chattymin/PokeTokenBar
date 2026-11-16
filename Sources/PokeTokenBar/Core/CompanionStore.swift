@@ -1342,7 +1342,8 @@ final class CompanionStore {
     /// 고치며 들어온 규칙이라(ShopTests 참조), 그룹 배치는 그 회귀를 부분적으로 되살린다. 티어 관계는
     /// 카드의 등급 배지로 읽히게 한다.
     var shopEntries: [ShopEntry] {
-        var entries: [ShopEntry] = purchasableItems.map { ShopEntry.item($0) }
+        var entries: [ShopEntry] = purchasableItems.filter { $0.incenseRegion == nil }.map { ShopEntry.item($0) }
+        entries.append(.incense)
         entries += FreshEgg.shopTiers.map { ShopEntry.egg($0) }
         return entries.enumerated().sorted { a, b in
             let aDone = isPurchasedPassive(a.element)
@@ -1350,7 +1351,7 @@ final class CompanionStore {
             if aDone != bDone { return !aDone }
             let aPrice = price(of: a.element), bPrice = price(of: b.element)
             if aPrice != bPrice { return aPrice < bPrice }
-            return a.offset < b.offset   // equal prices (incenses, plain egg): keep the order above
+            return a.offset < b.offset   // equal prices (incense, plain egg): keep the order above
         }
         .map(\.element)
     }

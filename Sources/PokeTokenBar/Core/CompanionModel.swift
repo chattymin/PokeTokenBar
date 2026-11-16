@@ -191,6 +191,17 @@ enum ItemKind: String, Codable, Sendable, CaseIterable {
     case sinnohIncense
     case unovaIncense
 
+    /// The incense of a region: the Shop sells all five from one card with a region selector.
+    static func incense(_ region: PokedexRegion) -> ItemKind {
+        switch region {
+        case .kanto: return .kantoIncense
+        case .johto: return .johtoIncense
+        case .hoenn: return .hoennIncense
+        case .sinnoh: return .sinnohIncense
+        case .unova: return .unovaIncense
+        }
+    }
+
     /// The region a Regional Incense biases the next hatch toward. nil = not an incense.
     var incenseRegion: PokedexRegion? {
         switch self {
@@ -353,11 +364,15 @@ enum RegionalIncense {
 /// CompanionStore.shopEntries 가 이 둘을 가격 오름차순으로 병합해 뷰가 단일 목록으로 그린다.
 enum ShopEntry: Hashable, Sendable {
     case item(ItemKind)
+    /// The five Regional Incenses as one line: five cards that differ only by region would push the
+    /// eggs and the charm off the first screen. The card's selector picks the region to buy.
+    case incense
     case egg(Rarity?)
 
     var price: Int {
         switch self {
         case .item(let kind): return kind.shopPrice ?? 0
+        case .incense: return RegionalIncense.price
         case .egg(let tier): return FreshEgg.price(guaranteeing: tier)
         }
     }

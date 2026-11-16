@@ -231,8 +231,7 @@ final class ShopTests: XCTestCase {
         XCTAssertEqual(s.shopEntries,
                        [.item(.mint),        // 100M
                         .item(.rareCandy),   // 500M
-                        .item(.kantoIncense), .item(.johtoIncense), .item(.hoennIncense),   // 1B each
-                        .item(.sinnohIncense), .item(.unovaIncense),
+                        .incense,            // 1B — the five regions share one card
                         .egg(nil),           // 1B
                         .egg(.uncommon),     // 2.5B
                         .item(.shinyCharm),  // 3B
@@ -250,8 +249,7 @@ final class ShopTests: XCTestCase {
         XCTAssertEqual(s.shopEntries,
                        [.item(.mint),        // 100M
                         .item(.rareCandy),   // 500M
-                        .item(.kantoIncense), .item(.johtoIncense), .item(.hoennIncense),   // 1B each
-                        .item(.sinnohIncense), .item(.unovaIncense),
+                        .incense,            // 1B — the five regions share one card
                         .egg(nil),           // 1B
                         .egg(.uncommon),     // 2.5B
                         .item(.shinyCharm),  // 3B

@@ -21,6 +21,8 @@ struct ShopView: View {
                     switch entry {
                     case .item(let kind):
                         ShopItemCard(store: store, kind: kind)
+                    case .incense:
+                        IncenseShopCard(store: store)
                     case .egg(let tier):
                         EggCard(store: store, nav: nav, tier: tier)
                     }
@@ -54,6 +56,8 @@ struct ShopView: View {
 private struct ShopItemCard: View {
     let store: CompanionStore
     let kind: ItemKind
+    /// Set by `IncenseShopCard`: a region selector under the description, which changes `kind`.
+    var region: Binding<PokedexRegion>? = nil
     @State private var confirming = false
     @State private var quantity = 1
 
@@ -94,6 +98,15 @@ private struct ShopItemCard: View {
                 // 바깥 Spacer 없음 — 이름 줄의 Spacer 가 남는 폭을 전부 받아 Stepper 를 카드 오른쪽 끝에
                 // 붙인다(가방 ItemCard 와 같은 구조). 둘 다 두면 남는 폭을 나눠 가져 Stepper 가 가운데에 뜬다.
             }
+            if let region {
+                // Segmented, like the app's other small choices: all five regions stay visible.
+                Picker(l.incenseRegionPicker, selection: region) {
+                    ForEach(PokedexRegion.allCases) { Text(l.regionName($0)).tag($0) }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .controlSize(.small)
+            }
             buyControls(l)
         }
         .padding(10)
@@ -101,6 +114,10 @@ private struct ShopItemCard: View {
         .clipShape(RoundedRectangle(cornerRadius: 10))
         .onChange(of: store.maxBuyCount(kind)) { _, _ in
             quantity = selectedQuantity
+        }
+        .onChange(of: kind) { _, _ in
+            // A confirmation shown for one region must not buy another.
+            confirming = false
         }
     }
 
@@ -148,6 +165,18 @@ private struct ShopItemCard: View {
     private func buyNow() {
         confirming = false
         if store.buy(kind, count: selectedQuantity) { quantity = 1 }
+    }
+}
+
+/// One card for the five Regional Incenses. The selector changes which incense the card sells; icon,
+/// name, description and owned count follow it.
+@MainActor
+private struct IncenseShopCard: View {
+    let store: CompanionStore
+    @State private var region: PokedexRegion = .kanto
+
+    var body: some View {
+        ShopItemCard(store: store, kind: .incense(region), region: $region)
     }
 }
 

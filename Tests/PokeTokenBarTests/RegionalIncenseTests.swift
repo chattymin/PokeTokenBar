@@ -526,14 +526,25 @@ final class RegionalIncenseTests: XCTestCase {
         }
     }
 
-    /// Five items share one price with the plain egg. The order must be the same on every render.
-    func testIncensesKeepRegionOrderInTheShop() {
+    /// The Shop shows one incense line, not five, and it sits before the plain egg at the same price.
+    /// The order must be the same on every render.
+    func testShopShowsOneIncenseLineBeforeThePlainEgg() {
         let s = store("\"active\":\(Self.mon)")
         for _ in 0..<20 {
-            XCTAssertEqual(s.purchasableItems, [.mint, .rareCandy] + incenses + [.shinyCharm])
             XCTAssertEqual(s.shopEntries,
-                           [.item(.mint), .item(.rareCandy)] + incenses.map { ShopEntry.item($0) }
-                           + [.egg(nil), .egg(.uncommon), .item(.shinyCharm), .egg(.rare)])
+                           [.item(.mint), .item(.rareCandy), .incense,
+                            .egg(nil), .egg(.uncommon), .item(.shinyCharm), .egg(.rare)])
+        }
+        XCTAssertEqual(s.price(of: .incense), RegionalIncense.price)
+        XCTAssertEqual(s.purchasableItems, [.mint, .rareCandy] + incenses + [.shinyCharm],
+                       "every region is still its own purchasable item behind that line")
+    }
+
+    /// The card's selector maps a region to the item it buys.
+    func testEveryRegionMapsToItsOwnIncense() {
+        XCTAssertEqual(PokedexRegion.allCases.map { ItemKind.incense($0) }, incenses)
+        for region in PokedexRegion.allCases {
+            XCTAssertEqual(ItemKind.incense(region).incenseRegion, region)
         }
     }
 
