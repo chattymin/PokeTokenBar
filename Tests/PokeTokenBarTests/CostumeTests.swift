@@ -102,6 +102,28 @@ final class CostumeTests: XCTestCase {
         XCTAssertEqual(s.state.costumeEggs.last?.month, 1, "January's lot in January")
     }
 
+    /// [Regression] A friend's report of 2026-11-16: a "can't evolve" costume counted at its hatch, so sending the
+    /// Pokémon off at once kept it, and Home still said "New costume". As the Pokédex counts: collected once graduated.
+    func testACostumeIsCollectedOnceGraduatedNeverSentOff() async throws {
+        let first = CostumeEgg(id: "a", code: "JAN_2023_NOEVOLVE", speciesID: 25, form: nil, month: 1)
+        var second = first
+        second.id = "b"
+        let s = try store { $0.costumeEggs = [first, second] }
+        XCTAssertTrue(s.useCostumeEgg("a"))
+        s.setEggUsageForTesting(s.eggHatchThreshold)
+        await s.hatchIfNeeded()
+        XCTAssertEqual(s.state.active?.costume, "JAN_2023_NOEVOLVE")
+        XCTAssertTrue(s.ownedCostumeKeys().all.isEmpty, "raised, not collected")
+        XCTAssertTrue(s.useCostumeEgg("b"), "sent off for the next egg")
+        XCTAssertTrue(s.state.dex.contains { $0.isReleased && $0.costume == "JAN_2023_NOEVOLVE" })
+        XCTAssertTrue(s.ownedCostumeKeys().all.isEmpty, "sent off: not collected")
+        s.setEggUsageForTesting(s.eggHatchThreshold)
+        await s.hatchIfNeeded()
+        XCTAssertEqual(s.activeNews?.newCostume, true, "still new: sending it off would lose it")
+        growToTheEnd(s)
+        XCTAssertEqual(s.ownedCostumeKeys().all, ["JAN_2023_NOEVOLVE:25"], "graduated: collected")
+    }
+
     /// The one missing comes first: with every costume of June in but one, the egg holds that one, whichever it is.
     func testTheMissingCostumeComesFirst() throws {
         let starts = CostumeCatalog.starts(month: 6)
@@ -150,7 +172,8 @@ final class CostumeTests: XCTestCase {
         XCTAssertEqual(pichu.spriteForm, CostumeCatalog.displayForm(code: "HOLIDAY_2016", form: nil))
         XCTAssertEqual(pichu.hatch?.egg, .costume(code: "HOLIDAY_2016", speciesID: 172))
         XCTAssertNil(s.state.eggFromCostume)
-        XCTAssertEqual(s.ownedCostumeKeys().all, ["HOLIDAY_2016:172"])
+        XCTAssertEqual(s.ownedCostumeKeys().all, [], "collected once graduated, as the Pokédex counts")
+        XCTAssertEqual(s.costumesTaken(), ["HOLIDAY_2016:172", "HOLIDAY_2016:25", "HOLIDAY_2016:26"], "never drawn again meanwhile")
         growToTheEnd(s)
         XCTAssertNil(s.state.active, "graduated")
         let record = try XCTUnwrap(s.state.dex.last)

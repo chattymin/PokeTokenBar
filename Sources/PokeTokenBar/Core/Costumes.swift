@@ -70,6 +70,11 @@ enum CostumeCatalog {
         }
     }
 
+    /// The stages of a chain wearing the costume `code`, in this line form.
+    static func stages(code: String, chain: some Sequence<Int>, form: PokemonForm?) -> [CostumeEntry] {
+        chain.compactMap { entry(code: code, speciesID: $0, form: form) }
+    }
+
     /// The entry and every stage it may grow into wearing its costume.
     static func family(of start: CostumeEntry) -> [CostumeEntry] {
         [start] + children(of: start).flatMap(family)

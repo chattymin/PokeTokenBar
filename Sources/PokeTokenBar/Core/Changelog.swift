@@ -67,6 +67,14 @@ enum Changelog {
 
     static let days: [ChangelogDay] = [
         ChangelogDay(date: "2026-11-16", entries: [
+            .fixed("2026-11-16-costume-graduated", { $0.t("코스튬은 도감처럼 포켓몬이 졸업해야 코스튬 컬렉션에 들어가요. 그 전에 놓아주면 들어가지 않아요.",
+                                                          "A costume joins your costume collection once its Pokémon graduates, as the Pokédex counts: sent off before, it does not.",
+                                                          "コスチュームは図鑑と同じく、ポケモンが卒業してからコスチュームのコレクションに入ります。その前に逃がすと入りません。",
+                                                          "Un disfraz entra en tu colección de disfraces cuando su Pokémon se gradúa, como cuenta la Pokédex: si lo liberas antes, no entra.",
+                                                          "Un costume entre dans ta collection costumée une fois son Pokémon diplômé, comme le Pokédex le compte : relâché avant, il n'y entre pas.",
+                                                          "Uma fantasia entra na sua coleção de fantasias quando o Pokémon se forma, como a Pokédex conta: solto antes, não entra.",
+                                                          "Ein Kostüm kommt in deine Kostümsammlung, sobald sein Pokémon seinen Abschluss macht, wie der Pokédex zählt: vorher freigelassen, nicht.",
+                                                          "Костюм попадает в коллекцию костюмов, когда покемон выпускается, как считает Покедекс: отпущенный раньше не попадает.") }),
             .new("2026-11-16-costume-medals") { l in
                 let egg = l.itemName(.rareEgg), candy = l.itemName(.rareCandy), legend = l.itemName(.legendaryEgg)
                 let medal = l.itemName(.costumeMedal), seasons = l.itemName(.costumeLotsMedal)

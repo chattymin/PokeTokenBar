@@ -836,6 +836,16 @@ read_when:
   `VillainTests.testTheyWaitForTheTeamsReturn`). Sweep: the merchant's and the challenges' daily draws have no
   blocker; the event eggs keep a claim window. A periodic event a state can block waits for that state to end.
 
+- **A collection counted at the hatch can be kept by sending the Pokémon off.** The costumed collection counted every
+  costumed stage reached, the Pokémon raised and those sent off included: a "can't evolve" costume was collected at
+  its hatch, so a player could send each costumed Pokémon off for the next Costume Egg and keep every costume without
+  raising one, and Home said "New costume" for one the collection already showed (a friend's report, 2026-11-16).
+  **Why it was missed:** the tests graduated their Pokémon before reading the collection, and none sent one off. A
+  costume is now collected once its Pokémon graduates, as the Pokédex counts (`ownedCostumeKeys`), while the eggs'
+  draw still leaves out the costume being raised (`costumesTaken`)
+  (`CostumeTests.testACostumeIsCollectedOnceGraduatedNeverSentOff`). Sweep: the medals and the collection screen read
+  the same set; the Pokédex's achievements already count graduated records only.
+
 - **A choice simulated on other conditions than the departure's picks for those conditions.** "Compose for me" played
   its candidate teams without the Bag's berries and Revives, which the departure takes along: the owner's day dungeon
   of 2026-11-13 kept a team winning 88% of the runs with his six Sitrus Berries, where the other candidate won 96%

@@ -877,7 +877,7 @@ final class CompanionStore {
             && PikachuCostume.next(owned: state.pikachuCostumes, seed: 0) != nil
         // Its costume's stages, those reached and those planned: one the collection lacks is new.
         let newCostume = a.costume.map { code in
-            let held = ownedCostumeKeys(includingActive: false).all
+            let held = ownedCostumeKeys().all
             return a.plannedPathIDs.contains { id in
                 CostumeCatalog.entry(code: code, speciesID: id, form: form).map { !held.contains($0.key) } ?? false
             }
@@ -3455,11 +3455,11 @@ final class CompanionStore {
                                                                              count: earned.count))
     }
 
-    /// One of the month's first costumed stages, the missing ones first (`ownedCostumeKeys`, the eggs waiting).
+    /// One of the month's first costumed stages, the missing ones first (`costumesTaken`, the eggs waiting).
     func drawCostumeEgg(month: Int) -> CostumeEgg? {
         let starts = CostumeCatalog.starts(month: month)
         guard !starts.isEmpty else { return nil }
-        var taken = ownedCostumeKeys().all
+        var taken = costumesTaken()
         let waiting = state.costumeEggs + [state.eggFromCostume].compactMap { $0 }
         for egg in waiting {
             if let start = egg.entry { taken.formUnion(CostumeCatalog.family(of: start).map(\.key)) }
