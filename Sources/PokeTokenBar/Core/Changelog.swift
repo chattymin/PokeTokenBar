@@ -79,6 +79,25 @@ enum Changelog {
                            "Neue Erfolge: \(medal) (25, 50, 100 und alle) und \(seasons) (jeder vollständige Kostüm-Monat). Belohnungen: \(egg), \(candy), am Ende \(legend).",
                            "Новые достижения: \(medal) (25, 50, 100 и все) и \(seasons) (каждый полностью собранный месяц). Награды: \(egg), \(candy), в конце \(legend).")
             },
+            .fixed("2026-11-16-oak-new-costume", { $0.t("오박사가 코스튬 컬렉션에 없는 코스튬을 입은 포켓몬을 더는 놓아주라고 하지 않고 계속 키우라고 해요. 코스튬 알이 부화 중일 때는 그 알에서 나올 포켓몬을 보고 미리 살 알을 정해요.",
+                                                     "Prof. Oak no longer suggests releasing a Pokémon whose costume your costume collection lacks: he has you keep raising it. While a Costume Egg incubates, he plans the eggs to buy ahead by the Pokémon it hatches.",
+                                                     "オーキド博士が、コスチュームのコレクションにないコスチュームを着たポケモンを逃がすよう勧めなくなり、育て続けるよう言います。コスチュームのタマゴがかえるまでは、そのタマゴから生まれるポケモンを見て、先に買うタマゴを決めます。",
+                                                     "El Profesor Oak ya no aconseja soltar un Pokémon cuyo disfraz falta en tu colección de disfraces: te dice que lo sigas criando. Mientras incuba un huevo disfrazado, decide los huevos que comprar por adelantado según el Pokémon que saldrá.",
+                                                     "Le Prof. Chen ne conseille plus de relâcher un Pokémon dont le costume manque à ta collection costumée : il te dit de continuer à l'élever. Pendant qu'un Œuf costumé incube, il choisit les œufs à acheter d'avance d'après le Pokémon qui en sortira.",
+                                                     "O Prof. Carvalho não aconselha mais soltar um Pokémon cuja fantasia falta na sua coleção de fantasias: ele diz para continuar a criá-lo. Enquanto um ovo fantasiado choca, ele escolhe os ovos a comprar antes pelo Pokémon que vai sair.",
+                                                     "Prof. Eich rät nicht mehr, ein Pokémon freizulassen, dessen Kostüm in deiner Kostümsammlung fehlt: Du sollst es weiter großziehen. Solange ein Kostüm-Ei brütet, plant er die vorab zu kaufenden Eier nach dem Pokémon, das daraus schlüpft.",
+                                                     "Профессор Оук больше не советует отпускать покемона, чьего костюма нет в вашей коллекции костюмов: он советует растить его дальше. Пока костюмное яйцо насиживается, он выбирает яйца для покупки заранее по покемону, который из него вылупится.") }),
+            .fixed("2026-11-16-costume-badges") { l in
+                let mystery = l.formMysteryBadge, duplicate = l.dexDuplicate
+                return l.t("코스튬을 입은 포켓몬에는 이제 \"\(mystery)\" 표시가 뜨지 않아요. 코스튬 컬렉션에 없는 코스튬이면 포획 기록에도 \"\(duplicate)\" 표시가 붙지 않아요.",
+                           "A costumed Pokémon no longer shows \"\(mystery)\": its costume sets its form. While your collection lacks its costume, the catch log no longer marks it \"\(duplicate)\".",
+                           "コスチュームを着たポケモンに「\(mystery)」が出なくなりました。コレクションにないコスチュームなら、捕獲記録でも「\(duplicate)」と表示されません。",
+                           "Un Pokémon con disfraz ya no muestra \"\(mystery)\": su disfraz fija su forma. Si su disfraz falta en tu colección, el registro de capturas ya no lo marca como \"\(duplicate)\".",
+                           "Un Pokémon costumé n'affiche plus \"\(mystery)\" : son costume fixe sa forme. Tant que son costume manque à ta collection, le journal de captures ne le marque plus \"\(duplicate)\".",
+                           "Um Pokémon fantasiado não mostra mais \"\(mystery)\": a fantasia define a forma dele. Se a fantasia falta na sua coleção, o registro de capturas não o marca mais como \"\(duplicate)\".",
+                           "Ein Pokémon im Kostüm zeigt nicht mehr \"\(mystery)\": Sein Kostüm legt seine Form fest. Fehlt sein Kostüm in deiner Sammlung, markiert das Fangprotokoll es nicht mehr als \"\(duplicate)\".",
+                           "Покемон в костюме больше не показывает \"\(mystery)\": костюм задаёт его форму. Пока его костюма нет в вашей коллекции, журнал поимок не отмечает его как \"\(duplicate)\".")
+            },
             .fixed("2026-11-16-paste-open-window", { $0.t("이제 앱의 입력 칸에서 ⌘V로 정말 붙여 넣을 수 있어요. 설정의 세션 키 칸도요. 이전 수정은 창을 열면 더 이상 동작하지 않았어요.",
                                                         "⌘V really pastes in the app's text fields now, the session key's in Settings too. The previous fix stopped working as soon as the window opened.",
                                                         "アプリの入力欄で⌘Vが本当に貼り付けられるようになりました。設定のセッションキーの欄も同様です。前回の修正はウィンドウを開くと効かなくなっていました。",

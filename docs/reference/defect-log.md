@@ -95,6 +95,24 @@ read_when:
   is the only per-Pokémon reward of an evolution step; `announceFormUnlocks` only reports forms the Pokédex's
   species already decide, which the species check covers.
 
+- **A new reason to keep a Pokémon reaches every reader of `ActiveNews`.** f753db3 added `ActiveNews.newCostume` (a
+  Pokémon GO costume the collection lacks) to `isDuplicate`, but three readers rebuild "nothing to lose" field by field:
+  Prof. Oak's `activeVerdict` read the Pikachu costume only, so such a Pokémon was a Spare, sent off for an egg with no
+  Rare Candy; the catch log's `duplicateCatchEntryIDs` marked it Duplicate; and `FormSuspense.news` rebuilt the news
+  without it, so a costumed Pikachu, whose line hides its form until Raichu, was a Spare again once Raichu was graduated
+  in both forms. Beside it, `staysWorthBuying` reads the egg incubating with one branch per egg kind and fell back to
+  the Pokémon Egg's draws for a Costume Egg. **Why it was missed:** the costume's tests checked `activeNews` and the Home
+  badge, the feature's own surface; nothing listed the other readers, and the suspense only takes over on a hidden-form
+  line with both forms graduated, which no test save had. Fix: `ActiveVerdict.newCostume`, the catch log reads
+  `newCostume`, a costumed Pokémon has no form suspense (its costume sets its form), `staysWorthBuying` reads
+  `eggFromCostume`. Guards: `OakAdviceTests.testACostumeTheCollectionLacksIsKept`,
+  `OakAdviceTests.testACostumedPikachuHasNoFormToReveal`,
+  `OakAdviceTests.testTheEggIncubatingIsReadByWhatItMayHatchNotByWhatItRolled`,
+  `ActiveNewsTests.testACostumeTheCollectionLacksIsNoDuplicateInTheCatchLog`; each failed before its fix. Sweep: a
+  field added to `ActiveNews` goes to `isDuplicate`, `activeVerdict`, `duplicateCatchEntryIDs` and `FormSuspense.news`
+  (which leaves `newCostume` out: a costumed Pokémon has no suspense); a new egg kind goes to `incubatingHatchEgg` and to
+  `staysWorthBuying`.
+
 - **No achievement asks for a single Pokémon, Arceus's apart.** The player's rule: an achievement needs two
   Pokémon at least. The Sea Incense asked for Manaphy alone, and one of the Magma Stone's ways for Heatran alone.
   **Why it was missed:** the rule lived in a conversation, not in a test. They now ask for Manaphy and Kyogre, and for

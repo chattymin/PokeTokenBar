@@ -495,7 +495,7 @@ private struct OakVerdictLabel: View {
         switch verdict {
         case .spare: return .secondary
         case .newForm, .formMystery: return .blue
-        case .lineToComplete, .costume, .shinyToKeep, .keptForAchievement: return .green
+        case .lineToComplete, .costume, .newCostume, .shinyToKeep, .keptForAchievement: return .green
         }
     }
 }

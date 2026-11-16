@@ -2778,6 +2778,8 @@ struct L {
         case .costume:
             return t("코스튬 예정", "Costume ahead", "コスチューム付き", "Trae un disfraz", "Costume à gagner", "Traz uma fantasia",
                      "Bringt ein Kostüm", "Принесёт костюм")
+        case .newCostume:
+            return activeNewCostumeBadge
         case .shinyToKeep:
             return t("지킬 이로치", "Shiny to keep", "残したい色違い", "Variocolor a conservar", "Chromatique à garder",
                      "Shiny para guardar", "Schillernd: behalten", "Шайни: оставить")
@@ -2844,6 +2846,15 @@ struct L {
                      "Quando virar Pikachu, vai trazer uma fantasia que você ainda não tem. Fique com ele!",
                      "Wird es zu Pikachu, bringt es ein Kostüm mit, das dir noch fehlt. Behalte es!",
                      "Став Пикачу, он принесёт костюм, которого у вас ещё нет. Оставьте его!")
+        case .newCostume:
+            return t("이 코스튬은 아직 코스튬 컬렉션에 없단다. 잘 키우거라!",
+                     "This costume isn't in your costume collection yet. Keep it!",
+                     "このコスチュームはまだコスチュームのコレクションにないぞ。大事に育てるのじゃ！",
+                     "Este disfraz aún no está en tu colección de disfraces. ¡Consérvalo!",
+                     "Ce costume n'est pas encore dans ta collection costumée. Garde-le !",
+                     "Esta fantasia ainda não está na sua coleção de fantasias. Fique com ele!",
+                     "Dieses Kostüm fehlt deiner Kostümsammlung noch. Behalte es!",
+                     "Этого костюма ещё нет в вашей коллекции костюмов. Оставьте его!")
         case .shinyToKeep:
             return t("계열은 이미 다 모았지만, 이 폼의 첫 이로치로구나. 이렇게 귀한 녀석은 지켜야지!",
                      "You already have its whole line, but it's your first shiny in this form. A rarity like that is worth keeping!",
@@ -3255,14 +3266,14 @@ struct L {
           "Редкие конфеты даются покемону, которого вы растите, но не дубликату, которого вы отпустите: опыт уйдёт вместе с ним, так что сохраните их для следующего. Лишний опыт переходит на следующую стадию при эволюции, но теряется при выпуске: не давайте больше, чем ему осталось, кроме последней, которая потеряет не больше десятой части.")
     }
     func oakWhy(flute: String) -> String {
-        t("중복 포켓몬은 도감에 아무것도 더하지 않아요. 계열의 모든 종이 같은 폼으로 이미 졸업했고, 그 폼의 첫 이로치도 아니며, 없는 피카츄 코스튬도 가져오지 않아요. 단 하나의 예외: 같은 전설의 포켓몬을 두 번째로 졸업시키면 \(KoreanParticle.subject.attach(to: flute)) 열리는 경우예요.",
-          "A Pokémon is a Spare when it brings your Pokédex nothing: every species of its line is already graduated in its form, it is not your first shiny of that form, and it brings no Pikachu costume you lack. The one exception: a legendary Spare, when its second graduated copy unlocks the \(flute).",
-          "ダブりのポケモンは図鑑に何も加えません。系統のすべての種類がそのフォルムで卒業済みで、そのフォルムで初めての色違いでもなく、足りないピカチュウのコスチュームも持ってきません。唯一の例外：同じ伝説のポケモンの2匹目の卒業で\(flute)が解放される場合です。",
-          "Un Pokémon está repetido cuando no aporta nada a tu Pokédex: cada especie de su línea ya se graduó en su forma, no es tu primer variocolor de esa forma y no trae ningún disfraz de Pikachu que te falte. La única excepción: un legendario repetido, cuando su segunda copia graduada desbloquea la \(flute).",
-          "Un Pokémon est en trop quand il n'apporte rien à ton Pokédex : chaque espèce de sa lignée y est déjà diplômée sous sa forme, ce n'est pas ton premier chromatique de cette forme, et il n'apporte aucun costume de Pikachu qui te manque. Seule exception : un légendaire en trop, quand son deuxième exemplaire diplômé débloque la \(flute).",
-          "Um Pokémon é repetido quando não acrescenta nada à sua Pokédex: cada espécie da linha já se formou nessa forma, não é seu primeiro shiny dessa forma e não traz nenhuma fantasia de Pikachu que falte. A única exceção: um lendário repetido, quando a segunda cópia formada desbloqueia a \(flute).",
-          "Ein Pokémon ist doppelt, wenn es deinem Pokédex nichts bringt: Jede Art seiner Linie ist in seiner Form schon verabschiedet, es ist nicht dein erstes Schillerndes dieser Form, und es bringt kein fehlendes Pikachu-Kostüm. Die einzige Ausnahme: ein doppeltes legendäres Pokémon, wenn sein zweites verabschiedetes Exemplar die \(flute) freischaltet.",
-          "Покемон считается дубликатом, если ничего не добавляет в покедекс: все виды его линии в этой форме уже выпущены, это не первый шайни этой формы, и он не принесёт недостающий костюм Пикачу. Единственное исключение: легендарный дубликат, если второй выпущенный экземпляр открывает \"\(flute)\".")
+        t("중복 포켓몬은 도감에 아무것도 더하지 않아요. 계열의 모든 종이 같은 폼으로 이미 졸업했고, 그 폼의 첫 이로치도 아니며, 피카츄 코스튬이든 코스튬 컬렉션의 코스튬이든 없는 코스튬도 가져오지 않아요. 단 하나의 예외: 같은 전설의 포켓몬을 두 번째로 졸업시키면 \(KoreanParticle.subject.attach(to: flute)) 열리는 경우예요.",
+          "A Pokémon is a Spare when it brings your Pokédex nothing: every species of its line is already graduated in its form, it is not your first shiny of that form, and it brings no costume you lack, neither a Pikachu costume nor one for your costume collection. The one exception: a legendary Spare, when its second graduated copy unlocks the \(flute).",
+          "ダブりのポケモンは図鑑に何も加えません。系統のすべての種類がそのフォルムで卒業済みで、そのフォルムで初めての色違いでもなく、ピカチュウのものもコスチュームのコレクションのものも、足りないコスチュームを持ってきません。唯一の例外：同じ伝説のポケモンの2匹目の卒業で\(flute)が解放される場合です。",
+          "Un Pokémon está repetido cuando no aporta nada a tu Pokédex: cada especie de su línea ya se graduó en su forma, no es tu primer variocolor de esa forma y no trae ningún disfraz que te falte, ni de Pikachu ni de tu colección de disfraces. La única excepción: un legendario repetido, cuando su segunda copia graduada desbloquea la \(flute).",
+          "Un Pokémon est en trop quand il n'apporte rien à ton Pokédex : chaque espèce de sa lignée y est déjà diplômée sous sa forme, ce n'est pas ton premier chromatique de cette forme, et il n'apporte aucun costume qui te manque, ni de Pikachu ni de ta collection costumée. Seule exception : un légendaire en trop, quand son deuxième exemplaire diplômé débloque la \(flute).",
+          "Um Pokémon é repetido quando não acrescenta nada à sua Pokédex: cada espécie da linha já se formou nessa forma, não é seu primeiro shiny dessa forma e não traz nenhuma fantasia que falte, nem de Pikachu nem da sua coleção de fantasias. A única exceção: um lendário repetido, quando a segunda cópia formada desbloqueia a \(flute).",
+          "Ein Pokémon ist doppelt, wenn es deinem Pokédex nichts bringt: Jede Art seiner Linie ist in seiner Form schon verabschiedet, es ist nicht dein erstes Schillerndes dieser Form, und es bringt kein fehlendes Kostüm, weder für Pikachu noch für deine Kostümsammlung. Die einzige Ausnahme: ein doppeltes legendäres Pokémon, wenn sein zweites verabschiedetes Exemplar die \(flute) freischaltet.",
+          "Покемон считается дубликатом, если ничего не добавляет в покедекс: все виды его линии в этой форме уже выпущены, это не первый шайни этой формы, и он не принесёт недостающий костюм: ни костюм Пикачу, ни костюм для вашей коллекции костюмов. Единственное исключение: легендарный дубликат, если второй выпущенный экземпляр открывает \"\(flute)\".")
     }
     var buy: String { t("구매", "Buy", "購入", "Comprar", "Acheter", "Comprar", "Kaufen", "Купить") }
     func buyConfirm(_ name: String) -> String { t("\(name) 구매할까요?", "Buy \(name)?", "\(name) を購入しますか？", "¿Comprar \(name)?", "Acheter \(name) ?", "Comprar \(name)?", "\(name) kaufen?", "Купить \"\(name)\"?") }

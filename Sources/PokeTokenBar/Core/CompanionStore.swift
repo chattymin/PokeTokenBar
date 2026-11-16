@@ -822,7 +822,7 @@ final class CompanionStore {
     }
 
     private func makeFormSuspense() -> FormSuspense? {
-        guard let a = state.active,
+        guard let a = state.active, a.costume == nil,
               PokemonForm.isFormHidden(baseID: a.baseID, reached: a.pathIDs.prefix(a.stageIndex + 1)),
               let reveal = PokemonForm.formSpecies(baseID: a.baseID).first else { return nil }
         // The rules its egg was rolled under, as its items: a form rolled before `missingFormsFirst` kept its odds.
@@ -1142,8 +1142,8 @@ final class CompanionStore {
                     form: e.form,
                     collectedSpecies: seenGraduatedSpecies
                 )
-                // The one being raised still brings a costume while one is missing (`ActiveNews.costume`).
-                let bringsCostume = isActiveDexEntry(e) && activeNews?.costume == true
+                // The one being raised still brings a costume while one is missing (`ActiveNews.costume`, `newCostume`).
+                let bringsCostume = isActiveDexEntry(e) && (activeNews?.costume == true || activeNews?.newCostume == true)
                 if reachedSpeciesSeen && !uncollected && !bringsCostume {
                     duplicates.insert(e.id)
                 }
