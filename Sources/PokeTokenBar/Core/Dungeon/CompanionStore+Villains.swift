@@ -97,15 +97,49 @@ extension CompanionStore {
         return true
     }
 
-    /// Who gives chase: Mon équipe, else the six strongest graduated Pokémon.
-    var ambushDefenders: [DexEntry] {
+    /// Who gives chase: Mon équipe when it is set; else the team that wins this chase most (the owner, 2026-11-16:
+    /// beaten by Team Skull with the six highest base stats, two Slaking and Regigigas among them, Truant and Slow Start
+    /// holding them back). Teams made against its three Pokémon, each species once (by matchup, by strength, and
+    /// between), each played on the chase's own seeds; the first on a tie.
+    func ambushDefenders(for ambush: VillainAmbush) -> [BattlerSpec] {
+        let targets = (theme: ambush.team.themeTypes, bosses: ambush.grunts.map { PokemonTypeData.types(forSpeciesID: $0) })
         let candidates = dungeonCandidates
         let saved = state.dungeons.savedTeam.compactMap { id in candidates.first { $0.id == id } }
-        if !saved.isEmpty { return saved }
-        func total(_ entry: DexEntry) -> Int {
-            SpeciesBattleTable.data(speciesID: entry.finalID, form: entry.form)?.baseStats.reduce(0, +) ?? 0
+        if !saved.isEmpty { return saved.compactMap { dungeonSpec($0, for: nil, targets: targets) } }
+        let foes = VillainRules.gruntSpecs(ambush.grunts, tier: ambush.tier, seed: ambush.seed)
+        let pool = candidates.compactMap { dungeonSpec($0, for: nil, targets: targets) }
+        guard !foes.isEmpty, !pool.isEmpty else { return [] }
+        let against = pool.map { spec in foes.reduce(0) { $0 + BattleMatchup.score(spec, against: $1) } / Double(foes.count) }
+        let power = pool.map { spec in
+            let s = spec.stats
+            return Double(s.hp + s.attack + s.defense + s.specialAttack + s.specialDefense + s.speed) / 600
         }
-        return Array(candidates.sorted { total($0) > total($1) }.prefix(6))
+        func team(_ score: [Double]) -> [BattlerSpec] {
+            var picked: [BattlerSpec] = []
+            for i in pool.indices.sorted(by: { (score[$0], pool[$0].id) > (score[$1], pool[$1].id) })
+            where picked.count < 6 && !picked.contains(where: { $0.speciesID == pool[i].speciesID }) {
+                picked.append(pool[i])
+            }
+            return picked
+        }
+        var teams: [[BattlerSpec]] = []
+        for score in [against, power, pool.indices.map { against[$0] + power[$0] }] {
+            let t = team(score)
+            if !teams.contains(where: { $0.map(\.id) == t.map(\.id) }) { teams.append(t) }
+        }
+        func wins(_ mine: [BattlerSpec]) -> Int {
+            (0..<16).reduce(0) { total, run in
+                let setup = BattleSetup(sides: [BattleSideSpec(battlers: mine, active: 1), BattleSideSpec(battlers: foes, active: 1)],
+                                        seed: ambush.seed &+ 1 &+ UInt64(run) &* 7919)
+                return total + (BattleEngine.run(setup).winner == 0 ? 1 : 0)
+            }
+        }
+        var best: (team: [BattlerSpec], wins: Int)?
+        for candidate in teams {
+            let won = wins(candidate)
+            if best.map({ won > $0.wins }) ?? true { best = (candidate, won) }
+        }
+        return best?.team ?? []
     }
 
     /// The chase, one against one as in the dungeons: won, the item comes back from the hideout and the team flies off;
@@ -115,8 +149,7 @@ extension CompanionStore {
         guard let index = state.dungeons.ambushes.firstIndex(where: { $0.id == id }), expedition == nil else { return nil }
         var ambush = state.dungeons.ambushes[index]
         guard ambush.won == nil, let kind = ambush.kind else { return nil }
-        let targets = (theme: ambush.team.themeTypes, bosses: ambush.grunts.map { PokemonTypeData.types(forSpeciesID: $0) })
-        let mine = ambushDefenders.compactMap { dungeonSpec($0, for: nil, targets: targets) }
+        let mine = ambushDefenders(for: ambush)
         let foes = VillainRules.gruntSpecs(ambush.grunts, tier: ambush.tier, seed: ambush.seed)
         guard !mine.isEmpty, !foes.isEmpty else { return nil }
         let setup = BattleSetup(sides: [BattleSideSpec(battlers: mine, active: 1), BattleSideSpec(battlers: foes, active: 1)],

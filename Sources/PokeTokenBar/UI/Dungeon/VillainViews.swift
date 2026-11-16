@@ -178,6 +178,7 @@ struct HideoutCard: View {
         if let stash = store.villainStash(team) {
             let l = store.l
             let id = team.hideoutID
+            VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .top, spacing: 12) {
                 // The leader under the diorama, large (the owner, 2026-11-10: there was a void under them).
                 VStack(spacing: -10) {
@@ -215,35 +216,37 @@ struct HideoutCard: View {
                     }
                     Text(l.villainWaitsAtTheEnd(team)).font(.caption).foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
-                    // Giving up what they took (the owner, 2026-11-16), never an artifact.
+                    if confirmingAbandon {
+                        Text(l.villainAbandonConfirm).font(.caption.weight(.semibold)).foregroundStyle(Color.readableOrange)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+            }
+                HStack(spacing: 8) {
+                    // Giving up what they took (the owner, 2026-11-16), never an artifact: bottom left, in blue, on
+                    // the buttons' line (the owner: a grey line under the text was not readable).
                     if stash.items.keys.contains(where: { ItemKind(rawValue: $0).map(VillainRules.canAbandon) ?? true }) {
                         if confirmingAbandon {
-                            HStack(spacing: 6) {
-                                Text(l.villainAbandonConfirm).font(.caption.weight(.semibold)).foregroundStyle(Color.readableOrange)
-                                    .fixedSize(horizontal: false, vertical: true)
-                                Spacer(minLength: 0)
-                                Button(l.cancel) { confirmingAbandon = false }.buttonStyle(.borderless).font(.caption)
-                                Button(l.villainAbandon) {
-                                    store.abandonStolen(team)
-                                    confirmingAbandon = false
-                                }
-                                .buttonStyle(.pill())
+                            Button(l.cancel) { confirmingAbandon = false }
+                                .buttonStyle(.borderless).font(.callout).foregroundStyle(.secondary)
+                            Button(l.villainAbandon) {
+                                store.abandonStolen(team)
+                                confirmingAbandon = false
                             }
+                            .buttonStyle(.borderless).font(.callout.weight(.semibold)).foregroundStyle(Design.actionColor)
                         } else {
                             Button(l.villainAbandon) { confirmingAbandon = true }
-                                .buttonStyle(.borderless).font(.caption)
+                                .buttonStyle(.borderless).font(.callout.weight(.semibold)).foregroundStyle(Design.actionColor)
                                 .hoverTip(l.villainAbandonHint)
                         }
                     }
-                    HStack {
-                        Spacer(minLength: 0)
-                        Text(TokenFormatter.compact(store.dungeonCost(id))).font(.caption.weight(.semibold))
-                            .foregroundStyle(.secondary)
-                        Button(l.dungeonPrepare, action: onPrepare)
-                            .buttonStyle(.pill(prominent: true))
-                            .disabled(!store.canEnter(id))
-                            .hoverTip(store.expedition != nil ? l.dungeonOneAtATime : nil)
-                    }
+                    Spacer(minLength: 0)
+                    Text(TokenFormatter.compact(store.dungeonCost(id))).font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    Button(l.dungeonPrepare, action: onPrepare)
+                        .buttonStyle(.pill(prominent: true))
+                        .disabled(!store.canEnter(id))
+                        .hoverTip(store.expedition != nil ? l.dungeonOneAtATime : nil)
                 }
             }
             .heroCard(colors: [team.color])

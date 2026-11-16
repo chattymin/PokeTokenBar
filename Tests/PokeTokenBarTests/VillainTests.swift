@@ -335,6 +335,37 @@ final class VillainTests: XCTestCase {
         XCTAssertEqual(s.itemCount(.rareCandy), 0, "gone for good")
     }
 
+    /// [Regression] The owner, 2026-11-16: beaten by Team Skull's grunts with the six highest base stats, two Slaking
+    /// (Truant) and Regigigas (Slow Start) among them, 8% of the chases won. Without Mon équipe, the chase takes the team
+    /// that wins it most, each species once.
+    func testTheChaseTakesTheTeamThatWins() throws {
+        var dex = [150, 384, 248, 445, 149, 376, 486].map(graduated)
+        for i in 0..<2 {
+            var slaking = graduated(289)
+            slaking.id = "slaking\(i)"
+            dex.append(slaking)
+        }
+        let clock = Clock(try date(10, hour: 12))
+        let s = try store(dex: dex, clock: clock)
+        let theft = VillainAmbush(id: "x", team: .skull, item: "oranBerry", count: 3, at: clock.date, seed: 7, grunts: [758, 760, 89])
+        let mine = s.ambushDefenders(for: theft)
+        XCTAssertEqual(mine.count, 6)
+        XCTAssertEqual(Set(mine.map(\.speciesID)).count, 6, "each species once")
+        let foes = VillainRules.gruntSpecs(theft.grunts, tier: theft.tier, seed: theft.seed)
+        func wins(_ team: [BattlerSpec]) -> Int {
+            (0..<16).filter { run in
+                BattleEngine.run(BattleSetup(sides: [BattleSideSpec(battlers: team, active: 1), BattleSideSpec(battlers: foes, active: 1)],
+                                             seed: 31 &+ UInt64(run) &* 104_729)).winner == 0
+            }.count
+        }
+        let targets = (theme: theft.team.themeTypes, bosses: theft.grunts.map { PokemonTypeData.types(forSpeciesID: $0) })
+        let strongest = dex.sorted {
+            (SpeciesBattleTable.data(speciesID: $0.finalID, form: nil)?.baseStats.reduce(0, +) ?? 0)
+                > (SpeciesBattleTable.data(speciesID: $1.finalID, form: nil)?.baseStats.reduce(0, +) ?? 0)
+        }.prefix(6).compactMap { s.dungeonSpec($0, for: nil, targets: targets) }
+        XCTAssertGreaterThanOrEqual(wins(mine), wins(strongest), "at least the old pick's chases")
+    }
+
     func testTheLeaderComesWithThree() throws {
         var random = BattleRandom(seed: 3)
         let giovanni = VillainRules.leaderSpecs(.rocket, tier: .t5, random: &random)
