@@ -67,6 +67,14 @@ enum Changelog {
 
     static let days: [ChangelogDay] = [
         ChangelogDay(date: "2026-11-16", entries: [
+            .new("2026-11-16-card-images", { $0.t("홈의 진행 중인 던전 카드와 결과 카드에도 이미지 복사 버튼이 생겼어요: 지금 모습 그대로 복사돼요.",
+                                                  "Home's dungeon cards, the expedition under way and its result, have the image button too: the card is copied as it stands.",
+                                                  "ホームの進行中のダンジョンカードと結果カードにも画像コピーのボタンがつきました：いまの見た目のままコピーされます。",
+                                                  "Las tarjetas de mazmorra del Inicio, la expedición en curso y su resultado, también tienen el botón de imagen: la tarjeta se copia tal cual.",
+                                                  "Les cartes de donjon de l'Accueil, l'expédition en cours et son résultat, ont aussi le bouton d'image : la carte est copiée telle quelle.",
+                                                  "Os cartões de masmorra do Início, a expedição em andamento e o resultado, também têm o botão de imagem: o cartão é copiado como está.",
+                                                  "Die Dungeon-Karten auf dem Start, die laufende Expedition und ihr Ergebnis, haben jetzt auch den Bild-Knopf: Die Karte wird kopiert, wie sie ist.",
+                                                  "У карточек подземелья на главной, текущей экспедиции и её итога, тоже есть кнопка картинки: карточка копируется как есть.") }),
             .improved("2026-11-16-catch-image-goals", { $0.t("포켓몬 캡처 이미지에 졸업하면 진행되는 업적 목록도 들어가요.",
                                                          "The image of the Pokémon raised now lists the achievements its graduation will advance.",
                                                          "育てているポケモンの画像に、卒業で進む実績の一覧も入ります。",

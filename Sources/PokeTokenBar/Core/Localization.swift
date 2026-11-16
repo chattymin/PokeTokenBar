@@ -3959,6 +3959,11 @@ extension L {
           "Copier une image de ce Pokémon", "Copiar uma imagem deste Pokémon", "Ein Bild dieses Pokémon kopieren",
           "Скопировать изображение этого покемона")
     }
+    var cardImageCopyHint: String {
+        t("이 카드 이미지를 복사", "Copy an image of this card", "このカードの画像をコピー", "Copiar una imagen de esta tarjeta",
+          "Copier une image de cette carte", "Copiar uma imagem deste cartão", "Ein Bild dieser Karte kopieren",
+          "Скопировать изображение этой карточки")
+    }
     var catchImageCopied: String {
         t("복사했어요", "Copied", "コピーしました", "Copiada", "Copiée", "Copiada", "Kopiert", "Скопировано")
     }
