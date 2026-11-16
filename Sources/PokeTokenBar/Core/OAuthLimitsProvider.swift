@@ -124,6 +124,9 @@ struct AccountIdentity: Equatable, Sendable {
     /// 서버가 알려주는 현재 플랜 이름(`organization.plan_display_name`). 이름 변경을
     /// 코드 수정 없이 따라가기 위한 값 — 저장 로그인(.claude.json)에는 없어서 nil 이다.
     var planDisplayName: String? = nil
+    /// The login's organization (`oauthAccount.organizationUuid`): limits read for another organization are another
+    /// account's, whatever the email (`LimitStatus.fillIdentity`).
+    var organizationID: String? = nil
 }
 
 /// profile 조회 캐시 — 토큰이 바뀌지 않는 한 계정 주인도 바뀌지 않으므로 토큰당 1회만 네트워크를 탄다

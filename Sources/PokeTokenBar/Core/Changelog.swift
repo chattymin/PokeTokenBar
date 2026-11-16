@@ -67,6 +67,14 @@ enum Changelog {
 
     static let days: [ChangelogDay] = [
         ChangelogDay(date: "2026-11-16", entries: [
+            .fixed("2026-11-16-claude-accounts-org", { $0.t("두 Claude 계정이 같은 이메일을 쓰면 하나가 사라지고 다른 계정 이름으로 보이던 문제를 고쳤어요: 각 계정이 자기 조직 이름의 탭을 가져요.",
+                                                         "Two Claude accounts sharing an email no longer show as one tab under the wrong name: each has its own, named after its organization.",
+                                                         "同じメールの Claude アカウントが2つあると、1つが消えて別のアカウント名で表示されていた問題を直しました：それぞれ組織名のタブになります。",
+                                                         "Dos cuentas de Claude con el mismo correo ya no se muestran como una sola pestaña con el nombre equivocado: cada una tiene la suya, con el nombre de su organización.",
+                                                         "Deux comptes Claude avec le même e-mail ne s'affichent plus en un seul onglet au mauvais nom : chacun a le sien, au nom de son organisation.",
+                                                         "Duas contas do Claude com o mesmo e-mail não aparecem mais como uma só aba com o nome errado: cada uma tem a sua, com o nome da organização.",
+                                                         "Zwei Claude-Konten mit derselben E-Mail erscheinen nicht mehr als ein Tab unter falschem Namen: Jedes hat seinen eigenen, nach seiner Organisation benannt.",
+                                                         "Два аккаунта Claude с одной почтой больше не показываются одной вкладкой под чужим именем: у каждого своя, с названием организации.") }),
             .improved("2026-11-16-expedition-redesign", { $0.t("홈의 탐험이 새로워졌어요: 층 카드(지난 층, 지금 층, 다음 층, 보스), 이름과 HP가 보이는 팀, 그 아래 일지 두 줄. 던전 페이지도 포켓몬 페이지처럼 바뀌었어요.",
                                                              "Home's expedition is redone: floor cards (the one crossed, the one under way, the next, the boss), the team with names and HP, the journal's last two lines under them. A dungeon's page now looks like a Pokémon's.",
                                                              "ホームの探検が新しくなりました：階のカード（通った階、いまの階、次の階、ボス）、名前とHPが見えるチーム、その下に記録の2行。ダンジョンのページもポケモンのページのようになりました。",

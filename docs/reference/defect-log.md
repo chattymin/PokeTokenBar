@@ -1418,6 +1418,15 @@ read_when:
   Saving, clearing or moving the key to another organization ends it (`sessionKeyChanged`,
   `testAChangedSessionKeyDoesNotWait`).
 
+- **Limits labeled with another organization's login, then merged away as its duplicate.** The owner, 2026-11-16:
+  the default folder's Claude Code login turned to his personal account while the app's session key still read his
+  Team's limits; the Team limits, without an email of their own, took `~/.claude.json`'s personal identity
+  (`fillIdentity`), and the personal folder, the same email and organization, was hidden as their duplicate: one tab
+  left, named after the personal email, showing the Team's numbers. **Why missed:** the tests filled an identity onto
+  limits of no known organization, or of the same; none had a session key's organization next to a saved login of
+  another. The session key now says its organization (`LimitStatus.organizationID`, its name for the tab), and a saved
+  login of another organization stays off (`testLimitsOfAnotherOrganizationNeverTakeTheSavedLogin`, fault caught).
+  Sweep: the additional folders go through the same `fillIdentity`.
 ## 동시성
 
 - **A list never asks the store for a whole collection per row.** The team screen checked each candidate row

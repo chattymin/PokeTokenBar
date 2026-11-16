@@ -278,6 +278,9 @@ struct LimitStatus: Decodable, Sendable {
     /// 같은 기기에서 두 계정이 하나의 Keychain 항목을 덮어쓸 때 어느 계정의 한도인지 구분하는 라벨.
     var accountEmail: String?
     var accountOrganizationName: String?
+    /// The organization these limits are read for, when the source says (a session key, its organization): not
+    /// decoded, injected by `SessionKeyLimitsProvider`.
+    var organizationID: String?
 
     private enum CodingKeys: String, CodingKey {
         case fiveHour = "five_hour"
