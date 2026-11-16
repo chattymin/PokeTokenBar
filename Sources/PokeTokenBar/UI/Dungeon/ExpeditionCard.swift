@@ -505,9 +505,8 @@ struct ExpeditionResultCard: View {
         let missed = ExpeditionResultGuide.missedCapture(r)
         // A hideout's leader in its own look (Giovanni's armored Mewtwo), as the prize above shows it.
         let leaderForm = r.villain.flatMap { team in team.leaderTeam.first == r.boss.speciesID ? team.leaderForms[0] : nil }
-        // Not reached: as the dungeon's page shows it, a "?" until met once (the owner, 2026-11-16).
-        let look = ExpeditionFloorCards.bossLook(dungeon: r.dungeon, speciesID: r.boss.speciesID, reachedHere: reached,
-                                                 progress: store.dungeonProgress)
+        // Not reached: a boss's icon, never its face (the owner, 2026-11-16).
+        let look = ExpeditionFloorCards.bossLook(dungeon: r.dungeon, reachedHere: reached)
         var boss = r.boss
         if boss.form == nil { boss.form = leaderForm }
         return ZStack(alignment: .topTrailing) {

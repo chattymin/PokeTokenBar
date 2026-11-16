@@ -101,19 +101,14 @@ final class ExpeditionGuideTests: XCTestCase {
         XCTAssertNil(ExpeditionLogText.eventKind(floor: 3, log: [spring, chest]))
     }
 
-    /// [Regression] The owner, 2026-11-16: the boss card showed the silhouette of a boss never met, which the dungeon's
-    /// page keeps as a "?". Not reached on the run: a silhouette once met in this dungeon, a "?" before; a challenge's
-    /// and a hideout leader's are known.
-    func testTheBossCardNeverGivesAwayABossNeverMet() {
-        var progress = DungeonProgress()
+    /// [Regression] The owner, 2026-11-16: the boss card showed the boss ahead, its silhouette, and a player could give
+    /// up a run whose boss he did not like. Not reached on the run, it is hidden, met before or not; a challenge's and a
+    /// hideout leader's are announced by their cards.
+    func testTheBossCardNeverShowsTheBossAhead() {
         typealias Card = ExpeditionFloorCards
-        XCTAssertEqual(Card.bossLook(dungeon: .ceruleanCave, speciesID: 150, reachedHere: false, progress: progress), .unknown)
-        XCTAssertEqual(Card.bossLook(dungeon: .ceruleanCave, speciesID: 150, reachedHere: true, progress: progress), .whole)
-        progress.bossesReached.insert(DungeonProgress.bossKey(.ceruleanCave, 150))
-        XCTAssertEqual(Card.bossLook(dungeon: .ceruleanCave, speciesID: 150, reachedHere: false, progress: progress), .silhouette)
-        XCTAssertEqual(Card.bossLook(dungeon: .mtMoon, speciesID: 150, reachedHere: false, progress: progress), .unknown,
-                       "met in another dungeon")
-        XCTAssertEqual(Card.bossLook(dungeon: .daily, speciesID: 448, reachedHere: false, progress: DungeonProgress()), .whole)
-        XCTAssertEqual(Card.bossLook(dungeon: .rocketHideout, speciesID: 150, reachedHere: false, progress: DungeonProgress()), .whole)
+        XCTAssertEqual(Card.bossLook(dungeon: .ceruleanCave, reachedHere: false), .hidden)
+        XCTAssertEqual(Card.bossLook(dungeon: .ceruleanCave, reachedHere: true), .whole)
+        XCTAssertEqual(Card.bossLook(dungeon: .daily, reachedHere: false), .whole)
+        XCTAssertEqual(Card.bossLook(dungeon: .rocketHideout, reachedHere: false), .whole)
     }
 }
