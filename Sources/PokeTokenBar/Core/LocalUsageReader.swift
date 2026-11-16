@@ -746,6 +746,20 @@ enum LocalUsageReader {
         let forkedAt: Date?
         let isSubagent: Bool
         let events: [CodexUsageEvent]
+        /// Parser state after the last complete line, so a growing rollout can be resumed from
+        /// `offset` instead of re-reading the whole file. Nil on blobs from older cache files.
+        var resume: CodexResumeState? = nil
+    }
+
+    /// Everything `parseCodexRollout` carries between lines. Restoring it and reading from
+    /// `offset` yields the same events as a full parse of the grown file.
+    struct CodexResumeState: Codable, Sendable, Equatable {
+        let offset: Int
+        let turn: Int
+        let currentSessionID: String?
+        let previousUsageSessionID: String?
+        let previousUsageState: CodexUsageState?
+        let model: String
     }
 
     private struct CodexResolvedEvent {
@@ -770,7 +784,35 @@ enum LocalUsageReader {
     }
 
     /// 파일 내부 정보만 파싱. fork replay 여부는 다른 rollout과 대조.
+    /// Resumes `prior` from its saved offset when the file only grew past it (append-only
+    /// rollout). Falls back to a full parse when there is no resume state, the file shrank, or
+    /// the byte before the offset no longer ends a line (the file was rewritten).
+    static func parseCodexRollout(_ url: URL, resuming prior: CodexParsedRollout?,
+                                  fmt: DateFormatter) -> CodexParsedRollout {
+        guard let prior, let state = prior.resume, prior.path == url.path, state.offset > 0,
+              let size = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize,
+              size >= state.offset,
+              codexByteBefore(state.offset, in: url).map({ $0 == 0x0A || $0 == UInt8(ascii: "}") }) == true
+        else { return parseCodexRollout(url, fmt: fmt) }
+        if size == state.offset { return prior }
+        return parseCodexRollout(url, fmt: fmt, from: prior, state: state)
+    }
+
+    private static func codexByteBefore(_ offset: Int, in url: URL) -> UInt8? {
+        guard let handle = try? FileHandle(forReadingFrom: url) else { return nil }
+        defer { try? handle.close() }
+        guard (try? handle.seek(toOffset: UInt64(offset - 1))) != nil,
+              let byte = try? handle.read(upToCount: 1), byte.count == 1 else { return nil }
+        return byte.first
+    }
+
     static func parseCodexRollout(_ url: URL, fmt: DateFormatter) -> CodexParsedRollout {
+        parseCodexRollout(url, fmt: fmt, from: nil, state: nil)
+    }
+
+    private static func parseCodexRollout(_ url: URL, fmt: DateFormatter,
+                                          from prior: CodexParsedRollout?,
+                                          state: CodexResumeState?) -> CodexParsedRollout {
         func emptyRollout() -> CodexParsedRollout {
             return CodexParsedRollout(
                 path: url.path,
@@ -782,18 +824,22 @@ enum LocalUsageReader {
             )
         }
 
-        var events: [CodexUsageEvent] = []
-        var turn = 0
-        var sessionID: String?
-        var parentSessionID: String?
-        var forkedAt: Date?
-        var isSubagent = false
-        var currentSessionID: String?
+        var events: [CodexUsageEvent] = prior?.events ?? []
+        var turn = state?.turn ?? 0
+        var sessionID: String? = prior?.sessionID
+        var parentSessionID: String? = prior?.parentSessionID
+        var forkedAt: Date? = prior?.forkedAt
+        var isSubagent = prior?.isSubagent ?? false
+        var currentSessionID: String? = state?.currentSessionID
         var previousUsageState: (sessionID: String, state: CodexUsageState)?
+        if let id = state?.previousUsageSessionID, let usage = state?.previousUsageState {
+            previousUsageState = (id, usage)
+        }
         // A missing model keeps tokens, but remains unpriced until a turn_context identifies it.
-        var model = "codex"
+        var model = state?.model ?? "codex"
+        let consumed: Int
         do {
-            try forEachCodexLine(in: url) { line in
+            consumed = try forEachCodexLine(in: url, fromOffset: state?.offset ?? 0) { line in
                 autoreleasepool {   // JSONSerialization 의 autoreleased 객체를 라인마다 배출(콜드 파싱 피크 억제)
                     // Data.range 는 바이트 탐색이라 String.contains 의 grapheme 스캔과 달리
                     // 비대상 라인을 값싼 비용으로 건너뛸 수 있다. 대형 rollout 의 대부분은
@@ -840,7 +886,8 @@ enum LocalUsageReader {
                 }
             }
         } catch {
-            return emptyRollout()
+            // A failed resume keeps what was already parsed; the next refresh retries the tail.
+            return prior ?? emptyRollout()
         }
         return CodexParsedRollout(
             path: url.path,
@@ -848,19 +895,34 @@ enum LocalUsageReader {
             parentSessionID: parentSessionID,
             forkedAt: forkedAt,
             isSubagent: isSubagent,
-            events: events
+            events: events,
+            resume: CodexResumeState(
+                offset: consumed,
+                turn: turn,
+                currentSessionID: currentSessionID,
+                previousUsageSessionID: previousUsageState?.sessionID,
+                previousUsageState: previousUsageState?.state,
+                model: model
+            )
         )
     }
 
     /// 대형 JSONL 을 파일 크기와 무관한 메모리로 순회한다. 완성된 한 줄만
     /// 소유하므로 피크는 파일 전체가 아니라 가장 긴 라인 + 청크 크기에 비례한다.
-    private static func forEachCodexLine(in url: URL, body: (Data) -> Void) throws {
+    /// Returns the byte offset just past the last line handed to `body`. A trailing line without
+    /// a newline is handed over only when it is complete JSON; a half-written line is left for the
+    /// next resume so it is never counted twice.
+    @discardableResult
+    private static func forEachCodexLine(in url: URL, fromOffset: Int = 0,
+                                         body: (Data) -> Void) throws -> Int {
         let handle = try FileHandle(forReadingFrom: url)
         defer { try? handle.close() }
+        if fromOffset > 0 { try handle.seek(toOffset: UInt64(fromOffset)) }
 
         let chunkSize = 1024 * 1024
         var buffer = Data()
         buffer.reserveCapacity(chunkSize)
+        var consumed = fromOffset
 
         while true {
             let readChunk = try autoreleasepool { () throws -> Bool in
@@ -878,6 +940,7 @@ enum LocalUsageReader {
                     lineStart = buffer.index(after: newline)
                 }
                 if lineStart != buffer.startIndex {
+                    consumed += buffer.distance(from: buffer.startIndex, to: lineStart)
                     buffer.removeSubrange(buffer.startIndex..<lineStart)
                 }
                 // FileHandle 의 Data bridge가 만든 autoreleased backing storage도 청크마다 배출한다.
@@ -887,7 +950,11 @@ enum LocalUsageReader {
             if !readChunk { break }
         }
 
-        if !buffer.isEmpty { body(buffer) }
+        if !buffer.isEmpty, (try? JSONSerialization.jsonObject(with: buffer)) != nil {
+            body(buffer)
+            consumed += buffer.count
+        }
+        return consumed
     }
 
     private static let codexSessionMetaMarker = Data("session_meta".utf8)

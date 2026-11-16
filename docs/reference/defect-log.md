@@ -644,6 +644,18 @@ read_when:
   부류이긴 하다(실기기 Claude jsonl 863개, 최대 90MB). 회귀 가드: `CodexLargeRolloutPerformanceTests` —
   **opt-in(`POKETOKENBAR_RUN_LARGE_PERF=1` / `scripts/perf-codex-large-rollout.sh`)이라 CI 는 돌리지 않는다.**
   자동으로 막히지 않으므로 이 부류를 건드리면 직접 돌린다. (#184)
+- **스트리밍으로 메모리를 잡아도, 자라는 파일을 매번 처음부터 읽으면 CPU가 남는다.** Codex blob 은
+  `(path, mtime, size)` 가 다르면 버리고 `parseCodexRollout` 으로 전체를 다시 읽었다. 진행 중인 세션은
+  몇 초마다 rollout 에 줄을 덧붙이므로, 오래 켜 둔 세션 2개(1.9GB, 1.7GB)가 새로고침마다 전체 재파싱을
+  일으켰다. 한 번에 약 70초가 걸려 기본 60초 주기보다 길었고, 앱이 쉬지 않고 CPU 한 코어를 썼다
+  (실측 평균 약 98%). Claude 쪽은 이미 offset 이어 읽기가 있었는데 Codex 에는 없었다. 수정: blob 에
+  `CodexResumeState`(마지막 완결 줄 뒤 offset, turn, 현재 세션 id, 직전 usage 상태, model)를 저장하고
+  `parseCodexRollout(_:resuming:fmt:)` 가 그 상태를 복원해 꼬리만 읽는다. 지킬 점: ① 개행 없는 마지막 줄은
+  **완결된 JSON 일 때만** 세고 offset 에 넣는다. 쓰다 만 줄을 세면 다음 이어 읽기에서 두 번 센다.
+  ② 파일이 offset 보다 짧거나 offset 직전 바이트가 줄 끝(`\n`/`}`)이 아니면 다시 쓴 파일로 보고 전체 파싱한다.
+  ③ 동일 상태 재기록 dedup(`previousUsageState`)도 이어 읽기 경계를 넘어 유지해야 전체 파싱과 결과가 같다.
+  실측(같은 기기, 60초 주기): 평균 CPU 약 98% → 약 5%, Codex 단계 약 70초 → 1초 안팎.
+  회귀 가드: `testCodexResumedParseMatchesFullParseOfGrownRollout`(이어 읽기 결과와 전체 파싱 결과의 바이트 비교).
 
 - **2단계 갱신에서 파생 상태는 그 값을 *채우는* 단계 뒤에 기록한다.** 사용량 요약의 일별 원장을
   `snapshots = newSnapshots`(phase 1) 직후에 저장했더니, `monthDaily` 는 `fetchEnrichment`(phase 2)

@@ -352,6 +352,60 @@ final class LocalUsageReaderTests: XCTestCase {
         XCTAssertEqual(e.cacheWrite, 0)
     }
 
+    func testCodexResumedParseMatchesFullParseOfGrownRollout() throws {
+        let dir = tempDir()
+        let fmt = LocalUsageReader.localDayFormatter()
+        let state1 = codexStateLine(
+            ts: "2026-07-29T01:00:01.000Z",
+            cumulativeInput: 100, cumulativeCached: 20, cumulativeOutput: 10,
+            lastInput: 100, lastCached: 20, lastOutput: 10)
+        let state2 = codexStateLine(
+            ts: "2026-07-29T01:00:02.000Z",
+            cumulativeInput: 300, cumulativeCached: 120, cumulativeOutput: 30,
+            lastInput: 200, lastCached: 100, lastOutput: 20)
+        // Written without a trailing newline: the last line is complete JSON and must be counted.
+        write([codexSessionMeta(id: "session-a", ts: "2026-07-29T01:00:00.000Z"), state1],
+              to: dir, name: "rollout.jsonl")
+        let file = dir.appendingPathComponent("rollout.jsonl")
+        let first = LocalUsageReader.parseCodexRollout(file, fmt: fmt)
+        XCTAssertEqual(first.events.count, 1)
+
+        func append(_ text: String) throws {
+            let handle = try FileHandle(forWritingTo: file)
+            defer { try? handle.close() }
+            try handle.seekToEnd()
+            try handle.write(contentsOf: Data(text.utf8))
+        }
+        // A re-recorded state (deduped across the resume boundary), a new state, and a
+        // half-written line that must not be counted until it is finished.
+        try append("\n" + state1 + "\n" + state2 + "\n" + #"{"type":"event_msg","#)
+        let second = LocalUsageReader.parseCodexRollout(file, resuming: first, fmt: fmt)
+        XCTAssertEqual(second.events.count, 2)
+
+        let state3 = codexStateLine(
+            ts: "2026-07-29T01:00:03.000Z",
+            cumulativeInput: 450, cumulativeCached: 170, cumulativeOutput: 45,
+            lastInput: 150, lastCached: 50, lastOutput: 15)
+        try append(#""timestamp":"2026-07-29T01:00:02.500Z","payload":{"type":"agent_message"}}"#
+                   + "\n" + state3 + "\n")
+        let third = LocalUsageReader.parseCodexRollout(file, resuming: second, fmt: fmt)
+        let full = LocalUsageReader.parseCodexRollout(file, fmt: fmt)
+
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = .sortedKeys
+        XCTAssertEqual(third.events.count, 3)
+        XCTAssertEqual(try encoder.encode(third.events), try encoder.encode(full.events))
+        XCTAssertEqual(third.resume, full.resume)
+        XCTAssertEqual(third.sessionID, "session-a")
+
+        // A rewritten (shorter) file falls back to a full parse.
+        write([codexSessionMeta(id: "session-b", ts: "2026-07-29T02:00:00.000Z")],
+              to: dir, name: "rollout.jsonl")
+        let rewritten = LocalUsageReader.parseCodexRollout(file, resuming: third, fmt: fmt)
+        XCTAssertEqual(rewritten.sessionID, "session-b")
+        XCTAssertTrue(rewritten.events.isEmpty)
+    }
+
     func testCodexNonForkResolverPreservesParsedEntriesExceptCanonicalIDs() {
         let dir = tempDir()
         write([

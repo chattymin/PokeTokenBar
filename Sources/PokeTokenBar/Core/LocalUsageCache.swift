@@ -470,7 +470,10 @@ actor LocalUsageCache {
                 }
                 return blob.rollout
             }
-            let rollout = LocalUsageReader.parseCodexRollout(file.url, fmt: fmt)
+            // An active Codex session appends to its rollout every few seconds, and long sessions
+            // reach gigabytes. Resume from the cached offset so only the new tail is read.
+            let rollout = LocalUsageReader.parseCodexRollout(
+                file.url, resuming: codexCache[file.path]?.rollout, fmt: fmt)
             codexCache[file.path] = CodexBlob(
                 mtime: file.mtime,
                 size: file.size,
