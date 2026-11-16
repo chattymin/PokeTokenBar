@@ -177,6 +177,15 @@ private struct IncenseShopCard: View {
 
     var body: some View {
         ShopItemCard(store: store, kind: .incense(region), region: $region)
+            .task {
+                // Every other item loads its sprite when the Shop opens, because its card is on
+                // screen. This card shows one region at a time, so without this the other four
+                // would load on the click that selects them, and show the fallback emoji meanwhile.
+                for region in PokedexRegion.allCases {
+                    guard let name = ItemKind.incense(region).spriteName else { continue }
+                    Task { _ = await SpriteLoader.itemImage(name: name) }
+                }
+            }
     }
 }
 

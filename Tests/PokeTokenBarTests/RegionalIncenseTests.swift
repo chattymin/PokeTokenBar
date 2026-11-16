@@ -1,3 +1,4 @@
+import AppKit
 import XCTest
 @testable import PokeTokenBar
 
@@ -552,6 +553,20 @@ final class RegionalIncenseTests: XCTestCase {
         for region in PokedexRegion.allCases {
             XCTAssertEqual(ItemKind.incense(region).incenseRegion, region)
         }
+    }
+
+    /// Regression: on the Shop's incense card the icon stayed on the first region when another one
+    /// was selected. The card hands the same mounted icon a new item, and the icon kept the sprite it
+    /// had loaded first. A loaded sprite may only be shown for the item it was loaded for.
+    func testItemIconDropsASpriteLoadedForAnotherItem() {
+        let kanto = ItemIconView.LoadedSprite(name: "full-incense", image: NSImage(size: NSSize(width: 30, height: 30)))
+        XCTAssertTrue(ItemIconView.image(showing: ItemKind.kantoIncense.spriteName, loaded: kanto) === kanto.image)
+        XCTAssertNil(ItemIconView.image(showing: ItemKind.johtoIncense.spriteName, loaded: kanto),
+                     "the Kanto sprite must not be drawn for the Johto incense")
+        XCTAssertNil(ItemIconView.image(showing: ItemKind.mint.spriteName, loaded: kanto), "an item with no sprite")
+        XCTAssertNil(ItemIconView.image(showing: "luck-incense", loaded: nil), "nothing loaded yet")
+        // The five regions must have five different sprites, or the selector could not show a change.
+        XCTAssertEqual(Set(incenses.compactMap(\.spriteName)).count, incenses.count)
     }
 
     // MARK: price
