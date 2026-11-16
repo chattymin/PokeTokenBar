@@ -268,6 +268,8 @@ private struct AchievementCard: View {
                 DungeonMedalPanel(store: store, tier: tier)
             } else if kind == .battleFormsMedal {
                 BattleFormsMedalPanel(store: store)
+            } else if kind.isCostumeMedal {
+                CostumeMedalPanel(store: store, kind: kind)
             } else if kind.isRegional {
                 RegionGrid(store: store, kind: kind)
             } else {

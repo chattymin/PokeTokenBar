@@ -129,3 +129,41 @@ struct CostumeCollectionScreen: View {
         }
     }
 }
+
+/// A costumed collection's medal on its Achievements card (`CostumeMedals`): where it stands, then each step, what it
+/// gives and whether it is done, ready or ahead, by glyph and color.
+@MainActor
+struct CostumeMedalPanel: View {
+    let store: CompanionStore
+    let kind: ItemKind
+
+    var body: some View {
+        let l = store.l
+        let owned = store.ownedCostumeKeys().all
+        let lots = (1...12).filter { month in CostumeCatalog.lot(month: month).allSatisfy { owned.contains($0.key) } }.count
+        VStack(alignment: .leading, spacing: 4) {
+            Text(kind == .costumeMedal ? l.costumesCollected(owned.count, of: CostumeCatalog.entries.count)
+                                       : l.costumeLotsComplete(lots))
+                .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+            ForEach(store.regionTiers(kind), id: \.generation) { step in
+                HStack(spacing: 6) {
+                    Text(kind == .costumeMedal ? l.costumeMedalStep(step.generation) : l.costumeLotsMedalStep(step.generation))
+                        .font(.caption)
+                    Spacer(minLength: 4)
+                    let rewards = kind == .costumeMedal ? CostumeMedals.rewards(step: step.generation)
+                                                        : CostumeMedals.lotRewards(step: step.generation)
+                    ForEach(Array(rewards.enumerated()), id: \.offset) { _, reward in
+                        HStack(spacing: 1) {
+                            ItemIconView(kind: reward.kind, size: 16)
+                            if reward.count > 1 { Text("×\(reward.count)").font(.caption2).monospacedDigit() }
+                        }
+                        .hoverTip(l.itemName(reward.kind))
+                    }
+                    Image(systemName: step.isDone ? "checkmark.circle.fill" : step.isReady ? "gift.fill" : "circle")
+                        .font(.caption)
+                        .foregroundStyle(step.isDone ? Design.actionColor : step.isReady ? Color.readableOrange : .secondary)
+                }
+            }
+        }
+    }
+}

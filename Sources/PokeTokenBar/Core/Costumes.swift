@@ -127,3 +127,36 @@ struct CostumeEgg: Codable, Sendable, Equatable, Identifiable {
 
     var entry: CostumeEntry? { CostumeCatalog.entry(code: code, speciesID: speciesID, form: form) }
 }
+
+/// The costumed collection's two medals (the owner, 2026-11-13: "OK pour ta proposition"): a step at 25, 50, 100
+/// costumed Pokémon and all of them, and a step at each monthly lot completed. Their goals count stand-in ids, one per
+/// costume or month (`CompanionStore.regionTiers`), as the Battle Forms Medal counts its forms' varieties.
+enum CostumeMedals {
+    static let steps = [25, 50, 100, CostumeCatalog.entries.count]
+
+    /// A costume's stand-in id in the medal's goal, a month's in the lots medal's.
+    static func id(_ entry: CostumeEntry) -> Int { 900_000 + (CostumeCatalog.entries.firstIndex(of: entry) ?? 0) }
+    static func lotID(_ month: Int) -> Int { 910_000 + month }
+
+    static let goals: [(generation: Int, goal: SpeciesGoal)] = steps.enumerated().map {
+        ($0.offset + 1, SpeciesGoal(CostumeCatalog.entries.map(id), needed: $0.element))
+    }
+    static let lotGoals: [(generation: Int, goal: SpeciesGoal)] = (1...12).map {
+        ($0, SpeciesGoal((1...12).map(lotID), needed: $0))
+    }
+
+    /// Rare Eggs and Rare Candies, more at each step, a Legendary Egg for the whole collection.
+    static func rewards(step: Int) -> [(kind: ItemKind, count: Int)] {
+        switch step {
+        case 1: [(.rareEgg, 1), (.rareCandy, 3)]
+        case 2: [(.rareEgg, 2), (.rareCandy, 5)]
+        case 3: [(.rareEgg, 3), (.rareCandy, 8)]
+        default: [(.legendaryEgg, 1), (.rareCandy, 10)]
+        }
+    }
+
+    /// A Rare Egg and two Rare Candies a lot completed, a Legendary Egg for the twelfth.
+    static func lotRewards(step: Int) -> [(kind: ItemKind, count: Int)] {
+        step >= 12 ? [(.legendaryEgg, 1), (.rareCandy, 5)] : [(.rareEgg, 1), (.rareCandy, 2)]
+    }
+}

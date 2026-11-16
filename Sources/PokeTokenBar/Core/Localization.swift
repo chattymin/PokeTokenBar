@@ -2041,6 +2041,12 @@ struct L {
         case .battleFormsMedal:
             return t("전투 형태 메달", "Battle Forms Medal", "バトルのすがたメダル", "Medalla de Formas de combate",
                      "Médaille des Formes de combat", "Medalha das Formas de batalha", "Kampfformen-Medaille", "Медаль боевых форм")
+        case .costumeMedal:
+            return t("코스튬 메달", "Costume Medal", "コスチュームメダル", "Medalla de Disfraces", "Médaille des Costumés",
+                     "Medalha das Fantasias", "Kostüm-Medaille", "Медаль костюмов")
+        case .costumeLotsMedal:
+            return t("계절 메달", "Seasons Medal", "きせつのメダル", "Medalla de Temporadas", "Médaille des Saisons",
+                     "Medalha das Estações", "Jahreszeiten-Medaille", "Медаль сезонов")
         case .discoveryMedal, .adventureMedal, .expertMedal, .legendsMedal, .originMedal:
             let tier = dungeonTierName(kind.dungeonTier ?? .t1)
             return t("\(tier) 메달", "\(tier) Medal", "\(tier)のメダル", "Medalla \(tier)", "Médaille \(tier)", "Medalha \(tier)",
@@ -2637,6 +2643,24 @@ struct L {
                      "Ganhe formas de batalha nas masmorras do dia e da semana: prêmio com 5, 15, 30, 60, 100 e todas.",
                      "Gewinne Kampfformen in den Tages- und Wochen-Dungeons: eine Belohnung bei 5, 15, 30, 60, 100 und allen.",
                      "Получайте боевые формы в подземельях дня и недели: награда за 5, 15, 30, 60, 100 и все.")
+        case .costumeMedal:
+            return t("포켓몬 GO의 코스튬 포켓몬을 모으세요: 25, 50, 100마리와 전부에서 보상.",
+                     "Collect Pokémon GO's costumed Pokémon: a reward at 25, 50, 100 and all of them.",
+                     "ポケモンGOのコスチュームのポケモンを集めよう：25、50、100、全部でごほうび。",
+                     "Reúne los Pokémon disfrazados de Pokémon GO: premio a los 25, 50, 100 y todos.",
+                     "Collectionne les Pokémon costumés de Pokémon GO : une récompense à 25, 50, 100 et tous.",
+                     "Junte os Pokémon fantasiados do Pokémon GO: prêmio aos 25, 50, 100 e todos.",
+                     "Sammle die kostümierten Pokémon aus Pokémon GO: eine Belohnung bei 25, 50, 100 und allen.",
+                     "Собирай покемонов в костюмах из Pokémon GO: награда за 25, 50, 100 и всех.")
+        case .costumeLotsMedal:
+            return t("한 달 코스튬 묶음을 다 모을 때마다 보상, 12개 모두 모으면 전설의 알.",
+                     "A reward for each month's costumes all collected, a Legendary Egg for the twelfth.",
+                     "ひと月のコスチュームをぜんぶ集めるたびにごほうび、12か月目でデンセツのタマゴ。",
+                     "Un premio por cada mes de disfraces completo, un Huevo Legendario por el duodécimo.",
+                     "Une récompense pour chaque mois de costumés complet, un Œuf légendaire pour le douzième.",
+                     "Um prêmio por cada mês de fantasias completo, um Ovo Lendário pelo décimo segundo.",
+                     "Eine Belohnung für jeden vollständigen Kostüm-Monat, ein legendäres Ei für den zwölften.",
+                     "Награда за каждый полностью собранный месяц костюмов, легендарное яйцо за двенадцатый.")
         case .discoveryMedal, .adventureMedal, .expertMedal, .legendsMedal, .originMedal:
             let tier = kind.dungeonTier ?? .t1
             let n = tier.rawValue

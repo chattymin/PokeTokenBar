@@ -66,8 +66,20 @@ enum Changelog {
     }
 
     static let days: [ChangelogDay] = [
-        ChangelogDay(date: "2026-11-13", entries: [
-            .fixed("2026-11-13-paste-open-window", { $0.t("이제 앱의 입력 칸에서 ⌘V로 정말 붙여 넣을 수 있어요. 설정의 세션 키 칸도요. 이전 수정은 창을 열면 더 이상 동작하지 않았어요.",
+        ChangelogDay(date: "2026-11-16", entries: [
+            .new("2026-11-16-costume-medals") { l in
+                let egg = l.itemName(.rareEgg), candy = l.itemName(.rareCandy), legend = l.itemName(.legendaryEgg)
+                let medal = l.itemName(.costumeMedal), seasons = l.itemName(.costumeLotsMedal)
+                return l.t("새 업적: \(medal)(코스튬 25, 50, 100마리와 전부), \(seasons)(한 달 묶음을 다 모을 때마다). 보상: \(egg), \(candy), 마지막엔 \(legend).",
+                           "New achievements: \(medal) (25, 50, 100 costumed and all of them) and \(seasons) (each month's costumes all collected). Rewards: \(egg), \(candy), \(legend) at the end.",
+                           "新しい実績：\(medal)（25、50、100匹と全部）と\(seasons)（ひと月ぶんを集めるたび）。ごほうび：\(egg)、\(candy)、最後は\(legend)。",
+                           "Nuevos logros: \(medal) (25, 50, 100 y todos) y \(seasons) (cada mes de disfraces completo). Premios: \(egg), \(candy), \(legend) al final.",
+                           "Nouveaux succès : \(medal) (25, 50, 100 costumés et tous) et \(seasons) (chaque mois de costumés complet). Récompenses : \(egg), \(candy), \(legend) à la fin.",
+                           "Novas conquistas: \(medal) (25, 50, 100 e todos) e \(seasons) (cada mês de fantasias completo). Prêmios: \(egg), \(candy), \(legend) no fim.",
+                           "Neue Erfolge: \(medal) (25, 50, 100 und alle) und \(seasons) (jeder vollständige Kostüm-Monat). Belohnungen: \(egg), \(candy), am Ende \(legend).",
+                           "Новые достижения: \(medal) (25, 50, 100 и все) и \(seasons) (каждый полностью собранный месяц). Награды: \(egg), \(candy), в конце \(legend).")
+            },
+            .fixed("2026-11-16-paste-open-window", { $0.t("이제 앱의 입력 칸에서 ⌘V로 정말 붙여 넣을 수 있어요. 설정의 세션 키 칸도요. 이전 수정은 창을 열면 더 이상 동작하지 않았어요.",
                                                         "⌘V really pastes in the app's text fields now, the session key's in Settings too. The previous fix stopped working as soon as the window opened.",
                                                         "アプリの入力欄で⌘Vが本当に貼り付けられるようになりました。設定のセッションキーの欄も同様です。前回の修正はウィンドウを開くと効かなくなっていました。",
                                                         "⌘V ya pega de verdad en los campos de texto de la app, también el de la clave de sesión en Ajustes. El arreglo anterior dejaba de funcionar en cuanto se abría la ventana.",
@@ -75,7 +87,7 @@ enum Changelog {
                                                         "Agora o ⌘V cola de verdade nos campos de texto do app, inclusive o da chave de sessão nos Ajustes. A correção anterior parava de funcionar assim que a janela abria.",
                                                         "⌘V fügt jetzt wirklich in die Textfelder der App ein, auch in das Feld für den Sitzungsschlüssel in den Einstellungen. Die vorige Korrektur wirkte nicht mehr, sobald das Fenster offen war.",
                                                         "Теперь ⌘V действительно вставляет текст в поля приложения, включая поле ключа сессии в настройках. Прошлое исправление переставало работать, как только открывалось окно.") }),
-            .improved("2026-11-13-ball-prices") { l in
+            .improved("2026-11-16-ball-prices") { l in
                 let ultra = l.itemName(.ultraBall), great = l.itemName(.greatBall)
                 return l.t("상점의 볼이 싸졌어요: \(ultra) 1억 5천만(전에는 4억), \(great) 7500만(전에는 2억 5천만).",
                            "The Shop's balls are cheaper: \(ultra) 150M (400M before), \(great) 75M (250M before).",
@@ -86,7 +98,7 @@ enum Changelog {
                            "Die Bälle im Shop werden günstiger: \(ultra) 150 Mio. (vorher 400 Mio.), \(great) 75 Mio. (vorher 250 Mio.).",
                            "Покеболы в магазине дешевле: \(ultra) 150 млн (было 400 млн), \(great) 75 млн (было 250 млн).")
             },
-            .improved("2026-11-13-oak-compose-team") { l in
+            .improved("2026-11-16-oak-compose-team") { l in
                 let c = l.dungeonComposeForMe
                 return l.t("오박사가 이제 오늘·이번 주 던전을 \"\(c)\"이 고르는 팀으로 판단하고, 던전을 추천할 때 말하는 승률도 그 팀의 승률이에요.",
                            "Prof. Oak now weighs the daily and weekly dungeons with the team \"\(c)\" picks, and the odds he gives for a dungeon are that team's.",
@@ -97,7 +109,7 @@ enum Changelog {
                            "Prof. Eich beurteilt den Tages- und den Wochendungeon jetzt mit dem Team, das \"\(c)\" wählt, und die Gewinnchance, die er für einen Dungeon nennt, ist die dieses Teams.",
                            "Профессор Оук теперь оценивает подземелья дня и недели по команде, которую выбирает \"\(c)\", и шансы, которые он называет для подземелья, относятся к этой команде.")
             },
-            .improved("2026-11-13-oak-dungeon-wait", { $0.t("오박사가 던전을 추천할 때 던전이 쓰는 토큰과, 그동안 포켓몬이나 알이 자라지 않는다는 것도 알려 줘요.",
+            .improved("2026-11-16-oak-dungeon-wait", { $0.t("오박사가 던전을 추천할 때 던전이 쓰는 토큰과, 그동안 포켓몬이나 알이 자라지 않는다는 것도 알려 줘요.",
                                                          "When Prof. Oak suggests a dungeon, he now says how many tokens it takes, while your Pokémon or egg doesn't grow.",
                                                          "オーキド博士がダンジョンを勧めるとき、使うトークンと、そのあいだポケモンやタマゴが育たないことも伝えます。",
                                                          "Cuando el Profesor Oak propone una mazmorra, ahora dice cuántos tokens usa, mientras tu Pokémon o tu huevo no crece.",
@@ -105,7 +117,7 @@ enum Changelog {
                                                          "Quando o Prof. Carvalho sugere uma masmorra, ele agora diz quantos tokens ela usa, enquanto seu Pokémon ou ovo não cresce.",
                                                          "Wenn Prof. Eich einen Dungeon vorschlägt, sagt er jetzt, wie viele Tokens er braucht, solange dein Pokémon oder Ei nicht wächst.",
                                                          "Советуя подземелье, профессор Оук теперь называет, сколько токенов оно заберёт: всё это время покемон или яйцо не растёт.") }),
-            .fixed("2026-11-13-oak-coronet-door") { l in
+            .fixed("2026-11-16-oak-coronet-door") { l in
                 let coronet = l.dungeonName(.mtCoronet)
                 return l.t("오박사가 아직 그 던전에서 잡지 않은 보스가 있는 던전도 추천해요. \(coronet)에 들어가려면 보스를 모두 각자의 던전에서 잡아야 하니까요.",
                            "Prof. Oak now also suggests the dungeons whose bosses you have not caught there yet: \(coronet) only opens once each is caught in its dungeon.",
@@ -116,6 +128,8 @@ enum Changelog {
                            "Prof. Eich schlägt jetzt auch die Dungeons vor, deren Bosse du dort noch nicht gefangen hast: Der \(coronet) öffnet sich erst, wenn jeder in seinem Dungeon gefangen ist.",
                            "Профессор Оук теперь советует и подземелья, боссов которых вы там ещё не поймали: \(coronet) откроется, только когда каждый будет пойман в своём подземелье.")
             },
+        ]),
+        ChangelogDay(date: "2026-11-13", entries: [
             .new("2026-11-13-costumes", { $0.t("새 기능: 포켓몬 GO의 코스튬 포켓몬! 달마다 코스튬 묶음이 있고(모두 217마리) 해마다 돌아와요. 토큰 3억마다 코스튬 알 1개, 아직 없는 코스튬부터 나와요. 코스튬을 입은 채로 진화해요. 컬렉션의 가면 버튼에서 모아 둔 걸 볼 수 있어요.",
                                               "New: Pokémon GO's costumed Pokémon! Each month has its lot (217 in all), back every year. A Costume Egg every 300M tokens holds one of the month's, the ones you lack first, and it evolves in its costume. See them with the masks button in the Collection.",
                                               "新登場：ポケモンGOのコスチュームのポケモン！月ごとにコスチュームがあり（ぜんぶで217）、毎年もどってきます。トークン3億ごとにコスチュームのタマゴを1こ。まだないものから出て、コスチュームのまま進化します。コレクションの仮面ボタンで見られます。",

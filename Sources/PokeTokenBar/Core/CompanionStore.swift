@@ -2796,6 +2796,18 @@ final class CompanionStore {
         guard let goals = kind.regionGoals else { return [] }
         if kind == .excavation { return excavationTiers(goals) }
         if let tier = kind.dungeonTier { return medalTiers(tier, goals) }
+        if kind.isCostumeMedal {
+            // Its goal's ids stand for the costumes (`CostumeMedals.id`), or the months: those collected count.
+            let owned = ownedCostumeKeys().all
+            let registered: Set<Int> = kind == .costumeMedal
+                ? Set(CostumeCatalog.entries.filter { owned.contains($0.key) }.map(CostumeMedals.id))
+                : Set((1...12).filter { month in CostumeCatalog.lot(month: month).allSatisfy { owned.contains($0.key) } }
+                    .map(CostumeMedals.lotID))
+            return goals.map { generation, goal in
+                RegionTier(generation: generation, progress: GoalProgress(goal: goal, registered: goal.species.filter(registered.contains)),
+                           isClaimed: isRegionTierClaimed(kind, generation: generation))
+            }
+        }
         if kind == .battleFormsMedal {
             // Its goal's species are the battle forms' varieties: those won count.
             let won = Set(state.dungeons.battleForms.compactMap { BattleForms.form(key: $0)?.pokemonID })
@@ -3086,6 +3098,8 @@ final class CompanionStore {
             if kind == .excavation { return "#\(tier.generation)" }
             if let dungeonTier = kind.dungeonTier { return l.medalStepName(dungeonTier, step: tier.generation) }
             if kind == .battleFormsMedal { return l.battleFormsMedalStep(tier.generation) }
+            if kind == .costumeMedal { return l.costumeMedalStep(tier.generation) }
+            if kind == .costumeLotsMedal { return l.costumeLotsMedalStep(tier.generation) }
             return l.regionName(generation: tier.generation)
         }
         .joined(separator: ", ")
@@ -3141,6 +3155,8 @@ final class CompanionStore {
         } else {
             // A Legendary Egg per region; a Fossil Egg per dig; a Dungeons medal's step its own.
             let rewards = kind == .battleFormsMedal ? BattleFormsMedal.rewards(step: generation)
+                : kind == .costumeMedal ? CostumeMedals.rewards(step: generation)
+                : kind == .costumeLotsMedal ? CostumeMedals.lotRewards(step: generation)
                 : kind.dungeonTier.map { DungeonMedals.rewards($0, step: generation) } ?? kind.achievementRewards
             for reward in rewards { state.inventory[reward.kind.rawValue, default: 0] += reward.count }
         }

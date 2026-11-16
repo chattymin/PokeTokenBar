@@ -209,6 +209,41 @@ final class CostumeTests: XCTestCase {
         XCTAssertTrue(held.isDuplicate, "nothing new once the costume is in")
     }
 
+    /// The costumed collection's medals (the owner, 2026-11-13): a step at 25 costumed, then 50, 100 and all, Rare Eggs
+    /// and Rare Candies, a Legendary Egg at the end; and a step for each monthly lot completed.
+    func testTheMedalsCountTheCostumesAndTheLots() throws {
+        func dressed(_ entry: CostumeEntry) -> DexEntry {
+            var record = DexEntry(baseID: SpeciesInfo.baseID(of: entry.speciesID), finalID: entry.speciesID,
+                                  chainOrder: [entry.speciesID], rarity: .common, caughtAt: Date(), form: entry.form)
+            record.costume = entry.code
+            return record
+        }
+        let june = CostumeCatalog.lot(month: 6)
+        let others = CostumeCatalog.entries.filter { $0.month != 6 }.prefix(25 - june.count)
+        let s = try store { $0.dex = (june + others).map(dressed); $0.inventory = [:] }
+        XCTAssertEqual(s.ownedCostumeKeys().all.count, 25)
+        let steps = s.regionTiers(.costumeMedal)
+        XCTAssertEqual(steps.map(\.isReady), [true, false, false, false], "25 of 50, 100 and 217")
+        XCTAssertEqual(s.regionTiers(.costumeLotsMedal).map(\.isReady).filter { $0 }.count, 1, "June complete")
+        XCTAssertGreaterThan(s.claimRegionTiers(.costumeMedal), 0)
+        XCTAssertEqual(s.itemCount(.rareEgg), 1)
+        XCTAssertEqual(s.itemCount(.rareCandy), 3)
+        XCTAssertGreaterThan(s.claimRegionTiers(.costumeLotsMedal), 0)
+        XCTAssertEqual(s.itemCount(.rareEgg), 2)
+        XCTAssertTrue(s.regionTiers(.costumeMedal)[0].isDone)
+        // The whole collection: every step of both, a Legendary Egg at the end of each.
+        let all = try store { $0.dex = CostumeCatalog.entries.map(dressed); $0.inventory = [:] }
+        _ = all.claimRegionTiers(.costumeMedal)
+        XCTAssertEqual([all.itemCount(.rareEgg), all.itemCount(.rareCandy), all.itemCount(.legendaryEgg)], [6, 26, 1])
+        _ = all.claimRegionTiers(.costumeLotsMedal)
+        XCTAssertEqual([all.itemCount(.rareEgg), all.itemCount(.rareCandy), all.itemCount(.legendaryEgg)], [17, 53, 2],
+                       "eleven lots a Rare Egg and two candies, the twelfth a Legendary Egg and five")
+        XCTAssertEqual(CostumeMedals.rewards(step: 4).first?.kind, .legendaryEgg)
+        XCTAssertEqual(CostumeMedals.lotRewards(step: 12).first?.kind, .legendaryEgg)
+        XCTAssertTrue(CompanionStore.achievementItems.contains(.costumeMedal))
+        XCTAssertTrue(CompanionStore.achievementItems.contains(.costumeLotsMedal))
+    }
+
     /// A relaunch reloads the line: the costumed Pokémon keeps its costume's stages, not the line's root.
     func testARelaunchKeepsTheCostumesPath() async throws {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("costume-relaunch-\(UUID().uuidString).json")

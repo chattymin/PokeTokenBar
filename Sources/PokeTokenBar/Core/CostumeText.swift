@@ -102,4 +102,30 @@ extension L {
           "Ce costume n'est pas encore dans ta collection costumée.", "Esta fantasia ainda não está na sua coleção de fantasias.",
           "Dieses Kostüm ist noch nicht in deiner Kostümsammlung.", "Этого костюма ещё нет в твоей коллекции костюмов.")
     }
+
+    /// A Costume Medal's step: how many costumed Pokémon it asks for, or all of them.
+    func costumeMedalStep(_ step: Int) -> String {
+        let n = CostumeMedals.steps[max(0, min(step, CostumeMedals.steps.count) - 1)]
+        if step >= CostumeMedals.steps.count {
+            return t("전부 (\(n))", "All of them (\(n))", "すべて（\(n)）", "Todos (\(n))", "Tous (\(n))", "Todos (\(n))",
+                     "Alle (\(n))", "Все (\(n))")
+        }
+        return t("코스튬 \(n)마리", "\(n) costumed", "コスチューム\(n)", "\(n) disfrazados", "\(n) costumés", "\(n) fantasiados",
+                 "\(n) kostümiert", "В костюмах: \(n)")
+    }
+    /// A Seasons Medal's step: how many monthly lots it asks complete.
+    func costumeLotsMedalStep(_ step: Int) -> String {
+        t("묶음 \(step)개 완성", step == 1 ? "1 lot complete" : "\(step) lots complete", "\(step)か月ぶん完成",
+          step == 1 ? "1 lote completo" : "\(step) lotes completos", step == 1 ? "1 lot complet" : "\(step) lots complets",
+          step == 1 ? "1 lote completo" : "\(step) lotes completos", "\(step) vollständig", "Полных наборов: \(step)")
+    }
+    /// The costumed Pokémon collected, of all, and the lots complete, on the medals' cards.
+    func costumesCollected(_ owned: Int, of total: Int) -> String {
+        t("코스튬 \(owned)/\(total)", "\(owned)/\(total) costumed", "コスチューム \(owned)/\(total)", "\(owned)/\(total) disfrazados",
+          "\(owned)/\(total) costumés", "\(owned)/\(total) fantasiados", "\(owned)/\(total) kostümiert", "В костюмах: \(owned)/\(total)")
+    }
+    func costumeLotsComplete(_ done: Int) -> String {
+        t("완성한 묶음 \(done)/12", "\(done)/12 lots complete", "完成した月 \(done)/12", "\(done)/12 lotes completos",
+          "\(done)/12 lots complets", "\(done)/12 lotes completos", "\(done)/12 vollständig", "Полных наборов: \(done)/12")
+    }
 }
