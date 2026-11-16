@@ -67,6 +67,20 @@ enum Changelog {
 
     static let days: [ChangelogDay] = [
         ChangelogDay(date: "2026-11-16", entries: [
+            .improved("2026-11-16-last-throw-up") { l in
+                // The free Poké Ball is no item of the Bag: its name written here.
+                let pokes = l.t("몬스터볼", "Poké Balls", "モンスターボール", "las Poké Ball", "des Poké Balls", "as Pokébolas", "Pokébällen",
+                                "покеболов")
+                let great = l.itemName(.greatBall), ultra = l.itemName(.ultraBall)
+                return l.t("보스에게 던진 볼이 두 번 빗나가면 마지막은 한 단계 위의 볼이에요: \(pokes) 다음엔 \(great), \(great) 다음엔 \(ultra).",
+                           "When two throws at the boss miss, the last takes the ball above: \(great) after \(pokes), \(ultra) after \(great).",
+                           "ボスへの2回の投球がはずれると、最後は1つ上のボールです：\(pokes)のあとは\(great)、\(great)のあとは\(ultra)。",
+                           "Si fallan dos lanzamientos al jefe, el último usa la Ball de arriba: \(great) tras \(pokes), \(ultra) tras \(great).",
+                           "Quand deux lancers ratent le boss, le dernier prend la Ball du dessus : \(great) après \(pokes), \(ultra) après \(great).",
+                           "Quando dois arremessos no chefe erram, o último usa a Bola de cima: \(great) depois d\(pokes), \(ultra) depois de \(great).",
+                           "Gehen zwei Würfe auf den Boss daneben, nimmt der letzte den nächstbesseren Ball: \(great) nach \(pokes), \(ultra) nach \(great).",
+                           "Если два броска в босса промахнулись, последний берёт мяч выше: \(great) после \(pokes), \(ultra) после \(great).")
+            },
             .fixed("2026-11-16-boss-card-secret", { $0.t("탐험 중 보스 카드가 도착하기 전에는 보스를 보여 주지 않아요: 이미 만난 보스라도 보스 아이콘만 보여요.",
                                                        "The boss card of an expedition no longer shows the boss before the team reaches it, even one met before: a boss icon until then.",
                                                        "探検のボスカードは、チームがたどり着くまでボスを見せません：前に会ったボスでも、それまではボスのアイコンです。",
