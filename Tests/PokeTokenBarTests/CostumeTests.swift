@@ -1,3 +1,4 @@
+import AppKit
 import XCTest
 @testable import PokeTokenBar
 
@@ -85,6 +86,25 @@ final class CostumeTests: XCTestCase {
         XCTAssertEqual(PikachuCostume.displayForm(speciesID: 25, form: pikachu), pikachu, "never under the equipped cap")
     }
 
+    /// [Regression] The owner, 2026-11-16: Pokémon GO draws each Pokémon at its size on a 256 px canvas, and a costumed
+    /// Eevee took a fifth of its cell. A costume's still is cropped to the Pokémon with a margin; any other still stays.
+    func testACostumeStillIsCroppedToThePokemon() throws {
+        let canvas = NSImage(size: NSSize(width: 256, height: 256), flipped: false) { _ in
+            NSColor.systemOrange.setFill()
+            NSRect(x: 100, y: 20, width: 50, height: 60).fill()
+            return true
+        }
+        let costume = CostumeCatalog.displayForm(code: "NOVEMBER_2018", form: nil)
+        let cropped = SpriteLoader.still(canvas, form: costume)
+        // In the canvas's pixels, whatever the screen's scale.
+        let full = try XCTUnwrap(canvas.cgImage(forProposedRect: nil, context: nil, hints: nil)).width
+        let side = try XCTUnwrap(cropped.cgImage(forProposedRect: nil, context: nil, hints: nil)).width
+        XCTAssertEqual(Double(side) / Double(full), 60 * 1.24 / 256, accuracy: 0.02, "the Pokémon's long side and a margin, not the canvas")
+        XCTAssertTrue(SpriteLoader.still(canvas, form: nil) === canvas, "a PokéAPI still is drawn as it is")
+        XCTAssertTrue(SpriteLoader.still(canvas, form: PokemonForm("alola")) === canvas)
+    }
+
+    // MARK: The eggs
     // MARK: The eggs
 
     /// One every 300M tokens, of the day's month, the missing ones first.
@@ -100,6 +120,28 @@ final class CostumeTests: XCTestCase {
         XCTAssertNotEqual(s.state.costumeEggs[0].entry, s.state.costumeEggs[1].entry, "a costume waiting is not drawn again")
         s.earnCostumeEggs(300_000_000, day: "2027-01-02")
         XCTAssertEqual(s.state.costumeEggs.last?.month, 1, "January's lot in January")
+    }
+
+    /// [Regression] A friend's report of 2026-11-16: a "can't evolve" costume counted at its hatch, so sending the
+    /// Pokémon off at once kept it, and Home still said "New costume". As the Pokédex counts: collected once graduated.
+    func testACostumeIsCollectedOnceGraduatedNeverSentOff() async throws {
+        let first = CostumeEgg(id: "a", code: "JAN_2023_NOEVOLVE", speciesID: 25, form: nil, month: 1)
+        var second = first
+        second.id = "b"
+        let s = try store { $0.costumeEggs = [first, second] }
+        XCTAssertTrue(s.useCostumeEgg("a"))
+        s.setEggUsageForTesting(s.eggHatchThreshold)
+        await s.hatchIfNeeded()
+        XCTAssertEqual(s.state.active?.costume, "JAN_2023_NOEVOLVE")
+        XCTAssertTrue(s.ownedCostumeKeys().all.isEmpty, "raised, not collected")
+        XCTAssertTrue(s.useCostumeEgg("b"), "sent off for the next egg")
+        XCTAssertTrue(s.state.dex.contains { $0.isReleased && $0.costume == "JAN_2023_NOEVOLVE" })
+        XCTAssertTrue(s.ownedCostumeKeys().all.isEmpty, "sent off: not collected")
+        s.setEggUsageForTesting(s.eggHatchThreshold)
+        await s.hatchIfNeeded()
+        XCTAssertEqual(s.activeNews?.newCostume, true, "still new: sending it off would lose it")
+        growToTheEnd(s)
+        XCTAssertEqual(s.ownedCostumeKeys().all, ["JAN_2023_NOEVOLVE:25"], "graduated: collected")
     }
 
     /// The one missing comes first: with every costume of June in but one, the egg holds that one, whichever it is.
@@ -150,7 +192,8 @@ final class CostumeTests: XCTestCase {
         XCTAssertEqual(pichu.spriteForm, CostumeCatalog.displayForm(code: "HOLIDAY_2016", form: nil))
         XCTAssertEqual(pichu.hatch?.egg, .costume(code: "HOLIDAY_2016", speciesID: 172))
         XCTAssertNil(s.state.eggFromCostume)
-        XCTAssertEqual(s.ownedCostumeKeys().all, ["HOLIDAY_2016:172"])
+        XCTAssertEqual(s.ownedCostumeKeys().all, [], "collected once graduated, as the Pokédex counts")
+        XCTAssertEqual(s.costumesTaken(), ["HOLIDAY_2016:172", "HOLIDAY_2016:25", "HOLIDAY_2016:26"], "never drawn again meanwhile")
         growToTheEnd(s)
         XCTAssertNil(s.state.active, "graduated")
         let record = try XCTUnwrap(s.state.dex.last)
@@ -207,6 +250,41 @@ final class CostumeTests: XCTestCase {
         let held = try XCTUnwrap(try raised([plain, dressed]).activeNews)
         XCTAssertFalse(held.newCostume)
         XCTAssertTrue(held.isDuplicate, "nothing new once the costume is in")
+    }
+
+    /// The costumed collection's medals (the owner, 2026-11-13): a step at 25 costumed, then 50, 100 and all, Rare Eggs
+    /// and Rare Candies, a Legendary Egg at the end; and a step for each monthly lot completed.
+    func testTheMedalsCountTheCostumesAndTheLots() throws {
+        func dressed(_ entry: CostumeEntry) -> DexEntry {
+            var record = DexEntry(baseID: SpeciesInfo.baseID(of: entry.speciesID), finalID: entry.speciesID,
+                                  chainOrder: [entry.speciesID], rarity: .common, caughtAt: Date(), form: entry.form)
+            record.costume = entry.code
+            return record
+        }
+        let june = CostumeCatalog.lot(month: 6)
+        let others = CostumeCatalog.entries.filter { $0.month != 6 }.prefix(25 - june.count)
+        let s = try store { $0.dex = (june + others).map(dressed); $0.inventory = [:] }
+        XCTAssertEqual(s.ownedCostumeKeys().all.count, 25)
+        let steps = s.regionTiers(.costumeMedal)
+        XCTAssertEqual(steps.map(\.isReady), [true, false, false, false], "25 of 50, 100 and 217")
+        XCTAssertEqual(s.regionTiers(.costumeLotsMedal).map(\.isReady).filter { $0 }.count, 1, "June complete")
+        XCTAssertGreaterThan(s.claimRegionTiers(.costumeMedal), 0)
+        XCTAssertEqual(s.itemCount(.rareEgg), 1)
+        XCTAssertEqual(s.itemCount(.rareCandy), 3)
+        XCTAssertGreaterThan(s.claimRegionTiers(.costumeLotsMedal), 0)
+        XCTAssertEqual(s.itemCount(.rareEgg), 2)
+        XCTAssertTrue(s.regionTiers(.costumeMedal)[0].isDone)
+        // The whole collection: every step of both, a Legendary Egg at the end of each.
+        let all = try store { $0.dex = CostumeCatalog.entries.map(dressed); $0.inventory = [:] }
+        _ = all.claimRegionTiers(.costumeMedal)
+        XCTAssertEqual([all.itemCount(.rareEgg), all.itemCount(.rareCandy), all.itemCount(.legendaryEgg)], [6, 26, 1])
+        _ = all.claimRegionTiers(.costumeLotsMedal)
+        XCTAssertEqual([all.itemCount(.rareEgg), all.itemCount(.rareCandy), all.itemCount(.legendaryEgg)], [17, 53, 2],
+                       "eleven lots a Rare Egg and two candies, the twelfth a Legendary Egg and five")
+        XCTAssertEqual(CostumeMedals.rewards(step: 4).first?.kind, .legendaryEgg)
+        XCTAssertEqual(CostumeMedals.lotRewards(step: 12).first?.kind, .legendaryEgg)
+        XCTAssertTrue(CompanionStore.achievementItems.contains(.costumeMedal))
+        XCTAssertTrue(CompanionStore.achievementItems.contains(.costumeLotsMedal))
     }
 
     /// A relaunch reloads the line: the costumed Pokémon keeps its costume's stages, not the line's root.

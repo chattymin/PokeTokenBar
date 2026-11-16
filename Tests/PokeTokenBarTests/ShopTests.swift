@@ -194,7 +194,7 @@ final class ShopTests: XCTestCase {
     /// 상점 목록은 가격 오름차순(사탕 500M < 이로치 부적 3B). The Mint is back with the Rare Candy's neighbours.
     func testItemsSortedByPriceAscending() {
         let items = store(used: 0).purchasableItems
-        XCTAssertEqual(items, [.mint, .rareCandy, .greatBall, .shinyCharm, .ultraBall])
+        XCTAssertEqual(items, [.mint, .rareCandy, .greatBall, .ultraBall, .shinyCharm])
         XCTAssertFalse(ItemKind.mint.isRetired)
         let prices = items.compactMap(\.shopPrice)
         XCTAssertEqual(prices, prices.sorted(), "shopPrice 오름차순 — 가격 상수가 바뀌어도 정렬 불변식 유지")

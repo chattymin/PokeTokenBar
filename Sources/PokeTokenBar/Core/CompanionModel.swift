@@ -270,6 +270,8 @@ enum ItemKind: String, Codable, Sendable, CaseIterable {
     case discoveryMedal, adventureMedal, expertMedal, legendsMedal, originMedal
     /// The battle forms won, in steps (`BattleFormsMedal`, 2026-11-02).
     case battleFormsMedal
+    /// The costumed Pokémon collected, in steps, and the monthly lots completed (`CostumeMedals`, 2026-11-13).
+    case costumeMedal, costumeLotsMedal
 
     var badgeType: PokemonType? {
         switch self {
@@ -487,6 +489,7 @@ enum ItemKind: String, Codable, Sendable, CaseIterable {
         case .explorerChest: return "🧰"
         case .legendaryKey: return "🗝️"
         case .discoveryMedal, .adventureMedal, .expertMedal, .legendsMedal, .originMedal, .battleFormsMedal: return "🏅"
+        case .costumeMedal, .costumeLotsMedal: return "🎭"
         case .ovalCharm: return "🔶"
         case .taurosBreeds: return "🐂"
         case .necrozmaForms: return "💠"
@@ -515,9 +518,11 @@ enum ItemKind: String, Codable, Sendable, CaseIterable {
         case .rareCandy: return RareCandy.price
         case .mint: return Mint.price
         case .shinyCharm: return ShinyCharm.price
-        // R12 B: the balls cost what the Uncommon and Rare Eggs cost; the Master Ball is never sold.
-        case .greatBall: return FreshEgg.price(guaranteeing: .uncommon)
-        case .ultraBall: return FreshEgg.price(guaranteeing: .rare)
+        // The Master Ball is never sold. The balls came down on 2026-11-13 (the owner: "la hyper ball est trop chère
+        // elle devrait être à 150M"; then 75M for the Great Ball, half): 150M and 75M as the players see them (×0.1),
+        // 400M and 250M before, the Rare and Uncommon Eggs' prices.
+        case .greatBall: return 750_000_000
+        case .ultraBall: return 1_500_000_000
         default: return nil
         }
     }
@@ -545,7 +550,8 @@ enum ItemKind: String, Codable, Sendable, CaseIterable {
              .moonStone, .duskStone, .iceStone, .dawnStone, .shinyStone,
              .greatBall, .ultraBall, .masterBall, .oranBerry, .sitrusBerry, .revive, .maxRevive,
              .silverCapsule, .goldCapsule, .treasureMap, .explorerChest, .legendaryKey,
-             .discoveryMedal, .adventureMedal, .expertMedal, .legendsMedal, .originMedal, .battleFormsMedal:
+             .discoveryMedal, .adventureMedal, .expertMedal, .legendsMedal, .originMedal, .battleFormsMedal,
+             .costumeMedal, .costumeLotsMedal:
             return false
         default:
             return true
@@ -575,6 +581,8 @@ enum ItemKind: String, Codable, Sendable, CaseIterable {
         case .discoveryMedal, .adventureMedal, .expertMedal, .legendsMedal, .originMedal:
             return DungeonMedals.rewards(dungeonTier ?? .t1, step: 1)
         case .battleFormsMedal: return BattleFormsMedal.rewards(step: 1)
+        case .costumeMedal: return CostumeMedals.rewards(step: 1)
+        case .costumeLotsMedal: return CostumeMedals.lotRewards(step: 1)
         default: return [(self, achievementRewardCount)]
         }
     }
@@ -630,7 +638,8 @@ enum ItemKind: String, Codable, Sendable, CaseIterable {
         switch self {
         case .rareCandy, .mint, .shinyCharm, .birthdayEgg, .pokemonEgg, .uncommonEgg, .rareEgg, .fossilEgg: return nil
         case .newYearEgg, .valentineEgg, .pokemonDayEgg, .easterEgg, .halloweenEgg, .christmasEgg, .companionEgg, .springEgg, .summerEgg, .autumnEgg, .winterEgg: return nil
-        case .discoveryMedal, .adventureMedal, .expertMedal, .legendsMedal, .originMedal, .battleFormsMedal:
+        case .discoveryMedal, .adventureMedal, .expertMedal, .legendsMedal, .originMedal, .battleFormsMedal,
+             .costumeMedal, .costumeLotsMedal:
             return regionGoals.map { .species($0.map(\.goal)) }
         case .greatBall, .ultraBall, .masterBall, .oranBerry, .sitrusBerry, .revive, .maxRevive,
              .silverCapsule, .goldCapsule, .treasureMap, .explorerChest, .legendaryKey: return nil
@@ -722,7 +731,10 @@ enum ItemKind: String, Codable, Sendable, CaseIterable {
     var isRegional: Bool { badgeType != nil || self == .legendaryEgg || self == .excavation || isPlayMedal }
 
     /// A medal of the dungeons' play: its steps count dungeons won or battle forms won, not the Pokémon raised.
-    var isPlayMedal: Bool { dungeonTier != nil || self == .battleFormsMedal }
+    var isPlayMedal: Bool { dungeonTier != nil || self == .battleFormsMedal || isCostumeMedal }
+
+    /// The costumed collection's medals: their steps count costumes and lots, not species (`CostumeMedals`).
+    var isCostumeMedal: Bool { self == .costumeMedal || self == .costumeLotsMedal }
 
     /// The regions (generations, Kanto first) this item's achievement is claimed in, with the species each asks
     /// for: a gym badge's type in every region that has it, every species of the region for the Legendary Egg.
@@ -735,6 +747,8 @@ enum ItemKind: String, Codable, Sendable, CaseIterable {
         }
         if let tier = dungeonTier { return DungeonMedals.goals(tier) }
         if self == .battleFormsMedal { return BattleFormsMedal.goals }
+        if self == .costumeMedal { return CostumeMedals.goals }
+        if self == .costumeLotsMedal { return CostumeMedals.lotGoals }
         if self == .excavation {
             // Not regions but digs, numbered from 1: each asks `FossilDig.rockPerDig` more Rock-type species.
             return (1...FossilDig.digs).map { ($0, SpeciesGoal(FossilDig.rockSpecies, needed: FossilDig.rockPerDig * $0)) }

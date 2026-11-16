@@ -95,6 +95,24 @@ read_when:
   is the only per-Pokémon reward of an evolution step; `announceFormUnlocks` only reports forms the Pokédex's
   species already decide, which the species check covers.
 
+- **A new reason to keep a Pokémon reaches every reader of `ActiveNews`.** f753db3 added `ActiveNews.newCostume` (a
+  Pokémon GO costume the collection lacks) to `isDuplicate`, but three readers rebuild "nothing to lose" field by field:
+  Prof. Oak's `activeVerdict` read the Pikachu costume only, so such a Pokémon was a Spare, sent off for an egg with no
+  Rare Candy; the catch log's `duplicateCatchEntryIDs` marked it Duplicate; and `FormSuspense.news` rebuilt the news
+  without it, so a costumed Pikachu, whose line hides its form until Raichu, was a Spare again once Raichu was graduated
+  in both forms. Beside it, `staysWorthBuying` reads the egg incubating with one branch per egg kind and fell back to
+  the Pokémon Egg's draws for a Costume Egg. **Why it was missed:** the costume's tests checked `activeNews` and the Home
+  badge, the feature's own surface; nothing listed the other readers, and the suspense only takes over on a hidden-form
+  line with both forms graduated, which no test save had. Fix: `ActiveVerdict.newCostume`, the catch log reads
+  `newCostume`, a costumed Pokémon has no form suspense (its costume sets its form), `staysWorthBuying` reads
+  `eggFromCostume`. Guards: `OakAdviceTests.testACostumeTheCollectionLacksIsKept`,
+  `OakAdviceTests.testACostumedPikachuHasNoFormToReveal`,
+  `OakAdviceTests.testTheEggIncubatingIsReadByWhatItMayHatchNotByWhatItRolled`,
+  `ActiveNewsTests.testACostumeTheCollectionLacksIsNoDuplicateInTheCatchLog`; each failed before its fix. Sweep: a
+  field added to `ActiveNews` goes to `isDuplicate`, `activeVerdict`, `duplicateCatchEntryIDs` and `FormSuspense.news`
+  (which leaves `newCostume` out: a costumed Pokémon has no suspense); a new egg kind goes to `incubatingHatchEgg` and to
+  `staysWorthBuying`.
+
 - **No achievement asks for a single Pokémon, Arceus's apart.** The player's rule: an achievement needs two
   Pokémon at least. The Sea Incense asked for Manaphy alone, and one of the Magma Stone's ways for Heatran alone.
   **Why it was missed:** the rule lived in a conversation, not in a test. They now ask for Manaphy and Kyogre, and for
@@ -797,6 +815,18 @@ read_when:
   (`OakAdviceTests.testWhileATeamExploresTheBagsEggStillWaitsForTheSpare`). Sweep: the Bag's buttons are the gates' only
   other callers, and they act now.
 
+- **Advice that leads toward a gate must call the gate's own predicate, not a copy of it.** Mt. Coronet opens once
+  every boss of the dungeons before it is caught (`caughtBosses`, `bossesLeft`), but Prof. Oak's boss step only sought
+  bosses the player did not have yet: a boss had from an egg was never sought, and Mt. Coronet, then the Hall of Origin, left
+  his advice for good. A first fix copied the door's condition of the day (beaten, and caught or its egg won); hours
+  later the door changed to "caught in its dungeon" (`bossesCaught`, #192) and the copy went wrong with it. The step now
+  calls `bossesLeft`. **Why it was missed:** the door came with `d54adf1`, after the advice's spec was measured; the
+  merge review stopped at "it goes through `isDungeonOpen`"; and the Hall's tests start from Mt. Coronet won, which keeps
+  it open for good (`OakDungeonTests.testTheBossesMtCoronetsDoorWaitsForAreProposedUntilCaughtThere`). Sweep: the other
+  gates Oak leads toward read what `isMet` reads (`wonEvery` through the First Wins, `beatBosses` through the Mt. Coronet
+  step, both `state.dungeons`); `DungeonsView` counts the door through `bossesLeft`; the expedition guide picks no
+  dungeon.
+
 - **A daily draw settled before its blockers are checked is lost, not postponed.** `settleVillainAmbush` marked the
   day as settled, then gave up when a team was exploring: the owner's two-day Cerulean Cave run of 2026-11-10 took both
   days the thieves were due, and with one day in three drawn (a rule of the plan, never his), the next came eight days
@@ -805,6 +835,16 @@ read_when:
   while a team explores, wait for its return (`DungeonProgress.villainWaiting`,
   `VillainTests.testTheyWaitForTheTeamsReturn`). Sweep: the merchant's and the challenges' daily draws have no
   blocker; the event eggs keep a claim window. A periodic event a state can block waits for that state to end.
+
+- **A collection counted at the hatch can be kept by sending the Pokémon off.** The costumed collection counted every
+  costumed stage reached, the Pokémon raised and those sent off included: a "can't evolve" costume was collected at
+  its hatch, so a player could send each costumed Pokémon off for the next Costume Egg and keep every costume without
+  raising one, and Home said "New costume" for one the collection already showed (a friend's report, 2026-11-16).
+  **Why it was missed:** the tests graduated their Pokémon before reading the collection, and none sent one off. A
+  costume is now collected once its Pokémon graduates, as the Pokédex counts (`ownedCostumeKeys`), while the eggs'
+  draw still leaves out the costume being raised (`costumesTaken`)
+  (`CostumeTests.testACostumeIsCollectedOnceGraduatedNeverSentOff`). Sweep: the medals and the collection screen read
+  the same set; the Pokédex's achievements already count graduated records only.
 
 - **A choice simulated on other conditions than the departure's picks for those conditions.** "Compose for me" played
   its candidate teams without the Bag's berries and Revives, which the departure takes along: the owner's day dungeon
@@ -818,6 +858,23 @@ read_when:
   on every core (`BattleEngine.parallelMap`). On his save: 99% on 600 runs it never saw, 84% for the team it used to
   keep. Sweep: `reachEstimate` and the departure already read `bagBerries` and `bagRevives`; Prof. Oak's
   `composeTeam` keeps the greedy team, never simulated. A simulation that picks must run what the action will run.
+
+- **Advice that weighs an action must weigh the choice the action will make.** Prof. Oak judged a dungeon on
+  `composeTeam`, the greedy team, which "Compose for me" also kept until `ac81d42` made the button search many teams with
+  the Bag's berries: his odds and the Bottle Caps he lists then spoke of another team than the one the button sets, and
+  he kept quiet on challenges only the searched team wins. **Why it was missed:** the change's sweep checked that Oak
+  never simulates to pick, not what his numbers describe, and no test set his team beside the button's. Oak now weighs
+  the daily and weekly dungeons, and shows any dungeon he proposes, with the button's own search (`composeChoice`),
+  run off the main thread and cached; a regular dungeon's threshold still reads his greedy team, the search costing
+  3 to 6 s a dungeon (`OakDungeonTests.testAChallengeIsJudgedOnTheTeamComposeForMePicks`,
+  `testTheDungeonProposedGoesWithTheTeamComposeForMePicks`, `testTheDungeonStepWaitsForTheSearch`).
+
+- **A cache keyed on its inputs must follow what its function comes to read.** `e9f87ad` narrowed a dungeon's bosses
+  to those not caught there (`dungeonInfo`), so Prof. Oak's odds came to read `bossesCaught`, which his cache key
+  (`OakDungeonOdds.Inputs`) did not hold: after a catch he kept the odds against the old bosses. **Why it was missed:**
+  the change touched no Oak file, and the key lists inputs by hand. The key now holds `bossesCaught`
+  (`OakDungeonTests.testTheOddsRunAgainOnceABossIsCaughtThere`). Sweep: the store's other caches reset on any state
+  change; Oak's is the only one keyed on chosen inputs.
 
 ## 외부 로그·사용량 소스
 
@@ -1462,6 +1519,18 @@ read_when:
   back to growth) instead of replaying it (`DungeonStoreTests.testAStepThatNeverCameBackEndsItsExpedition`).
 
 ## 표시·UI
+
+- **A menu installed at launch is installed again where it is used.** ⌘V still pasted nothing in the session key's
+  field after #118 (a player, 2026-11-13): the Edit menu was installed at launch, and SwiftUI swapped the app's main
+  menu for its own (a lone "Enter Full Screen") as soon as the popover's content showed up, so the key found no Paste
+  again. **Why it was missed:** `EditMenuTests` checked `install` on a bare app and the field's paste action, never the
+  menu left in the running app once the popover opened. The popover now installs it again each time it shows
+  (`popoverDidShow`). Guard: `EditMenuTests.testThePopoverShowingBringsPasteBack` hands it a SwiftUI-like menu without
+  Paste and fails without the reinstall. The live check drives the running app through the accessibility API (popover,
+  Settings, a plain field focused, ⌘V posted to the process, the field read back), with a plain key posted the same
+  way as its control. Run it on a dev build with update notifications off and the update script blocked: its Update
+  button rebuilds the app and its build stops every instance, the player's included. Sweep: `mainMenu` is set nowhere
+  else, and every text field lives in the popover (the floating pet only has labels).
 
 - **A sort reads the number its rows show.** The catch log's "Most caught" ranked each card by its species' count
   (`dexCatchCounts`, every record that reached the species, those that evolved past it included) while the card shows

@@ -418,11 +418,14 @@ private struct OakWords {
         case .firstWin: why = l.oakDungeonFirstWin
         case .challenge: why = l.oakDungeonChallenge
         case .boss: why = l.oakDungeonBoss
+        case .coronetDoor: why = l.oakDungeonCoronetDoor(l.dungeonName(.mtCoronet))
         case .coronet: why = l.oakDungeonCoronet(l.dungeonName(.hallOfOrigin))
         case .hall: why = l.oakDungeonHall(least: l.oddsPercent(10, share: CompanionStore.oakHallWin))
         case .key(let waiting): why = l.oakDungeonKey(l.dungeonName(waiting), key: l.itemName(.legendaryKey))
         }
-        return why + " " + l.oakDungeonOdds(percent(dungeon.win))
+        let cost = l.dungeonCost(TokenFormatter.compact(dungeon.tokens))
+        let wait = verdict == nil ? l.oakDungeonWaitEgg(cost: cost) : l.oakDungeonWait(name, cost: cost)
+        return why + " " + l.oakDungeonOdds(percent(dungeon.win)) + " " + wait
     }
 
     private func gear(_ dungeon: OakDungeon) -> String? {
@@ -492,7 +495,7 @@ private struct OakVerdictLabel: View {
         switch verdict {
         case .spare: return .secondary
         case .newForm, .formMystery: return .blue
-        case .lineToComplete, .costume, .shinyToKeep, .keptForAchievement: return .green
+        case .lineToComplete, .costume, .newCostume, .shinyToKeep, .keptForAchievement: return .green
         }
     }
 }

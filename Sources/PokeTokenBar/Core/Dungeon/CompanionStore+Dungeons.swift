@@ -625,14 +625,26 @@ extension CompanionStore {
         }
     }
 
-    /// The best ball the Bag has for this boss: the Master Ball at a legendary one, unless the player kept it out of
-    /// this expedition at the departure; else an Ultra Ball, a Great Ball, and last the free Poké Ball (nil).
+    /// The ball a throw takes (issue #197, the owner's pick of 2026-11-16): the Master Ball at a legendary boss, unless
+    /// the player kept it out of this expedition at the departure; else the cheapest ball the Bag has that catches the
+    /// boss `automaticBallOdds` of the time over the three throws (the free Poké Ball, nil, for a common boss, a Great
+    /// Ball for an uncommon one, an Ultra Ball for a rare one); else the best one it has. An Ultra Ball went at every
+    /// boss before, a common one the Poké Ball catches 94% of the time.
     func automaticBall(for e: Expedition) -> ItemKind? {
-        if SpeciesInfo.lineRarity(of: e.boss.speciesID) == .legendary, e.keepsMasterBall != true, itemCount(.masterBall) > 0 {
+        let boss = e.secret?.capturing == true ? (e.secret?.boss ?? e.boss) : e.boss
+        if SpeciesInfo.lineRarity(of: boss.speciesID) == .legendary, e.keepsMasterBall != true, itemCount(.masterBall) > 0 {
             return .masterBall
         }
-        return [ItemKind.ultraBall, .greatBall].first { itemCount($0) > 0 }
+        let held: [ItemKind?] = [nil] + [ItemKind.greatBall, .ultraBall].filter { itemCount($0) > 0 }
+        let throwsCount = Double(ExpeditionEngine.captureThrows)
+        if let enough = held.first(where: { 1 - pow(1 - ExpeditionEngine.throwOdds(boss, ball: $0), throwsCount) >= Self.automaticBallOdds }) {
+            return enough
+        }
+        return held.last ?? nil
     }
+
+    /// What a ball must reach over the three throws for the throws to take it rather than a dearer one.
+    static let automaticBallOdds = 0.9
 
     /// Whether this dungeon's boss may be legendary: what the Master Ball box of the team screen is for. A challenge's
     /// boss is the one shown.
@@ -866,6 +878,12 @@ extension CompanionStore {
                 loot.add(table[random.below(table.count)])
             }
             loot.add(Self.victoryExtras(tier: dungeon.tier, random: &random))
+            // A hideout's leader beaten opens their chest (the owner, 2026-11-16), beside all the team took.
+            if e.dungeon.isHideout {
+                let chest = VillainRules.leaderChest(dungeon.tier)
+                loot.candies += chest.candies
+                for item in chest.items { loot.add(item.kind, item.count) }
+            }
             if random.below(100) < Self.technicalCapsuleChance(dungeon.tier) {
                 let locked = MoveTable.all.values.filter { $0.isLocked && $0.hasEffect && !state.dungeons.unlockedMoves.contains($0.slug) }
                     .map(\.slug).sorted()
@@ -945,5 +963,8 @@ extension CompanionStore {
         }
         AppLog.write("dungeon: \(e.dungeon.rawValue) over, won=\(won) left=\(leftEarly) caught=\(caught) candies=\(loot.candies)")
         persist()
+        // The day's thieves due strike at the team's return, at what it brought (the owner, 2026-11-16): a player back
+        // from a dungeon who used its loot and set off again was never robbed.
+        if !e.dungeon.isHideout { settleVillainAmbush(runLoot: loot) }
     }
 }

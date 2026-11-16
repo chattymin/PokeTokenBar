@@ -7,6 +7,8 @@ struct ExpeditionCard: View {
     let store: CompanionStore
     let nav: PopoverNavigation
     @State private var confirmingAbandon = false
+    /// Drawn for its image (`CardSnapshotButton`): the card without its buttons.
+    @Environment(\.isCardSnapshot) private var isSnapshot
 
     var body: some View {
         if let e = store.expedition {
@@ -35,6 +37,8 @@ struct ExpeditionCard: View {
             Spacer(minLength: 4)
             Text(l.dungeonFloorOf(min(e.floor, e.floors), e.floors)).font(.caption.weight(.semibold))
                 .foregroundStyle(.secondary).monospacedDigit().fixedSize()
+            CardSnapshotButton(store: store, sprites: e.team.map { ($0.spec.speciesID, $0.spec.isShiny, $0.spec.form) }
+                + [(e.boss.speciesID, e.boss.isShiny, e.boss.form)]) { ExpeditionCard(store: store, nav: nav) }
         }
     }
 
@@ -66,7 +70,9 @@ struct ExpeditionCard: View {
                 }
             }
         }
-        if confirmingAbandon {
+        if isSnapshot {
+            EmptyView()
+        } else if confirmingAbandon {
             abandonConfirmation
         } else {
             HStack(spacing: 8) {
@@ -362,6 +368,8 @@ struct ExpeditionLootIcons: View {
 struct ExpeditionResultCard: View {
     let store: CompanionStore
     let nav: PopoverNavigation
+    /// Drawn for its image (`CardSnapshotButton`): the card without its buttons.
+    @Environment(\.isCardSnapshot) private var isSnapshot
 
     var body: some View {
         if let r = store.dungeonProgress.lastResult {
@@ -378,6 +386,9 @@ struct ExpeditionResultCard: View {
                     .foregroundStyle(r.won ? Design.actionColor : Color.readableOrange)
                 Spacer(minLength: 4)
                 if r.firstVictory { Badge(l.dungeonFirstVictory.uppercased(), tint: .blue, style: .tinted) }
+                CardSnapshotButton(store: store, sprites: [(r.boss.speciesID, r.boss.isShiny, r.boss.form)]) {
+                    ExpeditionResultCard(store: store, nav: nav)
+                }
             }
             // The guide tells how it went, beside the dungeon (the owner, 2026-11-10: the same look as the run).
             ExpeditionResultGuide(store: store, r: r)
@@ -442,7 +453,7 @@ struct ExpeditionResultCard: View {
                 }
             }
             Label(l.dungeonGrowthResumes, systemImage: "play.circle").font(.caption2).foregroundStyle(.secondary)
-            HStack(spacing: 8) {
+            if !isSnapshot { HStack(spacing: 8) {
                 Button(l.dungeonSeeLog) { nav.showingExpeditionLog = true }
                     .buttonStyle(.borderless).controlSize(.small).font(.caption.weight(.semibold))
                 Spacer(minLength: 4)
@@ -456,7 +467,7 @@ struct ExpeditionResultCard: View {
                 }
                 Button(l.close) { store.dismissExpeditionResult() }
                     .buttonStyle(.pill(prominent: true))
-            }
+            } }
         }
         .heroCard(colors: r.won ? r.villain.map { [$0.color] } ?? DungeonCard.colors(r.dungeon) : [.gray])
     }

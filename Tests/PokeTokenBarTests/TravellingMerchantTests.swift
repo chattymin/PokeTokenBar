@@ -49,7 +49,7 @@ final class TravellingMerchantTests: XCTestCase {
         func paid(_ kind: ItemKind) -> Int? { TravellingMerchant.buyBackBase(kind).map { PokemonBalance.scaled($0) } }
         let expected: [(ItemKind, Int)] = [
             (.rareCandy, 16_666_667), (.pokemonEgg, 33_333_333), (.uncommonEgg, 83_333_333), (.rareEgg, 133_333_333),
-            (.greatBall, 83_333_333), (.ultraBall, 133_333_333), (.legendaryEgg, 1_000_000_000), (.masterBall, 400_000_000),
+            (.greatBall, 25_000_000), (.ultraBall, 50_000_000), (.legendaryEgg, 1_000_000_000), (.masterBall, 400_000_000),
             (.legendaryKey, 200_000_000), (.treasureMap, 200_000_000), (.oranBerry, 5_000_000), (.sitrusBerry, 15_000_000),
             (.revive, 10_000_000), (.maxRevive, 30_000_000), (.silverCapsule, 50_000_000), (.goldCapsule, 150_000_000),
             (.explorerChest, 28_000_000), (.fireStone, 25_000_000), (.shinyStone, 25_000_000),

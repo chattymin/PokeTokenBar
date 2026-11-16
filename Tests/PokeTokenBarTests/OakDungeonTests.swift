@@ -30,6 +30,12 @@ final class OakDungeonTests: XCTestCase {
     private let belowT4: [DungeonID] = [.viridianForest, .diglettsCave, .mtMoon, .mtEmber, .victoryRoad, .pokemonTower,
                                         .dragonsDen, .powerPlant]
 
+    private var doorCaught: Set<String> {
+        Set(DungeonCatalog.bossDungeons(before: .mtCoronet).flatMap { id in
+            DungeonCatalog.dungeon(id).bosses.map { DungeonProgress.bossKey(id, $0) }
+        })
+    }
+
     private func wins(_ ids: [DungeonID]) -> [String: Int] {
         Dictionary(uniqueKeysWithValues: ids.map { ($0.rawValue, 1) })
     }
@@ -48,8 +54,19 @@ final class OakDungeonTests: XCTestCase {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("oak-dungeon-\(UUID().uuidString).json")
         try JSONEncoder().encode(st).write(to: url)
         addTeardownBlock { try? FileManager.default.removeItem(at: url) }
-        return CompanionStore(provider: DungeonIndexProvider(index: index), clock: { self.now }, fileURL: url,
-                              rng: SeededRNG(seed: 3), difficulty: 0.1)
+        let s = CompanionStore(provider: DungeonIndexProvider(index: index), clock: { self.now }, fileURL: url,
+                               rng: SeededRNG(seed: 3), difficulty: 0.1)
+        s.oakComposeSearch = { $0.teams.first?.map(\.entryID) ?? [] }
+        return s
+    }
+
+    private func settle(_ s: CompanionStore) async {
+        while true {
+            _ = s.oakDungeon
+            let pending = s.oakSearchTasks.values.map { $0.task }
+            guard !pending.isEmpty else { return }
+            for task in pending { await task.value }
+        }
     }
 
     private func credit(_ s: CompanionStore, total: Int) {
@@ -75,12 +92,13 @@ final class OakDungeonTests: XCTestCase {
         XCTAssertEqual(back.dungeons.budget, s.state.dungeons.budget)
     }
 
-    func testNoDungeonOnceTheDungeonsTookFifteenPercentOfTheTokens() throws {
+    func testNoDungeonOnceTheDungeonsTookFifteenPercentOfTheTokens() async throws {
         let spent = try store(used: 1_000) { $0.dungeons.budget = DungeonBudget(start: 0, dungeonTokens: 150) }
         spent.oakWinOdds = { _ in 1 }
         XCTAssertNil(spent.oakDungeon)
         let under = try store(used: 1_000) { $0.dungeons.budget = DungeonBudget(start: 0, dungeonTokens: 149) }
         under.oakWinOdds = { _ in 1 }
+        await settle(under)
         XCTAssertEqual(under.oakDungeon?.id, .viridianForest)
         XCTAssertEqual(under.oakDungeon?.reason, .firstWin)
         XCTAssertEqual(under.oakSteps.last, under.oakDungeon.map(OakStep.dungeon))
@@ -93,6 +111,7 @@ final class OakDungeonTests: XCTestCase {
         }
         await held.loadHatchIndex()
         held.oakWinOdds = { _ in 1 }
+        await settle(held)
         XCTAssertEqual(held.oakDungeon?.id, .viridianForest)
         let missing = try store(dex: strong + [graduated(17, chain: [16, 17]), graduated(132)], index: index, used: 1_000) {
             $0.dungeons.budget = DungeonBudget(start: 0, dungeonTokens: 900)
@@ -104,14 +123,16 @@ final class OakDungeonTests: XCTestCase {
 
     // MARK: The order
 
-    func testAFirstWinComesBeforeTheChallengeAndTheChallengeBeforeTheBosses() throws {
+    func testAFirstWinComesBeforeTheChallengeAndTheChallengeBeforeTheBosses() async throws {
         let firstWin = try store { $0.dungeons.wins = self.wins(Array(self.belowT4.prefix(6))) }
         firstWin.oakWinOdds = { _ in 1 }
+        await settle(firstWin)
         XCTAssertEqual(firstWin.oakDungeon?.id, .dragonsDen)
         XCTAssertEqual(firstWin.oakDungeon?.reason, .firstWin)
 
         let challenge = try store { $0.dungeons.wins = self.wins(self.belowT4) }
         challenge.oakWinOdds = { _ in 1 }
+        await settle(challenge)
         XCTAssertEqual(challenge.oakDungeon?.id, .daily)
         XCTAssertEqual(challenge.oakDungeon?.reason, .challenge)
 
@@ -120,14 +141,16 @@ final class OakDungeonTests: XCTestCase {
             $0.dungeons.battleForms = Set(BattleForms.all.map(\.key))
         }
         formsWon.oakWinOdds = { _ in 1 }
+        await settle(formsWon)
         XCTAssertEqual(formsWon.oakDungeon?.id, .dragonsDen, "no challenge once its forms are won")
         XCTAssertEqual(formsWon.oakDungeon?.reason, .boss)
     }
 
-    func testACaughtBossIsNoLongerProposed() throws {
+    func testACaughtBossIsNoLongerProposed() async throws {
         let tierOne: (DungeonTeamBuilder.ReachEstimate) -> Double = { $0.dungeon.tier == .t1 ? 1 : 0 }
         let t1 = try store { $0.dungeons.wins = self.wins([.viridianForest, .diglettsCave]) }
         t1.oakWinOdds = tierOne
+        await settle(t1)
         XCTAssertEqual(t1.oakDungeon?.id, .diglettsCave)
         XCTAssertEqual(t1.oakDungeon?.reason, .boss)
 
@@ -135,20 +158,66 @@ final class OakDungeonTests: XCTestCase {
             $0.dungeons.wins = self.wins([.viridianForest, .diglettsCave])
         }
         diglett.oakWinOdds = tierOne
+        await settle(diglett)
         XCTAssertEqual(diglett.oakDungeon?.id, .viridianForest, "Diglett's Cave's bosses are caught")
 
         let caught = strong + [15, 12, 45, 76, 208].map { graduated($0) }
         let one = try store(dex: caught) { $0.dungeons.wins = self.wins([.viridianForest, .diglettsCave]) }
         one.oakWinOdds = tierOne
+        await settle(one)
         XCTAssertEqual(one.oakDungeon?.id, .diglettsCave, "Dugtrio is still to catch")
 
         let hatching = try store(dex: caught) {
             $0.dungeons.wins = self.wins([.viridianForest, .diglettsCave])
+            $0.dungeons.bossesCaught = self.doorCaught
             $0.active = nil
             $0.eggFromDungeon = DungeonEgg(id: "egg", baseID: 50, form: nil, isShiny: false, sourceSpeciesID: 51)
         }
         hatching.oakWinOdds = tierOne
+        await settle(hatching)
         XCTAssertNil(hatching.oakDungeon, "Dugtrio's egg is hatching")
+    }
+
+    func testTheBossesMtCoronetsDoorWaitsForAreProposedUntilCaughtThere() async throws {
+        let dex = strong + [51, 76, 208].map { graduated($0) }
+        let keys = Set([51, 76, 208].map { DungeonProgress.bossKey(.diglettsCave, $0) })
+        let cave: (DungeonTeamBuilder.ReachEstimate) -> Double = { $0.dungeon.id == .diglettsCave ? 1 : 0 }
+        let door = try store(dex: dex) { $0.dungeons.wins = self.wins([.diglettsCave]) }
+        door.oakWinOdds = cave
+        await settle(door)
+        XCTAssertEqual(door.oakDungeon?.id, .diglettsCave, "Diglett's Cave's bosses are had from eggs")
+        XCTAssertEqual(door.oakDungeon?.reason, .coronetDoor)
+
+        let beaten = try store(dex: dex) {
+            $0.dungeons.wins = self.wins([.diglettsCave])
+            $0.dungeons.bossesBeaten = keys
+        }
+        beaten.oakWinOdds = cave
+        await settle(beaten)
+        XCTAssertEqual(beaten.oakDungeon?.reason, .coronetDoor, "beaten, never caught there")
+
+        let caught = try store(dex: dex) {
+            $0.dungeons.wins = self.wins([.diglettsCave])
+            $0.dungeons.bossesBeaten = keys
+            $0.dungeons.bossesCaught = keys
+        }
+        caught.oakWinOdds = cave
+        await settle(caught)
+        XCTAssertNil(caught.oakDungeon)
+
+        let open = try store(dex: dex) { $0.dungeons.wins = self.wins([.diglettsCave, .mtCoronet]) }
+        open.oakWinOdds = cave
+        await settle(open)
+        XCTAssertNil(open.oakDungeon, "Mt. Coronet is open")
+    }
+
+    func testTheAdviceSaysWhatTheDungeonTakes() async throws {
+        let s = try store { $0.dungeons.wins = self.wins([.viridianForest, .diglettsCave]) }
+        s.oakWinOdds = { $0.dungeon.tier == .t1 ? 1 : 0 }
+        await settle(s)
+        let dungeon = try XCTUnwrap(s.oakDungeon)
+        XCTAssertGreaterThan(dungeon.tokens, 0)
+        XCTAssertEqual(dungeon.tokens, s.dungeonCost(dungeon.id), "what the dungeon's card shows")
     }
 
     private var hallDex: [DexEntry] {
@@ -170,32 +239,39 @@ final class OakDungeonTests: XCTestCase {
         return s
     }
 
-    func testMtCoronetComesBeforeTheHallOfOrigin() throws {
+    func testMtCoronetComesBeforeTheHallOfOrigin() async throws {
         let coronet = try hallStore(beaten: [483, 484], forms: ["6-mega-x", "3-mega", "9-gmax"], odds: 1)
+        await settle(coronet)
         XCTAssertEqual(coronet.oakDungeon?.id, .mtCoronet)
         XCTAssertEqual(coronet.oakDungeon?.reason, .coronet, "Giratina is caught, not beaten")
         let hall = try hallStore(beaten: [483, 484, 487], forms: ["6-mega-x", "3-mega", "9-gmax"], odds: 1)
+        await settle(hall)
         XCTAssertEqual(hall.oakDungeon?.id, .hallOfOrigin)
         XCTAssertEqual(hall.oakDungeon?.reason, .hall)
     }
 
-    func testABossToCatchComesBeforeTheHallOfOrigin() throws {
+    func testABossToCatchComesBeforeTheHallOfOrigin() async throws {
         let s = try hallStore(beaten: [483, 484, 487], forms: ["6-mega-x", "3-mega", "9-gmax"], odds: 1, won: [.diglettsCave])
         s.oakWinOdds = { [.diglettsCave, .hallOfOrigin].contains($0.dungeon.id) ? 1 : 0 }
+        await settle(s)
         XCTAssertEqual(s.oakDungeon?.id, .diglettsCave)
         XCTAssertEqual(s.oakDungeon?.reason, .boss)
     }
 
-    func testTheHallOfOriginComesWithTheFormsToSet() throws {
+    func testTheHallOfOriginComesWithTheFormsToSet() async throws {
         let hall = try hallStore(beaten: [483, 484, 487], forms: ["6-mega-x", "3-mega", "9-gmax"], odds: 0.1)
+        await settle(hall)
         let forms = hall.oakDungeon?.forms.map { "\($0.entryID):\($0.form.key)" }
         XCTAssertEqual(forms, ["e6s:6-mega-x", "e9:9-gmax"], "the first Mega won, on a shiny of its species")
-        XCTAssertNil(try hallStore(beaten: [483, 484, 487], forms: ["6-mega-x", "3-mega", "9-gmax"], odds: 0.09).oakDungeon)
-        XCTAssertNil(try hallStore(beaten: [483, 484, 487], forms: ["6-mega-x", "3-mega"], odds: 1).oakDungeon,
-                     "no Gigantamax won")
+        let under = try hallStore(beaten: [483, 484, 487], forms: ["6-mega-x", "3-mega", "9-gmax"], odds: 0.09)
+        await settle(under)
+        XCTAssertNil(under.oakDungeon)
+        let noGmax = try hallStore(beaten: [483, 484, 487], forms: ["6-mega-x", "3-mega"], odds: 1)
+        await settle(noGmax)
+        XCTAssertNil(noGmax.oakDungeon, "no Gigantamax won")
     }
 
-    func testTheKeyIsAdvisedOnlyWhenADungeonWaitsForIt() throws {
+    func testTheKeyIsAdvisedOnlyWhenADungeonWaitsForIt() async throws {
         let dex = strong + [94, 442, 609, 149, 445, 635, 462, 466, 101].map { graduated($0) }
         func odds(seafoam: Double) -> (DungeonTeamBuilder.ReachEstimate) -> Double {
             { estimate in
@@ -211,48 +287,58 @@ final class OakDungeonTests: XCTestCase {
         let waits = try store(dex: dex) {
             $0.dungeons.wins = self.wins(self.belowT4)
             $0.dungeons.battleForms = Set(BattleForms.all.map(\.key))
+            $0.dungeons.bossesCaught = self.doorCaught
         }
         waits.oakWinOdds = odds(seafoam: 1)
+        await settle(waits)
         XCTAssertEqual(waits.oakDungeon?.id, .dragonsDen)
         XCTAssertEqual(waits.oakDungeon?.reason, .key(for: .seafoamIslands))
 
         let none = try store(dex: dex) {
             $0.dungeons.wins = self.wins(self.belowT4)
             $0.dungeons.battleForms = Set(BattleForms.all.map(\.key))
+            $0.dungeons.bossesCaught = self.doorCaught
         }
         none.oakWinOdds = odds(seafoam: 0.4)
+        await settle(none)
         XCTAssertNil(none.oakDungeon)
     }
 
     // MARK: The odds
 
-    func testADungeonWonFortyPercentOfTheTimeIsNotProposed() throws {
+    func testADungeonWonFortyPercentOfTheTimeIsNotProposed() async throws {
         let forty = try store()
         forty.oakWinOdds = { _ in 0.4 }
+        await settle(forty)
         XCTAssertNil(forty.oakDungeon)
         let half = try store()
         half.oakWinOdds = { _ in 0.5 }
+        await settle(half)
         XCTAssertEqual(half.oakDungeon?.id, .viridianForest)
         XCTAssertEqual(half.oakDungeon?.win, 0.5)
     }
 
-    func testALostChallengeComesBackTheNextDayWhileItsOddsHold() throws {
+    func testALostChallengeComesBackTheNextDayWhileItsOddsHold() async throws {
         let yesterday = DungeonProgress.challengePeriod(.daily, at: now.addingTimeInterval(-86_400))
         let today = DungeonProgress.challengePeriod(.daily, at: now)
-        func challenge(tried: String, odds: Double) throws -> CompanionStore {
+        func challenge(tried: String, odds: Double) async throws -> CompanionStore {
             let s = try store {
                 $0.dungeons.wins = self.wins(self.belowT4)
                 $0.dungeons.dailyTried = tried
             }
             s.oakWinOdds = { $0.dungeon.id == .daily ? odds : 0 }
+            await settle(s)
             return s
         }
-        XCTAssertEqual(try challenge(tried: yesterday, odds: 0.5).oakDungeon?.id, .daily)
-        XCTAssertNil(try challenge(tried: yesterday, odds: 0.49).oakDungeon)
-        XCTAssertNil(try challenge(tried: today, odds: 1).oakDungeon)
+        let half = try await challenge(tried: yesterday, odds: 0.5)
+        XCTAssertEqual(half.oakDungeon?.id, .daily)
+        let under = try await challenge(tried: yesterday, odds: 0.49)
+        XCTAssertNil(under.oakDungeon)
+        let tried = try await challenge(tried: today, odds: 1)
+        XCTAssertNil(tried.oakDungeon)
     }
 
-    func testTheOddsRunOnceUntilTheTeamChanges() throws {
+    func testTheOddsRunOnceUntilTheTeamChanges() async throws {
         var dex = strong
         var profile = PokemonProfile.generate(seed: 1)
         profile.ivs = PokemonIVs(hp: 31, attack: 10, defense: 31, specialAttack: 31, specialDefense: 31, speed: 31)
@@ -263,14 +349,32 @@ final class OakDungeonTests: XCTestCase {
             runs.count += 1
             return 1
         }
+        await settle(s)
         XCTAssertNotNil(s.oakDungeon)
         let first = runs.count
         credit(s, total: 1_000)
         XCTAssertNotNil(s.oakDungeon)
         XCTAssertEqual(runs.count, first, "the tokens changed, not the team")
         XCTAssertTrue(s.useCapsule(.goldCapsule, on: "e6"))
+        await settle(s)
         XCTAssertNotNil(s.oakDungeon)
         XCTAssertGreaterThan(runs.count, first, "Charizard's IVs changed")
+    }
+
+    func testTheOddsRunAgainOnceABossIsCaughtThere() async throws {
+        let s = try store()
+        let runs = Runs()
+        s.oakWinOdds = { _ in
+            runs.count += 1
+            return 1
+        }
+        await settle(s)
+        let first = runs.count
+        let boss = try XCTUnwrap(DungeonCatalog.dungeon(.viridianForest).bosses.first)
+        s.changeDungeons { $0.bossesCaught = [DungeonProgress.bossKey(.viridianForest, boss)] }
+        await settle(s)
+        XCTAssertNotNil(s.oakDungeon)
+        XCTAssertGreaterThan(runs.count, first, "Viridian Forest's draw lost a boss")
     }
 
     // MARK: While a team explores
@@ -285,7 +389,7 @@ final class OakDungeonTests: XCTestCase {
 
     // MARK: The Capsules
 
-    func testTheCapsulesGoDownTheTeamInItsOrder() throws {
+    func testTheCapsulesGoDownTheTeamInItsOrder() async throws {
         func entry(_ id: Int, _ ivs: PokemonIVs) -> DexEntry {
             var e = graduated(id)
             var profile = PokemonProfile.generate(seed: UInt64(id))
@@ -307,7 +411,61 @@ final class OakDungeonTests: XCTestCase {
             OakCapsule(entryID: "e25", kind: .silverCapsule, stat: 0),
         ])
         s.oakWinOdds = { _ in 1 }
+        await settle(s)
         let advice = try XCTUnwrap(s.oakDungeon)
         XCTAssertEqual(advice.capsules, s.oakCapsules(for: advice.team))
+    }
+
+    // MARK: The team "Compose for me" picks
+
+    private var withIVs: [DexEntry] {
+        (strong + [graduated(149)]).map { entry in
+            var entry = entry
+            var profile = PokemonProfile.generate(seed: 1)
+            profile.ivs = PokemonIVs(hp: 31, attack: 10, defense: 31, specialAttack: 31, specialDefense: 31, speed: 31)
+            entry.profile = profile
+            return entry
+        }
+    }
+
+    func testTheDungeonStepWaitsForTheSearch() async throws {
+        let s = try store()
+        s.oakWinOdds = { _ in 1 }
+        XCTAssertNil(s.oakDungeon, "the search runs")
+        XCTAssertEqual(Array(s.oakSearchTasks.keys), [.viridianForest], "one search at a time")
+        await settle(s)
+        XCTAssertEqual(s.oakDungeon?.id, .viridianForest)
+    }
+
+    func testTheDungeonProposedGoesWithTheTeamComposeForMePicks() async throws {
+        let s = try store(dex: withIVs, inventory: [.goldCapsule: 1])
+        let greedy = s.composeTeam(for: .viridianForest)
+        let left = try XCTUnwrap(withIVs.map(\.id).first { !greedy.contains($0) })
+        let picked = [left] + greedy.dropFirst()
+        XCTAssertNotEqual(s.oakCapsules(for: picked), s.oakCapsules(for: greedy))
+        s.oakComposeSearch = { _ in picked }
+        s.oakWinOdds = { _ in 1 }
+        await settle(s)
+        let advice = try XCTUnwrap(s.oakDungeon)
+        XCTAssertEqual(advice.team, picked)
+        XCTAssertEqual(advice.capsules, s.oakCapsules(for: picked))
+
+        s.oakWinOdds = { Set($0.team.map(\.entryID)) == Set(picked) ? 1 : 0 }
+        await settle(s)
+        XCTAssertNil(s.oakDungeon, "a dungeon's threshold reads Prof. Oak's own team")
+    }
+
+    func testAChallengeIsJudgedOnTheTeamComposeForMePicks() async throws {
+        let s = try store(dex: withIVs) { $0.dungeons.wins = self.wins(self.belowT4) }
+        let greedy = s.composeTeam(for: .daily)
+        let left = try XCTUnwrap(withIVs.map(\.id).first { !greedy.contains($0) })
+        let picked = [left] + greedy.dropFirst()
+        s.oakComposeSearch = { _ in picked }
+        s.oakWinOdds = { $0.dungeon.id == .daily && Set($0.team.map(\.entryID)) == Set(picked) ? 0.6 : 0 }
+        await settle(s)
+        XCTAssertEqual(s.oakDungeon?.id, .daily)
+        XCTAssertEqual(s.oakDungeon?.reason, .challenge)
+        XCTAssertEqual(s.oakDungeon?.team, picked)
+        XCTAssertEqual(s.oakDungeon?.win, 0.6)
     }
 }

@@ -2,7 +2,7 @@ import Foundation
 
 struct OakDungeon: Equatable, Sendable {
     enum Reason: Equatable, Sendable {
-        case firstWin, challenge, boss, coronet, hall
+        case firstWin, challenge, boss, coronetDoor, coronet, hall
         case key(for: DungeonID)
     }
 
@@ -10,6 +10,7 @@ struct OakDungeon: Equatable, Sendable {
     let reason: Reason
     let team: [String]
     let win: Double
+    let tokens: Int
     var forms: [OakBattleForm] = []
     var capsules: [OakCapsule] = []
 }
@@ -35,6 +36,7 @@ struct OakDungeonOdds {
         let boss: BattleForm?
         let forms: [String: BattleForm]
         let bag: [Int]
+        let caught: Set<String>?
     }
 
     let inputs: Inputs
@@ -52,14 +54,21 @@ extension CompanionStore {
         let regular = DungeonCatalog.all.filter { !$0.id.isChallenge && $0.id != .ruinsOfAlph && !$0.id.isHideout }
         let open = DungeonTier.allCases.flatMap { tier in regular.filter { $0.tier == tier && isDungeonOpen($0.id) } }
         var waiting: DungeonID?
+        var searching = false
         func offer(_ id: DungeonID, _ reason: OakDungeon.Reason, atLeast least: Double = Self.oakDungeonWin,
                    forms: [OakBattleForm] = []) -> OakDungeon? {
-            guard let odds = oakOdds(id, forms: forms), let team = odds.team, odds.win >= least else { return nil }
+            guard !searching, let odds = oakOdds(id, forms: forms), odds.team != nil,
+                  id.isChallenge || odds.win >= least else { return nil }
             guard itemCount(.legendaryKey) >= keysToEnter(id) else {
                 if waiting == nil { waiting = id }
                 return nil
             }
-            return OakDungeon(id: id, reason: reason, team: team, win: odds.win,
+            guard let pick = reason == .hall ? odds : oakSearch(id) else {
+                searching = true
+                return nil
+            }
+            guard let team = pick.team, pick.win >= least else { return nil }
+            return OakDungeon(id: id, reason: reason, team: team, win: pick.win, tokens: dungeonCost(id),
                               forms: forms.filter { team.contains($0.entryID) }, capsules: oakCapsules(for: team))
         }
         for dungeon in open where dungeon.id != .hallOfOrigin && state.dungeons.wins(dungeon.id) == 0 {
@@ -71,6 +80,10 @@ extension CompanionStore {
         for dungeon in open.reversed() where dungeon.id != .hallOfOrigin && dungeon.bosses.contains(where: oakWantsBoss) {
             if let advice = offer(dungeon.id, .boss) { return advice }
         }
+        let door = isDungeonOpen(.mtCoronet) ? [] : bossesLeft(DungeonCatalog.bossDungeons(before: .mtCoronet))
+        for dungeon in open.reversed() where dungeon.bosses.contains(where: door.contains) {
+            if let advice = offer(dungeon.id, .coronetDoor) { return advice }
+        }
         if isDungeonOpen(.mtCoronet), DungeonCatalog.dungeon(.mtCoronet).bosses.contains(where: { !state.dungeons.beat($0) }),
            let advice = offer(.mtCoronet, .coronet) {
             return advice
@@ -79,7 +92,7 @@ extension CompanionStore {
            let forms = oakHallForms, let advice = offer(.hallOfOrigin, .hall, atLeast: Self.oakHallWin, forms: forms) {
             return advice
         }
-        guard let waiting else { return nil }
+        guard !searching, let waiting else { return nil }
         let best = open.filter { $0.tier == .t3 }
             .compactMap { dungeon in oakOdds(dungeon.id).map { (id: dungeon.id, win: $0.team == nil ? 0 : $0.win) } }
             .max { $0.win < $1.win }
@@ -149,12 +162,32 @@ extension CompanionStore {
         return planned
     }
 
-    private func oakOdds(_ id: DungeonID, forms: [OakBattleForm] = []) -> OakDungeonOdds? {
-        let worn = Dictionary(uniqueKeysWithValues: forms.map { ($0.entryID, $0.form) })
-        let inputs = OakDungeonOdds.Inputs(
+    private func oakInputs(_ id: DungeonID, worn: [String: BattleForm]) -> OakDungeonOdds.Inputs {
+        OakDungeonOdds.Inputs(
             dex: state.dex, loops: state.dungeons.moveLoops, moves: state.dungeons.unlockedMoves,
             choices: state.dungeons.battleFormChoice, won: state.dungeons.battleForms, boss: challengeBoss(id), forms: worn,
-            bag: [ItemKind.oranBerry, .sitrusBerry, .revive, .maxRevive].map(itemCount))
+            bag: [ItemKind.oranBerry, .sitrusBerry, .revive, .maxRevive].map(itemCount), caught: state.dungeons.bossesCaught)
+    }
+
+    private func oakSearch(_ id: DungeonID) -> OakDungeonOdds? {
+        let inputs = oakInputs(id, worn: [:])
+        if let done = oakSearches[id], done.inputs == inputs { return done }
+        guard oakSearchTasks[id]?.inputs != inputs else { return nil }
+        let choice = composeChoice(for: id), search = oakComposeSearch
+        let task = Task { [weak self] in
+            let team = await BattleEngine.offMain { search(choice) }
+            guard let self, self.oakSearchTasks[id]?.inputs == inputs else { return }
+            let win = self.reachEstimate(team: team, for: id).map(self.oakWinOdds)
+            self.oakSearchTasks[id] = nil
+            self.oakSearches[id] = OakDungeonOdds(inputs: inputs, team: win == nil ? nil : team, win: win ?? 0)
+        }
+        oakSearchTasks[id] = (inputs, task)
+        return nil
+    }
+
+    private func oakOdds(_ id: DungeonID, forms: [OakBattleForm] = []) -> OakDungeonOdds? {
+        let worn = Dictionary(uniqueKeysWithValues: forms.map { ($0.entryID, $0.form) })
+        let inputs = oakInputs(id, worn: worn)
         if let cached = oakDungeonCache[id], cached.inputs == inputs { return cached }
         let team = composeTeam(for: id, forms: worn)
         let win = reachEstimate(team: team, for: id, forms: worn).map(oakWinOdds)

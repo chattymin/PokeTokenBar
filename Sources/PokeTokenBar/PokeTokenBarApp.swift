@@ -794,6 +794,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     /// overwrite a live token (#168). `start` is also idempotent if `didShow` fires twice.
     func popoverDidShow(_ notification: Notification) {
         startOutsideClickMonitor()
+        EditMenu.install(on: NSApp)   // SwiftUI replaces the main menu when the popover's content shows up
     }
 
     /// 팝오버가 닫히면 호스팅 컨트롤러 해제(숨은 트리 재레이아웃 비용 제거) + 메뉴바 애니메이션 재개.

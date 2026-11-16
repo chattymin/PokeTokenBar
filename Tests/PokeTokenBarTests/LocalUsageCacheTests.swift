@@ -733,7 +733,7 @@ final class LocalUsageCacheTests: XCTestCase {
         XCTAssertEqual(indexed, 3)
 
         try FileManager.default.removeItem(at: root.appendingPathComponent("rollout-alpha.jsonl"))
-        clock.advance(120)   // 저장 throttle(60초) 통과
+        clock.advance(LocalUsageCache.saveInterval + 60)   // 저장 throttle 통과
         _ = await cache.codexEntries(modifiedSince: orphanWindow)
 
         let afterDelete = await cache.codexSessionIndexCount()
@@ -789,7 +789,7 @@ final class LocalUsageCacheTests: XCTestCase {
         XCTAssertEqual(beforeRestore.map(\.total).sorted(), [220, 330], "부모가 없으면 시간 fallback")
 
         try writeReplayedParent(name: "rollout-real.jsonl")
-        clock.advance(120)
+        clock.advance(LocalUsageCache.saveInterval + 60)
 
         let afterRestore = await cache.codexEntries(modifiedSince: orphanWindow)
         XCTAssertEqual(afterRestore.map(\.total), [330], "복구된 부모를 다시 찾아야 한다")
@@ -855,8 +855,8 @@ final class LocalUsageCacheTests: XCTestCase {
         XCTAssertTrue(snap.contains("new.jsonl"))
     }
 
-    /// 저장 throttle: 60초 내 재저장은 생략, 60초 경과 후 저장된다 (주입 clock 으로 결정적).
-    func testSaveThrottle60s() async throws {
+    /// 저장 throttle: `saveInterval`(10분, #182) 내 재저장은 생략, 경과 후 저장된다 (주입 clock 으로 결정적).
+    func testSaveThrottle() async throws {
         nonisolated(unsafe) var fakeNow = Date(timeIntervalSince1970: 1_700_000_000)
         let cache = makeCache(now: { fakeNow })
 
@@ -864,13 +864,13 @@ final class LocalUsageCacheTests: XCTestCase {
         _ = await cache.claudeEntries(modifiedSince: since)   // 첫 저장
         let firstSnap = try Data(contentsOf: cacheFile)
 
-        // 30초 뒤 파일 변경 → dirty 지만 throttle 로 저장 생략
-        fakeNow = fakeNow.addingTimeInterval(30)
+        // 9분 뒤 파일 변경 → dirty 지만 throttle 로 저장 생략 (1분 throttle 이었다면 저장됐다)
+        fakeNow = fakeNow.addingTimeInterval(540)
         try writeFile("a.jsonl", lines: [claudeLine(id: "1", output: 2)], mtime: fakeNow)
         _ = await cache.claudeEntries(modifiedSince: since)
-        XCTAssertEqual(try Data(contentsOf: cacheFile), firstSnap, "60초 내 재저장은 생략")
+        XCTAssertEqual(try Data(contentsOf: cacheFile), firstSnap, "saveInterval 내 재저장은 생략")
 
-        // 61초 경과 → 저장됨
+        // saveInterval 경과 → 저장됨
         fakeNow = fakeNow.addingTimeInterval(61)
         _ = await cache.claudeEntries(modifiedSince: since)
         XCTAssertNotEqual(try Data(contentsOf: cacheFile), firstSnap, "throttle 해제 후 저장")

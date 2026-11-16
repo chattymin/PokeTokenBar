@@ -100,6 +100,19 @@ final class OakAdviceTests: XCTestCase {
         XCTAssertEqual(try store(active: mon([172, 25, 26]), dex: line).activeVerdict, .costume)
     }
 
+    /// [Regression] A Pikachu from a Costume Egg wears its costume's form for good: no Raichu stage hides it, though
+    /// its line's form stays hidden until Raichu for any other Pikachu (`FormSuspense`). Its line graduated in both
+    /// forms, the costume it brings still keeps it.
+    func testACostumedPikachuHasNoFormToReveal() throws {
+        let line = [graduated([172, 25, 26], form: PokemonForm("normal")), graduated([172, 25, 26], form: PokemonForm("alola"))]
+        var pikachu = MonState(baseID: 172, pathIDs: [25], plannedPathIDs: [25, 26], stageIndex: 0, usedAtStage: 0,
+                               rarity: .common, totalForms: 2, form: PokemonForm("normal"))
+        pikachu.costume = "FEB_2019"
+        let s = try store(active: pikachu, dex: line) { $0.pikachuCostumes = Set(PikachuCostume.allCases) }
+        XCTAssertNil(s.formSuspense)
+        XCTAssertEqual(s.activeVerdict, .newCostume)
+    }
+
     /// A shiny Charmander whose line is graduated, none of it shiny: a Spare that brings its first shiny.
     func testAFirstShinyIsASpareToKeep() throws {
         XCTAssertEqual(try store(active: mon([4], shiny: true), dex: [graduated([4, 5, 6])]).activeVerdict, .shinyToKeep)
@@ -390,6 +403,35 @@ final class OakAdviceTests: XCTestCase {
         XCTAssertEqual(finishing.candiesToGive, 3)
     }
 
+    /// [Regression] A Squirtle from a Costume Egg, its line graduated, its costume missing from the collection: it brings
+    /// a costume (`ActiveNews.newCostume`), so it is no Spare. Kept rather than sent off for the Bag's Fossil Egg, its Rare
+    /// Candies given. Once a graduated Squirtle wears that costume, it is a Spare again.
+    func testACostumeTheCollectionLacksIsKept() async throws {
+        func hatchedInCostume(dressed: Bool) async throws -> CompanionStore {
+            var squirtle = graduated([7, 8, 9])
+            squirtle.costume = "SUMMER_2018"
+            let s = try store(active: nil, dex: ([[16, 17, 18]] + mostLines).map { graduated($0) } + (dressed ? [squirtle] : []),
+                              inventory: [.fossilEgg: 1], index: releaseIndex, difficulty: 1) { st in
+                st.claimedEventEggs = ["summer@2026"]
+                st.eggFromCostume = CostumeEgg(id: "summer-7", code: "SUMMER_2018", speciesID: 7, form: nil, month: 8)
+            }
+            await s.hatch(baseID: 7)
+            await s.loadHatchIndex()
+            giveCandies(s, 3)
+            return s
+        }
+        let kept = try await hatchedInCostume(dressed: false)
+        XCTAssertEqual(kept.state.active?.costume, "SUMMER_2018")
+        XCTAssertEqual(kept.activeVerdict, .newCostume)
+        XCTAssertNil(kept.oakRelease)
+        XCTAssertEqual(kept.oakSteps.first, .raise)
+        XCTAssertEqual(kept.candiesToGive, 3)
+        let spare = try await hatchedInCostume(dressed: true)
+        XCTAssertEqual(spare.activeVerdict, .spare)
+        XCTAssertEqual(spare.oakRelease, .bag(.fossilEgg, odds: 1))
+        XCTAssertEqual(spare.candiesToGive, 0)
+    }
+
     /// The wait for the balance, at the player's pace (`UsageStore.dailyPace`): 300 M at 600 M a day, half a day.
     func testTheWaitForTheBalanceGoesAtThePlayersPace() throws {
         let s = try store(active: nil, dex: [])
@@ -510,6 +552,10 @@ final class OakAdviceTests: XCTestCase {
         XCTAssertEqual(fossil, 3, "a Fossil Egg brings Kabuto")
         let birthday = try await buyAhead { $0.eggFromBirthdayEgg = true }
         XCTAssertEqual(birthday, 3, "a Birthday Egg, no legendary to draw")
+        let costume = try await buyAhead {
+            $0.eggFromCostume = CostumeEgg(id: "summer-7", code: "SUMMER_2018", speciesID: 7, form: nil, month: 8)
+        }
+        XCTAssertEqual(costume, 3, "a Costume Egg brings its costumed Squirtle")
     }
 
     /// The Rare Candies the balance buys go to the Pokémon raised as well. Caterpie graduated, the Rare+ Egg brings

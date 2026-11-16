@@ -27,7 +27,9 @@ extension CompanionStore {
     /// give chase. They take the item as they come (the owner, 2026-11-10: else no one would fight them) and thefts add
     /// up, hideouts open or not; the team is the one of the item's tier, so a team only comes for what it is after, and
     /// none comes once nothing is left to take.
-    func settleVillainAmbush() {
+    /// `runLoot`: what an expedition just brought back (the owner, 2026-11-16): the day's thieves due at the team's
+    /// return strike at once and take from it (`VillainRules.target(fromRun:)`), before it can be used.
+    func settleVillainAmbush(runLoot: ExpeditionLoot? = nil) {
         let day = challengePeriod(.daily)
         guard state.dungeons.villainDay != day else { return }
         if state.dungeons.villainWaiting == nil {
@@ -52,7 +54,7 @@ extension CompanionStore {
         }
         var random = VillainRules.random(day + ":target")
         let bag = Dictionary(uniqueKeysWithValues: ItemKind.allCases.map { ($0, itemCount($0)) })
-        guard let target = VillainRules.target(bag, random: &random),
+        guard let target = runLoot.flatMap({ VillainRules.target(fromRun: $0, bag: bag) }) ?? VillainRules.target(bag, random: &random),
               let tier = VillainRules.tier(of: target.kind) else {
             persist()
             return
@@ -76,15 +78,68 @@ extension CompanionStore {
         persist()
     }
 
-    /// Who gives chase: Mon équipe, else the six strongest graduated Pokémon.
-    var ambushDefenders: [DexEntry] {
+    /// Gives up what a team took (the owner, 2026-11-16): gone for good, its thefts still waiting settled with it; the
+    /// hideout closes once nothing is left. An artifact is never given up (`VillainRules.canAbandon`). Returns whether
+    /// anything was given up.
+    @discardableResult
+    func abandonStolen(_ team: VillainTeam) -> Bool {
+        guard let stash = villainStash(team) else { return false }
+        let given = stash.items.filter { key, count in count > 0 && ItemKind(rawValue: key).map(VillainRules.canAbandon) ?? true }
+        guard !given.isEmpty else { return false }
+        changeDungeons { progress in
+            guard let i = progress.stashes.firstIndex(where: { $0.team == team }) else { return }
+            for key in given.keys { progress.stashes[i].items[key] = nil }
+            progress.ambushes.removeAll { $0.team == team && $0.won == nil && given[$0.item] != nil }
+            if progress.stashes[i].items.isEmpty { progress.stashes.remove(at: i) }
+        }
+        AppLog.write("villains: \(team.rawValue) keeps \(given.keys.sorted()), given up")
+        persist()
+        return true
+    }
+
+    /// Who gives chase: Mon équipe when it is set; else the team that wins this chase most (the owner, 2026-11-16:
+    /// beaten by Team Skull with the six highest base stats, two Slaking and Regigigas among them, Truant and Slow Start
+    /// holding them back). Teams made against its three Pokémon, each species once (by matchup, by strength, and
+    /// between), each played on the chase's own seeds; the first on a tie.
+    func ambushDefenders(for ambush: VillainAmbush) -> [BattlerSpec] {
+        let targets = (theme: ambush.team.themeTypes, bosses: ambush.grunts.map { PokemonTypeData.types(forSpeciesID: $0) })
         let candidates = dungeonCandidates
         let saved = state.dungeons.savedTeam.compactMap { id in candidates.first { $0.id == id } }
-        if !saved.isEmpty { return saved }
-        func total(_ entry: DexEntry) -> Int {
-            SpeciesBattleTable.data(speciesID: entry.finalID, form: entry.form)?.baseStats.reduce(0, +) ?? 0
+        if !saved.isEmpty { return saved.compactMap { dungeonSpec($0, for: nil, targets: targets) } }
+        let foes = VillainRules.gruntSpecs(ambush.grunts, tier: ambush.tier, seed: ambush.seed)
+        let pool = candidates.compactMap { dungeonSpec($0, for: nil, targets: targets) }
+        guard !foes.isEmpty, !pool.isEmpty else { return [] }
+        let against = pool.map { spec in foes.reduce(0) { $0 + BattleMatchup.score(spec, against: $1) } / Double(foes.count) }
+        let power = pool.map { spec in
+            let s = spec.stats
+            return Double(s.hp + s.attack + s.defense + s.specialAttack + s.specialDefense + s.speed) / 600
         }
-        return Array(candidates.sorted { total($0) > total($1) }.prefix(6))
+        func team(_ score: [Double]) -> [BattlerSpec] {
+            var picked: [BattlerSpec] = []
+            for i in pool.indices.sorted(by: { (score[$0], pool[$0].id) > (score[$1], pool[$1].id) })
+            where picked.count < 6 && !picked.contains(where: { $0.speciesID == pool[i].speciesID }) {
+                picked.append(pool[i])
+            }
+            return picked
+        }
+        var teams: [[BattlerSpec]] = []
+        for score in [against, power, pool.indices.map { against[$0] + power[$0] }] {
+            let t = team(score)
+            if !teams.contains(where: { $0.map(\.id) == t.map(\.id) }) { teams.append(t) }
+        }
+        func wins(_ mine: [BattlerSpec]) -> Int {
+            (0..<16).reduce(0) { total, run in
+                let setup = BattleSetup(sides: [BattleSideSpec(battlers: mine, active: 1), BattleSideSpec(battlers: foes, active: 1)],
+                                        seed: ambush.seed &+ 1 &+ UInt64(run) &* 7919)
+                return total + (BattleEngine.run(setup).winner == 0 ? 1 : 0)
+            }
+        }
+        var best: (team: [BattlerSpec], wins: Int)?
+        for candidate in teams {
+            let won = wins(candidate)
+            if best.map({ won > $0.wins }) ?? true { best = (candidate, won) }
+        }
+        return best?.team ?? []
     }
 
     /// The chase, one against one as in the dungeons: won, the item comes back from the hideout and the team flies off;
@@ -94,8 +149,7 @@ extension CompanionStore {
         guard let index = state.dungeons.ambushes.firstIndex(where: { $0.id == id }), expedition == nil else { return nil }
         var ambush = state.dungeons.ambushes[index]
         guard ambush.won == nil, let kind = ambush.kind else { return nil }
-        let targets = (theme: ambush.team.themeTypes, bosses: ambush.grunts.map { PokemonTypeData.types(forSpeciesID: $0) })
-        let mine = ambushDefenders.compactMap { dungeonSpec($0, for: nil, targets: targets) }
+        let mine = ambushDefenders(for: ambush)
         let foes = VillainRules.gruntSpecs(ambush.grunts, tier: ambush.tier, seed: ambush.seed)
         guard !mine.isEmpty, !foes.isEmpty else { return nil }
         let setup = BattleSetup(sides: [BattleSideSpec(battlers: mine, active: 1), BattleSideSpec(battlers: foes, active: 1)],

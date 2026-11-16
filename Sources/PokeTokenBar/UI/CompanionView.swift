@@ -1458,7 +1458,8 @@ struct CollectionView: View {
                 // Back to the log would leave it for the next switch to the grid.
                 if !nav.showingCollectionLog { dexReturnAnchor = id }
                 nav.dexDetailCollectionID = nil
-            }, initialForm: nav.dexDetailForm, onOpenDexPage: { page, current in nav.openDexPage(page, from: current) })
+            }, initialForm: nav.dexDetailForm, onOpenDexPage: { page, current in nav.openDexPage(page, from: current) },
+               onOpenCostumes: { nav.showingCostumes = true })
                 .id("\(species.collectionID)-\(nav.dexDetailForm?.rawValue ?? "")")
                 .frame(height: Self.contentHeight)
         } else {
@@ -2366,19 +2367,27 @@ struct PokemonDetailView: View {
     /// The slot of the dungeon loop being changed (`LoopEditor`).
     @State private var editingLoopSlot: Int?
     @State private var selectedShiny: Bool?
+    /// The look the header shows, picked among the costumes (`CostumeEntry.key`, `plainLook` for none); nil shows the
+    /// individual's own.
+    @State private var shownCostume: String?
+    private static let plainLook = ""
 
     /// Opens another page of the family (the target, then this page as it is shown, for Back).
     private let onOpenDexPage: ((PopoverNavigation.DexPage, PopoverNavigation.DexPage) -> Void)?
+    /// Opens the costumed collection.
+    private let onOpenCostumes: (() -> Void)?
 
     init(store: CompanionStore, species: CompanionStore.DexSpecies,
          onBack: @escaping () -> Void, selectedShiny: Bool? = nil,
          spriteStore: SpriteStore = .shared, initialForm: PokemonForm? = nil,
-         onOpenDexPage: ((PopoverNavigation.DexPage, PopoverNavigation.DexPage) -> Void)? = nil) {
+         onOpenDexPage: ((PopoverNavigation.DexPage, PopoverNavigation.DexPage) -> Void)? = nil,
+         onOpenCostumes: (() -> Void)? = nil) {
         self.store = store
         self.species = species
         self.onBack = onBack
         self.spriteStore = spriteStore
         self.onOpenDexPage = onOpenDexPage
+        self.onOpenCostumes = onOpenCostumes
         _selectedShiny = State(initialValue: selectedShiny)
         // A family page opens in the form it was seen in, when this species was caught in it (`displayedSpecies`).
         _selectedForm = State(initialValue: initialForm.flatMap { PokemonForm.resolved(speciesID: species.id, form: $0) })
@@ -2434,6 +2443,7 @@ struct PokemonDetailView: View {
                     if displayedSpecies.isShiny { appearancePicker }
                     identityHeader
                     if individuals.count > 1 { individualPicker }
+                    if !speciesCostumes.isEmpty { costumeSection }
                     if individuals.isEmpty {
                         Text(store.l.dexAppearancePreview).font(.callout).foregroundStyle(.secondary)
                     }
@@ -2674,7 +2684,7 @@ struct PokemonDetailView: View {
         return VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 14) {
                 SpriteView(speciesID: species.id, size: 96, animated: true,
-                           shiny: displayedShiny, spriteStore: spriteStore, form: species.form, bottomAligned: true)
+                           shiny: headerLook.shiny, spriteStore: spriteStore, form: headerLook.form, bottomAligned: true)
                     .frame(width: 100, height: 100)
                     .background(alignment: .bottom) {
                         Ellipse().fill(Color.black.opacity(0.18)).frame(width: 60, height: 10).blur(radius: 2)
@@ -2712,6 +2722,100 @@ struct PokemonDetailView: View {
         .heroCard(colors: typeColors.isEmpty ? [.gray] : Array(typeColors), legendary: species.rarity == .legendary)
     }
 
+    // MARK: Costumes (the owner, 2026-11-16: "sur la fiche d'un pokémon tous ses costumes")
+
+    /// The costumes of Pokémon GO this species wears in the form shown (`CostumeCatalog`), in the catalog's order.
+    private var speciesCostumes: [CostumeEntry] {
+        let form = displayedSpecies.form
+        return CostumeCatalog.entries.filter {
+            $0.speciesID == species.id && CostumeCatalog.entry(code: $0.code, speciesID: species.id, form: form) == $0
+        }
+    }
+
+    /// The header's look: a costume picked below, else the individual's costume at this species, else the form.
+    private var headerLook: (form: PokemonForm?, shiny: Bool) {
+        let form = displayedSpecies.form
+        switch shownCostume {
+        case Self.plainLook?: return (form, displayedShiny)
+        case let key?:
+            // A costume of another form picked before the form changed: the individual's look.
+            guard let entry = CostumeCatalog.byKey[key], speciesCostumes.contains(entry) else { return (form, displayedShiny) }
+            return (entry.displayForm, displayedShiny && store.ownedCostumeKeys().shiny.contains(key))
+        case nil:
+            guard let individual, individual.costume != nil else { return (form, displayedShiny) }
+            return (individual.spriteForm(at: species.id), displayedShiny)
+        }
+    }
+
+    /// Every costume of the species, those collected in color and the others as silhouettes; one collected shows in the
+    /// header, on the individual wearing it when there is one.
+    private var costumeSection: some View {
+        let l = store.l
+        let owned = store.ownedCostumeKeys()
+        let costumes = speciesCostumes
+        let have = costumes.filter { owned.all.contains($0.key) }.count
+        let worn = individual.flatMap { $0.costume == nil ? nil : CostumeCatalog.entry(code: $0.costume!, speciesID: species.id, form: $0.form)?.key }
+        let current = shownCostume ?? worn ?? Self.plainLook
+        return VStack(alignment: .leading, spacing: 7) {
+            HStack(spacing: 6) {
+                Label(l.costumesTitle.uppercased(), systemImage: "theatermasks.fill")
+                    .font(.system(size: 10, weight: .bold, design: .rounded)).tracking(0.6).foregroundStyle(.secondary)
+                Text(l.costumesOfSpecies(have, of: costumes.count)).font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                Spacer(minLength: 4)
+                if let onOpenCostumes {
+                    Button(l.costumesSeeAll, action: onOpenCostumes)
+                        .buttonStyle(.borderless).controlSize(.small).font(.caption.weight(.semibold))
+                }
+            }
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 54, maximum: 64), spacing: 4)], alignment: .leading, spacing: 4) {
+                costumeCell(key: Self.plainLook, form: displayedSpecies.form, label: l.costumePlainLook,
+                            owned: true, shiny: false, selected: current == Self.plainLook, hint: l.costumePlainLook)
+                ForEach(costumes, id: \.key) { entry in
+                    let isOwned = owned.all.contains(entry.key)
+                    costumeCell(key: entry.key, form: entry.displayForm, label: l.monthName(entry.month), owned: isOwned,
+                                shiny: displayedShiny && owned.shiny.contains(entry.key), selected: current == entry.key,
+                                hint: l.costumeCellHint(month: entry.month, owned: isOwned))
+                }
+            }
+            if have == 0 {
+                Text(l.costumesSpeciesHint).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .detailCard()
+    }
+
+    private func costumeCell(key: String, form: PokemonForm?, label: String, owned: Bool, shiny: Bool, selected: Bool,
+                             hint: String) -> some View {
+        Button {
+            shownCostume = key
+            // The individual wearing it, when one was caught in it.
+            if let entry = CostumeCatalog.byKey[key], let wearer = individuals.first(where: { $0.costume == entry.code }) {
+                selectedInstanceID = wearer.id
+            }
+        } label: {
+            VStack(spacing: 1) {
+                // One species: each costume fills its cell, an Eevee as big as a Snorlax.
+                SpriteView(speciesID: species.id, size: 40, shiny: shiny, spriteStore: spriteStore, form: form,
+                           isSilhouette: !owned)
+                    .frame(width: 42, height: 42)
+                Text(label).font(.system(size: 9, weight: .semibold)).lineLimit(1).minimumScaleFactor(0.7)
+                    .padding(.horizontal, 2)
+            }
+            .opacity(owned ? 1 : 0.45)
+            .padding(.vertical, 3)
+            .frame(maxWidth: .infinity)
+            .background(RoundedRectangle(cornerRadius: 8).fill(Color.primary.opacity(0.05)))
+            .overlay {
+                if selected { RoundedRectangle(cornerRadius: 8).strokeBorder(Color.accentColor, lineWidth: 1.5) }
+            }
+        }
+        .buttonStyle(.plain)
+        .disabled(!owned)
+        .hoverTip(hint)
+        .accessibilityLabel(hint)
+        .accessibilityAddTraits(selected ? .isSelected : [])
+    }
+
     /// What the species evolves from and into, under its identity like the line on Home's card. A caught one opens
     /// its page in the same form, and Back comes back here; one not caught is a silhouette.
     @ViewBuilder
@@ -2742,7 +2846,7 @@ struct PokemonDetailView: View {
 
     private var individualPicker: some View {
         Picker(store.l.pokemonIndividual, selection: Binding(
-            get: { individual?.id ?? "" }, set: { selectedInstanceID = $0 })) {
+            get: { individual?.id ?? "" }, set: { selectedInstanceID = $0; shownCostume = nil })) {
             ForEach(Array(individuals.enumerated()), id: \.element.id) { index, entry in
                 Text(individualLabel(entry, index: index)).tag(entry.id)
             }
@@ -2756,7 +2860,9 @@ struct PokemonDetailView: View {
             $0.formatted(Date.FormatStyle(date: .numeric, time: .omitted)
                 .locale(Locale(identifier: store.language.rawValue)))
         } ?? (store.isActiveDexEntry(entry) ? store.l.dexRaising : "-")
-        return "#\(index + 1) · \(appearance) · Lv. \(entry.profile?.level ?? 5) · \(date)"
+        let costume = entry.costume.flatMap { CostumeCatalog.entry(code: $0, speciesID: species.id, form: entry.form) }
+            .map { " · 🎭 \(store.l.monthName($0.month))" } ?? ""
+        return "#\(index + 1) · \(appearance)\(costume) · Lv. \(entry.profile?.level ?? 5) · \(date)"
     }
 
     private func individualSection(entry: DexEntry, profile: PokemonProfile,

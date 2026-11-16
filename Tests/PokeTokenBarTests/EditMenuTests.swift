@@ -49,4 +49,23 @@ final class EditMenuTests: XCTestCase {
         XCTAssertTrue(editor.tryToPerform(try XCTUnwrap(commandV?.action), with: commandV))
         XCTAssertEqual(editor.string, "sk-ant-sid01-test")
     }
+
+    /// SwiftUI swaps the app's main menu for its own, without Paste, once the popover's content shows up.
+    func testThePopoverShowingBringsPasteBack() throws {
+        let app = NSApplication.shared
+        let previous = app.mainMenu
+        defer { app.mainMenu = previous }
+        let view = NSMenuItem(title: "View", action: nil, keyEquivalent: "")
+        view.submenu = NSMenu(title: "View")
+        view.submenu?.addItem(withTitle: "Enter Full Screen", action: #selector(NSWindow.toggleFullScreen(_:)), keyEquivalent: "f")
+        let swiftUIMenu = NSMenu(title: "Main")
+        swiftUIMenu.addItem(view)
+        app.mainMenu = swiftUIMenu
+
+        AppDelegate().popoverDidShow(Notification(name: NSPopover.didShowNotification))
+
+        let items = app.mainMenu?.items.flatMap { $0.submenu?.items ?? [] } ?? []
+        XCTAssertEqual(items.first { $0.keyEquivalent == "v" && $0.keyEquivalentModifierMask == .command }?.action,
+                       #selector(NSText.paste(_:)))
+    }
 }
