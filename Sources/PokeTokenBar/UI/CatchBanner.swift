@@ -103,6 +103,8 @@ struct CatchBanner: View {
                 }
                 Spacer(minLength: 0)
             }
+            // What its graduation will advance, as Home shows it (the owner, 2026-11-16: missing from the image).
+            ActiveGoalsList(store: store)
             HStack(spacing: 6) {
                 Text(info.dexLine)
                 Spacer(minLength: 4)

@@ -67,6 +67,14 @@ enum Changelog {
 
     static let days: [ChangelogDay] = [
         ChangelogDay(date: "2026-11-16", entries: [
+            .improved("2026-11-16-catch-image-goals", { $0.t("포켓몬 캡처 이미지에 졸업하면 진행되는 업적 목록도 들어가요.",
+                                                         "The image of the Pokémon raised now lists the achievements its graduation will advance.",
+                                                         "育てているポケモンの画像に、卒業で進む実績の一覧も入ります。",
+                                                         "La imagen del Pokémon que crías muestra ahora los logros que su graduación hará avanzar.",
+                                                         "L'image du Pokémon en cours montre maintenant les succès que son diplôme fera avancer.",
+                                                         "A imagem do Pokémon que você cria mostra agora as conquistas que a formatura vai avançar.",
+                                                         "Das Bild des aufgezogenen Pokémon zeigt jetzt die Erfolge, die sein Abschluss voranbringt.",
+                                                         "Картинка выращиваемого покемона теперь показывает достижения, которые продвинет его выпуск.") }),
             .fixed("2026-11-16-chase-team", { $0.t("내 팀이 없으면, 악당을 뒤쫓는 팀은 그들의 포켓몬 3마리를 가장 잘 이기는 팀이에요(같은 종은 한 번만). 전에는 기본 능력치가 가장 높은 6마리였어요.",
                                                   "Without My Team set, the chase now takes the team that best beats their three Pokémon, each species once. It took the six highest base stats before.",
                                                   "マイチームがないとき、追いかけるチームは相手の3匹にいちばん勝てるチームになりました（同じ種類は1匹まで）。前は種族値がいちばん高い6匹でした。",
