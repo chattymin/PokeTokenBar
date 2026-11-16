@@ -755,6 +755,12 @@ struct CompanionHeader: View {
                             Badge(store.l.rarityLabel(r).uppercased(), tint: .rarity(r))
                         }
                     }
+                    // On its own line, for an egg and for a growing Pokémon alike: the incense waits for
+                    // the next hatch, which may be several evolutions away.
+                    if let incense = store.burningIncense {
+                        Badge(store.l.incenseBurning(incense), tint: .orange, style: .tinted)
+                            .fixedSize()
+                    }
                     if store.hasActive, let id = store.currentSpeciesID, let details = store.pokemonDetailsByID[id] {
                         TypeBadges(types: details.types, language: store.language)
                         if !PokemonForm.isDefault(store.currentForm, speciesID: id) {

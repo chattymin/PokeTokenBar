@@ -1837,7 +1837,68 @@ struct L {
         case .rareCandy: return t("이상한 사탕", "Rare Candy", "ふしぎなアメ", "Caramelo Raro", "Super Bonbon", "Doce Raro", "Sonderbonbon", "Редкая конфета")
         case .mint:      return t("민트", "Mint", "ミント", "Menta", "Menthe", "Menta", "Minze", "Мята")
         case .shinyCharm: return t("이로치 부적", "Shiny Charm", "ひかるおまもり", "Amuleto Iris", "Charme Chroma", "Amuleto Shiny", "Schillerpin", "Шайни-талисман")
+        case .kantoIncense: return incenseName(.kanto)
+        case .johtoIncense: return incenseName(.johto)
+        case .hoennIncense: return incenseName(.hoenn)
+        case .sinnohIncense: return incenseName(.sinnoh)
+        case .unovaIncense: return incenseName(.unova)
         }
+    }
+    /// A Regional Incense is named after its region. The sprites are borrowed from canon incenses, whose
+    /// own names mean something else to players (Luck Incense = Happiny), so those names never appear.
+    func incenseName(_ region: PokedexRegion) -> String {
+        let r = regionName(region)
+        return t("\(r) 향로", "\(r) Incense", "\(r)のおこう", "Incienso de \(r)", "Encens de \(r)", "Incenso de \(r)", "\(r)-Rauch", "Благовоние региона \(r)")
+    }
+    func incenseDescription(_ region: PokedexRegion) -> String {
+        let r = regionName(region)
+        let p = RegionalIncense.inRegionSharePercent   // from the constant, so the shop cannot drift from the roll
+        return t("피우면 다음 부화에서 \(p)% 확률로 \(r)지방 포켓몬이 태어나요.",
+                 "Burn it to give your next hatch a \(p)% chance of being a Pokémon from \(r).",
+                 "たくと、次の孵化で\(p)%の確率で\(r)地方のポケモンが生まれます。",
+                 "Quémalo para que tu próxima eclosión tenga un \(p) % de probabilidad de ser un Pokémon de \(r).",
+                 "Brûle-le pour que ta prochaine éclosion ait \(p) % de chances de donner un Pokémon de \(r).",
+                 "Queime-o para que o próximo ovo tenha \(p)% de chance de chocar um Pokémon de \(r).",
+                 "Verbrenne ihn, damit beim nächsten Schlüpfen mit \(p) % Wahrscheinlichkeit ein Pokémon aus \(r) schlüpft.",
+                 "Зажгите, и из следующего яйца с шансом \(p)% вылупится покемон из региона \(r).")
+    }
+    /// Bag effect hint, in the slot where Rare Candy shows "+XP".
+    func incenseEffectHint(_ region: PokedexRegion) -> String {
+        let r = regionName(region)
+        let p = RegionalIncense.inRegionSharePercent
+        return t("다음 부화 \(r) \(p)%", "Next hatch: \(p)% \(r)", "次の孵化 \(r) \(p)%", "Próxima eclosión: \(p) % \(r)", "Prochaine éclosion : \(p) % \(r)", "Próxima eclosão: \(p)% \(r)", "Nächstes Schlüpfen: \(p) % \(r)", "Следующее яйцо: \(p)% \(r)")
+    }
+    var incenseUseConfirm: String { t("다음 부화를 위해 피울까요?", "Burn it for your next hatch?", "次の孵化のためにたきますか？", "¿Quemarlo para tu próxima eclosión?", "Le brûler pour ta prochaine éclosion ?", "Queimar para a próxima eclosão?", "Für das nächste Schlüpfen verbrennen?", "Зажечь для следующего яйца?") }
+    /// Home badge while an incense waits for the next hatch.
+    func incenseBurning(_ region: PokedexRegion) -> String {
+        let n = incenseName(region)
+        return t("\(n) 피우는 중", "\(n) burning", "\(n)使用中", "\(n) encendido", "\(n) allumé", "\(n) aceso", "\(n) brennt", "\(n) горит")
+    }
+    /// Why the Bag will not burn a second incense: `region` is the one already burning.
+    func incenseAlreadyBurning(_ region: PokedexRegion) -> String {
+        let n = incenseName(region)
+        return t("\(n)를 이미 피우고 있어요. 다음 부화 때 소모돼요.",
+                 "\(n) is already burning. It is used up at your next hatch.",
+                 "\(n)をすでにたいています。次の孵化で消費されます。",
+                 "\(n) ya está encendido. Se consume en tu próxima eclosión.",
+                 "\(n) brûle déjà. Il sera consommé à ta prochaine éclosion.",
+                 "\(n) já está aceso. Ele é consumido na próxima eclosão.",
+                 "\(n) brennt bereits. Er wird beim nächsten Schlüpfen verbraucht.",
+                 "\(n) уже горит. Оно израсходуется, когда вылупится следующее яйцо.")
+    }
+    var notifIncenseKeptTitle: String { t("향로가 아직 타고 있어요", "Incense still burning", "おこうはまだ残っています", "El incienso sigue encendido", "L'encens brûle encore", "O incenso continua aceso", "Der Rauch brennt weiter", "Благовоние ещё горит") }
+    /// Sent when a hatch could not be biased because no candidate was in the region.
+    func notifIncenseKeptBody(_ region: PokedexRegion) -> String {
+        let r = regionName(region)
+        let n = incenseName(region)
+        return t("이번에는 \(r)지방 포켓몬이 태어날 수 없어서 \(n)는 소모되지 않았어요.",
+                 "No Pokémon from \(r) could hatch this time, so your \(n) was not used up.",
+                 "今回は\(r)地方のポケモンが生まれなかったため、\(n)は消費されませんでした。",
+                 "Esta vez no podía nacer ningún Pokémon de \(r), así que tu \(n) no se ha consumido.",
+                 "Aucun Pokémon de \(r) ne pouvait éclore cette fois : ton \(n) n'a pas été consommé.",
+                 "Desta vez nenhum Pokémon de \(r) podia chocar, então seu \(n) não foi consumido.",
+                 "Diesmal konnte kein Pokémon aus \(r) schlüpfen, daher wurde dein \(n) nicht verbraucht.",
+                 "В этот раз покемон из региона \(r) вылупиться не мог, поэтому \(n) не израсходовано.")
     }
     func itemDescription(_ kind: ItemKind) -> String {
         switch kind {
@@ -1869,6 +1930,11 @@ struct L {
                      "Enquanto estiver na sua bolsa, aumenta a chance de nascer um Pokémon shiny.",
                      "Erhöht im Beutel die Chance, dass ein schillerndes Pokémon schlüpft.",
                      "Пока он у вас, повышает шанс, что вылупится шайни.")
+        case .kantoIncense: return incenseDescription(.kanto)
+        case .johtoIncense: return incenseDescription(.johto)
+        case .hoennIncense: return incenseDescription(.hoenn)
+        case .sinnohIncense: return incenseDescription(.sinnoh)
+        case .unovaIncense: return incenseDescription(.unova)
         }
     }
     /// 가방 사용 컨트롤의 효과 힌트 — 민트("성격 랜덤 변경", 사탕의 "+XP" 자리).

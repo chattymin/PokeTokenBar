@@ -107,6 +107,8 @@ private struct ItemCard: View {
         case .rareCandy: return store.canUseRareCandy
         case .mint:      return store.canUseMint
         case .shinyCharm: return false   // 보유형 — 사용 개념 없음(상시 효과)
+        case .kantoIncense, .johtoIncense, .hoennIncense, .sinnohIncense, .unovaIncense:
+            return store.canUseIncense(kind)   // egg or Pokémon alike; blocked only while one burns
         }
     }
     /// 사용 컨트롤 효과 힌트 ("+XP" / "성격 랜덤 변경").
@@ -115,13 +117,27 @@ private struct ItemCard: View {
         case .rareCandy: return "+\(TokenFormatter.compact(selectedCandyCount * RareCandy.xp)) XP"
         case .mint:      return l.mintEffectHint
         case .shinyCharm: return l.shinyCharmEffectHint
+        case .kantoIncense, .johtoIncense, .hoennIncense, .sinnohIncense, .unovaIncense:
+            return kind.incenseRegion.map(l.incenseEffectHint) ?? ""
         }
+    }
+    /// Confirm line: an incense is burned for the next hatch, not used on the current Pokémon.
+    private func confirmText(_ l: L) -> String {
+        kind.incenseRegion == nil ? l.useOnCurrent(store.displayName) : l.incenseUseConfirm
+    }
+    /// Why the item cannot be used now.
+    private func blockedReason(_ l: L) -> String {
+        if kind.incenseRegion != nil, let burning = store.burningIncense { return l.incenseAlreadyBurning(burning) }
+        // 알(부화 전)/활성 없음/(사탕만)라인 미로딩
+        return store.isEgg ? l.useAfterHatch : l.useNeedsPokemon
     }
     private func performUse() {
         switch kind {
         case .rareCandy: _ = store.useRareCandy(count: selectedCandyCount)
         case .mint:      _ = store.useMint()
         case .shinyCharm: break   // 보유형 — 사용 동작 없음
+        case .kantoIncense, .johtoIncense, .hoennIncense, .sinnohIncense, .unovaIncense:
+            _ = store.useIncense(kind)
         }
     }
 
@@ -137,7 +153,7 @@ private struct ItemCard: View {
         } else if canUse {
             if confirming {
                 HStack(spacing: 8) {
-                    Text(l.useOnCurrent(store.displayName))
+                    Text(confirmText(l))
                         .font(.caption2).foregroundStyle(.secondary).lineLimit(1)
                     Spacer()
                     Button(kind == .rareCandy ? "\(l.use) ×\(selectedCandyCount)" : l.use) { useNow() }
@@ -155,9 +171,10 @@ private struct ItemCard: View {
                 }
             }
         } else {
-            // 알(부화 전)/활성 없음/(사탕만)라인 미로딩 — 비활성 + 사유
-            Text(store.isEgg ? l.useAfterHatch : l.useNeedsPokemon)
+            // 비활성 + 사유
+            Text(blockedReason(l))
                 .font(.caption2).foregroundStyle(.tertiary)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 

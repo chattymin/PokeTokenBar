@@ -194,7 +194,9 @@ final class ShopTests: XCTestCase {
     /// 상점 목록은 가격 오름차순(민트 100M < 사탕 500M < 이로치 부적 3B).
     func testItemsSortedByPriceAscending() {
         let items = store(used: 0).purchasableItems
-        XCTAssertEqual(items, [.mint, .rareCandy, .shinyCharm])
+        XCTAssertEqual(items, [.mint, .rareCandy,
+                               .kantoIncense, .johtoIncense, .hoennIncense, .sinnohIncense, .unovaIncense,
+                               .shinyCharm])
         let prices = items.compactMap(\.shopPrice)
         XCTAssertEqual(prices, prices.sorted(), "shopPrice 오름차순 — 가격 상수가 바뀌어도 정렬 불변식 유지")
     }
@@ -229,6 +231,8 @@ final class ShopTests: XCTestCase {
         XCTAssertEqual(s.shopEntries,
                        [.item(.mint),        // 100M
                         .item(.rareCandy),   // 500M
+                        .item(.kantoIncense), .item(.johtoIncense), .item(.hoennIncense),   // 1B each
+                        .item(.sinnohIncense), .item(.unovaIncense),
                         .egg(nil),           // 1B
                         .egg(.uncommon),     // 2.5B
                         .item(.shinyCharm),  // 3B
@@ -246,6 +250,8 @@ final class ShopTests: XCTestCase {
         XCTAssertEqual(s.shopEntries,
                        [.item(.mint),        // 100M
                         .item(.rareCandy),   // 500M
+                        .item(.kantoIncense), .item(.johtoIncense), .item(.hoennIncense),   // 1B each
+                        .item(.sinnohIncense), .item(.unovaIncense),
                         .egg(nil),           // 1B
                         .egg(.uncommon),     // 2.5B
                         .item(.shinyCharm),  // 3B
