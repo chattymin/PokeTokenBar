@@ -1855,7 +1855,7 @@ struct L {
     func incenseDescription(_ region: PokedexRegion) -> String {
         let r = regionName(region)
         return t("피우면 다음 부화에서 \(r)지방 포켓몬이 태어날 확률이 올라가요.",
-                 "Burn it to make your next egg more likely to hatch a \(r) Pokémon.",
+                 "Raises the chance that your next hatch is from the \(r) region.",
                  "たくと、次の孵化で\(r)地方のポケモンが生まれる確率が上がります。",
                  "Quémalo para aumentar la probabilidad de que en tu próxima eclosión nazca un Pokémon de \(r).",
                  "Brûle-le pour augmenter les chances que ta prochaine éclosion donne un Pokémon de \(r).",
