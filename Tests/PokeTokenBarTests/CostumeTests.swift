@@ -1,3 +1,4 @@
+import AppKit
 import XCTest
 @testable import PokeTokenBar
 
@@ -85,6 +86,25 @@ final class CostumeTests: XCTestCase {
         XCTAssertEqual(PikachuCostume.displayForm(speciesID: 25, form: pikachu), pikachu, "never under the equipped cap")
     }
 
+    /// [Regression] The owner, 2026-11-16: Pokémon GO draws each Pokémon at its size on a 256 px canvas, and a costumed
+    /// Eevee took a fifth of its cell. A costume's still is cropped to the Pokémon with a margin; any other still stays.
+    func testACostumeStillIsCroppedToThePokemon() throws {
+        let canvas = NSImage(size: NSSize(width: 256, height: 256), flipped: false) { _ in
+            NSColor.systemOrange.setFill()
+            NSRect(x: 100, y: 20, width: 50, height: 60).fill()
+            return true
+        }
+        let costume = CostumeCatalog.displayForm(code: "NOVEMBER_2018", form: nil)
+        let cropped = SpriteLoader.still(canvas, form: costume)
+        // In the canvas's pixels, whatever the screen's scale.
+        let full = try XCTUnwrap(canvas.cgImage(forProposedRect: nil, context: nil, hints: nil)).width
+        let side = try XCTUnwrap(cropped.cgImage(forProposedRect: nil, context: nil, hints: nil)).width
+        XCTAssertEqual(Double(side) / Double(full), 60 * 1.24 / 256, accuracy: 0.02, "the Pokémon's long side and a margin, not the canvas")
+        XCTAssertTrue(SpriteLoader.still(canvas, form: nil) === canvas, "a PokéAPI still is drawn as it is")
+        XCTAssertTrue(SpriteLoader.still(canvas, form: PokemonForm("alola")) === canvas)
+    }
+
+    // MARK: The eggs
     // MARK: The eggs
 
     /// One every 300M tokens, of the day's month, the missing ones first.

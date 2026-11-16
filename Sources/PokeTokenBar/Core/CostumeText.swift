@@ -128,4 +128,34 @@ extension L {
         t("완성한 묶음 \(done)/12", "\(done)/12 lots complete", "完成した月 \(done)/12", "\(done)/12 lotes completos",
           "\(done)/12 lots complets", "\(done)/12 lotes completos", "\(done)/12 vollständig", "Полных наборов: \(done)/12")
     }
+
+    // MARK: A Pokémon's page (the owner, 2026-11-16: "sur la fiche d'un pokémon tous ses costumes")
+
+    var costumesSeeAll: String {
+        t("모두 보기", "See all", "すべて見る", "Ver todos", "Tout voir", "Ver todos", "Alle ansehen", "Все")
+    }
+    var costumePlainLook: String {
+        t("기본", "Usual", "ふだん", "Normal", "Sans", "Normal", "Normal", "Обычный")
+    }
+    func costumesOfSpecies(_ have: Int, of total: Int) -> String {
+        t("\(have)/\(total)", "\(have)/\(total)", "\(have)/\(total)", "\(have)/\(total)", "\(have)/\(total)", "\(have)/\(total)",
+          "\(have)/\(total)", "\(have)/\(total)")
+    }
+    /// The page's hint: where a costume comes from.
+    var costumesSpeciesHint: String {
+        t("코스튬은 그 달의 토큰으로 얻는 코스튬 알에서 나와요. 졸업하면 컬렉션에 들어가요.",
+          "A costume comes from a Costume Egg, earned with tokens in its month. It joins the collection when it graduates.",
+          "コスチュームは、その月のトークンでもらえるコスチュームのタマゴから生まれます。卒業するとコレクションに入ります。",
+          "Un disfraz sale de un Huevo disfrazado, ganado con tokens en su mes. Entra en la colección al graduarse.",
+          "Un costume sort d'un Œuf costumé, gagné avec les tokens de son mois. Il entre dans la collection à son diplôme.",
+          "Uma fantasia sai de um Ovo fantasiado, ganho com tokens no mês dela. Entra na coleção na formatura.",
+          "Ein Kostüm schlüpft aus einem Kostüm-Ei, das man mit Tokens in seinem Monat bekommt. Es kommt beim Abschluss in die Sammlung.",
+          "Костюм появляется из костюмного яйца, которое дают за токены в его месяц. В коллекцию он попадает после выпуска.")
+    }
+    /// A costume's tooltip: its month and event, and whether it is held.
+    func costumeCellHint(month: Int, owned: Bool) -> String {
+        let when = "\(monthName(month)) · \(costumeEventName(month))"
+        return owned ? when : t("\(when) · 아직 없음", "\(when) · not yet", "\(when) · まだ", "\(when) · todavía no", "\(when) · pas encore",
+                                "\(when) · ainda não", "\(when) · noch nicht", "\(when) · пока нет")
+    }
 }

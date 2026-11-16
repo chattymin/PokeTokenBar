@@ -67,6 +67,14 @@ enum Changelog {
 
     static let days: [ChangelogDay] = [
         ChangelogDay(date: "2026-11-16", entries: [
+            .new("2026-11-16-costumes-page", { $0.t("포켓몬 페이지에 그 종의 코스튬이 모두 나와요: 가진 것은 컬러로, 누르면 위에 보여요. 코스튬 포켓몬도 코스튬을 입은 채로 보이고, 더 이상 작게 보이지 않아요.",
+                                                     "A Pokémon's page lists all its species' costumes: those you have in color, shown on top with a click. A costumed Pokémon shows in its costume there, and costumes are no longer tiny.",
+                                                     "ポケモンのページに、その種のコスチュームがすべて並びます：持っているものはカラーで、押すと上に表示されます。コスチュームのポケモンはそのコスチュームで表示され、もう小さくなりません。",
+                                                     "La página de un Pokémon muestra todos los disfraces de su especie: los que tienes en color, arriba con un clic. Un Pokémon disfrazado se ve con su disfraz, y los disfraces ya no salen diminutos.",
+                                                     "La fiche d'un Pokémon montre tous les costumes de son espèce : ceux que tu as en couleur, affichés en haut d'un clic. Un Pokémon costumé y apparaît dans son costume, et les costumes ne sont plus minuscules.",
+                                                     "A página de um Pokémon mostra todas as fantasias da espécie: as que você tem em cores, exibidas no topo com um clique. Um Pokémon fantasiado aparece com a fantasia, e as fantasias não ficam mais minúsculas.",
+                                                     "Die Seite eines Pokémon zeigt alle Kostüme seiner Art: die vorhandenen in Farbe, mit einem Klick oben angezeigt. Ein verkleidetes Pokémon erscheint dort im Kostüm, und Kostüme sind nicht mehr winzig.",
+                                                     "На странице покемона видны все костюмы его вида: имеющиеся в цвете, по клику сверху. Покемон в костюме показан в нём, и костюмы больше не крошечные.") }),
             .new("2026-11-16-card-images", { $0.t("홈의 진행 중인 던전 카드와 결과 카드에도 이미지 복사 버튼이 생겼어요: 지금 모습 그대로 복사돼요.",
                                                   "Home's dungeon cards, the expedition under way and its result, have the image button too: the card is copied as it stands.",
                                                   "ホームの進行中のダンジョンカードと結果カードにも画像コピーのボタンがつきました：いまの見た目のままコピーされます。",
