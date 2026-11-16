@@ -330,14 +330,15 @@ final class RegionalIncenseTests: XCTestCase {
         XCTAssertTrue(s.useIncense(.kantoIncense))
         await provider.release()
         await hatch.value
-        XCTAssertNil(s.state.active, "the roll made without the incense must not hatch this egg")
-        XCTAssertEqual(s.state.pendingIncense, .kanto)
 
         // No refresh tick is simulated here: the store itself must start the egg's work again when
         // the discarded hatch releases its lock. Otherwise a ready egg waits for the next refresh.
         await waitUntil { s.state.active != nil }
         XCTAssertNotNil(s.state.active, "the egg was rolled again and hatched without a refresh tick")
-        XCTAssertNil(s.state.pendingIncense, "the new roll was made under the incense and spent it")
+        // Only the final state is asserted: the replacement may already be running when the held
+        // hatch returns. It still tells the two rolls apart. The held roll was made with no incense,
+        // so hatching it would leave the incense burning; only a roll made under the incense spends it.
+        XCTAssertNil(s.state.pendingIncense, "the egg hatched from a roll made under the incense")
     }
 
     /// The same for a pre-roll in flight: its result is discarded, and a new pre-roll must start when
