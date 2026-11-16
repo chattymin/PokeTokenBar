@@ -82,7 +82,7 @@ enum Changelog {
                                                   "Sans Mon équipe, la poursuite prend maintenant l'équipe qui bat le mieux leurs trois Pokémon, chaque espèce une fois. Avant, c'étaient les six plus fortes stats de base.",
                                                   "Sem Minha equipe, a perseguição usa agora a equipe que melhor vence os três Pokémon deles, cada espécie uma vez. Antes eram os seis maiores atributos base.",
                                                   "Ohne Mein Team nimmt die Verfolgung jetzt das Team, das ihre drei Pokémon am besten schlägt, jede Art einmal. Vorher waren es die sechs höchsten Basiswerte.",
-                                                  "Без «Моей команды» погоня берёт команду, лучше всех побеждающую их трёх покемонов, каждый вид один раз. Раньше брались шесть с наибольшими базовыми характеристиками.") }),
+                                                  "Без \"Моей команды\" погоня берёт команду, лучше всех побеждающую их трёх покемонов, каждый вид один раз. Раньше брались шесть с наибольшими базовыми характеристиками.") }),
             .improved("2026-11-16-villains-return") { l in
                 let candy = l.itemName(.rareCandy)
                 return l.t("악당 팀은 던전에서 돌아오는 순간에도 와요: 탐험에서 가져온 \(candy)을 모두, 없으면 가장 귀한 물건을 가져가요.",
