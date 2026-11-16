@@ -100,4 +100,15 @@ final class ExpeditionGuideTests: XCTestCase {
         XCTAssertEqual(ExpeditionLogText.eventKind(floor: 2, log: [spring]), .spring)
         XCTAssertNil(ExpeditionLogText.eventKind(floor: 3, log: [spring, chest]))
     }
+
+    /// [Regression] The owner, 2026-11-16: the boss card showed the boss ahead, its silhouette, and a player could give
+    /// up a run whose boss he did not like. Not reached on the run, it is hidden, met before or not; a challenge's and a
+    /// hideout leader's are announced by their cards.
+    func testTheBossCardNeverShowsTheBossAhead() {
+        typealias Card = ExpeditionFloorCards
+        XCTAssertEqual(Card.bossLook(dungeon: .ceruleanCave, reachedHere: false), .hidden)
+        XCTAssertEqual(Card.bossLook(dungeon: .ceruleanCave, reachedHere: true), .whole)
+        XCTAssertEqual(Card.bossLook(dungeon: .daily, reachedHere: false), .whole)
+        XCTAssertEqual(Card.bossLook(dungeon: .rocketHideout, reachedHere: false), .whole)
+    }
 }

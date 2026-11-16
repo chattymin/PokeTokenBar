@@ -131,7 +131,8 @@ enum ClaudeAccountRoots {
             let org = (account["organizationName"] as? String).flatMap { $0.isEmpty ? nil : $0 }
             let orgID = (account["organizationUuid"] as? String).flatMap { $0.isEmpty ? nil : $0 }
             return SavedLogin(identity: AccountIdentity(email: email, organizationName: org,
-                                                        rateLimitTier: account["userRateLimitTier"] as? String),
+                                                        rateLimitTier: account["userRateLimitTier"] as? String,
+                                                        organizationID: orgID),
                               organizationID: orgID)
         }
     }
@@ -246,6 +247,10 @@ extension LimitStatus {
     /// when it is worth more than the answer's (a session key reads the organization's).
     mutating func fillIdentity(from saved: AccountIdentity?) {
         guard accountEmail == nil, let saved else { return }
+        // Limits of another organization than the saved login's are another account (the owner, 2026-11-16: his
+        // Team's limits, read with the app's session key, took the personal login of the folder and hid his
+        // personal account as their duplicate).
+        if let mine = organizationID, let theirs = saved.organizationID, mine != theirs { return }
         accountEmail = saved.email
         accountOrganizationName = saved.organizationName
         var seat = self
@@ -328,7 +333,10 @@ struct ClaudeAccountLimits: Sendable, Identifiable {
     /// Short tab title: the organization for a team plan, the email for a personal plan
     /// (its generated organization name repeats the email), the folder when both are unknown.
     var title: String {
-        guard let email = status.accountEmail, !email.isEmpty else { return fallbackTitle }
+        // A session key knows its organization, not its email: the organization names the tab.
+        guard let email = status.accountEmail, !email.isEmpty else {
+            return status.accountOrganizationName.flatMap { $0.isEmpty ? nil : $0 } ?? fallbackTitle
+        }
         if let org = status.accountOrganizationName, !org.isEmpty, !org.contains(email) { return org }
         return email
     }

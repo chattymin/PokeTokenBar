@@ -67,6 +67,44 @@ enum Changelog {
 
     static let days: [ChangelogDay] = [
         ChangelogDay(date: "2026-11-16", entries: [
+            .improved("2026-11-16-last-throw-up") { l in
+                // The free Poké Ball is no item of the Bag: its name written here.
+                let pokes = l.t("몬스터볼", "Poké Balls", "モンスターボール", "las Poké Ball", "des Poké Balls", "as Pokébolas", "Pokébällen",
+                                "покеболов")
+                let great = l.itemName(.greatBall), ultra = l.itemName(.ultraBall)
+                return l.t("보스에게 던진 볼이 두 번 빗나가면 마지막은 한 단계 위의 볼이에요: \(pokes) 다음엔 \(great), \(great) 다음엔 \(ultra).",
+                           "When two throws at the boss miss, the last takes the ball above: \(great) after \(pokes), \(ultra) after \(great).",
+                           "ボスへの2回の投球がはずれると、最後は1つ上のボールです：\(pokes)のあとは\(great)、\(great)のあとは\(ultra)。",
+                           "Si fallan dos lanzamientos al jefe, el último usa la Ball de arriba: \(great) tras \(pokes), \(ultra) tras \(great).",
+                           "Quand deux lancers ratent le boss, le dernier prend la Ball du dessus : \(great) après \(pokes), \(ultra) après \(great).",
+                           "Quando dois arremessos no chefe erram, o último usa a Bola de cima: \(great) depois d\(pokes), \(ultra) depois de \(great).",
+                           "Gehen zwei Würfe auf den Boss daneben, nimmt der letzte den nächstbesseren Ball: \(great) nach \(pokes), \(ultra) nach \(great).",
+                           "Если два броска в босса промахнулись, последний берёт мяч выше: \(great) после \(pokes), \(ultra) после \(great).")
+            },
+            .fixed("2026-11-16-boss-card-secret", { $0.t("탐험 중 보스 카드가 도착하기 전에는 보스를 보여 주지 않아요: 이미 만난 보스라도 보스 아이콘만 보여요.",
+                                                       "The boss card of an expedition no longer shows the boss before the team reaches it, even one met before: a boss icon until then.",
+                                                       "探検のボスカードは、チームがたどり着くまでボスを見せません：前に会ったボスでも、それまではボスのアイコンです。",
+                                                       "La tarjeta del jefe de una expedición ya no muestra al jefe antes de que el equipo llegue, aunque ya lo hayas visto: un icono de jefe hasta entonces.",
+                                                       "La carte du boss d'une expédition ne montre plus le boss avant que l'équipe l'atteigne, même déjà rencontré : une icône de boss jusque-là.",
+                                                       "O cartão do chefe de uma expedição não mostra mais o chefe antes de a equipe chegar, mesmo já visto: um ícone de chefe até lá.",
+                                                       "Die Boss-Karte einer Expedition zeigt den Boss nicht mehr, bevor das Team ihn erreicht, auch einen schon getroffenen: bis dahin ein Boss-Symbol.",
+                                                       "Карточка босса в экспедиции больше не показывает босса, пока команда до него не дошла, даже уже встреченного: до тех пор значок босса.") }),
+            .improved("2026-11-16-floor-strokes", { $0.t("탐험 중 층 줄에서 지금 층이 잘 보여요: 다른 층과 같은 너비에 파란 테두리의 흰색이에요.",
+                                                     "On the expedition's row of floors, the one under way stands out: as wide as the others, white in a blue outline.",
+                                                     "探検の階の列で、いまの階がよく見えます：ほかの階と同じ幅で、青いふちの白です。",
+                                                     "En la fila de pisos de la expedición, el actual destaca: tan ancho como los demás, blanco con borde azul.",
+                                                     "Sur la rangée des étages de l'expédition, l'étage en cours se voit : aussi large que les autres, blanc avec un contour bleu.",
+                                                     "Na fileira de andares da expedição, o atual se destaca: tão largo quanto os outros, branco com contorno azul.",
+                                                     "In der Ebenen-Reihe der Expedition fällt die aktuelle auf: so breit wie die anderen, weiß mit blauem Rand.",
+                                                     "В ряду этажей экспедиции текущий заметен: такой же ширины, как другие, белый с синей обводкой.") }),
+            .fixed("2026-11-16-claude-accounts-org", { $0.t("두 Claude 계정이 같은 이메일을 쓰면 하나가 사라지고 다른 계정 이름으로 보이던 문제를 고쳤어요: 각 계정이 자기 조직 이름의 탭을 가져요.",
+                                                         "Two Claude accounts sharing an email no longer show as one tab under the wrong name: each has its own, named after its organization.",
+                                                         "同じメールの Claude アカウントが2つあると、1つが消えて別のアカウント名で表示されていた問題を直しました：それぞれ組織名のタブになります。",
+                                                         "Dos cuentas de Claude con el mismo correo ya no se muestran como una sola pestaña con el nombre equivocado: cada una tiene la suya, con el nombre de su organización.",
+                                                         "Deux comptes Claude avec le même e-mail ne s'affichent plus en un seul onglet au mauvais nom : chacun a le sien, au nom de son organisation.",
+                                                         "Duas contas do Claude com o mesmo e-mail não aparecem mais como uma só aba com o nome errado: cada uma tem a sua, com o nome da organização.",
+                                                         "Zwei Claude-Konten mit derselben E-Mail erscheinen nicht mehr als ein Tab unter falschem Namen: Jedes hat seinen eigenen, nach seiner Organisation benannt.",
+                                                         "Два аккаунта Claude с одной почтой больше не показываются одной вкладкой под чужим именем: у каждого своя, с названием организации.") }),
             .improved("2026-11-16-expedition-redesign", { $0.t("홈의 탐험이 새로워졌어요: 층 카드(지난 층, 지금 층, 다음 층, 보스), 이름과 HP가 보이는 팀, 그 아래 일지 두 줄. 던전 페이지도 포켓몬 페이지처럼 바뀌었어요.",
                                                              "Home's expedition is redone: floor cards (the one crossed, the one under way, the next, the boss), the team with names and HP, the journal's last two lines under them. A dungeon's page now looks like a Pokémon's.",
                                                              "ホームの探検が新しくなりました：階のカード（通った階、いまの階、次の階、ボス）、名前とHPが見えるチーム、その下に記録の2行。ダンジョンのページもポケモンのページのようになりました。",

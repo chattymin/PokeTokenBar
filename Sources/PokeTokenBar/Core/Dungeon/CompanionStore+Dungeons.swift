@@ -637,10 +637,15 @@ extension CompanionStore {
         }
         let held: [ItemKind?] = [nil] + [ItemKind.greatBall, .ultraBall].filter { itemCount($0) > 0 }
         let throwsCount = Double(ExpeditionEngine.captureThrows)
-        if let enough = held.first(where: { 1 - pow(1 - ExpeditionEngine.throwOdds(boss, ball: $0), throwsCount) >= Self.automaticBallOdds }) {
-            return enough
-        }
-        return held.last ?? nil
+        let pick = held.first(where: { 1 - pow(1 - ExpeditionEngine.throwOdds(boss, ball: $0), throwsCount) >= Self.automaticBallOdds })
+            ?? (held.last ?? nil)
+        // The last throw, the two before missed: one ball up, the Great Ball after Poké Balls, the Ultra Ball after Great
+        // Balls, else the best held (the owner, 2026-11-16: a Butterfree got away from three Poké Balls, a Great Ball in
+        // the Bag).
+        guard case .capture(let left) = e.phase, left == 1 else { return pick }
+        let ladder: [ItemKind?] = [nil, .greatBall, .ultraBall]
+        guard let rung = ladder.firstIndex(of: pick), rung + 1 < ladder.count else { return pick }
+        return held.first { ball in (ladder.firstIndex(of: ball) ?? 0) > rung } ?? pick
     }
 
     /// What a ball must reach over the three throws for the throws to take it rather than a dearer one.

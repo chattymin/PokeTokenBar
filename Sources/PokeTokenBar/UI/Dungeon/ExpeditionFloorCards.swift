@@ -41,10 +41,12 @@ struct ExpeditionFloorDots: View {
             ForEach(1...max(1, floors), id: \.self) { n in
                 let here = n == current
                 let tip = n <= reached ? ExpeditionLogText.floor(n, log: log, floors: floors, store: store) : ""
-                Capsule().fill(color(n))
-                    .frame(height: 6)
-                    .frame(width: here ? 18 : nil)
-                    .frame(maxWidth: here ? 18 : .infinity)
+                // The floor under way as wide as the others, white in a thick blue outline (the owner, 2026-11-16: blue
+                // and shorter, it did not show among the floors crossed).
+                Capsule().fill(here ? Color.white : color(n))
+                    .overlay { if here { Capsule().strokeBorder(Design.actionColor, lineWidth: 3) } }
+                    .frame(height: here ? 12 : 6)
+                    .frame(maxWidth: .infinity)
                     .overlay {
                         if n == fellOn {
                             Image(systemName: "xmark").font(.system(size: 8, weight: .heavy)).foregroundStyle(Color.readableOrange)
@@ -55,6 +57,7 @@ struct ExpeditionFloorDots: View {
                     .hoverTip(tip.isEmpty ? nil : tip)
             }
         }
+        .frame(height: 12)
         .padding(.top, fellOn == nil ? 0 : 8)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(store.l.dungeonFloorOf(reached, floors))
@@ -169,17 +172,41 @@ struct ExpeditionFloorCards: View {
     }
 
     /// Hidden until reached (Q17), then whole.
+    /// Whole once reached, a boss's icon before (the owner, 2026-11-16: never seen ahead, even met before, or a player
+    /// could give up a run whose boss he does not like).
     private var boss: some View {
         let reached = e.log.contains { if case .bossReached = $0.kind { true } else { false } }
+        let look = Self.bossLook(dungeon: e.dungeon, reachedHere: reached)
         return card(l.battleKind(.boss)) {
             ZStack(alignment: .topTrailing) {
-                SpriteView(speciesID: e.boss.speciesID, size: 40, shiny: reached && e.boss.isShiny, form: e.boss.form,
-                           isSilhouette: !reached)
-                    .frame(width: 44, height: 44)
-                Image(systemName: "crown.fill").font(.system(size: 11, weight: .bold)).foregroundStyle(.yellow)
+                Self.bossFace(look, boss: e.boss)
+                if look == .whole {
+                    Image(systemName: "crown.fill").font(.system(size: 11, weight: .bold)).foregroundStyle(.yellow)
+                }
             }
         }
         .hoverTip(l.dungeonFloorOf(e.floors, e.floors))
+    }
+
+    enum BossLook: Equatable { case whole, hidden }
+
+    /// A boss not reached on this run stays hidden, met before or not; a challenge's and a hideout leader's are known,
+    /// their cards announce them.
+    static func bossLook(dungeon: DungeonID, reachedHere: Bool) -> BossLook {
+        reachedHere || dungeon.isChallenge || dungeon.isHideout ? .whole : .hidden
+    }
+
+    @ViewBuilder
+    static func bossFace(_ look: BossLook, boss: ExpeditionBoss, silhouette: Bool = false) -> some View {
+        switch look {
+        case .hidden:
+            Image(systemName: "crown.fill").font(.system(size: 24, weight: .bold)).foregroundStyle(Color.yellow.opacity(0.85))
+                .frame(width: 44, height: 44)
+        case .whole:
+            SpriteView(speciesID: boss.speciesID, size: 40, shiny: !silhouette && boss.isShiny, form: boss.form,
+                       isSilhouette: silhouette)
+                .frame(width: 44, height: 44)
+        }
     }
 }
 

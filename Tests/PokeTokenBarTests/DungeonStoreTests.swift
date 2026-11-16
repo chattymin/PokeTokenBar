@@ -632,6 +632,33 @@ final class DungeonStoreTests: XCTestCase {
         XCTAssertEqual(noUltra.automaticBall(for: e), .greatBall, "a rare boss, no Ultra Ball: the best left")
     }
 
+    /// The owner, 2026-11-16: after two missed throws the last one takes the ball above, the Great Ball after Poké Balls,
+    /// the Ultra Ball after Great Balls, the best held when the one above is not; never before the last throw.
+    func testTheLastThrowTakesTheBallAbove() throws {
+        func boss(_ rarity: Rarity) throws -> Int {
+            try XCTUnwrap(DungeonCatalog.all.flatMap(\.bosses).first { SpeciesInfo.lineRarity(of: $0) == rarity }, "\(rarity)")
+        }
+        func ball(_ s: CompanionStore, _ species: Int, left: Int) throws -> ItemKind? {
+            var e = try XCTUnwrap(s.expedition)
+            e.boss = ExpeditionBoss(speciesID: species, form: nil, isShiny: false)
+            e.phase = .capture(throwsLeft: left)
+            return s.automaticBall(for: e)
+        }
+        let s = try store(dex: strong, inventory: [.greatBall: 2, .ultraBall: 2])
+        XCTAssertTrue(s.startExpedition(.viridianForest, team: Array(strong.prefix(3)).map(\.id)))
+        XCTAssertNil(try ball(s, boss(.common), left: 3))
+        XCTAssertNil(try ball(s, boss(.common), left: 2), "not before the last throw")
+        XCTAssertEqual(try ball(s, boss(.common), left: 1), .greatBall, "after two Poké Balls")
+        XCTAssertEqual(try ball(s, boss(.uncommon), left: 1), .ultraBall, "after two Great Balls")
+        XCTAssertEqual(try ball(s, boss(.rare), left: 1), .ultraBall, "nothing above the Ultra Ball")
+        let onlyUltra = try store(dex: strong, inventory: [.ultraBall: 1])
+        XCTAssertTrue(onlyUltra.startExpedition(.viridianForest, team: Array(strong.prefix(3)).map(\.id)))
+        XCTAssertEqual(try ball(onlyUltra, boss(.common), left: 1), .ultraBall, "no Great Ball: the best held")
+        let none = try store(dex: strong, inventory: [:])
+        XCTAssertTrue(none.startExpedition(.viridianForest, team: Array(strong.prefix(3)).map(\.id)))
+        XCTAssertNil(try ball(none, boss(.common), left: 1), "the Poké Ball when the Bag has none")
+    }
+
     /// At a legendary boss the Master Ball goes first, unless the player kept it home at the departure.
     func testTheMasterBallGoesAtALegendaryUnlessKeptHome() throws {
         for keep in [false, true] {
