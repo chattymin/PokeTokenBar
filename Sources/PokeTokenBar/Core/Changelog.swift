@@ -67,6 +67,14 @@ enum Changelog {
 
     static let days: [ChangelogDay] = [
         ChangelogDay(date: "2026-11-16", entries: [
+            .improved("2026-11-16-lighter-cpu", { $0.t("앱이 CPU를 덜 써요: 사용량 캐시를 1분마다가 아니라 최대 10분마다 저장해요.",
+                                                     "The app uses less CPU: its usage cache is written every 10 minutes at most, not every minute.",
+                                                     "アプリのCPU使用が減りました：使用量のキャッシュを毎分ではなく、多くても10分ごとに保存します。",
+                                                     "La app usa menos CPU: su caché de uso se guarda como mucho cada 10 minutos, no cada minuto.",
+                                                     "L'app consomme moins de CPU : son cache d'usage est écrit au plus toutes les 10 minutes, plus chaque minute.",
+                                                     "O app usa menos CPU: o cache de uso é gravado no máximo a cada 10 minutos, não a cada minuto.",
+                                                     "Die App braucht weniger CPU: Ihr Nutzungs-Cache wird höchstens alle 10 Minuten geschrieben, nicht mehr jede Minute.",
+                                                     "Приложение тратит меньше CPU: кэш использования пишется не чаще раза в 10 минут, а не каждую минуту.") }),
             .improved("2026-11-16-challenge-boss-moves", { $0.t("오늘·이번 주 던전의 보스가 던전 목록 카드와 홈에서 움직여요.",
                                                              "The daily and weekly dungeons' bosses move on their cards in the dungeon list and on Home.",
                                                              "今日と今週のダンジョンのボスが、ダンジョン一覧のカードとホームで動きます。",
