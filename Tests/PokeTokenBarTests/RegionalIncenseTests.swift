@@ -174,6 +174,12 @@ final class RegionalIncenseTests: XCTestCase {
 
     // MARK: ① the rescale is exactly the stated share
 
+    /// Every other test here follows the constant, so none of them notices if it changes. The share is
+    /// an agreed balance value: changing it must be a decision, made here too.
+    func testTheShareIsTheAgreedValue() {
+        XCTAssertEqual(RegionalIncense.inRegionSharePercent, 80)
+    }
+
     func testBiasedWeightsGiveTheRegionExactlyTheStatedShare() throws {
         // Realistic weights: capture rates, some already halved for collected species.
         let weights = [255, 127, 190, 45, 3, 100, 22, 255]
