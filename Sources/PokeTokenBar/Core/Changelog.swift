@@ -67,6 +67,14 @@ enum Changelog {
 
     static let days: [ChangelogDay] = [
         ChangelogDay(date: "2026-11-16", entries: [
+            .improved("2026-11-16-floor-strokes", { $0.t("탐험 중 층 줄에서 지금 층이 잘 보여요: 다른 층과 같은 너비에 파란 테두리의 흰색이에요.",
+                                                     "On the expedition's row of floors, the one under way stands out: as wide as the others, white in a blue outline.",
+                                                     "探検の階の列で、いまの階がよく見えます：ほかの階と同じ幅で、青いふちの白です。",
+                                                     "En la fila de pisos de la expedición, el actual destaca: tan ancho como los demás, blanco con borde azul.",
+                                                     "Sur la rangée des étages de l'expédition, l'étage en cours se voit : aussi large que les autres, blanc avec un contour bleu.",
+                                                     "Na fileira de andares da expedição, o atual se destaca: tão largo quanto os outros, branco com contorno azul.",
+                                                     "In der Ebenen-Reihe der Expedition fällt die aktuelle auf: so breit wie die anderen, weiß mit blauem Rand.",
+                                                     "В ряду этажей экспедиции текущий заметен: такой же ширины, как другие, белый с синей обводкой.") }),
             .fixed("2026-11-16-claude-accounts-org", { $0.t("두 Claude 계정이 같은 이메일을 쓰면 하나가 사라지고 다른 계정 이름으로 보이던 문제를 고쳤어요: 각 계정이 자기 조직 이름의 탭을 가져요.",
                                                          "Two Claude accounts sharing an email no longer show as one tab under the wrong name: each has its own, named after its organization.",
                                                          "同じメールの Claude アカウントが2つあると、1つが消えて別のアカウント名で表示されていた問題を直しました：それぞれ組織名のタブになります。",

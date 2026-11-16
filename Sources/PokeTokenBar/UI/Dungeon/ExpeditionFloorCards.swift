@@ -41,10 +41,12 @@ struct ExpeditionFloorDots: View {
             ForEach(1...max(1, floors), id: \.self) { n in
                 let here = n == current
                 let tip = n <= reached ? ExpeditionLogText.floor(n, log: log, floors: floors, store: store) : ""
-                Capsule().fill(color(n))
-                    .frame(height: 6)
-                    .frame(width: here ? 18 : nil)
-                    .frame(maxWidth: here ? 18 : .infinity)
+                // The floor under way as wide as the others, white in a thick blue outline (the owner, 2026-11-16: blue
+                // and shorter, it did not show among the floors crossed).
+                Capsule().fill(here ? Color.white : color(n))
+                    .overlay { if here { Capsule().strokeBorder(Design.actionColor, lineWidth: 3) } }
+                    .frame(height: here ? 12 : 6)
+                    .frame(maxWidth: .infinity)
                     .overlay {
                         if n == fellOn {
                             Image(systemName: "xmark").font(.system(size: 8, weight: .heavy)).foregroundStyle(Color.readableOrange)
@@ -55,6 +57,7 @@ struct ExpeditionFloorDots: View {
                     .hoverTip(tip.isEmpty ? nil : tip)
             }
         }
+        .frame(height: 12)
         .padding(.top, fellOn == nil ? 0 : 8)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(store.l.dungeonFloorOf(reached, floors))
