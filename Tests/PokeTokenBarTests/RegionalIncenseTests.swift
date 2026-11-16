@@ -553,6 +553,8 @@ final class RegionalIncenseTests: XCTestCase {
     func testIncensesBorrowTheAgreedSprites() {
         XCTAssertEqual(incenses.map(\.spriteName),
                        ["full-incense", "luck-incense", "wave-incense", "pure-incense", "rock-incense"])
+        // Shown, like every item's, until the sprite has loaded or when it cannot load.
+        for kind in incenses { XCTAssertFalse(kind.fallbackEmoji.isEmpty) }
     }
 
     /// The canon names of the borrowed sprites must never reach the player.
@@ -577,6 +579,7 @@ final class RegionalIncenseTests: XCTestCase {
             }
             XCTAssertFalse(l.incenseUseConfirm.isEmpty)
             XCTAssertFalse(l.notifIncenseKeptTitle.isEmpty)
+            XCTAssertFalse(l.incenseRegionPicker.isEmpty, "\(language): the Shop selector's accessibility label")
         }
     }
 
