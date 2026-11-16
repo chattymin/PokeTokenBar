@@ -1855,7 +1855,7 @@ struct L {
     func incenseDescription(_ region: PokedexRegion) -> String {
         let r = regionName(region)
         return t("피우면 다음 부화에서 \(r)지방 포켓몬이 태어날 확률이 올라가요.",
-                 "Raises the chance that your next hatch is from the \(r) region.",
+                 "When burned, raises the chance that your next hatch is a Pokémon from \(r).",
                  "たくと、次の孵化で\(r)地方のポケモンが生まれる確率が上がります。",
                  "Quémalo para aumentar la probabilidad de que en tu próxima eclosión nazca un Pokémon de \(r).",
                  "Brûle-le pour augmenter les chances que ta prochaine éclosion donne un Pokémon de \(r).",
@@ -1895,7 +1895,7 @@ struct L {
         let r = regionName(region)
         let n = incenseName(region)
         return t("이번에는 \(r)지방 포켓몬이 태어날 수 없어서 \(n)는 소모되지 않았어요.",
-                 "No Pokémon from \(r) could hatch this time, so your \(n) was not used up.",
+                 "No Pokémon from \(r) could hatch from this egg, so your \(n) keeps burning for the next hatch.",
                  "今回は\(r)地方のポケモンが生まれる候補がいなかったため、\(n)は消費されませんでした。",
                  "Esta vez no podía nacer ningún Pokémon de \(r), así que tu \(n) no se ha consumido.",
                  "Aucun Pokémon de \(r) ne pouvait éclore cette fois : ton \(n) n'a pas été consommé.",
