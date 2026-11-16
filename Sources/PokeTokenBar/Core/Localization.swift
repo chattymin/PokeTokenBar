@@ -1850,23 +1850,23 @@ struct L {
         let r = regionName(region)
         return t("\(r) 향로", "\(r) Incense", "\(r)のおこう", "Incienso de \(r)", "Encens de \(r)", "Incenso de \(r)", "\(r)-Rauch", "Благовоние региона \(r)")
     }
+    /// No number here, on purpose: shop text describes an effect the way the Shiny Charm's does.
+    /// The share itself is `RegionalIncense.inRegionSharePercent`.
     func incenseDescription(_ region: PokedexRegion) -> String {
         let r = regionName(region)
-        let p = RegionalIncense.inRegionSharePercent   // from the constant, so the shop cannot drift from the roll
-        return t("피우면 다음 부화에서 \(p)% 확률로 \(r)지방 포켓몬이 태어나요.",
-                 "Burn it to give your next hatch a \(p)% chance of being a Pokémon from \(r).",
-                 "たくと、次の孵化で\(p)%の確率で\(r)地方のポケモンが生まれます。",
-                 "Quémalo para que tu próxima eclosión tenga un \(p) % de probabilidad de ser un Pokémon de \(r).",
-                 "Brûle-le pour que ta prochaine éclosion ait \(p) % de chances de donner un Pokémon de \(r).",
-                 "Queime-o para que o próximo ovo tenha \(p)% de chance de chocar um Pokémon de \(r).",
-                 "Verbrenne ihn, damit beim nächsten Schlüpfen mit \(p) % Wahrscheinlichkeit ein Pokémon aus \(r) schlüpft.",
-                 "Зажгите, и из следующего яйца с шансом \(p)% вылупится покемон из региона \(r).")
+        return t("피우면 다음 부화에서 \(r)지방 포켓몬이 태어날 확률이 올라가요.",
+                 "Burn it to raise the chance that your next hatch is a Pokémon from \(r).",
+                 "たくと、次の孵化で\(r)地方のポケモンが生まれる確率が上がります。",
+                 "Quémalo para aumentar la probabilidad de que en tu próxima eclosión nazca un Pokémon de \(r).",
+                 "Brûle-le pour augmenter les chances que ta prochaine éclosion donne un Pokémon de \(r).",
+                 "Queime-o para aumentar a chance de o próximo ovo chocar um Pokémon de \(r).",
+                 "Verbrenne ihn, um die Chance zu erhöhen, dass beim nächsten Schlüpfen ein Pokémon aus \(r) schlüpft.",
+                 "Зажгите, чтобы повысить шанс, что из следующего яйца вылупится покемон из региона \(r).")
     }
-    /// Bag effect hint, in the slot where Rare Candy shows "+XP".
+    /// Bag effect hint, in the slot where Rare Candy shows "+XP". Same shape as `shinyCharmEffectHint`.
     func incenseEffectHint(_ region: PokedexRegion) -> String {
         let r = regionName(region)
-        let p = RegionalIncense.inRegionSharePercent
-        return t("다음 부화 \(r) \(p)%", "Next hatch: \(p)% \(r)", "次の孵化 \(r) \(p)%", "Próxima eclosión: \(p) % \(r)", "Prochaine éclosion : \(p) % \(r)", "Próxima eclosão: \(p)% \(r)", "Nächstes Schlüpfen: \(p) % \(r)", "Следующее яйцо: \(p)% \(r)")
+        return t("\(r) 확률 ↑ · 다음 부화", "\(r) chance ↑ · next hatch", "\(r)の確率↑ · 次の孵化", "Prob. \(r) ↑ · próxima eclosión", "Chances \(r) ↑ · prochaine éclosion", "Chance \(r) ↑ · próxima eclosão", "\(r)-Chance ↑ · nächstes Schlüpfen", "Шанс \(r) ↑ · следующее яйцо")
     }
     var incenseUseConfirm: String { t("다음 부화를 위해 피울까요?", "Burn it for your next hatch?", "次の孵化のためにたきますか？", "¿Quemarlo para tu próxima eclosión?", "Le brûler pour ta prochaine éclosion ?", "Queimar para a próxima eclosão?", "Für das nächste Schlüpfen verbrennen?", "Зажечь для следующего яйца?") }
     /// Home badge while an incense waits for the next hatch.

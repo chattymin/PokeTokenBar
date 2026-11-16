@@ -758,7 +758,7 @@ struct CompanionHeader: View {
                     // On its own line, for an egg and for a growing Pokémon alike: the incense waits for
                     // the next hatch, which may be several evolutions away.
                     if let incense = store.burningIncense {
-                        Badge(store.l.incenseBurning(incense), tint: .orange, style: .tinted)
+                        Badge(store.l.incenseBurning(incense), tint: .orange)
                             .fixedSize()
                     }
                     if store.hasActive, let id = store.currentSpeciesID, let details = store.pokemonDetailsByID[id] {

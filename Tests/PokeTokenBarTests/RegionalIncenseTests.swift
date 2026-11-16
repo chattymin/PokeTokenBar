@@ -511,12 +511,15 @@ final class RegionalIncenseTests: XCTestCase {
                 let region = l.regionName(kind.incenseRegion!)
                 XCTAssertTrue(l.itemName(kind).contains(region), "\(language) \(kind)")
                 XCTAssertTrue(l.itemDescription(kind).contains(region), "\(language) \(kind)")
-                XCTAssertTrue(l.itemDescription(kind).contains("\(RegionalIncense.inRegionSharePercent)"),
-                              "\(language): the description states the share the roll uses")
+                // Shop text describes the effect in words, like the Shiny Charm: no odds, no numbers.
+                for text in [l.itemDescription(kind), l.incenseEffectHint(kind.incenseRegion!)] {
+                    XCTAssertNil(text.rangeOfCharacter(from: .decimalDigits), "\(language) \(kind): \(text)")
+                    XCTAssertFalse(text.contains("%"), "\(language) \(kind): \(text)")
+                }
+                XCTAssertTrue(l.incenseEffectHint(kind.incenseRegion!).contains(region), "\(language) \(kind)")
                 XCTAssertTrue(l.incenseBurning(kind.incenseRegion!).contains(l.itemName(kind)))
                 XCTAssertTrue(l.incenseAlreadyBurning(kind.incenseRegion!).contains(l.itemName(kind)))
                 XCTAssertTrue(l.notifIncenseKeptBody(kind.incenseRegion!).contains(l.itemName(kind)))
-                XCTAssertFalse(l.incenseEffectHint(kind.incenseRegion!).isEmpty)
             }
             XCTAssertFalse(l.incenseUseConfirm.isEmpty)
             XCTAssertFalse(l.notifIncenseKeptTitle.isEmpty)

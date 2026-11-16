@@ -319,9 +319,10 @@ enum RegionalIncense {
 
     /// Share of the hatch weight the incense's region holds, in percent.
     ///
-    /// A fixed share, not a weight multiplier, so the shop can state one number that is true for every
-    /// region and every egg grade. A multiplier would give different odds wherever the region's natural
-    /// share differs (Sinnoh 12.6% against Unova 25.1% for a plain egg). May be tuned to 90.
+    /// A fixed share, not a weight multiplier, so an incense means the same thing for every region and
+    /// every egg grade. A multiplier would give different odds wherever the region's natural share
+    /// differs (Sinnoh 12.6% against Unova 25.1% for a plain egg). The shop text states no number
+    /// (`L.incenseDescription`), so this can be tuned, for example to 90, without touching it.
     static let inRegionSharePercent = 80
 
     /// Rescales hatch weights so in-region candidates hold exactly `inRegionSharePercent` of the total.
