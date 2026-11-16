@@ -67,6 +67,14 @@ enum Changelog {
 
     static let days: [ChangelogDay] = [
         ChangelogDay(date: "2026-11-16", entries: [
+            .fixed("2026-11-16-boss-card-secret", { $0.t("탐험 중 보스 카드가 아직 만난 적 없는 보스의 실루엣을 보여 주지 않아요: 던전 페이지처럼 \"?\"이고, 한 번 만나면 실루엣이에요.",
+                                                       "The boss card of an expedition no longer gives away a boss never met: a \"?\" as on the dungeon's page, its silhouette once met.",
+                                                       "探検のボスカードが、まだ会っていないボスのシルエットを見せなくなりました：ダンジョンのページと同じく「?」で、一度会うとシルエットです。",
+                                                       "La tarjeta del jefe de una expedición ya no revela un jefe nunca visto: un \"?\" como en la página de la mazmorra, su silueta una vez visto.",
+                                                       "La carte du boss d'une expédition ne dévoile plus un boss jamais rencontré : un \"?\" comme sur la page du donjon, sa silhouette une fois rencontré.",
+                                                       "O cartão do chefe de uma expedição não revela mais um chefe nunca visto: um \"?\" como na página da masmorra, a silhueta depois de visto.",
+                                                       "Die Boss-Karte einer Expedition verrät keinen nie getroffenen Boss mehr: ein \"?\" wie auf der Dungeon-Seite, seine Silhouette nach dem ersten Treffen.",
+                                                       "Карточка босса в экспедиции больше не выдаёт невстреченного босса: \"?\", как на странице подземелья, силуэт после встречи.") }),
             .improved("2026-11-16-floor-strokes", { $0.t("탐험 중 층 줄에서 지금 층이 잘 보여요: 다른 층과 같은 너비에 파란 테두리의 흰색이에요.",
                                                      "On the expedition's row of floors, the one under way stands out: as wide as the others, white in a blue outline.",
                                                      "探検の階の列で、いまの階がよく見えます：ほかの階と同じ幅で、青いふちの白です。",

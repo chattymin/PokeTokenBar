@@ -172,17 +172,44 @@ struct ExpeditionFloorCards: View {
     }
 
     /// Hidden until reached (Q17), then whole.
+    /// Whole once reached, else as the dungeon's page shows it (Q17): a silhouette once met in an earlier run, a "?"
+    /// before (the owner, 2026-11-16: the silhouette gave away a boss never met).
     private var boss: some View {
         let reached = e.log.contains { if case .bossReached = $0.kind { true } else { false } }
+        let look = Self.bossLook(dungeon: e.dungeon, speciesID: e.boss.speciesID, reachedHere: reached,
+                                 progress: store.dungeonProgress)
         return card(l.battleKind(.boss)) {
             ZStack(alignment: .topTrailing) {
-                SpriteView(speciesID: e.boss.speciesID, size: 40, shiny: reached && e.boss.isShiny, form: e.boss.form,
-                           isSilhouette: !reached)
-                    .frame(width: 44, height: 44)
+                Self.bossFace(look, boss: e.boss)
                 Image(systemName: "crown.fill").font(.system(size: 11, weight: .bold)).foregroundStyle(.yellow)
             }
         }
         .hoverTip(l.dungeonFloorOf(e.floors, e.floors))
+    }
+
+    enum BossLook: Equatable { case whole, silhouette, unknown }
+
+    /// A boss not reached on this run: a challenge's and a hideout leader's are known (their cards show them); any
+    /// other only once met in this dungeon, as its page's slots.
+    static func bossLook(dungeon: DungeonID, speciesID: Int, reachedHere: Bool, progress: DungeonProgress) -> BossLook {
+        if reachedHere || dungeon.isChallenge || dungeon.isHideout { return .whole }
+        return progress.bossesReached.contains(DungeonProgress.bossKey(dungeon, speciesID)) ? .silhouette : .unknown
+    }
+
+    @ViewBuilder
+    static func bossFace(_ look: BossLook, boss: ExpeditionBoss, silhouette: Bool = false) -> some View {
+        switch look {
+        case .unknown:
+            Text("?").font(.system(size: 20, weight: .bold, design: .rounded)).foregroundStyle(.secondary)
+                .frame(width: 40, height: 40)
+                .background(RoundedRectangle(cornerRadius: 10).strokeBorder(.secondary.opacity(0.45),
+                                                                            style: StrokeStyle(lineWidth: 1, dash: [3])))
+                .frame(width: 44, height: 44)
+        case .whole, .silhouette:
+            SpriteView(speciesID: boss.speciesID, size: 40, shiny: look == .whole && !silhouette && boss.isShiny, form: boss.form,
+                       isSilhouette: look == .silhouette || silhouette)
+                .frame(width: 44, height: 44)
+        }
     }
 }
 
