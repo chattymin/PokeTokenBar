@@ -62,6 +62,11 @@ private actor ScriptedFlavor: PokemonFlavorTextProviding {
 
 private let flavorSentence = "Sample entry for the newest version"
 
+/// The entry's id seeds the individual's IVs, so a random id drew a different page every run. This one
+/// is kept because its stat values made Vision drop "Individual" and "Nature" when the page was read in
+/// one piece at 1× (see `recognize`).
+private let fixtureEntryID = "s8"
+
 @MainActor
 final class DexFlavorTextRenderingTests: XCTestCase {
     /// Every temporary file lives here. CI's Swift 6.1 runs the synchronous tearDown nonisolated, so it
@@ -90,7 +95,7 @@ final class DexFlavorTextRenderingTests: XCTestCase {
         let file = directory.appendingPathComponent("\(UUID().uuidString).json")
         var state = CompanionState()
         state.language = language
-        state.dex = [DexEntry(baseID: 25, finalID: 25, chainOrder: [25], rarity: .common,
+        state.dex = [DexEntry(id: fixtureEntryID, baseID: 25, finalID: 25, chainOrder: [25], rarity: .common,
                               caughtAt: Date(timeIntervalSince1970: 1_700_000_000), nature: .adamant,
                               names: [25: ["en": "Pikachu", "pt": "Pikachu"]])]
         try JSONEncoder().encode(state).write(to: file)
@@ -143,10 +148,11 @@ final class DexFlavorTextRenderingTests: XCTestCase {
         return (host, window)
     }
 
-    /// OCR misreads body-size text at low resolution ("Sample" as "Samole"), and CI renders at a lower
-    /// scale than a Retina Mac, so its reads are worse. Capture at 2×, enlarge before OCR, prime Vision with
-    /// the words a test looks for, and let text that must be present differ by a few misread letters.
-    private static let captureScale: CGFloat = 2
+    /// OCR misreads body-size text at low resolution ("Sample" as "Samole"). CI's window is 1×, so a larger
+    /// capture adds nothing there; capture at 1× everywhere so a Retina Mac reads what CI reads, enlarge
+    /// before OCR, prime Vision with the words a test looks for, and let text that must be present differ by
+    /// a few misread letters.
+    private static let captureScale: CGFloat = 1
     private static let ocrScale: CGFloat = 3
 
     private func capture(_ host: NSView) throws -> CGImage {
@@ -167,14 +173,55 @@ final class DexFlavorTextRenderingTests: XCTestCase {
         return try XCTUnwrap(context.makeImage())
     }
 
-    private func recognize(_ host: NSView, words: [String], languages: [String]) throws -> [VNRecognizedTextObservation] {
-        let request = VNRecognizeTextRequest()
-        request.recognitionLevel = .accurate
-        request.recognitionLanguages = languages
-        request.usesLanguageCorrection = true
-        request.customWords = words.flatMap { $0.split { !$0.isLetter }.map(String.init) }
-        try VNImageRequestHandler(cgImage: capture(host)).perform([request])
-        return request.results ?? []
+    /// Read in one piece, the 1500 pt page is a 996×4500 px image, and Vision dropped whole small
+    /// secondary-colored lines ("Individual", "Nature", "Ability") for some individuals' stat values but
+    /// not others. Overlapping bands keep each line large relative to the image Vision reads.
+    private static let ocrBand: CGFloat = 400
+    /// Taller than any line on the page, so every line lies whole inside some band.
+    private static let ocrBandOverlap: CGFloat = 60
+
+    /// A recognized line and its box, normalized to the whole capture with a bottom-left origin.
+    private struct RecognizedLine {
+        let text: String
+        let box: CGRect
+    }
+
+    /// Lines band by band from the top, in Vision's reading order within a band. Each line is taken from
+    /// the one band whose own share of the page (the band minus half the overlap on each inner edge)
+    /// holds its center: that band contains it whole, and no other band reports it again.
+    private func recognize(_ host: NSView, words: [String], languages: [String]) throws -> [RecognizedLine] {
+        let image = try capture(host)
+        let pixelsPerPoint = CGFloat(image.height) / host.bounds.height
+        let band = Int(Self.ocrBand * pixelsPerPoint), overlap = Int(Self.ocrBandOverlap * pixelsPerPoint)
+        var lines: [RecognizedLine] = []
+        var top = 0
+        while true {
+            let height = min(band, image.height - top)
+            let isLast = top + height >= image.height
+            let crop = try XCTUnwrap(image.cropping(to: CGRect(x: 0, y: top, width: image.width, height: height)))
+            let request = VNRecognizeTextRequest()
+            request.recognitionLevel = .accurate
+            request.recognitionLanguages = languages
+            request.usesLanguageCorrection = true
+            request.customWords = words.flatMap { $0.split { !$0.isLetter }.map(String.init) }
+            try VNImageRequestHandler(cgImage: crop).perform([request])
+            // Pixel rows from the top of the capture that this band owns.
+            let ownTop = top == 0 ? 0 : top + overlap / 2
+            let ownBottom = isLast ? image.height : top + height - overlap / 2
+            for observation in request.results ?? [] {
+                guard let text = observation.topCandidates(1).first?.string else { continue }
+                let box = observation.boundingBox   // normalized to the band, bottom-left origin
+                let centerFromTop = top + Int((1 - box.midY) * CGFloat(height))
+                guard centerFromTop >= ownTop, centerFromTop < ownBottom else { continue }
+                let bottomFromBottom = CGFloat(image.height - top - height) + box.minY * CGFloat(height)
+                lines.append(RecognizedLine(text: text, box: CGRect(
+                    x: box.minX, y: bottomFromBottom / CGFloat(image.height),
+                    width: box.width, height: box.height * CGFloat(height) / CGFloat(image.height))))
+            }
+            if isLast { break }
+            top += band - overlap
+        }
+        return lines
     }
 
     /// End offset of the closest match of `needle` inside `haystack` (both normalized), if at most 15% of
@@ -206,8 +253,8 @@ final class DexFlavorTextRenderingTests: XCTestCase {
         var mismatched = expected + absent
         repeat {
             try await Task.sleep(for: .milliseconds(50))
-            let observations = try recognize(host, words: expected + absent, languages: languages)
-            text = observations.compactMap { $0.topCandidates(1).first?.string }.joined(separator: " ")
+            text = try recognize(host, words: expected + absent, languages: languages)
+                .map(\.text).joined(separator: " ")
             let screen = normalized(text)
             // Text that must be present tolerates misread letters; text that must be gone is matched exactly.
             mismatched = expected.filter { fuzzyMatch(normalized($0), in: screen) == nil }
@@ -229,8 +276,8 @@ final class DexFlavorTextRenderingTests: XCTestCase {
     /// Center of the first OCR line containing `text`, in the host's (window's) coordinates.
     private func locate(_ text: String, in host: NSView, languages: [String] = ["en-US"]) throws -> NSPoint? {
         let box = try recognize(host, words: [text], languages: languages).first {
-            fuzzyMatch(normalized(text), in: normalized($0.topCandidates(1).first?.string ?? "")) != nil
-        }?.boundingBox
+            fuzzyMatch(normalized(text), in: normalized($0.text)) != nil
+        }?.box
         return box.map { NSPoint(x: $0.midX * host.bounds.width, y: $0.midY * host.bounds.height) }
     }
 
@@ -269,8 +316,9 @@ final class DexFlavorTextRenderingTests: XCTestCase {
         let l = store.l
         // OCR reads the count's "0" as "O"; the heading without it is enough.
         let moveList = l.completeMoveList(0).replacingOccurrences(of: "0", with: "")
+        // No `l.ability`: the tolerant match finds "Ability" inside "Possible abilities", so it could not fail.
         let screen = try await screenText(of: store, expecting: [
-            l.pokemonIndividual, l.nature, PokemonNature.adamant.name(.en), l.ability, l.actualStats,
+            l.pokemonIndividual, l.nature, PokemonNature.adamant.name(.en), l.actualStats,
             l.activeMoves, l.speciesData, l.possibleAbilities, moveList, l.dexFlavorFailed, l.retry,
         ])
         XCTAssertEqual(screen.missing, [], screen.text)
