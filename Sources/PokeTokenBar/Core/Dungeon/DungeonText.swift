@@ -159,24 +159,6 @@ extension L {
           "\(item) para \(name)", "\(item) für \(name)", "\(item): \(name)")
     }
 
-    func oakGiveCapsules(_ dungeon: String) -> String {
-        t("이 던전 팀에게 왕관을 주세요: \(dungeon)", "Give your Bottle Caps to this dungeon's team: \(dungeon)",
-          "このダンジョンのチームにおうかんをあげよう：\(dungeon)", "Dale tus chapas al equipo de esta mazmorra: \(dungeon)",
-          "Donne tes Capsules à l'équipe de ce donjon : \(dungeon)", "Dê suas tampinhas à equipe desta masmorra: \(dungeon)",
-          "Gib dem Team dieses Dungeons deine Kronkorken: \(dungeon)", "Отдайте крышки команде этого подземелья: \(dungeon)")
-    }
-
-    func oakCapsulesWhy(gold: String, silver: String) -> String {
-        t("오박사는 왕관이 들어오면 바로 줘요. 이번 주 던전에 쓰러뜨릴 보스가 있으면 그 팀, 없으면 오늘의 던전 팀, 그것도 없으면 아직 추천하는 첫 던전의 팀이고, 항상 이기는 팀은 건너뛰어요. \(gold)은 올릴 게 가장 많은 포켓몬에게, \(silver)은 하나씩 팀에서 가장 낮은 개체값에 줘요. 기술이 쓰는 능력치만 따져요.",
-          "Prof. Oak gives them as soon as they arrive: to the weekly dungeon's team while it has a boss to beat, else the daily one's, else that of the first dungeon he still suggests, skipping any team that always wins. A \(gold) goes to the Pokémon with the most to gain, each \(silver) to the team's lowest IV, among the stats their moves use.",
-          "オーキド博士は届いたらすぐにあげます。今週のダンジョンに倒すボスがいればそのチーム、いなければ今日のダンジョンのチーム、それもなければまだ勧めている最初のダンジョンのチームで、いつも勝つチームは飛ばします。\(gold)はいちばん伸びしろのあるポケモンに、\(silver)はひとつずつチームでいちばん低い個体値に。わざが使う能力だけを数えます。",
-          "El Profesor Oak las da en cuanto llegan: al equipo de la mazmorra de la semana mientras tenga un jefe por vencer, si no al de la del día, si no al de la primera mazmorra que aún te propone, saltándose un equipo que siempre gana. Una \(gold) va al Pokémon con más por ganar, cada \(silver) al IV más bajo del equipo, entre las estadísticas que usan sus ataques.",
-          "Le Prof. Chen les donne dès leur arrivée : à l'équipe du donjon de la semaine tant qu'il a un boss à battre, sinon à celle du jour, sinon à celle du premier donjon qu'il te propose encore, en sautant une équipe qui gagne à tous les coups. Une \(gold) va au Pokémon qui a le plus à gagner, chaque \(silver) à l'IV le plus bas de l'équipe, parmi les stats dont leurs attaques se servent.",
-          "O Prof. Carvalho as dá assim que chegam: à equipe da masmorra da semana enquanto ela tiver um chefe a vencer, senão à da masmorra do dia, senão à da primeira masmorra que ele ainda sugere, pulando uma equipe que sempre vence. Uma \(gold) vai para o Pokémon com mais a ganhar, cada \(silver) para o IV mais baixo da equipe, entre os atributos que seus ataques usam.",
-          "Prof. Eich gibt sie, sobald sie da sind: dem Team des Wochen-Dungeons, solange dort ein Boss zu besiegen ist, sonst dem des Tages-Dungeons, sonst dem des ersten Dungeons, den er dir noch vorschlägt, und überspringt jedes Team, das immer gewinnt. Ein \(gold) geht an das Pokémon, das am meisten gewinnen kann, jeder \(silver) an den niedrigsten DV des Teams, unter den Werten, die ihre Attacken nutzen.",
-          "Профессор Оук отдаёт их сразу, как они появляются: команде подземелья недели, пока там есть босс, которого нужно победить, иначе команде подземелья дня, иначе команде первого подземелья, которое он ещё советует, пропуская команду, которая всегда побеждает. \"\(gold)\" достаётся покемону, которому есть что прибавить больше всех, а каждая \"\(silver)\" идёт на самый низкий IV в команде, среди характеристик, которыми пользуются их атаки.")
-    }
-
     func oakWhyDungeons(win: String, hall: String, hallName: String, share: String) -> String {
         t("던전은? 자동 편성 팀의 승률이 \(win) 이상일 때 추천해요(\(hallName)에서는 \(hall)). 알이 아직 새로운 형태를 가져올 수 있는 동안에는 던전에 쓰는 토큰을 전체의 \(share) 미만으로 지켜요. 탐험하는 동안에는 아무것도 자라지 않으니까요.",
           "Dungeons? Oak suggests one when the team composed for you wins at least \(win) of the time, \(hall) for the \(hallName). While an egg can still bring a new form, dungeons stay under \(share) of your tokens: nothing grows while a team explores.",

@@ -97,7 +97,6 @@ enum OakStep: Equatable, Sendable {
     case stock(OakBudget)
     /// Rare Candies to buy, then to give the Pokémon raised or to keep, the Bag's included.
     case candies(buy: Int, give: Int, keep: Int)
-    case capsules(OakCapsuleStep)
     case dungeon(OakDungeon)
 }
 
@@ -141,11 +140,10 @@ extension CompanionStore {
         return oakSteps(after: release, budget: oakBudget(after: release))
     }
 
-    /// Only the Capsules for a Spare before the index is loaded: what becomes of it is not known yet.
+    /// None for a Spare before the index is loaded: what becomes of it is not known yet.
     func oakSteps(after release: OakRelease?, budget: OakBudget?) -> [OakStep] {
         let verdict = activeVerdict
-        let capsules = oakCapsuleStep.map { [OakStep.capsules($0)] } ?? []
-        if verdict == .spare, release == nil { return capsules }
+        if verdict == .spare, release == nil { return [] }
         var steps: [OakStep] = []
         if let verdict, verdict != .spare { steps.append(.raise) }
         if let release { steps.append(.release(release)) }
@@ -160,7 +158,6 @@ extension CompanionStore {
             let give = candiesToGive(after: release, budget: budget)
             steps.append(.candies(buy: buy, give: give, keep: held - give))
         }
-        steps += capsules
         if let dungeon = oakDungeon { steps.append(.dungeon(dungeon)) }
         return steps
     }
@@ -294,7 +291,7 @@ extension CompanionStore {
         switch step {
         case .release(let release): return release.sendsOffNow
         case .candies(_, let give, _): return give > 0
-        case .raise, .stock, .capsules, .dungeon: return false
+        case .raise, .stock, .dungeon: return false
         }
     }
 

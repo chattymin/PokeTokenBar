@@ -63,7 +63,6 @@ final class OakDungeonTests: XCTestCase {
     private func settle(_ s: CompanionStore) async {
         while true {
             _ = s.oakDungeon
-            _ = s.oakCapsuleStep
             let pending = s.oakSearchTasks.values.map { $0.task }
             guard !pending.isEmpty else { return }
             for task in pending { await task.value }
@@ -420,21 +419,43 @@ final class OakDungeonTests: XCTestCase {
 
     // MARK: The Capsules
 
+    func testTheCapsulesGoDownTheTeamInItsOrder() async throws {
+        func entry(_ id: Int, _ ivs: PokemonIVs) -> DexEntry {
+            var e = graduated(id)
+            var profile = PokemonProfile.generate(seed: UInt64(id))
+            profile.ivs = ivs
+            e.profile = profile
+            return e
+        }
+        let dex = [
+            entry(6, PokemonIVs(hp: 31, attack: 31, defense: 31, specialAttack: 31, specialDefense: 31, speed: 31)),
+            entry(9, PokemonIVs(hp: 31, attack: 31, defense: 31, specialAttack: 31, specialDefense: 31, speed: 10)),
+            entry(3, PokemonIVs(hp: 31, attack: 31, defense: 5, specialAttack: 31, specialDefense: 31, speed: 2)),
+            entry(25, PokemonIVs(hp: 0, attack: 31, defense: 31, specialAttack: 31, specialDefense: 31, speed: 31)),
+            graduated(143), graduated(130),
+        ]
+        let s = try store(dex: dex, inventory: [.goldCapsule: 1, .silverCapsule: 5])
+        XCTAssertEqual(s.oakCapsules(for: ["e6", "e9", "e3", "e25"], in: .viridianForest), [
+            OakCapsule(entryID: "e9", kind: .goldCapsule, stat: nil),
+            OakCapsule(entryID: "e3", kind: .silverCapsule, stat: 2),
+            OakCapsule(entryID: "e25", kind: .silverCapsule, stat: 0),
+        ])
+        s.oakWinOdds = { _ in 1 }
+        await settle(s)
+        let advice = try XCTUnwrap(s.oakDungeon)
+        XCTAssertEqual(advice.capsules, s.oakCapsules(for: advice.team, in: advice.id))
+    }
+
     private func ivs(hp: Int = 31, atk: Int = 31, def: Int = 31, spa: Int = 31, spd: Int = 31, spe: Int = 31) -> PokemonIVs {
         PokemonIVs(hp: hp, attack: atk, defense: def, specialAttack: spa, specialDefense: spd, speed: spe)
     }
 
-    private func profiled(_ id: Int, _ ivs: PokemonIVs) -> DexEntry {
+    private func capsules(_ id: Int, _ ivs: PokemonIVs, moves: [String]? = nil,
+                          inventory: [ItemKind: Int] = [.silverCapsule: 2]) throws -> [OakCapsule] {
         var entry = graduated(id)
         var profile = PokemonProfile.generate(seed: UInt64(id))
         profile.ivs = ivs
         entry.profile = profile
-        return entry
-    }
-
-    private func capsules(_ id: Int, _ ivs: PokemonIVs, moves: [String]? = nil,
-                          inventory: [ItemKind: Int] = [.silverCapsule: 2]) throws -> [OakCapsule] {
-        let entry = profiled(id, ivs)
         let s = try store(dex: [entry], inventory: inventory) { st in
             if let moves { st.dungeons.moveLoops = [entry.id: moves] }
         }
@@ -490,139 +511,6 @@ final class OakDungeonTests: XCTestCase {
         XCTAssertEqual(try capsules(65, ivs(atk: 0), moves: ["psychic"], inventory: [.goldCapsule: 1, .silverCapsule: 1]), [])
     }
 
-    private func plan(_ team: [(id: Int, ivs: PokemonIVs, moves: [String])], _ inventory: [ItemKind: Int]) throws -> [OakCapsule] {
-        let dex = team.map { profiled($0.id, $0.ivs) }
-        let s = try store(dex: dex, inventory: inventory) { st in
-            st.dungeons.moveLoops = Dictionary(uniqueKeysWithValues: team.map { ("e\($0.id)", $0.moves) })
-        }
-        return s.oakCapsules(for: dex.map(\.id), in: .viridianForest)
-    }
-
-    private func gold(_ id: Int) -> [OakCapsule] {
-        [OakCapsule(entryID: "e\(id)", kind: .goldCapsule, stat: nil)]
-    }
-
-    func testTheGoldGoesToTheMemberWithTheMostToGainOnItsUsefulStats() throws {
-        let team = [(65, ivs(atk: 0, spe: 21), ["psychic"]), (68, ivs(hp: 11), ["cross-chop"])]
-        XCTAssertEqual(try plan(team, [.goldCapsule: 1, .silverCapsule: 1]), gold(68) + silver(65, 5))
-    }
-
-    func testEachSilverGoesToTheTeamsLowestUsefulIV() throws {
-        let team = [(65, ivs(atk: 0, def: 5, spe: 20), ["psychic"]), (68, ivs(hp: 10, spa: 0), ["cross-chop"])]
-        XCTAssertEqual(try plan(team, [.silverCapsule: 3]), silver(65, 2) + silver(68, 0) + silver(65, 5))
-    }
-
-    func testTiesGoByTeamOrderThenHPToSpeed() throws {
-        let team = [(65, ivs(spe: 10), ["psychic"]), (68, ivs(hp: 10, def: 10), ["cross-chop"])]
-        XCTAssertEqual(try plan(team, [.silverCapsule: 3]), silver(65, 5) + silver(68, 0) + silver(68, 2))
-        let even = [(65, ivs(spe: 10), ["psychic"]), (68, ivs(hp: 10), ["cross-chop"])]
-        XCTAssertEqual(try plan(even, [.goldCapsule: 1]), gold(65))
-        XCTAssertEqual(try plan(even.reversed(), [.goldCapsule: 1]), gold(68))
-    }
-
-    // MARK: The Capsule step
-
-    private func capsuleStore(weekly: Bool = true, bosses: Bool = true,
-                              prepare: @escaping (inout CompanionState) -> Void = { _ in }) throws -> CompanionStore {
-        try store(dex: [6, 9, 3, 25, 143, 130, 149].map { profiled($0, ivs(spe: 10)) }, inventory: [.silverCapsule: 1]) { st in
-            st.dungeons.wins = self.wins(self.belowT4 + (weekly ? [.seafoamIslands] : []))
-            if !bosses { st.dungeons.battleForms = Set(BattleForms.all.map(\.key)) }
-            prepare(&st)
-        }
-    }
-
-    private func capsuleTeam(_ s: CompanionStore, odds: @escaping (DungeonID) -> Double) async -> DungeonID? {
-        s.oakWinOdds = { odds($0.dungeon.id) }
-        await settle(s)
-        return s.oakCapsuleStep?.id
-    }
-
-    func testTheCapsuleTeamIsTheWeeklyOneWhileItWinsLessThanEveryTime() async throws {
-        let s = try capsuleStore()
-        XCTAssertNotNil(s.challengeBoss(.weekly))
-        let team = await capsuleTeam(s) { $0 == .weekly ? 0.9 : 0.6 }
-        XCTAssertEqual(team, .weekly)
-    }
-
-    func testTheCapsuleTeamIsTheDailyOneOnceTheWeeklyOneWinsEveryTime() async throws {
-        let team = await capsuleTeam(try capsuleStore()) { $0 == .weekly ? 1 : 0.9 }
-        XCTAssertEqual(team, .daily)
-    }
-
-    func testTheCapsuleTeamIsTheFirstUnfinishedDungeonUnderEveryTimeOnceBothChallengesWinEveryTime() async throws {
-        let s = try capsuleStore()
-        let dungeons = s.oakUnfinishedDungeons.map(\.id).filter { !$0.isChallenge }
-        XCTAssertEqual(dungeons.prefix(3), [.seafoamIslands, .powerPlant, .dragonsDen])
-        let team = await capsuleTeam(s) { $0.isChallenge || $0 == .seafoamIslands ? 1 : 0.9 }
-        XCTAssertEqual(team, .dragonsDen, "no five of the team share a type for the Power Plant")
-    }
-
-    func testTheCapsuleTeamIsTheWeeklyOneOnceEveryTeamWinsEveryTime() async throws {
-        let team = await capsuleTeam(try capsuleStore()) { _ in 1 }
-        XCTAssertEqual(team, .weekly)
-    }
-
-    func testWithoutABossToBeatTheCapsulesGoToTheUnfinishedDungeonsElseStayInTheBag() async throws {
-        let s = try capsuleStore(bosses: false)
-        XCTAssertNil(s.challengeBoss(.weekly))
-        XCTAssertNil(s.challengeBoss(.daily))
-        let first = s.oakUnfinishedDungeons.first?.id
-        let team = await capsuleTeam(s) { _ in 0.9 }
-        XCTAssertEqual(team, first)
-        let kept = await capsuleTeam(try capsuleStore(bosses: false)) { _ in 1 }
-        XCTAssertNil(kept)
-    }
-
-    func testALostTryKeepsTheChallengeForTheCapsules() async throws {
-        let s = try capsuleStore(weekly: false) { $0.dungeons.dailyTried = DungeonProgress.challengePeriod(.daily, at: self.now) }
-        XCTAssertFalse(s.canEnter(.daily))
-        let team = await capsuleTeam(s) { $0 == .daily ? 0.9 : 0.6 }
-        XCTAssertEqual(team, .daily)
-    }
-
-    func testTheCapsulesGoToTheTeamComposeForMePicks() async throws {
-        let s = try capsuleStore(bosses: false)
-        let id = try XCTUnwrap(s.oakUnfinishedDungeons.first?.id)
-        let greedy = s.composeTeam(for: id)
-        let left = try XCTUnwrap(s.state.dex.map(\.id).first { !greedy.contains($0) })
-        let picked = [left] + greedy.dropFirst()
-        s.oakComposeSearch = { _ in picked }
-        let team = await capsuleTeam(s) { _ in 0.9 }
-        XCTAssertEqual(team, id)
-        XCTAssertEqual(s.oakCapsuleStep?.capsules, [OakCapsule(entryID: left, kind: .silverCapsule, stat: 5)])
-    }
-
-    func testTheCapsuleStepWaitsForTheSearchAndComesWithTheBudgetSpent() async throws {
-        let s = try capsuleStore(bosses: false) { st in
-            st.usedSinceInstall = 1_000
-            st.dungeons.budget = DungeonBudget(start: 0, dungeonTokens: 150)
-        }
-        s.oakWinOdds = { _ in 0.9 }
-        XCTAssertNil(s.oakCapsuleStep, "the search runs")
-        await settle(s)
-        XCTAssertNil(s.oakDungeon)
-        XCTAssertNotNil(s.oakCapsuleStep)
-    }
-
-    func testTheCapsuleStepComesWhenOakHasNothingElseToSay() async throws {
-        let dex = [6, 9, 3, 25, 143, 130].map { profiled($0, ivs(spe: 10)) } + [graduated(18, chain: [16, 17, 18])]
-        let s = try store(dex: dex, inventory: [.silverCapsule: 1])
-        XCTAssertEqual(s.activeVerdict, .spare)
-        s.oakWinOdds = { _ in 0.4 }
-        await settle(s)
-        let step = try XCTUnwrap(s.oakCapsuleStep)
-        XCTAssertEqual(s.oakSteps, [.capsules(step)])
-    }
-
-    func testNoCapsuleStepWhileATeamExplores() async throws {
-        let s = try capsuleStore(bosses: false)
-        s.oakWinOdds = { _ in 0.9 }
-        await settle(s)
-        XCTAssertNotNil(s.oakCapsuleStep)
-        XCTAssertTrue(s.startExpedition(.viridianForest, team: ["e6", "e9", "e3"]))
-        XCTAssertNil(s.oakCapsuleStep)
-    }
-
     // MARK: The team "Compose for me" picks
 
     private var withIVs: [DexEntry] {
@@ -645,14 +533,17 @@ final class OakDungeonTests: XCTestCase {
     }
 
     func testTheDungeonProposedGoesWithTheTeamComposeForMePicks() async throws {
-        let s = try store(dex: withIVs)
+        let s = try store(dex: withIVs, inventory: [.goldCapsule: 1])
         let greedy = s.composeTeam(for: .viridianForest)
         let left = try XCTUnwrap(withIVs.map(\.id).first { !greedy.contains($0) })
         let picked = [left] + greedy.dropFirst()
+        XCTAssertNotEqual(s.oakCapsules(for: picked, in: .viridianForest), s.oakCapsules(for: greedy, in: .viridianForest))
         s.oakComposeSearch = { _ in picked }
         s.oakWinOdds = { _ in 1 }
         await settle(s)
-        XCTAssertEqual(s.oakDungeon?.team, picked)
+        let advice = try XCTUnwrap(s.oakDungeon)
+        XCTAssertEqual(advice.team, picked)
+        XCTAssertEqual(advice.capsules, s.oakCapsules(for: picked, in: advice.id))
 
         s.oakWinOdds = { Set($0.team.map(\.entryID)) == Set(picked) ? 1 : 0 }
         await settle(s)
