@@ -429,7 +429,8 @@ struct EvoLineView: View {
 
     var body: some View {
         if wrapsBranches {
-            row.frame(maxWidth: maxWidth, alignment: .leading)
+            // Centered in its card: as much room on each side (the owner, 2026-11-17).
+            row.frame(maxWidth: maxWidth, alignment: .center)
         } else if Self.needsScroll(count: totalColumns, thumb: thumb,
                                    hasNames: names != nil, maxWidth: maxWidth) {
             scrollableRow
