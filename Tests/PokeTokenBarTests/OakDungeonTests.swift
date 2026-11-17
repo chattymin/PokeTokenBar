@@ -412,13 +412,13 @@ final class OakDungeonTests: XCTestCase {
         }
         let dex = [
             entry(6, PokemonIVs(hp: 31, attack: 31, defense: 31, specialAttack: 31, specialDefense: 31, speed: 31)),
-            entry(9, PokemonIVs(hp: 31, attack: 10, defense: 31, specialAttack: 31, specialDefense: 31, speed: 31)),
+            entry(9, PokemonIVs(hp: 31, attack: 31, defense: 31, specialAttack: 31, specialDefense: 31, speed: 10)),
             entry(3, PokemonIVs(hp: 31, attack: 31, defense: 5, specialAttack: 31, specialDefense: 31, speed: 2)),
             entry(25, PokemonIVs(hp: 0, attack: 31, defense: 31, specialAttack: 31, specialDefense: 31, speed: 31)),
             graduated(143), graduated(130),
         ]
         let s = try store(dex: dex, inventory: [.goldCapsule: 1, .silverCapsule: 5])
-        XCTAssertEqual(s.oakCapsules(for: ["e6", "e9", "e3", "e25"]), [
+        XCTAssertEqual(s.oakCapsules(for: ["e6", "e9", "e3", "e25"], in: .viridianForest), [
             OakCapsule(entryID: "e9", kind: .goldCapsule, stat: nil),
             OakCapsule(entryID: "e3", kind: .silverCapsule, stat: 2),
             OakCapsule(entryID: "e25", kind: .silverCapsule, stat: 0),
@@ -426,7 +426,72 @@ final class OakDungeonTests: XCTestCase {
         s.oakWinOdds = { _ in 1 }
         await settle(s)
         let advice = try XCTUnwrap(s.oakDungeon)
-        XCTAssertEqual(advice.capsules, s.oakCapsules(for: advice.team))
+        XCTAssertEqual(advice.capsules, s.oakCapsules(for: advice.team, in: advice.id))
+    }
+
+    private func ivs(hp: Int = 31, atk: Int = 31, def: Int = 31, spa: Int = 31, spd: Int = 31, spe: Int = 31) -> PokemonIVs {
+        PokemonIVs(hp: hp, attack: atk, defense: def, specialAttack: spa, specialDefense: spd, speed: spe)
+    }
+
+    private func capsules(_ id: Int, _ ivs: PokemonIVs, moves: [String]? = nil,
+                          inventory: [ItemKind: Int] = [.silverCapsule: 2]) throws -> [OakCapsule] {
+        var entry = graduated(id)
+        var profile = PokemonProfile.generate(seed: UInt64(id))
+        profile.ivs = ivs
+        entry.profile = profile
+        let s = try store(dex: [entry], inventory: inventory) { st in
+            if let moves { st.dungeons.moveLoops = [entry.id: moves] }
+        }
+        return s.oakCapsules(for: [entry.id], in: .viridianForest)
+    }
+
+    private func silver(_ id: Int, _ stat: Int) -> [OakCapsule] {
+        [OakCapsule(entryID: "e\(id)", kind: .silverCapsule, stat: stat)]
+    }
+
+    func testASpecialAttackerNeverGetsACapsuleForItsAttack() throws {
+        let special = ["psychic", "shadow-ball"]
+        XCTAssertEqual(try capsules(65, ivs(atk: 0), moves: special), [])
+        XCTAssertEqual(try capsules(65, ivs(atk: 0, spa: 10), moves: special), silver(65, 3))
+    }
+
+    func testAPhysicalAttackerNeverGetsACapsuleForItsSpecialAttack() throws {
+        let physical = ["cross-chop", "earthquake"]
+        XCTAssertEqual(try capsules(68, ivs(spa: 0), moves: physical), [])
+        XCTAssertEqual(try capsules(68, ivs(atk: 10, spa: 0), moves: physical), silver(68, 1))
+    }
+
+    func testAMixedAttackerGetsCapsulesForBothAttacks() throws {
+        let mixed = ["flamethrower", "earthquake"]
+        XCTAssertEqual(try capsules(6, ivs(atk: 0), moves: mixed), silver(6, 1))
+        XCTAssertEqual(try capsules(6, ivs(spa: 0), moves: mixed), silver(6, 3))
+    }
+
+    func testBodyPressCountsTheDefenseNotTheAttack() throws {
+        XCTAssertEqual(try capsules(143, ivs(atk: 0), moves: ["body-press"]), [])
+        XCTAssertEqual(try capsules(143, ivs(atk: 0, def: 4), moves: ["body-press"]), silver(143, 2))
+    }
+
+    func testFoulPlayCountsNoAttack() throws {
+        XCTAssertEqual(try capsules(197, ivs(atk: 0, spa: 0), moves: ["foul-play"]), [])
+    }
+
+    func testShedinjasHPNeverGetsACapsule() throws {
+        let moves = ["shadow-sneak", "x-scissor"]
+        XCTAssertEqual(try capsules(292, ivs(hp: 0), moves: moves), [])
+        XCTAssertEqual(try capsules(292, ivs(hp: 0, spe: 20), moves: moves), silver(292, 5))
+    }
+
+    func testTheMovesReadAreThePlayersSetElseTheSuggestedOnes() throws {
+        XCTAssertEqual(try capsules(65, ivs(atk: 0), moves: ["fire-punch"]), silver(65, 1))
+        let s = try store(dex: [graduated(65)])
+        let suggested = try XCTUnwrap(s.dungeonSpec(graduated(65), for: .viridianForest)).moves.compactMap(MoveTable.move)
+        XCTAssertFalse(suggested.contains { $0.moveClass == .physical }, "Alakazam's suggested moves are special")
+        XCTAssertEqual(try capsules(65, ivs(atk: 0)), [])
+    }
+
+    func testAMemberWhoseUsefulStatsAreAllPerfectGetsNoCapsule() throws {
+        XCTAssertEqual(try capsules(65, ivs(atk: 0), moves: ["psychic"], inventory: [.goldCapsule: 1, .silverCapsule: 1]), [])
     }
 
     // MARK: The team "Compose for me" picks
@@ -455,13 +520,13 @@ final class OakDungeonTests: XCTestCase {
         let greedy = s.composeTeam(for: .viridianForest)
         let left = try XCTUnwrap(withIVs.map(\.id).first { !greedy.contains($0) })
         let picked = [left] + greedy.dropFirst()
-        XCTAssertNotEqual(s.oakCapsules(for: picked), s.oakCapsules(for: greedy))
+        XCTAssertNotEqual(s.oakCapsules(for: picked, in: .viridianForest), s.oakCapsules(for: greedy, in: .viridianForest))
         s.oakComposeSearch = { _ in picked }
         s.oakWinOdds = { _ in 1 }
         await settle(s)
         let advice = try XCTUnwrap(s.oakDungeon)
         XCTAssertEqual(advice.team, picked)
-        XCTAssertEqual(advice.capsules, s.oakCapsules(for: picked))
+        XCTAssertEqual(advice.capsules, s.oakCapsules(for: picked, in: advice.id))
 
         s.oakWinOdds = { Set($0.team.map(\.entryID)) == Set(picked) ? 1 : 0 }
         await settle(s)

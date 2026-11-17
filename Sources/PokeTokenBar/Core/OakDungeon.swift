@@ -69,7 +69,7 @@ extension CompanionStore {
             }
             guard let team = pick.team, pick.win >= least else { return nil }
             return OakDungeon(id: id, reason: reason, team: team, win: pick.win, tokens: dungeonCost(id),
-                              forms: forms.filter { team.contains($0.entryID) }, capsules: oakCapsules(for: team))
+                              forms: forms.filter { team.contains($0.entryID) }, capsules: oakCapsules(for: team, in: id))
         }
         for dungeon in open where dungeon.id != .hallOfOrigin && state.dungeons.wins(dungeon.id) == 0 {
             if let advice = offer(dungeon.id, .firstWin) { return advice }
@@ -99,21 +99,37 @@ extension CompanionStore {
         return best.flatMap { offer($0.id, .key(for: waiting)) }
     }
 
-    func oakCapsules(for team: [String]) -> [OakCapsule] {
+    func oakCapsules(for team: [String], in id: DungeonID) -> [OakCapsule] {
         var gold = itemCount(.goldCapsule), silver = itemCount(.silverCapsule)
+        let targets = moveTargets(id)
         var plan: [OakCapsule] = []
-        for id in team {
-            guard let ivs = state.dex.first(where: { $0.id == id && !$0.isReleased })?.profile?.ivs,
-                  let stat = Self.ivKeyPaths.firstIndex(where: { ivs[keyPath: $0] < 31 }) else { continue }
+        for entryID in team {
+            guard let entry = dungeonCandidates.first(where: { $0.id == entryID }), let ivs = entry.profile?.ivs,
+                  let spec = dungeonSpec(entry, for: id, targets: targets),
+                  let stat = Self.usefulStats(spec).first(where: { ivs[keyPath: Self.ivKeyPaths[$0]] < 31 }) else { continue }
             if gold > 0 {
                 gold -= 1
-                plan.append(OakCapsule(entryID: id, kind: .goldCapsule, stat: nil))
+                plan.append(OakCapsule(entryID: entryID, kind: .goldCapsule, stat: nil))
             } else if silver > 0 {
                 silver -= 1
-                plan.append(OakCapsule(entryID: id, kind: .silverCapsule, stat: stat))
+                plan.append(OakCapsule(entryID: entryID, kind: .silverCapsule, stat: stat))
             }
         }
         return plan
+    }
+
+    static func usefulStats(_ spec: BattlerSpec) -> [Int] {
+        let moves = spec.moves.compactMap(MoveTable.move)
+        let physical = moves.contains { $0.moveClass == .physical && !["body-press", "foul-play"].contains($0.slug) }
+        let special = moves.contains { $0.moveClass == .special }
+        return ivKeyPaths.indices.filter { stat in
+            switch stat {
+            case 0: spec.speciesID != PokemonStatCalculator.shedinjaSpeciesID
+            case 1: physical
+            case 3: special
+            default: true
+            }
+        }
     }
 
     var holdsEveryEggFormKey: Bool {
