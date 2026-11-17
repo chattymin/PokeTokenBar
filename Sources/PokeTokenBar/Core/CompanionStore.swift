@@ -2934,11 +2934,14 @@ final class CompanionStore {
     /// Species graduated in a Rock-type form: their usual one, or one of their forms (Hisuian Arcanine). A species with
     /// forms counts by the forms it graduated in only: a Galarian Corsola (Ghost) counted as Rock, Corsola's usual type.
     var rockSpeciesGraduated: Set<Int> {
-        Set(graduatedSpeciesIDs.filter { id in
+        // The Pokédex's forms read once: `collectedForms(graduatedOnly:)` read it again for each species, up to 240 ms
+        // each time the popover drew its tabs (#182).
+        let graduated = GraduatedForms(state.dex)
+        return Set(graduatedSpeciesIDs.filter { id in
             guard PokemonForm.hasForms(speciesID: id) else {
                 return PokemonTypeData.types(forSpeciesID: id, form: nil).contains(.rock)
             }
-            return state.collectedForms(speciesID: id, graduatedOnly: true).contains {
+            return state.graduatedForms(speciesID: id, graduated).contains {
                 PokemonTypeData.types(forSpeciesID: id, form: $0).contains(.rock)
             }
         })
