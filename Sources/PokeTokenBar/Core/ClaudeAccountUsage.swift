@@ -49,10 +49,12 @@ enum ClaudeAccountUsageAttribution {
     static func owner(sessions: [String], at date: Date, accounts: [Account]) -> String? {
         var latest: (id: String, date: Date)?
         var earliest: (id: String, date: Date)?
+        // Once per turn, not once per account: this runs for every turn of the month at each refresh (#182).
+        let candidates = sessions.count < 2 ? sessions : Set(sessions).sorted()
         for account in accounts {
-            for session in Set(sessions).sorted() {
+            for session in candidates {
                 guard let times = account.prompts[session], let first = times.first else { continue }
-                if let before = times.last(where: { $0 <= date }), latest.map({ before > $0.date }) ?? true {
+                if let before = lastPrompt(in: times, atOrBefore: date), latest.map({ before > $0.date }) ?? true {
                     latest = (account.id, before)
                 }
                 if earliest.map({ first < $0.date }) ?? true {
@@ -62,6 +64,16 @@ enum ClaudeAccountUsageAttribution {
         }
         // A turn logged before any prompt of its session (clock skew) goes to the login that started it.
         return latest?.id ?? earliest?.id
+    }
+
+    /// The latest of `times` (ascending) at or before `date`: `times.last { $0 <= date }`, by halves.
+    static func lastPrompt(in times: [Date], atOrBefore date: Date) -> Date? {
+        var low = 0, high = times.count
+        while low < high {
+            let mid = (low + high) / 2
+            if times[mid] <= date { low = mid + 1 } else { high = mid }
+        }
+        return low > 0 ? times[low - 1] : nil
     }
 
     /// `activeBlocks` holds each account's own 5h block, for its tab and forecast: the machine-wide block
