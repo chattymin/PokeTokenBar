@@ -711,7 +711,9 @@ final class SaveTransferTests: XCTestCase {
                                      "dungeons", "eggFromDungeon",
                                      // The Costume Eggs of the Bag, the one incubating and the tokens toward the next:
                                      // the Bag and the egg they belong to follow the save.
-                                     "costumeEggs", "eggFromCostume", "costumeEggTokens"]
+                                     "costumeEggs", "eggFromCostume", "costumeEggTokens",
+                                     // The Pokémon liked: the Pokédex records they point at follow the save.
+                                     "favoriteIDs"]
         let deviceLedger: Set<String> = ["installBaselineSet", "claimedTodayTokensByProvider", "lastDate"]
         let accountLedger: Set<String> = ["candyGrantTier", "candyWindowEpoch", "candyWindowPlan", "candyFeatureSeeded",
                                           "candyGrantsAsYouGo"]
