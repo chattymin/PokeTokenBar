@@ -196,6 +196,12 @@ extension CompanionStore {
         BattleForms.forms(speciesID: speciesID).filter { state.dungeons.battleForms.contains($0.key) }
     }
 
+    /// The battle forms a species' Pokédex page shows: the catalog's, won or still to win, and Giovanni's armor only once
+    /// won (the owner, 2026-11-17: never seen before, nothing on the page gives it away).
+    func shownBattleForms(speciesID: Int) -> [BattleForm] {
+        BattleForms.forms(speciesID: speciesID).filter { !BattleForms.extras.contains($0) || state.dungeons.battleForms.contains($0.key) }
+    }
+
     /// The team screen's filters (the owner, 2026-11-10: to find the Megas and the rest the Hall of Origin asks for).
     enum TeamFilter: CaseIterable, Sendable {
         case shiny, megaOrPrimal, gigantamax

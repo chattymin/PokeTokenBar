@@ -470,6 +470,16 @@ final class VillainTests: XCTestCase {
         XCTAssertEqual(spec.stats, perfect)
         XCTAssertEqual(BattleForms.form(speciesID: 150, form: ArmoredMewtwo.form)?.kind, .armor)
         XCTAssertFalse(BattleForms.all.contains(ArmoredMewtwo.battleForm), "outside the catalog's counts and the challenges")
-        XCTAssertTrue(BattleForms.forms(speciesID: 150).contains(ArmoredMewtwo.battleForm), "a Mewtwo's page shows it")
+        XCTAssertTrue(BattleForms.forms(speciesID: 150).contains(ArmoredMewtwo.battleForm), "a Mewtwo can wear it")
+    }
+
+    /// The owner, 2026-11-17: Mewtwo's page shows the armor only once it is won; its Megas stay, won or not.
+    func testMewtwosPageShowsTheArmorOnlyOnceWon() throws {
+        let s = try store(dex: strong, clock: Clock(try date(10, hour: 12)))
+        XCTAssertFalse(s.shownBattleForms(speciesID: 150).contains(ArmoredMewtwo.battleForm))
+        XCTAssertFalse(s.shownBattleForms(speciesID: 150).isEmpty, "the Megas to win")
+        s.changeDungeons { $0.battleForms.insert(ArmoredMewtwo.battleForm.key) }
+        XCTAssertTrue(s.shownBattleForms(speciesID: 150).contains(ArmoredMewtwo.battleForm))
+        XCTAssertEqual(s.shownBattleForms(speciesID: 6), BattleForms.forms(speciesID: 6), "another species' forms all shown")
     }
 }
