@@ -124,6 +124,17 @@ enum Changelog {
                            "Sobald ein \(silver) oder ein \(gold) in deinem Beutel landet, sagt dir Prof. Eich, welchem Team du ihn gibst, auch wenn er keinen Dungeon vorschlägt: dem des Wochen-Dungeons, solange dort ein Boss zu besiegen ist, sonst dem des Tages-Dungeons, und er überspringt jedes Team, das immer gewinnt. Ein \(gold) geht an das Pokémon, das am meisten gewinnen kann, jeder \(silver) an den niedrigsten DV des Teams.",
                            "Как только в сумке появляется \(silver) или \(gold), профессор Оук сразу говорит, какой команде её отдать, даже если не советует подземелье: команде подземелья недели, пока там есть босс, которого нужно победить, иначе команде подземелья дня, пропуская команду, которая всегда побеждает. \(gold) достаётся покемону, которому есть что прибавить больше всех, а каждая \(silver) идёт на самый низкий IV в команде.")
             },
+            .improved("2026-11-17-oak-mints") { l in
+                let mint = l.itemName(.mint)
+                return l.t("오박사는 이제 왕관과 함께, 기술이 쓰지 않는 능력치를 올리고 쓰는 능력치를 내리는 성격의 포켓몬에게 \(KoreanParticle.object.attach(to: mint)) 권해요. 새 성격도 그렇다면 다시 권해요.",
+                           "Along with Bottle Caps, Prof. Oak now suggests a \(mint) for a Pokémon whose nature raises a stat its moves don't use and lowers one they do, then another after each draw while that holds.",
+                           "オーキド博士はおうかんといっしょに、わざが使わない能力を上げて使う能力を下げる性格のポケモンに\(mint)を勧めるようになりました。新しい性格もそうなら、また勧めます。",
+                           "Junto a las chapas, el Profesor Oak ahora propone una \(mint) para un Pokémon cuya naturaleza sube una estadística que sus ataques no usan y baja una que sí usan, y otra tras cada sorteo mientras siga así.",
+                           "Avec les Capsules, le Prof. Chen propose aussi une \(mint) pour un Pokémon dont la nature monte une stat dont ses attaques ne se servent pas et en baisse une dont elles se servent, puis une autre après chaque tirage tant que c'est le cas.",
+                           "Junto com as tampinhas, o Prof. Carvalho agora sugere uma \(mint) para um Pokémon cuja natureza aumenta um atributo que seus ataques não usam e diminui um que usam, e outra após cada sorteio enquanto continuar assim.",
+                           "Neben Kronkorken schlägt Prof. Eich jetzt auch eine \(mint) für ein Pokémon vor, dessen Wesen einen Wert hebt, den seine Attacken nicht nutzen, und einen senkt, den sie nutzen, und nach jeder Ziehung wieder, solange das so bleibt.",
+                           "Вместе с крышками профессор Оук теперь советует предмет \"\(mint)\" покемону, чей характер повышает характеристику, которой его атаки не пользуются, и понижает ту, которой пользуются, и снова после каждого нового характера, пока так остаётся.")
+            },
         ]),
         ChangelogDay(date: "2026-11-16", entries: [
             .improved("2026-11-16-last-throw-up") { l in
