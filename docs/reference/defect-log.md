@@ -2094,6 +2094,15 @@ read_when:
 
 ## 에너지 (상시 표시 애니메이션)
 
+- **A coalesced write must be the path the app takes.** `saveUsage` was to write a usage update at most every 15 s,
+  yet `applyUsage` ended on a plain `save()` once the evolution line was loaded, which it always is in the app: each
+  live read (every few seconds while Claude writes) encoded and wrote the whole 1.5 MB save, about 100 ms each, most of
+  #182's 3 % CPU (seven writes in 110 s on the owner's Mac). **Why it was missed:** `CompanionUsageSaveTests` built its
+  store and updated at once, before the line had loaded, so it took the early `guard` that did wait. Token growth now
+  waits its gap; an evolution, a graduation or a Rare Candy still writes at once. Guards:
+  `testUsageWritesWaitWithTheLineLoaded` and `testAnEvolutionIsWrittenAtOnce` (faults 2/2). Sweep: the other direct
+  `save()` calls follow a player's action or a ledger change (candies, profiles, egg prefetch), not the usage stream.
+
 - **절전용 정지 상태는 짝 알림 하나에만 복구를 맡기지 마라.** `screensDidSleep` 이 폴링 타이머를 끄고
   `screensDidWake` 만 되살렸다. wake 알림을 놓치면 폴링이 영영 멈추고, 자정 `NSCalendarDayChanged` 갱신이
   남긴 빈 스냅샷(menuTitle "0", providers [])이 재시작 전까지 굳었다(#350, `lastError` 도 비어 무증상).

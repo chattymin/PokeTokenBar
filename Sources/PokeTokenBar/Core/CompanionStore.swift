@@ -2047,6 +2047,8 @@ final class CompanionStore {
         reconcileActiveProfileGrowth()
         // Tokens' growth waits with the usage writes; a Rare Candy's is written at once.
         guard let line = currentLine else { return isTokenUsage ? saveUsage() : save() }
+        // An evolution or a graduation is written at once; tokens' growth alone waits with the usage writes.
+        var staged = false
         var guardCount = 0
         while state.active != nil, guardCount < 50 {
             guardCount += 1
@@ -2062,7 +2064,7 @@ final class CompanionStore {
             }
             // A species none of whose evolutions this form can take is final for it (a Kanto Farfetch'd).
             if Self.openChildren(node, form: a.form).isEmpty {
-                graduate(); break
+                graduate(); staged = true; break
             } else {
                 let nextIndex = a.stageIndex + 1
                 let next: EvoNode
@@ -2078,8 +2080,9 @@ final class CompanionStore {
                     state.active!.totalForms = repaired.count
                     AppLog.write("evolve: repaired invalid planned path for base \(a.baseID)")
                 } else {
-                    graduate(); break
+                    graduate(); staged = true; break
                 }
+                staged = true
                 let wasMystery = activeNews?.mystery != nil
                 // Evolving into a legendary (Solgaleo) wins its Memories; into Silvally, the forms they unlock.
                 let unlockedForms = itemFormSnapshot()
@@ -2106,7 +2109,9 @@ final class CompanionStore {
             }
         }
         reconcileActiveProfileGrowth()
-        save()
+        // Every live read used to write the whole save here, its line loaded: 1.5 MB every few seconds while tokens
+        // flowed (#182).
+        if isTokenUsage, !staged { saveUsage() } else { save() }
     }
 
     /// What the menu bar tells of the next stage, or of the hatch: nothing while a form is a mystery (`hidesGrowthAmounts`).

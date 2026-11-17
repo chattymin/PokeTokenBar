@@ -67,6 +67,14 @@ enum Changelog {
 
     static let days: [ChangelogDay] = [
         ChangelogDay(date: "2026-11-17", entries: [
+            .improved("2026-11-17-lighter-saves", { $0.t("Claude가 작업하는 동안 앱이 CPU를 덜 써요: 사용량을 읽을 때마다 저장 파일 전체를 다시 쓰지 않고 15초에 한 번만 써요.",
+                                                     "The app uses less CPU while Claude works: it no longer rewrites its whole save at each usage read, once every 15 seconds at most.",
+                                                     "Claudeが作業している間、アプリのCPU使用が減りました：使用量を読むたびにセーブ全体を書き直さず、15秒に1回までにしました。",
+                                                     "La app usa menos CPU mientras Claude trabaja: ya no reescribe todo su guardado en cada lectura de uso, una vez cada 15 segundos como mucho.",
+                                                     "L'app consomme moins de processeur pendant que Claude travaille : elle ne réécrit plus toute sa sauvegarde à chaque lecture d'usage, une fois toutes les 15 secondes au plus.",
+                                                     "O app usa menos CPU enquanto o Claude trabalha: não regrava mais todo o save a cada leitura de uso, no máximo uma vez a cada 15 segundos.",
+                                                     "Die App braucht weniger CPU, während Claude arbeitet: Sie schreibt nicht mehr bei jedem Nutzungs-Lesen den ganzen Spielstand neu, höchstens alle 15 Sekunden.",
+                                                     "Приложение тратит меньше процессора, пока работает Claude: оно больше не перезаписывает всё сохранение при каждом чтении расхода, не чаще раза в 15 секунд.") }),
             .improved("2026-11-17-family-wraps", { $0.t("도감 페이지에서 여러 갈래의 진화형이 한 줄로 스크롤되지 않고 여러 줄로 나뉘어 한눈에 보여요.",
                                                      "On a Pokédex page, a stage's several evolutions now wrap onto more lines instead of scrolling in one row.",
                                                      "図鑑ページで、いくつにも分かれる進化形が1行でスクロールせず、何行かに折り返して一度に見えるようになりました。",
