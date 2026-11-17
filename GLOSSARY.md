@@ -35,3 +35,19 @@ _Avoid_: Reach, chances
 **Tokens to Completion**:
 The tokens a player still has to spend to reach a step of Completion. It is the only unit used to compare strategies; a duration is only this figure divided by a player's pace, and the calendar's floor on Battle Forms is stated apart.
 _Avoid_: Time to complete, years
+
+**Useful Stat**:
+A stat a Pokémon's battles read: HP, Defense, Sp. Def and Speed always, Attack if one of its attacking moves is physical, Sp. Atk if one is special. Body Press counts Defense, Foul Play counts neither, and Shedinja's HP never counts. The moves are the set the player chose, else those suggested for that dungeon.
+_Avoid_: Relevant stat
+
+**Theft**:
+Items a villains' team takes from the Bag, once a day or from the loot a team brings back. The code calls it a `VillainAmbush`.
+_Avoid_: Ambush
+
+**Chase**:
+The battle a player's team fights after a Theft to win the items back. Lost, the items wait in the thieves' Hideout.
+_Avoid_: Defense
+
+**Hideout**:
+A villains' team's dungeon, where what it took waits behind its boss and three Pokémon. Beating its leader gives it all back, with the leader's chest.
+_Avoid_: Lair
