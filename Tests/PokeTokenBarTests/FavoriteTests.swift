@@ -21,8 +21,10 @@ final class FavoriteTests: XCTestCase {
             state.installBaselineSet = true
             let caught = Date(timeIntervalSince1970: 1_790_000_000)
             state.dex = [
-                DexEntry(id: "leafeon", baseID: 133, finalID: 470, chainOrder: [133, 470], rarity: .rare, caughtAt: caught),
-                DexEntry(id: "vaporeon", baseID: 133, finalID: 134, chainOrder: [133, 134], rarity: .rare, caughtAt: caught),
+                DexEntry(id: "leafeon", baseID: 133, finalID: 470, chainOrder: [133, 470], rarity: .rare, caughtAt: caught,
+                         profile: .generate(seed: 1)),
+                DexEntry(id: "vaporeon", baseID: 133, finalID: 134, chainOrder: [133, 134], rarity: .rare, caughtAt: caught,
+                         profile: .generate(seed: 2)),
                 DexEntry(id: "raichu", baseID: 25, finalID: 26, chainOrder: [25, 26], rarity: .common, caughtAt: caught),
                 DexEntry(id: "sent-off", baseID: 1, finalID: 1, chainOrder: [1], rarity: .common, caughtAt: caught,
                          releasedAt: caught),
@@ -48,6 +50,28 @@ final class FavoriteTests: XCTestCase {
         XCTAssertEqual(s.catchLogItems(favoritesOnly: true).count, 1)
         s.toggleFavorite(try entry(s, "leafeon"))
         XCTAssertTrue(s.filteredDexEntries(favoritesOnly: true).isEmpty)
+    }
+
+    /// The ♥ filter of the Capsules, the Mints and the team screens; a liked copy stands for its species' cell.
+    func testTheFavoritesFilterEveryScreenThatListsThePokemon() throws {
+        let (s, _) = try store()
+        s.toggleFavorite(try entry(s, "leafeon"))
+        XCTAssertEqual(s.itemTargets(.goldCapsule, query: "", shinyOnly: false, favoritesOnly: true, sort: .strongest).map(\.id),
+                       ["leafeon"])
+        XCTAssertEqual(s.itemTargets(.mint, query: "", shinyOnly: false, favoritesOnly: true, sort: .strongest).map(\.id),
+                       ["leafeon"])
+        XCTAssertGreaterThan(s.itemTargets(.goldCapsule, query: "", shinyOnly: false, sort: .strongest).count, 1, "unfiltered, all")
+        XCTAssertTrue(s.matches(try entry(s, "leafeon"), .favorite))
+        XCTAssertFalse(s.matches(try entry(s, "vaporeon"), .favorite))
+        // Two copies of one species: the liked one stands for the cell, whatever their IVs.
+        let base = try entry(s, "vaporeon")
+        let strong = DexEntry(id: "strong", baseID: 133, finalID: 134, chainOrder: [133, 134], rarity: .rare,
+                              caughtAt: base.caughtAt, profile: base.profile.map { var p = $0; p.ivs.hp = 31; p.ivs.attack = 31; return p })
+        var weak = base
+        weak.profile?.ivs.hp = 0
+        XCTAssertEqual(DungeonTeamScreen.candidateGroups([strong, weak], picked: [], loops: [:]).first?.entry.id, "strong")
+        XCTAssertEqual(DungeonTeamScreen.candidateGroups([strong, weak], picked: [], loops: [:], favorites: ["vaporeon"])
+            .first?.entry.id, "vaporeon")
     }
 
     func testOnlyAGraduatedPokemonIsLiked() throws {

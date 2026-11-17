@@ -175,7 +175,10 @@ struct DungeonTeamScreen: View {
                 let on = filter == option
                 Button { filter = on ? nil : option } label: {
                     Group {
-                        if option == .shiny {
+                        if option == .favorite {
+                            // Filled or not says it, not the color alone.
+                            Image(systemName: on ? "heart.fill" : "heart").font(.system(size: 11, weight: on ? .bold : .regular))
+                        } else if option == .shiny {
                             Image(systemName: on ? "sparkles" : "sparkle").font(.system(size: 11, weight: on ? .bold : .regular))
                         } else {
                             Text(option == .megaOrPrimal ? l.teamFilterMega : l.teamFilterGigantamax)
@@ -187,7 +190,8 @@ struct DungeonTeamScreen: View {
                 }
                 .buttonStyle(.plain)
                 .fixedSize()
-                .hoverTip(option == .shiny ? l.filterShinyOnly : option == .megaOrPrimal ? l.teamFilterMega : l.teamFilterGigantamax)
+                .hoverTip(option == .favorite ? l.filterFavoritesOnly : option == .shiny ? l.filterShinyOnly
+                          : option == .megaOrPrimal ? l.teamFilterMega : l.teamFilterGigantamax)
             }
         }
     }
@@ -228,12 +232,15 @@ struct DungeonTeamScreen: View {
     /// The candidates, one cell per species, form and shininess: a player with nine Seedot saw nine identical cells
     /// (a player, 2026-11-05). Each cell stands for the copy picked already, else the one whose moves were chosen,
     /// else the best IVs; `count` its copies.
-    static func candidateGroups(_ entries: [DexEntry], picked: [String], loops: [String: [String]])
-        -> [(entry: DexEntry, count: Int)] {
+    /// A liked copy stands for its cell before the best IVs: the one the player chose to keep.
+    static func candidateGroups(_ entries: [DexEntry], picked: [String], loops: [String: [String]],
+                                favorites: Set<String> = []) -> [(entry: DexEntry, count: Int)] {
         func ivTotal(_ e: DexEntry) -> Int {
             e.profile.map { $0.ivs.hp + $0.ivs.attack + $0.ivs.defense + $0.ivs.specialAttack + $0.ivs.specialDefense + $0.ivs.speed } ?? 0
         }
-        func rank(_ e: DexEntry) -> (Int, Int, Int) { (picked.contains(e.id) ? 1 : 0, loops[e.id] == nil ? 0 : 1, ivTotal(e)) }
+        func rank(_ e: DexEntry) -> (Int, Int, Int, Int) {
+            (picked.contains(e.id) ? 1 : 0, loops[e.id] == nil ? 0 : 1, favorites.contains(e.id) ? 1 : 0, ivTotal(e))
+        }
         var order: [String] = []
         var groups: [String: [DexEntry]] = [:]
         for e in entries {
@@ -420,7 +427,8 @@ struct TeamCandidateList: View {
         let all = store.dungeonCandidates
         let searched = CompanionStore.DexSearchMatcher(query).map { matcher in all.filter { matcher.matches($0) } } ?? all
         let shown = filter.map { f in searched.filter { store.matches($0, f) } } ?? searched
-        let groups = DungeonTeamScreen.candidateGroups(shown, picked: team, loops: store.dungeonProgress.moveLoops)
+        let groups = DungeonTeamScreen.candidateGroups(shown, picked: team, loops: store.dungeonProgress.moveLoops,
+                                                       favorites: store.state.favoriteIDs)
         let rows = groups.map { group in
             (entry: group.entry, count: group.count,
              refusal: rules.first { !DungeonTeamRules.admits(DungeonCandidate(group.entry), rules: [$0]) })
@@ -507,6 +515,10 @@ private struct CandidateRow: View {
                             .font(.caption.weight(.semibold)).lineLimit(1)
                         if count > 1 {
                             Text(l.catchCount(count)).font(.caption2.weight(.semibold)).monospacedDigit().foregroundStyle(.secondary)
+                        }
+                        if store.isFavorite(entry) {
+                            Image(systemName: "heart.fill").font(.system(size: 9)).foregroundStyle(Color.pink)
+                                .accessibilityLabel(l.favoriteLabel)
                         }
                         // Its own types whole, its moves' in three letters below: never mistaken for each other.
                         ForEach(types, id: \.self) { Badge(l.typeName($0).uppercased(), tint: .type($0)).fixedSize() }

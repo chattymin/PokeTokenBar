@@ -204,11 +204,11 @@ extension CompanionStore {
 
     /// The team screen's filters (the owner, 2026-11-10: to find the Megas and the rest the Hall of Origin asks for).
     enum TeamFilter: CaseIterable, Sendable {
-        case shiny, megaOrPrimal, gigantamax
+        case favorite, shiny, megaOrPrimal, gigantamax
 
         var kinds: [BattleFormKind] {
             switch self {
-            case .shiny: []
+            case .favorite, .shiny: []
             case .megaOrPrimal: [.mega, .primal]
             case .gigantamax: [.gigantamax]
             }
@@ -218,6 +218,7 @@ extension CompanionStore {
     /// Whether a graduated Pokémon shows under a filter: shiny, or its species having won a form of the kind, chosen
     /// or not yet (it can take it from the list).
     func matches(_ entry: DexEntry, _ filter: TeamFilter) -> Bool {
+        if filter == .favorite { return isFavorite(entry) }
         if filter == .shiny { return entry.isShiny }
         return wonBattleForms(speciesID: entry.finalID).contains { filter.kinds.contains($0.kind) }
     }
@@ -741,8 +742,8 @@ extension CompanionStore {
 
     /// The Capsule screen's Pokémon: `query` read as the Pokédex reads it, the shiny ones alone when asked, in `sort`'s
     /// order.
-    func capsuleCandidates(query: String, shinyOnly: Bool, sort: CapsuleSortOption) -> [DexEntry] {
-        itemTargets(.goldCapsule, query: query, shinyOnly: shinyOnly, sort: sort)
+    func capsuleCandidates(query: String, shinyOnly: Bool, favoritesOnly: Bool = false, sort: CapsuleSortOption) -> [DexEntry] {
+        itemTargets(.goldCapsule, query: query, shinyOnly: shinyOnly, favoritesOnly: favoritesOnly, sort: sort)
     }
 
     /// The sorts the screen of `kind` offers: a Mint has no IVs to gain.
@@ -759,15 +760,18 @@ extension CompanionStore {
 
     /// The Capsule screen's Pokémon: those a Capsule can raise, then those already at 31 everywhere, shown greyed (the
     /// owner, 2026-11-12: a Pokémon gone from the list looked lost). A Mint's: every one it can change.
-    func itemTargets(_ kind: ItemKind, query: String, shinyOnly: Bool, sort: CapsuleSortOption) -> [DexEntry] {
-        let sorted = sortedItemTargets(kind, query: query, shinyOnly: shinyOnly, sort: sort)
+    func itemTargets(_ kind: ItemKind, query: String, shinyOnly: Bool, favoritesOnly: Bool = false,
+                     sort: CapsuleSortOption) -> [DexEntry] {
+        let sorted = sortedItemTargets(kind, query: query, shinyOnly: shinyOnly, favoritesOnly: favoritesOnly, sort: sort)
         guard kind != .mint else { return sorted }
         return sorted.filter { !Self.hasAllIVsMaxed($0) } + sorted.filter(Self.hasAllIVsMaxed)
     }
 
-    private func sortedItemTargets(_ kind: ItemKind, query: String, shinyOnly: Bool, sort: CapsuleSortOption) -> [DexEntry] {
+    private func sortedItemTargets(_ kind: ItemKind, query: String, shinyOnly: Bool, favoritesOnly: Bool,
+                                   sort: CapsuleSortOption) -> [DexEntry] {
         var result = kind == .mint ? mintCandidates : state.dex.filter { !$0.isReleased && $0.profile != nil }
         if shinyOnly { result = result.filter(\.isShiny) }
+        if favoritesOnly { result = result.filter { isFavorite($0) } }
         if let matcher = DexSearchMatcher(query) { result = result.filter { matcher.matches($0) } }
         switch sort {
         case .strongest, .mostToGain:

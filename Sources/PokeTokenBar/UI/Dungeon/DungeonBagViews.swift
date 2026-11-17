@@ -111,6 +111,7 @@ struct CapsuleScreen: View {
     @State private var lastRaised: Int?
     @State private var search = ""
     @State private var shinyOnly = false
+    @State private var favoritesOnly = false
     @State private var sort: CompanionStore.CapsuleSortOption = .strongest
     /// The Mint's last change on the Pokémon picked.
     @State private var mintChange: (from: PokemonNature?, to: PokemonNature)?
@@ -146,7 +147,8 @@ struct CapsuleScreen: View {
             } else {
                 Text(l.dungeonCapsulePick).font(.caption.weight(.semibold))
                 toolbar(l)
-                let shown = store.itemTargets(kind, query: search, shinyOnly: shinyOnly, sort: sort)
+                let shown = store.itemTargets(kind, query: search, shinyOnly: shinyOnly, favoritesOnly: favoritesOnly,
+                                              sort: sort)
                 if shown.isEmpty {
                     noResult(l)
                 } else {
@@ -199,6 +201,18 @@ struct CapsuleScreen: View {
             .buttonStyle(.plain)
             .hoverTip(l.filterShinyOnly)
             .accessibilityLabel(l.filterShinyOnly)
+            Button { favoritesOnly.toggle() } label: {
+                // Filled or not says it, not the pink alone.
+                Image(systemName: favoritesOnly ? "heart.fill" : "heart")
+                    .font(.system(size: 12, weight: favoritesOnly ? .bold : .regular))
+                    .foregroundStyle(favoritesOnly ? Color.pink : Color.secondary)
+                    .frame(width: 16, height: 16)
+                    .modifier(CapsuleFilterChip(active: favoritesOnly, tint: .pink))
+            }
+            .buttonStyle(.plain)
+            .hoverTip(l.filterFavoritesOnly)
+            .accessibilityLabel(l.filterFavoritesOnly)
+            .accessibilityAddTraits(favoritesOnly ? .isSelected : [])
             Menu {
                 ForEach(CompanionStore.sortOptions(for: kind)) { option in
                     Button { sort = option } label: {
@@ -228,7 +242,7 @@ struct CapsuleScreen: View {
         VStack(spacing: 8) {
             Image(systemName: "magnifyingglass").font(.system(size: 24)).foregroundStyle(.tertiary)
             Text(l.noSearchResults).font(.callout.weight(.medium)).foregroundStyle(.secondary)
-            Button(l.clearFilters) { search = ""; shinyOnly = false }
+            Button(l.clearFilters) { search = ""; shinyOnly = false; favoritesOnly = false }
                 .buttonStyle(.bordered)
                 .controlSize(.small)
         }
@@ -242,6 +256,12 @@ struct CapsuleScreen: View {
             SpriteView(speciesID: entry.finalID, size: 40, shiny: entry.isShiny, form: entry.form, isSilhouette: false,
                        sameScale: true)
                 .opacity(maxed ? 0.35 : 1)
+                .overlay(alignment: .topTrailing) {
+                    if store.isFavorite(entry) {
+                        Image(systemName: "heart.fill").font(.system(size: 9)).foregroundStyle(Color.pink)
+                            .accessibilityLabel(store.l.favoriteLabel)
+                    }
+                }
             Text(kind == .mint ? entry.nature.map { $0.name(store.language) } ?? "?" : "\(total(entry))/186")
                 .font(.caption2).foregroundStyle(maxed ? .tertiary : .secondary).monospacedDigit().lineLimit(1)
                 .minimumScaleFactor(0.8)

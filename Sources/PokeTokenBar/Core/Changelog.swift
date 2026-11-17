@@ -67,14 +67,14 @@ enum Changelog {
 
     static let days: [ChangelogDay] = [
         ChangelogDay(date: "2026-11-17", entries: [
-            .new("2026-11-17-favorites", { $0.t("졸업한 포켓몬을 도감 페이지의 하트로 즐겨찾기할 수 있어요: 도감과 포획 기록의 ♥ 필터가 좋아하는 포켓몬만 보여 줘요.",
-                                            "Like a graduated Pokémon with the heart on its Pokédex page: the ♥ filter of the Pokédex and the catch log shows your favorites only.",
-                                            "卒業したポケモンを図鑑ページのハートでお気に入りにできます：図鑑と捕獲記録の♥フィルターでお気に入りだけを表示します。",
-                                            "Marca como favorito a un Pokémon graduado con el corazón de su página de la Pokédex: el filtro ♥ de la Pokédex y del registro muestra solo tus favoritos.",
-                                            "Ajoute un Pokémon diplômé à tes favoris avec le cœur de sa page du Pokédex : le filtre ♥ du Pokédex et du journal de captures n'affiche que tes préférés.",
-                                            "Favorite um Pokémon formado com o coração da página dele na Pokédex: o filtro ♥ da Pokédex e do registro mostra só os seus favoritos.",
-                                            "Markiere ein verabschiedetes Pokémon mit dem Herz auf seiner Pokédex-Seite als Favorit: Der ♥-Filter von Pokédex und Fangprotokoll zeigt nur deine Favoriten.",
-                                            "Добавь выпускника в избранное сердечком на его странице Покедекса: фильтр ♥ в Покедексе и журнале поимок покажет только избранных.") }),
+            .new("2026-11-17-favorites", { $0.t("졸업한 포켓몬을 도감 페이지의 하트로 즐겨찾기할 수 있어요: 도감, 포획 기록, 캡슐, 민트, 팀 화면의 ♥ 필터가 좋아하는 포켓몬만 보여 줘요.",
+                                            "Like a graduated Pokémon with the heart on its Pokédex page: the ♥ filter of the Pokédex, the catch log, the Capsules, the Mints and the team screens shows your favorites only.",
+                                            "卒業したポケモンを図鑑ページのハートでお気に入りにできます：図鑑、捕獲記録、王冠、ミント、チーム画面の♥フィルターでお気に入りだけを表示します。",
+                                            "Marca como favorito a un Pokémon graduado con el corazón de su página de la Pokédex: el filtro ♥ de la Pokédex, el registro, las Chapas, las Mentas y los equipos muestra solo tus favoritos.",
+                                            "Ajoute un Pokémon diplômé à tes favoris avec le cœur de sa page du Pokédex : le filtre ♥ du Pokédex, du journal de captures, des Capsules, des Menthes et des équipes n'affiche que tes préférés.",
+                                            "Favorite um Pokémon formado com o coração da página dele na Pokédex: o filtro ♥ da Pokédex, do registro, das Tampinhas, das Mentas e das equipes mostra só os seus favoritos.",
+                                            "Markiere ein verabschiedetes Pokémon mit dem Herz auf seiner Pokédex-Seite als Favorit: Der ♥-Filter von Pokédex, Fangprotokoll, Kronkorken, Minzen und Teams zeigt nur deine Favoriten.",
+                                            "Добавь выпускника в избранное сердечком на его странице Покедекса: фильтр ♥ в Покедексе, журнале поимок, крышках, мятах и командах покажет только избранных.") }),
             .improved("2026-11-17-lighter-saves", { $0.t("Claude가 작업하는 동안 앱이 CPU를 덜 써요: 사용량을 읽을 때마다 저장 파일 전체를 다시 쓰지 않고 15초에 한 번만 써요.",
                                                      "The app uses less CPU while Claude works: it no longer rewrites its whole save at each usage read, once every 15 seconds at most.",
                                                      "Claudeが作業している間、アプリのCPU使用が減りました：使用量を読むたびにセーブ全体を書き直さず、15秒に1回までにしました。",
