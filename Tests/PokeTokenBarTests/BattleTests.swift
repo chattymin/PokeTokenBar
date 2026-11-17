@@ -115,7 +115,19 @@ final class BattleTests: XCTestCase {
         try await wait { host.port != nil }
         let port = try XCTUnwrap(host.port)
 
-        guest.challenge(endpoint: .hostPort(host: "127.0.0.1", port: port), name: "Ash")
+        XCTAssertFalse(guest.challenge(address: " "))
+        XCTAssertFalse(guest.challenge(address: "127.0.0.1:port"))
+        XCTAssertFalse(guest.challenge(address: "127.0.0.1:"))
+
+        // A VPN carries no Bonjour: the scan asks the address itself and lists whoever answers.
+        guest.scan(hosts: ["127.0.0.1"], port: port)
+        try await wait { guest.peers.count == 1 }
+        XCTAssertEqual(guest.peers.first?.name, "\(ash.name) (127.0.0.1)")
+        try await wait { !guest.scanning }
+        XCTAssertEqual(host.phase, .lobby, "a probe is not a challenge")
+        XCTAssertNil(host.notice)
+        XCTAssertTrue(host.addresses.allSatisfy { $0.hasSuffix(":\(port.rawValue)") })
+        XCTAssertTrue(guest.challenge(address: " 127.0.0.1:\(port.rawValue) "))
         try await wait { host.phase == .incoming("Gary") }
         host.accept()
         try await wait { guest.phase == .battle }

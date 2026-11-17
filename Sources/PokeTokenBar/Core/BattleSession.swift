@@ -14,6 +14,9 @@ enum BattleMessage: Codable, Sendable, Equatable {
     case forfeit
     /// Host → challenger: the last choice was illegal; choose again.
     case rejected(String)
+    /// Scanner → lobby: "is a player here?" (VPNs carry no Bonjour). Answered with `.info`, then closed.
+    case probe
+    case info(name: String)
 }
 
 /// A LAN battle between two PokeTokenBar instances.
@@ -29,6 +32,9 @@ enum BattleMessage: Codable, Sendable, Equatable {
 final class BattleSession {
     static let serviceType = "_ptbbattle._tcp"
     static let protocolVersion = 1
+    /// Fixed so an address alone is enough to connect and a VPN subnet can be probed. A random port
+    /// is the fallback when this one is taken (a second instance on the same Mac).
+    static let defaultPort: NWEndpoint.Port = 47806
     /// A hello with three Pokémon is ~2 KB and a snapshot ~4 KB; anything near this is not ours.
     static let maxMessageSize = 256 * 1024
     static let maxLogLines = 300
@@ -52,7 +58,9 @@ final class BattleSession {
     }
 
     private(set) var phase: Phase = .idle
-    private(set) var peers: [Peer] = []
+    /// Bonjour results first, then players found by `scanVPN()`.
+    var peers: [Peer] { browsed + scanned }
+    private(set) var scanning = false
     private(set) var snapshot: BattleSnapshot?
     private(set) var log: [String] = []
     private(set) var notice: Notice?
@@ -68,6 +76,9 @@ final class BattleSession {
     private var listener: NWListener?
     private var browser: NWBrowser?
     private var connection: NWConnection?
+    private var browsed: [Peer] = []
+    private var scanned: [Peer] = []
+    private var probes: [NWConnection] = []
     private var isChallenger = false
     private var engine: BattleEngine?       // host only
     private var guest: BattlePlayer?        // host only: the pending/active challenger
@@ -85,7 +96,7 @@ final class BattleSession {
     func enterLobby(as player: BattlePlayer) {
         self.player = player
         notice = nil
-        if listener == nil { startListener() }
+        if listener == nil { startListener(on: advertises ? Self.defaultPort : .any) }
         if browser == nil, advertises { startBrowser() }
         if phase == .idle { phase = .lobby }
     }
@@ -98,7 +109,9 @@ final class BattleSession {
         listener = nil
         browser = nil
         port = nil
-        peers = []
+        browsed = []
+        endScan()
+        scanned = []
         clearBattle()
         phase = .idle
     }
@@ -113,6 +126,107 @@ final class BattleSession {
         isChallenger = true
         phase = .challenging(name)
         adopt(NWConnection(to: endpoint, using: Self.parameters))
+    }
+
+    /// Manual fallback for networks where Bonjour is filtered (guest Wi-Fi, VPN overlays):
+    /// "host" or "host:port".
+    @discardableResult
+    func challenge(address: String) -> Bool {
+        let parts = address.trimmingCharacters(in: .whitespaces).split(separator: ":", omittingEmptySubsequences: false)
+        guard (1...2).contains(parts.count), !parts[0].isEmpty,
+              let port = parts.count == 1 ? Self.defaultPort : NWEndpoint.Port(String(parts[1])) else { return false }
+        challenge(endpoint: .hostPort(host: NWEndpoint.Host(String(parts[0])), port: port), name: String(parts[0]))
+        return true
+    }
+
+    /// What the other player types into "connect by address": every usable IPv4 of this Mac,
+    /// with the port only when the fixed one was taken.
+    var addresses: [String] {
+        guard let port else { return [] }
+        return Self.interfaceAddresses().map(\.ip).sorted()
+            .map { port == Self.defaultPort ? $0 : "\($0):\(port.rawValue)" }
+    }
+
+    /// The other addresses of every VPN (point-to-point) subnet this Mac is on.
+    /// ponytail: assumes a /24 around our own address, which covers WireGuard-style VPNs; read the
+    /// routing table if someone needs wider subnets (Tailscale's 100.64/10 is not scannable anyway).
+    static func vpnHosts() -> [String] {
+        interfaceAddresses().filter(\.pointToPoint).flatMap { own -> [String] in
+            let prefix = own.ip.split(separator: ".").dropLast().joined(separator: ".")
+            return (1...254).map { "\(prefix).\($0)" }.filter { $0 != own.ip }
+        }
+    }
+
+    /// One pass over the VPN subnets, started by the user: every address is asked once whether a
+    /// player is waiting in a lobby there.
+    func scanVPN() {
+        scan(hosts: Self.vpnHosts(), port: Self.defaultPort)
+    }
+
+    func scan(hosts: [String], port: NWEndpoint.Port, timeout: Duration = .seconds(3)) {
+        guard phase == .lobby, !scanning, !hosts.isEmpty else { return }
+        scanning = true
+        scanned = []
+        hosts.forEach { probe($0, port: port) }
+        let batch = probes
+        Task { [weak self] in
+            try? await Task.sleep(for: timeout)
+            guard let self, self.probes.first === batch.first else { return }
+            self.endScan()
+        }
+    }
+
+    private func endScan() {
+        probes.forEach { $0.cancel() }
+        probes = []
+        scanning = false
+    }
+
+    private func probe(_ host: String, port: NWEndpoint.Port) {
+        let endpoint = NWEndpoint.hostPort(host: NWEndpoint.Host(host), port: port)
+        let connection = NWConnection(to: endpoint, using: Self.parameters)
+        let question = Self.frame(.probe)
+        probes.append(connection)
+        connection.stateUpdateHandler = { [weak connection] state in
+            switch state {
+            case .ready: connection?.send(content: question, completion: .idempotent)
+            case .failed, .waiting: connection?.cancel()
+            default: break
+            }
+        }
+        connection.receive(minimumIncompleteLength: 4, maximumLength: 4) { [weak self, weak connection] header, _, _, _ in
+            let length = header?.count == 4 ? header!.reduce(0) { $0 << 8 | Int($1) } : 0
+            guard let connection, (1...1024).contains(length) else { return }
+            connection.receive(minimumIncompleteLength: length, maximumLength: length) { [weak self, weak connection] body, _, _, _ in
+                MainActor.assumeIsolated {
+                    connection?.cancel()
+                    guard let self, self.scanning, let body,
+                          case let .info(name)? = try? JSONDecoder().decode(BattleMessage.self, from: body),
+                          !self.scanned.contains(where: { $0.id == host }) else { return }
+                    self.scanned.append(Peer(id: host, name: "\(name.prefix(24)) (\(host))", endpoint: endpoint))
+                    self.scanned.sort { $0.id < $1.id }
+                }
+            }
+        }
+        connection.start(queue: .main)
+    }
+
+    /// Non-loopback, non-link-local IPv4 addresses of the interfaces that are up.
+    private static func interfaceAddresses() -> [(ip: String, pointToPoint: Bool)] {
+        var list: UnsafeMutablePointer<ifaddrs>?
+        guard getifaddrs(&list) == 0 else { return [] }
+        defer { freeifaddrs(list) }
+        var found: [(ip: String, pointToPoint: Bool)] = []
+        for interface in sequence(first: list, next: { $0?.pointee.ifa_next }) {
+            guard let interface, let address = interface.pointee.ifa_addr, address.pointee.sa_family == UInt8(AF_INET),
+                  interface.pointee.ifa_flags & UInt32(IFF_UP) != 0 else { continue }
+            var name = [CChar](repeating: 0, count: Int(NI_MAXHOST))
+            guard getnameinfo(address, socklen_t(address.pointee.sa_len), &name, socklen_t(name.count), nil, 0, NI_NUMERICHOST) == 0 else { continue }
+            let ip = String(cString: name)
+            guard !ip.hasPrefix("127."), !ip.hasPrefix("169.254.") else { continue }
+            found.append((ip, interface.pointee.ifa_flags & UInt32(IFF_POINTOPOINT) != 0))
+        }
+        return found
     }
 
     func cancelChallenge() {
@@ -193,8 +307,8 @@ final class BattleSession {
         return "\(name)#\(serviceName)"
     }
 
-    private func startListener() {
-        guard let listener = try? NWListener(using: Self.parameters) else {
+    private func startListener(on port: NWEndpoint.Port) {
+        guard let listener = try? NWListener(using: Self.parameters, on: port) else {
             notice = .networkFailed
             return
         }
@@ -209,7 +323,11 @@ final class BattleSession {
                 guard let self, let listener, self.listener === listener else { return }
                 switch state {
                 case .ready: self.port = listener.port
-                case .failed: self.notice = .networkFailed
+                case .failed:
+                    listener.cancel()
+                    self.listener = nil
+                    // The fixed port is taken: any free one still works, the address just shows it.
+                    if port == .any { self.notice = .networkFailed } else { self.startListener(on: .any) }
                 default: break
                 }
             }
@@ -227,7 +345,7 @@ final class BattleSession {
                 let shown = name.split(separator: "#").dropLast().joined(separator: "#")
                 return Peer(id: name, name: shown.isEmpty ? name : shown, endpoint: result.endpoint)
             }.sorted { $0.id < $1.id }
-            MainActor.assumeIsolated { self?.peers = peers }
+            MainActor.assumeIsolated { self?.browsed = peers }
         }
         self.browser = browser
         browser.start(queue: .main)
@@ -381,6 +499,11 @@ final class BattleSession {
             requestBeforeChoice = nil
             snapshot?.request = request
             rejection = String(reason.prefix(200))
+        case .probe:
+            guard !isChallenger, phase == .lobby, guest == nil else { return }
+            closeAfterSending(.info(name: player.name))
+        case .info:
+            break
         }
     }
 

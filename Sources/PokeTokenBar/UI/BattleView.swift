@@ -50,6 +50,7 @@ struct BattleView: View {
     @State private var preparing = false
     @State private var downloadFailed = false
     @State private var confirmingForfeit = false
+    @State private var address = ""
 
     private var l: L { store.l }
     private var roster: [DexEntry] {
@@ -197,6 +198,25 @@ struct BattleView: View {
                     }
                     .padding(8)
                     .background(RoundedRectangle(cornerRadius: 8).fill(Color.secondary.opacity(0.08)))
+                }
+                Divider()
+                Text(l.battleAddressHint).font(.caption).foregroundStyle(.secondary)
+                if !session.addresses.isEmpty {
+                    Text(l.battleYourAddress(session.addresses.joined(separator: ", ")))
+                        .font(.caption).textSelection(.enabled)
+                }
+                if !BattleSession.vpnHosts().isEmpty {
+                    HStack(spacing: 8) {
+                        Button(l.battleScanVPN) { session.scanVPN() }.disabled(session.scanning)
+                        if session.scanning { ProgressView().controlSize(.small) }
+                    }
+                }
+                HStack {
+                    TextField(l.battleAddressPlaceholder, text: $address)
+                        .textFieldStyle(.roundedBorder)
+                        .onSubmit { session.challenge(address: address) }
+                    Button(l.battleConnect) { session.challenge(address: address) }
+                        .disabled(address.isEmpty)
                 }
             }
             Spacer()
