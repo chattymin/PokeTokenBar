@@ -12,7 +12,7 @@ private struct DexFamilyProvider: PokeProviding {
 @MainActor
 final class DexFamilyTests: XCTestCase {
     /// Graduated individuals, one per chain, in these forms.
-    private func store(_ chains: [(chain: [Int], form: PokemonForm?)]) throws -> CompanionStore {
+    private func store(_ chains: [(chain: [Int], form: PokemonForm?)], shiny: Set<Int> = []) throws -> CompanionStore {
         let suite = "DexFamily-\(UUID())"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
         addTeardownBlock { defaults.removePersistentDomain(forName: suite) }
@@ -22,7 +22,8 @@ final class DexFamilyTests: XCTestCase {
         state.installBaselineSet = true
         state.dex = chains.enumerated().map { index, item in
             DexEntry(baseID: item.chain[0], finalID: item.chain.last!, chainOrder: item.chain, rarity: .common,
-                     caughtAt: Date(timeIntervalSince1970: 1_790_000_000 + Double(index)), form: item.form)
+                     caughtAt: Date(timeIntervalSince1970: 1_790_000_000 + Double(index)), isShiny: shiny.contains(index),
+                     form: item.form)
         }
         try JSONEncoder().encode(state).write(to: file)
         return CompanionStore(provider: DexFamilyProvider(), fileURL: file, defaults: defaults)
@@ -70,6 +71,18 @@ final class DexFamilyTests: XCTestCase {
         let perrserker = store.dexFamily(speciesID: 863, form: nil)
         XCTAssertEqual(perrserker.form, galar)
         XCTAssertEqual(perrserker.nodes, [EvoLineItem(.species(52), .done), EvoLineItem(.species(863), .current)])
+    }
+
+    /// A page's family is drawn shiny only where each species was caught shiny, in the line's form (the owner,
+    /// 2026-11-17: a shiny Eevee's page showed every Eeveelution shiny).
+    func testTheFamilyIsShinyOnlyWhereCaughtShiny() throws {
+        let alola = PokemonForm("alola"), kanto = PokemonForm("normal")
+        // A shiny Eevee become Leafeon, a plain Vaporeon, a shiny Alolan Vulpix, a plain Kanto Ninetales.
+        let store = try store([([133, 470], nil), ([133, 134], nil), ([37], alola), ([37, 38], kanto)], shiny: [0, 2])
+        XCTAssertEqual(store.dexFamilyShinies(store.dexFamily(speciesID: 133, form: nil)), [133, 470])
+        XCTAssertEqual(store.dexFamilyShinies(store.dexFamily(speciesID: 134, form: nil)), [133])
+        XCTAssertEqual(store.dexFamilyShinies(store.dexFamily(speciesID: 37, form: alola)), [37])
+        XCTAssertEqual(store.dexFamilyShinies(store.dexFamily(speciesID: 37, form: kanto)), [])
     }
 
     func testASpeciesThatNeitherEvolvesNorEvolvesFromAnythingHasNoFamily() throws {

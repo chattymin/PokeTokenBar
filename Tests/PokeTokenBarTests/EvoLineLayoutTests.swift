@@ -174,4 +174,22 @@ final class EvoLineLayoutTests: XCTestCase {
         XCTAssertNil(EvoLineView.dexLinkTarget(for: EvoLineItem(.species(3), .future), links: links))
         XCTAssertNil(EvoLineView.dexLinkTarget(for: EvoLineItem(.mystery, .future), links: links))
     }
+
+    /// A Pokédex page's evolutions wrap under each other within its width, never one row to scroll (the owner,
+    /// 2026-11-17: Eevee's eight in a scrolling row "c'est nul").
+    func testAPagesEvolutionsWrapWithinItsWidth() {
+        let eevee = [EvoLineItem(.species(133), .current),
+                     EvoLineItem(.branch([134, 135, 136, 196, 197, 470, 471, 700].map {
+                         BranchEvolutionItem(speciesID: $0, isCollected: true)
+                     }), .done)]
+        let width: CGFloat = 220
+        func size(wraps: Bool) -> CGSize {
+            NSHostingController(rootView: EvoLineView(nodes: eevee, mysteryLabel: "?", thumb: 34, wrapsBranches: wraps,
+                                                      names: [:], maxWidth: width))
+                .sizeThatFits(in: CGSize(width: width, height: 600))
+        }
+        let wrapped = size(wraps: true), scrolling = size(wraps: false)
+        XCTAssertLessThanOrEqual(wrapped.width, width + 0.5)
+        XCTAssertGreaterThan(wrapped.height, scrolling.height * 1.5, "\(wrapped) against \(scrolling)")
+    }
 }

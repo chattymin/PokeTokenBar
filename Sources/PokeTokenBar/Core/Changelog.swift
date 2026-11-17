@@ -67,6 +67,22 @@ enum Changelog {
 
     static let days: [ChangelogDay] = [
         ChangelogDay(date: "2026-11-17", entries: [
+            .improved("2026-11-17-family-wraps", { $0.t("도감 페이지에서 여러 갈래의 진화형이 한 줄로 스크롤되지 않고 여러 줄로 나뉘어 한눈에 보여요.",
+                                                     "On a Pokédex page, a stage's several evolutions now wrap onto more lines instead of scrolling in one row.",
+                                                     "図鑑ページで、いくつにも分かれる進化形が1行でスクロールせず、何行かに折り返して一度に見えるようになりました。",
+                                                     "En una página de la Pokédex, las varias evoluciones de una etapa ahora pasan a otra línea en vez de desplazarse en una sola fila.",
+                                                     "Sur une page du Pokédex, les évolutions possibles passent à la ligne au lieu de défiler sur une seule rangée.",
+                                                     "Numa página da Pokédex, as várias evoluções de um estágio agora quebram em mais linhas em vez de rolar numa só fileira.",
+                                                     "Auf einer Pokédex-Seite brechen die verschiedenen Entwicklungen einer Stufe jetzt in mehrere Zeilen um, statt in einer Reihe zu scrollen.",
+                                                     "На странице Покедекса несколько вариантов эволюции теперь переносятся на новые строки, а не прокручиваются в один ряд.") }),
+            .fixed("2026-11-17-family-shiny", { $0.t("도감 페이지의 진화 라인은 이제 이로치로 잡은 종만 이로치로 보여 줘요: 이로치 이브이의 페이지에 모든 진화형이 이로치로 나오지 않아요.",
+                                                  "A Pokédex page's evolution line now shows shiny only the species you caught shiny: a shiny Eevee's page no longer shows every evolution shiny.",
+                                                  "図鑑ページの進化ラインは、色違いで捕まえた種だけを色違いで表示するようになりました：色違いのイーブイのページで、すべての進化形が色違いになることはありません。",
+                                                  "La línea evolutiva de una página de la Pokédex ahora muestra variocolor solo las especies que atrapaste variocolor: la página de un Eevee variocolor ya no muestra todas sus evoluciones variocolor.",
+                                                  "La ligne d'évolution d'une page du Pokédex ne montre plus en chromatique que les espèces attrapées chromatiques : la page d'un Évoli chromatique ne montre plus toutes ses évolutions chromatiques.",
+                                                  "A linha evolutiva de uma página da Pokédex agora mostra shiny só as espécies que você pegou shiny: a página de um Eevee shiny não mostra mais todas as evoluções shiny.",
+                                                  "Die Entwicklungslinie einer Pokédex-Seite zeigt jetzt nur die Arten schillernd, die du schillernd gefangen hast: Die Seite eines schillernden Evoli zeigt nicht mehr alle Entwicklungen schillernd.",
+                                                  "Линия эволюции на странице Покедекса теперь показывает шайни только те виды, что ты поймал шайни: на странице шайни Иви больше не все эволюции шайни.") }),
             .new("2026-11-17-armored-mewtwo", { $0.t("로켓단 두목의 상자에서 아주 드물게 아머드 뮤츠가 나와요: 뮤츠가 있으면 던전에서 입힐 수 있는 형태로, 개체값과 노력치가 완벽하고 메가처럼 ×1.25예요.",
                                                      "Team Rocket's leader's chest very rarely holds the Armored Mewtwo: if you have a Mewtwo, a form it wears in the dungeons, with perfect IVs and EVs and a Mega's ×1.25.",
                                                      "ロケット団のボスの宝箱から、ごくまれにアーマードミュウツーが出ます：ミュウツーがいれば、ダンジョンで着られるすがたで、個体値と努力値が完璧、メガと同じ×1.25です。",

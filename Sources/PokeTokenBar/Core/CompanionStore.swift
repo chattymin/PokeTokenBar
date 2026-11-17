@@ -1392,6 +1392,20 @@ final class CompanionStore {
         return (nodes.count > 1 ? nodes : [], lineForm)
     }
 
+    /// The species of a Pokédex page's family drawn shiny when the page shows its shiny look: each one caught shiny in
+    /// the line's form, never the whole family because the page's species was (the owner, 2026-11-17: a shiny Eevee's
+    /// page showed every Eeveelution shiny, none of them caught shiny).
+    func dexFamilyShinies(_ family: (nodes: [EvoLineItem], form: PokemonForm?)) -> Set<Int> {
+        let ids = family.nodes.flatMap { node -> [Int] in
+            switch node.content {
+            case .species(let id): [id]
+            case .branch(let items): items.map(\.speciesID)
+            case .mystery: []
+            }
+        }
+        return Set(ids.filter { state.ownsShinySpecies($0, form: family.form) })
+    }
+
     /// What a Pokédex species shows first, in its grid cell and when its page opens. Among the forms of a species
     /// that has them: a shiny form before a normal one (the representative's first), then the representative, then
     /// the first collected. A species without forms is itself. Either way, a species caught shiny shows shiny.

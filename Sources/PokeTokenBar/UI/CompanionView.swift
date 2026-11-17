@@ -370,6 +370,11 @@ struct EvoLineView: View {
     var language: AppLanguage = .systemDefault
     var thumb: CGFloat = 40
     var shiny: Bool = false     // 개체가 shiny 면 라인 전체를 shiny 스프라이트로
+    /// With `shiny`, the stages drawn shiny: nil for every one (an individual's own path), else these only (a Pokédex
+    /// page's family, each species once caught shiny).
+    var shinyStages: Set<Int>? = nil
+    /// The several evolutions of a stage wrap onto more lines within `maxWidth` rather than scroll in one row.
+    var wrapsBranches = false
     var names: [Int: String]? = nil   // 제공되면 각 스프라이트 밑에 작은 이름 라벨(도감 단계별 이름)
     /// 한 줄이 쓸 수 있는 가로 폭. 기본 .infinity = 제한 없음(스크롤 없이 나열).
     var maxWidth: CGFloat = .infinity
@@ -423,8 +428,10 @@ struct EvoLineView: View {
     }
 
     var body: some View {
-        if Self.needsScroll(count: totalColumns, thumb: thumb,
-                            hasNames: names != nil, maxWidth: maxWidth) {
+        if wrapsBranches {
+            row.frame(maxWidth: maxWidth, alignment: .leading)
+        } else if Self.needsScroll(count: totalColumns, thumb: thumb,
+                                   hasNames: names != nil, maxWidth: maxWidth) {
             scrollableRow
         } else {
             row
@@ -567,6 +574,10 @@ struct EvoLineView: View {
         return dexLinkModifier(forSpeciesID: id, isCollected: node.state != .uncaught)
     }
 
+    private func drawsShiny(_ speciesID: Int) -> Bool {
+        shiny && shinyStages.map { $0.contains(speciesID) } ?? true
+    }
+
     private var row: some View {
         HStack(alignment: .top, spacing: Self.spacing) {
             ForEach(Array(nodes.enumerated()), id: \.offset) { i, node in
@@ -580,7 +591,7 @@ struct EvoLineView: View {
                 case .species(let id):
                     let uncaught = node.state == .uncaught
                     VStack(spacing: 1) {
-                        SpriteView(speciesID: id, size: thumb, shiny: shiny && !uncaught, form: form,
+                        SpriteView(speciesID: id, size: thumb, shiny: drawsShiny(id) && !uncaught, form: form,
                                    isSilhouette: uncaught, sameScale: true, bottomAligned: bottomAligned)
                             .opacity(node.state == .future ? 0.32 : 1)
                             .saturation(node.state == .future ? 0.4 : 1)
@@ -616,41 +627,53 @@ struct EvoLineView: View {
                     .id(i)
 
                 case .branch(let items):
-                    HStack(alignment: .top, spacing: Self.spacing) {
-                        ForEach(items) { item in
-                            VStack(spacing: 1) {
-                                Group {
-                                    if item.isCollected {
-                                        // Faded when it is a coming evolution (Home); a Pokédex page's family is caught.
-                                        SpriteView(speciesID: item.speciesID, size: thumb, shiny: shiny, form: form,
-                                                   sameScale: true, bottomAligned: bottomAligned)
-                                            .opacity(node.state == .future ? 0.4 : 1)
-                                            .saturation(node.state == .future ? 0.6 : 1)
-                                    } else {
-                                        // Silhouette noire (ombre) pour les évolutions non encore obtenues
-                                        SpriteView(speciesID: item.speciesID, size: thumb, shiny: false, form: form,
-                                                   isSilhouette: true, sameScale: true, bottomAligned: bottomAligned)
-                                    }
-                                }
-                                if let names {
-                                    Text(item.isCollected ? PokemonForm.displayName(names[item.speciesID] ?? "…", speciesID: item.speciesID, form: form, label: nil) : "???")
-                                        .font(.system(size: nameFontSize))
-                                        .foregroundStyle(item.isCollected ? .secondary : .tertiary)
-                                        .lineLimit(nameLineLimit)
-                                        .minimumScaleFactor(nameMinimumScaleFactor)
-                                        .multilineTextAlignment(.center)
-                                        .frame(maxWidth: thumb + Self.nameSlack)
-                                }
+                    Group {
+                        // A Pokédex page's evolutions wrap under each other rather than scroll in one row.
+                        if wrapsBranches {
+                            WrappingHStack(spacing: Self.spacing, lineSpacing: 4) {
+                                ForEach(items) { item in branchCell(item, node: node) }
                             }
-                            .frame(width: thumb + (names == nil ? 0 : Self.nameSlack))
-                            .modifier(dexLinkModifier(forSpeciesID: item.speciesID, isCollected: item.isCollected))
-                            .hoverTip(item.isCollected ? (names?[item.speciesID] ?? "") : mysteryLabel)
+                        } else {
+                            HStack(alignment: .top, spacing: Self.spacing) {
+                                ForEach(items) { item in branchCell(item, node: node) }
+                            }
                         }
                     }
                     .id(i)
                 }
             }
         }
+    }
+
+    private func branchCell(_ item: BranchEvolutionItem, node: EvoLineItem) -> some View {
+        VStack(spacing: 1) {
+            Group {
+                if item.isCollected {
+                    // Faded when it is a coming evolution (Home); a Pokédex page's family is caught.
+                    SpriteView(speciesID: item.speciesID, size: thumb, shiny: drawsShiny(item.speciesID),
+                               form: form,
+                               sameScale: true, bottomAligned: bottomAligned)
+                        .opacity(node.state == .future ? 0.4 : 1)
+                        .saturation(node.state == .future ? 0.6 : 1)
+                } else {
+                    // Silhouette noire (ombre) pour les évolutions non encore obtenues
+                    SpriteView(speciesID: item.speciesID, size: thumb, shiny: false, form: form,
+                               isSilhouette: true, sameScale: true, bottomAligned: bottomAligned)
+                }
+            }
+            if let names {
+                Text(item.isCollected ? PokemonForm.displayName(names[item.speciesID] ?? "…", speciesID: item.speciesID, form: form, label: nil) : "???")
+                    .font(.system(size: nameFontSize))
+                    .foregroundStyle(item.isCollected ? .secondary : .tertiary)
+                    .lineLimit(nameLineLimit)
+                    .minimumScaleFactor(nameMinimumScaleFactor)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: thumb + Self.nameSlack)
+            }
+        }
+        .frame(width: thumb + (names == nil ? 0 : Self.nameSlack))
+        .modifier(dexLinkModifier(forSpeciesID: item.speciesID, isCollected: item.isCollected))
+        .hoverTip(item.isCollected ? (names?[item.speciesID] ?? "") : mysteryLabel)
     }
 }
 
@@ -2828,7 +2851,9 @@ struct PokemonDetailView: View {
                                    uniquingKeysWith: { first, _ in first })
             let names = Dictionary(dex.map { ($0.id, $0.name) }, uniquingKeysWith: { first, _ in first })
             EvoLineView(nodes: family.nodes, mysteryLabel: store.l.unknownNextEvolution, language: store.language,
-                        thumb: 34, shiny: displayedShiny, names: names,
+                        thumb: 34, shiny: displayedShiny,
+                        // The page's own species as its header shows it, the others as caught.
+                        shinyStages: store.dexFamilyShinies(family).union([shown.id]), wrapsBranches: true, names: names,
                         maxWidth: PopoverMetrics.scrollContentWidth - Design.cardPadding * 2, form: family.form,
                         nameFontSize: 10, dexLinks: links,
                         onOpenDexEntry: { target in

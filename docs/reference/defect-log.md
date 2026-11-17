@@ -1529,6 +1529,15 @@ read_when:
 
 ## 표시·UI
 
+- **One individual's shiny is not a family's.** A shiny Eevee's Pokédex page drew every Eeveelution shiny, none of
+  them caught shiny (the owner, 2026-11-17): `EvoLineView` took one `shiny` flag, right for an individual's own path
+  (the catch log's line, every stage that individual went through), and the page passed it for the species' whole
+  family, siblings included. **Why it was missed:** `DexFamilyTests` checked which members were caught, never how
+  they were drawn, and the flag lived in the view. The page now draws shiny only `CompanionStore.dexFamilyShinies`,
+  the members caught shiny in the line's form (`EvoLineView.shinyStages`); guard
+  `DexFamilyTests.testTheFamilyIsShinyOnlyWhereCaughtShiny` (fault: all members shiny, 4 failures). Sweep: Home's
+  track and the catch log draw one individual's path (right); the costume cells already ask each costume.
+
 - **A menu installed at launch is installed again where it is used.** ⌘V still pasted nothing in the session key's
   field after #118 (a player, 2026-11-13): the Edit menu was installed at launch, and SwiftUI swapped the app's main
   menu for its own (a lone "Enter Full Screen") as soon as the popover's content showed up, so the key found no Paste
