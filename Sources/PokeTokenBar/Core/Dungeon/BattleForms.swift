@@ -6,6 +6,9 @@ import Foundation
 /// egg: they stay out of `PokemonForm.catalog`, whose forms eggs roll.
 enum BattleFormKind: String, Codable, Sendable {
     case mega, gigantamax, primal
+    /// Giovanni's armored Mewtwo, from Team Rocket's chest (the owner, 2026-11-17): a Mega's ×1.25, and perfect IVs and
+    /// EVs whatever the Mewtwo wearing it (`DungeonTeamBuilder.spec`).
+    case armor
 
     /// What a player's Pokémon gains in this form (the owner, 2026-11-12: "x1.25 sur toutes les stats des méga vu
     /// qu'ils sont méga"): a Mega or a Primal, already 100 base stats higher, every stat ×1.25; a Gigantamax, at its
@@ -13,7 +16,7 @@ enum BattleFormKind: String, Codable, Sendable {
     /// their own tuning (`ExpeditionEngine.challengeFactors`).
     var playerFactors: (hp: Double, stats: Double) {
         switch self {
-        case .mega, .primal: (1.25, 1.25)
+        case .mega, .primal, .armor: (1.25, 1.25)
         case .gigantamax: (2, 1.25)
         }
     }
@@ -45,8 +48,12 @@ enum BattleForms {
                           isLegendary: f[5] == "1", isAnimated: f[6] == "1")
     }
 
-    private static let bySpecies: [Int: [BattleForm]] = Dictionary(grouping: all, by: \.speciesID)
-    private static let byKey: [String: BattleForm] = Dictionary(all.map { ($0.key, $0) }, uniquingKeysWith: { a, _ in a })
+    /// The forms PokéAPI has not: Giovanni's armored Mewtwo, worn as a battle form but outside the catalog's counts, the
+    /// challenges' bosses and the Battle Forms Medal (`all`).
+    static let extras: [BattleForm] = [ArmoredMewtwo.battleForm]
+
+    private static let bySpecies: [Int: [BattleForm]] = Dictionary(grouping: all + extras, by: \.speciesID)
+    private static let byKey: [String: BattleForm] = Dictionary((all + extras).map { ($0.key, $0) }, uniquingKeysWith: { a, _ in a })
 
     static func forms(speciesID: Int) -> [BattleForm] { bySpecies[speciesID] ?? [] }
 

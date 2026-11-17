@@ -185,15 +185,40 @@ enum VillainRules {
         return (best.kind, min(best.count, count(of: best.kind, have: bag[best.kind] ?? 0)))
     }
 
-    /// The leader's chest, given with all the team took once its leader falls (the owner, 2026-11-16).
-    static func leaderChest(_ tier: DungeonTier) -> (candies: Int, items: [(kind: ItemKind, count: Int)]) {
+    /// What the leader's chest holds: one draw (the owner, 2026-11-17: "des pourcentages de drops parmi plusieurs drops
+    /// possibles", a sure Master Ball or Legendary Egg was too much).
+    enum ChestDrop: Hashable, Sendable {
+        case items(ItemKind, Int)
+        /// Giovanni's armor, worn by a Mewtwo as a battle form (`ArmoredMewtwo.battleForm`).
+        case armoredMewtwo
+    }
+
+    /// The leader's chest by tier, its weights per thousand: one item of about the hideout's price to twice it, the
+    /// Master Ball as rare as in a dungeon of the tier, the armor one chest in a hundred at Team Rocket's.
+    static func leaderChestTable(_ tier: DungeonTier) -> [(drop: ChestDrop, weight: Int)] {
         switch tier {
-        case .t1: (3, [(.greatBall, 2)])
-        case .t2: (0, [(.silverCapsule, 1), (.ultraBall, 2)])
-        case .t3: (0, [(.goldCapsule, 1), (.legendaryKey, 1)])
-        case .t4: (0, [(.rareEgg, 1), (.masterBall, 1)])
-        case .t5: (0, [(.legendaryEgg, 1), (.masterBall, 1)])
+        case .t1: [(.items(.rareCandy, 1), 500), (.items(.greatBall, 1), 300), (.items(.sitrusBerry, 2), 200)]
+        case .t2: [(.items(.ultraBall, 1), 400), (.items(.mint, 2), 250), (.items(.silverCapsule, 1), 200),
+                   (.items(.uncommonEgg, 1), 150)]
+        case .t3: [(.items(.rareCandy, 2), 350), (.items(.legendaryKey, 1), 250), (.items(.goldCapsule, 1), 250),
+                   (.items(.rareEgg, 1), 150)]
+        case .t4: [(.items(.rareEgg, 1), 450), (.items(.legendaryKey, 1), 300), (.items(.goldCapsule, 1), 220),
+                   (.items(.masterBall, 1), 30)]
+        case .t5: [(.items(.rareEgg, 1), 450), (.items(.goldCapsule, 2), 290), (.items(.legendaryEgg, 1), 150),
+                   (.items(.masterBall, 1), 100), (.armoredMewtwo, 10)]
         }
+    }
+
+    /// The leader's chest: one drop of its tier's table; the armor only to a player who has a Mewtwo to wear it and has
+    /// not won it yet (the owner, 2026-11-17), its share then drawn among the others.
+    static func drawLeaderChest(_ tier: DungeonTier, armorAllowed: Bool, random: inout BattleRandom) -> ChestDrop {
+        let table = leaderChestTable(tier).filter { armorAllowed || $0.drop != .armoredMewtwo }
+        var roll = random.below(table.reduce(0) { $0 + $1.weight })
+        for entry in table {
+            if roll < entry.weight { return entry.drop }
+            roll -= entry.weight
+        }
+        return table[0].drop
     }
 
     /// What may be abandoned to a team: anything but an artifact, which they can never keep for good.
@@ -298,4 +323,8 @@ enum ArmoredMewtwo {
     static let spriteURL = "https://raw.githubusercontent.com/PokeMiners/pogo_assets/master/Images/Pokemon%20-%20256x256/Addressable%20Assets/pm150.fA.icon.png"
 
     static func matches(speciesID: Int, form: PokemonForm?) -> Bool { speciesID == Self.speciesID && form == Self.form }
+
+    /// The battle form a Mewtwo may wear once Team Rocket's chest gave it (the owner, 2026-11-17).
+    static let battleForm = BattleForm(pokemonID: speciesID, speciesID: speciesID, form: form, formID: 0, kind: .armor,
+                                       isLegendary: true, isAnimated: false)
 }

@@ -196,6 +196,12 @@ extension CompanionStore {
         BattleForms.forms(speciesID: speciesID).filter { state.dungeons.battleForms.contains($0.key) }
     }
 
+    /// The battle forms a species' Pokédex page shows: the catalog's, won or still to win, and Giovanni's armor only once
+    /// won (the owner, 2026-11-17: never seen before, nothing on the page gives it away).
+    func shownBattleForms(speciesID: Int) -> [BattleForm] {
+        BattleForms.forms(speciesID: speciesID).filter { !BattleForms.extras.contains($0) || state.dungeons.battleForms.contains($0.key) }
+    }
+
     /// The team screen's filters (the owner, 2026-11-10: to find the Megas and the rest the Hall of Origin asks for).
     enum TeamFilter: CaseIterable, Sendable {
         case shiny, megaOrPrimal, gigantamax
@@ -870,7 +876,7 @@ extension CompanionStore {
         let inPlace = caught ? ExpeditionEngine.eggInPlace(e.bossReward, tier: dungeon.tier)?.rawValue : nil
         var unlockedMove: String?
         // A challenge gives its battle form, and its floors' loot: no first-victory doubling, no extras.
-        let battleForm = won && e.dungeon.isChallenge ? BattleForms.form(speciesID: e.boss.speciesID, form: e.boss.form) : nil
+        var battleForm = won && e.dungeon.isChallenge ? BattleForms.form(speciesID: e.boss.speciesID, form: e.boss.form) : nil
         if won, !e.dungeon.isChallenge {
             if firstVictory {
                 // Q22: a first victory doubles the loot and adds a dungeon item.
@@ -883,11 +889,17 @@ extension CompanionStore {
                 loot.add(table[random.below(table.count)])
             }
             loot.add(Self.victoryExtras(tier: dungeon.tier, random: &random))
-            // A hideout's leader beaten opens their chest (the owner, 2026-11-16), beside all the team took.
+            // A hideout's leader beaten opens their chest (the owner, 2026-11-16), beside all the team took: one draw
+            // (2026-11-17), Giovanni's armor only for a Mewtwo of the Pokédex and only once.
             if e.dungeon.isHideout {
-                let chest = VillainRules.leaderChest(dungeon.tier)
-                loot.candies += chest.candies
-                for item in chest.items { loot.add(item.kind, item.count) }
+                let armor = ArmoredMewtwo.battleForm
+                let armorAllowed = !state.dungeons.battleForms.contains(armor.key)
+                    && state.dex.contains { !$0.isReleased && $0.finalID == ArmoredMewtwo.speciesID }
+                switch VillainRules.drawLeaderChest(dungeon.tier, armorAllowed: armorAllowed, random: &random) {
+                case .items(.rareCandy, let count): loot.candies += count
+                case .items(let kind, let count): loot.add(kind, count)
+                case .armoredMewtwo: battleForm = armor
+                }
             }
             if random.below(100) < Self.technicalCapsuleChance(dungeon.tier) {
                 let locked = MoveTable.all.values.filter { $0.isLocked && $0.hasEffect && !state.dungeons.unlockedMoves.contains($0.slug) }
@@ -941,6 +953,8 @@ extension CompanionStore {
             if let battleForm {
                 progress.battleForms.insert(battleForm.key)
                 progress.battleFormsWonAt[battleForm.key] = record.endedAt
+            }
+            if let battleForm, e.dungeon.isChallenge {
                 // By the period it set off in: a run past midnight won the day before's boss, not the new day's.
                 let current = [DungeonID.daily, .weekly].map { DungeonProgress.challengeKey($0, at: currentDate) }
                 progress.challengeWins = progress.challengeWins.filter { current.contains($0.key) }

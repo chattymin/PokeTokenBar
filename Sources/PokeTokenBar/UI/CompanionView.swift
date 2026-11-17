@@ -2436,7 +2436,7 @@ struct PokemonDetailView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
                     if PokemonForm.hasForms(speciesID: species.id) { formPicker }
-                    if !BattleForms.forms(speciesID: species.id).isEmpty { battleFormPicker }
+                    if !store.shownBattleForms(speciesID: species.id).isEmpty { battleFormPicker }
                     if species.id == PikachuCostume.speciesID { costumePicker }
                     // A form caught shiny only still shows its normal look: one of Vivillon's patterns caught shiny
                     // had no way back to its usual colors.
@@ -2496,7 +2496,7 @@ struct PokemonDetailView: View {
     /// them. The usual form comes first for a species with no other form to go back to.
     private var battleFormPicker: some View {
         let l = store.l
-        let forms = BattleForms.forms(speciesID: species.id)
+        let forms = store.shownBattleForms(speciesID: species.id)
         let won = Set(store.wonBattleForms(speciesID: species.id).map(\.key))
         let battleSelected = BattleForms.form(speciesID: species.id, form: selectedForm)
         return VStack(alignment: .leading, spacing: 6) {

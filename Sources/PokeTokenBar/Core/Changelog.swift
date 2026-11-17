@@ -66,6 +66,35 @@ enum Changelog {
     }
 
     static let days: [ChangelogDay] = [
+        ChangelogDay(date: "2026-11-17", entries: [
+            .new("2026-11-17-armored-mewtwo", { $0.t("로켓단 두목의 상자에서 아주 드물게 아머드 뮤츠가 나와요: 뮤츠가 있으면 던전에서 입힐 수 있는 형태로, 개체값과 노력치가 완벽하고 메가처럼 ×1.25예요.",
+                                                     "Team Rocket's leader's chest very rarely holds the Armored Mewtwo: if you have a Mewtwo, a form it wears in the dungeons, with perfect IVs and EVs and a Mega's ×1.25.",
+                                                     "ロケット団のボスの宝箱から、ごくまれにアーマードミュウツーが出ます：ミュウツーがいれば、ダンジョンで着られるすがたで、個体値と努力値が完璧、メガと同じ×1.25です。",
+                                                     "El cofre del líder del Team Rocket muy rara vez guarda a Mewtwo acorazado: si tienes un Mewtwo, una forma que lleva en las mazmorras, con IV y EV perfectos y el ×1,25 de una Mega.",
+                                                     "Le coffre du chef de la Team Rocket donne très rarement Mewtwo en armure : si tu as un Mewtwo, une forme qu'il porte en donjon, avec IV et EV parfaits et le ×1,25 d'une Méga.",
+                                                     "O baú do líder da Equipe Rocket raramente traz o Mewtwo blindado: se você tem um Mewtwo, uma forma que ele usa nas masmorras, com IV e EV perfeitos e o ×1,25 de uma Mega.",
+                                                     "Die Truhe des Team-Rocket-Bosses enthält ganz selten Gepanzertes Mewtu: Hast du ein Mewtu, eine Form für die Dungeons, mit perfekten DVs und EVs und dem ×1,25 einer Mega.",
+                                                     "Сундук главаря Команды R очень редко содержит Мьюту в броне: если у тебя есть Мьюту, это форма для подземелий, с идеальными IV и EV и ×1,25, как у Меги.") }),
+            .improved("2026-11-17-leader-chests") { l in
+                let master = l.itemName(.masterBall), legend = l.itemName(.legendaryEgg)
+                return l.t("아지트 두목의 상자는 이제 그 단계의 표에서 물건 하나를 뽑아요: 가끔 \(master)나 \(legend)도 나오지만 확실하지는 않아요.",
+                           "A hideout leader's chest now draws one item from its tier's table: \(master) or \(legend) sometimes, never for sure.",
+                           "アジトのボスの宝箱は、その段階の表から道具を1つ引くようになりました：\(master)や\(legend)もときどき出ますが、確実ではありません。",
+                           "El cofre del líder de una guarida ahora saca un objeto de la tabla de su nivel: a veces \(master) o \(legend), nunca seguro.",
+                           "Le coffre du chef d'un repaire tire maintenant un seul objet dans la table de son tier : parfois \(master) ou \(legend), jamais à coup sûr.",
+                           "O baú do líder de um esconderijo agora sorteia um item da tabela do nível: às vezes \(master) ou \(legend), nunca garantido.",
+                           "Die Truhe eines Versteck-Bosses zieht jetzt einen Gegenstand aus der Tabelle seiner Stufe: manchmal \(master) oder \(legend), nie sicher.",
+                           "Сундук главаря логова теперь выдаёт один предмет из таблицы своего уровня: иногда \(master) или \(legend), но не наверняка.")
+            },
+            .improved("2026-11-17-short-hideouts", { $0.t("악당 아지트가 절반 길이가 됐어요: 층 수가 절반, 비용도 절반이에요. 두목의 상자와 빼앗긴 물건은 그대로예요.",
+                                                       "The villains' hideouts are half as long: half the floors, half the price. The leader's chest and what they took stay whole.",
+                                                       "悪の組織のアジトが半分の長さになりました：階も費用も半分です。ボスの宝箱と奪われたものはそのままです。",
+                                                       "Las guaridas de los villanos son la mitad de largas: la mitad de pisos, la mitad de precio. El cofre del líder y lo robado siguen enteros.",
+                                                       "Les repaires des méchants sont deux fois plus courts : moitié moins d'étages, moitié prix. Le coffre du chef et ce qu'ils ont pris restent entiers.",
+                                                       "Os esconderijos dos vilões ficaram com a metade do tamanho: metade dos andares, metade do preço. O baú do líder e o que foi roubado continuam inteiros.",
+                                                       "Die Verstecke der Schurken sind halb so lang: halb so viele Ebenen, halber Preis. Die Truhe des Anführers und das Gestohlene bleiben ganz.",
+                                                       "Логова злодеев стали вдвое короче: вдвое меньше этажей, вдвое ниже цена. Сундук главаря и украденное остаются целиком.") }),
+        ]),
         ChangelogDay(date: "2026-11-16", entries: [
             .improved("2026-11-16-last-throw-up") { l in
                 // The free Poké Ball is no item of the Bag: its name written here.
