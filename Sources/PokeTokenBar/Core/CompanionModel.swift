@@ -183,6 +183,36 @@ enum ItemKind: String, Codable, Sendable, CaseIterable {
     case rareCandy
     case mint
     case shinyCharm
+    // One case per region, not one case with a region payload: the raw value is the inventory key, and
+    // the shop and bag lists are built from `allCases`.
+    case kantoIncense
+    case johtoIncense
+    case hoennIncense
+    case sinnohIncense
+    case unovaIncense
+
+    /// The incense of a region: the Shop sells all five from one card with a region selector.
+    static func incense(_ region: PokedexRegion) -> ItemKind {
+        switch region {
+        case .kanto: return .kantoIncense
+        case .johto: return .johtoIncense
+        case .hoenn: return .hoennIncense
+        case .sinnoh: return .sinnohIncense
+        case .unova: return .unovaIncense
+        }
+    }
+
+    /// The region a Regional Incense biases the next hatch toward. nil = not an incense.
+    var incenseRegion: PokedexRegion? {
+        switch self {
+        case .kantoIncense: return .kanto
+        case .johtoIncense: return .johto
+        case .hoennIncense: return .hoenn
+        case .sinnohIncense: return .sinnoh
+        case .unovaIncense: return .unova
+        case .rareCandy, .mint, .shinyCharm: return nil
+        }
+    }
 
     /// PokéAPI 아이템 스프라이트 파일명(.../sprites/items/{name}.png). nil = 스프라이트 없음(이모지 폴백만).
     var spriteName: String? {
@@ -190,6 +220,13 @@ enum ItemKind: String, Codable, Sendable, CaseIterable {
         case .rareCandy: return "rare-candy"
         case .mint: return nil   // PokéAPI 에 민트 스프라이트 없음(8세대 아이템) → 이모지 폴백
         case .shinyCharm: return "shiny-charm"
+        // Borrowed art only. The canon items mean something else to players (Luck Incense = Happiny),
+        // so the canon names are never shown: see `L.itemName`.
+        case .kantoIncense: return "full-incense"
+        case .johtoIncense: return "luck-incense"
+        case .hoennIncense: return "wave-incense"
+        case .sinnohIncense: return "pure-incense"
+        case .unovaIncense: return "rock-incense"
         }
     }
     /// 스프라이트 로딩 전/미제공/실패 시 폴백 이모지.
@@ -198,6 +235,7 @@ enum ItemKind: String, Codable, Sendable, CaseIterable {
         case .rareCandy: return "🍬"
         case .mint: return "🌿"
         case .shinyCharm: return "✨"
+        case .kantoIncense, .johtoIncense, .hoennIncense, .sinnohIncense, .unovaIncense: return "🪔"
         }
     }
     /// 상점 판매가(재화 = 사용한 토큰). nil = 상점 미판매.
@@ -206,6 +244,8 @@ enum ItemKind: String, Codable, Sendable, CaseIterable {
         case .rareCandy: return RareCandy.price
         case .mint: return Mint.price
         case .shinyCharm: return ShinyCharm.price
+        case .kantoIncense, .johtoIncense, .hoennIncense, .sinnohIncense, .unovaIncense:
+            return RegionalIncense.price
         }
     }
     /// 보유형(패시브) 아이템 — 소비하지 않고 보유하는 동안 상시 효과. 1회 구매(재구매 불가), 가방엔 "적용 중" 표시.
@@ -213,6 +253,7 @@ enum ItemKind: String, Codable, Sendable, CaseIterable {
         switch self {
         case .rareCandy, .mint: return false
         case .shinyCharm: return true
+        case .kantoIncense, .johtoIncense, .hoennIncense, .sinnohIncense, .unovaIncense: return false
         }
     }
 }
@@ -275,16 +316,78 @@ enum FreshEgg {
     }
 }
 
+/// Regional Incense balance: used from the Bag, it biases the next hatch toward one region.
+enum RegionalIncense {
+    /// Shop price, the same for every region and equal to a plain Pokémon Egg.
+    ///
+    /// The alternative it competes with is rerolling plain eggs until the region comes up. Measured on
+    /// the live base index (328 bases, capture-rate weights as in `chooseBase`, nothing collected), the
+    /// expected number of 1B eggs per region is: Unova 3.98, Hoenn 4.06, Kanto 4.26, Johto 7.05,
+    /// Sinnoh 7.93. An incense plus the egg it is used on costs 2B per try and lands in the region
+    /// `inRegionSharePercent` of the time, so 2.5B expected: cheaper than rerolling for every region,
+    /// but never trivially so. `RegionalIncenseTests` holds this comparison.
+    static let price = 1_000_000_000
+
+    /// Share of the hatch weight the incense's region holds, in percent.
+    ///
+    /// A fixed share, not a weight multiplier, so an incense means the same thing for every region and
+    /// every egg grade. A multiplier would give different odds wherever the region's natural share
+    /// differs (Sinnoh 12.6% against Unova 25.1% for a plain egg). The shop text states no number
+    /// (`L.incenseDescription`), so this can be tuned, for example to 90, without touching it.
+    static let inRegionSharePercent = 80
+
+    /// Rescales hatch weights so in-region candidates hold exactly `inRegionSharePercent` of the total.
+    /// Weights keep their ratios inside each group, so capture rate, the collected ½ and the egg grade
+    /// filter still decide which species of the region hatches.
+    ///
+    /// nil = these weights cannot be biased: no candidate is in the region, or the values are too
+    /// large to rescale exactly. Unchanged weights = every candidate is in the region already.
+    static func biasedWeights(_ weights: [Int], inRegion: [Bool]) -> [Int]? {
+        precondition(weights.count == inRegion.count, "one in-region flag per weight")
+        var inTotal = 0, outTotal = 0
+        for (weight, isIn) in zip(weights, inRegion) {
+            let (sum, overflow) = (isIn ? inTotal : outTotal).addingReportingOverflow(weight)
+            guard !overflow else { return nil }
+            if isIn { inTotal = sum } else { outTotal = sum }
+        }
+        guard inTotal > 0 else { return nil }
+        guard outTotal > 0 else { return weights }
+        // Cross-multiplying by the other group's total gives both groups a common denominator:
+        // in-region sums to share·in·out, out-of-region to (100 − share)·in·out. The live totals are
+        // below 50_000, so the products stay far inside Int. Capture rates come from a cache file and
+        // from the network, though, and a trap here would repeat on every launch while the incense
+        // burns: the caller sums the result, so that sum is checked here as well.
+        let (inScale, inOverflow) = inRegionSharePercent.multipliedReportingOverflow(by: outTotal)
+        let (outScale, outOverflow) = (100 - inRegionSharePercent).multipliedReportingOverflow(by: inTotal)
+        guard !inOverflow, !outOverflow else { return nil }
+        var biased: [Int] = []
+        biased.reserveCapacity(weights.count)
+        var total = 0
+        for (weight, isIn) in zip(weights, inRegion) {
+            let (scaled, scaleOverflow) = weight.multipliedReportingOverflow(by: isIn ? inScale : outScale)
+            let (sum, sumOverflow) = total.addingReportingOverflow(scaled)
+            guard !scaleOverflow, !sumOverflow else { return nil }
+            biased.append(scaled)
+            total = sum
+        }
+        return biased
+    }
+}
+
 /// 상점 표시 한 줄 — 판매 아이템(ItemKind) 또는 알 리롤(즉시 액션이라 ItemKind 가 아님).
 /// `egg` 의 연관값은 **보증 등급 하한**(nil = 보증 없는 기존 알).
 /// CompanionStore.shopEntries 가 이 둘을 가격 오름차순으로 병합해 뷰가 단일 목록으로 그린다.
 enum ShopEntry: Hashable, Sendable {
     case item(ItemKind)
+    /// The five Regional Incenses as one line: five cards that differ only by region would push the
+    /// eggs and the charm off the first screen. The card's selector picks the region to buy.
+    case incense
     case egg(Rarity?)
 
     var price: Int {
         switch self {
         case .item(let kind): return kind.shopPrice ?? 0
+        case .incense: return RegionalIncense.price
         case .egg(let tier): return FreshEgg.price(guaranteeing: tier)
         }
     }
@@ -666,6 +769,14 @@ struct CompanionState: Codable, Sendable {
     var pendingHatchID: Int?
     /// The form is chosen with the species so prefetch warms the exact sprite that will hatch.
     var pendingForm: PokemonForm?
+    /// The Regional Incense that is burning: used from the Bag and waiting for the next hatch. Every
+    /// species roll made while it is set is biased toward this region, and the hatch clears it.
+    /// It can be set while a Pokémon is growing; it then waits for the next egg.
+    var pendingIncense: PokedexRegion?
+    /// The region `pendingHatchID` was rolled toward. nil = that pre-roll was not biased.
+    /// The species is rolled long before the hatch, so the hatch needs this to know whether the roll
+    /// it is about to use really spent the incense (a roll with no in-region candidate did not).
+    var pendingHatchIncense: PokedexRegion?
     /// Prayers said over the current egg (nil until the first one). Egg-scoped like `eggUsage`:
     /// reset by `resetEggPrayers` whenever a new egg starts and copied onto the hatched individual.
     var eggPrayers: PrayerRecord?
@@ -720,6 +831,9 @@ struct CompanionState: Codable, Sendable {
         pendingForm        = PokemonForm.resolved(baseID: pendingHatchID ?? 0,
             form: PokemonForm.decoded(from: decoder, keys: "pendingForm", "pendingUnownForm"))
         eggPrayers         = c.lenientOptional(PrayerRecord.self, forKey: .eggPrayers)
+        // An unknown region decodes as no incense: never invent a bias the player did not buy.
+        pendingIncense     = c.lenientOptional(PokedexRegion.self, forKey: .pendingIncense)
+        pendingHatchIncense = c.lenientOptional(PokedexRegion.self, forKey: .pendingHatchIncense)
         if c.contains(.claimedTodayTokensByProvider) {
             claimedTodayTokensByProvider = c.lenient([String: Int].self,
                                                       forKey: .claimedTodayTokensByProvider,
@@ -801,6 +915,13 @@ struct CompanionState: Codable, Sendable {
               active.pathIDs.prefix(active.stageIndex + 1).contains(speciesID),
               PokemonForm.resolved(speciesID: speciesID, form: active.form) == form else { return false }
         return active.displaysShiny
+    }
+
+    /// Drop the species rolled ahead for the current egg, with everything that describes that roll.
+    mutating func discardPreRoll() {
+        pendingHatchID = nil
+        pendingForm = nil
+        pendingHatchIncense = nil
     }
 
     /// Forget the prayers of the previous egg. Call on every path that starts a new egg (or consumes this one).

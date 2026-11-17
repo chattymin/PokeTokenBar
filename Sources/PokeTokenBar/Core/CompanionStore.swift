@@ -1270,6 +1270,61 @@ final class CompanionStore {
         return new
     }
 
+    // MARK: Regional Incense (biases the next hatch toward one region)
+
+    /// The incense that is burning, for the Home badge and the Bag's blocked reason.
+    var burningIncense: PokedexRegion? { state.pendingIncense }
+
+    /// Usable with or without an active Pokémon, but only one incense burns at a time: a second one
+    /// would have to either replace the first (losing a paid item) or queue behind it.
+    func canUseIncense(_ kind: ItemKind) -> Bool {
+        kind.incenseRegion != nil && itemCount(kind) > 0 && state.pendingIncense == nil
+    }
+
+    /// Set when `useIncense` invalidates the current egg's roll. Cleared when the new pre-roll starts.
+    private var eggWorkNeedsRestart = false
+
+    /// Starts the egg's pre-roll again once no roll or hatch holds a lock. Called by `useIncense`
+    /// and wherever a lock is released.
+    private func restartEggWorkIfNeeded() {
+        guard eggWorkNeedsRestart, !isHatching, !prefetchInFlight else { return }
+        eggWorkNeedsRestart = false
+        Task { await self.ensureEggPrefetch() }
+    }
+
+    /// Every `isHatching` owner releases through here, so an invalidated egg is never left waiting.
+    private func releaseHatchLock() {
+        isHatching = false
+        restartEggWorkIfNeeded()
+    }
+
+    /// Burns one incense for the next hatch. While a Pokémon is growing it waits for the next egg.
+    ///
+    /// An incubating egg already has its species: `ensureEggPrefetch` rolls it as soon as the egg
+    /// exists, and `hatchIfNeeded` hatches that stored roll. So the stored roll is dropped here and
+    /// rolled again with the incense, the same way `buyEgg` starts a new roll for a new guarantee.
+    /// Bumping `activeGeneration` also discards a roll or hatch that is in flight right now, which
+    /// would otherwise store or hatch a species chosen before the incense was lit.
+    @discardableResult
+    func useIncense(_ kind: ItemKind) -> Bool {
+        guard canUseIncense(kind), let region = kind.incenseRegion else { return false }
+        state.inventory[kind.rawValue] = itemCount(kind) - 1
+        state.pendingIncense = region
+        if state.active == nil {
+            state.discardPreRoll()
+            prefetchedLineID = nil
+            activeGeneration += 1
+            // A roll or hatch in flight still holds its lock, and a pre-roll started now would return
+            // at that lock. Mark the restart instead: the lock's owner starts it on release. Without
+            // this a ready egg waited for the next refresh tick, or for ever in manual refresh.
+            eggWorkNeedsRestart = true
+            restartEggWorkIfNeeded()
+        }
+        AppLog.write("incense lit: \(region.rawValue), egg=\(state.active == nil)")
+        save()
+        return true
+    }
+
     // MARK: 상점 (재화 = 사용한 토큰)
 
     /// 상점에서 쓸 수 있는 토큰(재화) = 실사용 누적 − 상점 지출 누적. 성장 미터(usedSinceInstall)는
@@ -1280,13 +1335,19 @@ final class CompanionStore {
     var purchasableItems: [ItemKind] {
         ItemKind.allCases
             .filter { $0.shopPrice != nil }
+            .enumerated()
             .sorted { a, b in
                 // 구매 완료한 보유형(이로치 부적 등)은 맨 아래로 — 재구매 불가라 위에 있을 이유가 없다.
-                let aDone = a.isPassive && itemCount(a) > 0
-                let bDone = b.isPassive && itemCount(b) > 0
+                let aDone = a.element.isPassive && itemCount(a.element) > 0
+                let bDone = b.element.isPassive && itemCount(b.element) > 0
                 if aDone != bDone { return !aDone }
-                return (a.shopPrice ?? 0) < (b.shopPrice ?? 0)   // 나머지는 가격 저렴한 순
+                let aPrice = a.element.shopPrice ?? 0, bPrice = b.element.shopPrice ?? 0
+                if aPrice != bPrice { return aPrice < bPrice }   // 나머지는 가격 저렴한 순
+                // The five incenses share one price. `sorted` does not promise to keep equal elements
+                // in order, and the shop must not reshuffle its cards between renders.
+                return a.offset < b.offset
             }
+            .map(\.element)
     }
 
     /// 상점 표시 순서 — 판매 아이템 + 알 3종을 하나의 가격 오름차순 목록으로 병합.
@@ -1302,14 +1363,18 @@ final class CompanionStore {
     /// 고치며 들어온 규칙이라(ShopTests 참조), 그룹 배치는 그 회귀를 부분적으로 되살린다. 티어 관계는
     /// 카드의 등급 배지로 읽히게 한다.
     var shopEntries: [ShopEntry] {
-        var entries: [ShopEntry] = purchasableItems.map { ShopEntry.item($0) }
+        var entries: [ShopEntry] = purchasableItems.filter { $0.incenseRegion == nil }.map { ShopEntry.item($0) }
+        entries.append(.incense)
         entries += FreshEgg.shopTiers.map { ShopEntry.egg($0) }
-        return entries.sorted { a, b in
-            let aDone = isPurchasedPassive(a)
-            let bDone = isPurchasedPassive(b)
+        return entries.enumerated().sorted { a, b in
+            let aDone = isPurchasedPassive(a.element)
+            let bDone = isPurchasedPassive(b.element)
             if aDone != bDone { return !aDone }
-            return price(of: a) < price(of: b)
+            let aPrice = price(of: a.element), bPrice = price(of: b.element)
+            if aPrice != bPrice { return aPrice < bPrice }
+            return a.offset < b.offset   // equal prices (incense, plain egg): keep the order above
         }
+        .map(\.element)
     }
 
     /// 구매 완료한 보유형(이로치 부적 등)인지 — shopEntries 정렬에서 맨 아래로 보낼 판정.
@@ -1391,8 +1456,7 @@ final class CompanionStore {
         state.resetEggPrayers()
         isHatchRetryDelayed = false
         state.eggTier = tier          // 등급 보증(nil = 보증 없음)
-        state.pendingHatchID = nil    // 새 보증으로 처음부터 롤(활성 포켓몬이 있는 동안엔 원래 비어 있다)
-        state.pendingForm = nil
+        state.discardPreRoll()        // 새 보증으로 처음부터 롤(활성 포켓몬이 있는 동안엔 원래 비어 있다)
         prefetchedLineID = nil
         justGraduated = nil; justEvolvedTo = nil; eventUntil = nil
         AppLog.write("egg purchased: discarded active, tier=\(tier?.rawValue ?? "none")")
@@ -1568,25 +1632,27 @@ final class CompanionStore {
         // 여기서 소유한 락 하나로 롤·부화가 원자적으로 보호된다.
         let generation = activeGeneration
         isHatching = true
-        defer { isHatching = false }
+        defer { releaseHatchLock() }
         // 프리패칭된 종이 있으면 그대로 사용(라인·스프라이트 예열됨 → 딜레이 ~0), 없으면 지금 롤.
-        let base: Int?
+        // A stored roll is hatched as it is, incense included: `useIncense` already forced a new roll,
+        // and `pendingHatchIncense` says whether that roll was biased.
+        let roll: BaseRoll?
         if let pending = state.pendingHatchID {
-            base = pending
+            roll = BaseRoll(id: pending, incense: state.pendingHatchIncense)
         } else {
-            base = await chooseBase()
+            roll = await chooseBase()
         }
         guard isCurrentReadyEgg(generation: generation) else {
             AppLog.write("hatch: discarded before result handling — subject replaced during species roll")
             kickLineLoadIfNeeded()
             return
         }
-        guard let base else {
+        guard let roll else {
             isHatchRetryDelayed = true
             return
         }
-        let pendingForm = state.pendingHatchID == base ? state.pendingForm : nil
-        await hatchCore(baseID: base, generation: generation, form: pendingForm)
+        let pendingForm = state.pendingHatchID == roll.id ? state.pendingForm : nil
+        await hatchCore(baseID: roll.id, generation: generation, form: pendingForm, incense: roll.incense)
     }
 
     /// 부화가 폐기된 뒤 남은 개체(대개 방금 불러온 개체)의 진화 라인을 다시 로드한다.
@@ -1618,6 +1684,7 @@ final class CompanionStore {
 
     private func finishEggPrefetch(generation: Int, shouldHatch: Bool) {
         prefetchInFlight = false
+        restartEggWorkIfNeeded()
         guard shouldHatch, isCurrentReadyEgg(generation: generation) else { return }
         Task { await self.hatchIfNeeded() }
     }
@@ -1637,12 +1704,13 @@ final class CompanionStore {
             // await 사이에 부화가 끝났거나(active != nil) 상태가 통째로 교체됐으면(세이브 불러오기)
             // 이 롤을 버린다 — 안 그러면 불러온 알의 pre-roll 을 남의 롤로 덮어쓴다.
             guard isCurrentEgg(generation: generation) else { return }
-            guard let id = selected else {
+            guard let roll = selected else {
                 markHatchRetryDelayedIfReady(generation: generation)
                 return
             }
-            state.pendingHatchID = id
-            state.pendingForm = rollLineForm(baseID: id)
+            state.pendingHatchID = roll.id
+            state.pendingHatchIncense = roll.incense
+            state.pendingForm = rollLineForm(baseID: roll.id)
             save()
         }
         guard let id = state.pendingHatchID else { return }
@@ -1711,7 +1779,7 @@ final class CompanionStore {
         guard !isHatching else { return }
         let generation = activeGeneration
         isHatching = true
-        defer { isHatching = false }
+        defer { releaseHatchLock() }
         await hatchCore(baseID: baseID, generation: generation)
     }
 
@@ -1736,7 +1804,9 @@ final class CompanionStore {
     }
 
     /// 실제 부화 로직 — isHatching 락은 호출자(hatch / hatchIfNeeded)가 소유·해제한다.
-    private func hatchCore(baseID: Int, generation: Int, form pendingForm: PokemonForm? = nil) async {
+    /// `incense` is the region the species roll was biased toward (nil = an unbiased roll).
+    private func hatchCore(baseID: Int, generation: Int, form pendingForm: PokemonForm? = nil,
+                           incense rolledIncense: PokedexRegion? = nil) async {
         let line: EvoLine
         do {
             line = try await provider.line(baseSpeciesID: baseID)
@@ -1758,15 +1828,13 @@ final class CompanionStore {
         // 알을 유지한 채 pre-roll 만 버려 다음 틱에 다시 뽑는다 — 사용자는 산 보증을 계속 들고 있는다.
         if let tier = state.eggTier, line.rarity.sortRank < tier.sortRank {
             AppLog.write("hatch: rolled \(line.rarity) below guaranteed \(tier) — discarded, re-roll next tick")
-            state.pendingHatchID = nil
-            state.pendingForm = nil
+            state.discardPreRoll()
             prefetchedLineID = nil
             markHatchRetryDelayedIfReady(generation: generation)
             save()
             return
         }
-        state.pendingHatchID = nil
-        state.pendingForm = nil
+        state.discardPreRoll()
         // A later egg can roll the same species with another form and must warm its own sprite.
         prefetchedLineID = nil
         currentLine = line
@@ -1775,6 +1843,14 @@ final class CompanionStore {
         let overflow = max(0, state.eggUsage - eggHatchThreshold)
         state.eggUsage = 0
         state.eggTier = nil   // 보증은 이 부화로 소비된다(다음 알은 다시 무보증)
+        // The incense is spent by the hatch whose roll it biased. A roll that found no candidate in
+        // the region was not biased, so the incense keeps burning for the next egg. A graded egg does
+        // the opposite (it keeps the egg and rolls again) because a grade is a guarantee the player
+        // paid for, while a region is only a bias: the hatch goes ahead.
+        var unspentIncense: PokedexRegion?
+        if let burning = state.pendingIncense {
+            if rolledIncense == burning { state.pendingIncense = nil } else { unspentIncense = burning }
+        }
         let prayers = state.eggPrayers   // 부화체에 옮기고 알 쪽은 비운다
         state.resetEggPrayers()
         // 개체 롤 — shiny(1/64, 부적 1/48)·성격(25종)은 부화 순간 확정, 진화해도 유지.
@@ -1812,6 +1888,10 @@ final class CompanionStore {
             hatchBody = showShiny ? l.notifShinyHatchBody(name, odds: shinyOdds) : l.notifHatchBody(name)
         }
         notifyCompanionEvent(showShiny ? l.notifShinyHatchTitle : l.notifHatchTitle, hatchBody)
+        if let unspentIncense {
+            // Off the pet so it does not replace the hatch line there; Home still shows the badge.
+            notifyCompanionEvent(l.notifIncenseKeptTitle, l.notifIncenseKeptBody(unspentIncense), showsOnPet: false)
+        }
         justEvolvedTo = nil        // 새 부화는 "성장" 문구(진화 아님) — 직전 진화명이 남아 표시되지 않게
         displayState = .levelUp
         eventUntil = clock().addingTimeInterval(4)
@@ -1881,7 +1961,7 @@ final class CompanionStore {
         guard let a = state.active, currentLine == nil, !isHatching else { return }
         let generation = activeGeneration
         isHatching = true
-        defer { isHatching = false }
+        defer { releaseHatchLock() }
         if let line = try? await provider.line(baseSpeciesID: a.baseID) {
             // await 중 사용량·민트 등 활성 상태는 계속 바뀔 수 있다. 요청 당시 스냅샷을 다시 쓰지 말고
             // 같은 개체가 아직 활성인 경우에만 최신 상태를 정규화한다.
@@ -1903,13 +1983,19 @@ final class CompanionStore {
         }
     }
 
+    /// One species roll, with the incense region it was biased toward (nil = an unbiased roll).
+    private struct BaseRoll {
+        let id: Int
+        let incense: PokedexRegion?
+    }
+
     /// 부화 종 선정 — 하드코딩 풀 없이 PokéAPI 1~5세대 base 전체(329종)에서 가중 선택.
     ///   ① base 인덱스(id + capture_rate)를 GraphQL 1쿼리로 취득(30일 디스크 캐시 → 보통 0콜)
     ///   ② 가중치 = 공식 capture_rate 그대로(캐터피 255 vs 뮤츠 3 = 85:1, 전설군 ≈ 0.77%)
     ///      단, 이미 수집한 base 는 가중치 ½(미수집 부스트 — 재부화/shiny 사냥은 열어둠)
     ///   ③ 누적 가중치에서 정확히 1롤 — 루프/재롤 없음, 시간 상한 확정적
     /// 인덱스 취득 실패(오프라인 + 캐시 없음) 시 nil → 알 유지, 다음 갱신 틱 재시도.
-    private func chooseBase() async -> Int? {
+    private func chooseBase() async -> BaseRoll? {
         let tier = state.eggTier
         if let full = try? await provider.baseSpeciesIndex(), !full.isEmpty {
             // 등급 보증 알은 후보를 먼저 좁힌다 — capture_rate 상한이 곧 등급 하한이므로
@@ -1920,16 +2006,29 @@ final class CompanionStore {
                 AppLog.write("hatch: no candidate for guaranteed \(tier?.rawValue ?? "none") — egg kept, retry next tick")
                 return nil
             }
-            let weights = index.map { e in
+            var weights = index.map { e in
                 CollectionWeight.adjusted(e.captureRate, isCollected: state.hasCollectedFinal(forBaseID: e.id))
+            }
+            // The incense rescales the finished weights, so the grade filter and the collected ½ above
+            // still apply inside the region: a Rare Egg with an incense hatches a Rare-or-better
+            // species, from the region `inRegionSharePercent` of the time.
+            var incense: PokedexRegion?
+            if let region = state.pendingIncense {
+                let inRegion = index.map { region.dexRange.contains($0.id) }
+                if let biased = RegionalIncense.biasedWeights(weights, inRegion: inRegion) {
+                    weights = biased
+                    incense = region
+                } else {
+                    AppLog.write("hatch: cannot bias toward \(region.rawValue) (no candidate) — normal roll, incense kept")
+                }
             }
             let total = weights.reduce(0, +)
             var r = Int(rng.next() % UInt64(total))
             for (i, w) in weights.enumerated() {
                 r -= w
-                if r < 0 { return index[i].id }
+                if r < 0 { return BaseRoll(id: index[i].id, incense: incense) }
             }
-            return index.last?.id   // 도달 불가(방어)
+            return index.last.map { BaseRoll(id: $0.id, incense: incense) }   // 도달 불가(방어)
         }
         // GraphQL base 인덱스 엔드포인트 장애 → REST 폴백. 부화가 한 엔드포인트에 묶이지 않게.
         AppLog.write("hatch: base index unavailable — REST fallback")
@@ -1939,18 +2038,37 @@ final class CompanionStore {
     /// REST 폴백 — animated 에셋 지원 범위에서 무작위 id 를 뽑아 base 인지 확인(rejection sampling).
     /// GraphQL 인덱스가 죽어도 부화가 되게 한다. 가중치(capture_rate)는 생략 — 희귀도는 부화 후
     /// line() 이 실제 capture_rate 로 계산하므로 결과 개체의 등급은 정확하다. 인덱스 복구 시 가중 선택 재개.
-    private func chooseBaseViaREST() async -> Int? {
+    ///
+    /// The incense applies here too, as the same fixed share: one flip per roll picks the region or
+    /// the rest. Not one flip per attempt: the two id ranges hold different fractions of base species,
+    /// so re-flipping after each rejected id would pull the result away from the stated share.
+    ///
+    /// Accepted approximation: a roll that uses up its 16 attempts returns nil, and the retry on the
+    /// next tick flips again. The branch that runs out more often therefore loses a little share.
+    /// With the live id ranges that is under one percentage point even for a Rare Egg, in a fallback
+    /// that only runs while the index endpoint is down, so the flip is not carried across retries.
+    private func chooseBaseViaREST() async -> BaseRoll? {
         let tier = state.eggTier
+        let incense = state.pendingIncense
+        var ids = PokemonAssets.animatedSpeciesIDs
+        var excluded: ClosedRange<Int>?
+        if let incense {
+            if Int(rng.next() % 100) < RegionalIncense.inRegionSharePercent {
+                ids = incense.dexRange
+            } else {
+                excluded = incense.dexRange
+            }
+        }
         for attempt in 1...16 {
-            let ids = PokemonAssets.animatedSpeciesIDs
             let id = Int(rng.next() % UInt64(ids.count)) + ids.lowerBound
+            if excluded?.contains(id) == true { continue }
             do {
                 if let bs = try await provider.baseSpecies(id: id) {
                     // 등급 보증은 가중 경로와 **같은 기준**으로 여기서도 걸러야 한다 — 이 폴백만 빠지면
                     // GraphQL 인덱스 장애 때 보증이 조용히 깨진다. 못 찾으면 알 유지(구매 소멸 금지).
                     if let tier, !tier.includes(captureRate: bs.captureRate) { continue }
                     AppLog.write("hatch: REST fallback picked base \(id) (cap \(bs.captureRate), \(attempt) tries)")
-                    return id
+                    return BaseRoll(id: id, incense: incense)
                 }
                 // nil = base 아님(진화 중간체) → 다음 시도
             } catch {

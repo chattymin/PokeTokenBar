@@ -18,16 +18,36 @@ let rarityDisplayOrder: [Rarity] = [.legendary, .rare, .uncommon, .common]
 struct ItemIconView: View {
     let kind: ItemKind
     var size: CGFloat = 30
-    @State private var img: NSImage?
+    /// The loaded sprite, kept with the sprite name it was loaded for.
+    @State private var loaded: LoadedSprite?
+
+    struct LoadedSprite {
+        let name: String
+        let image: NSImage
+    }
 
     init(kind: ItemKind, size: CGFloat = 30) {
         self.kind = kind
         self.size = size
         // 캐시에 있으면 즉시(동기) 표시 — 재렌더 플래시 방지.
-        _img = State(initialValue: kind.spriteName.flatMap { SpriteLoader.cachedItemImage(name: $0) })
+        _loaded = State(initialValue: kind.spriteName.flatMap { name in
+            SpriteLoader.cachedItemImage(name: name).map { LoadedSprite(name: name, image: $0) }
+        })
+    }
+
+    /// The loaded sprite, only if it belongs to the item shown now. A mounted icon can be handed another
+    /// item: the Shop's incense card changes region in place. Without this check the first region's
+    /// sprite stayed under every other region's name.
+    nonisolated static func image(showing spriteName: String?, loaded: LoadedSprite?) -> NSImage? {
+        guard let spriteName, let loaded, loaded.name == spriteName else { return nil }
+        return loaded.image
     }
 
     var body: some View {
+        // Straight from the cache on the render where the item changes, so a sprite that is already
+        // on disk does not flash the emoji first.
+        let img = Self.image(showing: kind.spriteName, loaded: loaded)
+            ?? kind.spriteName.flatMap { SpriteLoader.cachedItemImage(name: $0) }
         Group {
             if let img {
                 // 아이템 PNG 는 대체로 정사각(30×30)이라 늘려도 티가 안 났지만, 소스가 외부(PokeAPI
@@ -42,8 +62,9 @@ struct ItemIconView: View {
             }
         }
         .task(id: kind.spriteName ?? "") {
-            guard img == nil, let name = kind.spriteName else { return }
-            img = await SpriteLoader.itemImage(name: name)
+            guard let name = kind.spriteName, Self.image(showing: name, loaded: loaded) == nil else { return }
+            guard let image = await SpriteLoader.itemImage(name: name), !Task.isCancelled else { return }
+            loaded = LoadedSprite(name: name, image: image)
         }
     }
 }
@@ -754,6 +775,12 @@ struct CompanionHeader: View {
                         if let r = store.rarity {
                             Badge(store.l.rarityLabel(r).uppercased(), tint: .rarity(r))
                         }
+                    }
+                    // On its own line, for an egg and for a growing Pokémon alike: the incense waits for
+                    // the next hatch, which may be several evolutions away.
+                    if let incense = store.burningIncense {
+                        Badge(store.l.incenseBurning(incense), tint: .orange)
+                            .fixedSize()
                     }
                     if store.hasActive, let id = store.currentSpeciesID, let details = store.pokemonDetailsByID[id] {
                         TypeBadges(types: details.types, language: store.language)
