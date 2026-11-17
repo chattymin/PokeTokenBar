@@ -257,9 +257,13 @@ final class VillainTests: XCTestCase {
         s.changeDungeons { $0.expedition?.phase = .capture(throwsLeft: 3) }
         s.endCapture()
         XCTAssertEqual(s.itemCount(.shinyCharm), 1)
-        XCTAssertGreaterThanOrEqual(s.itemCount(.masterBall), 2, "the one taken back, and the leader's chest's (2026-11-16)")
-        XCTAssertGreaterThanOrEqual(s.itemCount(.legendaryEgg), 1, "Team Rocket's chest: a Legendary Egg")
-        XCTAssertEqual(s.dungeonProgress.lastResult?.loot.items[ItemKind.legendaryEgg.rawValue].map { $0 >= 1 }, true)
+        XCTAssertGreaterThanOrEqual(s.itemCount(.masterBall), 1, "the one taken back")
+        // The leader's chest: one draw of Team Rocket's table (2026-11-17).
+        let r = try XCTUnwrap(s.dungeonProgress.lastResult)
+        let chestKinds = VillainRules.leaderChestTable(.t5).compactMap { entry -> ItemKind? in
+            if case .items(let kind, _) = entry.drop { kind } else { nil }
+        }
+        XCTAssertTrue(chestKinds.contains { (r.loot.items[$0.rawValue] ?? 0) > 0 } || r.battleForm == ArmoredMewtwo.battleForm.key)
         XCTAssertNil(s.villainStash(.rocket))
         XCTAssertNotNil(s.villainStash(.skull), "another team's hideout stays")
         XCTAssertTrue(s.villainAmbushes.isEmpty, "its theft is settled with it")
@@ -426,5 +430,46 @@ final class VillainTests: XCTestCase {
                 XCTAssertFalse(text.isEmpty || text.contains("\u{2014}") || text.contains("\u{2013}"), "\(language): \(text)")
             }
         }
+    }
+
+    /// The owner, 2026-11-17: the leader's chest is one draw among several items, no sure Legendary Egg or Master Ball;
+    /// Giovanni's armor one chest in a hundred at Team Rocket's, only for a player with a Mewtwo, only once.
+    func testTheLeaderChestIsOneDrawOfItsTiersTable() {
+        for tier in DungeonTier.allCases {
+            XCTAssertEqual(VillainRules.leaderChestTable(tier).reduce(0) { $0 + $1.weight }, 1000, "\(tier)")
+        }
+        func weight(_ tier: DungeonTier, _ drop: VillainRules.ChestDrop) -> Int {
+            VillainRules.leaderChestTable(tier).first { $0.drop == drop }?.weight ?? 0
+        }
+        XCTAssertEqual(weight(.t4, .items(.masterBall, 1)), 30, "a T4 dungeon's 2%, a little more")
+        XCTAssertEqual(weight(.t5, .items(.masterBall, 1)), 100, "a T5 dungeon's 10%")
+        XCTAssertEqual(weight(.t5, .armoredMewtwo), 10)
+        var counts: [VillainRules.ChestDrop: Int] = [:]
+        var random = BattleRandom(seed: 17)
+        let draws = 100_000
+        for _ in 0..<draws { counts[VillainRules.drawLeaderChest(.t5, armorAllowed: true, random: &random), default: 0] += 1 }
+        for entry in VillainRules.leaderChestTable(.t5) {
+            XCTAssertEqual(Double(counts[entry.drop] ?? 0) / Double(draws), Double(entry.weight) / 1000, accuracy: 0.006,
+                           "\(entry.drop)")
+        }
+        for _ in 0..<20_000 {
+            XCTAssertNotEqual(VillainRules.drawLeaderChest(.t5, armorAllowed: false, random: &random), .armoredMewtwo)
+        }
+    }
+
+    /// In the armor a Mewtwo fights with perfect IVs and EVs, a Mega's ×1.25 on top, whatever its own IVs.
+    func testTheArmorFightsWithPerfectIVsAndEVs() throws {
+        var mewtwo = DexEntry(id: "mewtwo", baseID: 150, finalID: 150, chainOrder: [150], rarity: .legendary, caughtAt: Date())
+        mewtwo.form = ArmoredMewtwo.form
+        mewtwo.profile = PokemonProfile.generate(seed: 3)
+        mewtwo.profile?.ivs = PokemonIVs(hp: 0, attack: 0, defense: 0, specialAttack: 0, specialDefense: 0, speed: 0)
+        let spec = try XCTUnwrap(DungeonTeamBuilder.spec(for: mewtwo))
+        let base = try XCTUnwrap(SpeciesBattleTable.data(speciesID: 150, form: nil)).baseStats
+        let perfect = BattleStats.computed(base: base, ivs: Array(repeating: 31, count: 6), evs: Array(repeating: 252, count: 6),
+                                           level: 100, nature: mewtwo.nature, speciesID: 150).scaled(hp: 1.25, stats: 1.25)
+        XCTAssertEqual(spec.stats, perfect)
+        XCTAssertEqual(BattleForms.form(speciesID: 150, form: ArmoredMewtwo.form)?.kind, .armor)
+        XCTAssertFalse(BattleForms.all.contains(ArmoredMewtwo.battleForm), "outside the catalog's counts and the challenges")
+        XCTAssertTrue(BattleForms.forms(speciesID: 150).contains(ArmoredMewtwo.battleForm), "a Mewtwo's page shows it")
     }
 }

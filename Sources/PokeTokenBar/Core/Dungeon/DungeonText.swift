@@ -1400,6 +1400,7 @@ extension L {
         case .gigantamax:
             return t("거다이맥스", "Gigantamax", "キョダイマックス", "Gigamax", "Gigamax", "Gigantamax", "Gigadynamax", "Гигантамакс")
         case .primal: return t("원시회귀", "Primal", "ゲンシカイキ", "Primigenio", "Primo", "Primitivo", "Proto", "Первобытный")
+        case .armor: return t("아머", "Armor", "アーマー", "Armadura", "Armure", "Armadura", "Rüstung", "Броня")
         }
     }
 
@@ -1416,6 +1417,9 @@ extension L {
         case .primal:
             return t("원시\(species)", "Primal \(species)", "ゲンシ\(species)", "\(species) Primigenio", "Primo-\(species)",
                      "\(species) Primitivo", "Proto-\(species)", "Первобытный \(species)")
+        case .armor:
+            return t("아머드 \(species)", "Armored \(species)", "アーマード\(species)", "\(species) acorazado", "\(species) en armure",
+                     "\(species) blindado", "Gepanzertes \(species)", "\(species) в броне")
         }
     }
 
@@ -1479,7 +1483,12 @@ extension L {
     }
     /// Where a missing battle form is won.
     func battleFormSource(_ form: BattleForm) -> String {
-        dungeonName(BattleForms.daily.contains(form) ? .daily : .weekly)
+        if form.kind == .armor {
+            return t("로켓단 아지트 두목의 상자", "Team Rocket's leader's chest", "ロケット団アジトのボスの宝箱", "Cofre del líder del Team Rocket",
+                     "Coffre du chef de la Team Rocket", "Baú do líder da Equipe Rocket", "Truhe des Team-Rocket-Bosses",
+                     "Сундук главаря Команды R")
+        }
+        return dungeonName(BattleForms.daily.contains(form) ? .daily : .weekly)
     }
     var battleFormUsual: String {
         t("기본", "Usual", "ふだん", "Habitual", "Habituelle", "Habitual", "Normal", "Обычная")

@@ -47,8 +47,9 @@ struct BattleStats: Codable, Sendable, Equatable {
     }
 
     /// The games' formula at `level`, a nature's change included. Shedinja always has 1 HP.
-    static func computed(base: [Int], ivs: [Int], level: Int, nature: PokemonNature?, speciesID: Int) -> BattleStats {
-        func iv(_ i: Int) -> Int { i < ivs.count ? ivs[i] : 0 }
+    /// `evs`: none but in Giovanni's armor (the owner, 2026-11-17: "ivs evs parfaits"), the games' formula's quarter.
+    static func computed(base: [Int], ivs: [Int], evs: [Int] = [], level: Int, nature: PokemonNature?, speciesID: Int) -> BattleStats {
+        func iv(_ i: Int) -> Int { (i < ivs.count ? ivs[i] : 0) + (i < evs.count ? evs[i] / 4 : 0) }
         func other(_ i: Int, _ name: String) -> Int {
             let neutral = ((2 * base[i] + iv(i)) * level) / 100 + 5
             return Int((Double(neutral) * (nature?.modifier(for: name) ?? 1)).rounded(.down))
