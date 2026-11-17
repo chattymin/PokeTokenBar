@@ -112,7 +112,7 @@ extension CompanionStore {
     }
 
     var oakCapsuleStep: OakCapsuleStep? {
-        guard expedition == nil, itemCount(.goldCapsule) + itemCount(.silverCapsule) + itemCount(.mint) > 0 else { return nil }
+        guard expedition == nil, itemCount(.goldCapsule) + itemCount(.silverCapsule) > 0 else { return nil }
         let challenges = [DungeonID.weekly, .daily]
             .filter { isDungeonOpen($0) && challengeBoss($0) != nil && challengeBeaten($0) == nil }
         var fallback: OakCapsuleStep?
@@ -136,10 +136,10 @@ extension CompanionStore {
 
     func oakCapsules(for team: [String], in id: DungeonID) -> [OakCapsule] {
         let targets = moveTargets(id)
-        var members: [(id: String, ivs: [Int], stats: [Int], nature: PokemonNature?)] = team.compactMap { entryID in
+        var members: [(id: String, ivs: [Int], stats: [Int])] = team.compactMap { entryID in
             guard let entry = dungeonCandidates.first(where: { $0.id == entryID }), let ivs = entry.profile?.ivs,
                   let spec = dungeonSpec(entry, for: id, targets: targets) else { return nil }
-            return (entryID, Self.ivKeyPaths.map { ivs[keyPath: $0] }, Self.usefulStats(spec), entry.nature)
+            return (entryID, Self.ivKeyPaths.map { ivs[keyPath: $0] }, Self.usefulStats(spec))
         }
         var plan: [OakCapsule] = []
         for _ in 0..<itemCount(.goldCapsule) {
@@ -154,14 +154,6 @@ extension CompanionStore {
                   members[low.member].ivs[low.stat] < 31 else { break }
             members[low.member].ivs[low.stat] = 31
             plan.append(OakCapsule(entryID: members[low.member].id, kind: .silverCapsule, stat: low.stat))
-        }
-        var mints = itemCount(.mint)
-        for member in members where mints > 0 {
-            let shift = PokemonStatCalculator.order.map { member.nature?.modifier(for: $0) ?? 1 }
-            guard let up = shift.firstIndex(where: { $0 > 1 }), let down = shift.firstIndex(where: { $0 < 1 }),
-                  !member.stats.contains(up), member.stats.contains(down) else { continue }
-            mints -= 1
-            plan.append(OakCapsule(entryID: member.id, kind: .mint, stat: nil))
         }
         return plan
     }

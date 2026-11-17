@@ -366,8 +366,7 @@ private struct OakWords {
             if buy > 0 { return give > 0 ? l.oakBuyAndGiveCandies(buy, give, to: name) : l.oakBuyAndKeepCandies(buy) }
             return give > 0 ? l.oakGiveCandies(give, to: name) : l.oakKeepCandies(keep)
         case .capsules(let step):
-            let name = l.dungeonName(step.id)
-            return step.capsules.contains { $0.kind != .mint } ? l.oakGiveCapsules(name) : l.oakGiveMint(l.itemName(.mint), name)
+            return l.oakGiveCapsules(l.dungeonName(step.id))
         case .dungeon(let dungeon):
             let name = l.dungeonName(dungeon.id)
             if case .key = dungeon.reason { return l.oakExploreForKey(name, key: l.itemName(.legendaryKey)) }
@@ -400,12 +399,8 @@ private struct OakWords {
         case .stock(let budget): return stockDetail(budget)
         case .candies(let buy, let give, let keep): return candiesDetail(buy: buy, give: give, keep: keep)
         case .capsules(let step):
-            let kinds = Set(step.capsules.map(\.kind))
-            return [l.oakCapsuleTeamWhy,
-                    kinds.subtracting([.mint]).isEmpty ? nil
-                        : l.oakCapsulesSplit(gold: l.itemName(.goldCapsule), silver: l.itemName(.silverCapsule)),
-                    kinds.contains(.mint) ? l.oakMintWhy(l.itemName(.mint)) : nil,
-                    l.oakDungeonOdds(percent(step.win))].compactMap { $0 }.joined(separator: " ")
+            return l.oakCapsulesWhy(gold: l.itemName(.goldCapsule), silver: l.itemName(.silverCapsule)) + " "
+                + l.oakDungeonOdds(percent(step.win))
         case .dungeon(let dungeon): return dungeonDetail(dungeon)
         }
     }
@@ -477,9 +472,7 @@ private struct OakWords {
     private func gifts(_ capsules: [OakCapsule]) -> String {
         capsules.map { capsule in
             let gift = l.oakGiveCapsule(l.itemName(capsule.kind), to: member(capsule.entryID))
-            let nature = capsule.kind == .mint ? store.state.dex.first { $0.id == capsule.entryID }?.nature : nil
-            let why = capsule.stat.map { l.statLabel(PokemonStatCalculator.order[$0]) } ?? nature?.name(store.language)
-            return why.map { gift + " (" + $0 + ")" } ?? gift
+            return capsule.stat.map { gift + " (" + l.statLabel(PokemonStatCalculator.order[$0]) + ")" } ?? gift
         }.joined(separator: " · ")
     }
 
