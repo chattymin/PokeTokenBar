@@ -12,7 +12,6 @@ struct OakDungeon: Equatable, Sendable {
     let win: Double
     let tokens: Int
     var forms: [OakBattleForm] = []
-    var capsules: [OakCapsule] = []
 }
 
 struct OakBattleForm: Equatable, Sendable {
@@ -30,6 +29,12 @@ struct OakCapsule: Equatable, Sendable {
     let entryID: String
     let kind: ItemKind
     let stat: Int?
+}
+
+struct OakCapsuleStep: Equatable, Sendable {
+    let id: DungeonID
+    let win: Double
+    let capsules: [OakCapsule]
 }
 
 struct OakDungeonOdds {
@@ -73,7 +78,7 @@ extension CompanionStore {
             }
             guard let team = pick.team, pick.win >= least else { return nil }
             return OakDungeon(id: id, reason: reason, team: team, win: pick.win, tokens: dungeonCost(id),
-                              forms: forms.filter { team.contains($0.entryID) }, capsules: oakCapsules(for: team, in: id))
+                              forms: forms.filter { team.contains($0.entryID) })
         }
         for dungeon in oakUnfinishedDungeons {
             let least = dungeon.reason == .hall ? Self.oakHallWin : Self.oakDungeonWin
@@ -106,26 +111,49 @@ extension CompanionStore {
         return list
     }
 
+    var oakCapsuleStep: OakCapsuleStep? {
+        guard expedition == nil, itemCount(.goldCapsule) + itemCount(.silverCapsule) > 0 else { return nil }
+        let challenges = [DungeonID.weekly, .daily]
+            .filter { isDungeonOpen($0) && challengeBoss($0) != nil && challengeBeaten($0) == nil }
+        var fallback: OakCapsuleStep?
+        for dungeon in challenges.map({ OakUnfinishedDungeon(id: $0, reason: .challenge) })
+            + oakUnfinishedDungeons.filter({ !$0.id.isChallenge }) {
+            guard let odds = dungeon.reason == .hall ? oakOdds(dungeon.id, forms: dungeon.forms) : oakSearch(dungeon.id) else {
+                return nil
+            }
+            guard let team = odds.team else { continue }
+            let step = OakCapsuleStep(id: dungeon.id, win: odds.win, capsules: oakCapsules(for: team, in: dungeon.id))
+            if odds.win < 1 { return step.capsules.isEmpty ? nil : step }
+            if fallback == nil, dungeon.reason == .challenge { fallback = step }
+        }
+        return fallback?.capsules.isEmpty == false ? fallback : nil
+    }
+
     private var oakOpenDungeons: [Dungeon] {
         let regular = DungeonCatalog.all.filter { !$0.id.isChallenge && $0.id != .ruinsOfAlph && !$0.id.isHideout }
         return DungeonTier.allCases.flatMap { tier in regular.filter { $0.tier == tier && isDungeonOpen($0.id) } }
     }
 
     func oakCapsules(for team: [String], in id: DungeonID) -> [OakCapsule] {
-        var gold = itemCount(.goldCapsule), silver = itemCount(.silverCapsule)
         let targets = moveTargets(id)
-        var plan: [OakCapsule] = []
-        for entryID in team {
+        var members: [(id: String, ivs: [Int], stats: [Int])] = team.compactMap { entryID in
             guard let entry = dungeonCandidates.first(where: { $0.id == entryID }), let ivs = entry.profile?.ivs,
-                  let spec = dungeonSpec(entry, for: id, targets: targets),
-                  let stat = Self.usefulStats(spec).first(where: { ivs[keyPath: Self.ivKeyPaths[$0]] < 31 }) else { continue }
-            if gold > 0 {
-                gold -= 1
-                plan.append(OakCapsule(entryID: entryID, kind: .goldCapsule, stat: nil))
-            } else if silver > 0 {
-                silver -= 1
-                plan.append(OakCapsule(entryID: entryID, kind: .silverCapsule, stat: stat))
-            }
+                  let spec = dungeonSpec(entry, for: id, targets: targets) else { return nil }
+            return (entryID, Self.ivKeyPaths.map { ivs[keyPath: $0] }, Self.usefulStats(spec))
+        }
+        var plan: [OakCapsule] = []
+        for _ in 0..<itemCount(.goldCapsule) {
+            let gains = members.map { member in member.stats.reduce(0) { $0 + 31 - member.ivs[$1] } }
+            guard let best = gains.indices.max(by: { gains[$0] < gains[$1] }), gains[best] > 0 else { break }
+            members[best].ivs = Array(repeating: 31, count: 6)
+            plan.append(OakCapsule(entryID: members[best].id, kind: .goldCapsule, stat: nil))
+        }
+        for _ in 0..<itemCount(.silverCapsule) {
+            let open = members.indices.flatMap { m in members[m].stats.map { (member: m, stat: $0) } }
+            guard let low = open.min(by: { members[$0.member].ivs[$0.stat] < members[$1.member].ivs[$1.stat] }),
+                  members[low.member].ivs[low.stat] < 31 else { break }
+            members[low.member].ivs[low.stat] = 31
+            plan.append(OakCapsule(entryID: members[low.member].id, kind: .silverCapsule, stat: low.stat))
         }
         return plan
     }

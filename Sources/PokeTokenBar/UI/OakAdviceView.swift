@@ -365,6 +365,8 @@ private struct OakWords {
         case .candies(let buy, let give, let keep):
             if buy > 0 { return give > 0 ? l.oakBuyAndGiveCandies(buy, give, to: name) : l.oakBuyAndKeepCandies(buy) }
             return give > 0 ? l.oakGiveCandies(give, to: name) : l.oakKeepCandies(keep)
+        case .capsules(let step):
+            return l.oakGiveCapsules(l.dungeonName(step.id))
         case .dungeon(let dungeon):
             let name = l.dungeonName(dungeon.id)
             if case .key = dungeon.reason { return l.oakExploreForKey(name, key: l.itemName(.legendaryKey)) }
@@ -374,15 +376,20 @@ private struct OakWords {
 
     func note(_ step: OakStep) -> String? {
         if case .dungeon(let dungeon) = step { return gear(dungeon) }
+        if case .capsules(let step) = step { return gifts(step.capsules) }
         guard store.oakWaitsForTheTeam(step) else { return nil }
         if case .candies = step { return l.oakGiveOnReturn }
         return l.oakUseOnReturn
     }
 
     func explanation(_ step: OakStep) -> String? {
-        if case .dungeon = step { return [detail(step), note(step)].compactMap { $0 }.joined(separator: "\n") }
-        let parts = [note(step), detail(step)].compactMap { $0 }
-        return parts.isEmpty ? nil : parts.joined(separator: " ")
+        switch step {
+        case .capsules, .dungeon:
+            return [detail(step), note(step)].compactMap { $0 }.joined(separator: "\n")
+        default:
+            let parts = [note(step), detail(step)].compactMap { $0 }
+            return parts.isEmpty ? nil : parts.joined(separator: " ")
+        }
     }
 
     func detail(_ step: OakStep) -> String? {
@@ -391,6 +398,9 @@ private struct OakWords {
         case .release(let release): return releaseDetail(release)
         case .stock(let budget): return stockDetail(budget)
         case .candies(let buy, let give, let keep): return candiesDetail(buy: buy, give: give, keep: keep)
+        case .capsules(let step):
+            return l.oakCapsulesWhy(gold: l.itemName(.goldCapsule), silver: l.itemName(.silverCapsule)) + " "
+                + l.oakDungeonOdds(percent(step.win))
         case .dungeon(let dungeon): return dungeonDetail(dungeon)
         }
     }
@@ -398,7 +408,7 @@ private struct OakWords {
     func place(_ step: OakStep) -> OakPlace? {
         switch step {
         case .raise, .release(.wait), .release(.finish), .stock: return nil
-        case .release(.bag), .release(.buy): return .bag
+        case .release(.bag), .release(.buy), .capsules: return .bag
         case .release(.claim): return .home
         case .candies(_, let give, _): return give > 0 ? .bag : nil
         case .dungeon: return .dungeons
@@ -446,21 +456,24 @@ private struct OakWords {
         return why + " " + l.oakDungeonOdds(percent(dungeon.win)) + " " + wait
     }
 
+    private func member(_ entryID: String) -> String {
+        guard let entry = store.state.dex.first(where: { $0.id == entryID }) else { return "" }
+        return store.dexEntryName(entry) + (entry.isShiny ? " ✨" : "")
+    }
+
     private func gear(_ dungeon: OakDungeon) -> String? {
-        func name(_ entryID: String) -> String {
-            guard let entry = store.state.dex.first(where: { $0.id == entryID }) else { return "" }
-            return store.dexEntryName(entry) + (entry.isShiny ? " ✨" : "")
-        }
         let forms = dungeon.forms.map { planned in
             let species = store.state.dex.first { $0.id == planned.entryID }.map(store.dexEntryName) ?? ""
-            return l.oakSetBattleForm(l.battleFormName(planned.form, species: species), on: name(planned.entryID))
+            return l.oakSetBattleForm(l.battleFormName(planned.form, species: species), on: member(planned.entryID))
         }
-        let capsules = dungeon.capsules.map { capsule in
-            let gift = l.oakGiveCapsule(l.itemName(capsule.kind), to: name(capsule.entryID))
+        return forms.isEmpty ? nil : forms.joined(separator: " · ")
+    }
+
+    private func gifts(_ capsules: [OakCapsule]) -> String {
+        capsules.map { capsule in
+            let gift = l.oakGiveCapsule(l.itemName(capsule.kind), to: member(capsule.entryID))
             return capsule.stat.map { gift + " (" + l.statLabel(PokemonStatCalculator.order[$0]) + ")" } ?? gift
-        }
-        let parts = forms + capsules
-        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+        }.joined(separator: " · ")
     }
 
     private func stockDetail(_ budget: OakBudget) -> String {
