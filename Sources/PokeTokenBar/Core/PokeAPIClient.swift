@@ -23,7 +23,7 @@ protocol PokemonDetailProviding: Sendable {
 
 /// PokéAPI 클라이언트 — 종/진화체인을 런타임 fetch + 파싱. 포켓몬 데이터는 레포에 번들하지 않는다.
 /// species 응답은 actor 캐시(다국어 이름 재사용).
-actor PokeAPIClient: PokeProviding, PokemonDetailProviding {
+actor PokeAPIClient: PokeProviding, PokemonDetailProviding, PokemonFlavorTextProviding {
     static let shared = PokeAPIClient()
     private let base = URL(string: "https://pokeapi.co/api/v2")!
     static var langCodes: [String] { AppLanguage.allCases.flatMap(\.apiCodes) }
@@ -79,6 +79,12 @@ actor PokeAPIClient: PokeProviding, PokemonDetailProviding {
             }
             throw error
         }
+    }
+
+    /// Lets `CompanionStore` pick up flavor text from its default provider the same way it picks up
+    /// details, while stub providers in tests stay offline.
+    func flavorTexts(speciesID: Int, language: AppLanguage) async throws -> DexEntries {
+        try await PokemonFlavorTextClient.shared.flavorTexts(speciesID: speciesID, language: language)
     }
 
     /// Reduce PokéAPI's cross-generation move history at the trust boundary, before it reaches
