@@ -39,6 +39,88 @@ final class ClaudeReportedCostTests: XCTestCase {
         return b
     }
 
+    func testIncrementalAppendReattributesTheWholeSessionToLatestLedger() async throws {
+        let dir = tempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let url = dir.appendingPathComponent("session.jsonl")
+        let model = "claude-future-unpriced-model"
+        let first = assistant(id: "a", model: model, ts: "2026-09-15T10:00:00.000Z", input: 10)
+        let prefix = first + "\n" + costState([model: 1]) + "\n"
+        try prefix.write(to: url, atomically: true, encoding: .utf8)
+        let cache = LocalUsageCache(claudeRoot: dir, fileURL: dir.appendingPathComponent("cache.json"))
+        let initial = await cache.claudeEntries(modifiedSince: .distantPast)
+        XCTAssertEqual(bucket(initial).cost, 1, accuracy: 1e-9)
+
+        let next = assistant(id: "b", model: model, ts: "2026-09-16T10:00:00.000Z", input: 10)
+        try (prefix + next + "\n" + costState([model: 9]) + "\n")
+            .write(to: url, atomically: true, encoding: .utf8)
+        let appended = await cache.claudeEntries(modifiedSince: .distantPast)
+        XCTAssertEqual(appended.count, 2)
+        XCTAssertEqual(bucket(appended).cost, 9, accuracy: 1e-9)
+        XCTAssertTrue(appended.allSatisfy { $0.explicitCost == 4.5 && $0.sessionID == "session" })
+
+        let unchanged = await cache.claudeEntries(modifiedSince: .distantPast)
+        XCTAssertEqual(bucket(unchanged).cost, 9, accuracy: 1e-9)
+        XCTAssertTrue(unchanged.allSatisfy { $0.explicitCost == 4.5 })
+    }
+
+    func testPersistedLedgerIsRetainedWhenTheAppendedTailHasNoLedger() async throws {
+        let dir = tempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let url = dir.appendingPathComponent("session.jsonl")
+        let cacheURL = dir.appendingPathComponent("cache.json")
+        let model = "claude-future-unpriced-model"
+        let prefix = assistant(id: "a", model: model, ts: "2026-09-15T10:00:00.000Z", input: 10)
+            + "\n" + costState([model: 4]) + "\n"
+        try prefix.write(to: url, atomically: true, encoding: .utf8)
+        let cache = LocalUsageCache(claudeRoot: dir, fileURL: cacheURL)
+        _ = await cache.claudeEntries(modifiedSince: .distantPast)
+
+        let reloaded = LocalUsageCache(claudeRoot: dir, fileURL: cacheURL)
+        let next = assistant(id: "b", model: model, ts: "2026-09-16T10:00:00.000Z", input: 10)
+        try (prefix + next + "\n").write(to: url, atomically: true, encoding: .utf8)
+        let entries = await reloaded.claudeEntries(modifiedSince: .distantPast)
+        XCTAssertEqual(entries.count, 2)
+        XCTAssertEqual(bucket(entries).cost, 4, accuracy: 1e-9)
+        XCTAssertTrue(entries.allSatisfy { $0.explicitCost == 2 })
+    }
+
+    func testTruncationDiscardsTheCachedLedger() async throws {
+        let dir = tempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let url = dir.appendingPathComponent("session.jsonl")
+        let model = "claude-future-unpriced-model"
+        let line = assistant(id: "a", model: model, ts: "2026-09-15T10:00:00.000Z", input: 10)
+        try (line + "\n" + costState([model: 9]) + "\n")
+            .write(to: url, atomically: true, encoding: .utf8)
+        let cache = LocalUsageCache(claudeRoot: dir, fileURL: dir.appendingPathComponent("cache.json"))
+        _ = await cache.claudeEntries(modifiedSince: .distantPast)
+
+        try (line + "\n").write(to: url, atomically: true, encoding: .utf8)
+        let entries = await cache.claudeEntries(modifiedSince: .distantPast)
+        XCTAssertEqual(entries.count, 1)
+        XCTAssertNil(entries.first?.explicitCost)
+        XCTAssertTrue(bucket(entries).costCoverage.unknown)
+    }
+
+    func testHalfWrittenCostStateIsRetriedOnAppend() async throws {
+        let dir = tempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let url = dir.appendingPathComponent("session.jsonl")
+        let model = "claude-future-unpriced-model"
+        let prefix = assistant(id: "a", model: model, ts: "2026-09-15T10:00:00.000Z", input: 10) + "\n"
+        let ledger = costState([model: 9])
+        try (prefix + ledger.prefix(ledger.count / 2)).write(to: url, atomically: true, encoding: .utf8)
+        let cache = LocalUsageCache(claudeRoot: dir, fileURL: dir.appendingPathComponent("cache.json"))
+        let initial = await cache.claudeEntries(modifiedSince: .distantPast)
+        XCTAssertNil(initial.first?.explicitCost)
+
+        try (prefix + ledger + "\n").write(to: url, atomically: true, encoding: .utf8)
+        let completed = await cache.claudeEntries(modifiedSince: .distantPast)
+        XCTAssertEqual(bucket(completed).cost, 9, accuracy: 1e-9)
+        XCTAssertEqual(completed.count, 1)
+    }
+
     /// The regression: a model with no price-table rate used to aggregate as unavailable ("$—")
     /// even though Claude had already priced it in the same file.
     func testUnpricedModelUsesReportedCost() {

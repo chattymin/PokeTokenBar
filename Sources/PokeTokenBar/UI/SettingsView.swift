@@ -13,10 +13,12 @@ struct SettingsView: View {
     /// 고급 섹션을 펼친 채로 열지. 세션 키 만료 안내에서 들어온 경우에만 true —
     /// 접힌 채로 열면 고칠 입력란이 안 보여 안내가 막다른 길이 된다.
     var startExpanded = false
-    @State private var launchAtLogin = LoginItem.isEnabled
+    @State private var launchAtLoginEnabled = false
+    @State private var launchAtLoginNeedsApproval = false
     @State private var launchAtLoginError: Error?
     @State private var reportFailed = false
     @State private var advancedExpanded = false
+    @State private var snapshotsExpanded = false
     /// startExpanded 를 @State 초기값으로 못 쓴다 — 뷰가 재사용되면 초기화가 다시 안 돌아
     /// 두 번째 진입부터 접힌 채로 열린다. onAppear 에서 1회 반영한다.
     @State private var didApplyStartExpanded = false
@@ -72,6 +74,7 @@ struct SettingsView: View {
                         generalGroup(store)
                         difficultyGroup
                         menuBarGroup(store)
+                        trackedProvidersGroup(store)
                         floatingPetGroup(store)
                         notificationsGroup(store)
                         updateGroup(store)
@@ -85,15 +88,15 @@ struct SettingsView: View {
                 }
                 .onAppear {
                     companion.refreshSnapshots()
+                    snapshotsExpanded = false
                     guard !didApplyStartExpanded else { return }
                     didApplyStartExpanded = true
                     if startExpanded {
                         advancedExpanded = true
                         Task { @MainActor in
                             try? await Task.sleep(nanoseconds: 80_000_000)
-                            withAnimation(.easeInOut(duration: 0.25)) {
-                                proxy.scrollTo("advancedSettingsSection", anchor: .top)
-                            }
+                            // Initial navigation must reveal the repair field without waiting for an animation.
+                            proxy.scrollTo("advancedSettingsSection", anchor: .top)
                             sessionKeyFocused = true
                         }
                     }
@@ -103,6 +106,38 @@ struct SettingsView: View {
             footer
         }
         .frame(height: 460)
+        .onAppear(perform: refreshLaunchAtLoginStatus)
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            refreshLaunchAtLoginStatus()
+        }
+    }
+
+    private func refreshLaunchAtLoginStatus() {
+        guard isBundledApp else { return }
+        let item = LoginItem.system
+        do {
+            try item.removeLegacyAgentAfterActivation()
+        } catch {
+            AppLog.write("login item cleanup failed: \(error)")
+        }
+        updateLaunchAtLoginState(item)
+    }
+
+    private func setLaunchAtLogin(_ enabled: Bool) {
+        let item = LoginItem.system
+        do {
+            try item.setEnabled(enabled)
+            launchAtLoginError = nil
+        } catch {
+            AppLog.write("login item update failed: \(error)")
+            launchAtLoginError = error
+        }
+        updateLaunchAtLoginState(item)
+    }
+
+    private func updateLaunchAtLoginState(_ item: LoginItem) {
+        launchAtLoginEnabled = item.isEnabled
+        launchAtLoginNeedsApproval = item.status == .requiresApproval
     }
 
     private var header: some View {
@@ -217,6 +252,17 @@ struct SettingsView: View {
                 }
                 .labelsHidden().pickerStyle(.segmented).fixedSize()
             }
+            Divider()
+            groupRow {
+                Text(l.dailyTrendPeriod)
+                Spacer()
+                Picker(l.dailyTrendPeriod, selection: $store.dailyTrendWindow) {
+                    ForEach(DailyTrendWindow.allCases) { win in
+                        Text(l.title(for: win)).tag(win)
+                    }
+                }
+                .labelsHidden().pickerStyle(.menu).fixedSize()
+            }
             if store.claudeAccounts.count > 1 {
                 Divider()
                 trackedAccountRow(store)
@@ -227,25 +273,22 @@ struct SettingsView: View {
                     Text(l.launchAtLogin)
                     if !isBundledApp {
                         Text(l.bundledOnly).font(.caption2).foregroundStyle(.tertiary)
+                    } else if launchAtLoginNeedsApproval {
+                        Button(l.launchAtLoginApprovalHint) { setLaunchAtLogin(true) }
+                            .buttonStyle(.link)
+                            .font(.caption2)
                     }
                     if let launchAtLoginError {
                         Text(l.userFacingError(launchAtLoginError)).font(.caption2).foregroundStyle(.red)
                     }
                 }
                 Spacer()
-                Toggle(l.launchAtLogin, isOn: $launchAtLogin)
+                Toggle(l.launchAtLogin, isOn: Binding(
+                    get: { launchAtLoginEnabled },
+                    set: { setLaunchAtLogin($0) }
+                ))
                     .labelsHidden().toggleStyle(.switch).controlSize(.small)
                     .disabled(!isBundledApp)
-                    .onChange(of: launchAtLogin) { _, newValue in
-                        do {
-                            try LoginItem.setEnabled(newValue)   // KeepAlive 에이전트(로그인 실행+크래시 재실행)
-                            launchAtLoginError = nil
-                        } catch {
-                            AppLog.write("login item update failed: \(error)")
-                            launchAtLoginError = error
-                            launchAtLogin = LoginItem.isEnabled
-                        }
-                    }
             }
         }
     }
@@ -262,6 +305,8 @@ struct SettingsView: View {
                 toggleRow(l.todayTokensShort, $store.showTokensInMenu)
                 Divider()
                 toggleRow(l.todayCost, $store.showCostInMenu)
+                Divider()
+                toggleRow(l.pokemonGrowthPercent, $store.showGrowthInMenu, hint: l.pokemonGrowthPercentHint)
                 Divider()
                 toggleRow(l.limitPercent, $store.showLimitInMenu)
                 if store.showLimitInMenu {
@@ -287,6 +332,21 @@ struct SettingsView: View {
     }
 
     @ViewBuilder
+    private func trackedProvidersGroup(_ store: UsageStore) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            settingsSection(l.trackedProvidersSectionTitle) {
+                ForEach(Array(store.registeredProviders.enumerated()), id: \.element.id) { index, provider in
+                    if index > 0 { Divider() }
+                    toggleRow(provider.displayName, Binding(
+                        get: { store.isProviderEnabled(provider.id) },
+                        set: { store.setProviderEnabled(provider.id, $0) }))
+                }
+            }
+            Text(l.trackedProvidersHint).font(.caption2).foregroundStyle(.tertiary).padding(.leading, 4)
+        }
+    }
+
+    @ViewBuilder
     private func floatingPetGroup(_ store: UsageStore) -> some View {
         @Bindable var store = store
         settingsSection(l.floatingPetSectionTitle) {
@@ -297,6 +357,17 @@ struct SettingsView: View {
                 }
                 Spacer()
                 Toggle(l.floatingPetEnableLabel, isOn: $store.floatingPetEnabled)
+                    .labelsHidden().toggleStyle(.switch).controlSize(.small)
+            }
+            Divider()
+            groupRow {
+                // Also reachable from both right-click menus. Applies to every surface, not only the pet.
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(l.backViewLabel)
+                    Text(l.backViewHint).font(.caption2).foregroundStyle(.tertiary)
+                }
+                Spacer()
+                Toggle(l.backViewLabel, isOn: $store.alwaysFacesBack)
                     .labelsHidden().toggleStyle(.switch).controlSize(.small)
             }
             if store.floatingPetEnabled {
@@ -310,6 +381,16 @@ struct SettingsView: View {
                 }
                 Divider()
                 toggleRow(l.floatingPetBubbleAlertsLabel, $store.floatingPetBubbleAlerts)
+                Divider()
+                groupRow {
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(l.floatingPetAgentActivityLabel)
+                        Text(l.floatingPetAgentActivityHint).font(.caption2).foregroundStyle(.tertiary)
+                    }
+                    Spacer()
+                    Toggle(l.floatingPetAgentActivityLabel, isOn: $store.floatingPetAgentActivity)
+                        .labelsHidden().toggleStyle(.switch).controlSize(.small)
+                }
             }
         }
     }
@@ -436,22 +517,30 @@ struct SettingsView: View {
     @ViewBuilder
     private func snapshotsSection(_ store: UsageStore) -> some View {
         groupRow {
-            VStack(alignment: .leading, spacing: 1) {
-                Text(l.snapshotsSectionTitle)
-                Text(l.createSnapshotHint).font(.caption2).foregroundStyle(.tertiary)
-            }
+            Text(l.createSnapshotHint).font(.caption2).foregroundStyle(.tertiary)
             Spacer()
             Button(l.createSnapshotButton) { takeManualSnapshot() }
         }
-        if companion.availableSnapshots.isEmpty {
-            groupRow {
-                Text(l.noSnapshotsYet).font(.caption2).foregroundStyle(.tertiary)
-                Spacer()
-            }
-        } else {
-            ForEach(companion.availableSnapshots) { snapshot in
-                Divider()
-                snapshotRow(snapshot, store: store)
+        Divider()
+        SnapshotHistoryButton(isExpanded: $snapshotsExpanded, title: l.snapshotsSectionTitle,
+                              stateDescription: l.snapshotHistoryState(expanded: snapshotsExpanded))
+            .frame(maxWidth: .infinity)
+            .frame(height: 20)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+        if snapshotsExpanded {
+            VStack(spacing: 0) {
+                if companion.availableSnapshots.isEmpty {
+                    groupRow {
+                        Text(l.noSnapshotsYet).font(.caption2).foregroundStyle(.tertiary)
+                        Spacer()
+                    }
+                } else {
+                    ForEach(companion.availableSnapshots) { snapshot in
+                        Divider()
+                        snapshotRow(snapshot, store: store)
+                    }
+                }
             }
         }
     }
@@ -461,7 +550,8 @@ struct SettingsView: View {
         groupRow {
             HStack(spacing: 8) {
                 if let speciesID = snapshot.currentSpeciesID {
-                    SpriteView(speciesID: speciesID, size: 28, shiny: snapshot.currentIsShiny)
+                    SpriteView(speciesID: speciesID, size: 28, shiny: snapshot.currentIsShiny,
+                               form: snapshot.currentForm)
                         .frame(width: 28, height: 28)
                 } else {
                     SpriteView(speciesID: nil, size: 28)
@@ -897,9 +987,12 @@ struct SettingsView: View {
             .frame(minHeight: 38)
     }
 
-    private func toggleRow(_ label: String, _ isOn: Binding<Bool>) -> some View {
+    private func toggleRow(_ label: String, _ isOn: Binding<Bool>, hint: String? = nil) -> some View {
         groupRow {
-            Text(label)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(label)
+                if let hint { Text(hint).font(.caption2).foregroundStyle(.tertiary) }
+            }
             Spacer()
             Toggle(label, isOn: isOn).labelsHidden().toggleStyle(.switch).controlSize(.small)
         }
@@ -1112,5 +1205,41 @@ struct SettingsView: View {
         alert.addButton(withTitle: l.close)
         NSApp.activate(ignoringOtherApps: true)
         alert.runModal()
+    }
+}
+
+/// A native button keeps the full history header keyboard-accessible and clickable.
+@MainActor
+private struct SnapshotHistoryButton: NSViewRepresentable {
+    @Binding var isExpanded: Bool
+    let title: String
+    let stateDescription: String
+
+    func makeCoordinator() -> Coordinator { Coordinator(isExpanded: $isExpanded) }
+
+    func makeNSView(context: Context) -> NSButton {
+        let button = NSButton(title: title, target: context.coordinator, action: #selector(Coordinator.toggle))
+        button.isBordered = false
+        button.alignment = .left
+        button.imagePosition = .imageLeading
+        button.contentTintColor = .secondaryLabelColor
+        button.setAccessibilityIdentifier("snapshotHistory")
+        return button
+    }
+
+    func updateNSView(_ button: NSButton, context: Context) {
+        context.coordinator.isExpanded = $isExpanded
+        button.title = title
+        button.image = NSImage(systemSymbolName: isExpanded ? "chevron.down" : "chevron.right",
+                               accessibilityDescription: nil)
+        button.setAccessibilityLabel(title)
+        button.setAccessibilityValue(stateDescription)
+    }
+
+    @MainActor
+    final class Coordinator: NSObject {
+        var isExpanded: Binding<Bool>
+        init(isExpanded: Binding<Bool>) { self.isExpanded = isExpanded }
+        @objc func toggle() { isExpanded.wrappedValue.toggle() }
     }
 }

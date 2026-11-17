@@ -33,6 +33,7 @@ enum CursorUsageAPI {
     private enum NetworkResult {
         case success([LocalUsageReader.Entry])
         case failure(String)
+        case authenticationRejected(String)
     }
 
     typealias Transport = @Sendable (URLRequest) async -> (Data, Int)?
@@ -42,6 +43,13 @@ enum CursorUsageAPI {
 
     /// Test hook — inject canned HTTP responses for pagination/auth tests.
     nonisolated(unsafe) static var transportForTesting: Transport?
+    nonisolated(unsafe) static var cacheFileURLForTesting: URL?
+
+    static func resetCacheForTesting() {
+        cacheLock.lock()
+        memoryCache = nil
+        cacheLock.unlock()
+    }
 
     private static let session: URLSession = {
         let config = URLSessionConfiguration.ephemeral
@@ -56,25 +64,27 @@ enum CursorUsageAPI {
     /// 1. `CURSOR_SESSION_TOKEN` env (also read from login shell via `UsageEnvironment`)
     /// 2. `cursorAuth/accessToken` in Cursor's `state.vscdb` when logged into Cursor IDE
     static func sessionToken() -> String? {
-        if let override = UsageEnvironment.value("CURSOR_SESSION_TOKEN")?
-            .trimmingCharacters(in: .whitespacesAndNewlines), !override.isEmpty {
-            return override
-        }
-        return LocalAdditionalUsageReader.cursorAuthAccessToken()
+        CursorAuthentication.current()?.accessToken
     }
 
     static func fetchEntries(modifiedSince: Date) async -> UsageResult {
-        guard UsageEnvironment.value("CURSOR_USAGE_API") != "0" else {
+        guard CursorAuthentication.isEnabled else {
             return UsageResult(entries: [], isAuthoritative: false)
         }
-        guard let token = sessionToken() else {
-            AppLog.writeIfChanged("cursor-api-session", "cursor api: no session token — \(LocalAdditionalUsageReader.cursorAuthDiagnostics())")
+        guard var credential = CursorAuthentication.current() else {
+            AppLog.writeIfChanged("cursor-api-session", "cursor api: no session token — \(LocalAdditionalUsageReader.cursorAuthDiagnostics(roots: CursorAuthentication.roots))")
             return UsageResult(entries: [], isAuthoritative: false)
         }
-        AppLog.write("cursor api: session token ready (\(token.count) chars)")
-        let accountIdentifier = cacheAccountIdentifier(from: token)
+        AppLog.write("cursor api: session token ready (\(credential.accessToken.count) chars)")
+        var result = await fetchFilteredEvents(token: credential.accessToken, modifiedSince: modifiedSince)
+        if case .authenticationRejected = result,
+           let refreshed = await CursorAuthentication.refresh(afterRejecting: credential) {
+            credential = refreshed
+            result = await fetchFilteredEvents(token: refreshed.accessToken, modifiedSince: modifiedSince)
+        }
+        let accountIdentifier = cacheAccountIdentifier(from: credential.accessToken)
 
-        switch await fetchFilteredEvents(token: token, modifiedSince: modifiedSince) {
+        switch result {
         case .success(let fresh):
             storeCache(
                 entries: fresh,
@@ -84,7 +94,7 @@ enum CursorUsageAPI {
             return UsageResult(
                 entries: fresh.filter { $0.date >= modifiedSince },
                 isAuthoritative: true)
-        case .failure(let reason):
+        case .failure(let reason), .authenticationRejected(let reason):
             AppLog.write("cursor api: fetch failed — \(reason)")
             if let stale = cachedEntries(accountIdentifier: accountIdentifier, modifiedSince: modifiedSince) {
                 let age = Date().timeIntervalSince(stale.fetchedAt)
@@ -118,7 +128,7 @@ enum CursorUsageAPI {
             transport: transport) {
         case .success(let entries):
             return (entries, nil)
-        case .failure(let reason):
+        case .failure(let reason), .authenticationRejected(let reason):
             return (nil, reason)
         }
     }
@@ -176,7 +186,7 @@ enum CursorUsageAPI {
                 AppLog.write("cursor api: filtered events \(authMode) http \(status)")
                 authIndex += 1
                 guard authIndex < AuthMode.allCases.count else {
-                    return .failure("auth rejected for all modes (last http \(status))")
+                    return .authenticationRejected("auth rejected for all modes (last http \(status))")
                 }
                 authMode = AuthMode.allCases[authIndex]
                 continue
@@ -296,7 +306,7 @@ enum CursorUsageAPI {
     // MARK: - Cache
 
     private static func cacheFileURL() -> URL {
-        AppStatePaths.directory().appendingPathComponent("cursor-usage-api-cache.json")
+        cacheFileURLForTesting ?? AppStatePaths.directory().appendingPathComponent("cursor-usage-api-cache.json")
     }
 
     private static func cachedEntries(
@@ -365,13 +375,7 @@ enum CursorUsageAPI {
 
     /// Dashboard cookie is `sub::jwt`, not the bare accessToken JWT.
     static func workosSessionCookie(from accessToken: String) -> String {
-        if accessToken.contains("::") || accessToken.contains("%3A%3A") {
-            return accessToken
-        }
-        if let sub = jwtSubject(accessToken) {
-            return "\(sub)::\(accessToken)"
-        }
-        return accessToken
+        CursorAuthentication.sessionCookie(from: accessToken)
     }
 
     static func jwtSubject(_ jwt: String) -> String? {
@@ -406,7 +410,7 @@ enum CursorUsageAPI {
                 let value = workosSessionCookie(from: token)
                 request.setValue("WorkosCursorSessionToken=\(value)", forHTTPHeaderField: "Cookie")
             case .bearer:
-                request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+                request.setValue("Bearer \(CursorAuthentication.bearerToken(from: token))", forHTTPHeaderField: "Authorization")
             }
         }
     }

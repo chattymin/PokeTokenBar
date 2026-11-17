@@ -73,6 +73,13 @@ keep Unown's letter; their sprite already shows the form. Names are loaded with
 the egg's sprites, when the raised Pokémon's line loads, and by the views that
 show them.
 
+Forms change appearance, names and collection slots. Types, stats, abilities,
+height, weight and moves continue to use the species' default-form data. When
+these details are loaded for a non-default form, Home and the Pokédex show a
+localized "Data uses the default form" note beside the type badges. The note
+also applies to the remaining detail sections; selecting a form does not reroll
+the individual's profile or fetch separate battle metadata.
+
 ## Saves
 
 Saves use `form` on active Pokémon and Pokédex entries, `pendingForm` on

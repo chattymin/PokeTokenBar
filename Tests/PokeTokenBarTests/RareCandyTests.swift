@@ -693,6 +693,22 @@ private func rcCodex(primary: Int? = nil, secondary: Int? = nil, individual: Int
     return try! JSONDecoder().decode(CodexRateLimitStatus.self, from: Data("{\"rateLimits\":{\(parts.joined(separator: ","))}}".utf8))
 }
 
+/// app-server account/rateLimits/read wire format, with reset values observed in local rollouts.
+/// A weekly primary with no secondary is also a real Codex response, not necessarily a 5h window.
+private func rcCodexCredits(utilization: Int = 100, reset: Int = 1_792_199_349,
+                           balance: String = "100.0000", weeklyPrimary: Bool = false) throws -> CodexRateLimitStatus {
+    let primaryMinutes = weeklyPrimary ? 10_080 : 300
+    let secondary = weeklyPrimary ? "null" :
+        "{\"usedPercent\":\(utilization),\"windowDurationMins\":10080,\"resetsAt\":\(reset)}"
+    let json = """
+    {"rateLimits":{"limitId":"codex","limitName":null,
+      "primary":{"usedPercent":\(utilization),"windowDurationMins":\(primaryMinutes),"resetsAt":\(reset)},
+      "secondary":\(secondary),"credits":{"balance":"\(balance)","hasCredits":true,"unlimited":false},
+      "individualLimit":null,"planType":"pro","rateLimitReachedType":null}}
+    """
+    return try JSONDecoder().decode(CodexRateLimitStatus.self, from: Data(json.utf8))
+}
+
 @MainActor
 final class RareCandyGrantIntegrationTests: XCTestCase {
     // nonisolated(unsafe): sync setUp/tearDown 은 릴리스 Swift 에서 nonisolated → main-actor 프로퍼티
@@ -720,9 +736,101 @@ final class RareCandyGrantIntegrationTests: XCTestCase {
             statusProvider: RCFakeStatus(),
             autoRefresh: false, defaults: defaults)
     }
-    private func companion() -> CompanionStore {
-        let url = FileManager.default.temporaryDirectory.appendingPathComponent("rc-int-\(UUID().uuidString).json")
-        return CompanionStore(provider: StubProvider(value: rcLinear3), clock: { rcNow }, fileURL: url, rng: SeededRNG(seed: 7))
+    private func companion(fileURL: URL? = nil) -> CompanionStore {
+        let url = fileURL ?? FileManager.default.temporaryDirectory.appendingPathComponent("rc-int-\(UUID().uuidString).json")
+        return CompanionStore(provider: StubProvider(value: rcLinear3), clock: { rcNow }, fileURL: url,
+                              rng: SeededRNG(seed: 7), defaults: defaults)
+    }
+
+    private func pollCodex(_ status: CodexRateLimitStatus?, companion: CompanionStore) async {
+        let store = usage(codex: status,
+                          providers: [RCFakeProvider(id: "codex", displayName: "Codex", daily: rcDaily(1_000))])
+        await store.refresh(scheduleEmptyRetry: false)
+        companion.grantCandies(from: store.candyEligibleWindows, limitsReady: store.limitsReady)
+    }
+
+    func testCodexCreditsAtFullLimitDoNotRegrantWithoutUtilizationDrop() async throws {
+        for weeklyPrimary in [false, true] {
+            let c = companion()
+            await pollCodex(try rcCodexCredits(utilization: 99, weeklyPrimary: weeklyPrimary), companion: c)
+            await pollCodex(try rcCodexCredits(weeklyPrimary: weeklyPrimary), companion: c)
+            let expected = weeklyPrimary ? RareCandy.weeklyGrant : 1 + RareCandy.weeklyGrant
+            XCTAssertEqual(c.rareCandyCount, expected, "credits ownership must not suppress the first grant")
+            // Balance changes, identical reset, round-trip jitter, and a genuine new epoch.
+            for reset in [1_792_199_349, 1_792_199_350, 1_792_199_351, 1_792_199_349, 1_792_804_149] {
+                await pollCodex(try rcCodexCredits(reset: reset, balance: "90.0000",
+                                                  weeklyPrimary: weeklyPrimary), companion: c)
+                XCTAssertEqual(c.rareCandyCount, expected, "100% must remain disarmed at reset \(reset)")
+            }
+            await pollCodex(try rcCodexCredits(utilization: 99, reset: 1_792_804_149,
+                                              weeklyPrimary: weeklyPrimary), companion: c)
+            XCTAssertEqual(c.rareCandyCount, expected)
+            await pollCodex(try rcCodexCredits(reset: 1_792_804_149, weeklyPrimary: weeklyPrimary), companion: c)
+            XCTAssertEqual(c.rareCandyCount, expected * 2, "observed 99% → 100% grants once per window")
+            await pollCodex(try rcCodexCredits(reset: 1_792_804_149, weeklyPrimary: weeklyPrimary), companion: c)
+            XCTAssertEqual(c.rareCandyCount, expected * 2)
+        }
+    }
+
+    /// Codex windows carry no reset epoch even when app-server sends `resetsAt`, so only a sub-100%
+    /// sample rearms them.
+    func testEligibleWindowsCodexOmitsResetEpoch() async throws {
+        let store = usage(codex: try rcCodexCredits(),
+                          providers: [RCFakeProvider(id: "codex", displayName: "Codex", daily: rcDaily(1_000))])
+        await store.refresh(scheduleEmptyRetry: false)
+        let codex = store.candyEligibleWindows.filter { $0.key.hasPrefix("codex.") }
+        XCTAssertEqual(codex.map(\.key), ["codex.codex.primary", "codex.codex.secondary"])
+        XCTAssertTrue(codex.allSatisfy { $0.epoch == nil })
+    }
+
+    func testCodexCreditsFirstRunSeedsFullWindowsWithoutRetroactiveGrant() async throws {
+        let c = companion()
+        await pollCodex(try rcCodexCredits(), companion: c)
+        XCTAssertTrue(c.state.candyFeatureSeeded)
+        XCTAssertEqual(c.state.candyGrantTier["codex.codex.primary"], 1)
+        XCTAssertEqual(c.state.candyGrantTier["codex.codex.secondary"], 1)
+        await pollCodex(try rcCodexCredits(reset: 1_792_804_149), companion: c)
+        XCTAssertEqual(c.rareCandyCount, 0)
+    }
+
+    func testCodexCreditsLedgerPersistsAcrossRestartAndMissingLimits() async throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("rc-credits-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let url = dir.appendingPathComponent("companion.json")
+        let c = companion(fileURL: url)
+        await pollCodex(try rcCodexCredits(utilization: 99), companion: c)
+        await pollCodex(try rcCodexCredits(), companion: c)
+        let restarted = companion(fileURL: url)
+        XCTAssertEqual(restarted.rareCandyCount, 1 + RareCandy.weeklyGrant)
+        await pollCodex(nil, companion: restarted)
+        await pollCodex(try rcCodexCredits(reset: 1_792_804_149), companion: restarted)
+        XCTAssertEqual(restarted.rareCandyCount, 1 + RareCandy.weeklyGrant)
+        await pollCodex(try rcCodexCredits(utilization: 99, reset: 1_792_804_149), companion: restarted)
+        let rearmed = companion(fileURL: url)
+        XCTAssertNil(rearmed.state.candyGrantTier["codex.codex.primary"])
+        XCTAssertNil(rearmed.state.candyGrantTier["codex.codex.secondary"])
+        await pollCodex(try rcCodexCredits(reset: 1_792_804_149), companion: rearmed)
+        XCTAssertEqual(rearmed.rareCandyCount, 2 * (1 + RareCandy.weeklyGrant))
+    }
+
+    func testClaudeAndAntigravityStillRearmOnEpochChangeAtFullLimit() async throws {
+        let c = companion()
+        c.grantCandies(from: [], limitsReady: true)
+        for reset in ["2026-10-11T10:00:00Z", "2026-10-11T15:00:00Z"] {
+            let claude = try JSONDecoder().decode(LimitStatus.self, from: Data("""
+                {"five_hour":{"utilization":100,"resets_at":"\(reset)"}}
+                """.utf8))
+            let antigravity = AntigravityRateLimitStatus(groups: [AntigravityQuotaGroup(
+                displayName: "Gemini", buckets: [AntigravityQuotaBucket(
+                    bucketId: "gemini-5h", displayName: "Gemini", window: "5h",
+                    resetTime: reset, remainingFraction: 0)])])
+            let store = usage(claude: claude, antigravity: antigravity)
+            await store.refresh(scheduleEmptyRetry: false)
+            XCTAssertEqual(store.candyEligibleWindows.count, 2)
+            c.grantCandies(from: store.candyEligibleWindows, limitsReady: store.limitsReady)
+        }
+        XCTAssertEqual(c.rareCandyCount, 4)
     }
 
     // MARK: candyEligibleWindows 구성

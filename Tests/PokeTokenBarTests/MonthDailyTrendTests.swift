@@ -29,7 +29,6 @@ private struct NoAntigravityLimits: AntigravityLimitsProviding {
 private struct NoStatus: ProviderStatusProviding {
     func fetch() async -> [String: ProviderStatus] { [:] }
 }
-
 /// enrichment 를 테스트가 직접 지정하는 프로바이더 — 시리즈를 못 주는 프로바이더(nil)를 섞기 위함.
 private final class TrendProvider: UsageProvider, @unchecked Sendable {
     let id: String
@@ -613,5 +612,184 @@ final class MonthDailyTrendTests: XCTestCase {
         let height = NSHostingController(rootView: view)
             .sizeThatFits(in: CGSize(width: PopoverMetrics.contentWidth, height: 600)).height
         XCTAssertEqual(height, 0)
+    }
+
+    // MARK: Daily Trend Window (7d / 14d / 21d / month)
+
+    func testDailyTrendColumnsByWindow() {
+        let today = "2026-10-15"
+        let series = [
+            DailyUsage(date: "2026-10-14", inputTokens: 0, outputTokens: 100, cacheCreationTokens: 0, cacheReadTokens: 0, totalTokens: 100, totalCost: 0),
+            DailyUsage(date: "2026-10-15", inputTokens: 0, outputTokens: 200, cacheCreationTokens: 0, cacheReadTokens: 0, totalTokens: 200, totalCost: 0),
+        ]
+
+        // 7d: 7 columns, none future, ends today
+        let cols7 = DailyTrendMetrics.columns(series: series, today: today, window: .d7)
+        XCTAssertEqual(cols7.count, 7)
+        XCTAssertEqual(cols7.first?.date, "2026-10-09")
+        XCTAssertEqual(cols7.last?.date, today)
+        XCTAssertTrue(cols7.allSatisfy { !$0.isFuture })
+
+        // 14d: 14 columns, none future, ends today
+        let cols14 = DailyTrendMetrics.columns(series: series, today: today, window: .d14)
+        XCTAssertEqual(cols14.count, 14)
+        XCTAssertEqual(cols14.first?.date, "2026-10-02")
+        XCTAssertEqual(cols14.last?.date, today)
+        XCTAssertTrue(cols14.allSatisfy { !$0.isFuture })
+
+        // 21d: 21 columns, none future, ends today
+        let cols21 = DailyTrendMetrics.columns(series: series, today: today, window: .d21)
+        XCTAssertEqual(cols21.count, 21)
+        XCTAssertEqual(cols21.first?.date, "2026-09-25")
+        XCTAssertEqual(cols21.last?.date, today)
+        XCTAssertTrue(cols21.allSatisfy { !$0.isFuture })
+
+        // month: 31 columns for October, future columns beyond today (15)
+        let colsMonth = DailyTrendMetrics.columns(series: series, today: today, window: .month)
+        XCTAssertEqual(colsMonth.count, 31)
+        XCTAssertEqual(colsMonth.first?.date, "2026-10-01")
+        XCTAssertEqual(colsMonth.last?.date, "2026-10-31")
+        XCTAssertFalse(colsMonth[14].isFuture, "day 15 is today -> not future")
+        XCTAssertTrue(colsMonth[15].isFuture, "day 16 is future")
+    }
+
+    func testAxisLabelsByWindow() {
+        let today = "2026-10-15"
+
+        // Today is always labeled across all windows
+        for win in DailyTrendWindow.allCases {
+            XCTAssertEqual(DailyTrendMetrics.axisLabel(for: today, today: today, window: win), "15",
+                           "Today must always have an axis label in \(win)")
+        }
+
+        // 7d: midpoint (3 days before = Oct 12) gets label, Oct 14 does not
+        XCTAssertEqual(DailyTrendMetrics.axisLabel(for: "2026-10-12", today: today, window: .d7), "12")
+        XCTAssertNil(DailyTrendMetrics.axisLabel(for: "2026-10-14", today: today, window: .d7))
+
+        // 14d: 7 days before (Oct 8) gets label, Oct 12 does not
+        XCTAssertEqual(DailyTrendMetrics.axisLabel(for: "2026-10-08", today: today, window: .d14), "8")
+        XCTAssertNil(DailyTrendMetrics.axisLabel(for: "2026-10-12", today: today, window: .d14))
+
+        // 21d: 7 and 14 days before get labels (Oct 8, Oct 1)
+        XCTAssertEqual(DailyTrendMetrics.axisLabel(for: "2026-10-08", today: today, window: .d21), "8")
+        XCTAssertEqual(DailyTrendMetrics.axisLabel(for: "2026-10-01", today: today, window: .d21), "1")
+        XCTAssertNil(DailyTrendMetrics.axisLabel(for: "2026-10-05", today: today, window: .d21))
+
+        // 1st of month is labeled if far enough from today
+        XCTAssertEqual(DailyTrendMetrics.axisLabel(for: "2026-10-01", today: "2026-10-10", window: .d14), "1")
+        // 1st of month suppressed if too close to today (< 3 days)
+        XCTAssertNil(DailyTrendMetrics.axisLabel(for: "2026-10-01", today: "2026-10-02", window: .d14))
+    }
+
+    func testAxisLabelsSuppressCollisionsNearMonthBoundary() {
+        // In 7d window on the 2nd of month: Oct 1 must NOT collide with Oct 2
+        XCTAssertEqual(DailyTrendMetrics.axisLabel(for: "2026-10-02", today: "2026-10-02", window: .d7), "2")
+        XCTAssertNil(DailyTrendMetrics.axisLabel(for: "2026-10-01", today: "2026-10-02", window: .d7),
+                     "Oct 1 must be suppressed in 7d when today is Oct 2 to avoid adjacent 1 2 label collision")
+
+        // In 14d/21d window when today is the 9th: Oct 2 (regular 7d mark, diff=7) would sit right next
+        // to Oct 1 (landmark, diff=8). Oct 1 must be shown and Oct 2 must be suppressed.
+        let today9 = "2026-10-09"
+        XCTAssertEqual(DailyTrendMetrics.axisLabel(for: "2026-10-01", today: today9, window: .d14), "1",
+                       "Oct 1 landmark must be displayed")
+        XCTAssertNil(DailyTrendMetrics.axisLabel(for: "2026-10-02", today: today9, window: .d14),
+                     "Oct 2 regular mark must yield to Oct 1 to avoid adjacent 1 2 label collision")
+        XCTAssertEqual(DailyTrendMetrics.axisLabel(for: today9, today: today9, window: .d14), "9")
+
+        // In 7d window when today is the 4th (diff=3): Oct 1 is the midpoint and >= 3 from today -> displayed
+        XCTAssertEqual(DailyTrendMetrics.axisLabel(for: "2026-10-01", today: "2026-10-04", window: .d7), "1")
+        XCTAssertEqual(DailyTrendMetrics.axisLabel(for: "2026-10-04", today: "2026-10-04", window: .d7), "4")
+    }
+
+    func testDailyTrendHoverFallsBackToZeroTokensForMissingDays() {
+        let l = L(.en)
+        let emptySeries: [DailyUsage] = []
+        let info = DailyTrendHover.info(day: "2026-10-15", series: emptySeries, stack: [], showsCost: true, l: l)
+        XCTAssertNotNil(info, "Hovering a missing day in series must return zero-token info rather than nil")
+        XCTAssertEqual(info?.tokens, "0")
+    }
+
+    func testEmptySelectedWindowKeepsSelectableSurfaceWhenAnotherWindowHasHistory() {
+        XCTAssertTrue(MonthDailyTrend.shouldShowSurface(
+            peak: 0, hasAvailableHistory: true, isSelectable: true))
+        XCTAssertFalse(MonthDailyTrend.shouldShowSurface(
+            peak: 0, hasAvailableHistory: false, isSelectable: true))
+        XCTAssertFalse(MonthDailyTrend.shouldShowSurface(
+            peak: 0, hasAvailableHistory: true, isSelectable: false))
+    }
+
+    /// Late on the DST fall-back day (`2026-11-01 23:59 PST` in `America/Los_Angeles`), 21 calendar days
+    /// span more than `21 * 86,400` seconds because `2026-11-01` is 25 hours long. The first visible day
+    /// of the 21-day chart (`2026-10-12`) starts at `00:00 PDT` (`07:00Z`), whereas `now - 21 * 86,400`
+    /// lands at `00:59 PDT` (`07:59Z`). A completed session modified at `2026-10-12 00:30 PDT` (`07:30Z`)
+    /// must be included by `enrichmentScanStart`, both direct and cached scans, and the 21-day chart.
+    func testTwentyOneDayScanIncludesEarlyMorningTranscriptOnFirstDayAcrossDSTFallBack() async throws {
+        let laZone = try XCTUnwrap(TimeZone(identifier: "America/Los_Angeles"))
+        let previousTZ = getenv("TZ").map { String(cString: $0) }
+        let previousDefault = NSTimeZone.default
+        setenv("TZ", "America/Los_Angeles", 1)
+        tzset()
+        CFTimeZoneResetSystem()
+        NSTimeZone.resetSystemTimeZone()
+        NSTimeZone.default = laZone
+        defer {
+            if let previousTZ {
+                setenv("TZ", previousTZ, 1)
+            } else {
+                unsetenv("TZ")
+            }
+            tzset()
+            CFTimeZoneResetSystem()
+            NSTimeZone.resetSystemTimeZone()
+            NSTimeZone.default = previousDefault
+        }
+
+        var laCal = Calendar(identifier: .gregorian)
+        laCal.timeZone = laZone
+
+        // 2026-11-01 23:59 PST = 2026-11-02T07:59:00Z (the 25-hour fall-back day in Los Angeles).
+        let now = try XCTUnwrap(ISO8601DateFormatter().date(from: "2026-11-02T07:59:00Z"))
+        // 2026-10-12 00:30 PDT = 2026-10-12T07:30:00Z (first chart day, before 00:59 PDT).
+        let transcriptTime = try XCTUnwrap(ISO8601DateFormatter().date(from: "2026-10-12T07:30:00Z"))
+        let firstChartDayStart = try XCTUnwrap(ISO8601DateFormatter().date(from: "2026-10-12T07:00:00Z"))
+
+        // Precondition: fixed `21 * 86_400` seconds would start at 07:59Z and miss the 07:30Z transcript.
+        XCTAssertGreaterThan(now.addingTimeInterval(-21 * 86_400), transcriptTime)
+
+        let scanStart = LocalUsageReader.enrichmentScanStart(now: now, calendar: laCal)
+        XCTAssertEqual(scanStart, firstChartDayStart)
+        XCTAssertEqual(LocalUsageReader.enrichmentScanStart(now: now), firstChartDayStart)
+        XCTAssertLessThanOrEqual(scanStart, transcriptTime)
+
+        // 10 input + 113 output = 123 total tokens on 2026-10-12.
+        try writeSession("dst-fallback-first-day.jsonl", lines: [
+            claudeLine(id: "oct12-early", output: 113, at: transcriptTime),
+        ], mtime: transcriptTime)
+
+        let fullEntries = LocalUsageReader.claudeEntries(modifiedSince: .distantPast, root: root)
+        let selectedEntries = LocalUsageReader.claudeEntries(
+            modifiedSince: LocalUsageReader.enrichmentScanStart(now: now), root: root)
+        let cache = LocalUsageCache(claudeRoot: root, codexRoot: nil, fileURL: cacheFile, now: { now })
+        let cachedEntries = await cache.claudeEntries(
+            modifiedSince: LocalUsageReader.enrichmentScanStart(now: now))
+
+        XCTAssertEqual(fullEntries.reduce(0) { $0 + $1.total }, 123)
+        XCTAssertEqual(selectedEntries.reduce(0) { $0 + $1.total }, 123,
+                       "Selected enrichment scan must include the 00:30 PDT transcript on the first day of the 21d window")
+        XCTAssertEqual(cachedEntries.reduce(0) { $0 + $1.total }, 123,
+                       "Cached enrichment scan must include the 00:30 PDT transcript on the first day of the 21d window")
+
+        let enrichment = ProviderEnrichment.local(entries: cachedEntries, now: now)
+        let recentSeries = try XCTUnwrap(enrichment.recentDaily)
+        XCTAssertEqual(recentSeries.count, 21)
+        XCTAssertEqual(recentSeries.first?.date, "2026-10-12")
+        XCTAssertEqual(recentSeries.first?.totalTokens, 123)
+        XCTAssertEqual(recentSeries.last?.date, "2026-11-01")
+
+        let cols21 = DailyTrendMetrics.columns(series: recentSeries, today: "2026-11-01", window: .d21)
+        XCTAssertEqual(cols21.count, 21)
+        XCTAssertEqual(cols21.first?.date, "2026-10-12")
+        XCTAssertEqual(cols21.first?.tokens, 123)
+        XCTAssertEqual(cols21.reduce(0) { $0 + $1.tokens }, 123)
     }
 }

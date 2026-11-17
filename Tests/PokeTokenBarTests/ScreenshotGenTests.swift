@@ -204,4 +204,133 @@ final class ScreenshotGenTests: XCTestCase {
             Text(TokenFormatter.cost(cost)).font(.caption).foregroundStyle(.secondary)
         }
     }
+
+    @MainActor
+    private func renderView<V: View>(_ view: V) throws -> Data {
+        let renderer = ImageRenderer(content: view)
+        renderer.scale = 2
+        let image = try XCTUnwrap(renderer.nsImage)
+        let tiff = try XCTUnwrap(image.tiffRepresentation)
+        let rep = try XCTUnwrap(NSBitmapImageRep(data: tiff))
+        return try XCTUnwrap(rep.representation(using: .png, properties: [:]))
+    }
+
+    @MainActor
+    private func renderWindow<V: View>(_ view: V, width: CGFloat) throws -> Data {
+        let host = NSHostingController(rootView: view)
+        let fitting = host.view.fittingSize
+        host.view.setFrameSize(NSSize(width: width, height: max(fitting.height, 100)))
+        let window = NSWindow(contentRect: host.view.frame, styleMask: [.borderless],
+                              backing: .buffered, defer: false)
+        window.appearance = NSAppearance(named: .darkAqua)
+        window.contentView = host.view
+        host.view.layoutSubtreeIfNeeded()
+        window.displayIfNeeded()
+
+        let bounds = host.view.bounds
+        let rep = try XCTUnwrap(NSBitmapImageRep(
+            bitmapDataPlanes: nil,
+            pixelsWide: Int(bounds.width) * 2, pixelsHigh: Int(bounds.height) * 2,
+            bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+            colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0))
+        rep.size = bounds.size
+        host.view.cacheDisplay(in: bounds, to: rep)
+        return try XCTUnwrap(rep.representation(using: .png, properties: [:]))
+    }
+
+    @MainActor
+    func testGenerateDailyTrendPRScreenshots() throws {
+        guard let directory = ProcessInfo.processInfo.environment["PTB_SCREENSHOT_DIR"] else {
+            throw XCTSkip("PTB_SCREENSHOT_DIR 미지정")
+        }
+        let l = L(.en)
+        let today = "2026-10-01"
+
+        // 1. Before: October 1st with only 1 day of usage in the calendar month
+        let singleDaySeries = [
+            DailyUsage(date: "2026-10-01", inputTokens: 500_000, outputTokens: 500_000,
+                       cacheCreationTokens: 0, cacheReadTokens: 0, totalTokens: 1_000_000, totalCost: 3.2)
+        ]
+        let beforeView = VStack(alignment: .leading, spacing: 6) {
+            Text(l.todayTokens).font(.caption).foregroundStyle(.secondary)
+            HStack(alignment: .firstTextBaseline) {
+                Text(TokenFormatter.compact(1_000_000))
+                    .font(.system(size: 28, weight: .bold)).monospacedDigit()
+                Spacer()
+                Text(TokenFormatter.cost(3.2))
+                    .font(.callout).foregroundStyle(.secondary)
+            }
+            MonthDailyTrend(series: singleDaySeries, showsCost: true, currentWindow: .month, today: today, l: l)
+        }
+        .padding(.horizontal, PopoverMetrics.padding)
+        .padding(.vertical, 16)
+        .frame(width: PopoverMetrics.width, alignment: .leading)
+        .background(Color(red: 41 / 255, green: 41 / 255, blue: 42 / 255))
+        .environment(\.colorScheme, .dark)
+        .environment(\.locale, AppLanguage.en.displayLocale)
+
+        let beforeData = try renderView(beforeView)
+        try beforeData.write(to: URL(fileURLWithPath: directory).appendingPathComponent("before.png"))
+
+        // 2. After: 14-day rolling window spanning cross-month (Sep 18 ~ Oct 1)
+        var winState: DailyTrendWindow = .d14
+        let winBinding = Binding(get: { winState }, set: { winState = $0 })
+        let days14Series = (0..<14).map { offset -> DailyUsage in
+            let dayNum = 18 + offset
+            let dateStr = dayNum > 30 ? String(format: "2026-10-%02d", dayNum - 30) : String(format: "2026-09-%02d", dayNum)
+            let tokens = (offset % 5 == 0) ? 0 : (offset * 300_000 + 400_000)
+            return DailyUsage(date: dateStr, inputTokens: tokens / 2, outputTokens: tokens / 2,
+                              cacheCreationTokens: 0, cacheReadTokens: 0, totalTokens: tokens, totalCost: Double(tokens) / 1_000_000 * 3.2)
+        }
+
+        let afterView = VStack(alignment: .leading, spacing: 6) {
+            Text(l.todayTokens).font(.caption).foregroundStyle(.secondary)
+            HStack(alignment: .firstTextBaseline) {
+                Text(TokenFormatter.compact(1_000_000))
+                    .font(.system(size: 28, weight: .bold)).monospacedDigit()
+                Spacer()
+                Text(TokenFormatter.cost(3.2))
+                    .font(.callout).foregroundStyle(.secondary)
+            }
+            MonthDailyTrend(series: days14Series, showsCost: true, window: winBinding, today: today, l: l)
+        }
+        .padding(.horizontal, PopoverMetrics.padding)
+        .padding(.vertical, 16)
+        .frame(width: PopoverMetrics.width, alignment: .leading)
+        .background(Color(red: 41 / 255, green: 41 / 255, blue: 42 / 255))
+        .environment(\.colorScheme, .dark)
+        .environment(\.locale, AppLanguage.en.displayLocale)
+
+        let afterData = try renderWindow(afterView, width: PopoverMetrics.width)
+        try afterData.write(to: URL(fileURLWithPath: directory).appendingPathComponent("after.png"))
+
+        // 3. Settings View: Daily trend period picker
+        let settingsView = VStack(alignment: .leading, spacing: 10) {
+            Text("General Settings")
+                .font(.headline)
+            Divider()
+            HStack {
+                Text(l.dailyTrendPeriod)
+                Spacer()
+                HStack(spacing: 4) {
+                    Text(l.title(for: .d14))
+                        .font(.body)
+                    Image(systemName: "chevron.up.chevron.down")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(RoundedRectangle(cornerRadius: 6).fill(Color.secondary.opacity(0.15)))
+            }
+        }
+        .padding(20)
+        .frame(width: 360)
+        .background(Color(red: 41 / 255, green: 41 / 255, blue: 42 / 255))
+        .environment(\.colorScheme, .dark)
+        .environment(\.locale, AppLanguage.en.displayLocale)
+
+        let settingsData = try renderView(settingsView)
+        try settingsData.write(to: URL(fileURLWithPath: directory).appendingPathComponent("after-settings.png"))
+    }
 }
