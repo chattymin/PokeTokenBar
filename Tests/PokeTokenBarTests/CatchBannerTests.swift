@@ -105,4 +105,22 @@ final class CatchBannerTests: XCTestCase {
         }
         XCTAssertNotEqual(L(.fr).catchImageCopyHint, L(.en).catchImageCopyHint)
     }
+
+    /// The owner, 2026-11-16: Home's dungeon cards are copied as they stand, at the popover's width, three pixels a
+    /// point, without their buttons (an AppKit button draws as a placeholder in an image).
+    func testADungeonCardIsCopiedAsItStands() throws {
+        let s = try store(active: nil)
+        let loot = ExpeditionLoot(candies: 3)
+        s.changeDungeons {
+            $0.lastResult = ExpeditionResult(dungeon: .viridianForest, won: true, startedAt: Date(), endedAt: Date(), tokens: 1, battles: 2,
+                                             boss: ExpeditionBoss(speciesID: 12, form: nil, isShiny: false), caught: true, loot: loot,
+                                             firstVictory: false, unlocked: [], unlockedMove: nil, log: [])
+        }
+        let card = ExpeditionResultCard(store: s, nav: PopoverNavigation())
+        let image = try XCTUnwrap(CardSnapshotButton<ExpeditionResultCard>.render(card, colorScheme: .dark))
+        XCTAssertEqual(image.width, Int(((PopoverMetrics.scrollContentWidth + 2 * CatchBanner.margin) * CatchImage.scale).rounded()))
+        XCTAssertGreaterThan(image.height, image.width / 3, "the card, not an empty frame")
+        for language in AppLanguage.allCases { XCTAssertFalse(L(language).cardImageCopyHint.isEmpty) }
+        XCTAssertNotEqual(L(.fr).cardImageCopyHint, L(.en).cardImageCopyHint)
+    }
 }

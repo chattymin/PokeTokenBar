@@ -331,6 +331,59 @@ extension L {
           "Première victoire : butin doublé et un objet du palier en plus.", "Primeira vitória: espólio em dobro e mais um item do nível.",
           "Erster Sieg: doppelte Beute und ein weiteres Item der Stufe.", "Первая победа: добыча удваивается и ещё один предмет уровня.")
     }
+    // MARK: A dungeon's page in the Pokémon page's look (issue #181, the owner's choice A, 2026-11-16)
+
+    var dungeonBossesTitle: String { t("보스", "Bosses", "ボス", "Jefes", "Boss", "Chefes", "Bosse", "Боссы") }
+    var dungeonLootTitle: String { t("전리품", "Loot", "戦利品", "Botín", "Butin", "Espólio", "Beute", "Добыча") }
+    var dungeonFloorsTitle: String { t("층", "Floors", "階", "Pisos", "Étages", "Andares", "Ebenen", "Этажи") }
+    var dungeonYourRuns: String {
+        t("내 탐험", "Your expeditions", "あなたの探検", "Tus expediciones", "Tes expéditions", "Suas expedições", "Deine Expeditionen",
+          "Твои экспедиции")
+    }
+    func dungeonBossesCaught(_ caught: Int, of total: Int) -> String {
+        t("\(caught)/\(total) 포획", "\(caught)/\(total) caught", "\(caught)/\(total) 捕獲", "\(caught)/\(total) capturados",
+          "\(caught)/\(total) capturés", "\(caught)/\(total) capturados", "\(caught)/\(total) gefangen", "Поймано: \(caught)/\(total)")
+    }
+    var dungeonBossNotMet: String {
+        t("아직 못 봄", "Not met yet", "まだ会っていない", "Aún no visto", "Pas encore vu", "Ainda não visto", "Noch nicht getroffen",
+          "Ещё не встречен")
+    }
+    var dungeonBossCaughtHere: String {
+        t("여기서 포획", "Caught here", "ここで捕獲", "Capturado aquí", "Capturé ici", "Capturado aqui", "Hier gefangen", "Пойман здесь")
+    }
+    var dungeonBossMetNotCaught: String {
+        t("만났지만 아직 포획 못 함", "Met, not caught yet", "出会ったがまだ捕獲していない", "Visto, aún sin capturar",
+          "Vu, pas encore capturé", "Visto, ainda não capturado", "Getroffen, noch nicht gefangen", "Встречен, ещё не пойман")
+    }
+    func dungeonPathShort(risky: Bool) -> String {
+        risky ? t("주사위 4~6 · 전투 1.4배", "die 4 to 6 · 1.4× battles", "サイコロ4〜6 · バトル1.4倍", "dado de 4 a 6 · 1,4× combates",
+                  "dé de 4 à 6 · ×1,4 combats", "dado de 4 a 6 · 1,4× batalhas", "Würfel 4 bis 6 · 1,4× Kämpfe",
+                  "кубик от 4 до 6 · боёв ×1,4")
+            : t("주사위 1~3", "die 1 to 3", "サイコロ1〜3", "dado de 1 a 3", "dé de 1 à 3", "dado de 1 a 3", "Würfel 1 bis 3",
+                "кубик от 1 до 3")
+    }
+    func dungeonOddsToggle(open: Bool) -> String {
+        open ? t("확률 숨기기", "Hide the odds", "確率を隠す", "Ocultar las probabilidades", "Masquer les chances", "Ocultar as chances",
+                 "Chancen ausblenden", "Скрыть шансы")
+            : t("층별 확률 보기", "See each floor's odds", "各階の確率を見る", "Ver las probabilidades de cada piso",
+                "Voir les chances de chaque étage", "Ver as chances de cada andar", "Chancen jeder Ebene ansehen", "Шансы каждого этажа")
+    }
+    var dungeonStatRuns: String { t("탐험", "Runs", "探検", "Expediciones", "Expéditions", "Expedições", "Expeditionen", "Экспедиции") }
+    var dungeonStatWins: String { t("승리", "Won", "勝利", "Ganadas", "Gagnées", "Vencidas", "Gewonnen", "Победы") }
+    var dungeonStatBest: String { t("최고 층", "Best floor", "最高の階", "Mejor piso", "Meilleur étage", "Melhor andar", "Beste Ebene", "Лучший этаж") }
+    var dungeonStatCost: String { t("비용", "Cost", "コスト", "Coste", "Coût", "Custo", "Kosten", "Цена") }
+    func dungeonRange(_ low: Int, _ high: Int) -> String {
+        t("\(low)~\(high)", "\(low) to \(high)", "\(low)〜\(high)", "\(low) a \(high)", "\(low) à \(high)", "\(low) a \(high)",
+          "\(low) bis \(high)", "от \(low) до \(high)")
+    }
+    var dungeonStatBattles: String { t("전투", "Battles", "バトル", "Combates", "Combats", "Batalhas", "Kämpfe", "Бои") }
+    var dungeonStatDuration: String { t("시간", "Time", "時間", "Duración", "Durée", "Duração", "Dauer", "Время") }
+    var dungeonLootKeptTitle: String {
+        t("지킨 전리품", "Loot kept", "手に入れた戦利品", "Botín conservado", "Butin gardé", "Espólio mantido", "Behaltene Beute",
+          "Сохранённая добыча")
+    }
+    var dungeonShowLess: String { t("접기", "Show less", "閉じる", "Ver menos", "Réduire", "Ver menos", "Weniger", "Свернуть") }
+
     var dungeonDetailNone: String { t("없음", "None", "なし", "Ninguno", "Aucun", "Nenhum", "Keins", "Нет") }
     var dungeonDetailHistory: String { t("기록", "History", "記録", "Historial", "Historique", "Histórico", "Verlauf", "История") }
     var dungeonDetailNoRun: String {
@@ -1359,6 +1412,7 @@ extension L {
         case .gigantamax:
             return t("거다이맥스", "Gigantamax", "キョダイマックス", "Gigamax", "Gigamax", "Gigantamax", "Gigadynamax", "Гигантамакс")
         case .primal: return t("원시회귀", "Primal", "ゲンシカイキ", "Primigenio", "Primo", "Primitivo", "Proto", "Первобытный")
+        case .armor: return t("아머", "Armor", "アーマー", "Armadura", "Armure", "Armadura", "Rüstung", "Броня")
         }
     }
 
@@ -1375,6 +1429,9 @@ extension L {
         case .primal:
             return t("원시\(species)", "Primal \(species)", "ゲンシ\(species)", "\(species) Primigenio", "Primo-\(species)",
                      "\(species) Primitivo", "Proto-\(species)", "Первобытный \(species)")
+        case .armor:
+            return t("아머드 \(species)", "Armored \(species)", "アーマード\(species)", "\(species) acorazado", "\(species) en armure",
+                     "\(species) blindado", "Gepanzertes \(species)", "\(species) в броне")
         }
     }
 
@@ -1438,7 +1495,12 @@ extension L {
     }
     /// Where a missing battle form is won.
     func battleFormSource(_ form: BattleForm) -> String {
-        dungeonName(BattleForms.daily.contains(form) ? .daily : .weekly)
+        if form.kind == .armor {
+            return t("로켓단 아지트 두목의 상자", "Team Rocket's leader's chest", "ロケット団アジトのボスの宝箱", "Cofre del líder del Team Rocket",
+                     "Coffre du chef de la Team Rocket", "Baú do líder da Equipe Rocket", "Truhe des Team-Rocket-Bosses",
+                     "Сундук главаря Команды R")
+        }
+        return dungeonName(BattleForms.daily.contains(form) ? .daily : .weekly)
     }
     var battleFormUsual: String {
         t("기본", "Usual", "ふだん", "Habitual", "Habituelle", "Habitual", "Normal", "Обычная")

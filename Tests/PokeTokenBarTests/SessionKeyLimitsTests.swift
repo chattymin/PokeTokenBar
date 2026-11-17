@@ -199,18 +199,37 @@ final class SessionKeyLimitsTests: XCTestCase {
     func testFetchReusesCachedOrgWithoutListingOrganizations() async throws {
         try store.save(SessionKeyCredential(key: "sk-ant-sid02-\(String(repeating: "a", count: 60))", organizationID: "org-team",
                                             plan: SessionKeyPlan(subscriptionType: nil, rateLimitTier: "default_raven",
-                                                                 readAt: Date())))
+                                                                 readAt: Date(), organizationName: "Team Corp")))
         let http = StubSessionKeyHTTP([
             orgsPath: ok(orgsJSON),
             usagePath("org-team"): ok(activeUsageJSON),
         ])
         let provider = SessionKeyLimitsProvider(store: store, http: http)
 
-        _ = try await provider.fetch(allowKeychainPrompt: false)
+        let limits = try await provider.fetch(allowKeychainPrompt: false)
 
         let paths = await http.paths()
         XCTAssertEqual(paths, [usagePath("org-team")],
                        "캐시된 조직이 있으면 목록 조회 없이 usage 만 쳐야 한다")
+        // The organization the limits belong to, so the default folder's login of another one stays off them.
+        XCTAssertEqual(limits.organizationID, "org-team")
+        XCTAssertEqual(limits.accountOrganizationName, "Team Corp")
+    }
+
+    /// A plan saved before 2026-11-16 has no organization name: it is read again once, to name the tab.
+    func testAPlanSavedWithoutItsNameIsReadAgain() async throws {
+        try store.save(SessionKeyCredential(key: "sk-ant-sid02-\(String(repeating: "a", count: 60))", organizationID: "org-team",
+                                            plan: SessionKeyPlan(subscriptionType: nil, rateLimitTier: "default_raven",
+                                                                 readAt: Date())))
+        let http = StubSessionKeyHTTP([
+            orgsPath: ok(orgsJSON),
+            usagePath("org-team"): ok(activeUsageJSON),
+        ])
+        let provider = SessionKeyLimitsProvider(store: store, http: http)
+        _ = try await provider.fetch(allowKeychainPrompt: false)
+        let paths = await http.paths()
+        XCTAssertEqual(paths, [usagePath("org-team"), orgsPath])
+        XCTAssertNotNil(store.load()?.plan?.organizationName, "saved, not read again at the next poll")
     }
 
     // MARK: Plan

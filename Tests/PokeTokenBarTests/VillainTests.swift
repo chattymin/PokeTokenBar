@@ -53,7 +53,7 @@ final class VillainTests: XCTestCase {
         var random = BattleRandom(seed: 1)
         let target = try? XCTUnwrap(VillainRules.target([.rareCandy: 7, .boulderBadge: 1], random: &random))
         XCTAssertEqual(target?.kind, .rareCandy)
-        XCTAssertEqual(target?.count, 3, "up to three of an everyday item")
+        XCTAssertEqual(target?.count, 3, "half the stack of an everyday item, three at least")
         XCTAssertNil(VillainRules.target([.boulderBadge: 1], random: &random), "nothing they would take")
     }
 
@@ -247,12 +247,23 @@ final class VillainTests: XCTestCase {
         XCTAssertTrue(s.startExpedition(.rocketHideout, team: strong.map(\.id)))
         XCTAssertEqual(s.expedition?.boss.speciesID, 150, "Giovanni's Mewtwo leads")
         XCTAssertEqual(s.expedition?.boss.form, ArmoredMewtwo.form)
-        XCTAssertEqual(s.expedition?.floors, DungeonTier.t5.floors)
+        // Half the tier's floors, at half its price (the owner, 2026-11-17).
+        XCTAssertEqual(s.expedition?.floors, 8)
+        XCTAssertEqual(DungeonCatalog.dungeon(.rocketHideout).cost(difficulty: 1),
+                       DungeonTier.t5.cost(difficulty: 1) * 8 / DungeonTier.t5.floors)
+        XCTAssertEqual(DungeonCatalog.dungeon(.skullHideout).floors, 3)
+        XCTAssertEqual(DungeonCatalog.dungeon(.mtMoon).floors, DungeonTier.t2.floors, "a dungeon keeps its own")
         XCTAssertNil(s.expedition?.bossReward)
         s.changeDungeons { $0.expedition?.phase = .capture(throwsLeft: 3) }
         s.endCapture()
         XCTAssertEqual(s.itemCount(.shinyCharm), 1)
-        XCTAssertEqual(s.itemCount(.masterBall), 1)
+        XCTAssertGreaterThanOrEqual(s.itemCount(.masterBall), 1, "the one taken back")
+        // The leader's chest: one draw of Team Rocket's table (2026-11-17).
+        let r = try XCTUnwrap(s.dungeonProgress.lastResult)
+        let chestKinds = VillainRules.leaderChestTable(.t5).compactMap { entry -> ItemKind? in
+            if case .items(let kind, _) = entry.drop { kind } else { nil }
+        }
+        XCTAssertTrue(chestKinds.contains { (r.loot.items[$0.rawValue] ?? 0) > 0 } || r.battleForm == ArmoredMewtwo.battleForm.key)
         XCTAssertNil(s.villainStash(.rocket))
         XCTAssertNotNil(s.villainStash(.skull), "another team's hideout stays")
         XCTAssertTrue(s.villainAmbushes.isEmpty, "its theft is settled with it")
@@ -261,6 +272,107 @@ final class VillainTests: XCTestCase {
         XCTAssertEqual(s.dungeonProgress.lastResult?.villain, .rocket)
         XCTAssertEqual(s.dungeonProgress.wins(.rocketHideout), 0)
         XCTAssertTrue(s.dungeonProgress.bossesBeaten.isEmpty, "Giovanni's Mewtwo opens nothing")
+    }
+
+    /// The owner, 2026-11-16: "les vols les moins oufs plus chiants". Half the stack of an everyday item, three at
+    /// least and twenty at most; up to three of a T2 item; one of the rest.
+    func testTheyTakeMoreOfAnEverydayItem() {
+        XCTAssertEqual([2, 5, 10, 40, 100].map { VillainRules.count(of: .rareCandy, have: $0) }, [2, 3, 5, 20, 20])
+        XCTAssertEqual([1, 2, 7].map { VillainRules.count(of: .ultraBall, have: $0) }, [1, 2, 3])
+        XCTAssertEqual(VillainRules.count(of: .rareEgg, have: 4), 1)
+        XCTAssertEqual(VillainRules.count(of: .masterBall, have: 3), 1)
+    }
+
+    /// [Regression] The owner, 2026-11-16: back from a dungeon, a player used its loot and set off again, never robbed.
+    /// The thieves due strike at the team's return and take what it brought: every Rare Candy, else its most precious
+    /// item; nothing they would take, a Bag item as before.
+    func testTheyStrikeAtTheReturnOnTheLoot() throws {
+        let (day, hour, minute) = coming()
+        let clock = Clock(try date(day, hour: hour, minute: minute).addingTimeInterval(60))
+        func robbed(_ loot: ExpeditionLoot, bag: [String: Int]) throws -> VillainAmbush? {
+            let s = try store(dex: strong, clock: clock) {
+                $0.dungeons.wins[DungeonID.viridianForest.rawValue] = 1
+                $0.inventory = bag
+            }
+            s.settleVillainAmbush(runLoot: loot)
+            return s.villainAmbushes.first
+        }
+        let candies = try XCTUnwrap(robbed(ExpeditionLoot(candies: 4), bag: ["rareCandy": 10, "ultraBall": 1]))
+        XCTAssertEqual(candies.kind, .rareCandy)
+        XCTAssertEqual(candies.count, 4, "every candy the run brought")
+        let best = try XCTUnwrap(robbed(ExpeditionLoot(items: ["ultraBall": 1, "oranBerry": 2]), bag: ["ultraBall": 1, "oranBerry": 2]))
+        XCTAssertEqual(best.kind, .ultraBall, "the most precious item it brought")
+        XCTAssertEqual(best.count, 1)
+        XCTAssertNotNil(try robbed(ExpeditionLoot(), bag: ["rareCandy": 5]), "nothing brought: a Bag item, as before")
+        // A whole run: the team set off before their minute and comes back after it; they strike as it returns.
+        clock.date = try date(day, hour: 7)
+        let s = try store(dex: strong, clock: clock) {
+            $0.dungeons.wins[DungeonID.viridianForest.rawValue] = 1
+            $0.inventory = ["rareCandy": 5]
+        }
+        XCTAssertTrue(s.startExpedition(.viridianForest, team: strong.prefix(3).map(\.id)))
+        clock.date = try date(day, hour: hour, minute: minute).addingTimeInterval(60)
+        var total = 0
+        for _ in 0..<200 where s.expedition != nil {
+            total += DungeonTier.t1.cost(difficulty: 0.1) / 5
+            s.update(todayTokensByProvider: ["test": total], todayDate: "d", monthTotal: 0, burnTier: .idle,
+                     limitWarning: false, hasUsageData: true)
+            if case .awaitingHeal? = s.expedition?.phase { s.answerEmergencyHeal(pay: false) }
+        }
+        XCTAssertNil(s.expedition, "back")
+        XCTAssertEqual(s.villainAmbushes.count, 1, "robbed at the return, no popover opened")
+    }
+
+    /// The owner, 2026-11-16: what they took may be given up, gone for good, its thefts settled; never an artifact, and
+    /// the hideout closes once nothing is left.
+    func testWhatTheyTookCanBeGivenUp() throws {
+        let clock = Clock(try date(10, hour: 12))
+        let s = try store(dex: strong, clock: clock) {
+            $0.dungeons.stashes = [VillainStash(team: .rocket, items: ["rareCandy": 3, "shinyCharm": 1]),
+                                   VillainStash(team: .skull, items: ["rareCandy": 3])]
+            $0.dungeons.ambushes = [self.ambush(.rocket, .rareCandy, count: 3, at: clock.date),
+                                    self.ambush(.rocket, .shinyCharm, at: clock.date)]
+        }
+        XCTAssertTrue(s.abandonStolen(.rocket))
+        XCTAssertEqual(s.villainStash(.rocket)?.items, ["shinyCharm": 1], "the artifact stays to win back")
+        XCTAssertEqual(s.villainAmbushes.map(\.item), ["shinyCharm"], "the candies' theft settled with them")
+        XCTAssertFalse(s.abandonStolen(.rocket), "an artifact is never given up")
+        XCTAssertTrue(s.isDungeonOpen(.rocketHideout))
+        XCTAssertTrue(s.abandonStolen(.skull))
+        XCTAssertNil(s.villainStash(.skull))
+        XCTAssertFalse(s.isDungeonOpen(.skullHideout), "nothing left: the hideout closes")
+        XCTAssertEqual(s.itemCount(.rareCandy), 0, "gone for good")
+    }
+
+    /// [Regression] The owner, 2026-11-16: beaten by Team Skull's grunts with the six highest base stats, two Slaking
+    /// (Truant) and Regigigas (Slow Start) among them, 8% of the chases won. Without Mon équipe, the chase takes the team
+    /// that wins it most, each species once.
+    func testTheChaseTakesTheTeamThatWins() throws {
+        var dex = [150, 384, 248, 445, 149, 376, 486].map(graduated)
+        for i in 0..<2 {
+            var slaking = graduated(289)
+            slaking.id = "slaking\(i)"
+            dex.append(slaking)
+        }
+        let clock = Clock(try date(10, hour: 12))
+        let s = try store(dex: dex, clock: clock)
+        let theft = VillainAmbush(id: "x", team: .skull, item: "oranBerry", count: 3, at: clock.date, seed: 7, grunts: [758, 760, 89])
+        let mine = s.ambushDefenders(for: theft)
+        XCTAssertEqual(mine.count, 6)
+        XCTAssertEqual(Set(mine.map(\.speciesID)).count, 6, "each species once")
+        let foes = VillainRules.gruntSpecs(theft.grunts, tier: theft.tier, seed: theft.seed)
+        func wins(_ team: [BattlerSpec]) -> Int {
+            (0..<16).filter { run in
+                BattleEngine.run(BattleSetup(sides: [BattleSideSpec(battlers: team, active: 1), BattleSideSpec(battlers: foes, active: 1)],
+                                             seed: 31 &+ UInt64(run) &* 104_729)).winner == 0
+            }.count
+        }
+        let targets = (theme: theft.team.themeTypes, bosses: theft.grunts.map { PokemonTypeData.types(forSpeciesID: $0) })
+        let strongest = dex.sorted {
+            (SpeciesBattleTable.data(speciesID: $0.finalID, form: nil)?.baseStats.reduce(0, +) ?? 0)
+                > (SpeciesBattleTable.data(speciesID: $1.finalID, form: nil)?.baseStats.reduce(0, +) ?? 0)
+        }.prefix(6).compactMap { s.dungeonSpec($0, for: nil, targets: targets) }
+        XCTAssertGreaterThanOrEqual(wins(mine), wins(strongest), "at least the old pick's chases")
     }
 
     func testTheLeaderComesWithThree() throws {
@@ -318,5 +430,56 @@ final class VillainTests: XCTestCase {
                 XCTAssertFalse(text.isEmpty || text.contains("\u{2014}") || text.contains("\u{2013}"), "\(language): \(text)")
             }
         }
+    }
+
+    /// The owner, 2026-11-17: the leader's chest is one draw among several items, no sure Legendary Egg or Master Ball;
+    /// Giovanni's armor one chest in a hundred at Team Rocket's, only for a player with a Mewtwo, only once.
+    func testTheLeaderChestIsOneDrawOfItsTiersTable() {
+        for tier in DungeonTier.allCases {
+            XCTAssertEqual(VillainRules.leaderChestTable(tier).reduce(0) { $0 + $1.weight }, 1000, "\(tier)")
+        }
+        func weight(_ tier: DungeonTier, _ drop: VillainRules.ChestDrop) -> Int {
+            VillainRules.leaderChestTable(tier).first { $0.drop == drop }?.weight ?? 0
+        }
+        XCTAssertEqual(weight(.t4, .items(.masterBall, 1)), 30, "a T4 dungeon's 2%, a little more")
+        XCTAssertEqual(weight(.t5, .items(.masterBall, 1)), 100, "a T5 dungeon's 10%")
+        XCTAssertEqual(weight(.t5, .armoredMewtwo), 10)
+        var counts: [VillainRules.ChestDrop: Int] = [:]
+        var random = BattleRandom(seed: 17)
+        let draws = 100_000
+        for _ in 0..<draws { counts[VillainRules.drawLeaderChest(.t5, armorAllowed: true, random: &random), default: 0] += 1 }
+        for entry in VillainRules.leaderChestTable(.t5) {
+            XCTAssertEqual(Double(counts[entry.drop] ?? 0) / Double(draws), Double(entry.weight) / 1000, accuracy: 0.006,
+                           "\(entry.drop)")
+        }
+        for _ in 0..<20_000 {
+            XCTAssertNotEqual(VillainRules.drawLeaderChest(.t5, armorAllowed: false, random: &random), .armoredMewtwo)
+        }
+    }
+
+    /// In the armor a Mewtwo fights with perfect IVs and EVs, a Mega's ×1.25 on top, whatever its own IVs.
+    func testTheArmorFightsWithPerfectIVsAndEVs() throws {
+        var mewtwo = DexEntry(id: "mewtwo", baseID: 150, finalID: 150, chainOrder: [150], rarity: .legendary, caughtAt: Date())
+        mewtwo.form = ArmoredMewtwo.form
+        mewtwo.profile = PokemonProfile.generate(seed: 3)
+        mewtwo.profile?.ivs = PokemonIVs(hp: 0, attack: 0, defense: 0, specialAttack: 0, specialDefense: 0, speed: 0)
+        let spec = try XCTUnwrap(DungeonTeamBuilder.spec(for: mewtwo))
+        let base = try XCTUnwrap(SpeciesBattleTable.data(speciesID: 150, form: nil)).baseStats
+        let perfect = BattleStats.computed(base: base, ivs: Array(repeating: 31, count: 6), evs: Array(repeating: 252, count: 6),
+                                           level: 100, nature: mewtwo.nature, speciesID: 150).scaled(hp: 1.25, stats: 1.25)
+        XCTAssertEqual(spec.stats, perfect)
+        XCTAssertEqual(BattleForms.form(speciesID: 150, form: ArmoredMewtwo.form)?.kind, .armor)
+        XCTAssertFalse(BattleForms.all.contains(ArmoredMewtwo.battleForm), "outside the catalog's counts and the challenges")
+        XCTAssertTrue(BattleForms.forms(speciesID: 150).contains(ArmoredMewtwo.battleForm), "a Mewtwo can wear it")
+    }
+
+    /// The owner, 2026-11-17: Mewtwo's page shows the armor only once it is won; its Megas stay, won or not.
+    func testMewtwosPageShowsTheArmorOnlyOnceWon() throws {
+        let s = try store(dex: strong, clock: Clock(try date(10, hour: 12)))
+        XCTAssertFalse(s.shownBattleForms(speciesID: 150).contains(ArmoredMewtwo.battleForm))
+        XCTAssertFalse(s.shownBattleForms(speciesID: 150).isEmpty, "the Megas to win")
+        s.changeDungeons { $0.battleForms.insert(ArmoredMewtwo.battleForm.key) }
+        XCTAssertTrue(s.shownBattleForms(speciesID: 150).contains(ArmoredMewtwo.battleForm))
+        XCTAssertEqual(s.shownBattleForms(speciesID: 6), BattleForms.forms(speciesID: 6), "another species' forms all shown")
     }
 }

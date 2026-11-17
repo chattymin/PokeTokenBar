@@ -7,13 +7,16 @@ enum DungeonTeamBuilder {
     /// one the app suggests against `theme` with the moves `unlocked` (R4).
     static func spec(for entry: DexEntry, loop: [String]? = nil, unlocked: Set<String> = [],
                      theme: [PokemonType] = [], bosses: [[PokemonType]] = []) -> BattlerSpec? {
-        let ivs = entry.profile.map { p in
-            [p.ivs.hp, p.ivs.attack, p.ivs.defense, p.ivs.specialAttack, p.ivs.specialDefense, p.ivs.speed]
-        } ?? Array(repeating: 15, count: 6)
         // A battle form has its own ability (a Mega Charizard X's Tough Claws), not the Pokémon's usual one.
         let battleForm = BattleForms.form(speciesID: entry.finalID, form: entry.form)
+        // Giovanni's armor: perfect IVs and EVs, whatever the Mewtwo wearing it (the owner, 2026-11-17).
+        let armored = battleForm?.kind == .armor
+        let ivs = armored ? Array(repeating: 31, count: 6) : entry.profile.map { p in
+            [p.ivs.hp, p.ivs.attack, p.ivs.defense, p.ivs.specialAttack, p.ivs.specialDefense, p.ivs.speed]
+        } ?? Array(repeating: 15, count: 6)
         let ability = battleForm == nil ? entry.profile?.abilityName : nil
         guard var spec = BattlerSpec.make(id: entry.id, speciesID: entry.finalID, form: entry.form, level: 100, ivs: ivs,
+                                          evs: armored ? Array(repeating: 252, count: 6) : [],
                                           nature: entry.nature, ability: ability, isShiny: entry.isShiny),
               let data = SpeciesBattleTable.data(speciesID: entry.finalID, form: entry.form) else { return nil }
         // In a battle form, stronger (`BattleFormKind.playerFactors`): the moves below are picked on these stats.

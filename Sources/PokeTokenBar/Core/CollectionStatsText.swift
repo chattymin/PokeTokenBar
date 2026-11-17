@@ -72,6 +72,8 @@ extension L {
                             "Гигантамакс")
         case .primal: t("원시회귀", "Primal Reversions", "ゲンシカイキ", "Regresiones primigenias", "Primo-Résurgences",
                         "Regressões Primitivas", "Proto-Rückentwicklungen", "Первичные формы")
+        // Not counted among the collection's kinds (`CollectionStats.battleKinds`): named for completeness.
+        case .armor: t("아머", "Armor", "アーマー", "Armadura", "Armure", "Armadura", "Rüstung", "Броня")
         }
     }
     func dexStatsGroup(_ group: CollectionStats.Group) -> String {

@@ -822,7 +822,7 @@ final class CompanionStore {
     }
 
     private func makeFormSuspense() -> FormSuspense? {
-        guard let a = state.active,
+        guard let a = state.active, a.costume == nil,
               PokemonForm.isFormHidden(baseID: a.baseID, reached: a.pathIDs.prefix(a.stageIndex + 1)),
               let reveal = PokemonForm.formSpecies(baseID: a.baseID).first else { return nil }
         // The rules its egg was rolled under, as its items: a form rolled before `missingFormsFirst` kept its odds.
@@ -877,7 +877,7 @@ final class CompanionStore {
             && PikachuCostume.next(owned: state.pikachuCostumes, seed: 0) != nil
         // Its costume's stages, those reached and those planned: one the collection lacks is new.
         let newCostume = a.costume.map { code in
-            let held = ownedCostumeKeys(includingActive: false).all
+            let held = ownedCostumeKeys().all
             return a.plannedPathIDs.contains { id in
                 CostumeCatalog.entry(code: code, speciesID: id, form: form).map { !held.contains($0.key) } ?? false
             }
@@ -1142,8 +1142,8 @@ final class CompanionStore {
                     form: e.form,
                     collectedSpecies: seenGraduatedSpecies
                 )
-                // The one being raised still brings a costume while one is missing (`ActiveNews.costume`).
-                let bringsCostume = isActiveDexEntry(e) && activeNews?.costume == true
+                // The one being raised still brings a costume while one is missing (`ActiveNews.costume`, `newCostume`).
+                let bringsCostume = isActiveDexEntry(e) && (activeNews?.costume == true || activeNews?.newCostume == true)
                 if reachedSpeciesSeen && !uncollected && !bringsCostume {
                     duplicates.insert(e.id)
                 }
@@ -2796,6 +2796,18 @@ final class CompanionStore {
         guard let goals = kind.regionGoals else { return [] }
         if kind == .excavation { return excavationTiers(goals) }
         if let tier = kind.dungeonTier { return medalTiers(tier, goals) }
+        if kind.isCostumeMedal {
+            // Its goal's ids stand for the costumes (`CostumeMedals.id`), or the months: those collected count.
+            let owned = ownedCostumeKeys().all
+            let registered: Set<Int> = kind == .costumeMedal
+                ? Set(CostumeCatalog.entries.filter { owned.contains($0.key) }.map(CostumeMedals.id))
+                : Set((1...12).filter { month in CostumeCatalog.lot(month: month).allSatisfy { owned.contains($0.key) } }
+                    .map(CostumeMedals.lotID))
+            return goals.map { generation, goal in
+                RegionTier(generation: generation, progress: GoalProgress(goal: goal, registered: goal.species.filter(registered.contains)),
+                           isClaimed: isRegionTierClaimed(kind, generation: generation))
+            }
+        }
         if kind == .battleFormsMedal {
             // Its goal's species are the battle forms' varieties: those won count.
             let won = Set(state.dungeons.battleForms.compactMap { BattleForms.form(key: $0)?.pokemonID })
@@ -3086,6 +3098,8 @@ final class CompanionStore {
             if kind == .excavation { return "#\(tier.generation)" }
             if let dungeonTier = kind.dungeonTier { return l.medalStepName(dungeonTier, step: tier.generation) }
             if kind == .battleFormsMedal { return l.battleFormsMedalStep(tier.generation) }
+            if kind == .costumeMedal { return l.costumeMedalStep(tier.generation) }
+            if kind == .costumeLotsMedal { return l.costumeLotsMedalStep(tier.generation) }
             return l.regionName(generation: tier.generation)
         }
         .joined(separator: ", ")
@@ -3141,6 +3155,8 @@ final class CompanionStore {
         } else {
             // A Legendary Egg per region; a Fossil Egg per dig; a Dungeons medal's step its own.
             let rewards = kind == .battleFormsMedal ? BattleFormsMedal.rewards(step: generation)
+                : kind == .costumeMedal ? CostumeMedals.rewards(step: generation)
+                : kind == .costumeLotsMedal ? CostumeMedals.lotRewards(step: generation)
                 : kind.dungeonTier.map { DungeonMedals.rewards($0, step: generation) } ?? kind.achievementRewards
             for reward in rewards { state.inventory[reward.kind.rawValue, default: 0] += reward.count }
         }
@@ -3439,11 +3455,11 @@ final class CompanionStore {
                                                                              count: earned.count))
     }
 
-    /// One of the month's first costumed stages, the missing ones first (`ownedCostumeKeys`, the eggs waiting).
+    /// One of the month's first costumed stages, the missing ones first (`costumesTaken`, the eggs waiting).
     func drawCostumeEgg(month: Int) -> CostumeEgg? {
         let starts = CostumeCatalog.starts(month: month)
         guard !starts.isEmpty else { return nil }
-        var taken = ownedCostumeKeys().all
+        var taken = costumesTaken()
         let waiting = state.costumeEggs + [state.eggFromCostume].compactMap { $0 }
         for egg in waiting {
             if let start = egg.entry { taken.formUnion(CostumeCatalog.family(of: start).map(\.key)) }

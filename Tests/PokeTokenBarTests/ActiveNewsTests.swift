@@ -81,6 +81,17 @@ final class ActiveNewsTests: XCTestCase {
         XCTAssertEqual(pikachu.activeNews?.isDuplicate, true)
     }
 
+    /// [Regression] A Squirtle from a Costume Egg whose costume the collection lacks is no duplicate on Home ("New
+    /// costume"), nor in the catch log, though its line is graduated.
+    func testACostumeTheCollectionLacksIsNoDuplicateInTheCatchLog() throws {
+        var squirtle = MonState(baseID: 7, pathIDs: [7], plannedPathIDs: [7, 8, 9], stageIndex: 0, usedAtStage: 0,
+                                rarity: .common, totalForms: 3)
+        squirtle.costume = "SUMMER_2018"
+        let s = try store(active: squirtle, dex: [graduated([7, 8, 9])])
+        XCTAssertEqual(s.activeNews?.newCostume, true)
+        XCTAssertFalse(s.isDuplicateCatch(try XCTUnwrap(s.dexEntriesSorted.first)))
+    }
+
     func testALineGraduatedWholeIsADuplicate() throws {
         let news = try XCTUnwrap(try store(active: mon([4]), dex: [graduated([4, 5, 6])]).activeNews)
         XCTAssertEqual(news.newSpecies, [])

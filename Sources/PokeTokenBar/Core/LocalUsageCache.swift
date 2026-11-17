@@ -644,11 +644,16 @@ actor LocalUsageCache {
         kimiCache = kimiCache.filter { $0.value.mtime >= cutoff }
     }
 
-    /// 변경이 있으면 디스크에 저장(최소 60초 간격으로 throttle — 잦은 쓰기 방지).
+    /// How often a changed cache is written at most. It is a parse cache only: what a quit loses since its last write
+    /// is parsed again at the next launch. Every minute before (issue #182, 2026-11-16): a heavy user's cache is about
+    /// 20 MB of JSON, encoded and compressed again each minute Claude was used, the app's main CPU cost.
+    static let saveInterval: TimeInterval = 600
+
+    /// 변경이 있으면 디스크에 저장(최소 `saveInterval` 간격으로 throttle — 잦은 쓰기 방지).
     private func saveIfNeeded() {
         guard dirty else { return }
         guard persistsToDisk else { dirty = false; return }
-        if let last = lastSave, now().timeIntervalSince(last) < 60 { return }
+        if let last = lastSave, now().timeIntervalSince(last) < Self.saveInterval { return }
         prune()
         let snap = Snapshot(
             claude: claudeCache,

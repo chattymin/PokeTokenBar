@@ -16,7 +16,7 @@ struct ExpeditionGuideHeader: View {
         let l = store.l
         HStack(alignment: .top, spacing: 4) {
             // The dungeon itself (the owner: "on ne voit jamais le donjon"), the guide at its foot.
-            DungeonIcon(id: e.dungeon, size: 80, boss: e.dungeon.isChallenge ? e.boss : nil)
+            DungeonIcon(id: e.dungeon, size: 80, boss: e.dungeon.isChallenge ? e.boss : nil, animated: true)
                 .shadow(color: DungeonCard.colors(e.dungeon)[0].opacity(0.55), radius: 10)
                 .overlay(alignment: .bottomTrailing) {
                     PortraitBust(name: Self.guidePortrait, width: 50, symbol: "figure.hiking")
@@ -66,142 +66,6 @@ struct ExpeditionGuideHeader: View {
         if !weak.isEmpty { parts.append(l.guideWeak(weak)) }
         if case .awaitingHeal = e.phase { parts.append(l.guideNeedsHeal) } else { parts.append(l.guideBoss(at: e.floors)) }
         return parts.joined(separator: " ")
-    }
-}
-
-/// One circle a floor, the line through them filled as the team walks: passed floors show what happened there, the
-/// current one the team's leader, the boss's floor its crown. On the return, every floor walked shows its event.
-@MainActor
-struct ExpeditionFloorTrack: View {
-    let store: CompanionStore
-    let log: [ExpeditionLogEntry]
-    let floors: Int
-    /// The floor being crossed, past the last once the run is over.
-    let floor: Int
-    let progress: Double
-    let lead: ExpeditionMember?
-
-    init(store: CompanionStore, e: Expedition) {
-        self.store = store
-        log = e.log
-        floors = e.floors
-        floor = min(e.floor, e.floors)
-        progress = Double(e.floorTokens) / Double(max(1, e.floorCost))
-        lead = e.team.first { !$0.isFainted } ?? e.team.first
-    }
-
-    /// The floor the team fell on, crossed in orange (a lost run).
-    var fellOn: Int? = nil
-
-    /// The return: the floors the team reached, each with what happened there; a defeat's floor crossed.
-    init(store: CompanionStore, result r: ExpeditionResult) {
-        self.store = store
-        log = r.log
-        floors = DungeonCatalog.dungeon(r.dungeon).floors
-        floor = (r.log.map(\.floor).max() ?? 0) + 1
-        progress = 0
-        lead = nil
-        fellOn = !r.won && !r.roped ? r.log.map(\.floor).max() : nil
-    }
-
-    var body: some View {
-        let width = PopoverMetrics.scrollContentWidth - Design.cardPadding * 2
-        let spacing: CGFloat = 3
-        // Fifteen floors in one row: the current one larger, the others share what is left.
-        let current: CGFloat = lead == nil ? 0 : 30
-        let size = min(26, (width - current - spacing * CGFloat(floors - 1)) / CGFloat(max(1, floors - (lead == nil ? 0 : 1))))
-        ZStack(alignment: .leading) {
-            GeometryReader { geo in
-                let share = (Double(floor - 1) + progress) / Double(max(1, floors - 1))
-                Capsule().fill(Color.primary.opacity(0.12)).frame(height: 3)
-                    .frame(maxHeight: .infinity)
-                Capsule().fill(Design.actionColor).frame(width: geo.size.width * min(1, share), height: 3)
-                    .frame(maxHeight: .infinity)
-            }
-            .padding(.horizontal, size / 2)
-            HStack(spacing: spacing) {
-                ForEach(1...max(1, floors), id: \.self) { n in
-                    if n == floor, let lead {
-                        node(n, size: current) {
-                            SpriteView(speciesID: lead.spec.speciesID, size: current - 6, shiny: lead.spec.isShiny,
-                                       form: lead.spec.form, sameScale: true)
-                        }
-                    } else {
-                        node(n, size: size) { glyph(n, size: size) }
-                    }
-                }
-            }
-        }
-        .frame(height: max(current, size))
-    }
-
-    private func node(_ n: Int, size: CGFloat, @ViewBuilder content: () -> some View) -> some View {
-        let passed = n < floor, here = n == floor && lead != nil, fell = n == fellOn
-        let tip = passed || here ? ExpeditionLogText.floor(n, log: log, floors: floors, store: store) : nil
-        return ZStack {
-            Circle().fill(here ? Design.actionColor.opacity(0.28) : fell ? Color.readableOrange.opacity(0.3)
-                : passed ? Color(nsColor: .textBackgroundColor).opacity(0.9) : Color.primary.opacity(0.05))
-            Circle().strokeBorder(here ? Design.actionColor : fell ? Color.readableOrange : Color.primary.opacity(passed ? 0.35 : 0.2),
-                                  style: StrokeStyle(lineWidth: here || fell ? 2 : 1.2, dash: passed || here ? [] : [2, 2]))
-            if fell {
-                Image(systemName: "xmark").font(.system(size: size * 0.5, weight: .heavy)).foregroundStyle(Color.readableOrange)
-            } else {
-                content()
-            }
-        }
-        .frame(width: size, height: size)
-        .contentShape(Circle())
-        // The floor's journal on hover; a floor still ahead says nothing (the owner).
-        .hoverTip(tip?.isEmpty == false ? tip : nil)
-    }
-
-    @ViewBuilder
-    private func glyph(_ n: Int, size: CGFloat) -> some View {
-        let font = Font.system(size: size * 0.48, weight: .bold)
-        if n >= floor {
-            if n == floors { Image(systemName: "crown.fill").font(font).foregroundStyle(.secondary) }
-        } else if let (symbol, color) = ExpeditionLogText.symbol(floor: n, log: log) {
-            Image(systemName: symbol).font(font).foregroundStyle(color)
-        } else {
-            Image(systemName: "footprints").font(font).foregroundStyle(.secondary)
-        }
-    }
-}
-
-/// The team in rings of their HP (blue, orange with "!" under a quarter, grey and crossed once down), one row.
-@MainActor
-struct ExpeditionTeamRings: View {
-    let team: [ExpeditionMember]
-
-    var body: some View {
-        let size = min(46, (PopoverMetrics.scrollContentWidth - Design.cardPadding * 2 - 5 * 5) / CGFloat(max(1, team.count)))
-        HStack(spacing: 5) {
-            ForEach(Array(team.enumerated()), id: \.offset) { _, member in ring(member, size: size) }
-        }
-        .frame(maxWidth: .infinity)
-    }
-
-    private func ring(_ member: ExpeditionMember, size: CGFloat) -> some View {
-        let share = Double(max(0, member.spec.hp)) / Double(max(1, member.spec.stats.hp))
-        let color: Color = member.isFainted ? .gray : share < 0.25 ? .readableOrange : Design.actionColor
-        return ZStack {
-            Circle().fill(Color.primary.opacity(0.06))
-            Circle().stroke(Color.primary.opacity(0.12), lineWidth: 3)
-            Circle().trim(from: 0, to: share).stroke(color, style: StrokeStyle(lineWidth: 3, lineCap: .round))
-                .rotationEffect(.degrees(-90))
-            SpriteView(speciesID: member.spec.speciesID, size: size - 10, shiny: member.spec.isShiny, form: member.spec.form,
-                       sameScale: true)
-                .grayscale(member.isFainted ? 1 : 0).opacity(member.isFainted ? 0.4 : 1)
-            if member.isFainted {
-                Image(systemName: "xmark").font(.system(size: 14, weight: .heavy)).foregroundStyle(.secondary)
-            } else if share < 0.25 {
-                Text("!").font(.system(size: 11, weight: .heavy)).foregroundStyle(.white)
-                    .frame(width: 15, height: 15).background(Circle().fill(Color.readableOrange))
-                    .offset(x: size / 2 - 6, y: -size / 2 + 6)
-            }
-        }
-        .frame(width: size, height: size)
-        .hoverTip("\(Int((share * 100).rounded())) %")
     }
 }
 
@@ -363,8 +227,8 @@ struct ExpeditionResultGuide: View {
                 }
             }
             .font(.system(size: 17, weight: .bold, design: .rounded)).multilineTextAlignment(.center)
-            Text([l.dungeonName(r.dungeon), TokenFormatter.compact(r.tokens),
-                  l.longDuration(r.endedAt.timeIntervalSince(r.startedAt)), l.dungeonBattles(r.battles)].joined(separator: " · "))
+            // The time and the battles are in the cards under it (`ExpeditionResultCard`).
+            Text([l.dungeonName(r.dungeon), TokenFormatter.compact(r.tokens)].joined(separator: " · "))
                 .font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
         }
@@ -374,7 +238,7 @@ struct ExpeditionResultGuide: View {
     private var guide: some View {
         let l = store.l
         return HStack(alignment: .top, spacing: 4) {
-            DungeonIcon(id: r.dungeon, size: 80, boss: r.dungeon.isChallenge ? r.boss : nil)
+            DungeonIcon(id: r.dungeon, size: 80, boss: r.dungeon.isChallenge ? r.boss : nil, animated: true)
                 .grayscale(0.6)
                 .overlay(alignment: .bottomTrailing) {
                     PortraitBust(name: ExpeditionGuideHeader.guidePortrait, width: 50, symbol: "figure.hiking")

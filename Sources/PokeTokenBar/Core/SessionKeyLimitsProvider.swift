@@ -71,6 +71,8 @@ struct SessionKeyPlan: Codable, Sendable, Equatable {
     var subscriptionType: String?
     var rateLimitTier: String?
     var readAt: Date
+    /// The organization's name, for the tab: a plan saved before 2026-11-16 has none and is read again.
+    var organizationName: String? = nil
 }
 
 extension LimitStatus {
@@ -79,6 +81,7 @@ extension LimitStatus {
         guard let plan else { return }
         if subscriptionType == nil { subscriptionType = plan.subscriptionType }
         if rateLimitTier == nil { rateLimitTier = plan.rateLimitTier }
+        if accountOrganizationName == nil, let name = plan.organizationName, !name.isEmpty { accountOrganizationName = name }
     }
 }
 
@@ -200,6 +203,7 @@ struct SessionKeyLimitsProvider: ClaudeLimitsProviding, SessionKeyManaging {
             do {
                 var limits = try await usage(organizationID: orgID, sessionKey: credential.key)
                 limits.adopt(await plan(organizationID: orgID, credential: credential))
+                limits.organizationID = orgID
                 return limits
             } catch LimitsError.httpStatus(403) {
                 // 403 은 "이 조직에 권한 없음"(탈퇴·권한 회수). 키 자체는 살아있을 수 있으니 다시 고른다.
@@ -229,19 +233,23 @@ struct SessionKeyLimitsProvider: ClaudeLimitsProviding, SessionKeyManaging {
             throw LimitsError.sessionKeyNoOrganization
         }
         let plan = SessionKeyPlan(subscriptionType: picked.limits.subscriptionType,
-                                  rateLimitTier: picked.limits.rateLimitTier, readAt: now())
+                                  rateLimitTier: picked.limits.rateLimitTier, readAt: now(), organizationName: picked.name)
         try? store.save(SessionKeyCredential(key: credential.key, organizationID: picked.id, plan: plan))
         if picked.id != credential.organizationID {
             AppLog.write("session key: selected org \(picked.id) (hasUsage=\(picked.hasUsageData))")
         }
-        return picked.limits
+        var limits = picked.limits
+        limits.organizationID = picked.id
+        if limits.accountOrganizationName == nil { limits.accountOrganizationName = picked.name }
+        return limits
     }
 
     /// The cached organization's plan: the one saved, read again from the list once it is a day old. A failed read
     /// keeps the plan saved and tries again in an hour; the usage stands without it.
     private func plan(organizationID: String, credential: SessionKeyCredential) async -> SessionKeyPlan? {
         let date = now()
-        if let saved = credential.plan, saved.readAt <= date, date.timeIntervalSince(saved.readAt) < Self.planMaxAge {
+        if let saved = credential.plan, saved.organizationName != nil, saved.readAt <= date,
+           date.timeIntervalSince(saved.readAt) < Self.planMaxAge {
             return saved
         }
         var read: SessionKeyPlan?
@@ -252,9 +260,11 @@ struct SessionKeyLimitsProvider: ClaudeLimitsProviding, SessionKeyManaging {
         } catch {
             AppLog.write("session key: plan read failed, retry in an hour: \(error)")
         }
+        // A failed read keeps the name known, "" when none was (read, not found): an hour before trying again.
         let kept = read ?? SessionKeyPlan(subscriptionType: credential.plan?.subscriptionType,
                                           rateLimitTier: credential.plan?.rateLimitTier,
-                                          readAt: date.addingTimeInterval(Self.planRetryDelay - Self.planMaxAge))
+                                          readAt: date.addingTimeInterval(Self.planRetryDelay - Self.planMaxAge),
+                                          organizationName: credential.plan?.organizationName ?? "")
         var updated = credential
         updated.plan = kept
         try? store.save(updated)
@@ -352,7 +362,7 @@ struct SessionKeyLimitsProvider: ClaudeLimitsProviding, SessionKeyManaging {
             let capabilities = capabilities ?? []
             let type: String? = capabilities.contains("claude_max") || rateLimitTier?.contains("claude_max") == true
                 ? "max" : capabilities.contains("claude_pro") ? "pro" : capabilities.contains("raven") ? "team" : nil
-            return SessionKeyPlan(subscriptionType: type, rateLimitTier: rateLimitTier, readAt: date)
+            return SessionKeyPlan(subscriptionType: type, rateLimitTier: rateLimitTier, readAt: date, organizationName: name)
         }
     }
 

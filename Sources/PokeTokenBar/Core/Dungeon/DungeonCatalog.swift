@@ -166,12 +166,13 @@ struct Dungeon: Sendable, Equatable {
     var bosses: [Int]
     let unlocks: [DungeonUnlock]
 
-    /// The daily dungeon's eight floors and the weekly one's twelve, else the tier's.
+    /// The daily dungeon's eight floors and the weekly one's twelve, a hideout half its tier's (the owner, 2026-11-17:
+    /// a quick strike to take back what was stolen, not a whole dungeon's price), else the tier's.
     var floors: Int {
         switch id {
         case .daily: 8
         case .weekly: 12
-        default: tier.floors
+        default: id.isHideout ? (tier.floors + 1) / 2 : tier.floors
         }
     }
 
@@ -181,7 +182,8 @@ struct Dungeon: Sendable, Equatable {
         switch id {
         case .daily: DungeonTier.t3.cost(difficulty: difficulty) * 2 / 3
         case .weekly: DungeonTier.t4.cost(difficulty: difficulty)
-        default: tier.cost(difficulty: difficulty)
+        // A hideout costs its floors' share of its tier's dungeon.
+        default: id.isHideout ? tier.cost(difficulty: difficulty) * floors / tier.floors : tier.cost(difficulty: difficulty)
         }
     }
 }

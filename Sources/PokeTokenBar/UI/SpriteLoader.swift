@@ -364,7 +364,8 @@ enum SpriteLoader {
         let f = directory.appendingPathComponent("\(key).\(ext)")
         let imageKey = f.path as NSString
         if let img = remembered(imageKey) { return img }
-        if let d = try? Data(contentsOf: f), let img = NSImage(data: d) {
+        if let d = try? Data(contentsOf: f), let raw = NSImage(data: d) {
+            let img = still(raw, speciesID: speciesID, form: form)
             remember(img, forKey: imageKey)
             return img
         }
@@ -496,7 +497,8 @@ enum SpriteLoader {
                                           shiny: shiny, form: form) else { continue }
             // await 중 같은 종의 다른 행이 로드를 끝냈으면 그 객체를 재사용한다.
             if let img = remembered(imageKey) { return img }
-            guard let img = NSImage(data: d) else { continue }
+            guard let raw = NSImage(data: d) else { continue }
+            let img = still(raw, speciesID: speciesID, form: form)
             remember(img, forKey: imageKey)
             return img
         }
@@ -553,9 +555,19 @@ enum SpriteLoader {
         return img
     }
 
+    /// A costume's still (and the armored Mewtwo's), Pokémon GO's 256 px render, cropped to the Pokémon with a PokéAPI still's margin: GO draws
+    /// each at its size on the canvas, and an Eevee took a fifth of its cell (the owner, 2026-11-16). Any other still
+    /// as it is.
+    static func still(_ image: NSImage, speciesID: Int = 0, form: PokemonForm?) -> NSImage {
+        // Giovanni's armored Mewtwo is a Pokémon GO render too (issue #180).
+        CostumeCatalog.parse(form) == nil && !ArmoredMewtwo.matches(speciesID: speciesID, form: form)
+            ? image : cropToContent(image, margin: 0.12)
+    }
+
     /// 비투명(alpha>0) 콘텐츠 경계로 크롭: 큰 투명 여백 제거. 1회만 수행(메모이즈). The alpha is read from one bitmap
     /// buffer: `colorAt` made an NSColor per pixel, on the main thread, for every placeholder.
-    static func cropToContent(_ image: NSImage) -> NSImage {
+    /// `margin`: the share of the content's long side kept clear on each side.
+    static func cropToContent(_ image: NSImage, margin: Double = 0) -> NSImage {
         guard let cg = image.cgImage(forProposedRect: nil, context: nil, hints: nil), cg.width > 0, cg.height > 0
         else { return image }
         let w = cg.width, h = cg.height
@@ -581,7 +593,7 @@ enum SpriteLoader {
         // 콘텐츠 bbox 를 정사각(긴 변 기준)으로 확장해 중앙 정렬 — 알 콘텐츠는 28×30(세로가 김)이라 그대로
         // 크롭하면 SpriteView 의 size×size 정사각 프레임에서 가로로 늘어나 뚱뚱해진다. 정사각 크롭이면 비율 보존.
         let bw = maxX - minX + 1, bh = maxY - minY + 1
-        let side = min(max(bw, bh), min(w, h))
+        let side = min(Int((Double(max(bw, bh)) * (1 + 2 * margin)).rounded()), min(w, h))
         let sx = max(0, min(minX - (side - bw) / 2, w - side))
         let sy = max(0, min(minY - (side - bh) / 2, h - side))
         guard let cropped = cg.cropping(to: CGRect(x: sx, y: sy, width: side, height: side)) else { return image }

@@ -107,8 +107,10 @@ final class ClaudeAccountTitleTests: XCTestCase {
     }
 
     func testUnknownAccountShowsTheFolder() {
-        XCTAssertEqual(account(email: nil, org: "Corp").title,
+        XCTAssertEqual(account(email: nil, org: nil).title,
                        ("/Users/example/.claude-work" as NSString).abbreviatingWithTildeInPath)
+        // A session key knows its organization, not its email (the owner, 2026-11-16).
+        XCTAssertEqual(account(email: nil, org: "Corp").title, "Corp")
         XCTAssertEqual(ClaudeAccountLimits.defaultAccount(fullStatus(fiveHour: 1, sevenDay: 1, email: "")).title,
                        "~/.claude")
     }
@@ -692,6 +694,32 @@ final class AdditionalClaudeAccountsStoreTests: XCTestCase {
             XCTAssertEqual(store.claudeAccounts.first?.status.accountDisplay, "main@example.com · Main Corp")
             XCTAssertEqual(store.claudeAccounts.first?.status.planMultiplier, 5, "the seat's tier pays the candies")
         }
+    }
+
+    /// [Regression] The owner, 2026-11-16: the default folder's login turned to his personal account while the app's
+    /// session key still read his Team's limits; the Team took the personal login's email and the personal folder,
+    /// the same email and organization, was hidden as its duplicate. Limits of another organization keep their own.
+    func testLimitsOfAnotherOrganizationNeverTakeTheSavedLogin() async {
+        let login = AccountIdentity(email: "me@example.com", organizationName: "me@example.com's Organization",
+                                       organizationID: "org-personal")
+        var team = limitStatus(fiveHour: 10, email: nil)
+        team.organizationID = "org-team"
+        team.accountOrganizationName = "Team Corp"
+        var copy = team
+        copy.fillIdentity(from: login)
+        XCTAssertNil(copy.accountEmail, "another organization's login")
+        var same = limitStatus(fiveHour: 10, email: nil)
+        same.organizationID = "org-personal"
+        same.fillIdentity(from: login)
+        XCTAssertEqual(same.accountEmail, "me@example.com", "its own login")
+
+        let folder = ScriptedLimits([.success(fullStatus(fiveHour: 30, sevenDay: 1, email: "me@example.com",
+                                                         org: "me@example.com's Organization"))])
+        let store = makeStore(primary: ScriptedLimits([.success(team)]), folders: [personal: folder],
+                              defaultIdentity: login)
+        await store.refresh(scheduleEmptyRetry: false)
+        XCTAssertEqual(store.claudeAccounts.map(\.title), ["Team Corp", "me@example.com"], "two tabs")
+        XCTAssertEqual(store.additionalLimits.map(\.status.fiveHour?.utilization), [30])
     }
 
     func testTheSavedSeatTierNeverLowersTheAnswersOwn() {

@@ -23,6 +23,8 @@ final class DungeonStoreTests: XCTestCase {
         st.dex = dex
         st.active = MonState(baseID: 16, pathIDs: [16, 17, 18], stageIndex: 0, usedAtStage: 0, rarity: .common, totalForms: 3)
         st.inventory = Dictionary(uniqueKeysWithValues: inventory.map { ($0.key.rawValue, $0.value) })
+        // The day's thieves already came: they would rob a run's return (2026-11-16), which these tests do not test.
+        st.dungeons.villainDay = DungeonProgress.challengePeriod(.daily, at: now)
         prepare(&st)
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("dungeon-\(UUID().uuidString).json")
         try JSONEncoder().encode(st).write(to: url)
@@ -278,7 +280,7 @@ final class DungeonStoreTests: XCTestCase {
         XCTAssertEqual(s.dungeonProgress.wins(.viridianForest), 1)
         XCTAssertTrue(result.unlocked.contains(.mtMoon))
         XCTAssertEqual(s.itemCount(.masterBall), 1, "never at a boss that is not legendary")
-        XCTAssertEqual(s.itemCount(.ultraBall), 2, "one Ultra Ball")
+        XCTAssertEqual(s.itemCount(.ultraBall), 3, "a common boss: the Poké Ball, no Ultra Ball spent (#197)")
         XCTAssertEqual(s.dungeonProgress.eggs.count, result.loot.eggs.count)
         XCTAssertTrue(s.dungeonProgress.eggs.contains { $0.sourceSpeciesID == result.boss.speciesID })
         XCTAssertGreaterThanOrEqual(s.itemCount(.oranBerry), 0)
@@ -603,6 +605,58 @@ final class DungeonStoreTests: XCTestCase {
         let order: [String?] = [ItemKind.ultraBall.rawValue, ItemKind.greatBall.rawValue, nil]
         XCTAssertEqual(balls, Array(order.prefix(balls.count)))
         XCTAssertEqual(s.itemCount(.ultraBall), 0)
+    }
+
+    /// [Regression] Issue #197 (the owner's pick, 2026-11-16): the throws took an Ultra Ball at every boss, a common one
+    /// the Poké Ball catches 94% of the time over the three. They take the cheapest ball that reaches 90%: the Poké Ball
+    /// at a common boss, a Great Ball at an uncommon one, an Ultra Ball at a rare one; else the best the Bag has.
+    func testTheThrowsTakeTheCheapestBallThatCatches() throws {
+        func boss(_ rarity: Rarity) throws -> Int {
+            try XCTUnwrap(DungeonCatalog.all.flatMap(\.bosses).first { SpeciesInfo.lineRarity(of: $0) == rarity }, "\(rarity)")
+        }
+        let s = try store(dex: strong, inventory: [.greatBall: 2, .ultraBall: 2])
+        XCTAssertTrue(s.startExpedition(.viridianForest, team: Array(strong.prefix(3)).map(\.id)))
+        func ball(_ species: Int) throws -> ItemKind? {
+            var e = try XCTUnwrap(s.expedition)
+            e.boss = ExpeditionBoss(speciesID: species, form: nil, isShiny: false)
+            return s.automaticBall(for: e)
+        }
+        XCTAssertNil(try ball(boss(.common)), "the free Poké Ball")
+        XCTAssertEqual(try ball(boss(.uncommon)), .greatBall)
+        XCTAssertEqual(try ball(boss(.rare)), .ultraBall)
+        XCTAssertEqual(try ball(boss(.legendary)), .ultraBall, "none reaches 90%: the best the Bag has")
+        let noUltra = try store(dex: strong, inventory: [.greatBall: 1])
+        XCTAssertTrue(noUltra.startExpedition(.viridianForest, team: Array(strong.prefix(3)).map(\.id)))
+        var e = try XCTUnwrap(noUltra.expedition)
+        e.boss = ExpeditionBoss(speciesID: try boss(.rare), form: nil, isShiny: false)
+        XCTAssertEqual(noUltra.automaticBall(for: e), .greatBall, "a rare boss, no Ultra Ball: the best left")
+    }
+
+    /// The owner, 2026-11-16: after two missed throws the last one takes the ball above, the Great Ball after Poké Balls,
+    /// the Ultra Ball after Great Balls, the best held when the one above is not; never before the last throw.
+    func testTheLastThrowTakesTheBallAbove() throws {
+        func boss(_ rarity: Rarity) throws -> Int {
+            try XCTUnwrap(DungeonCatalog.all.flatMap(\.bosses).first { SpeciesInfo.lineRarity(of: $0) == rarity }, "\(rarity)")
+        }
+        func ball(_ s: CompanionStore, _ species: Int, left: Int) throws -> ItemKind? {
+            var e = try XCTUnwrap(s.expedition)
+            e.boss = ExpeditionBoss(speciesID: species, form: nil, isShiny: false)
+            e.phase = .capture(throwsLeft: left)
+            return s.automaticBall(for: e)
+        }
+        let s = try store(dex: strong, inventory: [.greatBall: 2, .ultraBall: 2])
+        XCTAssertTrue(s.startExpedition(.viridianForest, team: Array(strong.prefix(3)).map(\.id)))
+        XCTAssertNil(try ball(s, boss(.common), left: 3))
+        XCTAssertNil(try ball(s, boss(.common), left: 2), "not before the last throw")
+        XCTAssertEqual(try ball(s, boss(.common), left: 1), .greatBall, "after two Poké Balls")
+        XCTAssertEqual(try ball(s, boss(.uncommon), left: 1), .ultraBall, "after two Great Balls")
+        XCTAssertEqual(try ball(s, boss(.rare), left: 1), .ultraBall, "nothing above the Ultra Ball")
+        let onlyUltra = try store(dex: strong, inventory: [.ultraBall: 1])
+        XCTAssertTrue(onlyUltra.startExpedition(.viridianForest, team: Array(strong.prefix(3)).map(\.id)))
+        XCTAssertEqual(try ball(onlyUltra, boss(.common), left: 1), .ultraBall, "no Great Ball: the best held")
+        let none = try store(dex: strong, inventory: [:])
+        XCTAssertTrue(none.startExpedition(.viridianForest, team: Array(strong.prefix(3)).map(\.id)))
+        XCTAssertNil(try ball(none, boss(.common), left: 1), "the Poké Ball when the Bag has none")
     }
 
     /// At a legendary boss the Master Ball goes first, unless the player kept it home at the departure.

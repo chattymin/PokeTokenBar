@@ -196,6 +196,12 @@ extension CompanionStore {
         BattleForms.forms(speciesID: speciesID).filter { state.dungeons.battleForms.contains($0.key) }
     }
 
+    /// The battle forms a species' Pokédex page shows: the catalog's, won or still to win, and Giovanni's armor only once
+    /// won (the owner, 2026-11-17: never seen before, nothing on the page gives it away).
+    func shownBattleForms(speciesID: Int) -> [BattleForm] {
+        BattleForms.forms(speciesID: speciesID).filter { !BattleForms.extras.contains($0) || state.dungeons.battleForms.contains($0.key) }
+    }
+
     /// The team screen's filters (the owner, 2026-11-10: to find the Megas and the rest the Hall of Origin asks for).
     enum TeamFilter: CaseIterable, Sendable {
         case shiny, megaOrPrimal, gigantamax
@@ -625,14 +631,31 @@ extension CompanionStore {
         }
     }
 
-    /// The best ball the Bag has for this boss: the Master Ball at a legendary one, unless the player kept it out of
-    /// this expedition at the departure; else an Ultra Ball, a Great Ball, and last the free Poké Ball (nil).
+    /// The ball a throw takes (issue #197, the owner's pick of 2026-11-16): the Master Ball at a legendary boss, unless
+    /// the player kept it out of this expedition at the departure; else the cheapest ball the Bag has that catches the
+    /// boss `automaticBallOdds` of the time over the three throws (the free Poké Ball, nil, for a common boss, a Great
+    /// Ball for an uncommon one, an Ultra Ball for a rare one); else the best one it has. An Ultra Ball went at every
+    /// boss before, a common one the Poké Ball catches 94% of the time.
     func automaticBall(for e: Expedition) -> ItemKind? {
-        if SpeciesInfo.lineRarity(of: e.boss.speciesID) == .legendary, e.keepsMasterBall != true, itemCount(.masterBall) > 0 {
+        let boss = e.secret?.capturing == true ? (e.secret?.boss ?? e.boss) : e.boss
+        if SpeciesInfo.lineRarity(of: boss.speciesID) == .legendary, e.keepsMasterBall != true, itemCount(.masterBall) > 0 {
             return .masterBall
         }
-        return [ItemKind.ultraBall, .greatBall].first { itemCount($0) > 0 }
+        let held: [ItemKind?] = [nil] + [ItemKind.greatBall, .ultraBall].filter { itemCount($0) > 0 }
+        let throwsCount = Double(ExpeditionEngine.captureThrows)
+        let pick = held.first(where: { 1 - pow(1 - ExpeditionEngine.throwOdds(boss, ball: $0), throwsCount) >= Self.automaticBallOdds })
+            ?? (held.last ?? nil)
+        // The last throw, the two before missed: one ball up, the Great Ball after Poké Balls, the Ultra Ball after Great
+        // Balls, else the best held (the owner, 2026-11-16: a Butterfree got away from three Poké Balls, a Great Ball in
+        // the Bag).
+        guard case .capture(let left) = e.phase, left == 1 else { return pick }
+        let ladder: [ItemKind?] = [nil, .greatBall, .ultraBall]
+        guard let rung = ladder.firstIndex(of: pick), rung + 1 < ladder.count else { return pick }
+        return held.first { ball in (ladder.firstIndex(of: ball) ?? 0) > rung } ?? pick
     }
+
+    /// What a ball must reach over the three throws for the throws to take it rather than a dearer one.
+    static let automaticBallOdds = 0.9
 
     /// Whether this dungeon's boss may be legendary: what the Master Ball box of the team screen is for. A challenge's
     /// boss is the one shown.
@@ -853,7 +876,7 @@ extension CompanionStore {
         let inPlace = caught ? ExpeditionEngine.eggInPlace(e.bossReward, tier: dungeon.tier)?.rawValue : nil
         var unlockedMove: String?
         // A challenge gives its battle form, and its floors' loot: no first-victory doubling, no extras.
-        let battleForm = won && e.dungeon.isChallenge ? BattleForms.form(speciesID: e.boss.speciesID, form: e.boss.form) : nil
+        var battleForm = won && e.dungeon.isChallenge ? BattleForms.form(speciesID: e.boss.speciesID, form: e.boss.form) : nil
         if won, !e.dungeon.isChallenge {
             if firstVictory {
                 // Q22: a first victory doubles the loot and adds a dungeon item.
@@ -866,6 +889,18 @@ extension CompanionStore {
                 loot.add(table[random.below(table.count)])
             }
             loot.add(Self.victoryExtras(tier: dungeon.tier, random: &random))
+            // A hideout's leader beaten opens their chest (the owner, 2026-11-16), beside all the team took: one draw
+            // (2026-11-17), Giovanni's armor only for a Mewtwo of the Pokédex and only once.
+            if e.dungeon.isHideout {
+                let armor = ArmoredMewtwo.battleForm
+                let armorAllowed = !state.dungeons.battleForms.contains(armor.key)
+                    && state.dex.contains { !$0.isReleased && $0.finalID == ArmoredMewtwo.speciesID }
+                switch VillainRules.drawLeaderChest(dungeon.tier, armorAllowed: armorAllowed, random: &random) {
+                case .items(.rareCandy, let count): loot.candies += count
+                case .items(let kind, let count): loot.add(kind, count)
+                case .armoredMewtwo: battleForm = armor
+                }
+            }
             if random.below(100) < Self.technicalCapsuleChance(dungeon.tier) {
                 let locked = MoveTable.all.values.filter { $0.isLocked && $0.hasEffect && !state.dungeons.unlockedMoves.contains($0.slug) }
                     .map(\.slug).sorted()
@@ -918,6 +953,8 @@ extension CompanionStore {
             if let battleForm {
                 progress.battleForms.insert(battleForm.key)
                 progress.battleFormsWonAt[battleForm.key] = record.endedAt
+            }
+            if let battleForm, e.dungeon.isChallenge {
                 // By the period it set off in: a run past midnight won the day before's boss, not the new day's.
                 let current = [DungeonID.daily, .weekly].map { DungeonProgress.challengeKey($0, at: currentDate) }
                 progress.challengeWins = progress.challengeWins.filter { current.contains($0.key) }
@@ -945,5 +982,8 @@ extension CompanionStore {
         }
         AppLog.write("dungeon: \(e.dungeon.rawValue) over, won=\(won) left=\(leftEarly) caught=\(caught) candies=\(loot.candies)")
         persist()
+        // The day's thieves due strike at the team's return, at what it brought (the owner, 2026-11-16): a player back
+        // from a dungeon who used its loot and set off again was never robbed.
+        if !e.dungeon.isHideout { settleVillainAmbush(runLoot: loot) }
     }
 }

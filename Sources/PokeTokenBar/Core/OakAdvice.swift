@@ -8,6 +8,8 @@ enum ActiveVerdict: Equatable, Sendable {
     case newForm(speciesID: Int)
     /// A Pikachu still ahead in its line brings a costume missing (`ActiveNews.costume`).
     case costume
+    /// Its Pokémon GO costume, at a stage it reached or will reach, is missing from the collection (`ActiveNews.newCostume`).
+    case newCostume
     /// Nothing new but its first shiny in this form (`ActiveNews.firstShiny`).
     case shinyToKeep
     /// A Spare whose graduation unlocks an achievement that counts copies.
@@ -110,6 +112,7 @@ extension CompanionStore {
         }
         if let first = news.newSpecies.first { return .newForm(speciesID: first) }
         if news.costume { return .costume }
+        if news.newCostume { return .newCostume }
         if news.firstShiny { return .shinyToKeep }
         if let achievement = copyAchievement { return .keptForAchievement(achievement) }
         return .spare
@@ -368,6 +371,8 @@ extension CompanionStore {
         } else if let egg = state.eggFromDungeon {
             next = [Hatch(id: egg.baseID, form: egg.form, weight: 1, rarity: SpeciesInfo.lineRarity(of: egg.baseID),
                           alwaysShiny: egg.isShiny)]
+        } else if let egg = state.eggFromCostume {
+            next = hatchDraw.outcomes(.costume(code: egg.code, speciesID: egg.speciesID), index: index)
         } else {
             next = hatches(incubatingEgg, index: index)
         }

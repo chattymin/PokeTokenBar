@@ -161,8 +161,68 @@ enum VillainRules {
     /// The draw's weights by tier, among the tiers the Bag holds: a candy most often, an artifact rarely.
     static let tierWeights: [DungeonTier: Int] = [.t1: 40, .t2: 28, .t3: 18, .t4: 9, .t5: 5]
 
-    /// Up to three of an everyday item at once, one of anything else.
-    static func count(of kind: ItemKind, have: Int) -> Int { tier(of: kind) == .t1 ? min(3, have) : min(1, have) }
+    /// How many they take (the owner, 2026-11-16: "les vols les moins oufs plus chiants"): half the stack of an
+    /// everyday item, three at least and twenty at most; up to three of a T2 item; one of anything else. Three of an
+    /// everyday item and one of the rest before.
+    static func count(of kind: ItemKind, have: Int) -> Int {
+        switch tier(of: kind) {
+        case .t1?: min(have, min(20, max(3, have / 2)))
+        case .t2?: min(have, 3)
+        default: min(have, 1)
+        }
+    }
+
+    /// What they take from a team just back from a dungeon (the owner, 2026-11-16): every Rare Candy the run brought,
+    /// else the most precious item it brought, as many as `count` allows of what it brought; nil when the run brought
+    /// nothing they would take, or none of it is left in the Bag.
+    static func target(fromRun loot: ExpeditionLoot, bag: [ItemKind: Int]) -> (kind: ItemKind, count: Int)? {
+        if loot.candies > 0, let have = bag[.rareCandy], have > 0 { return (.rareCandy, min(loot.candies, have)) }
+        let brought = loot.items.compactMap { key, count -> (kind: ItemKind, count: Int, tier: DungeonTier)? in
+            guard count > 0, let kind = ItemKind(rawValue: key), let tier = tier(of: kind), (bag[kind] ?? 0) > 0 else { return nil }
+            return (kind, count, tier)
+        }
+        guard let best = brought.max(by: { ($0.tier, $1.kind.rawValue) < ($1.tier, $0.kind.rawValue) }) else { return nil }
+        return (best.kind, min(best.count, count(of: best.kind, have: bag[best.kind] ?? 0)))
+    }
+
+    /// What the leader's chest holds: one draw (the owner, 2026-11-17: "des pourcentages de drops parmi plusieurs drops
+    /// possibles", a sure Master Ball or Legendary Egg was too much).
+    enum ChestDrop: Hashable, Sendable {
+        case items(ItemKind, Int)
+        /// Giovanni's armor, worn by a Mewtwo as a battle form (`ArmoredMewtwo.battleForm`).
+        case armoredMewtwo
+    }
+
+    /// The leader's chest by tier, its weights per thousand: one item of about the hideout's price to twice it, the
+    /// Master Ball as rare as in a dungeon of the tier, the armor one chest in a hundred at Team Rocket's.
+    static func leaderChestTable(_ tier: DungeonTier) -> [(drop: ChestDrop, weight: Int)] {
+        switch tier {
+        case .t1: [(.items(.rareCandy, 1), 500), (.items(.greatBall, 1), 300), (.items(.sitrusBerry, 2), 200)]
+        case .t2: [(.items(.ultraBall, 1), 400), (.items(.mint, 2), 250), (.items(.silverCapsule, 1), 200),
+                   (.items(.uncommonEgg, 1), 150)]
+        case .t3: [(.items(.rareCandy, 2), 350), (.items(.legendaryKey, 1), 250), (.items(.goldCapsule, 1), 250),
+                   (.items(.rareEgg, 1), 150)]
+        case .t4: [(.items(.rareEgg, 1), 450), (.items(.legendaryKey, 1), 300), (.items(.goldCapsule, 1), 220),
+                   (.items(.masterBall, 1), 30)]
+        case .t5: [(.items(.rareEgg, 1), 450), (.items(.goldCapsule, 2), 290), (.items(.legendaryEgg, 1), 150),
+                   (.items(.masterBall, 1), 100), (.armoredMewtwo, 10)]
+        }
+    }
+
+    /// The leader's chest: one drop of its tier's table; the armor only to a player who has a Mewtwo to wear it and has
+    /// not won it yet (the owner, 2026-11-17), its share then drawn among the others.
+    static func drawLeaderChest(_ tier: DungeonTier, armorAllowed: Bool, random: inout BattleRandom) -> ChestDrop {
+        let table = leaderChestTable(tier).filter { armorAllowed || $0.drop != .armoredMewtwo }
+        var roll = random.below(table.reduce(0) { $0 + $1.weight })
+        for entry in table {
+            if roll < entry.weight { return entry.drop }
+            roll -= entry.weight
+        }
+        return table[0].drop
+    }
+
+    /// What may be abandoned to a team: anything but an artifact, which they can never keep for good.
+    static func canAbandon(_ kind: ItemKind) -> Bool { !kind.isPassive }
 
     /// The minute of the day (`yyyy-MM-dd`) they come at, from midnight, the same all day on every launch: FNV-1a, as the
     /// merchant's. The team is the one of the item it takes (`VillainTeam.team(for:)`).
@@ -263,4 +323,8 @@ enum ArmoredMewtwo {
     static let spriteURL = "https://raw.githubusercontent.com/PokeMiners/pogo_assets/master/Images/Pokemon%20-%20256x256/Addressable%20Assets/pm150.fA.icon.png"
 
     static func matches(speciesID: Int, form: PokemonForm?) -> Bool { speciesID == Self.speciesID && form == Self.form }
+
+    /// The battle form a Mewtwo may wear once Team Rocket's chest gave it (the owner, 2026-11-17).
+    static let battleForm = BattleForm(pokemonID: speciesID, speciesID: speciesID, form: form, formID: 0, kind: .armor,
+                                       isLegendary: true, isAnimated: false)
 }

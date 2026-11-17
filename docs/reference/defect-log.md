@@ -95,6 +95,24 @@ read_when:
   is the only per-Pokémon reward of an evolution step; `announceFormUnlocks` only reports forms the Pokédex's
   species already decide, which the species check covers.
 
+- **A new reason to keep a Pokémon reaches every reader of `ActiveNews`.** f753db3 added `ActiveNews.newCostume` (a
+  Pokémon GO costume the collection lacks) to `isDuplicate`, but three readers rebuild "nothing to lose" field by field:
+  Prof. Oak's `activeVerdict` read the Pikachu costume only, so such a Pokémon was a Spare, sent off for an egg with no
+  Rare Candy; the catch log's `duplicateCatchEntryIDs` marked it Duplicate; and `FormSuspense.news` rebuilt the news
+  without it, so a costumed Pikachu, whose line hides its form until Raichu, was a Spare again once Raichu was graduated
+  in both forms. Beside it, `staysWorthBuying` reads the egg incubating with one branch per egg kind and fell back to
+  the Pokémon Egg's draws for a Costume Egg. **Why it was missed:** the costume's tests checked `activeNews` and the Home
+  badge, the feature's own surface; nothing listed the other readers, and the suspense only takes over on a hidden-form
+  line with both forms graduated, which no test save had. Fix: `ActiveVerdict.newCostume`, the catch log reads
+  `newCostume`, a costumed Pokémon has no form suspense (its costume sets its form), `staysWorthBuying` reads
+  `eggFromCostume`. Guards: `OakAdviceTests.testACostumeTheCollectionLacksIsKept`,
+  `OakAdviceTests.testACostumedPikachuHasNoFormToReveal`,
+  `OakAdviceTests.testTheEggIncubatingIsReadByWhatItMayHatchNotByWhatItRolled`,
+  `ActiveNewsTests.testACostumeTheCollectionLacksIsNoDuplicateInTheCatchLog`; each failed before its fix. Sweep: a
+  field added to `ActiveNews` goes to `isDuplicate`, `activeVerdict`, `duplicateCatchEntryIDs` and `FormSuspense.news`
+  (which leaves `newCostume` out: a costumed Pokémon has no suspense); a new egg kind goes to `incubatingHatchEgg` and to
+  `staysWorthBuying`.
+
 - **No achievement asks for a single Pokémon, Arceus's apart.** The player's rule: an achievement needs two
   Pokémon at least. The Sea Incense asked for Manaphy alone, and one of the Magma Stone's ways for Heatran alone.
   **Why it was missed:** the rule lived in a conversation, not in a test. They now ask for Manaphy and Kyogre, and for
@@ -818,6 +836,16 @@ read_when:
   `VillainTests.testTheyWaitForTheTeamsReturn`). Sweep: the merchant's and the challenges' daily draws have no
   blocker; the event eggs keep a claim window. A periodic event a state can block waits for that state to end.
 
+- **A collection counted at the hatch can be kept by sending the Pokémon off.** The costumed collection counted every
+  costumed stage reached, the Pokémon raised and those sent off included: a "can't evolve" costume was collected at
+  its hatch, so a player could send each costumed Pokémon off for the next Costume Egg and keep every costume without
+  raising one, and Home said "New costume" for one the collection already showed (a friend's report, 2026-11-16).
+  **Why it was missed:** the tests graduated their Pokémon before reading the collection, and none sent one off. A
+  costume is now collected once its Pokémon graduates, as the Pokédex counts (`ownedCostumeKeys`), while the eggs'
+  draw still leaves out the costume being raised (`costumesTaken`)
+  (`CostumeTests.testACostumeIsCollectedOnceGraduatedNeverSentOff`). Sweep: the medals and the collection screen read
+  the same set; the Pokédex's achievements already count graduated records only.
+
 - **A choice simulated on other conditions than the departure's picks for those conditions.** "Compose for me" played
   its candidate teams without the Bag's berries and Revives, which the departure takes along: the owner's day dungeon
   of 2026-11-13 kept a team winning 88% of the runs with his six Sitrus Berries, where the other candidate won 96%
@@ -1390,6 +1418,15 @@ read_when:
   Saving, clearing or moving the key to another organization ends it (`sessionKeyChanged`,
   `testAChangedSessionKeyDoesNotWait`).
 
+- **Limits labeled with another organization's login, then merged away as its duplicate.** The owner, 2026-11-16:
+  the default folder's Claude Code login turned to his personal account while the app's session key still read his
+  Team's limits; the Team limits, without an email of their own, took `~/.claude.json`'s personal identity
+  (`fillIdentity`), and the personal folder, the same email and organization, was hidden as their duplicate: one tab
+  left, named after the personal email, showing the Team's numbers. **Why missed:** the tests filled an identity onto
+  limits of no known organization, or of the same; none had a session key's organization next to a saved login of
+  another. The session key now says its organization (`LimitStatus.organizationID`, its name for the tab), and a saved
+  login of another organization stays off (`testLimitsOfAnotherOrganizationNeverTakeTheSavedLogin`, fault caught).
+  Sweep: the additional folders go through the same `fillIdentity`.
 ## 동시성
 
 - **A list never asks the store for a whole collection per row.** The team screen checked each candidate row
