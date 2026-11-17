@@ -520,6 +520,38 @@ final class OakDungeonTests: XCTestCase {
         XCTAssertEqual(try plan(even.reversed(), [.goldCapsule: 1]), gold(68))
     }
 
+    // MARK: The Mints
+
+    private func minted(_ nature: PokemonNature, mints: Int = 1) throws -> [OakCapsule] {
+        var entry = profiled(65, ivs())
+        entry.nature = nature
+        let s = try store(dex: [entry], inventory: [.mint: mints]) { $0.dungeons.moveLoops = [entry.id: ["psychic", "shadow-ball"]] }
+        return s.oakCapsules(for: [entry.id], in: .viridianForest)
+    }
+
+    func testAMintGoesToANatureThatRaisesAStatTheMovesNeverUseAndLowersOneTheyUse() throws {
+        let mint = [OakCapsule(entryID: "e65", kind: .mint, stat: nil)]
+        XCTAssertEqual(try minted(.adamant), mint)
+        XCTAssertEqual(try minted(.adamant, mints: 2), mint, "one at a time: the next waits for the draw")
+        XCTAssertEqual(try minted(.modest), [])
+        XCTAssertEqual(try minted(.serious), [])
+        XCTAssertEqual(try minted(.hasty), [], "Speed up and Defense down are both useful")
+    }
+
+    func testTheCapsuleStepComesForAMintAlone() async throws {
+        let dex = [6, 9, 3, 25, 143, 130].map { id in
+            var entry = profiled(id, ivs())
+            entry.nature = .adamant
+            return entry
+        }
+        let s = try store(dex: dex, inventory: [.mint: 1]) { st in
+            st.dungeons.moveLoops = Dictionary(uniqueKeysWithValues: dex.map { ($0.id, ["psychic"]) })
+        }
+        s.oakWinOdds = { _ in 0.9 }
+        await settle(s)
+        XCTAssertEqual(s.oakCapsuleStep?.capsules.map(\.kind), [.mint])
+    }
+
     // MARK: The Capsule step
 
     private func capsuleStore(weekly: Bool = true, bosses: Bool = true,
