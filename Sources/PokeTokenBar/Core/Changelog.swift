@@ -102,6 +102,17 @@ enum Changelog {
                                                            "Quando as masmorras já levaram sua parte dos seus tokens e o Prof. Carvalho não sugere nenhuma, ele agora avisa, e diz quantos tokens faltam para a próxima.",
                                                            "Wenn Dungeons schon ihren Anteil deiner Tokens hatten und Prof. Eich keinen vorschlägt, sagt er das jetzt, und wie viele Tokens es bis zum nächsten sind.",
                                                            "Когда подземелья уже забрали свою долю токенов и профессор Оук не советует ни одного, он теперь говорит об этом и называет, сколько токенов осталось до следующего.") }),
+            .improved("2026-11-17-oak-useful-stats") { l in
+                let silver = l.itemName(.silverCapsule), atk = l.statName(.attack), spa = l.statName(.specialAttack)
+                return l.t("오박사는 이제 포켓몬이 쓰지 않는 능력치에 \(silver)을 권하지 않아요: 기술이 모두 특수면 \(atk), 모두 물리면 \(spa)에는 쓰지 않아요.",
+                           "Prof. Oak no longer suggests a \(silver) for a stat the Pokémon never uses: no \(atk) when all its attacks are special, no \(spa) when all are physical.",
+                           "オーキド博士は、ポケモンが使わない能力に\(silver)を勧めなくなりました：わざがすべて特殊なら\(atk)、すべて物理なら\(spa)には使いません。",
+                           "El Profesor Oak ya no propone una \(silver) para una estadística que el Pokémon no usa: ni \(atk) si todos sus ataques son especiales, ni \(spa) si todos son físicos.",
+                           "Le Prof. Chen ne propose plus de \(silver) pour une stat dont le Pokémon ne se sert pas : ni l'\(atk) si toutes ses attaques sont spéciales, ni l'\(spa) si toutes sont physiques.",
+                           "O Prof. Carvalho não sugere mais uma \(silver) para um atributo que o Pokémon não usa: nem \(atk) se todos os ataques forem especiais, nem \(spa) se todos forem físicos.",
+                           "Prof. Eich schlägt keinen \(silver) mehr für einen Wert vor, den das Pokémon nie nutzt: kein \(atk), wenn alle Attacken Spezial-Attacken sind, kein \(spa), wenn alle physisch sind.",
+                           "\(silver) от профессора Оука больше не идёт на характеристику, которой покемон не пользуется: ни на \(atk), если все его атаки специальные, ни на \(spa), если все физические.")
+            },
         ]),
         ChangelogDay(date: "2026-11-16", entries: [
             .improved("2026-11-16-last-throw-up") { l in
