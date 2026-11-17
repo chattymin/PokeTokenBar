@@ -66,6 +66,16 @@ enum Changelog {
     }
 
     static let days: [ChangelogDay] = [
+        ChangelogDay(date: "2026-11-17", entries: [
+            .improved("2026-11-17-short-hideouts", { $0.t("악당 아지트가 절반 길이가 됐어요: 층 수가 절반, 비용도 절반이에요. 두목의 상자와 빼앗긴 물건은 그대로예요.",
+                                                       "The villains' hideouts are half as long: half the floors, half the price. The leader's chest and what they took stay whole.",
+                                                       "悪の組織のアジトが半分の長さになりました：階も費用も半分です。ボスの宝箱と奪われたものはそのままです。",
+                                                       "Las guaridas de los villanos son la mitad de largas: la mitad de pisos, la mitad de precio. El cofre del líder y lo robado siguen enteros.",
+                                                       "Les repaires des méchants sont deux fois plus courts : moitié moins d'étages, moitié prix. Le coffre du chef et ce qu'ils ont pris restent entiers.",
+                                                       "Os esconderijos dos vilões ficaram com a metade do tamanho: metade dos andares, metade do preço. O baú do líder e o que foi roubado continuam inteiros.",
+                                                       "Die Verstecke der Schurken sind halb so lang: halb so viele Ebenen, halber Preis. Die Truhe des Anführers und das Gestohlene bleiben ganz.",
+                                                       "Логова злодеев стали вдвое короче: вдвое меньше этажей, вдвое ниже цена. Сундук главаря и украденное остаются целиком.") }),
+        ]),
         ChangelogDay(date: "2026-11-16", entries: [
             .improved("2026-11-16-last-throw-up") { l in
                 // The free Poké Ball is no item of the Bag: its name written here.

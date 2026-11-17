@@ -247,7 +247,12 @@ final class VillainTests: XCTestCase {
         XCTAssertTrue(s.startExpedition(.rocketHideout, team: strong.map(\.id)))
         XCTAssertEqual(s.expedition?.boss.speciesID, 150, "Giovanni's Mewtwo leads")
         XCTAssertEqual(s.expedition?.boss.form, ArmoredMewtwo.form)
-        XCTAssertEqual(s.expedition?.floors, DungeonTier.t5.floors)
+        // Half the tier's floors, at half its price (the owner, 2026-11-17).
+        XCTAssertEqual(s.expedition?.floors, 8)
+        XCTAssertEqual(DungeonCatalog.dungeon(.rocketHideout).cost(difficulty: 1),
+                       DungeonTier.t5.cost(difficulty: 1) * 8 / DungeonTier.t5.floors)
+        XCTAssertEqual(DungeonCatalog.dungeon(.skullHideout).floors, 3)
+        XCTAssertEqual(DungeonCatalog.dungeon(.mtMoon).floors, DungeonTier.t2.floors, "a dungeon keeps its own")
         XCTAssertNil(s.expedition?.bossReward)
         s.changeDungeons { $0.expedition?.phase = .capture(throwsLeft: 3) }
         s.endCapture()
