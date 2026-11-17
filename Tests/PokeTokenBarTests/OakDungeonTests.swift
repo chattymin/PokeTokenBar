@@ -317,6 +317,23 @@ final class OakDungeonTests: XCTestCase {
         XCTAssertNil(none.oakDungeon)
     }
 
+    // MARK: The Unfinished Dungeons
+
+    func testTheUnfinishedDungeonsHoldADungeonUnderTheThresholdAndOneWithoutItsKeys() throws {
+        let forty = try store()
+        forty.oakWinOdds = { _ in 0.4 }
+        XCTAssertNil(forty.oakDungeon)
+        XCTAssertEqual(forty.oakUnfinishedDungeons.first, OakUnfinishedDungeon(id: .viridianForest, reason: .firstWin))
+
+        let keyless = try store(dex: strong + [94, 442, 609, 149, 445, 635, 462, 466, 101].map { graduated($0) }) {
+            $0.dungeons.wins = self.wins(self.belowT4)
+            $0.dungeons.battleForms = Set(BattleForms.all.map(\.key))
+            $0.dungeons.bossesCaught = self.doorCaught
+        }
+        XCTAssertLessThan(keyless.itemCount(.legendaryKey), keyless.keysToEnter(.seafoamIslands))
+        XCTAssertTrue(keyless.oakUnfinishedDungeons.contains(OakUnfinishedDungeon(id: .seafoamIslands, reason: .firstWin)))
+    }
+
     // MARK: The odds
 
     func testADungeonWonFortyPercentOfTheTimeIsNotProposed() async throws {

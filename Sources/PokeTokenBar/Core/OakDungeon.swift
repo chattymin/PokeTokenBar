@@ -20,6 +20,12 @@ struct OakBattleForm: Equatable, Sendable {
     let form: BattleForm
 }
 
+struct OakUnfinishedDungeon: Equatable, Sendable {
+    let id: DungeonID
+    let reason: OakDungeon.Reason
+    var forms: [OakBattleForm] = []
+}
+
 struct OakCapsule: Equatable, Sendable {
     let entryID: String
     let kind: ItemKind
@@ -51,8 +57,6 @@ extension CompanionStore {
 
     var oakDungeon: OakDungeon? {
         guard expedition == nil, !oakDungeonBudgetSpent else { return nil }
-        let regular = DungeonCatalog.all.filter { !$0.id.isChallenge && $0.id != .ruinsOfAlph && !$0.id.isHideout }
-        let open = DungeonTier.allCases.flatMap { tier in regular.filter { $0.tier == tier && isDungeonOpen($0.id) } }
         var waiting: DungeonID?
         var searching = false
         func offer(_ id: DungeonID, _ reason: OakDungeon.Reason, atLeast least: Double = Self.oakDungeonWin,
@@ -71,32 +75,40 @@ extension CompanionStore {
             return OakDungeon(id: id, reason: reason, team: team, win: pick.win, tokens: dungeonCost(id),
                               forms: forms.filter { team.contains($0.entryID) }, capsules: oakCapsules(for: team, in: id))
         }
-        for dungeon in open where dungeon.id != .hallOfOrigin && state.dungeons.wins(dungeon.id) == 0 {
-            if let advice = offer(dungeon.id, .firstWin) { return advice }
-        }
-        for id in [DungeonID.weekly, .daily] where canEnter(id) {
-            if let advice = offer(id, .challenge) { return advice }
-        }
-        for dungeon in open.reversed() where dungeon.id != .hallOfOrigin && dungeon.bosses.contains(where: oakWantsBoss) {
-            if let advice = offer(dungeon.id, .boss) { return advice }
-        }
-        let door = isDungeonOpen(.mtCoronet) ? [] : bossesLeft(DungeonCatalog.bossDungeons(before: .mtCoronet))
-        for dungeon in open.reversed() where dungeon.bosses.contains(where: door.contains) {
-            if let advice = offer(dungeon.id, .coronetDoor) { return advice }
-        }
-        if isDungeonOpen(.mtCoronet), DungeonCatalog.dungeon(.mtCoronet).bosses.contains(where: { !state.dungeons.beat($0) }),
-           let advice = offer(.mtCoronet, .coronet) {
-            return advice
-        }
-        if isDungeonOpen(.hallOfOrigin), DungeonCatalog.dungeon(.hallOfOrigin).bosses.contains(where: oakWantsBoss),
-           let forms = oakHallForms, let advice = offer(.hallOfOrigin, .hall, atLeast: Self.oakHallWin, forms: forms) {
-            return advice
+        for dungeon in oakUnfinishedDungeons {
+            let least = dungeon.reason == .hall ? Self.oakHallWin : Self.oakDungeonWin
+            if let advice = offer(dungeon.id, dungeon.reason, atLeast: least, forms: dungeon.forms) { return advice }
         }
         guard !searching, let waiting else { return nil }
-        let best = open.filter { $0.tier == .t3 }
+        let best = oakOpenDungeons.filter { $0.tier == .t3 }
             .compactMap { dungeon in oakOdds(dungeon.id).map { (id: dungeon.id, win: $0.team == nil ? 0 : $0.win) } }
             .max { $0.win < $1.win }
         return best.flatMap { offer($0.id, .key(for: waiting)) }
+    }
+
+    var oakUnfinishedDungeons: [OakUnfinishedDungeon] {
+        let open = oakOpenDungeons
+        var list = open.filter { $0.id != .hallOfOrigin && state.dungeons.wins($0.id) == 0 }
+            .map { OakUnfinishedDungeon(id: $0.id, reason: .firstWin) }
+        list += [DungeonID.weekly, .daily].filter(canEnter).map { OakUnfinishedDungeon(id: $0, reason: .challenge) }
+        list += open.reversed().filter { $0.id != .hallOfOrigin && $0.bosses.contains(where: oakWantsBoss) }
+            .map { OakUnfinishedDungeon(id: $0.id, reason: .boss) }
+        let door = isDungeonOpen(.mtCoronet) ? [] : bossesLeft(DungeonCatalog.bossDungeons(before: .mtCoronet))
+        list += open.reversed().filter { $0.bosses.contains(where: door.contains) }
+            .map { OakUnfinishedDungeon(id: $0.id, reason: .coronetDoor) }
+        if isDungeonOpen(.mtCoronet), DungeonCatalog.dungeon(.mtCoronet).bosses.contains(where: { !state.dungeons.beat($0) }) {
+            list.append(OakUnfinishedDungeon(id: .mtCoronet, reason: .coronet))
+        }
+        if isDungeonOpen(.hallOfOrigin), DungeonCatalog.dungeon(.hallOfOrigin).bosses.contains(where: oakWantsBoss),
+           let forms = oakHallForms {
+            list.append(OakUnfinishedDungeon(id: .hallOfOrigin, reason: .hall, forms: forms))
+        }
+        return list
+    }
+
+    private var oakOpenDungeons: [Dungeon] {
+        let regular = DungeonCatalog.all.filter { !$0.id.isChallenge && $0.id != .ruinsOfAlph && !$0.id.isHideout }
+        return DungeonTier.allCases.flatMap { tier in regular.filter { $0.tier == tier && isDungeonOpen($0.id) } }
     }
 
     func oakCapsules(for team: [String], in id: DungeonID) -> [OakCapsule] {
