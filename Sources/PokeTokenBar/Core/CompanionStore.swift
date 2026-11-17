@@ -1620,11 +1620,31 @@ final class CompanionStore {
         return familyIDs
     }
 
+    // MARK: Favorites
+
+    /// Only a graduated Pokémon is liked: not the one being raised, nor one sent off (the owner, 2026-11-17).
+    func canFavorite(_ entry: DexEntry) -> Bool { !entry.isReleased && !isActiveDexEntry(entry) }
+
+    func isFavorite(_ entry: DexEntry) -> Bool { canFavorite(entry) && state.favoriteIDs.contains(entry.id) }
+
+    /// Likes a graduated Pokémon, or unlikes it.
+    func toggleFavorite(_ entry: DexEntry) {
+        guard canFavorite(entry) else { return }
+        if state.favoriteIDs.contains(entry.id) { state.favoriteIDs.remove(entry.id) } else { state.favoriteIDs.insert(entry.id) }
+        save()
+    }
+
+    /// The species a liked Pokémon went through: the Pokédex grid's ♥ filter, its page listing it.
+    var favoriteSpeciesIDs: Set<Int> {
+        Set(state.dex.filter { isFavorite($0) }.flatMap(\.chainOrder))
+    }
+
     /// Filters and sorts DexSpecies for the Pokédex grid.
     func filteredDexSpecies(
         query: String = "",
         rarity: Rarity? = nil,
         shinyOnly: Bool = false,
+        favoritesOnly: Bool = false,
         evolutionFamily: Bool = false,
         sort: DexSortOption = .numberAsc
     ) -> [DexSpecies] {
@@ -1634,6 +1654,10 @@ final class CompanionStore {
         }
         if shinyOnly {
             result = result.filter { $0.isShiny }
+        }
+        if favoritesOnly {
+            let liked = favoriteSpeciesIDs
+            result = result.filter { liked.contains($0.id) }
         }
         if let matcher = DexSearchMatcher(query) {
             if evolutionFamily {
@@ -1685,6 +1709,7 @@ final class CompanionStore {
         query: String = "",
         rarity: Rarity? = nil,
         shinyOnly: Bool = false,
+        favoritesOnly: Bool = false,
         evolutionFamily: Bool = false,
         sort: CatchLogSortOption = .recentFirst
     ) -> [DexEntry] {
@@ -1694,6 +1719,9 @@ final class CompanionStore {
         }
         if shinyOnly {
             result = result.filter { $0.isShiny }
+        }
+        if favoritesOnly {
+            result = result.filter { isFavorite($0) }
         }
         if let matcher = DexSearchMatcher(query) {
             if evolutionFamily {

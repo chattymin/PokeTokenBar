@@ -1432,6 +1432,7 @@ struct CollectionView: View {
     @State private var selectedRarity: Rarity?
     @State private var searchText = ""
     @State private var shinyOnly = false
+    @State private var favoritesOnly = false
     @State private var evolutionFamily = false
     @State private var dexSort: CompanionStore.DexSortOption = .numberAsc
     @State private var logSort: CompanionStore.CatchLogSortOption = .recentFirst
@@ -1452,6 +1453,7 @@ struct CollectionView: View {
             query: searchText,
             rarity: selectedRarity,
             shinyOnly: shinyOnly,
+            favoritesOnly: favoritesOnly,
             evolutionFamily: evolutionFamily,
             sort: logSort
         )
@@ -1464,6 +1466,7 @@ struct CollectionView: View {
     private func resetFilters() {
         searchText = ""
         shinyOnly = false
+        favoritesOnly = false
         evolutionFamily = false
         selectedRarity = nil
         dexSort = .numberAsc
@@ -1507,7 +1510,8 @@ struct CollectionView: View {
                     catchLog
                 } else if nav.dexScope != .caught {
                     FullDexView(store: store, searchText: searchText, missingOnly: nav.dexScope == .missing,
-                                shinyOnly: shinyOnly && nav.dexScope != .missing, evolutionFamily: evolutionFamily,
+                                shinyOnly: shinyOnly && nav.dexScope != .missing,
+                                favoritesOnly: favoritesOnly && nav.dexScope != .missing, evolutionFamily: evolutionFamily,
                                 scope: $nav.dexScope,
                                 onSelectSpecies: { sp in nav.dexDetailCollectionID = sp.collectionID })
                 } else {
@@ -1516,6 +1520,7 @@ struct CollectionView: View {
                         store: store,
                         searchText: searchText,
                         shinyOnly: shinyOnly,
+                        favoritesOnly: favoritesOnly,
                         evolutionFamily: evolutionFamily,
                         sortOption: dexSort,
                         selectedRarity: $selectedRarity,
@@ -1543,6 +1548,8 @@ struct CollectionView: View {
     private var sortsCaught: Bool { navigation.showingCollectionLog || navigation.dexScope == .caught }
     /// Shiny only: individuals, caught species, the whole Pokédex's; the missing species have no shiny.
     private var filtersShiny: Bool { navigation.showingCollectionLog || navigation.dexScope != .missing }
+    /// Favorites only: the liked individuals, the species they went through; the missing species have none.
+    private var filtersFavorites: Bool { filtersShiny }
 
     private var filterToolbar: some View {
         HStack(spacing: 6) {
@@ -1596,6 +1603,32 @@ struct CollectionView: View {
             .buttonStyle(.plain)
             .hoverTip(store.l.filterShinyOnly)
             .accessibilityLabel(store.l.filterShinyOnly)
+            }
+
+            if filtersFavorites {
+            Button {
+                withAnimation(.easeInOut(duration: 0.15)) {
+                    favoritesOnly.toggle()
+                }
+            } label: {
+                // Filled or not says it, not the pink alone.
+                Image(systemName: favoritesOnly ? "heart.fill" : "heart")
+                    .font(.system(size: 12, weight: favoritesOnly ? .bold : .regular))
+                    .foregroundStyle(favoritesOnly ? Color.pink : Color.secondary)
+                    .frame(width: 16, height: 16)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 4)
+                    .background(favoritesOnly ? Color.pink.opacity(0.16) : Color(nsColor: .controlBackgroundColor))
+                    .clipShape(RoundedRectangle(cornerRadius: 6))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 6)
+                            .strokeBorder(favoritesOnly ? Color.pink.opacity(0.6) : Color.secondary.opacity(0.2), lineWidth: 0.5)
+                    )
+            }
+            .buttonStyle(.plain)
+            .hoverTip(store.l.filterFavoritesOnly)
+            .accessibilityLabel(store.l.filterFavoritesOnly)
+            .accessibilityAddTraits(favoritesOnly ? .isSelected : [])
             }
 
             Button {
@@ -1936,6 +1969,8 @@ struct FullDexView: View {
     let missingOnly: Bool
     /// Only the species caught shiny.
     var shinyOnly = false
+    /// Only the species a liked Pokémon went through.
+    var favoritesOnly = false
     /// The search finds whole evolution families, their missing members included.
     var evolutionFamily = false
     @Binding var scope: PopoverNavigation.DexScope
@@ -1949,8 +1984,12 @@ struct FullDexView: View {
         let species = Dictionary(store.dexSpecies.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         let graduated = store.graduatedSpeciesIDs
         let names = species.mapValues(\.name)
-        let visible = Self.visibleIDs(names: names, missingOnly: missingOnly, query: searchText,
-                                      shinies: shinyOnly ? Set(store.dexSpecies.filter(\.isShiny).map(\.id)) : nil,
+        var kept: Set<Int>? = shinyOnly ? Set(store.dexSpecies.filter(\.isShiny).map(\.id)) : nil
+        if favoritesOnly {
+            let liked = store.favoriteSpeciesIDs
+            kept = kept.map { $0.intersection(liked) } ?? liked
+        }
+        let visible = Self.visibleIDs(names: names, missingOnly: missingOnly, query: searchText, shinies: kept,
                                       family: evolutionFamily)
         func shows(_ id: Int) -> Bool { visible.contains(id) }
         return VStack(alignment: .leading, spacing: 6) {
@@ -2150,6 +2189,7 @@ private struct DexGridView: View {
     let store: CompanionStore
     let searchText: String
     let shinyOnly: Bool
+    let favoritesOnly: Bool
     let evolutionFamily: Bool
     let sortOption: CompanionStore.DexSortOption
     @Binding var selectedRarity: Rarity?
@@ -2171,7 +2211,7 @@ private struct DexGridView: View {
 
     /// `returnAnchor` = the species whose detail page was just closed. The grid opens on its page,
     /// set here rather than in `onAppear`, which would flash page 1 for a frame first.
-    init(store: CompanionStore, searchText: String, shinyOnly: Bool, evolutionFamily: Bool,
+    init(store: CompanionStore, searchText: String, shinyOnly: Bool, favoritesOnly: Bool = false, evolutionFamily: Bool,
          sortOption: CompanionStore.DexSortOption, selectedRarity: Binding<Rarity?>,
          returnAnchor: String?,
          onSelectSpecies: @escaping (CompanionStore.DexSpecies) -> Void,
@@ -2179,6 +2219,7 @@ private struct DexGridView: View {
         self.store = store
         self.searchText = searchText
         self.shinyOnly = shinyOnly
+        self.favoritesOnly = favoritesOnly
         self.evolutionFamily = evolutionFamily
         self.sortOption = sortOption
         _selectedRarity = selectedRarity
@@ -2193,6 +2234,7 @@ private struct DexGridView: View {
             query: searchText,
             rarity: selectedRarity,
             shinyOnly: shinyOnly,
+            favoritesOnly: favoritesOnly,
             evolutionFamily: evolutionFamily,
             sort: sortOption
         )
@@ -2217,6 +2259,7 @@ private struct DexGridView: View {
         }
         .onChange(of: searchText) { page = 0; selectedID = nil }
         .onChange(of: shinyOnly) { page = 0; selectedID = nil }
+        .onChange(of: favoritesOnly) { page = 0; selectedID = nil }
         .onChange(of: evolutionFamily) { page = 0; selectedID = nil }
         .onChange(of: sortOption) { page = 0; selectedID = nil }
         .onChange(of: selectedRarity) { page = 0; selectedID = nil }
@@ -2888,13 +2931,38 @@ struct PokemonDetailView: View {
         } ?? (store.isActiveDexEntry(entry) ? store.l.dexRaising : "-")
         let costume = entry.costume.flatMap { CostumeCatalog.entry(code: $0, speciesID: species.id, form: entry.form) }
             .map { " · 🎭 \(store.l.monthName($0.month))" } ?? ""
-        return "#\(index + 1) · \(appearance)\(costume) · Lv. \(entry.profile?.level ?? 5) · \(date)"
+        let liked = store.isFavorite(entry) ? "♥ " : ""
+        return "\(liked)#\(index + 1) · \(appearance)\(costume) · Lv. \(entry.profile?.level ?? 5) · \(date)"
+    }
+
+    /// Likes this graduated Pokémon, or unlikes it: the ♥ filter of the Pokédex and the catch log.
+    private func favoriteButton(_ entry: DexEntry) -> some View {
+        let liked = store.isFavorite(entry)
+        let label = liked ? store.l.favoriteRemove : store.l.favoriteAdd
+        return Button {
+            withAnimation(.easeInOut(duration: 0.15)) { store.toggleFavorite(entry) }
+        } label: {
+            // Filled or not says it, not the pink alone.
+            Image(systemName: liked ? "heart.fill" : "heart")
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(liked ? Color.pink : Color.secondary)
+                .frame(width: 28, height: 24)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .hoverTip(label)
+        .accessibilityLabel(label)
+        .accessibilityAddTraits(liked ? .isSelected : [])
     }
 
     private func individualSection(entry: DexEntry, profile: PokemonProfile,
                                    details: PokemonDetails) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            detailTitle(store.l.pokemonIndividual)
+            HStack {
+                detailTitle(store.l.pokemonIndividual)
+                Spacer()
+                if store.canFavorite(entry) { favoriteButton(entry) }
+            }
             HStack(spacing: 12) {
                 valuePair(store.l.level, "\(profile.level)")
                 valuePair(store.l.gender, store.l.genderLabel(profile.gender))
@@ -3252,6 +3320,10 @@ private struct DexEntryRow: View {
                         // 이모지는 스크린리더가 일관되게 읽지 못해 명사 라벨을 붙인다(도감 칸과 동일 규칙).
                         Text("✨").font(.system(size: 10))
                             .accessibilityLabel(store.l.dexShinyLabel)
+                    }
+                    if store.isFavorite(entry) {
+                        Image(systemName: "heart.fill").font(.system(size: 10)).foregroundStyle(Color.pink)
+                            .accessibilityLabel(store.l.favoriteLabel)
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)

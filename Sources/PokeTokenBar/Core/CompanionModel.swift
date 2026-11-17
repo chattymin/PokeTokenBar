@@ -1759,6 +1759,8 @@ struct CompanionState: Codable, Sendable, Equatable {
     var pikachuCostumes: Set<PikachuCostume> = []
     /// The costume Pikachu wears, chosen on its Pokédex page; nil, its own look.
     var equippedPikachuCostume: PikachuCostume?
+    /// The graduated Pokémon the player liked on their Pokédex page (`DexEntry.id`): the ♥ filter's.
+    var favoriteIDs: Set<String> = []
     // Candies already paid by each limit window (key) in its current epoch. ★영속: 재시작 무한지급 방지.
     // Before `candyGrantsAsYouGo`, 1 meant "paid at 100%".
     var candyGrantTier: [String: Int] = [:]
@@ -1829,6 +1831,7 @@ struct CompanionState: Codable, Sendable, Equatable {
         pikachuCostumes = Set(c.lenient([String].self, forKey: .pikachuCostumes, default: []).compactMap(PikachuCostume.init(rawValue:)))
         equippedPikachuCostume = c.lenientOptional(String.self, forKey: .equippedPikachuCostume)
             .flatMap(PikachuCostume.init(rawValue:)).flatMap { pikachuCostumes.contains($0) ? $0 : nil }
+        favoriteIDs        = c.lenient(Set<String>.self, forKey: .favoriteIDs, default: [])
         candyGrantTier     = c.lenient([String: Int].self, forKey: .candyGrantTier, default: [:])
         candyWindowEpoch   = c.lenient([String: String].self, forKey: .candyWindowEpoch, default: [:])
         candyWindowPlan    = c.lenient([String: Int].self, forKey: .candyWindowPlan, default: [:])
