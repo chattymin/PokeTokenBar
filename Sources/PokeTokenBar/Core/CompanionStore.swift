@@ -2561,23 +2561,48 @@ final class CompanionStore {
     var shopEntries: [ShopEntry] { shopSections.flatMap(\.entries) }
 
     /// The Shop's sections (the owner, 2026-11-05: one price order mixed eggs, balls, candies and charms): the eggs, what
-    /// the Pokémon raised uses, the dungeons' balls, then what is kept for good, each cheapest first (`purchasableItems`'s
-    /// order, the eggs' tiers in theirs; a discount lowers a whole section alike). Empty ones go.
-    enum ShopSection: CaseIterable, Sendable { case eggs, raising, dungeons, keptForGood }
+    /// the Pokémon raised uses, what the graduated ones use (the Mint, #183), the dungeons' balls, then what is kept for
+    /// good, each cheapest first (`purchasableItems`'s order, the eggs' tiers in theirs; a discount lowers a whole section
+    /// alike). Empty ones go.
+    enum ShopSection: CaseIterable, Sendable {
+        case eggs, raising, graduated, dungeons, keptForGood
+
+        /// The Shop's tab it is shown in (#183): the Pokémon raised, the graduated ones and what is kept for good share
+        /// the raising tab.
+        var tab: ShopTab {
+            switch self {
+            case .eggs: .eggs
+            case .raising, .graduated, .keptForGood: .raising
+            case .dungeons: .dungeons
+            }
+        }
+    }
+
+    /// The Shop's tabs under Prof. Oak's card (#183): one section at a time instead of all of them stacked.
+    enum ShopTab: CaseIterable, Sendable {
+        case eggs, raising, dungeons
+
+        /// Its sections in the Shop's order.
+        var sections: [ShopSection] { ShopSection.allCases.filter { $0.tab == self } }
+        /// A tab of several sections names each one; the others' name is the tab's.
+        var namesItsSections: Bool { sections.count > 1 }
+    }
 
     /// Where an item of the Bag's Items tab stands, by the Shop's sections (the owner, 2026-11-09: the balls and eggs
     /// were mixed): every egg first (the Legendary Egg and Type: Null's included, which the Bag used to file with the
     /// artifacts) and the evolution stones with them, which trade the Pokémon raised for an egg too (the owner); the
-    /// dungeons' items, what is kept for good, the rest for the Pokémon raised.
+    /// dungeons' items, what is kept for good, the rest for the Pokémon raised. The Mint, found in the dungeons' chests
+    /// but used on a graduated Pokémon, has its own section beside the raising (#183).
     nonisolated static func bagSection(of kind: ItemKind) -> ShopSection {
         if kind.isEggItem || kind.rawValue.hasSuffix("Egg") || kind.stoneType != nil { return .eggs }
+        if kind == .mint { return .graduated }
         if kind.isDungeonItem { return .dungeons }
         return kind.isPassive ? .keptForGood : .raising
     }
 
     /// The Bag's sections, top down: the Rare Candies first, above the eggs (the owner, 2026-11-09 evening: "les
     /// bonbons tout en haut"), then the Shop's order. The Shop keeps its eggs first.
-    nonisolated static let bagSectionOrder: [ShopSection] = [.raising, .eggs, .dungeons, .keptForGood]
+    nonisolated static let bagSectionOrder: [ShopSection] = [.raising, .eggs, .graduated, .dungeons, .keptForGood]
 
     /// An item's place in the Bag and a recap: its section, then among the eggs the Shop's three by rarity with the
     /// Legendary Egg under the Rare one (the owner, 2026-11-09), the other eggs, the stones last; elsewhere the items'
@@ -2597,17 +2622,29 @@ final class CompanionStore {
         return ra.place < rb.place
     }
 
+    /// An item for sale stands in its Bag section, so the Shop and the Bag file the Mint alike.
     var shopSections: [(section: ShopSection, entries: [ShopEntry])] {
         func section(of entry: ShopEntry) -> ShopSection {
             guard case .item(let kind) = entry else { return .eggs }
-            if kind.isDungeonItem { return .dungeons }
-            return kind.isPassive ? .keptForGood : .raising
+            return Self.bagSection(of: kind)
         }
         let entries = purchasableItems.map { ShopEntry.item($0) } + FreshEgg.shopTiers.map { ShopEntry.egg($0) }
         return ShopSection.allCases.compactMap { kind in
             let inSection = entries.filter { section(of: $0) == kind }
             return inSection.isEmpty ? nil : (kind, inSection)
         }
+    }
+
+    /// The Shop's tabs with their sections (#183), empty ones left out.
+    var shopTabs: [(tab: ShopTab, sections: [(section: ShopSection, entries: [ShopEntry])])] {
+        // A plain loop, as `BagView.itemSections`: Xcode 27.2's compiler failed on closures returning such tuples.
+        let sections = shopSections
+        var tabs: [(tab: ShopTab, sections: [(section: ShopSection, entries: [ShopEntry])])] = []
+        for tab in ShopTab.allCases {
+            let inTab = sections.filter { $0.section.tab == tab }
+            if !inTab.isEmpty { tabs.append((tab: tab, sections: inTab)) }
+        }
+        return tabs
     }
 
     /// 구매 가능 — 잔액이 그 아이템 가격 이상(상점 미판매면 false). 활성/알 무관(재고는 미리 쌓아둘 수 있음).

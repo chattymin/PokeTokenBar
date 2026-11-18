@@ -1806,8 +1806,6 @@ struct L {
     var bag: String { t("가방", "Bag", "バッグ", "Bolsa", "Sac", "Bolsa", "Beutel", "Сумка") }
     /// The tab holding the Bag and the achievements, earned or not: the trainer's, as the games' Trainer Card.
     var trainerTab: String { t("트레이너", "Trainer", "トレーナー", "Entrenador", "Dresseur", "Treinador", "Trainer", "Тренер") }
-    /// The Bag's first section: Shop items, candies, mints and stones.
-    var bagItemsTitle: String { t("아이템", "Items", "アイテム", "Artículos", "Objets", "Itens", "Gegenstände", "Предметы") }
     /// One line above the Bag's badges, instead of each badge repeating it.
     var bagBadgesHint: String {
         let step = percentNumber(CollectorBonus.badgeRegionBonus * 100)
@@ -3511,6 +3509,7 @@ struct L {
         case .raising: t("키우는 포켓몬에게", "For the Pokémon raised", "育てているポケモンに", "Para el Pokémon que crías",
                          "Pour le Pokémon en élevage", "Para o Pokémon que você cria", "Für das aufgezogene Pokémon",
                          "Для выращиваемого покемона")
+        case .graduated: shopGraduatedSection
         case .dungeons: dungeonsTab
         case .keptForGood: t("영구 아이템", "Kept for good", "ずっと使えるどうぐ", "Para siempre", "Objets permanents",
                              "Para sempre", "Dauerhaft", "Навсегда")

@@ -10,15 +10,16 @@ struct DungeonEggCard: View {
     var body: some View {
         let l = store.l
         let name = DungeonEggTitle.text(egg.baseID, l: l, language: store.language, secret: egg.isSecret == true)
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: Design.productCardSpacing) {
             HStack(alignment: .center, spacing: 10) {
                 SpriteView(speciesID: nil, size: 30, egg: egg.eggKind)
-                VStack(alignment: .leading, spacing: 3) {
+                VStack(alignment: .leading, spacing: Design.productTextSpacing) {
                     DungeonEggTitle(speciesID: egg.baseID, l: l, language: store.language, secret: egg.isSecret == true)
                         .font(.callout.weight(.semibold)).lineLimit(1)
                     if egg.isShiny { Badge("✦ " + l.dungeonEggShiny.uppercased(), tint: .orange, style: .tinted) }
                     if store.hasActive {
                         Text(l.eggReleaseNote).font(.caption2).foregroundStyle(.tertiary)
+                            .lineSpacing(Design.productLineSpacing)
                             .fixedSize(horizontal: false, vertical: true)
                     }
                 }
@@ -31,8 +32,7 @@ struct DungeonEggCard: View {
                 store.useDungeonEgg(egg.id)
             }
         }
-        .padding(12)
-        .designSurface(cornerRadius: Design.cornerRadius)
+        .productCard()
     }
 }
 

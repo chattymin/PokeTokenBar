@@ -112,6 +112,9 @@ final class PopoverNavigation {
     /// missing ones. Kept across openings, like the segment.
     enum DexScope: Hashable, CaseIterable { case all, caught, missing }
     var dexScope: DexScope = .all
+    /// The Shop's products tab and the Bag's tab (#183), kept across openings like the Pokédex's segment.
+    var shopTab: CompanionStore.ShopTab = .eggs
+    var bagSection: BagView.Section = .raising
     /// The ideas page (`IdeasScreen`) too.
     var showingIdeas = false { didSet { if showingIdeas { dexDetailCollectionID = nil } } }
     /// The events' calendar (`EventCalendarScreen`) too.

@@ -227,7 +227,7 @@ final class ShopTests: XCTestCase {
         let s = CompanionStore(provider: ShopNoProvider(), clock: { self.now }, fileURL: url, rng: SeededRNG(seed: 1), difficulty: 1)
         XCTAssertTrue(s.hasActive)
         XCTAssertEqual(s.shopEntries, Self.sectioned)
-        XCTAssertEqual(s.shopSections.map(\.section), [.eggs, .raising, .dungeons, .keptForGood])
+        XCTAssertEqual(s.shopSections.map(\.section), [.eggs, .raising, .graduated, .dungeons, .keptForGood])
         for group in s.shopSections {
             let prices = group.entries.map(\.price)
             XCTAssertEqual(prices, prices.sorted(), "\(group.section) by price")
@@ -238,7 +238,8 @@ final class ShopTests: XCTestCase {
     private static let sectioned: [ShopEntry] = [
         .egg(nil), .egg(.uncommon), .egg(.rare),      // 1B, 2.5B, 4B
         .item(.rareCandy),                            // 500M
-        .item(.mint), .item(.greatBall), .item(.ultraBall),   // 200M, 2.5B, 4B: the Mint with the dungeons' items
+        .item(.mint),                                 // 200M: the Mint for the graduated Pokémon (#183)
+        .item(.greatBall), .item(.ultraBall),         // 2.5B, 4B
         .item(.shinyCharm),                           // 3B
     ]
 

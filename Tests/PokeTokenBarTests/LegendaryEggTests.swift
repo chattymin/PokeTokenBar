@@ -52,7 +52,7 @@ final class LegendaryEggTests: XCTestCase {
         XCTAssertTrue(ItemKind.legendaryEgg.isRegional)
         XCTAssertFalse(ItemKind.legendaryEgg.isPassive)
         XCTAssertEqual(ItemKind.legendaryEgg.collectorGroup, .legendaryArtifacts)
-        XCTAssertEqual(BagView.Section.of(.legendaryEgg), .items, "an egg to use, with the eggs (2026-11-09)")
+        XCTAssertEqual(BagView.Section.of(.legendaryEgg), .raising, "an egg to use, with the eggs (2026-11-09)")
         XCTAssertEqual(try store { _ in }.regionTiers(.legendaryEgg).count, 9)
     }
 
