@@ -67,6 +67,14 @@ enum Changelog {
 
     static let days: [ChangelogDay] = [
         ChangelogDay(date: "2026-11-18", entries: [
+            .fixed("2026-11-18-costume-egg-name", { $0.t("행운 화면의 부화 목록이 코스튬 알에서 나온 포켓몬의 알을 이제 가방과 같은 이름으로 보여 줘요: '포켓몬 알'이 아니라 '코스튬 알 · 달 이름'이에요.",
+                                                         "In the Luck screen's hatch list, a Costume Egg now carries the name the Bag gives it: \"Costume Egg · its event\", not \"Pokémon Egg\".",
+                                                         "ラッキー画面の孵化リストが、コスチュームのタマゴから生まれたポケモンのタマゴをバッグと同じ名前で表示するようになりました：「ポケモンのタマゴ」ではなく「コスチュームのタマゴ・イベント名」です。",
+                                                         "La lista de eclosiones de la pantalla de Suerte ahora nombra el huevo de un Pokémon salido de un Huevo disfrazado como la Bolsa: \"Huevo disfrazado · su evento\", no \"Huevo Pokémon\".",
+                                                         "La liste des éclosions de l'écran Chance nomme maintenant l'œuf d'un Pokémon sorti d'un Œuf costumé comme le Sac : \"Œuf costumé · son événement\", et non \"Œuf Pokémon\".",
+                                                         "A lista de eclosões da tela de Sorte agora dá ao ovo de um Pokémon saído de um Ovo fantasiado o nome que a Bolsa usa: \"Ovo fantasiado · seu evento\", não \"Ovo Pokémon\".",
+                                                         "Die Schlupfliste des Glücksbildschirms nennt das Ei eines Pokémon aus einem Kostüm-Ei jetzt wie der Beutel: \"Kostüm-Ei · sein Event\", nicht \"Pokémon-Ei\".",
+                                                         "Список вылуплений на экране удачи теперь называет яйцо покемона из костюмного яйца так же, как сумка: \"Костюмное яйцо · его событие\", а не \"Яйцо покемона\".") }),
             .new("2026-11-18-oak-free-eggs") { l in
                 let egg = l.itemName(.pokemonEgg)
                 return l.t("상점에 더 나은 알이 없거나 아직 살 수 없을 때, 오박사가 이제 가방에 이미 있는 알로 남는 포켓몬을 바로 놓아주라고 해요: \(KoreanParticle.subject.attach(to: egg)) 졸업 때 받는 알과 똑같이 뽑아요. 이름에 쓰인 포켓몬이 태어나는 알도 가방에 있으면 같이 따져요: 새로운 종이나 폼, 첫 이로치를 가져올 때만 추천해요. 코스튬 알도 코스튬은 빼고 따져요. 열 때 뽑힐 수 있는 포켓몬 전체에서 첫 이로치가 나올 평균 확률로 보고, 확률이 0이면 가방에 쓸 수 있는 다른 알이 없을 때 마지막 수단으로 추천해요. 태어난 포켓몬은 코스튬을 얻으려고 졸업까지 키워요.",
