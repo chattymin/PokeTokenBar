@@ -2102,6 +2102,18 @@ read_when:
   at once. Guard: `DungeonStoreTests.testAQuietStepWaitsForTheUsageWriteAndAnEventDoesNot` (fault: 2 failures).
   Sweep: grep every `save()` / `persist()` reachable from `update(todayTokensByProvider:)`; the other ones follow an
   event (hatch, evolution, graduation, candy ledger change).
+- **What the popover reads at each opening is kept until the state changes.** The popover is rebuilt at each opening
+  (it is freed when closed, for the idle CPU), and its tab bar asked `unclaimedAchievementsCount`: every achievement
+  counted again, each form goal rebuilding `GraduatedForms` over the whole Pokédex. On the owner's save, 34 ms of
+  Home's 55 ms per opening in a debug build (the owner, 18/11: "l'app lag un petit peu quand on l'affiche").
+  **Why it was missed:** the earlier pass cached the tally per draw of the Achievements tab, not across openings,
+  and `isUnlocked` handed the state on (`in: s ?? state`), so `formProgress` never saw the store's own state and
+  always rescanned. The tallies and the forms index are now cached until the state changes (`achievementTalliesCache`,
+  `graduatedFormsCache`): Home 55 to 18 ms, Achievements 169 to 51 ms, a fresh tally 34 to 9 ms. Guards:
+  `FormAchievementsTests.testTheAchievementCountFollowsAGraduation` and `CollectorItemsTests
+  .testCompletingTheGroupUnlocksTheAchievement` (faults: each cache left uncleared fails). Sweep: the other
+  `collectedForms(graduatedOnly: true)` in a loop (`goals`) reads the index too; what remains of an opening is
+  SwiftUI's layout of the Pokédex grid.
 - **A coalesced write must be the path the app takes.** `saveUsage` was to write a usage update at most every 15 s,
   yet `applyUsage` ended on a plain `save()` once the evolution line was loaded, which it always is in the app: each
   live read (every few seconds while Claude writes) encoded and wrote the whole 1.5 MB save, about 100 ms each, most of

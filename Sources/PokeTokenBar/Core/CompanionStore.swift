@@ -8,13 +8,22 @@ import UserNotifications
 @Observable
 final class CompanionStore {
     private(set) var state = CompanionState() {
-        didSet { dexSpeciesCache = [:]; goalsBySpecies = nil; oakOddsCache = [:]; formSuspenseCache = nil; dungeonCandidatesCache = nil }
+        didSet {
+            dexSpeciesCache = [:]; goalsBySpecies = nil; oakOddsCache = [:]; formSuspenseCache = nil; dungeonCandidatesCache = nil
+            graduatedFormsCache = nil; achievementTalliesCache = nil
+        }
     }
     private(set) var displayState: CompanionStateKind = .egg
     private(set) var currentLine: EvoLine? { didSet { dexSpeciesCache = [:] } }
     /// `collectedDexSpecies` by `groupForms`, until the state or the line changes: a form species' page read it some
     /// 25 times per draw (`formSpecies`, `dexCover`, the picker), each folding and sorting the whole Pokédex.
     @ObservationIgnored private var dexSpeciesCache: [Bool: [DexSpecies]] = [:]
+    /// The forms the Pokédex holds graduated, until the state changes: each of the achievements' form goals read the
+    /// whole Pokédex again, and the tab bar's count asked them at each opening of the popover (#183, the owner's "ça
+    /// lag un peu quand on l'affiche").
+    @ObservationIgnored private var graduatedFormsCache: GraduatedForms?
+    /// `achievementTallies()`, until the state changes.
+    @ObservationIgnored private var achievementTalliesCache: (all: AchievementTally, byGroup: [CollectorGroup: AchievementTally])?
     /// `goals(counting:)` for every species, until the state changes.
     @ObservationIgnored private var goalsBySpecies: [Int: [ActiveGoal]]?
     /// `dungeonCandidates`, made once per state: the team screen asked it for every row and every member of each
@@ -1022,7 +1031,7 @@ final class CompanionStore {
                 }
             } else if !isClaimed(kind), !isUnlocked(kind, registered: registered) {
                 if case .forms(let goal)? = kind.unlock, new.contains(goal.speciesID) {
-                    let have = state.collectedForms(speciesID: goal.speciesID, graduatedOnly: true)
+                    let have = state.graduatedForms(speciesID: goal.speciesID, graduatedFormsIndex)
                         .intersection(goal.forms).count
                     goals.append(ActiveGoal(item: kind, generation: nil, gain: 1, count: have, needed: goal.forms.count))
                     continue
@@ -2994,9 +3003,9 @@ final class CompanionStore {
 
     /// Whether this item's achievement goal is met, counting graduated Pokémon only, in the save or in `s`. Items
     /// without a Pokédex condition are always unlocked. For a regional achievement: one of its regional tiers is complete.
-    func isUnlocked(_ kind: ItemKind, registered: Set<Int>? = nil, in s: CompanionState? = nil,
+    func isUnlocked(_ kind: ItemKind, registered: Set<Int>? = nil, in given: CompanionState? = nil,
                     graduatedOnly: Bool = true, battleForms: Bool = true) -> Bool {
-        let s = s ?? state
+        let s = given ?? state
         switch kind.unlock {
         case nil: return true
         case .duplicateLegendary: return s.graduatedLegendaryCopies >= 2
@@ -3008,7 +3017,8 @@ final class CompanionStore {
             let progress = collectionProgress(graduatedOnly: graduatedOnly, of: s, battleForms: battleForms)
             return progress.forms >= progress.formsTotal
         case .allPikachuCostumes: return s.pikachuCostumes.count >= PikachuCostume.allCases.count
-        case .forms(let goal): return formProgress(goal, of: s).isMet
+        // The state's own forms index when none is given: read once until it changes.
+        case .forms(let goal): return formProgress(goal, of: given).isMet
         case .species:
             let counted = registered ?? (graduatedOnly ? s.graduatedSpeciesIDs : s.registeredSpeciesIDs)
             return unlockProgress(of: kind, registered: counted).contains(where: \.isMet)
@@ -3066,8 +3076,17 @@ final class CompanionStore {
         var isMet: Bool { count >= goal.forms.count }
     }
 
+    /// `GraduatedForms` of the state, read once until it changes.
+    private var graduatedFormsIndex: GraduatedForms {
+        if let cached = graduatedFormsCache { return cached }
+        let index = GraduatedForms(state.dex)
+        graduatedFormsCache = index
+        return index
+    }
+
     func formProgress(_ goal: FormGoal, of s: CompanionState? = nil) -> FormProgress {
-        let graduated = (s ?? state).collectedForms(speciesID: goal.speciesID, graduatedOnly: true)
+        let graduated = s.map { $0.collectedForms(speciesID: goal.speciesID, graduatedOnly: true) }
+            ?? state.graduatedForms(speciesID: goal.speciesID, graduatedFormsIndex)
         return FormProgress(goal: goal, graduated: goal.forms.filter(graduated.contains))
     }
 
@@ -3092,17 +3111,14 @@ final class CompanionStore {
     }
 
     func achievementTally(in group: CollectorGroup? = nil) -> AchievementTally {
-        let registered = graduatedSpeciesIDs
-        var tally = AchievementTally()
-        for kind in Self.achievementItems where group == nil || kind.collectorGroup == group {
-            count(kind, into: &tally, registered: registered)
-        }
-        return tally
+        let tallies = achievementTallies()
+        return group.map { tallies.byGroup[$0] ?? AchievementTally() } ?? tallies.all
     }
 
     /// Every section's tally and the whole one in one pass, which the Achievements tab reads once per draw: its
     /// header, tabs, banner and progress line counted them some 17 times.
     func achievementTallies() -> (all: AchievementTally, byGroup: [CollectorGroup: AchievementTally]) {
+        if let cached = achievementTalliesCache { return cached }
         let registered = graduatedSpeciesIDs
         var all = AchievementTally()
         var byGroup: [CollectorGroup: AchievementTally] = [:]
@@ -3116,6 +3132,7 @@ final class CompanionStore {
                 byGroup[group] = tally
             }
         }
+        achievementTalliesCache = (all, byGroup)
         return (all, byGroup)
     }
 
