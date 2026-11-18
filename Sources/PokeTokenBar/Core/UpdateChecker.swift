@@ -76,7 +76,9 @@ final class UpdateChecker {
     /// popover opening. Unauthenticated, GitHub allows 60 calls an hour.
     private var lastFailedCheck: Date?
     static let failedCheckInterval: TimeInterval = 600
-    private var checkInFlight = false
+    /// The check under way: a second one waits for its answer (the owner, 2026-11-18: "Vérifier" clicked while the
+    /// popover's own check ran said up to date at once, the update found a moment later).
+    private var checkInFlight: Task<Void, Never>?
     /// When the running update started: one whose script never wrote a result is given up after `updateTimeout`,
     /// or "updating" stayed for good.
     private var updateStartedAt: Date?
@@ -126,14 +128,18 @@ final class UpdateChecker {
 
     /// 최신 릴리스/커밋 조회. 스킵한 버전은 배너(`available`)에 안 올리고 Settings(`skipped`)에만 남긴다.
     func check(minInterval: TimeInterval = 1800) async {
-        if checkInFlight { return }
+        if let running = checkInFlight { await running.value; return }
         if let last = lastChecked, clock().timeIntervalSince(last) < minInterval { return }
         if let failed = lastFailedCheck, clock().timeIntervalSince(failed) < min(minInterval, Self.failedCheckInterval) {
             return
         }
-        checkInFlight = true
-        defer { checkInFlight = false }
+        let running = Task { await fetchAndConsider() }
+        checkInFlight = running
+        await running.value
+        checkInFlight = nil
+    }
 
+    private func fetchAndConsider() async {
         guard let commit = await fetchLatest(),
               Self.isTrustedReleaseURL(commit.url),
               let validated = Self.validatedVersionOrCommit(commit.sha) else {
