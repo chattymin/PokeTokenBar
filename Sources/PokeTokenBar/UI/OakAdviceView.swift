@@ -43,6 +43,7 @@ struct OakAdviceCard: View {
             .buttonStyle(.plain)
         }
         .heroCard(colors: store.themeColors)
+        .modifier(SpeciesNameLoader(speciesID: words.dungeonEggSpecies))
     }
 
     private func bubble(_ words: OakWords) -> some View {
@@ -241,7 +242,8 @@ struct OakAdviceScreen: View {
                                       + l.shinyOddsChange(from: odds.now, to: odds.withCharm))
                     }
                     SectionTitle(text: l.oakWhyTitle)
-                    let eggs = l.oakWhyEgg(rare: l.eggName(.rare), uncommon: l.eggName(.uncommon), amber: l.itemName(.oldAmber))
+                    let eggs = l.oakWhyEgg(rare: l.eggName(.rare), uncommon: l.eggName(.uncommon), amber: l.itemName(.oldAmber),
+                                plain: l.eggName(nil))
                     let dungeons = l.oakWhyDungeons(win: l.oddsPercent(50, share: CompanionStore.oakDungeonWin),
                                                     hall: l.oddsPercent(10, share: CompanionStore.oakHallWin),
                                                     hallName: l.dungeonName(.hallOfOrigin),
@@ -257,6 +259,7 @@ struct OakAdviceScreen: View {
         }
         .padding(PopoverMetrics.padding)
         .frame(height: 520, alignment: .top)
+        .modifier(SpeciesNameLoader(speciesID: words.dungeonEggSpecies))
     }
 
     private func explained(_ title: String, _ detail: String?) -> some View {
@@ -265,6 +268,20 @@ struct OakAdviceScreen: View {
             if let detail {
                 Text(detail).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             }
+        }
+    }
+}
+
+/// Loads the name of the Pokémon a dungeon egg hatches, for the step that names the egg as the Bag does.
+@MainActor
+private struct SpeciesNameLoader: ViewModifier {
+    let speciesID: Int?
+
+    func body(content: Content) -> some View {
+        content.task(id: speciesID) {
+            guard let speciesID else { return }
+            await PokemonNameDisplayStore.shared.loadMissing([.init(kind: .pokemonSpecies, name: String(speciesID))],
+                                                            provider: PokemonNameClient.shared)
         }
     }
 }
@@ -294,6 +311,15 @@ private struct OakWords {
 
     private var l: L { store.l }
     private var name: String { store.displayName }
+
+    var dungeonEggSpecies: Int? {
+        if case .dungeonEgg(let egg, _)? = release { return egg.baseID }
+        return nil
+    }
+
+    private func eggName(_ egg: DungeonEgg) -> String {
+        DungeonEggTitle.text(egg.baseID, l: l, language: store.language, secret: egg.isSecret == true)
+    }
 
     /// While a team explores, what Oak says of the growth: paused until it is back (Q1).
     var pauseNote: String? {
@@ -330,7 +356,9 @@ private struct OakWords {
             return l.oakRaise(name)
         case .release(let release):
             switch release {
-            case .bag(let kind, _): return l.oakUseFromBag(l.itemName(kind))
+            case .bag(let kind, _), .freeEgg(let kind, _): return l.oakUseFromBag(l.itemName(kind))
+            case .dungeonEgg(let egg, _): return l.oakUseFromBag(eggName(egg))
+            case .costumeEgg(let egg, _): return l.oakUseFromBag(l.costumeEggName(egg.month))
             case .claim(let egg, _): return l.oakClaimThenUse(l.itemName(egg.item))
             case .buy(let tier, _): return l.oakBuyThenUse(l.eggName(tier))
             case .wait(let tier, _, _): return l.oakKeepThenBuy(name, l.eggName(tier))
@@ -380,7 +408,7 @@ private struct OakWords {
     func place(_ step: OakStep) -> OakPlace? {
         switch step {
         case .raise, .release(.wait), .release(.finish), .stock: return nil
-        case .release(.bag), .release(.buy): return .bag
+        case .release(.bag), .release(.freeEgg), .release(.dungeonEgg), .release(.costumeEgg), .release(.buy): return .bag
         case .release(.claim): return .home
         case .candies(_, let give, _): return give > 0 ? .bag : nil
         case .dungeon: return .dungeons
@@ -395,6 +423,15 @@ private struct OakWords {
         switch release {
         case .bag(_, let p):
             return l.oakSendsOff(name, odds: percent(p)) + amber
+        case .freeEgg(let kind, let p):
+            let plain = l.eggName(nil)
+            let why = kind == .pokemonEgg ? l.oakHeldEggIsTheSameDraw(plain) : l.oakHeldEggStandsIn(plain)
+            return why + " " + l.oakSendsOff(name, odds: percent(p)) + amber
+        case .dungeonEgg(_, let p):
+            return l.oakDungeonEggHatches + " " + l.oakSendsOff(name, odds: percent(p)) + amber
+        case .costumeEgg(_, let p):
+            return p > 0 ? l.oakCostumeEggHatches + " " + l.oakCostumeEggOdds(name, odds: percent(p)) + amber
+                : l.oakCostumeEggSpare(name) + amber
         case .claim(_, let p):
             return l.oakClaimWaits + " " + l.oakSendsOff(name, odds: percent(p)) + amber
         case .buy(let tier, let p):
