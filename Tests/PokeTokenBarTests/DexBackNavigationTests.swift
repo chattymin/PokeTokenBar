@@ -271,7 +271,7 @@ final class DexBackNavigationTests: XCTestCase {
 
     // MARK: Catch log
 
-    /// Mon12 is the last card of the log's first page (ten a page, #183): off screen until scrolled to.
+    /// Oldest is the first catch, so it is the log's last row — off screen until scrolled to.
     func testBackFromDetailReturnsTheLogToWhereItWas() async throws {
         let store = try makeStore()
         let navigation = PopoverNavigation()
@@ -291,13 +291,13 @@ final class DexBackNavigationTests: XCTestCase {
             clip.scroll(to: NSPoint(x: 0, y: clip.isFlipped ? bottom : 0))
             log.reflectScrolledClipView(clip)
             try await Task.sleep(for: .milliseconds(100))
-            row = try words(in: root).first { $0.reads("Mon12", exactly: true) }
+            row = try words(in: root).first { $0.reads("Oldest", exactly: true) }
         }
-        XCTAssertNotNil(row, "scrolling never reached Mon12")
-        try await press("Mon12", exactly: true, opens: store.l.back, in: root)
+        XCTAssertNotNil(row, "scrolling never reached Oldest")
+        try await press("Oldest", exactly: true, opens: store.l.back, in: root)
         try await press(store.l.back, in: root)
 
-        try await waitForText("Mon12", exactly: true, in: root)
+        try await waitForText("Oldest", exactly: true, in: root)
 
         // Like the grid's page, the position does not survive a segment switch.
         navigation.showingCollectionLog = false

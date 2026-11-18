@@ -39,23 +39,35 @@ final class FavoriteTests: XCTestCase {
         try XCTUnwrap(s.state.dex.first { $0.id == id })
     }
 
-    func testALikedPokemonIsKeptByTheFilters() throws {
+    /// A liked species shows alone under the ♥ filter: not the species it evolved from, nor its siblings (the owner,
+    /// 2026-11-18: "c'est que ce pokémon là qui m'intéresse").
+    func testALikedSpeciesIsKeptByTheFiltersAlone() throws {
         let (s, _) = try store()
-        s.toggleFavorite(try entry(s, "leafeon"))
-        XCTAssertTrue(s.isFavorite(try entry(s, "leafeon")))
-        XCTAssertFalse(s.isFavorite(try entry(s, "vaporeon")))
-        XCTAssertEqual(s.filteredDexEntries(favoritesOnly: true).map(\.id), ["leafeon"])
-        // The grid keeps the species it went through: Eevee and Leafeon, not Vaporeon.
-        XCTAssertEqual(Set(s.filteredDexSpecies(favoritesOnly: true).map(\.id)), [133, 470])
+        s.toggleFavorite(speciesID: 470)
+        XCTAssertTrue(s.isFavorite(speciesID: 470))
+        XCTAssertEqual(Set(s.filteredDexSpecies(favoritesOnly: true).map(\.id)), [470])
+        XCTAssertEqual(s.filteredDexEntries(favoritesOnly: true).map(\.id), ["leafeon"], "its individuals in the log")
         XCTAssertEqual(s.catchLogItems(favoritesOnly: true).count, 1)
-        s.toggleFavorite(try entry(s, "leafeon"))
+        s.toggleFavorite(speciesID: 470)
         XCTAssertTrue(s.filteredDexEntries(favoritesOnly: true).isEmpty)
     }
 
-    /// The ♥ filter of the Capsules, the Mints and the team screens; a liked copy stands for its species' cell.
+    /// A species an evolution went through can be liked too: Eevee, Leafeon's first stage, though no Eevee graduated.
+    func testASpeciesAnEvolutionWentThroughCanBeLiked() throws {
+        let (s, _) = try store()
+        XCTAssertTrue(s.canFavorite(speciesID: 133))
+        s.toggleFavorite(speciesID: 133)
+        XCTAssertEqual(Set(s.filteredDexSpecies(favoritesOnly: true).map(\.id)), [133])
+        XCTAssertTrue(s.filteredDexEntries(favoritesOnly: true).isEmpty, "no individual graduated as Eevee")
+        XCTAssertFalse(s.canFavorite(speciesID: 150), "a species never graduated is not liked")
+        s.toggleFavorite(speciesID: 150)
+        XCTAssertFalse(s.isFavorite(speciesID: 150))
+    }
+
+    /// The ♥ filter of the Capsules, the Mints and the team screens keeps the liked species' individuals.
     func testTheFavoritesFilterEveryScreenThatListsThePokemon() throws {
         let (s, _) = try store()
-        s.toggleFavorite(try entry(s, "leafeon"))
+        s.toggleFavorite(speciesID: 470)
         XCTAssertEqual(s.itemTargets(.goldCapsule, query: "", shinyOnly: false, favoritesOnly: true, sort: .strongest).map(\.id),
                        ["leafeon"])
         XCTAssertEqual(s.itemTargets(.mint, query: "", shinyOnly: false, favoritesOnly: true, sort: .strongest).map(\.id),
@@ -63,37 +75,19 @@ final class FavoriteTests: XCTestCase {
         XCTAssertGreaterThan(s.itemTargets(.goldCapsule, query: "", shinyOnly: false, sort: .strongest).count, 1, "unfiltered, all")
         XCTAssertTrue(s.matches(try entry(s, "leafeon"), .favorite))
         XCTAssertFalse(s.matches(try entry(s, "vaporeon"), .favorite))
-        // Two copies of one species: the liked one stands for the cell, whatever their IVs.
-        let base = try entry(s, "vaporeon")
-        let strong = DexEntry(id: "strong", baseID: 133, finalID: 134, chainOrder: [133, 134], rarity: .rare,
-                              caughtAt: base.caughtAt, profile: base.profile.map { var p = $0; p.ivs.hp = 31; p.ivs.attack = 31; return p })
-        var weak = base
-        weak.profile?.ivs.hp = 0
-        XCTAssertEqual(DungeonTeamScreen.candidateGroups([strong, weak], picked: [], loops: [:]).first?.entry.id, "strong")
-        XCTAssertEqual(DungeonTeamScreen.candidateGroups([strong, weak], picked: [], loops: [:], favorites: ["vaporeon"])
-            .first?.entry.id, "vaporeon")
-    }
-
-    func testOnlyAGraduatedPokemonIsLiked() throws {
-        let (s, _) = try store()
-        let sentOff = try entry(s, "sent-off")
-        XCTAssertFalse(s.canFavorite(sentOff))
-        s.toggleFavorite(sentOff)
-        XCTAssertTrue(s.state.favoriteIDs.isEmpty)
-        XCTAssertTrue(s.canFavorite(try entry(s, "raichu")))
     }
 
     func testTheFavoritesAreSavedAndAnOldSaveHasNone() throws {
         let (s, url) = try store()
-        s.toggleFavorite(try entry(s, "raichu"))
+        s.toggleFavorite(speciesID: 26)
         let (reloaded, _) = try store(file: url)
-        XCTAssertTrue(reloaded.isFavorite(try entry(reloaded, "raichu")))
+        XCTAssertTrue(reloaded.isFavorite(speciesID: 26))
         // A save from before the favorites.
         let old = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
-            .filter { $0.key != "favoriteIDs" }
+            .filter { $0.key != "favoriteSpecies" }
         try JSONSerialization.data(withJSONObject: old).write(to: url)
         let (before, _) = try store(file: url)
-        XCTAssertTrue(before.state.favoriteIDs.isEmpty)
+        XCTAssertTrue(before.state.favoriteSpecies.isEmpty)
         XCTAssertEqual(before.state.dex.count, 4)
     }
 }

@@ -421,16 +421,13 @@ struct TeamCandidateList: View {
         let total: Int
     }
     @State private var infos: [String: Info] = [:]
-    @State private var page = 0
-    static let pageSize = 6
 
     var body: some View {
         let l = store.l
         let all = store.dungeonCandidates
         let searched = CompanionStore.DexSearchMatcher(query).map { matcher in all.filter { matcher.matches($0) } } ?? all
         let shown = filter.map { f in searched.filter { store.matches($0, f) } } ?? searched
-        let groups = DungeonTeamScreen.candidateGroups(shown, picked: team, loops: store.dungeonProgress.moveLoops,
-                                                       favorites: store.state.favoriteIDs)
+        let groups = DungeonTeamScreen.candidateGroups(shown, picked: team, loops: store.dungeonProgress.moveLoops)
         let rows = groups.map { group in
             (entry: group.entry, count: group.count,
              refusal: rules.first { !DungeonTeamRules.admits(DungeonCandidate(group.entry), rules: [$0]) })
@@ -441,22 +438,13 @@ struct TeamCandidateList: View {
             if rows.isEmpty {
                 Text(l.dungeonNoCandidate).font(.caption).foregroundStyle(.secondary)
             } else {
-                // Six to a page, the best here first: the list ran over some 470 lines (#183).
-                let pageCount = Paging.pageCount(rows.count, size: Self.pageSize)
-                VStack(spacing: 6) {
-                    LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 6), count: 3), spacing: 6) {
-                        ForEach(Paging.slice(rows, page: page, size: Self.pageSize), id: \.entry.id) { row in
-                            CandidateRow(store: store, entry: row.entry, count: row.count, refusal: row.refusal,
-                                         info: infos[row.entry.id], size: size, taken: taken, team: $team, focus: $focus)
-                        }
-                    }
-                    HStack {
-                        Spacer()
-                        PageControl(page: $page, pageCount: pageCount, l: l)
+                // A grid, the best here first, in one list (the owner, 2026-11-18: no pages).
+                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 6), count: 3), spacing: 6) {
+                    ForEach(rows, id: \.entry.id) { row in
+                        CandidateRow(store: store, entry: row.entry, count: row.count, refusal: row.refusal,
+                                     info: infos[row.entry.id], size: size, taken: taken, team: $team, focus: $focus)
                     }
                 }
-                .onChange(of: query) { page = 0 }
-                .onChange(of: filter) { page = 0 }
             }
         }
         .task(id: "\(dungeon?.rawValue ?? "")|\(all.count)|\(store.dungeonProgress.moveLoops.count)") { await loadInfos(all) }

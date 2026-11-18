@@ -1622,22 +1622,24 @@ final class CompanionStore {
 
     // MARK: Favorites
 
-    /// Only a graduated Pokémon is liked: not the one being raised, nor one sent off (the owner, 2026-11-17).
-    func canFavorite(_ entry: DexEntry) -> Bool { !entry.isReleased && !isActiveDexEntry(entry) }
+    /// A species in the graduated Pokédex can be liked, a Charmander its Charizard went through too (the owner,
+    /// 2026-11-18: by species).
+    func canFavorite(speciesID: Int) -> Bool { graduatedSpeciesIDs.contains(speciesID) }
 
-    func isFavorite(_ entry: DexEntry) -> Bool { canFavorite(entry) && state.favoriteIDs.contains(entry.id) }
+    func isFavorite(speciesID: Int) -> Bool { state.favoriteSpecies.contains(speciesID) }
 
-    /// Likes a graduated Pokémon, or unlikes it.
-    func toggleFavorite(_ entry: DexEntry) {
-        guard canFavorite(entry) else { return }
-        if state.favoriteIDs.contains(entry.id) { state.favoriteIDs.remove(entry.id) } else { state.favoriteIDs.insert(entry.id) }
+    /// An individual shows under the ♥ filter when the species it graduated as is liked.
+    func isFavorite(_ entry: DexEntry) -> Bool { !entry.isReleased && state.favoriteSpecies.contains(entry.finalID) }
+
+    /// Likes a species, or unlikes it.
+    func toggleFavorite(speciesID: Int) {
+        guard canFavorite(speciesID: speciesID) || isFavorite(speciesID: speciesID) else { return }
+        if state.favoriteSpecies.contains(speciesID) { state.favoriteSpecies.remove(speciesID) } else { state.favoriteSpecies.insert(speciesID) }
         save()
     }
 
-    /// The species a liked Pokémon went through: the Pokédex grid's ♥ filter, its page listing it.
-    var favoriteSpeciesIDs: Set<Int> {
-        Set(state.dex.filter { isFavorite($0) }.flatMap(\.chainOrder))
-    }
+    /// The species liked, and only those: the Pokédex's ♥ filter (the owner, 2026-11-18: no evolution along).
+    var favoriteSpeciesIDs: Set<Int> { state.favoriteSpecies }
 
     /// Filters and sorts DexSpecies for the Pokédex grid.
     func filteredDexSpecies(

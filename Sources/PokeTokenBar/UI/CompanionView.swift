@@ -1433,9 +1433,6 @@ struct CollectionView: View {
     @State private var evolutionFamily = false
     @State private var dexSort: CompanionStore.DexSortOption = .numberAsc
     @State private var logSort: CompanionStore.CatchLogSortOption = .recentFirst
-    /// The catch log's page: ten cards a page rather than one scroll of 244 screens (#183).
-    @State private var logPage = 0
-    private static let logPageSize = 10
     /// The species whose detail page was just closed. The detail page replaces the grid, so Back
     /// rebuilds it; this makes it reopen on that species' page instead of page 1. Used once, and set
     /// only when Back lands on the grid: the grid's appearance is what clears it.
@@ -1518,8 +1515,8 @@ struct CollectionView: View {
                                 returnAnchor: dexReturnAnchor.flatMap { anchor in
                                     store.dexSpecies.first { $0.collectionID == anchor }?.id
                                 },
+                                onReturnAnchorUsed: { dexReturnAnchor = nil },
                                 onSelectSpecies: { sp in nav.dexDetailCollectionID = sp.collectionID })
-                        .onAppear { dexReturnAnchor = nil }
                 }
             }
             .frame(height: Self.contentHeight)
@@ -1710,13 +1707,11 @@ struct CollectionView: View {
             if entries.isEmpty {
                 emptySearchResults
             } else {
-                let pageCount = Paging.pageCount(entries.count, size: Self.logPageSize)
-                let page = Paging.clamped(logPage, count: entries.count, size: Self.logPageSize)
                 ScrollViewReader { proxy in
                     ScrollView {
                         LazyVStack(alignment: .leading, spacing: 8) {
                             Color.clear.frame(height: 0).id("dexTop")
-                            ForEach(Paging.slice(entries, page: page, size: Self.logPageSize)) { item in
+                            ForEach(entries) { item in
                                 switch item {
                                 case .entry(let entry):
                                     // Keeps the segment, so Back from the detail page returns to the log.
@@ -1749,34 +1744,21 @@ struct CollectionView: View {
                     }
                     // 필터·검색·정렬 변경 시 새 결과를 처음부터 보여준다.
                     .onChange(of: selectedRarity) {
-                        logPage = 0
                         withAnimation(.easeInOut(duration: 0.2)) { proxy.scrollTo("dexTop", anchor: .top) }
                     }
                     .onChange(of: searchText) {
-                        logPage = 0
                         withAnimation(.easeInOut(duration: 0.2)) { proxy.scrollTo("dexTop", anchor: .top) }
                     }
                     .onChange(of: shinyOnly) {
-                        logPage = 0
                         withAnimation(.easeInOut(duration: 0.2)) { proxy.scrollTo("dexTop", anchor: .top) }
                     }
                     .onChange(of: evolutionFamily) {
-                        logPage = 0
                         withAnimation(.easeInOut(duration: 0.2)) { proxy.scrollTo("dexTop", anchor: .top) }
                     }
                     .onChange(of: logSort) {
-                        logPage = 0
                         withAnimation(.easeInOut(duration: 0.2)) { proxy.scrollTo("dexTop", anchor: .top) }
                     }
-                    .onChange(of: favoritesOnly) {
-                        logPage = 0
-                        proxy.scrollTo("dexTop", anchor: .top)
-                    }
-                    .onChange(of: logPage) { proxy.scrollTo("dexTop", anchor: .top) }
-                }
-                HStack {
-                    Spacer()
-                    PageControl(page: $logPage, pageCount: pageCount, l: store.l)
+                    .onChange(of: favoritesOnly) { proxy.scrollTo("dexTop", anchor: .top) }
                 }
             }
         }
@@ -1990,8 +1972,9 @@ struct FullDexView: View {
     }
     /// The caught species' order: by number they stand in their regions, any other order in one grid.
     var sort: CompanionStore.DexSortOption = .numberAsc
-    /// The species whose page was just closed: the list comes back to it.
+    /// The species whose page was just closed: the list comes back to it, then `onReturnAnchorUsed` clears it.
     var returnAnchor: Int? = nil
+    var onReturnAnchorUsed: () -> Void = {}
     let onSelectSpecies: (CompanionStore.DexSpecies) -> Void
     @State private var folded: Set<Int> = []
 
@@ -2051,8 +2034,14 @@ struct FullDexView: View {
                 .frame(maxHeight: .infinity)
                 .task(id: returnAnchor) {
                     guard let returnAnchor else { return }
-                    try? await Task.sleep(for: .milliseconds(50))
+                    // Cleared only once scrolled to: cleared on appear, the wait was cancelled and the scroll ran
+                    // before the grid had its layout, landing mid-page (the owner, 2026-11-18, back from Charizard).
+                    // The lazy cells measured after the first scroll move it, so it scrolls again.
+                    do { try await Task.sleep(for: .milliseconds(60)) } catch { return }
                     proxy.scrollTo(returnAnchor, anchor: .center)
+                    do { try await Task.sleep(for: .milliseconds(60)) } catch { return }
+                    proxy.scrollTo(returnAnchor, anchor: .center)
+                    onReturnAnchorUsed()
                 }
             }
         }
@@ -2895,10 +2884,15 @@ struct PokemonDetailView: View {
                     if displayedShiny { Text("✨ \(store.l.dexShinyLabel)").font(.callout) }
                     if let individual, store.isActiveDexEntry(individual) { Text(store.l.dexRaising).font(.callout).foregroundStyle(Color.accentColor) }
                     let isRepresentative = store.isRepresentative(species)
-                    RepresentativeFooterButton(localization: store.l,
-                                               isRepresentative: isRepresentative) {
-                        _ = store.setRepresentativeSpeciesID(isRepresentative ? nil : species.id,
-                                                             form: species.form)
+                    HStack(spacing: 6) {
+                        RepresentativeFooterButton(localization: store.l,
+                                                   isRepresentative: isRepresentative) {
+                            _ = store.setRepresentativeSpeciesID(isRepresentative ? nil : species.id,
+                                                                 form: species.form)
+                        }
+                        if store.canFavorite(speciesID: species.id) || store.isFavorite(speciesID: species.id) {
+                            favoriteButton
+                        }
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -3055,16 +3049,15 @@ struct PokemonDetailView: View {
         } ?? (store.isActiveDexEntry(entry) ? store.l.dexRaising : "-")
         let costume = entry.costume.flatMap { CostumeCatalog.entry(code: $0, speciesID: species.id, form: entry.form) }
             .map { " · 🎭 \(store.l.monthName($0.month))" } ?? ""
-        let liked = store.isFavorite(entry) ? "♥ " : ""
-        return "\(liked)#\(index + 1) · \(appearance)\(costume) · Lv. \(entry.profile?.level ?? 5) · \(date)"
+        return "#\(index + 1) · \(appearance)\(costume) · Lv. \(entry.profile?.level ?? 5) · \(date)"
     }
 
-    /// Likes this graduated Pokémon, or unlikes it: the ♥ filter of the Pokédex and the catch log.
-    private func favoriteButton(_ entry: DexEntry) -> some View {
-        let liked = store.isFavorite(entry)
+    /// Likes this species, or unlikes it: the ♥ filter of the Pokédex, the catch log, the teams and the Capsules.
+    private var favoriteButton: some View {
+        let liked = store.isFavorite(speciesID: species.id)
         let label = liked ? store.l.favoriteRemove : store.l.favoriteAdd
         return Button {
-            withAnimation(.easeInOut(duration: 0.15)) { store.toggleFavorite(entry) }
+            withAnimation(.easeInOut(duration: 0.15)) { store.toggleFavorite(speciesID: species.id) }
         } label: {
             // Filled or not says it, not the pink alone.
             Image(systemName: liked ? "heart.fill" : "heart")
@@ -3085,7 +3078,6 @@ struct PokemonDetailView: View {
             HStack {
                 detailTitle(store.l.pokemonIndividual)
                 Spacer()
-                if store.canFavorite(entry) { favoriteButton(entry) }
             }
             HStack(spacing: 12) {
                 valuePair(store.l.level, "\(profile.level)")
