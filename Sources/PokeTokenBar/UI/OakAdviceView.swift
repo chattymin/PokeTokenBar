@@ -241,7 +241,8 @@ struct OakAdviceScreen: View {
                                       + l.shinyOddsChange(from: odds.now, to: odds.withCharm))
                     }
                     SectionTitle(text: l.oakWhyTitle)
-                    let eggs = l.oakWhyEgg(rare: l.eggName(.rare), uncommon: l.eggName(.uncommon), amber: l.itemName(.oldAmber))
+                    let eggs = l.oakWhyEgg(rare: l.eggName(.rare), uncommon: l.eggName(.uncommon), amber: l.itemName(.oldAmber),
+                                plain: l.eggName(nil))
                     let dungeons = l.oakWhyDungeons(win: l.oddsPercent(50, share: CompanionStore.oakDungeonWin),
                                                     hall: l.oddsPercent(10, share: CompanionStore.oakHallWin),
                                                     hallName: l.dungeonName(.hallOfOrigin),
@@ -330,7 +331,7 @@ private struct OakWords {
             return l.oakRaise(name)
         case .release(let release):
             switch release {
-            case .bag(let kind, _): return l.oakUseFromBag(l.itemName(kind))
+            case .bag(let kind, _), .freeEgg(let kind, _): return l.oakUseFromBag(l.itemName(kind))
             case .claim(let egg, _): return l.oakClaimThenUse(l.itemName(egg.item))
             case .buy(let tier, _): return l.oakBuyThenUse(l.eggName(tier))
             case .wait(let tier, _, _): return l.oakKeepThenBuy(name, l.eggName(tier))
@@ -380,7 +381,7 @@ private struct OakWords {
     func place(_ step: OakStep) -> OakPlace? {
         switch step {
         case .raise, .release(.wait), .release(.finish), .stock: return nil
-        case .release(.bag), .release(.buy): return .bag
+        case .release(.bag), .release(.freeEgg), .release(.buy): return .bag
         case .release(.claim): return .home
         case .candies(_, let give, _): return give > 0 ? .bag : nil
         case .dungeon: return .dungeons
@@ -395,6 +396,10 @@ private struct OakWords {
         switch release {
         case .bag(_, let p):
             return l.oakSendsOff(name, odds: percent(p)) + amber
+        case .freeEgg(let kind, let p):
+            let plain = l.eggName(nil)
+            let why = kind == .pokemonEgg ? l.oakHeldEggIsTheSameDraw(plain) : l.oakHeldEggStandsIn(plain)
+            return why + " " + l.oakSendsOff(name, odds: percent(p)) + amber
         case .claim(_, let p):
             return l.oakClaimWaits + " " + l.oakSendsOff(name, odds: percent(p)) + amber
         case .buy(let tier, let p):

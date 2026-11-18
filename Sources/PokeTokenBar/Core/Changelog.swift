@@ -67,6 +67,17 @@ enum Changelog {
 
     static let days: [ChangelogDay] = [
         ChangelogDay(date: "2026-11-18", entries: [
+            .new("2026-11-18-oak-free-eggs") { l in
+                let egg = l.itemName(.pokemonEgg)
+                return l.t("상점에 더 나은 알이 없거나 아직 살 수 없을 때, 오박사가 이제 가방에 이미 있는 알로 남는 포켓몬을 바로 놓아주라고 해요: \(KoreanParticle.subject.attach(to: egg)) 졸업 때 받는 알과 똑같이 뽑아요.",
+                           "When the Shop has no better egg, or you cannot afford it yet, Prof. Oak now has you send a duplicate off for an egg already in your Bag, right away: the \(egg) draws just what its graduation gives.",
+                           "ショップにもっと良いタマゴがないときや、まだ買えないときは、オーキド博士がバッグにあるタマゴですぐ余ったポケモンを手放すよう勧めます：\(egg)は卒業でもらえるタマゴと同じ抽選です。",
+                           "Cuando la tienda no tiene un huevo mejor, o aún no puedes pagarlo, el Profesor Oak te hace soltar ya un Pokémon repetido por un huevo que ya está en tu Bolsa: el \(egg) saca lo mismo que su graduación.",
+                           "Quand la Boutique n'a pas d'œuf meilleur, ou que tu ne peux pas encore te l'offrir, le Prof. Chen te fait relâcher tout de suite un doublon contre un œuf déjà dans ton Sac : l'\(egg) fait le même tirage que son diplôme.",
+                           "Quando a loja não tem um ovo melhor, ou você ainda não pode pagá-lo, o Prof. Carvalho manda soltar já um Pokémon repetido por um ovo que já está na sua Bolsa: o \(egg) sorteia o mesmo que a formatura.",
+                           "Wenn der Laden kein besseres Ei hat oder du es dir noch nicht leisten kannst, lässt Prof. Eich dich ein doppeltes Pokémon sofort für ein Ei freilassen, das schon in deinem Beutel liegt: Das \(egg) zieht dasselbe wie sein Abschied.",
+                           "Когда в магазине нет яйца получше или вы пока не можете его купить, профессор Оук сразу советует отпустить повторного покемона ради яйца, которое уже лежит в сумке: \"\(egg)\" даёт тот же розыгрыш, что и выпуск.")
+            },
             .fixed("2026-11-18-check-now", { $0.t("설정의 \"지금 확인\"이 팝오버가 이미 업데이트를 찾는 중일 때도 \"최신 버전\"이라고 하지 않고, 그 결과를 기다려 보여 줘요.",
                                                   "Settings' \"Check now\" no longer says you are up to date while the popover is already looking for an update: it waits for that answer.",
                                                   "設定の「今すぐ確認」は、ポップオーバーがすでにアップデートを探している間も「最新」と言わず、その結果を待って表示します。",

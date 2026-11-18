@@ -31,13 +31,16 @@ enum OakRelease: Equatable, Sendable {
     case buy(Rarity?, odds: Double)
     /// That egg once the balance holds its price, `short` tokens away: the Spare is raised meanwhile.
     case wait(Rarity?, odds: Double, short: Int)
+    /// An egg the Bag holds that does not beat the Pokémon Egg, with odds above 0: used now, rather than awaiting the
+    /// balance or letting the Spare finish.
+    case freeEgg(ItemKind, odds: Double)
     /// The Spare raised to graduation, `left` growth away.
     case finish(left: Int, why: OakFinish)
 
     /// The egg the Spare goes for now, nil while it is raised.
     var egg: ItemKind? {
         switch self {
-        case .bag(let kind, _): return kind
+        case .bag(let kind, _), .freeEgg(let kind, _): return kind
         case .claim(let event, _): return event.item
         case .buy(let tier, _): return ItemKind(shopEgg: tier)
         case .wait, .finish: return nil
@@ -165,7 +168,9 @@ extension CompanionStore {
     /// What to send the Pokémon raised off for: a Spare only, nil for any other and before the index is loaded. Only
     /// for an egg that brings something more often than the Pokémon Egg its graduation gives, and while it has grown
     /// less than it has left to grow, what the Old Amber carries to that egg's draws aside. The Bag's egg with the best odds, an event egg to
-    /// claim included, the first in the Bag on a tie; else the most selective Shop egg, bought or awaited.
+    /// claim included, the first in the Bag on a tie; else the most selective Shop egg, bought or awaited, unless the Bag
+    /// holds an egg with some odds that does not beat the Pokémon Egg, the Pokémon Egg included: it replaces the wait
+    /// and a Spare left to finish for lack of a better egg, within the same window.
     var oakRelease: OakRelease? {
         guard activeVerdict == .spare, let index = hatchIndex, let growth = spareGrowth else { return nil }
         let left = growth.total - growth.grown
@@ -187,12 +192,24 @@ extension CompanionStore {
         if let best, let egg = best.egg {
             return sendsOff(for: egg, grown: growth.grown) ? best : .finish(left: left, why: .tooFarAlong)
         }
+        func heldEgg() -> OakRelease? {
+            var spare: OakRelease?
+            var spareOdds = 0.0
+            for kind in ItemKind.allCases where !kind.isRetired && canSendOff(for: kind) {
+                guard let odds = newOdds(kind, index: index, news: news), odds > spareOdds else { continue }
+                spare = .freeEgg(kind, odds: odds)
+                spareOdds = odds
+            }
+            guard let spare, let egg = spare.egg, sendsOff(for: egg, grown: growth.grown) else { return nil }
+            return spare
+        }
         guard let (tier, odds) = shopEgg(index: index, news: news), let egg = ItemKind(shopEgg: tier) else {
-            return .finish(left: left, why: .noBetterEgg)
+            return heldEgg() ?? .finish(left: left, why: .noBetterEgg)
         }
         guard sendsOff(for: egg, grown: growth.grown) else { return .finish(left: left, why: .tooFarAlong) }
         let short = price(of: .egg(tier)) - availableTokens
         guard short > 0 else { return .buy(tier, odds: odds) }
+        if let held = heldEgg() { return held }
         return sendsOff(for: egg, grown: growth.grown + Int(Double(short) * growth.perToken))
             ? .wait(tier, odds: odds, short: short) : .finish(left: left, why: .outgrowsTheWait)
     }
