@@ -312,7 +312,11 @@ extension L {
         case .event(let event, _): return ItemKind.allCases.first { EventEgg(item: $0) == event }.map(itemName) ?? eggName(nil)
         // By the Pokémon it hatches; the Luck screen names it as the Bag does (`DungeonEggTitle`).
         case .dungeon(let baseID, _, _): return eggOf("#\(baseID)")
-        default: return ItemKind.allCases.first { HatchEgg(item: $0) == egg }.map(itemName) ?? eggName(nil)
+        case .costume(let code, let speciesID):
+            return CostumeCatalog.entries.first { $0.code == code && $0.speciesID == speciesID }
+                .map { costumeEggName($0.month) } ?? eggName(nil)
+        case .tier, .stone, .legendary, .typeNull, .birthday, .fossil:
+            return ItemKind.allCases.first { HatchEgg(item: $0) == egg }.map(itemName) ?? eggName(nil)
         }
     }
 

@@ -90,6 +90,20 @@ final class LuckTextTests: XCTestCase {
         XCTAssertEqual(fr.hatchEggName(.event(.summer, key: "summer@2026")), fr.itemName(summer))
     }
 
+    func testACostumeEggIsNamedAsTheBagNamesIt() throws {
+        let costumes = [("FALL_2022", 37, 10), ("GOFEST_2021_NOEVOLVE", 263, 6)]
+        for (code, speciesID, month) in costumes {
+            XCTAssertNotNil(CostumeCatalog.entries.first { $0.code == code && $0.speciesID == speciesID && $0.month == month })
+            for language in AppLanguage.allCases {
+                let l = L(language)
+                let name = l.hatchEggName(.costume(code: code, speciesID: speciesID))
+                XCTAssertEqual(name, l.costumeEggName(month), "\(code) \(language)")
+                XCTAssertNotEqual(name, l.eggName(nil), "\(code) \(language)")
+            }
+        }
+        XCTAssertEqual(fr.hatchEggName(.costume(code: "RETIRED_COSTUME", speciesID: 133)), fr.eggName(nil))
+    }
+
     /// The shiny criterion uses the app's own word in each language.
     func testShinyIsTheAppsWord() {
         XCTAssertEqual(fr.luckCriterion(.shiny), "Chromatiques")
