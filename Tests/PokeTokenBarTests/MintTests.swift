@@ -82,13 +82,14 @@ final class MintTests: XCTestCase {
         XCTAssertEqual(reloaded.itemCount(.mint), 1)
     }
 
-    /// 20M in the Shop as the players see it, with the dungeons' items; bought back for a third.
+    /// 20M in the Shop as the players see it, in the raising tab for the graduated Pokémon; bought back for a third.
     func testTheShopSellsItAgain() throws {
         let s = try store(mints: 0, used: 400_000_000, difficulty: PokemonBalance.difficulty)
         XCTAssertFalse(ItemKind.mint.isRetired)
         XCTAssertEqual(s.price(of: .mint), 20_000_000)
         XCTAssertTrue(s.purchasableItems.contains(.mint))
-        XCTAssertEqual(CompanionStore.bagSection(of: .mint), .dungeons)
+        XCTAssertEqual(CompanionStore.bagSection(of: .mint), .graduated, "beside the raising, no longer the dungeons' (#183)")
+        XCTAssertEqual(BagView.Section.of(.mint), .raising)
         XCTAssertTrue(s.buy(.mint))
         XCTAssertEqual(s.itemCount(.mint), 1)
         XCTAssertTrue(TravellingMerchant.wares.contains(.mint))

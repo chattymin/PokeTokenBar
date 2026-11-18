@@ -11,10 +11,10 @@ struct CostumeEggCard: View {
     var body: some View {
         let l = store.l
         let name = l.costumeEggName(egg.month)
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: Design.productCardSpacing) {
             HStack(alignment: .center, spacing: 10) {
                 SpriteView(speciesID: nil, size: 30, egg: .costume(egg.month))
-                VStack(alignment: .leading, spacing: 3) {
+                VStack(alignment: .leading, spacing: Design.productTextSpacing) {
                     Text(name).font(.callout.weight(.semibold)).lineLimit(1)
                     HStack(spacing: 4) {
                         SpriteView(speciesID: egg.speciesID, size: 22, form: egg.entry?.displayForm, sameScale: true)
@@ -25,6 +25,7 @@ struct CostumeEggCard: View {
                     }
                     if store.hasActive {
                         Text(l.eggReleaseNote).font(.caption2).foregroundStyle(.tertiary)
+                            .lineSpacing(Design.productLineSpacing)
                             .fixedSize(horizontal: false, vertical: true)
                     }
                 }
@@ -37,8 +38,7 @@ struct CostumeEggCard: View {
                 store.useCostumeEgg(egg.id)
             }
         }
-        .padding(12)
-        .designSurface(cornerRadius: Design.cornerRadius)
+        .productCard()
     }
 }
 

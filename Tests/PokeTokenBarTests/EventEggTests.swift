@@ -113,7 +113,7 @@ final class EventEggTests: XCTestCase {
             XCTAssertEqual(EventEgg(item: egg.item), egg)
             XCTAssertNil(egg.item.shopPrice, "\(egg) is never sold")
             XCTAssertFalse(egg.item.isAchievement)
-            XCTAssertEqual(BagView.Section.of(egg.item), .items)
+            XCTAssertEqual(BagView.Section.of(egg.item), .raising)
         }
         XCTAssertNil(EventEgg(item: .birthdayEgg))
     }
