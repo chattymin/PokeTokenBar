@@ -67,6 +67,14 @@ enum Changelog {
 
     static let days: [ChangelogDay] = [
         ChangelogDay(date: "2026-11-18", entries: [
+            .fixed("2026-11-18-check-now", { $0.t("설정의 \"지금 확인\"이 팝오버가 이미 업데이트를 찾는 중일 때도 \"최신 버전\"이라고 하지 않고, 그 결과를 기다려 보여 줘요.",
+                                                  "Settings' \"Check now\" no longer says you are up to date while the popover is already looking for an update: it waits for that answer.",
+                                                  "設定の「今すぐ確認」は、ポップオーバーがすでにアップデートを探している間も「最新」と言わず、その結果を待って表示します。",
+                                                  "\"Comprobar ahora\" en Ajustes ya no dice que estás al día mientras el panel ya busca una actualización: espera esa respuesta.",
+                                                  "\"Vérifier maintenant\" dans les Réglages ne dit plus que tu es à jour pendant que le popover cherche déjà une mise à jour : il attend sa réponse.",
+                                                  "\"Buscar agora\" nos Ajustes não diz mais que está tudo atualizado enquanto o painel já procura uma atualização: ele espera essa resposta.",
+                                                  "\"Jetzt prüfen\" in den Einstellungen meldet nicht mehr, dass alles aktuell ist, während das Popover schon nach einem Update sucht: Es wartet auf dessen Antwort.",
+                                                  "\"Проверить сейчас\" в настройках больше не говорит, что всё обновлено, пока окно уже ищет обновление: оно ждёт этого ответа.") }),
             .fixed("2026-11-18-tier-badges", { $0.t("던전 목록의 등급 배지(T1~T5)가 잘 보여요. 밝은 회색 위 흰 글자 대신 연한 배지 위 회색 글자예요.",
                                                     "The dungeons' tier badges (T1 to T5) are easy to read: gray text on a pale badge instead of white on light gray.",
                                                     "ダンジョンのランクバッジ（T1〜T5）が読みやすくなりました。明るい灰色に白い文字ではなく、淡いバッジに灰色の文字です。",

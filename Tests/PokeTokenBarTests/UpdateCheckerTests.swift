@@ -175,6 +175,37 @@ final class UpdateCheckerTests: XCTestCase {
         XCTAssertEqual(same?.sha, green.sha, "the installed one itself")
     }
 
+    /// [Regression] The owner, 2026-11-18: "Vérifier" clicked while the popover's own check was asking GitHub said up
+    /// to date at once. A check under way is waited for: the click reads its answer.
+    @MainActor
+    func testACheckClickedDuringAnotherWaitsForItsAnswer() async {
+        let installed = "d" + String(repeating: "0", count: 39)
+        let newer = "e" + String(repeating: "0", count: 39)
+        var release: CheckedContinuation<Void, Never>?
+        var calls = 0
+        let checker = UpdateChecker(currentCommit: installed, defaults: isolatedDefaults(),
+                                    updateStatusURL: FileManager.default.temporaryDirectory
+                                        .appendingPathComponent("ptb-update-\(UUID().uuidString)"),
+                                    fetchLatest: {
+                                        calls += 1
+                                        await withCheckedContinuation { release = $0 }
+                                        return UpdateChecker.LatestCommit(
+                                            sha: newer, url: "https://github.com/KillianHzr/PokeTokenLBI/commit/\(newer)")
+                                    })
+        let popover = Task { await checker.check() }
+        while release == nil { await Task.yield() }
+        let click = Task { () -> UpdateChecker.Available? in
+            await checker.check(minInterval: 0)
+            return checker.available
+        }
+        for _ in 0..<5 { await Task.yield() }
+        release?.resume()
+        let seen = await click.value
+        await popover.value
+        XCTAssertEqual(seen?.sha, newer, "the click reads the answer of the check under way")
+        XCTAssertEqual(calls, 1, "one request for both")
+    }
+
     /// What the walk returns for an older commit reads as no update.
     @MainActor
     func testTheInstalledCommitReturnedIsNoUpdate() async {
@@ -291,11 +322,15 @@ final class UpdateCheckerTests: XCTestCase {
         }
         let first = Task { await checker.check(minInterval: 1_800) }
         while release == nil { await Task.yield() }
-        await checker.check(minInterval: 1_800)
-        XCTAssertEqual(fetches, 1, "a check while one is in flight returns without fetching")
+        // A check while one is in flight waits for its answer (2026-11-18), without a fetch of its own.
+        let second = Task { await checker.check(minInterval: 1_800) }
+        for _ in 0..<5 { await Task.yield() }
+        XCTAssertEqual(fetches, 1, "a check while one is in flight does not fetch")
 
         release?.resume()
         await first.value
+        await second.value
+        XCTAssertEqual(fetches, 1, "it read the in-flight check's answer")
         now = now.addingTimeInterval(UpdateChecker.failedCheckInterval)
         await checker.check(minInterval: 1_800)
         XCTAssertEqual(fetches, 2, "once the in-flight check finished (failed), the next one fetches")
