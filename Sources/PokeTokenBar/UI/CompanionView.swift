@@ -1397,23 +1397,20 @@ struct DexSummaryHeader: View {
                 Text(store.l.dexTotal(store.dexEntries.count))
                     .font(.caption).foregroundStyle(.secondary)
             }
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 4) {
-                    ForEach(rarityDisplayOrder, id: \.self) { r in
-                        let count = store.dexCount(r)
-                        Button { onSelect(r) } label: {
-                            RarityTally(
-                                label: store.l.rarityLabel(r), count: count, color: rarityColor(r),
-                                isSelected: selected == r)
-                        }
-                        .buttonStyle(.plain)
-                        .disabled(count == 0)          // 0마리 희귀도는 필터 불가
-                        .hoverTip(store.l.dexFilterHint)
+            // Wrapped rather than scrolled sideways: the last ones were cut with nothing to say so (#183).
+            WrappingHStack(spacing: 4, lineSpacing: 4) {
+                ForEach(rarityDisplayOrder, id: \.self) { r in
+                    let count = store.dexCount(r)
+                    Button { onSelect(r) } label: {
+                        RarityTally(
+                            label: store.l.rarityLabel(r), count: count, color: rarityColor(r),
+                            isSelected: selected == r)
                     }
+                    .buttonStyle(.plain)
+                    .disabled(count == 0)          // 0마리 희귀도는 필터 불가
+                    .hoverTip(store.l.dexFilterHint)
                 }
-                .fixedSize(horizontal: true, vertical: false)
             }
-            .fixedSize(horizontal: false, vertical: true)
         }
     }
 }
@@ -1930,7 +1927,7 @@ struct DexScrollPager {
 
 /// Background view that feeds scroll events over its bounds to `onStep`. A local monitor (not a
 /// `scrollWheel(with:)` override) keeps clicks and hover on the cells above it untouched.
-private struct ScrollWheelPager: NSViewRepresentable {
+struct ScrollWheelPager: NSViewRepresentable {
     let onStep: (Int) -> Void
 
     func makeNSView(context: Context) -> PagerView { PagerView() }
@@ -2105,7 +2102,7 @@ struct FullDexView: View {
                             let count = range.filter { species[$0]?.rarity == rarity }.count
                             if count > 0 {
                                 HStack(spacing: 3) {
-                                    Circle().fill(rarityColor(rarity)).frame(width: 6, height: 6)
+                                    Circle().fill(rarityColor(rarity)).frame(width: 8, height: 8)
                                     Text("\(count)").font(.caption2.monospacedDigit())
                                 }
                                 .hoverTip(store.l.rarityLabel(rarity))
@@ -2146,7 +2143,7 @@ struct FullDexView: View {
                         }
                     // Its rarity in a dot before its number.
                     HStack(spacing: 3) {
-                        Circle().fill(rarityColor(species.rarity)).frame(width: 7, height: 7)
+                        Circle().fill(rarityColor(species.rarity)).frame(width: 8, height: 8)
                         Text(number).font(.system(size: 10, weight: .semibold).monospacedDigit())
                     }
                 }
@@ -2321,28 +2318,24 @@ private struct DexGridView: View {
             }
             .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
             .lineLimit(1).minimumScaleFactor(0.8)
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 4) {
-                    ForEach(rarityDisplayOrder, id: \.self) { r in
-                        let count = all.lazy.filter { $0.rarity == r }.count
-                        Button {
-                            withAnimation(.easeInOut(duration: 0.15)) {
-                                selectedRarity = (selectedRarity == r) ? nil : r
-                                page = 0
-                                selectedID = nil
-                            }
-                        } label: {
-                            RarityTally(label: store.l.rarityLabel(r), count: count, total: totals?[r],
-                                        color: rarityColor(r), isSelected: selectedRarity == r)
+            WrappingHStack(spacing: 4, lineSpacing: 4) {
+                ForEach(rarityDisplayOrder, id: \.self) { r in
+                    let count = all.lazy.filter { $0.rarity == r }.count
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.15)) {
+                            selectedRarity = (selectedRarity == r) ? nil : r
+                            page = 0
+                            selectedID = nil
                         }
-                        .buttonStyle(.plain)
-                        .disabled(count == 0)
-                        .hoverTip(store.l.dexFilterHint)
+                    } label: {
+                        RarityTally(label: store.l.rarityLabel(r), count: count, total: totals?[r],
+                                    color: rarityColor(r), isSelected: selectedRarity == r)
                     }
+                    .buttonStyle(.plain)
+                    .disabled(count == 0)
+                    .hoverTip(store.l.dexFilterHint)
                 }
-                .fixedSize(horizontal: true, vertical: false)
             }
-            .fixedSize(horizontal: false, vertical: true)
         }
     }
 
@@ -3203,7 +3196,7 @@ private struct DexSpeciesCell: View {
 
     private var typeDots: some View {
         HStack(spacing: 3) {
-            ForEach(types.prefix(2), id: \.self) { type in Circle().fill(type.color).frame(width: 7, height: 7) }
+            ForEach(types.prefix(2), id: \.self) { type in Circle().fill(type.color).frame(width: 9, height: 9) }
         }
     }
 

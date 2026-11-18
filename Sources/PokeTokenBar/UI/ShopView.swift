@@ -135,7 +135,7 @@ private struct ShopItemCard: View {
                 Spacer()
                 if store.canBuy(kind) {
                     Button(l.buy) { confirming = true }
-                        .buttonStyle(.pill())
+                        .buttonStyle(.pill(prominent: true))
                 } else {
                     ShopMissing(store: store, total: price)
                 }
@@ -234,7 +234,7 @@ private struct EggCard: View {
                 Spacer()
                 if store.canBuyEgg(tier) {
                     Button(l.buy) { confirming = true }
-                        .buttonStyle(.pill())
+                        .buttonStyle(.pill(prominent: true))
                 } else {
                     ShopMissing(store: store, total: price)
                 }

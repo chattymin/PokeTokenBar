@@ -453,7 +453,7 @@ struct TypeChartScreen: View {
             GridRow {
                 Color.clear.frame(width: Self.label, height: 28)
                 ForEach(types, id: \.self) { defending in
-                    Text(short(defending, l)).font(.system(size: 7, weight: .bold))
+                    Text(short(defending, l)).font(.system(size: 9, weight: .bold))
                         .rotationEffect(.degrees(-90)).fixedSize()
                         .frame(width: Self.cell, height: 28)
                         .background(defending.color.opacity(selected == defending ? 0.6 : 0.3))
@@ -462,7 +462,7 @@ struct TypeChartScreen: View {
             }
             ForEach(types, id: \.self) { attacking in
                 GridRow {
-                    Text(short(attacking, l)).font(.system(size: 8, weight: .bold))
+                    Text(short(attacking, l)).font(.system(size: 9, weight: .bold))
                         .frame(width: Self.label, height: Self.cell)
                         .background(attacking.color.opacity(selected == attacking ? 0.6 : 0.3))
                         .onTapGesture { selected = selected == attacking ? nil : attacking }
@@ -604,7 +604,9 @@ struct RunRow: View {
                     if run.caught { Image(systemName: "checkmark.seal.fill").font(.caption2).foregroundStyle(.secondary) }
                 }
                 if showsDungeon {
-                    (result + Text(" · ") + Text(when).foregroundStyle(.secondary)).font(.caption2).lineLimit(1)
+                    // On two lines rather than cut: "17 nov. à…" told nothing (#183).
+                    (result + Text(" · ") + Text(when).foregroundStyle(.secondary)).font(.caption2).lineLimit(2)
+                        .fixedSize(horizontal: false, vertical: true)
                 } else {
                     Text(when).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
                 }

@@ -333,7 +333,7 @@ private struct ItemCard: View {
                         .font(.caption2).foregroundStyle(.tertiary).monospacedDigit()
                     Spacer()
                     Button(l.useItem) { confirming = true }
-                        .buttonStyle(.pill())
+                        .buttonStyle(.pill(prominent: true))
                 }
             }
         } else {

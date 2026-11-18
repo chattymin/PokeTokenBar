@@ -79,7 +79,7 @@ struct DungeonItemControls: View {
                 } else {
                     Text(store.effectHint(for: kind)).font(.caption2).foregroundStyle(.tertiary).monospacedDigit()
                     Spacer()
-                    Button(l.useItem) { nav.capsule = kind }.buttonStyle(.pill())
+                    Button(l.useItem) { nav.capsule = kind }.buttonStyle(.pill(prominent: true))
                 }
             case .explorerChest:
                 Text(store.effectHint(for: kind)).font(.caption2).foregroundStyle(.tertiary)
