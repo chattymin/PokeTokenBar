@@ -1,7 +1,8 @@
 import SwiftUI
 
-/// A Costume Egg in the Bag (the owner, 2026-11-13): its month's event egg, the costumed Pokémon it holds shown beside
-/// it, used as the Shop's eggs are.
+/// A Costume Egg in the Bag (the owner, 2026-11-13): its month's event egg, used as the Shop's eggs are. What it holds
+/// is drawn when opened, so it shows no Pokémon; locked while none of the player's Pokémon has a costume left in its lot
+/// (the owner, 2026-11-18).
 @MainActor
 struct CostumeEggCard: View {
     let store: CompanionStore
@@ -11,19 +12,16 @@ struct CostumeEggCard: View {
     var body: some View {
         let l = store.l
         let name = l.costumeEggName(egg.month)
+        let locked = store.isCostumeEggLocked(egg.id)
         VStack(alignment: .leading, spacing: Design.productCardSpacing) {
             HStack(alignment: .center, spacing: 10) {
                 SpriteView(speciesID: nil, size: 30, egg: .costume(egg.month))
                 VStack(alignment: .leading, spacing: Design.productTextSpacing) {
                     Text(name).font(.callout.weight(.semibold)).lineLimit(1)
-                    HStack(spacing: 4) {
-                        SpriteView(speciesID: egg.speciesID, size: 22, form: egg.entry?.displayForm, sameScale: true)
-                        PokemonNameLabel(items: [PokemonNameItem(resource: PokemonNameResource(kind: .pokemonSpecies,
-                                                                                               name: String(egg.speciesID)))],
-                                         language: store.language)
-                            .font(.caption).foregroundStyle(.secondary).lineLimit(1)
-                    }
-                    if store.hasActive {
+                    Text(locked ? l.costumeEggLocked : l.costumeEggDrawnAtOpening)
+                        .font(.caption).foregroundStyle(locked ? Color.readableOrange : .secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    if store.hasActive, !locked {
                         Text(l.eggReleaseNote).font(.caption2).foregroundStyle(.tertiary)
                             .lineSpacing(Design.productLineSpacing)
                             .fixedSize(horizontal: false, vertical: true)
@@ -32,7 +30,8 @@ struct CostumeEggCard: View {
                 Spacer(minLength: 0)
             }
             ReleaseForEggControls(store: store, nav: nav, detail: "", actionTitle: l.useItem,
-                                  isAvailable: store.canUseCostumeEgg(egg.id), unavailableText: l.useNeedsPokemon,
+                                  isAvailable: store.canUseCostumeEgg(egg.id),
+                                  unavailableText: locked ? l.costumeEggLockedShort : l.useNeedsPokemon,
                                   confirmText: l.stoneConfirm(store.displayName, name),
                                   lockedHint: store.isRaisingFossilEggPokemon ? l.fossilEggInProgress : nil) {
                 store.useCostumeEgg(egg.id)

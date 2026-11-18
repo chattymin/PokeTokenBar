@@ -3525,56 +3525,91 @@ final class CompanionStore {
 
     // MARK: Costume Eggs
 
-    /// The owner's rule of 2026-11-13: one Costume Egg every 300M tokens used, holding a Pokémon of the month's
-    /// costumes (the month of `day`, `yyyy-MM-dd`, the usage's day), fixed now: one whose costumed stages are not all
-    /// collected, nor waiting in an egg or raised, first; once the month's lot is complete, any of it, for its shiny.
+    /// One Costume Egg every 300M tokens used during the month's event (the owner, 2026-11-13), only while its lot has
+    /// more costumes left to collect than eggs waiting (the owner, 2026-11-18: "si dans l'inventaire on a 3 œufs et
+    /// qu'il nous reste 3 costumes à déverrouiller, on gagne pas de 4e œuf"). What an egg holds is drawn when opened.
     func earnCostumeEggs(_ tokens: Int, day: String) {
         guard tokens > 0, let month = CostumeCatalog.month(ofDay: day) else { return }
         let total = state.costumeEggTokens + tokens
         let count = total / CostumeCatalog.tokensPerEgg
         state.costumeEggTokens = total % CostumeCatalog.tokensPerEgg
         guard count > 0 else { return }
-        var earned: [CostumeEgg] = []
-        for _ in 0..<count {
-            guard let egg = drawCostumeEgg(month: month) else { break }
-            state.costumeEggs.append(egg)
-            earned.append(egg)
+        var earned = 0
+        for _ in 0..<count where costumeEggsLeftToEarn(month: month) > 0 {
+            state.costumeEggs.append(CostumeEgg(month: month))
+            earned += 1
         }
-        guard let first = earned.first else { return }
-        AppLog.write("costumes: +\(earned.count) egg(s) of month \(month)")
-        notifyCompanionEvent(l.costumeEggEarnedTitle, l.costumeEggEarnedBody(event: l.costumeEventName(first.month),
-                                                                             count: earned.count))
+        guard earned > 0 else { return }
+        AppLog.write("costumes: +\(earned) egg(s) of month \(month)")
+        notifyCompanionEvent(l.costumeEggEarnedTitle, l.costumeEggEarnedBody(event: l.costumeEventName(month), count: earned))
     }
 
-    /// One of the month's first costumed stages, the missing ones first (`costumesTaken`, the eggs waiting).
-    func drawCostumeEgg(month: Int) -> CostumeEgg? {
-        let starts = CostumeCatalog.starts(month: month)
-        guard !starts.isEmpty else { return nil }
+    /// The costumes collected or promised: the Pokédex's, the Pokémon raised's, the egg incubating's.
+    private var costumesTakenOrIncubating: Set<String> {
         var taken = costumesTaken()
-        let waiting = state.costumeEggs + [state.eggFromCostume].compactMap { $0 }
-        for egg in waiting {
-            if let start = egg.entry { taken.formUnion(CostumeCatalog.family(of: start).map(\.key)) }
+        if let start = state.eggFromCostume?.entry { taken.formUnion(CostumeCatalog.family(of: start).map(\.key)) }
+        return taken
+    }
+
+    /// The eggs `month`'s lot can still give: its costumes not collected nor promised, less the eggs of that month
+    /// waiting in the Bag.
+    func costumeEggsLeftToEarn(month: Int) -> Int {
+        let taken = costumesTakenOrIncubating
+        let left = CostumeCatalog.lot(month: month).filter { !taken.contains($0.key) }.count
+        return left - state.costumeEggs.filter { $0.month == month }.count
+    }
+
+    /// A costume's stages the player can raise: those of species already graduated, each grown from the one before
+    /// (the owner, 2026-11-18: a costumed Eevee grew into Eeveelutions never caught).
+    static func ownedFamily(of entry: CostumeEntry, owned: Set<Int>) -> [CostumeEntry] {
+        [entry] + CostumeCatalog.children(of: entry).filter { owned.contains($0.speciesID) }
+            .flatMap { ownedFamily(of: $0, owned: owned) }
+    }
+
+    /// What a Costume Egg of `month` can hatch now: each costume line from the first of its species the player has,
+    /// when its stages they can raise still hold a costume not collected. None: the egg waits, locked.
+    func costumeEggCandidates(month: Int) -> [CostumeEntry] {
+        let owned = graduatedSpeciesIDs
+        let taken = costumesTakenOrIncubating
+        func roots(_ entry: CostumeEntry) -> [CostumeEntry] {
+            owned.contains(entry.speciesID) ? [entry] : CostumeCatalog.children(of: entry).flatMap(roots)
         }
-        let missing = starts.filter { start in CostumeCatalog.family(of: start).contains { !taken.contains($0.key) } }
-        let pool = missing.isEmpty ? starts : missing
+        return CostumeCatalog.starts(month: month).flatMap(roots).filter { root in
+            Self.ownedFamily(of: root, owned: owned).contains { !taken.contains($0.key) }
+        }
+    }
+
+    /// What an opened Costume Egg holds: one of its candidates, at random. Nil when none.
+    func drawCostumeEgg(month: Int) -> CostumeEgg? {
+        let pool = costumeEggCandidates(month: month)
+        guard !pool.isEmpty else { return nil }
         let pick = pool[Int(rng.next() % UInt64(pool.count))]
         return CostumeEgg(id: UUID().uuidString, code: pick.code, speciesID: pick.speciesID, form: pick.form, month: month)
     }
 
-    /// Whether a Costume Egg of the Bag can be used: as any egg, it sends the Pokémon raised off.
-    func canUseCostumeEgg(_ id: String) -> Bool {
-        canSendOffActive && !isRaisingFossilEggPokemon && state.costumeEggs.contains { $0.id == id }
+    /// Whether a Costume Egg of the Bag is locked: none of the player's Pokémon has a costume left in its lot.
+    func isCostumeEggLocked(_ id: String) -> Bool {
+        guard let egg = state.costumeEggs.first(where: { $0.id == id }) else { return false }
+        return costumeEggCandidates(month: egg.month).isEmpty
     }
 
-    /// Uses a Costume Egg: the Pokémon raised is sent off for it, and it hatches its costumed Pokémon (`hatchCore`).
+    /// Whether a Costume Egg of the Bag can be used: as any egg, it sends the Pokémon raised off; not while locked.
+    func canUseCostumeEgg(_ id: String) -> Bool {
+        canSendOffActive && !isRaisingFossilEggPokemon && state.costumeEggs.contains { $0.id == id } && !isCostumeEggLocked(id)
+    }
+
+    /// Uses a Costume Egg: what it holds is drawn now, the Pokémon raised is sent off for it, and it hatches its
+    /// costumed Pokémon (`hatchCore`).
     @discardableResult
     func useCostumeEgg(_ id: String) -> Bool {
-        guard canUseCostumeEgg(id), let egg = state.costumeEggs.first(where: { $0.id == id }) else { return false }
+        guard canUseCostumeEgg(id), let egg = state.costumeEggs.first(where: { $0.id == id }),
+              var content = drawCostumeEgg(month: egg.month) else { return false }
+        content.id = egg.id
         state.costumeEggs.removeAll { $0.id == id }
         replaceActiveWithEgg(price: 0, tier: nil, type: nil)
-        state.eggFromCostume = egg
+        state.eggFromCostume = content
         save()
-        AppLog.write("costume egg used: \(egg.code) #\(egg.speciesID)")
+        AppLog.write("costume egg used: \(content.code) #\(content.speciesID)")
         return true
     }
 
@@ -4293,7 +4328,8 @@ final class CompanionStore {
         prefetchedLineID = nil
         // A Costume Egg hatches its first costumed stage, which grows only into the stages wearing its costume.
         let costumeEgg = state.eggFromCostume
-        let line = costumeEgg.flatMap { Self.costumeLine(fetched, start: $0.speciesID, code: $0.code, form: $0.form) }
+        let line = costumeEgg.flatMap { Self.costumeLine(fetched, start: $0.speciesID, code: $0.code, form: $0.form,
+                                                         owned: graduatedSpeciesIDs) }
             ?? fetched
         let firstID = costumeEgg == nil ? line.baseID : line.tree.speciesID
         currentLine = line
@@ -4405,11 +4441,13 @@ final class CompanionStore {
     /// The line a costumed Pokémon grows on (the owner, 2026-11-13): from the first stage wearing its costume, only the
     /// evolutions that wear it too (`CostumeCatalog.children`); its line's base, rarity and names stay the line's. Nil
     /// when the line has no such stage.
-    static func costumeLine(_ line: EvoLine, start: Int, code: String, form: PokemonForm?) -> EvoLine? {
+    /// `owned`: the species graduated, the only ones it may grow into (the owner, 2026-11-18); nil keeps every stage
+    /// wearing the costume (a line reloaded for a Pokémon already raised).
+    static func costumeLine(_ line: EvoLine, start: Int, code: String, form: PokemonForm?, owned: Set<Int>? = nil) -> EvoLine? {
         guard let node = line.tree.node(withID: start) else { return nil }
         func prune(_ node: EvoNode) -> EvoNode {
             let worn = CostumeCatalog.entry(code: code, speciesID: node.speciesID, form: form)
-                .map { Set(CostumeCatalog.children(of: $0).map(\.speciesID)) } ?? []
+                .map { Set(CostumeCatalog.children(of: $0).map(\.speciesID).filter { owned?.contains($0) ?? true }) } ?? []
             return EvoNode(speciesID: node.speciesID, children: node.children.filter { worn.contains($0.speciesID) }.map(prune))
         }
         return EvoLine(baseID: line.baseID, tree: prune(node), rarity: line.rarity, names: line.names)

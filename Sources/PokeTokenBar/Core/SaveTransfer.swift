@@ -184,7 +184,8 @@ enum SaveTransfer {
         if let egg = s.eggFromDungeon, !isHatchable(egg) { s.eggFromDungeon = nil }
         // A Costume Egg this version has no costume for would hatch a plain Pokémon: its costume is dropped with it.
         if let egg = s.eggFromCostume, egg.entry == nil { s.eggFromCostume = nil }
-        s.costumeEggs.removeAll { $0.entry == nil }
+        // The Bag's eggs hold only their month; what they hold is drawn when opened.
+        s.costumeEggs.removeAll { !(1...12).contains($0.month) }
         s.migrateLegacyBadgeClaims()
         s.pendingForm = PokemonForm.resolved(baseID: s.pendingHatchID ?? 0, form: s.pendingForm)
         // 만족시킬 수 없는 보증은 알을 영구히 못 깨게 만든다 — 전설은 capture_rate 로 표현할 수 없어

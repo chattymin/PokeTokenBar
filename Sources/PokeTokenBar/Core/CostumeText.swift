@@ -158,4 +158,31 @@ extension L {
         return owned ? when : t("\(when) · 아직 없음", "\(when) · not yet", "\(when) · まだ", "\(when) · todavía no", "\(when) · pas encore",
                                 "\(when) · ainda não", "\(when) · noch nicht", "\(when) · пока нет")
     }
+
+    /// What a Costume Egg of the Bag holds is drawn when it is opened (the owner, 2026-11-18).
+    var costumeEggDrawnAtOpening: String {
+        t("열면 아직 없는 코스튬을 입은 내 포켓몬이 나와요.", "Opened, it gives one of your Pokémon in a costume you lack.",
+          "開けると、まだ持っていないコスチュームを着た手持ちのポケモンが出ます。",
+          "Al abrirlo, da uno de tus Pokémon con un disfraz que te falta.",
+          "À l'ouverture, il donne un de tes Pokémon dans un costume qui te manque.",
+          "Ao abrir, ele dá um dos seus Pokémon com uma fantasia que falta.",
+          "Geöffnet gibt es eines deiner Pokémon in einem Kostüm, das dir fehlt.",
+          "При открытии даёт одного из твоих покемонов в костюме, которого у тебя нет.")
+    }
+
+    /// A Costume Egg none of the player's Pokémon can hatch from yet.
+    var costumeEggLocked: String {
+        t("잠김: 이 시즌에 얻을 코스튬이 남은 포켓몬을 아직 졸업시키지 않았어요.",
+          "Locked: none of your graduated Pokémon has a costume left in this season.",
+          "ロック中：このシーズンでまだコスチュームを手に入れられる卒業ポケモンがいません。",
+          "Bloqueado: ninguno de tus Pokémon graduados tiene un disfraz pendiente en esta temporada.",
+          "Verrouillé : aucun de tes Pokémon diplômés n'a encore de costume à gagner dans cette saison.",
+          "Bloqueado: nenhum dos seus Pokémon formados tem uma fantasia a ganhar nesta temporada.",
+          "Gesperrt: Keines deiner verabschiedeten Pokémon hat in dieser Saison noch ein Kostüm zu gewinnen.",
+          "Заблокировано: ни у одного твоего выпускника нет костюма, который можно получить в этом сезоне.")
+    }
+
+    var costumeEggLockedShort: String {
+        t("잠김", "Locked", "ロック中", "Bloqueado", "Verrouillé", "Bloqueado", "Gesperrt", "Заблокировано")
+    }
 }
