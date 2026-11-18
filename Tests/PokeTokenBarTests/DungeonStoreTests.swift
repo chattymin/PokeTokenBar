@@ -1191,6 +1191,24 @@ final class DungeonStoreTests: XCTestCase {
         XCTAssertGreaterThan(choice.bench.count, 6, "more than a team to swap from")
     }
 
+    /// [Regression #182] While a team explores, tokens walking toward the next floor wait with the usage writes: each
+    /// live read wrote the whole save (1.5 MB). A floor's event is written at once.
+    func testAQuietStepWaitsForTheUsageWriteAndAnEventDoesNot() throws {
+        let s = try store(dex: strong)
+        XCTAssertTrue(s.startExpedition(.viridianForest, team: Array(strong.prefix(3)).map(\.id)))
+        s.usageSaveGap = 60
+        let e = try XCTUnwrap(s.expedition)
+        _ = s.feedExpedition(1)
+        let afterFirst = s.savesWritten
+        _ = s.feedExpedition(1)
+        _ = s.feedExpedition(1)
+        XCTAssertEqual(s.savesWritten, afterFirst, "a few tokens toward the floor wait")
+        let events = s.expedition?.log.count ?? 0
+        _ = s.feedExpedition(e.floorCost * 2)
+        XCTAssertGreaterThan(s.expedition?.log.count ?? 0, events, "a floor was crossed")
+        XCTAssertEqual(s.savesWritten, afterFirst + 1, "its event is written at once")
+    }
+
     /// [Regression] Tokens past the boss's fall walked nowhere: a morning's catch-up finishing the last floor lost the
     /// rest. What the dungeon does not take goes back to the growth it paused.
     func testTokensPastTheEndGoBackToGrowth() throws {

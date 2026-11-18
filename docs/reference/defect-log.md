@@ -2094,6 +2094,14 @@ read_when:
 
 ## 에너지 (상시 표시 애니메이션)
 
+- **Every stream of usage writes takes the coalesced write.** The fix above left a second path: while a team
+  explores, `feedExpedition` stored each step with `persist()`, a plain `save()`, so every live read rewrote the
+  1.5 MB save again (seen on the owner's Mac on 18/11, an expedition under way). **Why it was missed:** the sweep
+  listed the direct `save()` calls by caller and judged `persist()` a player's action; it is also the dungeon's walk.
+  A quiet step (no new log line, same phase) now waits `usageSaveGap`; a floor, a battle, a find or the end is written
+  at once. Guard: `DungeonStoreTests.testAQuietStepWaitsForTheUsageWriteAndAnEventDoesNot` (fault: 2 failures).
+  Sweep: grep every `save()` / `persist()` reachable from `update(todayTokensByProvider:)`; the other ones follow an
+  event (hatch, evolution, graduation, candy ledger change).
 - **A coalesced write must be the path the app takes.** `saveUsage` was to write a usage update at most every 15 s,
   yet `applyUsage` ended on a plain `save()` once the evolution line was loaded, which it always is in the app: each
   live read (every few seconds while Claude writes) encoded and wrote the whole 1.5 MB save, about 100 ms each, most of

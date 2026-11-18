@@ -465,8 +465,12 @@ extension CompanionStore {
         case .awaitingHeal, .capture, .finished: return nil
         }
         let reached = e.bossReached
+        let events = e.log.count, phase = e.phase
         let left = walkingTheDungeon { ExpeditionEngine.feed(&e, tokens: tokens, context: context) }
-        store(e, bossNewlyReached: !reached && e.bossReached)
+        // Tokens walking toward the next floor wait with the usage writes; a floor, a battle, a find is written at once.
+        // Each live read rewrote the whole save while a team explored (#182, the same as the growth's).
+        let quiet = e.log.count == events && e.phase == phase
+        store(e, bossNewlyReached: !reached && e.bossReached, quiet: quiet)
         throwAutomatically()
         return left
     }
@@ -499,7 +503,7 @@ extension CompanionStore {
     }
 
     /// Saves the expedition's step and ends it when it is over.
-    private func store(_ e: Expedition, bossNewlyReached: Bool = false) {
+    private func store(_ e: Expedition, bossNewlyReached: Bool = false, quiet: Bool = false) {
         changeDungeons {
             $0.expedition = e
             // A secret boss met in the boss's place is kept apart: it is none of the dungeon's bosses.
@@ -509,7 +513,7 @@ extension CompanionStore {
                 $0.bossesReached.insert(DungeonProgress.bossKey(e.dungeon, e.boss.speciesID))
             }
         }
-        if e.isOver { finishExpedition(leftEarly: false) } else { persist() }
+        if e.isOver { finishExpedition(leftEarly: false) } else if quiet { persistUsage() } else { persist() }
     }
 
     // MARK: The player's answers

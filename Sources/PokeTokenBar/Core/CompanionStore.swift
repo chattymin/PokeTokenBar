@@ -2782,6 +2782,8 @@ final class CompanionStore {
     var currentDate: Date { clock() }
     func drawSeed() -> UInt64 { rng.next() }
     func persist() { save() }
+    /// A usage update's write, at most once per `usageSaveGap` (`saveUsage`).
+    func persistUsage() { saveUsage() }
 
     // MARK: Collector items (unlocked by the Pokédex)
 
