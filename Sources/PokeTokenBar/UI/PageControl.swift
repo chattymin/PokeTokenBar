@@ -56,6 +56,7 @@ struct PagedArea<Content: View>: View {
         ScrollView {
             content
                 .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { contentHeight = $0 }
+                .reservesScrollerLane()
         }
         .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { roomHeight = $0 }
         .background {
