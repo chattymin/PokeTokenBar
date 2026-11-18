@@ -915,7 +915,7 @@ final class CompanionStore {
     }
 
     /// Each species a graduated shiny holds, in its form.
-    private var graduatedShinySpeciesForms: Set<DexSpeciesKey> {
+    var graduatedShinySpeciesForms: Set<DexSpeciesKey> {
         Set(state.dex.filter { !$0.isReleased && $0.isShiny }.flatMap { e in
             e.chainOrder.map { DexSpeciesKey(speciesID: $0, form: e.form) }
         })
@@ -3630,8 +3630,8 @@ final class CompanionStore {
     }
 
     /// Whether a Costume Egg of the Bag can be used: as any egg, it sends the Pokémon raised off; not while locked.
-    func canUseCostumeEgg(_ id: String) -> Bool {
-        canSendOffActive && !isRaisingFossilEggPokemon && state.costumeEggs.contains { $0.id == id } && !isCostumeEggLocked(id)
+    func canUseCostumeEgg(_ id: String, onReturn: Bool = false) -> Bool {
+        canSendOffActive(onReturn: onReturn) && !isRaisingFossilEggPokemon && state.costumeEggs.contains { $0.id == id } && !isCostumeEggLocked(id)
     }
 
     /// Uses a Costume Egg: what it holds is drawn now, the Pokémon raised is sent off for it, and it hatches its

@@ -358,6 +358,7 @@ private struct OakWords {
             switch release {
             case .bag(let kind, _), .freeEgg(let kind, _): return l.oakUseFromBag(l.itemName(kind))
             case .dungeonEgg(let egg, _): return l.oakUseFromBag(eggName(egg))
+            case .costumeEgg(let egg, _): return l.oakUseFromBag(l.costumeEggName(egg.month))
             case .claim(let egg, _): return l.oakClaimThenUse(l.itemName(egg.item))
             case .buy(let tier, _): return l.oakBuyThenUse(l.eggName(tier))
             case .wait(let tier, _, _): return l.oakKeepThenBuy(name, l.eggName(tier))
@@ -407,7 +408,7 @@ private struct OakWords {
     func place(_ step: OakStep) -> OakPlace? {
         switch step {
         case .raise, .release(.wait), .release(.finish), .stock: return nil
-        case .release(.bag), .release(.freeEgg), .release(.dungeonEgg), .release(.buy): return .bag
+        case .release(.bag), .release(.freeEgg), .release(.dungeonEgg), .release(.costumeEgg), .release(.buy): return .bag
         case .release(.claim): return .home
         case .candies(_, let give, _): return give > 0 ? .bag : nil
         case .dungeon: return .dungeons
@@ -428,6 +429,9 @@ private struct OakWords {
             return why + " " + l.oakSendsOff(name, odds: percent(p)) + amber
         case .dungeonEgg(_, let p):
             return l.oakDungeonEggHatches + " " + l.oakSendsOff(name, odds: percent(p)) + amber
+        case .costumeEgg(_, let p):
+            return p > 0 ? l.oakCostumeEggHatches + " " + l.oakCostumeEggOdds(name, odds: percent(p)) + amber
+                : l.oakCostumeEggSpare(name) + amber
         case .claim(_, let p):
             return l.oakClaimWaits + " " + l.oakSendsOff(name, odds: percent(p)) + amber
         case .buy(let tier, let p):

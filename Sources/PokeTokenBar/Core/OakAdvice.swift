@@ -37,6 +37,9 @@ enum OakRelease: Equatable, Sendable {
     /// A dungeon egg the Bag holds, named by the Pokémon it hatches: its odds are 1 for a species or a form new, or for a
     /// shiny egg bringing a first shiny, else 0.
     case dungeonEgg(DungeonEgg, odds: Double)
+    /// A Costume Egg the Bag holds, judged without its costume and over what it may draw when opened: its odds are a
+    /// first shiny's, else 0, when it is used only because no other egg of the Bag can go.
+    case costumeEgg(CostumeEgg, odds: Double)
     /// The Spare raised to graduation, `left` growth away.
     case finish(left: Int, why: OakFinish)
 
@@ -46,7 +49,7 @@ enum OakRelease: Equatable, Sendable {
         case .bag(let kind, _), .freeEgg(let kind, _): return kind
         case .claim(let event, _): return event.item
         case .buy(let tier, _): return ItemKind(shopEgg: tier)
-        case .wait, .finish, .dungeonEgg: return nil
+        case .wait, .finish, .dungeonEgg, .costumeEgg: return nil
         }
     }
 
@@ -58,8 +61,10 @@ enum OakRelease: Equatable, Sendable {
 
     /// Whether the Spare goes now, leaving its Rare Candies to the one that hatches.
     var sendsOffNow: Bool {
-        if case .dungeonEgg = self { return true }
-        return egg != nil
+        switch self {
+        case .dungeonEgg, .costumeEgg: return true
+        default: return egg != nil
+        }
     }
 
     /// Whether the Spare is sent off, now or once its egg is affordable, rather than raised to graduation.
@@ -182,22 +187,33 @@ extension CompanionStore {
     /// less than it has left to grow, what the Old Amber carries to that egg's draws aside. The Bag's egg with the best odds, an event egg to
     /// claim included, the first in the Bag on a tie; else the most selective Shop egg, bought or awaited, unless the Bag
     /// holds an egg with some odds that does not beat the Pokémon Egg, the Pokémon Egg included: it replaces the wait
-    /// and a Spare left to finish for lack of a better egg, within the same window.
+    /// and a Spare left to finish for lack of a better egg, within the same window. A Costume Egg comes last of those, at 0
+    /// as a last resort.
     var oakRelease: OakRelease? {
         guard activeVerdict == .spare, let index = hatchIndex, let growth = spareGrowth else { return nil }
         let left = growth.total - growth.grown
+        func sendsOff(_ hatches: [Hatch], grown: Int) -> Bool {
+            growth.sendsOffAt(grown) { amberCarry(of: $0, to: hatches) }
+        }
         func sendsOff(for egg: HatchEgg, grown: Int) -> Bool {
-            growth.sendsOffAt(grown) { amberCarry(of: $0, to: egg, index: index) }
+            sendsOff(hatches(egg, index: index), grown: grown)
         }
         let news = hatchNews
         let claimable = Set(eventEggs.map(\.egg))
         let dungeonEggs = state.dungeons.eggs.filter { canUseDungeonEgg($0.id, onReturn: true) }
+        let costumeEggs = state.costumeEggs.filter { canUseCostumeEgg($0.id, onReturn: true) }
         var best: OakRelease?
         var bestOdds = newOdds(.pokemonEgg, index: index, news: news) ?? 0
         for egg in dungeonEggs {
             let odds = newOdds(egg, index: index, news: news)
             guard odds > bestOdds else { continue }
             best = .dungeonEgg(egg, odds: odds)
+            bestOdds = odds
+        }
+        for egg in costumeEggs {
+            let odds = newOdds(egg, news: news)
+            guard odds > bestOdds else { continue }
+            best = .costumeEgg(egg, odds: odds)
             bestOdds = odds
         }
         for kind in ItemKind.allCases where !kind.isRetired {
@@ -208,8 +224,8 @@ extension CompanionStore {
             if !held, let event { best = .claim(event, odds: odds) } else { best = .bag(kind, odds: odds) }
             bestOdds = odds
         }
-        if let best, let egg = best.hatchEgg {
-            return sendsOff(for: egg, grown: growth.grown) ? best : .finish(left: left, why: .tooFarAlong)
+        if let best, let hatches = hatches(of: best, index: index) {
+            return sendsOff(hatches, grown: growth.grown) ? best : .finish(left: left, why: .tooFarAlong)
         }
         func heldEgg() -> OakRelease? {
             var spare: OakRelease?
@@ -225,7 +241,17 @@ extension CompanionStore {
                 spare = .freeEgg(kind, odds: odds)
                 spareOdds = odds
             }
-            guard let spare, let egg = spare.hatchEgg, sendsOff(for: egg, grown: growth.grown) else { return nil }
+            for egg in costumeEggs {
+                let odds = newOdds(egg, news: news)
+                guard odds > spareOdds else { continue }
+                spare = .costumeEgg(egg, odds: odds)
+                spareOdds = odds
+            }
+            if spare == nil, let egg = costumeEggs.first {
+                spare = .costumeEgg(egg, odds: 0)
+            }
+            guard let spare, let hatches = hatches(of: spare, index: index), sendsOff(hatches, grown: growth.grown)
+            else { return nil }
             return spare
         }
         guard let (tier, odds) = shopEgg(index: index, news: news), let egg = ItemKind(shopEgg: tier).flatMap({ HatchEgg(item: $0) })
@@ -278,9 +304,8 @@ extension CompanionStore {
 
     /// What the Old Amber carries on average to what `egg` hatches, `stage` grown at the Spare's stage: half of it, short
     /// of each draw's first evolution (`hatch`), weighed like the odds. None without the Old Amber.
-    private func amberCarry(of stage: Int, to egg: HatchEgg, index: [BaseSpecies]) -> Int {
+    private func amberCarry(of stage: Int, to hatches: [Hatch]) -> Int {
         guard itemCount(.oldAmber) > 0 else { return 0 }
-        let hatches = hatches(egg, index: index)
         let half = max(0, stage) / 100 * CollectorBonus.oldAmberKeptPercent
         let total = hatches.reduce(0) { $0 + $1.weight }
         guard total > 0 else { return 0 }
@@ -388,9 +413,14 @@ extension CompanionStore {
     /// with the Fossil Egg its Pokémon gives back (`replaceActiveWithEgg`).
     private func eggsHeld(atLeast odds: Double, after release: OakRelease?, index: [BaseSpecies], news: HatchNews) -> Int {
         var sent: String?
-        if case .dungeonEgg(let egg, _)? = release { sent = egg.id }
+        switch release {
+        case .dungeonEgg(let egg, _)?: sent = egg.id
+        case .costumeEgg(let egg, _)?: sent = egg.id
+        default: break
+        }
         let dungeon = state.dungeons.eggs.filter { $0.id != sent && newOdds($0, index: index, news: news) >= odds }.count
-        return dungeon + ItemKind.allCases.filter { !$0.isRetired }.reduce(0) { sum, kind in
+        let costume = state.costumeEggs.filter { $0.id != sent && newOdds($0, news: news) >= odds }.count
+        return dungeon + costume + ItemKind.allCases.filter { !$0.isRetired }.reduce(0) { sum, kind in
             var count = itemCount(kind)
             if case .bag(kind, _)? = release { count -= 1 }
             if kind == .fossilEgg, release?.sendsOffNow == true, isRaisingFossilEggPokemon { count += 1 }
@@ -405,7 +435,10 @@ extension CompanionStore {
                                   news: HatchNews) -> Bool {
         var fresh = newHatches(hatches(kind, index: index) ?? [], news: news)
         var next: [Hatch] = []
-        if let egg = release?.hatchEgg {
+        var nextFresh: Set<DexSpeciesKey>?
+        if case .costumeEgg(let egg, _)? = release {
+            nextFresh = firstShinyKeys(of: egg)
+        } else if let egg = release?.hatchEgg {
             next = hatches(egg, index: index)
         } else if let raised = state.active {
             fresh.remove(DexSpeciesKey(speciesID: raised.baseID, form: raised.form))
@@ -423,8 +456,8 @@ extension CompanionStore {
         } else {
             next = hatches(incubatingEgg, index: index)
         }
-        let nextFresh = newHatches(next, news: news)
-        return fresh.count > 1 || fresh.contains { !nextFresh.contains($0) }
+        let taken = nextFresh ?? newHatches(next, news: news)
+        return fresh.count > 1 || fresh.contains { !taken.contains($0) }
     }
 
     /// A line hatched in a form, weighed among the egg's other draws.
@@ -471,6 +504,50 @@ extension CompanionStore {
         hatches(egg.hatchEgg, index: index).reduce(0) {
             max($0, $1.alwaysShiny ? news.odds($1) : news.new($1.id, $1.form) ? 1 : 0)
         }
+    }
+
+    /// The odds that a Costume Egg brings something, its costume left out: what it may draw when opened
+    /// (`costumeEggCandidates`, as `drawCostumeEgg` picks among them) brings no species nor evolution, only a first shiny
+    /// as often as a hatch shines. 0 while it is locked.
+    private func newOdds(_ egg: CostumeEgg, news: HatchNews) -> Double {
+        let drawn = costumeEggCandidates(month: egg.month)
+        guard !drawn.isEmpty else { return 0 }
+        let brings = bringsFirstShiny
+        return drawn.reduce(0) { $0 + (brings($1) ? news.shiny : 0) } / Double(drawn.count)
+    }
+
+    /// Whether a Pokémon hatched in a candidate's costume brings a first shiny: a stage it grows into (species held
+    /// only) without one in its form.
+    private var bringsFirstShiny: (CostumeEntry) -> Bool {
+        let held = graduatedShinySpeciesForms
+        let owned = graduatedSpeciesIDs
+        return { start in
+            let form = PokemonForm.resolved(baseID: SpeciesInfo.baseID(of: start.speciesID), form: start.form)
+            return Self.ownedFamily(of: start, owned: owned).contains {
+                !held.contains(DexSpeciesKey(speciesID: $0.speciesID, form: form))
+            }
+        }
+    }
+
+    private func firstShinyKeys(of egg: CostumeEgg) -> Set<DexSpeciesKey> {
+        Set(costumeEggCandidates(month: egg.month).filter(bringsFirstShiny).map {
+            DexSpeciesKey(speciesID: $0.speciesID,
+                          form: PokemonForm.resolved(baseID: SpeciesInfo.baseID(of: $0.speciesID), form: $0.form))
+        })
+    }
+
+    /// What a Costume Egg may hatch: its candidates' first stages, drawn alike (`drawCostumeEgg`).
+    private func hatches(_ egg: CostumeEgg, index: [BaseSpecies]) -> [Hatch] {
+        costumeEggCandidates(month: egg.month).map {
+            let base = SpeciesInfo.baseID(of: $0.speciesID)
+            return Hatch(id: $0.speciesID, form: PokemonForm.resolved(baseID: base, form: $0.form), weight: 1,
+                         rarity: index.first { $0.id == base }?.rarity ?? SpeciesInfo.lineRarity(of: base))
+        }
+    }
+
+    private func hatches(of release: OakRelease, index: [BaseSpecies]) -> [Hatch]? {
+        if case .costumeEgg(let egg, _) = release { return hatches(egg, index: index) }
+        return release.hatchEgg.map { hatches($0, index: index) }
     }
 
     /// The draws each egg makes (`HatchDraw.outcomes`); nil for an item that is no egg.

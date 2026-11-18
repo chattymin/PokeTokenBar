@@ -200,7 +200,7 @@ final class OakAdviceTests: XCTestCase {
     private func spareStore(bag: [ItemKind: Int] = [:], lines: [[Int]]? = nil, active: MonState? = nil,
                             index: [BaseSpecies]? = nil, claimed: Set<String> = ["summer@2026"],
                             wallet: Int = 0, exploring: Bool = false, shinyLines: Set<Int> = [],
-                            dungeonEggs: [DungeonEgg] = []) async throws -> CompanionStore {
+                            dungeonEggs: [DungeonEgg] = [], costumeEggs: [CostumeEgg] = []) async throws -> CompanionStore {
         let spare = active ?? mon([16])
         let dex = ([[16, 17, 18]] + (lines ?? mostLines)).map { chain -> DexEntry in
             var entry = graduated(chain)
@@ -214,6 +214,7 @@ final class OakAdviceTests: XCTestCase {
             st.usedSinceInstall = wallet
             st.dungeons.expedition = expedition
             st.dungeons.eggs = dungeonEggs
+            st.costumeEggs = costumeEggs
         }
         await s.loadHatchIndex()
         return s
@@ -959,5 +960,206 @@ final class OakAdviceTests: XCTestCase {
         XCTAssertNil(release.egg)
         XCTAssertEqual(release.hatchEgg, .dungeon(baseID: 255, form: nil, shiny: false))
         XCTAssertEqual(OakRelease.bag(.fireStone, odds: 1).hatchEgg, .stone(.fire))
+    }
+
+    // MARK: Costume Eggs
+
+    private func costumeEgg(_ id: String = "costume", month: Int = 12) -> CostumeEgg { CostumeEgg(month: month, id: id) }
+
+    /// December's Costume Egg with only Eevee held among its lot: it draws Eevee's costume for sure.
+    private let eevee = [[133]]
+
+    private func costumeStore(bag: [ItemKind: Int] = [:], lines: [[Int]]? = nil, held: [[Int]] = [[133]],
+                              shinyLines: Set<Int> = [], eggs: [CostumeEgg]? = nil, wallet: Int = 0, active: MonState? = nil,
+                              exploring: Bool = false, index: [BaseSpecies]? = nil) async throws -> CompanionStore {
+        try await spareStore(bag: bag, lines: (lines ?? onlyCaterpieLeft) + held, active: active, index: index,
+                             wallet: wallet, exploring: exploring, shinyLines: shinyLines,
+                             costumeEggs: eggs ?? [costumeEgg()])
+    }
+
+    /// The Pokémon Egg of the Bag goes before a Costume Egg that brings nothing.
+    func testThePokemonEggGoesBeforeTheCostumeEgg() async throws {
+        let s = try await costumeStore(bag: [.pokemonEgg: 1], shinyLines: [133])
+        XCTAssertEqual(s.oakRelease, .freeEgg(.pokemonEgg, odds: try heldPokemonEggOdds(s)))
+    }
+
+    /// Every line brings a first shiny one time in 64, the Costume Egg's too: on a tie the Pokémon Egg goes first.
+    func testThePokemonEggWinsATieWithTheCostumeEgg() async throws {
+        let lines = onlyCaterpieLeft + [[10, 11, 12], [140, 141]]
+        let s = try await costumeStore(bag: [.pokemonEgg: 1], lines: lines)
+        XCTAssertEqual(try heldPokemonEggOdds(s), 1.0 / 64)
+        XCTAssertEqual(s.oakRelease, .freeEgg(.pokemonEgg, odds: 1.0 / 64))
+    }
+
+    /// The only egg of the Bag, the balance short of the Rare Egg: it goes rather than awaiting the balance.
+    func testALoneCostumeEggGoesInsteadOfWaitingForTheBalance() async throws {
+        let rare = try await spareStore().price(of: .egg(.rare))
+        let egg = costumeEgg()
+        let s = try await costumeStore(lines: mostLines, shinyLines: [133], eggs: [egg], wallet: rare - 300)
+        XCTAssertEqual(s.oakRelease, .costumeEgg(egg, odds: 0))
+        XCTAssertEqual(s.oakRelease?.sendsOffNow, true)
+        XCTAssertEqual(s.candiesToGive, 0)
+    }
+
+    /// No egg is better, the Spare would be left to finish: the Costume Egg goes as a last resort.
+    func testALoneCostumeEggGoesInsteadOfLettingTheSpareFinish() async throws {
+        let egg = costumeEgg()
+        var s = try await costumeStore(shinyLines: [133])
+        XCTAssertEqual(s.oakRelease, .costumeEgg(egg, odds: 0))
+        s = try await costumeStore(shinyLines: [])
+        XCTAssertEqual(s.oakRelease, .costumeEgg(egg, odds: 1.0 / 64), "ranked by its first shiny's odds")
+    }
+
+    /// An egg of the Bag with some odds goes before a Costume Egg at 0; an egg at 0 does not go for a Costume Egg.
+    func testTheCostumeEggComesAfterEveryEggWithSomeOdds() async throws {
+        var s = try await costumeStore(bag: [.fireStone: 1], shinyLines: [133])
+        XCTAssertEqual(s.oakRelease, .freeEgg(.fireStone, odds: 1.0 / 64))
+        s = try await costumeStore(bag: [.fireStone: 1], shinyLines: [133, 4, 255])
+        XCTAssertEqual(s.newOdds(item: .fireStone), 0)
+        XCTAssertEqual(s.oakRelease, .costumeEgg(costumeEgg(), odds: 0), "the stone brings nothing: O5")
+    }
+
+    /// The odds are the mean over what the egg may draw when opened: an Eevee with its shiny held, Pikachu's costumes
+    /// without.
+    func testTheOddsAreTheMeanOverTheDrawOfTheOpening() async throws {
+        let egg = costumeEgg()
+        let s = try await costumeStore(held: [[133], [25, 26]], shinyLines: [133], eggs: [egg])
+        let drawn = s.costumeEggCandidates(month: 12)
+        XCTAssertGreaterThan(drawn.count, 1)
+        XCTAssertTrue(drawn.contains { $0.speciesID == 133 })
+        guard case .costumeEgg(_, let odds)? = s.oakRelease else { return XCTFail("\(String(describing: s.oakRelease))") }
+        XCTAssertEqual(odds, Double(drawn.count - 1) / Double(drawn.count) / 64, accuracy: 1e-12)
+    }
+
+    /// The Shiny Charm and the Glimmering Charm change a first shiny's odds, for this egg as for the others.
+    func testTheCostumeEggFollowsTheShinyCharms() async throws {
+        let egg = costumeEgg()
+        var s = try await costumeStore(bag: [.shinyCharm: 1])
+        XCTAssertEqual(s.oakRelease, .costumeEgg(egg, odds: 1.0 / 48))
+        s = try await costumeStore(bag: [.glimmeringCharm: 1])
+        XCTAssertEqual(s.oakRelease, .costumeEgg(egg, odds: 1))
+    }
+
+    /// [Regression] A costumed egg starting at Pikachu passed as new through `hatchBringsNew`'s Pikachu costume rule: it
+    /// never brings a species or an evolution new.
+    func testAnEggStartingAtPikachuBringsNothingNewWhileACostumeIsMissing() async throws {
+        let egg = costumeEgg()
+        let s = try await costumeStore(held: [[25, 26]], shinyLines: [25], eggs: [egg])
+        XCTAssertFalse(s.costumeEggCandidates(month: 12).isEmpty)
+        XCTAssertEqual(s.oakRelease, .costumeEgg(egg, odds: 0))
+    }
+
+    /// Only the stages it grows into count: an Eevee with its Eeveelutions not held has no more to bring once shiny.
+    func testOnlyTheSpeciesHeldCountForAFirstShiny() async throws {
+        let egg = costumeEgg()
+        let s = try await costumeStore(held: [[133]], shinyLines: [133], eggs: [egg])
+        XCTAssertEqual(s.oakRelease, .costumeEgg(egg, odds: 0))
+    }
+
+    /// No species of its lot is held: the egg is locked, and never advised.
+    func testALockedCostumeEggIsNeverAdvised() async throws {
+        let s = try await costumeStore(held: [])
+        XCTAssertTrue(s.isCostumeEggLocked("costume"))
+        XCTAssertEqual(s.oakRelease, .finish(left: 75_000_000, why: .noBetterEgg))
+    }
+
+    /// A Spare too far along finishes, and the egg stays in the Bag.
+    func testASpareTooFarAlongFinishesAndKeepsTheCostumeEgg() async throws {
+        var pidgey = mon([16])
+        pidgey.usedAtStage = 40_000_000
+        let s = try await costumeStore(shinyLines: [133], active: pidgey)
+        XCTAssertEqual(s.oakRelease, .finish(left: 35_000_000, why: .noBetterEgg))
+        XCTAssertEqual(s.state.costumeEggs.count, 1)
+    }
+
+    /// A Costume Egg that beats the Pokémon Egg (January's lot may draw Charmander's line, the only first shiny left)
+    /// is given up like any other for a Spare too far along.
+    func testASpareTooFarAlongFinishesRatherThanSendOffForABetterCostumeEgg() async throws {
+        let lines = onlyCaterpieLeft + [[10, 11, 12], [140, 141]]
+        let shinies: Set<Int> = [7, 10, 16, 138, 140, 255]
+        var s = try await costumeStore(lines: lines, held: [], shinyLines: shinies, eggs: [costumeEgg(month: 1)])
+        guard case .costumeEgg? = s.oakRelease else { return XCTFail("\(String(describing: s.oakRelease))") }
+        var pidgey = mon([16])
+        pidgey.usedAtStage = 40_000_000
+        s = try await costumeStore(lines: lines, held: [], shinyLines: shinies, eggs: [costumeEgg(month: 1)], active: pidgey)
+        XCTAssertEqual(s.oakRelease, .finish(left: 35_000_000, why: .tooFarAlong))
+    }
+
+    /// The Old Amber carries half of the stage reached to what the egg may draw: the same Pidgey goes with it.
+    func testTheOldAmberCarriesToTheCostumeEggsLine() async throws {
+        var pidgey = mon([16])
+        pidgey.usedAtStage = 40_000_000
+        let egg = costumeEgg()
+        let s = try await costumeStore(bag: [.oldAmber: 1], shinyLines: [133], active: pidgey)
+        XCTAssertEqual(s.oakRelease, .costumeEgg(egg, odds: 0))
+    }
+
+    /// A team away: the egg is advised for the return, and unusable until then.
+    func testWhileATeamExploresTheCostumeEggIsAdvisedForTheReturn() async throws {
+        let egg = costumeEgg()
+        let s = try await costumeStore(shinyLines: [133], exploring: true)
+        XCTAssertEqual(s.oakRelease, .costumeEgg(egg, odds: 0))
+        XCTAssertEqual(s.oakSteps.filter(s.oakWaitsForTheTeam), [.release(.costumeEgg(egg, odds: 0))])
+        XCTAssertFalse(s.canUseCostumeEgg(egg.id))
+        XCTAssertTrue(s.canUseCostumeEgg(egg.id, onReturn: true))
+        XCTAssertFalse(s.canUseCostumeEgg("missing", onReturn: true))
+    }
+
+    /// The Shop's Rare+ Egg brings a first shiny one time in 64 here, as the Costume Egg does: another one of the Bag
+    /// holds the stock as well as a Rare+ Egg would. At 0 it holds nothing.
+    func testTheStockCountsTheCostumeEggWhenItIsAsGood() async throws {
+        let (rare, _) = try prices()
+        let lines = onlyCaterpieLeft + [[10, 11, 12], [140, 141]]
+        let eggs = [costumeEgg("a"), costumeEgg("b")]
+        var s = try await costumeStore(lines: lines, shinyLines: [10], eggs: eggs, wallet: 10 * rare)
+        XCTAssertEqual(s.oakRelease, .costumeEgg(eggs[0], odds: 1.0 / 64))
+        XCTAssertEqual(s.oakBudget?.egg, .rareEgg)
+        XCTAssertEqual(s.oakBudget?.held, 1, "the other, not the one sent off")
+        s = try await costumeStore(lines: lines, shinyLines: [10, 133], eggs: eggs, wallet: 10 * rare)
+        XCTAssertEqual(s.oakBudget?.held, 0)
+    }
+
+    /// A locked egg, none of its lot held, draws nothing: it holds no stock.
+    func testALockedCostumeEggHoldsNoStock() async throws {
+        let (rare, _) = try prices()
+        let s = try await costumeStore(lines: onlyCaterpieLeft + [[10, 11, 12], [140, 141]], held: [], shinyLines: [10],
+                                       wallet: 10 * rare)
+        XCTAssertTrue(s.isCostumeEggLocked("costume"))
+        XCTAssertEqual(s.oakBudget?.egg, .rareEgg)
+        XCTAssertEqual(s.oakBudget?.held, 0)
+    }
+
+    /// The egg the Spare goes for is not the stock's: it is sent off.
+    func testTheCostumeEggTheSpareGoesForIsNotInTheStock() async throws {
+        let s = try await costumeStore(shinyLines: [133])
+        XCTAssertEqual(s.oakRelease, .costumeEgg(costumeEgg(), odds: 0))
+        XCTAssertEqual(s.oakBudget?.held, 0)
+    }
+
+    /// The Spare goes for a January Costume Egg, which may draw Charmander's line, the only first shiny the Rare+ Egg
+    /// still brings: none is bought ahead on top of it.
+    func testTheGuardAgainstBuyingAheadReadsTheCostumeEgg() async throws {
+        let (rare, _) = try prices()
+        let lines = onlyCaterpieLeft + [[10, 11, 12], [140, 141]]
+        let s = try await costumeStore(lines: lines, held: [], shinyLines: [7, 10, 16, 138, 140, 255],
+                                       eggs: [costumeEgg(month: 1)], wallet: rare - 300)
+        guard case .costumeEgg? = s.oakRelease else { return XCTFail("\(String(describing: s.oakRelease))") }
+        XCTAssertEqual(s.oakBudget?.egg, .rareEgg)
+        XCTAssertEqual(s.oakBudget?.waitsForNext, true)
+    }
+
+    func testTheCostumeEggBubbleAndDetailAreSaidInEveryLanguage() {
+        let spare = OakRelease.costumeEgg(costumeEgg(), odds: 0)
+        let ranked = OakRelease.costumeEgg(costumeEgg(), odds: 1.0 / 64)
+        XCTAssertNil(spare.egg)
+        XCTAssertNil(spare.hatchEgg)
+        for language in AppLanguage.allCases {
+            let l = L(language)
+            XCTAssertFalse(l.oakCostumeEggHatches.isEmpty)
+            XCTAssertTrue(l.oakCostumeEggOdds("x", odds: "7%").contains("7%"), "\(language)")
+            XCTAssertNotEqual(l.oakCostumeEggSpare("x"), l.oakCostumeEggHatches, "\(language)")
+            XCTAssertNotEqual(l.oakReleaseBubble(spare), l.oakReleaseBubble(ranked), "\(language)")
+            XCTAssertEqual(l.oakReleaseBubble(ranked), l.oakReleaseBubble(.bag(.fossilEgg, odds: 1)), "\(language)")
+        }
     }
 }
