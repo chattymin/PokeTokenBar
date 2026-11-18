@@ -183,7 +183,10 @@ final class AchievementsRenderingTests: XCTestCase {
     /// to its card, which pages had done by opening its page. Opened from the tab, the list stays at its top.
     func testAnAchievementOpenedFromHomeIsScrolledTo() async throws {
         let store = try store(registering: [])
-        func listOffset(_ nav: PopoverNavigation) async throws -> CGFloat {
+        /// The list of cards's offset: the scroll view with the tallest content (others may scroll in the screen),
+        /// read until `done` holds or 3 s passed, a slow runner laying the list out late. `views` says what was seen.
+        func listOffset(_ nav: PopoverNavigation, until done: @escaping (CGFloat) -> Bool = { _ in false })
+            async throws -> (offset: CGFloat, views: String) {
             let host = NSHostingView(rootView: AchievementsView(store: store, nav: nav)
                 .frame(width: PopoverMetrics.contentWidth))
             let size = NSSize(width: PopoverMetrics.contentWidth, height: 520)
@@ -194,19 +197,26 @@ final class AchievementsRenderingTests: XCTestCase {
             window.contentView = host
             window.orderFront(nil)
             defer { window.close() }
-            try await Task.sleep(for: .milliseconds(500))
-            host.layoutSubtreeIfNeeded()
-            let list = try XCTUnwrap(descendants(of: host, NSScrollView.self).first)
-            return list.contentView.bounds.minY
+            var read: (offset: CGFloat, views: String) = (0, "")
+            for _ in 0..<30 {
+                try await Task.sleep(for: .milliseconds(100))
+                host.layoutSubtreeIfNeeded()
+                let lists = descendants(of: host, NSScrollView.self)
+                let list = try XCTUnwrap(lists.max { ($0.documentView?.frame.height ?? 0) < ($1.documentView?.frame.height ?? 0) })
+                read = (list.contentView.bounds.minY,
+                        lists.map { "\(Int($0.documentView?.frame.height ?? 0))@\(Int($0.contentView.bounds.minY))" }.joined(separator: ", "))
+                if done(read.offset) { break }
+            }
+            return read
         }
 
         let fromHome = PopoverNavigation()
         fromHome.openAchievement(.excavation)
-        let scrolled = try await listOffset(fromHome)
-        XCTAssertGreaterThan(scrolled, 100, "the Excavation's card scrolled into view")
+        let scrolled = try await listOffset(fromHome) { $0 > 100 }
+        XCTAssertGreaterThan(scrolled.offset, 100, "the Excavation's card scrolled into view; scroll views (height@offset): \(scrolled.views)")
         XCTAssertNil(fromHome.achievementFocus, "the focus is used once")
         let fromTab = try await listOffset(PopoverNavigation())
-        XCTAssertEqual(fromTab, 0, accuracy: 0.5, "the section opens at its top")
+        XCTAssertEqual(fromTab.offset, 0, accuracy: 0.5, "the section opens at its top; \(fromTab.views)")
     }
 
     private func descendants<T: NSView>(of view: NSView, _ type: T.Type) -> [T] {
