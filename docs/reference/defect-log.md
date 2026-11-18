@@ -1670,6 +1670,11 @@ read_when:
   상태(`DexGridView.returnAnchor`)로 둔다.
   **부류 스윕:** 팝오버에서 목록→상세→Back 구조는 컬렉션 탭뿐이다. 설정과 리캡은 화면 전체를 덮고 닫으면
   Home 맨 위로 돌아오는 게 의도한 동작이라 대상이 아니다.
+  **Same class, 18/11 (#183):** the Achievements list, one lazy list again, scrolled once to the card Home opened (the
+  Excavation, after every stone): local runs passed, CI read offset 0 (`AchievementsRenderingTests
+  .testAnAchievementOpenedFromHomeIsScrolledTo`), CPU load could not reproduce it locally. It now waits a moment,
+  scrolls, then scrolls again, as the Pokédex's way back does. **Sweep:** every `proxy.scrollTo` run at appear
+  (catch log, Pokédex return anchor, Achievements) scrolls twice; Settings waits 80 ms; the others follow a click.
   **회귀 가드:** `DexBackNavigationTests`는 실제 `CollectionView`를 창에 띄우고 상세→Back 왕복 후 렌더된
   글자를 Vision으로 읽는다. 앵커 저장, 1회 소비, 로그 앵커를 각각 지우면 실패한다. 격자 앵커를 무조건 쓰게
   되돌리면 `testBackToTheLogLeavesTheGridOnItsFirstPage`가 실패한다. 앵커로 종을 다시 선택하게 하면

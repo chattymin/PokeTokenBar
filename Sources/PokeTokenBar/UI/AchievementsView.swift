@@ -149,6 +149,11 @@ struct AchievementsView: View {
                 // The card asked for (Home's, the banner's), scrolled to once the section's list is there.
                 .task(id: scrollTarget) {
                     guard let target = scrollTarget else { return }
+                    // As the Pokédex's way back: scrolled at once, the lazy list had no layout yet on a slower Mac
+                    // (CI, 18/11) and stayed at its top; the cards measured after the first scroll move it, so twice.
+                    do { try await Task.sleep(for: .milliseconds(60)) } catch { return }
+                    proxy.scrollTo(target, anchor: .top)
+                    do { try await Task.sleep(for: .milliseconds(60)) } catch { return }
                     proxy.scrollTo(target, anchor: .top)
                     scrollTarget = nil
                 }
