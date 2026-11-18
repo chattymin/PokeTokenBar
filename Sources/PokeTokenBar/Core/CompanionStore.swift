@@ -4580,6 +4580,16 @@ final class CompanionStore {
         index.reduce(into: [:]) { totals, base in totals[base.rarity, default: 0] += lineSizes[base.id] ?? 1 }
     }
 
+    /// Each species' rarity, its line's in the hatch index: a species never caught has one too, for the Pokédex's rarity
+    /// filter (#183). Nil before the index loads.
+    var speciesRarities: [Int: Rarity]? {
+        guard let index = hatchIndex else { return nil }
+        let byLine = Dictionary(index.map { ($0.id, $0.rarity) }, uniquingKeysWith: { first, _ in first })
+        return PokemonAssets.animatedSpeciesIDs.reduce(into: [:]) { out, id in
+            out[id] = byLine[PokemonEvolutionData.root(of: id)]
+        }
+    }
+
     func loadHatchIndex() async {
         guard hatchIndex == nil, let full = try? await provider.baseSpeciesIndex(), !full.isEmpty else { return }
         hatchIndex = full

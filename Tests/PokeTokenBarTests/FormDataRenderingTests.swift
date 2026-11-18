@@ -144,7 +144,8 @@ final class FormDataRenderingTests: XCTestCase {
             let store = try await store(form: form, detailsAvailable: true)
             // Pass the aggregate/default species, as CollectionView does; the representative is the form.
             let species = try XCTUnwrap(store.dexSpecies.first { $0.id == 492 })
-            let host = mount(PokemonDetailView(store: store, species: species, onBack: {}), height: 900)
+            // The species data stands in the Species tab (#183).
+            let host = mount(PokemonDetailView(store: store, species: species, onBack: {}, initialTab: .species), height: 900)
             let sky = form == PokemonForm("sky")
             // Type names load asynchronously: wait for the second badge's too.
             let text = try await renderedText(host) {

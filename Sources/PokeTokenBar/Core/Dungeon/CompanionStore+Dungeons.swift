@@ -204,7 +204,7 @@ extension CompanionStore {
 
     /// The team screen's filters (the owner, 2026-11-10: to find the Megas and the rest the Hall of Origin asks for).
     enum TeamFilter: CaseIterable, Sendable {
-        case favorite, shiny, megaOrPrimal, gigantamax
+        case shiny, favorite, megaOrPrimal, gigantamax
 
         var kinds: [BattleFormKind] {
             switch self {

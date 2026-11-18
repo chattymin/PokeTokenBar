@@ -421,6 +421,8 @@ struct TeamCandidateList: View {
         let total: Int
     }
     @State private var infos: [String: Info] = [:]
+    @State private var page = 0
+    static let pageSize = 6
 
     var body: some View {
         let l = store.l
@@ -439,12 +441,22 @@ struct TeamCandidateList: View {
             if rows.isEmpty {
                 Text(l.dungeonNoCandidate).font(.caption).foregroundStyle(.secondary)
             } else {
-                LazyVStack(alignment: .leading, spacing: 2) {
-                    ForEach(rows, id: \.entry.id) { row in
-                        CandidateRow(store: store, entry: row.entry, count: row.count, refusal: row.refusal,
-                                     info: infos[row.entry.id], size: size, taken: taken, team: $team, focus: $focus)
+                // Six to a page, the best here first: the list ran over some 470 lines (#183).
+                let pageCount = Paging.pageCount(rows.count, size: Self.pageSize)
+                VStack(spacing: 6) {
+                    LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 6), count: 3), spacing: 6) {
+                        ForEach(Paging.slice(rows, page: page, size: Self.pageSize), id: \.entry.id) { row in
+                            CandidateRow(store: store, entry: row.entry, count: row.count, refusal: row.refusal,
+                                         info: infos[row.entry.id], size: size, taken: taken, team: $team, focus: $focus)
+                        }
+                    }
+                    HStack {
+                        Spacer()
+                        PageControl(page: $page, pageCount: pageCount, l: l)
                     }
                 }
+                .onChange(of: query) { page = 0 }
+                .onChange(of: filter) { page = 0 }
             }
         }
         .task(id: "\(dungeon?.rawValue ?? "")|\(all.count)|\(store.dungeonProgress.moveLoops.count)") { await loadInfos(all) }
@@ -498,19 +510,19 @@ private struct CandidateRow: View {
         let chosen = team.contains(entry.id)
         let blocked = !chosen && (refusal != nil || team.count >= size || taken.contains(entry.finalID))
         let types = info?.types ?? PokemonTypeData.types(forSpeciesID: entry.finalID, form: entry.form)
-        HStack(spacing: 2) {
-        Button {
-            if chosen {
-                team.removeAll { $0 == entry.id }
-                if focus == entry.id { focus = nil }
-            } else if !blocked {
-                team.append(entry.id)
-            }
-        } label: {
-            HStack(spacing: 8) {
-                SpriteView(speciesID: entry.finalID, size: 30, shiny: entry.isShiny, form: entry.spriteForm(), sameScale: true)
-                VStack(alignment: .leading, spacing: 2) {
-                    HStack(spacing: 4) {
+        // A tile of the team grid (#183): what the row said, its moves under the pointer rather than on a line.
+        VStack(spacing: 3) {
+            Button {
+                if chosen {
+                    team.removeAll { $0 == entry.id }
+                    if focus == entry.id { focus = nil }
+                } else if !blocked {
+                    team.append(entry.id)
+                }
+            } label: {
+                VStack(spacing: 3) {
+                    SpriteView(speciesID: entry.finalID, size: 44, shiny: entry.isShiny, form: entry.spriteForm(), sameScale: true)
+                    HStack(spacing: 3) {
                         PokemonNameLabel(.pokemonSpecies, String(entry.finalID), language: store.language)
                             .font(.caption.weight(.semibold)).lineLimit(1)
                         if count > 1 {
@@ -520,38 +532,49 @@ private struct CandidateRow: View {
                             Image(systemName: "heart.fill").font(.system(size: 9)).foregroundStyle(Color.pink)
                                 .accessibilityLabel(l.favoriteLabel)
                         }
-                        // Its own types whole, its moves' in three letters below: never mistaken for each other.
+                    }
+                    HStack(spacing: 3) {
                         ForEach(types, id: \.self) { Badge(l.typeName($0).uppercased(), tint: .type($0)).fixedSize() }
                     }
-                    // Its four moves' types, then their names: what it would loop here, before it is picked.
-                    if let moves = info?.moves, !moves.isEmpty {
-                        HStack(spacing: 2) {
-                            ForEach(Array(moves.enumerated()), id: \.offset) { _, move in TypeMiniBadge(type: move.type, l: l) }
-                            PokemonNameLabel(items: moves.map { PokemonNameItem(resource: .init(kind: .move, name: $0.slug), suffix: "") },
-                                             language: store.language)
-                                .font(.caption2).foregroundStyle(.secondary).lineLimit(1).truncationMode(.tail)
-                        }
+                    if let refusal {
+                        Label(l.dungeonRule(refusal), systemImage: "nosign").font(.caption2).foregroundStyle(.secondary)
+                            .lineLimit(2).multilineTextAlignment(.center)
+                    } else if let fit = info?.fit, fit != .neutral {
+                        fitTag(fit, l)
                     }
                 }
-                Spacer(minLength: 4)
-                if let refusal {
-                    Label(l.dungeonRule(refusal), systemImage: "nosign").font(.caption2).foregroundStyle(.secondary)
-                        .lineLimit(1)
-                } else if let fit = info?.fit, fit != .neutral {
-                    fitTag(fit, l)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 6).padding(.horizontal, 3)
+                .opacity(blocked ? 0.45 : 1)
+                .background(RoundedRectangle(cornerRadius: 10)
+                    .fill(chosen ? Design.actionColor.opacity(0.18) : Color.secondary.opacity(0.08)))
+                .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(chosen ? Design.actionColor : .clear, lineWidth: 1))
+                .overlay(alignment: .topTrailing) {
+                    if chosen {
+                        Image(systemName: "checkmark.circle.fill").foregroundStyle(Design.actionColor).padding(4)
+                    }
                 }
-                if chosen {
-                    Image(systemName: "checkmark.circle.fill").foregroundStyle(Design.actionColor)
-                }
+                .contentShape(Rectangle())
             }
-            .padding(.vertical, 3).padding(.horizontal, 6)
-            .opacity(blocked ? 0.45 : 1)
-            .background(RoundedRectangle(cornerRadius: 8).fill(chosen ? Design.actionColor.opacity(0.18) : .clear))
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
+            .buttonStyle(.plain)
+            .hoverTip(movesTip)
+            .task(id: moveResources) {
+                await PokemonNameDisplayStore.shared.loadMissing(moveResources, provider: PokemonNameClient.shared)
+            }
             formMenu(l)
         }
+    }
+
+    /// Its four moves here, under the pointer: the row showed them, the tile has no room.
+    private var moveResources: [PokemonNameResource] {
+        (info?.moves ?? []).map { PokemonNameResource(kind: .move, name: $0.slug) }
+    }
+
+    private var movesTip: String {
+        let names = PokemonNameDisplayStore.shared.names
+        return moveResources.map { resource in
+            names[resource].flatMap(store.language.resolveName) ?? PokemonNameLocalization.identifier(resource.name)
+        }.joined(separator: " · ")
     }
 
     /// The battle form it fights in, chosen from the list (the owner, 2026-11-10): a Pokémon that is not shiny joins
