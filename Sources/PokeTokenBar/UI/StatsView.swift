@@ -1,18 +1,43 @@
 import SwiftUI
 
-/// The Stats page, read top to bottom: one week, month or year (its numbers, its days, where its tokens went and who
-/// graduated in it), then everything since install (totals, records, the usual week). Each number appears once.
+/// The Stats page (#183): a week, month or year, or everything since install. A period shows its numbers, then one of
+/// its days (the bars), where its tokens went or who graduated in it, picked under its summary; "since install" shows
+/// the totals, records and the usual week. Each number appears once.
 @MainActor
 struct StatsScreen: View {
     let store: UsageStore
     let companion: CompanionStore
     let onBack: () -> Void
 
-    @State private var scope: RecapScope = .month
+    /// The periods: a calendar week, month or year, or everything since install.
+    enum Period: Hashable, CaseIterable {
+        case week, month, year, sinceInstall
+
+        var scope: RecapScope? {
+            switch self {
+            case .week: .week
+            case .month: .month
+            case .year: .year
+            case .sinceInstall: nil
+            }
+        }
+    }
+
+    /// What a period shows under its summary.
+    enum Tab: Hashable, CaseIterable {
+        case days, breakdown, graduates
+    }
+
+    @State private var period: Period
+    @State private var tab: Tab
     /// 0 is the running period, -1 the one before it. Never positive: the future has no usage.
     @State private var offset = 0
     /// "Where the tokens went" split by model rather than by tool.
     @State private var splitByModel = false
+    /// The page of the period's graduates.
+    @State private var graduatesPage = 0
+    /// Graduates on a page: two rows of five, each named.
+    static let graduatesPerPage = 10
     /// Today's bar, as on Home.
     fileprivate static let accent = Design.actionColor
     private static let kindColors: [Color] = [
@@ -23,19 +48,34 @@ struct StatsScreen: View {
         Color(red: 0.60, green: 0.62, blue: 0.68),   // unsplit
     ]
 
+    /// Opens on the running month and its days, unless told otherwise.
+    init(store: UsageStore, companion: CompanionStore, initialPeriod: Period = .month, initialTab: Tab = .days,
+         onBack: @escaping () -> Void) {
+        self.store = store
+        self.companion = companion
+        self.onBack = onBack
+        _period = State(initialValue: initialPeriod)
+        _tab = State(initialValue: initialTab)
+    }
+
+    /// The calendar period shown; the month's while "since install" is (its own page has none).
+    private var scope: RecapScope { period.scope ?? .month }
+
+    static func periodTitle(_ period: Period, _ l: L) -> String {
+        period.scope.map(l.recapScopeName) ?? l.statsAllTime
+    }
+
+    static func tabTitle(_ tab: Tab, scope: RecapScope, _ l: L) -> String {
+        switch tab {
+        case .days: scope == .year ? l.statsTabMonths : l.statsTabDays
+        case .breakdown: l.statsTabBreakdown
+        case .graduates: l.recapGraduates
+        }
+    }
+
     var body: some View {
         let l = companion.l
         let calendar = RecapPeriod.calendar()
-        let content = RecapContent(store: store, companion: companion, scope: scope, offset: offset, calendar: calendar)
-        let report = StatsReport.make(
-            recap: content.recap, ledger: store.dailyLedger, costs: store.dailyCostLedger,
-            tools: store.snapshots.compactMap { snapshot in
-                snapshot.monthDaily.map {
-                    StatsReport.ToolSeries(id: snapshot.providerID, name: snapshot.displayName, days: $0,
-                                           reportsCost: snapshot.reportsCost)
-                }
-            },
-            dex: companion.state.dex, now: Date(), calendar: calendar)
         return VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 6) {
                 Button { onBack() } label: {
@@ -47,37 +87,72 @@ struct StatsScreen: View {
                 Text(l.statsTitle).font(.headline)
             }
             ScrollView {
-                VStack(alignment: .leading, spacing: 12) {
-                    periodControls(content, l)
-                    summary(report, content, l)
-                    if report.recap.total > 0 {
-                        // The pointer's bar is the chart's own state: kept here, every hover rebuilt the whole report.
-                        StatsChart(store: store, report: report, content: content, scope: scope, l: l)
-                            .id("\(scope)-\(offset)")
+                VStack(alignment: .leading, spacing: 14) {
+                    PillPicker(selection: $period, options: Period.allCases.map { ($0, Self.periodTitle($0, l)) })
+                    if period.scope != nil {
+                        periodPage(calendar, l)
+                    } else {
+                        sinceInstall(StatsRecords.make(ledger: store.dailyLedger, now: Date(), calendar: calendar)
+                            .keeping(store.keptRecords), l)
                     }
-                    if let breakdown = report.breakdown { whereTokensWent(breakdown, l) }
-                    graduates(report, l)
-                    sinceInstall(StatsRecords.make(ledger: store.dailyLedger, now: Date(), calendar: calendar)
-                        .keeping(store.keptRecords), l)
                 }
                 .reservesScrollerLane()
             }
             .frame(height: 540)
         }
         .padding(PopoverMetrics.padding)
-        .onChange(of: scope) { offset = 0 }
+        .onChange(of: period) {
+            offset = 0
+            graduatesPage = 0
+        }
+        .onChange(of: offset) { graduatesPage = 0 }
+    }
+
+    /// A week, month or year: its controls and summary, then the tab picked under them.
+    @ViewBuilder
+    private func periodPage(_ calendar: Calendar, _ l: L) -> some View {
+        let content = RecapContent(store: store, companion: companion, scope: scope, offset: offset, calendar: calendar)
+        let report = StatsReport.make(
+            recap: content.recap, ledger: store.dailyLedger, costs: store.dailyCostLedger,
+            tools: store.snapshots.compactMap { snapshot in
+                snapshot.monthDaily.map {
+                    StatsReport.ToolSeries(id: snapshot.providerID, name: snapshot.displayName, days: $0,
+                                           reportsCost: snapshot.reportsCost)
+                }
+            },
+            dex: companion.state.dex, now: Date(), calendar: calendar)
+        periodControls(content, l)
+        summary(report, content, l)
+        PillPicker(selection: $tab, options: Tab.allCases.map { ($0, Self.tabTitle($0, scope: scope, l)) })
+        switch tab {
+        case .days:
+            if report.recap.total > 0 {
+                // The pointer's bar is the chart's own state: kept here, every hover rebuilt the whole report.
+                StatsChart(store: store, report: report, content: content, scope: scope, l: l)
+                    .id("\(scope)-\(offset)")
+            } else {
+                emptyNote(l.statsNoUsage)
+            }
+        case .breakdown:
+            if let breakdown = report.breakdown {
+                whereTokensWent(breakdown, l)
+            } else {
+                emptyNote(l.statsNoUsage)
+            }
+        case .graduates:
+            graduates(report, l)
+        }
+    }
+
+    /// A tab with nothing to show in the period.
+    private func emptyNote(_ text: String) -> some View {
+        Text(text).font(.caption).foregroundStyle(.secondary).designCard()
     }
 
     // MARK: The period
 
     private func periodControls(_ content: RecapContent, _ l: L) -> some View {
         VStack(spacing: 8) {
-            Picker(l.recapOpen, selection: $scope) {
-                ForEach(RecapScope.allCases, id: \.self) { Text(l.recapScopeName($0)).tag($0) }
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .controlSize(.small)
             HStack(spacing: 6) {
                 Button { offset -= 1 } label: { Image(systemName: "chevron.left").frame(width: 24, height: 20) }
                     .accessibilityLabel(l.recapPrevious)
@@ -188,7 +263,7 @@ struct StatsScreen: View {
         let total = max(1, breakdown.total)
         let colors = DailyTrendStack.colorIndices(for: breakdown.tools.map(\.id), registry: store.registeredProviderIDs,
                                                   paletteCount: DailyTrendStack.palette.count)
-        return VStack(alignment: .leading, spacing: 8) {
+        return VStack(alignment: .leading, spacing: 10) {
             SectionTitle(text: l.statsWhereTokensWent, systemImage: "chart.pie.fill")
             GeometryReader { geometry in
                 HStack(spacing: 1.5) {
@@ -221,11 +296,7 @@ struct StatsScreen: View {
                 if breakdown.models.isEmpty {
                     Text(l.statsByTool).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
                 } else {
-                    Picker(l.statsByTool, selection: $splitByModel) {
-                        Text(l.statsByTool).tag(false)
-                        Text(l.statsByModel).tag(true)
-                    }
-                    .pickerStyle(.segmented).labelsHidden().controlSize(.small)
+                    PillPicker(selection: $splitByModel, options: [(false, l.statsByTool), (true, l.statsByModel)])
                 }
                 ForEach(Array((byModel ? breakdown.models : breakdown.tools).enumerated()), id: \.element.id) { index, tool in
                     HStack(spacing: 6) {
@@ -258,35 +329,60 @@ struct StatsScreen: View {
 
     // MARK: Graduates
 
+    /// The period's graduates, ten a page with their names (#183), a shiny one with the sparkles.
     private func graduates(_ report: StatsReport, _ l: L) -> some View {
-        let shown = report.graduated.prefix(16)
-        return VStack(alignment: .leading, spacing: 8) {
+        let all = report.graduated
+        let pageCount = Paging.pageCount(all.count, size: Self.graduatesPerPage)
+        let current = Paging.clamped(graduatesPage, count: all.count, size: Self.graduatesPerPage)
+        let shown = Paging.slice(all, page: current, size: Self.graduatesPerPage)
+        let turn = Binding<Int>(get: { current }, set: { graduatesPage = $0 })
+        return VStack(alignment: .leading, spacing: 10) {
             HStack {
                 SectionTitle(text: l.recapGraduates, systemImage: "graduationcap.fill")
                 Spacer(minLength: 4)
-                Text("\(report.graduated.count)")
+                Text("\(all.count)")
                     .font(.system(.callout, design: .rounded).weight(.bold))
                     .monospacedDigit()
             }
-            if report.graduated.isEmpty {
+            if all.isEmpty {
                 Text(l.recapNoGraduates).font(.caption).foregroundStyle(.secondary)
             } else {
-                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 4), count: 8), spacing: 4) {
-                    ForEach(Array(shown), id: \.id) { entry in
-                        SpriteView(speciesID: entry.finalID, size: 30, shiny: entry.isShiny, form: entry.form, sameScale: true)
-                            .overlay(alignment: .topTrailing) {
-                                if entry.isShiny { Text("✨").font(.system(size: 8)) }
-                            }
-                            .speciesNameTooltip(entry.finalID, form: entry.form, language: companion.language)
+                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 4), count: 5), spacing: 8) {
+                    ForEach(shown, id: \.id) { entry in
+                        VStack(spacing: 2) {
+                            SpriteView(speciesID: entry.finalID, size: 40, shiny: entry.isShiny, form: entry.form,
+                                       sameScale: true)
+                                .overlay(alignment: .topTrailing) {
+                                    if entry.isShiny {
+                                        Image(systemName: "sparkles").font(.system(size: 10, weight: .bold))
+                                            .foregroundStyle(Color.readableOrange)
+                                    }
+                                }
+                            graduateName(entry)
+                                .font(.system(size: 10, weight: .medium))
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.9)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .speciesNameTooltip(entry.finalID, form: entry.form, language: companion.language)
                     }
                 }
-                if report.graduated.count > shown.count {
-                    Text("+\(report.graduated.count - shown.count)")
-                        .font(.caption).foregroundStyle(.secondary)
-                }
+                .pagedByScrollWheel(page: turn, pageCount: pageCount)
+                PageControl(page: turn, pageCount: pageCount, l: l)
+                    .frame(maxWidth: .infinity)
             }
         }
         .designCard()
+    }
+
+    /// The name the Pokédex kept for it, or the one PokéAPI gives.
+    @ViewBuilder
+    private func graduateName(_ entry: DexEntry) -> some View {
+        if let name = companion.dexStoredChainNames(entry)?[entry.finalID] {
+            Text(PokemonForm.displayName(name, speciesID: entry.finalID, form: entry.form, label: nil))
+        } else {
+            PokemonNameLabel(.pokemonSpecies, String(entry.finalID), language: companion.language)
+        }
     }
 
     // MARK: Since install
@@ -308,8 +404,11 @@ struct StatsScreen: View {
             // Label then count, so one legendary does not read as a plural.
             let rare = [(l.statsShinies, shinies), (l.statsLegendaries, legendaries)].filter { $0.1 > 0 }
             if !rare.isEmpty {
-                Text("✨ " + rare.map { "\($0.0) \($0.1)" }.joined(separator: " · "))
-                    .font(.caption).foregroundStyle(.secondary)
+                HStack(spacing: 4) {
+                    Image(systemName: "sparkles").foregroundStyle(Color.readableOrange)
+                    Text(rare.map { "\($0.0) \($0.1)" }.joined(separator: " · ")).foregroundStyle(.secondary)
+                }
+                .font(.caption)
             }
             if let day = records.bestDay {
                 Divider()
@@ -374,7 +473,7 @@ struct StatsScreen: View {
                             .frame(height: max(averages[slot] > 0 ? 3 : 0, 40 * CGFloat(averages[slot]) / CGFloat(peak)))
                             .frame(height: 40, alignment: .bottom)
                         Text(String(symbol(slot, short).prefix(2)).uppercased())
-                            .font(.system(size: 9, weight: slot == busiest ? .bold : .medium, design: .rounded))
+                            .font(.system(size: 11, weight: slot == busiest ? .bold : .medium, design: .rounded))
                             .foregroundStyle(.secondary)
                     }
                     .frame(maxWidth: .infinity)
@@ -426,7 +525,7 @@ private struct StatsChart: View {
         case .month: 2
         case .year: 6
         }
-        return VStack(alignment: .leading, spacing: 8) {
+        return VStack(alignment: .leading, spacing: 10) {
             SectionTitle(text: scope == .year ? l.statsMonthByMonth : l.statsDayByDay, systemImage: "chart.bar.fill")
             readout(report, content, focus: buckets.first { $0.key == hovered } ?? peak, isPeak: hovered == nil,
                     colors: colors, l)
@@ -449,10 +548,10 @@ private struct StatsChart: View {
                     ForEach(Array(buckets.enumerated()), id: \.element.key) { index, bucket in
                         // Zero-width frame: a month's "15" is wider than its column and must not widen it.
                         Text(labels.indices.contains(index) ? labels[index] : "")
-                            .font(.system(size: 9, weight: bucket.isCurrent ? .bold : .medium, design: .rounded))
+                            .font(.system(size: 11, weight: bucket.isCurrent ? .bold : .medium, design: .rounded))
                             .foregroundStyle(bucket.isCurrent ? AnyShapeStyle(StatsScreen.accent) : AnyShapeStyle(.secondary))
                             .fixedSize()
-                            .frame(width: 0, height: 11)
+                            .frame(width: 0, height: 13)
                             .frame(maxWidth: .infinity)
                     }
                 }
