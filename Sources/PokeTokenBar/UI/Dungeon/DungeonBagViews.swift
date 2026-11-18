@@ -386,19 +386,44 @@ struct DungeonMedalPanel: View {
                     } else {
                         Image(systemName: "crown.fill").font(.caption).frame(width: 20)
                     }
-                    Text(l.medalStepName(tier, step: step.generation)).font(.caption)
+                    Text(l.medalStepName(tier, step: step.generation)).font(.caption).lineLimit(1)
                     Spacer(minLength: 4)
-                    ForEach(Array(DungeonMedals.rewards(tier, step: step.generation).enumerated()), id: \.offset) { _, reward in
-                        HStack(spacing: 1) {
-                            ItemIconView(kind: reward.kind, size: 16)
-                            if reward.count > 1 { Text("×\(reward.count)").font(.caption2).monospacedDigit() }
-                        }
-                        .hoverTip(l.itemName(reward.kind))
-                    }
+                    MedalRewards(rewards: DungeonMedals.rewards(tier, step: step.generation), l: l)
                     Image(systemName: step.isDone ? "checkmark.circle.fill" : step.isReady ? "gift.fill" : "circle")
                         .font(.caption)
                         .foregroundStyle(step.isDone ? Design.actionColor : step.isReady ? Color.readableOrange : .secondary)
                 }
+            }
+        }
+    }
+}
+
+/// A medal step's rewards (#183): each icon at 24 pt with its name and count, or the icons alone, named on hover,
+/// where the names leave no room (two rewards in a long language).
+@MainActor
+struct MedalRewards: View {
+    let rewards: [(kind: ItemKind, count: Int)]
+    let l: L
+
+    var body: some View {
+        ViewThatFits(in: .horizontal) {
+            row(named: true)
+            row(named: false)
+        }
+    }
+
+    private func row(named: Bool) -> some View {
+        HStack(spacing: 6) {
+            ForEach(Array(rewards.enumerated()), id: \.offset) { _, reward in
+                HStack(spacing: 3) {
+                    ItemIconView(kind: reward.kind, size: 24)
+                    if named {
+                        Text(l.itemName(reward.kind)).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                    }
+                    if reward.count > 1 { Text("×\(reward.count)").font(.caption2).monospacedDigit() }
+                }
+                .fixedSize()
+                .hoverTip(l.itemName(reward.kind))
             }
         }
     }
@@ -442,15 +467,9 @@ struct BattleFormsMedalPanel: View {
             Text(l.battleFormsWon(won, of: BattleForms.all.count)).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
             ForEach(store.regionTiers(.battleFormsMedal), id: \.generation) { step in
                 HStack(spacing: 6) {
-                    Text(l.battleFormsMedalStep(step.generation)).font(.caption)
+                    Text(l.battleFormsMedalStep(step.generation)).font(.caption).lineLimit(1)
                     Spacer(minLength: 4)
-                    ForEach(Array(BattleFormsMedal.rewards(step: step.generation).enumerated()), id: \.offset) { _, reward in
-                        HStack(spacing: 1) {
-                            ItemIconView(kind: reward.kind, size: 16)
-                            if reward.count > 1 { Text("×\(reward.count)").font(.caption2).monospacedDigit() }
-                        }
-                        .hoverTip(l.itemName(reward.kind))
-                    }
+                    MedalRewards(rewards: BattleFormsMedal.rewards(step: step.generation), l: l)
                     Image(systemName: step.isDone ? "checkmark.circle.fill" : step.isReady ? "gift.fill" : "circle")
                         .font(.caption)
                         .foregroundStyle(step.isDone ? Design.actionColor : step.isReady ? Color.readableOrange : .secondary)

@@ -168,12 +168,12 @@ struct UnlockRequirementView: View {
     }
 
     private func spriteSize(count: Int) -> CGFloat {
-        compact ? (count > 6 ? 16 : 18) : (count > 6 ? 24 : 30)
+        compact ? (count > 6 ? 16 : 18) : (count > 6 ? 24 : 40)
     }
 
     /// Only on a met goal: an item can be owned without its goal (bought before the goal existed).
     private var checkmark: some View {
-        Image(systemName: "checkmark.circle.fill").font(.caption2).foregroundStyle(Color.readableGreen)
+        Image(systemName: "checkmark.circle.fill").font(.caption2).foregroundStyle(Design.actionColor)
     }
 
     private func counter(_ count: Int, needed: Int) -> some View {
