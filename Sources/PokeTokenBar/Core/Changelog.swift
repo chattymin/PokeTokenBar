@@ -67,6 +67,14 @@ enum Changelog {
 
     static let days: [ChangelogDay] = [
         ChangelogDay(date: "2026-11-18", entries: [
+            .improved("2026-11-18-trainer-pages", { $0.t("업적은 탭마다 페이지로 나뉘고 \"업적\" 버튼에 개수가 적혀요. 코스튬은 한 달씩 페이지로 이름과 함께, 토큰 통계는 기간(주, 월, 연, 전체) 아래에 일별, 구성, 졸업 탭으로 정리됐어요.",
+                                                    "The achievements are paged in each tab, their count on the \"Achievements\" switch. The costumes come one month a page with their names, and the token stats sort into Days, Breakdown and Graduated tabs under the period (Week, Month, Year, All time).",
+                                                    "実績はタブごとにページに分かれ、「実績」ボタンに数が出ます。コスチュームは1か月ずつ名前つきのページに、トークン統計は期間（週、月、年、全期間）の下に日別、内訳、卒業のタブで整理されました。",
+                                                    "Los logros van por páginas en cada pestaña, con su número en el botón \"Logros\". Los disfraces, un mes por página con sus nombres, y las estadísticas de tokens en pestañas Días, Reparto y Graduados bajo el periodo (Semana, Mes, Año, Todo).",
+                                                    "Les succès passent en pages dans chaque onglet, leur nombre sur la bascule \"Succès\". Les costumés, un mois par page avec leur nom, et les stats de tokens en onglets Jours, Répartition et Diplômés sous la période (Semaine, Mois, Année, Début).",
+                                                    "As conquistas vêm em páginas em cada aba, com o número no botão \"Conquistas\". As fantasias, um mês por página com os nomes, e as estatísticas de tokens em abas Dias, Divisão e Formados sob o período (Semana, Mês, Ano, Tudo).",
+                                                    "Die Erfolge sind in jedem Tab in Seiten geteilt, ihre Zahl steht auf dem Schalter \"Erfolge\". Die Kostüme kommen einen Monat pro Seite mit Namen, die Token-Statistik in Tabs Tage, Aufteilung und Abschlüsse unter dem Zeitraum (Woche, Monat, Jahr, Gesamt).",
+                                                    "Успехи разбиты на страницы в каждой вкладке, их число на переключателе \"Успехи\". Костюмы идут по месяцу на страницу с именами, а статистика токенов разложена по вкладкам Дни, Структура и Выпускники под периодом (Неделя, Месяц, Год, Всё время).") }),
             .improved("2026-11-18-pokedex-scopes", { $0.t("도감의 \"보유\"가 \"전체\", \"미보유\"처럼 지방별로 정리되고, 세 화면 모두 희귀도 필터가 생겼어요.",
                                                      "Pokédex: \"Caught\" is laid out by region like \"All\" and \"Missing\", and all three now have the rarity filters.",
                                                      "図鑑の「入手済み」が「すべて」「未入手」と同じく地方ごとに並び、3つとも珍しさのフィルターが付きました。",
